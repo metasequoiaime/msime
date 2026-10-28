@@ -265,6 +265,8 @@ TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 // The keyboard's flush after each personal-dictionary drain: it moves at most one queue batch, so it stays synchronous on the keyboard's own thread like the drain it follows.
 TEXT_ENTRY(DictionaryCollections, msime_client_dictionary_collections)
+// 键盘建会话之前的「我的词条」交换：最多写一批（128 项），和前面的个人词库排空一样同步地在键盘自己的线程上做。
+TEXT_ENTRY(UserWordsMirror, msime_client_user_words_mirror)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
@@ -586,6 +588,16 @@ static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info in
 }
 
 // 搜狗细胞词库转成标准文本（`msime_client_dictionary_scel_text`）：纯函数，但请求是整个文件的 base64，解码和转换放在工作线程上，设置页等 promise。
+// 设置应用自己排空它的个人词库队列（导入的个人词库文件、云词库下载、命名词库）：每次取维护权写一小批，放在工作线程上。
+static napi_value PersonalDictionarySyncAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_personal_dictionary_sync, "MSIME personal dictionary sync");
+}
+
+// 设置应用的「我的词条」交换和键盘失去焦点时的发布：要读整份日志，设置应用那边还要写词库，放在工作线程上。
+static napi_value UserWordsMirrorAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_user_words_mirror, "MSIME user words mirror");
+}
+
 static napi_value DictionaryScelTextAsync(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_dictionary_scel_text, "MSIME dictionary scel text");
 }
@@ -627,6 +639,11 @@ static napi_value RelayCloudClipboard(napi_env env, napi_callback_info info) {
 static napi_value CloudClipboardWebDavProbe(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_cloud_clipboard_webdav_probe,
         "MSIME cloud clipboard webdav probe");
+}
+
+// 「我的词条」经 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）：除 status 外都会阻塞网络，整次同步还持有一把文件锁，所以在工作线程上调用。只有设置应用调它：键盘扩展在自己的沙箱里调会登记成另一台设备（scripts/test-harmony-dictionary-sync.py 守着）。
+static napi_value DictionarySync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_sync, "MSIME dictionary sync");
 }
 
 // 云剪贴板该走哪条路：头文件规定它只读偏好、不联网，所以同步调用，键盘在主线程上核对列表的绑定时也读它。参数是偏好目录的绝对路径本身（不是 JSON），与 accountStatus 一样。
@@ -1746,6 +1763,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("cloudClipboardSource", CloudClipboardSource),
         ENTRY("relayCloudClipboard", RelayCloudClipboard),
         ENTRY("cloudClipboardWebDavProbe", CloudClipboardWebDavProbe),
+        ENTRY("dictionarySync", DictionarySync),
         ENTRY("harmonySettingsExport", HarmonySettingsExport),
         ENTRY("harmonySettingsApply", HarmonySettingsApply),
         ENTRY("aiSkinGenerate", AiSkinGenerate),
@@ -1766,10 +1784,13 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("resolveOnlineCandidates", ResolveOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
+        ENTRY("personalDictionarySyncAsync", PersonalDictionarySyncAsync),
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("dictionaryCollections", DictionaryCollections),
         ENTRY("dictionaryCollectionsAsync", DictionaryCollectionsAsync),
         ENTRY("dictionaryScelTextAsync", DictionaryScelTextAsync),
+        ENTRY("userWordsMirror", UserWordsMirror),
+        ENTRY("userWordsMirrorAsync", UserWordsMirrorAsync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),

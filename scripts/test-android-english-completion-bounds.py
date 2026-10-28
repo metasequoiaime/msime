@@ -12,9 +12,9 @@ text = SOURCE.read_text()
 if "ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024" not in text:
     raise SystemExit("English completion resource limit is missing")
 
-for name, correction in (("englishCompletions", "false"), ("englishCorrections", "true")):
+for name, completions in (("englishSuggestions", "true"), ("englishCorrections", "false")):
     method = re.search(rf"public static String {name}\(.*?\n    \}}", text, re.DOTALL)
-    if not method or f"englishCandidates(prefix, resources, {correction})" not in method.group(0):
+    if not method or f"englishCandidates(prefix, resources, {completions})" not in method.group(0):
         raise SystemExit(f"{name} must use the bounded English query")
 
 method = re.search(r"private static String englishCandidates\(.*?\n    \}", text, re.DOTALL)

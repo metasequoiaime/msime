@@ -19,6 +19,8 @@ public final class NativeClient {
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
+    /** 候选栏的合并展示上限：原文加至多十一个前缀补全。 */
+    private static final int ENGLISH_SUGGESTION_DISPLAY_LIMIT = 12;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     /** 与 `client_jni.cpp` 的 `kSmallJsonRequestLimit` 一致。 */
@@ -199,24 +201,24 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid candidate gloss request", error);
         }
     }
-    /** 在工作线程读取固定英文词库的有界补全。 */
-    public static String englishCompletions(String prefix, String resources) {
-        return englishCandidates(prefix, resources, false);
-    }
-
-    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话。 */
-    public static String englishCorrections(String prefix, String resources) {
+    /** 在工作线程读取候选栏的合并展示：有纠错时为原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全。 */
+    public static String englishSuggestions(String prefix, String resources) {
         return englishCandidates(prefix, resources, true);
     }
 
-    private static String englishCandidates(String prefix, String resources, boolean correction) {
+    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话；空格和标点边界只用这一查询。 */
+    public static String englishCorrections(String prefix, String resources) {
+        return englishCandidates(prefix, resources, false);
+    }
+
+    private static String englishCandidates(String prefix, String resources, boolean completions) {
         if (prefix == null || prefix.isEmpty() || prefix.length() > 128
-                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value)
-                    || (correction && value == '\'')))
+                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value) || value == '\''))
             throw new IllegalArgumentException("Invalid English completion prefix");
         try {
-            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", correction ? 2 : 12)
-                .put("correction", correction);
+            JSONObject request = new JSONObject().put("prefix", prefix)
+                .put("limit", completions ? ENGLISH_SUGGESTION_DISPLAY_LIMIT : 2).put("correction", true);
+            if (completions) request.put("completions", true);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
             if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)
@@ -320,6 +322,21 @@ public final class NativeClient {
         if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
             throw new IllegalArgumentException("Cloud clipboard WebDAV probe request is too large");
         return TextPolicy.utf8(cloudClipboardWebDavProbeRaw(payload));
+    }
+
+    /** 共享 `msime_client_dictionary_sync` 的请求上限：HostOptions 文档里带着整份偏好。 */
+    public static final int DICTIONARY_SYNC_REQUEST_LIMIT = 2 * 1024 * 1024;
+
+    /**
+     * 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）：请求是 `{options, directory, device_name, action}`，`options` 是 runtime-options.json 那份 HostOptions，`directory` 是两个进程共用的 `noBackupFilesDir/dictionary-sync`，`action` 与返回的 `{"ok":true,"value":…}` 见 `crates/host-api/include/msime_client.h`。网盘的地址、账号和应用密码由 Rust 从偏好的 `dictionary_sync_webdav` 读；「测试连接」（`probe`）的请求里带着设置页草稿里的应用密码，不要写日志。
+     *
+     * <p>除 `status` 外都会阻塞在网络上（每个请求最多 30 秒，整次同步持有本机的同步锁，另一个进程正在同步时最多再等两分钟），只在工作线程上调用，不要在主线程或输入线程上调用。封装见 {@link DictionaryWebDavSync}。
+     */
+    public static String dictionarySync(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > DICTIONARY_SYNC_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Dictionary sync request is too large");
+        return TextPolicy.utf8(dictionarySyncRaw(payload));
     }
 
     /**
@@ -1048,6 +1065,7 @@ public final class NativeClient {
     private static native byte[] cloudClipboardRelayRaw(byte[] request);
     private static native byte[] cloudClipboardRelayExchangeRaw(byte[] request);
     private static native byte[] cloudClipboardWebDavProbeRaw(byte[] request);
+    private static native byte[] dictionarySyncRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);

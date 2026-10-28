@@ -14,7 +14,7 @@ msime-path-trust = { path = "../path-trust" }
 rustix = { workspace = true, features = ["process"] }
 # The model and its reference implementation live upstream, where other input methods
 # can use them too. Pinned by commit: this is a build input, not a moving target.
-chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "15caab4fdeb59c11f452b91884371cf30e2e5608" }
+chinese-ime-lm = "0.2"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -24,6 +24,9 @@ msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 # Writes the msime-cantonese.db fixture and reads the journal back in the Cantonese tests.
 rusqlite.workspace = true
 tempfile.workspace = true
+# 只给 `convert_eval` 和 `rerank_latency` 合成触屏误触：固定种子的 PCG 流加均匀采样，跨平台、跨版本按同一种子出同样的键。两者已在 Cargo.lock 里，不带默认特性，不拉系统随机源。
+rand = { version = "0.10.2", default-features = false }
+rand_pcg = "0.10.2"
 
 [lints]
 workspace = true

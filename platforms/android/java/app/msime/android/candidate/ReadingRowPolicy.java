@@ -26,8 +26,8 @@ public final class ReadingRowPolicy {
      * 读音行的像素高度。
      *
      * @param designPx 设计高度换算成的像素，读音再小也不低于它
-     * @param ascent 读音画笔的 {@code FontMetricsInt.ascent}，基线以上为负
-     * @param descent 读音画笔的 {@code FontMetricsInt.descent}，基线以下为正
+     * @param ascent 文字上沿，基线以上为负；开启字体留白取 {@code FontMetricsInt.top}，否则取 {@code ascent}
+     * @param descent 文字下沿，基线以下为正；开启字体留白取 {@code FontMetricsInt.bottom}，否则取 {@code descent}
      * @param verticalPadding 读音视图和读音行的上下内边距之和（含读音与候选行之间的间距）
      */
     public static int heightPx(int designPx, int ascent, int descent, int verticalPadding) {

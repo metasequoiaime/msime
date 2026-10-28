@@ -19,7 +19,7 @@ struct DictionarySyncView: View {
   @State private var generation = 0
 
   private enum Confirmation: Identifiable {
-    case confirmDeletions(Int), reset, restart, disable
+    case confirmDeletions(Int), reset, restart, trustRemote, disable
     case remove(BackendAccountClient.ClipboardDevice)
     case reject(BackendAccountClient.ClipboardDevice)
 
@@ -27,6 +27,7 @@ struct DictionarySyncView: View {
       switch self {
       case .confirmDeletions: return "confirmDeletions"
       case .reset: return "reset"
+      case .trustRemote: return "trustRemote"
       case .restart: return "restart"
       case .disable: return "disable"
       case .remove(let device): return "remove-\(device.device_id)"
@@ -145,6 +146,12 @@ struct DictionarySyncView: View {
             .padding(.horizontal, 16).padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("dictionarySyncError")
+        }
+        if lastError == "dictionary_sync_rollback" {
+          DesignDivider()
+          Button("确认网盘现状并恢复同步") { confirmation = .trustRemote }
+            .disabled(working)
+            .padding(16)
         }
         DesignDivider()
         Button { refresh(.manual) } label: {
@@ -345,6 +352,7 @@ struct DictionarySyncView: View {
     switch confirmation {
     case .confirmDeletions(let count): return "同步删除这 \(count) 个词？"
     case .reset: return "重置词库同步的密钥？"
+    case .trustRemote: return "确认网盘现状并恢复同步？"
     case .restart: return "以本机为准重新开始？"
     case .disable: return "停止词库同步？"
     case .remove(let device): return "移除「\(Self.name(device))」？"
@@ -357,6 +365,7 @@ struct DictionarySyncView: View {
     switch item {
     case .confirmDeletions: return "同步删除"
     case .reset: return "重置"
+    case .trustRemote: return "恢复同步"
     case .restart: return "重新开始"
     case .disable: return "停止同步"
     case .remove: return "移除"
@@ -370,6 +379,8 @@ struct DictionarySyncView: View {
       return "这 \(count) 个词会在所有同步词库的设备上删除。若是本机词库被重置或损坏，请改选「从网盘恢复」。"
     case .reset:
       return "会换一把只给本机的新密钥，其他所有设备都要在这里重新批准才能继续同步；网盘上的记录随后用新密钥重写，任何设备上的词条都不会因此删除。"
+    case .trustRemote:
+      return "仅在你自己清理过网盘文件夹时使用。保留当前本机词条，但忘掉同步位置和待发改动；未上传的删除可能从网盘重新合并回来。"
     case .restart:
       return "网盘上的词库会以本机的词条重新开始，其他设备获准后会把它们的词合并进来，不会因此删词。只在持有旧密钥的设备都不在了时使用。"
     case .disable:
@@ -386,6 +397,7 @@ struct DictionarySyncView: View {
     switch item {
     case .confirmDeletions: refresh(.manual, confirmDeletions: true)
     case .reset: change { sync in try await sync.reset() }
+    case .trustRemote: trustRemote()
     case .restart: restart()
     case .disable: disable()
     case .remove(let device): change { sync in try await sync.remove(device.device_id) }
@@ -443,6 +455,18 @@ struct DictionarySyncView: View {
     } body: { sync in try await body(sync) }
   }
 
+  @MainActor private func trustRemote() {
+    guard let configuration else { return }
+    perform { (run: IOSDictionarySync.Run) in
+      status = run.status
+      center.record(run)
+    } body: { sync in
+      try await sync.probe(url: configuration.url, username: configuration.username,
+                           password: configuration.savedPassword, trustRemote: true)
+      return try await sync.run(.manual)
+    }
+  }
+
   @MainActor private func restart() {
     perform { value in
       status = value
@@ -484,7 +508,7 @@ struct DictionarySyncView: View {
     ToastCenter.shared.show("已停止词库同步")
   }
 
-  /// 填写页保存之后：配置换了，从头同步一次（测试连接通过时 Rust 已经让本机从网盘现在的样子重新开始）。
+  /// 填写页保存之后：配置换了，按已保存配置同步一次；测试连接不改同步状态。
   @MainActor private func saved() {
     center.forget()
     configuration = DictionarySyncCenter.configuration()

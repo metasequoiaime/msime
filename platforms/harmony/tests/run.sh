@@ -244,6 +244,16 @@ if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSess
   echo "key vibration must go through a high-priority taskpool.Task(startKeyVibration, ...) and skip while one is pending" >&2
   exit 1
 fi
+# 编辑器在每次 insertTextSync 之后也回报一次选区变化。选区回报里直接清空英文建议，会让手机纠错模式下每一键刚出的候选马上消失，用户看不到候选，也无法点原文拒绝纠错。核对规则由 keyboard-logic.test.ts 的 `EnglishSuggestionPolicy.refresh` 覆盖；会话是 ArkTS，这里钉住接线：光标折叠时按当前词重新核对，选区回报从扩展传来是否折叠。
+selection_body=$(sed -n '/^  editorSelectionChanged(collapsed: boolean = true): void {$/,/^  }$/p' \
+  "$ets/keyboard/KeyboardSession.ets")
+if ! grep -qF 'this.refreshEnglishSuggestions();' <<< "$selection_body" \
+  || ! grep -qF 'if (collapsed) {' <<< "$selection_body" \
+  || ! grep -qF 'KeyboardSession.shared.editorSelectionChanged(newBegin === newEnd);' \
+    "$ets/inputmethodextability/KeyboardExtensionAbility.ets"; then
+  echo "editorSelectionChanged must re-validate English suggestions against the current word instead of clearing them" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do

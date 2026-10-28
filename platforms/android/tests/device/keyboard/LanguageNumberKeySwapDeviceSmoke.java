@@ -55,7 +55,7 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         : layout[0].equals("japanese_nine_key") ? key("あ")
                         : layout[0].equals("zhuyin_nine_key") ? described("注音 1 ㄅㄆㄇㄈ") : languageKey());
                     if (layout[0].equals("quanpin") && !hasKey(key("123"))) {
-                        tap(described("切换到字母键盘"));
+                        tap(described("返回原键盘"));
                         await(key("123"));
                     }
                     await(languageKey());
@@ -69,8 +69,8 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         checkPositions(key("123"), swapped);
                         tap(key("123"));
                         // 26 键数字层自带底行且没有语言键，验证返回动作后恢复交换位置。
-                        await(described("切换到字母键盘"));
-                        tap(described("切换到字母键盘"));
+                        await(described("返回原键盘"));
+                        tap(described("返回原键盘"));
                         await(key("123"));
                         checkPositions(key("123"), swapped);
                         stage = "quanpin restore Chinese";

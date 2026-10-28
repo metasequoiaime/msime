@@ -18,7 +18,7 @@ def main() -> int:
     policy = POLICY.read_text(encoding="utf-8")
     host = HOST.read_text(encoding="utf-8")
     start = session.index("  start(resources:")
-    drain = session.index("this.personalDictionarySettled = this.drainPersonalDictionary(options)")
+    drain = session.index("= this.drainPersonalDictionary(options)", start)
     create = session.index("client.create(options)", drain)
     scheduler = session[
         session.index("  private schedulePersonalDictionaryDrain()") : session.index(

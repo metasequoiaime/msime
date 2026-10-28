@@ -25,16 +25,21 @@
 //! boundary, the IPC hop, or the time the platform spends drawing the candidate panel. The budget
 //! it checks is therefore a ceiling on this crate's share of a frame, not a guarantee about what a
 //! user perceives.
+//!
+//! `--scheme shuangpin --shuangpin-profile <方案>` 把用例编成 26 键双拼的按键再打；再给 `--key-geometry` 和 `--touch-sigma` 时按 `convert_eval` 同样的规则合成误触（默认 `--touch-mode realistic`），量带着按错的键时每次按键的开销。双拼的纠错整句要加 `--autocorrect` 才会出现。
 mod eval_resources;
 
 #[path = "convert_eval/grid_keys.rs"]
 mod grid_keys;
+#[path = "convert_eval/touch_noise.rs"]
+mod touch_noise;
 
 use msime_engine::host::{Command, Session};
-use msime_engine::KeyGrid;
+use msime_engine::{KeyGrid, SchemeType, ShuangpinProfileKind};
 use msime_input_runtime::{Action, Reranker, Runtime, SentenceModel};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use touch_noise::{KeyLayout, TouchMode, TouchNoise};
 
 /// One 60 Hz frame. A keystroke that costs more than this cannot be absorbed between two frames,
 /// so the candidate list visibly lags the typing.
@@ -48,6 +53,8 @@ const GATE_PERCENTILE: f64 = 95.0;
 struct Case {
     id: String,
     input: String,
+    /// 实际送进去的键，两臂共用。
+    keys: Vec<u8>,
 }
 
 /// Keystroke timings in arrival order, kept unsorted so the two arms stay paired by index.
@@ -123,30 +130,23 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
         cases.push(Case {
             id: fields[0].to_string(),
             input: fields[1].to_string(),
+            keys: Vec::new(),
         });
     }
     Ok(cases)
 }
 
-/// 从空的输入串开始打一条输入，逐键计时。
+/// 从空的输入串开始打一条输入的 `keys`，逐键计时。
 ///
 /// 先发 `Cancel` 而不是新建会话：新建会话会重新打开词库，这笔开销会盖过要量的东西，而用户也不会每按一次键都付一次。
-///
-/// 给了 `grid` 时把字母换成它所在键的组码再输入（`'` 不输入），与 `convert_eval --grid` 相同；九键双拼按音节最少的切法编码，切不开的用例跳过。
 fn type_case(
     runtime: &mut Runtime<Session>,
-    input: &str,
+    keys: &[u8],
     grid: Option<KeyGrid>,
     into: &mut Arm,
 ) -> Result<(), Box<dyn std::error::Error>> {
     runtime.dispatch(Action::Command(Command::Cancel))?;
-    let keys: Vec<u8> = match grid {
-        Some(grid) => grid_keys::grid_keys(grid, input, None)
-            .unwrap_or_default()
-            .into_bytes(),
-        None => input.bytes().collect(),
-    };
-    for byte in keys {
+    for &byte in keys {
         let action = match grid {
             Some(
                 KeyGrid::FourteenKey
@@ -175,6 +175,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut warmup = 5usize;
     let mut limit: Option<usize> = None;
     let mut grid: Option<KeyGrid> = None;
+    let mut scheme = SchemeType::Quanpin;
+    let mut profile: Option<ShuangpinProfileKind> = None;
+    let mut autocorrect = false;
+    let mut geometry: Vec<PathBuf> = Vec::new();
+    let mut touch_mode: Option<TouchMode> = None;
+    let mut sigma: Option<f64> = None;
+    let mut bias = 0.0;
+    let mut seed = 20261027;
     let mut index = 0;
     while index < args.len() {
         let take = |index: &mut usize| -> Result<String, String> {
@@ -193,16 +201,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--grid" => grid = Some(grid_keys::parse_grid(&take(&mut index)?)?),
             // `--grid nine` 的旧写法。
             "--nine-key" => grid = Some(KeyGrid::NineKey),
+            "--scheme" => {
+                scheme = match take(&mut index)?.as_str() {
+                    "quanpin" => SchemeType::Quanpin,
+                    "shuangpin" => SchemeType::Shuangpin,
+                    other => return Err(format!("unknown scheme: {other}").into()),
+                }
+            }
+            "--shuangpin-profile" => {
+                let name = take(&mut index)?;
+                profile = Some(
+                    ShuangpinProfileKind::from_name(&name)
+                        .filter(|kind| *kind != ShuangpinProfileKind::Custom)
+                        .ok_or_else(|| format!("unknown shuangpin profile: {name}"))?,
+                );
+            }
+            "--autocorrect" => autocorrect = true,
+            "--key-geometry" => geometry.push(PathBuf::from(take(&mut index)?)),
+            "--touch-mode" => touch_mode = Some(TouchMode::parse(&take(&mut index)?)?),
+            "--touch-sigma" => sigma = Some(take(&mut index)?.parse()?),
+            "--touch-bias-y" => bias = take(&mut index)?.parse()?,
+            "--seed" => seed = take(&mut index)?.parse()?,
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N]]]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
     }
+    let shuangpin = match (scheme, profile) {
+        (SchemeType::Shuangpin, Some(profile)) if grid.is_none() => Some(profile),
+        (SchemeType::Shuangpin, None) => {
+            return Err("--scheme shuangpin needs --shuangpin-profile".into())
+        }
+        (SchemeType::Shuangpin, Some(_)) => {
+            return Err(
+                "--scheme shuangpin types the 26-key layout; it cannot be combined with --grid"
+                    .into(),
+            )
+        }
+        _ if profile.is_some()
+            || sigma.is_some()
+            || touch_mode.is_some()
+            || !geometry.is_empty() =>
+        {
+            return Err(
+                "--shuangpin-profile and the --touch-* options need --scheme shuangpin".into(),
+            )
+        }
+        _ => None,
+    };
+    // 双拼加误触时用哪份几何、哪种模式；只有带 `;` 的那份配微软双拼，同 `convert_eval`。
+    let touch = match (shuangpin, sigma) {
+        (Some(profile), Some(sigma)) => {
+            let semicolon = profile == ShuangpinProfileKind::Microsoft;
+            let layout = geometry
+                .iter()
+                .map(|path| KeyLayout::load(path))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .find(|layout| layout.has_semicolon() == semicolon)
+                .ok_or("--touch-sigma needs a --key-geometry that matches the profile's ; key")?;
+            let mode = touch_mode.unwrap_or(TouchMode::Realistic);
+            eprintln!(
+                "typing {} keys with {} touches on {} at sigma {sigma}, bias {bias}",
+                profile.name(),
+                mode.name(),
+                layout.name
+            );
+            Some((TouchNoise::new(&layout, sigma, bias), mode))
+        }
+        (Some(_), None) if touch_mode.is_some() || !geometry.is_empty() => {
+            return Err("--key-geometry and --touch-mode need --touch-sigma".into())
+        }
+        _ => None,
+    };
 
     let verified = eval_resources::verify(&resources, resource_lock.as_deref())?;
 
@@ -215,6 +291,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // — exactly the keystrokes that cost the least.
         let stride = cases.len().div_ceil(limit.max(1));
         cases = cases.into_iter().step_by(stride.max(1)).collect();
+    }
+    // 两臂打同样的键，所以按键在开始计时前算好。给了 `grid` 时把字母换成它所在键的组码再输入（`'` 不输入），与 `convert_eval --grid` 相同；九键双拼和 26 键双拼按音节最少的切法编码，切不开的用例打空串。
+    for (position, case) in cases.iter_mut().enumerate() {
+        case.keys = match (shuangpin, grid) {
+            (Some(profile), _) => {
+                let intended = grid_keys::shuangpin_keys(profile.name(), &case.input, None)
+                    .unwrap_or_default()
+                    .into_bytes();
+                match &touch {
+                    Some((noise, mode)) => {
+                        let mut rng = touch_noise::case_rng(seed, &[position as u64]);
+                        noise
+                            .synthesize(*mode, &intended, &mut rng)?
+                            .unwrap_or(intended)
+                    }
+                    None => intended,
+                }
+            }
+            (None, Some(grid)) => grid_keys::grid_keys(grid, &case.input, None)
+                .unwrap_or_default()
+                .into_bytes(),
+            (None, None) => case.input.bytes().collect(),
+        };
     }
 
     let state = tempfile::tempdir()?;
@@ -236,6 +335,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.learning = false;
     options.frequency_mode = "disabled".into();
     options.sentence_alternatives = true;
+    if let Some(profile) = shuangpin {
+        options.scheme = SchemeType::Shuangpin as u8;
+        options.shuangpin_profile = profile as u8;
+    }
+    options.autocorrect_transposition = autocorrect;
+    options.autocorrect_neighbor = autocorrect;
 
     let model_path = resources.join("sentence-model.safetensors");
     let bytes = std::fs::read(&model_path).map_err(|error| {
@@ -262,8 +367,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // outside the samples.
     let mut discard = Arm::default();
     for case in cases.iter().take(warmup) {
-        type_case(&mut ranked, &case.input, grid, &mut discard)?;
-        type_case(&mut plain, &case.input, grid, &mut discard)?;
+        type_case(&mut ranked, &case.keys, grid, &mut discard)?;
+        type_case(&mut plain, &case.keys, grid, &mut discard)?;
     }
 
     let mut off = Arm::default();
@@ -274,11 +379,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (position, case) in cases.iter().enumerate() {
         let before = on.samples.len();
         if position % 2 == 0 {
-            type_case(&mut plain, &case.input, grid, &mut off)?;
-            type_case(&mut ranked, &case.input, grid, &mut on)?;
+            type_case(&mut plain, &case.keys, grid, &mut off)?;
+            type_case(&mut ranked, &case.keys, grid, &mut on)?;
         } else {
-            type_case(&mut ranked, &case.input, grid, &mut on)?;
-            type_case(&mut plain, &case.input, grid, &mut off)?;
+            type_case(&mut ranked, &case.keys, grid, &mut on)?;
+            type_case(&mut plain, &case.keys, grid, &mut off)?;
         }
         let case_max = on.samples[before..]
             .iter()

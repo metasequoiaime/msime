@@ -1114,6 +1114,92 @@ function Assert-CloudClipboardWebDavSettings($window) {
     if (Find-ById $window 'cloud-clipboard-webdav-status') { throw 'Account source still shows the WebDAV status' }
     Write-Host 'Cloud clipboard WebDAV masking, draft, failing probe blocking save, reload, relay replacement and account switch passed'
 }
+function Assert-DictionarySyncSettings {
+    # 词库页「云端词库」标签里的词库同步（「我的词条」经 WebDAV 网盘）。只用合成凭据和本机拒绝连接的 9 号端口：测试连接答 dictionary_sync_unavailable，不发出真实请求。调用前的窗口先关掉，结束时留一个打开的窗口给调用方收尾。
+    $unavailable = '连不上网盘，请检查地址和网络；证书须由公网信任的机构签发。'
+    $webdavUrl = 'http://127.0.0.1:9/dav'
+    $path = Join-Path $state 'preferences.json'
+    function Read-SyncPreference {
+        $saved = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
+        $property = $saved.preferences.PSObject.Properties['dictionary_sync_webdav']
+        if ($property) { return $property.Value }
+        return $null
+    }
+    function Wait-SyncResult($window, [string]$expected) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 200
+            $result = Find-ById $window 'dictionary-sync-result'
+            $name = if ($result) { $result.Current.Name } else { '' }
+        } while ($name -ne $expected -and [DateTime]::UtcNow -lt $deadline)
+        if ($name -ne $expected) { throw "Dictionary sync probe result was '$name', expected '$expected'" }
+    }
+    # 关掉窗口，按需改写偏好文件，再从 settings:dictionary 路由打开词库页的「云端词库」标签，滚到词库同步那几组。
+    function Open-SyncTab([scriptblock]$edit) {
+        $script:process.CloseMainWindow() | Out-Null
+        if (-not $script:process.WaitForExit(10000) -or $script:process.ExitCode -ne 0) { throw 'Settings window failed to close before the dictionary sync check' }
+        if ($edit) {
+            $document = (Read-SettingsSnapshotText $path) | ConvertFrom-Json
+            & $edit $document | Out-Null
+            $document.revision = [uint64]$document.revision + 1
+            [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
+        }
+        $opened = Start-SettingsWindow 'settings:dictionary'
+        # 只把窗口交回去：其余调用的输出都丢掉，免得混进返回值。
+        Select-PageTab $opened 'lexicon-tab-cloud' '打开云词库' | Out-Null
+        $scroll = (Find-ById $opened 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 100) | Out-Null }
+        return $opened
+    }
+
+    $window = Open-SyncTab $null
+    $beforeEdit = (Read-SettingsSnapshotText $path)
+    $url = Wait-RelayControl $window 'dictionary-sync-url'
+    $username = Wait-RelayControl $window 'dictionary-sync-username'
+    $password = Wait-RelayControl $window 'dictionary-sync-password'
+    if (-not $password.Current.IsPassword) { throw 'Dictionary sync app password is not masked' }
+    Wait-RelayControl $window 'dictionary-sync-reveal' | Out-Null
+    if (Find-ById $window 'dictionary-sync-saved') { throw 'Dictionary sync shows a saved drive before one was saved' }
+    if (Find-ById $window 'dictionary-sync-now') { throw 'Dictionary sync offers 立即同步 before a drive was saved' }
+    $url.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($webdavUrl)
+    $username.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic@example.test')
+    $password.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password')
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Dictionary sync draft was persisted before saving' }
+    (Wait-RelayControl $window 'dictionary-sync-test').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-SyncResult $window $unavailable
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Dictionary sync connection test wrote preferences' }
+    # 保存先跑测试连接，不通过就不写盘，输入留在草稿里。先改一下应用密码，让上一次的结果收起，看到的失败说明才是这次保存跑出来的。
+    (Wait-RelayControl $window 'dictionary-sync-password').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('synthetic-app-password-b')
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ((Find-ById $window 'dictionary-sync-result') -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+    if (Find-ById $window 'dictionary-sync-result') { throw 'Editing the dictionary sync draft did not clear the previous probe result' }
+    (Wait-RelayControl $window 'dictionary-sync-save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-SyncResult $window $unavailable
+    if ((Read-SettingsSnapshotText $path) -ne $beforeEdit) { throw 'Dictionary sync failing connection test did not block saving' }
+    if ((Find-ById $window 'dictionary-sync-url').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $webdavUrl) { throw 'Failed dictionary sync save lost the draft' }
+    if (Read-SyncPreference) { throw 'Failed dictionary sync save wrote the drive' }
+
+    # 已保存的网盘（模拟测试通过后的保存结果）：地址和账号按偏好回填，现状说明、状态、「立即同步」「停止同步」和重置都在；与云剪贴板的网盘互不影响。
+    $window = Open-SyncTab { param($document) $document.preferences | Add-Member -NotePropertyName dictionary_sync_webdav -NotePropertyValue ([pscustomobject]@{url = $webdavUrl; username = 'synthetic@example.test'; password = 'synthetic-app-password'}) -Force }
+    if ((Wait-RelayControl $window 'dictionary-sync-url').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $webdavUrl) { throw 'Reload lost the dictionary sync address' }
+    if ((Wait-RelayControl $window 'dictionary-sync-username').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne 'synthetic@example.test') { throw 'Reload lost the dictionary sync account' }
+    Wait-RelayControl $window 'dictionary-sync-password' | Out-Null
+    $saved = Find-ById $window 'dictionary-sync-saved'
+    if (-not $saved -or -not $saved.Current.Name.Contains($webdavUrl)) { throw 'Saved dictionary sync drive status is missing' }
+    foreach ($id in @('dictionary-sync-status', 'dictionary-sync-now', 'dictionary-sync-clear', 'dictionary-sync-reset', 'dictionary-sync-restart')) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while (-not (Find-ById $window $id) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        if (-not (Find-ById $window $id)) { throw "Saved dictionary sync is missing $id" }
+    }
+    Save-Window $window 'dictionary-sync-saved.png'
+    $cloudWebDav = ((Read-SettingsSnapshotText $path) | ConvertFrom-Json).preferences.PSObject.Properties['cloud_clipboard_webdav']
+    if ($cloudWebDav) { throw 'Dictionary sync drive leaked into the cloud clipboard drive' }
+
+    # 收尾：去掉合成的网盘配置，再开一个窗口留给调用方关闭。
+    $window = Open-SyncTab { param($document) $document.preferences.PSObject.Properties.Remove('dictionary_sync_webdav') }
+    if (Find-ById $window 'dictionary-sync-saved') { throw 'Removed dictionary sync drive still shows as saved' }
+    Write-Host 'Dictionary sync masking, draft, failing probe blocking save, reload and saved status passed'
+}
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
@@ -1805,6 +1891,7 @@ try {
         Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
         Assert-CloudClipboardRelaySettings $window
         Assert-CloudClipboardWebDavSettings $window
+        Assert-DictionarySyncSettings
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }

@@ -22,6 +22,39 @@ jobs:
       publish: false
     secrets: inherit
 
+  # 瘦包体积预警：任一版本越过 build-apk.sh 的预警线时开或更新一张 apk-size issue（各版本体积、两条线、较上次的变化），全部回到线下时关闭。数据是 release-android.yml 每个版本上传的 android-apk-size-<版本>，超过上限而失败的版本也有。只在 develop 上维护这张单，从其他分支手动触发的 nightly 不碰它。
+  android-size:
+    name: Android APK size watch
+    needs: android
+    if: ${{ !cancelled() && github.ref == 'refs/heads/develop' && github.repository == 'metasequoiaime/msime' }}
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # 一份报告都没有时（例如构建在量体积之前就失败了）下载会报错；那种情况交给 ci-red-tracker.yml 的失败跟踪，这里不做判定。
+      - name: Download the APK size reports
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: android-apk-size-*
+          path: apk-size
+          merge-multiple: true
+      - name: Open, update or close the APK size issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # 带上 attempt：同一次 nightly 重跑时算新的一次记录。
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          editions="$(python3 platforms/android/scripts/edition_android.py editions)"
+          python3 scripts/ci_issue_tracker.py apk-size --reports apk-size --editions "$editions" --run-url "$RUN_URL" --sha "$GITHUB_SHA"
+
   ios:
     name: iOS nightly
     uses: ./.github/workflows/release-ios.yml

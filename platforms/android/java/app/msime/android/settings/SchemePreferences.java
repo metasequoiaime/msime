@@ -25,6 +25,19 @@ public final class SchemePreferences {
         return KeyboardScheme.fromPreferences(scheme, profile, touchLayout, edition);
     }
 
+    /** 键盘方案列表 `touch_keyboard_schemes.enabled` 的原样内容（跳过 null 项），交给 {@link KeyboardScheme#enabledFromPreferenceIds}；没有存过列表时为 null。 */
+    public static List<String> enabledIds(JSONObject preferences) {
+        JSONObject schemes = preferences == null ? null : preferences.optJSONObject("touch_keyboard_schemes");
+        JSONArray enabled = schemes == null ? null : schemes.optJSONArray("enabled");
+        if (enabled == null) return null;
+        List<String> ids = new ArrayList<>(enabled.length());
+        for (int index = 0; index < enabled.length(); index++) {
+            String value = enabled.isNull(index) ? null : enabled.optString(index, null);
+            if (value != null) ids.add(value);
+        }
+        return ids;
+    }
+
     /**
      * 切到 `scheme` 时要写的偏好键和值，按写入顺序：`scheme`、`last_chinese_scheme`、`shuangpin_profile`、`touch_keyboard_layout`，`wubiProfile` 不为 null 时再加上规范化后的 `wubi_profile`。
      *

@@ -36,7 +36,7 @@ pub const BUSY_RETRY_MS: [u64; 4] = [5_000, 30_000, 120_000, 600_000];
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
-    /// 用户刚改了词（设置页、导入、MCP、候选栏删除之后）：马上记录，按防抖稍后发送。
+    /// 用户刚改了词（设置页、导入、MCP、候选栏删除之后）：马上记录，通常不联网、按防抖稍后发送。例外是发送已经到期：本机改动从第一处没发出去的算起已满 [`MAX_PUSH_DELAY_MS`]（一直在改、防抖总被推迟时的上限），并且离上一次发送也满了 [`MIN_PUSH_INTERVAL_MS`]，这一次就联网拉取并发送（仍受退避和自动额度限制）。
     LocalChange,
     /// 打开了设置应用或词库页。
     Opened,
@@ -138,12 +138,30 @@ impl Schedule {
         (push || pull, push)
     }
 
+    /// 滚动窗口恢复到一轮自动同步所需额度的最早时间，手动请求也占同一个窗口。
+    fn automatic_ready_at(&self, now_ms: u64) -> u64 {
+        let mut active: Vec<u64> = self
+            .requests
+            .iter()
+            .copied()
+            .filter(|&at| at <= now_ms && at + WINDOW_MS > now_ms)
+            .collect();
+        let allowed = AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS;
+        if active.len() <= allowed {
+            return now_ms;
+        }
+        active.sort_unstable();
+        // 不能只等最早的一条：必须过期到剩余请求数不超过 allowed 才能开始。
+        active[active.len() - allowed - 1] + WINDOW_MS
+    }
+
     /// 宿主下一次什么时候再调用（距现在的毫秒数）。
     fn next_check(&self, now_ms: u64, outbox: bool, deferred: bool) -> u64 {
         let mut due = (self.last_pull_ms + PULL_INTERVAL_MS).max(self.retry_at_ms);
         if let Some(push) = self.push_due(outbox) {
             due = due.min(push.max(self.retry_at_ms));
         }
+        due = due.max(self.automatic_ready_at(now_ms));
         if deferred {
             due = due.min(self.apply_retry_at_ms);
         }
@@ -304,7 +322,8 @@ pub fn execute(
         skip_push: !push && !manual,
         ..options
     };
-    let mut requests = std::mem::take(&mut state.schedule.requests);
+    // 核心会在本轮中途保存整个状态，历史窗口必须始终留在状态里。
+    let request_start = parts.remote.request_count();
     let result = {
         let mut metered = Metered {
             inner: &mut *parts.remote,
@@ -319,10 +338,19 @@ pub fn execute(
             sink: &mut *parts.sink,
         };
         let result = run(state, &mut metered_parts, ring, options);
-        requests.extend(metered.requests);
+        if let Ok(report) = &result {
+            metered.inner.finish(report, now_ms);
+        }
+        if let (Some(start), Some(end)) = (request_start, metered.inner.request_count()) {
+            state
+                .schedule
+                .requests
+                .extend(std::iter::repeat_n(now_ms, end.saturating_sub(start)));
+        } else {
+            state.schedule.requests.extend(metered.requests);
+        }
         result
     };
-    state.schedule.requests = requests;
     // 手动同步时额度已经用完：照常记录了本机改动，但告诉用户为什么没有同步。
     let result = match result {
         Ok(_) if manual && !network => Err(SyncError::RateLimited),
@@ -388,6 +416,29 @@ mod tests {
     }
 
     #[test]
+    fn a_local_change_sends_at_once_once_unsent_edits_are_ten_minutes_old() {
+        // `plan` 已经把这次改词记成 `last_change_ms`，所以一分钟的防抖总是还没到；到期的只能是十分钟的上限。
+        let at = NOW + MAX_PUSH_DELAY_MS;
+        let mut schedule = Schedule {
+            dirty_since_ms: NOW,
+            last_change_ms: at - 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            schedule.plan(Trigger::LocalChange, at - 1, true),
+            (false, false)
+        );
+        schedule.last_change_ms = at;
+        assert_eq!(schedule.plan(Trigger::LocalChange, at, true), (true, true));
+        // 五分钟之内发过就仍然只记录。
+        schedule.last_push_ms = at - MIN_PUSH_INTERVAL_MS + 1;
+        assert_eq!(
+            schedule.plan(Trigger::LocalChange, at, true),
+            (false, false)
+        );
+    }
+
+    #[test]
     fn pulls_happen_on_open_and_periodically_but_not_more_often() {
         let schedule = Schedule {
             last_pull_ms: NOW,
@@ -436,6 +487,56 @@ mod tests {
             schedule.remaining(NOW + WINDOW_MS, false),
             AUTOMATIC_REQUESTS
         );
+    }
+
+    #[test]
+    fn quota_wake_waits_for_enough_requests_in_an_unordered_window() {
+        let now = NOW + 120_000;
+        for used in [38, 39, 40, MANUAL_REQUESTS] {
+            let mut schedule = Schedule {
+                requests: (0..used)
+                    .rev()
+                    .map(|index| NOW + index as u64 * 1_000)
+                    .collect(),
+                last_pull_ms: now,
+                last_change_ms: NOW,
+                ..Default::default()
+            };
+            // 已过期的请求不参与恢复时间，即使列表不是按时间排序。
+            schedule.requests.push(now - WINDOW_MS);
+            let released = used - (AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS);
+            let ready = NOW + (released - 1) as u64 * 1_000 + WINDOW_MS;
+            assert_eq!(schedule.plan(Trigger::Periodic, now, true), (false, false));
+            assert_eq!(schedule.next_check(now, true, false), ready - now);
+            assert_eq!(
+                schedule.plan(Trigger::Periodic, ready - 1, true),
+                (false, false)
+            );
+            assert_eq!(schedule.plan(Trigger::Periodic, ready, true), (true, true));
+        }
+    }
+
+    #[test]
+    fn quota_wake_preserves_manual_sync_local_retries_and_error_backoff() {
+        let mut schedule = Schedule {
+            requests: vec![NOW; AUTOMATIC_REQUESTS],
+            last_pull_ms: NOW,
+            last_change_ms: NOW - PUSH_DEBOUNCE_MS,
+            apply_retry_at_ms: NOW + BUSY_RETRY_MS[0],
+            ..Default::default()
+        };
+        assert_eq!(schedule.plan(Trigger::Manual, NOW, true), (true, true));
+        assert_eq!(schedule.next_check(NOW, true, true), BUSY_RETRY_MS[0]);
+        // 恢复了足够额度仍要遵守原有网络错误退避。
+        schedule.retry_at_ms = NOW + WINDOW_MS + 60_000;
+        assert_eq!(schedule.next_check(NOW, true, false), WINDOW_MS + 60_000);
+        // 还有三个额度时不推迟原本到期的自动发送。
+        schedule
+            .requests
+            .truncate(AUTOMATIC_REQUESTS - MIN_RUN_REQUESTS);
+        schedule.retry_at_ms = 0;
+        assert_eq!(schedule.plan(Trigger::Periodic, NOW, true), (true, true));
+        assert_eq!(schedule.next_check(NOW, true, false), 1_000);
     }
 
     #[test]

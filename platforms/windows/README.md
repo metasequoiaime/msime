@@ -64,7 +64,7 @@ python platforms/windows/tests/tools/windows7_mcp.py target/windows7-core/x64/ms
 
 ## Windows 7 原生面板
 
-`panels/win7` 是不依赖 WebView 的原生面板宿主，提供 `--route=handwriting`（默认）、`--route=clipboard`、`--route=cloud-clipboard` 、`--route=vocabulary`、`--route=cloud-dictionary` 和 `--route=emoji`，也读取 Server 的 `MSIME_CLIENT_ROUTE`；显式命令行优先，未知路由返回错误。画布支持自动识别、撤销、清空与候选上屏，识别在工作线程执行；清空或继续书写后丢弃旧结果。窗口不激活，只向打开时仍在前台的原编辑器上屏，切换到其他窗口时拒绝输入。成功上屏通过共享接口按手写来源记录聚合统计，使用 TSF 面板标记避免重复计数。
+`panels/win7` 是不依赖 WebView 的原生面板宿主，提供 `--route=handwriting`（默认）、`--route=clipboard`、`--route=cloud-clipboard` 、`--route=vocabulary`、`--route=cloud-dictionary`、`--route=dictionary-sync` 和 `--route=emoji`，也读取 Server 的 `MSIME_CLIENT_ROUTE`；显式命令行优先，未知路由返回错误。画布支持自动识别、撤销、清空与候选上屏，识别在工作线程执行；清空或继续书写后丢弃旧结果。窗口不激活，只向打开时仍在前台的原编辑器上屏，切换到其他窗口时拒绝输入。成功上屏通过共享接口按手写来源记录聚合统计，使用 TSF 面板标记避免重复计数。
 
 Win7 专用 Rust 目标使用系统 Tablet PC COM 中文识别器，普通 Windows 继续使用 WinRT。缺少系统识别器或没有候选时可回退到运行时选项 `handwriting_model`、`MSIME_HANDWRITING_MODEL`、随包模型或已发布手写资源包。窗口提供模型状态、下载、取消、离线多文件导入、移除和刷新；共享安装器按固定锁校验大小与 SHA-256，下载沿用已保存的模型镜像。离线导入需同时选择 `handwriting-zh_CN.model` 和 `HandwritingModel-LICENSE.txt`，按内容识别文件，保留源文件。模型操作使用独立线程，不占用识别队列，关闭时取消并等待退出。Win7 产品构建已将它接入托盘、工具栏和安装包，现代 Windows 继续使用原有共享面板。
 
@@ -82,6 +82,8 @@ ctest --test-dir target/windows-full/x64/win7-panels -C RelWithDebInfo --output-
 `windows7-handwriting-test.exe` 用实际窗口鼠标消息与真实识别器验证合成笔划，输入提交边界可注入测试回调。另在有中文识别器的交互桌面运行 `windows7-handwriting-test.exe --desktop`，验证合成候选进入它自己创建的编辑器、切换到另一个测试窗口时拒绝上屏，以及按手写来源只记一次；全部状态使用临时合成目录。测试通过不能替代 Win7 SP1 的实际组件、安装和输入法验收。
 
 本地剪贴板面板按每页 20 条显示历史，支持刷新、固定、删除、复制和输入原编辑器；输入和复制前重新读取历史，外部关闭后禁止使用旧列表。云剪贴板面板复用设置页的全部表单和账号／中继来源校验，复制和输入前重新读取列表与设备；来源变化、待批准或读取失败时拒绝旧条目，不回退账号。云面板允许编辑搜索、上传和配置，只有本面板仍在前台时才恢复原编辑器，第三个窗口在前台时拒绝输入。复制与失败输入不计统计，成功输入使用 TSF 面板标记避免重复计数。
+
+词库同步面板（`--route=dictionary-sync`，`panels/win7/DictionarySyncWindow.cpp`，表单在 `settings/win7/DictionarySyncForm.h`）是「我的词条」经 WebDAV 网盘同步（[docs/dictionary-webdav-sync.md](../../docs/dictionary-webdav-sync.md)）在 Win7 上的设置：Win7 设置窗口的导航不收云端同步的页面，所以与云剪贴板一样放在独立面板里，由设置窗口「词库」页的「词库同步（WebDAV 网盘）…」打开。网盘地址、账号和应用密码（遮罩、从不回填，留空沿用已存的）先「测试连接」，「测试并保存网盘配置」通过了才写偏好 `dictionary_sync_webdav`，不通过时输入留着；存着网盘时打开面板以 `opened` 同步一次并取设备和概况，另有「立即同步」（`manual`）、被挡下的大批删除的「同步删除」「从网盘恢复」、设备的允许（先对照核对码）、拒绝和移除（换钥）、重置密钥、以本机为准重新开始和「停止同步」，都先确认。同一台设备的几条登记合成一条。调用都在面板的工作线程上，目录与 Server、WinUI 设置相同（见下文「「我的词条」自动同步」），身份冲突时重试。`windows7-dictionary-sync-panel-test` 用实际 HWND 和合成回答核对这些行为，不连网盘。
 
 背单词面板复用设置页的词书管理与复习表单，导入、作答和进度由同一共享服务处理。云词库独立面板提供个人词条、完整目录、候选调频与固定排位、词表导入导出，以及完整快照的备份、恢复、预览、确认应用和队列状态；同一 edition 与登录会话只允许一个窗口，工作线程操作前后核对账号，错误或换号会禁用旧结果。大文件经共享流式接口，系统文件选择与确认期间暂停状态轮询。生产 HTTPS 已使用独立合成账号完成完整云词库备份、删除、恢复预览、恢复与严格读回；测试不使用个人账号或真实词条。新增词条的共享请求路径已在本轮线上验收中修正，细节与签名安装包复验结果见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。默认面板测试只用实际 HWND、真实隔离存储和合成网络／输入接收器，不碰用户剪贴板或真实账号。在交互桌面运行 `windows7-clipboard-desktop-test.exe --desktop`，另验两个剪贴板面板向测试自己的编辑器真实上屏、焦点恢复、第三个窗口拒绝和只记一次统计；没有可见交互桌面时明确失败，不注册为默认 CTest。该入口已在 Win7 SP1 x64 交互桌面以 x64／x86 进程运行并通过。
 
@@ -552,6 +554,12 @@ key_bindings 可选对象示例：
 现代构建的设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
 
 隔离预览实例不注册 TSF，也不接管系统输入源：它挂上候选窗口、后台点击选词和悬浮工具条，走 configured_key 的同一套路径；未支持的路由会断开当前连接。生产模式复用同一份 Server 会话/窗口实现，只是换成安装器注册的生产管道名，TSF 注册和 DLL/Server 部署由安装器完成。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。预览实例不连接旧产品管道，也不替代生产 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻 Server 进程；CMake 另登记无副作用的 `windows-preview-help` --help 测试。
+
+#### 「我的词条」自动同步
+
+「我的词条」经用户自己的 WebDAV 网盘同步（[docs/dictionary-webdav-sync.md](../../docs/dictionary-webdav-sync.md)）的自动触发在 Server 里：它是一直活着、持有输入会话的进程。`src/system/DictionarySyncWorker.cpp` 起一个工作线程调用 `msime_client_dictionary_sync`：候选菜单的「删除」和维护快捷键删掉候选之后以 `local_change` 记一次（只记录、不联网，连着几次只记一次），启动两分钟后第一次 `periodic`，之后照每次回答里的 `next_check_ms` 再调（夹在 1 秒到 30 分钟之间，调用本身失败时半小时后再试）。要不要联网、额度、防抖和退避都在共享 Rust；偏好里没配网盘（`dictionary_sync_webdav.url` 为空）时线程只是等着，偏好发布时配上就在十秒后开始，清掉就停下。自动同步不请输入法让出词库，输入会话占着时这一轮的远端改动留到下一次；Rust 写本机词库每批取一次维护权、从不跨网络请求持有。打开设置（`opened`）和「立即同步」（`manual`）由设置窗口调，设置窗口改了词之后也自己记一次 `local_change`。只有受管理的 Server 做，预览实例不替用户联网；Win7 构建的 Server 是同一份代码。
+
+同步目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（full 是 `%LOCALAPPDATA%\MSIME\dictionary-sync`，`common/DictionarySyncDirectory.h`），Server、WinUI 设置、Win7 设置和 Win7 词库同步面板都调这一个函数，所以一个安装只有一份设备身份：Server 的请求带 `create_identity: false`，身份只由设置窗口在第一次配置时生成，设置窗口还没配过时 Server 答 `clipboard_identity_missing`、不登记也不联网；设置窗口的几个进程第一次使用时同时生成身份由 Rust 的文件锁和「不覆盖另一个身份」挡住，仍然报 `clipboard_keystore_conflict` 时宿主重试（最多三次，`common/DictionarySyncRetry.h`）。不用账号目录本身：云剪贴板中继的密钥串也在那里、文件名相同；不放状态根：安装后的状态根整台机器共用、每个用户都能改，里面不能放词条明文和设备私钥。调度、请求和回答解析在 `src/system/DictionarySyncSchedule.h`，由 `windows-dictionary-sync-schedule` 测试核对。
 
 #### 后台更新提醒
 

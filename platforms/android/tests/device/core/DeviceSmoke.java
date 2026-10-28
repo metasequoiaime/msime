@@ -658,6 +658,6 @@ public class DeviceSmoke extends Instrumentation {
         // 同时接受全角与半角键面，由调用方断言实际插入内容。
         String chinese = app.msime.android.ChineseSymbolFaces.face(symbol, true);
         tap(key(symbol).or(key(chinese)));
-        tap(described("切换到字母键盘"));
+        tap(described("返回原键盘"));
     }
 }

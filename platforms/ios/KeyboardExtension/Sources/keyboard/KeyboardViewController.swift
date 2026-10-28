@@ -29,6 +29,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let session = MetasequoiaInputSessionBridge()
   private var englishCorrectionRejectedPrefix = ""
   private var englishCorrectionRejectedDocument: UUID?
+  /// 候选栏当前的英文建议第二行是否为纠错；只有补全时点原文不算拒绝纠错。
+  private var englishSuggestionCorrected = false
   /// 引擎会话刚建好时的内存读数，紧跟在 `session` 后面声明，`keyboard_loaded` 记成 `session=`。
   private let sessionMemory = DiagnosticLog.MemorySample.current()
   /// 「全角输入」 for the running keyboard: starts from the shared `character_width`, then the 全角 card switches it.
@@ -3900,11 +3902,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       englishCorrectionRejectedDocument = nil
     }
     guard !prefix.isEmpty else {
+      englishSuggestionCorrected = false
       updateCandidateStrip(preedit: "", candidates: [])
       return
     }
-    updateCandidateStrip(
-      preedit: "", candidates: session.englishCorrections(forPrefix: prefix))
+    // 共享引擎给出完整展示：有纠错时只有原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全；空格和标点边界仍只查询唯一纠错。
+    let suggestions = session.englishSuggestions(forPrefix: prefix)
+    englishSuggestionCorrected = suggestions.corrected
+    updateCandidateStrip(preedit: "", candidates: suggestions.items)
   }
 
   private var englishCorrectionsEnabled: Bool {
@@ -3944,8 +3949,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let replacement = EnglishSuggestionPolicy.replacement(
       typed: typed, candidate: visibleCandidates[index], startedCapitalized: startedCapitalized)
     else {
-      englishCorrectionRejectedPrefix = typed
-      englishCorrectionRejectedDocument = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+      // 只有展示了纠错时点原文才是拒绝纠错；只有补全时点原文仅收起候选。
+      if englishSuggestionCorrected {
+        englishCorrectionRejectedPrefix = typed
+        englishCorrectionRejectedDocument = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+      }
+      englishSuggestionCorrected = false
       updateCandidateStrip(preedit: "", candidates: [])
       finishTemporaryEnglish()
       return

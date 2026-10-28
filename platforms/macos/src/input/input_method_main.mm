@@ -43,6 +43,22 @@ static void MSIMEConfigureMovableState(void) {
     }
 }
 
+// 「我的词条」的网盘自动同步在 Rust 的后台线程里跑（msime_client.h 的 msime_client_dictionary_sync_start），这里只交出运行时配置文件和与设置应用共用的状态目录：设置应用的 dictionary_sync 命令用的是同一个 Application Support/<设置应用 bundle id>/dictionary-sync（apps/desktop/src-tauri/src/platform/dictionary_sync.rs）。后台线程每一轮重读配置和偏好，没配置网盘、设置应用还没生成设备身份时什么也不做，从不自己生成身份。起它只是开一个线程，不在主线程上读写文件或联网。
+static void MSIMEStartDictionarySync(void) {
+    NSString *optionsPath = MSIMERuntimeOptionsPath();
+    NSString *state = MSIMEDefaultClientStateDirectory(NSFileManager.defaultManager).path;
+    if (optionsPath.length == 0 || !optionsPath.isAbsolutePath || state.length == 0) return;
+    NSDictionary *request = @{
+        @"options_path": optionsPath,
+        @"directory": [state stringByAppendingPathComponent:@"dictionary-sync"],
+    };
+    NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!body) return;
+    char *response = msime_client_dictionary_sync_start(static_cast<const uint8_t *>(body.bytes), body.length);
+    if (response && !strstr(response, "\"ok\":true")) NSLog(@"MSIME dictionary sync did not start: %s", response);
+    if (response) msime_client_string_free(response);
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         if (MSIMEShouldRegisterInputSource(argc, argv)) {
@@ -124,6 +140,8 @@ int main(int argc, const char *argv[]) {
         NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
         id reportingPreferences = reportingOptions[@"preferences_directory"];
         MSIMEUsageReportingStart([reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath] ? reportingPreferences : nil);
+        // 同样只在输入法进程里：独立设置窗口已经在上面返回。
+        MSIMEStartDictionarySync();
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
@@ -192,6 +210,8 @@ int main(int argc, const char *argv[]) {
         [NSApp run];
         if ([shared respondsToSelector:@selector(stopClipboardCapture)]) [shared performSelector:@selector(stopClipboardCapture)];
         [sourceMonitor stop];
+        // 正在跑的那一次同步最多等两秒，与使用统计收尾的宽限相同；没等完也不要紧，每一步都已写盘。被 SIGTERM 结束时不经过这里，进程直接退出，道理相同。
+        (void)msime_client_dictionary_sync_stop(2000);
         MSIMEUsageReportingStop();
         (void)server;
     }

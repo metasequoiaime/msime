@@ -123,7 +123,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 tap(key("123"));
                 assertGrid();
                 stage = layout[0] + " return to original face";
-                tap(described("切换到字母键盘"));
+                tap(described("返回原键盘"));
                 await(letterFace(layout[0]));
                 JSONObject stored = new JSONObject(read(preferences)).getJSONObject("preferences");
                 if (!layout[2].equals(stored.getString("touch_keyboard_layout"))
@@ -186,7 +186,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             awaitPasswordLength(4);
             tap(key("⌫"));
             awaitPasswordLength(3);
-            tap(described("切换到字母键盘"));
+            tap(described("返回原键盘"));
             await(key("q"));
             // 文字密码仍能输入字母；数字密码的编辑器会过滤字母，因此只检查往返键面。
             if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {

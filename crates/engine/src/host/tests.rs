@@ -1175,6 +1175,36 @@ fn shuangpin_key_hints_reject_an_unknown_profile() {
     assert!(shuangpin_key_hints("quanpin").is_empty());
 }
 
+/// 评测工具靠它把全拼用例编成双拼按键：按名字取内置方案，`custom` 和不认识的名字没有表可编。
+#[test]
+fn encode_shuangpin_uses_the_named_builtin_profile() {
+    assert_eq!(
+        encode_shuangpin("ni'hao", "xiaohe").as_deref(),
+        Some("ni'hc")
+    );
+    assert_eq!(
+        encode_shuangpin("a'ming", "microsoft").as_deref(),
+        Some("oa'm;")
+    );
+    for profile in ["custom", "", "quanpin", "xiaohe-v2"] {
+        assert_eq!(encode_shuangpin("ni'hao", profile), None, "{profile}");
+    }
+    assert_eq!(encode_shuangpin("ni'bad", "xiaohe"), None);
+}
+
+/// 音节表与方案无关：首道双拼编不出 `den`（`en` 和 `ia` 同在 `k` 上，解回 `dia`），`den` 仍是音节。
+#[test]
+fn shuangpin_syllables_do_not_depend_on_the_profile() {
+    for syllable in ["de", "den", "a", "na", "zhuang", "yo"] {
+        assert!(is_shuangpin_syllable(syllable), "{syllable}");
+    }
+    for piece in ["", "d", "zhei", "ni'hao", "xyz"] {
+        assert!(!is_shuangpin_syllable(piece), "{piece}");
+    }
+    assert_eq!(encode_shuangpin("den", "shoudao"), None);
+    assert_eq!(encode_shuangpin("den", "xiaohe").as_deref(), Some("df"));
+}
+
 #[test]
 fn all_shuangpin_profiles_accept_yo_as_one_syllable() {
     let dir = tempfile::tempdir().unwrap();
