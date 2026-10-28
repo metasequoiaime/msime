@@ -242,6 +242,8 @@ for host, create, opt_in, report in (
     created = host.index(create)
     assert created < host.index(opt_in) < host.index(report, host.index(opt_in))
     assert host.count("msime_client_set_lifecycle(") == 1
+    # 建会话撞上设置页持着的独占词库锁时按词库维护处理：在会话 opt-in 之前返回、按键交给应用，不当成运行配置错误（#9918）。
+    assert created < host.index("dictionary_maintenance_busy(created)") < host.index(opt_in)
 # 顺序契约：msime_client_key 在引擎处理这个键之前，按键音因此排在这个键带来的上屏音前面；字段属性在 msime_client_key 之前比较和报告。IBus 原来在 process_key 之后才出按键音，上屏音反而先响。
 key_event = body(source, "void keyEvent(const fcitx::InputMethodEntry &, fcitx::KeyEvent &event) override")
 assert key_event.index("state->countKeyPress(event);") < key_event.index("state->keyDown(event);")

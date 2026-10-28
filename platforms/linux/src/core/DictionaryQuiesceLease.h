@@ -3,6 +3,7 @@
 #include "../../../common/DictionaryQuiesceLease.h"
 
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace msime::linux_host {
@@ -20,6 +21,19 @@ inline bool preference_save_held(const std::string &user_data,
   if (user_data.empty() || user_data.front() != '/') return false;
   std::error_code error;
   return !std::filesystem::is_directory(user_data, error) || dictionary_quiesced(user_data, now_ms);
+}
+
+// Host API 在设置页持有独占词库锁时拒绝建会话给出的原因（crates/host-api/src/ffi/session.rs），与 client-services 的 `quiesce::BUSY` 是同一个字符串。
+inline constexpr std::string_view kDictionaryMaintenanceBusy = "dictionary maintenance busy";
+
+// `reply` 是 Host API 的整份回复（`{"ok":false,"error":...}`），说的是不是“词库正在维护”。租约还没挂上或已经过期、而设置页仍持着独占锁时，建会话会这样失败；这不是运行配置有错，宿主应当像看到租约一样把按键交给应用，等维护做完再建会话，而不是报“请检查运行配置”（#9918）。
+template <class Document> bool dictionary_maintenance_busy(const Document &reply) {
+  if (!reply.is_object()) return false;
+  const auto ok = reply.find("ok");
+  const auto error = reply.find("error");
+  return ok != reply.end() && ok->is_boolean() && !ok->template get<bool>() &&
+         error != reply.end() && error->is_string() &&
+         error->template get_ref<const std::string &>() == kDictionaryMaintenanceBusy;
 }
 
 }  // namespace msime::linux_host

@@ -236,10 +236,15 @@ struct PendingPreferenceSave {
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
-Json response(char *raw) {
+// 整份回复，失败时也原样返回，供需要分辨失败原因的调用方使用（见 ensure 里的建会话）。
+Json hostReply(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!owned) throw std::runtime_error("MSIME request failed");
-  auto value = Json::parse(owned.get());
+  return Json::parse(owned.get());
+}
+
+Json response(char *raw) {
+  auto value = hostReply(raw);
   if (!value.value("ok", false)) throw std::runtime_error("MSIME request failed");
   return value.at("value");
 }
@@ -2009,7 +2014,16 @@ public:
     // On-device recognition reads the user's dictionary words as hotwords with the same options; see requestVoice.
     voice_host_options_ = options;
     const auto document = options.dump();
-    view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+    auto created = hostReply(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+    // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样把按键交给应用，等维护做完再建会话，不报“请检查运行配置”。日志每段忙碌只记一条，不再每个按键一条（#9918）。
+    if (msime::linux_host::dictionary_maintenance_busy(created)) {
+      if (!dictionary_busy_noted_) msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+      dictionary_busy_noted_ = true;
+      return false;
+    }
+    if (!created.value("ok", false)) throw std::runtime_error("MSIME request failed");
+    dictionary_busy_noted_ = false;
+    view_ = created.at("value");
     session_ = msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("session"));
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session_, MSIME_LIFECYCLE_FEEDBACK);
@@ -4132,6 +4146,8 @@ public:
   // Per-key press counts for the key heatmap, written in batches; see KeyPressCounter.
   msime::linux_host::KeyPressCounter key_presses_;
   std::string dictionary_user_data_;
+  // 这一段词库忙碌已经记过日志（ensure）；会话建起来后清掉。
+  bool dictionary_busy_noted_ = false;
   std::string resources_;
   std::optional<std::string> scheme_override_;
   // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese, Zhuyin and Stroke can run (noteSchemeOptions).

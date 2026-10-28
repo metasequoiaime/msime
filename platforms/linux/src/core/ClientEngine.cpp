@@ -239,11 +239,15 @@ void patch_preference_object(Json &preferences, const char *name,
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
 void pointer_turn(IBusEngine *engine);
-Json response(char *raw) {
+// 整份回复，失败时也原样返回，供需要分辨失败原因的调用方使用（见 open 里的建会话）。
+Json host_reply(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing host response");
-  auto document = Json::parse(raw);
+  return Json::parse(raw);
+}
+Json response(char *raw) {
+  auto document = host_reply(raw);
   if (!document.at("ok").get<bool>())
     throw std::runtime_error("Host operation failed");
   return document.at("value");
@@ -349,6 +353,8 @@ struct State {
   std::string focused_context;
   std::string focused_client;
   bool blocked = false;
+  // 这一段词库忙碌已经记过日志（open）；会话建起来后清掉。
+  bool dictionary_busy_noted = false;
   bool private_input = false;
   // 输入框最近一次报告的提示位（content_type）。private_input 把隐私和不做拼写检查并成一个判断，管学习和联网；生命周期核心要的字段属性按这里逐个标志换算，见 report_field_traits。
   guint content_hints = 0;
@@ -990,8 +996,19 @@ struct State {
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
     auto edge_binding = msime::linux_host::WordCharacterBinding::read(
         options.at("preferences"));
-    view = response(msime_client_create(
+    auto created = host_reply(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样不开会话、按键交给应用，等维护做完再建，不当成宿主操作失败。日志每段忙碌只记一条（#9918）。
+    if (msime::linux_host::dictionary_maintenance_busy(created)) {
+      if (!dictionary_busy_noted)
+        msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+      dictionary_busy_noted = true;
+      return;
+    }
+    if (!created.at("ok").get<bool>())
+      throw std::runtime_error("Host operation failed");
+    dictionary_busy_noted = false;
+    view = created.at("value");
     session = view.at("session").get<uint64_t>();
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session, MSIME_LIFECYCLE_FEEDBACK);
