@@ -657,8 +657,10 @@ struct KeyboardView {
   @State voiceFinishing: boolean = false;
   /** 触屏上，直接上屏的识别结果内容，在聆听界面上以「已识别：…」显示 `VOICE_DONE_NOTICE_MS`；其他时候为空。 */
   @State voiceDone: string = '';
-  /** 触屏上，识别器目前听到的文字；用户选择显示中间结果时，聆听界面把它显示在标题下方。 */
+  /** 触屏上，识别器目前听到的文字；用户选择显示中间结果时，聆听界面在录音时把它显示在标题位，收尾识别时显示在提示行。 */
   @State voiceHeard: string = '';
+  /** 麦克风电平 0–1，聆听面板的光圈跟着它缩放；只在录音中更新，收尾、完成和取消时回到 0。 */
+  @State voiceLevel: number = 0;
   @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
@@ -1069,6 +1071,7 @@ struct KeyboardView {
     this.phraseGeneration += 1;
     this.voiceBusy = false;
     this.voiceFinishing = false;
+    this.voiceLevel = 0;
     KeyboardSession.shared.setVoiceRecording(false, true);
   }
 
@@ -7052,6 +7055,7 @@ struct KeyboardView {
     this.voiceStreams = VoiceRecordingBehaviourPolicy.streamsPartialResults(voiceConfiguration);
     this.voiceText = '';
     this.voiceHeard = '';
+    this.voiceLevel = 0;
     this.voiceNotice = '正在聆听…';
     this.voiceBusy = true;
     this.voiceFinishing = false;
@@ -7082,6 +7086,7 @@ struct KeyboardView {
         this.voiceFinishing = false;
         this.voiceBusy = false;
         this.voiceHeard = '';
+        this.voiceLevel = 0;
         KeyboardSession.shared.setVoiceRecording(false);
         this.deliverVoice(accepted);
       }
@@ -7091,17 +7096,22 @@ struct KeyboardView {
       this.voiceBusy = false;
       this.voiceFinishing = false;
       this.voiceHeard = '';
+      this.voiceLevel = 0;
       this.cancelVoiceSilence();
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = message;
       }, KeyboardSession.shared.voiceHotwordOptions(), (speaking: boolean): void => {
       this.voiceSpeechChanged(speaking);
+      }, (level: number): void => {
+      // 收尾识别时麦克风已经在关，晚到的电平不再让光圈涨回去。
+      if (this.voiceBusy && !this.voiceFinishing) this.voiceLevel = level;
       }).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
       this.voiceFinishing = false;
       this.voiceHeard = '';
+      this.voiceLevel = 0;
       this.cancelVoiceSilence();
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = error instanceof Error ? error.message : '语音识别不可用';
@@ -7190,6 +7200,7 @@ struct KeyboardView {
     }
     this.cancelVoiceSilence();
     this.voiceFinishing = true;
+    this.voiceLevel = 0;
     this.voiceNotice = '正在完成识别…';
     try {
       this.voiceRecognizer.stop();
@@ -7210,6 +7221,7 @@ struct KeyboardView {
     this.voiceBusy = false;
     this.voiceFinishing = false;
     this.voiceHeard = '';
+    this.voiceLevel = 0;
     this.cancelVoiceSilence();
     this.clearVoiceDone();
     // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
@@ -7235,25 +7247,40 @@ struct KeyboardView {
       KeyboardSession.shared.voiceInputConfiguration());
   }
 
-  /** 聆听界面的标题：结果上屏后为「识别完成」，即 Android 的 `VoiceListeningView` 文案。 */
+  /** 聆听界面的标题：录音时听到了文字就显示它，否则为「正在聆听…」；结果上屏后为「识别完成」，即 Android 的 `VoiceListeningView` 文案。 */
   private voiceListeningTitle(): string {
+    if (this.voiceListeningTitleTail()) return this.voiceHeard;
     return this.voiceDone.length > 0 ? '识别完成'
       : this.voiceFinishing ? '正在识别…' : this.voiceBusy ? '正在聆听…' : '语音输入';
   }
 
-  /** 标题下方的一行：已上屏的内容、录音正在收尾、目前听到的文字，或如何取消。 */
+  /** 标题位放的是录音中听到的文字，面板放不下时从开头省略，留住最新的那段。 */
+  private voiceListeningTitleTail(): boolean {
+    return this.voiceDone.length === 0 && this.voiceBusy && !this.voiceFinishing && this.voiceHeard.length > 0;
+  }
+
+  /** 标题下方的一行：已上屏的内容、收尾识别时最后听到的文字，或如何结束；空闲时为提示或识别服务说明。 */
   private voiceListeningHint(): string {
     if (this.voiceDone.length > 0) {
-      return `已识别：${this.voiceDone}`;
+      return this.voiceDone;
     }
     if (this.voiceFinishing) {
-      return '正在识别…';
+      return this.voiceHeard.length > 0 ? this.voiceHeard : '识别完成后自动上屏';
     }
     if (!this.voiceBusy) {
       return this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription();
     }
-    if (this.voiceHeard.length > 0) return this.voiceHeard;
     return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
+  }
+
+  /** 提示行放的是转写文字（已上屏的内容或收尾时最后听到的），放不下一行时从开头省略。 */
+  private voiceListeningHintTail(): boolean {
+    return this.voiceDone.length > 0 || (this.voiceFinishing && this.voiceHeard.length > 0);
+  }
+
+  /** 已上屏的内容前面加「已识别：」，裁剪时这几个字始终留着。 */
+  private voiceListeningHintPrefix(): string {
+    return this.voiceDone.length > 0 ? '已识别：' : '';
   }
 
   /** 手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。 */
@@ -7287,11 +7314,16 @@ struct KeyboardView {
       Column() {
         VoiceListening({
           accent: this.voiceSkin.accent,
+          onAccent: this.voiceSkin.onAccent,
           foreground: this.voiceSkin.keyForeground,
           secondary: this.voiceSkin.secondary,
           micPath: KeyboardIconPaths.MIC,
           title: this.voiceListeningTitle(),
+          titleTail: this.voiceListeningTitleTail(),
           hint: this.voiceListeningHint(),
+          hintTail: this.voiceListeningHintTail(),
+          hintPrefix: this.voiceListeningHintPrefix(),
+          level: this.voiceLevel,
           primaryLabel: this.voicePrimaryLabel(),
           primaryEnabled: !this.voiceFinishing,
           cancelLabel: this.voiceBusy ? '取消' : '返回键盘',

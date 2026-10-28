@@ -1,0 +1,210 @@
+/**
+ * 手机聆听面板的排布、音量平滑、麦克风电平和中间文字裁剪，不依赖 ArkUI 或 NAPI，`tests/run.sh` 在 node 下直接测。Android 的 `VoiceListeningPolicy` 和 iOS 的 `KeyboardVoicePanelLayout` 用同一组数值，三端面板长得一样、动得一样。
+ *
+ * 光圈以前是圆盘上的缩放变换，不占排布空间：放大到 1.5 倍时向上伸出 18vp，而面板内容本身就几乎和面板一样高，祖先节点都不裁剪，于是光圈画进了上面的工具条。现在圆盘连同光圈的最大外扩一起算进一个方框，方框放不下时先少留一行文字、再藏掉提示行，最后才缩小圆盘，满音量时光圈也在面板里面。
+ */
+
+/** 圆盘直径的上限与下限。 */
+export const VOICE_ORB_MAX_VP: number = 72;
+export const VOICE_ORB_MIN_VP: number = 40;
+/** 光圈满音量时超出圆盘的宽度占直径的比例：72vp 的圆盘外扩 18vp，方框边长是直径的 1.5 倍。 */
+export const VOICE_HALO_RATIO: number = 0.25;
+/** 标题位要留两行时圆盘至少还有这么大，否则只留一行。 */
+export const VOICE_TWO_LINE_MIN_ORB_VP: number = 52;
+export const VOICE_PAD_TOP_VP: number = 4;
+export const VOICE_GAP_INDICATOR_TITLE_VP: number = 6;
+export const VOICE_GAP_TITLE_HINT_VP: number = 4;
+export const VOICE_PAD_BOTTOM_VP: number = 8;
+/** 安静时光圈也露出最大外扩的这一部分，看得出在听；开了「减弱动画」时光圈就停在这里。 */
+export const VOICE_LEVEL_IDLE: number = 0.3;
+/** 音量变大时跟上的时间常数，比回落快得多：一出声光圈就涨，停下来慢慢收。 */
+export const VOICE_ATTACK_MS: number = 60;
+export const VOICE_RELEASE_MS: number = 320;
+/** 显示值离目标不到这么多就当已经到位，停掉逐帧重绘。 */
+export const VOICE_LEVEL_SETTLE: number = 0.01;
+/** 一帧最多按这么长推进，暂停很久后的第一帧不会一下跳到底。 */
+export const VOICE_MAX_STEP_MS: number = 100;
+export const VOICE_OUTER_RING_OPACITY: number = 0.16;
+export const VOICE_INNER_RING_OPACITY: number = 0.26;
+/** 电平送到界面的最短间隔，即不超过 10 Hz。 */
+export const VOICE_LEVEL_INTERVAL_MS: number = 100;
+export const VOICE_ELLIPSIS: string = "…";
+
+/** 一次排布的结果，单位 vp。`orb` 是圆盘直径，`halo` 是光圈满音量时超出圆盘的宽度，`titleLines` 是标题位预留的行数，`showsHint` 为 false 时不画提示行，`top` 是整块内容居中后在区域上方让出的距离。 */
+export interface VoiceListeningPlan {
+  orb: number;
+  halo: number;
+  titleLines: number;
+  showsHint: boolean;
+  top: number;
+}
+
+export class VoiceListeningPolicy {
+  /**
+   * 按钮行上面那块区域的排布：`height` 不含按钮行和它周围的边距，`titleLine`、`hintLine` 是标题和提示单行的实测高度。依次试「两行标题加提示」「一行标题加提示」「一行标题不带提示」，取第一个圆盘不小于下限的；两行时圆盘还要不小于 `VOICE_TWO_LINE_MIN_ORB_VP`。都放不下时圆盘先停在下限、光圈收窄，再不够才把圆盘缩到剩下的高度。
+   *
+   * 标题位总按预留的行数算，中间文字从一行换到两行时圆盘不跟着变；只占一行时空出来的那行落在提示下面。
+   */
+  static plan(height: number, titleLine: number, hintLine: number): VoiceListeningPlan {
+    const available: number = Math.max(0, height);
+    const lines: number[] = [2, 1, 1];
+    const hints: boolean[] = [true, true, false];
+    for (let index: number = 0; index < lines.length; index++) {
+      const fixed: number = VoiceListeningPolicy.fixed(
+        lines[index],
+        hints[index],
+        titleLine,
+        hintLine,
+      );
+      const orb: number = Math.min(
+        VOICE_ORB_MAX_VP,
+        (available - fixed) / (1 + 2 * VOICE_HALO_RATIO),
+      );
+      if (lines[index] === 2 && orb < VOICE_TWO_LINE_MIN_ORB_VP) continue;
+      if (orb >= VOICE_ORB_MIN_VP) {
+        return VoiceListeningPolicy.placed(
+          available,
+          orb,
+          orb * VOICE_HALO_RATIO,
+          lines[index],
+          hints[index],
+          fixed,
+        );
+      }
+    }
+    const fixed: number = VoiceListeningPolicy.fixed(1, false, titleLine, hintLine);
+    const box: number = Math.max(0, available - fixed);
+    if (box >= VOICE_ORB_MIN_VP) {
+      return VoiceListeningPolicy.placed(
+        available,
+        VOICE_ORB_MIN_VP,
+        Math.min((box - VOICE_ORB_MIN_VP) / 2, VOICE_ORB_MIN_VP * VOICE_HALO_RATIO),
+        1,
+        false,
+        fixed,
+      );
+    }
+    return VoiceListeningPolicy.placed(available, box, 0, 1, false, fixed);
+  }
+
+  /** 方框之外的固定高度：上下内边距、方框与标题的间距、标题位，以及提示行和它上面的间距。 */
+  static fixed(lines: number, hint: boolean, titleLine: number, hintLine: number): number {
+    const value: number =
+      VOICE_PAD_TOP_VP + VOICE_GAP_INDICATOR_TITLE_VP + lines * titleLine + VOICE_PAD_BOTTOM_VP;
+    return hint ? value + VOICE_GAP_TITLE_HINT_VP + hintLine : value;
+  }
+
+  private static placed(
+    height: number,
+    orb: number,
+    halo: number,
+    lines: number,
+    hint: boolean,
+    fixed: number,
+  ): VoiceListeningPlan {
+    const used: number = orb + 2 * halo + fixed;
+    return {
+      orb: orb,
+      halo: halo,
+      titleLines: lines,
+      showsHint: hint,
+      top: Math.max(0, (height - used) / 2),
+    };
+  }
+
+  /** 0–1，NaN 当作 0。 */
+  static clamp(value: number): number {
+    if (Number.isNaN(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+  }
+
+  /** 下一帧显示的音量：按经过的时间指数逼近目标，变大用 `VOICE_ATTACK_MS`，变小用 `VOICE_RELEASE_MS`；离目标不到 `VOICE_LEVEL_SETTLE` 时直接到位。 */
+  static step(shown: number, target: number, elapsedMs: number): number {
+    const goal: number = VoiceListeningPolicy.clamp(target);
+    const elapsed: number = Number.isNaN(elapsedMs)
+      ? 0
+      : Math.max(0, Math.min(VOICE_MAX_STEP_MS, elapsedMs));
+    const tau: number = goal > shown ? VOICE_ATTACK_MS : VOICE_RELEASE_MS;
+    const next: number = shown + (goal - shown) * (1 - Math.exp(-elapsed / tau));
+    return Math.abs(goal - next) < VOICE_LEVEL_SETTLE ? goal : next;
+  }
+
+  /** 显示值已经到位，不必再逐帧重绘。 */
+  static settled(shown: number, target: number): boolean {
+    return Math.abs(VoiceListeningPolicy.clamp(target) - shown) < VOICE_LEVEL_SETTLE;
+  }
+
+  /** 外圈光圈超出圆盘的宽度：安静时是满外扩的 `VOICE_LEVEL_IDLE`，满音量时是 `halo`；内圈取它的一半。 */
+  static spread(shown: number, halo: number): number {
+    return halo * (VOICE_LEVEL_IDLE + (1 - VOICE_LEVEL_IDLE) * VoiceListeningPolicy.clamp(shown));
+  }
+
+  /**
+   * 光圈按方框画成满外扩的圆，再缩放到当前半径，缩放只是绘制变换，不重新排布。`share` 是这一圈占外圈外扩的比例：外圈 1，内圈 0.5。圆盘或方框为 0 时返回 0，什么也不画。
+   */
+  static ringScale(orb: number, halo: number, shown: number, share: number): number {
+    const full: number = orb / 2 + halo;
+    if (full <= 0) return 0;
+    return (orb / 2 + share * VoiceListeningPolicy.spread(shown, halo)) / full;
+  }
+
+  /**
+   * 一段 16 位小端单声道 PCM 的电平，0–1：均方根除以 32768，不超过 0.001 当作安静，其余按 -60 dB 到 0 dB 线性映射，与 Android 的算法一致。末尾不成对的半个样本不算。
+   */
+  static pcmLevel(data: ArrayBuffer): number {
+    const samples: number = Math.floor(data.byteLength / 2);
+    if (samples === 0) return 0;
+    const view: DataView = new DataView(data);
+    let sum: number = 0;
+    for (let index: number = 0; index < samples; index++) {
+      const sample: number = view.getInt16(index * 2, true);
+      sum += sample * sample;
+    }
+    const rms: number = Math.sqrt(sum / samples) / 32768;
+    if (rms <= 0.001) return 0;
+    return VoiceListeningPolicy.clamp((20 * Math.log10(rms) + 60) / 60);
+  }
+
+  /** 中间文字去掉首尾空白，连续的空白（含换行）并成一个空格。 */
+  static normalized(text: string): string {
+    return text.replace(/\s+/gu, " ").trim();
+  }
+
+  /**
+   * 放不下时从开头省略，留住最新说的那段：整段放得下就原样返回，否则返回「…」加上放得下的最长后缀；按码点切，不拆代理对。一个字也放不下时返回「…」加最后一个字。
+   */
+  static fitTail(text: string, fits: (candidate: string) => boolean): string {
+    const value: string = VoiceListeningPolicy.normalized(text);
+    if (value.length === 0 || fits(value)) return value;
+    const points: string[] = Array.from(value);
+    let low: number = 1;
+    let high: number = points.length - 1;
+    let best: number = Math.max(0, points.length - 1);
+    while (low <= high) {
+      const middle: number = Math.floor((low + high) / 2);
+      if (fits(VOICE_ELLIPSIS + points.slice(middle).join(""))) {
+        best = middle;
+        high = middle - 1;
+      } else {
+        low = middle + 1;
+      }
+    }
+    return VOICE_ELLIPSIS + points.slice(best).join("");
+  }
+}
+
+/** 把逐块算出的电平收成不超过 10 Hz 的更新：两次送出之间取这段时间里的最大值，短促的字音不会被漏掉。 */
+export class VoiceLevelThrottle {
+  private last: number = Number.NEGATIVE_INFINITY;
+  private peak: number = 0;
+
+  /** 收下一块的电平；到了送出的时候返回这段时间的最大值，否则返回 null。 */
+  offer(level: number, nowMs: number): number | null {
+    this.peak = Math.max(this.peak, VoiceListeningPolicy.clamp(level));
+    if (nowMs - this.last < VOICE_LEVEL_INTERVAL_MS) return null;
+    this.last = nowMs;
+    const value: number = this.peak;
+    this.peak = 0;
+    return value;
+  }
+}
