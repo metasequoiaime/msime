@@ -317,6 +317,17 @@ enum TouchBottomRowLayout {
     return [Key(.symbols, side)] + middle + [Key(.returnKey, side)]
   }
 
+  /// 拼音九键、九键双拼和笔画的数字层（不是右侧大回车时）：符 | 九键 |（🌐）| 0 | 空格 | 中/英 | 回车。与 Android #9113 的规则相同，往返字母层和数字层时 符 和切换键不换位置、宽度也不变：符 和切换键沿用字母层的份额，0 和它右边的空格合起来占字母层空格（九键双拼还有它的 0）那一份，整行总份额与字母层相同。空格与 中/英 同宽，跟数字层原来的规则一样在 0 的右边；隐藏中/英时它的份额并进 0。从 26 键、14 键、18 键、手写借来的数字九宫格不用这张表，返回键本来就在它们 123 那一格。
+  static func nineKeyDigits(globe: Bool, zero: Bool = false, language: Bool = true) -> [Key] {
+    var keys = [Key(.symbols, symbolsWeight), Key(.layer, layerWeight)]
+    if globe { keys.append(Key(.globe, globeWeight)) }
+    let zeroShare = nineKeySpaceWeight + (zero ? zeroWeight : 0) - zeroWeight + (language ? 0 : languageWeight)
+    keys += [Key(.zero, zeroShare), Key(.space, zeroWeight)]
+    if language { keys.append(Key(.language, languageWeight)) }
+    keys.append(Key(.returnKey, nineKeyReturnWeight))
+    return keys
+  }
+
   /// 补上中/英和回车；隐藏中/英时把它的份额并进空格。
   private static func finish(_ keys: [Key], language: Bool, returnWeight: CGFloat) -> [Key] {
     var keys = keys
