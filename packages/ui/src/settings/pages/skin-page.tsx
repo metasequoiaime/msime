@@ -96,6 +96,7 @@ export function SkinSettingsPage({
     openAccountLogin,
     communityGallery,
     showAiGeneration,
+    showCommunityContribution,
   } = useSettingsForm();
   useLayoutEffect(() => {
     if (page === "skin" && !mobilePlatform && settingsContentRef.current) {
@@ -131,6 +132,8 @@ export function SkinSettingsPage({
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
   // 不提供 AI 生成类功能的宿主（HarmonyOS，`showAiGeneration`）不给 AI 皮肤：网格上没有 AI 图块，编辑器里也没有 AI 生成入口。
   const aiSkins = showAiGeneration ? client.aiSkins : undefined;
+  // AI 皮肤的「发布到社区」只经这个客户端；不提供社区投稿类功能的宿主（HarmonyOS，`showCommunityContribution`）不给，AI 皮肤里就没有发布入口。
+  const publishSkins = showCommunityContribution ? client.communitySkins : undefined;
   const { customSkinLibrary } = client;
   const {
     value: aiSubview,
@@ -303,7 +306,7 @@ export function SkinSettingsPage({
             disabled={busy}
             library={client.customSkinLibrary}
             aiSkins={aiSkins}
-            communitySkins={client.communitySkins}
+            communitySkins={publishSkins}
             phonePreview={mobilePlatform}
             onChange={(design) => onCustomThemeChange({ keyboard: design })}
             onUse={onUseCustomKeyboard}
@@ -474,7 +477,7 @@ export function SkinSettingsPage({
           disabled={busy}
           library={client.customSkinLibrary}
           aiSkins={aiSkins}
-          communitySkins={client.communitySkins}
+          communitySkins={publishSkins}
           touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           onChange={(design) => onCustomThemeChange({ keyboard: design })}
           onUse={onUseCustomKeyboard}
@@ -485,7 +488,7 @@ export function SkinSettingsPage({
         <AiSkinGeneration
           client={aiSkins}
           library={customSkinLibrary}
-          communitySkins={client.communitySkins}
+          communitySkins={publishSkins}
           touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           fullScreen
           useLabel="使用这款皮肤"
