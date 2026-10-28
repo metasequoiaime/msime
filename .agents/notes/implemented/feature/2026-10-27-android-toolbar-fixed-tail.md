@@ -27,3 +27,4 @@ Android 功能面板加入新入口后，设置、反馈、宣传、官网和关
 
 - `FunctionPanelModelSmoke` 锁定第三页和全量列表的固定尾部顺序。
 - Android host 编译和设备面板验收待磁盘空间恢复到仓库规定的 50 GiB 启动线后补跑。
+- `MoreToolsDeviceSmoke` 当时没跟着改，设置不在第一页后它一直失败，已按固定尾部改成跨页全序检查，见[夜间设备验收归因](../bug-fix/2026-10-28-android-nightly-device-failures.md)。
