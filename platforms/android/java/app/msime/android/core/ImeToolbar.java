@@ -93,21 +93,28 @@ final class ImeToolbar {
         }
     }
 
-    /** 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。 */
-    void applyShortcutSize(int percent, boolean custom) {
+    /**
+     * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。
+     *
+     * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
+     */
+    void applyShortcutSize(int percent, boolean custom, int rowHeightPx) {
         if (shortcutButtons == null) return;
-        int height = s.pixels(ToolbarSizePolicy.buttonHeightDp(percent));
+        int followedButton = s.pixels(44);
+        int height = custom ? s.pixels(ToolbarSizePolicy.buttonHeightDp(percent))
+            : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton);
+        int drawPercent = custom ? percent : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton);
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
         for (Button button : new Button[] {s.moreButton, s.dismissShortcutButton}) {
             if (button == null) continue;
             resizeButton(button, edgeWidth, height);
-            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
-            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(percent);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(drawPercent);
         }
         for (Button button : shortcutButtons) {
             resizeButton(button, middleWidth, height);
-            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
         }
         Button result = s.imeCalculator.chip();
         if (result != null && result.getLayoutParams() != null
@@ -126,7 +133,7 @@ final class ImeToolbar {
                     button.getLayoutParams().width = edgeWidth;
                     button.requestLayout();
                 }
-                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
             }
         }
     }

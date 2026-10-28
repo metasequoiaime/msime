@@ -4655,7 +4655,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
         if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
-        // 未单独设置工具栏尺寸时继续跟随读音行与候选行。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白。
+        // 未单独设置工具栏尺寸时继续跟随读音行与候选行，「候选栏大小」调小时工具栏这一行跟着变矮，按钮在 applyShortcutSize 里随行高缩小。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白，不允许工具栏单独比候选栏矮。
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
         int composingHeight = readingRow + pixels(line);
         boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
@@ -4681,7 +4681,7 @@ public final class MSIMEInputService extends InputMethodService {
                     ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
             ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
         }
-        imeToolbar.applyShortcutSize(sizePercent, customSize);
+        imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight);
     }
 
     private int readingRowHeight() {

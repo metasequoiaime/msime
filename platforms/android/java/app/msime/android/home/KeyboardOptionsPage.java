@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidateScalePolicy;
 import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -294,13 +295,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         if (toolbar == null) toolbar = new JSONObject();
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
+        int candidateScale = CandidateScalePolicy.percent(
+            NumberPolicy.strictInt(preferences, "candidate_scale_percent", CandidateScalePolicy.DEFAULT_PERCENT));
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin(),
             TouchKeyStyle.Row.LONG_SPACE.wire.equals(JsonPolicy.strictString(
-                preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)))));
+                preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE))), candidateScale));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
+        // 共享偏好 `candidate_scale_percent`，与 iOS、鸿蒙同一范围和说法（#10137）：候选栏和跟随它的空闲工具栏一起变矮或变高，按键不动。工具栏隐藏时候选栏照样缩放，所以这一行不跟着置灰。
+        bar.slider("候选栏大小", "候选字和工具栏一起缩放，按键大小不变",
+            CandidateScalePolicy.MIN_PERCENT, CandidateScalePolicy.MAX_PERCENT, CandidateScalePolicy.STEP_PERCENT,
+            candidateScale, value -> value + "%", this::saveCandidateScale);
         boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
-        bar.nav("工具栏尺寸", "独立调整空闲工具栏、图标和按钮；候选栏及键盘高度不变",
+        bar.nav("工具栏尺寸", "跟随候选栏时随「候选栏大小」缩放；单独设定后只调整工具栏的图标和按钮，较矮的一侧在上方留白，按键不跳动",
             customToolbarSize ? toolbarSize + "%" : "跟随候选栏",
             hidden ? null : () -> pickToolbarSize(customToolbarSize, toolbarSize));
         bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
@@ -356,9 +363,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
-    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。26 键选了长空格样式时符号入口在工具栏上，预览也画出来。 */
+    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。26 键选了长空格样式时符号入口在工具栏上，预览也画出来。跟随候选栏时预览高度和字号随「候选栏大小」变化，与键盘一样不高于 44 dp 的按钮高。 */
     private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
-                                       KeyboardSkin skin, boolean longSpace) {
+                                       KeyboardSkin skin, boolean longSpace, int candidateScale) {
         LinearLayout strip = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(strip);
         int pad = DimensionPolicy.pixels(context, 12);
@@ -370,8 +377,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), ThemeColorPolicy.subText(context));
-        int sizePercent = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT)
-            ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        boolean customSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int sizePercent = customSize ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        int buttonDp = ToolbarSizePolicy.buttonHeightDp(sizePercent);
+        int previewDp = customSize ? buttonDp : ToolbarSizePolicy.followedButtonHeight(
+            ToolbarSizePolicy.followedHeightDp(candidateScale), buttonDp);
+        int chipPercent = customSize ? sizePercent : ToolbarSizePolicy.followedPercent(previewDp, buttonDp);
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
@@ -384,12 +395,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), sizePercent);
-            if (longSpace) addChip(context, plate, "符", icon, sizePercent);
+            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
+            if (longSpace) addChip(context, plate, "符", icon, chipPercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
+                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, chipPercent);
         }
-        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, ToolbarSizePolicy.buttonHeightDp(sizePercent)));
+        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, previewDp));
         strip.setContentDescription("工具栏预览");
         return strip;
     }
@@ -649,6 +660,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
         }
         sheet.show();
+    }
+
+    /** 回到 100% 时从文档里删掉这一项，与共享设置页 `candidateScalePatch` 写缺省值的方式相同。 */
+    private void saveCandidateScale(int value) {
+        int percent = CandidateScalePolicy.percent(value);
+        savePreferences(preferences -> {
+            if (percent == CandidateScalePolicy.DEFAULT_PERCENT) preferences.remove("candidate_scale_percent");
+            else preferences.put("candidate_scale_percent", percent);
+        });
     }
 
     private static String animationLabel(String value) {
