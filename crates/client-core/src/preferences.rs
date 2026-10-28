@@ -231,12 +231,21 @@ pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     ]
 }
 
-/// 读进来的排列补上它不认识的侧边动作：新版本加了动作（例如选择行）之后，旧文档、旧的设置导出和同步来的偏好只列着当时那几个，不补的话整份偏好通不过 [`Preferences::validate`]，Windows 的 Server 因此起不来。缺的动作按默认排列的先后接在末尾，用户排好的顺序不动；重复和未知的动作照旧由校验和枚举拒绝。
+/// 读进来的排列总能变成一份完整的排列：本版本认识的动作按第一次出现的位置保留，不认识的名字（更新的版本加的动作）、重复的动作和不是字符串的元素丢掉，缺的动作按默认排列的先后接在末尾，用户排好的顺序不动。
+///
+/// 这只是面板上按钮的先后，却在偏好文档里和输入方案放在一起：#9802 加了「选择行」以后，旧文档只列着七个动作，整份偏好通不过 [`Preferences::validate`]，iOS 键盘、HarmonyOS 和 Windows 的 Server 都准备不了运行时，用户打不了字（#9975 先补上了缺的动作）。反过来，旧版本读到新版本写的排列，会因为不认识新动作同样整份读不了。所以读的时候一律放宽：丢掉一个本版本画不出来的按钮，更新的版本读回去时会把它接在末尾补上。不是数组时照旧报错。直接交给 [`Preferences::validate`] 的结构体仍按完整、不重复的排列严格校验。
 fn deserialize_text_edit_button_order<'de, D>(d: D) -> Result<Vec<TextEditButton>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let mut order = Vec::<TextEditButton>::deserialize(d)?;
+    let mut order = Vec::new();
+    for value in Vec::<serde_json::Value>::deserialize(d)? {
+        if let Ok(button) = serde_json::from_value::<TextEditButton>(value) {
+            if !order.contains(&button) {
+                order.push(button);
+            }
+        }
+    }
     for button in default_text_edit_button_order() {
         if !order.contains(&button) {
             order.push(button);
@@ -725,21 +734,30 @@ pub struct TouchKeyboardSchemePreferences {
     pub selected: Option<TouchKeyboardScheme>,
 }
 
-/// 文档里可能出现的方案取值：现行方案，加上已经退役的 `thoughtful_reply`。高情商回复曾是一个触屏方案，现在改为键盘工具栏上的工具，旧文档里留下的这个取值在读入时迁移掉，而不是让整份偏好读取失败。其它不认识的取值（比如更新版本写入的方案）仍然报错，保持文档原样不动。
+/// 文档里可能出现的方案取值：现行方案，已经退役的 `thoughtful_reply`，以及本版本不认识的名字。
+///
+/// 高情商回复曾是一个触屏方案，现在改为键盘工具栏上的工具，旧文档里留下的这个取值在读入时迁移掉。不认识的名字是更新的版本加的方案（这个枚举几天里就加过十八键、粤语双拼几个值），降级、从每日构建退回正式版、macOS 输入法比设置应用新时都会读到：读入时同样丢掉，而不是让整份偏好读不了、连带输入运行时起不来。丢掉的名字在读盘时记下、保存时接回列表末尾（[`newer_list_values`]），更新的版本读回去时用户启用的方案还在；退役的取值不接回。
 #[derive(Deserialize)]
 enum StoredTouchKeyboardScheme {
     #[serde(rename = "thoughtful_reply")]
     RetiredThoughtfulReply,
     #[serde(untagged)]
     Current(TouchKeyboardScheme),
+    #[serde(untagged)]
+    Newer(#[allow(dead_code)] String),
 }
 
 impl StoredTouchKeyboardScheme {
     fn current(self) -> Option<TouchKeyboardScheme> {
         match self {
-            Self::RetiredThoughtfulReply => None,
+            Self::RetiredThoughtfulReply | Self::Newer(_) => None,
             Self::Current(scheme) => Some(scheme),
         }
+    }
+
+    /// 文档里的这个取值是更新的版本写下的方案名：读盘时要记下、保存时接回。
+    fn is_newer(value: &serde_json::Value) -> bool {
+        matches!(Self::deserialize(value), Ok(Self::Newer(_)))
     }
 }
 
@@ -764,7 +782,7 @@ impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferenc
                     .into_iter()
                     .filter_map(StoredTouchKeyboardScheme::current)
                     .collect();
-                // 列表里只剩退役方案时，按各平台对空列表的约定回到全拼 26 键；原本就存成空列表的文档不在这里补，仍由 `validate` 拒绝。
+                // 列表里只剩退役方案或本版本不认识的方案时，按各平台对空列表的约定回到全拼 26 键；原本就存成空列表的文档不在这里补，仍由 `validate` 拒绝。
                 if enabled.is_empty() && stored_count > 0 {
                     enabled.insert(TouchKeyboardScheme::Quanpin);
                 }
@@ -775,11 +793,15 @@ impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferenc
             enabled,
             selected: None,
         };
-        preferences.selected = stored.selected.map(|selected| {
-            selected
-                .current()
-                .unwrap_or_else(|| preferences.first_enabled())
-        });
+        preferences.selected = match stored.selected {
+            None => None,
+            Some(StoredTouchKeyboardScheme::Current(scheme)) => Some(scheme),
+            Some(StoredTouchKeyboardScheme::RetiredThoughtfulReply) => {
+                Some(preferences.first_enabled())
+            }
+            // 更新的版本选中的方案本版本画不出来，当作没选；原值在读盘时记下，本版本没选别的方案就在保存时放回（见 [`newer_list_values`]）。
+            Some(StoredTouchKeyboardScheme::Newer(_)) => None,
+        };
         preferences
     }
 }
@@ -1464,7 +1486,7 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
-    /// Android 文本编辑面板全部侧边动作的完整排列；其他宿主保留但不使用。读入时补上旧文档缺的动作（见 `deserialize_text_edit_button_order`）。
+    /// Android 文本编辑面板全部侧边动作的完整排列；其他宿主保留但不使用。读入时丢掉不认识和重复的动作、补上缺的动作（见 `deserialize_text_edit_button_order`）。
     #[serde(
         default = "default_text_edit_button_order",
         deserialize_with = "deserialize_text_edit_button_order"
@@ -3810,7 +3832,8 @@ fn is_true(value: &bool) -> bool {
 pub struct FuzzyPinyinPreferences {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    /// 读入时丢掉更新的版本加的规则，而不是让整份偏好读不了；丢掉的规则在读盘时记下、保存时接回（见 [`newer_list_values`]）。
+    #[serde(default, deserialize_with = "deserialize_known_elements")]
     pub rules: BTreeSet<FuzzyPinyinRule>,
     /// Internal marker used to distinguish first enable from an intentionally
     /// empty rule selection. It is persisted but never rendered by the UI.
@@ -4841,6 +4864,14 @@ pub enum PreferencesError {
     Json(#[from] serde_json::Error),
 }
 
+/// [`PreferencesStore::load_for_runtime`] 读到的偏好。
+#[derive(Debug)]
+pub struct RuntimePreferences {
+    pub snapshot: PreferencesSnapshot,
+    /// 严格读取失败的原因。`Some` 时 `snapshot` 是在内存里从文档救下来的偏好，盘上的文件原样未动，宿主应当经诊断出口报告它。
+    pub load_error: Option<PreferencesError>,
+}
+
 /// What `PreferencesStore::recover` did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryOutcome {
@@ -4998,17 +5029,12 @@ impl PreferencesStore {
             || PreferencesError::DocumentTooLarge,
         )?;
         let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
-        // 只在读磁盘时回退新版本的未知布局；设置提交仍由枚举反序列化严格校验。
-        if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
-            if layout
-                .as_str()
-                .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
-            {
-                *layout = "dubeolsik".into();
-            }
-        }
-        let (mut snapshot, unknown) =
+        settle_newer_values_on_read(&mut document);
+        let (mut snapshot, mut unknown) =
             deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
+        if let Some(preferences) = document.get("preferences") {
+            unknown.extend(newer_list_values(preferences));
+        }
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
         }
@@ -5029,6 +5055,52 @@ impl PreferencesStore {
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         self.read_locked()
+    }
+
+    /// 输入运行时（准备宿主、建会话）读偏好：[`Self::load`] 读得了就是它的结果；读不了而且不是存储故障时，不让用户因此打不了字，在内存里从文档救下本版本认得的设置，其余取本存储所属版本的默认值，连同读不了的原因一起交出。
+    ///
+    /// 一份偏好文档里只要有一个键通不过（更新的版本写的取值、旧版本写下而本版本校验更严的值、写坏的字节），整份就读不了；以前宿主把这当成准备失败，iOS 键盘、HarmonyOS 和 Windows 的 Server 因此完全打不了字（#9802）。读不了的文件仍然不改写、不拿默认值盖掉，理由与 [`Self::recover_malformed`] 相同：它多半出自更新的版本，悄悄改写会丢掉那个版本的设置。降级只发生在内存里：之后任何保存都会在锁里重新严格读一遍（[`Self::save`]），文档读不了就写不进去，设置界面照旧经 [`Self::load`] 读到错误、由用户决定是否修复（[`Self::recover`]）。
+    ///
+    /// 救下的快照沿用文档里的修订号（读不出时为 0）：修复或更新的版本改写文件后修订号前进，宿主照常重新读取。
+    pub fn load_for_runtime(&self) -> Result<RuntimePreferences, PreferencesError> {
+        let _lock = self.lock()?;
+        let failure = match self.read_locked() {
+            Ok(snapshot) => {
+                return Ok(RuntimePreferences {
+                    snapshot,
+                    load_error: None,
+                })
+            }
+            Err(PreferencesError::Io(error)) => return Err(PreferencesError::Io(error)),
+            Err(failure) => failure,
+        };
+        let document = match crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file_in(&self.path())?,
+            MAX_DOCUMENT_BYTES,
+            || PreferencesError::DocumentTooLarge,
+        ) {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+            Err(PreferencesError::DocumentTooLarge) => None,
+            Err(error) => return Err(error),
+        };
+        let revision = document
+            .as_ref()
+            .and_then(|document| document.get("revision"))
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let preferences = match document {
+            Some(document) => Preferences::salvaged_from(document, self.default_preferences())?,
+            None => self.default_preferences(),
+        };
+        crate::network::install(&preferences.network);
+        Ok(RuntimePreferences {
+            snapshot: PreferencesSnapshot {
+                format_version: 1,
+                revision,
+                preferences,
+            },
+            load_error: Some(failure),
+        })
     }
 
     /// None means the writer lock is busy; retry later without using defaults.
@@ -5312,6 +5384,82 @@ impl PreferencesStore {
     }
 }
 
+/// 枚举列表里的一个元素：本版本认识的取值，或者别的字符串（更新的版本加的取值）。不是字符串的元素仍然报错。
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum KnownOrNewer<T> {
+    Known(T),
+    Newer(#[allow(dead_code)] String),
+}
+
+/// 枚举集合的宽松读法：只留本版本认识的取值，更新的版本加的名字丢掉，见 [`newer_list_values`]。
+fn deserialize_known_elements<'de, D, T>(d: D) -> Result<BTreeSet<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Ord,
+{
+    Ok(Vec::<KnownOrNewer<T>>::deserialize(d)?
+        .into_iter()
+        .filter_map(|element| match element {
+            KnownOrNewer::Known(value) => Some(value),
+            KnownOrNewer::Newer(_) => None,
+        })
+        .collect())
+}
+
+/// 判断列表里的一个元素是不是更新的版本写下的取值。
+type IsNewerValue = fn(&serde_json::Value) -> bool;
+
+/// 读入时丢掉更新版本取值、保存时要接回的枚举列表：从 `preferences` 对象起的路径，和判断一个元素是不是更新的版本写下的名字的办法。只收两种文档总会写出这个列表的字段，接回时列表一定在；只决定先后的列表（文本编辑面板的排列）不在这里，丢掉的动作由更新的版本自己补回。
+const NEWER_VALUE_LISTS: [(&[&str], IsNewerValue); 2] = [
+    (
+        &["touch_keyboard_schemes", "enabled"],
+        StoredTouchKeyboardScheme::is_newer,
+    ),
+    (&["fuzzy_pinyin", "rules"], is_newer_fuzzy_pinyin_rule),
+];
+
+fn is_newer_fuzzy_pinyin_rule(value: &serde_json::Value) -> bool {
+    value.is_string() && FuzzyPinyinRule::deserialize(value).is_err()
+}
+
+/// `preferences`（偏好文档里的 `preferences` 对象）里更新的版本写下、本版本读入时丢掉的取值，作为 [`UnknownPreferenceField`] 交出，保存时原样接回：[`NEWER_VALUE_LISTS`] 里各列表不认识的元素，以及选中的触屏方案是本版本不认识的方案时它的原值。
+///
+/// 偏好结构的宽松读法只保证读得进来；不接回的话，本版本一保存，用户在更新的版本里启用的方案、模糊音规则就没了。
+pub(crate) fn newer_list_values(preferences: &serde_json::Value) -> Vec<UnknownPreferenceField> {
+    let mut newer = Vec::new();
+    for (path, is_newer) in NEWER_VALUE_LISTS {
+        let Some(serde_json::Value::Array(elements)) = path
+            .iter()
+            .try_fold(preferences, |node, key| node.get(*key))
+        else {
+            continue;
+        };
+        let values: Vec<_> = elements
+            .iter()
+            .filter(|value| is_newer(value))
+            .cloned()
+            .collect();
+        if !values.is_empty() {
+            newer.push(UnknownPreferenceField {
+                path: path.iter().map(|key| key.to_string()).collect(),
+                value: serde_json::Value::Array(values),
+                elements: true,
+            });
+        }
+    }
+    if let Some(selected) = preferences.pointer("/touch_keyboard_schemes/selected") {
+        if StoredTouchKeyboardScheme::is_newer(selected) {
+            newer.push(UnknownPreferenceField {
+                path: vec!["touch_keyboard_schemes".into(), "selected".into()],
+                value: selected.clone(),
+                elements: false,
+            });
+        }
+    }
+    newer
+}
+
 /// 偏好文档里本版本不认识的一个键：从 `preferences` 对象起的键路径和它的原值。
 ///
 /// 偏好文档由好几个程序各自按自己的版本读写：macOS 的输入法由 Sparkle 单独更新，设置应用和 `msime-mcp` 不跟着变，Windows、Linux 的宿主也会写设置页不认识的键。偏好结构因此不拒绝未知键，读取时记下它们，保存时放回原处，旧版本读得了新版本的文档，也不会把新版本的设置抹掉。
@@ -5319,6 +5467,8 @@ impl PreferencesStore {
 pub(crate) struct UnknownPreferenceField {
     path: Vec<String>,
     value: serde_json::Value,
+    /// `value` 是数组 `path` 里本版本不认识、读入时丢掉的那些元素（[`newer_list_values`]），保存时接回本版本写出的同一个数组末尾；否则 `value` 是这个键的原值。
+    elements: bool,
 }
 
 /// 把 `document` 反序列化成 `T`，同时收集 `prefix`（逐级的对象键）之下本版本不认识的键。路径经过数组元素的键不收集：数组整个属于一个已知字段，元素位置在新旧版本之间没有对应关系。
@@ -5349,6 +5499,7 @@ pub(crate) fn deserialize_keeping_unknown<T: serde::de::DeserializeOwned>(
             Some(UnknownPreferenceField {
                 path: rest.to_vec(),
                 value,
+                elements: false,
             })
         })
         .collect();
@@ -5371,7 +5522,7 @@ fn object_key_path(path: &serde_ignored::Path<'_>) -> Option<Vec<String>> {
     }
 }
 
-/// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。
+/// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。列表里不认识的元素接在本版本写出的同一个列表末尾，列表里已经有的不重复接。
 fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[UnknownPreferenceField]) {
     for field in unknown {
         let Some((key, parents)) = field.path.split_last() else {
@@ -5383,6 +5534,19 @@ fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[Unknow
         else {
             continue;
         };
+        if field.elements {
+            let (Some(serde_json::Value::Array(list)), serde_json::Value::Array(values)) =
+                (parent.get_mut(key.as_str()), &field.value)
+            else {
+                continue;
+            };
+            for value in values {
+                if !list.contains(value) {
+                    list.push(value.clone());
+                }
+            }
+            continue;
+        }
         parent
             .entry(key.clone())
             .or_insert_with(|| field.value.clone());
@@ -5393,6 +5557,34 @@ fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[Unknow
 fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>) -> bool {
     serde_json::from_value::<Preferences>(serde_json::Value::Object(candidate.clone()))
         .is_ok_and(|preferences| preferences.validate().is_ok())
+}
+
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前只有韩文布局：更新的版本的未知布局回退到两套式。
+fn settle_newer_values_on_read(document: &mut serde_json::Value) {
+    if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
+        if layout
+            .as_str()
+            .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
+        {
+            *layout = "dubeolsik".into();
+        }
+    }
+}
+
+impl Preferences {
+    /// 从一份读不了的偏好文档（`{"preferences": {...}}`，或者偏好对象本身）里救下本版本认得的设置，其余取 `default`，只在内存里，不碰任何文件。逐键的取舍与 [`PreferencesStore::recover`] 相同；结果总能通过 [`Self::validate`]。输入运行时拿它在偏好读不了时照常运行（[`PreferencesStore::load_for_runtime`]，以及宿主选项里的偏好副本读不了、又没有实时文档可读的时候）。
+    pub fn salvaged_from(
+        mut document: serde_json::Value,
+        default: Preferences,
+    ) -> Result<Preferences, PreferencesError> {
+        if document.get("preferences").is_none() {
+            document = serde_json::json!({ "preferences": document });
+        }
+        settle_newer_values_on_read(&mut document);
+        let (mut preferences, _) = salvage_preferences(&document, default)?;
+        preferences.voice_input.retire_unavailable_asr_model();
+        Ok(preferences)
+    }
 }
 
 /// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.

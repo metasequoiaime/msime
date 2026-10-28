@@ -13,11 +13,11 @@ Status: implemented
 - 偏好文档里的结构不再带 `deny_unknown_fields`，读到不认识的键时忽略它。外层信封 `PreferencesSnapshot`（`format_version`、`revision`、`preferences`）仍然严格，信封格式变化由 `format_version` 管。
 - `PreferencesStore` 读文档时用 `serde_ignored`（`deserialize_keeping_unknown`）记下 `preferences` 之下本版本不认识的键路径和原值（`UnknownPreferenceField`）；`save` 在同一把锁里读出它们，写入时由 `restore_unknown_fields` 放回原处。于是旧版本保存不会抹掉新版本的设置。
 - 放回的规则：
-  - 只按对象键定位，经过数组元素的路径不收集，因为数组整个属于一个已知字段。
+  - 只按对象键定位，经过数组元素的路径不收集，因为数组整个属于一个已知字段。例外是触屏方案启用列表和模糊音规则里本版本不认识的元素，它们接回同一个列表末尾（`newer_list_values`）。
   - 父对象这次因取默认值没写出时不放，不凭一个未知键重建半个已知对象。
   - 本版本已写出同名键时以本版本为准。
 - 「恢复默认设置」（`restore_defaults`）不放回未知键：用户要的是整份回到默认。第一次写文件（`write_first_document`）没有未知键。
-- Host API 的 `HostOptions::from_document` 不变：运行时选项里的偏好副本读得进就用副本，读不进才由实时的 `preferences.json` 顶替。带退役键的副本（#2830 的 `autocorrect`）现在自己就读得进，不再走顶替。
+- Host API 的 `HostOptions::from_document`：运行时选项里的偏好副本读得进、通过校验就用副本，否则由实时的 `preferences.json` 顶替，实时文档也读不了时在内存里救下认得的设置（见 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)）。带退役键的副本（#2830 的 `autocorrect`）现在自己就读得进，不再走顶替。
 - 设置文件导入（`settings_document::import_document`）仍然拒绝带未知设置的文件：它出自更新的版本，只导入认识的部分会悄悄丢掉其余设置，所以返回 `settings_document_unsupported`，行为与以前相同。
 
 ### 保存失败要看得见
@@ -38,7 +38,7 @@ Status: implemented
 - **收益**：输入法和设置应用、`msime-mcp`、各平台宿主之间版本错开时，新增键不再让任何一方整份拒读，旧版本保存也不丢新版本的设置。以后新增偏好字段，不必再为旧版本拒读而权衡放在哪一层、默认时写不写出。
 - **代价与已知上限**：
   - 拼错或退役的键不再报错，会作为未知键一直留在文档里。
-  - 新版本给枚举加了新取值（例如新的输入方案名、新的键位名）时，旧版本照样读不了整份文档，本次不处理。
+  - 新版本给枚举加了新取值（例如新的输入方案名、新的键位名）时，旧版本照样读不了整份文档，本次不处理。后来由 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md) 接手：文本编辑排列、触屏方案和模糊音规则里的新取值读入时丢掉（后两者保存时接回），其余字段仍让整份文档读不了，但输入运行时不再因此停下。
   - 带自定义反序列化、先读成别的中间形状的字段，内部的未知键是否被记下，取决于中间形状是否经过同一个反序列化器；`#[serde(from = ...)]` 会经过。
   - 只有经由 `PreferencesStore` 的写入保留未知键：Linux 的 `runtime-options.json` 副本、导出的设置文件都只含本版本认识的键。
   - 0.53.0 及更早已发出的版本仍然严格，只有带上这次改动的版本之间才互相容忍。

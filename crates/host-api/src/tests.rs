@@ -7929,20 +7929,29 @@ fn session_reads_live_preferences_when_the_options_copy_is_refused() {
     // 副本本身读不了（取值类型不对）时，由实时的 preferences.json 顶替。
     let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
     stale["candidate_page_size"] = json!("six");
-    let options = |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
+    let stale_options =
+        |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
 
-    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
-    assert_eq!(
-        create(options(&missing))["error"],
-        "invalid options document"
-    );
+    // 没有实时文档可以顶替：在内存里救下副本认得的设置照常建会话，读不了的那个键取默认值；看一眼不会创建目录。
+    let created = create(stale_options(&missing));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     assert!(!missing.exists());
+
+    // 副本解析得了却通不过校验（#9802：旧版本准备时写下的副本，新版本的校验更严）时同样不再拒绝。
+    let mut stricter = serde_json::to_value(chinese_preferences()).unwrap();
+    stricter["candidate_page_size"] = json!(99);
+    let created = create(options(&missing, &stricter));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 
     let state = path("state");
     PreferencesStore::new(&state)
         .save(0, chinese_preferences())
         .unwrap();
-    let created = create(options(&state));
+    let created = create(stale_options(&state));
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
@@ -13121,6 +13130,114 @@ fn the_c_abi_repairs_and_reloads_a_non_full_state_root_to_its_own_defaults() {
     assert_eq!(
         serde_json::from_value::<Preferences>(loaded["value"]["preferences"].clone()).unwrap(),
         Preferences::for_edition(wubi)
+    );
+}
+
+/// #9802：已有的 preferences.json 读不了（这里是更新的版本写下的取值和本版本校验通不过的取值）时，准备宿主不再失败，用户照常能打字；设置界面经严格读取看到的仍是错误，文件原样不动，直到用户修复或更新的版本改写它。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn preparing_over_an_unreadable_preferences_document_still_types() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let full = Edition::full();
+    let state = root.path().join("state");
+    let prepare = || -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(&resources, &state, &specification, &[], full)
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    prepare();
+    let document = state.join("preferences.json");
+    let path = state.to_str().unwrap();
+    let mut customized = serde_json::to_value(Preferences {
+        candidate_page_size: 7,
+        ..chinese_preferences()
+    })
+    .unwrap();
+    // #9802 那一类：本版本之前写下、本版本校验更严的值；以及更新的版本的枚举取值。
+    let unreadable: Vec<(&str, Value)> = vec![
+        ("stricter validation", json!({"candidate_font_size": 99})),
+        (
+            "newer enum value",
+            json!({"candidate_layout": "future_layout"}),
+        ),
+        (
+            "newer list element type",
+            json!({"fuzzy_pinyin": {"enabled": false, "rules": [1]}}),
+        ),
+    ];
+    for (kind, broken) in unreadable {
+        for (key, value) in broken.as_object().unwrap() {
+            customized[key] = value.clone();
+        }
+        let bytes = serde_json::to_vec(
+            &json!({"format_version": 1, "revision": 12, "preferences": customized}),
+        )
+        .unwrap();
+        std::fs::write(&document, &bytes).unwrap();
+        let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+        assert_eq!(loaded["ok"], false, "{kind}: {loaded}");
+
+        let prepared = prepare();
+        // 读得了的设置留下，读不了的取默认值。
+        assert_eq!(prepared["preferences"]["candidate_page_size"], 7, "{kind}");
+        assert_eq!(std::fs::read(&document).unwrap(), bytes, "{kind}");
+        let options = prepared.to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{kind}: {created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let typed = read(msime_client_character(handle, b'n', false));
+        assert_eq!(typed["value"]["handled"], true, "{kind}: {typed}");
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        // 修复由用户在设置界面明确发起，之后严格读取恢复正常。
+        assert_eq!(std::fs::read(&document).unwrap(), bytes, "{kind}");
+        customized = serde_json::to_value(Preferences {
+            candidate_page_size: 7,
+            ..chinese_preferences()
+        })
+        .unwrap();
+    }
+    let repaired = read(unsafe { msime_client_repair_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(repaired["value"]["recovered"], true, "{repaired}");
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    assert_eq!(loaded["value"]["preferences"]["candidate_page_size"], 7);
+
+    // 事故里的那份文档：v0.6.0 写下的七个动作，现在直接读得了，准备时不经过降级。
+    let mut legacy = serde_json::to_value(chinese_preferences()).unwrap();
+    legacy["touch_text_edit_button_order"] = json!([
+        "delete",
+        "copy",
+        "paste",
+        "select_all",
+        "cut",
+        "space",
+        "number_pad"
+    ]);
+    std::fs::write(
+        &document,
+        serde_json::to_vec(&json!({"format_version": 1, "revision": 30, "preferences": legacy}))
+            .unwrap(),
+    )
+    .unwrap();
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    assert_eq!(
+        prepare()["preferences"]["touch_text_edit_button_order"],
+        json!([
+            "delete",
+            "copy",
+            "paste",
+            "select_all",
+            "cut",
+            "space",
+            "number_pad",
+            "select_line"
+        ])
     );
 }
 
