@@ -411,17 +411,10 @@ final class PersonalDictionaryStore: @unchecked Sendable {
       }
       if state.pendingCount == 0 { state.completedRefreshID = state.refreshID }
       do {
-        let request = PersonalPageRequest(offset: state.requestedPageOffset, kind: state.requestedKind,
-                                          query: state.requestedQuery)
+        let request = Self.requestedPage(state)
         let snapshot = try page(request)
         guard snapshot.entries.count <= 100 else { throw StoreError.invalidState }
-        state.entries = snapshot.entries
-        state.hasMore = snapshot.hasMore
-        state.pageOffset = request.offset
-        state.pageKind = request.kind
-        state.pageQuery = request.query
-        state.snapshotDate = Date()
-        state.snapshotError = nil
+        Self.adopt(snapshot, for: request, into: &state)
       } catch {
         // Preserve the last confirmed list and every edit acknowledgement even if refresh fails.
         state.snapshotError = String(error.localizedDescription.prefix(500))
@@ -444,6 +437,47 @@ final class PersonalDictionaryStore: @unchecked Sendable {
         state.exportResult = result
       }
     }
+  }
+
+  private static func requestedPage(_ state: PersonalDictionaryState) -> PersonalPageRequest {
+    PersonalPageRequest(offset: state.requestedPageOffset, kind: state.requestedKind, query: state.requestedQuery)
+  }
+
+  private static func adopt(_ snapshot: PersonalWordPage, for request: PersonalPageRequest,
+                            into state: inout PersonalDictionaryState) {
+    state.entries = snapshot.entries
+    state.hasMore = snapshot.hasMore
+    state.pageOffset = request.offset
+    state.pageKind = request.kind
+    state.pageQuery = request.query
+    state.snapshotDate = Date()
+    state.snapshotError = nil
+  }
+
+  /// 读页期间文件被别人换过，这一页作废。
+  private struct Superseded: Error {}
+
+  /// 不经键盘，把列表换成词库里现在的那一页（请求的页码、种类和编码前缀照旧）：设置 App 的词库同步把网盘来的词或删除写进 Engine 之后调用，否则「我的词条」一直停在键盘上次写下的那一页，直到用户打开一次键盘。
+  ///
+  /// `page` 在锁外读，读的时候不拿 `sync.lock`，也不拿进程内的锁，主线程上的入队和翻页不会等它；写回之前在锁里核对文件还是读页之前那一个，被换过（键盘应用了编辑并写下了更新的一页，或者页面入队、翻了页）就重来，最多三次，仍被换过时返回 `false`，留给键盘。只改列表那几项，不动编辑队列、`refreshID` 和 `completedRefreshID`，键盘照常应用排队的编辑和导出。键盘正在同步时抛出 `busy`，那一轮它自己会写下新的一页。
+  @discardableResult
+  func refreshPage(_ page: (PersonalPageRequest) throws -> PersonalWordPage) throws -> Bool {
+    for _ in 0..<3 {
+      let before = fileRevision()
+      let request = Self.requestedPage(try read())
+      let snapshot = try page(request)
+      guard snapshot.entries.count <= 100 else { throw StoreError.invalidState }
+      do {
+        try update { state in
+          guard fileRevision() == before else { throw Superseded() }
+          Self.adopt(snapshot, for: request, into: &state)
+        }
+        return true
+      } catch is Superseded {
+        continue
+      }
+    }
+    return false
   }
 
   /// A copy of the written export under its desktop name, for the share sheet. The shared file stays where the keyboard wrote it.

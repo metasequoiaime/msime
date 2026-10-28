@@ -164,7 +164,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
         layout.nav("符号分类顺序", "调整符号面板底部分类的排列顺序",
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show());
-        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
+        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号上滑或下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
             settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT),
             checked -> saveLocalSetting(AndroidLocalSettings.LONG_SPACE_LAYOUT, checked));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。

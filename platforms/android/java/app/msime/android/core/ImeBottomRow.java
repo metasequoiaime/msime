@@ -35,7 +35,7 @@ final class ImeBottomRow {
         this.s = s;
     }
 
-    /** 长空格模式的逗号下滑输入句号，普通短按和已有长按动作保持原样。 */
+    /** 长空格模式的逗号上滑或下滑输入句号，普通短按和已有长按动作保持原样。 */
     void updateCommaSwipe() {
         if (s.quickPunctuationButton == null) return;
         boolean enabled = s.longSpaceLayoutActive(s.imeLetterRows.drawnTouchLayout())
@@ -45,14 +45,16 @@ final class ImeBottomRow {
         if (bottomCommaSwipeButton != null) bottomCommaSwipeButton.setOnTouchListener(null);
         bottomCommaSwipeButton = s.quickPunctuationButton;
         bottomCommaSwipeBound = enabled;
-        if (enabled) bindCommaDownSwipe(bottomCommaSwipeButton);
+        if (enabled) bindCommaSwipe(bottomCommaSwipeButton);
     }
 
-    /** 数字层的逗号键和字母层共用同一手势。 */
-    void bindCommaDownSwipe(Button button) {
+    /** 数字层的逗号键和字母层共用同一手势。上滑和下滑都输入句号：#9881 要的是下滑，而字母键滑动输入符号默认是上滑（`platform.android.swipe_symbols_direction`），只认下滑时照字母键习惯上滑什么也不出。逗号键没有别的纵向手势，两个方向都接不会冲突。 */
+    void bindCommaSwipe(Button button) {
         final float[] start = new float[2];
         final boolean[] swiped = new boolean[1];
-        final int slop = ViewConfiguration.get(s).getScaledTouchSlop();
+        // 门槛与字母键滑动输入符号相同（14 dp，严格大于），不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
+        final float threshold = SwipeHintPolicy.THRESHOLD_DP * s.getResources().getDisplayMetrics().density;
+        final int longPress = ViewConfiguration.getLongPressTimeout();
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
@@ -62,9 +64,11 @@ final class ImeBottomRow {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
+                    // 按满长按时限还没滑出去，这次触摸已经归长按（长按逗号输入句号），之后手指挪动不能再起滑动，否则松手会多输入一个。
+                    if (!swiped[0] && event.getEventTime() - event.getDownTime() >= longPress) return false;
                     float dx = event.getX() - start[0];
                     float dy = event.getY() - start[1];
-                    if (dy > slop && dy > Math.abs(dx)) {
+                    if (Math.abs(dy) > threshold && Math.abs(dy) > Math.abs(dx)) {
                         swiped[0] = true;
                         button.cancelLongPress();
                         button.setPressed(false);

@@ -461,7 +461,7 @@ struct CloudClipboardView: View {
     if item.pinned == true { parts.append("已置顶") }
     if let device = item.device { parts.append(device) }
     if let date = CloudClipboardTimePolicy.date(item.updated_at) {
-      parts.append(Self.relative.localizedString(for: min(date, Date()), relativeTo: Date()))
+      parts.append(CloudClipboardTimePolicy.relative(date, formatter: Self.relative))
     }
     return parts.joined(separator: " · ")
   }

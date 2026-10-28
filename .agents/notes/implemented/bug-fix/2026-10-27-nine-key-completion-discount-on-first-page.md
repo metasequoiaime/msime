@@ -139,6 +139,8 @@ Status: implemented
 - 14 键双拼、18 键双拼共用这段代码，`convert_eval` 没有这两种网格，没有数字。九键双拼的打全和停在声母上都不变。
 - 单字的输入（打全 546 要 进、打到 266 要 从）评测集量不到：单字条目在建集时就丢掉了。
 
+评测入口整合：`convert_eval` 同时保留 `--cut-last-syllable` 与双拼触点评测，`--first-page-rows` 通过共用的 `open_runtime` 同时设置引擎首页与运行时分页。截短只定义了全拼及其网格的输入方式，与 `--scheme shuangpin` 同用时报错，避免把截短的全拼误当成完整双拼音节编码。
+
 测试：
 
 - `nine_key.rs`：

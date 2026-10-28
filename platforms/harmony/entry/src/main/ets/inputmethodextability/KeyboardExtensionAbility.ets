@@ -128,8 +128,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   /** The editor changed its selection, invalidating everything derived from the old caret. */
   private readonly selectionChanged: (oldBegin: number, oldEnd: number,
                                       newBegin: number, newEnd: number) => void =
-    (_oldBegin: number, _oldEnd: number, _newBegin: number, _newEnd: number): void => {
-      KeyboardSession.shared.editorSelectionChanged();
+    (_oldBegin: number, _oldEnd: number, newBegin: number, newEnd: number): void => {
+      KeyboardSession.shared.editorSelectionChanged(newBegin === newEnd);
     };
 
   /** The editor changed its document, either as our edit echo or independently of the keyboard. */

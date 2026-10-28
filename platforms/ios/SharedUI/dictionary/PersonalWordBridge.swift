@@ -30,3 +30,13 @@ extension PersonalWord {
     return try Self(bridgeValue: PersonalDictionaryBridge.validateEntry(user.bridgeValue))
   }
 }
+
+extension PersonalWordPage {
+  /// `MetasequoiaInputSessionBridge.personalEntries` 的回答：键盘和设置 App 读同一页时用同一套拆法。
+  init(bridgeResult result: [String: Any]) throws {
+    guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {
+      throw PersonalDictionaryStore.StoreError.invalidState
+    }
+    self.init(entries: try rows.map { try PersonalWord(bridgeValue: $0) }, hasMore: hasMore)
+  }
+}

@@ -19,6 +19,8 @@ public final class NativeClient {
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
+    /** 候选栏的合并展示上限：原文加至多十一个前缀补全。 */
+    private static final int ENGLISH_SUGGESTION_DISPLAY_LIMIT = 12;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     /** 与 `client_jni.cpp` 的 `kSmallJsonRequestLimit` 一致。 */
@@ -199,24 +201,24 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid candidate gloss request", error);
         }
     }
-    /** 在工作线程读取固定英文词库的有界补全。 */
-    public static String englishCompletions(String prefix, String resources) {
-        return englishCandidates(prefix, resources, false);
-    }
-
-    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话。 */
-    public static String englishCorrections(String prefix, String resources) {
+    /** 在工作线程读取候选栏的合并展示：有纠错时为原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全。 */
+    public static String englishSuggestions(String prefix, String resources) {
         return englishCandidates(prefix, resources, true);
     }
 
-    private static String englishCandidates(String prefix, String resources, boolean correction) {
+    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话；空格和标点边界只用这一查询。 */
+    public static String englishCorrections(String prefix, String resources) {
+        return englishCandidates(prefix, resources, false);
+    }
+
+    private static String englishCandidates(String prefix, String resources, boolean completions) {
         if (prefix == null || prefix.isEmpty() || prefix.length() > 128
-                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value)
-                    || (correction && value == '\'')))
+                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value) || value == '\''))
             throw new IllegalArgumentException("Invalid English completion prefix");
         try {
-            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", correction ? 2 : 12)
-                .put("correction", correction);
+            JSONObject request = new JSONObject().put("prefix", prefix)
+                .put("limit", completions ? ENGLISH_SUGGESTION_DISPLAY_LIMIT : 2).put("correction", true);
+            if (completions) request.put("completions", true);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
             if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)

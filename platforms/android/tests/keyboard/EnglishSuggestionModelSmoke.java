@@ -17,24 +17,23 @@ public final class EnglishSuggestionModelSmoke {
             rejected = true;
         }
         check(rejected, "failed response");
-        var original = new EnglishSuggestionModel.Result("eng", java.util.List.of("eng"));
-        var words = new EnglishSuggestionModel.Result("eng", java.util.List.of("English", "engine", "engineering"));
-        check(EnglishSuggestionModel.withCompletions(original, words).items()
-            .equals(java.util.List.of("eng", "English", "engine", "engineering")),
-            "三字母前缀列出已有词库的补全，原文仍为首项");
-        var correction = new EnglishSuggestionModel.Result("eng", java.util.List.of("eng", "Eng"));
-        var duplicates = new EnglishSuggestionModel.Result("eng", java.util.List.of("eng", "Eng", "English", "english"));
-        check(EnglishSuggestionModel.withCompletions(correction, duplicates).items()
-            .equals(java.util.List.of("eng", "Eng", "English")),
-            "保留原有纠错项，新增补全按忽略大小写去重");
-        check(EnglishSuggestionModel.withCompletions(original,
-            new EnglishSuggestionModel.Result("hel", java.util.List.of("hello"))).equals(original),
-            "不同前缀的结果不能合并");
-        var many = new java.util.ArrayList<String>();
-        for (int index = 0; index < 32; index++) many.add("eng" + index);
-        check(EnglishSuggestionModel.withCompletions(correction,
-            new EnglishSuggestionModel.Result("eng", many)).items().size() == 32,
-            "合并结果不超过响应上限");
-        System.out.println("Android English suggestion response model: bounds passed");
+        check(!result.corrected(), "不带 completions 的响应没有纠错标记");
+        var correction = EnglishSuggestionModel.decode(
+            "{\"ok\":true,\"value\":{\"corrected\":true,\"items\":[\"teh\",\"the\"],\"prefix\":\"teh\"}}");
+        check(correction.corrected() && correction.items().equals(java.util.List.of("teh", "the")),
+            "合并展示的第二行是纠错");
+        var completions = EnglishSuggestionModel.decode(
+            "{\"ok\":true,\"value\":{\"corrected\":false,\"items\":[\"eng\",\"English\",\"engine\"],\"prefix\":\"eng\"}}");
+        check(!completions.corrected() && completions.items().equals(java.util.List.of("eng", "English", "engine")),
+            "没有纠错时原文后接前缀补全，按引擎顺序展示");
+        boolean malformed = false;
+        try {
+            EnglishSuggestionModel.decode(
+                "{\"ok\":true,\"value\":{\"corrected\":true,\"items\":[\"teh\"],\"prefix\":\"teh\"}}");
+        } catch (IllegalArgumentException expected) {
+            malformed = true;
+        }
+        check(malformed, "标为纠错却没有恰好两行的响应不可信");
+        System.out.println("Android English suggestion response model: bounds and correction flag passed");
     }
 }

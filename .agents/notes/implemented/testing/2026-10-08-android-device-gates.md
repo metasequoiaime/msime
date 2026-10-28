@@ -31,6 +31,11 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - `DeviceSmoke.await` 超时时附上输入法窗口里看得见的文字（最多 30 条，只读输入法自己的节点），失败信息直接说明界面停在哪里。
 - 无障碍点击（`DeviceSmoke.tap` 和 `HandwritingDeviceSmoke.accessibleClick`）在 `performAction(ACTION_CLICK)` 返回 false 时重新查节点再点，最多三次。查到节点和点下去之间面板可能已经重新绑定（开关刷新状态、翻页动画收尾），过期节点上的点击返回 false、并没有发生，所以重试不会把开关点两次；真不接受点击的控件三次后照样失败。2026-10-08 起 API 35 上这一处间歇失败，一天里落在四个互不相关的 PR 上（三次是「更多」面板的按键音开关），重跑即过。同理，`smoke.sh` 启动轮询里跳过引导页时直接用这一拍的 dump 去点，不另取一份：另取的那份可能赶上引导页开关中途，返回空树（`null root node`），找不到按钮就会让冒烟在第一条用例前退出（#6074 的 API 28 上出现过）；点不到就当作还没就绪，下一拍再看。
 - `smoke.sh` 的套件改成一个循环；`MSIME_DEVICE_SMOKE_SKIP` 列出的套件跳过并打印出来，不算通过。CI 的跳过名单写在 `android-device.yml`，每一项带原因，修好一个删一个，不往里加新的来让门禁变绿。
+- `smoke.sh` 的一项验收失败不结束整套：`check`（instrumentation，按通过标记判定）和 `check_script`（自带清理的辅助脚本，按退出码判定）记下失败和它的第一行信息（套件的 `*_FAILED` 行，其次是 `INSTRUMENTATION_*` 或 adb 的错误行），收拾失败可能留在进程外的状态后接着跑，最后打印一个汇总块、写进 `$GITHUB_STEP_SUMMARY`，有失败就以 1 退出。全部通过时的输出、顺序和退出码与原来相同，判据、时限和 `android-device.yml` 失败时收 logcat 的步骤都不变。
+  - 失败后的收拾只管进程外的东西：强停合成编辑器所在的测试包、系统文件选择器和设置页，清掉合成锁屏 PIN，重新选中水杉并连续确认（与 `DeviceSmoke.restartIme` 同一判据）。偏好、键盘层和夹具由失败的套件在自己进程的 `finally` 里还原，这一点本来就要成立，因为下一项不论前一项成败都从同一台设备开始；不强停产品，理由见 `run_instrumentation` 上的说明。
+  - 照旧当场停下、并在汇总里写明原因的情况：测试 APK 构建或装包失败、词库准备失败或超时、选不中输入法（开头，以及 `SessionStoreDeviceSmoke` 停用输入法之后）；系统输入主路径 `DeviceSmoke` 失败，后面每一项都经同一个键盘打字；失败后模拟器不再报告开机完成；输出里有 `shortMsg=Process crashed` 或 `INSTRUMENTATION_ABORTED`，崩溃的进程没有执行 `finally`，设备状态未知；失败后选不回输入法；连续五项失败，多半是键盘整体不可用，后面只会是同源的失败，还可能把 job 拖过 90 分钟时限，`if: failure()` 的收日志步骤也就不会运行。
+  - 检查之间唯一的显式依赖都在辅助脚本内部（剪贴板导出、诊断目录的 `select` → `verify` 两段），脚本自己在第一段失败时退出，整个脚本记为一项失败。
+- instrumentation 的通过条件同时要求命令退出码为零且输出包含对应通过标记。`check` 以及先清锁屏凭据、先恢复输入法再裁决的两条路径都保留原始退出码；非零退出时把退出码写进失败摘要，不能让已经打印的通过标记掩盖 adb 的失败。主路径仍停止，普通检查仍收集后继续。
 - `smoke.sh` 不授予通知权限，按没授过权的普通用户来测：输入法的提示显示在键盘的诊断行（`MSIMEInputService.notice`），不依赖 Toast。
 - `FourteenKeyDeviceSmoke` 改窄显示尺寸后重新打开编辑器，清掉旧无障碍节点并等待输入框获得焦点，再检查窄屏拼音栏。显示配置变化会重建编辑器、收起输入法，原先只等键面恢复会因没有编辑器焦点或沿用旧窗口坐标而超时，不能把输入法窗口为空当成布局错误。窄屏用例分别报告焦点、键面和拼音栏三个阶段，便于区分测试准备与布局断言。
 
@@ -56,12 +61,17 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - **只跑 client-core 单测，不装 APK**：快得多，也能抓住前两个问题。但 Android 9 的启动崩溃是资源加载问题，只有装包启动才看得见。
 - **在 Depot runner 上跑，复用 sccache**：构建更快。Depot 的 runner 不保证有 KVM，没有 KVM 的模拟器慢到不可用。
 
+- **失败的验收自动重试一次**：最强的理由是 runner 偶发慢时能少一次红灯，改动也只在 `smoke.sh` 里。不采用：2026-10-25 到 10-27 的夜间失败里，触控板三击丢掉选行是产品里的真实竞态，只在 API 35 上间歇出现，重试一过就看不见了；皮肤卡片文字那类确定性失配重试也不会过，只是多等一轮。归因见 #10089 的 `bug-fix/2026-10-28-android-nightly-device-failures.md`。
+- **保持第一处失败就退出，靠重跑看后面的**：脚本最简单，失败的位置一定是第一个出问题的地方。不采用：每次重跑要从头构建、装包、准备词库再跑到那里，二十多分钟只多看到一项；那三晚每晚停在不同的地方，同时存在的几个独立问题要排着队一个一个修才看得见。
+- **全部跑完、不设任何停止条件**：汇总最完整。不采用：装包失败、输入法选不中、模拟器掉线或进程崩溃之后，后面每一项都会以同一个原因失败，汇总被几十条噪声淹没，还会拖过 job 时限，连 logcat 都收不回来。
+- **把每个套件拆成 workflow 里的单独步骤，用 `continue-on-error`**：GitHub 页面上逐项显示成败。不采用：本机和 CI 应该走同一个 `smoke.sh`，拆进 workflow 后本机跑不出同样的汇总；步骤间的输入法重选、锁屏清理也得在 YAML 里再写一份。
 - **间歇失败的点击放进跳过名单**：立刻让门禁变绿。但被跳过的是「更多」面板和候选长按菜单这类整段套件，跳过等于不测；而且跳过名单的规矩是修好一个删一个、不为变绿往里加。失败的根源在测试拿着过期节点点击，在测试这一侧修。
 
 ## Consequences
 
 - **收益**：Android 上的运行时问题（权限、SELinux、旧系统缺陷、首次启动崩溃）在 PR 上就会失败；发版前同一个提交再过一遍。本机和 CI 用同一组脚本。
 - **代价**：动到 Android 或共享代码的 PR 多两个 job，每个都要从头编 x86_64 原生库和测试程序（没有缓存），预计各 40 到 60 分钟；Release Android 也要多等这么久。
+- **失败收集**：一次运行列出全部独立失败，修复可以并行，不必一晚一个；代价是有失败时运行更久：失败之后的检查照样跑完，每项失败本身多半要等满 `DeviceSmoke.await` 的 15 秒，再加一两秒收拾，汇总里也可能出现由前一项留下的状态引起的连带失败，读汇总时要从第一项看起。连续失败上限五项是经验值，独立失败恰好连续五项时后面的就看不到了，汇总会写明在哪里停下。
 - **仍然没有覆盖**：API 28 上「更多」面板及之后的套件；真机；Android 10（API 29）到 14（API 34）之间的版本只在本机手动跑过 31。
 
 ## Verification
@@ -73,6 +83,9 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - 本机 Apple 芯片上，API 28、31、35 三台 arm64 AVD：`build-core-test.sh` + `run-core-test.sh` 各为 1077 通过、0 失败、10 忽略。
 - API 28 上 `smoke.sh emulator-5566 --core` 通过（`phrase commit and deletion (API 28)`）；API 35 上带跳过名单的完整 `smoke.sh` 通过（DeviceSmoke、CandidatePanel、EmojiPicker、Preferences、KeyboardHeight），均为全新安装。Preferences 和 Emoji 另在 API 31 上通过。
 - 修复前的 0.3.0 代码在同样的设备上：`verify: Io(Os { code: 13 })`、`avc: denied { link }`、Android 9 启动 `XmlPullParserException`。
+- 失败收集由 `scripts/test-android-device-smoke-report-all.py` 固定：在临时目录里用假 adb、假辅助脚本和假 `sleep` 跑真实的 `smoke.sh`，覆盖全部通过、三项 instrumentation 加一个辅助脚本独立失败（全部进汇总和 step summary，且跑到最后一项）、主路径失败、进程崩溃、模拟器掉线、选不回输入法、连续五项失败和不连续的五项失败。同一套假设备上，改动前后的 `smoke.sh` 在完整、`--core`、带全部开关、`--oobe` 和 `--text-edit-layout` 五种组合下全部通过时的 stdout、stderr、检查顺序和退出码都相同，多出的只有确认输入法的 `settings get`；对改动前的 `smoke.sh` 跑这个测试，在「失败之后互不依赖的检查应继续跑完」处失败。真实设备上的行为要靠下一次 develop 推送或夜间运行确认。
+- 退出码回归用同一套假 adb 固定：打印通过标记后以 `7` 退出，#10094 合并前的脚本以 `7` 退出，合并后的脚本却以 `0` 退出并打印整套通过；修复后主路径记录退出码并停止，包装的普通检查、直接 adb、剪贴板拖选清理和会话存储恢复四条路径均进入失败汇总及 step summary，后续独立检查跑到最后。测试只使用合成输出，不启动设备。
+- 写这个测试时发现：完整套件里 `ClipboardCapacityDeviceSmoke` 一项借 `ClipboardCategoriesDeviceSmoke -e capacity true` 运行，而默认清单没有声明 `ClipboardCategoriesDeviceSmoke`（只有 `build-editor.sh` 在 `MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE=1` 时换进清单），`run_instrumentation` 报 `Unknown instrumentation target` 后返回 1。改动前这让 `set -e` 直接结束整套，只是此前的运行都停在更前面，没跑到这里；改为借始终声明、同样指向产品包的 `CandidateCanvasDeviceSmoke`，带 `-e capacity true` 时只跑容量专项（默认清单已满 100 项，不能新增入口）。
 - `actionlint` 检查了三个 workflow。CI 上 x86_64 的这条路径要靠这个 PR 自己的运行来证明。
 
 相关：[设备测试包和 ArkTS 的编译缺口](2026-10-08-compile-gates-for-device-suite-and-arkts.md) 只保证设备测试能编译，这篇让它们真正跑起来。

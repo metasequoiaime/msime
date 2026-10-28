@@ -17,6 +17,31 @@ final class EnglishSuggestionPolicyTests: XCTestCase {
     }
   }
 
+  @MainActor
+  func testCandidateBarDisplayFollowsSharedCorrectionRule() {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    // 有纠错时只有原文与纠错。
+    let corrected = bridge.englishSuggestions(forPrefix: "languge")
+    XCTAssertEqual(corrected.items, ["languge", "language"])
+    XCTAssertTrue(corrected.corrected)
+    // 原文已是完整的词时只有原文。
+    for raw in ["language", "hello", "you're", "omg"] {
+      let display = bridge.englishSuggestions(forPrefix: raw)
+      XCTAssertEqual(display.items, [raw])
+      XCTAssertFalse(display.corrected)
+    }
+    // 只是前缀时原文后接补全；空格和标点边界的纠错查询不带补全，不会把前缀扩写成补全。
+    let completions = bridge.englishSuggestions(forPrefix: "eng")
+    XCTAssertFalse(completions.corrected)
+    XCTAssertEqual(completions.items.first, "eng")
+    XCTAssertTrue(completions.items.contains("English"))
+    XCTAssertLessThanOrEqual(completions.items.count, MetasequoiaInputSessionBridge.englishSuggestionDisplayLimit)
+    XCTAssertTrue(completions.items.dropFirst().allSatisfy { $0.lowercased().hasPrefix("eng") })
+    XCTAssertEqual(bridge.englishCorrections(forPrefix: "eng"), ["eng"])
+  }
+
   func testWordStopsAtNonAsciiLettersAndBoundaries() {
     XCTAssertEqual(EnglishSuggestionPolicy.currentWord(before: "我用iph"), "iph")
     XCTAssertEqual(EnglishSuggestionPolicy.currentWord(before: "こんにちはhel"), "hel")

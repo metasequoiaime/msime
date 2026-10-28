@@ -297,6 +297,8 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateOfflineGlossGeneration = -1;
     private java.util.List<String> englishSuggestions = java.util.List.of();
     private String englishSuggestionPrefix = "";
+    /** 第二行是否为纠错；等待查询时只显示原文，点它仍按拒绝纠错处理。 */
+    private boolean englishSuggestionCorrected;
     private String clearableEnglishWord = "";
     private int clearableEnglishCursor = -1;
     private InputConnection clearableEnglishConnection;
@@ -615,6 +617,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
     boolean allowLearning;
     private String preferencesNotice = "";
+    /** 上次提示「五笔码表要下载」的时刻（{@link android.os.SystemClock#elapsedRealtime}），见 {@link #announceWubiTableMissing}；还没提示过时为 0。 */
+    private long wubiTableNoticeAt;
+    /** 最近一次实时偏好里的 `scheme`、`last_chinese_scheme` 和方案列表 `touch_keyboard_schemes.enabled`，在 alignEngineSchemeWithSelection 改写之前记下，给 {@link #announceWubiTableMissing} 用；还没读到实时偏好时 scheme 为 null。 */
+    private String wubiNoticeScheme;
+    private String wubiNoticeLastChinese;
+    private java.util.List<String> wubiNoticeEnabledIds;
+    /** 同一个键盘进程里两次「五笔码表要下载」提示至少隔这么久：提示在诊断行里只停几秒、按一下键就消失，只说一次容易错过，每次弹出键盘都说又太吵。 */
+    private static final long WUBI_TABLE_NOTICE_INTERVAL_MILLIS = 60 * 60 * 1000L;
     /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
     private String announcedIdleNotice = "";
 
@@ -639,6 +649,30 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 偏好里在用五笔、本机却没有五笔码表（{@link KeyboardScheme#wubiTableWanted}）时，在键盘上提示一句去设置应用下载。
+     *
+     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，在那里点了「以后再说」、之后只用键盘的人只会看到五笔不见了。偏好取最近一次读到的实时偏好，码表在不在取 onStartInput 刚算的 {@link #resourcePacks}：键盘进程常常比设置应用活得久，码表消失（设置应用启动时换了代次）之后偏好并没有变，所以读到实时偏好时、每次开始输入时和键盘窗口显示时都判断一次。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
+     */
+    /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
+    private void rememberWubiNoticePreferences(JSONObject preferences) {
+        wubiNoticeScheme = InputViewValuePolicy.textOr(preferences, "scheme", "");
+        wubiNoticeLastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", "");
+        wubiNoticeEnabledIds = SchemePreferences.enabledIds(preferences);
+        announceWubiTableMissing();
+    }
+
+    private void announceWubiTableMissing() {
+        if (wubiNoticeScheme == null || !imeWindowVisible) return;
+        if (!KeyboardScheme.wubiTableWanted(wubiNoticeScheme, wubiNoticeLastChinese, wubiNoticeEnabledIds,
+                resourcePacks, edition)) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (wubiTableNoticeAt != 0 && now - wubiTableNoticeAt < WUBI_TABLE_NOTICE_INTERVAL_MILLIS) return;
+        wubiTableNoticeAt = now;
+        // 投递而不是直接显示：调用方随后才 render()，onStartInput 的 render 会清掉提前显示的诊断行。
+        main.post(() -> notice("五笔要先下载码表：打开水杉输入法即可下载"));
     }
 
     long beginClipboardPhraseNotice() { return operationNotice.begin(); }
@@ -974,6 +1008,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (live) liveInputModePreferencesLoaded = true;
         }
         KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
+        // 必须在 alignEngineSchemeWithSelection 改写内存里的 scheme 之前判断：它把缺码表的五笔换成了回退的方案。只认实时偏好，副本里是出厂值。
+        if (live && preferences != null) rememberWubiNoticePreferences(preferences);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -1691,6 +1727,7 @@ public final class MSIMEInputService extends InputMethodService {
                 resourcePacks = KeyboardScheme.availablePacks(
                     installedPacks::contains, options.optString("resources", ""));
                 candidatePronunciationPackInstalled = installedPacks.contains(ResourcePacks.PRONUNCIATIONS);
+                announceWubiTableMissing();
                 JSONObject preferences = options.optJSONObject("preferences");
                 applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY);
                 if (newDocument) {
@@ -1917,6 +1954,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onWindowShown() {
         super.onWindowShown();
         imeWindowVisible = true;
+        announceWubiTableMissing();
         if (session != 0 && !preferencesDirectory.isEmpty())
             preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
         caretWindowHidden = false;
@@ -3190,6 +3228,7 @@ public final class MSIMEInputService extends InputMethodService {
         String nextImeModeScope = "global".equals(
             InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = SchemePreferences.storedScheme(preferences, edition);
+        rememberWubiNoticePreferences(preferences);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
@@ -3461,6 +3500,7 @@ public final class MSIMEInputService extends InputMethodService {
         englishSuggestionRequestedPrefix = "";
         englishSuggestionPrefix = "";
         englishSuggestions = java.util.List.of();
+        englishSuggestionCorrected = false;
     }
 
     private String englishWordBeforeCursor() {
@@ -3535,6 +3575,7 @@ public final class MSIMEInputService extends InputMethodService {
         englishSuggestionPrefix = prefix;
         // 共享纠错始终把原文放在第一行；等待查询时先显示当前原文，避免每一键都闪回空闲工具栏。
         englishSuggestions = java.util.List.of(prefix);
+        englishSuggestionCorrected = true;
         long epoch = englishSuggestionEpoch;
         String resources = candidateGlossResources;
         englishSuggestionRequestedEpoch = epoch;
@@ -3542,17 +3583,9 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             englishSuggestionWorker.execute(() -> {
                 try {
-                    EnglishSuggestionModel.Result suggestions = EnglishSuggestionModel.decode(
-                        NativeClient.englishCorrections(prefix, resources));
-                    if (prefix.chars().allMatch(TextPolicy::isAsciiLetter)) {
-                        try {
-                            suggestions = EnglishSuggestionModel.withCompletions(suggestions,
-                                EnglishSuggestionModel.decode(NativeClient.englishCompletions(prefix, resources)));
-                        } catch (Exception | LinkageError ignored) {
-                            // 补全不可用时保留原文与纠错，空格提交仍只查询唯一纠错。
-                        }
-                    }
-                    EnglishSuggestionModel.Result result = suggestions;
+                    // 共享引擎给出完整展示：有纠错时只有原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全；空格提交仍只查询唯一纠错。
+                    EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                        NativeClient.englishSuggestions(prefix, resources));
                     main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
                 } catch (Exception | LinkageError ignored) {
                     // Completion failures are optional display state and never block input.
@@ -3569,6 +3602,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !prefix.equals(englishWordBeforeCursor())
                 || !prefix.equals(result.prefix())) return;
         englishSuggestions = result.items();
+        englishSuggestionCorrected = result.corrected();
         englishSuggestionPrefix = prefix;
         render();
     }
@@ -3586,8 +3620,10 @@ public final class MSIMEInputService extends InputMethodService {
         EnglishSuggestionPolicy.Replacement replacement = EnglishSuggestionPolicy.replacement(
             typed, candidate, startedCapitalized);
         if (replacement == null) {
+            // 只有展示了纠错（或答案未到）时点原文才是拒绝纠错；只有补全时点原文仅收起候选。
+            boolean rejected = englishSuggestionCorrected;
             clearEnglishSuggestions();
-            englishCorrectionRejectedPrefix = typed;
+            if (rejected) englishCorrectionRejectedPrefix = typed;
             render();
             return;
         }
@@ -4309,12 +4345,25 @@ public final class MSIMEInputService extends InputMethodService {
     private int readingRowHeight() {
         int design = pixels(ImeToolbar.READING_ROW_DP);
         if (preedit == null) return design;
-        Paint.FontMetricsInt metrics = preedit.getPaint().getFontMetricsInt();
         // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
         int headerPadding = candidateHeader == null ? 0
             : candidateHeader.getPaddingTop() + candidateHeader.getPaddingBottom();
-        return ReadingRowPolicy.heightPx(design, metrics.ascent, metrics.descent,
-            preedit.getPaddingTop() + preedit.getPaddingBottom() + headerPadding);
+        int height = readingLabelHeight(preedit, design, headerPadding);
+        // 「清除」等按钮的字号和字体留白可能比读音大；收起时仍预留同一行高，避免输入时键盘跳动。
+        if (candidateHeader != null) for (int index = 0; index < candidateHeader.getChildCount(); index++) {
+            View child = candidateHeader.getChildAt(index);
+            if (child instanceof TextView label)
+                height = Math.max(height, readingLabelHeight(label, design, headerPadding));
+        }
+        return height;
+    }
+
+    private int readingLabelHeight(TextView label, int design, int headerPadding) {
+        Paint.FontMetricsInt metrics = label.getPaint().getFontMetricsInt();
+        int top = label.getIncludeFontPadding() ? metrics.top : metrics.ascent;
+        int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
+        return ReadingRowPolicy.heightPx(design, top, bottom,
+            label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
     }
 
     void fail(Throwable error) {
