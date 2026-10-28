@@ -435,7 +435,7 @@ do
     # 它直接改偏好文件，再让设置进程读新配置；必须重新启动产品主进程。
     check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED "$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite"
   elif [[ "$suite" == ClipboardCapacityDeviceSmoke ]]; then
-    check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardCategoriesDeviceSmoke -e capacity true
+    check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke -e capacity true
   else
     check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED run_instrumentation "app.msime.android.test/app.msime.android.test.$suite"
   fi
