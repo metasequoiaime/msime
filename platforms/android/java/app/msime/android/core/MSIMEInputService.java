@@ -39,6 +39,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
+import android.text.style.UnderlineSpan;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
@@ -8942,10 +8943,10 @@ public final class MSIMEInputService extends InputMethodService {
         return candidateLabel(prefix, text, annotation, highlighted, false);
     }
 
-    /** `corrected` 为真时这一行是坐上首选的触点纠错（{@link CandidateCorrectionMarkPolicy}）：候选字和注释都画成 {@link CandidateAppearance.Palette#correctionFor} 的标记色，注释不再调淡。 */
+    /** `corrected` 为真时这一行是坐上首选的触点纠错：颜色由 {@link CandidateCorrectionMarkPolicy} 决定，候选字盖上标记色并加一道同色下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来），注释画成标记色实色、不再调淡。 */
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted, boolean corrected) {
-        if (annotation.isEmpty() && prefix.isEmpty() && !corrected)
+        if (CandidateCorrectionMarkPolicy.plainLabel(prefix, annotation, corrected))
             return CandidateSymbolLabel.apply(this, text, 0, text.length());
         String primary = prefix + text;
         SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
@@ -8953,18 +8954,18 @@ public final class MSIMEInputService extends InputMethodService {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.numberFor(highlighted)), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        int mark = candidateAppearance.correctionFor(highlighted);
-        if (corrected)
+        Integer mark = CandidateCorrectionMarkPolicy.wordMark(candidateAppearance, highlighted, corrected);
+        if (mark != null) {
             label.setSpan(new ForegroundColorSpan(mark), prefix.length(), primary.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            label.setSpan(new UnderlineSpan(), prefix.length(), primary.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         if (annotation.isEmpty()) return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
         // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
         label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        int foreground = candidateAppearance.textFor(highlighted);
-        int secondary = corrected ? mark : candidateAppearance.externalSkin()
-            ? candidateAppearance.secondaryFor(highlighted) : ColorPolicy.withAlpha(foreground, 0.58f);
+        int secondary = CandidateCorrectionMarkPolicy.annotationColour(candidateAppearance, highlighted, corrected);
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
