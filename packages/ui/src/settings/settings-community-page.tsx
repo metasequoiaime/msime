@@ -19,6 +19,7 @@ export interface SettingsCommunityPageProps {
     | "openAccountLogin"
     | "communityTabs"
     | "showAiGeneration"
+    | "showCommunityContribution"
   >;
   localDictionary?: CommunityPageProps["localDictionary"];
   onSkinApplied?: CommunityPageProps["onSkinApplied"];
@@ -44,6 +45,7 @@ export function SettingsCommunityPage({
     openAccountLogin,
     communityTabs,
     showAiGeneration,
+    showCommunityContribution,
   } = model;
   return (
     <>
@@ -53,6 +55,7 @@ export function SettingsCommunityPage({
           skins={client.communitySkins}
           resources={client.communityResources}
           hasReplies={showAiGeneration}
+          contributions={showCommunityContribution}
           theme={keyboardPreviewTheme}
           initialMine={initialCommunityMine}
           initialCategory={initialCommunityCategory}
@@ -88,6 +91,7 @@ export function SettingsCommunityPage({
                 onApplyPreferences={setDraft}
                 onSkinApplied={onSkinApplied}
                 historyPage="community"
+                contributions={showCommunityContribution}
               />,
             )}
           {communityTabs.selected === "dictionary" &&
@@ -101,6 +105,7 @@ export function SettingsCommunityPage({
                 mobile
                 look={harmonyPlatform ? "harmony" : undefined}
                 historyPage="community"
+                contributions={showCommunityContribution}
               />,
             )}
         </div>

@@ -1016,6 +1016,7 @@ impl HttpFetcher {
         let builder = reqwest::blocking::Client::builder();
         let builder = if https_only {
             crate::proxy::configure_blocking(builder)
+                .map_err(|error| LocalModelError::Network(error.to_string()))?
         } else {
             builder.no_proxy()
         };

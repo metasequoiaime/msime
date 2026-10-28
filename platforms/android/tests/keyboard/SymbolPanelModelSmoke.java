@@ -25,6 +25,7 @@ public final class SymbolPanelModelSmoke {
             && empty.get(19).id().equals("more"), "categories expose stable IDs");
         catalogCategories(empty);
         networkSuffixes(empty.get(5));
+        glyphCentering();
 
         check(SymbolPanelModel.initialCategory(List.of()) == 0, "没有记录时仍打开常用");
         check(SymbolPanelModel.initialCategory(List.of("＞")) == 0, "history opens on 常用");
@@ -60,6 +61,23 @@ public final class SymbolPanelModelSmoke {
         }
 
         System.out.println("SymbolPanelModelSmoke: PASS");
+    }
+
+    /** 只有全角/CJK 标点按墨迹居中；靠高低表达含义的字形全部按字体基线排。 */
+    private static void glyphCentering() {
+        for (String baseline : List.of("-", "_", ".", ",", "\"", "'", ";", ":", "|", "~", "`", "@", "0", "A",
+                "一", "５", "Ⅰ", "①", "ｦ", "㋿",
+                "‗", "₀", "₉", "₊", "ₐ", "⁰", "²", "⁹", "ⁿ", "ⁱ", "′", "″", "‴", "‵", "‚", "„", "‛", "‟",
+                "¨", "¯", "´", "¸", "º", "ª", "⁎", "‥", "⁏", "▁", "▄", "▀", "▔", "⌃", "⌄", "⌢", "⌣",
+                "⏜", "⏝", "⏞", "⏟", "⏠", "⏡", "⎴", "⎵", "‿", "⁀", "﹉", "﹍", "﹎", "﹏", "＿", "￣", "〝", "〞", "〟"))
+            check(!SymbolPanelModel.centersGlyphInk(baseline), "positional glyphs keep the font baseline: " + baseline);
+        for (String fullWidth : List.of("，", "。", "、", "：", "；", "！", "？", "“", "”", "（", "）", "《", "》",
+                "【", "】", "「", "」", "＠", "－", "～", "…", "—", "·", "︵", "﹁"))
+            check(SymbolPanelModel.centersGlyphInk(fullWidth), "full-width punctuation centres its ink: " + fullWidth);
+        for (String longEntry : new String[] {"@protonmail.com", "http://", "（笑）", "😀😀"})
+            check(!SymbolPanelModel.centersGlyphInk(longEntry), "multi-glyph entries stay on the baseline: " + longEntry);
+        check(!SymbolPanelModel.centersGlyphInk(null) && !SymbolPanelModel.centersGlyphInk(""),
+            "missing symbols are not drawn");
     }
 
     /** #6147：「网络」接上全部邮箱后缀，国内常用的在前；长条目缩小字号并单行省略。 */

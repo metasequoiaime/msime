@@ -209,6 +209,7 @@ async function main(): Promise<void> {
       DIRECTORY,
       DIRECTORY,
       '{"operation":"keyboard_skin_install","id":"x","name":"秋"}',
+      false,
     );
     check(
       parsed(install.request).state_root === DIRECTORY,
@@ -219,27 +220,66 @@ async function main(): Promise<void> {
         DIRECTORY,
         DIRECTORY,
         '{"operation":"keyboard_skin_list","offset":0,"search":""}',
+        false,
       ).request,
     );
     check(!("state_root" in list), "listing needs no state root");
+    check(!("exclude_ai_generated" in list), "an open AI gate sends the request as before");
     for (const operation of ["finish_trial", "store_reply", "candidate_skin_install"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
+      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }), false);
       check(replyError(plan.refusal, "") === "community_invalid", `${operation} is not forwarded`);
     }
+  });
+
+  await group("community: a closed AI gate asks Rust to leave out AI-generated skins", () => {
+    for (const operation of [
+      "keyboard_skin_list",
+      "keyboard_skin_detail",
+      "keyboard_skin_install",
+      "resource_list",
+    ]) {
+      const plan = communityRequest(
+        DIRECTORY,
+        DIRECTORY,
+        JSON.stringify({ operation, id: "x" }),
+        true,
+      );
+      const request = parsed(plan.request);
+      check(
+        request.exclude_ai_generated === true &&
+          !("exclude_ai_generated" in (request.action as object)),
+        `${operation} carries the host's exclusion beside the page's action`,
+      );
+    }
+    // 页面自己写的同名字段留在动作里，Rust 的 deny_unknown_fields 会拒绝它；页面关不掉宿主的筛选。
+    const forged = parsed(
+      communityRequest(
+        DIRECTORY,
+        DIRECTORY,
+        '{"operation":"keyboard_skin_list","offset":0,"search":"","exclude_ai_generated":false}',
+        true,
+      ).request,
+    );
+    check(forged.exclude_ai_generated === true, "the page cannot turn the exclusion off");
   });
 
   await group(
     "community plugins: the gallery's operations pass, pack work gets the state root",
     () => {
       for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
-        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation, id: "x" }));
+        const plan = communityRequest(
+          DIRECTORY,
+          DIRECTORY,
+          JSON.stringify({ operation, id: "x" }),
+          false,
+        );
         check(
           plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
           `${operation} reads or writes the plugins root`,
         );
       }
       for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
-        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
+        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }), false);
         check(
           plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
           `${operation} is forwarded without the state root`,

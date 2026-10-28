@@ -44,7 +44,7 @@ public final class KeyboardLayout {
         List.of("(", ")", "[", "]", "<", ">", "\\", "-", "_", "=")
     );
 
-    /** 数字行（#6022）：本地设置「数字行」打开时画在字母上方的 1–0。 */
+    /** 数字行（#6022）：共享偏好 `touch_number_row` 打开时画在字母上方的 1–0。 */
     public static final List<String> NUMBER_ROW = List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
     /** 窗口可用高度（`Configuration.screenHeightDp`）低于它时不画数字行：横屏手机的窗口只有 330–430 dp，默认高度的键盘（约 300 dp）再加一行 63 dp 就把工具栏或底行挤出窗口、应用也没有可见区域了。竖屏手机、平板横屏和折叠屏内屏都在 480 dp 以上。 */
     public static final int NUMBER_ROW_MIN_WINDOW_HEIGHT_DP = 480;
@@ -74,20 +74,40 @@ public final class KeyboardLayout {
     }
 
     /**
-     * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族或韩文两套式，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层由补充符号行保留同一排高度；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
+     * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族、韩文两套式、14 键或 18 键，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层由补充符号行保留同一排高度；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
      *
-     * @param enabled 本地设置 `platform.android.number_row`
+     * @param enabled 共享偏好 `touch_number_row`
      * @param windowHeightDp 键盘所在窗口的可用高度（`Configuration.screenHeightDp`）；未知（0 或负数）时不按高度拦
      */
     public static boolean drawsNumberRow(boolean enabled, Layer layer, int touchLayout, int windowHeightDp) {
         return enabled && layer == Layer.LETTERS
-            && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT)
+            && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT
+                || touchLayout == FOURTEEN_KEY_LAYOUT || touchLayout == EIGHTEEN_KEY_LAYOUT)
             && (windowHeightDp <= 0 || windowHeightDp >= NUMBER_ROW_MIN_WINDOW_HEIGHT_DP);
+    }
+
+    /**
+     * 同上，两条来源分开算：共享偏好 `touch_number_row` 照上面的范围画（含 14 键和 18 键）；密码框和终端里的自动数字行（{@link AutomaticNumberRow}）保持它原来的范围，只画在标准 26 键一族和韩文两套式上，14/18 键在这些编辑框里不多出一行。
+     *
+     * @param preference 共享偏好 `touch_number_row`
+     * @param automatic 密码框或具名终端触发的自动数字行
+     */
+    public static boolean drawsNumberRow(boolean preference, boolean automatic, Layer layer, int touchLayout,
+            int windowHeightDp) {
+        return drawsNumberRow(preference, layer, touchLayout, windowHeightDp)
+            || (automatic && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT)
+                && drawsNumberRow(true, layer, touchLayout, windowHeightDp));
     }
 
     /** 符号层沿用源字母页的第五排资格；借用数字九宫格也不缩高。 */
     public static boolean drawsSymbolExtraRow(boolean enabled, Layer layer, int layout, int heightDp) {
         return layer == Layer.SYMBOLS && drawsNumberRow(enabled, Layer.LETTERS, layout, heightDp);
+    }
+
+    /** 同上，偏好与自动数字行分开算（{@link #drawsNumberRow(boolean, boolean, Layer, int, int)}）。 */
+    public static boolean drawsSymbolExtraRow(boolean preference, boolean automatic, Layer layer, int layout,
+            int heightDp) {
+        return layer == Layer.SYMBOLS && drawsNumberRow(preference, automatic, Layer.LETTERS, layout, heightDp);
     }
 
     /** 数字页补原来没有的符号，扩展符号页补数字；网格页的括号随标点设置。 */

@@ -865,6 +865,42 @@ pub unsafe extern "C" fn msime_client_load_preferences(
     })
 }
 
+/// Android 旧布局迁移：在偏好锁内核对原始字段与修订号。
+/// # Safety
+/// `request` 指向最多 64 KiB 的可读 JSON；返回值通过 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        revision: u64,
+        long_space: bool,
+        number_row: bool,
+    }
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid layout migration request".into());
+        }
+        // SAFETY: 调用方保证缓冲区可读，上方已经检查长度。
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "invalid layout migration request")?;
+        let directory = super::parse_absolute_path(
+            request.directory.as_bytes(),
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
+        let saved = PreferencesStore::new(directory)
+            .migrate_android_key_layout(request.revision, request.long_space, request.number_row)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(saved).map_err(|error| error.to_string())
+    })
+}
+
 /// 可重绑切换热键（`keybindings.toggle_english_candidates`、`toggle_full_width`、
 /// `toggle_punctuation`、`toggle_voice_input`）按共享 `KeyChord` 契约解码：每个键给出 `null`（不绑定）或
 /// `{"key": 主键规范名, "ctrl", "alt", "shift", "meta"}`，宿主按规范名认键，

@@ -17,6 +17,8 @@ export type CommunitySkin = {
   moderation?: CommunityModeration | null;
   /** 发布分类；早于分类功能的服务端不返回。 */
   category?: CommunitySkinCategory;
+  /** 作品来源，只在宿主要求排除 AI 生成的皮肤时随条目返回（HarmonyOS），那时交到页面的条目不会是 `ai`。 */
+  origin?: "user" | "ai" | "unknown";
 };
 
 export type CommunitySkinPage = {

@@ -126,6 +126,8 @@ export interface HostCapabilities {
   ai_provider_credentials: boolean;
   /** 宿主提供 AI 生成类功能（AI 对话、AI 润色与高情商回复、AI 联想候选、AI 翻译、语音润色和 AI 皮肤）。为 false 时设置页不给 AI 辅助页、AI 对话和其余这些入口；只有 HarmonyOS 在拿到 AI 生成类资质之前报 false。缺省按提供处理。 */
   ai_generation?: boolean;
+  /** 宿主提供社区投稿类功能：发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，给他人作品评分和举报。为 false 时社区页只能浏览、搜索、看详情、获取、安装、收藏、导入和下架自己的作品；只有 HarmonyOS 在实名认证到位之前报 false。缺省按提供处理。 */
+  community_contribution?: boolean;
   voice_commit_mode: boolean;
   /** 宿主运行的操作系统版本，供反馈页附带。 */
   os_version?: string;

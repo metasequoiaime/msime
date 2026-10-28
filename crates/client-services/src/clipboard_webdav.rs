@@ -176,6 +176,7 @@ impl HttpDav {
         let (username, password) = config.webdav_credentials().ok_or(RelayError::Invalid)?;
         let base = Url::parse(&format!("{}/", config.url())).map_err(|_| RelayError::Invalid)?;
         let client = crate::proxy::configure_blocking_for(Client::builder(), config.base())
+            .map_err(|_| RelayError::Unavailable)?
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))

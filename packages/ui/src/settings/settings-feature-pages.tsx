@@ -7,6 +7,7 @@ import { communityGalleryPage } from "./use-community-gallery-subview";
 import { CommunityGallerySubview } from "./community-gallery-subview";
 import { TypingStatisticsPage } from "./typing-statistics";
 import { VocabularyReviewPage } from "./vocabulary-review";
+import { touchKeyLayoutStyle } from "../keyboard/touch-key-layout-styles";
 import type { SettingsPageModel } from "./use-settings-page-model";
 import type { useSettingsShellState } from "./use-settings-shell-state";
 
@@ -19,6 +20,7 @@ export interface SettingsFeaturePagesProps {
     | "settingsPlatform"
     | "surfaceThemesFollow"
     | "showAiGeneration"
+    | "showCommunityContribution"
     | "mobileSecondaryGroups"
     | "communityGallery"
     | "closeCommunityGallery"
@@ -55,12 +57,14 @@ export function SettingsFeaturePages({
     settingsPlatform,
     surfaceThemesFollow,
     showAiGeneration,
+    showCommunityContribution,
     mobileSecondaryGroups,
     openAccountLogin,
     openExternalUrl,
     communityGallery,
     closeCommunityGallery,
     keyboardPreviewTheme,
+    availablePages,
   } = model;
   const { chatMounted, chatFocusRequest, setChatFocusRequest } = chatState;
   return (
@@ -100,7 +104,8 @@ export function SettingsFeaturePages({
           }
         />
       )}
-      {(client.account || client.appIcon) && page === "account" && (
+      {/* 与导航用同一个判断（`settingsPageProjections` 的 `hasAccount`）：鸿蒙手机拒绝隐私授权后没有账号客户端，「我的」仍要能打开。 */}
+      {page === "account" && availablePages.some((item) => item.id === "account") && (
         <SettingsAccountPage model={model} onReplayOnboarding={onReplayOnboarding} />
       )}
       {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
@@ -138,6 +143,7 @@ export function SettingsFeaturePages({
           onApplyPreferences={setDraft}
           onSkinApplied={onSkinApplied}
           look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
+          contributions={showCommunityContribution}
           onClose={closeCommunityGallery}
         />
       )}
@@ -154,6 +160,10 @@ export function SettingsFeaturePages({
               : settingsPlatform === "hm2"
                 ? "hm2"
                 : undefined
+          }
+          // 只有 HarmonyOS 手机的键盘读按键布局样式；2in1 画的是整排键盘，热力图照旧。
+          layoutStyle={
+            harmonyPlatform && mobilePlatform && draft ? touchKeyLayoutStyle(draft) : undefined
           }
         />
       )}

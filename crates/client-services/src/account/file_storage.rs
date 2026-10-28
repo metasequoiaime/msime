@@ -283,8 +283,7 @@ fn save_bytes(
         .write_all(bytes)
         .and_then(|()| temporary.as_file().sync_all())
         .map_err(|_| AccountError::Storage)?;
-    temporary
-        .persist(storage.directory.join(name))
+    crate::storage::persist_replacing(temporary, storage.directory.join(name))
         .map(|_| ())
         .map_err(|_| AccountError::Storage)
 }

@@ -185,8 +185,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
         let mut temporary = tempfile::NamedTempFile::new_in(&parent)?;
         temporary.write_all(contents)?;
         temporary.as_file().sync_all()?;
-        temporary
-            .persist(path)
+        msime_client_core::file_lock::persist_replacing(temporary, path)
             .map(|_| ())
             .map_err(|error| error.error)
     }

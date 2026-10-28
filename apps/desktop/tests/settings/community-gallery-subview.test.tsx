@@ -145,8 +145,8 @@ function renderPhone(
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockResolvedValue(initial),
-        // 回复模板是高情商回复的提示词：鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`。
-        host: testHost({ platform, ai_generation: true }),
+        // 回复模板是高情商回复的提示词：鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`；这些用例也画「发布设计」，所以按实名认证到位时的样子报 `community_contribution`，总闸关着的样子由 `community/community-contribution-gate.test.tsx` 覆盖。
+        host: testHost({ platform, ai_generation: true, community_contribution: true }),
         home: {},
         account: account(),
         communitySkins: skins,

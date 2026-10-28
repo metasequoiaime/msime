@@ -117,8 +117,7 @@ impl BackendAccountClient {
             let bytes = copy_dictionary_export(&mut response, temporary.as_file_mut())
                 .and_then(|bytes| temporary.as_file().sync_all().map(|()| bytes))
                 .map_err(|_| AccountError::Unavailable)?;
-            temporary
-                .persist(destination)
+            crate::storage::persist_replacing(temporary, destination)
                 .map_err(|_| AccountError::Unavailable)?;
             Ok(bytes)
         }

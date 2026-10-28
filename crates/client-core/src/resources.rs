@@ -689,8 +689,7 @@ impl VerifiedMarker {
             let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
             temporary.write_all(&encoded)?;
             temporary.as_file().sync_all()?;
-            temporary
-                .persist(path)
+            crate::storage::persist_replacing(temporary, path)
                 .map(|_| ())
                 .map_err(|error| error.error)?;
             Ok(())

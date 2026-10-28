@@ -30,6 +30,7 @@ import { AppThemeStore } from './skin/AppThemeStore';
 import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
+import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -804,6 +805,8 @@ interface CommonPhrasesReply {
 // ended the last sentence. A caret further than this from one is in the middle of a sentence by any
 // reading, and the call is made on every text change, so it stays bounded.
 const MAX_CAPITALIZATION_CONTEXT_CHARACTERS: number = 64;
+// `touch_panel_face.json` 只有两个布尔值，读的时候超过这个大小就当没记过。
+const TOUCH_PANEL_FACE_MAX_BYTES: number = 256;
 // setPreviewText's range for "whatever preview text is shown now, or the caret when there is none".
 const PREVIEW_REPLACE_CURRENT: inputMethodEngine.Range = { start: -1, end: -1 };
 
@@ -950,6 +953,14 @@ interface PreparedPreferences {
   touch_shuangpin_key_hints?: boolean;
   /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按关。 */
   touch_quanpin_shift?: boolean;
+  /** 中文 26 键底行样式（standard / comma_period / long_space / emoji）；等于默认值时 client-core 不写进文档。 */
+  touch_twenty_six_key_style?: string;
+  /** 14 键与 18 键底行样式（standard / long_space / emoji）；默认值不写进文档。 */
+  touch_fourteen_key_style?: string;
+  /** 九键底行样式（standard / comma_period / emoji）；默认值不写进文档。 */
+  touch_nine_key_style?: string;
+  /** 26/14/18 键字母上方的 1 到 0 数字行；默认关，不写进文档。 */
+  touch_number_row?: boolean;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1109,6 +1120,14 @@ export interface KeyboardPreferences {
   readonly quanpinShift: boolean;
   /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
   readonly toolbarTools: ToolbarTools;
+  /** `touch_twenty_six_key_style`：中文 26 键的底行样式，不认识的值按 `standard`（`TouchLayoutStylePolicy`）。 */
+  readonly twentySixKeyStyle: string;
+  /** `touch_fourteen_key_style`：14 键与 18 键的底行样式。 */
+  readonly fourteenKeyStyle: string;
+  /** `touch_nine_key_style`：九键字母层的底行样式。 */
+  readonly nineKeyStyle: string;
+  /** `touch_number_row`：26/14/18 键字母上方画 1 到 0。 */
+  readonly numberRow: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1350,8 +1369,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
   private enterKey: number = inputMethodEngine.ENTER_KEY_TYPE_UNSPECIFIED;
+  /** 扩展能力建手机面板时定下的形状（`decideFirstTouchPanel`），视图出现时从它出发核对高度。 */
+  private openedTouchPanel: TouchPanelShape | null = null;
+  /** 上次读到或写下的 `touch_panel_face.json` 内容，键面没变时不重写。 */
+  private touchPanelFaceWritten: string = '';
   private traits: EditorTraits = {
-    text: true, password: false, uri: false, email: false, noSuggestions: false
+    text: true, password: false, uri: false, email: false, noSuggestions: false, digits: false
   };
   /** What the attached editor asked for, already reconciled with the kind of field it is. */
   private capitalization: CapitalizationMode = CapitalizationMode.NONE;
@@ -1413,7 +1436,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     shuangpinKeyHints: false,
     quanpinShift: false,
-    toolbarTools: TouchToolbarPolicy.DEFAULT
+    toolbarTools: TouchToolbarPolicy.DEFAULT,
+    twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    numberRow: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1449,8 +1476,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onTypingEffect: ((effect: TypingEffect, settings: TypingEffectSettings, key: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
-  /** The native host owns panel geometry; the touch view reports its newly requested total height. */
-  onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
+  /** The native host owns panel geometry; the touch view reports its newly requested total height. 扩展能力挂上回调之前到达的请求先留着，见 `TouchHeightRelay`。 */
+  readonly touchHeight: TouchHeightRelay = new TouchHeightRelay();
   /** The ability's half of a preference reload: status panels and key bindings. */
   onPreferencesReloaded: (() => void) | undefined = undefined;
   /** The view's half of a preference reload: skins, geometry and the scheme face. */
@@ -1831,7 +1858,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
       quanpinShift: preferences.touch_quanpin_shift === true,
-      toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar)
+      toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar),
+      twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
+      fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
+      nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
+      numberRow: preferences.touch_number_row === true
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -2585,7 +2616,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       email: pattern === inputMethodEngine.PATTERN_EMAIL,
       // A one-time code is typed, not composed, and a user name is not a sentence.
       noSuggestions: pattern === inputMethodEngine.PATTERN_ONE_TIME_CODE
-        || pattern === inputMethodEngine.PATTERN_USER_NAME
+        || pattern === inputMethodEngine.PATTERN_USER_NAME,
+      // 只收数字的编辑框，即 Android `EditorPolicy.numberInput` 认的数字与电话号码两类。
+      digits: pattern === inputMethodEngine.PATTERN_NUMBER
+        || pattern === inputMethodEngine.PATTERN_PHONE
+        || pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL
     };
   }
 
@@ -3153,6 +3188,70 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 当前编辑框只用标准底行（`EditorPolicy.keepsStandardRows`：密码框或只收数字）；属性还没到达时说的是上一个编辑框，到达后 `onEditorChanged` 会再通知一次。 */
+  editorKeepsStandardRows(): boolean {
+    return EditorPolicy.keepsStandardRows(this.traits);
+  }
+
+  /**
+   * 扩展能力建手机面板时调一次：按视图上次记下的键面（`touch_panel_face.json`）和现在的偏好定第一帧的工具条与多出的行（`TouchLayoutStylePolicy.firstPanel`），并留着给视图出现时从这个高度出发核对（`firstTouchPanel`）。
+   */
+  decideFirstTouchPanel(phoneLandscape: boolean): TouchPanelShape {
+    const settings: KeyboardPreferences = this.preferences();
+    this.openedTouchPanel = TouchLayoutStylePolicy.firstPanel(this.rememberedTouchPanelFace(), settings.numberRow,
+      settings.twentySixKeyStyle, TouchToolbarPolicy.rowHidden(settings.toolbarTools), phoneLandscape);
+    return this.openedTouchPanel;
+  }
+
+  /** 扩展能力建面板时用的形状；没有经过 `decideFirstTouchPanel` 时就是它没记过键面时的样子。 */
+  firstTouchPanel(): TouchPanelShape {
+    if (this.openedTouchPanel !== null) {
+      return this.openedTouchPanel;
+    }
+    const settings: KeyboardPreferences = this.preferences();
+    return TouchLayoutStylePolicy.firstPanel(null, settings.numberRow, settings.twentySixKeyStyle,
+      TouchToolbarPolicy.rowHidden(settings.toolbarTools), false);
+  }
+
+  /** 记下视图这一刻的键面，下次冷启动建面板时用；和上次写的一样时不写盘（视图每次重定高度都会调）。写不进去只记日志，下次照没记过建面板。 */
+  rememberTouchPanelFace(face: TouchPanelFace): void {
+    const text: string = TouchLayoutStylePolicy.touchPanelFaceText(face);
+    if (text === this.touchPanelFaceWritten || this.stateDirectory.length === 0) {
+      return;
+    }
+    this.touchPanelFaceWritten = text;
+    try {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
+        return;
+      }
+      KeyboardSession.writePrivateText(this.touchPanelFaceFile(), text);
+    } catch (error) {
+      KeyboardLog.error(`touch panel face not persisted: ${describeError(error)}`);
+    }
+  }
+
+  private touchPanelFaceFile(): string {
+    return `${this.stateDirectory}/touch_panel_face.json`;
+  }
+
+  private rememberedTouchPanelFace(): TouchPanelFace | null {
+    if (this.stateDirectory.length === 0) {
+      return null;
+    }
+    try {
+      const text: string | null =
+        KeyboardSession.readPrivateText(this.touchPanelFaceFile(), TOUCH_PANEL_FACE_MAX_BYTES);
+      if (text === null) {
+        return null;
+      }
+      this.touchPanelFaceWritten = text;
+      return TouchLayoutStylePolicy.parseTouchPanelFace(text);
+    } catch (error) {
+      KeyboardLog.error(`touch panel face unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
   /** Whether something is being spelled right now, which decides who a physical key belongs to. */
   composing(): boolean {
     return HardwareKeyRouter.composing(this.editing, this.phrasePrefix);
@@ -3642,8 +3741,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Resize only the phone/tablet soft-keyboard panel; desktop surfaces have separate geometry. */
   resizeTouchKeyboard(heightVp: number): void {
-    if (!KeyboardFormFactor.isDesktop() && this.onTouchHeight !== undefined) {
-      this.onTouchHeight(heightVp);
+    if (!KeyboardFormFactor.isDesktop()) {
+      this.touchHeight.request(heightVp);
     }
   }
 
@@ -4256,6 +4355,20 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   commitThenType(ascii: number): void {
     this.commitThenInsert(String.fromCharCode(ascii));
+  }
+
+  /**
+   * 数字行的数字，与 Android 数字行（`DeclinedKeyPolicy`）相同：先交给引擎，当前页有对应候选的 1–9 由运行时选词（韩语打开汉字列表时选汉字）；引擎不收时先结束还在的组合，再在后面上屏这个数字。是否收下只看引擎的 handled，不能像 `press` 那样把组字变了也算作收下：韩语音节、越南语单词等方案的引擎会先上屏组字再把数字交回宿主，这时组字已经空了，数字仍要由键盘输入；组合已经被引擎结束时 `commitThenType` 的结束组合什么也不做。
+   */
+  pressElseCommitThenType(ascii: number): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(ascii, false);
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    if (this.apply(client.character(this.handle, ascii, false))) return;
+    this.commitThenType(ascii);
   }
 
   /**

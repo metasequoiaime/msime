@@ -246,12 +246,18 @@ final class KeyboardKeyButton: UIButton {
   /// 滑动是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
   var swipesCornerHint = true
   var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
+  /// 为真时上滑、下滑都输入角标，不看 `cornerHintSwipeDirection`，纵向位移还要大于横向，按满 `cornerHintHoldDelay` 还没滑出去就不再起滑动（`SwipeHintPolicy.swipedEitherWay`）。「长空格」的逗号用它，与 Android 的 `ImeBottomRow.bindCommaSwipe` 一致。
+  var cornerHintSwipesEitherWay = false
+  /// 按住是否输入角标。为假时角标只靠滑动输入，按住留给按键自己的长按菜单（`menu`），例如 14 键「长空格」的逗号：上滑或下滑输入句号，长按仍打开常用标点。
+  var holdsCornerHint = true
 
   /// UIKit 默认的长按时长，与九键长按用的半秒相同；Android 等的是系统的长按超时。
   static let cornerHintHoldDelay: TimeInterval = 0.5
 
   /// 被跟踪的手指按下的位置，用窗口坐标，免得按下缩放扭曲滑动距离。
-  private var cornerHintDownY: CGFloat = 0
+  private var cornerHintDown: CGPoint = .zero
+  /// 按下时的触摸时间戳（`UITouch.timestamp`），`cornerHintSwipesEitherWay` 用它判断这次触摸是否已经归长按。
+  private var cornerHintDownTime: TimeInterval = 0
   private var cornerHintTriggered = false
   private var cornerHintHold: Timer?
 
@@ -259,7 +265,9 @@ final class KeyboardKeyButton: UIButton {
     let began = super.beginTracking(touch, with: event)
     resetCornerHint()
     guard began, cornerHint != nil else { return began }
-    cornerHintDownY = touch.location(in: nil).y
+    cornerHintDown = touch.location(in: nil)
+    cornerHintDownTime = touch.timestamp
+    guard holdsCornerHint else { return began }
     cornerHintHold = Timer.scheduledTimer(withTimeInterval: Self.cornerHintHoldDelay, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         // 滑出按键的手指不再算按住，对应 Android 检查 `isPressed()`。
@@ -271,11 +279,19 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-    if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint,
-       SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDownY, currentY: touch.location(in: nil).y) {
+    if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
       triggerCornerHint(hint)
     }
     return super.continueTracking(touch, with: event)
+  }
+
+  private func cornerHintSwiped(_ touch: UITouch) -> Bool {
+    let current = touch.location(in: nil)
+    guard cornerHintSwipesEitherWay else {
+      return SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDown.y, currentY: current.y)
+    }
+    return SwipeHintPolicy.swipedEitherWay(down: cornerHintDown, current: current,
+                                           elapsed: touch.timestamp - cornerHintDownTime, holdDelay: Self.cornerHintHoldDelay)
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {

@@ -561,7 +561,7 @@ fn install_in(
                 .map_err(|_| "storage")?;
         }
         file.as_file().sync_all().map_err(|_| "storage")?;
-        file.persist(&target).map_err(|_| "storage")?;
+        msime_client_core::file_lock::persist_replacing(file, &target).map_err(|_| "storage")?;
         Ok(outcome)
     }
 }
