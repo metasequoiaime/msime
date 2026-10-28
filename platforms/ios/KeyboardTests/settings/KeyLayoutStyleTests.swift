@@ -308,6 +308,28 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 工具栏设成隐藏、26 键选了长空格时来回切中/英，键盘高度和按键位置都不变：英文 26 键画标准底行，工具栏上的 符 跟着消失，但 iOS 的顶栏一直占着它的高度，只换内容。Android 和鸿蒙曾在这里随中/英把整行工具栏收起又放出，键盘跟着跳。
+  func testLongSpaceToolbarRowKeepsTheHeightAcrossLanguageToggles() throws {
+    select(.quanpin)
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
+    TouchToolbarLocalPreference.hidden = true
+    let controller = keyboard()
+    let symbols = try button("symbolsShortcut", in: controller)
+    let space = try button("spaceKey", in: controller)
+    let chineseHeight = height(of: controller)
+    let chineseSpaceTop = controller.view.convert(space.bounds, from: space).minY
+    XCTAssertTrue(shown(symbols), "Chinese long space carries the symbol entry on the hidden toolbar")
+    for (pass, english) in [true, false].enumerated() {
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      XCTAssertEqual(shown(symbols), !english, "pass \(pass): only Chinese long space moves 符 to the toolbar")
+      XCTAssertEqual(height(of: controller), chineseHeight, accuracy: 0.5, "pass \(pass): the keyboard height stays")
+      XCTAssertEqual(controller.view.convert(space.bounds, from: space).minY, chineseSpaceTop, accuracy: 0.5,
+                     "pass \(pass): the bottom row does not move")
+    }
+    controller.viewDidDisappear(false)
+  }
+
   /// 14 键与 18 键共用一套样式；隐藏中/英时它的份额给空格。
   func testLetterGridStylesDrawTheTable() throws {
     for scheme in [ChineseInputScheme.fourteenKey, .eighteenKey] {
