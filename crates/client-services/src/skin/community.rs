@@ -40,12 +40,12 @@ pub struct CommunitySkin {
     /// 发布分类。客户端总是带 `include=category` 请求，早于分类功能的服务端不返回它，此时为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<SkinCategory>,
-    /// 作品的来源，只在请求排除 AI 生成的皮肤时（[`EXCLUDE_AI_GENERATED`]）带 `fields=origin` 要它，其他请求和旧服务端都不返回，此时为 `None`。
+    /// 作品的来源，只在请求排除 AI 生成的皮肤时（[`EXCLUDE_AI_GENERATED`]）带 `fields=origin` 要它，其他请求不返回，此时为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SkinOrigin>,
 }
 
-/// 社区皮肤的来源，由服务端在发布时判定：比对 AI 皮肤生成留下的插画指纹，或者发布请求声明了 AI 生成。`unknown` 是来源功能上线前发布的作品；服务端将来新增的值也读作 `unknown`。
+/// 社区皮肤的来源，由服务端在发布时判定：比对 AI 皮肤生成留下的插画指纹，或者发布请求声明了 AI 生成。`unknown` 是服务端推不出来源的作品：来源功能上线前、以及滚动升级期间旧副本写入的带照片的作品，和服务端后台回填还没处理到的作品；服务端将来新增的值也读作 `unknown`。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SkinOrigin {
@@ -55,9 +55,9 @@ pub enum SkinOrigin {
     Unknown,
 }
 
-/// 排除 AI 生成皮肤的查询参数。服务端在分页之前就去掉 `origin` 为 `ai` 的作品，以及来源未知、带照片背景的旧作品，详情和下载对这些作品答 404。
+/// 排除 AI 生成皮肤的查询参数。服务端在分页之前只留下 `origin` 为 `user` 的作品，`ai` 和所有 `unknown` 都去掉，详情和下载对去掉的作品答 404。
 const EXCLUDE_AI_GENERATED: &str = "exclude=ai";
-/// 认得 [`EXCLUDE_AI_GENERATED`] 的服务端在响应里带的能力头。旧部署会忽略不认识的查询参数照常作答，所以没有这个头就不能当作已经排除。
+/// 认得 [`EXCLUDE_AI_GENERATED`] 的服务端在响应里带的能力头。旧部署忽略 `exclude` 照常作答，所以没有这个头的成功响应不能当作已经排除；旧部署的 `fields` 不认 `origin`，列表和详情会答 400 `invalid_fields`。
 const ORIGIN_HEADER: &str = "X-MSIME-Skin-Origin";
 const ORIGIN_VERSION: &str = "v1";
 
@@ -92,7 +92,7 @@ struct CommunitySkinPublishResponse {
 }
 
 pub trait CommunitySkinApi: Send + Sync + 'static {
-    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state. `exclude_ai_generated` 为真时不列 AI 生成的皮肤，服务端没有声明支持时是 [`AccountError::Unavailable`]。
+    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state. `exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，服务端没有声明支持时是 [`AccountError::Unavailable`]。
     fn community_skins(
         &self,
         offset: usize,
@@ -102,14 +102,14 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
         exclude_ai_generated: bool,
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError>;
-    /// `exclude_ai_generated` 为真时 AI 生成的皮肤是 [`AccountError::NotFound`]。
+    /// `exclude_ai_generated` 为真时来源不是 `user` 的皮肤（AI 生成的和来源不明的）是 [`AccountError::NotFound`]。
     fn community_skin(
         &self,
         id: Uuid,
         exclude_ai_generated: bool,
         token: Option<&str>,
     ) -> Result<CommunitySkin, AccountError>;
-    /// `exclude_ai_generated` 为真时 AI 生成的皮肤是 [`AccountError::NotFound`]。
+    /// `exclude_ai_generated` 为真时来源不是 `user` 的皮肤（AI 生成的和来源不明的）是 [`AccountError::NotFound`]。
     fn download_community_skin(
         &self,
         id: Uuid,
@@ -136,7 +136,7 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
 }
 
 impl BackendAccountClient {
-    /// 排除 AI 生成皮肤的请求：带上 [`EXCLUDE_AI_GENERATED`]，并要求响应带着 [`ORIGIN_HEADER`]；不排除时与以前完全相同。
+    /// 排除 AI 生成皮肤的请求：带上 [`EXCLUDE_AI_GENERATED`]，并要求响应带着 [`ORIGIN_HEADER`]；不排除时与以前完全相同。排除时的 400 一律按 [`AccountError::Unavailable`] 报告：查询参数由本端拼出、事先校验过，服务端答 400 只会是旧部署不认 `fields=origin`（`invalid_fields`），与没有能力头是同一回事，页面显示「社区暂不可用」而不是参数错误。
     fn community_skin_json<T: serde::de::DeserializeOwned>(
         &self,
         method: Method,
@@ -146,6 +146,10 @@ impl BackendAccountClient {
     ) -> Result<T, AccountError> {
         if exclude_ai_generated {
             self.json_with_required_header(method, path, token, ORIGIN_HEADER, ORIGIN_VERSION)
+                .map_err(|error| match error {
+                    AccountError::Invalid => AccountError::Unavailable,
+                    other => other,
+                })
         } else {
             self.json::<T, ()>(method, path, token, None)
         }
@@ -201,9 +205,9 @@ impl CommunitySkinApi for BackendAccountClient {
         )?;
         validate_page(&page)?;
         if exclude_ai_generated {
-            // 服务端已经在分页前排除过；它若仍交来标着 AI 生成的条目，这里再去掉一次，不让它出现在列表里。
+            // 服务端已经在分页前只留下 `user`；它若仍交来别的来源（`ai`、`unknown`、没有 `origin` 或将来的新值），这里再去掉一次，不让它出现在列表里。
             page.skins
-                .retain(|skin| skin.origin != Some(SkinOrigin::Ai));
+                .retain(|skin| skin.origin == Some(SkinOrigin::User));
         }
         Ok(page)
     }
@@ -239,7 +243,7 @@ impl CommunitySkinApi for BackendAccountClient {
         if skin.id != id {
             return Err(AccountError::Unavailable);
         }
-        if exclude_ai_generated && skin.origin == Some(SkinOrigin::Ai) {
+        if exclude_ai_generated && skin.origin != Some(SkinOrigin::User) {
             return Err(AccountError::NotFound);
         }
         Ok(skin)
@@ -360,7 +364,7 @@ where
     A: AccountApi + CommunitySkinApi,
     S: AccountSessionStorage,
 {
-    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。`exclude_ai_generated` 为真时不列 AI 生成的皮肤（HarmonyOS 在 AI 生成类资质到位之前），服务端没有声明支持这项筛选时是 [`AccountError::Unavailable`]，宁可不显示也不把没筛过的列表交出去。
+    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。`exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，AI 生成的和来源不明的都不列（HarmonyOS 在 AI 生成类资质到位之前），服务端没有声明支持这项筛选时是 [`AccountError::Unavailable`]，宁可不显示也不把没筛过的列表交出去。
     pub fn list(
         &self,
         offset: usize,
@@ -375,7 +379,7 @@ where
         })
     }
 
-    /// `exclude_ai_generated` 与 [`Self::list`] 相同，AI 生成的皮肤是 [`AccountError::NotFound`]。
+    /// `exclude_ai_generated` 与 [`Self::list`] 相同，来源不是 `user` 的皮肤是 [`AccountError::NotFound`]。
     pub fn detail(
         &self,
         id: Uuid,

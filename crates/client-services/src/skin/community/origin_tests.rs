@@ -1,4 +1,4 @@
-//! 排除 AI 生成的社区皮肤（`exclude=ai`）：请求带上筛选参数和 `fields=origin`，只有带着 `X-MSIME-Skin-Origin: v1` 的响应才算筛过；条目上标着 `ai` 的再在客户端去掉一次。不排除时路径和以前一样，也不要求这个头。连本机回环上的假服务端，不联网。
+//! 排除 AI 生成的社区皮肤（`exclude=ai`）：列表和详情带上筛选参数和 `fields=origin`，下载只带筛选参数，只有带着 `X-MSIME-Skin-Origin: v1` 的响应才算筛过，旧部署对 `fields=origin` 答的 400 也按社区不可用处理；来源不是 `user` 的条目再在客户端去掉一次。不排除时路径和以前一样，也不要求这个头。连本机回环上的假服务端，不联网。
 
 use super::*;
 use std::io::{Read, Write};
@@ -29,6 +29,8 @@ fn skin(id: &str, origin: Option<SkinOrigin>) -> CommunitySkin {
 
 const USER: &str = "10000000-0000-4000-8000-000000000001";
 const AI: &str = "10000000-0000-4000-8000-000000000002";
+const UNKNOWN: &str = "10000000-0000-4000-8000-000000000003";
+const MISSING: &str = "10000000-0000-4000-8000-000000000004";
 const HEADER: &str = "X-MSIME-Skin-Origin: v1\r\n";
 
 /// 依次回答每个连接一个响应（状态行、额外的头、正文），收到的请求行按顺序交回。
@@ -71,13 +73,16 @@ fn client(origin: &str) -> BackendAccountClient {
 }
 
 #[test]
-fn an_excluding_list_asks_for_the_filter_and_drops_items_still_marked_ai() {
+fn an_excluding_list_asks_for_the_filter_and_keeps_only_user_items() {
+    // 服务端只该交来 `user`；交来 `ai`、`unknown` 或没带 `origin` 的条目都在客户端去掉。
     let (origin, received) = serve(vec![(
         "200 OK",
         HEADER,
         page(vec![
             skin(USER, Some(SkinOrigin::User)),
             skin(AI, Some(SkinOrigin::Ai)),
+            skin(UNKNOWN, Some(SkinOrigin::Unknown)),
+            skin(MISSING, None),
         ]),
     )]);
     let listed = client(&origin)
@@ -129,6 +134,35 @@ fn a_server_that_does_not_declare_the_filter_is_not_trusted() {
         client(&origin).download_community_skin(Uuid::parse_str(USER).unwrap(), true, &token()),
         Err(AccountError::Unavailable)
     );
+    // 旧部署的 `fields` 不认 `origin`，列表和详情答 400 `invalid_fields`：同样是社区不可用，不是参数错误。
+    let invalid_fields = br#"{"error":{"code":"invalid_fields","message":"invalid_fields"}}"#;
+    let (origin, _received) = serve(vec![
+        ("400 Bad Request", "", invalid_fields.to_vec()),
+        ("400 Bad Request", "", invalid_fields.to_vec()),
+    ]);
+    let client = client(&origin);
+    assert_eq!(
+        client.community_skins(0, "", false, None, true, None),
+        Err(AccountError::Unavailable)
+    );
+    assert_eq!(
+        client.community_skin(Uuid::parse_str(USER).unwrap(), true, None),
+        Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn a_bad_request_without_exclusion_is_still_invalid() {
+    // 只有排除请求把 400 读成不可用；其他宿主的请求照旧报参数错误。
+    let (origin, _received) = serve(vec![(
+        "400 Bad Request",
+        "",
+        br#"{"error":{"code":"invalid_fields","message":"invalid_fields"}}"#.to_vec(),
+    )]);
+    assert_eq!(
+        client(&origin).community_skins(0, "", false, None, false, None),
+        Err(AccountError::Invalid)
+    );
 }
 
 #[test]
@@ -174,6 +208,22 @@ fn an_excluded_detail_or_download_is_not_found() {
         received.recv().unwrap(),
         format!("POST /v1/community/skins/{AI}/download?exclude=ai HTTP/1.1")
     );
+}
+
+#[test]
+fn an_excluding_detail_without_a_user_origin_is_not_found() {
+    // 来源不明、没带 `origin` 的详情同样按不存在处理，与服务端只留 `user` 的语义一致。
+    for (id, origin) in [(UNKNOWN, Some(SkinOrigin::Unknown)), (MISSING, None)] {
+        let (server, _received) = serve(vec![(
+            "200 OK",
+            HEADER,
+            serde_json::to_vec(&skin(id, origin)).unwrap(),
+        )]);
+        assert_eq!(
+            client(&server).community_skin(Uuid::parse_str(id).unwrap(), true, None),
+            Err(AccountError::NotFound)
+        );
+    }
 }
 
 #[test]

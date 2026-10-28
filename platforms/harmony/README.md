@@ -14,7 +14,7 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 总闸是 Rust 的 `HostCapabilities.community_contribution`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showCommunityContribution`，社区页据此不画这些入口；`apps/harmony` 的社区客户端对这些操作直接拒绝、不给举报；设置进程启动时把它交给 `keyboard/CommunityContributionGate.ts`，设置桥的 `startRequest` 在分发社区请求之前问它。
 
-AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设置桥的社区请求带 `exclude_ai_generated`，Rust 向服务端发 `exclude=ai`，服务端没有回 `X-MSIME-Skin-Origin: v1` 时皮肤图库按「社区暂不可用」处理。服务端契约和恢复方法见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。
+AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设置桥的社区请求带 `exclude_ai_generated`，Rust 向服务端发 `exclude=ai`，服务端只留下来源为 `user` 的皮肤；服务端没有回 `X-MSIME-Skin-Origin: v1`、或者是还不认 `fields=origin` 的旧版本答了 400 时，皮肤图库按「社区暂不可用」处理。服务端契约和恢复方法见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。
 
 ## 输入法扩展的独立沙箱与共享沙箱镜像
 
