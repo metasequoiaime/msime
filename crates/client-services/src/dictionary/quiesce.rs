@@ -20,6 +20,8 @@ pub const LEASE_NAME: &str = ".msime-dictionary-quiesce";
 /// removing it are otherwise a check-then-remove race across writers.
 pub const LEASE_LOCK_NAME: &str = ".msime-dictionary-quiesce.lock";
 const LEASE_DURATION: Duration = Duration::from_secs(30);
+/// 一个请求执行期间续租约的间隔，取租约时长的三分之一：一次续写失败，租约过期前还有两次机会。
+const RENEW_INTERVAL: Duration = Duration::from_secs(10);
 /// Long enough for the IBus host's one-second timer to come round twice.
 pub const RETRY_BUDGET: Duration = Duration::from_millis(2500);
 pub const RETRY_INTERVAL: Duration = Duration::from_millis(50);
@@ -299,11 +301,12 @@ pub fn is_lease_file(name: &OsStr) -> bool {
     })
 }
 
-/// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. `announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
+/// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. 一个请求本身跑得比租约还长时（慢盘上的大批写入、激活整代词库），执行期间也每隔 [`RENEW_INTERVAL`] 续一次，否则租约在请求中途过期，宿主重新建会话时撞上独占锁（#9918）。`announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
 pub struct QuiescedHosts<'a, Announce: FnMut()> {
     user_data: Option<&'a Path>,
     announce: Announce,
     lease: Option<Release>,
+    renew_every: Duration,
 }
 
 impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
@@ -312,6 +315,7 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
             user_data: user_data.map(Path::new).filter(|path| path.is_absolute()),
             announce,
             lease: None,
+            renew_every: RENEW_INTERVAL,
         }
     }
 
@@ -329,7 +333,7 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
             // A lease that cannot be renewed still holds until its expiry, and a host that reopens a session after that makes the attempt below busy, which is retried like any other.
             let _ = lease.publish();
         }
-        let mut result = attempt();
+        let mut result = attempt_under_lease(self.lease.as_mut(), self.renew_every, &mut attempt);
         if !matches!(&result, Err(reason) if reason == BUSY) {
             return result;
         }
@@ -351,10 +355,37 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
             if let Some(release) = &mut self.lease {
                 let _ = release.ask_server_again();
             }
-            result = attempt();
+            result = attempt_under_lease(self.lease.as_mut(), self.renew_every, &mut attempt);
         }
         result
     }
+}
+
+/// 运行一次 `attempt`；有租约时另起一个线程，每隔 `renew_every` 续一次，`attempt` 返回（或 panic）就停。起不了线程时照旧只运行 `attempt`，退回请求之前续的那一次。
+fn attempt_under_lease<T>(
+    lease: Option<&mut Release>,
+    renew_every: Duration,
+    attempt: &mut impl FnMut() -> Result<T, String>,
+) -> Result<T, String> {
+    let Some(lease) = lease else {
+        return attempt();
+    };
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let _renewer = std::thread::Builder::new()
+            .name("msime-dictionary-lease".into())
+            .spawn_scoped(scope, move || {
+                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                    finished.recv_timeout(renew_every)
+                {
+                    // 续不上时租约仍到原来的过期时间为止，和请求之间续期失败一样处理。
+                    let _ = lease.publish();
+                }
+            });
+        let result = attempt();
+        drop(done);
+        result
+    })
 }
 
 /// The Windows Server's release, asked for over its auxiliary pipe with the UTF-16LE message `DictionaryQuiesce` and given back with `DictionaryResume` (`platforms/windows/common/AuxMessage.h`). It answers "OK" only once its sessions really are gone, so that reply, not a write getting through, is what makes the exclusive lock safe to take. It gives the sessions back by itself 30 seconds after the last `DictionaryQuiesce`, so a writer that dies mid-import cannot leave input off for longer, and a long one renews the release before each request.
@@ -780,6 +811,37 @@ mod tests {
         assert_eq!(third, Ok(3));
         drop(hosts);
         assert_eq!(announced.get(), 1);
+        assert!(!directory.path().join(LEASE_NAME).exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_request_that_runs_past_the_renewal_interval_keeps_the_lease_renewed() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_data = directory.path().to_str().unwrap().to_owned();
+        let mut hosts = QuiescedHosts::new(Some(&user_data), || {});
+        hosts.renew_every = Duration::from_millis(20);
+        let calls = Cell::new(0);
+        let result = hosts.run_within(Duration::from_secs(2), || {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                return Err(BUSY.to_owned());
+            }
+            // 请求执行期间宿主看到的过期时间被推后，而不是停在请求开始前续的那一次。
+            let before = lease_expiry(directory.path()).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            assert!(lease_expiry(directory.path()).unwrap() > before);
+            Ok("imported")
+        });
+        assert_eq!(result, Ok("imported"));
+        // 请求一返回续期就停，租约不再被改写。
+        let settled = std::fs::read_to_string(directory.path().join(LEASE_NAME)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join(LEASE_NAME)).unwrap(),
+            settled
+        );
+        drop(hosts);
         assert!(!directory.path().join(LEASE_NAME).exists());
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
