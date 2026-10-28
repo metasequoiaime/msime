@@ -5822,7 +5822,7 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
         let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
         temporary.write_all(contents)?;
         temporary.as_file().sync_all()?;
-        temporary.persist(path).map_err(|error| error.error)?;
+        crate::storage::persist_replacing(temporary, path).map_err(|error| error.error)?;
         Ok(())
     }
 }

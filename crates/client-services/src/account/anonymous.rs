@@ -712,8 +712,7 @@ fn write_private(
                 Err(_) => Err(AccountError::Storage),
             };
         }
-        temporary
-            .persist(&path)
+        crate::storage::persist_replacing(temporary, &path)
             .map(|_| true)
             .map_err(|_| AccountError::Storage)
     }

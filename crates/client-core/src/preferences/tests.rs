@@ -6111,6 +6111,43 @@ fn error_wordings_the_harmony_host_matches_on() {
             .to_string()
             .starts_with("invalid preferences document:")
     );
+    // Windows 设置页（`platforms/windows/settings/PreferencesSaveFailure.h`）按这个前缀认出写盘失败：保留页面上的修改并稍后重试，而不是当成别处改过设置去重读。
+    assert!(PreferencesError::Io(std::io::Error::from_raw_os_error(5))
+        .to_string()
+        .starts_with("preferences storage failed:"));
+}
+
+/// 杀毒软件、备份工具常常不带删除共享地打开 preferences.json 几毫秒，Windows 上这期间替换会被拒绝。保存要等它过去，而不是失败后让设置页重读旧值、丢掉用户刚做的修改。
+#[cfg(windows)]
+#[test]
+fn save_waits_for_a_reader_that_briefly_holds_the_document_open() {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    let reader = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(store.path())
+        .unwrap();
+    let releasing = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(reader);
+    });
+    // 换成另一个合法的页大小，保存一定会写盘。
+    let page_size = saved.preferences.candidate_page_size % 10 + 1;
+    let edited = Preferences {
+        candidate_page_size: page_size,
+        ..saved.preferences.clone()
+    };
+    let resaved = store.save(saved.revision, edited).unwrap();
+    releasing.join().unwrap();
+    assert_eq!(resaved.revision, saved.revision + 1);
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.revision, resaved.revision);
+    assert_eq!(loaded.preferences.candidate_page_size, page_size);
 }
 
 /// A restore puts every setting back and costs the user no secret.

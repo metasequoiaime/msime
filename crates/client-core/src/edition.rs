@@ -493,7 +493,7 @@ impl Edition {
             let mut temporary = tempfile::NamedTempFile::new_in(state_root)?;
             temporary.write_all(bytes.as_bytes())?;
             temporary.as_file().sync_all()?;
-            temporary.persist(&path).map_err(|error| error.error)?;
+            crate::storage::persist_replacing(temporary, &path).map_err(|error| error.error)?;
             Ok(())
         }
     }

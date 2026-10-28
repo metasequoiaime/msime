@@ -430,7 +430,7 @@ impl ClipboardHistoryStore {
             let mut temp = tempfile::NamedTempFile::new_in(parent)?;
             temp.write_all(&bytes)?;
             temp.as_file().sync_all()?;
-            temp.persist(&self.path).map_err(|error| error.error)?;
+            crate::storage::persist_replacing(temp, &self.path).map_err(|error| error.error)?;
             Ok(())
         }
     }

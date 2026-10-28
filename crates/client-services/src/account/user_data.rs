@@ -248,8 +248,7 @@ impl BackendAccountClient {
             if !readable_zip(temporary.as_file_mut()) {
                 return Err(AccountError::Unavailable.into());
             }
-            temporary
-                .persist(destination)
+            crate::storage::persist_replacing(temporary, destination)
                 .map_err(|_| AccountError::Unavailable)?;
             bytes
         };
