@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.DimensionPolicy;
 
 import android.animation.ValueAnimator;
@@ -108,6 +109,8 @@ public final class HomeActivity extends AppCompatActivity {
         String cached = AppThemeController.cachedSeason(this);
         if (cached != null) drawnSeason = cached;
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         Telemetry.start(this);
         AccountIdentity.register(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -213,6 +216,8 @@ public final class HomeActivity extends AppCompatActivity {
     /** 每次回到前台都按今天的月份重新解析一次应用主题：「水杉四季」跨季节时，开着的页面要换成新季节的颜色。 */
     @Override protected void onResume() {
         super.onResume();
+        // 设置应用常驻在最近任务里，另一个实例改了「防止截屏」后回到这里要跟上。
+        ScreenCaptureProtection.apply(this);
         View intro = findViewById(R.id.home_intro);
         if (!ViewPolicy.isVisible(intro) && OnboardingActivity.seen(this)) {
             // 升级后第一次打开时说明和五笔码表的下载询问会同时到来，叠在一起时下面那个看不清：说明关掉之后再问。

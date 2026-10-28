@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.net.Uri;
@@ -389,7 +390,7 @@ public final class VoicePage extends ReloadingDetailPage {
             lines.add(OfflineImportPolicy.fileLine(file.name(), file.size()));
             sizes[index] = file.size();
         }
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("导入" + title)
             .setMessage(OfflineImportPolicy.instructions(lines))
             .setNegativeButton("取消", null)
@@ -403,7 +404,7 @@ public final class VoicePage extends ReloadingDetailPage {
                     MsToast.show(requireContext(), "这台设备没有可用的文件选择器");
                 }
             })
-            .show();
+            .create());
     }
 
     private void openDownloads(List<ResourcePacks.ImportFile> files) {

@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.policy.InstallNoticePolicy;
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -34,11 +35,11 @@ final class InstallNotice {
                     .getString(SHOWN_INSTALL_STAMP, null))) return false;
         activity.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
             .putString(SHOWN_INSTALL_STAMP, stamp).apply();
-        var dialog = new MaterialAlertDialogBuilder(activity)
+        var dialog = ScreenCaptureProtection.protect(new MaterialAlertDialogBuilder(activity)
             .setTitle(TITLE)
             .setMessage(MESSAGE)
             .setPositiveButton("知道了", null)
-            .create();
+            .create());
         Handler handler = new Handler(Looper.getMainLooper());
         Runnable autoDismiss = () -> {
             // Activity 销毁时窗口可能已由系统移除，但 Dialog 仍报告正在显示。

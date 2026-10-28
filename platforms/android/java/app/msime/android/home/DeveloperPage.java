@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -362,7 +363,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private void confirmDelete() {
         String expectedAccountId = cloudAccountId;
         String expectedSessionId = cloudSessionId;
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("删除云端日志")
             .setMessage("云端快照和访问令牌会立即删除，开发者无法再读取。")
             .setNegativeButton("取消", (dialog, which) -> render())
@@ -396,7 +397,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
                     render();
                 });
             })
-            .show();
+            .create());
     }
 
     private void confirmRegenerate() {

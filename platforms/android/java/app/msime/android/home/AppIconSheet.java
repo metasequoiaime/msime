@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
@@ -35,7 +36,7 @@ public final class AppIconSheet {
 
     public AppIconSheet(Context context) {
         this.context = context;
-        dialog = new BottomSheetDialog(context);
+        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(context));
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
         root.addView(SheetHeaderView.create(context, "App 图标",

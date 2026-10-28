@@ -1231,6 +1231,8 @@ final class ImeLayoutRows {
         // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
         popup.showAsDropDown(anchor, x - anchorPosition[0],
             y - anchorPosition[1] - anchor.getHeight());
+        // 弹窗是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+        ScreenCaptureProtection.apply(popup);
         return options;
     }
 

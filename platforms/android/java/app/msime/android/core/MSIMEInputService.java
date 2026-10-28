@@ -488,6 +488,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
+    /** 「防止截屏」（#10098）：开着时输入法窗口和它自己开的弹窗都带 FLAG_SECURE，见 {@link ScreenCaptureProtection}。 */
+    boolean screenCaptureProtected;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
@@ -2899,6 +2901,10 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
+        // 设置应用里刚切换过时，下一次弹出键盘（onStartInputView 重读本地设置）就跟上；标志没变时不动窗口。
+        screenCaptureProtected = localSettings.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION);
+        android.app.Dialog imeWindow = getWindow();
+        ScreenCaptureProtection.apply(imeWindow == null ? null : imeWindow.getWindow(), screenCaptureProtected);
     }
 
     /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */

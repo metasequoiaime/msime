@@ -1404,6 +1404,36 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
+# 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
+while IFS= read -r activity; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then
+    echo "Android activity must apply screen capture protection in onCreate: ${activity#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
+dialog_total=$({ rg -c 'new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk -F: '{ total += $NF } END { print total + 0 }')
+dialog_protected=$({ rg -c 'ScreenCaptureProtection\.(show|protect)\(new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk -F: '{ total += $NF } END { print total + 0 }')
+if [[ "$dialog_total" != "$dialog_protected" ]]; then
+  echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
+  exit 1
+fi
+while IFS= read -r popup_source; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\((popup|window)\);' "$popup_source"; then
+    echo "Android PopupWindow must apply screen capture protection after it is shown: ${popup_source#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'new PopupWindow\(' "$android_java")
+while IFS= read -r child_window; do
+  if ! rg -q 'ScreenCaptureProtectionPolicy\.windowFlags\(' "$child_window"; then
+    echo "Android IME child windows must carry the screen capture protection flag: ${child_window#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'TYPE_APPLICATION_ATTACHED_DIALOG' "$android_java")
+apply_local_body=$(sed -n '/^    private void applyLocalSettings() {$/,/^    }$/p' "$android_java/core/MSIMEInputService.java")
+if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindow\.getWindow\(\), screenCaptureProtected\);' <<< "$apply_local_body"; then
+  echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
