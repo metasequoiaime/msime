@@ -5,7 +5,7 @@
 //! - 可打印 ASCII：标点走 `msime_client_punctuation`，其余（字母、数字、空格）走 `msime_client_character`。
 //! - `0x00`–`0x1f`：`msime_client_command` 的编辑与翻页命令。
 //! - `0x7f`：下一个字节作为按住 Shift 的字符。
-//! - `0x80`–`0xff`：选词、开关、滑行、英文补全、九键筛选、中途换方案等，参数从后面的字节取（见 `step`）。
+//! - `0x80`–`0xff`：选词、开关、滑行、英文补全、九键筛选、中途换方案、注册键位几何、带触点的按键等，参数从后面的字节取（见 `step`）。
 //!
 //! 每轮在新的临时目录里放一份只有几个词条的拼音词库，学习写下的东西不会带到下一轮，崩溃输入因此能单独复现。panic 即使被 `response()` 的 `catch_unwind` 接住，也会先触发 libfuzzer-sys 装的 panic hook 中止进程，所以照样报告。
 
@@ -142,6 +142,37 @@ fn glide_keys() -> Value {
     json!(centres)
 }
 
+/// 26 键的键位几何：`glide_keys` 的键心，键宽 10、键高 14，`id` 和 `;`、重复键由输入决定；`raw` 时改为一段任意字节，走拒绝路径。
+fn key_geometry(input: &mut Input) -> Vec<u8> {
+    let id = input.byte();
+    let choice = input.byte();
+    if choice & 3 == 3 {
+        let length = usize::from(input.byte());
+        return input.bytes(length).to_vec();
+    }
+    let keys: Vec<Value> = glide_keys()
+        .as_array()
+        .map(|centres| {
+            centres
+                .iter()
+                .map(|centre| json!([centre[0], centre[1], 10.0, 14.0]))
+                .collect()
+        })
+        .unwrap_or_default();
+    let semicolon = (choice & 4 != 0).then(|| json!([95.0, 21.0, 10.0, 14.0]));
+    let duplicates: Vec<Value> = if choice & 8 != 0 {
+        vec![
+            json!(["g", 60.0, 21.0, 10.0, 14.0]),
+            json!(["v", 40.0, 35.0, 10.0, 14.0]),
+        ]
+    } else {
+        Vec::new()
+    };
+    json!({"id": id, "keys": keys, "semicolon": semicolon, "duplicates": duplicates})
+        .to_string()
+        .into_bytes()
+}
+
 /// 执行一步，返回回应。
 fn step(
     handle: u64,
@@ -233,6 +264,33 @@ fn step(
             23 => msime_client_rerank_settled(handle),
             24 => msime_client_focus(handle, input.byte() & 1 == 1),
             25 => msime_client_reset_cache(handle),
+            26 => {
+                let request = key_geometry(input);
+                // SAFETY: 同上。
+                unsafe { msime_client_set_key_geometry(handle, request.as_ptr(), request.len()) }
+            }
+            27 => {
+                let ascii = input.byte();
+                let shift = input.byte() & 1 == 1;
+                let geometry_id = u32::from(input.byte());
+                // 一半落在键区里，另一半是任意的 f32 位模式（含 NaN、无穷大）。
+                let coordinate = |input: &mut Input| {
+                    let bits = u32::from_le_bytes([
+                        input.byte(),
+                        input.byte(),
+                        input.byte(),
+                        input.byte(),
+                    ]);
+                    if bits & 1 == 0 {
+                        f32::from((bits >> 1) as u8) / 2.0
+                    } else {
+                        f32::from_bits(bits)
+                    }
+                };
+                let x = coordinate(input);
+                let y = coordinate(input);
+                msime_client_touch_character(handle, ascii, shift, geometry_id, x, y)
+            }
             _ => msime_client_view(handle),
         },
     }

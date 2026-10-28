@@ -3356,6 +3356,142 @@ fn a_glide_stroke_composes_through_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// 26 个字母键排成一行，键宽 10、键高 10，`id` 是代次。
+fn touch_geometry_json(id: u32) -> String {
+    let keys: Vec<Value> = (0..26)
+        .map(|index| json!([f64::from(index) * 10.0, 0.0, 10.0, 10.0]))
+        .collect();
+    json!({"id": id, "keys": keys, "semicolon": null, "duplicates": []}).to_string()
+}
+
+fn set_key_geometry(handle: u64, json: &str) -> Value {
+    read(unsafe { msime_client_set_key_geometry(handle, json.as_ptr(), json.len()) })
+}
+
+/// 去掉只属于某一个会话的字段（候选 ID 里的会话句柄），剩下的就是两条路径都该逐字节相同的回应。
+fn without_session(mut value: Value) -> Value {
+    fn strip(value: &mut Value) {
+        match value {
+            Value::Object(fields) => {
+                fields.remove("session");
+                fields.values_mut().for_each(strip);
+            }
+            Value::Array(items) => items.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    strip(&mut value);
+    value
+}
+
+/// 触点入口退回 `msime_client_character`：代次不符、坐标不是有限数时回应逐字节相同，ABI 仍是 3。
+#[test]
+fn touch_characters_without_usable_touches_match_plain_characters() {
+    assert_eq!(msime_client_abi_version(), 3);
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        ..chinese_preferences()
+    };
+    let plain_dir = tempfile::tempdir().unwrap();
+    let touched_dir = tempfile::tempdir().unwrap();
+    let plain = test_host_with_pinyin_fixture(plain_dir.path(), preferences.clone());
+    let touched = test_host_with_pinyin_fixture(touched_dir.path(), preferences);
+    read(msime_client_focus(plain, true));
+    read(msime_client_focus(touched, true));
+    assert_eq!(
+        set_key_geometry(touched, &touch_geometry_json(4))["ok"],
+        true
+    );
+    for (byte, geometry_id, x) in [
+        (b'n', 5, 130.0),
+        (b'i', 4, f32::NAN),
+        (b'h', 4, f32::INFINITY),
+        (b'c', 3, 20.0),
+    ] {
+        let expected = read(msime_client_character(plain, byte, false));
+        let actual = read(msime_client_touch_character(
+            touched,
+            byte,
+            false,
+            geometry_id,
+            x,
+            1.0,
+        ));
+        assert_eq!(
+            without_session(actual),
+            without_session(expected),
+            "{}",
+            byte as char
+        );
+    }
+    read(msime_client_destroy(plain));
+    read(msime_client_destroy(touched));
+}
+
+/// 键位几何的边界：不合格的 JSON 整份拒绝，空串清除；带触点的按键照常组字。
+#[test]
+fn key_geometry_is_validated_at_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    let valid = touch_geometry_json(4);
+    assert_eq!(set_key_geometry(handle, &valid)["ok"], true);
+    let mut extra: Value = serde_json::from_str(&valid).unwrap();
+    extra["scale"] = json!(2);
+    let mut short: Value = serde_json::from_str(&valid).unwrap();
+    short["keys"].as_array_mut().unwrap().pop();
+    let mut flat: Value = serde_json::from_str(&valid).unwrap();
+    flat["keys"][0][2] = json!(0.0);
+    // 每个数都有限，归一后的键心却溢出成无穷（键宽 1e-3、键心 1e36）；距离平方会溢出的远键也一样拒绝。
+    let mut overflowing: Value = serde_json::from_str(&valid).unwrap();
+    for key in overflowing["keys"].as_array_mut().unwrap() {
+        key[2] = json!(1.0e-3);
+    }
+    overflowing["keys"][0][0] = json!(1.0e36);
+    let mut far: Value = serde_json::from_str(&valid).unwrap();
+    far["keys"][0][0] = json!(1.0e30);
+    for rejected in [
+        extra.to_string(),
+        short.to_string(),
+        flat.to_string(),
+        overflowing.to_string(),
+        far.to_string(),
+        "[]".to_owned(),
+    ] {
+        assert_eq!(
+            set_key_geometry(handle, &rejected)["ok"],
+            false,
+            "{rejected}"
+        );
+    }
+    let oversized = format!("{valid}{}", " ".repeat(16 * 1024));
+    assert_eq!(set_key_geometry(handle, &oversized)["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_set_key_geometry(handle, std::ptr::null(), 4) })["ok"],
+        false
+    );
+    let typed = read(msime_client_touch_character(
+        handle, b'n', false, 4, 131.0, 1.0,
+    ));
+    assert_eq!(typed["ok"], true, "{typed}");
+    assert_eq!(typed["value"]["handled"], true);
+    assert_eq!(typed["value"]["view"]["editing_text"], "n");
+    // 空串和 `id` 为 0 都是清除。
+    assert_eq!(
+        read(unsafe { msime_client_set_key_geometry(handle, std::ptr::null(), 0) })["ok"],
+        true
+    );
+    assert_eq!(
+        set_key_geometry(handle, &touch_geometry_json(0))["ok"],
+        true
+    );
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn a_malformed_glide_request_fails_without_touching_the_session() {
     let dir = tempfile::tempdir().unwrap();

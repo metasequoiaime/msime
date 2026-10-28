@@ -14,6 +14,9 @@ final class DictionarySyncCenter: ObservableObject {
   @Published private(set) var running = 0
   private var timer: Task<Void, Never>?
   private var foreground = false
+  /// 「我的词条」那一页正在重读；读的时候又有同步写进了改动就再读一次。
+  private var refreshingPersonalWords = false
+  private var refreshPersonalWordsAgain = false
 
   /// 这个进程的 HostOptions，准备一次就一直用：准备时要校验整套词库资源，与键盘相同，选项在进程活着时都有效。
   private static var preparedOptions: Data?
@@ -49,6 +52,7 @@ final class DictionarySyncCenter: ObservableObject {
     }
     lastRun = result
     schedule(after: result.next_check_ms)
+    refreshPersonalWords(after: result)
     return result
   }
 
@@ -64,6 +68,7 @@ final class DictionarySyncCenter: ObservableObject {
   func record(_ run: IOSDictionarySync.Run) {
     lastRun = run
     schedule(after: run.next_check_ms)
+    refreshPersonalWords(after: run)
   }
 
   /// 配置改了（保存了新网盘或停止同步）：旧结果不再属于现在的配置。
@@ -71,6 +76,38 @@ final class DictionarySyncCenter: ObservableObject {
     lastRun = nil
     timer?.cancel()
     timer = nil
+  }
+
+  /// 这一次同步把网盘来的词或删除写进了本机词库（`report.applied > 0`）：「我的词条」页画的是 App Group 里 `PersonalDictionary/sync.json` 的那一页，原来只有键盘同步时（键盘出现，或者它的空闲轮询看到排队的编辑）才重读，于是 App 里一直是旧的那一页，打字却已经能打出新词。这里用同步刚用过的 HostOptions 直接读当前请求的那一页写回去，页面每秒读一次文件，随后就换上。
+  ///
+  /// 在主线程之外读，期间保持后台执行（写回时要拿 App Group 里的 `sync.lock`）。同时只有一个在读，读的时候又来的合并成读完之后的一次，先读的那一页不会盖掉后读的。读不到（键盘正在应用编辑、维护者在场）就算了：键盘那一轮会写下新的一页。
+  private func refreshPersonalWords(after run: IOSDictionarySync.Run) {
+    guard (run.report?.applied ?? 0) > 0 else { return }
+    refreshPersonalWords()
+  }
+
+  private func refreshPersonalWords() {
+    guard let options = Self.preparedOptions else { return }
+    guard !refreshingPersonalWords else { refreshPersonalWordsAgain = true; return }
+    refreshingPersonalWords = true
+    refreshPersonalWordsAgain = false
+    let activity = IOSRustAccount.backgroundActivity
+    Task.detached(priority: .utility) { [weak self] in
+      let end = activity("app.msime.personal-dictionary.refresh")
+      if let hostOptions = (try? JSONSerialization.jsonObject(with: options)) as? [String: Any] {
+        _ = try? PersonalDictionaryStore.forSettingsPages().refreshPage { request in
+          try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(
+            options: hostOptions, offset: UInt(request.offset), kind: request.kind, query: request.query))
+        }
+      }
+      end()
+      await self?.finishedRefreshingPersonalWords()
+    }
+  }
+
+  private func finishedRefreshingPersonalWords() {
+    refreshingPersonalWords = false
+    if refreshPersonalWordsAgain { refreshPersonalWords() }
   }
 
   private func schedule(after milliseconds: UInt64) {

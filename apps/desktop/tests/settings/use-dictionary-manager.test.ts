@@ -5,6 +5,7 @@ import {
   useDictionaryManager,
   type DictionaryManagerClient,
 } from "../../../../packages/ui/src/settings/use-dictionary-manager";
+import { HOST_USER_WORDS_CHANGED_EVENT } from "../../../../packages/ui/src/settings/use-dictionary-sync";
 
 afterEach(cleanup);
 
@@ -443,6 +444,35 @@ test("首次防抖查询保留词条保存错误，查询条件变化才清理",
     unmount();
     vi.useRealTimers();
   }
+});
+
+test("宿主自己写进了词时按现在的类型和页码重读列表", async () => {
+  vi.useFakeTimers();
+  const word = { kind: "quick_phrase" as const, key: "jpzc", value: "键盘写进的合成词", weight: 1 };
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValue({ entries: [word], has_more: false });
+  const client: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+  const { result, unmount } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(280));
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(result.current.phrases).toEqual([]);
+    // 鸿蒙设置应用把键盘经共享沙箱发布的词写进了自己的词库。
+    await act(async () => {
+      window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenLastCalledWith(0, 100, "quick_phrase", "");
+    expect(result.current.phrases).toEqual([word]);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+  // 卸载以后不再听。
+  window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+  expect(list).toHaveBeenCalledTimes(2);
 });
 
 test("显式刷新在查询成功后清除旧的读取错误", async () => {

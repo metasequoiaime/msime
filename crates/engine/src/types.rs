@@ -798,6 +798,8 @@ pub struct WordItem {
     pub sentence_association: bool,
     /// Word boundaries of a decoded sentence, for personal context learning.
     pub sentence_words: Vec<String>,
+    /// 26 键双拼按触点计价的纠错整句，而且落点支持把它留在引擎给的座位上（分数不比字面整句低出 `TouchTuning::show_margin`）：runtime 不把它当整句的次选读法挪到表尾。其余行永远为假。
+    pub touch_supported: bool,
 }
 
 impl WordItem {
@@ -1053,6 +1055,12 @@ pub struct QueryRequest {
     pub wubi_z_wildcard: bool,
     /// 五笔 14 键：`normalized_input` 每一位是一组字母的代表字母（`wubi::grid`），provider 展开成这几组字母的每种组合再查码表。
     pub wubi_grid: bool,
+    /// 26 键双拼每个按键的触点，与 `raw_input` 逐字节对齐，没有触点的位置为 `None`。只要不是双拼、没有注册几何、一个触点都没有、输入里有 `'` 或句中辅助码生效，就必须是空 Vec 而不是全 `None`：桌面请求因此与没有这个字段时逐字节相同。
+    pub key_touches: Vec<Option<crate::touch::KeyTouch>>,
+    /// 触点所在的那份几何；`key_touches` 为空时为 `None`。
+    pub key_geometry: Option<std::sync::Arc<crate::touch::KeyGeometry>>,
+    /// 按触点计价的参数。只有 Rust 侧（评测示例）能改，见 [`crate::host::Session::set_touch_tuning`]。
+    pub touch_tuning: crate::touch::TouchTuning,
     /// False means no query at all.
     pub valid: bool,
 }

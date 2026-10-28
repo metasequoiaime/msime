@@ -34,12 +34,13 @@ final class HelpcodeSettingsTests: XCTestCase {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
     let plain = compose(bridge, "shi", helpcode: nil)
-    // 自然码 Y 是讠旁：「识」「试」「诗」先于「是」，显示分词用隔音符区分辅助码。
+    // 自然码 Y 筛出讠旁候选，不依赖「识」「试」「诗」的词频顺序；显示分词用隔音符区分辅助码。
     let narrowed = compose(bridge, "shi", helpcode: "Y")
     XCTAssertEqual(plain.candidates.first, "是")
     XCTAssertEqual(narrowed.preedit, "shi'Y")
     XCTAssertEqual(narrowed.editingText, "shiY")
-    XCTAssertEqual(narrowed.candidates.first, "识")
+    XCTAssertTrue(narrowed.candidates.contains { ["识", "试", "诗"].contains($0) })
+    XCTAssertFalse(narrowed.candidates.contains("是"))
 
     update { $0["enabled"] = false }
     await reload(bridge)
@@ -104,8 +105,10 @@ final class HelpcodeSettingsTests: XCTestCase {
   func testImportedTableReachesTheLiveSessionAndRemovalFallsBack() async throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
-    // 自然码 Y 是讠旁，「识」排第一。
-    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
+    // 保存同一会话的内置方案结果，删除码表后应完整恢复，不固定讠旁候选的词频顺序。
+    let builtIn = compose(bridge, "shi", helpcode: "Y").candidates
+    XCTAssertTrue(builtIn.contains { ["识", "试", "诗"].contains($0) })
+    XCTAssertFalse(builtIn.contains("是"))
 
     // 十万条合成码表，只有末行「是」以 y 开头，其余 shi 音的字都以 q 开头。
     let table = state.appendingPathComponent("测试码表.txt")
@@ -134,7 +137,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     XCTAssertEqual(HelpcodeChoicePolicy.selectedPack(of: HelpcodeSettingsView.quanpin, in: cleared), "")
 
     await reload(bridge)
-    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
+    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates, builtIn)
   }
 
   /// 坏表整张拒绝，提示里是 client-services 给的文件名、原因和行号；GBK 码表在调用 host-api 之前就被拒；什么都没装上。

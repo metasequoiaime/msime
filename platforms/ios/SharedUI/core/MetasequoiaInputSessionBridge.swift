@@ -1845,11 +1845,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   ///
   /// 列表不经 `withDictionaryMaintenance`，活着的会话原样保留：host-api 的 `list` 只取共享租约（`DictionaryAccess::try_session`），和会话自己持有的共享租约并存，只有维护者在场时才报 `dictionary maintenance busy`；它读的个人词条行由会话在上屏时直接写进日志，不在会话的延迟写队列里，销毁会话也不会让列表多出什么。键盘每次出现都强制刷新一次这个列表，原来每次都要为它销毁、重建并聚焦一遍刚在 `viewWillAppear` 建好的会话。
   func personalEntries(atOffset offset: UInt, kind: PersonalWordKind? = nil, query: String = "") throws -> [String: Any] {
+    try Self.personalEntries(options: options, offset: offset, kind: kind, query: query)
+  }
+
+  /// 同上，但用调用方给的 HostOptions、不经会话：设置 App 用 `preparedHostOptions` 的那一份，在词库同步把改动写进 Engine 之后重读「我的词条」（`PersonalDictionaryStore.refreshPage`）。`list` 只取共享租约，键盘的会话开着也能读，只有维护者在场时报 `dictionary maintenance busy`。读文件，调用方放到主线程之外。
+  static func personalEntries(options: [String: Any], offset: UInt, kind: PersonalWordKind? = nil,
+                              query: String = "") throws -> [String: Any] {
     var action: [String: Any] = ["operation": "list", "offset": offset, "limit": 100]
     if let kind { action["kind"] = kind.bridgeName }
     if !query.isEmpty { action["query"] = query }
     let request: [String: Any] = ["options": options, "action": action]
-    var result = try Self.callOptions(msimeClientDictionary, request)
+    var result = try callOptions(msimeClientDictionary, request)
     if let hasMore = result.removeValue(forKey: "has_more") { result["hasMore"] = hasMore }
     return result
   }

@@ -137,6 +137,7 @@ fn view() -> SyncView {
         clock_skew: false,
         last_success_ms: None,
         last_error: None,
+        budget_wait_until: None,
     }
 }
 

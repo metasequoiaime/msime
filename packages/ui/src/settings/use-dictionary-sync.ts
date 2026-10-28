@@ -127,6 +127,8 @@ export interface UseDictionarySyncOptions {
   /** 已保存（不是草稿）的网盘配置：变了就重新以 `opened` 同步一次。 */
   saved: DictionarySyncWebDavPreferences | undefined;
   localChanges: DictionaryLocalChanges;
+  /** 一次同步把网盘来的改动写进了本机词库（`report.applied > 0`）之后调用：词库页据此重读「我的词条」，不然列表要等用户换类型、搜索或改词才跟上。 */
+  onWordsApplied?: () => void;
 }
 
 function savedKey(saved: DictionarySyncWebDavPreferences | undefined): string {
@@ -142,8 +144,14 @@ export function useDictionarySync({
   client,
   saved,
   localChanges,
+  onWordsApplied,
 }: UseDictionarySyncOptions): DictionarySyncModel | null {
   const sync = client.dictionarySync;
+  // 定时器和请求队列里回来的结果用最新的回调，不随它重新启动调度。
+  const wordsApplied = useRef(onWordsApplied);
+  useEffect(() => {
+    wordsApplied.current = onWordsApplied;
+  });
   const key = savedKey(saved);
   const configured = key !== "";
   const [status, setStatus] = useState<DictionarySyncStatus | null>(null);
@@ -193,6 +201,7 @@ export function useDictionarySync({
     setStatus(result.status);
     setError(result.error);
     schedule(owner, result.next_check_ms);
+    if (result.applied > 0) wordsApplied.current?.();
   };
 
   async function run(
