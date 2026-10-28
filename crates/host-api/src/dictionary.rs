@@ -680,6 +680,37 @@ fn read_only_options(resources: &str) -> Result<HostOptions, String> {
 /// The personal dictionary queue takes at most this many words per import.
 const MAX_QUEUED_IMPORT: usize = 128;
 
+/// 设置页导入一次交给 Engine 的行数，与 `msime_engine::host::dictionary_edit_batch` 的上限（`MAX_EDIT_BATCH`）相同。
+const IMPORT_EDIT_BATCH: usize = 128;
+
+/// 在一个事务里写入一块导入行，逐行返回是否写入（重复导入命中回执也算写入）。单行被拒由保存点隔离，不影响同块其他行；整块没能提交时（例如触发器 `RAISE(ROLLBACK)` 撤销了外层事务）这一块退回逐行写入，让一行异常只拒掉它自己，和分批之前一样。
+fn import_chunk(
+    options: &msime_engine::host::EngineOptions,
+    entries: &[DictionaryEntry],
+    receipts: &[String],
+) -> Vec<bool> {
+    let edits: Vec<_> = entries
+        .iter()
+        .zip(receipts)
+        .map(|(entry, receipt)| msime_engine::host::DictionaryEdit {
+            previous: None,
+            replacement: Some(entry),
+            request_id: receipt,
+            preserve_existing: false,
+        })
+        .collect();
+    match msime_engine::host::dictionary_edit_batch(options, &edits) {
+        Ok(outcomes) => outcomes.iter().map(Result::is_ok).collect(),
+        Err(_) => entries
+            .iter()
+            .zip(receipts)
+            .map(|(entry, receipt)| {
+                msime_engine::host::dictionary_edit(options, None, Some(entry), receipt).is_ok()
+            })
+            .collect(),
+    }
+}
+
 /// A dictionary file as the words the mobile queue accepts, and the import report the settings page shows for it.
 ///
 /// The queue refuses a whole batch for one invalid or repeated word, or for more than 128, where the desktop import applies what it can and names the rest. So rows the Engine would refuse are counted with their line, a repeated word is queued once, and rows past the queue's capacity are reported as truncated: a real file imports on a phone the way it does on a desktop.
@@ -928,18 +959,25 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                     lines
                 })
                 .unwrap_or_default();
-            for (index, entry) in entries.iter().enumerate() {
-                let receipt = format!("{request_id}-{index}");
-                // The batch already owns the maintenance lock; call the Engine directly.
-                let result =
-                    msime_engine::host::dictionary_edit(&options, None, Some(entry), &receipt);
-                if result.is_err() {
-                    // A hans import has no parsed report, so its rows have no
-                    // line to name; they are still counted.
-                    rejected_lines.push(source_lines.get(index).copied().unwrap_or(0));
-                    continue;
+            let receipts: Vec<String> = (0..entries.len())
+                .map(|index| format!("{request_id}-{index}"))
+                .collect();
+            // 已持有维护锁，直接调 Engine。按 Engine 的批量上限分块，每块只开一次库、提交一次事务；逐行开库提交时一个请求的 1000 行在慢盘上会超过输入法让出词库的 30 秒租约（#9918）。
+            for (chunk, (rows, ids)) in entries
+                .chunks(IMPORT_EDIT_BATCH)
+                .zip(receipts.chunks(IMPORT_EDIT_BATCH))
+                .enumerate()
+            {
+                let start = chunk * IMPORT_EDIT_BATCH;
+                for (offset, written) in import_chunk(&options, rows, ids).into_iter().enumerate() {
+                    if !written {
+                        // A hans import has no parsed report, so its rows have no
+                        // line to name; they are still counted.
+                        rejected_lines.push(source_lines.get(start + offset).copied().unwrap_or(0));
+                        continue;
+                    }
+                    applied += 1;
                 }
-                applied += 1;
             }
             // Nothing landed and the Engine refused everything: that is a
             // failed import, not a partial one, and the caller should say so.
