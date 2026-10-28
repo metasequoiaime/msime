@@ -1,3 +1,5 @@
+import { TextPolicy } from "../TextPolicy";
+
 /**
  * 手机聆听面板的排布、音量平滑、麦克风电平和中间文字裁剪，不依赖 ArkUI 或 NAPI，`tests/run.sh` 在 node 下直接测。Android 的 `VoiceListeningPolicy` 和 iOS 的 `KeyboardVoicePanelPolicy` 用同一组数值，三端面板长得一样、动得一样。
  *
@@ -176,7 +178,7 @@ export class VoiceListeningPolicy {
   static fitTail(text: string, fits: (candidate: string) => boolean): string {
     const value: string = VoiceListeningPolicy.normalized(text);
     if (value.length === 0 || fits(value)) return value;
-    const points: string[] = Array.from(value);
+    const points: string[] = TextPolicy.characters(value);
     let low: number = 1;
     let high: number = points.length - 1;
     let best: number = Math.max(0, points.length - 1);
