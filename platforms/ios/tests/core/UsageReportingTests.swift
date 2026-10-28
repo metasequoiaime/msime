@@ -123,6 +123,37 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data), "0 MSIMEApp + 0\n1 Engine + 0")
   }
 
+  func testMetricKitWrappedTreePreservesOriginalModuleUUIDs() throws {
+    // 采用 Apple 文档的外层结构；升级后不能用当前进程的模块身份补历史帧。
+    let tree: [String: Any] = ["callStackTree": ["callStacks": [
+      ["threadAttributed": false, "callStackRootFrames": [["binaryName": "Other", "offsetIntoBinaryTextSegment": 1]]],
+      ["threadAttributed": true, "callStackRootFrames": [[
+        "binaryName": "/private/synthetic/MSIMEApp", "binaryUUID": "70B89F27-1634-3580-A695-57CDB41D7743",
+        "offsetIntoBinaryTextSegment": 4096,
+        "subFrames": [["binaryName": "/private/synthetic/Engine", "binaryUUID": "77a62f2e-8212-30f3-84c1-e8497440acf8",
+                       "offsetIntoBinaryTextSegment": 77]],
+      ]]],
+    ]]]
+    let data = try JSONSerialization.data(withJSONObject: tree)
+    let first = "0 MSIMEApp + 4096 [id 0x70b89f2716343580a69557cdb41d7743]"
+    XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data),
+      first + "\n1 Engine + 77 [id 0x77a62f2e821230f384c1e8497440acf8]")
+    XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data, limit: 1), first)
+    XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data, limit: 0), "")
+  }
+
+  func testMetricKitFlatTreePreservesUUIDAndRejectsMalformedIdentity() throws {
+    for value: Any in ["70B89F27-1634-3580-A695-57CDB41D7743", "invalid", "70B89F27-1634-3580-A695-57CDB41D7743\n/private/synthetic", 1, NSNull()] {
+      let tree: [String: Any] = ["callStacks": [["callStackRootFrames": [[
+        "binaryName": "HistoricalApp", "binaryUUID": value, "offsetIntoBinaryTextSegment": 17,
+      ]]]]]
+      let data = try JSONSerialization.data(withJSONObject: tree)
+      let suffix = (value as? String) == "70B89F27-1634-3580-A695-57CDB41D7743"
+        ? " [id 0x70b89f2716343580a69557cdb41d7743]" : ""
+      XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data), "0 HistoricalApp + 17" + suffix)
+    }
+  }
+
   func testDiagnosticSummaryTellsSystemKillsFromCrashes() {
     let killed = UsageReporting.diagnosticSummary(exceptionType: 10, exceptionCode: 0, signal: NSNumber(value: SIGKILL),
                                                   exceptionName: nil,

@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 
@@ -157,6 +158,25 @@ def symbolize(archive: Path, module: str, uuid: str, arch: str, offset: int) -> 
     return run("xcrun", "atos", "-arch", arch, "-o", str(dwarf), hex(address)).strip()
 
 
+def pack(source: Path, output: Path) -> None:
+    # 标准 ZIP 为中文路径写入 UTF-8 标志；ditto 的旧编码会让通用解压器改坏模块名。
+    if source.is_symlink() or not (source / "manifest.json").is_file():
+        raise ValueError("符号目录必须包含真实清单，且不能是符号链接")
+    source = source.resolve()
+    if output.resolve().is_relative_to(source):
+        raise ValueError("符号归档不能写入自身目录")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".msime-symbols-", dir=output.parent) as temporary:
+        staged = Path(temporary) / "symbols.zip"
+        with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(source.rglob("*")):
+                if path.is_symlink() or not (path.is_dir() or path.is_file()):
+                    raise ValueError("符号归档只接受实际目录与普通文件")
+                if path.is_file():
+                    archive.write(path, str(Path(source.name) / path.relative_to(source)))
+        staged.replace(output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -169,6 +189,9 @@ def main() -> None:
     archive.add_argument("output", type=Path)
     archive.add_argument("--dsym", type=Path)
     archive.add_argument("--version", required=True)
+    packed = commands.add_parser("pack", help="以标准 UTF-8 ZIP 保存完整符号目录")
+    packed.add_argument("source", type=Path)
+    packed.add_argument("output", type=Path)
     resolve = commands.add_parser("symbolize", help="还原解压后的符号目录中的模块偏移")
     resolve.add_argument("archive", type=Path)
     resolve.add_argument("--module", required=True)
@@ -180,6 +203,8 @@ def main() -> None:
         merge(args.binary, args.output, args.inputs)
     elif args.command == "collect":
         collect(args.binary, args.output, args.dsym, args.version)
+    elif args.command == "pack":
+        pack(args.source, args.output)
     else:
         print(symbolize(args.archive, args.module, args.uuid, args.arch, args.offset))
 

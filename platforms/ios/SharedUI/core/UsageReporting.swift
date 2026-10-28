@@ -470,10 +470,11 @@ enum UsageReporting {
     }.joined(separator: "\n")
   }
 
-  /// The frames of a MetricKit call stack tree (MXCallStackTree.jsonRepresentation()) as "index binary + offset" lines, the crashed thread's first: binary file names and offsets only, never paths or symbols from the device.
+  /// MetricKit 系统栈兼容带 `callStackTree` 的外层与直接树；保留故障线程的模块名、偏移和原 UUID，不上传设备路径或符号。
   static func frames(fromCallStackTree data: Data, limit: Int = 128) -> String {
-    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let stacks = root["callStacks"] as? [[String: Any]] else { return "" }
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
+    let tree = root["callStackTree"] as? [String: Any] ?? root
+    guard let stacks = tree["callStacks"] as? [[String: Any]] else { return "" }
     let stack = stacks.first { $0["threadAttributed"] as? Bool == true } ?? stacks.first
     var lines: [String] = []
     var pending = (stack?["callStackRootFrames"] as? [[String: Any]]) ?? []
@@ -481,8 +482,13 @@ enum UsageReporting {
       pending.removeFirst()
       let binary = (frame["binaryName"] as? String).map { ($0 as NSString).lastPathComponent } ?? "???"
       let offset = unsignedInteger(frame["offsetIntoBinaryTextSegment"])
-      lines.append("\(lines.count) \(binary) + \(offset)")
-      // A frame's caller is its first sub-frame.
+      var identity = ""
+      if let raw = frame["binaryUUID"] as? String, raw.utf8.count == 36,
+         let uuid = UUID(uuidString: raw), uuid.uuidString.caseInsensitiveCompare(raw) == .orderedSame {
+        identity = " [id 0x\(uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased())]"
+      }
+      lines.append("\(lines.count) \(binary) + \(offset)\(identity)")
+      // 帧的第一个子帧是它的调用方。
       pending.insert(contentsOf: (frame["subFrames"] as? [[String: Any]]) ?? [], at: 0)
     }
     return lines.joined(separator: "\n")

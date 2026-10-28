@@ -798,8 +798,7 @@ done
 
 # 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 长期留在 macos-symbols release 上，用来符号化这个版本的崩溃报告；它不进 SHA256SUMS，上传时以 GitHub 记录的摘要核对。
 dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
-rm -f "$dsym_zip"
-ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
+python3 platforms/macos/scripts/crash_symbols.py pack "$dsym_dir" "$dsym_zip"
 
 (cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
 if [ ${#update_zips[@]} -gt 0 ]; then

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 from pathlib import Path
 
@@ -66,6 +67,33 @@ class CrashSymbolsTests(unittest.TestCase):
         subprocess.run(["xcrun", "dsymutil", str(binary), "-o", str(dsym)], check=True, capture_output=True)
         with self.assertRaisesRegex(ValueError, "没有可还原的源码行"):
             symbols.validate(binary, dsym)
+
+    def test_unicode_zip_roundtrip_restores_source_from_standard_extraction(self):
+        binary, dsym = self.compile(name="水杉输入法", arch=platform.machine())
+        source = self.root / "dsym"
+        symbols.collect(binary, source, dsym, "1.2.3")
+        packed = self.root / "symbols.zip"
+        symbols.pack(source, packed)
+        dwarf = symbols.dwarf_file(source / "水杉输入法.dSYM")
+        relative = str(Path(source.name) / dwarf.relative_to(source))
+        with zipfile.ZipFile(packed) as archive:
+            self.assertTrue(archive.getinfo(relative).flag_bits & 0x800)
+            self.assertEqual(archive.read(relative), dwarf.read_bytes())
+            archive.extractall(self.root / "unpacked")
+        extracted = self.root / "unpacked/dsym"
+        module = json.loads((extracted / "manifest.json").read_text())["modules"][0]
+        nm = symbols.run("xcrun", "nm", str(symbols.dwarf_file(extracted / module["dsym"])))
+        address = next(row.split()[0] for row in nm.splitlines() if row.endswith(" _synthetic_crash"))
+        frame = symbols.symbolize(extracted, "水杉输入法", module["uuids"][platform.machine()],
+                                  platform.machine(), int(address, 16) - 0x100000000)
+        self.assertIn("synthetic.c:1", frame)
+        original = packed.read_bytes()
+        outside = self.root / "synthetic-outside"
+        outside.write_text("synthetic")
+        (source / "unsafe-link").symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "实际目录与普通文件"):
+            symbols.pack(source, packed)
+        self.assertEqual(packed.read_bytes(), original)
 
     def test_manifest_uses_the_capture_build_identity(self):
         binary, dsym = self.compile(arch=platform.machine())
