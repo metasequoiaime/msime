@@ -3151,7 +3151,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for boundary in ["space", "delete", "dismiss", "hostChange", "mode"] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
-      controller.asynchronousNineKeyInputEnabled = true
+      controller.asynchronousInputEnabled = true
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
       controller.viewWillAppear(false)

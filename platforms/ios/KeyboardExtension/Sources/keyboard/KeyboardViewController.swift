@@ -313,19 +313,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var didRepeatBackspace = false
   private var renderedComposition = false
   private var hasComposition: Bool {
-    get { renderedComposition || hasPendingNineKeyInput }
+    get { renderedComposition || hasPendingAsynchronousInput }
     set { renderedComposition = newValue }
   }
   /// 测试宿主没有真实文档代理；系统扩展默认启用异步，回归可显式覆盖以检查交付顺序。
-  var asynchronousNineKeyInputEnabled = Bundle.main.bundleURL.pathExtension == "appex"
+  var asynchronousInputEnabled = Bundle.main.bundleURL.pathExtension == "appex"
   private var inputDeliveryEpoch: UInt64 = 0
   private var asynchronousInputDocument: UUID?
-  /// 连续九键查询返回的中间组字只保留最新一帧，避免主线程逐个重画候选栏；含上屏文本的快照仍立即交付。
-  private var deferredNineKeySnapshot: MetasequoiaInputSnapshot?
-  private var deferredNineKeyRenderScheduled = false
+  /// 连续异步按键（九键数字、26 键全拼和双拼字母）返回的中间组字只保留最新一帧，避免主线程逐个重画候选栏；含上屏文本的快照仍立即交付。
+  private var deferredInputSnapshot: MetasequoiaInputSnapshot?
+  private var deferredInputRenderScheduled = false
   /// 查询已交付但最新候选尚未绘制时仍算输入中，避免提前开始空闲维护或切换方案。
-  var hasPendingNineKeyInput: Bool {
-    session.hasPendingCharacters || deferredNineKeySnapshot != nil
+  var hasPendingAsynchronousInput: Bool {
+    session.hasPendingCharacters || deferredInputSnapshot != nil
   }
   private var visibleInputGeneration: UInt64?
   private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
@@ -1119,7 +1119,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
     session.flushPendingCharacters()
-    flushDeferredNineKeySnapshot()
+    flushDeferredInputSnapshot()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
@@ -1150,7 +1150,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let previous = asynchronousInputDocument, previous != document {
       inputDeliveryEpoch &+= 1
       session.flushPendingCharacters()
-      flushDeferredNineKeySnapshot()
+      flushDeferredInputSnapshot()
       render(discardComposition())
       asynchronousInputDocument = document
       // 换了输入框就是上一个失焦了：攒着的上屏这时写出，不等键盘收起。
@@ -1178,7 +1178,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer?.canvasVisible = false
     candidatePanel?.canvasVisible = false
     session.flushPendingCharacters()
-    flushDeferredNineKeySnapshot()
+    flushDeferredInputSnapshot()
     inputDeliveryEpoch &+= 1
     englishCorrectionRejectedPrefix = ""
     finishTemporaryEnglish(force: true)
@@ -3866,31 +3866,43 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
-  private func flushDeferredNineKeySnapshot() {
-    guard let snapshot = deferredNineKeySnapshot else {
-      deferredNineKeyRenderScheduled = false
+  private func flushDeferredInputSnapshot() {
+    guard let snapshot = deferredInputSnapshot else {
+      deferredInputRenderScheduled = false
       return
     }
-    deferredNineKeySnapshot = nil
-    deferredNineKeyRenderScheduled = false
+    deferredInputSnapshot = nil
+    deferredInputRenderScheduled = false
     render(snapshot)
   }
 
-  private func deliverNineKeySnapshot(_ snapshot: MetasequoiaInputSnapshot,
-                                      epoch: UInt64, document: UUID?) {
-    guard inputDeliveryEpoch == epoch, isChineseMode, inputScheme == .nineKey,
+  /// 投递之后换了方案（九键、全拼、双拼之间切换）、切到英文、换了输入框或经过焦点边界时，旧结果不再画出。
+  private func deliverAsynchronousSnapshot(_ snapshot: MetasequoiaInputSnapshot, epoch: UInt64,
+                                           scheme: ChineseInputScheme, document: UUID?) {
+    guard inputDeliveryEpoch == epoch, isChineseMode, inputScheme == scheme,
           KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
     if snapshot.commitText != nil {
-      flushDeferredNineKeySnapshot()
+      flushDeferredInputSnapshot()
       render(snapshot)
       return
     }
-    deferredNineKeySnapshot = snapshot
-    guard !deferredNineKeyRenderScheduled else { return }
-    deferredNineKeyRenderScheduled = true
+    deferredInputSnapshot = snapshot
+    guard !deferredInputRenderScheduled else { return }
+    deferredInputRenderScheduled = true
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
-      self.flushDeferredNineKeySnapshot()
+      self.flushDeferredInputSnapshot()
+    }
+  }
+
+  /// 这一键能否异步交给会话线程：普通全拼九键的数字 2–9，26 键全拼的小写字母，26 键双拼的小写字母和 `;`。调用方已排除本地模式、韩语、越南语、藏文和辅助码大写；五笔、粤拼、日语等其他 26 键方案仍走同步入口。
+  private func typesAsynchronously(_ character: String) -> Bool {
+    guard character.utf8.count == 1, let byte = character.utf8.first else { return false }
+    let letter = (97...122).contains(byte)
+    switch inputScheme {
+    case .nineKey: return (50...57).contains(byte)
+    case .quanpin: return !usesLetterGrid && letter
+    default: return typesShuangpinLetters && (letter || byte == 59)
     }
   }
 
@@ -3938,22 +3950,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         return
       }
-      if asynchronousNineKeyInputEnabled, inputScheme == .nineKey, !isInLocalMode,
-         ("2"..."9").contains(character) {
-        let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
-        asynchronousInputDocument = document
-        let epoch = inputDeliveryEpoch
-        if session.enqueueNineKeyCharacter(character, completion: { [weak self] snapshot in
-          self?.deliverNineKeySnapshot(snapshot, epoch: epoch, document: document)
-        }) { return }
-      }
-      // 26 键双拼的字母和 `;` 带上按下点，引擎按落点给按错邻键的纠错计价（#10018）。拿不到几何时退回不带落点，与 `sendActions` 和读屏的激活一样。
+      // 26 键双拼的字母和 `;` 带上按下点，引擎按落点给按错邻键的纠错计价（#10018）。拿不到几何时退回不带落点，与 `sendActions` 和读屏的激活一样。几何要变时 `registeredKeyGeometryID` 先同步注册，排在此前已投递的按键之后、这一键之前。
+      var touch: MetasequoiaInputSessionBridge.TouchPoint?
       if let touchDown,
          TouchPointPolicy.sendsTouch(character: character, shuangpinLetters: typesShuangpinLetters, hasTouchDown: true,
                                      voiceOver: isVoiceOverRunning()),
          let geometryID = registeredKeyGeometryID() {
+        touch = .init(geometryID: geometryID, x: Float(touchDown.x), y: Float(touchDown.y))
+      }
+      // 普通全拼九键数字、26 键全拼和 26 键双拼的字母交给会话线程查询，主线程只投递（#10031）；结果按投递顺序回到主线程，空格、删除、Shift、符号和焦点边界先排空此前的按键。
+      if asynchronousInputEnabled, !isInLocalMode, typesAsynchronously(character) {
+        let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+        asynchronousInputDocument = document
+        let epoch = inputDeliveryEpoch
+        let scheme = inputScheme
+        if session.enqueueCharacter(character, touch: touch, completion: { [weak self] snapshot in
+          self?.deliverAsynchronousSnapshot(snapshot, epoch: epoch, scheme: scheme, document: document)
+        }) {
+          if touch != nil { touchCharacterCount += 1 }
+          return
+        }
+      }
+      if let touch {
         touchCharacterCount += 1
-        render(session.handleTouchCharacter(character, geometryID: geometryID, x: Float(touchDown.x), y: Float(touchDown.y)))
+        render(session.handleTouchCharacter(character, geometryID: touch.geometryID, x: touch.x, y: touch.y))
         return
       }
       render(session.handleCharacter(character))
@@ -4139,6 +4159,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleSymbol(_ symbol: String) {
+    // 符号的去向看组字、候选条和本地模式，先画完此前异步投递的按键，不按旧画面判断。
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
     playInputClick()
     if !isChineseMode {
       defer {
@@ -4409,6 +4432,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleLetterShift(keyID: String) {
+    // 组字中 Shift 是辅助码、空闲时切英文，要看此前异步投递的字母画完后是否在组字。
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
     if usesQuanpinSeparator {
       countKeyPress(TypingKeyID.character("'"))
       if hasComposition { handleCharacter("'") }
@@ -6700,6 +6726,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Tab on the full-size iPad keyboard. On the desktop Tab turns the candidate page; the strip here has no pages to turn, only the full candidate panel behind it, so with candidates showing Tab opens that. Otherwise it ends any composition and types a tab, as an unhandled key does.
   private func handleTab() {
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
     // 邮箱后缀不在会话的候选列表里，Tab 不为它们打开候选面板。
     let composing = isChineseMode && (!visiblePreedit.isEmpty || (!visibleCandidates.isEmpty && visibleEmailSuffixes.isEmpty))
     if composing, !visibleCandidates.isEmpty, Self.tabShowsMoreCandidates(session.sharedPreferences) {
@@ -6715,7 +6743,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func handleBackspace() {
     session.flushPendingCharacters()
-    flushDeferredNineKeySnapshot()
+    flushDeferredInputSnapshot()
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick(.backspace)
     // Deleting document text may take the opening half of a pair with it; a backspace inside a spelling only edits the spelling.
@@ -6938,7 +6966,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func handleSpace() {
     session.flushPendingCharacters()
-    flushDeferredNineKeySnapshot()
+    flushDeferredInputSnapshot()
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick(.space)
     // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
@@ -6999,7 +7027,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // fired that field's primary action. macOS swallows Return during a composition for this reason.
   private func handleReturn() {
     session.flushPendingCharacters()
-    flushDeferredNineKeySnapshot()
+    flushDeferredInputSnapshot()
     defer { finishTemporaryEnglish() }
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick(.enter)
@@ -7249,8 +7277,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil,
                       appendingLiteral: String? = nil) {
-    // 控制命令已产生更新快照时，之前数字的候选帧不能再覆盖选词、删除或模式切换后的状态。
-    deferredNineKeySnapshot = nil
+    // 控制命令已产生更新快照时，之前异步按键的候选帧不能再覆盖选词、删除或模式切换后的状态。
+    deferredInputSnapshot = nil
     candidateRevision &+= 1
     // 下面的 `updateCandidateStrip` 用这次快照的候选盖掉 1 键放进来的常用标点。
     nineKeyQuickSymbols = []
