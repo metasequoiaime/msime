@@ -5517,6 +5517,22 @@ fn next_word_prediction_passes_space_return_and_digits_to_the_editor() {
     }
 }
 
+/// 联想候选栏上的关闭键（#10078）送 Cancel：建议清空、报已处理，宿主因此不往编辑器补任何字符，这和会多插一个空格的空格键不同。
+#[test]
+fn next_word_prediction_cancel_clears_suggestions_without_reaching_the_editor() {
+    let (_directory, mut runtime) = prediction_runtime();
+    let id = runtime.view().candidates[0].id;
+    let transition = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(transition.handled && transition.commit.is_none());
+    assert!(transition.view.candidates.is_empty());
+    assert!(!transition.view.prediction);
+    assert!(runtime.is_idle() && !runtime.has_composition());
+    assert!(matches!(
+        runtime.dispatch(Action::Select(id)),
+        Err(RuntimeError::StaleCandidate)
+    ));
+}
+
 #[test]
 fn next_word_prediction_does_not_survive_focus_or_a_new_generation() {
     let (_directory, mut runtime) = prediction_runtime();
