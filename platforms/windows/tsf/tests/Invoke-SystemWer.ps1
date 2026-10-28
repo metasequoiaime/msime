@@ -45,9 +45,26 @@ try {
     $expectedExit = if ($case -eq 'caught') { 0 } else { -1073741819 }
     if ($process.ExitCode -ne $expectedExit) { throw "$case 退出码 $($process.ExitCode)，预期 $expectedExit" }
     $expected = Get-Content -LiteralPath (Join-Path $caseDirectory 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    # WER 在目标进程退出后由独立 worker 投递；WaitForExit 只等待目标进程，不能代表 helper 已经运行完。
+    # 给正、负两类样本都留出稳定窗口，避免把异步投递误判成缺失或在断言后才发现越权记录。
+    $deadline = (Get-Date).AddSeconds(30)
+    do {
+      $records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.crash' -File)
+      $partials = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.werpartial' -File)
+      $settled = if ($expected.record_expected) {
+        $records.Count -eq 1 -and (Test-Path -LiteralPath $expected.path -PathType Leaf)
+      } else {
+        $records.Count -gt 0 -or $partials.Count -gt 0
+      }
+      if ($settled) { break }
+      Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
     $records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.crash' -File)
     if ($expected.record_expected) {
-      if ($records.Count -ne 1 -or -not (Test-Path -LiteralPath $expected.path -PathType Leaf)) { throw "$case 未收到唯一的系统 WER 记录" }
+      if ($records.Count -ne 1 -or -not (Test-Path -LiteralPath $expected.path -PathType Leaf)) {
+        $files = @(Get-ChildItem -LiteralPath $caseDirectory -File | ForEach-Object Name) -join ', '
+        throw "$case 未收到唯一的系统 WER 记录；预期路径=$($expected.path)；当前文件=$files"
+      }
       $record = [IO.File]::ReadAllText($expected.path)
       $pattern = '^' + [regex]::Escape($expected.header) + 'EXCEPTION_ACCESS_VIOLATION \(0xc0000005\)\n' + [regex]::Escape($expected.module) + '\+0x[0-9a-f]+\n$'
       if ($record -cnotmatch $pattern) { throw "$case 的原头、异常码或自有模块偏移不符" }
