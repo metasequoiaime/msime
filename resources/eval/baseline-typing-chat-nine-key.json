@@ -1,0 +1,1231 @@
+{
+  "by_abbreviated": {
+    "false": {
+      "cca": 0.611,
+      "cfa": 0.655,
+      "chars": 1732,
+      "chars_per_commit": 2.673,
+      "chunk_top1": 0.685,
+      "chunks": 648,
+      "completion_keys_per_100": 0.0,
+      "cpr": 0.721,
+      "input_keys_per_char": 2.888,
+      "key_saving": 0.0,
+      "kspc": 3.405,
+      "locks_per_100": 7.159,
+      "mean_seat": 2.377,
+      "multi_char_first": 0.692,
+      "multi_char_selections": 523,
+      "page_turns_per_100": 1.27,
+      "panel_opens_per_100": 4.215,
+      "selections_per_char": 0.39,
+      "single_char_first": 0.686,
+      "single_char_selections": 153,
+      "slips": 0,
+      "strip_hit": 0.892,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.685
+    },
+    "true": {
+      "cca": 0.199,
+      "cfa": 0.515,
+      "chars": 820,
+      "chars_per_commit": 2.95,
+      "chunk_top1": 0.284,
+      "chunks": 278,
+      "completion_keys_per_100": 30.244,
+      "cpr": 0.525,
+      "input_keys_per_char": 2.351,
+      "key_saving": 0.203,
+      "kspc": 2.9,
+      "locks_per_100": 6.707,
+      "mean_seat": 2.711,
+      "multi_char_first": 0.489,
+      "multi_char_selections": 276,
+      "page_turns_per_100": 0.854,
+      "panel_opens_per_100": 4.268,
+      "selections_per_char": 0.43,
+      "single_char_first": 0.481,
+      "single_char_selections": 77,
+      "slips": 0,
+      "strip_hit": 0.901,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.288
+    }
+  },
+  "by_ambiguous_keys": {
+    "false": {
+      "cca": 0.482,
+      "cfa": 0.616,
+      "chars": 2461,
+      "chars_per_commit": 2.892,
+      "chunk_top1": 0.58,
+      "chunks": 851,
+      "completion_keys_per_100": 9.346,
+      "cpr": 0.68,
+      "input_keys_per_char": 2.726,
+      "key_saving": 0.063,
+      "kspc": 3.239,
+      "locks_per_100": 7.192,
+      "mean_seat": 2.523,
+      "multi_char_first": 0.627,
+      "multi_char_selections": 783,
+      "page_turns_per_100": 1.138,
+      "panel_opens_per_100": 4.145,
+      "selections_per_char": 0.388,
+      "single_char_first": 0.667,
+      "single_char_selections": 171,
+      "slips": 0,
+      "strip_hit": 0.893,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.582
+    },
+    "true": {
+      "cca": 0.385,
+      "cfa": 0.44,
+      "chars": 91,
+      "chars_per_commit": 1.213,
+      "chunk_top1": 0.387,
+      "chunks": 75,
+      "completion_keys_per_100": 19.78,
+      "cpr": 0.453,
+      "input_keys_per_char": 2.429,
+      "key_saving": 0.153,
+      "kspc": 3.352,
+      "locks_per_100": 2.198,
+      "mean_seat": 2.093,
+      "multi_char_first": 0.375,
+      "multi_char_selections": 16,
+      "page_turns_per_100": 1.099,
+      "panel_opens_per_100": 6.593,
+      "selections_per_char": 0.824,
+      "single_char_first": 0.475,
+      "single_char_selections": 59,
+      "slips": 0,
+      "strip_hit": 0.92,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.387
+    }
+  },
+  "by_chunk_chars": {
+    "1": {
+      "cca": 0.674,
+      "cfa": 0.72,
+      "chars": 175,
+      "chars_per_commit": 1.0,
+      "chunk_top1": 0.674,
+      "chunks": 175,
+      "completion_keys_per_100": 14.857,
+      "cpr": 0.72,
+      "input_keys_per_char": 2.24,
+      "key_saving": 0.135,
+      "kspc": 3.32,
+      "locks_per_100": 1.714,
+      "mean_seat": 1.223,
+      "multi_char_first": 0.0,
+      "multi_char_selections": 0,
+      "page_turns_per_100": 1.143,
+      "panel_opens_per_100": 5.143,
+      "selections_per_char": 1.0,
+      "single_char_first": 0.72,
+      "single_char_selections": 175,
+      "slips": 0,
+      "strip_hit": 0.949,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.674
+    },
+    "2": {
+      "cca": 0.671,
+      "cfa": 0.723,
+      "chars": 712,
+      "chars_per_commit": 2.0,
+      "chunk_top1": 0.671,
+      "chunks": 356,
+      "completion_keys_per_100": 8.989,
+      "cpr": 0.725,
+      "input_keys_per_char": 2.75,
+      "key_saving": 0.097,
+      "kspc": 3.284,
+      "locks_per_100": 0.421,
+      "mean_seat": 1.064,
+      "multi_char_first": 0.726,
+      "multi_char_selections": 354,
+      "page_turns_per_100": 0.14,
+      "panel_opens_per_100": 2.528,
+      "selections_per_char": 0.503,
+      "single_char_first": 0.25,
+      "single_char_selections": 4,
+      "slips": 0,
+      "strip_hit": 0.95,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.671
+    },
+    "3": {
+      "cca": 0.547,
+      "cfa": 0.586,
+      "chars": 483,
+      "chars_per_commit": 3.0,
+      "chunk_top1": 0.547,
+      "chunks": 161,
+      "completion_keys_per_100": 9.938,
+      "cpr": 0.59,
+      "input_keys_per_char": 2.685,
+      "key_saving": 0.061,
+      "kspc": 3.112,
+      "locks_per_100": 1.449,
+      "mean_seat": 3.271,
+      "multi_char_first": 0.588,
+      "multi_char_selections": 160,
+      "page_turns_per_100": 1.449,
+      "panel_opens_per_100": 4.555,
+      "selections_per_char": 0.352,
+      "single_char_first": 0.1,
+      "single_char_selections": 10,
+      "slips": 0,
+      "strip_hit": 0.871,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.547
+    },
+    "4": {
+      "cca": 0.446,
+      "cfa": 0.58,
+      "chars": 448,
+      "chars_per_commit": 4.0,
+      "chunk_top1": 0.446,
+      "chunks": 112,
+      "completion_keys_per_100": 7.813,
+      "cpr": 0.634,
+      "input_keys_per_char": 2.777,
+      "key_saving": 0.042,
+      "kspc": 3.241,
+      "locks_per_100": 9.152,
+      "mean_seat": 3.878,
+      "multi_char_first": 0.545,
+      "multi_char_selections": 123,
+      "page_turns_per_100": 1.786,
+      "panel_opens_per_100": 4.464,
+      "selections_per_char": 0.31,
+      "single_char_first": 0.563,
+      "single_char_selections": 16,
+      "slips": 0,
+      "strip_hit": 0.856,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.455
+    },
+    "5-8": {
+      "cca": 0.219,
+      "cfa": 0.508,
+      "chars": 734,
+      "chars_per_commit": 6.016,
+      "chunk_top1": 0.23,
+      "chunks": 122,
+      "completion_keys_per_100": 10.218,
+      "cpr": 0.516,
+      "input_keys_per_char": 2.778,
+      "key_saving": 0.039,
+      "kspc": 3.271,
+      "locks_per_100": 17.03,
+      "mean_seat": 4.674,
+      "multi_char_first": 0.488,
+      "multi_char_selections": 162,
+      "page_turns_per_100": 1.499,
+      "panel_opens_per_100": 5.313,
+      "selections_per_char": 0.255,
+      "single_char_first": 0.2,
+      "single_char_selections": 25,
+      "slips": 0,
+      "strip_hit": 0.791,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.23
+    }
+  },
+  "by_common_chunk": {
+    "false": {
+      "cca": 0.382,
+      "cfa": 0.536,
+      "chars": 1836,
+      "chars_per_commit": 3.425,
+      "chunk_top1": 0.424,
+      "chunks": 536,
+      "completion_keys_per_100": 9.858,
+      "cpr": 0.545,
+      "input_keys_per_char": 2.761,
+      "key_saving": 0.054,
+      "kspc": 3.271,
+      "locks_per_100": 9.368,
+      "mean_seat": 3.762,
+      "multi_char_first": 0.537,
+      "multi_char_selections": 553,
+      "page_turns_per_100": 1.58,
+      "panel_opens_per_100": 5.719,
+      "selections_per_char": 0.343,
+      "single_char_first": 0.263,
+      "single_char_selections": 76,
+      "slips": 0,
+      "strip_hit": 0.833,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.425
+    },
+    "true": {
+      "cca": 0.726,
+      "cfa": 0.799,
+      "chars": 716,
+      "chars_per_commit": 1.836,
+      "chunk_top1": 0.759,
+      "chunks": 390,
+      "completion_keys_per_100": 9.358,
+      "cpr": 0.823,
+      "input_keys_per_char": 2.598,
+      "key_saving": 0.098,
+      "kspc": 3.17,
+      "locks_per_100": 0.978,
+      "mean_seat": 0.495,
+      "multi_char_first": 0.813,
+      "multi_char_selections": 246,
+      "page_turns_per_100": 0.0,
+      "panel_opens_per_100": 0.419,
+      "selections_per_char": 0.559,
+      "single_char_first": 0.792,
+      "single_char_selections": 154,
+      "slips": 0,
+      "strip_hit": 0.993,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.759
+    }
+  },
+  "by_first_occurrence": {
+    "false": {
+      "cca": 0.786,
+      "cfa": 0.844,
+      "chars": 487,
+      "chars_per_commit": 1.561,
+      "chunk_top1": 0.766,
+      "chunks": 312,
+      "completion_keys_per_100": 9.24,
+      "cpr": 0.824,
+      "input_keys_per_char": 2.538,
+      "key_saving": 0.112,
+      "kspc": 3.197,
+      "locks_per_100": 0.411,
+      "mean_seat": 0.593,
+      "multi_char_first": 0.877,
+      "multi_char_selections": 163,
+      "page_turns_per_100": 0.205,
+      "panel_opens_per_100": 1.232,
+      "selections_per_char": 0.641,
+      "single_char_first": 0.765,
+      "single_char_selections": 149,
+      "slips": 0,
+      "strip_hit": 0.981,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.766
+    },
+    "true": {
+      "cca": 0.406,
+      "cfa": 0.555,
+      "chars": 2065,
+      "chars_per_commit": 3.363,
+      "chunk_top1": 0.463,
+      "chunks": 614,
+      "completion_keys_per_100": 9.831,
+      "cpr": 0.58,
+      "input_keys_per_char": 2.757,
+      "key_saving": 0.056,
+      "kspc": 3.253,
+      "locks_per_100": 8.571,
+      "mean_seat": 3.318,
+      "multi_char_first": 0.557,
+      "multi_char_selections": 636,
+      "page_turns_per_100": 1.356,
+      "panel_opens_per_100": 4.939,
+      "selections_per_char": 0.347,
+      "single_char_first": 0.346,
+      "single_char_selections": 81,
+      "slips": 0,
+      "strip_hit": 0.858,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.464
+    }
+  },
+  "by_seen_in_warmup": {
+    "false": {
+      "cca": 0.426,
+      "cfa": 0.573,
+      "chars": 2198,
+      "chars_per_commit": 3.195,
+      "chunk_top1": 0.487,
+      "chunks": 688,
+      "completion_keys_per_100": 10.373,
+      "cpr": 0.606,
+      "input_keys_per_char": 2.753,
+      "key_saving": 0.061,
+      "kspc": 3.253,
+      "locks_per_100": 8.098,
+      "mean_seat": 3.064,
+      "multi_char_first": 0.583,
+      "multi_char_selections": 691,
+      "page_turns_per_100": 1.274,
+      "panel_opens_per_100": 4.732,
+      "selections_per_char": 0.36,
+      "single_char_first": 0.4,
+      "single_char_selections": 100,
+      "slips": 0,
+      "strip_hit": 0.869,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.488
+    },
+    "true": {
+      "cca": 0.805,
+      "cfa": 0.839,
+      "chars": 354,
+      "chars_per_commit": 1.487,
+      "chunk_top1": 0.79,
+      "chunks": 238,
+      "completion_keys_per_100": 5.65,
+      "cpr": 0.824,
+      "input_keys_per_char": 2.486,
+      "key_saving": 0.101,
+      "kspc": 3.175,
+      "locks_per_100": 0.282,
+      "mean_seat": 0.588,
+      "multi_char_first": 0.87,
+      "multi_char_selections": 108,
+      "page_turns_per_100": 0.282,
+      "panel_opens_per_100": 1.13,
+      "selections_per_char": 0.672,
+      "single_char_first": 0.785,
+      "single_char_selections": 130,
+      "slips": 0,
+      "strip_hit": 0.983,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.79
+    }
+  },
+  "config": {
+    "abbreviate": 0.3,
+    "abbreviate_mode": "last",
+    "bootstrap": {
+      "draws": 1000,
+      "seed": 20261028,
+      "unit": "doc"
+    },
+    "chunking": "sampled-3.5",
+    "engine": {
+      "autocorrect": [
+        true,
+        true
+      ],
+      "first_page_rows": 6,
+      "frequency": [
+        "promote",
+        1,
+        1
+      ],
+      "fuzzy_pinyin_rules": 0,
+      "helpcode": [
+        true,
+        false,
+        false
+      ],
+      "helpcode_schema": "ziranma",
+      "learning": true,
+      "local": {
+        "chaizi": true,
+        "date_time": true,
+        "date_time_inline": true,
+        "emoji": true,
+        "kaomoji": true,
+        "quick_phrase": true,
+        "shift_letter_entry": true,
+        "super_jianpin": true,
+        "symbol": true,
+        "temporary_english": true,
+        "temporary_japanese": true,
+        "unicode": true
+      },
+      "mixed": {
+        "candidates": true,
+        "emoji": true,
+        "english": true,
+        "english_first_page_count": 1,
+        "english_minimum_prefix": 5,
+        "japanese": false,
+        "kaomoji": false,
+        "symbols": true
+      },
+      "multilingual_languages": 0,
+      "next_word_prediction": false,
+      "quick_phrase_candidates": false,
+      "scheme": 0,
+      "sentence_alternatives": true,
+      "sentence_association": {
+        "collocation_rerank": false,
+        "grammar_model": "",
+        "neural_keyboard": false,
+        "show_next_on_duplicate": false,
+        "word_lattice": true
+      },
+      "single_character_only": false
+    },
+    "keyboard": "nine",
+    "learning": true,
+    "limit_measure_chars": null,
+    "model": "off",
+    "order_seed": 0,
+    "page_size": 6,
+    "phrase_preedit": true,
+    "policy": {
+      "panel_page": 24,
+      "panel_pages": 2,
+      "strip": 6
+    },
+    "profile": "product-mobile",
+    "resources": {
+      "generation": "576494c48ac513d15b9920111a73cf149fb79aedcb8cc6947d0799cf36006553",
+      "source_commit": "8bb181be2ed36ed9559a87434cc4c9048077ff29"
+    },
+    "seed": 1,
+    "set": "typing-chat-v1.tsv",
+    "set_fnv64": "ca13d1aaa97c2bff",
+    "slip": 0.0,
+    "timing_ms": {
+      "chunk": 1000,
+      "key": 350,
+      "literal": 500,
+      "select": 700,
+      "turn": 20000
+    },
+    "warmup": true
+  },
+  "diagnostics": {
+    "chunks_seen_in_warmup": 0.257,
+    "measured_chunks": 926
+  },
+  "learning_curve": [
+    {
+      "cca": 0.477,
+      "cfa": 0.611,
+      "chars": 2000,
+      "from_char": 0
+    },
+    {
+      "cca": 0.484,
+      "cfa": 0.607,
+      "chars": 552,
+      "from_char": 2000
+    }
+  ],
+  "overall": {
+    "dev": {
+      "cca": 0.499,
+      "cca_ci95": [
+        0.428,
+        0.577
+      ],
+      "cfa": 0.624,
+      "cfa_ci95": [
+        0.555,
+        0.687
+      ],
+      "chars": 862,
+      "chars_per_commit": 2.745,
+      "chunk_top1": 0.596,
+      "chunks": 314,
+      "completion_keys_per_100": 9.629,
+      "cpr": 0.685,
+      "cpr_ci95": [
+        0.617,
+        0.742
+      ],
+      "input_keys_per_char": 2.725,
+      "key_saving": 0.068,
+      "kspc": 3.249,
+      "locks_per_100": 6.381,
+      "mean_seat": 2.599,
+      "multi_char_first": 0.637,
+      "multi_char_selections": 270,
+      "page_turns_per_100": 1.276,
+      "panel_opens_per_100": 4.292,
+      "selections_per_char": 0.405,
+      "single_char_first": 0.646,
+      "single_char_selections": 79,
+      "slips": 0,
+      "strip_hit": 0.894,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.596,
+      "zcr_ci95": [
+        0.526,
+        0.661
+      ]
+    },
+    "measure": {
+      "cca": 0.478,
+      "cca_ci95": [
+        0.441,
+        0.521
+      ],
+      "cfa": 0.61,
+      "cfa_ci95": [
+        0.571,
+        0.653
+      ],
+      "chars": 2552,
+      "chars_per_commit": 2.756,
+      "chunk_top1": 0.565,
+      "chunks": 926,
+      "completion_keys_per_100": 9.718,
+      "cpr": 0.662,
+      "cpr_ci95": [
+        0.63,
+        0.696
+      ],
+      "input_keys_per_char": 2.716,
+      "key_saving": 0.066,
+      "kspc": 3.243,
+      "locks_per_100": 7.014,
+      "mean_seat": 2.492,
+      "multi_char_first": 0.622,
+      "multi_char_selections": 799,
+      "page_turns_per_100": 1.136,
+      "panel_opens_per_100": 4.232,
+      "selections_per_char": 0.403,
+      "single_char_first": 0.617,
+      "single_char_selections": 230,
+      "slips": 0,
+      "strip_hit": 0.895,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.566,
+      "zcr_ci95": [
+        0.531,
+        0.601
+      ]
+    },
+    "test": {
+      "cca": 0.468,
+      "cca_ci95": [
+        0.425,
+        0.514
+      ],
+      "cfa": 0.603,
+      "cfa_ci95": [
+        0.558,
+        0.65
+      ],
+      "chars": 1690,
+      "chars_per_commit": 2.761,
+      "chunk_top1": 0.549,
+      "chunks": 612,
+      "completion_keys_per_100": 9.763,
+      "cpr": 0.65,
+      "cpr_ci95": [
+        0.613,
+        0.689
+      ],
+      "input_keys_per_char": 2.711,
+      "key_saving": 0.065,
+      "kspc": 3.239,
+      "locks_per_100": 7.337,
+      "mean_seat": 2.437,
+      "multi_char_first": 0.614,
+      "multi_char_selections": 529,
+      "page_turns_per_100": 1.065,
+      "panel_opens_per_100": 4.201,
+      "selections_per_char": 0.402,
+      "single_char_first": 0.603,
+      "single_char_selections": 151,
+      "slips": 0,
+      "strip_hit": 0.896,
+      "unreachable": 0.0,
+      "unreachable_by_kind": {},
+      "zcr": 0.551,
+      "zcr_ci95": [
+        0.513,
+        0.588
+      ]
+    }
+  },
+  "sample_failures": [
+    {
+      "gold": "页面",
+      "keys": "936",
+      "row": "d09c1m1",
+      "seat": 5,
+      "strip": [
+        "也能",
+        "问",
+        "也没",
+        "一方面",
+        "文档你",
+        "页面"
+      ]
+    },
+    {
+      "gold": "需要再加",
+      "keys": "98926924542",
+      "row": "d09c1m1",
+      "seat": 2,
+      "strip": [
+        "需要在家",
+        "需要外加",
+        "需要再加",
+        "需要外籍啊",
+        "需要在即啊",
+        "需要外积啊"
+      ]
+    },
+    {
+      "gold": "一个入口",
+      "keys": "9443785",
+      "row": "d09c1m1",
+      "seat": 2,
+      "strip": [
+        "一个区",
+        "细河区",
+        "一个",
+        "资格",
+        "一盒",
+        "一哥"
+      ]
+    },
+    {
+      "gold": "入口",
+      "keys": "785",
+      "row": "d09c1m1",
+      "seat": 5,
+      "strip": [
+        "去了",
+        "如今",
+        "去看",
+        "苏联",
+        "普及",
+        "入口"
+      ]
+    },
+    {
+      "gold": "放在我",
+      "keys": "32649249",
+      "row": "d09c1m2",
+      "seat": 1,
+      "strip": [
+        "防外溢",
+        "放在",
+        "当在",
+        "挡在",
+        "防灾",
+        "房外"
+      ]
+    },
+    {
+      "gold": "我",
+      "keys": "9",
+      "row": "d09c1m2",
+      "seat": 2,
+      "strip": [
+        "在",
+        "再",
+        "我",
+        "载",
+        "灾",
+        "也"
+      ]
+    },
+    {
+      "gold": "看今天",
+      "keys": "5265468426",
+      "row": "d09c1m4",
+      "seat": 3,
+      "strip": [
+        "靠近提案",
+        "靠近体波",
+        "考进提案",
+        "看今天",
+        "靠今天",
+        "老今天"
+      ]
+    },
+    {
+      "gold": "不能先出",
+      "keys": "2863649426248",
+      "row": "d09c1m4",
+      "seat": 15,
+      "strip": [
+        "不能显出",
+        "不能现出",
+        "不能献出",
+        "不能先阿姑",
+        "不能现阿姑",
+        "不能线阿姑"
+      ]
+    },
+    {
+      "gold": "先出",
+      "keys": "9426248",
+      "row": "d09c1m4",
+      "seat": 3,
+      "strip": [
+        "显出",
+        "现出",
+        "献出",
+        "先出",
+        "县处",
+        "掀出"
+      ]
+    },
+    {
+      "gold": "个草图",
+      "keys": "4322688",
+      "row": "d09c1m4",
+      "seat": 5,
+      "strip": [
+        "哥啊凹凸",
+        "哥啊按图",
+        "哥啊安图",
+        "个版图",
+        "和版图",
+        "个草图"
+      ]
+    },
+    {
+      "gold": "灰度",
+      "keys": "4843",
+      "row": "d09c2m1",
+      "seat": 5,
+      "strip": [
+        "回答",
+        "回到",
+        "规定",
+        "回复",
+        "恢复",
+        "灰度"
+      ]
+    },
+    {
+      "gold": "跑通了",
+      "keys": "726866453",
+      "row": "d09c2m1",
+      "seat": 2,
+      "strip": [
+        "三通了",
+        "泡桐了",
+        "跑通了",
+        "萨姆哦迷了",
+        "萨姆哦你可",
+        "萨姆哦尼克"
+      ]
+    },
+    {
+      "gold": "一个接口响应",
+      "keys": "9443543568942649464",
+      "row": "d09c2m2",
+      "seat": 5,
+      "strip": [
+        "一个借口相应",
+        "一个接口相应",
+        "一个借口响应",
+        "一个界陋巷以你",
+        "一个界露相以你",
+        "一个接口响应"
+      ]
+    },
+    {
+      "gold": "比较慢",
+      "keys": "245426626",
+      "row": "d09c2m2",
+      "seat": 1,
+      "strip": [
+        "比较难",
+        "比较慢",
+        "比较毛",
+        "比较猫",
+        "比较满",
+        "哎艰难"
+      ]
+    },
+    {
+      "gold": "大概要两秒",
+      "keys": "32424926542646426",
+      "row": "d09c2m3",
+      "seat": 2,
+      "strip": [
+        "大概要两年",
+        "大概要凉面",
+        "大概要两秒",
+        "大概演讲尼奥",
+        "大概要加您好",
+        "大概要将尼奥"
+      ]
+    },
+    {
+      "gold": "肯定会觉得卡",
+      "keys": "53634644845833352",
+      "row": "d09c2m3",
+      "seat": 15,
+      "strip": [
+        "肯定回绝的啦",
+        "肯定会觉得啦",
+        "肯定蛔厥的啦",
+        "肯定回绝额饿啦",
+        "肯定回绝俄饿啦",
+        "肯定蛔厥额饿啦"
+      ]
+    },
+    {
+      "gold": "卡",
+      "keys": "52",
+      "row": "d09c2m3",
+      "seat": 2,
+      "strip": [
+        "啦",
+        "拉",
+        "卡",
+        "基本",
+        "加班",
+        "基础"
+      ]
+    },
+    {
+      "gold": "能",
+      "keys": "6",
+      "row": "d09c2m4",
+      "seat": 3,
+      "strip": [
+        "你",
+        "年",
+        "呢",
+        "能",
+        "嗯",
+        "吗"
+      ]
+    },
+    {
+      "gold": "不能加个",
+      "keys": "28636454243",
+      "row": "d09c2m4",
+      "seat": 2,
+      "strip": [
+        "不能价格",
+        "不能级别",
+        "不能加个",
+        "不能急阿河",
+        "不能挤阿河",
+        "粗能力阿河"
+      ]
+    },
+    {
+      "gold": "晚上",
+      "keys": "92674264",
+      "row": "d09c3m1",
+      "seat": 1,
+      "strip": [
+        "早上",
+        "晚上",
+        "🌃",
+        "要强",
+        "赞赏",
+        "要上"
+      ]
+    },
+    {
+      "gold": "卡快过期了",
+      "keys": "5258244867453",
+      "row": "d09c3m3",
+      "seat": 3,
+      "strip": [
+        "卡快过死了",
+        "卡快过起了",
+        "卡快过死磕",
+        "卡快过期",
+        "卡快国企",
+        "卡快国旗"
+      ]
+    },
+    {
+      "gold": "就",
+      "keys": "5",
+      "row": "d09c3m3",
+      "seat": 1,
+      "strip": [
+        "了",
+        "就",
+        "来",
+        "开",
+        "里",
+        "乐"
+      ]
+    },
+    {
+      "gold": "火锅",
+      "keys": "4864",
+      "row": "d12c1m1",
+      "seat": 2,
+      "strip": [
+        "混合",
+        "过后",
+        "火锅",
+        "🥘",
+        "🍲",
+        "过高"
+      ]
+    },
+    {
+      "gold": "吃得",
+      "keys": "24433",
+      "row": "d12c1m2",
+      "seat": 2,
+      "strip": [
+        "吃的",
+        "chief",
+        "吃得",
+        "吃粉",
+        "嗤的",
+        "挨个儿"
+      ]
+    },
+    {
+      "gold": "了一个多",
+      "keys": "539443386",
+      "row": "d12c1m3",
+      "seat": 27,
+      "strip": [
+        "乐意赫顿",
+        "乐意喝多",
+        "乐意戈多",
+        "乐意和服哦",
+        "乐意合度哦",
+        "乐意各附哦"
+      ]
+    },
+    {
+      "gold": "队",
+      "keys": "384",
+      "row": "d12c1m3",
+      "seat": 4,
+      "strip": [
+        "对",
+        "⭕",
+        "✅",
+        "✔️",
+        "队",
+        "堆"
+      ]
+    },
+    {
+      "gold": "工作日",
+      "keys": "46649867",
+      "row": "d12c1m4",
+      "seat": 1,
+      "strip": [
+        "工作室",
+        "工作日",
+        "工作时",
+        "工作上",
+        "工作是",
+        "工作区"
+      ]
+    },
+    {
+      "gold": "减",
+      "keys": "5426",
+      "row": "d12c2m1",
+      "seat": 42,
+      "strip": [
+        "叫",
+        "连",
+        "见",
+        "交",
+        "教",
+        "较"
+      ]
+    },
+    {
+      "gold": "得",
+      "keys": "33",
+      "row": "d12c2m1",
+      "seat": 1,
+      "strip": [
+        "的",
+        "得",
+        "🉐",
+        "地",
+        "等等",
+        "放到"
+      ]
+    },
+    {
+      "gold": "别骗",
+      "keys": "2437426",
+      "row": "d12c2m3",
+      "seat": 20,
+      "strip": [
+        "别签",
+        "别瞧",
+        "别飘",
+        "别删",
+        "别杀哦",
+        "憋气按"
+      ]
+    },
+    {
+      "gold": "自己了",
+      "keys": "945453",
+      "row": "d12c2m3",
+      "seat": 7,
+      "strip": [
+        "伊基克",
+        "伊吉克",
+        "伊利克",
+        "溪鳢科",
+        "中华犁沟茧蜂",
+        "以及了"
+      ]
+    },
+    {
+      "gold": "一起打",
+      "keys": "947432",
+      "row": "d12c2m4",
+      "seat": 4,
+      "strip": [
+        "一起到",
+        "一起发",
+        "系皮带",
+        "一起戴",
+        "一起打",
+        "一切啊"
+      ]
+    },
+    {
+      "gold": "吧",
+      "keys": "2",
+      "row": "d12c2m4",
+      "seat": 2,
+      "strip": [
+        "啊",
+        "从",
+        "吧",
+        "爸",
+        "把",
+        "被"
+      ]
+    },
+    {
+      "gold": "小美在",
+      "keys": "9426634924",
+      "row": "d12c3m2",
+      "seat": 6,
+      "strip": [
+        "校内外",
+        "西安内在",
+        "西安没在",
+        "西安美哉",
+        "校内在",
+        "校内再"
+      ]
+    },
+    {
+      "gold": "两个",
+      "keys": "5426443",
+      "row": "d12c3m3",
+      "seat": 1,
+      "strip": [
+        "两盒",
+        "两个",
+        "✌️",
+        "讲个",
+        "降格",
+        "江河"
+      ]
+    },
+    {
+      "gold": "系统里指给你了",
+      "keys": "94866454944434645",
+      "row": "d12c3m4",
+      "seat": 1,
+      "strip": [
+        "系统机制",
+        "系统里",
+        "系统级",
+        "已统计",
+        "一统计",
+        "系统"
+      ]
+    },
+    {
+      "gold": "指给你了",
+      "keys": "944434645",
+      "row": "d12c3m4",
+      "seat": 5,
+      "strip": [
+        "只给你",
+        "只给",
+        "支给",
+        "直给",
+        "执黑",
+        "指给"
+      ]
+    },
+    {
+      "gold": "你了",
+      "keys": "6453",
+      "row": "d12c3m4",
+      "seat": 5,
+      "strip": [
+        "迷了",
+        "你可",
+        "尼克",
+        "你会觉得",
+        "能感觉到",
+        "你了"
+      ]
+    },
+    {
+      "gold": "聚餐",
+      "keys": "58226",
+      "row": "d15c1m1",
+      "seat": 3,
+      "strip": [
+        "举报",
+        "Lubbock",
+        "举办",
+        "聚餐",
+        "绿草",
+        "剧版"
+      ]
+    },
+    {
+      "gold": "点酒",
+      "keys": "3426548",
+      "row": "d15c1m1",
+      "seat": 26,
+      "strip": [
+        "电流",
+        "电吉他",
+        "🎸",
+        "碘酒",
+        "点击它",
+        "奠酒"
+      ]
+    }
+  ],
+  "tool": "typing_sim",
+  "warmup": {
+    "chars": 959,
+    "rows": 82
+  }
+}

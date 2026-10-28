@@ -1189,6 +1189,21 @@ else
   echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the eval"
 fi
 
+note "typing simulation eval"
+# 打字流模拟（`typing_sim`）：一个用户用手机出厂配置把手写聊天集从头打到尾，学习开着，量逐字首选率、每次上屏首选率和按键数，对照 `resources/eval/baseline-typing-chat-nine-key.json`。上面的集合都是冷启动，量不到学习、暂存部分选择、拼写列和简拼。默认不跑：除了 MSIME_EVAL_RESOURCES 还要 MSIME_TYPING_EVAL=1，负载不高时一两分钟，负载高的编译机上要十几分钟。整组运行见 `scripts/typing-eval-matrix.sh` 和 resources/eval/README.md「打字流评测」。
+if [ "${MSIME_TYPING_EVAL:-}" = 1 ] && [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
+  if cargo run --release -q -p msime-input-runtime --example typing_sim --locked -- \
+      --resources "$MSIME_EVAL_RESOURCES" --set resources/eval/typing-chat-v1.tsv --keyboard nine \
+      --baseline resources/eval/baseline-typing-chat-nine-key.json >/dev/null 2>&1; then
+    echo "typing simulation chat nine-key: at baseline"
+  else
+    fail "typing simulation differs from resources/eval/baseline-typing-chat-nine-key.json"
+    echo "  accept it with --update-baseline once you have read the diff"
+  fi
+else
+  echo "skipped: set MSIME_TYPING_EVAL=1 and MSIME_EVAL_RESOURCES to run the typing simulation"
+fi
+
 note "reranker keystroke latency"
 # convert_eval answers whether reranking ranks correctly. This answers what it costs, and the two move independently: a model swap, a wider lattice or a larger candidate page all change the number. The benchmark has existed since 418b4fb78 and nothing ever ran it, so the frame budget it checks was never actually enforced, and it was over it when this stage was added: p95 20.64ms against 16.00ms, 9.8% of keystrokes past a frame. Resuming candidate scoring across keystrokes in chinese-ime-lm brought that under the budget, so this now gates rather than records; with the Rust engine the last run was p95 9.50ms, with 2 of 1320 keystrokes (0.2%) over 16ms. The measurement is machine-dependent, which is why it is compared as a pass/fail name against known-failures.txt rather than as a committed millisecond figure. It needs the sentence model, which the resource lock ships, so the eval's own guard covers it too.
 if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
