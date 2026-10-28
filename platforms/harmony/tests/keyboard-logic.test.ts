@@ -259,7 +259,10 @@ import {
   CandidateGlossPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
-import { CorrectionMarkPolicy } from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
+import {
+  CorrectionMarkPolicy,
+  CorrectionSurfaceColors,
+} from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
@@ -8905,7 +8908,7 @@ group("the key geometry is registered once per layout and session", () => {
   );
 });
 
-group("双拼纠错坐上首选的那一行画强调色下划线，读屏念「已纠正」（#10018）", () => {
+group("双拼纠错坐上首选的那一行字和注释画标记色，读屏念「已纠正」（#10018）", () => {
   // 引擎只在坐上首选的纠错行带 confident_correction: true，其余行没有这个键；按 JSON 解析出来的样子核对。
   type Row = { text: string; confident_correction?: boolean };
   const rows = JSON.parse(
@@ -8948,29 +8951,89 @@ group("双拼纠错坐上首选的那一行画强调色下划线，读屏念「�
     "原始按键的注释照旧读，「已纠正」在它之后",
   );
 
-  const accent = "#2C7A4B";
-  const filledSelectedText = "#FFFFFF";
+  // 与 Android（Palette.correctionFor）、iOS 同一条规则：没高亮的行用强调色，高亮的行用这一处的高亮字色。
+  const filled: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#FFFFFF",
+    accent: "#2C7A4B",
+  };
+  check(CorrectionMarkPolicy.markColor(false, filled) === "#2C7A4B", "没高亮时标记色是强调色");
   check(
-    CorrectionMarkPolicy.underlineColor(false, true, accent, filledSelectedText) === null,
-    "不标的高亮行不画下划线",
+    CorrectionMarkPolicy.markColor(true, filled) === "#FFFFFF",
+    "高亮时用这一处的高亮字色，皮肤把高亮底填成强调色时字仍看得见",
   );
   check(
-    CorrectionMarkPolicy.underlineColor(false, false, accent, filledSelectedText) === null,
-    "不标的普通行不画下划线",
+    CorrectionMarkPolicy.tint(true, false, "#8A8F98", filled) === "#2C7A4B",
+    "标记的行，平时画次要色的注释换成强调色",
   );
   check(
-    CorrectionMarkPolicy.underlineColor(true, false, accent, filledSelectedText) === accent,
-    "没高亮时下划线用强调色",
+    CorrectionMarkPolicy.tint(true, true, "#8A8F98", filled) === "#FFFFFF",
+    "标记的高亮行，注释换成高亮字色",
   );
   check(
-    CorrectionMarkPolicy.underlineColor(true, true, accent, filledSelectedText) ===
-      filledSelectedText,
-    "高亮时用这一行的高亮字色，皮肤把高亮底填成强调色时下划线仍看得见",
+    CorrectionMarkPolicy.tint(false, true, "#8A8F98", filled) === "#8A8F98" &&
+      CorrectionMarkPolicy.tint(false, false, "#1F2328", filled) === "#1F2328",
+    "不标的行保持调用方原来的颜色，默认视图不变",
   );
-  // 触屏候选栏的内置配色里高亮字色就是强调色（KeyboardView.candidateColors 的 selectedText: skin.accent），所以首选纠错行照样是强调色下划线。
   check(
-    CorrectionMarkPolicy.underlineColor(true, true, accent, accent) === accent,
-    "内置配色下高亮行也是强调色",
+    CorrectionMarkPolicy.tint(true, false, CandidateSkinPolicy.FIXED_POSITION_COLOR, filled) ===
+      "#2C7A4B",
+    "标记盖过固定词的颜色",
+  );
+  // 触屏候选栏的内置配色里高亮字色就是强调色（KeyboardView.candidateColors 的 selectedText: skin.accent）：高亮的首选字色不变，标记靠换了色的原始按键注释看出来。
+  const touch: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#2C7A4B",
+    accent: "#2C7A4B",
+  };
+  check(
+    CorrectionMarkPolicy.tint(true, true, "#1F2328", touch) === "#2C7A4B" &&
+      CorrectionMarkPolicy.tint(true, true, "#8A8F98", touch) === "#2C7A4B",
+    "内置配色下高亮首选的字和注释都是强调色",
+  );
+
+  // 展开面板格子：不标的格子与以前一样按高亮取高亮字色或普通字色。
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, false, filled) === "#1F2328",
+    "不标的普通格用普通字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, true, filled) === "#FFFFFF",
+    "不标的高亮格用高亮字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, false, filled) === "#2C7A4B",
+    "标记的普通格用强调色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, true, filled) === "#FFFFFF",
+    "标记的高亮格用高亮字色",
+  );
+  const keyboard: CorrectionSurfaceColors = {
+    text: "#000000",
+    highlightedText: "#FAFAFA",
+    accent: "#0A59F7",
+  };
+  check(
+    CorrectionMarkPolicy.expandedSurface(true, filled, keyboard) === filled,
+    "有候选包画布时展开面板用候选区配色",
+  );
+  check(
+    CorrectionMarkPolicy.expandedSurface(false, filled, keyboard) === keyboard,
+    "没有画布时展开面板格子是按键，用键盘配色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(
+      true,
+      false,
+      CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+    ) === "#0A59F7" &&
+      CorrectionMarkPolicy.cellTextColor(
+        true,
+        true,
+        CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+      ) === "#FAFAFA",
+    "没有画布时标记的格子取键盘的强调色与高亮格字色",
   );
 });
 
