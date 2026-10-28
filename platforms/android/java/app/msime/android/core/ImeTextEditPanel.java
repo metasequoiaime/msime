@@ -86,7 +86,7 @@ final class ImeTextEditPanel {
         buttons.clear();
         panel.removeAllViews();
         LinearLayout modes = LayoutPolicy.row(s);
-        modeButton = s.keyboardKey("触控板", "切换为触控板", this::toggleTrackpad);
+        modeButton = s.keyboardKey("切换为触控板", "切换为触控板", this::toggleTrackpad);
         modes.addView(modeButton, LayoutPolicy.weightedMatchParentParams(1));
         trackpadSelect = s.keyboardKey("选择", "选择模式", () -> perform(TextEditPanelModel.Action.SELECT));
         modes.addView(trackpadSelect, LayoutPolicy.weightedMatchParentParams(1));
@@ -425,7 +425,7 @@ final class ImeTextEditPanel {
                 TextEditPanelModel.Action.DOWN, TextEditPanelModel.Action.RIGHT})
             ViewPolicy.setVisible(buttons.get(action), !enabled);
         ViewPolicy.setVisible(trackpadSelect, enabled);
-        modeButton.setText(enabled ? "方向键" : "触控板");
+        modeButton.setText(enabled ? "切换为方向键" : "切换为触控板");
         modeButton.setContentDescription(enabled ? "切换为方向键" : "切换为触控板");
         ViewPolicy.setEnabled(modeButton, trackpadSettings != null && !modeSaving && !temporaryTrackpad
             && !preferencesDirectory().isEmpty());
