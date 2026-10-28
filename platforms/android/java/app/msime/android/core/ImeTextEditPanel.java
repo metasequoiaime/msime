@@ -182,6 +182,11 @@ final class ImeTextEditPanel {
         return button;
     }
 
+    private static boolean isCursorMove(TextEditPanelModel.Action action) {
+        return action == TextEditPanelModel.Action.LEFT || action == TextEditPanelModel.Action.UP
+            || action == TextEditPanelModel.Action.DOWN || action == TextEditPanelModel.Action.RIGHT;
+    }
+
     private static boolean isArrow(TextEditPanelModel.Action action) {
         return action == TextEditPanelModel.Action.LEFT
             || action == TextEditPanelModel.Action.UP
@@ -315,7 +320,7 @@ final class ImeTextEditPanel {
                 boolean done = InputConnectionGuard.performContextMenuAction(target, menu);
                 // 有些编辑器（部分 WebView、跨平台框架的输入框）不实现上下文菜单动作；粘贴还能退回到直接上屏剪贴板文字。复制和剪切不退回：那要宿主自己读选中的文字，会绕过密码框禁止复制的规则。
                 if (!done && action == TextEditPanelModel.Action.PASTE) pasteClipboardText(target);
-            } else {
+            } else if (!isCursorMove(action) || cursorSteps(target, action, 1, selecting) > 0) {
                 sendKey(target, TextEditPanelModel.keyCode(action),
                     TextEditPanelModel.metaState(action, selecting));
             }
@@ -524,6 +529,8 @@ final class ImeTextEditPanel {
 
         void cancel(boolean restore) { finish(hold.cancel(), restore); }
 
+        void retarget(Object previous, Object next) { hold.retarget(previous, next); }
+
         private void finish(TextTrackpadHold.End end, boolean restore) {
             owned = false;
             button.removeCallbacks(activate);
@@ -577,13 +584,16 @@ final class ImeTextEditPanel {
         InputConnection target = s.connection;
         if (target == null) return false;
         s.selectionEcho.invalidate();
-        TextEditPanelModel.Action horizontal = steps.horizontal() < 0 ? TextEditPanelModel.Action.LEFT : TextEditPanelModel.Action.RIGHT;
-        TextEditPanelModel.Action vertical = steps.vertical() < 0 ? TextEditPanelModel.Action.UP : TextEditPanelModel.Action.DOWN;
+        boolean extend = selecting || steps.selecting();
+        // 越过文档首尾的步数在这里扣掉（#10141），被扣掉的步不发键也不震动，手势照常继续。
+        TextCursorEdgePolicy.Plan plan = cursorPlan(target, steps.horizontal(), steps.vertical(), extend);
+        TextEditPanelModel.Action horizontal = plan.horizontal() < 0 ? TextEditPanelModel.Action.LEFT : TextEditPanelModel.Action.RIGHT;
+        TextEditPanelModel.Action vertical = plan.vertical() < 0 ? TextEditPanelModel.Action.UP : TextEditPanelModel.Action.DOWN;
         for (TextEditPanelModel.Action action : new TextEditPanelModel.Action[] {horizontal, vertical}) {
-            int count = action == horizontal ? Math.abs(steps.horizontal()) : Math.abs(steps.vertical());
+            int count = action == horizontal ? Math.abs(plan.horizontal()) : Math.abs(plan.vertical());
             for (int index = 0; index < count; index++) {
                 if (s.connection != target || !sendKey(target, TextEditPanelModel.keyCode(action),
-                        TextEditPanelModel.metaState(action, selecting || steps.selecting()))) return false;
+                        TextEditPanelModel.metaState(action, extend))) return false;
                 if (trackpadSettings != null && trackpadSettings.haptics() && s.hapticsEnabled)
                     trackpad.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
             }
@@ -592,8 +602,37 @@ final class ImeTextEditPanel {
         return true;
     }
 
+    /**
+     * 这一批方向键里实际发几个（{@link TextCursorEdgePolicy}）：光标已在文档首尾时往外的键不发，免得编辑器把它当作焦点导航、把焦点交给相邻的控件。回读在主线程同步进行，每批只读一次、只读要走的那一侧；密码框不读。空格拖动也经这里。
+     */
+    TextCursorEdgePolicy.Plan cursorPlan(InputConnection target, int horizontal, int vertical, boolean extend) {
+        return TextCursorEdgePolicy.plan(horizontal, vertical, extend, selectionStart, selectionEnd,
+            s.editorInputType, limit -> InputConnectionGuard.textBeforeCursor(target, limit),
+            limit -> InputConnectionGuard.textAfterCursor(target, limit));
+    }
+
+    private int cursorSteps(InputConnection target, TextEditPanelModel.Action action, int count, boolean extend) {
+        int horizontal = action == TextEditPanelModel.Action.LEFT ? -count : action == TextEditPanelModel.Action.RIGHT ? count : 0;
+        int vertical = action == TextEditPanelModel.Action.UP ? -count : action == TextEditPanelModel.Action.DOWN ? count : 0;
+        TextCursorEdgePolicy.Plan plan = cursorPlan(target, horizontal, vertical, extend);
+        return Math.abs(plan.horizontal()) + Math.abs(plan.vertical());
+    }
+
     void editorChanged(int start, int end) {
         close();
+        selectionChanged(start, end);
+    }
+
+    /**
+     * 同一输入框重启连接（#10141）：面板、选择模式和进行中的手势都留着，改认新连接；只作废旧连接上在途的选词回读和自身选区记录，放大镜重新绑到新连接。WebView 一类编辑器在拖动中途也会重启连接，原来一律按换输入框处理，面板随之关掉。
+     */
+    void editorRestarted(InputConnection previous, int start, int end) {
+        InputConnection next = s.connection;
+        selectionReads.cancel();
+        selectionVersion.reset();
+        if (trackpad != null) trackpad.retarget(previous, next);
+        if (shortcutTouch != null) shortcutTouch.retarget(previous, next);
+        if (previewActive) setPreviewActive(true);
         selectionChanged(start, end);
     }
 

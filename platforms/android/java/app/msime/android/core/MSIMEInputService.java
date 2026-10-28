@@ -1699,11 +1699,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (inlineAutofill != null) inlineAutofill.startInput();
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
+        InputConnection previousConnection = connection;
+        // 同一输入框重启连接时文本编辑面板留着（#10141）：它直接作用于编辑器，不依赖引擎会话；换了输入框才关。
+        boolean sameEditorRestart = restarting && nextConnection != null && previousConnection != null
+            && sameEditor(info);
         if (restarting && retainRestartedComposition(info, nextConnection)) {
             imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
             connection = nextConnection;
-            imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
-                info == null ? -1 : info.initialSelEnd);
+            imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
             resetCaretAnchor();
             updateAutomaticCapitalization();
             render();
@@ -1727,12 +1730,16 @@ public final class MSIMEInputService extends InputMethodService {
             currentDocumentIdentifier = nextDocumentIdentifier++;
         }
         imeBottomRow.resetSpaceCursor();
-        if (keepSession) stopKeepingSession();
-        else stop(false);
+        if (keepSession) stopKeepingSession(sameEditorRestart);
+        else stop(false, sameEditorRestart);
         inputFailureRecoveryAttempts = 0;
         connection = getCurrentInputConnection();
-        imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
-            info == null ? -1 : info.initialSelEnd);
+        if (sameEditorRestart) {
+            imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
+        } else {
+            imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
+                info == null ? -1 : info.initialSelEnd);
+        }
         resetCaretAnchor();
         selectionEcho.reset(info == null ? -1 : info.initialSelStart,
             info == null ? -1 : info.initialSelEnd);
@@ -1784,11 +1791,16 @@ public final class MSIMEInputService extends InputMethodService {
         startInputRuntime(info, restarting, newDocument, startGeneration, engineWanted, true, deferEngine);
     }
 
+    /** 新连接与当前记下的是不是同一个输入框：包名、fieldId、输入类型和 imeOptions 都没变。 */
+    private boolean sameEditor(EditorInfo info) {
+        return info != null && info.inputType == editorInputType && info.fieldId == currentEditorFieldId
+            && info.imeOptions == currentEditorImeOptions && currentEditorPackage.equals(info.packageName);
+    }
+
     /** 同一输入框重启连接时能否留着引擎会话（{@link InputViewRefreshPolicy#keepsSessionAcrossRestart}）。 */
     private boolean keepsSessionAcrossRestart(EditorInfo info, boolean restarting, InputConnection next) {
         if (!restarting || info == null || next == null || session == 0) return false;
-        boolean sameEditor = info.inputType == editorInputType && info.fieldId == currentEditorFieldId
-            && info.imeOptions == currentEditorImeOptions && currentEditorPackage.equals(info.packageName);
+        boolean sameEditor = sameEditor(info);
         if (!sameEditor) return false;
         // 资源包可能刚在设置应用里装好或删掉：方案切换器、日文临时模式和音标可用与否都是建会话时按资源包算的，留着会话就一直是旧的。原来每次重启连接都重建、重读一遍，这里同样一次 JNI 列出，变了就不留会话。
         if (!ResourcePacks.installedIds(this).equals(installedResourcePackIds)) return false;
@@ -2361,16 +2373,21 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
+        stop(finish, false);
+    }
+
+    /** @param keepTextEdit 同一输入框重启连接时留着文本编辑面板（#10141） */
+    private void stop(boolean finish, boolean keepTextEdit) {
         boolean keepMoreTools = preserveMoreToolsOnStop;
         preserveMoreToolsOnStop = false;
-        stop(finish, keepMoreTools, false);
+        stop(finish, keepMoreTools, false, keepTextEdit);
     }
 
     /** 同一输入框重启连接、留着引擎会话时的收尾（{@link InputViewRefreshPolicy#keepsSessionAcrossRestart}）：只做编辑器边界上的复位。 */
-    private void stopKeepingSession() {
+    private void stopKeepingSession(boolean keepTextEdit) {
         boolean keepMoreTools = preserveMoreToolsOnStop;
         preserveMoreToolsOnStop = false;
-        stop(false, keepMoreTools, true);
+        stop(false, keepMoreTools, true, keepTextEdit);
     }
 
     /**
@@ -2378,7 +2395,7 @@ public final class MSIMEInputService extends InputMethodService {
      *
      * @param keepSession 为真时不销毁引擎会话，会话带着的偏好快照、皮肤、翻译路由和保存中的状态都不动，只关面板、收起组字区、作废这个输入框上还在路上的请求，与输入框一起结束的那些照常复位。
      */
-    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession) {
+    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession, boolean keepTextEdit) {
         if (imeWorldClock != null) imeWorldClock.close();
         if (imeOcr != null) imeOcr.close();
         imeCompositionEditor.close();
@@ -2421,7 +2438,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         closeCandidatePanel();
         // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
-        if (keepMoreTools) {
+        if (keepMoreTools || keepTextEdit) {
+            if (!keepMoreTools) closeMoreTools();
             closeEmojiPicker();
             closeCommonPhrases();
             closeClipboardHistory();
@@ -2432,7 +2450,7 @@ public final class MSIMEInputService extends InputMethodService {
             closeVoiceResult();
             closeLayoutSettings();
             closeReplyKeyboard();
-            imeTextEditPanel.close();
+            if (!keepTextEdit) imeTextEditPanel.close();
         } else {
             closeToolbarPanels();
         }

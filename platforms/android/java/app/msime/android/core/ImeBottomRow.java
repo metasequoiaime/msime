@@ -256,10 +256,13 @@ final class ImeBottomRow {
     }
 
     void moveEditorCursor(int offset) {
+        if (offset == 0 || s.connection == null) return;
         // 方向键由编辑器自己解释（换行、代理对、双向文字），落点算不出来。
-        if (offset != 0) s.selectionEcho.invalidate();
-        int keyCode = offset < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
-        for (int index = 0; index < Math.abs(offset); index++) s.sendEditorKeyEvents(keyCode);
+        s.selectionEcho.invalidate();
+        // 光标已在文档首尾时不再往外发（#10141），否则编辑器把多出来的方向键当作焦点导航。
+        int steps = s.imeTextEditPanel.cursorPlan(s.connection, offset, 0, false).horizontal();
+        int keyCode = steps < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+        for (int index = 0; index < Math.abs(steps); index++) s.sendEditorKeyEvents(keyCode);
     }
 
     /** 一个空格键自己的手势状态。分离式键盘有两个空格键，两根拇指可能先后按住它们，状态不能共用，否则后按下的会把先按下的那次长按计时和手势仲裁一起冲掉。 */
