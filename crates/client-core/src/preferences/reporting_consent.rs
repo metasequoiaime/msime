@@ -28,7 +28,7 @@ impl UsageReportingConsent {
         Ok(consent)
     }
 
-    fn valid(&self) -> bool {
+    pub(super) fn valid(&self) -> bool {
         self.epoch.get_version() == Some(uuid::Version::Random)
             && self.epoch.get_variant() == uuid::Variant::RFC4122
             && (1..=253_402_300_799_999).contains(&self.since_unix_ms)

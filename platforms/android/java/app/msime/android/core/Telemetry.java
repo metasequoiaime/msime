@@ -1,6 +1,7 @@
 package app.msime.android.core;
 
 import app.msime.android.AppVersionPolicy;
+import app.msime.android.AppEdition;
 import app.msime.android.TextPolicy;
 import app.msime.android.JsonPolicy;
 import android.content.Context;
@@ -127,25 +128,24 @@ public final class Telemetry {
             new JSONObject(directoryRequest(app)).put("session", endingSession).toString()));
     }
 
-    /** usage_reporting 已保存：关闭时同步撤销历史诊断身份并清空队列，重开只在准备完成后启用。 */
+    /** 偏好已保存；回调只触发重新核对，迟到的关闭通知不能清空重新授权后的队列。 */
     public static synchronized void setEnabled(Context context, boolean value) {
         Context app = context.getApplicationContext();
         consentGeneration.incrementAndGet();
-        if (!value) {
-            stopCapture(app, true);
-            observedConsent = false;
+        if (!captureActive && value) activate(app, false);
+        if (captureActive) refreshConsent(app, watchGeneration);
+        else {
             try {
-                DiagnosticConsent.locked(app.getFilesDir(), consent -> {
-                    consent.observe(false, System.currentTimeMillis());
-                    call(() -> NativeClient.telemetryClear(directoryRequest(app)));
-                });
-            } catch (Exception error) {
-                call(() -> NativeClient.telemetryClear(directoryRequest(app)));
+                Consent current = sharedConsent(app);
+                if (current.state == null) {
+                    stopCapture(app, true);
+                    DiagnosticConsent.locked(app.getFilesDir(), consent -> consent.observe(null));
+                    clearDisabled(app, current.preferences);
+                }
+            } catch (Exception | LinkageError error) {
+                stopCapture(app, false);
                 Log.i(TAG, "Diagnostic consent unavailable");
             }
-        } else {
-            if (!captureActive) activate(app, false);
-            refreshConsent(app, watchGeneration);
         }
     }
 
@@ -172,15 +172,13 @@ public final class Telemetry {
         Context app = capture.app;
         DiagnosticConsent.tryLocked(app.getFilesDir(), consent -> {
             DiagnosticConsent.State state = consent.current();
-            if (armedCapture != capture || !sharedEnabled(app) || state == null
-                    || !capture.epoch.equals(state.epoch)
-                    || !capture.preferences.equals(reportingPreferences(app))) return;
+            if (armedCapture != capture || state == null || !capture.epoch.equals(state.epoch)) return;
             String record = crashRecord(error);
             int newline = record.indexOf('\n');
             File target = capture.target;
             String name = target.getName();
             String id = UUID.fromString(name.substring(0, name.length() - CRASH_EXTENSION.length())).toString();
-            // 与撤回清理共用同意锁，不等共享队列锁；不把已停用的捕获降级成随机独立报告。
+            // 只核对预备镜像，不等偏好或队列锁；旧现场晚写由记录头中的共享代次拒收。
             NativeClient.telemetryRecordCrash(new JSONObject()
                 .put("directory", target.getParentFile().getParentFile().getAbsolutePath())
                 .put("session", id).put("message", record.substring(0, newline))
@@ -265,7 +263,8 @@ public final class Telemetry {
     }
 
     private static void flush(Context app) {
-        call(() -> NativeClient.telemetryFlush(request(app)));
+        Capture capture = armedCapture;
+        if (capture != null) call(() -> NativeClient.telemetryFlush(request(app, capture.preferences, capture.epoch)));
         long watch;
         synchronized (Telemetry.class) { watch = watchGeneration; }
         // 网络返回的 enabled 可能已经过期，重新读取此刻的共享同意再决定是否停用。
@@ -276,21 +275,40 @@ public final class Telemetry {
         boolean exists = Files.exists(new File(app.getFilesDir(), "runtime-options.json").toPath(), LinkOption.NOFOLLOW_LINKS);
         if (exists) optionsObserved = true;
         String preferences = HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
-        // 首次准备前沿用默认值；已经读过的配置消失时不能重新按首次安装授权。
-        if (preferences.isEmpty() && (exists || optionsObserved))
-            throw new IllegalStateException("diagnostic options unavailable");
+        // 首次准备也使用 Bootstrap 的实际状态目录；配置曾存在后消失则停采。
+        if (preferences.isEmpty()) {
+            if (exists || optionsObserved) throw new IllegalStateException("diagnostic options unavailable");
+            preferences = HostOptionsPolicy.bootstrapStateDirectory(app.getFilesDir());
+        }
+        if (!new File(preferences).isAbsolute()) throw new IllegalStateException("diagnostic preferences path");
         return preferences;
     }
 
-    /** 同意不可读时抛出，不把损坏配置当成重新授权，也不反复打印原始错误。 */
-    private static boolean sharedEnabled(Context app) throws Exception {
+    private static final class Consent {
+        final String preferences;
+        final DiagnosticConsent.State state;
+        Consent(String preferences, DiagnosticConsent.State state) { this.preferences = preferences; this.state = state; }
+        boolean same(Consent other) {
+            return other.state != null && state != null && preferences.equals(other.preferences)
+                && state.epoch.equals(other.state.epoch) && state.since == other.state.since;
+        }
+    }
+
+    /** 不可读保持错误；共享层在真实偏好锁下确保代次，不能由布尔缓存绕过。 */
+    private static Consent sharedConsent(Context app) throws Exception {
         String preferences = reportingPreferences(app);
-        if (preferences.isEmpty()) return true;
-        JSONObject root = new JSONObject(NativeClient.loadPreferences(preferences));
+        JSONObject root = new JSONObject(NativeClient.telemetryConsent(new JSONObject().put("directory", preferences).put("edition", AppEdition.current().id()).toString()));
         JSONObject value = JsonPolicy.objectValue(root);
-        if (value == null || value.optJSONObject("preferences") == null) throw new IllegalStateException("diagnostic consent");
-        JSONObject settings = value.getJSONObject("preferences");
-        return !settings.has("usage_reporting") || JsonPolicy.strictTrue(settings.opt("usage_reporting"));
+        if (value == null || !(value.opt("enabled") instanceof Boolean)) throw new IllegalStateException("diagnostic consent");
+        if (!value.getBoolean("enabled")) return new Consent(preferences, null);
+        Object since = value.opt("since_unix_ms");
+        if (!(since instanceof Long) && !(since instanceof Integer)) throw new IllegalStateException("diagnostic consent time");
+        return new Consent(preferences, new DiagnosticConsent.State(value.getString("epoch"), ((Number) since).longValue()));
+    }
+
+    private static void clearDisabled(Context app, String preferences) {
+        call(() -> NativeClient.telemetryClear(new JSONObject(directoryRequest(app))
+            .put("preferences_directory", preferences).toString()));
     }
 
     /** 停采与遗忘分开：暂时读不到同意只解除武装，明确关闭才丢弃旧身份。 */
@@ -324,18 +342,18 @@ public final class Telemetry {
         boolean[] prepare = {false};
         try {
             DiagnosticConsent.locked(app.getFilesDir(), consent -> {
-                if (!sharedEnabled(app)) {
+                Consent current = sharedConsent(app);
+                if (current.state == null) {
                     boolean changed = !Boolean.FALSE.equals(observedConsent) || enabled || !captureEpoch.isEmpty();
                     if (changed) consentGeneration.incrementAndGet();
                     if (changed) stopCapture(app, true);
                     observedConsent = false;
-                    try { consent.observe(false, System.currentTimeMillis()); }
-                    finally { if (changed) call(() -> NativeClient.telemetryClear(directoryRequest(app))); }
+                    consent.observe(null);
+                    if (changed) clearDisabled(app, current.preferences);
                     return;
                 }
-                DiagnosticConsent.State state = consent.current();
-                if (state != null && state.epoch.equals(captureEpoch)
-                        && reportingPreferences(app).equals(capturePreferences)
+                DiagnosticConsent.State state = consent.observe(current.state);
+                if (state.epoch.equals(captureEpoch) && current.preferences.equals(capturePreferences)
                         && sessionCrashRecord != null && !crashRecordHeader.isEmpty()
                         && isSafeSessionCrashRecord(sessionCrashRecord)) {
                     if (!enabled) armCapture(app);
@@ -368,31 +386,30 @@ public final class Telemetry {
                         call(() -> NativeClient.telemetryEnd(new JSONObject(directoryRequest(app)).put("session", previous).toString()));
                     }
                     stopCapture(app, true);
-                    if (!sharedEnabled(app)) {
+                    Consent current = sharedConsent(app);
+                    if (current.state == null) {
                         observedConsent = false;
-                        consent.observe(false, System.currentTimeMillis());
-                        call(() -> NativeClient.telemetryClear(directoryRequest(app)));
+                        consent.observe(null);
+                        clearDisabled(app, current.preferences);
                         return;
                     }
-                    String preferences = reportingPreferences(app);
                     JSONObject value = call(() -> NativeClient.telemetryBegin(
-                        new JSONObject(request(app)).put("capture_only", captureOnly)
+                        new JSONObject(request(app, current.preferences, current.state.epoch)).put("capture_only", captureOnly)
                             .put("component", captureOnly ? "application" : "keyboard").toString()));
                     if (value == null) throw new IllegalStateException("diagnostic begin");
                     sessionId = captureOnly ? "" : value.optString("session_id", "");
                     sessionBegun = !captureOnly && !sessionId.isEmpty();
-                    boolean allowed = JsonPolicy.strictBoolean(value.opt("enabled"), false) && sharedEnabled(app);
-                    DiagnosticConsent.State state = consent.observe(allowed, System.currentTimeMillis());
-                    if (!allowed) { stopCapture(app, true); observedConsent = false; return; }
+                    if (!JsonPolicy.strictTrue(value.opt("enabled")) || !current.same(sharedConsent(app)))
+                        throw new IllegalStateException("diagnostic consent changed");
+                    DiagnosticConsent.State state = consent.observe(current.state);
                     String path = value.optString("crash_record_path", "");
                     File candidate = path.isEmpty() ? null : new File(path);
-                    if (!isSafeSessionCrashRecord(candidate) || !preferences.equals(reportingPreferences(app)))
-                        throw new IllegalStateException("diagnostic identity");
+                    if (!isSafeSessionCrashRecord(candidate)) throw new IllegalStateException("diagnostic identity");
                     sessionCrashRecord = candidate;
                     crashRecordHeader = value.optString("crash_record_header", "");
                     if (crashRecordHeader.isEmpty()) throw new IllegalStateException("diagnostic header");
                     captureEpoch = state.epoch;
-                    capturePreferences = preferences;
+                    capturePreferences = current.preferences;
                     captureSummary = state.summary(value.optString("session_id", ""), version(app),
                         captureOnly ? "application" : "keyboard");
                     observedConsent = true;
@@ -433,8 +450,9 @@ public final class Telemetry {
             android.app.ActivityManager manager = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
             if (manager == null) return;
             DiagnosticConsent.locked(app.getFilesDir(), consent -> {
-                if (!enabled || !sharedEnabled(app)) return;
-                DiagnosticConsent.State state = consent.current();
+                if (!enabled) return;
+                Consent current = sharedConsent(app);
+                DiagnosticConsent.State state = current.state;
                 if (state == null) return;
                 for (android.app.ApplicationExitInfo exit : manager.getHistoricalProcessExitReasons(app.getPackageName(), 0, 16)) {
                     if (!enabled) return;
@@ -458,8 +476,10 @@ public final class Telemetry {
                         .put("component", original.component);
                     String header = "MSIME-CRASH/1 " + identity + "\n";
                     call(() -> NativeClient.telemetryRecordCrash(new JSONObject(directoryRequest(app))
-                        .put("session", id).put("message", message).put("stack", "")
-                        .put("crash_record_header", header).toString()));
+                        .put("outside_session", true).put("diagnostic_capture", id)
+                        .put("consent_epoch", state.epoch).put("preferences_directory", current.preferences)
+                        .put("diagnostic_begin_unix_ms", exit.getTimestamp()).put("diagnostic_end_unix_ms", exit.getTimestamp())
+                        .put("message", message).put("stack", "").put("crash_record_header", header).toString()));
                 }
             });
         }
@@ -485,15 +505,10 @@ public final class Telemetry {
         return new JSONObject().put("directory", directory.getAbsolutePath()).toString();
     }
 
-    /** The begin/flush request. Before first-run preparation there is no shared preferences file yet, and so no switch the user could have turned off: reporting is on, as its default says. */
-    private static String request(Context app) throws Exception {
-        JSONObject request = new JSONObject(directoryRequest(app))
-            .put("platform", "android")
-            .put("version", version(app));
-        String preferences = reportingPreferences(app);
-        if (preferences.isEmpty()) request.put("enabled", true);
-        else request.put("preferences_directory", preferences);
-        return request.toString();
+    /** begin 和 flush 固定共享授权代次，由 Rust 在本地操作及每条发送前重新核对。 */
+    private static String request(Context app, String preferences, String epoch) throws Exception {
+        return new JSONObject(directoryRequest(app)).put("platform", "android").put("version", version(app))
+            .put("preferences_directory", preferences).put("consent_epoch", epoch).toString();
     }
 
     /** The real versionName (the release version build-apk.sh stamps), not a constant: crash groups and the per-version crash-free rate are keyed by it. */

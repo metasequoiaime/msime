@@ -14,7 +14,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 
-/** 系统会在队列清空后继续保留退出摘要；独立保存持续同意身份，不能用当前开关追认旧摘要。 */
+/** 镜像共享偏好的持续授权身份，供故障现场非阻塞核对；不能自行生成授权。 */
 final class DiagnosticConsent {
     private static final String NAME = "telemetry-diagnostic-consent";
     private static final java.util.concurrent.locks.ReentrantLock LOCK = new java.util.concurrent.locks.ReentrantLock();
@@ -57,16 +57,14 @@ final class DiagnosticConsent {
         } finally { LOCK.unlock(); }
     }
 
-    State observe(boolean enabled, long now) throws IOException {
+    State observe(State next) throws IOException {
         SafePaths.rejectSymlinkComponents(path);
-        if (!enabled) {
+        if (next == null) {
             Files.deleteIfExists(path);
             return null;
         }
         State current = current();
-        if (current != null) return current;
-        if (now <= 0) throw new IOException("diagnostic clock");
-        State next = new State(UUID.randomUUID().toString(), now);
+        if (current != null && current.epoch.equals(next.epoch) && current.since == next.since) return current;
         Path temporary = Files.createTempFile(path.getParent(), NAME, ".tmp");
         try {
             byte[] bytes = (next.epoch + "|" + next.since).getBytes(StandardCharsets.US_ASCII);
@@ -108,7 +106,11 @@ final class DiagnosticConsent {
     static final class State {
         final String epoch;
         final long since;
-        State(String epoch, long since) { this.epoch = epoch; this.since = since; }
+        State(String epoch, long since) {
+            if (!canonicalUuid(epoch) || since <= 0) throw new IllegalArgumentException("diagnostic consent identity");
+            this.epoch = epoch;
+            this.since = since;
+        }
 
         String summary(String capture, String version, String component) {
             if (!canonicalUuid(capture) || !version.matches("[A-Za-z0-9._-]{1,64}") || !component(component)) return null;

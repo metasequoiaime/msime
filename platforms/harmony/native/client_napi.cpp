@@ -280,6 +280,7 @@ TEXT_ENTRY(Plugins, msime_client_plugins)
 TEXT_ENTRY(Create, msime_client_create)
 // Usage reporting without the network: each touches a few small files under the telemetry directory, so the crash observer can call record_crash before the process goes.
 TEXT_ENTRY(TelemetryBegin, msime_client_telemetry_begin)
+TEXT_ENTRY(TelemetryConsent, msime_client_telemetry_consent)
 TEXT_ENTRY(TelemetryEnd, msime_client_telemetry_end)
 TEXT_ENTRY(TelemetryRecordCrash, msime_client_telemetry_record_crash)
 TEXT_ENTRY(TelemetryClear, msime_client_telemetry_clear)
@@ -1769,6 +1770,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("aiSkinGenerate", AiSkinGenerate),
         ENTRY("aiSkinCancel", AiSkinCancel),
         ENTRY("telemetryBegin", TelemetryBegin),
+        ENTRY("telemetryConsent", TelemetryConsent),
         ENTRY("telemetryEnd", TelemetryEnd),
         ENTRY("telemetryRecordCrash", TelemetryRecordCrash),
         ENTRY("telemetryFlush", TelemetryFlush),

@@ -19,6 +19,12 @@ export interface CrashReport {
   stack: string;
 }
 
+/** Rust 共享偏好产生的授权；宿主只能镜像，不能自行生成。 */
+export interface ReportingConsent {
+  epoch: string;
+  since: number;
+}
+
 /** How often a long-running keyboard sends what it has queued, so a process that lives for days still reports each day. */
 const FLUSH_INTERVAL_MS: number = 6 * 60 * 60 * 1000;
 const MAX_FRAMES: number = 64;
@@ -63,6 +69,56 @@ function nativeFrame(value: unknown): string | null {
 }
 
 export class TelemetryPolicy {
+  /** 响应须为明确开启、规范 UUID 和正整数起点；缺失或错误不能回退旧协议。 */
+  static sharedConsentReply(document: string): ReportingConsent | null {
+    try {
+      const reply: unknown = JSON.parse(document);
+      if (reply === null || typeof reply !== "object" || Array.isArray(reply)) return null;
+      const envelope = reply as Record<string, unknown>;
+      const value: unknown = envelope.value;
+      if (
+        envelope.ok !== true ||
+        value === null ||
+        typeof value !== "object" ||
+        Array.isArray(value)
+      )
+        return null;
+      const fields = value as Record<string, unknown>;
+      const epoch: string = text(fields.epoch);
+      const since: number | null = integer(fields.since_unix_ms);
+      if (
+        fields.enabled !== true ||
+        since === null ||
+        since <= 0 ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(epoch) ||
+        epoch === "00000000-0000-0000-0000-000000000000"
+      )
+        return null;
+      return { epoch, since };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 只有明确的成功关闭响应允许清理；错误和损坏响应只停采。 */
+  static sharedConsentDisabled(document: string): boolean {
+    try {
+      const reply: unknown = JSON.parse(document);
+      if (reply === null || typeof reply !== "object" || Array.isArray(reply)) return false;
+      const envelope = reply as Record<string, unknown>;
+      const value: unknown = envelope.value;
+      return (
+        envelope.ok === true &&
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (value as Record<string, unknown>).enabled === false
+      );
+    } catch {
+      return false;
+    }
+  }
+
   /** 延迟诊断只认领本轮持续同意之后发生的事件，不能用今天的开关追认过去的故障。 */
   static diagnosticAllowed(report: CrashReport, consentSince: number | null, now: number): boolean {
     return (

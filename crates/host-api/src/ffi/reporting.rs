@@ -7,8 +7,7 @@ use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
 use msime_client_services::telemetry::{
-    clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender, CrashContext,
-    DiagnosedCrash, TelemetryApp, TelemetryStore,
+    clear_if_consent_disabled, CrashContext, DiagnosedCrash, TelemetryApp, TelemetryStore,
 };
 use msime_client_services::update_check::background::{pending_update, run_background_check};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
@@ -67,6 +66,9 @@ struct TelemetryRequest {
     /// The shared preferences directory (`preferences.json`), read for `usage_reporting` when `enabled` is absent.
     #[serde(default)]
     preferences_directory: Option<String>,
+    /// 单写方发布的只读授权目录，与 preferences_directory 互斥。
+    #[serde(default)]
+    authority_directory: Option<String>,
     /// 可选的持续同意身份；给出时必须使用共享偏好，不能由 enabled 绕过。
     #[serde(default)]
     consent_epoch: Option<String>,
@@ -80,10 +82,10 @@ impl TelemetryRequest {
     /// 真实偏好入口自动取得当前代次；显式旧代次仍必须被拒绝，不能追认为当前请求。
     fn bind_shared_consent(&mut self, store: &TelemetryStore) -> Result<bool, String> {
         if self.consent_epoch.is_some() {
-            self.epoch_preferences()?;
+            self.epoch_source()?;
             return Ok(true);
         }
-        // 本次只迁移桌面宿主；Android 与 HarmonyOS 仍使用它们既有的授权生命周期。
+        // 桌面旧调用自动绑定；移动宿主显式传入它们准备时取得的代次。
         if self.enabled.is_none()
             && matches!(
                 msime_client_services::telemetry::canonical_platform(&self.platform),
@@ -109,13 +111,14 @@ impl TelemetryRequest {
         Ok(true)
     }
 
-    fn epoch_preferences(&self) -> Result<&str, String> {
+    fn epoch_source(&self) -> Result<consent::ConsentSource, String> {
         if self.enabled.is_some() {
             return Err("consent_epoch cannot be combined with enabled".into());
         }
-        self.preferences_directory
-            .as_deref()
-            .ok_or_else(|| "consent_epoch requires preferences_directory".into())
+        consent::ConsentSource::new(
+            self.preferences_directory.as_deref(),
+            self.authority_directory.as_deref(),
+        )
     }
     /// The user's choice: `Some(false)` clears what is queued, `None` (preferences unreadable) neither reports nor clears.
     fn consent(&self) -> Result<Option<bool>, String> {
@@ -134,18 +137,15 @@ impl TelemetryRequest {
     }
 
     fn open(&self) -> Result<(TelemetryStore, TelemetryApp), String> {
+        if self.authority_directory.is_some() && self.consent_epoch.is_none() {
+            return Err("authority_directory requires consent_epoch".into());
+        }
         let store = TelemetryStore::new(absolute_directory(&self.directory)?);
         let app = TelemetryApp::new(&self.platform, &self.version)
             .and_then(|app| app.with_component(&self.component))
             .map_err(|error| error.to_string())?;
         Ok((store, app))
     }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DirectoryRequest {
-    directory: String,
 }
 
 /// Starts a reporting session at host start. With reporting on: closes the previous session, queues its crash records and today's `active`, writes the new session marker and returns `{enabled:true, crash_record_path, session_id, previous_session_crashed, crashes}`. With reporting off: clears the queue, marker and crash records and returns `{enabled:false}`. No network I/O.
@@ -165,19 +165,15 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
             return Ok(json!({"enabled": false}));
         }
         if let Some(epoch) = request.consent_epoch.as_deref() {
-            let start = with_consent_epoch(
-                &PreferencesStore::new(absolute_directory(request.epoch_preferences()?)?),
-                epoch,
-                &store,
-                |store, _| {
+            let start =
+                consent::with_epoch(&request.epoch_source()?, epoch, &store, |store, _| {
                     if request.capture_only {
                         store.prepare_crash_capture(&app, SystemTime::now())
                     } else {
                         store.begin_session(&app, SystemTime::now())
                     }
                     .map_err(|error| error.to_string())
-                },
-            )?;
+                })?;
             return match start {
                 Some(start) => {
                     let mut value =
@@ -201,11 +197,7 @@ pub unsafe extern "C" fn msime_client_telemetry_begin(
                 Ok(value)
             }
             Some(false) => {
-                if let Some(directory) = request
-                    .preferences_directory
-                    .as_deref()
-                    .filter(|_| request.enabled.is_none())
-                {
+                if let Some(directory) = request.preferences_directory.as_deref() {
                     clear_if_consent_disabled(
                         &PreferencesStore::new(absolute_directory(directory)?),
                         &store,
@@ -272,11 +264,17 @@ struct CrashRequest {
     /// 系统诊断的稳定身份；只在事后补录时使用，不含系统原始描述。
     #[serde(default)]
     diagnostic_id: Option<String>,
+    /// 系统保留的原始捕获 UUID；与现场记录共用文件和事件身份，仅允许完整授权核验的补录。
+    #[serde(default)]
+    diagnostic_capture: Option<String>,
     /// 仅系统事后诊断使用；普通故障处理器沿用记录头，不读偏好。
     #[serde(default)]
     consent_epoch: Option<String>,
     #[serde(default)]
     preferences_directory: Option<String>,
+    /// 单写方发布的只读授权目录，与 preferences_directory 互斥。
+    #[serde(default)]
+    authority_directory: Option<String>,
     #[serde(default)]
     diagnostic_begin_unix_ms: Option<u64>,
     #[serde(default)]
@@ -311,53 +309,63 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
             if request.session.is_some() || request.pid.is_some() == request.outside_session {
                 return Err("consent_epoch requires a system diagnostic".into());
             }
-            let preferences = request
-                .preferences_directory
-                .as_deref()
-                .ok_or("preferences_directory is required")?;
+            let source = consent::ConsentSource::new(
+                request.preferences_directory.as_deref(),
+                request.authority_directory.as_deref(),
+            )?;
             let begin = request
                 .diagnostic_begin_unix_ms
                 .ok_or("diagnostic_begin_unix_ms is required")?;
             let end = request
                 .diagnostic_end_unix_ms
                 .ok_or("diagnostic_end_unix_ms is required")?;
-            let recorded = with_consent_epoch(
-                &PreferencesStore::new(absolute_directory(preferences)?),
-                epoch,
-                &store,
-                |store, consent| {
-                    let now = SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_err(|error| error.to_string())?
-                        .as_millis();
-                    if begin < consent.since_unix_ms || end < begin || u128::from(end) > now {
-                        return Ok(false);
-                    }
-                    let mut context = context
-                        .clone()
-                        .ok_or("system diagnostic requires crash_record_header")?;
-                    if context
-                        .consent_epoch
-                        .is_some_and(|epoch| epoch != consent.epoch)
+            let recorded = consent::with_epoch(&source, epoch, &store, |store, consent| {
+                let now = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|error| error.to_string())?
+                    .as_millis();
+                if begin < consent.since_unix_ms || end < begin || u128::from(end) > now {
+                    return Ok(false);
+                }
+                let mut context = context
+                    .clone()
+                    .ok_or("system diagnostic requires crash_record_header")?;
+                if context
+                    .consent_epoch
+                    .is_some_and(|epoch| epoch != consent.epoch)
+                {
+                    return Ok(false);
+                }
+                context.consent_epoch = Some(consent.epoch);
+                if let Some(capture) = request.diagnostic_capture.as_deref() {
+                    if request.pid.is_some()
+                        || !request.outside_session
+                        || request.diagnostic_id.is_some()
                     {
-                        return Ok(false);
+                        return Err(
+                            "diagnostic_capture requires an exclusive capture identity".into()
+                        );
                     }
-                    context.consent_epoch = Some(consent.epoch);
-                    store
-                        .record_diagnosed_crash_with_context(
-                            request.pid,
-                            Some(&context),
-                            request.diagnostic_id.as_deref(),
-                            message,
-                            stack,
-                        )
-                        .map(|recorded| recorded != DiagnosedCrash::Duplicate)
-                        .map_err(|error| error.to_string())
-                },
-            )?;
+                    return store
+                        .record_crash_with_context(capture, Some(&context), message, stack)
+                        .map_err(|error| error.to_string());
+                }
+                store
+                    .record_diagnosed_crash_with_context(
+                        request.pid,
+                        Some(&context),
+                        request.diagnostic_id.as_deref(),
+                        message,
+                        stack,
+                    )
+                    .map(|recorded| recorded != DiagnosedCrash::Duplicate)
+                    .map_err(|error| error.to_string())
+            })?;
             return Ok(Value::Bool(recorded.unwrap_or(false)));
         }
-        if request.preferences_directory.is_some()
+        if request.diagnostic_capture.is_some()
+            || request.preferences_directory.is_some()
+            || request.authority_directory.is_some()
             || request.diagnostic_begin_unix_ms.is_some()
             || request.diagnostic_end_unix_ms.is_some()
         {
@@ -412,24 +420,19 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
             return Ok(json!({"enabled": false}));
         }
         if let Some(epoch) = request.consent_epoch.as_deref() {
-            let preferences_directory = request.epoch_preferences()?;
-            let bound = with_consent_epoch(
-                &PreferencesStore::new(absolute_directory(preferences_directory)?),
-                epoch,
-                &store,
-                |store, _| {
-                    store
-                        .record_active(&app, SystemTime::now())
-                        .map_err(|error| error.to_string())?;
-                    Ok(store.clone())
-                },
-            )?;
+            let source = request.epoch_source()?;
+            let bound = consent::with_epoch(&source, epoch, &store, |store, _| {
+                store
+                    .record_active(&app, SystemTime::now())
+                    .map_err(|error| error.to_string())?;
+                Ok(store.clone())
+            })?;
             let Some(store) = bound else {
                 return Ok(json!({"enabled": false}));
             };
             let client = BackendAccountClient::new().map_err(|error| error.to_string())?;
-            let sender = ConsentEpochSender {
-                preferences: PreferencesStore::new(absolute_directory(preferences_directory)?),
+            let sender = consent::EpochSender {
+                source,
                 epoch,
                 sender: &client,
             };
@@ -451,11 +454,7 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
                 Ok(value)
             }
             Some(false) => {
-                if let Some(directory) = request
-                    .preferences_directory
-                    .as_deref()
-                    .filter(|_| request.enabled.is_none())
-                {
+                if let Some(directory) = request.preferences_directory.as_deref() {
                     clear_if_consent_disabled(
                         &PreferencesStore::new(absolute_directory(directory)?),
                         &store,
@@ -481,10 +480,20 @@ pub unsafe extern "C" fn msime_client_telemetry_clear(
     response(|| {
         // SAFETY: guaranteed by the documented caller contract.
         let request: ClearRequest = unsafe { document(request, length, MAX_REQUEST_BYTES)? };
-        if let Some(preferences) = request.preferences_directory.as_deref() {
-            let preferences = PreferencesStore::new(absolute_directory(preferences)?);
-            let store = TelemetryStore::new(absolute_directory(&request.directory)?);
-            return clear_if_consent_disabled(&preferences, &store).map(Value::Bool);
+        if request.preferences_directory.is_some() || request.authority_directory.is_some() {
+            let source = consent::ConsentSource::new(
+                request.preferences_directory.as_deref(),
+                request.authority_directory.as_deref(),
+            )?;
+            return source.with_current(|current| {
+                if current.is_some() {
+                    return Ok(Value::Bool(false));
+                }
+                TelemetryStore::new(absolute_directory(&request.directory)?)
+                    .clear()
+                    .map(|()| Value::Bool(true))
+                    .map_err(|error| error.to_string())
+            });
         }
         TelemetryStore::new(absolute_directory(&request.directory)?)
             .clear()
@@ -499,6 +508,9 @@ struct ClearRequest {
     directory: String,
     #[serde(default)]
     preferences_directory: Option<String>,
+    /// 单写方发布的只读授权目录，与 preferences_directory 互斥。
+    #[serde(default)]
+    authority_directory: Option<String>,
 }
 
 #[derive(Deserialize)]

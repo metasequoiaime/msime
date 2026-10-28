@@ -14,6 +14,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
+mod reporting_authority;
+pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
 pub use reporting_consent::UsageReportingConsent;
 

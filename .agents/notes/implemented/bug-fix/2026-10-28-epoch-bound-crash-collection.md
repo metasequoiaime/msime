@@ -32,6 +32,14 @@ IBus 启动投递夹具也必须提供真实共享授权：原夹具只写内联
 
 共用输入宿主的关闭夹具也必须区分停采和清理完成：正常路径先解除故障处理器武装，再清理磁盘队列；夹具的状态读取不取得生命周期锁，不能把 `armed: false` 当成清理已完成。阻塞发送的关闭回归在原有十秒期限内等待停采与 active 事件清空两个条件，随后仍保留原来的队列断言；坏配置只停采的用例不要求清理。Linux 完整门禁实际暴露了这个窗口，受控状态序列可重现原等待过早返回，修后等第二次读取才结束；没有延长超时、删断言或修改产品的停采顺序。
 
+Android 的 App 和 IME 准备、发送改为通过 JNI 的 `telemetryConsent` 读取共享代次；原有 Java 同意文件仅镜像共享 UUID 和起点，供故障线程 try-lock 核对，不再产生自己的授权。故障回调不读共享偏好，旧原生或 Java 捕获晚写由记录头的代次拒收。通知参数只触发当前授权重读，条件 clear 防止迟到关闭清理新队列；临时读失败仍只停采，同代次恢复复用身份。首启没有 runtime-options 时使用 Bootstrap 的同一状态目录，并把包内 edition 交给授权接口，使抢先初始化偏好仍保留五笔等版本的默认值；已经观察过的配置消失仍停采。
+
+鸿蒙的 ArkTS NAPI 入口同样新增 `telemetryConsent`，本地文件只镜像本沙箱 Rust 偏好的 UUID 与起点。每个请求始终包含 `consent_epoch`；关闭或读取失败使用空身份，由共享层拒绝，不能省略字段退回旧布尔授权协议。`APP_CRASH`/`APP_FREEZE` 补录带本沙箱代次、偏好目录和报告发生时间；共享层拒绝时不再写 `writeStandalone` 回退文件。保存后关闭通知通过带偏好目录的条件 clear 清理，迟到通知不能清掉重新开启后的队列；明确关闭与读失败分开，错误不删除授权摘要。隐私政策撤回单独清理，并先检查当前政策，不能把统计开关的条件清理用在隐私撤回。键盘只结束本进程 begin 返回的 `session_id`。
+
+鸿蒙尚未达到跨沙箱持续授权：API 12 起 App 与键盘各有自己的 `files/state`，普通镜像经 `savePreferences` 导入时有意保留接收沙箱自己的授权代次，因此不能把两个沙箱都调用 `telemetryConsent` 等同于共用同一授权历史。两次导入之间关闭再开启仍可能漏掉历史；独立观察、隐私撤回到另一个活跃沙箱的及时传播、原进程捕获身份以及原构建的 revision/arch 也待补齐。目前系统补录的报告版本与时间限制不能证明原捕获归属，不在本篇宣称已经解决。
+
+Android 系统退出补录按共享起点和摘要中的共享代次认领，再由 Rust 在偏好锁内重新检查发生时间。`diagnostic_capture` 仅允许有完整共享授权约束的系统补录，沿用系统摘要里原捕获 UUID，与现场文件共用身份，避免把 App 崩溃补成另一条记录或丢失 IME 会话归属；不与 pid 或 diagnostic_id 混用。旧 Java 独立代次的系统摘要不追认为新共享授权。迁移代码和设备验收分开记录，未完成设备验证前不能宣称 Android 闭环。
+
 ## Related notes
 
 动手前检索活跃笔记的 `CrashContext`、授权代次、持续同意与网络持锁。[持久同意](2026-10-28-persisted-reporting-consent.md)、[宿主采集](../feature/2026-10-27-native-crash-capture-and-symbol-identity.md)、[全平台提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)部分重叠，分别继续持有偏好保存、平台入口和整体验收。本篇不改变原生写入保留首份、半份记录竞争和收集失败不删除的约束。剪贴板、更新通道、语音等其余关键词命中与本次队列代次无关；没有完全吸收或需要否决的旧笔记。
@@ -96,6 +104,16 @@ IBus 启动投递夹具也必须提供真实共享授权：原夹具只写内联
 macOS 输入法与现代 Windows 设置采用作者新增的共用生命周期适配，替换本轮早先各自实现的观察代码。macOS 保留三小时发送间隔、SIGTERM 正常收尾与 Objective-C 抛出点栈；设置保持独立采集、不建立输入会话。Windows 编排把原生依赖 include 交给 WinUI，真实目标构建由新提交 CI 核验。作者新增的真实 macOS 故障与异常套件、共用 settings 模式、Android ELF 生产链接参数回归均保留；共用输入宿主继续保留本轮 begin 后撤回/换代复核及对应负控。两个原生 Python 夹具关闭时都在原十秒期限内同时等待停采与队列清理。
 
 作者在 `9dcfc1951b` 中记录了此前 macOS 六项、Linux 四项专项及普通用户 MCP/桌面专项通过；它们属于作者冻结快照的历史证据，不替代本轮共享适配合成结果。最终同源专项、严格 Clippy 和完整 quick 另补实际结果。
+
+## Verification of Android shared consent migration
+
+Host API 遥测 10 项回归与全 target 严格 Clippy 均通过。新增首启 full、pinyin、wubi 默认值保持及非法 edition 拒绝的 Host API 回归；系统捕获回归核对原生精确栈优先、稳定 UUID、原输入会话归属和重复送达，并拒绝混用身份或省略授权。Java 文件专项增加直接替换成共享新代次的用例。设备夹具通过真实 JNI 保存两次并阻止观察器看到中间关闭，还核对迟到关闭通知和旧捕获晚写拒收。上述 Rust 回归已执行，同源 APK 的 API 28/35 验证仍待执行，不能用新增设备断言的存在代替通过结果。
+
+本机 `check-host.sh` 完整通过：NDK 的 aarch64 JNI 语法编译、292 项 JVM 冒烟、256 个设备套件源编译和宿主契约通过。设备 instrumentation APK 构建通过；API 28/35 均在真实应用 UID 下通过本次 Java 授权镜像的文件/锁专项，包含链接拒绝、跨线程忙锁不等待、同代次重启与共享代次替换。首次因专用 AVD 遗留开发证书的测试/目标包与当前证书不同而无法安装/启动，不计通过；仅在这两台专用 AVD 重装此前的缓存产品 APK 和本次测试 APK 后执行通过，网络规则已恢复。该专项不调用新的 JNI/系统补录，不能代替本切片同源产品 APK 验收。完整 quick 仍使用上一份冻结源码，不包含本次 Android 改动。
+
+鸿蒙 `platforms/harmony/tests/run.sh` 完整通过（`target/harmony-shared-epoch-tests4.log`），包括新增严格授权响应和实际适配器的五组生命周期回归。适配器测试用仓库 TypeScript 编译器发射实际 `.ets`，仅替换系统 API 与 NAPI，覆盖错误拒绝身份、条件清理的偏好来源、重新开启后的迟到关闭、读失败不删摘要、绑定会话结束和独立隐私撤回；不声称替身提供真实系统行为。首次测试工具假定 TypeScript 仍提供旧版 JavaScript API，失败后改用仓库已安装的 TypeScript 7 CLI；模块替身按编译器真实互操作协议修正后整套通过。
+
+本机复用已有鸿蒙构建树，先 `ohpm install`，再 `hvigorw assembleHap --no-daemon`，真实 `CompileArkTS` 与 HAP 打包成功（9.77 秒，`target/harmony-consent-hap.log`）。使用缓存原生库，只验本次 ArkTS 类型与包编译，不能证明新增 `telemetryConsent` 在设备上可调用，亦不替代同源 native + ArkTS 包与真实设备系统回调。文件原子发布、私有文本描述符读取、隐私接线与 ArkTS subset 检查通过。
 
 ## Consequences
 

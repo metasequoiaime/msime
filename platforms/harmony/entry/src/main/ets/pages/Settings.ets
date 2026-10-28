@@ -2214,7 +2214,7 @@ class SettingsBridge {
     this.schedulePublish();
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
-    // Turning usage reporting off drops what is queued at once rather than at the next start; the keyboard's running session goes with it.
+    // 使用统计关闭后条件清理本进程队列；其他沙箱的同步另由共享镜像处理。
     if (TelemetryPolicy.reportingTurnedOff(document, reply)) {
       HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
     }
@@ -3255,7 +3255,7 @@ class SettingsBridge {
   decidePrivacy(granted: boolean): void {
     HarmonyPrivacyConsent.decide(this.stateDirectory, granted, Date.now());
     if (!granted) {
-      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
+      HarmonyTelemetry.privacyChanged(this.stateDirectory);
     }
     this.publishShared();
     this.webview?.runJavaScript(
