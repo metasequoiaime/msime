@@ -73,3 +73,5 @@ iOS 和 HarmonyOS 的借用数字页本来就把返回键放在第一格，没�
 - Android：`KeyboardActionRowSmoke.numberPadFollowsTheSourceRow` 对 26 键、韩文、14 键、18 键、手写、大千注音逐一断言数字层第一格与字母层第一格是同一个键（含交换语言数字键）、26 键的 `符` 同一格、地球键位置、唯一 0、各键宽度与九键数字层相同，拼音九键、笔画、注音九键保持 #9113 的排列，右侧大回车返回空表。`NumberPadDeviceSmoke` 在全拼、小鹤双拼、14 键、拼音九键、笔画进数字页时比较返回键与字母层 `123`、`符` 与字母层 `符` 的实际横向位置，本篇没有在模拟器或真机上运行它。
 - iOS：`KeyLayoutStyleTests` 钉住 `nineKeyDigits` 的份额、与字母层同宽同位的前两键和整行总份额，并用真 `KeyboardViewController` 按各九键样式、显示和隐藏中/英量数字层底行；`NineKeyKeyboardTests` 比较 `符`、切换键在两层的横向位置。
 - HarmonyOS：`keyboard-logic.test.ts` 钉住九键一族数字层的键序、份额和与字母层相同的前两键。
+
+运行结果：Android `check-host.sh`（Mac Studio 经 `rbuild`）通过，298 项 JVM 冒烟、255 份设备测试源码编译；HarmonyOS `platforms/harmony/tests/run.sh` 0 失败；`pnpm run verify-notes` 通过。iOS 的单测和界面用例需要模拟器，本篇没有在本地运行，交给 PR 上的 iOS CI；三端都没有在模拟器或真机上验收，HarmonyOS 没有跑 `hvigorw assembleHap`。
