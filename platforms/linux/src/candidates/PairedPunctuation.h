@@ -89,7 +89,10 @@ inline std::optional<std::string> paired_closing_for_key(
     case '\'': return either("’", "」");
     case ')': return std::string("）");
     case ']': return either("】", "〗");
-    case '}': return fullwidth ? std::string("｝") : std::string("}");
+    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
+    case '}':
+      if (tracker.matches("」")) return std::string("」");
+      return fullwidth ? std::string("｝") : std::string("}");
     case '>': return std::string("〉");
     default: return std::nullopt;
   }
@@ -108,7 +111,7 @@ inline const char *paired_punctuation_closing(std::string_view text) {
   }
   return nullptr;
 }
-// How a host completes the opening mark Engine committed for a paired key: brackets and the book title get their closing mark, `{` its brace, and a quote key always yields an opening and closing quote pair whichever half Engine chose. Both Linux hosts use this, then step the caret back between the two marks.
+// 宿主怎样补全引擎为成对键写出的前半个：方括号、圆括号和书名号补后半个；`{` 在中文标点下出「（契约第 5 版）、补」，引擎写的是 ASCII 花括号时（专用英文）补 `}`；引号键不论引擎出了哪一半，都补成完整的一对。两个 Linux 宿主都用它，再把光标退回两半之间。
 enum class PunctuationPairMode {
   Unpaired,
   Bracket,
@@ -120,6 +123,10 @@ inline bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mo
   if (mode == PunctuationPairMode::Unpaired)
     return false;
   if (mode == PunctuationPairMode::Brace) {
+    if (text.size() >= 3 && text.compare(text.size() - 3, 3, "「") == 0) {
+      text += "」";
+      return true;
+    }
     if (!text.empty() && text.back() == '{') {
       text.push_back('}');
       return true;

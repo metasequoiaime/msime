@@ -7962,16 +7962,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key == '(' || key == '[' || key == '<' || key == '{')) {
       const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
                                         : PunctuationPairMode::Bracket;
+      // `{` 和其他成对键一样交给引擎的中文标点表：中文标点下出「（契约第 5 版），由 Brace 模式补」。
       const bool engine_handled = apply(
-          engine,
-          key == '{'
-              ? msime_client_punctuation_ascii(s.session, static_cast<uint8_t>(key))
-              : msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
+          engine, msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
           pair_mode);
       handled = engine_handled;
       if (engine_handled && key == '<')
         (void)response(msime_client_balance_paired_punctuation_after_auto_close(
             s.session, static_cast<uint8_t>(key)));
+      // 引擎没有处理（专用英文空闲时写 ASCII 标点、交回宿主）时保留原来的花括号成对补全。
       if (!handled && key == '{') {
         auto text = std::string("{}");
         if (s.fullwidth)

@@ -3738,7 +3738,7 @@ public:
     forwardCaret(FcitxKey_Right);
     return true;
   }
-  // Brackets, the book title, braces and quotes are completed with their closing mark and the caret is stepped back between the two, following the Windows host. `{` goes out as the literal brace, as it does in the IBus host.
+  // 方括号、圆括号、书名号、`{` 和引号都补上后半个，再把光标退回两半之间，与 Windows 宿主一致。`{` 和 IBus 宿主一样走引擎的中文标点表：中文标点下出「、补」（契约第 5 版）；引擎没有处理时（专用英文空闲）仍补花括号。
   // std::nullopt: not a paired key here, route it as ordinary punctuation.
   std::optional<bool> pairedPunctuation(char ascii, bool composing) {
     using Mode = msime::linux_host::PunctuationPairMode;
@@ -3749,9 +3749,7 @@ public:
     else if (ascii == '{') mode = Mode::Brace;
     if (mode == Mode::Unpaired || !pairedPunctuationEnabled()) return std::nullopt;
     const auto value = static_cast<uint8_t>(ascii);
-    bool handled = mode == Mode::Brace
-                       ? apply(msime_client_punctuation_ascii(session_, value), std::nullopt, mode)
-                       : punctuation(value, mode);
+    bool handled = punctuation(value, mode);
     if (handled && pair_inserted_ && ascii == '<')
       (void)response(msime_client_balance_paired_punctuation_after_auto_close(session_, value));
     if (!handled && mode == Mode::Brace) {
