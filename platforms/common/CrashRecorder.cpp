@@ -513,6 +513,8 @@ void crash_signal(int number, siginfo_t *info, void *context) {
         pc = machine->uc_mcontext.gregs[REG_RIP];
 #elif defined(__linux__) && defined(__i386__)
         pc = machine->uc_mcontext.gregs[REG_EIP];
+#elif defined(__linux__) && defined(__arm__)
+        pc = machine->uc_mcontext.arm_pc;
 #endif
       }
       static Buffer frame;

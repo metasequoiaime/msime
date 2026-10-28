@@ -78,6 +78,33 @@ function nativeFrame(value: unknown): string | null {
 }
 
 export class TelemetryPolicy {
+  /** 系统补录与 API 21 默认处理器共用裁剪规则，绝不读取异常消息。 */
+  static scriptCrash(
+    pid: number,
+    time: number,
+    capture: string,
+    name: string,
+    stack: string,
+  ): CrashReport {
+    const kind: string = firstLine(name);
+    return {
+      pid,
+      time,
+      capture,
+      message: /^(Error|TypeError|ReferenceError|SyntaxError|RangeError|URIError|EvalError)$/.test(
+        kind,
+      )
+        ? kind
+        : "JavaScript error",
+      stack: stack
+        .split("\n")
+        .map((line: string): string => line.trim())
+        .filter((line: string): boolean => line.startsWith("at "))
+        .slice(0, MAX_FRAMES)
+        .join("\n"),
+    };
+  }
+
   /** 响应须为明确开启、规范 UUID 和正整数起点；缺失或错误不能回退旧协议。 */
   static sharedConsentReply(document: string): ReportingConsent | null {
     try {
@@ -210,25 +237,15 @@ export class TelemetryPolicy {
     const details = exception as Record<string, unknown>;
     const crashType: string = text(params.crash_type);
     if (crashType === "JsError") {
-      const name: string = firstLine(text(details.name));
-      // 异常消息可能包含用户内容，只保留标准异常类型和实际栈帧。
-      const summary: string =
-        /^(Error|TypeError|ReferenceError|SyntaxError|RangeError|URIError|EvalError)$/.test(name)
-          ? name
-          : "JavaScript error";
-      return {
+      const report: CrashReport = TelemetryPolicy.scriptCrash(
         pid,
         time,
-        version: text(params.bundle_version),
-        capture: text(params.msime_capture),
-        message: summary === "" ? "JavaScript error" : summary,
-        stack: text(details.stack)
-          .split("\n")
-          .map((line: string): string => line.trim())
-          .filter((line: string): boolean => line.startsWith("at "))
-          .slice(0, MAX_FRAMES)
-          .join("\n"),
-      };
+        text(params.msime_capture),
+        text(details.name),
+        text(details.stack),
+      );
+      report.version = text(params.bundle_version);
+      return report;
     }
     if (crashType === "NativeCrash") {
       const signal: unknown = details.signal;
