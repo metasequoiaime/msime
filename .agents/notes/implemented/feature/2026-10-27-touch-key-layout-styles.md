@@ -219,3 +219,5 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - PR CI 的 Xcode 26.3 在热力图数字行的空数组分支把拼接推断为 `[Any]`；`letterRows(for:)` 为该局部值显式声明 `[[Cell]]`，不改变行内容或数字行开关。手写底行契约同步识别鸿蒙 `spaceKey` 的显式宽度参数 `0`，仍核对空格的位置与共享份额。
 
 - 合入 Android #10087（长空格逗号上滑也输入句号）后，iOS 与鸿蒙跟上同一手势（见「宿主」一节的「长空格逗号的滑动方向」）。iOS 的 `KeyLayoutStyleTests` 新增 `testLongSpaceCommaSwipePolicy`，核对上滑和下滑过门槛、正好在门槛上不算、8 pt 漂移不算、横向为主不算、长按时长到之前算、到之后不算，原有的 26 键、14/18 键和 123 层逗号用例改为断言 `cornerHintSwipesEitherWay`；鸿蒙 `touch-layout-styles.test.ts` 的逗号手势组改为两个方向、漂移、横向、滑过后回到原处、长按时长和长按与滑动的先后，`run.sh` 新增接线守卫，钉住视图把按下、移动、抬起连同时间交给 `CommaSwipeGesture`、设计底行逗号的长按先问 `longPress()`。
+
+  验证：`bash platforms/harmony/tests/run.sh` 0 失败；把 `CommaSwipeGesture` 改回只认下滑时逗号手势组在「向上滑过门槛」如期失败，新接线守卫在去掉移动事件或长按前不问 `longPress()` 时如期报错；本机 `hvigorw assembleHap --no-daemon` 成功，CompileArkTS 实际执行，改动的文件没有 ArkTS 告警。iOS 在 Mac Studio 上经 `rbuild` 重编模拟器原生库并 `build-for-testing`，一次性 iPhone 17 / iOS 27.0 模拟器跑 `KeyLayoutStyleTests`（29 项）和 `LetterCornerHintTests`（7 项），0 失败，模拟器用完即删。没验证：真机或模拟器上的真实滑动手势（iOS 只断言配置和滑动判定，`UITouch` 在单测里造不出来；鸿蒙只到逻辑测试和编译），鸿蒙 LongPressGesture 与 500 ms 门槛在真机上的先后。
