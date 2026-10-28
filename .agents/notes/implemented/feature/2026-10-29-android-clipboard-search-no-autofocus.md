@@ -26,4 +26,4 @@ Status: implemented
 
 ## Verification
 
-`bash platforms/android/check-host.sh` 跑上面的守卫和全部 JVM 冒烟；`ClipboardSearchPage` 和 `SearchPill` 只在 Gradle 构建里编译，过了 `:app` 的 Java 编译。没有在模拟器或真机上走：从键盘剪贴板面板点「搜索」和从设置首页搜「剪贴板历史」两条入口进页后键盘不弹、搜索框没有光标；点输入框和点放大镜都弹键盘并能实时筛选；旋转、切深浅模式、生物认证弹窗结束后键盘不自动弹出。
+`bash platforms/android/check-host.sh` 跑上面的守卫和全部 JVM 冒烟；`ClipboardSearchPage` 和 `SearchPill` 只在 Gradle 构建里编译，`gradlew --project-dir platforms/android/gradle-app compileFullReleaseJavaWithJavac` 通过。没有在模拟器或真机上走：从键盘剪贴板面板点「搜索」和从设置首页搜「剪贴板历史」两条入口进页后键盘不弹、搜索框没有光标；点输入框和点放大镜都弹键盘并能实时筛选；旋转、切深浅模式、生物认证弹窗结束后键盘不自动弹出。
