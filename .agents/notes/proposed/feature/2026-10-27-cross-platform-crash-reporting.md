@@ -42,7 +42,7 @@ Status: proposed
 
 ## 隔离发送与共享后台验收
 
-`client-services::telemetry::backend_sender` 统一 Host API 两条发送分支与桌面独立发送器。显式 `telemetry-loopback` 特性和编译时 `MSIME_TEST_TELEMETRY_ORIGIN` 共同限定验收目标；未启用特性时保持正式发送器。工具与边界见 `tools/crash/README.md`。C ABI 的测试握手在访问队列前校验，错误库或错误目标不能先建目录再失败。
+`client-services::telemetry::backend_sender` 统一 Host API 两条发送分支与桌面独立发送器。显式 `telemetry-loopback` 特性和编译时 `MSIME_TEST_TELEMETRY_ORIGIN` 共同限定验收目标；未启用特性时保持正式发送器。工具与边界见 `tools/crash/README.md`。当前 C ABI 的测试握手在访问队列前校验，错误库或错误目标不能先建目录再失败。工具还先用两个不联网的 `begin` 核对字段确实被解析；忽略未知字段的合成旧 ABI 已验证会在任何 `flush` 前被拒绝，不能用可能联网的 `flush` 探测旧库能力。
 
 同源验证已覆盖无配置与有效配置：共享传输专项各三项，Host API 在测试和正式配置下各十三项通过；两个配置下 `client-services` 与 `host-api` 全 target 严格 Clippy 通过。正式库与缺配置测试库均拒绝工具的开始及发送请求；有效配置的真实 C ABI→HTTP、故障原版本补报、503 后同一崩溃事件重试、不带凭据、关闭后不发送通过。HTTP 专项在系统代理环境变量指向不可用回环代理、`NO_PROXY` 为空时仍能直连；不跟随重定向由传输专项核对。
 

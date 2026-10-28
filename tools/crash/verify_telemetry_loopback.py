@@ -92,6 +92,8 @@ def main():
                     return
                 assert handshake.get("ok") is True, handshake
                 wrong = dict(request, test_origin=args.origin + "/")
+                # 先用完全不联网的 begin 证明确实解析测试字段；旧库若忽略未知字段，应在任何 flush 前停止。
+                assert call("begin", wrong).get("ok") is False
                 assert call("flush", wrong).get("ok") is False
                 assert not Handler.events
                 start = handshake["value"]
