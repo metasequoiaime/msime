@@ -622,7 +622,10 @@ export function useSettingsPageModel({
     hasHomePage,
     hasTypingStatistics: Boolean(client.typingStatistics),
     hasVocabularyReview: Boolean(client.vocabularyReview),
-    hasAccount: Boolean(client.account || client.appIcon),
+    // 鸿蒙手机拒绝隐私授权后不给账号客户端，但授权弹窗、键盘和联网失败的提示都让用户去「我的 › 隐私」重新同意，所以触屏宿主有授权客户端时「我的」照常存在。2in1 的授权在「关于 › 法律信息」里，不因此多出账号页。
+    hasAccount: Boolean(
+      client.account || client.appIcon || (mobilePlatform && client.privacyConsent),
+    ),
     // AI 对话和「AI 辅助」页都归 AI 生成类功能的总闸（`showAiGeneration`）：HarmonyOS 在拿到资质之前两页都没有。
     hasChat: Boolean(client.chat) && showAiGeneration,
     hasAi: showAiGeneration,

@@ -40,12 +40,9 @@ impl NineKeySession {
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let dictionary = self
-                .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
-                .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
+                .get_or_insert_with(|| SyllablePrior::shipped(table));
             syllables =
                 table.spellings_for(remaining, locked_length, splits.first().copied(), prior);
             syllables.retain(|syllable| starts_right(syllable));

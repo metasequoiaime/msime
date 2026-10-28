@@ -12,7 +12,7 @@ Status: implemented
 
 - `spellings_for` 先按覆盖位数排（不变），位数相同时：
   - 已打两位以上数字时先按编码长度从短到长：正好拼完已打数字的音节排在还要往后补键的音节前面，补键少的排在补键多的前面。`74` 下 pi、qi、ri、si 在 shi、pie 前面，shi、pie 又在 pian、ping 前面；`426` 下 gan、gao、han、hao 在 gang、hang 前面。这一条由 develop 上的 fe371a4c46（`fix(engine): prioritize complete nine-key readings`）先合入，本 PR 合并 develop 时沿用它；只打一位数字时不比编码长度，`6` 下 `o` 不会因为正好拼完就排到 m、n 开头的音节前面。
-  - 编码一样长的按 `SyllablePrior` 的单字频度从高到低，频度相同才按字典序。这是本 PR 在 fe371a4c46 之上加的：原先同组按字典序，`74` 下 pi 在 qi 前面，要补键的 sha 在 shi、shu 前面。
+  - 编码一样长的按 `SyllablePrior` 的音节频度从高到低，频度相同才按字典序。频度原先取词库单字行，现在取内嵌的音节出现总权重，见 [九键音节频度改用内嵌的音节出现总权重](2026-10-27-nine-key-syllable-frequency-table.md)。这是本 PR 在 fe371a4c46 之上加的：原先同组按字典序，`74` 下 pi 在 qi 前面，要补键的 sha 在 shi、shu 前面。
 - 频度用音节自己的分数（新增 `SyllablePrior::syllable_score`），不用切分路径用的前缀分数：前缀分数取以它开头的音节里最高的那个，pin 会沾 ping 的光、qia 会沾 qian 的光。
 - `refresh` 把 `SyllablePrior` 的构造挪到 `spellings_for` 之前；数字全部锁定时 `spellings_for` 本来就返回空，不需要它。
 - 首选候选的读音转到最前面的规则沿用 fe371a4c46：已打两位以上数字时，只有已经拼完的读音才转。按键字母和数字仍跟在音节后面，`nine_key_spellings` 的组成不变（见 [九宫格展开面板](../feature/2026-10-08-nine-key-expanded-panel.md)）。

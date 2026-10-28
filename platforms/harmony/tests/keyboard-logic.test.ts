@@ -1311,6 +1311,14 @@ group("describes the configured voice provider accurately", () => {
       }).includes("不会离开设备"),
     "local voice describes device-only recognition",
   );
+  const factoryDescription: string = VoiceInputConfigurationPolicy.description(
+    DEFAULT_VOICE_INPUT_CONFIGURATION,
+  );
+  check(
+    factoryDescription.includes("请先在设置中下载并选择本地语音模型") &&
+      !factoryDescription.includes("不可用"),
+    "a fresh install on the factory local recognizer says where to get a model instead of calling the service unavailable",
+  );
   check(
     VoiceInputConfigurationPolicy.description({
       ...DEFAULT_VOICE_INPUT_CONFIGURATION,
@@ -14924,6 +14932,70 @@ group("LocalAsrPolicy", () => {
       LocalAsrPolicy.hotwordsFile("/data/../temp") === "" &&
       LocalAsrPolicy.hotwordsFile("/") === "",
     "the hotwords file goes only into an absolute scratch directory",
+  );
+  // 与 shared/voice/tests/local_asr.cpp 的段首补齐用例相同：-70 dBFS 左右的确定性噪声本底，加上约 -50 dBFS、音节之间停 0.1 秒的「语音」。
+  const second: number = LOCAL_ASR_SAMPLE_RATE;
+  const quietSpeech = (length: number, spans: number[][]): Float32Array => {
+    const audio: Float32Array = new Float32Array(length);
+    let state: number = 7;
+    for (let index: number = 0; index < length; index++) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      audio[index] = ((state >>> 8) / 16777216 - 0.5) * 1e-3;
+      const at: number = index / second;
+      for (const span of spans) {
+        if (at >= span[0] && at < span[1] && (at - span[0]) % 0.4 < 0.3)
+          audio[index] += Math.fround(0.0045 * Math.fround(Math.sin(at * 2 * 3.14159265 * 220)));
+      }
+    }
+    return audio;
+  };
+  let speech: Float32Array = quietSpeech(6 * second, [[1.0, 4.0]]);
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, 2 * second, 0) === second - (second * 3) / 10,
+    "a quiet onset the VAD noticed a second late is recovered, with 0.3 s before it",
+  );
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, 2 * second, (second * 3) / 2) === (second * 3) / 2 &&
+      LocalAsrPolicy.vadSegmentStart(
+        speech.subarray((second * 9) / 10),
+        (second * 9) / 10,
+        2 * second,
+        0,
+      ) ===
+        (second * 9) / 10,
+    "the recovered start stays after the previous segment and inside the kept audio",
+  );
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech.subarray(3 * second), 3 * second, 2 * second, 0) ===
+      2 * second &&
+      LocalAsrPolicy.vadSegmentStart(speech.subarray(0, 3 * second), 0, 4 * second, 0) ===
+        4 * second,
+    "without the audio before the segment the VAD start is kept",
+  );
+  speech = quietSpeech(8 * second, [[0.5, 6.0]]);
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, 5 * second, 0) === 2 * second,
+    "at most 3 s are added",
+  );
+  speech = quietSpeech(6 * second, [
+    [0.2, 0.5],
+    [1.1, 4.0],
+  ]);
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, 2 * second, 0) ===
+      (second * 11) / 10 - (second * 3) / 10,
+    "a sound more than 0.25 s before the onset is left out",
+  );
+  speech = quietSpeech(6 * second, [[2.0, 4.0]]);
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, 2 * second, 0) === 2 * second - (second * 3) / 10,
+    "only noise before the segment adds the fixed 0.3 s",
+  );
+  speech = quietSpeech(6 * second, [[1.0, 4.0]]);
+  speech.fill(0, 0, second);
+  check(
+    LocalAsrPolicy.vadSegmentStart(speech, 0, (second * 3) / 2, 0) === second - (second * 3) / 10,
+    "the onset is found after digital silence too",
   );
 });
 

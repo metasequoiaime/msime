@@ -127,6 +127,47 @@ int main() {
             L"额度用完，将于 1月2日 00:07 继续自动同步；可点「立即同步」。",
         "single-digit month and day are not padded, hours and minutes are");
 
+  // 受控投递焦点读取：生产顺序策略决定是否写回状态，不借助线程调度或固定等待。
+  Status synced = before;
+  synced.pending_upload = 0;
+  synced.last_success_ms = 2000;
+  const auto read = [](StatusReadOrder &order, Status &displayed, Status snapshot) {
+    const auto sequence = order.begin_read();
+    return [&order, &displayed, snapshot, sequence] {
+      if (order.accepts(sequence)) displayed = snapshot;
+    };
+  };
+  {
+    StatusReadOrder order;
+    Status displayed = before;
+    auto quiet_a = read(order, displayed, before);
+    order.invalidate();
+    displayed = synced;
+    quiet_a();
+    check(displayed == synced, "late quiet A cannot replace completed normal B");
+  }
+  {
+    StatusReadOrder order;
+    Status displayed = before;
+    auto quiet_a = read(order, displayed, before);
+    auto quiet_b = read(order, displayed, synced);
+    quiet_b();
+    quiet_a();
+    check(displayed == synced, "reversed quiet results keep the latest request");
+  }
+  {
+    StatusReadOrder order;
+    Status displayed = synced;
+    auto quiet_a = read(order, displayed, before);
+    order.invalidate();
+    // 普通操作失败或取消，不换状态，也不能让它开始前的读取复活。
+    quiet_a();
+    check(displayed == synced, "a failed or cancelled operation invalidates earlier quiet results");
+    auto quiet_b = read(order, displayed, before);
+    quiet_b();
+    check(displayed == before, "a new quiet read synced the operation still updates status");
+  }
+
   // 密钥串身份冲突时重试，最多三次；别的错误和成功都不重试。
   int calls = 0;
   const auto conflicted = [](const std::string &code) { return code == retry::keystore_conflict; };
@@ -142,6 +183,6 @@ int main() {
 
   if (failures)
     return 1;
-  std::puts("dictionary sync model: shared error texts, status lines, budget wait text, status comparison, one entry per device and keystore conflict retries passed");
+  std::puts("dictionary sync model: shared error texts, status lines, budget wait text, status comparison and request ordering, one entry per device and keystore conflict retries passed");
   return 0;
 }

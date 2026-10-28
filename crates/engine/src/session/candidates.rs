@@ -57,6 +57,7 @@ pub(super) fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<Wo
         target.corrected_from.clone_from(&item.corrected_from);
         target.sentence_association = item.sentence_association;
         target.sentence_words.clone_from(&item.sentence_words);
+        target.touch_supported = item.touch_supported;
     }
     if destination.len() > source.len() {
         destination.truncate(source.len());
@@ -886,6 +887,7 @@ mod tests {
             corrected_from: "lihao".into(),
             sentence_association: true,
             sentence_words: vec!["合".to_owned(), "成词".to_owned()],
+            touch_supported: true,
         };
         let plain = WordItem::new("ni", "你", 1, CandidateSource::Database, "ni");
         let mut destination = vec![marked.clone(), marked.clone(), marked.clone()];

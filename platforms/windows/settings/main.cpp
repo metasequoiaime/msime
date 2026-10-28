@@ -17233,6 +17233,7 @@ private:
       redraw_dictionary_sync();
       return;
     }
+    dsync_status_reads_.invalidate();
     dsync_busy_ = true;
     dsync_notice_.clear();
     const auto generation = dsync_generation_;
@@ -17277,9 +17278,10 @@ private:
     if (!options)
       return;
     const auto generation = dsync_generation_;
+    const auto sequence = dsync_status_reads_.begin_read();
     run_worker<Response>([options] { return dictionary_sync_call(options, R"({"operation":"status"})"); },
-                         [this, generation](Response &response) {
-                           if (generation != dsync_generation_ || dsync_busy_)
+                         [this, generation, sequence](Response &response) {
+                           if (generation != dsync_generation_ || dsync_busy_ || !dsync_status_reads_.accepts(sequence))
                              return;
                            const auto value = dictionary_sync_value(response);
                            if (!value)
@@ -27157,6 +27159,7 @@ private:
   bool dsync_busy_ = false;
   bool dsync_checked_ = false;
   uint64_t dsync_generation_ = 0;
+  ds::StatusReadOrder dsync_status_reads_;
 
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;

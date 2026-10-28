@@ -83,6 +83,12 @@ if grep -qF 'FunctionPanelPolicy.items()' "$ets/keyboard/KeyboardView.ets"; then
   echo "KeyboardView must list function tiles through FunctionPanelPolicy.items(AiGenerationGate.enabled())" >&2
   exit 1
 fi
+# 登录面板和首次启动弹窗的协议链接都经 `SettingsBridge.openExternalUrl` 交给系统浏览器，桥接是同步的，页面拿不到失败。提示文字由 privacy-consent.test.ts 覆盖；桥接是 ArkTS，这里钉住接线：打开失败时弹出带地址的提示，而不是只写日志、看起来点了没反应。
+open_url_body=$(sed -n '/^  openExternalUrl(url: string): void {$/,/^  }$/p' "$ets/pages/Settings.ets")
+if ! grep -qF 'showToast({ message: TextPolicy.unopenedLinkNotice(url)' <<< "$open_url_body"; then
+  echo "SettingsBridge.openExternalUrl must tell the user the address when the system cannot open a link" >&2
+  exit 1
+fi
 # 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
 if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \

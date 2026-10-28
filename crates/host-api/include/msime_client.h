@@ -860,6 +860,11 @@ char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 /* 每页候选数的会话内覆盖，size 为 1–10；本平台排不下那么多时（Windows、iOS、鸿蒙最多 9）按平台上限截断，view.page_size 是实际值。组字中调用时等组字结束才生效。 */
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);
 char *msime_client_character(uint64_t session, uint8_t ascii, bool shift);
+/* 触屏 26 键双拼的字母键几何，只有触屏宿主调用；桌面宿主和实体键盘永远不调用它，实体键盘的字母照常走 msime_client_character。只在布局变化时调用（旋转、分离、单手、键高调整、数字行变化、微软双拼 ';' 显隐），不要每键都发。json 是 length 字节的 UTF-8 JSON（<=16384，拒绝未知键）：{"id":u32,"keys":[[cx,cy,w,h] x 26，按 a..z],"semicolon":[cx,cy,w,h] 或 null,"duplicates":[["g",cx,cy,w,h],...]}。id 是宿主分配的非零代次，布局一变就换一个；semicolon 是微软双拼显示的 ';' 键；duplicates 是分离键盘里重复出现的字母键。坐标系由宿主自定，但必须是没有经过键距挪动、不受按下缩放影响的键区坐标，引擎按字母键键宽、键高的中位数归一。数值不是有限数、宽高不为正、不是 26 个字母键或归一后的键心离原点超过一万个键时整份拒绝，原来的几何不变。length 为 0 或 id 为 0 清除几何。几何由会话持有，宿主空闲时重建引擎也不用重发。返回 View。 */
+char *msime_client_set_key_geometry(uint64_t session, const uint8_t *json, size_t length);
+/* 触屏 26 键的一键，带上按下点（touch-down，不是抬起点）：x、y 与注册的几何同一个坐标系，geometry_id 是那份几何的 id。ascii 仍以宿主的命中测试为准（含键距归属），是用户实际按到的键。只在 26 键双拼的字母键和微软双拼的 ';' 上用它；辅助码 Shift、本地模式、专用英文、14/18 键、九键数字、无障碍点击和实体键盘照常用 msime_client_character。引擎把落点用于给双拼纠错计价，坐标只留在会话内存里，不落盘、不进统计。geometry_id 与当前注册的几何不符、坐标不是有限数或当前不是 26 键双拼时，结果与 msime_client_character(session, ascii, shift) 逐字节相同。返回与 msime_client_character 相同的输入响应。 */
+char *msime_client_touch_character(uint64_t session, uint8_t ascii, bool shift, uint32_t geometry_id, float x,
+                                   float y);
 // Explicit native punctuation: finish the highlighted composition, then translate.
 // Invalid non-punctuation bytes fail without modifying the session.
 char *msime_client_punctuation(uint64_t session, uint8_t ascii);

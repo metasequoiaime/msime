@@ -14,6 +14,15 @@ export const LOCAL_MODEL_MANIFEST: string = "msime-model.json";
 export const CORE_SPEECH_CHUNK_BYTES: number = 1280;
 /** One Silero VAD window at 16 kHz. */
 export const LOCAL_VAD_WINDOW: number = 512;
+/** 段首往前补（`LocalAsrPolicy.vadSegmentStart`）的参数，与 `LocalAsr.cpp` 一致：10 ms 一帧，最多往前 3 秒，低能量间隙不超过 0.25 秒，找到的起音前再留 0.3 秒；帧能量高出噪声底 4 倍（12 dB）算作语音，噪声底不低于 -100 dBFS。 */
+const ONSET_FRAME: number = LOCAL_ASR_SAMPLE_RATE / 100;
+const ONSET_LOOKBACK: number = LOCAL_ASR_SAMPLE_RATE * 3;
+const ONSET_GAP: number = LOCAL_ASR_SAMPLE_RATE / 4;
+const ONSET_PRE_ROLL: number = (LOCAL_ASR_SAMPLE_RATE * 3) / 10;
+const ONSET_RISE: number = 4;
+const ONSET_FLOOR: number = 1e-5;
+/** 送进 VAD 的录音最多比一段语音的上限多留这么久（样本数），够往前补 3 秒加上段尾那 0.5 秒静音。 */
+export const LOCAL_VAD_HISTORY_SLACK: number = LOCAL_ASR_SAMPLE_RATE * 5;
 const MAX_TRANSDUCER_HOTWORDS: number = 200;
 const MAX_FUNASR_HOTWORDS: number = 30;
 const MAX_MODEL_PATH: number = 4096;
@@ -237,7 +246,8 @@ export class LocalAsrPolicy {
   /** transducer（流式或离线）是否自己吃热词：编码热词要有 BPE 词表和建模单位。 */
   static transducerNativeHotwords(plan: LocalModelPlan): boolean {
     return (
-      (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER || plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) &&
+      (plan.kind === LOCAL_MODEL_ONLINE_TRANSDUCER ||
+        plan.kind === LOCAL_MODEL_OFFLINE_TRANSDUCER) &&
       plan.hotwords === "native" &&
       plan.bpeVocab.length > 0 &&
       plan.modelingUnit.length > 0
@@ -377,6 +387,49 @@ export class LocalAsrPolicy {
     return samples;
   }
 
+  /**
+   * 整段模型解码一段语音时实际的起点（会话里的采样序号），与 `LocalAsr.cpp` 的 `local_vad_segment_start` 一致。sherpa-onnx 的 Silero VAD 从概率越过阈值的那一窗往前只留约 26 ms，输入电平低时句首的字就落在段外；这里从 VAD 的段首往前找回起音。`audio` 是会话最近的录音，`audio[0]` 是第 `audioStart` 个采样，`earliest` 是上一段的段尾（第一段为 0）。
+   */
+  static vadSegmentStart(
+    audio: Float32Array,
+    audioStart: number,
+    vadStart: number,
+    earliest: number,
+  ): number {
+    const audioEnd: number = audioStart + audio.length;
+    const lower: number = Math.max(earliest, audioStart, vadStart - ONSET_LOOKBACK);
+    if (lower >= vadStart || vadStart > audioEnd) return vadStart;
+    const frameRms = (at: number): number => {
+      let energy: number = 0;
+      for (let index: number = at - audioStart; index < at - audioStart + ONSET_FRAME; index++) {
+        energy += audio[index] * audio[index];
+      }
+      return Math.sqrt(energy / ONSET_FRAME);
+    };
+    // 噪声底取手里全部录音的帧能量第 10 百分位：说话之间的停顿、段尾那 0.5 秒静音都在里面，比只看段首之前稳。
+    const levels: number[] = [];
+    for (let at: number = audioStart; at + ONSET_FRAME <= audioEnd; at += ONSET_FRAME)
+      levels.push(frameRms(at));
+    let noiseFloor: number = ONSET_FLOOR;
+    if (levels.length > 0) {
+      levels.sort((left: number, right: number): number => left - right);
+      noiseFloor = Math.max(noiseFloor, levels[Math.floor(levels.length / 10)]);
+    }
+    const speech: number = noiseFloor * ONSET_RISE;
+    let onset: number = vadStart;
+    let gap: number = 0;
+    for (let at: number = vadStart - ONSET_FRAME; at >= lower; at -= ONSET_FRAME) {
+      if (frameRms(at) > speech) {
+        onset = at;
+        gap = 0;
+      } else {
+        gap += ONSET_FRAME;
+        if (gap > ONSET_GAP) break;
+      }
+    }
+    return Math.max(lower, onset - ONSET_PRE_ROLL);
+  }
+
   /** Segments joined the way `LocalAsr.cpp` joins them: a space only between two ASCII alphanumerics. */
   static joinSegments(segments: string[]): string {
     let joined: string = "";
@@ -471,7 +524,11 @@ export class LocalAsrPolicy {
   /** 汉字（CJK 统一表意文字、扩展区与兼容区），与 `LocalAsr.cpp` 的 `is_cjk_ideograph` 相同。 */
   private static isCjkIdeograph(character: string): boolean {
     const code: number = character.codePointAt(0) ?? 0;
-    return (code >= 0x3400 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0x20000 && code <= 0x3ffff);
+    return (
+      (code >= 0x3400 && code <= 0x9fff) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0x20000 && code <= 0x3ffff)
+    );
   }
 }
 

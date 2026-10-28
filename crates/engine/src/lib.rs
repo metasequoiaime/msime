@@ -37,6 +37,7 @@ pub mod stroke;
 mod text;
 mod tibetan;
 pub mod time;
+pub mod touch;
 mod types;
 mod user_dictionary;
 pub mod vietnamese;

@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
@@ -44,6 +46,16 @@ namespace fs = std::filesystem;
 
 constexpr int kSampleRate = 16000;
 constexpr int32_t kVadWindow = 512;
+// 段首往前补（local_vad_segment_start）：10 ms 一帧判断能量，最多往前 3 秒，低能量间隙不超过 0.25 秒，找到的起音前再留 0.3 秒。
+constexpr std::int64_t kOnsetFrame = kSampleRate / 100;
+constexpr std::int64_t kOnsetLookback = kSampleRate * 3;
+constexpr std::int64_t kOnsetGap = kSampleRate / 4;
+constexpr std::int64_t kOnsetPreRoll = kSampleRate * 3 / 10;
+// 帧能量（RMS）高出噪声底 4 倍（12 dB）算作语音；噪声底不低于 -100 dBFS，数字静音之后的第一个非零采样不至于都算成语音。
+constexpr float kOnsetRise = 4.0f;
+constexpr float kOnsetFloor = 1e-5f;
+// VAD 之前的录音最多比一段语音的上限多留这么久，够往前补 3 秒加上段尾那 0.5 秒静音。
+constexpr std::int64_t kHistorySlack = kSampleRate * 5;
 constexpr size_t kMaxManifestBytes = 256 * 1024;
 constexpr size_t kMaxTokenBytes = 16 * 1024 * 1024;
 
@@ -880,6 +892,13 @@ struct LocalAsrSession::Impl {
   const SherpaOnnxVoiceActivityDetector *vad = nullptr;
   // 离线 transducer 每段新建一个流，热词随流传入，所以在会话开始时整理一次。
   std::string segment_hotwords;
+  // 送进 VAD 的最近一段录音，给段首往前补（local_vad_segment_start）。history[0] 是会话里第 history_start 个采样；最多留 history_limit 个，sherpa-onnx 自己的缓冲只留到段首前 2 个窗口。
+  std::vector<float> history;
+  std::int64_t history_start = 0;
+  std::size_t history_limit = 0;
+  // 上一段的段尾。往前补不越过它，否则两段的识别结果会重复同一段音频里的字。
+  std::int64_t decoded_end = 0;
+  std::vector<float> padded;
   std::vector<std::string> segments;
   std::string current;
   std::string last_partial;
@@ -949,13 +968,38 @@ struct LocalAsrSession::Impl {
     api.SherpaOnnxDestroyOfflineStream(stream);
   }
 
+  void remember(const float *samples, int32_t count) {
+    history.insert(history.end(), samples, samples + count);
+    // 多攒一秒再整块丢掉最旧的，免得每个窗口都搬一遍整段缓冲。
+    if (history.size() > history_limit + kSampleRate) {
+      const auto drop = history.size() - history_limit;
+      history.erase(history.begin(), history.begin() + static_cast<std::ptrdiff_t>(drop));
+      history_start += static_cast<std::int64_t>(drop);
+    }
+  }
+
+  // VAD 的段首往前补上它漏掉的起音再解码，见 local_vad_segment_start。
+  void decode_vad_segment(const SherpaOnnxSpeechSegment &segment) {
+    const std::int64_t start = segment.start;
+    const auto begin = local_vad_segment_start(history.data(), history.size(), history_start, start, decoded_end);
+    decoded_end = start + segment.n;
+    if (begin >= start) {
+      decode_segment(segment.samples, segment.n);
+      return;
+    }
+    padded.assign(history.begin() + static_cast<std::ptrdiff_t>(begin - history_start),
+                  history.begin() + static_cast<std::ptrdiff_t>(start - history_start));
+    padded.insert(padded.end(), segment.samples, segment.samples + segment.n);
+    decode_segment(padded.data(), static_cast<int32_t>(padded.size()));
+  }
+
   void drain_vad() {
     const auto &api = *recognizer->api;
     while (!api.SherpaOnnxVoiceActivityDetectorEmpty(vad)) {
       const auto *segment = api.SherpaOnnxVoiceActivityDetectorFront(vad);
       if (segment && segment->n > 0) {
         try {
-          decode_segment(segment->samples, segment->n);
+          decode_vad_segment(*segment);
         } catch (...) {
           api.SherpaOnnxDestroySpeechSegment(segment);
           throw;
@@ -999,6 +1043,7 @@ LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback
   vad.silero_vad.window_size = kVadWindow;
   // FunASR-nano shares a 512-token context between audio and text; past roughly 25 seconds it returns nothing at all.
   vad.silero_vad.max_speech_duration = recognizer.kind == ModelKind::OfflineFunAsrNano ? 20.0f : 28.0f;
+  impl_->history_limit = static_cast<std::size_t>(vad.silero_vad.max_speech_duration) * kSampleRate + static_cast<std::size_t>(kHistorySlack);
   vad.sample_rate = kSampleRate;
   vad.num_threads = 1;
   vad.provider = "cpu";
@@ -1030,7 +1075,9 @@ void LocalAsrSession::accept(const float *samples, std::size_t count) {
     } else {
       // The detector judges each call as a whole (speech if any window in it is speech), so it is fed one window at a time; a long buffer in one call would merge every pause into a single segment.
       for (int32_t at = 0; at < n; at += kVadWindow) {
-        api.SherpaOnnxVoiceActivityDetectorAcceptWaveform(impl_->vad, samples + offset + at, std::min(kVadWindow, n - at));
+        const auto window = std::min(kVadWindow, n - at);
+        impl_->remember(samples + offset + at, window);
+        api.SherpaOnnxVoiceActivityDetectorAcceptWaveform(impl_->vad, samples + offset + at, window);
         impl_->drain_vad();
       }
     }
@@ -1166,6 +1213,45 @@ std::string tidy_local_transcript(std::string_view text) {
   while (!out.empty() && out.back() == ' ')
     out.pop_back();
   return out;
+}
+
+std::int64_t local_vad_segment_start(const float *audio, std::size_t count, std::int64_t audio_start,
+                                     std::int64_t vad_start, std::int64_t earliest) {
+  const auto audio_end = audio_start + static_cast<std::int64_t>(count);
+  const auto lower = (std::max)({earliest, audio_start, vad_start - kOnsetLookback});
+  if (lower >= vad_start || vad_start > audio_end)
+    return vad_start;
+  const auto frame_rms = [&](std::int64_t at) {
+    double energy = 0.0;
+    for (std::int64_t i = at; i < at + kOnsetFrame; ++i) {
+      const double sample = audio[static_cast<std::size_t>(i - audio_start)];
+      energy += sample * sample;
+    }
+    return static_cast<float>(std::sqrt(energy / static_cast<double>(kOnsetFrame)));
+  };
+  // 噪声底取手里全部录音的帧能量第 10 百分位：说话之间的停顿、段尾那 0.5 秒静音都在里面，比只看段首之前稳。
+  std::vector<float> levels;
+  levels.reserve(count / static_cast<std::size_t>(kOnsetFrame));
+  for (auto at = audio_start; at + kOnsetFrame <= audio_end; at += kOnsetFrame)
+    levels.push_back(frame_rms(at));
+  float noise_floor = kOnsetFloor;
+  if (!levels.empty()) {
+    const auto nth = levels.begin() + static_cast<std::ptrdiff_t>(levels.size() / 10);
+    std::nth_element(levels.begin(), nth, levels.end());
+    noise_floor = (std::max)(noise_floor, *nth);
+  }
+  const float speech = noise_floor * kOnsetRise;
+  auto onset = vad_start;
+  std::int64_t gap = 0;
+  for (auto at = vad_start - kOnsetFrame; at >= lower; at -= kOnsetFrame) {
+    if (frame_rms(at) > speech) {
+      onset = at;
+      gap = 0;
+    } else if ((gap += kOnsetFrame) > kOnsetGap) {
+      break;
+    }
+  }
+  return (std::max)(lower, onset - kOnsetPreRoll);
 }
 
 std::string transducer_hotword_lines(const std::vector<std::string> &words, const std::vector<std::string> &tokens,

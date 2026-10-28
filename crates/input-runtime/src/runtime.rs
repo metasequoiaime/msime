@@ -4,8 +4,9 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order, ParallelOrderRows, StaticEvidence,
+    runner_up_order_with, ParallelOrderRows, StaticEvidence,
 };
+use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
 pub(crate) use msime_engine::ordering::{
@@ -109,6 +110,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) character_width: CharacterWidth,
     pub(crate) punctuation_marks: PunctuationMarks,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// 触屏宿主注册的字母键几何（`msime_client_set_key_geometry`）。由 runtime 持有而不是只交给引擎：宿主空闲时会重建引擎（`replace_engine`），新引擎要重新拿到它，否则触点会悄悄失效。
+    pub(crate) key_geometry: Option<Arc<KeyGeometry>>,
     /// 整个候选列表只给出一个词的完整五笔码，是否在第四键提交。
     ///
     /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
@@ -712,6 +715,9 @@ impl<E: InputEngine> Runtime<E> {
             if snapshot.candidate_static_evidence.len() == order.len() {
                 snapshot.candidate_static_evidence.swap(left, right);
             }
+            if snapshot.candidate_touch_supported.len() == order.len() {
+                snapshot.candidate_touch_supported.swap(left, right);
+            }
             engine_order.swap(left, right);
         });
     }
@@ -1104,6 +1110,7 @@ impl<E: InputEngine> Runtime<E> {
             character_width: CharacterWidth::Halfwidth,
             punctuation_marks: PunctuationMarks::default(),
             touch_keyboard_layout,
+            key_geometry: None,
             wubi_auto_commit_unique: true,
             wubi_fifth_code_top_commit: true,
             wubi_candidate_selection: Default::default(),
@@ -1391,6 +1398,31 @@ impl<E: InputEngine> Runtime<E> {
     pub fn clear_context(&mut self) {
         self.ai_context.clear();
         self.engine.set_rescoring_context("");
+    }
+
+    /// 注册或清除触屏宿主的字母键几何（`None` 清除），见 [`msime_engine::touch::KeyGeometry`]。只在布局变化时调用；引擎被替换后由 runtime 重新下发。不刷新候选。
+    pub fn set_key_geometry(&mut self, geometry: Option<KeyGeometry>) {
+        self.key_geometry = geometry.map(Arc::new);
+        self.engine.set_key_geometry(self.key_geometry.clone());
+    }
+
+    /// 当前注册的几何代次，没有几何时为 `None`。只有测试用来核对注册和清除。
+    #[cfg(test)]
+    pub(crate) fn key_geometry_id(&self) -> Option<u32> {
+        self.key_geometry.as_ref().map(|geometry| geometry.id())
+    }
+
+    /// 宿主按下点 (x, y) 落在 `key` 上的触点。代次 `geometry_id` 与当前注册的不符、坐标不是有限数、`key` 不在几何里时为 `None`，这一键就按没有触点打，与 `msime_client_character` 逐字节相同。
+    pub fn key_touch(&self, key: u8, geometry_id: u32, x: f32, y: f32) -> Option<KeyTouch> {
+        self.key_geometry
+            .as_ref()
+            .filter(|geometry| geometry.id() == geometry_id)?
+            .touch(key, x, y)
+    }
+
+    /// 下一次派发的 `Action::Character` 的触点；派发完不论结果如何都要 `set_key_touch(None)`。引擎只把它交给 26 键双拼的小写字母和 `;`，其余入口一开头就丢掉它。
+    pub fn set_key_touch(&mut self, touch: Option<KeyTouch>) {
+        self.engine.set_key_touch(touch);
     }
 
     /// 移动引擎前缀解码的光标；`None` 恢复到组字末尾。候选可能随前缀改变，旧候选 ID 必须失效。
@@ -1985,6 +2017,8 @@ impl<E: InputEngine> Runtime<E> {
         self.engine = engine;
         // The committed text belongs to the client, not the engine, so the replacement ranks against it as its predecessor did.
         self.engine.set_rescoring_context(&self.ai_context);
+        // 键位几何同样属于宿主：布局没变，宿主不会重发。
+        self.engine.set_key_geometry(self.key_geometry.clone());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -2779,6 +2813,9 @@ impl<E: InputEngine> Runtime<E> {
         if snapshot.candidate_static_evidence.len() == count {
             rotate_to_front(&mut snapshot.candidate_static_evidence, promote);
         }
+        if snapshot.candidate_touch_supported.len() == count {
+            rotate_to_front(&mut snapshot.candidate_touch_supported, promote);
+        }
         rotate_to_front(&mut self.engine_order, promote);
         true
     }
@@ -2802,7 +2839,11 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(order) = runner_up_order(snapshot.scheme, &order_rows(snapshot)) else {
+        let Some(order) = runner_up_order_with(
+            snapshot.scheme,
+            &order_rows(snapshot),
+            &snapshot.candidate_touch_supported,
+        ) else {
             return false;
         };
         self.apply_candidate_order(&order);
@@ -2895,6 +2936,7 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_corrected: Vec::new(),
                     candidate_answers_key: Vec::new(),
                     candidate_static_evidence: Vec::new(),
+                    candidate_touch_supported: Vec::new(),
                     candidate_list_open: false,
                     microsoft_shuangpin: false,
                     shuangpin_profile: String::new(),
@@ -2946,7 +2988,8 @@ impl<E: InputEngine> Runtime<E> {
                 && self.cached.candidate_positions == previous.candidate_positions
                 && self.cached.candidate_corrected == previous.candidate_corrected
                 && self.cached.candidate_answers_key == previous.candidate_answers_key
-                && self.cached.candidate_static_evidence == previous.candidate_static_evidence;
+                && self.cached.candidate_static_evidence == previous.candidate_static_evidence
+                && self.cached.candidate_touch_supported == previous.candidate_touch_supported;
             if candidates_held {
                 self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
             } else if previous_highlight > 0 {
