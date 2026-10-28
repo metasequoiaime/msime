@@ -36,6 +36,9 @@ struct Fixture {
   HMODULE module = nullptr;
   PROCESS_INFORMATION child{};
   void *remote = nullptr;
+#if defined(_M_IX86) || defined(__i386__)
+  void *remote_frames = nullptr;
+#endif
   msime::tsf::wer::ExceptionEvent event = nullptr;
   Context context{};
   WER_RUNTIME_EXCEPTION_INFORMATION information{};
@@ -61,6 +64,11 @@ struct Fixture {
                             nullptr, nullptr, &startup, &child) != FALSE, "synthetic target start failed");
     remote = VirtualAllocEx(child.hProcess, nullptr, sizeof(Context), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     require(remote != nullptr, "synthetic remote context allocation failed");
+#if defined(_M_IX86) || defined(__i386__)
+    remote_frames = VirtualAllocEx(child.hProcess, nullptr, 3 * sizeof(DWORD) * 2,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    require(remote_frames != nullptr, "synthetic remote frame allocation failed");
+#endif
     context.sequence = 2;
     context.armed = 1;
     std::memcpy(context.path, path.c_str(), (path.wstring().size() + 1) * sizeof(wchar_t));
@@ -94,6 +102,29 @@ struct Fixture {
     require(WriteProcessMemory(child.hProcess, remote, &context, sizeof(context), &written) &&
             written == sizeof(context), "synthetic remote context write failed");
   }
+#if defined(_M_IX86) || defined(__i386__)
+  void publish_frames() {
+    struct Link { DWORD previous; DWORD address; } links[3]{};
+    const auto base = reinterpret_cast<std::uintptr_t>(remote_frames);
+    links[0] = {static_cast<DWORD>(base + sizeof(Link)), 0x10150};
+    links[1] = {static_cast<DWORD>(base + 2 * sizeof(Link)), 0x30000};
+    links[2] = {0, 0x20010};
+    SIZE_T written = 0;
+    require(WriteProcessMemory(child.hProcess, remote_frames, links, sizeof(links), &written) &&
+            written == sizeof(links), "synthetic remote frame write failed");
+    context.sequence = 2;
+    context.armed = 1;
+    context.size = sizeof(Context);
+    context.magic = msime::tsf::wer::context_magic;
+    context.modules[0].base = 0x10000;
+    context.modules[0].size = 0x1000;
+    std::strcpy(context.modules[0].name, "MetasequoiaImeTsf.dll");
+    context.modules[1].base = 0x20000;
+    context.modules[1].size = 0x1000;
+    std::strcpy(context.modules[1].name, "msime_host_api_wubi.dll");
+    information.context.Ebp = static_cast<DWORD>(base);
+  }
+#endif
   void invoke(void *address = nullptr) {
     publish();
     BOOL ownership = TRUE;
@@ -199,6 +230,29 @@ void tests() {
   f.invoke();
   require(bytes(f.path) == std::string(original.header) +
       "EXCEPTION_STACK_OVERFLOW (0xc00000fd)\nmsime_host_api_wubi.dll+0x7\n", "edition host module not captured");
+#if defined(_M_IX86) || defined(__i386__)
+  std::filesystem::remove(f.path);
+  f.information.exceptionRecord.ExceptionAddress = reinterpret_cast<void *>(0x10123);
+  f.information.exceptionRecord.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
+  f.publish_frames();
+  f.invoke();
+  require(bytes(f.path) == std::string(original.header) +
+      "EXCEPTION_ACCESS_VIOLATION (0xc0000005)\nMetasequoiaImeTsf.dll+0x123\n"
+      "MetasequoiaImeTsf.dll+0x150\nmsime_host_api_wubi.dll+0x10\n",
+      "x86 EBP chain was not captured with external frames filtered");
+  std::filesystem::remove(f.path);
+  f.publish_frames();
+  struct Link { DWORD previous; DWORD address; } loop{};
+  loop.previous = static_cast<DWORD>(reinterpret_cast<std::uintptr_t>(f.remote_frames));
+  loop.address = 0x10150;
+  SIZE_T written = 0;
+  require(WriteProcessMemory(f.child.hProcess, f.remote_frames, &loop, sizeof(loop), &written) &&
+          written == sizeof(loop), "synthetic EBP loop write failed");
+  f.invoke();
+  require(bytes(f.path) == std::string(original.header) +
+      "EXCEPTION_ACCESS_VIOLATION (0xc0000005)\nMetasequoiaImeTsf.dll+0x123\n"
+      "MetasequoiaImeTsf.dll+0x150\n", "x86 EBP loop was not bounded");
+#endif
 }
 }
 int main(int argc, char **) {

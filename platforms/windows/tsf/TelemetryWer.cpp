@@ -179,6 +179,38 @@ bool write_all(HANDLE file, const char *data, std::size_t size) {
   return size <= MAXDWORD && WriteFile(file, data, static_cast<DWORD>(size), &written, nullptr) && written == size;
 }
 
+#if defined(_M_IX86) || defined(__i386__)
+// 只把返回地址中属于自有模块的帧写入记录；外部宿主帧仍参与链校验，但不泄露模块名。
+bool write_owned_frame(HANDLE file, const Context &context, std::uint64_t address) {
+  const auto *module = owner(context, address);
+  if (!module) return true;
+  char frame[160]{};
+  const int length = std::snprintf(frame, sizeof(frame), "%s+0x%llx\n", module->name,
+      static_cast<unsigned long long>(address - module->base));
+  return length > 0 && static_cast<std::size_t>(length) < sizeof(frame) &&
+      write_all(file, frame, static_cast<std::size_t>(length));
+}
+
+// WER helper 在另一个进程中运行，不能让普通的本地展开器解引用目标栈；x86 仅沿有界 EBP 链逐项远程读取。
+bool write_x86_frames(HANDLE file, HANDLE process, const Context &context, const CONTEXT &registers) {
+  DWORD pointer = registers.Ebp;
+  for (int frame = 0; frame < 64 && pointer; ++frame) {
+    struct Link {
+      DWORD previous;
+      DWORD address;
+    } link{};
+    if (!read(process, reinterpret_cast<const void *>(static_cast<std::uintptr_t>(pointer)),
+              &link, sizeof(link)) || !link.address) break;
+    if (!write_owned_frame(file, context, link.address)) return false;
+    // 损坏、回环或跨出合理范围的链立即停止，不直接解引用故障栈。
+    if (link.previous <= pointer || link.previous - pointer > 1024 * 1024 ||
+        link.previous % sizeof(DWORD)) break;
+    pointer = link.previous;
+  }
+  return true;
+}
+#endif
+
 void record(const void *remote, const WER_RUNTIME_EXCEPTION_INFORMATION &event) {
   Context context{};
   if (!event.bIsFatal || !snapshot(event.hProcess, remote, context) ||
@@ -200,8 +232,14 @@ void record(const void *remote, const WER_RUNTIME_EXCEPTION_INFORMATION &event) 
   HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
   if (file == INVALID_HANDLE_VALUE) return;
-  const bool complete = write_all(file, context.header, std::strlen(context.header)) &&
-      write_all(file, record, static_cast<std::size_t>(length)) && FlushFileBuffers(file);
+  bool complete = write_all(file, context.header, std::strlen(context.header)) &&
+      write_all(file, record, static_cast<std::size_t>(length));
+  if (complete) {
+#if defined(_M_IX86) || defined(__i386__)
+    complete = write_x86_frames(file, event.hProcess, context, event.context);
+#endif
+    complete = complete && FlushFileBuffers(file);
+  }
   CloseHandle(file);
   // 不覆盖首份；停用或快照换代后，迟到的 helper 不能再发布旧准备。
   if (!complete || !current(event.hProcess, remote, context.sequence) ||

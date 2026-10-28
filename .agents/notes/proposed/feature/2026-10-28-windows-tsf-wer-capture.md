@@ -20,6 +20,8 @@ WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不
 
 `CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主的系统 WER 实际投递已通过，完整产品包与真实编辑器验收仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
 
+WER helper 的 x86 分支现在沿目标进程的 EBP 链最多读取 64 个返回帧，远程读取失败、回环、倒退或超过 1 MiB 的跳跃立即停止；只有 TSF 与当前 edition Host API 的帧写入记录，外部宿主帧不泄露。x64/ARM64 继续保留直接故障帧，因为 `RtlVirtualUnwind` 不能直接解引用 helper 地址空间之外的目标栈。x64 与 x86 生产 helper 均通过 MinGW `-Wall -Wextra -Werror` 语法检查；当前 macOS 无法执行 Windows x86 回调，真实 x86 运行回归仍由 Windows CI 验证。
+
 Windows 11（10.0.26200）、MSVC 19.44.35228 和 SDK 10.0.26100 上，x64/x86 实际构建与回调 CTest 均通过，分别为 0.13 秒和 0.17 秒；ARM64 的同源 helper 和测试程序构建通过，但未在 ARM64 系统运行。测试从另一个合成进程的实际地址读取上下文，覆盖非致命/停用/未准备/奇数代次、截短事件、损坏头与模块、外部模块边界、不可读地址/无内存读取权限、相对路径与备用数据流、目录重解析点、原头保留、自有模块偏移、首份完整及临时文件不覆盖，以及三个 WER 回调不改宿主输出。此次重解析点夹具实际运行，没有因权限跳过。未注册系统模块或制造真实致命故障，不能代替 WER 系统投递与 TSF 外部宿主验收。
 
 初次 x64 实跑通过，但 x86 出现宿主输出损坏。静态类型断言和验证机原版 SDK 证明：微软的三个回调均为 `cdecl`，本机 MinGW 却声明为 `WINAPI`；32 位的调用栈因此不平衡，64 位不暴露该区别。`WerApiCompatibility.h` 统一使用微软 ABI，MSVC 下与原版 typedef 静态核对；x86 修正后通过。不能依据 MinGW 头文件或只跑 x64 再推断 x86 ABI 正确。
