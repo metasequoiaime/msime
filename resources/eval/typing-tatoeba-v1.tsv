@@ -1,0 +1,1469 @@
+# Tatoeba 普通话句子（https://tatoeba.org），CC BY 2.0 FR。每行一句，id 是 Tatoeba 的句子编号去掉前缀 t，署名与原文见 https://tatoeba.org/sentences/show/<编号>。
+# 抽样：导出文件 cmn_sentences_detailed.tsv 里简体、4 到 40 个汉字、去重后的 47475 句，按句子编号排序后用种子 20261028 打乱，取前 1500 句；前 400 句是预热（warmup），其余句子编号能被 3 整除的进 dev，其余进 test。
+# 人工评审只看两件事：是不是正确的中文，适不适合放进公开仓库。去掉 37 句（病句、错字、性、暴力、政治话题、个人信息），没有一句是按引擎的输出去掉的。
+# 切词 jieba 0.42.1，拼音 pypinyin 按整句标再按词归组（ü 写作 v）；人工改正读音 36 处（--readings）。dev 324 行 3109 字, test 750 行 7438 字, warmup 389 行 3815 字。
+# 生成：scripts/build-typing-set.py tatoeba <source> --seed 20261028 --count 1500 --warmup 400 --drop 747620,333893,8931955,8865624,8932513,8934216,8932582,10193704,8563310,1152199,10484364,336722,9415201,2110063,8930195,1406276,3130782,1307739,4638699,2699504,13209827,8558437,2286080,939493,5762995,8903285,11545840,344822,12680942,1064636,13190015,7755653,1140547,5953329,2420890,332898,6850356 --readings resources/eval/typing-readings-reviewed.tsv
+id	doc	split	text	tokens
+t9954763	t9954763	warmup	他是本地人。	他=ta 是=shi 本地人=ben'di'ren ~。
+t8714988	t8714988	warmup	是你杀了汤姆吗？	是=shi 你=ni 杀=sha 了=le 汤姆=tang'mu 吗=ma ~？
+t389789	t389789	warmup	拿本书读！	拿=na 本书=ben'shu 读=du ~！
+t333604	t333604	warmup	我有很多法语书.	我=wo 有=you 很多=hen'duo 法语=fa'yu 书=shu ~.
+t1494002	t1494002	warmup	我今天忘记给他打电话了。	我=wo 今天=jin'tian 忘记=wang'ji 给=gei 他=ta 打电话=da'dian'hua 了=le ~。
+t876610	t876610	warmup	天才与精神错乱之间只隔着成功。	天才=tian'cai 与=yu 精神=jing'shen 错乱=cuo'luan 之间=zhi'jian 只=zhi 隔=ge 着=zhe 成功=cheng'gong ~。
+t848344	t848344	warmup	他想要去非洲。	他=ta 想要=xiang'yao 去=qu 非洲=fei'zhou ~。
+t10543801	t10543801	warmup	他想了三天。	他=ta 想=xiang 了=le 三天=san'tian ~。
+t8861159	t8861159	warmup	你是同志。	你=ni 是=shi 同志=tong'zhi ~。
+t493515	t493515	warmup	她收下了他的礼物。	她=ta 收下=shou'xia 了=le 他=ta 的=de 礼物=li'wu ~。
+t859223	t859223	warmup	我走了四分之三英里。	我=wo 走=zou 了=le 四分之三=si'fen'zhi'san 英里=ying'li ~。
+t333968	t333968	warmup	狗向着我跑了过来。	狗=gou 向着=xiang'zhe 我=wo 跑=pao 了=le 过来=guo'lai ~。
+t2422248	t2422248	warmup	不知道为什么天冷的时候总是非常想找找个伴。	不=bu 知道=zhi'dao 为什么=wei'shen'me 天冷=tian'leng 的=de 时候=shi'hou 总是=zong'shi 非常=fei'chang 想=xiang 找=zhao 找=zhao 个=ge 伴=ban ~。
+t1899856	t1899856	warmup	汤姆静静地坐了半个小时。	汤姆=tang'mu 静静地=jing'jing'de 坐=zuo 了=le 半个=ban'ge 小时=xiao'shi ~。
+t2690857	t2690857	warmup	我的表兄弟太过沉浸于学业，以致于他的朋友们唤他作书虫。	我=wo 的=de 表兄弟=biao'xiong'di 太过=tai'guo 沉浸于=chen'jin'yu 学业=xue'ye ~， 以致于=yi'zhi'yu 他=ta 的=de 朋友=peng'you 们=men 唤=huan 他=ta 作=zuo 书虫=shu'chong ~。
+t804863	t804863	warmup	我们什么时候会到？	我们=wo'men 什么=shen'me 时候=shi'hou 会到=hui'dao ~？
+t5812250	t5812250	warmup	汤姆把钥匙拿出了口袋。	汤姆=tang'mu 把=ba 钥匙=yao'shi 拿出=na'chu 了=le 口袋=kou'dai ~。
+t1911459	t1911459	warmup	我发现你玩绝对不耽误学习。我就不行。	我=wo 发现=fa'xian 你=ni 玩=wan 绝对=jue'dui 不=bu 耽误=dan'wu 学习=xue'xi ~。 我=wo 就=jiu 不行=bu'xing ~。
+t818935	t818935	warmup	他本该来的。	他=ta 本该=ben'gai 来=lai 的=de ~。
+t348826	t348826	warmup	我对日本一无所知。	我=wo 对=dui 日本=ri'ben 一无所知=yi'wu'suo'zhi ~。
+t353636	t353636	warmup	今晚你要是有空，来看我吧。	今晚=jin'wan 你=ni 要是=yao'shi 有空=you'kong ~， 来看=lai'kan 我=wo 吧=ba ~。
+t13729349	t13729349	warmup	我毫无顾虑。	我=wo 毫无顾虑=hao'wu'gu'lv ~。
+t5983616	t5983616	warmup	汤姆不需要再戴眼镜了。	汤姆=tang'mu 不=bu 需要=xu'yao 再=zai 戴眼镜=dai'yan'jing 了=le ~。
+t9969150	t9969150	warmup	如果他不来，你要干什么？	如果=ru'guo 他=ta 不来=bu'lai ~， 你=ni 要=yao 干什么=gan'shen'me ~？
+t2680365	t2680365	warmup	我确实看见他了。	我=wo 确实=que'shi 看见=kan'jian 他=ta 了=le ~。
+t6956883	t6956883	warmup	我饱得动不了。	我=wo 饱得动=bao'de'dong 不了=bu'liao ~。
+t10983111	t10983111	warmup	我希望你在和我说实话。	我=wo 希望=xi'wang 你=ni 在=zai 和=he 我=wo 说实话=shuo'shi'hua ~。
+t1471506	t1471506	warmup	1985以来，我一直在东京生活。	~1985 以来=yi'lai ~， 我=wo 一直=yi'zhi 在=zai 东京=dong'jing 生活=sheng'huo ~。
+t9401479	t9401479	warmup	大家都在瞪着。	大家=da'jia 都=dou 在=zai 瞪=deng 着=zhe ~。
+t10538605	t10538605	warmup	汤姆两点半左右到的。	汤姆=tang'mu 两点=liang'dian 半左右=ban'zuo'you 到=dao 的=de ~。
+t13880616	t13880616	warmup	我愿意无偿接下这件活。	我=wo 愿意=yuan'yi 无偿=wu'chang 接下=jie'xia 这件=zhe'jian 活=huo ~。
+t9954868	t9954868	warmup	上海的天气热死人了！	上海=shang'hai 的=de 天气=tian'qi 热死=re'si 人=ren 了=le ~！
+t7781531	t7781531	warmup	真理必胜。	真理必胜=zhen'li'bi'sheng ~。
+t758811	t758811	warmup	海面随着全球变暖的加剧而越来越高。	海面=hai'mian 随着=sui'zhe 全球=quan'qiu 变暖=bian'nuan 的=de 加剧=jia'ju 而=er 越来越=yue'lai'yue 高=gao ~。
+t8709233	t8709233	warmup	我觉得她有点自私。	我=wo 觉得=jue'de 她=ta 有点=you'dian 自私=zi'si ~。
+t430983	t430983	warmup	她唱歌非常好。	她=ta 唱歌=chang'ge 非常=fei'chang 好=hao ~。
+t775653	t775653	warmup	我排上队不久后，一个男人过来问我要不要出租车。	我排=wo'pai 上队=shang'dui 不久=bu'jiu 后=hou ~， 一个=yi'ge 男人=nan'ren 过来=guo'lai 问=wen 我=wo 要=yao 不要=bu'yao 出租车=chu'zu'che ~。
+t2930903	t2930903	warmup	这个不会。	这个=zhe'ge 不会=bu'hui ~。
+t12686875	t12686875	warmup	我应该什么时候打电话？	我=wo 应该=ying'gai 什么=shen'me 时候=shi'hou 打电话=da'dian'hua ~？
+t634823	t634823	warmup	他一看见我就偷偷走了。	他=ta 一=yi 看见=kan'jian 我=wo 就=jiu 偷偷=tou'tou 走=zou 了=le ~。
+t461595	t461595	warmup	小鱼是会长大的。	小鱼=xiao'yu 是=shi 会长=hui'zhang 大=da 的=de ~。
+t2682168	t2682168	warmup	他的房子很漂亮。	他=ta 的=de 房子=fang'zi 很漂亮=hen'piao'liang ~。
+t466198	t466198	warmup	您很快就会收到我们的消息。	您=nin 很快=hen'kuai 就=jiu 会=hui 收到=shou'dao 我们=wo'men 的=de 消息=xiao'xi ~。
+t9956961	t9956961	warmup	我通过运动来缓解压力。	我=wo 通过=tong'guo 运动=yun'dong 来=lai 缓解=huan'jie 压力=ya'li ~。
+t5094892	t5094892	warmup	最好的财富是知识，一般的财富是孩子，最小的财富是物质。	最好=zui'hao 的=de 财富=cai'fu 是=shi 知识=zhi'shi ~， 一般=yi'ban 的=de 财富=cai'fu 是=shi 孩子=hai'zi ~， 最小=zui'xiao 的=de 财富=cai'fu 是=shi 物质=wu'zhi ~。
+t10007039	t10007039	warmup	德语难学吗？	德语=de'yu 难学=nan'xue 吗=ma ~？
+t389446	t389446	warmup	不要忘了票。	不要=bu'yao 忘=wang 了=le 票=piao ~。
+t13972661	t13972661	warmup	寿司是日本料理。	寿司=shou'si 是=shi 日本料理=ri'ben'liao'li ~。
+t8463684	t8463684	warmup	你的轮胎爆了一个。	你=ni 的=de 轮胎=lun'tai 爆=bao 了=le 一个=yi'ge ~。
+t844139	t844139	warmup	她下决心要成为秘书。	她=ta 下决心=xia'jue'xin 要=yao 成为=cheng'wei 秘书=mi'shu ~。
+t9962407	t9962407	warmup	请来我办公室一趟。	请来=qing'lai 我=wo 办公室=ban'gong'shi 一趟=yi'tang ~。
+t686937	t686937	warmup	这些书是新的。	这些=zhe'xie 书=shu 是=shi 新=xin 的=de ~。
+t8934410	t8934410	warmup	他不是我的男朋友。	他=ta 不是=bu'shi 我=wo 的=de 男朋友=nan'peng'you ~。
+t480651	t480651	warmup	这不是一个漏洞，而是一个没有写进文档的特性。	这=zhe 不是=bu'shi 一个=yi'ge 漏洞=lou'dong ~， 而是=er'shi 一个=yi'ge 没有=mei'you 写=xie 进=jin 文档=wen'dang 的=de 特性=te'xing ~。
+t334627	t334627	warmup	你最好现在就走。	你=ni 最好=zui'hao 现在=xian'zai 就=jiu 走=zou ~。
+t2456075	t2456075	warmup	她不得不和这个老男人结婚。	她=ta 不得不=bu'de'bu 和=he 这个=zhe'ge 老=lao 男人=nan'ren 结婚=jie'hun ~。
+t5650417	t5650417	warmup	你向她求助了吗？	你=ni 向=xiang 她=ta 求助=qiu'zhu 了=le 吗=ma ~？
+t420908	t420908	warmup	吃得太多，长得很胖，那就要影响发育。	吃=chi 得=de 太=tai 多=duo ~， 长得=zhang'de 很胖=hen'pang ~， 那=na 就要=jiu'yao 影响=ying'xiang 发育=fa'yu ~。
+t1762972	t1762972	warmup	你以为这是拍电影。	你=ni 以为=yi'wei 这是=zhe'shi 拍电影=pai'dian'ying ~。
+t1862873	t1862873	warmup	他告诉我她生病了。	他=ta 告诉=gao'su 我=wo 她=ta 生病=sheng'bing 了=le ~。
+t382427	t382427	warmup	我不会回来的。	我=wo 不会=bu'hui 回来=hui'lai 的=de ~。
+t10019680	t10019680	warmup	汤姆缺乏灵活性。	汤姆=tang'mu 缺乏=que'fa 灵活性=ling'huo'xing ~。
+t3537595	t3537595	warmup	这个计划虽然已经决定实施了，但是具体细节还需要从长计议。	这个=zhe'ge 计划=ji'hua 虽然=sui'ran 已经=yi'jing 决定=jue'ding 实施=shi'shi 了=le ~， 但是=dan'shi 具体=ju'ti 细节=xi'jie 还=hai 需要=xu'yao 从长计议=cong'chang'ji'yi ~。
+t3709281	t3709281	warmup	我刚到广州时，因不懂广州话，常常闹笑话。	我刚=wo'gang 到=dao 广州=guang'zhou 时=shi ~， 因不懂=yin'bu'dong 广州话=guang'zhou'hua ~， 常常=chang'chang 闹笑话=nao'xiao'hua ~。
+t5085546	t5085546	warmup	我只知道那个绅士的名字。	我=wo 只=zhi 知道=zhi'dao 那个=na'ge 绅士=shen'shi 的=de 名字=ming'zi ~。
+t334173	t334173	warmup	"妈妈，我能吃一块饼干吗？" "不行，不该在3餐间吃。"	~" 妈妈=ma'ma ~， 我能=wo'neng 吃=chi 一块=yi'kuai 饼干=bing'gan 吗=ma ~？ ~" ~" 不行=bu'xing ~， 不该=bu'gai 在=zai ~3 餐间=can'jian 吃=chi ~。 ~"
+t13370299	t13370299	warmup	汤姆不知道我是谁	汤姆=tang'mu 不=bu 知道=zhi'dao 我=wo 是=shi 谁=shui
+t13862513	t13862513	warmup	汤姆六点前没起床。	汤姆=tang'mu 六点=liu'dian 前=qian 没=mei 起床=qi'chuang ~。
+t789557	t789557	warmup	我们处理第二个问题吧。	我们=wo'men 处理=chu'li 第二个=di'er'ge 问题=wen'ti 吧=ba ~。
+t10019600	t10019600	warmup	我们得依靠自己。	我们=wo'men 得=de 依靠=yi'kao 自己=zi'ji ~。
+t9475950	t9475950	warmup	我们要现在做。	我们=wo'men 要=yao 现在=xian'zai 做=zuo ~。
+t335319	t335319	warmup	我被他英语的快速进步惊呆了。	我=wo 被=bei 他=ta 英语=ying'yu 的=de 快速=kuai'su 进步=jin'bu 惊呆=jing'dai 了=le ~。
+t3377915	t3377915	warmup	这张画上有两瓶红葡萄酒。	这张=zhe'zhang 画=hua 上=shang 有=you 两瓶=liang'ping 红葡萄酒=hong'pu'tao'jiu ~。
+t8884444	t8884444	warmup	就到此为止吧。	就=jiu 到此为止=dao'ci'wei'zhi 吧=ba ~。
+t791442	t791442	warmup	他考试通过了吗？	他=ta 考试=kao'shi 通过=tong'guo 了=le 吗=ma ~？
+t487691	t487691	warmup	你好。您想要什么吃的吗？	你好=ni'hao ~。 您=nin 想要=xiang'yao 什么=shen'me 吃=chi 的=de 吗=ma ~？
+t1778304	t1778304	warmup	你和我一样高。	你=ni 和=he 我=wo 一样=yi'yang 高=gao ~。
+t899973	t899973	warmup	有些人害怕婚姻。	有些=you'xie 人=ren 害怕=hai'pa 婚姻=hun'yin ~。
+t1456464	t1456464	warmup	我爸爸必须完成这个工作	我=wo 爸爸=ba'ba 必须=bi'xu 完成=wan'cheng 这个=zhe'ge 工作=gong'zuo
+t345760	t345760	warmup	他绞尽脑汁想办法搞定这件事。	他=ta 绞尽脑汁=jiao'jin'nao'zhi 想=xiang 办法=ban'fa 搞定=gao'ding 这件=zhe'jian 事=shi ~。
+t3697923	t3697923	warmup	如果明天下雨的话，我们就不去。	如果=ru'guo 明天=ming'tian 下雨=xia'yu 的话=de'hua ~， 我们=wo'men 就=jiu 不=bu 去=qu ~。
+t8899430	t8899430	warmup	别忘记浇植物。	别忘记=bie'wang'ji 浇=jiao 植物=zhi'wu ~。
+t8215704	t8215704	warmup	她抱了他。	她=ta 抱=bao 了=le 他=ta ~。
+t5556160	t5556160	warmup	我接到了她的电话。	我=wo 接到=jie'dao 了=le 她=ta 的=de 电话=dian'hua ~。
+t686606	t686606	warmup	很多学生买了这本书。	很多=hen'duo 学生=xue'sheng 买=mai 了=le 这=zhe 本书=ben'shu ~。
+t5091616	t5091616	warmup	汤姆很胖，是吧？	汤姆=tang'mu 很胖=hen'pang ~， 是=shi 吧=ba ~？
+t435375	t435375	warmup	还剩一点水。	还=hai 剩=sheng 一点=yi'dian 水=shui ~。
+t2082994	t2082994	warmup	你应当知道要读什么。	你=ni 应当=ying'dang 知道=zhi'dao 要读=yao'du 什么=shen'me ~。
+t606847	t606847	warmup	我们和简交了朋友。	我们=wo'men 和=he 简交=jian'jiao 了=le 朋友=peng'you ~。
+t466163	t466163	warmup	椅子离门很近。	椅子=yi'zi 离门=li'men 很=hen 近=jin ~。
+t6082398	t6082398	warmup	她为啥如此恼怒？	她=ta 为啥=wei'sha 如此=ru'ci 恼怒=nao'nu ~？
+t1363290	t1363290	warmup	你什么时候回意大利？	你=ni 什么=shen'me 时候=shi'hou 回=hui 意大利=yi'da'li ~？
+t2411909	t2411909	warmup	她受得了长途旅行吗？	她=ta 受得了=shou'de'liao 长途旅行=chang'tu'lv'xing 吗=ma ~？
+t13881437	t13881437	warmup	法德玛不想让我把词典拿来。	法德玛=fa'de'ma 不想=bu'xiang 让=rang 我=wo 把=ba 词典=ci'dian 拿来=na'lai ~。
+t2050888	t2050888	warmup	护士给汤姆测了体温。	护士=hu'shi 给=gei 汤姆=tang'mu 测=ce 了=le 体温=ti'wen ~。
+t503053	t503053	warmup	但你从没跟我说过！	但=dan 你=ni 从没=cong'mei 跟=gen 我=wo 说=shuo 过=guo ~！
+t421258	t421258	warmup	让标准路标和规范文字说话。	让=rang 标准=biao'zhun 路标=lu'biao 和=he 规范=gui'fan 文字=wen'zi 说话=shuo'hua ~。
+t8860570	t8860570	warmup	她不忙，对吗？	她=ta 不忙=bu'mang ~， 对=dui 吗=ma ~？
+t1019288	t1019288	warmup	他们懂了吗？	他们=ta'men 懂=dong 了=le 吗=ma ~？
+t6307283	t6307283	warmup	我很小的时候就游得很好了。	我=wo 很小=hen'xiao 的=de 时候=shi'hou 就=jiu 游得=you'de 很=hen 好=hao 了=le ~。
+t466270	t466270	warmup	他的衣服穿坏了。	他=ta 的=de 衣服=yi'fu 穿坏=chuan'huai 了=le ~。
+t335627	t335627	warmup	医生发现了一些令人吃惊的事实。	医生=yi'sheng 发现=fa'xian 了=le 一些=yi'xie 令人吃惊=ling'ren'chi'jing 的=de 事实=shi'shi ~。
+t802869	t802869	warmup	那你就是不懂这句句子咯？	那=na 你=ni 就是=jiu'shi 不=bu 懂=dong 这=zhe 句句=ju'ju 子咯=zi'ge ~？
+t10552163	t10552163	warmup	让我们一醉方休吧！	让=rang 我们=wo'men 一醉方休=yi'zui'fang'xiu 吧=ba ~！
+t401016	t401016	warmup	大家都知道他在战争中失去了他的腿。	大家=da'jia 都=dou 知道=zhi'dao 他=ta 在=zai 战争=zhan'zheng 中=zhong 失去=shi'qu 了=le 他=ta 的=de 腿=tui ~。
+t1423341	t1423341	warmup	她差不多有20岁。	她=ta 差不多=cha'bu'duo 有=you ~20 岁=sui ~。
+t8936662	t8936662	warmup	你应该用一下除臭剂。	你=ni 应该=ying'gai 用=yong 一下=yi'xia 除臭剂=chu'chou'ji ~。
+t3648022	t3648022	warmup	人们对于这场事故有很多种说法。	人们=ren'men 对于=dui'yu 这场=zhe'chang 事故=shi'gu 有=you 很=hen 多种=duo'zhong 说法=shuo'fa ~。
+t3630317	t3630317	warmup	感谢帮我删除。我十分了解自己的错误了。	感谢=gan'xie 帮=bang 我=wo 删除=shan'chu ~。 我=wo 十分=shi'fen 了解=liao'jie 自己=zi'ji 的=de 错误=cuo'wu 了=le ~。
+t13507625	t13507625	warmup	今天要不要去我家看看？	今天=jin'tian 要=yao 不要=bu'yao 去=qu 我家=wo'jia 看看=kan'kan ~？
+t9779526	t9779526	warmup	汤姆决定留在澳洲。	汤姆=tang'mu 决定=jue'ding 留在=liu'zai 澳洲=ao'zhou ~。
+t6402749	t6402749	warmup	这个周末你有空吗?	这个=zhe'ge 周末=zhou'mo 你=ni 有空=you'kong 吗=ma ~?
+t502975	t502975	warmup	守财奴积聚钱财不是因为他谨慎，而是因为他贪婪。	守财奴=shou'cai'nu 积聚=ji'ju 钱财=qian'cai 不是=bu'shi 因为=yin'wei 他=ta 谨慎=jin'shen ~， 而是=er'shi 因为=yin'wei 他=ta 贪婪=tan'lan ~。
+t2301867	t2301867	warmup	我已经有一个月没她的消息了。	我=wo 已经=yi'jing 有=you 一个月=yi'ge'yue 没=mei 她=ta 的=de 消息=xiao'xi 了=le ~。
+t420768	t420768	warmup	你看买点什么东西给他吃？	你=ni 看=kan 买点=mai'dian 什么=shen'me 东西=dong'xi 给=gei 他=ta 吃=chi ~？
+t1397046	t1397046	warmup	她现在应该已经到家了。	她=ta 现在=xian'zai 应该=ying'gai 已经=yi'jing 到家=dao'jia 了=le ~。
+t5613635	t5613635	warmup	我不能马上跟他们说话。	我=wo 不能=bu'neng 马上=ma'shang 跟=gen 他们=ta'men 说话=shuo'hua ~。
+t2680390	t2680390	warmup	我已经不带眼镜了。	我=wo 已经=yi'jing 不带=bu'dai 眼镜=yan'jing 了=le ~。
+t1984991	t1984991	warmup	我今天走了十公里。	我=wo 今天=jin'tian 走=zou 了=le 十公里=shi'gong'li ~。
+t2485285	t2485285	warmup	2月只有28天。	~2 月=yue 只有=zhi'you ~28 天=tian ~。
+t6774617	t6774617	warmup	汤姆有办法自己把问题解决了。	汤姆=tang'mu 有=you 办法=ban'fa 自己=zi'ji 把=ba 问题=wen'ti 解决=jie'jue 了=le ~。
+t14057676	t14057676	warmup	你能每天早上叫我起床吗？	你=ni 能=neng 每天=mei'tian 早上=zao'shang 叫=jiao 我=wo 起床=qi'chuang 吗=ma ~？
+t395140	t395140	warmup	你自己应该知道吧。	你=ni 自己=zi'ji 应该=ying'gai 知道=zhi'dao 吧=ba ~。
+t4262118	t4262118	warmup	纽约的街道很宽。	纽约=niu'yue 的=de 街道=jie'dao 很=hen 宽=kuan ~。
+t1416197	t1416197	warmup	北京欢迎你。	北京=bei'jing 欢迎=huan'ying 你=ni ~。
+t345956	t345956	warmup	我妹妹的房间总是整整齐齐的。	我=wo 妹妹=mei'mei 的=de 房间=fang'jian 总是=zong'shi 整整齐齐=zheng'zheng'qi'qi 的=de ~。
+t469298	t469298	warmup	我很惊讶您竟然那么天真。	我=wo 很=hen 惊讶=jing'ya 您=nin 竟然=jing'ran 那么=na'me 天真=tian'zhen ~。
+t10538616	t10538616	warmup	汤姆只是在装没兴趣。	汤姆=tang'mu 只是=zhi'shi 在=zai 装=zhuang 没=mei 兴趣=xing'qu ~。
+t808214	t808214	warmup	我买了单。	我=wo 买=mai 了=le 单=dan ~。
+t2456053	t2456053	warmup	暑假？暑假是什么意思啊？	暑假=shu'jia ~？ 暑假=shu'jia 是=shi 什么=shen'me 意思=yi'si 啊=a ~？
+t9007338	t9007338	warmup	你觉得汤姆打算做什么？	你=ni 觉得=jue'de 汤姆=tang'mu 打算=da'suan 做=zuo 什么=shen'me ~？
+t719764	t719764	warmup	她老是弄丢她的手帕。	她=ta 老=lao 是=shi 弄=nong 丢=diu 她=ta 的=de 手帕=shou'pa ~。
+t805006	t805006	warmup	你本不该透露秘密的。	你=ni 本=ben 不该=bu'gai 透露=tou'lu 秘密=mi'mi 的=de ~。
+t753256	t753256	warmup	把我的心给你。	把=ba 我=wo 的=de 心=xin 给=gei 你=ni ~。
+t2076291	t2076291	warmup	我认为我明白了。	我=wo 认为=ren'wei 我=wo 明白=ming'bai 了=le ~。
+t12520688	t12520688	warmup	啊，我忘了带手机了。	啊=a ~， 我=wo 忘=wang 了=le 带=dai 手机=shou'ji 了=le ~。
+t461684	t461684	warmup	请给我一张街道地图好吗？	请=qing 给=gei 我=wo 一张=yi'zhang 街道=jie'dao 地图=di'tu 好=hao 吗=ma ~？
+t2889808	t2889808	warmup	昨天我的手表被偷了。	昨天=zuo'tian 我=wo 的=de 手表=shou'biao 被=bei 偷=tou 了=le ~。
+t346122	t346122	warmup	工作了一天之后，大家都急着回家。	工作=gong'zuo 了=le 一天=yi'tian 之后=zhi'hou ~， 大家=da'jia 都=dou 急=ji 着=zhe 回家=hui'jia ~。
+t10644822	t10644822	warmup	我更想跟你在一起。	我=wo 更=geng 想=xiang 跟=gen 你=ni 在=zai 一起=yi'qi ~。
+t389349	t389349	warmup	我叫人把我的自行车修好了。	我=wo 叫=jiao 人=ren 把=ba 我=wo 的=de 自行车=zi'xing'che 修好=xiu'hao 了=le ~。
+t13893779	t13893779	warmup	我总是会在表格的最后一列留下备注。	我=wo 总是=zong'shi 会=hui 在=zai 表格=biao'ge 的=de 最后=zui'hou 一列=yi'lie 留下=liu'xia 备注=bei'zhu ~。
+t3690032	t3690032	warmup	山坡让滔滔的洪水往西流。	山坡=shan'po 让=rang 滔滔=tao'tao 的=de 洪水=hong'shui 往=wang 西流=xi'liu ~。
+t1045391	t1045391	warmup	三天一直下雨。	三天=san'tian 一直=yi'zhi 下雨=xia'yu ~。
+t420234	t420234	warmup	我们还有做面膜、修眉毛、蒸面、香熏、指掐贴花、皮肤护理什么的。	我们=wo'men 还有=hai'you 做=zuo 面膜=mian'mo ~、 修=xiu 眉毛=mei'mao ~、 蒸面=zheng'mian ~、 香熏=xiang'xun ~、 指=zhi 掐=qia 贴花=tie'hua ~、 皮肤=pi'fu 护理=hu'li 什么=shen'me 的=de ~。
+t1776587	t1776587	warmup	他的长相与年龄不符。	他=ta 的=de 长相=zhang'xiang 与=yu 年龄=nian'ling 不符=bu'fu ~。
+t523613	t523613	warmup	嗯，仅此而已。	嗯=en ~， 仅此而已=jin'ci'er'yi ~。
+t348250	t348250	warmup	这件事人人都知道。	这件=zhe'jian 事=shi 人人=ren'ren 都=dou 知道=zhi'dao ~。
+t349702	t349702	warmup	你常见到她吗？	你=ni 常见=chang'jian 到=dao 她=ta 吗=ma ~？
+t332522	t332522	warmup	你最好打消这么可笑的念头。	你=ni 最好=zui'hao 打消=da'xiao 这么=zhe'me 可笑=ke'xiao 的=de 念头=nian'tou ~。
+t792851	t792851	warmup	他的话就是命令。	他=ta 的话=de'hua 就是=jiu'shi 命令=ming'ling ~。
+t1443614	t1443614	warmup	没有上下文就没有词义。	没有=mei'you 上下文=shang'xia'wen 就=jiu 没有=mei'you 词义=ci'yi ~。
+t814218	t814218	warmup	为了改进学生的学习态度，学校让他们晚一个小时来上课。	为了=wei'le 改进=gai'jin 学生=xue'sheng 的=de 学习态度=xue'xi'tai'du ~， 学校=xue'xiao 让=rang 他们=ta'men 晚=wan 一个=yi'ge 小时=xiao'shi 来=lai 上课=shang'ke ~。
+t5698022	t5698022	warmup	汤姆想坐下。	汤姆=tang'mu 想=xiang 坐下=zuo'xia ~。
+t5102329	t5102329	warmup	静静的，别动。	静静的=jing'jing'de ~， 别动=bie'dong ~。
+t918498	t918498	warmup	公园在什么方向？	公园=gong'yuan 在=zai 什么=shen'me 方向=fang'xiang ~？
+t9992068	t9992068	warmup	我刚刚发了一篇文章。	我=wo 刚刚=gang'gang 发了=fa'le 一篇=yi'pian 文章=wen'zhang ~。
+t7768280	t7768280	warmup	Libusza是个美丽、聪慧的姑娘。我是她最好的朋友。	~Libusza 是=shi 个=ge 美丽=mei'li ~、 聪慧=cong'hui 的=de 姑娘=gu'niang ~。 我=wo 是=shi 她=ta 最好=zui'hao 的=de 朋友=peng'you ~。
+t1186920	t1186920	warmup	把烧水壶立起来。	把=ba 烧=shao 水壶=shui'hu 立=li 起来=qi'lai ~。
+t11837154	t11837154	warmup	你对新工作感觉怎么样？	你=ni 对=dui 新=xin 工作=gong'zuo 感觉=gan'jue 怎么样=zen'me'yang ~？
+t373431	t373431	warmup	我需要几个衣架。	我=wo 需要=xu'yao 几个=ji'ge 衣架=yi'jia ~。
+t12686959	t12686959	warmup	他宣布与她订婚。	他=ta 宣布=xuan'bu 与=yu 她=ta 订婚=ding'hun ~。
+t1330014	t1330014	warmup	白天变得越来越长。	白天=bai'tian 变得=bian'de 越来越=yue'lai'yue 长=chang ~。
+t348610	t348610	warmup	俺不弹钢琴。	俺=an 不=bu 弹钢琴=tan'gang'qin ~。
+t727372	t727372	warmup	世界上已经够热的地方会变得让人无法忍受。	世界=shi'jie 上=shang 已经=yi'jing 够=gou 热=re 的=de 地方=di'fang 会=hui 变得=bian'de 让=rang 人=ren 无法忍受=wu'fa'ren'shou ~。
+t349543	t349543	warmup	她的英语掌握得很熟练。	她=ta 的=de 英语=ying'yu 掌握=zhang'wo 得=de 很=hen 熟练=shu'lian ~。
+t332863	t332863	warmup	这男人和他妻子互相帮助。	这=zhe 男人=nan'ren 和=he 他=ta 妻子=qi'zi 互相帮助=hu'xiang'bang'zhu ~。
+t9179881	t9179881	warmup	我坐船去。	我=wo 坐船去=zuo'chuan'qu ~。
+t727503	t727503	warmup	这个给我来三个。	这个=zhe'ge 给=gei 我=wo 来=lai 三个=san'ge ~。
+t8854613	t8854613	warmup	你为什么还在学校？	你=ni 为什么=wei'shen'me 还=hai 在=zai 学校=xue'xiao ~？
+t4459723	t4459723	warmup	克莱恩女士虽已至耄耋之年，但仍然很活泼。	克莱恩=ke'lai'en 女士=nv'shi 虽=sui 已=yi 至=zhi 耄耋之年=mao'die'zhi'nian ~， 但=dan 仍然=reng'ran 很=hen 活泼=huo'po ~。
+t8689164	t8689164	warmup	如果你不想的话你不必告诉我。	如果=ru'guo 你=ni 不想=bu'xiang 的话=de'hua 你=ni 不必=bu'bi 告诉=gao'su 我=wo ~。
+t3579562	t3579562	warmup	因为下雨了，球场上没有很多观众。	因为=yin'wei 下雨=xia'yu 了=le ~， 球场上=qiu'chang'shang 没有=mei'you 很多=hen'duo 观众=guan'zhong ~。
+t438509	t438509	warmup	我们以为他在二战中被杀了。	我们=wo'men 以为=yi'wei 他=ta 在=zai 二战=er'zhan 中=zhong 被=bei 杀=sha 了=le ~。
+t13890357	t13890357	warmup	我觉得问题不在汤姆身上。	我=wo 觉得=jue'de 问题=wen'ti 不=bu 在=zai 汤姆=tang'mu 身上=shen'shang ~。
+t3667876	t3667876	warmup	从我家可以看到那座塔。	从=cong 我家=wo'jia 可以=ke'yi 看到=kan'dao 那座=na'zuo 塔=ta ~。
+t462095	t462095	warmup	她刚结束，就躺下打了个盹儿。	她=ta 刚=gang 结束=jie'shu ~， 就=jiu 躺=tang 下=xia 打了个=da'le'ge 盹儿=dun'er ~。
+t7768295	t7768295	warmup	我们有多远了？	我们=wo'men 有多远=you'duo'yuan 了=le ~？
+t334800	t334800	warmup	他的左手被刀割伤了。	他=ta 的=de 左手=zuo'shou 被=bei 刀割=dao'ge 伤=shang 了=le ~。
+t11380938	t11380938	warmup	三行字，就差一个句号。 这分数掉的可惜。	三行=san'hang 字=zi ~， 就=jiu 差=cha 一个=yi'ge 句号=ju'hao ~。 这=zhe 分数=fen'shu 掉=diao 的=de 可惜=ke'xi ~。
+t3537583	t3537583	warmup	令人遗憾的是，他并没有在决赛发挥他的最佳水平。	令人遗憾=ling'ren'yi'han 的=de 是=shi ~， 他=ta 并=bing 没有=mei'you 在=zai 决赛=jue'sai 发挥=fa'hui 他=ta 的=de 最佳=zui'jia 水平=shui'ping ~。
+t8853797	t8853797	warmup	我阅读了巴西的总统是个女人。她的名字是迪尔玛。	我=wo 阅读=yue'du 了=le 巴西=ba'xi 的=de 总统=zong'tong 是=shi 个=ge 女人=nv'ren ~。 她=ta 的=de 名字=ming'zi 是=shi 迪尔玛=di'er'ma ~。
+t349261	t349261	warmup	能见到你我很高兴。	能=neng 见到=jian'dao 你=ni 我=wo 很=hen 高兴=gao'xing ~。
+t7773245	t7773245	warmup	父亲的英语讲得比妈妈好。	父亲=fu'qin 的=de 英语=ying'yu 讲得=jiang'de 比=bi 妈妈=ma'ma 好=hao ~。
+t332721	t332721	warmup	这箱子是空的，里面什么也没有。	这=zhe 箱子=xiang'zi 是=shi 空=kong 的=de ~， 里面=li'mian 什么=shen'me 也=ye 没有=mei'you ~。
+t9489502	t9489502	warmup	我看到汤姆进来。	我=wo 看到=kan'dao 汤姆=tang'mu 进来=jin'lai ~。
+t609882	t609882	warmup	你觉得明天天气会变好吗？	你=ni 觉得=jue'de 明天=ming'tian 天气=tian'qi 会变=hui'bian 好=hao 吗=ma ~？
+t2456088	t2456088	warmup	印刷术是哪年发明的？	印刷术=yin'shua'shu 是=shi 哪=na 年=nian 发明=fa'ming 的=de ~？
+t1946806	t1946806	warmup	爱拼才会赢。	爱=ai 拼=pin 才会赢=cai'hui'ying ~。
+t677981	t677981	warmup	你还是去看医生比较好。	你=ni 还是=hai'shi 去=qu 看=kan 医生=yi'sheng 比较=bi'jiao 好=hao ~。
+t5624136	t5624136	warmup	丹想让你知道他不恨你。	丹想=dan'xiang 让=rang 你=ni 知道=zhi'dao 他=ta 不=bu 恨=hen 你=ni ~。
+t334830	t334830	warmup	你怎么会不知道？	你=ni 怎么=zen'me 会=hui 不=bu 知道=zhi'dao ~？
+t9467057	t9467057	warmup	这是你的命运。	这=zhe 是=shi 你=ni 的=de 命运=ming'yun ~。
+t345396	t345396	warmup	海洋不是将世界分隔开来，而是将世界连接起来	海洋=hai'yang 不是=bu'shi 将=jiang 世界=shi'jie 分隔=fen'ge 开来=kai'lai ~， 而是=er'shi 将=jiang 世界=shi'jie 连接起来=lian'jie'qi'lai
+t2393835	t2393835	warmup	他们正向森林而去。	他们=ta'men 正向=zheng'xiang 森林=sen'lin 而=er 去=qu ~。
+t472958	t472958	warmup	请发一张您的照片给我。	请发=qing'fa 一张=yi'zhang 您=nin 的=de 照片=zhao'pian 给=gei 我=wo ~。
+t10019733	t10019733	warmup	虽然他是中国人，但他不会说中文。	虽然=sui'ran 他=ta 是=shi 中国=zhong'guo 人=ren ~， 但=dan 他=ta 不会=bu'hui 说=shuo 中文=zhong'wen ~。
+t8975256	t8975256	warmup	汤姆年轻时从不那么干。	汤姆=tang'mu 年轻=nian'qing 时=shi 从不=cong'bu 那么=na'me 干=gan ~。
+t5114116	t5114116	warmup	请一定要来。	请=qing 一定=yi'ding 要=yao 来=lai ~。
+t4546866	t4546866	warmup	我对他太失望了。	我=wo 对=dui 他=ta 太=tai 失望=shi'wang 了=le ~。
+t348880	t348880	warmup	劳驾把门关上好吗？	劳驾=lao'jia 把门=ba'men 关上=guan'shang 好=hao 吗=ma ~？
+t3783463	t3783463	warmup	那边的两位女士是谁？	那边=na'bian 的=de 两位=liang'wei 女士=nv'shi 是=shi 谁=shui ~？
+t437944	t437944	warmup	当你不知道一个词的意思的时候，你应该查一下字典。	当=dang 你=ni 不=bu 知道=zhi'dao 一个=yi'ge 词=ci 的=de 意思=yi'si 的=de 时候=shi'hou ~， 你=ni 应该=ying'gai 查=cha 一下=yi'xia 字典=zi'dian ~。
+t11828490	t11828490	warmup	把这钱拿上。	把=ba 这=zhe 钱=qian 拿=na 上=shang ~。
+t756862	t756862	warmup	我想去医院做一个全面的检查。	我=wo 想=xiang 去=qu 医院=yi'yuan 做=zuo 一个=yi'ge 全面=quan'mian 的=de 检查=jian'cha ~。
+t3081250	t3081250	warmup	我们休息下喝杯咖啡吧。	我们=wo'men 休息=xiu'xi 下=xia 喝杯=he'bei 咖啡吧=ka'fei'ba ~。
+t10484114	t10484114	warmup	他没有逃走。	他=ta 没有=mei'you 逃走=tao'zou ~。
+t891014	t891014	warmup	她多停留了五天。	她=ta 多=duo 停留=ting'liu 了=le 五天=wu'tian ~。
+t5094003	t5094003	warmup	汤姆鬼鬼祟祟地溜近了玛丽身后。	汤姆=tang'mu 鬼鬼祟祟=gui'gui'sui'sui 地溜近=de'liu'jin 了=le 玛丽=ma'li 身后=shen'hou ~。
+t472838	t472838	warmup	当我看到他的时候，我想到了我的祖父。	当=dang 我=wo 看到=kan'dao 他=ta 的=de 时候=shi'hou ~， 我=wo 想到=xiang'dao 了=le 我=wo 的=de 祖父=zu'fu ~。
+t454596	t454596	warmup	我们的生活不是由物质，而是由精神来决定的。	我们=wo'men 的=de 生活=sheng'huo 不是=bu'shi 由=you 物质=wu'zhi ~， 而是=er'shi 由=you 精神=jing'shen 来=lai 决定=jue'ding 的=de ~。
+t8744726	t8744726	warmup	汤姆在可疑的网站上看视频的时候中了电脑病毒。	汤姆=tang'mu 在=zai 可疑=ke'yi 的=de 网站=wang'zhan 上=shang 看=kan 视频=shi'pin 的=de 时候=shi'hou 中=zhong 了=le 电脑病毒=dian'nao'bing'du ~。
+t9423282	t9423282	warmup	萨米的小鸟会重复它所听过的字。	萨米=sa'mi 的=de 小鸟=xiao'niao 会=hui 重复=chong'fu 它=ta 所=suo 听=ting 过=guo 的=de 字=zi ~。
+t512861	t512861	warmup	为什么你不学法语？	为什么=wei'shen'me 你=ni 不=bu 学法语=xue'fa'yu ~？
+t10688779	t10688779	warmup	意第绪语不是德语。	意=yi 第绪语=di'xu'yu 不是=bu'shi 德语=de'yu ~。
+t14038309	t14038309	warmup	算我欠你的。	算=suan 我=wo 欠=qian 你=ni 的=de ~。
+t736516	t736516	warmup	我的叔叔在这个办公室里工作。	我=wo 的=de 叔叔=shu'shu 在=zai 这个=zhe'ge 办公室=ban'gong'shi 里=li 工作=gong'zuo ~。
+t10552168	t10552168	warmup	您回答了什么？	您=nin 回答=hui'da 了=le 什么=shen'me ~？
+t743443	t743443	warmup	我们在种苞谷。	我们=wo'men 在=zai 种=zhong 苞谷=bao'gu ~。
+t7781753	t7781753	warmup	一个绝妙的想法浮现在他的脑海。	一个=yi'ge 绝妙=jue'miao 的=de 想法=xiang'fa 浮现=fu'xian 在=zai 他=ta 的=de 脑海=nao'hai ~。
+t9987046	t9987046	warmup	我得去眼镜店配眼镜。	我=wo 得=de 去=qu 眼镜店=yan'jing'dian 配眼镜=pei'yan'jing ~。
+t8756340	t8756340	warmup	汤姆先生不需要道歉的。	汤姆=tang'mu 先生=xian'sheng 不=bu 需要=xu'yao 道歉=dao'qian 的=de ~。
+t420440	t420440	warmup	两个，我们住标准房吧，多少钱一个晚上？	两个=liang'ge ~， 我们=wo'men 住=zhu 标准=biao'zhun 房=fang 吧=ba ~， 多少=duo'shao 钱=qian 一个=yi'ge 晚上=wan'shang ~？
+t840601	t840601	warmup	艾美想穿戴新的衣物。	艾美想=ai'mei'xiang 穿戴=chuan'dai 新=xin 的=de 衣物=yi'wu ~。
+t3698022	t3698022	warmup	孩子不能太惯了。	孩子=hai'zi 不能=bu'neng 太惯=tai'guan 了=le ~。
+t5570655	t5570655	warmup	不用担心	不用=bu'yong 担心=dan'xin
+t3657298	t3657298	warmup	你什么时候爱上我的？	你=ni 什么=shen'me 时候=shi'hou 爱上=ai'shang 我=wo 的=de ~？
+t335226	t335226	warmup	他误服了毒药。	他=ta 误服=wu'fu 了=le 毒药=du'yao ~。
+t14039614	t14039614	warmup	我住在便利店附近。	我=wo 住=zhu 在=zai 便利店=bian'li'dian 附近=fu'jin ~。
+t420546	t420546	warmup	自己可以在桌面上拿。	自己=zi'ji 可以=ke'yi 在=zai 桌面上=zhuo'mian'shang 拿=na ~。
+t760397	t760397	warmup	他走在我的面前。	他=ta 走=zou 在=zai 我=wo 的=de 面前=mian'qian ~。
+t9955971	t9955971	warmup	她去年环球旅行。	她=ta 去年=qu'nian 环球旅行=huan'qiu'lv'xing ~。
+t8926995	t8926995	warmup	汤姆说过，如果我想要的话他可以把这本书给我。	汤姆=tang'mu 说=shuo 过=guo ~， 如果=ru'guo 我=wo 想要=xiang'yao 的话=de'hua 他=ta 可以=ke'yi 把=ba 这=zhe 本书=ben'shu 给=gei 我=wo ~。
+t5829620	t5829620	warmup	你指的是哪个？	你=ni 指=zhi 的=de 是=shi 哪个=na'ge ~？
+t7772584	t7772584	warmup	汤姆从他的自行车上掉了下来。	汤姆=tang'mu 从=cong 他=ta 的=de 自行车=zi'xing'che 上=shang 掉=diao 了=le 下来=xia'lai ~。
+t438487	t438487	warmup	他的眼睛是蓝色的。	他=ta 的=de 眼睛=yan'jing 是=shi 蓝色=lan'se 的=de ~。
+t11231389	t11231389	warmup	这场暴风雨并不危险。你不用担心。	这场=zhe'chang 暴风雨=bao'feng'yu 并=bing 不=bu 危险=wei'xian ~。 你=ni 不用=bu'yong 担心=dan'xin ~。
+t10737578	t10737578	warmup	她说她喜欢动物。	她=ta 说=shuo 她=ta 喜欢=xi'huan 动物=dong'wu ~。
+t344800	t344800	warmup	谁把我的皮包拿走了？	谁=shui 把=ba 我=wo 的=de 皮包=pi'bao 拿走=na'zou 了=le ~？
+t11136308	t11136308	warmup	不需要去理解女人，但是要认同和爱她们。	不=bu 需要=xu'yao 去=qu 理解=li'jie 女人=nv'ren ~， 但是=dan'shi 要=yao 认同=ren'tong 和=he 爱=ai 她们=ta'men ~。
+t8845369	t8845369	warmup	我的女儿感冒了。	我=wo 的=de 女儿=nv'er 感冒=gan'mao 了=le ~。
+t420472	t420472	warmup	还有两站下去。	还有=hai'you 两站=liang'zhan 下去=xia'qu ~。
+t2200475	t2200475	warmup	他们七年前在西班牙认识的。	他们=ta'men 七年=qi'nian 前=qian 在=zai 西班牙=xi'ban'ya 认识=ren'shi 的=de ~。
+t2047755	t2047755	warmup	我担心他有生命危险。	我=wo 担心=dan'xin 他=ta 有=you 生命危险=sheng'ming'wei'xian ~。
+t9956675	t9956675	warmup	我们保证我们不会再做了。	我们=wo'men 保证=bao'zheng 我们=wo'men 不会=bu'hui 再=zai 做=zuo 了=le ~。
+t10752755	t10752755	warmup	汤姆嫉妒吗？	汤姆=tang'mu 嫉妒=ji'du 吗=ma ~？
+t1708814	t1708814	warmup	先把浴袍穿起来。	先=xian 把=ba 浴袍=yu'pao 穿=chuan 起来=qi'lai ~。
+t1516209	t1516209	warmup	请务必确认门是锁着的。	请=qing 务必=wu'bi 确认=que'ren 门=men 是=shi 锁=suo 着=zhe 的=de ~。
+t6076159	t6076159	warmup	麦克以建议的口气说了些话。	麦克=mai'ke 以=yi 建议=jian'yi 的=de 口气=kou'qi 说=shuo 了=le 些=xie 话=hua ~。
+t5842641	t5842641	warmup	汤姆非常勇敢，不是么？	汤姆=tang'mu 非常=fei'chang 勇敢=yong'gan ~， 不是=bu'shi 么=me ~？
+t6218394	t6218394	warmup	我有一个挺蠢的问题。	我=wo 有=you 一个=yi'ge 挺蠢=ting'chun 的=de 问题=wen'ti ~。
+t5624927	t5624927	warmup	我认为汤姆准备好了。	我=wo 认为=ren'wei 汤姆=tang'mu 准备=zhun'bei 好=hao 了=le ~。
+t13972563	t13972563	warmup	圣哈辛托战役（德克萨斯州独立战争，1836.4.21）于下午4点打响。	圣哈辛托=sheng'ha'xin'tuo 战役=zhan'yi ~（ 德克萨斯州=de'ke'sa'si'zhou 独立战争=du'li'zhan'zheng ~， ~1836.4 ~. ~21 ~） 于=yu 下午=xia'wu ~4 点=dian 打响=da'xiang ~。
+t10969670	t10969670	warmup	我只是想要他开心。	我=wo 只是=zhi'shi 想要=xiang'yao 他=ta 开心=kai'xin ~。
+t782115	t782115	warmup	他去了伦敦，并在那儿待了一周。	他=ta 去=qu 了=le 伦敦=lun'dun ~， 并=bing 在=zai 那儿=na'er 待=dai 了=le 一周=yi'zhou ~。
+t860536	t860536	warmup	肯去年在日本。	肯=ken 去年=qu'nian 在=zai 日本=ri'ben ~。
+t10019736	t10019736	warmup	这是个令人担忧的问题。	这=zhe 是=shi 个=ge 令人担忧=ling'ren'dan'you 的=de 问题=wen'ti ~。
+t14015136	t14015136	warmup	当地人管这种动物叫什么？	当地人=dang'di'ren 管=guan 这种=zhe'zhong 动物=dong'wu 叫=jiao 什么=shen'me ~？
+t1759680	t1759680	warmup	这么好的男人去哪里找啊！	这么=zhe'me 好=hao 的=de 男人=nan'ren 去=qu 哪里找=na'li'zhao 啊=a ~！
+t462055	t462055	warmup	我相信汤姆是有道理的。	我=wo 相信=xiang'xin 汤姆=tang'mu 是=shi 有=you 道理=dao'li 的=de ~。
+t799256	t799256	warmup	许多事情靠的是结果。	许多=xu'duo 事情=shi'qing 靠=kao 的=de 是=shi 结果=jie'guo ~。
+t12253231	t12253231	warmup	我开心得不得了。	我=wo 开心=kai'xin 得=de 不得了=bu'de'liao ~。
+t4504252	t4504252	warmup	Tom每天早上去散步。	~Tom 每天=mei'tian 早上=zao'shang 去=qu 散步=san'bu ~。
+t9963251	t9963251	warmup	面粉是那些你始终应该储备在厨房里的产品之一。	面粉=mian'fen 是=shi 那些=na'xie 你=ni 始终=shi'zhong 应该=ying'gai 储备=chu'bei 在=zai 厨房=chu'fang 里=li 的=de 产品=chan'pin 之一=zhi'yi ~。
+t815031	t815031	warmup	她心灵手巧，又会弹古琴又会拉二胡。	她=ta 心灵手巧=xin'ling'shou'qiao ~， 又=you 会弹=hui'dan 古琴=gu'qin 又=you 会=hui 拉=la 二胡=er'hu ~。
+t4815178	t4815178	warmup	请不要告诉你父母。	请=qing 不要=bu'yao 告诉=gao'su 你=ni 父母=fu'mu ~。
+t10044036	t10044036	warmup	随便！两个我都喜欢。	随便=sui'bian ~！ 两个=liang'ge 我=wo 都=dou 喜欢=xi'huan ~。
+t10024470	t10024470	warmup	你什么样啊！	你=ni 什么样=shen'me'yang 啊=a ~！
+t8727927	t8727927	warmup	我扛着米袋。	我=wo 扛着=kang'zhe 米袋=mi'dai ~。
+t1235649	t1235649	warmup	如果你听到她讲的英语，你会以为她是美国人呢。	如果=ru'guo 你=ni 听到=ting'dao 她=ta 讲=jiang 的=de 英语=ying'yu ~， 你=ni 会=hui 以为=yi'wei 她=ta 是=shi 美国=mei'guo 人=ren 呢=ne ~。
+t10626685	t10626685	warmup	我也不知道为什么聚会被推迟了。	我=wo 也=ye 不=bu 知道=zhi'dao 为什么=wei'shen'me 聚会=ju'hui 被=bei 推迟=tui'chi 了=le ~。
+t5663546	t5663546	warmup	他们向她微笑。	他们=ta'men 向=xiang 她=ta 微笑=wei'xiao ~。
+t462016	t462016	warmup	差不多10点了。	差不多=cha'bu'duo ~10 点=dian 了=le ~。
+t1738296	t1738296	warmup	6的4倍是多少?	~6 的=de ~4 倍=bei 是=shi 多少=duo'shao ~?
+t476544	t476544	warmup	你会做你认为是对的事吗？	你=ni 会=hui 做=zuo 你=ni 认为=ren'wei 是=shi 对=dui 的=de 事=shi 吗=ma ~？
+t349675	t349675	warmup	我想见见她。	我=wo 想=xiang 见见=jian'jian 她=ta ~。
+t1883693	t1883693	warmup	老实说，我不太喜欢她。	老实=lao'shi 说=shuo ~， 我=wo 不=bu 太=tai 喜欢=xi'huan 她=ta ~。
+t2394790	t2394790	warmup	你能不能再冷静一点啊？你看上去真是太吓人了。	你=ni 能=neng 不能=bu'neng 再=zai 冷静=leng'jing 一点=yi'dian 啊=a ~？ 你=ni 看上去=kan'shang'qu 真是太=zhen'shi'tai 吓人=xia'ren 了=le ~。
+t5780598	t5780598	warmup	我认为我们有麻烦。	我=wo 认为=ren'wei 我们=wo'men 有=you 麻烦=ma'fan ~。
+t3383985	t3383985	warmup	如你所知，生命如同旅程。	如=ru 你=ni 所知=suo'zhi ~， 生命=sheng'ming 如同=ru'tong 旅程=lv'cheng ~。
+t408826	t408826	warmup	他一看见警察就逃走了。	他=ta 一=yi 看见=kan'jian 警察=jing'cha 就=jiu 逃走=tao'zou 了=le ~。
+t8800738	t8800738	warmup	我弟弟没有二郎那么高。	我=wo 弟弟=di'di 没有=mei'you 二郎=er'lang 那么=na'me 高=gao ~。
+t348017	t348017	warmup	那就靠你了。	那=na 就=jiu 靠你了=kao'ni'le ~。
+t13757115	t13757115	warmup	玛丽运气不好，对吧?	玛丽=ma'li 运气=yun'qi 不好=bu'hao ~， 对=dui 吧=ba ~?
+t3488702	t3488702	warmup	他弟弟很认真学习。	他=ta 弟弟=di'di 很=hen 认真学习=ren'zhen'xue'xi ~。
+t13994826	t13994826	warmup	我知道汤姆曾是你最好的朋友。	我=wo 知道=zhi'dao 汤姆=tang'mu 曾=ceng 是=shi 你=ni 最好=zui'hao 的=de 朋友=peng'you ~。
+t765182	t765182	warmup	工程要怎么见效？	工程=gong'cheng 要=yao 怎么=zen'me 见效=jian'xiao ~？
+t8591229	t8591229	warmup	我们应该不够时间在今天之内完成它。	我们=wo'men 应该=ying'gai 不够=bu'gou 时间=shi'jian 在=zai 今天=jin'tian 之内=zhi'nei 完成=wan'cheng 它=ta ~。
+t472818	t472818	warmup	企业管理不同于拥有一家企业。	企业=qi'ye 管理=guan'li 不同于=bu'tong'yu 拥有=yong'you 一家=yi'jia 企业=qi'ye ~。
+t1513420	t1513420	warmup	他是个万事通。	他=ta 是=shi 个=ge 万事通=wan'shi'tong ~。
+t345794	t345794	warmup	和我们一起来吧。	和=he 我们=wo'men 一=yi 起来=qi'lai 吧=ba ~。
+t348843	t348843	warmup	这个词的意思是什么？	这个=zhe'ge 词=ci 的=de 意思=yi'si 是=shi 什么=shen'me ~？
+t420300	t420300	warmup	叫个清蒸鲈鱼好呢，还是蚝油牛肉好？	叫个=jiao'ge 清蒸=qing'zheng 鲈鱼=lu'yu 好=hao 呢=ne ~， 还是=hai'shi 蚝油=hao'you 牛肉=niu'rou 好=hao ~？
+t2428190	t2428190	warmup	我在找会说葡萄牙语的人。	我=wo 在=zai 找会=zhao'hui 说=shuo 葡萄牙语=pu'tao'ya'yu 的=de 人=ren ~。
+t10966779	t10966779	warmup	你爱我吗？	你=ni 爱我吗=ai'wo'ma ~？
+t8746408	t8746408	warmup	这台电脑的屏幕很清晰。	这台=zhe'tai 电脑=dian'nao 的=de 屏幕=ping'mu 很=hen 清晰=qing'xi ~。
+t7773125	t7773125	warmup	我也在这儿上学。	我=wo 也=ye 在=zai 这儿=zhe'er 上学=shang'xue ~。
+t1872719	t1872719	warmup	所有的游戏都有一个最重要的共同点：它们都有规则。	所有=suo'you 的=de 游戏=you'xi 都=dou 有=you 一个=yi'ge 最=zui 重要=zhong'yao 的=de 共同点=gong'tong'dian ~： 它们=ta'men 都=dou 有=you 规则=gui'ze ~。
+t9839457	t9839457	warmup	一年之后他搬走了。	一年=yi'nian 之后=zhi'hou 他=ta 搬走=ban'zou 了=le ~。
+t332927	t332927	warmup	他是非不分。	他=ta 是非不分=shi'fei'bu'fen ~。
+t501364	t501364	warmup	你只会逃避生活问题。	你=ni 只会=zhi'hui 逃避=tao'bi 生活=sheng'huo 问题=wen'ti ~。
+t465008	t465008	warmup	你迷路了吗？	你=ni 迷路=mi'lu 了=le 吗=ma ~？
+t1466058	t1466058	warmup	良药苦口。	良药苦口=liang'yao'ku'kou ~。
+t2568742	t2568742	warmup	现在已经半夜了。	现在=xian'zai 已经=yi'jing 半夜=ban'ye 了=le ~。
+t5691286	t5691286	warmup	我们在法律面前要负责。	我们=wo'men 在=zai 法律=fa'lv 面前=mian'qian 要=yao 负责=fu'ze ~。
+t3378105	t3378105	warmup	我们班至少有三十个学生。	我们=wo'men 班=ban 至少=zhi'shao 有=you 三十个=san'shi'ge 学生=xue'sheng ~。
+t332953	t332953	warmup	他这个时候该到了。	他=ta 这个=zhe'ge 时候=shi'hou 该=gai 到=dao 了=le ~。
+t5650409	t5650409	warmup	你为什么这么害怕？	你=ni 为什么=wei'shen'me 这么=zhe'me 害怕=hai'pa ~？
+t4262143	t4262143	warmup	她在法律上和她丈夫离婚了。	她=ta 在=zai 法律=fa'lv 上=shang 和=he 她=ta 丈夫=zhang'fu 离婚=li'hun 了=le ~。
+t4885050	t4885050	warmup	我还可以再来吗？	我=wo 还=hai 可以=ke'yi 再来=zai'lai 吗=ma ~？
+t10014641	t10014641	warmup	只要你相信我，就可以赢。	只要=zhi'yao 你=ni 相信=xiang'xin 我=wo ~， 就=jiu 可以=ke'yi 赢=ying ~。
+t3060515	t3060515	warmup	你真是越来越漂亮了。	你=ni 真是=zhen'shi 越来越=yue'lai'yue 漂亮=piao'liang 了=le ~。
+t4267416	t4267416	warmup	我曾是班上最差的学生。	我=wo 曾=ceng 是=shi 班上=ban'shang 最差=zui'cha 的=de 学生=xue'sheng ~。
+t786009	t786009	warmup	那个歌手那么年轻就死了，多可惜啊！	那个=na'ge 歌手=ge'shou 那么=na'me 年轻=nian'qing 就=jiu 死=si 了=le ~， 多=duo 可惜=ke'xi 啊=a ~！
+t5842620	t5842620	warmup	对于我，我不反对。	对于=dui'yu 我=wo ~， 我=wo 不=bu 反对=fan'dui ~。
+t4264881	t4264881	warmup	图书馆位于城市中心。	图书馆=tu'shu'guan 位于=wei'yu 城市=cheng'shi 中心=zhong'xin ~。
+t8591274	t8591274	warmup	如无必要我也不会打的。	如=ru 无=wu 必要=bi'yao 我=wo 也=ye 不会=bu'hui 打=da 的=di ~。
+t3516392	t3516392	warmup	你今晚能不能到我家来？	你=ni 今晚=jin'wan 能=neng 不能=bu'neng 到=dao 我家=wo'jia 来=lai ~？
+t9987041	t9987041	warmup	我对方言很感兴趣。	我=wo 对=dui 方言=fang'yan 很感兴趣=hen'gan'xing'qu ~。
+t1786007	t1786007	warmup	我是一个好男孩。	我=wo 是=shi 一个=yi'ge 好=hao 男孩=nan'hai ~。
+t335123	t335123	warmup	春天和秋天，你更喜欢哪个？	春天=chun'tian 和=he 秋天=qiu'tian ~， 你=ni 更=geng 喜欢=xi'huan 哪个=na'ge ~？
+t10966742	t10966742	warmup	明天下午我在我爸爸的书店。	明天=ming'tian 下午=xia'wu 我=wo 在=zai 我=wo 爸爸=ba'ba 的=de 书店=shu'dian ~。
+t419948	t419948	warmup	你怎么这么要紧哪！	你=ni 怎么=zen'me 这么=zhe'me 要紧=yao'jin 哪=na ~！
+t2393769	t2393769	warmup	我们认为他很诚实。	我们=wo'men 认为=ren'wei 他=ta 很=hen 诚实=cheng'shi ~。
+t4267370	t4267370	warmup	我都跟你说过了，不要留吻痕！	我=wo 都=dou 跟=gen 你=ni 说=shuo 过=guo 了=le ~， 不要=bu'yao 留=liu 吻痕=wen'hen ~！
+t13861328	t13861328	warmup	我等不了多久了。	我=wo 等=deng 不了=bu'liao 多久=duo'jiu 了=le ~。
+t5929956	t5929956	warmup	好死不如赖活着	好死不如=hao'si'bu'ru 赖=lai 活着=huo'zhe
+t1861137	t1861137	warmup	我爱死她了。	我=wo 爱=ai 死=si 她=ta 了=le ~。
+t12905814	t12905814	warmup	这把牙刷是我的。	这=zhe 把=ba 牙刷=ya'shua 是=shi 我=wo 的=de ~。
+t426887	t426887	warmup	他在工作中经验尚浅。	他=ta 在=zai 工作=gong'zuo 中=zhong 经验=jing'yan 尚浅=shang'qian ~。
+t349264	t349264	warmup	你到底在这做什么？	你=ni 到底=dao'di 在=zai 这=zhe 做=zuo 什么=shen'me ~？
+t1312550	t1312550	warmup	那狗一只眼是瞎的。	那狗=na'gou 一只=yi'zhi 眼是=yan'shi 瞎=xia 的=de ~。
+t7781470	t7781470	warmup	我有点忙。	我=wo 有点=you'dian 忙=mang ~。
+t3130825	t3130825	warmup	尼采认为，哲学家应该少一点自命不凡，多关注人的价值问题，而不是抽象的体系。	尼采=ni'cai 认为=ren'wei ~， 哲学家=zhe'xue'jia 应该=ying'gai 少=shao 一点=yi'dian 自命不凡=zi'ming'bu'fan ~， 多=duo 关注=guan'zhu 人=ren 的=de 价值=jia'zhi 问题=wen'ti ~， 而=er 不是=bu'shi 抽象=chou'xiang 的=de 体系=ti'xi ~。
+t390829	t390829	warmup	我们在这儿等到她回来。	我们=wo'men 在=zai 这儿=zhe'er 等到=deng'dao 她=ta 回来=hui'lai ~。
+t420392	t420392	warmup	我想向你们租一间屋子住。	我=wo 想=xiang 向=xiang 你们=ni'men 租=zu 一间=yi'jian 屋子=wu'zi 住=zhu ~。
+t10041982	t10041982	warmup	她莞尔一笑，动人心魄。	她=ta 莞尔一笑=wan'er'yi'xiao ~， 动人心魄=dong'ren'xin'po ~。
+t929634	t929634	warmup	你从桌下爬出来吧！	你=ni 从=cong 桌下=zhuo'xia 爬出来=pa'chu'lai 吧=ba ~！
+t9833778	t9833778	warmup	不能插进别的成分。	不能=bu'neng 插进=cha'jin 别的=bie'de 成分=cheng'fen ~。
+t1775443	t1775443	warmup	您需要重新启动电脑。	您=nin 需要=xu'yao 重新启动=chong'xin'qi'dong 电脑=dian'nao ~。
+t13893622	t13893622	warmup	汤姆是一个素食主义者。	汤姆=tang'mu 是=shi 一个=yi'ge 素食主义者=su'shi'zhu'yi'zhe ~。
+t863947	t863947	warmup	她在伦敦的时候，曾经常去剧院。	她=ta 在=zai 伦敦=lun'dun 的=de 时候=shi'hou ~， 曾=ceng 经常=jing'chang 去=qu 剧院=ju'yuan ~。
+t1409356	t1409356	warmup	她像喜爱自己的亲妹妹一样喜欢这个娃娃。	她=ta 像=xiang 喜爱=xi'ai 自己=zi'ji 的=de 亲=qin 妹妹=mei'mei 一样=yi'yang 喜欢=xi'huan 这个=zhe'ge 娃娃=wa'wa ~。
+t2744467	t2744467	warmup	谢谢你送的巧克力。	谢谢=xie'xie 你=ni 送=song 的=de 巧克力=qiao'ke'li ~。
+t3364539	t3364539	warmup	他胸口很多毛。	他=ta 胸口=xiong'kou 很多=hen'duo 毛=mao ~。
+t760902	t760902	warmup	今年是哪一年？	今年=jin'nian 是=shi 哪一年=na'yi'nian ~？
+t9178037	t9178037	warmup	你就没在听。	你=ni 就=jiu 没=mei 在=zai 听=ting ~。
+t8709237	t8709237	warmup	话说，你听说玛丽辞职了吗？	话=hua 说=shuo ~， 你=ni 听说=ting'shuo 玛丽=ma'li 辞职=ci'zhi 了=le 吗=ma ~？
+t9963137	t9963137	warmup	昨天这家商店正好人满为患。	昨天=zuo'tian 这家=zhe'jia 商店=shang'dian 正好=zheng'hao 人满为患=ren'man'wei'huan ~。
+t332862	t332862	warmup	他被选为市长。	他=ta 被选为=bei'xuan'wei 市长=shi'zhang ~。
+t6940068	t6940068	warmup	我在削芹菜和土豆。	我=wo 在=zai 削=xiao 芹菜=qin'cai 和=he 土豆=tu'dou ~。
+t797527	t797527	warmup	因为这是一个有好几层的瀑布，所以速度慢也不会让人惊讶。	因为=yin'wei 这是=zhe'shi 一个=yi'ge 有=you 好几层=hao'ji'ceng 的=de 瀑布=pu'bu ~， 所以=suo'yi 速度慢=su'du'man 也=ye 不会=bu'hui 让=rang 人=ren 惊讶=jing'ya ~。
+t5092425	t5092425	warmup	汤姆不见了。	汤姆=tang'mu 不见=bu'jian 了=le ~。
+t13967688	t13967688	warmup	粮仓充实了，百姓才会懂得礼仪规矩；衣食丰足了，人们才会知晓荣辱羞耻。	粮仓=liang'cang 充实=chong'shi 了=le ~， 百姓=bai'xing 才=cai 会=hui 懂得=dong'de 礼仪=li'yi 规矩=gui'ju ~； 衣食=yi'shi 丰足=feng'zu 了=le ~， 人们=ren'men 才=cai 会=hui 知晓=zhi'xiao 荣辱=rong'ru 羞耻=xiu'chi ~。
+t1323693	t1323693	warmup	几个人站在告示前面。	几个=ji'ge 人站=ren'zhan 在=zai 告示=gao'shi 前面=qian'mian ~。
+t333783	t333783	warmup	他以教书为生。	他=ta 以=yi 教书=jiao'shu 为生=wei'sheng ~。
+t1785982	t1785982	warmup	现在，雨已经停了，我们可以回家了。	现在=xian'zai ~， 雨=yu 已经=yi'jing 停=ting 了=le ~， 我们=wo'men 可以=ke'yi 回家=hui'jia 了=le ~。
+t10513372	t10513372	warmup	您不能成为献血者。	您=nin 不能=bu'neng 成为=cheng'wei 献血者=xian'xue'zhe ~。
+t9462620	t9462620	warmup	汤姆在撒谎。	汤姆=tang'mu 在=zai 撒谎=sa'huang ~。
+t363891	t363891	warmup	他昨天看了这本书。	他=ta 昨天=zuo'tian 看=kan 了=le 这=zhe 本书=ben'shu ~。
+t2791865	t2791865	warmup	他刚来这里	他=ta 刚来=gang'lai 这里=zhe'li
+t1424386	t1424386	warmup	你有没有什么喝的给我解渴吗？	你=ni 有没有=you'mei'you 什么=shen'me 喝=he 的=de 给=gei 我=wo 解渴=jie'ke 吗=ma ~？
+t427918	t427918	warmup	我们有一位非常好的厨师。	我们=wo'men 有=you 一位=yi'wei 非常=fei'chang 好=hao 的=de 厨师=chu'shi ~。
+t5094659	t5094659	warmup	我打了汤姆。	我=wo 打=da 了=le 汤姆=tang'mu ~。
+t811099	t811099	warmup	我们猜这是一种被蛇咬伤的毒。	我们=wo'men 猜=cai 这=zhe 是=shi 一种=yi'zhong 被=bei 蛇咬伤=she'yao'shang 的=de 毒=du ~。
+t7771952	t7771952	warmup	这一次不一样。	这=zhe 一次=yi'ci 不=bu 一样=yi'yang ~。
+t333378	t333378	warmup	我在想哪个跑步运动员会跑第一。	我=wo 在=zai 想=xiang 哪个=na'ge 跑步=pao'bu 运动员=yun'dong'yuan 会=hui 跑=pao 第一=di'yi ~。
+t406730	t406730	warmup	这个女孩样子变了。	这个=zhe'ge 女孩=nv'hai 样子=yang'zi 变=bian 了=le ~。
+t1705936	t1705936	warmup	我塞了耳塞。	我塞=wo'sai 了=le 耳塞=er'sai ~。
+t12686312	t12686312	warmup	这里看上去非常安全。	这里=zhe'li 看上去=kan'shang'qu 非常=fei'chang 安全=an'quan ~。
+t4952967	t4952967	warmup	好一个童话般的景色！	好=hao 一个=yi'ge 童话般=tong'hua'ban 的=de 景色=jing'se ~！
+t13960764	t13960764	warmup	住院期间，他只能喝粥。	住院=zhu'yuan 期间=qi'jian ~， 他=ta 只能=zhi'neng 喝粥=he'zhou ~。
+t4906345	t4906345	warmup	我再也无法相信任何人了。	我=wo 再也=zai'ye 无法=wu'fa 相信=xiang'xin 任何人=ren'he'ren 了=le ~。
+t1704298	t1704298	warmup	星期二那天很冷。	星期二=xing'qi'er 那天=na'tian 很=hen 冷=leng ~。
+t3478461	t3478461	warmup	Tom看起来一百岁。	~Tom 看起来=kan'qi'lai 一百岁=yi'bai'sui ~。
+t70	t70	warmup	从来就没有徒劳的爱情。	从来=cong'lai 就=jiu 没有=mei'you 徒劳=tu'lao 的=de 爱情=ai'qing ~。
+t332585	t332585	warmup	什么时候开始？	什么=shen'me 时候=shi'hou 开始=kai'shi ~？
+t2490071	t2490071	warmup	她在晚睡之前喜欢听一首爵士老歌。	她=ta 在=zai 晚睡=wan'shui 之前=zhi'qian 喜欢=xi'huan 听=ting 一首=yi'shou 爵士=jue'shi 老歌=lao'ge ~。
+t816484	t816484	warmup	告诉我拿它做什么。	告诉=gao'su 我=wo 拿=na 它=ta 做=zuo 什么=shen'me ~。
+t9953322	t9953322	warmup	说实话，我恨汤姆。	说实话=shuo'shi'hua ~， 我=wo 恨=hen 汤姆=tang'mu ~。
+t1754831	t1754831	warmup	我在家学习英语。	我=wo 在家=zai'jia 学习=xue'xi 英语=ying'yu ~。
+t8642581	t8642581	warmup	我们已经做好了应对大型台风的万全准备。	我们=wo'men 已经=yi'jing 做好=zuo'hao 了=le 应对=ying'dui 大型=da'xing 台风=tai'feng 的=de 万全=wan'quan 准备=zhun'bei ~。
+t336094	t336094	warmup	了解他的人都尊重他。	了解=liao'jie 他=ta 的=de 人=ren 都=dou 尊重=zun'zhong 他=ta ~。
+t5640779	t5640779	warmup	冬天有很多老人在冰上滑倒。	冬天=dong'tian 有=you 很多=hen'duo 老人=lao'ren 在=zai 冰上=bing'shang 滑倒=hua'dao ~。
+t3586053	t3586053	warmup	那是你的车。	那=na 是=shi 你=ni 的=de 车=che ~。
+t9972837	t9972837	warmup	他有很多具有影响力的朋友。	他=ta 有=you 很多=hen'duo 具有=ju'you 影响力=ying'xiang'li 的=de 朋友=peng'you ~。
+t1415761	t1415761	warmup	父亲让我洗汽车。	父亲=fu'qin 让=rang 我=wo 洗=xi 汽车=qi'che ~。
+t336175	t336175	warmup	我明年想学中文。	我=wo 明年=ming'nian 想=xiang 学=xue 中文=zhong'wen ~。
+t5330088	t5330088	warmup	我去过上海周围的地方。	我=wo 去过=qu'guo 上海=shang'hai 周围=zhou'wei 的=de 地方=di'fang ~。
+t335087	t335087	test	他把他的那段话从磁带里删除了。	他=ta 把=ba 他=ta 的=de 那段=na'duan 话=hua 从=cong 磁带=ci'dai 里=li 删除=shan'chu 了=le ~。
+t5085440	t5085440	test	里约热内卢的一条海边的高架自行车道倒塌了。	里约热内卢=li'yue're'nei'lu 的=de 一条=yi'tiao 海边=hai'bian 的=de 高架=gao'jia 自行车道=zi'xing'che'dao 倒塌=dao'ta 了=le ~。
+t2368463	t2368463	test	周三你可以载我到办公室吗？	周三=zhou'san 你=ni 可以=ke'yi 载=zai 我=wo 到=dao 办公室=ban'gong'shi 吗=ma ~？
+t420800	t420800	test	那么你频道换掉也行啊。	那么=na'me 你=ni 频道=pin'dao 换掉=huan'diao 也=ye 行=xing 啊=a ~。
+t332701	t332701	test	他不再是以前那个他。	他=ta 不再=bu'zai 是=shi 以前=yi'qian 那个=na'ge 他=ta ~。
+t476615	t476615	test	我们现在去吧。	我们=wo'men 现在=xian'zai 去=qu 吧=ba ~。
+t10749947	t10749947	test	他们是我朋友。	他们=ta'men 是=shi 我=wo 朋友=peng'you ~。
+t3085878	t3085878	dev	给我来仨。	给=gei 我=wo 来=lai 仨=sa ~。
+t1325229	t1325229	dev	每个孩子都有自己的见解。	每个=mei'ge 孩子=hai'zi 都=dou 有=you 自己=zi'ji 的=de 见解=jian'jie ~。
+t689536	t689536	test	他们看到我就突然停止了说话。	他们=ta'men 看到=kan'dao 我=wo 就=jiu 突然=tu'ran 停止=ting'zhi 了=le 说话=shuo'hua ~。
+t333182	t333182	test	她忙着编织。	她=ta 忙=mang 着=zhe 编织=bian'zhi ~。
+t340492	t340492	test	他会说英语和法语。	他会=ta'hui 说=shuo 英语=ying'yu 和=he 法语=fa'yu ~。
+t4751231	t4751231	test	今天多云。	今天=jin'tian 多云=duo'yun ~。
+t344980	t344980	test	不必担心。	不必=bu'bi 担心=dan'xin ~。
+t2004692	t2004692	test	她利用空闲时间做布娃娃。	她=ta 利用=li'yong 空闲=kong'xian 时间=shi'jian 做=zuo 布娃娃=bu'wa'wa ~。
+t10895220	t10895220	dev	小李喜欢唱歌。	小李=xiao'li 喜欢=xi'huan 唱歌=chang'ge ~。
+t9453453	t9453453	dev	大家都欢呼了。	大家=da'jia 都=dou 欢呼=huan'hu 了=le ~。
+t345894	t345894	dev	监狱生活比做畜牲还不如。	监狱=jian'yu 生活=sheng'huo 比做=bi'zuo 畜牲=chu'sheng 还=hai 不如=bu'ru ~。
+t804857	t804857	test	他很快就会回家的。	他=ta 很快=hen'kuai 就=jiu 会=hui 回家=hui'jia 的=de ~。
+t8744628	t8744628	dev	汤姆把他的太阳镜留在我的车的仪表板上了。	汤姆=tang'mu 把=ba 他=ta 的=de 太阳镜=tai'yang'jing 留在=liu'zai 我=wo 的=de 车=che 的=de 仪表板=yi'biao'ban 上=shang 了=le ~。
+t8737056	t8737056	dev	她在看到妈妈的一瞬间就大声喊了起来。	她=ta 在=zai 看到=kan'dao 妈妈=ma'ma 的=de 一瞬间=yi'shun'jian 就=jiu 大声=da'sheng 喊=han 了=le 起来=qi'lai ~。
+t1254553	t1254553	test	她几乎一点儿也没吃。	她=ta 几乎=ji'hu 一点儿=yi'dian'er 也=ye 没=mei 吃=chi ~。
+t343995	t343995	dev	她钢琴弹得不太好。	她=ta 钢琴=gang'qin 弹得=tan'de 不太好=bu'tai'hao ~。
+t2144020	t2144020	test	这家店在卖蔬菜。	这家=zhe'jia 店=dian 在=zai 卖=mai 蔬菜=shu'cai ~。
+t429064	t429064	test	他1970年去了伦敦。	他=ta ~1970 年=nian 去=qu 了=le 伦敦=lun'dun ~。
+t1888697	t1888697	test	有人在讲汉语。	有人=you'ren 在=zai 讲=jiang 汉语=han'yu ~。
+t503221	t503221	test	先生，您无权把您的车停在这儿。	先生=xian'sheng ~， 您=nin 无权=wu'quan 把=ba 您=nin 的=de 车=che 停=ting 在=zai 这儿=zhe'er ~。
+t6402752	t6402752	test	能给我你的电话号码吗?	能=neng 给=gei 我=wo 你=ni 的=de 电话号码=dian'hua'hao'ma 吗=ma ~?
+t1357629	t1357629	dev	好久不见！	好久不见=hao'jiu'bu'jian ~！
+t9400813	t9400813	test	他用手遮住眼睛。	他用=ta'yong 手=shou 遮住=zhe'zhu 眼睛=yan'jing ~。
+t10273873	t10273873	test	我没有吃饭的时间。	我=wo 没有=mei'you 吃饭=chi'fan 的=de 时间=shi'jian ~。
+t333284	t333284	test	他们都是好老师。	他们=ta'men 都=dou 是=shi 好=hao 老师=lao'shi ~。
+t801311	t801311	test	市中心的交通都堵塞了。	市中心=shi'zhong'xin 的=de 交通=jiao'tong 都=dou 堵塞=du'se 了=le ~。
+t8692921	t8692921	test	因为人很多，今天我们会采取自助餐的形式。	因为=yin'wei 人=ren 很多=hen'duo ~， 今天=jin'tian 我们=wo'men 会=hui 采取=cai'qu 自助餐=zi'zhu'can 的=de 形式=xing'shi ~。
+t863020	t863020	test	我宁愿呆在家里也不要在这种天气中出门。	我=wo 宁愿=ning'yuan 呆=dai 在=zai 家里=jia'li 也=ye 不要=bu'yao 在=zai 这种=zhe'zhong 天气=tian'qi 中=zhong 出门=chu'men ~。
+t390479	t390479	test	没眼镜我可以读。	没=mei 眼镜=yan'jing 我=wo 可以=ke'yi 读=du ~。
+t13972845	t13972845	dev	因为巴士晚点，我坐了的士。	因为=yin'wei 巴士=ba'shi 晚点=wan'dian ~， 我=wo 坐=zuo 了=le 的士=di'shi ~。
+t5549798	t5549798	test	再等就完全是浪费时间了。	再=zai 等=deng 就=jiu 完全=wan'quan 是=shi 浪费时间=lang'fei'shi'jian 了=le ~。
+t9007399	t9007399	test	她今晚会写一封信给他。	她=ta 今晚=jin'wan 会=hui 写=xie 一封信=yi'feng'xin 给=gei 他=ta ~。
+t1426555	t1426555	test	图片的背景是一座城堡。	图片=tu'pian 的=de 背景=bei'jing 是=shi 一座=yi'zuo 城堡=cheng'bao ~。
+t334723	t334723	test	她的孩子她都一样爱。	她=ta 的=de 孩子=hai'zi 她=ta 都=dou 一样=yi'yang 爱=ai ~。
+t389834	t389834	test	两只兔子，一只白，一只黑，生活在一个大森林里。	两只=liang'zhi 兔子=tu'zi ~， 一只=yi'zhi 白=bai ~， 一只=yi'zhi 黑=hei ~， 生活=sheng'huo 在=zai 一个=yi'ge 大=da 森林=sen'lin 里=li ~。
+t1216097	t1216097	test	我女儿每天睡八个钟头。	我=wo 女儿=nv'er 每天=mei'tian 睡=shui 八个=ba'ge 钟头=zhong'tou ~。
+t500376	t500376	dev	如果我去中国的话，是为了尽可能多地说中文。	如果=ru'guo 我=wo 去=qu 中国=zhong'guo 的话=de'hua ~， 是=shi 为了=wei'le 尽可能=jin'ke'neng 多地=duo'di 说=shuo 中文=zhong'wen ~。
+t1884250	t1884250	test	他赚了很多钱。	他=ta 赚=zhuan 了=le 很多=hen'duo 钱=qian ~。
+t9991902	t9991902	dev	她喜欢喝咖啡。	她=ta 喜欢=xi'huan 喝咖啡=he'ka'fei ~。
+t1350087	t1350087	dev	我的叔叔使我变成了今天的样子。	我=wo 的=de 叔叔=shu'shu 使=shi 我=wo 变成=bian'cheng 了=le 今天=jin'tian 的=de 样子=yang'zi ~。
+t12992323	t12992323	test	“我不能抓我的主人。”猫说。	~“ 我=wo 不能=bu'neng 抓=zhua 我=wo 的=de 主人=zhu'ren ~。 ~” 猫=mao 说=shuo ~。
+t795777	t795777	dev	这房子和土地属于我。	这=zhe 房子=fang'zi 和=he 土地=tu'di 属于=shu'yu 我=wo ~。
+t353867	t353867	test	做一次文学讲座。	做=zuo 一次=yi'ci 文学=wen'xue 讲座=jiang'zuo ~。
+t1502329	t1502329	test	你觉得那样子行吗？	你=ni 觉得=jue'de 那=na 样子=yang'zi 行=xing 吗=ma ~？
+t343822	t343822	test	请下午来我家。	请=qing 下午=xia'wu 来=lai 我家=wo'jia ~。
+t3706777	t3706777	test	我切到自己了。	我切=wo'qie 到=dao 自己=zi'ji 了=le ~。
+t13967707	t13967707	test	不！我不要。	不=bu ~！ 我=wo 不要=bu'yao ~。
+t1314199	t1314199	test	她把钱全给了他。	她=ta 把=ba 钱=qian 全给=quan'gei 了=le 他=ta ~。
+t451837	t451837	test	我是不会向那些人借钱的。	我=wo 是=shi 不会=bu'hui 向=xiang 那些=na'xie 人=ren 借钱=jie'qian 的=de ~。
+t335106	t335106	dev	他很容易觉得累。	他=ta 很=hen 容易=rong'yi 觉得=jue'de 累=lei ~。
+t955378	t955378	test	部落成员沿着河岸定居了。	部落=bu'luo 成员=cheng'yuan 沿着=yan'zhe 河岸=he'an 定居=ding'ju 了=le ~。
+t396894	t396894	dev	您可以走了。	您=nin 可以=ke'yi 走=zou 了=le ~。
+t9780012	t9780012	dev	这条新闻哄动了世界。	这=zhe 条=tiao 新闻=xin'wen 哄动=hong'dong 了=le 世界=shi'jie ~。
+t2393617	t2393617	test	“我们七点去看电影吧。” “七点半可以吗？” “如果那样，我担心我们会迟到。”	~“ 我们=wo'men 七点=qi'dian 去=qu 看=kan 电影吧=dian'ying'ba ~。 ~” ~“ 七点=qi'dian 半=ban 可以=ke'yi 吗=ma ~？ ~” ~“ 如果=ru'guo 那样=na'yang ~， 我=wo 担心=dan'xin 我们=wo'men 会=hui 迟到=chi'dao ~。 ~”
+t835562	t835562	test	我一整天都觉得很消沉。	我=wo 一整天=yi'zheng'tian 都=dou 觉得=jue'de 很=hen 消沉=xiao'chen ~。
+t337875	t337875	dev	我在书商Maruzen那里买了这本书。	我=wo 在=zai 书商=shu'shang ~Maruzen 那里=na'li 买=mai 了=le 这=zhe 本书=ben'shu ~。
+t1446777	t1446777	dev	他们中的任何一位我都不认识。	他们=ta'men 中=zhong 的=de 任何=ren'he 一位=yi'wei 我=wo 都=dou 不=bu 认识=ren'shi ~。
+t347604	t347604	dev	话到舌尖，呼之欲出	话=hua 到=dao 舌尖=she'jian ~， 呼之欲出=hu'zhi'yu'chu
+t4440139	t4440139	test	你变得又老又倔。	你=ni 变得=bian'de 又=you 老=lao 又=you 倔=jue ~。
+t792846	t792846	dev	明天肯定会下雨。	明天=ming'tian 肯定=ken'ding 会=hui 下雨=xia'yu ~。
+t1769181	t1769181	dev	乘客全都登上了船。	乘客=cheng'ke 全都=quan'dou 登上=deng'shang 了=le 船=chuan ~。
+t335322	t335322	dev	展览会让人印象很深刻。	展览会=zhan'lan'hui 让=rang 人=ren 印象=yin'xiang 很=hen 深刻=shen'ke ~。
+t1372548	t1372548	dev	我不是一个怪人。	我=wo 不是=bu'shi 一个=yi'ge 怪人=guai'ren ~。
+t2200378	t2200378	test	那是护照。	那=na 是=shi 护照=hu'zhao ~。
+t1399634	t1399634	test	这秘密别跟任何人说。	这=zhe 秘密=mi'mi 别=bie 跟=gen 任何人=ren'he'ren 说=shuo ~。
+t4263437	t4263437	test	他不是好惹的。	他=ta 不是=bu'shi 好惹=hao're 的=de ~。
+t8589665	t8589665	test	我现在无处可去。	我=wo 现在=xian'zai 无处可去=wu'chu'ke'qu ~。
+t12221570	t12221570	test	这种药物有很小的可能性引起皮疹。	这种=zhe'zhong 药物=yao'wu 有=you 很小=hen'xiao 的=de 可能性=ke'neng'xing 引起=yin'qi 皮疹=pi'zhen ~。
+t9992028	t9992028	dev	我又要去住院了。	我=wo 又=you 要=yao 去=qu 住院=zhu'yuan 了=le ~。
+t1302372	t1302372	dev	说实在的，我不太喜欢他。	说=shuo 实在=shi'zai 的=de ~， 我=wo 不=bu 太=tai 喜欢=xi'huan 他=ta ~。
+t1186909	t1186909	test	他的眼里流出了泪水。	他=ta 的=de 眼里=yan'li 流出=liu'chu 了=le 泪水=lei'shui ~。
+t333859	t333859	test	他喜欢打猎。	他=ta 喜欢=xi'huan 打猎=da'lie ~。
+t420496	t420496	test	今天夜晚去广州的火车票还有吗？	今天=jin'tian 夜晚=ye'wan 去=qu 广州=guang'zhou 的=de 火车票=huo'che'piao 还有=hai'you 吗=ma ~？
+t963656	t963656	test	请不要在图书馆的书上涂写。	请=qing 不要=bu'yao 在=zai 图书馆=tu'shu'guan 的=de 书上=shu'shang 涂写=tu'xie ~。
+t5097683	t5097683	test	对了，前些时间你说伞不见了，现在找到了吗？	对=dui 了=le ~， 前些时=qian'xie'shi 间=jian 你=ni 说=shuo 伞=san 不见=bu'jian 了=le ~， 现在=xian'zai 找到=zhao'dao 了=le 吗=ma ~？
+t343766	t343766	test	我有点发烧。	我=wo 有点=you'dian 发烧=fa'shao ~。
+t392203	t392203	test	一直向前走对吧？	一直=yi'zhi 向前走=xiang'qian'zou 对=dui 吧=ba ~？
+t465025	t465025	test	我跟你说过她在的时候不要说这件事。	我=wo 跟=gen 你=ni 说=shuo 过=guo 她=ta 在=zai 的=de 时候=shi'hou 不要=bu'yao 说=shuo 这件=zhe'jian 事=shi ~。
+t3341551	t3341551	test	他把雨伞忘在公交车上了。	他=ta 把=ba 雨伞=yu'san 忘=wang 在=zai 公交车=gong'jiao'che 上=shang 了=le ~。
+t2254393	t2254393	test	我的房子面朝大海	我=wo 的=de 房子=fang'zi 面朝=mian'chao 大海=da'hai
+t9955903	t9955903	test	父亲有500本册子。	父亲=fu'qin 有=you ~500 本=ben 册子=ce'zi ~。
+t841827	t841827	dev	昨天我买了两个馒头。	昨天=zuo'tian 我=wo 买=mai 了=le 两个=liang'ge 馒头=man'tou ~。
+t7771928	t7771928	test	她是女教师。	她=ta 是=shi 女=nv 教师=jiao'shi ~。
+t9959808	t9959808	dev	汤姆是男人，我是女人。	汤姆=tang'mu 是=shi 男人=nan'ren ~， 我=wo 是=shi 女人=nv'ren ~。
+t5114729	t5114729	test	今天我不想去教堂。	今天=jin'tian 我=wo 不想=bu'xiang 去=qu 教堂=jiao'tang ~。
+t805211	t805211	test	这是个有前景的职业。	这=zhe 是=shi 个=ge 有=you 前景=qian'jing 的=de 职业=zhi'ye ~。
+t9931171	t9931171	test	她每天早上都冲澡。	她=ta 每天=mei'tian 早上=zao'shang 都=dou 冲澡=chong'zao ~。
+t13744240	t13744240	test	Tom 是我们的小儿子。	~Tom 是=shi 我们=wo'men 的=de 小儿子=xiao'er'zi ~。
+t13893600	t13893600	dev	他刚刚离开。	他=ta 刚刚=gang'gang 离开=li'kai ~。
+t341945	t341945	test	我比他大三岁.	我=wo 比=bi 他=ta 大=da 三岁=san'sui ~.
+t472920	t472920	dev	“他不会再来了。”抽着烟的男人说道。	~“ 他=ta 不会=bu'hui 再来=zai'lai 了=le ~。 ~” 抽着=chou'zhe 烟=yan 的=de 男人=nan'ren 说道=shuo'dao ~。
+t1397332	t1397332	test	我听到消息松了一口气。	我=wo 听到=ting'dao 消息=xiao'xi 松=song 了=le 一口气=yi'kou'qi ~。
+t2031414	t2031414	dev	我很喜欢地理。	我=wo 很=hen 喜欢=xi'huan 地理=di'li ~。
+t8463640	t8463640	test	我整夜都能听到狗叫。	我=wo 整夜=zheng'ye 都=dou 能=neng 听到=ting'dao 狗叫=gou'jiao ~。
+t4764553	t4764553	test	叉子从桌上掉了下来。	叉子=cha'zi 从=cong 桌上=zhuo'shang 掉=diao 了=le 下来=xia'lai ~。
+t3078830	t3078830	test	我们都很生气。	我们=wo'men 都=dou 很=hen 生气=sheng'qi ~。
+t332614	t332614	test	这是我见过最美的景色了。	这=zhe 是=shi 我=wo 见=jian 过=guo 最美=zui'mei 的=de 景色=jing'se 了=le ~。
+t13964099	t13964099	test	他朝警卫亮出了一把刀子。	他朝=ta'chao 警卫=jing'wei 亮出=liang'chu 了=le 一把=yi'ba 刀子=dao'zi ~。
+t13190504	t13190504	test	防水功能可以加分。	防水=fang'shui 功能=gong'neng 可以=ke'yi 加=jia 分=fen ~。
+t1582753	t1582753	test	地上覆盖着积雪，冻成了又硬又厚的壳。	地上=di'shang 覆盖=fu'gai 着=zhe 积雪=ji'xue ~， 冻成=dong'cheng 了=le 又=you 硬=ying 又=you 厚=hou 的=de 壳=ke ~。
+t613930	t613930	test	我不能再喝啤酒了。	我=wo 不能=bu'neng 再=zai 喝啤酒=he'pi'jiu 了=le ~。
+t4640216	t4640216	test	你令人难以抗拒。	你=ni 令人=ling'ren 难以=nan'yi 抗拒=kang'ju ~。
+t5911773	t5911773	dev	你现在可以删除它。	你=ni 现在=xian'zai 可以=ke'yi 删除=shan'chu 它=ta ~。
+t6581671	t6581671	test	水位上升得非常快。	水位=shui'wei 上升=shang'sheng 得=de 非常=fei'chang 快=kuai ~。
+t1446781	t1446781	test	它们中没有我要的。	它们=ta'men 中=zhong 没有=mei'you 我要=wo'yao 的=de ~。
+t13896454	t13896454	test	我请你喝可乐。	我=wo 请=qing 你=ni 喝=he 可乐=ke'le ~。
+t5715137	t5715137	test	别再跟我说了！	别=bie 再=zai 跟=gen 我=wo 说=shuo 了=le ~！
+t1417585	t1417585	test	我添加了一句世界语句子。	我=wo 添加=tian'jia 了=le 一句=yi'ju 世界语=shi'jie'yu 句子=ju'zi ~。
+t10961139	t10961139	dev	不是，这不是我的车。	不是=bu'shi ~， 这=zhe 不是=bu'shi 我=wo 的=de 车=che ~。
+t805219	t805219	test	这个职位受人觊觎。	这个=zhe'ge 职位=zhi'wei 受人=shou'ren 觊觎=ji'yu ~。
+t8725788	t8725788	dev	我非常喜欢小狗。	我=wo 非常=fei'chang 喜欢=xi'huan 小狗=xiao'gou ~。
+t7059327	t7059327	dev	她有昵称吗？	她=ta 有=you 昵称=ni'cheng 吗=ma ~？
+t733594	t733594	test	你必须忍受这一切的噪音了。	你=ni 必须=bi'xu 忍受=ren'shou 这=zhe 一切=yi'qie 的=de 噪音=zao'yin 了=le ~。
+t6307273	t6307273	test	他不得不打扫了他的房间。	他=ta 不得不=bu'de'bu 打扫=da'sao 了=le 他=ta 的=de 房间=fang'jian ~。
+t4264954	t4264954	test	汤姆饭吃很多。	汤姆=tang'mu 饭=fan 吃=chi 很多=hen'duo ~。
+t5983647	t5983647	dev	你现在高兴吗？	你=ni 现在=xian'zai 高兴=gao'xing 吗=ma ~？
+t8550254	t8550254	test	汤姆说他不想出去。	汤姆=tang'mu 说=shuo 他=ta 不想=bu'xiang 出去=chu'qu ~。
+t9974932	t9974932	test	你和我在这里很安全。	你=ni 和=he 我=wo 在=zai 这里=zhe'li 很=hen 安全=an'quan ~。
+t1350138	t1350138	dev	我忽然停下了脚步。	我=wo 忽然=hu'ran 停下=ting'xia 了=le 脚步=jiao'bu ~。
+t13511890	t13511890	test	他不是英雄，他是狗熊。	他=ta 不是=bu'shi 英雄=ying'xiong ~， 他=ta 是=shi 狗熊=gou'xiong ~。
+t9535876	t9535876	test	亚历克斯是非二元性别。	亚历克斯=ya'li'ke'si 是非=shi'fei 二元=er'yuan 性别=xing'bie ~。
+t9410033	t9410033	test	汤姆被大家作弄。	汤姆=tang'mu 被=bei 大家=da'jia 作弄=zuo'nong ~。
+t8588223	t8588223	dev	股票指数和股票都是基础金融工具，它们之间最本质的区别在哪？	股票指数=gu'piao'zhi'shu 和=he 股票=gu'piao 都=dou 是=shi 基础=ji'chu 金融工具=jin'rong'gong'ju ~， 它们=ta'men 之间=zhi'jian 最=zui 本质=ben'zhi 的=de 区别=qu'bie 在=zai 哪=na ~？
+t705011	t705011	test	有时我会在图书馆看见他。	有时=you'shi 我会=wo'hui 在=zai 图书馆=tu'shu'guan 看见=kan'jian 他=ta ~。
+t2416148	t2416148	test	差点儿发生了外交事故。	差点儿=cha'dian'er 发生=fa'sheng 了=le 外交=wai'jiao 事故=shi'gu ~。
+t1178232	t1178232	dev	她小心地做。	她=ta 小心=xiao'xin 地=de 做=zuo ~。
+t332587	t332587	test	这本书有精美的插图。	这=zhe 本书=ben'shu 有=you 精美=jing'mei 的=de 插图=cha'tu ~。
+t12569585	t12569585	test	我不在乎是否听起来自然，别人能理解就好。	我=wo 不在乎=bu'zai'hu 是否=shi'fou 听=ting 起来=qi'lai 自然=zi'ran ~， 别人=bie'ren 能=neng 理解=li'jie 就=jiu 好=hao ~。
+t10273855	t10273855	test	哪条路都可以去公园哦。	哪条=na'tiao 路=lu 都=dou 可以=ke'yi 去=qu 公园=gong'yuan 哦=o ~。
+t345530	t345530	test	我在咖啡店里喝了一杯咖啡。	我=wo 在=zai 咖啡店=ka'fei'dian 里=li 喝=he 了=le 一杯=yi'bei 咖啡=ka'fei ~。
+t3702743	t3702743	test	你认识不认识这个女孩？	你=ni 认识=ren'shi 不=bu 认识=ren'shi 这个=zhe'ge 女孩=nv'hai ~？
+t898000	t898000	test	他为精神的洁净和获得道的方法教深思，道是表示人类最高的精神理想的一个原则。	他=ta 为=wei 精神=jing'shen 的=de 洁净=jie'jing 和=he 获得=huo'de 道=dao 的=de 方法=fang'fa 教=jiao 深思=shen'si ~， 道=dao 是=shi 表示=biao'shi 人类=ren'lei 最高=zui'gao 的=de 精神=jing'shen 理想=li'xiang 的=de 一个=yi'ge 原则=yuan'ze ~。
+t466239	t466239	dev	你几点出发？	你=ni 几点=ji'dian 出发=chu'fa ~？
+t1839135	t1839135	dev	我请你清楚地说是或者不是。	我=wo 请=qing 你=ni 清楚=qing'chu 地=de 说=shuo 是=shi 或者=huo'zhe 不是=bu'shi ~。
+t510751	t510751	test	你喜欢雪吗？	你=ni 喜欢=xi'huan 雪=xue 吗=ma ~？
+t7767671	t7767671	test	不要做评判，这样您自己才不会被人评判。	不要=bu'yao 做=zuo 评判=ping'pan ~， 这样=zhe'yang 您=nin 自己=zi'ji 才=cai 不会=bu'hui 被=bei 人=ren 评判=ping'pan ~。
+t5552173	t5552173	test	你不该再喝酒了。	你=ni 不该=bu'gai 再=zai 喝酒=he'jiu 了=le ~。
+t2333761	t2333761	test	上帝只尝试那些他喜欢的事。	上帝=shang'di 只=zhi 尝试=chang'shi 那些=na'xie 他=ta 喜欢=xi'huan 的=de 事=shi ~。
+t8501412	t8501412	dev	你有资格知道。	你=ni 有=you 资格=zi'ge 知道=zhi'dao ~。
+t4247391	t4247391	dev	他有能力教授西班牙文。	他=ta 有=you 能力=neng'li 教授=jiao'shou 西班牙文=xi'ban'ya'wen ~。
+t1714800	t1714800	dev	我爱西班牙语！	我=wo 爱=ai 西班牙语=xi'ban'ya'yu ~！
+t5842613	t5842613	test	京都和波士顿是姐妹城市。	京都=jing'du 和=he 波士顿=bo'shi'dun 是=shi 姐妹=jie'mei 城市=cheng'shi ~。
+t10749961	t10749961	test	照你说的去做。	照=zhao 你=ni 说=shuo 的=de 去=qu 做=zuo ~。
+t345317	t345317	test	汤姆和简交往已经有一年。	汤姆=tang'mu 和=he 简=jian 交往=jiao'wang 已经=yi'jing 有=you 一年=yi'nian ~。
+t794689	t794689	test	弟弟比我小。	弟弟=di'di 比=bi 我=wo 小=xiao ~。
+t2254357	t2254357	test	这本教科书不错。	这本=zhe'ben 教科书=jiao'ke'shu 不错=bu'cuo ~。
+t2694364	t2694364	test	你不知道那件事吗？	你=ni 不=bu 知道=zhi'dao 那件事=na'jian'shi 吗=ma ~？
+t332922	t332922	dev	道路结冰导致了很多起事故。	道路=dao'lu 结冰=jie'bing 导致=dao'zhi 了=le 很多=hen'duo 起=qi 事故=shi'gu ~。
+t333207	t333207	dev	“等他回来，我要让他给你打电话吗？”“是的，谢谢。”	~“ 等=deng 他=ta 回来=hui'lai ~， 我要=wo'yao 让=rang 他=ta 给=gei 你=ni 打电话=da'dian'hua 吗=ma ~？ ~” ~“ 是=shi 的=de ~， 谢谢=xie'xie ~。 ~”
+t864612	t864612	dev	JUDY打算穿她的新泳衣。	~JUDY 打算=da'suan 穿=chuan 她=ta 的=de 新=xin 泳衣=yong'yi ~。
+t863324	t863324	test	他心里对自己说“不！”。他大声说出“是。”。	他=ta 心里=xin'li 对=dui 自己=zi'ji 说=shuo ~“ 不=bu ~！ ~” ~。 他=ta 大声=da'sheng 说出=shuo'chu ~“ 是=shi ~。 ~” ~。
+t1575766	t1575766	test	一周时间内，我们就可以送货。	一周=yi'zhou 时间=shi'jian 内=nei ~， 我们=wo'men 就=jiu 可以=ke'yi 送货=song'huo ~。
+t333909	t333909	dev	为了弄到一个好位子，我很早就出门了。	为了=wei'le 弄=nong 到=dao 一个=yi'ge 好=hao 位子=wei'zi ~， 我=wo 很=hen 早就=zao'jiu 出门=chu'men 了=le ~。
+t799245	t799245	dev	不要忘记你的钱。	不要=bu'yao 忘记=wang'ji 你=ni 的=de 钱=qian ~。
+t466016	t466016	test	父母承担教育子女的责任。	父母=fu'mu 承担=cheng'dan 教育=jiao'yu 子女=zi'nv 的=de 责任=ze'ren ~。
+t2241821	t2241821	test	你能为我翻译这首歌吗？	你=ni 能=neng 为=wei 我=wo 翻译=fan'yi 这=zhe 首歌=shou'ge 吗=ma ~？
+t9631904	t9631904	test	请您别迟到。	请=qing 您=nin 别=bie 迟到=chi'dao ~。
+t1946814	t1946814	dev	通常人们失败并非能力不足，而是不够专注。	通常=tong'chang 人们=ren'men 失败=shi'bai 并非=bing'fei 能力=neng'li 不足=bu'zu ~， 而是=er'shi 不够=bu'gou 专注=zhuan'zhu ~。
+t9992001	t9992001	dev	他根本不想开派对。	他=ta 根本=gen'ben 不想=bu'xiang 开=kai 派对=pai'dui ~。
+t347046	t347046	dev	我搭电梯去了四楼。	我=wo 搭=da 电梯=dian'ti 去=qu 了=le 四楼=si'lou ~。
+t4760051	t4760051	test	她会永远活在我们的记忆里面。	她=ta 会=hui 永远=yong'yuan 活在=huo'zai 我们=wo'men 的=de 记忆=ji'yi 里面=li'mian ~。
+t401039	t401039	test	这是我每天都用的字典。	这=zhe 是=shi 我=wo 每天=mei'tian 都=dou 用=yong 的=de 字典=zi'dian ~。
+t8881258	t8881258	test	我和汤姆都是素食主义者。	我=wo 和=he 汤姆=tang'mu 都=dou 是=shi 素食主义者=su'shi'zhu'yi'zhe ~。
+t747571	t747571	test	我想咨询点儿事情。	我=wo 想=xiang 咨询=zi'xun 点儿=dian'er 事情=shi'qing ~。
+t1300399	t1300399	test	他刚才到了。	他=ta 刚才=gang'cai 到=dao 了=le ~。
+t1065847	t1065847	test	我发烧了。	我=wo 发烧=fa'shao 了=le ~。
+t5907622	t5907622	test	我搞明白了会告诉你。	我=wo 搞=gao 明白=ming'bai 了=le 会=hui 告诉=gao'su 你=ni ~。
+t9779594	t9779594	test	汤姆没有地方住。	汤姆=tang'mu 没有=mei'you 地方=di'fang 住=zhu ~。
+t13513828	t13513828	test	我怕你累著了。	我怕=wo'pa 你=ni 累著=lei'zhao 了=le ~。
+t10007031	t10007031	dev	他把衬衫脱了。	他=ta 把=ba 衬衫=chen'shan 脱=tuo 了=le ~。
+t9475932	t9475932	dev	我们需要那笔钱。	我们=wo'men 需要=xu'yao 那笔=na'bi 钱=qian ~。
+t5663461	t5663461	test	别用铅笔签合同。	别用=bie'yong 铅笔=qian'bi 签合同=qian'he'tong ~。
+t829651	t829651	test	这个取暖装置用柴油作为燃料。	这个=zhe'ge 取暖=qu'nuan 装置=zhuang'zhi 用=yong 柴油=chai'you 作为=zuo'wei 燃料=ran'liao ~。
+t10961060	t10961060	test	爸爸和妈妈都在家。	爸爸=ba'ba 和=he 妈妈=ma'ma 都=dou 在家=zai'jia ~。
+t612651	t612651	dev	你昨天看到的那个男人是我姨夫。	你=ni 昨天=zuo'tian 看到=kan'dao 的=de 那个=na'ge 男人=nan'ren 是=shi 我=wo 姨夫=yi'fu ~。
+t397743	t397743	dev	那不是一把刀。这才是一把刀。	那=na 不是=bu'shi 一把=yi'ba 刀=dao ~。 这才=zhe'cai 是=shi 一把=yi'ba 刀=dao ~。
+t13882396	t13882396	test	我要出发了。	我要=wo'yao 出发=chu'fa 了=le ~。
+t9932524	t9932524	test	你能帮我去面包店买面包吗？请买两个小的和一个大的。如果没有，作为代替也可以买四根法棍。	你=ni 能=neng 帮=bang 我=wo 去=qu 面包店=mian'bao'dian 买=mai 面包=mian'bao 吗=ma ~？ 请=qing 买=mai 两个=liang'ge 小=xiao 的=de 和=he 一个=yi'ge 大=da 的=de ~。 如果=ru'guo 没有=mei'you ~， 作为=zuo'wei 代替=dai'ti 也=ye 可以=ke'yi 买=mai 四根=si'gen 法棍=fa'gun ~。
+t818811	t818811	dev	只是个玩笑。放松点!	只是=zhi'shi 个=ge 玩笑=wan'xiao ~。 放松=fang'song 点=dian ~!
+t4815125	t4815125	test	汤姆住在波士顿吗？	汤姆=tang'mu 住=zhu 在=zai 波士顿=bo'shi'dun 吗=ma ~？
+t1441759	t1441759	test	进商店的人是我妹妹。	进=jin 商店=shang'dian 的=de 人=ren 是=shi 我=wo 妹妹=mei'mei ~。
+t426896	t426896	test	当我回到家的时候，我妹妹正在弹吉他。	当=dang 我=wo 回到=hui'dao 家=jia 的=de 时候=shi'hou ~， 我=wo 妹妹=mei'mei 正在=zheng'zai 弹=dan 吉他=ji'ta ~。
+t13892003	t13892003	test	所有人都很兴奋。	所有人=suo'you'ren 都=dou 很=hen 兴奋=xing'fen ~。
+t9961409	t9961409	test	我们什么都不能承诺。	我们=wo'men 什么=shen'me 都=dou 不能=bu'neng 承诺=cheng'nuo ~。
+t5091256	t5091256	test	有什么事让你烦心吗？	有=you 什么=shen'me 事=shi 让=rang 你=ni 烦心=fan'xin 吗=ma ~？
+t1946805	t1946805	dev	人为生而食，非为食而活。	人=ren 为生=wei'sheng 而食=er'shi ~， 非为=fei'wei 食而活=shi'er'huo ~。
+t7780802	t7780802	test	现在我要给你量体温。	现在=xian'zai 我要=wo'yao 给=gei 你=ni 量体温=liang'ti'wen ~。
+t472885	t472885	test	我决定不去欧洲了。	我=wo 决定=jue'ding 不去=bu'qu 欧洲=ou'zhou 了=le ~。
+t8935925	t8935925	test	马可，好久不见！你已经成为了一个优秀的人呢！	马可=ma'ke ~， 好久不见=hao'jiu'bu'jian ~！ 你=ni 已经=yi'jing 成为=cheng'wei 了=le 一个=yi'ge 优秀=you'xiu 的=de 人=ren 呢=ne ~！
+t11276083	t11276083	test	解封，解封！	解封=jie'feng ~， 解封=jie'feng ~！
+t2037266	t2037266	test	我将学很多。	我=wo 将学=jiang'xue 很多=hen'duo ~。
+t333897	t333897	dev	能为你服务我会感到非常高兴。	能=neng 为=wei 你=ni 服务=fu'wu 我会=wo'hui 感到=gan'dao 非常高兴=fei'chang'gao'xing ~。
+t13881478	t13881478	test	汤姆把自己锁在房间里。	汤姆=tang'mu 把=ba 自己=zi'ji 锁=suo 在=zai 房间=fang'jian 里=li ~。
+t12615469	t12615469	test	花了我一段时间起床。	花=hua 了=le 我=wo 一段时间=yi'duan'shi'jian 起床=qi'chuang ~。
+t5611615	t5611615	test	汤姆甚至拒绝听我的建议。	汤姆=tang'mu 甚至=shen'zhi 拒绝=ju'jue 听=ting 我=wo 的=de 建议=jian'yi ~。
+t1490518	t1490518	test	他一直暗恋着她。	他=ta 一直=yi'zhi 暗恋着=an'lian'zhe 她=ta ~。
+t427586	t427586	test	爱德华比罗伯特年轻。	爱德华=ai'de'hua 比=bi 罗伯特=luo'bo'te 年轻=nian'qing ~。
+t8671298	t8671298	test	我丈夫是教授。	我=wo 丈夫=zhang'fu 是=shi 教授=jiao'shou ~。
+t1249212	t1249212	dev	终于到周末了。	终于=zhong'yu 到=dao 周末=zhou'mo 了=le ~。
+t1654889	t1654889	test	你觉得这套房子怎么样？	你=ni 觉得=jue'de 这套=zhe'tao 房子=fang'zi 怎么样=zen'me'yang ~？
+t9955933	t9955933	test	“你表妹是哪国人？”“英国人。”	~“ 你=ni 表妹=biao'mei 是=shi 哪=na 国人=guo'ren ~？ ~” ~“ 英国人=ying'guo'ren ~。 ~”
+t13972759	t13972759	test	我想到个好办法。	我=wo 想到=xiang'dao 个=ge 好=hao 办法=ban'fa ~。
+t343947	t343947	dev	我不能离开家，即使是一会儿。	我=wo 不能=bu'neng 离开=li'kai 家=jia ~， 即使=ji'shi 是=shi 一会儿=yi'hui'er ~。
+t6553069	t6553069	test	萨米已经看过电视上的每一个医学节目	萨米=sa'mi 已经=yi'jing 看过=kan'guo 电视=dian'shi 上=shang 的=de 每=mei 一个=yi'ge 医学=yi'xue 节目=jie'mu
+t941050	t941050	test	队员称他为刀把脸。	队员=dui'yuan 称=cheng 他=ta 为=wei 刀把=dao'ba 脸=lian ~。
+t1314410	t1314410	test	有时这些照片不是很好。	有时=you'shi 这些=zhe'xie 照片=zhao'pian 不是=bu'shi 很=hen 好=hao ~。
+t334981	t334981	test	这所学校是1970年建成的。	这所=zhe'suo 学校=xue'xiao 是=shi ~1970 年=nian 建成=jian'cheng 的=de ~。
+t420746	t420746	test	我天天在这里做买卖，不会让你吃亏的！	我=wo 天天=tian'tian 在=zai 这里=zhe'li 做买卖=zuo'mai'mai ~， 不会=bu'hui 让=rang 你=ni 吃亏=chi'kui 的=de ~！
+t1316923	t1316923	test	你有东西吃吗？	你=ni 有=you 东西=dong'xi 吃=chi 吗=ma ~？
+t12686377	t12686377	test	那个杀人犯依然逍遥法外。	那个=na'ge 杀人犯=sha'ren'fan 依然=yi'ran 逍遥法外=xiao'yao'fa'wai ~。
+t349666	t349666	test	他的梦想最终实现了。	他=ta 的=de 梦想=meng'xiang 最终=zui'zhong 实现=shi'xian 了=le ~。
+t2029452	t2029452	dev	她声调突然变了。	她=ta 声调=sheng'diao 突然=tu'ran 变=bian 了=le ~。
+t380887	t380887	test	是的，你需要每天练习。	是=shi 的=de ~， 你=ni 需要=xu'yao 每天=mei'tian 练习=lian'xi ~。
+t2188491	t2188491	dev	对他人要友善。	对=dui 他人=ta'ren 要=yao 友善=you'shan ~。
+t10019763	t10019763	dev	他们什么都不给。	他们=ta'men 什么=shen'me 都=dou 不=bu 给=gei ~。
+t10005895	t10005895	test	汤姆经常在课堂上睡着。	汤姆=tang'mu 经常=jing'chang 在=zai 课堂=ke'tang 上=shang 睡着=shui'zhao ~。
+t812344	t812344	test	我无法确定我是高兴还是难过。	我=wo 无法=wu'fa 确定=que'ding 我=wo 是=shi 高兴=gao'xing 还是=hai'shi 难过=nan'guo ~。
+t408270	t408270	dev	我赌明天会下雨。	我=wo 赌=du 明天=ming'tian 会=hui 下雨=xia'yu ~。
+t469424	t469424	test	我们在这儿是为了帮他们的。	我们=wo'men 在=zai 这儿=zhe'er 是=shi 为了=wei'le 帮=bang 他们=ta'men 的=de ~。
+t2367493	t2367493	test	还记得咱们造木桥那时候么？	还=hai 记得=ji'de 咱们=zan'men 造=zao 木桥=mu'qiao 那=na 时候=shi'hou 么=me ~？
+t2062918	t2062918	test	你买了花儿没有?	你=ni 买=mai 了=le 花儿=hua'er 没有=mei'you ~?
+t333141	t333141	dev	8月份没课。	~8 月份=yue'fen 没课=mei'ke ~。
+t4845015	t4845015	dev	我不知道Tom是否和我们一起吃饭。	我=wo 不=bu 知道=zhi'dao ~Tom 是否=shi'fou 和=he 我们=wo'men 一起=yi'qi 吃饭=chi'fan ~。
+t12047754	t12047754	dev	雪是粉状的。	雪是=xue'shi 粉状=fen'zhuang 的=de ~。
+t5945139	t5945139	dev	汤姆跟玛丽说了这问题。	汤姆=tang'mu 跟=gen 玛丽=ma'li 说=shuo 了=le 这=zhe 问题=wen'ti ~。
+t9415194	t9415194	dev	我没有想到汤姆会那么生气。	我=wo 没有=mei'you 想到=xiang'dao 汤姆=tang'mu 会=hui 那么=na'me 生气=sheng'qi ~。
+t646549	t646549	test	现在已经七点。	现在=xian'zai 已经=yi'jing 七点=qi'dian ~。
+t3709225	t3709225	test	消磨时间的最有效办法当然还是聊天吹牛侃大山。	消磨=xiao'mo 时间=shi'jian 的=de 最=zui 有效=you'xiao 办法=ban'fa 当然=dang'ran 还是=hai'shi 聊天=liao'tian 吹牛=chui'niu 侃大山=kan'da'shan ~。
+t421124	t421124	test	你安全到达目的地以后，别忘记打个电话告诉我。	你=ni 安全=an'quan 到达=dao'da 目的地=mu'di'di 以后=yi'hou ~， 别忘记=bie'wang'ji 打个=da'ge 电话=dian'hua 告诉=gao'su 我=wo ~。
+t1416267	t1416267	dev	流经伦敦的河是泰晤士河。	流经=liu'jing 伦敦=lun'dun 的=de 河=he 是=shi 泰晤士河=tai'wu'shi'he ~。
+t14037663	t14037663	dev	其中一间房间有闹钟吗？	其中=qi'zhong 一间=yi'jian 房间=fang'jian 有=you 闹钟=nao'zhong 吗=ma ~？
+t13914748	t13914748	test	你知道这附近哪里有汗蒸房吗？	你=ni 知道=zhi'dao 这=zhe 附近=fu'jin 哪里=na'li 有汗=you'han 蒸房=zheng'fang 吗=ma ~？
+t9401168	t9401168	test	专注学业。	专注=zhuan'zhu 学业=xue'ye ~。
+t476678	t476678	test	你差不多猜对了。	你=ni 差不多=cha'bu'duo 猜=cai 对=dui 了=le ~。
+t13896483	t13896483	dev	当你遇到一个十分难懂的词时，你应该上维基百科而非去查词典。	当=dang 你=ni 遇到=yu'dao 一个=yi'ge 十分=shi'fen 难懂=nan'dong 的=de 词时=ci'shi ~， 你=ni 应该=ying'gai 上=shang 维基百科=wei'ji'bai'ke 而=er 非=fei 去=qu 查=cha 词典=ci'dian ~。
+t436016	t436016	test	她总是把自己的房子打扫得很干净。	她=ta 总是=zong'shi 把=ba 自己=zi'ji 的=de 房子=fang'zi 打扫=da'sao 得=de 很=hen 干净=gan'jing ~。
+t336652	t336652	test	看来没那么容易啊⋯⋯	看来=kan'lai 没=mei 那么=na'me 容易=rong'yi 啊=a ~⋯ ~⋯
+t2192125	t2192125	test	小人物同样可以创造历史。	小人物=xiao'ren'wu 同样=tong'yang 可以=ke'yi 创造=chuang'zao 历史=li'shi ~。
+t8648031	t8648031	dev	汤姆把衣服前后穿反了。	汤姆=tang'mu 把=ba 衣服=yi'fu 前后=qian'hou 穿=chuan 反=fan 了=le ~。
+t8775856	t8775856	test	厨房在哪?	厨房=chu'fang 在=zai 哪=na ~?
+t13862512	t13862512	test	汤姆直到六点才起床。	汤姆=tang'mu 直到=zhi'dao 六点=liu'dian 才=cai 起床=qi'chuang ~。
+t2298519	t2298519	dev	等我做完那活儿就帮你。	等=deng 我=wo 做=zuo 完=wan 那=na 活儿=huo'er 就=jiu 帮=bang 你=ni ~。
+t10537131	t10537131	dev	你一直在要什么？	你=ni 一直=yi'zhi 在=zai 要=yao 什么=shen'me ~？
+t1401747	t1401747	dev	有些学生对日本历史没兴趣。	有些=you'xie 学生=xue'sheng 对=dui 日本=ri'ben 历史=li'shi 没=mei 兴趣=xing'qu ~。
+t7774801	t7774801	test	我没法改变昨天发生的事情。	我=wo 没法=mei'fa 改变=gai'bian 昨天=zuo'tian 发生=fa'sheng 的=de 事情=shi'qing ~。
+t2367540	t2367540	dev	他一向只关心具体问题。	他=ta 一向=yi'xiang 只=zhi 关心=guan'xin 具体=ju'ti 问题=wen'ti ~。
+t1471142	t1471142	test	日本的经济发展很快.	日本=ri'ben 的=de 经济=jing'ji 发展=fa'zhan 很快=hen'kuai ~.
+t4440174	t4440174	dev	我知道你是个有见解的人。	我=wo 知道=zhi'dao 你=ni 是=shi 个=ge 有=you 见解=jian'jie 的=de 人=ren ~。
+t392199	t392199	dev	请问到南京西路怎么走近一点？	请问=qing'wen 到=dao 南京=nan'jing 西路=xi'lu 怎么=zen'me 走近=zou'jin 一点=yi'dian ~？
+t851520	t851520	dev	我和我爸爸玩接球。	我=wo 和=he 我=wo 爸爸=ba'ba 玩=wan 接球=jie'qiu ~。
+t472857	t472857	dev	他当时一个人在家。	他=ta 当时=dang'shi 一个=yi'ge 人=ren 在家=zai'jia ~。
+t5568482	t5568482	test	汤姆可能已经走了。	汤姆=tang'mu 可能=ke'neng 已经=yi'jing 走=zou 了=le ~。
+t5670787	t5670787	test	我曾经像猪一样吃。	我=wo 曾经=ceng'jing 像=xiang 猪=zhu 一样=yi'yang 吃=chi ~。
+t6142019	t6142019	test	我叫林峰。	我=wo 叫=jiao 林峰=lin'feng ~。
+t812218	t812218	test	美国是一个自称没有社会阶层的国家。	美国=mei'guo 是=shi 一个=yi'ge 自称=zi'cheng 没有=mei'you 社会阶层=she'hui'jie'ceng 的=de 国家=guo'jia ~。
+t389356	t389356	test	他是谷物商。	他=ta 是=shi 谷物=gu'wu 商=shang ~。
+t2411900	t2411900	test	荷兰语是低地法兰克语。	荷兰语=he'lan'yu 是=shi 低=di 地=di 法兰克=fa'lan'ke 语=yu ~。
+t3671248	t3671248	test	Tom有台靓车。	~Tom 有=you 台靓车=tai'liang'che ~。
+t476199	t476199	dev	能请您写一下吗？	能=neng 请=qing 您=nin 写=xie 一下=yi'xia 吗=ma ~？
+t13755316	t13755316	test	这不是慈善行为。	这=zhe 不是=bu'shi 慈善=ci'shan 行为=xing'wei ~。
+t5136634	t5136634	test	我知道你介意。	我=wo 知道=zhi'dao 你=ni 介意=jie'yi ~。
+t6314511	t6314511	dev	他手上拿了一把草。	他=ta 手上=shou'shang 拿=na 了=le 一把=yi'ba 草=cao ~。
+t9810396	t9810396	dev	蚁群在蚁丘上。	蚁=yi 群=qun 在=zai 蚁丘=yi'qiu 上=shang ~。
+t13893662	t13893662	test	她们都在偷笑。	她们=ta'men 都=dou 在=zai 偷笑=tou'xiao ~。
+t2393703	t2393703	dev	无论谁想娶她，都要先说服她的父亲。	无论谁=wu'lun'shui 想=xiang 娶=qu 她=ta ~， 都=dou 要=yao 先=xian 说服=shuo'fu 她=ta 的=de 父亲=fu'qin ~。
+t777688	t777688	test	抓住每一天。	抓住=zhua'zhu 每=mei 一天=yi'tian ~。
+t827544	t827544	dev	抓到你了!	抓到=zhua'dao 你=ni 了=le ~!
+t1187431	t1187431	test	我骑车去工作。	我=wo 骑车去=qi'che'qu 工作=gong'zuo ~。
+t334481	t334481	test	我们必须学会像兄弟一样共同生活，要么就像傻子一样同归于尽。	我们=wo'men 必须=bi'xu 学会=xue'hui 像=xiang 兄弟=xiong'di 一样=yi'yang 共同=gong'tong 生活=sheng'huo ~， 要么=yao'me 就=jiu 像=xiang 傻子=sha'zi 一样=yi'yang 同归于尽=tong'gui'yu'jin ~。
+t399028	t399028	test	大家早上好。	大家=da'jia 早上好=zao'shang'hao ~。
+t1928585	t1928585	test	他们组装飞机。	他们=ta'men 组装=zu'zhuang 飞机=fei'ji ~。
+t14072834	t14072834	test	我和他们昨天在电影院一起把电影看完了，因为我们觉得电影很有趣。	我=wo 和=he 他们=ta'men 昨天=zuo'tian 在=zai 电影院=dian'ying'yuan 一起=yi'qi 把=ba 电影=dian'ying 看=kan 完=wan 了=le ~， 因为=yin'wei 我们=wo'men 觉得=jue'de 电影=dian'ying 很=hen 有趣=you'qu ~。
+t899104	t899104	test	我的爱好为我的生活带来什么？	我=wo 的=de 爱好=ai'hao 为=wei 我=wo 的=de 生活=sheng'huo 带来=dai'lai 什么=shen'me ~？
+t5715139	t5715139	test	我以前从没去过国外。	我=wo 以前=yi'qian 从没=cong'mei 去过=qu'guo 国外=guo'wai ~。
+t8926979	t8926979	test	我觉得汤姆对我们撒谎了。	我=wo 觉得=jue'de 汤姆=tang'mu 对=dui 我们=wo'men 撒谎=sa'huang 了=le ~。
+t476654	t476654	test	告诉我您计划的目的。	告诉=gao'su 我=wo 您=nin 计划=ji'hua 的=de 目的=mu'di ~。
+t6183618	t6183618	dev	我在找一家店。	我=wo 在=zai 找=zhao 一家=yi'jia 店=dian ~。
+t4267408	t4267408	test	上午打电话比较贵吧？	上午=shang'wu 打电话=da'dian'hua 比较=bi'jiao 贵=gui 吧=ba ~？
+t13943571	t13943571	dev	让我们集中注意力。	让=rang 我们=wo'men 集中=ji'zhong 注意力=zhu'yi'li ~。
+t2440682	t2440682	test	她不会开车。	她=ta 不会=bu'hui 开车=kai'che ~。
+t4844755	t4844755	test	我们应该往哪个方向走？	我们=wo'men 应该=ying'gai 往=wang 哪个=na'ge 方向=fang'xiang 走=zou ~？
+t466123	t466123	test	您说今晚改变一下，去外面吃晚饭怎么样？	您=nin 说=shuo 今晚=jin'wan 改变=gai'bian 一下=yi'xia ~， 去=qu 外面=wai'mian 吃晚饭=chi'wan'fan 怎么样=zen'me'yang ~？
+t6082478	t6082478	test	我换了身衣服。	我换=wo'huan 了=le 身=shen 衣服=yi'fu ~。
+t8969796	t8969796	dev	萨米没有参加蕾拉的婚礼。	萨米=sa'mi 没有=mei'you 参加=can'jia 蕾=lei 拉=la 的=de 婚礼=hun'li ~。
+t1577276	t1577276	test	在黑暗中，她能听到他和客人说笑。	在=zai 黑暗=hei'an 中=zhong ~， 她=ta 能=neng 听到=ting'dao 他=ta 和=he 客人=ke'ren 说=shuo 笑=xiao ~。
+t1316081	t1316081	test	令人震惊的场面让他吓得发抖。	令人震惊=ling'ren'zhen'jing 的=de 场面=chang'mian 让=rang 他=ta 吓=xia 得=de 发抖=fa'dou ~。
+t2482672	t2482672	test	动物园里有很多奇怪的动物。	动物园=dong'wu'yuan 里=li 有=you 很多=hen'duo 奇怪=qi'guai 的=de 动物=dong'wu ~。
+t613445	t613445	test	日本与韩国是邻国。	日本=ri'ben 与=yu 韩国=han'guo 是=shi 邻国=lin'guo ~。
+t757958	t757958	test	秘鲁的共通语言是什么？	秘鲁=bi'lu 的=de 共通=gong'tong 语言=yu'yan 是=shi 什么=shen'me ~？
+t512477	t512477	test	琵琶湖有多深？	琵琶湖=pi'pa'hu 有多深=you'duo'shen ~？
+t397209	t397209	dev	她是我的女朋友。	她=ta 是=shi 我=wo 的=de 女朋友=nv'peng'you ~。
+t13967704	t13967704	test	你学习的时候，我们会帮你。	你=ni 学习=xue'xi 的=de 时候=shi'hou ~， 我们=wo'men 会=hui 帮=bang 你=ni ~。
+t9401489	t9401489	test	你不知道怎么做，不是吗？	你=ni 不=bu 知道=zhi'dao 怎么=zen'me 做=zuo ~， 不是=bu'shi 吗=ma ~？
+t10460856	t10460856	dev	我也不忙。	我=wo 也=ye 不忙=bu'mang ~。
+t392700	t392700	dev	有什么东西是我不该吃的吗?	有=you 什么=shen'me 东西=dong'xi 是=shi 我=wo 不该=bu'gai 吃=chi 的=de 吗=ma ~?
+t13138826	t13138826	test	她能理解。	她=ta 能=neng 理解=li'jie ~。
+t5551029	t5551029	dev	他经常看杯底。	他=ta 经常=jing'chang 看=kan 杯底=bei'di ~。
+t2003173	t2003173	test	到目前为止，我们还是相当成功的。	到=dao 目前为止=mu'qian'wei'zhi ~， 我们=wo'men 还是=hai'shi 相当=xiang'dang 成功=cheng'gong 的=de ~。
+t1622313	t1622313	dev	不够后面要再加个形容词	不够=bu'gou 后面=hou'mian 要=yao 再=zai 加个=jia'ge 形容词=xing'rong'ci
+t420588	t420588	dev	现在日元和人民币的兑换率是多少？	现在=xian'zai 日元=ri'yuan 和=he 人民币=ren'min'bi 的=de 兑换率=dui'huan'lv 是=shi 多少=duo'shao ~？
+t7767661	t7767661	test	她妈妈来自西班牙，她爸爸来自意大利，所以她会讲西班牙语和意大利语。	她=ta 妈妈=ma'ma 来自=lai'zi 西班牙=xi'ban'ya ~， 她=ta 爸爸=ba'ba 来自=lai'zi 意大利=yi'da'li ~， 所以=suo'yi 她=ta 会=hui 讲=jiang 西班牙语=xi'ban'ya'yu 和=he 意大利语=yi'da'li'yu ~。
+t1438536	t1438536	dev	不要让电视机开着。	不要=bu'yao 让=rang 电视机=dian'shi'ji 开着=kai'zhe ~。
+t346780	t346780	test	你从来不听，就好像我是在跟一堵墙说话。	你=ni 从来不=cong'lai'bu 听=ting ~， 就=jiu 好像=hao'xiang 我=wo 是=shi 在=zai 跟=gen 一堵=yi'du 墙=qiang 说话=shuo'hua ~。
+t711636	t711636	dev	我不知道这个单词怎么拼写。	我=wo 不=bu 知道=zhi'dao 这个=zhe'ge 单词=dan'ci 怎么=zen'me 拼写=pin'xie ~。
+t335318	t335318	test	她听到那个消息后惊呆了。	她=ta 听到=ting'dao 那个=na'ge 消息=xiao'xi 后=hou 惊呆=jing'dai 了=le ~。
+t1927797	t1927797	dev	她相信自己的儿子还活着。	她=ta 相信=xiang'xin 自己=zi'ji 的=de 儿子=er'zi 还=hai 活着=huo'zhe ~。
+t9961440	t9961440	dev	你处于危险之中。	你=ni 处于=chu'yu 危险=wei'xian 之中=zhi'zhong ~。
+t476207	t476207	test	我可能会去那儿，但要看情况。	我=wo 可能=ke'neng 会=hui 去=qu 那儿=na'er ~， 但=dan 要=yao 看=kan 情况=qing'kuang ~。
+t4763858	t4763858	test	我们看不见他们。	我们=wo'men 看不见=kan'bu'jian 他们=ta'men ~。
+t335866	t335866	test	我的耐心到了极限。	我=wo 的=de 耐心=nai'xin 到=dao 了=le 极限=ji'xian ~。
+t14038308	t14038308	dev	算我头上。	算=suan 我=wo 头上=tou'shang ~。
+t382993	t382993	test	还有二十分钟，时间很充裕。	还有=hai'you 二十分钟=er'shi'fen'zhong ~， 时间=shi'jian 很=hen 充裕=chong'yu ~。
+t1284201	t1284201	dev	这书会教给你一个明了的美式人生观。	这书会=zhe'shu'hui 教给=jiao'gei 你=ni 一个=yi'ge 明=ming 了=liao 的=de 美式=mei'shi 人生观=ren'sheng'guan ~。
+t1944797	t1944797	test	你找到几只虫子？	你=ni 找到=zhao'dao 几只=ji'zhi 虫子=chong'zi ~？
+t2440828	t2440828	test	汤姆甚至都没有看过玛丽给他的报告书。	汤姆=tang'mu 甚至=shen'zhi 都=dou 没有=mei'you 看过=kan'guo 玛丽=ma'li 给=gei 他=ta 的=de 报告书=bao'gao'shu ~。
+t336248	t336248	test	一连串的爆炸使实验室成为废墟。	一连串=yi'lian'chuan 的=de 爆炸=bao'zha 使=shi 实验室=shi'yan'shi 成为=cheng'wei 废墟=fei'xu ~。
+t2394596	t2394596	test	别让他打到你。	别=bie 让=rang 他=ta 打=da 到=dao 你=ni ~。
+t9408611	t9408611	test	长颈鹿放走了。	长颈鹿=chang'jing'lu 放走=fang'zou 了=le ~。
+t348588	t348588	dev	松鼠动作很快。	松鼠=song'shu 动作=dong'zuo 很快=hen'kuai ~。
+t3415925	t3415925	test	我是谁？我是诗人。我做什么？我写作。我活得怎么样？我只是活着。	我=wo 是=shi 谁=shui ~？ 我=wo 是=shi 诗人=shi'ren ~。 我=wo 做=zuo 什么=shen'me ~？ 我=wo 写作=xie'zuo ~。 我活=wo'huo 得=de 怎么样=zen'me'yang ~？ 我=wo 只是=zhi'shi 活着=huo'zhe ~。
+t6383080	t6383080	test	世上所有问题都可以用下面三种方式解决：接受，改变，或是干脆放开。	世上=shi'shang 所有=suo'you 问题=wen'ti 都=dou 可以=ke'yi 用=yong 下面=xia'mian 三种=san'zhong 方式=fang'shi 解决=jie'jue ~： 接受=jie'shou ~， 改变=gai'bian ~， 或是=huo'shi 干脆=gan'cui 放开=fang'kai ~。
+t465040	t465040	test	他自发地提出了他的帮助。	他=ta 自发=zi'fa 地=de 提出=ti'chu 了=le 他=ta 的=de 帮助=bang'zhu ~。
+t5153277	t5153277	dev	我们在哪里集合？	我们=wo'men 在=zai 哪里=na'li 集合=ji'he ~？
+t358816	t358816	test	我忙于应付期末考试。	我=wo 忙于=mang'yu 应付=ying'fu 期末考试=qi'mo'kao'shi ~。
+t430974	t430974	dev	但是没人帮得了我。	但是=dan'shi 没人=mei'ren 帮得=bang'de 了=le 我=wo ~。
+t1946810	t1946810	test	要有大局观。	要=yao 有=you 大局观=da'ju'guan ~。
+t2777920	t2777920	test	他经常插到我们的谈话中来。	他=ta 经常=jing'chang 插=cha 到=dao 我们=wo'men 的=de 谈话=tan'hua 中来=zhong'lai ~。
+t334298	t334298	test	很快，城市就被士兵占领了。	很快=hen'kuai ~， 城市=cheng'shi 就=jiu 被=bei 士兵=shi'bing 占领=zhan'ling 了=le ~。
+t1316663	t1316663	test	一些司机因为超速被处以了罚金。	一些=yi'xie 司机=si'ji 因为=yin'wei 超速=chao'su 被=bei 处以=chu'yi 了=le 罚金=fa'jin ~。
+t13922422	t13922422	test	除了一些建议之外，我还给了他一台自行车。	除了=chu'le 一些=yi'xie 建议=jian'yi 之外=zhi'wai ~， 我=wo 还给=huan'gei 了=le 他=ta 一台=yi'tai 自行车=zi'xing'che ~。
+t332507	t332507	test	当她发现他们还没有学校，她就办了一个。	当=dang 她=ta 发现=fa'xian 他们=ta'men 还=hai 没有=mei'you 学校=xue'xiao ~， 她=ta 就=jiu 办=ban 了=le 一个=yi'ge ~。
+t343450	t343450	test	日本米市场禁止进口。	日本=ri'ben 米=mi 市场=shi'chang 禁止=jin'zhi 进口=jin'kou ~。
+t10522514	t10522514	test	作者是巴西人。	作者=zuo'zhe 是=shi 巴西人=ba'xi'ren ~。
+t1783886	t1783886	test	没有人知道汤姆以前有多爱玛丽。	没有=mei'you 人=ren 知道=zhi'dao 汤姆=tang'mu 以前=yi'qian 有=you 多=duo 爱=ai 玛丽=ma'li ~。
+t461520	t461520	dev	警察瞄准了那个男人。	警察=jing'cha 瞄准=miao'zhun 了=le 那个=na'ge 男人=nan'ren ~。
+t1958199	t1958199	dev	诚实地回答你的问题对他来说是个原则问题。	诚实=cheng'shi 地=de 回答=hui'da 你=ni 的=de 问题=wen'ti 对=dui 他=ta 来说=lai'shuo 是=shi 个=ge 原则=yuan'ze 问题=wen'ti ~。
+t9431986	t9431986	test	他不奇怪。	他=ta 不=bu 奇怪=qi'guai ~。
+t915552	t915552	dev	首先，幸福跟钱有关系。	首先=shou'xian ~， 幸福=xing'fu 跟=gen 钱=qian 有=you 关系=guan'xi ~。
+t334409	t334409	test	他不仅给了我们衣服，还有一点钱。	他=ta 不仅=bu'jin 给=gei 了=le 我们=wo'men 衣服=yi'fu ~， 还有=hai'you 一点=yi'dian 钱=qian ~。
+t3065791	t3065791	test	全部的学生们都考试及格了。	全部=quan'bu 的=de 学生=xue'sheng 们=men 都=dou 考试及格=kao'shi'ji'ge 了=le ~。
+t348190	t348190	test	黄油是从牛奶中提炼出来的。	黄油=huang'you 是从=shi'cong 牛奶=niu'nai 中=zhong 提炼=ti'lian 出来=chu'lai 的=de ~。
+t5949243	t5949243	dev	汤姆在吹嘘。	汤姆=tang'mu 在=zai 吹嘘=chui'xu ~。
+t8463604	t8463604	test	在句子中不要写入额外信息，比如作者姓名。	在=zai 句子=ju'zi 中=zhong 不要=bu'yao 写入=xie'ru 额外=e'wai 信息=xin'xi ~， 比如=bi'ru 作者姓名=zuo'zhe'xing'ming ~。
+t5926181	t5926181	test	我不知道我能不能再做一次。	我=wo 不=bu 知道=zhi'dao 我能=wo'neng 不能=bu'neng 再=zai 做=zuo 一次=yi'ci ~。
+t10752770	t10752770	test	你个小屁孩。	你=ni 个=ge 小屁孩=xiao'pi'hai ~。
+t4264850	t4264850	test	你用过我的照相机吗？	你=ni 用=yong 过=guo 我=wo 的=de 照相机=zhao'xiang'ji 吗=ma ~？
+t429427	t429427	test	他称赞了我。	他=ta 称赞=cheng'zan 了=le 我=wo ~。
+t9780184	t9780184	test	光速不是极限速度。	光速=guang'su 不是=bu'shi 极限速度=ji'xian'su'du ~。
+t684379	t684379	test	你去哪点儿？	你=ni 去=qu 哪=na 点儿=dian'er ~？
+t1395107	t1395107	test	她小心翼翼地走。	她=ta 小心翼翼=xiao'xin'yi'yi 地=de 走=zou ~。
+t9690019	t9690019	test	玛丽说她很生气。	玛丽=ma'li 说=shuo 她=ta 很=hen 生气=sheng'qi ~。
+t8845192	t8845192	test	我个子不高，我老婆就成天发愁：“儿子以后也像你那么矮可怎么办啊。”	我=wo 个子=ge'zi 不高=bu'gao ~， 我=wo 老婆=lao'po 就=jiu 成天=cheng'tian 发愁=fa'chou ~： ~“ 儿子=er'zi 以后=yi'hou 也=ye 像=xiang 你=ni 那么=na'me 矮=ai 可=ke 怎么办=zen'me'ban 啊=a ~。 ~”
+t7768005	t7768005	dev	我做不到。	我=wo 做=zuo 不到=bu'dao ~。
+t8845190	t8845190	test	结婚前，我管女朋友的妈妈叫“阿姨”，结婚后，我就改叫“妈”了。	结婚=jie'hun 前=qian ~， 我管=wo'guan 女朋友=nv'peng'you 的=de 妈妈=ma'ma 叫=jiao ~“ 阿姨=a'yi ~” ~， 结婚=jie'hun 后=hou ~， 我=wo 就=jiu 改叫=gai'jiao ~“ 妈=ma ~” 了=le ~。
+t5780602	t5780602	test	我恐怕不是个很好的伙伴。	我=wo 恐怕=kong'pa 不是=bu'shi 个=ge 很=hen 好=hao 的=de 伙伴=huo'ban ~。
+t7785257	t7785257	test	现在我几乎不看电视。	现在=xian'zai 我=wo 几乎=ji'hu 不=bu 看电视=kan'dian'shi ~。
+t752514	t752514	dev	昆虫有一层坚硬的表皮。	昆虫=kun'chong 有=you 一层=yi'ceng 坚硬=jian'ying 的=de 表皮=biao'pi ~。
+t10081664	t10081664	test	做事千万别过于急切，把事情搞砸了。	做事=zuo'shi 千万别=qian'wan'bie 过于=guo'yu 急切=ji'qie ~， 把=ba 事情=shi'qing 搞砸=gao'za 了=le ~。
+t349291	t349291	test	我们会及时赶到吗?	我们=wo'men 会=hui 及时=ji'shi 赶到=gan'dao 吗=ma ~?
+t514719	t514719	dev	你能告诉我你的手机号吗？	你=ni 能=neng 告诉=gao'su 我=wo 你=ni 的=de 手机号=shou'ji'hao 吗=ma ~？
+t3478397	t3478397	test	这是你的菜单。	这=zhe 是=shi 你=ni 的=de 菜单=cai'dan ~。
+t410868	t410868	dev	我在想有没有人能帮我做这个。	我=wo 在=zai 想=xiang 有没有=you'mei'you 人能=ren'neng 帮=bang 我=wo 做=zuo 这个=zhe'ge ~。
+t2310046	t2310046	test	没什么比死亡更可怕。	没什么=mei'shen'me 比=bi 死亡=si'wang 更=geng 可怕=ke'pa ~。
+t476675	t476675	test	我们都认为您的想法是行不通的。	我们=wo'men 都=dou 认为=ren'wei 您=nin 的=de 想法=xiang'fa 是=shi 行不通=xing'bu'tong 的=de ~。
+t2085080	t2085080	test	他们像老朋友一样交谈。	他们=ta'men 像=xiang 老朋友=lao'peng'you 一样=yi'yang 交谈=jiao'tan ~。
+t333832	t333832	test	明天在办公室见。	明天=ming'tian 在=zai 办公室=ban'gong'shi 见=jian ~。
+t691235	t691235	test	动词变位很有趣的。	动词=dong'ci 变位=bian'wei 很=hen 有趣=you'qu 的=de ~。
+t426397	t426397	test	我们看了窗外，但什么都没看见。	我们=wo'men 看=kan 了=le 窗外=chuang'wai ~， 但=dan 什么=shen'me 都=dou 没=mei 看见=kan'jian ~。
+t1314486	t1314486	dev	你让我想起我过去认识的一个男孩。	你=ni 让=rang 我=wo 想起=xiang'qi 我=wo 过去=guo'qu 认识=ren'shi 的=de 一个男孩=yi'ge'nan'hai ~。
+t1330011	t1330011	dev	我最近常看到他。	我=wo 最近=zui'jin 常看到=chang'kan'dao 他=ta ~。
+t333716	t333716	test	“你去哪儿了？”“我去了火车站送我的一个朋友。”	~“ 你=ni 去=qu 哪儿=na'er 了=le ~？ ~” ~“ 我=wo 去=qu 了=le 火车站=huo'che'zhan 送=song 我=wo 的=de 一个=yi'ge 朋友=peng'you ~。 ~”
+t420718	t420718	test	别是小地方出产的冒牌货吧？	别是=bie'shi 小=xiao 地方=di'fang 出产=chu'chan 的=de 冒牌货=mao'pai'huo 吧=ba ~？
+t1878437	t1878437	test	在医院的时候，我不得不戒烟。	在=zai 医院=yi'yuan 的=de 时候=shi'hou ~， 我=wo 不得不=bu'de'bu 戒烟=jie'yan ~。
+t421058	t421058	test	我还常常看上海滑稽，或者全家围着电视机看足球。	我=wo 还=hai 常常=chang'chang 看=kan 上海=shang'hai 滑稽=hua'ji ~， 或者=huo'zhe 全家=quan'jia 围着=wei'zhe 电视机=dian'shi'ji 看=kan 足球=zu'qiu ~。
+t844549	t844549	test	你可以寄希望于此。	你=ni 可以=ke'yi 寄希望于=ji'xi'wang'yu 此=ci ~。
+t5624986	t5624986	test	这里现在有了许多新建筑。	这里=zhe'li 现在=xian'zai 有=you 了=le 许多=xu'duo 新=xin 建筑=jian'zhu ~。
+t1395005	t1395005	test	我们到达了北海道的一个小镇。	我们=wo'men 到达=dao'da 了=le 北海道=bei'hai'dao 的=de 一个=yi'ge 小镇=xiao'zhen ~。
+t1783852	t1783852	test	这些天你工作太多了。你不累吗？	这些=zhe'xie 天=tian 你=ni 工作=gong'zuo 太多=tai'duo 了=le ~。 你=ni 不累=bu'lei 吗=ma ~？
+t10342215	t10342215	dev	你走之前把我叫醒啊。	你=ni 走=zou 之前=zhi'qian 把=ba 我=wo 叫醒=jiao'xing 啊=a ~。
+t2888093	t2888093	test	桌上面有一个地图。	桌上=zhuo'shang 面=mian 有=you 一个=yi'ge 地图=di'tu ~。
+t437290	t437290	test	我现在正在学习。	我=wo 现在=xian'zai 正在=zheng'zai 学习=xue'xi ~。
+t469364	t469364	test	你现在想要什么？	你=ni 现在=xian'zai 想要=xiang'yao 什么=shen'me ~？
+t10733710	t10733710	test	晚安，Tatoeba。明天见。	晚安=wan'an ~， ~Tatoeba ~。 明天=ming'tian 见=jian ~。
+t3702634	t3702634	test	别忘了给我打电话。	别忘了=bie'wang'le 给=gei 我=wo 打电话=da'dian'hua ~。
+t9419163	t9419163	dev	我想换房间。	我=wo 想=xiang 换=huan 房间=fang'jian ~。
+t2107385	t2107385	test	他吃糖吃伤了。	他=ta 吃糖=chi'tang 吃=chi 伤=shang 了=le ~。
+t1586041	t1586041	test	爱便是在你的梦中梦见她。	爱=ai 便是=bian'shi 在=zai 你=ni 的=de 梦=meng 中=zhong 梦见=meng'jian 她=ta ~。
+t333354	t333354	dev	我们班有四十个学生。	我们=wo'men 班有=ban'you 四十个=si'shi'ge 学生=xue'sheng ~。
+t4972523	t4972523	test	都是你的错。	都=dou 是=shi 你=ni 的=de 错=cuo ~。
+t9990198	t9990198	dev	你必须做出困难的选择。	你=ni 必须=bi'xu 做出=zuo'chu 困难=kun'nan 的=de 选择=xuan'ze ~。
+t1944775	t1944775	test	你真的不想去吗？	你=ni 真的=zhen'de 不想=bu'xiang 去=qu 吗=ma ~？
+t9475960	t9475960	test	汤姆、玛丽、约翰和爱丽丝都在那里了。	汤姆=tang'mu ~、 玛丽=ma'li ~、 约翰=yue'han 和=he 爱丽丝=ai'li'si 都=dou 在=zai 那里=na'li 了=le ~。
+t2029431	t2029431	dev	他每天都给她打电话。	他=ta 每天=mei'tian 都=dou 给=gei 她=ta 打电话=da'dian'hua ~。
+t8730057	t8730057	dev	你们什么时候开始营业？	你们=ni'men 什么=shen'me 时候=shi'hou 开始=kai'shi 营业=ying'ye ~？
+t8888005	t8888005	test	瓶子摔成了碎片。	瓶子=ping'zi 摔成=shuai'cheng 了=le 碎片=sui'pian ~。
+t1891250	t1891250	test	两人并肩站在一起。	两人=liang'ren 并肩=bing'jian 站=zhan 在=zai 一起=yi'qi ~。
+t10266087	t10266087	dev	这一点用都没。	这=zhe 一点=yi'dian 用=yong 都=dou 没=mei ~。
+t9969244	t9969244	test	美兹丽喜欢月亮。	美兹丽=mei'zi'li 喜欢=xi'huan 月亮=yue'liang ~。
+t9467029	t9467029	test	汤姆要来了。	汤姆=tang'mu 要来=yao'lai 了=le ~。
+t10518674	t10518674	test	她看似不同意。	她=ta 看似=kan'si 不=bu 同意=tong'yi ~。
+t846103	t846103	test	我常常星期日去市中心。	我=wo 常常=chang'chang 星期日=xing'qi'ri 去=qu 市中心=shi'zhong'xin ~。
+t14023293	t14023293	dev	我主修农业。	我=wo 主修=zhu'xiu 农业=nong'ye ~。
+t1691675	t1691675	test	单片机似乎被我烧坏了。	单片机=dan'pian'ji 似乎=si'hu 被=bei 我=wo 烧坏=shao'huai 了=le ~。
+t3554291	t3554291	test	使我感兴趣的是为所爱之物而生，为所爱之物而死。	使=shi 我=wo 感兴趣=gan'xing'qu 的=de 是=shi 为=wei 所=suo 爱之物=ai'zhi'wu 而生=er'sheng ~， 为=wei 所=suo 爱之物=ai'zhi'wu 而=er 死=si ~。
+t6452046	t6452046	dev	一小时之内我就会到。	一=yi 小时=xiao'shi 之内=zhi'nei 我=wo 就=jiu 会=hui 到=dao ~。
+t8792033	t8792033	test	汤姆觉得他有机会在股市赚一大笔钱。	汤姆=tang'mu 觉得=jue'de 他=ta 有=you 机会=ji'hui 在=zai 股市=gu'shi 赚=zhuan 一大笔钱=yi'da'bi'qian ~。
+t1974791	t1974791	test	在河里游泳的家伙是我朋友。	在=zai 河里=he'li 游泳=you'yong 的=de 家伙=jia'huo 是=shi 我=wo 朋友=peng'you ~。
+t430967	t430967	test	糖溶于热水。	糖=tang 溶于=rong'yu 热水=re'shui ~。
+t7772128	t7772128	test	你已经到家了吗？	你=ni 已经=yi'jing 到家=dao'jia 了=le 吗=ma ~？
+t2737434	t2737434	dev	我们是坐飞机去韩国的。	我们=wo'men 是=shi 坐飞机=zuo'fei'ji 去=qu 韩国=han'guo 的=de ~。
+t846700	t846700	test	一夜不睡，十夜不醒。	一夜=yi'ye 不=bu 睡=shui ~， 十夜=shi'ye 不=bu 醒=xing ~。
+t512120	t512120	test	日本在某些领域赶上了美国。	日本=ri'ben 在=zai 某些=mou'xie 领域=ling'yu 赶上=gan'shang 了=le 美国=mei'guo ~。
+t1928584	t1928584	test	我对音乐一无所知。	我=wo 对=dui 音乐=yin'yue 一无所知=yi'wu'suo'zhi ~。
+t5845630	t5845630	test	汤姆在这里工作了几年？	汤姆=tang'mu 在=zai 这里=zhe'li 工作=gong'zuo 了=le 几年=ji'nian ~？
+t6563548	t6563548	test	没有工作，我就没法存钱。	没有=mei'you 工作=gong'zuo ~， 我=wo 就=jiu 没法=mei'fa 存钱=cun'qian ~。
+t10895474	t10895474	test	战争对你有影响吗？	战争=zhan'zheng 对=dui 你=ni 有=you 影响=ying'xiang 吗=ma ~？
+t9992063	t9992063	test	我只是个普通人而已。	我=wo 只是=zhi'shi 个=ge 普通人=pu'tong'ren 而已=er'yi ~。
+t1408068	t1408068	dev	Tom还是个小男孩。	~Tom 还是=hai'shi 个=ge 小男孩=xiao'nan'hai ~。
+t2827154	t2827154	test	猫在椅子上睡觉。	猫=mao 在=zai 椅子=yi'zi 上=shang 睡觉=shui'jiao ~。
+t1850482	t1850482	test	我的名字是汤姆。	我=wo 的=de 名字=ming'zi 是=shi 汤姆=tang'mu ~。
+t755855	t755855	test	如果呼气的时候能看到自己的气，你就知道天气很冷。	如果=ru'guo 呼气=hu'qi 的=de 时候=shi'hou 能=neng 看到=kan'dao 自己=zi'ji 的=de 气=qi ~， 你=ni 就=jiu 知道=zhi'dao 天气=tian'qi 很=hen 冷=leng ~。
+t6149266	t6149266	test	明惠是我的同事。	明惠=ming'hui 是=shi 我=wo 的=de 同事=tong'shi ~。
+t1616517	t1616517	dev	他做的这件事真是精神可嘉！	他=ta 做=zuo 的=de 这件=zhe'jian 事=shi 真是=zhen'shi 精神可嘉=jing'shen'ke'jia ~！
+t3380546	t3380546	test	你最好别总去想她。	你=ni 最好=zui'hao 别总去=bie'zong'qu 想=xiang 她=ta ~。
+t406716	t406716	dev	你们不在的时候，有个Jones先生来过了。	你们=ni'men 不=bu 在=zai 的=de 时候=shi'hou ~， 有个=you'ge ~Jones 先生=xian'sheng 来=lai 过=guo 了=le ~。
+t5580886	t5580886	test	你在工作。	你=ni 在=zai 工作=gong'zuo ~。
+t389351	t389351	test	我弟弟在车祸中受了伤。	我=wo 弟弟=di'di 在=zai 车祸=che'huo 中=zhong 受了伤=shou'le'shang ~。
+t336497	t336497	test	它从哪里离开的？	它=ta 从=cong 哪里=na'li 离开=li'kai 的=de ~？
+t9699935	t9699935	test	她的皮肤水嫩水嫩的，洁白无瑕。	她=ta 的=de 皮肤=pi'fu 水嫩=shui'nen 水嫩=shui'nen 的=de ~， 洁白无瑕=jie'bai'wu'xia ~。
+t10538261	t10538261	test	这首曲子，是动漫主题曲吗？	这首=zhe'shou 曲子=qu'zi ~， 是=shi 动漫=dong'man 主题曲=zhu'ti'qu 吗=ma ~？
+t1616558	t1616558	test	十年来，人们越来越强烈地意识到需要改变自己的饮食习惯。	十年=shi'nian 来=lai ~， 人们=ren'men 越来越=yue'lai'yue 强烈=qiang'lie 地=de 意识=yi'shi 到=dao 需要=xu'yao 改变=gai'bian 自己=zi'ji 的=de 饮食习惯=yin'shi'xi'guan ~。
+t4972683	t4972683	dev	她举止优雅。	她=ta 举止=ju'zhi 优雅=you'ya ~。
+t5949254	t5949254	test	我们坐着谈很久以前的事。	我们=wo'men 坐=zuo 着=zhe 谈=tan 很久以前=hen'jiu'yi'qian 的=de 事=shi ~。
+t400997	t400997	test	我从一开始就错了。	我=wo 从=cong 一=yi 开始=kai'shi 就=jiu 错=cuo 了=le ~。
+t347200	t347200	test	你就把她忘了吧。	你=ni 就=jiu 把=ba 她=ta 忘=wang 了=le 吧=ba ~。
+t332786	t332786	test	我不知道，也不想知道。	我=wo 不=bu 知道=zhi'dao ~， 也=ye 不想=bu'xiang 知道=zhi'dao ~。
+t13942544	t13942544	test	箱子的形状一般是方形。	箱子=xiang'zi 的=de 形状=xing'zhuang 一般=yi'ban 是=shi 方形=fang'xing ~。
+t902003	t902003	test	我很幸运的，脱身无伤。	我=wo 很=hen 幸运=xing'yun 的=de ~， 脱身=tuo'shen 无=wu 伤=shang ~。
+t5794104	t5794104	dev	你的姓氏怎么写？	你=ni 的=de 姓氏=xing'shi 怎么=zen'me 写=xie ~？
+t7841412	t7841412	dev	我想她肯定有其他技能。	我=wo 想=xiang 她=ta 肯定=ken'ding 有=you 其他=qi'ta 技能=ji'neng ~。
+t5574138	t5574138	dev	你应该对邻居好点。	你=ni 应该=ying'gai 对=dui 邻居=lin'ju 好点=hao'dian ~。
+t916648	t916648	test	我今晚有空。	我=wo 今晚=jin'wan 有空=you'kong ~。
+t2102025	t2102025	dev	维吾尔语是一种突厥语。	维吾尔语=wei'wu'er'yu 是=shi 一种=yi'zhong 突厥语=tu'jue'yu ~。
+t1441773	t1441773	dev	我们常常在学校学习。	我们=wo'men 常常=chang'chang 在=zai 学校=xue'xiao 学习=xue'xi ~。
+t636230	t636230	test	钱是他想要的最后的东西。	钱=qian 是=shi 他=ta 想要=xiang'yao 的=de 最后=zui'hou 的=de 东西=dong'xi ~。
+t743449	t743449	test	我的孩子正在割小麦。	我=wo 的=de 孩子=hai'zi 正在=zheng'zai 割=ge 小麦=xiao'mai ~。
+t4859561	t4859561	test	明天尽量不要再迟到了。	明天=ming'tian 尽量=jin'liang 不要=bu'yao 再=zai 迟到=chi'dao 了=le ~。
+t9707308	t9707308	test	在家千日好。	在家千日好=zai'jia'qian'ri'hao ~。
+t9972869	t9972869	test	玛丽得糖尿病了，不是吗？	玛丽=ma'li 得=de 糖尿病=tang'niao'bing 了=le ~， 不是=bu'shi 吗=ma ~？
+t13881475	t13881475	test	他有一口滑稽的口音。	他=ta 有=you 一口=yi'kou 滑稽=hua'ji 的=de 口音=kou'yin ~。
+t10271714	t10271714	test	即便是小孩子也能做到呢。	即便=ji'bian 是=shi 小孩子=xiao'hai'zi 也=ye 能=neng 做到=zuo'dao 呢=ne ~。
+t455307	t455307	dev	两个男孩子从房间里跑出来了。	两个=liang'ge 男孩子=nan'hai'zi 从=cong 房间=fang'jian 里=li 跑=pao 出来=chu'lai 了=le ~。
+t13550373	t13550373	dev	到副歌了。	到=dao 副歌=fu'ge 了=le ~。
+t9408593	t9408593	test	她很吵闹，不是吗？	她=ta 很=hen 吵闹=chao'nao ~， 不是=bu'shi 吗=ma ~？
+t5763032	t5763032	test	琳达真喜欢巧克力。	琳达=lin'da 真=zhen 喜欢=xi'huan 巧克力=qiao'ke'li ~。
+t5842637	t5842637	test	汤姆希望他能懂法语。	汤姆=tang'mu 希望=xi'wang 他=ta 能=neng 懂=dong 法语=fa'yu ~。
+t347186	t347186	test	她的死亡是事实。	她=ta 的=de 死亡=si'wang 是=shi 事实=shi'shi ~。
+t1737865	t1737865	test	水果一般不久就会腐烂。	水果=shui'guo 一般=yi'ban 不久=bu'jiu 就=jiu 会=hui 腐烂=fu'lan ~。
+t795960	t795960	dev	你觉得绕路的司机占所有的出租车司机的百分之多少？	你=ni 觉得=jue'de 绕路=rao'lu 的=de 司机=si'ji 占=zhan 所有=suo'you 的=de 出租车=chu'zu'che 司机=si'ji 的=de 百分之=bai'fen'zhi 多少=duo'shao ~？
+t2102713	t2102713	test	他不但没帮我，还骂了我。	他=ta 不但=bu'dan 没帮=mei'bang 我=wo ~， 还=hai 骂=ma 了=le 我=wo ~。
+t3378009	t3378009	dev	我给你买了个礼物。	我=wo 给=gei 你=ni 买=mai 了=le 个=ge 礼物=li'wu ~。
+t9953345	t9953345	test	一开始我妈试着帮我，但她很快就放弃了。	一=yi 开始=kai'shi 我妈试=wo'ma'shi 着=zhe 帮=bang 我=wo ~， 但=dan 她=ta 很快=hen'kuai 就=jiu 放弃=fang'qi 了=le ~。
+t8091327	t8091327	dev	她非常老。	她=ta 非常=fei'chang 老=lao ~。
+t702765	t702765	dev	姐姐在市场买了一点茄子、土豆、丝瓜和大白菜。	姐姐=jie'jie 在=zai 市场=shi'chang 买=mai 了=le 一点=yi'dian 茄子=qie'zi ~、 土豆=tu'dou ~、 丝瓜=si'gua 和=he 大白菜=da'bai'cai ~。
+t332865	t332865	dev	那个学生跑得很快，不是吗？	那个=na'ge 学生=xue'sheng 跑=pao 得=de 很快=hen'kuai ~， 不是=bu'shi 吗=ma ~？
+t993725	t993725	test	这座岛屿是美国的领土。	这座=zhe'zuo 岛屿=dao'yu 是=shi 美国=mei'guo 的=de 领土=ling'tu ~。
+t10982872	t10982872	test	我们要回家。	我们=wo'men 要=yao 回家=hui'jia ~。
+t1855068	t1855068	dev	这一切在我看来都颇为荒唐。	这=zhe 一切=yi'qie 在我看来=zai'wo'kan'lai 都=dou 颇为=po'wei 荒唐=huang'tang ~。
+t9794603	t9794603	test	手擀面是一种常见的食材。	手=shou 擀面=gan'mian 是=shi 一种=yi'zhong 常见=chang'jian 的=de 食材=shi'cai ~。
+t10484083	t10484083	test	我可以确保成功。	我=wo 可以=ke'yi 确保=que'bao 成功=cheng'gong ~。
+t7781465	t7781465	test	他终于弄清楚怎么搞定这事了。	他=ta 终于=zhong'yu 弄清楚=nong'qing'chu 怎么=zen'me 搞定=gao'ding 这事=zhe'shi 了=le ~。
+t4621032	t4621032	dev	我觉得吃完那块大牛排你就饱了。	我=wo 觉得=jue'de 吃=chi 完=wan 那块=na'kuai 大=da 牛排=niu'pai 你=ni 就=jiu 饱=bao 了=le ~。
+t9963088	t9963088	test	你似乎不是很肯定。	你=ni 似乎=si'hu 不是=bu'shi 很=hen 肯定=ken'ding ~。
+t795941	t795941	test	喂！这里有个会说维语的美国人！快来把他的电脑检查一下！	喂=wei ~！ 这里=zhe'li 有个=you'ge 会=hui 说=shuo 维语=wei'yu 的=de 美国=mei'guo 人=ren ~！ 快来=kuai'lai 把=ba 他=ta 的=de 电脑=dian'nao 检查一下=jian'cha'yi'xia ~！
+t5574725	t5574725	test	再见，祝好运。	再见=zai'jian ~， 祝=zhu 好运=hao'yun ~。
+t846527	t846527	test	我是时候停下了。	我=wo 是=shi 时候=shi'hou 停下=ting'xia 了=le ~。
+t1323698	t1323698	test	我生于1988年。	我=wo 生于=sheng'yu ~1988 年=nian ~。
+t4760036	t4760036	test	我们爱自己的母亲，几乎不无从知晓，无从感受，就像是活着的本能。	我们=wo'men 爱=ai 自己=zi'ji 的=de 母亲=mu'qin ~， 几乎=ji'hu 不=bu 无从=wu'cong 知晓=zhi'xiao ~， 无从=wu'cong 感受=gan'shou ~， 就=jiu 像是=xiang'shi 活着=huo'zhe 的=de 本能=ben'neng ~。
+t1323992	t1323992	test	每个偶数都是两个质数之和。	每个=mei'ge 偶数=ou'shu 都=dou 是=shi 两个=liang'ge 质数=zhi'shu 之=zhi 和=he ~。
+t5576799	t5576799	dev	我是见汤姆的最后一个。	我=wo 是=shi 见=jian 汤姆=tang'mu 的=de 最后=zui'hou 一个=yi'ge ~。
+t411641	t411641	test	我能要一条被子吗?	我能=wo'neng 要=yao 一条=yi'tiao 被子=bei'zi 吗=ma ~?
+t813575	t813575	test	你能告诉我红茶和绿茶的区别吗？	你=ni 能=neng 告诉=gao'su 我=wo 红茶=hong'cha 和=he 绿茶=lv'cha 的=de 区别=qu'bie 吗=ma ~？
+t402609	t402609	dev	他是一位有名的画家。	他=ta 是=shi 一位=yi'wei 有名=you'ming 的=de 画家=hua'jia ~。
+t1397358	t1397358	dev	她现在忙，不能跟你说话。	她=ta 现在=xian'zai 忙=mang ~， 不能=bu'neng 跟=gen 你=ni 说话=shuo'hua ~。
+t4462459	t4462459	test	那些俄罗斯人啊	那些=na'xie 俄罗斯=e'luo'si 人=ren 啊=a
+t3694834	t3694834	test	汤姆说了他不会说法语。	汤姆=tang'mu 说=shuo 了=le 他=ta 不会=bu'hui 说=shuo 法语=fa'yu ~。
+t899319	t899319	dev	她们享有崇高的威望。	她们=ta'men 享有=xiang'you 崇高=chong'gao 的=de 威望=wei'wang ~。
+t8829209	t8829209	test	我不知道乔治会不会来。	我=wo 不=bu 知道=zhi'dao 乔治=qiao'zhi 会=hui 不会=bu'hui 来=lai ~。
+t12422354	t12422354	test	请把我送到家门口。	请=qing 把=ba 我=wo 送到=song'dao 家门口=jia'men'kou ~。
+t334710	t334710	dev	你真的需要提问题来知道答案吗？	你=ni 真的=zhen'de 需要=xu'yao 提=ti 问题=wen'ti 来=lai 知道=zhi'dao 答案=da'an 吗=ma ~？
+t9961309	t9961309	test	汤姆已经结婚了。	汤姆=tang'mu 已经=yi'jing 结婚=jie'hun 了=le ~。
+t8650114	t8650114	test	详情请向接待处咨询。	详情请=xiang'qing'qing 向=xiang 接待处=jie'dai'chu 咨询=zi'xun ~。
+t982224	t982224	dev	他生病了。	他=ta 生病=sheng'bing 了=le ~。
+t13993783	t13993783	test	你在美国的工作是什么？	你=ni 在=zai 美国=mei'guo 的=de 工作=gong'zuo 是=shi 什么=shen'me ~？
+t512830	t512830	test	自然中没有什么是无用的。	自然=zi'ran 中=zhong 没有=mei'you 什么=shen'me 是=shi 无用=wu'yong 的=de ~。
+t7468565	t7468565	test	我会帮助你找到她。	我会=wo'hui 帮助=bang'zhu 你=ni 找到=zhao'dao 她=ta ~。
+t10457796	t10457796	dev	我当时也怀有幻想。	我=wo 当时=dang'shi 也=ye 怀有=huai'you 幻想=huan'xiang ~。
+t437299	t437299	test	我想把这项艰难的工作留给她。	我=wo 想=xiang 把=ba 这项=zhe'xiang 艰难=jian'nan 的=de 工作=gong'zuo 留给=liu'gei 她=ta ~。
+t5091776	t5091776	test	你能稍微告诉我关于自己的事情吗？	你=ni 能=neng 稍微=shao'wei 告诉=gao'su 我=wo 关于=guan'yu 自己=zi'ji 的=de 事情=shi'qing 吗=ma ~？
+t4844727	t4844727	dev	这非常清楚的表明了他没有想娶你的意图。	这=zhe 非常=fei'chang 清楚=qing'chu 的=de 表明=biao'ming 了=le 他=ta 没有=mei'you 想=xiang 娶=qu 你=ni 的=de 意图=yi'tu ~。
+t333055	t333055	test	会议在9点结束了。	会议=hui'yi 在=zai ~9 点=dian 结束=jie'shu 了=le ~。
+t3130881	t3130881	dev	你不问我，我就不会说谎话。	你=ni 不问=bu'wen 我=wo ~， 我=wo 就=jiu 不会=bu'hui 说=shuo 谎话=huang'hua ~。
+t5611673	t5611673	test	我为什么要给他钱？	我=wo 为什么=wei'shen'me 要=yao 给=gei 他=ta 钱=qian ~？
+t2037323	t2037323	test	我不想在恐惧中生活。	我=wo 不想=bu'xiang 在=zai 恐惧=kong'ju 中=zhong 生活=sheng'huo ~。
+t9695331	t9695331	dev	几十年的药酒肯定强。	几十年=ji'shi'nian 的=de 药酒=yao'jiu 肯定=ken'ding 强=qiang ~。
+t1691741	t1691741	test	汤姆完全喝醉了。	汤姆=tang'mu 完全=wan'quan 喝醉=he'zui 了=le ~。
+t5102207	t5102207	test	鬼魂是存在的。	鬼魂=gui'hun 是=shi 存在=cun'zai 的=de ~。
+t829314	t829314	dev	春天，我想要彻底打扫房子。	春天=chun'tian ~， 我=wo 想要=xiang'yao 彻底=che'di 打扫=da'sao 房子=fang'zi ~。
+t62	t62	test	所有被发明的都是真的。	所有=suo'you 被=bei 发明=fa'ming 的=de 都=dou 是=shi 真的=zhen'de ~。
+t604446	t604446	dev	施比受更有福。	施比受=shi'bi'shou 更=geng 有福=you'fu ~。
+t5812677	t5812677	dev	我只是想找个人说说话。	我=wo 只是=zhi'shi 想=xiang 找=zhao 个人=ge'ren 说说话=shuo'shuo'hua ~。
+t13361681	t13361681	test	我们必须拯救正在被污染的环境。	我们=wo'men 必须=bi'xu 拯救=zheng'jiu 正在=zheng'zai 被=bei 污染=wu'ran 的=de 环境=huan'jing ~。
+t1997144	t1997144	test	在背后说别人坏话不是大丈夫所为。	在=zai 背后=bei'hou 说=shuo 别人=bie'ren 坏话=huai'hua 不是=bu'shi 大丈夫=da'zhang'fu 所=suo 为=wei ~。
+t789338	t789338	test	我完全不懂。	我=wo 完全=wan'quan 不=bu 懂=dong ~。
+t797531	t797531	test	看到人们在正值富足的时候死于饥饿是很痛苦的。	看到=kan'dao 人们=ren'men 在=zai 正值=zheng'zhi 富足=fu'zu 的=de 时候=shi'hou 死=si 于=yu 饥饿=ji'e 是=shi 很=hen 痛苦=tong'ku 的=de ~。
+t374680	t374680	test	姑娘，今天你上门来，有些什么事啊？	姑娘=gu'niang ~， 今天=jin'tian 你=ni 上门来=shang'men'lai ~， 有些=you'xie 什么=shen'me 事=shi 啊=a ~？
+t1329981	t1329981	dev	是的，但她刚离开。	是=shi 的=de ~， 但=dan 她=ta 刚=gang 离开=li'kai ~。
+t838502	t838502	test	我们班的球员比赛开始五分钟后就得了一分。	我们=wo'men 班=ban 的=de 球员=qiu'yuan 比赛=bi'sai 开始=kai'shi 五分钟=wu'fen'zhong 后=hou 就=jiu 得=de 了=le 一分=yi'fen ~。
+t2779130	t2779130	test	他的女儿是护士。	他=ta 的=de 女儿=nv'er 是=shi 护士=hu'shi ~。
+t1014153	t1014153	dev	这个只有奥巴马知道了。	这个=zhe'ge 只有=zhi'you 奥巴马=ao'ba'ma 知道=zhi'dao 了=le ~。
+t336275	t336275	test	他是个城市规划的专家。	他=ta 是=shi 个=ge 城市规划=cheng'shi'gui'hua 的=de 专家=zhuan'jia ~。
+t792799	t792799	test	因为是那儿。	因为=yin'wei 是=shi 那儿=na'er ~。
+t10559106	t10559106	dev	我一路跑回了家。	我=wo 一路=yi'lu 跑=pao 回=hui 了=le 家=jia ~。
+t817368	t817368	dev	从这天起，他们过得很幸福。	从=cong 这天=zhe'tian 起=qi ~， 他们=ta'men 过得=guo'de 很=hen 幸福=xing'fu ~。
+t13046616	t13046616	dev	你真走运！	你=ni 真=zhen 走运=zou'yun ~！
+t4031803	t4031803	test	体现了彼此间深厚的感情。	体现=ti'xian 了=le 彼此间=bi'ci'jian 深厚=shen'hou 的=de 感情=gan'qing ~。
+t424497	t424497	dev	Bill和他的弟弟完全不同。	~Bill 和=he 他=ta 的=de 弟弟=di'di 完全=wan'quan 不同=bu'tong ~。
+t5550212	t5550212	test	我们应该让你休息一下。	我们=wo'men 应该=ying'gai 让=rang 你=ni 休息=xiu'xi 一下=yi'xia ~。
+t5067352	t5067352	test	汤姆总是多管闲事。	汤姆=tang'mu 总是=zong'shi 多管闲事=duo'guan'xian'shi ~。
+t10658980	t10658980	test	那座城市的景色让我回想起了伦敦。	那座=na'zuo 城市=cheng'shi 的=de 景色=jing'se 让=rang 我=wo 回=hui 想起=xiang'qi 了=le 伦敦=lun'dun ~。
+t333030	t333030	dev	火车因大雪被耽搁了。	火车=huo'che 因=yin 大雪=da'xue 被=bei 耽搁=dan'ge 了=le ~。
+t469510	t469510	test	意大利的国际号码前缀是三十九(+39)。	意大利=yi'da'li 的=de 国际=guo'ji 号码=hao'ma 前缀=qian'zhui 是=shi 三十九=san'shi'jiu ~( ~+ ~39 ~) ~。
+t3378086	t3378086	test	我喜欢蓝色。	我=wo 喜欢=xi'huan 蓝色=lan'se ~。
+t9969975	t9969975	dev	她说她并非专家。	她=ta 说=shuo 她=ta 并非=bing'fei 专家=zhuan'jia ~。
+t1541783	t1541783	test	她穿的衣服总是很朴素。	她=ta 穿=chuan 的=de 衣服=yi'fu 总是=zong'shi 很=hen 朴素=pu'su ~。
+t10275162	t10275162	dev	饿着肚子是没法打仗的。	饿着肚子=e'zhe'du'zi 是=shi 没法=mei'fa 打仗=da'zhang 的=de ~。
+t333673	t333673	test	“我该做什么呢？”我自言自语道。	~“ 我=wo 该=gai 做=zuo 什么=shen'me 呢=ne ~？ ~” 我=wo 自言自语=zi'yan'zi'yu 道=dao ~。
+t346712	t346712	test	有些人边看电视边读报纸。	有些=you'xie 人边=ren'bian 看电视=kan'dian'shi 边读=bian'du 报纸=bao'zhi ~。
+t461663	t461663	test	她教她弟弟做作业。	她=ta 教=jiao 她=ta 弟弟=di'di 做作业=zuo'zuo'ye ~。
+t10322369	t10322369	test	玫瑰有刺。	玫瑰=mei'gui 有=you 刺=ci ~。
+t11264798	t11264798	test	从这里到海滩该怎么走？	从=cong 这里=zhe'li 到=dao 海滩=hai'tan 该=gai 怎么=zen'me 走=zou ~？
+t13942558	t13942558	test	说实话，我还真那么干了。	说实话=shuo'shi'hua ~， 我=wo 还=hai 真=zhen 那么=na'me 干=gan 了=le ~。
+t333204	t333204	dev	不要插手我的事。	不要=bu'yao 插手=cha'shou 我=wo 的=de 事=shi ~。
+t6590332	t6590332	test	我们从来都没说过我们是加拿大人。	我们=wo'men 从来=cong'lai 都=dou 没=mei 说=shuo 过=guo 我们=wo'men 是=shi 加拿大人=jia'na'da'ren ~。
+t8686682	t8686682	test	我不再写信了。	我=wo 不再=bu'zai 写信=xie'xin 了=le ~。
+t8727835	t8727835	test	我想参加。	我=wo 想=xiang 参加=can'jia ~。
+t13939323	t13939323	dev	“塑料瓶怎么收？”“八毛钱一斤。”	~“ 塑料瓶=su'liao'ping 怎么=zen'me 收=shou ~？ ~” ~“ 八=ba 毛钱=mao'qian 一斤=yi'jin ~。 ~”
+t604938	t604938	dev	可能你工作得太拼命？	可能=ke'neng 你=ni 工作=gong'zuo 得=de 太=tai 拼命=pin'ming ~？
+t4970152	t4970152	test	你为什么学习？	你=ni 为什么=wei'shen'me 学习=xue'xi ~？
+t5068349	t5068349	test	那持续了多久了？	那=na 持续=chi'xu 了=le 多久=duo'jiu 了=le ~？
+t9987047	t9987047	test	你喜欢什么语言？	你=ni 喜欢=xi'huan 什么=shen'me 语言=yu'yan ~？
+t13883795	t13883795	test	我不喜欢复活节彩蛋。	我=wo 不=bu 喜欢=xi'huan 复活节=fu'huo'jie 彩蛋=cai'dan ~。
+t379612	t379612	test	他很聪明。	他=ta 很=hen 聪明=cong'ming ~。
+t8496239	t8496239	test	我们喜欢你们。	我们=wo'men 喜欢=xi'huan 你们=ni'men ~。
+t1319977	t1319977	test	她熬夜习惯了。	她=ta 熬夜=ao'ye 习惯=xi'guan 了=le ~。
+t9958485	t9958485	dev	汤姆回家时我们已经在吃晚饭了。	汤姆=tang'mu 回家=hui'jia 时=shi 我们=wo'men 已经=yi'jing 在=zai 吃晚饭=chi'wan'fan 了=le ~。
+t11294325	t11294325	dev	我父亲被解雇了。	我=wo 父亲=fu'qin 被=bei 解雇=jie'gu 了=le ~。
+t2188402	t2188402	test	我洗了我的衬衫。	我=wo 洗=xi 了=le 我=wo 的=de 衬衫=chen'shan ~。
+t334331	t334331	test	数学就像爱情，一个简单的意思，但可以变得很复杂。	数学=shu'xue 就=jiu 像=xiang 爱情=ai'qing ~， 一个=yi'ge 简单=jian'dan 的=de 意思=yi'si ~， 但=dan 可以=ke'yi 变得=bian'de 很=hen 复杂=fu'za ~。
+t8750766	t8750766	dev	玛丽打开了她的窗户。	玛丽=ma'li 打开=da'kai 了=le 她=ta 的=de 窗户=chuang'hu ~。
+t5581808	t5581808	test	给我说说你去过的一些地方。	给=gei 我=wo 说=shuo 说=shuo 你=ni 去过=qu'guo 的=de 一些=yi'xie 地方=di'fang ~。
+t397199	t397199	test	你喜欢唱歌吗？	你=ni 喜欢=xi'huan 唱歌=chang'ge 吗=ma ~？
+t8750728	t8750728	test	汤姆在竞选国会议员。	汤姆=tang'mu 在=zai 竞选=jing'xuan 国会议员=guo'hui'yi'yuan ~。
+t432902	t432902	test	因为是用法文写的，所以这本书很难读。	因为=yin'wei 是=shi 用=yong 法文=fa'wen 写=xie 的=de ~， 所以=suo'yi 这=zhe 本书=ben'shu 很=hen 难读=nan'du ~。
+t343652	t343652	test	我们多幸运啊！	我们=wo'men 多=duo 幸运=xing'yun 啊=a ~！
+t13942546	t13942546	test	把闹钟关掉。	把=ba 闹钟=nao'zhong 关掉=guan'diao ~。
+t4915624	t4915624	test	他不是我父亲，他是我叔叔。	他=ta 不是=bu'shi 我=wo 父亲=fu'qin ~， 他=ta 是=shi 我=wo 叔叔=shu'shu ~。
+t812252	t812252	test	去纽约的火车几点出发？	去=qu 纽约=niu'yue 的=de 火车=huo'che 几点=ji'dian 出发=chu'fa ~？
+t344214	t344214	dev	他是个聪明的少年。	他=ta 是=shi 个=ge 聪明=cong'ming 的=de 少年=shao'nian ~。
+t2026067	t2026067	test	汤姆把窗玻璃打烂了。	汤姆=tang'mu 把=ba 窗玻璃=chuang'bo'li 打烂=da'lan 了=le ~。
+t6828268	t6828268	test	我看不出有什么差别。	我=wo 看不出=kan'bu'chu 有=you 什么=shen'me 差别=cha'bie ~。
+t2555665	t2555665	test	人生是一次长跑，暂时的落后和领先都不算什么。	人生=ren'sheng 是=shi 一次=yi'ci 长跑=chang'pao ~， 暂时=zan'shi 的=de 落后=luo'hou 和=he 领先=ling'xian 都=dou 不算什么=bu'suan'shen'me ~。
+t333311	t333311	test	我们走开的时候，房子被盗窃了。	我们=wo'men 走开=zou'kai 的=de 时候=shi'hou ~， 房子=fang'zi 被=bei 盗窃=dao'qie 了=le ~。
+t2027944	t2027944	test	我想她对你有兴趣。	我=wo 想=xiang 她=ta 对=dui 你=ni 有=you 兴趣=xing'qu ~。
+t5650529	t5650529	test	有一分钟的沉默，然后每个人都开始尖叫。	有=you 一分钟=yi'fen'zhong 的=de 沉默=chen'mo ~， 然后=ran'hou 每个=mei'ge 人=ren 都=dou 开始=kai'shi 尖叫=jian'jiao ~。
+t335415	t335415	dev	麻雀的动作很快。	麻雀=ma'que 的=de 动作=dong'zuo 很快=hen'kuai ~。
+t1839130	t1839130	test	汤姆在做什么？	汤姆=tang'mu 在=zai 做=zuo 什么=shen'me ~？
+t4717472	t4717472	test	他提出改革研究方法的意见。	他=ta 提出=ti'chu 改革=gai'ge 研究=yan'jiu 方法=fang'fa 的=de 意见=yi'jian ~。
+t13953734	t13953734	test	来听歌吧！	来=lai 听歌=ting'ge 吧=ba ~！
+t7771927	t7771927	test	斯洛伐克是个美丽的国家。	斯洛伐克=si'luo'fa'ke 是=shi 个=ge 美丽=mei'li 的=de 国家=guo'jia ~。
+t406714	t406714	test	请大声一点。	请=qing 大声=da'sheng 一点=yi'dian ~。
+t2333579	t2333579	test	这本挂历挂哪儿好呢？	这本=zhe'ben 挂历=gua'li 挂=gua 哪儿=na'er 好=hao 呢=ne ~？
+t4265094	t4265094	dev	我朋友很少。	我=wo 朋友=peng'you 很少=hen'shao ~。
+t334037	t334037	test	大家都玩爱情游戏。	大家=da'jia 都=dou 玩=wan 爱情=ai'qing 游戏=you'xi ~。
+t396166	t396166	test	我昨晚没睡好。	我=wo 昨晚=zuo'wan 没睡=mei'shui 好=hao ~。
+t1651504	t1651504	test	我小时候经常在海里游泳。	我=wo 小时候=xiao'shi'hou 经常=jing'chang 在=zai 海里=hai'li 游泳=you'yong ~。
+t1642457	t1642457	test	她可能会离开。	她=ta 可能=ke'neng 会=hui 离开=li'kai ~。
+t332903	t332903	test	昨晚我邻居家着火了。	昨晚=zuo'wan 我=wo 邻居家=lin'ju'jia 着火=zhao'huo 了=le ~。
+t3376535	t3376535	test	客人们在厨房。	客人=ke'ren 们=men 在=zai 厨房=chu'fang ~。
+t4932035	t4932035	test	目前正在考虑是否由她来做这项工作。	目前=mu'qian 正在=zheng'zai 考虑=kao'lv 是否=shi'fou 由=you 她=ta 来=lai 做=zuo 这项=zhe'xiang 工作=gong'zuo ~。
+t333406	t333406	test	她拿了其中一个玻璃花瓶。	她=ta 拿=na 了=le 其中=qi'zhong 一个=yi'ge 玻璃=bo'li 花瓶=hua'ping ~。
+t8538013	t8538013	test	耐心地坚持下去，有些事急不来。	耐心=nai'xin 地=de 坚持下去=jian'chi'xia'qu ~， 有些=you'xie 事急=shi'ji 不来=bu'lai ~。
+t335899	t335899	test	我们多方面考虑了问题。	我们=wo'men 多方面=duo'fang'mian 考虑=kao'lv 了=le 问题=wen'ti ~。
+t2393684	t2393684	test	她的法语不输给任何人。	她=ta 的=de 法语=fa'yu 不输给=bu'shu'gei 任何人=ren'he'ren ~。
+t728064	t728064	dev	旗袍因有与众不同的特点而在国际时尚界享有与日俱增的名望。	旗袍=qi'pao 因有=yin'you 与众不同=yu'zhong'bu'tong 的=de 特点=te'dian 而=er 在=zai 国际=guo'ji 时尚界=shi'shang'jie 享有=xiang'you 与日俱增=yu'ri'ju'zeng 的=de 名望=ming'wang ~。
+t501348	t501348	dev	我想我对这个主题有一套理论。	我=wo 想=xiang 我=wo 对=dui 这个=zhe'ge 主题=zhu'ti 有=you 一套=yi'tao 理论=li'lun ~。
+t14028832	t14028832	test	对乙酰氨基酚是一种退烧药。	对乙酰氨基酚=dui'yi'xian'an'ji'fen 是=shi 一种=yi'zhong 退烧药=tui'shao'yao ~。
+t465862	t465862	test	您的狗非常胖。	您=nin 的=de 狗=gou 非常=fei'chang 胖=pang ~。
+t5576813	t5576813	test	至少告诉我们你要去哪里。	至少=zhi'shao 告诉=gao'su 我们=wo'men 你=ni 要=yao 去=qu 哪里=na'li ~。
+t333612	t333612	dev	我的班不大,只有十一个学生.	我=wo 的=de 班=ban 不大=bu'da ~, 只有=zhi'you 十一个=shi'yi'ge 学生=xue'sheng ~.
+t785171	t785171	test	了解一家公司的文化为什么是重要的？	了解=liao'jie 一家=yi'jia 公司=gong'si 的=de 文化=wen'hua 为什么=wei'shen'me 是=shi 重要=zhong'yao 的=de ~？
+t778735	t778735	test	保持微笑。	保持=bao'chi 微笑=wei'xiao ~。
+t677047	t677047	test	盒子里的一些苹果烂了。	盒子=he'zi 里=li 的=de 一些=yi'xie 苹果=ping'guo 烂=lan 了=le ~。
+t5072425	t5072425	test	汤姆声音低沉。	汤姆=tang'mu 声音=sheng'yin 低沉=di'chen ~。
+t792821	t792821	test	我想要点当日套餐。	我=wo 想要=xiang'yao 点=dian 当日=dang'ri 套餐=tao'can ~。
+t13924102	t13924102	test	谱号下面标了个8。	谱号=pu'hao 下面=xia'mian 标了=biao'le 个=ge ~8 ~。
+t1735626	t1735626	dev	Sue 和 John 决定结婚。	~Sue 和=he ~John 决定=jue'ding 结婚=jie'hun ~。
+t900301	t900301	test	路边装了许多雷达。	路边=lu'bian 装=zhuang 了=le 许多=xu'duo 雷达=lei'da ~。
+t472841	t472841	test	这条鱼用英语叫什么？	这条=zhe'tiao 鱼用=yu'yong 英语=ying'yu 叫=jiao 什么=shen'me ~？
+t13994941	t13994941	test	气温下降了。	气温=qi'wen 下降=xia'jiang 了=le ~。
+t2040505	t2040505	test	杯子在桌上。	杯子=bei'zi 在=zai 桌上=zhuo'shang ~。
+t829353	t829353	dev	历史是生活的情人。	历史=li'shi 是=shi 生活=sheng'huo 的=de 情人=qing'ren ~。
+t345374	t345374	test	我无言以对。	我=wo 无言以对=wu'yan'yi'dui ~。
+t10023039	t10023039	dev	他梦想着成为一名英雄。	他=ta 梦想=meng'xiang 着=zhe 成为=cheng'wei 一名=yi'ming 英雄=ying'xiong ~。
+t451833	t451833	dev	多做运动，不然你会超重。	多=duo 做=zuo 运动=yun'dong ~， 不然=bu'ran 你=ni 会=hui 超重=chao'zhong ~。
+t866268	t866268	dev	你恐怕会变成一个好人哦。	你=ni 恐怕=kong'pa 会=hui 变成=bian'cheng 一个=yi'ge 好人=hao'ren 哦=o ~。
+t917826	t917826	dev	我是跑得最快的人。	我=wo 是=shi 跑=pao 得=de 最快=zui'kuai 的=de 人=ren ~。
+t13976095	t13976095	test	我要下播了。	我要=wo'yao 下播=xia'bo 了=le ~。
+t401371	t401371	test	您必须排队。	您=nin 必须=bi'xu 排队=pai'dui ~。
+t424502	t424502	test	请用铅笔写您的名字。	请=qing 用=yong 铅笔=qian'bi 写=xie 您=nin 的=de 名字=ming'zi ~。
+t8809754	t8809754	test	汤姆可以帮我们吗？	汤姆=tang'mu 可以=ke'yi 帮=bang 我们=wo'men 吗=ma ~？
+t9992091	t9992091	dev	谁能看到事实呢？	谁=shui 能=neng 看到=kan'dao 事实=shi'shi 呢=ne ~？
+t801887	t801887	test	啊？我们说过要去公园吗？我没有印象。	啊=a ~？ 我们=wo'men 说=shuo 过=guo 要=yao 去=qu 公园=gong'yuan 吗=ma ~？ 我=wo 没有=mei'you 印象=yin'xiang ~。
+t13896385	t13896385	test	我对那么大的数没有概念。	我=wo 对=dui 那么=na'me 大=da 的=de 数=shu 没有=mei'you 概念=gai'nian ~。
+t5571050	t5571050	test	她醒来了。	她=ta 醒来=xing'lai 了=le ~。
+t9433031	t9433031	test	你要我驾你回家吗？	你=ni 要=yao 我=wo 驾=jia 你=ni 回家=hui'jia 吗=ma ~？
+t9007394	t9007394	test	有时间打给我吧。	有=you 时间=shi'jian 打=da 给=gei 我=wo 吧=ba ~。
+t845128	t845128	test	您愿意把您的字典借给我吗？	您=nin 愿意=yuan'yi 把=ba 您=nin 的=de 字典=zi'dian 借给=jie'gei 我=wo 吗=ma ~？
+t8794840	t8794840	test	许多自然环境保护主义者担心持续屠杀鲸鱼正推动这些动物走向灭绝。	许多=xu'duo 自然环境=zi'ran'huan'jing 保护主义者=bao'hu'zhu'yi'zhe 担心=dan'xin 持续=chi'xu 屠杀=tu'sha 鲸鱼=jing'yu 正=zheng 推动=tui'dong 这些=zhe'xie 动物=dong'wu 走向=zou'xiang 灭绝=mie'jue ~。
+t347154	t347154	dev	他突然死了。	他=ta 突然=tu'ran 死=si 了=le ~。
+t2004700	t2004700	test	突然，我听到了一声喊叫。	突然=tu'ran ~， 我=wo 听到=ting'dao 了=le 一声=yi'sheng 喊叫=han'jiao ~。
+t9969222	t9969222	dev	您昨晚真的醉醺醺，对吧？	您=nin 昨晚=zuo'wan 真的=zhen'de 醉醺醺=zui'xun'xun ~， 对=dui 吧=ba ~？
+t10750368	t10750368	dev	他忘了带衣服。	他=ta 忘=wang 了=le 带=dai 衣服=yi'fu ~。
+t13887471	t13887471	dev	自行车当然会磨损，但只要你保养得好，就能骑很长一段时间。	自行车=zi'xing'che 当然=dang'ran 会=hui 磨损=mo'sun ~， 但=dan 只要=zhi'yao 你=ni 保养=bao'yang 得=de 好=hao ~， 就=jiu 能=neng 骑=qi 很长=hen'chang 一段时间=yi'duan'shi'jian ~。
+t419698	t419698	test	你不想吃饭吗？	你=ni 不想=bu'xiang 吃饭=chi'fan 吗=ma ~？
+t1317033	t1317033	dev	你周末过得好吗？	你=ni 周末=zhou'mo 过得=guo'de 好=hao 吗=ma ~？
+t335855	t335855	test	这条裙子你穿着很合身。	这=zhe 条=tiao 裙子=qun'zi 你=ni 穿着=chuan'zhe 很=hen 合身=he'shen ~。
+t1219341	t1219341	dev	喝咖啡吧。我觉得很好喝。	喝咖啡=he'ka'fei 吧=ba ~。 我=wo 觉得=jue'de 很=hen 好喝=hao'he ~。
+t334169	t334169	test	要我解释给你听是不可能的。	要=yao 我=wo 解释=jie'shi 给=gei 你=ni 听=ting 是=shi 不=bu 可能=ke'neng 的=de ~。
+t512839	t512839	test	您什么时候开始学英语的？	您=nin 什么=shen'me 时候=shi'hou 开始=kai'shi 学=xue 英语=ying'yu 的=de ~？
+t408833	t408833	test	你觉得被告真的有罪吗？	你=ni 觉得=jue'de 被告=bei'gao 真的=zhen'de 有罪=you'zui 吗=ma ~？
+t1316707	t1316707	test	他向我们告别，然后走了。	他=ta 向=xiang 我们=wo'men 告别=gao'bie ~， 然后=ran'hou 走=zou 了=le ~。
+t3537562	t3537562	test	公司从下个月开始推行新的管理制度。	公司=gong'si 从=cong 下个月=xia'ge'yue 开始=kai'shi 推行=tui'xing 新=xin 的=de 管理制度=guan'li'zhi'du ~。
+t3526243	t3526243	test	你想怎么说就说吧。	你=ni 想=xiang 怎么=zen'me 说=shuo 就=jiu 说=shuo 吧=ba ~。
+t13942563	t13942563	dev	已经做完了。	已经=yi'jing 做=zuo 完=wan 了=le ~。
+t796828	t796828	test	这儿有你的一封信。	这儿=zhe'er 有=you 你=ni 的=de 一封信=yi'feng'xin ~。
+t13896920	t13896920	test	我不在乎。	我=wo 不在乎=bu'zai'hu ~。
+t13839307	t13839307	test	他们在问关于汤姆的事。	他们=ta'men 在=zai 问=wen 关于=guan'yu 汤姆=tang'mu 的=de 事=shi ~。
+t496799	t496799	test	据说，安是他们的领导。	据说=ju'shuo ~， 安是=an'shi 他们=ta'men 的=de 领导=ling'dao ~。
+t1420669	t1420669	test	空气有点冷。	空气=kong'qi 有点=you'dian 冷=leng ~。
+t6089707	t6089707	test	全都靠它了。	全都=quan'dou 靠=kao 它=ta 了=le ~。
+t335719	t335719	test	你该结束这种愚蠢的行为了。	你=ni 该=gai 结束=jie'shu 这种=zhe'zhong 愚蠢=yu'chun 的=de 行为=xing'wei 了=le ~。
+t2411913	t2411913	dev	她得了痛风。	她=ta 得=de 了=le 痛风=tong'feng ~。
+t4620879	t4620879	dev	我是个自由的灵魂。	我=wo 是=shi 个=ge 自由=zi'you 的=de 灵魂=ling'hun ~。
+t13875745	t13875745	test	你为什么不相信呢？	你=ni 为什么=wei'shen'me 不=bu 相信=xiang'xin 呢=ne ~？
+t5670858	t5670858	dev	这是机密。	这是=zhe'shi 机密=ji'mi ~。
+t602909	t602909	test	我们日本人以米饭为主食。	我们=wo'men 日本=ri'ben 人以=ren'yi 米饭=mi'fan 为主=wei'zhu 食=shi ~。
+t13952576	t13952576	test	把窗帘拉上。	把=ba 窗帘=chuang'lian 拉上=la'shang ~。
+t3667781	t3667781	test	他急着把电话放下了。	他=ta 急=ji 着=zhe 把=ba 电话=dian'hua 放下=fang'xia 了=le ~。
+t338828	t338828	test	代我问候你妹妹。	代=dai 我=wo 问候=wen'hou 你=ni 妹妹=mei'mei ~。
+t13972846	t13972846	test	这套衣服即使卖半价也觉得贵。	这套=zhe'tao 衣服=yi'fu 即使=ji'shi 卖=mai 半价=ban'jia 也=ye 觉得=jue'de 贵=gui ~。
+t8899482	t8899482	dev	她仔细考虑了他的提议。	她=ta 仔细=zi'xi 考虑=kao'lv 了=le 他=ta 的=de 提议=ti'yi ~。
+t8857212	t8857212	dev	这么恶心的！	这么=zhe'me 恶心=e'xin 的=de ~！
+t5613700	t5613700	test	无论我做什么，你都不高兴。	无论=wu'lun 我=wo 做=zuo 什么=shen'me ~， 你=ni 都=dou 不=bu 高兴=gao'xing ~。
+t10695982	t10695982	test	爱沙尼亚有它自己的国歌。	爱沙尼亚=ai'sha'ni'ya 有=you 它=ta 自己=zi'ji 的=de 国歌=guo'ge ~。
+t2777888	t2777888	test	Tom认为，Mary在浪费自己的时间。	~Tom 认为=ren'wei ~， ~Mary 在=zai 浪费=lang'fei 自己=zi'ji 的=de 时间=shi'jian ~。
+t5698028	t5698028	test	那是你的想法。	那=na 是=shi 你=ni 的=de 想法=xiang'fa ~。
+t1307417	t1307417	test	这房间是当厨房用的。	这=zhe 房间=fang'jian 是=shi 当=dang 厨房用=chu'fang'yong 的=de ~。
+t5715116	t5715116	test	这些患者走路有困难。	这些=zhe'xie 患者=huan'zhe 走路=zou'lu 有=you 困难=kun'nan ~。
+t347155	t347155	test	人必定要死的。	人=ren 必定=bi'ding 要死=yao'si 的=de ~。
+t604896	t604896	dev	我是便秘的。	我=wo 是=shi 便秘=bian'mi 的=de ~。
+t856709	t856709	test	讲西班牙语的人习惯把一种仙人掌叫做 「继母的垫子」 。	讲=jiang 西班牙语=xi'ban'ya'yu 的=de 人=ren 习惯=xi'guan 把=ba 一种=yi'zhong 仙人掌=xian'ren'zhang 叫做=jiao'zuo ~「 继母=ji'mu 的=de 垫子=dian'zi ~」 ~。
+t421305	t421305	dev	我有个朋友住在札幌。	我=wo 有=you 个=ge 朋友=peng'you 住=zhu 在=zai 札幌=zha'huang ~。
+t13877896	t13877896	test	昨晚我家附近着了一场大火。	昨晚=zuo'wan 我家=wo'jia 附近=fu'jin 着=zhe 了=le 一场=yi'chang 大火=da'huo ~。
+t813497	t813497	test	说谎总是一种罪吗？	说谎=shuo'huang 总是=zong'shi 一种=yi'zhong 罪=zui 吗=ma ~？
+t411705	t411705	dev	他亲自来了。	他=ta 亲自=qin'zi 来=lai 了=le ~。
+t8496255	t8496255	dev	我们几乎没空吃早饭。	我们=wo'men 几乎=ji'hu 没空=mei'kong 吃=chi 早饭=zao'fan ~。
+t411649	t411649	test	这些钢笔是他的。	这些=zhe'xie 钢笔=gang'bi 是=shi 他=ta 的=de ~。
+t1706434	t1706434	test	那孩子和他父亲很像。	那=na 孩子=hai'zi 和=he 他=ta 父亲=fu'qin 很=hen 像=xiang ~。
+t13902269	t13902269	test	那个孩子能流利地说卡达山语。	那个=na'ge 孩子=hai'zi 能=neng 流利地=liu'li'de 说=shuo 卡达=ka'da 山语=shan'yu ~。
+t8863035	t8863035	dev	你的国家的最低工资是多少？	你=ni 的=de 国家=guo'jia 的=de 最低工资=zui'di'gong'zi 是=shi 多少=duo'shao ~？
+t336959	t336959	test	我爸爸告诉我去哪儿。	我=wo 爸爸=ba'ba 告诉=gao'su 我=wo 去=qu 哪儿=na'er ~。
+t9970755	t9970755	dev	我钥匙丢了。	我=wo 钥匙=yao'shi 丢=diu 了=le ~。
+t8875022	t8875022	test	萨米知道了。	萨米=sa'mi 知道=zhi'dao 了=le ~。
+t1876928	t1876928	test	要是你爱我，也爱我的狗吧！	要是=yao'shi 你=ni 爱=ai 我=wo ~， 也=ye 爱=ai 我=wo 的=de 狗=gou 吧=ba ~！
+t3526175	t3526175	test	这几条狗，它们灵着呢。	这=zhe 几条=ji'tiao 狗=gou ~， 它们=ta'men 灵着=ling'zhe 呢=ne ~。
+t813484	t813484	test	我想学钢琴，吉它或长笛。	我想学=wo'xiang'xue 钢琴=gang'qin ~， 吉它=ji'ta 或=huo 长笛=chang'di ~。
+t816479	t816479	test	马上出发，不然你就要错过公车了。	马上=ma'shang 出发=chu'fa ~， 不然=bu'ran 你=ni 就要=jiu'yao 错过=cuo'guo 公车=gong'che 了=le ~。
+t13943172	t13943172	dev	那似乎错了。	那=na 似乎=si'hu 错=cuo 了=le ~。
+t818861	t818861	test	我弟弟没钱。	我=wo 弟弟=di'di 没=mei 钱=qian ~。
+t5403288	t5403288	dev	我要喝水	我要=wo'yao 喝水=he'shui
+t429369	t429369	dev	不过你还是请假比较好。	不过=bu'guo 你=ni 还是=hai'shi 请假=qing'jia 比较=bi'jiao 好=hao ~。
+t346761	t346761	dev	这只狗看上去饿了。	这=zhe 只=zhi 狗=gou 看上去=kan'shang'qu 饿=e 了=le ~。
+t332576	t332576	test	他很年轻，更重要的是，他很帅。	他=ta 很=hen 年轻=nian'qing ~， 更=geng 重要=zhong'yao 的=de 是=shi ~， 他=ta 很帅=hen'shuai ~。
+t4311079	t4311079	test	我从来没想到会发生那种事。	我=wo 从来=cong'lai 没想到=mei'xiang'dao 会=hui 发生=fa'sheng 那种=na'zhong 事=shi ~。
+t342846	t342846	dev	好好看这张照片。	好好看=hao'hao'kan 这张=zhe'zhang 照片=zhao'pian ~。
+t794236	t794236	test	把灯关了。我睡不着。	把=ba 灯关=deng'guan 了=le ~。 我=wo 睡不着=shui'bu'zhao ~。
+t813610	t813610	test	我以为他没有任何权利这么做。	我=wo 以为=yi'wei 他=ta 没有=mei'you 任何=ren'he 权利=quan'li 这么=zhe'me 做=zuo ~。
+t8423439	t8423439	dev	我在1968年1月2日出生。	我=wo 在=zai ~1968 年=nian ~1 月=yue ~2 日=ri 出生=chu'sheng ~。
+t503279	t503279	test	我想要一个MP3播放器！	我=wo 想要=xiang'yao 一个=yi'ge ~MP3 播放器=bo'fang'qi ~！
+t334640	t334640	test	他银行里有点钱。	他=ta 银行=yin'hang 里=li 有点=you'dian 钱=qian ~。
+t3389864	t3389864	test	我已经取了银行对账单。	我=wo 已经=yi'jing 取=qu 了=le 银行=yin'hang 对=dui 账单=zhang'dan ~。
+t898057	t898057	test	他跟一个去中国的同事后来把圣经中的新约翻译成中文。	他=ta 跟=gen 一个=yi'ge 去=qu 中国=zhong'guo 的=de 同事=tong'shi 后来=hou'lai 把=ba 圣经=sheng'jing 中=zhong 的=de 新约=xin'yue 翻译成=fan'yi'cheng 中文=zhong'wen ~。
+t12884221	t12884221	test	门没有关好。	门=men 没=mei 有关=you'guan 好=hao ~。
+t1408023	t1408023	dev	汤姆掉进了池塘。	汤姆=tang'mu 掉=diao 进=jin 了=le 池塘=chi'tang ~。
+t333194	t333194	test	他半夜打了个电话给我。	他=ta 半夜=ban'ye 打了个=da'le'ge 电话=dian'hua 给=gei 我=wo ~。
+t11263677	t11263677	dev	需新建两个分类。	需=xu 新建=xin'jian 两个=liang'ge 分类=fen'lei ~。
+t390507	t390507	dev	她老公现居东京。	她=ta 老公=lao'gong 现居=xian'ju 东京=dong'jing ~。
+t4267373	t4267373	test	她和一位音乐家结了婚。	她=ta 和=he 一位=yi'wei 音乐家=yin'yue'jia 结了婚=jie'le'hun ~。
+t2771149	t2771149	test	我是社工。	我=wo 是=shi 社工=she'gong ~。
+t8753734	t8753734	test	你买猫粮了吗？	你=ni 买=mai 猫=mao 粮=liang 了=le 吗=ma ~？
+t10011705	t10011705	dev	正方形同时拥有矩形和菱形的性质。	正方形=zheng'fang'xing 同时=tong'shi 拥有=yong'you 矩形=ju'xing 和=he 菱形=ling'xing 的=de 性质=xing'zhi ~。
+t1477296	t1477296	dev	我不会原谅你，除非你真诚地道歉。	我=wo 不会=bu'hui 原谅=yuan'liang 你=ni ~， 除非=chu'fei 你=ni 真诚地=zhen'cheng'de 道歉=dao'qian ~。
+t8673668	t8673668	test	这里不允许抽烟。	这里=zhe'li 不=bu 允许=yun'xu 抽烟=chou'yan ~。
+t345804	t345804	dev	他们说着南方话。	他们=ta'men 说=shuo 着=zhe 南方话=nan'fang'hua ~。
+t13209386	t13209386	test	你是自由人。	你=ni 是=shi 自由人=zi'you'ren ~。
+t11837420	t11837420	test	今天可能下雨。	今天=jin'tian 可能=ke'neng 下雨=xia'yu ~。
+t784868	t784868	test	我在母亲节送给我的妈妈一束康乃馨。	我=wo 在=zai 母亲节=mu'qin'jie 送给=song'gei 我=wo 的=de 妈妈=ma'ma 一束=yi'shu 康乃馨=kang'nai'xin ~。
+t2031427	t2031427	test	他决心要当医生。	他=ta 决心=jue'xin 要=yao 当=dang 医生=yi'sheng ~。
+t5550276	t5550276	dev	不论我做什么，她都说我能做得更好。	不论=bu'lun 我=wo 做=zuo 什么=shen'me ~， 她=ta 都=dou 说=shuo 我=wo 能=neng 做=zuo 得=de 更好=geng'hao ~。
+t490023	t490023	dev	他邀请我去他家。	他=ta 邀请=yao'qing 我=wo 去=qu 他家=ta'jia ~。
+t6822723	t6822723	dev	他就算带了眼镜也看得不很清楚。	他=ta 就算=jiu'suan 带=dai 了=le 眼镜=yan'jing 也=ye 看=kan 得=de 不=bu 很=hen 清楚=qing'chu ~。
+t9927255	t9927255	dev	你写情书吗？	你=ni 写=xie 情书=qing'shu 吗=ma ~？
+t335163	t335163	dev	离这儿有多远？	离=li 这儿=zhe'er 有多远=you'duo'yuan ~？
+t8762970	t8762970	dev	一不做，二不休。	一不做=yi'bu'zuo ~， 二不休=er'bu'xiu ~。
+t8696279	t8696279	test	汤姆的上司真的非常生气。	汤姆=tang'mu 的=de 上司=shang'si 真的=zhen'de 非常=fei'chang 生气=sheng'qi ~。
+t346765	t346765	test	我不认为他会把你的话听进去。	我=wo 不=bu 认为=ren'wei 他会=ta'hui 把=ba 你=ni 的话=de'hua 听=ting 进去=jin'qu ~。
+t13972616	t13972616	test	Tom和Mary玩了桌游。	~Tom 和=he ~Mary 玩=wan 了=le 桌游=zhuo'you ~。
+t1446819	t1446819	dev	我得查找一下我的笔。	我=wo 得=de 查找=cha'zhao 一下=yi'xia 我=wo 的=de 笔=bi ~。
+t8934366	t8934366	dev	我想男朋友。	我=wo 想=xiang 男朋友=nan'peng'you ~。
+t796158	t796158	dev	那件礼服非常适合她。	那=na 件=jian 礼服=li'fu 非常适合=fei'chang'shi'he 她=ta ~。
+t2165990	t2165990	test	看到玛丽那样痛苦我很难过。	看到=kan'dao 玛丽=ma'li 那样=na'yang 痛苦=tong'ku 我=wo 很=hen 难过=nan'guo ~。
+t939299	t939299	test	告诉我你在湘南做了什么。	告诉=gao'su 我=wo 你=ni 在=zai 湘南=xiang'nan 做=zuo 了=le 什么=shen'me ~。
+t343595	t343595	test	他来这里已经过了一年了。	他来=ta'lai 这里=zhe'li 已经=yi'jing 过=guo 了=le 一年=yi'nian 了=le ~。
+t5794105	t5794105	test	到别处去做。	到=dao 别处=bie'chu 去=qu 做=zuo ~。
+t888461	t888461	test	而且，我还是认为这准不是个巨大的文化区别。	而且=er'qie ~， 我=wo 还是=hai'shi 认为=ren'wei 这准=zhe'zhun 不是=bu'shi 个=ge 巨大=ju'da 的=de 文化=wen'hua 区别=qu'bie ~。
+t10668570	t10668570	dev	汤姆是工程师。	汤姆=tang'mu 是=shi 工程师=gong'cheng'shi ~。
+t8936645	t8936645	test	正的声音很温柔。	正=zheng 的=de 声音=sheng'yin 很=hen 温柔=wen'rou ~。
+t3804949	t3804949	test	正在下雨，孩子们没有在院子里玩儿。	正在=zheng'zai 下雨=xia'yu ~， 孩子=hai'zi 们=men 没有=mei'you 在=zai 院子=yuan'zi 里=li 玩儿=wan'er ~。
+t472968	t472968	dev	德国在1880年代采取了一种社会保障制度。	德国=de'guo 在=zai ~1880 年代=nian'dai 采取=cai'qu 了=le 一种=yi'zhong 社会保障=she'hui'bao'zhang 制度=zhi'du ~。
+t335835	t335835	dev	斗争结束了。	斗争=dou'zheng 结束=jie'shu 了=le ~。
+t1904545	t1904545	test	他无法完成它。	他=ta 无法=wu'fa 完成=wan'cheng 它=ta ~。
+t13744237	t13744237	test	那些鞋子是我的。	那些=na'xie 鞋子=xie'zi 是=shi 我=wo 的=de ~。
+t1227034	t1227034	test	我吃水果、喝水。	我=wo 吃水果=chi'shui'guo ~、 喝水=he'shui ~。
+t420684	t420684	dev	最有名的是在太平桥绿地中打造了一个“新天地”。	最=zui 有名=you'ming 的=de 是=shi 在=zai 太平桥=tai'ping'qiao 绿地=lv'di 中=zhong 打造=da'zao 了=le 一个=yi'ge ~“ 新天地=xin'tian'di ~” ~。
+t4977397	t4977397	test	汤姆尝试了吗？	汤姆=tang'mu 尝试=chang'shi 了=le 吗=ma ~？
+t2027995	t2027995	test	未来飞行员将在模拟操作室中训练。	未来=wei'lai 飞行员=fei'xing'yuan 将=jiang 在=zai 模拟=mo'ni 操作室=cao'zuo'shi 中=zhong 训练=xun'lian ~。
+t5993926	t5993926	test	汤姆被欺负了。	汤姆=tang'mu 被=bei 欺负=qi'fu 了=le ~。
+t4906071	t4906071	dev	你准备好了的话打电话给我。	你=ni 准备=zhun'bei 好=hao 了=le 的话=de'hua 打电话=da'dian'hua 给=gei 我=wo ~。
+t421076	t421076	test	不一样的，在浴池里洗澡，身体泡得彻底！	不=bu 一样=yi'yang 的=de ~， 在=zai 浴池=yu'chi 里=li 洗澡=xi'zao ~， 身体=shen'ti 泡得=pao'de 彻底=che'di ~！
+t2432795	t2432795	test	与朋友吵架是件很伤感情的事。	与=yu 朋友=peng'you 吵架=chao'jia 是=shi 件=jian 很=hen 伤感情=shang'gan'qing 的=de 事=shi ~。
+t501372	t501372	dev	我讨厌人太多。	我=wo 讨厌=tao'yan 人太多=ren'tai'duo ~。
+t476658	t476658	dev	你的结论具有高度争议性。	你=ni 的=de 结论=jie'lun 具有=ju'you 高度=gao'du 争议性=zheng'yi'xing ~。
+t10342310	t10342310	test	我从没见过胖的纯素食者。	我=wo 从没=cong'mei 见=jian 过=guo 胖=pang 的=de 纯=chun 素食者=su'shi'zhe ~。
+t5580858	t5580858	dev	她要睡觉了。	她=ta 要=yao 睡觉=shui'jiao 了=le ~。
+t3559228	t3559228	test	我们的工作人员会在三个工作日内联系您。	我们=wo'men 的=de 工作人员=gong'zuo'ren'yuan 会=hui 在=zai 三个=san'ge 工作日内=gong'zuo'ri'nei 联系=lian'xi 您=nin ~。
+t1959167	t1959167	test	问亚力克斯吧。	问亚=wen'ya 力克斯=li'ke'si 吧=ba ~。
+t1735642	t1735642	test	大多数学生步行去学校。	大多数=da'duo'shu 学生=xue'sheng 步行=bu'xing 去=qu 学校=xue'xiao ~。
+t2615130	t2615130	dev	汤姆在海边发现了具尸体。	汤姆=tang'mu 在=zai 海边=hai'bian 发现=fa'xian 了=le 具=ju 尸体=shi'ti ~。
+t798310	t798310	test	不要拖延去找工作的事。	不要=bu'yao 拖延=tuo'yan 去=qu 找=zhao 工作=gong'zuo 的=de 事=shi ~。
+t9958266	t9958266	dev	通过很大的努力，问题被解决了。	通过=tong'guo 很大=hen'da 的=de 努力=nu'li ~， 问题=wen'ti 被=bei 解决=jie'jue 了=le ~。
+t5581760	t5581760	test	我在三小时前见过汤姆。	我=wo 在=zai 三=san 小时=xiao'shi 前见=qian'jian 过=guo 汤姆=tang'mu ~。
+t465004	t465004	test	请仔细洗牌。	请=qing 仔细=zi'xi 洗牌=xi'pai ~。
+t2394565	t2394565	test	我希望当我在想我希望我是谁的时候我就是谁。	我=wo 希望=xi'wang 当=dang 我=wo 在=zai 想=xiang 我=wo 希望=xi'wang 我=wo 是=shi 谁=shei 的=de 时候=shi'hou 我=wo 就是=jiu'shi 谁=shui ~。
+t835581	t835581	dev	暴风雨造成了可怕的损害。	暴风雨=bao'feng'yu 造成=zao'cheng 了=le 可怕=ke'pa 的=de 损害=sun'hai ~。
+t14057675	t14057675	test	我们房子里有枪。	我们=wo'men 房子=fang'zi 里=li 有=you 枪=qiang ~。
+t10059284	t10059284	test	我会尽我的义务。	我会=wo'hui 尽=jin 我=wo 的=de 义务=yi'wu ~。
+t5092251	t5092251	dev	不要说话了。	不要=bu'yao 说话=shuo'hua 了=le ~。
+t9453413	t9453413	test	我在里面等你。	我=wo 在=zai 里面=li'mian 等=deng 你=ni ~。
+t399955	t399955	test	他又犯了同样的错误。	他=ta 又=you 犯=fan 了=le 同样=tong'yang 的=de 错误=cuo'wu ~。
+t333016	t333016	test	我觉得你的工作可以。	我=wo 觉得=jue'de 你=ni 的=de 工作=gong'zuo 可以=ke'yi ~。
+t3378107	t3378107	test	我们班有二十多个学生。	我们=wo'men 班有=ban'you 二十多个=er'shi'duo'ge 学生=xue'sheng ~。
+t7768261	t7768261	test	这本书上写，大象能活过一百岁。	这=zhe 本书=ben'shu 上=shang 写=xie ~， 大象=da'xiang 能活=neng'huo 过=guo 一百岁=yi'bai'sui ~。
+t13511686	t13511686	test	叫我第一名。	叫=jiao 我=wo 第一名=di'yi'ming ~。
+t11837789	t11837789	test	这些孩子多可爱呀！	这些=zhe'xie 孩子=hai'zi 多=duo 可爱=ke'ai 呀=ya ~！
+t5097586	t5097586	test	我没想到今天居然会哭的。	我=wo 没想到=mei'xiang'dao 今天=jin'tian 居然=ju'ran 会=hui 哭=ku 的=de ~。
+t1218184	t1218184	test	这些就是我们做出的决定。	这些=zhe'xie 就是=jiu'shi 我们=wo'men 做出=zuo'chu 的=de 决定=jue'ding ~。
+t3699941	t3699941	test	你应该去看病。	你=ni 应该=ying'gai 去=qu 看病=kan'bing ~。
+t10064217	t10064217	dev	我昨天没回家。	我=wo 昨天=zuo'tian 没=mei 回家=hui'jia ~。
+t1865790	t1865790	dev	房间里静悄悄的，听不到一丝声音。	房间=fang'jian 里=li 静悄悄=jing'qiao'qiao 的=de ~， 听=ting 不到=bu'dao 一丝=yi'si 声音=sheng'yin ~。
+t348114	t348114	dev	将费用记在我的账上。	将=jiang 费用=fei'yong 记在=ji'zai 我=wo 的=de 账=zhang 上=shang ~。
+t2027961	t2027961	dev	这段时间正好打算辞掉工作，说不定去得成。	这=zhe 段时间=duan'shi'jian 正好=zheng'hao 打算=da'suan 辞掉=ci'diao 工作=gong'zuo ~， 说不定=shuo'bu'ding 去=qu 得=de 成=cheng ~。
+t5951861	t5951861	test	我对我的人生很满意。	我=wo 对=dui 我=wo 的=de 人生=ren'sheng 很=hen 满意=man'yi ~。
+t14067863	t14067863	test	真讽刺，不是吗？	真=zhen 讽刺=feng'ci ~， 不是=bu'shi 吗=ma ~？
+t2144004	t2144004	dev	他有三个哥哥。	他=ta 有=you 三个=san'ge 哥哥=ge'ge ~。
+t7768235	t7768235	test	她站在镜子前。	她=ta 站=zhan 在=zai 镜子=jing'zi 前=qian ~。
+t13921096	t13921096	test	这首曲子有226个小节。	这首=zhe'shou 曲子=qu'zi 有=you ~226 个=ge 小节=xiao'jie ~。
+t783955	t783955	test	他把荷马的史记从希腊语翻译成了英语。	他=ta 把=ba 荷马=he'ma 的=de 史记=shi'ji 从=cong 希腊语=xi'la'yu 翻译成=fan'yi'cheng 了=le 英语=ying'yu ~。
+t335270	t335270	test	深呼吸有益健康。	深呼吸=shen'hu'xi 有益健康=you'yi'jian'kang ~。
+t1878344	t1878344	test	我信任你。	我=wo 信任=xin'ren 你=ni ~。
+t5780505	t5780505	dev	她叫了我很多次。	她=ta 叫=jiao 了=le 我=wo 很=hen 多次=duo'ci ~。
+t9965705	t9965705	test	我不舍得你啊！	我=wo 不=bu 舍得=she'de 你=ni 啊=a ~！
+t13917531	t13917531	dev	谁都知道2加2等于4。	谁=shei 都=dou 知道=zhi'dao ~2 加=jia ~2 等于=deng'yu ~4 ~。
+t6956888	t6956888	test	我头疼得特别厉害。	我=wo 头疼=tou'teng 得=de 特别=te'bie 厉害=li'hai ~。
+t13942555	t13942555	test	工作量和报酬相比并不合理。	工作量=gong'zuo'liang 和=he 报酬=bao'chou 相比=xiang'bi 并=bing 不合理=bu'he'li ~。
+t8939100	t8939100	dev	我会尽可能多给你写信的。	我会=wo'hui 尽可能=jin'ke'neng 多=duo 给=gei 你=ni 写信=xie'xin 的=de ~。
+t3283113	t3283113	dev	不用，谢谢，我怀孕了。	不用=bu'yong ~， 谢谢=xie'xie ~， 我=wo 怀孕=huai'yun 了=le ~。
+t476648	t476648	test	跟我说说你的计划。	跟=gen 我=wo 说=shuo 说=shuo 你=ni 的=de 计划=ji'hua ~。
+t503069	t503069	test	发生了什么？公寓里到处都是水。	发生=fa'sheng 了=le 什么=shen'me ~？ 公寓=gong'yu 里=li 到处=dao'chu 都=dou 是=shi 水=shui ~。
+t1216076	t1216076	test	你的行李沉不沉？	你=ni 的=de 行李=xing'li 沉不沉=chen'bu'chen ~？
+t7781504	t7781504	test	我们会准时到吗？	我们=wo'men 会=hui 准时=zhun'shi 到=dao 吗=ma ~？
+t12687058	t12687058	test	汤姆确认了时间。	汤姆=tang'mu 确认=que'ren 了=le 时间=shi'jian ~。
+t474220	t474220	test	这个城市的交通方便得很。	这个=zhe'ge 城市=cheng'shi 的=de 交通=jiao'tong 方便=fang'bian 得=de 很=hen ~。
+t5931760	t5931760	test	我已经做够了。	我=wo 已经=yi'jing 做够=zuo'gou 了=le ~。
+t11521702	t11521702	test	她来自奥地利。	她=ta 来自=lai'zi 奥地利=ao'di'li ~。
+t13050336	t13050336	dev	你为什么觉得我们在这？	你=ni 为什么=wei'shen'me 觉得=jue'de 我们=wo'men 在=zai 这=zhe ~？
+t1411623	t1411623	dev	不要再调大电视的声音了。	不要=bu'yao 再=zai 调大=tiao'da 电视=dian'shi 的=de 声音=sheng'yin 了=le ~。
+t6020846	t6020846	test	她可能迟到，然后我们就要等。	她=ta 可能=ke'neng 迟到=chi'dao ~， 然后=ran'hou 我们=wo'men 就要=jiu'yao 等=deng ~。
+t13953752	t13953752	test	浙江省在哪里？	浙江省=zhe'jiang'sheng 在=zai 哪里=na'li ~？
+t10449478	t10449478	test	行，你赢了。	行=xing ~， 你=ni 赢=ying 了=le ~。
+t1657726	t1657726	test	我也很好.	我=wo 也=ye 很=hen 好=hao ~.
+t692510	t692510	test	那家店里的新货全卖光了。	那=na 家=jia 店里=dian'li 的=de 新货=xin'huo 全=quan 卖光=mai'guang 了=le ~。
+t344812	t344812	test	以毒制毒。	以毒=yi'du 制毒=zhi'du ~。
+t389413	t389413	test	中小企业要勒紧裤带才能存活。	中小企业=zhong'xiao'qi'ye 要=yao 勒紧裤带=lei'jin'ku'dai 才能=cai'neng 存活=cun'huo ~。
+t5663548	t5663548	test	为什么没人喜欢她？	为什么=wei'shen'me 没=mei 人=ren 喜欢=xi'huan 她=ta ~？
+t2609573	t2609573	test	她是个任何事情都喜欢和别人一比高下的人。	她=ta 是=shi 个=ge 任何=ren'he 事情=shi'qing 都=dou 喜欢=xi'huan 和=he 别人=bie'ren 一=yi 比高下=bi'gao'xia 的=de 人=ren ~。
+t1750345	t1750345	test	说过的话就像泼出去的水，收不回来。	说=shuo 过=guo 的话=de'hua 就=jiu 像=xiang 泼出去=po'chu'qu 的=de 水=shui ~， 收=shou 不=bu 回来=hui'lai ~。
+t343621	t343621	test	我禁不住想他会不会准时到。	我=wo 禁不住=jin'bu'zhu 想=xiang 他=ta 会=hui 不会=bu'hui 准时=zhun'shi 到=dao ~。
+t2004674	t2004674	test	某天晚上，他又累又沮丧地回到了家。	某=mou 天=tian 晚上=wan'shang ~， 他=ta 又=you 累=lei 又=you 沮丧=ju'sang 地=de 回到=hui'dao 了=le 家=jia ~。
+t755511	t755511	dev	剑桥的三十三个学院中，以彼得学院最为古老。	剑桥=jian'qiao 的=de 三十三个=san'shi'san'ge 学院=xue'yuan 中=zhong ~， 以=yi 彼得=bi'de 学院=xue'yuan 最为=zui'wei 古老=gu'lao ~。
+t5551033	t5551033	test	我喜欢鱼。	我=wo 喜欢=xi'huan 鱼=yu ~。
+t8673783	t8673783	dev	他绝对不是会去做那种事的人。	他=ta 绝对=jue'dui 不是=bu'shi 会=hui 去=qu 做=zuo 那种=na'zhong 事=shi 的=de 人=ren ~。
+t11243419	t11243419	test	请原谅我吧。	请原谅=qing'yuan'liang 我=wo 吧=ba ~。
+t2217089	t2217089	test	她还是当个老师吗？	她=ta 还是=hai'shi 当=dang 个=ge 老师=lao'shi 吗=ma ~？
+t400981	t400981	test	小心恶意邮件。	小心=xiao'xin 恶意=e'yi 邮件=you'jian ~。
+t2298527	t2298527	test	这个商店卖旧书	这个=zhe'ge 商店=shang'dian 卖=mai 旧书=jiu'shu
+t427601	t427601	test	人是唯一会使用火的动物。	人=ren 是=shi 唯一=wei'yi 会=hui 使用=shi'yong 火=huo 的=de 动物=dong'wu ~。
+t876341	t876341	test	蜿蜒的小路爬上了陡坡。	蜿蜒=wan'yan 的=de 小路=xiao'lu 爬=pa 上=shang 了=le 陡坡=dou'po ~。
+t10966769	t10966769	test	那个是我爸爸。	那个=na'ge 是=shi 我=wo 爸爸=ba'ba ~。
+t348103	t348103	test	欢迎欢迎！	欢迎=huan'ying 欢迎=huan'ying ~！
+t4764647	t4764647	test	谁写了这个故事？	谁=shui 写=xie 了=le 这个=zhe'ge 故事=gu'shi ~？
+t833049	t833049	dev	我不能等你。	我=wo 不能=bu'neng 等=deng 你=ni ~。
+t2456621	t2456621	test	没人愿意接管这个烂摊子。	没=mei 人=ren 愿意=yuan'yi 接管=jie'guan 这个=zhe'ge 烂摊子=lan'tan'zi ~。
+t1974789	t1974789	dev	蒸汽从发动机冒了出来。	蒸汽=zheng'qi 从=cong 发动机=fa'dong'ji 冒=mao 了=le 出来=chu'lai ~。
+t713128	t713128	test	我很喜欢青椒。	我=wo 很=hen 喜欢=xi'huan 青椒=qing'jiao ~。
+t9973721	t9973721	test	似乎不是每个人都同意汤姆。	似乎=si'hu 不是=bu'shi 每个=mei'ge 人=ren 都=dou 同意=tong'yi 汤姆=tang'mu ~。
+t2896954	t2896954	test	你在哪里锯开他们?	你=ni 在=zai 哪里=na'li 锯开=ju'kai 他们=ta'men ~?
+t381931	t381931	test	刚才桌子上有一本书吗？	刚才=gang'cai 桌子=zhuo'zi 上=shang 有=you 一=yi 本书=ben'shu 吗=ma ~？
+t363894	t363894	dev	他被罚了1万日元。	他=ta 被=bei 罚=fa 了=le ~1 万日元=wan'ri'yuan ~。
+t390541	t390541	test	没有人注意到他缺席了。	没有=mei'you 人=ren 注意=zhu'yi 到=dao 他=ta 缺席=que'xi 了=le ~。
+t2027984	t2027984	test	因为今早要出门，不能用电脑，所以用手机发信息。	因为=yin'wei 今早=jin'zao 要=yao 出门=chu'men ~， 不能=bu'neng 用=yong 电脑=dian'nao ~， 所以=suo'yi 用=yong 手机=shou'ji 发=fa 信息=xin'xi ~。
+t6822735	t6822735	dev	医生立刻就到了。	医生=yi'sheng 立刻=li'ke 就=jiu 到=dao 了=le ~。
+t2333755	t2333755	test	这是你的收音机吗？	这=zhe 是=shi 你=ni 的=de 收音机=shou'yin'ji 吗=ma ~？
+t14037678	t14037678	dev	我没法告诉你我等这一刻等了多久。	我=wo 没法=mei'fa 告诉=gao'su 你=ni 我=wo 等=deng 这=zhe 一刻=yi'ke 等=deng 了=le 多久=duo'jiu ~。
+t342111	t342111	dev	天空是蓝色的。	天空=tian'kong 是=shi 蓝色=lan'se 的=de ~。
+t3526237	t3526237	test	怎么说他都不肯去。	怎么=zen'me 说=shuo 他=ta 都=dou 不肯=bu'ken 去=qu ~。
+t894390	t894390	dev	我想用信用卡支付。	我=wo 想=xiang 用=yong 信用卡=xin'yong'ka 支付=zhi'fu ~。
+t1182835	t1182835	test	我是一点睡觉的	我=wo 是=shi 一点=yi'dian 睡觉=shui'jiao 的=de
+t526974	t526974	dev	我有一本书。	我=wo 有=you 一=yi 本书=ben'shu ~。
+t1870378	t1870378	test	我不认为这正在发生。	我=wo 不=bu 认为=ren'wei 这=zhe 正在=zheng'zai 发生=fa'sheng ~。
+t471240	t471240	dev	你只要按一下按钮。	你=ni 只要=zhi'yao 按=an 一下=yi'xia 按钮=an'niu ~。
+t4757240	t4757240	test	我同他们没有过共同之处。	我同=wo'tong 他们=ta'men 没有=mei'you 过=guo 共同之处=gong'tong'zhi'chu ~。
+t3139549	t3139549	test	我全心全意地爱着你。	我=wo 全心全意=quan'xin'quan'yi 地爱=de'ai 着=zhe 你=ni ~。
+t9965544	t9965544	dev	汤姆立于自己的立场。	汤姆=tang'mu 立于=li'yu 自己=zi'ji 的=de 立场=li'chang ~。
+t8673739	t8673739	test	你不冷吗？	你=ni 不=bu 冷=leng 吗=ma ~？
+t3667654	t3667654	test	娜塔莎在俄罗斯出生，但是她不讲俄语。	娜塔莎=na'ta'sha 在=zai 俄罗斯=e'luo'si 出生=chu'sheng ~， 但是=dan'shi 她=ta 不=bu 讲=jiang 俄语=e'yu ~。
+t623206	t623206	test	老师应该一视同仁地对待他们的学生。	老师=lao'shi 应该=ying'gai 一视同仁=yi'shi'tong'ren 地=de 对待=dui'dai 他们=ta'men 的=de 学生=xue'sheng ~。
+t1335425	t1335425	test	我已经两周没有见过您了。	我=wo 已经=yi'jing 两周=liang'zhou 没有=mei'you 见=jian 过=guo 您=nin 了=le ~。
+t8605818	t8605818	dev	乔治和他爸爸做生意的方式一样。	乔治=qiao'zhi 和=he 他=ta 爸爸=ba'ba 做生意=zuo'sheng'yi 的=de 方式=fang'shi 一样=yi'yang ~。
+t9408569	t9408569	test	玛丽说要买比较便宜的。	玛丽=ma'li 说=shuo 要=yao 买=mai 比较=bi'jiao 便宜=pian'yi 的=de ~。
+t411629	t411629	test	他目前住在巴黎。	他=ta 目前=mu'qian 住=zhu 在=zai 巴黎=ba'li ~。
+t1185677	t1185677	test	总有我不能学的东西，我没有无穷无尽的时间。	总有=zong'you 我=wo 不能=bu'neng 学=xue 的=de 东西=dong'xi ~， 我=wo 没有=mei'you 无穷无尽=wu'qiong'wu'jin 的=de 时间=shi'jian ~。
+t12617596	t12617596	test	我本来想给我在公园发现的松鼠拍照，但它太敏捷了，因此我拍的照片都不好。	我=wo 本来=ben'lai 想=xiang 给=gei 我=wo 在=zai 公园=gong'yuan 发现=fa'xian 的=de 松鼠=song'shu 拍照=pai'zhao ~， 但=dan 它=ta 太=tai 敏捷=min'jie 了=le ~， 因此=yin'ci 我=wo 拍=pai 的=de 照片=zhao'pian 都=dou 不好=bu'hao ~。
+t5548506	t5548506	dev	Tom喝了些果汁。	~Tom 喝=he 了=le 些=xie 果汁=guo'zhi ~。
+t353509	t353509	test	他回去取他的帽子。	他=ta 回去=hui'qu 取=qu 他=ta 的=de 帽子=mao'zi ~。
+t846111	t846111	dev	你最小的弟弟身高多高?	你=ni 最小=zui'xiao 的=de 弟弟=di'di 身高=shen'gao 多高=duo'gao ~?
+t8865549	t8865549	dev	她在回家。	她=ta 在=zai 回家=hui'jia ~。
+t347113	t347113	test	能到这里来一下吗。	能=neng 到=dao 这里=zhe'li 来=lai 一下=yi'xia 吗=ma ~。
+t8589628	t8589628	test	让我拿一下我的小提琴。	让我拿=rang'wo'na 一下=yi'xia 我=wo 的=de 小提琴=xiao'ti'qin ~。
+t3378117	t3378117	dev	我们写汉字也非常好。	我们=wo'men 写=xie 汉字=han'zi 也=ye 非常=fei'chang 好=hao ~。
+t1441776	t1441776	dev	为什么你不休息一下?	为什么=wei'shen'me 你=ni 不=bu 休息=xiu'xi 一下=yi'xia ~?
+t336256	t336256	test	我爸爸有点守旧。	我=wo 爸爸=ba'ba 有点=you'dian 守旧=shou'jiu ~。
+t334077	t334077	dev	他们互帮互助，把校庆搞得很成功。	他们=ta'men 互帮互助=hu'bang'hu'zhu ~， 把=ba 校庆=xiao'qing 搞=gao 得=de 很=hen 成功=cheng'gong ~。
+t10713950	t10713950	test	我们再也别这样做了。	我们=wo'men 再也=zai'ye 别=bie 这样=zhe'yang 做=zuo 了=le ~。
+t13897268	t13897268	test	我没听说过。	我=wo 没听说过=mei'ting'shuo'guo ~。
+t2357614	t2357614	test	她开始和一个陌生人交谈。	她=ta 开始=kai'shi 和=he 一个=yi'ge 陌生人=mo'sheng'ren 交谈=jiao'tan ~。
+t1360026	t1360026	dev	汤姆不知道怎样玩得开心。	汤姆=tang'mu 不=bu 知道=zhi'dao 怎样=zen'yang 玩得=wan'de 开心=kai'xin ~。
+t2032286	t2032286	test	我不能想象他会做这种事。	我=wo 不能=bu'neng 想象=xiang'xiang 他会=ta'hui 做=zuo 这种=zhe'zhong 事=shi ~。
+t9992075	t9992075	test	什么时候放假？	什么=shen'me 时候=shi'hou 放假=fang'jia ~？
+t406358	t406358	test	我总是把John和Paul搞混。	我=wo 总是=zong'shi 把=ba ~John 和=he ~Paul 搞混=gao'hun ~。
+t4147255	t4147255	test	因为下雪了，我什么也没能看见。	因为=yin'wei 下雪=xia'xue 了=le ~， 我=wo 什么=shen'me 也=ye 没能=mei'neng 看见=kan'jian ~。
+t661557	t661557	dev	我们叫那个颜色“午夜蓝”。	我们=wo'men 叫=jiao 那个=na'ge 颜色=yan'se ~“ 午夜=wu'ye 蓝=lan ~” ~。
+t8696224	t8696224	test	汤姆的房间很脏。	汤姆=tang'mu 的=de 房间=fang'jian 很脏=hen'zang ~。
+t333037	t333037	test	他们坚持让他走。	他们=ta'men 坚持=jian'chi 让=rang 他=ta 走=zou ~。
+t787284	t787284	dev	这条路上的车辆不多。	这=zhe 条=tiao 路上=lu'shang 的=de 车辆=che'liang 不=bu 多=duo ~。
+t3042328	t3042328	test	一些海滩没能遵守环保规定。	一些=yi'xie 海滩=hai'tan 没=mei 能=neng 遵守=zun'shou 环保=huan'bao 规定=gui'ding ~。
+t420346	t420346	test	我要吃个够再走。	我要=wo'yao 吃=chi 个=ge 够=gou 再=zai 走=zou ~。
+t2295633	t2295633	dev	这水的味道很难闻	这水=zhe'shui 的=de 味道=wei'dao 很=hen 难闻=nan'wen
+t13878965	t13878965	test	我在去凯比利亚的路上。	我=wo 在=zai 去凯=qu'kai 比利亚=bi'li'ya 的=de 路上=lu'shang ~。
+t499613	t499613	test	你也邀请你的朋友了吗？	你=ni 也=ye 邀请=yao'qing 你=ni 的=de 朋友=peng'you 了=le 吗=ma ~？
+t379352	t379352	test	拉丁语是一个死语言。	拉丁语=la'ding'yu 是=shi 一个=yi'ge 死=si 语言=yu'yan ~。
+t8800714	t8800714	test	在瑞士，春天在五月来临。	在=zai 瑞士=rui'shi ~， 春天=chun'tian 在=zai 五月=wu'yue 来临=lai'lin ~。
+t7781795	t7781795	test	你在说什么呢？	你=ni 在=zai 说=shuo 什么=shen'me 呢=ne ~？
+t503090	t503090	test	你说的是什么？	你=ni 说=shuo 的=de 是=shi 什么=shen'me ~？
+t1066665	t1066665	dev	用法语，很少会遗漏主语。	用=yong 法语=fa'yu ~， 很少=hen'shao 会=hui 遗漏=yi'lou 主语=zhu'yu ~。
+t3709286	t3709286	test	他们俩工作上联系多，经常打交道。	他们=ta'men 俩=lia 工作=gong'zuo 上=shang 联系=lian'xi 多=duo ~， 经常=jing'chang 打交道=da'jiao'dao ~。
+t10696018	t10696018	test	你真的来自这里？	你=ni 真的=zhen'de 来自=lai'zi 这里=zhe'li ~？
+t2390165	t2390165	test	你想坐下吗？	你=ni 想=xiang 坐下=zuo'xia 吗=ma ~？
+t12303578	t12303578	test	好漂亮的婚纱！	好=hao 漂亮=piao'liang 的=de 婚纱=hun'sha ~！
+t5818090	t5818090	test	把书放在原处。	把=ba 书=shu 放在=fang'zai 原处=yuan'chu ~。
+t5576771	t5576771	test	汤姆不能决定买丰田还是福特。	汤姆=tang'mu 不能=bu'neng 决定=jue'ding 买=mai 丰田=feng'tian 还是=hai'shi 福特=fu'te ~。
+t5983573	t5983573	test	汤姆不想让玛丽失望。	汤姆=tang'mu 不想=bu'xiang 让=rang 玛丽=ma'li 失望=shi'wang ~。
+t394127	t394127	test	他是个无可救药的家伙。	他=ta 是=shi 个=ge 无可救药=wu'ke'jiu'yao 的=de 家伙=jia'huo ~。
+t1706499	t1706499	dev	秋天是我最喜爱的季节。	秋天=qiu'tian 是=shi 我=wo 最=zui 喜爱=xi'ai 的=de 季节=ji'jie ~。
+t501347	t501347	test	人类生出来不是为了永久生存。	人类=ren'lei 生=sheng 出来=chu'lai 不是=bu'shi 为了=wei'le 永久=yong'jiu 生存=sheng'cun ~。
+t13969939	t13969939	test	如果今天是地球的最后一天，你想吃什么？	如果=ru'guo 今天=jin'tian 是=shi 地球=di'qiu 的=de 最后=zui'hou 一天=yi'tian ~， 你=ni 想=xiang 吃=chi 什么=shen'me ~？
+t3378171	t3378171	dev	图尔库大学有多少位教授？	图尔库=tu'er'ku 大学=da'xue 有=you 多少=duo'shao 位=wei 教授=jiao'shou ~？
+t8592712	t8592712	test	我等着你帮我。	我=wo 等=deng 着=zhe 你=ni 帮=bang 我=wo ~。
+t381218	t381218	test	虽然我很想知道他的名字，只是我的胆子太小了，不敢去问。	虽然=sui'ran 我=wo 很=hen 想=xiang 知道=zhi'dao 他=ta 的=de 名字=ming'zi ~， 只是=zhi'shi 我=wo 的=de 胆子=dan'zi 太小=tai'xiao 了=le ~， 不敢=bu'gan 去=qu 问=wen ~。
+t5580900	t5580900	dev	他不来了。	他=ta 不来=bu'lai 了=le ~。
+t2051558	t2051558	test	这个故事是我朋友写的。	这个=zhe'ge 故事=gu'shi 是=shi 我=wo 朋友=peng'you 写=xie 的=de ~。
+t5580990	t5580990	dev	我不懂你在说什么。	我=wo 不=bu 懂=dong 你=ni 在=zai 说=shuo 什么=shen'me ~。
+t333912	t333912	dev	战争永远谈不上好，和平永远谈不上坏。	战争=zhan'zheng 永远=yong'yuan 谈不上=tan'bu'shang 好=hao ~， 和平=he'ping 永远=yong'yuan 谈不上=tan'bu'shang 坏=huai ~。
+t2609497	t2609497	test	因为酷暑一直持续着，请谨防食物中毒。	因为=yin'wei 酷暑=ku'shu 一直=yi'zhi 持续=chi'xu 着=zhe ~， 请=qing 谨防=jin'fang 食物中毒=shi'wu'zhong'du ~。
+t2255107	t2255107	test	她说：“再见”。	她=ta 说=shuo ~： ~“ 再见=zai'jian ~” ~。
+t784537	t784537	test	他来了，我们就开始派对。	他来=ta'lai 了=le ~， 我们=wo'men 就=jiu 开始=kai'shi 派对=pai'dui ~。
+t3483153	t3483153	dev	中国有56个民族。	中国=zhong'guo 有=you ~56 个=ge 民族=min'zu ~。
+t517553	t517553	test	在我前面走。	在=zai 我=wo 前面=qian'mian 走=zou ~。
+t7767563	t7767563	test	我必须要减肥了。	我=wo 必须=bi'xu 要=yao 减肥=jian'fei 了=le ~。
+t336230	t336230	test	他极其英俊。	他=ta 极其=ji'qi 英俊=ying'jun ~。
+t416942	t416942	test	郊区很安静......	郊区=jiao'qu 很=hen 安静=an'jing ~......
+t472879	t472879	test	我把剩下的东西给我的狗吃。	我=wo 把=ba 剩下=sheng'xia 的=de 东西=dong'xi 给=gei 我=wo 的=de 狗=gou 吃=chi ~。
+t804798	t804798	dev	如果收成再差一点，饥饿可能就会来临。	如果=ru'guo 收成=shou'cheng 再=zai 差一点=cha'yi'dian ~， 饥饿=ji'e 可能=ke'neng 就=jiu 会=hui 来临=lai'lin ~。
+t11698348	t11698348	test	这个例子举得不好。	这个=zhe'ge 例子=li'zi 举得=ju'de 不好=bu'hao ~。
+t1394888	t1394888	test	当你去罗马尼亚的时候，你将会造访吸血鬼之王的城堡。	当=dang 你=ni 去=qu 罗马尼亚=luo'ma'ni'ya 的=de 时候=shi'hou ~， 你=ni 将=jiang 会=hui 造访=zao'fang 吸血鬼=xi'xue'gui 之王=zhi'wang 的=de 城堡=cheng'bao ~。
+t2188515	t2188515	dev	我妹妹亲眼看到它了。	我=wo 妹妹=mei'mei 亲眼看到=qin'yan'kan'dao 它=ta 了=le ~。
+t380561	t380561	test	我打电话给你，一方面是想请你吃饭，另一方面是想告诉你我儿子要结婚了。	我=wo 打电话=da'dian'hua 给=gei 你=ni ~， 一方面=yi'fang'mian 是=shi 想=xiang 请=qing 你=ni 吃饭=chi'fan ~， 另一方面=ling'yi'fang'mian 是=shi 想=xiang 告诉=gao'su 你=ni 我=wo 儿子=er'zi 要=yao 结婚=jie'hun 了=le ~。
+t760831	t760831	test	这是他我不喜欢的一个地方。	这=zhe 是=shi 他=ta 我=wo 不=bu 喜欢=xi'huan 的=de 一个=yi'ge 地方=di'fang ~。
+t677985	t677985	dev	海绵吸水。	海绵=hai'mian 吸水=xi'shui ~。
+t899340	t899340	dev	就是因为他不成材他爸看不起他。	就是=jiu'shi 因为=yin'wei 他=ta 不成材=bu'cheng'cai 他爸=ta'ba 看不起=kan'bu'qi 他=ta ~。
+t5983597	t5983597	test	我们必须查明汤姆在哪里。	我们=wo'men 必须=bi'xu 查明=cha'ming 汤姆=tang'mu 在=zai 哪里=na'li ~。
+t10713306	t10713306	dev	他和玛丽一起工作。	他=ta 和玛丽=he'ma'li 一起=yi'qi 工作=gong'zuo ~。
+t8761453	t8761453	test	我想去英国。	我=wo 想=xiang 去=qu 英国=ying'guo ~。
+t1864538	t1864538	test	要少喝酒多睡眠。	要少=yao'shao 喝酒=he'jiu 多=duo 睡眠=shui'mian ~。
+t14007935	t14007935	test	我昨天才懂了她真正的意思。	我=wo 昨天=zuo'tian 才=cai 懂=dong 了=le 她=ta 真正=zhen'zheng 的=de 意思=yi'si ~。
+t11254308	t11254308	dev	警察到达了事故现场。	警察=jing'cha 到达=dao'da 了=le 事故现场=shi'gu'xian'chang ~。
+t8860603	t8860603	test	汤姆喜欢在污垢里玩。	汤姆=tang'mu 喜欢=xi'huan 在=zai 污垢=wu'gou 里=li 玩=wan ~。
+t1416163	t1416163	test	谢谢。也许我们会回来的。	谢谢=xie'xie ~。 也许=ye'xu 我们=wo'men 会=hui 回来=hui'lai 的=de ~。
+t795015	t795015	dev	上海被称为东方的巴黎。	上海=shang'hai 被=bei 称为=cheng'wei 东方=dong'fang 的=de 巴黎=ba'li ~。
+t13942893	t13942893	dev	还需要家属同意才能进行手术。	还=hai 需要=xu'yao 家属=jia'shu 同意=tong'yi 才能=cai'neng 进行=jin'xing 手术=shou'shu ~。
+t420550	t420550	test	五点钟，你的信赶快投进去还来得及。	五点钟=wu'dian'zhong ~， 你=ni 的=de 信=xin 赶快=gan'kuai 投进去=tou'jin'qu 还=hai 来得及=lai'de'ji ~。
+t465846	t465846	dev	这个故事告诉我们一个有趣的事实。	这个=zhe'ge 故事=gu'shi 告诉=gao'su 我们=wo'men 一个=yi'ge 有趣=you'qu 的=de 事实=shi'shi ~。
+t6075518	t6075518	test	这很常见。	这=zhe 很=hen 常见=chang'jian ~。
+t7767663	t7767663	dev	我的生日是六月十二日。玛格达莲娜和我同年同日生。	我=wo 的=de 生日=sheng'ri 是=shi 六月=liu'yue 十二日=shi'er'ri ~。 玛格达=ma'ge'da 莲娜=lian'na 和=he 我=wo 同年=tong'nian 同日生=tong'ri'sheng ~。
+t471163	t471163	test	外甥是兄弟或姐妹的儿子。	外甥=wai'sheng 是=shi 兄弟=xiong'di 或=huo 姐妹=jie'mei 的=de 儿子=er'zi ~。
+t347270	t347270	test	敌人无法靠近。	敌人=di'ren 无法=wu'fa 靠近=kao'jin ~。
+t14002060	t14002060	test	福建省的主要方言有闽语、客家话、吴语、赣语、南平官话。	福建省=fu'jian'sheng 的=de 主要=zhu'yao 方言=fang'yan 有=you 闽语=min'yu ~、 客家话=ke'jia'hua ~、 吴语=wu'yu ~、 赣语=gan'yu ~、 南平=nan'ping 官话=guan'hua ~。
+t13880777	t13880777	test	我从没说过那种话。	我=wo 从没=cong'mei 说=shuo 过=guo 那种=na'zhong 话=hua ~。
+t1939341	t1939341	dev	妈妈去买鞋的时候，她也跟去了。	妈妈=ma'ma 去=qu 买鞋=mai'xie 的=de 时候=shi'hou ~， 她=ta 也=ye 跟=gen 去=qu 了=le ~。
+t335545	t335545	test	没有你的帮助，我可能已经失败了。	没有=mei'you 你=ni 的=de 帮助=bang'zhu ~， 我=wo 可能=ke'neng 已经=yi'jing 失败=shi'bai 了=le ~。
+t5581804	t5581804	test	我希望我能说法语说得更好。	我=wo 希望=xi'wang 我能=wo'neng 说=shuo 法语=fa'yu 说=shuo 得=de 更好=geng'hao ~。
+t836385	t836385	dev	哎呦好难受啊，全身发痒！	哎=ai 呦=you 好=hao 难受=nan'shou 啊=a ~， 全身=quan'shen 发痒=fa'yang ~！
+t3327554	t3327554	test	我们一起吃。	我们=wo'men 一起=yi'qi 吃=chi ~。
+t616201	t616201	test	这是我们之间的秘密。	这是=zhe'shi 我们=wo'men 之间=zhi'jian 的=de 秘密=mi'mi ~。
+t818970	t818970	dev	我完全相信你是清白的。	我=wo 完全=wan'quan 相信=xiang'xin 你=ni 是=shi 清白=qing'bai 的=de ~。
+t9007599	t9007599	dev	她喜欢去桑拿。	她=ta 喜欢=xi'huan 去=qu 桑拿=sang'na ~。
+t8854688	t8854688	test	你已经给了我足够多的钱。	你=ni 已经=yi'jing 给=gei 了=le 我=wo 足够=zu'gou 多=duo 的=de 钱=qian ~。
+t799259	t799259	test	这些书都是我的。	这些=zhe'xie 书=shu 都=dou 是=shi 我=wo 的=de ~。
+t336712	t336712	test	往返还是单程？	往返=wang'fan 还是=hai'shi 单程=dan'cheng ~？
+t9990053	t9990053	test	他们令我非常不快。	他们=ta'men 令=ling 我=wo 非常=fei'chang 不快=bu'kuai ~。
+t333301	t333301	test	他们在加利福尼亚种橙子。	他们=ta'men 在=zai 加利福尼亚=jia'li'fu'ni'ya 种=zhong 橙子=cheng'zi ~。
+t333491	t333491	test	我的朋友十七岁了。	我=wo 的=de 朋友=peng'you 十七岁=shi'qi'sui 了=le ~。
+t5091248	t5091248	test	我看到了你在吻汤姆了。	我=wo 看到=kan'dao 了=le 你=ni 在=zai 吻=wen 汤姆=tang'mu 了=le ~。
+t791687	t791687	test	假装你是我。	假装=jia'zhuang 你=ni 是=shi 我=wo ~。
+t429452	t429452	test	我打算住在城市里。	我=wo 打算=da'suan 住=zhu 在=zai 城市=cheng'shi 里=li ~。
+t512869	t512869	test	他学习现代文学。	他=ta 学习=xue'xi 现代文学=xian'dai'wen'xue ~。
+t9415187	t9415187	test	我喝了水。	我=wo 喝=he 了=le 水=shui ~。
+t503276	t503276	test	我在桌面上建了一个快捷方式。	我=wo 在=zai 桌面上=zhuo'mian'shang 建了=jian'le 一个=yi'ge 快捷方式=kuai'jie'fang'shi ~。
+t1356657	t1356657	dev	我把房子给你了。	我=wo 把=ba 房子=fang'zi 给=gei 你=ni 了=le ~。
+t1358054	t1358054	test	小心恶犬！	小心=xiao'xin 恶犬=e'quan ~！
+t334330	t334330	test	只有能提出新问题的回答才是有用的回答。	只有=zhi'you 能=neng 提出=ti'chu 新=xin 问题=wen'ti 的=de 回答=hui'da 才=cai 是=shi 有用=you'yong 的=de 回答=hui'da ~。
+t336486	t336486	dev	你看的书越多，你知道的越多。	你=ni 看=kan 的=de 书=shu 越=yue 多=duo ~， 你=ni 知道=zhi'dao 的=de 越=yue 多=duo ~。
+t2915524	t2915524	test	根据最新的调查，99%的员工想要一个免费的iPad。	根据=gen'ju 最新=zui'xin 的=de 调查=diao'cha ~， ~99% 的=de 员工=yuan'gong 想要=xiang'yao 一个=yi'ge 免费=mian'fei 的=de ~iPad ~。
+t899338	t899338	test	他们不是在演唱，他们在调情说爱。	他们=ta'men 不是=bu'shi 在=zai 演唱=yan'chang ~， 他们=ta'men 在=zai 调情=tiao'qing 说=shuo 爱=ai ~。
+t3147854	t3147854	test	爸爸去哪了?	爸爸=ba'ba 去=qu 哪=na 了=le ~?
+t452631	t452631	dev	我妈妈不能来了。	我=wo 妈妈=ma'ma 不能=bu'neng 来=lai 了=le ~。
+t9007266	t9007266	dev	我们打算给孩子起名字叫汤姆。	我们=wo'men 打算=da'suan 给=gei 孩子=hai'zi 起=qi 名字=ming'zi 叫=jiao 汤姆=tang'mu ~。
+t13278111	t13278111	dev	医生告诉玛丽她不能再要更多孩子了。	医生=yi'sheng 告诉=gao'su 玛丽=ma'li 她=ta 不能=bu'neng 再要=zai'yao 更=geng 多=duo 孩子=hai'zi 了=le ~。
+t2394393	t2394393	dev	靠近火光后身体感到很温暖。	靠近=kao'jin 火光=huo'guang 后=hou 身体=shen'ti 感到=gan'dao 很=hen 温暖=wen'nuan ~。
+t735400	t735400	test	你们已经把工作结束了吗？	你们=ni'men 已经=yi'jing 把=ba 工作=gong'zuo 结束=jie'shu 了=le 吗=ma ~？
+t623175	t623175	dev	我的书为什么会在这里？	我=wo 的=de 书=shu 为什么=wei'shen'me 会=hui 在=zai 这里=zhe'li ~？
+t464950	t464950	test	我拜访了Dan。	我=wo 拜访=bai'fang 了=le ~Dan ~。
+t336953	t336953	test	大雨使河水泛滥。	大雨=da'yu 使=shi 河水=he'shui 泛滥=fan'lan ~。
+t10535629	t10535629	test	汤姆数了他的钱。	汤姆=tang'mu 数=shu 了=le 他=ta 的=de 钱=qian ~。
+t397145	t397145	test	如果你离开日本，我会非常想你的。	如果=ru'guo 你=ni 离开=li'kai 日本=ri'ben ~， 我会=wo'hui 非常=fei'chang 想=xiang 你=ni 的=de ~。
+t336445	t336445	test	生病迫使他退学。	生病=sheng'bing 迫使=po'shi 他=ta 退学=tui'xue ~。
+t332881	t332881	test	我的房间号是多少？	我=wo 的=de 房间=fang'jian 号=hao 是=shi 多少=duo'shao ~？
+t1395013	t1395013	test	我们全力以赴来完成工作。	我们=wo'men 全力以赴=quan'li'yi'fu 来=lai 完成=wan'cheng 工作=gong'zuo ~。
+t13897397	t13897397	test	我感觉到了。	我=wo 感觉=gan'jue 到=dao 了=le ~。
+t810624	t810624	dev	使用它或失去它。	使用=shi'yong 它=ta 或=huo 失去=shi'qu 它=ta ~。
+t399233	t399233	test	约翰住在哪里？	约翰=yue'han 住=zhu 在=zai 哪里=na'li ~？
+t13843227	t13843227	dev	我认为如果所有人都学会了道本语他们就可以与全世界的人交流而无需学习英语或世界语。	我=wo 认为=ren'wei 如果=ru'guo 所有人=suo'you'ren 都=dou 学会=xue'hui 了=le 道=dao 本语=ben'yu 他们=ta'men 就=jiu 可以=ke'yi 与=yu 全世界=quan'shi'jie 的=de 人=ren 交流=jiao'liu 而=er 无需=wu'xu 学习=xue'xi 英语=ying'yu 或=huo 世界语=shi'jie'yu ~。
+t1446950	t1446950	test	我只是担心我的体重。	我=wo 只是=zhi'shi 担心=dan'xin 我=wo 的=de 体重=ti'zhong ~。
+t1547647	t1547647	test	上场时,队长先上.	上场=shang'chang 时=shi ~, 队长=dui'zhang 先上=xian'shang ~.
+t793263	t793263	dev	它真的很便宜。	它=ta 真的=zhen'de 很=hen 便宜=pian'yi ~。
+t1395077	t1395077	test	他完全丧失了责任心。	他=ta 完全=wan'quan 丧失=sang'shi 了=le 责任心=ze'ren'xin ~。
+t11514709	t11514709	test	汤姆比你更帅。	汤姆=tang'mu 比=bi 你=ni 更帅=geng'shuai ~。
+t8591278	t8591278	test	房子里面的人我一个也不认得。	房子=fang'zi 里面=li'mian 的=de 人=ren 我=wo 一个=yi'ge 也=ye 不=bu 认得=ren'de ~。
+t444817	t444817	test	我寄给她一个娃娃。	我=wo 寄给=ji'gei 她=ta 一个=yi'ge 娃娃=wa'wa ~。
+t13716225	t13716225	dev	我不知道他是怎么想的，真是太奇怪了。	我=wo 不=bu 知道=zhi'dao 他=ta 是=shi 怎么=zen'me 想=xiang 的=de ~， 真是太=zhen'shi'tai 奇怪=qi'guai 了=le ~。
+t6111738	t6111738	dev	它正是我所期待的。	它=ta 正是=zheng'shi 我=wo 所=suo 期待=qi'dai 的=de ~。
+t9970713	t9970713	dev	汤姆知道谁在他房子里。	汤姆=tang'mu 知道=zhi'dao 谁=shui 在=zai 他=ta 房子=fang'zi 里=li ~。
+t391125	t391125	dev	请问去大世界怎么走？	请问=qing'wen 去=qu 大=da 世界=shi'jie 怎么=zen'me 走=zou ~？
+t336462	t336462	dev	公司放弃了那个项目。	公司=gong'si 放弃=fang'qi 了=le 那个=na'ge 项目=xiang'mu ~。
+t10086130	t10086130	test	可那不是真正的问题所在。	可=ke 那=na 不是=bu'shi 真正=zhen'zheng 的=de 问题所在=wen'ti'suo'zai ~。
+t13881309	t13881309	dev	我们不在中国。	我们=wo'men 不=bu 在=zai 中国=zhong'guo ~。
+t334160	t334160	test	没有你我无法做到，谢谢。	没有=mei'you 你=ni 我=wo 无法=wu'fa 做到=zuo'dao ~， 谢谢=xie'xie ~。
+t847733	t847733	test	他把座位让给了一个老人，这显示出他很有礼貌。	他=ta 把=ba 座位=zuo'wei 让给=rang'gei 了=le 一个=yi'ge 老人=lao'ren ~， 这=zhe 显示=xian'shi 出=chu 他=ta 很=hen 有=you 礼貌=li'mao ~。
+t332428	t332428	test	在英国的时候，我经常看参考书。	在=zai 英国=ying'guo 的=de 时候=shi'hou ~， 我=wo 经常=jing'chang 看=kan 参考书=can'kao'shu ~。
+t13750285	t13750285	test	你喜欢这个颜色吗?	你=ni 喜欢=xi'huan 这个=zhe'ge 颜色=yan'se 吗=ma ~?
+t5844854	t5844854	test	汤姆掌握了三种语言。	汤姆=tang'mu 掌握=zhang'wo 了=le 三种=san'zhong 语言=yu'yan ~。
+t13976068	t13976068	test	我的声音很小吗？	我=wo 的=de 声音=sheng'yin 很小=hen'xiao 吗=ma ~？
+t8980991	t8980991	test	玛丽说她已经离婚了。	玛丽=ma'li 说=shuo 她=ta 已经=yi'jing 离婚=li'hun 了=le ~。
+t1019302	t1019302	test	我哭了整个晚上。	我=wo 哭=ku 了=le 整个=zheng'ge 晚上=wan'shang ~。
+t13203877	t13203877	test	你发生什么事了，兄弟？	你=ni 发生=fa'sheng 什么=shen'me 事=shi 了=le ~， 兄弟=xiong'di ~？
+t12568775	t12568775	test	这个城市的汽车保有量已达十万辆。	这个=zhe'ge 城市=cheng'shi 的=de 汽车=qi'che 保有量=bao'you'liang 已达十=yi'da'shi 万辆=wan'liang ~。
+t2027947	t2027947	test	我不想读这本书。	我=wo 不想=bu'xiang 读=du 这=zhe 本书=ben'shu ~。
+t13943525	t13943525	test	我有别的打算了。	我=wo 有=you 别的=bie'de 打算=da'suan 了=le ~。
+t715870	t715870	test	请代我向你全家问好。	请代=qing'dai 我=wo 向=xiang 你=ni 全家=quan'jia 问好=wen'hao ~。
+t2386284	t2386284	dev	我希望你能安静一点。	我=wo 希望=xi'wang 你=ni 能=neng 安静=an'jing 一点=yi'dian ~。
+t747877	t747877	test	明代十五世纪初紫禁城是北京的中心。	明代=ming'dai 十五世纪=shi'wu'shi'ji 初=chu 紫禁城=zi'jin'cheng 是=shi 北京=bei'jing 的=de 中心=zhong'xin ~。
+t1438397	t1438397	test	你知道他们什么时候到吗？	你=ni 知道=zhi'dao 他们=ta'men 什么=shen'me 时候=shi'hou 到=dao 吗=ma ~？
+t7781862	t7781862	dev	汤姆人太好了，把我需要的钱借给了我。	汤姆=tang'mu 人=ren 太好了=tai'hao'le ~， 把=ba 我=wo 需要=xu'yao 的=de 钱=qian 借给=jie'gei 了=le 我=wo ~。
+t5617208	t5617208	test	抱歉，你能再说一遍吗？	抱歉=bao'qian ~， 你=ni 能=neng 再说=zai'shuo 一遍=yi'bian 吗=ma ~？
+t7782551	t7782551	test	我不知道他是在哪里找到她的。	我=wo 不=bu 知道=zhi'dao 他=ta 是=shi 在=zai 哪里=na'li 找到=zhao'dao 她=ta 的=de ~。
+t406314	t406314	dev	他对他的行为感到后悔。	他=ta 对=dui 他=ta 的=de 行为=xing'wei 感到=gan'dao 后悔=hou'hui ~。
+t2141720	t2141720	test	这就对了。	这=zhe 就=jiu 对=dui 了=le ~。
+t8936500	t8936500	test	吃地瓜会放屁。	吃=chi 地瓜=di'gua 会=hui 放屁=fang'pi ~。
+t466023	t466023	dev	他用他自己的方式工作。	他用=ta'yong 他=ta 自己=zi'ji 的=de 方式=fang'shi 工作=gong'zuo ~。
+t4773192	t4773192	dev	我才不管别人怎么想我。	我=wo 才=cai 不管=bu'guan 别人=bie'ren 怎么=zen'me 想=xiang 我=wo ~。
+t2038484	t2038484	test	不要问：“我能从世界语这索取什么？”，而要问：“我能够为世界语做些什么？”	不要=bu'yao 问=wen ~： ~“ 我能=wo'neng 从=cong 世界语=shi'jie'yu 这=zhe 索取=suo'qu 什么=shen'me ~？ ~” ~， 而=er 要=yao 问=wen ~： ~“ 我=wo 能够=neng'gou 为=wei 世界语=shi'jie'yu 做些=zuo'xie 什么=shen'me ~？ ~”
+t4620878	t4620878	test	我喜欢学习各种各样的语言。	我=wo 喜欢=xi'huan 学习=xue'xi 各种各样=ge'zhong'ge'yang 的=de 语言=yu'yan ~。
+t679449	t679449	dev	我想看你。	我=wo 想=xiang 看=kan 你=ni ~。
+t13894931	t13894931	test	“我昨天去跑马拉松了。”“哦，你跑的是全马还是半马？”	~“ 我=wo 昨天=zuo'tian 去=qu 跑=pao 马拉松=ma'la'song 了=le ~。 ~” ~“ 哦=o ~， 你=ni 跑=pao 的=de 是=shi 全马=quan'ma 还是=hai'shi 半马=ban'ma ~？ ~”
+t2367601	t2367601	test	他要负责任，但这责任他可担当不了。	他=ta 要=yao 负责=fu'ze 任=ren ~， 但=dan 这=zhe 责任=ze'ren 他=ta 可=ke 担当=dan'dang 不了=bu'liao ~。
+t6149242	t6149242	test	你好！我叫小雨。	你好=ni'hao ~！ 我=wo 叫=jiao 小雨=xiao'yu ~。
+t344180	t344180	test	昨天我帮了我爸爸。	昨天=zuo'tian 我=wo 帮=bang 了=le 我=wo 爸爸=ba'ba ~。
+t409431	t409431	dev	祝考试好运！	祝=zhu 考试=kao'shi 好运=hao'yun ~！
+t345697	t345697	test	她很怕黑。	她=ta 很=hen 怕黑=pa'hei ~。
+t9489476	t9489476	test	你最喜欢什么蔬菜？	你=ni 最=zui 喜欢=xi'huan 什么=shen'me 蔬菜=shu'cai ~？
+t5818099	t5818099	test	我们被要求不再这么做。	我们=wo'men 被=bei 要求=yao'qiu 不再=bu'zai 这么=zhe'me 做=zuo ~。
+t765226	t765226	test	电车会把这个地区连接于爱丁堡的城市中心（离那里只有两英里）。	电车=dian'che 会=hui 把=ba 这个=zhe'ge 地区=di'qu 连接=lian'jie 于=yu 爱丁堡=ai'ding'bao 的=de 城市=cheng'shi 中心=zhong'xin ~（ 离=li 那里=na'li 只有=zhi'you 两英里=liang'ying'li ~） ~。
+t397391	t397391	test	哪里有电话机？	哪里=na'li 有=you 电话机=dian'hua'ji ~？
+t10696107	t10696107	dev	汤姆削他的铅笔。	汤姆=tang'mu 削=xiao 他=ta 的=de 铅笔=qian'bi ~。
+t14087366	t14087366	test	我们一小时之内就到。	我们=wo'men 一=yi 小时=xiao'shi 之内=zhi'nei 就=jiu 到=dao ~。
+t1424351	t1424351	test	你的新商店什么时候开张？	你=ni 的=de 新=xin 商店=shang'dian 什么=shen'me 时候=shi'hou 开张=kai'zhang ~？
+t9974936	t9974936	test	你投资多少？	你=ni 投资=tou'zi 多少=duo'shao ~？
+t9963086	t9963086	test	汤姆说玛丽觉得约翰下周末可能被允许那么做。	汤姆=tang'mu 说=shuo 玛丽=ma'li 觉得=jue'de 约翰=yue'han 下=xia 周末=zhou'mo 可能=ke'neng 被=bei 允许=yun'xu 那么=na'me 做=zuo ~。
+t4879020	t4879020	dev	那时候就该听汤姆的。	那=na 时候=shi'hou 就=jiu 该=gai 听=ting 汤姆=tang'mu 的=de ~。
+t332541	t332541	dev	照这样的情况，很抱歉，我不能接受你的盛情邀请。	照=zhao 这样=zhe'yang 的=de 情况=qing'kuang ~， 很=hen 抱歉=bao'qian ~， 我=wo 不能=bu'neng 接受=jie'shou 你=ni 的=de 盛情=sheng'qing 邀请=yao'qing ~。
+t334843	t334843	test	我有必要向他解释原因吗？	我=wo 有=you 必要=bi'yao 向=xiang 他=ta 解释=jie'shi 原因=yuan'yin 吗=ma ~？
+t408464	t408464	test	英语对我们来说不容易。	英语=ying'yu 对=dui 我们=wo'men 来说=lai'shuo 不=bu 容易=rong'yi ~。
+t3695643	t3695643	dev	今天早上高速公路上的交通状况正常。	今天=jin'tian 早上=zao'shang 高速公路=gao'su'gong'lu 上=shang 的=de 交通状况=jiao'tong'zhuang'kuang 正常=zheng'chang ~。
+t476542	t476542	test	我宁愿您休一天假。	我=wo 宁愿=ning'yuan 您=nin 休=xiu 一天=yi'tian 假=jia ~。
+t13897428	t13897428	dev	你不对劲。	你=ni 不对劲=bu'dui'jin ~。
+t1240256	t1240256	test	我爱你，但是你不知道这一切。	我爱你=wo'ai'ni ~， 但是=dan'shi 你=ni 不=bu 知道=zhi'dao 这=zhe 一切=yi'qie ~。
+t818808	t818808	dev	她和这问题没有关系。	她=ta 和=he 这=zhe 问题=wen'ti 没有=mei'you 关系=guan'xi ~。
+t9453435	t9453435	dev	写这本书的是医生。	写=xie 这=zhe 本书=ben'shu 的=de 是=shi 医生=yi'sheng ~。
+t8605829	t8605829	test	汤姆和玛丽向左瞥了一眼。	汤姆=tang'mu 和玛丽=he'ma'li 向=xiang 左瞥=zuo'pie 了=le 一眼=yi'yan ~。
+t5780580	t5780580	dev	有你不能做的事吗？	有=you 你=ni 不能=bu'neng 做=zuo 的=de 事=shi 吗=ma ~？
+t4913691	t4913691	dev	她把手上的血洗下去了。	她=ta 把=ba 手上=shou'shang 的=de 血洗=xue'xi 下去=xia'qu 了=le ~。
+t6164377	t6164377	test	这个铝铸件需要重刷一遍.	这个=zhe'ge 铝=lv 铸件=zhu'jian 需要=xu'yao 重刷=chong'shua 一遍=yi'bian ~.
+t1390708	t1390708	test	咱们的票是得提前一小时去取得。	咱们=zan'men 的=de 票=piao 是=shi 得=de 提前=ti'qian 一=yi 小时=xiao'shi 去=qu 取得=qu'de ~。
+t383300	t383300	test	他有三个女儿。	他=ta 有=you 三个=san'ge 女儿=nv'er ~。
+t5576831	t5576831	test	为什么我们不能要比萨？	为什么=wei'shen'me 我们=wo'men 不能=bu'neng 要=yao 比萨=bi'sa ~？
+t334338	t334338	dev	圣诞节的时候，我们送圣诞卡给朋友。	圣诞节=sheng'dan'jie 的=de 时候=shi'hou ~， 我们=wo'men 送=song 圣诞卡=sheng'dan'ka 给=gei 朋友=peng'you ~。
+t14037651	t14037651	dev	那是一台巨大的电视。	那=na 是=shi 一台=yi'tai 巨大=ju'da 的=de 电视=dian'shi ~。
