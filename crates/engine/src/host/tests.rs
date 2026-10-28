@@ -1430,6 +1430,36 @@ fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
     assert_eq!(session.snapshot().unwrap().local_mode, "none");
 }
 
+/// 换上的本地墙钟就是日期时间模式读的那一个：评测靠它钉住行内日期时间行，同一份输入在哪天跑都打出同样的候选。
+#[test]
+fn a_replaced_clock_is_what_the_date_time_mode_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = Session::new(&options(dir.path())).unwrap();
+    session.set_clock(crate::Clock {
+        steady: Box::new(std::time::Instant::now),
+        local: std::sync::Arc::new(|| crate::LocalDateTime {
+            year: 2026,
+            month: 1,
+            day: 5,
+            weekday: 1,
+            hour: 10,
+            minute: 0,
+            second: 0,
+        }),
+    });
+    assert!(session.character(b'T', true).unwrap().handled);
+    type_text(&mut session, b"sj");
+    let snapshot = session.snapshot().unwrap();
+    assert!(
+        snapshot
+            .candidates
+            .iter()
+            .any(|candidate| candidate == "2026-01-05 10:00:00"),
+        "{:?}",
+        snapshot.candidates
+    );
+}
+
 #[test]
 fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
     let dir = tempfile::tempdir().unwrap();
