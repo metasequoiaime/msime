@@ -142,6 +142,8 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Reset keyboard height did not return to default: "
                     + standard + " -> " + resetHeight);
 
+            checkDragKeepsEditorFrame(localSettings, resetHeight);
+
             stage = "height survives input method restart";
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             restartIme();
@@ -311,6 +313,106 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     private void openEditor() throws Exception {
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
+    }
+
+    /**
+     * 拖动高度条时输入法窗口不跟着改高（#10025）：每改一次窗口高度应用都按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，录屏里拖动时整块闪白、应用上下跳。这里经合成编辑器的探针读应用窗口的可见区下沿：调整期间键区变高、变矮都不能动它，编辑器也不能丢焦点；点「完成」后才按新高度让出空间，点「取消」后回到原来的边界。结束时高度回到 100%。
+     */
+    private void checkDragKeepsEditorFrame(File localSettings, int standardKey) throws Exception {
+        stage = "drag keeps the editor frame: open probed editor";
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
+            + " --ez msime_test_editor_probe true");
+        tap(field("msime-test-plain"));
+        await(key("n"));
+        stage = "drag keeps the editor frame: open inline height";
+        openHeightBar();
+        int frame = awaitSettledVisibleBottom();
+        for (int target : new int[] {130, 80, 120}) {
+            stage = "drag keeps the editor frame: preview " + target + "%";
+            setHeight(target);
+            automation.waitForIdle(200, 3000);
+            int during = awaitFocusedVisibleBottom();
+            if (during != frame)
+                throw new AssertionError("Previewing " + target + "% moved the editor frame: " + frame + " -> " + during);
+        }
+        stage = "drag keeps the editor frame: preview resized the keys";
+        int previewKey = keyHeight("n");
+        if (previewKey <= standardKey + 2)
+            throw new AssertionError("120% preview did not enlarge key faces inside the fixed frame: "
+                + standardKey + " -> " + previewKey);
+        stage = "drag keeps the editor frame: 完成 yields to the new height";
+        tap(key("完成"));
+        awaitHeightSetting(localSettings, app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(120));
+        int done = awaitVisibleBottomChange(frame);
+        if (done >= frame)
+            throw new AssertionError("Taller keyboard did not push the editor frame up after 完成: " + frame + " -> " + done);
+
+        stage = "drag keeps the editor frame: 取消 restores the frame";
+        openHeightBar();
+        int adjusting = awaitSettledVisibleBottom();
+        setHeight(90);
+        automation.waitForIdle(200, 3000);
+        if (awaitFocusedVisibleBottom() != adjusting)
+            throw new AssertionError("Previewing 90% moved the editor frame");
+        tap(key("取消"));
+        await(key("n").and(AccessibilityNodeInfo::isClickable));
+        int cancelled = awaitSettledVisibleBottom();
+        if (Math.abs(cancelled - done) > 2)
+            throw new AssertionError("取消 did not restore the editor frame: " + done + " -> " + cancelled);
+
+        stage = "drag keeps the editor frame: back to 100%";
+        openHeightBar();
+        tap(key("重置"));
+        tap(key("完成"));
+        awaitHeightSetting(localSettings, 0);
+        int restored = awaitVisibleBottomChange(done);
+        if (Math.abs(restored - frame) > 2)
+            throw new AssertionError("Default height did not return the editor frame: " + frame + " -> " + restored);
+    }
+
+    private android.os.Bundle editorProbe() {
+        android.os.Bundle snapshot = getTargetContext().getContentResolver()
+            .call(EditorProbeProvider.URI, "snapshot", "msime-test-plain", null);
+        if (snapshot == null) throw new AssertionError("Synthetic editor probe returned no state");
+        return snapshot;
+    }
+
+    /** 编辑器仍持有输入焦点时应用窗口可见区的下沿。 */
+    private int awaitFocusedVisibleBottom() {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        android.os.Bundle snapshot;
+        do {
+            snapshot = editorProbe();
+            if (snapshot.getBoolean("focused") && snapshot.getBoolean("window_focused"))
+                return snapshot.getInt("visible_bottom");
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic editor lost input focus (focus loss="
+            + snapshot.getString("focus_loss") + ")");
+    }
+
+    /** 键盘弹出、收起都有动画；连续四次读到同一个下沿才算停稳。 */
+    private int awaitSettledVisibleBottom() {
+        int previous = Integer.MIN_VALUE;
+        int stable = 0;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            int current = awaitFocusedVisibleBottom();
+            stable = current == previous ? stable + 1 : 1;
+            previous = current;
+            if (stable >= 4) return current;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Editor frame never settled; last bottom " + previous);
+    }
+
+    private int awaitVisibleBottomChange(int from) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (awaitFocusedVisibleBottom() != from) return awaitSettledVisibleBottom();
+            SystemClock.sleep(100);
+        }
+        throw new AssertionError("Editor frame stayed at " + from);
     }
 
 

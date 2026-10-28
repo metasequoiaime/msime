@@ -376,6 +376,8 @@ public final class MSIMEInputService extends InputMethodService {
     InlineHeightBar inlineHeightBar;
     boolean inlineHeightActive;
     private int inlineHeightOriginal;
+    /** 内联高度条打开时键区在屏幕上的上沿：拖动期间输入法窗口铺满，应用的避让边界固定在这里（#10025）。转屏后作废，等键区下一次布局重新记下。 */
+    private int inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
     /** 隐私会话重启时保留已打开的功能菜单。 */
@@ -2185,6 +2187,8 @@ public final class MSIMEInputService extends InputMethodService {
         // nine-key popup is anchored to the old tree, so it must not outlive the reflow.
         imeLayoutRows.dismissNineKeyHoldOptions();
         imeLayoutRows.hideJapaneseFlickPreview();
+        // 调整高度时转屏：旧屏幕坐标下的键区上沿已经不对，等键区在新窗口里布局后重新记下。
+        if (inlineHeightActive) inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
         imeStyler.applyKeyboardGeometry();
@@ -9941,7 +9945,13 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
-            if (stableDockedWindow()) keyboardRoot.invalidate();
+            if (inlineHeightActive && !overlayDrawn()
+                    && inlineHeightKeyboardTop == KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP) {
+                keyboardSurface.getLocationOnScreen(floatingLocation);
+                inlineHeightKeyboardTop = floatingLocation[1];
+            }
+            // 停靠背景只画键区所在的底部横带，键区伸缩后按新的上沿重画。
+            if (stableDockedWindow() || inlineHeightActive) keyboardRoot.invalidate();
             // 面板变高变窄（换布局、调高度、旋转）后按存着的千分比重新摆，保证仍在窗口里；跟随光标的候选栏换了内容、变了高度后同样按光标重新摆。
             if (overlayDrawn()) positionKeyboardSurface();
         });
@@ -10423,10 +10433,15 @@ public final class MSIMEInputService extends InputMethodService {
         closeToolbarPanels();
         closeCandidatePanel();
         inlineHeightOriginal = touchKeyboardHeightAdjustment;
+        // 拖动期间不再让输入法窗口跟着键区变高（#10025）：每次改窗口高度，应用都要按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，拖动时整块闪白、应用上下跳。进入时铺满成透明全高窗口，应用的避让边界固定在键区此刻的上沿，拖动只在窗口里伸缩键区；完成或取消时才恢复停靠窗口，只改一次高度。
+        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。
+        keyboardSurface.getLocationOnScreen(floatingLocation);
+        inlineHeightKeyboardTop = floatingLocation[1];
         inlineHeightActive = true;
         inlineHeightBar.setPercent(
             KeyboardHeightPolicy.heightAdjustmentToPercent(touchKeyboardHeightAdjustment));
         render();
+        imeStyler.applySkin();
         inlineHeightBar.requestFocus();
     }
 
@@ -10440,13 +10455,16 @@ public final class MSIMEInputService extends InputMethodService {
     private void finishInlineHeight(boolean commit) {
         if (!inlineHeightActive) return;
         inlineHeightActive = false;
+        inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         if (commit) {
             saveTouchGeometry();
         } else {
             touchKeyboardHeightAdjustment = inlineHeightOriginal;
             imeStyler.applyKeyboardGeometry();
         }
+        // render 里的 applyFloatingLayout 按最终键区高度恢复停靠窗口，整个调整只在这里改一次窗口高度；根视图同时换回整块底色。
         render();
+        imeStyler.applySkin();
     }
 
     /** 触控板模式保存后接回统一快照；密码等直通编辑器没有 Engine 会话，也能保存面板选择。 */
@@ -10638,14 +10656,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
-     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
+     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。内联高度条打开期间也铺满，键区包裹内容贴底，拖动时只在窗口里伸缩，不改窗口高度。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded();
+        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded() || inlineHeightActive;
         if (!force && fullWindow == fullWindowLayoutApplied
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
         fullWindowLayoutApplied = fullWindow;
@@ -10702,14 +10720,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
-     * 全文预览及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
+     * 全文预览、内联高度条及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界，全文预览和内联高度条期间固定为打开时记下的上沿。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
         // 候选栏、剪贴板预览和文本编辑放大条共用同一块输入区；停靠键盘只在稳定布局后参与 inset 计算。
         if ((!overlayDrawn() && !clipboardPreviewExpanded && !editorPreviewExpanded()
-                && !stableDockedWindow()) || keyboardSurface == null) return;
+                && !stableDockedWindow() && !inlineHeightActive) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -10722,6 +10740,14 @@ public final class MSIMEInputService extends InputMethodService {
             int[] windowOrigin = new int[2];
             window.getDecorView().getLocationOnScreen(windowOrigin);
             int keyboardTop = Math.max(0, clipboardPreviewKeyboardTop - windowOrigin[1]);
+            outInsets.contentTopInsets = keyboardTop;
+            outInsets.visibleTopInsets = keyboardTop;
+        } else if (inlineHeightActive && !overlayDrawn()) {
+            // 拖动高度条时应用的边界固定在进入时的键区上沿，键区变高就盖住应用的底部，变矮就露出下面的应用窗口，应用本身不重排。
+            int[] windowOrigin = new int[2];
+            window.getDecorView().getLocationOnScreen(windowOrigin);
+            int keyboardTop = KeyboardHeightPolicy.adjustingInsetTop(
+                inlineHeightKeyboardTop, windowOrigin[1], floatingLocation[1]);
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
         } else if (!overlayDrawn()) {
