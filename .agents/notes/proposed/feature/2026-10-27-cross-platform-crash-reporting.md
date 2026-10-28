@@ -32,7 +32,7 @@ Status: proposed
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 IME Java/JNI 真实故障到隔离后台及精确源码行还原 | 最新源码 API 35 完整冒烟；App 独立入口的后台链路；真实设备及其他架构验收 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原 | 最新源码 API 35 完整冒烟；真实设备及其他架构验收 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
@@ -69,6 +69,9 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 实际后台的原生栈按 JNI build-id 和独立符号包还原到 `platforms/android/native/client_jni.cpp:105`、`:114`；另两帧是相同偏移的 NDK `jni.h:852`，四个记录帧不能计成四个独立产品源码位置。此项限 API 28 arm64 模拟器的 IME 入口，不扩大到 App、API 35、其他架构、真机或正式发布。
 
 小证据保存在 `target/android-e865-backend-evidence/`，含实际数据库事件、接收请求、调试器退出、符号结果及设备收尾记录；远端完整产物保留在规定的 `target/android-runtime-acceptance/e865/`。收尾核对正式 Cargo/JNI/Gradle 输出恢复，恢复基础编辑器、强停产品、关闭专用 AVD 的上报并清空合成队列；只移除本任务标记的 IPv4/IPv6 规则与端口转发，停止专用代理，删除精确命名的临时容器和内部网络。未向生产后台发送测试事件。
+
+同一 APK 与符号另在 API 28 的实际 `HomeActivity` 应用进程验收，未使用键盘 instrumentation 代替 App。系统 `am crash` 触发 Java 未捕获异常，调试器在 App 授权观察线程的同一 JNI 入口触发真实 `SIGSEGV`；原进程退出后重启 App，独立隔离后台收到三条事件，恰好两条 `crash`，没有 `session` 或 `session_crash`，全程核对键盘进程未启动。故障头组件为 `application`，实际后台栈再次还原到 `client_jni.cpp:105`、`:114`，`SIGKILL` 后重启不新增崩溃。数据库与请求逐字段一致，证据位于上述本地目录的 `backend-app/`；`app-cleanup.json` 核对专用后台、代理、转发与设备规则均移除，正式 APK 恢复，上报关闭，合成队列清空。
+
 
 ## Alternatives considered
 
