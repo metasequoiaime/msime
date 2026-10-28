@@ -268,6 +268,17 @@ export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 export const setPrivateSession: (handle: number, enabled: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
+/** `msime_client_set_key_geometry`：触屏 26 键双拼的键位几何，`geometry` 是 `{"id":u32,"keys":[[cx,cy,w,h] x 26，按 a..z],"semicolon":[cx,cy,w,h] 或 null,"duplicates":[["g",cx,cy,w,h],...]}`（不超过 16384 字节，拒绝未知键）。只在布局变了时调用；空串或 id 为 0 清除。答复的 value 是 View；`ok` 为假时整份被拒，原几何不变。 */
+export const setKeyGeometry: (handle: number, geometry: string) => string;
+/** `msime_client_touch_character`：带按下点的一键，只给 26 键双拼的字母键和微软双拼的 `;`。`geometry` 是已注册几何的 id，`x`、`y` 与几何同一坐标系。代次不符、坐标不是有限数或当前不是 26 键双拼时与 `character` 逐字节相同；答复同 `character`。 */
+export const touchCharacter: (
+  handle: number,
+  ascii: number,
+  shift: boolean,
+  geometry: number,
+  x: number,
+  y: number,
+) => string;
 /** `msime_client_grid_key`：14 键的一键，送这一组的首字母（ASCII 码）；答复同 `character`。不在 14 键下、26 键正在组字、专用英文或本地模式时 `handled` 为假，会话不变。 */
 export const gridKey: (handle: number, letter: number) => string;
 /**

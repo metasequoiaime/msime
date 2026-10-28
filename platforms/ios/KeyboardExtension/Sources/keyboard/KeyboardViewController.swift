@@ -1030,8 +1030,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func configureDiagnosticLog() {
     let preferences = session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences()
     diagnosticLogSuppressed = !privacyGate.allows(.diagnosticLog)
-    DiagnosticLog.shared.configure(directory: session.stateDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory,
-                                   enabled: DiagnosticLog.isEnabled(in: preferences) && !diagnosticLogSuppressed)
+    let directory = session.stateDirectory ?? MetasequoiaInputSessionBridge.sharedStateDirectory
+    let enabled = DiagnosticLog.isEnabled(in: preferences) && !diagnosticLogSuppressed
+    DiagnosticLog.shared.configure(directory: directory, enabled: enabled)
+    // 键位几何的调试导出跟着诊断日志开关走（#10018）；刚打开时把已注册的那份补写出来，不必等布局再变。
+    keyGeometryExportDirectory = enabled && directory.hasPrefix("/")
+      ? URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent("debug", isDirectory: true) : nil
+    exportKeyGeometry()
   }
 
   /// 读取本机手势开关；字母键和根手势使用缓存，按键时不再读 App Group。
@@ -1517,6 +1522,71 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let snapshot = session.glide(request)
     guard snapshot.isHandled else { return }
     render(snapshot)
+  }
+
+  /// 字母键此刻是不是 26 键双拼：中文模式、双拼方案、不画 14/18 键网格、不在本地模式。
+  private var typesShuangpinLetters: Bool { isChineseMode && usesShuangpin && !usesLetterGrid && !isInLocalMode }
+
+  /// 已注册给会话的键位几何（#10018）。代次每注册一次加一，测试据此数注册了几次。
+  private(set) var keyGeometryRegistration = TouchPointPolicy.Registration()
+
+  /// 带着按下点交给引擎（`msime_client_touch_character`）的按键数，测试据此分辨一键走的是哪个入口。
+  private(set) var touchCharacterCount = 0
+
+  /// 此刻是否开着 VoiceOver：读屏的双击落在键的激活点，不是手指的落点。测试替换它来模拟读屏。
+  var isVoiceOverRunning: () -> Bool = { UIAccessibility.isVoiceOverRunning }
+
+  /// 键区里此刻 26 个字母键和微软双拼 `;` 的布局矩形，坐标系与按键记下的按下点相同；字母行没在显示时为 nil。
+  private var currentKeyLayout: TouchPointPolicy.Layout? {
+    guard let root = keyboardRoot as? KeyAreaStackView, glideLetterKeys.count == GlideTyping.letters.count,
+          !letterRowViews.isEmpty, letterRowViews.allSatisfy({ !$0.isHidden }) else { return nil }
+    let letters = glideLetterKeys.map { KeyAreaStackView.layoutFrame(of: $0, in: root) }
+    let semicolon = microsoftFinalKey.flatMap { $0.isHidden ? nil : KeyAreaStackView.layoutFrame(of: $0, in: root) }
+    return TouchPointPolicy.Layout(letters: letters, semicolon: semicolon)
+  }
+
+  /// 保证会话里注册着键区此刻的几何，返回它的代次。旋转、单手、分离、键距和行距调整、微软 `;` 显隐都会改变布局矩形，这时换一个代次重新注册；没变、会话里也还是这份几何时不发。拼不出几何或引擎拒绝时为 nil，这一键不带落点。
+  private func registeredKeyGeometryID() -> UInt32? {
+    guard let layout = currentKeyLayout else { return nil }
+    guard keyGeometryRegistration.needsRegistering(layout, sessionID: session.keyGeometryID) else {
+      return keyGeometryRegistration.id
+    }
+    let id = keyGeometryRegistration.advance(to: layout)
+    guard let request = TouchPointPolicy.request(id: id, layout: layout), session.setKeyGeometry(request, id: id) else {
+      keyGeometryRegistration.reset()
+      return nil
+    }
+    registeredKeyGeometryRequest = request
+    exportKeyGeometry()
+    return id
+  }
+
+  /// 最近一次注册成功的几何 JSON，原样留给调试导出。
+  private var registeredKeyGeometryRequest: Data?
+  /// 上次写进导出文件的内容，没变就不重写。
+  private var exportedKeyGeometryRequest: Data?
+
+  /// 键位几何调试导出的目录：诊断日志（`diagnostic_log.server`）开着时是共享状态目录下的 `debug`，关着时为 nil（`configureDiagnosticLog` 设它，测试可以直接指向临时目录）。
+  var keyGeometryExportDirectory: URL?
+  /// 导出文件名，与 Android 的 `debug/key-geometry.json` 相同。
+  static let keyGeometryExportFile = "key-geometry.json"
+
+  /// 调试导出（#10018）：把键盘真正注册给引擎的几何 JSON 原样写进 `keyGeometryExportDirectory`，评测拿它替换参考布局。只在注册成功或刚打开诊断日志时写，内容没变不重写；写不了（没有完全访问权限进不了 App Group）只记一行日志，不影响打字。
+  private func exportKeyGeometry() {
+    guard let directory = keyGeometryExportDirectory, let request = registeredKeyGeometryRequest,
+          request != exportedKeyGeometryRequest else { return }
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try request.write(to: directory.appendingPathComponent(Self.keyGeometryExportFile), options: .atomic)
+      exportedKeyGeometryRequest = request
+    } catch {
+      DiagnosticLog.shared.write("key_geometry_export_failed")
+    }
+  }
+
+  /// 键区此刻会注册给引擎的键位几何 JSON（代次记为 1），XCTest 据此在模拟器上按指定宽度和特征导出几何；键盘真正注册的那份由 `exportKeyGeometry` 写出。字母行没在显示时为 nil。
+  var keyGeometryExport: Data? {
+    currentKeyLayout.flatMap { TouchPointPolicy.request(id: 1, layout: $0) }
   }
 
   /// 给数字行、三排字母、三排符号和底部功能键那一排各插入一段中缝，默认隐藏，分离时由 `updateKeyboardLayout` 显示。
@@ -2887,9 +2957,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     for letter in letters {
       let text = String(letter)
-      let button = makeKey(title: text, accessibilityLabel: text.uppercased()) { [weak self] in
+      let button = makeTouchKey(title: text, accessibilityLabel: text.uppercased()) { [weak self] key in
         self?.countKeyPress(TypingKeyID.character(text))
-        self?.handleCharacter(text)
+        self?.handleCharacter(text, touchDown: key?.takeTouchDownLocation())
       }
       (button as? KeyboardKeyButton)?.showsPressPreview = true
       // 下滑或长按会像符号层按键那样输入角标提示的符号，并记作这个字母键的一次按键，与 Android 的 commitNineKeyLiteral 路径一致。
@@ -2974,9 +3044,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       deleteWidth.isActive = true
     }
     if letters == letterRows[1] {
-      let key = makeKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] in
+      let key = makeTouchKey(title: ";", accessibilityLabel: "微软双拼 ing") { [weak self] key in
         self?.countKeyPress(TypingKeyID.character(";"))
-        self?.handleCharacter(";")
+        self?.handleCharacter(";", touchDown: key?.takeTouchDownLocation())
       }
       key.accessibilityIdentifier = "microsoftFinalKey"
       (key as? KeyboardKeyButton)?.showsPressPreview = true
@@ -3801,7 +3871,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  private func handleCharacter(_ character: String) {
+  /// `touchDown` 是这一键按下时手指在键区里的位置（`KeyboardKeyButton.touchDownLocation`），只有 26 键的字母键和 `;` 的真实触摸才有；它只用于 26 键双拼的纠错计价（`TouchPointPolicy.sendsTouch`），其余情况照常输入这个字符。
+  private func handleCharacter(_ character: String, touchDown: CGPoint? = nil) {
     playInputClick()
     if isChineseMode {
       synchronizeInputSchemePreference()
@@ -3852,6 +3923,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if session.enqueueNineKeyCharacter(character, completion: { [weak self] snapshot in
           self?.deliverNineKeySnapshot(snapshot, epoch: epoch, document: document)
         }) { return }
+      }
+      // 26 键双拼的字母和 `;` 带上按下点，引擎按落点给按错邻键的纠错计价（#10018）。拿不到几何时退回不带落点，与 `sendActions` 和读屏的激活一样。
+      if let touchDown,
+         TouchPointPolicy.sendsTouch(character: character, shuangpinLetters: typesShuangpinLetters, hasTouchDown: true,
+                                     voiceOver: isVoiceOverRunning()),
+         let geometryID = registeredKeyGeometryID() {
+        touchCharacterCount += 1
+        render(session.handleTouchCharacter(character, geometryID: geometryID, x: Float(touchDown.x), y: Float(touchDown.y)))
+        return
       }
       render(session.handleCharacter(character))
     } else {
@@ -5147,6 +5227,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch event {
     case .listening(let text):
       voicePanel?.showListening(text)
+    case .level(let level):
+      voicePanel?.setLevel(level)
     case .recognizing(let text, let message):
       voicePanel?.showRecognizing(text: text, message: message)
     case .finished(let text):
@@ -8147,6 +8229,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     function: Bool = false,
     action: @escaping () -> Void
   ) -> UIButton {
+    makeKey(title: title, accessibilityLabel: accessibilityLabel, emphasized: emphasized, function: function,
+            primaryAction: UIAction { _ in action() })
+  }
+
+  private func makeKey(
+    title: String,
+    accessibilityLabel: String,
+    emphasized: Bool = false,
+    function: Bool = false,
+    primaryAction: UIAction
+  ) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.title = title
     configuration.titleLineBreakMode = .byClipping
@@ -8157,10 +8250,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : function ? KeyboardTheme.current.functionKeyBackground : KeyboardTheme.current.keyBackground
     configuration.background.cornerRadius = 8
     configuration.titleTextAttributesTransformer = Self.keyLabelTransformer
-    let button = KeyboardKeyButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+    let button = KeyboardKeyButton(configuration: configuration, primaryAction: primaryAction)
     button.isFunctionKey = function
     button.accessibilityLabel = accessibilityLabel
     decorateKey(button)
+    return button
+  }
+
+  /// 26 键的字母键和微软双拼的 `;`：与 `makeKey` 相同，但按键记下每次触摸的按下点（`recordsTouchDown`），动作拿到触发它的按键（`UIAction.sender`），好取走那个按下点。`sendActions` 这类没有触摸的激活也传按键，只是它没有按下点。
+  private func makeTouchKey(
+    title: String, accessibilityLabel: String, action: @escaping (KeyboardKeyButton?) -> Void
+  ) -> UIButton {
+    let button = makeKey(title: title, accessibilityLabel: accessibilityLabel,
+                         primaryAction: UIAction { action($0.sender as? KeyboardKeyButton) })
+    (button as? KeyboardKeyButton)?.recordsTouchDown = true
     return button
   }
 

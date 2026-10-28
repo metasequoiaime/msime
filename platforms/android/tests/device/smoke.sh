@@ -451,6 +451,15 @@ do
 done
 # 18 键双拼复用字母组布局入口，避免超过 Android 35 的清单数量限制。
 check "十八键双拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true
+# 26 键双拼的按下点（#10018）复用微软双拼入口：注入真实触摸，核对边角与键距命中、纠错整句随落点保留和微软 ; 键；宿主注册给引擎的键位几何经 instrumentation 状态交回，存到 target/android/device-test/key-geometry/，用来替换评测的参考布局。
+result_status=0
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.MicrosoftShuangpinDeviceSmoke -e shuangpin-touch true 2>&1) || result_status=$?
+printf '%s\n' "$result"
+verdict "双拼按下点验收失败" MSIME_DEVICE_SMOKE_PASSED "$result" "$result_status"
+mkdir -p target/android/device-test/key-geometry
+printf '%s\n' "$result" | tr -d '\r' \
+  | sed -n 's/^INSTRUMENTATION_STATUS: msime_key_geometry_\([a-z0-9-]*\)=\(.*\)$/\1 \2/p' \
+  | while read -r name json; do printf '%s\n' "$json" > "target/android/device-test/key-geometry/$name.json"; done
 # 九键逐字选词复用原入口；真实触摸部分选词后面板必须留着并换上剩余组字的候选（#9193），选完最后一个字才收起，全程不发返回操作。
 check "Nine-key partial selection acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyPanelDeviceSmoke -e partial-selection true
 # 横向候选条的双拼部分选词复用完整候选入口，选词后禁止再滑动来触发刷新。

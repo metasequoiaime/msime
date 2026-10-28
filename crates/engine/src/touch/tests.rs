@@ -330,3 +330,23 @@ fn the_fingerprint_follows_the_content_not_the_id() {
         assert_ne!(changed.fingerprint(), base.fingerprint());
     }
 }
+
+/// 默认计价参数是在 Android 模拟器导出的几何上扫参定下的（PR1b，见 `.agents/notes/implemented/feature/2026-10-27-shuangpin-touch-correction.md`）。改任何一项都要重跑扫参和 `baseline-shuangpin-touch-*.json`，这里钉住，免得顺手改了却没重跑。
+#[test]
+fn the_default_tuning_is_the_swept_one() {
+    assert_eq!(
+        TouchTuning::default(),
+        TouchTuning {
+            base: 8.0,
+            scale: 12.0,
+            sigma_x: 1.0,
+            sigma_y: 1.0,
+            bias_y: 0.0,
+            min_penalty: 4.0,
+            max_penalty: 28.0,
+            cut: 16.0,
+            show_margin: 6.0,
+            show_penalty: 14.0,
+        }
+    );
+}

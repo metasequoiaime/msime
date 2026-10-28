@@ -8,7 +8,7 @@
 pub const TOUCH_STEPS_PER_KEY: f32 = 20.0;
 /// 偏移钳到 ±1.5 键：更远的落点宿主不会归给这个键。
 pub const TOUCH_OFFSET_LIMIT: i8 = 30;
-/// 平面表里的 QWERTY 邻键离被按的键超过这么远（键为单位）时不算邻键。分离键盘上 T 和 Y、G 和 H 分在两半，平面表却把它们当邻键，参考的 iPad 分离布局里它们相距 8 个键以上；普通布局里平面表邻键的键心最远相距 2.25 个键（iPhone 微软双拼那份的 J 和 M：第二行多了 `;`，键距变宽）。
+/// 平面表里的 QWERTY 邻键离被按的键超过这么远（键为单位）时不算邻键。分离键盘上 T 和 Y、G 和 H 分在两半，平面表却把它们当邻键，宿主导出的 iPad 分离布局里分在两半的平面表邻键相距 4.6 个键以上；普通布局里平面表邻键的键心最远相距 2.37 个键（iPhone 微软双拼那份的 J 和 M：第二行多了 `;`，键距变宽）。
 const FLAT_NEIGHBOR_REACH: f32 = 3.0;
 /// 归一后的坐标（键心和落点）离原点最多这么多个键。宿主的坐标原点和单位任意，真实键盘用屏幕坐标也只有几百个键宽；超过它的几何（键宽极小、坐标极大）在算距离平方时会溢出成无穷，两个无穷相减得 NaN，罚分和邻键判断随之失效，所以整份拒绝。
 const COORDINATE_LIMIT: f32 = 10_000.0;
@@ -258,7 +258,7 @@ impl KeyGeometry {
     }
 }
 
-/// 计价参数，单位是词网格的自然对数分。`sigma_*`、`bias_y` 以键为单位。默认值在参考布局上扫参得到，宿主接入真机几何后重扫（见模块注释里的笔记）。
+/// 计价参数，单位是词网格的自然对数分。`sigma_*`、`bias_y` 以键为单位。默认值在三端宿主导出的几何上扫参得到（见模块注释里的笔记）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TouchTuning {
     /// B：落点在两键正中间时的罚分。
@@ -282,7 +282,7 @@ pub struct TouchTuning {
 }
 
 impl Default for TouchTuning {
-    /// 在参考布局（`resources/eval/key-geometry/android-portrait*.json`）上扫参得到，暂定；扫参表见模块注释里的笔记。
+    /// 在 Android 模拟器导出的几何（`resources/eval/key-geometry/android-portrait*.json`）上扫参得到；扫参表见模块注释里的笔记。
     fn default() -> Self {
         Self {
             base: 8.0,
@@ -293,7 +293,7 @@ impl Default for TouchTuning {
             min_penalty: 4.0,
             max_penalty: 28.0,
             cut: 16.0,
-            show_margin: 4.0,
+            show_margin: 6.0,
             show_penalty: 14.0,
         }
     }

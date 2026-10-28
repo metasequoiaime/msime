@@ -1,6 +1,6 @@
 //! 双拼的纠错整句边。双拼每个音节两键，按错一个键多半仍是合法编码（小鹤 `hc` 是 hao，`hv` 是 hui），全拼那张按非法拼写生成的纠错表用不上，只能像全拼的纠错整句那样，让语言模型在合法音节之间比较。变体按当前方案的两键编码生成：一个键换成 QWERTY 邻键，或两键对调，再用同一方案解码成音节；之后的弱位置优先、跨度、预算、查词和罚分都走 `quanpin::typo_edges` 的同一套。
 //!
-//! 触屏宿主送来了触点时（`collect_priced_shuangpin_typo_edges`），每个变体按落点计价（`touch::KeyGeometry::penalty`）：平面表原有的邻键永不丢弃，只按罚分排先后；平面表里没有的键（真实布局下的斜邻键、`;`）罚分不超过 `P_CUT` 时也加进来；对调和没有触点的位置照旧付 20。
+//! 触屏宿主送来了触点时（`collect_priced_shuangpin_typo_edges`），每个变体按落点计价（`touch::KeyGeometry::penalty`）：平面表原有的邻键永不丢弃，只按罚分排先后；平面表里没有的键（真实布局下的斜邻键、`;`）罚分不超过 `P_CUT` 时也加进来；对调和没有触点的位置照旧付 20。用户接受过的那对两键码（`LearnedTypos`）再按接受次数打折，这只发生在触点路径上，平面表照旧不打折。
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -13,13 +13,14 @@ use crate::dictionary::DictRow;
 use crate::lattice::{SentencePath, TypoEdge};
 use crate::pinyin::syllables::normalized_syllable;
 use crate::pinyin::typos::{
-    keys_adjacent, SyllableTypo, SyllableTypoKind, NEIGHBOR_COST, TRANSPOSITION_COST,
+    discounted, keys_adjacent, SyllableTypo, SyllableTypoKind, NEIGHBOR_COST, TRANSPOSITION_COST,
 };
 use crate::quanpin::typo_edges::{
     collect_priced_span_typo_edges, collect_span_typo_edges, PricedTypo,
 };
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
-use crate::types::autocorrect_type;
+use crate::types::{autocorrect_type, ShuangpinProfileKind};
+use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 /// 双拼会生成的纠错类型。漏键和多键会让后面每一对键都错位，不在这里处理。
 pub const SHUANGPIN_TYPO_TYPES: u32 = autocorrect_type::TRANSPOSITION | autocorrect_type::NEIGHBOR;
@@ -27,7 +28,7 @@ pub const SHUANGPIN_TYPO_TYPES: u32 = autocorrect_type::TRANSPOSITION | autocorr
 /// 编码表里出现的键：26 个字母，加上微软双拼的 `;`。
 const CODE_KEYS: &[u8] = b"abcdefghijklmnopqrstuvwxyz;";
 
-/// `codes[i]` 是 `segments[i]` 的两键编码。用户接受过的纠错次数记在全拼的纠错档案里，那是按全拼字母误触统计的，套到双拼的键位上没有意义，所以这里不打折，罚分就是基础价。
+/// `codes[i]` 是 `segments[i]` 的两键编码。全拼的纠错档案是按全拼字母误触统计的，套到双拼的键位上没有意义；双拼按两键码学到的次数（`LearnedTypos`）只给触点路径打折，桌面没有触点，所以这里不打折，罚分就是基础价。
 pub fn collect_shuangpin_typo_edges(
     database: &PinyinDatabase,
     span_cache: &mut FifoCache<String, Vec<DictRow>>,
@@ -50,6 +51,40 @@ pub fn collect_shuangpin_typo_edges(
     )
 }
 
+/// 用户在当前方案下接受过的双拼纠错次数，按两键码对查（`PersonalTypoProfile::shuangpin_counts`）。自定义方案、档案里一条双拼记录都没有时为空，计价不查也不打折。
+#[derive(Clone, Copy, Default)]
+pub struct LearnedTypos<'a> {
+    source: Option<(&'a PersonalTypoProfile, ShuangpinProfileKind)>,
+}
+
+impl<'a> LearnedTypos<'a> {
+    pub fn new(profile: &'a PersonalTypoProfile, kind: ShuangpinProfileKind) -> Self {
+        let learnable = kind != ShuangpinProfileKind::Custom && profile.has_shuangpin_counts();
+        Self {
+            source: learnable.then_some((profile, kind)),
+        }
+    }
+
+    fn accepted(&self, typed: [u8; 2], intended: [u8; 2]) -> i32 {
+        self.source.map_or(0, |(profile, kind)| {
+            profile.shuangpin_counts(kind, typed, intended).accepted
+        })
+    }
+}
+
+/// 一对两键码被接受过 `accepted` 次时罚分减去多少：与全拼按接受次数给邻键打的折相同，`NEIGHBOR_COST − discounted(NEIGHBOR_COST, n)`，接受 1 次约 2.8、3 次约 5.5，最多 12。
+pub fn learned_discount(accepted: i32) -> f64 {
+    NEIGHBOR_COST - discounted(NEIGHBOR_COST, accepted)
+}
+
+/// 打过折的罚分，不低于 `P_MIN`（本来就低于它的不往上抬）。没接受过时原样返回。
+fn discounted_penalty(penalty: f64, accepted: i32, tuning: &TouchTuning) -> f64 {
+    if accepted <= 0 {
+        return penalty;
+    }
+    (penalty - learned_discount(accepted)).max(tuning.min_penalty.min(penalty))
+}
+
 /// 带触点时每个两键码按落点计过价的变体，`[i]` 对应 `codes[i]`。`touches` 与这段输入逐字节对齐：第 i 个两键码 `codes[i]` 是第 2i、2i+1 个按键。纠错边的规划（[`collect_priced_shuangpin_typo_edges`]）和落点支持的判断（[`touch_supports_correction`]）共用这一份，不重复计价。
 pub(crate) fn priced_shuangpin_variants(
     profile: &'static ShuangpinProfile,
@@ -57,6 +92,7 @@ pub(crate) fn priced_shuangpin_variants(
     touches: &[Option<KeyTouch>],
     geometry: &KeyGeometry,
     tuning: &TouchTuning,
+    learned: LearnedTypos<'_>,
     autocorrect_types: u32,
 ) -> Vec<Vec<PricedTypo<'static>>> {
     debug_assert_eq!(touches.len(), codes.len() * 2);
@@ -67,7 +103,15 @@ pub(crate) fn priced_shuangpin_variants(
         .enumerate()
         .map(|(position, code)| {
             let touched = [touches[2 * position], touches[2 * position + 1]];
-            priced_variants(decoded, code.as_bytes(), touched, geometry, tuning, types)
+            priced_variants(
+                decoded,
+                code.as_bytes(),
+                touched,
+                geometry,
+                tuning,
+                learned,
+                types,
+            )
         })
         .collect()
 }
@@ -112,6 +156,57 @@ pub(crate) fn touch_supports_correction(
         })
 }
 
+/// 一条纠错在某个音节上的改动：第 `position` 个两键码 `typed` 被改成了 `intended`，解出 `syllable`。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CorrectionPair {
+    pub position: usize,
+    pub typed: [u8; 2],
+    pub intended: [u8; 2],
+    pub syllable: &'static str,
+}
+
+/// 用户接受或拒绝一条触点纠错时要记的键码对。`typed` 是这条纠错回答的按键（不含 `'`，每个音节两键），`touches` 与它逐字节对齐，`corrected_key` 是纠错的读音（逐音节以 `'` 相连）。每个改动过的音节取本次变体集里解码到纠正后音节、罚分最低的那个两键码，不从音节反推：零声母的一个音节在同一方案里可能有几个码。读音和按键对不上，或某个改动不在这个两键码的变体里（例如模糊音的替代拼写），整条不记，返回 `None`。
+#[allow(clippy::too_many_arguments)]
+pub fn touch_correction_pairs(
+    profile: &'static ShuangpinProfile,
+    typed: &str,
+    touches: &[Option<KeyTouch>],
+    geometry: &KeyGeometry,
+    tuning: &TouchTuning,
+    learned: LearnedTypos<'_>,
+    corrected_key: &str,
+    autocorrect_types: u32,
+) -> Option<Vec<CorrectionPair>> {
+    let corrected: Vec<&str> = corrected_key.split('\'').collect();
+    if typed.len() != corrected.len() * 2 || touches.len() != typed.len() {
+        return None;
+    }
+    let decoded = &profile_tables(profile).decoded;
+    let types = autocorrect_types & SHUANGPIN_TYPO_TYPES;
+    let mut pairs = Vec::new();
+    for (position, (code, corrected)) in typed.as_bytes().chunks_exact(2).zip(corrected).enumerate()
+    {
+        let code = [code[0], code[1]];
+        let literal = decoded_syllable(decoded, code)?;
+        let corrected = normalized_syllable(corrected);
+        if corrected == literal {
+            continue;
+        }
+        let touched = [touches[2 * position], touches[2 * position + 1]];
+        let best = priced_code_variants(decoded, code, touched, geometry, tuning, learned, types)
+            .into_iter()
+            .filter(|variant| variant.syllable == corrected)
+            .min_by(|left, right| left.penalty.total_cmp(&right.penalty))?;
+        pairs.push(CorrectionPair {
+            position,
+            typed: code,
+            intended: best.code,
+            syllable: best.syllable,
+        });
+    }
+    Some(pairs)
+}
+
 /// 一个两键码按触点计价的变体，罚分低的在前，同一个音节只留最低的那个价。
 fn priced_variants(
     decoded: &'static DecodeTable,
@@ -119,21 +214,74 @@ fn priced_variants(
     touches: [Option<KeyTouch>; 2],
     geometry: &KeyGeometry,
     tuning: &TouchTuning,
+    learned: LearnedTypos<'_>,
     types: u32,
 ) -> Vec<PricedTypo<'static>> {
     let [first, second] = *code else {
         return Vec::new();
     };
-    let Some(typed) = decoded_syllable(decoded, [first, second]) else {
+    let mut variants: Vec<PricedTypo<'static>> = Vec::new();
+    for variant in priced_code_variants(
+        decoded,
+        [first, second],
+        touches,
+        geometry,
+        tuning,
+        learned,
+        types,
+    ) {
+        if let Some(existing) = variants
+            .iter_mut()
+            .find(|existing| existing.syllable == variant.syllable)
+        {
+            existing.penalty = existing.penalty.min(variant.penalty);
+            continue;
+        }
+        variants.push(PricedTypo {
+            syllable: variant.syllable,
+            penalty: variant.penalty,
+        });
+    }
+    variants.sort_by(|left, right| left.penalty.total_cmp(&right.penalty));
+    variants
+}
+
+/// 一个变体两键码、它解出的音节和它的价。
+struct PricedCode {
+    code: [u8; 2],
+    syllable: &'static str,
+    penalty: f64,
+}
+
+/// 一个两键码的每一种改法（对调在前，再按位置、按 `CODE_KEYS` 的次序换键），按触点计价、按学到的次数打折；解不出音节或与输入的音节相同的不算。同一个音节可能出现几次，由调用方取最低价。
+fn priced_code_variants(
+    decoded: &'static DecodeTable,
+    code: [u8; 2],
+    touches: [Option<KeyTouch>; 2],
+    geometry: &KeyGeometry,
+    tuning: &TouchTuning,
+    learned: LearnedTypos<'_>,
+    types: u32,
+) -> Vec<PricedCode> {
+    let [first, second] = code;
+    let Some(typed) = decoded_syllable(decoded, code) else {
         return Vec::new();
     };
     let mut variants = Vec::new();
+    let mut push = |substituted: [u8; 2], penalty: f64| {
+        if let Some(syllable) = decoded_syllable(decoded, substituted).filter(|s| *s != typed) {
+            variants.push(PricedCode {
+                code: substituted,
+                syllable,
+                penalty,
+            });
+        }
+    };
     if types & autocorrect_type::TRANSPOSITION != 0 && first != second {
-        add_priced_variant(
-            &mut variants,
-            typed,
-            decoded_syllable(decoded, [second, first]),
-            TRANSPOSITION_COST,
+        let swapped = [second, first];
+        push(
+            swapped,
+            discounted_penalty(TRANSPOSITION_COST, learned.accepted(code, swapped), tuning),
         );
     }
     if types & autocorrect_type::NEIGHBOR != 0 {
@@ -143,7 +291,13 @@ fn priced_variants(
                 if key == pressed {
                     continue;
                 }
+                let mut substituted = code;
+                substituted[index] = key;
                 let flat = keys_adjacent(key, pressed);
+                // 学到的折扣先打，再和 P_CUT 比：接受过的斜邻键也能进来。
+                let learned_penalty = |penalty: f64| {
+                    discounted_penalty(penalty, learned.accepted(code, substituted), tuning)
+                };
                 let penalty = match touch
                     .map(|touch| (touch, geometry.penalty(pressed, touch, key, tuning)))
                 {
@@ -152,51 +306,25 @@ fn priced_variants(
                         if !geometry.adjacent(pressed, touch, key) {
                             continue;
                         }
-                        penalty
+                        learned_penalty(penalty)
                     }
                     // 平面表里没有的键，落点足够近才加。
-                    Some((_, Some(penalty))) if penalty <= tuning.cut => penalty,
-                    Some((_, Some(_))) => continue,
+                    Some((_, Some(penalty))) => {
+                        let penalty = learned_penalty(penalty);
+                        if penalty > tuning.cut {
+                            continue;
+                        }
+                        penalty
+                    }
                     // 这一键没有触点，或这个键不在几何里：照平面表。
-                    _ if flat => NEIGHBOR_COST,
+                    _ if flat => learned_penalty(NEIGHBOR_COST),
                     _ => continue,
                 };
-                let mut substituted = [first, second];
-                substituted[index] = key;
-                add_priced_variant(
-                    &mut variants,
-                    typed,
-                    decoded_syllable(decoded, substituted),
-                    penalty,
-                );
+                push(substituted, penalty);
             }
         }
     }
-    variants.sort_by(|left, right| left.penalty.total_cmp(&right.penalty));
     variants
-}
-
-/// 同一个音节由几种改法得到时只留最便宜的那个价；与输入的音节相同或解不出音节的不算变体。
-fn add_priced_variant(
-    variants: &mut Vec<PricedTypo<'static>>,
-    typed: &str,
-    intended: Option<&'static str>,
-    penalty: f64,
-) {
-    let Some(intended) = intended.filter(|intended| *intended != typed) else {
-        return;
-    };
-    if let Some(existing) = variants
-        .iter_mut()
-        .find(|variant| variant.syllable == intended)
-    {
-        existing.penalty = existing.penalty.min(penalty);
-        return;
-    }
-    variants.push(PricedTypo {
-        syllable: intended,
-        penalty,
-    });
 }
 
 /// 方案下每个两键码解成的音节（词库拼写），按 `CODE_KEYS` 的下标排成 27×27 的表；解不出时为 `None`。
@@ -327,6 +455,8 @@ mod tests {
     use crate::shuangpin::profile::profile;
     use crate::touch::KeyRect;
     use crate::types::{ShuangpinCustomTable, ShuangpinProfileKind};
+    use crate::user_dictionary::typo_profile::ShuangpinTypoOutcome;
+    use std::sync::Arc;
 
     fn code_typos(profile: &'static ShuangpinProfile, code: &str) -> &'static [SyllableTypo] {
         table_typos(&profile_tables(profile).typos, code)
@@ -450,6 +580,15 @@ mod tests {
         code: &str,
         touches: [Option<KeyTouch>; 2],
     ) -> Vec<(&'static str, f64)> {
+        priced_learned(geometry, code, touches, LearnedTypos::default())
+    }
+
+    fn priced_learned(
+        geometry: &KeyGeometry,
+        code: &str,
+        touches: [Option<KeyTouch>; 2],
+        learned: LearnedTypos<'_>,
+    ) -> Vec<(&'static str, f64)> {
         let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
         priced_variants(
             &profile_tables(xiaohe).decoded,
@@ -457,11 +596,178 @@ mod tests {
             touches,
             geometry,
             &tuning(),
+            learned,
             SHUANGPIN_TYPO_TYPES,
         )
         .into_iter()
         .map(|typo| (typo.syllable, typo.penalty))
         .collect()
+    }
+
+    /// 一份新日志上的纠错档案，小鹤下把 `typed` 当成 `intended` 接受过 `times` 次。
+    fn learned_store(
+        times: usize,
+        pairs: &[([u8; 2], [u8; 2])],
+    ) -> (tempfile::TempDir, Arc<PersonalTypoProfile>) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PersonalTypoProfile::shared(&dir.path().join("msime_user.db"));
+        for _ in 0..times {
+            store
+                .record_shuangpin(
+                    ShuangpinProfileKind::Xiaohe,
+                    pairs,
+                    ShuangpinTypoOutcome::Accepted,
+                )
+                .unwrap();
+        }
+        (dir, store)
+    }
+
+    /// 接受过的那一对两键码按次数打折、不低于 P_MIN；同一个两键码的别的变体、自定义方案、空档案都不打折。
+    #[test]
+    fn learned_pairs_lower_only_their_own_price() {
+        let geometry = geometry(&[], &[]);
+        let touches = [None, at(-5, -10)];
+        let plain = priced(&geometry, "gf", touches);
+        let (_dir, store) = learned_store(3, &[(*b"gf", *b"gr")]);
+        let learned = priced_learned(
+            &geometry,
+            "gf",
+            touches,
+            LearnedTypos::new(&store, ShuangpinProfileKind::Xiaohe),
+        );
+        let price = |variants: &[(&str, f64)], syllable: &str| {
+            variants
+                .iter()
+                .find(|(candidate, _)| *candidate == syllable)
+                .map(|(_, penalty)| *penalty)
+                .unwrap()
+        };
+        assert_eq!(price(&plain, "guan"), 12.0);
+        assert!((price(&learned, "guan") - (12.0 - learned_discount(3))).abs() < 1e-9);
+        assert!((learned_discount(3) - 4.0 * 4f64.ln()).abs() < 1e-9);
+        for (syllable, penalty) in &plain {
+            if *syllable != "guan" {
+                assert_eq!(price(&learned, syllable), *penalty, "{syllable}");
+            }
+        }
+        // 自定义方案不学，也不查。
+        assert_eq!(
+            priced_learned(
+                &geometry,
+                "gf",
+                touches,
+                LearnedTypos::new(&store, ShuangpinProfileKind::Custom)
+            ),
+            plain
+        );
+        // 接受得再多也不低于 P_MIN。
+        let (_dir, many) = learned_store(40, &[(*b"gf", *b"gr")]);
+        let floored = priced_learned(
+            &geometry,
+            "gf",
+            touches,
+            LearnedTypos::new(&many, ShuangpinProfileKind::Xiaohe),
+        );
+        assert_eq!(price(&floored, "guan"), tuning().min_penalty);
+        assert_eq!(floored[0], ("guan", tuning().min_penalty));
+    }
+
+    /// 平面表外的键先打折再和 P_CUT 比：接受过的斜邻键能进来，没接受过的照旧挡在外面。
+    #[test]
+    fn a_learned_key_off_the_flat_table_can_pass_the_cut() {
+        let geometry = geometry(&[(b'e', 40.0, 7.0)], &[]);
+        let has = |variants: &[(&str, f64)], syllable: &str| {
+            variants.iter().any(|(candidate, _)| *candidate == syllable)
+        };
+        assert!(!has(&priced(&geometry, "gf", [None, at(0, 0)]), "ge"));
+        let (_dir, store) = learned_store(3, &[(*b"gf", *b"ge")]);
+        let learned = priced_learned(
+            &geometry,
+            "gf",
+            [None, at(0, 0)],
+            LearnedTypos::new(&store, ShuangpinProfileKind::Xiaohe),
+        );
+        assert!(
+            learned.contains(&("ge", 20.0 - learned_discount(3))),
+            "{learned:?}"
+        );
+    }
+
+    /// 接受和拒绝记的码对：每个改动过的音节取变体集里解到纠正后音节、罚分最低的那个码；读音和按键对不上或改动解释不了时整条不记。
+    #[test]
+    fn correction_pairs_name_the_cheapest_code_of_each_changed_syllable() {
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        let geometry = geometry(&[], &[]);
+        let mut touches = vec![at(0, 0); 6];
+        touches[3] = at(-5, -10);
+        let pairs = |corrected: &str, touches: &[Option<KeyTouch>]| {
+            touch_correction_pairs(
+                xiaohe,
+                "mwgfxi",
+                touches,
+                &geometry,
+                &tuning(),
+                LearnedTypos::default(),
+                corrected,
+                SHUANGPIN_TYPO_TYPES,
+            )
+        };
+        assert_eq!(
+            pairs("mei'guan'xi", &touches),
+            Some(vec![CorrectionPair {
+                position: 1,
+                typed: *b"gf",
+                intended: *b"gr",
+                syllable: "guan",
+            }])
+        );
+        assert_eq!(pairs("mei'gen'xi", &touches), Some(Vec::new()));
+        assert_eq!(pairs("mei'guan", &touches), None);
+        assert_eq!(pairs("mei'zhuang'xi", &touches), None);
+        assert_eq!(pairs("mei'guan'xi", &touches[..4]), None);
+
+        // 每个两键码、每个变体音节：记下的码解得出这个音节，价就是变体集给这个音节的价。
+        let touched = [at(3, -4), at(-6, 2)];
+        for &first in CODE_KEYS {
+            for &second in CODE_KEYS {
+                let code = [first, second];
+                let typed = std::str::from_utf8(&code).unwrap();
+                for (syllable, penalty) in priced(&geometry, typed, touched) {
+                    let found = touch_correction_pairs(
+                        xiaohe,
+                        typed,
+                        &touched,
+                        &geometry,
+                        &tuning(),
+                        LearnedTypos::default(),
+                        syllable,
+                        SHUANGPIN_TYPO_TYPES,
+                    )
+                    .unwrap();
+                    let [pair] = found.as_slice() else {
+                        panic!("{typed} -> {syllable}: {found:?}");
+                    };
+                    assert_eq!(
+                        decoded_syllable(&profile_tables(xiaohe).decoded, pair.intended),
+                        Some(syllable)
+                    );
+                    let cheapest = priced_code_variants(
+                        &profile_tables(xiaohe).decoded,
+                        code,
+                        touched,
+                        &geometry,
+                        &tuning(),
+                        LearnedTypos::default(),
+                        SHUANGPIN_TYPO_TYPES,
+                    )
+                    .into_iter()
+                    .find(|variant| variant.code == pair.intended)
+                    .unwrap();
+                    assert_eq!(cheapest.penalty, penalty, "{typed} -> {syllable}");
+                }
+            }
+        }
     }
 
     fn at(dx: i8, dy: i8) -> Option<KeyTouch> {

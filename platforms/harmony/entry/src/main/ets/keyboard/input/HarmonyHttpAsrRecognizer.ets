@@ -9,6 +9,7 @@ import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 import { HTTP_ASR_CHAT_AUDIO, HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
+import { PcmChunkHandler } from './HarmonyPcmCapture';
 
 const SAMPLE_RATE: number = 16000;
 const SAMPLE_BYTES: number = 2;
@@ -40,19 +41,22 @@ export class HarmonyHttpAsrRecognizer {
   private timeoutHandle: number | undefined = undefined;
   private resultHandler: HttpAsrResultHandler | undefined = undefined;
   private errorHandler: HttpAsrErrorHandler | undefined = undefined;
+  /** 麦克风数据的旁听者，只用来算电平；不保存也不改动数据。 */
+  private chunkObserver: PcmChunkHandler | undefined = undefined;
 
   isActive(): boolean {
     return this.running || this.capturer !== undefined || this.request !== undefined;
   }
 
   async start(config: VoiceInputConfiguration, onResult: HttpAsrResultHandler,
-    onError: HttpAsrErrorHandler): Promise<void> {
+    onError: HttpAsrErrorHandler, onChunk: PcmChunkHandler | undefined = undefined): Promise<void> {
     if (this.isActive()) throw new Error('语音识别正在进行');
     if (!this.validConfig(config)) throw new Error('请先配置有效的语音接口、模型和凭据');
     const token: number = this.sessionToken + 1;
     this.sessionToken = token;
     this.resultHandler = onResult;
     this.errorHandler = onError;
+    this.chunkObserver = onChunk;
     this.chunks = [];
     this.audioBytes = 0;
     this.stopping = false;
@@ -101,6 +105,7 @@ export class HarmonyHttpAsrRecognizer {
     this.audioBytes = 0;
     this.resultHandler = undefined;
     this.errorHandler = undefined;
+    this.chunkObserver = undefined;
   }
 
   shutdown(): void {
@@ -152,6 +157,7 @@ export class HarmonyHttpAsrRecognizer {
 
   private readAudio(data: ArrayBuffer, token: number): void {
     if (token !== this.sessionToken || this.stopping || this.settled || data.byteLength === 0) return;
+    if (this.chunkObserver !== undefined) this.chunkObserver(data);
     let length: number = data.byteLength;
     const full: boolean = this.audioBytes + length >= MAX_AUDIO_BYTES;
     if (full) {

@@ -8,13 +8,25 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Device acceptance for the Microsoft double-pinyin ing key and Engine routing. */
+/** Device acceptance for the Microsoft double-pinyin ing key and Engine routing. `-e shuangpin-touch true` 改跑 26 键双拼按下点的验收（{@link ShuangpinTouchDeviceChecks}），复用这个入口。 */
 public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
+    private boolean shuangpinTouch;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        shuangpinTouch = arguments != null && "true".equals(arguments.getString("shuangpin-touch"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (shuangpinTouch) return "26 键双拼按下点：边角与键距命中、纠错整句随落点保留、微软 ; 键与几何导出";
         return "Microsoft double-pinyin ing key visibility and Engine routing";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (shuangpinTouch) {
+            ShuangpinTouchDeviceChecks.run(this);
+            return;
+        }
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(
             new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));

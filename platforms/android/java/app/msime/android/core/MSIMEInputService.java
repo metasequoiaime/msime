@@ -127,6 +127,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
     ImeGlideTyping imeGlideTyping;
+    ImeTouchPoints imeTouchPoints;
     ImeBottomRow imeBottomRow;
     ImeBottomBar imeBottomBar;
     ImeLayoutRows imeLayoutRows;
@@ -1780,6 +1781,7 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
         imeGlideTyping = new ImeGlideTyping(this);
+        imeTouchPoints = new ImeTouchPoints(this);
         imeBottomRow = new ImeBottomRow(this);
         imeBottomBar = new ImeBottomBar(this);
         imeLayoutRows = new ImeLayoutRows(this);
@@ -4424,6 +4426,26 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
+    /** 带按下点的一键（`msime_client_touch_character`）：只由 {@link #type(char, View)} 在 {@link ImeTouchPoints#geometryFor} 给出几何代次时调用，其余与 {@link #character(int, boolean)} 相同；这时没有 Shift。 */
+    private boolean touchCharacter(int ascii, int geometryId, float x, float y) {
+        finishPendingCompositionMarkerLoss();
+        clearQuickDeleteUndo();
+        if (session == 0) return false;
+        try { return apply(NativeClient.touchCharacter(session, ascii, false, geometryId, x, y)); }
+        catch (JSONException | LinkageError error) { fail(error); return true; }
+    }
+
+    /** 把 26 键双拼的键位几何注册给当前会话（{@link ImeTouchPoints#register}），返回引擎是否收下。没收下时这个代次不用，按键照常不带按下点。 */
+    boolean registerKeyGeometry(String json) {
+        if (session == 0) return false;
+        try {
+            value(NativeClient.setKeyGeometry(session, json));
+            return true;
+        } catch (JSONException | LinkageError error) {
+            return false;
+        }
+    }
+
     /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
         clearQuickDeleteUndo();
@@ -4518,6 +4540,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void type(char key) {
+        type(key, null);
+    }
+
+    /**
+     * 一个字符键。`source` 是被点击的 26 键字母层的键或微软双拼的 `;`（{@link #shuangpinLetterKey}），其余入口（底行的键、长按选项、实体键盘）为 null。这个键记下的按下点在这里取出并清掉，不论这一键走哪条路；只有走到下面送给引擎的那一步、而且是 26 键双拼的小写字母或 `;` 时才随这一键送出（{@link ImeTouchPoints#geometryFor}），辅助码的大写、英文直出和标点都照旧。无障碍点击也经过键的点击回调，但没有按下，取不到按下点。
+     */
+    void type(char key, View source) {
+        boolean touched = imeTouchPoints.take(source);
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (connection == null) return;
@@ -4561,7 +4591,11 @@ public final class MSIMEInputService extends InputMethodService {
             dedicatedEnglish, selectedScheme,
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
         boolean punctuationKey = SmartPunctuationContext.isAsciiPunctuation(output) && !microsoftFinal;
-        boolean handled = punctuationKey ? punctuation(output) : character(output);
+        int geometryId = touched && !punctuationKey
+            ? imeTouchPoints.geometryFor(output, letterCase.usesUppercase()) : 0;
+        boolean handled = punctuationKey ? punctuation(output)
+            : geometryId != 0 ? touchCharacter(output, geometryId, imeTouchPoints.x(), imeTouchPoints.y())
+            : character(output);
         if (!handled) {
             // 引擎不收的标点和数字（数字行的 0、没有候选时的 1–9）是一次自动上屏，先把组合按首选结束掉。读音是真正的组字区，直接上屏会替换掉拼音，而不是跟在拼音后面。
             if (DeclinedKeyPolicy.finishesComposition(punctuationKey, output, hasEngineComposition())) {
@@ -5979,6 +6013,13 @@ public final class MSIMEInputService extends InputMethodService {
             action.run();
         });
         return button;
+    }
+
+    /** 26 键字母层的字母键和微软双拼的 `;`：点击时把自己交给 {@link #type(char, View)}，它记下的按下点随这一键送给引擎。 */
+    ShuangpinHintButton shuangpinLetterKey(String label, String description, char input) {
+        ShuangpinHintButton[] key = new ShuangpinHintButton[1];
+        key[0] = shuangpinKeyboardKey(label, description, () -> type(input, key[0]));
+        return key[0];
     }
 
     ShuangpinHintButton shuangpinKeyboardKey(
@@ -9651,6 +9692,10 @@ public final class MSIMEInputService extends InputMethodService {
         // 键距是键的外边距；这两个容器把落在空隙里的按下交给拥有那段空隙的键，画面不变（见 KeyboardKeyArea）。
         KeyboardKeyArea letterArea = new KeyboardKeyArea(this, this::followsKeySpacing);
         letterArea.setGlideTracker(imeGlideTyping);
+        // 26 键双拼：按键记下每根手指的按下点，键位一变就重新注册几何（ImeTouchPoints）。只记字母键和微软双拼的 `;`（shuangpinLetterKey 造的键），别的键点击时不取按下点。
+        letterArea.setTouchPoints(imeTouchPoints.pending, key -> key instanceof ShuangpinHintButton);
+        letterArea.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> imeTouchPoints.register());
         keyRows = letterArea;
         keyRows.setOrientation(LinearLayout.VERTICAL);
         imeFrame.wrap(keyRows);

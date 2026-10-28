@@ -27,6 +27,8 @@ public final class NativeClient {
     private static final int NINE_KEY_SHUANGPIN_REQUEST_LIMIT = 16 * 1024;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
     private static final int GLIDE_REQUEST_LIMIT = 65_536;
+    /** 与 `msime_client_set_key_geometry` 的上限一致。 */
+    private static final int KEY_GEOMETRY_LIMIT = 16_384;
     /** An imported word list is the one request here that carries a whole file. */
     private static final int VOCABULARY_REQUEST_LIMIT = 8 * 1024 * 1024;
     static { System.loadLibrary("msime_android"); }
@@ -858,6 +860,18 @@ public final class NativeClient {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return TextPolicy.utf8(characterRaw(session, ascii, shift));
     }
+    /** 26 键双拼的字母键几何（`msime_client_set_key_geometry`）：`json` 由 {@link TouchPointPolicy#geometryJson} 生成，空串清除。只在布局变化时调用。返回 View。 */
+    public static String setKeyGeometry(long session, String json) {
+        if (json == null) throw new IllegalArgumentException("Missing key geometry");
+        byte[] payload = json.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > KEY_GEOMETRY_LIMIT) throw new IllegalArgumentException("Key geometry is too large");
+        return TextPolicy.utf8(setKeyGeometryRaw(session, payload));
+    }
+    /** 带按下点的一键（`msime_client_touch_character`）：`x`、`y` 与注册的几何同一个坐标系，`geometryId` 是那份几何的代次。代次不符、坐标不是有限数或不是 26 键双拼时，结果与 {@link #character} 逐字节相同。返回与 {@link #character} 相同的输入响应。 */
+    public static String touchCharacter(long session, int ascii, boolean shift, int geometryId, float x, float y) {
+        if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
+        return TextPolicy.utf8(touchCharacterRaw(session, ascii, shift, geometryId, x, y));
+    }
     public static String punctuationWithContext(long session, int ascii, int precedingCodePoint) {
         if (ascii < 0 || ascii > 127 || !SmartPunctuationContext.isAsciiPunctuation((char) ascii))
             throw new IllegalArgumentException("Engine punctuation must be ASCII punctuation");
@@ -1115,6 +1129,9 @@ public final class NativeClient {
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
+    private static native byte[] setKeyGeometryRaw(long session, byte[] json);
+    private static native byte[] touchCharacterRaw(long session, int ascii, boolean shift, int geometryId,
+        float x, float y);
     private static native byte[] balancePairedPunctuationAfterAutoCloseRaw(long session, int opening);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);

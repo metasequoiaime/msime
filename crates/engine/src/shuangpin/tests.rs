@@ -12,11 +12,13 @@ use super::ShuangpinEngine;
 use crate::assets;
 use crate::helpcode::HelpcodeKeymap;
 use crate::paths::RuntimePaths;
+use crate::shuangpin::typo_edges::learned_discount;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     fuzzy_rule, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType,
     SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
 };
+use crate::user_dictionary::typo_profile::{PersonalTypoProfile, ShuangpinTypoOutcome};
 
 struct Fixture {
     _root: TempDir,
@@ -1308,6 +1310,61 @@ fn a_touched_correction_never_takes_the_first_seat() {
         assert_corrected(&candidates, typed);
         assert!(candidates[0].corrected_from.is_empty(), "{kind:?}");
     }
+}
+
+/// 用户接受过 3 次 gf → gr（小鹤：想打 guan 却按到了 gen）之后，同一个落点改过去的价少了 `learned_discount(3)`：纠错整句的分升高，原来过不了 `show_penalty` 的这次改正留在了座位上。按旧学习结果计价的缓存答案随档案代次作废。没有触点的同一串输入（平面表）不论新旧引擎都一行不变；别的方案没有这条记录，不打折。
+#[test]
+fn accepted_shuangpin_typos_discount_only_the_touch_path() {
+    let fixture = Fixture::new(TYPO_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let strict = TouchTuning {
+        show_penalty: 10.0,
+        ..test_tuning()
+    };
+    // f 那一键落在 f 和 r 正中：改过去的价是 B = 12，超过 10。
+    let touched = QueryRequest {
+        touch_tuning: strict,
+        ..touched_request("mwgfxi", &[(3, -5, -10)])
+    };
+    let flat = autocorrect_request("mwgfxi", true);
+    let before = engine.query(&touched, None);
+    let flat_before = engine.query(&flat, None);
+    let row = typo_row(&before).unwrap().clone();
+    assert!(!row.touch_supported);
+
+    let profile = PersonalTypoProfile::shared(&fixture.paths.user(assets::USER_JOURNAL));
+    for _ in 0..3 {
+        profile
+            .record_shuangpin(
+                ShuangpinProfileKind::Xiaohe,
+                &[(*b"gf", *b"gr")],
+                ShuangpinTypoOutcome::Accepted,
+            )
+            .unwrap();
+    }
+    let after = engine.query(&touched, None);
+    let learned = typo_row(&after).unwrap();
+    assert_eq!(learned.word, row.word);
+    assert!(learned.touch_supported);
+    let gained = (learned.weight - row.weight) as f64 / 1000.0;
+    assert!((gained - learned_discount(3)).abs() < 0.01, "{gained}");
+    assert_eq!(literal_words(&after), literal_words(&before));
+
+    assert_eq!(engine.query(&flat, None), flat_before);
+    assert_eq!(
+        fixture
+            .engine(ShuangpinProfileKind::Xiaohe)
+            .query(&flat, None),
+        flat_before
+    );
+    // 微软双拼没有这条记录：同一串按键在它那里照旧计价（这里只比较带不带折扣，不要求有纠错行）。
+    let mut microsoft = fixture.engine(ShuangpinProfileKind::Microsoft);
+    let fresh = Fixture::new(TYPO_FIXTURE);
+    let mut unlearned = fresh.engine(ShuangpinProfileKind::Microsoft);
+    assert_eq!(
+        microsoft.query(&touched, None),
+        unlearned.query(&touched, None)
+    );
 }
 
 #[test]

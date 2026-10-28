@@ -3,7 +3,6 @@ package app.msime.android;
 import app.msime.android.LayoutPolicy;
 
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.widget.FrameLayout;
 import app.msime.android.core.InputViewValuePolicy;
@@ -17,13 +16,10 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
     private static final float TRAIL_WIDTH_DP = 4f;
 
     private final MSIMEInputService s;
-    /** 按下时量好的 'a'..'z' 各键在按键区里的矩形，依次是 left、top、right、bottom；没量到的键全是 0。 */
-    private final float[] keyRects = new float[LETTERS * 4];
-    private final Rect rect = new Rect();
+    /** 按下时量好的各键在按键区里的矩形。滑行只认每个字母的第一个键：分离式键盘右半边重复的 G、V（#6022）在滑行里和空隙一样不算字母键，交给 Engine 的键位每个字母只有一个中心点。 */
+    private final LetterKeyMeasure keys = new LetterKeyMeasure();
     private final int[] areaLocation = new int[2];
     private final int[] trailLocation = new int[2];
-    private float keyWidth;
-    private float keyHeight;
     /** 这一次按下可能变成滑行：落在字母键上、满足开始条件，还没有第二根手指。 */
     private boolean tracking;
     /** 已经构成滑行，正在收集轨迹。 */
@@ -92,7 +88,7 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
         boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == KeyboardLayout.STANDARD_TOUCH_LAYOUT;
         if (!standardLetters) return;
-        int measured = measureKeys(area);
+        int measured = keys.measure(area, s.shuangpinKeyButtons, s.shuangpinKeyInputs);
         String localMode = JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
         if (localMode.isEmpty()) localMode = "none";
         if (!GlideTypingPolicy.armed(true, true, InputViewValuePolicy.scheme(s.view, -1),
@@ -109,40 +105,12 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
         add(x, y, event.getEventTime());
     }
 
-    /** 量出每个字母键在按键区里的矩形和平均键宽、键高，返回量到的字母个数。 */
-    private int measureKeys(KeyboardKeyArea area) {
-        Arrays.fill(keyRects, 0);
-        int found = 0;
-        float widths = 0;
-        float heights = 0;
-        for (int index = 0; index < s.shuangpinKeyButtons.size() && index < s.shuangpinKeyInputs.size(); index++) {
-            String input = s.shuangpinKeyInputs.get(index);
-            if (input.length() != 1 || input.charAt(0) < 'a' || input.charAt(0) > 'z') continue;
-            ShuangpinHintButton key = s.shuangpinKeyButtons.get(index);
-            if (key.getWindowToken() == null || key.getWidth() <= 0 || key.getHeight() <= 0) continue;
-            int slot = (input.charAt(0) - 'a') * 4;
-            // 同一个字母只量第一个键：分离式键盘右半边重复的 G、V（#6022）建得比左边那个晚，滑行只认左边的。交给 Engine 的键位每个字母只有一个中心点，右边那个在滑行里和空隙一样不算字母键。
-            if (keyRects[slot + 2] > 0) continue;
-            rect.set(0, 0, key.getWidth(), key.getHeight());
-            area.offsetDescendantRectToMyCoords(key, rect);
-            keyRects[slot] = rect.left;
-            keyRects[slot + 1] = rect.top;
-            keyRects[slot + 2] = rect.right;
-            keyRects[slot + 3] = rect.bottom;
-            widths += rect.width();
-            heights += rect.height();
-            found++;
-        }
-        keyWidth = found == 0 ? 0 : widths / found;
-        keyHeight = found == 0 ? 0 : heights / found;
-        return found;
-    }
-
     /** (x, y) 所在的字母键，不在任何字母键上（键距、功能键）时为 0。 */
     private char letterAt(float x, float y) {
         for (int letter = 0; letter < LETTERS; letter++) {
             int slot = letter * 4;
-            if (x >= keyRects[slot] && x < keyRects[slot + 2] && y >= keyRects[slot + 1] && y < keyRects[slot + 3])
+            float[] rects = keys.letters;
+            if (x >= rects[slot] && x < rects[slot + 2] && y >= rects[slot + 1] && y < rects[slot + 3])
                 return (char) ('a' + letter);
         }
         return 0;
@@ -158,7 +126,7 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
         float x = event.getX(index);
         float y = event.getY(index);
         add(x, y, event.getEventTime());
-        if (!gliding && GlideTypingPolicy.starts(downLetter, letterAt(x, y), downX, x, keyWidth))
+        if (!gliding && GlideTypingPolicy.starts(downLetter, letterAt(x, y), downX, x, keys.keyWidth))
             startGlide(area);
     }
 
@@ -221,10 +189,10 @@ final class ImeGlideTyping implements KeyboardKeyArea.GlideTracker {
         float[] centers = new float[LETTERS * 2];
         for (int letter = 0; letter < LETTERS; letter++) {
             int slot = letter * 4;
-            centers[letter * 2] = (keyRects[slot] + keyRects[slot + 2]) / 2;
-            centers[letter * 2 + 1] = (keyRects[slot + 1] + keyRects[slot + 3]) / 2;
+            centers[letter * 2] = (keys.letters[slot] + keys.letters[slot + 2]) / 2;
+            centers[letter * 2 + 1] = (keys.letters[slot + 1] + keys.letters[slot + 3]) / 2;
         }
-        s.glide(GlideTypingPolicy.request(centers, keyWidth, keyHeight, xs, ys, times, count));
+        s.glide(GlideTypingPolicy.request(centers, keys.keyWidth, keys.keyHeight, xs, ys, times, count));
     }
 
     private void reset() {

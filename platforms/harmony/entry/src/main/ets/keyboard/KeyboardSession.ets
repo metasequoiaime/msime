@@ -78,6 +78,7 @@ import { EnglishCompletions, EnglishRefresh, EnglishReplacement, EnglishSuggesti
   from './input/EnglishSuggestionPolicy';
 import { EmailSuffixMatch, EmailSuffixPolicy, EmailSuffixReplacement } from './input/EmailSuffixPolicy';
 import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
+import { KeyGeometryRegistry, TouchKey } from './input/TouchPointPolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
@@ -268,6 +269,12 @@ interface PreferencesSnapshot {
   format_version: number;
   revision: number;
   preferences: Record<string, Object>;
+}
+
+/** `msime_client_set_key_geometry` 的答复里键盘只看是否收下。 */
+interface GeometryReply {
+  ok?: boolean;
+  error?: string;
 }
 
 interface SnapshotResponse {
@@ -1260,6 +1267,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   static readonly MAX_VOICE_RECORD_MS: number = 600000;
 
   private handle: number = 0;
+  /** 本会话注册过的 26 键双拼键位几何，会话一换就作废。 */
+  private keyGeometry: KeyGeometryRegistry = new KeyGeometryRegistry();
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
@@ -2038,6 +2047,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         return false;
       }
       this.handle = created.value.session;
+      this.keyGeometry.reset();
       KeyboardLog.info(`session ${this.handle} created`);
       this.markPrivateSession(this.feedbackCurrent.incognito);
       this.refreshTypingEffects();
@@ -3677,6 +3687,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
+      this.keyGeometry.reset();
     }
   }
 
@@ -4029,6 +4040,17 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
   press(ascii: number, shift: boolean): boolean {
+    return this.pressKey(ascii, shift, null);
+  }
+
+  /**
+   * 触屏 26 键双拼的字母键和 `;`：与 `press` 相同，只是把按下点和键位几何一起交给引擎（`msime_client_touch_character`），双拼纠错按落点计价。几何只在布局变了或换了会话时下发；下发被拒时这一键照常走 `msime_client_character`。是否该走这里由视图按 `TouchPointPolicy.usesTouch` 决定。
+   */
+  pressTouch(ascii: number, shift: boolean, touch: TouchKey): boolean {
+    return this.pressKey(ascii, shift, touch);
+  }
+
+  private pressKey(ascii: number, shift: boolean, touch: TouchKey | null): boolean {
     if (this.commitEnglishBoundary(String.fromCharCode(ascii))) {
       this.tapFeedback();
       return true;
@@ -4053,7 +4075,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.tapFeedback();
     const before: string = this.editing;
-    const handled: boolean = this.apply(client.character(this.handle, ascii, shift));
+    const handled: boolean = this.apply(this.characterReply(ascii, shift, touch));
     // A letter that leaves the composition exactly as it was is the one failure this path cannot
     // otherwise report: the key was claimed, so the application never sees it, and the Engine
     // answered `ok`, so apply() has nothing to complain about. The result is a key that silently
@@ -4075,6 +4097,31 @@ export class KeyboardSession implements HardwareKeyTarget {
         + ` shift=${shift} caps=${this.capsLock}`);
     }
     return consumed;
+  }
+
+  /** 一键的引擎答复：有按下点且几何已注册时走 `touchCharacter`，否则走 `character`。 */
+  private characterReply(ascii: number, shift: boolean, touch: TouchKey | null): string {
+    if (touch === null) {
+      return client.character(this.handle, ascii, shift);
+    }
+    const handle: number = this.handle;
+    const geometry: number = this.keyGeometry.register(handle, touch.layout,
+      (json: string): boolean => KeyboardSession.keyGeometryAccepted(client.setKeyGeometry(handle, json), json));
+    if (geometry === 0) {
+      return client.character(handle, ascii, shift);
+    }
+    return client.touchCharacter(handle, ascii, shift, geometry, touch.point.x, touch.point.y);
+  }
+
+  /** 引擎是否收下了这份几何。收下时把整份 JSON 打进 hilog（`hdc shell hilog | grep 'key geometry'`），这是导出真机几何、替换评测参考布局的调试出口；几何只有键的位置和大小，不含输入内容。 */
+  private static keyGeometryAccepted(raw: string, json: string): boolean {
+    const reply: GeometryReply = JSON.parse(raw) as GeometryReply;
+    if (reply.ok !== true) {
+      KeyboardLog.error(`key geometry refused: ${reply.error ?? 'malformed reply'}`);
+      return false;
+    }
+    KeyboardLog.info(`key geometry ${json}`);
+    return true;
   }
 
   /**

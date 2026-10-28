@@ -1272,6 +1272,234 @@ fn a_same_id_geometry_with_moved_keys_does_not_reuse_cached_touch_rows() {
     assert!(supported(&session));
 }
 
+// ---- 双拼触点纠错的学习（#10018） ----
+
+/// `TOUCH_TYPO_FIXTURE` 加上整句学习要写的三字表，选中纠错整句不带诊断。
+fn touch_learning_fixture() -> Fixture {
+    Fixture::new(&format!(
+        "{TOUCH_TYPO_FIXTURE}CREATE TABLE tbl_3_m(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
+    ))
+}
+
+fn touch_shuangpin(options: &mut SessionOptions) {
+    options.scheme = SchemeType::Shuangpin;
+    options.autocorrect_types =
+        crate::types::autocorrect_type::TRANSPOSITION | crate::types::autocorrect_type::NEIGHBOR;
+}
+
+/// 带触点打小鹤 `mwgfxi`：`toward_r` 时 f 那一键落在 f 和左上方的 r 之间（落点支持改成 gr），否则每键都按在键心。
+fn type_touched(session: &mut Session, toward_r: bool) {
+    for (index, byte) in b"mwgfxi".iter().enumerate() {
+        let (dx, dy) = if index == 3 && toward_r {
+            (-5, -10)
+        } else {
+            (0, 0)
+        };
+        session.set_key_touch(Some(crate::touch::KeyTouch { dx, dy, copy: 0 }));
+        session.character(*byte, false);
+    }
+}
+
+fn shuangpin_typo_count(fixture: &Fixture, column: &str) -> Option<i64> {
+    Connection::open(fixture.journal())
+        .ok()?
+        .query_row(
+            &format!("SELECT {column} FROM shuangpin_typo_counts WHERE profile='xiaohe' AND typed='gf' AND intended='gr'"),
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+}
+
+fn shuangpin_suppressions(fixture: &Fixture) -> i64 {
+    Connection::open(fixture.journal())
+        .and_then(|journal| {
+            journal.query_row(
+                "SELECT coalesce(sum(commits),0) FROM shuangpin_autocorrect_suppressions WHERE profile='xiaohe' AND input='mwgfxi'",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .unwrap_or(0)
+}
+
+/// 带触点选中纠错整句记一次接受：键码对是按到的 gf 和变体集里解到 guan 的 gr，记在小鹤名下。关着学习、不带触点（平面表、桌面）时选同一行什么也不记。
+#[test]
+fn selecting_a_touch_correction_records_its_two_key_pair() {
+    let fixture = touch_learning_fixture();
+    let mut quiet = fixture.session_with(|options| {
+        touch_shuangpin(options);
+        options.learning = false;
+    });
+    quiet.set_key_geometry(Some(qwerty_geometry()));
+    type_touched(&mut quiet, true);
+    assert_eq!(select_word(&mut quiet, "没关系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), None);
+
+    let mut flat = fixture.session_with(touch_shuangpin);
+    type_text(&mut flat, "mwgfxi");
+    assert_eq!(select_word(&mut flat, "没关系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), None);
+
+    let mut touched = fixture.session_with(touch_shuangpin);
+    touched.set_key_geometry(Some(qwerty_geometry()));
+    for round in 1..=2 {
+        type_touched(&mut touched, true);
+        assert_eq!(select_word(&mut touched, "没关系").diagnostic, None);
+        assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(round));
+        assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(0));
+    }
+    // 全拼的纠错表一行不多。
+    assert_eq!(
+        Connection::open(fixture.journal())
+            .unwrap()
+            .query_row("SELECT count(*) FROM pinyin_typo_counts", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+/// 带触点的输入有落点支持的纠错可选、用户却按 Enter 原样上屏：记一次抑制，之后同一串输入带触点时按字面回答，一行纠错都没有、请求也不再带触点。不带触点（平面表）的会话不受这条记录影响，照旧给纠错整句。落点不支持（沉到表尾）的纠错行不算可选，上屏不记。
+#[test]
+fn committing_raw_over_a_touch_correction_suppresses_it() {
+    let fixture = touch_learning_fixture();
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    // 每键都按在键心：纠错整句还在，但落点不支持它。
+    type_touched(&mut session, false);
+    assert!(session
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|item| !item.touch_supported));
+    let raw = session.command(Command::CommitRaw);
+    assert_eq!(raw.commit.as_deref(), Some("mwgfxi"));
+    assert_eq!(shuangpin_suppressions(&fixture), 0);
+
+    type_touched(&mut session, true);
+    assert!(session
+        .snapshot()
+        .candidates
+        .iter()
+        .any(|item| item.touch_supported));
+    let raw = session.command(Command::CommitRaw);
+    assert_eq!(raw.commit.as_deref(), Some("mwgfxi"));
+    assert_eq!(raw.diagnostic, None);
+    assert_eq!(shuangpin_suppressions(&fixture), 1);
+
+    type_touched(&mut session, true);
+    assert!(
+        session
+            .snapshot()
+            .candidates
+            .iter()
+            .all(|item| item.corrected_from.is_empty()),
+        "{:?}",
+        words(&session)
+    );
+    assert!(request_touches(&session).is_empty());
+    // 已经按字面回答了，再按 Enter 也没有可拒绝的。
+    session.command(Command::CommitRaw);
+    assert_eq!(shuangpin_suppressions(&fixture), 1);
+    // 改一个键就是另一串输入，不受抑制。
+    type_touched(&mut session, true);
+    session.command(Command::Backspace);
+    session.set_key_touch(Some(crate::touch::KeyTouch {
+        dx: 0,
+        dy: 0,
+        copy: 0,
+    }));
+    session.character(b'u', false);
+    assert_eq!(request_touches(&session).len(), 6);
+    session.command(Command::Cancel);
+
+    let mut flat = fixture.session_with(touch_shuangpin);
+    type_text(&mut flat, "mwgfxi");
+    assert!(flat
+        .snapshot()
+        .candidates
+        .iter()
+        .any(|item| item.word == "没关系" && !item.corrected_from.is_empty()));
+    flat.command(Command::CommitRaw);
+    assert_eq!(shuangpin_suppressions(&fixture), 1);
+}
+
+/// 首选是纠错行、用户却选了别的行：选中的行覆盖到的、读音不是纠正后音节的位置记一次拒绝。只覆盖前一个音节的词没对改动表态，不记；选中纠错行本身是接受。这一期纠错行还坐不上首选（首选规则在后面一期），这里把它挪到第一行来测记账本身。
+#[test]
+fn picking_another_row_over_a_leading_correction_counts_a_rejection() {
+    let fixture = touch_learning_fixture();
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    let lead_with_correction = |session: &mut Session| {
+        type_touched(session, true);
+        let rows = &mut session.input.mixed_candidates;
+        let at = rows
+            .iter()
+            .position(|item| item.word == "没关系" && !item.corrected_from.is_empty())
+            .unwrap();
+        let row = rows.remove(at);
+        rows.insert(0, row);
+        session.input.ranking_candidates = None;
+    };
+
+    lead_with_correction(&mut session);
+    assert_eq!(select_word(&mut session, "没").diagnostic, None);
+    session.command(Command::Cancel);
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), None);
+
+    lead_with_correction(&mut session);
+    let literal = words(&session)
+        .into_iter()
+        .find(|word| word == "没跟系")
+        .unwrap();
+    assert_eq!(select_word(&mut session, &literal).diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(0));
+
+    lead_with_correction(&mut session);
+    assert_eq!(select_word(&mut session, "没关系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(1));
+}
+
+/// 日志里有双拼的接受、拒绝和抑制记录，不带触点的会话（桌面、实体键盘）逐字节和没有这些记录时一样。
+#[test]
+fn shuangpin_typo_learning_never_reaches_a_session_without_touches() {
+    let learned = touch_learning_fixture();
+    let profile =
+        crate::user_dictionary::typo_profile::PersonalTypoProfile::shared(&learned.journal());
+    for outcome in [
+        crate::user_dictionary::typo_profile::ShuangpinTypoOutcome::Accepted,
+        crate::user_dictionary::typo_profile::ShuangpinTypoOutcome::Accepted,
+        crate::user_dictionary::typo_profile::ShuangpinTypoOutcome::Accepted,
+        crate::user_dictionary::typo_profile::ShuangpinTypoOutcome::Rejected,
+    ] {
+        profile
+            .record_shuangpin(
+                crate::types::ShuangpinProfileKind::Xiaohe,
+                &[(*b"gf", *b"gr")],
+                outcome,
+            )
+            .unwrap();
+    }
+    profile
+        .record_shuangpin_suppression(crate::types::ShuangpinProfileKind::Xiaohe, "mwgfxi")
+        .unwrap();
+    let fresh = touch_learning_fixture();
+    let typed = |fixture: &Fixture| {
+        let mut session = fixture.session_with(touch_shuangpin);
+        type_text(&mut session, "mwgfxi");
+        session.snapshot()
+    };
+    let snapshot = typed(&learned);
+    assert!(snapshot
+        .candidates
+        .iter()
+        .any(|item| !item.corrected_from.is_empty()));
+    assert_eq!(snapshot, typed(&fresh));
+}
+
 #[test]
 fn caret_commands_redecode_and_selection_returns_to_the_end() {
     let fixture = Fixture::new(CARET_PREFIX_FIXTURE);

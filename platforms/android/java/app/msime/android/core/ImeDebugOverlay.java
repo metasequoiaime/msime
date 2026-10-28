@@ -148,6 +148,12 @@ final class ImeDebugOverlay {
         mobileLogEnabled = loggingEnabled && settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
     }
 
+    /** 开发者选项里的「显示调试信息」开着（日志总开关也开着）：双拼键位几何的调试导出（{@link ImeTouchPoints}）跟着它。 */
+    boolean overlay() {
+        refreshPreferences();
+        return overlayEnabled;
+    }
+
     /** 本地输入日志是否在写：用户打开了「记录输入日志」，而且当前输入框与隐私模式允许。 */
     boolean logging() {
         refreshPreferences();

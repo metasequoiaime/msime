@@ -17,10 +17,11 @@ use crate::pinyin::autocorrect::autocorrect_suppression_key;
 use crate::pinyin::segment::split_segments;
 use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::pinyin::typos::syllable_typo_kind;
+use crate::shuangpin::typo_edges::{touch_correction_pairs, CorrectionPair, LearnedTypos};
 use crate::text::{count_utf8_chars, is_all_han, is_han};
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, LocalInputMode,
-    PersonalDictionaryKind, WordItem,
+    PersonalDictionaryKind, SchemeType, ShuangpinProfileKind, WordItem,
 };
 use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
@@ -28,7 +29,9 @@ use crate::user_dictionary::ranking::{
     adjust_candidate_ranking, adjust_english_candidate_ranking, learn_quick_phrase_bypass,
     learn_quick_phrase_selection, RankingRequest,
 };
-use crate::user_dictionary::typo_profile::is_storable_autocorrect_suppression;
+use crate::user_dictionary::typo_profile::{
+    is_storable_autocorrect_suppression, is_storable_shuangpin_suppression, ShuangpinTypoOutcome,
+};
 
 /// Match the engine's own maximum stored phrase width. Longer generated sentences are useful for this commit only and would otherwise grow the user dictionary without bound (ISC:51-53).
 pub const MAX_LEARNED_SENTENCE_SYLLABLES: usize = 7;
@@ -95,8 +98,9 @@ impl InputSession {
             return None;
         }
         let quick_phrase = self.learn_quick_phrase_order(index);
+        let shuangpin_typo = self.learn_shuangpin_touch_correction(index);
         let ranked = self.learn_ranked_candidate(index);
-        quick_phrase.or(ranked)
+        quick_phrase.or(ranked).or(shuangpin_typo)
     }
 
     /// 快捷短语参与调频（`mixed_input.quick_phrase_frequency`，Windows `utility.quick_phrase_frequency`）：组在普通候选里时，选中组内短语让整组按调频规则前移，越过整组选普通候选让整组后退一格、最多退到首页末位（`learn_quick_phrase_order`，input_session.cpp:1054-1096）。
@@ -412,8 +416,116 @@ impl InputSession {
             .map(|_| diagnostics::TYPO_NOT_PERSISTED.to_owned())
     }
 
+    /// 双拼的触点纠错能学的时候（当前请求带触点、开着纠错、内置方案、普通组字），返回方案。桌面和实体键盘的请求从不带触点，所以双拼学习只发生在触屏上。
+    fn shuangpin_touch_learning(&self) -> Option<&'static crate::shuangpin::ShuangpinProfile> {
+        let profile = self.shuangpin_profile();
+        let request = self.engine.request();
+        (self.scheme() == SchemeType::Shuangpin
+            && self.local_mode == LocalInputMode::None
+            && !self.dedicated_english
+            && self.autocorrect_types != 0
+            && profile.kind != ShuangpinProfileKind::Custom
+            && !request.key_touches.is_empty()
+            && request.key_geometry.is_some())
+        .then_some(profile)
+    }
+
+    /// 双拼的纠错行：带 `corrected_from` 的整句纠错行（Generated，`sentence_association`），或带 `corrected_from` 的词库行（1–2 个音节的短输入纠错）。
+    fn is_shuangpin_correction_row(row: &WordItem) -> bool {
+        !row.corrected_from.is_empty()
+            && ((row.source == CandidateSource::Generated && row.sentence_association)
+                || row.source.is_dictionary())
+    }
+
+    /// 纠错行改动过的每个音节在本次请求的触点下是哪一对两键码（`touch_correction_pairs`）。行回答的按键要是带触点那串输入的前缀。
+    fn shuangpin_correction_pairs(
+        &self,
+        profile: &'static crate::shuangpin::ShuangpinProfile,
+        row: &WordItem,
+    ) -> Option<Vec<CorrectionPair>> {
+        let request = self.engine.request();
+        let geometry = request.key_geometry.as_deref()?;
+        let typed = row.pinyin.as_str();
+        if !request.raw_input.starts_with(typed) {
+            return None;
+        }
+        touch_correction_pairs(
+            profile,
+            typed,
+            &request.key_touches[..typed.len()],
+            geometry,
+            &request.touch_tuning,
+            LearnedTypos::new(&self.typo_profile, profile.kind),
+            &row.canonical_pinyin,
+            self.autocorrect_types,
+        )
+    }
+
+    /// 双拼按两键码学触点纠错（#10018）。选中纠错行是接受：每个改动过的音节记一次 (按到的码 → 本次变体集里解到纠正后音节的码)。首选是纠错行、用户却选了别的行是拒绝：选中的行覆盖到的、读音不是纠正后那个音节的位置各记一次拒绝；没覆盖到的位置用户没表态，不记。`index` 是学习顺序里的位置，首选看的是显示出来的第一行。
+    fn learn_shuangpin_touch_correction(&self, index: usize) -> Option<String> {
+        let profile = self.shuangpin_touch_learning()?;
+        let selected = self.ranking_list().get(index)?;
+        let (pairs, outcome) = if Self::is_shuangpin_correction_row(selected) {
+            let pairs = self.shuangpin_correction_pairs(profile, selected)?;
+            (pairs, ShuangpinTypoOutcome::Accepted)
+        } else {
+            let first = self.candidates().first()?;
+            if !Self::is_shuangpin_correction_row(first)
+                || (first.word == selected.word
+                    && first.canonical_pinyin == selected.canonical_pinyin)
+            {
+                return None;
+            }
+            let chosen = normalized_syllables(&selected.canonical_pinyin);
+            let mut pairs = self.shuangpin_correction_pairs(profile, first)?;
+            pairs.retain(|pair| {
+                chosen
+                    .get(pair.position)
+                    .is_some_and(|syllable| syllable != pair.syllable)
+            });
+            (pairs, ShuangpinTypoOutcome::Rejected)
+        };
+        if pairs.is_empty() {
+            return None;
+        }
+        let codes: Vec<([u8; 2], [u8; 2])> = pairs
+            .iter()
+            .map(|pair| (pair.typed, pair.intended))
+            .collect();
+        self.typo_profile
+            .record_shuangpin(profile.kind, &codes, outcome)
+            .err()
+            .map(|_| diagnostics::TYPO_NOT_PERSISTED.to_owned())
+    }
+
+    /// 双拼：带触点的输入有落点支持的纠错可选（`touch_supported` 的整句纠错行，或带 `corrected_from` 的词库行），用户却按原样上屏，记一次抑制，之后同一串输入不再纠（`apply_autocorrect_suppression`）。沉到表尾、落点不支持的纠错行用户多半没看到，不算。
+    fn learn_rejected_shuangpin_correction(&self) -> Option<String> {
+        if !self.learning_enabled || !self.has_composition() {
+            return None;
+        }
+        let profile = self.shuangpin_touch_learning()?;
+        let input = self.engine.request().raw_input.as_str();
+        if !is_storable_shuangpin_suppression(input) {
+            return None;
+        }
+        let offered = self.candidates().iter().any(|item| {
+            Self::is_shuangpin_correction_row(item)
+                && (item.touch_supported || item.source.is_dictionary())
+        });
+        if !offered {
+            return None;
+        }
+        self.typo_profile
+            .record_shuangpin_suppression(profile.kind, input)
+            .err()
+            .map(|_| diagnostics::AUTOCORRECT_PREFERENCE_NOT_PERSISTED.to_owned())
+    }
+
     /// On CommitRaw while a correction is offered (input_session_composition.cpp:629-656).
     pub(super) fn learn_rejected_correction(&mut self) -> Option<String> {
+        if self.scheme() == SchemeType::Shuangpin {
+            return self.learn_rejected_shuangpin_correction();
+        }
         if !self.learning_enabled
             || !self.scheme().supports_autocorrect()
             || self.local_mode != LocalInputMode::None

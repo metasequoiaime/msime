@@ -597,6 +597,23 @@ mod tests {
         assert_eq!(streamed(&target), habits);
     }
 
+    /// 双拼按两键码学的纠错（#10018）不进输入习惯备份：旧版 Android 读到多出的一种记录会把整份备份判为损坏，所以导出和计数都只看原来那六张表。
+    #[test]
+    fn shuangpin_typo_learning_stays_out_of_the_habits_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let source = paths(root.path());
+        let file = journal(&source);
+        local(&file);
+        let before = streamed(&source);
+        sql(
+            &file,
+            "INSERT INTO shuangpin_typo_counts(profile,typed,intended,accepted,rejected,updated_at) VALUES('xiaohe','gf','gr',3,1,100);
+             INSERT INTO shuangpin_autocorrect_suppressions(profile,input,commits,updated_at) VALUES('xiaohe','mwgfxi',1,100);",
+        );
+        assert_eq!(streamed(&source), before);
+        assert_eq!(count_learning_habits(&source).unwrap(), before.len());
+    }
+
     #[test]
     fn a_merge_keeps_local_rows_and_takes_the_larger_count() {
         let root = tempfile::tempdir().unwrap();

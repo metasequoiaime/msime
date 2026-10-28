@@ -15,6 +15,12 @@ private func msimeClientFocusRaw(_ session: UInt64, _ focused: Bool) -> UnsafeMu
 private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 @_silgen_name("msime_client_character")
 private func msimeClientCharacterRaw(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_key_geometry")
+private func msimeClientSetKeyGeometryRaw(_ session: UInt64, _ json: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_touch_character")
+private func msimeClientTouchCharacterRaw(
+  _ session: UInt64, _ value: MSIMEByte, _ shift: Bool, _ geometryID: UInt32, _ x: Float, _ y: Float
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_glide")
 private func msimeClientGlideRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_punctuation")
@@ -211,6 +217,16 @@ private func msimeClientFocus(_ session: UInt64, _ focused: Bool) -> UnsafeMutab
 
 private func msimeClientCharacter(_ session: UInt64, _ value: MSIMEByte, _ shift: Bool) -> UnsafeMutablePointer<CChar>? {
   MSIMEInputThread.shared.sync { msimeClientCharacterRaw(session, value, shift) }
+}
+
+private func msimeClientSetKeyGeometry(_ session: UInt64, _ json: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientSetKeyGeometryRaw(session, json, length) }
+}
+
+private func msimeClientTouchCharacter(
+  _ session: UInt64, _ value: MSIMEByte, _ shift: Bool, _ geometryID: UInt32, _ x: Float, _ y: Float
+) -> UnsafeMutablePointer<CChar>? {
+  MSIMEInputThread.shared.sync { msimeClientTouchCharacterRaw(session, value, shift, geometryID, x, y) }
 }
 
 private func msimeClientGlide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>? {
@@ -1053,6 +1069,35 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func handleCharacter(_ character: String, shifted: Bool = false) -> MetasequoiaInputSnapshot {
     dispatch { pointer(for: character, shift: shifted) }
+  }
+
+  /// 会话里注册着的键位几何代次（#10018）；还没注册、注册被拒，或会话重建后句柄换了时为 nil，键盘要先重新注册再带落点打字。
+  var keyGeometryID: UInt32? {
+    guard let keyGeometry, keyGeometry.handle == handle, handle != 0 else { return nil }
+    return keyGeometry.id
+  }
+  private var keyGeometry: (handle: UInt64, id: UInt32)?
+
+  /// 注册 26 键的字母键几何（`TouchPointPolicy.request` 拼出的 JSON，代次是 `id`），只在布局变化后调用。引擎拒绝时返回 false，`keyGeometryID` 随之为 nil：引擎里原来那份几何虽然还在，键盘不再按任何代次带落点，下一键重新注册。
+  @discardableResult
+  func setKeyGeometry(_ request: Data, id: UInt32) -> Bool {
+    flushPendingCharacters()
+    keyGeometry = nil
+    guard handle != 0, id != 0, !request.isEmpty, request.count <= 16_384 else { return false }
+    let accepted = request.withUnsafeBytes { bytes in
+      (try? Self.decode(msimeClientSetKeyGeometry(
+        handle, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count)))) != nil
+    }
+    if accepted { keyGeometry = (handle, id) }
+    return accepted
+  }
+
+  /// 26 键双拼的一键带上按下点 (x, y)（键区坐标，与 `geometryID` 那份几何同一个坐标系）。代次不符、坐标不是有限数或当前不是 26 键双拼时，引擎的回应与 `handleCharacter(character)` 逐字节相同。
+  func handleTouchCharacter(_ character: String, geometryID: UInt32, x: Float, y: Float) -> MetasequoiaInputSnapshot {
+    dispatch {
+      guard let byte = Self.ascii(character) else { return nil }
+      return msimeClientTouchCharacter(handle, byte, false, geometryID, x, y)
+    }
   }
 
   /// 滑行输入：抬手时把一笔滑行的请求（`GlideTyping.request`）交给 Engine，回应与 `handleCharacter` 的一样。方案不是全拼、处于本地模式或这一笔解不出音节时 Engine 不处理（`isHandled` 为 false），宿主丢掉这一笔。

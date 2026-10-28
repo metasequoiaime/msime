@@ -490,6 +490,52 @@ mod tests {
         }
     }
 
+    /// 重置学习数据连双拼按两键码学的纠错（#10018）一起清掉：新日志里两张表是空的，共用的纠错档案下次刷新就读不到旧记录。
+    #[test]
+    fn reset_clears_shuangpin_typo_learning() {
+        use crate::types::ShuangpinProfileKind;
+        use crate::user_dictionary::typo_profile::{PersonalTypoProfile, ShuangpinTypoOutcome};
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = paths(temporary.path());
+        sql(
+            &paths.resource(assets::MAIN_DICTIONARY),
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        );
+        sql(
+            &paths.resource(assets::ENGLISH_DICTIONARY),
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
+        );
+        let journal = paths.user(assets::USER_JOURNAL);
+        let profile = PersonalTypoProfile::shared(&journal);
+        profile
+            .record_shuangpin(
+                ShuangpinProfileKind::Xiaohe,
+                &[(*b"gf", *b"gr")],
+                ShuangpinTypoOutcome::Accepted,
+            )
+            .unwrap();
+        profile
+            .record_shuangpin_suppression(ShuangpinProfileKind::Xiaohe, "mwgfxi")
+            .unwrap();
+        assert!(profile.has_shuangpin_counts());
+
+        reset_learned_data(&paths).unwrap();
+
+        for table in [
+            "shuangpin_typo_counts",
+            "shuangpin_autocorrect_suppressions",
+        ] {
+            assert_eq!(
+                weight(&journal, &format!("SELECT count(*) FROM {table}")),
+                Some(0),
+                "{table}"
+            );
+        }
+        profile.refresh_if_changed();
+        assert!(!profile.has_shuangpin_counts());
+        assert!(!profile.shuangpin_suppressed(ShuangpinProfileKind::Xiaohe, "mwgfxi"));
+    }
+
     #[test]
     fn reset_refuses_the_bundle_in_place_and_a_missing_package() {
         let root = tempfile::tempdir().unwrap();

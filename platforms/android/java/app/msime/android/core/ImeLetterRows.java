@@ -304,6 +304,10 @@ final class ImeLetterRows {
                             || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
                                 && ViewPolicy.isVisible(s.candidateViewport));
                         if (candidateVisible) {
+                            // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
+                            if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),
+                                    key.getHeight(), ViewConfiguration.get(s).getScaledTouchSlop()))
+                                s.imeTouchPoints.pending.forget(key);
                             key.performClick();
                             key.setPressed(false);
                             return true;
@@ -315,6 +319,8 @@ final class ImeLetterRows {
                     key.onTouchEvent(cancel);
                     cancel.recycle();
                     key.setPressed(false);
+                    // 滑出符号或长按选项吞掉了这一下，它的按下点不再属于任何一次点击。
+                    s.imeTouchPoints.pending.forget(key);
                     if (optionsShown[0] && s.imeLayoutRows.finishLetterOptions(key, event)) return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
@@ -324,6 +330,7 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_CANCEL -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
+                    s.imeTouchPoints.pending.forget(key);
                     s.imeLayoutRows.cancelLetterOptions(key);
                     return false;
                 }
@@ -747,6 +754,7 @@ final class ImeLetterRows {
         s.symbolKeyInputs.clear();
         s.shuangpinKeyButtons.clear();
         s.shuangpinKeyInputs.clear();
+        s.imeTouchPoints.forgetKeys();
         s.microsoftFinalKey = null;
         s.nineKeySidebar = null;
         s.nineKeySymbolKey = null;
@@ -868,8 +876,7 @@ final class ImeLetterRows {
                 koreanKeyButtons.add(keyButton);
                 koreanKeyInputs.add(input);
             } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
-                ShuangpinHintButton hintButton = s.shuangpinKeyboardKey(
-                    face, face, () -> s.type(input.charAt(0)));
+                ShuangpinHintButton hintButton = s.shuangpinLetterKey(face, face, input.charAt(0));
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
@@ -924,8 +931,7 @@ final class ImeLetterRows {
             }
             // The Dachen rows carry their own ; key (ㄤ), and no double-pinyin final.
             if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1 && !zhuyinKeycaps) {
-                s.microsoftFinalKey = s.keyId(s.shuangpinKeyboardKey(";", "微软双拼 ing", () -> s.type(';')),
-                    "Semicolon");
+                s.microsoftFinalKey = s.keyId(s.shuangpinLetterKey(";", "微软双拼 ing", ';'), "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
                 KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);

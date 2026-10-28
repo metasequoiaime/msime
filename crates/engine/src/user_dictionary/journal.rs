@@ -59,6 +59,17 @@ CREATE TABLE IF NOT EXISTS pinyin_autocorrect_suppressions(\
 input TEXT PRIMARY KEY,\
 commits INTEGER NOT NULL CHECK(commits >= 1),\
 updated_at INTEGER NOT NULL DEFAULT(unixepoch()));\
+CREATE TABLE IF NOT EXISTS shuangpin_typo_counts(\
+profile TEXT NOT NULL,typed TEXT NOT NULL,intended TEXT NOT NULL,\
+accepted INTEGER NOT NULL DEFAULT 0 CHECK(accepted BETWEEN 0 AND 1000),\
+rejected INTEGER NOT NULL DEFAULT 0 CHECK(rejected BETWEEN 0 AND 1000),\
+updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
+PRIMARY KEY(profile,typed,intended));\
+CREATE TABLE IF NOT EXISTS shuangpin_autocorrect_suppressions(\
+profile TEXT NOT NULL,input TEXT NOT NULL,\
+commits INTEGER NOT NULL CHECK(commits >= 1),\
+updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
+PRIMARY KEY(profile,input));\
 CREATE TABLE IF NOT EXISTS pinned_candidates(\
 context_key TEXT PRIMARY KEY,\
 value TEXT NOT NULL,\
@@ -671,6 +682,8 @@ mod tests {
             "pick_transitions",
             "pinyin_typo_counts",
             "pinyin_autocorrect_suppressions",
+            "shuangpin_typo_counts",
+            "shuangpin_autocorrect_suppressions",
             "pinned_candidates",
             "personal_bigram",
             "personal_trigram",

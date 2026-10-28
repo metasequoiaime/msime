@@ -50,7 +50,7 @@ Status: implemented
 
 ### 参考布局
 
-`resources/eval/key-geometry/` 下有 7 份：Android、iPhone、HarmonyOS 竖屏各两份，`ipad-split` 一份（没有微软双拼版）。它们按各端常量和行规则构造，不是真机导出的，构造规则写在 README。宿主接入触点那一期换成真机导出的几何后，基线要重跑。
+`resources/eval/key-geometry/` 下有 7 份：Android、iPhone、HarmonyOS 竖屏各两份，`ipad-split` 一份（没有微软双拼版）。这一期它们按各端常量和行规则构造。宿主接入触点那一期（[双拼触点纠错](../feature/2026-10-27-shuangpin-touch-correction.md)的 PR1b 一节）换成了三端在模拟器上导出的几何，只有鸿蒙微软双拼那份仍是构造的，出处写在 README，基线随之重跑。
 
 ### 依赖
 

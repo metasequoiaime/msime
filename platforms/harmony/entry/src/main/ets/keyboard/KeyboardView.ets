@@ -77,6 +77,7 @@ import {
   SpaceVoiceGesture
 } from './input/SpaceVoiceGesture';
 import { GlideArming, GlideKeyRect, GlidePoint, GlideTypingPolicy } from './input/GlideTypingPolicy';
+import { PendingTouches, TouchKey, TouchPoint, TouchPointPolicy } from './input/TouchPointPolicy';
 import { LetterHintTable } from './input/LetterHintTable';
 import { HintKeyRect, LetterHintGesture } from './input/LetterHintGesture';
 import { KeyPreviewFrame, KeyPreviewLayout } from './KeyPreviewLayout';
@@ -661,8 +662,10 @@ struct KeyboardView {
   @State voiceFinishing: boolean = false;
   /** 触屏上，直接上屏的识别结果内容，在聆听界面上以「已识别：…」显示 `VOICE_DONE_NOTICE_MS`；其他时候为空。 */
   @State voiceDone: string = '';
-  /** 触屏上，识别器目前听到的文字；用户选择显示中间结果时，聆听界面把它显示在标题下方。 */
+  /** 触屏上，识别器目前听到的文字；用户选择显示中间结果时，聆听界面在录音时把它显示在标题位，收尾识别时显示在提示行。 */
   @State voiceHeard: string = '';
+  /** 麦克风电平 0–1，聆听面板的光圈跟着它缩放；只在录音中更新，收尾、完成和取消时回到 0。 */
+  @State voiceLevel: number = 0;
   @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
@@ -801,6 +804,10 @@ struct KeyboardView {
   private keyPreviewFinger: number = -1;
   /** 字母键上可能输入角标提示而不是字母的触摸。 */
   private letterHints: LetterHintGesture = new LetterHintGesture();
+  /** 26 键字母键和 `;` 的按下点，等这一键的点击取走（#10018，`TouchPointPolicy`）。 */
+  private pendingTouches: PendingTouches = new PendingTouches();
+  /** 微软双拼第二行末尾 `;` 键的位置（窗口坐标），同 `glideKeys`；没量到时为 null。 */
+  private semicolonKey: GlideKeyRect | null = null;
   /** 每个被跟踪手指的长按计时器。 */
   private hintHoldTimers: Map<number, number> = new Map<number, number>();
   /** 双拼 18 键两个字母的键上的横滑。 */
@@ -1091,6 +1098,7 @@ struct KeyboardView {
     this.phraseGeneration += 1;
     this.voiceBusy = false;
     this.voiceFinishing = false;
+    this.voiceLevel = 0;
     KeyboardSession.shared.setVoiceRecording(false, true);
   }
 
@@ -1331,7 +1339,8 @@ struct KeyboardView {
         || this.tibetanFace() || this.zhuyinFace());
   }
 
-  private tapLetter(letter: string): void {
+  /** `touch` 是这一键的按下点（键盘根区域坐标），没有时为 null：无障碍点击、没有被记下的触摸。 */
+  private tapLetter(letter: string, touch: TouchPoint | null): void {
     if (this.glideSwallowsTap) {
       // The stroke already typed what it meant; see glideSwallowsTap.
       return;
@@ -1374,13 +1383,72 @@ struct KeyboardView {
       || (this.english && held);
     // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
     const input: string = this.english && held ? letter.toUpperCase() : letter;
-    KeyboardSession.shared.press(input.charCodeAt(0), shifted);
+    const touchKey: TouchKey | null = this.touchKey(touch, shifted);
+    if (touchKey !== null) {
+      KeyboardSession.shared.pressTouch(input.charCodeAt(0), shifted, touchKey);
+    } else {
+      KeyboardSession.shared.press(input.charCodeAt(0), shifted);
+    }
     // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
     // automatic Shift: it is not spent but recomputed from the text, which the change this press
     // just caused has already done. Clearing it here would give a capitals-only field one capital.
     if (this.caseMode === LetterCaseMode.SHIFTED && !automatic) {
       this.letterCase.reset();
       this.caseMode = this.letterCase.mode();
+    }
+  }
+
+  /** 这一键要不要带按下点交给引擎：只有触屏键盘上 26 键双拼的字母和 `;`，不是辅助码大写，键位都已量到（`TouchPointPolicy.usesTouch`）。 */
+  private touchKey(touch: TouchPoint | null, shifted: boolean): TouchKey | null {
+    if (touch === null || !TouchPointPolicy.usesTouch({
+      touchDesign: this.touchDesign(),
+      lettersLayer: this.qwertyLettersShowing(),
+      engineScheme: this.engineScheme,
+      english: this.english,
+      localMode: this.localMode,
+      shifted: shifted
+    })) {
+      return null;
+    }
+    const layout: string | null = this.touchLayout();
+    if (layout === null) {
+      return null;
+    }
+    const key: TouchKey = { point: touch, layout: layout };
+    return key;
+  }
+
+  /** 当前 26 键的键位布局，相对键盘根区域；有键还没量到时为 null。微软双拼画着 `;` 时它也得量到。每键按当前键位现算，见 `TouchPointPolicy.geometryLayout`。 */
+  private touchLayout(): string | null {
+    return TouchPointPolicy.geometryLayout(this.glideKeys, this.secondRowSemicolon(), this.semicolonKey,
+      this.glideOriginX, this.glideOriginY);
+  }
+
+  /** 点击时取走这一键的按下点，按这个键现在的位置换成键盘根区域坐标，与 `touchLayout` 同一帧的布局（`PendingTouches.take`）。 */
+  private takeTouch(letter: string): TouchPoint | null {
+    return this.pendingTouches.take(letter, Date.now(),
+      TouchPointPolicy.keyRect(this.glideKeys, this.semicolonKey, letter), this.glideOriginX, this.glideOriginY);
+  }
+
+  /** 字母键和 `;` 的按下点，只在触屏键盘上记；取不取用到点击时再按 `touchKey` 定。一律取按下点，不取抬起点。按下时只记相对被按的键的位置，点击时由 `takeTouch` 按键当时的位置换回坐标，按下和点击之间重新排版也不会错位。 */
+  private recordLetterTouch(letter: string | undefined, event: TouchEvent): void {
+    if (letter === undefined || !this.touchDesign() || !TouchPointPolicy.tracksKey(letter)) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      if (event.changedTouches.length === 0) {
+        return;
+      }
+      const touch: TouchObject = event.changedTouches[0];
+      const key: GlideKeyRect = {
+        left: Number(event.target.area.globalPosition.x ?? 0),
+        top: Number(event.target.area.globalPosition.y ?? 0),
+        width: Number(event.target.area.width),
+        height: Number(event.target.area.height)
+      };
+      this.pendingTouches.down(letter, touch.windowX, touch.windowY, key, Date.now());
+    } else if (event.type === TouchType.Cancel) {
+      this.pendingTouches.cancel(letter);
     }
   }
 
@@ -1412,7 +1480,7 @@ struct KeyboardView {
       return;
     }
     const index: number = GlideTypingPolicy.letterIndex(letter);
-    if (index < 0) {
+    if (index < 0 && letter !== ';') {
       return;
     }
     const rect: GlideKeyRect = {
@@ -1421,6 +1489,11 @@ struct KeyboardView {
       width: Number(area.width),
       height: Number(area.height)
     };
+    // `;` 不是滑行键，只给按下点的几何用（`touchLayout`、`takeTouch`）。
+    if (index < 0) {
+      this.semicolonKey = rect;
+      return;
+    }
     this.glideKeys[index] = rect;
   }
 
@@ -1603,6 +1676,7 @@ struct KeyboardView {
     this.hintHoldTimers.forEach((timer: number): void => clearTimeout(timer));
     this.hintHoldTimers.clear();
     this.letterHints.clear();
+    this.pendingTouches.clear();
     this.eighteenSwipes.clear();
     this.eighteenSwipeKey = '';
     this.eighteenSwipeLetter = '';
@@ -1865,7 +1939,10 @@ struct KeyboardView {
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
     .onAreaChange((_old: Area, now: Area): void => this.recordGlideKey($$.letter, now))
-    .onTouch((event: TouchEvent): void => this.letterHintTouch($$.letter, $$.cornerHint, event))
+    .onTouch((event: TouchEvent): void => {
+      this.recordLetterTouch($$.letter, event);
+      this.letterHintTouch($$.letter, $$.cornerHint, event);
+    })
     .onClick($$.action)
   }
 
@@ -3326,7 +3403,7 @@ struct KeyboardView {
         size: this.letterFontSize(),
         emphasized: false,
         width: 0,
-        action: () => this.tapLetter(letter)
+        action: () => this.tapLetter(letter, this.takeTouch(letter))
       };
     }
     return {
@@ -3338,7 +3415,7 @@ struct KeyboardView {
       size: this.letterFontSize(),
       emphasized: false,
       width: 0,
-      action: () => this.tapLetter(letter)
+      action: () => this.tapLetter(letter, this.takeTouch(letter))
     };
   }
 
@@ -7561,6 +7638,7 @@ struct KeyboardView {
     this.voiceStreams = VoiceRecordingBehaviourPolicy.streamsPartialResults(voiceConfiguration);
     this.voiceText = '';
     this.voiceHeard = '';
+    this.voiceLevel = 0;
     this.voiceNotice = '正在聆听…';
     this.voiceBusy = true;
     this.voiceFinishing = false;
@@ -7591,6 +7669,7 @@ struct KeyboardView {
         this.voiceFinishing = false;
         this.voiceBusy = false;
         this.voiceHeard = '';
+        this.voiceLevel = 0;
         KeyboardSession.shared.setVoiceRecording(false);
         this.deliverVoice(accepted);
       }
@@ -7600,17 +7679,22 @@ struct KeyboardView {
       this.voiceBusy = false;
       this.voiceFinishing = false;
       this.voiceHeard = '';
+      this.voiceLevel = 0;
       this.cancelVoiceSilence();
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = message;
       }, KeyboardSession.shared.voiceHotwordOptions(), (speaking: boolean): void => {
       this.voiceSpeechChanged(speaking);
+      }, (level: number): void => {
+      // 收尾识别时麦克风已经在关，晚到的电平不再让光圈涨回去。
+      if (this.voiceBusy && !this.voiceFinishing) this.voiceLevel = level;
       }).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
       this.voiceFinishing = false;
       this.voiceHeard = '';
+      this.voiceLevel = 0;
       this.cancelVoiceSilence();
       KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = error instanceof Error ? error.message : '语音识别不可用';
@@ -7699,6 +7783,7 @@ struct KeyboardView {
     }
     this.cancelVoiceSilence();
     this.voiceFinishing = true;
+    this.voiceLevel = 0;
     this.voiceNotice = '正在完成识别…';
     try {
       this.voiceRecognizer.stop();
@@ -7719,6 +7804,7 @@ struct KeyboardView {
     this.voiceBusy = false;
     this.voiceFinishing = false;
     this.voiceHeard = '';
+    this.voiceLevel = 0;
     this.cancelVoiceSilence();
     this.clearVoiceDone();
     // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
@@ -7744,25 +7830,43 @@ struct KeyboardView {
       KeyboardSession.shared.voiceInputConfiguration());
   }
 
-  /** 聆听界面的标题：结果上屏后为「识别完成」，即 Android 的 `VoiceListeningView` 文案。 */
+  /** 聆听界面的标题：录音时听到了文字就显示它，否则为「正在聆听…」；结果上屏后为「识别完成」，即 Android 的 `VoiceListeningView` 文案。 */
   private voiceListeningTitle(): string {
+    if (this.voiceListeningTitleTail()) return this.voiceHeard;
     return this.voiceDone.length > 0 ? '识别完成'
       : this.voiceFinishing ? '正在识别…' : this.voiceBusy ? '正在聆听…' : '语音输入';
   }
 
-  /** 标题下方的一行：已上屏的内容、录音正在收尾、目前听到的文字，或如何取消。 */
+  /** 标题位放的是录音中听到的文字，面板放不下时从开头省略，留住最新的那段。 */
+  private voiceListeningTitleTail(): boolean {
+    return this.voiceDone.length === 0 && this.voiceBusy && !this.voiceFinishing && this.voiceHeard.length > 0;
+  }
+
+  /** 标题下方的一行：已上屏的内容、收尾识别时最后听到的文字，或如何结束；空闲时为提示或识别服务说明。 */
   private voiceListeningHint(): string {
     if (this.voiceDone.length > 0) {
-      return `已识别：${this.voiceDone}`;
+      return this.voiceDone;
     }
     if (this.voiceFinishing) {
-      return '正在识别…';
+      return this.voiceHeard.length > 0 ? this.voiceHeard : '识别完成后自动上屏';
     }
     if (!this.voiceBusy) {
       return this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription();
     }
-    if (this.voiceHeard.length > 0) return this.voiceHeard;
+    if (this.voiceHeldByKey) {
+      return '松开结束录音';
+    }
     return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
+  }
+
+  /** 提示行放的是转写文字（已上屏的内容或收尾时最后听到的），放不下一行时从开头省略。 */
+  private voiceListeningHintTail(): boolean {
+    return this.voiceDone.length > 0 || (this.voiceFinishing && this.voiceHeard.length > 0);
+  }
+
+  /** 已上屏的内容前面加「已识别：」，裁剪时这几个字始终留着。 */
+  private voiceListeningHintPrefix(): string {
+    return this.voiceDone.length > 0 ? '已识别：' : '';
   }
 
   /** 手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。 */
@@ -7771,6 +7875,14 @@ struct KeyboardView {
     if (this.voiceFinishing) return '正在识别…';
     if (this.voiceBusy) return '说完了';
     return this.voiceText.length > 0 ? '插入文字' : '重新录音';
+  }
+
+  /**
+   * 按住说话（空格长按或快捷键按住）的会话在忙时不给任何按钮：松手就是结束，整块高度都留给圆盘和文字。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间同样没有按钮，结束和取消走快捷键自己的 STOP、CANCEL。点按开始的会话可以取消；不忙时（提示、出错、识别完成）一律留「返回键盘」，否则没有路离开面板。
+   */
+  private voiceCancelLabel(): string {
+    if (!this.voiceBusy) return '返回键盘';
+    return this.voiceHeldByKey ? '' : '取消';
   }
 
   private voicePrimaryAction(): void {
@@ -7796,14 +7908,19 @@ struct KeyboardView {
       Column() {
         VoiceListening({
           accent: this.voiceSkin.accent,
+          onAccent: this.voiceSkin.onAccent,
           foreground: this.voiceSkin.keyForeground,
           secondary: this.voiceSkin.secondary,
           micPath: KeyboardIconPaths.MIC,
           title: this.voiceListeningTitle(),
+          titleTail: this.voiceListeningTitleTail(),
           hint: this.voiceListeningHint(),
+          hintTail: this.voiceListeningHintTail(),
+          hintPrefix: this.voiceListeningHintPrefix(),
+          level: this.voiceLevel,
           primaryLabel: this.voicePrimaryLabel(),
           primaryEnabled: !this.voiceFinishing,
-          cancelLabel: this.voiceBusy ? '取消' : '返回键盘',
+          cancelLabel: this.voiceCancelLabel(),
           onPrimary: (): void => this.voicePrimaryAction(),
           onCancel: (): void => this.cancelListening()
         })
