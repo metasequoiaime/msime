@@ -13,6 +13,7 @@ import {
 } from "./mobile-statistics-style";
 import { StatisticsBadges } from "./statistics-badges";
 import type { TypingSummary } from "./typing-summary";
+import type { TouchKeyLayoutStyle } from "../keyboard/touch-key-layout-styles";
 
 export { statisticsCardClass, type StatisticsLook } from "./mobile-statistics-style";
 
@@ -47,12 +48,15 @@ export function MobileStatistics({
   summary,
   dailyKeys,
   uploading = false,
+  layoutStyle,
 }: {
   look: StatisticsLook;
   summary: TypingSummary;
   dailyKeys: DailyKeyCounts | undefined;
   /** 打开了「上传到云端」：底部的隐私说明随之改写。 */
   uploading?: boolean;
+  /** 用户当前的按键布局样式与数字行，「按键」热力图照它画（HarmonyOS 手机）。 */
+  layoutStyle?: TouchKeyLayoutStyle;
 }) {
   const [tab, setTab] = useState<StatisticsTab>("overview");
   const id = useId();
@@ -102,6 +106,7 @@ export function MobileStatistics({
             habits={summary.habits}
             counts={keyCounts}
             card={card}
+            layoutStyle={layoutStyle}
           />
         )}
         {tab === "achievements" && (

@@ -53,7 +53,7 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_PHRASE = "platform.android.toolbar_phrase";
     public static final String TOOLBAR_SCHEME = "platform.android.toolbar_scheme";
     public static final String TOOLBAR_HIDDEN = "platform.android.toolbar_hidden";
-    /** 26 键字母层与数字层的可选长空格底行，默认关闭，仅在本机保存。 */
+    /** 旧版的「长空格布局」，默认关闭，仅在本机保存。现在由共享偏好 `touch_twenty_six_key_style` 的 `long_space` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值（不认识的键在读取时会被丢掉）。 */
     public static final String LONG_SPACE_LAYOUT = "platform.android.long_space_layout";
     public static final String HANDWRITING_MODE = "platform.android.handwriting_mode";
     public static final String HANDWRITING_DELAY_MS = "platform.android.handwriting_delay_ms";
@@ -77,7 +77,7 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
-    /** 「数字行」（#6022）：26 键和韩文键盘的字母上方多一行 1–0（{@link KeyboardLayout#drawsNumberRow}），默认关。同步字段表里没有这个键，只在本机。 */
+    /** 旧版的「数字行」（#6022），默认关，只在本机。现在由共享偏好 `touch_number_row` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；同步的 `platform.android.number_row` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 拼音九键网格键的滑动（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，不改变原来九键的点按。和 26 键的「滑动输入符号」分开，服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";

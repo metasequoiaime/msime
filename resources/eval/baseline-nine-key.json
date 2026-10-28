@@ -3,54 +3,54 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.543,
-      "top1": 0.366,
-      "top1_char_prefix": 0.405,
-      "top5": 0.788,
-      "top9": 0.882
+      "mrr": 0.567,
+      "top1": 0.394,
+      "top1_char_prefix": 0.432,
+      "top5": 0.797,
+      "top9": 0.883
     },
     "3": {
       "cases": 365,
-      "found": 0.989,
-      "mrr": 0.926,
-      "top1": 0.882,
-      "top1_char_prefix": 0.904,
-      "top5": 0.978,
-      "top9": 0.981
+      "found": 0.995,
+      "mrr": 0.943,
+      "top1": 0.907,
+      "top1_char_prefix": 0.926,
+      "top5": 0.984,
+      "top9": 0.986
     },
     "4": {
       "cases": 556,
-      "found": 0.811,
-      "mrr": 0.806,
-      "top1": 0.8,
-      "top1_char_prefix": 0.835,
-      "top5": 0.811,
-      "top9": 0.811
+      "found": 0.876,
+      "mrr": 0.869,
+      "top1": 0.862,
+      "top1_char_prefix": 0.886,
+      "top5": 0.876,
+      "top9": 0.876
     },
     "5": {
       "cases": 10,
-      "found": 0.0,
-      "mrr": 0.0,
-      "top1": 0.0,
-      "top1_char_prefix": 0.44,
-      "top5": 0.0,
-      "top9": 0.0
+      "found": 0.1,
+      "mrr": 0.1,
+      "top1": 0.1,
+      "top1_char_prefix": 0.54,
+      "top5": 0.1,
+      "top9": 0.1
     }
   },
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2658,
+    "database": 2698,
     "generated": 4
   },
   "overall": {
     "cases": 2791,
-    "found": 0.954,
-    "mrr": 0.644,
-    "top1": 0.518,
-    "top1_char_prefix": 0.556,
-    "top5": 0.815,
-    "top9": 0.877
+    "found": 0.968,
+    "mrr": 0.674,
+    "top1": 0.553,
+    "top1_char_prefix": 0.588,
+    "top5": 0.834,
+    "top9": 0.892
   },
   "sample_failures": [
     {
@@ -65,7 +65,7 @@
       "id": "w-00010",
       "input": "aige",
       "rank": 8,
-      "top1": "吃饭"
+      "top1": "逼格"
     },
     {
       "gold": "爱慕",
@@ -79,7 +79,7 @@
       "id": "w-00037",
       "input": "aixi",
       "rank": 31,
-      "top1": "逼着"
+      "top1": "鼻子"
     },
     {
       "gold": "暗地里",
@@ -136,13 +136,6 @@
       "input": "baidu",
       "rank": 4,
       "top1": "百度"
-    },
-    {
-      "gold": "百货公司",
-      "id": "w-00235",
-      "input": "baihuogongsi",
-      "rank": null,
-      "top1": "踩过公司"
     },
     {
       "gold": "败露",
@@ -222,13 +215,6 @@
       "top1": "保底"
     },
     {
-      "gold": "暴风雨",
-      "id": "w-00433",
-      "input": "baofengyu",
-      "rank": 2,
-      "top1": "暴风雪"
-    },
-    {
       "gold": "报告",
       "id": "w-00442",
       "input": "baogao",
@@ -255,13 +241,6 @@
       "input": "baoweike",
       "rank": 2,
       "top1": "包围了"
-    },
-    {
-      "gold": "报效祖国",
-      "id": "w-00541",
-      "input": "baoxiaozuguo",
-      "rank": null,
-      "top1": "保险祖国"
     },
     {
       "gold": "褒义",
@@ -296,7 +275,7 @@
       "id": "w-00613",
       "input": "beicha",
       "rank": 4,
-      "top1": "北边"
+      "top1": "被查"
     },
     {
       "gold": "备荒",
@@ -323,7 +302,7 @@
       "gold": "本县",
       "id": "w-00748",
       "input": "benxian",
-      "rank": 8,
+      "rank": 7,
       "top1": "本校"
     },
     {
@@ -332,10 +311,31 @@
       "input": "benzhe",
       "rank": 2,
       "top1": "奔着"
+    },
+    {
+      "gold": "彼岸",
+      "id": "w-00766",
+      "input": "bian",
+      "rank": 21,
+      "top1": "变"
+    },
+    {
+      "gold": "编号",
+      "id": "w-00793",
+      "input": "bianhao",
+      "rank": 2,
+      "top1": "长按"
+    },
+    {
+      "gold": "贬义",
+      "id": "w-00847",
+      "input": "bianyi",
+      "rank": 10,
+      "top1": "抄袭"
     }
   ],
   "top1_source": {
-    "database": 2694,
-    "generated": 97
+    "database": 2734,
+    "generated": 57
   }
 }

@@ -105,9 +105,9 @@ public final class FourteenKeyLayoutSmoke {
             == KeyboardLayout.HANDWRITING_LAYOUT, "handwriting is untouched");
         check(KeyboardLayout.resolveTouchLayout(false, true, false, 0, "nine_key")
             == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, "nine-key is untouched");
-        // 关闭：Shift、数字行、分体（滑行只在标准 26 键上，见 ImeGlideTyping）。
+        // 关闭：Shift、分体（滑行只在标准 26 键上，见 ImeGlideTyping）；顶部数字行打开时与 26 键一样画在字母上方。
         check(!KeyboardLayout.carriesLetterCase(fourteen), "no Shift");
-        check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, fourteen, 760), "no number row");
+        check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, fourteen, 760), "the top number row");
         check(!SplitKeyboardPolicy.drawn(true, 800, true, fourteen), "never split");
         // 14 键底行保留独立逗号句号，第三行左端已有符号入口；26 键的逗号在空格右边、长按输入句号。
         check(KeyboardActionRow.designEntries(fourteen, false).stream().map(KeyboardActionRow.DesignEntry::slot).toList()

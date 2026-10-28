@@ -85,6 +85,17 @@ inline bool operator==(const Status &a, const Status &b) {
 
 inline bool operator!=(const Status &a, const Status &b) { return !(a == b); }
 
+// 焦点读取不占普通操作的忙状态：每次读取只接纳最新一次，普通操作开始就作废此前的读取。只在 UI 线程使用，页面和配置的生命周期仍由宿主原有的代次管理。
+class StatusReadOrder {
+public:
+  uint64_t begin_read() { return ++sequence_; }
+  void invalidate() { ++sequence_; }
+  bool accepts(uint64_t sequence) const { return sequence == sequence_; }
+
+private:
+  uint64_t sequence_ = 0;
+};
+
 // 本机是否获准的一句。
 inline std::wstring approval_text(const Status &status) {
   if (status.device_id.empty())

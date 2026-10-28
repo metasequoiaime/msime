@@ -13,6 +13,11 @@ enum KeyboardFormFactor: Equatable {
   /// 26 键手机竖屏为补回键盘总高而在键区上下增加的留白。
   static let phoneLetterVerticalPadding: CGFloat = 10
 
+  /// 26 键手机竖屏有 `rows` 排键（含底行）时上下各留的白：每排键帽从 52pt 收到 44pt 省下 8pt，排间距多出 `phoneLetterRowPadding`，两者之差平分到上下。四排时为 `phoneLetterVerticalPadding`；顶部数字行打开时五排，为 12pt，字母键仍是 44pt。
+  static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
+    (CGFloat(rows) * 8 - CGFloat(max(rows - 1, 0)) * phoneLetterRowPadding) / 2
+  }
+
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass
   ) -> KeyboardFormFactor {
@@ -51,9 +56,10 @@ enum KeyboardFormFactor: Equatable {
     }
   }
 
-  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。竖屏手写也多一排（`handwritingAddsRow`），书写区因此有四排键高。
-  func keyRows(numberRow: Bool, handwriting: Bool = false, landscape: Bool = false) -> Int {
-    (self == .tablet && numberRow ? 5 : 4) + (Self.handwritingAddsRow(handwriting: handwriting, landscape: landscape) ? 1 : 0)
+  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。手机只在画「按键布局」的顶部数字行（或它在数字和符号页上的补充行）时为五排（`phoneNumberRow`），大千的第五排在手机上仍挤在四排里。竖屏手写也多一排（`handwritingAddsRow`），书写区因此有四排键高。
+  func keyRows(numberRow: Bool, handwriting: Bool = false, landscape: Bool = false, phoneNumberRow: Bool = false) -> Int {
+    ((self == .tablet ? numberRow : phoneNumberRow) ? 5 : 4)
+      + (Self.handwritingAddsRow(handwriting: handwriting, landscape: landscape) ? 1 : 0)
   }
 
   /// 手写模式是否比其他布局多一排键高：竖屏的手机和 iPad 都多，书写区占四排键高、铺满键盘宽度；横屏屏幕本来就矮，保留原来的三排书写区。Android 与 HarmonyOS 按同一条规则（见 .agents/notes/implemented/feature/2026-10-25-mobile-handwriting-full-width-pad.md）。
@@ -61,8 +67,8 @@ enum KeyboardFormFactor: Equatable {
 
   /// 用户调整之前的键盘高度，按设计稿的结构逐项相加：上边距、顶部那一行、它下面的间隔、各排按键连同排间距，以及下边距。顶部那一行收起（`topRow` 为 0，「显示方式」为隐藏时）时间隔也一起去掉，与 `applyKeyboardMetrics` 把那段间隔设为 0 一致，否则多出的高度会被分给按键，组字开始和结束时按键高度跟着跳。
   func keyboardHeight(topRow: CGFloat, rowSpacing: CGFloat, landscape: Bool, handwriting: Bool,
-                      numberRow: Bool = false, letterKeys: Bool = false) -> CGFloat {
-    let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape)
+                      numberRow: Bool = false, letterKeys: Bool = false, phoneNumberRow: Bool = false) -> CGFloat {
+    let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape, phoneNumberRow: phoneNumberRow)
     let keyBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys),
       rows: rows, rowSpacing: rowSpacing)

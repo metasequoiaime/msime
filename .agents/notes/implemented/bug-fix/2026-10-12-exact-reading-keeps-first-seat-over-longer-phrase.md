@@ -40,6 +40,7 @@ Status: implemented
 - **基线**：`resources/eval/baseline-words.json` 按这次结果更新。整句集 `sentences`、`harvested`、`neutral` 在改动前的 develop 上就已经和基线不一致，这次改动只让 `harvested` 的 top-1 从 0.321 变成 0.324，没有顺手更新它们；九键和 14 键四个集改动前后都和基线一致。
 - 和 [模糊音下覆盖整个输入的词条排在替补整句之前](2026-10-08-fuzzy-whole-input-before-stand-in-sentence.md) 是同一个方向：整句是没有整词时的补位，补全词同样不该压在用户打出的整词前面。
 - [拼音打完整时，补全词让位于一页精确同音词](2026-10-13-longer-phrases-yield-to-a-full-page.md) 接续这一决定：精确同音词够填一页时补全词整组不再并入，不足一页时最多并入 3 条；本篇的首位规则不变。
+- 九键不打切分时的同类问题（补全词压住打全的读音）见 [九键不打切分、首页里有拼满的多音节词时，补全按权重的 1/6 和完整读法比](2026-10-27-nine-key-completion-discount-on-first-page.md)。九键没有「读音与输入完全一致」可判，那里改用首页内按权重折算。
 
 ## Verification
 

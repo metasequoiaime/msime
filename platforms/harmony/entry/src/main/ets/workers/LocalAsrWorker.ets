@@ -23,6 +23,7 @@ import {
   LOCAL_MODEL_OFFLINE_TRANSDUCER,
   LOCAL_MODEL_ONLINE_TRANSDUCER,
   LOCAL_ONLINE_TAIL_SAMPLES,
+  LOCAL_VAD_HISTORY_SLACK,
   LOCAL_VAD_WINDOW,
   LocalAsrPolicy,
   LocalAsrReply,
@@ -58,6 +59,13 @@ class Session {
   model: LoadedModel;
   onlineStream: OnlineStream | undefined = undefined;
   vad: Vad | undefined = undefined;
+  /** 送进 VAD 的最近一段录音，给段首往前补（`LocalAsrPolicy.vadSegmentStart`）。前 `historyLength` 个有效，`history[0]` 是会话里第 `historyStart` 个采样；最多留 `historyLimit` 个，sherpa-onnx 自己的缓冲只留到段首前 2 个窗口。 */
+  history: Float32Array = new Float32Array(0);
+  historyLength: number = 0;
+  historyStart: number = 0;
+  historyLimit: number = 0;
+  /** 上一段的段尾。往前补不越过它，否则两段的识别结果会重复同一段音频里的字。 */
+  decodedEnd: number = 0;
   segments: string[] = [];
   current: string = '';
   lastPartial: string = '';
@@ -361,6 +369,30 @@ function decodeOnline(current: Session): void {
   }
 }
 
+function remember(current: Session, samples: Float32Array): void {
+  // 多攒一秒再整块丢掉最旧的，免得每个窗口都搬一遍整段缓冲。
+  if (current.historyLength + samples.length > current.history.length) {
+    const drop: number = Math.max(0, current.historyLength + samples.length - current.historyLimit);
+    current.history.copyWithin(0, drop, current.historyLength);
+    current.historyLength -= drop;
+    current.historyStart += drop;
+  }
+  current.history.set(samples, current.historyLength);
+  current.historyLength += samples.length;
+}
+
+/** VAD 的段首往前补上它漏掉的起音，见 `LocalAsrPolicy.vadSegmentStart`。 */
+function paddedSegment(current: Session, segment: SpeechSegment): Float32Array {
+  const history: Float32Array = current.history.subarray(0, current.historyLength);
+  const begin: number = LocalAsrPolicy.vadSegmentStart(history, current.historyStart, segment.start, current.decodedEnd);
+  current.decodedEnd = segment.start + segment.samples.length;
+  if (begin >= segment.start) return segment.samples;
+  const padded: Float32Array = new Float32Array(segment.start - begin + segment.samples.length);
+  padded.set(history.subarray(begin - current.historyStart, segment.start - current.historyStart), 0);
+  padded.set(segment.samples, segment.start - begin);
+  return padded;
+}
+
 function drainVad(current: Session): void {
   const vad: Vad = current.vad as Vad;
   const recognizer: OfflineRecognizer = current.model.offline as OfflineRecognizer;
@@ -370,7 +402,7 @@ function drainVad(current: Session): void {
     vad.pop();
     if (segment.samples.length === 0) continue;
     const stream: OfflineStream = recognizer.createStream();
-    stream.acceptWaveform({ samples: segment.samples, sampleRate: LOCAL_ASR_SAMPLE_RATE });
+    stream.acceptWaveform({ samples: paddedSegment(current, segment), sampleRate: LOCAL_ASR_SAMPLE_RATE });
     recognizer.decode(stream);
     const text: string = recognizer.getResult(stream).text;
     if (text.length > 0) current.segments.push(text);
@@ -384,9 +416,11 @@ function start(request: LocalAsrRequest): void {
   if (model.online !== undefined) {
     current.onlineStream = model.online.createStream();
   } else {
-    const silero: SileroVadConfig = new SileroVadConfig(model.plan.vad, 0.5, 0.25, 0.5, LOCAL_VAD_WINDOW,
-      // FunASR-nano shares a 512-token context between audio and text; past roughly 25 seconds it returns nothing.
-      model.plan.kind === LOCAL_MODEL_OFFLINE_FUNASR_NANO ? 20 : 28);
+    // FunASR-nano shares a 512-token context between audio and text; past roughly 25 seconds it returns nothing.
+    const maxSpeech: number = model.plan.kind === LOCAL_MODEL_OFFLINE_FUNASR_NANO ? 20 : 28;
+    const silero: SileroVadConfig = new SileroVadConfig(model.plan.vad, 0.5, 0.25, 0.5, LOCAL_VAD_WINDOW, maxSpeech);
+    current.historyLimit = maxSpeech * LOCAL_ASR_SAMPLE_RATE + LOCAL_VAD_HISTORY_SLACK;
+    current.history = new Float32Array(current.historyLimit + LOCAL_ASR_SAMPLE_RATE);
     const ten: TenVadConfig = new TenVadConfig('', 0.5, 0.25, 0.5, 256, 20);
     current.vad = new Vad(new VadConfig(silero, ten, LOCAL_ASR_SAMPLE_RATE, false, 1), 60);
   }
@@ -406,7 +440,9 @@ function accept(request: LocalAsrRequest): void {
     // The detector judges each call as a whole, so it is fed one window at a time; a long buffer would merge every pause into one segment.
     const vad: Vad = current.vad as Vad;
     for (let at: number = 0; at < samples.length; at += LOCAL_VAD_WINDOW) {
-      vad.acceptWaveform(samples.subarray(at, Math.min(at + LOCAL_VAD_WINDOW, samples.length)));
+      const chunk: Float32Array = samples.subarray(at, Math.min(at + LOCAL_VAD_WINDOW, samples.length));
+      remember(current, chunk);
+      vad.acceptWaveform(chunk);
       drainVad(current);
     }
     // 整段模型只在一段说完后才出文字，主线程按「多久没有新文字」判断说完会在用户连续说话时提前结束录音，所以把 VAD 的说话状态告诉它（`LocalAsrSession::speech_detected`）。只在变化时发送。

@@ -1,4 +1,4 @@
-﻿# 设置冒烟的只读快照不得干扰宿主原子替换；不依赖已编译的输入法或 WinUI。
+﻿# 设置冒烟的只读快照不得干扰宿主原子替换：读取要取与 Rust 存储同一把锁，并在返回前关闭句柄；不依赖已编译的输入法或 WinUI。
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'settings_snapshot.ps1')
@@ -25,12 +25,23 @@ try {
     } else {
         Add-Type @'
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 public static class SettingsSnapshotReplacementProbe {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileEx(string source, string destination, uint flags);
     public static int Replace(string source, string destination) {
         return MoveFileEx(source, destination, 1) ? 0 : Marshal.GetLastWin32Error();
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Overlapped { public IntPtr Internal, InternalHigh; public uint Offset, OffsetHigh; public IntPtr Event; }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool LockFileEx(SafeFileHandle file, uint flags, uint reserved, uint low, uint high, ref Overlapped overlapped);
+    // 与 Rust 标准库 `File::lock` 在 Windows 上的调用相同：`LOCKFILE_EXCLUSIVE_LOCK`，从偏移 0 起锁住整段区间。
+    public static int LockLikeRust(FileStream file) {
+        var overlapped = new Overlapped();
+        return LockFileEx(file.SafeFileHandle, 2, 0, uint.MaxValue, uint.MaxValue, ref overlapped) ? 0 : Marshal.GetLastWin32Error();
     }
 }
 '@
@@ -53,5 +64,34 @@ public static class SettingsSnapshotReplacementProbe {
             if ((Read-SettingsSnapshotText $path) -ne 'synthetic-after') { throw '原子替换没有发布新内容' }
             Write-Host "Windows 原子替换对照：真实快照 helper 已返回，错误码=$errorCode，新内容验证通过"
         }
+        # 轮询读取即使返回前就关闭句柄，打开到关闭之间仍是一个读取窗口，宿主的替换落进去就会失败（#9915、#10115 两次候选数量「未保存」都是这样）。模拟写入方像 Rust 存储那样持锁、在锁里替换：读取必须等到锁释放后读到新内容，在锁外读会读到旧内容。
+        [IO.File]::WriteAllText($path, 'synthetic-before')
+        [IO.File]::WriteAllText($replacement, 'synthetic-locked-after')
+        $held = New-Object Threading.ManualResetEvent($false)
+        $writer = [PowerShell]::Create()
+        $null = $writer.AddScript({
+            param($lockPath, $source, $destination, $held)
+            $sharing = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+            $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, $sharing)
+            try {
+                $lockError = [SettingsSnapshotReplacementProbe]::LockLikeRust($lock)
+                if ($lockError -ne 0) { return "lock:$lockError" }
+                $null = $held.Set()
+                Start-Sleep -Milliseconds 500
+                return "replace:$([SettingsSnapshotReplacementProbe]::Replace($source, $destination))"
+            } finally { $lock.Dispose() }
+        }).AddArgument((Join-Path $root 'preferences.lock')).AddArgument($replacement).AddArgument($path).AddArgument($held)
+        $pending = $writer.BeginInvoke()
+        try {
+            if (-not $held.WaitOne(10000)) { throw "模拟写入方没有取得存储锁：$(@($writer.EndInvoke($pending)) -join ',')" }
+            $contents = Read-SettingsSnapshotText $path
+            $writerResult = @($writer.EndInvoke($pending)) -join ','
+        } finally {
+            $writer.Dispose()
+            $held.Dispose()
+        }
+        if ($writerResult -ne 'replace:0') { throw "模拟写入方在锁内替换失败：$writerResult" }
+        if ($contents -ne 'synthetic-locked-after') { throw "快照读取没有等待存储锁，读到了替换前的内容：$contents" }
+        Write-Host '存储锁对照：写入方持锁替换成功，读取等到锁释放后读到新内容'
     }
 } finally { Remove-Item -LiteralPath $root -Recurse -Force }

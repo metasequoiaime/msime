@@ -42,6 +42,8 @@ import app.msime.android.SplitKeyboardPolicy;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TouchKeyStyle;
+import app.msime.android.KeyLayoutStyleMigration;
 import app.msime.android.TextTrackpadSettings;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -50,7 +52,7 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式与顶部数字行，{@link KeyLayoutStylesPage}）、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift 和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
@@ -85,6 +87,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
         HostTask.run(this, context -> {
+            // 先把本机旧的长空格设置迁进共享偏好，工具栏预览按迁移后的底行样式画顶部符号入口。
+            KeyLayoutStyleMigration.migrate(context, HostStore.directory(context));
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;
             return new State(preferences, AndroidLocalSettings.load(context), KeyboardFeedbackStore.load(context),
@@ -132,6 +136,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             layout.nav("中文键盘", note, layoutLabel(current),
                 pairOffered ? () -> pickLayout(current, pair) : null);
         }
+        // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组，一组都没有（例如日语版）时不列这个入口，与鸿蒙同一条规则。副标题三端相同。
+        if (TouchKeyStyle.Groups.offeredBy(edition).any())
+            layout.nav("按键布局", "各类键盘的底行样式和顶部数字行", null,
+                () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
         String spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
@@ -164,9 +172,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
         layout.nav("符号分类顺序", "调整符号面板底部分类的排列顺序",
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show());
-        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号上滑或下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
-            settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT),
-            checked -> saveLocalSetting(AndroidLocalSettings.LONG_SPACE_LAYOUT, checked));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
@@ -190,9 +195,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.slider("行间距", KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_ROW_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.rowSpacing(NumberPolicy.strictInt(preferences, "touch_row_spacing_tenths", -1)),
             KeyboardSpacingPolicy::display, value -> savePreference("touch_row_spacing_tenths", value));
-        layout.toggle("数字行", "26 键和韩文键盘的字母上方多一行 1–0，键盘整体高出一行；手机横屏时放不下，不显示",
-            settings.bool(AndroidLocalSettings.NUMBER_ROW),
-            checked -> saveLocalSetting(AndroidLocalSettings.NUMBER_ROW, checked));
         boolean showLargeScreenOptions = KeyboardFormFactorPolicy.showLargeScreenOptions(
             requireContext().getResources().getConfiguration().smallestScreenWidthDp);
         if (showLargeScreenOptions) {
@@ -292,7 +294,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         if (toolbar == null) toolbar = new JSONObject();
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
-        bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
+        bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin(),
+            TouchKeyStyle.Row.LONG_SPACE.wire.equals(JsonPolicy.strictString(
+                preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)))));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
         boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
@@ -352,9 +356,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
-    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
+    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。26 键选了长空格样式时符号入口在工具栏上，预览也画出来。 */
     private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
-                                       KeyboardSkin skin) {
+                                       KeyboardSkin skin, boolean longSpace) {
         LinearLayout strip = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(strip);
         int pad = DimensionPolicy.pixels(context, 12);
@@ -372,7 +376,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
-        boolean longSpace = settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT);
         if (hidden && !longSpace) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);

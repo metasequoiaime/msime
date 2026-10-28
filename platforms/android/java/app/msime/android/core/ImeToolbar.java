@@ -468,7 +468,7 @@ final class ImeToolbar {
                 shortcut.setIconColors(iconColor, activeIconColor);
             }
         }
-        if (shortcutButtons != null && s.toolbarHidden && s.longSpaceLayoutActive())
+        if (shortcutButtons != null && s.toolbarHidden && s.longSpaceToolbarRowKept())
             for (Button button : shortcutButtons) ViewPolicy.hide(button);
         if (s.symbolShortcutButton instanceof KeyboardShortcutButton symbol) {
             symbol.setActiveFill(activeBackgroundColor);

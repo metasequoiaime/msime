@@ -31,10 +31,11 @@ import java.util.Set;
  * <p>九键左栏的「，。？」和右列的「！」都记 `SoftPunctuation`，存储分不出按的是哪一个：这几个键涂同一档颜色，哪个键上都不印百分数（{@link KeyHeatmapLayout#sharedIds}），只印在一个键上会被读成那个键自己的占比。「重输」按了不计数，画成 0 次那一档、不印百分数。
  */
 public final class KeyHeatmapView extends View {
-    private static final List<List<Key>> SOFT = KeyHeatmapLayout.SOFT;
-    private static final List<List<Key>> NINE = KeyHeatmapLayout.NINE;
-    private static final Set<String> SOFT_SHARED = KeyHeatmapLayout.sharedIds(SOFT);
-    private static final Set<String> NINE_SHARED = KeyHeatmapLayout.sharedIds(NINE);
+    /** 两套布局，默认是标准底行；{@link #setLayouts} 换成用户当前的底行样式和数字行。 */
+    private List<List<Key>> soft = KeyHeatmapLayout.SOFT;
+    private List<List<Key>> nineLayout = KeyHeatmapLayout.NINE;
+    private Set<String> softShared = KeyHeatmapLayout.sharedIds(soft);
+    private Set<String> nineShared = KeyHeatmapLayout.sharedIds(nineLayout);
 
     private static final int[] HEAT = {R.attr.msHeat0, R.attr.msHeat1, R.attr.msHeat2, R.attr.msHeat3,
         R.attr.msHeat4};
@@ -75,6 +76,17 @@ public final class KeyHeatmapView extends View {
         invalidate();
     }
 
+    /** 按用户当前的键盘画：26 键与 9 键各自的布局（{@link KeyHeatmapLayout#soft}、{@link KeyHeatmapLayout#nine}）。 */
+    public void setLayouts(List<List<Key>> twentySix, List<List<Key>> nine) {
+        soft = twentySix;
+        nineLayout = nine;
+        softShared = KeyHeatmapLayout.sharedIds(twentySix);
+        nineShared = KeyHeatmapLayout.sharedIds(nine);
+        describe();
+        requestLayout();
+        invalidate();
+    }
+
     /** 画 9 键还是 26 键。 */
     public void setNineKey(boolean value) {
         nine = value;
@@ -96,7 +108,7 @@ public final class KeyHeatmapView extends View {
         return cells > letters;
     }
 
-    private List<List<Key>> layout() { return nine ? NINE : SOFT; }
+    private List<List<Key>> layout() { return nine ? nineLayout : soft; }
 
     /** 一个键的按键次数：它记过的每个 id 相加；不计数的键是 0。 */
     private long value(Key key) {
@@ -158,7 +170,7 @@ public final class KeyHeatmapView extends View {
         int onAccent = ThemeColorPolicy.onAccent(context);
         float width = getWidth();
         List<List<Key>> rows = layout();
-        Set<String> shared = nine ? NINE_SHARED : SOFT_SHARED;
+        Set<String> shared = nine ? nineShared : softShared;
         for (int r = 0; r < rows.size(); r++) {
             List<Key> row = rows.get(r);
             float weights = 0;
@@ -171,19 +183,26 @@ public final class KeyHeatmapView extends View {
                 Key key = row.get(index);
                 float keyWidth = unit * key.weight();
                 if (index > 0) x += gap;
+                // 被上一行跨下来的键盖住的格子（右侧大回车的底行那一格）只占宽度，不画。
+                if (key.rows() == 0) {
+                    x += keyWidth;
+                    continue;
+                }
+                // 跨两行的键（右侧大回车的回车）连同中间的行距一起画到下一行底边，键面和百分数按整块居中。
+                float keyHeight = key.rows() * height + (key.rows() - 1) * gap;
                 long value = value(key);
                 int level = HeatmapView.level(value, peak);
                 fill.setColor(ThemeColorPolicy.color(context, HEAT[level]));
-                box.set(x, top, x + keyWidth, top + height);
+                box.set(x, top, x + keyWidth, top + keyHeight);
                 canvas.drawRoundRect(box, radius, radius, fill);
                 int ink = level >= 3 ? onAccent : text;
                 face.setColor(ink);
                 share.setColor(level >= 3 ? ColorPolicy.withAlpha(onAccent, .85f) : sub);
                 float centre = x + keyWidth / 2;
-                canvas.drawText(key.face(), centre, top + height / 2 + DimensionPolicy.pixels(context, 1), face);
+                canvas.drawText(key.face(), centre, top + keyHeight / 2 + DimensionPolicy.pixels(context, 1), face);
                 if (total > 0 && !key.ids().isEmpty() && !containsAny(shared, key.ids())) {
                     String percent = TypingStatisticsSummary.percentTenths(value / (double) total) + "%";
-                    canvas.drawText(percent, centre, top + height - DimensionPolicy.pixels(context, 6), share);
+                    canvas.drawText(percent, centre, top + keyHeight - DimensionPolicy.pixels(context, 6), share);
                 }
                 x += keyWidth;
             }
