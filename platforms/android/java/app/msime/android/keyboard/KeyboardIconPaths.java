@@ -90,7 +90,9 @@ public final class KeyboardIconPaths {
         /** Lucide-style text-cursor-input (文本编辑) */
         TEXT_EDIT(true, 1.7f),
         /** Lucide-style trash-2 (剪贴板左滑删除) */
-        TRASH(true, 1.7f);
+        TRASH(true, 1.7f),
+        /** Lucide-style x (关闭上屏后联想) */
+        CLOSE(true, 1.8f);
 
         private final boolean stroked;
         private final float strokeWidth;
@@ -188,6 +190,7 @@ public final class KeyboardIconPaths {
             case FLOATING -> appendFloating(p);
             case TEXT_EDIT -> appendTextEdit(p);
             case TRASH -> appendTrash(p);
+            case CLOSE -> appendClose(p);
         }
     }
 
@@ -956,5 +959,12 @@ public final class KeyboardIconPaths {
         p.lineTo(10f, 17f);
         p.moveTo(14f, 11f);
         p.lineTo(14f, 17f);
+    }
+
+    private static void appendClose(Path p) {
+        p.moveTo(18f, 6f);
+        p.lineTo(6f, 18f);
+        p.moveTo(6f, 6f);
+        p.lineTo(18f, 18f);
     }
 }
