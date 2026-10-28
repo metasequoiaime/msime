@@ -6,7 +6,9 @@
 import { KeyboardScheme, SchemeDefinition } from "./KeyboardScheme";
 import { SchemeTraits } from "./SchemeTraits";
 import { KoreanCompositionPolicy } from "./input/KoreanCompositionPolicy";
+import { LetterHintGesture } from "./input/LetterHintGesture";
 import { SchemeCompositionPolicy } from "./input/SchemeCompositionPolicy";
+import { SwipeHintPolicy } from "./input/SwipeHintPolicy";
 
 /** 设计底行（`KeyboardView.designActionRow`）上的一个键位。 */
 export enum DesignRowSlot {
@@ -264,13 +266,13 @@ export class TouchLayoutStylePolicy {
     return commaSecondaryPeriod ? CommaHold.PERIOD : CommaHold.MENU;
   }
 
-  /** 底行逗号下滑输入句号：只有长空格样式（中文 26 键与 14/18 键）有，与 Android 长空格布局的逗号下滑相同；其余样式不接下滑。 */
+  /** 底行逗号上滑或下滑输入句号（`CommaSwipeGesture`）：只有长空格样式（中文 26 键与 14/18 键）有，与 Android 长空格布局的逗号滑动相同；其余样式不接滑动。 */
   static commaSwipesPeriod(styled: StyledFace, style: string): boolean {
     return styled !== StyledFace.NONE && style === TouchLayoutStylePolicy.LONG_SPACE;
   }
 
   /**
-   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）；密码框和只收数字的编辑框里不算（`fieldRowStyle`）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起；这一行留不留由视图按这块键盘的中文键面算，切到英文 26 键时也留着，面板高度不随中/英变）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（下滑输入句号）。
+   * 中文 26 键是否处在长空格样式（与在不在 123 层无关）；密码框和只收数字的编辑框里不算（`fieldRowStyle`）。这时与 Android 的 `longSpaceLayoutActive` 一样：符号面板入口移到工具栏，工具栏这一行一直画着（设成隐藏时只留标志、符号和收起；这一行留不留由视图按这块键盘的中文键面算，切到英文 26 键时也留着，面板高度不随中/英变）；123 进入带空格的数字符号层而不借用数字九宫格，那一层和 #+= 层左下的 😀/符号 换成同一个逗号（上滑或下滑输入句号）。
    */
   static longSpaceActive(
     chineseTwentySix: boolean,
@@ -501,42 +503,69 @@ export class TouchHeightRelay {
 }
 
 /**
- * 长空格样式下底行逗号的下滑：手指按下后向下移过 `THRESHOLD_VP`、且竖向移动大于横向时，抬起输入句号，这次按键的普通点按被吞掉。ArkUI 先送触摸抬起再送点击，所以由视图在点击里问 `swallows()`；下一次按下时清掉，点击没有送来也不会吞掉之后的点按。长按已经识别时（输入句号或打开列表）调 `cancel()`，抬起不再按下滑处理。
+ * 长空格样式下逗号键的滑动，与 Android #10087 的 `ImeBottomRow.bindCommaSwipe` 相同：上滑、下滑都输入句号（只认下滑时，照字母键滑动输入符号的默认方向上滑什么也不出；逗号键没有别的纵向手势），门槛与字母键相同，纵向移动严格大于 `THRESHOLD_VP` 且大于横向才算，点按时手指带一下不到门槛不算。滑过门槛的那一刻就定下这次是滑动，抬起时输入句号，这次按键的普通点按被吞掉。ArkUI 先送触摸抬起再送点击，所以由视图在点击里问 `swallows()`；下一次按下时清掉，点击没有送来也不会吞掉之后的点按。按下后满 `HOLD_MILLIS` 还没滑出去的触摸归长按，之后挪动手指不再起滑动；长按识别时视图问 `longPress()`，已经滑出去了长按就不再做事（Android 滑出去后取消长按），否则这次触摸不再按滑动处理。时间由视图传入，单位毫秒。
  */
 export class CommaSwipeGesture {
-  /** 与字母键滑动输入符号的门槛（`SwipeHintPolicy.THRESHOLD_VP`）相同。 */
-  static readonly THRESHOLD_VP: number = 14;
+  /** 字母键滑动输入符号的门槛（`SwipeHintPolicy.THRESHOLD_VP`）。 */
+  static readonly THRESHOLD_VP: number = SwipeHintPolicy.THRESHOLD_VP;
+  /** 长按时长：平台 LongPressGesture 的默认值，与字母键的 `LetterHintGesture.HOLD_MILLIS` 相同。 */
+  static readonly HOLD_MILLIS: number = LetterHintGesture.HOLD_MILLIS;
 
   private downX: number = 0;
   private downY: number = 0;
+  private downTime: number = 0;
   private tracking: boolean = false;
+  private swiped: boolean = false;
   private swallow: boolean = false;
 
-  down(x: number, y: number): void {
+  down(x: number, y: number, time: number): void {
     this.downX = x;
     this.downY = y;
+    this.downTime = time;
     this.tracking = true;
+    this.swiped = false;
     this.swallow = false;
   }
 
-  /** 手指抬起；是一次下滑就返回 true（由视图输入句号），否则返回 false，由点按输入逗号。 */
-  up(x: number, y: number): boolean {
-    if (!this.tracking) {
-      return false;
+  /** 手指移动：还没滑出去时，满长按时长就不再按滑动处理，否则看这一刻是否滑过门槛。 */
+  move(x: number, y: number, time: number): void {
+    if (!this.tracking || this.swiped) {
+      return;
     }
+    if (time - this.downTime >= CommaSwipeGesture.HOLD_MILLIS) {
+      this.tracking = false;
+      return;
+    }
+    const dy: number = Math.abs(y - this.downY);
+    this.swiped = dy > CommaSwipeGesture.THRESHOLD_VP && dy > Math.abs(x - this.downX);
+  }
+
+  /** 手指抬起；这次是滑动就返回 true（由视图输入句号），否则返回 false，由点按输入逗号。 */
+  up(x: number, y: number, time: number): boolean {
+    this.move(x, y, time);
+    const swiped: boolean = this.tracking && this.swiped;
     this.tracking = false;
-    const dy: number = y - this.downY;
-    const swiped: boolean = dy > CommaSwipeGesture.THRESHOLD_VP && dy > Math.abs(x - this.downX);
+    this.swiped = false;
     this.swallow = swiped;
     return swiped;
   }
 
-  /** 长按已经识别或触摸被取消：这次触摸不再按下滑处理。 */
-  cancel(): void {
+  /** 长按识别：这次触摸已经滑出去就返回 false，长按什么也不做；否则返回 true，这次触摸归长按，抬起不再按滑动处理。 */
+  longPress(): boolean {
+    if (this.tracking && this.swiped) {
+      return false;
+    }
     this.tracking = false;
+    return true;
   }
 
-  /** 点按到达时问一次：刚才那次触摸已经按下滑输入了句号，这次点按不再输入逗号。问过即清。 */
+  /** 触摸被取消，或这时画着的逗号不接滑动：这次触摸不再按滑动处理。 */
+  cancel(): void {
+    this.tracking = false;
+    this.swiped = false;
+  }
+
+  /** 点按到达时问一次：刚才那次触摸已经按滑动输入了句号，这次点按不再输入逗号。问过即清。 */
   swallows(): boolean {
     const swallowed: boolean = this.swallow;
     this.swallow = false;

@@ -241,7 +241,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 26 键各样式里逗号和句号的手势：标准和表情键的逗号长按出句号；逗号句号在空格两侧时逗号长按打开常用标点、句号是独立的键；长空格时逗号下滑或长按都出句号。
+  /// 26 键各样式里逗号和句号的手势：标准和表情键的逗号长按出句号；逗号句号在空格两侧时逗号长按打开常用标点、句号是独立的键；长空格时逗号上滑、下滑或长按都出句号。
   func testTwentySixKeyCommaGesturesFollowTheStyle() throws {
     select(.quanpin)
     for style in TouchTwentySixKeyStyle.allCases {
@@ -255,9 +255,9 @@ final class KeyLayoutStyleTests: XCTestCase {
         XCTAssertFalse(try button("bottomPeriodKey", in: controller).isHidden)
       case .longSpace:
         XCTAssertEqual(comma.cornerHint, "。")
-        XCTAssertTrue(comma.swipesCornerHint, "a downward swipe types the full stop")
+        XCTAssertTrue(comma.swipesCornerHint, "a swipe types the full stop")
+        XCTAssertTrue(comma.cornerHintSwipesEitherWay, "upward or downward")
         XCTAssertTrue(comma.holdsCornerHint, "so does a long press")
-        XCTAssertEqual(comma.cornerHintSwipeDirection, .down)
       case .standard, .emoji:
         XCTAssertEqual(comma.cornerHint, "。", style.rawValue)
         XCTAssertFalse(comma.swipesCornerHint, style.rawValue)
@@ -282,7 +282,9 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertTrue(shown(layerComma))
     XCTAssertEqual(layerComma.configuration?.title, "，")
     XCTAssertEqual(layerComma.cornerHint, "。")
-    XCTAssertEqual(layerComma.cornerHintSwipeDirection, .down)
+    XCTAssertTrue(layerComma.swipesCornerHint)
+    XCTAssertTrue(layerComma.cornerHintSwipesEitherWay, "the layer comma swipes up or down for the full stop")
+    XCTAssertTrue(layerComma.holdsCornerHint, "and a long press types it too")
     XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
     XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
     let unit = try button("spaceKey", in: controller).bounds.width / SymbolLayerLayout.spaceWeight
@@ -721,8 +723,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 「长空格」的字母层底行没有句号键，逗号与 Android、HarmonyOS 一样下滑输入句号：14 键和 18 键的逗号长按仍打开常用标点；26 键自定义了常用标点时下滑照样输入句号，长按打开那份菜单。别的样式的逗号没有下滑。
-  func testLongSpaceCommaSwipesDownForTheFullStop() throws {
+  /// 「长空格」的字母层底行没有句号键，逗号与 Android、HarmonyOS 一样上滑或下滑输入句号：14 键和 18 键的逗号长按仍打开常用标点；26 键自定义了常用标点时滑动照样输入句号，长按打开那份菜单。别的样式的逗号不接滑动。
+  func testLongSpaceCommaSwipesEitherWayForTheFullStop() throws {
     for scheme in [ChineseInputScheme.fourteenKey, .eighteenKey] {
       select(scheme)
       for style in TouchFourteenKeyStyle.allCases {
@@ -735,7 +737,7 @@ final class KeyLayoutStyleTests: XCTestCase {
           XCTAssertEqual(comma.cornerHint, "。", label)
           XCTAssertNotNil(comma.onCornerHint, label)
           XCTAssertTrue(comma.swipesCornerHint, label)
-          XCTAssertEqual(comma.cornerHintSwipeDirection, .down, label)
+          XCTAssertTrue(comma.cornerHintSwipesEitherWay, label)
           XCTAssertFalse(comma.holdsCornerHint, "a long press is left to the menu: \(label)")
         } else {
           XCTAssertNil(comma.cornerHint, label)
@@ -759,9 +761,31 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(comma.menu?.children.map(\.title), ["☆", "=", "！"])
     XCTAssertEqual(comma.cornerHint, "。")
     XCTAssertNotNil(comma.onCornerHint)
-    XCTAssertTrue(comma.swipesCornerHint, "the custom list keeps the down-swipe for the full stop")
+    XCTAssertTrue(comma.swipesCornerHint, "the custom list keeps the swipe for the full stop")
+    XCTAssertTrue(comma.cornerHintSwipesEitherWay, "upward or downward")
     XCTAssertFalse(comma.holdsCornerHint, "a long press opens the custom menu")
     controller.viewDidDisappear(false)
+  }
+
+  /// 长空格逗号的滑动判定（`SwipeHintPolicy.swipedEitherWay`），与 Android #10087 的 `ImeBottomRow.bindCommaSwipe` 相同：上滑、下滑都算，门槛是字母键滑动输入符号的 14 pt（严格大于），纵向要大于横向；点按时手指带一下不到门槛不算；按满长按时长还没滑出去的触摸归长按，之后再挪手指不起滑动。
+  func testLongSpaceCommaSwipePolicy() {
+    let down = CGPoint(x: 40, y: 100)
+    let hold = KeyboardKeyButton.cornerHintHoldDelay
+    let threshold = SwipeHintPolicy.threshold
+    func swiped(dx: CGFloat = 0, dy: CGFloat, after elapsed: TimeInterval = 0.1) -> Bool {
+      SwipeHintPolicy.swipedEitherWay(down: down, current: CGPoint(x: down.x + dx, y: down.y + dy), elapsed: elapsed, holdDelay: hold)
+    }
+    XCTAssertEqual(threshold, 14, "the same threshold as the letter-key swipe symbols")
+    XCTAssertTrue(swiped(dy: threshold + 0.5), "a downward swipe")
+    XCTAssertTrue(swiped(dy: -(threshold + 0.5)), "an upward swipe, the letter keys' default direction")
+    XCTAssertFalse(swiped(dy: threshold), "exactly on the threshold is still a tap")
+    XCTAssertFalse(swiped(dy: -threshold), "upward too")
+    XCTAssertFalse(swiped(dx: 2, dy: -8), "tap drift below the threshold does not type the full stop")
+    XCTAssertFalse(swiped(dx: 30, dy: 20), "a mostly sideways move is not a swipe")
+    XCTAssertFalse(swiped(dx: -30, dy: -20), "nor to the other side")
+    XCTAssertTrue(swiped(dy: -20, after: hold - 0.01), "a swipe just before the long-press delay still counts")
+    XCTAssertFalse(swiped(dy: -20, after: hold), "once the long-press delay has passed the touch belongs to the long press")
+    XCTAssertFalse(swiped(dy: 20, after: hold + 1), "in either direction")
   }
 
   /// 密码框和只收数字的输入框里三类样式都退回标准底行，与 Android 的 `bottomRowStyle` 相同；顶部数字行照画。回到普通输入框时样式回来。

@@ -476,7 +476,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private weak var nineKeySidebarClosingMark: UIButton?
   /// 九键数字层符号栏第三排的 符；「右侧大回车」时 符 在符号栏下方的底行，这一个隐藏，运算符占满整条符号栏。
   private weak var numberPadSymbolsKey: UIButton?
-  /// 26 键「长空格」时 123 / #+= 层底行原来放表情或符号入口的那一格换成的逗号，下滑或长按输入句号。
+  /// 26 键「长空格」时 123 / #+= 层底行原来放表情或符号入口的那一格换成的逗号，上滑、下滑或长按输入句号。
   private var layerCommaButton: UIButton!
   /// 26 键「长空格」把 符 从底行挪到工具栏，这是工具栏上的入口；`toolbarSymbolsEntryShown` 记着上次排工具栏时它在不在。
   private let symbolsShortcut = UIButton()
@@ -3381,17 +3381,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     emoji.isHidden = true
     layerEmojiButton = emoji
     row.addArrangedSubview(emoji)
-    // 26 键「长空格」时 123 / #+= 层用它代替表情或符号入口（`updateKeyboardLayout`）：轻点输入逗号，下滑或长按输入句号，与 Android 那两层的逗号键相同。键面和角标随层的中英文更新。
+    // 26 键「长空格」时 123 / #+= 层用它代替表情或符号入口（`updateKeyboardLayout`）：轻点输入逗号，上滑、下滑或长按输入句号，与 Android 那两层的逗号键相同。键面和角标随层的中英文更新。
     let layerComma = makeKey(title: ",", accessibilityLabel: "符号 ,") { [weak self] in
       guard let self, let face = layerCommaButton.configuration?.title else { return }
       typeSymbolLayerFace(face)
     }
     layerComma.configuration?.contentInsets = .zero
     layerComma.accessibilityIdentifier = "layerCommaKey"
-    layerComma.accessibilityHint = "轻点输入逗号，下滑或长按输入句号"
+    layerComma.accessibilityHint = "轻点输入逗号，上滑、下滑或长按输入句号"
     layerComma.isHidden = true
     if let key = layerComma as? KeyboardKeyButton {
-      key.cornerHintSwipeDirection = .down
+      key.cornerHintSwipesEitherWay = true
       key.onCornerHint = { [weak self] hint in self?.typeSymbolLayerFace(hint) }
     }
     layerCommaButton = layerComma
@@ -6196,7 +6196,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 26 键复用角标的长按取消机制，松手只输入句号；其他布局继续长按打开常用标点。「逗号句号在空格两侧」有独立的句号键，逗号与 14 键一样长按打开常用标点。
       let commaCarriesPeriod = phoneLetterSymbols && !styledSlots.contains(.period)
       let commaHoldsPeriod = commaCarriesPeriod && !usesCustomQuickPunctuation
-      // 「长空格」的字母层底行没有句号键（26 键、14 键与 18 键），与 Android 的 `commaSwipesPeriod` 一样逗号下滑输入句号，自定义了常用标点也一样。长按仍按上面的规则：26 键默认标点时是句号，14 键、18 键和自定义了常用标点时打开常用标点菜单。
+      // 「长空格」的字母层底行没有句号键（26 键、14 键与 18 键），与 Android 的 `commaSwipesPeriod` 一样逗号上滑或下滑输入句号（Android #10087：只认下滑时，照字母键滑动输入符号的默认方向上滑什么也不出），自定义了常用标点也一样。长按仍按上面的规则：26 键默认标点时是句号，14 键、18 键和自定义了常用标点时打开常用标点菜单。
       let longSpaceComma = style == .phone && ((letterRowsShown && longSpaceActive)
         || (fourteenKeyRows && activeKeyLayoutStyle.fourteenKey == .longSpace))
       quickPunctuationButton.menu = handwritingQuestion || commaHoldsPeriod ? nil : UIMenu(children: punctuation.map { symbol in
@@ -6221,14 +6221,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             self?.countKeyPress(TypingKeyID.quickPunctuation)
             self?.handleSymbol(".")
           } : nil
-          // 只靠下滑输入句号时，按住留给常用标点菜单。
+          // 只靠滑动输入句号时，按住留给常用标点菜单。
           key.holdsCornerHint = commaHoldsPeriod
           key.accessibilityHint = longSpaceComma
-            ? (commaHoldsPeriod ? "轻点输入逗号，下滑或长按输入句号" : "轻点输入，下滑输入句号，长按选择常用标点")
+            ? (commaHoldsPeriod ? "轻点输入逗号，上滑、下滑或长按输入句号" : "轻点输入，上滑或下滑输入句号，长按选择常用标点")
             : commaHoldsPeriod ? "轻点输入逗号，长按输入句号" : "轻点输入，长按选择常用标点"
         }
         key.swipesCornerHint = longSpaceComma
-        key.cornerHintSwipeDirection = .down
+        key.cornerHintSwipesEitherWay = true
       }
       if let key = periodKey as? KeyboardKeyButton {
         key.cornerHint = handwritingRow ? Self.chineseSymbolFaces["!"] : nil

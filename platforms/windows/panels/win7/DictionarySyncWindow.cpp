@@ -17,8 +17,8 @@ constexpr UINT completed_message = WM_APP + 79;
 constexpr int notice_id = 401;
 constexpr wchar_t window_class[] = L"MSIME.Windows7DictionarySync" MSIME_EDITION_NAME_SUFFIX;
 constexpr wchar_t body_class[] = L"MSIME.Windows7DictionarySync.Body" MSIME_EDITION_NAME_SUFFIX;
-// 一件事：request 是表单给的 {probe, save} 或 {action, devices?, status?}，changes 是要写进偏好的网盘配置。都为空时只读一次偏好。
-struct Job { std::optional<Json> request; std::vector<shared::Change> changes; };
+// 一件事：request 是表单给的 {probe, save} 或 {action, devices?, status?}，changes 是要写进偏好的网盘配置。都为空时只读一次偏好。quiet 是窗口重新获得焦点时那次不联网的 status：不占住表单，也不改说明。
+struct Job { std::optional<Json> request; std::vector<shared::Change> changes; bool quiet = false; };
 struct Completion { shared::Result preferences; std::optional<Json> response; bool unprepared = false; Job job; };
 struct WorkerState {
   WorkerState(HWND window, DictionarySyncWindow::Services services) : window_(window), services_(std::move(services)) {}
@@ -103,7 +103,7 @@ struct DictionarySyncWindow::State {
   HWND host = nullptr, body = nullptr, notice = nullptr;
   HINSTANCE instance = nullptr; HFONT font = nullptr; UINT dpi = USER_DEFAULT_SCREEN_DPI;
   int scroll = 0, height = 0;
-  bool busy = true, quit = false, opened = false;
+  bool busy = true, quit = false, opened = false, rereading = false;
   std::vector<Item> items;
   shared::DictionarySyncForm form;
   Services services; Confirmation confirmation;
@@ -112,8 +112,22 @@ struct DictionarySyncWindow::State {
   ~State() { worker.reset(); if (host && IsWindow(host)) DestroyWindow(host); if (font) DeleteObject(font); }
   int px(int value) const { return MulDiv(value, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI); }
   void submit(Job job) { if (busy) return; busy = true; form.enable(false); SetWindowTextW(notice, L"正在处理…"); worker->submit(std::move(job)); }
+  // 窗口重新获得焦点时重读一次不联网的概况：periodic 和候选窗口删词后的 local_change 由 Server 在后台做，结果不经本面板，不重读的话「待发送」等要关掉面板再打开才变。有操作在跑或还没打开过时不读；这一次不禁用表单，用户在它回来之前点的按钮照常排在后面。
+  void reread() {
+    if (busy || rereading || !opened || !form.configured()) return;
+    rereading = true;
+    worker->submit({Json{{"action", {{"operation", "status"}}}}, {}, true});
+  }
   void complete() {
-    auto result = worker->take(); if (!result) return; busy = false;
+    auto result = worker->take(); if (!result) return;
+    // 工作线程只留最后一件的结果：用户的操作接在重读后面时，重读的结果可能被它盖掉，所以哪一件回来都算重读结束。
+    rereading = false;
+    if (result->job.quiet) {
+      if (result->preferences.snapshot) form.refresh(*result->preferences.snapshot);
+      if (result->response) form.reread(*result->response);
+      return;
+    }
+    busy = false;
     const auto outcome = result->preferences.outcome;
     SetWindowTextW(notice, outcome == shared::Outcome::loaded ? L"" : outcome == shared::Outcome::saved ? L"已保存。" : outcome == shared::Outcome::conflict ? L"设置已在其他窗口更新，本次未覆盖，请重新填写。" : L"设置无法读取或保存，请重试。");
     if (result->preferences.snapshot) form.refresh(*result->preferences.snapshot);
@@ -195,6 +209,7 @@ struct DictionarySyncWindow::State {
     case WM_SIZE: if (state->body) state->layout(); return 0;
     case WM_COMMAND: state->command(wparam); return 0;
     case completed_message: state->complete(); return 0;
+    case WM_ACTIVATE: if (LOWORD(wparam) != WA_INACTIVE) state->reread(); break;
     case WM_CLOSE: DestroyWindow(window); return 0;
     case WM_DESTROY: state->worker.reset(); if (state->quit) PostQuitMessage(0); return 0;
     case WM_NCDESTROY: state->host = nullptr; SetWindowLongPtrW(window, GWLP_USERDATA, 0); break;

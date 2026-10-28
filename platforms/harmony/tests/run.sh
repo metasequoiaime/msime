@@ -183,6 +183,17 @@ if ! grep -qF 'if (NineKeyLayout.commaOpensQuickPunctuation(this.symbols, this.e
   echo "KeyboardView.nineKeyCommaKey must open the quick punctuation list on long press when NineKeyLayout.commaOpensQuickPunctuation says so" >&2
   exit 1
 fi
+# 长空格逗号上滑或下滑输入句号，滑过门槛的那一刻和满长按时长都要在移动时判定（`CommaSwipeGesture` 由 touch-layout-styles.test.ts 覆盖，与 Android #10087 相同）。视图是 ArkTS，这里钉住接线：触摸的按下、移动、抬起都带着时间交给手势，设计底行逗号的长按先问 `longPress()`，已经滑出去时不再输入句号或打开列表。
+comma_touch_body=$(sed -n '/^  private commaSwipeTouch(event: TouchEvent): void {$/,/^  }$/p' "$view")
+design_comma_body=$(sed -n '/^  designCommaKey(share: number) {$/,/^  }$/p' "$view")
+if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' <<< "$comma_touch_body" \
+  || ! grep -qF '} else if (event.type === TouchType.Move) {' <<< "$comma_touch_body" \
+  || ! grep -qF 'this.commaSwipe.move(touch.windowX, touch.windowY, Date.now());' <<< "$comma_touch_body" \
+  || ! grep -qF 'this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())' <<< "$comma_touch_body" \
+  || ! grep -qF '} else if (!this.commaSwipe.longPress()) {' <<< "$design_comma_body"; then
+  echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
+  exit 1
+fi
 # 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")

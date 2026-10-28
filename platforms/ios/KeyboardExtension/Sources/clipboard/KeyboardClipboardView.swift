@@ -501,9 +501,9 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     return formatter
   }()
 
-  /// `date` 距今多久，写成「2分钟前」或「昨天」这样。晚于 `now` 的时间（来自另一台设备的时钟）按现在算。
+  /// `date` 距今多久，写成「刚刚」「2分钟前」或「昨天」这样。晚于 `now` 的时间（来自另一台设备的时钟）也是「刚刚」。
   static func relativeTime(_ date: Date, now: Date = Date()) -> String {
-    relativeFormatter.localizedString(for: min(date, now), relativeTo: now)
+    CloudClipboardTimePolicy.relative(date, now: now, formatter: relativeFormatter)
   }
 
   /// 本机条目的附注行：固定时先写「已固定」，再写保存于多久之前。本机存储不记录设备名。

@@ -710,7 +710,7 @@ struct KeyboardView {
   @State @Watch('syncStripHeight') numberRow: boolean = KeyboardSession.shared.preferences().numberRow;
   /** 当前编辑框是密码框或只收数字（`KeyboardSession.editorKeepsStandardRows`）：这时三种键面类型的底行样式都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`），长空格样式让工具栏一直画着的规则也随之不算，所以变了要重定面板高度。 */
   @State @Watch('syncStripHeight') standardRowsField: boolean = false;
-  /** 长空格样式下底行逗号的下滑（输入句号）。 */
+  /** 长空格样式下逗号的上滑或下滑（输入句号）。 */
   private readonly commaSwipe: CommaSwipeGesture = new CommaSwipeGesture();
   /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
   private stripWasShown: boolean =
@@ -5937,16 +5937,16 @@ struct KeyboardView {
     return TouchLayoutStylePolicy.commaHold(this.designCommaSecondaryPeriod(), styled, this.designRowStyle(styled));
   }
 
-  /** 底行逗号接不接下滑；`styled` 是调用方算好的 `designRowStyledFace`。 */
+  /** 底行逗号接不接滑动；`styled` 是调用方算好的 `designRowStyledFace`。 */
   private designCommaSwipes(styled: StyledFace): boolean {
     return TouchLayoutStylePolicy.commaSwipesPeriod(styled, this.designRowStyle(styled));
   }
 
-  /** 底行逗号的读屏文字：默认的两种底行保持原来的说法，样式新增的说法写明下滑和长按做什么。`styled` 是调用方算好的 `designRowStyledFace`。 */
+  /** 底行逗号的读屏文字：默认的两种底行保持原来的说法，样式新增的说法写明滑动和长按做什么。`styled` 是调用方算好的 `designRowStyledFace`。 */
   private designCommaLabel(styled: StyledFace): string {
     const hold: CommaHold = this.designCommaHold(styled);
     if (this.designCommaSwipes(styled)) {
-      return hold === CommaHold.PERIOD ? '逗号；下滑或长按输入句号' : '逗号；下滑输入句号，长按打开常用标点';
+      return hold === CommaHold.PERIOD ? '逗号；上滑、下滑或长按输入句号' : '逗号；上滑或下滑输入句号，长按打开常用标点';
     }
     if (hold === CommaHold.PERIOD) {
       return '逗号；长按输入句号';
@@ -5954,20 +5954,22 @@ struct KeyboardView {
     return styled === StyledFace.TWENTY_SIX ? '逗号；长按打开常用标点' : KeyAccessibilityPolicy.punctuation();
   }
 
-  /** 长空格样式下逗号键（字母层底行和 123、#+= 层左下）的下滑：抬起时是一次下滑就输入句号，这次点按随之被吞掉，见 `CommaSwipeGesture`。 */
+  /** 长空格样式下逗号键（字母层底行和 123、#+= 层左下）的上滑或下滑：移动时判定是否滑过门槛、是否已经归长按，抬起时是一次滑动就输入句号，这次点按随之被吞掉，见 `CommaSwipeGesture`。 */
   private commaSwipeTouch(event: TouchEvent): void {
     if (event.changedTouches.length === 0) {
       return;
     }
     const touch: TouchObject = event.changedTouches[0];
     if (event.type === TouchType.Down) {
-      this.commaSwipe.down(touch.windowX, touch.windowY);
+      this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());
+    } else if (event.type === TouchType.Move) {
+      this.commaSwipe.move(touch.windowX, touch.windowY, Date.now());
     } else if (event.type === TouchType.Up) {
       if (!this.commaSwipeEnabled()) {
         this.commaSwipe.cancel();
         return;
       }
-      if (this.commaSwipe.up(touch.windowX, touch.windowY)) {
+      if (this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())) {
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
         KeyboardSession.shared.punctuation(0x2e);
       }
@@ -5976,7 +5978,7 @@ struct KeyboardView {
     }
   }
 
-  /** 这一刻画着的逗号接不接下滑：字母层看底行样式，123、#+= 层左下的逗号只在长空格样式下出现。 */
+  /** 这一刻画着的逗号接不接滑动：字母层看底行样式，123、#+= 层左下的逗号只在长空格样式下出现。 */
   private commaSwipeEnabled(): boolean {
     return this.symbols ? this.longSpaceActive() : this.designCommaSwipes(this.designRowStyledFace());
   }
@@ -5998,7 +6000,7 @@ struct KeyboardView {
    *
    * 键序由 `TouchLayoutStylePolicy.designRow` 给出，这里用 ForEach 按它逐个画键（`designRowItems`、`designRowKey`），每种样式都是 123，符 或 😀，空格左边的标点，空格，空格右边的标点，中/英，回车这一模板的子集。
    *
-   * 功能键文字 15fp、字重 500。26 键逗号长按输入句号，其他布局保留长按常用标点列表（`TouchLayoutStylePolicy.commaHold`）；长空格样式的逗号下滑输入句号。回车键始终使用操作色。
+   * 功能键文字 15fp、字重 500。26 键逗号长按输入句号，其他布局保留长按常用标点列表（`TouchLayoutStylePolicy.commaHold`）；长空格样式的逗号上滑或下滑输入句号。回车键始终使用操作色。
    */
   @Builder
   designActionRow() {
@@ -6078,7 +6080,7 @@ struct KeyboardView {
     }
   }
 
-  /** 设计底行的逗号：点按输入逗号；长按按 `TouchLayoutStylePolicy.commaHold` 输入句号或打开常用标点列表；长空格样式下下滑输入句号（`commaSwipe`）。 */
+  /** 设计底行的逗号：点按输入逗号；长按按 `TouchLayoutStylePolicy.commaHold` 输入句号或打开常用标点列表；长空格样式下上滑或下滑输入句号（`commaSwipe`），已经滑出去时长按不再做事。 */
   @Builder
   designCommaKey(share: number) {
     Column() {
@@ -6100,7 +6102,12 @@ struct KeyboardView {
     .height('100%')
     .onTouch((event: TouchEvent): void => this.commaSwipeTouch(event))
     .gesture(LongPressGesture().onAction(() => {
-      this.commaSwipe.cancel();
+      if (!this.commaSwipeEnabled()) {
+        this.commaSwipe.cancel();
+      } else if (!this.commaSwipe.longPress()) {
+        // 长空格样式下这次触摸已经滑出去了：长按不再做事，抬起时输入句号。
+        return;
+      }
       if (this.designCommaHold(this.designRowStyledFace()) === CommaHold.PERIOD) {
         // 统计实际按下的逗号键，长按识别后不再触发普通点按。
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
@@ -10857,11 +10864,11 @@ struct KeyboardView {
         action: () => this.toggleSymbolLayer()
       });
       if (this.longSpaceActive()) {
-        // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
+        // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，上滑或下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
         Column() {
           this.fixedKey({
             face: this.chinesePunctuationFaces() ? '，' : ',',
-            label: '逗号；下滑输入句号',
+            label: '逗号；上滑或下滑输入句号',
             size: TOUCH_LETTER_FONT_SIZE,
             emphasized: false,
             width: '100%',
