@@ -51,6 +51,11 @@ final class VoiceAutoInsertDeviceCases {
                         @Override public java.io.File getFilesDir() { return null; }
                     };
                     method(ContextWrapper.class, "attachBaseContext", Context.class).invoke(service, isolated);
+                    // 聆听面板按产品路径解析皮肤，合成服务也必须装配真实样式组件。
+                    Class<?> stylerType = loader.loadClass("app.msime.android.ImeStyler");
+                    var stylerConstructor = stylerType.getDeclaredConstructor(serviceType);
+                    stylerConstructor.setAccessible(true);
+                    field(serviceType, "imeStyler").set(service, stylerConstructor.newInstance(service));
                     directory[0] = Files.createTempDirectory(context.getCacheDir().toPath(), "voice-insertion-");
                     Object store = storeType.getConstructor(Path.class).newInstance(directory[0]);
                     field(serviceType, "voiceResultStore").set(service, store);

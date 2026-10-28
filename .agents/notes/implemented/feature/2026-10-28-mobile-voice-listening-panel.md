@@ -60,3 +60,5 @@ Status: implemented
 - 审查补修：HarmonyOS 的尾部截取复用 `TextPolicy.characters`，避免 ArkTS 运行时的 `Array.from` 按 UTF-16 码元拆开 emoji；由 `test-harmony-string-code-points.py` 和已有 emoji 尾部截取用例共同验证。
 - 按住说话时隐藏按钮后，HarmonyOS 录音中的提示同步为「松开结束录音」，不再引导用户点击已经隐藏的「说完了」。
 - 三端都没有在真机上用真实麦克风验收：电平的实际范围、光圈的流畅度、App 到键盘的电平链路（iOS）和 `measureTextSize` 与实际 `Text` 的行高是否一致（HarmonyOS）都还要真机确认。
+
+Android 自动插入设备回归手工构造输入法服务，必须和真实服务一样装配 `ImeStyler`；面板改为即时解析主题后，缺少该组件会在绘制前空指针失败。夹具补齐真实组件，保留按钮几何、停止/取消及结果插入的全部断言。
