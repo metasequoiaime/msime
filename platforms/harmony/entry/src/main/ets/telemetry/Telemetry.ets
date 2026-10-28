@@ -195,11 +195,6 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.enabled = false;
   }
 
-  /** 保存通知只促使当前权威状态重读，不信任通知里缓存的开关。 */
-  static reportingTurnedOff(stateDirectory: string): void {
-    HarmonyTelemetry.preferencesChanged(stateDirectory);
-  }
-
   static preferencesChanged(stateDirectory: string): void {
     if (HarmonyTelemetry.preferences !== stateDirectory) return;
     HarmonyTelemetry.refresh();

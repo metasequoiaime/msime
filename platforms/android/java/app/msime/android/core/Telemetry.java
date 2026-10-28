@@ -299,8 +299,9 @@ public final class Telemetry {
         String preferences = reportingPreferences(app);
         JSONObject root = new JSONObject(NativeClient.telemetryConsent(new JSONObject().put("directory", preferences).put("edition", AppEdition.current().id()).toString()));
         JSONObject value = JsonPolicy.objectValue(root);
-        if (value == null || !(value.opt("enabled") instanceof Boolean)) throw new IllegalStateException("diagnostic consent");
-        if (!value.getBoolean("enabled")) return new Consent(preferences, null);
+        Boolean allowed = value == null ? null : JsonPolicy.strictBoolean(value.opt("enabled"));
+        if (allowed == null) throw new IllegalStateException("diagnostic consent");
+        if (!allowed) return new Consent(preferences, null);
         Object since = value.opt("since_unix_ms");
         if (!(since instanceof Long) && !(since instanceof Integer)) throw new IllegalStateException("diagnostic consent time");
         return new Consent(preferences, new DiagnosticConsent.State(value.getString("epoch"), ((Number) since).longValue()));

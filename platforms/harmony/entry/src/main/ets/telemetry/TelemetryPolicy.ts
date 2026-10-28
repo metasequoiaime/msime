@@ -168,17 +168,6 @@ export class TelemetryPolicy {
     );
   }
 
-  static consentSince(document: string): number | null {
-    try {
-      const value: unknown = JSON.parse(document);
-      if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-      const since: number | null = integer((value as Record<string, unknown>).since);
-      return since !== null && since > 0 ? since : null;
-    } catch {
-      return null;
-    }
-  }
-
   /** 卡死只保留标准原因，不读取系统日志、页面历史或异常消息。 */
   static freezeReport(paramsJson: string): CrashReport | null {
     let parsed: unknown;
@@ -355,31 +344,6 @@ export class TelemetryPolicy {
       return { format: 1, capture, header, pid, since };
     } catch {
       return null;
-    }
-  }
-
-  /**
-   * Whether the preferences snapshot the settings page saved, with `saveReply` the store's answer, turned usage reporting off.
-   *
-   * `usage_reporting` is omitted while it is on, so only an explicit `false` turns it off; a refused save (a conflict with the keyboard's own write) changed nothing.
-   */
-  static reportingTurnedOff(snapshotJson: string, saveReply: string): boolean {
-    try {
-      const reply: unknown = JSON.parse(saveReply);
-      if (
-        reply === null ||
-        typeof reply !== "object" ||
-        (reply as Record<string, unknown>).ok !== true
-      ) {
-        return false;
-      }
-      const snapshot: unknown = JSON.parse(snapshotJson);
-      if (snapshot === null || typeof snapshot !== "object") return false;
-      const preferences: unknown = (snapshot as Record<string, unknown>).preferences;
-      if (preferences === null || typeof preferences !== "object") return false;
-      return (preferences as Record<string, unknown>).usage_reporting === false;
-    } catch {
-      return false;
     }
   }
 

@@ -27,7 +27,8 @@ env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \
   "AR_${underscored}=$ndk/llvm/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/ohos-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
-  cargo build -p msime-host-api --target "$rust_target" --release --locked
+  cargo rustc -p msime-host-api --target "$rust_target" --release --locked -- \
+    -C link-arg=-Wl,--build-id=sha1
 output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"

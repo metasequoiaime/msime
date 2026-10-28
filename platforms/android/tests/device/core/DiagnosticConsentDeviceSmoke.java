@@ -12,10 +12,14 @@ import java.util.stream.Stream;
 public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
     private boolean revoke;
     private boolean systemCrash;
+    private boolean authority;
+    private String expectedRevision = "";
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         revoke = arguments != null && "revoke".equals(arguments.getString("phase"));
         systemCrash = arguments != null && "system-crash".equals(arguments.getString("phase"));
+        authority = arguments != null && "authority".equals(arguments.getString("phase"));
+        if (arguments != null) expectedRevision = arguments.getString("expected-revision", "");
         start();
     }
 
@@ -24,7 +28,10 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
         int code = Activity.RESULT_CANCELED;
         Path root = null;
         try {
-            if (systemCrash) {
+            if (authority) {
+                root = Files.createTempDirectory(getTargetContext().getFilesDir().toPath(), "synthetic-authority-");
+                ReportingAuthorityDeviceChecks.run(root, getTargetContext().getClassLoader(), expectedRevision);
+            } else if (systemCrash) {
                 Class<?> telemetry = getTargetContext().getClassLoader().loadClass("app.msime.android.core.Telemetry");
                 telemetry.getMethod("start", android.content.Context.class).invoke(null, getTargetContext());
                 java.lang.reflect.Field enabled = telemetry.getDeclaredField("enabled");
@@ -69,7 +76,10 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
                 try (Stream<Path> paths = Files.walk(root)) {
                     for (Path path : (Iterable<Path>) paths.sorted(java.util.Comparator.reverseOrder())::iterator)
                         Files.deleteIfExists(path);
-                } catch (Exception failure) { result.putString("cleanup", "synthetic consent cleanup failed"); }
+                } catch (Exception failure) {
+                    code = Activity.RESULT_CANCELED;
+                    result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: synthetic consent cleanup\n");
+                }
             }
         }
         finish(code, result);
