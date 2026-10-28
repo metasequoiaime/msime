@@ -42,12 +42,11 @@ class Helper:
         self.send(command)
         assert self.read() == expected, command
 
-    def wait_state(self, expected, *, queue_cleared=False):
+    def wait_state(self, expected):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             self.send("status")
-            # 解除采集先于清理队列；关闭验收必须在同一期限内观察两者都完成。
-            if self.read() == expected and (not queue_cleared or not (self.directory / "telemetry.json").exists()):
+            if self.read() == expected:
                 return
             time.sleep(0.05)
         raise AssertionError(f"helper did not become {expected}")
@@ -65,6 +64,19 @@ class Helper:
                 return
             time.sleep(0.05)
         raise AssertionError("helper did not activate the current continuous authorization")
+
+    def wait_cleared(self):
+        # 解除故障武装先于磁盘清理；不能把观察到 off 当成清理完成。
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                if not self.events() and not self.records():
+                    return
+            except FileNotFoundError:
+                # 队列可在存在检查之后被清理；下一拍重新确认两类记录都已消失。
+                pass
+            time.sleep(0.05)
+        raise AssertionError("explicit off did not clear pending events and records")
 
     def epoch(self):
         return json.loads((self.preferences / "preferences.json").read_text())["preferences"]["usage_reporting_consent"]["epoch"]
@@ -195,7 +207,8 @@ def main():
             preferences.write_bytes(valid)
             helper.wait_state("armed")
             helper.command("disable", "saved")
-            helper.wait_state("off", queue_cleared=True)
+            helper.wait_state("off")
+            helper.wait_cleared()
             assert not helper.events(), "explicit off did not clear pending events"
             helper.die("fault")
             assert not helper.records(), "off helper wrote a crash"

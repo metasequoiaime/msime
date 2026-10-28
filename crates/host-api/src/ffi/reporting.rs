@@ -7,7 +7,8 @@ use crate::*;
 use msime_client_services::account::BackendAccountClient;
 use msime_client_services::notices::{fetch_notices, markdown_to_html, NoticeChannel, NoticeStore};
 use msime_client_services::telemetry::{
-    clear_if_consent_disabled, CrashContext, DiagnosedCrash, TelemetryApp, TelemetryStore,
+    backend_sender, clear_if_consent_disabled, CrashContext, DiagnosedCrash, TelemetryApp,
+    TelemetryStore,
 };
 use msime_client_services::update_check::background::{pending_update, run_background_check};
 use msime_client_services::update_check::{check_for_update, UpdateCheckRequest};
@@ -72,6 +73,10 @@ struct TelemetryRequest {
     /// 可选的持续同意身份；给出时必须使用共享偏好，不能由 enabled 绕过。
     #[serde(default)]
     consent_epoch: Option<String>,
+    /// 验收工具的安全握手；正式构建按未知字段拒绝，避免误载正式库后发送合成事件。
+    #[cfg(feature = "telemetry-loopback")]
+    #[serde(default)]
+    test_origin: Option<String>,
 }
 
 fn default_telemetry_component() -> String {
@@ -137,6 +142,15 @@ impl TelemetryRequest {
     }
 
     fn open(&self) -> Result<(TelemetryStore, TelemetryApp), String> {
+        #[cfg(feature = "telemetry-loopback")]
+        if let Some(expected) = self.test_origin.as_deref() {
+            if msime_client_services::telemetry::isolated_origin()
+                .map_err(|error| error.to_string())?
+                != expected
+            {
+                return Err("isolated telemetry origin mismatch".into());
+            }
+        }
         if self.authority_directory.is_some() && self.consent_epoch.is_none() {
             return Err("authority_directory requires consent_epoch".into());
         }
@@ -430,7 +444,7 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
             let Some(store) = bound else {
                 return Ok(json!({"enabled": false}));
             };
-            let client = BackendAccountClient::new().map_err(|error| error.to_string())?;
+            let client = backend_sender().map_err(|error| error.to_string())?;
             let sender = consent::EpochSender {
                 source,
                 epoch,
@@ -445,7 +459,7 @@ pub unsafe extern "C" fn msime_client_telemetry_flush(
         }
         match request.consent()? {
             Some(true) => {
-                let client = BackendAccountClient::new().map_err(|error| error.to_string())?;
+                let client = backend_sender().map_err(|error| error.to_string())?;
                 let report = store
                     .flush_with(&app, &client, SystemTime::now())
                     .map_err(|error| error.to_string())?;

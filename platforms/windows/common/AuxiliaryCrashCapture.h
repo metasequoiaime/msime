@@ -28,8 +28,9 @@ inline std::optional<telemetry::Host> auxiliary_crash_host(
       if (!path->is_string())
         return std::nullopt;
       auto configured = std::filesystem::u8path(path->get<std::string>());
-      if (configured.is_absolute())
-        preferences = std::move(configured);
+      if (!configured.is_absolute())
+        return std::nullopt;
+      preferences = std::move(configured);
     }
   } else if (error) {
     return std::nullopt;

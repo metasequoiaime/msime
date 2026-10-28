@@ -12,6 +12,7 @@ import runpy
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -78,8 +79,27 @@ class PythonFixture(Fixture):
     def crash(self, component, expected, version, change=None):
         command = self.command(component)
         input_read, input_write = os.pipe()
-        process = subprocess.Popen(command, stdin=input_read, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, env=self.environment, start_new_session=True)
+        state, child_state = socket.socketpair()
+        injection = """
+import runpy, socket, sys, threading
+state = socket.socket(fileno=int(sys.argv[1]))
+sys.path.insert(0, sys.argv[2])
+sys.argv = sys.argv[3:]
+def report_state():
+    while state.recv(1):
+        capture = getattr(sys.modules.get("msime_crash_capture"), "_capture", None)
+        armed = capture is not None and capture.library.msime_python_crash_is_armed() != 0
+        state.sendall(b"1" if armed else b"0")
+threading.Thread(target=report_state, daemon=True).start()
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+        process = subprocess.Popen([sys.executable, "-c", injection, str(child_state.fileno()),
+                                    str(self.installation), *command[1:]],
+                                   stdin=input_read, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, env=self.environment, start_new_session=True,
+                                   pass_fds=(child_state.fileno(),))
+        child_state.close()
+        state.settimeout(10)
         try:
             if component.endswith("http") or component == "clipboard-event":
                 os.write(input_write, b" ")
@@ -96,8 +116,12 @@ class PythonFixture(Fixture):
                 wait_for(ready, "Python 服务未就绪")
             if change:
                 change()
-                # 与生产观察器的 500 ms 周期留出调度余量；随后实际致命故障验证最终状态。
-                time.sleep(1.2)
+                # 直接读取真实记录器的武装状态，保留原有十秒期限。
+                def observed():
+                    assert process.poll() is None, (component, "exited before consent refresh")
+                    state.sendall(b"?")
+                    return state.recv(1) == (b"1" if expected else b"0")
+                wait_for(observed, "Python 子进程未完成实际同意刷新：%s" % component)
             process.send_signal(signal.SIGABRT)
             assert process.wait(timeout=15) == -signal.SIGABRT
             self.check_records(component, expected, version)
@@ -115,6 +139,7 @@ class PythonFixture(Fixture):
                     os.killpg(int(self.ready.read_text()), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+            state.close()
             os.close(input_read)
             os.close(input_write)
 

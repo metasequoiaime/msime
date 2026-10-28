@@ -31,6 +31,10 @@ pub use consent::{
 };
 mod identity;
 pub use identity::CrashContext;
+mod transport;
+pub use transport::backend_sender;
+#[cfg(feature = "telemetry-loopback")]
+pub use transport::isolated_origin;
 #[cfg(test)]
 mod consent_tests;
 

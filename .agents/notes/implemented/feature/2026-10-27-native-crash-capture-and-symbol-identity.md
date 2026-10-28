@@ -46,6 +46,10 @@ macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行�
 
 动手前按 `telemetry`、`CrashRecorder`、致命信号和符号归档检索活跃笔记。[全平台闭环提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)部分落地到本篇，保留其 TSF、自有辅助进程、设备及后台收件验收要求；不把整个提案标为完成。[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS 未捕获异常栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)和[Windows 发布符号](../../implemented/process/2026-10-20-windows-release-page-symbols.md)分别持有既有决定，部分重叠并保留。[诊断目录句柄](../../implemented/bug-fix/2026-10-09-diagnostics-crash-directory-handle.md)持有路径访问边界，不被本篇替代。其余模型删除、词库与语音记录不涉及此决定；没有完全吸收的旧笔记。
 
+Windows 看门狗和准备程序发现 `runtime-options.json` 明确提供 `preferences_directory` 时，只接受绝对路径；空串、相对路径与非字符串都暂停采集，不回退状态目录读取另一份同意。字段缺失仍沿用原有状态目录。配置选择回归编译真实函数，仅替代 Win32 私有文件读取，覆盖无配置、缺字段、合法绝对重定向和损坏输入；不替代 Windows 文件句柄与设备验收。
+
+Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能依赖 NDK 链接器的默认行为。使用同一 NDK 的最小 Rust 动态库已复现旧参数没有 `build-id`，加入参数后同时具有构建身份和源码行表；完整 APK 符号归档由设备门禁继续验证。关闭测试分别等待解除武装和队列清理完成，因为生产实现先停用故障记录器、再执行磁盘清理；原有清空与关闭后不记录断言保持。
+
 ## Alternatives considered
 
 - **只依靠当前开关、进程内 generation 或共享队列清空**：无需新增文件，既有现场报告也已能清理。但 ActivityManager 的历史记录不归队列所有，API 35 实际复现撤回后重开、重启会重新入队；进程内计数无法证明历史同意。持久 epoch 直接区分每次重新同意，另加起点过滤异常时间，时钟回拨也不能认领前一 epoch。

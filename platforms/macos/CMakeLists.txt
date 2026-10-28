@@ -127,7 +127,7 @@ if(TARGET shared-doubao-auth)
   target_link_libraries(shared-doubao-auth PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS})
 endif()
 # UsageReporting.mm 经共用 Telemetry 调用 Host API，测试链接 apple-client 取得实现、ABI 头和 Rust 库；ABI 桩测试提供全部遥测入口，不联系网络。
-add_executable(usage-reporting-path-test tests/core/UsageReportingPathTest.mm src/core/UsageReporting.mm)
+add_executable(usage-reporting-path-test tests/core/UsageReportingPathTest.mm)
 target_compile_options(usage-reporting-path-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_compile_definitions(usage-reporting-path-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-path-test")
 target_link_libraries(usage-reporting-path-test PRIVATE apple-client)
