@@ -804,17 +804,13 @@ test("语法模型只在用户检查后提示更新，下载仍需再次点击",
   const checkGrammarUpdates = vi.fn(async () => [
     { pack: id, source_commit: "b".repeat(40), size: sizes[id] },
   ]);
-  renderSettings(
-    "windows",
-    Object.assign(packs.client, { checkGrammarUpdates }),
-    {
-      ...initial,
-      preferences: {
-        ...initial.preferences,
-        sentence_association: { grammar_model: "baguwen_compact" },
-      },
+  renderSettings("windows", Object.assign(packs.client, { checkGrammarUpdates }), {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      sentence_association: { grammar_model: "baguwen_compact" },
     },
-  );
+  });
   await settingsFormReady();
   selectSettingsTab("候选与联想");
   expect(checkGrammarUpdates).not.toHaveBeenCalled();

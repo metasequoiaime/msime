@@ -369,7 +369,9 @@ test("分别设置全拼邻键纠错和乱序纠错", async () => {
   const page = inputPage();
 
   const neighbor = within(page).getByRole("switch", { name: "全拼邻键纠错" }) as HTMLInputElement;
-  const transposition = within(page).getByRole("switch", { name: "全拼乱序纠错" }) as HTMLInputElement;
+  const transposition = within(page).getByRole("switch", {
+    name: "全拼乱序纠错",
+  }) as HTMLInputElement;
   expect(neighbor.checked).toBe(true);
   expect(transposition.checked).toBe(true);
   fireEvent.click(neighbor);
