@@ -67,6 +67,13 @@ public final class DoubaoRecognizer {
         }
     }
 
+    /** 每读到一块 PCM 在录音线程回传 0–1 音量（{@link VoiceAudioLevel#fromPcm16le}）；界面更新由调用方切回主线程。 */
+    private volatile java.util.function.Consumer<Float> levels = level -> { };
+
+    public void levels(java.util.function.Consumer<Float> sink) {
+        levels = sink == null ? level -> { } : sink;
+    }
+
     public void stop() {
         stopped.set(true);
     }
@@ -144,6 +151,7 @@ public final class DoubaoRecognizer {
             int requested = last ? 0 : VoiceCapturePolicy.readLength(limit, sent, chunk.length);
             int read = requested == 0 ? 0 : recorder.read(chunk, 0, requested);
             if (read < 0) return null;
+            if (read > 0) levels.accept(VoiceAudioLevel.fromPcm16le(chunk, read));
             ByteArrayOutputStream keep = retained;
             if (keep != null && read > 0) {
                 synchronized (keep) { keep.write(chunk, 0, read); }

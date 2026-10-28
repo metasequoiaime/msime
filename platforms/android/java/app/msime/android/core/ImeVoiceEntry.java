@@ -27,7 +27,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，圆盘外的光圈随麦克风音量涨落，边说边识别的引擎把中间文字显示在标题位），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -177,10 +177,12 @@ final class ImeVoiceEntry {
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
             upload = new HttpAsrRecognizer();
-            listening.setHint("说完点「说完了」，识别后自动上屏");
+            upload.levels(level -> s.main.post(() -> leveled(session, level)));
+            listening.setHint("说完后点「说完了」，识别后自动上屏");
         } else {
             streaming = new DoubaoRecognizer();
             streaming.retainAudio(contribute);
+            streaming.levels(level -> s.main.post(() -> leveled(session, level)));
         }
         LocalAsrRecognizer runningLocal = local;
         DoubaoRecognizer runningStream = streaming;
@@ -205,6 +207,10 @@ final class ImeVoiceEntry {
 
                                 @Override public void onSpeech(boolean value) {
                                     s.main.post(() -> spoke(session, value));
+                                }
+
+                                @Override public void onVolume(float level) {
+                                    s.main.post(() -> leveled(session, level));
                                 }
                             });
                         pcm = runningLocal.retainedAudio();
@@ -280,13 +286,19 @@ final class ImeVoiceEntry {
         return true;
     }
 
-    /** 识别中途的文字：显示在提示行，并在停顿后自动结束录音。 */
+    /** 识别中途的文字：聆听中显示在聆听面板的标题位，并在停顿后自动结束录音。 */
     private void heard(long session, String partial) {
         if (session != generation || listening == null || partial == null || partial.isEmpty()) return;
-        listening.setHint(partial);
+        listening.setPartial(partial);
         // 系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。
         if (platform != null) return;
         armSilenceStop(session);
+    }
+
+    /** 采集线程报来的麦克风音量（0–1）：聆听面板的光圈随它涨落。 */
+    private void leveled(long session, float level) {
+        if (session != generation || listening == null || !recognizing) return;
+        listening.setLevel(level);
     }
 
     /** 从现在起计一个停顿时长；到点时按 {@link VoiceHoldPolicy#silenceElapsed} 结束、推迟或等松手。 */
@@ -365,7 +377,7 @@ final class ImeVoiceEntry {
             platformStopped = true;
             platform.stopListening();
         }
-        if (listening != null) listening.setHint("正在识别…");
+        if (listening != null) listening.showRecognizing("正在识别…");
     }
 
     /** 键盘服务销毁：停掉识别，并让排队中的语音时长与贡献上传跑完后结束线程。 */
@@ -420,9 +432,9 @@ final class ImeVoiceEntry {
             @Override public void onBufferReceived(byte[] buffer) { }
             @Override public void onEndOfSpeech() {
                 if (session == generation && listening != null) {
-                    // 说完后多数识别服务不再报音量，光圈直接收回，不能停在半截。
+                    // 说完后多数识别服务不再报音量，光圈收回到安静时的样子，不能停在半截。
                     listening.resetLevel();
-                    listening.setHint("正在识别…");
+                    listening.showRecognizing("正在识别…");
                 }
             }
             @Override public void onError(int error) {
@@ -480,7 +492,7 @@ final class ImeVoiceEntry {
             delivered(session, result, null, null, elapsed, language, PLATFORM_PROVIDER);
             return;
         }
-        if (listening != null) listening.setHint("正在润色…");
+        if (listening != null) listening.showRecognizing("正在润色…");
         String transcript = result;
         VoicePolisher runningPolisher = polisher;
         try {
@@ -564,10 +576,7 @@ final class ImeVoiceEntry {
             contribute(pcm, text, language, provider);
         }
         if (listening != null) {
-            listening.resetLevel();
-            listening.setText("识别完成");
-            listening.setHint("已识别：" + text);
-            listening.setContentDescription("已识别：" + text);
+            listening.showDone(text);
             s.main.postDelayed(() -> {
                 if (session == generation) dismiss();
             }, DONE_NOTICE_MILLIS);
@@ -648,24 +657,35 @@ final class ImeVoiceEntry {
             }
         }
         VoiceListeningView view = new VoiceListeningView(s);
-        view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
-            Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
+        // 跟随应用主题的皮肤要先按当季种子推导（样式通道画键帽用的也是这一份），否则圆盘取到的是基础色，和回车键等强调色对不上。
+        KeyboardSkin skin = s.imeStyler.themed(s.skin);
+        view.setColors(Color.parseColor(skin.accent()), Color.parseColor(skin.onAccent()),
+            Color.parseColor(skin.keyForeground()), Color.parseColor(skin.toolbarIcon()));
         view.setHint("停顿后自动上屏，也可点「说完了」");
         view.setContentDescription("正在聆听，识别结束后自动上屏");
         LinearLayout column = LayoutPolicy.column(s);
         column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；按住说话时「说完了」隐藏，「取消」占满整行。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
         LinearLayout actions = LayoutPolicy.row(s);
-        Button done = ViewPolicy.newPressButton(s);
+        KeyboardPressButton done = ViewPolicy.newPressButton(s);
         done.setText("说完了");
         done.setContentDescription("结束聆听并识别，文字自动上屏");
+        done.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeStyler.styleButton(done, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.bindClick(done, this::finishListening);
         finishButton = done;
-        actions.addView(done, LayoutPolicy.weightedWrapParams(1));
-        Button cancel = ViewPolicy.newPressButton(s);
+        LinearLayout.LayoutParams doneParams = LayoutPolicy.weightedWrapParams(1);
+        doneParams.rightMargin = s.pixels(12);
+        actions.addView(done, doneParams);
+        KeyboardPressButton cancel = ViewPolicy.newPressButton(s);
         cancel.setText("取消");
+        cancel.setKeyboardRole(KeyboardKeyRole.KEY);
+        s.imeStyler.styleButton(cancel, KeyboardKeyRole.KEY, s.skin);
         ViewPolicy.bindClick(cancel, this::cancel);
         actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
-        column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout.LayoutParams actionsParams = LayoutPolicy.matchWidthWrapParams();
+        actionsParams.setMargins(s.pixels(16), 0, s.pixels(16), s.pixels(10));
+        column.addView(actions, actionsParams);
         View panel = column;
         listeningPanel = panel;
         panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
