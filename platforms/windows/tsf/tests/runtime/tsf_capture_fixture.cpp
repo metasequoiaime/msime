@@ -18,6 +18,7 @@ struct RefreshBarrier {
   std::atomic<bool> blocked{false};
   ~RefreshBarrier() { if (entered) CloseHandle(entered); if (resumed) CloseHandle(resumed); }
 } refresh_barrier;
+RefreshBarrier publish_barrier;
 }
 namespace msime::tsf {
 // 路径发现边界用合成目录；后台租约、共享 ABI、线程池和加载引用使用生产实现。
@@ -46,6 +47,12 @@ extern "C" void msime_test_tsf_after_refresh() {
     WaitForSingleObject(refresh_barrier.resumed, 10000);
   }
 }
+extern "C" void msime_test_tsf_before_publish() {
+  if (publish_barrier.blocked.exchange(false)) {
+    SetEvent(publish_barrier.entered);
+    WaitForSingleObject(publish_barrier.resumed, 10000);
+  }
+}
 extern "C" {
 __declspec(noinline) void msime_test_tsf_crash() {
   // 仅在显式系统专项中触发真实故障，验证 WER 的首帧归属。
@@ -64,4 +71,13 @@ void msime_test_tsf_block_refresh() {
 }
 bool msime_test_tsf_wait_refresh(DWORD timeout) { return WaitForSingleObject(refresh_barrier.entered, timeout) == WAIT_OBJECT_0; }
 void msime_test_tsf_resume_refresh() { SetEvent(refresh_barrier.resumed); }
+void msime_test_tsf_block_publish() {
+  publish_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  publish_barrier.resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  publish_barrier.blocked = true;
+}
+bool msime_test_tsf_wait_publish(DWORD timeout) {
+  return WaitForSingleObject(publish_barrier.entered, timeout) == WAIT_OBJECT_0;
+}
+void msime_test_tsf_resume_publish() { SetEvent(publish_barrier.resumed); }
 }

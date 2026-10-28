@@ -22,6 +22,7 @@
 extern "C" HRESULT msime_test_wer_register(PCWSTR, PVOID);
 extern "C" HRESULT msime_test_wer_unregister(PCWSTR, PVOID);
 extern "C" void msime_test_tsf_after_refresh();
+extern "C" void msime_test_tsf_before_publish();
 #endif
 
 namespace msime::tsf {
@@ -156,6 +157,28 @@ bool publish(State &state, std::uint64_t generation) {
   return true;
 }
 
+void forget(State &state);
+
+bool still_authorized(const State &state, const std::string &epoch) {
+  const auto consent = call(msime_client_telemetry_consent,
+                            {{"directory", state.preferences}});
+  if (!consent || !consent->is_object() || !boolean(*consent, "enabled", true)) return false;
+  const auto found = consent->find("epoch");
+  return found != consent->end() && found->is_string() && found->get_ref<const std::string &>() == epoch;
+}
+
+bool publish_authorized(State &state, std::uint64_t generation, const std::string &epoch) {
+#if defined(MSIME_TSF_CRASH_CAPTURE_TEST)
+  // 让专项在 begin 回包和最终授权复核之间注入撤回/换代，覆盖真实竞态窗口。
+  msime_test_tsf_before_publish();
+#endif
+  if (!still_authorized(state, epoch)) {
+    forget(state);
+    return false;
+  }
+  return publish(state, generation);
+}
+
 void forget(State &state) {
   disarm(state);
   state.epoch.clear();
@@ -214,7 +237,7 @@ void refresh(State &state, std::uint64_t generation) {
     state.prepared_generation = generation;
     state.cleared = false;
   }
-  if (!publish(state, generation)) disarm(state);
+  if (!publish_authorized(state, generation, authorized)) disarm(state);
 }
 
 void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {

@@ -40,6 +40,9 @@ struct Tip {
   void (*block_refresh)() = nullptr;
   bool (*wait_refresh)(DWORD) = nullptr;
   void (*resume_refresh)() = nullptr;
+  void (*block_publish)() = nullptr;
+  bool (*wait_publish)(DWORD) = nullptr;
+  void (*resume_publish)() = nullptr;
   explicit Tip(const std::filesystem::path &directory) {
     module = LoadLibraryW((directory / L"MetasequoiaImeTsfLeaseTest.dll").c_str());
     require(module != nullptr, "TIP fixture load failed");
@@ -52,6 +55,9 @@ struct Tip {
     block_refresh = load<decltype(block_refresh)>(module, "msime_test_tsf_block_refresh");
     wait_refresh = load<decltype(wait_refresh)>(module, "msime_test_tsf_wait_refresh");
     resume_refresh = load<decltype(resume_refresh)>(module, "msime_test_tsf_resume_refresh");
+    block_publish = load<decltype(block_publish)>(module, "msime_test_tsf_block_publish");
+    wait_publish = load<decltype(wait_publish)>(module, "msime_test_tsf_wait_publish");
+    resume_publish = load<decltype(resume_publish)>(module, "msime_test_tsf_resume_publish");
   }
   ~Tip() { if (module) FreeLibrary(module); }
   Context armed() {
@@ -162,6 +168,20 @@ void tests() {
     tip.resume_refresh();
     tip.armed();
     require(preparations() == prepared + 1, "late prepare armed replacement lease");
+
+    // begin 回包后授权可能已经撤回或换代；最终复核前不能把旧身份武装。
+    tip.block_publish();
+    auto *race = tip.acquire();
+    require(tip.wait_publish(6000), "publish authorization barrier not reached");
+    const auto before_race = tip.armed();
+    mode(3);
+    tip.resume_publish();
+    tip.disarmed();
+    const auto after_race = tip.armed();
+    require(std::strcmp(after_race.header, before_race.header) != 0,
+            "revoked capture was published before authorization recheck");
+    tip.release(race);
+
     // 系统注销失败时仍保留上下文与 DLL，重试成功后才能卸载。
     tip.fail_unregister(1);
     tip.release(replacement);
