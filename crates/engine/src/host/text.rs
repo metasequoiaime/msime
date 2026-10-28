@@ -64,6 +64,13 @@ pub fn encode_shuangpin(pinyin: &str, profile: &str) -> Option<String> {
     crate::shuangpin::utils::encode_pinyin(pinyin, profile)
 }
 
+/// 内置 26 键双拼方案 `profile`（方案名，同 [`shuangpin_key_hints`]）用不用 `;` 键，与会话决定宿主要不要显示 `;`（`EngineSnapshot::microsoft_shuangpin`）的是同一条判据。方案名不认识或是 `custom`（光有名字拿不到用户的表）时为 `None`。评测工具按它给方案配带不带 `;` 的那份键位几何。
+pub fn shuangpin_uses_semicolon(profile: &str) -> Option<bool> {
+    ShuangpinProfileKind::from_name(profile)
+        .and_then(crate::shuangpin::profile::profile)
+        .map(|profile| profile.uses_semicolon_key())
+}
+
 /// Deduplicated items of one page.
 pub fn emoji_catalog_filtered_page(
     resources: &str,

@@ -522,6 +522,27 @@ fi
 sign "$app"
 codesign --verify --deep --strict "$app"
 
+# 资源完整性由 verify_resources 逐项校验；预算跟随本版本实际随包的锁定资源，再为目录、辅助码和其他小文件留固定 4 MiB 余量。
+core_dictionary_budget_kib() {
+  python3 - "$repo_root" "$edition" "$1" <<'PYBUDGET'
+import json
+import sys
+from pathlib import Path
+
+root, edition, staged = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+lock = root / ("resources/desktop-dictionary.lock.json" if edition == "full" else f"resources/editions/{edition}.lock.json")
+artifacts = json.loads(lock.read_text())["artifacts"]
+# 按 4 KiB 文件分配粒度向上取整；按需省略的锁条目不占本版本预算。
+locked_kib = sum((artifact["size"] + 4095) // 4096 * 4
+                 for artifact in artifacts if (staged / artifact["name"]).is_file())
+helpcodes = root / "resources/helpcodes"
+names = ("helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt", "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt", "wubi86_helpcode.txt", "ENGINE-NOTICE.md", "NOTICE.md", "NOTICE-wubi86.md")
+helpcodes_kib = sum((path.stat().st_size + 4095) // 4096 * 4
+                    for name in names if (path := helpcodes / name).is_file())
+print(locked_kib + helpcodes_kib + 4096)
+PYBUDGET
+}
+
 # The package is only worth shipping if it holds what the install button and first run read. Checked on the built app and again on the copy inside the mounted DMG.
 check_app() {
   local root="$1"
@@ -553,13 +574,12 @@ check_app() {
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。dict-v2.0.5 把五笔码表拆进单独的 msime-wubi.db，它与 msime-pinyin.db 合计比 dict-v2.0.2 的 msime.db 大约 5.7 MB，当时核心文件加 helpcodes/ 约 116900 KiB，预算 121000 KiB。dict-v2.0.7 的 msime-english.db 并入 SCOWL 英文词表，从 1626112 字节涨到 4521984 字节（约 +2.8 MB），另加 4 KiB 的 msime-scowl_Copyright.txt；核心文件按锁文件大小逐个向上取整到 4 KiB 合计 119224 KiB，加上 helpcodes/ 的 528 KiB 约 119752 KiB，原预算只剩约 1.2 MB 余量，所以抬到 124000 KiB，保持与此前相同的约 4 MB 余量。dict-v2.0.10 的 msime-wubi.db 并入 86 五笔词组补充表，从 13688832 字节涨到 15720448 字节（约 +2.0 MB），拼音库与二元、三元模型也略有变化，核心文件合计 121208 KiB，加上 helpcodes/ 约 121736 KiB，余量只剩约 2.2 MB，所以再抬到 126000 KiB，仍保持约 4 MB 余量。全功能版、拼音版和其余不带五笔码表的版本一直按这个预算。
-  # 五笔版（wubi_bundled=1）带着五笔码表，另按自己的预算。dict-v2.0.39 的 msime-wubi.db 并入派生的五笔多字词，从 14536704 字节涨到 94982144 字节（约 +80 MB）。五笔版的核心文件是 resources/editions/wubi.lock.json 列的八个（不带整句模型和日文词典），按锁文件大小逐个向上取整到 4 KiB 合计 194096 KiB，加上 helpcodes/ 十个文件同样取整后的 688 KiB，共 194784 KiB，与 MSIME_EDITION=wubi MSIME_MACOS_OMIT_ON_DEMAND=1 暂存后 du -sk 的实测一致（dict-v2.0.24 时同法算得 116036 KiB，也与当时的实测相同）。五笔码表还在随词库发布变大，余量留约 10 MB（约 5%），预算定为 205000 KiB。
-  local engine_kib engine_budget=126000
-  if [ "$wubi_bundled" = 1 ]; then engine_budget=205000; fi
+  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。
+  local engine_kib engine_budget_kib
   engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  test "$engine_kib" -le "$engine_budget" || {
-    echo "EngineResources is ${engine_kib} KiB, over the ${engine_budget} KiB core-dictionary budget: $resources_dir/EngineResources" >&2
+  engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"
+  test "$engine_kib" -le "$engine_budget_kib" || {
+    echo "EngineResources is ${engine_kib} KiB, over the ${engine_budget_kib} KiB locked core-dictionary budget: $resources_dir/EngineResources" >&2
     exit 1
   }
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"

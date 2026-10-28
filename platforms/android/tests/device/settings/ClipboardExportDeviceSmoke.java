@@ -156,8 +156,14 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         waitFor(() -> clipboardContains(LONG), "synthetic clipboard history entry");
         stage = "real keyboard panel clipboard entry";
         // 输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前工具栏的「剪贴板」是灰的，点了没有反应（CI 的 API 35 上曾在输入法进程刚冷启动、主线程还在卡顿时停在这一步等满 15 秒）。等它可用再点。
-        tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
-            && node.isEnabled());
+        try {
+            tap(node -> "剪贴板".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+                && node.isEnabled());
+        } catch (AssertionError missing) {
+            // 这一步在 API 35 上间歇失败（运行 40608633162），而那段时间输入法进程的 logcat 已被后面的套件冲掉。失败时报出每个「剪贴板」控件在哪一行、是否可见可用、引擎是否就绪（方案入口可用），并在清掉无障碍缓存前后各读一次，下次失败能直接分辨偏好没到、控件不在还是缓存过期。
+            throw new AssertionError(missing.getMessage() + "; cached " + clipboardEntryState()
+                + "; fresh " + freshClipboardEntryState(), missing);
+        }
         stage = "real keyboard panel export control";
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
             && node.isEnabled());
@@ -645,6 +651,39 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             if (found != null) return found;
         }
         return null;
+    }
+
+    /** 清掉 UiAutomation 的节点缓存后再读一次：安卓 14（API 34）起 `find` 不再逐个 refresh 节点，缓存里可能留着过期的状态。 */
+    private String freshClipboardEntryState() {
+        if (Build.VERSION.SDK_INT < 34) return "same as cached";
+        automation.clearCache();
+        return clipboardEntryState();
+    }
+
+    /** 输入法窗口里每个描述为「剪贴板」的控件的位置和状态，以及方案入口是否可用；只读控件描述，不读编辑器内容。 */
+    private String clipboardEntryState() {
+        java.util.List<String> entries = new java.util.ArrayList<>();
+        boolean[] schemeEnabled = {false};
+        for (var window : automation.getWindows()) collectClipboardEntries(window.getRoot(), entries, schemeEnabled);
+        return "clipboard entries " + entries + ", scheme entry enabled=" + schemeEnabled[0];
+    }
+
+    private static void collectClipboardEntries(AccessibilityNodeInfo node, java.util.List<String> entries,
+                                                boolean[] schemeEnabled) {
+        if (node == null) return;
+        CharSequence description = node.getContentDescription();
+        if (description != null && "app.msime.android".contentEquals(String.valueOf(node.getPackageName()))) {
+            if ("剪贴板".contentEquals(description)) {
+                AccessibilityNodeInfo parent = node.getParent();
+                AccessibilityNodeInfo row = parent == null || parent.getContentDescription() != null ? parent : parent.getParent();
+                entries.add("in " + (row == null ? null : row.getContentDescription()) + " visible=" + node.isVisibleToUser()
+                    + " enabled=" + node.isEnabled());
+            } else if (description.toString().startsWith("输入方案：") && node.isVisibleToUser() && node.isEnabled()) {
+                schemeEnabled[0] = true;
+            }
+        }
+        for (int index = 0; index < node.getChildCount(); index++)
+            collectClipboardEntries(node.getChild(index), entries, schemeEnabled);
     }
 
     private void tap(Predicate<AccessibilityNodeInfo> predicate) throws Exception {

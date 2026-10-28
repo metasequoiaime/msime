@@ -118,7 +118,7 @@ IBus 与 Fcitx5 的专项验收分别是 `ibus-engine-smoke <已验证词库目�
 
 ```sh
 msime-linux-setup              # 用已备齐的词库准备状态目录
-msime-linux-setup --download   # 允许按随装的词库锁取回缺失词库（首次约 170 MB）
+msime-linux-setup --download   # 允许按随装的词库锁取回缺失词库（首次约 270 MB）
 msime-linux-setup --list-downloads   # 只列出本版本词库的下载地址、大小、SHA-256 和保存目录
 msime-linux-setup --update --download   # 升级之后只取回过期的那几项词库并切换过去
 ```

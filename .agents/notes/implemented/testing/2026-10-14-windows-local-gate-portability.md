@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+`settings_document_file.cpp` 每次运行用随机后缀和原子的 `create_directory` 认领独立临时目录，遇到同名目录重新选取，不删除已有目录。多个工作树同时跑 quick 时，固定目录曾让另一个进程的设置文档在读回前消失，触发第 49 行断言；测试不再共享或互删夹具，设置导入导出断言保留。
+
 保留所有能在 Windows 上执行的检查，补齐测试和示例的目标条件，路径契约按 POSIX 表示比较，测试退出前显式释放 SQLite 连接，并将需要原始字节校验的 Unicode 许可证固定为 LF。只对确实依赖 POSIX 运行时的测试声明 Windows 跳过；Linux 上仍运行它们。引擎诊断示例继续构造符号链接资源视图，Windows 使用对应的文件或目录链接接口，不引入资源复制。C++ 测试使用与接口一致的整数类型，局部变量只改名称，常量协议布局用 `static_assert` 保留检查；不关闭 `/WX` 或屏蔽警告。
 
 `test-windows-native-run.py` 对 MSVC 的 `unresolved external symbol` 与 GNU 的 `undefined reference` 使用同一分类：缺少完整 Windows 目标的伴随源文件或系统库时仍交给 CMake；MSVC 链接器可能写到标准输出，统一收集两个输出流，并同时按稳定的 `LNK2001`／`LNK2019`／`LNK1120` 错误码识别，不依赖显示语言。实际编译错误和已运行测试的断言失败照常失败。独立编译使用与 CMake 一致的 `msimeui/include` 和 `NOMINMAX`，不能把仓库已有公共头文件误报为外部缺失，也不让系统宏改写标准算法。新增 Win32 测试必须另外通过自己的 CMake 目标实际运行，不能把可移植 runner 的跳过当作通过。TSF 实验编辑器以公开的 `NOMINMAX` 编译定义关闭 Windows 的 `min`／`max` 宏，保证其公开头文件与消费者中的标准算法也可编译。

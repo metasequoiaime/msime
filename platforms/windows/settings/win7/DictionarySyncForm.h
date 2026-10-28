@@ -186,6 +186,16 @@ public:
     show();
   }
 
+  // 窗口重新获得焦点时那次不联网的 status（{action: 回答}）：只换概况，结果说明和设备列表（连同选中的那台）都不动；与画着的相同或读不出来时什么也不做。
+  void reread(const Json& completion) {
+    const auto value = theme_data::value(completion.value("action", Json()));
+    const auto parsed = value ? status_from(*value) : std::nullopt;
+    if (!parsed || (status_ && *parsed == *status_)) return;
+    status_ = *parsed;
+    show_status();
+    update();
+  }
+
   // 本机还没有 HostOptions（设置向导没跑完）时。
   void unprepared() { SetWindowTextW(get(notice), L"输入法尚未完成初始化，完成设置向导后即可同步词库。"); update(); }
 
@@ -251,6 +261,17 @@ private:
   void forget() { status_.reset(); devices_.clear(); waiting_ = 0; show(); }
   // 把读到的概况和设备画出来。
   void show() {
+    show_status();
+    SendMessageW(get(devices), LB_RESETCONTENT, 0, 0);
+    for (size_t index = 0; index < devices_.size(); ++index) {
+      const auto label = dictionary_sync::device_label(devices_[index]) + (index < waiting_ ? L" [等待允许]" : L" [已获准]");
+      SendMessageW(get(devices), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+    }
+    SetWindowTextW(get(device_detail), L"");
+    update();
+  }
+  // 概况的几行和被挡下的删除。
+  void show_status() {
     std::wstring summary;
     if (status_) {
       summary = dictionary_sync::approval_text(*status_);
@@ -261,13 +282,6 @@ private:
     } else summary = configured() ? L"点「立即同步」读取同步状态。" : L"";
     SetWindowTextW(get(status), summary.c_str());
     SetWindowTextW(get(held), status_ && status_->held_deletions ? dictionary_sync::held_deletions_text(status_->held_deletions).c_str() : L"");
-    SendMessageW(get(devices), LB_RESETCONTENT, 0, 0);
-    for (size_t index = 0; index < devices_.size(); ++index) {
-      const auto label = dictionary_sync::device_label(devices_[index]) + (index < waiting_ ? L" [等待允许]" : L" [已获准]");
-      SendMessageW(get(devices), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
-    }
-    SetWindowTextW(get(device_detail), L"");
-    update();
   }
   const dictionary_sync::Device* selected() const {
     const auto index = SendMessageW(get(devices), LB_GETCURSEL, 0, 0);

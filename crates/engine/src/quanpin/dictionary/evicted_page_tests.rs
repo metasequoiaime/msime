@@ -444,6 +444,7 @@ fn page_copy_preserves_all_fields_and_clone_capacities_across_shapes() {
                     corrected_from: "合成纠错".into(),
                     sentence_association: true,
                     sentence_words: vec!["合成边界一".into(), "合成边界二😀".into()],
+                    touch_supported: index % 3 == 0,
                 };
                 let mut source: Vec<_> = (0..new_len).map(make).collect();
                 for row in &mut source {

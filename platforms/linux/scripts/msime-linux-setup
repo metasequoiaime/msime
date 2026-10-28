@@ -1527,7 +1527,7 @@ def main() -> int:
     parser.add_argument(
         "--download",
         action="store_true",
-        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载；状态目录已有 runtime-options.json 时即视为 --update",
+        help="允许按已安装的词库锁下载缺失词库（首次约 270 MB），默认不下载；状态目录已有 runtime-options.json 时即视为 --update",
     )
     parser.add_argument(
         "--update",
@@ -1639,7 +1639,7 @@ def main() -> int:
     if problems and not arguments.download:
         print_problems(f"词库目录不可用：{resources}", problems)
         print(
-            "\n加 --download 按锁文件取回（首次约 170 MB），"
+            "\n加 --download 按锁文件取回（首次约 270 MB），"
             "或用 --resources 指向一份已备齐的目录。",
             file=sys.stderr,
         )

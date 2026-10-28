@@ -123,6 +123,12 @@ final class DictionarySyncTests: XCTestCase {
                       IOSDictionarySyncPolicy.failureMessage("dictionary_sync_unsupported"))
     XCTAssertEqual(IOSDictionarySyncPolicy.probeMessage("other"), "测试连接失败，请稍后再试。")
     XCTAssertEqual(IOSDictionarySyncPolicy.lastSuccess(nil), "尚未同步")
+    // 刚同步完（时间戳与现在相同，或因为毫秒取整、另一台设备的时钟略晚于现在）是「刚刚」，不是「0秒钟后」。
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let synced = UInt64(now.timeIntervalSince1970 * 1000)
+    XCTAssertEqual(IOSDictionarySyncPolicy.lastSuccess(synced, now: now), "刚刚")
+    XCTAssertEqual(IOSDictionarySyncPolicy.lastSuccess(synced + 400, now: now), "刚刚")
+    XCTAssertEqual(IOSDictionarySyncPolicy.lastSuccess(synced - 1_800_000, now: now), "30分钟前")
     XCTAssertTrue(IOSDictionarySyncPolicy.heldDeletionsMessage(60).contains("60"))
   }
 

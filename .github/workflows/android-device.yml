@@ -71,6 +71,8 @@ jobs:
           timeout 600 "$adb" -s "$serial" wait-for-device
           timeout 600 bash -c "until [ \"\$('$adb' -s $serial shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')\" = 1 ]; do sleep 5; done"
           "$adb" -s "$serial" shell getprop ro.build.version.sdk
+          # 整套跑一个多小时，默认缓冲只留得住最后十几分钟；2026-10-28 剪贴板导出的间歇失败发生在 00:51，失败后收的 logcat 从 01:07 才开始，输入法那段日志已被冲掉。调大主缓冲，收日志时还看得到中途失败的那一段。
+          "$adb" -s "$serial" logcat -G 32M || true
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
         run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK

@@ -287,6 +287,7 @@ def track_apk_size(api, directory, editions, run_url, sha, now=None):
             "确需提高上限是产品决定，先找维护者确认。")
     body = "\n".join([
         SIZE_MARKER,
+        run_marker,
         data,
         f"Android 瘦包越过了体积预警线。最近一次：[nightly]({run_url})，提交 `{sha[:10]}`。这张单在所有瘦包回到预警线以下时由 nightly 自动关闭。",
         "",

@@ -75,6 +75,27 @@ struct Status {
   std::wstring last_error;
 };
 
+// 两次读到的概况是否完全相同：窗口重新获得焦点时重读一次，相同就不重画。
+inline bool operator==(const Status &a, const Status &b) {
+  return a.device_id == b.device_id && a.code == b.code && a.approved == b.approved && a.joined == b.joined &&
+         a.words == b.words && a.pending_upload == b.pending_upload && a.pending_apply == b.pending_apply &&
+         a.held_deletions == b.held_deletions && a.clock_skew == b.clock_skew &&
+         a.last_success_ms == b.last_success_ms && a.last_error == b.last_error;
+}
+
+inline bool operator!=(const Status &a, const Status &b) { return !(a == b); }
+
+// 焦点读取不占普通操作的忙状态：每次读取只接纳最新一次，普通操作开始就作废此前的读取。只在 UI 线程使用，页面和配置的生命周期仍由宿主原有的代次管理。
+class StatusReadOrder {
+public:
+  uint64_t begin_read() { return ++sequence_; }
+  void invalidate() { ++sequence_; }
+  bool accepts(uint64_t sequence) const { return sequence == sequence_; }
+
+private:
+  uint64_t sequence_ = 0;
+};
+
 // 本机是否获准的一句。
 inline std::wstring approval_text(const Status &status) {
   if (status.device_id.empty())

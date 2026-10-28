@@ -2933,6 +2933,66 @@ fn desktop_settings_sync_uploads_input_keys_and_applies_only_for_the_reading_use
     assert!(applied.validate().is_ok());
 }
 
+/// 本机的偏好文档出自更新的版本（降级、从每日构建退回正式版）：文本编辑排列里有本版本不认识的动作、重复的动作，启用了本版本没有的触屏方案。设置同步照常上传和应用，写回时更新的版本的方案仍在，不认识的动作丢掉。
+#[test]
+fn desktop_settings_sync_works_on_a_document_from_a_newer_version() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let session = BackendAccountSession::new(FakeApi::new(), storage);
+    let root = tempfile::tempdir().unwrap();
+    let store = crate::preferences::PreferencesStore::new(root.path());
+    let edition = Some(crate::edition::Edition::full());
+    let mut preferences = serde_json::to_value(crate::preferences::Preferences::default()).unwrap();
+    preferences["touch_text_edit_button_order"] =
+        serde_json::json!(["select_word", "delete", "delete", "copy"]);
+    preferences["touch_keyboard_schemes"] =
+        serde_json::json!({"enabled": ["quanpin", "future_scheme"], "selected": "quanpin"});
+    std::fs::write(
+        root.path().join("preferences.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"format_version": 1, "revision": 4, "preferences": preferences}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    settings_sync::upload_desktop_settings(&session, &store, edition).unwrap();
+    let cloud = session.preferences().unwrap();
+    let (revision, applied) = settings_sync::prepare_desktop_settings_apply(
+        &session,
+        &store,
+        edition,
+        "fixture-user",
+        cloud,
+    )
+    .unwrap();
+    assert_eq!(revision, 4);
+    applied.validate().unwrap();
+    let mut changed = applied;
+    changed.candidate_page_size = 7;
+    store.save(revision, changed).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.path().join("preferences.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        written["preferences"]["touch_keyboard_schemes"]["enabled"],
+        serde_json::json!(["quanpin", "future_scheme"])
+    );
+    assert_eq!(
+        written["preferences"]["touch_text_edit_button_order"],
+        serde_json::json!([
+            "delete",
+            "copy",
+            "paste",
+            "select_all",
+            "cut",
+            "space",
+            "number_pad",
+            "select_line"
+        ])
+    );
+}
+
 #[test]
 fn client_agents_follow_the_shape_the_backend_parses() {
     for agent in [

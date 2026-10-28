@@ -84,6 +84,69 @@ int main() {
         "approval question shows the code");
   check(device_detail(groups.waiting[0]) == L"核对码 0123 4567 8901 2345", "device detail without a date");
 
+  // 窗口重新获得焦点时重读的概况：每一项都参与比较，完全相同才算没变（不重画）。
+  Status before;
+  before.device_id = L"a";
+  before.approved = true;
+  before.joined = true;
+  before.words = 12;
+  before.pending_upload = 1;
+  before.last_success_ms = 1000;
+  Status after = before;
+  check(after == before && !(after != before), "an identical status is unchanged");
+  after.pending_upload = 0;
+  check(after != before, "a sent word changes the status");
+  after = before;
+  after.last_success_ms = 2000;
+  check(after != before, "a later sync changes the status");
+  after = before;
+  after.last_error = L"dictionary_sync_unavailable";
+  check(after != before, "a new error changes the status");
+  after = before;
+  after.approved = false;
+  check(after != before, "approval changes the status");
+
+  // 受控投递焦点读取：生产顺序策略决定是否写回状态，不借助线程调度或固定等待。
+  Status synced = before;
+  synced.pending_upload = 0;
+  synced.last_success_ms = 2000;
+  const auto read = [](StatusReadOrder &order, Status &displayed, Status snapshot) {
+    const auto sequence = order.begin_read();
+    return [&order, &displayed, snapshot, sequence] {
+      if (order.accepts(sequence)) displayed = snapshot;
+    };
+  };
+  {
+    StatusReadOrder order;
+    Status displayed = before;
+    auto quiet_a = read(order, displayed, before);
+    order.invalidate();
+    displayed = synced;
+    quiet_a();
+    check(displayed == synced, "late quiet A cannot replace completed normal B");
+  }
+  {
+    StatusReadOrder order;
+    Status displayed = before;
+    auto quiet_a = read(order, displayed, before);
+    auto quiet_b = read(order, displayed, synced);
+    quiet_b();
+    quiet_a();
+    check(displayed == synced, "reversed quiet results keep the latest request");
+  }
+  {
+    StatusReadOrder order;
+    Status displayed = synced;
+    auto quiet_a = read(order, displayed, before);
+    order.invalidate();
+    // 普通操作失败或取消，不换状态，也不能让它开始前的读取复活。
+    quiet_a();
+    check(displayed == synced, "a failed or cancelled operation invalidates earlier quiet results");
+    auto quiet_b = read(order, displayed, before);
+    quiet_b();
+    check(displayed == before, "a new quiet read synced the operation still updates status");
+  }
+
   // 密钥串身份冲突时重试，最多三次；别的错误和成功都不重试。
   int calls = 0;
   const auto conflicted = [](const std::string &code) { return code == retry::keystore_conflict; };
@@ -99,6 +162,6 @@ int main() {
 
   if (failures)
     return 1;
-  std::puts("dictionary sync model: shared error texts, status lines, one entry per device and keystore conflict retries passed");
+  std::puts("dictionary sync model: shared error texts, status lines, status comparison and request ordering, one entry per device and keystore conflict retries passed");
   return 0;
 }

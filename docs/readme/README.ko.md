@@ -120,7 +120,7 @@ cargo test -p msime-engine --locked
 
 ## 고정 사전 리소스
 
-`resources/desktop-dictionary.lock.json`은 `metasequoiaime/msime-dictionary`에서 발행된 `dict-v2.0.24`의 출처, 길이, SHA-256을 고정합니다. 그중 `msime-mozc_dictionary_oss_README.txt`와 `msime-mozc_LICENSE.txt`는 일본어 사전의 라이선스 전문이고(전자는 IPAdic과 ICOT의 조항, 후자는 Mozc의 3조항 BSD), `msime-scowl_Copyright.txt`는 `msime-english.db`에 들어 있는 SCOWL 단어 목록의 저작권 및 라이선스 고지입니다. 이 조항들은 모두 데이터와 함께 배포할 것을 요구하므로, 다시 패키징할 때 생략해서는 안 됩니다. 자세한 내용은 [서드파티 컴포넌트 목록](../third-party.md#日文词库的分发义务)을 참고하십시오. 최초 다운로드는 약 189 MB입니다. 사전 잠금 파일의 `source_commit`은 이 사전 묶음이 이 저장소의 어느 커밋에서 `msime-dict-build`로 생성되었는지 기록하며, 그중 `msime-bigram.bin`과 `msime-trigram.bin`은 문장 단위 단어 격자(lattice) 판정에 쓰이는 언어 모델 테이블입니다. 테이블이 없어도 engine은 오류를 내지 않고 문장 단위 경로에 가중치를 주지 않을 뿐입니다 — 후보는 그대로 나오지만 순서가 나빠지므로, 사전 버전을 바꿀 때는 `crates/engine`이 새 테이블을 여전히 읽을 수 있는지 확인하고 문장 변환 평가를 다시 실행해야 합니다. 개발 준비 명령:
+`resources/desktop-dictionary.lock.json`은 `metasequoiaime/msime-dictionary`에서 발행된 `dict-v2.0.39`의 출처, 길이, SHA-256을 고정합니다. 그중 `msime-mozc_dictionary_oss_README.txt`와 `msime-mozc_LICENSE.txt`는 일본어 사전의 라이선스 전문이고(전자는 IPAdic과 ICOT의 조항, 후자는 Mozc의 3조항 BSD), `msime-scowl_Copyright.txt`는 `msime-english.db`에 들어 있는 SCOWL 단어 목록의 저작권 및 라이선스 고지입니다. 이 조항들은 모두 데이터와 함께 배포할 것을 요구하므로, 다시 패키징할 때 생략해서는 안 됩니다. 자세한 내용은 [서드파티 컴포넌트 목록](../third-party.md#日文词库的分发义务)을 참고하십시오. 최초 다운로드는 약 270 MB입니다. 사전 잠금 파일의 `source_commit`은 이 사전 묶음이 이 저장소의 어느 커밋에서 `msime-dict-build`로 생성되었는지 기록하며, 그중 `msime-bigram.bin`과 `msime-trigram.bin`은 문장 단위 단어 격자(lattice) 판정에 쓰이는 언어 모델 테이블입니다. 테이블이 없어도 engine은 오류를 내지 않고 문장 단위 경로에 가중치를 주지 않을 뿐입니다 — 후보는 그대로 나오지만 순서가 나빠지므로, 사전 버전을 바꿀 때는 `crates/engine`이 새 테이블을 여전히 읽을 수 있는지 확인하고 문장 변환 평가를 다시 실행해야 합니다. 개발 준비 명령:
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

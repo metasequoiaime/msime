@@ -3689,6 +3689,7 @@ private:
     // 与共享页一样，窗口获得焦点时重读打字统计并按日节流检查词库。
     poll_statistics();
     dictionary_update_request(L"automatic");
+    reread_dictionary_sync_status();
     // Another window (the tray, the shared app, another device through sync) may have changed the settings or Windows may have switched between light and dark while this window was in the background.
     bool changed = false;
     PreferencesDocument fresh;
@@ -17004,7 +17005,7 @@ private:
 
   // ---- 词库同步 ----
 
-  // 共享页的「词库同步」（packages/ui/src/settings/dictionary-sync.ts 和 use-dictionary-sync.ts）在 Windows 上画在词库页「云端词库」标签里、云词库那一组下面：「我的词条」经用户自己的 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）。网盘配置照「剪贴板」页云剪贴板的 WebDAV 那一套：地址、账号和应用密码先进草稿，应用密码遮罩、不回填已存的那个（留空沿用），「测试连接」只测不存，「保存」先测、通过才写偏好 dictionary_sync_webdav，不通过时草稿留着；规则由共享 Rust 偏好库和测试连接判断。存着网盘时，每次进入词库页以 opened 同步一次并取设备，之后按「立即同步」（manual）、设备的允许、拒绝、移除和重置再调；自动的 periodic 和候选窗口删词后的 local_change 由 Server 做（src/system/DictionarySyncWorker.h），本窗口改了词以后的 local_change 在 settings_dictionary_call 里。所有调用都在工作线程上（dictionary_sync_call），同一时间只有一件；配置换过之后回来的结果丢掉。展示规则和文字在 DictionarySyncModel.h。
+  // 共享页的「词库同步」（packages/ui/src/settings/dictionary-sync.ts 和 use-dictionary-sync.ts）在 Windows 上画在词库页「云端词库」标签里、云词库那一组下面：「我的词条」经用户自己的 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）。网盘配置照「剪贴板」页云剪贴板的 WebDAV 那一套：地址、账号和应用密码先进草稿，应用密码遮罩、不回填已存的那个（留空沿用），「测试连接」只测不存，「保存」先测、通过才写偏好 dictionary_sync_webdav，不通过时草稿留着；规则由共享 Rust 偏好库和测试连接判断。存着网盘时，每次进入词库页以 opened 同步一次并取设备，之后按「立即同步」（manual）、设备的允许、拒绝、移除和重置再调；自动的 periodic 和候选窗口删词后的 local_change 由 Server 做（src/system/DictionarySyncWorker.h），本窗口改了词以后的 local_change 在 settings_dictionary_call 里；窗口重新获得焦点时重读一次不联网的 status，跟上 Server 在后台做的同步。所有调用都在工作线程上（dictionary_sync_call），同一时间只有一件（焦点回来时那次 status 不占这一件，Rust 读同步状态不必等锁）；配置换过之后回来的结果丢掉。展示规则和文字在 DictionarySyncModel.h。
 
   struct DictionarySyncConfiguration {
     std::wstring url;
@@ -17214,6 +17215,7 @@ private:
       redraw_dictionary_sync();
       return;
     }
+    dsync_status_reads_.invalidate();
     dsync_busy_ = true;
     dsync_notice_.clear();
     const auto generation = dsync_generation_;
@@ -17247,6 +17249,34 @@ private:
       if (outcome.status)
         apply_dictionary_sync_status(*outcome.status);
     });
+  }
+
+  // 窗口重新获得焦点、「云端词库」标签开着时重读一次不联网的概况，与共享页相同：periodic 和候选窗口删词后的 local_change 由 Server 在后台做，结果不经本窗口，不重读的话「待发送」「上次同步」要离开词库页再进来才变。有操作在跑时不读，它的回答会带回概况；读到的与画着的相同时不重画，画也等按下的指针松开，免得激活窗口的那一下点击落在重建的控件上。错误和结果说明不动，它们记的是本窗口最近一次操作。
+  void reread_dictionary_sync_status() {
+    if (closed_ || dsync_busy_ || !dsync_checked_ || !dictionary_sync_saved() || current_page_ != "lexicon" ||
+        vocabulary_view_ || page_tab("lexicon") != L"cloud")
+      return;
+    const auto options = runtime_options_document();
+    if (!options)
+      return;
+    const auto generation = dsync_generation_;
+    const auto sequence = dsync_status_reads_.begin_read();
+    run_worker<Response>([options] { return dictionary_sync_call(options, R"({"operation":"status"})"); },
+                         [this, generation, sequence](Response &response) {
+                           if (generation != dsync_generation_ || dsync_busy_ || !dsync_status_reads_.accepts(sequence))
+                             return;
+                           const auto value = dictionary_sync_value(response);
+                           if (!value)
+                             return;
+                           auto status = dictionary_sync_status(*value);
+                           if (!status || (dsync_status_ && *status == *dsync_status_))
+                             return;
+                           dsync_status_ = std::move(*status);
+                           if (pointer_down_)
+                             defer_refresh_until_pointer_up();
+                           else
+                             redraw_dictionary_sync();
+                         });
   }
 
   // 一次 run 的回答（不是 remove、reset 那种带 devices 的）。
@@ -27109,6 +27139,7 @@ private:
   bool dsync_busy_ = false;
   bool dsync_checked_ = false;
   uint64_t dsync_generation_ = 0;
+  ds::StatusReadOrder dsync_status_reads_;
 
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;

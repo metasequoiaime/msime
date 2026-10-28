@@ -7637,14 +7637,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void insertClipboardText(String text) {
-        // Only that there is text. Re-checking the shared store's own bounds here is what made
-        // an entry another mobile host saved listable but not insertable on this one.
+        // 这里只判断是否有文字；重复检查共享存储的长度限制会让其他移动宿主保存的条目可见却无法插入。
         if (connection == null || !ClipboardHistoryPolicy.hasText(text)) return;
         command(2);
         commitText(text);
         // 用户已经从剪贴板插入过了（面板里的历史、分词或工具栏上的「最近复制」），工具栏不再提供刚复制的那一条：否则关上面板后工具栏又换成刚插入的文字，剪贴板和表情按钮也跟着被替换掉。
         recentClip.dismiss();
         closeClipboardHistory();
+        render();
     }
 
     /** 系统剪贴板里当前的那一条文字：文字本身、系统给的复制时刻（读不到时为 0）和是否被标为敏感。 */

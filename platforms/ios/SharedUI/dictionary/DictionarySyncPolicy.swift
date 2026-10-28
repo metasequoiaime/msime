@@ -100,11 +100,11 @@ enum IOSDictionarySyncPolicy {
     "本机一次少了 \(count) 个词，可能是词库被重置或损坏了。为了不把其他设备上的词也删掉，这些删除还没有同步。"
   }
 
-  /// 「上次同步」那一行：成功过就是相对时间，否则说还没有同步过。
+  /// 「上次同步」那一行：成功过就是相对时间（刚同步完是「刚刚」），否则说还没有同步过。
   static func lastSuccess(_ milliseconds: UInt64?, now: Date = Date()) -> String {
     guard let milliseconds, milliseconds > 0 else { return "尚未同步" }
-    let date = min(Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000), now)
-    return relative.localizedString(for: date, relativeTo: now)
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return CloudClipboardTimePolicy.relative(date, now: now, formatter: relative)
   }
 
   private static let relative: RelativeDateTimeFormatter = {
