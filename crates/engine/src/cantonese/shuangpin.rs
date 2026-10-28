@@ -80,9 +80,32 @@ pub fn decode(inventory: &Inventory, code: [u8; 2]) -> Vec<String> {
     values
 }
 
+/// 末尾单独一个双拼键只定下了声母：返回库存里首键为 `key` 的音节在粤拼里的开头拼写，供按前缀补全。
+///
+/// 声母键取对应的粤拼声母（`i` 是 `gw`、`v` 是 `ng`、`y` 是 `j`），零声母键 `o` 按各音节的首字母分组，`m`、`ng` 两个鼻音音节以整个音节作前缀。`g`、`n` 这样的前缀也会补出 `gw`、`ng` 开头的音节，调用方须再用 `encode` 核对首键。结果去重并按字节序排序；库存里没有以该键开头的音节时为空。
+pub fn initial_prefixes(inventory: &Inventory, key: u8) -> Vec<String> {
+    let mut prefixes = inventory
+        .syllables()
+        .filter(|syllable| encode(syllable).is_some_and(|code| code[0] == key))
+        .map(|syllable| {
+            let length = if matches!(syllable, "m" | "ng") {
+                syllable.len()
+            } else if matches!(key, b'i' | b'u' | b'v') {
+                2
+            } else {
+                1
+            };
+            syllable[..length].to_owned()
+        })
+        .collect::<Vec<_>>();
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    prefixes
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{decode, encode};
+    use super::{decode, encode, initial_prefixes};
     use crate::cantonese::Inventory;
 
     #[test]
@@ -120,5 +143,21 @@ mod tests {
         assert_eq!(decode(&inventory, *b"nz"), vec!["nei"]);
         assert_eq!(decode(&inventory, *b"ga"), vec!["gaa"]);
         assert!(decode(&inventory, *b"zz").is_empty());
+    }
+
+    #[test]
+    fn a_lone_initial_key_lists_the_jyutping_spellings_it_starts() {
+        let inventory = Inventory::new([
+            "gwong", "gaa", "ngo", "nei", "m", "ng", "oi", "aa", "maa", "jan",
+        ]);
+        assert_eq!(initial_prefixes(&inventory, b'i'), ["gw"]);
+        assert_eq!(initial_prefixes(&inventory, b'g'), ["g"]);
+        assert_eq!(initial_prefixes(&inventory, b'v'), ["ng"]);
+        assert_eq!(initial_prefixes(&inventory, b'n'), ["n"]);
+        assert_eq!(initial_prefixes(&inventory, b'y'), ["j"]);
+        assert_eq!(initial_prefixes(&inventory, b'm'), ["m"]);
+        // 零声母按首字母分组，两个鼻音音节自成前缀。
+        assert_eq!(initial_prefixes(&inventory, b'o'), ["a", "m", "ng", "o"]);
+        assert!(initial_prefixes(&inventory, b'x').is_empty());
     }
 }

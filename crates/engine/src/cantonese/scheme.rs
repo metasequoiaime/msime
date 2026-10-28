@@ -39,6 +39,15 @@ pub struct CantoneseScheme {
     force_shuangpin: bool,
 }
 
+/// 双拼码展开后的粤拼读法。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShuangpinExpansion {
+    /// 各完整双拼码的读音组合，音节间以 `'` 分隔；输入只有一个末尾单键时是一个空串。
+    readings: Vec<String>,
+    /// 末尾单独按下的双拼键，以及它在粤拼里可能的开头拼写（`shuangpin::initial_prefixes`）。
+    trailing: Option<(u8, Vec<String>)>,
+}
+
 /// 会话查询复用的字典行和跨度键；不属于方案的组字状态。
 #[derive(Default)]
 pub(crate) struct CantoneseQueryBuffer {
@@ -305,25 +314,83 @@ impl CantoneseScheme {
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
     ) -> Result<()> {
-        if let Some(expanded_inputs) = self.shuangpin_expansions() {
+        if let Some(expansion) = self.shuangpin_expansions() {
             candidates.clear();
             let mut expanded = Vec::new();
             let mut temporary = self.clone();
             temporary.shuangpin = false;
-            for input in expanded_inputs {
-                temporary.input = input;
-                let mut rows = Vec::new();
-                temporary.candidates_into_jyutping(dictionary, buffer, &mut rows)?;
-                for mut row in rows {
+            let mut rows = Vec::new();
+            for reading in &expansion.readings {
+                if let Some((key, prefixes)) = &expansion.trailing {
+                    self.trailing_initial_candidates(
+                        dictionary,
+                        buffer,
+                        reading,
+                        *key,
+                        prefixes,
+                        &mut expanded,
+                    )?;
+                }
+                if reading.is_empty() {
+                    continue;
+                }
+                temporary.input.clone_from(reading);
+                // 每两键已是一个完整音节，末音节不再补全成更长的音节（`da` 只读 `daa`，不补出 `daap`）。
+                temporary.candidates_into_jyutping(dictionary, buffer, &mut rows, false)?;
+                for mut row in rows.drain(..) {
                     row.end = self.shuangpin_code_end(row.syllables);
                     expanded.push(row);
                 }
             }
+            // 同一双拼码的各个读音合在一起排：先比覆盖的音节数，再比权重，排序稳定，同权重保持读音的字节序。
+            expanded.sort_by(|left, right| {
+                right
+                    .syllables
+                    .cmp(&left.syllables)
+                    .then(right.weight.cmp(&left.weight))
+            });
             deduplicate_candidates(&mut expanded);
             candidates.extend(expanded);
             return Ok(());
         }
-        self.candidates_into_jyutping(dictionary, buffer, candidates)
+        self.candidates_into_jyutping(dictionary, buffer, candidates, true)
+    }
+
+    /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母，按 `prefixes` 补全，再用双拼规则核对补出的音节确实以 `key` 开头。
+    fn trailing_initial_candidates(
+        &self,
+        dictionary: &LanguageDictionary,
+        buffer: &mut CantoneseQueryBuffer,
+        reading: &str,
+        key: u8,
+        prefixes: &[String],
+        expanded: &mut Vec<CantoneseCandidate>,
+    ) -> Result<()> {
+        let syllables = reading.split('\'').filter(|part| !part.is_empty()).count() + 1;
+        let end = self.shuangpin_code_end(syllables);
+        for prefix in prefixes {
+            buffer.key.clear();
+            for part in reading.split('\'').filter(|part| !part.is_empty()) {
+                buffer.key.push_str(part);
+                buffer.key.push(' ');
+            }
+            buffer.key.push_str(prefix);
+            // 前缀可能补出属于别的双拼键的音节（`n` 补出 `ngo`），核对前多取一些，免得有效行被挤出上限。
+            dictionary.lookup_completions_into(&buffer.key, SPAN_LIMIT, &mut buffer.completions)?;
+            for (entry_key, entry) in &buffer.completions {
+                let last = entry_key.rsplit(' ').next().unwrap_or_default();
+                if shuangpin::encode(last).is_some_and(|code| code[0] == key) {
+                    expanded.push(CantoneseCandidate {
+                        text: entry.text.clone(),
+                        weight: entry.weight,
+                        key: entry_key.clone(),
+                        syllables,
+                        end,
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     fn shuangpin_code_end(&self, syllables: usize) -> usize {
@@ -337,7 +404,8 @@ impl CantoneseScheme {
                 position += 1;
                 continue;
             }
-            position += 2;
+            // 末尾单独一个声母键也算一个音节，但它只占一个字节。
+            position = (position + 2).min(self.input.len());
             count += 1;
             if count == syllables {
                 return position;
@@ -346,20 +414,39 @@ impl CantoneseScheme {
         self.input.len()
     }
 
-    fn shuangpin_expansions(&self) -> Option<Vec<String>> {
+    /// 把双拼码展开成粤拼读法。每个音节之间都写上 `'`，让临时粤拼按双拼的两键一音节切分，不再交给最长匹配重切（`danz` 展开的 `daanei` 会被切成 `daan ei`）。
+    ///
+    /// 独立双拼入口下最后一段以单个键结尾时，那个键只定下声母，放在 `trailing` 里交给补全；中间段不允许奇数长度。任一码在库存里解不出音节、或末尾单键没有对应音节时返回 `None`，由调用方按普通粤拼读。
+    fn shuangpin_expansions(&self) -> Option<ShuangpinExpansion> {
         if !self.shuangpin || self.input.is_empty() {
             return None;
         }
         let chunks = self.input.split('\'').collect::<Vec<_>>();
-        if chunks
+        let last = chunks.len() - 1;
+        // 输入不以 `'` 开头、也不含连续的 `'`，空段只可能是末尾刚敲下的分隔符。
+        if chunks[..last]
             .iter()
             .any(|chunk| chunk.is_empty() || chunk.len() % 2 != 0)
         {
             return None;
         }
+        let trailing = if chunks[last].len() % 2 != 0 {
+            // 自动识别时第三键也可能是粤拼在继续拼同一个音节（`gw` 之后的 `gwo`），奇数长度仍交给普通粤拼；只有独立双拼入口把它当下一个音节的声母。
+            if !self.force_shuangpin {
+                return None;
+            }
+            let key = chunks[last].as_bytes()[chunks[last].len() - 1];
+            let prefixes = shuangpin::initial_prefixes(&self.inventory, key);
+            if prefixes.is_empty() {
+                return None;
+            }
+            Some((key, prefixes))
+        } else {
+            None
+        };
         let mut values = vec![String::new()];
-        for (chunk_index, chunk) in chunks.iter().enumerate() {
-            for offset in (0..chunk.len()).step_by(2) {
+        for chunk in &chunks {
+            for offset in (0..chunk.len() / 2 * 2).step_by(2) {
                 let code = [chunk.as_bytes()[offset], chunk.as_bytes()[offset + 1]];
                 let syllables = shuangpin::decode(&self.inventory, code);
                 if syllables.is_empty() {
@@ -372,26 +459,29 @@ impl CantoneseScheme {
                             break;
                         }
                         let mut value = prefix.clone();
+                        if !value.is_empty() {
+                            value.push('\'');
+                        }
                         value.push_str(syllable);
                         combined.push(value);
                     }
                 }
                 values = combined;
             }
-            if chunk_index + 1 < chunks.len() {
-                for value in &mut values {
-                    value.push('\'');
-                }
-            }
         }
-        Some(values)
+        Some(ShuangpinExpansion {
+            readings: values,
+            trailing,
+        })
     }
 
+    /// `complete_trailing` 为假时，整段读法的末音节即使还是更长音节的开头也不再补全；双拼展开出的音节都是按键定死的。
     fn candidates_into_jyutping(
         &self,
         dictionary: &LanguageDictionary,
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
+        complete_trailing: bool,
     ) -> Result<()> {
         let input = self.input.as_str();
         let reading = self.segmentation();
@@ -435,7 +525,7 @@ impl CantoneseScheme {
                     );
                 }
                 let last = reading.texts(input).last().unwrap_or_default();
-                if self.inventory.is_prefix(last) {
+                if complete_trailing && self.inventory.is_prefix(last) {
                     dictionary.lookup_completions_into(
                         &buffer.key,
                         COMPLETION_LIMIT,
@@ -814,10 +904,212 @@ mod tests {
         selected.set_force_shuangpin(true);
         selected.set_raw_input("oi");
         assert!(selected.is_shuangpin());
-        assert_eq!(selected.shuangpin_expansions(), Some(vec!["i".to_owned()]));
+        assert_eq!(
+            selected.shuangpin_expansions(),
+            Some(ShuangpinExpansion {
+                readings: vec!["i".to_owned()],
+                trailing: None,
+            })
+        );
         selected.reset();
         selected.set_raw_input("oi");
         assert!(selected.is_shuangpin());
+    }
+
+    /// 双拼回归用的小词库：读音和权重取自 #10085 报告里的输入，`ngo daap`、`daan` 这类行专门用来暴露旧的补全和重切问题。
+    const SHUANGPIN_SYLLABLES: [&str; 18] = [
+        "ngo", "ngoi", "ng", "daa", "daai", "daap", "daan", "dei", "ei", "nei", "soeng", "soek",
+        "cyun", "cyut", "cuk", "m", "aa", "i",
+    ];
+    const SHUANGPIN_ENTRIES: [(&str, &str, i64); 22] = [
+        ("ngo", "我", 6000),
+        ("ngoi", "外", 1000),
+        ("ngo daap", "我答", 7385),
+        ("ngo daai", "我帶", 1690),
+        ("ngo dei", "我哋", 8000),
+        ("ngo nei", "我呢", 300),
+        ("ngo ngoi", "我外", 200),
+        ("ngo ng", "我五", 100),
+        ("daa", "打", 4689),
+        ("daap", "答", 900),
+        ("daai", "大", 3500),
+        ("daan", "蛋", 2000),
+        ("ei", "誒", 10),
+        ("nei", "你", 5000),
+        ("daa nei", "打你", 500),
+        ("soek", "削", 200),
+        ("soeng", "上", 9000),
+        ("soeng", "相", 5000),
+        ("soeng cyun", "相傳", 978),
+        ("cyun", "傳", 3000),
+        ("cuk", "速", 2000),
+        ("m", "唔", 7000),
+    ];
+
+    fn shuangpin_fixture() -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-cantonese.db");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection
+            .execute(
+                "INSERT INTO metadata VALUES (?1, ?2)",
+                (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+            )
+            .unwrap();
+        for syllable in SHUANGPIN_SYLLABLES {
+            connection
+                .execute("INSERT INTO syllables VALUES (?1)", (syllable,))
+                .unwrap();
+        }
+        for (key, text, weight) in SHUANGPIN_ENTRIES {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        Fixture {
+            dictionary: open_read_only(&path).unwrap(),
+            _dir: dir,
+        }
+    }
+
+    /// `force` 对应独立「粤语双拼」入口，否则是「粤语」入口的自动识别。
+    fn shuangpin_typed(keys: &str, force: bool) -> CantoneseScheme {
+        let mut scheme = CantoneseScheme::new(Arc::new(Inventory::new(SHUANGPIN_SYLLABLES)));
+        scheme.set_force_shuangpin(force);
+        for byte in keys.bytes() {
+            scheme.handle_key(if byte == b'\'' {
+                SchemeKey::Apostrophe
+            } else {
+                SchemeKey::Letter(byte)
+            });
+        }
+        scheme
+    }
+
+    /// Each candidate as `text/syllables/end`.
+    fn listed_with_end(scheme: &CantoneseScheme, dictionary: &LanguageDictionary) -> Vec<String> {
+        scheme
+            .candidates(dictionary)
+            .unwrap()
+            .iter()
+            .map(|candidate| {
+                format!(
+                    "{}/{}/{}",
+                    candidate.text, candidate.syllables, candidate.end
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shuangpin_does_not_complete_a_syllable_its_two_keys_already_fixed() {
+        let fixture = shuangpin_fixture();
+        // `da` 只能是 `daa`；`daap` 在 `c` 键上，`ngo daap`、`ngo daai` 不能靠补全混进来。
+        for force in [true, false] {
+            let scheme = shuangpin_typed("voda", force);
+            assert!(scheme.is_shuangpin());
+            assert_eq!(
+                listed_with_end(&scheme, &fixture.dictionary),
+                ["我/1/2", "外/1/2"],
+                "force={force}"
+            );
+        }
+    }
+
+    #[test]
+    fn shuangpin_expansions_keep_each_code_as_one_syllable() {
+        let fixture = shuangpin_fixture();
+        // 选「我」之后剩下的 `danz` 是 `daa nei`，不能被最长匹配重切成 `daan ei`。
+        let mut scheme = shuangpin_typed("vodanz", true);
+        let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+        let me = candidates.iter().find(|row| row.text == "我").unwrap();
+        assert_eq!(me.end, 2);
+        assert!(scheme.select(me));
+        assert_eq!(scheme.input(), "danz");
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["打你/2/4", "打/1/2"]
+        );
+        // 自动识别入口进入双拼之后同样按两键一音节读。
+        let scheme = shuangpin_typed("danz", false);
+        assert!(scheme.is_shuangpin());
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["打你/2/4", "打/1/2"]
+        );
+        // 末尾刚敲下的分隔符不让整段退回普通粤拼。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("nz'", true), &fixture.dictionary),
+            ["你/1/2"]
+        );
+    }
+
+    #[test]
+    fn readings_of_one_code_merge_by_coverage_then_weight() {
+        let fixture = shuangpin_fixture();
+        // `sx` 解出 `soek`、`soeng`，字节序是 `soek` 在前，但「上」「相」更常用。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("sx", true), &fixture.dictionary),
+            ["上/1/2", "相/1/2", "削/1/2"]
+        );
+        // `cr` 解出 `cuk`、`cyun`、`cyut`；覆盖两个音节的「相傳」排最前，单字仍按权重。
+        let mut scheme = shuangpin_typed("sxcr", false);
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["相傳/2/4", "上/1/2", "相/1/2", "削/1/2"]
+        );
+        // 点选「上」只拿走前两键，剩下的 `cr` 继续按双拼出「傳」。
+        let up = scheme
+            .candidates(&fixture.dictionary)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.text == "上")
+            .unwrap();
+        assert!(scheme.select(&up));
+        assert_eq!(scheme.input(), "cr");
+        assert!(scheme.is_shuangpin());
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["傳/1/2", "速/1/2"]
+        );
+    }
+
+    #[test]
+    fn a_trailing_single_key_completes_from_its_initial_in_forced_shuangpin() {
+        let fixture = shuangpin_fixture();
+        let scheme = shuangpin_typed("vod", true);
+        assert_eq!(scheme.editing_text(), "vo d");
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["我哋/2/3", "我答/2/3", "我帶/2/3", "我/1/2", "外/1/2"]
+        );
+        // `n` 前缀也会补出 `ngoi`、`ng`，它们在双拼里属于 `v`、`o` 键，必须筛掉。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("von", true), &fixture.dictionary),
+            ["我呢/2/3", "我/1/2", "外/1/2"]
+        );
+        // 零声母键 `o` 补出鼻音音节 `ng`，不补出 `ngoi`。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("voo", true), &fixture.dictionary),
+            ["我五/2/3", "我/1/2", "外/1/2"]
+        );
+        // 只有一个键时直接按声母列单音节词，`daai`、`daan` 都在 `d` 下。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("d", true), &fixture.dictionary),
+            ["打/1/1", "大/1/1", "蛋/1/1", "答/1/1"]
+        );
+        // 选中覆盖末尾单键的候选会清空组字。
+        let mut scheme = shuangpin_typed("vod", true);
+        let ours = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert!(!scheme.select(&ours));
+        assert!(scheme.is_empty());
+        // 自动识别入口的奇数长度仍交给普通粤拼，避免把正在拼的粤拼音节当成下一个声母。
+        assert_eq!(shuangpin_typed("vod", false).shuangpin_expansions(), None);
     }
 
     #[test]

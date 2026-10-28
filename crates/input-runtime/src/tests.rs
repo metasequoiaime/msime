@@ -9214,6 +9214,58 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
     assert_eq!(database_rows(directory.path()), before);
 }
 
+/// #10085：粤语双拼打 `sxcr` 后点「上」，经宿主点选候选同一条 `Action::Select` 路线上屏的是「上」，不是编码 `sx`；剩下的 `cr` 继续组字并给出「傳」。「粤语」自动识别和独立「粤语双拼」两个入口都走一遍。
+#[test]
+fn cantonese_shuangpin_tap_commits_the_word_and_keeps_the_rest_composing() {
+    for force in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-cantonese.db");
+        {
+            use msime_engine::language_dictionary::{
+                FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA,
+            };
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.execute_batch(SCHEMA).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO metadata VALUES (?1, ?2)",
+                    (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+                )
+                .unwrap();
+            connection
+                .execute_batch(
+                    "INSERT INTO syllables VALUES ('soeng'),('soek'),('cyun'),('cyut'),('cuk');\
+                     INSERT INTO entries VALUES ('soeng cyun','相傳',978),('soeng','上',9000),('soeng','相',5000),('soek','削',200),('cyun','傳',3000),('cuk','速',2000);",
+                )
+                .unwrap();
+        }
+        let mut options = real_engine_options(directory.path());
+        options.scheme = CANTONESE_SCHEME;
+        options.cantonese_dictionary = path.to_str().unwrap().to_owned();
+        options.force_cantonese_shuangpin = force;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+
+        let typed = compose_cantonese(&mut runtime, "sxcr");
+        assert_eq!(typed.view.editing_text, "sx cr", "force={force}");
+        assert_eq!(
+            texts(&typed.view),
+            ["相傳", "上", "相", "削"],
+            "force={force}"
+        );
+        let id = typed.view.candidates[1].id;
+        let picked = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(picked.commit.as_deref(), Some("上"), "force={force}");
+        assert_eq!(picked.view.editing_text, "cr", "force={force}");
+        assert_eq!(texts(&picked.view), ["傳", "速"], "force={force}");
+        let id = picked.view.candidates[0].id;
+        let rest = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(rest.commit.as_deref(), Some("傳"), "force={force}");
+        assert_eq!(rest.view.editing_text, "", "force={force}");
+    }
+}
+
 /// The sentence model and the runner-up demotion reorder Chinese lattice readings; a Cantonese or Stroke list comes from its own dictionary in its own order, so neither touches it.
 #[test]
 fn cantonese_lists_are_never_reranked_or_demoted() {
