@@ -37,6 +37,7 @@ import {
   StatisticsAuthenticationCooldown,
 } from "../entry/src/main/ets/keyboard/settings/StatisticsAuthenticationCooldown";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
+import { CandidateScalePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateScalePolicy";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
 import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
 import {
@@ -1512,6 +1513,12 @@ group("projects the same form factor into every settings capability", () => {
   check(
     !phone.candidateWindowOpacity && !phone.candidateCornerRadius,
     "phone settings hide the candidate card opacity and radius the strip ignores",
+  );
+  check(
+    phone.candidateWindowScale &&
+      SettingsFormFactorCapabilities.resolve("tablet").candidateWindowScale &&
+      !desktop.candidateWindowScale,
+    "phones and tablets offer 候选栏大小 their keyboard scales; the 2-in-1 card only follows the font size",
   );
   check(
     phone.touchToolbarTools && !desktop.touchToolbarTools,
@@ -11399,6 +11406,52 @@ group("the design key changes whenever the drawing would", () => {
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 42]);
   check(CustomKeyboardSkin.from(document({}), png).key() !== base, "so does adding a photo");
   check(CustomKeyboardSkin.from(document({})).key() === base, "an empty document is the default");
+});
+
+group("候选栏大小 scales the touch strip together with the toolbar sharing it (#10137)", () => {
+  check(
+    CandidateScalePolicy.percent(50) === 50 && CandidateScalePolicy.percent(200) === 200,
+    "the shared 50–200 range is taken as it is",
+  );
+  check(
+    CandidateScalePolicy.percent(49) === 100 &&
+      CandidateScalePolicy.percent(201) === 100 &&
+      CandidateScalePolicy.percent(undefined) === 100 &&
+      CandidateScalePolicy.percent(null) === 100 &&
+      CandidateScalePolicy.percent(87.5) === 100,
+    "anything outside it, missing or fractional falls back to 100 like Android's CandidateScalePolicy",
+  );
+  check(CandidateScalePolicy.scaled(20, 50) === 10 && CandidateScalePolicy.scaled(20, 150) === 30, "a size is multiplied by the scale");
+  check(KeyboardMetrics.stripHeightVp() === KeyboardMetrics.STRIP_HEIGHT_VP, "the default strip is the design's 50vp");
+  check(
+    KeyboardMetrics.stripHeightVp(50) === 25 && KeyboardMetrics.stripHeightVp(200) === 100,
+    "the strip follows the scale both ways",
+  );
+  check(
+    KeyboardMetrics.toolbarScale(100) === 1 &&
+      KeyboardMetrics.toolbarScale(150) === 1 &&
+      KeyboardMetrics.toolbarScale(50) === 0.5,
+    "toolbar buttons shrink with a shorter strip so they never clip, and stay at the design size when it grows",
+  );
+  const base: number = KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false);
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, true, 0, 100) === base,
+    "100% leaves the panel as it was",
+  );
+  check(
+    base - KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, true, 0, 80) === 10,
+    "only the strip gets shorter: the key rows and the gap under the strip keep their size",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, false, 0, 50) ===
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, false),
+    "a hidden strip takes no space at any scale",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true, true, 0, 50) ===
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true),
+    "the 2in1 frame ignores it",
+  );
 });
 
 group("the panel is as tall as what the view stacks inside it", () => {
