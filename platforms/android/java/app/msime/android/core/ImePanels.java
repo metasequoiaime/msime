@@ -1768,7 +1768,9 @@ final class ImePanels {
             KeyboardTypographyPolicy.setKeyTextSize(question, 13);
             ViewPolicy.setMaxLinesEllipsized(question, 1);
             LayoutPolicy.setHorizontalPaddingDp(question, s, 6);
-            header.addView(question, LayoutPolicy.weightedZeroParams(1));
+            ViewPolicy.setCenteredVertically(question);
+            // 问句必须和两侧按钮一样按 MATCH_PARENT 取高：顶行套在 HorizontalScrollView 里，量高时只拿到 AT_MOST 32px，这时横向 LinearLayout 只要有一个子视图不是 MATCH_PARENT，行高就只按非 MATCH_PARENT 子视图算。原来问句用 `weightedZeroParams` 高度为 0，整行跟着塌成 0 高，问句和「取消」「清空」都看不见、手指点不到，清空也就走不到系统认证（#10027）。
+            header.addView(question, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", () -> {
                 clipboardClearPending = false;
                 renderClipboardHistory();

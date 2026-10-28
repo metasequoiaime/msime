@@ -17,6 +17,8 @@ Status: implemented
 - `captureClipboard(trigger, announce)`：复制时的监听（`Trigger.COPIED`）一律记录；打开面板的补读（`Trigger.PANEL_OPENED`）只记录身份与上一次不同的那一条。共享存储有了答复之后才记下身份：收下或明确拒收（`add` 返回原因）都记，拒收的内容不会每次打开面板都重试；存储写不进去时 `add` 抛异常，这一条不记，下次补读再试。第一版在交给存储之前就记下，写入抛异常时这一条被当成处理过，之后的补读永远跳过它。
 - 清空和删除单条之后，把系统剪贴板当前那一条记为已处理（`forgetCurrentClip`）。系统标为敏感（`EXTRA_IS_SENSITIVE`）的内容跳过：补读本来就不记录它，而身份里的散列和长度足以穷举还原短密码或验证码，不能为它落盘。
 - 长按一条历史，操作（固定或取消固定、删除、编辑、分词、添加到常用语、发到云剪贴板、收起）画成紧贴在它下方的两行按钮（`ImePanels.renderClipboardItemActions`；后加的几项见 [存为常用语](../feature/2026-10-09-android-clipboard-to-phrases.md) 和 [在应用里编辑](../feature/2026-10-09-android-clipboard-edit.md)），执行由 `MSIMEInputService.setClipboardItemPinned` / `removeClipboardItem` 负责。剪贴板面板 never 弹 `PopupMenu`。
+- 确认行的问句、「取消」和「清空」高度一律是 `MATCH_PARENT`（问句用 `weightedMatchParentParams(1)` 并垂直居中）。顶行套在 `HorizontalScrollView` 里、以 `WRAP_CONTENT` 挂上，量高时拿到的是 `AT_MOST 32px`；这时横向 `LinearLayout` 只要有一个子视图不是 `MATCH_PARENT`，行高就只取非 `MATCH_PARENT` 子视图的高度。问句原来是 `weightedZeroParams(1)`（高 0），27ea3d75e4 给顶行套上横向滚动后整行塌成 0 高：问句和两个按钮都看不见，手指点不到确认，清空也就走不到系统认证（#10027）。同一顶行的计数和「N 项已选择」本来就是 `MATCH_PARENT`。其余横向滚动行（工具栏、候选、九键拼音、自动填充、符号分类）的内容行要么以 `MATCH_PARENT` 挂上、量高是 `EXACTLY`，要么子视图是固定高度，不受影响。
+- `ClipboardSegmentDragDeviceSmoke` 点确认之前先等问句、「取消」「清空」可见，并断言它们在屏幕上的宽高都大于 0：`DeviceSmoke.tap` 对本应用节点走 `ACTION_CLICK`，0 高度的按钮照样点得中，所以塌行在设备验收里一直是绿的。
 - `check-host.sh` 守住：清空、面板渲染和条目操作路径里没有 `new AlertDialog`/`new PopupMenu`，`manageClipboardItem` 不再出现，捕获经过 `ClipboardCapturePolicy.captures`，`forgetCurrentClip` 跳过敏感内容。
 - 双列末行使用 `android.widget.Space` 补空位，保留与卡片相同的列宽权重和 `MATCH_PARENT` 行高参数；真实卡片继续按同一行的最大内容高度对齐。普通 `View` 在 `AT_MOST` 下会占满可用高度，会把唯一卡片撑满列表视口，令 #9589 的长按操作行落到屏外；[`Space` 的测量实现](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/master/core/java/android/widget/Space.java)按最小内容高度测量，由真实卡片决定行高。卡片与操作行仍由原列表管理，全文预览不承担管理菜单的职责。
 
@@ -29,6 +31,7 @@ Status: implemented
 - **打开长按菜单后自动滚动到底部**：能让屏外的按钮暂时可见，但唯一卡片仍被空位撑高，用户每次管理都要移动列表；修正补空位的测量能同时保留卡片尺寸和原地管理。
 
 - **只把补空位高度设为零**：能避免它撑高列表，但水平 `LinearLayout` 里其他单元格仍为 `MATCH_PARENT`，整行被测为零高；API 28/35 的设备截图都显示条数为一、卡片却不可见。`Space` 保留整行等高参数，同时提供符合空位含义的内容测量。
+- **把顶行在 `HorizontalScrollView` 里改成 `MATCH_PARENT` 高**：顶行量高变回 `EXACTLY 32px`，所有状态都不再依赖子视图参数；但普通状态的顶行也会跟着换测量方式，#10030 接着要改确认行的样式，这里只修出问题的那个子视图。
 
 ## Consequences
 
@@ -43,3 +46,5 @@ Status: implemented
 #9589 的旧宿主在 API 28/35 均复现：通过面板实际清空、系统剪贴板复制唯一合成短条，双列长按后全文预览可见、内联管理按钮不可见；同一夹具的单列短条与长条通过。`ClipboardSegmentDragDeviceSmoke -e first-record-only true` 覆盖清空后首次采集、单列与双列、短条与多行条目，以及展开不改写历史或上屏。
 
 修复后 API 28/35 的首条记录专项均通过：单列、双列的短条与多行条目，以及双列复制第二条后的两种场景，共六组真实长按；两行操作可见，历史与编辑器不变，收起后浮层消失。夹具按报告的清空、复制、重新进入面板顺序同步，再取历史快照，避免把设置重载或补读未完成时的临时状态算成长按副作用；专项同时接入默认完整套件。两版完整 `ClipboardSegmentDragDeviceSmoke` 通过，包含全文浮层像素、滚动与生命周期、固定摘要、列表滚动、横滑删除、分词拖选、全文插入及编辑返回。原生 arm64 宿主在 JDK 21 下构建，五个原生库的依赖与 16 KiB 对齐通过；266 项 JVM 冒烟、240 份设备源码、JNI/资源契约和最终远端 `scripts/verify-local.sh --quick` 通过。该结果覆盖专用模拟器，报告的 vivo API 30 尚未真机验收。
+
+#10027 的修复只在 macOS 上经 `check-host.sh` 编译了面板和设备套件；新加的尺寸断言没有在模拟器上跑过，报告的 vivo V2046A（Android 11）也没有真机复测。

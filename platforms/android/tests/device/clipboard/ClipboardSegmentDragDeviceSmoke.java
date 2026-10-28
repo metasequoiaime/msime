@@ -169,8 +169,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         if (DeviceCredentialFixture.secure(getTargetContext()))
             throw new AssertionError("Dedicated AVD starts with a device credential");
         openClipboardEditor();
-        tap(key("清空"));
-        tap(described("确认清空剪贴板历史"));
+        confirmClearClipboard();
         SystemClock.sleep(1500);
         if (DeviceCredentialFixture.promptVisible(automation))
             throw new AssertionError("System credential prompt opened without a device credential");
@@ -181,6 +180,27 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         } finally {
             DeviceCredentialFixture.clear(getTargetContext(), automation);
         }
+    }
+
+    /**
+     * 点「清空」，确认问句和「取消」「清空」真的画出来了，再点确认。
+     *
+     * <p>`tap` 对本应用节点走无障碍点击，0 高度的按钮照样点得中；顶行曾整行塌成 0 高，测试一直能过，真机上手指却什么都点不到（#10027）。所以点确认之前先按屏幕上的实际尺寸断言三者可见。
+     */
+    private void confirmClearClipboard() throws Exception {
+        tap(key("清空"));
+        assertDrawn(node -> equalsText("app.msime.android", node.getPackageName())
+            && equalsText("清空全部历史（含固定项）？", node.getText()), "clear question");
+        assertDrawn(key("取消").and(AccessibilityNodeInfo::isClickable), "clear cancel");
+        assertDrawn(described("确认清空剪贴板历史"), "clear confirm");
+        tap(described("确认清空剪贴板历史"));
+    }
+
+    private void assertDrawn(java.util.function.Predicate<AccessibilityNodeInfo> match, String name) {
+        Rect bounds = new Rect();
+        awaitStableBounds(match).getBoundsInScreen(bounds);
+        if (bounds.width() <= 0 || bounds.height() <= 0)
+            throw new AssertionError("Clipboard " + name + " is not drawn: " + bounds.toShortString());
     }
 
     private void firstRecordActionsAuthenticated(File history, File local) throws Exception {
@@ -195,8 +215,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                     .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
                 openClipboardEditor();
                 stage = "clear clipboard before first copy: " + columns + ", multiline=" + multiline;
-                tap(key("清空"));
-                tap(described("确认清空剪贴板历史"));
+                confirmClearClipboard();
                 DeviceCredentialFixture.enter(automation);
                 awaitHistoryCount(history, 0);
                 // 认证界面的密码框也由水杉键盘输入，回到编辑器之前键盘仍按密码框不记剪贴板；先回到合成编辑器再复制，和用户认证完回来再复制一致。
