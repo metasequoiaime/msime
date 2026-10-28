@@ -295,6 +295,8 @@ set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import lib
 include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
 enable_language(RC)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/TelemetryWer.cmake")
+
 add_library(msime-tsf SHARED
   Candidate/EnumTfCandidates.cpp Candidate/SearchCandidateProvider.cpp
   Candidate/TipCandidateList.cpp Candidate/TipCandidateString.cpp

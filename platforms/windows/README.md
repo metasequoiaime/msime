@@ -284,6 +284,16 @@ target/windows-boundary/windows-session-smoke /absolute/verified-resources
 
 Windows 构建时 MSIME_HOST_LIBRARY 应指定同架构 Rust DLL 的导入库，运行时需可找到对应 DLL；Linux 本机边界测试使用 .so。Windows MSVC 的完整构建入口是 `Build-Client.ps1`（见 `Build-Client.md`），MinGW 交叉构建不替代它；两者产出同一组目标。
 
+WER 进程外回调有不依赖 Rust 的专项工程，复用 TSF 工程中的 helper 构建定义。在 Windows 上运行：
+
+```powershell
+cmake -S platforms/windows/tsf/tests/telemetry_wer -B target/windows-full/x64/wer-callback -A x64
+cmake --build target/windows-full/x64/wer-callback --config RelWithDebInfo
+ctest --test-dir target/windows-full/x64/wer-callback -C RelWithDebInfo -V
+```
+
+x86 使用独立的 `target/windows-full/x86/wer-callback` 目录并将 `-A` 改为 `Win32`。专项创建合成子进程并读取其真实远端上下文，验证停采、模块归属、文件发布及宿主 WER 输出；目录重解析点夹具缺少符号链接权限时明确跳过。微软 SDK 的回调是 `cdecl`，不能沿用 MinGW 的 x86 `WINAPI` 声明。此基础切片还没有 TSF 生命周期、安装器允许列表与 Arm64X 接线，不能当作产品已覆盖或真实 WER 投递验收，后续工作见[TSF 采集提案](../../.agents/notes/proposed/feature/2026-10-28-windows-tsf-wer-capture.md)。
+
 `bash tests/tools/check-cross.sh /absolute/nlohmann-include-root` 使用 x86_64/i686 MinGW 分别编译适配器、测试源和 `shared/contracts` 中的 IPC 契约，验证 32/64 位 COFF 和 Windows SDK 键码断言；另将不依赖 Rust 的编码测试链接为 Windows PE。不会链接 Windows Rust 库，也不执行 Windows 二进制。会话测试覆盖真实 Unicode 输入、锁定词库第二页数字选词、配置延迟、客户端/焦点/线程拒绝及本地取消不回复。
 
 ## 旧协议回复编码
