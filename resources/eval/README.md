@@ -15,7 +15,7 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 `--keyboard-neural` 额外启用引擎内的键盘神经联想，用随资源提供的键盘模型混合评分词网格路径，验证全拼、双拼、九键与十四键共用的混合评分。默认关闭，保持现有质量基线的测量方式；runtime 挂载的重排器仍按资源里有没有模型决定。这两层排序不同，修引擎内的模型评分时必须显式加这个开关。
 
-**基线是带重排的数字。** `sentence-model.safetensors` 已经在 `desktop-dictionary.lock.json` 里，所以按锁文件取到的资源目录一定带它，而 `convert_eval` 见到模型就会挂上重排器。想量引擎单独的表现，把模型从资源目录里拿掉再跑——它会打印 `no model at ...`，那一行是判断当前测的是哪个臂的唯一依据。
+**基线是带重排的数字。** `sentence-model.safetensors` 已经在 `desktop-dictionary.lock.json` 里，所以按锁文件取到的资源目录一定带它，而 `convert_eval` 见到模型就会挂上重排器。想量引擎单独的表现（移动端默认不挂模型，`neural_keyboard` 关闭），把模型从资源目录的副本里拿掉，再用 `--resource-lock` 指向去掉 `sentence-model.safetensors` 那一项的锁副本——资源校验要求目录与锁一一对应，只删文件会报缺失。它会打印 `no model at ...`，那一行是判断当前测的是哪个臂的唯一依据。
 
 ## 延迟基准
 
@@ -49,7 +49,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
 
-`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，2026-10-06 在当时锁定的 dict-v2.0.13 上量到九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。换到 dict-v2.0.39 后全拼是 0.756 / 0.945，完整九键因构建机过载没有重跑，所以新词库上的两者差距还没有量过。
+`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，2026-10-06 在当时锁定的 dict-v2.0.13 上量到九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。换到 dict-v2.0.39 后全拼是 0.756 / 0.945，完整九键是 0.530 / 0.805（词级集挂不挂模型结果相同），补全折算之后九键 top-1 是 0.550。
 
 ### `sentences-nine-key-v1.tsv` — 81 条九键长句
 
