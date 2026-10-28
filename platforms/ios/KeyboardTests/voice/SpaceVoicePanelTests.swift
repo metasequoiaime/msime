@@ -177,32 +177,224 @@ final class SpaceVoicePanelTests: XCTestCase {
     panel.frame = CGRect(x: 0, y: 0, width: 384, height: 260)
     panel.layoutIfNeeded()
 
-    let orb = panel.orb.convert(panel.orb.bounds, to: panel)
-    XCTAssertEqual(orb.size, CGSize(width: 72, height: 72))
-    XCTAssertEqual(orb.midX, panel.bounds.midX, accuracy: 0.5)
+    // 260pt 的面板放得下最大的圆球和两行标题；光晕算进指示区，指示区在面板里面。
+    XCTAssertEqual(panel.orb.orbSide, 72)
+    XCTAssertEqual(panel.plan?.titleLines, 2)
+    XCTAssertEqual(panel.plan?.showsHint, true)
+    let indicator = panel.orb.frame
+    XCTAssertEqual(indicator.size, CGSize(width: 108, height: 108))
+    XCTAssertEqual(indicator.midX, panel.bounds.midX, accuracy: 0.5)
+    XCTAssertTrue(panel.bounds.contains(indicator))
     XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
     XCTAssertEqual(panel.captionLabel.text, "说完后点「说完了」，识别后自动上屏")
+    XCTAssertFalse(panel.captionLabel.isHidden)
+    XCTAssertGreaterThanOrEqual(panel.captionLabel.frame.minY, panel.statusLabel.frame.maxY)
     XCTAssertFalse(panel.finishButton.isHidden)
     XCTAssertGreaterThanOrEqual(panel.finishButton.bounds.height, 44)
-    XCTAssertTrue(panel.bounds.contains(panel.finishButton.convert(panel.finishButton.bounds, to: panel)))
-    XCTAssertTrue(panel.bounds.contains(panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)))
+    let finish = panel.finishButton.convert(panel.finishButton.bounds, to: panel)
+    let cancel = panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)
+    XCTAssertTrue(panel.bounds.contains(finish))
+    XCTAssertTrue(panel.bounds.contains(cancel))
+    XCTAssertGreaterThanOrEqual(panel.bounds.maxY - cancel.maxY, 10, "取消按钮不贴面板底边")
+    XCTAssertGreaterThanOrEqual(finish.minY, panel.captionLabel.frame.maxY)
     XCTAssertFalse(panel.orb.isUserInteractionEnabled)
-    XCTAssertEqual(panel.orb.isPulsing, !UIAccessibility.isReduceMotionEnabled)
+
+    // 安静时不逐帧刷新；电平拉满并追上以后，外圈光晕仍在面板里。
+    XCTAssertFalse(panel.orb.isAnimatingLevel)
+    let reduceMotion = UIAccessibility.isReduceMotionEnabled
+    panel.setLevel(1)
+    XCTAssertEqual(panel.orb.isAnimatingLevel, !reduceMotion)
+    let deadline = Date().addingTimeInterval(3)
+    while panel.orb.isAnimatingLevel && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    XCTAssertFalse(panel.orb.isAnimatingLevel, "追上电平后停下")
+    XCTAssertEqual(panel.orb.shownLevel, reduceMotion ? 0 : 1)
+    let halo = panel.orb.convert(panel.orb.outerHaloFrame, to: panel)
+    XCTAssertTrue(panel.bounds.contains(halo), "\(halo) 超出了 \(panel.bounds)")
+    if !reduceMotion { XCTAssertEqual(halo.width, indicator.width, accuracy: 0.5) }
+
     panel.finishButton.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(finishes, 1)
     XCTAssertEqual(cancels, 0)
     panel.showRecognizing(text: "合成文字", message: "")
     XCTAssertFalse(panel.finishButton.isEnabled)
+    XCTAssertEqual(panel.orb.targetLevel, 0, "识别时光晕收回")
+    panel.setLevel(0.8)
+    XCTAssertEqual(panel.orb.targetLevel, 0, "识别时不再跟电平")
     panel.cancelButton.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(cancels, 1)
     XCTAssertTrue(panel.accessibilityPerformEscape())
     XCTAssertEqual(cancels, 2)
     panel.removeFromSuperview()
-    XCTAssertFalse(panel.orb.isPulsing)
+    XCTAssertFalse(panel.orb.isAnimatingLevel)
 
     let held = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
     XCTAssertTrue(held.finishButton.isHidden, "按住空格时由松手结束")
     XCTAssertFalse(held.cancelButton.isHidden)
+  }
+
+  /// 竖屏、横屏、缩小的键盘和系统大字号下，指示区、标题、提示和动作行都在面板里、互不重叠。
+  func testThePanelKeepsEverythingInsideAtEveryHeight() {
+    let cases: [(CGSize, UIContentSizeCategory)] = [
+      (CGSize(width: 390, height: 227), .large), (CGSize(width: 844, height: 161), .large),
+      (CGSize(width: 390, height: 150), .large), (CGSize(width: 390, height: 227), .accessibilityExtraExtraExtraLarge),
+      (CGSize(width: 844, height: 161), .accessibilityExtraExtraExtraLarge),
+    ]
+    for (size, category) in cases {
+      let panel = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
+      panel.traitOverrides.preferredContentSizeCategory = category
+      panel.frame = CGRect(origin: .zero, size: size)
+      panel.showListening(String(repeating: "合成的实时文字", count: 12))
+      panel.layoutIfNeeded()
+      let plan = panel.plan
+      let indicator = panel.orb.frame
+      let cancel = panel.cancelButton.convert(panel.cancelButton.bounds, to: panel)
+      XCTAssertGreaterThanOrEqual(indicator.minY, 0, "\(size) \(category.rawValue)")
+      XCTAssertLessThanOrEqual(indicator.maxY, panel.statusLabel.frame.minY, "\(size) \(category.rawValue)")
+      let textBottom = panel.captionLabel.isHidden ? panel.statusLabel.frame.maxY : panel.captionLabel.frame.maxY
+      XCTAssertLessThanOrEqual(textBottom, cancel.minY + 0.5, "\(size) \(category.rawValue)")
+      XCTAssertLessThanOrEqual(cancel.maxY, size.height - 10 + 0.5)
+      XCTAssertEqual(panel.captionLabel.isHidden, plan?.showsHint == false)
+      XCTAssertTrue(panel.statusLabel.text?.hasPrefix("…") ?? false, "放不下时省略开头")
+      XCTAssertTrue(panel.statusLabel.text?.hasSuffix("实时文字") ?? false, "保留最新的文字")
+    }
+  }
+
+  /// 实时文字截到计划的两行，标签实际折出的行数也不超过两行，留下的是最新的那一段。
+  func testALongPartialKeepsTheNewestWordsWithinTheTitleLines() throws {
+    let panel = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 260)
+    panel.layoutIfNeeded()
+    let partial = "第一句合成文字在这里开始，" + String(repeating: "中间的合成内容，", count: 10) + "最后这几个字要留下"
+    panel.showListening(partial)
+    panel.layoutIfNeeded()
+    let title = try XCTUnwrap(panel.statusLabel.text)
+    XCTAssertTrue(title.hasPrefix("…"))
+    XCTAssertTrue(title.hasSuffix("最后这几个字要留下"))
+    XCTAssertFalse(title.contains("第一句"))
+    XCTAssertEqual(panel.statusLabel.numberOfLines, 2)
+    let font = try XCTUnwrap(panel.statusLabel.font)
+    let wrapped = panel.statusLabel.textRect(forBounds: CGRect(x: 0, y: 0, width: panel.statusLabel.bounds.width, height: 1000),
+                                             limitedToNumberOfLines: 0)
+    XCTAssertLessThanOrEqual(wrapped.height, 2 * font.lineHeight + 0.5, "标签自己折行也只用两行")
+    XCTAssertEqual(panel.statusLabel.frame.height, ceil(2 * font.lineHeight), accuracy: 0.5)
+    XCTAssertEqual(panel.captionLabel.text, "说完后点「说完了」，识别后自动上屏", "提示仍是操作说明")
+
+    // 识别中实时文字移到提示行，截成一行。
+    panel.showRecognizing(text: partial, message: "")
+    panel.layoutIfNeeded()
+    XCTAssertEqual(panel.statusLabel.text, "正在识别…")
+    let hint = try XCTUnwrap(panel.captionLabel.text)
+    XCTAssertTrue(hint.hasPrefix("…"))
+    XCTAssertTrue(hint.hasSuffix("最后这几个字要留下"))
+    XCTAssertEqual(KeyboardVoicePanelView.lineCount(hint, font: try XCTUnwrap(panel.captionLabel.font),
+                                                    width: panel.captionLabel.bounds.width), 1)
+  }
+
+  func testTheLayoutPlanShrinksTheOrbBeforeDroppingLines() {
+    typealias Policy = KeyboardVoicePanelPolicy
+    // 用整数行高，便于手算：两行加提示的固定部分是 78，一行加提示 58，只有一行 38。
+    func plan(_ height: CGFloat) -> Policy.Plan { Policy.plan(height: height, titleLine: 20, hintLine: 16) }
+    let full = plan(260)
+    XCTAssertEqual(full.orb, 72)
+    XCTAssertEqual(full.halo, 18)
+    XCTAssertEqual(full.titleLines, 2)
+    XCTAssertTrue(full.showsHint)
+    XCTAssertEqual(full.top, 37)
+    XCTAssertEqual(full.indicatorCenterY, 95)
+    XCTAssertEqual(full.titleTop, 155)
+    XCTAssertEqual(full.hintTop(usedTitleLines: 2), 199)
+    XCTAssertEqual(full.hintTop(usedTitleLines: 1), 179, "标题只用一行时提示紧跟着它")
+    XCTAssertEqual(full.hintTop(usedTitleLines: 5), 199)
+
+    XCTAssertEqual(plan(156).titleLines, 2, "圆球还有 52 就留两行")
+    XCTAssertEqual(plan(156).orb, 52, accuracy: 0.001)
+    XCTAssertEqual(plan(155).titleLines, 1)
+    XCTAssertTrue(plan(155).showsHint)
+    XCTAssertEqual(plan(118).orb, 40, accuracy: 0.001)
+    XCTAssertTrue(plan(118).showsHint)
+    XCTAssertFalse(plan(117).showsHint, "再矮就去掉提示")
+    XCTAssertEqual(plan(117).orb, 79 / 1.5, accuracy: 0.001)
+    // 只有一行也放不下 40 的圆球加光晕：圆球固定 40，光晕用剩下的空间。
+    XCTAssertEqual(plan(90).orb, 40)
+    XCTAssertEqual(plan(90).halo, 6)
+    XCTAssertEqual(plan(80).halo, 1)
+    XCTAssertEqual(plan(60).orb, 22)
+    XCTAssertEqual(plan(60).halo, 0)
+    XCTAssertEqual(plan(20).orb, 0)
+
+    for tenth in 0...4000 {
+      let height = CGFloat(tenth) / 10
+      let result = plan(height)
+      let fixed = Policy.fixed(lines: result.titleLines, hint: result.showsHint, titleLine: 20, hintLine: 16)
+      XCTAssertLessThanOrEqual(result.indicatorSide, max(0, height - fixed) + 0.001, "height \(height)")
+      XCTAssertLessThanOrEqual(result.orb, Policy.orbMax)
+      XCTAssertGreaterThanOrEqual(result.top, 0)
+      if height >= fixed {
+        XCTAssertLessThanOrEqual(result.top + Policy.padTop + result.indicatorSide, height, "height \(height)")
+      }
+    }
+  }
+
+  func testTheLevelRisesFastFallsSlowlyAndSettles() {
+    typealias Policy = KeyboardVoicePanelPolicy
+    let rise = Policy.step(shown: 0, target: 1, elapsedMs: 16)
+    let fall = 1 - Policy.step(shown: 1, target: 0, elapsedMs: 16)
+    XCTAssertEqual(rise, 1 - Float(exp(-16.0 / 60)), accuracy: 0.0001)
+    XCTAssertEqual(fall, 1 - Float(exp(-16.0 / 320)), accuracy: 0.0001)
+    XCTAssertGreaterThan(rise, 3 * fall, "上升比回落快")
+
+    XCTAssertEqual(Policy.step(shown: 0, target: .nan, elapsedMs: 16), 0, "NaN 当作 0")
+    XCTAssertLessThan(Policy.step(shown: 0.5, target: .nan, elapsedMs: 16), 0.5)
+    XCTAssertEqual(Policy.step(shown: 0, target: 5, elapsedMs: 50), Policy.step(shown: 0, target: 1, elapsedMs: 50))
+    XCTAssertEqual(Policy.step(shown: 0.5, target: -3, elapsedMs: 50), Policy.step(shown: 0.5, target: 0, elapsedMs: 50))
+    XCTAssertEqual(Policy.step(shown: 0, target: 1, elapsedMs: 5000), Policy.step(shown: 0, target: 1, elapsedMs: 100),
+                   "一帧最多推进 100ms")
+    XCTAssertEqual(Policy.step(shown: 0.5, target: 1, elapsedMs: -40), 0.5)
+    XCTAssertEqual(Policy.step(shown: 0.5, target: 1, elapsedMs: .nan), 0.5)
+    XCTAssertEqual(Policy.step(shown: 0.995, target: 1, elapsedMs: 1), 1, "差不到 0.01 直接落到目标")
+
+    XCTAssertTrue(Policy.settled(shown: 0.995, target: 1))
+    XCTAssertFalse(Policy.settled(shown: 0.9, target: 1))
+    XCTAssertTrue(Policy.settled(shown: 1, target: 7))
+    XCTAssertTrue(Policy.settled(shown: 0, target: .nan))
+
+    var shown: Float = 0, frames = 0
+    while shown != 1 && frames < 1000 { shown = Policy.step(shown: shown, target: 1, elapsedMs: 16); frames += 1 }
+    XCTAssertEqual(shown, 1)
+    XCTAssertLessThan(frames, 25)
+    var released = 0
+    while shown != 0 && released < 1000 { shown = Policy.step(shown: shown, target: 0, elapsedMs: 16); released += 1 }
+    XCTAssertEqual(shown, 0)
+    XCTAssertGreaterThan(released, 3 * frames)
+
+    let idle = Policy.haloRadii(orb: 72, halo: 18, level: 0)
+    XCTAssertEqual(idle.outer, 36 + 18 * 0.3, accuracy: 0.001)
+    XCTAssertEqual(idle.inner, 36 + 9 * 0.3, accuracy: 0.001)
+    let loud = Policy.haloRadii(orb: 72, halo: 18, level: 1)
+    XCTAssertEqual(loud.outer, 54, accuracy: 0.001, "最大时正好铺满指示区")
+    XCTAssertEqual(loud.inner, 45, accuracy: 0.001)
+    XCTAssertEqual(Policy.haloRadii(orb: 72, halo: 18, level: 3).outer, 54, accuracy: 0.001)
+  }
+
+  func testFitTailKeepsTheNewestCharactersOnGraphemeBoundaries() {
+    typealias Policy = KeyboardVoicePanelPolicy
+    XCTAssertEqual(Policy.fitTail("  你好\n\n 世界\t ") { _ in true }, "你好 世界", "空白压成一个空格")
+    XCTAssertEqual(Policy.fitTail(" \n\t\u{3000} ") { _ in true }, "")
+    XCTAssertEqual(Policy.fitTail("今天天气很好我们去公园") { $0.count <= 6 }, "…我们去公园")
+    XCTAssertEqual(Policy.fitTail("你好") { _ in false }, "…好", "一个字也放不下时只留最后一个字")
+    XCTAssertEqual(Policy.fitTail("好") { _ in false }, "…好")
+
+    let emoji = "开始👨‍👩‍👧‍👦结尾🇯🇵"
+    XCTAssertEqual(Policy.fitTail(emoji) { $0.count <= 4 }, "…结尾🇯🇵")
+    // 按 UTF-16 长度判断也不会切开组合表情。
+    for limit in 1...20 {
+      let fitted = Policy.fitTail(emoji) { $0.utf16.count <= limit }
+      if fitted == emoji { continue }
+      XCTAssertTrue(fitted.hasPrefix("…"))
+      let tail = Array(fitted.dropFirst())
+      XCTAssertFalse(tail.isEmpty)
+      XCTAssertEqual(Array(Array(emoji).suffix(tail.count)), tail, "limit \(limit)")
+    }
   }
 
   /// 从工具栏的真实按钮进入听写，结束后经真实会话通知自动上屏，不经过结果面板。

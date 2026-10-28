@@ -1,19 +1,132 @@
 import UIKit
 
+/// 聆听面板的纯规则：动作行以上区域的排版、麦克风电平的平滑和实时文字的截取。Android 与 HarmonyOS 用同一组数字，单位是 pt。
+enum KeyboardVoicePanelPolicy {
+  static let orbMax: CGFloat = 72
+  static let orbMin: CGFloat = 40
+  /// 光晕外扩是圆球直径的四分之一，所以指示区边长是圆球的 1.5 倍。
+  static let haloRatio: CGFloat = 0.25
+  /// 圆球小于这个尺寸时不再给标题留两行。
+  static let twoLineMinOrb: CGFloat = 52
+  static let padTop: CGFloat = 4
+  static let gapIndicatorTitle: CGFloat = 6
+  static let gapTitleHint: CGFloat = 4
+  static let padBottom: CGFloat = 8
+  /// 电平上升和回落的时间常数（毫秒）：说话时光晕立刻跟上，停下时慢慢收回。
+  static let attackMs: Double = 60
+  static let releaseMs: Double = 320
+  /// 一帧最多按这么久推进，掉帧或刚恢复时不会一下跳到目标。
+  static let maximumStepMs: Double = 100
+  static let settleEpsilon: Float = 0.01
+  /// 没有声音时光晕仍露出这一部分，看得出在听。
+  static let idleHalo: CGFloat = 0.3
+  static let outerHaloOpacity: Float = 0.16
+  static let innerHaloOpacity: Float = 0.26
+  static let ellipsis = "…"
+
+  /// 一次排版的结果。`height` 是动作行以上的区域，`top` 起把指示区、标题和提示作为一组垂直居中；按计划的行数留位，实时文字换行时圆球不会跟着变大变小。
+  struct Plan: Equatable {
+    let orb: CGFloat
+    let halo: CGFloat
+    let titleLines: Int
+    let showsHint: Bool
+    let top: CGFloat
+    let titleLine: CGFloat
+
+    /// 指示区（圆球加两侧光晕）的边长，光晕在最大电平时也画在这个方框里。
+    var indicatorSide: CGFloat { orb + 2 * halo }
+    var indicatorCenterY: CGFloat { top + padTop + halo + orb / 2 }
+    var titleTop: CGFloat { top + padTop + indicatorSide + gapIndicatorTitle }
+
+    /// 提示行紧跟标题实际用到的行数；标题只用一行时，多留的那一行落在提示下面。
+    func hintTop(usedTitleLines: Int) -> CGFloat {
+      titleTop + CGFloat(min(max(usedTitleLines, 1), titleLines)) * titleLine + gapTitleHint
+    }
+  }
+
+  static func fixed(lines: Int, hint: Bool, titleLine: CGFloat, hintLine: CGFloat) -> CGFloat {
+    padTop + gapIndicatorTitle + CGFloat(lines) * titleLine + (hint ? gapTitleHint + hintLine : 0) + padBottom
+  }
+
+  /// 依次尝试两行标题加提示、一行标题加提示、只有一行标题，取第一个圆球不小于 `orbMin` 的；都放不下时圆球固定为 `orbMin`，再矮就连光晕一起缩。
+  static func plan(height: CGFloat, titleLine: CGFloat, hintLine: CGFloat) -> Plan {
+    func make(orb: CGFloat, halo: CGFloat, lines: Int, hint: Bool) -> Plan {
+      let used = orb + 2 * halo + fixed(lines: lines, hint: hint, titleLine: titleLine, hintLine: hintLine)
+      return Plan(orb: orb, halo: halo, titleLines: lines, showsHint: hint, top: max(0, (height - used) / 2), titleLine: titleLine)
+    }
+    for (lines, hint) in [(2, true), (1, true), (1, false)] {
+      let box = height - fixed(lines: lines, hint: hint, titleLine: titleLine, hintLine: hintLine)
+      let orb = min(orbMax, box / (1 + 2 * haloRatio))
+      if lines == 2 && orb < twoLineMinOrb { continue }
+      if orb >= orbMin { return make(orb: orb, halo: orb * haloRatio, lines: lines, hint: hint) }
+    }
+    let box = max(0, height - fixed(lines: 1, hint: false, titleLine: titleLine, hintLine: hintLine))
+    guard box >= orbMin else { return make(orb: box, halo: 0, lines: 1, hint: false) }
+    return make(orb: orbMin, halo: min((box - orbMin) / 2, orbMin * haloRatio), lines: 1, hint: false)
+  }
+
+  static func clampedLevel(_ level: Float) -> Float { level.isNaN ? 0 : min(max(level, 0), 1) }
+
+  /// 显示的电平向目标推进一帧：上升用 `attackMs`，回落用 `releaseMs`，离目标不到 `settleEpsilon` 时直接落到目标。
+  static func step(shown: Float, target: Float, elapsedMs: Double) -> Float {
+    let goal = clampedLevel(target)
+    let elapsed = elapsedMs.isNaN ? 0 : min(max(elapsedMs, 0), maximumStepMs)
+    let tau = goal > shown ? attackMs : releaseMs
+    let next = shown + (goal - shown) * Float(1 - exp(-elapsed / tau))
+    return abs(goal - next) < settleEpsilon ? goal : next
+  }
+
+  static func settled(shown: Float, target: Float) -> Bool { abs(clampedLevel(target) - shown) < settleEpsilon }
+
+  /// 两圈光晕的半径：外圈铺满外扩，内圈只到一半；电平为 0 时仍露出 `idleHalo`。
+  static func haloRadii(orb: CGFloat, halo: CGFloat, level: Float) -> (outer: CGFloat, inner: CGFloat) {
+    let spread = idleHalo + (1 - idleHalo) * CGFloat(clampedLevel(level))
+    return (orb / 2 + halo * spread, orb / 2 + 0.5 * halo * spread)
+  }
+
+  /// 实时文字放不下时保留最新的部分：先把空白（含换行）压成一个空格，整段放得下就原样返回，否则在字形边界上找放得下的最靠前的起点，前面加省略号；一个字也放不下时只留最后一个字。
+  static func fitTail(_ text: String, fits: (String) -> Bool) -> String {
+    let normalized = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    guard !normalized.isEmpty else { return "" }
+    if fits(normalized) { return normalized }
+    let characters = Array(normalized)
+    // 起点越靠后剩下的越短，越放得下，所以可以二分。
+    var low = 1, high = characters.count - 1, best = characters.count - 1
+    while low <= high {
+      let middle = (low + high) / 2
+      if fits(ellipsis + String(characters[middle...])) {
+        best = middle
+        high = middle - 1
+      } else {
+        low = middle + 1
+      }
+    }
+    return ellipsis + String(characters[best...])
+  }
+}
+
 /// 手机键盘的聆听面板：结束采集后直接上屏，取消只丢弃本次听写。按住空格时仍由松手结束、上滑取消。
+///
+/// 动作行贴着面板底边（留 `actionsBottomMargin`），它以上的区域按 `KeyboardVoicePanelPolicy.plan` 排指示区、标题和提示，光晕的外扩算进指示区，不会画出面板。
 final class KeyboardVoicePanelView: UIView {
-  static let orbSide: CGFloat = 72
-  static let micSide: CGFloat = 30
+  static let titleSize: CGFloat = 16
+  static let hintSize: CGFloat = 13
+  /// 跟随系统字号放大时的上限：再大就只剩一行标题和最小的圆球了。
+  static let titleMaximumSize: CGFloat = 24
+  static let hintMaximumSize: CGFloat = 19
+  static let horizontalInset: CGFloat = 16
+  static let actionsBottomMargin: CGFloat = 10
+  static let actionMinimumSide: CGFloat = 44
+  static let actionSpacing: CGFloat = 24
+  /// 麦克风图标相对圆球的大小：72pt 的圆球里是 30pt。
+  static let micRatio: CGFloat = 30 / 72
   static let micLineWidth: CGFloat = 1.8
-  static let pulseSpread: CGFloat = 18
-  static let pulseOpacity: Float = 0.35
-  static let pulseDuration: CFTimeInterval = 1.2
-  static let spacing: CGFloat = 14
   static let listeningTitle = "正在聆听…"
   static let recognizingTitle = "正在识别…"
   static let cancellingTitle = "松开取消"
   static let heldCaption = "松开结束，上滑取消"
   static let tappedCaption = "说完后点「说完了」，识别后自动上屏"
+  static let recognizingCaption = "识别完成后自动上屏"
 
   let orb: KeyboardVoiceOrbButton
   let statusLabel = UILabel()
@@ -22,26 +135,31 @@ final class KeyboardVoicePanelView: UIView {
   let cancelButton = UIButton(type: .system)
   var onFinish: (() -> Void)?
   var onCancel: (() -> Void)?
+  private let actions: UIStackView
   private let idleCaption: String
   private(set) var isCancelling = false
+  private(set) var isRecognizing = false
+  /// 最近一次的实时文字，按当前宽度截取后才显示。
+  private var partial = ""
+  private var message = ""
+  /// 最近一次布局的排版。
+  private(set) var plan: KeyboardVoicePanelPolicy.Plan?
 
   init(dictationHeld held: Bool, skin: KeyboardTheme) {
     orb = KeyboardVoiceOrbButton(skin: skin)
     idleCaption = held ? Self.heldCaption : Self.tappedCaption
+    actions = UIStackView(arrangedSubviews: [finishButton, cancelButton])
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardVoiceListening"
     backgroundColor = .clear
     orb.isUserInteractionEnabled = false
     orb.isAccessibilityElement = false
     statusLabel.accessibilityIdentifier = "keyboardVoicePanelStatus"
-    statusLabel.text = Self.listeningTitle
-    statusLabel.font = .systemFont(ofSize: 15)
     statusLabel.textAlignment = .center
-    statusLabel.numberOfLines = 2
-    captionLabel.text = idleCaption
-    captionLabel.font = .systemFont(ofSize: 12.5)
+    statusLabel.lineBreakMode = .byTruncatingTail
     captionLabel.textAlignment = .center
-    captionLabel.numberOfLines = 2
+    captionLabel.numberOfLines = 1
+    captionLabel.lineBreakMode = .byTruncatingTail
     finishButton.setTitle("说完了", for: .normal)
     finishButton.accessibilityIdentifier = "keyboardVoiceFinish"
     finishButton.accessibilityLabel = "结束聆听并识别，文字自动上屏"
@@ -50,57 +168,54 @@ final class KeyboardVoicePanelView: UIView {
     cancelButton.setTitle("取消", for: .normal)
     cancelButton.accessibilityIdentifier = "keyboardVoiceCancel"
     cancelButton.addAction(UIAction { [weak self] _ in self?.onCancel?() }, for: .primaryActionTriggered)
-    let actions = UIStackView(arrangedSubviews: [finishButton, cancelButton])
-    actions.spacing = 24
-    let column = UIStackView(arrangedSubviews: [orb, statusLabel, captionLabel, actions])
-    column.axis = .vertical
-    column.alignment = .center
-    column.spacing = Self.spacing
-    column.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(column)
-    NSLayoutConstraint.activate([
-      column.centerXAnchor.constraint(equalTo: centerXAnchor),
-      column.centerYAnchor.constraint(equalTo: centerYAnchor),
-      column.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-      column.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
-      statusLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
-      captionLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
-      orb.widthAnchor.constraint(equalToConstant: Self.orbSide),
-      orb.heightAnchor.constraint(equalToConstant: Self.orbSide),
-      finishButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-      cancelButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-    ])
+    actions.spacing = Self.actionSpacing
+    actions.alignment = .center
+    for view in [orb, statusLabel, captionLabel, actions] as [UIView] { addSubview(view) }
+    var minimums: [NSLayoutConstraint] = []
+    for button in [finishButton, cancelButton] {
+      minimums.append(button.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.actionMinimumSide))
+      minimums.append(button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.actionMinimumSide))
+    }
+    NSLayoutConstraint.activate(minimums)
+    registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (panel: KeyboardVoicePanelView, _: UITraitCollection) in
+      panel.setNeedsLayout()
+    }
     apply(skin: skin)
+    refreshText()
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   func showListening(_ text: String) {
-    guard !isCancelling else { return }
-    statusLabel.text = Self.listeningTitle
-    showCaption(text)
+    partial = text
+    refreshText()
+    setNeedsLayout()
   }
 
   func showRecognizing(text: String, message: String) {
     isCancelling = false
+    isRecognizing = true
     orb.isCancelling = false
+    orb.setLevel(0)
     finishButton.isEnabled = false
-    statusLabel.text = message.isEmpty ? Self.recognizingTitle : message
-    showCaption(text.isEmpty ? "识别完成后自动上屏" : text)
+    partial = text
+    self.message = message
+    refreshText()
+    setNeedsLayout()
   }
 
   func setCancelling(_ cancelling: Bool) {
     guard cancelling != isCancelling else { return }
     isCancelling = cancelling
     orb.isCancelling = cancelling
-    statusLabel.text = cancelling ? Self.cancellingTitle : Self.listeningTitle
+    refreshText()
+    setNeedsLayout()
   }
 
-  private func showCaption(_ text: String) {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    captionLabel.text = trimmed.isEmpty ? idleCaption : trimmed
-    captionLabel.lineBreakMode = trimmed.isEmpty ? .byTruncatingTail : .byTruncatingHead
-    captionLabel.accessibilityLabel = captionLabel.text
+  /// App 报来的麦克风电平（0…1）；识别阶段已经不在录音，光晕收回到静止。
+  func setLevel(_ level: Float) {
+    guard !isRecognizing else { return }
+    orb.setLevel(level)
   }
 
   func apply(skin: KeyboardTheme) {
@@ -115,36 +230,123 @@ final class KeyboardVoicePanelView: UIView {
     onCancel?()
     return true
   }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let inset = Self.horizontalInset
+    let row = actions.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+    let rowWidth = min(row.width, max(0, bounds.width - 2 * inset))
+    let rowHeight = max(Self.actionMinimumSide, row.height)
+    actions.frame = CGRect(x: bounds.midX - rowWidth / 2, y: bounds.height - Self.actionsBottomMargin - rowHeight,
+                           width: rowWidth, height: rowHeight)
+    let titleFont = Self.titleFont(for: traitCollection), hintFont = Self.hintFont(for: traitCollection)
+    let plan = KeyboardVoicePanelPolicy.plan(height: max(0, actions.frame.minY), titleLine: titleFont.lineHeight,
+                                             hintLine: hintFont.lineHeight)
+    self.plan = plan
+    refreshText()
+    let side = plan.indicatorSide
+    orb.frame = CGRect(x: bounds.midX - side / 2, y: plan.indicatorCenterY - side / 2, width: side, height: side)
+    orb.setGeometry(orb: plan.orb, halo: plan.halo)
+    let width = labelWidth
+    let used = min(plan.titleLines, Self.lineCount(statusLabel.text ?? "", font: titleFont, width: width))
+    statusLabel.frame = CGRect(x: inset, y: plan.titleTop, width: width, height: ceil(CGFloat(used) * titleFont.lineHeight))
+    captionLabel.isHidden = !plan.showsHint
+    captionLabel.frame = CGRect(x: inset, y: plan.hintTop(usedTitleLines: used), width: width, height: ceil(hintFont.lineHeight))
+  }
+
+  private var labelWidth: CGFloat { max(0, bounds.width - 2 * Self.horizontalInset) }
+
+  /// 按当前状态和排版填标题与提示：听写中有实时文字时标题显示它（截取到计划的行数），提示保留操作说明；识别中提示显示截成一行的实时文字。标题占的行数可能变，调用方在布局之外调用时要再 `setNeedsLayout`。
+  private func refreshText() {
+    let titleFont = Self.titleFont(for: traitCollection), hintFont = Self.hintFont(for: traitCollection)
+    let lines = plan?.titleLines ?? 2
+    statusLabel.font = titleFont
+    captionLabel.font = hintFont
+    statusLabel.numberOfLines = lines
+    if isRecognizing {
+      statusLabel.text = message.isEmpty ? Self.recognizingTitle : message
+      let fitted = fit(partial, font: hintFont, lines: 1)
+      captionLabel.text = fitted.isEmpty ? Self.recognizingCaption : fitted
+    } else {
+      let fitted = isCancelling ? "" : fit(partial, font: titleFont, lines: lines)
+      statusLabel.text = isCancelling ? Self.cancellingTitle : fitted.isEmpty ? Self.listeningTitle : fitted
+      captionLabel.text = idleCaption
+    }
+    // 读屏读到的就是屏幕上显示的这一段。
+    statusLabel.accessibilityLabel = statusLabel.text
+    captionLabel.accessibilityLabel = captionLabel.text
+  }
+
+  /// 还没布局（宽度为 0）时不截取，布局后按实际宽度重新截。
+  private func fit(_ text: String, font: UIFont, lines: Int) -> String {
+    let width = labelWidth
+    return KeyboardVoicePanelPolicy.fitTail(text) { candidate in
+      width <= 0 || Self.lineCount(candidate, font: font, width: width) <= lines
+    }
+  }
+
+  /// `text` 用 `font` 在 `width` 宽里折成几行，和标签的折行一致。
+  static func lineCount(_ text: String, font: UIFont, width: CGFloat) -> Int {
+    guard !text.isEmpty, width > 0 else { return 1 }
+    let height = (text as NSString).boundingRect(
+      with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin],
+      attributes: [.font: font], context: nil).height
+    return max(1, Int(ceil(height / font.lineHeight - 0.01)))
+  }
+
+  /// 标题和提示跟随系统字号，与键盘里的提示文字一样，但设了上限，免得把圆球挤没。
+  static func titleFont(for traits: UITraitCollection) -> UIFont {
+    UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: titleSize), maximumPointSize: titleMaximumSize,
+                                                  compatibleWith: traits)
+  }
+
+  static func hintFont(for traits: UITraitCollection) -> UIFont {
+    UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .systemFont(ofSize: hintSize), maximumPointSize: hintMaximumSize,
+                                                      compatibleWith: traits)
+  }
 }
 
-/// 语音面板的圆球：强调色的圆，麦克风用在它上面看得清的颜色，后面是脉冲环。它没有 configuration，所以键盘套皮肤时不会碰它。
+/// 语音面板的圆球：强调色的圆，麦克风用在它上面看得清的颜色，后面是随麦克风电平张缩的两圈光晕。按钮本身就是指示区，光晕最大时也不出它的边界。它没有 configuration，所以键盘套皮肤时不会碰它。
 final class KeyboardVoiceOrbButton: UIButton {
-  private let pulseLayer = CAShapeLayer()
+  private let outerHalo = CAShapeLayer()
+  private let innerHalo = CAShapeLayer()
   private let circleLayer = CAShapeLayer()
   private let micLayer = CAShapeLayer()
   private var skin: KeyboardTheme
-  private static let pulseKey = "voicePulse"
+  private(set) var orbSide = KeyboardVoicePanelPolicy.orbMax
+  private(set) var haloSpread = KeyboardVoicePanelPolicy.orbMax * KeyboardVoicePanelPolicy.haloRatio
+  /// 正在画的电平，按 `KeyboardVoicePanelPolicy.step` 每帧向 `targetLevel` 推进。
+  private(set) var shownLevel: Float = 0
+  private(set) var targetLevel: Float = 0
+  private var displayLink: CADisplayLink?
+  private var lastFrame: CFTimeInterval?
 
   init(skin: KeyboardTheme) {
     self.skin = skin
     super.init(frame: .zero)
     backgroundColor = .clear
     accessibilityTraits = .button
-    for shape in [pulseLayer, circleLayer, micLayer] { layer.addSublayer(shape) }
-    pulseLayer.opacity = 0
+    for shape in [outerHalo, innerHalo, circleLayer, micLayer] { layer.addSublayer(shape) }
+    outerHalo.opacity = KeyboardVoicePanelPolicy.outerHaloOpacity
+    innerHalo.opacity = KeyboardVoicePanelPolicy.innerHaloOpacity
     micLayer.fillColor = nil
     micLayer.lineCap = .round
     micLayer.lineJoin = .round
     registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (orb: KeyboardVoiceOrbButton, _: UITraitCollection) in
       orb.applyColors()
     }
+    NotificationCenter.default.addObserver(self, selector: #selector(reduceMotionChanged),
+                                           name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
     applyColors()
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  /// 脉冲环是否在运行。
-  var isPulsing: Bool { pulseLayer.animation(forKey: Self.pulseKey) != nil }
+  /// 光晕是否正在逐帧追电平；追上、离开窗口或开了「减弱动态效果」时停下。
+  var isAnimatingLevel: Bool { displayLink != nil }
+
+  /// 外圈光晕此刻在按钮坐标里占的方框。
+  var outerHaloFrame: CGRect { outerHalo.path?.boundingBox ?? .zero }
 
   /// 上滑到取消区时圆球换成次要色，和 Android 一样。
   var isCancelling = false {
@@ -156,49 +358,82 @@ final class KeyboardVoiceOrbButton: UIButton {
     applyColors()
   }
 
+  /// 圆球直径和光晕外扩，由面板的排版给出。
+  func setGeometry(orb: CGFloat, halo: CGFloat) {
+    guard orb != orbSide || halo != haloSpread else { return }
+    orbSide = orb
+    haloSpread = halo
+    setNeedsLayout()
+  }
+
+  func setLevel(_ level: Float) {
+    targetLevel = KeyboardVoicePanelPolicy.clampedLevel(level)
+    updateDisplayLink()
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
-    let side = min(bounds.width, bounds.height)
-    let circle = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
-    let mic = KeyboardVoicePanelView.micSide
+    let mic = orbSide * KeyboardVoicePanelView.micRatio
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    for shape in [pulseLayer, circleLayer] {
-      shape.frame = bounds
-      shape.path = UIBezierPath(ovalIn: circle).cgPath
-    }
-    micLayer.frame = bounds
+    for shape in [outerHalo, innerHalo, circleLayer, micLayer] { shape.frame = bounds }
+    circleLayer.path = UIBezierPath(ovalIn: circle(radius: orbSide / 2)).cgPath
     micLayer.path = KeyboardIcon.mic.path(in: CGRect(x: bounds.midX - mic / 2, y: bounds.midY - mic / 2, width: mic, height: mic)).cgPath
     micLayer.lineWidth = KeyboardVoicePanelView.micLineWidth * mic / KeyboardIcon.viewBox
+    drawHalo()
     CATransaction.commit()
-    updatePulse()
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    updatePulse()
+    updateDisplayLink()
   }
 
-  /// 圆球在屏幕上且已完成布局时运行脉冲环，开了「减弱动态效果」时除外。
-  private func updatePulse() {
-    guard window != nil, bounds.width > 0, !UIAccessibility.isReduceMotionEnabled else {
-      pulseLayer.removeAnimation(forKey: Self.pulseKey)
-      return
+  private func circle(radius: CGFloat) -> CGRect {
+    CGRect(x: bounds.midX - radius, y: bounds.midY - radius, width: 2 * radius, height: 2 * radius)
+  }
+
+  private func drawHalo() {
+    let radii = KeyboardVoicePanelPolicy.haloRadii(orb: orbSide, halo: haloSpread, level: shownLevel)
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    outerHalo.path = UIBezierPath(ovalIn: circle(radius: radii.outer)).cgPath
+    innerHalo.path = UIBezierPath(ovalIn: circle(radius: radii.inner)).cgPath
+    CATransaction.commit()
+  }
+
+  /// 只在圆球在屏幕上、电平还没追上、没开「减弱动态效果」时逐帧刷新；减弱动态效果时光晕固定在静止的两圈。
+  private func updateDisplayLink() {
+    let reduceMotion = UIAccessibility.isReduceMotionEnabled
+    if reduceMotion && shownLevel != 0 {
+      shownLevel = 0
+      drawHalo()
     }
-    guard !isPulsing else { return }
-    let side = min(bounds.width, bounds.height)
-    let scale = CABasicAnimation(keyPath: "transform.scale")
-    scale.fromValue = 1
-    scale.toValue = (side + 2 * KeyboardVoicePanelView.pulseSpread) / side
-    let fade = CABasicAnimation(keyPath: "opacity")
-    fade.fromValue = KeyboardVoicePanelView.pulseOpacity
-    fade.toValue = 0
-    let group = CAAnimationGroup()
-    group.animations = [scale, fade]
-    group.duration = KeyboardVoicePanelView.pulseDuration
-    group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-    group.repeatCount = .infinity
-    pulseLayer.add(group, forKey: Self.pulseKey)
+    let animates = window != nil && !reduceMotion
+      && !KeyboardVoicePanelPolicy.settled(shown: shownLevel, target: targetLevel)
+    if animates, displayLink == nil {
+      let link = CADisplayLink(target: self, selector: #selector(advanceLevel(_:)))
+      link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+      link.add(to: .main, forMode: .common)
+      displayLink = link
+      lastFrame = nil
+    } else if !animates, let link = displayLink {
+      link.invalidate()
+      displayLink = nil
+    }
+  }
+
+  @objc private func advanceLevel(_ link: CADisplayLink) {
+    // 第一帧没有上一帧可比，按这一帧的时长推进。
+    let elapsed = lastFrame.map { link.timestamp - $0 } ?? (link.targetTimestamp - link.timestamp)
+    lastFrame = link.timestamp
+    shownLevel = KeyboardVoicePanelPolicy.step(shown: shownLevel, target: targetLevel, elapsedMs: elapsed * 1000)
+    drawHalo()
+    if KeyboardVoicePanelPolicy.settled(shown: shownLevel, target: targetLevel) { updateDisplayLink() }
+  }
+
+  @objc private func reduceMotionChanged() {
+    updateDisplayLink()
   }
 
   private func applyColors() {
@@ -206,7 +441,8 @@ final class KeyboardVoiceOrbButton: UIButton {
     let accent = (isCancelling ? skin.secondary : skin.accent).resolvedColor(with: traits).cgColor
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    pulseLayer.fillColor = accent
+    outerHalo.fillColor = accent
+    innerHalo.fillColor = accent
     circleLayer.fillColor = accent
     micLayer.strokeColor = skin.onAccent.resolvedColor(with: traits).cgColor
     CATransaction.commit()

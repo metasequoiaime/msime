@@ -20,6 +20,8 @@ struct VoiceSessionState: Codable, Equatable, Sendable {
   var text = ""
   /// `failed` 时的原因，`recognizing` 时可以是「正在润色…」之类的进度。
   var message = ""
+  /// 听写中最近的麦克风电平（0…1），只在 `listening` 时有；键盘拿它驱动聆听面板的光晕。可选字段，旧版本写的状态里没有它也照常解码。
+  var level: Float?
   /// App 定时刷新；App 被系统结束后它不再更新，键盘据此判断会话已经不在。
   var heartbeat: Date
   /// 会话空闲到这个时刻就由 App 自己关掉。
@@ -48,6 +50,10 @@ struct VoiceSessionCommand: Codable, Equatable, Sendable {
 final class VoiceSessionChannel: @unchecked Sendable {
   /// App 刷新心跳的间隔。
   static let heartbeatInterval: TimeInterval = 4
+  /// 听写中 App 最多隔这么久报一次麦克风电平。
+  static let levelInterval: TimeInterval = 0.1
+  /// 电平变化不到这么多就不报，安静时不反复写文件、发通知。
+  static let levelStep: Float = 0.02
   /// 会话空闲多久后 App 关掉录音会话，状态栏的麦克风标记随之消失。
   static let idleLifetime: TimeInterval = 300
   private static let maximumBytes = 64 * 1024
@@ -60,6 +66,11 @@ final class VoiceSessionChannel: @unchecked Sendable {
 
   init(directory: URL? = VoiceTextHandoffStore.defaultDirectory) {
     self.directory = directory?.appendingPathComponent("VoiceSession", isDirectory: true)
+  }
+
+  /// 这次采到的电平和上次报给键盘的（还没报过当作 0）相差够不够 `levelStep`，够才再报。
+  static func publishesLevel(_ level: Float, after published: Float?) -> Bool {
+    abs(level - (published ?? 0)) >= levelStep
   }
 
   func readState() -> VoiceSessionState? { read("state.json") }
