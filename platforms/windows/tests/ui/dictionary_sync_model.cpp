@@ -84,6 +84,28 @@ int main() {
         "approval question shows the code");
   check(device_detail(groups.waiting[0]) == L"核对码 0123 4567 8901 2345", "device detail without a date");
 
+  // 窗口重新获得焦点时重读的概况：每一项都参与比较，完全相同才算没变（不重画）。
+  Status before;
+  before.device_id = L"a";
+  before.approved = true;
+  before.joined = true;
+  before.words = 12;
+  before.pending_upload = 1;
+  before.last_success_ms = 1000;
+  Status after = before;
+  check(after == before && !(after != before), "an identical status is unchanged");
+  after.pending_upload = 0;
+  check(after != before, "a sent word changes the status");
+  after = before;
+  after.last_success_ms = 2000;
+  check(after != before, "a later sync changes the status");
+  after = before;
+  after.last_error = L"dictionary_sync_unavailable";
+  check(after != before, "a new error changes the status");
+  after = before;
+  after.approved = false;
+  check(after != before, "approval changes the status");
+
   // 密钥串身份冲突时重试，最多三次；别的错误和成功都不重试。
   int calls = 0;
   const auto conflicted = [](const std::string &code) { return code == retry::keystore_conflict; };
@@ -99,6 +121,6 @@ int main() {
 
   if (failures)
     return 1;
-  std::puts("dictionary sync model: shared error texts, status lines, one entry per device and keystore conflict retries passed");
+  std::puts("dictionary sync model: shared error texts, status lines, status comparison, one entry per device and keystore conflict retries passed");
   return 0;
 }

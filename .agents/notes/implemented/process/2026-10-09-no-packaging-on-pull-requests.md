@@ -35,7 +35,7 @@ Status: implemented
 
 - **收益**：功能分支的 PR 不再打 APK、不起模拟器、不打 macOS 包、不上传 web 产物；模拟器的间歇失败不再让无关 PR 变红。
 - **代价**：Android 设备上才出现的运行时问题（权限、SELinux、旧系统缺陷、首次启动崩溃）和打包脚本问题，要等合进 develop 后才报出，修的人得回头定位是哪次推送带进来的。动了文件读写、权限或安卓资源的改动，合并前仍要按 `AGENTS.md` 在本机模拟器上跑过。
-- **仍然没有覆盖**：develop 上 `android-device` 或 macOS 打包失败时没有自动回滚。`android-device` 随 `Native Platform CI` 失败时会进 `ci-red` 跟踪单（见[develop 红灯自动开单](2026-10-28-ci-red-tracking.md)）；macOS 打包（`ci-macos-package.yml`）不在监听列表里，仍要看 develop 的 Actions 页面。
+- **仍然没有覆盖**：develop 上 `android-device` 或 macOS 打包失败时没有自动回滚。`android-device` 随 `Native Platform CI` 失败时会进 `ci-red` 跟踪单（见[develop 红灯自动开单](2026-10-28-ci-red-tracking.md)）；macOS 打包（`ci-macos-package.yml`）失败同样进入该跟踪单。
 
 ## Verification
 

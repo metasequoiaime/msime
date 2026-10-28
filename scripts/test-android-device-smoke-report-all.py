@@ -18,7 +18,7 @@ DEVICE = ROOT / "platforms/android/tests/device"
 SERIAL = "emulator-5580"
 IME = "app.msime.android/.MSIMEInputService"
 
-# 假 adb：按 instrumentation 的类名（带第一个 -e 参数时写成 类名:参数）决定通过、失败还是崩溃，并把调用记进 calls。
+# 假 adb：按 instrumentation 的类名（带第一个 -e 参数时写成 类名:参数）决定通过、失败、崩溃或打印通过后非零退出，并把调用记进 calls。
 FAKE_ADB = r"""#!/usr/bin/env bash
 state=$FAKE_STATE
 echo "adb $*" >> "$state/calls"
@@ -55,6 +55,7 @@ if [[ "$1 $2 $3" == "shell am instrument" ]]; then
   fi
   if has "${FAKE_DIE_AFTER:-}" "$key"; then touch "$state/dead"; fi
   if has "${FAKE_IME_STUCK_AFTER:-}" "$key"; then touch "$state/ime-stuck"; fi
+  if has "${FAKE_NONZERO:-}" "$key"; then exit 7; fi
   exit 0
 fi
 exit 0
@@ -171,6 +172,24 @@ def main() -> None:
         run.expect(run.stdout.rstrip().endswith("Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"), "通过时最后一行仍是原来的通过说明")
         run.expect("====" not in run.stderr and run.summary == "", "全部通过时不打印失败汇总，也不写 step summary")
         run.expect(run.ran("LetterHintPunctuationDeviceSmoke:english-swipe") and run.ran_script("clipboard-edit-lifecycle"), "全部通过时应跑到最后一项")
+
+        run = Run(base, "gate-nonzero-with-marker", ["--core"], sdk="28", nonzero="DeviceSmoke")
+        run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "主路径即使打印通过标记，命令非零退出也应停下")
+        run.expect(not run.ran("FourteenKeyDeviceSmoke:eighteen_key"), "主路径命令失败后不应继续跑")
+        run.expect(run.failed_lines() == ["FAILED System input acceptance failed: error: command exited with status 7"], "主路径失败汇总应保留命令退出码")
+
+        nonzero = ["CandidateCanvasDeviceSmoke", "ClipboardSegmentDragDeviceSmoke", "SessionStoreDeviceSmoke", "WubiLookupDeviceSmoke"]
+        run = Run(base, "nonzero-with-marker", [], nonzero=" ".join(nonzero))
+        run.expect(run.code == 1 and run.stopped_line() == "", "普通检查的命令非零退出应记为失败并继续后续独立检查")
+        run.expect("acceptance passed" not in run.stdout, "命令失败时不应打印整套通过说明")
+        run.expect(run.ran_script("clipboard-edit-lifecycle"), "命令失败后应跑到最后一项")
+        expected_nonzero = [
+            f"FAILED {label}: error: command exited with status 7"
+            for label in ["Candidate canvas acceptance failed", "Clipboard segment drag acceptance failed", "Session store JNI acceptance failed", "Wubi lookup acceptance failed"]
+        ]
+        run.expect(run.failed_lines() == expected_nonzero, "包装调用、直接 adb 和先清理再裁决的路径都必须保留退出码")
+        for line in expected_nonzero:
+            run.expect(f"- `{line[len('FAILED '):]}`" in run.summary, "命令失败应进入 step summary")
 
         failing = ["CandidateCanvasDeviceSmoke", "EmojiPickerDeviceSmoke", "LetterHintPunctuationDeviceSmoke:english-hold"]
         run = Run(base, "collect", [], fail=" ".join(failing), fail_scripts="clipboard-export")

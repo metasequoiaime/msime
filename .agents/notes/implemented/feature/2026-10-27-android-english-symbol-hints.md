@@ -21,4 +21,4 @@ Status: implemented
 
 英文键盘的 X/C 角标与建议的常用符号一致，中文键盘保持原有省略号和顿号的显示与实际输出。Android 主机检查新增的回归断言；没有改变符号层的独立按键布局。
 
-验证：修改后的 `LetterHintTableSmoke` 先复现中文实际提交值回归；修复后 `bash platforms/android/check-host.sh` 通过 281 个 JVM 冒烟并编译 245 个设备套件源文件，三个相关套件也经 `javac --release 17 -Xlint:all -Werror` 独立编译运行通过。`scripts/verify-local.sh --quick` 的 Rust workspace、Android target 和 Java 阶段通过；公共 Windows runner 契约由 #9986 处理，Apple bridge 初始配置失败来自本次验证误传主工作区的 `MSIME_APPLE_BRIDGE_BUILD`，导致 CMake 源码根目录不匹配；已核对主缓存的两份翻译单元、依赖头和 CMake 配置与本分支逐字节相同，已有主缓存的定点构建退出 0。真实设备的 X/C 触摸验收尚未执行，JVM 结果不替代设备验收。
+验证：修改后的 `LetterHintTableSmoke` 先复现中文实际提交值回归；修复后 `bash platforms/android/check-host.sh` 通过 281 个 JVM 冒烟并编译 245 个设备套件源文件，三个相关套件也经 `javac --release 17 -Xlint:all -Werror` 独立编译运行通过。`scripts/verify-local.sh --quick` 的 Rust workspace、Android target 和 Java 阶段通过；公共 Windows runner 契约由 #9986 处理，Apple bridge 初始配置失败来自本次验证误传主工作区的 `MSIME_APPLE_BRIDGE_BUILD`，导致 CMake 源码根目录不匹配；已核对主缓存的两份翻译单元、依赖头和 CMake 配置与本分支逐字节相同，已有主缓存的定点构建退出 0。真实设备的 X/C 触摸验收尚未执行，JVM 结果不替代设备验收。设备冒烟 `LetterHintPunctuationDeviceSmoke -e english-swipe true` 当时仍期望 `…`、`、`，在 API 35 上失败，已改成 `_` 和反引号，见[夜间设备验收归因](../bug-fix/2026-10-28-android-nightly-device-failures.md)。

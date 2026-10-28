@@ -39,8 +39,8 @@ pub unsafe extern "C" fn msime_client_touch_quick_symbols(
 
 fn clipboard_history_limit(directory: &std::path::Path) -> usize {
     msime_client_core::preferences::PreferencesStore::new(directory)
-        .load()
-        .map(|snapshot| snapshot.preferences.clipboard_history_limit)
+        .load_for_runtime()
+        .map(|runtime| runtime.snapshot.preferences.clipboard_history_limit)
         .unwrap_or(msime_client_core::clipboard::DEFAULT_CLIPBOARD_HISTORY_LIMIT)
 }
 
@@ -2119,9 +2119,11 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
         if !path.is_absolute() {
             return Err("history directory must be absolute".into());
         }
+        // 键盘的剪贴板面板和输入一样按运行时读法读偏好：文档里别的设置读不了时，面板照常可用；同意与否仍取文档里写的值，整份读不了时取默认的关闭。
         let preferences = PreferencesStore::new(path)
-            .load()
+            .load_for_runtime()
             .map_err(|_| "history preferences unavailable")?
+            .snapshot
             .preferences;
         let enabled = preferences.clipboard_history;
         if !enabled {
@@ -2461,8 +2463,9 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
             return Err("invalid history entry".into());
         }
         if !PreferencesStore::new(path)
-            .load()
+            .load_for_runtime()
             .map_err(|_| "history preferences unavailable")?
+            .snapshot
             .preferences
             .clipboard_history
         {
@@ -3025,14 +3028,30 @@ pub unsafe extern "C" fn msime_client_save_preferences(
             "preferences directory must be absolute",
         )?;
         let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
-        let snapshot: PreferencesSnapshot =
+        // 提交来的偏好严格解析（Preferences::from_submission），不走读盘时的宽松读法：宿主送来本版本不认识的名字是宿主的毛病，要报出来，而不是悄悄整理掉再存下。
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Submitted {
+            format_version: u32,
+            #[allow(dead_code)]
+            revision: u64,
+            preferences: Value,
+        }
+        let snapshot: Submitted =
             serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;
         if snapshot.format_version != 1 {
             return Err("unsupported preferences format".into());
         }
+        let preferences =
+            Preferences::from_submission(snapshot.preferences).map_err(|error| match error {
+                msime_client_core::preferences::PreferencesError::Json(_) => {
+                    "invalid preferences snapshot".to_owned()
+                }
+                other => other.to_string(),
+            })?;
         let store = PreferencesStore::new(directory);
         let saved = store
-            .save(expected_revision, snapshot.preferences)
+            .save(expected_revision, preferences)
             .map_err(|e| e.to_string())?;
         if !saved.preferences.clipboard_history {
             store

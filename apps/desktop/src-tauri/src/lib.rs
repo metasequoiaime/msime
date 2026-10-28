@@ -1809,13 +1809,13 @@ async fn save_preferences(
     runtime: tauri::State<'_, RuntimeOptionsState>,
     platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
     expected_revision: u64,
-    preferences: Preferences,
+    preferences: serde_json::Value,
 ) -> Result<PreferencesSnapshot, CommandError> {
     save_preferences_impl(
         store.inner().clone(),
         runtime.inner().clone(),
         expected_revision,
-        preferences,
+        Preferences::from_submission(preferences).map_err(CommandError::from)?,
         platform.inner().clone(),
     )
     .await
@@ -1827,13 +1827,13 @@ async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
     runtime: tauri::State<'_, RuntimeOptionsState>,
     expected_revision: u64,
-    preferences: Preferences,
+    preferences: serde_json::Value,
 ) -> Result<PreferencesSnapshot, CommandError> {
     save_preferences_impl(
         store.inner().clone(),
         runtime.inner().clone(),
         expected_revision,
-        preferences,
+        Preferences::from_submission(preferences).map_err(CommandError::from)?,
     )
     .await
 }

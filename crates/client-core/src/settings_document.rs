@@ -113,14 +113,12 @@ pub fn import_document(
             imported.insert(section.to_owned(), value.clone());
         }
     }
-    // 偏好结构本身容忍未知键（旧版本要读得了新版本的偏好文档），导入不同：文件里有本版本不认识的设置，说明它出自更新的版本，只导入认识的那部分会悄悄丢掉其余的，所以整份拒绝。
+    // 偏好结构本身容忍未知键和启用列表里更新的版本加的取值（旧版本要读得了新版本的偏好文档），导入不同：文件里有本版本不认识的设置，说明它出自更新的版本，只导入认识的那部分会悄悄丢掉其余的，所以整份拒绝。文本编辑面板排列里不认识的动作不算：它只决定按钮先后，丢掉的动作由更新的版本读回时补在末尾。
+    let imported = Value::Object(imported);
     let (mut preferences, unknown) =
-        crate::preferences::deserialize_keeping_unknown::<Preferences>(
-            &Value::Object(imported),
-            &[],
-        )
-        .map_err(|_| SettingsDocumentError::Unsupported)?;
-    if !unknown.is_empty() {
+        crate::preferences::deserialize_keeping_unknown::<Preferences>(&imported, &[])
+            .map_err(|_| SettingsDocumentError::Unsupported)?;
+    if !unknown.is_empty() || !crate::preferences::newer_list_values(&imported).is_empty() {
         return Err(SettingsDocumentError::Unsupported);
     }
     // 记录一次性种子已经做过；文件里的值不能让本机重新种下用户关掉的规则。文件里标着种过（导出时随文件写出），或者模糊音开着，规则就是用户在另一台电脑上定下的（包括有意清空），标成已种过，本机以后第一次打开模糊音时不再被盖成全部规则（PreferencesStore::save、Windows 设置窗口和共享设置页的首次打开种子都看这个标记）。
@@ -463,6 +461,52 @@ mod tests {
         assert_eq!(
             import_document(document.to_string().as_bytes(), &current, full),
             Err(SettingsDocumentError::Unsupported)
+        );
+        document["preferences"]["candidate_page_size"] = Value::from(5);
+        // 更新的版本启用的触屏方案、模糊音规则：只导入认识的会悄悄丢掉它们，整份拒绝。
+        for (pointer, newer) in [
+            (
+                "/preferences/touch_keyboard_schemes/enabled",
+                serde_json::json!(["quanpin", "future_scheme"]),
+            ),
+            (
+                "/preferences/fuzzy_pinyin/rules",
+                serde_json::json!(["z-zh", "future-rule"]),
+            ),
+        ] {
+            let mut newer_document = document.clone();
+            *newer_document.pointer_mut(pointer).unwrap() = newer;
+            assert_eq!(
+                import_document(newer_document.to_string().as_bytes(), &current, full),
+                Err(SettingsDocumentError::Unsupported),
+                "{pointer}"
+            );
+        }
+    }
+
+    // 文本编辑面板排列里更新的版本加的动作只决定按钮先后，导入时丢掉它、其余照常导入；重复和缺的动作同样整理成完整排列。
+    #[test]
+    fn a_text_edit_order_from_a_newer_version_is_imported_without_its_unknown_action() {
+        use crate::preferences::{default_text_edit_button_order, TextEditButton::*};
+        let current = Preferences::default();
+        let exported = Preferences {
+            candidate_page_size: 7,
+            ..Preferences::default()
+        };
+        let mut document: Value =
+            serde_json::from_str(&export_document(&exported).unwrap()).unwrap();
+        document["preferences"]["touch_text_edit_button_order"] =
+            serde_json::json!(["delete", "select_word", "copy", "copy"]);
+        let imported =
+            import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
+        assert_eq!(imported.candidate_page_size, 7);
+        assert_eq!(
+            imported.touch_text_edit_button_order,
+            vec![Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine]
+        );
+        assert_eq!(
+            imported.touch_text_edit_button_order.len(),
+            default_text_edit_button_order().len()
         );
     }
 
