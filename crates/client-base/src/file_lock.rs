@@ -303,6 +303,14 @@ pub fn replace_private_file(path: impl AsRef<Path>, contents: &[u8]) -> io::Resu
     crate::storage::replace_private_file(path.as_ref(), contents)
 }
 
+/// 把写好的临时文件发布为 `path`，Windows 上目标被别的进程短暂打开时等一等再替换；规则见 [`crate::storage::persist_replacing`]。宿主自己用 `NamedTempFile` 写文件时经这里发布，不直接调用 `persist`。
+pub fn persist_replacing<F>(
+    temporary: tempfile::NamedTempFile<F>,
+    path: impl AsRef<Path>,
+) -> Result<F, tempfile::PersistError<F>> {
+    crate::storage::persist_replacing(temporary, path)
+}
+
 /// Replace a private file atomically while preserving the supplied permissions.
 pub fn replace_private_file_with_permissions(
     path: impl AsRef<Path>,

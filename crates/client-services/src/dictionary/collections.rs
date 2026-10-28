@@ -1263,8 +1263,7 @@ impl DictionaryCollectionsStore {
             let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
             temporary.write_all(&bytes)?;
             temporary.as_file().sync_all()?;
-            temporary
-                .persist(self.directory.join(name))
+            crate::storage::persist_replacing(temporary, self.directory.join(name))
                 .map_err(|error| error.error)?;
             Ok(())
         }

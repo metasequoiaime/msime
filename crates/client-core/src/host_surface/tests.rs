@@ -830,7 +830,7 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
-/// 鸿蒙版在拿到 AI 生成类资质之前不提供 AI 对话、润色、回复、AI 联想、AI 翻译和 AI 皮肤；其余宿主照旧提供。
+/// 鸿蒙版在拿到 AI 生成类资质之前不提供 AI 对话、润色、回复、AI 联想、AI 翻译和 AI 皮肤；其余宿主照旧提供。鸿蒙的社区皮肤按这一项排除 AI 生成的作品，在各端画出「AI 生成」标识之前，不要把鸿蒙改成真。
 #[test]
 fn only_harmony_withholds_ai_generation() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).ai_generation);
@@ -842,6 +842,21 @@ fn only_harmony_withholds_ai_generation() {
         HostPlatform::Ios,
     ] {
         assert!(HostCapabilities::for_platform(platform).ai_generation);
+    }
+}
+
+/// 鸿蒙版在实名认证到位之前不提供社区发布、评分和举报；其余宿主照旧提供。
+#[test]
+fn only_harmony_withholds_community_contribution() {
+    assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).community_contribution);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        assert!(HostCapabilities::for_platform(platform).community_contribution);
     }
 }
 

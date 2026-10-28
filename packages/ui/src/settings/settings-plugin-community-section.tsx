@@ -8,6 +8,7 @@ import type { SettingsShellView } from "./use-settings-shell-state";
 
 export interface SettingsPluginCommunitySectionProps {
   model: Pick<SettingsPageModel, "client" | "page" | "openAccountLogin"> &
+    Partial<Pick<SettingsPageModel, "showCommunityContribution">> &
     Partial<
       Pick<
         SettingsPageModel,
@@ -79,6 +80,7 @@ export function SettingsPluginCommunitySection({
             mobile={Boolean(touchKinds)}
             onOpenScript={scriptPlugins ? onOpenPlugin : undefined}
             onLogin={openAccountLogin}
+            contributions={model.showCommunityContribution !== false}
           />
         </div>
       )}

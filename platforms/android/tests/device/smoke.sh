@@ -377,6 +377,9 @@ check "Native common phrase category acceptance failed" MSIME_DEVICE_SMOKE_PASSE
 # 触控板通过独立编辑器验收真实 DPAD、选区、临时面板和密码回读，最低 API 同样覆盖。
 check "Text trackpad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e trackpad true
 
+# 真实恢复和撤销涉及应用私有目录，最低 API 的核心验收也执行合成备份回归。
+check "Layout backup restore acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.PreferencesDeviceSmoke -e backup-layout true
+
 if [[ "$core" == true ]]; then
   check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   finish "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"

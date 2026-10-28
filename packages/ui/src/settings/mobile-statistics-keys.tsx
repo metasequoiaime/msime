@@ -4,10 +4,10 @@ import { statisticsTrack } from "../core/statistics-style";
 import {
   keyLabel,
   phoneHeatmapCount,
+  phoneHeatmapLayoutRows,
   phoneHeatmapLeader,
   phoneHeatmapOthers,
   phoneHeatmapPeak,
-  phoneHeatmapRows,
   phoneHeatmapSharedCodes,
   prefersNineKey,
   summaryHeatLevel,
@@ -20,6 +20,7 @@ import {
   ShareLegendRow,
   shareSummary,
 } from "./mobile-statistics-parts";
+import type { TouchKeyLayoutStyle } from "../keyboard/touch-key-layout-styles";
 import { segmentTrack, segmentOn, shade, shareColour, subText } from "./mobile-statistics-style";
 import { summaryMethods } from "./typing-breakdown";
 import { accentMix, conicGradient } from "./typing-chart";
@@ -83,18 +84,41 @@ function keyFlex(weight: number): CSSProperties {
   return { flex: `${weight} 1 0%` };
 }
 
+/** 九键热力图一行键的高度和行距（`h-[52px]`、`gap-1.5`）。 */
+const NINE_KEY_CAP_PX = 52;
+const HEATMAP_ROW_GAP = "0.375rem";
+
+/** 跨几行的键（九键「右侧大回车」的回车）往下伸到下一行的占位上：高度是几行加中间的行距，下边距收回多出的行，所在行的高度不变。 */
+function keySpan(rows: number | undefined): CSSProperties {
+  const span = rows ?? 1;
+  if (span <= 1) return {};
+  return {
+    height: `calc(${span} * ${NINE_KEY_CAP_PX}px + ${span - 1} * ${HEATMAP_ROW_GAP})`,
+    marginBottom: `calc(-${span - 1} * (${NINE_KEY_CAP_PX}px + ${HEATMAP_ROW_GAP}))`,
+  };
+}
+
 /**
  * 用户所用手机键盘最近七天的按键热力图：每个键按它的次数相对于所画按键中最忙的那个着色，并标出它占全部按键次数的比例；几个键帽共用一个 id 时（9 键两侧的标点）只着色、不标占比。按过但这张键盘上没有的键列在下面的「其他键」里，键盘下方给出按得最多的拼写键。
  */
-function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: string }) {
+function KeyHeatmap({
+  counts,
+  card,
+  layoutStyle,
+}: {
+  counts: Record<string, number>;
+  card: string;
+  layoutStyle?: TouchKeyLayoutStyle;
+}) {
   const [chosen, setChosen] = useState<PhoneHeatmapLayout | null>(null);
   const othersId = useId();
   const layout: PhoneHeatmapLayout = chosen ?? (prefersNineKey(counts) ? "nine" : "full");
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-  const peak = phoneHeatmapPeak(counts, layout);
-  const leader = phoneHeatmapLeader(counts, layout);
-  const shared = phoneHeatmapSharedCodes(layout);
-  const others = phoneHeatmapOthers(counts, layout);
+  const rows = phoneHeatmapLayoutRows(layout, layoutStyle);
+  const peak = phoneHeatmapPeak(counts, layout, layoutStyle);
+  const leader = phoneHeatmapLeader(counts, layout, layoutStyle);
+  const shared = phoneHeatmapSharedCodes(layout, layoutStyle);
+  const others = phoneHeatmapOthers(counts, layout, layoutStyle);
   const headline = leader
     ? `${layout === "nine" ? "最常按" : "字母键最常按"} ${leader.label} · ${percentTenths(leader.count / total)}%`
     : "这段时间还没有按键记录";
@@ -107,7 +131,7 @@ function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: st
           role="group"
           aria-label={`${layout === "nine" ? "9 键" : "26 键"}按键热力图，${headline}`}
         >
-          {phoneHeatmapRows[layout].map((row, rowIndex) => (
+          {rows.map((row, rowIndex) => (
             <div className="flex gap-1" key={`${layout}-${rowIndex}`}>
               {row.map((key, keyIndex) => {
                 const code = key.code;
@@ -127,10 +151,12 @@ function KeyHeatmap({ counts, card }: { counts: Record<string, number>; card: st
                     className={`flex min-w-0 animate-ms-badge-in flex-col items-center justify-center gap-px overflow-hidden rounded-[6px] [animation-duration:0.4s] motion-reduce:animate-none ${layout === "nine" ? "h-[52px]" : "h-11"} ${level >= 4 ? "text-[color:var(--p-on-accent,#fff)]" : "text-[color:var(--p-text)]"}`}
                     style={{
                       ...keyFlex(key.weight),
+                      ...keySpan(key.rowSpan),
                       background: accentMix(keyShades[level]),
                       animationDelay: `${delay}ms`,
                     }}
                     role="img"
+                    data-row-span={key.rowSpan}
                     aria-label={`${key.name ?? keyLabel(code)}，${formatZhNumber(count)} 次`}
                     key={`${rowIndex}-${keyIndex}`}
                   >
@@ -195,11 +221,14 @@ export function MobileStatisticsKeys({
   habits,
   counts,
   card,
+  layoutStyle,
 }: {
   keys: KeysSummary;
   habits: HabitsSummary;
   counts: Record<string, number>;
   card: string;
+  /** 用户当前的按键布局样式与数字行；HarmonyOS 手机传入，热力图照它画。 */
+  layoutStyle?: TouchKeyLayoutStyle;
 }) {
   const perKeyNote = perKeyDelta(keys.per_character_keys, keys.previous_per_character_keys);
   const run = keys.longest_run;
@@ -208,7 +237,7 @@ export function MobileStatisticsKeys({
   const positions = keys.positions;
   return (
     <>
-      <KeyHeatmap counts={counts} card={card} />
+      <KeyHeatmap counts={counts} card={card} layoutStyle={layoutStyle} />
       <Tiles
         card={card}
         tiles={[

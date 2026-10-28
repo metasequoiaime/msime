@@ -8,36 +8,45 @@
 
 use msime_client_core::network::{
     current, normalized_proxy_url, should_use_proxy, NetworkPreferences, ProxyMode,
+    RequiredProxyUnavailable,
 };
 use reqwest::blocking::ClientBuilder;
 use reqwest::Url;
 
 /// 按当前偏好配置一个只会请求 `https` 目标的客户端。`custom` 下每个目标仍按 [`should_use_proxy`] 再判断一次，
 /// 所以本机或局域网目标、以及任何明文 `http` 目标都不会交给代理。
-pub fn configure_blocking(builder: ClientBuilder) -> ClientBuilder {
+pub fn configure_blocking(
+    builder: ClientBuilder,
+) -> Result<ClientBuilder, RequiredProxyUnavailable> {
     configure_blocking_with_preferences(builder, &current())
 }
 
 fn configure_blocking_with_preferences(
     builder: ClientBuilder,
     preferences: &NetworkPreferences,
-) -> ClientBuilder {
-    match preferences.effective_mode() {
+) -> Result<ClientBuilder, RequiredProxyUnavailable> {
+    Ok(match preferences.effective_mode() {
         ProxyMode::None => builder.no_proxy(),
         ProxyMode::System => builder,
-        ProxyMode::Custom => match normalized_proxy_url(&preferences.proxy_server) {
-            // `effective_mode` 已经把不可用的地址归到 `system`，这里只是兜底。
-            None => builder,
-            Some(server) => builder.proxy(reqwest::Proxy::custom(move |url: &Url| {
-                should_use_proxy(url, ProxyMode::Custom, is_local(url))
-                    .then(|| Url::parse(&server).expect("代理地址已规范化"))
-            })),
-        },
-    }
+        mode @ (ProxyMode::Custom | ProxyMode::CustomRequired) => {
+            match normalized_proxy_url(&preferences.proxy_server) {
+                None if mode == ProxyMode::CustomRequired => return Err(RequiredProxyUnavailable),
+                // `effective_mode` 已经把不可用的地址归到 `system`，这里只是兜底。
+                None => builder,
+                Some(server) => builder.proxy(reqwest::Proxy::custom(move |url: &Url| {
+                    should_use_proxy(url, ProxyMode::Custom, is_local(url))
+                        .then(|| Url::parse(&server).expect("代理地址已规范化"))
+                })),
+            }
+        }
+    })
 }
 
 /// 按当前偏好配置一个只发往 `url` 的客户端。目标不该走代理时（明文 `http`、本机或局域网）显式直连。
-pub fn configure_blocking_for(builder: ClientBuilder, url: &Url) -> ClientBuilder {
+pub fn configure_blocking_for(
+    builder: ClientBuilder,
+    url: &Url,
+) -> Result<ClientBuilder, RequiredProxyUnavailable> {
     configure_blocking_for_with_preferences(builder, url, &current())
 }
 
@@ -46,11 +55,11 @@ pub(crate) fn configure_blocking_for_with_preferences(
     builder: ClientBuilder,
     url: &Url,
     preferences: &NetworkPreferences,
-) -> ClientBuilder {
+) -> Result<ClientBuilder, RequiredProxyUnavailable> {
     if should_use_proxy(url, preferences.effective_mode(), is_local(url)) {
         configure_blocking_with_preferences(builder, preferences)
     } else {
-        builder.no_proxy()
+        Ok(builder.no_proxy())
     }
 }
 
@@ -65,6 +74,40 @@ mod tests {
 
     fn url(value: &str) -> Url {
         Url::parse(value).unwrap()
+    }
+
+    #[test]
+    fn required_proxy_is_rejected_before_a_remote_client_can_be_built() {
+        let preferences = NetworkPreferences {
+            proxy_mode: ProxyMode::CustomRequired,
+            proxy_server: String::new(),
+        };
+        assert!(configure_blocking_with_preferences(ClientBuilder::new(), &preferences).is_err());
+        assert!(configure_blocking_for_with_preferences(
+            ClientBuilder::new(),
+            &url("https://synthetic.example/v1"),
+            &preferences
+        )
+        .is_err());
+        // 本机目标仍按已有规则直连；不建立任何网络请求。
+        assert!(configure_blocking_for_with_preferences(
+            ClientBuilder::new(),
+            &url("http://127.0.0.1:11434/v1"),
+            &preferences
+        )
+        .unwrap()
+        .build()
+        .is_ok());
+        let usable = NetworkPreferences {
+            proxy_server: "127.0.0.1:7890".into(),
+            ..preferences
+        };
+        assert!(
+            configure_blocking_with_preferences(ClientBuilder::new(), &usable)
+                .unwrap()
+                .build()
+                .is_ok()
+        );
     }
 
     /// 构造客户端只为验证配置不报错；不会发出请求。
@@ -96,6 +139,7 @@ mod tests {
                         &url(target),
                         &preferences
                     )
+                    .unwrap()
                     .build()
                     .is_ok(),
                     "{preferences:?} {target}"
@@ -103,6 +147,7 @@ mod tests {
             }
             assert!(
                 configure_blocking_with_preferences(ClientBuilder::new(), &preferences)
+                    .unwrap()
                     .build()
                     .is_ok()
             );

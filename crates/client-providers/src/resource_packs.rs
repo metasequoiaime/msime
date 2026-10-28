@@ -132,6 +132,7 @@ fn select_grammar_models(
 
 fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
     let client = crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
+        .map_err(|error| LocalModelError::Network(error.to_string()))?
         .https_only(true)
         .redirect(reqwest::redirect::Policy::limited(5))
         .connect_timeout(Duration::from_secs(15))

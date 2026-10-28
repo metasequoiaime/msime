@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// 26 个字母键右上角的符号提示，取自设计稿：q1…p0 / a@ s# d¥ f% g& h* j( k) l" / z~ x… c、 v? b! n- m/。沿设定方向滑动字母键或长按即输入这个符号。与 Android 的 `LetterHintTable` 是同一张表。
 enum LetterHintTable {
@@ -25,5 +26,12 @@ enum SwipeHintPolicy {
                      downY: CGFloat, currentY: CGFloat) -> Bool {
     let distance = direction == .up ? downY - currentY : currentY - downY
     return distance > threshold
+  }
+
+  /// 「长空格」逗号的滑动，与 Android 的 `ImeBottomRow.bindCommaSwipe` 一致：上滑、下滑都算（逗号没有别的纵向手势，照字母键习惯上滑也要出句号），门槛与字母键相同，纵向位移严格大于 `threshold` 且大于横向位移，点按时手指带一下不算；按下后满 `holdDelay` 还没滑出去的触摸已经归长按，之后再挪手指不起滑动。坐标是窗口坐标，`elapsed` 是从按下起的秒数。
+  static func swipedEitherWay(down: CGPoint, current: CGPoint, elapsed: TimeInterval, holdDelay: TimeInterval) -> Bool {
+    guard elapsed < holdDelay else { return false }
+    let vertical = abs(current.y - down.y)
+    return vertical > threshold && vertical > abs(current.x - down.x)
   }
 }

@@ -100,6 +100,7 @@ pub(crate) fn read_response_body(reader: impl Read) -> Result<Vec<u8>, ResponseB
 /// 不跟随重定向（Token 不会被转发到别的主机）；局域网的 http 接口直连、不走代理。
 fn client(url: &Url) -> Option<reqwest::blocking::Client> {
     endpoint::blocking_client_builder(url)
+        .ok()?
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .build()

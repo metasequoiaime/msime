@@ -126,16 +126,15 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }
 
-    /** 同一服务重建键盘视图后，新逗号键仍要接收下滑；用合成编辑器收集实际提交字符。 */
+    /** 同一服务重建键盘视图后，新逗号键仍要接收下滑；用合成编辑器收集实际提交字符。长空格是中文 26 键的底行样式（共享偏好 touch_twenty_six_key_style），这里直接换上服务持有的样式，英文 26 键不受它影响，所以用中文模式。 */
     private void checkLongSpaceGestureAfterRecreation(Class<?> type, Object service, ClassLoader loader)
             throws Exception {
-        Class<?> settings = loader.loadClass("app.msime.android.AndroidLocalSettings");
-        String key = "platform.android.long_space_layout";
-        Object original = settings.getMethod("load", Context.class).invoke(null, getTargetContext());
-        boolean hadValue = (Boolean) original.getClass().getMethod("has", String.class).invoke(original, key);
-        Object previous = hadValue ? original.getClass().getMethod("value", String.class).invoke(original, key) : null;
-        Method put = settings.getMethod("put", Context.class, String.class, Object.class);
-        Object enabled = put.invoke(null, getTargetContext(), key, true);
+        Class<?> styles = loader.loadClass("app.msime.android.TouchKeyStyle$Styles");
+        Object longSpace = styles.getMethod("parse", String.class, String.class, String.class)
+            .invoke(null, "long_space", null, null);
+        Field stylesField = field(type, "touchKeyStyles");
+        Object previous = stylesField.get(service);
+        boolean previousEnglish = field(type, "dedicatedEnglish").getBoolean(service);
         StringBuilder committed = new StringBuilder();
         android.view.inputmethod.InputConnection connection =
             (android.view.inputmethod.InputConnection) java.lang.reflect.Proxy.newProxyInstance(
@@ -149,8 +148,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         try {
             for (int generation = 0; generation < 2; generation++) {
                 if (generation > 0) type.getMethod("onCreateInputView").invoke(service);
-                field(type, "localSettings").set(service, enabled);
-                field(type, "dedicatedEnglish").setBoolean(service, true);
+                stylesField.set(service, longSpace);
+                field(type, "dedicatedEnglish").setBoolean(service, false);
                 field(type, "editorInputType").setInt(service, android.text.InputType.TYPE_CLASS_TEXT);
                 field(type, "touchLayoutHint").setInt(service, 0);
                 field(type, "connection").set(service, connection);
@@ -174,7 +173,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                         try { comma.dispatchTouchEvent(event); }
                         finally { event.recycle(); }
                     }
-                    check(committed.toString().equals("."),
+                    // 没有会话时句点原样上屏，有会话时引擎按中文标点给出「。」。
+                    check(committed.toString().equals(".") || committed.toString().equals("。"),
                         "long-space comma " + (direction > 0 ? "down" : "up") + " swipe lost after input-view generation "
                             + generation + ": " + committed);
                     down = android.os.SystemClock.uptimeMillis();
@@ -187,12 +187,13 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                     try { comma.dispatchTouchEvent(event); }
                     finally { event.recycle(); }
                 }
-                check(!committed.toString().contains("."),
+                check(!committed.toString().contains(".") && !committed.toString().contains("。"),
                     "long-space comma tap drift became a period after input-view generation " + generation + ": " + committed);
                 down = android.os.SystemClock.uptimeMillis();
             }
         } finally {
-            put.invoke(null, getTargetContext(), key, previous);
+            stylesField.set(service, previous);
+            field(type, "dedicatedEnglish").setBoolean(service, previousEnglish);
         }
     }
 
@@ -204,6 +205,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Field history = field(type, "clipboardHistory");
         Object original = history.get(service);
         boolean enabled = field(type, "clipboardHistoryEnabled").getBoolean(service);
+        Field connection = field(type, "connection");
+        Object originalConnection = connection.get(service);
         try {
             Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
             Object store = storeType.getConstructor(File.class).newInstance(directory);
@@ -246,9 +249,23 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             method(type, "render").invoke(service);
             Object bottomBar = field(type, "imeBottomBar").get(service);
             Button bottomClipboard = (Button) field(bottomBar.getClass(), "clipboardButton").get(bottomBar);
+            Button topClipboard = (Button) field(type, "clipboardShortcutButton").get(service);
             check(bottomClipboard.isSelected(), "clipboard bottom bar button is not selected while panel is open");
-            method(type, "closeClipboardHistory").invoke(service);
-            method(type, "render").invoke(service);
+            check(topClipboard.isSelected(), "clipboard toolbar button is not selected while panel is open");
+            // 用真实编辑器接收插入；调用返回后立即检查，不补刷新或模拟下一次按键。
+            android.widget.EditText editor = new android.widget.EditText(getTargetContext());
+            editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            android.view.inputmethod.InputConnection editorConnection =
+                editor.onCreateInputConnection(new android.view.inputmethod.EditorInfo());
+            check(editorConnection != null, "synthetic clipboard editor has no input connection");
+            connection.set(service, editorConnection);
+            String inserted = "合成剪贴板插入";
+            method(type, "insertClipboardText", String.class).invoke(service, inserted);
+            check(editor.getText().toString().equals(inserted), "clipboard insertion did not reach the editor");
+            check(surface.getVisibility() == View.GONE
+                    && !(Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
+                "clipboard insertion did not close the panel");
+            check(!topClipboard.isSelected(), "clipboard toolbar button stayed selected after insertion closed panel");
             check(!bottomClipboard.isSelected(), "clipboard bottom bar button stayed selected after insertion closed panel");
             method(panels.getClass(), "showClipboardHistory").invoke(panels);
             method(type, "render").invoke(service);
@@ -265,6 +282,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         } finally {
             history.set(service, original);
             field(type, "clipboardHistoryEnabled").setBoolean(service, enabled);
+            connection.set(service, originalConnection);
             try (var paths = Files.walk(directory.toPath())) {
                 for (var path : paths.sorted(Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) Files.delete(path);
             }

@@ -17,4 +17,9 @@ public final class AutomaticNumberRow {
     public boolean enabled(boolean manual) {
         return manual || automatic;
     }
+
+    /** 当前编辑框触发了自动数字行；它的画法范围与共享偏好不同，见 {@link KeyboardLayout#drawsNumberRow(boolean, boolean, KeyboardLayout.Layer, int, int)}。 */
+    public boolean active() {
+        return automatic;
+    }
 }

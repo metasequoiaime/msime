@@ -1,7 +1,11 @@
 package app.msime.android.policy;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）在 Android 宿主这一侧的纯逻辑：本机目录名、触发名、键盘进程什么时候可以自己跑同步、下一次定时同步隔多久，以及共享层错误码给人看的说法。不依赖 Android 和 org.json，JVM 冒烟直接测它。
@@ -93,6 +97,18 @@ public final class DictionarySyncPolicy {
     public static String heldDeletionsMessage(Integer held) {
         if (held == null || held <= 0) return null;
         return "这台设备一次少了 " + held + " 个词，多半是本机词库被重置或损坏了，删除先没有同步出去，免得其他设备上的词也被删掉。确认是你自己删的，选「同步删除」；否则选「从网盘恢复」把这些词写回本机。";
+    }
+
+    /**
+     * 自动同步在等额度时状态卡里的一句：`zone` 时区里的「HH:MM」，不是今天时写成「M月D日 HH:MM」；已经过了（不晚于 `nowMs`）或者没在等时为 null。与共享设置页的 `dictionarySyncBudgetWaitMessage`、iOS 和 Windows 逐字相同。
+     */
+    public static String budgetWaitMessage(Long untilMs, long nowMs, ZoneId zone) {
+        if (untilMs == null || untilMs <= nowMs) return null;
+        ZonedDateTime until = Instant.ofEpochMilli(untilMs).atZone(zone);
+        String time = String.format(Locale.ROOT, "%02d:%02d", until.getHour(), until.getMinute());
+        boolean today = until.toLocalDate().equals(Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate());
+        String when = today ? time : until.getMonthValue() + "月" + until.getDayOfMonth() + "日 " + time;
+        return "额度用完，将于 " + when + " 继续自动同步；可点「立即同步」。";
     }
 
     /** 状态行里「待发送 / 待写入」那一段；都为 0 时为空串。 */

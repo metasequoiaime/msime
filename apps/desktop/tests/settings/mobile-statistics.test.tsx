@@ -337,6 +337,48 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
   ).toEqual(["N，10 次", ",，7 次", "1，3 次", "左 Shift，1 次"]);
 });
 
+test("按键 draws the 9-key tall return frame when that is the user's style", async () => {
+  const keys = { Enter: 5, SoftSymbol: 2, SoftPunctuation: 3, Nine7: 4 };
+  render(
+    <ToastProvider>
+      <TypingStatisticsPage
+        client={client({
+          load: vi
+            .fn()
+            .mockResolvedValue(status({ ...statistics(), dailyKeys: { [key(0)]: keys } })),
+        })}
+        mobile
+        look="harmony"
+        layoutStyle={{
+          twentySixKeyStyle: "standard",
+          nineKeyStyle: "tall_return",
+          numberRow: false,
+        }}
+      />
+    </ToastProvider>,
+  );
+  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
+  fireEvent.click(screen.getByRole("button", { name: "9 键" }));
+  const nine = screen.getByRole("group", { name: /^9 键按键热力图/ });
+  const caps = within(nine).getAllByRole("img");
+  const names = caps.map((cap) => cap.getAttribute("aria-label") ?? "");
+  // 第三行右列是回车，不再是 ！；底行是 符 | 123 | 空格 | 中/英，回车只画一次、跨两行。
+  expect(names.slice(10, 15)).toEqual([
+    "侧栏标点（四键合计），3 次",
+    "九宫格 7，4 次",
+    "九宫格 8，0 次",
+    "九宫格 9，0 次",
+    "回车，5 次",
+  ]);
+  expect(names.slice(15)).toEqual(["符号，2 次", "123，0 次", "空格，0 次", "中/英，0 次"]);
+  expect(names.filter((name) => name.startsWith("回车"))).toHaveLength(1);
+  expect(names.filter((name) => name.startsWith("侧栏标点"))).toHaveLength(3);
+  const tall = caps[14];
+  expect(tall.getAttribute("data-row-span")).toBe("2");
+  expect(caps.filter((cap) => cap.hasAttribute("data-row-span"))).toEqual([tall]);
+  expect(within(nine).getByText("？！")).toBeTruthy();
+});
+
 test("成就 counts unlocked badges and toasts what a tapped badge is for", async () => {
   renderPage(client());
 

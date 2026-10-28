@@ -60,6 +60,7 @@ function model(): SettingsSkinCommunitySectionProps["model"] {
     setDraft: vi.fn(),
     keyboardPreviewTheme: "light",
     openAccountLogin: vi.fn(),
+    showCommunityContribution: true,
   };
 }
 

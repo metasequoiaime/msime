@@ -21,6 +21,11 @@ public final class StrokeKeyboardLayout {
     /** Face of the layer key that returns from the symbol page to the stroke grid. */
     public static final String LAYER_TITLE = "笔";
 
+    /** 笔画外框里左侧符号栏和右侧 ⌫ 列各自的宽度份额（各占 0.9 / 4.8 = 18.75%）。 */
+    public static final float SIDE_COLUMN_WEIGHT = 0.9f;
+    /** 笔画外框中间笔画网格的宽度份额（3 / 4.8 = 62.5%）。 */
+    public static final float GRID_WEIGHT = 3f;
+
     private StrokeKeyboardLayout() {}
 
     /** The two grid rows, each key with the letter it sends. */

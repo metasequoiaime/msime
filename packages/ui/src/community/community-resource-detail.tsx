@@ -17,6 +17,8 @@ import {
 
 export interface CommunityResourceDetailProps extends CommunityResourceDetailOptions {
   client: CommunityResourceDetailOptions["client"] & Pick<CommunityResourceClient, "publish">;
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。为 false 时（HarmonyOS 在实名认证到位之前）不画「编辑并发布新版本」、评分和举报，收藏、导入和下架自己的作品照常。缺省为提供。 */
+  contributions?: boolean;
 }
 
 export function CommunityResourceDetail({
@@ -24,6 +26,7 @@ export function CommunityResourceDetail({
   initial,
   onClose,
   localDictionary,
+  contributions = true,
 }: CommunityResourceDetailProps) {
   const {
     item,
@@ -119,7 +122,7 @@ export function CommunityResourceDetail({
         disabled={busy}
         label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
       />
-      {item.owned && (
+      {item.owned && contributions && (
         <ActionButton
           action={openEditor}
           className={`secondary ${style.action}`}
@@ -138,7 +141,7 @@ export function CommunityResourceDetail({
           </>
         }
         confirmUnpublish={confirmDelete}
-        onRate={rateResource}
+        onRate={contributions ? rateResource : undefined}
         onRequestUnpublish={requestUnpublish}
         onUnpublish={unpublish}
         onCancelUnpublish={cancelUnpublish}
@@ -146,10 +149,10 @@ export function CommunityResourceDetail({
         unpublishLabel="下架作品"
         unpublishConfirmLabel="确认下架作品"
       />
-      {!item.owned && client.report && (
+      {!item.owned && contributions && client.report && (
         <CommunityReportSection actionBusy={busy} onReport={report} />
       )}
-      {editing && (
+      {editing && contributions && (
         <CommunityResourceEditor
           client={client}
           kind={item.kind}

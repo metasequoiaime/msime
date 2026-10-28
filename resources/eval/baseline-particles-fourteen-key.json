@@ -3,9 +3,9 @@
     "3": {
       "cases": 103,
       "found": 1.0,
-      "mrr": 0.55,
-      "top1": 0.359,
-      "top1_char_prefix": 0.553,
+      "mrr": 0.562,
+      "top1": 0.379,
+      "top1_char_prefix": 0.56,
       "top5": 0.883,
       "top9": 0.913
     }
@@ -14,9 +14,9 @@
     "particle": {
       "cases": 103,
       "found": 1.0,
-      "mrr": 0.55,
-      "top1": 0.359,
-      "top1_char_prefix": 0.553,
+      "mrr": 0.562,
+      "top1": 0.379,
+      "top1_char_prefix": 0.56,
       "top5": 0.883,
       "top9": 0.913
     }
@@ -29,9 +29,9 @@
   "overall": {
     "cases": 103,
     "found": 1.0,
-    "mrr": 0.55,
-    "top1": 0.359,
-    "top1_char_prefix": 0.553,
+    "mrr": 0.562,
+    "top1": 0.379,
+    "top1_char_prefix": 0.56,
     "top5": 0.883,
     "top9": 0.913
   },
@@ -86,13 +86,6 @@
       "top1": "子女和他"
     },
     {
-      "gold": "地址吧",
-      "id": "p008",
-      "input": "dizhiba",
-      "rank": 2,
-      "top1": "复制版"
-    },
-    {
       "gold": "实现吗",
       "id": "p010",
       "input": "shixianma",
@@ -111,7 +104,7 @@
       "id": "p012",
       "input": "xinxia",
       "rank": 16,
-      "top1": "信息室"
+      "top1": "心下"
     },
     {
       "gold": "轿车呀",
@@ -282,13 +275,6 @@
       "top1": "姐啊好啦"
     },
     {
-      "gold": "没有啊",
-      "id": "p060",
-      "input": "meiyoua",
-      "rank": 4,
-      "top1": "没有谁"
-    },
-    {
       "gold": "很多呀",
       "id": "p061",
       "input": "henduoya",
@@ -315,6 +301,20 @@
       "input": "xuanzema",
       "rank": 4,
       "top1": "西安责骂"
+    },
+    {
+      "gold": "操作啊",
+      "id": "p066",
+      "input": "caozuoa",
+      "rank": 7,
+      "top1": "操作上"
+    },
+    {
+      "gold": "今年啦",
+      "id": "p071",
+      "input": "jinnianla",
+      "rank": 5,
+      "top1": "近年来"
     }
   ],
   "top1_source": {

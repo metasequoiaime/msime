@@ -12,7 +12,7 @@ import org.json.JSONObject;
 /** 实测九宫格宽高比例，并通过真实输入连接验收数字底行、右列空格和键面往返。 */
 public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "nine-key measured proportions, height allocation, numeric zero, symbol entry, space ownership and layer restoration";
+        return "nine-key measured proportions, height allocation, numeric zero, symbol entry, space ownership and layer restoration; tall-return frame";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -97,6 +97,8 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
             if (originalLocal == null) Files.deleteIfExists(local.toPath());
             else publish(local, originalLocal);
         }
+        // 九键「右侧大回车」样式的外框（清单已到 instrumentation 上限，不另加入口）。
+        TallReturnDeviceChecks.run(this);
     }
 
     /** 量真实键帽及其间距，防止只改常量却漏接布局或底行的高度分摊。 */

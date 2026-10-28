@@ -16,7 +16,7 @@ Status: implemented
 - **macOS 录音前检查**：`MSIMEVoiceASRTokenMissing` 不再把未设置的服务当豆包要求填 Token；`MSIMEVoiceLocalModelMissing` 把未设置的服务当本地模型，没有模型时拒绝录音并指向语音设置。
 - **不改的地方**：`shared/voice` 的 `normalize_voice_provider` 仍把空值规整成 `doubao`。它是云端请求层的规整（接口地址、请求格式、语言参数），调用方此时已经决定走云端；宿主的回退都已改成 `local`，空值到不了这里。Windows 安装包里的 `config.default.toml` 是来源产品的模板，运行时不读，也不改。
 - **macOS 语音运行库只在选用模型后下载**：省略运行库的 macOS 包，设置应用启动时按已保存偏好补齐运行库（`ensure_saved_packs` → `needed_by_preferences`），原来只看服务是不是 `local`。出厂改成本地后，这会让每个新用户第一次打开设置应用就在后台下载约 16 MB，哪怕从不用语音，违背[按需运行库](2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)的初衷。现在启动补齐还要求 `asr_model_path` 非空；没有模型时运行库用不上。设置页原来只在「切到本地」那一刻 `ensure`，出厂就是本地的新用户没有这一步，所以「本地识别下刚选用模型」也触发 `ensure`，用户主动切到本地时照旧立即下载。
-- **Android / HarmonyOS 的取舍**：明确选了本地而没有模型时，Android 按[本地识别准备](../bug-fix/2026-10-21-android-local-voice-readiness.md)提示下载或导入，不回退系统识别（系统识别器可能走云端）；HarmonyOS 同样走本地模型缺失的提示。新用户因此要先准备模型才能用语音键，这是维护者确认过的代价。
+- **Android / HarmonyOS 的取舍**：明确选了本地而没有模型时，Android 按[本地识别准备](../bug-fix/2026-10-21-android-local-voice-readiness.md)提示下载或导入，不回退系统识别（系统识别器可能走云端）；HarmonyOS 同样走本地模型缺失的提示。新用户因此要先准备模型才能用语音键，这是维护者确认过的代价。鸿蒙键盘语音面板的说明（`VoiceInputConfigurationPolicy.description`）起初没跟上：出厂的 `local` 没有模型时落到「当前语音服务不可用，请检查设置」，像是功能坏了；现在给出和录音拒绝时同一句「请先在设置中下载并选择本地语音模型」。
 
 ## Existing notes audit
 

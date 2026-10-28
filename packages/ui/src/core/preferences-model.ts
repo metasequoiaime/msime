@@ -152,6 +152,14 @@ export type Preferences = PunctuationPreferences &
     touch_shuangpin_key_hints?: boolean;
     /** 全拼 26 键组字时第三排左端保留 ⇧（点一下臂辅助码）而不换成「分词」；缺省为关。 */
     touch_quanpin_shift?: boolean;
+    /** 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_twenty_six_key_style?: "standard" | "comma_period" | "long_space" | "emoji";
+    /** 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_fourteen_key_style?: "standard" | "long_space" | "emoji";
+    /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式；除 `tall_return`（右侧大回车：回车跨右列下两行，符 移到符号栏下方，右列的 ！ 并进符号栏）外，符号栏和右侧功能列不变。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_nine_key_style?: "standard" | "comma_period" | "emoji" | "tall_return";
+    /** 手机触屏 26 键、14 键和 18 键字母层上方的 1 到 0 数字行；窗口太矮时宿主不画。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_number_row?: boolean;
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;

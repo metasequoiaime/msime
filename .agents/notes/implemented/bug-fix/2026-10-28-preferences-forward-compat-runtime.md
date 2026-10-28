@@ -77,8 +77,9 @@ Status: implemented
 - 已经发出去的 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0 和 Linux 0.14.0 只认识七个动作，读到带 `select_line` 的排列就整份读不了，Linux 和 HarmonyOS 因此打不了字。它们给这个字段配了 `#[serde(default = "default_text_edit_button_order")]`（在各自标签上核对过），缺这个键时用自己的七个动作。
 - 旧版本写下的七个动作补齐后正好就是现在的默认排列，所以从旧版本升级上来、没在 Android 上排过顺序的用户，存一次以后文件里就没有这个键，退回旧版本也读得了。
 - 只省在盘上：经 FFI 交给宿主的快照（`load`、`default_preferences`）照旧带着完整排列。Android 的 `TextEditButtonOrder.defaults()` 对默认偏好用 `getJSONArray` 取这个键，在 serde 层 `skip_serializing_if` 会让它抛异常，所以不放在 serde 上，Java 也不用改。
-- 磁盘格式本来就是「等于默认值的键不写出」：`network`、`multilingual_input` 等几十个字段都带 `skip_serializing_if`，读取方一律有默认值；没有任何非 Rust 代码直接读 preferences.json 里的这个键。这一条只是让排列也照此办理。
+- 磁盘格式本来就是「等于默认值的键不写出」：`network`、`multilingual_input` 等几十个字段都带 `skip_serializing_if`，产品读取方一律由共享层补默认值。这一条只是让排列也照此办理。
 - 用户在 Android 上排过顺序的排列照常写出，旧版本仍读不了，见「已知上限」。
+- Android 的 `TextEditRecentClipboardDeviceSmoke` 验收保存和重置后的有效排列时，通过 `NativeClient.loadPreferences` 比较共享快照；取消则逐字节比较前后文件，确保没有意外写回默认值或增加修订号。直接从磁盘用 `getJSONArray` 读排列，会在重置为默认顺序后遇到合法缺键并抛 `JSONException`；develop 的 API 35 运行 `40639795146` 已实际暴露此问题。备份恢复和修订号仍可读取原始文档，排列含义由共享层解释，既不在 Java 再抄默认顺序，也不撤掉为旧版本保留的稀疏写盘规则。
 
 ### 4. 偏好读不了时，输入运行时用内存里救下的设置运行
 
@@ -94,8 +95,10 @@ Status: implemented
   - AI 的 `provider`、`endpoint`、`endpoints` → `ai_assistant.enabled` 和 `translation_ai` 关掉；
   - 语音识别的 `asr_provider`、`asr_endpoint` → `voice_input.enabled` 关掉；润色的 `polish_provider`、`polish_endpoint` → `polish_enabled` 关掉；
   - 自定义翻译的 `endpoint` → `custom_translation.enabled` 关掉；
-  - 代理模式读不了而文档里填了代理地址 → 用这个地址（`Custom`）。新版本的代理类型和 HTTP 代理不兼容时请求失败，而不是绕开代理直连。
-  - 腾讯、小牛翻译和云剪贴板、词库同步的 WebDAV 不在其中：它们的去向是固定的服务商或用户填的地址，默认值是空的、不会发到别处。匿名使用报告读的是严格的 `load`，偏好读不了时不上报也不清空（`ffi/reporting.rs` 的 `consent`），不受降级影响。
+  - 代理模式读不了（即使没有地址）、`network` 整段非对象，或自定义代理地址无法保留 → 使用运行时的 `CustomRequired` 状态，并关闭发送用户内容的功能。地址可用时供 Rust HTTP 客户端使用，不可用时构造远程客户端失败，详见「审查补充」。
+  - 去向叶子的 JSON pointer 不存在时，继续查最近存在的祖先：祖先是对象，表示整段或字段真正缺省，照旧采用默认去向；祖先不是对象，表示原服务段无法按字段读取，按去向未保留处理。否则 `cloud_candidate_provider` 整段变成字符串或 `null` 后，开关仍能被救下，服务却回到 Google；`ai_assistant` 整段损坏时，顶层的 `translation_ai` 也会错误保留。
+  - 这条只约束救援结果，不改变严格反序列化接受的形状：空数组原本可被 serde 读成缺省字段，不一定让文档读不了；只有文档因其它字段损坏而进入救援时，这个非对象服务段才会保守关闭。真正省略段落和对象内字段（包括 `{}`）继续沿用原有缺省行为，AI 空对象的逐字段默认与整段默认不同也不改变。
+  - 去向字段的单项变化不单独关闭腾讯、小牛翻译和云剪贴板、词库同步的 WebDAV：它们的去向是固定的服务商或用户填的地址，默认值是空的、不会发到别处。匿名使用报告读的是严格的 `load`，偏好读不了时不上报也不清空（`ffi/reporting.rs` 的 `consent`），不受降级影响。
   - 设置页的「修复」（`recover`）不这样做：它写下的结果用户在设置页看得见、改得了。
 - **host-api 有两处改用它**，所有平台都经过这两处：
   - `edition_preferences`（准备宿主时）：`write_first_document` 失败、又不是 I/O 错误时改用它。没有文件时照旧写第一份。
@@ -140,12 +143,15 @@ Status: implemented
   - 用户在本版本里清空模糊音规则并关掉模糊音，更新版本加的规则仍会接回，本版本里也看不到、删不掉；开关关着时它不起作用，更新的版本再打开模糊音时才生效。
   - 两边都读不了（副本通不过校验、实时文档也读不了）时，每次建会话、词库请求和快照请求都会重新救一遍并报告一次，没有缓存。只有副本出自校验更严或更松的另一个版本时才会走到这里，没有实测开销。
 - **已知上限**：
+  - `network` 整段非对象时无法重建用户的代理地址；运行时保留 `CustomRequired` 并拒绝远程客户端构造，不把未知的约束解释成跟随系统。真正省略 `network` 或空对象仍沿用缺省模式。
   - 已经发出去的版本照旧严格。不写出默认排列以后，降级到 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0、Linux 0.14.0 时读得了用户没排过顺序的文档；在 Android 上排过文本编辑面板顺序的用户，或者文档里有那些版本不认识的其它取值，仍然读不了，只能升级回来或在设置页修复。
   - 除韩文布局、文本编辑排列、触屏方案和模糊音规则之外，其它字段的新取值仍让整份文档严格读不了，只是不再挡住打字。
 
 与 [偏好文档保留未知键](../architecture/2026-10-15-preferences-keep-unknown-fields.md) 部分重叠：它的 Consequences 里写着「新版本给枚举加了新取值，旧版本照样读不了整份文档，本次不处理」，这件事由本篇接手，那篇的事实已经同步更新。[文本编辑面板选择当前行](../feature/2026-10-26-android-text-edit-select-line.md) 里「重复或未知的动作仍然拒绝」已改为本篇的读法。
 
 ## Verification
+
+Android 文本编辑设备用例通过正式 `loadPreferences` JNI 接口核对保存、取消和重置后的有效排列，不再把磁盘上省略的默认键当作损坏。默认排列仍由共享层提供，测试不复制默认动作列表。
 
 - 文本编辑排列：
   - `text_edit_button_order_reads_any_list_it_is_given`，从文件读入以下几种排列，结果都是完整排列、文件不被改写：v0.6.0 之前写下的七个动作、现在的八个、带更新版本动作 `select_word` 的、有重复的、空列表、不是字符串的元素。
@@ -162,6 +168,10 @@ Status: implemented
 - 运行时降级：
   - `load_for_runtime_keeps_typing_on_unreadable_documents`：更新版本的标量枚举、通不过校验的值都能运行，读不了的键取默认值并列进 `not_kept`，其余设置照旧，修订号沿用文档里的值；更新的格式版本、不是 JSON 的字节整份取默认值，`not_kept` 是 `["*"]`。文件不变，`save` 仍被拒绝。
   - `runtime_salvage_closes_features_whose_destination_was_not_kept`：别的设置读不了时云候选和代理照常；云候选来源读不了时云候选关掉；代理模式读不了而填了地址时用这个地址；AI 地址表、语音识别和润色地址读不了时对应功能关掉。
+  - `runtime_salvage_closes_cloud_when_its_destination_section_is_not_an_object` 和 `runtime_salvage_closes_ai_when_its_destination_section_is_not_an_object`：直接调用真实 `Preferences::salvaged_from`，服务整段分别为字符串、`null`、空数组、数字和布尔值，同时用无关的 `candidate_layout` 未来值确保原文档严格读不了；救援后关闭对应开关，另一功能保留，结果通过校验。修复前两项实际在各自首个 `"future-shape"` 的关闭断言失败，不把后续形状冒称为逐个复现。
+  - `runtime_salvage_keeps_features_with_missing_destination_defaults`：整段省略与空对象两种文档都因无关字段进入真实救援，云候选和 AI 翻译继续开启，服务配置与同一原文档严格读取的结果一致。
+  - 严格 clippy 首次仍发现此前基线里的 `android_keyboard_skin_slots_round_trip_without_changing_legacy_theme` 在默认初始化后逐字段赋值；该测试现改为等价的结构体初始化，字段取值和校验行为不变，不放宽 lint。
+  - 服务父段补修的完整 `bash scripts/verify-local.sh --quick` 退出 0：202 项 Windows 可移植测试、仓库契约、Rust workspace、Android Rust/Java、WASM 及严格 Clippy、Linux 设置壳和原生门禁、macOS 原生编译与共享 Apple 桥通过。Linux 注册 112 项，111 项通过、`linux-ibus-demand-activation` 因环境跳过，full/wubi 构建及安装隔离通过。未配置的 Windows 原生/pipe-only 与鸿蒙 HAP 按脚本规则跳过；没有把跨目标编译计为设备验收。core 全目标严格 Clippy 和救援回归另行通过。
   - `recover_keeps_what_a_newer_version_wrote`：修复后顶层和段落里的未知键、启用列表里的新方案都还在，读不了的取值换成默认值。
   - host-api 的 `clipboard_reader_respects_preferences_and_preserves_history`：偏好里别的设置读不了时剪贴板面板照常列出条目，整份读不了时按关闭处理。
   - `every_string_setting_with_a_future_value_still_runs` 覆盖所有字符串取值。
@@ -180,3 +190,12 @@ Status: implemented
   - `cargo clippy --keep-going -p msime-client-core -p msime-client-services -p msime-host-api --all-targets -- -D warnings`：本次改动没有新的告警。剩下两处 `field_reassign_with_default`（`preferences/tests.rs` 的 `android_keyboard_skin_slots_round_trip_without_changing_legacy_theme`、`account/settings_sync/tests.rs:1338`）在 616bd2888e 上已经存在。
   - `cargo check -p msime-desktop --tests`（Tauri 保存命令的参数改动）：通过。macOS 上这个检查要求 `target/macos/EngineResources` 和 `target/macos/水杉输入法.app` 存在，检查时临时建了空目录，跑完删掉。
   - `cargo fmt --check`、`bash scripts/run-checks.sh`、`platforms/macos/tests/settings/preference_coverage.py`、`pnpm run verify-notes` 通过。
+
+### 审查补充：运行时要求的代理不可用
+
+- 代理取值无法完整保留时，用运行时状态 `CustomRequired` 保留“必须使用代理”的约束。可用的 HTTP 地址仍供 Rust HTTP 客户端使用；同时关闭降级副本里会发送用户内容的功能，覆盖由原生宿主执行请求的路径。地址无法保留时，两个 HTTP 适配层在构造远程客户端前返回已有的连接失败。本机和局域网目标沿用既有的直连规则。
+- 该状态随运行时偏好副本往返，避免序列化后丢掉约束；它不改写原始偏好文件，也不增加设置页选项。普通 `custom` 留空时跟随系统的既有行为保持不变。共享设置的移动 AI 传输同样将构造阶段的拒绝映射为 `Error::Unavailable`，模型列表与润色两个入口都先处理这个结果再配置超时。
+- 直接沿用普通 `Custom` 的好处是不用调整客户端构造接口，但该模式对不可用地址的既有回退与这里的约束不一致，因此不采用。为客户端伪造不可达代理或非法请求头虽可减少调用方改动，却把拒绝连接寄托在网络环境或无关字段上；使用显式错误，让调用方映射为各自已有的连接失败。
+- 回归覆盖未知模式、未知地址形状和不支持的地址，且验证运行时副本往返；未知模式即使没有地址或明写空地址，也保留约束，不能假定它等同于普通 `custom` 的留空语义。该边界新增用例在原守卫上真实失败后修正。providers 与 services 各自验证远程客户端构造被拒、本机目标仍可构造，以及可用代理仍能构造。实际验证结果：`cargo test --no-fail-fast -p msime-client-core -p msime-client-services -p msime-host-api` 中本改动相关测试通过；`cargo clippy --keep-going -p msime-client-core -p msime-client-services -p msime-host-api --all-targets -- -D warnings` 无新增告警；`cargo check -p msime-desktop --tests`、`cargo fmt --check`、`bash scripts/run-checks.sh`、`platforms/macos/tests/settings/preference_coverage.py` 与 `pnpm run verify-notes` 通过。`target/pr-review-security/network-skin-regressions.log` 记录 Android client-core 与 client-services 皮肤回归各 1 项通过；`target/pr-review-security/network-followup.log` 记录两项 PowerShell 画布和页面就绪回归通过。
+
+- 与已公开的服务父段补修整合后，新增 `runtime_salvage_non_object_network_keeps_proxy_constraint`：旧实现面对 `network: null` 实际失败（`System` 与期望的 `CustomRequired` 不符）；修后与其余六项 `runtime_salvage` 回归一同通过（7 项通过、0 失败）。覆盖 `null`、布尔、数值、数组及字符串五种损坏父段，另以真正缺省和空对象作保持默认联网行为的对照。测试使用固定合成值，未改写原始文档。
