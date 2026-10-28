@@ -40,7 +40,26 @@ pub struct CommunitySkin {
     /// 发布分类。客户端总是带 `include=category` 请求，早于分类功能的服务端不返回它，此时为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<SkinCategory>,
+    /// 作品的来源，只在请求排除 AI 生成的皮肤时（[`EXCLUDE_AI_GENERATED`]）带 `fields=origin` 要它，其他请求和旧服务端都不返回，此时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SkinOrigin>,
 }
+
+/// 社区皮肤的来源，由服务端在发布时判定：比对 AI 皮肤生成留下的插画指纹，或者发布请求声明了 AI 生成。`unknown` 是来源功能上线前发布的作品；服务端将来新增的值也读作 `unknown`。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SkinOrigin {
+    User,
+    Ai,
+    #[serde(other)]
+    Unknown,
+}
+
+/// 排除 AI 生成皮肤的查询参数。服务端在分页之前就去掉 `origin` 为 `ai` 的作品，以及来源未知、带照片背景的旧作品，详情和下载对这些作品答 404。
+const EXCLUDE_AI_GENERATED: &str = "exclude=ai";
+/// 认得 [`EXCLUDE_AI_GENERATED`] 的服务端在响应里带的能力头。旧部署会忽略不认识的查询参数照常作答，所以没有这个头就不能当作已经排除。
+const ORIGIN_HEADER: &str = "X-MSIME-Skin-Origin";
+const ORIGIN_VERSION: &str = "v1";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,19 +92,28 @@ struct CommunitySkinPublishResponse {
 }
 
 pub trait CommunitySkinApi: Send + Sync + 'static {
-    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state.
+    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state. `exclude_ai_generated` 为真时不列 AI 生成的皮肤，服务端没有声明支持时是 [`AccountError::Unavailable`]。
     fn community_skins(
         &self,
         offset: usize,
         search: &str,
         mine: bool,
         category: Option<SkinCategory>,
+        exclude_ai_generated: bool,
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError>;
-    fn community_skin(&self, id: Uuid, token: Option<&str>) -> Result<CommunitySkin, AccountError>;
+    /// `exclude_ai_generated` 为真时 AI 生成的皮肤是 [`AccountError::NotFound`]。
+    fn community_skin(
+        &self,
+        id: Uuid,
+        exclude_ai_generated: bool,
+        token: Option<&str>,
+    ) -> Result<CommunitySkin, AccountError>;
+    /// `exclude_ai_generated` 为真时 AI 生成的皮肤是 [`AccountError::NotFound`]。
     fn download_community_skin(
         &self,
         id: Uuid,
+        exclude_ai_generated: bool,
         token: &str,
     ) -> Result<TouchKeyboardSkinDesign, AccountError>;
     fn rate_community_skin(&self, id: Uuid, stars: u8, token: &str) -> Result<(), AccountError>;
@@ -107,6 +135,32 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
     ) -> Result<CommunitySkin, AccountError>;
 }
 
+impl BackendAccountClient {
+    /// 排除 AI 生成皮肤的请求：带上 [`EXCLUDE_AI_GENERATED`]，并要求响应带着 [`ORIGIN_HEADER`]；不排除时与以前完全相同。
+    fn community_skin_json<T: serde::de::DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        exclude_ai_generated: bool,
+        token: Option<&str>,
+    ) -> Result<T, AccountError> {
+        if exclude_ai_generated {
+            self.json_with_required_header(method, path, token, ORIGIN_HEADER, ORIGIN_VERSION)
+        } else {
+            self.json::<T, ()>(method, path, token, None)
+        }
+    }
+}
+
+/// 排除 AI 生成皮肤时要的 `fields`：作者自己的作品另要审核状态。
+fn origin_fields(moderation: bool) -> &'static str {
+    if moderation {
+        "fields=moderation,origin"
+    } else {
+        "fields=origin"
+    }
+}
+
 impl CommunitySkinApi for BackendAccountClient {
     fn community_skins(
         &self,
@@ -114,41 +168,79 @@ impl CommunitySkinApi for BackendAccountClient {
         search: &str,
         mine: bool,
         category: Option<SkinCategory>,
+        exclude_ai_generated: bool,
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
         if mine && token.is_none() {
             return Err(AccountError::Unauthorized);
         }
-        let scope = if mine {
-            format!("&scope=mine&{MODERATION_FIELDS}")
-        } else {
-            String::new()
+        let scope = match (mine, exclude_ai_generated) {
+            (true, false) => format!("&scope=mine&{MODERATION_FIELDS}"),
+            (true, true) => format!("&scope=mine&{}", origin_fields(true)),
+            (false, false) => String::new(),
+            (false, true) => format!("&{}", origin_fields(false)),
         };
         let filter = category
             .map(|category| format!("&category={}", category.as_str()))
             .unwrap_or_default();
+        let exclude = if exclude_ai_generated {
+            format!("&{EXCLUDE_AI_GENERATED}")
+        } else {
+            String::new()
+        };
         let path = format!(
-            "/v1/community/skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}",
+            "/v1/community/skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}{exclude}",
             percent_encode(search)
         );
-        let page = self.json::<CommunitySkinPage, ()>(Method::GET, &path, token, None)?;
+        let mut page = self.community_skin_json::<CommunitySkinPage>(
+            Method::GET,
+            &path,
+            exclude_ai_generated,
+            token,
+        )?;
         validate_page(&page)?;
+        if exclude_ai_generated {
+            // 服务端已经在分页前排除过；它若仍交来标着 AI 生成的条目，这里再去掉一次，不让它出现在列表里。
+            page.skins
+                .retain(|skin| skin.origin != Some(SkinOrigin::Ai));
+        }
         Ok(page)
     }
 
-    fn community_skin(&self, id: Uuid, token: Option<&str>) -> Result<CommunitySkin, AccountError> {
+    fn community_skin(
+        &self,
+        id: Uuid,
+        exclude_ai_generated: bool,
+        token: Option<&str>,
+    ) -> Result<CommunitySkin, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!(
-            "/v1/community/skins/{}?{MODERATION_FIELDS}&{INCLUDE_CATEGORY}",
-            id.hyphenated()
-        );
-        let skin = self.json::<CommunitySkin, ()>(Method::GET, &path, token, None)?;
+        let path = if exclude_ai_generated {
+            format!(
+                "/v1/community/skins/{}?{}&{INCLUDE_CATEGORY}&{EXCLUDE_AI_GENERATED}",
+                id.hyphenated(),
+                origin_fields(true)
+            )
+        } else {
+            format!(
+                "/v1/community/skins/{}?{MODERATION_FIELDS}&{INCLUDE_CATEGORY}",
+                id.hyphenated()
+            )
+        };
+        let skin = self.community_skin_json::<CommunitySkin>(
+            Method::GET,
+            &path,
+            exclude_ai_generated,
+            token,
+        )?;
         validate_skin(&skin)?;
         if skin.id != id {
             return Err(AccountError::Unavailable);
+        }
+        if exclude_ai_generated && skin.origin == Some(SkinOrigin::Ai) {
+            return Err(AccountError::NotFound);
         }
         Ok(skin)
     }
@@ -156,14 +248,26 @@ impl CommunitySkinApi for BackendAccountClient {
     fn download_community_skin(
         &self,
         id: Uuid,
+        exclude_ai_generated: bool,
         token: &str,
     ) -> Result<TouchKeyboardSkinDesign, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!("/v1/community/skins/{}/download", id.hyphenated());
-        let result =
-            self.json::<CommunitySkinDownload, ()>(Method::POST, &path, Some(token), None)?;
+        let path = if exclude_ai_generated {
+            format!(
+                "/v1/community/skins/{}/download?{EXCLUDE_AI_GENERATED}",
+                id.hyphenated()
+            )
+        } else {
+            format!("/v1/community/skins/{}/download", id.hyphenated())
+        };
+        let result = self.community_skin_json::<CommunitySkinDownload>(
+            Method::POST,
+            &path,
+            exclude_ai_generated,
+            Some(token),
+        )?;
         if !result.design.validate() {
             return Err(AccountError::Unavailable);
         }
@@ -256,35 +360,50 @@ where
     A: AccountApi + CommunitySkinApi,
     S: AccountSessionStorage,
 {
-    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。
+    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。`exclude_ai_generated` 为真时不列 AI 生成的皮肤（HarmonyOS 在 AI 生成类资质到位之前），服务端没有声明支持这项筛选时是 [`AccountError::Unavailable`]，宁可不显示也不把没筛过的列表交出去。
     pub fn list(
         &self,
         offset: usize,
         search: &str,
         mine: bool,
         category: Option<SkinCategory>,
+        exclude_ai_generated: bool,
     ) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
         request_with_account_session(&self.api, &self.session, mine, |api, token| {
-            api.community_skins(offset, search, mine, category, token)
+            api.community_skins(offset, search, mine, category, exclude_ai_generated, token)
         })
     }
 
-    pub fn detail(&self, id: Uuid) -> Result<CommunitySkin, AccountError> {
+    /// `exclude_ai_generated` 与 [`Self::list`] 相同，AI 生成的皮肤是 [`AccountError::NotFound`]。
+    pub fn detail(
+        &self,
+        id: Uuid,
+        exclude_ai_generated: bool,
+    ) -> Result<CommunitySkin, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
         request_with_account_session(&self.api, &self.session, false, |api, token| {
-            api.community_skin(id, token)
+            api.community_skin(id, exclude_ai_generated, token)
         })
     }
 
-    pub fn download(&self, id: Uuid) -> Result<TouchKeyboardSkinDesign, AccountError> {
+    /// `exclude_ai_generated` 与 [`Self::detail`] 相同。
+    pub fn download(
+        &self,
+        id: Uuid,
+        exclude_ai_generated: bool,
+    ) -> Result<TouchKeyboardSkinDesign, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
         request_with_account_session(&self.api, &self.session, true, |api, token| {
-            api.download_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
+            api.download_community_skin(
+                id,
+                exclude_ai_generated,
+                token.ok_or(AccountError::Unauthorized)?,
+            )
         })
     }
 
@@ -293,12 +412,13 @@ where
         &self,
         anonymous: &BackendAccountSession<A, S2>,
         id: Uuid,
+        exclude_ai_generated: bool,
     ) -> Result<TouchKeyboardSkinDesign, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
         with_shared_access_token(&self.session, anonymous, None, |api, token| {
-            api.download_community_skin(id, token)
+            api.download_community_skin(id, exclude_ai_generated, token)
                 .map_err(AccountFailure::from)
         })
         .map(|(design, _)| design)
@@ -411,6 +531,9 @@ fn validate_skin(skin: &CommunitySkin) -> Result<(), AccountError> {
 mod anonymous_tests;
 
 #[cfg(test)]
+mod origin_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::account::{
@@ -470,6 +593,7 @@ mod tests {
             my_rating: 0,
             moderation: None,
             category: Some(SkinCategory::Nature),
+            origin: None,
         }
     }
 
@@ -554,6 +678,7 @@ mod tests {
             _: &str,
             _: bool,
             _: Option<SkinCategory>,
+            _: bool,
             bearer: Option<&str>,
         ) -> Result<CommunitySkinPage, AccountError> {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
@@ -565,7 +690,12 @@ mod tests {
                 has_more: false,
             })
         }
-        fn community_skin(&self, id: Uuid, _: Option<&str>) -> Result<CommunitySkin, AccountError> {
+        fn community_skin(
+            &self,
+            id: Uuid,
+            _: bool,
+            _: Option<&str>,
+        ) -> Result<CommunitySkin, AccountError> {
             let mut value = skin();
             value.id = id;
             Ok(value)
@@ -573,6 +703,7 @@ mod tests {
         fn download_community_skin(
             &self,
             _: Uuid,
+            _: bool,
             bearer: &str,
         ) -> Result<TouchKeyboardSkinDesign, AccountError> {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
@@ -633,7 +764,10 @@ mod tests {
         let calls = Arc::clone(&api.skin_calls);
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api, session);
-        assert_eq!(service.list(0, "", false, None).unwrap().skins.len(), 1);
+        assert_eq!(
+            service.list(0, "", false, None, false).unwrap().skins.len(),
+            1
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
@@ -643,11 +777,11 @@ mod tests {
         let api = FakeApi::default();
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage.clone()));
         let service = BackendCommunitySkinService::new(api, session);
-        assert_eq!(service.detail(skin().id).unwrap().name, "合成皮肤");
+        assert_eq!(service.detail(skin().id, false).unwrap().name, "合成皮肤");
         assert!(storage.load().unwrap().is_none());
         // The user's own list needs a session and never sends the request without one.
         assert_eq!(
-            service.list(0, "", true, None),
+            service.list(0, "", true, None, false),
             Err(AccountError::Unauthorized)
         );
     }
@@ -658,11 +792,20 @@ mod tests {
         let api = FakeApi::default();
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage.clone()));
         let service = BackendCommunitySkinService::new(api.clone(), session);
-        assert_eq!(service.detail(Uuid::nil()), Err(AccountError::Invalid));
-        assert_eq!(service.download(Uuid::nil()), Err(AccountError::Invalid));
+        assert_eq!(
+            service.detail(Uuid::nil(), false),
+            Err(AccountError::Invalid)
+        );
+        assert_eq!(
+            service.download(Uuid::nil(), false),
+            Err(AccountError::Invalid)
+        );
         assert_eq!(service.rate(Uuid::nil(), 5), Err(AccountError::Invalid));
         assert_eq!(service.unpublish(Uuid::nil()), Err(AccountError::Invalid));
-        assert_eq!(service.download(skin().id), Err(AccountError::Unauthorized));
+        assert_eq!(
+            service.download(skin().id, false),
+            Err(AccountError::Unauthorized)
+        );
         assert_eq!(service.rate(skin().id, 0), Err(AccountError::Invalid));
         assert_eq!(api.skin_calls.load(Ordering::SeqCst), 0);
 
@@ -674,7 +817,7 @@ mod tests {
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api.clone(), session);
         assert_eq!(
-            service.download(skin().id).unwrap(),
+            service.download(skin().id, false).unwrap(),
             TouchKeyboardSkinDesign::default()
         );
         assert_eq!(api.skin_calls.load(Ordering::SeqCst), 2);
@@ -744,14 +887,14 @@ mod tests {
         let (origin, received) = serve_once(response);
         let client = BackendAccountClient::loopback(&origin).unwrap();
         let page = client
-            .community_skins(7, "C++ 星", false, None, None)
+            .community_skins(7, "C++ 星", false, None, false, None)
             .unwrap();
         assert_eq!(page.skins.len(), 1);
         assert!(received.recv().unwrap().starts_with(
             "GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F&include=category HTTP/1.1"
         ));
         assert_eq!(
-            client.community_skins(0, "", true, None, None),
+            client.community_skins(0, "", true, None, false, None),
             Err(AccountError::Unauthorized)
         );
     }
@@ -766,7 +909,9 @@ mod tests {
             .unwrap(),
         );
         let client = BackendAccountClient::loopback(&origin).unwrap();
-        client.download_community_skin(id, &token(b'a')).unwrap();
+        client
+            .download_community_skin(id, false, &token(b'a'))
+            .unwrap();
         let request = received.recv().unwrap();
         assert!(request.starts_with(&format!(
             "POST /v1/community/skins/{}/download HTTP/1.1",
@@ -880,7 +1025,7 @@ mod tests {
         let (origin, received) = serve_once(response);
         let client = BackendAccountClient::loopback(&origin).unwrap();
         let page = client
-            .community_skins(0, "", false, Some(SkinCategory::Acg), None)
+            .community_skins(0, "", false, Some(SkinCategory::Acg), false, None)
             .unwrap();
         assert_eq!(page.skins, vec![skin()]);
         assert!(received.recv().unwrap().starts_with(
@@ -889,7 +1034,10 @@ mod tests {
 
         let (origin, received) = serve_once(serde_json::to_vec(&skin()).unwrap());
         let client = BackendAccountClient::loopback(&origin).unwrap();
-        assert_eq!(client.community_skin(skin().id, None).unwrap(), skin());
+        assert_eq!(
+            client.community_skin(skin().id, false, None).unwrap(),
+            skin()
+        );
         assert!(received.recv().unwrap().starts_with(&format!(
             "GET /v1/community/skins/{}?fields=moderation&include=category HTTP/1.1",
             skin().id.hyphenated()

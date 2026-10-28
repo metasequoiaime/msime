@@ -253,7 +253,8 @@ pub async fn community_skin_list(
     category: Option<SkinCategory>,
 ) -> Result<CommunitySkinPage, crate::CommandError> {
     service_call(Arc::clone(&state.community), move |service| {
-        service.list(offset, &search, mine.unwrap_or(false), category)
+        // Tauri 移动端（Android、iOS 的共享应用）不排除 AI 生成的皮肤，只有 HarmonyOS 宿主经 `msime_client_community` 排除。
+        service.list(offset, &search, mine.unwrap_or(false), category, false)
     })
     .await
 }
@@ -265,7 +266,7 @@ pub async fn community_skin_detail(
 ) -> Result<CommunitySkin, crate::CommandError> {
     let id = community_id(&id)?;
     service_call(Arc::clone(&state.community), move |service| {
-        service.detail(id)
+        service.detail(id, false)
     })
     .await
 }
@@ -283,7 +284,7 @@ pub async fn community_skin_download(
     let library = library.inner().clone();
     let trials = trials.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let design = service.download(id).map_err(community_error)?;
+        let design = service.download(id, false).map_err(community_error)?;
         let (trial, _) = trials.begin(&name, design.clone()).map_err(trial_error)?;
         let skin = match library.import_download(id, &name, design) {
             Ok(skin) => skin,

@@ -290,6 +290,39 @@ impl BackendAccountClient {
         Ok(supported)
     }
 
+    /// 不带请求体的 JSON 请求，另外要求成功的响应带着能力头 `header: expected`。服务端认得请求里新加的查询参数时才回这个头，旧部署会忽略不认识的参数照常作答，所以没有这个头的成功响应按 [`AccountError::Unavailable`] 处理，正文不交给调用方；失败的响应照常按状态码和服务端的错误码报告。
+    pub(crate) fn json_with_required_header<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        header: &str,
+        expected: &str,
+    ) -> Result<T, AccountError> {
+        let response = self
+            .prepare(
+                method,
+                path,
+                token,
+                None,
+                MAX_JSON_BYTES,
+                "application/json",
+            )?
+            .timeout(Duration::from_secs(30))
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        let supported = response
+            .headers()
+            .get(header)
+            .and_then(|value| value.to_str().ok())
+            == Some(expected);
+        let bytes = read_bounded_response(response, MAX_JSON_BYTES)?;
+        if !supported {
+            return Err(AccountError::Unavailable);
+        }
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
+    }
+
     /// 校验路径、凭据和请求体后组装请求；请求只会发往构造时给定的源站。
     pub(super) fn prepare(
         &self,
