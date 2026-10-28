@@ -350,6 +350,54 @@ impl<'de> Deserialize<'de> for TouchNineKeyStyle {
     }
 }
 
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NextWordPredictionButtons {
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    #[default]
+    ExpandOnly,
+    /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。
+    CloseAndExpand,
+    /// 只有关闭键 ×，不显示展开键，联想只能在候选栏里左右滑动选择。
+    CloseOnly,
+}
+
+impl NextWordPredictionButtons {
+    /// 文档里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExpandOnly => "expand_only",
+            Self::CloseAndExpand => "close_and_expand",
+            Self::CloseOnly => "close_only",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "expand_only" => Some(Self::ExpandOnly),
+            "close_and_expand" => Some(Self::CloseAndExpand),
+            "close_only" => Some(Self::CloseOnly),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for NextWordPredictionButtons {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的样式）按现有样式读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1502,6 +1550,9 @@ pub struct Preferences {
     /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
+    /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。
+    #[serde(default, skip_serializing_if = "NextWordPredictionButtons::is_default")]
+    pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -3776,6 +3827,7 @@ impl Default for Preferences {
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             next_word_prediction: false,
+            next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
