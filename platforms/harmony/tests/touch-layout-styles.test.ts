@@ -522,8 +522,9 @@ group("扩展能力按上次记下的键面定第一帧：数字行和长空格�
   );
   check(
     shape(P.firstPanel(english, true, "long_space", true, false)) === "false:1",
-    "英文 26 键有数字行、不算长空格",
+    "中文键面不是 26 键的键盘（如韩文）停在英文 26 键：有数字行、不算长空格",
   );
+
   check(
     shape(P.firstPanel(twentySix, false, "long_space", true, false)) === "true:0",
     "中文 26 键长空格：工具栏设成隐藏也画工具条",

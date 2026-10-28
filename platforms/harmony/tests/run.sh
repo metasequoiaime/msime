@@ -180,7 +180,7 @@ fi
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")
 nine_style_body=$(sed -n '/^  private nineKeyFrameStyle(): string {$/,/^  }$/p' "$view")
-design_style_body=$(sed -n '/^  private designRowStyle(): string {$/,/^  }$/p' "$view")
+design_style_body=$(sed -n '/^  private designRowStyle(styled: StyledFace): string {$/,/^  }$/p' "$view")
 if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$traits_body" \
   || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_PHONE' <<< "$traits_body" \
   || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL' <<< "$traits_body" \
@@ -189,6 +189,23 @@ if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$trait
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.twentySixKeyStyle, this.standardRowsField)' <<< "$design_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.fourteenKeyStyle, this.standardRowsField)' <<< "$design_style_body"; then
   echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor sets digits from PATTERN_NUMBER/PHONE/NUMBER_DECIMAL, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
+  exit 1
+fi
+# 长空格样式把工具条那一行一直留着（符 在上面），看的是这块键盘的中文键面和用户的 26 键样式，不看此刻的中/英：同一块键盘切到英文 26 键时也留着，否则工具栏隐藏时每次切中/英这一行都出没一次，面板高度跟着跳。视图是 ArkTS，这里钉住接线：工具条、隐藏工具栏时藏工具和冷启动记下的键面都读 `chineseTwentySixKeyboard`，它按中文（english 为假）算、不读 `this.english`；`chineseTwentySixFace` 是它再加上此刻是中文。
+strip_body=$(sed -n '/^  private stripShown(): boolean {$/,/^  }$/p' "$view")
+tool_shown_body=$(sed -n '/^  private toolbarToolShown(enabled: boolean): boolean {$/,/^  }$/p' "$view")
+remember_face_body=$(sed -n '/^  private rememberPanelFace(): void {$/,/^  }$/p' "$view")
+keyboard_body=$(sed -n '/^  private chineseTwentySixKeyboard(): boolean {$/,/^  }$/p' "$view")
+toolbar_row_body=$(sed -n '/^  private longSpaceToolbarRow(): boolean {$/,/^  }$/p' "$view")
+face_body=$(sed -n '/^  private chineseTwentySixFace(): boolean {$/,/^  }$/p' "$view")
+if ! grep -qF 'TouchToolbarPolicy.rowHidden(this.toolbarTools) && !this.longSpaceToolbarRow(),' <<< "$strip_body" \
+  || ! grep -qF 'this.toolbarTools.hidden && this.longSpaceToolbarRow()' <<< "$tool_shown_body" \
+  || ! grep -qF 'chineseTwentySix: this.chineseTwentySixKeyboard()' <<< "$remember_face_body" \
+  || ! grep -qF 'TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixKeyboard(), this.twentySixKeyStyle,' <<< "$toolbar_row_body" \
+  || [[ -z "$keyboard_body" ]] || grep -qF 'this.english' <<< "$keyboard_body" \
+  || ! grep -qF 'this.numberRowFaceIn(false)' <<< "$keyboard_body" \
+  || ! grep -qF 'return !this.english && this.chineseTwentySixKeyboard();' <<< "$face_body"; then
+  echo "The long-space toolbar row must follow the keyboard's Chinese 26-key face and the user's style, not the momentary 中/英 mode, so the panel height stays put across language toggles" >&2
   exit 1
 fi
 # AI 生成类功能的总闸（`AiGenerationGate`，取自 Rust 的 `HostCapabilities.ai_generation`）：规则由 ai-generation-gate.test.ts 覆盖；键盘、语音润色和设置桥是 ArkTS，node 下编不了，这里钉住接线：两个进程启动时都读宿主能力，功能面板按它去掉 AI 格子，AI 联想、高情商回复、润色和设置桥的 AI 请求在发出前都问它。
