@@ -29,14 +29,14 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；x86/x64 故障子进程 | 外部应用中的 TSF；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对 | 部分发行版符号与后台链路 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制 | 完整正式包和含按需资源的完整冒烟；后台精确符号化 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
-所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。下一步 TSF 方案需验证进程外 WER 适配：Microsoft 的 [注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)要求安装时配置模块列表并导出三个回调；[异常回调](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)允许返回不认领，保持宿主默认处置；[注销接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)必须与生命周期配对。这是待验证的候选方案，尚无实现，不能把 API 可用性当成 TSF 已覆盖。
+所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。TSF 进程外 WER 适配遵循 Microsoft 的[注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)、[不认领异常的回调语义](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)和[注销要求](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)。[TSF WER 提案](2026-10-28-windows-tsf-wer-capture.md)持有完整方案与分级验证：产品生命周期、安装器和符号已接线，x86/x64 的实际 DLL 装卸、授权变化、阻塞读取、迟到结果和生产 helper 落盘联动通过，负对照能识别短暂的旧租约武装；ARM64 目标编译与 Arm64X helper 两阶段链接通过。x86/x64 合成外部宿主的七组真实系统 WER 投递现已通过，覆盖 TIP/Host API 自有故障、外部故障、撤回重开、释放卸载和被宿主捕获的异常；完整产品包、真实编辑器与后台仍未验收，不能据此认定 TSF 闭环完成。
 
 [共享偏好的持续同意存储](../../implemented/bug-fix/2026-10-28-persisted-reporting-consent.md)提供原子代次；[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)把 iOS 采集、旧原生记录过滤、MetricKit 补录与逐条发送接入同一代次。它不代替实际致命故障、系统 MetricKit 投递与后台精确符号化验收。iOS 与共用 `CaptureOnly` 辅助采集器已迁入共享队列代次协议；辅助采集的 macOS 与 Linux 共用真实子进程回归通过；Linux 产品入口的授权目录夹具修复已由 Debian/Fedora CI 全量重建与故障套件复验通过，Windows 目标运行仍待验证，MCP 与桌面设置发送端已接入共享协议，MCP 与桌面 macOS 隔离专项及实际 Linux crate 全 target 严格 Clippy 通过，Linux 普通用户运行 MCP 126 项和桌面两项崩溃专项已通过；macOS、Windows 与 Linux 的输入会话宿主及同目录发送端已共同迁入，并增加无绑定入口保护；macOS 与共用本地回归已覆盖撤回、旧原生记录晚写和在途发送边界，Windows/Linux 产品运行与整合后的完整门禁仍须单独核验，不能由共享接口可用推定全平台均已完成验收。Android 现已将 App、IME、Java 同意镜像、发送和系统退出补录迁入共享协议；Rust 回归、宿主检查和 API 28/35 的授权镜像专项已通过，同源原生 Release APK `8a006d7ed7` 已构建，API 28/35 的 Rust 共享只读授权应用 UID 专项均通过；该源码的 API 35 真实系统退出、App ANR 补录/去重及撤回重开拒绝旧历史已通过，API 28/35 活跃 App/IME 观察器复验均通过；最新源码的完整产品与完整冒烟仍待结果。鸿蒙已接入本沙箱 NAPI 共享代次，严格拒绝读失败时退回旧布尔协议，迟到清理与会话结束已有适配器回归；完整逻辑套件及复用缓存原生库的 ArkTS/HAP 编译通过。[共享只读权威授权](../../implemented/architecture/2026-10-28-harmony-reporting-authority.md)现已统一 App/键盘授权历史，并接入不依赖焦点或网络完成的独立观察器。九项核心与十二项 Host API 专项、严格 Clippy、完整鸿蒙逻辑套件及十一组适配器回归通过，真实 HAP 编译打包通过；[系统原身份传递](../../implemented/feature/2026-10-28-harmony-system-capture-identity.md)现已用 HiAppEvent 自定义参数固定故障前 UUID、构建头、PID 和准备时间，29 项策略断言、四组异步适配器回归及真实 HAP 编译通过；API 21 原生记录器与主线程默认错误处理器已接入，三架构目标严格编译、四组实际适配器致命故障回归与实际 ArkTS/HAP 编译通过；本地旧缓存缺少四个 ABI，严格链接已拒绝；后续 `d91b0b9242` 已同源重编 arm64 Rust/NAPI 并打包 HAP，两个模块的包内 build-id 与归档一致，授权入口按精确身份还原到源码行。设备入口仍未运行验收。原身份的实际系统投递、鸿蒙真机共享目录、真实系统回调和后台链路仍未完成。
 
@@ -58,6 +58,10 @@ Status: proposed
 ## Risks
 
 信号与异常处理器可能面对栈耗尽、堆损坏和加载器锁；捕获应写入有限的预备缓冲，先保存故障摘要，再尽力展开栈，并交还原来的系统处置。TSF 不得接管其他应用的无关崩溃。系统诊断可能延迟或缺失，不能承诺百分之百投递，也不能把没有报告当成没有故障。本机可用磁盘低于五十 GB，新增构建树放在 `rbuild` 的 Studio 镜像，设备验收只拉回所需产物。
+
+### 与偏好容错的整合
+
+整合 `db1ea0d73e` 的 develop 时，持续授权接口与运行时容错接口保留各自职责：输入可在内存里救下可读设置，持续授权仍严格拒绝坏文档；修复配置保留未知字段，同时清空旧授权元数据。恢复回归同时核对这三项边界。合并结果的核心/Host API 回归、严格 Clippy 和整轮 quick 另行冻结排队；合并前的通过结果不算合并结果通过。
 
 ### macOS 符号发布仍需补验
 

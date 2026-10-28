@@ -204,6 +204,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Field history = field(type, "clipboardHistory");
         Object original = history.get(service);
         boolean enabled = field(type, "clipboardHistoryEnabled").getBoolean(service);
+        Field connection = field(type, "connection");
+        Object originalConnection = connection.get(service);
         try {
             Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
             Object store = storeType.getConstructor(File.class).newInstance(directory);
@@ -246,9 +248,23 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             method(type, "render").invoke(service);
             Object bottomBar = field(type, "imeBottomBar").get(service);
             Button bottomClipboard = (Button) field(bottomBar.getClass(), "clipboardButton").get(bottomBar);
+            Button topClipboard = (Button) field(type, "clipboardShortcutButton").get(service);
             check(bottomClipboard.isSelected(), "clipboard bottom bar button is not selected while panel is open");
-            method(type, "closeClipboardHistory").invoke(service);
-            method(type, "render").invoke(service);
+            check(topClipboard.isSelected(), "clipboard toolbar button is not selected while panel is open");
+            // 用真实编辑器接收插入；调用返回后立即检查，不补刷新或模拟下一次按键。
+            android.widget.EditText editor = new android.widget.EditText(getTargetContext());
+            editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            android.view.inputmethod.InputConnection editorConnection =
+                editor.onCreateInputConnection(new android.view.inputmethod.EditorInfo());
+            check(editorConnection != null, "synthetic clipboard editor has no input connection");
+            connection.set(service, editorConnection);
+            String inserted = "合成剪贴板插入";
+            method(type, "insertClipboardText", String.class).invoke(service, inserted);
+            check(editor.getText().toString().equals(inserted), "clipboard insertion did not reach the editor");
+            check(surface.getVisibility() == View.GONE
+                    && !(Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
+                "clipboard insertion did not close the panel");
+            check(!topClipboard.isSelected(), "clipboard toolbar button stayed selected after insertion closed panel");
             check(!bottomClipboard.isSelected(), "clipboard bottom bar button stayed selected after insertion closed panel");
             method(panels.getClass(), "showClipboardHistory").invoke(panels);
             method(type, "render").invoke(service);
@@ -265,6 +281,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         } finally {
             history.set(service, original);
             field(type, "clipboardHistoryEnabled").setBoolean(service, enabled);
+            connection.set(service, originalConnection);
             try (var paths = Files.walk(directory.toPath())) {
                 for (var path : paths.sorted(Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) Files.delete(path);
             }

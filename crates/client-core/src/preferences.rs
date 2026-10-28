@@ -5693,9 +5693,18 @@ impl Preferences {
     /// 只用于输入运行时在内存里救下的偏好：用户在设置页点的修复（[`PreferencesStore::recover`]）写下的结果用户看得见、改得了，不在这里替他关。`source` 是文档里的偏好对象。
     fn close_destinations_not_kept(&mut self, source: &serde_json::Value) {
         fn replaced<T: Serialize>(source: &serde_json::Value, pointer: &str, kept: &T) -> bool {
-            source
-                .pointer(pointer)
-                .is_some_and(|written| serde_json::to_value(kept).ok().as_ref() != Some(written))
+            if let Some(written) = source.pointer(pointer) {
+                return serde_json::to_value(kept).ok().as_ref() != Some(written);
+            }
+            // 叶子缺失可能是真正缺省，也可能是父段损坏；只有前者沿用默认去向。
+            let mut ancestor = pointer;
+            while let Some((parent, _)) = ancestor.rsplit_once('/') {
+                if let Some(written) = source.pointer(parent) {
+                    return !written.is_object();
+                }
+                ancestor = parent;
+            }
+            false
         }
         let cloud = &self.cloud_candidate_provider;
         if replaced(source, "/cloud_candidate_provider/source", &cloud.source)

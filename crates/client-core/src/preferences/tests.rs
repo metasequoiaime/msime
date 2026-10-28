@@ -1559,16 +1559,27 @@ fn reporting_consent_recovery_starts_a_new_history() {
     let first = store.usage_reporting_consent().unwrap().unwrap();
     let mut document = serde_json::to_value(store.load().unwrap()).unwrap();
     document["preferences"]["candidate_page_size"] = "synthetic-damaged".into();
+    document["preferences"]["synthetic_future_setting"] = serde_json::json!({"enabled": true});
     std::fs::write(
         directory.path().join("preferences.json"),
         serde_json::to_vec(&document).unwrap(),
     )
     .unwrap();
+    // 输入路径可以救下可读设置，但授权读取仍须严格拒绝损坏文档。
+    assert!(store.load_for_runtime().unwrap().load_error.is_some());
+    assert!(store.usage_reporting_consent().is_err());
     let (recovered, _, _) = expect_recovered(store.recover().unwrap());
     assert!(recovered.preferences.usage_reporting);
     assert_eq!(recovered.preferences.usage_reporting_consent, None);
     let second = store.usage_reporting_consent().unwrap().unwrap();
     assert_ne!(second.epoch, first.epoch);
+    let persisted: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("preferences.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        persisted["preferences"]["synthetic_future_setting"],
+        document["preferences"]["synthetic_future_setting"]
+    );
 }
 
 #[test]
@@ -9146,6 +9157,113 @@ fn runtime_salvage_closes_features_whose_destination_was_not_kept() {
     assert!(!closed.voice_input.enabled);
     assert!(!closed.voice_input.polish_enabled);
     closed.validate().unwrap();
+}
+
+#[test]
+fn runtime_salvage_closes_cloud_when_its_destination_section_is_not_an_object() {
+    let configured = Preferences {
+        cloud_candidates: true,
+        cloud_candidate_provider: crate::cloud::candidates::CloudCandidatePreferences {
+            source: crate::cloud::candidates::CloudCandidateSource::Custom,
+            endpoint: "https://private.example/q?x={query}".into(),
+            ..Default::default()
+        },
+        translation_ai: true,
+        ..Preferences::default()
+    };
+    configured.validate().unwrap();
+    for damaged in [
+        serde_json::json!("future-shape"),
+        serde_json::Value::Null,
+        serde_json::json!([]),
+        serde_json::json!(7),
+        serde_json::json!(true),
+    ] {
+        let mut document = serde_json::to_value(&configured).unwrap();
+        document["cloud_candidate_provider"] = damaged.clone();
+        // 空数组也可能被 serde 当成缺省字段；用无关损坏确保运行时需要走救援。
+        document["candidate_layout"] = "future_value".into();
+        assert!(serde_json::from_value::<Preferences>(document.clone()).is_err());
+        let (preferences, not_kept) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        preferences.validate().unwrap();
+        assert!(not_kept.iter().any(|key| key == "candidate_layout"));
+        assert_eq!(
+            preferences.cloud_candidate_provider,
+            Preferences::default().cloud_candidate_provider,
+            "{damaged}"
+        );
+        assert!(!preferences.cloud_candidates, "{damaged}");
+        assert!(preferences.translation_ai, "{damaged}");
+    }
+}
+
+#[test]
+fn runtime_salvage_closes_ai_when_its_destination_section_is_not_an_object() {
+    let configured = Preferences {
+        cloud_candidates: true,
+        translation_ai: true,
+        ai_assistant: AiAssistantPreferences {
+            enabled: true,
+            endpoint: "https://private.example/ai".into(),
+            ..Default::default()
+        },
+        ..Preferences::default()
+    };
+    configured.validate().unwrap();
+    for damaged in [
+        serde_json::json!("future-shape"),
+        serde_json::Value::Null,
+        serde_json::json!([]),
+        serde_json::json!(7),
+        serde_json::json!(true),
+    ] {
+        let mut document = serde_json::to_value(&configured).unwrap();
+        document["ai_assistant"] = damaged.clone();
+        document["candidate_layout"] = "future_value".into();
+        assert!(serde_json::from_value::<Preferences>(document.clone()).is_err());
+        let (preferences, not_kept) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        preferences.validate().unwrap();
+        assert!(not_kept.iter().any(|key| key == "candidate_layout"));
+        assert!(!preferences.ai_assistant.enabled, "{damaged}");
+        assert!(!preferences.translation_ai, "{damaged}");
+        assert!(preferences.cloud_candidates, "{damaged}");
+    }
+}
+
+#[test]
+fn runtime_salvage_keeps_features_with_missing_destination_defaults() {
+    let configured = Preferences {
+        cloud_candidates: true,
+        translation_ai: true,
+        ..Preferences::default()
+    };
+    for omitted in [true, false] {
+        let mut document = serde_json::to_value(&configured).unwrap();
+        for section in ["cloud_candidate_provider", "ai_assistant"] {
+            if omitted {
+                document.as_object_mut().unwrap().remove(section);
+            } else {
+                document[section] = serde_json::json!({});
+            }
+        }
+        let expected: Preferences = serde_json::from_value(document.clone()).unwrap();
+        expected.validate().unwrap();
+        // 别处损坏触发真实救援；服务段缺省与对象内字段缺省都仍表示采用默认去向。
+        document["candidate_layout"] = "future_value".into();
+        let (preferences, not_kept) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        preferences.validate().unwrap();
+        assert_eq!(not_kept, ["candidate_layout"]);
+        assert!(preferences.cloud_candidates);
+        assert!(preferences.translation_ai);
+        assert_eq!(
+            preferences.cloud_candidate_provider,
+            expected.cloud_candidate_provider
+        );
+        assert_eq!(preferences.ai_assistant, expected.ai_assistant);
+    }
 }
 
 // 设置页的修复只换掉读不了的取值：本版本不认识的键和列表元素（多半出自更新的版本）照保存时那样放回文件。
