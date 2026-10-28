@@ -9104,3 +9104,50 @@ fn recover_keeps_what_a_newer_version_wrote() {
     );
     assert_eq!(store.load().unwrap(), snapshot);
 }
+
+#[test]
+fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
+    for style in [None, Some("standard"), Some("emoji"), Some("split_space")] {
+        for number_row in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = PreferencesStore::new(directory.path());
+            let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+            document["revision"] = 1.into();
+            if let Some(style) = style {
+                document["preferences"]["touch_twenty_six_key_style"] = style.into();
+            }
+            document["preferences"]["touch_fourteen_key_style"] = "future_fourteen".into();
+            document["preferences"]["touch_nine_key_style"] = "future_nine".into();
+            fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+            let saved = store
+                .migrate_android_key_layout(1, true, number_row)
+                .unwrap();
+            let raw: serde_json::Value =
+                serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+            let expected = match style {
+                None | Some("standard") => "long_space",
+                Some(value) => value,
+            };
+            assert_eq!(raw["preferences"]["touch_twenty_six_key_style"], expected);
+            assert_eq!(
+                raw["preferences"]["touch_fourteen_key_style"],
+                "future_fourteen"
+            );
+            assert_eq!(raw["preferences"]["touch_nine_key_style"], "future_nine");
+            assert_eq!(saved.preferences.touch_number_row, number_row);
+            let before = fs::read(store.path()).unwrap();
+            assert_eq!(
+                store
+                    .migrate_android_key_layout(saved.revision, true, number_row)
+                    .unwrap()
+                    .revision,
+                saved.revision
+            );
+            assert!(matches!(
+                store.migrate_android_key_layout(0, true, true),
+                Err(PreferencesError::Conflict)
+            ));
+            assert_eq!(fs::read(store.path()).unwrap(), before);
+        }
+    }
+}

@@ -5332,6 +5332,78 @@ impl PreferencesStore {
         self.save_locked(current, &unknown, expected_revision, preferences)
     }
 
+    /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。
+    /// 较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
+    pub fn migrate_android_key_layout(
+        &self,
+        expected_revision: u64,
+        long_space: bool,
+        number_row: bool,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
+        let _lock = self.lock()?;
+        let (current, mut unknown) = self.read_locked_keeping_unknown()?;
+        if current.revision != expected_revision {
+            return Err(PreferencesError::Conflict);
+        }
+        let document: serde_json::Value = match crate::storage::open_private_file_in(&self.path()) {
+            Ok(file) => {
+                let bytes = crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                    PreferencesError::DocumentTooLarge
+                })?;
+                serde_json::from_slice(&bytes)?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(error) => return Err(error.into()),
+        };
+        let mut preferences = current.preferences.clone();
+        let style = document.pointer("/preferences/touch_twenty_six_key_style");
+        if long_space && style.is_none_or(|value| value.as_str() == Some("standard")) {
+            preferences.touch_twenty_six_key_style = TouchTwentySixKeyStyle::LongSpace;
+        }
+        if number_row
+            && document
+                .pointer("/preferences/touch_number_row")
+                .is_none_or(|value| value.as_bool() == Some(false))
+        {
+            preferences.touch_number_row = true;
+        }
+        // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
+        for (key, is_known) in [
+            (
+                "touch_twenty_six_key_style",
+                TouchTwentySixKeyStyle::parse(
+                    style
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("standard"),
+                )
+                .is_some(),
+            ),
+            (
+                "touch_fourteen_key_style",
+                document
+                    .pointer("/preferences/touch_fourteen_key_style")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchFourteenKeyStyle::parse(value).is_some()),
+            ),
+            (
+                "touch_nine_key_style",
+                document
+                    .pointer("/preferences/touch_nine_key_style")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchNineKeyStyle::parse(value).is_some()),
+            ),
+        ] {
+            if !is_known {
+                unknown.push(UnknownPreferenceField {
+                    path: vec![key.into()],
+                    value: document["preferences"][key].clone(),
+                    elements: false,
+                });
+            }
+        }
+        self.save_locked(current, &unknown, expected_revision, preferences)
+    }
+
     /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
     pub fn restore_defaults(
         &self,

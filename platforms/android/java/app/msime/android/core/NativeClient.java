@@ -41,6 +41,8 @@ public final class NativeClient {
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return TextPolicy.utf8(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** 旧布局迁移在共享锁内检查原始字段，不把未知样式误当默认值。 */
+    public static String migrateKeyLayout(String request) { return TextPolicy.utf8(migrateKeyLayoutRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** The global theme picker entries: ids, titles, appearance and built-in palettes, in picker order. */
     public static String themeCatalog() { return TextPolicy.utf8(themeCatalogRaw()); }
     /** 解析当前主题的单种明暗配色；带 `skins_directory` 的请求会校验包资源，必须在工作线程调用。 */
@@ -1017,6 +1019,7 @@ public final class NativeClient {
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);
+    private static native byte[] migrateKeyLayoutRaw(byte[] request);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] telemetryBeginRaw(byte[] request);
     private static native byte[] telemetryEndRaw(byte[] request);

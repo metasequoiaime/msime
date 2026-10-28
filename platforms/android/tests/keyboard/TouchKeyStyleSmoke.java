@@ -356,28 +356,6 @@ public final class TouchKeyStyleSmoke {
     }
 
     private static void migration() {
-        Map<String, Object> both = KeyLayoutStyleMigration.sharedEdits(true, true, null, false);
-        check(both.equals(Map.of(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, "long_space", TouchKeyStyle.NUMBER_ROW_PREFERENCE, true)),
-            "both legacy switches move into the shared preferences");
-        check(KeyLayoutStyleMigration.sharedEdits(true, false, "standard", false)
-            .equals(Map.of(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, "long_space")), "an explicit standard style is overwritten");
-        check(KeyLayoutStyleMigration.sharedEdits(true, false, "emoji", false).isEmpty(),
-            "a style already chosen on another device is kept");
-        // 较新版本加的样式本版本画成标准底行，但那是用户在别处的选择，迁移不能盖掉；类型不对的值同样不碰。
-        check(KeyLayoutStyleMigration.sharedEdits(true, false, "split_space", false).isEmpty(),
-            "an unknown style from a newer version is left untouched");
-        check(KeyLayoutStyleMigration.sharedEdits(true, false, "STANDARD", null).isEmpty()
-            && KeyLayoutStyleMigration.sharedEdits(true, false, 1, null).isEmpty(),
-            "only a missing key or the literal standard is replaced");
-        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, null)
-            .equals(Map.of(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true)), "a missing number row is switched on");
-        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, false)
-            .equals(Map.of(TouchKeyStyle.NUMBER_ROW_PREFERENCE, true)), "an explicit false number row is switched on");
-        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, true).isEmpty(), "a number row already on stays on");
-        check(KeyLayoutStyleMigration.sharedEdits(false, true, null, "false").isEmpty()
-            && KeyLayoutStyleMigration.sharedEdits(false, true, null, 0).isEmpty(),
-            "a number row value of the wrong type is left untouched");
-        check(KeyLayoutStyleMigration.sharedEdits(false, false, null, false).isEmpty(), "legacy off writes nothing");
         Map<String, Object> legacy = new LinkedHashMap<>();
         check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)), "nothing to migrate");
         legacy.put(AndroidLocalSettings.NUMBER_ROW, false);
