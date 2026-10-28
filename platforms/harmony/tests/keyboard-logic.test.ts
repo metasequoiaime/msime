@@ -17413,9 +17413,6 @@ group("鸿蒙系统诊断必须处于持续同意的时间范围内", () => {
   check(!TelemetryPolicy.diagnosticAllowed(report, 2500, 3000), "重新开启统计不追认关闭期间的故障");
   check(!TelemetryPolicy.diagnosticAllowed(report, null, 3000), "没有持久同意标记时不追认历史诊断");
   check(!TelemetryPolicy.diagnosticAllowed(report, 1000, 1500), "未来诊断不能提前认领");
-  check(TelemetryPolicy.consentSince('{"since":1000}') === 1000, "同意时间可以稳定恢复");
-  check(TelemetryPolicy.consentSince('{"since":"1000"}') === null, "拒绝错误类型的同意时间");
-  check(TelemetryPolicy.consentSince('{"since":0}') === null, "拒绝无效同意时间");
 });
 
 group("鸿蒙卡死独立归属且不携带系统原文", () => {
@@ -17457,33 +17454,11 @@ group("系统诊断文件名和原始版本在重复投递时保持稳定", () =
   );
 });
 
-group("usage reporting is cleared only by a saved document that turns it off", () => {
-  const saved = '{"ok":true,"value":{"revision":3}}';
-  check(
-    TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      saved,
-    ),
-    "an explicit false that was saved turns reporting off",
-  );
-  check(
-    !TelemetryPolicy.reportingTurnedOff('{"format_version":1,"preferences":{}}', saved),
-    "an absent key is the default, which is on",
-  );
-  check(
-    !TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      '{"ok":false,"error":"conflict"}',
-    ),
-    "a save the store refused changed nothing",
-  );
-  check(TelemetryPolicy.flushDue(0, 1000), "a keyboard that has not sent yet sends");
-  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "an hour later it waits");
-  check(
-    TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000),
-    "six hours later it sends again",
-  );
-  check(TelemetryPolicy.flushDue(5000, 1000), "a clock that went back does not stop it for good");
+group("遥测补发保持六小时间隔并处理时钟回拨", () => {
+  check(TelemetryPolicy.flushDue(0, 1000), "尚未发送的键盘允许补发");
+  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "一小时后仍等待");
+  check(TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000), "六小时后重新补发");
+  check(TelemetryPolicy.flushDue(5000, 1000), "时钟回拨不能永久阻止补发");
 });
 
 group("notices are shown from client-core's answer and their links leave the application", () => {

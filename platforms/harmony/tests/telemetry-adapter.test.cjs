@@ -148,7 +148,7 @@ function fixture(options = {}) {
   tick();
   assert.equal(state.begin[1].consent_epoch,newEpoch);
   const clears = state.clear.length;
-  telemetry.reportingTurnedOff('/private/state');
+  telemetry.preferencesChanged('/private/state');
   assert.equal(state.clear.length,clears,'迟到关闭只能重读，不能删除新队列');
   telemetry.keyboardStopped();
 }
