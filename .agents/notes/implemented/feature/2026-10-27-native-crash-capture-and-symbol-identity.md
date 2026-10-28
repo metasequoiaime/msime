@@ -30,7 +30,7 @@ Status: implemented
 
 ### 符号归属
 
-ELF 帧保存模块名、相对偏移和 GNU build id；Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。
+ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。
 
 Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需文件缺失或为空就失败。发布 workflow 同时保留九十天 artifact；只有维护者手动选择发布时才推到平台滚动符号 release。本次不触发发布。现代 Windows、macOS 的已有滚动符号和 iOS 的 dSYM 保留机制继续使用。
 
@@ -88,6 +88,7 @@ macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行�
 - Windows runner 实际执行 x86、x64 异常子进程用例：访问违规落盘、关闭不记录、首份记录保留通过；ARM64 只完成 MSVC 编译。Win7 符号采集脚本通过 PowerShell 解析检查，尚未用完整同源安装产物验收。
 - Android API 28、35 实际运行原生故障子进程；Java 宿主门禁与 Gradle lintFullRelease 通过；API 30 系统退出辅助方法内部也检查版本，保持 API 28 可用。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。同源 Java/JNI 和 Rust debug 库的完整 APK 在两个模拟器上进一步验证 Java 异常、原生信号落盘及重启入队，关闭统计后两类故障均不记录；独立应用不产生输入会话事件。测试按应用 UID 阻断网络，结束后删除合成队列并撤销规则，没有把合成故障发到生产后台。该包因未优化的 Rust 库超过正式包 135 MB 体积门禁，不能当作发布打包通过。十八键中英文及数字往返的失败定位为旧的无障碍描述，修正为产品现用的「返回原键盘」后，API 28/35 实际复跑均通过。后续核心冒烟在两个 API 的数字层笔画布局失败，API 35 完整冒烟还在日语资源准备失败；专项 APK 未带这些按需词库，需补齐资源后复验，不能将专项通过扩大为全套通过。复跑仅放行本机回环供合成传输测试使用，外网仍阻断；两个自有 AVD 的合成队列与规则已清理，模拟器已关闭。Java 原子发布与 POSIX 文件锁改动后，再次用当前 Java/JNI 和 Rust debug 库组成的专项 APK，在两个 API 上实际验证 Java/原生故障落盘、重启入队、关闭不记录和独立 App 无输入会话，均通过；故障前阻断应用 UID 的外网，结束后清空合成队列并删除规则。
 - POSIX 原生写入的双进程回归在 macOS、Linux 容器和 Android API 28/35 实际通过：摘要与栈之间暂停时其它进程拿不到锁；写入完成后可读完整记录；写入进程被 SIGKILL 后保留已有摘要；不覆盖首份记录且不残留暂存名。Linux ASan/UBSan 与 iOS C 记录器的 macOS ASan/UBSan 通过。最新 Android client-services 设备测试在两个 API 均为 1358 项通过、10 项 ignored、4 项因硬链接限制过滤，不把后两者计为通过。
+- Fedora 44 / GCC 16.2.1 的严格 Release 首帧用例实际复现原 CI 的范围断言失败。该程序为非 PIE 的 `ET_EXEC`，记录器按 ELF 加载偏移保存链接地址，夹具却减去 `dladdr` 返回的映射起点，导致两者相差固定链接基址。夹具按自身 ELF 类型选择地址基准，保留首帧必须落在故障函数内的范围断言；同一 Fedora 44 / GCC 16.2.1 下显式 `-fPIE -pie` 与 `-fno-pie -no-pie` 的严格 Release 编译及完整记录器用例均通过，macOS Clang 的严格 Release 回归也通过。采集器和符号还原器的地址语义不变。
 - Apple 首帧回归以受保护内存产生真实故障，共同记录器与 iOS C 记录器在 macOS 宿主实际执行通过；共同记录器也在 Linux 容器及 ASan/UBSan 下执行通过。断言首帧地址落在故障函数内，保留关闭开关、首份记录和旧处理器链用例。iOS C 记录器的主程序与动态库两种真实内存故障，进一步用报告里的模块偏移和 UUID 选择 dSYM，均还原到对应故障函数的源码行；同时断言帧不含设备目录。macOS 的 ctest 注册同一回归；iOS C 源通过实际 iPhoneOS arm64、iPhoneSimulator arm64/x86_64 SDK 的 `-Werror` 编译检查；macOS x86_64 路径也通过交叉编译检查。宿主用例不能代替设备生命周期验收。
 - macOS 新增五项真实 Clang/Swift/Rust 合成构建用例通过：剥离后还原到源码行、无调试信息时拒绝空 dSYM、拒绝错构建和缺架构、保留并归并双架构 Swift 原始 dSYM、保留 Rust packed dSYM；离线还原入口按 UUID、架构和 DWARF 哈希拒绝错配与篡改。实际 Swift 后端进一步按 Release 构建 arm64/x86_64，归档后两种架构均还原到 `BackendAccountWindow.swift:420`。完整同源发布包仍需另验，不能把分项符号验收记作发布成功。macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过；PR CI 的完整 Linux native host 门禁通过（112 项执行通过，1 项环境条件跳过），IBus 实际启动、版本化故障记录及信号来源回归已执行；Linux 设置应用、Windows GNU 交叉构建及 macOS arm64/x86_64 CI 也通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
 - HarmonyOS 逻辑测试和实际 ArkTS/HAP 构建通过。复用的原生二进制仅用于 ArkTS 编译与打包检查，不作为同源产品或设备验收。

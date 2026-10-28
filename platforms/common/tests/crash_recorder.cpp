@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#if defined(__linux__)
+#include <link.h>
+#endif
 #include <string>
 #include <sstream>
 #include <sys/mman.h>
@@ -124,7 +127,14 @@ int main() {
   const auto pc = std::stoull(first_frame.substr(offset + 1), nullptr, 16);
   Dl_info image{};
   assert(dladdr(reinterpret_cast<void *>(&synthetic_fault), &image));
-  const auto function = reinterpret_cast<uintptr_t>(&synthetic_fault) - reinterpret_cast<uintptr_t>(image.dli_fbase);
+  auto base = reinterpret_cast<uintptr_t>(image.dli_fbase);
+#if defined(__linux__)
+  // ELF 帧减去加载偏移；非 PIE 的 ET_EXEC 偏移为零，不能减去 dladdr 返回的映射起点。
+  const auto *elf = static_cast<const ElfW(Ehdr) *>(image.dli_fbase);
+  assert(elf->e_type == ET_EXEC || elf->e_type == ET_DYN);
+  if (elf->e_type == ET_EXEC) base = 0;
+#endif
+  const auto function = reinterpret_cast<uintptr_t>(&synthetic_fault) - base;
   assert(pc >= function && pc < function + 128);
 
   const auto first = root / "first.crash";

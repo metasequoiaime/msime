@@ -70,7 +70,7 @@ class PythonFixture(Fixture):
             self.control("collect")
             events = self.events()
             crashes = [event for event in events if event["kind"] == "crash"]
-            assert len(crashes) == 1 and crashes[0]["version"] == version
+            assert len(crashes) == 1 and crashes[0]["version"] == version, (component, crashes, version)
             assert component in crashes[0]["message"]
             assert not [event for event in events if event["kind"] in ("session", "session_crash")]
             assert not self.records()
@@ -149,6 +149,9 @@ runpy.run_path(sys.argv[0], run_name='__main__')
             if provider == "online":
                 # 在线服务的启动器和子进程同样使用 XDG 配置目录里的偏好。
                 shutil.copyfile(self.preferences / "preferences.json", self.options.parent / "preferences.json")
+        # 收集必须使用产品实际读取的偏好目录，不能由另一个目录的当前开关追认故障。
+        self.collection_preferences = (self.options.parent if component == "provider-session" and provider == "online"
+                                       else Path(json.loads(self.options.read_text())["preferences_directory"]))
         self.environment["XDG_RUNTIME_DIR"] = str(self.runtime)
         injection = """
 import pathlib, runpy, sys
@@ -209,6 +212,7 @@ def pause(*args, **kwargs):
         self.environment["XDG_RUNTIME_DIR"] = str(self.runtime)
         if provider == "online":
             shutil.copyfile(self.preferences / "preferences.json", self.options.parent / "preferences.json")
+            self.collection_preferences = self.options.parent
         process = subprocess.Popen([sys.executable, str(self.installation / "msime-linux-provider-session"), provider],
                                    env=self.environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
