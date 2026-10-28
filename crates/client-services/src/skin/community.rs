@@ -92,7 +92,7 @@ struct CommunitySkinPublishResponse {
 }
 
 pub trait CommunitySkinApi: Send + Sync + 'static {
-    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state. `exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，服务端没有声明支持时是 [`AccountError::Unavailable`]。
+    /// 一页已发布的皮肤；`mine` 只列登录用户自己的作品（含已下架作品及其审核状态）。`exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，服务端没有声明支持时是 [`AccountError::Unavailable`]。
     fn community_skins(
         &self,
         offset: usize,
@@ -364,7 +364,7 @@ where
     A: AccountApi + CommunitySkinApi,
     S: AccountSessionStorage,
 {
-    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。`exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，AI 生成的和来源不明的都不列（HarmonyOS 在 AI 生成类资质到位之前），服务端没有声明支持这项筛选时是 [`AccountError::Unavailable`]，宁可不显示也不把没筛过的列表交出去。
+    /// 一页已发布的皮肤，最新作品在前。`mine` 只列登录用户自己的作品（含已下架作品），因此需要登录会话。`category` 为 `Some` 时只列出该分类。`exclude_ai_generated` 为真时只列来源为 `user` 的皮肤，AI 生成的和来源不明的都不列（HarmonyOS 在 AI 生成类资质到位之前），服务端没有声明支持这项筛选时是 [`AccountError::Unavailable`]，宁可不显示也不把没筛过的列表交出去。
     pub fn list(
         &self,
         offset: usize,
