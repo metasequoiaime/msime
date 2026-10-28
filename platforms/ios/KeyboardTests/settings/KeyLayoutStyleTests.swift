@@ -308,7 +308,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 工具栏设成隐藏、26 键选了长空格时来回切中/英，键盘高度和按键位置都不变：英文 26 键画标准底行，工具栏上的 符 跟着消失，但 iOS 的顶栏一直占着它的高度，只换内容。Android 和鸿蒙曾在这里随中/英把整行工具栏收起又放出，键盘跟着跳。
+  /// 工具栏设成隐藏、26 键选了长空格时来回切中/英，键盘高度和按键位置都不变：英文 26 键画标准底行，工具栏上的 符 跟着消失，但这一行按键盘留着，只剩品牌和收起，与 Android、鸿蒙相同；iOS 的顶栏本来就一直占着它的高度。Android 和鸿蒙曾在这里随中/英把整行工具栏收起又放出，键盘跟着跳；iOS 曾在英文时把整条工具栏连同品牌和收起一起藏掉。
   func testLongSpaceToolbarRowKeepsTheHeightAcrossLanguageToggles() throws {
     select(.quanpin)
     XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
@@ -316,6 +316,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     let controller = keyboard()
     let symbols = try button("symbolsShortcut", in: controller)
     let space = try button("spaceKey", in: controller)
+    let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
     let chineseHeight = height(of: controller)
     let chineseSpaceTop = controller.view.convert(space.bounds, from: space).minY
     XCTAssertTrue(shown(symbols), "Chinese long space carries the symbol entry on the hidden toolbar")
@@ -323,6 +324,10 @@ final class KeyLayoutStyleTests: XCTestCase {
       try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       try layoutAtRequestedHeight(controller)
       XCTAssertEqual(shown(symbols), !english, "pass \(pass): only Chinese long space moves 符 to the toolbar")
+      XCTAssertFalse(bar.isHidden, "pass \(pass): the long-space keyboard keeps its toolbar row in English too")
+      XCTAssertEqual(bar.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                     english ? ["moreShortcut", "dismissShortcut"] : ["moreShortcut", "symbolsShortcut", "dismissShortcut"],
+                     "pass \(pass): English keeps only the logo and the collapse button")
       XCTAssertEqual(height(of: controller), chineseHeight, accuracy: 0.5, "pass \(pass): the keyboard height stays")
       XCTAssertEqual(controller.view.convert(space.bounds, from: space).minY, chineseSpaceTop, accuracy: 0.5,
                      "pass \(pass): the bottom row does not move")

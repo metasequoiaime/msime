@@ -479,6 +479,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 26 键「长空格」把 符 从底行挪到工具栏，这是工具栏上的入口；`toolbarSymbolsEntryShown` 记着上次排工具栏时它在不在。
   private let symbolsShortcut = UIButton()
   private var toolbarSymbolsEntryShown = false
+  /// 上次排工具栏时这一行是否因长空格留着（`longSpaceToolbarRowKept`）：按这块键盘算，停在英文 26 键上也留着，只是没有 符。
+  private var toolbarRowKept = false
   private let nineKeyContainer = UIStackView()
   private let spellingScrollView = KeyboardSpellingScrollView()
   private var spellingButtons: [UIButton] = []
@@ -2360,10 +2362,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 顶栏建好之后，最后一个可选按钮被关掉或重新打开一个时，空闲工具栏行跟着消失或出现；建顶栏时由之后的 `renderCandidateStrip` 读它。
       if topRowHeightConstraint != nil { renderCandidateStrip() }
     }
-    // 26 键「长空格」把 符 挪到了这里；显示方式为「隐藏」时这一行仍然显示，但只放品牌、符号和收起，与 Android 一致。
+    // 26 键「长空格」把 符 挪到了这里；显示方式为「隐藏」时这一行仍然显示，但只放品牌、符号和收起，切到英文 26 键时只剩品牌和收起，与 Android、鸿蒙一致。
     configure(symbolsShortcut, title: "符", symbol: nil, label: "符号", id: "symbolsShortcut")
     symbolsShortcut.isHidden = !toolbarSymbolsEntryShown
-    if toolbarSymbolsEntryShown && toolbarHidden {
+    if toolbarRowKept && toolbarHidden {
       for button in optionalShortcuts where !button.isHidden { button.isHidden = true }
     }
     updateToolbarActiveState()
@@ -2383,8 +2385,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
      aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, replyShortcut, scriptShortcut]
   }
 
-  /// 空闲时不显示工具栏内容：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。iOS 保留顶栏高度，组字时候选行在同一位置出现。26 键「长空格」把 符 挪到工具栏后，这一行总要显示（`toolbarSymbolsEntryShown`）。
-  private var toolbarRowHidden: Bool { (toolbarHidden || !toolbarHasTools) && !toolbarSymbolsEntryShown }
+  /// 空闲时不显示工具栏内容：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。iOS 保留顶栏高度，组字时候选行在同一位置出现。26 键「长空格」把 符 挪到工具栏后，这一行总要显示（`toolbarRowKept`），同一块键盘切到英文 26 键时也显示品牌和收起，与 Android、鸿蒙相同。
+  private var toolbarRowHidden: Bool { (toolbarHidden || !toolbarHasTools) && !toolbarRowKept }
 
   /// 工具栏里高亮的按钮：面板已打开的那个图标，以及任何面板、候选网格或回复面板盖住按键时的品牌键。
   private func updateToolbarActiveState() {
@@ -3208,9 +3210,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机上画的是中文 26 键字母页（全拼、26 键双拼、五笔 26 键、粤拼），「按键布局」的 26 键样式作用于它和它的 123 层。与 Android `TouchKeyStyle.Styles.forLayout` 和 HarmonyOS 一样只认中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行（判断与数字九宫格的 `drawsNumberPad` 相同）。英文和本地输入模式画标准的英文底行；九键、14 键、18 键、笔画、手写、假名、大千和 iPad 全尺寸键盘有各自的底行。
   private var drawsChineseTwentySixKey: Bool {
-    formFactor == .phone && isChineseMode && !isInLocalMode && !usesLetterGrid
+    isChineseMode && chineseTwentySixKeyboard
+  }
+
+  /// 这块键盘的中文键面是中文 26 键：与 `drawsChineseTwentySixKey` 同一套判断，但不看此刻的中/英，同一块键盘切到英文 26 键时仍为真，与 Android `TouchKeyStyle.Styles.keepsToolbarRow` 和鸿蒙 `chineseTwentySixKeyboard` 相同。
+  private var chineseTwentySixKeyboard: Bool {
+    formFactor == .phone && !isInLocalMode && !usesLetterGrid
       && !inputScheme.isMandarinNineKey && !inputScheme.isJapanese && !inputScheme.writesAsciiPunctuation
       && !inputScheme.isZhuyin && !inputScheme.isStroke && inputScheme != .handwriting
+  }
+
+  /// 长空格样式让工具栏那一行一直显示：看用户的 26 键样式和这块键盘的中文键面（`chineseTwentySixKeyboard`），不看此刻的中/英；切到英文 26 键时 符 不在工具栏上（`longSpaceActive`），这一行照样显示品牌和收起。密码框和只收数字的框退回标准底行，不留。
+  private var longSpaceToolbarRowKept: Bool {
+    activeKeyLayoutStyle.twentySixKey == .longSpace && chineseTwentySixKeyboard
   }
 
   /// 26 键选了「长空格」并且正画着中文 26 键（含它的 123 / #+= 层）：符 移到工具栏，数字入口是 123 层，那两层的表情或符号入口换成逗号，与 Android 原来的 `longSpaceLayoutActive` 相同。
@@ -6369,11 +6381,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return constraints
   }
 
-  /// 26 键「长空格」把 符 从底行挪到工具栏（`symbolsShortcut`），与 Android 一样：进出这种键面时重排工具栏，显示方式为「隐藏」时也留着这一行，只放品牌、符号和收起三个按钮。
+  /// 26 键「长空格」把 符 从底行挪到工具栏（`symbolsShortcut`），与 Android 一样：进出这种键面时重排工具栏，显示方式为「隐藏」时也留着这一行，只放品牌、符号和收起三个按钮；同一块键盘切到英文 26 键时这一行还在，只放品牌和收起（`longSpaceToolbarRowKept`）。
   private func updateToolbarSymbolsEntry() {
     let shown = longSpaceActive
-    guard shown != toolbarSymbolsEntryShown else { return }
+    let kept = longSpaceToolbarRowKept
+    guard shown != toolbarSymbolsEntryShown || kept != toolbarRowKept else { return }
     toolbarSymbolsEntryShown = shown
+    toolbarRowKept = kept
     updateShortcutButtons()
     shortcutBar.isHidden = stripShowsCandidates || inlineHeightBar != nil || toolbarRowHidden
   }
