@@ -1,25 +1,16 @@
-import { NativeCleanup } from '../keyboard/NativeCleanup';
 import bundleManager from '@ohos.bundle.bundleManager';
 import hiAppEvent from '@ohos.hiviewdfx.hiAppEvent';
 import process from '@ohos.process';
-import fs from '@ohos.file.fs';
-import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
-import { CrashReport, ReportingConsent, TelemetryPolicy } from './TelemetryPolicy';
+import { CrashReport, ReportingConsent, SystemCapture, TelemetryPolicy } from './TelemetryPolicy';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 
 /** App 与键盘各自拥有私有队列；共享只读授权记录负责跨沙箱持续同意，不依赖焦点镜像。 */
 
 const PLATFORM: string = 'harmony';
 const WATCHER_NAME: string = 'msime_crash_reports';
-/** The keyboard's process id, remembered so the next start can tell its crash from the settings application's. */
-const KEYBOARD_PROCESS_FILE: string = 'harmony-keyboard-process.json';
-/**
- * How long the keyboard waits for the system's crash report before it closes the previous session.
- *
- * Closing it first would turn a crashed session into one that left only its marker, which counts as no session at all. A report that comes later is still sent, as a standalone crash.
- */
+/** 先等上一进程的系统故障投递，再建立新的输入会话。 */
 const BEGIN_DELAY_MS: number = 2000;
 
 interface ConsentPublication {
@@ -57,6 +48,7 @@ interface CrashRecordRequest {
   outside_session?: boolean;
   crash_record_header?: string;
   diagnostic_id?: string;
+  diagnostic_capture?: string;
   diagnostic_begin_unix_ms?: number;
   diagnostic_end_unix_ms?: number;
   consent_epoch?: string;
@@ -66,6 +58,7 @@ interface CrashRecordRequest {
 interface BeginValue {
   enabled?: boolean;
   session_id?: string;
+  crash_record_header?: string;
 }
 
 interface BeginReply {
@@ -78,10 +71,6 @@ interface FlagReply {
   ok: boolean;
   value?: boolean;
   error?: string;
-}
-
-interface RememberedProcess {
-  pid: number;
 }
 
 function version(): string {
@@ -112,6 +101,11 @@ export class HarmonyTelemetry {
   private static lastFlush: number = 0;
   private static watcher: hiAppEvent.Watcher | undefined = undefined;
   private static startGeneration: number = 0;
+  private static activeCapture: string = '';
+  private static desiredCapture: string = '';
+  private static installedCapture: string | undefined = undefined;
+  private static capturePending: boolean = false;
+  private static capturePublicationFailed: boolean = false;
 
   /** 设置进程发布，键盘只读；拿不到共享目录时键盘不能自行退回私有授权。 */
   static configureAuthority(groupDirectory: string | null, publisher: boolean): void {
@@ -172,6 +166,8 @@ export class HarmonyTelemetry {
 
   private static stop(): void {
     HarmonyTelemetry.stopped = true;
+    HarmonyTelemetry.activeCapture = '';
+    HarmonyTelemetry.publishCapture('');
     HarmonyTelemetry.startGeneration++;
     if (HarmonyTelemetry.observer !== -1) clearInterval(HarmonyTelemetry.observer);
     HarmonyTelemetry.observer = -1;
@@ -244,6 +240,8 @@ export class HarmonyTelemetry {
       HarmonyTelemetry.cleared = reply?.value === true;
     }
     HarmonyTelemetry.cancelBegin();
+    HarmonyTelemetry.activeCapture = '';
+    HarmonyTelemetry.publishCapture('');
     HarmonyTelemetry.enabled = false;
     HarmonyTelemetry.began = false;
     HarmonyTelemetry.session = '';
@@ -270,6 +268,7 @@ export class HarmonyTelemetry {
       if (!HarmonyTelemetry.publicationFailed) KeyboardLog.error('telemetry: reporting authorization publication failed');
       HarmonyTelemetry.publicationFailed = true;
       HarmonyTelemetry.enabled = false;
+      HarmonyTelemetry.publishCapture('');
       return;
     }
     HarmonyTelemetry.publicationFailed = false;
@@ -277,12 +276,14 @@ export class HarmonyTelemetry {
     const consent: ReportingConsent | null = TelemetryPolicy.sharedConsentReply(reply);
     if (consent === null) {
       HarmonyTelemetry.enabled = false;
+      HarmonyTelemetry.publishCapture('');
       if (TelemetryPolicy.sharedConsentDisabled(reply)) HarmonyTelemetry.clearDisabled();
       return;
     }
     HarmonyTelemetry.enabled = true;
     HarmonyTelemetry.cleared = false;
     if (consent.epoch === HarmonyTelemetry.epoch) {
+      HarmonyTelemetry.publishCapture(HarmonyTelemetry.activeCapture);
       if (!HarmonyTelemetry.publisher && !HarmonyTelemetry.began && HarmonyTelemetry.beginTimer === -1) HarmonyTelemetry.scheduleBegin();
       if ((HarmonyTelemetry.publisher || HarmonyTelemetry.began) && TelemetryPolicy.flushDue(HarmonyTelemetry.lastFlush, Date.now()))
         HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences, consent.epoch));
@@ -291,15 +292,21 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.cancelBegin();
     HarmonyTelemetry.began = false;
     HarmonyTelemetry.session = '';
+    HarmonyTelemetry.activeCapture = '';
+    HarmonyTelemetry.publishCapture('');
     const request: TelemetryRequest = HarmonyTelemetry.request(HarmonyTelemetry.preferences, consent.epoch);
     request.capture_only = true;
+    let capture: string | null = null;
     try {
       const prepared: BeginReply = JSON.parse(client.telemetryBegin(JSON.stringify(request))) as BeginReply;
       if (prepared.ok !== true || prepared.value?.enabled !== true) {
         HarmonyTelemetry.enabled = false;
         return;
       }
+      capture = TelemetryPolicy.systemCapture(prepared.value.session_id ?? '', prepared.value.crash_record_header ?? '', process.pid, Date.now(), consent);
     } catch { HarmonyTelemetry.enabled = false; return; }
+    HarmonyTelemetry.activeCapture = capture ?? '';
+    HarmonyTelemetry.publishCapture(HarmonyTelemetry.activeCapture);
     HarmonyTelemetry.epoch = consent.epoch;
     HarmonyTelemetry.lastFlush = 0;
     HarmonyTelemetry.watchCrashes();
@@ -326,7 +333,9 @@ export class HarmonyTelemetry {
       if (parsed.ok !== true || parsed.value?.enabled !== true || typeof session !== 'string' || session === '') return;
       HarmonyTelemetry.session = session;
       HarmonyTelemetry.began = true;
-      HarmonyTelemetry.rememberPid();
+      const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
+      HarmonyTelemetry.activeCapture = consent === null ? '' : TelemetryPolicy.systemCapture(session, parsed.value.crash_record_header ?? '', process.pid, Date.now(), consent) ?? '';
+      HarmonyTelemetry.publishCapture(HarmonyTelemetry.activeCapture);
       HarmonyTelemetry.send(request);
     } catch (error) { KeyboardLog.error(`telemetry: begin refused: ${describeError(error)}`); }
   }
@@ -365,118 +374,46 @@ export class HarmonyTelemetry {
     HarmonyTelemetry.refresh();
     if (!HarmonyTelemetry.reportingAllowed()) return;
     const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
-    if (consent === null || !TelemetryPolicy.diagnosticAllowed(report, consent.since, Date.now())) return;
+    if (consent === null) return;
+    const original: SystemCapture | null = TelemetryPolicy.originalCapture(report, consent, Date.now());
+    if (original === null) return;
     const request: CrashRecordRequest = {
       directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack,
-      crash_record_header: TelemetryPolicy.recordText(report).split('\n')[0] + '\n',
-      diagnostic_id: TelemetryPolicy.standaloneRecordName(report), consent_epoch: consent.epoch,
+      crash_record_header: original.header, consent_epoch: consent.epoch,
       diagnostic_begin_unix_ms: report.time, diagnostic_end_unix_ms: report.time,
     };
     request.authority_directory = HarmonyTelemetry.authority;
-    if (report.outsideSession === true) request.outside_session = true;
-    else request.pid = report.pid;
+    request.outside_session = true;
+    if (report.outsideSession === true) request.diagnostic_id = TelemetryPolicy.standaloneRecordName(report);
+    else request.diagnostic_capture = original.capture;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
     if (reply !== null) HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
   }
 
-  private static readRememberedPid(): number | null {
-    const path: string = `${HarmonyTelemetry.directory}/${KEYBOARD_PROCESS_FILE}`;
-    let handle: fs.File | null = null;
-    try {
-      if (!HarmonyTelemetry.safeTelemetryDirectory()) {
-        return null;
-      }
-      const expected: fs.Stat = fs.lstatSync(path);
-      if (expected.isSymbolicLink() || !expected.isFile()) {
-        return null;
-      }
-      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
-      const stat: fs.Stat = fs.statSync(handle.fd);
-      if (!stat.isFile() || stat.size > 256 || stat.ino !== expected.ino) return null;
-      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
-      const count: number = fs.readSync(handle.fd, buffer);
-      if (count !== stat.size) return null;
-      const text: string = util.TextDecoder.create('utf-8').decodeToString(
-        new Uint8Array(buffer, 0, count));
-      return TelemetryPolicy.rememberedPid(text);
-    } catch (error) {
-      // An absent marker is the normal first-run state.
-      try {
-        if (fs.accessSync(path)) {
-          KeyboardLog.error(`telemetry: keyboard process unreadable: ${describeError(error)}`);
-        }
-      } catch {
-        // The directory or marker is unavailable.
-      }
-      return null;
-    } finally {
-      if (handle !== null) NativeCleanup.close(handle);
-    }
+  /** 同一进程串行更新系统参数，迟到完成后只发布最新需求，绝不从异步回调启动遥测。 */
+  private static publishCapture(identity: string): void {
+    HarmonyTelemetry.desiredCapture = identity;
+    if (HarmonyTelemetry.capturePending || HarmonyTelemetry.installedCapture === identity) return;
+    HarmonyTelemetry.capturePending = true;
+    const parameters: Record<string, hiAppEvent.ParamType> = {};
+    parameters['msime_capture'] = identity;
+    let publishing: Promise<void>;
+    try { publishing = hiAppEvent.setEventParam(parameters, hiAppEvent.domain.OS); }
+    catch { HarmonyTelemetry.captureFinished(identity, false); return; }
+    void publishing.then((): void => HarmonyTelemetry.captureFinished(identity, true))
+      .catch((): void => HarmonyTelemetry.captureFinished(identity, false));
   }
 
-  private static rememberPid(): void {
-    const remembered: RememberedProcess = { pid: process.pid };
-    const path: string = `${HarmonyTelemetry.directory}/${KEYBOARD_PROCESS_FILE}`;
-    try {
-      if (!HarmonyTelemetry.prepareTelemetryDirectory()) {
-        return;
-      }
-      HarmonyTelemetry.atomicWrite(path, JSON.stringify(remembered), true);
-    } catch (error) {
-      KeyboardLog.error(`telemetry: keyboard process not remembered: ${describeError(error)}`);
+  private static captureFinished(identity: string, succeeded: boolean): void {
+    HarmonyTelemetry.capturePending = false;
+    if (succeeded) {
+      HarmonyTelemetry.installedCapture = identity;
+      HarmonyTelemetry.capturePublicationFailed = false;
+    } else {
+      if (!HarmonyTelemetry.capturePublicationFailed) KeyboardLog.error('telemetry: system capture parameters unavailable');
+      HarmonyTelemetry.capturePublicationFailed = true;
     }
-  }
-
-  private static atomicWrite(path: string, text: string, replaceExisting: boolean): boolean {
-    try {
-      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
-      let renamed: boolean = false;
-      try {
-        const file: fs.File = fs.openSync(staging,
-          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-        try {
-          fs.writeSync(file.fd, text);
-        } finally {
-          fs.closeSync(file);
-        }
-        if (!replaceExisting && fs.accessSync(path)) return false;
-        fs.renameSync(staging, path);
-        renamed = true;
-        return true;
-      } finally {
-        if (!renamed) {
-          try {
-            if (fs.accessSync(staging)) fs.unlinkSync(staging);
-          } catch {
-            // 遥测写入失败时，最多留下以唯一名称创建的暂存文件。
-          }
-        }
-      }
-    } catch (error) {
-      KeyboardLog.error('telemetry.Telemetry.atomicWrite failed');
-      throw error as Error;
-    }
-  }
-
-  /** Ensure the shared telemetry directory itself is a real directory before following it. */
-  private static prepareTelemetryDirectory(): boolean {
-    try {
-      if (!fs.accessSync(HarmonyTelemetry.directory)) {
-        fs.mkdirSync(HarmonyTelemetry.directory, true);
-      }
-      return HarmonyTelemetry.safeTelemetryDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  private static safeTelemetryDirectory(): boolean {
-    try {
-      const stat: fs.Stat = fs.lstatSync(HarmonyTelemetry.directory);
-      return !stat.isSymbolicLink() && stat.isDirectory();
-    } catch {
-      return false;
-    }
+    if (HarmonyTelemetry.desiredCapture !== identity) HarmonyTelemetry.publishCapture(HarmonyTelemetry.desiredCapture);
   }
 
   /** The answer to a call whose value is a flag, or null (logged) when it was refused or unreadable. */

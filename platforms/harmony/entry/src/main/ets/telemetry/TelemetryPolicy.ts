@@ -1,12 +1,10 @@
-/**
- * The decisions behind anonymous usage reporting on this host, kept apart from the ArkTS that performs them so they run under node.
- *
- * The queue, the install id, the daily `active` and the session bookkeeping are all client-core's (`msime_client_telemetry_*`); this host only decides when to call it and turns the system's crash reports into crash records. A crash is reported by HarmonyOS itself: HiAppEvent hands the previous run's `APP_CRASH` (JavaScript or native) to a watcher on the next start. Nothing here installs a handler of its own, so a crash still ends the process exactly as it did before reporting existed.
- */
+/** 本宿主只适配系统诊断与生命周期；队列、去重和持续授权由共享层持有。系统参数固定故障前的身份，升级补报不得重建原构建。 */
 
 /** One crash HiAppEvent reported, reduced to what a crash record holds. */
 export interface CrashReport {
   pid: number;
+  /** 系统在原进程生命周期保存的采集身份，缺失时不能追认原构建。 */
+  capture?: string;
   /** 卡死等系统处置独立记录，不记作输入会话崩溃。 */
   outsideSession?: boolean;
   /** 系统诊断里的原始版本，缺失时不冒用当前安装版本。 */
@@ -19,7 +17,16 @@ export interface CrashReport {
   stack: string;
 }
 
-/** Rust 共享偏好产生的授权；宿主只能镜像，不能自行生成。 */
+/** 故障前固定的捕获归属；只交给本机系统诊断，不直接作为事件字段上传。 */
+export interface SystemCapture {
+  format: number;
+  capture: string;
+  header: string;
+  pid: number;
+  since: number;
+}
+
+/** Rust 权威来源产生的授权；宿主不能自行生成。 */
 export interface ReportingConsent {
   epoch: string;
   since: number;
@@ -52,7 +59,7 @@ function firstLine(value: string): string {
   return line.trim();
 }
 
-/** One native frame as `libmsimeclient.so+0x1a2b symbol`: the file name only, so no sandbox directory leaves the device. */
+/** 原生帧只留模块名、偏移、合法 ELF build-id 与符号，不上传沙箱路径。 */
 function nativeFrame(value: unknown): string | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const frame = value as Record<string, unknown>;
@@ -63,7 +70,9 @@ function nativeFrame(value: unknown): string | null {
   const symbol: string = text(frame.symbol).trim();
   if (file === "" && pc === "" && symbol === "") return null;
   let line: string = file === "" ? "<unknown>" : file;
-  if (pc !== "") line += `+0x${pc}`;
+  if (/^[0-9a-fA-F]{1,16}$/.test(pc)) line += `+0x${pc}`;
+  const buildId: string = text(frame.buildId);
+  if (/^(?:[0-9a-fA-F]{2}){1,64}$/.test(buildId)) line += ` [id 0x${buildId.toLowerCase()}]`;
   if (symbol !== "") line += ` ${symbol}`;
   return line;
 }
@@ -171,6 +180,7 @@ export class TelemetryPolicy {
       pid,
       time,
       version: text(params.bundle_version),
+      capture: text(params.msime_capture),
       outsideSession: true,
       message: `Hang ${safeName}`,
       stack: "",
@@ -210,6 +220,7 @@ export class TelemetryPolicy {
         pid,
         time,
         version: text(params.bundle_version),
+        capture: text(params.msime_capture),
         message: summary === "" ? "JavaScript error" : summary,
         stack: text(details.stack)
           .split("\n")
@@ -244,6 +255,7 @@ export class TelemetryPolicy {
         pid,
         time,
         version: text(params.bundle_version),
+        capture: text(params.msime_capture),
         message: summary === "" ? "native crash" : summary,
         stack: frames.join("\n"),
       };
@@ -256,20 +268,77 @@ export class TelemetryPolicy {
     return `harmony-${report.outsideSession === true ? "freeze-" : ""}${report.pid}-${report.time}.crash`;
   }
 
-  /** A crash record's contents: the summary line, then the frames. */
-  static recordText(report: CrashReport): string {
-    const version: string = report.version ?? "unknown";
-    const safeVersion: string = /^[A-Za-z0-9._-]{1,64}$/.test(version) ? version : "unknown";
-    const context = {
-      platform: "harmony",
-      version: safeVersion,
-      revision: "unknown",
-      run: "",
-      attempt: "",
-      arch: "unknown",
-      component: "system-diagnostic",
-    };
-    return `MSIME-CRASH/1 ${JSON.stringify(context)}\n${report.message}\n${report.stack}`;
+  /** 保留共享层产生的原构建头；长度限制来自系统参数协议，不能截断身份。 */
+  static systemCapture(
+    capture: string,
+    header: string,
+    pid: number,
+    now: number,
+    consent: ReportingConsent,
+  ): string | null {
+    const identity: SystemCapture = { format: 1, capture, header, pid, since: now };
+    const encoded: string = JSON.stringify(identity);
+    const report: CrashReport = { pid, time: now, message: "", stack: "", capture: encoded };
+    return TelemetryPolicy.originalCapture(report, consent, now) === null ? null : encoded;
+  }
+
+  /** 只认系统保存的原进程、原版本和本轮授权，补报时不从当前包重建头。 */
+  static originalCapture(
+    report: CrashReport,
+    consent: ReportingConsent,
+    now: number,
+  ): SystemCapture | null {
+    const encoded: string = report.capture ?? "";
+    if (
+      encoded.length === 0 ||
+      encoded.length > 1024 ||
+      !TelemetryPolicy.diagnosticAllowed(report, consent.since, now)
+    )
+      return null;
+    try {
+      const parsed: unknown = JSON.parse(encoded);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      const fields = parsed as Record<string, unknown>;
+      const header: string = text(fields.header);
+      const capture: string = text(fields.capture);
+      const pid: number | null = integer(fields.pid);
+      const since: number | null = integer(fields.since);
+      if (
+        fields.format !== 1 ||
+        pid === null ||
+        pid <= 0 ||
+        pid !== report.pid ||
+        since === null ||
+        since < consent.since ||
+        since > report.time ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(capture) ||
+        !header.startsWith("MSIME-CRASH/1 ")
+      )
+        return null;
+      const metadata: unknown = JSON.parse(header.slice("MSIME-CRASH/1 ".length));
+      if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+      const context = metadata as Record<string, unknown>;
+      if (
+        context.platform !== "harmony" ||
+        context.consent_epoch !== consent.epoch ||
+        (context.component !== "input" && context.component !== "application") ||
+        (report.version !== undefined &&
+          report.version !== "" &&
+          context.version !== report.version)
+      )
+        return null;
+      for (const key of ["version", "revision", "run", "attempt", "arch", "component"]) {
+        if (
+          typeof context[key] !== "string" ||
+          !/^[A-Za-z0-9._-]{0,64}$/.test(context[key] as string)
+        )
+          return null;
+      }
+      if (context.version === "" || context.arch === "") return null;
+      return { format: 1, capture, header, pid, since };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -300,16 +369,5 @@ export class TelemetryPolicy {
   /** Whether a running keyboard should send its queue again. */
   static flushDue(lastFlushMs: number, nowMs: number): boolean {
     return lastFlushMs <= 0 || nowMs - lastFlushMs >= FLUSH_INTERVAL_MS || nowMs < lastFlushMs;
-  }
-
-  /** The keyboard process's id as remembered between runs, or null when the file is absent or unreadable. */
-  static rememberedPid(document: string): number | null {
-    try {
-      const value: unknown = JSON.parse(document);
-      if (value === null || typeof value !== "object") return null;
-      return integer((value as Record<string, unknown>).pid);
-    } catch {
-      return null;
-    }
   }
 }

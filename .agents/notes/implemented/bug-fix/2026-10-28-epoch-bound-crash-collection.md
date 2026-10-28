@@ -28,7 +28,7 @@ Android 的 App 和 IME 准备、发送改为通过 JNI 的 `telemetryConsent` �
 
 鸿蒙的 ArkTS NAPI 入口同样提供 `telemetryConsent`，App 发布、键盘只读共享权威授权，代替私有偏好镜像中各自的代次。每个请求始终包含 `consent_epoch`；关闭或读取失败使用空身份，由共享层拒绝，不能省略字段退回旧布尔协议。`APP_CRASH`/`APP_FREEZE` 补录带共享代次、权威目录和报告发生时间；共享层拒绝时不写独立回退文件。统计或政策关闭均使权威授权失效，通知只促使重读与条件清理，迟到通知不能清掉重开后的队列；暂停或读失败不清队列。键盘只结束本进程 begin 返回的 `session_id`，独立观察与停止收尾不等待网络。
 
-跨沙箱协议由[鸿蒙只读授权来源](../architecture/2026-10-28-harmony-reporting-authority.md)持有；本次代码统一授权历史，但原进程捕获身份、原构建 revision/arch、同源原生包与真机共享沙箱仍待验收。系统补录仅有报告版本与时间限制，不能据此证明精确原捕获归属。
+跨沙箱协议由[鸿蒙只读授权来源](../architecture/2026-10-28-harmony-reporting-authority.md)持有；本次代码统一授权历史，[系统原身份传递](../feature/2026-10-28-harmony-system-capture-identity.md)另把共享层产生的 UUID 与原构建头交给系统保存。补录必须匹配原 PID、版本、准备时间和授权代次，不再制造未知构建头；原输入会话按 UUID 认领，卡死独立。系统真实携带字段、同源原生包、真机共享沙箱和后台精确符号化仍待验收，API 21 输入法兼容采集仍待实现。
 
 ## Related notes
 

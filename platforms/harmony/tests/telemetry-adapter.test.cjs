@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, '../../..');
 const {execFileSync} = require('node:child_process');
 const directory = path.join(root, 'platforms/harmony/entry/src/main/ets/telemetry');
 const epoch = '12345678-1234-4234-8234-123456789abc';
+const ownSession = 'abcdabcd-abcd-4bcd-abcd-abcdabcdabcd';
+const independentCapture = 'feedfeed-feed-4eed-8eed-feedfeedfeed';
 const staging = path.join(root, 'target/harmony-tests/telemetry-adapter');
 fs.mkdirSync(staging, {recursive: true});
 for (const name of ['Telemetry.ets', 'TelemetryPolicy.ts']) {
@@ -38,7 +40,7 @@ function fixture(options = {}) {
   let nextTimer = 1;
   const state = { reply: JSON.stringify({ok: true, value: {enabled: true, epoch, since_unix_ms: 1000}}),
     network: true, clear: [], end: [], begin: [], flush: [], publications: [], timers: new Map(), intervals: new Map(), writes: [],
-    blockedFlush: false, publicationError: false, watcher: null };
+    blockedFlush: false, publicationError: false, captureFailure: false, captureBlocked: false, captureSets: [], captureResolves: [], records: [], watcher: null };
   const native = {
     telemetryConsent(text) {
       const query = JSON.parse(text);
@@ -52,9 +54,13 @@ function fixture(options = {}) {
     },
     telemetryClear(text) { state.clear.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
     telemetryEnd(text) { state.end.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
+    telemetryRecordCrash(text) { state.records.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
     telemetryBegin(text) {
-      state.begin.push(JSON.parse(text));
-      return JSON.stringify({ok: true, value: {enabled: true, session_id: 'own-session'}});
+      const request = JSON.parse(text);
+      state.begin.push(request);
+      const header = 'MSIME-CRASH/1 ' + JSON.stringify({platform:'harmony',version:'1.0.0',revision:'abcdef12',
+        run:'7',attempt:'1',arch:'aarch64',component:request.component,consent_epoch:request.consent_epoch}) + '\n';
+      return JSON.stringify({ok:true,value:{enabled:true,session_id:request.capture_only ? independentCapture : ownSession,crash_record_header:header}});
     },
     telemetryFlush(text) {
       state.flush.push(JSON.parse(text));
@@ -70,6 +76,11 @@ function fixture(options = {}) {
     '@ohos.bundle.bundleManager': {default: {getBundleInfoForSelfSync: () => ({versionName: '1.0.0'}),
       BundleFlag: {GET_BUNDLE_INFO_DEFAULT: 0}}},
     '@ohos.hiviewdfx.hiAppEvent': {default: {removeWatcher() { state.watcher = null; }, addWatcher(watcher) { state.watcher = watcher; },
+      setEventParam(parameters,domain,name) {
+        state.captureSets.push({parameters,domain,name});
+        if (state.captureBlocked) return new Promise(resolve => state.captureResolves.push(resolve));
+        return state.captureFailure ? Promise.reject(new Error('synthetic capture failure')) : Promise.resolve();
+      },
       domain: {OS: 'os'}, event: {APP_CRASH: 'crash', APP_FREEZE: 'freeze'}}},
     '@ohos.process': {default: {pid: 42}},
     '@ohos.file.fs': {default: io},
@@ -141,14 +152,14 @@ function fixture(options = {}) {
     assert.equal(telemetry.session,session,'暂时暂停保留同代次会话');
   }
   telemetry.keyboardStopped();
-  assert.equal(state.end[0].session,'own-session');
+  assert.equal(state.end[0].session,ownSession);
 }
 {
   const {state, telemetry, start, begin} = fixture({publisher:false,group:'/group'});
   start(); begin();
   telemetry.keyboardStopped(); telemetry.keyboardStopped();
   assert.equal(state.end.length,1);
-  assert.equal(state.end[0].session,'own-session','只结束本进程实际开始的会话');
+  assert.equal(state.end[0].session,ownSession,'只结束本进程实际开始的会话');
   assert.equal(state.intervals.size,0);
   assert.equal(state.timers.size,0);
 }
@@ -233,4 +244,87 @@ function fixture(options = {}) {
   assert.equal(state.clear.length,2,'重新开启后再关闭必须重新清理');
   telemetry.keyboardStopped();
 }
-console.log('harmony telemetry adapter: 11 lifecycle groups passed');
+async function settle() { for (let n=0;n<6;n++) await Promise.resolve(); }
+async function captureGroups() {
+  {
+    const {state,telemetry,start,tick,begin} = fixture({publisher:false,group:'/group'});
+    start(); await settle();
+    state.captureBlocked = true;
+    begin();
+    const count = state.captureSets.length;
+    assert.equal(JSON.parse(state.captureSets.at(-1).parameters.msime_capture).capture,ownSession);
+    tick();
+    assert.equal(state.captureSets.length,count,'旧参数未完成前不并发写系统身份');
+    telemetry.applicationStopped();
+    state.captureBlocked = false;
+    state.captureResolves.shift()();
+    await settle();
+    assert.equal(state.captureSets.at(-1).parameters.msime_capture,'','停止后的迟到设置只能被清空');
+    assert.equal(state.begin.length,2,'异步系统收尾不能复活遥测');
+    tick();
+    assert.equal(state.begin.length,2);
+  }
+  {
+    const {state,telemetry,start,tick} = fixture({publisher:false,group:'/group'});
+    start(); await settle();
+    const original = state.captureSets.at(-1).parameters.msime_capture;
+    assert.equal(JSON.parse(original).capture,independentCapture);
+    assert.equal(JSON.parse(original).pid,42);
+    state.reply = '{"ok":false}'; tick(); await settle();
+    assert.equal(state.captureSets.at(-1).parameters.msime_capture,'','临时读取错误也解除系统参数');
+    state.reply = JSON.stringify({ok:true,value:{enabled:true,epoch,since_unix_ms:1000}});
+    tick(); await settle();
+    assert.equal(state.captureSets.at(-1).parameters.msime_capture,original,'同代次恢复原捕获');
+    const next = '87654321-4321-4321-8321-cba987654321';
+    state.reply = JSON.stringify({ok:true,value:{enabled:true,epoch:next,since_unix_ms:2000}});
+    tick(); await settle();
+    assert.equal(JSON.parse(JSON.parse(state.captureSets.at(-1).parameters.msime_capture).header.slice('MSIME-CRASH/1 '.length)).consent_epoch,next);
+    telemetry.recordCrash({pid:42,time:Date.now(),version:'1.0.0',message:'SIGABRT',stack:'',capture:original});
+    assert.equal(state.records.length,0,'重新开启后迟到的旧系统身份不得追认');
+    telemetry.keyboardStopped(); await settle();
+  }
+  {
+    const {state,telemetry,start,tick} = fixture({group:'/group'});
+    state.captureFailure = true;
+    start(); await settle();
+    const calls = state.captureSets.length;
+    state.captureFailure = false; tick(); await settle();
+    assert.equal(state.captureSets.length,calls+1,'系统参数失败由独立观察器重试');
+    const original = state.captureSets.at(-1).parameters.msime_capture;
+    const header = JSON.parse(original).header;
+    const report = {pid:42,time:Date.now(),version:'1.0.0',message:'SIGABRT',stack:'libsynthetic.so+0x1',capture:original};
+    state.watcher.onReceive('os',[{appEventInfos:[{name:'crash',params:{time:report.time,pid:42,bundle_version:'1.0.0',
+      crash_type:'NativeCrash',msime_capture:original,exception:{signal:{signo:6},frames:[]}}}]}]);
+    assert.equal(state.records[0].diagnostic_capture,independentCapture,'系统崩溃使用原 UUID，而不是 PID 猜会话');
+    assert.equal(state.records[0].crash_record_header,header,'原构建头原样传到 Rust');
+    assert.equal(state.records[0].outside_session,true);
+    assert.equal('pid' in state.records[0],false);
+    telemetry.recordCrash({...report,outsideSession:true,message:'Hang THREAD_BLOCK_6S'});
+    assert.equal(state.records[1].diagnostic_id,`harmony-freeze-42-${report.time}.crash`);
+    assert.equal('diagnostic_capture' in state.records[1],false,'卡死使用独立身份，不占用原输入会话的崩溃文件');
+    telemetry.recordCrash({...report,capture:''});
+    telemetry.recordCrash({...report,pid:43});
+    assert.equal(state.records.length,2,'无原身份和跨进程报告均拒绝');
+    telemetry.applicationStopped(); await settle();
+  }
+  {
+    const {state,telemetry,start,tick,begin} = fixture({publisher:false,group:'/group'});
+    start(); await settle();
+    state.captureBlocked = true; begin();
+    const old = state.captureSets.at(-1).parameters.msime_capture;
+    const count = state.captureSets.length;
+    state.reply = '{"ok":true,"value":{"enabled":false}}'; tick();
+    const next = '87654321-4321-4321-8321-cba987654321';
+    state.reply = JSON.stringify({ok:true,value:{enabled:true,epoch:next,since_unix_ms:2000}});
+    tick();
+    assert.equal(state.captureSets.length,count,'撤回重开期间旧请求仍串行等待');
+    state.captureBlocked = false; state.captureResolves.shift()(); await settle();
+    const latest = state.captureSets.at(-1).parameters.msime_capture;
+    assert.equal(JSON.parse(JSON.parse(latest).header.slice('MSIME-CRASH/1 '.length)).consent_epoch,next,'旧设置完成后只发布最终新代次');
+    telemetry.recordCrash({pid:42,time:Date.now(),message:'SIGABRT',stack:'',capture:old});
+    assert.equal(state.records.length,0,'旧系统参数即使晚装入也不能被新代次认领');
+    telemetry.keyboardStopped(); await settle();
+  }
+  console.log('harmony telemetry adapter: 11 lifecycle and 4 async capture groups passed');
+}
+captureGroups().catch(error => { console.error(error); process.exitCode=1; });

@@ -17455,16 +17455,6 @@ group("系统诊断文件名和原始版本在重复投递时保持稳定", () =
     TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
     "a standalone record is named by process and time, so a report delivered twice is written once",
   );
-  check(
-    TelemetryPolicy.recordText(report).startsWith("MSIME-CRASH/1 ") &&
-      TelemetryPolicy.recordText(report).endsWith("\nSIGABRT\n"),
-    "a record is the summary line, then the frames",
-  );
-  check(
-    TelemetryPolicy.rememberedPid('{"pid":4321}') === 4321,
-    "the remembered process id is read",
-  );
-  check(TelemetryPolicy.rememberedPid("{}") === null, "and a file without one is no process");
 });
 
 group("usage reporting is cleared only by a saved document that turns it off", () => {
