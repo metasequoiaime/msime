@@ -145,21 +145,25 @@ record_failure() {
   (( consecutive_failures < 5 )) || stop "five checks in a row failed; the keyboard is probably unusable and later failures would share that cause"
   reset_after_failure || stop "$ime_id could not be selected again after the failure"
 }
-# verdict <失败说明> <通过标记> <输出>：输出里有通过标记就算通过，与原先的判据相同。
+# verdict <失败说明> <通过标记> <输出> <退出码>：命令成功且输出里有通过标记才算通过；非零退出不能被已经打印的通过标记盖掉。
 verdict() {
-  if [[ "$3" == *"$2"* ]]; then
+  local output=$3 status=$4
+  if (( status == 0 )) && [[ "$output" == *"$2"* ]]; then
     consecutive_failures=0
   else
-    record_failure "$1" "$3"
+    if (( status != 0 )); then
+      output="error: command exited with status $status"$'\n'"$output"
+    fi
+    record_failure "$1" "$output"
   fi
 }
 # check <失败说明> <通过标记> <命令…>：跑一项 instrumentation 验收，打印它的输出，再交给 verdict。adb 的错误输出一并收下，失败时能进汇总。
 check() {
-  local label=$1 marker=$2 output
+  local label=$1 marker=$2 output status=0
   shift 2
-  output=$("$@" 2>&1) || true
+  output=$("$@" 2>&1) || status=$?
   printf '%s\n' "$output"
-  verdict "$label" "$marker" "$output"
+  verdict "$label" "$marker" "$output" "$status"
 }
 # check_script <失败说明> <脚本> <参数…>：跑一个自带前置检查和清理（trap）的辅助脚本，以退出码判定，输出照常实时打印。
 check_script() {
@@ -325,11 +329,12 @@ check "Helpcode import acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrume
 # 导入必须经过安装产品的 Java 入口和 JNI，第六项不能等到下一次收起键盘才出现。
 check "Dictionary import acceptance failed" MSIME_DICTIONARY_IMPORT_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke
 # 分词拖选在最低与目标 API 的真实键盘上覆盖跨行、取消和边缘滚动。
-result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke 2>&1) || true
+result_status=0
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke 2>&1) || result_status=$?
 printf '%s\n' "$result"
 # 清空历史前的系统认证用合成锁屏 PIN（DeviceCredentialFixture.PIN）；套件中途崩溃时它来不及清除，这里不论成败都兜底清一次，免得后面的套件遇到锁屏。
 clear_credential
-verdict "Clipboard segment drag acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result"
+verdict "Clipboard segment drag acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result" "$result_status"
 
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。
 check "Number pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke
@@ -353,11 +358,12 @@ check "Shared voice endpoint JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED ru
 # 账号与云端的 JNI 入口和注入的会话存储（#8201）经真实 JNI 与 Rust 核对；只用合成会话、不联网，最低 API 的核心验收也执行。
 # 其中旧快照队列那一项（迁移计划 P13）要在主进程里真的激活一份整份快照，激活要独占词库维护权；输入法还绑着时 `:ime` 的会话占着词库，Rust 答 snapshot_unavailable。产品里激活只在键盘会话结束以后的 `:ime` 空闲时做，所以这里先停用本输入法让系统解绑它，跑完再启用、选回来，后面的套件照旧用它。
 "$adb" -s "$serial" shell ime disable "$ime_id" >/dev/null || stop "disabling $ime_id before the session store check failed"
-result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SessionStoreDeviceSmoke 2>&1) || true
+result_status=0
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SessionStoreDeviceSmoke 2>&1) || result_status=$?
 # 不论这一项成败都先选回输入法；选不回来时后面每一项都会失败在同一处。
 select_ime || stop "$ime_id could not be selected again after the session store check"
 printf '%s\n' "$result"
-verdict "Session store JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result"
+verdict "Session store JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result" "$result_status"
 # 原生皮肤删除覆盖真实确认框、锁与原子替换；最低 API 的核心验收也运行。
 check "Native saved skin deletion acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e skin-delete true
 # 背单词内置词书：Bootstrap 解到 files/bootstrap/wordbooks，设置页经真实 JNI 读到八本书并能作答。这是应用私有目录里的解包和文件锁，最低 API 的核心验收也运行；APK 要先用 scripts/fetch_wordbooks.py 生成的词书打包。
