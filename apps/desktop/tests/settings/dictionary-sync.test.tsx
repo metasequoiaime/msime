@@ -13,6 +13,7 @@ import {
 import {
   DICTIONARY_SYNC_NOTE,
   SettingsPage,
+  dictionarySyncBudgetWaitMessage,
   dictionarySyncDeviceGroups,
   dictionarySyncErrorMessage,
   dictionarySyncRun,
@@ -74,6 +75,7 @@ const STATUS: {
   clock_skew: boolean;
   last_success_ms: number | null;
   last_error: string | null;
+  budget_wait_until: number | null;
 } = {
   device_id: LOCAL_ID,
   code: LOCAL_CODE,
@@ -86,6 +88,7 @@ const STATUS: {
   clock_skew: false,
   last_success_ms: Date.UTC(2026, 9, 27, 8, 0),
   last_error: null,
+  budget_wait_until: null,
 };
 
 const REPORT = {
@@ -238,6 +241,37 @@ test("sync results are read strictly and errors have their own words", () => {
   expect(dictionarySyncDelay(10)).toBe(1_000);
   expect(dictionarySyncDelay(5_000)).toBe(5_000);
   expect(dictionarySyncDelay(10 * 60 * 60 * 1000)).toBe(30 * 60 * 1000);
+});
+
+test("the automatic budget wait is read and said in local time", () => {
+  // 旧版本的 Rust 不给这个字段；给了不合法的值也当作没在等。
+  expect(dictionarySyncStatus(STATUS)?.budget_wait_until).toBeNull();
+  const { budget_wait_until: _, ...older } = STATUS;
+  expect(dictionarySyncStatus(older)?.budget_wait_until).toBeNull();
+  expect(dictionarySyncStatus({ ...STATUS, budget_wait_until: -1 })?.budget_wait_until).toBeNull();
+  expect(
+    dictionarySyncStatus({ ...STATUS, budget_wait_until: "soon" })?.budget_wait_until,
+  ).toBeNull();
+  const until = new Date(2026, 9, 28, 9, 5).getTime();
+  expect(dictionarySyncStatus({ ...STATUS, budget_wait_until: until })?.budget_wait_until).toBe(
+    until,
+  );
+  expect(dictionarySyncRun(runValue({ budget_wait_until: until }))?.status.budget_wait_until).toBe(
+    until,
+  );
+
+  // 按本机时间说；今天之内只写时分，跨了天写上月日；已经过了或没在等时不说。
+  const morning = new Date(2026, 9, 28, 8, 40).getTime();
+  expect(dictionarySyncBudgetWaitMessage(until, morning)).toBe(
+    "额度用完，将于 09:05 继续自动同步；可点「立即同步」。",
+  );
+  const lateNight = new Date(2026, 9, 27, 23, 50).getTime();
+  expect(dictionarySyncBudgetWaitMessage(until, lateNight)).toBe(
+    "额度用完，将于 10月28日 09:05 继续自动同步；可点「立即同步」。",
+  );
+  expect(dictionarySyncBudgetWaitMessage(until, until)).toBeNull();
+  expect(dictionarySyncBudgetWaitMessage(until, until + 60_000)).toBeNull();
+  expect(dictionarySyncBudgetWaitMessage(null, morning)).toBeNull();
 });
 
 test("saving or stopping sync only touches its own key", () => {
@@ -396,6 +430,36 @@ test("a failed sync says why in Chinese", async () => {
   renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
   await settingsFormReady();
   expect(await screen.findByText("网盘拒绝了这个账号或应用密码。")).toBeDefined();
+});
+
+test("a sync waiting for its request budget says when it resumes and keeps the error", async () => {
+  const until = Date.now() + 20 * 60 * 1000;
+  const host = syncHost({
+    run: () => ({
+      network: false,
+      next_check_ms: 1_200_000,
+      status: { ...STATUS, last_error: "dictionary_sync_rate_limited", budget_wait_until: until },
+      error: "dictionary_sync_rate_limited",
+    }),
+  });
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
+  const status = await screen.findByLabelText("词库同步状态");
+  const message = dictionarySyncBudgetWaitMessage(until);
+  expect(message).not.toBeNull();
+  expect(await within(status).findByText(message!)).toBeDefined();
+  // 不顶掉错误，也不顶掉「上次同步」。
+  expect(within(status).getByText(/网盘暂时限制了请求次数/)).toBeDefined();
+  expect(within(status).getByText(/上次同步：/)).toBeDefined();
+});
+
+test("a budget wait that has already passed is not shown", async () => {
+  const host = syncHost({ run: () => runValue({ budget_wait_until: Date.now() - 1_000 }) });
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
+  const status = await screen.findByLabelText("词库同步状态");
+  await within(status).findByText(/上次同步：/);
+  expect(within(status).queryByText(/额度用完/)).toBeNull();
 });
 
 test("words changed through settings are recorded as a local change", async () => {
