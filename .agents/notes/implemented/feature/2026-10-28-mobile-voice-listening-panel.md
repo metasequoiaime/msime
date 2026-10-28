@@ -58,4 +58,5 @@ Status: implemented
 - iOS：Studio 上 iOS 27 模拟器跑 `SpaceVoicePanelTests`、`VoiceSessionTests` 和一个临时截图用例共 28 项全部通过，MSIMEApp 模拟器构建成功。完整 `MSIMEClientTests` 在 Studio 过载时停在 928 项通过，唯一失败是无关的计时用例 `IdleMaintenancePollTests`，所以完整套件结果没有拿到。截图由 XCTest 直接渲染面板得到，不是真键盘界面。
 - 设备测试的文本编辑顺序检查通过正式 JNI 补齐磁盘中被省略的默认值，与同期其余 PR 的设备测试补修一致；未改变产品默认排列。
 - 审查补修：HarmonyOS 的尾部截取复用 `TextPolicy.characters`，避免 ArkTS 运行时的 `Array.from` 按 UTF-16 码元拆开 emoji；由 `test-harmony-string-code-points.py` 和已有 emoji 尾部截取用例共同验证。
+- 按住说话时隐藏按钮后，HarmonyOS 录音中的提示同步为「松开结束录音」，不再引导用户点击已经隐藏的「说完了」。
 - 三端都没有在真机上用真实麦克风验收：电平的实际范围、光圈的流畅度、App 到键盘的电平链路（iOS）和 `measureTextSize` 与实际 `Text` 的行高是否一致（HarmonyOS）都还要真机确认。

@@ -7270,6 +7270,9 @@ struct KeyboardView {
     if (!this.voiceBusy) {
       return this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription();
     }
+    if (this.voiceHeldByKey) {
+      return '松开结束录音';
+    }
     return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
   }
 
