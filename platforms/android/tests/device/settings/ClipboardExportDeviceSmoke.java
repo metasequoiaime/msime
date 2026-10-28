@@ -95,9 +95,12 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         Files.write(state("history"), Files.exists(history()) ? Files.readAllBytes(history()) : new byte[0]);
         Files.write(state("enabled"), new byte[] {(byte) (preferences().getJSONObject("preferences")
             .optBoolean("clipboard_history", false) ? 1 : 0)});
+        Files.write(state("shortcut"), new byte[] {(byte) (preferences().getJSONObject("preferences")
+            .getJSONObject("touch_toolbar").getBoolean("clipboard") ? 1 : 0)});
         clearPendingSyntheticExports();
         put(null);
         enabled(true);
+        clipboardShortcut(true);
         seed();
         openPage();
         stage = "export without device credential is refused";
@@ -447,6 +450,13 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         snapshot.getJSONObject("preferences").put("clipboard_history", value);
         check(host.getMethod("savePreferences", Context.class, JSONObject.class).invoke(null, getTargetContext(), snapshot) != null, "privacy save");
     }
+    /** 导出回归显式打开真实工具栏入口，不依赖默认隐藏的按钮或限时的最近复制提示。 */
+    private void clipboardShortcut(boolean value) throws Exception {
+        JSONObject snapshot = preferences();
+        snapshot.getJSONObject("preferences").getJSONObject("touch_toolbar").put("clipboard", value);
+        check(host.getMethod("savePreferences", Context.class, JSONObject.class)
+            .invoke(null, getTargetContext(), snapshot) != null, "clipboard shortcut save");
+    }
     private String export() throws Exception { return (String) getTargetContext().getClassLoader()
         .loadClass("app.msime.android.ClipboardExport").getMethod("export", Context.class).invoke(null, getTargetContext()); }
     private void restore() throws Exception {
@@ -458,9 +468,10 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         if (!Files.exists(state("local"))) return;
         for (Uri uri : downloadsUnchecked().keySet()) getTargetContext().getContentResolver().delete(uri, null, null);
         enabled(Files.readAllBytes(state("enabled"))[0] == 1);
+        clipboardShortcut(Files.readAllBytes(state("shortcut"))[0] == 1);
         restoreFile(settingsFile(), Files.readAllBytes(state("local")));
         restoreFile(history(), Files.readAllBytes(state("history")));
-        for (String part : new String[] {"local", "history", "enabled"}) Files.deleteIfExists(state(part));
+        for (String part : new String[] {"local", "history", "enabled", "shortcut"}) Files.deleteIfExists(state(part));
     }
     private static void restoreFile(Path path, byte[] bytes) throws IOException {
         if (bytes.length == 0) { Files.deleteIfExists(path); return; }
