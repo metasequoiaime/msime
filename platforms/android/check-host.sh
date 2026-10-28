@@ -1411,8 +1411,9 @@ while IFS= read -r activity; do
     exit 1
   fi
 done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
-dialog_total=$({ rg -c 'new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk -F: '{ total += $NF } END { print total + 0 }')
-dialog_protected=$({ rg -c 'ScreenCaptureProtection\.(show|protect)\(new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk -F: '{ total += $NF } END { print total + 0 }')
+# 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
+dialog_total=$({ rg -o --no-filename 'new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename 'ScreenCaptureProtection\.(show|protect)\(new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk 'END { print NR }')
 if [[ "$dialog_total" != "$dialog_protected" ]]; then
   echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
   exit 1
