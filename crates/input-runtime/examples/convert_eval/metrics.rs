@@ -161,6 +161,101 @@ impl Report {
     }
 }
 
+/// 双拼触点评测的一个分桶。召回按金标准在整张候选表里的名次算（第 1、前 3、第一页即前 9）；`top1_changed` 和 `gold_demoted` 拿同一条用例按想按的键原样打出的名次作对照，量的是「这次按到的键」让结果变了多少。
+#[derive(Default, Clone)]
+pub struct TouchBucket {
+    pub cases: usize,
+    pub top1: usize,
+    pub top3: usize,
+    pub top9: usize,
+    pub found: usize,
+    pub reciprocal_rank: f64,
+    /// 对照的首选是金标准，这次不是。
+    pub top1_changed: usize,
+    /// 对照里找得到金标准，这次名次更靠后或找不到了。
+    pub gold_demoted: usize,
+}
+
+impl TouchBucket {
+    fn observe(&mut self, rank: Option<usize>, reference: Option<usize>) {
+        self.cases += 1;
+        if let Some(rank) = rank {
+            self.found += 1;
+            self.reciprocal_rank += 1.0 / rank as f64;
+            self.top1 += usize::from(rank == 1);
+            self.top3 += usize::from(rank <= 3);
+            self.top9 += usize::from(rank <= 9);
+        }
+        if reference == Some(1) && rank != Some(1) {
+            self.top1_changed += 1;
+        }
+        if let Some(reference) = reference {
+            if rank.is_none_or(|rank| rank > reference) {
+                self.gold_demoted += 1;
+            }
+        }
+    }
+}
+
+/// 一组（方案、触点模式、σ、偏置）的双拼触点评测结果，按音节档和错键数分桶。
+#[derive(Default)]
+pub struct TouchReport {
+    pub overall: TouchBucket,
+    pub by_syllables: BTreeMap<&'static str, TouchBucket>,
+    pub by_errors: BTreeMap<&'static str, TouchBucket>,
+}
+
+/// 一条双拼用例在一组配置下的结果。
+pub struct TouchObservation {
+    pub syllables: usize,
+    /// 按到的键与想按的键不同的位置数。
+    pub errors: usize,
+    /// 金标准在这次候选表里的名次，从 1 起。
+    pub rank: Option<usize>,
+    /// 同一条用例按想按的键原样打出时金标准的名次。
+    pub reference: Option<usize>,
+}
+
+impl TouchReport {
+    pub fn observe(&mut self, case: TouchObservation) {
+        let TouchObservation {
+            syllables,
+            errors,
+            rank,
+            reference,
+        } = case;
+        self.overall.observe(rank, reference);
+        self.by_syllables
+            .entry(syllable_band(syllables))
+            .or_default()
+            .observe(rank, reference);
+        self.by_errors
+            .entry(error_band(errors))
+            .or_default()
+            .observe(rank, reference);
+    }
+}
+
+/// 音节档：1、2、3–5、6 及以上。1–2 个音节走不到纠错整句（至少 3 个音节），6 个以上是长句。
+pub fn syllable_band(syllables: usize) -> &'static str {
+    match syllables {
+        0 | 1 => "1",
+        2 => "2",
+        3..=5 => "3-5",
+        _ => "6+",
+    }
+}
+
+/// 错键数档：0、1、2、3 及以上。纠错整句一个跨度只换一个音节，错两处以上召回会明显变低。
+pub fn error_band(errors: usize) -> &'static str {
+    match errors {
+        0 => "0",
+        1 => "1",
+        2 => "2",
+        _ => "3+",
+    }
+}
+
 /// Fraction of the gold answer's characters that the produced text reproduces from the start.
 /// A whole-sentence decoder that gets the first half right is meaningfully closer than one that
 /// gets nothing right, and top-1 exact match alone cannot see that.
@@ -228,6 +323,53 @@ mod tests {
         assert_eq!(report.overall.top5, 2);
         assert_eq!(report.overall.found, 2);
         assert!((report.overall.reciprocal_rank - (1.0 + 0.2)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn touch_buckets_compare_against_the_typed_as_intended_rank() {
+        let mut report = TouchReport::default();
+        let observe = |report: &mut TouchReport, errors, rank, reference| {
+            report.observe(TouchObservation {
+                syllables: 4,
+                errors,
+                rank,
+                reference,
+            })
+        };
+        // 首选被换掉：对照第 1，这次第 2。
+        observe(&mut report, 1, Some(2), Some(1));
+        // 金标准丢了：对照第 3，这次找不到。
+        observe(&mut report, 2, None, Some(3));
+        // 名次反而靠前，不算降位。
+        observe(&mut report, 1, Some(1), Some(2));
+        // 对照里本来就没有，什么也不记。
+        observe(&mut report, 0, None, None);
+        let overall = &report.overall;
+        assert_eq!(overall.cases, 4);
+        assert_eq!(
+            (overall.top1, overall.top3, overall.top9, overall.found),
+            (1, 2, 2, 2)
+        );
+        assert_eq!(overall.top1_changed, 1);
+        assert_eq!(overall.gold_demoted, 2);
+        assert!((overall.reciprocal_rank - 1.5).abs() < 1e-9);
+        assert_eq!(
+            report.by_syllables.keys().copied().collect::<Vec<_>>(),
+            ["3-5"]
+        );
+        assert_eq!(
+            report.by_errors.keys().copied().collect::<Vec<_>>(),
+            ["0", "1", "2"]
+        );
+        assert_eq!(report.by_errors["1"].cases, 2);
+    }
+
+    #[test]
+    fn bands_cover_every_count() {
+        let syllables: Vec<_> = [1, 2, 3, 5, 6, 12].map(syllable_band).into();
+        assert_eq!(syllables, ["1", "2", "3-5", "3-5", "6+", "6+"]);
+        let errors: Vec<_> = [0, 1, 2, 3, 9].map(error_band).into();
+        assert_eq!(errors, ["0", "1", "2", "3+", "3+"]);
     }
 
     #[test]

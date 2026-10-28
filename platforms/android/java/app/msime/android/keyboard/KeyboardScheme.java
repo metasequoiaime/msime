@@ -146,21 +146,26 @@ public enum KeyboardScheme {
     public static final String JAPANESE_PACK = "japanese";
     /** 粤拼、注音和笔画共用的语言词库资源包的 id，与 client-providers `ResourcePack::LanguageDictionaries` 一致。 */
     public static final String LANGUAGE_DICTIONARIES_PACK = "language-dictionaries";
+    /** 五笔码表资源包的 id，与 client-providers `ResourcePack::Wubi` 一致。86 和 98 两版五笔都读这一张码表（`msime-wubi.db` 里的 `wubi86`、`wubi98` 两张表）。 */
+    public static final String WUBI_PACK = "wubi";
     /** 方案可用性要看的资源包。 */
-    private static final List<String> SCHEME_PACKS = List.of(JAPANESE_PACK, LANGUAGE_DICTIONARIES_PACK);
+    private static final List<String> SCHEME_PACKS = List.of(JAPANESE_PACK, LANGUAGE_DICTIONARIES_PACK, WUBI_PACK);
     /** 随包的日文词典在资源目录里的文件名：日文版 APK 带着它，升级前的旧版也可能还留着它。 */
     private static final String JAPANESE_DICTIONARY = "msime-japanese.dat";
+    /** 随包的五笔码表在资源目录里的文件名：五笔版和开发构建的 APK 带着它，升级前的旧版也可能还留着它。 */
+    private static final String WUBI_DICTIONARY = "msime-wubi.db";
 
-    /** 这个方案要的按需资源包 id：日语是日文词典，粤拼、注音和笔画是语言词库；只用共享资源的方案为 null。 */
+    /** 这个方案要的按需资源包 id：日语是日文词典，五笔是五笔码表，粤拼、注音和笔画是语言词库；只用共享资源的方案为 null。 */
     public String resourcePack() {
         if (this == JAPANESE || this == JAPANESE_NINE_KEY) return JAPANESE_PACK;
+        if (this == WUBI) return WUBI_PACK;
         return languageDictionary() == null ? null : LANGUAGE_DICTIONARIES_PACK;
     }
 
     /**
-     * 本机已经具备的方案资源包：`installed` 说已装好的资源包，加上 `resources`（HostOptions 的资源目录）里还带着日文词典时的日文包。
+     * 本机已经具备的方案资源包：`installed` 说已装好的资源包，加上 `resources`（HostOptions 的资源目录）里还带着日文词典或五笔码表时的日文包、五笔包。
      *
-     * <p>日文版 APK 把日文词典随包放在资源目录里，从没有按需下载的旧版升级、尚未收编的安装也还留着它；这两种情况 host-api 都直接读资源目录里的那份，所以算作已具备。
+     * <p>日文版 APK 把日文词典、五笔版和开发构建的 APK 把五笔码表随包放在资源目录里，从不按需下载它们的旧版升级、尚未收编的安装也还留着它们；这些情况 host-api 都直接读资源目录里的那份，所以算作已具备。
      */
     public static Set<String> availablePacks(java.util.function.Predicate<String> installed, String resources) {
         Set<String> packs = new LinkedHashSet<>(SCHEME_PACKS.size());
@@ -170,8 +175,21 @@ public enum KeyboardScheme {
         if (resources != null && !resources.isEmpty()) {
             java.io.File root = new java.io.File(resources);
             if (root.isAbsolute() && new java.io.File(root, JAPANESE_DICTIONARY).isFile()) packs.add(JAPANESE_PACK);
+            if (root.isAbsolute() && new java.io.File(root, WUBI_DICTIONARY).isFile()) packs.add(WUBI_PACK);
         }
         return Set.copyOf(packs);
+    }
+
+    /**
+     * 要不要替用户补下五笔码表（设置应用回到前台时请求下载，键盘里提示一句去设置应用下载）：本版本提供五笔，码表不在本机（`packs` 是 {@link #availablePacks} 的结果，里面没有五笔包），五笔还在启用的方案里（`enabledIds` 是 `touch_keyboard_schemes.enabled` 的原样内容，没存过列表时为 null，按默认启用列表算），而偏好里当前方案 `scheme` 或要切回的中文方案 `lastChineseScheme` 是五笔。
+     *
+     * <p>这是在用五笔的人：升级到不带码表的瘦包、旧码表又因词库换了版本收编不了（每次词库锁改了 `msime-wubi.db` 都会这样，已装的 wubi 资源包随之过期），或在首启引导里选了五笔。与 macOS 设置应用启动时为已选五笔的用户补齐码表的规则相同。光是启用列表里有五笔不算：新装 full 的默认启用列表本来就有五笔，按它判断会让每个新用户一打开应用就下载近百 MB。反过来光看偏好也不够：在设置页移除了五笔、偏好里的 `last_chinese_scheme` 却还留着五笔的人不要了。码表不在时键盘不列出五笔、host-api 把五笔回退到别的方案，但不改写偏好里的这两项，所以升级后仍能认出这些用户。
+     */
+    public static boolean wubiTableWanted(String scheme, String lastChineseScheme, List<String> enabledIds,
+            Set<String> packs, AppEdition edition) {
+        if (!edition.offers("wubi") || (packs != null && packs.contains(WUBI_PACK))) return false;
+        if (!"wubi".equals(scheme) && !"wubi".equals(lastChineseScheme)) return false;
+        return enabledFromPreferenceIds(enabledIds, edition).contains(WUBI);
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
@@ -190,7 +208,7 @@ public enum KeyboardScheme {
     /**
      * 这个方案能不能跑：不需要资源包的方案总能跑；需要的，`packs`（{@link #availablePacks} 的结果）里有它的资源包时能跑；粤拼、注音和笔画的词典在 HostOptions 的 `language_dictionaries` 目录 `directory` 里随包带着时也能跑。
      *
-     * <p>词典不在时 host-api 会从粤拼、注音和笔画回退，日语只出假名，提供这个方案就等于提供一个不起作用的键盘。
+     * <p>词典不在时 host-api 会从粤拼、注音、笔画和五笔回退，日语只出假名，提供这个方案就等于提供一个不起作用的键盘。
      */
     public boolean installed(String directory, Set<String> packs) {
         String pack = resourcePack();

@@ -1215,13 +1215,28 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// 从共享引擎读取原文和唯一纠错；查询不改变键盘组字，也不学习当前词。
+  /// 从共享引擎读取原文和唯一纠错；查询不改变键盘组字，也不学习当前词。空格和标点边界只用这一查询。
   func englishCorrections(forPrefix prefix: String) -> [String] {
+    englishSuggestionRequest(prefix: prefix, completions: false)?.items ?? []
+  }
+
+  /// 候选栏的合并展示上限：原文加至多十一个前缀补全，与 Android、HarmonyOS 相同。
+  static let englishSuggestionDisplayLimit = 12
+
+  /// 候选栏的合并展示：有纠错时为原文与纠错（corrected 为真），原文已是完整的词时只有原文，否则原文后接前缀补全。
+  func englishSuggestions(forPrefix prefix: String) -> (items: [String], corrected: Bool) {
+    englishSuggestionRequest(prefix: prefix, completions: true) ?? ([], false)
+  }
+
+  private func englishSuggestionRequest(prefix: String, completions: Bool) -> (items: [String], corrected: Bool)? {
     guard handle != 0, !prefix.isEmpty, prefix.utf8.count <= 128,
           let resources = options["resources"] as? String,
-          NSString(string: resources).isAbsolutePath else { return [] }
+          NSString(string: resources).isAbsolutePath else { return nil }
+    let limit = completions ? Self.englishSuggestionDisplayLimit : 2
+    var fields: [String: Any] = ["prefix": prefix, "limit": limit, "correction": true]
+    if completions { fields["completions"] = true }
     do {
-      let request = try JSONSerialization.data(withJSONObject: ["prefix": prefix, "limit": 2, "correction": true])
+      let request = try JSONSerialization.data(withJSONObject: fields)
       let resourceData = Data(resources.utf8)
       let response = try request.withUnsafeBytes { requestBytes in
         try resourceData.withUnsafeBytes { resourceBytes in
@@ -1231,9 +1246,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         }
       }
       guard let value = response as? [String: Any], value["prefix"] as? String == prefix,
-            let items = value["items"] as? [String], items.first == prefix, items.count <= 2 else { return [] }
-      return items
-    } catch { return [] }
+            let items = value["items"] as? [String], items.first == prefix, items.count <= limit else { return nil }
+      let corrected = completions && value["corrected"] as? Bool == true
+      if corrected && items.count != 2 { return nil }
+      return (items, corrected)
+    } catch { return nil }
   }
 
   func candidateGlossResources() -> String? {

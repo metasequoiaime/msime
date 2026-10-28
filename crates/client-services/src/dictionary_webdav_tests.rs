@@ -27,13 +27,12 @@ impl DavHttp for Arc<Recorder> {
 }
 
 #[test]
-fn the_key_ring_lives_under_its_own_prefix_and_its_requests_are_counted() {
+fn the_key_ring_lives_under_its_own_prefix() {
     let recorder = Arc::new(Recorder::default());
-    let requests = Arc::new(AtomicUsize::new(0));
     let prefixed = Prefixed {
         inner: Box::new(recorder.clone()),
         prefix: KEYRING,
-        requests: requests.clone(),
+        roots_pending: AtomicBool::new(false),
     };
     let clock = WallClock;
     let dav = Dav::new(&prefixed, &clock);
@@ -51,7 +50,7 @@ fn the_key_ring_lives_under_its_own_prefix_and_its_requests_are_counted() {
             assert!(destination.starts_with("msime-dictionary/keyring/msime-clipboard/"));
         }
     }
-    assert_eq!(requests.load(Ordering::SeqCst), sent.len());
+    assert_eq!(sent.len(), 3);
 }
 
 #[test]

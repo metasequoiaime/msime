@@ -125,7 +125,7 @@ public final class KeyboardActionRowSmoke {
                     "长空格模式扩大空格键");
                 check(KeyboardActionRow.designEntries(layout, globe, false, false, true, true)
                     .stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
-                    "英文长空格底行的句点由逗号下滑输入");
+                    "英文长空格底行的句点由逗号滑动输入");
                 check(KeyboardActionRow.designEntries(layout, globe, true, false, false, true)
                     .stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
                     .findFirst().orElseThrow().weight() == KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT,

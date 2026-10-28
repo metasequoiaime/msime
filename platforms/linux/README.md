@@ -676,6 +676,8 @@ Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其�
 
 `bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon（只有 `ibus-mode-hint-x11-badge*` 两项、`ibus-mode-hint-x11-toolbar` 和 `linux-floating-panels-x11` 经 `xvfb-run` 在测试里起停一个 Xvfb，验证 IBus 在 X11 会话里画的切换徽章、悬浮工具栏的接线，以及工具栏的位置、按钮、提示、菜单、拖动和双拼键位图的摆放；后者设置了 `MSIME_TEST_CANVAS_ARTIFACTS` 时把截屏存成 PNG），也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
 
+这个门禁是 Debian bookworm 上的 Debug 构建。发版的 `.rpm` 在 Fedora 44 容器（`tests/tools/Dockerfile.package-rpm`）里以 Release 构建并再跑一遍 ctest，Fedora 的 Pango、字体和编译器不同，有的测试只在那里失败。PR 上的「Linux native host (Fedora)」用 `MSIME_PACKAGE_FORMAT=rpm MSIME_PACKAGE_TESTS_ONLY=1 bash platforms/linux/package-container.sh` 跑同一个镜像、同一份构建配置，停在 ctest，不跑 cpack、不编桌面二进制；本机要复现 Fedora 上的失败也用这条命令。
+
 `scripts/verify-local.sh` 的「compile: linux desktop shell」阶段在非 Linux 主机上用 `tests/tools/Dockerfile.desktop-check` 构建的镜像跑 `cargo check -p msime-desktop --locked --all-targets`：与编译门禁同一个固定摘要的 `rust:1.97.1-bookworm`，预装 Tauri 外壳需要的 webkit2gtk、gtk3、libsoup、javascriptcoregtk 和 cpal 需要的 ALSA 开发包，apt 只在 Dockerfile 变化后的第一次运行时执行，`--quick` 和 pre-push 钩子不再每次重装。镜像构建日志留在 `target/linux-desktop-check/image.log`，apt 失败时阶段打印其末尾并 FAIL。
 
 原生门禁和桌面检查分别把 `CARGO_HOME` 放在已有挂载内的 `/build/cargo-home`、`/ctarget/cargo-home`，对应宿主的 `target/linux-build-gate/cargo-home`、`target/linux-desktop-check/cargo-home`。registry 和 git 下载缓存随构建目录保留，后续临时容器复用；首次运行或依赖变化仍可联网准备，日常命令继续使用 `--locked`。两个缓存按 checkout 与门禁隔离，不借用主机 Cargo home，删除 worktree 时一并清理。

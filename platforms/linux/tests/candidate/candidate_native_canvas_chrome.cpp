@@ -182,6 +182,8 @@ void caret_edit_suffix() {
   // 提示算进卡片的最小宽度：候选再短，提示也能整段画在内边距以内。
   assert(hinted.panel.width >= plain.panel.width && hinted.auxiliary_hint.x >= hinted.panel.x + 4 + hinted.text_left - 1);
   assert(hinted.auxiliary_hint.y >= hinted.items.back().y + hinted.items.back().height);
+  // 这一行至少有释义字体本身那么高：提示整段落在更矮的回退字体里（没有中文字体的 Fedora 上缺字方框只有 15px，Noto Sans 一行 17px）时也不例外，下面加上连击后卡片才不会长高。
+  assert(hinted.auxiliary_hint.height >= host::native_canvas_text_size(cr, hinted.gloss_font, "X").second);
   // 贴右边距：提示的右缘就是行内文字的右缘（卡片右缘减内边距和右边距）。
   assert(near(hinted.auxiliary_hint.x + hinted.auxiliary_hint.width,
               hinted.panel.x + hinted.panel.width - 4 - hinted.text_right, 1));

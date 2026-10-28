@@ -1,6 +1,6 @@
 //! Read-only verification of an already downloaded, pinned resource set.
 //!
-//! `--omit-on-demand` 按发布包的规则校验：按需下载的文件组整体缺席时只校验其余核心文件，并且只输出核心文件名。哪些组可以缺席由 `--platform <os>`（取值同 `std::env::consts::OS`，见 `resources::on_demand_artifacts`）决定：macOS 是日文词典那一组（词典与两份 Mozc 许可文本）和五笔码表；不给 `--platform` 时只有日文词典那一组，Android 和 iOS 的发布包就是这样。
+//! `--omit-on-demand` 按发布包的规则校验：按需下载的文件组整体缺席时只校验其余核心文件，并且只输出核心文件名。哪些组可以缺席由 `--platform <os>`（取值同 `std::env::consts::OS`，见 `resources::on_demand_artifacts`）决定：macOS 和 Android 是日文词典那一组（词典与两份 Mozc 许可文本）和五笔码表；不给 `--platform` 时只有日文词典那一组，iOS 的发布包就是这样。
 //!
 //! `--edition <id>` 按该版本的资源锁（`Edition::resource_set`，版本表 `shared/contracts/editions.json`）校验，而不是 full 的 `resources/desktop-dictionary.lock.json`；目录必须恰好是该版本带的文件。
 use msime_client_core::edition::Edition;

@@ -25,12 +25,25 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
     private ClassLoader loader;
     private Class<?> assetsType;
     private float density;
+    /** 带 `-e capacity true` 时只跑剪贴板容量专项。默认清单已满 100 项 instrumentation，容量专项借这个始终声明、同样指向产品包的入口；原先借的 ClipboardCategoriesDeviceSmoke 只在 MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE=1 的清单里才有，完整套件一跑到它就报 Unknown instrumentation target。 */
+    private boolean capacityOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        capacityOnly = arguments != null && "true".equals(arguments.getString("capacity"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
-        return "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
+        return capacityOnly
+            ? "main and visitor clipboard histories retain sixty synthetic entries at the saved capacity"
+            : "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (capacityOnly) {
+            ClipboardCapacityDeviceSmoke.runCapacity(getTargetContext(), this);
+            return;
+        }
         loader = getTargetContext().getClassLoader();
         assetsType = loader.loadClass("app.msime.android.CandidateCanvasAssets");
         density = getTargetContext().getResources().getDisplayMetrics().density;

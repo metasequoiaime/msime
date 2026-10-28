@@ -20,12 +20,18 @@ final class InstallNotice {
 
     private InstallNotice() {}
 
-    static void showIfNeeded(AppCompatActivity activity) {
-        if (activity.isFinishing() || activity.isDestroyed()) return;
+    /**
+     * 这个安装包还没显示过说明时显示它。
+     *
+     * @param afterDismiss 说明关掉（点「知道了」或到时自动关闭）之后在主线程上调用，可以为 null；没有显示时不调用
+     * @return 这次是否显示了说明
+     */
+    static boolean showIfNeeded(AppCompatActivity activity, @Nullable Runnable afterDismiss) {
+        if (activity.isFinishing() || activity.isDestroyed()) return false;
         String stamp = installStamp(activity);
         if (!InstallNoticePolicy.shouldShow(stamp,
                 activity.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-                    .getString(SHOWN_INSTALL_STAMP, null))) return;
+                    .getString(SHOWN_INSTALL_STAMP, null))) return false;
         activity.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit()
             .putString(SHOWN_INSTALL_STAMP, stamp).apply();
         var dialog = new MaterialAlertDialogBuilder(activity)
@@ -36,7 +42,9 @@ final class InstallNotice {
         dialog.setOnShowListener(ignored -> new Handler(Looper.getMainLooper())
             .postDelayed(() -> { if (dialog.isShowing()) dialog.dismiss(); },
                 InstallNoticePolicy.dismissDelayMillis(MESSAGE.length())));
+        if (afterDismiss != null) dialog.setOnDismissListener(ignored -> afterDismiss.run());
         dialog.show();
+        return true;
     }
 
     @Nullable

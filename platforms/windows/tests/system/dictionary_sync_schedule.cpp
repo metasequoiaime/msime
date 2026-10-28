@@ -32,12 +32,18 @@ int main() {
     require(dictionary_sync_configured(
         nlohmann::json{{"dictionary_sync_webdav", {{"url", "https://dav.example.test/"}, {"username", "u"}, {"password", "p"}}}}));
 
-    // 请求：Server 自己的 HostOptions、本用户的同步目录和 run 动作；不带设备名和凭据。
+    // 请求：Server 自己的 HostOptions、本用户的同步目录和 run 动作；不带设备名和凭据，只用设置窗口生成的设备身份。
     const nlohmann::json options{{"api_version", 1}, {"preferences_directory", "C:\\ProgramData\\MSIME"}};
     const auto request = dictionary_sync_request(options, "C:\\Users\\a\\AppData\\Local\\MSIME\\dictionary-sync", "local_change");
     require(request == nlohmann::json{{"options", options},
                                       {"directory", "C:\\Users\\a\\AppData\\Local\\MSIME\\dictionary-sync"},
+                                      {"create_identity", false},
                                       {"action", {{"operation", "run"}, {"trigger", "local_change"}}}});
+    // 设置窗口还没生成身份：同步答 clipboard_identity_missing，按它给的间隔再来，不算身份冲突。
+    auto missing = parse_dictionary_sync_answer(
+        R"({"ok":true,"value":{"network":false,"next_check_ms":1800000,"status":{},"error":"clipboard_identity_missing"}})");
+    require(missing.ok && missing.sync_error == "clipboard_identity_missing" && !dictionary_sync_keystore_conflict(missing));
+    require(dictionary_sync_delay(missing) == dictionary_sync_max_delay);
 
     // 回答：调用失败、同步失败和成功三种形状；读不懂的当失败。
     auto answer = parse_dictionary_sync_answer(R"({"ok":false,"error":"dictionary_sync_not_configured"})");

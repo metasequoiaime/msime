@@ -37,7 +37,7 @@ Status: implemented
 
 ### 五笔码表：资源包 `wubi`
 
-- **发货规则按组**：`on_demand_artifacts("macos")` 改为文件组的列表，`[日文词典三件套, msime-wubi.db]`；Android 和 iOS 仍是 `[日文词典三件套]`。`ResourceSet::as_shipped_in_groups` 逐组应用「整组缺席才去掉」。`verify_resources` 加了 `--platform <os>`，不给时只有日文组，Android 和 iOS 的脚本不受影响。运行时校验只容许五笔码表缺席。打包时，默认方案是五笔的版本（水杉五笔）由 `stage-resources.sh` 把它加回来，`check_app` 对五笔版断言它在、对其余版本断言它不在。拼音版以前也带着它，它没有五笔方案，现在一并省掉。
+- **发货规则按组**：`on_demand_artifacts("macos")` 改为文件组的列表，`[日文词典三件套, msime-wubi.db]`；iOS 仍是 `[日文词典三件套]`，Android 后来也加上五笔码表，见 [Android 五笔码表按需下载](2026-10-28-android-on-demand-wubi.md)。`ResourceSet::as_shipped_in_groups` 逐组应用「整组缺席才去掉」。`verify_resources` 加了 `--platform <os>`，不给时只有日文组，iOS 的暂存脚本这样调用；Android 的 `build-apk.sh` 给 `--platform android`。运行时校验只容许五笔码表缺席。打包时，默认方案是五笔的版本（水杉五笔）由 `stage-resources.sh` 把它加回来，`check_app` 对五笔版断言它在、对其余版本断言它不在。拼音版以前也带着它，它没有五笔方案，现在一并省掉。
 - **资源包**：`ResourcePack::Wubi` 是 `desktop-dictionary.lock.json` 里 `msime-wubi.db` 那一项，`schemes = ["wubi"]`。设置页选五笔时下载（`resourcePackForScheme`）。设置应用启动时，当前方案或上一次的中文方案是五笔，就补下。`offered_by` 只在 macOS、本版本有五笔方案、而 HostOptions 的资源目录里没有它时列出。词库自动更新只给本机已有的五笔码表下载新版本：在资源目录里，或 `wubi` 资源包已装。
 - **找码表**：host-api 的 `wubi_dictionary` 先看资源目录（随包或词库更新目录），有就不另给路径；没有时用词库更新里的那份或资源包里的那份，交给新增的 `EngineOptions::wubi_dictionary`。聚焦时 `refresh_resource_packs` 发现它变了，就在输入空闲时重建 Engine，和其他资源包相同。
 - **缺码表时回退，不让输入法坏掉**：
@@ -87,4 +87,5 @@ Status: implemented
 - [iOS 语言词库按需下载](2026-10-13-ios-language-packs.md)：同一套资源包与 `on_demand_artifacts` 规则。本篇把规则改成按组，iOS 的取值不变。部分重叠，互链。
 - [Android 本地语音模型](2026-10-12-android-local-voice-models.md)、[Android 离线语音导入](2026-10-12-android-offline-voice-import.md)：Android 的 `voice-runtime` 资源包直接取上游 `.aar`。本篇说明 macOS 为什么不能这样做，另立 `voice-runtime-macos`。部分重叠，Android 的决定不变。
 - [本地语音模型导入](2026-10-09-local-voice-model-import.md)：模型导入与本篇无关，运行库同样可以经资源包的 `import` 离线安装。
+- [Android 五笔码表按需下载](2026-10-28-android-on-demand-wubi.md)：把本篇的五笔码表规则搬到 Android 的 full 和拼音版瘦包，沿用资源包 `wubi`、host-api 的回退和代次补写；升级收编与启动补齐按 Android 的方式另做。部分重叠，互链。
 - [五笔反查](2026-10-11-wubi-reverse-lookup.md)：反查编码只在五笔方案里显示，查码组只在五笔设置显示时出现，这是拼音用户用不到码表的依据。决定不变。

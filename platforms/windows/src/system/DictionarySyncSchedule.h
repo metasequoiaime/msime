@@ -31,11 +31,12 @@ inline bool dictionary_sync_configured(const nlohmann::json &preferences) {
   return url != webdav->end() && url->is_string() && !url->get_ref<const std::string &>().empty();
 }
 
-// `msime_client_dictionary_sync` 的 run 请求：`options` 是 Server 自己跑的 HostOptions 文档（偏好目录和 Engine 词库路径都从它来），`directory` 是本用户的同步目录（UTF-8，common/DictionarySyncDirectory.h），`trigger` 是 local_change 或 periodic。设备名不带，由 Rust 取本机名称，与设置窗口相同。
+// `msime_client_dictionary_sync` 的 run 请求：`options` 是 Server 自己跑的 HostOptions 文档（偏好目录和 Engine 词库路径都从它来），`directory` 是本用户的同步目录（UTF-8，common/DictionarySyncDirectory.h），`trigger` 是 local_change 或 periodic。设备名不带，由 Rust 取本机名称，与设置窗口相同。带 `create_identity: false`：一个安装只有一个设备身份，只由设置窗口在第一次配置时生成；设置窗口还没配过时同步答 `clipboard_identity_missing`（不登记、不联网，next_check_ms 照样给出），Server 按它再来。
 inline nlohmann::json dictionary_sync_request(const nlohmann::json &options, const std::string &directory,
                                               std::string_view trigger) {
   return nlohmann::json{{"options", options},
                         {"directory", directory},
+                        {"create_identity", false},
                         {"action", {{"operation", "run"}, {"trigger", std::string(trigger)}}}};
 }
 

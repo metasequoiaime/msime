@@ -14,6 +14,7 @@
 #   MSIME_REQUIRE_OFFICIAL_PLUGINS=1 fails unless target/plugin-packs holds the official plugin packs scripts/build-official-plugins.sh builds (release-linux.yml sets it); the default installs them into share/<client>/plugin-packs when they are there and packages without them otherwise.
 #   MSIME_PACKAGE_EDITIONS 是要打包的版本 id，逗号分隔，缺省是版本表里每个有 Linux 段的版本（platforms/linux/scripts/edition_linux.py editions）。各版本共用同一次构建出的宿主库、msime-mcp 和桌面二进制，原生宿主按版本各配置、各打一个包：full 是今天的 msime-linux，装在 /usr；其他版本是 msime-linux-<id>，装在 /opt/msime-linux-<id>。单测只在 full 的构建上跑，其他版本的原生代码与它只差 LinuxEdition.h 里的名字。
 #   MSIME_PACKAGE_FORMAT=rpm builds the RPM in a Fedora container (tests/tools/Dockerfile.package-rpm) instead of the .deb and .tar.gz in the Debian one. It is a separate build, not a conversion: rpmbuild takes Requires from the libraries the binaries link, so they have to be linked against Fedora's (#2095).
+#   MSIME_PACKAGE_TESTS_ONLY=1 只走到 ctest 为止：同一个镜像、同样的 Release 构建和 CMake 配置，不跑 cpack、不出任何包，版本缺省只有 full（单测只在 full 上跑），也缺省不编桌面二进制（MSIME_PACKAGE_DESKTOP 缺省变为 0）。ci-platforms.yml 的「Linux native host (Fedora)」在 PR 上用它配 MSIME_PACKAGE_FORMAT=rpm，把只在 Fedora 打包容器里失败的 ctest 提前到合并前，见 .agents/notes/implemented/process/2026-10-28-ci-red-tracking.md。
 #
 # The desktop binary embeds the web frontend at compile time, so apps/desktop/dist must be built first (`pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`). It is built outside the container because the container has no Node toolchain and a bind-mounted node_modules would mix host and container binaries.
 #
@@ -33,13 +34,26 @@ version="${1:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
   echo "version must be MAJOR.MINOR.PATCH: $version" >&2
   exit 2
 }
-desktop="${MSIME_PACKAGE_DESKTOP:-1}"
+tests_only="${MSIME_PACKAGE_TESTS_ONLY:-0}"
+[[ "$tests_only" == 0 || "$tests_only" == 1 ]] || { echo "MSIME_PACKAGE_TESTS_ONLY must be 0 or 1: $tests_only" >&2; exit 2; }
+# 只测试时缺省不编 Tauri 设置应用：ctest 不用它，它却是整个构建里最慢的一块。
+if [ "$tests_only" = 1 ]; then
+  desktop="${MSIME_PACKAGE_DESKTOP:-0}"
+else
+  desktop="${MSIME_PACKAGE_DESKTOP:-1}"
+fi
 # 容器里的 git 读不了挂进去的检出（worktree 的 .git 指向宿主机路径，目录属主也与容器里的 root 不同），所以发布日期在宿主机上取好传进去。源码包解出的树没有 .git、自带 platforms/linux/release-date.txt，这时传空值，交给 build.rs 读那个文件。
 release_date="${MSIME_RELEASE_DATE:-}"
 if [ -z "$release_date" ] && [ ! -f platforms/linux/release-date.txt ]; then
   release_date=$(git log -1 --format=%cs HEAD 2>/dev/null || true)
 fi
-editions="${MSIME_PACKAGE_EDITIONS:-$(python3 platforms/linux/scripts/edition_linux.py editions)}"
+case "$tests_only" in
+  0) editions="${MSIME_PACKAGE_EDITIONS:-$(python3 platforms/linux/scripts/edition_linux.py editions)}" ;;
+  1)
+    editions="${MSIME_PACKAGE_EDITIONS:-full}"
+    [[ ",$editions," == *",full,"* ]] || { echo "MSIME_PACKAGE_TESTS_ONLY=1 runs the unit tests, which only the full edition builds; MSIME_PACKAGE_EDITIONS must include full" >&2; exit 2; }
+    ;;
+esac
 known_editions=",$(python3 platforms/linux/scripts/edition_linux.py editions),"
 IFS=, read -r -a edition_list <<<"$editions"
 [ "${#edition_list[@]}" -gt 0 ] || { echo "MSIME_PACKAGE_EDITIONS names no edition" >&2; exit 2; }
@@ -95,6 +109,7 @@ docker run --rm --init \
   -e MSIME_PACKAGE_DESKTOP="$desktop" \
   -e MSIME_PACKAGE_FORMAT="$format" \
   -e MSIME_PACKAGE_EDITIONS="$editions" \
+  -e MSIME_PACKAGE_TESTS_ONLY="$tests_only" \
   -e MSIME_REQUIRE_LANGUAGE_DICTIONARIES="${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" \
   -e MSIME_REQUIRE_OFFICIAL_PLUGINS="${MSIME_REQUIRE_OFFICIAL_PLUGINS:-0}" \
   -e MSIME_REQUIRE_WORDBOOKS="${MSIME_REQUIRE_WORDBOOKS:-0}" \
@@ -181,6 +196,7 @@ docker run --rm --init \
       if [ "$testing" = ON ]; then
         ctest --test-dir "$build" --output-on-failure
       fi
+      [ "$MSIME_PACKAGE_TESTS_ONLY" = 0 ] || continue
       python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
         --root "$build" --root /build/cargo/release \
         --output "/build/symbols/linux-$MSIME_VERSION-$MSIME_PACKAGE_FORMAT-$edition-$(uname -m)-${MSIME_BUILD_RUN:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
@@ -193,6 +209,10 @@ docker run --rm --init \
       fi
       rm -rf /build/dist/_CPack_Packages
     done
+    if [ "$MSIME_PACKAGE_TESTS_ONLY" = 1 ]; then
+      echo "MSIME_PACKAGE_TESTS_ONLY=1: built and tested $MSIME_PACKAGE_EDITIONS, no packages produced" >&2
+      exit 0
+    fi
     cd /build/dist
     if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
       sha256sum -- *.rpm > SHA256SUMS

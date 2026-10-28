@@ -7715,7 +7715,7 @@ fn history_capture_bridge_validates_and_returns_no_text() {
 pub(super) fn test_host(root: &std::path::Path) -> u64 {
     test_host_preferences(root, chinese_preferences())
 }
-/// 夹具的资源目录带上一个五笔码表文件（空的 SQLite 库）。macOS 的发布包可以不带 `msime-wubi.db`，资源目录里没有它时 host-api 把五笔当作没装（`wubi_dictionary_missing`），这些夹具要的是一个五笔照常可用的安装。
+/// 夹具的资源目录带上一个五笔码表文件（空的 SQLite 库）。macOS 和 Android 的发布包可以不带 `msime-wubi.db`，资源目录里没有它时 host-api 把五笔当作没装（`wubi_dictionary_missing`），这些夹具要的是一个五笔照常可用的安装。
 fn bundle_wubi_table(resources: &std::path::Path) {
     std::fs::write(resources.join("msime-wubi.db"), b"").unwrap();
 }
@@ -18278,7 +18278,7 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
-/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS）时算缺，五笔像缺词库的粤拼一样回退。
+/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS 和 Android）时算缺，五笔像缺词库的粤拼一样回退。
 #[test]
 fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_either() {
     let root = tempfile::tempdir().unwrap();
@@ -18289,7 +18289,10 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
     let on_demand = ON_DEMAND_ARTIFACTS
         .iter()
         .any(|group| group.contains(&"msime-wubi.db"));
-    assert_eq!(on_demand, cfg!(target_os = "macos"));
+    assert_eq!(
+        on_demand,
+        cfg!(any(target_os = "macos", target_os = "android"))
+    );
 
     assert_eq!(
         super::wubi_dictionary(Some(&DownloadedDictionaries::new(&state)), &resources),
@@ -18903,8 +18906,15 @@ fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
         .unwrap()
         .set_modified(modified)
         .unwrap();
+    // 夹具的锁里没有五笔码表，只有日文词典那一组可删。
     for name in on_demand.iter().flat_map(|group| group.iter()) {
-        std::fs::remove_file(resources.join(name)).unwrap();
+        if specification
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.name == *name)
+        {
+            std::fs::remove_file(resources.join(name)).unwrap();
+        }
     }
 
     let error = verify_resources_once(&resources, &specification, &state, on_demand)

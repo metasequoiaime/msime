@@ -13,11 +13,14 @@ use msime_client_core::cloud::dictionary_sync::{
     LocalChange, LocalDictionary, LocalError, LocalOutcome, Options, Trigger, WordKey, WordKind,
 };
 use msime_client_services::dictionary_webdav::{probe, DictionarySync, RunResult, STATE_FILE};
+use msime_client_services::dictionary_webdav_scheduler::{
+    fingerprint, Round, Scheduler, SchedulerHost, Timing, Watched, BACKGROUND_LOCK_WAIT,
+};
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 const USER: &str = "synthetic@example.test";
 const PASSWORD: &str = "synthetic-app-password";
@@ -29,9 +32,40 @@ struct Dav {
     authorization: String,
     /// 服务端暂时不可用：每个请求答 503，不带 `Retry-After`。
     down: Arc<AtomicBool>,
+    requests: Arc<AtomicUsize>,
+    rate_limited: Arc<AtomicBool>,
+    dictionary_retries: Arc<AtomicUsize>,
+    registration_blocked: Arc<AtomicBool>,
 }
 
 async fn handle(State(dav): State<Dav>, request: Request) -> Response {
+    dav.requests.fetch_add(1, Ordering::SeqCst);
+    if dav.registration_blocked.load(Ordering::SeqCst)
+        && request.method() == "MOVE"
+        && request
+            .headers()
+            .get("destination")
+            .is_some_and(|destination| {
+                destination
+                    .to_str()
+                    .is_ok_and(|path| path.contains("/keyring/") && path.contains("/e-"))
+            })
+    {
+        return StatusCode::BAD_GATEWAY.into_response();
+    }
+    if dav.rate_limited.load(Ordering::SeqCst) {
+        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "0")]).into_response();
+    }
+    if request.uri().path().contains("/msime-dictionary/v1/")
+        && dav
+            .dictionary_retries
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok()
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "0")]).into_response();
+    }
     if dav.down.load(Ordering::SeqCst) {
         return StatusCode::BAD_GATEWAY.into_response();
     }
@@ -92,6 +126,10 @@ fn start() -> Server {
             base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{PASSWORD}"))
         ),
         down: Arc::default(),
+        requests: Arc::default(),
+        rate_limited: Arc::default(),
+        dictionary_retries: Arc::default(),
+        registration_blocked: Arc::default(),
     };
     let app_dav = dav.clone();
     runtime.spawn(async move {
@@ -108,6 +146,11 @@ fn start() -> Server {
 impl Server {
     fn url(&self) -> String {
         format!("http://{}/dav/", self.address)
+    }
+
+    /// 客户端发来过多少个请求。
+    fn requests(&self) -> usize {
+        self.dav.requests.load(Ordering::SeqCst)
     }
 
     /// 绕过鉴权直接对文件系统发一个请求，测试用来种文件、删文件、列目录。
@@ -278,6 +321,209 @@ fn paired(
     (first, second)
 }
 
+fn expire_request_window(directory: &Path) {
+    let path = directory.join(STATE_FILE);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // 多轮收敛与回退恢复用例模拟阶段之间额度窗口已过期；硬限额由专门回归覆盖。
+    for request in stored["state"]["schedule"]["requests"]
+        .as_array_mut()
+        .unwrap()
+    {
+        *request = serde_json::json!(0);
+    }
+    std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+}
+
+#[test]
+fn failed_registration_keeps_the_internal_identity_without_publishing_it() {
+    for cached in [false, true] {
+        let server = start();
+        let directory = tempfile::tempdir().unwrap();
+        let sync = device(&server, directory.path(), "Synthetic desktop");
+        let mut words = Words::default();
+        server.dav.rate_limited.store(!cached, Ordering::SeqCst);
+        server
+            .dav
+            .registration_blocked
+            .store(cached, Ordering::SeqCst);
+        let failed = manual(&sync, &mut words);
+        assert!(failed.report.is_err());
+        assert!(failed.view.device_id.is_none());
+        assert!(directory
+            .path()
+            .join("cloud-clipboard-relay-keystore")
+            .is_file());
+        assert_eq!(
+            directory
+                .path()
+                .join("cloud-clipboard-webdav-state")
+                .exists(),
+            cached
+        );
+        let status = sync.status().unwrap();
+        assert!(status.device_id.is_none(), "未登记的内部身份不能开放给宿主");
+        assert!(!status.approved);
+        let offline = sync
+            .run(&mut words, Trigger::LocalChange, Options::default())
+            .unwrap();
+        assert!(!offline.network);
+        assert!(offline.view.device_id.is_none());
+        assert_eq!(offline.view.last_error, status.last_error);
+        server.dav.rate_limited.store(false, Ordering::SeqCst);
+        server
+            .dav
+            .registration_blocked
+            .store(false, Ordering::SeqCst);
+        let registered = manual(&sync, &mut words);
+        assert!(registered.report.is_ok(), "{:?}", registered.report);
+        assert!(registered.view.device_id.is_some());
+        assert_eq!(sync.status().unwrap().device_id, registered.view.device_id);
+    }
+}
+
+#[test]
+fn http_registration_failures_keep_the_budget_without_a_previous_identity() {
+    for previous_identity in [false, true] {
+        let server = start();
+        let directory = tempfile::tempdir().unwrap();
+        let sync = device(&server, directory.path(), "Synthetic desktop");
+        let mut words = Words::default();
+        let mut used = 0;
+        if previous_identity {
+            assert!(manual(&sync, &mut words).report.is_ok());
+            used = server.dav.requests.load(Ordering::SeqCst);
+            std::fs::remove_file(directory.path().join("cloud-clipboard-relay-keystore")).unwrap();
+            std::fs::remove_file(directory.path().join("cloud-clipboard-webdav-state")).unwrap();
+        }
+        server.dav.rate_limited.store(true, Ordering::SeqCst);
+        for _ in 0..18 {
+            let run = manual(&sync, &mut words);
+            assert_eq!(
+                run.report.unwrap_err().code(),
+                "dictionary_sync_rate_limited"
+            );
+        }
+        let actual = server.dav.requests.load(Ordering::SeqCst);
+        assert_eq!(
+            actual, 60,
+            "首次注册失败或身份丢失都不能重新领取滚动窗口额度（先前已用 {used}）"
+        );
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(directory.path().join(STATE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            stored["state"]["schedule"]["requests"]
+                .as_array()
+                .unwrap()
+                .len(),
+            actual
+        );
+    }
+}
+
+#[test]
+fn http_retries_cannot_exceed_the_remaining_automatic_or_manual_budget() {
+    for (trigger, limit) in [(Trigger::Opened, 40), (Trigger::Manual, 60)] {
+        let server = start();
+        let directory = tempfile::tempdir().unwrap();
+        let sync = device(&server, directory.path(), "Synthetic desktop");
+        let mut words = Words::default();
+        assert!(manual(&sync, &mut words).report.is_ok());
+        let path = directory.path().join(STATE_FILE);
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        stored["state"]["schedule"]["requests"] = serde_json::json!(vec![now; limit - 3]);
+        stored["state"]["schedule"]["last_pull_ms"] = serde_json::json!(0);
+        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        settle();
+        server.dav.requests.store(0, Ordering::SeqCst);
+        server.dav.rate_limited.store(true, Ordering::SeqCst);
+        let run = sync.run(&mut words, trigger, Options::default()).unwrap();
+        assert_eq!(
+            run.report.unwrap_err().code(),
+            "dictionary_sync_rate_limited"
+        );
+        assert_eq!(
+            server.dav.requests.load(Ordering::SeqCst),
+            3,
+            "HTTP 重试也必须在发出之前扣额度",
+        );
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            stored["state"]["schedule"]["requests"]
+                .as_array()
+                .unwrap()
+                .len(),
+            limit
+        );
+    }
+}
+
+#[test]
+fn http_compaction_cleanup_is_charged_before_the_final_state_save() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let sync = device(&server, directory.path(), "Synthetic desktop");
+    let mut words = Words(BTreeSet::from([word("ni'hao", "合成词条")]));
+    assert!(manual(&sync, &mut words).report.is_ok());
+    let path = directory.path().join(STATE_FILE);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // 只把本机压缩计数置到阈值，远端事件和摘要仍由真实同步生成。
+    stored["state"]["ledger"]["events"] = serde_json::json!(64);
+    stored["state"]["schedule"]["requests"] = serde_json::json!([]);
+    std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+    let stale = "msime-dictionary/v1/tmp/1-00000000000000000000000000000000.json";
+    assert_eq!(server.raw("PUT", stale, None, b"synthetic".to_vec()).0, 201);
+    server.dav.requests.store(0, Ordering::SeqCst);
+    let run = manual(&sync, &mut words);
+    assert!(run.report.unwrap().compacted);
+    assert_eq!(server.raw("GET", stale, None, Vec::new()).0, 404);
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        stored["state"]["schedule"]["requests"]
+            .as_array()
+            .unwrap()
+            .len(),
+        server.dav.requests.load(Ordering::SeqCst),
+        "清理的列目录和删除也要进入同一份额度记录",
+    );
+}
+
+#[test]
+fn http_requests_are_all_charged_to_the_sync_budget() {
+    for retries in [0, 2] {
+        let server = start();
+        server
+            .dav
+            .dictionary_retries
+            .store(retries, Ordering::SeqCst);
+        let directory = tempfile::tempdir().unwrap();
+        let sync = device(&server, directory.path(), "Synthetic desktop");
+        let mut words = Words(BTreeSet::from([word("ni'hao", "合成词条")]));
+        let run = manual(&sync, &mut words);
+        assert!(run.report.is_ok(), "{:?}", run.report);
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(directory.path().join(STATE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            stored["state"]["schedule"]["requests"]
+                .as_array()
+                .unwrap()
+                .len(),
+            server.dav.requests.load(Ordering::SeqCst),
+            "实际 HTTP 请求都必须计入滚动窗口，包括临时目录创建和词库重试",
+        );
+        assert_eq!(server.dav.dictionary_retries.load(Ordering::SeqCst), 0);
+    }
+}
+
 #[test]
 fn two_devices_pair_and_sync_their_words_through_a_real_webdav_server() {
     let server = start();
@@ -436,6 +682,8 @@ fn two_devices_racing_for_the_same_sequence_number_both_get_their_words_in() {
     let first = Arc::new(first);
     let second = Arc::new(second);
     for round in 0..3u32 {
+        expire_request_window(a_dir.path());
+        expire_request_window(b_dir.path());
         a.0.insert(word("ma", &format!("甲{round}")));
         b.0.insert(word("ba", &format!("乙{round}")));
         let (first_clone, second_clone) = (first.clone(), second.clone());
@@ -456,6 +704,8 @@ fn two_devices_racing_for_the_same_sequence_number_both_get_their_words_in() {
         b = right_words;
     }
     for _ in 0..2 {
+        expire_request_window(a_dir.path());
+        expire_request_window(b_dir.path());
         manual(&first, &mut a).report.unwrap();
         manual(&second, &mut b).report.unwrap();
     }
@@ -485,9 +735,19 @@ fn a_truncated_log_is_refused_until_the_user_trusts_the_share_again() {
         manual(&sync, &mut words).report.unwrap_err().code(),
         "dictionary_sync_rollback"
     );
+    let state_path = directory.path().join(STATE_FILE);
+    let before: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
     let mut confirmed = action;
     confirmed["trust_remote"] = serde_json::json!(true);
     assert_eq!(host_probe(directory.path(), confirmed)["ok"], true);
+    let after: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+    assert_eq!(
+        after["state"]["schedule"]["requests"], before["state"]["schedule"]["requests"],
+        "重新信任网盘不能返还已经使用的额度",
+    );
+    expire_request_window(directory.path());
     let run = manual(&sync, &mut words);
     run.report.unwrap();
     assert!(run.view.joined);
@@ -628,4 +888,281 @@ fn oversized_local_changes_keep_state_readable_and_allow_recovery() {
         .unwrap();
     manual(&sync, &mut words).report.unwrap();
     assert_eq!(sync.status().unwrap().pending_upload, 0);
+}
+
+/// 一个安装里的「我的词条」：设置应用和输入法两个进程读写的是同一份 Engine 日志库。`writes` 是文件戳的替身，每写一次加一。
+#[derive(Clone, Default)]
+struct SharedWords(Arc<Mutex<(BTreeSet<WordKey>, u64)>>);
+
+impl SharedWords {
+    fn insert(&self, key: WordKey) {
+        let mut shared = self.0.lock().unwrap();
+        shared.0.insert(key);
+        shared.1 += 1;
+    }
+
+    fn snapshot(&self) -> BTreeSet<WordKey> {
+        self.0.lock().unwrap().0.clone()
+    }
+
+    fn writes(&self) -> u64 {
+        self.0.lock().unwrap().1
+    }
+}
+
+impl LocalDictionary for SharedWords {
+    fn words(&mut self) -> Result<BTreeSet<WordKey>, LocalError> {
+        Ok(self.snapshot())
+    }
+
+    fn apply(&mut self, changes: &[LocalChange]) -> Result<Vec<LocalOutcome>, LocalError> {
+        let mut shared = self.0.lock().unwrap();
+        for change in changes {
+            if change.add {
+                shared.0.insert(change.key.clone());
+            } else {
+                shared.0.remove(&change.key);
+            }
+        }
+        shared.1 += 1;
+        Ok(vec![LocalOutcome::Applied; changes.len()])
+    }
+}
+
+const IDENTITY_MISSING: &str = "clipboard_identity_missing";
+
+#[test]
+fn the_input_method_borrows_the_settings_apps_identity_and_never_registers_its_own() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let ime = device(&server, directory.path(), "MacBook").existing_identity_only();
+    // 设置应用还没配置过：输入法什么触发都不联网、不生成身份、不记录本机改动。
+    for trigger in [
+        Trigger::Periodic,
+        Trigger::LocalChange,
+        Trigger::Opened,
+        Trigger::Manual,
+    ] {
+        let run = ime
+            .run(&mut local.clone(), trigger, Options::default())
+            .unwrap();
+        assert!(!run.network, "{trigger:?}");
+        assert_eq!(run.report.unwrap_err().code(), IDENTITY_MISSING);
+    }
+    assert_eq!(ime.devices().unwrap_err().code(), IDENTITY_MISSING);
+    assert_eq!(
+        ime.reset(&mut local.clone()).unwrap_err().code(),
+        IDENTITY_MISSING
+    );
+    assert_eq!(server.requests(), 0, "the input method sent requests");
+    assert!(!directory
+        .path()
+        .join("cloud-clipboard-relay-keystore")
+        .exists());
+    assert!(!directory.path().join(STATE_FILE).exists());
+    assert_eq!(ime.status().unwrap().device_id, None);
+    // 设置应用第一次配置：生成身份、加入。之后输入法用的是同一个身份。
+    let settings = device(&server, directory.path(), "MacBook");
+    let run = settings
+        .run(&mut local.clone(), Trigger::Opened, Options::default())
+        .unwrap();
+    run.report.unwrap();
+    assert!(run.view.approved);
+    let id = run.view.device_id.unwrap();
+    local.insert(word("ni'hao", "你好"));
+    let run = ime
+        .run(&mut local.clone(), Trigger::Manual, Options::default())
+        .unwrap();
+    let report = run.report.unwrap();
+    assert_eq!(report.published_ops, 1, "{report:?}");
+    assert_eq!(run.view.device_id.as_deref(), Some(id.as_str()));
+    settle();
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 1, "{devices:?}");
+    assert_eq!(devices.devices[0].device_id, id);
+}
+
+/// 一台已经配好的设备：设置应用生成身份并加入，返回它的同步。
+fn configured(server: &Server, directory: &Path, local: &SharedWords) -> DictionarySync {
+    let settings = device(server, directory, "MacBook");
+    settings
+        .run(&mut local.clone(), Trigger::Opened, Options::default())
+        .unwrap()
+        .report
+        .unwrap();
+    settings
+}
+
+#[test]
+fn the_input_method_and_the_settings_app_sync_concurrently_from_one_directory() {
+    let server = start();
+    let (directory, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let settings = configured(&server, directory.path(), &local);
+    // 两个进程同时同步，同时有人改词：整次同步在目录里的锁下串行，谁也不会读到对方写了一半的状态。输入法这边用 manual 只是为了让每一次都真的联网。
+    let racers: Vec<_> = ["sheding", "shurufa"]
+        .into_iter()
+        .map(|process| {
+            let (url, path, local) = (server.url(), directory.path().to_path_buf(), local.clone());
+            std::thread::spawn(move || {
+                let sync = DictionarySync::new(&url, USER, PASSWORD, &path, "MacBook").unwrap();
+                let ime = process == "shurufa";
+                let sync = if ime {
+                    sync.existing_identity_only()
+                } else {
+                    sync
+                };
+                for (round, letter) in ["a", "b"].into_iter().enumerate() {
+                    local.insert(word(&format!("{process}'{letter}"), "合成词"));
+                    let trigger = match (ime, round) {
+                        (true, 0) => Trigger::LocalChange,
+                        _ => Trigger::Manual,
+                    };
+                    sync.run(&mut local.clone(), trigger, Options::default())
+                        .unwrap()
+                        .report
+                        .unwrap();
+                }
+            })
+        })
+        .collect();
+    for racer in racers {
+        racer.join().unwrap();
+    }
+    let run = settings
+        .run(&mut local.clone(), Trigger::Manual, Options::default())
+        .unwrap();
+    run.report.unwrap();
+    assert_eq!(run.view.pending_upload, 0);
+    // 另一台设备加入后拿到两个进程记下的全部词，这台设备在密钥串里只有一条。
+    let mut pixel = Words::default();
+    let second = device(&server, other.path(), "Pixel");
+    manual(&second, &mut pixel);
+    settle();
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 2, "{devices:?}");
+    let pending = devices
+        .devices
+        .iter()
+        .find(|device| !device.approved)
+        .unwrap();
+    settings.approve(&pending.device_id).unwrap();
+    settle();
+    manual(&second, &mut pixel).report.unwrap();
+    assert_eq!(pixel.0, local.snapshot());
+    assert_eq!(pixel.0.len(), 5);
+}
+
+/// 后台调度每一次同步的触发方式和错误码（成功时为 `None`）。
+type RunLog = Arc<Mutex<Vec<(Trigger, Option<String>)>>>;
+
+/// 后台调度的宿主：同步是只用已有身份的那一份，本机词库是共享的那一份，每一次同步的结果都记下来。
+struct ImeHost {
+    sync: DictionarySync,
+    local: SharedWords,
+    log: RunLog,
+}
+
+impl SchedulerHost for ImeHost {
+    fn run(&mut self, trigger: Trigger) -> Option<Round> {
+        let mut local = self.local.clone();
+        let mut watched = Watched::new(&mut local);
+        let result = self.sync.run(&mut watched, trigger, Options::default());
+        let seen = watched.seen();
+        let error = match &result {
+            Ok(run) => run
+                .report
+                .as_ref()
+                .err()
+                .map(|error| error.code().to_owned()),
+            Err(error) => Some(error.code().to_owned()),
+        };
+        self.log.lock().unwrap().push((trigger, error));
+        Some(Round { result, seen })
+    }
+
+    fn fingerprint(&mut self) -> Option<u64> {
+        Some(fingerprint(&self.local.snapshot()))
+    }
+
+    fn stamp(&mut self) -> Option<u64> {
+        Some(self.local.writes())
+    }
+}
+
+fn wait_until(what: &str, condition: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting until {what}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_background_scheduler_waits_for_the_settings_app_and_then_records_new_words() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let local = SharedWords::default();
+    local.insert(word("shui'shan", "水杉"));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let host = ImeHost {
+        sync: device(&server, directory.path(), "MacBook")
+            .existing_identity_only()
+            .lock_wait(BACKGROUND_LOCK_WAIT),
+        local: local.clone(),
+        log: Arc::clone(&log),
+    };
+    let timing = Timing {
+        poll: std::time::Duration::from_millis(20),
+        max_delay: std::time::Duration::from_millis(200),
+        idle: std::time::Duration::from_millis(50),
+        retry: std::time::Duration::from_millis(50),
+    };
+    let scheduler = Scheduler::start_with(host, timing).unwrap();
+    // 还没有身份：只是定时再问，一个请求也不发，改词也不去读。
+    wait_until("it asked twice", || log.lock().unwrap().len() >= 2);
+    local.insert(word("zao'ci", "造词"));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(server.requests(), 0);
+    assert!(log
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(trigger, error)| *trigger == Trigger::Periodic
+            && error.as_deref() == Some(IDENTITY_MISSING)));
+    // 设置应用配好之后，下一次询问就用上它的身份，从那时的词开始看。
+    let settings = configured(&server, directory.path(), &local);
+    wait_until("the scheduler ran with the identity", || {
+        log.lock()
+            .unwrap()
+            .last()
+            .is_some_and(|(_, error)| error.is_none())
+    });
+    assert_eq!(settings.status().unwrap().pending_upload, 0);
+    // 打字时造了一个词：调一次 local_change，词记进待发送（发送要等防抖）。等同步整个跑完再看：核对一记下就写盘，那时同步还没返回。
+    local.insert(word("xin'ci", "新词"));
+    wait_until("local_change ran", || {
+        log.lock()
+            .unwrap()
+            .iter()
+            .any(|(trigger, error)| *trigger == Trigger::LocalChange && error.is_none())
+    });
+    assert!(scheduler.stop(None));
+    let runs = log.lock().unwrap().clone();
+    assert_eq!(
+        runs.iter()
+            .filter(|(trigger, _)| *trigger == Trigger::LocalChange)
+            .count(),
+        1,
+        "{runs:?}"
+    );
+    assert_eq!(settings.status().unwrap().pending_upload, 1);
+    let devices = settings.devices().unwrap();
+    assert_eq!(devices.devices.len(), 1, "{devices:?}");
 }

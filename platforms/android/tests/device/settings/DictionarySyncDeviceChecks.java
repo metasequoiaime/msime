@@ -8,6 +8,8 @@ import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import org.json.JSONObject;
 
 /**
@@ -89,8 +91,15 @@ final class DictionarySyncDeviceChecks {
         check(unreachable.getLong("next_check_ms") > 0, "the host is told when to try again");
         check(new File(directory, "dictionary-sync.lock").isFile(), "the lock file is written under noBackupFilesDir");
         check((Os.stat(path).st_mode & 0077) == 0, "the sync directory is private to the app");
-        check(!new File(directory, "cloud-clipboard-relay-keystore").exists(),
-            "no identity is created when the folder cannot be reached");
+        // 内部身份先持久化以记录失败请求；对外仍须等远端登记完成才公开。
+        check(new File(directory, "cloud-clipboard-relay-keystore").isFile(),
+            "the internal identity survives failed registration for request accounting");
+        check((Os.stat(new File(directory, "cloud-clipboard-relay-keystore").getAbsolutePath()).st_mode & 0077) == 0,
+            "the internal identity is private to the app");
+        JSONObject stored = new JSONObject(new String(Files.readAllBytes(
+            new File(directory, "dictionary-sync-state").toPath()), StandardCharsets.UTF_8));
+        check(stored.getJSONObject("state").getJSONObject("schedule").getJSONArray("requests").length() > 0,
+            "the failed HTTP request is charged in the persisted schedule");
 
         // 测试连接用草稿，连不上同样是 dictionary_sync_unavailable。
         JSONObject probe = new JSONObject().put("operation", "probe").put("url", url)
@@ -104,7 +113,14 @@ final class DictionarySyncDeviceChecks {
         check(status.deviceId() == null && !status.approved(), "the Java layer reads the status");
         check(!DictionarySyncPolicy.imeMayRun(status.deviceId()), "the keyboard does not run before the settings page registers");
         DictionaryWebDavSync.Run periodic = bridge.run(DictionarySyncPolicy.TRIGGER_PERIODIC, false, false);
-        check(DictionarySyncPolicy.CODE_UNAVAILABLE.equals(periodic.error()) && periodic.report() == null,
+        check(!periodic.network() && periodic.error() == null && periodic.report() != null,
+            "the next periodic call stays offline during the failure backoff");
+        check(periodic.status().deviceId() == null && !DictionarySyncPolicy.imeMayRun(periodic.status().deviceId()),
+            "an offline call does not expose the unregistered internal identity");
+        check(DictionarySyncPolicy.CODE_UNAVAILABLE.equals(periodic.status().lastError()),
+            "the offline status retains the previous failure");
+        DictionaryWebDavSync.Run manual = bridge.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false);
+        check(DictionarySyncPolicy.CODE_UNAVAILABLE.equals(manual.error()) && manual.report() == null,
             "the Java layer returns the sync failure without throwing");
         check(DictionarySyncPolicy.CODE_UNAVAILABLE.equals(failure(() -> {
             bridge.probe(url, "synthetic-user", "synthetic-app-password");

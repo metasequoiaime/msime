@@ -14,7 +14,9 @@
 use crate::account::{
     AccountClipboardDevices, AccountSessionFileLayout, FileAccountSessionStorage,
 };
-use crate::clipboard_relay::{RelayClipboard, RelayConfig, RelayError};
+use crate::clipboard_relay::{
+    RelayClipboard, RelayConfig, RelayError, IDENTITY_MISSING, RELAY_KEYSTORE_FILE,
+};
 use crate::clipboard_webdav::{
     Dav, DavHttp, DavRequest, DavResponse, Environment as DavEnvironment, HttpDav, VirtualRelay,
     WEBDAV_STATE_FILE,
@@ -27,7 +29,7 @@ use crate::cloud::dictionary_sync::{
 use crate::preferences::DictionarySyncWebDavPreferences;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -93,16 +95,73 @@ impl DictionarySyncError {
 
 // ---- 网盘 ----
 
-/// 每个请求的路径前面加上 `prefix`：把一整套云剪贴板 WebDAV 布局放进 `msime-dictionary/keyring/` 下。顺带数一数发了多少个请求，计进词库同步的额度。
+/// 同一轮的密钥串、词库和清理共用额度，在每次实际 HTTP 请求之前扣除。
+struct RequestBudget {
+    used: AtomicUsize,
+    limit: usize,
+}
+
+impl RequestBudget {
+    fn new(limit: usize) -> Self {
+        Self {
+            used: AtomicUsize::new(0),
+            limit,
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.used.load(Ordering::SeqCst)
+    }
+
+    fn spend(&self) -> Result<(), RelayError> {
+        self.used
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |used| {
+                (used < self.limit).then(|| used + 1)
+            })
+            .map(|_| ())
+            .map_err(|_| RelayError::RateLimited)
+    }
+}
+
+struct BudgetedHttp {
+    inner: HttpDav,
+    budget: Arc<RequestBudget>,
+}
+
+impl BudgetedHttp {
+    fn new(config: &RelayConfig, budget: Arc<RequestBudget>) -> Result<Self, RelayError> {
+        Ok(Self {
+            inner: HttpDav::new(config)?,
+            budget,
+        })
+    }
+}
+
+impl DavHttp for BudgetedHttp {
+    fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
+        self.budget.spend()?;
+        self.inner.send(request)
+    }
+}
+
+/// 每个请求的路径前面加上 `prefix`：把一整套云剪贴板 WebDAV 布局放进 `msime-dictionary/keyring/` 下。
 struct Prefixed {
     inner: Box<dyn DavHttp>,
     prefix: &'static str,
-    requests: Arc<AtomicUsize>,
+    roots_pending: AtomicBool,
 }
 
 impl DavHttp for Prefixed {
     fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
-        self.requests.fetch_add(1, Ordering::SeqCst);
+        if self.roots_pending.load(Ordering::SeqCst) {
+            // 驱动在第一个请求前已经保存本机身份；根目录失败也能按同一身份落盘计费。
+            let clock = WallClock;
+            let dav = Dav::new(self.inner.as_ref(), &clock);
+            for dir in [ROOT, KEYRING] {
+                dav.mkcol(dir)?;
+            }
+            self.roots_pending.store(false, Ordering::SeqCst);
+        }
         let path = format!("{}{}", self.prefix, request.path);
         let destination = request
             .destination
@@ -141,12 +200,12 @@ fn now_ms() -> u64 {
 /// 核心要的网盘：`msime-dictionary/v1/` 下的列目录、读、独占创建、建目录和删除。401 是凭据不对，429、503 已经按 `Retry-After` 退避过，成功响应超过上限是「响应过大」，其余连不上或答得不对都是「连不上」。
 pub struct DavStore<'a> {
     dav: Dav<'a>,
-    http: &'a HttpDav,
+    http: &'a BudgetedHttp,
     tmp_ready: bool,
 }
 
 impl<'a> DavStore<'a> {
-    fn new(http: &'a HttpDav, clock: &'a WallClock) -> Self {
+    fn new(http: &'a BudgetedHttp, clock: &'a WallClock) -> Self {
         Self {
             dav: Dav::new(http, clock),
             http,
@@ -155,7 +214,7 @@ impl<'a> DavStore<'a> {
     }
 
     fn map(&self, error: RelayError) -> SyncError {
-        if self.http.take_oversized() {
+        if self.http.inner.take_oversized() {
             return SyncError::TooLarge;
         }
         match error {
@@ -186,6 +245,16 @@ impl<'a> DavStore<'a> {
 }
 
 impl RemoteStore for DavStore<'_> {
+    fn request_count(&self) -> Option<usize> {
+        Some(self.http.budget.count())
+    }
+
+    fn finish(&mut self, report: &Report, now_ms: u64) {
+        if report.compacted {
+            self.sweep_tmp((now_ms / 1000) as i64);
+        }
+    }
+
     fn list(&mut self, dir: &str) -> Result<Option<Vec<String>>, SyncError> {
         self.dav.list(dir).map_err(|error| self.map(error))
     }
@@ -224,9 +293,9 @@ impl RemoteStore for DavStore<'_> {
 /// 词库的密钥串：云剪贴板端到端加密协议在 `msime-dictionary/keyring/` 下的另一个实例。词库只经这里用它。
 struct KeyRingAccess {
     clipboard: RelayClipboard,
-    requests: Arc<AtomicUsize>,
-    directory: PathBuf,
-    config: RelayConfig,
+    budget: Arc<RequestBudget>,
+    /// 本机没有密钥串时可不可以生成新的设备身份（见 [`DictionarySync::existing_identity_only`]）。
+    create_identity: bool,
 }
 
 impl KeyRingAccess {
@@ -234,12 +303,31 @@ impl KeyRingAccess {
         config: &RelayConfig,
         directory: &Path,
         device_name: &str,
+        create_identity: bool,
     ) -> Result<Self, DictionarySyncError> {
-        let requests = Arc::new(AtomicUsize::new(0));
+        Self::with_budget(
+            config,
+            directory,
+            device_name,
+            create_identity,
+            Arc::new(RequestBudget::new(usize::MAX)),
+        )
+    }
+
+    fn with_budget(
+        config: &RelayConfig,
+        directory: &Path,
+        device_name: &str,
+        create_identity: bool,
+        budget: Arc<RequestBudget>,
+    ) -> Result<Self, DictionarySyncError> {
         let http = Prefixed {
-            inner: Box::new(HttpDav::new(config).map_err(DictionarySyncError::from_relay)?),
+            inner: Box::new(
+                BudgetedHttp::new(config, budget.clone())
+                    .map_err(DictionarySyncError::from_relay)?,
+            ),
             prefix: KEYRING,
-            requests: requests.clone(),
+            roots_pending: AtomicBool::new(!directory.join(WEBDAV_STATE_FILE).exists()),
         };
         let relay = VirtualRelay::with_http(
             config.clone(),
@@ -247,16 +335,29 @@ impl KeyRingAccess {
             Box::new(http),
             false,
         );
+        let clipboard = RelayClipboard::with_webdav(relay, directory, device_name);
         Ok(Self {
-            clipboard: RelayClipboard::with_webdav(relay, directory, device_name),
-            requests,
-            directory: directory.to_path_buf(),
-            config: config.clone(),
+            // 驱动在中继锁里再查一遍：批准、拒绝、移除这些不经下面 `status` 的操作也不会生成身份。
+            clipboard: if create_identity {
+                clipboard
+            } else {
+                clipboard.existing_identity_only()
+            },
+            budget,
+            create_identity,
         })
     }
 
+    /// 只用已有身份时，本机还没有密钥串就停在这里：不建网盘上的目录、不登记、不联网。
+    fn require_identity(&self) -> Result<(), DictionarySyncError> {
+        if !self.create_identity && self.keystore()?.is_none() {
+            return Err(identity_missing());
+        }
+        Ok(())
+    }
+
     fn requests(&self) -> usize {
-        self.requests.load(Ordering::SeqCst)
+        self.budget.count()
     }
 
     /// 本机的密钥串；还没有时为 `None`。
@@ -269,24 +370,9 @@ impl KeyRingAccess {
             .and_then(Keystore::parse))
     }
 
-    /// 第一次用这个网盘时先建好 `msime-dictionary/` 和 `keyring/`：密钥串的虚拟中继只会在它自己的目录里建子目录。
-    fn ensure_roots(&self) -> Result<(), DictionarySyncError> {
-        if self.directory.join(WEBDAV_STATE_FILE).exists() {
-            return Ok(());
-        }
-        let http = HttpDav::new(&self.config).map_err(DictionarySyncError::from_relay)?;
-        let clock = WallClock;
-        let dav = Dav::new(&http, &clock);
-        for dir in [ROOT, KEYRING] {
-            self.requests.fetch_add(1, Ordering::SeqCst);
-            dav.mkcol(dir).map_err(DictionarySyncError::from_relay)?;
-        }
-        Ok(())
-    }
-
     /// 读密钥串的状态：本机还没登记就登记，网盘上还没有密钥就由本机生成（第一台设备）。
     fn status(&self) -> Result<AccountClipboardDevices, DictionarySyncError> {
-        self.ensure_roots()?;
+        self.require_identity()?;
         self.clipboard
             .devices()
             .map_err(DictionarySyncError::from_relay)
@@ -311,7 +397,7 @@ impl KeyRingAccess {
     }
 
     fn reset(&self) -> Result<AccountClipboardDevices, DictionarySyncError> {
-        self.ensure_roots()?;
+        self.require_identity()?;
         self.clipboard
             .reset()
             .map_err(DictionarySyncError::from_relay)
@@ -399,11 +485,20 @@ pub struct RunResult {
     pub view: SyncView,
 }
 
+/// 只用已有身份、本机还没有密钥串时的错误码（与云剪贴板的 `clipboard_identity_missing` 相同）。
+fn identity_missing() -> DictionarySyncError {
+    DictionarySyncError::KeyRing(IDENTITY_MISSING.to_owned())
+}
+
 /// 一个配置好的词库同步：网盘地址、账号和应用密码，加上本机放状态的目录。
 pub struct DictionarySync {
     config: RelayConfig,
     directory: PathBuf,
     device_name: String,
+    /// 本机没有密钥串时可不可以生成新的设备身份并登记。
+    create_identity: bool,
+    /// 等另一个进程跑完一次同步最多等多久。
+    lock_wait: Duration,
 }
 
 impl std::fmt::Debug for DictionarySync {
@@ -455,7 +550,21 @@ impl DictionarySync {
             config,
             directory,
             device_name: device_name.to_owned(),
+            create_identity: true,
+            lock_wait: LOCK_TIMEOUT,
         })
+    }
+
+    /// 只用本机已有的设备身份：目录里还没有给这个网盘地址和账号保存过的词库密钥串时，`run` 答 `clipboard_identity_missing`（结果的 `report` 是这个错误，`network` 为假），设备管理和重新开始也答这个错误码，不生成新身份、不登记、不联网，也不建本机目录。给与设置应用共用同一个目录、自己不该另登记一台设备的输入法进程用：一个安装只有一个设备身份，只由设置应用在第一次配置时生成。`status` 不受影响。
+    pub fn existing_identity_only(mut self) -> Self {
+        self.create_identity = false;
+        self
+    }
+
+    /// 另一个进程（例如设置应用）正在跑一次同步时最多等多久，过了答 `dictionary_sync_unavailable`。默认两分钟；后台调度不必久等，下一轮再来。
+    pub fn lock_wait(mut self, wait: Duration) -> Self {
+        self.lock_wait = wait;
+        self
     }
 
     fn storage(&self) -> FileAccountSessionStorage {
@@ -474,7 +583,7 @@ impl DictionarySync {
         storage.create_directory().map_err(|_| SyncError::Storage)?;
         let file = crate::file_lock::open_private_lock_file(self.directory.join(LOCK_FILE))
             .map_err(|_| SyncError::Storage)?;
-        let deadline = Instant::now() + LOCK_TIMEOUT;
+        let deadline = Instant::now() + self.lock_wait;
         loop {
             if crate::file_lock::try_exclusive(&file).map_err(|_| SyncError::Storage)? {
                 return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
@@ -505,7 +614,35 @@ impl DictionarySync {
     }
 
     fn keyring(&self) -> Result<KeyRingAccess, DictionarySyncError> {
-        KeyRingAccess::new(&self.config, &self.directory, &self.device_name)
+        KeyRingAccess::new(
+            &self.config,
+            &self.directory,
+            &self.device_name,
+            self.create_identity,
+        )
+    }
+
+    /// 只用已有身份、本机还没有密钥串时这一次的结果：什么也没做，按定时再来。
+    fn without_identity(state: Option<&SyncState>) -> RunResult {
+        RunResult {
+            network: false,
+            report: Err(identity_missing()),
+            next_check_ms: core::schedule::PULL_INTERVAL_MS,
+            view: Self::view(state, None),
+        }
+    }
+
+    fn registered_keystore<'a>(
+        &self,
+        keystore: Option<&'a Keystore>,
+    ) -> Result<Option<&'a Keystore>, DictionarySyncError> {
+        let Some(keystore) = keystore else {
+            return Ok(None);
+        };
+        let registered =
+            VirtualRelay::cached_device(&self.config, &self.directory, &keystore.device_id())
+                .map_err(DictionarySyncError::from_relay)?;
+        Ok(registered.then_some(keystore))
     }
 
     fn view(state: Option<&SyncState>, keystore: Option<&Keystore>) -> SyncView {
@@ -534,7 +671,10 @@ impl DictionarySync {
     pub fn status(&self) -> Result<SyncView, DictionarySyncError> {
         let keystore = self.keyring()?.keystore()?;
         let state = self.load_state()?;
-        Ok(Self::view(state.as_ref(), keystore.as_ref()))
+        Ok(Self::view(
+            state.as_ref(),
+            self.registered_keystore(keystore.as_ref())?,
+        ))
     }
 
     /// 一次同步：记录本机改动，按调度决定要不要联网（`trigger`），联网时先读密钥串（必要时登记本机、第一台设备生成密钥），再按核心的步骤拉取、写入本机词库、发送和压缩。`choice` 里只有用户对被挡下删除的选择会被采用。
@@ -544,6 +684,10 @@ impl DictionarySync {
         trigger: Trigger,
         choice: Options,
     ) -> Result<RunResult, DictionarySyncError> {
+        // 目录里连密钥串文件都没有时不必取锁：取锁会先建出目录和锁文件。有文件时在锁里再按内容判断一次。
+        if !self.create_identity && !self.directory.join(RELAY_KEYSTORE_FILE).is_file() {
+            return Ok(Self::without_identity(None));
+        }
         let _lock = self.lock()?;
         self.run_locked(local, trigger, choice)
     }
@@ -556,8 +700,27 @@ impl DictionarySync {
     ) -> Result<RunResult, DictionarySyncError> {
         let now = now_ms();
         let mut stored = self.load_state()?;
-        let keyring = self.keyring()?;
+        let manual = trigger == Trigger::Manual;
+        let limit = stored.as_ref().map_or(
+            if manual {
+                core::schedule::MANUAL_REQUESTS
+            } else {
+                core::schedule::AUTOMATIC_REQUESTS
+            },
+            |state| state.schedule.remaining(now, manual),
+        );
+        let budget = Arc::new(RequestBudget::new(limit));
+        let keyring = KeyRingAccess::with_budget(
+            &self.config,
+            &self.directory,
+            &self.device_name,
+            self.create_identity,
+            budget.clone(),
+        )?;
         let mut keystore = keyring.keystore()?;
+        if !self.create_identity && keystore.is_none() {
+            return Ok(Self::without_identity(stored.as_ref()));
+        }
         let decided = match stored.as_mut() {
             Some(state) => core::plan(state, trigger, now),
             // 还没用过网盘：除了「刚改了词」以外都先去登记，不然什么也做不了。
@@ -568,10 +731,10 @@ impl DictionarySync {
         };
         let mut keyring_error = None;
         if decided.network {
-            match keyring.status() {
-                Ok(_) => keystore = keyring.keystore()?,
-                Err(error) => keyring_error = Some(error),
+            if let Err(error) = keyring.status() {
+                keyring_error = Some(error);
             }
+            keystore = keyring.keystore()?;
         }
         let Some(keystore) = keystore else {
             // 还没有密钥串：要么这一次不该联网，要么去登记时失败了。下一次照定时再来。
@@ -586,6 +749,12 @@ impl DictionarySync {
         // 设备身份变了（密钥串没了、重新生成）就是一台新设备：从头加入，本机的词都保留。
         let mut state = match stored {
             Some(state) if state.device == device => state,
+            Some(previous) => {
+                let mut state = SyncState::new(&device).ok_or(DictionarySyncError::Invalid)?;
+                // 词库身份重新加入，但同一安装的请求窗口与错误退避不能因此清零。
+                state.schedule = previous.schedule;
+                state
+            }
             _ => SyncState::new(&device).ok_or(DictionarySyncError::Invalid)?,
         };
         core::record_requests(&mut state, keyring.requests(), now);
@@ -600,13 +769,14 @@ impl DictionarySync {
                 network: true,
                 report: Err(error),
                 next_check_ms: core::schedule::RATE_LIMIT_BACKOFF_MS.min(60_000),
-                view: Self::view(Some(&state), Some(&keystore)),
+                view: Self::view(Some(&state), self.registered_keystore(Some(&keystore))?),
             });
         }
         let ring = KeyRing {
             current: DataKey::from_keystore(&keystore),
         };
-        let http = HttpDav::new(&self.config).map_err(DictionarySyncError::from_relay)?;
+        let http = BudgetedHttp::new(&self.config, budget.clone())
+            .map_err(DictionarySyncError::from_relay)?;
         let clock = WallClock;
         let mut store = DavStore::new(&http, &clock);
         let mut env = SystemEnvironment;
@@ -619,14 +789,11 @@ impl DictionarySync {
             };
             core::execute(&mut state, &mut parts, &ring, trigger, decided, choice)
         };
-        if outcome.result.as_ref().is_ok_and(|report| report.compacted) {
-            store.sweep_tmp((now / 1000) as i64);
-        }
         Ok(RunResult {
             network: outcome.network,
             report: outcome.result.map_err(DictionarySyncError::from),
             next_check_ms: outcome.next_check_ms,
-            view: Self::view(Some(&state), Some(&keystore)),
+            view: Self::view(Some(&state), self.registered_keystore(Some(&keystore))?),
         })
     }
 
@@ -694,7 +861,8 @@ impl DictionarySync {
             Some(state) if state.device == keystore.device_id() => state,
             _ => SyncState::new(&keystore.device_id()).ok_or(DictionarySyncError::Invalid)?,
         };
-        let http = HttpDav::new(&self.config).map_err(DictionarySyncError::from_relay)?;
+        let http = BudgetedHttp::new(&self.config, Arc::new(RequestBudget::new(usize::MAX)))
+            .map_err(DictionarySyncError::from_relay)?;
         let clock = WallClock;
         let mut store = DavStore::new(&http, &clock);
         let mut env = SystemEnvironment;
@@ -706,7 +874,10 @@ impl DictionarySync {
             sink: &mut sink,
         };
         core::restart(&mut state, &mut parts, &ring)?;
-        Ok(Self::view(Some(&state), Some(&keystore)))
+        Ok(Self::view(
+            Some(&state),
+            self.registered_keystore(Some(&keystore))?,
+        ))
     }
 }
 
@@ -739,7 +910,7 @@ pub fn probe(
     let prefixed = Prefixed {
         inner: Box::new(HttpDav::new(&config).map_err(DictionarySyncError::from_relay)?),
         prefix: KEYRING,
-        requests: Arc::new(AtomicUsize::new(0)),
+        roots_pending: AtomicBool::new(false),
     };
     crate::clipboard_webdav::probe_with(&prefixed, &clock)
         .map_err(DictionarySyncError::from_relay)?;
