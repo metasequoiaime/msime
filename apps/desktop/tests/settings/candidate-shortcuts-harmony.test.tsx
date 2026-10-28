@@ -125,7 +125,7 @@ test("the 候选字号 slider shows a stored size outside 14–24 at the nearest
   expect(onChange).toHaveBeenCalledWith({ candidate_font_size: 20 });
 });
 
-function appearanceForm(setDraft = vi.fn()): SettingsFormModel {
+function appearanceForm(setDraft = vi.fn(), showCandidateWindowScale = false): SettingsFormModel {
   const draft = {
     scheme: "quanpin",
     candidate_page_size: 5,
@@ -143,7 +143,7 @@ function appearanceForm(setDraft = vi.fn()): SettingsFormModel {
     showCandidateEnglishFont: true,
     showShuangpinPreedit: true,
     showCandidateFollowCursor: false,
-    showCandidateWindowScale: false,
+    showCandidateWindowScale,
     showCandidateWindowOpacity: false,
     showCandidateCornerRadius: false,
     snapshot: undefined,
@@ -190,6 +190,25 @@ test("the HarmonyOS phone 候选栏 page has only the 候选栏 group, with the 
   // 触屏键盘把拼写写进输入框、候选栏不画它，没有「候选栏预编辑」和「行内预编辑」。
   expect(screen.queryByText("候选栏预编辑")).toBeNull();
   expect(screen.queryByText("行内预编辑")).toBeNull();
+});
+
+// #10137：手机和平板的设置桥按设备形态声明 `candidate_window_scale` 时，「候选栏大小」紧跟候选字号，不收在「更多选项」里，与 Android、iOS 一样。
+test("the HarmonyOS phone 候选栏 group offers 候选栏大小 right after the font size", () => {
+  render(
+    <SettingsFormContext.Provider value={appearanceForm(vi.fn(), true)}>
+      <div data-platform="harmony">
+        <AppearanceSettingsPage />
+      </div>
+    </SettingsFormContext.Provider>,
+  );
+  const candidate = groupTitled("候选栏");
+  const scale = within(candidate).getByRole("slider", { name: "候选栏大小" });
+  expect(scale.closest("details")).toBeNull();
+  expect(scale.getAttribute("min")).toBe("50");
+  expect(scale.getAttribute("max")).toBe("200");
+  const all = within(candidate).getAllByRole("slider");
+  expect(all.indexOf(scale)).toBe(all.indexOf(within(candidate).getByRole("slider", { name: "候选字号" })) + 1);
+  expect(screen.queryByRole("slider", { name: "整体大小" })).toBeNull();
 });
 
 // ---- 外接键盘快捷键 ----

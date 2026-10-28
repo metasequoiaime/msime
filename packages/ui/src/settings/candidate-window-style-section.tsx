@@ -27,6 +27,7 @@ import {
   candidateScalePatch,
   candidateScalePercent,
   candidateScaleSlider,
+  touchCandidateScaleSlider,
   candidateGeometryFields,
   candidateGeometryValue,
   candidateGeometryPatch,
@@ -94,18 +95,20 @@ export function CandidateFontPresetRow({
 export interface CandidateScaleRowProps {
   preferences: Pick<CandidateWindowStylePreferences, "candidate_scale_percent">;
   platform?: HostPlatform;
+  /** 触屏键盘的候选栏（鸿蒙手机和平板在手机设置里传入；Android 和 iOS 按平台判断）。 */
+  touch?: boolean;
   onChange: (patch: Partial<Preferences>) => void;
 }
 
-/** 「整体大小」滑块；自绘候选窗和 Linux 的 Fcitx5 主题连同窗口一起缩放，IBus 面板只缩放候选字号（见 `candidatePanelLimitNotes.ibus_panel`）。 */
-export function CandidateScaleRow({ preferences, platform, onChange }: CandidateScaleRowProps) {
+/** 「整体大小」滑块；自绘候选窗和 Linux 的 Fcitx5 主题连同窗口一起缩放，IBus 面板只缩放候选字号（见 `candidatePanelLimitNotes.ibus_panel`）。触屏键盘上叫「候选栏大小」，候选栏和跟随它的空闲工具栏一起缩放、按键不动，范围和说法与 Android、iOS 的原生设置页相同（#10137）。 */
+export function CandidateScaleRow({ preferences, platform, touch, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
-  const android = platform === "android";
+  const touchStrip = touch === true || platform === "android" || platform === "ios";
   return (
     <SliderRow
-      title={android ? "候选栏大小" : "整体大小"}
-      description={`${scale}%，${android ? "字号与候选栏高度一起缩放" : "字号与窗口尺寸一起缩放"}`}
-      {...candidateScaleSlider}
+      title={touchStrip ? "候选栏大小" : "整体大小"}
+      description={`${scale}%，${touchStrip ? "候选字和工具栏一起缩放，按键大小不变" : "字号与窗口尺寸一起缩放"}`}
+      {...(touchStrip ? touchCandidateScaleSlider : candidateScaleSlider)}
       value={scale}
       valueText={`${scale}%`}
       onChange={(value) => onChange(candidateScalePatch(value))}
