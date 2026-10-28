@@ -39,6 +39,8 @@ export interface CommunityResourcesPageProps extends CommunityResourceGalleryOpt
   client: CommunityResourceClient;
   /** HarmonyOS 手机上的图库：胶囊搜索框、范围筛选 chip，以及一张由多行组成、每行带「添加」胶囊按钮的分组卡片。其他宿主不设置。 */
   look?: "harmony";
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。为 false 时没有「发布作品」，详情里也没有发布新版本、评分和举报。缺省为提供。 */
+  contributions?: boolean;
 }
 
 export function CommunityResourcesPage({
@@ -49,6 +51,7 @@ export function CommunityResourcesPage({
   mobile,
   look,
   historyPage,
+  contributions = true,
 }: CommunityResourcesPageProps) {
   const {
     scope,
@@ -85,6 +88,7 @@ export function CommunityResourcesPage({
         initial={selected}
         onClose={closeDetail}
         localDictionary={localDictionary}
+        contributions={contributions}
       />
     );
   if (look === "harmony") {
@@ -116,10 +120,14 @@ export function CommunityResourcesPage({
               </button>
             ))}
           </div>
-          <span className={style.harmonyChipDivider} aria-hidden="true" />
-          <button type="button" className={style.harmonyChipAction} onClick={openEditor}>
-            发布作品
-          </button>
+          {contributions && (
+            <>
+              <span className={style.harmonyChipDivider} aria-hidden="true" />
+              <button type="button" className={style.harmonyChipAction} onClick={openEditor}>
+                发布作品
+              </button>
+            </>
+          )}
         </div>
         <CommunityGalleryFeedback
           error={error}
@@ -152,7 +160,7 @@ export function CommunityResourcesPage({
           loadingText="正在读取社区…"
           onLoadMore={() => void load(true)}
         />
-        {editing && (
+        {editing && contributions && (
           <CommunityResourceEditor
             client={client}
             kind={kind}
@@ -191,7 +199,7 @@ export function CommunityResourcesPage({
           scope={scope}
           onScopeChange={onScopeChange}
         />
-        <ActionButton action={openEditor} className="primary" label="发布作品" />
+        {contributions && <ActionButton action={openEditor} className="primary" label="发布作品" />}
       </CommunityGalleryHeader>
       <CommunityGalleryFeedback
         error={error}
@@ -212,7 +220,7 @@ export function CommunityResourcesPage({
         loadingText="正在读取社区…"
         onLoadMore={() => void load(true)}
       />
-      {editing && (
+      {editing && contributions && (
         <CommunityResourceEditor
           client={client}
           kind={kind}

@@ -1342,10 +1342,12 @@ fn settings_sync_punctuation_styles_round_trip() {
 }
 #[test]
 fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
-    let mut local = Preferences::default();
-    local.global_theme = GlobalTheme::Night;
-    local.android_keyboard_skin_light = Some("theme:paper".into());
-    local.android_keyboard_skin_dark = Some("design:synthetic-night".into());
+    let local = Preferences {
+        global_theme: GlobalTheme::Night,
+        android_keyboard_skin_light: Some("theme:paper".into()),
+        android_keyboard_skin_dark: Some("design:synthetic-night".into()),
+        ..Preferences::default()
+    };
     let exported = export_android_settings(&local, None).unwrap();
     assert_eq!(
         exported.get("platform.android.keyboard_skin_light"),

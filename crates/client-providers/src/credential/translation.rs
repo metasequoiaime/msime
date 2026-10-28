@@ -21,7 +21,7 @@ impl Transport for HttpTransport {
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15));
         if let Ok(url) = reqwest::Url::parse(&request.endpoint) {
-            builder = crate::proxy::configure_blocking_for(builder, &url);
+            builder = crate::proxy::configure_blocking_for(builder, &url).ok()?;
         }
         let client = builder.build().ok()?;
         let mut post = client.post(&request.endpoint).body(request.body.clone());

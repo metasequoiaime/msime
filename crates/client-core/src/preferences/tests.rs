@@ -6274,6 +6274,43 @@ fn error_wordings_the_harmony_host_matches_on() {
             .to_string()
             .starts_with("invalid preferences document:")
     );
+    // Windows 设置页（`platforms/windows/settings/PreferencesSaveFailure.h`）按这个前缀认出写盘失败：保留页面上的修改并稍后重试，而不是当成别处改过设置去重读。
+    assert!(PreferencesError::Io(std::io::Error::from_raw_os_error(5))
+        .to_string()
+        .starts_with("preferences storage failed:"));
+}
+
+/// 杀毒软件、备份工具常常不带删除共享地打开 preferences.json 几毫秒，Windows 上这期间替换会被拒绝。保存要等它过去，而不是失败后让设置页重读旧值、丢掉用户刚做的修改。
+#[cfg(windows)]
+#[test]
+fn save_waits_for_a_reader_that_briefly_holds_the_document_open() {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    let reader = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(store.path())
+        .unwrap();
+    let releasing = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(reader);
+    });
+    // 换成另一个合法的页大小，保存一定会写盘。
+    let page_size = saved.preferences.candidate_page_size % 10 + 1;
+    let edited = Preferences {
+        candidate_page_size: page_size,
+        ..saved.preferences.clone()
+    };
+    let resaved = store.save(saved.revision, edited).unwrap();
+    releasing.join().unwrap();
+    assert_eq!(resaved.revision, saved.revision + 1);
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.revision, resaved.revision);
+    assert_eq!(loaded.preferences.candidate_page_size, page_size);
 }
 
 /// A restore puts every setting back and costs the user no secret.
@@ -9046,10 +9083,10 @@ fn runtime_salvage_closes_features_whose_destination_was_not_kept() {
     let (proxied, _) = salvage("/network/proxy_mode", "future_value".into());
     assert_eq!(
         proxied.network.proxy_mode,
-        crate::network::ProxyMode::Custom
+        crate::network::ProxyMode::CustomRequired
     );
     assert_eq!(proxied.network.proxy_server, "127.0.0.1:7890");
-    assert!(proxied.cloud_candidates);
+    assert!(!proxied.cloud_candidates);
 
     // AI 的接口地址表、语音识别和润色的地址读不了：对应的功能关掉。
     let mut ai = base.clone();
@@ -9212,6 +9249,119 @@ fn recover_keeps_what_a_newer_version_wrote() {
         serde_json::to_value(Preferences::default().candidate_layout).unwrap()
     );
     assert_eq!(store.load().unwrap(), snapshot);
+}
+
+#[test]
+fn runtime_salvage_preserves_a_required_proxy_when_the_address_is_unusable() {
+    for mode in ["future_mode", "custom"] {
+        for server in [
+            serde_json::json!("socks5://127.0.0.1:7890"),
+            serde_json::json!({"future_address": true}),
+        ] {
+            let mut document = serde_json::to_value(Preferences::default()).unwrap();
+            for pointer in [
+                "/cloud_candidates",
+                "/ai_assistant/enabled",
+                "/translation_ai",
+                "/translation_account",
+                "/voice_input/enabled",
+                "/voice_input/polish_enabled",
+                "/custom_translation/enabled",
+                "/tencent_tmt/enabled",
+                "/niutrans/enabled",
+            ] {
+                *document.pointer_mut(pointer).unwrap() = true.into();
+            }
+            document["network"] = serde_json::json!({"proxy_mode": mode, "proxy_server": server});
+            let (preferences, _) =
+                Preferences::salvaged_from(document, Preferences::default()).unwrap();
+            preferences.validate().unwrap();
+            assert!(!preferences.cloud_candidates);
+            assert!(!preferences.ai_assistant.enabled);
+            assert!(!preferences.translation_ai);
+            assert!(!preferences.translation_account);
+            assert!(!preferences.voice_input.enabled);
+            assert!(!preferences.voice_input.polish_enabled);
+            assert!(!preferences.custom_translation.enabled);
+            assert!(!preferences.tencent_tmt.enabled);
+            assert!(!preferences.niutrans.enabled);
+            assert_eq!(
+                preferences.network.effective_mode(),
+                crate::network::ProxyMode::CustomRequired
+            );
+            assert!(
+                crate::network::normalized_proxy_url(&preferences.network.proxy_server).is_none()
+            );
+            let restored: Preferences =
+                serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+            assert_eq!(restored.network, preferences.network);
+        }
+    }
+}
+
+#[test]
+fn runtime_salvage_unknown_proxy_mode_without_server_stays_closed() {
+    for network in [
+        serde_json::json!({"proxy_mode": "future_mode"}),
+        serde_json::json!({"proxy_mode": "future_mode", "proxy_server": ""}),
+    ] {
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document["cloud_candidates"] = true.into();
+        document["network"] = network;
+        let (preferences, _) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        assert_eq!(
+            preferences.network.effective_mode(),
+            crate::network::ProxyMode::CustomRequired
+        );
+        assert!(!preferences.cloud_candidates);
+    }
+}
+
+#[test]
+fn runtime_salvage_non_object_network_keeps_proxy_constraint() {
+    for network in [
+        serde_json::json!(null),
+        serde_json::json!(false),
+        serde_json::json!(7),
+        serde_json::json!([]),
+        serde_json::json!("future_network"),
+    ] {
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document["cloud_candidates"] = true.into();
+        document["translation_account"] = true.into();
+        document["candidate_layout"] = "future_layout".into();
+        document["network"] = network.clone();
+        let (preferences, _) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        preferences.validate().unwrap();
+        assert_eq!(
+            preferences.network.effective_mode(),
+            crate::network::ProxyMode::CustomRequired,
+            "network: {network}"
+        );
+        assert!(!preferences.cloud_candidates, "network: {network}");
+        assert!(!preferences.translation_account, "network: {network}");
+    }
+    for network in [None, Some(serde_json::json!({}))] {
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document["cloud_candidates"] = true.into();
+        document["translation_account"] = true.into();
+        document["candidate_layout"] = "future_layout".into();
+        if let Some(network) = network {
+            document["network"] = network;
+        } else {
+            document.as_object_mut().unwrap().remove("network");
+        }
+        let (preferences, _) =
+            Preferences::salvaged_from(document, Preferences::default()).unwrap();
+        assert_eq!(
+            preferences.network,
+            crate::network::NetworkPreferences::default()
+        );
+        assert!(preferences.cloud_candidates);
+        assert!(preferences.translation_account);
+    }
 }
 
 #[test]

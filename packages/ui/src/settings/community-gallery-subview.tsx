@@ -35,6 +35,7 @@ export function CommunityGallerySubview({
   onApplyPreferences,
   onSkinApplied,
   look,
+  contributions = true,
   onClose,
 }: {
   view: CommunityGalleryView;
@@ -48,6 +49,8 @@ export function CommunityGallerySubview({
   onApplyPreferences?: (next: Preferences) => void | Promise<void>;
   onSkinApplied?: (id: string) => void;
   look?: "harmony";
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。缺省为提供。 */
+  contributions?: boolean;
   onClose: () => void;
 }) {
   const title = titles[view.category];
@@ -69,6 +72,7 @@ export function CommunityGallerySubview({
             onApplyPreferences={onApplyPreferences}
             onSkinApplied={onSkinApplied}
             historyPage={historyPage}
+            contributions={contributions}
           />
         )
       : resources && (
@@ -80,6 +84,7 @@ export function CommunityGallerySubview({
             mobile
             look={look}
             historyPage={historyPage}
+            contributions={contributions}
           />
         );
   return (

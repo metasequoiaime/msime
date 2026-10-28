@@ -5863,7 +5863,7 @@ impl Preferences {
         Ok((preferences, not_kept.into_iter().collect()))
     }
 
-    /// 逐键救下的偏好里，决定把内容发到哪里的设置（云候选的来源和地址、AI 服务商和地址、语音识别和润色的服务商和地址、自定义翻译的地址、代理）文档里写着、却换成了默认值时，关掉用它的联网功能，而不是让这个功能拿着默认的去向照常发请求：用户选的是自己的云候选服务，救下的开关却把组字发给默认的 Google；用户填了自定义代理，救下的却是跟随系统、绕开了代理。代理换不回来时改用文档里的代理地址（[`ProxyMode::Custom`](crate::network::ProxyMode::Custom)），连不上就是请求失败，不会绕开它。
+    /// 逐键救下的偏好里，决定把内容发到哪里的设置（云候选的来源和地址、AI 服务商和地址、语音识别和润色的服务商和地址、自定义翻译的地址、代理）文档里写着、却换成了默认值时，关掉用它的联网功能，而不是让这个功能拿着默认的去向照常发请求：用户选的是自己的云候选服务，救下的开关却把组字发给默认的 Google；用户填了自定义代理，救下的却是跟随系统、绕开了代理。代理无法完整保留时使用运行时的必须代理状态（[`ProxyMode::CustomRequired`](crate::network::ProxyMode::CustomRequired)），并关闭发送用户内容的功能；地址不可用时远程客户端构造失败。
     ///
     /// 只用于输入运行时在内存里救下的偏好：用户在设置页点的修复（[`PreferencesStore::recover`]）写下的结果用户看得见、改得了，不在这里替他关。`source` 是文档里的偏好对象。
     fn close_destinations_not_kept(&mut self, source: &serde_json::Value) {
@@ -5924,10 +5924,25 @@ impl Preferences {
         ) {
             self.custom_translation.enabled = false;
         }
-        if replaced(source, "/network/proxy_mode", &self.network.proxy_mode)
-            && !self.network.proxy_server.is_empty()
-        {
-            self.network.proxy_mode = crate::network::ProxyMode::Custom;
+        let written_mode = source
+            .pointer("/network/proxy_mode")
+            .and_then(serde_json::Value::as_str);
+        let selected_unreadable_mode =
+            replaced(source, "/network/proxy_mode", &self.network.proxy_mode);
+        let selected_unreadable_server = written_mode == Some("custom")
+            && replaced(source, "/network/proxy_server", &self.network.proxy_server);
+        if selected_unreadable_mode || selected_unreadable_server {
+            self.network.proxy_mode = crate::network::ProxyMode::CustomRequired;
+            // 原生宿主也可能执行联网请求；不能只依赖 Rust HTTP 客户端拒绝构造。
+            self.cloud_candidates = false;
+            self.ai_assistant.enabled = false;
+            self.translation_ai = false;
+            self.translation_account = false;
+            self.voice_input.enabled = false;
+            self.voice_input.polish_enabled = false;
+            self.custom_translation.enabled = false;
+            self.tencent_tmt.enabled = false;
+            self.niutrans.enabled = false;
         }
     }
 
@@ -5963,7 +5978,7 @@ struct Salvage {
     unknown: Vec<UnknownPreferenceField>,
 }
 
-/// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result, whether anything was kept, which top-level keys were not kept whole, and the keys and list elements this version does not know.
+/// 以默认偏好垫底，逐个顶层键保留本版本能接受的设置，整段被拒时再逐字段尝试；同时交出保留状态、未完整保留的段落及未知键和列表元素。
 ///
 /// `default` 是垫底的默认偏好，即存储所属版本的默认值。
 fn salvage_preferences(
@@ -6029,7 +6044,7 @@ fn salvage_preferences(
             kept = true;
         }
     }
-    // Every step above was accepted by the same check, so this cannot fail on the salvaged map. Unknown keys were carried over like any other key; collect them here so a repair can put them back.
+    // 每一步均经过相同校验，最终映射可反序列化；同时收集随映射保留的未知键，让显式修复能够放回。
     let (mut preferences, mut unknown) =
         deserialize_keeping_unknown::<Preferences>(&serde_json::Value::Object(salvaged), &[])?;
     unknown.extend(newer_list_values(&serde_json::Value::Object(source)));
@@ -6062,7 +6077,7 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
         let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
         temporary.write_all(contents)?;
         temporary.as_file().sync_all()?;
-        temporary.persist(path).map_err(|error| error.error)?;
+        crate::storage::persist_replacing(temporary, path).map_err(|error| error.error)?;
         Ok(())
     }
 }

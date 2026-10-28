@@ -602,6 +602,16 @@ jobs:
           & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
+      # 共享存储替换设置文件时，目标被别的进程短暂打开（杀毒、备份、索引）要等它过去，而不是让设置页把这次保存当成失败、重读旧值。这几条测试在真的 Windows 上打开着目标去替换，macOS 和 Linux 的作业碰不到这种失败。
+      - name: Test shared storage replacement while the target is open
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p msime-client-base --lib -j 2 -- storage::tests::transient_replace storage::tests::replace_ storage::tests::persist_replacing
+          if ($LASTEXITCODE -ne 0) { throw 'Shared storage replacement tests failed' }
+          cargo test --locked -p msime-client-core --lib -j 2 -- preferences::tests::save_waits_for_a_reader preferences::tests::error_wordings_the_harmony_host_matches_on
+          if ($LASTEXITCODE -ne 0) { throw 'Preferences save retry tests failed' }
       - name: Build and test the compatibility settings host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh

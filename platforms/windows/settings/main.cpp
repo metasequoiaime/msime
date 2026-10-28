@@ -67,6 +67,7 @@
 #include "PluginEditorModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
+#include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
@@ -742,7 +743,8 @@ public:
     }
   }
 
-  bool Save(std::wstring &error) {
+  // 成功时返回空。失败时文档保持调用前的样子（包括没存下的修改），返回失败属于哪一类（见 PreferencesSaveFailure.h），由调用方决定重读还是保留修改稍后重试。
+  std::optional<msime::settings::PreferencesSaveFailure> Save() {
     const auto directory = state_directory();
     const auto path = path_utf8(directory);
     document_.SetNamedValue(L"preferences", preferences_);
@@ -751,18 +753,22 @@ public:
         reinterpret_cast<const uint8_t *>(path.data()), path.size(), revision_,
         reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size()));
     if (!response.ok) {
-      error = L"保存失败：设置可能已在其他窗口中更新，请重新读取后再保存。";
-      return false;
+      std::string error;
+      try {
+        error = utf8(JsonObject::Parse(text(response.text)).GetNamedString(L"error", L""));
+      } catch (...) {
+      }
+      return msime::settings::classify_preferences_save_failure(error);
     }
     try {
       document_ =
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
-      return true;
+      return std::nullopt;
     } catch (...) {
-      error = L"设置已写入，但返回内容无法读取。";
-      return false;
+      // 设置已写入，但返回内容读不了：调用方重读已存的设置。
+      return msime::settings::PreferencesSaveFailure::rejected;
     }
   }
 
@@ -3496,6 +3502,9 @@ struct MainWindow : WindowT<MainWindow> {
       closed_ = true;
       if (dictionary_update_timer_) dictionary_update_timer_.Stop();
       flush_pending();
+      // 写盘失败后保留着的修改在关闭前最后再存一次；仍失败就只能留在磁盘上的旧值。
+      retry_unsaved_edit();
+      if (save_retry_timer_) save_retry_timer_.Stop();
       // 本地模型的下载随窗口一起停下，下次安装时清掉没装完的临时文件。
       take_response(msime_client_voice_local_model_cancel(nullptr, 0));
       // 等待中的 Google 登录也随窗口结束，回环端口不再等一个没人看的浏览器。
@@ -3531,11 +3540,13 @@ private:
     std::wstring error;
     if (fresh.Load(error)) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
       load_error_.clear();
     } else if (!loaded_) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       load_error_ = error;
     }
   }
@@ -3701,6 +3712,7 @@ private:
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
       flush_pending();
+      retry_unsaved_edit();
       return;
     }
     // 与共享页一样，窗口获得焦点时重读打字统计并按日节流检查词库。
@@ -3713,6 +3725,13 @@ private:
     std::wstring error;
     if (fresh.Load(error) &&
         (!loaded_ || fresh.revision() != document_.revision())) {
+      // 写盘失败后保留着的修改还没存下，别处却已经存了新的修订号：与保存时遇到的冲突一样，以别处的设置为准并说明。
+      if (pending_save_failures_ > 0) {
+        discard_unsaved_edit();
+        notice_ = msime::settings::preferences_reload_failure_message(
+            msime::settings::PreferencesSaveFailure::conflict);
+        notice_severity_ = InfoBarSeverity::Error;
+      }
       document_ = std::move(fresh);
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
@@ -3792,15 +3811,20 @@ private:
 
   // ---- Saving ----
 
-  // Every control writes through at once. A refused write (a newer revision elsewhere, or a combination the store rejects) reloads the stored settings and says so.
+  // 每个控件改动后立即保存，返回是否已经存下。被拒绝的保存（别处先存了新修订号，或这组设置不被接受）重读已存的设置并在页首说明。写盘失败（设置文件被别的程序占用等）不重读：修改留在文档里、页面照它显示，按 PreferencesSaveFailure.h 的间隔自动重试，见 keep_unsaved_edit。
   bool commit() {
-    std::wstring error;
-    if (document_.Save(error)) {
+    const auto failure = document_.Save();
+    if (!failure) {
       synchronize_cloud_clipboard_configuration();
+      settle_unsaved_edit();
       return true;
     }
-    notice_ = L"无法保存这项设置：设置可能已在其他窗口中更新，或与其他设置冲突。"
-              L"已重新读取当前设置。";
+    if (*failure == msime::settings::PreferencesSaveFailure::storage) {
+      keep_unsaved_edit();
+      return false;
+    }
+    discard_unsaved_edit();
+    notice_ = msime::settings::preferences_reload_failure_message(*failure);
     notice_severity_ = InfoBarSeverity::Error;
     // The refused edit is still in memory; the stored settings replace it, and if they cannot be read the controls are disabled rather than showing a value that was never saved.
     PreferencesDocument fresh;
@@ -3814,11 +3838,57 @@ private:
     return false;
   }
 
+  // 写盘失败后保留修改：文档不动，说明还会自动重试，并排好下一次。自动重试用完后不再排，pending_save_failures_ 仍大于零，切到别的窗口、关闭窗口或下一次修改时再存。
+  void keep_unsaved_edit() {
+    ++pending_save_failures_;
+    if (closed_)
+      return;
+    const auto delay = msime::settings::preferences_save_retry_delay(pending_save_failures_);
+    auto message = msime::settings::preferences_storage_failure_message(delay.has_value());
+    // 同一句说明已经显示着时不重画整页，免得每次重试都打断正在操作的控件。
+    if (message != notice_)
+      show_notice(std::move(message), delay ? InfoBarSeverity::Warning : InfoBarSeverity::Error);
+    if (!delay)
+      return;
+    if (!save_retry_timer_) {
+      save_retry_timer_ = DispatcherQueue().CreateTimer();
+      save_retry_timer_.IsRepeating(false);
+      save_retry_timer_.Tick([this](Microsoft::UI::Dispatching::DispatcherQueueTimer const &,
+                                    Inspectable const &) { retry_unsaved_edit(); });
+    }
+    save_retry_timer_.Stop();
+    save_retry_timer_.Interval(*delay);
+    save_retry_timer_.Start();
+  }
+
+  // 有写盘失败后保留着的修改时再存一次。
+  void retry_unsaved_edit() {
+    if (pending_save_failures_ > 0)
+      commit();
+  }
+
+  // 保存成功：之前保留着的修改也一并存下了，换掉写盘失败的说明。
+  void settle_unsaved_edit() {
+    if (pending_save_failures_ == 0)
+      return;
+    discard_unsaved_edit();
+    show_notice(std::wstring(msime::settings::preferences_saved_after_retry_message),
+                InfoBarSeverity::Success);
+  }
+
+  // 文档被已存的设置换掉（重读、别处改过）时，保留着的修改随之作废，不再重试。
+  void discard_unsaved_edit() {
+    pending_save_failures_ = 0;
+    if (save_retry_timer_)
+      save_retry_timer_.Stop();
+  }
+
   void change(std::function<void(PreferencesDocument &)> const &edit,
               bool redraw) {
     flush_pending();
     edit(document_);
-    if (commit()) {
+    // 写盘失败时修改仍留在文档里，预览照样跟着它走。
+    if (commit() || pending_save_failures_ > 0) {
       forget_stale_card_previews();
       update_preview();
       update_toolbar_preview();
@@ -13979,7 +14049,8 @@ private:
       if (commit()) {
         cloud_provider_draft_.reset();
         queue_refresh();
-      } else
+      } else if (pending_save_failures_ == 0)
+        // 写盘失败时配置本身没问题，页首已经说明会自动重试，不改成检查配置的提示。
         show_notice(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
     }, loaded_);
     A11y::SetAutomationId(save, L"cloud-candidate-save");
@@ -26852,6 +26923,8 @@ private:
   bool refresh_queued_ = false;
   bool closed_ = false;
   bool pending_save_ = false;
+  // 写盘连续失败的次数；大于零时文档里有没存下的修改，见 keep_unsaved_edit。
+  std::size_t pending_save_failures_ = 0;
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
@@ -27334,6 +27407,7 @@ private:
   TextBlock dictionary_update_note_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer dictionary_update_timer_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer save_timer_{nullptr};
+  Microsoft::UI::Dispatching::DispatcherQueueTimer save_retry_timer_{nullptr};
   // A redraw held back until the click that activated the window has been delivered.
   bool pointer_down_ = false;
   bool refresh_after_pointer_ = false;

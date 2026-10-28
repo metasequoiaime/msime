@@ -9,7 +9,13 @@ import type {
 export interface SettingsSkinCommunitySectionProps {
   model: Pick<
     SettingsPageModel,
-    "client" | "page" | "draft" | "setDraft" | "keyboardPreviewTheme" | "openAccountLogin"
+    | "client"
+    | "page"
+    | "draft"
+    | "setDraft"
+    | "keyboardPreviewTheme"
+    | "openAccountLogin"
+    | "showCommunityContribution"
   >;
   views: Pick<
     ReturnType<typeof useSettingsCommunityViews>,
@@ -26,7 +32,15 @@ export function SettingsSkinCommunitySection({
   onSkinViewChange,
   onSkinApplied,
 }: SettingsSkinCommunitySectionProps) {
-  const { client, page, draft, setDraft, keyboardPreviewTheme, openAccountLogin } = model;
+  const {
+    client,
+    page,
+    draft,
+    setDraft,
+    keyboardPreviewTheme,
+    openAccountLogin,
+    showCommunityContribution,
+  } = model;
   const {
     skinTabs,
     desktopTabs: desktopSkinTabs,
@@ -54,6 +68,7 @@ export function SettingsSkinCommunitySection({
               onSkinApplied={onSkinApplied}
               // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
               historyPage="skin"
+              contributions={showCommunityContribution}
             />,
           )}
         </div>

@@ -20,6 +20,7 @@ export interface SettingsFeaturePagesProps {
     | "settingsPlatform"
     | "surfaceThemesFollow"
     | "showAiGeneration"
+    | "showCommunityContribution"
     | "mobileSecondaryGroups"
     | "communityGallery"
     | "closeCommunityGallery"
@@ -56,6 +57,7 @@ export function SettingsFeaturePages({
     settingsPlatform,
     surfaceThemesFollow,
     showAiGeneration,
+    showCommunityContribution,
     mobileSecondaryGroups,
     openAccountLogin,
     openExternalUrl,
@@ -141,6 +143,7 @@ export function SettingsFeaturePages({
           onApplyPreferences={setDraft}
           onSkinApplied={onSkinApplied}
           look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
+          contributions={showCommunityContribution}
           onClose={closeCommunityGallery}
         />
       )}
