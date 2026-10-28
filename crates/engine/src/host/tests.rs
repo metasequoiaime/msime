@@ -1205,6 +1205,27 @@ fn shuangpin_syllables_do_not_depend_on_the_profile() {
     assert_eq!(encode_shuangpin("den", "xiaohe").as_deref(), Some("df"));
 }
 
+/// 内置方案里只有微软双拼用 `;` 键；`custom` 和不认识的名字没有表，答不了。
+#[test]
+fn shuangpin_uses_semicolon_follows_the_builtin_table() {
+    for (profile, expected) in [
+        ("xiaohe", false),
+        ("ziranma", false),
+        ("shoudao", false),
+        ("microsoft", true),
+        ("smart_abc", false),
+    ] {
+        assert_eq!(
+            shuangpin_uses_semicolon(profile),
+            Some(expected),
+            "{profile}"
+        );
+    }
+    for profile in ["custom", "", "quanpin"] {
+        assert_eq!(shuangpin_uses_semicolon(profile), None, "{profile}");
+    }
+}
+
 #[test]
 fn all_shuangpin_profiles_accept_yo_as_one_syllable() {
     let dir = tempfile::tempdir().unwrap();

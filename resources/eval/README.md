@@ -144,7 +144,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 ## 双拼与触屏误触
 
-`--scheme shuangpin` 把同样的全拼用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触，量双拼纠错（纠错整句，也就是按方案键位生成邻键和对调变体的「平面表」）能把按错的键纠回多少、会不会碰坏打对的输入。设计和取舍见[决策笔记](../../.agents/notes/implemented/testing/2026-10-27-shuangpin-touch-eval.md)。
+`--scheme shuangpin` 把同样的全拼用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触和落点，量双拼纠错（纠错整句）能把按错的键纠回多少、会不会碰坏打对的输入。触点模式像触屏宿主那样先注册几何（`Runtime::set_key_geometry`），每键带上按下点（`Runtime::set_key_touch`，即 `msime_client_touch_character` 走的那条路）再派发，量的是按落点计价的纠错；加 `--no-touch-points` 只送按到的键、不送落点，量的是引擎收不到触点时按方案键位生成邻键和对调变体的「平面表」。评测的设计见[评测笔记](../../.agents/notes/implemented/testing/2026-10-27-shuangpin-touch-eval.md)，触点计价和调参见[触点纠错笔记](../../.agents/notes/implemented/feature/2026-10-27-shuangpin-touch-correction.md)。
 
 ```sh
 cargo run --release -p msime-input-runtime --example convert_eval -- \
@@ -155,29 +155,34 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
   --key-geometry resources/eval/key-geometry/android-portrait.json \
   --key-geometry resources/eval/key-geometry/android-portrait-microsoft.json \
   --touch-mode none,clean,noisy,realistic --touch-sigma 0,0.15,0.25,0.35 --touch-bias-y 0,0.1 \
-  --seed 20261027 --baseline resources/eval/baseline-shuangpin-touch-sentences.json
+  --seed 20261027 --jobs 5 --assert-top1-unchanged \
+  --baseline resources/eval/baseline-shuangpin-touch-sentences.json
 ```
 
-词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），在同时跑着 CI 的 Mac Studio 上整句那份要一到五小时（看负载）、词级那份五分钟，没有放进 `verify-local.sh`。
+词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），送落点、用引擎默认的计价参数。送落点时每条用例的触点各不相同，记忆表帮不上忙，所以加 `--jobs 5` 让五个方案各开一个线程同时跑（输出与一个一个跑逐字节相同），再加 `--assert-top1-unchanged`。在同时跑着 CI 的 Mac Studio 上整句那份要几个小时（看负载）、词级那份十分钟上下，没有放进 `verify-local.sh`。引擎收到触点之前的平面表数字用同样的命令加 `--no-touch-points` 复现。
+
+`--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。
 
 **基线只用 `desktop-dictionary.lock.json` 那一组文件加 `sentence-model.safetensors` 生成，资源目录里不放 settled 模型 `sentence-model-desktop.safetensors`。** 那个文件由另一份锁 `settled-model.lock.json` 发布，`convert_eval` 见到它就挂上 settled 重排，排序会变，两份双拼基线就对不上了，并不是产品改了。跑的时候 stderr 必须打出 `no settled model at ...`；打出 `settling with ...` 时先把那个文件挪出资源目录。
 
 **编码。** 用例的输入是不带分隔的全拼，先按 TSV 里的音节数切成音节，只认只有一种切法的（`fangan` 两个音节可以是 fang'an 也可以是 fan'gan，金标准是哪一个说不清，不打）。切音节按与方案无关的音节表（`host::is_shuangpin_syllable`），不按某个方案编不编得出来，所以有没有歧义在五个方案上判断得一样。再用引擎自己的表（`host::encode_shuangpin`）逐音节编成两键码。切不开、有歧义或有音节在这个方案里编不出来的用例丢掉，每个方案编出来的条数写在报告的 `encoding` 里。纠错整句不接受手打的 `'`，所以按键里不带它。
 
-**几何。** `key-geometry/` 下是宿主下发给引擎的同一种 JSON：`id` 是非零代次，`keys` 是 a 到 z 的 `[cx, cy, w, h]`，`semicolon` 是微软双拼显示的 `;` 键（没有为 `null`），`duplicates` 是分离键盘里重复的字母键 `["g", cx, cy, w, h]`。坐标是各平台自己的单位（dp、pt、vp），y 向下。宿主只在微软双拼下显示 `;`，第二行因此多一个键、键宽也不同，所以每个平台有一份不带 `;` 的和一份 `-microsoft`：给多份 `--key-geometry` 时，微软双拼取带 `;` 的那份，其余方案取不带的。这几份是按常量构造的参考布局，不是真机导出的：Android 按 `KeyboardGeometry` 的 `DESIGN_*` 常量（411 dp 宽、左右各留 6、键距 5、键高 46、行距 8）、第二行铺满宽度（`ImeLetterRows`）、末行大小写和删除各 1.4 个键宽（`KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT`）；iPhone 按 390 pt 宽、键距 6、键高 42、行距 7，不显示 `;` 时第二行和第一行同宽同距、两端各缩进按键区宽度的 5%（`KeyboardLayoutPreference` 的 `letterInsetRatio`，恰好半个键距）；HarmonyOS 按 360 vp 宽、`KeyboardMetrics` 的键距 6、键高 44（`ROW_HEIGHT_VP`，默认高度调整为 0）和行距 7、不显示 `;` 时第二行两端各缩进半个键；`ipad-split` 是 iPad 横屏两个 360 pt 的半边、右半边内侧重复 G 和 V，没有微软双拼的版本。宿主接入触点的那一期会换成真机导出的几何，基线随之重跑。
+**几何。** `key-geometry/` 下是宿主下发给引擎的同一种 JSON：`id` 是非零代次，`keys` 是 a 到 z 的 `[cx, cy, w, h]`，`semicolon` 是微软双拼显示的 `;` 键（没有为 `null`），`duplicates` 是分离键盘里重复的字母键 `["g", cx, cy, w, h]`。坐标是各平台自己的单位（dp、pt、vp），y 向下。宿主只在微软双拼下显示 `;`，第二行因此多一个键、键宽也不同，所以每个平台有一份不带 `;` 的和一份 `-microsoft`：给多份 `--key-geometry` 时，用 `;` 键的方案（按引擎的判据，内置方案里只有微软双拼）取带 `;` 的那份，其余方案取不带的。带 `;` 和不带 `;` 的各最多给一份，同一种给了两份会报错，不管这次跑的方案用不用得上它、也不管是不是只跑 `none`；报告的 `geometry` 只列实际用上的几何。这几份是按常量构造的参考布局，不是真机导出的：Android 按 `KeyboardGeometry` 的 `DESIGN_*` 常量（411 dp 宽、左右各留 6、键距 5、键高 46、行距 8）、第二行铺满宽度（`ImeLetterRows`）、末行大小写和删除各 1.4 个键宽（`KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT`）；iPhone 按 390 pt 宽、键距 6、键高 42、行距 7，不显示 `;` 时第二行和第一行同宽同距、两端各缩进按键区宽度的 5%（`KeyboardLayoutPreference` 的 `letterInsetRatio`，恰好半个键距）；HarmonyOS 按 360 vp 宽、`KeyboardMetrics` 的键距 6、键高 44（`ROW_HEIGHT_VP`，默认高度调整为 0）和行距 7、不显示 `;` 时第二行两端各缩进半个键；`ipad-split` 是 iPad 横屏两个 360 pt 的半边、右半边内侧重复 G 和 V，没有微软双拼的版本。宿主接入触点的那一期会换成真机导出的几何，基线随之重跑。
 
-**落点。** 落点服从 N(键心 + (0, b), σ²)，σ 和 b 以键为单位：横向按键宽的中位数、纵向按键高的中位数归一。落在键的矩形里就是按到了它，落在键距或字母区外归最近的键，模拟宿主把键距让给相邻键。大小写、删除、候选栏这些功能键不建模，落在那里的点也归最近的字母键，所以按错率偏低。引擎现在还收不到触点，这一步只决定按到了哪个键，用户想按的键换成按到的键送进去。
+**落点。** 落点服从 N(键心 + (0, b), σ²)，σ 和 b 以键为单位（σ 不小于 0；b 为正表示落点普遍偏下，可以为负）：横向按键宽的中位数、纵向按键高的中位数归一。落在键的矩形里就是按到了它，落在键距或字母区外归最近的键，模拟宿主把键距让给相邻键。大小写、删除、候选栏这些功能键不建模，落在那里的点也归最近的字母键，所以按错率偏低。用户想按的键换成按到的键送进去，落点（积分方格的格心，σ/8 一格）作为按下点一起送。抽一键只用一个均匀随机数，先定按到哪个键、再在这个键的格里定落点，所以同一个种子按到的键与 `--no-touch-points` 逐个相同，`--no-touch-points` 的报告与引擎收到触点之前的平面表基线逐字节相同。
 
 四种模式：
 
 - `none`：按想按的键原样打，不带触点，即桌面和实体键盘的基线；不分 σ 和偏置，每个方案只有一组。
-- `clean`：每键都按在本键上（手抖了但打对了），是将来触点纠错的精度闸。引擎收到触点之前，它送进去的键和 `none` 完全相同，结果也相同。
+- `clean`：每键都按在本键上（手抖了但打对了），是触点纠错的精度闸：送进去的键和 `none` 相同，只多了落点。落点在按对的那部分格里抽。`--assert-top1-unchanged` 在 clean 集里只要有一条用例的首选和 `none` 不同就以非零退出。加 `--no-touch-points` 时它和 `none` 完全相同。
 - `noisy`：至少一键按到了别的键，量召回。按「至少一键按错」的条件分布精确抽样，不反复重抽；σ 为 0 时没有一键会按错，这些用例记在 `skipped` 里。
 - `realistic`：不加条件的落点分布，看净收益。
 
-**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。
+**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。同一条用例的同一串按键、带同样（量化后）的触点只打一次。
 
-`rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile <方案> --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 `realistic`（或 `--touch-mode` 指定的模式）合成误触，量带着按错的键时每次按键的开销。
+**调参。** `--touch-tuning base=12,scale=8,...` 覆盖引擎的触点计价参数（`base`、`scale`、`sigma_x`、`sigma_y`、`bias_y`、`min`、`max`、`cut`、`show`，意思见 `msime_engine::touch::TouchTuning`），只覆盖给出的几项，报告头里多一行 `touch_tuning`。它经 `host::Session::set_touch_tuning` 设进引擎，只有 Rust 示例能设，宿主经 FFI 设不了。
+
+`rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile <方案> --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 `realistic`（或 `--touch-mode` 指定的模式）合成误触和落点，像宿主一样每键带上按下点，量带着按错的键时每次按键的开销；`--no-touch-points` 只送按到的键。`--touch-arms` 把两臂换成都挂模型、一臂送落点一臂不送，配对量出触点计价本身每键多花多少；再加 `--no-touch-points` 两臂都不送（A/A），量的是同一台机器上配对增量本身的噪声。配对增量的 p95 在 A/A 下也不是 0（两次相同的按键各自抖动），所以触点的代价看「with touches 与 flat table 两臂 p95 之差」，并且同一条命令重复至少 5 轮、取中位数并报出各轮的范围，单轮的数字不作数。几何的挑法和 σ、偏置的校验与 `convert_eval` 相同。在这个方案里编不出来的用例不计时，noisy 下没有一键可能按错的用例也不计时（不退回想按的键），两者的条数都打在 stderr；一条不剩时以非零退出。
 
 ## 往整句集里加用例
 

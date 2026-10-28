@@ -31,6 +31,7 @@ use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
 use crate::time::Instant;
+use crate::touch::KeyTouch;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
     FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
@@ -138,6 +139,8 @@ pub(super) struct InputSession {
     pub conversion: Option<ConversionEdit>,
     /// 「📅日期」页：选中混输里的入口后，候选窗换成这一组的全部格式（`EnterDateTimeCandidatePage`）。组字和 `mixed_candidates` 原样留着，任何非选词键把 `candidates()` 视图还回去。
     pub date_time_menu_page: Option<Vec<WordItem>>,
+    /// 触屏宿主为下一次 `character` 送来的按下点（`Session::set_key_touch`），只在 `dispatch_character` 把这一键交给方案之前用掉；其余路径一律丢掉。
+    pub pending_touch: Option<KeyTouch>,
 }
 
 impl InputSession {
@@ -250,6 +253,7 @@ impl InputSession {
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
             conversion: None,
+            pending_touch: None,
             journal_path: journal,
             paths,
         };
@@ -332,9 +336,15 @@ impl InputSession {
         // 任何实际字符输入都会使“退格撤销最近引号”失效；否则引号后输入一段拼音再退格，可能误撤销更早的引号。
         self.punctuation.clear_quote_undo();
         self.exit_date_time_menu();
-        let result = self
-            .helpcode_character(value)
-            .unwrap_or_else(|| self.dispatch_character(value, shift_only));
+        // 辅助码前导键接走的按键不是音节里的键，触点作废。
+        let touch = self.pending_touch.take();
+        let result = match self.helpcode_character(value) {
+            Some(result) => result,
+            None => {
+                self.pending_touch = touch;
+                self.dispatch_character(value, shift_only)
+            }
+        };
         // #7616：交还给宿主的大写字母让这一串开了头，直到下一枚不是大写字母的键为止。
         self.uppercase_passthrough = value.is_ascii_uppercase() && !result.handled;
         result
@@ -346,6 +356,8 @@ impl InputSession {
     }
 
     pub(super) fn dispatch_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        // 触点只交给下面写进 26 键组字的那一次 `handle_key`；在那之前返回的路径（改字、光标处插入、本地模式、网址）都用不到它。
+        let touch = self.pending_touch.take();
         // 改字时能写进组字的键先退出改字再照常键入；数字和空格等留给候选选择，宿主或 runtime 再按选择处理。
         if self.conversion.is_some() {
             if !(value.is_ascii_alphabetic() || value == b'\'' || value == b';') {
@@ -468,6 +480,12 @@ impl InputSession {
             // Only a key the scheme claims gets past the filter above; none of the current schemes claims one here.
             SchemeKey::Symbol(value)
         };
+        // 必须在 `handle_key` 之前交出：它会同步刷新候选。只有双拼方案收，大写字母（辅助码）和标记不带触点。
+        if matches!(key, SchemeKey::Letter(letter) if letter.is_ascii_lowercase())
+            || key == SchemeKey::Semicolon
+        {
+            self.engine.set_pending_touch(touch);
+        }
         let changed = self.engine.handle_key(key);
         self.update_mixed_candidates();
         // A key the scheme ignores (a fifth wubi letter, a second apostrophe) leaves the preedit alone and goes back to the host.

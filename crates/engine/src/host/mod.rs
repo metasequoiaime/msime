@@ -67,6 +67,6 @@ pub use session::{
 pub use text::{
     emoji_catalog_filtered_page, emoji_catalog_groups, emoji_catalog_slice, emoji_symbol_groups,
     encode_shuangpin, handwriting_order_candidates, hanzi_to_pinyin, hanzi_to_pinyin_batch,
-    is_shuangpin_syllable, normalize_full_pinyin, shuangpin_key_hints, shuangpin_zero_initials,
-    wubi_code_lookup,
+    is_shuangpin_syllable, normalize_full_pinyin, shuangpin_key_hints, shuangpin_uses_semicolon,
+    shuangpin_zero_initials, wubi_code_lookup,
 };

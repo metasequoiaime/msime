@@ -70,6 +70,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         conversion_focus_end: value.conversion_focus.1,
         caret_edit_suffix: value.caret_edit_suffix,
         caret_edit_prefix: value.caret_edit_prefix,
+        candidate_touch_supported: Vec::new(),
     };
     for (index, candidate) in value.candidates.into_iter().enumerate() {
         let mut annotation = value
