@@ -5217,12 +5217,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                           requestID: request.id)
         applied = true
       }, page: { request in
-        let result = try session.personalEntries(atOffset: UInt(request.offset), kind: request.kind,
-                                                 query: request.query)
-        guard let rows = result["entries"] as? [[String: Any]], let hasMore = result["hasMore"] as? Bool else {
-          throw PersonalDictionaryStore.StoreError.invalidState
-        }
-        return PersonalWordPage(entries: try rows.map { try PersonalWord(bridgeValue: $0) }, hasMore: hasMore)
+        try PersonalWordPage(bridgeResult: session.personalEntries(atOffset: UInt(request.offset), kind: request.kind,
+                                                                   query: request.query))
       }, export: { request in
         try self.session.personalExport(kind: request.kind, format: request.format)
       })

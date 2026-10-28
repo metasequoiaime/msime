@@ -350,6 +350,8 @@ impl ShuangpinEngine {
         } else {
             &[]
         });
+        // 触点按原始输入的位置对齐，在这里交一次：模糊音的替代拼写换了键，它们的查询拿不到触点（词典只对原始输入的前缀用触点）。
+        self.set_key_touches(request);
         let mut candidates = self.query_standard(request, keymap);
         if request.valid {
             let alternatives =
@@ -718,6 +720,8 @@ impl ShuangpinEngine {
         if initial.len() != 1 {
             return false;
         }
+        // 缓存键带这份请求的触点签名，与它被查询时一致。
+        self.set_key_touches(request);
         self.dictionary
             .expand_initial_candidates(initial, candidates, &request.raw_input)
     }
@@ -735,6 +739,8 @@ impl ShuangpinEngine {
         // With a reranker loaded the context is part of the cache key, so the rows must go under the context this request was queried with.
         self.dictionary
             .set_rescoring_context(&request.rescoring_context);
+        // 触点签名同理：中间可能夹着一次不带触点的光标前缀查询。
+        self.set_key_touches(request);
         match active_helpcode_query(request, self.profile) {
             Some(helpcode) => {
                 let double = if helpcode.help_codes.len() == 2 {
@@ -761,6 +767,15 @@ impl ShuangpinEngine {
 
     pub fn find_candidate(&self, key: &str, value: &str) -> Option<WordItem> {
         self.dictionary.find_candidate(key, value)
+    }
+
+    fn set_key_touches(&mut self, request: &QueryRequest) {
+        self.dictionary.set_key_touches(
+            &request.key_touches,
+            &request.raw_input,
+            request.key_geometry.as_ref(),
+            request.touch_tuning,
+        );
     }
 
     pub fn reset_cache(&mut self) {

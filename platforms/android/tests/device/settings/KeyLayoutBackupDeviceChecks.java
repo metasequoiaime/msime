@@ -49,18 +49,18 @@ final class KeyLayoutBackupDeviceChecks {
 
             // 从真实 JSON 经 JNI 迁移：未知样式不能被标准化快照抹掉，数字行仍可独立迁移。
             File document = new File(directory, "preferences.json");
-            JSONObject raw = new JSONObject(Files.readString(document.toPath()));
+            JSONObject raw = new JSONObject(new String(Files.readAllBytes(document.toPath()), StandardCharsets.UTF_8));
             raw.getJSONObject("preferences").put("touch_twenty_six_key_style", "split_space");
-            Files.writeString(document.toPath(), raw.toString());
+            Files.write(document.toPath(), raw.toString().getBytes(StandardCharsets.UTF_8));
             check(Boolean.TRUE.equals(call(target, "app.msime.android.KeyLayoutStyleMigration", null, "migrate",
                 new Class<?>[] {Context.class, String.class}, isolated, directory)), "unknown style migration succeeds");
-            JSONObject migrated = new JSONObject(Files.readString(document.toPath())).getJSONObject("preferences");
+            JSONObject migrated = new JSONObject(new String(Files.readAllBytes(document.toPath()), StandardCharsets.UTF_8)).getJSONObject("preferences");
             check("split_space".equals(migrated.getString("touch_twenty_six_key_style")), "unknown style stays on disk");
             check(migrated.getBoolean("touch_number_row"), "number row migrates beside an unknown style");
-            raw = new JSONObject(Files.readString(document.toPath()));
+            raw = new JSONObject(new String(Files.readAllBytes(document.toPath()), StandardCharsets.UTF_8));
             raw.getJSONObject("preferences").remove("touch_twenty_six_key_style");
             raw.getJSONObject("preferences").remove("touch_number_row");
-            Files.writeString(document.toPath(), raw.toString());
+            Files.write(document.toPath(), raw.toString().getBytes(StandardCharsets.UTF_8));
             call(target, LOCAL, null, "update", new Class<?>[] {Context.class, Map.class},
                 isolated, Map.of(LONG, true, NUMBER, true));
 

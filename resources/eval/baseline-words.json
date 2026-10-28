@@ -3,69 +3,76 @@
     "2": {
       "cases": 1860,
       "found": 0.997,
-      "mrr": 0.825,
-      "top1": 0.727,
-      "top1_char_prefix": 0.754,
-      "top5": 0.956,
-      "top9": 0.991
+      "mrr": 0.793,
+      "top1": 0.683,
+      "top1_char_prefix": 0.713,
+      "top5": 0.939,
+      "top9": 0.992
     },
     "3": {
       "cases": 365,
-      "found": 0.992,
-      "mrr": 0.969,
-      "top1": 0.956,
-      "top1_char_prefix": 0.969,
-      "top5": 0.984,
-      "top9": 0.992
+      "found": 0.997,
+      "mrr": 0.961,
+      "top1": 0.948,
+      "top1_char_prefix": 0.963,
+      "top5": 0.975,
+      "top9": 0.995
     },
     "4": {
       "cases": 556,
-      "found": 0.964,
-      "mrr": 0.882,
-      "top1": 0.856,
-      "top1_char_prefix": 0.904,
-      "top5": 0.962,
-      "top9": 0.964
+      "found": 0.957,
+      "mrr": 0.876,
+      "top1": 0.853,
+      "top1_char_prefix": 0.899,
+      "top5": 0.941,
+      "top9": 0.944
     },
     "5": {
       "cases": 10,
       "found": 0.7,
-      "mrr": 0.385,
+      "mrr": 0.37,
       "top1": 0.3,
       "top1_char_prefix": 0.6,
-      "top5": 0.7,
-      "top9": 0.7
+      "top5": 0.6,
+      "top9": 0.6
     }
   },
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2756,
-    "generated": 3
+    "database": 2753,
+    "generated": 4
   },
   "overall": {
     "cases": 2791,
-    "found": 0.989,
-    "mrr": 0.853,
-    "top1": 0.781,
-    "top1_char_prefix": 0.811,
-    "top5": 0.96,
-    "top9": 0.985
+    "found": 0.988,
+    "mrr": 0.83,
+    "top1": 0.75,
+    "top1_char_prefix": 0.783,
+    "top5": 0.943,
+    "top9": 0.981
   },
   "sample_failures": [
     {
       "gold": "阿爸",
       "id": "w-00001",
       "input": "aba",
-      "rank": 6,
+      "rank": 4,
       "top1": "阿坝"
     },
     {
       "gold": "按理",
       "id": "w-00100",
       "input": "anli",
-      "rank": 4,
+      "rank": 3,
       "top1": "案例"
+    },
+    {
+      "gold": "岸上",
+      "id": "w-00145",
+      "input": "anshang",
+      "rank": 3,
+      "top1": "按上"
     },
     {
       "gold": "摆渡",
@@ -78,8 +85,15 @@
       "gold": "败露",
       "id": "w-00244",
       "input": "bailu",
-      "rank": 3,
+      "rank": 5,
       "top1": "白鹭"
+    },
+    {
+      "gold": "摆脱",
+      "id": "w-00262",
+      "input": "baituo",
+      "rank": 2,
+      "top1": "拜托"
     },
     {
       "gold": "搬走",
@@ -92,8 +106,22 @@
       "gold": "胞弟",
       "id": "w-00424",
       "input": "baodi",
-      "rank": 3,
-      "top1": "宝地"
+      "rank": 4,
+      "top1": "保底"
+    },
+    {
+      "gold": "褒奖",
+      "id": "w-00469",
+      "input": "baojiang",
+      "rank": 2,
+      "top1": "包浆"
+    },
+    {
+      "gold": "褒义",
+      "id": "w-00550",
+      "input": "baoyi",
+      "rank": 2,
+      "top1": "报以"
     },
     {
       "gold": "保质",
@@ -113,7 +141,7 @@
       "gold": "备查",
       "id": "w-00613",
       "input": "beicha",
-      "rank": 8,
+      "rank": 6,
       "top1": "被查"
     },
     {
@@ -121,7 +149,7 @@
       "id": "w-00676",
       "input": "beishuichexi",
       "rank": 4,
-      "top1": "被水车洗"
+      "top1": "被水车系"
     },
     {
       "gold": "本市",
@@ -131,52 +159,59 @@
       "top1": "本事"
     },
     {
+      "gold": "本县",
+      "id": "w-00748",
+      "input": "benxian",
+      "rank": 2,
+      "top1": "奔现"
+    },
+    {
+      "gold": "本着",
+      "id": "w-00757",
+      "input": "benzhe",
+      "rank": 2,
+      "top1": "奔着"
+    },
+    {
       "gold": "彼岸",
       "id": "w-00766",
       "input": "bian",
-      "rank": 2,
-      "top1": "边"
+      "rank": 6,
+      "top1": "变"
     },
     {
       "gold": "贬义",
       "id": "w-00847",
       "input": "bianyi",
-      "rank": 5,
+      "rank": 3,
       "top1": "编译"
     },
     {
       "gold": "壁画",
       "id": "w-00964",
       "input": "bihua",
-      "rank": 5,
-      "top1": "比画"
-    },
-    {
-      "gold": "冰柜",
-      "id": "w-01036",
-      "input": "binggui",
-      "rank": 4,
-      "top1": "并轨"
+      "rank": 2,
+      "top1": "笔画"
     },
     {
       "gold": "兵力",
       "id": "w-01045",
       "input": "bingli",
-      "rank": 2,
+      "rank": 4,
       "top1": "病例"
     },
     {
       "gold": "病员",
       "id": "w-01090",
       "input": "bingyuan",
-      "rank": 2,
-      "top1": "病原"
+      "rank": 5,
+      "top1": "病院"
     },
     {
       "gold": "必需",
       "id": "w-01135",
       "input": "bixu",
-      "rank": 4,
+      "rank": 6,
       "top1": "必须"
     },
     {
@@ -197,8 +232,15 @@
       "gold": "不和",
       "id": "w-01333",
       "input": "buhe",
-      "rank": 5,
+      "rank": 6,
       "top1": "不合"
+    },
+    {
+      "gold": "不久",
+      "id": "w-01378",
+      "input": "bujiu",
+      "rank": 2,
+      "top1": "不就"
     },
     {
       "gold": "补缺",
@@ -229,18 +271,32 @@
       "top1": "不同剪辑"
     },
     {
+      "gold": "不外",
+      "id": "w-01540",
+      "input": "buwai",
+      "rank": 6,
+      "top1": "不歪"
+    },
+    {
+      "gold": "不问",
+      "id": "w-01549",
+      "input": "buwen",
+      "rank": 4,
+      "top1": "不稳"
+    },
+    {
       "gold": "补写",
       "id": "w-01567",
       "input": "buxie",
       "rank": 7,
-      "top1": "不屑"
+      "top1": "不谢"
     },
     {
       "gold": "不已",
       "id": "w-01594",
       "input": "buyi",
       "rank": 3,
-      "top1": "不宜"
+      "top1": "不易"
     },
     {
       "gold": "不只",
@@ -253,7 +309,7 @@
       "gold": "部族",
       "id": "w-01666",
       "input": "buzu",
-      "rank": 7,
+      "rank": 6,
       "top1": "不足"
     },
     {
@@ -264,78 +320,22 @@
       "top1": "才敢"
     },
     {
+      "gold": "财力",
+      "id": "w-01702",
+      "input": "caili",
+      "rank": 2,
+      "top1": "彩礼"
+    },
+    {
       "gold": "财政补贴",
       "id": "w-01756",
       "input": "caizhengbuti",
       "rank": 4,
       "top1": "财政部体"
-    },
-    {
-      "gold": "才智",
-      "id": "w-01765",
-      "input": "caizhi",
-      "rank": 3,
-      "top1": "材质"
-    },
-    {
-      "gold": "苍劲",
-      "id": "w-01783",
-      "input": "cangjing",
-      "rank": 2,
-      "top1": "藏经"
-    },
-    {
-      "gold": "蚕丝",
-      "id": "w-01828",
-      "input": "cansi",
-      "rank": 2,
-      "top1": "惨死"
-    },
-    {
-      "gold": "查对",
-      "id": "w-01918",
-      "input": "chadui",
-      "rank": 2,
-      "top1": "插队"
-    },
-    {
-      "gold": "常德",
-      "id": "w-01972",
-      "input": "changde",
-      "rank": 3,
-      "top1": "长的"
-    },
-    {
-      "gold": "昌盛",
-      "id": "w-02026",
-      "input": "changsheng",
-      "rank": 2,
-      "top1": "长生"
-    },
-    {
-      "gold": "常驻",
-      "id": "w-02071",
-      "input": "changzhu",
-      "rank": 2,
-      "top1": "常住"
-    },
-    {
-      "gold": "产油",
-      "id": "w-02098",
-      "input": "chanyou",
-      "rank": 4,
-      "top1": "掺有"
-    },
-    {
-      "gold": "超支",
-      "id": "w-02161",
-      "input": "chaozhi",
-      "rank": 2,
-      "top1": "超值"
     }
   ],
   "top1_source": {
-    "database": 2721,
-    "generated": 70
+    "database": 2719,
+    "generated": 72
   }
 }

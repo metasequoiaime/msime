@@ -213,7 +213,7 @@ pkg_postinst() {
 	fi
 
 	if [[ -z ${REPLACING_VERSIONS} ]]; then
-		elog "每个用户首次使用前运行一次 msime-linux-setup --download 取回词库（约 170 MB），"
+		elog "每个用户首次使用前运行一次 msime-linux-setup --download 取回词库（约 270 MB），"
 		elog "再在 Fcitx5 或 IBus 的输入法列表里添加水杉输入法。"
 	fi
 	optfeature "Doubao streaming speech recognition" dev-python/websockets

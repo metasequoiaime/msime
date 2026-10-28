@@ -26,6 +26,7 @@ use crate::shuangpin::query::{
 };
 use crate::shuangpin::ShuangpinProfile;
 use crate::shuangpin::ShuangpinScheme;
+use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
     SchemeSet, SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
@@ -113,6 +114,10 @@ pub struct ImeSession {
     /// 日文混输把拼音组字当罗马字查日文时用的方案和请求缓冲，逐键复用。
     mixed_japanese_scheme: JapaneseRomajiScheme,
     mixed_japanese_request: QueryRequest,
+    /// 触屏宿主注册的键位几何，换方案后新建的双拼方案也拿到它；桌面永远是 `None`。
+    key_geometry: Option<Arc<KeyGeometry>>,
+    /// 按触点计价的参数，随每个请求带给双拼引擎。
+    touch_tuning: TouchTuning,
 }
 
 /// 日文混输对当前组字的判断：整段按罗马字转换出的最佳日文，以及决定要不要给、放在哪里的信号。
@@ -188,6 +193,8 @@ impl ImeSession {
             mixed_pinyin_request: QueryRequest::default(),
             mixed_japanese_scheme: JapaneseRomajiScheme::new(),
             mixed_japanese_request: QueryRequest::default(),
+            key_geometry: None,
+            touch_tuning: TouchTuning::default(),
         };
         session.bind_wubi_scheme();
         Ok(session)
@@ -898,11 +905,30 @@ impl ImeSession {
         )
     }
 
-    /// 大写段按当时的触发方式解析，方案层要拿到和敲键时一致的设置（`configure_shuangpin_scheme`）。
+    /// 大写段按当时的触发方式解析，方案层要拿到和敲键时一致的设置（`configure_shuangpin_scheme`）。键位几何同样跟着方案走。
     fn bind_shuangpin_scheme(&mut self) {
         let triggers = self.helpcode_uppercase_triggers();
+        let geometry = self.key_geometry.clone();
         if let Some(shuangpin) = self.scheme.as_shuangpin_mut() {
             shuangpin.set_helpcode_uppercase_triggers(triggers);
+            shuangpin.set_key_geometry(geometry);
+        }
+    }
+
+    /// 宿主注册（或清除）的键位几何，见 [`crate::touch::KeyGeometry`]。不刷新候选：几何只影响之后的查询。
+    pub fn set_key_geometry(&mut self, geometry: Option<Arc<KeyGeometry>>) {
+        self.key_geometry = geometry;
+        self.bind_shuangpin_scheme();
+    }
+
+    pub fn set_touch_tuning(&mut self, tuning: TouchTuning) {
+        self.touch_tuning = tuning;
+    }
+
+    /// 紧接着的那一次 `handle_key` 的触点；只有双拼方案收，其余方案没有触点可用。
+    pub fn set_pending_touch(&mut self, touch: Option<KeyTouch>) {
+        if let Some(shuangpin) = self.scheme.as_shuangpin_mut() {
+            shuangpin.set_pending_touch(touch);
         }
     }
 
@@ -1123,6 +1149,7 @@ impl ImeSession {
         request
             .rescoring_context
             .clone_from(&self.rescoring_context);
+        request.touch_tuning = self.touch_tuning;
     }
 
     /// An input the user committed raw while a correction was offered is answered as typed: both autocorrect switches off and a literal re-cut, because the correction aliases apply whatever the mask says (ime_session.cpp:285-297). Only consulted while some autocorrect type is on.
@@ -1329,6 +1356,7 @@ fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) 
         target.corrected_from.clear();
         target.sentence_association = false;
         target.sentence_words.clear();
+        target.touch_supported = false;
     }
     if destination.len() > source.len() {
         destination.truncate(source.len());

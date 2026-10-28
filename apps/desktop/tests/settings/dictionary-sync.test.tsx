@@ -475,6 +475,68 @@ test("words the host wrote itself are recorded as a local change only while sync
   expect(unconsented).not.toHaveBeenCalled();
 });
 
+test("a sync run that wrote remote words into this device's dictionary reloads the word list", async () => {
+  expect(dictionarySyncRun({ ...runValue(), report: { ...REPORT, applied: 3 } })?.applied).toBe(3);
+  expect(
+    dictionarySyncRun({ network: true, next_check_ms: 60_000, status: STATUS, error: "x" })
+      ?.applied,
+  ).toBe(0);
+
+  // 网盘来的词写进了本机词库之后，词库页重读「我的词条」；什么也没写进来时不重读。
+  const localChanges = createDictionaryLocalChanges();
+  const onWordsApplied = vi.fn();
+  let applied = 0;
+  const host = syncHost({
+    run: () => ({ ...runValue(), report: { ...REPORT, applied } }),
+    remove: () => ({
+      devices: DEVICES,
+      run: { ...runValue(), report: { ...REPORT, applied: 1 } },
+    }),
+  });
+  const { result } = renderHook(() =>
+    useDictionarySync({
+      client: { dictionarySync: host },
+      saved: WEBDAV,
+      localChanges,
+      onWordsApplied,
+    }),
+  );
+  await waitFor(() => expect(result.current?.status).not.toBeNull());
+  expect(onWordsApplied).not.toHaveBeenCalled();
+  applied = 2;
+  await act(async () => result.current!.syncNow());
+  expect(onWordsApplied).toHaveBeenCalledTimes(1);
+  // 移除设备带回的那一次同步也算。
+  await act(async () => result.current!.remove(OTHER_ID));
+  expect(onWordsApplied).toHaveBeenCalledTimes(2);
+
+  // 整个设置页：在「管理词库」里「立即同步」写进了一个词，回到「查找词库」不用换类型或搜索就看得到它。
+  cleanup();
+  const word = { kind: "quick_phrase" as const, key: "wpzc", value: "网盘来的合成词", weight: 1 };
+  let synced = false;
+  const list = vi.fn(async () => ({ entries: synced ? [word] : [], has_more: false }));
+  const page = syncHost({
+    run: (action) => {
+      if (action.operation === "run" && action.trigger === "manual") synced = true;
+      return { ...runValue(), report: { ...REPORT, applied: synced ? 1 : 0 } };
+    },
+  });
+  renderDictionaryPage(
+    { dictionarySync: page, dictionary: { list, edit: vi.fn() } as unknown as DictionaryClient },
+    { ...base, dictionary_sync_webdav: WEBDAV },
+  );
+  await settingsFormReady();
+  await waitFor(() => expect(list).toHaveBeenCalled());
+  await waitFor(() => expect(operations(page.request)).toContain("run:opened"));
+  expect(screen.queryByText("网盘来的合成词")).toBeNull();
+  const calls = list.mock.calls.length;
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "立即同步" }));
+  await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(calls));
+  fireEvent.click(screen.getByRole("tab", { name: "查找词库" }));
+  expect(await screen.findByText("网盘来的合成词")).toBeDefined();
+});
+
 test("returning to the window reads the status the input method's background sync left", async () => {
   const localChanges = createDictionaryLocalChanges();
   // 输入法进程在后台把待发送的那一个词发了出去：本页读到的概况随之变了。

@@ -4,6 +4,7 @@ import { runAsyncAction } from "../core/async-action";
 import { randomRequestId } from "../core/random-id";
 import { utf8ByteLength } from "../core/text";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
+import { HOST_USER_WORDS_CHANGED_EVENT } from "./use-dictionary-sync";
 import {
   DICTIONARY_PAGE_SIZE,
   MAX_DICTIONARY_FILE_BYTES,
@@ -239,6 +240,22 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     if (phraseListRef.current) phraseListRef.current.scrollTop = 0;
     void loadPhrases(dictionaryKind, offset);
   }
+
+  /** 词库在页面之外变了（词库同步写进了网盘来的词或删除，宿主自己写进了词）：按现在的类型、搜索和页码重读一次，不清掉页面上已有的操作提示。 */
+  function reloadPhrases() {
+    const current = currentPhraseQuery.current;
+    void current.load(undefined, current.offset, { preserveError: true });
+  }
+
+  // 宿主自己往「我的词条」里写了词（鸿蒙设置应用把键盘经共享沙箱发布的词写进来、排空了自己的个人词库队列）：列表跟着重读，不论有没有配置词库同步。
+  useEffect(() => {
+    if (!client.dictionary || typeof window === "undefined") return;
+    const reload = () => reloadPhrases();
+    window.addEventListener(HOST_USER_WORDS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(HOST_USER_WORDS_CHANGED_EVENT, reload);
+    // `reloadPhrases` 只经引用读最新的查询，不随每次渲染重新挂监听。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.dictionary]);
 
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary || !mounted.current) return;
@@ -597,6 +614,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     setDictionaryFormat,
     phraseListRef,
     loadPhrases,
+    reloadPhrases,
     turnPhrasePage,
     removePhrase,
     savePhrase,

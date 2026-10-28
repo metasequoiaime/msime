@@ -3645,6 +3645,7 @@ fn scalar_digit(field: i32) -> String {
 #[test]
 fn a_command_gets_the_local_time_to_the_minute() {
     let fixture = fixture_with(command_preferences());
+    // 使用不会撞上内置指令的合成触发词，确保实际投递到插件。
     install(
         &fixture,
         &[Script::new(
@@ -3652,7 +3653,7 @@ fn a_command_gets_the_local_time_to_the_minute() {
             scalar_digit(event_field::WEEKDAY),
             &[Hook::Command],
         )
-        .commanding(&[("zhou", "周")], true)],
+        .commanding(&[("myclock", "测试时钟")], true)],
         1,
     );
     opt_in(&fixture, TRAIT_KNOWN);
@@ -3664,12 +3665,12 @@ fn a_command_gets_the_local_time_to_the_minute() {
             utc_offset_minutes: -300,
         })))
     });
-    slash(fixture.handle, b"/zhou");
+    slash(fixture.handle, b"/myclock");
     assert_eq!(take_log(), [(Hook::Command.code(), "3".to_owned())]);
     // 时钟读不出来：四个字段都是 ABSENT。
     cancel(fixture.handle);
     crate::scripts::TEST_LOCAL_TIME.with(|time| time.set(Some(None)));
-    slash(fixture.handle, b"/zhou");
+    slash(fixture.handle, b"/myclock");
     assert_eq!(take_log(), [(status::ABSENT, String::new())]);
     crate::scripts::TEST_LOCAL_TIME.with(|time| time.set(None));
 }
