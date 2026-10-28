@@ -130,6 +130,10 @@ Android 的 `dictionary_sync_rollback` 提供独立「重新信任网盘现状�
 
 同样的「只显示自己那一次的结果」在别处是跨进程的：macOS、Linux 的输入法进程、Windows 的 Server 在后台同步，结果不经设置窗口。共享设置页、WinUI 设置的「云端词库」标签和 Win7 词库同步面板在窗口重新获得焦点时各读一次不联网的 `status`（与 WinUI 获得焦点时重读打字统计的做法相同）；错误和操作结果的说明不动，它们记的是本页最近一次操作；WinUI 读到的与画着的相同时不重画，要画也等按下的指针松开，Win7 这一次不禁用表单。Android 的页面每次回到可见都以 `opened` 重新读，鸿蒙的键盘不同步，iOS 键盘扩展记下的改动在 App 回到前台的那次 `opened` 里反映出来，这三处不另加。窗口一直停在前台、后台恰好同步的那一次仍要等下一次获得焦点（共享页还有自己的 `periodic`）。
 
+真机上还看到另一处「同步了但页面没跟上」：App 回到前台的那次同步已经把别的设备加的词写进了词库（键盘里已经打得出来），「我的词条」却一直停在 10:49 那一页的 9 条，打开一次键盘才变。iOS 的这个列表不是直接读词库，而是键盘在 App Group 的 `PersonalDictionary/sync.json` 里写下的一页：排队的编辑要独占维护租约，只有键盘能在会话的间隙应用，所以页码、搜索和导出也都交给键盘答，App 只读这个文件；而写词库的同步跑在 App 里，跑完没人重写这一页。现在 `DictionarySyncCenter` 在一次同步写进了改动（`report.applied > 0`，移除设备和重置密钥带回的那一次也算）之后，在主线程之外用同步刚用过的那份 HostOptions 调 `msime_client_dictionary` 的 `list`，按页面现在请求的页码、种类和前缀读一页，经 `PersonalDictionaryStore.refreshPage` 写回 `sync.json`，页面每秒读一次文件，随后就换上。`list` 只取共享租约，和键盘活着的会话并存，所以不用等键盘；读页时不拿 `sync.lock`，写回前在锁里核对文件还是读页之前那一个，被键盘（应用编辑后写下了更新的一页）或页面（入队、翻页）换过就重读，三次都被换过就留给键盘；键盘正拿着锁时也留给它，那一轮它自己会写下新的一页。编辑队列、`refreshID` 和 `completedRefreshID` 不动，排队的编辑和导出照旧由键盘做。iOS App 自己从不应用排队的编辑，所以「App 应用了队列之后」在 iOS 上没有对应的时机。
+
+顺着查了别的平台。Android 的词库详情页直接读 Engine（`DictionaryCollectionsStore.words` → `msime_client_dictionary` 的 `list`），每次回到可见都重读，没有这个问题。共享设置页（macOS、Linux、鸿蒙平板和电脑）也是直接读词库，但列表只在换类型、搜索或改词之后才重读，同步的结果只换状态，`dictionarySyncRun` 连 `applied` 都没带出来；桌面的同步在「管理词库」标签，切回「查找词库」看到的还是旧列表。鸿蒙设置应用把键盘的词写进来、排空自己的个人词库队列之后派发的 `msime-user-words-changed` 也只让同步记一次 `local_change`。现在 `dictionarySyncRun` 带出 `applied`，`useDictionarySync` 在它大于 0 时调 `onWordsApplied`，设置模型据此按现在的类型、搜索和页码重读；词库管理收到 `msime-user-words-changed` 时同样重读，不论配没配网盘。鸿蒙手机的拼音词库详情（`useBuiltinDictionaryEntries`）每次打开都重新读，只有它开着的时候恰好同步写进了词才不跟，这次不动。
+
 同一次测试里刚同步完显示「上次同步、0秒钟后」：`RelativeDateTimeFormatter` 的数字样式把零间隔和不到一秒的间隔都说成「0秒钟后」，原来的 `min(date, now)` 挡不住。iOS 的相对时间改走 `CloudClipboardTimePolicy.relative`：不到一分钟和晚于现在的一律「刚刚」，与 Android、鸿蒙和 Rust 状态行的说法相同；云剪贴板页和键盘剪贴板的时间也用它。其他宿主的词库同步页写的是绝对时间（共享页、WinUI）或已经是「刚刚」（Android），不受影响。
 
 另查了「在第二台设备上允许之后，第一次点『刷新』不同步」的怀疑：`manual` 不受退避和间隔限制，`run_locked` 先读密钥串（拿到封装的密钥并存下）、再用重新读出的密钥串同步，同一次就拉取、合并和发送，Rust 这一侧第一次就会同步。iOS 上看到的更像上面那个问题：回到 App 时的 `opened` 已经拿到密钥并同步过，页面仍显示等待批准的卡片，那次同步进行中「刷新」是灰的，点了没有反应。
@@ -172,6 +176,8 @@ Android 的 `dictionary_sync_rollback` 提供独立「重新信任网盘现状�
 
 - **设置页定时轮询 `status`，不等窗口获得焦点** — 最强的理由是窗口一直停在前台时也能跟上后台的同步。不用：`status` 每次要读整份本机同步状态（十万个词约 10 MB），为一个很少盯着看的数字常驻定时不划算；后台同步多半发生在用户在别的应用里打字的时候，回到设置窗口就是一次获得焦点。
 - **iOS 继续用 `RelativeDateTimeFormatter` 的具名样式（零间隔说「现在」）** — 最强的理由是不用自己判断阈值。不用：具名样式不到一分钟仍说「N秒钟前」，与别的平台的「刚刚」不一致，刚同步完的几秒里还会一直跳。
+- **iOS App 在同步之后调 `msime_client_personal_dictionary_sync`，让 Rust 应用排队的编辑并重写那一页** — 最强的理由是一个现成的入口同时做两件事，排队的编辑也不必等键盘。不用：它整批要独占维护租约，键盘的会话开着时只会答 `dictionary maintenance busy`，恰好在用户最常看到旧列表的时候帮不上；让 App 也去应用队列，还要重新约定 App 和键盘谁来确认编辑、谁写导出。只读一页的 `list` 用共享租约，键盘开着也能读，正好覆盖这件事。
+- **iOS 的「我的词条」页每次都直接读词库，不再画 `sync.json` 里的那一页** — 最强的理由是彻底没有过时的快照，翻页和搜索编码也不必等键盘。这次不做：翻页、搜索、导出、编辑回执和 Tauri 公共组件的 iOS 桥接（`TauriPersonalDictionaryBridge`）都建在这个文件的契约上，改成直接读要连同它们一起改；同步之后重读一页已经让列表跟上词库，而且列表的来源仍只有一个文件。
 
 ## Consequences
 
@@ -226,3 +232,5 @@ Windows（含 Win7）：`windows-dictionary-sync-schedule`（偏好判断、请�
 停机竞态补修验证：`windows-dictionary-sync-worker` 链接真实 worker 与两个禁止调用的 Host API 桩，未配置时不联网；两条通知线程与 `stop` 重叠，随后重复停机并发送迟到通知。macOS clang++ 的 ThreadSanitizer 在修复前明确报告 `stop` 中 `shared_ptr::reset` 与 `configure` 中读指针的数据竞争；修复后同一用例零诊断通过，普通编译运行也通过。该测试已接入 Windows CMake/ctest；本轮未跑 Windows runner、真实 Server 退出或完整 quick 门禁，系统盘低于 50 GiB，未启动新的完整构建树。
 
 设置页跟上别处发起的同步与「刚刚」：macOS 上的 Foundation 实测 `RelativeDateTimeFormatter`（zh-Hans、完整单位、数字样式）对零间隔和 0.4 秒前都输出「0秒钟后」，复现了真机现象。共享页新增「窗口回到前台读一次 `status`」的用例，去掉修复时实际失败，修复后 `dictionary-sync.test.tsx` 24 项通过，`tsc --noEmit`、lint 与格式检查通过。`windows-dictionary-sync-model` 新增概况比较的检查，macOS clang++ 编译运行通过；Win7 面板和它的窗口回归（新增「获得焦点只读一次 `status`、说明和选中的设备不动」）经 MinGW 交叉语法检查，实际执行和 WinUI 设置的编译待 Windows CI。iOS 的 App 与键盘扩展源文件对着 iOS 模拟器 SDK 做了类型检查（GoogleSignIn 用存根模块，缺预编译框架的 `LocalSpeechRecognizer.swift` 与 `HandwritingInputView.swift` 除外），新增的 `CloudClipboardTimePolicyTests` 与 `DictionarySyncTests` 断言在 macOS 上用同样的源文件编成小程序跑通；本机盘不够编 iOS 的 Rust 库，模拟器上的 XCTest 和真机上「页面开着时定时同步后状态跟着变」待 CI 与复验。
+
+「我的词条」跟上同步：iOS 的 `PersonalDictionaryStore.refreshPage` 新增 3 个用例（按请求的页码、种类和前缀写回，队列与刷新确认不动；读页时键盘写下新的一页就重读、一直被换掉三次后放弃；键盘拿着 `sync.lock` 时答「忙」不等），连同 `PersonalWordPage(bridgeResult:)` 和原有的空闲轮询、队列确认用例，用同样的源文件在 macOS 上编成 XCTest 小程序跑通 7 项；去掉写回前的文件身份核对后，竞态用例 6 处断言失败。真实 Engine 的用例（键盘会话开着时 App 用 `preparedHostOptions` 读到会话刚写进的词并写进列表）加在 `MSIMEKeyboardTests`，本机盘不够编 iOS 的 Rust 库，由 CI 运行。App、键盘扩展和 `MSIMEKeyboardTests` 的全部源文件对着 iOS 模拟器 SDK 类型检查通过（GoogleSignIn 与本地语音识别用存根，手写输入视图缺 ML Kit 框架除外）。共享设置页新增两个用例：「立即同步」写进一个词后切回「查找词库」就看得到它（同步结果的 `applied` 也按严格读取），`msime-user-words-changed` 让词库管理按现在的类型和页码重读；对着修复前的源文件这两个都失败。`apps/desktop` 的 `tests/settings` 475 个文件 3036 项通过，`apps/desktop` 与 `apps/harmony` 的 `tsc --noEmit` 和 lint 通过。真机上同步之后「我的词条」不打开键盘就跟上，待复验。

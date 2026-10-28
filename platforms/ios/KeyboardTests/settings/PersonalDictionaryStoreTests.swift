@@ -515,6 +515,121 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertNil(state.entries.first { $0.value == "你好" && $0.key == current.key })
   }
 
+  // 设置 App 的词库同步把网盘来的词写进 Engine 之后，不等键盘就把列表换成词库里现在的那一页：页码、种类和编码前缀照请求的来，编辑队列和刷新确认不动，排队的编辑仍由键盘应用。
+  func testTheAppRefreshesTheRequestedPageAndLeavesTheQueueToTheKeyboard() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    try keyboard.synchronize(apply: { _ in }, page: { _ in .init(entries: [PersonalWord(key: "jiu", value: "旧")], hasMore: false) })
+    let pending = try app.enqueue(previous: nil, replacement: PersonalWord(key: "hao", value: "好"))
+    try app.requestPage(offset: 100, kind: .wubi, query: "gg")
+    let before = try app.read()
+
+    let synced = PersonalWord(kind: .wubi, key: "ggll", value: "一一")
+    var asked = [PersonalPageRequest]()
+    XCTAssertTrue(try app.refreshPage { request in
+      asked.append(request)
+      return .init(entries: [synced], hasMore: true)
+    })
+    XCTAssertEqual(asked, [PersonalPageRequest(offset: 100, kind: .wubi, query: "gg")])
+    let after = try app.read()
+    XCTAssertEqual(after.entries, [synced])
+    XCTAssertTrue(after.hasMore)
+    XCTAssertEqual(after.pageOffset, 100)
+    XCTAssertEqual(after.pageKind, .wubi)
+    XCTAssertEqual(after.pageQuery, "gg")
+    XCTAssertNil(after.snapshotError)
+    XCTAssertNotNil(after.snapshotDate)
+    XCTAssertEqual(after.requests.map(\.id), [pending])
+    XCTAssertEqual(after.requests.first?.status, .pending)
+    XCTAssertEqual(after.refreshID, before.refreshID)
+    XCTAssertEqual(after.completedRefreshID, before.completedRefreshID)
+    XCTAssertTrue(after.needsKeyboardSynchronization)
+  }
+
+  // 读页不拿锁：读的时候键盘写下了更新的一页，App 读到的那一页就作废、重读，不会把旧的盖上去；一直被换掉就放弃，留给键盘。
+  func testAnAppRefreshThatRacesAnotherWriteRereadsInsteadOfOverwritingIt() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = PersonalDictionaryStore(directory: root)
+    let keyboard = PersonalDictionaryStore(directory: root)
+    let stale = PersonalWord(key: "jiu", value: "旧")
+    let fresh = PersonalWord(key: "xin", value: "新")
+    var reads = 0
+    XCTAssertTrue(try app.refreshPage { _ in
+      reads += 1
+      guard reads == 1 else { return .init(entries: [fresh], hasMore: false) }
+      try keyboard.synchronize(apply: { _ in }, page: { _ in .init(entries: [fresh], hasMore: false) })
+      return .init(entries: [stale], hasMore: false)
+    })
+    XCTAssertEqual(reads, 2)
+    XCTAssertEqual(try app.read().entries, [fresh])
+
+    var attempts = 0
+    XCTAssertFalse(try app.refreshPage { _ in
+      attempts += 1
+      try app.requestPage(offset: attempts * 100)
+      return .init(entries: [stale], hasMore: false)
+    })
+    XCTAssertEqual(attempts, 3)
+    let state = try app.read()
+    XCTAssertEqual(state.entries, [fresh])
+    XCTAssertEqual(state.requestedPageOffset, 300)
+    XCTAssertEqual(state.pageOffset, 0)
+  }
+
+  // 键盘正在同步（拿着 `sync.lock`）时 App 不等，答「忙」，那一轮键盘自己会写下新的一页。
+  func testAnAppRefreshDoesNotWaitForAKeyboardHoldingTheQueue() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = PersonalDictionaryStore(directory: root)
+    try app.requestPage(offset: 0)
+    let lock = open(root.appendingPathComponent("PersonalDictionary/sync.lock").path, O_RDWR | O_CLOEXEC)
+    XCTAssertGreaterThanOrEqual(lock, 0)
+    defer { close(lock) }
+    XCTAssertEqual(flock(lock, LOCK_EX | LOCK_NB), 0)
+    XCTAssertThrowsError(try app.refreshPage { _ in .init(entries: [PersonalWord(key: "ni", value: "拟")], hasMore: false) }) { error in
+      guard case .busy? = error as? PersonalDictionaryStore.StoreError else { return XCTFail("\(error)") }
+    }
+    flock(lock, LOCK_UN)
+    XCTAssertTrue(try app.read().entries.isEmpty)
+  }
+
+  // 真实 Engine：键盘的会话开着，设置 App 用同步用的那份 HostOptions 读「我的词条」（只取共享租约），读到会话刚写进去的词，并写进列表。
+  @MainActor
+  func testTheAppReadsTheUsersWordsBesideALiveKeyboardSession() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let stateRoot = root.appendingPathComponent("EngineState")
+    let session = MetasequoiaInputSessionBridge(resources: resources, stateRoot: stateRoot)
+    let word = try PersonalWord(kind: .quickPhrase, key: "msimesynced", value: "synced fixture").validated()
+    defer {
+      _ = session.cancel()
+      try? session.applyPersonalPrevious(word.bridgeValue, replacement: nil, requestID: UUID().uuidString)
+    }
+    try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
+
+    let options = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: MetasequoiaInputSessionBridge.preparedHostOptions(resources: resources, stateRoot: stateRoot)) as? [String: Any])
+    let app = PersonalDictionaryStore(directory: root)
+    XCTAssertTrue(try app.refreshPage { request in
+      try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(
+        options: options, offset: UInt(request.offset), kind: request.kind, query: request.query))
+    })
+    XCTAssertTrue(try app.read().entries.contains(word))
+  }
+
+  func testPageBridgeResultNeedsEntriesAndHasMore() throws {
+    let page = try PersonalWordPage(bridgeResult: [
+      "entries": [["kind": "quick_phrase", "key": "dz", "value": "地址", "weight": 7]], "hasMore": true,
+    ])
+    XCTAssertEqual(page.entries, [PersonalWord(kind: .quickPhrase, key: "dz", value: "地址", weight: 7)])
+    XCTAssertTrue(page.hasMore)
+    XCTAssertThrowsError(try PersonalWordPage(bridgeResult: ["entries": [], "has_more": false]))
+  }
+
   func testStateUsesRustCompatibleRefreshKeys() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

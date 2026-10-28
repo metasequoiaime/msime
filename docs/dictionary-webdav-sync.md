@@ -51,7 +51,7 @@ C 入口是 `msime_client_dictionary_sync`，一个按 `operation` 分发的 JSO
 | Windows（含 Win7） | 已接入。目录是本用户的 `%LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync`（`platforms/windows/common/DictionarySyncDirectory.h`），Server 和设置窗口共用。Server 在候选窗口删词后以 `local_change` 记一次，按 `next_check_ms` 以 `periodic` 再调（`src/system/DictionarySyncWorker.cpp`，只在受管理的 Server 里）；WinUI 设置在词库页「云端词库」标签、Win7 在词库同步面板（`--route=dictionary-sync`，从设置窗口词库页打开）里配置网盘、看状态和设备，进入时 `opened`、「立即同步」`manual`，经设置改了词之后 `local_change`。Server 的请求带 `create_identity: false`，设备身份只由设置窗口在第一次配置时生成，还没生成时 Server 答 `clipboard_identity_missing`、按 `next_check_ms` 再来。密钥串身份冲突（`clipboard_keystore_conflict`）时宿主重试 |
 | macOS、Linux | 共享 React 设置页「词库」→「管理词库」里的「词库同步」与「词库同步设备」两组；Tauri 设置应用的 `dictionary_sync` 命令在阻塞线程上调 `msime_host_api::dictionary_webdav::request_json`（C 入口的同一个实现），HostOptions 取词库命令用的那份，目录是账号目录下的 `dictionary-sync/`：macOS 是输入法与设置应用共用的 `~/Library/Application Support/<设置应用 bundle id>/dictionary-sync`，Linux 是 IBus、Fcitx5 和设置应用共用的状态目录（通常 `~/.config/msime-client`）下的 `dictionary-sync`。输入法进程（IMK、IBus、Fcitx5）经 `msime_client_dictionary_sync_start` 起后台同步，见上文「输入法进程里的自动同步」 |
 | HarmonyOS | 同一个共享设置页（手机在「词库」页直列，2in1 在「管理词库」标签），经 `startRequest` 的 `dictionary_sync` → `HarmonyAccountCloudBridge.dictionarySync` → NAPI `dictionarySync`（工作线程）；目录是设置应用沙箱的 `files/state/dictionary-sync`；除 `status` 外都要隐私政策的授权。键盘扩展不调用，见下文「触发」 |
-| iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁 |
+| iOS | 设置 App「词库 → 词库同步」：网盘填写页（测试连接通过才保存）、状态与「立即同步」、核对码和设备批准、被挡下的大批删除、重置密钥、以本机为准重新开始和停止同步。App 回到前台时 `opened`，在前台时按 `next_check_ms` 以 `periodic` 再调，进后台就停；键盘扩展在应用了 App 排队的编辑或候选栏删除词条之后以 `local_change` 记录，只在有完全访问、App 已经用这个网盘同步过（目录里已有同步状态和密钥串）、状态文件不超过 2 MiB 时才调，否则留给 App。目录是 App Group 容器里的 `dictionary-sync/`（0700、首次解锁后的文件保护、不进备份），密钥串是 Rust 在里面写的文件，App 和键盘共用同一份和同一把锁。「我的词条」页画的是键盘写在 App Group `PersonalDictionary/sync.json` 里的那一页；App 的一次同步写进了改动（`report.applied > 0`）时，`DictionarySyncCenter` 在主线程之外用同步那份 HostOptions 直接读当前请求的那一页（`list` 只取共享租约，键盘的会话开着也能读）写回去，不等用户打开键盘；读页期间文件被键盘或页面换过就重读，读不到就留给键盘 |
 | Android | 设置 App「我的 → 词库同步」（词库页也有入口）和 `:ime` 键盘进程的触发已接入，见下文 |
 
 Android 的接法（`platforms/android`）：
@@ -72,6 +72,7 @@ Android 的接法（`platforms/android`）：
 - 经设置改了词（单条编辑和删除、导入、个人词库文件导入、失败重试、命名词库的增删改与启停、装社区词库、清除学习数据）成功之后以 `local_change` 调；连续几次只排一次。
 - 「立即同步」和被挡下的删除的两个选择是 `manual`。
 - 所有请求排成一队依次发出，Rust 那边整次同步本来就持有一把文件锁。
+- 一次同步把网盘来的词或删除写进了本机词库（结果的 `report.applied > 0`，移除设备、重置密钥带回的那一次也算）之后，词库页按当前的类型、搜索和页码重读「我的词条」；宿主派发 `msime-user-words-changed`（鸿蒙设置应用把键盘的词写进来、排空了个人词库队列）时也重读，不论有没有配置网盘。原来列表只在换类型、搜索或改词之后才跟上。
 
 `local_change` 并不总是不联网。它把这次改词记成「最后一次改词」，所以一分钟的防抖在这一次总是还没到；但本机改动从第一处没发出去的算起已满十分钟（一直在改时防抖的上限）、并且离上一次发送已满五分钟时，发送已经到期，Rust 在这一次就联网拉取并发送（仍受退避和自动额度限制，`client-core` 的 `a_local_change_sends_at_once_once_unsent_edits_are_ten_minutes_old` 覆盖）。所以它要和其他触发一样放在工作线程上，鸿蒙也把它算作要授权的请求。
 
