@@ -1,5 +1,5 @@
 /**
- * 手机聆听面板的排布、音量平滑、麦克风电平和中间文字裁剪，不依赖 ArkUI 或 NAPI，`tests/run.sh` 在 node 下直接测。Android 的 `VoiceListeningPolicy` 和 iOS 的 `KeyboardVoicePanelLayout` 用同一组数值，三端面板长得一样、动得一样。
+ * 手机聆听面板的排布、音量平滑、麦克风电平和中间文字裁剪，不依赖 ArkUI 或 NAPI，`tests/run.sh` 在 node 下直接测。Android 的 `VoiceListeningPolicy` 和 iOS 的 `KeyboardVoicePanelPolicy` 用同一组数值，三端面板长得一样、动得一样。
  *
  * 光圈以前是圆盘上的缩放变换，不占排布空间：放大到 1.5 倍时向上伸出 18vp，而面板内容本身就几乎和面板一样高，祖先节点都不裁剪，于是光圈画进了上面的工具条。现在圆盘连同光圈的最大外扩一起算进一个方框，方框放不下时先少留一行文字、再藏掉提示行，最后才缩小圆盘，满音量时光圈也在面板里面。
  */

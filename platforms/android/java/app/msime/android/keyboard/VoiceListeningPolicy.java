@@ -3,7 +3,7 @@ package app.msime.android;
 import java.util.function.Predicate;
 
 /**
- * 键盘聆听面板的排布、音量平滑和中间文字裁剪，不碰 View，JVM 冒烟直接测。iOS 的 `KeyboardVoicePanelLayout` 和 HarmonyOS 的 `VoiceListeningPolicy` 用同一组数值，三端面板长得一样、动得一样。
+ * 键盘聆听面板的排布、音量平滑和中间文字裁剪，不碰 View，JVM 冒烟直接测。iOS 的 `KeyboardVoicePanelPolicy` 和 HarmonyOS 的 `VoiceListeningPolicy` 用同一组数值，三端面板长得一样、动得一样。
  *
  * <p>光圈以前不占排布空间：面板只按圆盘居中，脉冲环和音量光圈画在圆盘外面，面板一矮就伸出视图上沿被裁掉，贴着工具栏。现在圆盘连同光圈的最大外扩一起算进一个方框，方框放不下时先少留一行文字、再藏掉提示行，最后才缩小圆盘，光圈满音量时也在面板里面。
  */
