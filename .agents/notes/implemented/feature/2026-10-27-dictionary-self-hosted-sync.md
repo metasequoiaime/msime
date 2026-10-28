@@ -130,6 +130,8 @@ Android 的 `dictionary_sync_rollback` 提供独立「重新信任网盘现状�
 
 同样的「只显示自己那一次的结果」在别处是跨进程的：macOS、Linux 的输入法进程、Windows 的 Server 在后台同步，结果不经设置窗口。共享设置页、WinUI 设置的「云端词库」标签和 Win7 词库同步面板在窗口重新获得焦点时各读一次不联网的 `status`（与 WinUI 获得焦点时重读打字统计的做法相同）；错误和操作结果的说明不动，它们记的是本页最近一次操作；WinUI 读到的与画着的相同时不重画，要画也等按下的指针松开，Win7 这一次不禁用表单。Android 的页面每次回到可见都以 `opened` 重新读，鸿蒙的键盘不同步，iOS 键盘扩展记下的改动在 App 回到前台的那次 `opened` 里反映出来，这三处不另加。窗口一直停在前台、后台恰好同步的那一次仍要等下一次获得焦点（共享页还有自己的 `periodic`）。
 
+WinUI 的焦点读取另有独立的 `StatusReadOrder` 序号：普通操作开始时就作废此前的焦点读取，即使操作随后失败或取消，旧读取也不能重新生效；连续焦点读取只接纳最后发起的那次。页面与配置仍用已有的 `dsync_generation_` 管生命周期，序号只管理同一页面内的结果顺序。只检查回调当时的忙状态不够：旧读取 A 可以先取到状态，手动同步 B 先完成、清掉忙状态，随后 A 才投递回来，把「待发送 0」改回「待发送 1」。
+
 同一次测试里刚同步完显示「上次同步、0秒钟后」：`RelativeDateTimeFormatter` 的数字样式把零间隔和不到一秒的间隔都说成「0秒钟后」，原来的 `min(date, now)` 挡不住。iOS 的相对时间改走 `CloudClipboardTimePolicy.relative`：不到一分钟和晚于现在的一律「刚刚」，与 Android、鸿蒙和 Rust 状态行的说法相同；云剪贴板页和键盘剪贴板的时间也用它。其他宿主的词库同步页写的是绝对时间（共享页、WinUI）或已经是「刚刚」（Android），不受影响。
 
 另查了「在第二台设备上允许之后，第一次点『刷新』不同步」的怀疑：`manual` 不受退避和间隔限制，`run_locked` 先读密钥串（拿到封装的密钥并存下）、再用重新读出的密钥串同步，同一次就拉取、合并和发送，Rust 这一侧第一次就会同步。iOS 上看到的更像上面那个问题：回到 App 时的 `opened` 已经拿到密钥并同步过，页面仍显示等待批准的卡片，那次同步进行中「刷新」是灰的，点了没有反应。
@@ -226,3 +228,5 @@ Windows（含 Win7）：`windows-dictionary-sync-schedule`（偏好判断、请�
 停机竞态补修验证：`windows-dictionary-sync-worker` 链接真实 worker 与两个禁止调用的 Host API 桩，未配置时不联网；两条通知线程与 `stop` 重叠，随后重复停机并发送迟到通知。macOS clang++ 的 ThreadSanitizer 在修复前明确报告 `stop` 中 `shared_ptr::reset` 与 `configure` 中读指针的数据竞争；修复后同一用例零诊断通过，普通编译运行也通过。该测试已接入 Windows CMake/ctest；本轮未跑 Windows runner、真实 Server 退出或完整 quick 门禁，系统盘低于 50 GiB，未启动新的完整构建树。
 
 设置页跟上别处发起的同步与「刚刚」：macOS 上的 Foundation 实测 `RelativeDateTimeFormatter`（zh-Hans、完整单位、数字样式）对零间隔和 0.4 秒前都输出「0秒钟后」，复现了真机现象。共享页新增「窗口回到前台读一次 `status`」的用例，去掉修复时实际失败，修复后 `dictionary-sync.test.tsx` 24 项通过，`tsc --noEmit`、lint 与格式检查通过。`windows-dictionary-sync-model` 新增概况比较的检查，macOS clang++ 编译运行通过；Win7 面板和它的窗口回归（新增「获得焦点只读一次 `status`、说明和选中的设备不动」）经 MinGW 交叉语法检查，实际执行和 WinUI 设置的编译待 Windows CI。iOS 的 App 与键盘扩展源文件对着 iOS 模拟器 SDK 做了类型检查（GoogleSignIn 用存根模块，缺预编译框架的 `LocalSpeechRecognizer.swift` 与 `HandwritingInputView.swift` 除外），新增的 `CloudClipboardTimePolicyTests` 与 `DictionarySyncTests` 断言在 macOS 上用同样的源文件编成小程序跑通；本机盘不够编 iOS 的 Rust 库，模拟器上的 XCTest 和真机上「页面开着时定时同步后状态跟着变」待 CI 与复验。
+
+WinUI 焦点结果顺序补修验证：临时可移植适配器直接编译生产 `reread_dictionary_sync_status` 原方法与普通操作开始片段，用受控队列安排回调。修复前，「旧读取 A → 普通操作 B 完成 → A 迟到」「两次焦点读取逆序」「普通操作失败或取消后 A 迟到」三项实际失败，页面/配置换代和无竞争读取两项对照通过；修复后五项全部通过。保留在 `windows-dictionary-sync-model` 的用例直接驱动生产顺序策略并检查显示状态，覆盖同样的交错，以及普通操作之后的新读取仍然生效；没有新增测试专用生产接口。完整 `bash scripts/verify-local.sh --quick` 正式退出 0：Windows portable 176 项、全部 contracts（含两项语音目录）、notes、Rust workspace 与 Apple bridge 通过；Windows 完整宿主、x86 与 pipe-only 因缺构建配置或交叉编译器跳过，其他平台按改动范围跳过。尚未在真实 WinUI 窗口验收，原生编译与 Windows 用例执行由本 PR CI 补充。
