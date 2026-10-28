@@ -74,15 +74,39 @@ public final class CompositionCaretPolicy {
         return map[BoundsPolicy.atMost(offset, display.length())];
     }
 
-    /** 光标 {@code caret} 该画在读音的哪个下标前；光标在末尾或对不上时返回 -1。同一个光标位置对应好几处时（中间隔着显示用的分隔）画在最后一处，也就是分隔后面：引擎的退格先删光标前的切分。 */
+    /**
+     * 光标 {@code caret} 该画在读音的哪个下标前；光标在末尾或对不上时返回 -1。同一个光标位置对应好几处时（中间隔着只在显示时才有的分隔），按退格真正删掉的那一格来画：
+     *
+     * <ul>
+     *   <li>九键（按键是数字）画在最后一处，也就是分隔后面（{@code 94'|26}）：九宫格的退格先删光标前的切分。</li>
+     *   <li>全拼、双拼等字母按键画在第一处，也就是分隔前面（{@code zuo|'tian}，#10133）：分隔不在按键里，退格删的是分隔前的字母；画在分隔后面会让光标从 {@code zuo't|ian} 一步跳到 {@code zuo'|tian} 再跳到 {@code zu|o'tian}，看起来停不到 o 后面。</li>
+     * </ul>
+     *
+     * 用户自己打的 {@code '} 在按键里，按同一个键一一对齐，不受这条规则影响。
+     */
     public static int markIndex(String display, String editing, int caret) {
         if (editing == null || caret < 0 || caret >= editing.length()) return -1;
         int[] map = alignment(display, editing);
         if (map == null) return -1;
-        for (int index = map.length - 1; index >= 0; index--) {
-            if (map[index] == caret) return index;
+        if (nineKeyDigits(editing)) {
+            for (int index = map.length - 1; index >= 0; index--) {
+                if (map[index] == caret) return index;
+            }
+        } else {
+            for (int index = 0; index < map.length; index++) {
+                if (map[index] == caret) return index;
+            }
         }
         return -1;
+    }
+
+    /** 按键里有九键数字 {@code 2..9}：九宫格组字的按键是数字，26 键的全拼、双拼、五笔、粤拼按的是字母。 */
+    static boolean nineKeyDigits(String editing) {
+        for (int index = 0; index < editing.length(); index++) {
+            char key = editing.charAt(index);
+            if (key >= '2' && key <= '9') return true;
+        }
+        return false;
     }
 
     /** 放大条包含末尾光标；原读音行仍只在离开末尾后画光标。 */

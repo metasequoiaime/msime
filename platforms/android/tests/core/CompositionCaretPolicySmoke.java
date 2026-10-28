@@ -67,6 +67,32 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.tapTarget(0, typed, typed, mark, 8) == 8, "a tap before the mark");
         check(CompositionCaretPolicy.markIndex(typed, typed, typed.length()) == -1, "a caret at the end is not drawn");
 
+        // #10133：全拼读音带引擎加的分隔（zuo'tian'jin'tian），分隔不在按键里，退格删的是分隔前的字母，光标画在分隔前面。
+        String segmented = "zuo'tian'jin'tian";
+        String letters = "zuotianjintian";
+        int beforeSplit = CompositionCaretPolicy.markIndex(segmented, letters, 3);
+        check(beforeSplit == 3, "letter caret sits before a display separator: " + beforeSplit);
+        check("zuo|'tian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented, beforeSplit)), "zuo|'tian");
+        check(CompositionCaretPolicy.displayOffset(segmented, letters, 3) == 3, "magnified letter caret before the separator");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 4) == 5, "caret after t is zuo't|ian");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 2) == 2, "caret before o is zu|o'tian");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 7) == 8, "second separator: zuo'tian|'jin'tian");
+        // 逐格左移：zuo't|ian → zuo|'tian → zu|o'tian，每一格都停在一个不同的位置。
+        check("zuo't|ian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented,
+            CompositionCaretPolicy.displayOffset(segmented, letters, 4))), "step at t|ian");
+        check("zu|o'tian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented,
+            CompositionCaretPolicy.displayOffset(segmented, letters, 2))), "step at zu|o");
+        // 画在分隔前面后，点光标符两侧换算出的仍是当前光标，点分隔后面的 t 后移一格。
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 3) == 3, "tap before the mark keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 4) == 3, "tap after the mark keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 5) == 3, "tap after the separator keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 6) == 4, "tap after t moves one key");
+        // 用户自己打的 ' 在按键里，一一对齐，分隔两侧是两个光标位置。
+        check(CompositionCaretPolicy.markIndex("zuo'tian", "zuo'tian", 3) == 3, "typed apostrophe: before it");
+        check(CompositionCaretPolicy.markIndex("zuo'tian", "zuo'tian", 4) == 4, "typed apostrophe: after it");
+        // 粤拼按键里本身就有空格，同样一一对齐。
+        check(CompositionCaretPolicy.markIndex("nei hou", "nei hou", 4) == 4, "typed space is its own key");
+
         // 已选好的词画在读音前面：点在它上面，光标到开头。
         check(CompositionCaretPolicy.tapTarget(2, "fanlemei", "fanlemei", -1, 1) == 0, "tap on the chosen piece");
         check(CompositionCaretPolicy.tapTarget(2, "fanlemei", "fanlemei", -1, 5) == 3, "tap after the chosen piece");
@@ -75,7 +101,7 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 3) == 2, "tap after the separator");
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 2) == 2, "tap before the separator");
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 4) == 3, "tap inside the second syllable");
-        // 同一个光标位置隔着分隔对应两处时画在分隔后面：引擎的退格先删光标前的切分。
+        // 九键里同一个光标位置隔着分隔对应两处时画在分隔后面：九宫格的退格先删光标前的切分（全拼字母按键画在前面，见上面 #10133）。
         check(CompositionCaretPolicy.markIndex("94'26", "9426", 2) == 3, "caret after a split");
         check("94'|26".equals(CompositionCaretPolicy.withMark("94'26", 3)), "split then caret");
         // 选过拼音之后：ni'426 对 64426。
