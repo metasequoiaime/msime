@@ -1311,6 +1311,14 @@ group("describes the configured voice provider accurately", () => {
       }).includes("不会离开设备"),
     "local voice describes device-only recognition",
   );
+  const factoryDescription: string = VoiceInputConfigurationPolicy.description(
+    DEFAULT_VOICE_INPUT_CONFIGURATION,
+  );
+  check(
+    factoryDescription.includes("请先在设置中下载并选择本地语音模型") &&
+      !factoryDescription.includes("不可用"),
+    "a fresh install on the factory local recognizer says where to get a model instead of calling the service unavailable",
+  );
   check(
     VoiceInputConfigurationPolicy.description({
       ...DEFAULT_VOICE_INPUT_CONFIGURATION,
