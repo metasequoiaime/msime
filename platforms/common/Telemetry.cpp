@@ -33,6 +33,11 @@
 #endif
 #endif
 
+#if defined(MSIME_TELEMETRY_TEST_FLUSH)
+// 仅故障测试替代网络入口；准备、授权与队列仍走真实 Host API。
+extern "C" char *msime_test_telemetry_flush(const uint8_t *, size_t);
+#endif
+
 namespace msime::telemetry {
 namespace {
 using Request = char *(*)(const uint8_t *, size_t);
@@ -43,6 +48,9 @@ bool configured = false;
 // 本进程正在运行的会话 id（begin 返回的 session_id），由 host_lock 保护；没有会话时为空。结束会话和 terminate 路径的崩溃记录都按它找自己的会话：同一目录可能还有别的宿主进程（例如同一用户的另一个图形会话），标记文件只记着最后开始的那个。
 std::string session_id;
 std::string capture_header;
+std::string capture_path;
+std::string consent_epoch;
+bool disabled_cleared = false;
 std::atomic<std::terminate_handler> auxiliary_previous_terminate{nullptr};
 
 [[noreturn]] void auxiliary_terminate() noexcept {
@@ -93,22 +101,97 @@ nlohmann::json session_request(const Host &host) {
   return request;
 }
 
-bool begin_locked(const Host &host) {
-  if (host.directory.empty() || !host.directory.is_absolute())
+void forget_capture_locked() {
+  crash::disarm();
+  session_id.clear();
+  capture_header.clear();
+  capture_path.clear();
+  consent_epoch.clear();
+}
+
+std::optional<nlohmann::json> consent_locked() {
+  if (!current.preferences_directory.is_absolute())
+    return std::nullopt;
+  const auto value = call(msime_client_telemetry_consent,
+      nlohmann::json{{"directory", utf8(current.preferences_directory)}});
+  if (!value || !value->is_object() || !value->contains("enabled") || !(*value)["enabled"].is_boolean())
+    return std::nullopt;
+  return value;
+}
+
+nlohmann::json bound_session_request() {
+  auto request = session_request(current);
+  if (!consent_epoch.empty()) {
+    request.erase("enabled");
+    request["preferences_directory"] = utf8(current.preferences_directory);
+    request["consent_epoch"] = consent_epoch;
+  }
+  return request;
+}
+
+bool refresh_locked() {
+  if (!configured || !current.directory.is_absolute())
     return false;
-  const auto value = call(msime_client_telemetry_begin, session_request(host));
+  std::string epoch;
+  if (!current.preferences_directory.empty()) {
+    const auto consent = consent_locked();
+    if (!consent) {
+      // 临时不可读仅停采；同一持续授权恢复后重新武装原快照。
+      crash::disarm();
+      return false;
+    }
+    if (!(*consent)["enabled"].get<bool>()) {
+      forget_capture_locked();
+      if (!disabled_cleared) {
+        const auto cleared = call(msime_client_telemetry_clear,
+            nlohmann::json{{"directory", utf8(current.directory)},
+                           {"preferences_directory", utf8(current.preferences_directory)}});
+        disabled_cleared = cleared && cleared->is_boolean() && cleared->get<bool>();
+      }
+      return false;
+    }
+    const auto found = consent->find("epoch");
+    if (found == consent->end() || !found->is_string() || found->get_ref<const std::string &>().empty()) {
+      crash::disarm();
+      return false;
+    }
+    epoch = found->get<std::string>();
+  } else if (!current.enabled.value_or(false)) {
+    // 仅保留显式布尔调用方的兼容协议；产品宿主必须提供实际偏好目录。
+    forget_capture_locked();
+    if (current.enabled == false && !disabled_cleared) {
+      const auto cleared = call(msime_client_telemetry_clear,
+          nlohmann::json{{"directory", utf8(current.directory)}});
+      disabled_cleared = cleared && cleared->is_boolean() && cleared->get<bool>();
+    }
+    return false;
+  }
+  disabled_cleared = false;
+  if (!session_id.empty() && consent_epoch == epoch && !capture_path.empty()) {
+    if (!crash::is_armed())
+      crash::arm(capture_path, capture_header);
+    return crash::is_armed();
+  }
+  forget_capture_locked();
+  consent_epoch = epoch;
+  const auto value = call(msime_client_telemetry_begin, bound_session_request());
   if (!value || !value->is_object() || !value->value("enabled", false)) {
-    crash::disarm();
-    session_id.clear();
+    forget_capture_locked();
     return false;
   }
   const auto id = value->find("session_id");
-  session_id = id != value->end() && id->is_string() ? id->get<std::string>() : std::string();
-  capture_header = value->value("crash_record_header", std::string());
   const auto path = value->find("crash_record_path");
-  if (path != value->end() && path->is_string())
-    crash::arm(path->get<std::string>(), capture_header);
-  return true;
+  const auto header = value->find("crash_record_header");
+  if (id == value->end() || !id->is_string() || path == value->end() || !path->is_string() ||
+      header == value->end() || !header->is_string()) {
+    forget_capture_locked();
+    return false;
+  }
+  session_id = id->get<std::string>();
+  capture_path = path->get<std::string>();
+  capture_header = header->get<std::string>();
+  crash::arm(capture_path, capture_header);
+  return crash::is_armed();
 }
 
 #ifndef _WIN32
@@ -145,36 +228,60 @@ std::filesystem::path default_directory() {
 
 bool begin(const Host &host) {
   std::lock_guard guard(host_lock);
+  forget_capture_locked();
   current = host;
   configured = true;
-  return begin_locked(current);
+  disabled_cleared = false;
+  return refresh_locked();
 }
 
 void end() {
   std::lock_guard guard(host_lock);
   if (!configured)
     return;
+  configured = false;
   crash::disarm();
-  // 只结束自己的会话；本进程没有会话（上报关着）时什么都不做，免得把同目录里别的进程的会话当成自己的结束掉。
-  if (session_id.empty())
-    return;
-  if (!current.capture_only)
+  bool allowed = true;
+  if (!current.preferences_directory.empty()) {
+    const auto consent = consent_locked();
+    allowed = consent && consent->value("enabled", false) &&
+              consent->value("epoch", std::string()) == consent_epoch;
+    if (consent && !consent->value("enabled", true))
+      call(msime_client_telemetry_clear,
+          nlohmann::json{{"directory", utf8(current.directory)},
+                         {"preferences_directory", utf8(current.preferences_directory)}});
+  }
+  // 只结束已授权的自身会话，不激活代次。新队列清理后已无旧会话 id，迟到的 end 不会写入新队列。
+  if (allowed && !session_id.empty() && !current.capture_only)
     call(msime_client_telemetry_end, nlohmann::json{{"directory", utf8(current.directory)}, {"session", session_id}});
-  session_id.clear();
+  forget_capture_locked();
+}
+
+void refresh() noexcept {
+  try {
+    std::lock_guard guard(host_lock);
+    if (configured)
+      refresh_locked();
+  } catch (...) {
+    crash::disarm();
+  }
 }
 
 void flush() {
   nlohmann::json request;
   {
     std::lock_guard guard(host_lock);
-    if (!configured || current.directory.empty())
+    if (!refresh_locked())
       return;
-    request = session_request(current);
+    request = bound_session_request();
   }
-  const auto value = call(msime_client_telemetry_flush, request);
-  // Reporting was turned off in the shared preferences while this host ran: the flush cleared the queue, marker and records, so a crash from now on writes nothing.
-  if (value && value->is_object() && !value->value("enabled", true))
-    crash::disarm();
+#if defined(MSIME_TELEMETRY_TEST_FLUSH)
+  (void)call(msime_test_telemetry_flush, request);
+#else
+  (void)call(msime_client_telemetry_flush, request);
+#endif
+  // 旧网络请求的 enabled:false 不能解除新代次的武装；只按当前配置重新观察。
+  refresh();
 }
 
 void start_flushing() {
@@ -190,16 +297,66 @@ void set_enabled(bool enabled) {
   std::lock_guard guard(host_lock);
   if (!configured)
     return;
-  const bool was = current.enabled.value_or(true);
-  current.enabled = enabled;
-  if (was == enabled)
-    return;
-  if (enabled) {
-    begin_locked(current);
-  } else {
+  // 产品宿主始终以持久偏好为准，迟到的发布回调不能撤回已重开的新代次。
+  if (current.preferences_directory.empty())
+    current.enabled = enabled;
+  refresh_locked();
+}
+
+namespace {
+void stop_after_observer_failure() noexcept {
+  crash::disarm();
+  try {
+    std::lock_guard guard(host_lock);
+    configured = false;
+    forget_capture_locked();
+  } catch (...) {
+  }
+}
+} // namespace
+
+struct ConsentObserver::State {
+  std::mutex mutex;
+  std::condition_variable wake;
+  bool stop = false;
+  std::thread worker;
+};
+
+ConsentObserver::ConsentObserver() noexcept {
+  try {
+    state_ = std::make_unique<State>();
+    refresh();
+    state_->worker = std::thread([state = state_.get()] {
+      try {
+        std::unique_lock lock(state->mutex);
+        while (!state->wake.wait_for(lock, std::chrono::milliseconds(500), [state] { return state->stop; })) {
+          lock.unlock();
+          refresh();
+          lock.lock();
+        }
+      } catch (...) {
+        stop_after_observer_failure();
+      }
+    });
+  } catch (...) {
+    stop_after_observer_failure();
+  }
+}
+
+ConsentObserver::~ConsentObserver() {
+  if (state_) {
+    {
+      std::lock_guard guard(state_->mutex);
+      state_->stop = true;
+    }
+    state_->wake.notify_all();
+    if (state_->worker.joinable())
+      state_->worker.join();
+  }
+  try {
+    end();
+  } catch (...) {
     crash::disarm();
-    session_id.clear();
-    call(msime_client_telemetry_clear, nlohmann::json{{"directory", utf8(current.directory)}});
   }
 }
 

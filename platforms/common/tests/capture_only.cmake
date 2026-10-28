@@ -22,3 +22,5 @@ add_test(NAME common-capture-only
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/capture_only.py"
     $<TARGET_FILE:common-capture-only-test>)
 set_tests_properties(common-capture-only PROPERTIES TIMEOUT 120)
+
+include("${CMAKE_CURRENT_LIST_DIR}/input_capture.cmake")

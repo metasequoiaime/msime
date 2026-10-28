@@ -234,12 +234,12 @@ int main() {
   assert(msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(of_kind(shared, "active").size() == 1);
   {
-    auto defaults = msime::host_api::own_string(msime_client_default_preferences());
-    auto value = nlohmann::json::parse(defaults.get()).at("value");
-    auto snapshot = value.contains("preferences") ? value : nlohmann::json{{"format_version", 1}, {"revision", 0}, {"preferences", value}};
+    const auto path = preferences.string();
+    auto loaded = msime::host_api::own_string(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+    auto snapshot = nlohmann::json::parse(loaded.get()).at("value");
     snapshot["preferences"]["usage_reporting"] = false;
     const auto body = snapshot.dump();
-    const auto path = preferences.string();
     auto saved = msime::host_api::own_string(
         msime_client_save_preferences(reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.value("revision", 0ull),
                                       reinterpret_cast<const uint8_t *>(body.data()), body.size()));

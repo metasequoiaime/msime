@@ -24,6 +24,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   msime::telemetry::install_crash_handlers();
   msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, reporting_directory, std::nullopt,
       msime::windows::win7::panel_context().directory, "panels-win7", true});
+  msime::telemetry::ConsentObserver reporting_observer;
   std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
   msime::telemetry::start_flushing();
   msime::windows::compat::process_context(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
