@@ -471,6 +471,7 @@ fn artifact(release: &Release, name: &str) -> Result<Artifact, UpdateError> {
 fn client() -> Result<reqwest::blocking::Client, UpdateError> {
     // GitHub 的版本接口和附件都是 https 公网地址；按用户的网络代理设置走。
     crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
+        .map_err(|_| UpdateError::Network)?
         .https_only(true)
         .user_agent("msime-dictionary-updater")
         .connect_timeout(Duration::from_secs(15))

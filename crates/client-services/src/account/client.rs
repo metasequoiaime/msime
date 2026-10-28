@@ -114,6 +114,7 @@ fn build_http_client(
 ) -> Result<Client, AccountError> {
     // 测试回环和正式源站都按目标判据配置，系统模式也不能把本机令牌交给代理。
     crate::proxy::configure_blocking_for_with_preferences(Client::builder(), origin, network)
+        .map_err(|_| AccountError::Unavailable)?
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .user_agent(agent)

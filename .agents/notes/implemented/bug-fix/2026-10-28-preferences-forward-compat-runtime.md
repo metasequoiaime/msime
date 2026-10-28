@@ -94,8 +94,8 @@ Status: implemented
   - AI 的 `provider`、`endpoint`、`endpoints` → `ai_assistant.enabled` 和 `translation_ai` 关掉；
   - 语音识别的 `asr_provider`、`asr_endpoint` → `voice_input.enabled` 关掉；润色的 `polish_provider`、`polish_endpoint` → `polish_enabled` 关掉；
   - 自定义翻译的 `endpoint` → `custom_translation.enabled` 关掉；
-  - 代理模式读不了而文档里填了代理地址 → 用这个地址（`Custom`）。新版本的代理类型和 HTTP 代理不兼容时请求失败，而不是绕开代理直连。
-  - 腾讯、小牛翻译和云剪贴板、词库同步的 WebDAV 不在其中：它们的去向是固定的服务商或用户填的地址，默认值是空的、不会发到别处。匿名使用报告读的是严格的 `load`，偏好读不了时不上报也不清空（`ffi/reporting.rs` 的 `consent`），不受降级影响。
+  - 代理模式读不了而文档里填了代理地址，或自定义代理地址无法保留 → 使用运行时的 `CustomRequired` 状态，并关闭发送用户内容的功能。地址可用时供 Rust HTTP 客户端使用，不可用时构造远程客户端失败，详见「审查补充」。
+  - 去向字段的单项变化不单独关闭腾讯、小牛翻译和云剪贴板、词库同步的 WebDAV：它们的去向是固定的服务商或用户填的地址，默认值是空的、不会发到别处。匿名使用报告读的是严格的 `load`，偏好读不了时不上报也不清空（`ffi/reporting.rs` 的 `consent`），不受降级影响。
   - 设置页的「修复」（`recover`）不这样做：它写下的结果用户在设置页看得见、改得了。
 - **host-api 有两处改用它**，所有平台都经过这两处：
   - `edition_preferences`（准备宿主时）：`write_first_document` 失败、又不是 I/O 错误时改用它。没有文件时照旧写第一份。
@@ -180,3 +180,10 @@ Status: implemented
   - `cargo clippy --keep-going -p msime-client-core -p msime-client-services -p msime-host-api --all-targets -- -D warnings`：本次改动没有新的告警。剩下两处 `field_reassign_with_default`（`preferences/tests.rs` 的 `android_keyboard_skin_slots_round_trip_without_changing_legacy_theme`、`account/settings_sync/tests.rs:1338`）在 616bd2888e 上已经存在。
   - `cargo check -p msime-desktop --tests`（Tauri 保存命令的参数改动）：通过。macOS 上这个检查要求 `target/macos/EngineResources` 和 `target/macos/水杉输入法.app` 存在，检查时临时建了空目录，跑完删掉。
   - `cargo fmt --check`、`bash scripts/run-checks.sh`、`platforms/macos/tests/settings/preference_coverage.py`、`pnpm run verify-notes` 通过。
+
+### 审查补充：运行时要求的代理不可用
+
+- 代理取值无法完整保留时，用运行时状态 `CustomRequired` 保留“必须使用代理”的约束。可用的 HTTP 地址仍供 Rust HTTP 客户端使用；同时关闭降级副本里会发送用户内容的功能，覆盖由原生宿主执行请求的路径。地址无法保留时，两个 HTTP 适配层在构造远程客户端前返回已有的连接失败。本机和局域网目标沿用既有的直连规则。
+- 该状态随运行时偏好副本往返，避免序列化后丢掉约束；它不改写原始偏好文件，也不增加设置页选项。普通 `custom` 留空时跟随系统的既有行为保持不变。
+- 直接沿用普通 `Custom` 的好处是不用调整客户端构造接口，但该模式对不可用地址的既有回退与这里的约束不一致，因此不采用。为客户端伪造不可达代理或非法请求头虽可减少调用方改动，却把拒绝连接寄托在网络环境或无关字段上；使用显式错误，让调用方映射为各自已有的连接失败。
+- 回归覆盖未知模式、未知地址形状和不支持的地址，且验证运行时副本往返；未知模式即使没有地址或明写空地址，也保留约束，不能假定它等同于普通 `custom` 的留空语义。该边界新增用例在原守卫上真实失败后修正。providers 与 services 各自验证远程客户端构造被拒、本机目标仍可构造，以及可用代理仍能构造。实际命令结果在验证完成后补充。
