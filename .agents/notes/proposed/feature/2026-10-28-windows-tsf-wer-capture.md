@@ -49,6 +49,8 @@ Windows 11 的同源 MSVC x64/x86 七组用例均通过；两架构原有回调�
 
 首次真实探针已证明生产 helper 可被 WER 调用。扩展夹具的首次 x64 编译与 CTest 通过，但 PowerShell 5 将无 BOM 的中文脚本误读而导致解析失败，未执行系统验收；新脚本显式使用 UTF-8 BOM 后，直接 `-File` 与脚本调用均可执行，没有改动既有产品打包脚本。MinGW 的严格编译拒绝直接常量空地址写入的边界警告，夹具改为读取 `volatile` 故障地址再触发；不关闭编译警告。实际 TIP 还需完整产品包、安装器、真实编辑器及后台验收，不能据七组合成进程推定这些均已完成。
 
+为避免系统投递专项只在维护者机器上运行，Windows 平台门禁现在在 Windows runner 中用 MSVC 分别配置 x64 与 x86 的 CMake 测试树，构建生产 `TsfCrashCapture.cpp`、`MetasequoiaImeCrashWer.dll` 和合成宿主，再直接调用 `Invoke-SystemWer.ps1`。每个架构都执行七组系统 WER 用例，并上传只含合成目录和标准输出的 artifact；用例不加载完整产品、不注册输入法、不调用生产后台，所以它证明的是 WER 注册、回调边界、授权撤回和宿主处置在持续集成中的可重复性，仍不等于完整安装包、真实编辑器、ARM64 设备或后台源码还原。
+
 ### 暂存与签名边界
 
 现代包在替换暂存前明确要求 x86、x64、Arm64X 三份 `MetasequoiaImeCrashWer.dll`；Win7 x64 要求 x86/x64，Win7 x86 只要求 x86。不能仅靠扫描依赖目录推断 helper 存在，否则预编译或手动指定输入会静默漏装。helper 仅暂存在各架构 TIP 目录，Server 目录清除重复 DLL 与 PDB；符号继续由构建输出归档，不向安装目录重复复制 helper PDB。
