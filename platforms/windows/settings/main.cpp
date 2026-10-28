@@ -29,7 +29,6 @@
 #include <initializer_list>
 #include <iterator>
 #include <map>
-#include <mutex>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -44,6 +43,7 @@
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
 #include "../../common/CrashRecorder.h"
+#include "../../common/Telemetry.h"
 #include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
@@ -691,66 +691,8 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
-// 原生设置独立采集，保存与外部偏好变化都核对同一持久授权，不开始输入会话。
-void RefreshCrashCapture(bool send = false) {
-  struct Capture {
-    std::mutex mutex;
-    std::filesystem::path preferences;
-    std::string epoch, path, header;
-  };
-  static Capture capture;
-  std::lock_guard guard(capture.mutex);
-  try {
-    std::vector<wchar_t> local(32768);
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
-    const auto preferences = state_directory();
-    if (!length || length >= local.size() || !preferences.is_absolute()) { msime::crash::disarm(); return; }
-    JsonObject consentRequest;
-    consentRequest.SetNamedValue(L"directory", JsonValue::CreateStringValue(preferences.wstring()));
-    const auto consentBody = utf8(consentRequest.Stringify());
-    const auto consentResponse = take_response(msime_client_telemetry_consent(reinterpret_cast<const uint8_t *>(consentBody.data()), consentBody.size()));
-    if (!consentResponse.ok) { msime::crash::disarm(); return; }
-    const auto consent = JsonObject::Parse(text(consentResponse.text)).GetNamedObject(L"value");
-    JsonObject request;
-    request.SetNamedValue(L"directory", JsonValue::CreateStringValue((std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY).wstring()));
-    request.SetNamedValue(L"preferences_directory", JsonValue::CreateStringValue(preferences.wstring()));
-    if (!consent.GetNamedBoolean(L"enabled")) {
-      msime::crash::disarm();
-      capture.epoch.clear(); capture.path.clear(); capture.header.clear();
-      const auto body = utf8(request.Stringify());
-      auto result = msime::host_api::own_string(msime_client_telemetry_clear(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-      return;
-    }
-    const auto epoch = utf8(consent.GetNamedString(L"epoch"));
-    if (epoch.empty()) { msime::crash::disarm(); return; }
-    request.SetNamedValue(L"platform", JsonValue::CreateStringValue(L"windows"));
-    request.SetNamedValue(L"version", JsonValue::CreateStringValue(text(MSIME_WINDOWS_VERSION)));
-    request.SetNamedValue(L"consent_epoch", JsonValue::CreateStringValue(text(epoch)));
-    request.SetNamedValue(L"capture_only", JsonValue::CreateBooleanValue(true));
-    request.SetNamedValue(L"component", JsonValue::CreateStringValue(L"settings"));
-    const auto body = utf8(request.Stringify());
-    if (capture.preferences != preferences || capture.epoch != epoch || capture.path.empty()) {
-      msime::crash::disarm();
-      const auto response = take_response(msime_client_telemetry_begin(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-      if (!response.ok) return;
-      const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
-      if (!value.GetNamedBoolean(L"enabled", false)) return;
-      capture.path = utf8(value.GetNamedString(L"crash_record_path"));
-      capture.header = utf8(value.GetNamedString(L"crash_record_header"));
-      capture.epoch = epoch;
-      capture.preferences = preferences;
-    }
-    // 慢准备返回后复读，旧代次不能重新武装到下一次观察。
-    const auto confirmedResponse = take_response(msime_client_telemetry_consent(reinterpret_cast<const uint8_t *>(consentBody.data()), consentBody.size()));
-    if (!confirmedResponse.ok) { msime::crash::disarm(); return; }
-    const auto confirmed = JsonObject::Parse(text(confirmedResponse.text)).GetNamedObject(L"value");
-    if (!confirmed.GetNamedBoolean(L"enabled") || utf8(confirmed.GetNamedString(L"epoch")) != epoch) { msime::crash::disarm(); return; }
-    if (!msime::crash::is_armed()) msime::crash::arm(capture.path, capture.header);
-    if (send) std::thread([body] {
-      auto response = msime::host_api::own_string(msime_client_telemetry_flush(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    }).detach();
-  } catch (...) { msime::crash::disarm(); }
-}
+// 保存后立即刷新持久授权；窗口存活期间另有独立观察器跟随其他进程的修改。
+void RefreshCrashCapture() { msime::telemetry::refresh(); }
 
 class PreferencesDocument {
 public:
@@ -27392,20 +27334,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
   msime::crash::install_crash_handlers();
-  RefreshCrashCapture(true);
-  // 可停止的本地观察线程不联网，外部关闭重开也能及时替换预备头。
-  std::jthread consentWatcher([](std::stop_token stop) {
-    init_apartment(apartment_type::multi_threaded);
-    while (!stop.stop_requested()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      if (!stop.stop_requested()) RefreshCrashCapture();
-    }
-    uninit_apartment();
-  });
+  std::vector<wchar_t> local(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+  const auto telemetryDirectory = length && length < local.size()
+      ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
+      : std::filesystem::path();
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。
+  msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                          std::nullopt, state_directory(), "settings", true});
+  msime::telemetry::ConsentObserver reporting;
+  std::thread([] { msime::telemetry::flush(); }).detach();
   std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
-  consentWatcher.request_stop();
-  consentWatcher.join();
-  msime::crash::disarm();
   return 0;
 }

@@ -597,12 +597,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
           cargo build --locked -p msime-host-api -j 2
           if ($LASTEXITCODE -ne 0) { throw 'Settings host library build failed' }
+          # 先配置已有 Win7 工程，复用其固定清单中的 nlohmann-json；后续兼容宿主继续使用同一依赖树。
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          if (-not (Test-Path -LiteralPath $toolchain -PathType Leaf)) { throw 'vcpkg toolchain not found' }
+          cmake -S platforms/windows/settings/win7 -B target/windows-full/x64/win7-settings -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Settings native dependencies configuration failed' }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
           if ($msbuild.Count -lt 1) { throw 'MSBuild not found' }
           # 使用与发布脚本相同的完整 Build，确保 Windows SDK 引用和 WinRT 投影均已初始化。
           $output = "$env:GITHUB_WORKSPACE/target/windows-full/x64/settings/"
-          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
+          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:NativeDependenciesInclude="$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings/x64-windows-static-md/include" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
       - name: Test the MCP helper
@@ -624,8 +629,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $toolchain -PathType Leaf)) { throw 'vcpkg toolchain not found' }
           $output = 'target/windows-full/x64/win7-settings'
           # 使用同一提交的普通核心验证 HWND 和持久化；Win7 目标与实机另做验收。
-          cmake -S platforms/windows/settings/win7 -B $output -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
-          if ($LASTEXITCODE -ne 0) { throw 'Compatibility settings configuration failed' }
+          # 配置和依赖已在现代设置编译前完成，复用同一份 CMake 与 vcpkg 缓存。
           cmake --build $output --config RelWithDebInfo --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility settings build failed' }
           Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"

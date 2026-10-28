@@ -176,6 +176,9 @@ try {
         $calls[15].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     # 设置窗口显示这个版本号，并以它为准检查更新。
     if ($calls[19].Values -notcontains '/p:MsimeVersion=2026.9.1') { throw 'Settings window built without the target version' }
+    if ($calls[19].Values -notcontains "/p:NativeDependenciesInclude=$(Join-Path $x64 'include')") {
+        throw 'Settings window built without the shared native dependency prefix'
+    }
     # With -RustOutputs, as each release edition runs, nothing is compiled by cargo or pnpm and every Rust input comes from that directory.
     $prebuilt = Join-Path $fixture 'prebuilt rust'
     New-Item -ItemType Directory -Force -Path $prebuilt | Out-Null

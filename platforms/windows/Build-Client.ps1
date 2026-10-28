@@ -122,6 +122,7 @@ try {
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
                 '/p:TargetName=msime-client-settings',
                 "/p:HostApiLibrary=$hostLibrary", "/p:MsimeEdition=$Edition",
+                "/p:NativeDependenciesInclude=$(Join-Path $X64Dependencies 'include')",
                 "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\") + $settingsVersion)
             $settingsPdb = Join-Path $bin 'msime-client-settings.pdb'
             if (-not (Test-Path -LiteralPath $settingsPdb -PathType Leaf)) {

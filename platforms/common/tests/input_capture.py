@@ -113,6 +113,39 @@ def main():
             finally:
                 host.cleanup()
 
+        for ending in ("fault", "normal", "blocked-reopen", "blocked-stop"):
+            host = Input(root / ("independent-" + ending), "independent")
+            try:
+                assert host.initial["marker"] == {}, "independent settings created an input session"
+                if ending.startswith("blocked-"):
+                    request = host.command("flush-start")
+                    assert request["capture_only"] and request["component"] == "settings"
+                    assert request["consent_epoch"] == host.epoch()
+                    assert host.command("disable") == "saved"
+                    host.wait(False)
+                    assert host.command("enable") == "saved"
+                    host.wait(True)
+                    if ending == "blocked-stop":
+                        assert not host.command("observer-stop")["armed"]
+                    assert host.command("flush-release")["armed"] == (ending != "blocked-stop")
+                if ending in ("normal", "blocked-stop"):
+                    assert not host.command("stop")["armed"]
+                    assert host.process.wait(timeout=10) == 0
+                    assert not host.records()
+                else:
+                    host.die()
+                    assert len(host.records()) == 1
+                    context = json.loads(host.records()[0].read_text().splitlines()[0].split(" ", 1)[1])
+                    assert context["component"] == "settings" and context["consent_epoch"] == host.epoch()
+                    host.collect()
+                    crashes = host.events("crash")
+                    assert len(crashes) == 1 and crashes[0]["version"] == "1.2.3"
+                    assert not host.records()
+                assert not host.events("session") and not host.events("session_crash")
+                assert not (host.directory / "telemetry-session.json").exists()
+            finally:
+                host.cleanup()
+
         host = Input(root / "normal", "observe")
         try:
             assert not host.command("stop")["armed"]

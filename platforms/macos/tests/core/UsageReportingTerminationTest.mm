@@ -59,7 +59,7 @@ bool fail(const char *message) {
 // 子进程：开始上报，等 SIGTERM 处理就位（处置变成忽略），告诉父进程已就绪，然后等着被结束。
 int run_child() {
     @autoreleasepool {
-        MSIMEUsageReportingStart(@"/synthetic/preferences");
+        MSIMEUsageReportingStart([NSString stringWithUTF8String:test_directory().c_str()]);
         for (int waited = 0; waited < 2000; waited += 10) {
             struct sigaction current = {};
             sigaction(SIGTERM, nullptr, &current);
@@ -113,11 +113,6 @@ bool killed_by_sigterm(const ChildExit &outcome) {
 }
 } // namespace
 
-extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) {
-    return copy(R"({"ok":true,"value":{"enabled":true,"epoch":"synthetic-current"}})");
-}
-extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) { return copy(R"({"ok":true,"value":true})"); }
-
 extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) {
     const auto record = test_directory() / "session.crash";
     return copy(R"({"ok":true,"value":{"enabled":true,"crash_record_path":")" + record.string() +
@@ -138,6 +133,12 @@ extern "C" char *msime_client_telemetry_flush(const uint8_t *, size_t) {
     return copy(R"({"ok":true,"value":{"enabled":true,"sent":0,"dropped":0,"remaining":0,"deferred":false}})");
 }
 
+extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) {
+    return copy(R"({"ok":true,"value":{"enabled":true,"epoch":"synthetic-epoch"}})");
+}
+extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) {
+    return copy(R"({"ok":true,"value":true})");
+}
 extern "C" void msime_client_string_free(char *value) { std::free(value); }
 
 int main(int argc, char **argv) {
