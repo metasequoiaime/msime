@@ -54,6 +54,8 @@ final class ImeVoiceEntry {
     private VoiceListeningView listening;
     private View listeningPanel;
     private Button finishButton;
+    /** 「说完了」「取消」那一行；按住说话时整行收起，让出的高度给圆盘和两行中间文字。 */
+    private View actionsRow;
     /** 用户已经结束整句采集后，权限错误不能重新弹窗录音。 */
     private boolean uploadStopped;
     private ViewGroup host;
@@ -339,7 +341,8 @@ final class ImeVoiceEntry {
     boolean hold(long before) {
         if (generation == before || !recognizing || listening == null) return false;
         held = true;
-        if (finishButton != null) ViewPolicy.hide(finishButton);
+        // 按住说话由松手结束、上滑取消，两个按钮都用不上，整行收起。
+        if (actionsRow != null) ViewPolicy.hide(actionsRow);
         listening.setHint("松开结束，上滑取消");
         return true;
     }
@@ -665,7 +668,7 @@ final class ImeVoiceEntry {
         view.setContentDescription("正在聆听，识别结束后自动上屏");
         LinearLayout column = LayoutPolicy.column(s);
         column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；按住说话时「说完了」隐藏，「取消」占满整行。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
+        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；按住说话时整行收起（见 hold）。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
         LinearLayout actions = LayoutPolicy.row(s);
         KeyboardPressButton done = ViewPolicy.newPressButton(s);
         done.setText("说完了");
@@ -686,6 +689,7 @@ final class ImeVoiceEntry {
         LinearLayout.LayoutParams actionsParams = LayoutPolicy.matchWidthWrapParams();
         actionsParams.setMargins(s.pixels(16), 0, s.pixels(16), s.pixels(10));
         column.addView(actions, actionsParams);
+        actionsRow = actions;
         View panel = column;
         listeningPanel = panel;
         panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
@@ -721,6 +725,7 @@ final class ImeVoiceEntry {
         ViewGroup parent = host;
         listeningPanel = null;
         finishButton = null;
+        actionsRow = null;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);

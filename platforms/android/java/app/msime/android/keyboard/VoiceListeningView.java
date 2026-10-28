@@ -25,7 +25,7 @@ import android.widget.TextView;
 public final class VoiceListeningView extends TextView {
     /** 圆盘的最大直径；面板矮时按 {@link VoiceListeningPolicy#plan} 缩小。 */
     public static final float ORB_DP = VoiceListeningPolicy.ORB_MAX_DP;
-    /** 麦克风占圆盘直径的比例：72 dp 的圆盘上是 32 dp。 */
+    /** 麦克风占圆盘直径的比例：72 dp 的圆盘上是 32 dp，64 dp 上约 28 dp。 */
     public static final float MIC_RATIO = 32f / 72f;
     public static final float TITLE_SP = 16f;
     public static final float HINT_SP = 13f;

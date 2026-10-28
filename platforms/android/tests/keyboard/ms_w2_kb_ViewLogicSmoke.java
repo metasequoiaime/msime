@@ -151,7 +151,7 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(near(KeyboardKeyPreview.bubbleLeft(100f, 40f, 60f, 400f), 90f), "bubble centres on the key");
         check(near(KeyboardKeyPreview.bubbleTop(200f, 54f, 6f), 152f), "bubble overlaps the key top");
         check(OneHandGutterView.gutterWidth(1000) == 150 && OneHandGutterView.keysWidth(1000) == 850, "one-hand gutter takes 15%");
-        check(VoiceListeningView.ORB_DP == 72f, "listening orb is at most 72dp");
+        check(VoiceListeningView.ORB_DP == 64f, "listening orb is at most 64dp");
         check(near(VoiceListeningView.MIC_RATIO * 72f, 32f), "the mic is 32dp on a 72dp orb");
         check(VoiceListeningView.TITLE_SP == 16f && VoiceListeningView.HINT_SP == 13f, "listening title and hint sizes");
         check(SpaceKeyFace.LABEL_SP == 13f, "space label is 13sp");

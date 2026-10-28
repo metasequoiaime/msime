@@ -25,9 +25,9 @@ public final class VoiceListeningPolicySmoke {
         float title = 21f;
         float hint = 17f;
 
-        // 高的面板：72 dp 圆盘、两行标题、带提示，多出来的高度上下平分。
+        // 高的面板：64 dp 圆盘、两行标题、带提示，多出来的高度上下平分。
         Plan tall = VoiceListeningPolicy.plan(260f, title, hint, 1f);
-        check(near(tall.orb(), 72f) && near(tall.halo(), 18f), "a tall panel gets the full orb: " + tall);
+        check(near(tall.orb(), 64f) && near(tall.halo(), 16f), "a tall panel gets the full orb: " + tall);
         check(tall.titleLines() == 2 && tall.showsHint(), "a tall panel reserves two title lines: " + tall);
         fitsInside(tall, 260f, title, hint, "tall");
         check(tall.top() > 0f, "spare height is split around the content");
@@ -35,9 +35,18 @@ public final class VoiceListeningPolicySmoke {
         // Pixel 3 XL 竖屏的聆听区约 142 dp：两行时圆盘小于 52 dp，退到一行。
         Plan phone = VoiceListeningPolicy.plan(142f, title, hint, 1f);
         check(phone.titleLines() == 1 && phone.showsHint(), "a phone panel drops to one title line: " + phone);
-        check(phone.orb() >= VoiceListeningPolicy.ORB_MIN_DP && phone.orb() <= 72f, "phone orb in range: " + phone);
+        check(phone.orb() >= VoiceListeningPolicy.ORB_MIN_DP && phone.orb() <= 64f, "phone orb in range: " + phone);
         check(near(phone.halo(), phone.orb() * VoiceListeningPolicy.HALO_RATIO), "phone halo keeps its ratio");
         fitsInside(phone, 142f, title, hint, "phone");
+
+        // 按住说话没有按钮行，Android 键区约 183 dp 整个用来排：两行中间文字，圆盘回到 60 dp 上下；点按开始时同一键区减去按钮行（48 dp 加下边距 10 dp）只剩一行和最小一档的圆盘。
+        Plan hold = VoiceListeningPolicy.plan(183f, title, hint, 1f);
+        check(hold.titleLines() == 2 && hold.showsHint() && hold.orb() >= 60f && hold.orb() <= 64f,
+            "hold-to-talk on a 183dp key area: two lines and a ~60dp orb: " + hold);
+        fitsInside(hold, 183f, title, hint, "hold");
+        Plan tap = VoiceListeningPolicy.plan(183f - 58f, title, hint, 1f);
+        check(tap.titleLines() == 1 && tap.showsHint() && tap.orb() < hold.orb(), "tap mode keeps the buttons and a smaller orb: " + tap);
+        fitsInside(tap, 183f - 58f, title, hint, "tap");
 
         // 更矮时先藏提示行，再把圆盘停在最小值、收窄光圈，最后才缩小圆盘。
         Plan short_ = VoiceListeningPolicy.plan(100f, title, hint, 1f);
@@ -69,7 +78,7 @@ public final class VoiceListeningPolicySmoke {
             fitsInside(plan, height, title, hint, "height " + height);
             check(plan.showsHint() || !hintShown, "the hint stays once it fits, at " + height);
             hintShown |= plan.showsHint();
-            check(plan.orb() <= 72f && plan.halo() <= plan.orb() * VoiceListeningPolicy.HALO_RATIO + 1e-3f,
+            check(plan.orb() <= 64f && plan.halo() <= plan.orb() * VoiceListeningPolicy.HALO_RATIO + 1e-3f,
                 "orb and halo stay in range at " + height);
         }
 
