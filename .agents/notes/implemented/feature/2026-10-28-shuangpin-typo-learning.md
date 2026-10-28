@@ -41,7 +41,7 @@ Status: implemented
 ### 生效：只给触点路径打折
 
 - `priced_code_variants` 给每个变体两键码计价之后，按这一对的接受次数 n 减去 `learned_discount(n) = NEIGHBOR_COST − discounted(NEIGHBOR_COST, n)`，与全拼按接受次数打折是同一条曲线：n=1 约 2.8，n=3 约 5.5，最多 12。不低于 `P_MIN`（本来就低于它的不往上抬）。平面表外的键先打折再和 `P_CUT` 比，接受过的斜邻键因此也能进来。对调和没有触点的位置在触点路径上同样打折。
-- 同一个折扣也进 `touch_supports_correction`（`show_penalty` 闸），所以接受过的改法更容易留在座位上，这是「排位上升」的来源。
+- 同一个折扣也进 `touch_supports_correction`（`show_penalty` 闸）：每次查询的变体只由 `priced_shuangpin_variants` 算一次（折扣在这里打），规划纠错边和这道闸共用这一份，所以接受过的改法更容易留在座位上，这是「排位上升」的来源。
 - 没有触点时走 `collect_shuangpin_typo_edges`，那条路传给规划的仍是恒为 0 的接受次数，也不读档案。档案里一条双拼记录都没有时（`LearnedTypos::new` 先看 `has_shuangpin_counts`），触点路径也不逐个变体去查。
 - `ShuangpinDictionary` 持有共用的档案，在带触点的请求进来时（`set_key_touches`）刷新档案，代次变了就清掉整句答案和由它们得出的辅助码答案，做法同全拼的 `QuanpinDictionary`；不带触点时不刷新也不清，桌面的缓存行为不变。变体跨度行的缓存不含罚分，不用清。
 
@@ -70,7 +70,7 @@ Status: implemented
 ## Verification
 
 - **单元和集成测试**（都在 Mac Studio 上经 `rbuild` 跑）：
-  - `cargo test -p msime-engine --lib`：2733 项通过（57 项本来就标了 ignore）。新增的：
+  - `cargo test -p msime-engine --lib`：2759 项通过（57 项本来就标了 ignore）。新增的：
     - `typo_profile`：整批校验（自定义方案、空批、相同的码、两键都换、大写、`'`、一批里混一对坏的都整批拒绝且不开日志）、接受和拒绝分列计数并封顶、按方案分开；两张表修剪到 2048 行且刚写的不删；双拼表超过上限或有一行类型不对时只作废双拼部分、全拼照样读出（`a_broken_shuangpin_table_leaves_the_quanpin_load_alone`），档案此时全拼跟上别的写入方和自己的写入且只算一次、双拼保留原状态并补上自己的写入、表修好后重新按日志读（`a_broken_shuangpin_table_keeps_the_held_shuangpin_state_and_follows_quanpin`）；读的时候跳过自定义方案和坏行；档案的读写、代次前进、别的写入方、查询不分配。
     - `journal` 的表名测试加上两张新表；`habits` 测试钉住两张表不进备份、计数不变；`reset` 测试钉住重置后两张表为空、档案刷新后读不到旧记录。
     - `shuangpin::typo_edges`：接受过的那一对按 `learned_discount(n)` 降价、别的变体不动、自定义方案不打折、不低于 P_MIN；平面表外的键打折后能过 P_CUT；`touch_correction_pairs` 对每个方案码、每个变体音节都给出解得出它、价等于变体集给它的那个码，对不上或解释不了时整条不记。
@@ -78,25 +78,25 @@ Status: implemented
     - `shuangpin::tests::accepted_shuangpin_typos_discount_only_the_touch_path`：接受 3 次后纠错整句的分正好高出 `learned_discount(3)`，原来过不了 `show_penalty` 10 的改正留在座位上；平面表新旧引擎逐行相同；微软双拼不受小鹤的记录影响。
     - `session::tests`：带触点选中纠错整句记 (xiaohe, gf, gr) 接受，关学习和平面表不记；Enter 原样上屏记抑制（落点不支持时不记），之后带触点按字面回答、请求不带触点，改一个键不受抑制，平面表会话照旧给纠错（把抑制分支去掉，这个测试会失败）；把纠错行挪到首位后选别的整句记拒绝、选只覆盖第一个音节的词不记、选纠错行本身记接受；有接受、拒绝和抑制记录的日志下不带触点的会话快照与空日志逐字节相同。
   - `cargo test -p msime-engine --test golden`：31 项通过。
-  - `cargo test -p msime-input-runtime --lib --example convert_eval --example rerank_latency`：405、21、16 项通过。
-  - `cargo test -p msime-host-api --no-fail-fast`：库测试 1008 项通过、2 项失败（`listing_reports_every_pack_and_checks_the_state_root`、`a_command_gets_the_local_time_to_the_minute`），与[触点纠错笔记](2026-10-27-shuangpin-touch-correction.md)记下的父提交上的失败相同；其余目标全部通过。
+  - `cargo test -p msime-input-runtime --lib --example convert_eval --example rerank_latency`：405、29、26 项通过。
+  - `cargo test -p msime-host-api --no-fail-fast`：第一次库测试 1042 项通过、1 项失败（`dictionary::tests::a_lookup_keeps_the_users_japanese_mixing`，日文混输的查词，与本分支无关），单独跑和整套重跑一次都通过，整套重跑 1043 项全过；其余目标全部通过。[触点纠错笔记](2026-10-27-shuangpin-touch-correction.md)记下的两项旧失败（`listing_reports_every_pack_and_checks_the_state_root`、`a_command_gets_the_local_time_to_the_minute`）在现在的 develop 上已经修好，这次都通过。
   - `cargo clippy -p msime-engine -p msime-input-runtime -p msime-host-api --all-targets -- -D warnings` 无警告。
-- **G0**：父提交（PR1a 头 `a4da179f96`）和本分支各编一份 release 的 `convert_eval`，同样的参数各跑一遍逐字节比较：
-  - `verify-local.sh` 的 11 组全拼评测：报告全部相同；dump 除了 `shijian` 那一行的日期时间候选（随墙上时钟变）之外相同。这 11 组在 Studio 现在的资源目录上与仓库里提交的基线不同（`sentences` 一组 top1 等都不一样），父提交同样不同，是资源目录与生成基线时的不一致，不是这次的改动，所以这里比较两份二进制而不是比基线。
-  - 双拼 none 模式，五个方案，整句族（四份集合）和词级族：报告和 dump 都逐字节相同。
-  - 双拼词级族的完整组合（五个方案 × none、clean、noisy、realistic × σ∈{0,0.15,0.25,0.35} × 偏置∈{0,0.1}，送落点）：报告逐字节相同。评测的日志里没有学习记录，触点路径的计价与父提交一样。
-  - 双拼整句族的子集（小鹤和微软 × none、clean、noisy、realistic，σ=0.25，偏置 0，送落点）：报告和 dump 逐字节相同。整句族的完整组合要几个小时，没有跑。
+- **G0**：分支的父提交（develop `afb1166847`，已合入 PR1a #10083 及其评审修正）和本分支各编一份 release 的 `convert_eval`（各用各的 target 目录，见下），资源目录按 `desktop-dictionary.lock.json`（dict-v2.0.39）校验、不放 settled 模型（stderr 打出 `no settled model at ...`），同样的参数各跑一遍逐字节比较：
+  - `verify-local.sh` 的 13 组全拼评测（sentences、harvested、neutral、words、nine-key、nine-key-prefix、nine-key-sentences、fourteen-key、fourteen-key-prefix、fourteen-key-sentences、particles、particles-nine-key、particles-fourteen-key）：报告全部相同，也与仓库里提交的基线相同；dump 除了 words、nine-key、fourteen-key 里 `shijian` 那几行的时间候选（随墙上时钟变）之外相同。
+  - 双拼 none 模式，五个方案，整句族（四份集合）和词级族（`--max-syllables 2 --limit 3000`）：报告和 dump 都逐字节相同。
+  - 送落点的双拼完整组合这次没有重跑。评测的日志里没有学习记录时，触点路径的计价与父提交一样，由上面的引擎测试钉住。
+  - 一个教训：起初为省盘让 develop 那份共用分支的 target 目录，cargo 给两棵树里同名的工作区 crate 算出相同的产物名，分支那次 release 编译把 develop 编好的引擎当成新鲜的直接链接了，编出的二进制回放毫无作用。两份各用各的 target 目录重编之后才是上面的结果。
 - **学习回放**（`--learn-replay 3`，sentences-v1、particles、v2 共 455 条能编码的用例，`android-portrait` 两份几何，σ=0.25，引擎默认计价参数；每组把 noisy 集里只错一键或两键对调的码对记成接受 3 次）：
 
   | 方案 | 偏置 | 记的码对 | noisy top9 | noisy found | noisy MRR | realistic top9 | clean 被挤 | 首选被改 |
   |---|---|---|---|---|---|---|---|---|
-  | 小鹤 | 0 | 403 | 0.174 → 0.264 | 0.264 → 0.299 | 0.047 → 0.069 | 0.637 → 0.653 | 0 → 0 | 不变 |
-  | 小鹤 | 0.1 | 385 | 0.169 → 0.268 | 0.284 → 0.308 | 0.043 → 0.067 | 0.611 → 0.631 | 1 → 1 | 不变 |
-  | 微软 | 0 | 414 | 0.158 → 0.281 | 0.288 → 0.314 | 0.044 → 0.074 | 0.651 → 0.659 | 1 → 2 | 不变 |
-  | 微软 | 0.1 | 396 | 0.160 → 0.270 | 0.266 → 0.310 | 0.045 → 0.072 | 0.615 → 0.637 | 0 → 1 | 不变 |
+  | 小鹤 | 0 | 403 | 0.174 → 0.257 | 0.266 → 0.301 | 0.047 → 0.068 | 0.620 → 0.626 | 0 → 2 | 不变 |
+  | 小鹤 | 0.1 | 385 | 0.163 → 0.255 | 0.262 → 0.299 | 0.041 → 0.064 | 0.587 → 0.598 | 1 → 1 | 不变 |
+  | 微软 | 0 | 414 | 0.156 → 0.268 | 0.273 → 0.292 | 0.044 → 0.072 | 0.626 → 0.637 | 0 → 2 | 不变 |
+  | 微软 | 0.1 | 396 | 0.174 → 0.253 | 0.259 → 0.288 | 0.048 → 0.067 | 0.593 → 0.613 | 1 → 1 | 不变 |
 
-  - noisy 集第一页召回升 9–12 个点；三个集合的 top1、top3 一个都没变（这一期不抢首选），clean 集的首选也一条没变。
-  - 代价：clean 集（打对的输入）455 条里被往后挤一位的多了 0–1 条；realistic 集 found 在小鹤偏置 0.1 下从 0.695 降到 0.692、gold_demoted 从 154 到 155，微软偏置 0.1 下 153 到 154。打折让接受过的改法更容易过 `show_penalty`，打对的输入里偶尔也有一条这样的纠错整句留在座位上。
+  - noisy 集第一页召回升 8–11 个点；三个集合的 top1、top3 一个都没变（这一期不抢首选），按金标准算的 `top1_changed` 也一条没变。回放这一遍不跑 `--assert-top1-unchanged` 那道比实际首选文本的闸。
+  - 代价：clean 集（打对的输入）455 条里被往后挤的在偏置 0 下多了 2 条（两个方案都是 0 → 2），偏置 0.1 下不变；realistic 集 gold_demoted 在小鹤偏置 0、微软偏置 0 和 0.1 下各多 1 条，小鹤偏置 0.1 下 found 从 0.664 降到 0.662。打折让接受过的改法更容易过 `show_penalty`，打对的输入里偶尔也有一条这样的纠错整句留在座位上。
   - 这是样本内的回放：记的码对就来自被量的那批用例，而且每一对都记满 3 次，等于一个偏置固定、把每次纠错都接受了的用户，数字是学习作用的上限。真实用户按两键码记很稀疏，同一对未必重复 3 次。
-  - 回放和比较用的 release 二进制编于 clippy 那次拆类型别名之前，那次只改类型名，不改行为。
-- **没有做的**：`scripts/verify-local.sh` 整套没跑；整句族的完整双拼触点基线（几个小时）没有重跑，只跑了上面的子集；没有在任何真机或模拟器上验证，宿主还没有接触点（PR1b）；PR3 的首选否决还不存在，拒绝计数只验证了记账。
+  - 2026-10-28 移植到合入后的 PR1a 上之后在 dict-v2.0.39 上重跑：资源换了，回放前的数字与移植前那份笔记的也不同，两边都按这一份看。
+- **没有做的**：`scripts/verify-local.sh` 整套没跑（只按它的参数跑了 13 组评测）；送落点的双拼触点基线（整句族几个小时、词级族）这次都没有重跑；没有在任何真机或模拟器上验证，宿主还没有接触点（PR1b）；PR3 的首选否决还不存在，拒绝计数只验证了记账。
