@@ -32,7 +32,7 @@ Status: proposed
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障与部分符号还原 | 完整同源安装包及真实故障到后台和双架构符号 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制 | 完整正式包和含按需资源的完整冒烟；后台精确符号化 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 IME Java/JNI 真实故障到隔离后台及精确源码行还原 | 最新源码 API 35 完整冒烟；App 独立入口的后台链路；真实设备及其他架构验收 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
@@ -57,6 +57,18 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 固定提交的 `git archive` 保留提交时刻。复用 Cargo 缓存时，该时刻可能早于旧产物，导致内容已变化的工作区 crate 被误判为新鲜；本次首先出现源码已有 `CustomRequired`、旧核心 rlib 却没有该接口的编译错误。验收副本在核对归档及全部 blob/模式后只更新文件时间，触发工作区 crate 重编，源码字节保持固定提交不变；重建与真实链路随后通过，不将缓存组装问题记作产品修复。符号化只用这次实际输出的 build-id 与对应归档，不能仅因缓存目录或版本相同复用上一份符号。
 
 同一 aaeb 源码还完成 aarch64 Fcitx5 原生插件的独立闭环。按 Linux 顶层工程重建真实插件并收集两模块符号，在隔离 D-Bus 中先验收合成拼音上屏；调试器在真实插件的按键入口设置一次性断点，投递 SIGSEGV，不替换产品实现或写入合成故障文件。实际 daemon 退出后显式重启，继续输入、原生补报、SIGKILL 后再次重启输入和正常退出均通过。固定隔离后台共存储三条事件，其中恰好一条 crash 与一条 session_crash，数据库逐字段等于收到的三次请求；构建身份仍固定 aaeb、原构建运行、aarch64 与 input。实际后台帧按插件 build-id `8c776079f99a6106e6a7405f03505aae500196b1` 和偏移 `0x1721c0`，由 `target/linux/native-aaeb-fcitx-symbols.zip` 还原到 `FcitxEngine::keyEvent`、`platforms/linux/fcitx5/FcitxEngine.cpp:7677`；两条重复帧只算一个源码位置。前序在外部 Fcitx 事件循环注入信号时，故障和补报虽通过，栈里没有产品帧，符号验收已按原断言拒绝；不拿外部帧或调试器自身的错误代替本次成功结果。最终调试器正常退出，容器及内部网络清理完成。小证据另存 `target/linux-aaeb-fcitx-backend-evidence/`；这是 aarch64 隔离测试构建与显式 daemon 重启，不扩大到其他架构、发行版或自动恢复。
+
+### Android API 28 的真实故障到后台与符号还原
+
+固定 `e865a66d0c6fe88ca7eaee550c36a2081acb6ada` 的 12,410 个源码条目，构建原生 full 版 arm64 Release APK；GitHub 分发配置按原规则省略按需资源，采用已有开发证书，不是正式签名发布包。包内八份固定词库及通知逐字节对照锁定生成物；Gradle 剥离后的两个原生模块与 APK 字节一致，未剥离符号模块的 build-id 与包内对应。正式 APK SHA-256 为 `2fce6751485dee16b0ee11d09da26fea9b5166a2651920a90f87d20a146f3f60`，JNI build-id 为 `8d9f57b69892fd6d0bdfbbd4edca3dcbef9beb97`，正式 Host API build-id 为 `96f546150ad35dfb62728e296f50fd15c2a9577c`。不能用剥离前后的完整文件哈希相等来验收 Gradle 产物；最初的错误比较已保留失败记录，后续按实际剥离产物与模块身份分别核对。
+
+专用 API 28 AVD 上原 `smoke.sh --core` 跑完，只有数字键盘的笔画场景失败，其他独立检查通过。该瘦包省略的按需词库尚未安装：六组固定资源先由主机按锁准备，再经设备真实应用 UID 的产品 JNI 收编和校验；保持原用例不变，单独复验数字键盘七种方案／宽度场景全部通过。保留首轮整套退出 1 与独立复验退出 0，不能把两者记成首轮整套通过，也不能将主机资源准备冒充设备验收。
+
+同源显式回环构建在实际 `app.msime.android:ime` 进程分别触发 Java 致命异常及 JNI 入口的真实 `SIGSEGV`。原生故障由调试器在 `telemetryConsentRaw` 入口将 `JNIEnv` 参数置空触发；调试器报告进程实际退出，不能以主动停止调试器或杀进程代替故障。产品重启后由原发送器向固定 `0.111.2` 隔离后台补报，数据库共五条事件，恰好两条 `crash` 与两条 `session_crash`，与接收请求逐字段相等；已入队的原始记录确认移除，`SIGKILL` 后再次启动不增加崩溃。两次故障均保留原提交、构建运行、`aarch64` 与 `keyboard` 身份；Java 摘要不包含合成异常正文。
+
+实际后台的原生栈按 JNI build-id 和独立符号包还原到 `platforms/android/native/client_jni.cpp:105`、`:114`；另两帧是相同偏移的 NDK `jni.h:852`，四个记录帧不能计成四个独立产品源码位置。此项限 API 28 arm64 模拟器的 IME 入口，不扩大到 App、API 35、其他架构、真机或正式发布。
+
+小证据保存在 `target/android-e865-backend-evidence/`，含实际数据库事件、接收请求、调试器退出、符号结果及设备收尾记录；远端完整产物保留在规定的 `target/android-runtime-acceptance/e865/`。收尾核对正式 Cargo/JNI/Gradle 输出恢复，恢复基础编辑器、强停产品、关闭专用 AVD 的上报并清空合成队列；只移除本任务标记的 IPv4/IPv6 规则与端口转发，停止专用代理，删除精确命名的临时容器和内部网络。未向生产后台发送测试事件。
 
 ## Alternatives considered
 
