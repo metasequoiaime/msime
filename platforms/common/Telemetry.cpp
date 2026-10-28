@@ -212,6 +212,9 @@ struct CaptureOnly::State {
   std::thread worker;
   std::optional<Host> previous;
   bool cleared = false;
+  std::string consent_epoch;
+  std::string record_path;
+  std::string record_header;
   std::terminate_handler previous_terminate = nullptr;
   bool terminate_installed = false;
 
@@ -223,8 +226,16 @@ struct CaptureOnly::State {
   }
 
   void suspend() {
+    // 临时不可读只解除武装；同一持续授权恢复后沿用原身份。
     crash::disarm();
+  }
+
+  void forget() {
+    suspend();
     previous.reset();
+    consent_epoch.clear();
+    record_path.clear();
+    record_header.clear();
     cleared = false;
   }
 
@@ -242,40 +253,46 @@ struct CaptureOnly::State {
         suspend();
         return;
       }
-      const auto directory = utf8(host->preferences_directory);
-      auto raw = msime::host_api::own_string(msime_client_load_preferences(
-          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      const auto snapshot = raw ? nlohmann::json::parse(raw.get(), nullptr, false)
-                                : nlohmann::json();
-      if (!snapshot.is_object() || !snapshot.value("ok", false) ||
-          !snapshot.contains("value") || !snapshot["value"].is_object() ||
-          !snapshot["value"].contains("preferences") ||
-          !snapshot["value"]["preferences"].is_object()) {
-        suspend();
-        return;
-      }
-      const auto &preferences = snapshot["value"]["preferences"];
-      const auto consent = preferences.find("usage_reporting");
-      if (consent == preferences.end() || !consent->is_boolean()) {
+      const auto consent = call(msime_client_telemetry_consent,
+                                nlohmann::json{{"directory", utf8(host->preferences_directory)}});
+      if (!consent || !consent->is_object() || !consent->contains("enabled") ||
+          !(*consent)["enabled"].is_boolean()) {
         suspend();
         return;
       }
       host->capture_only = true;
-      host->enabled = consent->get<bool>();
-      if (!*host->enabled) {
+      // 持续授权必须由共享偏好核验，不能让缓存布尔值绕过代次。
+      host->enabled.reset();
+      if (!(*consent)["enabled"].get<bool>()) {
         crash::disarm();
+        consent_epoch.clear();
+        record_path.clear();
+        record_header.clear();
         if (!same_target(*host) || !cleared) {
           const auto result = call(msime_client_telemetry_clear,
-                                   nlohmann::json{{"directory", utf8(host->directory)}});
-          cleared = result.has_value();
+              nlohmann::json{{"directory", utf8(host->directory)},
+                             {"preferences_directory", utf8(host->preferences_directory)}});
+          // 同意读完后可能已重新开启；条件清理拒绝时不能记作成功。
+          cleared = result && result->is_boolean() && result->get<bool>();
         }
         previous = std::move(host);
         return;
       }
-      if (same_target(*host) && crash::is_armed())
+      const auto epoch = consent->find("epoch");
+      if (epoch == consent->end() || !epoch->is_string() || epoch->get_ref<const std::string &>().empty()) {
+        suspend();
         return;
-      suspend();
-      const auto value = call(msime_client_telemetry_begin, session_request(*host));
+      }
+      const auto authorized_epoch = epoch->get<std::string>();
+      if (same_target(*host) && consent_epoch == authorized_epoch && !record_path.empty()) {
+        if (!crash::is_armed())
+          crash::arm(record_path, record_header);
+        return;
+      }
+      forget();
+      auto request = session_request(*host);
+      request["consent_epoch"] = authorized_epoch;
+      const auto value = call(msime_client_telemetry_begin, request);
       if (!value || !value->is_object() || !value->value("enabled", false))
         return;
       const auto path = value->find("crash_record_path");
@@ -283,9 +300,13 @@ struct CaptureOnly::State {
       if (path == value->end() || !path->is_string() ||
           header == value->end() || !header->is_string())
         return;
-      crash::arm(path->get<std::string>(), header->get<std::string>());
-      if (crash::is_armed())
+      record_path = path->get<std::string>();
+      record_header = header->get<std::string>();
+      crash::arm(record_path, record_header);
+      if (crash::is_armed()) {
+        consent_epoch = authorized_epoch;
         previous = std::move(host);
+      }
     } catch (...) {
       // 不可读、损坏或分配失败均解除采集，不能用默认同意追认未知状态。
       suspend();

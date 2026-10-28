@@ -16,7 +16,7 @@ BINARY = str(Path(sys.argv[1]).resolve())
 
 
 class Helper:
-    def __init__(self, root, component):
+    def __init__(self, root, component, initial="off"):
         self.directory = root / "telemetry"
         self.preferences = root / "preferences"
         self.arguments = [BINARY, "serve", str(self.directory), str(self.preferences), component]
@@ -25,7 +25,7 @@ class Helper:
                                         stderr=subprocess.DEVNULL, text=True, env=self.environment)
         self.lines = queue.Queue()
         threading.Thread(target=self.read_output, daemon=True).start()
-        assert self.read() == "off"
+        assert self.read() == initial
 
     def read_output(self):
         for line in self.process.stdout:
@@ -50,6 +50,32 @@ class Helper:
                 return
             time.sleep(0.05)
         raise AssertionError(f"helper did not become {expected}")
+
+    def wait_epoch(self, expected):
+        deadline = time.monotonic() + 10
+        path = self.directory / "telemetry-state.json"
+        while time.monotonic() < deadline:
+            try:
+                current = json.loads(path.read_text()).get("consent_epoch")
+            except (OSError, ValueError):
+                current = None
+            if current == expected:
+                self.wait_state("armed")
+                return
+            time.sleep(0.05)
+        raise AssertionError("helper did not activate the current continuous authorization")
+
+    def epoch(self):
+        return json.loads((self.preferences / "preferences.json").read_text())["preferences"]["usage_reporting_consent"]["epoch"]
+
+    def rotate_while_paused(self):
+        old = self.epoch()
+        self.command("pause", "paused")
+        for command in ("disable", "enable"):
+            subprocess.run([BINARY, command, *self.arguments[2:]], env=self.environment, check=True, timeout=15)
+        current = self.epoch()
+        assert current != old, "withdrawal reused the old continuous authorization"
+        return old, current
 
     def records(self):
         return sorted((self.directory / "telemetry-crashes").glob("*.crash"))
@@ -104,6 +130,51 @@ def main():
                     assert not helper.records(), "queued record was not acknowledged"
                 finally:
                     helper.cleanup()
+        # 用实际偏好保存和停止的观察线程确定性覆盖短暂撤回，不能依赖 500 ms 内抢跑。
+        helper = Helper(root / "short-withdrawal", "watchdog")
+        try:
+            helper.command("enable", "saved")
+            helper.wait_state("armed")
+            old, current = helper.rotate_while_paused()
+            helper.command("resume", "resumed")
+            helper.wait_epoch(current)
+            helper.die("fault")
+            records = helper.records()
+            assert len(records) == 1
+            header = json.loads(records[0].read_text().splitlines()[0].split(" ", 1)[1])
+            assert header["consent_epoch"] == current and header["consent_epoch"] != old
+            helper.collect()
+            crashes = [event for event in helper.events() if event["kind"] == "crash"]
+            assert len(crashes) == 1
+            assert current not in json.dumps(helper.events()), "local authorization leaked into events"
+        finally:
+            helper.cleanup()
+        helper = Helper(root / "late-old-writer", "prepare")
+        try:
+            helper.command("enable", "saved")
+            helper.wait_state("armed")
+            old, current = helper.rotate_while_paused()
+            helper.collect()
+            install = json.loads((helper.directory / "telemetry-state.json").read_text())["install_id"]
+            helper.die("fault")
+            records = helper.records()
+            assert len(records) == 1
+            header = json.loads(records[0].read_text().splitlines()[0].split(" ", 1)[1])
+            assert header["consent_epoch"] == old
+            helper.collect()
+            assert not [event for event in helper.events() if event["kind"] == "crash"], "old late writer entered the new queue"
+            assert not helper.records(), "rejected old native record was not acknowledged"
+            assert json.loads((helper.directory / "telemetry-state.json").read_text())["install_id"] == install
+            fresh = Helper(root / "late-old-writer", "prepare", initial="armed")
+            try:
+                fresh.die("fault")
+                fresh.collect()
+                assert len([event for event in fresh.events() if event["kind"] == "crash"]) == 1
+                assert current not in json.dumps(fresh.events())
+            finally:
+                fresh.cleanup()
+        finally:
+            helper.cleanup()
         helper = Helper(root / "consent", "watchdog")
         try:
             helper.command("disable", "saved")

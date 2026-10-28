@@ -4,6 +4,9 @@
 #include "msime_client.h"
 #include <nlohmann/json.hpp>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -86,19 +89,38 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (std::string(argv[1]) == "collect") {
+    const auto consent_request = nlohmann::json{{"directory", preferences}}.dump();
+    const auto consent = result(msime_client_telemetry_consent(
+        reinterpret_cast<const uint8_t *>(consent_request.data()), consent_request.size()));
+    if (!consent.at("enabled").get<bool>())
+      return 0;
     const auto body = nlohmann::json{{"directory", directory}, {"platform", platform},
                                     {"version", "9.9.9"}, {"component", "collector"},
-                                    {"capture_only", true}, {"enabled", true}}.dump();
+                                    {"capture_only", true}, {"preferences_directory", preferences},
+                                    {"consent_epoch", consent.at("epoch")}}.dump();
     result(msime_client_telemetry_begin(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
     return 0;
   }
   if (std::string(argv[1]) != "serve")
     return 2;
   std::atomic<int> configuration{0};
+  std::mutex observation_lock;
+  std::condition_variable observation_changed;
+  bool pause_requested = false;
+  bool pause_observed = false;
   std::cout << std::unitbuf;
   const auto previous_terminate = std::get_terminate();
   try {
     msime::telemetry::CaptureOnly capture([&]() -> std::optional<msime::telemetry::Host> {
+      {
+        std::unique_lock lock(observation_lock);
+        if (pause_requested) {
+          pause_observed = true;
+          observation_changed.notify_all();
+          observation_changed.wait(lock, [&] { return !pause_requested; });
+          pause_observed = false;
+        }
+      }
       const int state = configuration.load();
       if (state == 1)
         return std::nullopt;
@@ -113,6 +135,21 @@ int main(int argc, char **argv) {
     while (std::getline(std::cin, command)) {
       if (command == "status") {
         std::cout << (msime::crash::is_armed() ? "armed" : "off") << '\n';
+      } else if (command == "pause") {
+        // 停在读取共享偏好之前，确定两次跨进程保存都发生在两次观察之间。
+        std::unique_lock lock(observation_lock);
+        pause_requested = true;
+        if (!observation_changed.wait_for(lock, std::chrono::seconds(10), [&] { return pause_observed; })) {
+          pause_requested = false;
+          observation_changed.notify_all();
+          return 6;
+        }
+        std::cout << "paused\n";
+      } else if (command == "resume") {
+        std::lock_guard lock(observation_lock);
+        pause_requested = false;
+        observation_changed.notify_all();
+        std::cout << "resumed\n";
       } else if (command == "enable" || command == "disable") {
         save(preferences, command == "enable");
         std::cout << "saved\n";
@@ -126,6 +163,11 @@ int main(int argc, char **argv) {
       } else if (command == "recover") {
         throw Recovered{};
       } else if (command == "stop") {
+        {
+          std::lock_guard lock(observation_lock);
+          pause_requested = false;
+        }
+        observation_changed.notify_all();
         break;
       } else {
         return 2;

@@ -478,8 +478,12 @@ def check_prepare(prepare: Path, harness: Harness) -> None:
     assert result.returncode == 3, result
     assert "do not match this version" in result.stderr, result.stderr
     assert (state / "runtime-options.json").read_bytes() == before
-    # 采集器读取共享偏好会留下锁，但不得创建偏好文档或改变旧词库代次。
-    assert sorted(path.name for path in state.iterdir()) == ["preferences.lock", "runtime-options.json", "user"]
+    # 采集器在既有目录持久化默认开启的持续授权，但不得改变旧运行时配置或词库代次。
+    assert sorted(path.name for path in state.iterdir()) == ["preferences.json", "preferences.lock", "runtime-options.json", "user"]
+    preferences = json.loads((state / "preferences.json").read_text())["preferences"]
+    assert preferences["usage_reporting"] is True
+    consent = preferences["usage_reporting_consent"]
+    assert consent["since_unix_ms"] > 0 and len(consent["epoch"]) == 36
 
 
 def main() -> int:
