@@ -23,6 +23,8 @@ import {
 import { KeyboardScheme, SchemeDefinition } from "../entry/src/main/ets/keyboard/KeyboardScheme";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { StrokeLayout } from "../entry/src/main/ets/keyboard/input/StrokeLayout";
+import { SwipeHintPolicy } from "../entry/src/main/ets/keyboard/input/SwipeHintPolicy";
+import { LetterHintGesture } from "../entry/src/main/ets/keyboard/input/LetterHintGesture";
 
 let failures = 0;
 
@@ -173,7 +175,7 @@ group("14 键与 18 键的两种样式", () => {
   );
 });
 
-group("逗号的长按与下滑", () => {
+group("逗号的长按与滑动", () => {
   check(P.commaHold(true, StyledFace.NONE, "standard") === CommaHold.PERIOD, "26 键一族长按句号");
   check(P.commaHold(false, StyledFace.NONE, "standard") === CommaHold.MENU, "大千注音长按常用标点");
   check(
@@ -198,12 +200,12 @@ group("逗号的长按与下滑", () => {
       `14 键 ${style} 长按常用标点`,
     );
   }
-  check(P.commaSwipesPeriod(StyledFace.TWENTY_SIX, "long_space"), "26 键长空格下滑句号");
-  check(P.commaSwipesPeriod(StyledFace.FOURTEEN, "long_space"), "14 键长空格下滑句号");
+  check(P.commaSwipesPeriod(StyledFace.TWENTY_SIX, "long_space"), "26 键长空格滑动句号");
+  check(P.commaSwipesPeriod(StyledFace.FOURTEEN, "long_space"), "14 键长空格滑动句号");
   for (const style of ["standard", "comma_period", "emoji"]) {
-    check(!P.commaSwipesPeriod(StyledFace.TWENTY_SIX, style), `26 键 ${style} 不接下滑`);
+    check(!P.commaSwipesPeriod(StyledFace.TWENTY_SIX, style), `26 键 ${style} 不接滑动`);
   }
-  check(!P.commaSwipesPeriod(StyledFace.NONE, "long_space"), "不受样式影响的底行不接下滑");
+  check(!P.commaSwipesPeriod(StyledFace.NONE, "long_space"), "不受样式影响的底行不接滑动");
   check(P.longSpaceActive(true, "long_space", false), "中文 26 键长空格");
   check(!P.longSpaceActive(false, "long_space", false), "英文 26 键不随长空格变化");
   check(!P.longSpaceActive(true, "emoji", false), "其他样式不是长空格");
@@ -243,27 +245,62 @@ group(
   },
 );
 
-group("逗号下滑手势：向下过门槛且竖向大于横向才算，点按随之被吞一次", () => {
-  const gesture = new CommaSwipeGesture();
-  gesture.down(100, 100);
-  check(gesture.up(102, 100 + CommaSwipeGesture.THRESHOLD_VP + 1), "向下滑过门槛");
-  check(gesture.swallows(), "这次点按被吞");
-  check(!gesture.swallows(), "只吞一次");
-  gesture.down(100, 100);
-  check(!gesture.up(100, 100 + CommaSwipeGesture.THRESHOLD_VP), "正好在门槛上不算");
-  check(!gesture.swallows(), "普通点按照常输入逗号");
-  gesture.down(100, 100);
-  check(!gesture.up(140, 120), "横向更多不算");
-  gesture.down(100, 100);
-  check(!gesture.up(100, 60), "向上不算");
-  gesture.down(100, 100);
-  gesture.cancel();
-  check(!gesture.up(100, 140), "长按识别后抬起不再按下滑处理");
-  gesture.down(100, 100);
-  gesture.up(100, 140);
-  gesture.down(100, 100);
-  check(!gesture.swallows(), "点按没有送来时，下一次按下清掉吞键");
-});
+group(
+  "逗号滑动手势：上滑或下滑过 14 vp 且竖向大于横向才算，满长按时长还没滑出去归长按，点按随之被吞一次",
+  () => {
+    const T: number = CommaSwipeGesture.THRESHOLD_VP;
+    const H: number = CommaSwipeGesture.HOLD_MILLIS;
+    check(T === SwipeHintPolicy.THRESHOLD_VP && T === 14, "门槛就是字母键滑动输入符号的 14 vp");
+    check(H === LetterHintGesture.HOLD_MILLIS, "长按时长与字母键相同");
+    const gesture = new CommaSwipeGesture();
+    gesture.down(100, 100, 0);
+    check(gesture.up(102, 100 + T + 1, 80), "向下滑过门槛");
+    check(gesture.swallows(), "这次点按被吞");
+    check(!gesture.swallows(), "只吞一次");
+    gesture.down(100, 100, 0);
+    check(gesture.up(102, 100 - T - 1, 80), "向上滑过门槛，与字母键默认方向一致");
+    check(gesture.swallows(), "上滑的点按同样被吞");
+    gesture.down(100, 100, 0);
+    check(!gesture.up(100, 100 + T, 80), "正好在门槛上不算");
+    check(!gesture.swallows(), "普通点按照常输入逗号");
+    gesture.down(100, 100, 0);
+    check(!gesture.up(100, 100 - T, 80), "向上正好在门槛上也不算");
+    gesture.down(100, 100, 0);
+    gesture.move(101, 96, 40);
+    check(!gesture.up(102, 92, 80), "点按时手指往上带一点（8 vp，不到门槛）不出句号");
+    check(!gesture.swallows(), "漂移的点按照常输入逗号");
+    gesture.down(100, 100, 0);
+    check(!gesture.up(140, 120, 80), "横向更多不算");
+    gesture.down(100, 100, 0);
+    check(!gesture.up(60, 80, 80), "往另一侧横向更多也不算");
+    gesture.down(100, 100, 0);
+    gesture.move(100, 100 - T - 6, 60);
+    check(gesture.up(100, 100, 300), "滑过门槛的那一刻就定下是滑动，手指回到原处抬起仍输入句号");
+    gesture.down(100, 100, 0);
+    gesture.move(100, 101, H - 1);
+    check(gesture.up(100, 100 - T - 6, H - 1), "长按时长到之前滑出去仍算");
+    gesture.down(100, 100, 0);
+    gesture.move(100, 101, H);
+    check(!gesture.up(100, 100 - T - 6, H + 200), "满长按时长还没滑出去，之后上滑不再起滑动");
+    gesture.down(100, 100, 0);
+    check(!gesture.up(100, 100 + T + 6, H + 1), "只有抬起事件时也按时长判断");
+    gesture.down(100, 100, 0);
+    check(gesture.longPress(), "没滑出去时长按照旧");
+    check(!gesture.up(100, 140, 100), "长按识别后抬起不再按滑动处理");
+    gesture.down(100, 100, 0);
+    gesture.move(100, 100 - T - 6, 60);
+    check(!gesture.longPress(), "已经滑出去时长按不再做事");
+    check(gesture.up(100, 100 - T - 6, 700), "抬起照样输入一次句号");
+    gesture.down(100, 100, 0);
+    gesture.move(100, 140, 60);
+    gesture.cancel();
+    check(!gesture.up(100, 140, 100), "触摸被取消后抬起不再按滑动处理");
+    gesture.down(100, 100, 0);
+    gesture.up(100, 140, 80);
+    gesture.down(100, 100, 0);
+    check(!gesture.swallows(), "点按没有送来时，下一次按下清掉吞键");
+  },
+);
 
 group("九键样式：符 | 123 | ， | 空格 | 。 与 符 | 123 | 😀 | 空格，数字层和英文九键不变", () => {
   const standard = NineKeyLayout.actionRow(false, false, "standard");

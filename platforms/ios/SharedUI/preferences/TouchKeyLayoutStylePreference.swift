@@ -7,7 +7,7 @@ enum TouchTwentySixKeyStyle: String, CaseIterable, Hashable {
   case standard
   /// 123 | 符 | ， | 空格 | 。 | 中/英 | 回车。
   case commaPeriod = "comma_period"
-  /// 123 | ， | 长空格 | 中/英 | 回车，符号入口移到工具栏，逗号下滑或长按输入句号。
+  /// 123 | ， | 长空格 | 中/英 | 回车，符号入口移到工具栏，逗号上滑、下滑或长按输入句号。
   case longSpace = "long_space"
   /// 123 | 😀 | 空格 | ， | 中/英 | 回车，符号面板经长按 123 打开。
   case emoji

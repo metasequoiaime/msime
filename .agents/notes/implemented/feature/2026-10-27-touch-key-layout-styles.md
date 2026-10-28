@@ -42,7 +42,9 @@ Status: implemented
 
 桌面宿主（macOS、Windows、Linux 与 `apps/desktop`）保留但不读这四项。macOS 的偏好覆盖门禁（`platforms/macos/tests/settings/preference_coverage.py`）为它们登记了不适用理由；`packages/ui/src/core/preferences-model.ts` 带上了类型，共享 React 设置页给鸿蒙手机提供了这四项的控件，所以字段对照（`scripts/test-preferences-field-parity.py`）不把它们列进 `RUST_ONLY`。Android、iOS 与鸿蒙的键面、设置入口、迁移和验证见下面的「各端实现」。
 
-Android 把 `platform.android.long_space_layout = true` 迁成 `touch_twenty_six_key_style = long_space` 时，只迁中文 26 键的底行：英文 26 键回到标准底行，独立句点键回来，不再由逗号下滑接替（[长空格布局](2026-10-27-android-long-space-layout.md)里对英文键面的那项改动不随 `long_space` 保留）。要保留它需要另做决定，不能当成 `long_space` 的附带效果。
+Android 把 `platform.android.long_space_layout = true` 迁成 `touch_twenty_six_key_style = long_space` 时，只迁中文 26 键的底行：英文 26 键回到标准底行，独立句点键回来，不再由逗号滑动接替（[长空格布局](2026-10-27-android-long-space-layout.md)里对英文键面的那项改动不随 `long_space` 保留）。要保留它需要另做决定，不能当成 `long_space` 的附带效果。
+
+长空格逗号的滑动方向：Android #10087 之后，三端长空格样式画出的每个逗号（26 键与 14/18 键字母层底行的逗号，26 键长空格时 123 层和 #+= 层的逗号）都是上滑和下滑都输入句号。原来只认下滑（#9881 的要求），而字母键滑动输入符号的默认方向是上滑，照字母键习惯上滑逗号什么也不出；逗号键没有别的纵向手势，两个方向都接，也不跟随「滑动输入符号」的方向设置。三端同一判定：纵向位移严格大于本端字母键滑动输入符号的门槛（Android `SwipeHintPolicy.THRESHOLD_DP`、iOS `SwipeHintPolicy.threshold`、鸿蒙 `SwipeHintPolicy.THRESHOLD_VP`，都是 14），并且大于横向位移，点按时手指带一下不出句号；按下后满长按时长（Android 系统长按超时，iOS `KeyboardKeyButton.cornerHintHoldDelay` 0.5 秒，鸿蒙 LongPressGesture 默认的 500 ms，即 `LetterHintGesture.HOLD_MILLIS`）还没滑出去的触摸归长按，之后再挪手指不起滑动，免得长按出句号后松手又补一个；已经滑出去的触摸不再触发长按。iOS 的接法是 `KeyboardKeyButton.cornerHintSwipesEitherWay`，判定在 `SwipeHintPolicy.swipedEitherWay`；鸿蒙是 `CommaSwipeGesture`，改为在触摸移动时判定（滑过门槛的那一刻就定下是滑动，满长按时长就不再跟踪），设计底行逗号的长按先问 `longPress()`。三端读屏文字从「下滑」改为「上滑或下滑」。
 
 Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、长按选上标 ⁰ 或下标 ₀，是九键字母层直接输入 0 的地方（九宫格长按只给 1–9）。`tall_return` 去掉这个 ！ 时，接到符号栏默认表末尾的那个 ！ 带着同样的手势和右上角的 0，自定义表里的 ！ 不带；笔画右列的 ！ 本来没有这个手势（网格里有 0 键），笔画不带。iOS 与鸿蒙的 ！ 没有这组手势，不涉及。Android 笔画的数字层借的是九键数字九宫格，`tall_return` 下按笔画外框的列宽（0.9 / 3 / 0.9）画，和笔画字母层同一个外框，切 123 / 笔 时 符、切换键和回车不横移。
 
@@ -66,8 +68,8 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 
 底行由 `KeyboardActionRow.designEntries(..., TouchKeyStyle.Row)` 统一排布，`TouchKeyStyle.Styles.forLayout` 决定当前键面读哪一类样式。标准 26 键上的中文方案（全拼、双拼、五笔、粤拼，view 还没给出方案时按中文）读 26 键样式；英文、韩文和其他语言的 26 键画标准底行。14 键与 18 键读 14 键样式，拼音九键、九键双拼与笔画读九键样式，手写、注音和日文假名网格没有可选样式。密码框与纯数字框里三类样式一律画标准底行。份额不含地球键，地球键在 123 后占 1：
 
-- 26 键：`comma_period` 是 123 1.25 | 符 1.05 | ， 1 | 空格 3 | 。 1 | 中 1.05 | 回车 1.9，逗号长按改为常用标点菜单；`long_space` 就是原来的长空格行（空格 5.05，符号入口在工具栏，逗号下滑输入句号，123 进带逗号的 123 层）；`emoji` 的 😀 占 符 的位置和 1.05 份，是常驻的表情图标键，记 `SoftEmoji`，点按打开表情面板，符号面板经长按 123 打开。
-- 14/18 键：`long_space` 的空格是 5，逗号同样下滑输入句号（句号没有独立键之后的补位），长按仍是常用标点菜单；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车。
+- 26 键：`comma_period` 是 123 1.25 | 符 1.05 | ， 1 | 空格 3 | 。 1 | 中 1.05 | 回车 1.9，逗号长按改为常用标点菜单；`long_space` 就是原来的长空格行（空格 5.05，符号入口在工具栏，逗号上滑或下滑输入句号，123 进带逗号的 123 层）；`emoji` 的 😀 占 符 的位置和 1.05 份，是常驻的表情图标键，记 `SoftEmoji`，点按打开表情面板，符号面板经长按 123 打开。
+- 14/18 键：`long_space` 的空格是 5，逗号同样上滑或下滑输入句号（句号没有独立键之后的补位），长按仍是常用标点菜单；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车。
 - 九键：`comma_period` 是 符 | 123 | ， 1 | 空格 2 | 。 1 | 中 | 回车，`emoji` 是 符 | 123 | 😀 1.05 | 空格 2.95 | 中 | 回车，这两种样式不改数字层。
 
 右侧大回车（`tall_return`）用于拼音九键、九键双拼、笔画以及它们的数字层（含笔画借出的数字九宫格），判定在 `KeyboardActionRow.drawsTallReturn`；26 键等其他键面借用的数字九宫格不用。外框连同底行是一整块，高度角色是三行加底行，与标准外框总高相同；`designEntries` 对它返回空，功能行隐藏，与注音九键相同。底行各格用底行高度角色，九宫格加高时增量照旧只给上方。列宽沿用各自外框：九键 3 / 14 / 3，笔画 0.9 / 3 / 0.9（`StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT`、`GRID_WEIGHT`）。
@@ -93,7 +95,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - 数字层改成三端一致的 0 | 空格、小数点进右列之后：`check-host.sh` 通过（289 项 JVM 冒烟、248 份设备测试源码编译）；TouchKeyStyleSmoke 钉住数字层的键序、空格 1.05 和切换键、地球键、中/英在两层里的绝对宽度，KeyHeatmapLayoutSmoke 钉住右列小数点的接线和预览里长空格样式写「空格」，三处在本机改坏产品代码后都如期失败。经 `rbuild` 重打 APK 后在新建的 API 35 arm64 模拟器上跑 NineKeyNumericLayoutDeviceSmoke 通过，其中 TallReturnDeviceChecks 量到数字层 切换键 | 0 | 空格 | 中、空格与中同宽、小数点在右列 ⌫ 与回车之间，数字层 1 0 . 空格 上屏 `10. `，换回标准样式后标准底行的 123 和中与大回车外框里的同宽。设备测试的新断言没有拿旧包对照跑过。
 - NumberRowDeviceSmoke 与 PortraitSplitDeviceChecks 曾在 #+= 阶段失败，原因是 develop 上 #9925 把切回字母的说明改成「返回原键盘」、英文 123 键面改成「返回」，测试还在找旧名字；用 develop 合并基点打的包同样失败，本分支只改了这两套测试的标签。另有 10 份设备测试仍用旧标签，属于 develop 上要另修的问题。
 - 第四轮（入口按版本显示、说明三端统一）：`check-host.sh` 通过（289 项 JVM 冒烟，含按键布局和 SettingsSearchIndexSmoke，设备测试源码编译）；新加的 check-host 钉子在真代码上通过，副标题改字、入口条件换成 `if (true)`、去掉组末说明三种改坏都如期失败。check-host 不编 home/ 下的页面，所以经 `rbuild` 在 Mac Studio 上用 Gradle 编了 full 与 japanese 两个 flavor 的 Debug Java，通过。没上模拟器，组末说明和日语版不列入口都没在设备上看过。
-- 没验证：真机，平板和分离式键盘（含右侧大回车），旧键迁移与迁移失败时锁住设置同步（发布包不可调试，没法预先写入本地设置文件或让迁移失败，只有 JVM 冒烟、check-host 钉子和编译），长空格逗号下滑的真实手势，横屏门槛，账号同步往返。偏好重读换了键面却没接着渲染时，标准九键与注音外框可能在下一次按键前还留着上一个键面的功能行；这是本次之前就有的行为，右侧大回车外框自己处理了，其他外框没改也没验证。
+- 没验证：真机，平板和分离式键盘（含右侧大回车），旧键迁移与迁移失败时锁住设置同步（发布包不可调试，没法预先写入本地设置文件或让迁移失败，只有 JVM 冒烟、check-host 钉子和编译），长空格逗号滑动的真实手势，横屏门槛，账号同步往返。偏好重读换了键面却没接着渲染时，标准九键与注音外框可能在下一次按键前还留着上一个键面的功能行；这是本次之前就有的行为，右侧大回车外框自己处理了，其他外框没改也没验证。
 
 ### iOS
 
@@ -110,7 +112,7 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 逗号与长空格：
 
 - 26 键 `comma_period`：逗号长按打开常用标点，句号是独立键，没有长按。
-- `long_space` 的字母层（26、14、18 键）逗号下滑输入句号，自定义了常用标点也一样；长按在 26 键默认标点下是句号，14/18 键和自定义了常用标点时打开常用标点菜单（`holdsCornerHint`）。26 键的 符 移到工具栏品牌键后面的「符」按钮，工具栏设成隐藏时这一行仍显示，只放品牌、符号和收起，同一块键盘切到英文 26 键时只放品牌和收起（`longSpaceToolbarRowKept` 按 `chineseTwentySixKeyboard` 算，不看此刻的中/英）；123 进带空格的 123 层，不借数字九宫格，123 层和 #+= 层原来的表情或符号入口换成逗号。
+- `long_space` 的字母层（26、14、18 键）逗号上滑或下滑输入句号，自定义了常用标点也一样；长按在 26 键默认标点下是句号，14/18 键和自定义了常用标点时打开常用标点菜单（`holdsCornerHint`）。26 键的 符 移到工具栏品牌键后面的「符」按钮，工具栏设成隐藏时这一行仍显示，只放品牌、符号和收起，同一块键盘切到英文 26 键时只放品牌和收起（`longSpaceToolbarRowKept` 按 `chineseTwentySixKeyboard` 算，不看此刻的中/英）；123 进带空格的 123 层，不借数字九宫格，123 层和 #+= 层原来的表情或符号入口换成逗号。
 - 26 键 `emoji` 复用 123 层的表情键（记 `SoftEmoji`），符号面板经长按 123 打开。九键「底栏带标点」的逗号跟随标点键面，长按打开常用标点。
 
 右侧大回车用于拼音九键、九键双拼和笔画的字母层与数字层；26/14/18 键和手写借来的数字九宫格不跟。
@@ -134,14 +136,14 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
 - 第四轮（中列扣键距、入口按版本显示、说明三端统一）：Mac Studio 上经 `rbuild`，一次性 iPhone 17 / iOS 27.0 模拟器，`MSIMEApp` Debug 编译通过，`KeyLayoutStyleTests` 26 项 0 失败。右侧大回车的用例改成在同一个键盘上先量标准样式的底行、当场换成右侧大回车再比（手机显示和隐藏中/英、九键双拼按拼音九键比、笔画、数字层、iPad），容差一个像素（1/3pt，iPad 的 中/英 量到 113.667 对 114.0，是 3x 取整）。把控制器换回上一版后这三个用例如期失败（123 54.33 对 51.0，中/英 45.67 对 42.67，iPad 138.67 对 135.33）。设置文字由 `testSettingsTextsMatchTheOtherPlatforms` 和 `scripts/test-ios-key-layout-settings.py`（入口在 `offersAnyGroup` 条件里、副标题和各组说明取自共享常量）钉住。
 - 第四轮的键距修正：新用例 `testTallReturnFollowsTheKeySpacingTheFailedGeometryCommitFallsBackTo` 先量 3pt 键距下的标准九键底行，再在 6pt 下换成右侧大回车，只把共享文档改成 3pt 并用 `chflags UF_IMMUTABLE` 让 preferences.json 写不进去，点 键盘高度 → 完成 后核对键距回到 3、大回车外框与 3pt 的标准宽度一致。修正前单跑失败（123 51.0 对 52.67，中/英 42.67 对 44.33），修正后 `KeyLayoutStyleTests` 27 项加 `MorePanelFoldTests` 的两项键盘高度用例共 29 项 0 失败。
 - 第四轮没验证：带地球键时在画出来的键盘上量宽度（测试宿主不带地球键），单一语言版本里没有入口的样子，真机。
-- 没验证：真机，把键盘装成系统键盘在别的 App 里打字，真实 iPad 和真实旋转（横屏经 traitOverrides 模拟），真实的逗号下滑与长按手势（只断言配置），真实的安全输入框和数字键盘框（输入框类型经 `applyInputContext` 驱动），热力图界面（模拟器上统计页要设备密码，只核对了数据）。大回车记 `Return` 只核对了热力图表和按键闭包：单测宿主里 `countKeyPress` 的隐私门不放行。
+- 没验证：真机，把键盘装成系统键盘在别的 App 里打字，真实 iPad 和真实旋转（横屏经 traitOverrides 模拟），真实的逗号滑动与长按手势（只断言配置和滑动判定），真实的安全输入框和数字键盘框（输入框类型经 `applyInputContext` 驱动），热力图界面（模拟器上统计页要设备密码，只核对了数据）。大回车记 `Return` 只核对了热力图表和按键闭包：单测宿主里 `countKeyPress` 的隐私门不放行。
 
 ### 鸿蒙
 
 键序与份额在 `platforms/harmony/entry/src/main/ets/keyboard/TouchLayoutStylePolicy.ts`（`designRow`、`commaHold`、`commaSwipesPeriod`、`fieldRowStyle`、`numberRowExtraRows`、`symbolExtraRow`、`firstPanel`）和 `NineKeyLayout.actionRow(digitLayer, english, style)`；`KeyboardView.designActionRow` 与 `nineKeyActionRow` 按这些表画，默认样式与之前逐键相同。两行都用 ForEach 逐个画键：数组是 `TouchLayoutStylePolicy.designRowItems` 与 `NineKeyLayout.actionItems`（后者在「右侧大回车」量到外框宽度后并入 `tallReturnRow` 的固定宽度），每次重建这一行时底行表和 `tallReturnRow` 各算一次；份额、固定宽度和让位按值传给每个键的 @Builder，所以都放进 ForEach 的键（`designRowItemKey`、`actionItemKey`），哪个变了就重建哪个键。按值传给 @Builder 的参数编译后只在建键时取一次（编译产物里是 `this.spaceKey.bind(this)(true, 份额, 0)`，不在任何 `observeComponentCreation2` 闭包里），不能在行里直接传随状态变的份额。这块键盘的中文键面是不是中文 26 键（`chineseTwentySixKeyboard`）和字母层键面（`letterFace`）也在 `TouchLayoutStylePolicy`，视图交来的 `TouchKeyboard` 里没有中/英。鸿蒙没有地球键。中文 26 键指字母层是 26 键一类、不是 14/18 键、且是中文（不是英文、韩文、越南语、藏文、日语罗马字）的键面；英文 26 键、大千注音和 2in1 保持原来的底行。
 
-- 26 键：`comma_period` 与 Android 份额相同，逗号长按打开常用标点；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车，逗号下滑或长按输入句号，符号入口移到工具栏标志右边（「符」），工具栏这一行一直画着、设成隐藏时只留标志、符号和收起，123 进带空格的数字符号层，该层与 #+= 层左下的 😀/符号 换成逗号；`emoji` 是 123 | 😀 1.05 | 空格 4 | ， | 中 | 回车，😀 记 `SoftEmoji`，符号面板经长按 123 进入。
-- 14/18 键：`long_space` 是 123 | ， | 空格 5 | 中 | 回车，逗号下滑输入句号、长按仍打开常用标点；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车，逗号长按打开常用标点。
+- 26 键：`comma_period` 与 Android 份额相同，逗号长按打开常用标点；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车，逗号上滑、下滑或长按输入句号，符号入口移到工具栏标志右边（「符」），工具栏这一行一直画着、设成隐藏时只留标志、符号和收起，123 进带空格的数字符号层，该层与 #+= 层左下的 😀/符号 换成逗号；`emoji` 是 123 | 😀 1.05 | 空格 4 | ， | 中 | 回车，😀 记 `SoftEmoji`，符号面板经长按 123 进入。
+- 14/18 键：`long_space` 是 123 | ， | 空格 5 | 中 | 回车，逗号上滑或下滑输入句号、长按仍打开常用标点；`emoji` 是 123 | 😀 1 | 空格 4 | ， 1 | 中 | 回车，逗号长按打开常用标点。
 - 九键：`comma_period` 是 符 | 123 | ， 1 | 空格 2.2 | 。 1 | 中 | 回车，逗号长按打开常用标点（`NineKeyLayout.commaOpensQuickPunctuation`）；`emoji` 是 符 | 123 | 😀 1.05 | 空格 3.15 | 中 | 回车；英文九键不用九键样式。
 - 密码框和只收数字的框（数字、带小数点数字、电话号码，`EditorTraits.digits`）里，三类键面的所有样式都退回标准底行（`EditorPolicy.keepsStandardRows`、`TouchLayoutStylePolicy.fieldRowStyle`），这个状态进 `faceKey()`。
 
@@ -215,3 +217,5 @@ Android 的拼音九键（含九键双拼）右列 ！ 原本上滑输入 0、�
   验证：`bash platforms/harmony/tests/run.sh` 0 失败；本机 `hvigorw assembleHap --no-daemon` 成功，CompileArkTS 实际执行，改动的三个文件没有 ArkTS 告警，编译产物里 `designActionRow` 是 `this.forEachUpdateFunction(elmtId, this.designRowItems(), …)`，数组在 ForEach 的观察闭包里求值。iOS 在 Mac Studio 上经 `rbuild` 重编模拟器原生库，一次性 iPhone 17 Pro / iOS 27.0 模拟器跑 `KeyLayoutStyleTests`（28 项）和 `NineKeyKeyboardTests`（119 项，1 项跳过），0 失败，模拟器用完即删；把控制器换回上一版、只留新测试时，来回切中/英的用例在英文那一遍如期失败（工具栏整条藏掉）。Android 这一轮没有改动，没有重跑。没上鸿蒙模拟器或真机看这两行：本机只剩约 10 GB，现有的模拟器实例不是这次建的，新建实例的系统镜像放不下，所以 ForEach 底行的实际画面、切中/英和改样式时键的重建只到编译和逻辑测试这一级。
 
 - PR CI 的 Xcode 26.3 在热力图数字行的空数组分支把拼接推断为 `[Any]`；`letterRows(for:)` 为该局部值显式声明 `[[Cell]]`，不改变行内容或数字行开关。手写底行契约同步识别鸿蒙 `spaceKey` 的显式宽度参数 `0`，仍核对空格的位置与共享份额。
+
+- 合入 Android #10087（长空格逗号上滑也输入句号）后，iOS 与鸿蒙跟上同一手势（见「宿主」一节的「长空格逗号的滑动方向」）。iOS 的 `KeyLayoutStyleTests` 新增 `testLongSpaceCommaSwipePolicy`，核对上滑和下滑过门槛、正好在门槛上不算、8 pt 漂移不算、横向为主不算、长按时长到之前算、到之后不算，原有的 26 键、14/18 键和 123 层逗号用例改为断言 `cornerHintSwipesEitherWay`；鸿蒙 `touch-layout-styles.test.ts` 的逗号手势组改为两个方向、漂移、横向、滑过后回到原处、长按时长和长按与滑动的先后，`run.sh` 新增接线守卫，钉住视图把按下、移动、抬起连同时间交给 `CommaSwipeGesture`、设计底行逗号的长按先问 `longPress()`。
