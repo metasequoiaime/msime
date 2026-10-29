@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+0 与空格的排法由[26 键「符」与「123」互换和数字键盘空格位置](2026-10-29-touch-symbol-first-and-number-pad-space.md)部分取代：下面的排法是 Android 的默认（`touch_number_pad_space` 的 `platform_default` / `right_column`），三端现在都能在三种排法之间选，「没有新增偏好」「本次只改变 Android」不再成立。
+
 数字层前两键的顺序由[数字九宫格的返回键和符号入口留在字母层那一格](../bug-fix/2026-10-29-mobile-number-pad-entry-position.md)部分取代：拼音九键一族与字母层一样先符号、后层切换，借用页跟着来源键面，下面保留原排列的记录；0、空格及控件归属决定仍成立。
 
 Android 拼音九键和九键双拼的数字层使用 `九键 | 符 |（地球）| 0 | 中/英 | 回车`。0 接替底行空格的宽度份额；右列变成删除、小数点和原空格键。字母层仍是 `符 | 123 |（地球）| 空格 | 中/英 | 回车`。语言与数字键交换继续交换这两个动作，不移动 0 或符号入口。
