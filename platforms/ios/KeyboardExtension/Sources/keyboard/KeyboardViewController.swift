@@ -1936,6 +1936,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     space.accessibilityIdentifier = "numberPadColumnSpaceKey"
     space.isHidden = true
     space.translatesAutoresizingMaskIntoConstraints = false
+    // 它的四边只跟着 ！ 走：键面（麦克风加「空格」）比右列宽时也不能反过来撑开右列，所以不要固有尺寸的抗压缩和抗拉伸。
+    for axis in [NSLayoutConstraint.Axis.horizontal, .vertical] {
+      space.setContentCompressionResistancePriority(.init(1), for: axis)
+      space.setContentHuggingPriority(.init(1), for: axis)
+    }
     keyColumn.addSubview(space)
     NSLayoutConstraint.activate([
       space.leadingAnchor.constraint(equalTo: closing.leadingAnchor),
