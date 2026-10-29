@@ -1446,9 +1446,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 设为 required，且只在侧栏显示时生效：底行隐藏的键会打破它们可选的宽度权重，侧栏宽度如果也只是可选的，布局引擎会拿它和那些约束权衡，把按键压窄。
     oneHandGutterWidth = oneHandGutter.widthAnchor.constraint(equalTo: oneHandRow.widthAnchor, multiplier: KeyboardOneHandLayout.gutterRatio)
     oneHandGutterTabletWidth = oneHandGutter.widthAnchor.constraint(equalToConstant: 0)
-    // 按键列的常量宽度略低于 required：窗口窄到放不下「块加间距」时由它让出那几 pt，而不是和 stack view 的约束冲突；放得下时它照样成立，多出来的宽度都给没有任何宽度约束的空白。
+    // 按键列的常量宽度也是 required，理由与上面侧栏的相同：字母行里 iPad 才画的键（Tab、iPad 的 ⌫ 和回车、行内 ，。、第二个 ⇧）隐藏时，它们按字母键宽度定的 999 宽度约束一直被 stack view 的零宽约束打破，字母越窄违反得越少；按键列的宽度若也是 999，布局引擎会把按键列压到字母键的下限（约 164pt），多出来的宽度都给了没有任何宽度约束的空白。空白只靠 stack view 的首尾相接定宽，窗口窄到放不下「块加间距」时（全宽 iPad 键盘实际不会这么窄，转屏的那一趟布局里可能短暂出现）由它让出那几 pt，不与这条约束冲突；多出来的宽度同样都给它。
     keyColumnTabletWidth = keyColumn.widthAnchor.constraint(equalToConstant: 0)
-    keyColumnTabletWidth?.priority = .init(999)
     oneHandSidePadWidth = oneHandSidePad.widthAnchor.constraint(equalToConstant: 0)
     oneHandGutter.onSwap = { [weak self] in
       guard let self else { return }
@@ -1610,10 +1609,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       oneHandSidePadWidth?.isActive = true
       NSLayoutConstraint.activate(oneHandSidePadHeights)
     }
-    // 字母键的字号在按键重画配置时才按 `keyFaceFormFactor` 取（`applyLetterFont`），键面形态变了就让它们重画一次。
+    // 字母键的字号在按键重画配置时才按 `keyFaceFormFactor` 取（`applyLetterFont`），键面形态变了就让它们重画一次。把同一份配置原样赋回去不算变化，按键不会重画，字号停在旧键面上；重新装一个变换器才是一份新的配置，再请求一次配置更新，下一趟布局之前按新键面重画。
     if keyFaceFormFactor != previousKeyFace {
-      for letter in letterButtons { letter.button.configuration = letter.button.configuration }
-      for key in letterGridButtons { key.button.configuration = key.button.configuration }
+      let buttons: [UIButton] = letterButtons.map { $0.button } + letterGridButtons.map { $0.button }
+      for button in buttons {
+        applyLetterFont(to: button)
+        button.setNeedsUpdateConfiguration()
+      }
     }
     updateLetterRowInsets()
   }
