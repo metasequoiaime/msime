@@ -1812,13 +1812,13 @@ pub struct Preferences {
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
-    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
+    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub shuangpin_custom_profile: ShuangpinCustomProfile,
     /// 九键双拼（`touch_keyboard_layout` 为 `nine_key_shuangpin`）用哪张表。等于默认值时不写进文件，没用过九键双拼的文档与以前的版本相同。
     #[serde(default, skip_serializing_if = "NineKeyShuangpinProfile::is_default")]
     pub nine_key_shuangpin_profile: NineKeyShuangpinProfile,
-    /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
+    /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]

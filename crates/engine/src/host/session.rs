@@ -90,6 +90,7 @@ pub struct EngineSnapshot {
     pub grid_composing: bool,
     /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
     pub microsoft_shuangpin: bool,
+    /// 会话跑的双拼方案名（`xiaohe`、`custom` 等），任何时候都给出，九宫格组字时也一样：宿主拿它画键面、算键盘外观的缓存键。核心快照在九宫格组字时这一项留空（金样例按此冻结），门面不照抄它。
     pub shuangpin_profile: String,
     pub preedit: String,
     /// The kana reading in Japanese, the composed Hangul in Korean, the converted text plus the pending bopomofo in Zhuyin, the stroke glyphs (一丨丿丶乛＊) in Stroke, else empty. In Stroke each glyph stands for one ASCII letter of `editing_text`, so `caret_position` also counts glyphs.
@@ -154,16 +155,10 @@ pub struct OnlineQuerySnapshot {
     pub session_id: u64,
 }
 
-/// Thread-confined like the bridge session it replaces.
+/// Product glue over the core [`crate::Session`]: the core owns the candidate revision, teardown, the key grid, the helpcode table and the shuangpin profile, and this wrapper keeps only the product's options (the raw-commit learning switch, whether to show helpcodes, where to reload a helpcode table from). Thread-confined like the bridge session it replaces, which is host-api's threading model; the core session itself may move between threads.
 pub struct Session {
     inner: crate::session::Session,
     options: EngineOptions,
-    key_grid: Option<KeyGrid>,
-    microsoft_shuangpin: bool,
-    shuangpin_profile: String,
-    helpcode_keymap: Option<SharedKeymap>,
-    helpcode_enabled: bool,
-    show_helpcode: bool,
     _thread_confined: PhantomData<Rc<()>>,
 }
 
@@ -202,47 +197,29 @@ impl Session {
     }
 
     pub fn new(options: &EngineOptions) -> Result<Session> {
-        // The C++ ran `options_for` a second time only to read the profile name back (bridge.cpp:430); that rerun recopied the same sidecar, so one mapping is enough.
+        // The C++ ran `options_for` a second time only to read the profile name back (bridge.cpp:430); that rerun recopied the same sidecar, so one mapping is enough. The bridge also loaded a second copy of the helpcode table only to annotate (bridge.cpp:431-435); the annotation now reads the table the core session filters with.
         let inner = crate::session::Session::new(session_options(options)?)?;
-        let profile = inner.shuangpin_layout();
-        // The engine loads its own copy for filtering; this one only annotates, and exists only while helpcode is on (bridge.cpp:431-435).
-        let helpcode_keymap = if options.helpcode {
-            match &options.helpcode_table {
-                Some(table) => Some(table.clone()),
-                None => Some(Arc::new(load_helpcode_keymap_with_fallback(
-                    Path::new(&options.resources),
-                    &options.helpcode_schema,
-                    options
-                        .helpcode_fallback_resources
-                        .as_deref()
-                        .map(Path::new),
-                )?)),
-            }
-        } else {
-            None
-        };
         Ok(Session {
             inner,
             options: options.clone(),
-            key_grid: None,
-            microsoft_shuangpin: options.scheme == SchemeType::Shuangpin as u8
-                && profile.uses_semicolon_key(),
-            shuangpin_profile: profile.kind.name().to_owned(),
-            helpcode_keymap,
-            helpcode_enabled: options.helpcode,
-            show_helpcode: options.show_helpcode,
             _thread_confined: PhantomData,
         })
     }
 
+    /// The scheme is shuangpin and its profile takes `;` as a second key (`EngineSnapshot::microsoft_shuangpin`). The facade never switches scheme, so the scheme it was built with is the one running.
+    fn microsoft_shuangpin(&self) -> bool {
+        self.options.scheme == SchemeType::Shuangpin as u8
+            && self.inner.shuangpin_layout().uses_semicolon_key()
+    }
+
     /// With the annotation rule of bridge.cpp:914-929.
     pub fn snapshot(&self) -> Result<EngineSnapshot> {
-        let value = self.inner.snapshot_for_host(self.show_helpcode);
+        let value = self.inner.snapshot_for_host(self.options.show_helpcode);
         let helpcode_scheme = value.scheme.helpcode();
         let uppercase_all = value.scheme == SchemeType::Quanpin;
         // Rows the engine generated in the expression, command and mention modes are not spelled by pinyin; their annotations are the engine's own. 拆字行的注释是字的读音，没有读音的字也不补辅助码。
-        let keymap = self.helpcode_keymap.as_deref().filter(|_| {
-            self.helpcode_enabled && helpcode_scheme && !value.local_mode.annotates_rows()
+        let keymap = self.inner.helpcode_table().filter(|_| {
+            self.options.helpcode && helpcode_scheme && !value.local_mode.annotates_rows()
         });
         let count = value.candidates.len();
         // 一行都没有落点支持时整列留空，桌面每次快照不多一次分配。
@@ -278,15 +255,15 @@ impl Session {
             local_mode: value.local_mode.name().to_owned(),
             spelling_symbols: value.spelling_symbols,
             dedicated_english: value.dedicated_english,
-            nine_key: self.key_grid == Some(KeyGrid::NineKey),
-            key_grid: self.key_grid,
+            nine_key: self.inner.key_grid() == Some(KeyGrid::NineKey),
+            key_grid: self.inner.key_grid(),
             nine_key_spellings: value.nine_key_spellings,
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
             nine_key_strokes: value.nine_key_strokes,
             grid_composing: self.inner.grid_composing(),
-            microsoft_shuangpin: self.microsoft_shuangpin,
-            shuangpin_profile: self.shuangpin_profile.clone(),
+            microsoft_shuangpin: self.microsoft_shuangpin(),
+            shuangpin_profile: self.inner.shuangpin_layout().kind.name().to_owned(),
             preedit: value.preedit,
             display_reading,
             reading: if value.scheme.draws_reading() {
@@ -337,7 +314,7 @@ impl Session {
                 .next()
                 .unwrap_or_else(|| candidate.corrected_from.to_string());
             if let Some(keymap) = keymap {
-                if self.show_helpcode
+                if self.options.show_helpcode
                     && annotation.is_empty()
                     && candidate.source == CandidateSource::Generated
                 {
@@ -512,10 +489,7 @@ impl Session {
                 }),
             ),
         };
-        self.inner.set_helpcode_table(keymap.clone());
-        if self.helpcode_enabled {
-            self.helpcode_keymap = Some(keymap);
-        }
+        self.inner.set_helpcode_table(keymap);
         self.options.helpcode_table = table;
         Ok(())
     }
@@ -663,7 +637,6 @@ impl Session {
     /// 见 [`crate::Session::set_key_grid`]。快照的 `nine_key` 只在九键下为真。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) -> Result<()> {
         self.inner.set_key_grid(grid);
-        self.key_grid = grid;
         Ok(())
     }
 

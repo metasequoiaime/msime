@@ -107,6 +107,9 @@ static CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// The idle connections, at most one per thread, each tagged with its thread's `ThreadJournal::id`. A thread's entry goes when the thread exits. A plain list rather than a slot per thread: parking and taking back then allocate nothing once the list has grown to the number of threads.
 static PARKED_JOURNALS: Mutex<Vec<ParkedJournal>> = Mutex::new(Vec::new());
 
+/// Held by whoever takes connections out of `PARKED_JOURNALS` to close them, from taking them out until they have closed (`close_parked`). The list's lock is released before closing, and closing the last connection to a WAL journal checkpoints; without this a close that found a connection already taken out by another close, a thread exiting or a thread releasing its own would return while that connection is still open, and a reset or quarantine would rename or replace a journal that is still open. Never taken where a thread parks a connection or takes it back for use.
+static CLOSING_JOURNALS: Mutex<()> = Mutex::new(());
+
 /// Free entries `JournalUse::new` keeps in `PARKED_JOURNALS`: a session is normally used from one or two threads.
 const PARKING_HEADROOM: usize = 4;
 
@@ -145,18 +148,30 @@ impl ThreadJournal {
         }
     }
 
-    /// Takes this thread's parked connection out of the list.
-    fn unpark(&self) -> Option<ParkedJournal> {
-        let mut parked = lock(&PARKED_JOURNALS);
-        let index = parked.iter().position(|entry| entry.thread == self.id)?;
-        Some(parked.swap_remove(index))
+    /// Takes this thread's parked connection back for an operation when it is to `path` and was parked under `generation`. A parked connection that is not closes here, before the caller opens another, so a thread never holds two journal files open.
+    fn take_back(&self, path: &Path, generation: u64) -> Option<ParkedJournal> {
+        {
+            let mut parked = lock(&PARKED_JOURNALS);
+            let index = parked.iter().position(|entry| entry.thread == self.id)?;
+            let entry = &parked[index];
+            if entry.generation == generation && entry.path == path {
+                return Some(parked.swap_remove(index));
+            }
+        }
+        self.close_parked();
+        None
+    }
+
+    /// Closes this thread's parked connection, if it has one.
+    fn close_parked(&self) {
+        close_parked(|entry| entry.thread == self.id);
     }
 }
 
 impl Drop for ThreadJournal {
     /// The thread is exiting: its idle connection closes with it.
     fn drop(&mut self) {
-        drop(self.unpark());
+        self.close_parked();
     }
 }
 
@@ -394,15 +409,12 @@ pub fn open_journal(path: &Path) -> Result<JournalConnection> {
             // A connection to another journal is in use: this one gets a connection of its own.
             return open_uncached(path);
         }
-        let parked = journal.unpark();
-        let connection = match parked {
-            Some(parked) if parked.generation == generation && parked.path == path => {
+        let connection = match journal.take_back(path, generation) {
+            Some(parked) => {
                 journal.active_path = parked.path;
                 parked.connection
             }
-            other => {
-                // Released before opening, so a thread never holds two journal files open.
-                drop(other);
+            None => {
                 let connection = open_configured(path)?;
                 journal.active_path = path.to_path_buf();
                 connection
@@ -483,15 +495,16 @@ pub fn close_cached_journals() {
     // First, because writing the stores' queues opens the journal through this thread's cache; the slot is cleared after it.
     super::ngram_store::release_all();
     CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    // Idle connections of every thread close now; one an operation still holds closes when that operation ends, since its generation is gone.
-    close_idle_journals(None);
+    // Idle connections of every thread are closed when this returns, including those another close took out first; one an operation still holds closes when that operation ends, since its generation is gone.
+    close_parked(|_| true);
     crate::local::database::close_cached_local_databases();
 }
 
-/// Closes the parked connections of every thread, or only those to `path`. The connections are dropped after the lock is released.
-fn close_idle_journals(path: Option<&Path>) {
+/// Takes the parked connections `closes` selects out of the list and closes them, all under `CLOSING_JOURNALS`: when this returns, every parked connection it selects is closed, whether this call or another closer took it out. The connections are dropped after the list's lock is released, so threads parking or taking back theirs do not wait on the closing.
+fn close_parked(mut closes: impl FnMut(&ParkedJournal) -> bool) {
+    let _closing = lock(&CLOSING_JOURNALS);
     let closing: Vec<ParkedJournal> = lock(&PARKED_JOURNALS)
-        .extract_if(.., |parked| path.is_none_or(|path| parked.path == path))
+        .extract_if(.., |parked| closes(parked))
         .collect();
     drop(closing);
 }
@@ -501,7 +514,7 @@ pub(crate) fn release_thread_journal() {
     // At thread exit the state may already be destroyed, which closed its connection; there is nothing left to release then.
     let _ = THREAD_JOURNAL.try_with(|journal| {
         if let Some(journal) = journal.borrow_mut().as_mut() {
-            drop(journal.unpark());
+            journal.close_parked();
             journal.active_generation = None;
         }
     });
@@ -538,7 +551,7 @@ impl JournalUse {
             }
         };
         if last {
-            close_idle_journals(Some(&path));
+            close_parked(|parked| parked.path == path);
         }
     }
 }
@@ -1270,6 +1283,56 @@ mod tests {
             "the connection was parked after the close"
         );
         assert_eq!(parked_journals(&journal), 0);
+    }
+
+    /// Whether a connection other than a new one has `path` open: leaving WAL needs every other connection to the file closed, and with no busy wait a new connection fails to leave it while one is open (or still closing). Leaves the journal in rollback mode; the next `open_journal` switches it back.
+    #[cfg(not(target_os = "ios"))]
+    fn open_elsewhere(path: &Path) -> bool {
+        let probe = Connection::open(path).unwrap();
+        probe.busy_timeout(Duration::ZERO).unwrap();
+        let mode = probe.query_row("PRAGMA journal_mode=DELETE", [], |row| {
+            row.get::<_, String>(0)
+        });
+        !matches!(mode.as_deref(), Ok("delete"))
+    }
+
+    /// Two threads idle on one journal close its connections at once, as a reset on one thread and the end of the journal's last session on another do: whichever takes both connections out may still be closing them when the other finds the list empty. Neither may return before both have closed, or a reset renames a journal that is still open (Windows refuses) and a quarantine reads a zeroed journal's first page from the old `-wal`. Closes by path, as `JournalUse::end` does, so the other tests' journals and stores are left alone.
+    ///
+    /// Whether a connection is still open is asked of SQLite rather than read from a leftover `-wal`: when another test's close makes both threads close their connections as their writes end, the two closes run at once, neither is the last, and the `-wal` stays behind with no connection open.
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn concurrent_closes_return_only_once_every_idle_connection_has_closed() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let barrier = std::sync::Barrier::new(2);
+        // One probe at a time: a probe is itself a connection the other would see.
+        let probing = Mutex::new(());
+        let left_open = std::thread::scope(|scope| {
+            let closer = || {
+                (0..200)
+                    .filter(|_| {
+                        upsert(&journal, PersonalDictionaryKind::Pinyin, "ni", "你", 1, "")
+                            .unwrap();
+                        // Both connections are parked (or already closed by another test's close).
+                        barrier.wait();
+                        close_parked(|parked| parked.path == journal);
+                        let open = {
+                            let _probing = lock(&probing);
+                            open_elsewhere(&journal)
+                        };
+                        // Neither thread opens the journal again before the other has looked.
+                        barrier.wait();
+                        open
+                    })
+                    .count()
+            };
+            let other = scope.spawn(closer);
+            closer() + other.join().unwrap()
+        });
+        assert_eq!(
+            left_open, 0,
+            "a close returned while a connection it was to close was still open"
+        );
     }
 
     /// Sessions on one journal: ending one keeps the other threads' connections for the sessions still open; ending the last closes them.

@@ -9280,7 +9280,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// The top row sits straight on the keyboard in the design (dc.html `mobCands`, the 48px row); the desktop palette brings its own surface, and a keyboard design keeps a veil of its key fill so the candidates stay legible over a photo or pattern.
   static func stripBackground(_ skin: KeyboardTheme, palette: CandidatePalette?) -> UIColor {
     if let palette { return palette.surface }
-    return skin.design == nil ? .clear : skin.keyBackground.withAlphaComponent(0.6)
+    if skin.design != nil { return skin.keyBackground.withAlphaComponent(0.6) }
+    // 把背景交给系统底板的皮肤也不留完全透明：候选栏自己带一层几乎看不出的底色，从它上面起手的触摸才有落点（#10173）。
+    return skin.drawsNativeBackground ? skin.nativeBackgroundFill : .clear
   }
 
   /// 给键盘换上 `KeyboardTheme.current`。`onlyIfChanged` 时（每次出现由 `viewWillAppear` 调用），皮肤和 trait 都与上一次换装相同、也没有按键在窗口外建过，就跳过重画背景、重走整棵按键树重设每个按键的配置这些重活；按键状态相关的更新（回车、方案键、工具栏、候选条）照常做。视图不在窗口里时只看皮肤：trait 还没定，在窗口外走的一遍也只会留下标记让 `viewIsAppearing` 再走一遍，这两项交给它判断。
@@ -9320,10 +9322,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 换装里的重活：键盘背景、整棵按键树和回车键的配置。每个按键重设一遍配置，设计皮肤还要重画每个按键表面，键盘图片或花纹的背景整块重画。
   private func recolorKeys(_ skin: KeyboardTheme) {
-    view.backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
+    // 把背景交给系统底板时不是完全透明，而是铺一层几乎看不出的 `nativeBackgroundFill`，按键之间的空白也带内容（#10173）。只铺这一层不够：#7682 里背后不透明的根视图没让透明按钮收到触摸，所以面板、网格、格子和候选栏各自也铺一层，见 `nativeBackgroundFill`。
+    view.backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : skin.background
     skinBackdrop.skin = skin
-    // Only here, not in KeyboardSkinBackgroundView: the App's skin previews have no system backdrop behind them.
-    if skin.drawsNativeBackground { skinBackdrop.backgroundColor = .clear }
+    // 只在这里改，不改 KeyboardSkinBackgroundView：App 里的皮肤预览背后没有系统底板。底板关了交互，它这一层对系统命中是否有用不确定，铺上只是多一层保险，也是键盘自己的底色。
+    if skin.drawsNativeBackground { skinBackdrop.backgroundColor = skin.nativeBackgroundFill }
+    // 候选在这个滚动视图里左右滑；原生皮肤下它自己也带一层内容，从候选之间的空白起手的滑动才有收触摸的视图。
+    candidateScrollView.backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : .clear
     func recolor(_ node: UIView) {
       if let button = node as? UIButton, var configuration = button.configuration {
         if configuration.background.customView is SkinKeySurfaceView || (configuration.background.backgroundColor?.cgColor.alpha ?? 0) > 0 {

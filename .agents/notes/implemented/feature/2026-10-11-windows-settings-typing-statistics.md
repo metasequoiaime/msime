@@ -23,6 +23,8 @@ Status: implemented
 
 ## Consequences
 
+统计轮询只替换超过 15 秒的读取，不替换在途写入：`main.cpp` 以 `stats_write_request_` 记录写请求身份，写入成功或失败后才释放忙碌状态，重新进入页面时随代次一起清空。否则慢速关闭记录、调整保留期或清空的回答会被下一次轮询丢弃，按钮也提前恢复。共享页采用同一修复，原因与回归用例见[统计请求状态](../simplification/2026-10-23-typing-statistics-state.md)。
+
 - 原生窗口不再为「打字统计」拉起共享应用；`SettingsNavigation.h` 里 `stats` 是 Native，导航测试和 README 同步。
 - 共享页的规则改了，`TypingStatisticsModel.h` 要跟着改；头文件开头列了它对应的 TypeScript 文件。
 - 统计文件很大（永久保留多年）时，每次重画都在 UI 线程上重新算一遍派生数字；读文件和解析 JSON 在工作线程上，只有数据变了才重画。

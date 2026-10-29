@@ -594,10 +594,21 @@ struct TypingDailyDetailView: View {
     return date.formatted(style)
   }
 
-  /// 写到临时目录,文件名给分享面板和「存储到文件」用。写不了就不给导出按钮,而不是给一个点了没反应的按钮。
+  /// 每次生成独立快照，避免后一次导出覆盖分享服务仍在读取的文件；成功后由系统回收临时目录。
   static func writeExport(_ statistics: TypingStatistics) -> URL? {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("水杉IME-打字统计.csv")
-    guard (try? Data(statistics.dailyCSV().utf8).write(to: url, options: .atomic)) != nil else { return nil }
-    return url
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-typing-export-\(UUID().uuidString)", isDirectory: true)
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                              attributes: [.posixPermissions: 0o700])
+    } catch { return nil }
+    let url = directory.appendingPathComponent("水杉IME-打字统计.csv")
+    do {
+      try Data(statistics.dailyCSV().utf8).write(to: url, options: .atomic)
+      return url
+    } catch {
+      try? FileManager.default.removeItem(at: directory)
+      return nil
+    }
   }
 }

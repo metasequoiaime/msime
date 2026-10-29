@@ -18,6 +18,8 @@ export function useTypingStatisticsState(client: TypingStatisticsClient, look?: 
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const requestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
+  // 写操作尚未完成时保留占位，不能按读取超时释放，否则其结果与错误都会被丢弃。
+  const writeRequestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
@@ -41,12 +43,14 @@ export function useTypingStatisticsState(client: TypingStatisticsClient, look?: 
   useEffect(
     () => () => {
       requestRef.current = null;
+      writeRequestRef.current = null;
     },
     [],
   );
 
   useEffect(() => {
     requestRef.current = null;
+    writeRequestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
     summaryRequestRef.current = null;
@@ -107,6 +111,7 @@ export function useTypingStatisticsState(client: TypingStatisticsClient, look?: 
     setError("");
     const request = operation();
     requestRef.current = request;
+    writeRequestRef.current = overview ? null : request;
     requestStartedAtRef.current = Date.now();
     if (overview) lastRequestAtRef.current = requestStartedAtRef.current;
     try {
@@ -130,6 +135,7 @@ export function useTypingStatisticsState(client: TypingStatisticsClient, look?: 
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null;
+        writeRequestRef.current = null;
         if (mounted.current && clientGeneration.current === generation) setBusy(false);
       }
     }
@@ -143,7 +149,9 @@ export function useTypingStatisticsState(client: TypingStatisticsClient, look?: 
       refreshDay();
       const now = Date.now();
       if (
-        (requestRef.current && now - requestStartedAtRef.current <= overviewStaleMs) ||
+        (requestRef.current &&
+          (writeRequestRef.current === requestRef.current ||
+            now - requestStartedAtRef.current <= overviewStaleMs)) ||
         now - lastRequestAtRef.current < overviewMinIntervalMs
       )
         return;

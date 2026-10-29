@@ -1,5 +1,6 @@
 //! Apple snapshot record mapping at 2b0250f4dd7012520392b310dfcc0288c3208a75.
-use msime_engine::host::{DictionaryKind, DictionaryStateRecord, SnapshotReadError};
+use msime_engine::host::{DictionaryKind, SnapshotReadError};
+use msime_engine::DictionaryStateRecord;
 use serde::Deserialize;
 
 #[derive(Deserialize)]

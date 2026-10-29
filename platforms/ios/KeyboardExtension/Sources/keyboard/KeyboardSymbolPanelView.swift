@@ -100,8 +100,8 @@ final class KeyboardSymbolPanelView: UIView {
   private var loadGeneration: UInt64 = 0
   private var entries: [Entry]
   private let skin = KeyboardTheme.current
-  /// 面板的底和选中分类的底：皮肤的背景；把背景交给系统底板的皮肤（原生皮肤、经典兜底）为透明，与主键盘透出同一块系统底板。这时键盘在打开面板时把下面的按键藏起来（`KeyboardViewController.showSymbolPanel`）。
-  private var surface: UIColor { skin.drawsNativeBackground ? .clear : skin.background }
+  /// 面板的底和选中分类的底：皮肤的背景；把背景交给系统底板的皮肤（原生皮肤、经典兜底）只铺一层几乎透明的 `nativeBackgroundFill`，与主键盘透出同一块系统底板，面板自己又带内容，触摸有落点（#10173）。这时键盘在打开面板时把下面的按键藏起来（`KeyboardViewController.showSymbolPanel`）。
+  private var surface: UIColor { skin.drawsNativeBackground ? skin.nativeBackgroundFill : skin.background }
   private let grid = UIStackView()
   private let scroll = UIScrollView()
   private var categoryButtons: [UIButton] = []
@@ -160,6 +160,11 @@ final class KeyboardSymbolPanelView: UIView {
     scroll.showsVerticalScrollIndicator = true
     scroll.disableEdgeEffects()
     scroll.accessibilityIdentifier = "symbolGrid"
+    // 把背景交给系统底板的皮肤下，两个滚动视图自己也铺一层几乎透明的底色，从符号或分类之间的空白起手也能滚动（#10173）。
+    if skin.drawsNativeBackground {
+      scroll.backgroundColor = surface
+      categoryScroll.backgroundColor = surface
+    }
     grid.translatesAutoresizingMaskIntoConstraints = false
     scroll.addSubview(grid)
 

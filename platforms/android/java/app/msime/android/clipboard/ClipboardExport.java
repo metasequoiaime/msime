@@ -45,6 +45,7 @@ public final class ClipboardExport {
         JSONObject preferences = preferences(context);
         if (preferences == null) return "剪贴板设置读取失败，请重试";
         if (!preferences.optBoolean("clipboard_history", false)) return "剪贴板历史未开启，未导出";
+        File temporaryDirectory = null;
         File temporary = null;
         try {
             ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
@@ -59,7 +60,9 @@ public final class ClipboardExport {
             String filename = LocalBackupPolicy.clipboardFileName(
                 context.getApplicationInfo().loadLabel(context.getPackageManager()).toString(),
                 AppVersionPolicy.versionName(context, "0"), LocalDateTime.now());
-            temporary = new File(context.getCacheDir(), filename);
+            // 设置页与 :ime 共用缓存目录；每次独占一个目录，正文与清理不互相干扰。
+            temporaryDirectory = Files.createTempDirectory(context.getCacheDir().toPath(), "clipboard-export-").toFile();
+            temporary = new File(temporaryDirectory, filename);
             Files.write(temporary.toPath(), ClipboardExportFormat.format(snapshot, ZoneId.systemDefault())
                 .getBytes(StandardCharsets.UTF_8));
             // 构建快照期间隐私设置可能已改变，公开文件前再检查一次。
@@ -73,6 +76,7 @@ public final class ClipboardExport {
             return "剪贴板未导出成功，请检查目录权限和剩余空间；若有未完成文件，请手动删除";
         } finally {
             if (temporary != null) temporary.delete();
+            if (temporaryDirectory != null) temporaryDirectory.delete();
         }
     }
 

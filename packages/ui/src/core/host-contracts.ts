@@ -117,6 +117,17 @@ export interface PrivacyConsentClient {
   review(): Promise<void>;
 }
 
+/**
+ * 「防止截屏」（目前只有 HarmonyOS 经共享设置页提供，Android 在原生隐私页）：开着时宿主让设置页面和键盘在截屏、录屏里显示为黑色。开关只属于这台设备，宿主自己存，不进偏好文档、不随账号同步。
+ *
+ * 切换规则由宿主执行：第一次打开直接保存，打开过以后再开、再关都先过系统认证；设备没有可用的系统认证时一律拒绝。被拒绝或没保存时 `save` 以 `{ code }` 拒绝，开关保持原值，`code` 见 `SCREEN_CAPTURE_AUTHENTICATION_UNAVAILABLE` 和 `SCREEN_CAPTURE_AUTHENTICATION_FAILED`。
+ */
+export interface ScreenCaptureProtectionClient {
+  load(): Promise<boolean>;
+  /** 切换到 `enabled`，回答保存后的值。 */
+  save(enabled: boolean): Promise<boolean>;
+}
+
 export interface HostChromeClient {
   /** 给系统状态栏和导航栏着色以配合页面；`dark` 表示要求浅色的栏内容。 */
   setSystemBars(bars: { background: string; navigationBar: string; dark: boolean }): void;
