@@ -297,7 +297,6 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
         &snapshot.candidate_corrected,
     )
     .with_static_evidence(&snapshot.candidate_static_evidence)
-    .with_contests(&snapshot.candidate_contest)
 }
 
 /// 复制候选行，供停顿模型在会话线程之外评分。
@@ -307,7 +306,6 @@ struct SettledRerankRows {
     answers_key: Vec<bool>,
     corrected: Vec<bool>,
     static_evidence: Vec<Option<StaticEvidence>>,
-    contests: Vec<u8>,
 }
 
 /// 脱离会话借用的停顿评分请求；模型随请求转移，必须经
@@ -351,8 +349,7 @@ pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankS
             &request.rows.answers_key,
             &request.rows.corrected,
         )
-        .with_static_evidence(&request.rows.static_evidence)
-        .with_contests(&request.rows.contests);
+        .with_static_evidence(&request.rows.static_evidence);
         rerank_pick(
             &mut request.reranker,
             &request.context,
@@ -1210,8 +1207,8 @@ impl<E: InputEngine> Runtime<E> {
         self.snapshot_settled_seats();
         let marked = self.settled_highlight();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        // 使用快速重排相同的后处理，保留固定席位。
-        let moved = self.rerank();
+        // 使用快速重排相同的后处理，保留固定席位。九宫格的裁决标记不交给落定模型，见 `rerank`。
+        let moved = self.rerank(false);
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
         self.finish_settled_presentation(moved, marked)
     }
@@ -1239,11 +1236,6 @@ impl<E: InputEngine> Runtime<E> {
         } else {
             Vec::new()
         };
-        let contests = if self.cached.candidate_contest.len() == texts.len() {
-            self.cached.candidate_contest.clone()
-        } else {
-            Vec::new()
-        };
         let reranker = self.settled_reranker.take()?;
         Some(SettledRerankRequest {
             generation,
@@ -1258,7 +1250,6 @@ impl<E: InputEngine> Runtime<E> {
                 answers_key,
                 corrected,
                 static_evidence,
-                contests,
             },
             reranker,
         })
@@ -2799,13 +2790,14 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.prediction {
             return false;
         }
-        let mut moved = self.rerank();
+        let mut moved = self.rerank(true);
         moved |= self.demote_runner_up_readings();
         moved |= self.normalize_online_slots();
         moved
     }
 
-    fn rerank(&mut self) -> bool {
+    /// `contests` 为真时把九宫格标的窄裁决点（`EngineSnapshot::candidate_contest`）交给排序决策，只有逐键模型这样调：裁决点的 margin 是在随包的键盘模型上调出来的，落定模型（`rerank_settled`、`score_settled_rerank`）没有量过，照旧按 `trusted_leader` 不越过可信的词典首选。
+    fn rerank(&mut self, contests: bool) -> bool {
         // 整句改字的候选是光标处一段的替换，按读音长短排好，不参与整句的重排。光标后编辑的首选接着固定的那段，必须留在首位。
         if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
             return false;
@@ -2828,6 +2820,11 @@ impl<E: InputEngine> Runtime<E> {
             }
             // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
             let rows = order_rows(snapshot);
+            let rows = if contests {
+                rows.with_contests(&snapshot.candidate_contest)
+            } else {
+                rows
+            };
             rerank_pick(
                 reranker,
                 &self.ai_context,
