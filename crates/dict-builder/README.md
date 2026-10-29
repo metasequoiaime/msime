@@ -18,6 +18,8 @@ target/release/msime-dict-build hanja --dictionary <msime-dictionary checkout> -
 target/release/msime-dict-build hkcancor-counts --cache <sources-cache> --out <msime-dictionary>/sources/cantonese/hkcancor-word-counts.txt
 ```
 
+每个产物的格式（建表语句、二进制布局、`msime-pinyin.db`、`msime-wubi.db`、`msime-others.db` 的文件内版本 `metadata.format_version`）和数据许可证见 [docs/data-formats.md](../../docs/data-formats.md)。
+
 ## Inputs
 
 - `resources/dictionary-sources.lock.json` pins only the third-party inputs downloaded by URL, each by size and SHA-256: ECDICT, the zhwiki dump part the n-gram tables count, the `places/` tables, the SCOWL archive under `scowl/` and the HKCanCor transcriptions under `hkcancor/`. They are downloaded into `--cache` on first use (about 500 MB) and reused while they still match; `--offline` refuses to download. The lock also records the upstream references (repository and commit) and the Mozc revision that the manifest, the language databases and the licence texts name.

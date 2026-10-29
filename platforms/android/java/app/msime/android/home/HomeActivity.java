@@ -85,6 +85,8 @@ public final class HomeActivity extends AppCompatActivity {
     private int selected = FIRST_TAB;
     /** A tab whose kept instance is stale and has to be built again on the next switch to it. */
     private int rebuild;
+    /** 换 tab 前清栈的那一次同步弹栈期间为 true：这时弹出的详情页和被弹回来的 tab 根页都马上要离开屏幕，不播回退动画（见 {@link HomeTabFragment#leavingWithoutAnimation}）。 */
+    private boolean clearingForTabSwitch;
     @Nullable private ValueAnimator breath;
     /** Whether dismissing the splash on screen should start onboarding: only a first-launch splash does, never a replay. */
     private boolean onboardingAfterIntro;
@@ -519,10 +521,24 @@ public final class HomeActivity extends AppCompatActivity {
         openTab(TAB_IDS[index]);
     }
 
-    /** 底部导航的选中项变了：换 tab 之前先把详情页全部弹出。 */
+    /**
+     * 底部导航的选中项变了：换 tab 之前先把详情页全部弹出。
+     *
+     * <p>这次弹栈不播回退动画。回退栈记录带着详情页的淡出和下面 tab 根页的淡入，照常播的话，根页会在接下来的切 tab 里一边淡入一边等着被藏起来，和目标 tab 的淡入叠成重影（#10092）。所以只让目标 tab 淡入；系统返回键、再点当前 tab 回根页时的回退动画不变。
+     */
     private void selectTab(int itemId) {
-        if (itemId != selected) clearStack();
+        if (itemId != selected) {
+            // popBackStackImmediate 是同步的，标记只覆盖这一次弹栈，下面 show() 的切 tab 淡入照常。
+            clearingForTabSwitch = true;
+            clearStack();
+            clearingForTabSwitch = false;
+        }
         show(itemId);
+    }
+
+    /** 是否正处在换 tab 前清栈的那一次同步弹栈里。 */
+    boolean clearingForTabSwitch() {
+        return clearingForTabSwitch;
     }
 
     /** 弹出所有详情页，回到当前 tab 的根页。 */

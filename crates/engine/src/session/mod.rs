@@ -53,6 +53,7 @@ impl Session {
     /// Validates the paths and every option (`INVALID_SESSION_OPTIONS`, `UNKNOWN_HELPCODE_SCHEMA`), loads the helpcode table and applies the options in the reference order (session.cpp:11-30, 57-66).
     pub fn new(options: SessionOptions) -> Result<Session> {
         options.paths.validate()?;
+        crate::user_dictionary::generation::check_read_only_layout(&options.paths)?;
         let input = InputSession::new(&options)?;
         let mut nine_key = NineKeySession::new(
             &options.paths,

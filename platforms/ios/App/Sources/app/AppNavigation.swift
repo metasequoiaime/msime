@@ -48,7 +48,7 @@ final class AppNavigation: ObservableObject {
   }
 }
 
-/// 登录水杉：设计稿里的底部面板（页面底色、圆角 20、系统拖动条、30pt 的圆形关闭按钮），里面是通过 Apple 登录、内嵌的邮箱验证码流程，以及后端提供时的手机号登录。登录是一个任务面板，绝不是「我的」标签页的又一份拷贝。登录成功后面板关闭，并用 toast 说明是用哪种方式登录的；调用方在面板的 `onDismiss` 里刷新各自的状态。
+/// 登录水杉：设计稿里的底部面板（页面底色、圆角 20、系统拖动条、30pt 的圆形关闭按钮），里面是通过 Apple 登录、内嵌的邮箱验证码流程，以及后端提供时的手机号登录，按钮下方是登录前要勾选的同意（`AccountLoginOptions`）。登录是一个任务面板，绝不是「我的」标签页的又一份拷贝。登录成功后面板关闭，并用 toast 说明是用哪种方式登录的；调用方在面板的 `onDismiss` 里刷新各自的状态。
 struct AccountLoginSheet: View {
   @Environment(\.dismiss) private var dismiss
   @StateObject private var model = CodeLoginModel()
@@ -66,12 +66,6 @@ struct AccountLoginSheet: View {
           ToastCenter.shared.show("已通过 \(via) 登录")
         }
         .padding(.top, 6)
-        Text("登录即表示同意[《隐私政策》](https://msime.app/privacy/)")
-          .font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: .infinity)
-          .padding(.top, 4)
-          .accessibilityIdentifier("accountLoginPrivacy")
       }
       // 系统拖动指示条代替了设计稿里 5pt 的拖动条和它下方 12pt 的间距，所以内容起点比设计稿的 8pt 顶部内边距低出这么多。
       .padding(.top, 25)
@@ -126,6 +120,8 @@ struct AccountLoginSheet: View {
 }
 
 /// 登录面板上的登录按钮，`AppleAccountSection` 也会把它放进 Form 里显示：通过 Apple 登录、通过 Google 登录、展开成内嵌邮箱和验证码输入框的「使用邮箱登录」，以及打开手机验证码流程的「手机号登录」文字按钮。显示哪些按钮取决于后端的登录方式列表；Google 还要这个构建能发起 Google 登录（`GoogleSignInSupport`）。登录成功、且本视图弹出的面板都已关闭后，才运行 `onFinish`。
+///
+/// 按钮下方是默认不勾的「我已阅读并同意《用户协议》和《隐私政策》」（`LoginConsentPolicy`）。Apple、Google、发送验证码和验证码登录都先过它，没勾就不发请求，显示提示并把读屏焦点移到勾选框；「使用邮箱登录」只展开表单，不拦。手机号登录在它自己的面板里进行，那个面板会盖住这里的勾选框，所以在打开它之前就要求勾选。
 struct AccountLoginOptions: View {
   private enum Field: Hashable { case email, code }
 
@@ -144,6 +140,9 @@ struct AccountLoginOptions: View {
   @State private var resendAt = Date.distantPast
   @State private var phoneChannel: CodeLoginChannel?
   @State private var pending: Task<Void, Never>?
+  /// 只在这一次显示的登录按钮里有效，不落盘：每次打开登录都要重新勾。
+  @State private var consent = LoginConsentPolicy()
+  @AccessibilityFocusState private var consentFocused: Bool
 
   init(model: CodeLoginModel, onExpand: @escaping () -> Void = {}, onFinish: @escaping (String) -> Void) {
     self.model = model
@@ -180,6 +179,7 @@ struct AccountLoginOptions: View {
         }
         if model.providers["phone"] == true {
           Button {
+            guard confirmConsent() else { return }
             model.message = nil
             model.user = nil
             phoneChannel = .phone
@@ -200,6 +200,7 @@ struct AccountLoginOptions: View {
             .multilineTextAlignment(.center)
             .accessibilityIdentifier("accountLoginStatus")
         }
+        consentRow.padding(.top, 2)
       }
     }
     .task { if !model.providersLoaded { await model.prepare() } }
@@ -221,11 +222,23 @@ struct AccountLoginOptions: View {
         request.nonce = appleChallenge.nonce
         request.state = appleChallenge.challenge_id
       } onCompletion: { result in
+        guard confirmConsent() else { return }
         pending = Task { await model.signInWithApple(result) }
       }
+      // 没勾同意时读屏只看到下面那层拦截按钮，免得双击直接拉起 Apple 的授权。
+      .accessibilityHidden(!consent.agreed)
       .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
       .frame(height: 50)
       .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay {
+        // 系统的 Apple 按钮一按就弹出授权，没有在请求前拦下的机会，所以没勾同意时盖一层透明按钮，点它只显示提示。
+        if !consent.agreed {
+          Button { _ = confirmConsent() } label: { Color.clear.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .accessibilityLabel("通过 Apple 登录")
+            .accessibilityIdentifier("backendAppleSignInConsentGate")
+        }
+      }
       // 新的 challenge 需要新的按钮：请求闭包是在创建按钮时读取的。
       .id(appleChallenge.challenge_id)
       .disabled(model.busy)
@@ -250,7 +263,10 @@ struct AccountLoginOptions: View {
 
   /// 按 Google 的品牌规范画：彩色 G 标加「通过 Google 登录」，浅色下白底细描边，深色下深灰底。
   private var googleButton: some View {
-    Button { pending = Task { await model.signInWithGoogle() } } label: {
+    Button {
+      guard confirmConsent() else { return }
+      pending = Task { await model.signInWithGoogle() }
+    } label: {
       HStack(spacing: 8) {
         Image("GoogleMark").resizable().frame(width: 18, height: 18)
         Text("通过 Google 登录")
@@ -347,7 +363,7 @@ struct AccountLoginOptions: View {
   }
 
   private func sendCode() {
-    guard emailValid, resendAt <= Date(), !model.busy else { return }
+    guard confirmConsent(), emailValid, resendAt <= Date(), !model.busy else { return }
     let target = trimmedEmail
     pending = Task {
       let response = await model.requestCode(provider: CodeLoginChannel.email.rawValue, target: target)
@@ -362,9 +378,72 @@ struct AccountLoginOptions: View {
   }
 
   private func signIn(_ challenge: BackendRustAccount.Challenge) {
-    guard codeValid, !model.busy else { return }
+    guard confirmConsent(), codeValid, !model.busy else { return }
     focus = nil
     pending = Task { await model.signInWithCode(challenge: challenge.challenge_id, code: code, channel: .email) }
+  }
+
+  /// 登录操作发请求前的同意检查，对应共享页的 `consent.confirm()`。没勾时显示提示，收起键盘让勾选框露出来，读屏焦点移到勾选框上。
+  private func confirmConsent() -> Bool {
+    if consent.confirm() { return true }
+    focus = nil
+    consentFocused = true
+    return false
+  }
+
+  /// 「☐ 我已阅读并同意《用户协议》和《隐私政策》」：点勾选框或「我已阅读并同意」勾上或取消，两个文档名各是一个链接，点了只打开 msime.app 上的网页、不改变勾选。一行放不下时（小屏、大字号）文档名换到第二行。
+  private var consentRow: some View {
+    VStack(spacing: 2) {
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 0) { consentToggle; consentDocuments }
+        VStack(spacing: 0) { consentToggle; consentDocuments }
+      }
+      if consent.prompting {
+        Text(LoginConsentPolicy.prompt)
+          .font(.caption).foregroundStyle(MetasequoiaTheme.danger)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("accountLoginConsentPrompt")
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  private var consentToggle: some View {
+    Button { consent.setAgreed(!consent.agreed) } label: {
+      HStack(spacing: 6) {
+        Image(systemName: consent.agreed ? "checkmark.square.fill" : "square")
+          .font(.body)
+          .foregroundStyle(consent.agreed ? MetasequoiaTheme.accent : MetasequoiaTheme.sub)
+        Text("我已阅读并同意").font(.caption).foregroundStyle(MetasequoiaTheme.sub)
+      }
+      .frame(minHeight: 44)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(LoginConsentPolicy.text)
+    .accessibilityValue(consent.agreed ? "已勾选" : "未勾选")
+    .accessibilityHint(consent.prompting ? LoginConsentPolicy.prompt : "")
+    .accessibilityFocused($consentFocused)
+    .accessibilityIdentifier("accountLoginConsent")
+  }
+
+  private var consentDocuments: some View {
+    HStack(spacing: 0) {
+      Link(destination: LoginConsentPolicy.termsURL) {
+        Text(LoginConsentPolicy.termsTitle).frame(minHeight: 44).contentShape(Rectangle())
+      }
+      .accessibilityIdentifier("accountLoginTerms")
+      Text("和").foregroundStyle(MetasequoiaTheme.sub)
+      Link(destination: LoginConsentPolicy.privacyURL) {
+        Text(LoginConsentPolicy.privacyTitle).frame(minHeight: 44).contentShape(Rectangle())
+      }
+      .accessibilityIdentifier("accountLoginPrivacy")
+    }
+    .font(.caption)
+    .foregroundStyle(MetasequoiaTheme.accent)
+    // Form 的一行里有多个默认样式的按钮时，点这一行任何地方都会把它们全部触发；`AppleAccountSection` 把这组按钮放在 Form 里。
+    .buttonStyle(.plain)
   }
 
   /// 回到邮箱地址输入框；60 秒的重发等待仍然有效。

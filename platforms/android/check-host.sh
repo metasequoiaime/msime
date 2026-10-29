@@ -1185,14 +1185,15 @@ for manifest in \
     exit 1
   fi
 done
-# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
+# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
 if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
   || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
-  || ! rg -qF 'if (platform != null) return;' "$voice_entry" \
+  || ! rg -qF 'heard(session, firstResult(partialResults), false);' "$voice_entry" \
+  || ! rg -qF 'heard(session, update, false)' "$voice_entry" \
   || ! rg -qF 'listening.resetLevel();' "$voice_entry"; then
   echo "Android platform speech callbacks must keep coded errors, the activity hand-off, the uncut pause and the level reset" >&2
   exit 1
@@ -1437,6 +1438,21 @@ if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindo
   echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
   exit 1
 fi
+# 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。
+login_sheet="$repo_root/platforms/android/java/app/msime/android/home/LoginSheet.java"
+login_consent="$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java"
+shared_login_consent="$repo_root/packages/ui/src/account/login-consent.tsx"
+if rg -q '登录即' "$login_sheet" \
+  || ! awk '/[^a-zA-Z]begin\("/ { calls++; if ($0 !~ /!confirmConsent\(\) \|\|/) bad = 1 } END { exit (bad || calls != 4) }' "$login_sheet" \
+  || rg -l 'SignIn\.(startGoogle|startApple|requestEmailCode|verifyEmailCode)\(' "$repo_root/platforms/android/java" \
+    | rg -v '/home/LoginSheet\.java$' >/dev/null \
+  || ! rg -qF 'export const LOGIN_CONSENT_PROMPT = "请先阅读并勾选同意《用户协议》和《隐私政策》";' "$shared_login_consent" \
+  || ! rg -qF 'aria-label="我已阅读并同意《用户协议》和《隐私政策》"' "$shared_login_consent" \
+  || ! rg -qF 'TEXT = "我已阅读并同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent" \
+  || ! rg -qF 'PROMPT = "请先阅读并勾选同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent"; then
+  echo "Every Android sign-in request must first pass LoginSheet's explicit consent checkbox, worded as the shared login-consent.tsx" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
@@ -1498,6 +1514,7 @@ fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
