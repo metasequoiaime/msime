@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import {
   useCloudDictionaryFilesPanel,
   type CloudDictionaryFilesPanelState,
@@ -114,4 +114,26 @@ test("快照导出和恢复确认在替换客户端后拒绝旧宿主", async ()
   await act(async () => resolve({ text: "stale", filename: "stale.ndjson" }));
   expect(panel.current.notice).not.toContain("已导出");
   expect(next.request).not.toHaveBeenCalled();
+});
+
+test("替换客户端会关闭待处理的恢复确认", async () => {
+  const request = vi.fn().mockImplementation(async ({ operation }) => {
+    if (operation === "snapshot_restore_preview") return snapshot;
+    return {};
+  });
+  const old = host(request);
+  const next = host();
+  const panel = mount({ ...old, snapshot: true });
+  await act(async () => {
+    await panel.current.chooseRestoreSnapshot(new File(["fixture"], "snapshot.ndjson"));
+  });
+  act(() => {
+    void panel.current.restoreSnapshot();
+  });
+  await screen.findByRole("alertdialog");
+  panel.replace({ ...next, snapshot: true });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ operation: "snapshot_restore" }),
+  );
 });

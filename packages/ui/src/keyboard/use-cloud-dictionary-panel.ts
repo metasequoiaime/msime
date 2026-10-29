@@ -13,7 +13,7 @@ import type {
 
 /** 管理云词库列表、编辑状态和带代次保护的面板交互。 */
 export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embedded = false) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
@@ -80,6 +80,7 @@ export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embe
 
   useEffect(() => {
     invalidate();
+    dismiss();
     setEntries([]);
     setOffset(0);
     setHasMore(false);
@@ -89,7 +90,7 @@ export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embe
       window.clearTimeout(timer);
       invalidate();
     };
-  }, [client, invalidate, embedded, embedded ? kind : null, embedded ? search : null]);
+  }, [client, dismiss, invalidate, embedded, embedded ? kind : null, embedded ? search : null]);
 
   function beginAdd() {
     if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
