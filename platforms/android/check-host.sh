@@ -1412,8 +1412,10 @@ while IFS= read -r activity; do
   fi
 done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
 # 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
-dialog_total=$({ rg -o --no-filename 'new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk 'END { print NR }')
-dialog_protected=$({ rg -o --no-filename 'ScreenCaptureProtection\.(show|protect)\(new (MaterialAlertDialogBuilder|BottomSheetDialog)\(' "$android_java" || true; } | awk 'END { print NR }')
+# 框架对话框类型列全：AppCompatDialog（InputDialog 的凭据、口令输入）漏数过一次。InputDialog 这类自家包装不是窗口，在它内部那一处 new 上数。
+dialog_types='MaterialAlertDialogBuilder|AlertDialog\.Builder|(AppCompat|BottomSheet|Alert)?Dialog'
+dialog_total=$({ rg -o --no-filename "\\bnew ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename "ScreenCaptureProtection\\.(show|protect)\\(new ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
 if [[ "$dialog_total" != "$dialog_protected" ]]; then
   echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
   exit 1

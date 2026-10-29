@@ -22,11 +22,11 @@ Status: implemented
 窗口效果由 `ScreenCaptureProtection` 落到 `FLAG_SECURE` 上。这个标志只作用于设了它的那一个窗口，所以每类窗口各自处理：
 
 - 设置应用的全部 9 个 Activity 在 `onCreate` 里调用 `ScreenCaptureProtection.apply(this)`，窗口显示前就带上标志；`HomeActivity` 在 `onResume` 里再读一次；隐私页写入成功后当场改本页所在窗口；认证过的「重置所有设置」把它和其他本地设置一起恢复为关闭，开发者页当场去掉窗口标志。
-- 设置应用里的对话框和底部面板是独立窗口，不继承 Activity 的标志。全部 `MaterialAlertDialogBuilder` 和 `BottomSheetDialog` 改为经 `ScreenCaptureProtection.show` / `protect` 在显示前设好。
+- 设置应用里的对话框和底部面板是独立窗口，不继承 Activity 的标志。全部 `MaterialAlertDialogBuilder`、`BottomSheetDialog` 以及 `InputDialog` 内部的 `AppCompatDialog` 改为经 `ScreenCaptureProtection.show` / `protect` 在显示前设好。`InputDialog` 是 AI 凭据、WebDAV 账号和应用密码、自建中继令牌、语音服务密钥、常用语正文、QQ 绑定码共用的输入框，第一版只数了 `MaterialAlertDialogBuilder` 和 `BottomSheetDialog`，漏了它，评审时补上。
 - 输入法窗口在 `MSIMEInputService.applyLocalSettings` 里跟随设置，`onStartInputView` 每次重读本地设置，所以在设置应用里切换后，下一次弹出键盘就生效。
 - 输入法自己开的三个 `PopupWindow`（剪贴板全文预览、九键长按选项、文本触控板放大镜）没有设置窗口标志的公开接口，显示之后立即改根视图的 `WindowManager.LayoutParams` 再 `updateViewLayout`；第一次布局是排到下一帧执行的，所以第一帧已经带着标志。常用语操作提示（`ImeOperationNotice` 在 Android 11 起单开的子窗口）在 `addView` 前直接带上标志。
 
-`platforms/android/check-host.sh` 钉住这些接线：每个 Activity 都调用 `apply(this)`；对话框和底部面板的创建处（按出现次数数）都经过保护；创建 `PopupWindow` 的文件都在显示后处理；带 `TYPE_APPLICATION_ATTACHED_DIALOG` 的子窗口都经 `ScreenCaptureProtectionPolicy.windowFlags`；`applyLocalSettings` 处理输入法窗口。新加的窗口漏掉这一步时检查会失败。
+`platforms/android/check-host.sh` 钉住这些接线：每个 Activity 都调用 `apply(this)`；对话框和底部面板的创建处（按出现次数数，类型包括 `MaterialAlertDialogBuilder`、`AlertDialog.Builder`、`Dialog`、`AlertDialog`、`AppCompatDialog`、`BottomSheetDialog`；`InputDialog` 这类自家包装不是窗口，数的是它内部那一处 `new`）都经过保护；创建 `PopupWindow` 的文件都在显示后处理；带 `TYPE_APPLICATION_ATTACHED_DIALOG` 的子窗口都经 `ScreenCaptureProtectionPolicy.windowFlags`；`applyLocalSettings` 处理输入法窗口。新加的窗口漏掉这一步时检查会失败。
 
 本地备份恢复不会改写这两项：`LocalBackupPolicy.backsUpLocalSetting` 对它们返回 false，导出时不写进包，恢复时即使包里有也跳过。理由是恢复不经认证，一份关着的旧备份会悄悄关掉保护，一份改过的备份能抹掉「打开过」。
 
@@ -57,4 +57,4 @@ HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `w
 
 代价：设置应用里新增或改动对话框、弹窗时必须经 `ScreenCaptureProtection`，否则 check-host 失败；打开后用户自己也无法截屏反馈问题，需要先关掉（要认证）。全屏的输入法窗口在截图里整块变黑，见上一节。
 
-验证：`compileFullDebugJavaWithJavac`（JDK 21）成功；`platforms/android/check-host.sh` 成功，299 项 Android JVM smoke（含新增的 `ScreenCaptureProtectionPolicySmoke`、补了关键词的 `SettingsSearchIndexSmoke`）和 255 项设备套件源码编译通过。check-host 的新检查分别删掉一处 `apply(this)`、一处弹窗保护、一处 `PopupWindow` 处理、子窗口标志和输入法窗口接线后都会失败。没有在模拟器或真机上验证截图是否变黑、认证弹窗与回滚、`PopupMenu` 是否随父窗口涂黑以及厂商 ROM 的截屏和录屏行为。
+验证：`compileFullDebugJavaWithJavac`（JDK 21）成功；`platforms/android/check-host.sh` 成功，299 项 Android JVM smoke（含新增的 `ScreenCaptureProtectionPolicySmoke`、补了关键词的 `SettingsSearchIndexSmoke`）和 255 项设备套件源码编译通过。check-host 的新检查分别删掉一处 `apply(this)`、一处弹窗保护（含 `InputDialog` 的 `AppCompatDialog`）、一处 `PopupWindow` 处理、子窗口标志和输入法窗口接线后都会失败。没有在模拟器或真机上验证截图是否变黑、认证弹窗与回滚、`PopupMenu` 是否随父窗口涂黑以及厂商 ROM 的截屏和录屏行为。
