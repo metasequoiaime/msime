@@ -99,6 +99,24 @@ if [[ $(rg -c 'setTouchPoints\(' "$android_java/core/MSIMEInputService.java") !=
   echo "Only double-pinyin letter keys may record touch-downs in the key area" >&2
   exit 1
 fi
+# 文本编辑面板只在同一输入框重启连接时留着（#10141）。手势改认新连接由 TextTrackpadGestureSmoke 和 TextTrackpadHoldSmoke 覆盖；判断是不是同一输入框、走哪条收尾的接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：同一输入框还要求初始选区等于最近的回报（只比 fieldId 分不出同一个 WebView 里的两个输入框），两条 onStartInput 路径都按它在 editorRestarted 和 editorChanged 之间选，stop 只因它跳过关这个面板、更多工具照关；editorRestarted 全宿主只在 onStartInput 里调用。
+start_input_body=$(sed -n '/^    @Override public void onStartInput(EditorInfo info, boolean restarting) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+stop_body=$(sed -n '/^    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession, boolean keepTextEdit) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+restarted_calls=$({ rg -c 'editorRestarted\(' "$android_java" || true; } | awk -F: '{ total += $2 } END { print total + 0 }')
+if ! rg -q 'sameEditor\(info\) && imeTextEditPanel\.reportedSelection\(info\.initialSelStart, info\.initialSelEnd\);' <<< "$start_input_body" \
+  || [[ $(rg -c 'if \(sameEditorRestart\) \{' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ $(rg -c 'imeTextEditPanel\.editorRestarted\(' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ "$restarted_calls" != 3 ]] \
+  || ! rg -q 'if \(keepSession\) stopKeepingSession\(sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'else stop\(false, sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'if \(keepMoreTools \|\| keepTextEdit\) \{' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepMoreTools\) closeMoreTools\(\);' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepTextEdit\) imeTextEditPanel\.close\(\);' <<< "$stop_body"; then
+  echo "The text edit panel may survive only a same-field restart (same editor and the last reported selection); stop must still close More Tools" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
 toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
@@ -115,6 +133,31 @@ style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$
 if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   || rg -q '\.itemMinWidth' <<< "$style_body"; then
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
+  exit 1
+fi
+# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
+service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
+expanded_body=$(sed -n '/^    Button expandedCandidateButton(JSONObject candidate) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
+label_body=$(sed -n '/^                                        boolean highlighted, boolean corrected) {$/,/^    }$/p' "$service_source")
+for body in "$update_body" "$expanded_body"; do
+  if ! rg -q 'CandidateCorrectionMarkPolicy\.confident\(candidate\.opt\(CandidateCorrectionMarkPolicy\.FIELD\)\)' <<< "$body" \
+    || ! rg -q 'candidateLabel\([^;]*, corrected\)\)' <<< "$body" \
+    || ! rg -q 'CandidateCorrectionMarkPolicy\.accessibilitySuffix\(corrected\)' <<< "$body"; then
+    echo "Candidate strip and expanded panel must mark a confident shuangpin correction in colour and in the spoken description" >&2
+    exit 1
+  fi
+done
+plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
+if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
+  || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -qU 'if \(mark != null\) \{\n\s*label\.setSpan\(new ForegroundColorSpan\(mark\), prefix\.length\(\), primary\.length\(\),\n\s*Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*\}' <<< "$label_body" \
+  || rg -q 'UnderlineSpan' <<< "$label_body" \
+  || ! rg -q 'int secondary = CandidateCorrectionMarkPolicy\.annotationColour\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -q 'new ForegroundColorSpan\(secondary\), annotationStart' <<< "$label_body" \
+  || ! rg -q 'return candidateLabel\(prefix, text, annotation, highlighted, false\);' <<< "$plain_label_body"; then
+  echo "candidateLabel must take its spans and colours from CandidateCorrectionMarkPolicy and mark a confident correction in colour only, like iOS and HarmonyOS" >&2
   exit 1
 fi
 # 每次按键的 render 末尾都会把候选重新上色一遍：外观和密度没变、按钮的底也还是上次装上的那块时，不能再给每个候选新建五块 GradientDrawable 和一个 StateListDrawable，文字配色也共用一份 ColorStateList。低端机上每键几十个候选、几百个短命 Drawable，是打字发热和卡顿的来源之一。
@@ -796,6 +839,19 @@ if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
   echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
   exit 1
 fi
+# 进剪贴板历史页不自动聚焦搜索框、不主动弹键盘，等用户点搜索框（#10074）；点胶囊任何地方都要和点输入框一样弹出键盘，否则点放大镜只有光标没有键盘。从设置首页搜索结果压页时，下面那一页搜索框拉起的键盘要先收起，否则它留在新页面上、不连着任何输入框；收起之后从历史页点「编辑」进的编辑页要自己弹键盘，否则只有光标。
+search_pill="$repo_root/platforms/android/java/app/msime/android/home/SearchPill.java"
+settings_navigator="$repo_root/platforms/android/java/app/msime/android/home/SettingsNavigator.java"
+if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page" \
+  || ! rg -A 3 'private void focusField\(' "$search_pill" | rg_q_stdin 'showSoftInput\(field' \
+  || ! rg -q 'bindClick\(this, this::focusField\)' "$search_pill" \
+  || ! rg -B 1 'transaction\.hide\(below\)' "$settings_navigator" | rg_q_stdin 'dismissKeyboard\(home, below\)' \
+  || ! rg -A 5 'private static void dismissKeyboard\(' "$settings_navigator" | rg_q_stdin 'hideSoftInputFromWindow' \
+  || ! rg -A 3 'input\.requestFocus\(\);' "$repo_root/platforms/android/java/app/msime/android/home/ClipboardEditPage.java" \
+    | rg_q_stdin 'getInsetsController\(requireActivity\(\)\.getWindow\(\), input\)\.show\(WindowInsetsCompat\.Type\.ime\(\)\)'; then
+  echo "Android clipboard search must not focus its search field or show the keyboard on entry, tapping anywhere on SearchPill must focus the field and show the keyboard, SettingsNavigator must dismiss the keyboard of the page it hides, and ClipboardEditPage must show the keyboard itself once its field is ready (#10074)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
@@ -831,6 +887,19 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   || ! rg -q 'exportSelectedText' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
+  exit 1
+fi
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
+  || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 10 'private void returnFromClipboardDetail\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
+  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+  echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
   exit 1
 fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
@@ -1204,14 +1273,15 @@ for manifest in \
     exit 1
   fi
 done
-# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
+# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
 if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
   || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
-  || ! rg -qF 'if (platform != null) return;' "$voice_entry" \
+  || ! rg -qF 'heard(session, firstResult(partialResults), false);' "$voice_entry" \
+  || ! rg -qF 'heard(session, update, false)' "$voice_entry" \
   || ! rg -qF 'listening.resetLevel();' "$voice_entry"; then
   echo "Android platform speech callbacks must keep coded errors, the activity hand-off, the uncut pause and the level reset" >&2
   exit 1
@@ -1423,6 +1493,54 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
+# 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
+while IFS= read -r activity; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then
+    echo "Android activity must apply screen capture protection in onCreate: ${activity#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
+# 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
+# 框架对话框类型列全：AppCompatDialog（InputDialog 的凭据、口令输入）漏数过一次。InputDialog 这类自家包装不是窗口，在它内部那一处 new 上数。
+dialog_types='MaterialAlertDialogBuilder|AlertDialog\.Builder|(AppCompat|BottomSheet|Alert)?Dialog'
+dialog_total=$({ rg -o --no-filename "\\bnew ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename "ScreenCaptureProtection\\.(show|protect)\\(new ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+if [[ "$dialog_total" != "$dialog_protected" ]]; then
+  echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
+  exit 1
+fi
+while IFS= read -r popup_source; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\((popup|window)\);' "$popup_source"; then
+    echo "Android PopupWindow must apply screen capture protection after it is shown: ${popup_source#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'new PopupWindow\(' "$android_java")
+while IFS= read -r child_window; do
+  if ! rg -q 'ScreenCaptureProtectionPolicy\.windowFlags\(' "$child_window"; then
+    echo "Android IME child windows must carry the screen capture protection flag: ${child_window#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'TYPE_APPLICATION_ATTACHED_DIALOG' "$android_java")
+apply_local_body=$(sed -n '/^    private void applyLocalSettings() {$/,/^    }$/p' "$android_java/core/MSIMEInputService.java")
+if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindow\.getWindow\(\), screenCaptureProtected\);' <<< "$apply_local_body"; then
+  echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
+  exit 1
+fi
+# 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。
+login_sheet="$repo_root/platforms/android/java/app/msime/android/home/LoginSheet.java"
+login_consent="$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java"
+shared_login_consent="$repo_root/packages/ui/src/account/login-consent.tsx"
+if rg -q '登录即' "$login_sheet" \
+  || ! awk '/[^a-zA-Z]begin\("/ { calls++; if ($0 !~ /!confirmConsent\(\) \|\|/) bad = 1 } END { exit (bad || calls != 4) }' "$login_sheet" \
+  || rg -l 'SignIn\.(startGoogle|startApple|requestEmailCode|verifyEmailCode)\(' "$repo_root/platforms/android/java" \
+    | rg -v '/home/LoginSheet\.java$' >/dev/null \
+  || ! rg -qF 'export const LOGIN_CONSENT_PROMPT = "请先阅读并勾选同意《用户协议》和《隐私政策》";' "$shared_login_consent" \
+  || ! rg -qF 'aria-label="我已阅读并同意《用户协议》和《隐私政策》"' "$shared_login_consent" \
+  || ! rg -qF 'TEXT = "我已阅读并同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent" \
+  || ! rg -qF 'PROMPT = "请先阅读并勾选同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent"; then
+  echo "Every Android sign-in request must first pass LoginSheet's explicit consent checkbox, worded as the shared login-consent.tsx" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
@@ -1484,6 +1602,7 @@ fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \

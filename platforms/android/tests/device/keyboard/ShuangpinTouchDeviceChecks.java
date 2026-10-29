@@ -95,8 +95,10 @@ final class ShuangpinTouchDeviceChecks {
             t.await(node -> node.isClickable() && node.getContentDescription() != null
                 && node.getContentDescription().toString().startsWith("候选 1："));
             boolean plainShows = visible(candidate("没关系"));
+            boolean plainFirstMarked = visible(marked());
             clear(6);
             if (plainShows) throw new AssertionError("没有按下点时纠错整句不该出现在候选条上（平面表把它排在表尾）");
+            if (plainFirstMarked) throw new AssertionError("没有按下点时不该有候选带「已纠正」标记");
 
             t.stage = "shuangpin touch: a press leaning towards r keeps the correction on the strip";
             for (String key : new String[] {"m", "w", "g"}) center(key);
@@ -105,15 +107,23 @@ final class ShuangpinTouchDeviceChecks {
             awaitField("mwgfxi");
             // 纠错行的注释是按下的原串（corrected_from），读屏描述里是「提示：mwgfxi」。
             t.await(candidate("没关系").and(node -> node.getContentDescription().toString().contains("，提示：mwgfxi")));
+            // 默认参数下首选规则不起作用（#10018 PR3 没达到门槛，lead_margin 取无穷大）：纠错整句只排在后面，不坐第一位，候选条上也没有哪一行带「已纠正」。门槛达到、默认边距改成有限值时，这两条要改成它坐第一位并且读屏念「已纠正」。
+            boolean leads = visible(candidate("没关系").and(node -> node.getContentDescription().toString().startsWith("候选 1：")));
+            boolean touchedMarked = visible(marked());
             clear(6);
+            if (leads) throw new AssertionError("默认参数下纠错整句不该坐首选");
+            if (touchedMarked) throw new AssertionError("默认参数下不该有候选带「已纠正」标记");
 
             t.stage = "shuangpin touch: plain clicks after the touched pass still leave it off the strip";
             for (String key : new String[] {"m", "w", "g", "f", "x", "i"}) t.tap(t.key(key));
             awaitField("mwgfxi");
             t.await(node -> node.isClickable() && node.getContentDescription() != null
                 && node.getContentDescription().toString().startsWith("候选 1："));
-            if (visible(candidate("没关系"))) throw new AssertionError("按过带落点的那一遍之后，没有按下点的同一串不该留下纠错整句");
+            boolean plainAfterShows = visible(candidate("没关系"));
+            boolean plainMarked = visible(marked());
             clear(6);
+            if (plainAfterShows) throw new AssertionError("按过带落点的那一遍之后，没有按下点的同一串不该留下纠错整句");
+            if (plainMarked) throw new AssertionError("没有按下点时不该有候选带「已纠正」标记");
 
             t.stage = "shuangpin touch: Microsoft double-pinyin registers its ; key";
             // 服务重建后几何代次可以从 1 开始；删除旧导出，按新文件确认这次注册。
@@ -270,6 +280,13 @@ final class ShuangpinTouchDeviceChecks {
             if (t.find(window.getRoot(), match) != null) return true;
         }
         return false;
+    }
+
+    /** 读屏描述带「已纠正」后缀的候选行（`CandidateCorrectionMarkPolicy.ACCESSIBILITY_SUFFIX`），候选条和展开面板都算。 */
+    private static Predicate<AccessibilityNodeInfo> marked() {
+        return node -> node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith("候选 ")
+            && node.getContentDescription().toString().contains("，已纠正");
     }
 
     /** 候选条上的一行：读屏描述是「候选 N：文字」，后面可能跟「，提示：…」（注释）或「；…」。 */

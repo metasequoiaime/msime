@@ -1,16 +1,12 @@
 //! Rime octagram（八股文）`.gram` 语法模型的只读查找端。
 //!
-//! Copyright (c) 2014, RIME Developers；移植来源固定于
-//! `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，完整许可见
-//! `resources/licenses/librime-octagram-BSD-3-Clause.txt`。
+//! 出处有三处，许可证各不相同：
 //!
-//! 格式与查询语义按 lotem/librime-octagram（BSD-3-Clause）移植，读取端即旧版
-//! Windows 实现 `engine/ngram/octagram/octagram_gram.cpp` 的同款逻辑。文件是
-//! 「Metadata + Darts 双数组 Trie 镜像」：键为「上下文尾部字符 + 词首字符」经
-//! `encode` 压缩的字节串，值为 `int(ln(共现频次) * 10000)`。它不是概率语言
-//! 模型：`query` 给出的是搭配强度信号——命中取 `max(值/10000 + 搭配惩罚)`，
-//! 全部未命中返回 `non_collocation_penalty`。词表零耦合：我们词库里没有的词
-//! 只是拿不到加成，不会报错。
+//! - 文件格式与查询算法来自 lotem/librime-octagram，固定于提交 `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，Copyright (c) 2014, RIME Developers，BSD-3-Clause，完整许可见 `resources/licenses/librime-octagram-BSD-3-Clause.txt`。
+//! - 代码逐函数翻译自 metasequoiaime/msime-windows 的 `engine/ngram/octagram/octagram_gram.cpp` 与 `octagram_gram.h`，作者 jsfaint，以 GPL-3.0 发布，作者已同意随引擎以 MPL-2.0 再许可（见 `crates/engine/README.md` 的「许可证」一节）；部分注释沿用了那里的措辞。
+//! - 双数组 Trie 的读取（`traverse` 与 `DoubleArrayUnit` 位段）按 darts-clone 0.32 的数据布局重新实现，darts-clone 为 Copyright (c) 2008-2014, Susumu Yata，BSD-2-Clause，许可证全文附在同一份 `resources/licenses/librime-octagram-BSD-3-Clause.txt` 的末尾。
+//!
+//! 文件是「Metadata + Darts 双数组 Trie 镜像」：键为「上下文尾部字符 + 词首字符」经 `encode` 压缩的字节串，值为 `int(ln(共现频次) * 10000)`。它不是概率语言模型：`query` 给出的是搭配强度信号——命中取 `max(值/10000 + 搭配惩罚)`，全部未命中返回 `non_collocation_penalty`。词表零耦合：我们词库里没有的词只是拿不到加成，不会报错。
 //!
 //! 头部布局（rime `MappedFile` 上的 Metadata，偏移 0）：`format` char[32]、
 //! uint32 checksum、uint32 `double_array_size`（单位数，非字节）、int32

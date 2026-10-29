@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """把 msime-dictionary 的符号名称表同步成仓库里的副本。
 
-符号混输的名称表（sources/symbols/symbol-names.tsv）和 LaTeX 命令名表（sources/symbols/latex-symbols.tsv）
-是本项目自写的数据，唯一的编辑入口在 msime-dictionary。resources/symbol-tables.lock.json 固定词库仓提交
-和每个文件的大小与 SHA-256，并写明副本的位置：引擎用 include_str! 编进 crates/engine/src/local/symbol_candidates.tsv，
-官方短语表的生成器读 plugins/phrase_table/latex-symbols/symbols.tsv。副本提交进仓库，编译不联网，Linux 发行版的
-离线打包不需要额外的输入。
+符号混输的名称表（sources/symbols/symbol-names.tsv）和 LaTeX 命令名表（sources/symbols/latex-symbols.tsv）是本项目自写的数据，唯一的编辑入口在 msime-dictionary。resources/symbol-tables.lock.json 固定词库仓提交和每个文件的大小与 SHA-256，并写明副本的位置：引擎用 include_str! 编进 crates/engine/src/local/symbol_candidates.tsv 和 crates/engine/src/local/latex_symbols.tsv，官方短语表的生成器读 plugins/phrase_table/latex-symbols/symbols.tsv。同一个源文件可以有多个副本，每个副本各占锁里的一条记录。副本提交进仓库，编译不联网，Linux 发行版的离线打包不需要额外的输入。
 
 不带参数时按锁下载（缓存在 target/symbol-tables-cache/<commit>/，下载先限长再校验）并逐字节写入副本。
 --check 不联网，只核对每个副本的大小和 SHA-256 等于锁；设了 MSIME_FETCH=1 时再下载一次，确认锁定的提交

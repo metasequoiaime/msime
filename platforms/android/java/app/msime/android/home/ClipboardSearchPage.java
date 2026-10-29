@@ -16,8 +16,6 @@ import android.widget.TextView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import androidx.annotation.Nullable;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
@@ -71,8 +69,6 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     /** 查询框里的文字放在 ViewModel 里：旋转、换深浅模式会重建 Activity，Fragment 换成新实例，字段会回到空串。 */
     public static final class Query extends ViewModel {
         String text = "";
-        /** 第一次显示时把焦点给查询框并拉起键盘；重建后不再拉。 */
-        boolean focused;
     }
 
     /** 搜索框和导出按钮固定在详情页滚动区之外，历史结果滚动时仍可直接操作。 */
@@ -134,14 +130,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         // 读取放在 onBecameVisible：每次显示都会调到它，这里再读一次就重复了。
         renderResults();
         requestAuthentication();
-
-        if (!query.focused) {
-            query.focused = true;
-            // 打开这一页就是要搜，不用再点一下搜索框。
-            if (searchNavigation != null) searchNavigation.field().requestFocus();
-            if (searchNavigation != null) WindowCompat.getInsetsController(requireActivity().getWindow(), searchNavigation.field())
-                .show(WindowInsetsCompat.Type.ime());
-        }
+        // 进页不把焦点给搜索框、也不弹键盘（#10074）：键盘会盖住下半屏的历史，多数时候用户是来翻列表找一条的。要搜时点搜索框，SearchPill 自己弹键盘。
     }
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }

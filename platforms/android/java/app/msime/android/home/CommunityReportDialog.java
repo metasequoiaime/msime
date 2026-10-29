@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.content.Context;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -58,12 +59,12 @@ final class CommunityReportDialog {
         detailField.addView(detail);
         form.addView(detailField);
 
-        AlertDialog dialog = new MaterialAlertDialogBuilder(context)
+        AlertDialog dialog = ScreenCaptureProtection.protect(new MaterialAlertDialogBuilder(context)
             .setTitle("举报「" + name + "」")
             .setView(form)
             .setNegativeButton("取消", null)
             .setPositiveButton("提交", null)
-            .create();
+            .create());
         dialog.setOnShowListener(ignored -> {
             View submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             ViewPolicy.setEnabled(submit, false);

@@ -42,15 +42,18 @@ licenses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/l
 rm -rf "$licenses_staged"
 mkdir -p "$licenses_staged"
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$licenses_staged/"
-cp resources/licenses/librime-octagram-BSD-3-Clause.txt "$licenses_staged/"
+# 语法模型查询逻辑的移植声明，文件末尾附着双数组读取所依的 darts-clone（BSD-2-Clause）条款；引擎的 cxx_sort.rs 逐步复现了 libc++ 的排序算法，源码级翻译要按 Apache-2.0 第 4 条随附许可证。
+cp resources/licenses/librime-octagram-BSD-3-Clause.txt resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt "$licenses_staged/"
+# 输入引擎本身（crates/engine、crates/path-trust，源码在本仓库）和它链接的 rink-core（单位换算，源码在 crates.io）是 MPL-2.0，二进制分发要附上许可证全文。
+cp resources/licenses/MPL-2.0.txt "$licenses_staged/"
+# 符号模式按它查命令名的 LaTeX 表是本项目自写的 MIT 数据，编进了引擎，MIT 全文随引擎分发。
+cp resources/licenses/latex-symbols-MIT.txt "$licenses_staged/"
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt resources/licenses/rime-stroke-LGPL-3.0.txt "$licenses_staged/"
 # 越南文和藏文方案编入原生库的 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用）的许可证全文。
 cp resources/licenses/vi-MIT.txt resources/licenses/ewts-MIT.txt "$licenses_staged/"
 # 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进原生库，第 4(b) 条要求随改编作品署名并说明改动，许可证文件里写着这些和法律文本全文。
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$licenses_staged/"
-# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），第 3(a) 条要求随改编数据署名并说明改动，许可证文件里写着这些和法律文本全文。
-cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
-# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），符号模式（S 模式）的分组表按 Unicode 字符数据库 17.0.0 挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 # 简繁转换内嵌的 OpenCC 词表许可证随 HAP 分发。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$licenses_staged/"

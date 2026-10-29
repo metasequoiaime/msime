@@ -16,8 +16,8 @@ HOMEPAGE="https://github.com/metasequoiaime/msime"
 EGIT_REPO_URI="https://github.com/metasequoiaime/msime.git"
 EGIT_BRANCH="develop"
 
-# 本项目 GPL-3；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表（BSD）、行政区划（WTFPL-2）。live ebuild 不逐个列出 crate 的许可证，按版本发布的 ebuild 由 pycargoebuild 补上。
-LICENSE="GPL-3 Apache-2.0 BSD CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT WTFPL-2"
+# 本项目 GPL-3，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、引擎复现的 libc++ 排序（Apache-2.0-with-LLVM-exceptions）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、拆字表（CC-BY-3.0）、拆字读音与符号分组的 Unicode 数据（Unicode-3.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表与 Zinnia、librime-octagram（BSD）、darts-clone（BSD-2）、行政区划（WTFPL-2）。live ebuild 不逐个列出 crate 的许可证，按版本发布的 ebuild 由 pycargoebuild 补上。
+LICENSE="GPL-3 Apache-2.0 Apache-2.0-with-LLVM-exceptions BSD BSD-2 CC-BY-3.0 CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT MPL-2.0 Unicode-3.0 WTFPL-2"
 SLOT="0"
 # 顶层 CMake 把 IBus 列为必需：IBus engine、msime-linux-setup 与 Fcitx5 首次配置用到的 msime-linux-prepare 一起构建，所以只有 Fcitx5 插件是可选的。
 IUSE="+fcitx5 test"

@@ -17,6 +17,7 @@ import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/CorrectionMarkPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
@@ -695,6 +696,8 @@ struct KeyboardView {
   @State @Watch('syncStripHeight') phoneLandscape: boolean = false;
   /** 屏幕宽大于高（手机、平板都算）：横屏时手写区保持三行，不像竖屏那样多一行（`KeyboardMetrics.handwritingExtraRows`），与 iOS、Android 同一条规则。 */
   @State @Watch('syncStripHeight') landscape: boolean = false;
+  /** 单手模式下侧栏与按键这一块的宽度（`OneHandedPolicy.blockWidthVp`）：0 表示手机，铺满整行；大屏上是手机大小。转屏时随屏幕重读。 */
+  @State oneHandBlockVp: number = 0;
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
@@ -3672,7 +3675,7 @@ struct KeyboardView {
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize, false, this.stripWasShown,
-      this.extraRowsWere));
+      this.extraRowsWere, this.settings.candidateScalePercent));
   }
 
   /** 把这一刻的键面里决定第一帧高度的两件事交给会话记下（只在变了时写盘），下次冷启动时扩展能力照它建面板（`TouchLayoutStylePolicy.firstPanel`）。2in1 不走触屏面板，不记。 */
@@ -3692,9 +3695,24 @@ struct KeyboardView {
       || this.visibleComposition().text.length > 0 || this.readingRowSpellings();
   }
 
-  /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
+  /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距，都按「候选栏大小」缩放。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
   private stripCanvasContentHeight(): number {
-    return CHIP_HEIGHT_VP + (this.readingRowShown() ? PREEDIT_LINE_VP + CANDIDATE_BAR_GAP_VP : 0);
+    return this.stripSized(CHIP_HEIGHT_VP) + (this.readingRowShown() ? this.stripSized(PREEDIT_LINE_VP) + this.stripSized(CANDIDATE_BAR_GAP_VP) : 0);
+  }
+
+  /** 触屏工具条的高度：设计的 50vp 乘以「候选栏大小」（`candidate_scale_percent`，#10137）。工具栏和候选栏共用这一行，组字开始、结束时按键不动。 */
+  private stripHeight(): number {
+    return KeyboardMetrics.stripHeightVp(this.settings.candidateScalePercent);
+  }
+
+  /** 候选栏里的一段长度或字号按「候选栏大小」缩放：读音行、候选通道、注释行和细线跟着工具条一起变矮或变高。 */
+  private stripSized(value: number): number {
+    return value * this.settings.candidateScalePercent / 100;
+  }
+
+  /** 工具栏按钮、图标和展开箭头只随工具条缩小、不随它放大（`KeyboardMetrics.toolbarScale`）：工具条矮于 50vp 时不会伸出这一行被裁掉。 */
+  private toolbarSized(value: number): number {
+    return value * KeyboardMetrics.toolbarScale(this.settings.candidateScalePercent);
   }
 
   /** Nothing to spell, choose or report on a touch keyboard: the strip is the logo bar. */
@@ -3936,7 +3954,7 @@ struct KeyboardView {
       .fontColor(this.skin.accent)
       .fontFamily(this.candidateFontFamily())
       .maxLines(1)
-      .height(CHIP_HEIGHT_VP)
+      .height(this.stripSized(CHIP_HEIGHT_VP))
       .padding({ left: CHIP_PADDING_VP, right: CHIP_PADDING_VP })
       .borderRadius(CHIP_RADIUS_VP)
       .backgroundColor(this.openableListShowing() ? this.skin.keyBackground : TRANSPARENT)
@@ -4100,38 +4118,36 @@ struct KeyboardView {
     Row() {
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
         .fontWeight(this.candidateWeight(candidate))
-        .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
-          : CandidateSkinPolicy.rowTextColor(candidate.highlighted,
-          candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateSelectedTextColor()))
+        .fontColor(this.candidateWordColor(candidate))
       if (candidate.badge.length > 0) {
         Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
       }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 2 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 2 })
       }
       // Only where there is no gloss line, the vertical 2in1 list; everywhere else the 훈음 is on the line under the Hanja.
       if (candidate.hunEum.length > 0 && !this.candidateUsesGlossLine()) {
         Text(candidate.hunEum)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
       if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailColor())
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
             .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
         } else {
           Text(candidate.annotation)
             .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-            .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
         }
       } else if (candidate.annotation.length > 0 && !candidate.annotationIsTranslation) {
         Text(candidate.annotation)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
     }
     .alignItems(VerticalAlign.Center)
@@ -4151,8 +4167,45 @@ struct KeyboardView {
     const suffix: string = CandidateGlossPolicy.hunEumAccessibilitySuffix(candidate.hunEum)
       + CandidateGlossPolicy.accessibilitySuffix(
         candidate.annotationIsTranslation ? null : annotation,
-        candidate.annotationIsTranslation ? annotation : null, true);
+        candidate.annotationIsTranslation ? annotation : null, true)
+      + CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection);
     return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
+  }
+
+  /** 候选窗与触屏胶囊画字所用的令牌，首选纠错行（`confidentCorrection`）的标记色由它经 `CorrectionMarkPolicy.markColor` 算出。 */
+  private candidateSurfaceColors(): CorrectionSurfaceColors {
+    const colors: CorrectionSurfaceColors = {
+      text: this.candidateTextColor(),
+      highlightedText: this.candidateSelectedTextColor(),
+      accent: this.candidateAccentColor()
+    };
+    return colors;
+  }
+
+  /** 候选窗与触屏胶囊上候选字的颜色：在线占位行画次要色，首选纠错行画标记色，其余按固定词与高亮的规则。 */
+  private candidateWordColor(candidate: CandidateEntry): string {
+    if (CandidatePresentationPolicy.aiPlaceholder(candidate.source)) return this.candidateDetailColor();
+    return CorrectionMarkPolicy.tint(candidate.confidentCorrection, candidate.highlighted,
+      CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
+        this.candidateTextColor(), this.candidateSelectedTextColor()),
+      this.candidateSurfaceColors());
+  }
+
+  /** 这一行注释、释义、编码提示的颜色：`base` 是这一处原来的次要色，首选纠错行换成标记色，原始按键注释因此在高亮的首选上也看得出标记。 */
+  private candidateDetailTint(candidate: CandidateEntry, base: string): string {
+    return CorrectionMarkPolicy.tint(candidate.confidentCorrection, candidate.highlighted, base,
+      this.candidateSurfaceColors());
+  }
+
+  /** 展开面板格子的令牌：有候选包画布时用候选区配色，没有时格子是按键，高亮格用 `toggleForeground`，与格子的底色同源。 */
+  private expandedSurfaceColors(): CorrectionSurfaceColors {
+    const keyboard: CorrectionSurfaceColors = {
+      text: this.skin.keyForeground,
+      highlightedText: this.skin.toggleForeground,
+      accent: this.skin.accent
+    };
+    return CorrectionMarkPolicy.expandedSurface(this.settings.candidateCanvas !== null,
+      this.candidateSurfaceColors(), keyboard);
   }
 
   /** The line under a candidate: a Korean Hanja's 훈음 and then the translation. An Engine annotation is not on it; that stays beside the word. */
@@ -4178,7 +4231,7 @@ struct KeyboardView {
           this.candidatePrimaryLine(candidate)
           Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailColor())
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
             // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
             .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
             .maxLines(1)
@@ -4221,12 +4274,12 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏键盘的工具条，始终为 `KeyboardMetrics.STRIP_HEIGHT_VP` 高，按键因此从不移动：正在调高度时是高度条，没有输入时是工具栏，其他时候是候选栏。
+   * 触屏键盘的工具条，始终为 `KeyboardMetrics.stripHeightVp` 高（设计的 50vp 乘以「候选栏大小」），按键因此从不移动：正在调高度时是高度条，没有输入时是工具栏，其他时候是候选栏。
    */
   @Builder
   touchStrip() {
     CandidateCanvasFrame({ scene: this.stripIdle() || this.surface === SURFACE_GEOMETRY ? null : this.settings.candidateCanvas,
-      fixedContent: true, frameHeight: KeyboardMetrics.STRIP_HEIGHT_VP, fallbackColor: this.settings.candidateColors.surface,
+      fixedContent: true, frameHeight: this.stripHeight(), fallbackColor: this.settings.candidateColors.surface,
       minimumContentHeight: this.stripCanvasContentHeight(),
       onSize: (width: number): void => { this.availableWidth = width; },
       onPanelReady: (key: string, ready: boolean): void => this.canvasReady('strip', key, ready) }) {
@@ -4283,6 +4336,7 @@ struct KeyboardView {
           logoBg: this.skin.logoBg,
           framePath: KeyboardIconPaths.BRAND_FRAME,
           strokePath: KeyboardIconPaths.BRAND_STROKE,
+          sizeScale: KeyboardMetrics.toolbarScale(this.settings.candidateScalePercent),
           spokenLabel: KeyAccessibilityPolicy.tools(),
           onTap: (): void => this.tapBrand(),
           onHold: (): void => this.openToolbarSettings()
@@ -4329,15 +4383,15 @@ struct KeyboardView {
         Column() {
           KeyboardLineIcon({
             d: KeyboardIconPaths.COLLAPSE,
-            iconSize: KeyboardIconPaths.COLLAPSE_SIZE_VP,
+            iconSize: this.toolbarSized(KeyboardIconPaths.COLLAPSE_SIZE_VP),
             stroke: KeyboardIconPaths.CHEVRON_STROKE,
             color: this.skin.keyForeground
           })
         }
-        .width(TOOLBAR_BUTTON_VP)
-        .height(TOOLBAR_BUTTON_VP)
+        .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
+        .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
         .justifyContent(FlexAlign.Center)
-        .borderRadius(TOOLBAR_BUTTON_RADIUS_VP)
+        .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
         .stateStyles({
           normal: {
             .scale({ x: 1, y: 1 })
@@ -4374,14 +4428,14 @@ struct KeyboardView {
     Column() {
       Column() {
         Text(text)
-          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE + 2)
+          .fontSize(this.toolbarSized(KeyboardMetrics.SMALL_KEY_FONT_SIZE + 2))
           .fontWeight(FUNCTION_LABEL_WEIGHT)
           .fontColor(this.surface === surface ? this.skin.toggleForeground : this.skin.secondary)
       }
-      .width(TOOLBAR_BUTTON_VP)
-      .height(TOOLBAR_BUTTON_VP)
+      .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
+      .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
       .justifyContent(FlexAlign.Center)
-      .borderRadius(TOOLBAR_BUTTON_RADIUS_VP)
+      .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
       .backgroundColor(this.surface === surface ? this.skin.toggleBackground : TRANSPARENT)
       .stateStyles({
         normal: {
@@ -4409,15 +4463,15 @@ struct KeyboardView {
       Column() {
         KeyboardLineIcon({
           d: path,
-          iconSize: KeyboardIconPaths.TOOLBAR_SIZE_VP,
+          iconSize: this.toolbarSized(KeyboardIconPaths.TOOLBAR_SIZE_VP),
           stroke: KeyboardIconPaths.TOOLBAR_STROKE,
           color: this.surface === surface ? this.skin.toggleForeground : this.skin.secondary
         })
       }
-      .width(TOOLBAR_BUTTON_VP)
-      .height(TOOLBAR_BUTTON_VP)
+      .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
+      .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
       .justifyContent(FlexAlign.Center)
-      .borderRadius(TOOLBAR_BUTTON_RADIUS_VP)
+      .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
       .backgroundColor(this.surface === surface ? this.skin.toggleBackground : TRANSPARENT)
       .stateStyles({
         normal: {
@@ -4447,11 +4501,11 @@ struct KeyboardView {
   @Builder
   candidateBar() {
     Row() {
-      Column({ space: CANDIDATE_BAR_GAP_VP }) {
+      Column({ space: this.stripSized(CANDIDATE_BAR_GAP_VP) }) {
         Row() {
           if (this.diagnostic.length > 0) {
             Text(this.diagnostic)
-              .fontSize(PREEDIT_FONT_SIZE)
+              .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .fontColor(this.skin.accent)
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
@@ -4459,7 +4513,7 @@ struct KeyboardView {
           } else if (this.visibleComposition().caret) {
             // 分段键移动的光标，与 2in1 组合行上的一样。
             Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
-              .fontSize(PREEDIT_FONT_SIZE)
+              .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
               .fontFamily(this.candidateFontFamily())
@@ -4467,10 +4521,10 @@ struct KeyboardView {
             Divider()
               .vertical(true)
               .strokeWidth(PREEDIT_CARET_WIDTH_VP)
-              .height(PreeditCaretPolicy.height(PREEDIT_FONT_SIZE))
+              .height(PreeditCaretPolicy.height(this.stripSized(PREEDIT_FONT_SIZE)))
               .color(this.skin.accent)
             Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
-              .fontSize(PREEDIT_FONT_SIZE)
+              .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
               .fontFamily(this.candidateFontFamily())
@@ -4478,7 +4532,7 @@ struct KeyboardView {
           } else {
             // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
             Text(this.visibleComposition().text)
-              .fontSize(PREEDIT_FONT_SIZE)
+              .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
               .fontFamily(this.candidateFontFamily())
@@ -4492,7 +4546,7 @@ struct KeyboardView {
               Row() {
                 ForEach(this.spellings, (spelling: string, index: number) => {
                   Text(spelling)
-                    .fontSize(READING_SPELLING_FONT_SIZE)
+                    .fontSize(this.stripSized(READING_SPELLING_FONT_SIZE))
                     .fontColor(this.skin.accent)
                     .fontFamily(this.candidateFontFamily())
                     .maxLines(1)
@@ -4513,7 +4567,7 @@ struct KeyboardView {
           }
         }
         .width('100%')
-        .height(PREEDIT_LINE_VP)
+        .height(this.stripSized(PREEDIT_LINE_VP))
         .padding({ left: PREEDIT_INDENT_VP })
         .clip(true)
         // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
@@ -4533,12 +4587,12 @@ struct KeyboardView {
               }, (candidate: CandidateEntry, index: number) =>
                 `${index}:${JSON.stringify(candidate)}`)
             }
-            .height(CHIP_HEIGHT_VP)
+            .height(this.stripSized(CHIP_HEIGHT_VP))
           }
           .scrollable(ScrollDirection.Horizontal)
           .scrollBar(BarState.Off)
           .width('100%')
-          .height(CHIP_HEIGHT_VP)
+          .height(this.stripSized(CHIP_HEIGHT_VP))
           .align(Alignment.Start)
         } else if (this.emailSuffixes.length > 0) {
           // 光标前打到 `xxx@`：后缀先于英文补全，`@` 之后接着打的域名也会被英文补全当成单词。
@@ -4549,7 +4603,7 @@ struct KeyboardView {
         } else {
           Column()
             .width('100%')
-            .height(CHIP_HEIGHT_VP)
+            .height(this.stripSized(CHIP_HEIGHT_VP))
         }
       }
       .layoutWeight(1)
@@ -4563,7 +4617,7 @@ struct KeyboardView {
         Divider()
           .vertical(true)
           .strokeWidth(1)
-          .height(BAR_DIVIDER_HEIGHT_VP)
+          .height(this.stripSized(BAR_DIVIDER_HEIGHT_VP))
           .color(this.skin.hair)
         this.expandChevron()
       }
@@ -4576,7 +4630,7 @@ struct KeyboardView {
   /** 胶囊绘制的词：字号不超过 34vp 胶囊能容纳的大小，分下方有无注释行两种情况。 */
   private chipFontSize(): number {
     return Math.min(this.settings.candidateFontSize,
-      KeyboardSession.shared.glossesExpected() ? CHIP_WORD_MAX_WITH_GLOSS : CHIP_WORD_MAX_ALONE);
+      KeyboardSession.shared.glossesExpected() ? this.stripSized(CHIP_WORD_MAX_WITH_GLOSS) : this.stripSized(CHIP_WORD_MAX_ALONE));
   }
 
   /** 通道的可见宽度：工具条宽度减去细线和展开箭头。 */
@@ -4618,14 +4672,12 @@ struct KeyboardView {
           .fontSize(this.chipFontSize())
           .lineHeight(this.chipFontSize() * CHIP_WORD_LINE_HEIGHT)
           .fontWeight(this.candidateWeight(candidate))
-          .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
-            : CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
-            this.candidateTextColor(), this.candidateSelectedTextColor()))
+          .fontColor(this.candidateWordColor(candidate))
           .fontFamily(this.candidateFontFamily())
           .maxLines(1)
         if (candidate.badge.length > 0) {
           Text(candidate.badge)
-            .fontSize(CHIP_GLOSS_FONT_SIZE)
+            .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
             .fontColor(this.skin.accent)
             .opacity(0.8)
             .padding({ left: 2 })
@@ -4633,15 +4685,15 @@ struct KeyboardView {
         }
         if (candidate.hint.length > 0) {
           Text(candidate.hint)
-            .fontSize(CHIP_GLOSS_FONT_SIZE)
-            .fontColor(this.skin.secondary)
+            .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
+            .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
             .padding({ left: 2 })
             .maxLines(1)
         }
         if (this.chipAnnotationBeside(candidate)) {
           Text(candidate.annotation)
-            .fontSize(CHIP_GLOSS_FONT_SIZE)
-            .fontColor(this.skin.secondary)
+            .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
+            .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
             .padding({ left: 3 })
             .maxLines(1)
         }
@@ -4650,9 +4702,9 @@ struct KeyboardView {
       if (KeyboardSession.shared.glossesExpected()) {
         // 无论该候选有无注释都预留位置，这样通道上的词保持齐平。
         Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
-          .fontSize(CHIP_GLOSS_FONT_SIZE)
-          .lineHeight(CHIP_GLOSS_LINE_VP)
-          .fontColor(this.skin.secondary)
+          .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
+          .lineHeight(this.stripSized(CHIP_GLOSS_LINE_VP))
+          .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
           .fontFamily(this.candidateFontFamily())
           .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
           .maxLines(1)
@@ -4661,7 +4713,7 @@ struct KeyboardView {
       }
     }
     .constraintSize({ minWidth: this.chipMinWidth(candidate) })
-    .height(CHIP_HEIGHT_VP)
+    .height(this.stripSized(CHIP_HEIGHT_VP))
     .padding({ left: CHIP_PADDING_VP, right: CandidateLayoutPolicy.dip(
       this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
     .justifyContent(FlexAlign.Center)
@@ -4699,7 +4751,7 @@ struct KeyboardView {
             .maxLines(1)
             .textAlign(TextAlign.Center)
             .constraintSize({ minWidth: CHIP_MIN_WIDTH_VP })
-            .height(CHIP_HEIGHT_VP)
+            .height(this.stripSized(CHIP_HEIGHT_VP))
             .padding({ left: CHIP_PADDING_VP, right: CHIP_PADDING_VP })
             .borderRadius(CHIP_RADIUS_VP)
             .stateStyles({
@@ -4727,12 +4779,12 @@ struct KeyboardView {
             })
         }, (item: string, index: number) => `${kind}:${index}:${item}`)
       }
-      .height(CHIP_HEIGHT_VP)
+      .height(this.stripSized(CHIP_HEIGHT_VP))
     }
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
     .width('100%')
-    .height(CHIP_HEIGHT_VP)
+    .height(this.stripSized(CHIP_HEIGHT_VP))
     .align(Alignment.Start)
   }
 
@@ -4743,7 +4795,7 @@ struct KeyboardView {
       Column() {
         KeyboardLineIcon({
           d: KeyboardIconPaths.EXPAND,
-          iconSize: KeyboardIconPaths.EXPAND_SIZE_VP,
+          iconSize: this.toolbarSized(KeyboardIconPaths.EXPAND_SIZE_VP),
           stroke: KeyboardIconPaths.CHEVRON_STROKE,
           color: this.skin.keyForeground
         })
@@ -4752,7 +4804,7 @@ struct KeyboardView {
       .animation({ duration: CHEVRON_TURN_MS })
     }
     .width(BAR_BUTTON_VP)
-    .height(BAR_BUTTON_VP)
+    .height(this.toolbarSized(BAR_BUTTON_VP))
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .flexShrink(0)
@@ -8253,9 +8305,11 @@ struct KeyboardView {
   private readOrientation(): void {
     try {
       const screen: display.Display = display.getDefaultDisplaySync();
-      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
-        screen.height / screen.densityPixels);
+      const widthVp: number = screen.width / screen.densityPixels;
+      const heightVp: number = screen.height / screen.densityPixels;
+      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(widthVp, heightVp);
       this.landscape = screen.width > screen.height;
+      this.oneHandBlockVp = OneHandedPolicy.blockWidthVp(widthVp, KeyboardFormFactorPolicy.largeScreen(widthVp, heightVp));
     } catch {
       // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
       KeyboardLog.error('keyboard orientation unavailable');
@@ -8848,9 +8902,9 @@ struct KeyboardView {
     return ExpandedCandidateLayout.rows(indices, spans, this.expandedColumns());
   }
 
-  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮以及占几列（行尾那格的宽度会随后面的候选变）。 */
+  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮、是否标成首选纠错以及占几列（行尾那格的宽度会随后面的候选变）。 */
   private expandedCellKey(cell: ExpandedCandidateCell): string {
-    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${cell.span}`;
+    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${this.expanded[cell.index].confidentCorrection}:${cell.span}`;
   }
 
   /** 当工具条显示的是网格所列列表的开头时，网格标出工具条高亮的那个候选。 */
@@ -8863,7 +8917,8 @@ struct KeyboardView {
   private expandedLabel(index: number): string {
     const gloss: string = this.expandedGlossLine(index);
     return KeyAccessibilityPolicy.candidate(index + 1, this.expanded[index].text, '',
-      gloss.length > 0 ? `，${gloss}` : '');
+      (gloss.length > 0 ? `，${gloss}` : '')
+        + CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection));
   }
 
   /**
@@ -8929,9 +8984,8 @@ struct KeyboardView {
                   : this.expandedHighlighted(cell.index) ? this.skin.toggleBackground : this.skin.keyBackground)
                 .fontSize(EXPANDED_FONT_SIZE)
                 .fontWeight(this.expandedHighlighted(cell.index) ? 600 : 400)
-                .fontColor(this.settings.candidateCanvas !== null
-                  ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selectedText : this.candidateColors().text)
-                  : this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
+                .fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,
+                  this.expandedHighlighted(cell.index), this.expandedSurfaceColors()))
                 .fontFamily(this.candidateFontFamily())
                 .textAlign(TextAlign.Center)
                 .maxLines(1)
@@ -10637,7 +10691,7 @@ struct KeyboardView {
   private overlayTopInset(): number {
     if (this.touchDesign()) {
       return KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP
-        + (this.stripShown() ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0);
+        + (this.stripShown() ? this.stripHeight() + KeyboardMetrics.STRIP_GAP_VP : 0);
     }
     return KeyboardMetrics.ROOT_VERTICAL_PADDING_VP
       + KeyboardMetrics.compositionRowHeightVp(this.settings.candidatePreeditFontSize)
@@ -10748,28 +10802,37 @@ struct KeyboardView {
   }
 
   /**
-   * 按键，或按住某键时代替它们的键面（九键长按和日文变体），开启「单手模式」时在单手侧栏旁收窄绘制。关闭时与以前完全一样，直接画进调用方的列里。代替按键的面板不在这里绘制，保持全宽，与 Android 在没有按键行显示时隐藏侧栏一致。
+   * 按键，或按住某键时代替它们的键面（九键长按和日文变体），开启「单手模式」时在单手侧栏旁收窄绘制；大屏上侧栏和按键这一块缩到手机大小，贴到按键所在的那一侧（`oneHandBlockVp`）。关闭时与以前完全一样，直接画进调用方的列里。代替按键的面板不在这里绘制，保持全宽，与 Android 在没有按键行显示时隐藏侧栏一致。
    */
   @Builder
   handedKeys() {
     if (this.oneHandActive()) {
-      Row({ space: OneHandedPolicy.RAIL_GAP_VP }) {
-        if (OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
-          this.oneHandRail()
+      Row() {
+        Row({ space: OneHandedPolicy.RAIL_GAP_VP }) {
+          if (OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+            this.oneHandRail()
+          }
+          Column({ space: this.rowSpacing() }) {
+            this.keyArea()
+          }
+          .layoutWeight(1)
+          if (!OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+            this.oneHandRail()
+          }
         }
-        Column({ space: this.rowSpacing() }) {
-          this.keyArea()
-        }
-        .layoutWeight(1)
-        if (!OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
-          this.oneHandRail()
-        }
+        .width(this.oneHandBlockWidth())
+        .alignItems(VerticalAlign.Center)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Center)
+      .justifyContent(OneHandedPolicy.railOnLeft(this.feedback.oneHanded) ? FlexAlign.End : FlexAlign.Start)
     } else {
       this.keyArea()
     }
+  }
+
+  /** 侧栏与按键这一块的宽度：手机铺满整行，大屏上是 `oneHandBlockVp`。 */
+  private oneHandBlockWidth(): Length {
+    return this.oneHandBlockVp > 0 ? this.oneHandBlockVp : '100%';
   }
 
   /** 当前显示的那个键面。 */

@@ -1,26 +1,33 @@
 {
-  "source": "https://github.com/amzxyz/rime-wanxiang",
-  "source_release": "v18.0.16",
-  "source_commit": "7ab73ee0c7f80190004233e70f954833df64c80e",
-  "license": "CC-BY-4.0",
-  "attribution": "amzxyz and contributors",
-  "dictionary_repository": "https://github.com/metasequoiaime/msime-dictionary",
-  "dictionary_commit": "4ab096a20736be1c8d134852e21b558e80097ac0",
+  "source": "https://www.unicode.org/ucd/",
+  "unicode_version": "17.0.0",
+  "license": "Unicode-3.0",
+  "attribution": "Unicode, Inc.",
   "artifacts": [
     {
-      "name": "wanxiang_symbols.yaml",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/4ab096a20736be1c8d134852e21b558e80097ac0/sources/symbols/wanxiang_symbols.yaml",
-      "sha256": "8cd64dd226ccdddc0771085ad4d072c19713529ec02c9f4c00d97e6fd6e4c8df",
-      "size": 98894
+      "name": "UnicodeData.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt",
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c",
+      "size": 2198209
     },
     {
-      "name": "LICENSE",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/4ab096a20736be1c8d134852e21b558e80097ac0/sources/symbols/LICENSE",
-      "sha256": "9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94",
-      "size": 18656
+      "name": "Blocks.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt",
+      "sha256": "c0edefaf1a19771e830a82735472716af6bf3c3975f6c2a23ffbe2580fbbcb15",
+      "size": 11663
+    },
+    {
+      "name": "EquivalentUnifiedIdeograph.txt",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/EquivalentUnifiedIdeograph.txt",
+      "sha256": "38619c05a17e771554000fe604afee92e10eb49e0616ecf0c87af3c1eb0f4320",
+      "size": 18371
     }
   ],
-  "license_file": "resources/licenses/rime-wanxiang-CC-BY-4.0.txt",
+  "license_file": {
+    "path": "resources/licenses/Unicode-License-V3.txt",
+    "retrieved_from": "https://www.unicode.org/license.txt",
+    "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+  },
   "outputs": [
     "crates/engine/src/local/symbol_groups.tsv"
   ],

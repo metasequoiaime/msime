@@ -1,4 +1,4 @@
-# 打拼音出符号：符号名称 → 符号。本项目自写，随引擎以 GPL-3.0-only 发布；名称与码位是事实，没有整段复制任何现成的表。
+# 打拼音出符号：符号名称 → 符号。本项目自写，以 MPL-2.0 发布（全文见 msime 的 resources/licenses/MPL-2.0.txt），随 msime 引擎 msime-engine 内嵌分发；名称与码位是事实，没有整段复制任何现成的表。
 # 唯一的编辑入口是 msime-dictionary 的 sources/symbols/symbol-names.tsv。msime 的 crates/engine/src/local/symbol_candidates.tsv 是 scripts/sync_symbol_tables.py 按 resources/symbol-tables.lock.json 同步的逐字节副本，引擎用 include_str! 编进去；不要在 msime 里手改。
 # 格式：名称<TAB>拼音<TAB>符号[<空格>符号...]，`#` 开头的行是注释。
 # 拼音用引擎词库的写法：音节以 ' 分隔，ü 写 v；拉丁名称（希腊字母的英文拼写）的拼音列写 -。

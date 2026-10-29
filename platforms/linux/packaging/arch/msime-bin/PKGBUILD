@@ -13,15 +13,18 @@ _rpmrel=1
 pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
 arch=('x86_64' 'aarch64')
 url='https://github.com/metasequoiaime/msime'
-# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
+# 本项目代码为 GPL-3.0-only，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
 license=(
   'GPL-3.0-only'
   'Apache-2.0'
+  'Apache-2.0 WITH LLVM-exception'
   'MIT'
   'BSD-3-Clause'
+  'BSD-2-Clause'
   'HPND'
   'LGPL-2.1-or-later'
   'LGPL-3.0-only'
+  'CC-BY-3.0'
   'CC-BY-4.0'
   'CC-BY-SA-4.0'
   'MPL-2.0'

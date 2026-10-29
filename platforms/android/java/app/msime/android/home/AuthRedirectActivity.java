@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.AppleWebSignIn;
 import app.msime.android.ThreadPolicy;
 
@@ -16,6 +17,8 @@ import app.msime.android.ThreadPolicy;
 public final class AuthRedirectActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         handle(getIntent());
         finish();
     }

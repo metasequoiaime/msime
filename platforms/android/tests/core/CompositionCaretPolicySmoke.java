@@ -35,9 +35,9 @@ public final class CompositionCaretPolicySmoke {
             "truncated editor composition");
         check(CompositionCaretPolicy.editorTapTarget("nihao", "9426", 0, 8, 13, 10, 10) == -1,
             "changed spelling must not revive a composition");
-        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 5) == 6,
+        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 5, true) == 6,
             "magnified caret can be drawn at the end");
-        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 2) == 3,
+        check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 2, true) == 3,
             "magnified caret follows a display separator");
         // 能点的方案：光标留在组字里的那些。韩语、注音、越南语、藏文锁住光标，日语和笔画画的是 reading，本地模式和专用英文各管各的。
         check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "jintianci"), "quanpin");
@@ -60,12 +60,38 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.tapTarget(0, typed, typed, -1, 99) == typed.length(), "past the end");
         check(CompositionCaretPolicy.tapTarget(0, typed, typed, -1, 0) == 0, "the start");
         // 光标在 9 处画成 jintianc|iwufanlemei；点光标符后面的 i 之后，换算时去掉光标符。
-        int mark = CompositionCaretPolicy.markIndex(typed, typed, 8);
+        int mark = CompositionCaretPolicy.markIndex(typed, typed, 8, false);
         check(mark == 8, "caret drawn where it is");
         check("jintianc|iwufanlemei".equals(CompositionCaretPolicy.withMark(typed, mark)), "caret mark drawn");
         check(CompositionCaretPolicy.tapTarget(0, typed, typed, mark, 10) == 9, "a tap after the mark skips it");
         check(CompositionCaretPolicy.tapTarget(0, typed, typed, mark, 8) == 8, "a tap before the mark");
-        check(CompositionCaretPolicy.markIndex(typed, typed, typed.length()) == -1, "a caret at the end is not drawn");
+        check(CompositionCaretPolicy.markIndex(typed, typed, typed.length(), false) == -1, "a caret at the end is not drawn");
+
+        // #10133：全拼读音带引擎加的分隔（zuo'tian'jin'tian），分隔不在按键里，退格删的是分隔前的字母，光标画在分隔前面。
+        String segmented = "zuo'tian'jin'tian";
+        String letters = "zuotianjintian";
+        int beforeSplit = CompositionCaretPolicy.markIndex(segmented, letters, 3, false);
+        check(beforeSplit == 3, "letter caret sits before a display separator: " + beforeSplit);
+        check("zuo|'tian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented, beforeSplit)), "zuo|'tian");
+        check(CompositionCaretPolicy.displayOffset(segmented, letters, 3, false) == 3, "magnified letter caret before the separator");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 4, false) == 5, "caret after t is zuo't|ian");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 2, false) == 2, "caret before o is zu|o'tian");
+        check(CompositionCaretPolicy.markIndex(segmented, letters, 7, false) == 8, "second separator: zuo'tian|'jin'tian");
+        // 逐格左移：zuo't|ian → zuo|'tian → zu|o'tian，每一格都停在一个不同的位置。
+        check("zuo't|ian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented,
+            CompositionCaretPolicy.displayOffset(segmented, letters, 4, false))), "step at t|ian");
+        check("zu|o'tian'jin'tian".equals(CompositionCaretPolicy.withMark(segmented,
+            CompositionCaretPolicy.displayOffset(segmented, letters, 2, false))), "step at zu|o");
+        // 画在分隔前面后，点光标符两侧换算出的仍是当前光标，点分隔后面的 t 后移一格。
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 3) == 3, "tap before the mark keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 4) == 3, "tap after the mark keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 5) == 3, "tap after the separator keeps the caret");
+        check(CompositionCaretPolicy.tapTarget(0, segmented, letters, beforeSplit, 6) == 4, "tap after t moves one key");
+        // 用户自己打的 ' 在按键里，一一对齐，分隔两侧是两个光标位置。
+        check(CompositionCaretPolicy.markIndex("zuo'tian", "zuo'tian", 3, false) == 3, "typed apostrophe: before it");
+        check(CompositionCaretPolicy.markIndex("zuo'tian", "zuo'tian", 4, false) == 4, "typed apostrophe: after it");
+        // 粤拼按键里本身就有空格，同样一一对齐。
+        check(CompositionCaretPolicy.markIndex("nei hou", "nei hou", 4, false) == 4, "typed space is its own key");
 
         // 已选好的词画在读音前面：点在它上面，光标到开头。
         check(CompositionCaretPolicy.tapTarget(2, "fanlemei", "fanlemei", -1, 1) == 0, "tap on the chosen piece");
@@ -75,9 +101,14 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 3) == 2, "tap after the separator");
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 2) == 2, "tap before the separator");
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9426", -1, 4) == 3, "tap inside the second syllable");
-        // 同一个光标位置隔着分隔对应两处时画在分隔后面：引擎的退格先删光标前的切分。
-        check(CompositionCaretPolicy.markIndex("94'26", "9426", 2) == 3, "caret after a split");
+        // 组码网格里同一个光标位置隔着分隔对应两处时画在分隔后面：网格的退格先删光标前的切分（26 键字母按键画在前面，见上面 #10133）。
+        check(CompositionCaretPolicy.markIndex("94'26", "9426", 2, true) == 3, "caret after a split");
         check("94'|26".equals(CompositionCaretPolicy.withMark("94'26", 3)), "split then caret");
+        // 14 键、18 键的按键是组码字母（ba 再切分再 ba 是 baba），走的是网格的退格，同样画在切分后面；按 26 键的规则画会成 ba|'ba，退格删的却是切分。
+        check(CompositionCaretPolicy.markIndex("ba'ba", "baba", 2, true) == 3, "fourteen-key caret after a split");
+        check("ba'|ba".equals(CompositionCaretPolicy.withMark("ba'ba", 3)), "fourteen-key split then caret");
+        check(CompositionCaretPolicy.displayOffset("ba'ba", "baba", 2, true) == 3, "fourteen-key magnified caret after a split");
+        check(CompositionCaretPolicy.markIndex("ba'ba", "baba", 2, false) == 2, "the same keys on 26 keys sit before the separator");
         // 选过拼音之后：ni'426 对 64426。
         check(CompositionCaretPolicy.tapTarget(0, "ni'426", "64426", -1, 4) == 3, "locked spelling then digits");
         // 首选是简拼行时读音行是首字母（m't 对 68）。
@@ -88,12 +119,12 @@ public final class CompositionCaretPolicySmoke {
         // 读音对不上按键时不移光标。
         check(CompositionCaretPolicy.tapTarget(0, "xi'an", "9427", -1, 3) == -1, "a reading of other keys");
         check(CompositionCaretPolicy.tapTarget(0, "xi", "9426", -1, 1) == -1, "a reading shorter than the keys");
-        check(CompositionCaretPolicy.markIndex("xi'an", "9427", 1) == -1, "no mark on a reading of other keys");
+        check(CompositionCaretPolicy.markIndex("xi'an", "9427", 1, true) == -1, "no mark on a reading of other keys");
         check(CompositionCaretPolicy.tapTarget(0, null, "64", -1, 1) == -1, "no reading");
         check(CompositionCaretPolicy.tapTarget(0, "ni", "64", -1, -1) == -1, "no layout offset");
 
         // #6110：光标符画成竖条，要知道它在整段标题（已选的词 + 读音）里的下标；标题里那个位置必须正是光标符。
-        int nineKeyMark = CompositionCaretPolicy.markIndex("xi'an", "9426", 2);
+        int nineKeyMark = CompositionCaretPolicy.markIndex("xi'an", "9426", 2, true);
         String nineKeyTitle = PhrasePreeditPolicy.title("饭了",
             CompositionCaretPolicy.withMark("xi'an", nineKeyMark), false);
         int barIndex = CompositionCaretPolicy.markInTitle("饭了", nineKeyMark, false);

@@ -3,7 +3,8 @@ name = "msime-path-trust"
 description = "The one list of system symbolic links a storage path may pass through, and the walk that rejects every other link on the way to it."
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# 和 msime-engine 一样用 MPL-2.0（不附 Exhibit B），不随仓库其余部分的 GPL-3.0-only：引擎依赖它，可嵌入的引擎库要连它一起发布（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL。
+license = "MPL-2.0"
 repository.workspace = true
 rust-version.workspace = true
 

@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.LayoutPolicy;
 
@@ -29,7 +30,7 @@ public final class OptionSheet {
 
     public OptionSheet(Context context, CharSequence title, @Nullable CharSequence subtitle) {
         this.context = context;
-        dialog = new BottomSheetDialog(context);
+        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(context));
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
 

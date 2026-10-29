@@ -142,20 +142,6 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
-    def test_app_ships_the_licence_of_the_symbol_group_table(self):
-        # 链接进 App 和键盘扩展的 Engine 编入了符号模式的分组码表，它取自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），署名、固定提交和改动说明都在这份许可证文件里。
-        project = (IOS_ROOT / "project.yml").read_text()
-        app = dict(target_blocks(project))["MSIMEApp"]
-        path = "../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
-        blocks = source_path_blocks(app, path)
-        self.assertEqual(len(blocks), 1)
-        self.assertIn("buildPhase: resources", blocks[0])
-        text = (IOS_ROOT / path).read_text()
-        self.assertIn("rime-wanxiang", text)
-        self.assertIn("7ab73ee0c7f80190004233e70f954833df64c80e", text)
-        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
-        self.assertIn('LicenseNotice(file: "rime-wanxiang-CC-BY-4.0"', about)
-
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
         project = (IOS_ROOT / "project.yml").read_text()
@@ -171,7 +157,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(generated.count("kfcd-chaizi-CC-BY-3.0.txt in Resources"), 2)
         about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
         self.assertIn('LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0"', about)
-        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明。
+        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，符号模式的分组表按 Unicode 字符数据库挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
         unicode = "../../resources/licenses/Unicode-License-V3.txt"
         blocks = source_path_blocks(app, unicode)
         self.assertEqual(len(blocks), 1)
@@ -179,6 +165,26 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("UNICODE LICENSE V3", (IOS_ROOT / unicode).read_text())
         self.assertEqual(generated.count("Unicode-License-V3.txt in Resources"), 2)
         self.assertIn('LicenseNotice(file: "Unicode-License-V3"', about)
+
+    def test_app_ships_the_licences_of_the_engine_code(self):
+        # 链接进 App 和键盘扩展的引擎本身（crates/engine、crates/path-trust）和它链接的 rink-core 是 MPL-2.0，cxx_sort.rs 逐步复现了 libc++ 的排序算法（Apache-2.0 WITH LLVM-exception），octagram.rs 移植自 librime-octagram 并按 darts-clone 的布局读双数组，符号模式的 LaTeX 表是本项目自写的 MIT 数据；二进制分发都要附上许可证全文，关于页逐个列出。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        for licence, phrase in (
+            ("MPL-2.0.txt", "Mozilla Public License Version 2.0"),
+            ("libcxx-Apache-2.0-WITH-LLVM-exception.txt", "LLVM Exceptions to the Apache 2.0 License"),
+            ("librime-octagram-BSD-3-Clause.txt", "Copyright (c) 2008-2014, Susumu Yata"),
+            ("latex-symbols-MIT.txt", "Copyright (c) 2026 Metasequoia IME contributors"),
+        ):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1, licence)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(phrase, (IOS_ROOT / path).read_text())
+            self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
+            self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"

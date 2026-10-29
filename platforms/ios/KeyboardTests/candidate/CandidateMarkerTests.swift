@@ -112,6 +112,109 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：AI 候选没有结果")
   }
 
+  /// 坐了首选的双拼纠错（`confident_correction`，#10018）在展开网格里：字和纠错前的拼写用强调色，读屏标签以「，已纠正」结尾；没坐首选的纠错和普通候选照旧，换一代没有这个标记时复用的格子也放回原样。
+  func testTheExpandedPanelMarksAConfidentCorrection() throws {
+    let snapshot = try CandidatePanelSnapshot.decode([
+      "generation": 3, "preedit": "womfjbtnqugsyr",
+      "candidates": [
+        ["text": "我们今天去公园", "id": ["generation": 3, "index": 0], "annotation": "(womfjbtnqugsyr)",
+         "corrected": true, "highlighted": true, "confident_correction": true],
+        ["text": "我们今天去公", "id": ["generation": 3, "index": 1]],
+      ],
+    ])
+    XCTAssertEqual(snapshot.entries.map(\.confidentCorrection), [true, false])
+    let plainSnapshot = try CandidatePanelSnapshot.decode([
+      "generation": 3, "preedit": "womf", "candidates": [["text": "我们", "id": ["generation": 3, "index": 0]]],
+    ])
+    XCTAssertEqual(plainSnapshot.entries.map(\.confidentCorrection), [false], "默认文档里没有这个字段")
+
+    let annotations = [KeyboardCandidateAnnotation(text: "womfjbtnqugsyr", accessibilityDescription: "编码提示 womfjbtnqugsyr"),
+                       KeyboardCandidateAnnotation(text: "womfjbtnqugs", accessibilityDescription: "编码提示 womfjbtnqugs")]
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["我们今天去公园", "我们今天去公", "我们"], preedit: "womfjbtnqugsyr", annotations: annotations,
+      confidentCorrections: [0], display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    func chip(_ number: Int) throws -> UIButton {
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-\(number)" } as? UIButton)
+    }
+    func annotationColor(_ button: UIButton) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: "womf")
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+    let skin = KeyboardTheme.current
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，编码提示 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.accent)
+    XCTAssertEqual(try annotationColor(chip(1)), skin.accent, "纠错前的拼写用强调色")
+    XCTAssertEqual(try chip(2).accessibilityLabel, "候选词 2：我们今天去公，编码提示 womfjbtnqugs")
+    XCTAssertEqual(try annotationColor(chip(2)), skin.secondary, "没坐首选的注释照旧是次要色")
+    XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：我们")
+
+    panel.reload(candidates: ["我们今天去公园", "我们今天去公"], annotations: annotations, markers: [])
+    panel.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，编码提示 womfjbtnqugsyr")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.accent, "选中格本来就是强调色")
+    XCTAssertEqual(try annotationColor(chip(1)), skin.secondary)
+  }
+
+  /// 跟随桌面调色板时（#10018）：选中底色和强调色同为 `#07C160`（微信外观），选中格里坐了首选的纠错照用调色板给选中底色的颜色，注释先取选中翻译色、没给再取选中文字色，不画成看不见的强调色；不在选中格时字和注释才换成强调色，没标记的格子画调色板的文字色和次要色。
+  func testTheExpandedPanelMarksAConfidentCorrectionOnADesktopPalette() throws {
+    let green = UIColor(red: 7 / 255, green: 193 / 255, blue: 96 / 255, alpha: 1)
+    let text = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1)
+    let secondary = UIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    let selectedText = UIColor.white
+    let selectedTranslation = UIColor(white: 1, alpha: 0.8)
+    func palette(selectedTranslation: UIColor?) -> CandidatePalette {
+      CandidatePalette(text: text, number: secondary, secondary: secondary, accent: green, selected: green,
+                       hover: green.withAlphaComponent(0.14), surface: .white, border: .clear,
+                       selectedText: selectedText, selectedTranslation: selectedTranslation)
+    }
+    let annotations = [KeyboardCandidateAnnotation(text: "womfjbtnqugsyr", accessibilityDescription: "编码提示 womfjbtnqugsyr"),
+                       KeyboardCandidateAnnotation(text: "womfjbtnqugs", accessibilityDescription: "编码提示 womfjbtnqugs")]
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    func render(_ palette: CandidatePalette, selectedIndex: Int, marked: Set<Int>) -> KeyboardCandidatePanelView {
+      let panel = KeyboardCandidatePanelView(
+        candidates: ["我们今天去公园", "我们今天去公", "我们"], preedit: "womfjbtnqugsyr", annotations: annotations,
+        confidentCorrections: marked, selectedIndex: selectedIndex, palette: palette,
+        display: { $0 }, onSelect: { _ in }, onClose: {})
+      panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      panel.layoutIfNeeded()
+      return panel
+    }
+    func chip(_ panel: KeyboardCandidatePanelView, _ number: Int) throws -> UIButton {
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-\(number)" } as? UIButton)
+    }
+    func annotationColor(_ button: UIButton) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: "womf")
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+
+    let selectedCell = render(palette(selectedTranslation: selectedTranslation), selectedIndex: 0, marked: [0])
+    XCTAssertEqual(try chip(selectedCell, 1).configuration?.background.backgroundColor, green, "选中底色就是强调色")
+    XCTAssertEqual(try chip(selectedCell, 1).configuration?.baseForegroundColor, selectedText)
+    XCTAssertEqual(try annotationColor(chip(selectedCell, 1)), selectedTranslation, "纠错前的拼写不能画成底色上看不见的强调色")
+    XCTAssertEqual(try chip(selectedCell, 1).accessibilityLabel, "候选词 1：我们今天去公园，编码提示 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(try chip(selectedCell, 2).configuration?.baseForegroundColor, text)
+    XCTAssertEqual(try annotationColor(chip(selectedCell, 2)), secondary)
+
+    let noTranslation = render(palette(selectedTranslation: nil), selectedIndex: 0, marked: [0])
+    XCTAssertEqual(try annotationColor(chip(noTranslation, 1)), selectedText, "没有选中翻译色时用选中文字色")
+
+    // 标记不在选中格时，字和注释的强调色只来自这个标记。
+    let elsewhere = render(palette(selectedTranslation: selectedTranslation), selectedIndex: 1, marked: [0])
+    XCTAssertEqual(try chip(elsewhere, 1).configuration?.baseForegroundColor, green)
+    XCTAssertEqual(try annotationColor(chip(elsewhere, 1)), green)
+    let unmarked = render(palette(selectedTranslation: selectedTranslation), selectedIndex: 1, marked: [])
+    XCTAssertEqual(try chip(unmarked, 1).configuration?.baseForegroundColor, text)
+    XCTAssertEqual(try annotationColor(chip(unmarked, 1)), secondary)
+    XCTAssertEqual(try chip(unmarked, 1).accessibilityLabel, "候选词 1：我们今天去公园，编码提示 womfjbtnqugsyr")
+  }
+
   /// AI 的回答到达时换了一代，但最多只有 AI 行变了：第一条插在第一页最后一格（这里每页两个），其余接在末尾，别的行先后不变；回答的词全都已在列表里时换了一代、列表一行没变。两种情况展开的网格都原地刷新、不收起（#6888）。别的行变了、组字变了、行数变少、云候选到达都不算。
   func testOnlyAChangeInTheAISeatKeepsTheExpandedPanel() throws {
     func snapshot(_ generation: UInt64, _ rows: [(String, Int)], preedit: String = "nihao") throws -> CandidatePanelSnapshot {

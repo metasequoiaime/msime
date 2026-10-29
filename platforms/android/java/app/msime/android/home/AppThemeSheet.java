@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -48,7 +49,7 @@ final class AppThemeSheet {
      */
     static void show(Fragment host, @Nullable JSONObject preferences, Runnable refresh) {
         Context context = host.requireContext();
-        BottomSheetDialog dialog = new BottomSheetDialog(context);
+        BottomSheetDialog dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(context));
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
 
