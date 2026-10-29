@@ -103,6 +103,8 @@ cp resources/licenses/ECDICT-MIT.txt "$notices/ECDICT-MIT.txt"
 cp resources/licenses/rime_kaomoji_dict-MIT.txt "$notices/rime_kaomoji_dict-MIT.txt"
 cp resources/licenses/python-pinyin-MIT.txt "$notices/python-pinyin-MIT.txt"
 cp resources/licenses/rime-wubi86-jidian-Apache-2.0.txt "$notices/rime-wubi86-jidian-Apache-2.0.txt"
+# msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随副本分发。
+cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang-CC-BY-4.0.txt"
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

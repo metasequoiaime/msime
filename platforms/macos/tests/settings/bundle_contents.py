@@ -197,8 +197,8 @@ def main() -> int:
     # 引擎编进了本项目自写的 MIT LaTeX 表，不带官方短语表包的构建也要附上 MIT 全文。
     if not (contents / "Resources" / "Licenses" / "latex-symbols-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/latex-symbols-MIT.txt is missing; the LaTeX table compiled into the engine ships without its licence")
-    # 随包词库里有 MIT 与 Apache-2.0 的数据（msime-pinyin.db 的单字读音、msime-english.db 的中英释义、msime-others.db 的颜文字与关键词读音、msime-wubi.db 的 86 码表），两种许可都要求随副本附上全文。
-    for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt"):
+    # 随包词库里有 MIT 与 Apache-2.0 的数据（msime-pinyin.db 的单字读音、msime-english.db 的中英释义、msime-others.db 的颜文字与关键词读音、msime-wubi.db 的 86 码表），两种许可都要求随副本附上全文；msime-pinyin.db 与 msime-stroke.db 还有改编自 rime-wanxiang 的权重（CC BY 4.0），署名、改动说明与许可证在 rime-wanxiang-CC-BY-4.0.txt。
+    for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt", "rime-wanxiang-CC-BY-4.0.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled dictionary data it covers ships without its licence")
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.

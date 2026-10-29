@@ -358,7 +358,8 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "ECDICT-MIT", title: "ECDICT", detail: "英文词库中英释义 · MIT"),
     LicenseNotice(file: "rime_kaomoji_dict-MIT", title: "rime_kaomoji_dict", detail: "颜文字 · MIT"),
     LicenseNotice(file: "python-pinyin-MIT", title: "python-pinyin", detail: "表情与颜文字关键词读音 · MIT"),
-    LicenseNotice(file: "rime-wubi86-jidian-Apache-2.0", title: "rime-wubi86-jidian", detail: "五笔 86 码表 · Apache-2.0")
+    LicenseNotice(file: "rime-wubi86-jidian-Apache-2.0", title: "rime-wubi86-jidian", detail: "五笔 86 码表 · Apache-2.0"),
+    LicenseNotice(file: "rime-wanxiang-CC-BY-4.0", title: "rime-wanxiang", detail: "拼音与笔画词库的词频 · CC BY 4.0")
   ]
 
   /// 本次构建的 bundle 里实际存在的声明文件。

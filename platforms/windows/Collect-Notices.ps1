@@ -26,6 +26,7 @@ foreach ($notice in @(
     @('resources/licenses/rime_kaomoji_dict-MIT.txt', 'Kaomoji of msime-others.db, aoguai/rime_kaomoji_dict, MIT'),
     @('resources/licenses/python-pinyin-MIT.txt', 'Phrase readings of the emoji, kaomoji and symbol keywords in msime-others.db, lazy_pinyin output of mozillazg/python-pinyin 0.55, MIT'),
     @('resources/licenses/rime-wubi86-jidian-Apache-2.0.txt', '86 Wubi table of msime-wubi.db, KyleBing/rime-wubi86-jidian, Apache-2.0 (the upstream LICENSE @ 063377a0e3ae7d4084a45f03e4269f62f874f7dc, the terms the table was taken under; upstream moved to MIT on 2026-10-29)'),
+    @('resources/licenses/rime-wanxiang-CC-BY-4.0.txt', 'Ranking weights of msime-pinyin.db and, through them, character weights of msime-stroke.db for the entries shared with amzxyz/rime-wanxiang @ 7ab73ee0c7f80190004233e70f954833df64c80e (release v18.0.16), adapted by msime-dictionary, CC BY 4.0 (attribution, list of changes and licence text)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
     @('resources/helpcodes/NOTICE-wubi86.md', 'Helpcode table (wubi86), generated from KyleBing/rime-wubi86-jidian, Apache-2.0, with 16 characters from rime/rime-wubi, LGPL-3.0 distributed under GPL-3.0'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),

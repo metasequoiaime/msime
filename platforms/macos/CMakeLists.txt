@@ -271,6 +271,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/rime_kaomoji_dict-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/python-pinyin-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/python-pinyin-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wubi86-jidian-Apache-2.0.txt" COPYONLY)
+# msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0）；CC BY 4.0 第 3(a) 条要求署名、改动说明和许可证随副本分发，这份文件三者都有。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # The place names `@` mode offers, compiled into the engine from modood/Administrative-divisions-of-China (WTFPL).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt" "${MSIME_LEGAL_DIRECTORY}/Administrative-divisions-of-China-WTFPL.txt" COPYONLY)
 # The Korean Hanja table, compiled into the engine from libhangul's data/hanja/hanja.txt (BSD-3-Clause, whose clause 2 requires the notice in binary distributions).

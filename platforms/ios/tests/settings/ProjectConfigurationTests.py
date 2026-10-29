@@ -143,7 +143,7 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
     def test_app_ships_the_licences_of_the_dictionary_data(self):
-        # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据：msime-pinyin.db 的单字读音（pinyin-data）、msime-english.db 的中英释义（ECDICT）、msime-others.db 的颜文字（rime_kaomoji_dict）与关键词整词读音（python-pinyin）、msime-wubi.db 的 86 码表（rime-wubi86-jidian）；两种许可都要求随副本附上全文，关于页逐个列出。
+        # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据：msime-pinyin.db 的单字读音（pinyin-data）、msime-english.db 的中英释义（ECDICT）、msime-others.db 的颜文字（rime_kaomoji_dict）与关键词整词读音（python-pinyin）、msime-wubi.db 的 86 码表（rime-wubi86-jidian）；两种许可都要求随副本附上全文。msime-pinyin.db 与 msime-stroke.db 还有改编自 rime-wanxiang 的权重，CC BY 4.0 要求署名、改动说明与许可证随副本分发。关于页逐个列出。
         project = (IOS_ROOT / "project.yml").read_text()
         app = dict(target_blocks(project))["MSIMEApp"]
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
@@ -154,6 +154,7 @@ class ProjectConfigurationTests(unittest.TestCase):
             ("rime_kaomoji_dict-MIT.txt", "Copyright (c) 2023 aoguai"),
             ("python-pinyin-MIT.txt", "Copyright (c) 2016 mozillazg, 闲耘"),
             ("rime-wubi86-jidian-Apache-2.0.txt", "Version 2.0, January 2004"),
+            ("rime-wanxiang-CC-BY-4.0.txt", "7ab73ee0c7f80190004233e70f954833df64c80e"),
         ):
             path = f"../../resources/licenses/{licence}"
             blocks = source_path_blocks(app, path)

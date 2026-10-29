@@ -161,6 +161,9 @@ targets:
         buildPhase: resources
       - path: ../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt
         buildPhase: resources
+      # msime-pinyin.db 与语言词库的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随 App 分发。
+      - path: ../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

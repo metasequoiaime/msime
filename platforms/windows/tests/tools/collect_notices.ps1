@@ -13,7 +13,7 @@ try {
         'resources/helpcodes/NOTICE.md', 'resources/helpcodes/NOTICE-wubi86.md',
         'resources/licenses/pinyin-data-MIT.txt', 'resources/licenses/ECDICT-MIT.txt',
         'resources/licenses/rime_kaomoji_dict-MIT.txt', 'resources/licenses/python-pinyin-MIT.txt',
-        'resources/licenses/rime-wubi86-jidian-Apache-2.0.txt',
+        'resources/licenses/rime-wubi86-jidian-Apache-2.0.txt', 'resources/licenses/rime-wanxiang-CC-BY-4.0.txt',
         'resources/licenses/Zinnia-LICENSE.txt', 'resources/licenses/Administrative-divisions-of-China-WTFPL.txt',
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/librime-octagram-BSD-3-Clause.txt',
         'resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt',
