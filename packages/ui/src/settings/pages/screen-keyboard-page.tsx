@@ -15,6 +15,7 @@ import { SettingsPreviewBlock } from "../settings-preview-block";
 import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
 import { supportedInputSchemes } from "../input-scheme-options";
+import { touchSplitKeyboardLimits } from "../touch-split-keyboard-rows";
 import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-defaults";
 import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
@@ -364,6 +365,19 @@ export function ScreenKeyboardSettingsPage() {
                 ? draft.touch_one_handed_side_panel === "number_pad"
                 : undefined
             }
+            // 分离式键盘：只有报告 `touch_keyboard_split` 的宿主（HarmonyOS 平板和可折叠手机）在这里给出，Android 和 iOS 在原生设置页里给。缺键按 client-core 的默认值读。
+            splitKeyboard={
+              host?.touch_keyboard_split
+                ? {
+                    enabled: draft.touch_keyboard_split ?? false,
+                    portrait: draft.touch_keyboard_split_portrait ?? false,
+                    threshold:
+                      draft.touch_keyboard_split_threshold ??
+                      touchSplitKeyboardLimits.threshold.fallback,
+                    gap: draft.touch_keyboard_split_gap ?? touchSplitKeyboardLimits.gap.fallback,
+                  }
+                : undefined
+            }
             // 「九键滑动输入数字」：触屏宿主、且版本提供全拼九键（`nine_key` 背后是全拼）时列出，桌面和没有拼音九键的版本不画；写共享偏好，不经本机的按键反馈设置。
             nineKeySwipeDigits={
               mobilePlatform && supportedInputSchemes(host).includes("quanpin")
@@ -391,6 +405,18 @@ export function ScreenKeyboardSettingsPage() {
             }
             onOneHandedSidePanelChange={(enabled) =>
               onPreferencesChange({ touch_one_handed_side_panel: enabled ? "number_pad" : "off" })
+            }
+            onSplitKeyboardChange={(change) =>
+              onPreferencesChange({
+                ...(change.enabled === undefined ? {} : { touch_keyboard_split: change.enabled }),
+                ...(change.portrait === undefined
+                  ? {}
+                  : { touch_keyboard_split_portrait: change.portrait }),
+                ...(change.threshold === undefined
+                  ? {}
+                  : { touch_keyboard_split_threshold: change.threshold }),
+                ...(change.gap === undefined ? {} : { touch_keyboard_split_gap: change.gap }),
+              })
             }
             onNineKeySwipeDigitsChange={(touch_nine_key_swipe_digits) =>
               onPreferencesChange({ touch_nine_key_swipe_digits })
