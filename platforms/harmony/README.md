@@ -293,6 +293,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 「按键布局」页（共享 React 设置页）还有两项（#10056，共享偏好、随账号同步，同步键 `platform.harmony.twenty_six_symbol_first` / `platform.harmony.number_pad_space`）：26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`，默认关）把 26 键一族设计底行的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格带上 符、按九键一族的次序排（`KeyboardView.letterRowSymbolLeads`）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，缺键或 `platform_default` 是鸿蒙原来的「空格在 0 左边」（`NineKeyLayout.actionRow` 的 `space`）。空格在右列时网格右列最下面一格从 ！ 换成空格（`touchNineKeyGrid`），右侧大回车不受影响。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
+九键左侧符号栏可以自定义（#10223，共享偏好、随账号同步，同步键 `platform.harmony.nine_key_symbols` / `platform.harmony.nine_key_digit_symbols`，值是空格分隔的写法，空串是出厂表）：「按键布局」9 键分段卡片里的「九键左侧符号」改字母层那张表（`touch_nine_key_sidebar_symbols`，拼音九键、九键双拼和笔画共用），「数字键盘」一组里的「数字键盘左侧符号」改所有九宫格数字键盘 #+= 上面那张表（`touch_nine_key_digit_sidebar_symbols`，九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读）。空表是鸿蒙出厂表，键盘照原来的画法：字母层 `, . ?`（显示与编辑器里写作 ，。？，点按交给 Engine 的标点处理），右侧大回车接 !，笔画的标点栏四格，数字层四则运算加 #+= 五格等高。用户的表画成可滚动的等高栈（`NineKeyLayout.sidebarItems`）：字母层一屏最多 3 项（右侧大回车也不再接 !），数字层是四格高的滚动区加最下面一格 #+=、一屏最多 4 项，每项不矮于 28 vp。自定义项点按先按首选结束组字再字面上屏，不做全半角转换，`（）`、`()` 这类整对符号光标停在中间（`KeyboardSession.insertSidebarSymbol`、`PairedPunctuationPolicy.literalPairClosing`，配对表照 Android）；统计仍记 `SoftPunctuation`。长按左列任一项打开设置的「屏幕键盘」页（键盘只能按页打开设置，开不到「按键布局」里的编辑页）。英文九键、2in1 屏幕键盘不读这两张表。
+
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
 ## 全拼九键的三栏展开面板
