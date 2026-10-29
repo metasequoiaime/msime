@@ -375,6 +375,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterGrid: LetterKeyGrid? { letterGrid(for: inputScheme) }
   /// 当前方案画字母网格：全拼或双拼的 14 键、18 键，或五笔 14 键。
   private var usesLetterGrid: Bool { letterGrid != nil }
+  /// 此刻第二排 L 右边是否显示 `;` 键：方案要它（微软双拼、粤语双拼），而且在中文模式、不在本地模式、不画 14/18 键网格。键的显隐和手机中间一排的缩进都按它算，切到英文或本地模式时 `;` 藏起来，中间一排要回到两侧各缩进半个键。
+  private var showsSemicolonKey: Bool {
+    isChineseMode && inputScheme.showsSemicolonFinalKey && !isInLocalMode && !usesLetterGrid
+  }
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
   // Idle Chinese input keeps the existing shortcut that switches to English capitalization.
@@ -5968,7 +5972,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
     }
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
-    // 手机的中间一排两侧各缩进半个键，微软双拼和粤语双拼用 `;` 键填上这块空位；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
+    // 手机的中间一排两侧各缩进半个键，显示 `;` 键时（微软双拼、粤语双拼的中文模式，见 `showsSemicolonKey`）用它填上这块空位，`;` 藏起来时缩进回来；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
     // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄。
     let keysWidth = KeyboardOneHandLayout.keysWidth(
       available: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing, mode: appliedOneHanded ?? .off)
@@ -5976,7 +5980,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if formFactor == .tablet {
       margins = UIEdgeInsets(top: 0, left: keysWidth * TabletLetterLayout.middleRowLeadingInset, bottom: 0, right: 0)
     } else {
-      let inset: CGFloat = KeyboardLayoutPreference.geometry.centeredLetters && !inputScheme.showsSemicolonFinalKey
+      let inset: CGFloat = KeyboardLayoutPreference.geometry.centeredLetters && !showsSemicolonKey
         ? keysWidth * CGFloat(KeyboardLayoutPreference.geometry.letterInsetRatio) : 0
       margins = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
     }
@@ -6211,7 +6215,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     applyKeyboardMetrics()
     applyOneHanded()
     standardRowHeights.forEach { $0.1.isActive = false }
-    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme.showsSemicolonFinalKey && !isInLocalMode && !usesLetterGrid)
+    microsoftFinalKey?.isHidden = !showsSemicolonKey
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !isInLocalMode
     japaneseKeys?.isHidden = !kana
     japaneseKeys?.setDigits(showsSymbols)

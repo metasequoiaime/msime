@@ -121,6 +121,51 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
   }
 
+  /// 手机第二排的缩进跟着 `;` 键是否真的显示走，不只看方案：微软双拼的中文模式里 `;` 填上右侧空位、第二排不缩进；切到英文 `;` 藏起来，第二排回到两侧缩进，A 到 L 与第一排同宽，不被拉宽到整排。粤语双拼走同一个条件，但它的用例要暂存粤语词库，这里用 CI 上就能跑的微软双拼守住。
+  func testTheMiddleRowIndentsAgainWhenTheSemicolonKeyHides() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .microsoft
+    XCTAssertEqual(InputSchemePreference.scheme, .microsoft)
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    defer { controller.viewDidDisappear(false) }
+    func layout() {
+      controller.view.setNeedsLayout()
+      controller.view.layoutIfNeeded()
+      controller.view.layoutIfNeeded()
+    }
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    // 英文模式可能自动大写，按键面不分大小写找显示中的那个键。
+    func frame(of face: String) throws -> CGRect {
+      let key = try XCTUnwrap(nodes(controller.view).first { view in
+        guard let button = view as? UIButton, button.configuration?.title?.lowercased() == face else { return false }
+        return shown(button)
+      }, "no visible key \(face)")
+      return key.convert(key.bounds, to: controller.view)
+    }
+    let semicolon = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "microsoftFinalKey" })
+    layout()
+
+    XCTAssertTrue(shown(semicolon))
+    var q = try frame(of: "q"), a = try frame(of: "a")
+    XCTAssertEqual(a.minX, q.minX, accuracy: 0.5, "the semicolon key fills the row, so A lines up with Q")
+    XCTAssertEqual(a.width, q.width, accuracy: 0.5)
+
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
+      .sendActions(for: .primaryActionTriggered)
+    layout()
+    XCTAssertFalse(shown(semicolon), "English mode has no semicolon final")
+    q = try frame(of: "q")
+    a = try frame(of: "a")
+    let l = try frame(of: "l"), p = try frame(of: "p")
+    XCTAssertEqual(a.width, q.width, accuracy: 0.5, "A..L keep the top row's key width")
+    XCTAssertGreaterThan(a.minX, q.minX + q.width / 4, "the middle row is indented again")
+    XCTAssertLessThan(l.maxX, p.maxX - p.width / 4)
+  }
+
   /// 粤语双拼的 `;` 与微软双拼排在同一个位置、同样宽：第二排十个键，两侧不缩进；读屏说出粤语双拼的韵母；M 加 `;` 组成 ming 或 mik。普通粤拼不显示这个键。
   func testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.cantoneseShuangpin) == true,
