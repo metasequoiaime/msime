@@ -66,7 +66,7 @@ final class ImeLetterRows {
         rebuildKeyRows();
         s.render();
     }
-    /** 分离式键盘第二行（a–l）的缩进占位；微软双拼的第十个键出现时收起。 */
+    /** 标准 26 键第二行的半键缩进；微软双拼第十个键出现时收起。 */
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
     private View eighteenRowLeadingIndent;
@@ -963,8 +963,8 @@ final class ImeLetterRows {
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
-            // 普通键盘第二行铺满宽度；分离式键盘保留两侧半键占位，使两半的键宽一致。
-            if (builtSplit && standardLetters && rowIndex == 1) {
+            // 标准 26 键第二行左右各留半键宽，与首行单键等宽；分离式键盘沿用这两个占位切分键行。
+            if (standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
                 row.addView(secondRowLeadingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
             }
@@ -982,7 +982,7 @@ final class ImeLetterRows {
                 KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);
                 row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
-            if (builtSplit && standardLetters && rowIndex == 1) {
+            if (standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
                 row.addView(secondRowTrailingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
                 updateSecondRowIndent();
