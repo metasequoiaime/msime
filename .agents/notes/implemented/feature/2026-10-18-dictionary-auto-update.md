@@ -12,7 +12,7 @@ Status: implemented
 
 共享设置页的请求调度由 `packages/ui/src/settings/use-automatic-dictionary-updates.ts` 的 `useAutomaticDictionaryUpdates` 持有，设置根模型只接入这个 Hook。它在首次挂载、窗口获得焦点和每小时调用 `dictionary.updates("automatic")`，复用[窗口焦点订阅](../simplification/2026-10-15-window-focus-resume-subscription.md)与[同步间隔订阅](../simplification/2026-10-15-shared-interval-hook.md)。更新入口函数变化时清理旧订阅、立即检查并从新时刻重新计时；普通重渲染和焦点检查不改变小时边界。请求继续以词库客户端为方法接收者，异步失败不会阻断后续调度。这里只安排请求，跨进程锁、每日节流、下载与回退仍由 Rust 持有。
 
-更新面板的状态、请求动作、运行状态与提示投影由内部 `useDictionaryUpdates` 持有，`DictionaryUpdates` 只连接展示组件。Hook 用 `useAsyncGeneration(request)` 在入口变化和卸载时使旧请求失效，每次操作继续推进同一代次，只接受最新请求的成功或失败；不增加互斥或串行队列。首次读取与两秒状态轮询仍在同一 effect 内启动，间隔复用 `subscribeToInterval`，入口替换时立即刷新并重算两秒边界；普通重渲染、成功与失败回包不改变轮询相位。入口替换和失败时保留已有状态，当前请求成功后清除错误，文案与操作可用性保持。
+更新面板的状态、请求动作、运行状态与提示投影由内部 `useDictionaryUpdates` 持有，`DictionaryUpdates` 只连接展示组件。Hook 用 `useAsyncGeneration(request)` 在入口变化和卸载时使旧请求失效，每次操作继续推进同一代次，只接受最新请求的成功或失败；不增加互斥或串行队列。该策略的轮询部分由[词库更新轮询等待当前请求](../bug-fix/2026-10-29-dictionary-update-poll-pending.md)修正：轮询等待当前请求结束，手动操作仍能接管旧查询。首次读取与两秒状态轮询仍在同一 effect 内启动，间隔复用 `subscribeToInterval`，入口替换时立即刷新并重算两秒边界；普通重渲染、成功与失败回包不改变轮询相位。入口替换和失败时保留已有状态，当前请求成功后清除错误，文案与操作可用性保持。
 
 每日节流使用持久化的 Unix 秒。系统校时回拨、当前时间早于上次检查时，旧间隔失效，允许自动检查；开始检查前记录修正后的时间，成功或失败都从这次尝试重新计一天。入口 `due` 和取跨进程锁后的后台检查复用同一个判断，关闭开关仍优先阻止自动检查。原来的两处 `saturating_sub` 都把回拨算成零间隔，导致重启后也必须等旧时间被追上再过一天。[Rust `SystemTime` 文档](https://doc.rust-lang.org/std/time/struct.SystemTime.html)明确墙上时钟不单调；仓库公告缓存的 `NoticeStore::current` 也会在回拨时让旧节流失效。
 
