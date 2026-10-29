@@ -1939,6 +1939,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     // One reporting session per keyboard process: a crash here is recorded against it, and a session that ends through onDestroy counts as a normal one.
     @Override public void onCreate() {
+        long createStartedAt = SystemClock.uptimeMillis();
         // 拆出去的构建与渲染类持有本服务；在 onCreate 里创建，构造期间不把 this 交出去。
         imeToolbar = new ImeToolbar(this);
         imeCompositionEditor = new ImeCompositionEditor(this);
@@ -1998,6 +1999,8 @@ public final class MSIMEInputService extends InputMethodService {
         clearClipboardImages();
         imeDictionarySync = new ImeDictionarySync(this, main);
         imeDictionarySync.start();
+        // 键盘进程被系统回收后，下一次弹出键盘先要走这里（#9916）；本地设置上面已经读过，隐私判断和日志开关可用。
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.IME_SERVICE_CREATE, SystemClock.uptimeMillis() - createStartedAt);
     }
 
     @android.annotation.TargetApi(30)
@@ -2012,6 +2015,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        armFirstFrameWait();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
@@ -2122,6 +2126,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeOcr != null && imeOcr.active()) closeMoreTools();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
+        // 收起前第一帧还没画：不再等它，也不记这次弹出的耗时；排着的建会话由兜底按时放行（收起已经换代，到时多半直接作废）。
+        firstFrameArmedAt = -1;
         preferencesReloader.stop();
         flushTypingStatistics();
         super.onWindowHidden();
@@ -2427,10 +2433,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (!keepSession) stopSessionState();
         else clearEnglishSuggestions();
         if (!keepSession && session != 0) {
+            // 换输入框、切应用时旧会话在主线程上销毁（写出选词和延迟学习），正排在新输入框的键盘弹出前面，单独记下耗时（#9916）。
+            long destroyStartedAt = SystemClock.uptimeMillis();
             try { if (finish && connection != null) apply(NativeClient.command(session, 2)); }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
+            imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
+                SystemClock.uptimeMillis() - destroyStartedAt);
         }
         // A Stroke composition still marked here (the session stopped without CommitRaw) is stroke glyphs, not text: remove it rather than finish it into the document.
         if (connection != null && strokeCompositionMarked()) bridge.discard(sink(typingSource()));
@@ -2558,9 +2568,12 @@ public final class MSIMEInputService extends InputMethodService {
                     });
                     return;
                 }
+                long preferencesStartedAt = SystemClock.uptimeMillis();
                 EngineStartOptions startOptions = withLivePreferences(options, suppressLearning);
+                long preferencesMillis = SystemClock.uptimeMillis() - preferencesStartedAt;
                 if (generation != engineStartGeneration) return;
                 String notice = "";
+                long syncStartedAt = SystemClock.uptimeMillis();
                 try {
                     JSONObject sync = value(NativeClient.personalDictionarySync(options));
                     if (sync.optString("snapshot_error", "").length() > 0) {
@@ -2571,12 +2584,18 @@ public final class MSIMEInputService extends InputMethodService {
                 } catch (Exception | LinkageError ignored) {
                     // Personal dictionary maintenance is optional; session startup continues.
                 }
+                long syncMillis = SystemClock.uptimeMillis() - syncStartedAt;
                 if (generation != engineStartGeneration) return;
                 String finalNotice = notice;
                 main.post(() -> {
                     if (generation != engineStartGeneration || connection == null || session != 0) return;
+                    imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_STARTUP_PREFERENCES, preferencesMillis);
+                    imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_STARTUP_DICTIONARY_SYNC, syncMillis);
                     if (!finalNotice.isEmpty()) preferencesNotice = finalNotice;
-                    startEngineSession(startOptions.options(), startOptions.livePreferences());
+                    startEngineSessionAfterFirstFrame(() -> {
+                        if (generation != engineStartGeneration || connection == null || session != 0) return;
+                        startEngineSession(startOptions.options(), startOptions.livePreferences());
+                    });
                 });
             });
         } catch (RuntimeException ignored) {
@@ -2616,6 +2635,7 @@ public final class MSIMEInputService extends InputMethodService {
      * @param livePreferences 建会话前刚在工作线程上读到的实时偏好（原始响应），会话建好后直接作为第一份偏好快照应用；null 时等 preferencesReloader 读。
      */
     private void startEngineSession(String optionsText, String livePreferences) {
+        long startedAt = SystemClock.uptimeMillis();
         try {
             JSONObject options = new JSONObject(optionsText);
             // 选中只吃掉部分输入的候选时，让运行时把已选的那一段留在组字里而不是立刻上屏。这个宿主
@@ -2685,7 +2705,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
-            recordEngineSessionTiming(createMillis);
+            recordEngineSessionTiming(createMillis, SystemClock.uptimeMillis() - startedAt);
             // 会话在建时点下的皮肤、输入方式或要轮换语言的「中」键，此刻会话和（多数时候）偏好都有了；偏好还没读到时由 reloadPreferences 第一次读到后再执行。排到这次建会话之后再做：打开面板出的错不能落进下面的 catch 把刚建好的会话停掉。
             main.post(this::runDeferredToolbarTaps);
             // 窗口没显示时（会话在 onStartInput 里先于窗口建好，或在收起后为隐私模式重建）不起轮询，等 onWindowShown 再起。
@@ -5416,6 +5436,63 @@ public final class MSIMEInputService extends InputMethodService {
     /** 现在这个会话建立时是否按不学习建的。引擎的 learning 只在建会话时定，同一输入框重启连接时只有和现在的要求一致才留着会话。 */
     private boolean sessionLearningSuppressed;
 
+    /** 这次弹出的键盘还在等第一帧时，从 onStartInputView 开始等的时刻（uptime 毫秒）；没有在等时为 -1（#9916，{@link InputViewRefreshPolicy#armsFirstFrameWait}）。 */
+    private long firstFrameArmedAt = -1;
+    /** 工作线程交回来、等第一帧画完再在主线程上做的建会话；没有时为 null。它自己核对启动代次，换输入框、收起和销毁换代后放行时直接作废，和原来 post 回主线程的那一步一样。 */
+    private Runnable sessionStartAfterFirstFrame;
+    /** 第一帧迟迟不来时的兜底：到 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS} 照常建会话。 */
+    private final Runnable firstFrameWaitTimeout = this::runSessionStartAfterFirstFrame;
+
+    /**
+     * 键盘从收起到弹出时，开始等这次弹出的第一帧（#9916）：在键盘视图的 ViewTreeObserver 上挂一个只触发一次的画帧前监听，记下 onStartInputView 到第一帧的耗时，并把这段时间里工作线程交回来的建会话放到这一帧之后。窗口本来就显示着时不等。
+     */
+    private void armFirstFrameWait() {
+        View root = keyboardRoot;
+        if (!InputViewRefreshPolicy.armsFirstFrameWait(imeWindowVisible, root != null)) return;
+        long armedAt = SystemClock.uptimeMillis();
+        firstFrameArmedAt = armedAt;
+        // 第一次弹出时视图还没挂到窗口上，这里拿到的是临时的观察者，挂上窗口时监听会并进窗口自己的那个；所以摘监听时重新取一次。
+        root.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                android.view.ViewTreeObserver observer = root.getViewTreeObserver();
+                if (observer.isAlive()) observer.removeOnPreDrawListener(this);
+                firstFrameDrawn(armedAt);
+                return true;
+            }
+        });
+    }
+
+    /** 这次弹出的第一帧要画了：记下耗时，等着的建会话排到这一帧画完之后。又弹出了一次（重新开始等）或已经收起时，这一帧不属于它。 */
+    private void firstFrameDrawn(long armedAt) {
+        if (firstFrameArmedAt != armedAt) return;
+        firstFrameArmedAt = -1;
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.KEYBOARD_FIRST_DRAW, SystemClock.uptimeMillis() - armedAt);
+        // 画帧前监听还在这一帧的遍历里，post 出去的那一步在这一帧画完之后才轮到。
+        if (sessionStartAfterFirstFrame != null) {
+            main.removeCallbacks(firstFrameWaitTimeout);
+            main.post(this::runSessionStartAfterFirstFrame);
+        }
+    }
+
+    /** 工作线程准备好建会话：键盘这次弹出的第一帧还没画时排到它之后（兜底到 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS}），否则马上建。 */
+    private void startEngineSessionAfterFirstFrame(Runnable build) {
+        long now = SystemClock.uptimeMillis();
+        if (!InputViewRefreshPolicy.waitsForFirstFrame(firstFrameArmedAt, now)) {
+            build.run();
+            return;
+        }
+        sessionStartAfterFirstFrame = build;
+        main.removeCallbacks(firstFrameWaitTimeout);
+        main.postDelayed(firstFrameWaitTimeout, InputViewRefreshPolicy.firstFrameWaitRemaining(firstFrameArmedAt, now));
+    }
+
+    private void runSessionStartAfterFirstFrame() {
+        main.removeCallbacks(firstFrameWaitTimeout);
+        Runnable build = sessionStartAfterFirstFrame;
+        sessionStartAfterFirstFrame = null;
+        if (build != null) build.run();
+    }
+
     /** 有一次会话启动在路上：排上之后没有换代（换输入框、收起、销毁都会换代），也没有被 stop 取消（建会话失败、输入连接失败都经过 stop）。 */
     private boolean engineStartupPending() {
         return session == 0 && pendingEngineStartup >= 0 && pendingEngineStartup == engineStartGeneration;
@@ -5464,10 +5541,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 会话建好时写两条性能记录（只在用户打开「记录输入日志」且隐私判断允许时写，见 {@link ImeDebugOverlay#recordPerf}）：主线程上 `NativeClient.create` 的耗时，以及从这一代启动排上到会话可用的整段等待。只有毫秒数，不带输入内容和路径。下次有人反馈「键盘弹出来要等」时，从诊断包就能看出慢在建会话本身还是前面的词库同步和偏好读取。
+     * 会话建好时写三条性能记录（只在用户打开「记录输入日志」且隐私判断允许时写，见 {@link ImeDebugOverlay#recordPerf}）：主线程上 `NativeClient.create` 的耗时，主线程上从开始建会话到按实时偏好画完的整段（#9916，这一段里点按都在排队），以及从这一代启动排上到会话可用的整段等待。只有毫秒数，不带输入内容和路径。下次有人反馈「键盘弹出来要等」时，从诊断包就能看出慢在建会话本身、应用偏好和重画，还是前面的词库同步和偏好读取（`engine_startup_*`）。
      */
-    private void recordEngineSessionTiming(long createMillis) {
+    private void recordEngineSessionTiming(long createMillis, long mainThreadMillis) {
         imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_CREATE, createMillis);
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_MAIN, mainThreadMillis);
         if (engineStartupRequestedAt >= 0) {
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_READY,
                 SystemClock.uptimeMillis() - engineStartupRequestedAt);
@@ -10032,6 +10110,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        long createStartedAt = SystemClock.uptimeMillis();
         imeFunctionPanel.close();
         operationNotice.cancel();
         imePanels.dismissClipboardPreview();
@@ -10493,6 +10572,8 @@ public final class MSIMEInputService extends InputMethodService {
         renderLayoutSettingsState();
         render();
         synchronizeReplyKeyboard();
+        // 建整棵键盘视图在主线程上，键盘进程冷启动后第一次弹出（以及换主题、旋转等配置变化后）都要走一遍（#9916）。
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.INPUT_VIEW_CREATE, SystemClock.uptimeMillis() - createStartedAt);
         return keyboardRoot;
     }
 

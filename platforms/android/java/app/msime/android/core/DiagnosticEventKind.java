@@ -50,7 +50,15 @@ public enum DiagnosticEventKind {
     VOICE_FAILURE_RESPONSE("voice_failure_response", false),
     // 引擎会话建立的耗时（#10086），只进本机导出的诊断包的性能记录：主线程上建会话本身，和从启动排上到会话可用的整段等待。
     ENGINE_SESSION_CREATE("engine_session_create", false),
-    ENGINE_SESSION_READY("engine_session_ready", false);
+    ENGINE_SESSION_READY("engine_session_ready", false),
+    // 键盘每次弹出各阶段的耗时（#9916），同样只进本机导出的诊断包：键盘进程冷启动的 onCreate、建键盘视图、从 onStartInputView 到这次弹出画第一帧、建会话前工作线程上读实时偏好和同步个人词库、主线程上建会话到第一次画完的整段，以及换输入框时主线程上销毁旧会话。
+    IME_SERVICE_CREATE("ime_service_create", false),
+    INPUT_VIEW_CREATE("input_view_create", false),
+    KEYBOARD_FIRST_DRAW("keyboard_first_draw", false),
+    ENGINE_STARTUP_PREFERENCES("engine_startup_preferences", false),
+    ENGINE_STARTUP_DICTIONARY_SYNC("engine_startup_dictionary_sync", false),
+    ENGINE_SESSION_MAIN("engine_session_main", false),
+    ENGINE_SESSION_DESTROY("engine_session_destroy", false);
 
     private final String wire;
 

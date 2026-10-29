@@ -128,7 +128,7 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SKIN\)' <<< "$skin_menu_body" \
   || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SCHEME\)' <<< "$scheme_picker_body" \
   || ! rg -q 'main\.post\(this::runDeferredToolbarTaps\);' <<< "$start_session_body" \
-  || ! rg -q 'recordEngineSessionTiming\(createMillis\);' <<< "$start_session_body" \
+  || ! rg -q 'recordEngineSessionTiming\(createMillis, SystemClock\.uptimeMillis\(\) - startedAt\);' <<< "$start_session_body" \
   || ! rg -q 'runDeferredToolbarTaps\(\);' <<< "$reload_body" \
   || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java" \
   || ! sed -n '/^    void showCommonPhrases() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.commonPhrasesWorker\.execute' \
@@ -137,6 +137,26 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
   || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarPanel\(\);'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
+# 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧画完把等着的建会话 post 到这一帧之后；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
+start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
+schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")
+first_frame_body=$(sed -n '/^    private void firstFrameDrawn(long armedAt) {$/,/^    }$/p' "$service_java")
+if ! sed -n '2p' <<< "$start_view_body" | rg_q_stdin 'super\.onStartInputView\(info, restarting\);' \
+  || ! sed -n '3p' <<< "$start_view_body" | rg_q_stdin '^        armFirstFrameWait\(\);$' \
+  || ! rg -q 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" \
+  || ! rg -A 3 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" | rg_q_stdin 'if \(generation != engineStartGeneration \|\| connection == null \|\| session != 0\) return;' \
+  || rg -q '^                    startEngineSession\(startOptions' <<< "$schedule_body" \
+  || ! rg -q 'main\.post\(this::runSessionStartAfterFirstFrame\);' <<< "$first_frame_body" \
+  || ! rg -q 'DiagnosticEventKind\.KEYBOARD_FIRST_DRAW' <<< "$first_frame_body" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_PREFERENCES, preferencesMillis' <<< "$schedule_body" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_DICTIONARY_SYNC, syncMillis' <<< "$schedule_body" \
+  || ! sed -n '/^    @Override public void onCreate() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'DiagnosticEventKind\.IME_SERVICE_CREATE' \
+  || ! sed -n '/^    @Override public View onCreateInputView() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'DiagnosticEventKind\.INPUT_VIEW_CREATE' \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_MAIN, mainThreadMillis' "$service_java" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_DESTROY,' "$service_java"; then
+  echo "Android keyboard first-show timing and the after-first-frame session build must stay wired (#9916)" >&2
   exit 1
 fi
 # 候选条按钮的最小宽度只有触控下限（CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP，CandidateAppearanceSmoke 覆盖它的值）；皮肤的 itemMinWidth 是桌面候选窗的格宽，`base = "microsoft"` 出厂 3.5em，套到候选条上一个字宽的候选也撑成一大格。样式在 ImeCandidates 里，JVM 冒烟碰不到，这里钉住接线。

@@ -133,10 +133,20 @@ fn performance_records_need_exactly_the_three_whitelisted_keys() {
     assert!(crash_record(br#"{"at":"x","message":"m","stack":"s","extra":1}"#).is_none());
 }
 
-// Android 键盘建会话的耗时（#10086）只有种类和毫秒数，进本机导出的诊断包；服务端不认这两个种类，云端上传器把它们滤掉。
+// Android 键盘建会话的耗时（#10086）和键盘弹出各阶段的耗时（#9916）只有种类和毫秒数，进本机导出的诊断包；服务端不认这些种类，云端上传器把它们滤掉。
 #[test]
 fn engine_session_timing_records_stay_in_local_bundles() {
-    for kind in ["engine_session_create", "engine_session_ready"] {
+    for kind in [
+        "engine_session_create",
+        "engine_session_ready",
+        "ime_service_create",
+        "input_view_create",
+        "keyboard_first_draw",
+        "engine_startup_preferences",
+        "engine_startup_dictionary_sync",
+        "engine_session_main",
+        "engine_session_destroy",
+    ] {
         let line = format!(r#"{{"t_ms":1,"kind":"{kind}","duration_ms":840}}"#);
         assert_eq!(
             performance_record(line.as_bytes()),
