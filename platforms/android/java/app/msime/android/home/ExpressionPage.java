@@ -9,6 +9,7 @@ import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.NumberPolicy;
+import app.msime.android.PredictionButtonsPolicy;
 import app.msime.android.TextPolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -18,7 +19,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
+ * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、上屏后联想及联想时候选栏右端的按键样式、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
  * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
@@ -31,6 +32,10 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
     private static final String SENTENCE_DESCRIPTION =
         "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。下一词推荐由「上屏后联想」单独控制";
+    /** 共享偏好 `next_word_prediction_buttons` 的显示文字，顺序与 {@link PredictionButtonsPolicy.Style} 相同，缺省是只有展开键（#10078）。 */
+    private static final String[] PREDICTION_BUTTON_LABELS = {"只有展开 ∨", "关闭 × 和展开 ∨", "只有关闭 ×"};
+    private static final String PREDICTION_BUTTONS_DESCRIPTION =
+        "联想出现时候选栏右端的按键：× 关闭联想，不输入任何字符；∨ 展开更多联想。只有关闭时左右滑动候选栏选词";
     /** 共享偏好 `quote_style` 的取值与显示文字，缺省（文档里没有这个键）是弯引号。 */
     private static final String[] QUOTE_STYLES = {"curly", "corner", "corner_when_traditional"};
     private static final String[] QUOTE_STYLE_LABELS = {"弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号"};
@@ -132,6 +137,13 @@ public final class ExpressionPage extends ReloadingDetailPage {
         intelligence.toggle("上屏后联想", "选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
             values.optBoolean("next_word_prediction", false),
             checked -> savePreferences(edit -> edit.put("next_word_prediction", checked)));
+        // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰。
+        PredictionButtonsPolicy.Style buttons = PredictionButtonsPolicy.Style.parse(
+            values.optString(PredictionButtonsPolicy.PREFERENCE_KEY, ""));
+        intelligence.nav("联想栏按键", PREDICTION_BUTTONS_DESCRIPTION, PREDICTION_BUTTON_LABELS[buttons.ordinal()],
+            values.optBoolean("next_word_prediction", false) ? () -> pickStyle("联想栏按键",
+                PREDICTION_BUTTONS_DESCRIPTION, PredictionButtonsPolicy.PREFERENCE_KEY, predictionButtonValues(),
+                PREDICTION_BUTTON_LABELS, buttons.ordinal()) : null, true);
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
         intelligence.toggle(english.title(), english.description(),
             values.optBoolean(english.key(), english.enabledByDefault()),
@@ -238,6 +250,14 @@ public final class ExpressionPage extends ReloadingDetailPage {
             sheet.option(labels[index], index == selected, () -> savePreferences(edit -> edit.put(key, value)));
         }
         sheet.show();
+    }
+
+    /** 联想按键样式在偏好文档里的写法，顺序与 {@link #PREDICTION_BUTTON_LABELS} 相同。 */
+    private static String[] predictionButtonValues() {
+        PredictionButtonsPolicy.Style[] styles = PredictionButtonsPolicy.Style.values();
+        String[] values = new String[styles.length];
+        for (int index = 0; index < styles.length; index++) values[index] = styles[index].wire();
+        return values;
     }
 
     /** 取值在列表里的位置；不认识的取值（更新的版本写的）按第一个即缺省显示。 */

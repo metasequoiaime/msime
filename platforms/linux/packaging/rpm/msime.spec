@@ -27,8 +27,8 @@ Name:           msime
 Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus
-# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据：Rust crate 与 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。
-License:        GPL-3.0-only AND Apache-2.0 AND MIT AND BSD-3-Clause AND HPND AND LGPL-2.1-or-later AND LGPL-3.0-only AND CC-BY-4.0 AND CC-BY-SA-4.0 AND MPL-2.0 AND WTFPL AND Unicode-3.0 AND ISC AND Zlib
+# 本项目代码为 GPL-3.0-only，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；其余是随包的第三方代码与数据：Rust crate 与 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。
+License:        GPL-3.0-only AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND BSD-3-Clause AND BSD-2-Clause AND HPND AND LGPL-2.1-or-later AND LGPL-3.0-only AND CC-BY-3.0 AND CC-BY-4.0 AND CC-BY-SA-4.0 AND MPL-2.0 AND WTFPL AND Unicode-3.0 AND ISC AND Zlib
 URL:            https://github.com/metasequoiaime/msime
 Source0:        %{url}/releases/download/linux-sources/msime-%{version}.tar.xz
 Source1:        %{url}/releases/download/linux-sources/msime-%{version}-vendor.tar.xz

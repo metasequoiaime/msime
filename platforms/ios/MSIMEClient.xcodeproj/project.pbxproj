@@ -309,6 +309,7 @@
 		45E27E20F3628F21226CCE66 /* AICandidatePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999B49E42E770ED3489631D8 /* AICandidatePreference.swift */; };
 		45F9F017325AA2CA6F539470 /* KeyboardToolSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3364995828FFBEEF4F6A694 /* KeyboardToolSection.swift */; };
 		460D599617C4455A3D293C9C /* SettingsScenePhaseReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6302B1D0D455AE9CDAE0A746 /* SettingsScenePhaseReload.swift */; };
+		4612E74635A3A4928882C6D6 /* latex-symbols-MIT.txt in Resources */ = {isa = PBXBuildFile; fileRef = 97A20F485F35F65899A8101C /* latex-symbols-MIT.txt */; };
 		4691F000DFCD86F61A178E0C /* KeyboardSkinTrial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7C0956C2183B09335BD442 /* KeyboardSkinTrial.swift */; };
 		46E6483445970D2AE89C2350 /* PersonalDictionaryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070E2130BE0A27C9B3CFD530 /* PersonalDictionaryBridge.swift */; };
 		470ACF74293BB4038BAE0959 /* BackendRustClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B520BB5EF76EE18DB6FF4CB /* BackendRustClient.swift */; };
@@ -353,7 +354,6 @@
 		503E56126CCB1979D8DC4BEB /* OwnEditEchoWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CFC7B25A297D666AB0B4BC /* OwnEditEchoWindow.swift */; };
 		5078F23BE45FA3D000CC384F /* KeyboardCloudClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE5D92375F4741B1A2E3BDA /* KeyboardCloudClipboard.swift */; };
 		510E4AB50677EBC9382BA77B /* FrequencyAdjustmentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AB2A5BF965499D6D662031 /* FrequencyAdjustmentPreference.swift */; };
-		51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */; };
 		51E67BC9E9E773CA3A2E302A /* GlideTyping.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB65620E5B3B44FBBEC6462C /* GlideTyping.swift */; };
 		51FD461A541E3DC8A55F97BE /* AIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2ABA346D43E3C2EC9A54C /* AIEndpointPolicy.swift */; };
 		52F479E64A93D99AE4B5C739 /* IOSResourcePacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E8B4297D68CF9B8E393590 /* IOSResourcePacks.swift */; };
@@ -457,6 +457,7 @@
 		699557FB707612D2085E3A30 /* SettingsSyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E848582BF93CA319552C7A8 /* SettingsSyncView.swift */; };
 		69B1330FC526C8FAD91ED638 /* PairedPunctuationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430CEF9F25B7660AE6166101 /* PairedPunctuationPolicy.swift */; };
 		69B3F635DD9507D03F0BB09E /* VerificationCodePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85767C9258553C6420A8C955 /* VerificationCodePolicy.swift */; };
+		69BF8777E4F861F75DB7BAAD /* MPL-2.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 2B280D46D76272886DB59790 /* MPL-2.0.txt */; };
 		69D094265B0744D4CBD12BE5 /* LetterHintTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DE6E51394632D069890D0E /* LetterHintTable.swift */; };
 		6A4798144D36E29BBBF152D4 /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */; };
 		6A94CAEA77CE068DB63FF457 /* TypingStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEC648B8DF5B836576B34E5 /* TypingStatistics.swift */; };
@@ -985,6 +986,7 @@
 		E592E51D191AB1442AB8B077 /* BackendRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */; };
 		E5AE9126284C4BFB33466E1C /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
 		E64626F93B699908E04CCAC6 /* HandwritingCanvasCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB46140677FBE04AD2162 /* HandwritingCanvasCard.swift */; };
+		E658B35127AD65882B2D12C6 /* libcxx-Apache-2.0-WITH-LLVM-exception.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5E60CDA44FB8604405A2CD6E /* libcxx-Apache-2.0-WITH-LLVM-exception.txt */; };
 		E665E4E5F71AFB3CDD1427B7 /* QuickPunctuationSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E2919FBC3B1DCF8C86928F /* QuickPunctuationSettingsTests.swift */; };
 		E683506A5EC1CB0A68260C80 /* VoiceProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8F91A3B4A39D79DF2C843A /* VoiceProviderCatalog.swift */; };
 		E6C5E0D00CFF17205B41CA12 /* CrashSignalRecorder.c in Sources */ = {isa = PBXBuildFile; fileRef = 333BE267E92B331059A2035B /* CrashSignalRecorder.c */; };
@@ -1252,6 +1254,7 @@
 		28DB401DB38653A3B64B4551 /* VoicePolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePolish.swift; sourceTree = "<group>"; };
 		29873C45427FC4BE22710127 /* CustomServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomServiceTests.swift; sourceTree = "<group>"; };
 		2A7F8933677814FA11B2E430 /* KeyboardAIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAIService.swift; sourceTree = "<group>"; };
+		2B280D46D76272886DB59790 /* MPL-2.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "MPL-2.0.txt"; sourceTree = "<group>"; };
 		2B4AB9546334C6C2278949DE /* DictionarySnapshotQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotQueueTests.swift; sourceTree = "<group>"; };
 		2B7ADA6A964F03595EE175C6 /* GoogleSignIn-Dependencies.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GoogleSignIn-Dependencies.txt"; sourceTree = "<group>"; };
 		2CEE9A90474563EC951F0E24 /* SherpaOnnxC.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SherpaOnnxC.xcframework; path = "../../target/voice-runtime/ios/SherpaOnnxC.xcframework"; sourceTree = "<group>"; };
@@ -1287,7 +1290,6 @@
 		39A57ED3372EEA9F4E698D40 /* JapaneseNineKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JapaneseNineKeyTests.swift; sourceTree = "<group>"; };
 		3A6448137244D84452B83465 /* DictionarySyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySyncView.swift; sourceTree = "<group>"; };
 		3A65A0F8F45AA0AB5A6922C3 /* KeyboardPagedGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPagedGridView.swift; sourceTree = "<group>"; };
-		3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "rime-wanxiang-CC-BY-4.0.txt"; sourceTree = "<group>"; };
 		3B7C88992D4866617DCC4285 /* KoreanDubeolsikTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanDubeolsikTests.swift; sourceTree = "<group>"; };
 		3BB15E61581E05671073DC68 /* KeyboardHostContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHostContextTests.swift; sourceTree = "<group>"; };
 		3C593401E864A58F7F8763D1 /* AISkinService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinService.swift; sourceTree = "<group>"; };
@@ -1350,6 +1352,7 @@
 		5C67DD61572191810C3ED934 /* TouchPointPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchPointPolicy.swift; sourceTree = "<group>"; };
 		5C721F2EB6F186F5A7C93B12 /* CustomService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomService.swift; sourceTree = "<group>"; };
 		5D3FB46140677FBE04AD2162 /* HandwritingCanvasCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandwritingCanvasCard.swift; sourceTree = "<group>"; };
+		5E60CDA44FB8604405A2CD6E /* libcxx-Apache-2.0-WITH-LLVM-exception.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "libcxx-Apache-2.0-WITH-LLVM-exception.txt"; sourceTree = "<group>"; };
 		5E84B9019E2218964EED1CBD /* SettingsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRows.swift; sourceTree = "<group>"; };
 		5ED26487097D19CD4974775E /* BackendAccountClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendAccountClient.swift; sourceTree = "<group>"; };
 		5F03A68AA9F5CC4B135BEAD1 /* MetasequoiaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetasequoiaTheme.swift; sourceTree = "<group>"; };
@@ -1462,6 +1465,7 @@
 		962B4266475311E751681270 /* AIProviderCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderCatalog.swift; sourceTree = "<group>"; };
 		96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClipboardTimePolicy.swift; sourceTree = "<group>"; };
 		97321DEF0C025C03E6933837 /* DictionarySyncCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySyncCenter.swift; sourceTree = "<group>"; };
+		97A20F485F35F65899A8101C /* latex-symbols-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "latex-symbols-MIT.txt"; sourceTree = "<group>"; };
 		97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyGapRouting.swift; sourceTree = "<group>"; };
 		98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePreference.swift; sourceTree = "<group>"; };
 		98B1A9D27C521DC3E8D516BD /* TauriDictionarySnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TauriDictionarySnapshotBridge.swift; sourceTree = "<group>"; };
@@ -2060,13 +2064,15 @@
 			children = (
 				38746D5530F03A00DD492FC6 /* ewts-MIT.txt */,
 				A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */,
+				97A20F485F35F65899A8101C /* latex-symbols-MIT.txt */,
 				EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */,
+				5E60CDA44FB8604405A2CD6E /* libcxx-Apache-2.0-WITH-LLVM-exception.txt */,
 				8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */,
 				F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */,
+				2B280D46D76272886DB59790 /* MPL-2.0.txt */,
 				DAC83802853B57ACCD2EE104 /* OpenCC-Apache-2.0.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
-				3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */,
 				878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */,
 				F00250F90DDDC57808459590 /* vi-MIT.txt */,
 				4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */,
@@ -3092,20 +3098,22 @@
 				301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */,
 				7EB33C5330748EE93BA3A1DB /* MLKit-Dependencies.txt in Resources */,
 				84B7B0B173F1C93261D00BFC /* MLKit-NOTICES.txt in Resources */,
+				69BF8777E4F861F75DB7BAAD /* MPL-2.0.txt in Resources */,
 				0BCC57FF3E2CB9CC3C3C6B1C /* OpenCC-Apache-2.0.txt in Resources */,
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
 				14BCB5C318B84D6A1E406FC7 /* Unicode-License-V3.txt in Resources */,
 				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
 				63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */,
 				7DDFFD711FA55B45823A5C33 /* kfcd-chaizi-CC-BY-3.0.txt in Resources */,
+				4612E74635A3A4928882C6D6 /* latex-symbols-MIT.txt in Resources */,
 				A59935F2ECE3BD02A941814B /* libchewing-data-LGPL-2.1.txt in Resources */,
+				E658B35127AD65882B2D12C6 /* libcxx-Apache-2.0-WITH-LLVM-exception.txt in Resources */,
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,
 				700183FCED3A471BFF991B5B /* librime-octagram-BSD-3-Clause.txt in Resources */,
 				84FD87453189A438FAF20604 /* msime-dictionary-manifest.json in Resources */,
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */,
 				6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */,
-				51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */,
 				3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */,
 				12E1F4B872538DE5CEA96003 /* world-clock-NOTICE.txt in Resources */,
 			);

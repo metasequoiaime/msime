@@ -141,6 +141,41 @@ test("the sliders write the window style, leaving the defaults out of the docume
   expect(edited.onChange).toHaveBeenLastCalledWith({ candidate_opacity_percent: undefined });
 });
 
+// #10137：触屏键盘上叫「候选栏大小」，三端同一说法，给出核心接受的整个 50–200，回到 100% 时从文档里删掉。
+test.each([
+  ["android", false],
+  ["ios", false],
+  ["harmony", true],
+] as const)("%s names the touch scale 候选栏大小 over the whole core range", (platform, touch) => {
+  const onChange = vi.fn();
+  render(
+    <GroupList title="候选栏">
+      <CandidateScaleRow
+        preferences={{ candidate_scale_percent: 80 }}
+        platform={platform}
+        touch={touch || undefined}
+        onChange={onChange}
+      />
+    </GroupList>,
+  );
+  const scale = screen.getByRole("slider", { name: "候选栏大小" });
+  expect(scale.getAttribute("min")).toBe("50");
+  expect(scale.getAttribute("max")).toBe("200");
+  expect(scale.getAttribute("step")).toBe("5");
+  expect(screen.getByText("80%，候选字和工具栏一起缩放，按键大小不变")).toBeTruthy();
+  fireEvent.change(scale, { target: { value: "50" } });
+  expect(onChange).toHaveBeenLastCalledWith({ candidate_scale_percent: 50 });
+  fireEvent.change(scale, { target: { value: "100" } });
+  expect(onChange).toHaveBeenLastCalledWith({ candidate_scale_percent: undefined });
+  expect(screen.queryByRole("slider", { name: "整体大小" })).toBeNull();
+});
+
+// 鸿蒙 2in1 的候选卡片仍叫「整体大小」：桌面形态不传 `touch`。
+test("a HarmonyOS 2in1 card keeps the desktop wording", () => {
+  renderSection({ platform: "harmony" });
+  expect(screen.getByRole("slider", { name: "整体大小" }).getAttribute("min")).toBe("75");
+});
+
 // Linux 的 Fcitx5 主题也按整体大小缩放卡片几何（IBus 面板只缩放字号，由面板限制说明交代），所以和其他宿主同一句说明。
 test("Linux describes overall size like the other hosts", () => {
   renderSection({ platform: "linux" });
@@ -269,7 +304,7 @@ test.each([
   ["macos", { scale: true, opacity: true, radius: true, padding: true }],
   ["linux", { scale: true, opacity: true, radius: true, padding: true }],
   ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
-  ["ios", { scale: false, opacity: false, radius: false, padding: false }],
+  ["ios", { scale: true, opacity: false, radius: false, padding: false }],
   ["android", { scale: true, opacity: false, radius: false, padding: false }],
 ] as const)("%s gates the window style rows on its capabilities", (platform, expected) => {
   const host = testHost({

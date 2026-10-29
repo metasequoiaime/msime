@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
-"""检查符号模式（Shift+S）的分组码表、它的锁和 CC BY 4.0 署名。
+"""检查符号模式（Shift+S）的分组码表、它的锁和 Unicode 许可声明。
 
-crates/engine/src/local/symbol_groups.tsv 由 scripts/build_symbol_groups.py 从 rime-wanxiang 的
-wanxiang_symbols.yaml（CC BY 4.0）生成并提交，引擎用 include_str! 编进每个平台的二进制。手工改动、
-改了生成器却没重新生成，都会原样发布，所以这里离线检查表的不变量：三列、编码只含小写字母且不重复、
-组名是汉字、符号非空且不含空白、几个样例分组码查得到、点名的组名与符号数。
+crates/engine/src/local/symbol_groups.tsv 由 scripts/build_symbol_groups.py 按锁定版本的 Unicode 字符数据库（UnicodeData.txt、Blocks.txt、EquivalentUnifiedIdeograph.txt，Unicode License V3）生成并提交，引擎用 include_str! 编进每个平台的二进制。手工改动、改了生成器却没重新生成，都会原样发布，所以这里离线检查表的不变量：三列、编码只含小写字母且不重复、组名是汉字、符号非空且不含空白与变体选择符、几个样例分组码的组名、头几个符号与符号数。
 
-CC BY 4.0 第 3(a) 条要求随改编数据署名、给出许可证地址并说明改动，所以许可证文件必须写明固定提交、
-署名和改动说明，锁里的提交必须与它一致；NOTICE_CHANNELS 里的每个声明渠道都要在非注释行写出许可证
-文件名，总览还要写出固定提交。上游那张表是从 Rime 的 symbols.yaml 抄来的，许可证文件里也写了这一层。
+锁只许指向 unicode.org 上与 unicode_version 相同版本的 UCD 文件，许可证文件的摘要要与锁一致：分组表此前取自 rime-wanxiang，其分组上游来自 rime-prelude 的 LGPL-3.0 数据，引擎改以 MPL-2.0 发布后不再内嵌这类派生分组，换回第三方符号表要先改这里。Unicode License V3 要求随数据附上它的版权与许可声明，所以 NOTICE_CHANNELS 里的每个声明渠道都要在非注释行写出 Unicode-License-V3.txt，总览还要写明符号模式的表取自哪个 UCD 版本。
 
-缓存里有锁定的输入或设了 MSIME_FETCH=1 时，再调用生成器的 --check 逐字节比较；都没有时只做离线
-检查，不联网也以 0 退出。
+缓存里有锁定的输入或设了 MSIME_FETCH=1 时，再调用生成器的 --check 逐字节比较；都没有时只做离线检查，不联网也以 0 退出。
 """
+import hashlib
 import json
 import os
 import re
@@ -24,19 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "resources/symbol-groups.lock.json"
 TABLE = ROOT / "crates/engine/src/local/symbol_groups.tsv"
 GENERATOR = ROOT / "scripts/build_symbol_groups.py"
-LICENCE = ROOT / "resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
-# 许可证文件必须保留的段落：署名、作品名、许可证与它的地址、改动说明、不背书声明、法律文本的首尾。
-LICENCE_PHRASES = (
-    "rime-wanxiang (https://github.com/amzxyz/rime-wanxiang)",
-    "Copyright amzxyz and contributors",
-    "wanxiang_symbols.yaml",
-    "Creative Commons Attribution 4.0 International",
-    "https://creativecommons.org/licenses/by/4.0/",
-    "The changes made to the original work",
-    "do not endorse",
-    "Attribution 4.0 International",
-    "Creative Commons may be contacted at creativecommons.org.",
-)
+LICENCE = ROOT / "resources/licenses/Unicode-License-V3.txt"
+UCD_FILES = ("UnicodeData.txt", "Blocks.txt", "EquivalentUnifiedIdeograph.txt")
 # 每个渠道都要在非注释行写出许可证的文件名。
 NOTICE_CHANNELS = {
     "platforms/macos/CMakeLists.txt": "macOS: the input method bundle's Resources/Licenses",
@@ -51,22 +35,30 @@ NOTICE_CHANNELS = {
     "platforms/ios/project.yml": "iOS: the app's bundled resources",
     "platforms/ios/tests/settings/ProjectConfigurationTests.py": "iOS: the project configuration test",
     "docs/third-party.md": "the repository's third-party index",
+    "scripts/web-engine-notice.sh": "Web engine: the licence texts the NOTICE of each web-engine release copies",
 }
-# 总览写明每份文本覆盖什么，所以还要写出固定提交。
+# 总览写明每份文本覆盖什么，所以还要写出符号模式的表和它取自的 UCD 版本。
 OVERVIEWS = (
     "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt",
     "platforms/linux/data/THIRD_PARTY_NOTICES.txt",
     "platforms/windows/Collect-Notices.ps1",
-    "docs/third-party.md",
 )
-# 样例：分组码 → (组名, 头几个符号, 符号数)。数目变了说明上游分组动过，要人工复核。
+# 样例：分组码 → (组名, 头几个符号, 符号数)。数目变了说明生成规则或锁定的 UCD 版本动过，要人工复核。
 SAMPLES = {
-    "xl": ("希腊字母小写", ["α", "β", "γ"], 24),
+    "xl": ("希腊字母小写", ["α", "β", "γ"], 25),
     "xld": ("希腊字母大写", ["Α", "Β", "Γ"], 24),
-    "sx": ("数学符号", ["＋", "－", "×"], 45),
-    "szq": ("带圈数字", ["⓪", "①", "②"], 72),
-    "jt": ("箭头", ["→", "↑", "↓"], 148),
+    "sx": ("数学符号", ["¬", "±", "×"], 197),
+    "szq": ("带圈数字", ["①", "②", "③"], 112),
+    "jt": ("箭头", ["←", "↑", "→"], 151),
+    "py": ("拼音字母", ["ā", "á", "ǎ"], 42),
+    "kx": ("康熙部首", ["一", "丨", "丶"], 214),
+    "pp": ("偏旁", ["⺀", "厂", "乛"], 109),
+    "fj": ("非夹注符号", ["——", "……", "-"], 41),
 }
+# 部首补充区里有等价统一汉字的部首要换成那个字；EquivalentUnifiedIdeograph.txt 里成段写的几条（小、爫、艹、辶）曾经漏掉过，所以点名钉住。
+REQUIRED = {"pp": ["小", "爫", "艹", "辶"], "dn": ["⇧", "⇪", "⇥", "↩"], "bd": ["〇", "々"]}
+GROUPS = 87
+SYMBOLS = 4585
 CODE = re.compile(r"[a-z]+\Z")
 failures: list[str] = []
 
@@ -92,17 +84,19 @@ def check_table() -> None:
             failures.append(f"symbol_groups.tsv 第 {number} 行不是 3 列")
             continue
         code, name, symbols = fields
-        check(bool(CODE.fullmatch(code)) and code == code.lower(), f"symbol_groups.tsv 第 {number} 行的编码 {code!r} 不是小写字母")
+        check(bool(CODE.fullmatch(code)), f"symbol_groups.tsv 第 {number} 行的编码 {code!r} 不是小写字母")
         check(code not in groups, f"symbol_groups.tsv 第 {number} 行的编码 {code!r} 重复")
         check(bool(name) and all("\u4e00" <= character <= "\u9fff" for character in name), f"symbol_groups.tsv 第 {number} 行的组名 {name!r} 不是汉字")
         items = symbols.split(" ")
         check(bool(items) and all(items), f"symbol_groups.tsv 第 {number} 行有空的符号")
+        check(len(set(items)) == len(items), f"symbol_groups.tsv 的 {code} 里有重复的符号")
         for symbol in items:
-            check(symbol == symbol.strip() and not any(character.isspace() for character in symbol), f"symbol_groups.tsv 的 {code} 里符号 {symbol!r} 含空白")
-            check("\ufe0f" not in symbol, f"symbol_groups.tsv 的 {code} 里符号 {symbol!r} 带变体选择符")
+            check(not any(character.isspace() for character in symbol), f"symbol_groups.tsv 的 {code} 里符号 {symbol!r} 含空白")
+            check(not any("\ufe00" <= character <= "\ufe0f" for character in symbol), f"symbol_groups.tsv 的 {code} 里符号 {symbol!r} 带变体选择符")
         groups[code] = (name, items)
-    check(len(groups) == 87, f"分组码个数是 {len(groups)}，应为 87")
-    check(sum(len(items) for _, items in groups.values()) == 3929, "符号总数不是 3929")
+    check(len(groups) == GROUPS, f"分组码个数是 {len(groups)}，应为 {GROUPS}")
+    total = sum(len(items) for _, items in groups.values())
+    check(total == SYMBOLS, f"符号总数是 {total}，应为 {SYMBOLS}")
     for code, (name, head, count) in SAMPLES.items():
         actual = groups.get(code)
         check(actual is not None, f"表里没有样例分组码 {code}")
@@ -111,29 +105,35 @@ def check_table() -> None:
         check(actual[0] == name, f"{code} 的组名是 {actual[0]!r}，应为 {name!r}")
         check(actual[1][: len(head)] == head, f"{code} 的头几个符号是 {actual[1][: len(head)]!r}，应为 {head!r}")
         check(len(actual[1]) == count, f"{code} 有 {len(actual[1])} 个符号，应为 {count}")
+    for code, symbols in REQUIRED.items():
+        items = groups.get(code, ("", []))[1]
+        missing = [symbol for symbol in symbols if symbol not in items]
+        check(not missing, f"{code} 里没有 {missing}")
 
 
-def check_licence(lock: dict) -> None:
-    check(LICENCE.is_file(), f"{LICENCE.relative_to(ROOT)} 不存在")
-    if not LICENCE.is_file():
-        return
-    text = LICENCE.read_text(encoding="utf-8")
-    commit = lock["source_commit"]
-    check(text.splitlines()[0] == f"rime-wanxiang ({lock['source']}), release {lock['source_release']}, commit {commit}", f"{LICENCE.relative_to(ROOT)} 第一行没有写出锁里的提交 {commit}")
-    check(lock["license_file"] == LICENCE.relative_to(ROOT).as_posix(), "锁的 license_file 不是许可证文件的路径")
-    check(lock["license"] == "CC-BY-4.0", "锁的 license 不是 CC-BY-4.0")
-    for phrase in LICENCE_PHRASES:
-        check(phrase in text, f"{LICENCE.relative_to(ROOT)} 不再含有 {phrase!r}")
-    # 输入取自词库仓 msime-dictionary 的 sources/symbols/（与上游 source_commit 逐字节一致，见词库仓 NOTICE.md），不直连上游。
-    dictionary = lock.get("dictionary_commit", "")
-    check(lock.get("dictionary_repository") == "https://github.com/metasequoiaime/msime-dictionary", "锁的 dictionary_repository 不是 msime-dictionary")
-    check(re.fullmatch(r"[0-9a-f]{40}", dictionary) is not None, "锁的 dictionary_commit 不是完整的 Git 提交")
+def check_lock(lock: dict) -> None:
+    version = lock.get("unicode_version", "")
+    check(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "锁的 unicode_version 不是 x.y.z")
+    check(lock.get("license") == "Unicode-3.0", "锁的 license 不是 Unicode-3.0")
+    names = [artifact["name"] for artifact in lock["artifacts"]]
+    check(sorted(names) == sorted(UCD_FILES), f"锁的输入是 {names}，应只有 {list(UCD_FILES)}")
     for artifact in lock["artifacts"]:
         check(
-            artifact["url"] == f"https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/{dictionary}/sources/symbols/{artifact['name']}",
-            f"锁里 {artifact['name']} 的地址不是词库仓固定提交 {dictionary} 的 sources/symbols/{artifact['name']}",
+            artifact["url"] == f"https://www.unicode.org/Public/{version}/ucd/{artifact['name']}",
+            f"锁里 {artifact['name']} 的地址不是 unicode.org 上 {version} 版的 UCD 文件",
         )
+        check(re.fullmatch(r"[0-9a-f]{64}", artifact.get("sha256", "")) is not None and artifact.get("size", 0) > 0, f"锁里 {artifact['name']} 没有 sha256 或长度")
+    licence = lock["license_file"]
+    check(licence["path"] == LICENCE.relative_to(ROOT).as_posix(), "锁的 license_file 不是 Unicode-License-V3.txt")
+    if LICENCE.is_file():
+        check(hashlib.sha256(LICENCE.read_bytes()).hexdigest() == licence["sha256"], f"{LICENCE.relative_to(ROOT)} 的摘要与锁不一致")
+    else:
+        check(False, f"{LICENCE.relative_to(ROOT)} 不存在")
     check(lock["outputs"] == [TABLE.relative_to(ROOT).as_posix()], "锁的 outputs 不是这张表")
+    check(lock["generator"] == GENERATOR.relative_to(ROOT).as_posix(), "锁的 generator 不是 build_symbol_groups.py")
+
+
+def check_notices(lock: dict) -> None:
     for channel, description in NOTICE_CHANNELS.items():
         path = ROOT / channel
         if not path.is_file():
@@ -141,10 +141,10 @@ def check_licence(lock: dict) -> None:
             continue
         live = [line for line in path.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
         check(any(LICENCE.name in line for line in live), f"{channel}（{description}）没有列出 {LICENCE.name}")
+    version = lock["unicode_version"]
     for overview in OVERVIEWS:
-        path = ROOT / overview
-        if path.is_file():
-            check(commit in path.read_text(encoding="utf-8"), f"{overview} 没有写出 rime-wanxiang 的固定提交 {commit}")
+        text = (ROOT / overview).read_text(encoding="utf-8")
+        check("symbol mode (S mode) table" in text and f"Unicode Character Database {version}" in text, f"{overview} 没有写明符号模式的表取自 Unicode 字符数据库 {version}")
 
 
 def check_generated() -> None:
@@ -158,14 +158,15 @@ def check_generated() -> None:
 def main() -> int:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     check_table()
-    check_licence(lock)
+    check_lock(lock)
+    check_notices(lock)
     if not failures:
         check_generated()
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"symbol groups: {len(table_lines(TABLE))} groups, licence in {len(NOTICE_CHANNELS)} channels")
+    print(f"symbol groups: {len(table_lines(TABLE))} groups from UCD {lock['unicode_version']}, licence in {len(NOTICE_CHANNELS)} channels")
     return 0
 
 

@@ -6,7 +6,7 @@ import CoreFoundation
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears. The candidate package, mode and colours are part of the custom theme and live on the 主题 page (CustomThemeCandidateSection).
 ///
-/// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
+/// 设计稿里的候选栏高度由「候选栏大小」（`candidate_scale_percent`）承担：候选栏连同字号、空闲时占同一行的工具栏一起缩放（#10137）。翻页一行没有做：键盘没有翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
   @State private var multilingualEnabled = false
   @State private var multilingualLanguages = ["chinese", "english", "japanese"]
@@ -26,6 +26,7 @@ struct CandidateOptionsSettingsView: View {
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
   @State private var preeditSize = CandidateFontPreference.defaultPreeditSize
+  @State private var scalePercent = CandidateFontPreference.defaultScalePercent
   @State private var fontFamily = CandidateFontPreference.defaultFamily
   @State private var englishFamily: String?
   @State private var fontFamilies: [String] = []
@@ -41,6 +42,11 @@ struct CandidateOptionsSettingsView: View {
         DesignGroup(title: "候选栏") {
           DesignSliderRow(title: "候选字号", value: fontSizeSlider, range: sliderRange, step: 1,
                           identifier: "candidateFontSize") { "\(Int($0))px" }
+          DesignDivider()
+          // 与 Android、鸿蒙同一范围和说法（#10137）：候选栏和空闲时占同一行的工具栏一起缩放，按键不动。
+          DesignSliderRow(title: "候选栏大小", subtitle: "候选字和工具栏一起缩放，按键大小不变", value: scaleSlider,
+                          range: Double(CandidateFontPreference.scaleRange.lowerBound)...Double(CandidateFontPreference.scaleRange.upperBound),
+                          step: Double(CandidateFontPreference.scaleStep), identifier: "candidateScale") { "\(Int($0))%" }
         }
 
         DesignGroup(title: "字体") {
@@ -185,6 +191,23 @@ struct CandidateOptionsSettingsView: View {
     })
   }
 
+  /// 「候选栏大小」滑块：拖动时每跨过一个步长写一次文档；回到 100% 时删掉这一项，与共享设置页和 Android 写缺省值的方式相同。
+  private var scaleSlider: Binding<Double> {
+    Binding(get: { Double(scalePercent) }, set: { value in
+      let step = CandidateFontPreference.scaleStep
+      let rounded = Int((value / Double(step)).rounded()) * step
+      guard rounded != scalePercent, CandidateFontPreference.scaleRange.contains(rounded) else { return }
+      scalePercent = rounded
+      write {
+        if rounded == CandidateFontPreference.defaultScalePercent {
+          $0.removeValue(forKey: CandidateFontPreference.scaleKey)
+        } else {
+          $0[CandidateFontPreference.scaleKey] = rounded
+        }
+      }
+    })
+  }
+
   private func detail(_ text: String) -> some View {
     Text(text).designSubtext()
   }
@@ -271,6 +294,7 @@ struct CandidateOptionsSettingsView: View {
     symbols = Self.symbolsEnabled(mixed)
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
     preeditSize = CandidateFontPreference.preeditSize(in: preferences, tablet: tablet)
+    scalePercent = CandidateFontPreference.scalePercent(in: preferences)
     fontFamily = preferences[CandidateFontPreference.familyKey] as? String ?? CandidateFontPreference.defaultFamily
     englishFamily = (preferences[CandidateFontPreference.englishFamilyKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
     fontFamilies = CandidateFontPreference.families(in: preferences)

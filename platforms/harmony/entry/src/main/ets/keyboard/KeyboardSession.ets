@@ -102,6 +102,7 @@ import {
 import { CandidateSkinPackageIdentity, SkinFileStat } from './candidate/CandidateSkinPackageIdentity';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
+import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
@@ -931,6 +932,8 @@ interface PreparedPreferences {
   tsf_preedit_style?: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
+  /** 候选栏大小，50..200；client-core 总会写出它，旧文档缺省时按 100。 */
+  candidate_scale_percent?: number;
   /** 50..100; absent in documents that never changed it, which means an opaque card. */
   candidate_opacity_percent?: number;
   /** 0..32 points; absent or null leaves the card to the skin package, then the host. */
@@ -1134,6 +1137,8 @@ export interface KeyboardPreferences {
   readonly candidateLayout: string;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
+  /** 触屏键盘的「候选栏大小」（`candidate_scale_percent`）：工具条高度和候选栏的字号、行高都按它缩放（#10137），上面两项字号已经乘过它。2in1 恒为 100，候选卡片只随字号调整。 */
+  readonly candidateScalePercent: number;
   readonly candidateFontFamily: string;
   readonly candidateEnglishFont: string | null;
   readonly candidateFallbackFonts: string[];
@@ -1473,6 +1478,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     },
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
+    candidateScalePercent: 100,
     candidateFontFamily: 'Noto Sans SC',
     candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
@@ -1834,6 +1840,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const opacityPercent: number | undefined = preferences.candidate_opacity_percent;
     const windowOpacity: number = typeof opacityPercent === 'number' && Number.isFinite(opacityPercent)
       ? Math.max(50, Math.min(100, opacityPercent)) / 100 : 1;
+    // 「候选栏大小」只作用于触屏工具条；2in1 的设置桥不声明它，候选卡片照旧只随字号调整。
+    const touchScale: number = KeyboardFormFactor.isDesktop()
+      ? CandidateScalePolicy.DEFAULT_PERCENT : CandidateScalePolicy.percent(preferences.candidate_scale_percent);
     this.appearance = {
       dark: keyboardDark,
       globalThemeId: preferences.global_theme,
@@ -1897,9 +1906,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The shared store validates these to 12..32 and strips control
       // characters from family names. Clamp again at the host boundary so
       // an older staged document cannot produce an unusable panel.
-      candidateFontSize: CandidateFontSizePolicy.bounded(preferences.candidate_font_size),
-      candidatePreeditFontSize:
-        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size),
+      candidateFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_font_size), touchScale),
+      candidatePreeditFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size), touchScale),
+      candidateScalePercent: touchScale,
       candidateFontFamily: preferences.candidate_font_family.trim().length > 0
         ? preferences.candidate_font_family : 'Noto Sans SC',
       candidateEnglishFont: preferences.candidate_english_font ?? null,

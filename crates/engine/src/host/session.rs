@@ -196,6 +196,11 @@ impl Session {
         self.inner.set_prediction_allowed(allowed);
     }
 
+    /// 换掉会话读的单调时钟和本地墙钟，同 [`crate::Session::set_clock`]。只给评测和测试用，宿主不调：`typing_sim` 按模拟的打字节奏推进时钟，个人学习的 3 s / 8 s / 10 s 窗口和行内日期时间行才不随机器快慢、负载高低和运行的日子变化。
+    pub fn set_clock(&mut self, clock: crate::Clock) {
+        self.inner.set_clock(clock);
+    }
+
     pub fn new(options: &EngineOptions) -> Result<Session> {
         // The C++ ran `options_for` a second time only to read the profile name back (bridge.cpp:430); that rerun recopied the same sidecar, so one mapping is enough.
         let inner = crate::session::Session::new(session_options(options)?)?;

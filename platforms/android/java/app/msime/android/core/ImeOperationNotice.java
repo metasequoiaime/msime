@@ -88,6 +88,8 @@ final class ImeOperationNotice {
             params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
             params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
             params.setTitle("MSIME common phrase notice");
+            // 提示是输入法窗口之外单开的子窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+            params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
             params.y = top + s.pixels(8);
             try {
                 s.getSystemService(WindowManager.class).addView(label, params);

@@ -455,11 +455,12 @@ pub fn convert(text: &str) -> String {
     let mut out = String::with_capacity(text.chars.len() * 3);
     let mut index = 0;
     while index < text.chars.len() {
-        // 固定说法后面紧跟着数字字时它只是一个更长的数的开头（二百五十块），交给下面的规则整段读。
+        // 固定说法以数字结尾且后面紧跟数字字时，可能只是更长数字的开头（二百五十块），交给下面的规则整段读。
         if let Some(kept) = text.has_any(index, KEEP_AS_WRITTEN).filter(|kept| {
-            !text
-                .at(index + kept.chars().count())
-                .is_some_and(is_numeral)
+            !kept.chars().last().is_some_and(is_numeral)
+                || !text
+                    .at(index + kept.chars().count())
+                    .is_some_and(is_numeral)
         }) {
             out.push_str(kept);
             index += kept.chars().count();
@@ -742,6 +743,17 @@ mod tests {
             "两人",
         ] {
             stays(word);
+        }
+    }
+
+    #[test]
+    fn idioms_ending_in_words_stay_intact_before_another_number() {
+        stays("三十而立四十不惑");
+        becomes("十万火急十分钟内出发", "十万火急10分钟内出发");
+        for idiom in KEEP_AS_WRITTEN {
+            if !idiom.chars().last().is_some_and(is_numeral) {
+                becomes(&format!("{idiom}二十分钟"), &format!("{idiom}20分钟"));
+            }
         }
     }
 

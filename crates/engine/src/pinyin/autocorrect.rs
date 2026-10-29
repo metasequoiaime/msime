@@ -594,7 +594,7 @@ pub fn looks_like_syllable_with_jianpin_tail(pinyin: &str) -> bool {
         };
         position += matched;
     }
-    // All-consonant strings match nothing and stay correctable on purpose: there is no multi-letter jianpin, so `bqng` can only mean `bang`.
+    // 全辅音串一个音节也匹配不上，这里有意让它保持可纠错：它可能是 `bqng`（bang）这种按偏了韵母的误触，也可能是 `qjn`、`zhr` 这种多字母简拼（含 zh/ch/sh 简拼单位）。两种读法都留着，先后由词典定：字面简拼读满全部按键的多字词条排在纠错读法前面，见 `quanpin::series::lead_literal_abbreviation_phrases`。
     if position == 0 || bytes.len() - position > 1 {
         return false;
     }

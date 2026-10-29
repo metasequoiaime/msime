@@ -3,6 +3,8 @@ package app.msime.android.home;
 import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
@@ -77,12 +79,24 @@ public final class SettingsNavigator {
             .setCustomAnimations(R.anim.fade_through_in, R.anim.fade_through_out,
                 R.anim.fade_through_in, R.anim.fade_through_out);
         // 下面那一页藏起来而不是移走：它的滚动位置和正在进行的加载都留着，返回时原样出现；藏起来也让读屏只读到最上面这一页。
-        if (below != null) transaction.hide(below);
+        if (below != null) {
+            dismissKeyboard(home, below);
+            transaction.hide(below);
+        }
         transaction.add(R.id.home_content, fragment, PAGE_TAG_PREFIX + page.name())
             .addToBackStack(page.name())
             .commit();
         // 立即执行，让紧接着的第二次点击能从栈顶看到这一页。
         manager.executePendingTransactions();
+    }
+
+    /** 下面那一页有输入框正拿着焦点（例如在设置首页搜索框里打字后点了一条结果）时，收起键盘并清掉焦点。不收的话那一页藏起来后键盘仍留在屏幕上、不连着任何输入框，盖住新页面的下半屏（#10074）。新页面要键盘时自己再弹。 */
+    private static void dismissKeyboard(HomeActivity home, Fragment below) {
+        View root = below.getView();
+        View focus = root == null ? null : root.findFocus();
+        if (focus == null) return;
+        home.getSystemService(InputMethodManager.class).hideSoftInputFromWindow(focus.getWindowToken(), 0);
+        focus.clearFocus();
     }
 
     /** 页面实际落在哪个 tab：社区 tab 承载的完整列表落在社区 tab，其余按 {@link PageId#tab()}。HomeActivity 处理深链时用它先切 tab。 */

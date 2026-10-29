@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.content.Context;
 import app.msime.android.DimensionPolicy;
 import app.msime.android.ThemeColorPolicy;
@@ -11,11 +12,11 @@ final class AboutEasterEgg {
 
     static void show(Context context) {
         int horizontal = DimensionPolicy.pixels(context, 12);
-        new MaterialAlertDialogBuilder(context)
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(context)
             .setTitle("水杉的小秘密")
             .setView(app.msime.android.AboutEasterEgg.scene(context, ThemeColorPolicy.page(context)),
                 horizontal, 0, horizontal, 0)
             .setPositiveButton("好", null)
-            .show();
+            .create());
     }
 }

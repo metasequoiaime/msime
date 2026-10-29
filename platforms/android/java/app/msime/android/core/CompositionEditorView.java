@@ -129,13 +129,13 @@ final class CompositionEditorView extends View {
         return super.performAccessibilityAction(action, arguments);
     }
 
-    void update(String display, String editing, int caret, int foreground, int accent) {
+    void update(String display, String editing, int caret, boolean keyGrid, int foreground, int accent) {
         boolean textChanged = !this.display.equals(display);
         int previousOffset = offset;
         this.display = display;
         this.editing = editing;
         this.accent = accent;
-        offset = Math.max(0, CompositionCaretPolicy.displayOffset(display, editing, caret));
+        offset = Math.max(0, CompositionCaretPolicy.displayOffset(display, editing, caret, keyGrid));
         paint.setColor(foreground);
         place();
         if (textChanged || previousOffset != offset) sendAccessibilityEvent(textChanged

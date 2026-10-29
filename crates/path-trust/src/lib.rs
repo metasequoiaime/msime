@@ -1,3 +1,5 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 //! 存储路径要做符号链接检查，防止被人放进去的链接把客户端的写入重定向到别处。但通往每个应用存储的路径上，有些链接本来就属于操作系统，连它们一起拒绝，等于拒绝了该平台上的全部存储。这个 crate 是唯一列出这些系统链接的地方，所有逐层检查存储路径的 crate 都来这里查询。
 
 use std::fs::File;

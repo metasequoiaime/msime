@@ -154,6 +154,6 @@ Windows の正式版は現在 [msime-windows](https://github.com/metasequoiaime/
 
 ## ライセンス
 
-ソースコードは **GPL-3.0-only** で、全文は [LICENSE](../../LICENSE) を参照してください。
+ソースコードは **GPL-3.0-only** で、全文は [LICENSE](../../LICENSE) を参照してください。例外として、スクリプトプラグインの SDK（[crates/script-sdk](../../crates/script-sdk/)）、テンプレート（[docs/script-plugin-template](../../docs/script-plugin-template/)）、スクリプトプラグイン集（[plugins/script](../../plugins/script/)）のコードは MIT、入力エンジン（[crates/engine](../../crates/engine/)、`msime-engine`）と [crates/path-trust](../../crates/path-trust/)（`msime-path-trust`）は他の入力メソッドに組み込めるよう MPL-2.0（Exhibit B なし）で、全文はそれぞれのディレクトリの `LICENSE` にあります。エンジンに埋め込まれたデータ表と移植したサードパーティのコードはそれぞれのライセンスに従い、ファイルごとの一覧は [crates/engine/README.md](../../crates/engine/README.md) にあります。実行時に読む辞書とモデルもそれぞれのライセンスのままです。`crates/engine` と `crates/path-trust` への貢献は GPL-3.0-only OR MPL-2.0 で提供されます。入力メソッド製品全体は GPL-3.0-only で公開されます。
 
 上流のコード、辞書、モデル、各プラットフォームの SDK は、それぞれのライセンスと通知に従います。そのうち Android と iOS の手書き認識は Google ML Kit を使用しており、オープンソースライセンスではなく、その利用規約に基づいてライセンスされています。完全な対応表は[サードパーティコンポーネント一覧](../third-party.md)を参照してください。

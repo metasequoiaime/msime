@@ -901,6 +901,19 @@ if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
   echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
   exit 1
 fi
+# 进剪贴板历史页不自动聚焦搜索框、不主动弹键盘，等用户点搜索框（#10074）；点胶囊任何地方都要和点输入框一样弹出键盘，否则点放大镜只有光标没有键盘。从设置首页搜索结果压页时，下面那一页搜索框拉起的键盘要先收起，否则它留在新页面上、不连着任何输入框；收起之后从历史页点「编辑」进的编辑页要自己弹键盘，否则只有光标。
+search_pill="$repo_root/platforms/android/java/app/msime/android/home/SearchPill.java"
+settings_navigator="$repo_root/platforms/android/java/app/msime/android/home/SettingsNavigator.java"
+if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page" \
+  || ! rg -A 3 'private void focusField\(' "$search_pill" | rg_q_stdin 'showSoftInput\(field' \
+  || ! rg -q 'bindClick\(this, this::focusField\)' "$search_pill" \
+  || ! rg -B 1 'transaction\.hide\(below\)' "$settings_navigator" | rg_q_stdin 'dismissKeyboard\(home, below\)' \
+  || ! rg -A 5 'private static void dismissKeyboard\(' "$settings_navigator" | rg_q_stdin 'hideSoftInputFromWindow' \
+  || ! rg -A 3 'input\.requestFocus\(\);' "$repo_root/platforms/android/java/app/msime/android/home/ClipboardEditPage.java" \
+    | rg_q_stdin 'getInsetsController\(requireActivity\(\)\.getWindow\(\), input\)\.show\(WindowInsetsCompat\.Type\.ime\(\)\)'; then
+  echo "Android clipboard search must not focus its search field or show the keyboard on entry, tapping anywhere on SearchPill must focus the field and show the keyboard, SettingsNavigator must dismiss the keyboard of the page it hides, and ClipboardEditPage must show the keyboard itself once its field is ready (#10074)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
@@ -1521,6 +1534,39 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
   || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
+  exit 1
+fi
+# 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
+while IFS= read -r activity; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then
+    echo "Android activity must apply screen capture protection in onCreate: ${activity#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
+# 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
+# 框架对话框类型列全：AppCompatDialog（InputDialog 的凭据、口令输入）漏数过一次。InputDialog 这类自家包装不是窗口，在它内部那一处 new 上数。
+dialog_types='MaterialAlertDialogBuilder|AlertDialog\.Builder|(AppCompat|BottomSheet|Alert)?Dialog'
+dialog_total=$({ rg -o --no-filename "\\bnew ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename "ScreenCaptureProtection\\.(show|protect)\\(new ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+if [[ "$dialog_total" != "$dialog_protected" ]]; then
+  echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
+  exit 1
+fi
+while IFS= read -r popup_source; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\((popup|window)\);' "$popup_source"; then
+    echo "Android PopupWindow must apply screen capture protection after it is shown: ${popup_source#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'new PopupWindow\(' "$android_java")
+while IFS= read -r child_window; do
+  if ! rg -q 'ScreenCaptureProtectionPolicy\.windowFlags\(' "$child_window"; then
+    echo "Android IME child windows must carry the screen capture protection flag: ${child_window#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'TYPE_APPLICATION_ATTACHED_DIALOG' "$android_java")
+apply_local_body=$(sed -n '/^    private void applyLocalSettings() {$/,/^    }$/p' "$android_java/core/MSIMEInputService.java")
+if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindow\.getWindow\(\), screenCaptureProtected\);' <<< "$apply_local_body"; then
+  echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
   exit 1
 fi
 # 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。

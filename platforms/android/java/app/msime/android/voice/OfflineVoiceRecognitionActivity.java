@@ -45,6 +45,8 @@ public final class OfflineVoiceRecognitionActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         setResult(RESULT_CANCELED);
         // 重建时取消旧录音，不能把同一个外部请求再识别、再投递一遍。
         if (state != null || !readRequest()) {

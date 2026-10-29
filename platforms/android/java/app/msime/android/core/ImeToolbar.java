@@ -93,21 +93,30 @@ final class ImeToolbar {
         }
     }
 
-    /** 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。 */
-    void applyShortcutSize(int percent, boolean custom) {
+    /**
+     * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。
+     *
+     * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 和 100% 时的行高（{@code designRowPx}）时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
+     */
+    void applyShortcutSize(int percent, boolean custom, int rowHeightPx, int designRowPx) {
         if (shortcutButtons == null) return;
-        int height = s.pixels(ToolbarSizePolicy.buttonHeightDp(percent));
+        int followedButton = s.pixels(44);
+        int height = custom ? s.pixels(ToolbarSizePolicy.buttonHeightDp(percent))
+            : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton, designRowPx);
+        int drawPercent = custom ? percent
+            : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton, designRowPx);
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
-        for (Button button : new Button[] {s.moreButton, s.dismissShortcutButton}) {
+        // 26 键长空格样式的「符」和品牌键、收起键一样是两端的固定按钮，一起缩放，否则矮行里只有它伸出去被裁掉。
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, s.dismissShortcutButton}) {
             if (button == null) continue;
             resizeButton(button, edgeWidth, height);
-            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
-            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(percent);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(drawPercent);
         }
         for (Button button : shortcutButtons) {
             resizeButton(button, middleWidth, height);
-            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
         }
         Button result = s.imeCalculator.chip();
         if (result != null && result.getLayoutParams() != null
@@ -126,7 +135,7 @@ final class ImeToolbar {
                     button.getLayoutParams().width = edgeWidth;
                     button.requestLayout();
                 }
-                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
+                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
             }
         }
     }
@@ -337,11 +346,18 @@ final class ImeToolbar {
     }
 
 
-    /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键。 */
+    /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键；上屏后联想按用户选的样式在展开键左边加关闭键（#10078，{@link PredictionButtonsPolicy}）。 */
     void addCandidateLine(LinearLayout candidateRegion, FrameLayout viewport, int height) {
         LinearLayout line = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(line);
         line.addView(viewport, LayoutPolicy.weightedMatchParentParams(1));
+        CandidateCloseButton close = new CandidateCloseButton(s);
+        s.closePrediction = close;
+        close.setContentDescription("关闭联想");
+        bindToolbarAction(close, s::dismissPrediction);
+        ViewPolicy.hide(close);
+        line.addView(close, LayoutPolicy.linearParamsPx(
+            s.pixels(CandidateCloseButton.WIDTH_DP), s.pixels(CandidateChevronButton.BUTTON_DP)));
         CandidateChevronButton expand = new CandidateChevronButton(s);
         s.expandCandidates = expand;
         expand.setContentDescription("展开候选");
@@ -493,7 +509,12 @@ final class ImeToolbar {
             chevron.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
                 s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
             chevron.setExpanded(s.candidatePanelOpen, true);
+            // 关闭键在左边时分隔线由它画，展开键不再画第二条。
+            chevron.setDividerShown(!ViewPolicy.isVisible(s.closePrediction));
         }
+        if (s.closePrediction instanceof CandidateCloseButton close)
+            close.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
+                s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
         if (s.inlineHeightBar != null)
             s.inlineHeightBar.setColors(foregroundColor, hintColor,
                 returnBackgroundColor, returnForegroundColor);

@@ -50,11 +50,11 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
-    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
-    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
-    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
-    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    append_unique_words, fold_reading, has_corrected_cut, lead_literal_abbreviation_phrases,
+    mark_autocorrect_candidates, merge_alternative_rows, merge_alternative_segmentations,
+    merge_series_by_coverage, resolve_series_query, series_cache_key, SeriesResolution,
+    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
+    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -311,6 +311,14 @@ impl QuanpinDictionary {
             // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
             merge_series_by_coverage(&mut result, rows);
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
+            // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
+            if has_corrected_cut(
+                raw,
+                &self.pinyin_segmentation,
+                &self.alternative_segmentations,
+            ) {
+                lead_literal_abbreviation_phrases(&mut result, raw, self.abbreviation_kept_seat());
+            }
         }
         // Marking runs after every change, including the fuzzy merge, so every row the caller sees carries its mark.
         mark_autocorrect_candidates(
@@ -653,6 +661,11 @@ impl QuanpinDictionary {
         self.series_cache.clear();
     }
 
+    /// 全辅音输入里原来打头的纠错候选最多退到的座位：首页最后一个，最小为 1（`lead_literal_abbreviation_phrases`）。
+    fn abbreviation_kept_seat(&self) -> usize {
+        self.first_page_rows.get().saturating_sub(1).max(1)
+    }
+
     /// Loads the keyboard sentence model from the resource bundle when its switch is on. The desktop model is not the engine's: only the runtime's settled reranker runs it. A change resets the caches (neural-association.patch:2667-2682), as shuangpin does, so a cached online row does not come back after the options are switched away and back.
     pub fn set_sentence_association(&mut self, options: SentenceAssociationOptions) {
         if self.sentence_association == options {
@@ -869,6 +882,8 @@ impl QuanpinDictionary {
                 let rows = self.query_series(raw, &join_segments(costlier), costlier);
                 append_unique_words(&mut result, rows);
             }
+            // 全辅音输入是简拼：字面简拼读满全部按键的多字词条排到纠错读法前面，打头的纠错候选最多退到首页最后一个座位，首位永远不让给它（#9903）。
+            lead_literal_abbreviation_phrases(&mut result, raw, self.abbreviation_kept_seat());
         } else {
             result = self.query_series(raw, primary_segmentation, &segments);
             if !alternatives.is_empty() {

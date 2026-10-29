@@ -656,9 +656,10 @@ final class ImeBottomRow {
             + ":" + english + ":" + style
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
+        // 数字九宫格的底行跟着进入它的键面排：返回键留在原来 123 那一格（签名里已有 layout，换入口会重排）。
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(numberPad ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout,
-                globe, swapLanguageNumber, numberPad, english, style);
+            : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style)
+            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

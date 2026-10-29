@@ -621,22 +621,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static let glossedCandidateRowHeight: CGFloat = 42
   /// 第二行释义起每行再加的高度（Android 的 `EXTRA_GLOSS_ROW_DP`）。
   static let glossLineHeight: CGFloat = 14
-  static func glossHeight(lines: Int) -> CGFloat { CGFloat(max(lines, 0)) * glossLineHeight }
-  // 候选或编码字号调大时所在行跟着变高，调小时行高不会低于默认值：这一行同时也是触摸目标。
-  static func readingRowHeight(preeditScale: CGFloat) -> CGFloat {
-    max(readingRowHeight, ceil(readingRowHeight * preeditScale))
+  static func glossHeight(lines: Int, barScale: CGFloat = 1) -> CGFloat {
+    CGFloat(max(lines, 0)) * glossLineHeight * barScale
   }
-  static func candidateRowHeight(candidateScale: CGFloat, glossed: Bool = false) -> CGFloat {
+  // 候选或编码字号调大时所在行跟着变高，调小时行高不会低于默认值：这一行同时也是触摸目标。「候选栏大小」（`barScale`，#10137）连这个默认值一起缩放，用户调小候选栏时这一行跟着变矮；`candidateScale`、`preeditScale` 是已经乘过 `barScale` 的字号倍数。
+  static func readingRowHeight(preeditScale: CGFloat, barScale: CGFloat = 1) -> CGFloat {
+    max(readingRowHeight * barScale, ceil(readingRowHeight * preeditScale))
+  }
+  static func candidateRowHeight(candidateScale: CGFloat, glossed: Bool = false, barScale: CGFloat = 1) -> CGFloat {
     let base = glossed ? glossedCandidateRowHeight : candidateRowHeight
-    return max(base, ceil(base * candidateScale))
+    return max(base * barScale, ceil(base * candidateScale))
   }
-  /// 顶栏：候选行，第一行释义在候选行里，其余释义行在它下面；`separateReadingRow`（全拼 14 键）时上面再加一行读音。高度不低于 `topRowMinimumHeight`。
+  /// 顶栏：候选行，第一行释义在候选行里，其余释义行在它下面；`separateReadingRow`（全拼 14 键）时上面再加一行读音。高度不低于 `topRowMinimumHeight` 乘以「候选栏大小」：空闲时这一行是工具栏，它和候选栏一起变矮或变高，组字开始、结束时按键仍不动。
   static func topRowHeight(
-    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, separateReadingRow: Bool = false
+    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, separateReadingRow: Bool = false,
+    barScale: CGFloat = 1
   ) -> CGFloat {
-    max(topRowMinimumHeight, (separateReadingRow ? readingRowHeight(preeditScale: preeditScale) : 0)
-      + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0)
-      + glossHeight(lines: glossLines - 1))
+    max(topRowMinimumHeight * barScale,
+        (separateReadingRow ? readingRowHeight(preeditScale: preeditScale, barScale: barScale) : 0)
+      + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0, barScale: barScale)
+      + glossHeight(lines: glossLines - 1, barScale: barScale))
   }
   /// 用户调整之前的键盘高度：按默认候选字号和存储的行距计算，每个候选下带 `glossLines` 行释义（默认取配置的行数）；`separateReadingRow` 同 `topRowHeight`。
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
@@ -679,8 +683,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       + (scheme.isKorean ? 1 : 0)
   }
   private var glossLineCount = 0
+  /// 候选和编码的字号倍数，已经乘过 `candidateBarScale`。
   private var candidateFontScale: CGFloat = 1
   private var preeditFontScale: CGFloat = 1
+  /// 「候选栏大小」（`candidate_scale_percent`）：顶栏、候选行、读音行和释义行的高度倍数（#10137）。
+  private var candidateBarScale: CGFloat = 1
+  /// 每个候选词块的最小高度约束，常量是 `candidateChipMinimumSize.height` 乘以 `candidateBarScale`，「候选栏大小」变化时在 `applyCandidateGlossLayout` 里一起更新。
+  private var candidateChipHeightConstraints: [NSLayoutConstraint] = []
   private var candidateFontFamilies: [String] = []
   private var topRowHeightConstraint: NSLayoutConstraint?
   private var readingRowHeightConstraint: NSLayoutConstraint?
@@ -1931,11 +1940,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     tallReturnKey = enter
   }
 
-  /// 换上或撤下九键「右侧大回车」的外框：右列第三格的 ！ 让位给伸下来的回车（留着占位、不画不接触摸），！ 接到符号栏默认标点的末尾，数字层符号栏里的 符 移到底行。底行由 `TouchBottomRowLayout.nineKeyTallReturn` 排。
+  /// 换上或撤下九键「右侧大回车」的外框：右列第三格的 ！ 让位给伸下来的回车（留着占位、不画不接触摸），！ 接到符号栏默认标点的末尾。底行由 `TouchBottomRowLayout.nineKeyTallReturn` 排，数字层符号栏里的 符 随底行一起挪走（`updateKeyboardLayout` 按底行有没有 符 决定）。
   private func applyNineKeyTallReturn(_ shown: Bool) {
     if tallReturnKey?.isHidden == shown { tallReturnKey?.isHidden = !shown }
     if nineKeySidebarClosingMark?.isHidden == shown { nineKeySidebarClosingMark?.isHidden = !shown }
-    if numberPadSymbolsKey?.isHidden != shown { numberPadSymbolsKey?.isHidden = shown }
     if let closing = nineKeyClosingButton {
       closing.alpha = shown ? 0 : 1
       closing.isUserInteractionEnabled = !shown
@@ -2202,7 +2210,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       equalToConstant: shownTopRowHeight)
     topRowHeightConstraint = stripHeight
     let compositionHeight = compositionRow.heightAnchor.constraint(
-      equalToConstant: Self.readingRowHeight(preeditScale: preeditFontScale))
+      equalToConstant: Self.readingRowHeight(preeditScale: preeditFontScale, barScale: candidateBarScale))
     readingRowHeightConstraint = compositionHeight
     // 略低于 required：收起的顶栏（显示方式「隐藏」）比读音行还矮，这时由隐藏的候选行让步，而不是破坏这一行的高度。
     let contentBottom = content.bottomAnchor.constraint(equalTo: container.candidateContentGuide.bottomAnchor)
@@ -4913,7 +4921,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var currentTopRowHeight: CGFloat {
     Self.topRowHeight(
       glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale,
-      separateReadingRow: separateReadingRow)
+      separateReadingRow: separateReadingRow, barScale: candidateBarScale)
   }
 
   /// 实际画出的顶栏高度。iOS 键盘扩展在一次键盘会话里保持这个高度，避免组字开始或结束时触发系统键盘重排。
@@ -4926,16 +4934,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     toolbarHidden = TouchToolbarLocalPreference.hidden
   }
 
-  /// Gloss lines and the candidate and composition sizes all decide how tall the strip is, so they are applied together.
+  /// 释义行数、候选和编码字号以及「候选栏大小」都决定顶栏有多高，所以在这里一起应用。
   private func applyCandidateGlossLayout() {
     let lines = currentGlossLines()
     let tablet = formFactor == .tablet
-    let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet)
-    let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet)
+    // 「候选栏大小」连同字号一起缩放候选栏（#10137），字号倍数在这里乘上它，下游画字的地方不用再管。
+    let barScale = CandidateFontPreference.barScale(in: session.sharedPreferences)
+    let candidateScale = CandidateFontPreference.candidateScale(in: session.sharedPreferences, tablet: tablet) * barScale
+    let preeditScale = CandidateFontPreference.preeditScale(in: session.sharedPreferences, tablet: tablet) * barScale
     let families = CandidateFontPreference.families(in: session.sharedPreferences)
     guard lines != glossLineCount || candidateScale != candidateFontScale
-      || preeditScale != preeditFontScale || families != candidateFontFamilies else { return }
+      || preeditScale != preeditFontScale || barScale != candidateBarScale
+      || families != candidateFontFamilies else { return }
     candidateFontFamilies = families
+    candidateBarScale = barScale
+    for constraint in candidateChipHeightConstraints {
+      constraint.constant = Self.candidateChipMinimumSize.height * barScale
+    }
     glossLineCount = lines
     if preeditScale != preeditFontScale {
       preeditFontScale = preeditScale
@@ -4944,7 +4959,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateFontScale = candidateScale
     updateCandidateCanvasMetrics()
     topRowHeightConstraint?.constant = shownTopRowHeight
-    readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale)
+    readingRowHeightConstraint?.constant = Self.readingRowHeight(preeditScale: preeditScale, barScale: barScale)
     updatePreferredKeyboardHeight()
     candidateButtonStyleRevision &+= 1
     renderCandidateStrip()
@@ -6337,9 +6352,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
       let styledRow = styledBottomRow(style: style, letterRows: letterRowsShown, letterGrid: fourteenKeyRows,
-                                      numberPad: numberPad, tallReturn: tallReturn,
-                                      language: KeyboardLayoutPreference.geometry.showsBottomLanguage)
+                                      numberPad: numberPad, nineKeyDigits: numberPad && (nineKey || strokes),
+                                      tallReturn: tallReturn, language: KeyboardLayoutPreference.geometry.showsBottomLanguage)
       let styledSlots = Set(styledRow?.map(\.slot) ?? [])
+      // 数字层底行带 符 时（拼音九键、九键双拼和笔画的数字层，含右侧大回车），符号栏里不再放第二个 符；借来的数字九宫格仍在符号栏第三排放 符。
+      let sidebarSymbols = !(numberPad && styledSlots.contains(.symbols))
+      if numberPadSymbolsKey?.isHidden == sidebarSymbols { numberPadSymbolsKey?.isHidden = !sidebarSymbols }
       nineKeyPunctuationRowShown = style == .nineKey && styledSlots.contains(.comma)
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad, styled: styledRow,
                        tallReturn: tallReturn)
@@ -6542,9 +6560,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// 「按键布局」选了非标准样式、当前底行正是它作用的那一行时，按 `TouchBottomRowLayout` 排出的键；标准样式、数字层和其他底行为 nil，照原来的约束画，默认底行因此与以前完全相同。26 键样式只作用于手机的中文 26 键字母层（`drawsChineseTwentySixKey`），14 键样式作用于 14 键和 18 键字母层，九键样式作用于拼音九键、九键双拼和笔画的字母层，其中「右侧大回车」（`tallReturn`）连同它们的数字层一起换成自己的外框。密码框和只收数字的框按标准样式画（`activeKeyLayoutStyle`）。
+  /// 「按键布局」选了非标准样式、当前底行正是它作用的那一行时，按 `TouchBottomRowLayout` 排出的键；标准样式、借来的数字九宫格和其他底行为 nil，照原来的约束画，默认底行因此与以前完全相同。26 键样式只作用于手机的中文 26 键字母层（`drawsChineseTwentySixKey`），14 键样式作用于 14 键和 18 键字母层，九键样式作用于拼音九键、九键双拼和笔画的字母层，其中「右侧大回车」（`tallReturn`）连同它们的数字层一起换成自己的外框。拼音九键、九键双拼和笔画自己的数字层（`nineKeyDigits`）不论样式都按 `TouchBottomRowLayout.nineKeyDigits` 排，符 和切换键与字母层同一格（#10061，与 Android #9113 相同）。密码框和只收数字的框按标准样式画（`activeKeyLayoutStyle`）。
   private func styledBottomRow(style: ActionRowStyle, letterRows: Bool, letterGrid: Bool, numberPad: Bool,
-                               tallReturn: Bool, language: Bool) -> [TouchBottomRowLayout.Key]? {
+                               nineKeyDigits: Bool, tallReturn: Bool, language: Bool) -> [TouchBottomRowLayout.Key]? {
     let globe = needsInputModeSwitchKey
     let keyStyle = activeKeyLayoutStyle
     switch style {
@@ -6555,6 +6573,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .nineKey where tallReturn:
       return TouchBottomRowLayout.nineKeyTallReturn(globe: globe, zero: !numberPad && inputScheme == .nineKeyShuangpin,
                                                     language: language, digits: numberPad)
+    case .nineKey where nineKeyDigits:
+      return TouchBottomRowLayout.nineKeyDigits(globe: globe, zero: inputScheme == .nineKeyShuangpin, language: language)
     case .nineKey where !numberPad && keyStyle.nineKey != .standard:
       return TouchBottomRowLayout.nineKey(keyStyle.nineKey, globe: globe, zero: inputScheme == .nineKeyShuangpin,
                                           language: language)
@@ -6673,7 +6693,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private enum ActionRowStyle {
     /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；英文 26 键在空格左边多一个句点（123 | 符 | . | space | , | 中 | return）；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
     case phone
-    /// 九键外框：符 | 123 | space | 中 | return；数字层为 九键 | 0 | 空格 | 中 | return，符固定在左侧栏。
+    /// 九键外框：符 | 123 | space | 中 | return；拼音九键、九键双拼和笔画的数字层为 符 | 九键 | 0 | 空格 | 中 | return（`TouchBottomRowLayout.nineKeyDigits`），借来的数字九宫格为 返回 | 0 | 空格 | 中 | return、符 在左侧栏。
     case nineKey
     /// 123 / #+= 层：拼音或 ABC | 表情或符号 | space | return。
     case symbolLayer
@@ -8028,8 +8048,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let minimumWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.width)
     // 隐藏的栈内词块由 UIStackView 强制设为零宽，词块自己的宽度下限必须让步。
     minimumWidth.priority = .init(999)
-    let minimumHeight = button.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.height)
+    // 高度下限随「候选栏大小」缩放（#10137）：它和候选内容贴住面板底边的约束同为 999，下限不缩放时，矮于 34pt 的候选栏里两者冲突，Auto Layout 可能撑高候选内容、压到按键上。宽度是触控下限，不缩放。
+    let minimumHeight = button.heightAnchor.constraint(
+      greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.height * candidateBarScale)
     minimumHeight.priority = .init(999)
+    candidateChipHeightConstraints.append(minimumHeight)
     NSLayoutConstraint.activate([minimumWidth, minimumHeight])
     button.accessibilityIdentifier = "candidate-\(index + 1)"
     button.menu = UIMenu(children: [
@@ -9232,10 +9255,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateCanvasMetrics() {
-    let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale)
-    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。
-    let textHeight = max(Self.candidateChipMinimumSize.height, Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0)
-      + Self.glossHeight(lines: glossLineCount - 1) - 10)
+    let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale, barScale: candidateBarScale)
+    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。两者都按「候选栏大小」缩放。
+    let textHeight = max(Self.candidateChipMinimumSize.height * candidateBarScale,
+      Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0, barScale: candidateBarScale)
+      + Self.glossHeight(lines: glossLineCount - 1, barScale: candidateBarScale) - 10 * candidateBarScale)
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
     compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
     candidatePreeditGapConstraint?.constant = gap

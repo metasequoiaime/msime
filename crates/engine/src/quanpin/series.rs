@@ -173,6 +173,13 @@ fn folded_reading_equal(left: &str, right: &str) -> bool {
             .map(|character| character.to_ascii_lowercase()))
 }
 
+/// 这次查询的主切分或任一备选切分的字母和原文不同，也就是有纠错读法在作用。
+pub fn has_corrected_cut(raw: &str, primary_segmentation: &str, corrected_cuts: &[String]) -> bool {
+    std::iter::once(primary_segmentation)
+        .chain(corrected_cuts.iter().map(String::as_str))
+        .any(|cut| !cut.is_empty() && !folded_reading_equal(cut, raw))
+}
+
 /// QD:1006-1054: rows read from a corrected cut get `corrected_from = fold(raw)`.
 pub fn mark_autocorrect_candidates(
     candidates: &mut [WordItem],
@@ -181,11 +188,11 @@ pub fn mark_autocorrect_candidates(
     corrected_cuts: &[String],
 ) {
     // A row comes from a corrected reading exactly when its letters equal some correction cut's letters while those differ from the typed letters. Comparing letters alone would also sweep up prefix rows the user spelled correctly (keneng -> ke, single-letter jianpin expansions); both rules together keep those unmarked.
-    let cuts =
-        || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
-    if cuts().all(|cut| cut.is_empty() || folded_reading_equal(cut, raw)) {
+    if !has_corrected_cut(raw, primary_segmentation, corrected_cuts) {
         return;
     }
+    let cuts =
+        || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
     let mut raw_letters = None;
     for item in candidates
         .iter_mut()
@@ -200,6 +207,42 @@ pub fn mark_autocorrect_candidates(
             let folded = raw_letters.get_or_insert_with(|| fold_reading(raw));
             item.corrected_from = folded.as_str().into();
         }
+    }
+}
+
+/// 全辅音输入（`qjn`、`zhr`、`shng`）本身就是一串简拼，纠错只是另一种猜测（漏了或按偏了韵母）。字面简拼里读满全部按键的多字词条说明这串简拼确实对得上词，于是把它们挪到最前面；纠错读法和只读了一部分按键的字面行依次跟在后面，各自的相对顺序不变，纠错行照旧由 `mark_autocorrect_candidates` 打标。字面简拼一条整词都没有时列表原样不动，纠错读法继续打头。带元音的输入不走这条规则：`sahng` 的字面读法 sa'h'n'g 能读出「撒谎那个」，但那是音节加简拼的混合形状，误触的可能比简拼大得多（#9903）。
+///
+/// 两字母、三字母的简拼表很密，`zhr` 读满全部按键的 zh'r 词有上百条，全排在前面会把纠错读法挤出前几页，等于关掉了全辅音输入的纠错。所以原来打头的那条纠错候选最多退到 `kept_seat`（调用方给首页最后一个座位）：首位和前面的座位仍归字面简拼词，纠错读法在首页还看得见。
+pub fn lead_literal_abbreviation_phrases(rows: &mut [WordItem], raw: &str, kept_seat: usize) {
+    let consonants_only = !raw.is_empty()
+        && raw.bytes().all(|byte| {
+            byte.is_ascii_alphabetic()
+                && !matches!(
+                    byte.to_ascii_lowercase(),
+                    b'a' | b'e' | b'i' | b'o' | b'u' | b'v'
+                )
+        });
+    if !consonants_only {
+        return;
+    }
+    // 匹配码折叠后等于原文字母，就是照原样读满了全部按键的字面行；纠错行的匹配码是改过的读音，整句行不算词条。
+    let is_literal_phrase = |item: &WordItem| {
+        !item.sentence_association
+            && item.word.chars().nth(1).is_some()
+            && folded_reading_equal(&item.pinyin, raw)
+    };
+    let phrases = rows.iter().filter(|item| is_literal_phrase(item)).count();
+    if phrases == 0 {
+        return;
+    }
+    // 字面行的匹配码是原文的前缀；不是前缀的打头行来自纠错读法。
+    let correction_leads = rows.first().is_some_and(|item| {
+        !is_literal_phrase(item) && !fold_reading(raw).starts_with(&fold_reading(&item.pinyin))
+    });
+    // 稳定排序只把字面整词提到前面，其余行保持原来的先后，原来打头的纠错行因此紧跟在字面整词后面。
+    rows.sort_by_key(|item| !is_literal_phrase(item));
+    if correction_leads && phrases > kept_seat {
+        rows[kept_seat..=phrases].rotate_right(1);
     }
 }
 
@@ -450,6 +493,59 @@ mod tests {
                 "{left}/{right}"
             );
         }
+    }
+
+    #[test]
+    fn literal_abbreviation_phrases_move_ahead_in_their_own_order() {
+        let mut rows = vec![
+            row("zhe", "这", 900),
+            row("zh", "主", 800),
+            row("zh'r", "转让", 500),
+            row("zhe", "着", 400),
+            row("z'h'r", "这伙人", 40),
+            row("zh'r", "正如", 300),
+        ];
+        let mut sentence = row("zh'r", "主人公", 1);
+        sentence.sentence_association = true;
+        rows.push(sentence);
+        lead_literal_abbreviation_phrases(&mut rows, "zhr", 5);
+        assert_eq!(
+            words(&rows),
+            ["转让", "这伙人", "正如", "这", "主", "着", "主人公"]
+        );
+
+        // 带元音的输入和没有字面整词的输入都原样不动。
+        let original = vec![row("shang", "上", 100), row("sa'h'n'g", "撒谎那个", 1000)];
+        let mut vowel = original.clone();
+        lead_literal_abbreviation_phrases(&mut vowel, "sahng", 5);
+        assert_eq!(vowel, original);
+        let mut no_phrase = vec![row("shang", "上", 100), row("sh", "是", 90)];
+        lead_literal_abbreviation_phrases(&mut no_phrase, "shng", 5);
+        assert_eq!(words(&no_phrase), ["上", "是"]);
+    }
+
+    #[test]
+    fn the_leading_correction_keeps_the_last_first_page_seat() {
+        let mut rows = vec![row("zhe", "这", 900), row("zhe", "着", 800)];
+        for word in ["转让", "主人", "众人", "正如", "整容", "招人", "阵容"] {
+            rows.push(row("zh'r", word, 100));
+        }
+        rows.push(row("zh", "主", 50));
+        lead_literal_abbreviation_phrases(&mut rows, "zhr", 5);
+        assert_eq!(
+            words(&rows),
+            [
+                "转让", "主人", "众人", "正如", "整容", "这", "招人", "阵容", "着", "主"
+            ]
+        );
+
+        // 打头的是字面前缀行（纠错读法什么也没查到）时，没有要保座的纠错候选。
+        let mut literal_head = vec![row("zh", "主", 800)];
+        for word in ["转让", "主人", "众人"] {
+            literal_head.push(row("zh'r", word, 100));
+        }
+        lead_literal_abbreviation_phrases(&mut literal_head, "zhr", 1);
+        assert_eq!(words(&literal_head), ["转让", "主人", "众人", "主"]);
     }
 
     #[test]

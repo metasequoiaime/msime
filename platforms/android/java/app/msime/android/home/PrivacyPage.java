@@ -1,24 +1,33 @@
 package app.msime.android.home;
 
+import android.app.Activity;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.LinearLayout;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import androidx.annotation.Nullable;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.ClipboardHistoryAuthenticationPolicy;
+import app.msime.android.ScreenCaptureProtection;
+import app.msime.android.ScreenCaptureProtectionPolicy;
 import app.msime.android.SystemAuthenticators;
 import app.msime.android.R;
 import app.msime.android.core.Telemetry;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.json.JSONObject;
 
 /**
- * 隐私：联网功能（用水杉账号翻译候选、匿名使用统计，以及去「翻译服务」的入口）、本机数据（剪贴板历史）、隐私模式说明和隐私政策链接。
+ * 隐私：联网功能（用水杉账号翻译候选、匿名使用统计，以及去「翻译服务」的入口）、本机数据（剪贴板历史）、防止截屏、隐私模式说明和隐私政策链接。
  *
  * <p>三个开关就是 {@link InputFeatureToggle} 里的那三项，标题和说明也取那里，本页是它们在宿主里唯一的位置（实施计划 §2.9）。隐私模式的语义在 Rust 与键盘里（P17）：这里只说明它做什么、不做什么。
+ *
+ * <p>「防止截屏」（#10098）是 Android 本地设置，不在共享偏好里；切换规则见 {@link ScreenCaptureProtectionPolicy}，窗口上的效果见 {@link ScreenCaptureProtection}。
  */
 public final class PrivacyPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -26,6 +35,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private static final String POLICY = "https://msime.app/privacy/";
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final InputFeatureToggle[] NETWORK = {
         InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT, InputFeatureToggle.USAGE_REPORTING,
     };
@@ -35,6 +45,12 @@ public final class PrivacyPage extends ReloadingDetailPage {
     @Nullable private JSONObject preferences;
     @Nullable private Boolean pendingClipboardHistoryValue;
     @Nullable private BiometricPrompt clipboardAuthentication;
+    @Nullable private GroupCard.Row screenCaptureRow;
+    /** 读到的本地设置；还没读到时开关保持禁用。 */
+    @Nullable private AndroidLocalSettings.Snapshot localSettings;
+    /** 正在认证或正在写入的目标值；非空时开关禁用，避免重复切换。 */
+    @Nullable private Boolean pendingScreenCaptureValue;
+    @Nullable private BiometricPrompt screenCaptureAuthentication;
 
     @Override protected void onContentReady() {
         LinearLayout target = contentColumn();
@@ -53,6 +69,13 @@ public final class PrivacyPage extends ReloadingDetailPage {
         GroupCard local = GroupCard.add(sectionColumn(target, "本机"), "本机数据").withDividers(16);
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
 
+        GroupCard capture = GroupCard.add(sectionColumn(target, "本机"), "截屏与录屏");
+        screenCaptureRow = capture.toggle("防止截屏", "设置页面和键盘在截屏、录屏里显示为黑色", false,
+            this::saveScreenCaptureProtection);
+        screenCaptureRow.setEnabled(false);
+        capture.note("打开后，" + app + "设置里的页面和在其他应用里弹出的键盘不能被截屏、录屏或投屏，截出来是黑的，最近任务里也看不到设置页的内容。"
+            + "第一次打开不需要验证；打开过以后，再打开或关闭都要通过锁屏密码或生物识别验证。在系统设置里清除" + app + "的数据会让它回到关闭。");
+
         GroupCard incognito = GroupCard.add(sectionColumn(target, "无痕"), "隐私模式");
         incognito.note("在键盘功能面板里打开隐私模式后，" + app
             + "不学习新词、不调整候选顺序，不记录字数、按键和输入统计，不保存剪贴板历史和云剪贴板，也不做任何数据贡献。云候选、翻译、AI 润色这类你单独打开的联网功能按各自的开关照常工作，不受隐私模式影响。");
@@ -68,6 +91,10 @@ public final class PrivacyPage extends ReloadingDetailPage {
         if (clipboardAuthentication != null) clipboardAuthentication.cancelAuthentication();
         clipboardAuthentication = null;
         pendingClipboardHistoryValue = null;
+        if (screenCaptureAuthentication != null) screenCaptureAuthentication.cancelAuthentication();
+        screenCaptureAuthentication = null;
+        pendingScreenCaptureValue = null;
+        screenCaptureRow = null;
         rows.clear();
     }
 
@@ -83,6 +110,10 @@ public final class PrivacyPage extends ReloadingDetailPage {
             preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
             render();
         });
+        HostTask.run(this, AndroidLocalSettings::load, snapshot -> {
+            localSettings = snapshot;
+            render();
+        });
     }
 
     private void render() {
@@ -93,6 +124,105 @@ public final class PrivacyPage extends ReloadingDetailPage {
             row.setEnabled(preferences != null);
             if (preferences != null) row.setChecked(preferences.optBoolean(toggle.key(), toggle.enabledByDefault()));
         }
+        if (screenCaptureRow != null) {
+            screenCaptureRow.setEnabled(localSettings != null && pendingScreenCaptureValue == null);
+            if (localSettings != null) screenCaptureRow.setChecked(localSettings.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));
+        }
+    }
+
+    /** 切换「防止截屏」：第一次打开直接保存，打开过以后先认证；设备没有系统认证时一律不切换，否则打开以后再也关不掉。 */
+    private void saveScreenCaptureProtection(boolean value) {
+        AndroidLocalSettings.Snapshot current = localSettings;
+        if (current == null || pendingScreenCaptureValue != null) {
+            render();
+            return;
+        }
+        int authenticators = SystemAuthenticators.allowed();
+        boolean available = BiometricManager.from(requireContext()).canAuthenticate(authenticators)
+            == BiometricManager.BIOMETRIC_SUCCESS;
+        switch (ScreenCaptureProtectionPolicy.decide(
+                current.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION),
+                current.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE), value, available)) {
+            case UNCHANGED -> render();
+            case SAVE -> writeScreenCaptureProtection(value);
+            case UNAVAILABLE -> {
+                render();
+                MsToast.show(requireContext(), value
+                    ? "这台设备没有可用的系统认证，设置锁屏密码后才能打开防止截屏"
+                    : "这台设备没有可用的系统认证，防止截屏保持开启");
+            }
+            case AUTHENTICATE -> requestScreenCaptureAuthentication(value, authenticators);
+        }
+    }
+
+    private void requestScreenCaptureAuthentication(boolean value, int authenticators) {
+        pendingScreenCaptureValue = value;
+        render();
+        screenCaptureAuthentication = new BiometricPrompt(this,
+            ContextCompat.getMainExecutor(requireContext()), new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    finishScreenCaptureAuthentication(true);
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    finishScreenCaptureAuthentication(false);
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle(value ? "打开防止截屏" : "关闭防止截屏")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        screenCaptureAuthentication.authenticate(prompt);
+    }
+
+    private void finishScreenCaptureAuthentication(boolean authenticated) {
+        Boolean value = pendingScreenCaptureValue;
+        screenCaptureAuthentication = null;
+        if (value == null) return;
+        if (authenticated) {
+            writeScreenCaptureProtection(value);
+            return;
+        }
+        pendingScreenCaptureValue = null;
+        render();
+        Context context = getContext();
+        if (context != null) MsToast.show(context, value ? "未通过系统认证，防止截屏保持关闭" : "未通过系统认证，防止截屏保持开启");
+    }
+
+    /**
+     * 写入开关；打开时同一次写入记下「打开过」，此后的切换都要认证。写好后当场给本页所在 Activity 的窗口加上或去掉保护。
+     *
+     * <p>窗口不跟着本页的视图走：{@link HostTask} 在页面视图销毁后会丢掉结果回调，而写入排在共用的工作线程上可能晚于用户退出本页完成。若靠那个回调改窗口，用户打开后立刻返回时文件已经写成「开着」，设置应用的其他页面却一直可以截屏，要等下次 {@code onResume} 才跟上。所以写成后直接把窗口更新投到主线程，只认 Activity 是否还在。
+     */
+    private void writeScreenCaptureProtection(boolean value) {
+        pendingScreenCaptureValue = value;
+        render();
+        Activity activity = requireActivity();
+        HostTask.run(this, context -> {
+            Map<String, Object> edits = new LinkedHashMap<>(2);
+            edits.put(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION, value);
+            if (value) edits.put(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE, true);
+            final AndroidLocalSettings.Snapshot saved;
+            try {
+                saved = AndroidLocalSettings.update(context, edits);
+            } catch (java.io.IOException | IllegalArgumentException error) {
+                return null;
+            }
+            boolean protect = saved.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION);
+            MAIN.post(() -> {
+                if (!activity.isDestroyed()) ScreenCaptureProtection.apply(activity.getWindow(), protect);
+            });
+            return saved;
+        }, saved -> {
+            pendingScreenCaptureValue = null;
+            if (saved == null) {
+                MsToast.show(requireContext(), "没有保存，请重试");
+            } else {
+                localSettings = saved;
+            }
+            render();
+        });
     }
 
     private void save(InputFeatureToggle toggle, boolean value) {
