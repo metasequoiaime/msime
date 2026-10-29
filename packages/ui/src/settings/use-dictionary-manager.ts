@@ -340,6 +340,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       async (isCurrent) => {
         const scelText = dictionary.scelText;
         const scel = format === "scel" || (scelText !== undefined && (await isScelFile(file)));
+        if (!isCurrent()) return;
         let text: string;
         let textFormat: LocalDictionaryFormat;
         let source = "";
@@ -348,15 +349,15 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           if (!scelText) throw new Error("这里不能导入搜狗细胞词库。");
           if (dictionaryKind !== "pinyin")
             throw new Error("搜狗细胞词库只能导入拼音词库，请先把「词库」切换到拼音。");
-          const converted = await scelText(
-            await readScelFile(
-              file,
-              Math.min(
-                MAX_SCEL_FILE_BYTES,
-                dictionary.maxImportFileBytes ?? MAX_DICTIONARY_FILE_BYTES,
-              ),
+          const encoded = await readScelFile(
+            file,
+            Math.min(
+              MAX_SCEL_FILE_BYTES,
+              dictionary.maxImportFileBytes ?? MAX_DICTIONARY_FILE_BYTES,
             ),
           );
+          if (!isCurrent()) return;
+          const converted = await scelText(encoded);
           text = converted.text;
           if (dictionary.maxImportFileBytes !== undefined)
             ({ text, cut } = leadingImportRows(converted.text));
@@ -366,6 +367,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           text = await readDictionaryFile(file, dictionary.maxImportFileBytes);
           textFormat = format;
         }
+        if (!isCurrent()) return;
         let imported: DictionaryImportResult | null = null;
         if (dictionary.import) {
           imported = await dictionary.import(
@@ -379,6 +381,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           if (textFormat === "hans") throw new Error("hans format requires batch import");
           const lines = text.split(/\r?\n/).filter(Boolean);
           for (const line of lines) {
+            if (!isCurrent()) return;
             const [first, second, weight = "10000"] = line.split("\t");
             if (!first || !second) continue;
             const [value, key] = textFormat === "windows" ? [second, first] : [first, second];
