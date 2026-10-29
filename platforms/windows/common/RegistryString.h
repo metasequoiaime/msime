@@ -26,9 +26,11 @@ inline std::wstring read_registry_string_64(HKEY root, const wchar_t* subkey,
       bytes / sizeof(wchar_t) > value.size())
     return {};
   value.resize(bytes / sizeof(wchar_t));
-  if (value.empty() || value.back() != L'\0')
+  // RRF_RT_REG_SZ 补齐终止符；只取第一个终止符之前的内容，与 host-windows 的 installed_data_directory 一致，安装器多写的终止符不能进路径。
+  const auto end = value.find(L'\0');
+  if (end == std::wstring::npos)
     return {};
-  value.pop_back();
+  value.resize(end);
   return value;
 }
 } // namespace msime::windows

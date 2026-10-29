@@ -34,8 +34,12 @@ void registry_view_test() {
       const DWORD number = 7;
       const auto type_status = RegSetValueExW(key, L"Number", 0, REG_DWORD,
           reinterpret_cast<const BYTE*>(&number), sizeof(number));
+      // 多写一个终止符的 REG_SZ：读出来不能把它带进路径。
+      const wchar_t padded[] = L"C:\\padded\0";
+      const auto padded_status = RegSetValueExW(key, L"Padded", 0, REG_SZ,
+          reinterpret_cast<const BYTE*>(padded), static_cast<DWORD>(sizeof(padded)));
       RegCloseKey(key);
-      require(status == ERROR_SUCCESS && type_status == ERROR_SUCCESS,
+      require(status == ERROR_SUCCESS && type_status == ERROR_SUCCESS && padded_status == ERROR_SUCCESS,
               "write synthetic registry values failed");
     }
   } fixture;
@@ -50,6 +54,8 @@ void registry_view_test() {
   using msime::windows::read_registry_string_64;
   require(read_registry_string_64(HKEY_CURRENT_USER, fixture.path.c_str(), L"DataDir") == expected,
           "must read the 64-bit registry view, including on Win7 WOW64");
+  require(read_registry_string_64(HKEY_CURRENT_USER, fixture.path.c_str(), L"Padded") == L"C:\\padded",
+          "extra terminators must not reach the path");
   require(read_registry_string_64(HKEY_CURRENT_USER, fixture.path.c_str(), L"Missing").empty(),
           "missing registry values must remain empty");
   require(read_registry_string_64(HKEY_CURRENT_USER, fixture.path.c_str(), L"Number").empty(),
