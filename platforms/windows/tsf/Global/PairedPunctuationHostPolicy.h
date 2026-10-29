@@ -20,7 +20,7 @@ inline bool IsPairedPunctuationExcludedProcess(std::wstring_view processName)
     return true;
 }
 
-// 标点键补全时左半边对应的右半边，不成对时为 0。与 macOS 的 MSIMEPunctuationPairs 一致，另含 `{` 和全角模式下的 `｛`：macOS 只在按 `{` 键时补全这一对（全角时补成 ｛｝），不把恰好是 `{` 的符号候选当作开头，候选那一侧见 PairedPunctuationClosingForCandidate。
+// 标点键补全时左半边对应的右半边，不成对时为 0。与 macOS 的 MSIMEPunctuationPairs 一致。`{` 键出的是「（契约第 5 版），按这张表补」。
 inline wchar_t PairedPunctuationClosingFor(wchar_t opening)
 {
     switch (opening)
@@ -31,10 +31,6 @@ inline wchar_t PairedPunctuationClosingFor(wchar_t opening)
         return L'’';
     case L'【':
         return L'】';
-    case L'{':
-        return L'}';
-    case L'｛':
-        return L'｝';
     case L'《':
         return L'》';
     case L'〈':
@@ -99,23 +95,22 @@ inline wchar_t ReopenedPairedQuote(wchar_t key, wchar_t mark)
     return mark;
 }
 
-// 候选上屏（空格、数字、回车或点击）时，整条上屏文字恰好是一个左半边才补全右半边，例如从符号候选里选的「或（。与 macOS 一样只看整条文字：以引号或括号结尾的词句原样上屏；`{` 与 `｛` 不在其中，它们只由按键补全。
+// 候选上屏（空格、数字、回车或点击）时，整条上屏文字恰好是一个左半边才补全右半边，例如从符号候选里选的「或（。与 macOS 一样只看整条文字：以引号或括号结尾的词句原样上屏。
 inline wchar_t PairedPunctuationClosingForCandidate(std::wstring_view text)
 {
-    if (text.size() != 1 || text[0] == L'{' || text[0] == L'｛')
+    if (text.size() != 1)
         return 0;
     return PairedPunctuationClosingFor(text[0]);
 }
 
-// 全角模式下按 `{` 键开的一对是全角的 ｛｝，与 macOS 一致；半角时仍是 `{}`。返回这次实际上屏的左半边。
-inline wchar_t PairedPunctuationKeyOpening(wchar_t key, wchar_t resolved, bool fullWidth)
+// 这个标点键出的字能不能武装空格转换（`_ArmSmartPunctuationSpace`）。`{` `}` 出的「」不能：花括号不在空格转换的名单里（与 Linux 宿主的 is_space_conversion_key 一致），而 SmartPunctuationAsciiFor 会把「」按引号样式转回 `'`，打出用户没按过的键。
+inline bool PunctuationKeyArmsSpaceConversion(wchar_t key)
 {
-    return key == L'{' && resolved == L'{' && fullWidth ? L'｛' : resolved;
+    return key != L'{' && key != L'}';
 }
 
-// The closing half the pressed key would step over, or 0 when the key cannot close a tracked pair. Only the closing half of a pair the host auto-completes qualifies (the '{' pair included, whose table entry is ASCII); ASCII output such as direct-mode ',' '.' ':' or the numpad dot and unrelated Chinese marks ('。' '：' '；' ...) must answer 0, because stepping over clears the whole pair stack on a mismatch and would silently drop the pair the user is still inside. Quotes are keyed symmetrically: '"' resolves to either half depending on the legacy left/right toggle, so the resolved character says nothing about intent and the key itself has to answer.
-// 全角模式下 `{` 补出的是 ｝，所以那时 `}` 键要跨过的也是 ｝（`fullWidth`）。
-inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view resolved, bool fullWidth = false)
+// 按下的键能跨过的后半个，不能收起栈里的一对时为 0。只有宿主自动补出的后半个才算；ASCII 输出（直出的 `,` `.` `:`、小键盘的点）和无关的中文标点（。：；……）必须答 0，因为跨过时栈顶不符会清空整个栈，悄悄丢掉用户还在里面的那一对。引号按键判断：`"` 随旧的左右交替出哪一半都有可能，出的字说明不了意图，只能看键。`}` 出的是」（契约第 5 版），按出的字落到下面的」分支。
+inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view resolved)
 {
     if (resolved.size() != 1)
         return 0;
@@ -124,8 +119,6 @@ inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view
         return resolved[0] == L'『' || resolved[0] == L'』' ? L'』' : L'”';
     if (key == L'\'')
         return resolved[0] == L'「' || resolved[0] == L'」' ? L'」' : L'’';
-    if (key == L'}' && resolved[0] == L'}' && fullWidth)
-        return L'｝';
     switch (resolved[0])
     {
     case L'”':
@@ -134,8 +127,6 @@ inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view
     case L'》':
     case L'〉':
     case L'）':
-    case L'}':
-    case L'｝':
     case L'」':
     case L'〗':
         return resolved[0];

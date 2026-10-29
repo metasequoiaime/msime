@@ -25,7 +25,7 @@ App 只在用户动作时请求刷新：搜索、翻页、点刷新按钮、编�
 
 可以这样做的依据：
 
-- 租约：host-api 的 `Operation::List` 取的是 `DictionaryAccess::try_session`（共享），从 2026-09-11 引入时就是这样；输入会话持有的也是共享租约，两者并存（`client-services` 的 `shared_access_excludes_maintenance_and_releases_cleanly` 守着）。只有维护者持有独占租约时列表才报 `dictionary maintenance busy`，`synchronize` 已把这种失败记进 `snapshotError` 并保留上一份列表和所有编辑回执。桌面设置页和 MCP 一直在输入法会话活着时列个人词库，iOS 是唯一为列表重建会话的宿主。
+- 租约：host-api 的 `Operation::List` 取的是 `DictionaryAccess::try_session`（共享），从 2026-09-11 引入时就是这样；输入会话持有的也是共享租约，两者并存（引擎 `access.rs` 的 `shared_access_excludes_maintenance_and_releases_cleanly` 守着）。只有维护者持有独占租约时列表才报 `dictionary maintenance busy`，`synchronize` 已把这种失败记进 `snapshotError` 并保留上一份列表和所有编辑回执。桌面设置页和 MCP 一直在输入法会话活着时列个人词库，iOS 是唯一为列表重建会话的宿主。
 - 数据：列表读日志里的 `user_dictionary_operations`（`user_inserted=1` 的行），这些行由 `record_user_insert` 在上屏时同步写入。会话延迟写的只有个人 n-gram 转移（`PersonalNgramStore`，约 2 秒后台写），销毁会话时 `Drop` 会把它们刷进日志，但列表不读这两张表。所以销毁会话不会让列表多出任何一行，留着会话列出来的结果和原来一样。
 - 线程：`msime_client_dictionary` 在调用线程（主线程）上执行，列表结束时 `release_thread_journal` 关的是主线程缓存的日志连接，输入会话在 `app.msime.ios.input` 线程上，它的连接不受影响。
 

@@ -161,7 +161,7 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），送落点、用引擎默认的计价参数。送落点时每条用例的触点各不相同，记忆表帮不上忙，所以加 `--jobs 5` 让五个方案各开一个线程同时跑（输出与一个一个跑逐字节相同），再加 `--assert-top1-unchanged`。在同时跑着 CI 的 Mac Studio 上整句那份要几个小时（看负载）、词级那份十分钟上下，没有放进 `verify-local.sh`。引擎收到触点之前的平面表数字用同样的命令加 `--no-touch-points` 复现。
 
-`--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。
+`--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。纠错整句按首选规则坐首选（[首选规则笔记](../../.agents/notes/implemented/feature/2026-10-29-shuangpin-touch-first-seat.md)）的参数下，clean 集的首选按设计可能变，这时改用 `--assert-first-seat-gate`：σ=0 的 clean 组有一条首选变了、所有 clean 组合起来变了超过 0.1%、或某个方案超过 0.2%，就以非零退出。引擎默认的 m_sp 是无穷大，首选规则不起作用，基线照旧用 `--assert-top1-unchanged`。
 
 **基线只用 `desktop-dictionary.lock.json` 那一组文件加 `sentence-model.safetensors` 生成，资源目录里不放 settled 模型 `sentence-model-desktop.safetensors`。** 那个文件由另一份锁 `settled-model.lock.json` 发布，`convert_eval` 见到它就挂上 settled 重排，排序会变，两份双拼基线就对不上了，并不是产品改了。跑的时候 stderr 必须打出 `no settled model at ...`；打出 `settling with ...` 时先把那个文件挪出资源目录。
 
@@ -178,9 +178,9 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 - `noisy`：至少一键按到了别的键，量召回。按「至少一键按错」的条件分布精确抽样，不反复重抽；σ 为 0 时没有一键会按错，这些用例记在 `skipped` 里。
 - `realistic`：不加条件的落点分布，看净收益。
 
-**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。同一条用例的同一串按键、带同样（量化后）的触点只打一次。
+**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。同一条用例的同一串按键、带同样（量化后）的触点只打一次。送了触点的模式每组多一行 `first_seat`：`first_changed` 是实际首选文字与原样输入不同的条数（clean 集里就是 `--assert-top1-unchanged` 数的那个数），`confident` 是首选为按首选规则坐上去的纠错行（视图的 `confident_correction`）的条数，`confident_gold` 是其中正好是金标准的条数；clean 集首选变了的用例另在 `changed` 里逐条列出（`id`、送进去的 `keys`、`gold`、原样输入的首选 `was`、这次的首选 `now`、是不是纠错行坐上去的 `confident`），供人工复核。none 模式是对照，没有这一行。`--dump` 的行在首选是这种纠错行时多一项 `"confident": true`。
 
-**调参。** `--touch-tuning base=12,scale=8,...` 覆盖引擎的触点计价参数（`base`、`scale`、`sigma_x`、`sigma_y`、`bias_y`、`min`、`max`、`cut`、`show`，意思见 `msime_engine::touch::TouchTuning`），只覆盖给出的几项，报告头里多一行 `touch_tuning`。它经 `host::Session::set_touch_tuning` 设进引擎，只有 Rust 示例能设，宿主经 FFI 设不了。
+**调参。** `--touch-tuning base=12,scale=8,...` 覆盖引擎的触点计价参数（`base`、`scale`、`sigma_x`、`sigma_y`、`bias_y`、`min`、`max`、`cut`、`show`、`show_pen`，以及首选规则的 `lead`（m_sp）和 `lead_pen`（P_LEAD），意思见 `msime_engine::touch::TouchTuning`），只覆盖给出的几项，报告头里多一行 `touch_tuning`。它经 `host::Session::set_touch_tuning` 设进引擎，只有 Rust 示例能设，宿主经 FFI 设不了。
 
 **学习回放。** `--learn-replay <n>` 量双拼纠错按两键码学习（[纠错学习笔记](../../.agents/notes/implemented/feature/2026-10-28-shuangpin-typo-learning.md)）的作用：正式那一遍跑完后，每组（σ、偏置）把这组 noisy 集里按错的每一对两键码（只错一键或两键对调的音节）在评测自己的日志里记成接受过 n 次，把各个触点模式重跑一遍，量完清掉再换下一组。重跑的行多 `learned`（n）和 `learned_pairs`（记了多少对）两项，正式那一遍的行和不加这个参数时逐字节相同。计数直接写进日志，等于用户在别处接受过这么多次同一对：选中纠错行时记哪一对由引擎的会话测试钉住，这里不经选词，免得选中整句顺带记下的整句词条和上下文混进来。偏置 b 不为 0 时落点整体往下偏，同一对两键码反复出现，就是「固定偏置的用户」。要求送落点、至少一个触点模式。
 

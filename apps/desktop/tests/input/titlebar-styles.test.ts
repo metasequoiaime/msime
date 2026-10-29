@@ -120,3 +120,18 @@ test("macOS liquid glass toolbar avoids a second blur pass and rounds its lower 
     'html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {\n  border-bottom-color: transparent;\n  /* 原生液态玻璃已经负责窗口材质；工具栏再次采样滚动内容会在 WebKit 中闪烁。 */\n  backdrop-filter: none;\n  -webkit-backdrop-filter: none;',
   );
 });
+
+// The native glass has no tint of its own, so a fully transparent sidebar takes the wallpaper's colour: a dark wallpaper turned the light-theme sidebar dark purple-grey next to the light content.
+test("macOS liquid glass sidebar carries a theme tint instead of showing the wallpaper", () => {
+  const start = styles.indexOf("/* 原生宿主确认材质已安装后才透出背景");
+  expect(start).toBeGreaterThan(-1);
+  const transparentSelectors = styles.slice(start, styles.indexOf("{", start));
+  expect(transparentSelectors).toContain(".settings-mac-drag-row");
+  expect(transparentSelectors).not.toContain(".settings-sidebar");
+  expect(styles).toContain(
+    'html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {\n  border-right-color: transparent;\n  background: rgba(40, 40, 42, 0.78);\n}',
+  );
+  expect(styles).toContain(
+    'html[data-theme="light"][data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {\n  background: rgba(236, 236, 240, 0.88);\n}',
+  );
+});
