@@ -8,7 +8,18 @@ final class AsynchronousLetterInputTests: XCTestCase {
     super.setUp()
     enableAllInputSchemes()
     let previous = InputSchemePreference.scheme
-    addTeardownBlock { InputSchemePreference.scheme = previous }
+    let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    let shuangpinLayout = TouchShuangpinLayoutPreference.layout
+    let wubiLayout = TouchWubiLayoutPreference.layout
+    // 双拼、五笔都要画 26 键；前面的用例可能把它们留在 14/18 键。
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey))
+    XCTAssertTrue(TouchWubiLayoutPreference.save(.twentySixKey))
+    addTeardownBlock {
+      if let document { _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = document } }
+      TouchShuangpinLayoutPreference.layout = shuangpinLayout
+      TouchWubiLayoutPreference.layout = wubiLayout
+      InputSchemePreference.scheme = previous
+    }
   }
 
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
