@@ -1863,7 +1863,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `lunar-lite` | 0.1.0 | MIT | L35 |
 | `memchr` | 2.8.3 | Unlicense OR MIT | L01、L02、L03 |
 | `memmap2` | 0.9.11 | MIT OR Apache-2.0 | L36、L37 |
-| `msime-engine` | 0.1.0 | MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL | 本项目，见上文 `crates/engine/LICENSE` |
+| `msime-engine` | 0.1.1 | MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL | 本项目，见上文 `crates/engine/LICENSE` |
 | `msime-engine-wasm` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
 | `msime-path-trust` | 0.1.0 | MPL-2.0 | 本项目，见上文 `crates/engine/LICENSE` |
 | `nom` | 8.0.0 | MIT | L38 |
