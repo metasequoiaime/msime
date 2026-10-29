@@ -48,6 +48,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 HorizontalScrollView scroll = (HorizontalScrollView) field(type, "shortcutScroll").get(service);
                 LinearLayout bar = (LinearLayout) field(type, "shortcutBar").get(service);
                 check(!inside(more, scroll) && !inside(dismiss, scroll), "toolbar edges still scroll with tools");
+                // 语音按钮曾被当作退役按钮从工具栏上拆下，却仍被设成可见（#10142）；它要挂在中间区，跟着排序移动。
+                Button voice = (Button) field(type, "voiceShortcutButton").get(service);
+                check(voice.getParent() == bar, "voice button is not one of the toolbar tools");
                 ViewGroup row = (ViewGroup) scroll.getParent();
                 row.setVisibility(View.VISIBLE);
                 String[] fields = {"emojiShortcutButton", "phraseShortcutButton", "clipboardShortcutButton",
@@ -90,14 +93,16 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
                 constructor.setAccessible(true);
                 field(type, "localSettings").set(service, constructor.newInstance(Map.of(
-                    "platform.android.toolbar_order", "text_edit,floating,scheme,skin,clipboard,phrase,emoji")));
+                    "platform.android.toolbar_order", "voice,text_edit,floating,scheme,skin,clipboard,phrase,emoji")));
                 Object toolbar = field(type, "imeToolbar").get(service);
                 method(toolbar.getClass(), "applyShortcutOrder").invoke(toolbar);
                 check(bar.getChildAt(0) == result, "calculator lost first position");
+                check(bar.getChildAt(1) == voice, "voice button did not follow the saved order");
                 for (int index = 0; index < buttons.length; index++)
-                    check(bar.getChildAt(index + 1) == buttons[buttons.length - index - 1],
+                    check(bar.getChildAt(index + 2) == buttons[buttons.length - index - 1],
                         "custom order changed tool identity");
                 for (int index = 1; index < buttons.length; index++) buttons[index].setVisibility(View.GONE);
+                voice.setVisibility(View.GONE);
                 result.setVisibility(View.GONE);
                 layout(row, Math.round(320 * density), Math.round(64 * density));
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
@@ -120,7 +125,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order, hidden tools, resize and sticky clipboard header\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

@@ -197,12 +197,57 @@ impl TouchBucket {
     }
 }
 
+/// 首选规则（#10018 PR3）在一组配置下的统计。`first_changed` 比的是实际首选的文字（与 `--assert-top1-unchanged` 相同），对照是同一条用例按想按的键原样、不带触点打出的首选；`confident` 是首选为按首选规则坐上去的纠错行（视图的 `confident_correction`），`confident_gold` 是其中正好是金标准的。
+#[derive(Default)]
+pub struct FirstSeat {
+    pub first_changed: usize,
+    pub confident: usize,
+    pub confident_gold: usize,
+    /// clean 集里首选被改的用例，逐条列出供人工复核；别的模式不列。
+    pub changed: Vec<ChangedFirst>,
+}
+
+/// clean 集里首选被改的一条用例。
+pub struct ChangedFirst {
+    pub id: String,
+    /// 送进去的按键。
+    pub keys: String,
+    pub gold: String,
+    /// 原样输入的首选。
+    pub was: Option<String>,
+    /// 这次的首选。
+    pub now: Option<String>,
+    pub confident: bool,
+}
+
+impl FirstSeat {
+    /// `changed` 给了时（clean 集）首选被改的这条用例记进清单。
+    pub fn observe(
+        &mut self,
+        was: Option<&str>,
+        now: Option<&str>,
+        confident: bool,
+        gold: bool,
+        changed: Option<impl FnOnce() -> ChangedFirst>,
+    ) {
+        self.confident += usize::from(confident);
+        self.confident_gold += usize::from(confident && gold);
+        if was != now {
+            self.first_changed += 1;
+            if let Some(changed) = changed {
+                self.changed.push(changed());
+            }
+        }
+    }
+}
+
 /// 一组（方案、触点模式、σ、偏置）的双拼触点评测结果，按音节档和错键数分桶。
 #[derive(Default)]
 pub struct TouchReport {
     pub overall: TouchBucket,
     pub by_syllables: BTreeMap<&'static str, TouchBucket>,
     pub by_errors: BTreeMap<&'static str, TouchBucket>,
+    pub first_seat: FirstSeat,
 }
 
 /// 一条双拼用例在一组配置下的结果。
@@ -362,6 +407,52 @@ mod tests {
             ["0", "1", "2"]
         );
         assert_eq!(report.by_errors["1"].cases, 2);
+    }
+
+    #[test]
+    fn first_seat_counts_changed_firsts_and_lists_them_only_when_asked() {
+        let mut seat = FirstSeat::default();
+        let changed = |id: &str| {
+            let id = id.to_owned();
+            move || ChangedFirst {
+                id,
+                keys: "mwgfxi".into(),
+                gold: "没关系".into(),
+                was: Some("没跟系".into()),
+                now: Some("没关系".into()),
+                confident: true,
+            }
+        };
+        // 首选没变：什么也不记，即使这次首选是纠错行（不会发生，但计数各自独立）。
+        seat.observe(Some("甲"), Some("甲"), false, true, Some(changed("a")));
+        // 纠错行坐上首选、正好是金标准。
+        seat.observe(
+            Some("没跟系"),
+            Some("没关系"),
+            true,
+            true,
+            Some(changed("b")),
+        );
+        // 首选变了但不是纠错行，也不列清单（noisy 集）。
+        seat.observe(
+            Some("甲"),
+            Some("乙"),
+            false,
+            false,
+            None::<fn() -> ChangedFirst>,
+        );
+        // 从空表变成有候选也算变了。
+        seat.observe(None, Some("乙"), true, false, Some(changed("d")));
+        assert_eq!(seat.first_changed, 3);
+        assert_eq!(seat.confident, 2);
+        assert_eq!(seat.confident_gold, 1);
+        assert_eq!(
+            seat.changed
+                .iter()
+                .map(|case| case.id.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "d"]
+        );
     }
 
     #[test]

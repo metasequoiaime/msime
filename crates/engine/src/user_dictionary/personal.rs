@@ -165,16 +165,28 @@ fn validate_entry(
 /// Add (`previous = None`), remove (`replacement = None`) or replace, in one attached transaction with its receipt. `previous` must still be user-inserted with the same weight. A request id (1..=128 of `[A-Za-z0-9_-]`) makes a retry of the same edit a no-op and a reuse for different content a failure.
 ///
 /// An empty request id edits without a receipt, as the reference allowed.
+///
+/// 自己取独占的维护租约（`DictionaryAccess::try_maintenance`）：还有会话或别的维护持着租约时以 `Busy`（`DICTIONARY_MAINTENANCE_BUSY`）失败，什么也不写。不合法的改动在取租约之前就报出来。
 pub fn edit_personal_dictionary(
     paths: &RuntimePaths,
     previous: Option<&PersonalDictionaryEntry>,
     replacement: Option<&PersonalDictionaryEntry>,
     request_id: &str,
 ) -> Result<()> {
+    normalize_edit(true, previous, replacement, request_id)?;
+    let _access = maintenance(paths)?;
     edit_personal_dictionary_with(paths, true, previous, replacement, request_id)
 }
 
-/// [`edit_personal_dictionary`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`）。没有时只能编辑英文词，其余种类的增删改都以 `NO_CHINESE_DICTIONARY` 失败，什么也不写。
+/// 引擎层编辑接口取维护租约；取不到之外的失败（目录打不开、锁文件不对）按本模块的说法报存储不可用。
+pub(super) fn maintenance(paths: &RuntimePaths) -> Result<crate::access::DictionaryAccess> {
+    crate::access::maintenance(paths).map_err(|error| match error {
+        EngineError::Busy(_) => error,
+        _ => failed(STORAGE_UNAVAILABLE),
+    })
+}
+
+/// [`edit_personal_dictionary`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`）。没有时只能编辑英文词，其余种类的增删改都以 `NO_CHINESE_DICTIONARY` 失败，什么也不写。不取维护租约，调用方（host 门面背后的 host-api）已经持有。
 pub fn edit_personal_dictionary_with(
     paths: &RuntimePaths,
     main_dictionary: bool,
@@ -1079,6 +1091,41 @@ mod tests {
     }
 
     // test_personal_dictionary.cpp:61-163, probing the working tables where the reference typed into a session.
+    /// 引擎层的编辑接口自己取维护租约：还有会话持共享租约时报 `Busy`、什么也不写；不合法的改动照旧先报出来；会话结束后同一改动照常生效。
+    #[test]
+    fn engine_level_edits_take_the_maintenance_lease() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let pinyin =
+            validate_personal_dictionary_entry(&entry(Pinyin, "NI HAO", "拟好", 12345)).unwrap();
+        let session = crate::DictionaryAccess::try_session(&paths.user_data, &paths.dictionaries)
+            .unwrap()
+            .unwrap();
+
+        let error = edit_personal_dictionary(&paths, None, Some(&pinyin), "busy-1").unwrap_err();
+        assert_eq!(error.code(), crate::ErrorCode::Busy);
+        assert_eq!(
+            error.to_string(),
+            crate::diagnostics::DICTIONARY_MAINTENANCE_BUSY
+        );
+        assert!(!has(&paths, &pinyin));
+        let invalid = entry(Pinyin, "nihao", "你好", 1);
+        let error = edit_personal_dictionary(&paths, None, Some(&invalid), "").unwrap_err();
+        assert_eq!(error.code(), crate::ErrorCode::Failed);
+        // 门面的 `_with` 版本假定调用方已持有租约，不再取锁。
+        drop(session);
+        let maintenance =
+            crate::DictionaryAccess::try_maintenance(&paths.user_data, &paths.dictionaries)
+                .unwrap()
+                .unwrap();
+        edit_personal_dictionary_with(&paths, true, None, Some(&pinyin), "busy-1").unwrap();
+        assert!(has(&paths, &pinyin));
+        drop(maintenance);
+        edit_personal_dictionary(&paths, Some(&pinyin), None, "busy-2").unwrap();
+        assert!(!has(&paths, &pinyin));
+    }
+
     #[test]
     fn edits_replace_page_refuse_stale_and_survive_an_upgrade() {
         use PersonalDictionaryKind::*;
