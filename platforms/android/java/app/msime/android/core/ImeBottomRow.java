@@ -634,9 +634,10 @@ final class ImeBottomRow {
         boolean ownBottom = layerOwnsBottomRow();
         refreshPeriodFace();
         if (s.spaceButton instanceof SpaceKeyFace face) {
-            boolean mic = spaceShowsMic();
-            face.setShowsMic(mic);
-            face.setSchemeLabel(numberPad ? SpaceKeyFace.numberPadLabel(mic) : spaceLabel());
+            face.setShowsMic(spaceShowsMic());
+            // 数字页的空格主标画 ␣，麦克风只在右上角提示长按可说话（#10059）；方案短名只在字母层显示。
+            face.setNumberPadFace(numberPad);
+            face.setSchemeLabel(numberPad ? "" : spaceLabel());
         }
         // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
         if (numberPad) s.keyId(zeroButton(), layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
