@@ -121,7 +121,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
   }
 
-  /// 粤语双拼的 `;` 与微软双拼排在同一个位置、同样宽：第二排十个键，两侧不缩进；读屏说出粤语双拼的韵母；M 加 `;` 是 ming。普通粤拼不显示这个键。
+  /// 粤语双拼的 `;` 与微软双拼排在同一个位置、同样宽：第二排十个键，两侧不缩进；读屏说出粤语双拼的韵母；M 加 `;` 组成 ming 或 mik。普通粤拼不显示这个键。
   func testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.cantoneseShuangpin) == true,
                       "msime-cantonese.db is not staged into the test host")
@@ -175,13 +175,19 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(frame(try letter("A", in: cantonese), in: cantonese).minX,
                    frame(try letter("A", in: microsoft), in: microsoft).minX, accuracy: 0.5)
 
+    // `;` 是韵母键：M 之后按它，组字变成 ming 或 mik 的候选，而不是上屏一个分号。排序由引擎和词库决定，这里只认两个韵母各一个常见字。
+    func candidates() -> [String] {
+      cantonese.view.layoutIfNeeded()
+      return nodes(cantonese.view).compactMap { $0 as? UIButton }
+        .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+        .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
+    }
     try letter("M", in: cantonese).sendActions(for: .primaryActionTriggered)
+    let initialOnly = candidates()
     cantoneseSemicolon.sendActions(for: .primaryActionTriggered)
-    cantonese.view.layoutIfNeeded()
-    let candidates = nodes(cantonese.view).compactMap { $0 as? UIButton }
-      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
-      .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
-    XCTAssertTrue(candidates.contains("名"), "m; is ming: \(candidates.prefix(5))")
+    let final = candidates()
+    XCTAssertNotEqual(final, initialOnly, "the semicolon joined the composition")
+    XCTAssertTrue(final.contains { ["名", "明", "覓", "冪"].contains($0) }, "m; is ming or mik: \(final.prefix(8))")
 
     let plain = try keyboard(.cantonese)
     defer { plain.viewDidDisappear(false) }

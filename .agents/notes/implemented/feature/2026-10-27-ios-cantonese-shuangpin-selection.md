@@ -34,7 +34,7 @@ Status: implemented
 
 ## Verification
 
-- #10099 分号键：`LanguageSchemesTests.testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey` 核对只有微软双拼和粤语双拼显示 `;` 以及两种读屏标签；`testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL` 在暂存了 `msime-cantonese.db` 的测试宿主里核对键在 L 右边、与微软双拼横向几何一致、M 加 `;` 出「名」、普通粤拼不显示，词库缺席时跳过。未在真机或模拟器的系统键盘里看过实际画面。
+- #10099 分号键：`LanguageSchemesTests.testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey` 核对只有微软双拼和粤语双拼显示 `;` 以及两种读屏标签；`testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL` 在暂存了 `msime-cantonese.db` 的测试宿主里核对键在 L 右边、与微软双拼横向几何一致、M 加 `;` 进入组字、出 ming 或 mik 的候选、普通粤拼不显示，词库缺席时跳过。未在真机或模拟器的系统键盘里看过实际画面。
 
 - 入口审查回归使用真实 `InputLanguage.swift` 和 `InputSchemePreference.swift` 编译 Swift harness，仅替代应用容器与外部资源服务。修复前准确报出添加入口、语言归属和下载词典三个失败，修复后 7 项检查通过；旧特性测试排除集合同步纳入粤语双拼，避免把它误当作不需要词典的方案。
 
