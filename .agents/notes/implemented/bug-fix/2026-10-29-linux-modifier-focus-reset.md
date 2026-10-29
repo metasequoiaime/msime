@@ -25,7 +25,9 @@ Fcitx 输入上下文可能在收到 Ctrl 按下后失焦，而松开事件留�
 - 新增 `fcitx5-native-test <verified-resources> --modifier-focus` 及对应 CTest，驱动真实 Fcitx 输入上下文和 Host API，输入与配置均为合成值。原实现失败于「Ctrl 松开丢失后，重新聚焦的 Shift 应切到英文」，补丁后通过。
 - 回归覆盖左右 Ctrl 丢失松开、旧手势跨焦点的松开、仅松开前端、仍带 Ctrl 的 Shift 松开、reset、输入法停用，以及开启单按 Ctrl 时的对称恢复。
 - Linux 原生目标完整构建通过；Fcitx 隔离 daemon 前端及在线候选用例通过。
-- 带已校验词库的原生套件有 4 个未通过的既有用例：`fcitx5-native-context`、`fcitx5-native-ai` 的直角引号外观断言，在未修改的同一上游源码构建中也同样失败；`linux-candidate-native-canvas` 与 `linux-candidate-native-canvas-chrome` 的像素断言来自未修改的绘图源码。没有修改这些断言或失败基线。
+- 带已校验词库的原生套件有 4 个未通过用例：`fcitx5-native-context`、`fcitx5-native-ai` 的直角引号外观断言，在未修改的同一上游源码构建中也同样失败；`linux-candidate-native-canvas` 与 `linux-candidate-native-canvas-chrome` 的像素断言来自未修改的绘图源码。没有修改这些断言或失败基线。
+- 字体环境复核：当前 Fontconfig 对 Sans 返回 RGB 子像素渲染；仅在独立测试进程中使用灰度渲染后，`linux-candidate-native-canvas` 通过。`linux-candidate-native-canvas-chrome` 的灰色像素断言仍失败，原因待确认；没有修改系统字体配置。
+- 本地 quick 已执行但未全绿；桌面外壳的独立编译复核通过，无词库的 Linux 原生阶段为 104／106 项通过，剩余为上述两个绘图断言。核心修饰键回归独立运行通过，已安装输入法尚未验收。
 
 ## Consequences
 
