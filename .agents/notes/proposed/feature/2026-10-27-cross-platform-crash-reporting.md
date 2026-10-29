@@ -31,7 +31,7 @@ Status: proposed
 | --- | --- | --- |
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原 | 回退设置、Tauri 设置及其他辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
-| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号；短命 HTTP 工作进程的采集启动成本 |
+| Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 完整设置/输入宿主的辅助记录代收与发送；其余架构与部分发行版符号 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 旧完整输入套件语音润色失败未关闭；候选 `6bc13ef19d` 的共享设备单测、APK 构建与独立崩溃步骤已通过，完整输入套件仍在运行；真机与其他架构、最新候选后台传输仍缺 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份；候选 `a03cced2a5` 的原生 Release App 模拟器 `SIGSEGV`/`SIGABRT`、重启补报、隔离后台入库、动态撤回重开及 SIGKILL 负对照 | 键盘扩展实际故障；系统 MetricKit 回调；真机 dSYM 与后台链路；App 当前仅还原到生成入口 `MetasequoiaImeApp.swift:0`，非零源码行仍缺 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
@@ -103,6 +103,12 @@ API 35 首次完整冒烟因专用 AVD 沿用之前专项的双拼九键布局�
 准备失败全部保留：模拟器缺少 `sandbox_init` 所需的库，外层 `sandbox-exec` 没有约束被系统启动的子进程，动态注入与额外调试签名的部分启动未获确认或被拒绝，外部标准流路径出现 `Launchd job spawn failed`，最终采用包内必须依赖、App Group 内审计路径及逐进程映射检查。不能将这些失败算通过，也不能仅凭后续成功认定它们各自的唯一原因。首次显式链接专项在发送信号后没有记录而失败，没有建立可单独核验的就绪证据，根因未确认；保留原目录，后续完整重跑退出 0，不放宽故障必须留记录的断言。
 
 验收后已经重新编译无回环特性的 iOS Host API 静态库与原生 App，真实模拟器 ABI 调用拒绝 `test_origin` 且没有创建握手目录；App、键盘扩展均不再依赖护栏，包内护栏文件已删除。正式静态库 SHA-256 为 `c37fab70a07eaab32577a69b6671fb4084073b38b27c1bc3bbe3230a809e88ab`，正式 App 二进制为 `0d0b13471b7795497ef6de9cd93e91eee8ca7ed18c31d937324c4250c16085df`；恢复前后的 12,444 个源码条目相同。产品进程、任务模拟器、临时后台与数据库、内部网络和专用 SSH 转发均已清理，未改动其他模拟器。
+
+### PVE x64 Linux 与 Android 整轮补验
+
+`c713178d8e` 的 x64 Linux 优化构建已完成八个 Python 与十二个原生辅助入口的实际信号/异常、关闭对照、共享 ABI 代收、隔离官方后台与数据库核对，二十条故障保留原身份，没有输入会话；十二份原生实际后台返回帧经独立符号包还原到非零源码行。X11 监听器使用独立 Xvfb；代收/发送由验收程序调用真实 ABI，完整设置宿主的代收重启仍须补验。HTTP worker 的普通队列采集额外中位数约 3–4 ms，64 条、约 908 KB 队列约 6–7 ms；在线真实入口开启/关闭各二十四次均完成 100 ms 总预算。本轮不削弱短命采集或重写传输。恢复正式 Host API 后，九十七项原生测试全部通过，正式库拒绝回环测试握手；12,444 个源码条目前后一致。配置不匹配的首次原生代理测试失败与后台验收程序排序切片错误均保留，原因、范围、符号与清理见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)。
+
+Native Platform CI `40853458086` 的 `95cc68519e` Android API 35 作业于 `2026-10-29T11:05:39Z` 完整成功：四个共享 crate 的设备单测、实际 APK、崩溃/系统退出/ANR 专项及整套输入冒烟全部通过，语音回复与自动插入用例亦实际通过；本轮通过不证明此前 `voice polish replies (AssertionError)` 的根因已经修复。该运行整体验收仍为失败，因为 Windows x86 系统 WER 的目标退出超时；它已留完整记录，新增诊断的 PVE 两架构专项与完整 quick 通过，仍待新 CI。不能将 Android 整作业通过写成全仓 CI 绿，也不能将旧提交结果写成尚未运行的新 head 验收。
 
 ## Alternatives considered
 
