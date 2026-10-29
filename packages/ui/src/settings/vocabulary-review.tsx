@@ -129,6 +129,10 @@ export function VocabularyReviewPage({
 
   useEffect(() => {
     requestRef.current = null;
+    // 旧队列不能交给新客户端作答，加载失败时也只提供重试。
+    setStatus(undefined);
+    setRevealed(false);
+    setImportNote("");
     setBusy(true);
     return () => {
       requestRef.current = null;
