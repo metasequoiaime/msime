@@ -464,6 +464,21 @@ impl VocabularyProgressStore {
         Ok(document)
     }
 
+    /// 只切换词书；在同一把锁内保留最新限额、卡片和每日计数。
+    pub fn select_wordbook(
+        &self,
+        wordbook: &str,
+    ) -> Result<VocabularyProgress, VocabularyProgressError> {
+        if !wordbook::id_is_well_formed(wordbook) {
+            return Err(VocabularyProgressError::InvalidWordbook);
+        }
+        let lock = self.lock()?;
+        let mut document = self.read_locked(&lock)?;
+        document.settings.wordbook = wordbook.to_owned();
+        self.write_locked(&lock, &document)?;
+        Ok(document)
+    }
+
     /// Forget every card in one wordbook, leaving the day counts alone.
     ///
     /// The counts record what the user did, which resetting a book does not undo.
@@ -1155,6 +1170,52 @@ mod tests {
         assert_eq!(reloaded.settings, document.settings);
         assert!(reloaded.card("cet-4", "ubiquitous").is_some());
         assert_eq!(reloaded.answered_on(TODAY), 1);
+    }
+
+    #[test]
+    fn selecting_a_book_preserves_the_latest_limits_and_review_history() {
+        let (directory, store) = store();
+        let book = book_of(&["alpha"]);
+        store
+            .answer(&book, "alpha", ReviewGrade::Known, TODAY)
+            .unwrap();
+        let other_window = VocabularyProgressStore::new(directory.path());
+        other_window
+            .set_settings(VocabularyReviewSettings {
+                wordbook: book.id,
+                new_per_day: 7,
+                session_limit: 11,
+            })
+            .unwrap();
+        let before = other_window.load().unwrap();
+
+        let selected = store.select_wordbook("user-synthetic").unwrap();
+        assert_eq!(selected.settings.wordbook, "user-synthetic");
+        assert_eq!(selected.settings.new_per_day, 7);
+        assert_eq!(selected.settings.session_limit, 11);
+        assert_eq!(selected.cards, before.cards);
+        assert_eq!(selected.daily, before.daily);
+        assert_eq!(other_window.load().unwrap(), selected);
+    }
+
+    #[test]
+    fn selecting_an_invalid_book_never_replaces_progress() {
+        let (directory, store) = store();
+        store
+            .set_settings(VocabularyReviewSettings::default())
+            .unwrap();
+        let path = directory.path().join(PROGRESS_FILE);
+        let before = fs::read(&path).unwrap();
+        for id in ["", "../user-other", "user/other", "CET 4"] {
+            assert!(matches!(
+                store.select_wordbook(id),
+                Err(VocabularyProgressError::InvalidWordbook)
+            ));
+            assert_eq!(fs::read(&path).unwrap(), before);
+        }
+        fs::write(&path, b"synthetic corrupt progress").unwrap();
+        assert!(store.select_wordbook("user-synthetic").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"synthetic corrupt progress");
     }
 
     #[test]

@@ -35,3 +35,58 @@ enum SwipeHintPolicy {
     return vertical > threshold && vertical > abs(current.x - down.x)
   }
 }
+
+/// 拼音九键字母层 1–9 键的滑动（「九键滑动输入数字」，`NineKeySwipeDigits`，#10229），与 Android `NineKeySwipePolicy.gesture`、鸿蒙 `NineKeySwipePolicy` 逐条相同：只看纵向位移（窗口坐标向下为正，不看横向），沿设定方向严格超过 `threshold` 是输入数字，反方向严格超过、并且这个键有字母（2–9）是弹出数字和字母；设置关着时什么也不判。
+enum NineKeySwipePolicy {
+  enum Gesture: Equatable {
+    /// 还没滑过阈值，或设置关着：点按、长按照旧。
+    case none
+    /// 沿设定方向滑过阈值：松手输入键上的数字。
+    case digit
+    /// 往反方向滑过阈值：弹出数字和字母，与长按相同。
+    case letters
+  }
+
+  /// iOS 固定 24pt，等于 Android「九键滑动距离」的默认值和鸿蒙的 24vp。比 26 键的 `SwipeHintPolicy.threshold` 远：九键的键高，快打时手指往上带一下不该打出数字。
+  static let threshold: CGFloat = 24
+
+  static func gesture(_ mode: NineKeySwipeDigits, downY: CGFloat, currentY: CGFloat, hasLetters: Bool) -> Gesture {
+    let upward = downY - currentY
+    switch mode {
+    case .off:
+      return .none
+    case .up:
+      if upward > threshold { return .digit }
+      return hasLetters && -upward > threshold ? .letters : .none
+    case .down:
+      if -upward > threshold { return .digit }
+      return hasLetters && upward > threshold ? .letters : .none
+    }
+  }
+}
+
+/// 一次触摸上的九键滑动判定：按下时记纵坐标，每次移动判一次，判出来就锁住，之后手指再怎么动（包括滑回原处）结果都不变。设置在每次判定时由调用方现读现传。
+struct NineKeySwipeTracker: Equatable {
+  private(set) var gesture: NineKeySwipePolicy.Gesture = .none
+  private var downY: CGFloat?
+
+  mutating func begin(y: CGFloat) {
+    downY = y
+    gesture = .none
+  }
+
+  /// 这一次移动刚判出的结果；还没判出、早已判出或没有按下过时为 nil。
+  mutating func move(y: CGFloat, mode: NineKeySwipeDigits, hasLetters: Bool) -> NineKeySwipePolicy.Gesture? {
+    guard gesture == .none, let downY else { return nil }
+    let next = NineKeySwipePolicy.gesture(mode, downY: downY, currentY: y, hasLetters: hasLetters)
+    guard next != .none else { return nil }
+    gesture = next
+    return next
+  }
+
+  /// 这次触摸结束或被取消：交回判定结果，回到没按下的状态。
+  mutating func finish() -> NineKeySwipePolicy.Gesture {
+    defer { self = NineKeySwipeTracker() }
+    return gesture
+  }
+}

@@ -934,6 +934,39 @@ mod tests {
         }
     }
 
+    /// 不重建会话换调频方式：关着时选「己」不留记录，换成固定首位后再选一次就排到首位；越界的次数被拒绝，原来的方式不变。
+    #[test]
+    fn the_frequency_mode_changes_without_a_new_session() {
+        let fixture = Fixture::new(&FQ, &[]);
+        let mut session = fixture.session(|_| {});
+        assert_eq!(
+            session.frequency_adjustment().mode,
+            FrequencyAdjustmentMode::Disabled
+        );
+        type_text(&mut session, "ni");
+        select_word(&mut session, "己");
+        type_text(&mut session, "ni");
+        assert_eq!(words(&session)[5], "己");
+        cancel(&mut session);
+
+        let pin = frequency(FrequencyAdjustmentMode::Pin, 1, 1);
+        let revision = session.candidate_revision();
+        session.set_frequency_adjustment(pin).unwrap();
+        assert_ne!(session.candidate_revision(), revision);
+        assert_eq!(session.frequency_adjustment(), pin);
+        type_text(&mut session, "ni");
+        select_word(&mut session, "己");
+        type_text(&mut session, "ni");
+        assert_eq!(words(&session)[0], "己");
+        cancel(&mut session);
+
+        let error = session
+            .set_frequency_adjustment(frequency(FrequencyAdjustmentMode::Halve, 0, 1))
+            .unwrap_err();
+        assert_eq!(error.code(), crate::ErrorCode::InvalidArgument);
+        assert_eq!(session.frequency_adjustment(), pin);
+    }
+
     /// F2 and F3 (test_input_session.cpp:1122-1151).
     #[test]
     fn the_trigger_count_and_the_leader() {

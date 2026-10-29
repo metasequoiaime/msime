@@ -351,3 +351,68 @@ test("puts the one-handed side number pad switch in the phone 布局 group with 
     ),
   ).toBeTruthy();
 });
+
+// 九键滑动输入数字（#10229）：三端同一行文字、同一组选项，紧跟 26 键的「滑动方向」。
+test("lists 九键滑动输入数字 right after 滑动方向 and hands each choice's own spelling back", () => {
+  const onNineKeySwipeDigitsChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByLabelText("九键滑动输入数字")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      nineKeySwipeDigits="off"
+      onNineKeySwipeDigitsChange={onNineKeySwipeDigitsChange}
+    />,
+  );
+  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  expect(row.value).toBe("off");
+  expect([...row.options].map((option) => [option.value, option.textContent])).toEqual([
+    ["off", "关闭"],
+    ["up", "上滑"],
+    ["down", "下滑"],
+  ]);
+  expect(screen.getByText("沿所选方向滑动输入数字，反方向弹出字母。")).toBeTruthy();
+  expect(
+    screen.getByLabelText("滑动方向").compareDocumentPosition(row) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    row.compareDocumentPosition(screen.getByLabelText("滑行输入")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  for (const value of ["up", "down", "off"] as const) {
+    fireEvent.change(row, { target: { value } });
+    expect(onNineKeySwipeDigitsChange).toHaveBeenLastCalledWith(value);
+  }
+});
+
+test("九键滑动输入数字 does not follow the 26 key switch or the local save", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      swipeSymbols={false}
+      tabletFullKeysBusy
+      nineKeySwipeDigits="up"
+      onNineKeySwipeDigitsChange={vi.fn()}
+    />,
+  );
+  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  expect(row.value).toBe("up");
+  expect(row.disabled).toBe(false);
+});
+
+test("draws the gestures group for 九键滑动输入数字 alone", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      glideTyping={undefined}
+      swipeSymbols={undefined}
+      nineKeySwipeDigits="down"
+      onNineKeySwipeDigitsChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("手势")).toBeTruthy();
+  expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
+  expect((screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement).value).toBe("down");
+});

@@ -4323,8 +4323,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4551,8 +4551,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 					"-framework",
@@ -4584,8 +4584,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4611,8 +4611,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4640,8 +4640,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4691,8 +4691,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4766,8 +4766,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4811,8 +4811,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 					"-framework",
@@ -4884,8 +4884,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);
@@ -4912,8 +4912,8 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/ios/device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/ios/simulator";
 				OTHER_LDFLAGS = (
-					"$(inherited)",
 					"-lmsime_host_api",
+					"$(inherited)",
 					"-lc++",
 					"-lsqlite3",
 				);

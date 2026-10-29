@@ -138,22 +138,16 @@ pub fn apply(
             })?;
         }
         ReviewAction::Import { name, text } => {
-            // Validate the existing progress before writing the new book. Import spans two
-            // stores; if the progress document is damaged, returning an error after the library
-            // write would leave a book behind even though the action failed.
-            let document = store.load()?;
+            // 写词书前先验证进度，避免损坏文档让失败的导入仍留下词书；不把此时的设置快照写回。
+            store.load()?;
             let report = wordbook_import::parse(&text, MAX_IMPORT_BYTES)?;
             // The id is minted here and never taken from the file. A book keys the review
             // progress, so a file that named its own id could inherit or destroy the schedule of a
             // book the user imported earlier.
             let id = format!("user-{}", crate::uuid::Uuid::new_v4().simple());
             let book = library.import(&name, report.entries, &id)?;
-            // Selecting it is the only useful next step; leaving the user to pick the book they
-            // just imported out of a list is a step with exactly one right answer.
-            store.set_settings(VocabularyReviewSettings {
-                wordbook: book.id,
-                ..document.settings
-            })?;
+            // 导入后选中新书，只在进度锁内改选择，保留另一窗口刚保存的限额。
+            store.select_wordbook(&book.id)?;
         }
         ReviewAction::Remove { wordbook } => {
             // Validate progress before deleting the book. Removal spans two stores; if the

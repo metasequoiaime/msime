@@ -6,8 +6,8 @@ use std::ffi::c_char;
 use std::sync::{Mutex, TryLockError};
 
 use msime_engine::{
-    CandidateEdge, Command, DictionaryAccess, FirstPageRows, KeyResult, LocalInputMode, SchemeType,
-    Session, SessionSnapshot,
+    CandidateEdge, Command, DictionaryAccess, FirstPageRows, FrequencyAdjustmentMode, KeyResult,
+    LocalInputMode, SchemeType, Session, SessionSnapshot,
 };
 use serde_json::{json, Value};
 
@@ -19,14 +19,18 @@ use crate::abi::{
 use crate::{
     MSIME_ENGINE_BUSY, MSIME_ENGINE_CANDIDATE_ANSWERS_KEY, MSIME_ENGINE_CANDIDATE_FUZZY,
     MSIME_ENGINE_CANDIDATE_SENTENCE, MSIME_ENGINE_EDGE_FIRST_HAN, MSIME_ENGINE_EDGE_LAST_HAN,
-    MSIME_ENGINE_KEY_SHIFT_ONLY, MSIME_ENGINE_OPTION_CHINESE_PUNCT,
-    MSIME_ENGINE_OPTION_DEDICATED_ENGLISH, MSIME_ENGINE_OPTION_FIRST_PAGE_ROWS,
+    MSIME_ENGINE_FREQUENCY_DISABLED, MSIME_ENGINE_FREQUENCY_HALVE, MSIME_ENGINE_FREQUENCY_LINEAR,
+    MSIME_ENGINE_FREQUENCY_PIN, MSIME_ENGINE_FREQUENCY_PROMOTE, MSIME_ENGINE_KEY_SHIFT_ONLY,
+    MSIME_ENGINE_OPTION_CHINESE_PUNCT, MSIME_ENGINE_OPTION_DEDICATED_ENGLISH,
+    MSIME_ENGINE_OPTION_FIRST_PAGE_ROWS, MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP,
+    MSIME_ENGINE_OPTION_FREQUENCY_MODE, MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT,
     MSIME_ENGINE_OPTION_HELPCODE_ENABLED, MSIME_ENGINE_OPTION_HELPCODE_SCHEMA,
     MSIME_ENGINE_OPTION_PAIRED_PUNCT, MSIME_ENGINE_OPTION_PERSONAL_CONTEXT,
     MSIME_ENGINE_OPTION_PREDICTION_ALLOWED, MSIME_ENGINE_OPTION_PUNCT_LOCK,
-    MSIME_ENGINE_OPTION_RESCORING_CONTEXT, MSIME_ENGINE_PANIC, MSIME_ENGINE_STALE,
-    MSIME_ENGINE_STATE_CANDIDATE_LIST_OPEN, MSIME_ENGINE_STATE_DEDICATED_ENGLISH,
-    MSIME_ENGINE_STATE_PREDICTION, MSIME_ENGINE_STATE_TAKES_SEPARATOR, MSIME_ENGINE_UNSUPPORTED,
+    MSIME_ENGINE_OPTION_RESCORING_CONTEXT, MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN,
+    MSIME_ENGINE_PANIC, MSIME_ENGINE_STALE, MSIME_ENGINE_STATE_CANDIDATE_LIST_OPEN,
+    MSIME_ENGINE_STATE_DEDICATED_ENGLISH, MSIME_ENGINE_STATE_PREDICTION,
+    MSIME_ENGINE_STATE_TAKES_SEPARATOR, MSIME_ENGINE_UNSUPPORTED,
 };
 
 /// 不透明的会话句柄，由 `msime_engine_session_new` 建、`msime_engine_session_free` 释放。
@@ -172,6 +176,27 @@ fn local_mode_value(mode: LocalInputMode) -> u32 {
 
 fn saturating_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// `MSIME_ENGINE_FREQUENCY_*` 到引擎的调频方式；编号冻结，与选项 JSON 的 `frequency.mode` 名字一一对应。
+fn frequency_mode(value: i64) -> Outcome<FrequencyAdjustmentMode> {
+    let mode = u32::try_from(value).ok().and_then(|value| match value {
+        MSIME_ENGINE_FREQUENCY_DISABLED => Some(FrequencyAdjustmentMode::Disabled),
+        MSIME_ENGINE_FREQUENCY_PIN => Some(FrequencyAdjustmentMode::Pin),
+        MSIME_ENGINE_FREQUENCY_HALVE => Some(FrequencyAdjustmentMode::Halve),
+        MSIME_ENGINE_FREQUENCY_LINEAR => Some(FrequencyAdjustmentMode::Linear),
+        MSIME_ENGINE_FREQUENCY_PROMOTE => Some(FrequencyAdjustmentMode::Promote),
+        _ => None,
+    });
+    mode.ok_or_else(|| Failure::invalid(format!("unknown frequency mode {value}")))
+}
+
+/// 调频的次数与步长：1 到 10，与建会话时的检查相同。
+fn frequency_count(value: i64, what: &'static str) -> Outcome<i32> {
+    if !(1..=10).contains(&value) {
+        return Err(Failure::invalid(format!("{what} must be 1..=10")));
+    }
+    Ok(value as i32)
 }
 
 fn bool_option(value: i64) -> Outcome<bool> {
@@ -338,6 +363,25 @@ pub unsafe extern "C" fn msime_engine_set_int(
                     .session
                     .set_first_page_rows(FirstPageRows::new(value as usize));
             }
+            MSIME_ENGINE_OPTION_FREQUENCY_MODE
+            | MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT
+            | MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP => {
+                let mut frequency = state.session.frequency_adjustment();
+                match option {
+                    MSIME_ENGINE_OPTION_FREQUENCY_MODE => frequency.mode = frequency_mode(value)?,
+                    MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT => {
+                        frequency.trigger_count = frequency_count(value, "trigger count")?;
+                    }
+                    _ => frequency.linear_step = frequency_count(value, "linear step")?,
+                }
+                state.begin_change();
+                state.session.set_frequency_adjustment(frequency)?;
+            }
+            MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN => {
+                let enabled = bool_option(value)?;
+                state.begin_change();
+                state.session.set_wubi_mixed_pinyin(enabled);
+            }
             MSIME_ENGINE_OPTION_HELPCODE_SCHEMA | MSIME_ENGINE_OPTION_RESCORING_CONTEXT => {
                 return Err(Failure::invalid(format!("option {option} takes a string")));
             }
@@ -392,7 +436,11 @@ pub unsafe extern "C" fn msime_engine_set_string(
             | MSIME_ENGINE_OPTION_HELPCODE_ENABLED
             | MSIME_ENGINE_OPTION_PERSONAL_CONTEXT
             | MSIME_ENGINE_OPTION_PREDICTION_ALLOWED
-            | MSIME_ENGINE_OPTION_FIRST_PAGE_ROWS => {
+            | MSIME_ENGINE_OPTION_FIRST_PAGE_ROWS
+            | MSIME_ENGINE_OPTION_FREQUENCY_MODE
+            | MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT
+            | MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP
+            | MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN => {
                 return Err(Failure::invalid(format!(
                     "option {option} takes an integer"
                 )));
@@ -452,6 +500,29 @@ pub unsafe extern "C" fn msime_engine_key_char(
         let outcome = state
             .session
             .character(character, flags & MSIME_ENGINE_KEY_SHIFT_ONLY != 0);
+        // SAFETY: 调用方的前提。
+        unsafe { state.finish(outcome, result) }
+    })
+}
+
+/// ABI 1.1 起。数字键当选择键，引擎自己的数字选词入口：有组字时 `1`–`9` 上屏整张候选表的第 `digit - 1` 行（也就是第一页，`msime_engine_select` 的那套学习照常）；越南文 VNI 和注音此刻拼写用的数字交给拼写；没有组字时不处理（`handled` 为 0），并且忘掉上屏的上下文，因为这个数字由宿主自己交给应用；上屏后联想的候选不接数字，按下时被清掉。`digit` 只收 ASCII 数字 `0`–`9`，其余是 `MSIME_ENGINE_INVALID_ARGUMENT`。不带修订号：它选的是调用时的候选。Unicode、日期、计算这些用数字拼写的本地模式里它照样选词，所以按键路由仍是先 `msime_engine_key_char`，没被处理时再用它（只显示第一页的前端）或 `msime_engine_select`（翻过页的前端），见 README 按键路由第 4 条。
+///
+/// # Safety
+/// 同 `msime_engine_key_char`。
+#[no_mangle]
+pub unsafe extern "C" fn msime_engine_candidate_key(
+    session: *mut msime_engine_session,
+    digit: u8,
+    result: *mut msime_engine_result,
+) -> i32 {
+    with_session(session, |state| {
+        if !digit.is_ascii_digit() {
+            return Err(Failure::invalid("candidate_key takes one ASCII digit 0-9"));
+        }
+        // SAFETY: 调用方的前提。
+        unsafe { check_output(result, "result") }?;
+        state.begin_change();
+        let outcome = state.session.candidate_key(digit);
         // SAFETY: 调用方的前提。
         unsafe { state.finish(outcome, result) }
     })

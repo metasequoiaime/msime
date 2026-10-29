@@ -258,8 +258,9 @@ final class KeyboardFeedbackDeviceChecks {
         Class<?> snapshot = test.getTargetContext().getClassLoader().loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
         var constructor = snapshot.getDeclaredConstructor(Map.class);
         constructor.setAccessible(true);
-        field(type, "localSettings").set(service, constructor.newInstance(Map.of(
-            "platform.android.key_popup", popup, "platform.android.nine_key_swipe", "up")));
+        field(type, "localSettings").set(service, constructor.newInstance(Map.of("platform.android.key_popup", popup)));
+        // 九键滑动输入数字在共享偏好 touch_nine_key_swipe_digits 里（#10229）；这个合成服务没有会话、不读偏好文件，直接给它读到的值，与 applyTouchGeometry 读到 "up" 时相同。
+        field(type, "nineKeySwipeDigits").set(service, "up");
     }
 
     private void expectPreview(String label, boolean shown) throws Exception {

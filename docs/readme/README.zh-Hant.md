@@ -113,6 +113,8 @@ Linux 本機建置、隔離的 D-Bus / IBus 測試和安裝後的首次設定見
 
 引擎程式碼是 MPL-2.0，可以嵌進閉源或上架 App Store 的應用程式；詞庫資料保留各自的授權條款，不是 MPL：預設中文詞庫含 GPL-3.0 的 rime-ice 資料，n-gram 計數是 CC-BY-SA-4.0，請依需求另選資料。
 
+完整的介紹、各語言的接入範例和常見問題見官網的[引擎庫頁面](https://msime.app/zh-TW/engine/)。
+
 ## 輸入引擎
 
 ```sh
@@ -131,7 +133,7 @@ cargo test -p msime-engine --locked
 
 ## 固定詞庫資源
 
-`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已發布的 `dict-v2.0.39` 的來源、長度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 與 `msime-mozc_LICENSE.txt` 是日文詞庫的授權條款全文（前者是 IPAdic 與 ICOT 的條款，後者是 Mozc 的三條款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 裡 SCOWL 詞表的著作權與授權聲明，它們的條款都要求隨資料一同散布，重新打包時不可省略；詳見[第三方元件清單](../third-party.md#日文词库的分发义务)。首次下載約 270 MB。詞庫鎖的 `source_commit` 記錄這批詞庫是本儲存庫哪次提交用 `msime-dict-build` 產出的，其中 `msime-bigram.bin` 與 `msime-trigram.bin` 是整句詞格仲裁用的語言模型表。表缺失時 engine 不報錯，只是整句路徑不加權——候選照常產出，順序變差，所以換詞庫版本時要確認 `crates/engine` 還能讀取新表，並重跑句子轉換評測。開發準備指令：
+`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已發布的 `dict-v2.0.41` 的來源、長度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 與 `msime-mozc_LICENSE.txt` 是日文詞庫的授權條款全文（前者是 IPAdic 與 ICOT 的條款，後者是 Mozc 的三條款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 裡 SCOWL 詞表的著作權與授權聲明，它們的條款都要求隨資料一同散布，重新打包時不可省略；詳見[第三方元件清單](../third-party.md#日文词库的分发义务)。首次下載約 270 MB。詞庫鎖的 `source_commit` 記錄這批詞庫是本儲存庫哪次提交用 `msime-dict-build` 產出的，其中 `msime-bigram.bin` 與 `msime-trigram.bin` 是整句詞格仲裁用的語言模型表。表缺失時 engine 不報錯，只是整句路徑不加權——候選照常產出，順序變差，所以換詞庫版本時要確認 `crates/engine` 還能讀取新表，並重跑句子轉換評測。開發準備指令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

@@ -32,14 +32,15 @@ use golden_support::snapshot::{journal_tables, query_rows, scrub};
 use msime_engine::assets::USER_JOURNAL;
 use msime_engine::vietnamese::{InputMethod, ToneStyle};
 use msime_engine::{
-    autocorrect_type, fuzzy_rule, CandidateSource, Command, KoreanLayout, LocalInputMode,
-    RuntimePaths, SchemeType, Session, SessionOptions, ShuangpinProfileKind, WubiProfileKind,
+    autocorrect_type, fuzzy_rule, CandidateSource, Command, FrequencyAdjustmentMode, KoreanLayout,
+    LocalInputMode, LocalModeOptions, RuntimePaths, SchemeType, Session, SessionOptions,
+    ShuangpinProfileKind, WubiProfileKind,
 };
 use msime_engine_capi::*;
 use serde_json::{json, Map, Value};
 
-/// Scenarios a full run must replay through the C ABI. Set from the count reached when the replay landed (2026-10-29); raise it when the ABI takes more options or ops, and never lower it to make a failure pass.
-const REPLAYED_FLOOR: usize = 201;
+/// 完整运行至少要经 C ABI 回放的场景数。落地时（2026-10-29）是 201，ABI 1.1 补上调频、混排、本地模式开关、`candidate_key`、`validate_entry` 和五笔混输的运行时开关后是 240；ABI 承载的选项或 op 变多时上调，不能为了让失败通过而下调。
+const REPLAYED_FLOOR: usize = 240;
 
 /// Differences printed per scenario before the rest is summarised as a count.
 const MAX_DIFFS_PER_SCENARIO: usize = 40;
@@ -134,13 +135,9 @@ fn coverage_summary(
     summary
 }
 
-/// Ops the C ABI v1 has no function for, with what a host would use instead where there is something.
+/// C ABI 没有对应函数的 op，以及宿主能改用的办法（有的话）。
 fn unsupported_op(op: &str) -> Option<&'static str> {
     Some(match op {
-        "candidate_key" => {
-            "op candidate_key (no C function; hosts route digits through key_char, README rule 4)"
-        }
-        "set_wubi_mixed_pinyin" => "op set_wubi_mixed_pinyin (only the wubi.mixed_pinyin option)",
         "balance_paired_punctuation_after_auto_close" => {
             "op balance_paired_punctuation_after_auto_close"
         }
@@ -149,7 +146,6 @@ fn unsupported_op(op: &str) -> Option<&'static str> {
         }
         "apply_online_candidates" => "online candidates (not in ABI v1)",
         "reset_cache" => "op reset_cache (msime_engine_release_caches is process-wide only)",
-        "validate_entry" => "op validate_entry (no C function)",
         _ => return None,
     })
 }
@@ -182,6 +178,12 @@ fn unsupported(spec: &Value) -> Option<String> {
                 let byte = arg.as_str().unwrap_or_default().as_bytes()[0];
                 if !byte.is_ascii_punctuation() {
                     return Some(format!("key_punct refuses byte {byte:#04x}"));
+                }
+            }
+            "candidate_key" => {
+                let byte = arg.as_str().unwrap_or_default().as_bytes()[0];
+                if !byte.is_ascii_digit() {
+                    return Some(format!("candidate_key refuses byte {byte:#04x}"));
                 }
             }
             "reopen" => {
@@ -444,6 +446,18 @@ fn capi_options(options: &SessionOptions) -> Result<Value, String> {
         rest.punctuation_lock = defaults.punctuation_lock;
     }
     rest.learning = defaults.learning;
+    if (1..=10).contains(&options.frequency.trigger_count)
+        && (1..=10).contains(&options.frequency.linear_step)
+    {
+        rest.frequency = defaults.frequency;
+    }
+    rest.expressive = defaults.expressive;
+    // `/` 和 `@` 两个模式不在选项 JSON 里，其余开关都在。
+    rest.local_modes = LocalModeOptions {
+        command: options.local_modes.command,
+        mention: options.local_modes.mention,
+        ..defaults.local_modes
+    };
     rest.learn_english_on_enter = defaults.learn_english_on_enter;
     rest.learn_typed_spellings_on_enter = defaults.learn_typed_spellings_on_enter;
     rest.personal_context = defaults.personal_context;
@@ -555,7 +569,38 @@ fn capi_options(options: &SessionOptions) -> Result<Value, String> {
         },
         "first_page_rows": options.first_page_rows,
         "language_dictionaries": languages,
+        "frequency": {
+            "mode": options.frequency.mode.name(),
+            "trigger_count": options.frequency.trigger_count,
+            "linear_step": options.frequency.linear_step,
+        },
+        "expressive": {
+            "emoji_candidates": options.expressive.emoji_candidates,
+            "kaomoji_candidates": options.expressive.kaomoji_candidates,
+            "symbol_candidates": options.expressive.symbol_candidates,
+        },
+        "local_modes": local_modes_json(&options.local_modes),
     }))
+}
+
+/// 选项 JSON 的 `local_modes`：除 `/`、`@` 以外的每个开关都写出来。
+fn local_modes_json(modes: &LocalModeOptions) -> Value {
+    json!({
+        "unicode": modes.unicode,
+        "date_time": modes.date_time,
+        "date_time_inline": modes.date_time_inline,
+        "date_time_menu": modes.date_time_menu,
+        "quick_phrase": modes.quick_phrase,
+        "emoji": modes.emoji,
+        "kaomoji": modes.kaomoji,
+        "super_jianpin": modes.super_jianpin,
+        "temporary_english": modes.temporary_english,
+        "temporary_japanese": modes.temporary_japanese,
+        "expression": modes.expression,
+        "chaizi": modes.chaizi,
+        "symbol": modes.symbol,
+        "shift_letter_entry": modes.shift_letter_entry,
+    })
 }
 
 /// `punctuation.lock` by `SessionOptions::punctuation_lock`.
@@ -1123,6 +1168,14 @@ impl CapiScenario {
                 });
                 Some(outcome.map_or_else(|error| error, |result| result_json(&result, &self.roots)))
             }
+            "candidate_key" => {
+                let byte = text().as_bytes()[0];
+                // SAFETY: 句柄有效，结果结构由 `keyed` 交来。
+                let outcome = self.session().keyed(|session, result| unsafe {
+                    msime_engine_candidate_key(session, byte, result)
+                });
+                Some(outcome.map_or_else(|error| error, |result| result_json(&result, &self.roots)))
+            }
             "select" => {
                 let index = self.index_arg(arg);
                 // SAFETY: a live handle and the result the helper passes.
@@ -1240,6 +1293,9 @@ impl CapiScenario {
             "set_dedicated_english" => self
                 .session()
                 .set_int(MSIME_ENGINE_OPTION_DEDICATED_ENGLISH, flag()),
+            "set_wubi_mixed_pinyin" => self
+                .session()
+                .set_int(MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN, flag()),
             "set_chinese_punctuation_enabled" => self
                 .session()
                 .set_int(MSIME_ENGINE_OPTION_CHINESE_PUNCT, flag()),
@@ -1302,6 +1358,20 @@ impl CapiScenario {
                 };
                 out.insert("rows".into(), query_rows(&path, text()));
                 None
+            }
+            "validate_entry" => {
+                let entry = arg.to_string();
+                let mut text: *mut c_char = ptr::null_mut();
+                // SAFETY: 词条字符串和输出参数在调用期间都活着。
+                let status = unsafe {
+                    msime_engine_user_dict_validate(entry.as_ptr().cast(), entry.len(), &mut text)
+                };
+                // 与录制的形状一致：合法时是规范化后的词条，不合法时是引擎的原因。
+                Some(if status == MSIME_ENGINE_OK {
+                    json!({"entry": serde_json::from_str::<Value>(&take_string(text)).expect("the entry is JSON")})
+                } else {
+                    json!({"error": last_error()})
+                })
             }
             "dict_edit" => {
                 // Maintenance takes the exclusive dictionary lease, which an open C session's shared lease blocks (README「生命周期」), so a host releases the session, edits and opens a new one. The core replay edits beside its open session, which holds no lease.
@@ -1398,7 +1468,7 @@ impl CapiScenario {
 
 // ---- Real-dictionary sets ----
 
-/// The real sets typed through the core API and the C ABI side by side on one generation, row by row: the set's product options, less the two the options JSON does not carry (`sentence_alternatives`, which the ABI fixes at false, and the frequency mode, which only acts on selection and these rows never select). Learning is off, so the two sessions can share the generation. Runs only with `MSIME_EVAL_RESOURCES`, like the engine's real golden sets.
+/// 真实词库的几个集合在同一个代次上经核心 API 和 C ABI 逐行并排打字：取集合的产品选项，只去掉选项 JSON 不承载的 `sentence_alternatives`（ABI 固定为假）。学习关着，两个会话可以共用代次。和引擎的真实 golden 集合一样，只在设了 `MSIME_EVAL_RESOURCES` 时跑。
 #[test]
 fn real_sets_match_the_core_api_through_the_c_abi() {
     let _engine = engine_lock();
@@ -1463,7 +1533,6 @@ fn compare_real_set(file_name: &str, resources: &Path) -> (usize, usize, Vec<Str
     let mut options = SessionOptions::new(paths.runtime());
     real::product_options(&mut options);
     options.sentence_alternatives = false;
-    options.frequency = SessionOptions::new(paths.runtime()).frequency;
     let json = capi_options(&options)
         .unwrap_or_else(|reason| panic!("the real sets' options must fit the C ABI: {reason}"));
     let mut core =
@@ -1525,10 +1594,16 @@ fn compare_real_set(file_name: &str, resources: &Path) -> (usize, usize, Vec<Str
 fn options_the_json_cannot_carry_skip_the_scenario_by_name() {
     let mut options = reference_options();
     assert!(capi_options(&options).is_ok());
-    apply_options(&mut options, &json!({"frequency": {"mode": "promote"}}));
+    options.japanese_mixing = true;
     assert_eq!(
         capi_options(&options).unwrap_err(),
-        "option frequency (not in the options JSON)"
+        "option japanese_mixing (not in the options JSON)"
+    );
+    let mut options = reference_options();
+    options.local_modes.command = true;
+    assert_eq!(
+        capi_options(&options).unwrap_err(),
+        "option local_modes (not in the options JSON)"
     );
     let mut options = reference_options();
     apply_options(&mut options, &json!({"sentence_alternatives": true}));
@@ -1554,6 +1629,9 @@ fn every_option_the_json_carries_is_written_out() {
             "autocorrect_types": 3, "fuzzy_pinyin_rules": 5, "learning": false,
             "english": {"mixed_candidates": true, "minimum_prefix": 5},
             "wubi_mixed_pinyin": true, "vietnamese_input_method": "vni",
+            "frequency": {"mode": "linear", "trigger_count": 3, "linear_step": 4},
+            "expressive": {"kaomoji_candidates": true},
+            "local_modes": {"emoji": false, "temporary_japanese": false},
         }),
     );
     let json = capi_options(&options).unwrap();
@@ -1583,4 +1661,20 @@ fn every_option_the_json_carries_is_written_out() {
     );
     assert_eq!(json["punctuation"]["lock"], "follow");
     assert_eq!(json["learning"], false);
+    assert_eq!(
+        json["frequency"],
+        json!({"mode": "linear", "trigger_count": 3, "linear_step": 4})
+    );
+    assert_eq!(
+        FrequencyAdjustmentMode::from_name(json["frequency"]["mode"].as_str().unwrap()),
+        Some(FrequencyAdjustmentMode::Linear)
+    );
+    assert_eq!(
+        json["expressive"],
+        json!({"emoji_candidates": false, "kaomoji_candidates": true, "symbol_candidates": false})
+    );
+    assert_eq!(json["local_modes"]["emoji"], false);
+    assert_eq!(json["local_modes"]["temporary_japanese"], false);
+    assert_eq!(json["local_modes"]["unicode"], true);
+    assert_eq!(json["local_modes"].as_object().unwrap().len(), 14);
 }

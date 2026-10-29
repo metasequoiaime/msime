@@ -42,23 +42,20 @@ Status: implemented
 
 `SessionOptions` 译成 JSON 时，JSON 里有的键全部写出，不依赖库的缺省值，这样解析器的每一键都被用到。JSON 不承载的字段必须等于 `SessionOptions::new` 的值（C 库从它开始），否则这个场景跳过，原因写成第一个不同的顶层字段名（从两份 `{:#?}` 输出里读出，引擎以后加的字段不用在测试里登记）。没有 C 函数的 op、C 函数按约定拒绝的参数（`key_char` 只收可打印 ASCII 和 Tab，`key_punct` 只收 ASCII 标点）同样跳过并记原因。跳过从不静默：每次运行打印「回放了 N 个、跳过 K 个」和按原因分组的场景名；不带 `MSIME_GOLDEN_SCENARIO` 过滤的完整运行少于 `REPLAYED_FLOOR` 个时失败。这个下限只能随 ABI 覆盖面扩大而上调，不能为了让失败通过而下调。
 
-落地时 300 个场景回放 201 个，下限定为 201。跳过的 99 个：
+落地时 300 个场景回放 201 个，下限定为 201。ABI 1.1 补上调频、`expressive`、`local_modes`、`candidate_key`、`validate_entry` 和五笔混输的运行时开关之后（[引擎 C ABI 1.1 补上的缺口](../architecture/2026-10-30-engine-capi-abi-1-1-additions.md)），回放 240 个，下限升到 240。现在跳过的 60 个都是有意不进 ABI 的能力，每个场景只按第一个原因计：
 
 | 原因 | 个数 |
 | --- | --- |
 | `sentence_alternatives` 为真（C ABI 固定为假） | 38 |
-| 调频方式 `frequency` 不是缺省的 `disabled`（选项 JSON 没有这一键） | 20 |
 | 在线候选 `apply_online_candidates` | 11 |
-| `candidate_key`（没有 C 函数，宿主按 README 按键路由第 4 条经 `key_char` 处理数字） | 9 |
-| 九键与按键网格 | 8 |
-| `expressive`（混排 emoji、颜文字候选） | 8 |
-| `set_wubi_mixed_pinyin`（只有建会话时的 `wubi.mixed_pinyin`） | 2 |
-| `local_modes` 开关 | 2 |
-| `validate_entry`（没有 C 函数） | 1 |
+| 九键与按键网格（含同时用到 `validate_entry` 的 `personal_dictionary_entries`） | 10 |
+| `reset_cache`（只有进程级的 `msime_engine_release_caches`；同一个场景还用到 `balance_paired_punctuation_after_auto_close`） | 1 |
+
+`candidate_key` 经 `msime_engine_candidate_key`、`set_wubi_mixed_pinyin` 经 `MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN`、`validate_entry` 经 `msime_engine_user_dict_validate` 回放；选项 JSON 写出 `frequency`、`expressive` 和除 `command`、`mention` 以外的全部 `local_modes`，这两个模式开着的场景按 `local_modes` 跳过。
 
 ### 真实词库
 
-真实词库的四个集合（`golden/real/*.jsonl`，4477 行）只在设了 `MSIME_EVAL_RESOURCES` 时跑，与引擎的 golden 测试用同一个变量，不设时打印跳过原因。选项取 `real::product_options` 的产品取值，再去掉 JSON 不承载的两项：`sentence_alternatives` 置假，调频方式回到缺省（它只在选择时起作用，这些行不选词）。学习关着，所以核心会话和 C 会话共用 C 侧准备的同一个代次，逐行同时打字、比整张候选表，比完各自 `Cancel` 与 `reset_context`。为防资源目录给错时两边都是空表而「一致」，有候选的行不过半就失败。
+真实词库的四个集合（`golden/real/*.jsonl`，4477 行）只在设了 `MSIME_EVAL_RESOURCES` 时跑，与引擎的 golden 测试用同一个变量，不设时打印跳过原因。选项取 `real::product_options` 的产品取值，再去掉 JSON 不承载的 `sentence_alternatives`（置假）；调频按产品取值（`promote`）一起交给两边。学习关着，所以核心会话和 C 会话共用 C 侧准备的同一个代次，逐行同时打字、比整张候选表，比完各自 `Cancel` 与 `reset_context`。为防资源目录给错时两边都是空表而「一致」，有候选的行不过半就失败。
 
 ## Alternatives considered
 
@@ -73,7 +70,7 @@ Status: implemented
 
 - **收益**：C 包装层与引擎之间的每一处映射（快照、编号、选项 JSON、快照缓存、学习、个人词典）都在 201 个场景的每一步上被核对，引擎改动只要让 C ABI 看到的东西不同，三个桌面平台的 CI 就会变红。落地时没有发现差异；把 C 侧的状态改成读 `snapshot()`、把 `learning` 映射取反之后，76 个场景报出差异，报告直接指到 `steps[1] type "nihao": view.preedit: expected "ni'hao", got "nihao"` 这样的位置。真实词库四个集合在 Studio 上 4477 行没有差异，调试构建约 3 分钟。
 - **代价与已知上限**：golden_support 的单元测试在两个测试二进制里各跑一次；`golden_dir()` 假设两个 crate 在 `crates/` 下相邻；完整回放在 `engine-capi` 作业的 Linux 和 macOS 上约 7 秒，Windows 上约 2 分钟（CI 实测）。CI 没有真实词库，真实集合的对照只在设了 `MSIME_EVAL_RESOURCES` 的机器上跑。下限要人手上调，ABI 新增选项或函数之后不调，新覆盖的场景退回跳过时测试不会发现。
-- **跳过表也是 ABI 的缺口清单**：调频方式、混排 emoji 与颜文字、本地模式开关不在选项 JSON 里，C 采用方现在打不开调频（引擎缺省是 `disabled`）；`candidate_key`、`validate_entry` 没有 C 函数。要不要补由 ABI 的次版本决定，补上一项就把它从跳过表里拿掉并上调下限。
+- **跳过表也是 ABI 的缺口清单**：落地时的调频方式、混排 emoji 与颜文字、本地模式开关、`candidate_key`、`validate_entry` 和五笔混输的运行时开关已在 ABI 1.1 补上并上调了下限；剩下的四类是有意不进 ABI 的能力。以后再补一项，就把它从跳过表里拿掉并上调下限。
 
 ## Verification
 
@@ -83,4 +80,4 @@ Status: implemented
 
 ## 相关笔记
 
-按 engine-capi、C ABI、golden、golden_support 检索活跃笔记：[引擎的 C ABI](../architecture/2026-10-29-engine-capi.md) 是被测的对象，部分重叠，互链，它的「测试与 CI」一节指向本篇；[引擎库的一套默认值、错误码、日志出口与维护锁归属](../architecture/2026-10-29-engine-library-defaults-errors-log-and-lock.md) 定下了核心 `Session` 不取租约、golden 补回辅助码参照值，本篇的 `dict_edit` 处理与 `reference_options` 都建立在它上面，部分重叠；[msime-engine 作为可嵌入的输入引擎库](../../proposed/architecture/2026-10-29-embeddable-engine-library.md) 是 C ABI 的提案，无重叠。其余命中的是 host-api 的 `msime_client.h` 或各自功能的 golden 场景，与本篇无关。没有被本篇吸收或取代的笔记。
+按 engine-capi、C ABI、golden、golden_support 检索活跃笔记：[引擎 C ABI 1.1 补上的缺口](../architecture/2026-10-30-engine-capi-abi-1-1-additions.md) 补上了落地时跳过表里的几类缺口，部分重叠，互链；[引擎的 C ABI](../architecture/2026-10-29-engine-capi.md) 是被测的对象，部分重叠，互链，它的「测试与 CI」一节指向本篇；[引擎库的一套默认值、错误码、日志出口与维护锁归属](../architecture/2026-10-29-engine-library-defaults-errors-log-and-lock.md) 定下了核心 `Session` 不取租约、golden 补回辅助码参照值，本篇的 `dict_edit` 处理与 `reference_options` 都建立在它上面，部分重叠；[msime-engine 作为可嵌入的输入引擎库](../../proposed/architecture/2026-10-29-embeddable-engine-library.md) 是 C ABI 的提案，无重叠。其余命中的是 host-api 的 `msime_client.h` 或各自功能的 golden 场景，与本篇无关。没有被本篇吸收或取代的笔记。

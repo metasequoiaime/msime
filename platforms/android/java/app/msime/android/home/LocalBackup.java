@@ -115,7 +115,7 @@ final class LocalBackup {
     private static String export(Context context, ArchiveDestination destination) {
         String directory = HostStore.directory(context);
         if (directory.isEmpty()) return "还没有完成首次准备，暂时没有可以备份的数据。";
-        // 备份里的设置文档要带上迁移后的底行样式和数字行，旧的本机键迁完即删、不再进备份。
+        // 备份里的设置文档要带上迁移后的底行样式、数字行和九键滑动输入数字，旧的本机键迁完即删、不再进备份。
         KeyLayoutStyleMigration.migrate(context, directory);
         Path dictionary = null;
         Path habitsFile = null;
@@ -592,7 +592,7 @@ final class LocalBackup {
                 AndroidLocalSettings.Spec spec = specs.get(key);
                 // 别的版本写下、本版本不认识或取值不合规的键跳过，不让整份本地设置因为一项失败；语音数据贡献和开发者选项即使在包里也不恢复。
                 Object value = spec == null || !LocalBackupPolicy.backsUpLocalSetting(key) ? null : spec.accept(local.opt(key));
-                // 两个旧键已转换进上面的共享设置文档，恢复成功后只移除旧副本。
+                // 旧键（长空格、数字行、九键滑动输入数字）已转换进上面的共享设置文档，恢复成功后只移除旧副本。
                 if (value != null) edits.put(key, KeyLayoutStyleMigration.legacyKey(key) ? null : value);
             }
             if (!edits.isEmpty()) {

@@ -3206,7 +3206,7 @@ dependencies = [
 
 [[package]]
 name = "msime-engine"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chinese-ime-lm",
  "chinese-number",
@@ -3235,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "msime-engine-capi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "msime-engine",
  "rusqlite",

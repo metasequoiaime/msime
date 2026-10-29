@@ -6,7 +6,7 @@ import UIKit
 ///
 /// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
-/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
+/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开；紧跟 26 键滑动方向的「九键滑动输入数字」写共享偏好 `touch_nine_key_swipe_digits`（`NineKeySwipeDigits`），默认关，三端同一行文字。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
@@ -24,6 +24,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+  /// 「九键滑动输入数字」，共享偏好 `touch_nine_key_swipe_digits`。
+  @State private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
@@ -365,6 +367,16 @@ struct KeyboardLayoutSettingsView: View {
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
         .disabled(!swipeSymbols)
       DesignDivider()
+      // 九键的滑动与 26 键的开关、方向各管各的，不跟着 26 键置灰；没有拼音九键的版本不列这一行。
+      if Self.offersNineKeySwipeDigits {
+        DesignSelectRow(title: NineKeySwipeDigits.title, subtitle: NineKeySwipeDigits.subtitle,
+                        options: NineKeySwipeDigits.allCases.map {
+                          DesignOption(title: $0.optionTitle, value: $0, identifier: Self.nineKeySwipeDigitsIdentifier($0))
+                        },
+                        selection: Binding(get: { nineKeySwipeDigits }, set: { saveNineKeySwipeDigits($0) }),
+                        sheetTitle: NineKeySwipeDigits.title, identifier: "appNineKeySwipeDigits")
+        DesignDivider()
+      }
       DesignToggleRow(title: "滑行输入", subtitle: "在字母键上连续滑动输入拼音，停留可确认经过的键",
                       isOn: Binding(get: { glideTyping }, set: { enabled in
                         glideTyping = enabled
@@ -585,6 +597,24 @@ struct KeyboardLayoutSettingsView: View {
       : enabled
   }
 
+  /// 「九键滑动输入数字」只在本版本提供拼音九键（触屏方案 `nine_key`）时列出。
+  static var offersNineKeySwipeDigits: Bool { ChineseInputScheme.nineKey.isOfferedByEdition }
+
+  /// 选项单里各项的无障碍标识。
+  static func nineKeySwipeDigitsIdentifier(_ value: NineKeySwipeDigits) -> String {
+    switch value {
+    case .off: "appNineKeySwipeDigitsOff"
+    case .up: "appNineKeySwipeDigitsUp"
+    case .down: "appNineKeySwipeDigitsDown"
+    }
+  }
+
+  /// 写用户点的那一项（包括关闭），写进共享偏好；写不进去时退回文档里的值。
+  private func saveNineKeySwipeDigits(_ value: NineKeySwipeDigits) {
+    saveFailed = !NineKeySwipeDigits.save(value)
+    nineKeySwipeDigits = saveFailed ? NineKeySwipeDigits(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) : value
+  }
+
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -631,6 +661,8 @@ struct KeyboardLayoutSettingsView: View {
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
     quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
     KeyboardLayoutPreference.quanpinShift = quanpinShift
+    NineKeySwipeDigits.mirror(preferences)
+    nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   }

@@ -455,7 +455,7 @@ CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT N
 CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);
 ```
 
-- `metadata` 有三行：`format_version`（必须恰好是 `"1"`，否则 `Language dictionary version unsupported`）、`source_commit`（源数据的上游提交）、`license`（库里数据所有来源的许可证合成的 SPDX 表达式，每个来源一项：粤语 `CC-BY-4.0`，注音 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，笔画 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`；`dict-v2.0.39` 及以前发布的注音与笔画库还是构建器改正前写的 `LGPL-2.1-or-later`、`LGPL-3.0-only AND GPL-3.0-only`，下一次发布语言词库才换成新值）。
+- `metadata` 有三行：`format_version`（必须恰好是 `"1"`，否则 `Language dictionary version unsupported`）、`source_commit`（源数据的上游提交）、`license`（库里数据所有来源的许可证合成的 SPDX 表达式，每个来源一项：粤语 `CC-BY-4.0`，注音 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，笔画 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`；`dict-v2.0.40` 及以前发布的注音与笔画库还是构建器改正前写的 `LGPL-2.1-or-later`、`LGPL-3.0-only AND GPL-3.0-only`，`dict-v2.0.41` 起是新值）。
 - `syllables` 是方案的音节表；笔画库里是出现过的笔画码。
 - `entries.key` 是音节以单个空格连接（`nei hou`）；笔画库里是 `hspnz` 五个字母组成的笔画码，没有空格。
 - 文件缺失、打不开或不是数据库报 `Language dictionary unavailable`，方案激活失败。
@@ -550,8 +550,8 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
 | `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor） |
-| `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.39` 及以前的发布只记了 `LGPL-2.1-or-later`） |
-| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.39` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
+| `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-2.1-or-later`） |
+| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |
 | octagram `.gram` | 按模型：rime-wanxiang-data CC-BY-4.0、rime-octagram-data LGPL-3.0、rime-frost GPL-3.0 |
 | `handwriting-zh_CN.model` | LGPL-2.1，附 `HandwritingModel-LICENSE.txt` |

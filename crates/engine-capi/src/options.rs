@@ -5,8 +5,9 @@ use std::path::PathBuf;
 
 use msime_engine::vietnamese::{InputMethod, ToneStyle};
 use msime_engine::{
-    autocorrect_type, fuzzy_rule, KoreanLayout, RuntimePaths, SchemeSet, SchemeType, Session,
-    SessionOptions, ShuangpinCustomTable, ShuangpinProfileKind, WubiProfileKind,
+    autocorrect_type, fuzzy_rule, FrequencyAdjustmentMode, KoreanLayout, RuntimePaths, SchemeSet,
+    SchemeType, Session, SessionOptions, ShuangpinCustomTable, ShuangpinProfileKind,
+    WubiProfileKind,
 };
 use serde::Deserialize;
 
@@ -36,6 +37,12 @@ struct OptionsV1 {
     english: Option<English>,
     first_page_rows: Option<u32>,
     language_dictionaries: Option<LanguageDictionaries>,
+    /// ABI 1.1 起。
+    frequency: Option<Frequency>,
+    /// ABI 1.1 起。
+    expressive: Option<Expressive>,
+    /// ABI 1.1 起。
+    local_modes: Option<LocalModes>,
 }
 
 #[derive(Deserialize)]
@@ -252,6 +259,58 @@ struct English {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Frequency {
+    mode: Option<FrequencyMode>,
+    /// 同一个词要被选中几次才挪位，1 到 10。
+    trigger_count: Option<u32>,
+    /// `linear` 每次前移几位，1 到 10。
+    linear_step: Option<u32>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum FrequencyMode {
+    Disabled,
+    Pin,
+    Halve,
+    Linear,
+    Promote,
+}
+
+/// 中文组字里混入的 emoji、颜文字和符号行（全拼、双拼，输入至少两个字母）。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Expressive {
+    /// 要 `resources/msime-others.db`。
+    emoji_candidates: Option<bool>,
+    /// 要 `resources/msime-others.db`。
+    kaomoji_candidates: Option<bool>,
+    /// 打拼音出符号，表编进了引擎。
+    symbol_candidates: Option<bool>,
+}
+
+/// 各个本地模式能不能进入。`/` 指令和 `@` 名单不在这里：它们的行要宿主喂表，这个 ABI 不收这些表，两者固定关着。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalModes {
+    unicode: Option<bool>,
+    date_time: Option<bool>,
+    date_time_inline: Option<bool>,
+    date_time_menu: Option<bool>,
+    quick_phrase: Option<bool>,
+    emoji: Option<bool>,
+    kaomoji: Option<bool>,
+    super_jianpin: Option<bool>,
+    temporary_english: Option<bool>,
+    temporary_japanese: Option<bool>,
+    expression: Option<bool>,
+    chaizi: Option<bool>,
+    symbol: Option<bool>,
+    shift_letter_entry: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LanguageDictionaries {
     cantonese: Option<PathBuf>,
     zhuyin: Option<PathBuf>,
@@ -428,7 +487,70 @@ pub(crate) fn parse(json: &str) -> Outcome<SessionOptions> {
             options.japanese_dictionary = path;
         }
     }
+    if let Some(frequency) = parsed.frequency {
+        if let Some(mode) = frequency.mode {
+            options.frequency.mode = match mode {
+                FrequencyMode::Disabled => FrequencyAdjustmentMode::Disabled,
+                FrequencyMode::Pin => FrequencyAdjustmentMode::Pin,
+                FrequencyMode::Halve => FrequencyAdjustmentMode::Halve,
+                FrequencyMode::Linear => FrequencyAdjustmentMode::Linear,
+                FrequencyMode::Promote => FrequencyAdjustmentMode::Promote,
+            };
+        }
+        if let Some(count) = frequency.trigger_count {
+            options.frequency.trigger_count = frequency_count(count, "frequency.trigger_count")?;
+        }
+        if let Some(step) = frequency.linear_step {
+            options.frequency.linear_step = frequency_count(step, "frequency.linear_step")?;
+        }
+    }
+    if let Some(expressive) = parsed.expressive {
+        let target = &mut options.expressive;
+        for (value, slot) in [
+            (expressive.emoji_candidates, &mut target.emoji_candidates),
+            (
+                expressive.kaomoji_candidates,
+                &mut target.kaomoji_candidates,
+            ),
+            (expressive.symbol_candidates, &mut target.symbol_candidates),
+        ] {
+            if let Some(value) = value {
+                *slot = value;
+            }
+        }
+    }
+    if let Some(modes) = parsed.local_modes {
+        let target = &mut options.local_modes;
+        for (value, slot) in [
+            (modes.unicode, &mut target.unicode),
+            (modes.date_time, &mut target.date_time),
+            (modes.date_time_inline, &mut target.date_time_inline),
+            (modes.date_time_menu, &mut target.date_time_menu),
+            (modes.quick_phrase, &mut target.quick_phrase),
+            (modes.emoji, &mut target.emoji),
+            (modes.kaomoji, &mut target.kaomoji),
+            (modes.super_jianpin, &mut target.super_jianpin),
+            (modes.temporary_english, &mut target.temporary_english),
+            (modes.temporary_japanese, &mut target.temporary_japanese),
+            (modes.expression, &mut target.expression),
+            (modes.chaizi, &mut target.chaizi),
+            (modes.symbol, &mut target.symbol),
+            (modes.shift_letter_entry, &mut target.shift_letter_entry),
+        ] {
+            if let Some(value) = value {
+                *slot = value;
+            }
+        }
+    }
     // 整句的其余读法要宿主自己重排和裁剪，这个 ABI 只给引擎原始顺序。
     options.sentence_alternatives = false;
     Ok(options)
+}
+
+/// 调频的次数与步长：1 到 10，与引擎建会话时的检查相同，在这里先报出是哪一键。
+fn frequency_count(value: u32, key: &'static str) -> Outcome<i32> {
+    if !(1..=10).contains(&value) {
+        return Err(Failure::invalid(format!("options: {key} must be 1..=10")));
+    }
+    Ok(value as i32)
 }

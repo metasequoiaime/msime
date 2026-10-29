@@ -256,6 +256,56 @@ enum KeyboardLayoutPreference {
   }
 }
 
+/// 「九键滑动输入数字」（#10229）：拼音九键字母层 1–9 键沿所选方向滑动输入键上的数字，反方向滑动弹出数字和字母（与长按相同）。共享文档里是 `touch_nine_key_swipe_digits`（client-core `TouchNineKeySwipeDigits`），写法 `off` / `up` / `down` 与 Android、鸿蒙相同，缺省为关；键盘从 App Group 镜像读。iOS 以前没有这项设置，没有旧值要迁移，也和其他触屏按键布局偏好一样暂不进 iOS 的设置同步。
+enum NineKeySwipeDigits: String, CaseIterable, Hashable {
+  case off, up, down
+
+  static let documentKey = "touch_nine_key_swipe_digits"
+  static let mirrorKey = "keyboard.nineKeySwipeDigits"
+
+  /// 设置页这一行的标题、说明和选项单标题，三端逐字相同。
+  static let title = "九键滑动输入数字"
+  static let subtitle = "沿所选方向滑动输入数字，反方向弹出字母。"
+
+  /// 选项单里的文字，按 `allCases` 的次序：关闭、上滑、下滑。
+  var optionTitle: String {
+    switch self {
+    case .off: "关闭"
+    case .up: "上滑"
+    case .down: "下滑"
+    }
+  }
+
+  /// 文档里的值：缺键、不是字符串或不认识的写法（较新版本加的方向）一律按关，与 client-core 的宽松读取一致。
+  init(in document: [String: Any]?) {
+    self = (document?[Self.documentKey] as? String).flatMap(Self.init(rawValue:)) ?? .off
+  }
+
+  private static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
+
+  /// App Group 里的镜像，键盘读它，不读文档。
+  static var mirrored: NineKeySwipeDigits {
+    get { defaults.string(forKey: mirrorKey).flatMap(Self.init(rawValue:)) ?? .off }
+    set { defaults.set(newValue.rawValue, forKey: mirrorKey) }
+  }
+
+  /// 把文档里的值抄进镜像；读不到文档时保留镜像。
+  static func mirror(_ document: [String: Any]?) {
+    guard document != nil else { return }
+    let value = NineKeySwipeDigits(in: document)
+    if value != mirrored { mirrored = value }
+  }
+
+  /// 写用户点的那一项（包括 `off`，client-core 会把默认值从文档里省掉）；文档接受了才更新镜像。
+  @discardableResult
+  static func save(_ value: NineKeySwipeDigits, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { $0[documentKey] = value.rawValue })
+    else { return false }
+    mirrored = value
+    return true
+  }
+}
+
 /// 「单手模式」的取值，与 Android 的 `platform.android.one_handed` 存法相同：`off`，或按键靠向的一侧 `left` / `right`。
 enum KeyboardOneHandedMode: String, CaseIterable {
   case off, left, right

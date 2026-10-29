@@ -367,8 +367,18 @@ public final class TouchKeyStyleSmoke {
         legacy.clear();
         legacy.put(AndroidLocalSettings.LONG_SPACE_LAYOUT, true);
         check(KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)), "long space pending");
+        // #10229：九键滑动输入数字的旧本机键同样要迁，关闭也算（迁完要删）；距离仍是本机设置，不让迁移一直挂着。
+        legacy.clear();
+        legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE, NineKeySwipePolicy.OFF);
+        check(KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)),
+            "an explicit nine-key off still has to be deleted");
+        legacy.clear();
+        legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, 30);
+        check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)),
+            "the nine-key swipe distance stays local and is not migrated");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.LONG_SPACE_LAYOUT).synced
-            && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced,
+            && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced
+            && !AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE).synced,
             "the legacy keys never travel through android_local");
         nineKeySidebarMigration();
     }
@@ -424,7 +434,9 @@ public final class TouchKeyStyleSmoke {
         check(KeyLayoutStyleMigration.legacyKey(oldNumber) && KeyLayoutStyleMigration.legacyKey(oldSpace)
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SYMBOLS)
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
-            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除四个已转换旧键");
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE)
+            && !KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE)
+            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除五个已转换旧键，九键滑动距离留在本机");
         // 两张符号表：旧备份的文本转成账号文档的写法；等于出厂表或解析不出时写空串（出厂表）；备份里已有新字段时以新字段为准。账号字段名与旧键同名。
         String letters = "platform.android.nine_key_symbols";
         String digits = "platform.android.nine_key_digit_symbols";
@@ -437,6 +449,20 @@ public final class TouchKeyStyleSmoke {
         check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "、"), Map.of(letters, "+")).isEmpty(),
             "备份已带新字段时不用旧表");
         check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, 3), Map.of()).isEmpty(), "不是文本的旧值不恢复");
+
+        // #10229：旧备份里的九键滑动方向转成同名的同步键，关闭也写；同一备份带着同步键时以它为准，不认识或类型不对的旧值不制造默认值。
+        String oldNine = AndroidLocalSettings.NINE_KEY_SWIPE;
+        String nine = "platform.android.nine_key_swipe";
+        for (String direction : new String[] {"off", "up", "down"})
+            check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNine, direction), Map.of())
+                .equals(Map.of(nine, direction)), "旧备份的九键滑动 " + direction + " 能恢复");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNine, "down"), Map.of(nine, "up")).isEmpty(),
+            "备份同时含九键滑动的新旧格式时以新格式为准");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNine, "sideways"), Map.of()).isEmpty()
+            && KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNine, true), Map.of()).isEmpty(),
+            "不认识的九键滑动旧值不制造默认值");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, true, oldNine, "up"), Map.of())
+            .equals(Map.of(number, true, nine, "up")), "数字行和九键滑动一起恢复");
     }
 
     /**

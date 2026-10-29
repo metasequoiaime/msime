@@ -1311,7 +1311,7 @@ Creator: amzxyz (万象拼音 / rime-wanxiang). The README at that commit credit
 
 Work: the dictionaries under dicts/ at the commit above that wanxiang.dict.yaml imports: zi, jichu, lianxiang, duoyin, shici, diming, yixue, huaxue, yaopin, mingren, yiren, wuzhong, renming, taifeng and fangyan. Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), as stated in the README and as committed in LICENSE at that commit.
 
-Used by MSIME: ranking weights only. MSIME's dictionary source repository, msime-dictionary (https://github.com/metasequoiaime/msime-dictionary), adapted the weights of the entries it shares with those dictionaries into its sources/pinyin/single-chars.txt, sources/pinyin/rime-ice.txt and sources/pinyin/rime-ice-supplement.txt (commit 060c102515f176ca3dfaf2a2cba1f320901ef414, msime-dictionary#84, first released in dict-v2.0.30). The dictionaries MSIME ships are built from those files, at present from release dict-v2.0.39 (source data commit 75978c6a6470171cc805c74e87ef465d894a7be4), and carry the adapted weights here:
+Used by MSIME: ranking weights only. MSIME's dictionary source repository, msime-dictionary (https://github.com/metasequoiaime/msime-dictionary), adapted the weights of the entries it shares with those dictionaries into its sources/pinyin/single-chars.txt, sources/pinyin/rime-ice.txt and sources/pinyin/rime-ice-supplement.txt (commit 060c102515f176ca3dfaf2a2cba1f320901ef414, msime-dictionary#84, first released in dict-v2.0.30). The dictionaries MSIME ships are built from those files, at present from release dict-v2.0.41 (source data commit 8e8b7817c91600913625edb7995a7397fbb6899a), and carry the adapted weights here:
 
 - msime-pinyin.db, the pinyin dictionary of every platform, of the web engine (trimmed to all single characters and the highest-weighted words) and of the engine's data pack: the weight of every entry whose word and toneless reading rime-wanxiang also lists.
 - msime-stroke.db, the dictionary of the Stroke scheme: a character's weight is the sum of the weights of its readings in single-chars.txt, so for every character rime-wanxiang lists it is derived from the adapted character frequencies.
@@ -2525,7 +2525,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `lunar-lite` | 0.1.0 | MIT | L35 |
 | `memchr` | 2.8.3 | Unlicense OR MIT | L01、L02、L03 |
 | `memmap2` | 0.9.11 | MIT OR Apache-2.0 | L36、L37 |
-| `msime-engine` | 0.1.1 | MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL | 本项目，见上文 `crates/engine/LICENSE` |
+| `msime-engine` | 0.2.0 | MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL | 本项目，见上文 `crates/engine/LICENSE` |
 | `msime-engine-wasm` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
 | `msime-path-trust` | 0.1.0 | MPL-2.0 | 本项目，见上文 `crates/engine/LICENSE` |
 | `nom` | 8.0.0 | MIT | L38 |

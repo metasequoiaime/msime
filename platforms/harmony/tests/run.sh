@@ -248,6 +248,33 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
+# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的按键音、振动和键位统计；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
+nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
+nine_swipe_body=$(sed -n '/^  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
+nine_digit_body=$(sed -n '/^  private typeNineKeySwipeDigit(key: NineKey): void {$/,/^  }$/p' "$view")
+drop_nine_body=$(sed -n '/^  private dropLetterGestures(): void {$/,/^  }$/p' "$view")
+if ! grep -qF 'nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)' "$session" \
+  || [[ $(grep -cF 'if (!this.symbols && !this.nineKeyShuangpinFaceActive()' "$view") -ne 2 ]] \
+  || ! grep -qF '.onTouch((event: TouchEvent): void => this.nineKeySwipeTouch(key, event))' <<< "$nine_hold_body" \
+  || ! grep -qF 'if (this.nineKeySwipes.swallows(key.input)) {' <<< "$nine_hold_body" \
+  || ! grep -qF 'if (!this.nineKeySwipes.hold(key.input)) {' <<< "$nine_hold_body" \
+  || ! grep -qF '.visibility(this.nineKeySwipeKey === key.input ? Visibility.Hidden : Visibility.Visible)' <<< "$nine_hold_body" \
+  || ! grep -qF 'this.settings.nineKeySwipeDigits' <<< "$nine_swipe_body" \
+  || ! grep -qF 'this.nineKeySwipes.down(key.input, touch.id, touch.windowY, mode, hasLetters);' <<< "$nine_swipe_body" \
+  || ! grep -qF 'this.nineKeySwipes.move(key.input, touch.id, touch.windowY);' <<< "$nine_swipe_body" \
+  || ! grep -qF 'if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {' <<< "$nine_swipe_body" \
+  || ! grep -qF 'this.nineKeySwipes.cancel(key.input);' <<< "$nine_swipe_body" \
+  || ! grep -qF 'this.openKeyHold(NineKeyLayout.holdOptions(key));' <<< "$nine_swipe_body" \
+  || ! grep -qF 'this.typeNineKeySwipeDigit(key);' <<< "$nine_swipe_body" \
+  || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));' <<< "$nine_digit_body" \
+  || ! grep -qF 'KeyboardSession.shared.holdFeedback();' <<< "$nine_digit_body" \
+  || [[ $(grep -A1 -F 'KeyboardSession.shared.finishComposition();' <<< "$nine_digit_body" | grep -cF 'KeyboardSession.shared.insert(digit);') -ne 1 ]] \
+  || ! grep -qF 'this.nineKeySwipes.clear();' <<< "$drop_nine_body" \
+  || ! grep -qF 'nineKeyInput: this.symbols || shuangpin ? undefined : key.input,' "$view" \
+  || ! grep -qF ': this.nineKeySwipeFace($$.nineKeyInput, this.eighteenSwipeFace($$.swipeLetters, $$.face)))' "$view"; then
+  echo "Harmony must read touch_nine_key_swipe_digits through NineKeySwipePolicy, feed the pinyin nine-key letter keys' touches into NineKeySwipeGesture, swallow the click and the long press once a swipe took the touch, type the digit the way a held key's digit is typed, hide the corner digit while the face shows it, and drop the tracker when keys are replaced" >&2
+  exit 1
+fi
 # 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")

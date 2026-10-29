@@ -64,6 +64,7 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     nine_key_digit_sidebar_symbols: "platform.harmony.nine_key_digit_symbols",
     one_handed_side_panel: "platform.harmony.one_handed_side_panel",
     language_key_side: "platform.harmony.language_key_side",
+    nine_key_swipe_digits: "platform.harmony.nine_key_swipe",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 

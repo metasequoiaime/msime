@@ -216,6 +216,8 @@ final class KeyboardKeyButton: UIButton {
       resetPressFeedback()
       removePressPreview()
       resetCornerHint()
+      _ = nineKeySwipe.finish()
+      restoreNineKeySwipeFace()
       touchDownLocation = nil
     }
   }
@@ -276,6 +278,23 @@ final class KeyboardKeyButton: UIButton {
     return touchDownLocation
   }
 
+  /// 「九键滑动输入数字」（#10229）：九宫格 1–9 键的数字，为 nil 时这个键不接九键滑动。控制器建九宫格时设好；同一个键在数字层、九键双拼里也是它，那时 `nineKeySwipeMode` 返回关闭。
+  var nineKeySwipeDigit: Int?
+  /// 这个键有没有字母可弹：2–9 有，1 键是「@#」没有，反方向滑动什么也不做。
+  var nineKeySwipeHasLetters = false
+  /// 右上角的数字角标，输入数字时临时藏起来，松手或取消后还原。
+  weak var nineKeySwipeHint: UIView?
+  /// 此刻的设置，每次判定时现读：不在拼音九键字母层、长按菜单已经弹出、横滑移光标接管了触摸或读屏开着时由控制器返回关闭。
+  var nineKeySwipeMode: (() -> NineKeySwipeDigits)?
+  /// 判出反方向时立刻以 `.letters` 回调（弹出数字和字母）；沿设定方向的在松手时以 `.digit` 回调（输入数字）。触摸被取消时不回调。两种都不再执行按键自己的点按。
+  var onNineKeySwipe: ((NineKeySwipePolicy.Gesture) -> Void)?
+  private var nineKeySwipe = NineKeySwipeTracker()
+  /// 输入数字期间被换下的键面标题和角标的显隐，松手或取消时原样还原（1 键的键面可能随组字状态变过）。
+  private var nineKeySwipeRestingFace: (title: String?, hintHidden: Bool)?
+
+  /// 当前这次触摸已经判出九键滑动。
+  var nineKeySwipeGesture: NineKeySwipePolicy.Gesture { nineKeySwipe.gesture }
+
   /// 被跟踪的手指按下的位置，用窗口坐标，免得按下缩放扭曲滑动距离。
   private var cornerHintDown: CGPoint = .zero
   /// 按下时的触摸时间戳（`UITouch.timestamp`），`cornerHintSwipesEitherWay` 用它判断这次触摸是否已经归长按。
@@ -287,6 +306,9 @@ final class KeyboardKeyButton: UIButton {
     let began = super.beginTracking(touch, with: event)
     resetCornerHint()
     touchDownLocation = began && recordsTouchDown ? keyArea.map { touch.location(in: $0) } : nil
+    restoreNineKeySwipeFace()
+    _ = nineKeySwipe.finish()
+    if began, nineKeySwipeDigit != nil { nineKeySwipe.begin(y: touch.location(in: nil).y) }
     guard began, cornerHint != nil else { return began }
     cornerHintDown = touch.location(in: nil)
     cornerHintDownTime = touch.timestamp
@@ -302,6 +324,11 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+    if let digit = nineKeySwipeDigit, nineKeySwipe.gesture == .none, let mode = nineKeySwipeMode?(),
+       let decided = nineKeySwipe.move(y: touch.location(in: nil).y, mode: mode, hasLetters: nineKeySwipeHasLetters) {
+      beginNineKeySwipe(decided, digit: digit)
+      return true
+    }
     if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
       triggerCornerHint(hint)
     }
@@ -317,7 +344,24 @@ final class KeyboardKeyButton: UIButton {
                                            elapsed: touch.timestamp - cornerHintDownTime, holdDelay: Self.cornerHintHoldDelay)
   }
 
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // 判出九键滑动之后这次触摸不再是点按：键停在判出时的样子（输入数字时保持按下，弹出字母时松开），不随手指进出按键变化。
+    guard nineKeySwipe.gesture == .none else { return }
+    super.touchesMoved(touches, with: event)
+    if nineKeySwipe.gesture != .none { isHighlighted = nineKeySwipe.gesture == .digit }
+  }
+
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    let swiped = nineKeySwipe.finish()
+    if swiped != .none {
+      // 和角标一样取消而不是结束这次触摸，按键自己的点按不会再触发；还原键面之后再上屏，上屏引起的重画看到的是原来的键面。
+      super.touchesCancelled(touches, with: event)
+      restoreNineKeySwipeFace()
+      resetCornerHint()
+      touchDownLocation = nil
+      if swiped == .digit { onNineKeySwipe?(.digit) }
+      return
+    }
     guard cornerHintTriggered, let hint = cornerHint else {
       resetCornerHint()
       // 松手输入时按键的动作在这里面同步执行并取走按下点；手指滑出按键后松开不输入，按下点也不留下。
@@ -333,10 +377,45 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-    // 触摸被滑行输入接管或被系统取消时，什么也不输入。
+    // 触摸被滑行输入、横滑移光标或长按接管，或被系统取消时，什么也不输入；已经换成数字的键面还原。
+    _ = nineKeySwipe.finish()
+    restoreNineKeySwipeFace()
     resetCornerHint()
     touchDownLocation = nil
     super.touchesCancelled(touches, with: event)
+  }
+
+  /// 判出九键滑动的那一刻：取消这个键的长按（之后不会再弹长按菜单），点按由 `touchesEnded` 改成取消。输入数字时键保持按下、键面换成数字、角标藏起；弹出字母时立刻回调。
+  private func beginNineKeySwipe(_ gesture: NineKeySwipePolicy.Gesture, digit: Int) {
+    touchDownLocation = nil
+    for hold in gestureRecognizers ?? [] where hold is UILongPressGestureRecognizer {
+      let enabled = hold.isEnabled
+      hold.isEnabled = false
+      hold.isEnabled = enabled
+    }
+    switch gesture {
+    case .digit:
+      if nineKeySwipeRestingFace == nil {
+        nineKeySwipeRestingFace = (configuration?.title, nineKeySwipeHint?.isHidden ?? true)
+      }
+      configuration?.title = String(digit)
+      nineKeySwipeHint?.isHidden = true
+      previewTitleOverride = String(digit)
+      isHighlighted = true
+    case .letters:
+      isHighlighted = false
+      onNineKeySwipe?(.letters)
+    case .none:
+      break
+    }
+  }
+
+  private func restoreNineKeySwipeFace() {
+    guard let face = nineKeySwipeRestingFace else { return }
+    nineKeySwipeRestingFace = nil
+    configuration?.title = face.title
+    nineKeySwipeHint?.isHidden = face.hintHidden
+    previewTitleOverride = nil
   }
 
   /// 这个键所在的键区。按键的祖先里最近的 `KeyAreaStackView`；不在键区里（面板、候选栏）时为 nil。

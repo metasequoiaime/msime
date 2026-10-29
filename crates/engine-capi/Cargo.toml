@@ -1,14 +1,14 @@
 [package]
 name = "msime-engine-capi"
 # 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，crate 经 .github/workflows/release-engine-crates.yml 发到 crates.io，预编译库经 release-engine-capi.yml 发到 GitHub Releases；SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 rust-version.workspace = true
 # 这个 crate 自己的文件只有维护者的代码，用 MPL-2.0（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL-3.0-only。它链接的 msime-engine 与 msime-path-trust 也是 MPL-2.0，二进制整体按 MPL-2.0 发布。
 license = "MPL-2.0"
 description = "C ABI of the 水杉输入法 (Metasequoia IME) input engine: sessions, keys, candidates, selection and learning, as a C library with a header and pkg-config file."
 repository.workspace = true
-homepage = "https://github.com/metasequoiaime/msime/tree/develop/crates/engine-capi"
+homepage = "https://msime.app/engine/"
 documentation = "https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md"
 readme = "README.md"
 keywords = ["ime", "input-method", "pinyin", "chinese", "ffi"]
@@ -26,7 +26,7 @@ capi = []
 
 [dependencies]
 # 发布时 path 被去掉，留下 version：crates.io 上的 C 库依赖同一版本线的 msime-engine。
-msime-engine = { version = "0.1.0", path = "../engine" }
+msime-engine = { version = "0.2.0", path = "../engine" }
 serde.workspace = true
 serde_json.workspace = true
 

@@ -67,7 +67,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `convert_eval --grid fourteen` 打开 Runtime 的 14 键网格，把每个字母换成它所在键的组码（QW 键是 q，BN 键是 b，即每组的首字母），用宿主触屏键面用的 `GridKey` 逐键送进去，金标准不变。14 键与九键是同一套解码（`KeyGrid`），只换码表：421 个全拼音节在九键上是 218 种码，在 14 键上是 314 种，重码少了，所以同一份集合上 14 键应当不低于九键。`verify-local.sh` 以 `fourteen-key`（`quanpin-words-v1.tsv --limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`）跑它们，对照 `baseline-fourteen-key.json` 和 `baseline-fourteen-key-sentences.json`。
 
-同一次 release 构建、同一份代码，挂 `sentence-model.safetensors`，分别在换锁前的 dict-v2.0.24 和现在锁定的 dict-v2.0.39 上跑（[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)）：
+同一次 release 构建、同一份代码，挂 `sentence-model.safetensors`，分别在换锁前的 dict-v2.0.24 和当时换上的 dict-v2.0.39 上跑（[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)）：
 
 | 集合 | 词库 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
 |---|---|---|---|---|---|
@@ -82,7 +82,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `rerank_latency` 在同一锁定资源上交替测量修复前后三轮，挂着重排模型的 p95 中位数九键 21.65→21.22 ms、14 键 20.57→19.37 ms；全拼 8.12→7.56 ms。九键、14 键前后都超出 16 ms 的帧预算，现有长串延迟缺口仍在；本次未观察到新增退化。详细对照条件见文末的评分决策笔记。
 
-14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库（dict-v2.0.39）里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
+14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在 dict-v2.0.39 里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
 
 ### `--cut-last-syllable`：打到末音节的声母就停
 
@@ -357,4 +357,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 词表覆盖（词级集的金标准 99.94% 本来就在词典里）、语言模型困惑度（没有语料）。用户学习与调频在 `convert_eval` 里强制关闭（否则前一条会污染后一条），由 `typing_sim` 的打字流量。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖（只支持全拼及其网格），26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
-共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.39`，换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.41`：从 `dict-v2.0.39` 换过来时十三份集合的报告与原基线逐字节相同，打字流基线只换了记录资源来源的 `generation` 与 `source_commit`。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。

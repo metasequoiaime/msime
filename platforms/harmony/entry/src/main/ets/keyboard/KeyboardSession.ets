@@ -41,6 +41,7 @@ import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
+import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { CaretContextEcho } from './input/CaretContextEcho';
@@ -1005,6 +1006,8 @@ interface PreparedPreferences {
   touch_one_handed_side_panel?: string;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
+  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  touch_nine_key_swipe_digits?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1186,6 +1189,8 @@ export interface KeyboardPreferences {
   readonly oneHandedSidePanel: OneHandedSidePanel;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
+  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  readonly nineKeySwipeDigits: string;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1523,7 +1528,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     nineKeySidebarSymbols: [],
     nineKeyDigitSidebarSymbols: [],
     oneHandedSidePanel: OneHandedSidePanel.OFF,
-    languageKeyLeft: false
+    languageKeyLeft: false,
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1972,7 +1978,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS
       ),
       oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel),
-      languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side)
+      languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -6193,7 +6200,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
    * fill the log with the same line at typing speed.
    */
-  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样。 */
+  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样；九键滑动输入数字抬手时也用它补上点按会有的那一下振动（数字走字面上屏，`insert` 不振动）。 */
   holdFeedback(): void {
     this.tapFeedback();
   }

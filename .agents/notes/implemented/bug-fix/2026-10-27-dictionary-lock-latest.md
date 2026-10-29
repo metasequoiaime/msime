@@ -47,6 +47,14 @@ Status: implemented
 
 这些不是代码回归：设备经词库自动更新早已在用这批数据，基线现在如实记下了用户手上的排序质量。但「改动是有意的」不等于「结果是对的」：惊、静这类常用字掉出前八，看起来是万象单字词频本身的口径（按读音拆分、语料来源）不适合直接当本引擎的单字权重，这一点没有核实，需要在词库仓跟进。改善要在词库仓（权重来源）或引擎（对权重的敏感度）上做，不在本次范围内。
 
+### 换到 dict-v2.0.41
+
+2026-10-29 锁从 `dict-v2.0.39` 换到 `dict-v2.0.41`，为的是把 #10270 改正的笔画、注音库许可证（库内 `license` 元数据与随库的两份许可证文本，见[语言词库许可证表达式笔记](../process/2026-10-29-language-dictionary-licence-expressions-and-mobile-notice.md)）送进安装包。那天推送 `custom/` 词条自动发布的 `dict-v2.0.40` 用的构建器（`5a15105f9`）还不含 #10270，语言词库与 `dict-v2.0.39` 逐字节相同，所以在 msime-dictionary 的 `main` 上手动运行 `release-built-dictionaries.yml`（`publish` 打开，`msime_ref` 固定为提交 `09a69f20b4` 而不是会移动的 `develop`）发布了 `dict-v2.0.41`，源数据提交 `8e8b781` 与 `dict-v2.0.40` 相同。
+
+与 `dict-v2.0.39` 相比，源数据只多了 `custom/words.txt` 的 12 个词和 `custom/english.txt` 的 1 个词；构建器多了主库、五笔库与 others 库的 `metadata.format_version`（[文件内版本笔记](../architecture/2026-10-29-main-dictionary-in-file-version.md)）和上面的许可证改动。字节变化的是拼音、五笔、英文、others 四个库、两张 n-gram 表、清单、笔画与注音库和它们的许可证文本；日文词典、两份 Mozc 文本、SCOWL 声明、粤拼库及其许可证不变。做法与上面相同，代次变为 `641a853a12de31e99579e3370742c08b182033f35a19cf62e0722df81367975d`，`msime-engine-dictionary-NOTICE.md` 按 `8e8b781` 的 `NOTICE.md` 重新同步。九键音节频度表按新的 `msime-pinyin.db` 重新生成，29 个音节的总权重各多 100 到 3733。
+
+评测用 `verify-local.sh` 的十三组参数（不带 `--first-page-rows`，即引擎默认的首页 6 行；挂 `sentence-model.safetensors`），另加打字流 `typing_sim --keyboard nine` 和双拼触点词级（`--jobs 5 --assert-top1-unchanged`），分三臂：develop 二进制配旧锁资源，同一个二进制配新锁资源（`--resource-lock` 指向新锁），本次的二进制（新的音节频度表）配新锁资源。十三份报告三臂逐字节相同，也与提交的基线逐字节相同；双拼触点词级同样相同；打字流只有记录资源来源的 `generation` 与 `source_commit` 两个字段变了，基线随之更新。新增的 12 个词和音节频度表的微调没有碰到任何评测用例。
+
 ## Alternatives considered
 
 - **继续锁 `dict-v2.0.24`，靠自动更新把新词库送到用户手里。** 不动锁最省事，随包基线也最保守：自动更新出问题时用户回到一份评测过的词库。但评测、`verify-local.sh` 和依赖真实词库的测试会继续量一份没人在用的词库，九键那次回归正是这样只在真机上才暴露；锁越久越远，下一次不得不换时要一次吞下的差异越大。所以不采用。
@@ -77,3 +85,4 @@ Status: implemented
 - 变基到 `1ff98ba20d`（含 #10055 英文纠错、#10053 云词库）后，按 `verify-local.sh` 的十一组参数不带 `--update-baseline` 重跑 `convert_eval`，全部 `at baseline`，提交的基线不受这几次合并影响。
 - 英文：`msime-english.db` 这次字节有变，而 #10055 的真实词库验收 `mobile_english_shipped_dictionary` 是在旧词库上调的。以 `MSIME_ENGLISH_CORRECTION_TEST_DB` 分别指向两份词库运行这个被忽略的测试，94 条期望在新旧两份上都通过（exit 0）；构建机负载约 690，计时只作参考：冷启动均值 10.54 ms（旧 13.63 ms），逐键均值 3.96 ms（旧 4.26 ms）。
 - 延迟：`rerank_latency` 在新旧词库上交替各跑两轮，构建机负载 60 到 180，挂模型的 p95 旧词库 29.15、15.17 ms，新词库 16.72、97.94 ms，同一词库两轮之间的差远大于两个词库之间的差，这次量不出结论，需要在空闲机器上复测。
+- 换到 `dict-v2.0.41` 时：`gen-locks --check`、`test-editions.py`、`test-language-data-notices.py`、`test-engine-license.py`、`test-macos-package-resources.py`、`test-fetch-language-dictionaries-bounds.py`、`test-linux-setup-download-links.py`、`test-reference-feature-log.py` 通过；新发布的笔画、注音库读回的 `license` 分别是 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0` 和 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`。在 Mac Studio 上 `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api -p msime-client-core -p msime-engine-capi` 不设资源时 5160 项全部通过（含钉住新代次的 `full_keeps_the_desktop_lock_and_its_generation` 和音节频度表的来源行测试）；以 `MSIME_EVAL_RESOURCES` 分别指向两份词库时各 5154 项通过、6 项失败，失败的是同一组且都与换锁无关：四个 golden 真实集（按设计要 `dict-v2.0.1`）、`japanese::decoder::tests::real_model_loads` 与 `session::tests::real_resources_mix_japanese_conversions`（两版的 `msime-japanese.dat` 字节相同）。双拼触点整句集那份要跑几个小时，这次没有跑。

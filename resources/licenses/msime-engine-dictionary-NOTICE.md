@@ -1,4 +1,4 @@
-> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `75978c6a6470171cc805c74e87ef465d894a7be4` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.0.39` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件。
+> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `8e8b7817c91600913625edb7995a7397fbb6899a` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.0.41` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件。
 
 # 来源与授权说明
 
@@ -134,7 +134,7 @@ msime 用 `msime-dict-build languages` 把它们构建成 `msime-cantonese.db`�
 | `sources/symbols/LICENSE` | 同一提交的仓库根目录 `LICENSE` | 即 CC BY 4.0 许可文本本身 |
 | `sources/symbols/wanxiang-unrenderable.txt` | 本项目生成的剔除清单：由 MSIME-Windows 的 `scripts/check-symbol-rendering.py` 用 Windows 自带字体检查上面两份文件里的符号，列出看不见、私用区、系统字体没有字形或不能合成一个字形的符号，判定环境与规则写在文件头 | 只含上面两份文件里的符号与出处，许可同上 |
 | `sources/symbols/piliapp-symbols.txt` | 2026-08-17 采集自 [PiliApp 特殊符号](https://tw.piliapp.com/symbol/) 51 个分类页面上可直接复制的 Unicode 字符，按分类分组去重；原在 msime 的 `resources/dictionary-sources/symbols/piliapp_symbols.txt`，字节不变 | **未声明**，见下方「待解决」 |
-| `sources/symbols/symbol-names.tsv` | 本项目自写：符号名称与拼音到符号，名称与码位是事实，没有整段复制任何现成的表 | GPL-3.0-only，随 msime 引擎分发 |
+| `sources/symbols/symbol-names.tsv` | 本项目自写：符号名称与拼音到符号，名称与码位是事实，没有整段复制任何现成的表 | MPL-2.0（全文见 msime 的 `resources/licenses/MPL-2.0.txt`），随 msime 引擎 `msime-engine` 内嵌分发 |
 | `sources/symbols/latex-symbols.tsv` | 本项目自写：LaTeX 命令名到码位，命令名取自 LaTeX 内核与 amssymb、amsmath 等宏包的公开命令，不来自 unicode-math 或 fcitx5 `latex.mb` 的表 | MIT，Copyright (c) 2026 Metasequoia IME contributors；全文见 msime 的 `plugins/phrase_table/LICENSE` |
 
 前三个文件与上游提交逐字节一致（UTF-8、LF）。后两个文件原在 msime 仓库，由 msime 的 `resources/symbol-tables.lock.json` 固定字节并同步回 msime。构建器只取 `wanxiang_symbols.yaml` 中 `symbols:` 下的符号分组，不收 Emoji 分类、元素周期表与 XCompose 合成三段，并剔除 `wanxiang-unrenderable.txt` 列出的全部符号。CC BY 4.0 要求保留署名并注明改动：随产物分发时在 MSIME-Windows 的 `THIRD_PARTY_NOTICES.txt` 中署名 rime-wanxiang 与 typst/codex。

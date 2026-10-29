@@ -4,7 +4,10 @@ import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
-import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
+import {
+  TouchKeyboardGeometrySection,
+  type NineKeySwipeDigits,
+} from "../touch-keyboard-geometry-section";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { OpenPanelRow } from "../open-panel-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
@@ -129,6 +132,11 @@ function HarmonyChineseKeyboardRow({
       ))}
     </SelectRow>
   );
+}
+
+/** 共享偏好 `touch_nine_key_swipe_digits`：缺键和本版本不认识的写法显示「关闭」，与键盘的 `NineKeySwipePolicy.mode` 相同。 */
+function nineKeySwipeDigits(value: unknown): NineKeySwipeDigits {
+  return value === "up" || value === "down" ? value : "off";
 }
 
 /** The 屏幕键盘 page of the settings form. */
@@ -356,6 +364,12 @@ export function ScreenKeyboardSettingsPage() {
                 ? draft.touch_one_handed_side_panel === "number_pad"
                 : undefined
             }
+            // 「九键滑动输入数字」：触屏宿主、且版本提供全拼九键（`nine_key` 背后是全拼）时列出，桌面和没有拼音九键的版本不画；写共享偏好，不经本机的按键反馈设置。
+            nineKeySwipeDigits={
+              mobilePlatform && supportedInputSchemes(host).includes("quanpin")
+                ? nineKeySwipeDigits(draft.touch_nine_key_swipe_digits)
+                : undefined
+            }
             tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
             onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
               onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -377,6 +391,9 @@ export function ScreenKeyboardSettingsPage() {
             }
             onOneHandedSidePanelChange={(enabled) =>
               onPreferencesChange({ touch_one_handed_side_panel: enabled ? "number_pad" : "off" })
+            }
+            onNineKeySwipeDigitsChange={(touch_nine_key_swipe_digits) =>
+              onPreferencesChange({ touch_nine_key_swipe_digits })
             }
             onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
             onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}

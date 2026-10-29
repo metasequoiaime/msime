@@ -22,6 +22,8 @@ final class KeyLayoutBackupDeviceChecks {
     private static final String NATIVE = "app.msime.android.NativeClient";
     private static final String LONG = "platform.android.long_space_layout";
     private static final String NUMBER = "platform.android.number_row";
+    private static final String NINE = "platform.android.nine_key_swipe";
+    private static final String NINE_SHARED = "touch_nine_key_swipe_digits";
 
     private KeyLayoutBackupDeviceChecks() {}
 
@@ -80,6 +82,29 @@ final class KeyLayoutBackupDeviceChecks {
             restore(target, isolated, directory, root, new JSONObject().put(LONG, true).put(NUMBER, true),
                 new JSONObject().put("platform.android.twenty_six_key_style", "emoji").put(NUMBER, false));
             assertLayout(target, isolated, directory, "emoji", false);
+
+            // 九键滑动输入数字（#10229）：本机旧方向经 JNI 迁进共享偏好，迁完删掉旧键。
+            call(target, LOCAL, null, "update", new Class<?>[] {Context.class, Map.class}, isolated, Map.of(NINE, "down"));
+            migrateNineKey(target, isolated, directory);
+            check("down".equals(nineKeySwipe(target, directory)), "the local nine-key direction migrates");
+            // 别的设备同步来的方向不被本机旧值盖掉，较新版本的写法原样留在文件里。
+            for (String kept : new String[] {"up", "sideways"}) {
+                raw = new JSONObject(new String(Files.readAllBytes(document.toPath()), StandardCharsets.UTF_8));
+                raw.getJSONObject("preferences").put(NINE_SHARED, kept);
+                Files.write(document.toPath(), raw.toString().getBytes(StandardCharsets.UTF_8));
+                call(target, LOCAL, null, "update", new Class<?>[] {Context.class, Map.class}, isolated, Map.of(NINE, "down"));
+                migrateNineKey(target, isolated, directory);
+                JSONObject onDisk = new JSONObject(new String(Files.readAllBytes(document.toPath()), StandardCharsets.UTF_8));
+                check(kept.equals(onDisk.getJSONObject("preferences").optString(NINE_SHARED)),
+                    "a shared nine-key value " + kept + " stays");
+            }
+            // 旧备份里明确选过的关闭也恢复成关闭；同一备份带着新字段时以新字段为准。
+            restore(target, isolated, directory, root, new JSONObject().put(NINE, "off"), null);
+            check("off".equals(nineKeySwipe(target, directory)), "an old backup restores nine-key swipe off");
+            restore(target, isolated, directory, root, new JSONObject().put(NINE, "down"),
+                new JSONObject().put(NINE, "up"));
+            check("up".equals(nineKeySwipe(target, directory)), "the shared field wins over the legacy key");
+            check(!localHas(target, isolated, NINE), "the legacy nine-key key is removed after restore");
         } finally {
             try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(root.toPath())) {
                 for (java.nio.file.Path file : (Iterable<java.nio.file.Path>) files.sorted(Comparator.reverseOrder())::iterator)
@@ -118,6 +143,23 @@ final class KeyLayoutBackupDeviceChecks {
         Method has = local.getClass().getMethod("has", String.class);
         check(!Boolean.TRUE.equals(has.invoke(local, LONG)) && !Boolean.TRUE.equals(has.invoke(local, NUMBER)),
             "legacy keys are removed after migration or restore");
+    }
+
+    private static void migrateNineKey(Context target, Context isolated, String directory) throws Exception {
+        check(Boolean.TRUE.equals(call(target, "app.msime.android.KeyLayoutStyleMigration", null, "migrate",
+            new Class<?>[] {Context.class, String.class}, isolated, directory)), "nine-key swipe migration succeeds");
+        check(!localHas(target, isolated, NINE), "the legacy nine-key key is removed after migration");
+    }
+
+    /** 共享偏好里的九键滑动，缺键读成关闭（默认值不写进文档）。 */
+    private static String nineKeySwipe(Context target, String directory) throws Exception {
+        return value(call(target, NATIVE, null, "loadPreferences", new Class<?>[] {String.class}, directory))
+            .getJSONObject("preferences").optString(NINE_SHARED, "off");
+    }
+
+    private static boolean localHas(Context target, Context isolated, String key) throws Exception {
+        Object local = call(target, LOCAL, null, "load", new Class<?>[] {Context.class}, isolated);
+        return Boolean.TRUE.equals(local.getClass().getMethod("has", String.class).invoke(local, key));
     }
 
     private static Object call(Context target, String type, Object receiver, String name,

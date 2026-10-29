@@ -551,6 +551,11 @@ impl NineKeySession {
         self.expressive = options;
     }
 
+    /// 调频方式，`Session::set_frequency_adjustment` 换掉 26 键的同时换这里；从下一次选择起生效。
+    pub fn set_frequency(&mut self, frequency: FrequencyAdjustmentOptions) {
+        self.frequency = frequency;
+    }
+
     /// 候选混输总开关（`SessionOptions::mixed_candidates`）；与英文选项一样只在建会话时设置。
     pub fn set_mixed_candidates_enabled(&mut self, enabled: bool) {
         self.mixed_candidates_enabled = enabled;

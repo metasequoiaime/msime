@@ -503,6 +503,54 @@ impl<'de> Deserialize<'de> for TouchLanguageKeySide {
     }
 }
 
+/// 手机触屏拼音九键字母层 1–9 键上的纵向滑动（#10229，接替 Android 本机设置 `platform.android.nine_key_swipe`，写法与它逐字相同）：沿所选方向滑过判定距离，松手输入键上印的数字；往反方向滑，弹出与长按相同的数字和字母选项（1 键没有字母，不弹）。九键双拼、笔画、数字层和别的键面不受影响。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认（关闭）读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNineKeySwipeDigits {
+    /// 没有滑动手势，点按和长按照旧；不写进文档。
+    #[default]
+    Off,
+    /// 上滑输入数字，下滑弹出数字和字母。
+    Up,
+    /// 下滑输入数字，上滑弹出数字和字母。
+    Down,
+}
+
+impl TouchNineKeySwipeDigits {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Up => "up",
+            Self::Down => "down",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "up" => Some(Self::Up),
+            "down" => Some(Self::Down),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的写法）按关闭读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
@@ -1902,6 +1950,9 @@ pub struct Preferences {
     /// 手机触屏底行的中/英键在空格哪一边，见 [`TouchLanguageKeySide`]。默认在右边且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchLanguageKeySide::is_default")]
     pub touch_language_key_side: TouchLanguageKeySide,
+    /// 手机触屏拼音九键 1–9 键滑动输入数字的方向，见 [`TouchNineKeySwipeDigits`]。接替 Android 本机设置 `platform.android.nine_key_swipe`，由 Android 宿主一次性迁入（[`PreferencesStore::migrate_android_key_layout`]）；判定距离仍是 Android 本机设置。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
+    pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4144,6 +4195,7 @@ impl Default for Preferences {
             touch_number_pad_space: TouchNumberPadSpace::default(),
             touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
             touch_language_key_side: TouchLanguageKeySide::default(),
+            touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -5729,6 +5781,8 @@ impl PreferencesStore {
     /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
     ///
     /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
+    ///
+    /// `nine_key_swipe_digits` 是本机旧设置 `platform.android.nine_key_swipe` 严格解析后的值，没有旧值或旧值不认识时传 [`TouchNineKeySwipeDigits::Off`]：上滑或下滑只在共享字段缺键或明写 `off` 时写入，别的设备选的方向和较新版本的写法都原样留着。
     pub fn migrate_android_key_layout(
         &self,
         expected_revision: u64,
@@ -5736,6 +5790,7 @@ impl PreferencesStore {
         number_row: bool,
         nine_key_symbols: &[String],
         nine_key_digit_symbols: &[String],
+        nine_key_swipe_digits: TouchNineKeySwipeDigits,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, mut unknown) = self.read_locked_keeping_unknown()?;
@@ -5783,6 +5838,12 @@ impl PreferencesStore {
                 *field = normalize_nine_key_sidebar_symbols(legacy);
             }
         }
+        let swipe = document.pointer("/preferences/touch_nine_key_swipe_digits");
+        if nine_key_swipe_digits != TouchNineKeySwipeDigits::Off
+            && swipe.is_none_or(|value| value.as_str() == Some("off"))
+        {
+            preferences.touch_nine_key_swipe_digits = nine_key_swipe_digits;
+        }
         // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
         for (key, is_known) in [
             (
@@ -5807,6 +5868,12 @@ impl PreferencesStore {
                     .pointer("/preferences/touch_nine_key_style")
                     .and_then(serde_json::Value::as_str)
                     .is_none_or(|value| TouchNineKeyStyle::parse(value).is_some()),
+            ),
+            (
+                "touch_nine_key_swipe_digits",
+                swipe
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchNineKeySwipeDigits::parse(value).is_some()),
             ),
         ] {
             if !is_known {

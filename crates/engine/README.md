@@ -2,6 +2,8 @@
 
 The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin, nine-key, wubi, zhuyin, Cantonese, Japanese, Korean and more, ranked over a word lattice with typo correction and learning from what the user picks. Licensed under MPL-2.0 so that other input methods can embed it; see [License](#许可证).
 
+Overview, integration examples and FAQ: <https://msime.app/engine/> (in Chinese).
+
 水杉输入法的输入引擎：组字状态、各输入方案、词库查询、排序与学习。它是 GPL-3.0 的 C++ [metasequoiaime/msime-engine](https://github.com/metasequoiaime/msime-engine) 的 Rust 移植，移植时对照的参考提交记在 `tools/engine-golden/README.md`。
 
 ## 快速上手
@@ -15,7 +17,7 @@ use msime_engine::{prepare_runtime_paths, DictionaryAccess, Session, SessionOpti
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 数据目录（解开的数据包）和放学习日志、工作词库的目录，都要是绝对路径。
-    let resources = std::path::absolute("msime-engine-data-quanpin-2.0.39")?;
+    let resources = std::path::absolute("msime-engine-data-quanpin-2.0.41")?;
     let work = std::env::temp_dir().join("msime-quickstart");
 
     // 准备代次：复制工作词库、回放学习日志。数据换了就换一个 content id。
@@ -113,7 +115,7 @@ commit: 你好
 - `src/local/symbol_candidates.tsv` 是本项目自写的符号名称表，和代码一样是 MPL-2.0。
 - `src/lattice/offensive_words.txt` 是本项目自写的粗俗词表和豁免写法（词网格不拿含这些词的词拼整句），和代码一样是 MPL-2.0；收词标准写在文件头。
 - `src/korean/romaja.rs` 的罗马字映射参考 [rimeinn/rime-mungyeong](https://github.com/rimeinn/rime-mungyeong) 提交 `34c1b1437824e1e619e7429fb5f461dc7e754939` 的 `mungyeong_romaja.dict.yaml`，该文件头声明 public domain。
-- `src/nine_key/syllable_frequency.tsv` 是 424 个音节各自的总权重，由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.0.39` 的 `msime-pinyin.db`（rime-ice 的 GPL-3.0 词库加补充）汇总而来，不含任何词、读音或单条权重，按聚合统计事实保留，只作九键切分的排序先验。用 Unihan `kHanyuPinlu`（Unicode-3.0）重建的版本在九键评测不退步时会替换它。
+- `src/nine_key/syllable_frequency.tsv` 是 424 个音节各自的总权重，由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.0.41` 的 `msime-pinyin.db`（rime-ice 的 GPL-3.0 词库加补充）汇总而来，不含任何词、读音或单条权重，按聚合统计事实保留，只作九键切分的排序先验。用 Unihan `kHanyuPinlu`（Unicode-3.0）重建的版本在九键评测不退步时会替换它。
 
 ## 贡献
 

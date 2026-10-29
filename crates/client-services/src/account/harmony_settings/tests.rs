@@ -185,6 +185,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "language_key_side",
             "nine_key_digit_symbols",
             "nine_key_style",
+            "nine_key_swipe",
             "nine_key_symbols",
             "number_keypad_order",
             "number_pad_space",
@@ -610,6 +611,7 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
         ("platform.harmony.nine_key_style", string("long_space")),
         ("platform.harmony.number_pad_space", string("space_in_grid")),
         ("platform.harmony.language_key_side", string("before_space")),
+        ("platform.harmony.nine_key_swipe", string("both_ways")),
         (HARMONY_KEYBOARD_LAYOUT, string("future_layout")),
         (HARMONY_FEEDBACK_KEYS[2], string("loud")),
         (
@@ -1080,6 +1082,7 @@ fn every_exported_key_round_trips() {
         touch_nine_key_digit_sidebar_symbols: vec!["+".into(), "（）".into()],
         touch_one_handed_side_panel: crate::preferences::TouchOneHandedSidePanel::NumberPad,
         touch_language_key_side: crate::preferences::TouchLanguageKeySide::Left,
+        touch_nine_key_swipe_digits: crate::preferences::TouchNineKeySwipeDigits::Down,
         global_theme: GlobalTheme::Custom,
         ..Preferences::default()
     };

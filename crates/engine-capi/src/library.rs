@@ -1,7 +1,9 @@
 //! 进程级的函数和不需要会话的个人词典函数。它们都可以在任何线程上同时调用。
 
-use std::ffi::{c_char, CString};
+use std::cell::Cell;
+use std::ffi::{c_char, c_void, CString};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use msime_engine::{
     PersonalDictionaryEntry, PersonalDictionaryKind, RuntimePaths, SchemeSet, SchemeType,
@@ -12,8 +14,9 @@ use crate::abi::{
     field_str, guard, input_str, msime_engine_paths, read_sized, write_owned, Failure, Outcome,
 };
 use crate::{
-    MSIME_ENGINE_ABI_MAJOR, MSIME_ENGINE_ABI_MINOR, MSIME_ENGINE_FLUSH_STOP_THREAD,
-    MSIME_ENGINE_MODEL_JAPANESE, MSIME_ENGINE_UNSUPPORTED, MSIME_ENGINE_USER_DICT_INCLUDE_LEARNED,
+    MSIME_ENGINE_ABI_MAJOR, MSIME_ENGINE_ABI_MINOR, MSIME_ENGINE_BUSY,
+    MSIME_ENGINE_FLUSH_STOP_THREAD, MSIME_ENGINE_MODEL_JAPANESE, MSIME_ENGINE_UNSUPPORTED,
+    MSIME_ENGINE_USER_DICT_INCLUDE_LEARNED,
 };
 
 // ---- 版本与错误 ----
@@ -46,6 +49,89 @@ pub unsafe extern "C" fn msime_engine_string_free(text: *mut c_char) {
         // SAFETY: 调用方保证它来自 `CString::into_raw`，只释放一次。
         drop(unsafe { CString::from_raw(text) });
     }
+}
+
+// ---- 日志 ----
+
+/// 日志回调，ABI 1.1 起。`message` 是一行 UTF-8 的警告（不带 `msime: ` 前缀和换行），NUL 结尾，`message_len` 是不含 NUL 的字节数；只在这次调用期间有效。`user_data` 是注册时交来的那个指针，库不碰它。
+pub type msime_engine_log_callback = Option<
+    unsafe extern "C" fn(user_data: *mut c_void, message: *const c_char, message_len: usize),
+>;
+
+/// 注册着的回调和它的 `user_data`。
+struct LogTarget {
+    callback: unsafe extern "C" fn(*mut c_void, *const c_char, usize),
+    user_data: *mut c_void,
+}
+
+// SAFETY: `user_data` 只原样交还给调用方自己的回调；回调会在任何线程上、可能同时被调用，这是写进 `msime_engine_set_log_callback` 文档的约定，线程安全由调用方保证。
+unsafe impl Send for LogTarget {}
+// SAFETY: 同上。
+unsafe impl Sync for LogTarget {}
+
+/// 当前的回调。投递时持读锁、换回调时取写锁，所以 `msime_engine_set_log_callback` 返回时旧回调已经没有在执行的调用，之后也不会再被调用，调用方可以放心释放旧的 `user_data`。
+static LOG_TARGET: RwLock<Option<LogTarget>> = RwLock::new(None);
+
+thread_local! {
+    /// 本线程正在执行日志回调：回调里再进库记的日志丢掉，回调里换回调返回 `BUSY`，免得在自己持着的读锁上等写锁。
+    static IN_LOG_CALLBACK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// 换给引擎的日志出口：把一行交给注册着的回调。
+#[allow(clippy::print_stderr)]
+fn deliver_log_line(line: &str) {
+    if IN_LOG_CALLBACK.get() {
+        return;
+    }
+    let target = LOG_TARGET.read().unwrap_or_else(PoisonError::into_inner);
+    let Some(target) = target.as_ref() else {
+        // 引擎在换回缺省出口之前取到了这个出口：这一行按缺省的样子写到标准错误，不丢。
+        eprintln!("msime: {line}");
+        return;
+    };
+    let message = CString::new(line.replace('\0', "\u{fffd}")).unwrap_or_default();
+    IN_LOG_CALLBACK.set(true);
+    // SAFETY: 回调和 `user_data` 是调用方注册的，调用方保证回调在注册期间可以在任何线程上这样调用。
+    unsafe { (target.callback)(target.user_data, message.as_ptr(), message.as_bytes().len()) };
+    IN_LOG_CALLBACK.set(false);
+}
+
+/// ABI 1.1 起。把引擎的警告日志交给 `callback`，`callback` 为 NULL 时回到缺省：写到标准错误，每行前缀 `msime: `。日志是进程级的：所有会话和库的后台线程记的都交给它，再注册一次就换掉上一个。
+///
+/// 回调可能在任何线程上被调用，也可能在几个线程上同时被调用，要自己处理并发；要尽快返回，不要在里面调这个库的任何函数（在回调里调本函数返回 `MSIME_ENGINE_BUSY`，回调期间同一线程上再记的日志被丢掉）。回调不能抛出 C++ 异常或 `longjmp` 出去。
+///
+/// 本函数返回之后，旧回调没有还在执行的调用，以后也不会再被调用，旧的 `user_data` 可以释放；新回调在注册期间要一直可调，`user_data` 一直有效，直到用别的回调或 NULL 换掉它。进程退出前不必换回缺省。
+///
+/// # Safety
+/// `callback` 是 NULL，或者在它被换掉之前一直可以在任何线程上以 `user_data` 调用的函数。
+#[no_mangle]
+pub unsafe extern "C" fn msime_engine_set_log_callback(
+    callback: msime_engine_log_callback,
+    user_data: *mut c_void,
+) -> i32 {
+    guard(|| {
+        if IN_LOG_CALLBACK.get() {
+            return Err(Failure::new(
+                MSIME_ENGINE_BUSY,
+                "the log callback cannot be replaced from inside the log callback",
+            ));
+        }
+        let mut target = LOG_TARGET.write().unwrap_or_else(PoisonError::into_inner);
+        match callback {
+            Some(callback) => {
+                *target = Some(LogTarget {
+                    callback,
+                    user_data,
+                });
+                msime_engine::set_log_sink(Some(Arc::new(deliver_log_line)));
+            }
+            None => {
+                *target = None;
+                msime_engine::set_log_sink(None);
+            }
+        }
+        Ok(())
+    })
 }
 
 // ---- 运行时 ----
@@ -371,6 +457,42 @@ pub unsafe extern "C" fn msime_engine_user_dict_list(
         let text = serde_json::json!({ "entries": entries, "has_more": page.has_more }).to_string();
         // SAFETY: 上面检查过非空。
         unsafe { write_owned(json, text) };
+        Ok(())
+    })
+}
+
+/// ABI 1.1 起。按 `msime_engine_user_dict_edit` 收新词条（`replacement`）的同一套规则检查一条词条，不碰任何文件，也不需要路径：输入是一条 `{"kind": "pinyin", "key": "NI HAO", "value": "你好", "weight": 100000}`（`weight` 可以省略），合法时把规范化后的词条写进 `*normalized_json`（编码换成小写，拼音编码里的空格换成 `'`：`NI HAO` 成为 `ni'hao`），用 `msime_engine_string_free` 释放。词条不合法时返回 `MSIME_ENGINE_INVALID_ARGUMENT`，`msime_engine_last_error` 是引擎给的英文原因（例如 `Use complete pinyin syllables separated by apostrophes or spaces`），可以直接显示给用户；`*normalized_json` 不写。给前端在用户填编辑框时就提示，不必等到真的写入。
+///
+/// # Safety
+/// `entry_json` 指向 `entry_len` 个可读字节；`normalized_json` 可写一个指针。
+#[no_mangle]
+pub unsafe extern "C" fn msime_engine_user_dict_validate(
+    entry_json: *const c_char,
+    entry_len: usize,
+    normalized_json: *mut *mut c_char,
+) -> i32 {
+    guard(|| {
+        if normalized_json.is_null() {
+            return Err(Failure::null("normalized_json"));
+        }
+        // SAFETY: 调用方的前提。
+        let text = unsafe { input_str(entry_json, entry_len, "entry_json") }?;
+        let entry: EntryJson = serde_json::from_str(text)
+            .map_err(|error| Failure::invalid(format!("entry: {error}")))?;
+        let normalized = msime_engine::validate_personal_dictionary_entry(
+            &PersonalDictionaryEntry::from(entry),
+        )?;
+        let kind = KindJson::of(normalized.kind)
+            .ok_or_else(|| Failure::invalid("the entry has a kind this ABI cannot name"))?;
+        let text = serde_json::to_string(&EntryJson {
+            kind,
+            key: normalized.key,
+            value: normalized.value,
+            weight: normalized.weight,
+        })
+        .map_err(|error| Failure::invalid(format!("entry: {error}")))?;
+        // SAFETY: 上面检查过非空。
+        unsafe { write_owned(normalized_json, text) };
         Ok(())
     })
 }

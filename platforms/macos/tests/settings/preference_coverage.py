@@ -76,6 +76,7 @@ NOT_APPLICABLE = {
     "touch_number_pad_space": "仅 Android、iOS 与鸿蒙手机的触屏九宫格数字键盘读它（空格放在哪）；macOS 没有九宫格数字键盘",
     "touch_one_handed_side_panel": "仅 Android、iOS 与鸿蒙的大屏触屏键盘在单手模式下读它（空出来的一侧放不放数字键盘）；macOS 没有触屏单手模式",
     "touch_language_key_side": "仅 Android、iOS 与鸿蒙手机的触屏底行读它（中/英键在空格哪一边）；macOS 使用物理键盘，屏幕键盘面板是固定的整排键盘，没有中/英这个底行键",
+    "touch_nine_key_swipe_digits": "仅 Android、iOS 与鸿蒙手机的触屏拼音九键读它（1–9 键滑动输入数字）；macOS 没有九键字母键面",
     "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",

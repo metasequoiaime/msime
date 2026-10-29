@@ -356,6 +356,8 @@ public final class MSIMEInputService extends InputMethodService {
     OneHandSidePadPolicy.Panel oneHandedSidePanel = OneHandSidePadPolicy.Panel.OFF;
     /** 中/英键排在空格左边，来自共享偏好 `touch_language_key_side`（只有 `left` 算），缺省在右边、紧挨回车。 */
     boolean languageKeyLeft;
+    /** 拼音九键「九键滑动输入数字」的方向，来自共享偏好 `touch_nine_key_swipe_digits`（{@link NineKeySwipePolicy#mode}），缺省关闭。只影响按键的触摸判定，不改键面，所以不进 touchGeometryKey；每次触摸判定时读当前值，改了下一次触摸就生效。 */
+    String nineKeySwipeDigits = NineKeySwipePolicy.OFF;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -2966,6 +2968,7 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeyDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);
         oneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         languageKeyLeft = languageKeyLeftFrom(preferences);
+        nineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3025,6 +3028,12 @@ public final class MSIMEInputService extends InputMethodService {
     /** 中/英键在空格左边；没有偏好、缺键、`right` 和不认识的写法都按右边，与 client-core 的宽松读取一致。 */
     private static boolean languageKeyLeftFrom(JSONObject preferences) {
         return preferences != null && TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
+    }
+
+    /** 九键滑动输入数字；没有偏好、缺键或不认识的写法都按关闭，与 client-core 的宽松读取一致。 */
+    private static String nineKeySwipeDigitsFrom(JSONObject preferences) {
+        return NineKeySwipePolicy.mode(preferences == null ? null
+            : JsonPolicy.strictString(preferences.opt(NineKeySwipePolicy.PREFERENCE)));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -3684,6 +3693,7 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.List<String> nextDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);
         OneHandSidePadPolicy.Panel nextOneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         boolean nextLanguageKeyLeft = languageKeyLeftFrom(preferences);
+        String nextNineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3788,6 +3798,8 @@ public final class MSIMEInputService extends InputMethodService {
         oneHandedSidePanel = nextOneHandedSidePanel;
         // 中/英在空格哪一边同样进了 touchGeometryKey：底行签名带着它，右侧大回车外框由 render 里的 tallReturnStale 整块重建。
         languageKeyLeft = nextLanguageKeyLeft;
+        // 九键滑动只在触摸判定时读（bindNineKeySwipe），不用重画键盘，下一次触摸就按新方向判定。
+        nineKeySwipeDigits = nextNineKeySwipeDigits;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -6865,7 +6877,7 @@ public final class MSIMEInputService extends InputMethodService {
         NineKeySidebarPolicy.LETTER_PREFERENCE, NineKeySidebarPolicy.DIGIT_PREFERENCE,
         OneHandSidePadPolicy.PREFERENCE_KEY,
         TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE,
-        "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
+        NineKeySwipePolicy.PREFERENCE, "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
     private String writtenSkinHint;

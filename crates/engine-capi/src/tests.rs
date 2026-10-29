@@ -288,6 +288,36 @@ fn readme_names_this_version() {
         readme.contains(&format!("msime-engine {version}, ABI ")),
         "README's sample output does not print msime-engine {version}"
     );
+    // 数据包按锁定的词库发布命名（msime-engine-data-quanpin-<词库版本>），换词库时同样不能漏改。
+    let lock: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../resources/desktop-dictionary.lock.json"
+    ))
+    .expect("the dictionary lock is JSON");
+    let url = lock["artifacts"][0]["url"]
+        .as_str()
+        .expect("an artifact URL");
+    let dictionary = url
+        .split("/dict-v")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .expect("the URL names a dict-v release");
+    let pack = "msime-engine-data-quanpin-";
+    let mut packs = 0;
+    for (start, _) in readme.match_indices(pack) {
+        let named = readme[start + pack.len()..]
+            .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('.');
+        if named.starts_with(|c: char| c.is_ascii_digit()) {
+            assert_eq!(
+                named, dictionary,
+                "README names {pack}{named}, the dictionary lock is dict-v{dictionary}"
+            );
+            packs += 1;
+        }
+    }
+    assert!(packs > 0, "README no longer names the data pack");
 }
 
 #[test]
@@ -986,4 +1016,372 @@ fn enter_learning_follows_the_english_options() {
     assert_eq!(commit(session, MSIME_ENGINE_COMMAND_COMMIT_RAW), "zzq");
     free(session);
     assert_eq!(english_words(), ["xyz"]);
+}
+
+/// 选项 JSON 的调频、混排与本地模式（ABI 1.1）：不认识的键和越界的值被拒绝，`/`、`@` 两个模式不在这里；本地模式的开关决定 Shift 加字母进不进模式。
+#[test]
+fn options_carry_frequency_expressive_and_local_modes() {
+    let fixture = Fixture::new();
+    let options: serde_json::Value = serde_json::from_str(&fixture.options()).unwrap();
+    for (key, value, needle) in [
+        (
+            "frequency",
+            serde_json::json!({"trigger_count": 0}),
+            "frequency.trigger_count",
+        ),
+        (
+            "frequency",
+            serde_json::json!({"linear_step": 11}),
+            "frequency.linear_step",
+        ),
+        (
+            "frequency",
+            serde_json::json!({"mode": "sometimes"}),
+            "unknown variant",
+        ),
+        (
+            "local_modes",
+            serde_json::json!({"command": true}),
+            "unknown field",
+        ),
+        (
+            "local_modes",
+            serde_json::json!({"mention": true}),
+            "unknown field",
+        ),
+        (
+            "expressive",
+            serde_json::json!({"stickers": true}),
+            "unknown field",
+        ),
+    ] {
+        let mut changed = options.clone();
+        changed[key] = value;
+        assert_eq!(
+            new_session(&changed.to_string()),
+            Err(MSIME_ENGINE_INVALID_ARGUMENT),
+            "{changed}"
+        );
+        assert!(last_error().contains(needle), "{key}: {}", last_error());
+    }
+
+    let shift = |session, key| {
+        let mut result = empty_result();
+        // SAFETY: 句柄有效。
+        let status = unsafe {
+            msime_engine_key_char(session, key, MSIME_ENGINE_KEY_SHIFT_ONLY, &mut result)
+        };
+        assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+        let mode = state(session).local_mode;
+        // SAFETY: 同上。
+        let status =
+            unsafe { msime_engine_command(session, MSIME_ENGINE_COMMAND_CANCEL, ptr::null_mut()) };
+        assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+        mode
+    };
+    let session = fixture.session();
+    assert_eq!(shift(session, b'U'), MSIME_ENGINE_LOCAL_MODE_UNICODE);
+    assert_eq!(shift(session, b'V'), MSIME_ENGINE_LOCAL_MODE_NONE);
+    free(session);
+
+    let mut changed = options.clone();
+    changed["local_modes"] = serde_json::json!({"unicode": false, "expression": true});
+    changed["expressive"] = serde_json::json!({
+        "emoji_candidates": true,
+        "kaomoji_candidates": true,
+        "symbol_candidates": true,
+    });
+    changed["frequency"] =
+        serde_json::json!({"mode": "linear", "trigger_count": 2, "linear_step": 3});
+    let session = new_session(&changed.to_string()).expect("session");
+    assert_eq!(shift(session, b'U'), MSIME_ENGINE_LOCAL_MODE_NONE);
+    assert_eq!(shift(session, b'V'), MSIME_ENGINE_LOCAL_MODE_EXPRESSION);
+    free(session);
+
+    changed["local_modes"] = serde_json::json!({"shift_letter_entry": false, "expression": true});
+    let session = new_session(&changed.to_string()).expect("session");
+    assert_eq!(shift(session, b'V'), MSIME_ENGINE_LOCAL_MODE_NONE);
+    free(session);
+}
+
+/// 调频既是建会话的选项，也能在会话里换（ABI 1.1）：缺省不调频，选了靠后的词以后排序不变；换成固定首位之后再选一次，它就排到首位。越界的方式、次数和步长被拒绝。
+#[test]
+fn frequency_is_a_session_option_and_a_runtime_option() {
+    let fixture = Fixture::new();
+    let position = |session, word: &str| words(session).iter().position(|row| row == word);
+    let pick = |session, word: &str| {
+        type_keys(session, "ni");
+        let index = position(session, word).expect("the word is a candidate");
+        assert!(index > 0, "{word} already leads");
+        let revision = state(session).revision;
+        let mut result = empty_result();
+        // SAFETY: 句柄有效。
+        let status = unsafe { msime_engine_select(session, revision, index as u32, &mut result) };
+        assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+        assert_eq!(text(result.commit), word);
+        index
+    };
+    let session = fixture.session();
+    let before = pick(session, "拟");
+    type_keys(session, "ni");
+    assert_eq!(position(session, "拟"), Some(before));
+    // SAFETY: 句柄有效。
+    unsafe {
+        assert_eq!(
+            msime_engine_command(session, MSIME_ENGINE_COMMAND_CANCEL, ptr::null_mut()),
+            MSIME_ENGINE_OK
+        );
+        let revision = state(session).revision;
+        assert_eq!(
+            msime_engine_set_int(
+                session,
+                MSIME_ENGINE_OPTION_FREQUENCY_MODE,
+                i64::from(MSIME_ENGINE_FREQUENCY_PIN)
+            ),
+            MSIME_ENGINE_OK,
+            "{}",
+            last_error()
+        );
+        assert_ne!(state(session).revision, revision);
+    }
+    pick(session, "拟");
+    type_keys(session, "ni");
+    assert_eq!(position(session, "拟"), Some(0));
+    let mode = "pin";
+    // SAFETY: 句柄有效，字符串活着。
+    unsafe {
+        for (option, value) in [
+            (MSIME_ENGINE_OPTION_FREQUENCY_MODE, 5),
+            (MSIME_ENGINE_OPTION_FREQUENCY_MODE, -1),
+            (MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT, 0),
+            (MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP, 11),
+            (MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN, 2),
+        ] {
+            assert_eq!(
+                msime_engine_set_int(session, option, value),
+                MSIME_ENGINE_INVALID_ARGUMENT,
+                "{option} = {value}"
+            );
+        }
+        for (option, value) in [
+            (MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT, 10),
+            (MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP, 1),
+            (MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN, 1),
+        ] {
+            assert_eq!(
+                msime_engine_set_int(session, option, value),
+                MSIME_ENGINE_OK,
+                "{option} = {value}: {}",
+                last_error()
+            );
+        }
+        assert_eq!(
+            msime_engine_set_string(
+                session,
+                MSIME_ENGINE_OPTION_FREQUENCY_MODE,
+                mode.as_ptr().cast(),
+                mode.len()
+            ),
+            MSIME_ENGINE_INVALID_ARGUMENT
+        );
+    }
+    free(session);
+
+    // 选项 JSON 里的同一个方式：在新的数据上选「泥」一次就排到首位。
+    let fixture = Fixture::new();
+    let mut options: serde_json::Value = serde_json::from_str(&fixture.options()).unwrap();
+    options["frequency"] = serde_json::json!({"mode": "pin"});
+    let session = new_session(&options.to_string()).expect("session");
+    pick(session, "泥");
+    type_keys(session, "ni");
+    assert_eq!(position(session, "泥"), Some(0));
+    free(session);
+}
+
+/// 数字选词键（ABI 1.1）：有组字时选第一页的第 `digit - 1` 行，没有组字时不处理；只收 ASCII 数字。
+#[test]
+fn candidate_key_selects_on_the_first_page() {
+    let fixture = Fixture::new();
+    let session = fixture.session();
+    type_keys(session, "nihao");
+    let rows = words(session);
+    assert!(rows.len() > 1, "{rows:?}");
+    let mut result = empty_result();
+    // SAFETY: 句柄有效。
+    unsafe {
+        assert_eq!(
+            msime_engine_candidate_key(session, b'a', &mut result),
+            MSIME_ENGINE_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            msime_engine_candidate_key(session, b'2', &mut result),
+            MSIME_ENGINE_OK,
+            "{}",
+            last_error()
+        );
+    }
+    assert_eq!(result.handled, 1);
+    assert_eq!(text(result.commit), rows[1]);
+    assert_eq!(result.revision, state(session).revision);
+    // SAFETY: 同上。
+    unsafe {
+        assert_eq!(
+            msime_engine_candidate_key(session, b'1', &mut result),
+            MSIME_ENGINE_OK
+        );
+    }
+    assert_eq!(result.handled, 0);
+    assert_eq!(result.has_commit, 0);
+    free(session);
+}
+
+/// 个人词条的检查（ABI 1.1）：合法的交回规范化后的词条，不合法的给出引擎的原因；不读写任何文件。
+#[test]
+fn user_dict_validate_normalizes_and_explains() {
+    let validate = |entry: &str| -> Result<serde_json::Value, (i32, String)> {
+        let mut json = ptr::null_mut();
+        // SAFETY: 字符串和输出参数都在这里活着。
+        let status = unsafe {
+            msime_engine_user_dict_validate(entry.as_ptr().cast(), entry.len(), &mut json)
+        };
+        if status != MSIME_ENGINE_OK {
+            assert!(json.is_null());
+            return Err((status, last_error()));
+        }
+        Ok(serde_json::from_str(&take_string(json)).expect("entry JSON"))
+    };
+    assert_eq!(
+        validate(r#"{"kind":"pinyin","key":"NI HAO","value":"你好"}"#),
+        Ok(
+            serde_json::json!({"kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 100000})
+        )
+    );
+    assert_eq!(
+        validate(r#"{"kind":"english","key":"Dont","value":"don't","weight":7}"#),
+        Ok(serde_json::json!({"kind": "english", "key": "dont", "value": "don't", "weight": 7}))
+    );
+    for (entry, needle) in [
+        (
+            r#"{"kind":"pinyin","key":"nh","value":"你好"}"#,
+            "complete pinyin syllables",
+        ),
+        (
+            r#"{"kind":"pinyin","key":"ni","value":"你好"}"#,
+            "one pinyin syllable",
+        ),
+        (
+            r#"{"kind":"wubi","key":"wqvbx","value":"你"}"#,
+            "Wubi codes",
+        ),
+        (
+            r#"{"kind":"pinyin","key":"ni","value":"你","weight":0}"#,
+            "Weight",
+        ),
+        (r#"{"kind":"pinyin","key":"ni"}"#, "entry:"),
+        (r#"{"kind":"emoji","key":"ni","value":"你"}"#, "entry:"),
+    ] {
+        let (status, error) = validate(entry).expect_err(entry);
+        assert_eq!(status, MSIME_ENGINE_INVALID_ARGUMENT, "{entry}");
+        assert!(error.contains(needle), "{entry}: {error}");
+    }
+    let entry = r#"{"kind":"pinyin","key":"ni","value":"你"}"#;
+    // SAFETY: 测的就是空的输出参数。
+    assert_eq!(
+        unsafe {
+            msime_engine_user_dict_validate(entry.as_ptr().cast(), entry.len(), ptr::null_mut())
+        },
+        MSIME_ENGINE_NULL
+    );
+}
+
+/// 日志回调收集到的行、每行是否按 `message_len` 正好以 NUL 结尾，以及回调里换回调得到的返回码。回调里不断言：`extern "C"` 函数里的 panic 会让整个测试进程中止。
+#[derive(Default)]
+struct LogLines {
+    lines: Vec<String>,
+    terminated: Vec<bool>,
+    nested: Vec<i32>,
+}
+
+unsafe extern "C" fn collect_log_line(
+    user_data: *mut std::ffi::c_void,
+    message: *const c_char,
+    message_len: usize,
+) {
+    // SAFETY: 注册时交的是活着的 `Mutex<LogLines>`；库交来 `message_len` 个字节，后面跟着 NUL。
+    let (lines, bytes, terminated) = unsafe {
+        (
+            &*user_data.cast::<std::sync::Mutex<LogLines>>(),
+            std::slice::from_raw_parts(message.cast::<u8>(), message_len),
+            CStr::from_ptr(message).to_bytes().len() == message_len,
+        )
+    };
+    // 回调里不许换回调：库报 BUSY，不会死锁。
+    // SAFETY: 测的就是从回调里调进来。
+    let nested = unsafe { msime_engine_set_log_callback(None, ptr::null_mut()) };
+    let Ok(mut lines) = lines.lock() else {
+        return;
+    };
+    lines
+        .lines
+        .push(String::from_utf8_lossy(bytes).into_owned());
+    lines.terminated.push(terminated);
+    lines.nested.push(nested);
+}
+
+/// 日志回调（ABI 1.1）：引擎的警告交给回调，不带 `msime: ` 前缀；回调里换回调报 BUSY；换回 NULL 之后不再收到。日志出口是进程级的，并行的测试记的行也可能落进来，所以只找自己的那一行。
+#[test]
+fn the_log_callback_receives_engine_warnings_until_it_is_removed() {
+    let fixture = Fixture::new();
+    let collected = std::sync::Mutex::new(LogLines::default());
+    let corrupt_journal_and_prepare = || {
+        std::fs::write(
+            Path::new(&fixture.user_data).join("msime_user.db"),
+            b"not a database",
+        )
+        .expect("journal");
+        let id = "fixture";
+        // SAFETY: 路径结构和 id 都在这里活着。
+        let status = unsafe {
+            msime_engine_prepare_runtime(
+                &fixture.paths(),
+                id.as_ptr().cast(),
+                id.len(),
+                ptr::null_mut(),
+            )
+        };
+        assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+    };
+    let ours = |lines: &LogLines| {
+        lines
+            .lines
+            .iter()
+            .filter(|line| line.starts_with("user dictionary journal is not a database"))
+            .count()
+    };
+    // SAFETY: `collected` 活到换回 NULL 之后。
+    let status = unsafe {
+        msime_engine_set_log_callback(
+            Some(collect_log_line),
+            ptr::from_ref(&collected).cast_mut().cast(),
+        )
+    };
+    assert_eq!(status, MSIME_ENGINE_OK);
+    corrupt_journal_and_prepare();
+    // SAFETY: 回到缺省的标准错误。
+    assert_eq!(
+        unsafe { msime_engine_set_log_callback(None, ptr::null_mut()) },
+        MSIME_ENGINE_OK
+    );
+    {
+        let lines = collected.lock().unwrap();
+        assert_eq!(ours(&lines), 1, "{:?}", lines.lines);
+        assert!(lines.terminated.iter().all(|terminated| *terminated));
+        assert!(!lines.nested.is_empty());
+        assert!(lines
+            .nested
+            .iter()
+            .all(|status| *status == MSIME_ENGINE_BUSY));
+    }
+    corrupt_journal_and_prepare();
+    assert_eq!(ours(&collected.lock().unwrap()), 1);
 }

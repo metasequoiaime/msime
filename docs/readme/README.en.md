@@ -113,6 +113,8 @@ MSIME's input engine can be embedded in other input methods: word-lattice senten
 
 The engine code is MPL-2.0, so it can go into closed-source and App Store apps. The dictionary data keeps its own licences and is not MPL: the default Chinese data includes GPL-3.0 rime-ice data and CC-BY-SA-4.0 n-gram counts; choose your data accordingly.
 
+The website's [engine library page](https://msime.app/engine/) has the full introduction, integration examples for each language and an FAQ (in Chinese).
+
 ## Input engine
 
 ```sh
@@ -131,7 +133,7 @@ After creating a session, the host must pass in the focus state explicitly, map 
 
 ## Pinned dictionary resources
 
-`resources/desktop-dictionary.lock.json` pins the source, length and SHA-256 of the published `dict-v2.0.39` release of `metasequoiaime/msime-dictionary`. Of these files, `msime-mozc_dictionary_oss_README.txt` and `msime-mozc_LICENSE.txt` are the full license texts for the Japanese dictionary (the former contains the IPAdic and ICOT terms, the latter Mozc's three-clause BSD license), and `msime-scowl_Copyright.txt` is the copyright and license notice for the SCOWL word list in `msime-english.db`; their terms all require them to be distributed together with the data, so they must not be omitted when repackaging; see the [third-party component inventory](../third-party.md#日文词库的分发义务) for details. The first download is about 270 MB. The lock's `source_commit` records which commit of this repository produced this batch of dictionaries with `msime-dict-build`; among them, `msime-bigram.bin` and `msime-trigram.bin` are the language model tables used for whole-sentence lattice arbitration. When the tables are missing, the engine does not report an error; the whole-sentence path is simply unweighted — candidates still appear, in a worse order — so when changing dictionary versions, confirm that `crates/engine` can still read the new tables and rerun the sentence conversion benchmark. Development setup command:
+`resources/desktop-dictionary.lock.json` pins the source, length and SHA-256 of the published `dict-v2.0.41` release of `metasequoiaime/msime-dictionary`. Of these files, `msime-mozc_dictionary_oss_README.txt` and `msime-mozc_LICENSE.txt` are the full license texts for the Japanese dictionary (the former contains the IPAdic and ICOT terms, the latter Mozc's three-clause BSD license), and `msime-scowl_Copyright.txt` is the copyright and license notice for the SCOWL word list in `msime-english.db`; their terms all require them to be distributed together with the data, so they must not be omitted when repackaging; see the [third-party component inventory](../third-party.md#日文词库的分发义务) for details. The first download is about 270 MB. The lock's `source_commit` records which commit of this repository produced this batch of dictionaries with `msime-dict-build`; among them, `msime-bigram.bin` and `msime-trigram.bin` are the language model tables used for whole-sentence lattice arbitration. When the tables are missing, the engine does not report an error; the whole-sentence path is simply unweighted — candidates still appear, in a worse order — so when changing dictionary versions, confirm that `crates/engine` can still read the new tables and rerun the sentence conversion benchmark. Development setup command:
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

@@ -2,13 +2,13 @@
 name = "msime-engine"
 description = "Input method engine for Chinese and other languages: quanpin, shuangpin, nine-key, wubi, zhuyin, Cantonese, Japanese, Korean and more, ranked over a word lattice with typo correction and learning from what the user picks. The engine of 水杉输入法 (Metasequoia IME)."
 # 自己的版本号，不继承工作区的 0.1.0：这个 crate 发布到 crates.io，版本按它自己的发布走（.github/workflows/release-engine-crates.yml）。
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 # 引擎的代码是 MPL-2.0（不附 Exhibit B），不随仓库其余部分的 GPL-3.0-only（README 的「许可证」一节）：其他输入法要能嵌入它。字段不从工作区继承：工作区的 license 是 GPL。表达式覆盖引擎的代码和编进引擎的数据，后面几项是其中保留各自许可证的数据与改编代码，逐个文件见本 crate 的 README.md：hanja.tsv、Zinnia 移植与 librime-octagram 移植是 BSD-3-Clause，darts-clone 的双数组布局是 BSD-2-Clause，chaizi 两张表是 CC-BY-3.0 加 Unihan 的 Unicode-3.0 加 OpenCC 的 Apache-2.0，symbol_groups.tsv 是 Unicode-3.0，cxx_sort.rs 是 libc++ 的 Apache-2.0 WITH LLVM-exception，latex_symbols.tsv 是 MIT，places.tsv 是 WTFPL。只给测试读的夹具不在表达式里：tests/golden/real 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选，src/handwriting/testdata 是手写参考实现的输出，它们仍按仓库的 GPL-3.0-only，发布到 crates.io 时用 include 白名单排除出包（README.md 的「许可证」一节）。
 license = "MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL"
 repository.workspace = true
 rust-version.workspace = true
-homepage = "https://github.com/metasequoiaime/msime/tree/develop/crates/engine"
+homepage = "https://msime.app/engine/"
 documentation = "https://docs.rs/msime-engine"
 readme = "README.md"
 keywords = ["ime", "input-method", "pinyin", "chinese", "shuangpin"]

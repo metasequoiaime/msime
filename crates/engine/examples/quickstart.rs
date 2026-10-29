@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 代次 id 是 1 到 128 个 `[0-9A-Za-z_-]`，数据一换就要换一个，否则会继续用旧数据准备好的代次。这里取数据目录的名字（数据包解开后是 `msime-engine-data-quanpin-2.0.39` 这样带版本号的名字），其余字符换成 `_`。
+/// 代次 id 是 1 到 128 个 `[0-9A-Za-z_-]`，数据一换就要换一个，否则会继续用旧数据准备好的代次。这里取数据目录的名字（数据包解开后是 `msime-engine-data-quanpin-2.0.41` 这样带版本号的名字），其余字符换成 `_`。
 fn content_id(resources: &Path) -> String {
     let name = resources
         .file_name()

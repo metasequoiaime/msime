@@ -64,6 +64,7 @@ import {
   NineKeyAction, NineKeyActionItem, NineKeyActionKind, NineKeyLayout, NineKey, NineKeySidebarItem
 } from './input/NineKeyLayout';
 import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
+import { NineKeySwipe, NineKeySwipeGesture, NineKeySwipePolicy } from './input/NineKeySwipePolicy';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { EighteenKeyLayout } from './input/EighteenKeyLayout';
 import { EighteenKeySwipeGesture, EighteenKeyTap } from './input/EighteenKeySwipePolicy';
@@ -194,6 +195,8 @@ interface KeyOptions {
   letter?: string;
   /** 双拼 18 键上这一键的字母（`FourteenKey.letters`）。设了它，横滑选中这一键的某个字母时键面在绘制时改画那个字母，与 `letter` 同理不进 `ForEach` 的键标识，正按着的键不会被重建。 */
   swipeLetters?: string;
+  /** 拼音九键字母层 1–9 键的输入字符（`NineKey.input`）。设了它，这一键滑动输入数字时键面在绘制时改画那个数字（`nineKeySwipeFace`），与 `swipeLetters` 同理不进 `ForEach` 的键标识。 */
+  nineKeyInput?: string;
   size: number;
   /** 用操作色填充：2in1 上按住的 Shift，或有组合串时的回车键（在触屏键盘的设计行上则始终填充）。 */
   emphasized: boolean;
@@ -835,6 +838,11 @@ struct KeyboardView {
   /** 横滑正选中字母的那个 18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
   @State eighteenSwipeKey: string = '';
   @State eighteenSwipeLetter: string = '';
+  /** 拼音九键字母层 1–9 键的上滑或下滑（共享偏好 `touch_nine_key_swipe_digits`，`NineKeySwipePolicy`）。 */
+  private nineKeySwipes: NineKeySwipeGesture = new NineKeySwipeGesture();
+  /** 正滑动输入数字的那个九键（`NineKey.input`）和它的数字：键面临时画这个数字、角标藏起来；没有时都为空串。 */
+  @State nineKeySwipeKey: string = '';
+  @State nineKeySwipeDigit: string = '';
   private glideContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -1714,6 +1722,9 @@ struct KeyboardView {
     this.eighteenSwipes.clear();
     this.eighteenSwipeKey = '';
     this.eighteenSwipeLetter = '';
+    this.nineKeySwipes.clear();
+    this.nineKeySwipeKey = '';
+    this.nineKeySwipeDigit = '';
     this.keyPreview = null;
     this.keyPreviewFinger = -1;
   }
@@ -1904,7 +1915,7 @@ struct KeyboardView {
           })
         } else {
           Text($$.letter !== undefined ? this.letterFace($$.letter)
-            : this.eighteenSwipeFace($$.swipeLetters, $$.face))
+            : this.nineKeySwipeFace($$.nineKeyInput, this.eighteenSwipeFace($$.swipeLetters, $$.face)))
             .fontSize($$.size)
             .minFontSize(KEY_HINT_FONT_SIZE)
             .maxFontSize($$.size)
@@ -5649,6 +5660,8 @@ struct KeyboardView {
       size: !this.touchDesign() ? KeyboardMetrics.SMALL_KEY_FONT_SIZE
         : (this.symbols ? TOUCH_LETTER_FONT_SIZE : NINE_KEY_FONT_SIZE),
       fontWeight: this.touchDesign() && !this.symbols ? NINE_KEY_LETTER_WEIGHT : undefined,
+      // 只有拼音九键字母层带这个标记，数字层和九键双拼的键不会被滑动输入数字换掉键面。
+      nineKeyInput: this.symbols || shuangpin ? undefined : key.input,
       emphasized: false,
       width: 0,
       // A digit is inserted, not spelled: the same call the twenty-six key symbol row makes for
@@ -5689,6 +5702,8 @@ struct KeyboardView {
           .maxLines(1)
           .margin({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
           .hitTestBehavior(HitTestMode.Transparent)
+          // 滑动输入数字时键面已经画着这个数字，角标暂时藏起来，松手或取消后回来。
+          .visibility(this.nineKeySwipeKey === key.input ? Visibility.Hidden : Visibility.Visible)
       }
     }
     .accessibilityText(this.nineKeyLabel(key))
@@ -5705,7 +5720,12 @@ struct KeyboardView {
     .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
+    .onTouch((event: TouchEvent): void => this.nineKeySwipeTouch(key, event))
     .onClick(() => {
+      if (this.nineKeySwipes.swallows(key.input)) {
+        // 这次触摸已经滑出去，输入了数字或弹出了选项，点击不再输入字母。
+        return;
+      }
       KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
       if (NineKeyLayout.showsQuickMarks(key)) {
         this.showNineKeyQuickMarks();
@@ -5714,10 +5734,80 @@ struct KeyboardView {
       }
     })
     .gesture(LongPressGesture().onAction(() => {
+      if (!this.nineKeySwipes.hold(key.input)) {
+        // 滑动已经接管这次触摸，长按不再弹出选项。
+        return;
+      }
       // 长按仍算这格的一次按键，选项通过字面输入路径上屏。
       KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
       this.openKeyHold(NineKeyLayout.holdOptions(key));
     }))
+  }
+
+  /**
+   * 拼音九键字母层 1–9 键上的一次触摸（`NineKeySwipePolicy`，#10229，与 Android `ImeLayoutRows.bindNineKeySwipe` 相同）：按下时读共享偏好 `touch_nine_key_swipe_digits`，沿设定方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏）；反方向滑过 24 vp 的那一刻算这一格按了一次，弹出和长按相同的数字和字母。判定成立后点击和长按都不再做事；系统取消时还原键面，什么也不输入。2in1 没有这项设置，只在触屏键盘上判定。
+   */
+  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      if (event.changedTouches.length > 0) {
+        const touch: TouchObject = event.changedTouches[0];
+        // 每次按下读当前的设置：键盘开着时在设置页改了，下一次触摸就生效。
+        const mode: string = this.touchDesign() ? this.settings.nineKeySwipeDigits : NineKeySwipePolicy.OFF;
+        // 1 键（@#）长按只有 1，没有字母可弹。
+        const hasLetters: boolean = NineKeyLayout.holdOptions(key).length > 1;
+        this.endNineKeySwipeFace(key.input);
+        this.nineKeySwipes.down(key.input, touch.id, touch.windowY, mode, hasLetters);
+      }
+    } else if (event.type === TouchType.Move) {
+      const moved: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
+      for (const touch of moved) {
+        const swipe: NineKeySwipe = this.nineKeySwipes.move(key.input, touch.id, touch.windowY);
+        if (swipe === NineKeySwipe.DIGIT) {
+          this.nineKeySwipeDigit = NineKeyLayout.digitHint(key);
+          this.nineKeySwipeKey = key.input;
+        } else if (swipe === NineKeySwipe.LETTERS) {
+          // 与长按相同：这一格算按了一次，之后从弹窗里选的不再计。
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
+          this.openKeyHold(NineKeyLayout.holdOptions(key));
+        }
+      }
+    } else if (event.type === TouchType.Up) {
+      if (event.changedTouches.length > 0) {
+        const touch: TouchObject = event.changedTouches[0];
+        if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {
+          this.endNineKeySwipeFace(key.input);
+          this.typeNineKeySwipeDigit(key);
+        }
+      }
+    } else if (event.type === TouchType.Cancel) {
+      this.nineKeySwipes.cancel(key.input);
+      this.endNineKeySwipeFace(key.input);
+    }
+  }
+
+  /** 滑出来的数字：按键音、振动和键位统计与点按这一格相同，上屏走长按选数字的同一条路径（`selectNineKeyHoldOption`：先结束组字再字面上屏）。 */
+  private typeNineKeySwipeDigit(key: NineKey): void {
+    const digit: string = NineKeyLayout.digitHint(key);
+    if (digit.length === 0) {
+      return;
+    }
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
+    KeyboardSession.shared.holdFeedback();
+    KeyboardSession.shared.finishComposition();
+    KeyboardSession.shared.insert(digit);
+  }
+
+  private endNineKeySwipeFace(input: string): void {
+    if (this.nineKeySwipeKey === input) {
+      this.nineKeySwipeKey = '';
+      this.nineKeySwipeDigit = '';
+    }
+  }
+
+  /** 键面文字：这一键正滑动输入数字时画那个数字，否则画原来的键面。 */
+  private nineKeySwipeFace(input: string | undefined, face: string): string {
+    return input !== undefined && input === this.nineKeySwipeKey && this.nineKeySwipeDigit.length > 0
+      ? this.nineKeySwipeDigit : face;
   }
 
   /**

@@ -205,3 +205,24 @@ pub const MSIME_ENGINE_OPTION_PREDICTION_ALLOWED: u32 = 8;
 pub const MSIME_ENGINE_OPTION_FIRST_PAGE_ROWS: u32 = 9;
 /// 字符串：整句模型参照的已上屏文字（只看最后 64 个字），宿主在光标前文字变化时交来。
 pub const MSIME_ENGINE_OPTION_RESCORING_CONTEXT: u32 = 10;
+/// 整数，ABI 1.1 起：调频方式，`MSIME_ENGINE_FREQUENCY_*`，与选项 `frequency.mode` 相同。从下一次选择起按新方式学，已经学下的排序照旧生效，眼前的候选不重排。
+pub const MSIME_ENGINE_OPTION_FREQUENCY_MODE: u32 = 11;
+/// 整数，ABI 1.1 起：同一个词要被选中几次才挪位（1 到 10），与选项 `frequency.trigger_count` 相同。
+pub const MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT: u32 = 12;
+/// 整数，ABI 1.1 起：`MSIME_ENGINE_FREQUENCY_LINEAR` 每次前移几位（1 到 10），与选项 `frequency.linear_step` 相同。
+pub const MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP: u32 = 13;
+/// 整数，ABI 1.1 起：五笔拼音混输（码表没有时按全拼出字），0 或 1，与选项 `wubi.mixed_pinyin` 相同；五笔组字中切换时立即按新设置重查候选。
+pub const MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN: u32 = 14;
+
+// ---- 调频方式（`MSIME_ENGINE_OPTION_FREQUENCY_MODE` 的取值，ABI 1.1 起，冻结） ----
+
+/// 不调频：选词不改变以后的排序（缺省）。
+pub const MSIME_ENGINE_FREQUENCY_DISABLED: u32 = 0;
+/// 选中的词直接排到首位。
+pub const MSIME_ENGINE_FREQUENCY_PIN: u32 = 1;
+/// 选中的词挪到原位置的一半处：下标 n 挪到 n/2（下标从 0 数）。
+pub const MSIME_ENGINE_FREQUENCY_HALVE: u32 = 2;
+/// 选中的词前移 `linear_step` 位。
+pub const MSIME_ENGINE_FREQUENCY_LINEAR: u32 = 3;
+/// 选中的词前移一位；下标大于 4 的直接挪到下标 4（第 5 位）。
+pub const MSIME_ENGINE_FREQUENCY_PROMOTE: u32 = 4;

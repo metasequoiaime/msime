@@ -2402,7 +2402,7 @@ impl InputSession {
     }
 }
 
-fn frequency_options_valid(options: FrequencyAdjustmentOptions) -> bool {
+pub(super) fn frequency_options_valid(options: FrequencyAdjustmentOptions) -> bool {
     (1..=10).contains(&options.trigger_count) && (1..=10).contains(&options.linear_step)
 }
 

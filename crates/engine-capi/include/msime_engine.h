@@ -247,8 +247,38 @@
 // 字符串：整句模型参照的已上屏文字（只看最后 64 个字），宿主在光标前文字变化时交来。
 #define MSIME_ENGINE_OPTION_RESCORING_CONTEXT 10
 
+// 整数，ABI 1.1 起：调频方式，`MSIME_ENGINE_FREQUENCY_*`，与选项 `frequency.mode` 相同。从下一次选择起按新方式学，已经学下的排序照旧生效，眼前的候选不重排。
+#define MSIME_ENGINE_OPTION_FREQUENCY_MODE 11
+
+// 整数，ABI 1.1 起：同一个词要被选中几次才挪位（1 到 10），与选项 `frequency.trigger_count` 相同。
+#define MSIME_ENGINE_OPTION_FREQUENCY_TRIGGER_COUNT 12
+
+// 整数，ABI 1.1 起：`MSIME_ENGINE_FREQUENCY_LINEAR` 每次前移几位（1 到 10），与选项 `frequency.linear_step` 相同。
+#define MSIME_ENGINE_OPTION_FREQUENCY_LINEAR_STEP 13
+
+// 整数，ABI 1.1 起：五笔拼音混输（码表没有时按全拼出字），0 或 1，与选项 `wubi.mixed_pinyin` 相同；五笔组字中切换时立即按新设置重查候选。
+#define MSIME_ENGINE_OPTION_WUBI_MIXED_PINYIN 14
+
+// 不调频：选词不改变以后的排序（缺省）。
+#define MSIME_ENGINE_FREQUENCY_DISABLED 0
+
+// 选中的词直接排到首位。
+#define MSIME_ENGINE_FREQUENCY_PIN 1
+
+// 选中的词挪到原位置的一半处：下标 n 挪到 n/2（下标从 0 数）。
+#define MSIME_ENGINE_FREQUENCY_HALVE 2
+
+// 选中的词前移 `linear_step` 位。
+#define MSIME_ENGINE_FREQUENCY_LINEAR 3
+
+// 选中的词前移一位；下标大于 4 的直接挪到下标 4（第 5 位）。
+#define MSIME_ENGINE_FREQUENCY_PROMOTE 4
+
 // 不透明的会话句柄，由 `msime_engine_session_new` 建、`msime_engine_session_free` 释放。
 typedef struct msime_engine_session msime_engine_session;
+
+// 日志回调，ABI 1.1 起。`message` 是一行 UTF-8 的警告（不带 `msime: ` 前缀和换行），NUL 结尾，`message_len` 是不含 NUL 的字节数；只在这次调用期间有效。`user_data` 是注册时交来的那个指针，库不碰它。
+typedef void (*msime_engine_log_callback)(void *user_data, const char *message, size_t message_len);
 
 // 库借给调用方的一段 UTF-8 文本：`len` 个字节，不以 NUL 结尾，按长度读。空串时 `ptr` 也不是 NULL。指向会话里缓存的数据，有效期见各个函数：热路径上的都到同一会话下一次改变状态的调用为止。
 typedef struct msime_engine_str {
@@ -353,6 +383,17 @@ const char *msime_engine_last_error(void);
 // `text` 是 NULL 或这个库交出、还没释放过的字符串。
 void msime_engine_string_free(char *text);
 
+// ABI 1.1 起。把引擎的警告日志交给 `callback`，`callback` 为 NULL 时回到缺省：写到标准错误，每行前缀 `msime: `。日志是进程级的：所有会话和库的后台线程记的都交给它，再注册一次就换掉上一个。
+//
+// 回调可能在任何线程上被调用，也可能在几个线程上同时被调用，要自己处理并发；要尽快返回，不要在里面调这个库的任何函数（在回调里调本函数返回 `MSIME_ENGINE_BUSY`，回调期间同一线程上再记的日志被丢掉）。回调不能抛出 C++ 异常或 `longjmp` 出去。
+//
+// 本函数返回之后，旧回调没有还在执行的调用，以后也不会再被调用，旧的 `user_data` 可以释放；新回调在注册期间要一直可调，`user_data` 一直有效，直到用别的回调或 NULL 换掉它。进程退出前不必换回缺省。
+//
+// # Safety
+// `callback` 是 NULL，或者在它被换掉之前一直可以在任何线程上以 `user_data` 调用的函数。
+int32_t msime_engine_set_log_callback(msime_engine_log_callback callback,
+                                      void *user_data);
+
 // 准备运行时：在 `user_data/dictionaries/<content_id>` 原子地准备一个代次（从 `resources` 复制工作词库并回放学习日志），已就绪的代次只补回放。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据变了就换一个；带点的版本号要先换掉点（`dict-v2_0_39`）。三个根目录必须是绝对路径、互不重叠。`paths.dictionaries` 不读。按全部方案准备：`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`；只用其中几个方案时用 `msime_engine_prepare_runtime_for`，只带那几个方案的数据。成功时把代次目录写进 `*dictionaries`（可以是 NULL），用 `msime_engine_string_free` 释放；建会话时它就是 `paths.dictionaries`。
 //
 // # Safety
@@ -400,6 +441,14 @@ int32_t msime_engine_user_dict_list(const struct msime_engine_paths *paths,
                                     uint32_t limit,
                                     uint32_t flags,
                                     char **json);
+
+// ABI 1.1 起。按 `msime_engine_user_dict_edit` 收新词条（`replacement`）的同一套规则检查一条词条，不碰任何文件，也不需要路径：输入是一条 `{"kind": "pinyin", "key": "NI HAO", "value": "你好", "weight": 100000}`（`weight` 可以省略），合法时把规范化后的词条写进 `*normalized_json`（编码换成小写，拼音编码里的空格换成 `'`：`NI HAO` 成为 `ni'hao`），用 `msime_engine_string_free` 释放。词条不合法时返回 `MSIME_ENGINE_INVALID_ARGUMENT`，`msime_engine_last_error` 是引擎给的英文原因（例如 `Use complete pinyin syllables separated by apostrophes or spaces`），可以直接显示给用户；`*normalized_json` 不写。给前端在用户填编辑框时就提示，不必等到真的写入。
+//
+// # Safety
+// `entry_json` 指向 `entry_len` 个可读字节；`normalized_json` 可写一个指针。
+int32_t msime_engine_user_dict_validate(const char *entry_json,
+                                        size_t entry_len,
+                                        char **normalized_json);
 
 // 改个人词典：`{"previous": 条目或 null, "replacement": 条目或 null, "request_id": "..."}`，previous 为 null 是新增，replacement 为 null 是删除，都有是替换（previous 必须与列表里的那条完全相同）。`request_id`（1 到 128 个 `[A-Za-z0-9_-]`，可以省略）让同一次编辑重试时不重复生效。还有会话开着（本进程或别的进程，包括 msime 自己的输入法）时返回 `MSIME_ENGINE_BUSY`，什么也不写：先释放这些路径上的会话。
 //
@@ -474,6 +523,14 @@ int32_t msime_engine_key_char(struct msime_engine_session *session,
                               uint8_t character,
                               uint32_t flags,
                               struct msime_engine_result *result);
+
+// ABI 1.1 起。数字键当选择键，引擎自己的数字选词入口：有组字时 `1`–`9` 上屏整张候选表的第 `digit - 1` 行（也就是第一页，`msime_engine_select` 的那套学习照常）；越南文 VNI 和注音此刻拼写用的数字交给拼写；没有组字时不处理（`handled` 为 0），并且忘掉上屏的上下文，因为这个数字由宿主自己交给应用；上屏后联想的候选不接数字，按下时被清掉。`digit` 只收 ASCII 数字 `0`–`9`，其余是 `MSIME_ENGINE_INVALID_ARGUMENT`。不带修订号：它选的是调用时的候选。Unicode、日期、计算这些用数字拼写的本地模式里它照样选词，所以按键路由仍是先 `msime_engine_key_char`，没被处理时再用它（只显示第一页的前端）或 `msime_engine_select`（翻过页的前端），见 README 按键路由第 4 条。
+//
+// # Safety
+// 同 `msime_engine_key_char`。
+int32_t msime_engine_candidate_key(struct msime_engine_session *session,
+                                   uint8_t digit,
+                                   struct msime_engine_result *result);
 
 // 一个 ASCII 标点：有组字时以首选结束组字，再接上中文标点；中文标点关着、锁成 ASCII 或这个键没有中文标点时不处理（`handled` 为 0），宿主自己输出这个键。宿主高亮了首选以外的行时，先用 `msime_engine_finish` 以那一行结束，再调这个函数。
 //

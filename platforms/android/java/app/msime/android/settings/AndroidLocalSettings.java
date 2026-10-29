@@ -89,9 +89,9 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_SUGGESTION_ACTION_KIND = "platform.android.clipboard_suggestion_action_kind";
     /** 旧版的「数字行」（#6022），默认关，只在本机。现在由共享偏好 `touch_number_row` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；同步的 `platform.android.number_row` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NUMBER_ROW = "platform.android.number_row";
-    /** 拼音九键网格键的滑动（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，不改变原来九键的点按。和 26 键的「滑动输入符号」分开，服务端的同步字段表还没有这个键，所以先只在本机。 */
+    /** 旧版的「九键滑动输入数字」（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，只在本机。现在由共享偏好 `touch_nine_key_swipe_digits` 接替（#10229），这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；规格声明留着，否则读文件时这个键会被丢掉、迁移读不到。同步的 `platform.android.nine_key_swipe` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
-    /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响 {@link #NINE_KEY_SWIPE}，26 键的滑动阈值不变。和 {@link #NINE_KEY_SWIPE} 一样只在本机。 */
+    /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响九键滑动（共享偏好 `touch_nine_key_swipe_digits`），26 键的滑动阈值不变。只在本机、不随账号同步，iOS 和鸿蒙没有这一项（固定 24）。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
     /** 旧版的九键左侧符号（字母键面那张表，用空格分开），只在本机。现在由共享偏好 `touch_nine_key_sidebar_symbols`（{@link NineKeySidebarPolicy#LETTER_PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值（不认识的键在读取时会被丢掉）。同步的 `platform.android.nine_key_symbols` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
