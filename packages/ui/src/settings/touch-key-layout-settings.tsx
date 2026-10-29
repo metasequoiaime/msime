@@ -22,13 +22,20 @@ import {
   nineKeyStyleHighlights,
   nineKeyStyleNotes,
   nineKeyStyleOptions,
+  numberPadSpace,
+  numberPadSpaceNote,
+  numberPadSpaceOptions,
+  numberPadSpaceTitle,
   numberRowDescription,
   numberRowKeys,
+  symbolFirstDescription,
+  symbolFirstTitle,
   twentySixKeyBottomRows,
   twentySixKeyStyle,
   twentySixKeyStyleHighlights,
   twentySixKeyStyleNotes,
   twentySixKeyStyleOptions,
+  withSymbolFirst,
 } from "../keyboard/touch-key-layout-styles";
 
 /** 「按键布局」子页上提供哪几种键盘类型：版本没有的键盘类型不进分段控件。 */
@@ -123,9 +130,9 @@ function fourteenKeyFace(
 }
 
 /**
- * 「按键布局」整块预览要画的键，全部取自键盘已有的表，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（屏幕键盘页「尺寸」预览画的同一张表，照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`，打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行。
+ * 「按键布局」整块预览要画的键，全部取自键盘已有的表，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（屏幕键盘页「尺寸」预览画的同一张表，照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行。
  *
- * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认。
+ * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123。
  */
 export function keyLayoutPreviewRows(
   kind: TouchKeyLayoutKind,
@@ -155,8 +162,13 @@ export function keyLayoutPreviewRows(
   } else {
     const style = twentySixKeyStyle(preferences);
     grid = harmonyTouchKeyboardRows.twenty_six_key.slice(0, -1);
-    bottom = twentySixKeyBottomRows[style];
-    highlights = twentySixKeyStyleHighlights[style];
+    const symbolFirst = preferences.touch_twenty_six_symbol_first === true;
+    bottom = withSymbolFirst(twentySixKeyBottomRows[style], symbolFirst);
+    // 互换打开且这个样式有 符 时，符 和 123 也描边，让人看出开关动的是哪两个键。
+    highlights =
+      symbolFirst && bottom.some((key) => key.code === "SoftSymbol")
+        ? [...twentySixKeyStyleHighlights[style], "SoftSymbol", "SoftLayer"]
+        : twentySixKeyStyleHighlights[style];
   }
   const highlighted = (key: PreviewKey) => key.code !== undefined && highlights.includes(key.code);
   const place = (
@@ -262,15 +274,15 @@ function KeyLayoutPreview({
   );
 }
 
-/** 预览下方的一排样式胶囊：等宽铺满一行、不横向滚动（每类最多四种、名字最长五个字，等分后放得下，字号很大时显示省略号）；选中的强调色实底白字，其余浅底。点一下立刻写偏好，点已选中的不做事。`note` 是当前选中样式的副作用说明，没有就不画这一行，读屏把它当作这排胶囊的描述。 */
+/** 一排等宽胶囊：等宽铺满一行、不横向滚动（每类最多四种、名字最长五个字，等分后放得下，字号很大时显示省略号）；选中的强调色实底白字，其余浅底。点一下立刻写偏好，点已选中的不做事。`label` 是读屏念的这排胶囊的名字，`note` 是胶囊下方的说明（样式胶囊是当前选中样式的副作用，数字键盘一组是组末说明），没有就不画这一行，读屏把它当作这排胶囊的描述。 */
 function StyleChips<T extends string>({
-  title,
+  label,
   options,
   value,
   note,
   onChange,
 }: {
-  title: string;
+  label: string;
   options: readonly { value: T; label: string }[];
   value: T;
   note: string | undefined;
@@ -281,7 +293,7 @@ function StyleChips<T extends string>({
     <>
       <div
         role="group"
-        aria-label={`${title}样式`}
+        aria-label={label}
         aria-describedby={note ? noteId : undefined}
         className="flex gap-1.5"
       >
@@ -318,9 +330,9 @@ function StyleChips<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style` 或 `touch_nine_key_style`，开关写 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first` 或 `touch_number_row`，键盘开着时当场换排法。
  *
- * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名，命中别的分段里的样式时由 SettingsSearchReveal 切过去。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
+ * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
  */
 export function TouchKeyLayoutSettings({
   preferences,
@@ -349,12 +361,12 @@ export function TouchKeyLayoutSettings({
   }, [open]);
   const kind = chosen && offered.includes(chosen) ? chosen : fallback;
   const chips = (panel: TouchKeyLayoutKind) => {
-    const title = touchKeyLayoutKindTitles[panel];
+    const label = `${touchKeyLayoutKindTitles[panel]}样式`;
     if (panel === "twentySix") {
       const value = twentySixKeyStyle(preferences);
       return (
         <StyleChips
-          title={title}
+          label={label}
           options={twentySixKeyStyleOptions}
           value={value}
           note={twentySixKeyStyleNotes[value]}
@@ -366,7 +378,7 @@ export function TouchKeyLayoutSettings({
       const value = fourteenKeyStyle(preferences);
       return (
         <StyleChips
-          title={title}
+          label={label}
           options={fourteenKeyStyleOptions}
           value={value}
           note={fourteenKeyStyleNotes[value]}
@@ -377,7 +389,7 @@ export function TouchKeyLayoutSettings({
     const value = nineKeyStyle(preferences);
     return (
       <StyleChips
-        title={title}
+        label={label}
         options={nineKeyStyleOptions}
         value={value}
         note={nineKeyStyleNotes[value]}
@@ -419,6 +431,36 @@ export function TouchKeyLayoutSettings({
                 </div>
               </SettingsSearchReveal>
             ))}
+          </div>
+          {groups.twentySix && (
+            // 互换开关是卡片里说明之后的一行，只在 26 键分段显示；搜索命中它时切到 26 键。
+            <SettingsSearchReveal
+              label={touchKeyLayoutKindTitles.twentySix}
+              hidden={kind !== "twentySix"}
+              onReveal={() => setChosen("twentySix")}
+            >
+              <SwitchRow
+                title={symbolFirstTitle}
+                description={symbolFirstDescription}
+                checked={preferences.touch_twenty_six_symbol_first === true}
+                onChange={(touch_twenty_six_symbol_first) =>
+                  onChange({ touch_twenty_six_symbol_first })
+                }
+              />
+            </SettingsSearchReveal>
+          )}
+        </GroupList>
+      )}
+      {(groups.twentySix || groups.fourteen || groups.nine) && (
+        <GroupList title={numberPadSpaceTitle}>
+          <div className="flex min-w-0 flex-col gap-3 px-4 py-4">
+            <StyleChips
+              label={numberPadSpaceTitle}
+              options={numberPadSpaceOptions}
+              value={numberPadSpace(preferences)}
+              note={numberPadSpaceNote}
+              onChange={(touch_number_pad_space) => onChange({ touch_number_pad_space })}
+            />
           </div>
         </GroupList>
       )}

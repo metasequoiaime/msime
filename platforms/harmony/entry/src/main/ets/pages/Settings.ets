@@ -2275,6 +2275,7 @@ class SettingsBridge {
         value['fixed_candidate_layout'] = projection.fixedCandidateLayout;
       }
       value['candidate_follow_cursor'] = projection.candidateFollowCursor;
+      value['candidate_window_scale'] = projection.candidateWindowScale;
       value['candidate_window_opacity'] = projection.candidateWindowOpacity;
       value['candidate_corner_radius'] = projection.candidateCornerRadius;
       value['input_mode_hud'] = projection.inputModeHud;

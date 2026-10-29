@@ -97,9 +97,25 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 if (hasKey(key("英"))) tap(key("英"));
                 awaitStableBounds(key("中").and(mode));
                 await(letterFace(layout[0]));
+                // 往返时返回键留在字母层 123 那一格，符 留在字母层底行 符 那一格（#9113、#10061）。注音九键的 123 在键块里，不比。
+                boolean bottomRowEntry = !layout[0].equals("zhuyin_nine_key");
+                boolean bottomRowSymbol = bottomRowEntry && !layout[0].equals("fourteen_key");
+                Rect letterLayer = bottomRowEntry ? stableBounds(key("123")) : null;
+                Rect letterSymbol = bottomRowSymbol ? stableBounds(described("打开符号面板")) : null;
                 tap(key("123"));
                 stage = layout[0] + " number grid";
                 assertGrid();
+                stage = layout[0] + " entry keys keep their slots";
+                if (letterLayer != null) {
+                    Rect back = stableBounds(described("返回原键盘"));
+                    if (!(back.left < letterLayer.centerX() && back.right > letterLayer.centerX()))
+                        throw new AssertionError("返回键应在字母层 123 那一格：" + letterLayer + " -> " + back);
+                }
+                if (letterSymbol != null) {
+                    Rect symbol = stableBounds(described("打开符号面板"));
+                    if (!(symbol.left < letterSymbol.centerX() && symbol.right > letterSymbol.centerX()))
+                        throw new AssertionError("符 应在字母层 符 那一格：" + letterSymbol + " -> " + symbol);
+                }
                 stage = layout[0] + " continuous arithmetic";
                 String expression = "12.3+4-5*6/70";
                 typeLiteral(expression);
@@ -210,6 +226,13 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private void awaitPasswordLength(int length) {
         await(field("msime-test-password").and(node -> !node.isShowingHintText()
             && node.getText() != null && node.getText().length() == length));
+    }
+
+    /** 控件位置稳定后在屏幕上的范围。 */
+    private Rect stableBounds(Predicate<AccessibilityNodeInfo> match) {
+        Rect bounds = new Rect();
+        awaitStableBounds(match).getBoundsInScreen(bounds);
+        return bounds;
     }
 
     private void assertGrid() {

@@ -13,7 +13,7 @@ Status: implemented
 空格键上的麦克风表示「长按空格可以说话」，所以它跟着长按空格语音开关走，不跟语音服务可不可用走。
 
 - Android：`ImeBottomRow.spaceShowsMic()` 读 `AndroidLocalSettings.SPACE_VOICE`，`updateActionRow` 给主空格、`syncSplitSpace` 给分离键盘右半边的空格各设一次 `setShowsMic`。两处都在每次重画底行时跑，偏好重读后的下一次 `render` 就会换键面。
-- Android 数字页的空格平时只画麦克风、不写方案短名；不画麦克风时改写「空格」（`SpaceKeyFace.numberPadLabel`），免得整个键面一片空白。
+- Android 数字页的空格键面由[数字页空格键主标画 ␣](2026-10-29-android-number-pad-space-glyph.md)（#10059）取代：主标是 ␣，麦克风缩到右上角，仍只在开着长按空格语音时画。
 - iOS：`spaceKeyFace` 多一个 `voice` 参数，`updateSpaceKeyTitle` 传 `spaceVoiceEnabled`。`readGesturePreferences` 发现开关变了、键盘也已经建好时立刻调 `updateSpaceKeyTitle`，从设置 App 改完切回键盘时键面马上变。
 - 语音设置页「启动方式」：选择面板加一行说明，选中「无」时设置行下面也显示同样的说明。两端写的是各自的真实行为：Android 关掉长按语音后长按空格松手仍是空格，写「空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」」；iOS 关掉后长按空格改为移动光标（见[iOS 空格长按光标](../feature/2026-10-18-ios-space-cursor-and-quick-symbols.md)），前半句改写「长按空格改为移动光标」，后半句相同。说明不能写成「键盘上没有语音入口」：更多工具里的磁贴一直在，那样写设置页就和键盘对不上。
 - 不改任何默认值：`space_voice` 仍默认开，原来没动过这项的用户看到的键面不变。
@@ -29,7 +29,7 @@ Status: implemented
 
 选「无」或「工具栏按钮」以后，Android 和 iOS 的空格键上都不再画麦克风，主空格、分离键盘的两半和数字页一致；切回「长按空格」麦克风就回来。用户在设置页能直接看懂「无」意味着什么。
 
-代价：数字页在关掉长按语音时显示「空格」两个字，与开着时只画麦克风的样子不同。Android 的 `SpaceKeyFace` 是 View，JVM 冒烟画不出来，`SpaceKeyMicSmoke` 只测纯函数并按源码（先压空白）钉住两处 `setShowsMic` 和设置页说明；说明里提到的磁贴由同一个冒烟经 `FunctionPanelModel` 和 `ImeFunctionPanel` 的接线核对，以后选「无」若也藏掉磁贴，冒烟会提醒改说明。真实键面要在设备上看。
+代价：Android 的 `SpaceKeyFace` 是 View，JVM 冒烟画不出来，`SpaceKeyMicSmoke` 按源码（先压空白）钉住两处 `setShowsMic` 和设置页说明；说明里提到的磁贴由同一个冒烟经 `FunctionPanelModel` 和 `ImeFunctionPanel` 的接线核对，以后选「无」若也藏掉磁贴，冒烟会提醒改说明。真实键面要在设备上看。
 
 ## Testing
 

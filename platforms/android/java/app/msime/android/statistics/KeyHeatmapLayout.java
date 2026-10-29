@@ -54,6 +54,11 @@ public final class KeyHeatmapLayout {
      * 中文全拼 26 键，底行按 `style` 排（与键盘的 {@link KeyboardActionRow#designEntries} 相同）；`numberRow` 为真时字母上方多一行 1–0，每个数字记 `Digit0`…`Digit9`，与键盘顶部数字行记的 id 相同。
      */
     public static List<List<Key>> soft(TouchKeyStyle.Row style, boolean numberRow) {
+        return soft(style, numberRow, false);
+    }
+
+    /** 同上，`symbolFirst`（共享偏好 `touch_twenty_six_symbol_first`）为真时底行的 符 排在 123 左边，与键盘相同。 */
+    public static List<List<Key>> soft(TouchKeyStyle.Row style, boolean numberRow, boolean symbolFirst) {
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
         List<List<Key>> rows = new ArrayList<>(letters.size() + 2);
         if (numberRow) {
@@ -74,7 +79,7 @@ public final class KeyHeatmapLayout {
             if (last) row.add(new Key("⌫", KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT, List.of("Backspace")));
             rows.add(List.copyOf(row));
         }
-        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT, style));
+        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT, style, symbolFirst));
         return List.copyOf(rows);
     }
 
@@ -149,8 +154,12 @@ public final class KeyHeatmapLayout {
 
     /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。「按键布局」页画 14 键与 18 键的预览时也用这一行（{@code KeyLayoutStylesPolicy}）。 */
     public static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
+        return bottom(touchLayout, style, false);
+    }
+
+    private static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style, boolean symbolFirst) {
         List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false,
-            false, false, style);
+            false, false, style, symbolFirst, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
         List<Key> row = new ArrayList<>(entries.size());
         for (KeyboardActionRow.DesignEntry entry : entries) row.add(key(touchLayout, entry));
         return List.copyOf(row);

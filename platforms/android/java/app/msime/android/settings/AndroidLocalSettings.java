@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -65,6 +65,10 @@ public final class AndroidLocalSettings {
     // ---- 只在本机的键 ----
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
+    /** 「防止截屏」（#10098，{@link ScreenCaptureProtection}），默认关。只在本机、不进备份：换一台设备或从备份恢复都不能替用户打开或关掉它，切换规则见 {@link ScreenCaptureProtectionPolicy}。 */
+    public static final String SCREEN_CAPTURE_PROTECTION = "platform.android.screen_capture_protection";
+    /** 「防止截屏」是否打开过：第一次打开时写入，之后关闭也不清除，此后再开或再关都要系统认证。清除应用数据（或经过认证的「重置所有设置」）才回到未打开过。 */
+    public static final String SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE = "platform.android.screen_capture_protection_enabled_before";
     /** 「滑行输入」（{@link GlideTypingPolicy}），默认关。服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 中英键按「中 → 英 → 已启用的其他语言键盘 → 中」轮换（{@link LanguageKeyCyclePolicy}，#6648），默认关，关着时只切中英。服务端的同步字段表还没有这个键，所以先只在本机。 */
@@ -77,6 +81,10 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
+    /** 「复制后自动显示快捷键」（#10079）：最近复制那一行在预览右边多一个分词或分类快捷键，默认开，好让用户知道有这个功能；最近复制不显示时它也不显示。只在本机。 */
+    public static final String CLIPBOARD_SUGGESTION_ACTION = "platform.android.clipboard_suggestion_action";
+    /** 复制后快捷键的功能（{@link RecentClipboardSuggestion#quickAction}）：`segment` 分词、`category` 移动分类，默认分类。只在本机。 */
+    public static final String CLIPBOARD_SUGGESTION_ACTION_KIND = "platform.android.clipboard_suggestion_action_kind";
     /** 旧版的「数字行」（#6022），默认关，只在本机。现在由共享偏好 `touch_number_row` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；同步的 `platform.android.number_row` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 拼音九键网格键的滑动（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，不改变原来九键的点按。和 26 键的「滑动输入符号」分开，服务端的同步字段表还没有这个键，所以先只在本机。 */
@@ -217,6 +225,8 @@ public final class AndroidLocalSettings {
 
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
+        bool(SCREEN_CAPTURE_PROTECTION, false, false);
+        bool(SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE, false, false);
         bool(GLIDE_TYPING, false, false);
         bool(LANGUAGE_KEY_CYCLE, false, false);
         bool(SWAP_LANGUAGE_NUMBER_KEYS, false, false);
@@ -224,6 +234,9 @@ public final class AndroidLocalSettings {
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);
         bool(CLIPBOARD_SUGGESTION, true, false);
+        bool(CLIPBOARD_SUGGESTION_ACTION, true, false);
+        choice(CLIPBOARD_SUGGESTION_ACTION_KIND, RecentClipboardSuggestion.ACTION_CATEGORY, false,
+            RecentClipboardSuggestion.ACTION_SEGMENT, RecentClipboardSuggestion.ACTION_CATEGORY);
         bool(NUMBER_ROW, false, false);
         choice(NINE_KEY_SWIPE, NineKeySwipePolicy.OFF, false, NineKeySwipePolicy.OFF, SwipeHintPolicy.UP,
             SwipeHintPolicy.DOWN);

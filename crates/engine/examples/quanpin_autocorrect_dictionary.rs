@@ -54,5 +54,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "a corrected head must compose with the jianpin tail (hauzh -> hua'zh): {hauzh:?}"
     );
 
+    // #9903：全辅音输入是简拼，字面简拼的整词排在邻键纠错读法（qjn -> qun/qin、zhr -> zhe）前面，纠错读法留在后面。
+    let qjn = candidates(&resources, temporary.path(), "qjn", "qjn")?;
+    let zhr = candidates(&resources, temporary.path(), "zhr", "zhr")?;
+    let bqng = candidates(&resources, temporary.path(), "bqng", "bqng")?;
+    println!(
+        "jianpin over autocorrection: qjn {:?}; zhr {:?}; bqng {:?}",
+        &qjn[..qjn.len().min(8)],
+        &zhr[..zhr.len().min(8)],
+        &bqng[..bqng.len().min(8)]
+    );
+    assert_eq!(
+        qjn.first().map(String::as_str),
+        Some("前几年"),
+        "the literal qjn phrases must lead the qun/qin corrections: {qjn:?}"
+    );
+    // 首页可能放不下纠错的「这」，所以只要求首位是 zh'r 的两字词。
+    assert!(
+        zhr.first().is_some_and(|word| word.chars().count() == 2),
+        "a zh'r phrase must lead the zhe correction: {zhr:?}"
+    );
+
     Ok(())
 }

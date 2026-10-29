@@ -278,6 +278,12 @@ public final class KeyboardLayout {
     /** 长空格模式把底行符号或表情入口换成逗号，符号面板从工具栏打开。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
             boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace) {
+        return numberLayer(chinese, chinesePunctuation, cornerQuotes, toolbarEmojiAvailable, longSpace, false);
+    }
+
+    /** 同上；{@code symbolFirst} 为真时底行的 😀 或 符号 排在返回键前面（{@link #layer}），返回键落在互换后字母层 123 那一格。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
+            boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace, boolean symbolFirst) {
         return layer(NUMBER_DIGITS,
             chinesePunctuation ? (cornerQuotes ? CHINESE_CORNER_NUMBER_SYMBOLS : CHINESE_NUMBER_SYMBOLS)
                 : ENGLISH_NUMBER_SYMBOLS,
@@ -286,7 +292,7 @@ public final class KeyboardLayout {
             longSpace ? commaLayerKey(chinesePunctuation) : toolbarEmojiAvailable
                 ? new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL, LAYER_EMOJI_WEIGHT)
                 : new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
-            punctuationToggle(chinesePunctuation));
+            punctuationToggle(chinesePunctuation), symbolFirst);
     }
 
     /**
@@ -304,12 +310,18 @@ public final class KeyboardLayout {
     /** 长空格模式的更多符号层沿用数字层的逗号与下滑句号。 */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
             boolean longSpace) {
+        return moreSymbolLayer(chinese, chinesePunctuation, longSpace, false);
+    }
+
+    /** 同上；{@code symbolFirst} 的含义同 {@link #numberLayer(boolean, boolean, boolean, boolean, boolean, boolean)}。 */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
+            boolean longSpace, boolean symbolFirst) {
         return layer(MORE_SYMBOLS_FIRST,
             chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation, longSpace ? commaLayerKey(chinesePunctuation)
                 : new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
-                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation), symbolFirst);
     }
 
     private static LayerKey commaLayerKey(boolean chinesePunctuation) {
@@ -330,17 +342,19 @@ public final class KeyboardLayout {
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
             LayerKey toggle, boolean chinese, boolean chinesePunctuation, LayerKey panelKey,
-            LayerKey punctuationToggle) {
+            LayerKey punctuationToggle, boolean symbolFirst) {
         List<String> punctuation = chinesePunctuation ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
         List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
         for (String key : punctuation)
             third.add(character(key));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
+        LayerKey back = new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
+            LAYER_BACK_WEIGHT);
+        // 「符」与「123」互换后字母层是 符 1.05 | 123 1.25：这一层换成 😀/符号 1.05 | 返回 1.25，返回键与 123 同一格、同宽。
         List<LayerKey> bottom = List.of(
-            new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
-                LAYER_BACK_WEIGHT),
-            panelKey,
+            symbolFirst ? panelKey : back,
+            symbolFirst ? back : panelKey,
             punctuationToggle,
             new LayerKey("空格", "空格", LayerKeyKind.SPACE, LAYER_SPACE_WEIGHT),
             new LayerKey("换行", "换行", LayerKeyKind.RETURN, LAYER_RETURN_WEIGHT));

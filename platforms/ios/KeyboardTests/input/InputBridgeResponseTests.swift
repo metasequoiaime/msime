@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 final class InputBridgeResponseTests: XCTestCase {
@@ -118,7 +119,7 @@ final class InputBridgeResponseTests: XCTestCase {
     MSIMEInputThread.shared.async { gate.wait() }
     var delivered: [String] = []
     for digit in "64426" {
-      XCTAssertTrue(bridge.enqueueNineKeyCharacter(String(digit)) { snapshot in
+      XCTAssertTrue(bridge.enqueueCharacter(String(digit)) { snapshot in
         XCTAssertTrue(Thread.isMainThread)
         XCTAssertNil(snapshot.diagnosticText)
         XCTAssertNil(snapshot.commitText)
@@ -142,6 +143,104 @@ final class InputBridgeResponseTests: XCTestCase {
     _ = bridge.cancel()
   }
 
+  /// 26 键全拼的字母异步投递（#10031）：投递不等被挡住的会话线程，结果按顺序回到主线程，紧随的删除和提交先排空此前的字母。
+  @MainActor
+  func testAsyncQuanpinLettersFlushInOrderBeforeBackspaceAndCommit() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.initializationFailed)
+    _ = bridge.setLearningEnabled(false)
+    _ = bridge.setPrivateSession(true)
+    let gate = DispatchSemaphore(value: 0)
+    MSIMEInputThread.shared.async { gate.wait() }
+    var delivered: [String] = []
+    for letter in "nihao" {
+      XCTAssertTrue(bridge.enqueueCharacter(String(letter)) { snapshot in
+        XCTAssertTrue(Thread.isMainThread)
+        XCTAssertNil(snapshot.diagnosticText)
+        XCTAssertNil(snapshot.commitText)
+        delivered.append(snapshot.editingText)
+      })
+    }
+    XCTAssertTrue(bridge.hasPendingCharacters)
+    XCTAssertTrue(delivered.isEmpty, "投递不能同步等待被阻塞的引擎线程")
+    gate.signal()
+    let deleted = bridge.handleBackspace()
+    XCTAssertEqual(delivered, ["n", "ni", "nih", "niha", "nihao"])
+    XCTAssertFalse(bridge.hasPendingCharacters)
+    XCTAssertEqual(deleted.editingText, "niha")
+    XCTAssertTrue(bridge.enqueueCharacter("o") { delivered.append($0.editingText) })
+    let committed = bridge.commitCandidate()
+    XCTAssertEqual(delivered.last, "nihao", "提交之前先处理此前投递的字母")
+    XCTAssertNotNil(committed.commitText)
+    XCTAssertNil(committed.diagnosticText)
+    XCTAssertTrue(committed.editingText.isEmpty)
+  }
+
+  /// 26 键双拼带按下点的字母异步投递时与同步触点入口组出同样的拼写和候选；九键网格不收字母、不带按下点，26 键不收大写、分词符和数字。
+  @MainActor
+  func testAsyncShuangpinTouchLettersMatchTheSynchronousTouchEntry() throws {
+    func shuangpin() -> MetasequoiaInputSessionBridge {
+      let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      addTeardownBlock { try? FileManager.default.removeItem(at: state) }
+      let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+      _ = bridge.switch(toShuangpinProfile: "xiaohe")
+      _ = bridge.setLearningEnabled(false)
+      return bridge
+    }
+    // 手机 26 键的排法：30×40 的键、36pt 一格，第二行缩进半格，第三行缩进一格半。
+    var frames = [CGRect](repeating: .null, count: 26)
+    for (row, (letters, indent)) in [("qwertyuiop", 0.0), ("asdfghjkl", 0.5), ("zxcvbnm", 1.5)].enumerated() {
+      for (column, letter) in letters.unicodeScalars.enumerated() {
+        frames[Int(letter.value - 97)] = CGRect(x: (CGFloat(column) + indent) * 36, y: CGFloat(row) * 48, width: 30, height: 40)
+      }
+    }
+    let request = try XCTUnwrap(TouchPointPolicy.request(id: 1, layout: .init(letters: frames, semicolon: nil)))
+    let synchronous = shuangpin()
+    let asynchronous = shuangpin()
+    XCTAssertTrue(synchronous.setKeyGeometry(request, id: 1))
+    XCTAssertTrue(asynchronous.setKeyGeometry(request, id: 1))
+    var expected = MetasequoiaInputSnapshot()
+    var delivered: [MetasequoiaInputSnapshot] = []
+    for letter in "womfjbtn".unicodeScalars {
+      let frame = frames[Int(letter.value - 97)]
+      let touch = MetasequoiaInputSessionBridge.TouchPoint(
+        geometryID: 1, x: Float(frame.midX + frame.width * 0.3), y: Float(frame.midY))
+      expected = synchronous.handleTouchCharacter(String(letter), geometryID: 1, x: touch.x, y: touch.y)
+      XCTAssertTrue(asynchronous.enqueueCharacter(String(letter), touch: touch) { delivered.append($0) })
+    }
+    asynchronous.flushPendingCharacters()
+    XCTAssertEqual(delivered.count, 8)
+    XCTAssertEqual(delivered.last?.editingText, expected.editingText)
+    XCTAssertEqual(delivered.last?.candidates, expected.candidates)
+    XCTAssertFalse(expected.candidates.isEmpty)
+
+    for rejected in ["W", "'", "6", "ni", "", "你"] {
+      XCTAssertFalse(asynchronous.enqueueCharacter(rejected) { _ in XCTFail(rejected) }, rejected)
+    }
+    _ = asynchronous.cancel()
+    XCTAssertNil(asynchronous.switchToNineKey().diagnosticText)
+    XCTAssertFalse(asynchronous.enqueueCharacter("n") { _ in XCTFail("九键网格不收字母") })
+    XCTAssertFalse(asynchronous.enqueueCharacter("6", touch: .init(geometryID: 1, x: 0, y: 0)) { _ in XCTFail("九键不带按下点") })
+    XCTAssertFalse(asynchronous.hasPendingCharacters)
+    _ = synchronous.cancel()
+  }
+
+  func testOnlyNineKeyDigitsAndTwentySixKeyLettersAreAsynchronous() {
+    typealias Bridge = MetasequoiaInputSessionBridge
+    for byte in UInt8(0)...UInt8(127) {
+      let letter = (97...122).contains(byte)
+      XCTAssertEqual(Bridge.acceptsAsynchronousCharacter(byte, grid: .none, touched: false), letter || byte == 59, "\(byte)")
+      XCTAssertEqual(Bridge.acceptsAsynchronousCharacter(byte, grid: .none, touched: true), letter || byte == 59, "\(byte)")
+      XCTAssertEqual(Bridge.acceptsAsynchronousCharacter(byte, grid: .nineKey, touched: false), (50...57).contains(byte), "\(byte)")
+      XCTAssertFalse(Bridge.acceptsAsynchronousCharacter(byte, grid: .nineKey, touched: true), "\(byte)")
+      for grid in [Bridge.KeyGrid.fourteenKey, .nineKeyShuangpin, .eighteenKey, .eighteenKeyShuangpin] {
+        XCTAssertFalse(Bridge.acceptsAsynchronousCharacter(byte, grid: grid, touched: false), "\(grid) \(byte)")
+      }
+    }
+  }
+
   @MainActor
   func testAsyncNineKeyCompletionReturnsToMainAndKeepsCandidateIdentity() async throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -151,7 +250,7 @@ final class InputBridgeResponseTests: XCTestCase {
     _ = bridge.setLearningEnabled(false)
     let done = expectation(description: "异步数字交回主线程")
     var previous: MetasequoiaCandidateIdentity?
-    XCTAssertTrue(bridge.enqueueNineKeyCharacter("6") { snapshot in
+    XCTAssertTrue(bridge.enqueueCharacter("6") { snapshot in
       XCTAssertTrue(Thread.isMainThread)
       XCTAssertEqual(snapshot.preedit, "6")
       previous = snapshot.candidateIdentities.first ?? nil
@@ -159,7 +258,7 @@ final class InputBridgeResponseTests: XCTestCase {
     })
     await fulfillment(of: [done], timeout: 10)
     let identity = try XCTUnwrap(previous)
-    XCTAssertTrue(bridge.enqueueNineKeyCharacter("4") { _ in })
+    XCTAssertTrue(bridge.enqueueCharacter("4") { _ in })
     let stale = bridge.selectCandidate(generation: identity.generation, globalIndex: identity.index)
     XCTAssertNil(stale.commitText, "旧画面的候选不能按新页的位置提交")
     XCTAssertEqual(stale.preedit, "64")
@@ -217,12 +316,12 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertNil(bridge.switchToNineKey().diagnosticText)
     _ = bridge.setLearningEnabled(false)
     var order: [String] = []
-    XCTAssertTrue(bridge.enqueueNineKeyCharacter("6") { snapshot in
+    XCTAssertTrue(bridge.enqueueCharacter("6") { snapshot in
       order.append(snapshot.preedit)
       XCTAssertEqual(bridge.cancel().preedit, "")
       order.append("cancelled")
     })
-    XCTAssertTrue(bridge.enqueueNineKeyCharacter("4") { order.append($0.preedit) })
+    XCTAssertTrue(bridge.enqueueCharacter("4") { order.append($0.preedit) })
     bridge.flushPendingCharacters()
     XCTAssertEqual(order, ["6", "64", "cancelled"])
     XCTAssertEqual(bridge.handleCharacter("8").preedit, "8")

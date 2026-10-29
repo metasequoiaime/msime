@@ -985,6 +985,123 @@ group("记下的键面过时：视图在扩展能力挂上回调之前请求的�
   check(released.takePending() === height(actual) && released.takePending() === null, "取过即清");
 });
 
+group(
+  "「符」与「123」互换（#10056）：26 键底行里有 符 时挪到 123 左边，份额不变；没有 符 的行不变",
+  () => {
+    const standard = P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD);
+    check(
+      describe(P.symbolFirst(standard, true)) ===
+        "symbol_panel:1.05 layer:1.25 space:4 comma:1 language:1.05 return:1.9",
+      describe(P.symbolFirst(standard, true)),
+    );
+    check(describe(P.symbolFirst(standard, false)) === describe(standard), "关着时原样");
+    const commaPeriod = P.designRow(true, false, StyledFace.TWENTY_SIX, P.COMMA_PERIOD);
+    check(
+      describe(P.symbolFirst(commaPeriod, true)) ===
+        "symbol_panel:1.05 layer:1.25 comma:1 space:3 period:1 language:1.05 return:1.9",
+      describe(P.symbolFirst(commaPeriod, true)),
+    );
+    const english = P.designRow(true, true, StyledFace.NONE, P.STANDARD);
+    check(P.symbolFirst(english, true)[0].slot === DesignRowSlot.SYMBOL_PANEL, "英文 26 键也互换");
+    for (const style of [P.LONG_SPACE, P.EMOJI]) {
+      const row = P.designRow(true, false, StyledFace.TWENTY_SIX, style);
+      check(describe(P.symbolFirst(row, true)) === describe(row), `${style} 没有 符，不变`);
+      check(!P.symbolLeads(P.symbolFirst(row, true)), `${style} 借来的数字九宫格仍以返回打头`);
+    }
+    for (const style of [P.STANDARD, P.LONG_SPACE, P.EMOJI]) {
+      const row = P.designRow(false, false, StyledFace.FOURTEEN, style);
+      check(describe(P.symbolFirst(row, true)) === describe(row), `14/18 键 ${style} 不变`);
+    }
+    for (const style of [P.STANDARD, P.COMMA_PERIOD]) {
+      const row = P.designRow(true, false, StyledFace.TWENTY_SIX, style);
+      check(close(total(P.symbolFirst(row, true)), total(row)), `${style} 整行份额不变`);
+      check(
+        P.symbolLeads(P.symbolFirst(row, true)) && !P.symbolLeads(row),
+        `${style} 互换后以 符 打头`,
+      );
+    }
+    // 借来的数字九宫格按九键一族的次序排（`nineKeyDigits`）：前两键与互换后的字母层同序，都是 符 | 返回，各键宽度与九键数字层相同。
+    const pad = NineKeyLayout.actionRow(true, false, P.STANDARD, true);
+    const swapped = P.symbolFirst(standard, true);
+    check(
+      pad[0].kind === NineKeyActionKind.SYMBOL_PANEL &&
+        pad[1].kind === NineKeyActionKind.LAYER_TOGGLE,
+      nine(pad),
+    );
+    check(
+      swapped[0].slot === DesignRowSlot.SYMBOL_PANEL && swapped[1].slot === DesignRowSlot.LAYER,
+      describe(swapped),
+    );
+  },
+);
+
+group(
+  "数字键盘空格位置（#10056）：缺省是鸿蒙原来的 空格 | 0，另两种是 0 | 空格 和空格在右列",
+  () => {
+    check(P.numberPadSpace(undefined) === P.BEFORE_ZERO, "缺键按鸿蒙原来的排法");
+    check(
+      P.numberPadSpace("platform_default") === P.BEFORE_ZERO,
+      "platform_default 按鸿蒙原来的排法",
+    );
+    check(
+      P.numberPadSpace("space_in_grid") === P.BEFORE_ZERO && P.numberPadSpace(3) === P.BEFORE_ZERO,
+      "不认识的值",
+    );
+    check(
+      P.numberPadSpace("right_column") === P.RIGHT_COLUMN &&
+        P.numberPadSpace("after_zero") === P.AFTER_ZERO,
+      "认识的值",
+    );
+    for (const nineKeyDigits of [true, false]) {
+      const today = NineKeyLayout.actionRow(true, false, P.STANDARD, nineKeyDigits);
+      check(
+        nine(NineKeyLayout.actionRow(true, false, P.STANDARD, nineKeyDigits, P.BEFORE_ZERO)) ===
+          nine(today),
+        "before_zero 就是原来的数字层",
+      );
+      const after = NineKeyLayout.actionRow(true, false, P.STANDARD, nineKeyDigits, P.AFTER_ZERO);
+      const column = NineKeyLayout.actionRow(
+        true,
+        false,
+        P.STANDARD,
+        nineKeyDigits,
+        P.RIGHT_COLUMN,
+      );
+      const lead = nineKeyDigits ? "symbol_panel:1.05 layer_toggle:1.25" : "layer_toggle:1.25";
+      const wide = nineKeyDigits ? 3.15 : 4.2;
+      check(
+        nine(today) === `${lead} space:${wide} zero:1.05 language:1.05 return:1.6`,
+        nine(today),
+      );
+      check(
+        nine(after) === `${lead} zero:${wide} space:1.05 language:1.05 return:1.6`,
+        nine(after),
+      );
+      check(
+        nine(column) ===
+          `${lead} zero:${Math.round((wide + 1.05) * 100) / 100} language:1.05 return:1.6`,
+        nine(column),
+      );
+      for (const row of [after, column]) {
+        check(close(total(row), total(today)), `${nine(row)} 整行份额不变`);
+      }
+    }
+    // 字母层和右侧大回车不受影响。
+    for (const space of [P.RIGHT_COLUMN, P.AFTER_ZERO, P.BEFORE_ZERO]) {
+      check(
+        nine(NineKeyLayout.actionRow(false, false, P.STANDARD, false, space)) ===
+          nine(NineKeyLayout.actionRow(false)),
+        `${space} 不动字母层`,
+      );
+      check(
+        nine(NineKeyLayout.actionRow(true, false, P.TALL_RETURN, true, space)) ===
+          nine(NineKeyLayout.actionRow(true, false, P.TALL_RETURN, true)),
+        `${space} 不动右侧大回车`,
+      );
+    }
+  },
+);
+
 if (failures > 0) {
   console.log(`${failures} touch layout style group(s) failed`);
   throw new Error("touch layout style checks failed");

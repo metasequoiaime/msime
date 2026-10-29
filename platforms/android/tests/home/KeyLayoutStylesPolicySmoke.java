@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，以及整块预览的键序、份额和跨行取自键盘的表。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
+ * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，以及「数字键盘」一组胶囊的名字、顺序和写法。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
  */
 public final class KeyLayoutStylesPolicySmoke {
     public static void main(String[] arguments) {
@@ -25,6 +25,8 @@ public final class KeyLayoutStylesPolicySmoke {
         twentySixKeyboard();
         fourteenKeyboard();
         nineKeyboard();
+        symbolFirst();
+        numberPadSpace();
         System.out.println("key layout styles page: passed");
     }
 
@@ -226,6 +228,70 @@ public final class KeyLayoutStylesPolicySmoke {
         check(bottom.get(0).face().equals("符") && bottom.get(bottom.size() - 1).rows() == 0,
             "符 sits under the rail and the return covers the bottom-right cell");
         check(near(sum(bottom), sum(tall.get(2))), "the tall frame's rows share one width");
+    }
+
+    private static void symbolFirst() {
+        check(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE.equals("touch_twenty_six_symbol_first"), "the swap writes its shared preference");
+        // 打开后 26 键有 符 的样式（标准、逗号句号）把 符 排到 123 左边，份额与键盘按同一条规则排的底行相同。
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, true).get(3))
+            .equals(List.of("符", "123", "空格", "，", "中", "↵")), "standard bottom row puts 符 before 123");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.COMMA_PERIOD, false, false, true).get(3)).subList(0, 2)
+            .equals(List.of("符", "123")), "comma-period bottom row puts 符 before 123");
+        for (Row style : Kind.TWENTY_SIX.rows) {
+            sameEntries(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, style, true, false, true).get(4),
+                KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, false, false, false, style, true,
+                    TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT), "swapped 26-key bottom row " + style);
+        }
+        // 长空格和表情键样式没有 符，打开与否预览一样，也不多高亮。
+        for (Row style : List.of(Row.LONG_SPACE, Row.EMOJI)) {
+            check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, style, false, false, true).get(3))
+                .equals(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, style, false, false).get(3))), style + " has no 符 to move");
+            check(KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, style, true).equals(KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, style)),
+                style + " adds no swap highlight");
+        }
+        check(KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, Row.STANDARD, true).equals(Set.of("SoftSymbol", "SoftLayer")),
+            "the swap highlights 符 and 123 on the standard row");
+        check(KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, Row.COMMA_PERIOD, true)
+            .equals(Set.of("Comma", "Period", "SoftSymbol", "SoftLayer")), "the swap adds 符 and 123 to the style's highlights");
+        check(KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, Row.STANDARD, false).isEmpty(), "off, standard still highlights nothing");
+        // 互换只作用于 26 键，14/18 键和 9 键的预览与高亮不变。
+        for (Kind kind : List.of(Kind.FOURTEEN, Kind.NINE)) {
+            for (Row style : kind.rows) {
+                check(KeyLayoutStylesPolicy.highlights(kind, style, true).equals(KeyLayoutStylesPolicy.highlights(kind, style)),
+                    kind + " " + style + " ignores the swap highlight");
+                check(faces(last(KeyLayoutStylesPolicy.keyboard(kind, style, false, false, true)))
+                    .equals(faces(last(KeyLayoutStylesPolicy.keyboard(kind, style, false, false)))), kind + " " + style + " ignores the swap");
+            }
+        }
+        for (Row style : Kind.TWENTY_SIX.rows) {
+            List<String> drawn = new ArrayList<>();
+            for (List<Key> keys : KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, style, false, false, true)) {
+                for (Key key : keys) if (key.rows() > 0) drawn.add(key.id());
+            }
+            for (String id : KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, style, true))
+                check(drawn.contains(id), "swapped " + style + " draws its highlighted " + id);
+        }
+    }
+
+    private static void numberPadSpace() {
+        // 「数字键盘」一组的胶囊：三种排法按这个次序，点哪一枚写哪一枚的写法；没选过时选中 Android 原来的「空格在右列」。
+        check(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE.equals("touch_number_pad_space"), "number pad chips write their shared preference");
+        List<String> titles = new ArrayList<>();
+        List<String> wires = new ArrayList<>();
+        for (TouchKeyStyle.NumberPadSpace choice : TouchKeyStyle.NumberPadSpace.CHOICES) {
+            titles.add(choice.title);
+            wires.add(choice.wire);
+        }
+        check(titles.equals(List.of("空格在右列", "空格在 0 右边", "空格在 0 左边")), "number pad chip titles");
+        check(wires.equals(List.of("right_column", "after_zero", "before_zero")), "number pad chip wires");
+        check(TouchKeyStyle.NumberPadSpace.parse(null).resolved() == TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN,
+            "an unset number pad selects 空格在右列");
+        check(TouchKeyStyle.NUMBER_PAD_SPACE_GROUP.equals("数字键盘")
+            && TouchKeyStyle.NUMBER_PAD_SPACE_NOTE.equals("九宫格数字键盘里空格的位置；右侧大回车不受影响。"), "number pad group title and note");
+    }
+
+    private static List<Key> last(List<List<Key>> rows) {
+        return rows.get(rows.size() - 1);
     }
 
     private static List<String> labels(Kind kind) {

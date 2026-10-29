@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 把 msime-client-base、msime-client-core、msime-client-providers 和 msime-client-services 的单测交叉编译后在专用 AVD 上整套运行：run-core-test.sh 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它。设备用 MSIME_ANDROID_TEST_SERIAL 选，默认是 API 35 的 emulator-5580（见 run-core-test.sh）。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
+# 把 msime-client-base、msime-client-core、msime-client-providers 和 msime-client-services 的单测交叉编译后在专用 AVD 上整套运行，再跑 msime-engine 里词库维护租约的那几组单测（`access::` 和名字带 `maintenance_lease` 的）：run-core-test.sh 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它。设备用 MSIME_ANDROID_TEST_SERIAL 选，默认是 API 35 的 emulator-5580（见 run-core-test.sh）。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
 #
-# 这一步存在的原因：client-base、client-core、client-providers 和 client-services 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。
+# 这一步存在的原因：client-base、client-core、client-providers 和 client-services 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。跨进程的词库维护锁搬进引擎以后（`crates/engine/src/access.rs`），它在 Android 上走的 `O_PATH` 逐级打开和 `flock` 也只有这里跑得到；引擎其余的单测要读打包的词库数据，不在设备上跑。
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 cd "$repo_root"
@@ -30,3 +30,4 @@ runner="$repo_root/platforms/android/tests/device/run-core-test.sh"
 [[ "$runner" != *"'"* ]] || { echo "repository path must not contain a single quote: $repo_root" >&2; exit 1; }
 export CARGO_TARGET_DIR="$repo_root/target/android-cargo"
 cargo --config "target.$target.runner=['bash', '$runner']" test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --locked --no-fail-fast --target "$target"
+cargo --config "target.$target.runner=['bash', '$runner']" test -p msime-engine --lib --locked --no-fail-fast --target "$target" -- access:: maintenance_lease

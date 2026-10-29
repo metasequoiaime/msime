@@ -88,7 +88,11 @@ public final class ImePrivacyGateSmoke {
             "voice_platform_client",
             "voice_platform_busy",
             "voice_platform_unavailable",
-            "voice_platform_other", "voice_failure_response", "voice_failure_timeout"};
+            "voice_platform_other", "voice_failure_response", "voice_failure_timeout",
+            "engine_session_create", "engine_session_ready",
+            "ime_service_create", "input_view_create", "keyboard_first_draw",
+            "engine_startup_preferences", "engine_startup_dictionary_sync",
+            "engine_session_main", "engine_session_destroy"};
         check(DiagnosticEventKind.values().length == kinds.length, "fixed local diagnostic event kinds");
         for (int index = 0; index < kinds.length; index++) {
             check(DiagnosticEventKind.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);

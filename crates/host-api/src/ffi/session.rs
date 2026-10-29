@@ -149,7 +149,11 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
+    runtime.set_reranker(keyboard_reranker(
+        keyboard_reranker_enabled(&applied.sentence_association, edition),
+        &options.resources,
+        sentence_model_path.as_deref(),
+    ));
 
     // The settled model is optional and independent: a resource set that ships only the small
     // one behaves exactly as before, and one that ships both gets the fast model per keystroke

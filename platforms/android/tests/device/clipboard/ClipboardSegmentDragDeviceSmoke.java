@@ -34,7 +34,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
-        if (previewActionsOnly) return "full-text preview inserts original text, edits, saves and returns without leaking its window";
+        if (previewActionsOnly) return "full-text preview opens detail and returns to itself, inserts original text, edits, saves and returns without leaking its window";
         return "floating full-text preview above IME and lifecycle cleanup; fixed cards, list scroll, swipe, segment drag and preview action regression";
     }
 
@@ -169,8 +169,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         if (DeviceCredentialFixture.secure(getTargetContext()))
             throw new AssertionError("Dedicated AVD starts with a device credential");
         openClipboardEditor();
-        tap(key("清空"));
-        tap(described("确认清空剪贴板历史"));
+        confirmClearClipboard();
         SystemClock.sleep(1500);
         if (DeviceCredentialFixture.promptVisible(automation))
             throw new AssertionError("System credential prompt opened without a device credential");
@@ -181,6 +180,27 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         } finally {
             DeviceCredentialFixture.clear(getTargetContext(), automation);
         }
+    }
+
+    /**
+     * 点「清空」，确认问句和「取消」「清空」真的画出来了，再点确认。
+     *
+     * <p>`tap` 对本应用节点走无障碍点击，0 高度的按钮照样点得中；顶行曾整行塌成 0 高，测试一直能过，真机上手指却什么都点不到（#10027）。所以点确认之前先按屏幕上的实际尺寸断言三者可见。
+     */
+    private void confirmClearClipboard() throws Exception {
+        tap(key("清空"));
+        assertDrawn(node -> equalsText("app.msime.android", node.getPackageName())
+            && equalsText("确认清空全部记录（含固定项）？", node.getText()), "clear question");
+        assertDrawn(key("取消").and(AccessibilityNodeInfo::isClickable), "clear cancel");
+        assertDrawn(described("确认清空剪贴板历史"), "clear confirm");
+        tap(described("确认清空剪贴板历史"));
+    }
+
+    private void assertDrawn(java.util.function.Predicate<AccessibilityNodeInfo> match, String name) {
+        Rect bounds = new Rect();
+        awaitStableBounds(match).getBoundsInScreen(bounds);
+        if (bounds.width() <= 0 || bounds.height() <= 0)
+            throw new AssertionError("Clipboard " + name + " is not drawn: " + bounds.toShortString());
     }
 
     private void firstRecordActionsAuthenticated(File history, File local) throws Exception {
@@ -195,8 +215,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                     .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
                 openClipboardEditor();
                 stage = "clear clipboard before first copy: " + columns + ", multiline=" + multiline;
-                tap(key("清空"));
-                tap(described("确认清空剪贴板历史"));
+                confirmClearClipboard();
                 DeviceCredentialFixture.enter(automation);
                 awaitHistoryCount(history, 0);
                 // 认证界面的密码框也由水杉键盘输入，回到编辑器之前键盘仍按密码框不记剪贴板；先回到合成编辑器再复制，和用户认证完回来再复制一致。
@@ -274,8 +293,24 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "preview insertion commits full original text once and restores keyboard";
+        stage = "preview detail opens in panel with full record time and unavailable source";
         openFloatingPreview();
+        touch(described("查看剪贴板全文的记录详情"));
+        previewClosed();
+        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
+        await(described("返回剪贴板全文预览"));
+        // 详情页先放整段正文，这条合成记录有 80 行，时间和来源那段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
+        java.util.function.Predicate<AccessibilityNodeInfo> recordDetails = node ->
+            equalsText("app.msime.android", node.getPackageName()) && node.getText() != null
+            && node.getText().toString().startsWith("记录时间：")
+            && !node.getText().toString().startsWith("记录时间：时间未知")
+            && node.getText().toString().contains("来源 App：系统未提供");
+        awaitAny(recordDetails).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+        await(recordDetails);
+        stage = "detail back returns to the full-text preview";
+        touch(described("返回剪贴板全文预览"));
+        await(described("关闭剪贴板全文预览"));
+        stage = "preview insertion commits full original text once and restores keyboard";
         touch(described("插入剪贴板全文"));
         previewClosed();
         stage = "preview insertion preserves every line in a multiline editor";

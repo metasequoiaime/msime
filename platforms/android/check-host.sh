@@ -127,6 +127,68 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，打开不经 closeToolbarPanels 的功能面板（更多）时作废；开始打字或删字时推迟的面板和记下的「中」键一起作废；收起键盘时作废记下的「中」键；会话建好后再点「中」键时作废记下的那一下，读到偏好时不再补按。
+service_java="$android_java/core/MSIMEInputService.java"
+panels_java="$android_java/core/ImePanels.java"
+emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
+skin_menu_body=$(sed -n '/^    void showSkinMenu(Button anchor) {$/,/^    }$/p' "$panels_java")
+scheme_picker_body=$(sed -n '/^    void showSchemePicker() {$/,/^    }$/p' "$panels_java")
+start_session_body=$(sed -n '/^    private void startEngineSession(String optionsText, String livePreferences) {$/,/^    }$/p' "$service_java")
+reload_body=$(sed -n '/^    private void reloadPreferences(String response) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(phraseShortcutButton, ToolbarReadinessPolicy\.phraseEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(schemeButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(skinButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'boolean canToggle = ToolbarReadinessPolicy\.languageKeyActive\(toolbarSession\(\)\);' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.languageTap\(toolbarSession\(\)' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.emojiEnabled\(s\.toolbarSession\(\)' <<< "$emoji_body" \
+  || rg -q 's\.session == 0' <<< "$emoji_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SKIN\)' <<< "$skin_menu_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SCHEME\)' <<< "$scheme_picker_body" \
+  || ! rg -q 'main\.post\(this::runDeferredToolbarTaps\);' <<< "$start_session_body" \
+  || ! rg -q 'recordEngineSessionTiming\(createMillis, SystemClock\.uptimeMillis\(\) - startedAt\);' <<< "$start_session_body" \
+  || ! rg -q 'runDeferredToolbarTaps\(\);' <<< "$reload_body" \
+  || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java" \
+  || ! sed -n '/^    void showCommonPhrases() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.commonPhrasesWorker\.execute' \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SKIN,' "$service_java" \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SCHEME,' "$service_java" \
+  || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    void deleteCodePointBeforeCursor() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    private void dropDeferredToolbarTaps() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
+  echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
+# 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧在画帧前登记帧提交回调（API 28 退到下一帧回调），交出去后才放行等着的建会话，而不是在画帧前直接 post（API 30 上那样会抢在画完的报告前面）；收起时马上放行等着的建会话；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
+start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
+schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")
+first_frame_body=$(sed -n '/^    private void firstFrameCommitted(long armedAt) {$/,/^    }$/p' "$service_java")
+frame_commit_body=$(sed -n '/^    private void awaitFirstFrameCommit(android\.view\.ViewTreeObserver observer, long armedAt) {$/,/^    }$/p' "$service_java")
+window_hidden_body=$(sed -n '/^    @Override public void onWindowHidden() {$/,/^    }$/p' "$service_java")
+if ! sed -n '2p' <<< "$start_view_body" | rg_q_stdin 'super\.onStartInputView\(info, restarting\);' \
+  || ! sed -n '3p' <<< "$start_view_body" | rg_q_stdin '^        armFirstFrameWait\(\);$' \
+  || ! rg -q 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" \
+  || ! rg -A 3 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" | rg_q_stdin 'if \(generation != engineStartGeneration \|\| connection == null \|\| session != 0\) return;' \
+  || rg -q '^                    startEngineSession\(startOptions' <<< "$schedule_body" \
+  || ! rg -q 'runSessionStartAfterFirstFrame\(\);' <<< "$first_frame_body" \
+  || rg -q 'main\.post\(this::runSessionStartAfterFirstFrame\)' "$service_java" \
+  || ! rg -q 'observer\.registerFrameCommitCallback\(\(\) -> main\.post\(committed\)\);' <<< "$frame_commit_body" \
+  || ! rg -q 'Choreographer\.getInstance\(\)\.postFrameCallback\(frameTimeNanos -> main\.post\(committed\)\);' <<< "$frame_commit_body" \
+  || ! rg -q 'awaitFirstFrameCommit\(observer, armedAt\);' "$service_java" \
+  || ! rg -A 1 '^        firstFrameArmedAt = -1;$' <<< "$window_hidden_body" | rg_q_stdin '^        runSessionStartAfterFirstFrame\(\);$' \
+  || ! rg -q 'DiagnosticEventKind\.KEYBOARD_FIRST_DRAW' <<< "$first_frame_body" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_PREFERENCES, preferencesMillis' <<< "$schedule_body" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_DICTIONARY_SYNC, syncMillis' <<< "$schedule_body" \
+  || ! sed -n '/^    @Override public void onCreate() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'imeDebugOverlay\.holdServiceCreate\(' \
+  || ! rg -A 3 '^        allowLearning = info != null && EditorPolicy\.allowLearning\(info\.imeOptions\);$' "$service_java" | rg_q_stdin '^        imeDebugOverlay\.flushServiceCreate\(\);$' \
+  || ! sed -n '/^    @Override public View onCreateInputView() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'DiagnosticEventKind\.INPUT_VIEW_CREATE' \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_MAIN, mainThreadMillis' "$service_java" \
+  || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_DESTROY,' "$service_java"; then
+  echo "Android keyboard first-show timing and the after-first-frame session build must stay wired (#9916)" >&2
+  exit 1
+fi
 # 候选条按钮的最小宽度只有触控下限（CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP，CandidateAppearanceSmoke 覆盖它的值）；皮肤的 itemMinWidth 是桌面候选窗的格宽，`base = "microsoft"` 出厂 3.5em，套到候选条上一个字宽的候选也撑成一大格。样式在 ImeCandidates 里，JVM 冒烟碰不到，这里钉住接线。
 style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
@@ -778,14 +840,14 @@ if ! rg -q 'addSubMenu\(Menu\.NONE, Menu\.NONE, action\.ordinal\(\), action\.tit
   echo "Android candidate removal must confirm through the long-press submenu (#7793)" >&2
   exit 1
 fi
-# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
+# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。和常用语面板的读取同在 commonPhrasesWorker 上，不排在建会话的偏好读取和词库同步后面（#10086）。
 if ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'preferencesWorker\.execute' \
+    | rg_q_stdin 'commonPhrasesWorker\.execute' \
   || ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
     | rg_q_stdin 'CommonPhrasesStore\.add\(s, text\)'; then
-  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
+  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the common phrases worker (#5909, #10086)" >&2
   exit 1
 fi
 # 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。未被外层列表接手的纵向拖动也要取消卡片按压；列表只有一条时不可滚，Button 否则会把整段拖动当成点按。
@@ -839,6 +901,19 @@ if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
   echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
   exit 1
 fi
+# 进剪贴板历史页不自动聚焦搜索框、不主动弹键盘，等用户点搜索框（#10074）；点胶囊任何地方都要和点输入框一样弹出键盘，否则点放大镜只有光标没有键盘。从设置首页搜索结果压页时，下面那一页搜索框拉起的键盘要先收起，否则它留在新页面上、不连着任何输入框；收起之后从历史页点「编辑」进的编辑页要自己弹键盘，否则只有光标。
+search_pill="$repo_root/platforms/android/java/app/msime/android/home/SearchPill.java"
+settings_navigator="$repo_root/platforms/android/java/app/msime/android/home/SettingsNavigator.java"
+if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page" \
+  || ! rg -A 3 'private void focusField\(' "$search_pill" | rg_q_stdin 'showSoftInput\(field' \
+  || ! rg -q 'bindClick\(this, this::focusField\)' "$search_pill" \
+  || ! rg -B 1 'transaction\.hide\(below\)' "$settings_navigator" | rg_q_stdin 'dismissKeyboard\(home, below\)' \
+  || ! rg -A 5 'private static void dismissKeyboard\(' "$settings_navigator" | rg_q_stdin 'hideSoftInputFromWindow' \
+  || ! rg -A 3 'input\.requestFocus\(\);' "$repo_root/platforms/android/java/app/msime/android/home/ClipboardEditPage.java" \
+    | rg_q_stdin 'getInsetsController\(requireActivity\(\)\.getWindow\(\), input\)\.show\(WindowInsetsCompat\.Type\.ime\(\)\)'; then
+  echo "Android clipboard search must not focus its search field or show the keyboard on entry, tapping anywhere on SearchPill must focus the field and show the keyboard, SettingsNavigator must dismiss the keyboard of the page it hides, and ClipboardEditPage must show the keyboard itself once its field is ready (#10074)" >&2
+  exit 1
+fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
@@ -876,6 +951,19 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
   exit 1
 fi
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
+  || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 10 'private void returnFromClipboardDetail\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
+  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+  echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
+  exit 1
+fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
 if ! rg -A 20 'void addRecentClipRow\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
@@ -903,6 +991,16 @@ if ! rg -q 'return RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, 
   || ! rg -q 'if \(image\.sensitive\(\)\) return;' <<< "$offer_body" \
   || ! rg -B 2 -A 2 'String recent = ' "$service_java" | rg_q_stdin 'recentClipEnabled\(\)'; then
   echo "Android recent-clip suggestion must stay off, and must not read the clipboard, while clipboard history is off; sensitive clips are never offered (#5692)" >&2
+  exit 1
+fi
+# 复制后快捷键（#10079）的显隐只由 RecentClipboardSuggestion.quickAction 判断（RecentClipboardSuggestionSmoke 覆盖：总开关关着、这一条是图片时不显示），点按经 ImePanels.openRecentClipAction 进入长按菜单里同一套分词点选和「移动到分类」，真正进去了才把这一条记为用过。接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住。
+panels_java="$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"
+if ! rg -q 'RecentClipboardSuggestion\.quickAction\(clipboardSuggestionActionEnabled,' "$service_java" \
+  || ! rg -q 's\.recentClipQuickAction\(image\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
+  || ! rg -A 12 'void runRecentClipQuickAction\(' "$service_java" | rg_q_stdin 'if \(imePanels\.openRecentClipAction\(' \
+  || ! rg -A 12 'boolean openRecentClipAction\(' "$panels_java" | rg_q_stdin 'startClipboardSegmentation\(text\)' \
+  || ! rg -A 18 'boolean openRecentClipAction\(' "$panels_java" | rg_q_stdin 'clipboardCategoryMovingText = text;'; then
+  echo "Android recent-clip quick action must follow RecentClipboardSuggestion.quickAction and open the clipboard segmentation or category picker (#10079)" >&2
   exit 1
 fi
 # 「最近复制」的图片（#6781）只在当前输入框经 contentMimeTypes 声明收得下、并且副本的扩展名经 FileProvider 反查仍是图片时占这一行；发出去的是本应用 FileProvider 给的缓存副本并带读权限，不是剪贴板里的原 URI，副本目录必须在 FileProvider 的路径表里。
@@ -1050,12 +1148,12 @@ if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_servic
   echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
   exit 1
 fi
-# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
+# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话、也没有会话在建时把键画淡，点按在反馈和计数之前就忽略（会话在建时照常生效，见 #10086 的 ToolbarReadinessPolicy.languageTap）。
 if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
   || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
   || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
-  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg_q_stdin 'if \(session == 0\) return;' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg_q_stdin 'if \(tap == ToolbarReadinessPolicy\.LanguageTap\.IGNORE\) return;' \
   || ! rg -q 's\.bindInputMethodPicker\(language\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
@@ -1097,7 +1195,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
     | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.NUMBER_ROW, null\);' "$style_migration" \
-  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled;' "$account_service" \
+  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\);' "$account_service" \
   || ! rg -q 'preferences\.optBoolean\(TouchKeyStyle\.NUMBER_ROW_PREFERENCE, false\)' "$account_service" \
   || ! rg -q '\+ ":" \+ english \+ ":" \+ style' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java" \
   || ! sed -n '/private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows" | rg_q_stdin 'if \(builtNumberRow\) addNumberRow\(rows\.size\(\)\);'; then
@@ -1119,11 +1217,15 @@ if ! sed -n '/boolean toolbarRowHidden() {$/,/^    }$/p' "$account_service" | rg
 fi
 # 底行样式和顶部数字行在 applyTouchGeometry 里读，冷启动的第一帧按皮肤片段算；片段里没有它们时每次键盘进程冷启动都先画标准底行、没有数字行，一两秒后实时偏好到了键盘整体高出一行、底行换样。这里钉住 applyTouchGeometry 读到的每个 TouchKeyStyle 偏好键都在 SKIN_HINT_KEYS 里。
 skin_hint_keys=$(sed -n '/private static final String\[\] SKIN_HINT_KEYS = {/,/};$/p' "$account_service")
-touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean symbolFirstFrom(JSONObject preferences) {$/,/^    }$/p;/private static TouchKeyStyle\.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
   | rg -o 'TouchKeyStyle\.[A-Z_]+_PREFERENCE' | LC_ALL=C sort -u)
-if [[ -z "$skin_hint_keys" ]] || [[ "$(printf '%s\n' "$touch_style_reads" | wc -l | tr -d ' ')" -ne 4 ]] \
+if [[ -z "$skin_hint_keys" ]] || [[ "$(printf '%s\n' "$touch_style_reads" | wc -l | tr -d ' ')" -ne 6 ]] \
   || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
-    | rg_q_stdin 'touchKeyStyles = touchKeyStylesFrom\(preferences\);'; then
+    | rg_q_stdin 'touchKeyStyles = touchKeyStylesFrom\(preferences\);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'twentySixSymbolFirst = symbolFirstFrom\(preferences\);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'numberPadSpace = numberPadSpaceFrom\(preferences\);'; then
   echo "Android check-host could not locate SKIN_HINT_KEYS or the touch key style readers in MSIMEInputService" >&2
   exit 1
 fi
@@ -1133,14 +1235,15 @@ while IFS= read -r key; do
     exit 1
   fi
 done <<< "$touch_style_reads"
-# 「按键布局」页（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：顶部是本版本提供的键盘类型的分段控件，下面是整块键盘预览、样式胶囊和当前样式的说明，最后是没有标题的一组里的「顶部数字行」开关。哪几类、默认停在哪一类、胶囊名字、高亮哪些键、说明文字和预览画哪些键都在 KeyLayoutStylesPolicy 里，由 KeyLayoutStylesPolicySmoke 覆盖；这里钉住页面的接线：按 TouchKeyStyle.Groups 列类型，只有一种时不画分段，默认值按键盘页读的同一批偏好（storedScheme、双拼和五笔的排法）定，切分段只重画不写偏好，点胶囊先就地换预览再写这一类的偏好、点已选中的不做事，说明没有时不画，数字行开关在两类键面都没有时不列，胶囊等宽铺满一行、不横向滚动，读成按钮并带「已选择」「未选择」，预览对读屏隐藏。
+# 「按键布局」页（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：顶部是本版本提供的键盘类型的分段控件，下面是整块键盘预览、样式胶囊和当前样式的说明（26 键分段再接「符」与「123」互换开关，接着是「数字键盘」一组，这两项在下面 #10056 那一段钉住），最后是没有标题的一组里的「顶部数字行」开关。哪几类、默认停在哪一类、胶囊名字、高亮哪些键、说明文字和预览画哪些键都在 KeyLayoutStylesPolicy 里，由 KeyLayoutStylesPolicySmoke 覆盖；这里钉住页面的接线：按 TouchKeyStyle.Groups 列类型，只有一种时不画分段，默认值按键盘页读的同一批偏好（storedScheme、双拼和五笔的排法）定，切分段只重画不写偏好，点胶囊先就地换预览再写这一类的偏好、点已选中的不做事，说明没有时不画，数字行开关在两类键面都没有时不列，胶囊等宽铺满一行、不横向滚动，读成按钮并带「已选择」「未选择」，预览对读屏隐藏。
 style_page="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPage.java"
 style_policy="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java"
 style_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutPreview.java"
 style_render=$(sed -n '/    private void render(@Nullable JSONObject preferences) {$/,/^    }$/p' "$style_page")
 style_section=$(sed -n '/    private void styleSection(/,/^    }$/p' "$style_page")
 style_refresh=$(sed -n '/    private void refreshStyles() {$/,/^    }$/p' "$style_page")
-style_chip=$(sed -n '/    private TextView chip(/,/^    }$/p' "$style_page")
+style_chip=$(sed -n '/    private static TextView chip(/,/^    }$/p' "$style_page")
+style_add_chip=$(sed -n '/    private static void addChip(/,/^    }$/p' "$style_page")
 if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers = GroupCard\.add\(target, null\);' <<< "$style_render" \
   || ! rg_q_stdin -F 'TouchKeyStyle.Groups groups = TouchKeyStyle.Groups.offeredBy(AppEdition.current());' <<< "$style_render" \
   || ! rg_q_stdin -F 'List<KeyLayoutStylesPolicy.Kind> kinds = KeyLayoutStylesPolicy.offered(groups);' <<< "$style_render" \
@@ -1152,20 +1255,23 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
   || rg_q_stdin -F 'HorizontalScrollView' <<< "$style_section" \
-  || ! rg_q_stdin -F 'LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);' <<< "$style_add_chip" \
+  || ! rg_q_stdin -F 'addChip(context, row, chip(context, KeyLayoutStylesPolicy.label(shown, option), checked,' <<< "$style_refresh" \
+  || ! rg_q_stdin -F '() -> choose(shown, option)));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
   || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen),' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst),' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));' <<< "$style_refresh" \
-  || ! rg_q_stdin -F '() -> { if (!checked) choose(shown, option); });' <<< "$style_chip" \
+  || ! rg_q_stdin -F '() -> { if (!checked) choose.run(); });' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setStateDescription(checked ? "已选择" : "未选择");' <<< "$style_chip" \
   || ! sed -n '/    private void choose(/,/^    }$/p' "$style_page" \
     | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(shown\.preference, option\.wire\)\);' \
   || ! rg -qF 'KeyboardSheets.save(this, edit, null, this::reload);' "$style_page" \
   || ! rg -qF 'setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' "$style_preview" \
-  || rg -q 'BottomRowPreview|styleGroup\(|footer\(' "$style_page"; then
+  || rg -q 'BottomRowPreview|styleGroup\(|optionRow\(|group\.footer\(' "$style_page" \
+  || [[ -e "$repo_root/platforms/android/java/app/msime/android/home/BottomRowPreview.java" ]]; then
   echo "Android 按键布局 must list key layout kinds by TouchKeyStyle.Groups in a segmented control defaulting to the current Chinese keyboard, redraw the whole-keyboard preview without saving when the segment changes, lay the style chips out at equal width without horizontal scrolling, save a chip choice after redrawing, show the selected style's note only when it has one, and keep 顶部数字行 in an untitled group hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
   exit 1
 fi
@@ -1175,13 +1281,38 @@ if ! rg -qF 'static final String LONG_SPACE_NOTE = "符号键移到工具栏。"
   || ! rg -qF 'static final String TALL_RETURN_NOTE = "回车竖占两行，符号键在左下角。";' "$style_policy" \
   || rg -q 'TWENTY_SIX_KEY_NOTE|FOURTEEN_KEY_NOTE|NINE_KEY_NOTE' "$style_page" "$style_policy" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
-  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式和顶部数字行", null,' \
+  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java" \
   || ! rg -qF 'boolean keyLayoutOffered = TouchKeyStyle.Groups.offeredBy(AppEdition.current()).any();' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java"; then
   echo "Android 按键布局 notes and entry subtitle must match iOS and HarmonyOS word for word, and the entry and its search result must only appear when the edition offers a style group" >&2
+  exit 1
+fi
+# 「26 键「符」与「123」互换」和数字键盘空格位置（#10056）：排布由 TouchKeyStyleSmoke 覆盖，预览里 符 排到 123 左边并高亮这两键由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着两项、两种底行都按它们排；数字层右列按空格位置放空格或 ！，换了位置时 render 经 numberPadSpaceStale 重建；设置页的互换开关接在样式说明后面、只在 26 键分段显示，改它先重画预览再写 touch_twenty_six_symbol_first；「数字键盘」是样式之后、顶部数字行之前的独立一组，选项用与样式同一个 chip 画的等宽胶囊，点了先换胶囊再写 touch_number_pad_space，说明在胶囊下方。
+bottom_row_file="$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java"
+number_pad_section=$(sed -n '/    private void numberPadSection(/,/^    }$/p' "$style_page")
+number_pad_refresh=$(sed -n '/    private void refreshNumberPad() {$/,/^    }$/p' "$style_page")
+if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved()' "$bottom_row_file" \
+  || ! rg -qF 'KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
+  || ! rg -qF 'KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
+  || ! sed -n '/    void rebuildNineKeyRows() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java" \
+    | rg_q_stdin -F 'if (spaceInColumn) adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);' \
+  || ! rg -qF '|| imeLayoutRows.numberPadSpaceStale()' "$account_service" \
+  || ! rg_q_stdin -F 'symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);' <<< "$style_render" \
+  || ! rg_q_stdin -U 'note = caption;\n\n\s*//.*\n\s*if \(kinds\.contains\(KeyLayoutStylesPolicy\.Kind\.TWENTY_SIX\)\) \{\n\s*GroupCard swap = GroupCard\.add\(target, null\);' <<< "$style_section" \
+  || ! rg_q_stdin -U 'swap\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, TouchKeyStyle\.SYMBOL_FIRST_NOTE, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -F 'if (swap != null) ViewPolicy.setVisible(swap, shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);' <<< "$style_refresh" \
+  || ! rg_q_stdin -U 'if \(kind != null\) styleSection\(context, target, kinds\);\n\s*//.*\n\s*if \(groups\.any\(\)\) numberPadSection\(context, target\);\n\s*//.*\n\s*if \(!groups\.numberRow\(\)\) return;' <<< "$style_render" \
+  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
+  || rg_q_stdin -F 'HorizontalScrollView' <<< "$number_pad_section" \
+  || ! rg_q_stdin -F 'for (TouchKeyStyle.NumberPadSpace choice : TouchKeyStyle.NumberPadSpace.CHOICES)' <<< "$number_pad_refresh" \
+  || ! rg_q_stdin -F 'addChip(context, row, chip(context, choice.title, choice == numberPadSpace, () -> chooseNumberPadSpace(choice)));' <<< "$number_pad_refresh" \
+  || ! sed -n '/    private void chooseNumberPadSpace(/,/^    }$/p' "$style_page" \
+    | rg_q_stdin -U 'numberPadSpace = choice;\n\s*refreshNumberPad\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.NUMBER_PAD_SPACE_PREFERENCE, choice\.wire\)\);' \
+  || ! rg -qF 'preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java"; then
+  echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, put the swap toggle after the 26-key style note and the 数字键盘 chips in their own group in 按键布局, and draw the heatmap with the swap" >&2
   exit 1
 fi
 # 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画热力图的同一套整块外框。
@@ -1469,6 +1600,39 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
   || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
+  exit 1
+fi
+# 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
+while IFS= read -r activity; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then
+    echo "Android activity must apply screen capture protection in onCreate: ${activity#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
+# 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
+# 框架对话框类型列全：AppCompatDialog（InputDialog 的凭据、口令输入）漏数过一次。InputDialog 这类自家包装不是窗口，在它内部那一处 new 上数。
+dialog_types='MaterialAlertDialogBuilder|AlertDialog\.Builder|(AppCompat|BottomSheet|Alert)?Dialog'
+dialog_total=$({ rg -o --no-filename "\\bnew ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename "ScreenCaptureProtection\\.(show|protect)\\(new ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+if [[ "$dialog_total" != "$dialog_protected" ]]; then
+  echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
+  exit 1
+fi
+while IFS= read -r popup_source; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\((popup|window)\);' "$popup_source"; then
+    echo "Android PopupWindow must apply screen capture protection after it is shown: ${popup_source#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'new PopupWindow\(' "$android_java")
+while IFS= read -r child_window; do
+  if ! rg -q 'ScreenCaptureProtectionPolicy\.windowFlags\(' "$child_window"; then
+    echo "Android IME child windows must carry the screen capture protection flag: ${child_window#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'TYPE_APPLICATION_ATTACHED_DIALOG' "$android_java")
+apply_local_body=$(sed -n '/^    private void applyLocalSettings() {$/,/^    }$/p' "$android_java/core/MSIMEInputService.java")
+if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindow\.getWindow\(\), screenCaptureProtected\);' <<< "$apply_local_body"; then
+  echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
   exit 1
 fi
 # 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。

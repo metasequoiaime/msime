@@ -86,10 +86,10 @@ pub fn prepare_runtime_paths_for(
     restore_interrupted_reset(&result.user(assets::USER_JOURNAL));
     // 不是数据库的日志会在下面的回放中每次启动都失败，让宿主永远无法启动；先把它挪开，从空日志开始。宿主 API 会在进入这里之前上报挪动结果；这里覆盖其余调用方。
     if let Some(moved) = quarantine_corrupt_journal(&result.user(assets::USER_JOURNAL))? {
-        eprintln!(
-            "msime: user dictionary journal is not a database, moved aside to {}",
+        crate::logging::warn(format_args!(
+            "user dictionary journal is not a database, moved aside to {}",
             moved.display()
-        );
+        ));
     }
 
     let parent = user_data.join("dictionaries");
@@ -316,10 +316,10 @@ fn index_reverse_lookup(generation: &Path, main_dictionary: bool) {
         let indexed = open_database(&database, OpenFlags::SQLITE_OPEN_READ_WRITE)
             .and_then(|connection| ensure_reverse_indexes(&connection).map_err(Into::into));
         if let Err(error) = indexed {
-            eprintln!(
-                "msime: wubi reverse lookup index unavailable in {}, lookups stay unindexed: {error}",
+            crate::logging::warn(format_args!(
+                "wubi reverse lookup index unavailable in {}, lookups stay unindexed: {error}",
                 database.display()
-            );
+            ));
         }
     }
 }

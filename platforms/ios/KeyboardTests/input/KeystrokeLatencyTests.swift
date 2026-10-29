@@ -166,7 +166,7 @@ final class KeystrokeLatencyTests: XCTestCase {
     }
     setCandidateGloss(true)
     let controller = self.controller(.nineKey)
-    controller.asynchronousNineKeyInputEnabled = true
+    controller.asynchronousInputEnabled = true
     defer { controller.viewWillDisappear(false) }
     let buttons = Dictionary(uniqueKeysWithValues: try "23456789".map { digit in
       (digit, try XCTUnwrap(descendants(controller.view).first {
@@ -201,10 +201,10 @@ final class KeystrokeLatencyTests: XCTestCase {
           }
           // 等最后一个数字完成查询与绘制；首键把回车改成「确认」不代表整段完成。
           let deadline = CACurrentMediaTime() + 5
-          while controller.hasPendingNineKeyInput && CACurrentMediaTime() < deadline {
+          while controller.hasPendingAsynchronousInput && CACurrentMediaTime() < deadline {
             try await Task.sleep(nanoseconds: 1_000_000)
           }
-          guard !controller.hasPendingNineKeyInput else {
+          guard !controller.hasPendingAsynchronousInput else {
             XCTFail("异步九键未完成最后一键的候选绘制")
             return
           }

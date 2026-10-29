@@ -170,10 +170,34 @@ const highlightedCodes = (dialog: HTMLElement) =>
     key.getAttribute("data-key-code"),
   );
 
+/** 当前分段里样式胶囊下方的说明；数字键盘一组的组末说明不在分段里，不算。 */
 const note = (dialog: HTMLElement) =>
-  [...dialog.querySelectorAll("[data-key-layout-note]")]
+  [...dialog.querySelectorAll("[data-key-layout-panel] [data-key-layout-note]")]
     .filter((node) => !node.closest("[hidden]"))
     .map((node) => node.textContent);
+
+const symbolFirstSwitch = (dialog: HTMLElement) =>
+  within(dialog).queryByRole("switch", {
+    name: "26 键「符」与「123」互换",
+  }) as HTMLInputElement | null;
+
+/** 「数字键盘」一组的胶囊；它不在分段里，任何分段都显示。 */
+const numberPadChips = (dialog: HTMLElement) =>
+  within(dialog).getByRole("group", { name: "数字键盘" });
+
+const numberPadLabels = (dialog: HTMLElement) =>
+  within(numberPadChips(dialog))
+    .getAllByRole("button")
+    .map((chip) => chip.textContent);
+
+const pressedNumberPad = (dialog: HTMLElement) =>
+  within(numberPadChips(dialog))
+    .getAllByRole("button")
+    .filter((chip) => chip.getAttribute("aria-pressed") === "true")
+    .map((chip) => chip.textContent);
+
+const follows = (earlier: Node, later: Node) =>
+  (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub page", async () => {
   renderSettings();
@@ -187,6 +211,9 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   expect(highlightedCodes(dialog)).toEqual([]);
   expect(note(dialog)).toEqual([]);
   expect(description(chipGroup(dialog))).toBe("");
+  // 样式卡片没有组名，下面是有组名的「数字键盘」一组。
+  const groups = [...dialog.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
+  expect(groups).toEqual(["数字键盘"]);
   const numberRow = within(dialog).getByRole("switch", { name: "顶部数字行" }) as HTMLInputElement;
   expect(numberRow.checked).toBe(false);
   expect(description(numberRow)).toBe("在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。");
@@ -202,8 +229,8 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   // 返回关上子页，回到键盘页。
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
-  expect(entryRow()?.textContent).toContain("各类键盘的底行样式和顶部数字行");
-  expect(description(entryRow())).toBe("各类键盘的底行样式和顶部数字行");
+  expect(entryRow()?.textContent).toContain("各类键盘的底行样式、键位和顶部数字行");
+  expect(description(entryRow())).toBe("各类键盘的底行样式、键位和顶部数字行");
   // 再打开时分段回到当前在用的键盘类型。
   fireEvent.click(entryRow()!);
   expect(checkedKind(screen.getByRole("dialog", { name: "按键布局" }))).toBe("26 键");
@@ -297,6 +324,124 @@ test("clicking a chip calls onChange with its own preference, and the chosen chi
   fireEvent.click(within(page).getByRole("switch", { name: "顶部数字行" }));
   expect(onChange).toHaveBeenLastCalledWith({ touch_number_row: true });
   expect(onChange).toHaveBeenCalledTimes(4);
+});
+
+test("26 键「符」与「123」互换 sits in the 26 key card and swaps the preview's 符 and 123 (#10056)", async () => {
+  const { save } = renderSettings();
+  const dialog = await openKeyLayout();
+  // 互换开关在 26 键分段的卡片里、样式胶囊和当前样式说明之后，说明与 Android、iOS 逐字相同。
+  const swap = symbolFirstSwitch(dialog)!;
+  expect(swap.checked).toBe(false);
+  expect(description(swap)).toBe("符 排在 123 左边；长空格和表情键样式没有 符，不受影响。");
+  const card = visiblePreview(dialog).closest("section")!;
+  expect(card.contains(swap)).toBe(true);
+  expect(follows(chipGroup(dialog), swap)).toBe(true);
+  // 关着时底行仍是 123 | 符，标准不高亮。
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "空格", "，", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual([]);
+  // 只有 26 键分段显示这个开关。
+  chooseKind(dialog, "14/18 键");
+  expect(symbolFirstSwitch(dialog)).toBeNull();
+  chooseKind(dialog, "9 键");
+  expect(symbolFirstSwitch(dialog)).toBeNull();
+  chooseKind(dialog, "26 键");
+
+  // 打开后 符 排到 123 左边，样式高亮之外再描边这两个键。
+  fireEvent.click(symbolFirstSwitch(dialog)!);
+  expect(symbolFirstSwitch(dialog)!.checked).toBe(true);
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "空格", "，", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftSymbol", "SoftLayer"]);
+  chooseChip(dialog, "逗号句号");
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "，", "空格", "。", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftSymbol", "SoftLayer", "Comma", "Period"]);
+  // 长空格、表情键没有 符：底行不变，只描边样式自己的键。
+  chooseChip(dialog, "长空格");
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "，", "空格", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["Space"]);
+  chooseChip(dialog, "表情键");
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "😀", "空格", "，", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftEmoji"]);
+  // 14/18 键的底行没有 符，互换不影响它的预览。
+  chooseKind(dialog, "14/18 键");
+  expect(previewRows(dialog).at(-1)?.[0]).toBe("123");
+  expect(highlightedCodes(dialog)).toEqual([]);
+
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1];
+  expect(saved.touch_twenty_six_symbol_first).toBe(true);
+  expect(saved.touch_twenty_six_key_style).toBe("emoji");
+});
+
+test("the 数字键盘 group sits between the style card and the number row and saves the space position (#10056)", async () => {
+  const { save } = renderSettings();
+  const dialog = await openKeyLayout();
+  // 三种排法画成与样式胶囊同一套等宽胶囊，没选过时选中鸿蒙原来的「空格在 0 左边」，组末说明在胶囊下方、读屏把它当作胶囊的描述。
+  const pad = numberPadChips(dialog);
+  expect(numberPadLabels(dialog)).toEqual(["空格在右列", "空格在 0 右边", "空格在 0 左边"]);
+  expect(pressedNumberPad(dialog)).toEqual(["空格在 0 左边"]);
+  expect(description(pad)).toBe("九宫格数字键盘里空格的位置；右侧大回车不受影响。");
+  const group = pad.closest("section")!;
+  expect(group.querySelector("[data-group-title]")?.textContent).toBe("数字键盘");
+  expect(group.querySelector("[data-key-layout-note]")?.textContent).toBe(
+    "九宫格数字键盘里空格的位置；右侧大回车不受影响。",
+  );
+  expect(follows(pad, group.querySelector("[data-key-layout-note]")!)).toBe(true);
+  // 不画预览；位置在样式卡片下面、顶部数字行开关上面。
+  expect(group.querySelector("[data-key-layout-preview]")).toBeNull();
+  expect(follows(visiblePreview(dialog).closest("section")!, group)).toBe(true);
+  expect(follows(group, within(dialog).getByRole("switch", { name: "顶部数字行" }))).toBe(true);
+  // 切到哪个分段都在。
+  chooseKind(dialog, "9 键");
+  expect(numberPadLabels(dialog)).toHaveLength(3);
+  // 点一下立刻选中。
+  fireEvent.click(within(pad).getByRole("button", { name: "空格在右列" }));
+  expect(pressedNumberPad(dialog)).toEqual(["空格在右列"]);
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1];
+  expect(saved.touch_number_pad_space).toBe("right_column");
+});
+
+test("a stored number pad choice is shown; platform_default and unknown values read as 空格在 0 左边", async () => {
+  for (const [stored, expected] of [
+    ["after_zero", "空格在 0 右边"],
+    ["platform_default", "空格在 0 左边"],
+    ["space_in_grid", "空格在 0 左边"],
+  ]) {
+    renderSettings({
+      preferences: { touch_number_pad_space: stored, touch_twenty_six_symbol_first: true },
+    });
+    const dialog = await openKeyLayout();
+    expect(pressedNumberPad(dialog)).toEqual([expected]);
+    // 存着的互换也照样显示：开关打开，预览底行 符 在 123 左边。
+    expect(symbolFirstSwitch(dialog)?.checked).toBe(true);
+    expect(previewRows(dialog).at(-1)?.slice(0, 2)).toEqual(["符", "123"]);
+    cleanup();
+    window.history.replaceState({}, "");
+  }
+});
+
+test("the swap switch and the number pad chips call onChange with their own preference", () => {
+  const onChange = vi.fn();
+  render(
+    <TouchKeyLayoutSettings
+      preferences={{ touch_number_pad_space: "after_zero" } as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: true }}
+      open
+      onChange={onChange}
+    />,
+  );
+  const page = document.body;
+  fireEvent.click(symbolFirstSwitch(page)!);
+  expect(onChange).toHaveBeenLastCalledWith({ touch_twenty_six_symbol_first: true });
+  // 点已选中的数字键盘胶囊不做事。
+  fireEvent.click(within(numberPadChips(page)).getByRole("button", { name: "空格在 0 右边" }));
+  expect(onChange).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(numberPadChips(page)).getByRole("button", { name: "空格在 0 左边" }));
+  expect(onChange).toHaveBeenLastCalledWith({ touch_number_pad_space: "before_zero" });
+  expect(onChange).toHaveBeenCalledTimes(2);
 });
 
 test("a stored style is shown, and one this page does not know reads as 标准", async () => {
@@ -439,12 +584,24 @@ test("settings search finds every style under its key type and opens that segmen
   expect(targets().some((target) => target.title === "底栏带标点")).toBe(true);
   const tall = targets().find((target) => target.title === "右侧大回车");
   expect(tall?.path).toEqual(["屏幕键盘", "按键布局", "9 键"]);
+  // 互换开关挂在 26 键分段下，数字键盘的胶囊挂在自己的组名下。
+  const swap = targets().find((target) => target.title === "26 键「符」与「123」互换");
+  expect(swap?.path).toEqual(["屏幕键盘", "按键布局", "26 键"]);
+  expect(targets().find((target) => target.title === "空格在右列")?.path).toEqual([
+    "屏幕键盘",
+    "按键布局",
+    "数字键盘",
+  ]);
   expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
   // 命中别的分段里的样式时打开子页并切到那一段；再命中正文里的行时关上子页回到正文。
   revealSettingsSearchTarget(tall!);
   const dialog = await screen.findByRole("dialog", { name: "按键布局" });
   await waitFor(() => expect(checkedKind(dialog)).toBe("9 键"));
   expect(chipLabels(dialog)).toContain("右侧大回车");
+  // 停在 9 键时命中互换开关，切回 26 键。
+  revealSettingsSearchTarget(swap!);
+  await waitFor(() => expect(checkedKind(dialog)).toBe("26 键"));
+  expect(symbolFirstSwitch(dialog)).toBeTruthy();
   expect(entryRow()).toBeNull();
   const height = targets().find((target) => target.title === "键盘高度");
   expect(height).toBeTruthy();
@@ -511,15 +668,21 @@ test("groups follow the key types the edition offers", async () => {
   renderSettings({ inputSchemes: ["wubi"] });
   const dialog = await openKeyLayout();
   expect(kindLabels(dialog)).toEqual(["26 键", "14/18 键"]);
+  // 数字键盘一组有入口就列：五笔借来的数字九宫格同样受它影响。
+  expect(numberPadLabels(dialog)).toHaveLength(3);
+  expect(symbolFirstSwitch(dialog)).toBeTruthy();
   expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
   cleanup();
   window.history.replaceState({}, "");
-  // 只有一种类型（笔画版只有 9 键）时不画分段控件，也没有数字行开关。
+  // 只有一种类型（笔画版只有 9 键）时不画分段控件，也没有数字行开关和 26 键的互换开关，数字键盘一组照样列。
   renderSettings({ inputSchemes: ["stroke"], preferences: { scheme: "stroke" } });
   const nine = await openKeyLayout();
   expect(kindControl(nine)).toBeNull();
   expect(chipLabels(nine)).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
   expect(within(nine).queryByRole("switch", { name: "顶部数字行" })).toBeNull();
+  expect(symbolFirstSwitch(nine)).toBeNull();
+  expect(nine.textContent).not.toContain("26 键「符」与「123」互换");
+  expect(numberPadLabels(nine)).toEqual(["空格在右列", "空格在 0 右边", "空格在 0 左边"]);
 });
 
 test("an edition without Chinese key types has no 按键布局 row", async () => {

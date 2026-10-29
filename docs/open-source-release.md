@@ -12,7 +12,9 @@
 
 ## 许可证与通知
 
-根目录 `LICENSE` 是 GPL-3.0-only。Rust workspace、Linux 元数据和共享客户端默认使用同一许可证，但上游代码、Gradle、ML Kit、Engine 资源、词库、模型和系统 SDK 仍以各自许可证和通知为准。
+根目录 `LICENSE` 是 GPL-3.0-only。Rust workspace、Linux 元数据和共享客户端默认使用同一许可证，但上游代码、Gradle、ML Kit、Engine 资源、词库、模型和系统 SDK 仍以各自许可证和通知为准。例外目录有自己的 `LICENSE`：输入引擎 `crates/engine` 和 `crates/path-trust` 是 MPL-2.0（不附 Exhibit B），脚本插件 SDK、模板、脚本插件合集和官方短语表是 MIT，见[第三方组件清单](third-party.md#本项目)。整个输入法产品的安装包和发行版元数据仍写 GPL-3.0-only。
+
+单独发布引擎库（crate 或将来的 C ABI 二进制）时，对外的说法是「引擎 MPL-2.0，数据按各自许可证」：库只带代码和 `crates/engine/README.md` 列出的几张内嵌小表，这些表连同改编代码的许可证全文要随库一起分发；运行时读的词库和模型不随库发布，由采用方自己选。msime 默认的中文词库和每个方案都要的 `msime-english.db` 含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数是 CC-BY-SA-4.0，不能当作宽松许可的数据推荐给 App Store 等非 GPL 的采用方。
 
 用了谁、各自什么许可、通知文件在哪，汇总在[第三方组件清单](third-party.md)；下面几条是它没有覆盖的发布动作。
 

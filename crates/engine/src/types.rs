@@ -805,7 +805,8 @@ pub struct WordItem {
 }
 
 impl WordItem {
-    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。
+    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。产品门面 `ordering` 的输入，和它一样不进文档。
+    #[doc(hidden)]
     pub fn static_evidence(&self) -> Option<crate::ordering::StaticEvidence> {
         if !self.sentence_association
             || !matches!(
@@ -905,6 +906,7 @@ pub fn request_autocorrect_mask(transposition: bool, neighbor: bool) -> u32 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SentenceAssociationOptions {
     pub word_lattice: bool,
+    /// The Engine's own keyboard-model rerank: nine-key reranks once across its segmentations, the quanpin and shuangpin dictionaries rerank inside the lattice, and the model's pick becomes a `NeuralKeyboard` row after the lattice best. Hosts leave it off: 整句联想「增强」 (the `neural_keyboard` preference) mounts the input runtime's per-keystroke reranker instead (host-api `keyboard_reranker_enabled`). It stays for evals and experiments that build the options directly (`convert_eval --keyboard-neural`).
     pub neural_keyboard: bool,
     pub show_next_on_duplicate: bool,
     /// octagram `.gram` 语法模型的路径（宿主按模型包解析好后传入）；空 = 关闭。
@@ -1188,6 +1190,13 @@ impl KeyResult {
     pub fn with_diagnostic(mut self, diagnostic: Option<String>) -> Self {
         self.diagnostic = diagnostic;
         self
+    }
+
+    /// `diagnostic` 的稳定数字码（映射表见 `diagnostics::DIAGNOSTIC_CODES`）；没有诊断时为 None。
+    pub fn diagnostic_code(&self) -> Option<crate::diagnostics::DiagnosticCode> {
+        self.diagnostic
+            .as_deref()
+            .map(crate::diagnostics::DiagnosticCode::from_message)
     }
 }
 

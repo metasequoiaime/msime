@@ -350,6 +350,106 @@ impl<'de> Deserialize<'de> for TouchNineKeyStyle {
     }
 }
 
+/// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画自己的数字层，以及 26 键、14/18 键、手写借来的数字九宫格）里空格放在哪；0 总在底行。右侧大回车的数字层有自己的排法，不受它影响。桌面宿主原样保留、不使用。
+///
+/// 三端出厂的排法各不相同，所以默认值是 [`Self::PlatformDefault`]：各端照自己原来的排法画（Android 空格在右列，iOS 空格在 0 右边，鸿蒙空格在 0 左边），三种排法三端都能选。读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNumberPadSpace {
+    /// 各端原来的排法，不写进文档。
+    #[default]
+    PlatformDefault,
+    /// 空格在右列最下面一格（⌫ | . | 空格），0 占底行中间原来空格的整份宽度；Android 的出厂排法。
+    RightColumn,
+    /// 0 和空格都在底行，0 在左、占大份，空格在它右边、与中/英同宽；iOS 的出厂排法。
+    AfterZero,
+    /// 0 和空格都在底行，空格在左、占大份，0 在它右边、与中/英同宽；鸿蒙的出厂排法。
+    BeforeZero,
+}
+
+impl TouchNumberPadSpace {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PlatformDefault => "platform_default",
+            Self::RightColumn => "right_column",
+            Self::AfterZero => "after_zero",
+            Self::BeforeZero => "before_zero",
+        }
+    }
+
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "platform_default" => Some(Self::PlatformDefault),
+            "right_column" => Some(Self::RightColumn),
+            "after_zero" => Some(Self::AfterZero),
+            "before_zero" => Some(Self::BeforeZero),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNumberPadSpace {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的排法）按各端原来的排法读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NextWordPredictionButtons {
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    #[default]
+    ExpandOnly,
+    /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。
+    CloseAndExpand,
+    /// 只有关闭键 ×，不显示展开键，联想只能在候选栏里左右滑动选择。
+    CloseOnly,
+}
+
+impl NextWordPredictionButtons {
+    /// 文档里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExpandOnly => "expand_only",
+            Self::CloseAndExpand => "close_and_expand",
+            Self::CloseOnly => "close_only",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "expand_only" => Some(Self::ExpandOnly),
+            "close_and_expand" => Some(Self::CloseAndExpand),
+            "close_only" => Some(Self::CloseOnly),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for NextWordPredictionButtons {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的样式）按现有样式读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1293,6 +1393,7 @@ pub struct SentenceAssociationPreferences {
     /// Runs the desktop sentence model as the input runtime's settled reranker once typing pauses, when a host has installed it; the Engine never loads that model.
     #[serde(default)]
     pub neural_desktop: bool,
+    /// 整句联想「增强」: mounts the keyboard sentence model as the input runtime's per-keystroke reranker when the edition ships the model. The Engine's own keyboard-model rerank does not follow it.
     #[serde(default)]
     pub neural_keyboard: bool,
     #[serde(default)]
@@ -1502,6 +1603,9 @@ pub struct Preferences {
     /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
+    /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。
+    #[serde(default, skip_serializing_if = "NextWordPredictionButtons::is_default")]
+    pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -1671,6 +1775,12 @@ pub struct Preferences {
     /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_number_row: bool,
+    /// 手机触屏 26 键字母层底行把 符 排到 123 左边（符 | 123 |（🌐）| …），原来是 123 |（🌐）| 符 | …；只作用于底行里有 符 的样式（标准、逗号句号在空格两侧），长空格和表情键样式没有 符、不受影响，英文和其他语言的 26 键底行同样以 123 | 符 打头，一并互换。从这块键面借来的数字九宫格跟着把返回键排在 符 后面。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_twenty_six_symbol_first: bool,
+    /// 手机触屏九宫格数字键盘里空格的位置，见 [`TouchNumberPadSpace`]。默认是各端原来的排法且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNumberPadSpace::is_default")]
+    pub touch_number_pad_space: TouchNumberPadSpace,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -3776,6 +3886,7 @@ impl Default for Preferences {
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             next_word_prediction: false,
+            next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
@@ -3838,6 +3949,8 @@ impl Default for Preferences {
             touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
             touch_nine_key_style: TouchNineKeyStyle::default(),
             touch_number_row: false,
+            touch_twenty_six_symbol_first: false,
+            touch_number_pad_space: TouchNumberPadSpace::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

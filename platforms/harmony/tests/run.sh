@@ -37,12 +37,27 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   exit 1
 fi
 # 底行样式和数字行同理：设置页改了之后键盘开着也要按新排法重建键，所以这四个值都要在 faceKey() 里；密码框、数字框退回标准底行也换键，所以编辑框这一项也要在。
-for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField; do
+for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField this.twentySixSymbolFirst this.numberPadSpace; do
   if ! grep -qF "$field" <<< "$face_key_body"; then
     echo "KeyboardView.faceKey must include $field so a live layout style change redraws the keys" >&2
     exit 1
   fi
 done
+# 「符」与「123」互换和数字键盘空格位置（#10056）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行按开关互换，借来的数字九宫格按互换后的字母层排前两键，数字层底行按空格位置排，右列最下面一格在空格位置为右列时画空格；两项从会话偏好读，设置页改了就随 applySettings 换。
+keyboard_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+if ! grep -qF 'return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(),' "$keyboard_view" \
+  || ! grep -qF '|| this.letterRowSymbolLeads());' "$keyboard_view" \
+  || ! grep -qF 'return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,' "$keyboard_view" \
+  || ! grep -qF 'if (this.symbols && this.numberPadSpace === TouchLayoutStylePolicy.RIGHT_COLUMN) {' "$keyboard_view" \
+  || ! grep -qF 'this.twentySixSymbolFirst = this.settings.twentySixSymbolFirst;' "$keyboard_view" \
+  || ! grep -qF 'this.numberPadSpace = this.settings.numberPadSpace;' "$keyboard_view" \
+  || ! grep -qF 'numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"; then
+  echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
+  exit 1
+fi
 # 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
 statistics_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/StatisticsAuthentication.ets"
 if [[ $(grep -cF "getSync('enabled', false)" "$statistics_auth") -ne 2 ]] \
@@ -83,12 +98,12 @@ if ! grep -qF 'KeyboardSession.shared.pressElseCommitThenType(' <<< "$digit_body
   echo "A number-row digit typed while composing must go through KeyboardSession.pressElseCommitThenType, which decides on the engine's handled flag and types the digit after the commit when the engine declines it" >&2
   exit 1
 fi
-# 冷启动第一帧的高度（`TouchLayoutStylePolicy.firstPanel`，规则由 touch-layout-styles.test.ts 覆盖）：扩展能力要在挂上视图之前定下形状，视图出现时在任何带 @Watch 的状态被赋值之前从同一个形状出发核对，否则两边起点不同，记下的键面与实际不符时面板会停在错的高度。两边都是 ArkTS，这里钉住接线次序。
+# 冷启动第一帧的高度（`TouchLayoutStylePolicy.firstPanel`，规则由 touch-layout-styles.test.ts 覆盖）：扩展能力要在挂上视图之前定下形状，视图出现时在任何带 @Watch 的状态被赋值之前从同一个形状出发核对，否则两边起点不同，记下的键面与实际不符时面板会停在错的高度。第一帧的工具条也要按「候选栏大小」定高（#10137），和视图的 `stripHeight` 一致。两边都是 ArkTS，这里钉住接线次序。
 ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 decide_line=$(grep -nF 'KeyboardSession.shared.decideFirstTouchPanel(' "$ability" | head -n 1 | cut -d: -f1)
 mount_line=$(grep -nF "await panel.setUiContent('keyboard/KeyboardView');" "$ability" | head -n 1 | cut -d: -f1)
 if [[ -z "$decide_line" || -z "$mount_line" ]] || (( decide_line >= mount_line )) \
-  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);' "$ability"; then
+  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);' "$ability"; then
   echo "KeyboardExtensionAbility must decide the first touch panel shape before mounting KeyboardView and size the panel from it" >&2
   exit 1
 fi

@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn a_second_consonant_that_may_be_a_subscript_converts_in_every_build() {
-        // `ewts` 0.1.3 判断第二个辅音能否作下加字时回看两个位置，`usize` 下溢（上游 `converter.rs:136`，emgyrz/ewts-rs#1 未合并）。debug 构建原本在这里 panic，release 回绕后退回独立的 wa；根 Cargo.toml 对 `ewts` 关掉 overflow-checks，两种构建都得到 release 的结果。
+        // `ewts` 0.1.3 判断第二个辅音能否作下加字时回看两个位置，`usize` 下溢（上游 `converter.rs:136`）：检查溢出的构建在这里 panic，release 回绕后退回独立的 wa。0.1.4 带上了上游修复 emgyrz/ewts-rs#1，回看越界时同样退回独立的 wa，所以不再需要工作区的 `[profile]` 覆盖；那个覆盖不随 crates.io 上的包生效，下游的 debug 构建靠的就是这个版本下限。
         for (keys, expected) in [("bw", "བཝ"), ("yw", "ཡཝ"), ("bwa", "བཝ")] {
             assert_eq!(wylie(keys), expected, "{keys}");
         }

@@ -102,6 +102,7 @@ import {
 import { CandidateSkinPackageIdentity, SkinFileStat } from './candidate/CandidateSkinPackageIdentity';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
+import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
@@ -931,6 +932,8 @@ interface PreparedPreferences {
   tsf_preedit_style?: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
+  /** 候选栏大小，50..200；client-core 总会写出它，旧文档缺省时按 100。 */
+  candidate_scale_percent?: number;
   /** 50..100; absent in documents that never changed it, which means an opaque card. */
   candidate_opacity_percent?: number;
   /** 0..32 points; absent or null leaves the card to the skin package, then the host. */
@@ -989,6 +992,10 @@ interface PreparedPreferences {
   touch_nine_key_style?: string;
   /** 26/14/18 键字母上方的 1 到 0 数字行；默认关，不写进文档。 */
   touch_number_row?: boolean;
+  /** 26 键底行 符 排在 123 左边；默认关，不写进文档。 */
+  touch_twenty_six_symbol_first?: boolean;
+  /** 九宫格数字键盘里空格的位置（platform_default / right_column / after_zero / before_zero）；默认值不写进文档。 */
+  touch_number_pad_space?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1134,6 +1141,8 @@ export interface KeyboardPreferences {
   readonly candidateLayout: string;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
+  /** 触屏键盘的「候选栏大小」（`candidate_scale_percent`）：工具条高度和候选栏的字号、行高都按它缩放（#10137），上面两项字号已经乘过它。2in1 恒为 100，候选卡片只随字号调整。 */
+  readonly candidateScalePercent: number;
   readonly candidateFontFamily: string;
   readonly candidateEnglishFont: string | null;
   readonly candidateFallbackFonts: string[];
@@ -1156,6 +1165,10 @@ export interface KeyboardPreferences {
   readonly nineKeyStyle: string;
   /** `touch_number_row`：26/14/18 键字母上方画 1 到 0。 */
   readonly numberRow: boolean;
+  /** `touch_twenty_six_symbol_first`：26 键底行 符 排在 123 左边（`TouchLayoutStylePolicy.symbolFirst`）。 */
+  readonly twentySixSymbolFirst: boolean;
+  /** `touch_number_pad_space`：九宫格数字键盘里空格的位置，`platform_default` 和不认识的值按鸿蒙原来的 `before_zero`（`TouchLayoutStylePolicy.numberPadSpace`）。 */
+  readonly numberPadSpace: string;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1473,6 +1486,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     },
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
+    candidateScalePercent: 100,
     candidateFontFamily: 'Noto Sans SC',
     candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
@@ -1486,7 +1500,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
     fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
     nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
-    numberRow: false
+    numberRow: false,
+    twentySixSymbolFirst: false,
+    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1834,6 +1850,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const opacityPercent: number | undefined = preferences.candidate_opacity_percent;
     const windowOpacity: number = typeof opacityPercent === 'number' && Number.isFinite(opacityPercent)
       ? Math.max(50, Math.min(100, opacityPercent)) / 100 : 1;
+    // 「候选栏大小」只作用于触屏工具条；2in1 的设置桥不声明它，候选卡片照旧只随字号调整。
+    const touchScale: number = KeyboardFormFactor.isDesktop()
+      ? CandidateScalePolicy.DEFAULT_PERCENT : CandidateScalePolicy.percent(preferences.candidate_scale_percent);
     this.appearance = {
       dark: keyboardDark,
       globalThemeId: preferences.global_theme,
@@ -1897,9 +1916,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The shared store validates these to 12..32 and strips control
       // characters from family names. Clamp again at the host boundary so
       // an older staged document cannot produce an unusable panel.
-      candidateFontSize: CandidateFontSizePolicy.bounded(preferences.candidate_font_size),
-      candidatePreeditFontSize:
-        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size),
+      candidateFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_font_size), touchScale),
+      candidatePreeditFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size), touchScale),
+      candidateScalePercent: touchScale,
       candidateFontFamily: preferences.candidate_font_family.trim().length > 0
         ? preferences.candidate_font_family : 'Noto Sans SC',
       candidateEnglishFont: preferences.candidate_english_font ?? null,
@@ -1918,7 +1939,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
       fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
       nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
-      numberRow: preferences.touch_number_row === true
+      numberRow: preferences.touch_number_row === true,
+      twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
+      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

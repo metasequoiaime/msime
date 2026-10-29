@@ -11,6 +11,8 @@ struct KeyboardToolbarSettingsView: View {
   /// 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
   @State private var voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var skin = KeyboardTheme.current
+  /// 「候选栏大小」：工具栏和候选栏共用一行，预览里的工具栏跟着它变矮或变高（#10137）。在「候选栏」页设置。
+  @State private var barScale: CGFloat = 1
   @State private var saveFailed = false
 
   /// 开关的存储位置。
@@ -85,7 +87,7 @@ struct KeyboardToolbarSettingsView: View {
     let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
     let strip: KeyboardPreviewTopStrip = rowHidden
       ? .reserved : .toolbar(Self.previewItems(toolbar, phrases: phrases, scheme: scheme))
-    return KeyboardSkinPreview(skin: skin, nineKey: false, topStrip: strip)
+    return KeyboardSkinPreview(skin: skin, nineKey: false, topStrip: strip, stripScale: barScale)
       .clipShape(shape)
       .overlay(shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1))
       .accessibilityElement(children: .ignore)
@@ -138,6 +140,7 @@ struct KeyboardToolbarSettingsView: View {
     voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)
+    barScale = CandidateFontPreference.barScale(in: preferences)
     guard let preferences else { return }
     toolbar = TouchToolbarPreference(in: preferences)
   }

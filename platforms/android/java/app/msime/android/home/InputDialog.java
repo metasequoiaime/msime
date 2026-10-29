@@ -23,6 +23,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ListPolicy;
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
@@ -58,7 +59,8 @@ public final class InputDialog {
 
     public InputDialog(Context context, CharSequence title, @Nullable CharSequence message) {
         this.context = context;
-        dialog = new AppCompatDialog(context);
+        // 对话框是独立窗口，不继承 Activity 的 FLAG_SECURE；凭据、口令都从这里输入，要单独加保护。
+        dialog = ScreenCaptureProtection.protect(new AppCompatDialog(context));
         dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
         LinearLayout root = LayoutPolicy.column(context);

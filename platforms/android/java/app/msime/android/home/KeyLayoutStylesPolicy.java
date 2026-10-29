@@ -10,6 +10,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.TouchKeyStyle;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -147,6 +148,18 @@ public final class KeyLayoutStylesPolicy {
         };
     }
 
+    /** 同上，另按「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`）：打开时 26 键所选样式的底行真有 符 可换（{@link KeyboardActionRow#symbolFirstMoves}，标准和逗号句号；长空格、表情键没有 符），在样式的高亮之外再高亮 符 和 123。 */
+    public static Set<String> highlights(Kind kind, TouchKeyStyle.Row row, boolean symbolFirst) {
+        Set<String> style = highlights(kind, row);
+        if (!symbolFirst || kind != Kind.TWENTY_SIX
+                || !KeyboardActionRow.symbolFirstMoves(KeyboardLayout.STANDARD_TOUCH_LAYOUT, offered(kind, row)))
+            return style;
+        Set<String> swapped = new HashSet<>(style);
+        swapped.add(SYMBOL);
+        swapped.add(LAYER);
+        return Set.copyOf(swapped);
+    }
+
     /** 预览画不画顶部数字行：开关打开、画的是 26 键或 14/18 键时才画；9 键不画，开关只对 26/14/18 键生效。 */
     public static boolean drawsNumberRow(Kind kind, boolean numberRow) {
         return numberRow && kind != Kind.NINE;
@@ -158,10 +171,12 @@ public final class KeyLayoutStylesPolicy {
     static final String SPACE = "Space";
     static final String EMOJI = "SoftEmoji";
     static final String RETURN = "Enter";
+    static final String SYMBOL = "SoftSymbol";
+    static final String LAYER = "SoftLayer";
     private static final String SHIFT = "ShiftLeft";
     /** 热力图把 26 键第三行左端画成组字中的「分词」、记 `Quote`；预览画空闲时的 ⇧。 */
     private static final String SEPARATOR = "Quote";
-    private static final Set<String> FUNCTION_IDS = Set.of(SHIFT, SEPARATOR, "Backspace", "SoftSymbol", "SoftLayer",
+    private static final Set<String> FUNCTION_IDS = Set.of(SHIFT, SEPARATOR, "Backspace", SYMBOL, LAYER,
         "SoftLanguage", "SoftGlobe", EMOJI);
 
     /** 预览里一个键的底色：字符键用键帽色，功能键用功能键色，回车用强调色。 */
@@ -182,9 +197,15 @@ public final class KeyLayoutStylesPolicy {
      * </ul>
      */
     public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen) {
+        return keyboard(kind, style, numberRow, eighteen, false);
+    }
+
+    /** 同上，`symbolFirst`（「26 键「符」与「123」互换」）打开时 26 键底行按键盘的同一条规则把 符 排到 123 左边（{@link KeyHeatmapLayout#soft(TouchKeyStyle.Row, boolean, boolean)}），没有 符 的样式不变；14/18 键和 9 键不受它影响。 */
+    public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst) {
         boolean digits = drawsNumberRow(kind, numberRow);
         return switch (kind) {
-            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits));
+            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst));
             case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));
             case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen);
         };

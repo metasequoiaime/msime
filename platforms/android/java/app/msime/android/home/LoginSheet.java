@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.ImageViewPolicy;
@@ -118,7 +119,7 @@ final class LoginSheet {
         this.activity = activity;
         this.purpose = purpose;
         this.finished = finished;
-        dialog = new BottomSheetDialog(activity);
+        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(activity));
         appleResult = this::finishWith;
 
         LinearLayout root = LayoutPolicy.column(activity);
