@@ -133,6 +133,11 @@ impl Session {
         self.input.profile
     }
 
+    /// 会话现在过滤候选用的辅助码表（`SessionOptions::helpcode_table`、按 `helpcode_schema` 读的表，或之后 `set_helpcode_table` 换上的表）；辅助码关着时照样留着。门面给自己合成的整句补注释时读它，不另读一份。
+    pub(crate) fn helpcode_table(&self) -> Option<&crate::helpcode::HelpcodeKeymap> {
+        self.input.helpcode_keymap.as_deref()
+    }
+
     /// Replace the steady and local clocks, so tests can cross the 3 s / 8 s / 10 s personal-learning windows and the date/time mode can be pinned.
     pub fn set_clock(&mut self, clock: Clock) {
         if self.input.local_mode_options.date_time_inline {
@@ -201,6 +206,11 @@ impl Session {
             return KeyResult::unhandled();
         }
         self.input.glide(keyboard, points)
+    }
+
+    /// 上一次 [`Session::set_key_grid`]（或 [`Session::set_nine_key_enabled`]）设下的组码网格，`None` 是不用网格；新会话是 `None`。网格开着时硬件键盘的字母照样走 26 键，要知道这次组字是不是在网格里打的，看 [`Session::grid_composing`]。
+    pub fn key_grid(&self) -> Option<KeyGrid> {
+        self.key_grid
     }
 
     /// 字母网格正在组字：九宫格会话（九键、14 键、18 键）在组字，快照、命令和上屏都来自它；或者五笔 14 键在组字，组码不是确定的字母。两种情况下的原样上屏都不是用户逐个打出的字母。

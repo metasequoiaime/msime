@@ -185,8 +185,8 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
       word.length === 0 ||
       utf8ByteLength(word) > 4096 ||
       (entry.kind === "quickPhrase"
-        ? /[\u0000-\u0008\u000b-\u001f\u007f]/.test(word)
-        : /[\u0000-\u001f\u007f]/.test(word)) ||
+        ? /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(word)
+        : /[\u0000-\u001f\u007f-\u009f]/.test(word)) ||
       (weight as number) < 1 ||
       (weight as number) > 100_000_000
     ) {

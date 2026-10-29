@@ -7,7 +7,8 @@
 //! The composition is consumed either way. That is not incidental: the Windows source clears its
 //! state after sending the commit, so a host that left the rest of the input composing would
 //! disagree with it.
-use msime_engine::host::{prepare_options, CandidateEdge, Session};
+use msime_engine::host::{prepare_options, Session};
+use msime_engine::CandidateEdge;
 
 struct Probe {
     resources: std::path::PathBuf,

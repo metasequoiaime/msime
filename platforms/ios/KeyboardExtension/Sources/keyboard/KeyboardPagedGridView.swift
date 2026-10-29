@@ -187,6 +187,8 @@ final class KeyboardPagedGridView: UIView, UIScrollViewDelegate {
   /// 按 `skin` 重新给页码圆点上色：当前页用强调色，其余用细线色。
   func apply(skin: KeyboardTheme) {
     dots.setColors(active: skin.accent, inactive: skin.hairline)
+    // 翻页靠这个滚动视图收触摸。把背景交给系统底板的皮肤下面板是透明的，滚动视图自己铺一层几乎看不出的底色，从格子之间的空白起手也能翻页（#10173）。
+    scrollView.backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : .clear
   }
 
   override func layoutSubviews() {
