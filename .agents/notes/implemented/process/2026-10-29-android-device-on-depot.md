@@ -4,6 +4,8 @@ Status: implemented
 
 ## Problem
 
+当前 runner 决定已由[Android 设备门禁回到有实证的 KVM runner](2026-10-30-android-device-kvm-runner-fallback.md)取代；本篇仅保留 Depot 探测、权限夹具和迁移过程的历史证据。
+
 `android-device.yml` 是 GitHub 托管 Linux runner 上最大的占用。[改键盘或设置界面的 PR 跑一遍设备验收](2026-10-28-android-device-on-ui-prs.md)之后，每个改到 Android 界面的 PR 都起一台 API 35 模拟器，整套最长 90 分钟。2026-10-29 上午同时有 13 个这样的 job 在 GitHub 托管的 `ubuntu-24.04` 上跑（11 个 PR 的 API 35，加 develop 推送的 API 28 和 35），另有 8 个 `windows-2025`。组织共用的 20 个托管并发名额（macOS 的 5 个也算在里面）被占满，其余托管 job 只能排队。
 
 它留在 GitHub 上的理由是「模拟器要 KVM，Depot 的 runner 不保证有」（[Android 设备门禁](../testing/2026-10-08-android-device-gates.md) 的 Alternatives，[不碰长期凭据的 job 默认跑在 Depot 上](2026-10-27-depot-runners-by-default.md) 沿用了它）。这一条从来没在 Depot 上验证过。macOS 挪到 Depot 之前有 `depot-macos-probe.yml` 实测，KVM 没有。
