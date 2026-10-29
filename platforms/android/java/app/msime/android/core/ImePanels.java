@@ -283,6 +283,8 @@ final class ImePanels {
         s.command(2);
         // 有会话时 command 失败会经 fail 停掉会话、清掉资源目录。
         if (s.connection == null || s.emojiResources.isEmpty()) return;
+        // 底行和长按进来的表情不经 closeToolbarPanels，推迟的皮肤、输入方式在这里作废（#10086）。
+        s.dropDeferredToolbarPanel();
         s.closeCandidatePanel();
         s.closeClipboardHistory();
         s.closeSchemePicker();
@@ -2783,6 +2785,8 @@ final class ImePanels {
 
     void showFeedbackMenu() {
         if (s.moreButton == null || s.moreToolsPanel == null || s.moreToolsScroll == null) return;
+        // 「更多」不经 closeToolbarPanels：会话在建时推迟的皮肤、输入方式在这里作废，用户回到键盘后它不再自己弹出来（#10086）。
+        s.dropDeferredToolbarPanel();
         s.closeEmojiPicker();
         s.closeSymbolPanel();
         s.closeCandidatePanel();

@@ -109,7 +109,7 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，开始打字或删字时作废；收起键盘时作废记下的「中」键。
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，打开不经 closeToolbarPanels 的功能面板（更多）时作废；开始打字或删字时推迟的面板和记下的「中」键一起作废；收起键盘时作废记下的「中」键；会话建好后再点「中」键时作废记下的那一下，读到偏好时不再补按。
 service_java="$android_java/core/MSIMEInputService.java"
 panels_java="$android_java/core/ImePanels.java"
 emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
@@ -135,7 +135,11 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SKIN,' "$service_java" \
   || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SCHEME,' "$service_java" \
   || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
-  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarPanel\(\);'; then
+  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    void deleteCodePointBeforeCursor() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    private void dropDeferredToolbarTaps() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi

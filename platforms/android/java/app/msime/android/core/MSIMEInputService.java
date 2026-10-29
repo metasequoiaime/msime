@@ -1463,7 +1463,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean commitText(String text, TypingSource source) {
         clearQuickDeleteUndo();
-        dropDeferredToolbarPanel();
+        dropDeferredToolbarTaps();
         editorReads.invalidate();
         if (connection == null) return false;
         boolean committed;
@@ -1500,7 +1500,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
         clearQuickDeleteUndo();
-        dropDeferredToolbarPanel();
+        dropDeferredToolbarTaps();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
@@ -4901,7 +4901,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean touched = imeTouchPoints.take(source);
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
-        dropDeferredToolbarPanel();
+        dropDeferredToolbarTaps();
         if (connection == null) return;
         if (directEnglishActive()) {
             char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -5426,9 +5426,9 @@ public final class MSIMEInputService extends InputMethodService {
         return ToolbarReadinessPolicy.session(session != 0, engineStartupPending());
     }
 
-    /** 会话还在建时点下的皮肤或输入方式（null 为没有）：会话和偏好就绪后打开。换输入框（stop）、收起键盘或打开别的面板（closeToolbarPanels）、再点一次同一个按钮（deferrablePanelToggle）、开始打字或删字（dropDeferredToolbarPanel）时作废。 */
+    /** 会话还在建时点下的皮肤或输入方式（null 为没有）：会话和偏好就绪后打开。换输入框（stop）、收起键盘或打开别的面板（closeToolbarPanels，以及不经它的功能面板 ImePanels.showFeedbackMenu 和表情面板 ImePanels.showEmojiPicker）、再点一次同一个按钮（deferrablePanelToggle）、开始打字或删字（dropDeferredToolbarTaps）时作废。 */
     private ToolbarOrderPolicy.Item pendingToolbarPanel;
-    /** 会话还在建时点下、要轮换到其他语言键盘的那一下「中」键：会话和偏好就绪后照常按一次。换输入框（stop）和收起键盘（finishInputViewPresentation）时作废；已记下一下时再点不再记，见 ToolbarReadinessPolicy.languageTap。 */
+    /** 会话还在建时点下、要轮换到其他语言键盘的那一下「中」键：会话和偏好就绪后照常按一次。换输入框（stop）、收起键盘（finishInputViewPresentation）、开始打字或删字（dropDeferredToolbarTaps）时作废，会话建好后再点一下「中」键时也作废（这一下照常交给引擎，不能等偏好读到后再补按一次）；已记下一下时再点不再记，见 ToolbarReadinessPolicy.languageTap。 */
     private boolean pendingLanguageTap;
     /** 这一代会话启动排上的时刻（uptime 毫秒），会话建好时算出等了多久写进性能记录；-1 为没有在等。 */
     private long engineStartupRequestedAt = -1;
@@ -5456,10 +5456,18 @@ public final class MSIMEInputService extends InputMethodService {
         };
     }
 
-    /** 推迟着皮肤或输入方式时用户开始打字或删字：面板不再在会话建好后弹出来打断输入。 */
-    private void dropDeferredToolbarPanel() {
+    /** 推迟着皮肤或输入方式时用户打开了不经 closeToolbarPanels 的面板：推迟的面板不再在会话建好后自己弹出来。 */
+    void dropDeferredToolbarPanel() {
         if (pendingToolbarPanel == null) return;
         pendingToolbarPanel = null;
+        render();
+    }
+
+    /** 推迟着皮肤、输入方式或「中」键时用户开始打字或删字：面板不再在会话建好后弹出来打断输入，键盘也不在一个词打到一半时自己换语言。 */
+    private void dropDeferredToolbarTaps() {
+        if (pendingToolbarPanel == null && !pendingLanguageTap) return;
+        pendingToolbarPanel = null;
+        pendingLanguageTap = false;
         render();
     }
 
@@ -10217,9 +10225,16 @@ public final class MSIMEInputService extends InputMethodService {
             imeKeyFeedback.playFeedback(languageButton);
             countKey(languageButton);
             switch (tap) {
-                case ENGINE -> languageKeyTapped();
+                case ENGINE -> {
+                    // 会话建好、偏好还没读到时记着的那一下作废：这一下已经照常切了，读到偏好时不能再补按一次。
+                    pendingLanguageTap = false;
+                    languageKeyTapped();
+                }
                 case HOST_TOGGLE -> toggleInputLanguageBeforeSession();
-                case DEFER -> pendingLanguageTap = true;
+                case DEFER -> {
+                    pendingLanguageTap = true;
+                    render();
+                }
                 default -> { }
             }
         });
@@ -11599,9 +11614,10 @@ public final class MSIMEInputService extends InputMethodService {
             languageButton.setContentDescription(!canToggle ? "中英切换暂不可用，长按切换输入法"
                 : LanguageKeyCyclePolicy.description(nextLanguageTarget()));
             if (Build.VERSION.SDK_INT >= 30) {
+                // 会话在建时记下的那一下键面不变，读屏念出它记下了（#10086）。
                 languageButton.setStateDescription(!canToggle ? "输入会话未就绪"
                     : LanguageKeyCyclePolicy.stateDescription(cycles, selectedScheme, dedicatedEnglish,
-                        visibleSchemes));
+                        visibleSchemes) + (pendingLanguageTap ? "，准备好后切换" : ""));
             }
         }
         if (floatingShortcutButton != null) {
