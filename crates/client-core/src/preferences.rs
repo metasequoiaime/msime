@@ -404,32 +404,34 @@ impl<'de> Deserialize<'de> for TouchNumberPadSpace {
 
 /// 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时，按键贴到一侧后空出来的另一侧放什么（#10203）。只在单手模式生效、主键区画着九键字母层时才放；手机、分离式键盘和浮动键盘不受影响。桌面宿主原样保留、不使用。
 ///
-/// 做成取值而不是开关，是因为以后还要加「文本编辑面板」这一种：开关改成字符串时，还没升级的版本读到字符串会把整份偏好文档判成类型错误。读文档时不认识的值（较新版本加的面板）按 [`Self::Off`] 读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
-#[serde(rename_all = "snake_case")]
+/// 做成取值而不是开关，是因为以后还要加「文本编辑面板」这一种：开关改成字符串时，还没升级的版本读到字符串会把整份偏好文档判成类型错误。不认识的字符串（较新版本加的面板）读成 [`Self::Unknown`]，原样留着写法：宿主按空着画，存文档、账号同步导出时照原样写回，这样旧版本既不会在下一次保存时把它删掉，也不会把它当成本机改动、拿 `off` 覆盖云端较新设备的选择。不是字符串照样报错，和其他字段的类型错误一致。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum TouchOneHandedSidePanel {
     /// 空着，露出键盘底色，即 #10204 之后的样子。默认值，不写进文档。
     #[default]
     Off,
-    /// 数字键盘：1–9、0、小数点、退格和空格。
+    /// 数字键盘：3 × 4 拨号盘，1–9、0、小数点和退格。
     NumberPad,
+    /// 较新版本加的面板，本版本不认识，里面是原样的写法。宿主按 [`Self::Off`] 画。
+    Unknown(String),
 }
 
 impl TouchOneHandedSidePanel {
-    /// 文档和同步键里的写法。
-    pub fn as_str(self) -> &'static str {
+    /// 文档和同步键里的写法；不认识的取值原样返回。
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Off => "off",
             Self::NumberPad => "number_pad",
+            Self::Unknown(value) => value,
         }
     }
 
-    /// 严格解析：只认这两种写法，其他值为 `None`。偏好文档走宽松的反序列化。
-    pub fn parse(value: &str) -> Option<Self> {
+    /// 按写法取值：认识的两种之外一律是 [`Self::Unknown`]，写法原样留着。偏好文档和账号同步都走它。
+    pub fn from_wire(value: &str) -> Self {
         match value {
-            "off" => Some(Self::Off),
-            "number_pad" => Some(Self::NumberPad),
-            _ => None,
+            "off" => Self::Off,
+            "number_pad" => Self::NumberPad,
+            other => Self::Unknown(other.to_owned()),
         }
     }
 
@@ -438,11 +440,17 @@ impl TouchOneHandedSidePanel {
     }
 }
 
+impl Serialize for TouchOneHandedSidePanel {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl<'de> Deserialize<'de> for TouchOneHandedSidePanel {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // 不认识的字符串（较新版本加的面板）按空着读；不是字符串照样报错，和其他字段的类型错误一致。
+        // 不认识的字符串（较新版本加的面板）原样留着；不是字符串照样报错，和其他字段的类型错误一致。
         let value = String::deserialize(deserializer)?;
-        Ok(Self::parse(&value).unwrap_or_default())
+        Ok(Self::from_wire(&value))
     }
 }
 

@@ -510,32 +510,40 @@ fn one_handed_side_panel_defaults_off_and_is_not_written() {
 }
 
 #[test]
-fn one_handed_side_panel_wire_strings_are_pinned_and_unknown_strings_read_as_off() {
+fn one_handed_side_panel_wire_strings_are_pinned_and_unknown_strings_are_kept() {
     for (panel, wire) in [
         (TouchOneHandedSidePanel::Off, "off"),
         (TouchOneHandedSidePanel::NumberPad, "number_pad"),
     ] {
-        assert_eq!(serde_json::to_value(panel).unwrap(), wire);
+        assert_eq!(serde_json::to_value(&panel).unwrap(), wire);
         assert_eq!(panel.as_str(), wire);
-        assert_eq!(TouchOneHandedSidePanel::parse(wire), Some(panel));
+        assert_eq!(TouchOneHandedSidePanel::from_wire(wire), panel);
         assert_eq!(
             serde_json::from_value::<TouchOneHandedSidePanel>(wire.into()).unwrap(),
             panel
         );
     }
-    // 以后加的「文本编辑面板」在今天的版本里按空着读，只有严格解析拒收。
-    assert_eq!(TouchOneHandedSidePanel::parse("text_edit"), None);
+    // 以后加的「文本编辑面板」在今天的版本里不认识：写法原样留着，宿主按空着画。
+    let newer = TouchOneHandedSidePanel::Unknown("text_edit".into());
+    assert_eq!(TouchOneHandedSidePanel::from_wire("text_edit"), newer);
+    assert_eq!(newer.as_str(), "text_edit");
 
     let legacy = serde_json::to_value(Preferences::default()).unwrap();
     let mut document = legacy.clone();
     document["touch_one_handed_side_panel"] = "text_edit".into();
-    assert_eq!(
-        serde_json::from_value::<Preferences>(document).unwrap(),
-        Preferences::default()
-    );
+    let read = serde_json::from_value::<Preferences>(document).unwrap();
+    assert_eq!(read.touch_one_handed_side_panel, newer);
     let mut wrong = legacy;
     wrong["touch_one_handed_side_panel"] = serde_json::json!(true);
     assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+
+    // 旧版本读进来再存回去，较新版本写下的值不丢。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let revision = store.load().unwrap().revision;
+    store.save(revision, read).unwrap();
+    let written = serde_json::to_value(store.load().unwrap().preferences).unwrap();
+    assert_eq!(written["touch_one_handed_side_panel"], "text_edit");
 }
 
 #[test]

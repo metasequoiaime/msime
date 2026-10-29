@@ -1572,7 +1572,7 @@ fn symbol_first_and_number_pad_space_sync_by_their_wire_names() {
     );
 }
 
-/// 大屏单手的侧边面板按共享偏好的写法上传，空着（`off`）也导出，云端才能被改回空着；云端是本机不认识的面板时只跳过这一个键，本机的选择不变。
+/// 大屏单手的侧边面板按共享偏好的写法上传，空着（`off`）也导出，云端才能被改回空着。云端是本机不认识的面板（较新版本的 `text_edit`）时照原样收下，下一次导出写回同一个值：与应用时记下的基线相同，不会被当成本机改动、拿 `off` 覆盖较新设备的选择。
 #[test]
 fn one_handed_side_panel_syncs_by_its_wire_name() {
     let defaults = export_android_settings(&Preferences::default(), None).unwrap();
@@ -1598,16 +1598,19 @@ fn one_handed_side_panel_syncs_by_its_wire_name() {
     assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
     assert_eq!(applied.preferences, Preferences::default());
 
+    let newer = AccountPreferenceValue::String("text_edit".into());
     let applied = apply(
         &local,
-        BTreeMap::from([(
-            ONE_HANDED_SIDE_PANEL.to_owned(),
-            AccountPreferenceValue::String("text_edit".into()),
-        )]),
+        BTreeMap::from([(ONE_HANDED_SIDE_PANEL.to_owned(), newer.clone())]),
         &full_schema(),
     );
-    assert_eq!(applied.skipped, [ONE_HANDED_SIDE_PANEL]);
-    assert_eq!(applied.preferences, local);
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.touch_one_handed_side_panel,
+        TouchOneHandedSidePanel::Unknown("text_edit".into())
+    );
+    let next_round = export_android_settings(&applied.preferences, None).unwrap();
+    assert_eq!(next_round[ONE_HANDED_SIDE_PANEL], newer);
 }
 
 /// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。

@@ -1483,9 +1483,9 @@ pub(super) fn apply_touch_settings(
         preferences.touch_number_pad_space = TouchNumberPadSpace::parse(value)?;
         Some(())
     })?;
-    // 单手侧边面板同样按严格写法应用：较新版本加的面板（如文本编辑面板）本机不认识时只跳过这一个键，不把本机的选择改成空着。
+    // 单手侧边面板连本机不认识的写法（较新版本加的面板，如文本编辑面板）也照原样收下：宿主按空着画，下一次导出写回同一个值，与这次记下的基线相同，不会被当成本机改动拿 `off` 覆盖云端。
     applier.set_string(keys.one_handed_side_panel, |preferences, value| {
-        preferences.touch_one_handed_side_panel = TouchOneHandedSidePanel::parse(value)?;
+        preferences.touch_one_handed_side_panel = TouchOneHandedSidePanel::from_wire(value);
         Some(())
     })?;
 
