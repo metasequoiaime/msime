@@ -886,12 +886,29 @@ fn keep_typo_sentence_off_first_seat(rows: &mut Vec<WordItem>, keys: usize) {
     }
 }
 
-/// 视图里的 `confident_correction` 只给真正坐在第一位、回答整串按键的那一行：别的行（被模糊音、辅助码的重排挪开的，或只回答前缀的）清掉标记，它们仍是普通的纠错行。
+/// 视图里的 `confident_correction` 只给真正坐在第一位、回答整串按键的那一行：别的行（被模糊音、辅助码的重排挪开的，或只回答前缀的）清掉标记，它们仍是普通的纠错行。普通纠错行的座位在字面整句块之后（`dictionary::typo_sentence_seat`），所以清掉标记的行如果还排在字面整句前面，就挪回字面整句块之后：模糊音打开时，`sort_by_coverage` 把全码的模糊词条排到坐了首选的纠错行前面，纠错行若只清标记、留在原地，就成了排在字面整句前面又没有标记的改正。
 fn settle_confident_correction(rows: &mut [WordItem], keys: usize) {
-    for (seat, row) in rows.iter_mut().enumerate() {
-        if row.confident_correction && (seat != 0 || coverage(row) != keys) {
-            row.confident_correction = false;
+    let mut seat = 0;
+    while seat < rows.len() {
+        let row = &mut rows[seat];
+        if !row.confident_correction || (seat == 0 && coverage(row) == keys) {
+            seat += 1;
+            continue;
         }
+        row.confident_correction = false;
+        let Some(literal) = rows[seat + 1..]
+            .iter()
+            .position(|row| row.sentence_association && row.corrected_from.is_empty())
+        else {
+            seat += 1;
+            continue;
+        };
+        let mut end = seat + 1 + literal + 1;
+        while end < rows.len() && rows[end].sentence_association {
+            end += 1;
+        }
+        // 挪走以后这个位置换成了下一行，不前进，接着看它。
+        rows[seat..end].rotate_left(1);
     }
 }
 
@@ -1374,7 +1391,7 @@ mod tests {
         typo
     }
 
-    /// 守卫的另一半：按首选规则坐上第一位、回答整串按键的纠错行留在首位，标记保留；只回答前缀的（上一键缓存下来的整句答案）、没有标记的照旧让开，被挪离第一位的行清掉标记。
+    /// 守卫的另一半：按首选规则坐上第一位、回答整串按键的纠错行留在首位，标记保留；只回答前缀的（上一键缓存下来的整句答案）、没有标记的照旧让开，被挪离第一位的行清掉标记，还排在字面整句前面的挪回字面整句块之后。
     #[test]
     fn only_a_confident_correction_of_the_whole_input_keeps_the_first_seat() {
         let words = |rows: &[WordItem]| {
@@ -1428,6 +1445,49 @@ mod tests {
         assert_eq!(
             words(&rows),
             [("没跟系".to_owned(), false), ("没关系".to_owned(), false)]
+        );
+
+        // 模糊音把全码的模糊词条排到它前面：清掉标记，挪回字面整句块之后（与没有首选规则时的座位相同），不留在字面整句前面。
+        let mut fuzzy = WordItem::new(
+            "mwgfxi",
+            "没更喜",
+            1,
+            CandidateSource::Database,
+            "mei'geng'xi",
+        );
+        fuzzy.fuzzy = true;
+        let mut sentence = literal.clone();
+        sentence.sentence_association = true;
+        let mut second = sentence.clone();
+        second.word = "美跟系".into();
+        let mut rows = vec![
+            fuzzy.clone(),
+            confident.clone(),
+            sentence.clone(),
+            second,
+            row("没"),
+        ];
+        settle(&mut rows);
+        assert_eq!(
+            words(&rows),
+            [
+                ("没更喜".to_owned(), false),
+                ("没跟系".to_owned(), false),
+                ("美跟系".to_owned(), false),
+                ("没关系".to_owned(), false),
+                ("没".to_owned(), false)
+            ]
+        );
+        // 后面没有字面整句时只清标记，不挪。
+        let mut rows = vec![fuzzy, confident.clone(), row("没")];
+        settle(&mut rows);
+        assert_eq!(
+            words(&rows),
+            [
+                ("没更喜".to_owned(), false),
+                ("没关系".to_owned(), false),
+                ("没".to_owned(), false)
+            ]
         );
 
         // 只剩它一行时它也回答整串按键，可以单独坐首选。
