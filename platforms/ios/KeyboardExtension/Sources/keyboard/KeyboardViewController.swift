@@ -680,6 +680,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var preeditFontScale: CGFloat = 1
   /// 「候选栏大小」（`candidate_scale_percent`）：顶栏、候选行、读音行和释义行的高度倍数（#10137）。
   private var candidateBarScale: CGFloat = 1
+  /// 每个候选词块的最小高度约束，常量是 `candidateChipMinimumSize.height` 乘以 `candidateBarScale`，「候选栏大小」变化时在 `applyCandidateGlossLayout` 里一起更新。
+  private var candidateChipHeightConstraints: [NSLayoutConstraint] = []
   private var candidateFontFamilies: [String] = []
   private var topRowHeightConstraint: NSLayoutConstraint?
   private var readingRowHeightConstraint: NSLayoutConstraint?
@@ -4900,6 +4902,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       || families != candidateFontFamilies else { return }
     candidateFontFamilies = families
     candidateBarScale = barScale
+    for constraint in candidateChipHeightConstraints {
+      constraint.constant = Self.candidateChipMinimumSize.height * barScale
+    }
     glossLineCount = lines
     if preeditScale != preeditFontScale {
       preeditFontScale = preeditScale
@@ -7976,8 +7981,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let minimumWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.width)
     // 隐藏的栈内词块由 UIStackView 强制设为零宽，词块自己的宽度下限必须让步。
     minimumWidth.priority = .init(999)
-    let minimumHeight = button.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.height)
+    // 高度下限随「候选栏大小」缩放（#10137）：它和候选内容贴住面板底边的约束同为 999，下限不缩放时，矮于 34pt 的候选栏里两者冲突，Auto Layout 可能撑高候选内容、压到按键上。宽度是触控下限，不缩放。
+    let minimumHeight = button.heightAnchor.constraint(
+      greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.height * candidateBarScale)
     minimumHeight.priority = .init(999)
+    candidateChipHeightConstraints.append(minimumHeight)
     NSLayoutConstraint.activate([minimumWidth, minimumHeight])
     button.accessibilityIdentifier = "candidate-\(index + 1)"
     button.menu = UIMenu(children: [
