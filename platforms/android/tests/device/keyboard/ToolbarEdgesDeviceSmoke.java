@@ -310,6 +310,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                     && "确认清空全部记录（含固定项）？".contentEquals(((android.widget.TextView) view).getText()));
                 View cancel = descendant(header, view -> view instanceof Button
                     && "取消".contentEquals(((Button) view).getText()));
+                // 「取消」等按钮没有无障碍描述，getContentDescription() 是 null，`String.contentEquals(null)` 会抛 NPE，要用可比 null 的比较。
                 View confirm = descendant(header, view -> view instanceof Button
                     && describedAs(view, "确认清空剪贴板历史"));
                 check(question != null && cancel != null && confirm != null,
