@@ -281,13 +281,15 @@ static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState 
 }
 
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
+//
+// `switchedIn` 表示这是从别的输入源切回水杉后的第一次报告（共享记录在离开时被清空，还没有记下任何模式）。这时系统报告的 中 不算用户越过 双 等模式做的选择：macOS 切回时可能落在 中 入口上，而用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式；只有已经在用水杉时从 双 等模式切到 中，才改用默认方案。
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
-                                                        MSIMEInputModeAvailability available) {
+                                                        MSIMEInputModeAvailability available, BOOL switchedIn) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);
     const BOOL returning = [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
     NSString *chinese = returning ? lastChineseScheme : scheme;
     const MSIMEInputMode own = MSIMEInputModeFor(NO, chinese);
-    if (own != MSIMEInputMode::Chinese && available && available(MSIMEInputModeID(own))) return MSIMEEditionDefaultScheme();
+    if (!switchedIn && own != MSIMEInputMode::Chinese && available && available(MSIMEInputModeID(own))) return MSIMEEditionDefaultScheme();
     return returning ? lastChineseScheme : nil;
 }
 
