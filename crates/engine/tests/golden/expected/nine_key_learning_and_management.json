@@ -877,6 +877,18 @@
       ]
      ]
     },
+    "pinned_candidates": {
+     "columns": [
+      "context_key",
+      "value"
+     ],
+     "rows": [
+      [
+       "nine-key:64:",
+       "米"
+      ]
+     ]
+    },
     "user_dictionary_operations": {
      "columns": [
       "dictionary",

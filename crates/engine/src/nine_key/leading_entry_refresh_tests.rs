@@ -360,7 +360,7 @@ impl NineKeySession {
             self.digits.len(),
             self.first_page_rows.get(),
             grid,
-            |word| positions::is_pinned_candidate(&journal, &context, word),
+            |word, kind| manually_pinned(&journal, &context, locked_key.len(), word, kind),
             &mut self.contests,
         );
         self.candidates = candidates;
