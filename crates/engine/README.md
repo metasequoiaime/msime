@@ -49,9 +49,10 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
 | `src/lattice/octagram.rs` | 格式与查询算法来自 [lotem/librime-octagram](https://github.com/lotem/librime-octagram) 提交 `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，Copyright (c) 2014, RIME Developers；双数组读取按 [darts-clone](https://github.com/s-yata/darts-clone) 0.32 的布局重新实现，Copyright (c) 2008-2014, Susumu Yata | BSD-3-Clause AND BSD-2-Clause（与本项目的 MPL-2.0 改动一起） | [`licenses/librime-octagram-BSD-3-Clause.txt`](licenses/librime-octagram-BSD-3-Clause.txt)（末尾附 darts-clone 的条款） |
 | `src/lattice/cxx_sort.rs` | 逐步复现 LLVM libc++ 的 `__algorithm/partial_sort.h`、`sort.h`、`make_heap.h`、`sift_down.h`、`pop_heap.h`、`push_heap.h`、`sort_heap.h` | Apache-2.0 WITH LLVM-exception（与本项目的 MPL-2.0 改动一起） | [`licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt`](licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt) |
 
-另外三处不另带许可证：
+另外四处不另带许可证：
 
 - `src/local/symbol_candidates.tsv` 是本项目自写的符号名称表，和代码一样是 MPL-2.0。
+- `src/lattice/offensive_words.txt` 是本项目自写的粗俗词表（词网格不拿它们拼整句），和代码一样是 MPL-2.0；收词标准写在文件头。
 - `src/korean/romaja.rs` 的罗马字映射参考 [rimeinn/rime-mungyeong](https://github.com/rimeinn/rime-mungyeong) 提交 `34c1b1437824e1e619e7429fb5f461dc7e754939` 的 `mungyeong_romaja.dict.yaml`，该文件头声明 public domain。
 - `src/nine_key/syllable_frequency.tsv` 是 424 个音节各自的总权重，由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.0.39` 的 `msime-pinyin.db`（rime-ice 的 GPL-3.0 词库加补充）汇总而来，不含任何词、读音或单条权重，按聚合统计事实保留，只作九键切分的排序先验。用 Unihan `kHanyuPinlu`（Unicode-3.0）重建的版本在九键评测不退步时会替换它。
 

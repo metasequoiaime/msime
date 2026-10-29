@@ -16,6 +16,7 @@ use std::cell::Cell;
 
 use super::cxx_sort;
 use super::ngram::{NgramTable, SENTENCE_START};
+use super::offensive;
 use super::personal::PersonalNgram;
 use super::LatticeLookup;
 use crate::assets;
@@ -429,7 +430,12 @@ pub(super) fn build_graph(
                     edges.reserve(reserve);
                     let begin = edges.len();
                     let mut span_key = None;
-                    for row in rows.into_iter().take(options.span_limit) {
+                    // 粗俗词不占 `span_limit` 的名额，后面的行补上来。
+                    for row in rows
+                        .into_iter()
+                        .filter(|row| offensive::admits_edge(&row.value, start, end, n))
+                        .take(options.span_limit)
+                    {
                         if row.value.is_empty() {
                             continue;
                         }
@@ -505,7 +511,11 @@ pub(super) fn build_graph_borrowed<'rows>(
                     edges.reserve(reserve);
                     let begin = edges.len();
                     let mut span_key = None;
-                    for row in rows.iter().take(options.span_limit) {
+                    for row in rows
+                        .iter()
+                        .filter(|row| offensive::admits_edge(&row.value, start, end, n))
+                        .take(options.span_limit)
+                    {
                         if row.value.is_empty() {
                             continue;
                         }
@@ -1055,15 +1065,22 @@ pub(super) fn decode_typo_on_graph_with_policy(
 ) -> Option<TypoSentence> {
     let n = graph.len();
     let mut capacities = vec![0usize; n];
+    // 纠错边是替用户换的词，粗俗词与普通边一样只在独占整段输入时可用。
+    let usable = |typo: &TypoEdge| {
+        typo.start < typo.end
+            && typo.end <= n
+            && !typo.value.is_empty()
+            && offensive::admits_edge(&typo.value, typo.start, typo.end, n)
+    };
     for typo in edges {
-        if typo.start < typo.end && typo.end <= n && !typo.value.is_empty() {
+        if usable(typo) {
             capacities[typo.start] = capacities[typo.start].saturating_add(1);
         }
     }
     let mut extra: Graph = capacities.into_iter().map(Vec::with_capacity).collect();
     let mut any = false;
     for typo in edges {
-        if typo.start >= typo.end || typo.end > n || typo.value.is_empty() {
+        if !usable(typo) {
             continue;
         }
         extra[typo.start].push(Edge {
@@ -2011,3 +2028,7 @@ mod collocation_tests;
 #[cfg(test)]
 #[path = "decode_collocation_tail_tests.rs"]
 mod collocation_tail_tests;
+
+#[cfg(test)]
+#[path = "decode_offensive_tests.rs"]
+mod offensive_tests;
