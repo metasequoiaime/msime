@@ -309,8 +309,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                     && "确认清空全部记录（含固定项）？".contentEquals(((android.widget.TextView) view).getText()));
                 View cancel = descendant(header, view -> view instanceof Button
                     && "取消".contentEquals(((Button) view).getText()));
+                // 「取消」等按钮没有无障碍描述，getContentDescription() 是 null，`String.contentEquals(null)` 会抛 NPE，要用可比 null 的比较。
                 View confirm = descendant(header, view -> view instanceof Button
-                    && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+                    && android.text.TextUtils.equals("确认清空剪贴板历史", view.getContentDescription()));
                 check(question != null && cancel != null && confirm != null,
                     "clipboard clear confirm row is missing its question or buttons at " + widthDp + "dp");
                 int right = header.getWidth() - header.getPaddingRight();
@@ -329,7 +330,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             View cancel = descendant(header, view -> view instanceof Button
                 && "取消".contentEquals(((Button) view).getText()));
             View confirm = descendant(header, view -> view instanceof Button
-                && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+                && android.text.TextUtils.equals("确认清空剪贴板历史", view.getContentDescription()));
             Class<?> press = confirm.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             check(press.isInstance(confirm) && "RETURN".equals(String.valueOf(role.invoke(confirm))),
