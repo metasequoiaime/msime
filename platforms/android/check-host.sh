@@ -713,10 +713,10 @@ for site in onCreateInputView applyClipboardPreference; do
   fi
 done
 # 输入法服务没有 Activity 的窗口令牌。从剪贴板面板弹出的 AlertDialog 或 PopupMenu，要么加不上窗口、把键盘进程带崩，要么抢走编辑器的窗口焦点，Via 这类 WebView 浏览器随即让输入框失焦、收起键盘（#5605、#5653）。确认和条目操作都画在面板里。
-if rg -A 30 '(void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|renderClipboardMoreMenu|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(' \
+# 整段方法体都查，不按固定行数截：菜单项往往加在方法末尾挂到面板之前，截到前几十行会漏掉那里新加的弹窗。
+if awk '/ (void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|renderClipboardMoreMenu|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(/ { inside = 1 } inside && /new (AlertDialog|PopupMenu|PopupWindow)/ { bad = 1 } inside && /^    }$/ { inside = 0 } END { exit !bad }' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'new (AlertDialog|PopupMenu)'; then
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"; then
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
