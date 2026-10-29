@@ -303,6 +303,8 @@ struct HostSession {
     statistics_private: bool,
     /// 只用来看候选的会话（`ffi::session::SessionUse::Preview`）：在任何平台上都不记选词位置和上屏效率。
     preview: bool,
+    /// 宿主在会话选项里写了 `selection_statistics: false`：选词由另一个会话记，这个会话不记选词位置和上屏效率。
+    statistics_recorded_elsewhere: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
@@ -662,9 +664,11 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）在任何平台上都不计。
+    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）和宿主声明由别的会话记统计的会话（`statistics_recorded_elsewhere`）在任何平台上都不计。
     fn private_session(&self) -> bool {
-        self.preview || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
+        self.preview
+            || self.statistics_recorded_elsewhere
+            || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
@@ -2068,6 +2072,9 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
+    /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection_statistics: Option<bool>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2840,6 +2847,7 @@ fn prepare_shipped_host_configuration(
                 .to_owned(),
         ),
         phrase_preedit: None,
+        selection_statistics: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,

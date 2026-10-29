@@ -7384,6 +7384,40 @@ fn a_session_without_a_statistics_directory_records_no_selections() {
     assert_eq!(statistics.selections.total(), 0);
     assert_eq!(statistics.efficiency.commits, 0);
 }
+/// 选项里写了 `selection_statistics: false` 的镜像会话（Windows TIP 跟着 Server 选同一个词）不记选词位置和效率，否则同一次选词会算两遍；同一目录里正常的会话照常记。
+#[test]
+fn a_mirror_session_leaves_selection_statistics_to_the_session_it_follows() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path());
+    store.set_enabled(true).unwrap();
+    let mirror = pinyin_fixture_host(
+        dir.path(),
+        chinese_preferences(),
+        json!({ "preferences_directory": dir.path(), "selection_statistics": false }),
+    );
+    assert_eq!(read(msime_client_focus(mirror, true))["ok"], true);
+    for round in 0..SELECTION_BATCH as usize + 1 {
+        commit_candidate_by_position(mirror, round % 2);
+    }
+    assert_eq!(read(msime_client_focus(mirror, false))["ok"], true);
+    read(msime_client_destroy(mirror));
+    let statistics = store.load().unwrap();
+    assert_eq!(statistics.selections.total(), 0);
+    assert_eq!(statistics.efficiency.commits, 0);
+
+    // 词库另放一处，统计仍是同一份。
+    let other = tempfile::tempdir().unwrap();
+    let handle = pinyin_fixture_host(
+        other.path(),
+        chinese_preferences(),
+        json!({ "preferences_directory": dir.path() }),
+    );
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    read(msime_client_destroy(handle));
+    assert_eq!(store.load().unwrap().selections.total(), 1);
+}
 /// 用户自己关掉学习不影响统计；宿主标出的隐私会话（Android 的隐私模式和不允许学习的输入框）不计选词位置，取消标记后照常计数。
 #[test]
 fn only_a_private_session_counts_no_selection_statistics() {
@@ -8207,19 +8241,16 @@ fn test_host_preferences(root: &std::path::Path, preferences: Preferences) -> u6
     created["value"]["session"].as_u64().unwrap()
 }
 fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preferences) -> u64 {
-    pinyin_fixture_host(root, preferences, None)
+    pinyin_fixture_host(root, preferences, json!({}))
 }
 
 /// 同 [`test_host_with_pinyin_fixture`]，并像各平台宿主那样把 `root` 作为 `preferences_directory`：打字统计就在 `root` 下。
 fn statistics_test_host(root: &std::path::Path, preferences: Preferences) -> u64 {
-    pinyin_fixture_host(root, preferences, Some(root))
+    pinyin_fixture_host(root, preferences, json!({ "preferences_directory": root }))
 }
 
-fn pinyin_fixture_host(
-    root: &std::path::Path,
-    preferences: Preferences,
-    preferences_directory: Option<&std::path::Path>,
-) -> u64 {
+/// `extra` 的字段原样并进会话选项。
+fn pinyin_fixture_host(root: &std::path::Path, preferences: Preferences, extra: Value) -> u64 {
     let path = |name| {
         let path = root.join(name);
         std::fs::create_dir_all(&path).unwrap();
@@ -8242,8 +8273,8 @@ fn pinyin_fixture_host(
     }
     bundle_wubi_table(&resources);
     let mut options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences });
-    if let Some(directory) = preferences_directory {
-        options["preferences_directory"] = json!(directory);
+    for (key, value) in extra.as_object().unwrap() {
+        options[key] = value.clone();
     }
     let options = options.to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
