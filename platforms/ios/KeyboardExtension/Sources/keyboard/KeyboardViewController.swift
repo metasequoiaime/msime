@@ -6324,6 +6324,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 「符」与「123」互换后 26 键字母层以 符 打头，从它借来的数字九宫格按九键一族的次序排（符 | 返回），返回键仍在字母层 123 那一格。
     let symbolFirstSource = numberPad && !nineKey && !strokes && activeKeyLayoutStyle.symbolFirst
       && chineseTwentySixKeyboard && [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey)
+    // 同一条规则用在 123 / #+= 层：字母层是互换过的手机 26 键底行（英文、本地模式和写 ASCII 标点的方案，以及中文 26 键标准和逗号句号在空格两侧的 #+= 层）时，这一层的返回键排在字母层 123 那一格（😀 或 符号 | 返回）。长空格和表情键样式没有 符，14/18 键、手写、九键和笔画的字母层底行不以 123 | 符 打头，这一层不变。
+    let symbolLayerSymbolFirst = symbolLayer && formFactor == .phone && activeKeyLayoutStyle.symbolFirst
+      && !nineKey && !strokes && !fourteenKey && !sourceHandwriting
+      && (!drawsChineseTwentySixKey || [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey))
     updateNineKeyMiddleKey()
     updateNineKeySidebar()
     if actionRow != nil {
@@ -6342,7 +6346,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if numberPadSymbolsKey?.isHidden == sidebarSymbols { numberPadSymbolsKey?.isHidden = !sidebarSymbols }
       nineKeyPunctuationRowShown = style == .nineKey && styledSlots.contains(.comma)
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad, styled: styledRow,
-                       tallReturn: tallReturn, symbolFirst: activeKeyLayoutStyle.symbolFirst, numberPadSpace: numberPadSpace)
+                       tallReturn: tallReturn, symbolFirst: symbolLayer ? symbolLayerSymbolFirst : activeKeyLayoutStyle.symbolFirst,
+                       numberPadSpace: numberPadSpace)
       NSLayoutConstraint.deactivate(activeStyledActionWidths)
       activeStyledActionWidths = []
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
@@ -6729,7 +6734,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 按布局画出的顺序排列底行的键。按键是重新插入而不是从行里移除，所以它们的宽度约束一直保持安装；每种顺序都列出全部按键，隐藏的放在最后。
-  /// `symbolFirst`（`touch_twenty_six_symbol_first`）把手机 26 键底行的 符 排到 123 左边；`numberPadSpace`（`touch_number_pad_space`）决定借来的数字九宫格里 0 和空格的次序，空格在右列时底行的空格隐藏、排在最后。
+  /// `symbolFirst`（`touch_twenty_six_symbol_first`）把手机 26 键底行的 符 排到 123 左边，在 123 / #+= 层（`.symbolLayer`）上把返回键排到 😀 或 符号 后面，调用方只在字母层底行确实互换时传真；`numberPadSpace`（`touch_number_pad_space`）决定借来的数字九宫格里 0 和空格的次序，空格在右列时底行的空格隐藏、排在最后。
   private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool, numberPad: Bool,
                                 styled: [TouchBottomRowLayout.Key]? = nil, tallReturn: Bool = false,
                                 symbolFirst: Bool = false, numberPadSpace: TouchNumberPadSpace = .platformDefault) {
@@ -6772,7 +6777,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           ? [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
           : [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
       case .symbolLayer:
-        order = [toggle, emoji, symbols, layerComma, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+        // 互换后 😀 或 符号 排在返回键前面，返回键落在字母层 123 那一格；😀、符号、逗号三者只显示一个。
+        order = symbolFirst
+          ? [emoji, symbols, layerComma, toggle, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+          : [toggle, emoji, symbols, layerComma, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
       case .tablet:
         order = [symbols, toggle, language, globe, space, gap, splitSpace, tabletLayer, dismiss, delete, comma, period, enter, emoji, zero, rewrite, handwritingDelete]
       case .standard:
@@ -9075,7 +9083,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let panel = voicePanel {
       panel.removeFromSuperview()
       voicePanel = nil
-      UIAccessibility.post(notification: .layoutChanged, argument: spaceButton)
+      // 数字键盘「空格在右列」时底行空格藏着，焦点回到右列那个空格。
+      let shownSpace = numberPadColumnSpace.flatMap { $0.isHidden ? nil : $0 } ?? spaceButton
+      UIAccessibility.post(notification: .layoutChanged, argument: shownSpace)
     }
     // 听写还没结束时面板被关掉（点面板、上滑取消、键盘收起、换出别的面板）就取消它。
     if let dictation = voiceDictation {

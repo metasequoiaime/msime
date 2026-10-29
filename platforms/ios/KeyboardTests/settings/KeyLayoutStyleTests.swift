@@ -1348,6 +1348,25 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.view.layoutIfNeeded()
     XCTAssertEqual(visibleBottomRow(controller).map(\.slot),
                    [.symbols, .layer] + (controller.needsInputModeSwitchKey ? [.globe] : []) + [.period, .space, .comma, .language, .returnKey])
+    // 英文 26 键的 123 打开 123 / #+= 层：返回键排在字母层 123 那一格（😀 或 符号 | 返回）。
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    for layer in ["123", "#+="] {
+      let row = visibleBottomRow(controller).map(\.slot)
+      XCTAssertEqual(row.firstIndex(of: .layer), 1, "English \(layer) layer keeps 返回 where 123 was")
+      XCTAssertTrue(row.first == .emoji || row.first == .symbols, "English \(layer) layer: \(row)")
+      if layer == "123" {
+        try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+      }
+    }
+    controller.viewDidDisappear(false)
+    // 长空格样式没有 符，它的 123 层照旧以返回打头。
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace, symbolFirst: true)))
+    controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(visibleBottomRow(controller).first?.slot, .layer, "long space 123 layer")
     controller.viewDidDisappear(false)
     // 九键底行本来以 符 打头，不受影响。
     select(.nineKey)

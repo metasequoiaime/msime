@@ -83,6 +83,8 @@ final class ImeLetterRows {
     private Boolean builtLayerToolbarEmoji;
     /** 123 / #+= 层建的时候是不是 26 键长空格样式（底行原表情或符号位换成逗号）；样式变了要重建。 */
     private Boolean builtLayerLongSpace;
+    /** 123 / #+= 层建的时候底行有没有按「符」与「123」互换把返回键排到第二格（{@link #layerSymbolFirst}）；变了要重建。 */
+    private Boolean builtLayerSymbolFirst;
     /** 当前键行若是 {@link #rebuildKeyRows} 的通用分支在字母层建的，记下按哪个布局建；其他分支建的为 -1。只有这种键行能就地换大小写（{@link #refreshLetterCase}）。 */
     private int builtLetterLayout = -1;
     /** 分离式键盘建行时第二行有没有算上微软双拼的 `;` 键（{@link #microsoftTenKeys}）；它决定两半的切分位置和内侧 G 是否重复，变了只能重建，不能就地换大小写。 */
@@ -381,7 +383,14 @@ final class ImeLetterRows {
             && s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
             && (builtLayerPunctuation != s.sendsChinesePunctuation()
                 || (builtLayerToolbarEmoji != null && builtLayerToolbarEmoji != (!s.toolbarHidden && s.toolbarEmoji))
-                || (builtLayerLongSpace != null && builtLayerLongSpace != s.longSpaceLayoutActive(drawnTouchLayout)));
+                || (builtLayerLongSpace != null && builtLayerLongSpace != s.longSpaceLayoutActive(drawnTouchLayout))
+                || (builtLayerSymbolFirst != null && builtLayerSymbolFirst != layerSymbolFirst()));
+    }
+
+    /** 123 / #+= 层的底行是否把返回键排到第二格：打开「符」与「123」互换、并且这块键面的字母层底行确实换成了以 符 打头（{@link KeyboardActionRow#symbolFirstMoves}），返回键留在字母层 123 那一格（#10061 的规则）。 */
+    private boolean layerSymbolFirst() {
+        return s.twentySixSymbolFirst
+            && KeyboardActionRow.symbolFirstMoves(drawnTouchLayout, s.bottomRowStyle(drawnTouchLayout));
     }
 
     /** 分离式键盘中间的空隙：普通的 View，不是键、不可点击，也不带键距外边距，所以 {@link KeyboardKeyArea} 不会把落在这里的按下交给旁边的键，点它什么也不发生。 */
@@ -759,6 +768,7 @@ final class ImeLetterRows {
         builtLayerPunctuation = null;
         builtLayerToolbarEmoji = null;
         builtLayerLongSpace = null;
+        builtLayerSymbolFirst = null;
         builtLetterLayout = -1;
         koreanKeyButtons.clear();
         koreanKeyInputs.clear();
@@ -1248,10 +1258,11 @@ final class ImeLetterRows {
         builtLayerPunctuation = chinesePunctuation;
         builtLayerToolbarEmoji = !s.toolbarHidden && s.toolbarEmoji;
         builtLayerLongSpace = s.longSpaceLayoutActive(drawnTouchLayout);
+        builtLayerSymbolFirst = layerSymbolFirst();
         java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
-            ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation, builtLayerLongSpace)
+            ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation, builtLayerLongSpace, builtLayerSymbolFirst)
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes(),
-                builtLayerToolbarEmoji, builtLayerLongSpace);
+                builtLayerToolbarEmoji, builtLayerLongSpace, builtLayerSymbolFirst);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.row(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。

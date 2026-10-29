@@ -435,6 +435,11 @@ public final class KeyboardActionRow {
         return !letters.isEmpty() && letters.get(0).slot() == DesignSlot.LAYER;
     }
 
+    /** 打开「符」与「123」互换时，这个键面的字母层底行是否真的换了（原来以 123 打头、换后以 符 打头）。是的话 123 / #+= 层的底行也把返回键排到第二格（{@link KeyboardLayout#numberLayer(boolean, boolean, boolean, boolean, boolean, boolean)}），返回键仍在字母层 123 那一格；长空格、表情键样式和本来就以 符 打头或没有 符 的键面不换。 */
+    public static boolean symbolFirstMoves(int touchLayout, TouchKeyStyle.Row style) {
+        return numberPadLayerFirst(touchLayout, style, false) && !numberPadLayerFirst(touchLayout, style, true);
+    }
+
     /** 对调层键和中/英，两键的宽度跟着键走；缺任何一个时原样返回。 */
     private static List<DesignEntry> swapLanguageNumber(List<DesignEntry> entries) {
         if (entries.isEmpty()) return entries;

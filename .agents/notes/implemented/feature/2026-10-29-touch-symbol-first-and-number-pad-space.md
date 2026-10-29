@@ -31,7 +31,15 @@ Status: implemented
 - iOS：`updateKeyboardLayout` 的 `symbolFirstSource`（借来的数字页、来源是中文 26 键、样式里有 符）让借来的数字页也走 `TouchBottomRowLayout.nineKeyDigits`，底行有 符 时符号栏里的第二个 符 照旧隐藏。
 - 鸿蒙：`KeyboardView.letterRowSymbolLeads()` 按字母层设计底行（不看此刻在不在数字层）算出以 符 打头时，`NineKeyLayout.actionRow` 的 `nineKeyDigits` 为真，借来的数字九宫格带上 符。
 
-表情键样式没有 符，借来的数字页照旧以返回键打头。123 / #+= 双层（长空格样式的 123 层）不在这条规则里，不变。
+表情键样式没有 符，借来的数字页照旧以返回键打头。
+
+### 互换与 123 / #+= 层
+
+英文、本地模式和写 ASCII 标点的方案（韩文、越南文、藏文，以及日文罗马字）的 26 键，123 打开的是自带底行的 123 / #+= 层（`返回 | 😀 或 符号 | …`），中文 26 键的 #+= 也是这一层。互换后字母层的 123 在第二格，这一层的返回键要是还在第一格，用户点 123 再在同一处点一下回不去，点到的是 😀 或 符号。所以同一条规则也用在这一层：字母层底行确实被互换过（原来 `123 | 符` 打头，换后 `符 | 123`）时，这一层的底行换成 `😀 或 符号 | 返回 | …`，两键的宽度份额正好是字母层的 符（1.05）和 123（1.25），返回键与 123 同一格、同宽。字母层没被互换的不变：长空格样式（这一层左下是逗号）、表情键样式、14/18 键、手写、九键和笔画。
+
+- Android：`KeyboardActionRow.symbolFirstMoves(layout, style)` 判断字母层是否真的换了，`ImeLetterRows.rebuildDesignLayer` 把它传给 `KeyboardLayout.numberLayer` / `moreSymbolLayer` 的 `symbolFirst`，建层时记下（`builtLayerSymbolFirst`），设置变了由 `layerPunctuationStale` 重建。
+- iOS：`updateKeyboardLayout` 的 `symbolLayerSymbolFirst`，`arrangeActionRow` 的 `.symbolLayer` 按它把 😀、符号、逗号排在返回键前面。
+- 鸿蒙：`KeyboardView.designLayerSymbolFirst()`（复用 `letterRowSymbolLeads`，九键和笔画除外）决定 `designLayerFace` 底行先画 `designLayerPanelKey` 还是 `designLayerBackKey`。
 
 ### 账号同步
 
@@ -74,7 +82,7 @@ Status: implemented
 - `TouchKeyLayoutStyle` 多两项 `symbolFirst`、`numberPadSpace`，App Group 镜像键 `keyboard.style.symbolFirst`、`keyboard.style.numberPadSpace`，各有 `save`。`activeKeyLayoutStyle` 在密码框和数字框里只退回样式，两项照旧带着。
 - `TouchBottomRowLayout.symbolFirst`、`nineKeyDigits(…, space:)`、`borrowedNumberPad(globe:language:space:)`。手机 26 键标准底行仍走原来的约束，`arrangeActionRow` 按 `symbolFirst` 换次序，宽度不变；非标准样式在 `styledBottomRow` 里套 `symbolFirst`。
 - 九键一族自己的数字层（和互换后借来的数字页）按 `nineKeyDigits(space:)` 排；`styledActionWidths` 在行里没有空格时改以 0 为基准。借来的数字页（返回键打头的那种）在 `after_zero` 时仍走原来的约束，另两种由 `borrowedNumberPadWidths` 定宽：不带地球键时与上方五列对齐（各占一列的键与数字键同宽，占两列的拿剩下的），带地球键时按 `borrowedNumberPad` 的份额相对返回键定宽。
-- 「空格在右列」时右列第三格是 `numberPadColumnSpace`：`makeSpaceKey` 做出的第三个空格键，叠在 ！ 上、按它的四边约束，进 `spaceKeys`（标题和读屏随底行空格更新）和 `KeyAreaStackView.overlayKeys`（分到相邻键距里靠它的那一半）；这时底行空格隐藏，！ 和右侧大回车时一样留着占位、不画不接触摸（`applyNineKeyClosingCovered`）。
+- 「空格在右列」时右列第三格是 `numberPadColumnSpace`：`makeSpaceKey` 做出的第三个空格键，叠在 ！ 上、按它的四边约束，进 `spaceKeys`（标题和读屏随底行空格更新）和 `KeyAreaStackView.overlayKeys`（分到相邻键距里靠它的那一半）；这时底行空格隐藏，！ 和右侧大回车时一样留着占位、不画不接触摸（`applyNineKeyClosingCovered`）。语音面板关掉时读屏焦点回到此刻显示着的那个空格键（`closeKeyboardPicker`），不落在藏起来的底行空格上。
 - 设置页 `KeyboardKeyLayoutSettingsView`：`choiceGroup` 的示意图变成可选，多一个 `trailing` 放互换开关。
 
 ### 鸿蒙
@@ -115,5 +123,6 @@ Status: implemented
 - Android：`rbuild` 上 `bash platforms/android/check-host.sh` 通过（298 项 JVM 冒烟、255 份设备测试源码编译），`TouchKeyStyleSmoke` 新增两组（互换的键序、宽度、各样式与各键面、借来的数字九宫格；三种空格位置的份额、借来的数字页、交换中/英、右侧大回车与字母层不受影响、设置文字），check-host 新增接线钉子；Gradle `compileFullDebugJavaWithJavac`（Studio）通过。
 - iOS：Mac Studio 上经 `rbuild` 重编模拟器原生库，一次性 iPhone 17 Pro Max / iOS 27.0 模拟器跑 `KeyLayoutStyleTests` 36 项 0 失败，其中新增 7 项：两项偏好的读法和保存写法、底行表、真 `KeyboardViewController` 上互换后的 26 键底行（标准、逗号句号在空格两侧、英文，宽度与不互换时相同）和借来的数字九宫格（符 | 返回，符号栏不再有第二个 符）、拼音九键和全拼借来的数字页在三种空格位置下的底行键序、右列空格叠在 ！ 那一格上、回到字母层后底行空格回来、表情面板盖住按键时右列空格和各行一起藏起来（不画、不接触摸、VoiceOver 读不到，关掉面板再回来；把 `setKeyRowsCovered` 换回改之前的写法时这一项 3 处断言失败），以及热力图。`NineKeyKeyboardTests` 119 项里 `testNineKeyKeepsItsOwnBottomRow` 有两处宽度断言失败（0 宽 122 对 121、回车 62 对 61.46，按空格宽度推算单位时差了 1/3pt）；把五个 iOS 源文件换回基线提交 `c3db764c0c`（#10061 的分支）后在同一台 Studio 上单跑这一项，失败的数字完全相同，是基线分支上已有的问题，本分支没有改它。
 - 鸿蒙与共享设置页：本机 `pnpm install --frozen-lockfile`（从本机 pnpm 仓库硬链接）后 `bash platforms/harmony/tests/run.sh` 0 失败（`touch-layout-styles.test.ts` 新增两组，`run.sh` 新增接线守卫和 `faceKey()` 里的两项）；`apps/desktop` 的 `tests/settings` 476 个文件 3060 项 vitest 通过，`tsc --noEmit` 通过。没有跑 `hvigorw assembleHap`，ArkTS 的编译只到 node 下的 `tsc`。
+- 评审后补上 123 / #+= 层跟着互换和语音面板关闭后的读屏焦点：`rbuild` 上 `check-host.sh` 通过（`TouchKeyStyleSmoke` 新增 `symbolFirstMoves` 各键面与样式、互换后 123 层和 #+= 层底行的键序与份额）；`bash platforms/harmony/tests/run.sh` 0 失败（鸿蒙这处改在 `.ets` 里，`run.sh` 的 `tsc` 不编译它）；iOS 的 `KeyLayoutStyleTests` 新增英文 123 / #+= 层与长空格 123 层的断言，两个 Swift 文件本机只过了 `swiftc -parse`，模拟器上的运行交给 PR 的 iOS Simulator 任务。
 - `pnpm run verify-notes` 的三个脚本通过。
 - 没有在任何模拟器或真机上装包看过键盘：三端的真实画面、右列空格的手势（长按语音、拖动光标）和 ！ 的上屏、设置页到键盘的端到端路径都只到单元测试与编译这一级。

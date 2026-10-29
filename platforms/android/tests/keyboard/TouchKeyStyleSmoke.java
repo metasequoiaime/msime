@@ -442,6 +442,34 @@ public final class TouchKeyStyleSmoke {
         }
         check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.EMOJI, true, platform)).get(0) == LAYER,
             "an emoji-style source keeps 返回 first");
+        // 123 / #+= 层（英文、韩文等 26 键的数字入口，中文 26 键的 #+=）：字母层确实互换时 😀/符号 排在返回键前面，返回键在字母层 123 那一格、与 123 同宽；长空格、表情键样式和字母层没有 123 | 符 的键面不换。
+        check(KeyboardActionRow.symbolFirstMoves(standard, TouchKeyStyle.Row.STANDARD)
+            && KeyboardActionRow.symbolFirstMoves(standard, TouchKeyStyle.Row.COMMA_PERIOD)
+            && KeyboardActionRow.symbolFirstMoves(KeyboardLayout.KOREAN_LAYOUT, TouchKeyStyle.Row.STANDARD)
+            && !KeyboardActionRow.symbolFirstMoves(standard, TouchKeyStyle.Row.LONG_SPACE)
+            && !KeyboardActionRow.symbolFirstMoves(standard, TouchKeyStyle.Row.EMOJI)
+            && !KeyboardActionRow.symbolFirstMoves(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, TouchKeyStyle.Row.STANDARD)
+            && !KeyboardActionRow.symbolFirstMoves(KeyboardLayout.STROKE_LAYOUT, TouchKeyStyle.Row.STANDARD)
+            && !KeyboardActionRow.symbolFirstMoves(KeyboardLayout.FOURTEEN_KEY_LAYOUT, TouchKeyStyle.Row.STANDARD)
+            && !KeyboardActionRow.symbolFirstMoves(KeyboardLayout.HANDWRITING_LAYOUT, TouchKeyStyle.Row.STANDARD),
+            "the 123 layer follows only a swapped letter row");
+        List<KeyboardActionRow.DesignEntry> english = KeyboardActionRow.designEntries(standard, false, false, false, true,
+            TouchKeyStyle.Row.STANDARD, true, platform);
+        for (List<KeyboardLayout.LayerKey> bottom : List.of(
+                KeyboardLayout.numberLayer(false, false, false, false, false, true).get(3),
+                KeyboardLayout.numberLayer(true, true, false, true, false, true).get(3),
+                KeyboardLayout.moreSymbolLayer(false, false, false, true).get(3))) {
+            check(bottom.get(0).kind() != KeyboardLayout.LayerKeyKind.LETTERS
+                && bottom.get(1).kind() == KeyboardLayout.LayerKeyKind.LETTERS
+                && Math.abs(bottom.get(0).weight() - english.get(0).weight()) < 1e-5f
+                && Math.abs(bottom.get(1).weight() - english.get(1).weight()) < 1e-5f,
+                "返回 sits where 123 was, behind " + bottom.get(0).text());
+        }
+        check(KeyboardLayout.numberLayer(false, false, false, false, false, false)
+                .equals(KeyboardLayout.numberLayer(false, false, false, false, false))
+            && KeyboardLayout.moreSymbolLayer(false, false, false, false).equals(KeyboardLayout.moreSymbolLayer(false, false, false))
+            && KeyboardLayout.numberLayer(false, false, false, false, false, false).get(3).get(0).kind()
+                == KeyboardLayout.LayerKeyKind.LETTERS, "without the swap the layer keeps 返回 first");
     }
 
     /**
