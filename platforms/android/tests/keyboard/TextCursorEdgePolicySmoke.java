@@ -85,9 +85,15 @@ public final class TextCursorEdgePolicySmoke {
         plan(-3, 0, true, 0, 3, TEXT, null, null, -3, 0, "读不到时收缩照原样发");
         // 纵向收缩不知道选区里有几行，只按锚点外侧的换行算，至少一步。
         plan(0, -3, true, 5, 9, TEXT, "a\nb\nc", "", 0, -2, "纵向收缩按锚点外侧换行数");
-        // 活动端在外侧时按外侧文字拦。
+        // 报来 start > end 时方向确定（原生 TextView 原样报锚点和活动端），活动端在外侧时按外侧文字拦。
         plan(-1, 0, true, 3, 0, TEXT, "", "d", 0, 0, "活动端已在开头不再延伸");
-        plan(2, 0, true, 0, 3, TEXT, "", "d", 1, 0, "活动端向右延伸按剩余字数截断");
+        // 报来 start < end 时方向不确定（Chromium WebView 总按 start <= end 报），活动端可能在左端，按可能收缩的上限算。
+        plan(2, 0, true, 0, 3, TEXT, "", "d", 2, 0, "方向不确定时向右按选区加外侧文字截断");
+        plan(5, 0, true, 0, 3, TEXT, "", "d", 4, 0, "方向不确定时向右到末尾为止");
+        // WebView 里从末尾向左选了 3 个字（真实锚点 5、活动端 2）报成 (2,5)：往右收缩不能被末尾拦掉。
+        plan(1, 0, true, 2, 5, TEXT, "he", "", 1, 0, "WebView 选区从末尾向左选后仍能向右收缩");
+        plan(4, 0, true, 2, 5, TEXT, "he", "", 3, 0, "WebView 选区向右收缩到末尾为止");
+        plan(-1, 0, true, 2, 5, TEXT, "he", "", -1, 0, "WebView 选区继续向左延伸");
     }
 
     private static void editorsLeftAlone() {
@@ -117,6 +123,7 @@ public final class TextCursorEdgePolicySmoke {
         // 选择模式收缩：开头一侧按报来的活动端算。
         plan(-5, 0, true, 1, 3, PASSWORD, "x", "x", -3, 0, "密码框收缩到开头为止");
         plan(-5, 0, true, 3, 1, PASSWORD, "x", "x", -1, 0, "密码框向左延伸到开头为止");
+        plan(-5, 0, true, 0, 3, PASSWORD, "x", "x", -3, 0, "密码框方向不确定时按右端截断");
         planWith(0, -1, false, 0, 2, PASSWORD, "x", "x", "x", true, 0, 0, "密码框不读另一侧，上键收起不发");
         planWith(-1, 0, false, 0, 0, PASSWORD, "", "", null, true, 0, 0, "密码框不问是否为空");
         check(reads == 0, "密码框一次也不读文字");

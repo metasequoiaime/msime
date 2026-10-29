@@ -100,11 +100,10 @@ public final class TextCursorEdgePolicy {
     /** 移动这一侧还剩多少；null 表示不知道，照原样发。 */
     private static Room room(boolean forward, boolean selecting, boolean ranged, int selectionStart,
             int selectionEnd, boolean password, Editor editor, int limit) {
-        // 选择模式下活动端朝锚点收缩：先走完选区里的字，再走锚点外侧的文字。选区里的字按 UTF-16 长度算，选区里有代理对或组合附加符时比真实字素数多，一批很长、正好走到文档边界时仍可能多发几下。
-        boolean shrinking = selecting && ranged
-            && (forward ? selectionEnd < selectionStart : selectionEnd > selectionStart);
+        // 选择模式下活动端朝锚点收缩：先走完选区里的字，再走锚点外侧的文字。原生 TextView 按锚点、活动端原样报选区，报来 start > end 时活动端一定在左端；Chromium WebView 报的总是 start <= end，方向丢了，这时活动端可能在任一端，两个方向都按可能在收缩算上限，宁可在边界多发几下 Shift+方向键（编辑器自己消化，系统也不拿带 Shift 的方向键做焦点导航），也不能把收缩选区的键拦掉。选区里的字按 UTF-16 长度算，选区里有代理对或组合附加符时比真实字素数多，一批很长、正好走到文档边界时仍可能多发几下。
+        boolean shrinking = selecting && ranged && (forward || selectionStart < selectionEnd);
         if (password) {
-            // 密码框零读取：开头一侧看报来的活动端（不在选择模式时是选区起点），末尾一侧不知道文档长度。
+            // 密码框零读取：开头一侧看报来的活动端（不在选择模式时是选区起点），末尾一侧不知道文档长度。选择模式下报来的 selectionEnd 要么是原样报的活动端，要么是方向丢失时的右端，都不小于真实活动端，按它截断不会把收缩的键拦掉。
             if (forward || selectionStart < 0 || selectionEnd < 0) return null;
             return Room.offset(selecting ? selectionEnd : Math.min(selectionStart, selectionEnd));
         }
