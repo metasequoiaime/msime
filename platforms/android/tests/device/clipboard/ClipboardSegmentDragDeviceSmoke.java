@@ -190,7 +190,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private void confirmClearClipboard() throws Exception {
         tap(key("清空"));
         assertDrawn(node -> equalsText("app.msime.android", node.getPackageName())
-            && equalsText("清空全部历史（含固定项）？", node.getText()), "clear question");
+            && equalsText("确认清空全部记录（含固定项）？", node.getText()), "clear question");
         assertDrawn(key("取消").and(AccessibilityNodeInfo::isClickable), "clear cancel");
         assertDrawn(described("确认清空剪贴板历史"), "clear confirm");
         tap(described("确认清空剪贴板历史"));

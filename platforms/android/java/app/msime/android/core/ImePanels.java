@@ -1763,22 +1763,26 @@ final class ImePanels {
                 s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
         } else if (confirmingClear) {
-            // 确认画在面板顶行里，不弹对话框：对话框会让输入法进程崩掉或抢走编辑器焦点，键盘随之收起（#5605）。
-            TextView question = ViewPolicy.textLabel(s, "清空全部历史（含固定项）？", 13);
-            KeyboardTypographyPolicy.setKeyTextSize(question, 13);
+            // 确认画在面板顶行里，不弹对话框：对话框会让输入法进程崩掉或抢走编辑器焦点，键盘随之收起（#5605、#5653）。
+            TextView question = ViewPolicy.textLabel(s, "确认清空全部记录（含固定项）？", 13);
+            // 问句在 13sp 到 10sp 之间按可用宽度缩小，再放不下才省略；「取消」「清空」宽度固定，永远留在键盘宽度以内（#10030）。
+            KeyboardTypographyPolicy.setFittedKeyTextSize(question, 10, 13);
             ViewPolicy.setMaxLinesEllipsized(question, 1);
             LayoutPolicy.setHorizontalPaddingDp(question, s, 6);
             ViewPolicy.setCenteredVertically(question);
-            // 问句必须和两侧按钮一样按 MATCH_PARENT 取高：顶行套在 HorizontalScrollView 里，量高时只拿到 AT_MOST 32px，这时横向 LinearLayout 只要有一个子视图不是 MATCH_PARENT，行高就只按非 MATCH_PARENT 子视图算。原来问句用 `weightedZeroParams` 高度为 0，整行跟着塌成 0 高，问句和「取消」「清空」都看不见、手指点不到，清空也就走不到系统认证（#10027）。
+            // 问句和两侧按钮一样按 MATCH_PARENT 取高，与顶行同高。原来问句用 `weightedZeroParams` 高度为 0，顶行套在横向滚动里量高拿到的是 AT_MOST，整行跟着塌成 0 高，问句和「取消」「清空」都看不见、手指点不到，清空也就走不到系统认证（#10027）。
             header.addView(question, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", () -> {
                 clipboardClearPending = false;
                 renderClipboardHistory();
             });
+            // 确认清空是删除全部记录的动作，用回车键的强调键帽，和普通的文字按钮区分开（#10030）。
             Button confirm = clipboardAction(header, "清空", () -> {
                 clipboardClearPending = false;
+                // 先把顶行换回普通状态再拉起系统认证：认证没通过或被取消时，面板上不能还留着一行已经失效的确认。
+                renderClipboardHistory();
                 s.clearClipboardHistory();
-            });
+            }, KeyboardKeyRole.RETURN);
             confirm.setContentDescription("确认清空剪贴板历史");
         } else if (selecting) {
             TextView selected = ViewPolicy.centeredText(s,
@@ -1826,11 +1830,16 @@ final class ImePanels {
                 undo.setContentDescription("撤销刚才删除的剪贴板记录");
             }
         }
-        android.widget.HorizontalScrollView headerScroll = new android.widget.HorizontalScrollView(s);
-        headerScroll.setHorizontalScrollBarEnabled(false);
-        headerScroll.setFillViewport(true);
-        headerScroll.addView(header, LayoutPolicy.scrollMatchWidthWrapParams());
-        s.clipboardHeader.addView(headerScroll, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+        if (confirmingClear) {
+            // 确认行不放进横向滚动：HorizontalScrollView 按 UNSPECIFIED 宽度量顶行，带权重的问句会被量成整句宽，窄屏或大字号时整行比键盘宽，「清空」被挤到右侧屏外，要横滑才点得到（#10027、#10030）。直接挂在顶栏下按键盘宽度 EXACTLY 量，问句只分到两个按钮剩下的宽度。
+            s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+        } else {
+            android.widget.HorizontalScrollView headerScroll = new android.widget.HorizontalScrollView(s);
+            headerScroll.setHorizontalScrollBarEnabled(false);
+            headerScroll.setFillViewport(true);
+            headerScroll.addView(header, LayoutPolicy.scrollMatchWidthWrapParams());
+            s.clipboardHeader.addView(headerScroll, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+        }
         if (!cloud && s.clipboardHistoryEnabled && items != null
             && (clipboardCategoryChoosing || clipboardCategoryMovingText != null)) {
             renderClipboardCategoryPicker();

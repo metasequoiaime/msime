@@ -244,6 +244,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 method(panels.getClass(), "updateClipboardBackToTop").invoke(panels);
                 check(backToTop.getVisibility() == View.GONE, "back to top stayed visible at top");
             }
+            checkClipboardClearConfirm(panels, header, surface, density);
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
             method(type, "render").invoke(service);
@@ -289,6 +290,57 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
     }
 
+    /**
+     * 确认清空的顶行在窄键盘上也要整行落在键盘宽度以内：问句、「取消」「清空」都有宽高，按钮不出右边界（#10030）。
+     *
+     * <p>顶行原来套在 HorizontalScrollView 里按 UNSPECIFIED 宽度量，整行约 270dp；240dp 宽时「清空」被挤到右侧屏外，要横滑才点得到。
+     */
+    private static void checkClipboardClearConfirm(Object panels, ViewGroup header, ViewGroup surface,
+            float density) throws Exception {
+        Field pending = field(panels.getClass(), "clipboardClearPending");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        pending.setBoolean(panels, true);
+        try {
+            render.invoke(panels);
+            for (int widthDp : new int[] {240, 320, 600}) {
+                layout(surface, Math.round(widthDp * density), Math.round(300 * density));
+                View question = descendant(header, view -> view instanceof android.widget.TextView
+                    && !(view instanceof Button)
+                    && "确认清空全部记录（含固定项）？".contentEquals(((android.widget.TextView) view).getText()));
+                View cancel = descendant(header, view -> view instanceof Button
+                    && "取消".contentEquals(((Button) view).getText()));
+                View confirm = descendant(header, view -> view instanceof Button
+                    && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+                check(question != null && cancel != null && confirm != null,
+                    "clipboard clear confirm row is missing its question or buttons at " + widthDp + "dp");
+                int right = header.getWidth() - header.getPaddingRight();
+                for (View part : new View[] {question, cancel, confirm}) {
+                    Rect area = bounds(header, part);
+                    check(area.width() > 0 && area.height() > 0,
+                        "clipboard clear confirm part is not drawn at " + widthDp + "dp: " + area.toShortString());
+                    check(area.left >= header.getPaddingLeft() && area.right <= right,
+                        "clipboard clear confirm part leaves the keyboard width at " + widthDp + "dp: "
+                            + area.toShortString() + " outside " + header.getPaddingLeft() + ".." + right);
+                }
+                check(bounds(header, cancel).right <= bounds(header, confirm).left,
+                    "clipboard clear cancel and confirm overlap at " + widthDp + "dp");
+            }
+        } finally {
+            pending.setBoolean(panels, false);
+            render.invoke(panels);
+        }
+    }
+    private static View descendant(ViewGroup root, java.util.function.Predicate<View> match) {
+        for (int index = 0; index < root.getChildCount(); index++) {
+            View child = root.getChildAt(index);
+            if (match.test(child)) return child;
+            if (child instanceof ViewGroup group) {
+                View found = descendant(group, match);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
     private static void layout(View row, int width, int height) {
         row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
