@@ -112,6 +112,16 @@ def main():
         assert identity["version"] != "unknown", "system crash lost the app version"
         assert read(ledger) == old, "continuous consent changed at restart"
         print("API 35: actual system exit -> queue; continuous consent survived restart", flush=True)
+        first_id = first[0]["id"]
+        stop()
+        start()
+        assert len(crashes()) == 1 and crashes()[0]["id"] == first_id, "system crash duplicated on restart"
+        stop()
+        # 隔离网络下模拟队列已确认发送；持久收据仍须阻止系统历史再次入队。
+        write(telemetry + "/telemetry.json", "[]")
+        start()
+        assert not crashes() and not crash_files(), "delivered system crash recreated on restart"
+        print("API 35: restart and drained-queue restart both reject the same historical crash", flush=True)
 
         stop()
         document["preferences"].pop("usage_reporting_consent", None)

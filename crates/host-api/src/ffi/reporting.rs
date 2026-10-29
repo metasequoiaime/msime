@@ -361,7 +361,7 @@ pub unsafe extern "C" fn msime_client_telemetry_record_crash(
                         );
                     }
                     return store
-                        .record_crash_with_context(capture, Some(&context), message, stack)
+                        .record_diagnosed_capture(capture, &context, message, stack)
                         .map_err(|error| error.to_string());
                 }
                 store

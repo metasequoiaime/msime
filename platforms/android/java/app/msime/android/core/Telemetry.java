@@ -483,11 +483,11 @@ public final class Telemetry {
                         .put("revision", "unknown").put("run", "").put("attempt", "").put("arch", "unknown")
                         .put("component", original.component);
                     request.put("crash_record_header", "MSIME-CRASH/1 " + identity + "\n");
-                    if (pid > 0 && fatal) {
+                    if (pid > 0 && fatal && original.component.equals("keyboard")) {
                         // ApplicationExitInfo 能提供真实 PID 时交给共享层按未结束会话认领；这样键盘历史故障沿用现场固定的构建身份。
                         request.remove("outside_session");
                         request.remove("diagnostic_capture");
-                        request.put("pid", pid);
+                        request.put("pid", pid).put("diagnostic_id", captureId);
                     }
                     call(() -> NativeClient.telemetryRecordCrash(request.toString()));
                 }

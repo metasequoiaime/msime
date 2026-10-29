@@ -69,6 +69,8 @@ const EVENTS_PATH: &str = "/v1/telemetry/events";
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_QUEUE_BYTES: u64 = 1 << 20;
 const MAX_SMALL_FILE_BYTES: u64 = 16 * 1024;
+// 16 个最大构建头和 128 条收据一起保存时可超过单会话标记的 16 KiB；状态独立限长。
+const MAX_STATE_FILE_BYTES: u64 = 32 * 1024;
 pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 /// Crash records turned into events per start; a host that crashes in a loop cannot fill the queue with one start's worth of records.
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
@@ -76,6 +78,8 @@ const MAX_CRASH_RECORDS_PER_START: usize = 8;
 const MAX_OPEN_SESSIONS: usize = 16;
 /// 记住的、已经补报过 `session_crash` 的进程号上限，用来认出系统事后为同一次崩溃再送来的诊断。
 const MAX_CRASHED_PROCESSES: usize = 16;
+/// 最近已持久入队的故障 UUID，独立于发送队列保留，覆盖 Android 每次读取的 16 项退出历史及收件重试。
+const MAX_RECEIVED_CRASHES: usize = 128;
 /// A `Retry-After` beyond this is treated as this, so a malformed header cannot silence reporting for good.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// The delay after a `429` without a usable `Retry-After`.
@@ -312,6 +316,9 @@ struct TelemetryState {
     /// 最近因崩溃记录补报过 `session_crash` 的会话所在的进程号，旧的在前，最多 [`MAX_CRASHED_PROCESSES`] 个。系统事后送来同一进程的诊断时据此认出它已经报过。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     crashed_processes: Vec<u32>,
+    /// 仅本机保存；入队和此收据均写盘后才删除原记录，撤回时一起清空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    received_crashes: Vec<Uuid>,
 }
 
 impl TelemetryState {
@@ -652,6 +659,22 @@ impl TelemetryStore {
         }
     }
 
+    /// 系统退出与现场故障共用捕获 UUID；收据在队列发送后仍可识别重复，不能用于故障处理器。
+    pub fn record_diagnosed_capture(
+        &self,
+        capture: &str,
+        context: &CrashContext,
+        message: &str,
+        stack: &str,
+    ) -> Result<bool, TelemetryError> {
+        let _lock = self.lock_normal_operation()?;
+        let id = Uuid::parse_str(capture).map_err(|_| TelemetryError::Invalid)?;
+        if self.read_state().received_crashes.contains(&id) {
+            return Ok(false);
+        }
+        self.record_crash_with_context(capture, Some(context), message, stack)
+    }
+
     /// 记下系统事后报告的一次崩溃（iOS 的 MetricKit 诊断）。`pid` 是崩溃进程的进程号：它有未结束的会话时写成最近开始的那个会话的崩溃记录；这个进程的崩溃已经由它自己的崩溃处理程序记下（记录还在，或已经补报过 `session_crash`）时什么都不写，一次崩溃只报一次；都不是时写成不属于任何会话的记录。`pid` 为 `None` 用于系统强制结束（SIGKILL）：按会话语义它不算会话崩溃，总是写成单独的记录。不联网；会加锁，不能在崩溃处理程序里调用。
     pub fn record_diagnosed_crash(
         &self,
@@ -672,8 +695,8 @@ impl TelemetryStore {
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
         let _lock = self.lock_normal_operation()?;
+        let state = self.read_state();
         if let Some(pid) = pid {
-            let state = self.read_state();
             if state.crashed_processes.contains(&pid) {
                 return Ok(DiagnosedCrash::Duplicate);
             }
@@ -704,6 +727,9 @@ impl TelemetryStore {
         } else {
             Uuid::new_v4()
         };
+        if state.received_crashes.contains(&id) {
+            return Ok(DiagnosedCrash::Duplicate);
+        }
         Ok(
             if self.record_crash_with_context(
                 &id.hyphenated().to_string(),
@@ -873,12 +899,14 @@ impl TelemetryStore {
             || state.retry_after_unix_ms != 0
             || !state.open_sessions.is_empty()
             || !state.crashed_processes.is_empty()
+            || !state.received_crashes.is_empty()
             || state.consent_epoch.is_some()
         {
             state.active_day.clear();
             state.retry_after_unix_ms = 0;
             state.open_sessions.clear();
             state.crashed_processes.clear();
+            state.received_crashes.clear();
             state.consent_epoch = None;
             if !state.install_id.is_empty() || state.consent_required {
                 self.write_state(&state)?;
@@ -932,8 +960,14 @@ impl TelemetryStore {
 
     fn read_state(&self) -> TelemetryState {
         let mut state: TelemetryState =
-            read_small_json(&self.directory.join(STATE_FILE)).unwrap_or_default();
+            read_bounded_json(&self.directory.join(STATE_FILE), MAX_STATE_FILE_BYTES)
+                .unwrap_or_default();
         state.open_sessions.retain(SessionMarker::is_valid);
+        let excess = state
+            .received_crashes
+            .len()
+            .saturating_sub(MAX_RECEIVED_CRASHES);
+        state.received_crashes.drain(..excess);
         state
     }
 
@@ -942,7 +976,7 @@ impl TelemetryStore {
     }
 
     fn read_marker(&self) -> Option<SessionMarker> {
-        read_small_json::<SessionMarker>(&self.directory.join(SESSION_FILE))
+        read_bounded_json::<SessionMarker>(&self.directory.join(SESSION_FILE), MAX_SMALL_FILE_BYTES)
             .filter(SessionMarker::is_valid)
     }
 
@@ -1048,6 +1082,15 @@ impl TelemetryStore {
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .unwrap_or_default();
+            let id = Uuid::parse_str(stem).unwrap_or_else(|_| {
+                // 旧系统诊断可使用非 UUID 文件名；收据仍绑定原始文件身份。
+                let hash = Sha256::digest(stem.as_bytes());
+                Uuid::from_bytes(hash[..16].try_into().expect("SHA-256 has 32 bytes"))
+            });
+            if state.received_crashes.contains(&id) {
+                collected.records.push(path);
+                continue;
+            }
             let session_index = state
                 .open_sessions
                 .iter()
@@ -1089,6 +1132,12 @@ impl TelemetryStore {
                 );
             }
             push(queue, event);
+            state.received_crashes.push(id);
+            let excess = state
+                .received_crashes
+                .len()
+                .saturating_sub(MAX_RECEIVED_CRASHES);
+            state.received_crashes.drain(..excess);
             collected.crashes += 1;
             collected.records.push(path);
         }
@@ -1294,9 +1343,9 @@ fn unix_ms(now: SystemTime) -> u64 {
     })
 }
 
-fn read_small_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+fn read_bounded_json<T: serde::de::DeserializeOwned>(path: &Path, maximum: u64) -> Option<T> {
     let file = open_regular_file(path)?;
-    let bytes = crate::bounded_io::read_bounded(file, MAX_SMALL_FILE_BYTES).ok()?;
+    let bytes = crate::bounded_io::read_bounded(file, maximum).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 

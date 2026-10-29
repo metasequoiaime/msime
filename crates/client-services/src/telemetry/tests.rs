@@ -1489,7 +1489,7 @@ fn delayed_system_diagnostics_keep_a_stable_event_identity() {
         .into_iter()
         .find(|event| event.kind == TelemetryKind::Crash)
         .unwrap();
-    assert_eq!(record(), DiagnosedCrash::Outside);
+    assert_eq!(record(), DiagnosedCrash::Duplicate);
     store.record_active(&app(), noon()).unwrap();
     let crashes: Vec<_> = store
         .queued()
@@ -1498,4 +1498,153 @@ fn delayed_system_diagnostics_keep_a_stable_event_identity() {
         .filter(|event| event.kind == TelemetryKind::Crash)
         .collect();
     assert_eq!(crashes, [first]);
+}
+
+#[test]
+fn system_diagnostics_stay_received_after_delivery_and_restart() {
+    let (directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let context = CrashContext::from_header(&capture.crash_record_header).unwrap();
+    assert!(store
+        .record_diagnosed_capture(&capture.session_id, &context, "Synthetic App fault", "")
+        .unwrap());
+    store.record_active(&app(), noon()).unwrap();
+    let sender = ScriptedSender::new([]);
+    store.flush(&sender, noon()).unwrap();
+    assert!(store.queued().unwrap().is_empty());
+    let restarted = TelemetryStore::new(directory.path().join("state"));
+    assert!(!restarted
+        .record_diagnosed_capture(&capture.session_id, &context, "Synthetic App fault", "")
+        .unwrap());
+    restarted.record_active(&app(), noon()).unwrap();
+    assert!(restarted.queued().unwrap().is_empty());
+    assert!(!capture.crash_record_path.exists());
+    assert_eq!(
+        sender
+            .ids()
+            .iter()
+            .filter(|id| id.starts_with("crash-"))
+            .count(),
+        1
+    );
+
+    // 即使另一个旧进程重建了同名现场文件，收件端也不能再次排队。
+    fs::write(
+        &capture.crash_record_path,
+        format!("{}Synthetic replay\n", capture.crash_record_header),
+    )
+    .unwrap();
+    restarted.record_active(&app(), noon()).unwrap();
+    assert!(restarted.queued().unwrap().is_empty());
+    assert!(!capture.crash_record_path.exists());
+
+    let identity = "synthetic-ANR-history";
+    assert_eq!(
+        restarted
+            .record_diagnosed_crash_with_context(
+                None,
+                Some(&context),
+                Some(identity),
+                "Hang Android ANR",
+                ""
+            )
+            .unwrap(),
+        DiagnosedCrash::Outside
+    );
+    restarted.record_active(&app(), noon()).unwrap();
+    restarted.flush(&sender, noon()).unwrap();
+    let again = TelemetryStore::new(directory.path().join("state"));
+    assert_eq!(
+        again
+            .record_diagnosed_crash_with_context(
+                None,
+                Some(&context),
+                Some(identity),
+                "Hang Android ANR",
+                ""
+            )
+            .unwrap(),
+        DiagnosedCrash::Duplicate
+    );
+    again.record_active(&app(), noon()).unwrap();
+    assert!(again.queued().unwrap().is_empty());
+}
+
+#[test]
+fn received_crash_receipts_require_durable_queue_and_are_bounded() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let context = CrashContext::from_header(&capture.crash_record_header).unwrap();
+    assert!(store
+        .record_diagnosed_capture(&capture.session_id, &context, "Synthetic fault", "")
+        .unwrap());
+    // 强制队列发布失败：收件失败不能提前保存收据或删除原记录。
+    let queue = store.directory.join(QUEUE_FILE);
+    fs::remove_file(&queue).unwrap();
+    fs::create_dir(&queue).unwrap();
+    assert!(store.record_active(&app(), noon()).is_err());
+    assert!(store.read_state().received_crashes.is_empty());
+    assert!(capture.crash_record_path.exists());
+    fs::remove_dir(&queue).unwrap();
+    store.record_active(&app(), noon()).unwrap();
+    assert_eq!(
+        store.read_state().received_crashes,
+        [Uuid::parse_str(&capture.session_id).unwrap()]
+    );
+    let sender = ScriptedSender::new([]);
+    for _ in 0..MAX_RECEIVED_CRASHES {
+        let next = store.prepare_crash_capture(&app(), noon()).unwrap();
+        assert!(store
+            .record_diagnosed_capture(&next.session_id, &context, "Synthetic next fault", "")
+            .unwrap());
+        store.record_active(&app(), noon()).unwrap();
+        store.flush(&sender, noon()).unwrap();
+    }
+    let state = store.read_state();
+    assert_eq!(state.received_crashes.len(), MAX_RECEIVED_CRASHES);
+    assert!(!state
+        .received_crashes
+        .contains(&Uuid::parse_str(&capture.session_id).unwrap()));
+    assert!(
+        fs::metadata(store.directory.join(STATE_FILE))
+            .unwrap()
+            .len()
+            < MAX_SMALL_FILE_BYTES
+    );
+    store.clear().unwrap();
+    assert!(store.read_state().received_crashes.is_empty());
+}
+
+#[test]
+fn maximum_sessions_and_receipts_fit_the_state_read_limit() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let mut context = CrashContext::from_header(&capture.crash_record_header).unwrap();
+    context.version = "v".repeat(64);
+    context.revision = "r".repeat(64);
+    context.run = "n".repeat(64);
+    context.attempt = "a".repeat(64);
+    context.arch = "x".repeat(64);
+    context.component = "c".repeat(64);
+    context.consent_epoch = Some(Uuid::new_v4());
+    assert!(context.is_valid());
+    let marker = SessionMarker {
+        id: capture.session_id,
+        platform: context.platform.clone(),
+        version: context.version.clone(),
+        started_at_unix_ms: u64::MAX,
+        pid: Some(u32::MAX),
+        context: Some(context),
+    };
+    let mut state = store.read_state();
+    state.open_sessions = vec![marker; MAX_OPEN_SESSIONS];
+    state.received_crashes = (0..MAX_RECEIVED_CRASHES).map(|_| Uuid::new_v4()).collect();
+    state.crashed_processes = vec![u32::MAX; MAX_CRASHED_PROCESSES];
+    store.write_state(&state).unwrap();
+    let length = fs::metadata(store.directory.join(STATE_FILE))
+        .unwrap()
+        .len();
+    assert!(length > MAX_SMALL_FILE_BYTES && length < MAX_STATE_FILE_BYTES);
+    assert_eq!(store.read_state().received_crashes, state.received_crashes);
+    assert_eq!(store.read_state().open_sessions.len(), MAX_OPEN_SESSIONS);
 }

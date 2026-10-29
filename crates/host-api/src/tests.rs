@@ -18536,8 +18536,11 @@ fn telemetry_epoch_system_capture_keeps_native_identity_and_session_attribution(
         .iter()
         .any(|event| event.id == format!("session-{id}")
             && event.kind == msime_client_services::telemetry::TelemetryKind::SessionCrash));
-    // 系统再次投递保留相同事件 id，不新增崩溃或输入会话崩溃。
-    reporting_call(msime_client_telemetry_record_crash, request);
+    // 系统再次投递由持久收据拒绝，不依赖队列中仍有同一事件。
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
     reporting_call(msime_client_telemetry_begin, begin);
     let queued = store.queued().unwrap();
     assert_eq!(
@@ -18556,6 +18559,24 @@ fn telemetry_epoch_system_capture_keeps_native_identity_and_session_attribution(
             .count(),
         1
     );
+    struct Accepted;
+    impl msime_client_services::telemetry::TelemetrySender for Accepted {
+        fn send(&self, _: &[u8]) -> msime_client_services::telemetry::Delivery {
+            msime_client_services::telemetry::Delivery::Accepted
+        }
+    }
+    let bound = store
+        .activate_consent_epoch(epoch.as_str().unwrap().parse().unwrap())
+        .unwrap();
+    bound
+        .flush(&Accepted, std::time::SystemTime::now())
+        .unwrap();
+    assert!(bound.queued().unwrap().is_empty());
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request)["value"],
+        false
+    );
+    assert!(bound.queued().unwrap().is_empty());
 }
 
 #[test]

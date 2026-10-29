@@ -122,6 +122,12 @@ def main():
         start()
         assert len(hangs()) == 1 and hangs()[0]["id"] == identity, "historical ANR duplicated on restart"
         print("API 35: actual input-dispatch ANR -> system exit -> restart -> one Hang diagnostic; next restart deduplicates", flush=True)
+        stop()
+        # 本用例阻断网络；清空合成队列模拟发送完成，不能借旧队列的相同 id 掩盖重复补录。
+        write(telemetry + "/telemetry.json", "[]")
+        start()
+        assert not hangs() and not records(), "delivered ANR recreated on restart"
+        print("API 35: drained-queue restart does not requeue the historical ANR", flush=True)
 
         # 第二次真实 ANR 发生前，另一个进程关闭偏好；活跃 App 应清除系统摘要和持久 epoch。
         consent(False)
