@@ -1,13 +1,9 @@
-import type { Preferences } from "../core/preferences-model";
-import {
-  inferredTouchKeyboardScheme,
-  type TouchKeyboardScheme,
-} from "../settings/touch-keyboard-scheme-helpers";
+import type { TouchKeyboardScheme } from "../settings/touch-keyboard-scheme-helpers";
 
 /**
- * A key drawn in a keyboard preview. `code` is the W3C `KeyboardEvent.code` (or soft-keyboard id) the statistics store counts the key under; it is absent on spacers and on keys the store has no id for.
+ * A key drawn in a keyboard preview. `code` is the W3C `KeyboardEvent.code` (or soft-keyboard id) the statistics store counts the key under; it is absent on spacers and on keys the store has no id for. `rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车），下一行在它下面留一个没有 `label` 的占位。
  */
-export type PreviewKey = { label: string; weight: number; code?: string };
+export type PreviewKey = { label: string; weight: number; code?: string; rowSpan?: number };
 
 const key = (label: string, weight = 1, code?: string): PreviewKey =>
   code === undefined ? { label, weight } : { label, weight, code };
@@ -118,6 +114,8 @@ const harmonyActionRow = [
 
 /**
  * HarmonyOS 手机上「尺寸」预览按当前的中文键盘画，键位和列宽照原生键盘：26 键见 `KeyboardView.ets` 的 `typingFace`，14 键是 `FourteenKeyLayout.ts`，9 键是 `NineKeyLayout.ts` 的触屏网格（左列标点、3 × 3 字母格、右列删除 / 分词 / 感叹号，`NINE_KEY_SIDE_SHARE` 1.15、每格 2），日语 9 键是 `JapaneseNineKeyLayout.ts` 的 4 × 3 假名格。日语 9 键的底排是按 vp 定宽的经典底排，这里按宽度折成比例。
+
+设置页的鸿蒙手机预览（屏幕键盘页「尺寸」、皮肤卡片、社区皮肤卡片）不直接画这张表：经 `harmonyTouchRowsForPreferences`（`touch-key-layout-settings.tsx`）只取 26/14/18 键的字母行，底行换成用户所选样式的底行、按开关加数字行，9 键整块换成按样式排的九宫格，只有日语 9 键原样画。这里 26/14/18 键和 9 键的底排是加样式之前的旧排法，不跟随用户的按键布局。
  */
 export const harmonyTouchKeyboardRows: Record<HarmonyTouchLayout, PreviewKey[][]> = {
   twenty_six_key: [
@@ -192,17 +190,6 @@ export function harmonyTouchLayout(
   )
     return selected;
   return "twenty_six_key";
-}
-
-/** 鸿蒙手机当前方案对应的预览键面；没有方案字段时沿用默认的 26 键。 */
-export function harmonyTouchRowsForPreferences(preferences: Preferences): PreviewKey[][] {
-  const selected = inferredTouchKeyboardScheme(preferences);
-  const layout = harmonyTouchLayout(
-    selected,
-    preferences.touch_shuangpin_layout,
-    preferences.touch_wubi_layout,
-  );
-  return harmonyTouchKeyboardRows[layout];
 }
 
 /** The nine-key pinyin grid, each cell named by the digit printed on it; `Nine1` is the punctuation and separator cell. */

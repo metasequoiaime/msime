@@ -18,11 +18,11 @@ use super::golden_dir;
 use super::snapshot::{dump_journal, query_rows, result_json, scrub, snapshot_json};
 
 /// The file name a scenario fixture stages `msime-cantonese.db` under, beside the resource set's own files.
-const CANTONESE_DICTIONARY: &str = "msime-cantonese.db";
+pub const CANTONESE_DICTIONARY: &str = "msime-cantonese.db";
 /// The file name a scenario fixture stages `msime-zhuyin.db` under, beside the resource set's own files.
-const ZHUYIN_DICTIONARY: &str = "msime-zhuyin.db";
+pub const ZHUYIN_DICTIONARY: &str = "msime-zhuyin.db";
 /// The file name a scenario fixture stages `msime-stroke.db` under, beside the resource set's own files.
-const STROKE_DICTIONARY: &str = "msime-stroke.db";
+pub const STROKE_DICTIONARY: &str = "msime-stroke.db";
 
 pub const SCENARIO_ENV: &str = "MSIME_GOLDEN_SCENARIO";
 
@@ -114,14 +114,14 @@ pub fn assert_scenarios(scenarios: &[PathBuf]) {
     );
 }
 
-fn read_json(path: &Path) -> Value {
+pub fn read_json(path: &Path) -> Value {
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
     serde_json::from_str(&text)
         .unwrap_or_else(|error| panic!("cannot parse {}: {error}", path.display()))
 }
 
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(text) = payload.downcast_ref::<&str>() {
         (*text).to_owned()
     } else if let Some(text) = payload.downcast_ref::<String>() {
@@ -141,6 +141,15 @@ pub fn reference_options() -> SessionOptions {
 
 /// The recorder's output document `{name, steps, final_journal?}` for one scenario spec, replayed under `work`.
 pub fn replay_scenario(spec: &Value, work: &Path) -> Value {
+    replay_scenario_observed(spec, work, |_| {})
+}
+
+/// [`replay_scenario`] that also hands the open session to `observe` once after opening and once after every step, in step order, for a caller that compares more of the session than the recorder writes (the C ABI replay in `crates/engine-capi/tests/golden_replay.rs` reads `display_snapshot` there). The replay itself is unchanged.
+pub fn replay_scenario_observed(
+    spec: &Value,
+    work: &Path,
+    mut observe: impl FnMut(&Session),
+) -> Value {
     let name = spec["name"].as_str().expect("scenario name");
     let root = std::path::absolute(work.join(name)).unwrap();
     if root.exists() {
@@ -168,8 +177,10 @@ pub fn replay_scenario(spec: &Value, work: &Path) -> Value {
 
     scenario.open();
     let mut steps = vec![json!({"op": "open", "snapshot": scenario.snapshot()})];
+    observe(scenario.session.as_ref().expect("an open session"));
     for step in spec["steps"].as_array().expect("scenario steps") {
         steps.push(scenario.run_step(step));
+        observe(scenario.session.as_ref().expect("an open session"));
     }
     scenario.close();
     let mut out = Map::new();
@@ -187,7 +198,7 @@ pub fn replay_scenario(spec: &Value, work: &Path) -> Value {
 }
 
 /// The canonical spelling and the one the harness built, so `/private/var/...` and its `/var/...` alias both scrub.
-fn root_spellings(root: &Path) -> Vec<String> {
+pub fn root_spellings(root: &Path) -> Vec<String> {
     let mut roots = vec![root.to_string_lossy().into_owned()];
     if let Ok(canonical) = root.canonicalize() {
         roots.push(canonical.to_string_lossy().into_owned());
@@ -420,7 +431,7 @@ fn entry_json(entry: &PersonalDictionaryEntry) -> Value {
 }
 
 /// Ops after which the recorder keeps the page: they only move the view or read data.
-fn keeps_page(op: &str) -> bool {
+pub fn keeps_page(op: &str) -> bool {
     matches!(
         op,
         "page" | "dump_journal" | "query" | "validate_entry" | "dict_list"
@@ -436,7 +447,7 @@ fn read_only(op: &str) -> bool {
 }
 
 /// `page` moves: `next`, `prev` (never below 0) or an absolute index.
-fn moved_page(current: usize, arg: &Value) -> usize {
+pub fn moved_page(current: usize, arg: &Value) -> usize {
     match arg.as_str() {
         Some("next") => current + 1,
         Some("prev") => current.saturating_sub(1),

@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-- 只对本机分段：Android 端没有删除云端条目的接口。两步完成：左滑露出垃圾桶，再点它才删；不做一滑到底直接删，也不做撤销（长按删除和清空也都没有撤销）。置顶的条目同样可以左滑删除，不要求先取消置顶。
+- 只对本机分段：Android 端没有删除云端条目的接口。两步完成：左滑露出垃圾桶，再点它才删；不做一滑到底直接删，也不做撤销（长按删除和清空也都没有撤销）。删除后的撤销后来补上了，左滑和长按删除与多选删除共用右下角的浮动「撤销」，见 [单条删除也能撤销](2026-10-29-android-clipboard-single-delete-undo.md)（#10080）。置顶的条目同样可以左滑删除，不要求先取消置顶。
 - 每条本机历史放进一个 `FrameLayout`（`ImePanels.clipboardSwipeCell`）：底下靠右是画垃圾桶的 `KeyboardIconKey`（`Kind.TRASH`，图标是生成脚本里新加的 Lucide 风格 `TRASH`），上面盖着原来的卡片。卡片 `setTranslationX` 往左让开，露出它。删除走原有的 `MSIMEInputService.removeClipboardItem`，存储、`forgetCurrentClip` 和重绘都不另写。
 - 手势判定在不依赖 Android 的 `ClipboardSwipePolicy`：
   - 手指越过系统 touch slop、并且横向位移至少是纵向的 1.5 倍时才算横滑（`claims`）；收着的卡片只认向左，打开着的左右都认，向右拖就是收回。

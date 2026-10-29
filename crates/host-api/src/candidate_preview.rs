@@ -407,6 +407,10 @@ mod tests {
     fn a_preview_that_commits_learns_nothing_and_counts_nothing() {
         let directory = tempfile::tempdir().unwrap();
         let options = host_options(directory.path(), chinese());
+        // 统计打开着、目录就是宿主的 `preferences_directory`：真打字会在这里记选词位置，预览不能记。
+        let statistics =
+            msime_client_services::typing_statistics::TypingStatisticsStore::new(directory.path());
+        statistics.set_enabled(true).unwrap();
         // 数字键 2 选第二个候选，和打字时一样上屏；默认的调频模式下真打字会把它往前调。
         for _ in 0..3 {
             let preview = preview_candidates(&options, "nihao2", 6, 50).unwrap();
@@ -415,12 +419,9 @@ mod tests {
         }
         let preview = preview_candidates(&options, "nihao", 5, 50).unwrap();
         assert_eq!(texts(&preview)[..2], ["你好", "拟好"]);
-        let statistics = msime_client_services::typing_statistics::TypingStatisticsStore::new(
-            directory.path().join("user"),
-        )
-        .load()
-        .unwrap();
+        let statistics = statistics.load().unwrap();
         assert_eq!(statistics.selections, Default::default());
+        assert_eq!(statistics.efficiency, Default::default());
         // 设置页据 loaded.json 判断新下载的词库代次是否已被输入法载入，查候选不能替输入法报告。
         std::fs::create_dir_all(directory.path().join("dictionary-updates")).unwrap();
         preview_candidates(&options, "nihao", 5, 50).unwrap();

@@ -182,6 +182,9 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         }
         stage = "real keyboard panel export control";
         int beforeKeyboardWrite = textWriteProbe("hold-text-write");
+        // 「导出」收进了顶行的「更多」菜单（#10037）。
+        tap(node -> "更多剪贴板操作".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
             && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。

@@ -35,7 +35,21 @@ public final class KeyboardFormFactorPolicySmoke {
             "with one-handed off the tablet surface keeps its 720 dp cap");
         check(KeyboardFormFactorPolicy.surfaceWidthDp(411, 915, false, true) == 0,
             "a one-handed phone fills either way");
-        System.out.println("Android keyboard form factors: handset fill, bounded large-screen surface and phone-sized one-handed block passed");
+        // #10203：大屏单手空出来那一侧的侧边数字键盘，宽度取空出来的宽度，150–300 dp。
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(411, 915) == 0,
+            "a phone has no side pad, even in landscape");
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(600, 600) == 176,
+            "the smallest tablet gives the side pad the 176 dp left beside the block");
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(800, 800) == 300,
+            "a portrait tablet caps the side pad at 300 dp");
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(800, 1280) == 300,
+            "a landscape tablet keeps the 300 dp cap and leaves the rest blank");
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(800, 0) == 0,
+            "an unknown width draws no side pad");
+        check(KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(600, 573) == 0
+                && KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(600, 574) == 150,
+            "less than 150 dp beside the block draws no side pad");
+        System.out.println("Android keyboard form factors: handset fill, bounded large-screen surface, phone-sized one-handed block and side pad passed");
     }
 
     private static void check(boolean condition, String message) {

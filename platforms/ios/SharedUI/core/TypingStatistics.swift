@@ -511,17 +511,20 @@ struct TypingKeyHeatmap: Equatable {
 
   /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`（打开「符」与「123」互换时 符 排在 123 左边），打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
   static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
-    let number: [[Cell]] = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
-    let rows: [[Cell]] = [
-      letters("QWERTYUIOP"),
-      letters("ASDFGHJKL"),
-      [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
-      bottomRow(style.symbolFirst
-        ? TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false))
-        : TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)),
-    ]
-    return number + rows
+    let number: [[Cell]] = style.numberRow ? [numberRow] : []
+    let bottom = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)
+    return number + twentySixKeyLetterRows + [bottomRow(style.symbolFirst ? TouchBottomRowLayout.symbolFirst(bottom) : bottom)]
   }
+
+  /// 顶部数字行：一排 1 到 0，记 `Digit1`…`Digit0`。「按键布局」页的预览也画这一排。
+  static let numberRow: [Cell] = "1234567890".map { Cell("Digit\($0)", String($0)) }
+
+  /// 26 键的三排字母：第三排两端是分词键（记 `'`）和 ⌫，各占同排字母键的 1.2 倍。「按键布局」页的预览也画这三排。
+  static let twentySixKeyLetterRows: [[Cell]] = [
+    letters("QWERTYUIOP"),
+    letters("ASDFGHJKL"),
+    [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
+  ]
 
   /// 26 键热力图里第二排字母（要两侧缩进的那一排）的下标：数字行打开时往下挪一排。
   static func middleLetterRow(for style: TouchKeyLayoutStyle) -> Int { style.numberRow ? 2 : 1 }

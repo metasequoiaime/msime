@@ -29,6 +29,9 @@ public final class TypingUploadApiSmoke {
         check(TypingUploadApi.linkMessage(failure(400, "invalid_qq_link_code")).startsWith("绑定码是 8 位数字"), "invalid code");
         check(TypingUploadApi.linkMessage(failure(429, "rate_limit_exceeded")).startsWith("尝试次数太多"), "rate limited");
         check(TypingUploadApi.linkMessage(failure(0, "network")).startsWith("连不上服务器"), "network");
+        // 打开后共享层没有可传的日子时，上次上传的时间仍为 null，不能说已经传上去了。
+        check(TypingUploadApi.enabledMessage(null).startsWith("已打开上传。本机还没有可上传的打字计数"), "nothing uploaded yet");
+        check(TypingUploadApi.enabledMessage(1_792_208_096_000L).startsWith("已打开上传，最近 7 天的每日计数已传到"), "uploaded");
         check(TypingUploadApi.uploadMessage(failure(401, "invalid_credentials"), true).startsWith("先在「我的」页登录"), "signed out");
         check(TypingUploadApi.uploadMessage(failure(0, "network"), true).startsWith("已打开上传，但这次没有传上去"), "enable failed");
         check(TypingUploadApi.uploadMessage(failure(503, "auth_unavailable"), false).startsWith("已关闭上传，但云端的数据没有删掉"), "delete failed");

@@ -95,6 +95,38 @@ test("a replaced vocabulary client hides a previously revealed card", async () =
   expect(screen.queryByText("new meaning")).toBeNull();
 });
 
+test.each(["settings", "panel"] as const)(
+  "a replaced vocabulary client clears the previous %s state before loading",
+  async (surface) => {
+    let rejectLoad!: (reason: Error) => void;
+    const previous = client();
+    const next = client({
+      load: vi.fn(() => new Promise<VocabularyReviewStatus>((_, reject) => (rejectLoad = reject))),
+    });
+    const view = render(<VocabularyReviewPage client={previous} surface={surface} />);
+    fireEvent.click(await screen.findByRole("button", { name: "显示 ubiquitous 的释义" }));
+
+    view.rerender(<VocabularyReviewPage client={next} surface={surface} />);
+    expect(screen.getByText("正在读取…")).toBeTruthy();
+    expect(screen.queryByText("ubiquitous")).toBeNull();
+    expect(screen.queryByText("adj. 无处不在的")).toBeNull();
+    await act(async () => rejectLoad(new Error("synthetic replacement load failure")));
+    expect(screen.queryByRole("button", { name: "认识" })).toBeNull();
+    expect(screen.queryByLabelText("词书")).toBeNull();
+    expect(screen.queryByRole("button", { name: "清空复习进度" })).toBeNull();
+
+    const recovered = status({
+      queue: [{ word: "new-card", phonetic: "", meaning: "new meaning" }],
+    });
+    vi.mocked(next.load).mockResolvedValueOnce(recovered);
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    await screen.findByRole("button", { name: "显示 new-card 的释义" });
+    fireEvent.click(screen.getByRole("button", { name: "认识" }));
+    expect(next.answer).toHaveBeenCalledWith("new-card", true);
+    expect(previous.answer).not.toHaveBeenCalled();
+  },
+);
+
 test("changing wordbooks hides the next card even when it has the same headword", async () => {
   let finish!: (value: VocabularyReviewStatus) => void;
   const setSettings = vi.fn(
@@ -534,6 +566,26 @@ test("the current vocabulary client imports decoded text and reports success", a
   expect(await screen.findByText("已导入「current」。")).toBeTruthy();
   expect(importWordbook).toHaveBeenCalledExactlyOnceWith("current", "synthetic,合成释义");
   expect(screen.getByText("17")).toBeTruthy();
+});
+
+test("a replaced vocabulary client clears an accepted import notice", async () => {
+  const file = new File(["synthetic,合成释义"], "previous.csv");
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => new TextEncoder().encode("synthetic,合成释义").buffer,
+  });
+  const previous = client({ importWordbook: vi.fn(async () => status()) });
+  const view = render(<VocabularyReviewPage client={previous} />);
+  await screen.findByRole("button", { name: "导入词表文件" });
+  fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+    target: { files: [file] },
+  });
+  await screen.findByText("已导入「previous」。");
+
+  const next = client();
+  view.rerender(<VocabularyReviewPage client={next} />);
+  await waitFor(() => expect(next.load).toHaveBeenCalledOnce());
+  await screen.findByRole("button", { name: "显示 ubiquitous 的释义" });
+  expect(screen.queryByText("已导入「previous」。")).toBeNull();
 });
 
 test("a promise reused by a new vocabulary generation keeps its new request owner", async () => {

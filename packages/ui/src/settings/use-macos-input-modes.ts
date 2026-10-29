@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditionInfo } from "../core/host-capabilities";
 import type { InputScheme } from "../core/input-scheme";
 import { useAsyncActionRunner } from "../core/use-async-action";
@@ -44,6 +44,7 @@ export function useMacosInputModes(options: UseMacosInputModesOptions): MacosInp
   const [enabled, setEnabled] = useState<readonly string[] | null>(null);
   const [watchingUntil, setWatchingUntil] = useState(0);
   const request = useAsyncGeneration(client);
+  const pending = useRef<number | null>(null);
   // runner 开始动作时清空内部错误；展示回调沿用只通知失败的契约。
   const reportError = useCallback(
     (message: string) => {
@@ -55,6 +56,7 @@ export function useMacosInputModes(options: UseMacosInputModesOptions): MacosInp
   const refresh = useCallback(async () => {
     if (!client) return;
     const current = ++request.current;
+    pending.current = current;
     let value: readonly string[] | null;
     try {
       value = await client.enabled();
@@ -62,6 +64,8 @@ export function useMacosInputModes(options: UseMacosInputModesOptions): MacosInp
       value = null;
     }
     if (current === request.current) setEnabled(value);
+    // 被焦点刷新或客户端替换的旧读取，只能释放自己的占位。
+    if (pending.current === current) pending.current = null;
   }, [client, request]);
 
   useEffect(() => {
@@ -78,6 +82,8 @@ export function useMacosInputModes(options: UseMacosInputModesOptions): MacosInp
         setWatchingUntil(0);
         return;
       }
+      // 宿主探测可能慢于三秒；轮询不能反复作废尚未结束的读取。
+      if (pending.current === request.current) return;
       void refresh();
     },
     watchingUntil ? INPUT_MODE_RECHECK_MS : null,

@@ -133,7 +133,7 @@ import { MiniKeyboardPreview, MoreSkinsTile } from './faces/MiniKeyboardPreview'
 import { PagedTiles } from './faces/PagedTiles';
 import { PanelTile } from './faces/PanelTile';
 import { OneHandRail } from './faces/OneHandRail';
-import { OneHandedMode, OneHandedPolicy } from './OneHandedPolicy';
+import { OneHandedMode, OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
 import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
@@ -698,6 +698,10 @@ struct KeyboardView {
   @State @Watch('syncStripHeight') landscape: boolean = false;
   /** 单手模式下侧栏与按键这一块的宽度（`OneHandedPolicy.blockWidthVp`）：0 表示手机，铺满整行；大屏上是手机大小。转屏时随屏幕重读。 */
   @State oneHandBlockVp: number = 0;
+  /** 大屏单手时空出来那一侧的数字键盘宽度（`OneHandedPolicy.sidePadWidthVp`）：0 表示手机或放不下。转屏时随屏幕重读。 */
+  @State oneHandSidePadVp: number = 0;
+  /** 共享偏好 `touch_one_handed_side_panel`：大屏单手模式空出来的一侧放什么（#10203）。 */
+  @State oneHandedSidePanel: OneHandedSidePanel = KeyboardSession.shared.preferences().oneHandedSidePanel;
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
@@ -3108,6 +3112,7 @@ struct KeyboardView {
     this.numberRow = this.settings.numberRow;
     this.twentySixSymbolFirst = this.settings.twentySixSymbolFirst;
     this.numberPadSpace = this.settings.numberPadSpace;
+    this.oneHandedSidePanel = this.settings.oneHandedSidePanel;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -8309,7 +8314,11 @@ struct KeyboardView {
       const heightVp: number = screen.height / screen.densityPixels;
       this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(widthVp, heightVp);
       this.landscape = screen.width > screen.height;
-      this.oneHandBlockVp = OneHandedPolicy.blockWidthVp(widthVp, KeyboardFormFactorPolicy.largeScreen(widthVp, heightVp));
+      const largeScreen: boolean = KeyboardFormFactorPolicy.largeScreen(widthVp, heightVp);
+      this.oneHandBlockVp = OneHandedPolicy.blockWidthVp(widthVp, largeScreen);
+      // 按键这一行的宽度是屏幕宽减去键盘根的左右内边距，侧边数字键盘按它算才不会把这一行撑出屏幕。
+      this.oneHandSidePadVp = OneHandedPolicy.sidePadWidthVp(
+        widthVp - 2 * KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP, largeScreen);
     } catch {
       // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
       KeyboardLog.error('keyboard orientation unavailable');
@@ -10803,11 +10812,17 @@ struct KeyboardView {
 
   /**
    * 按键，或按住某键时代替它们的键面（九键长按和日文变体），开启「单手模式」时在单手侧栏旁收窄绘制；大屏上侧栏和按键这一块缩到手机大小，贴到按键所在的那一侧（`oneHandBlockVp`）。关闭时与以前完全一样，直接画进调用方的列里。代替按键的面板不在这里绘制，保持全宽，与 Android 在没有按键行显示时隐藏侧栏一致。
+   *
+   * 大屏上空出来的那一侧可以画侧边数字键盘（`oneHandSidePadShown`，#10203）：键在右时排成 [面板, 空白, 块]，键在左时排成 [块, 空白, 面板]，面板贴屏幕边，中间的 `Blank` 是不接触摸的键盘底色。面板和按键在同一行里，代替按键的面板打开时这一行整个不画，侧边面板跟着不见。
    */
   @Builder
   handedKeys() {
     if (this.oneHandActive()) {
       Row() {
+        if (this.oneHandSidePadShown() && OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+          this.oneHandSidePad()
+          Blank(OneHandedPolicy.RAIL_GAP_VP)
+        }
         Row({ space: OneHandedPolicy.RAIL_GAP_VP }) {
           if (OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
             this.oneHandRail()
@@ -10822,12 +10837,91 @@ struct KeyboardView {
         }
         .width(this.oneHandBlockWidth())
         .alignItems(VerticalAlign.Center)
+        if (this.oneHandSidePadShown() && !OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+          Blank(OneHandedPolicy.RAIL_GAP_VP)
+          this.oneHandSidePad()
+        }
       }
       .width('100%')
+      // 侧边面板与九键网格加底行一样高，底边对齐，数字行之类画在按键上方的行不影响它与网格逐行对齐。
+      .alignItems(this.oneHandSidePadShown() ? VerticalAlign.Bottom : VerticalAlign.Center)
       .justifyContent(OneHandedPolicy.railOnLeft(this.feedback.oneHanded) ? FlexAlign.End : FlexAlign.Start)
     } else {
       this.keyArea()
     }
+  }
+
+  /** 侧边数字键盘此刻画不画（`OneHandedPolicy.sidePadShown`）。 */
+  private oneHandSidePadShown(): boolean {
+    return OneHandedPolicy.sidePadShown(this.oneHandedSidePanel, this.oneHandActive(), this.oneHandSidePadVp,
+      this.nineKeyFamilyLettersShowing());
+  }
+
+  /** 主键区此刻画的是不是九键一族（拼音九键、九键双拼、笔画）的字母层：英文九键、假名九键、本地模式、123 层和借来的数字九宫格都不算。 */
+  private nineKeyFamilyLettersShowing(): boolean {
+    return this.touchDesign() && !this.symbols && !this.english && !this.japanese
+      && this.scheme.engineScheme !== 'japanese' && this.localMode === 'none' && !this.numberPadShowing()
+      && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.strokeFace());
+  }
+
+  /**
+   * 大屏单手时空出来那一侧的数字键盘：3 列 × 4 行，`1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`。前三行占九键网格的高度、与网格逐行同高，第四行与底行同高；键距、行距、键面和触摸区与主键区的键相同，键与键之间的空隙按 `keyHitRegion` 归最近的键。
+   *
+   * 数字和小数点走数字层的字面上屏（`insertNumberPadLiteral`）：组字中先把拼音原样上屏。⌫ 与九键右列的 ⌫ 同一个键，带连删。统计记普通数字键、`Period` 和 `Backspace`。
+   */
+  @Builder
+  oneHandSidePad() {
+    Column({ space: this.rowSpacing() }) {
+      Column({ space: this.rowSpacing() }) {
+        ForEach(OneHandedPolicy.sidePadDigitRows(), (row: string[]) => {
+          Row({ space: this.keySpacing() }) {
+            ForEach(row, (digit: string) => {
+              this.fixedKey(this.sidePadDigitKey(digit))
+            }, (digit: string) => `side-pad:${digit}:${this.faceKey()}`)
+          }
+          .layoutWeight(1)
+          .width('100%')
+        }, (row: string[]) => `side-pad-row:${row[0]}:${this.faceKey()}`)
+      }
+      .width('100%')
+      .height(this.gridHeight())
+      Row({ space: this.keySpacing() }) {
+        this.fixedKey({
+          face: '.',
+          label: OneHandedPolicy.sidePadDecimalLabel(),
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: 0,
+          share: 1,
+          action: () => {
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
+            this.insertNumberPadLiteral('.');
+          }
+        })
+        this.fixedKey(this.sidePadDigitKey('0'))
+        this.deleteKey('100%', true, 1)
+      }
+      .width('100%')
+      .height(this.rowHeight(3))
+    }
+    .width(this.oneHandSidePadVp)
+    .id('oneHandSidePad')
+  }
+
+  /** 侧边数字键盘的一个数字键：字号与数字层的数字相同，读「数字 N」。 */
+  private sidePadDigitKey(digit: string): KeyOptions {
+    return {
+      face: digit,
+      label: OneHandedPolicy.sidePadDigitLabel(digit),
+      size: TOUCH_LETTER_FONT_SIZE,
+      emphasized: false,
+      width: 0,
+      share: 1,
+      action: () => {
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(digit));
+        this.insertNumberPadLiteral(digit);
+      }
+    };
   }
 
   /** 侧栏与按键这一块的宽度：手机铺满整行，大屏上是 `oneHandBlockVp`。 */

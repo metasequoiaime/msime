@@ -29,6 +29,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -36,6 +37,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.RecentClipboardSuggestion;
 import app.msime.android.SchemePreferences;
@@ -216,6 +218,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 SplitKeyboardPolicy.GAP_PERCENT_STEP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP),
                 value -> value + "%", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_GAP, value))
                 .setEnabled(splitEnabled);
+            // #10203：大屏单手模式空出来的一侧放数字键盘。写共享偏好（随账号同步），三端标题和说明逐字相同；不认识的取值（以后的文本编辑面板）按关显示。
+            boolean sidePad = OneHandSidePadPolicy.parse(JsonPolicy.strictString(
+                preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY))) == OneHandSidePadPolicy.Panel.NUMBER_PAD;
+            layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+                sidePad, checked -> savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,
+                    (checked ? OneHandSidePadPolicy.Panel.NUMBER_PAD : OneHandSidePadPolicy.Panel.OFF).wire));
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
@@ -361,6 +369,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
+        // 删除剪贴板记录（单条或多选）后可撤销的秒数（#10073、#10080），只影响之后的删除；键盘每次删除时读这一项。
+        int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboard.nav("撤销时长", "删除记录后，剪贴板面板右下角的「撤销」按钮保留几秒",
+            ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
@@ -631,6 +643,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
                 () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_COLUMNS, value,
+                    this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardUndoSeconds(int selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "撤销时长", null);
+        for (int seconds = ClipboardUndoPolicy.MIN_SECONDS; seconds <= ClipboardUndoPolicy.MAX_SECONDS; seconds++) {
+            int value = seconds;
+            sheet.option(ClipboardUndoPolicy.settingLabel(value), value == selected,
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS, value,
                     this::reload, this::reload));
         }
         sheet.show();

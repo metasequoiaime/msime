@@ -9,13 +9,16 @@ export class CandidateScalePolicy {
   static readonly MAX_PERCENT: number = 200;
 
   static percent(value: number | null | undefined): number {
-    return typeof value === "number" && Number.isInteger(value)
-      && value >= CandidateScalePolicy.MIN_PERCENT && value <= CandidateScalePolicy.MAX_PERCENT
-      ? value : CandidateScalePolicy.DEFAULT_PERCENT;
+    return typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= CandidateScalePolicy.MIN_PERCENT &&
+      value <= CandidateScalePolicy.MAX_PERCENT
+      ? value
+      : CandidateScalePolicy.DEFAULT_PERCENT;
   }
 
   /** 按倍数缩放一段长度或字号，至少 1。 */
   static scaled(value: number, percent: number): number {
-    return Math.max(1, Math.round(value * CandidateScalePolicy.percent(percent) / 100));
+    return Math.max(1, Math.round((value * CandidateScalePolicy.percent(percent)) / 100));
   }
 }

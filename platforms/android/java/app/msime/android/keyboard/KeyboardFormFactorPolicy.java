@@ -8,6 +8,10 @@ public final class KeyboardFormFactorPolicy {
     public static final int EXPANDED_SURFACE_MAX_WIDTH_DP = 720;
     /** 大屏单手模式的键区最宽多少：与手机上单手时的键区差不多大，拇指够得着（#10202）。 */
     public static final int ONE_HANDED_KEYS_MAX_WIDTH_DP = 360;
+    /** 大屏单手模式空出来那一侧的侧边数字键盘最宽多少（#10203）：三列键每列约 100 dp，和九键数字层的键差不多大；空出来的再宽也只取这么多，多出来的是空白。 */
+    public static final int ONE_HANDED_SIDE_PAD_MAX_WIDTH_DP = 300;
+    /** 空出来的宽度小于它时不画侧边数字键盘：三列键每列至少约 44 dp 才按得准。 */
+    public static final int ONE_HANDED_SIDE_PAD_MIN_WIDTH_DP = 150;
 
     private KeyboardFormFactorPolicy() {}
 
@@ -55,5 +59,16 @@ public final class KeyboardFormFactorPolicy {
         if (!expanded(smallestWidthDp)) return 0;
         int block = Math.round(ONE_HANDED_KEYS_MAX_WIDTH_DP / (1f - OneHandGutterView.GUTTER_FRACTION));
         return screenWidthDp <= 0 ? block : BoundsPolicy.atMost(screenWidthDp, block);
+    }
+
+    /**
+     * 大屏单手模式空出来那一侧的侧边数字键盘有多宽，单位 dp（#10203）。结果为 0 表示不画：手机（{@link #oneHandedBlockWidthDp} 为 0）、窗口宽度未知、或空出来的宽度不到 {@link #ONE_HANDED_SIDE_PAD_MIN_WIDTH_DP}。否则取空出来的宽度，最多 {@link #ONE_HANDED_SIDE_PAD_MAX_WIDTH_DP}；面板贴屏幕边，它和侧栏之间剩下的是空白。
+     */
+    public static int oneHandedSidePadWidthDp(int smallestWidthDp, int screenWidthDp) {
+        int block = oneHandedBlockWidthDp(smallestWidthDp, screenWidthDp);
+        if (block <= 0 || screenWidthDp <= 0) return 0;
+        int side = screenWidthDp - block;
+        if (side < ONE_HANDED_SIDE_PAD_MIN_WIDTH_DP) return 0;
+        return BoundsPolicy.atMost(side, ONE_HANDED_SIDE_PAD_MAX_WIDTH_DP);
     }
 }

@@ -70,6 +70,43 @@
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
 
+### 词库里要随附全文的 MIT 与 Apache-2.0 数据
+
+MIT 要求每份副本都附上版权与许可声明，Apache-2.0 第 4(a) 条要求把许可证副本交给接收者；只在 `msime-engine-dictionary-NOTICE.md` 里写出来源名字不够。下表是随包词库里属于这两种许可、并且确实进入了产物的数据，「进入产物的依据」一列是 `crates/dict-builder` 里读取它的位置：
+
+| 数据 | 上游 | 许可 | 进入的产物与依据 | 全文 |
+| --- | --- | --- | --- | --- |
+| 单字读音校正 | [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data)，Copyright (c) 2016 mozillazg | MIT | `msime-pinyin.db`：msime-dictionary 的 `sources/pinyin/single-chars.txt` 读音以它校正，`quanpin` 阶段经 `self.sources.pinned("sources/pinyin/single-chars.txt")` 读入（`main.rs`）。`msime-others.db` 表情、颜文字与符号关键词的逐字读音来自 `pinyin` crate 0.11（`pinyin.rs`），它的拼音表就是同一份 pinyin-data，crate 本身也是 mozillazg 的 MIT，版权行相同 | `resources/licenses/pinyin-data-MIT.txt` |
+| 中英释义 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 提交 `bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b` 的 `ecdict.csv`，Copyright (c) 2025 Linwei | MIT | `msime-english.db` 的双向释义表：`english.rs` 的 ECDICT 一节，经 `self.sources.pinned("ecdict/ecdict.csv")` 读入，文件由 `resources/dictionary-sources.lock.json` 固定 | `resources/licenses/ECDICT-MIT.txt`（与该提交的 `LICENSE` 逐字节相同） |
+| 颜文字 | [aoguai/rime_kaomoji_dict](https://github.com/aoguai/rime_kaomoji_dict)，Copyright (c) 2023 aoguai | MIT | `msime-others.db` 的 `kaomoji`、`kaomoji_catalog` 表：`Stage::Kaomoji` 读 `resources/dictionary-sources/kaomoji/kaomoji.txt`（文件头写明整理自该仓库），`others.rs` 的 `build_kaomoji` 写入 | `resources/licenses/rime_kaomoji_dict-MIT.txt`（上游提交 `2f10ddca83f4cd87f41672442d27943f733b488f` 的 `LICENSE`；该文件自 2023 年起未变） |
+| 关键词整词读音 | [mozillazg/python-pinyin](https://github.com/mozillazg/python-pinyin) 0.55 的 `lazy_pinyin` 输出，Copyright (c) 2016 mozillazg, 闲耘 | MIT | `msime-others.db` 表情、颜文字与符号关键词的拼音列：`resources/dictionary-sources/pinyin-overrides.txt`（60 行）经 `Pinyin::with_overrides` 覆盖多音字的逐字读音（`main.rs`、`pinyin.rs`）。这些是常用词的标准读音，按保守做法仍随附全文 | `resources/licenses/python-pinyin-MIT.txt`（标签 `v0.55.0` 的 `LICENSE.txt`） |
+| 86 五笔码表 | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 | `msime-wubi.db` 的 `wubi86` 表与 86 词组补充表的编码：msime-dictionary 的 `sources/wubi/wubi86-jidian.txt`（`wubi86_supplement.rs` 的 `JIDIAN`），网页引擎的 `msime-wubi86.db` 由它裁出。上游 2026-10-29 在提交 `33a1f9430fa9bcb30b2f32b698e4e497f8864091` 改成 MIT，这张表是在那之前按 Apache-2.0 取用的，所以随附当时的条款；上游仓库没有 `NOTICE` 文件 | `resources/licenses/rime-wubi86-jidian-Apache-2.0.txt`（提交 `063377a0e3ae7d4084a45f03e4269f62f874f7dc` 的 `LICENSE`） |
+
+这五份文本走与上文粤语、注音、笔画数据相同的全部通知渠道：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`，关于页「开源许可」逐个列出），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）；引擎 C 库的数据包另由 `crates/engine-capi/packaging/data-pack.py` 带上 `pinyin-data-MIT.txt` 与 `ECDICT-MIT.txt`。网页引擎只分发拼音库和五笔 86 库，`web-engine-NOTICE.md` 收 `pinyin-data-MIT.txt` 与 `rime-wubi86-jidian-Apache-2.0.txt`。`scripts/test-language-data-notices.py` 检查文本与这些渠道都还在。
+
+不在表里的几项：`source/SampleIMESimplifiedQuanPin.txt`（MIT）没有任何构建读取，不进 `msime-pinyin.db`，只被 `crates/input-runtime/examples/build_eval_set.rs` 固化成评测集；`msime-others.db` 表情英文关键词来自 Unicode Emoji 与 CLDR，其 Unicode License V3 全文已随引擎的符号表数据分发；McBopomofo 的 MIT 声明附在 `libchewing-data-LGPL-2.1.txt` 里；98 五笔表的 Unlicense 和行政区划的 WTFPL 不要求随附全文。
+
+### 词库里改编自 rime-wanxiang 的权重（CC BY 4.0）
+
+msime-dictionary 在 [#84](https://github.com/metasequoiaime/msime-dictionary/pull/84)（提交 `060c102515f176ca3dfaf2a2cba1f320901ef414`，自 `dict-v2.0.30` 起发布）把 `sources/pinyin/single-chars.txt`、`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt` 里与万象共有的单字和词语的权重，改成 [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 发布 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下十五份词库的权重乘以每份文件一个系数（9.42、9.2、9.28）后取整；词条、读音和行序不变，没有从万象加入任何字、词或读音。上游以 CC BY 4.0 发布，第 3(a) 条要求分发时署名、给出许可证、写明改动。当前词库锁所指的 `dict-v2.0.39`（源数据提交 `75978c6a6470171cc805c74e87ef465d894a7be4`）里，这些权重进入的产物是：
+
+| 产物 | 依据 | 分发渠道 |
+| --- | --- | --- |
+| `msime-pinyin.db` | `Stage::Quanpin` 读入上面三份文件的权重列（`main.rs`）。已逐条核对：发布的库里「我们」的权重 13696325 = round(万象 1488731 × 9.2)，「象」51951 = round(5515 × 9.42) | 六个平台、网页引擎（`msime-dict-build web` 保留全部单字与权重最高的多字词，权重原样）、引擎 C 库的全拼双拼数据包 |
+| `msime-stroke.db` | `stroke.rs` 把 `single-chars.txt` 里一个字各读音的权重相加作为它的权重，例如「万」2702880 = 2701552 + 1328 | 语言词库资源包（`resources/language-dictionaries.lock.json`）：随安装包带上（Windows 放在 `server\language-dictionaries`）或由设置按需下载 |
+
+署名、改动说明和 CC BY 4.0 全文在 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`，走与上一节五份文本相同的全部通知渠道（Windows `Collect-Notices.ps1` 与 `Notices.md`，macOS `Resources/Licenses`，Linux 安装的声明，Android `assets/native-notices`，iOS App 资源与关于页，HarmonyOS `resfile/licenses`），网页引擎的 `web-engine-NOTICE.md` 和 C 库数据包的 `licenses/` 也带它。`scripts/test-language-data-notices.py` 检查文件与这些渠道都还在，并要求三份总览和本文件写出上游提交。#10188 删掉同名文件时以为它只服务符号模式分组表；分组表确实已不再用 rime-wanxiang，但上面两个产物一直在分发它的权重，所以文件按权重的用途重写后恢复。
+
+不算在内的几项，理由是没有分发 rime-wanxiang 的数据：
+
+- `msime-wubi.db` 的 86、98 词组补充表在构建时重新派生，用 rime-ice 主表与补充表的权重判断一个词是否达到 100 的门槛、同一编码下补充词的先后，写进库里的权重是按名次从 9 递减的数，不含任何万象权重。
+- `msime-bigram.bin`、`msime-trigram.bin` 只用 `msime-pinyin.db` 的词表切分语料，不读权重；万象没有加入任何词。
+- 编进引擎的 `crates/engine/src/nine_key/syllable_frequency.tsv` 是 424 个音节在 `msime-pinyin.db` 全部词条里的权重之和，求和的权重里有改编自万象的部分；它按聚合统计事实处理，见下文「编译进共享库的数据」。
+- msime-dictionary 的 `sources/pinyin/wanxiang/`（万象 `dicts/` 原样十五份文件，提交 `aa9947f3f513ff88a3f7ce4e342fcb519d517025`）在 `dict-v2.0.39` 里只入库，构建器不读。
+- 万象 LTS 语法模型 `wanxiang-lts-zh-hans.gram`（CC BY 4.0）不随任何安装包分发，设置应用按需从上游 `amzxyz/rime-wanxiang-data` 自己的发布下载（`resources/grammar-models.lock.json`），选择界面标明 CC-BY-4.0。
+
+`resources/licenses/msime-engine-dictionary-NOTICE.md` 从「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 msime-dictionary 提交 `75978c6a6470171cc805c74e87ef465d894a7be4`（`dict-v2.0.39` 的源数据提交，见发布的 `msime-dictionary-manifest.json` 的 `custom_dictionary_commit`）的 `NOTICE.md`，其中有上面这次权重改编的完整记录；末尾一节记的是由 msime 一侧进入同一批词库、那份文件没有写的来源（颜文字、ECDICT、python-pinyin 读音、SCOWL 声明原文和中文维基百科的署名要求）。此前的副本停在 2026 年 9 月前后的版本，没有万象权重的记录。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步，`test-language-data-notices.py` 核对副本开头写的发布与词库锁一致。
+
 ### 独立神经模型清单（`resources/neural-model.lock.json`）
 
 `resources/neural-model.lock.json` 把同一 `model-v1` 发布中的两个 safetensors 权重放在一起：`sentence-model.safetensors` 是键盘按键路径使用的小模型，`sentence-model-desktop.safetensors` 是桌面输入停顿后使用的大模型。两者都由 `scripts/fetch_neural_model.py` 按 HTTPS、字节数和 SHA-256 下载到 `target/neural-model`；文件不进版本库，锁和本节署名信息随仓库分发。发布的桌面安装包不再带大模型，由设置应用按需下载到 `resource-packs/settled-model/`；随包时（本地构建和发行版打包）放在词库目录的同级 `settled-model/`，因为词库目录必须与 `desktop-dictionary.lock.json` 完全相等。小模型仍由词库安装器从后者取回。
@@ -232,7 +269,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
-| [rime/rime-stroke](https://github.com/rime/rime-stroke) 的 `stroke.dict.yaml`，提交 `1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48` | LGPL-3.0（仓库的 `LICENSE`；`AUTHORS` 记载四季的風、雪齋、Kunki Chou 整理的主码表依 CNS11643 资料的授权声明以 LGPL 再发布，扩展至 Ext J 的数据来自宋天，同为 LGPL）。主码表源自 CNS11643 全字库，该资料按「政府資料開放授權條款－第1版」要求署名：數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw。附码表源自北大中文論壇（孙海峰、徐孟罗、唐捺之、谢振斌整理）。全文、署名与固定提交的源码地址在 `resources/licenses/rime-stroke-LGPL-3.0.txt` | 转换成 `msime-stroke.db`：每行 `字<TAB>笔顺码` 原样成为一条，键就是笔顺字母串；一个字的多个笔顺（大陆规范与台湾 CNS11643 笔顺并列）各成一条。上游没有权重，排序用 `sources/pinyin/single-chars.txt`（rime-ice，GPL-3.0-only）里每个字各读音权重之和，不在表里的字权重为 0；数据库 `license` 元数据因此记为 `LGPL-3.0-only AND GPL-3.0-only`。只有单字，不含词组。上游数据原样未改时，随附许可证全文和固定提交的源码地址即满足 LGPL 的源码提供义务；若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。这一判断未经法务审阅 |
+| [rime/rime-stroke](https://github.com/rime/rime-stroke) 的 `stroke.dict.yaml`，提交 `1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48` | LGPL-3.0（仓库的 `LICENSE`；`AUTHORS` 记载四季的風、雪齋、Kunki Chou 整理的主码表依 CNS11643 资料的授权声明以 LGPL 再发布，扩展至 Ext J 的数据来自宋天，同为 LGPL）。主码表源自 CNS11643 全字库，该资料按「政府資料開放授權條款－第1版」要求署名：數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw。附码表源自北大中文論壇（孙海峰、徐孟罗、唐捺之、谢振斌整理）。全文、署名与固定提交的源码地址在 `resources/licenses/rime-stroke-LGPL-3.0.txt` | 转换成 `msime-stroke.db`：每行 `字<TAB>笔顺码` 原样成为一条，键就是笔顺字母串；一个字的多个笔顺（大陆规范与台湾 CNS11643 笔顺并列）各成一条。上游没有权重，排序用 `sources/pinyin/single-chars.txt`（rime-ice，GPL-3.0-only）里每个字各读音权重之和，不在表里的字权重为 0；数据库 `license` 元数据因此记为 `LGPL-3.0-only AND GPL-3.0-only`。`dict-v2.0.30` 起这份字频里与万象共有的读音改编自 rime-wanxiang（CC BY 4.0，见上文「词库里改编自 rime-wanxiang 的权重」），署名随 `rime-wanxiang-CC-BY-4.0.txt` 分发；`license` 元数据还没有写上 `CC-BY-4.0`，要改 `stroke.rs` 的 `LICENSE` 并重新发布词库。只有单字，不含词组。上游数据原样未改时，随附许可证全文和固定提交的源码地址即满足 LGPL 的源码提供义务；若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。这一判断未经法务审阅 |
 
 msime-dictionary 原样收录了 `stroke.dict.yaml`（`sources/stroke/stroke.dict.yaml`），`msime-dict-build languages` 必须传 `--dictionary`，同样从 msime-dictionary checkout 读取它，并按 `upstream.lock.json` 校验。`crates/dict-builder/src/stroke.rs` 里的 `SOURCE_SIZE`、`SOURCE_SHA256` 只守着 `--cache` 兜底分支，这个分支在命令行上已经走不到；`COMMIT` 和锁文件里的 `rime-stroke` 引用必须仍是上面的提交。许可证文本走与上一节相同的全部通知渠道，`scripts/test-language-data-notices.py` 一并检查。
 
@@ -298,7 +335,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | LaTeX 命令名到 Unicode 码位的对照（本项目自写） | MIT（全文在 `resources/licenses/latex-symbols-MIT.txt`，正文与 `plugins/phrase_table/LICENSE` 相同） | `crates/engine/src/local/latex_symbols.tsv`，符号模式按它查 LaTeX 命令名（`include_str!` 编进引擎）。与下文官方短语表的 `plugins/phrase_table/latex-symbols/symbols.tsv` 逐字节相同，两份都由 `scripts/sync_symbol_tables.py` 按 `resources/symbol-tables.lock.json` 从 msime-dictionary 的 `sources/symbols/latex-symbols.tsv` 同步；引擎副本让 crate 不必从目录外 `include_str!`。是本项目自己的数据；不带官方短语表包的构建照样编进了这张表，所以 MIT 全文随引擎走各平台的声明渠道（`latex-symbols-MIT.txt`；Windows 与网页引擎的 NOTICE 收的是 `plugins/phrase_table/LICENSE`，正文相同），随引擎 crate 分发时也要带上 |
 | 符号名称到符号（本项目自写） | MPL-2.0，与引擎代码相同 | `crates/engine/src/local/symbol_candidates.tsv`，打拼音出符号的名称表（`include_str!` 编进引擎）。名称与码位是事实，没有整段复制现成的表；唯一的编辑入口是 msime-dictionary 的 `sources/symbols/symbol-names.tsv`，按 `resources/symbol-tables.lock.json` 同步 |
 | 不拿来拼整句的粗俗词表（本项目自写） | MPL-2.0，与引擎代码相同 | `crates/engine/src/lattice/offensive_words.txt`（`include_str!` 编进引擎），词网格、纠错整句和联想不用含表里的词的词（豁免写法放行的除外），收词标准写在文件头。词和豁免写法都取自 dict-v2.0.39 的 `msime-pinyin.db` 里本来就有的词，按本项目自定的标准挑出，没有复制现成的敏感词表；长期应由 msime-dictionary 维护 |
-| 九键切分的音节频度（424 个音节各自的总权重） | 聚合统计事实，不另附许可证；来源词库是 GPL-3.0 | `crates/engine/src/nine_key/syllable_frequency.tsv`（`include_str!` 编进引擎），由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.0.39` 的 `msime-pinyin.db` 汇总，第一行记着那份词库的 SHA-256。词库的词条来自 rime-ice（GPL-3.0）及补充表；这张表只有每个音节在全部词条里的权重之和，不含任何词、读音或单条权重，只作九键切分的排序先验。维护者 2026-10-29 裁定按聚合事实保留并写明来源；用 Unihan `kHanyuPinlu`（Unicode-3.0）原始计数加缺失音节下限重建的版本，在九键评测集不退步时替换它 |
+| 九键切分的音节频度（424 个音节各自的总权重） | 聚合统计事实，不另附许可证；来源词库是 GPL-3.0 | `crates/engine/src/nine_key/syllable_frequency.tsv`（`include_str!` 编进引擎），由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.0.39` 的 `msime-pinyin.db` 汇总，第一行记着那份词库的 SHA-256。词库的词条来自 rime-ice（GPL-3.0）及补充表，其中与万象共有的词条权重改编自 rime-wanxiang（CC BY 4.0）；这张表只有每个音节在全部词条里的权重之和，不含任何词、读音或单条权重，只作九键切分的排序先验。维护者 2026-10-29 裁定按聚合事实保留并写明来源；用 Unihan `kHanyuPinlu`（Unicode-3.0）原始计数加缺失音节下限重建的版本，在九键评测集不退步时替换它 |
 | [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `msime-dictionary/sources/opencc/`，构建输入由 `resources/opencc.lock.json` 固定；许可证全文保留在 `resources/licenses/OpenCC-Apache-2.0.txt`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt`，以及臺灣变体用的 `TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json`、`s2tw.json`、`s2twp.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
 
 ## 脚本插件合集（`plugins/script/`）
@@ -418,6 +455,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的数据与代码的声明，含韩语汉字表的 libhangul BSD-3-Clause 声明、引擎与 rink-core 的 MPL-2.0 全文和 `cxx_sort` 的 libc++ 许可证 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
 | `platforms/windows/Notices.md` | Windows 通知生成器的用法与限制；产物由 `Collect-Notices.ps1` 生成 |
+| `msime-engine-capi-vX.Y.Z` release 的库归档与数据包 | 引擎 C 库的预编译归档带 MPL-2.0 的 `LICENSE`、`licenses/`（引擎的 `LICENSE`、`crates/engine/licenses/` 里编进引擎的数据与改编代码的许可证全文、`ewts-MIT.txt`）、按 `msime-engine-capi` 依赖图生成的 `THIRD_PARTY_NOTICES.txt` 和写明对应源码与 rink-core 源码位置的 `SOURCE.txt`；全拼、双拼数据包 `msime-engine-data-quanpin-<词库版本>` 带说明各文件数据许可证的 `README.md`、`msime-scowl_Copyright.txt` 和 `licenses/`（GPL-3.0 全文、行政区划名称的 WTFPL、`pinyin-data-MIT.txt`、`ECDICT-MIT.txt`、`rime-wanxiang-CC-BY-4.0.txt`、`msime-engine-dictionary-NOTICE.md`）。两者由 `crates/engine-capi/packaging/` 的 `package.sh`、`data-pack.py` 组装，`.github/workflows/release-engine-capi.yml` 发布 |
 | 网页引擎 `web-engine-vX.Y.Z` release 的 `NOTICE.md` | 网页内置输入法用的 wasm 引擎、裁剪后的拼音库与五笔 86 库和整句模型的来源与许可证（release 由 `.github/workflows/release-web-engine.yml` 构建）。来源是 `resources/licenses/web-engine-NOTICE.md`：词库、模型、编进 wasm 的数据等内容手写；仓库许可证全文与链接进 wasm 的 crate 两节由 `scripts/web-engine-notice.sh` 按 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro` 生成，`--check` 与 `crates/engine-wasm/tests/notice.rs` 在依赖变化而 NOTICE 没有重新生成时失败。`scripts/build-web-engine.sh` 把它复制成 `NOTICE.md`，并把源码链接里的占位符换成构建所用的提交 |
 
 这些生成器和收集器都在各自文档里写明「不是完整性或再分发授权的评估」。发布二进制前的逐平台要求见[开源发布清单](open-source-release.md)。

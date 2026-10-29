@@ -15,7 +15,7 @@ enum TouchTwentySixKeyStyle: String, CaseIterable, Hashable {
   var title: String {
     switch self {
     case .standard: "标准"
-    case .commaPeriod: "逗号句号在空格两侧"
+    case .commaPeriod: "逗号句号"
     case .longSpace: "长空格"
     case .emoji: "表情键"
     }
@@ -205,7 +205,7 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   }
 }
 
-/// 设置页「按键布局」列出哪几组，按版本提供的入口判断，与 Android、鸿蒙同一规则：没有的键面类型不列它那一组，既没有中文 26 键也没有 14/18 键时不列「顶部数字行」开关。`offers` 在设置页是本版本（`edition`），测试换成别的版本。
+/// 设置页「按键布局」的分段列出哪几类键盘，按版本提供的入口判断，与 Android、鸿蒙同一规则：没有的键面类型不列进分段，既没有中文 26 键也没有 14/18 键时不列「顶部数字行」开关。`offers` 在设置页是本版本（`edition`），测试换成别的版本。各样式的说明和预览里高亮的键也在这里，三端逐字、逐键相同。
 struct TouchKeyLayoutOffering: Equatable {
   /// 读 26 键样式的中文 26 键入口：全拼、各种双拼、五笔、粤拼。日文罗马字、韩文、越南文和藏文的 26 键画标准底行（键盘的 `drawsChineseTwentySixKey`），不算。
   static let twentySixKeySchemes: [ChineseInputScheme] = [
@@ -224,14 +224,14 @@ struct TouchKeyLayoutOffering: Equatable {
   /// 至少有一组可列：键盘页的「按键布局」入口只在这时显示，一组都没有的版本不留一个点进去是空页的入口。
   var offersAnyGroup: Bool { twentySixKey || letterGrid || nineKey }
 
-  /// 键盘页「按键布局」入口的副标题。这一行和下面几段说明三端逐字相同（Android、鸿蒙的设置页用同样的文字）。
+  /// 键盘页「按键布局」入口的副标题。这一行和下面几条说明三端逐字相同（Android、鸿蒙的设置页用同样的文字）。
   static let entrySubtitle = "各类键盘的底行样式、键位和顶部数字行"
-  /// 26 键一组下面的说明。
-  static let twentySixKeyFooter = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。"
-  /// 14 键与 18 键一组下面的说明。
-  static let letterGridFooter = "表情键：长按 123 打开符号。"
-  /// 9 键一组下面的说明。
-  static let nineKeyFooter = "右侧大回车：回车竖占两行，符号键在左下角。"
+  /// 26 键「长空格」的说明。
+  static let longSpaceNote = "符号键移到工具栏。"
+  /// 26 键和 14/18 键「表情键」的说明。
+  static let emojiNote = "长按 123 打开符号。"
+  /// 9 键「右侧大回车」的说明。
+  static let tallReturnNote = "回车竖占两行，符号键在左下角。"
   /// 「顶部数字行」开关的说明。
   static let numberRowSubtitle = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。"
   /// 26 键一组里「符」与「123」互换开关的标题和说明。
@@ -241,6 +241,62 @@ struct TouchKeyLayoutOffering: Equatable {
   static let numberPadTitle = "数字键盘"
   static let numberPadFooter = "九宫格数字键盘里空格的位置；右侧大回车不受影响。"
 
+  /// 页面顶部分段控件列出的键盘类型，按 26 键、14/18 键、9 键的顺序，只列本版本提供的；只有一种时页面不画分段控件。
+  var kinds: [TouchKeyLayoutKind] {
+    let listed: [TouchKeyLayoutKind?] = [twentySixKey ? .twentySixKey : nil, letterGrid ? .letterGrid : nil, nineKey ? .nineKey : nil]
+    return listed.compactMap { $0 }
+  }
+
+  /// 页面打开时停在哪一类：用户当前中文键盘所属的那一类（`TouchKeyLayoutKind.of`）；判断不了或本版本不列那一类时停在第一个。一类都不列时为 nil。
+  func initialKind(current: TouchKeyLayoutKind?) -> TouchKeyLayoutKind? {
+    if let current, kinds.contains(current) { return current }
+    return kinds.first
+  }
+
+  /// 选中样式的副作用，显示在样式按钮下面一行；没有副作用的样式为 nil，页面不画这一行。
+  static func note(_ style: TouchTwentySixKeyStyle) -> String? {
+    switch style {
+    case .longSpace: longSpaceNote
+    case .emoji: emojiNote
+    case .standard, .commaPeriod: nil
+    }
+  }
+
+  static func note(_ style: TouchFourteenKeyStyle) -> String? {
+    style == .emoji ? emojiNote : nil
+  }
+
+  static func note(_ style: TouchNineKeyStyle) -> String? {
+    style == .tallReturn ? tallReturnNote : nil
+  }
+
+  /// 预览里这个样式与「标准」不同、用强调色描边的键，按底行表的键位（`TouchBottomRowLayout.Slot`）认，不比较键面文字；标准样式不高亮。
+  static func highlightedSlots(_ style: TouchTwentySixKeyStyle) -> Set<TouchBottomRowLayout.Slot> {
+    switch style {
+    case .standard: []
+    case .commaPeriod: [.comma, .period]
+    case .longSpace: [.space]
+    case .emoji: [.emoji]
+    }
+  }
+
+  static func highlightedSlots(_ style: TouchFourteenKeyStyle) -> Set<TouchBottomRowLayout.Slot> {
+    switch style {
+    case .standard: []
+    case .longSpace: [.space]
+    case .emoji: [.emoji]
+    }
+  }
+
+  static func highlightedSlots(_ style: TouchNineKeyStyle) -> Set<TouchBottomRowLayout.Slot> {
+    switch style {
+    case .standard: []
+    case .commaPeriod: [.comma, .period]
+    case .emoji: [.emoji]
+    case .tallReturn: [.returnKey]
+    }
+  }
+
   init(offers: (ChineseInputScheme) -> Bool) {
     twentySixKey = Self.twentySixKeySchemes.contains(where: offers)
     letterGrid = Self.letterGridSchemes.contains(where: offers)
@@ -248,6 +304,97 @@ struct TouchKeyLayoutOffering: Equatable {
   }
 
   static var edition: TouchKeyLayoutOffering { TouchKeyLayoutOffering { $0.isOfferedByEdition } }
+}
+
+/// 「按键布局」页顶部分段控件里的一类键盘：26 键、14 键与 18 键、9 键，各自对应一项底行样式偏好。切换分段只换预览和样式按钮，不写任何偏好；三端同一套，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
+enum TouchKeyLayoutKind: String, CaseIterable, Hashable {
+  case twentySixKey = "26"
+  case letterGrid = "14"
+  case nineKey = "9"
+
+  var title: String {
+    switch self {
+    case .twentySixKey: "26 键"
+    case .letterGrid: "14/18 键"
+    case .nineKey: "9 键"
+    }
+  }
+
+  /// 分段按钮的 accessibility identifier：`keyLayoutKind_26`、`keyLayoutKind_14`、`keyLayoutKind_9`。
+  var identifier: String { "keyLayoutKind_\(rawValue)" }
+
+  /// 用户当前的中文键盘属于哪一类：全拼、双拼、五笔、粤拼的 26 键是 26 键；全拼 14 键、18 键，以及双拼、五笔选了 14 键或 18 键布局（`LetterKeyGrid`）是 14/18 键；拼音九键、九键双拼和笔画是 9 键。手写、注音和非中文的 26 键不读这几项样式，为 nil。
+  static func of(_ scheme: ChineseInputScheme, shuangpinLayout: TouchShuangpinLayoutPreference.Layout,
+                 wubiLayout: TouchWubiLayoutPreference.Layout) -> TouchKeyLayoutKind? {
+    if LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout) != nil { return .letterGrid }
+    if TouchKeyLayoutOffering.nineKeySchemes.contains(scheme) { return .nineKey }
+    if TouchKeyLayoutOffering.twentySixKeySchemes.contains(scheme) { return .twentySixKey }
+    return nil
+  }
+
+  /// 预览顶上画不画数字行：数字行只加在 26 键、14 键和 18 键上，9 键的预览不画，开关照样列出。
+  func drawsNumberRow(_ style: TouchKeyLayoutStyle) -> Bool {
+    style.numberRow && self != .nineKey
+  }
+
+  /// 预览里这一类在 `style` 下的底行，取自键盘用的同一张表；不画地球键，`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格，与键盘一致。26 键打开「符」与「123」互换时照键盘把 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`），没有 符 的样式不变。
+  func bottomRow(_ style: TouchKeyLayoutStyle, language: Bool = true) -> [TouchBottomRowLayout.Key] {
+    switch self {
+    case .twentySixKey:
+      let keys = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false, language: language)
+      return style.symbolFirst ? TouchBottomRowLayout.symbolFirst(keys) : keys
+    case .letterGrid: return TouchBottomRowLayout.letterGrid(style.fourteenKey, globe: false, language: language)
+    case .nineKey: return TouchBottomRowLayout.nineKey(style.nineKey, globe: false, language: language)
+    }
+  }
+
+  /// 这一类当前选中样式的说明（`TouchKeyLayoutOffering.note`）。
+  func note(_ style: TouchKeyLayoutStyle) -> String? {
+    switch self {
+    case .twentySixKey: TouchKeyLayoutOffering.note(style.twentySixKey)
+    case .letterGrid: TouchKeyLayoutOffering.note(style.fourteenKey)
+    case .nineKey: TouchKeyLayoutOffering.note(style.nineKey)
+    }
+  }
+
+  /// 这一类当前选中样式在预览里高亮的键位（`TouchKeyLayoutOffering.highlightedSlots`）。26 键打开「符」与「123」互换、且这个样式有 符 时，再高亮 符 和 123 两个键。
+  func highlightedSlots(_ style: TouchKeyLayoutStyle) -> Set<TouchBottomRowLayout.Slot> {
+    switch self {
+    case .twentySixKey:
+      let swapped = style.symbolFirst
+        && TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false).contains { $0.slot == .symbols }
+      return TouchKeyLayoutOffering.highlightedSlots(style.twentySixKey).union(swapped ? [.symbols, .layer] : [])
+    case .letterGrid: return TouchKeyLayoutOffering.highlightedSlots(style.fourteenKey)
+    case .nineKey: return TouchKeyLayoutOffering.highlightedSlots(style.nineKey)
+    }
+  }
+}
+
+/// 整块键盘预览（`KeyboardSkinPreview`：键盘页的实时预览，以及皮肤、工具栏、AI 皮肤和自定义皮肤编辑器各页的键盘缩略图）字母层的框架：画哪一类键面、顶上画不画 1 到 0、底行的键和份额，九键时左侧符号栏和右列各画什么。样式取用户在「按键布局」里选的（`TouchKeyLayoutStyle`，含「符」与「123」互换），中/英键跟「隐藏中/英键」设置，键序和份额与键盘、「按键布局」页取自同一张表（`TouchKeyLayoutKind.bottomRow`、`TouchBottomRowLayout`、`TypingKeyHeatmap`），不另写一套。预览不做高亮，高亮只在「按键布局」页。
+struct KeyboardPreviewLetterLayer: Equatable {
+  let kind: TouchKeyLayoutKind
+  /// 字母行上方画不画一排 1 到 0（`TouchKeyLayoutKind.drawsNumberRow`）：只在 26 键和 14/18 键上画。
+  let numberRow: Bool
+  /// 字母层底行，从左到右；不画地球键。「右侧大回车」时第一格 符 画在符号栏下方、最后一格回车画在右列并竖跨两行，中间几格画在九宫格下方。
+  let bottomRow: [TouchBottomRowLayout.Key]
+  /// 九键「右侧大回车」：回车从右列第三格伸到底行。
+  let tallReturn: Bool
+  /// 九键左侧符号栏自上而下的标点；右侧大回车时右列的 ！ 接到末尾。
+  let nineKeySidebar: [String]
+  /// 九键右列在九宫格旁的几格（⌫、分词、！），右侧大回车时只剩 ⌫ 和分词。
+  let nineKeyControls: [String]
+
+  /// `nineKey` 与 `letterGrid` 是预览画的键面：九键优先，其次 14/18 键，其余是 26 键。`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格。`nineKeyZero` 是九键双拼字母层空格后面的 0。
+  init(nineKey: Bool, letterGrid: Bool, style: TouchKeyLayoutStyle, language: Bool, nineKeyZero: Bool = false) {
+    kind = nineKey ? .nineKey : letterGrid ? .letterGrid : .twentySixKey
+    numberRow = kind.drawsNumberRow(style)
+    bottomRow = kind == .nineKey
+      ? TouchBottomRowLayout.nineKey(style.nineKey, globe: false, zero: nineKeyZero, language: language)
+      : kind.bottomRow(style, language: language)
+    tallReturn = kind == .nineKey && style.nineKey == .tallReturn
+    nineKeySidebar = TypingKeyHeatmap.nineKeySidebar(for: style.nineKey).face.map(String.init)
+    nineKeyControls = TypingKeyHeatmap.nineKeyControls(for: style.nineKey).map { $0.id == TypingKeyID.backspace ? "⌫" : $0.face }
+  }
 }
 
 /// 手机触屏底行按「按键布局」样式的排法：每个显示的键、从左到右的顺序和它在本行里的宽度份额。三端相同，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。

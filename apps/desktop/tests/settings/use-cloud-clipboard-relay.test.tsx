@@ -169,6 +169,71 @@ test.each(["地址", "令牌", "清除"])("外部%s变更清空旧草稿并重�
   expect(onChange).not.toHaveBeenCalled();
 });
 
+test.each(["通过", "失败"])("切换方式后重新测试时，旧请求%s不能覆盖新请求", async (outcome) => {
+  const webdav = {
+    url: "https://dav.example.test/dav/",
+    username: "synthetic@example.test",
+    password: "synthetic-app-password",
+  };
+  let resolvePrevious!: () => void;
+  let rejectPrevious!: (error: unknown) => void;
+  let resolveCurrent!: () => void;
+  const probeWebDav = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          resolvePrevious = resolve;
+          rejectPrevious = reject;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCurrent = resolve;
+        }),
+    );
+  const onWebDavChange = vi.fn();
+  const hook = renderHook(() =>
+    useCloudClipboardRelay({
+      relay: undefined,
+      webdav,
+      probeWebDav,
+      onChange: vi.fn(),
+      onWebDavChange,
+    }),
+  );
+  act(() => hook.result.current.editWebDavUrl("https://dav.example.test/dav/other"));
+  let previous!: Promise<void>;
+  act(() => {
+    previous = hook.result.current.saveWebDav();
+  });
+  expect(hook.result.current.webdavProbe.kind).toBe("probing");
+  act(() => hook.result.current.setMode("relay"));
+  act(() => hook.result.current.setMode("webdav"));
+  expect(hook.result.current.canSaveWebDav).toBe(true);
+  let current!: Promise<void>;
+  act(() => {
+    current = hook.result.current.saveWebDav();
+  });
+  await act(async () => {
+    if (outcome === "通过") resolvePrevious();
+    else rejectPrevious({ code: "relay_unavailable" });
+    await previous;
+  });
+  expect(onWebDavChange).not.toHaveBeenCalled();
+  expect(hook.result.current.webdavProbe.kind).toBe("probing");
+  await act(async () => {
+    resolveCurrent();
+    await current;
+  });
+  expect(hook.result.current.webdavProbe.kind).toBe("passed");
+  expect(onWebDavChange).toHaveBeenCalledExactlyOnceWith({
+    ...webdav,
+    url: "https://dav.example.test/dav/other",
+  });
+});
+
 test("同值偏好和回调重建保留本地草稿，保存使用当前回调", () => {
   const previous = vi.fn();
   const current = vi.fn();

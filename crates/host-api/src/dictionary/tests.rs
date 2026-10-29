@@ -78,7 +78,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,

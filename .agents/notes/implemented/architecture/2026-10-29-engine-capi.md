@@ -55,6 +55,8 @@ Status: implemented
 
 CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 三个 runner 各跑 `cargo test -p msime-engine-capi` 和这个脚本。`changes` 作业新增 `engine_capi` 输出，只在 `crates/engine*`、`crates/path-trust/`、工作区清单与工具链、`collect-notices.py` 或这个 workflow 改动时为真；这个作业不是必需检查，所以在作业级跳过，不为不相干的改动占一台稀缺的 macOS runner。cargo-c 按版本、系统和工具链缓存装好的可执行文件，缓存不中才 `cargo install cargo-c --locked --version 0.10.26`。
 
+`tests/golden_replay.rs` 把引擎的 golden 场景经 C 函数回放，每一步与核心 API 的回放对照，同一条 `cargo test -p msime-engine-capi` 跑它；怎么比、跳过哪些、回放下限见 [引擎 C ABI 回放 golden 场景](../testing/2026-10-29-engine-capi-golden-replay.md)。
+
 ## Alternatives considered
 
 - **cbindgen 加自写脚本生成 `.pc`、设 SONAME** — 最强的理由是少一个构建工具，cbindgen 只是一个库或一个小命令。维护者选了 cargo-c：它一步给出头文件、`.pc`、按平台正确的库名和 SONAME/install name、Windows 的导入库，这些自己写要按三个平台分别处理，正是容易写错又没人测的部分。
@@ -68,7 +70,7 @@ CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 
 
 - **收益**：第三方前端拿到一个带版本、带头文件和 `.pc` 的 C 库，按键路径上没有 JSON 和额外分配，候选按下标随取，选择有修订号保护；会话可以在任何线程上用；会话与维护按 msime 宿主的同一把文件锁互斥；头文件、SONAME、第三方声明和三平台上的打字流程都有 CI 守着。
 - **代价**：cargo-c 总是按显式的目标三元组构建，产物在 `target/<三元组>/` 下，是与 `target/debug` 分开的第二棵构建树（CI 和本机跑脚本时都多编一遍引擎）。苹果平台的 dylib 不剥调试信息，体积大一些。CI 在引擎相关的 PR 上多占三台 runner，其中一台是 macOS。快照缓存在只读调用之间可能多取一次快照。
-- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布等 P2 改许可证，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
+- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布见 [msime-engine-capi 的预编译归档、最小数据包与快速上手](../process/2026-10-29-engine-capi-prebuilt-release-and-data-pack.md)，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
 
 ## 相关笔记
 

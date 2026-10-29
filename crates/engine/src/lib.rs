@@ -4,7 +4,7 @@
 //!
 //! This crate replaces the C++ MSIME-Engine that used to be fetched from `engine-lock.json` and patched by overlay scripts. It owns the input algorithms; `msime-input-runtime` keeps orchestrating hosts and does not duplicate any of it.
 //!
-//! The documented API is the core layer: `Session` and the functions and types beside it, which mirror the C++ `metasequoia::` API the golden fixtures were recorded against. The modules `host`, `backend`, `ordering` and `web` are the product facade of 水杉输入法 itself (the surface host-api and input-runtime call, the msime-cloud query process, the shared candidate ordering and the browser storage). They stay `pub` only so those crates in the same repository can reach them, are hidden from the documentation and are outside what a 0.x release tries to keep stable; other programs should not use them. The crate's README says which dictionary files a session reads, what to set in a downstream workspace, and the licences of the data compiled in.
+//! The documented API is the core layer at the crate root: `Session`, its options and snapshot, and the functions and types beside them (they mirror the C++ `metasequoia::` API the golden fixtures were recorded against), plus the public modules such as `assets`, `diagnostics`, `touch` and `multilingual`. `host`, `ordering`, `backend` and `web` are msime's own product glue (the session facade and settings-page helpers its hosts call, its candidate ordering, its msime-cloud protocol, its browser storage): they stay `pub` only so msime's crates in the same repository can reach them, are hidden from the documentation, are not part of the library API and change with msime's hosts; other programs should not use them. msime's product crates import everything the core layer takes or returns from the root, like a third party would; the boundary is described in `docs/ARCHITECTURE.md` and `.agents/notes/implemented/architecture/2026-10-29-engine-host-dogfood.md`. The crate's README says which dictionary files a session reads, what to set in a downstream workspace, and the licences of the data compiled in.
 //!
 //! 引擎在运行时读写的每个文件（词库、模型、学习日志、代次目录）的格式、版本检查、产出方与数据许可证见仓库里的 `docs/data-formats.md`；代码注释里的 `data-formats.md §N` 指它的章节。
 
@@ -69,20 +69,33 @@ pub use logging::{set_log_sink, LogSink};
 // `GramDb::shared` 缓存的内存映射，经这个窄出口暴露给 host-api。
 pub use lattice::octagram;
 pub use nine_key::KeyGrid;
-pub use nine_key_shuangpin::NineKeyShuangpin;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
 pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
-    Command, CommandTranslationQuery, EnglishInputOptions, FirstPageRows, FrequencyAdjustmentMode,
-    FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode, LocalModeOptions,
-    MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineInputMode,
-    OnlineQuery, PersonalDictionaryEntry, PersonalDictionaryKind, PluginCommand,
-    PluginCommandQuery, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinCustomTable,
-    ShuangpinHelpcodeModes, ShuangpinProfileKind, SyllableHelpcode, WordItem, WubiInputOptions,
-    WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    Command, CommandTableEntry, CommandTranslationQuery, EnglishInputOptions, FirstPageRows,
+    FrequencyAdjustmentMode, FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult,
+    LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions, NineKeyShuangpinKind,
+    NineKeyShuangpinTable, OnlineInputMode, OnlineQuery, PersonalDictionaryEntry,
+    PersonalDictionaryKind, PluginCommand, PluginCommandQuery, QuickPhraseEntry, SchemeSet,
+    SchemeType, SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes,
+    ShuangpinProfileKind, SyllableHelpcode, WordItem, WubiInputOptions, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
+};
+// 辅助码表：`SessionOptions::helpcode_table` 与 `Session::set_helpcode_table` 收的就是它，宿主自己读表（辅助码表插件、没有文件系统的网页）时用这几项。
+pub use helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
+// 用户自定义的 26 键双拼表（`SessionOptions::shuangpin_custom_profile`）的校验：宿主在把表交给会话之前先校验，不合法就不要传。设置页编辑表用的辅助函数（内置表作起点、不留存的校验）是产品胶水，在 `host` 里。
+pub use shuangpin::custom::{
+    validate_custom_profile as validate_shuangpin_custom_profile,
+    CustomProfileError as ShuangpinCustomProfileError, CustomTablePart as ShuangpinCustomTablePart,
+};
+// 九键、14 键、18 键双拼的表：用户表的校验、按方案取表。取到的 `NineKeyShuangpin` 经 `KeyGrid::NineKeyShuangpin` 交给会话，它的 `key_hints` 给出键面提示。设置页编辑表用的辅助函数同样在 `host` 里。
+pub use nine_key_shuangpin::{
+    nine_key_shuangpin as validate_nine_key_shuangpin_table, resolve as resolve_nine_key_shuangpin,
+    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, NineKeyShuangpin,
+    NineKeyShuangpinError, NineKeyShuangpinKeyHint,
 };
 pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,

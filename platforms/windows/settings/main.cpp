@@ -18795,6 +18795,7 @@ private:
     stats_error_.clear();
     stats_busy_ = true;
     stats_request_ = 0;
+    stats_write_request_ = 0;
     stats_last_request_ = {};
     stats_day_.reset();
     stats_selected_.reset();
@@ -18885,7 +18886,7 @@ private:
       stats_upload_busy_ = false;
       if (auto status = typing_upload_status(response)) {
         stats_upload_ = status;
-        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled));
+        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled, *status));
       } else {
         stats_upload_message_ = typing::upload_error_message(account_failure(response), enabled);
         read_typing_upload();
@@ -18930,6 +18931,7 @@ private:
     const auto generation = stats_generation_;
     const auto request = ++stats_request_counter_;
     stats_request_ = request;
+    stats_write_request_ = overview ? 0 : request;
     stats_busy_ = true;
     stats_error_.clear();
     stats_request_started_ = std::chrono::steady_clock::now();
@@ -18939,6 +18941,7 @@ private:
       if (generation != stats_generation_ || stats_request_ != request)
         return;
       stats_request_ = 0;
+      stats_write_request_ = 0;
       stats_busy_ = false;
       if (status)
         stats_ = *status;
@@ -18956,7 +18959,7 @@ private:
     return false;
   }
 
-  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、上一次请求在途且不到 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
+  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、写操作未完成、读取在途且不超过 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
   void poll_statistics() {
     if (closed_ || current_page_ != "stats" || window_minimized())
       return;
@@ -18968,7 +18971,9 @@ private:
         redraw_stats();
     }
     const auto now = std::chrono::steady_clock::now();
-    if ((stats_request_ != 0 && now - stats_request_started_ <= std::chrono::seconds(15)) ||
+    if ((stats_request_ != 0 &&
+         (stats_write_request_ == stats_request_ ||
+          now - stats_request_started_ <= std::chrono::seconds(15))) ||
         now - stats_last_request_ < std::chrono::seconds(1))
       return;
     stats_last_request_ = now;
@@ -27266,6 +27271,7 @@ private:
   double stats_details_offset_ = 0;
   uint64_t stats_generation_ = 0;
   uint64_t stats_request_ = 0;
+  uint64_t stats_write_request_ = 0;
   uint64_t stats_request_counter_ = 0;
   std::chrono::steady_clock::time_point stats_request_started_{};
   std::chrono::steady_clock::time_point stats_last_request_{};

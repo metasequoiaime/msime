@@ -32,6 +32,7 @@ import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
+import { OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -996,6 +997,8 @@ interface PreparedPreferences {
   touch_twenty_six_symbol_first?: boolean;
   /** 九宫格数字键盘里空格的位置（platform_default / right_column / after_zero / before_zero）；默认值不写进文档。 */
   touch_number_pad_space?: string;
+  /** 大屏单手模式空出来的一侧放什么（off / number_pad）；默认值不写进文档。 */
+  touch_one_handed_side_panel?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1169,6 +1172,8 @@ export interface KeyboardPreferences {
   readonly twentySixSymbolFirst: boolean;
   /** `touch_number_pad_space`：九宫格数字键盘里空格的位置，`platform_default` 和不认识的值按鸿蒙原来的 `before_zero`（`TouchLayoutStylePolicy.numberPadSpace`）。 */
   readonly numberPadSpace: string;
+  /** `touch_one_handed_side_panel`：大屏单手模式空出来的一侧放什么，不认识的值按空着（`OneHandedPolicy.sidePanel`）。 */
+  readonly oneHandedSidePanel: OneHandedSidePanel;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1502,7 +1507,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
     numberRow: false,
     twentySixSymbolFirst: false,
-    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO
+    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO,
+    oneHandedSidePanel: OneHandedSidePanel.OFF
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1941,7 +1947,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
       numberRow: preferences.touch_number_row === true,
       twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
-      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)
+      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space),
+      oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

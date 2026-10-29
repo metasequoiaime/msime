@@ -2,10 +2,9 @@
 //!
 //! 按字母归组的网格（九键、14 键）把字母逐个换成所在键的组码。九键双拼和 26 键双拼按音节编码，而用例的输入是不带分隔的全拼（`xianzai`），要先切成音节：`xian` 和 `xi'an` 在双拼上是不同的键，切错了金标准就打不出来。
 
-use msime_engine::host::{
-    encode_shuangpin, is_shuangpin_syllable, resolve_nine_key_shuangpin, NineKeyShuangpinKind,
-};
+use msime_engine::host::{encode_shuangpin, is_shuangpin_syllable};
 use msime_engine::KeyGrid;
+use msime_engine::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
 
 /// `--grid` 的取值：`nine`、`fourteen`，或 `shuangpin-<方案>`（`shuangpin-migala2`、`shuangpin-migala3`、`shuangpin-gushi2_low`）。
 pub fn parse_grid(name: &str) -> Result<KeyGrid, String> {

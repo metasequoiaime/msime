@@ -16,7 +16,7 @@ Status: implemented
 - **组内按码位排序。** 例外有四处，前三处的排序键由数据导出：上标、下标按分解出的基本字符排；俄文字母里带变音的字母（ё）跟在基本字母后面；数学字母数字各字体按区里的排法（大写 A–Z、小写 a–z、数字），区里的空位由字母类符号区里 `<font>` 分解与字体名相符的字补上（ℎ ℬ ℂ）。第四处是非夹注符号一组：GB/T 15834—2011 规定中文的破折号、省略号各占两个字，Unicode 没有对应的单个字符，所以按标准写成两个码位的 —— 与 ……，排在组首，和拼音一组按《汉语拼音方案》生成是同一种做法。旧表把大小写交错排（A a B b），这个顺序不再沿用。
 - **几处按标准点名的字。** 电脑按键一组除了杂项技术区按名字挑的按键符号，还收箭头区里印在键帽上的 ISO/IEC 9995-7 符号（⇧ ⇪ ⇥ ⇤ ↩ ↵ ⇞ ⇟ ⇱ ⇲，按 Unicode 字符名点名）、⌧ 清除键和 ⏩–⏯ ⏸ ⏹ ⏺ 媒体键。单位一组的 OHM SIGN、ANGSTROM SIGN 有单码位的规范分解，NFC 会改写它们，所以收的是 Ω（U+03A9）、Å（U+00C5）；KELVIN SIGN 的目标字是键盘上的 K，不收。部首补充区的等价映射按段展开（`2EBE..2EC0 ; 8279`），艹、辶、小、爫 这几个成段等价的部首出的是统一汉字。
 - **每组不超过 200 个符号**（`SYMBOL_MODE_LIMIT`，整串分组码一次最多出这么多行）。康熙部首是唯一的例外，它是 214 个部首的完整集合，旧表同样如此。数学符号一组为此去掉了带 WITH 的修饰形、SMALL 小号形、有兼容分解的连写形和有规范分解的否定形，否定形只留 ≠ ≮ ≯，得 197 个。常用符号一组收杂项符号区里没被其他组收走的字，得 195 个。生成器和 `symbol_groups.rs` 的单测都检查这个上限。
-- **rime-wanxiang 的署名链路整条拿掉。** `resources/licenses/rime-wanxiang-CC-BY-4.0.txt` 只为这张表存在，所以删掉了，十二个声明渠道里的引用一并删除。Unicode License V3 早已因拆字表的 Unihan 数据接进了这些渠道，这次只把它的说明扩到符号模式。
+- **符号模式不再署名 rime-wanxiang。** 分组表不再取自它，`resources/licenses/rime-wanxiang-CC-BY-4.0.txt` 里关于这张表的说明随之作废。Unicode License V3 早已因拆字表的 Unihan 数据接进了这些渠道，这次只把它的说明扩到符号模式。当时以为这份文件只为分组表存在，删掉了它和十二个渠道里的引用；其实 `msime-pinyin.db` 与 `msime-stroke.db` 一直带着改编自 rime-wanxiang 的权重，文件已按权重的用途重写并接回全部渠道，见[词库里改编自 rime-wanxiang 的权重重新署名](../../implemented/process/2026-10-29-rime-wanxiang-weights-attribution.md)。
 - **CI 逐字节核对。** `ci-platforms.yml` 的 Rust engine 作业按锁的摘要缓存 `target/symbol-groups-cache`，再以 `MSIME_FETCH=1` 跑 `scripts/test-symbol-groups.py`，做法与拆字表相同：设了 `MSIME_FETCH=1` 时下载失败会让检查失败，不会当作跳过。锁文件改动也会触发引擎作业。此前文档写着 CI 会核对这张表，但工作流里其实没有这一步。
 
 ### 数据放在哪

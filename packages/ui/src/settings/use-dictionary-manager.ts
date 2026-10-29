@@ -577,6 +577,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       async (isCurrent) => {
         await reset();
         if (!isCurrent()) return;
+        // 清除前发出的查询不能重新显示旧词条或覆盖清除结果。
+        phraseRequestGeneration.current += 1;
+        setPhraseError("");
         setPhrases([]);
         setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
         setDictionaryPendingCount(0);

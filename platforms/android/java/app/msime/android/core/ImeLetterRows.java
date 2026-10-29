@@ -1041,9 +1041,9 @@ final class ImeLetterRows {
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         container.addView(s.imeLayoutRows.fourteenSpellingSidebar(),
-            LayoutPolicy.weightedMatchParentParams(0.7f));
+            LayoutPolicy.weightedMatchParentParams(FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT));
         LinearLayout letterColumn = LayoutPolicy.column(s);
-        container.addView(letterColumn, LayoutPolicy.weightedMatchParentParams(3.8f));
+        container.addView(letterColumn, LayoutPolicy.weightedMatchParentParams(FourteenKeyLayout.LETTER_COLUMN_WEIGHT));
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.row(s);
             row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,

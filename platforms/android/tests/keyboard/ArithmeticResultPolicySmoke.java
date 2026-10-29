@@ -5,6 +5,7 @@ public final class ArithmeticResultPolicySmoke {
     public static void main(String[] args) {
         results();
         noResult();
+        invalidArithmeticDoesNotFallBackToASuffix();
         commitText();
         System.out.println("Android arithmetic result: trailing expressions, precedence, decimals, full-width input and commit text passed");
     }
@@ -26,6 +27,7 @@ public final class ArithmeticResultPolicySmoke {
         check("0", "3-3");
         check("15", "12 + 3");
         check("15", ")12+3");
+        check("15", "*12+3");
         check("1.5", ".5+1");
         check("100000000000000", "99999999999999+1");
         check("5", "版本 2+3");
@@ -71,6 +73,15 @@ public final class ArithmeticResultPolicySmoke {
         longText.append("6*7");
         ArithmeticResultPolicy.Result tail = ArithmeticResultPolicy.evaluateTrailing(longText);
         check(tail != null && "42".equals(tail.value()), "only the tail of a long context is read");
+    }
+
+    private static void invalidArithmeticDoesNotFallBackToASuffix() {
+        for (String text : new String[] {"1/0+2", "1/0+2=", "4/(2-2)+7", "4/(2-2)+7=",
+                "金额 1/0+2", "１／０＋２＝", "1/0+2*3", "-6/0+1", "4/0*(2+3)",
+                "2*(1/0+3)", "9999999999999999*9999999999999999*0+2"}) {
+            check(ArithmeticResultPolicy.evaluateTrailing(text) == null,
+                "invalid arithmetic must not become a valid suffix: " + text);
+        }
     }
 
     private static void check(String expected, String text) {

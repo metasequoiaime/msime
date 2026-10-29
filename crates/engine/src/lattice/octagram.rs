@@ -8,9 +8,7 @@
 //!
 //! 文件是「Metadata + Darts 双数组 Trie 镜像」：键为「上下文尾部字符 + 词首字符」经 `encode` 压缩的字节串，值为 `int(ln(共现频次) * 10000)`。它不是概率语言模型：`query` 给出的是搭配强度信号——命中取 `max(值/10000 + 搭配惩罚)`，全部未命中返回 `non_collocation_penalty`。词表零耦合：我们词库里没有的词只是拿不到加成，不会报错。
 //!
-//! 头部布局（rime `MappedFile` 上的 Metadata，偏移 0）：`format` char[32]、
-//! uint32 checksum、uint32 `double_array_size`（单位数，非字节）、int32
-//! `OffsetPtr<char>`（相对自身字段的偏移）。双数组单元 4 字节。
+//! 头部布局（rime `MappedFile` 上的 Metadata，偏移 0）：`format` char\[32\]、uint32 checksum、uint32 `double_array_size`（单位数，非字节）、int32 `OffsetPtr<char>`（相对自身字段的偏移）。双数组单元 4 字节。
 //!
 //! 装载沿用 `ngram.rs` 的 mmap 约定：`.gram` 经资源包以原子重命名安装
 //! （`.incoming` 改名就位，绝不就地改写），映射随对象存活；万象模型的镜像接近

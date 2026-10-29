@@ -647,8 +647,8 @@ final class ImeLayoutRows {
         return exclamation;
     }
 
-    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面。 */
-    private Button nineKeyDecimalKey() {
+    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
+    Button nineKeyDecimalKey() {
         Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
         KeyboardTypographyPolicy.setKeyTextSize(period, 22);
         if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);

@@ -1,4 +1,5 @@
 #include "../../common/GameCompatProfile.h"
+#include "../../common/RegistryString.h"
 #include "../../common/HostOnlineCandidateSync.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
 #include "Private.h"
@@ -77,15 +78,8 @@ bool IsServerAlreadyRunning()
 
 std::wstring ReadServerPath()
 {
-    wchar_t path[32768]{};
-    DWORD bytes = sizeof(path);
-    const LSTATUS status = RegGetValueW(HKEY_LOCAL_MACHINE, INSTALL_REGISTRY_KEY, SERVER_PATH_REGISTRY_VALUE,
-                                        RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, path, &bytes);
-    if (status != ERROR_SUCCESS || path[0] == L'\0')
-    {
-        return {};
-    }
-    return path;
+    return msime::windows::read_registry_string_64(
+        HKEY_LOCAL_MACHINE, INSTALL_REGISTRY_KEY, SERVER_PATH_REGISTRY_VALUE);
 }
 
 bool LaunchServerIfNeeded()

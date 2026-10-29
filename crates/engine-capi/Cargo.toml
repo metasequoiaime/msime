@@ -1,14 +1,20 @@
 [package]
 name = "msime-engine-capi"
-# 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
-version = "0.1.0"
+# 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，crate 经 .github/workflows/release-engine-crates.yml 发到 crates.io，预编译库经 release-engine-capi.yml 发到 GitHub Releases；SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 # 这个 crate 自己的文件只有维护者的代码，用 MPL-2.0（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL-3.0-only。它链接的 msime-engine 与 msime-path-trust 也是 MPL-2.0，二进制整体按 MPL-2.0 发布。
 license = "MPL-2.0"
 description = "C ABI of the 水杉输入法 (Metasequoia IME) input engine: sessions, keys, candidates, selection and learning, as a C library with a header and pkg-config file."
 repository.workspace = true
+homepage = "https://github.com/metasequoiaime/msime/tree/develop/crates/engine-capi"
+documentation = "https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md"
 readme = "README.md"
+keywords = ["ime", "input-method", "pinyin", "chinese", "ffi"]
+categories = ["text-processing", "internationalization", "external-ffi-bindings"]
+# 发布到 crates.io 的包只带构建 C 库要用的东西：源码、提交的头文件、cbindgen 配置、说明和许可证。白名单而不是 exclude：tests/ 下的 SQL 夹具与脚本、examples/ 的 C 示例只在仓库里用，src/tests.rs 读的夹具只在 #[cfg(test)] 下引用，包里的源码只能编译，跑不了 cargo test。
+include = ["src/**/*.rs", "include/msime_engine.h", "cbindgen.toml", "README.md", "LICENSE", "Cargo.toml"]
 
 [lib]
 # cdylib 与 staticlib 是交给 C 的两种库；rlib 留着是为了工作区里的 Rust 代码（以后的 msime 宿主自用、ABI 测试）能直接链接同一份实现。
@@ -19,7 +25,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 capi = []
 
 [dependencies]
-msime-engine = { path = "../engine" }
+# 发布时 path 被去掉，留下 version：crates.io 上的 C 库依赖同一版本线的 msime-engine。
+msime-engine = { version = "0.1.0", path = "../engine" }
 serde.workspace = true
 serde_json.workspace = true
 

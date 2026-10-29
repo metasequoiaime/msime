@@ -233,6 +233,7 @@ char *msime_client_cloud_dictionary(const uint8_t *request, size_t length);
  * field ahead of editing_text - it is separate because caret_position is an
  * offset into editing_text in the host's own string unit. Omitted means each
  * piece is committed as it is picked, as before.
+ * Optional selection_statistics=false stops this session from recording candidate positions and commit efficiency in <preferences_directory>/typing-statistics.json. It is for a mirror session that repeats selections another session already made: the Windows TIP's in-process session follows the Server's choice, and only the Server's session records it. Omitted means the session records them.
  * The host must prepare and validate its dictionary generation before creation.
  * Creation acquires cooperative shared access to user_data and dictionaries until
  * destroy. It fails immediately while a participating maintenance writer holds

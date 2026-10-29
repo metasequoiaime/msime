@@ -210,11 +210,23 @@ final class ImeStyler {
         ViewPolicy.setHorizontalPaddingPreservingVertical(s.keyRows, edge);
         if (s.actionRow != null)
             ViewPolicy.setHorizontalPaddingPreservingVertical(s.actionRow, edge);
+        // 大屏单手的侧边数字键盘建过就跟着重排：键距、行距和高度调整与主键区相同（#10203）。
+        KeyboardKeyArea sidePad = s.imeFrame.sidePad.built();
+        if (sidePad != null) applySidePadGeometry(sidePad);
         s.keyRows.requestLayout();
         if (s.keyboardRoot != null) {
             s.keyboardRoot.requestLayout();
             s.keyboardRoot.getRootView().requestLayout();
         }
+    }
+
+    /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
+    void applySidePadGeometry(View pad) {
+        applyKeyboardGeometry(pad);
+        applyKeyboardHeight(pad);
+        ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
+            s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
+        pad.requestLayout();
     }
 
     void applyKeyboardHeight(View node) {
@@ -580,6 +592,8 @@ final class ImeStyler {
         }
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
+        // 剪贴板「更多」菜单的外框也不按角色上色；系统深浅色切换只走这里、不重画剪贴板面板，外框要在这里跟着换。
+        s.imePanels.styleClipboardMoreMenu();
         s.imeLayoutRows.applySidebarRail();
         s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {

@@ -6,6 +6,7 @@ The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and wo
 许可证文件写明它覆盖的上游提交；resources/dictionary-sources.lock.json 的 `rime-cantonese`、`libchewing-data`、`rime-stroke` 引用必须等于这些提交，所以换了上游提交却忘了改许可证会在这里失败。数据本身由 msime-dictionary 原样收在 `sources/cantonese/`、`sources/zhuyin/`、`sources/stroke/` 下，并在它的 `upstream.lock.json` 里按字节固定，构建器读取 checkout 时核对记录里的提交等于这些引用；锁文件不再固定任何 msime-dictionary 文件。
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -70,6 +71,32 @@ VI_CHANNELS = VI_CHANNELS + MOBILE_CRATE_CHANNELS
 # 藏文方案背后的 ewts crate 以 MIT OR Apache-2.0 发布，这里按 MIT 使用；它的转换表取自 Apache-2.0 的 ewts-js，所以同一个文件里还附着 ewts-js 的版权行和 Apache-2.0 全文。和 vi 一样，由手工列出声明的 macOS 包、Windows 安装包和移动端打包脚本显式带上它的许可证全文。
 EWTS_LICENCE = "resources/licenses/ewts-MIT.txt"
 EWTS_CHANNELS = VI_CHANNELS + ("platforms/windows/Notices.md", "docs/third-party.md")
+# 随包词库里的 MIT 与 Apache-2.0 数据（docs/third-party.md「词库里要随附全文的 MIT 与 Apache-2.0 数据」）：msime-pinyin.db 的单字读音按 pinyin-data 校正，msime-english.db 的中英释义取自 ECDICT，msime-others.db 的颜文字取自 rime_kaomoji_dict、关键词整词读音取自 python-pinyin，msime-wubi.db 的 86 码表取自 rime-wubi86-jidian；以及 CC BY 4.0 的 rime-wanxiang 权重（「词库里改编自 rime-wanxiang 的权重」）：msime-pinyin.db 与 msime-stroke.db 里与万象共有的词条和单字。这些许可都要求随副本附上全文或署名，词库在每个平台上分发，所以每个渠道都要带上；每份文本要保留的版权行或条款段落写在这里，换了文件内容会在这里失败。
+DATA_LICENCES = {
+    "resources/licenses/pinyin-data-MIT.txt": ("Copyright (c) 2016 mozillazg", "The above copyright notice and this permission notice shall be included in all"),
+    "resources/licenses/ECDICT-MIT.txt": ("Copyright (c) 2025 Linwei", "The above copyright notice and this permission notice shall be included in all"),
+    "resources/licenses/rime_kaomoji_dict-MIT.txt": ("Copyright (c) 2023 aoguai", "The above copyright notice and this permission notice shall be included in all"),
+    "resources/licenses/python-pinyin-MIT.txt": ("Copyright (c) 2016 mozillazg, 闲耘 <hotoo.cn@gmail.com>", "The above copyright notice and this permission notice shall be included in all"),
+    "resources/licenses/rime-wubi86-jidian-Apache-2.0.txt": ("Version 2.0, January 2004", "4. Redistribution.", "END OF TERMS AND CONDITIONS"),
+    # CC BY 4.0 第 3(a) 条要的署名、改动说明、许可证地址与全文（含第 5 节免责声明），以及权重进入的两个产物。
+    "resources/licenses/rime-wanxiang-CC-BY-4.0.txt": ("https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit {WANXIANG_COMMIT}", "Creator: amzxyz", "round(rime-wanxiang weight × factor)", "msime-pinyin.db", "msime-stroke.db", "https://creativecommons.org/licenses/by/4.0/", "Attribution 4.0 International", "Section 5 -- Disclaimer of Warranties and Limitation of Liability."),
+}
+DATA_CHANNELS = tuple(NOTICE_CHANNELS) + ("platforms/windows/Notices.md", "platforms/ios/App/Sources/settings/AboutAndDownloadViews.swift")
+# 网页引擎只分发拼音库和五笔 86 库（不分发 msime-english.db、msime-others.db），引擎 C 库的数据包只带拼音库和英文词库。
+# rime-wanxiang 的提交写在署名文件、三份总览和 docs/third-party.md 里，换了提交却忘了改其中一处会失败。
+WANXIANG_COMMIT = "7ab73ee0c7f80190004233e70f954833df64c80e"
+WANXIANG_LICENCE = "resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
+# msime-engine-dictionary-NOTICE.md 的前半部分逐字取自 msime-dictionary 某个提交的 NOTICE.md，开头写明是哪个 dict-v 发布的源数据提交；词库锁换了发布却没有重新同步，会在这里失败。
+DESKTOP_LOCK = ROOT / "resources/desktop-dictionary.lock.json"
+ENGINE_NOTICE_MARKERS = ("### 拼音权重与万象对齐", "## msime 构建时另加的输入", "### 整句词格的上下文表", "Copyright 2000-2026 by Kevin Atkinson", "中文维基百科")
+WEB_DATA_CHANNELS = ("scripts/web-engine-notice.sh", "resources/licenses/web-engine-NOTICE.md")
+DATA_PACK_CHANNEL = "crates/engine-capi/packaging/data-pack.py"
+PARTIAL_DATA_CHANNELS = {
+    "resources/licenses/pinyin-data-MIT.txt": WEB_DATA_CHANNELS + (DATA_PACK_CHANNEL,),
+    "resources/licenses/ECDICT-MIT.txt": (DATA_PACK_CHANNEL,),
+    "resources/licenses/rime-wubi86-jidian-Apache-2.0.txt": WEB_DATA_CHANNELS,
+    "resources/licenses/rime-wanxiang-CC-BY-4.0.txt": WEB_DATA_CHANNELS + (DATA_PACK_CHANNEL, "crates/engine-capi/packaging/data-pack-README.md"),
+}
 failures = []
 
 
@@ -128,11 +155,37 @@ def main() -> int:
         live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
         check(any("ewts-MIT.txt" in line for line in live), f"{channel} does not ship ewts-MIT.txt")
 
+    for relative, phrases in DATA_LICENCES.items():
+        licence = ROOT / relative
+        if not licence.is_file():
+            failures.append(f"{relative} is missing")
+            continue
+        text = licence.read_text(encoding="utf-8")
+        for phrase in phrases:
+            phrase = phrase.format(WANXIANG_COMMIT=WANXIANG_COMMIT)
+            check(phrase in text, f"{relative} no longer contains {phrase!r}")
+        stem = licence.name.removesuffix(".txt")
+        for channel in DATA_CHANNELS + PARTIAL_DATA_CHANNELS.get(relative, ()):
+            live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
+            check(any(licence.name in line or f'"{stem}"' in line for line in live), f"{channel} does not ship {licence.name}")
+    # ECDICT 的文件由锁文件固定，两份总览写的是它的提交，换了提交却忘了改声明会在这里失败。
+    ecdict = lock["references"]["ECDICT"]["commit"]
+    check(any(entry["path"] == "ecdict/ecdict.csv" and f"/{ecdict}/" in entry["url"] for entry in lock["files"]), f"the sources lock does not download ecdict.csv at the ECDICT reference {ecdict}")
+    for overview in OVERVIEWS:
+        check(ecdict in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name ECDICT commit {ecdict}")
+        check(WANXIANG_COMMIT in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name rime-wanxiang commit {WANXIANG_COMMIT}, the commit {WANXIANG_LICENCE} covers")
+    # 副本开头写的 dict-v 发布必须是词库锁下载的那一个，且副本保留万象权重的记录和 msime 一侧另加的来源。
+    releases = {re.search(r"/releases/download/(dict-v[0-9.]+)/", artifact["url"]).group(1) for artifact in json.loads(DESKTOP_LOCK.read_text(encoding="utf-8"))["artifacts"] if "/msime-dictionary/releases/" in artifact["url"]}
+    header = engine_notice.split("\n", 1)[0]
+    check(len(releases) == 1 and f"`{next(iter(releases))}`" in header, f"{ENGINE_NOTICE} opens with {header[:80]!r}, which does not name the release the desktop dictionary lock pins ({sorted(releases)}); re-sync it from that release's source data commit")
+    for marker in ENGINE_NOTICE_MARKERS:
+        check(marker in engine_notice, f"{ENGINE_NOTICE} no longer contains {marker!r}")
+
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, vi in {len(VI_CHANNELS)} channels, ewts in {len(EWTS_CHANNELS)} channels")
+    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, {len(DATA_LICENCES)} dictionary data licences in {len(DATA_CHANNELS)} channels, vi in {len(VI_CHANNELS)} channels, ewts in {len(EWTS_CHANNELS)} channels")
     return 0
 
 

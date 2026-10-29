@@ -206,6 +206,8 @@ public final class MSIMEInputService extends InputMethodService {
     FrameLayout clipboardSurface;
     LinearLayout clipboardHeader;
     Button clipboardBackToTop;
+    /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
+    Button clipboardUndoButton;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -346,6 +348,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean twentySixSymbolFirst;
     /** 九宫格数字键盘里空格的位置，来自共享偏好 `touch_number_pad_space`，缺省是 Android 原来的右列。 */
     TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+    /** 大屏单手模式空出来那一侧放什么（#10203），来自共享偏好 `touch_one_handed_side_panel`，缺省空着；画不画还要看单手、屏宽和键面，见 {@link OneHandSidePadPolicy#shown}。 */
+    OneHandSidePadPolicy.Panel oneHandedSidePanel = OneHandSidePadPolicy.Panel.OFF;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -417,6 +421,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
+    int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -2365,6 +2371,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
         main.removeCallbacks(clipboardImageCleanup);
+        // 撤销倒数每秒重排自己，不取消的话服务销毁后还会跑到期限，并去刷新已经脱离窗口的按钮。
+        main.removeCallbacks(clipboardUndoTick);
         clipboardImageGeneration++;
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
@@ -2948,6 +2956,7 @@ public final class MSIMEInputService extends InputMethodService {
         numberRowEnabled = numberRowFrom(preferences);
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
+        oneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -2991,6 +3000,12 @@ public final class MSIMEInputService extends InputMethodService {
     private static TouchKeyStyle.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {
         return preferences == null ? TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
             : TouchKeyStyle.NumberPadSpace.parse(JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE)));
+    }
+
+    /** 大屏单手侧边面板；没有偏好、缺键、不是字符串或不认识的写法都按空着，与 client-core 的宽松读取一致。 */
+    private static OneHandSidePadPolicy.Panel oneHandedSidePanelFrom(JSONObject preferences) {
+        return preferences == null ? OneHandSidePadPolicy.Panel.OFF
+            : OneHandSidePadPolicy.parse(JsonPolicy.strictString(preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY)));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -3060,6 +3075,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
+        clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -3500,6 +3516,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
+            + ":" + oneHandedSidePanel.wire
             + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved();
     }
 
@@ -3643,6 +3660,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextSymbolFirst = symbolFirstFrom(preferences);
         TouchKeyStyle.NumberPadSpace nextNumberPadSpace = numberPadSpaceFrom(preferences);
+        OneHandSidePadPolicy.Panel nextOneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3740,6 +3758,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
         numberPadSpace = nextNumberPadSpace;
+        // 侧边面板同样进了 touchGeometryKey，变了就 render()，渲染里的 ImeFrame.applyOneHanded 按它摆上或摘下面板。
+        oneHandedSidePanel = nextOneHandedSidePanel;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -6814,6 +6834,7 @@ public final class MSIMEInputService extends InputMethodService {
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
         TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
         TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE,
+        OneHandSidePadPolicy.PREFERENCE_KEY,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -8784,10 +8805,15 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
+    /**
+     * 删除一条：长按操作行里的「删除」和左滑露出的垃圾桶都走这里。
+     *
+     * <p>和多选删除一样走共享存储的 `remove_many`，拿到删除前的完整条目（文字、时间戳、固定状态、分类），删除后同样可以在「撤销时长」内撤销（#10080）；共享层单条的 `remove` 只回答删没删，不交回快照，撤销时只能按文字重新加回，时间戳和固定状态都会丢。
+     */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
         try {
-            clipboardHistory.remove(item.text());
+            holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
@@ -8795,38 +8821,67 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
-    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。 */
+    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
     void removeClipboardItems(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
-            clipboardUndoTexts = clipboardHistory.removeMany(texts);
-            if (clipboardUndoTexts.isEmpty()) return;
-            if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
-            clipboardUndoExpiry = () -> {
-                clipboardUndoTexts = null;
-                if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();
-            };
-            main.postDelayed(clipboardUndoExpiry, 5000L);
+            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
             forgetCurrentClip();
-            notice("已删除 " + texts.size() + " 项，可在 5 秒内撤销");
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
         }
         imePanels.renderClipboardHistory();
     }
 
+    /**
+     * 记下刚删掉的条目供撤销，并从头开始倒数；单条删除和多选删除共用，返回是否真的删掉了记录。
+     *
+     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。只留最近一次删除，新的删除替换还没到期的上一次。什么都没删掉时（记录已被别处删掉）不碰上一次的撤销，倒数照走。
+     */
+    private boolean holdClipboardUndo(java.util.List<ClipboardHistory.Item> removed) {
+        if (removed.isEmpty()) return false;
+        clipboardUndoTexts = removed;
+        main.removeCallbacks(clipboardUndoTick);
+        int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
+        long now = SystemClock.uptimeMillis();
+        clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
+        main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
+        notice(ClipboardUndoPolicy.deletedNotice(removed.size(), seconds));
+        return true;
+    }
+
     private java.util.List<ClipboardHistory.Item> clipboardUndoTexts;
-    private Runnable clipboardUndoExpiry;
+    /** 撤销的截止时刻（`SystemClock.uptimeMillis`），只在 {@link #clipboardUndoTexts} 非空时有意义。 */
+    private long clipboardUndoDeadline;
+    /** 每秒刷新一次浮动「撤销」上的倒数，到截止时刻丢掉可撤销的记录、收起按钮。 */
+    private final Runnable clipboardUndoTick = this::tickClipboardUndo;
 
     boolean hasClipboardUndo() {
         return clipboardUndoTexts != null && !clipboardUndoTexts.isEmpty();
+    }
+
+    /** 浮动「撤销」上显示的剩余秒数；没有可撤销的记录或已到期时为 0。 */
+    int clipboardUndoRemainingSeconds() {
+        if (!hasClipboardUndo()) return 0;
+        return ClipboardUndoPolicy.remainingSeconds(clipboardUndoDeadline, SystemClock.uptimeMillis());
+    }
+
+    private void tickClipboardUndo() {
+        long now = SystemClock.uptimeMillis();
+        if (hasClipboardUndo() && ClipboardUndoPolicy.remainingSeconds(clipboardUndoDeadline, now) > 0) {
+            main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
+        } else {
+            clipboardUndoTexts = null;
+        }
+        // 撤销只在浮动按钮上，顶行和卡片不变，到期和倒数都只刷新这个按钮，不重画整个面板。
+        imePanels.updateClipboardUndo();
     }
 
     void undoClipboardItems() {
         if (!hasClipboardUndo() || clipboardHistory == null) return;
         java.util.List<ClipboardHistory.Item> restore = clipboardUndoTexts;
         clipboardUndoTexts = null;
-        if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
+        main.removeCallbacks(clipboardUndoTick);
         try {
             clipboardHistory.restoreMany(restore);
             notice("已撤销删除");
@@ -10629,6 +10684,14 @@ public final class MSIMEInputService extends InputMethodService {
         backToTopParams.bottomMargin = pixels(8);
         ViewPolicy.hide(clipboardBackToTop);
         clipboardSurface.addView(clipboardBackToTop, backToTopParams);
+        // 「撤销」占住右下角，「返回顶部」和它同时出现时由 ImePanels.layoutClipboardFloating 挪到它上方。
+        clipboardUndoButton = imePanels.buildClipboardUndo();
+        FrameLayout.LayoutParams undoParams = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+            pixels(ImePanels.CLIPBOARD_UNDO_HEIGHT_DP), Gravity.BOTTOM | Gravity.END);
+        undoParams.setMarginEnd(pixels(8));
+        undoParams.bottomMargin = pixels(8);
+        ViewPolicy.hide(clipboardUndoButton);
+        clipboardSurface.addView(clipboardUndoButton, undoParams);
         clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
