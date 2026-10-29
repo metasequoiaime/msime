@@ -10446,9 +10446,13 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         inlineHeightOriginal = touchKeyboardHeightAdjustment;
         // 拖动期间不再让输入法窗口跟着键区变高（#10025）：每次改窗口高度，应用都要按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，拖动时整块闪白、应用上下跳。进入时铺满成透明全高窗口，应用的避让边界固定在键区此刻的上沿，拖动只在窗口里伸缩键区；完成或取消时才恢复停靠窗口，只改一次高度。
-        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。
-        keyboardSurface.getLocationOnScreen(floatingLocation);
-        inlineHeightKeyboardTop = floatingLocation[1];
+        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。浮动键盘不让应用避让，它的屏幕上沿不是边界，不记；调整中途停靠后由键区布局重新记下。
+        if (overlayDrawn()) {
+            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        } else {
+            keyboardSurface.getLocationOnScreen(floatingLocation);
+            inlineHeightKeyboardTop = floatingLocation[1];
+        }
         inlineHeightConfiguration = new Configuration(getResources().getConfiguration());
         inlineHeightActive = true;
         inlineHeightBar.setPercent(
@@ -10680,6 +10684,9 @@ public final class MSIMEInputService extends InputMethodService {
         boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded() || inlineHeightActive;
         if (!force && fullWindow == fullWindowLayoutApplied
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
+        // 调整高度期间在浮动与停靠之间切换（浮动条上的停靠键、接上或拔下实体键盘）：记下的键区上沿属于另一种布局，作废后等键区在新位置布局时重新记下，否则应用会停在浮动面板的上沿被截掉一截。
+        if (inlineHeightActive && floating != overlayLayoutApplied)
+            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         fullWindowLayoutApplied = fullWindow;
         overlayLayoutApplied = floating;
         caretLayoutApplied = caret;
