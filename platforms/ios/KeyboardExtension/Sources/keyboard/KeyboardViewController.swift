@@ -9130,10 +9130,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 换装里的重活：键盘背景、整棵按键树和回车键的配置。每个按键重设一遍配置，设计皮肤还要重画每个按键表面，键盘图片或花纹的背景整块重画。
   private func recolorKeys(_ skin: KeyboardTheme) {
-    view.backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
+    // 把背景交给系统底板时不是完全透明，而是铺一层几乎看不出的 `nativeBackgroundFill`：完全透明处的触摸经系统跨进程命中送不到扩展（#10173）。功能面板、符号面板、候选栏等都是 `view` 的子视图，铺在这里就覆盖了它们背后的每一处，它们自己仍保持透明。
+    view.backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : skin.background
     skinBackdrop.skin = skin
-    // Only here, not in KeyboardSkinBackgroundView: the App's skin previews have no system backdrop behind them.
-    if skin.drawsNativeBackground { skinBackdrop.backgroundColor = .clear }
+    // 只在这里改，不改 KeyboardSkinBackgroundView：App 里的皮肤预览背后没有系统底板。底板这一层也铺上同样的填充，万一根视图（`UIInputView`）的底色没有算作画出的内容，键盘每一处仍有一层；两层叠起来也只有约 2%，而且是键盘自己的底色。
+    if skin.drawsNativeBackground { skinBackdrop.backgroundColor = skin.nativeBackgroundFill }
     func recolor(_ node: UIView) {
       if let button = node as? UIButton, var configuration = button.configuration {
         if configuration.background.customView is SkinKeySurfaceView || (configuration.background.backgroundColor?.cgColor.alpha ?? 0) > 0 {

@@ -78,9 +78,9 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:]).palette, SeasonKeyboardTokens.palette)
   }
 
-  /// 真实键盘选「原生」后背景透明，回车使用水杉绿；附上浅色和深色渲染图。
+  /// 真实键盘选「原生」后背景只铺一层几乎透明的键盘底色，仍透出系统底板，回车使用水杉绿；附上浅色和深色渲染图。
   @MainActor
-  func testNativeKeyboardLeavesItsBackgroundClearOnTheRealKeyboard() throws {
+  func testNativeKeyboardLeavesItsBackgroundToTheSystemBackdropOnTheRealKeyboard() throws {
     preserveSharedTheme()
     XCTAssertTrue(GlobalThemePreference.save(GlobalThemeCatalog.nativeId))
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
@@ -100,8 +100,15 @@ final class KeyboardSkinTests: XCTestCase {
       window.layoutIfNeeded()
       let skin = KeyboardTheme.current
       XCTAssertTrue(skin.isNative)
-      XCTAssertEqual(controller.view.backgroundColor, .clear)
       let traits = UITraitCollection(userInterfaceStyle: style)
+      // 不是完全透明（那样空白处的触摸送不到扩展，#10173），但透明度不超过 `nativeBackgroundFillAlpha`，系统底板照样透出来。
+      let backdrop = try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardSkinBackgroundView })
+      for surface in [controller.view!, backdrop] {
+        let fill = try XCTUnwrap(surface.backgroundColor).resolvedColor(with: traits)
+        XCTAssertGreaterThan(fill.cgColor.alpha, 0)
+        XCTAssertLessThanOrEqual(fill.cgColor.alpha, KeyboardTheme.nativeBackgroundFillAlpha + 0.0001)
+        XCTAssertEqual(packed(fill), packed(skin.background.resolvedColor(with: traits)), "填充用键盘自己的底色")
+      }
       let enter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" } as? UIButton)
       XCTAssertEqual(enter.configuration?.background.backgroundColor?.resolvedColor(with: traits), skin.actionBackground.resolvedColor(with: traits))
       XCTAssertEqual(enter.layer.shadowOpacity, skin.hasShadow ? 1 : 0)
@@ -161,6 +168,67 @@ final class KeyboardSkinTests: XCTestCase {
     window.layoutIfNeeded()
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
     XCTAssertFalse(hidden(enter))
+  }
+
+  /// #10173：原生皮肤下功能面板、符号面板和候选栏都是透明的，格子之间、候选之间如果什么都没画，键盘扩展的跨进程命中就把从那里起手的点按和滑动丢掉。在透明画布上渲染整块键盘，每一个像素都必须有内容（透明度大于 0），不论是平时、打开功能面板还是打开符号面板。
+  @MainActor
+  func testNativeKeyboardDrawsContentUnderEveryPointForTouchDelivery() throws {
+    preserveSharedTheme()
+    XCTAssertTrue(GlobalThemePreference.save(GlobalThemeCatalog.nativeId))
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    let controller = KeyboardViewController()
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight))
+    window.overrideUserInterfaceStyle = .light
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    controller.viewWillAppear(false)
+    controller.overrideUserInterfaceStyle = .light
+    window.layoutIfNeeded()
+    XCTAssertTrue(KeyboardTheme.current.drawsNativeBackground)
+
+    /// 在透明画布上按 1 倍渲染键盘，返回透明度为 0 的像素个数。
+    func emptyPixels() throws -> Int {
+      let bounds = controller.view.bounds
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = 1
+      format.opaque = false
+      let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
+        controller.view.layer.render(in: context.cgContext)
+      }
+      let cgImage = try XCTUnwrap(image.cgImage)
+      let width = cgImage.width, height = cgImage.height
+      var pixels = [UInt8](repeating: 0, count: width * height * 4)
+      let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+        guard let bitmap = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                     bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        bitmap.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return true
+      }
+      XCTAssertTrue(drawn)
+      return stride(from: 3, to: pixels.count, by: 4).filter { pixels[$0] == 0 }.count
+    }
+
+    XCTAssertEqual(try emptyPixels(), 0, "平时的键盘：候选栏和按键之间的空白也要有内容")
+
+    let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIButton)
+    more.sendActions(for: .primaryActionTriggered)
+    window.layoutIfNeeded()
+    let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
+    XCTAssertEqual(picker.backgroundColor, .clear, "面板自己仍透明，只靠键盘底下那一层")
+    XCTAssertEqual(try emptyPixels(), 0, "功能面板：格子之间的空白处也要有内容，左右滑动才收得到")
+    more.sendActions(for: .primaryActionTriggered)
+    window.layoutIfNeeded()
+
+    let symbolKey = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "symbolPanelKey" } as? UIButton)
+    symbolKey.sendActions(for: .primaryActionTriggered)
+    window.layoutIfNeeded()
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    XCTAssertEqual(try emptyPixels(), 0, "符号面板盖住整块键盘、按键藏起来时也要有内容")
   }
 
   /// 从「原生」开始自定义时不把它写成底：`native` 不能当自定义主题的底，自定义主题画在跟随系统上。

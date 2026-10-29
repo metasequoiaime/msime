@@ -140,6 +140,12 @@ struct KeyboardTheme: Equatable {
   /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
   var drawsNativeBackground: Bool { palette == nil && design == nil }
 
+  /// `nativeBackgroundFill` 的透明度。取 1% 而不是更低：合成按 8 位通道量化，1% 约等于 2.55/255，量化后仍不为 0；再低（比如 0.1%）量化后可能变成 0，又成了「没画内容」。
+  static let nativeBackgroundFillAlpha: CGFloat = 0.01
+
+  /// 把背景交给系统底板时铺在键盘最底下的一层：键盘自己的底色，透明度只有 `nativeBackgroundFillAlpha`，叠在系统底板（iOS 26 起是 Liquid Glass）上看不出来。键盘扩展的触摸要先经系统跨进程命中，系统只把落在扩展实际画出内容上的触摸交给扩展；整块透明的键盘里，从功能面板格子之间、候选之间这些空白处起手的点按和滑动送不到扩展，原生皮肤下就表现为卡顿或没反应（#10173）。铺上这一层，键盘每一处都有画出的内容，触摸送达后再由 UIKit 按视图树找到格子、候选栏或滚动视图。只在 `drawsNativeBackground` 时使用，其他皮肤本来就画不透明的背景。
+  var nativeBackgroundFill: UIColor { background.withAlphaComponent(Self.nativeBackgroundFillAlpha) }
+
   /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。返回季节或所选应用主题是否变了：变了时跟随系统配色换了一组新实例（见 `SeasonKeyboardTokens`），调用方要重新解析 `current`，按键才会重新解析颜色。
   @discardableResult
   static func refreshSeason() -> Bool {
