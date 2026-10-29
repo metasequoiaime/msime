@@ -66,11 +66,11 @@ impl Charge {
     }
 }
 
-/// `requests` 里落在 `now_ms` 所在窗口里的个数。
+/// `requests` 里落在 `now_ms` 所在窗口里的个数；回拨留下的未来记录按刚发生算。
 fn in_window(requests: &[u64], now_ms: u64) -> usize {
     requests
         .iter()
-        .filter(|&&at| at + WINDOW_MS > now_ms && at <= now_ms)
+        .filter(|&&at| now_ms.saturating_sub(at) < WINDOW_MS)
         .count()
 }
 
@@ -79,7 +79,8 @@ fn released_at(requests: &[u64], now_ms: u64, allowed: usize) -> u64 {
     let mut active: Vec<u64> = requests
         .iter()
         .copied()
-        .filter(|&at| at <= now_ms && at + WINDOW_MS > now_ms)
+        .map(|at| at.min(now_ms))
+        .filter(|&at| now_ms - at < WINDOW_MS)
         .collect();
     if active.len() <= allowed {
         return now_ms;
@@ -134,10 +135,34 @@ impl Schedule {
         self.last_error.as_deref()
     }
 
-    fn trim(&mut self, now_ms: u64) {
+    fn reconcile_time(&mut self, now_ms: u64) {
+        // 回拨后仍保留已用额度，从现在重新等完整窗口，不能清空未来请求重领额度。
         for requests in [&mut self.requests, &mut self.automatic_requests] {
-            requests.retain(|&at| at + WINDOW_MS > now_ms && at <= now_ms);
+            for at in requests.iter_mut() {
+                *at = (*at).min(now_ms);
+            }
+            requests.retain(|&at| now_ms - at < WINDOW_MS);
         }
+        // 这些动作已经发生过：未来时间归到现在，重新遵守原有防抖和最小间隔。
+        for at in [
+            &mut self.last_change_ms,
+            &mut self.dirty_since_ms,
+            &mut self.last_push_ms,
+            &mut self.last_pull_ms,
+        ] {
+            *at = (*at).min(now_ms);
+        }
+        self.retry_at_ms = self.retry_at(now_ms);
+    }
+
+    fn retry_at(&self, now_ms: u64) -> u64 {
+        // 截止时间本来就在未来，只能识别超出既有最大退避窗口的异常值。
+        let max_wait = if self.last_error.as_deref() == Some(SyncError::RateLimited.code()) {
+            RATE_LIMIT_BACKOFF_MS
+        } else {
+            ATTENTION_BACKOFF_MS
+        };
+        self.retry_at_ms.min(now_ms.saturating_add(max_wait))
     }
 
     /// 这个窗口里记在 `charge` 一边的还能发几个请求：用户的操作只看总额度，自动同步还要看自动额度。
@@ -164,7 +189,7 @@ impl Schedule {
     pub fn budget_wait_until(&self, now_ms: u64, joined: bool) -> Option<u64> {
         let mut until = self.ready_at(now_ms, Charge::of(Trigger::Periodic, joined));
         if self.last_error.as_deref() == Some(SyncError::RateLimited.code()) {
-            until = until.max(self.retry_at_ms);
+            until = until.max(self.retry_at(now_ms));
         }
         (until > now_ms).then_some(until)
     }
@@ -339,7 +364,7 @@ pub struct Plan {
 
 /// 决定这一次做什么：记下本机刚改过词，按防抖、间隔、退避和额度得出要不要联网、请求记在哪一边。宿主在联网之前还要先做别的请求时（词库的密钥串），先调它，那些请求用 [`record_requests`] 按同一个 [`Plan::charge`] 计进额度，再调 [`execute`]。
 pub fn plan(state: &mut SyncState, trigger: Trigger, now_ms: u64) -> Plan {
-    state.schedule.trim(now_ms);
+    state.schedule.reconcile_time(now_ms);
     if trigger == Trigger::LocalChange {
         state.schedule.last_change_ms = now_ms;
         if state.schedule.dirty_since_ms == 0 {
@@ -552,6 +577,119 @@ mod tests {
     }
 
     #[test]
+    fn clock_rewind_restarts_the_pull_interval_once_after_reload() {
+        let future = NOW + 2 * 60 * 60 * 1_000;
+        let mut state = SyncState::new(&"a".repeat(32)).unwrap();
+        state
+            .schedule
+            .finished(future, true, &Ok(Report::default()));
+        let mut state: SyncState =
+            serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(!plan(&mut state, Trigger::Periodic, NOW).network);
+        assert_eq!(
+            state.schedule.next_check(NOW, false, false, Charge::User),
+            PULL_INTERVAL_MS
+        );
+        // 再次调用不能把恢复点继续往后推；打开设置仍遵守一分钟间隔。
+        assert!(!plan(&mut state, Trigger::Opened, NOW + OPEN_PULL_MIN_MS - 1).network);
+        assert!(plan(&mut state, Trigger::Opened, NOW + OPEN_PULL_MIN_MS).network);
+        assert!(plan(&mut state, Trigger::Periodic, NOW + PULL_INTERVAL_MS).network);
+        // 展示用的历史成功时间保留原值。
+        assert_eq!(state.schedule.last_success_ms(), future);
+    }
+
+    #[test]
+    fn clock_rewind_keeps_pending_edits_within_the_normal_push_interval() {
+        let future = NOW + 2 * 60 * 60 * 1_000;
+        let mut state = SyncState::new(&"a".repeat(32)).unwrap();
+        state.schedule = Schedule {
+            last_change_ms: future,
+            dirty_since_ms: future,
+            last_push_ms: future,
+            last_pull_ms: future,
+            ..Default::default()
+        };
+        assert!(!plan(&mut state, Trigger::Periodic, NOW).network);
+        assert_eq!(
+            state.schedule.next_check(NOW, true, false, Charge::User),
+            MIN_PUSH_INTERVAL_MS
+        );
+        assert!(!plan(&mut state, Trigger::LocalChange, NOW).network);
+        assert_eq!(
+            state.schedule.next_check(NOW, true, false, Charge::User),
+            MIN_PUSH_INTERVAL_MS
+        );
+        assert_eq!(
+            state.schedule.plan(
+                Trigger::Periodic,
+                NOW + MIN_PUSH_INTERVAL_MS - 1,
+                true,
+                true
+            ),
+            (false, false)
+        );
+        assert_eq!(
+            state
+                .schedule
+                .plan(Trigger::Periodic, NOW + MIN_PUSH_INTERVAL_MS, true, true),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn clock_rewind_preserves_the_request_budget_for_a_full_window() {
+        let future = NOW + 2 * 60 * 60 * 1_000;
+        let mut state = SyncState::new(&"a".repeat(32)).unwrap();
+        state
+            .schedule
+            .charge(Charge::Automatic, AUTOMATIC_REQUESTS, future);
+        state
+            .schedule
+            .charge(Charge::User, MANUAL_REQUESTS - AUTOMATIC_REQUESTS, future);
+        // 状态查询在 plan 之前也不能把未来记录当成未用额度。
+        assert_eq!(state.schedule.remaining(NOW, Charge::Automatic), 0);
+        assert_eq!(state.schedule.remaining(NOW, Charge::User), 0);
+        assert_eq!(
+            state.schedule.budget_wait_until(NOW, true),
+            Some(NOW + WINDOW_MS)
+        );
+        assert!(!plan(&mut state, Trigger::Manual, NOW).network);
+        assert!(!plan(&mut state, Trigger::Manual, NOW + WINDOW_MS - 1).network);
+        assert!(plan(&mut state, Trigger::Manual, NOW + WINDOW_MS).network);
+        assert_eq!(
+            state.schedule.remaining(NOW + WINDOW_MS, Charge::Automatic),
+            AUTOMATIC_REQUESTS
+        );
+    }
+
+    #[test]
+    fn clock_rewind_bounds_error_backoff_without_bypassing_it() {
+        let future = NOW + 2 * 60 * 60 * 1_000;
+        for (error, wait) in [
+            (SyncError::RateLimited, RATE_LIMIT_BACKOFF_MS),
+            (SyncError::Rollback, ATTENTION_BACKOFF_MS),
+            (SyncError::Unavailable, ATTENTION_BACKOFF_MS),
+        ] {
+            let mut state = SyncState::new(&"a".repeat(32)).unwrap();
+            state.schedule.finished(future, true, &Err(error));
+            if error == SyncError::RateLimited {
+                assert_eq!(
+                    state.schedule.budget_wait_until(NOW, true),
+                    Some(NOW + wait)
+                );
+            }
+            assert!(!plan(&mut state, Trigger::Periodic, NOW).network);
+            assert_eq!(
+                state.schedule.next_check(NOW, false, false, Charge::User),
+                wait
+            );
+            assert!(!plan(&mut state, Trigger::Periodic, NOW + wait - 1).network);
+            assert!(plan(&mut state, Trigger::Periodic, NOW + wait).network);
+            assert!(plan(&mut state, Trigger::Manual, NOW).network);
+        }
+    }
+
+    #[test]
     fn the_request_budget_is_a_rolling_window_with_room_for_manual_syncs() {
         let mut schedule = automatic(vec![NOW; AUTOMATIC_REQUESTS]);
         assert_eq!(schedule.remaining(NOW, Charge::Automatic), 0);
@@ -567,7 +705,7 @@ mod tests {
             schedule.plan(Trigger::Manual, NOW, false, true),
             (true, true)
         );
-        schedule.trim(NOW + WINDOW_MS);
+        schedule.reconcile_time(NOW + WINDOW_MS);
         assert_eq!(
             schedule.remaining(NOW + WINDOW_MS, Charge::Automatic),
             AUTOMATIC_REQUESTS
