@@ -320,14 +320,22 @@ impl CantoneseScheme {
             let mut temporary = self.clone();
             temporary.shuangpin = false;
             let mut rows = Vec::new();
+            // 末尾单键的各个前缀先收窄成只落在本键上的段，各读音共用。
+            let trailing = expansion.trailing.as_ref().map(|(key, prefixes)| {
+                let groups = prefixes
+                    .iter()
+                    .map(|prefix| shuangpin::key_spans(&self.inventory, prefix, *key))
+                    .collect::<Vec<_>>();
+                (*key, groups)
+            });
             for reading in &expansion.readings {
-                if let Some((key, prefixes)) = &expansion.trailing {
+                if let Some((key, groups)) = &trailing {
                     self.trailing_initial_candidates(
                         dictionary,
                         buffer,
                         reading,
                         *key,
-                        prefixes,
+                        groups,
                         &mut expanded,
                     )?;
                 }
@@ -356,14 +364,14 @@ impl CantoneseScheme {
         self.candidates_into_jyutping(dictionary, buffer, candidates, true)
     }
 
-    /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母，按 `prefixes` 补全，再用双拼规则核对补出的音节确实以 `key` 开头。每个前缀最多留最重的 `SPAN_LIMIT` 行。
+    /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母。`groups` 的每一组来自一个 `initial_prefixes` 前缀，组内各段由 `shuangpin::key_spans` 收窄过，段下没有别的键的音节，别的键上的重行不会占满查询上限。每组合起来最多留最重的 `SPAN_LIMIT` 行。
     fn trailing_initial_candidates(
         &self,
         dictionary: &LanguageDictionary,
         buffer: &mut CantoneseQueryBuffer,
         reading: &str,
         key: u8,
-        prefixes: &[String],
+        groups: &[Vec<(String, bool)>],
         expanded: &mut Vec<CantoneseCandidate>,
     ) -> Result<()> {
         let syllables = reading.split('\'').filter(|part| !part.is_empty()).count() + 1;
@@ -374,60 +382,53 @@ impl CantoneseScheme {
             buffer.key.push(' ');
         }
         let base = buffer.key.len();
-        for prefix in prefixes {
-            buffer.key.truncate(base);
-            buffer.key.push_str(prefix);
-            dictionary.lookup_completions_into(&buffer.key, SPAN_LIMIT, &mut buffer.completions)?;
+        for spans in groups {
             let start = expanded.len();
-            for (entry_key, entry) in &buffer.completions {
-                let last = entry_key.rsplit(' ').next().unwrap_or_default();
-                if shuangpin::encode(last).is_some_and(|code| code[0] == key) {
-                    expanded.push(CantoneseCandidate {
-                        text: entry.text.clone(),
-                        weight: entry.weight,
-                        key: entry_key.clone(),
-                        syllables,
-                        end,
-                    });
-                }
-            }
-            let filtered = buffer.completions.len() - (expanded.len() - start);
-            if buffer.completions.len() < SPAN_LIMIT || filtered == 0 {
-                continue;
-            }
-            // 前缀补出了别的双拼键上的音节（`n` 补出 `ngo`，零声母的 `m` 补出 `maa`），而且取满了上限：本键的有效行可能被那些更重的行挤出去，改为逐个音节精确查询。
-            expanded.truncate(start);
-            let mut last_syllables = self
-                .inventory
-                .syllables()
-                .filter(|syllable| {
-                    syllable.starts_with(prefix.as_str())
-                        && shuangpin::encode(syllable).is_some_and(|code| code[0] == key)
-                })
-                .collect::<Vec<_>>();
-            last_syllables.sort_unstable();
-            for last in last_syllables {
+            for (span, whole) in spans {
                 buffer.key.truncate(base);
-                buffer.key.push_str(last);
-                dictionary.lookup_into(&buffer.key, SPAN_LIMIT, &mut buffer.entries)?;
-                for entry in &buffer.entries {
-                    expanded.push(CantoneseCandidate {
-                        text: entry.text.clone(),
-                        weight: entry.weight,
-                        key: buffer.key.clone(),
-                        syllables,
-                        end,
-                    });
+                buffer.key.push_str(span);
+                if *whole {
+                    dictionary.lookup_into(&buffer.key, SPAN_LIMIT, &mut buffer.entries)?;
+                    for entry in &buffer.entries {
+                        expanded.push(CantoneseCandidate {
+                            text: entry.text.clone(),
+                            weight: entry.weight,
+                            key: buffer.key.clone(),
+                            syllables,
+                            end,
+                        });
+                    }
+                    continue;
+                }
+                dictionary.lookup_completions_into(
+                    &buffer.key,
+                    SPAN_LIMIT,
+                    &mut buffer.completions,
+                )?;
+                for (entry_key, entry) in &buffer.completions {
+                    // 段下没有别的键的音节；这里筛掉 `encode` 不认识的口语音（`deu`、`gep` 一类）。
+                    let last = entry_key.rsplit(' ').next().unwrap_or_default();
+                    if shuangpin::encode(last).is_some_and(|code| code[0] == key) {
+                        expanded.push(CantoneseCandidate {
+                            text: entry.text.clone(),
+                            weight: entry.weight,
+                            key: entry_key.clone(),
+                            syllables,
+                            end,
+                        });
+                    }
                 }
             }
-            // 与区间查询的顺序一致：权重从重到轻，同权重按文字。
-            expanded[start..].sort_by(|left, right| {
-                right
-                    .weight
-                    .cmp(&left.weight)
-                    .then_with(|| left.text.cmp(&right.text))
-            });
-            expanded.truncate(start + SPAN_LIMIT);
+            if spans.len() > 1 {
+                // 与单段区间查询的顺序一致：权重从重到轻，同权重按文字。
+                expanded[start..].sort_by(|left, right| {
+                    right
+                        .weight
+                        .cmp(&left.weight)
+                        .then_with(|| left.text.cmp(&right.text))
+                });
+                expanded.truncate(start + SPAN_LIMIT);
+            }
         }
         Ok(())
     }
@@ -955,10 +956,10 @@ mod tests {
         assert!(selected.is_shuangpin());
     }
 
-    /// 双拼回归用的小词库：读音和权重取自 #10085 报告里的输入，`ngo daap`、`daan` 这类行专门用来暴露旧的补全和重切问题。
-    const SHUANGPIN_SYLLABLES: [&str; 18] = [
+    /// 双拼回归用的小词库：读音和权重取自 #10085 报告里的输入，`ngo daap`、`daan` 这类行专门用来暴露旧的补全和重切问题。音节库存与发布的词库一样覆盖全部词条用到的音节（`maa` 只出现在额外写入的行里）。
+    const SHUANGPIN_SYLLABLES: [&str; 19] = [
         "ngo", "ngoi", "ng", "daa", "daai", "daap", "daan", "dei", "ei", "nei", "soeng", "soek",
-        "cyun", "cyut", "cuk", "m", "aa", "i",
+        "cyun", "cyut", "cuk", "m", "maa", "aa", "i",
     ];
     const SHUANGPIN_ENTRIES: [(&str, &str, i64); 22] = [
         ("ngo", "我", 6000),
