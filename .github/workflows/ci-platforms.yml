@@ -805,7 +805,7 @@ jobs:
     name: Windows release script tests
     # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything; the state directory step at the end is the one native build here, kept to a single test target.
     runs-on: depot-windows-2025-8
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
