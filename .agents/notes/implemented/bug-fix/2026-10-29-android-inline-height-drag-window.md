@@ -30,4 +30,4 @@ Status: implemented
 
 - 收益：拖动高度条时应用不重排、不闪白，键区在窗口里连续伸缩；完成或取消时只发生一次窗口改高。
 - 代价：调整期间键区变高会盖住应用底部，用户在完成前看不到应用按新高度让出的空间；变矮时键区上方露出的是应用窗口自己的底色。打开、结束各一次扩窗和缩窗与全文预览相同，依赖系统 `input_method.xml` 的结构。
-- 验证：`KeyboardGeometrySmoke` 钉住 `adjustingInsetTop` 的换算与未记下时的退回，由 `platforms/android/check-host.sh` 运行。`KeyboardHeightDeviceSmoke` 新增一段：经合成编辑器探针读应用窗口可见区下沿，打开高度条前后它相同（打开时应用不跳），预览 130%、80%、120% 时它不变、编辑器保持焦点、键帽确实变高，点「完成」后下沿上移，「取消」后回到原边界，最后重置回 100%。设备套件需要模拟器或真机，本次只做了编译，没有在设备上运行，也没有录屏确认白帧消失。
+- 验证：`KeyboardGeometrySmoke` 钉住 `adjustingInsetTop` 的换算与未记下时的退回，由 `platforms/android/check-host.sh` 运行。`KeyboardHeightDeviceSmoke` 新增一段：经合成编辑器探针读应用窗口可见区下沿，打开高度条前后它相同（打开时应用不跳），预览 130%、80%、120% 时它不变、编辑器保持焦点、键帽确实变高，点「完成」后下沿上移，「取消」后回到原边界，最后重置回 100%。这段在 PR 的 CI 模拟器（API 35）上通过；API 28 的 CI 只跑 `smoke.sh --core`，不含这套验收，真机和录屏确认白帧消失都还没做。
