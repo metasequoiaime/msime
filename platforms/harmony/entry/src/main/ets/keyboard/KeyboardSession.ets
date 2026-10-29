@@ -40,6 +40,7 @@ import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
+import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { CaretContextEcho } from './input/CaretContextEcho';
@@ -996,6 +997,8 @@ interface PreparedPreferences {
   touch_twenty_six_symbol_first?: boolean;
   /** 九宫格数字键盘里空格的位置（platform_default / right_column / after_zero / before_zero）；默认值不写进文档。 */
   touch_number_pad_space?: string;
+  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  touch_nine_key_swipe_digits?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1169,6 +1172,8 @@ export interface KeyboardPreferences {
   readonly twentySixSymbolFirst: boolean;
   /** `touch_number_pad_space`：九宫格数字键盘里空格的位置，`platform_default` 和不认识的值按鸿蒙原来的 `before_zero`（`TouchLayoutStylePolicy.numberPadSpace`）。 */
   readonly numberPadSpace: string;
+  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  readonly nineKeySwipeDigits: string;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1502,7 +1507,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
     numberRow: false,
     twentySixSymbolFirst: false,
-    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO
+    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO,
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1941,7 +1947,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
       numberRow: preferences.touch_number_row === true,
       twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
-      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)
+      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space),
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -6134,7 +6141,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
    * fill the log with the same line at typing speed.
    */
-  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样。 */
+  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样；九键滑动输入数字抬手时也用它补上点按会有的那一下振动（数字走字面上屏，`insert` 不振动）。 */
   holdFeedback(): void {
     this.tapFeedback();
   }
