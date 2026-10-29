@@ -206,6 +206,8 @@ public final class MSIMEInputService extends InputMethodService {
     FrameLayout clipboardSurface;
     LinearLayout clipboardHeader;
     Button clipboardBackToTop;
+    /** 多选删除后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073）；没有可撤销的记录时收起。 */
+    Button clipboardUndoButton;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -419,6 +421,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
+    int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -2367,6 +2371,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
         main.removeCallbacks(clipboardImageCleanup);
+        // 撤销倒数每秒重排自己，不取消的话服务销毁后还会跑到期限，并去刷新已经脱离窗口的按钮。
+        main.removeCallbacks(clipboardUndoTick);
         clipboardImageGeneration++;
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
@@ -3068,6 +3074,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
+        clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -8807,20 +8814,23 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
-    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。 */
+    /**
+     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。
+     *
+     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。
+     */
     void removeClipboardItems(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
             clipboardUndoTexts = clipboardHistory.removeMany(texts);
             if (clipboardUndoTexts.isEmpty()) return;
-            if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
-            clipboardUndoExpiry = () -> {
-                clipboardUndoTexts = null;
-                if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();
-            };
-            main.postDelayed(clipboardUndoExpiry, 5000L);
+            main.removeCallbacks(clipboardUndoTick);
+            int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
+            long now = SystemClock.uptimeMillis();
+            clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
+            main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
             forgetCurrentClip();
-            notice("已删除 " + texts.size() + " 项，可在 5 秒内撤销");
+            notice(ClipboardUndoPolicy.deletedNotice(texts.size(), seconds));
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
         }
@@ -8828,17 +8838,37 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private java.util.List<ClipboardHistory.Item> clipboardUndoTexts;
-    private Runnable clipboardUndoExpiry;
+    /** 撤销的截止时刻（`SystemClock.uptimeMillis`），只在 {@link #clipboardUndoTexts} 非空时有意义。 */
+    private long clipboardUndoDeadline;
+    /** 每秒刷新一次浮动「撤销」上的倒数，到截止时刻丢掉可撤销的记录、收起按钮。 */
+    private final Runnable clipboardUndoTick = this::tickClipboardUndo;
 
     boolean hasClipboardUndo() {
         return clipboardUndoTexts != null && !clipboardUndoTexts.isEmpty();
+    }
+
+    /** 浮动「撤销」上显示的剩余秒数；没有可撤销的记录或已到期时为 0。 */
+    int clipboardUndoRemainingSeconds() {
+        if (!hasClipboardUndo()) return 0;
+        return ClipboardUndoPolicy.remainingSeconds(clipboardUndoDeadline, SystemClock.uptimeMillis());
+    }
+
+    private void tickClipboardUndo() {
+        long now = SystemClock.uptimeMillis();
+        if (hasClipboardUndo() && ClipboardUndoPolicy.remainingSeconds(clipboardUndoDeadline, now) > 0) {
+            main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
+        } else {
+            clipboardUndoTexts = null;
+        }
+        // 撤销只在浮动按钮上，顶行和卡片不变，到期和倒数都只刷新这个按钮，不重画整个面板。
+        imePanels.updateClipboardUndo();
     }
 
     void undoClipboardItems() {
         if (!hasClipboardUndo() || clipboardHistory == null) return;
         java.util.List<ClipboardHistory.Item> restore = clipboardUndoTexts;
         clipboardUndoTexts = null;
-        if (clipboardUndoExpiry != null) main.removeCallbacks(clipboardUndoExpiry);
+        main.removeCallbacks(clipboardUndoTick);
         try {
             clipboardHistory.restoreMany(restore);
             notice("已撤销删除");
@@ -10641,6 +10671,14 @@ public final class MSIMEInputService extends InputMethodService {
         backToTopParams.bottomMargin = pixels(8);
         ViewPolicy.hide(clipboardBackToTop);
         clipboardSurface.addView(clipboardBackToTop, backToTopParams);
+        // 「撤销」占住右下角，「返回顶部」和它同时出现时由 ImePanels.layoutClipboardFloating 挪到它上方。
+        clipboardUndoButton = imePanels.buildClipboardUndo();
+        FrameLayout.LayoutParams undoParams = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+            pixels(ImePanels.CLIPBOARD_UNDO_HEIGHT_DP), Gravity.BOTTOM | Gravity.END);
+        undoParams.setMarginEnd(pixels(8));
+        undoParams.bottomMargin = pixels(8);
+        ViewPolicy.hide(clipboardUndoButton);
+        clipboardSurface.addView(clipboardUndoButton, undoParams);
         clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
