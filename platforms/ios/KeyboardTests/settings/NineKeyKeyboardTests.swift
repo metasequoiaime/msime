@@ -1007,12 +1007,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     for face in ["1", "-", "/", "@"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: false), Input.symbol(face), face)
     }
-    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号：这些按键面所画直接插入。
-    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "\\", "^", "_"] {
+    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号、把 { } 转成「」：这些按键面所画直接插入。
+    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "{", "}", "\\", "^", "_"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.literal(face), face)
     }
     // Engine 原样透传的 ASCII 走符号键路径，所以网址和拼写用的符号仍能进入组字。
-    for face in ["-", "/", "@", "{", "}", "#", "%", "*", "+", "=", "|", "~", "&"] {
+    for face in ["-", "/", "@", "#", "%", "*", "+", "=", "|", "~", "&"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.symbol(face), face)
     }
     // 英文层发送所有 ASCII 符号，其余的直接插入。
