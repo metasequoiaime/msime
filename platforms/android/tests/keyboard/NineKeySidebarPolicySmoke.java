@@ -3,7 +3,7 @@ package app.msime.android;
 import java.util.List;
 import java.util.Map;
 
-/** 九键左侧符号栏：默认符号、数字四行与其他键面五行的行高、自定义符号表，以及本地设置。 */
+/** 九键左侧符号栏：出厂符号、数字层与其他键面的行高、共享偏好里的两张表（空表回到出厂表、自定义原样、右侧大回车只给出厂表接 ！）、编辑器的整表校验与写法，以及只剩迁移读的本机旧键。 */
 public final class NineKeySidebarPolicySmoke {
     public static void main(String[] args) {
         defaults();
@@ -12,42 +12,50 @@ public final class NineKeySidebarPolicySmoke {
         tallReturn();
         rowHeight();
         parsing();
+        sharedPreference();
+        editor();
         choices();
         localSetting();
-        System.out.println("Android nine-key sidebar: defaults, layer row heights, symbol choices, custom symbol parsing and the local setting passed");
+        System.out.println("Android nine-key sidebar: defaults, layer row heights, shared tables, editor validation, symbol choices, custom symbol parsing and the legacy local key passed");
     }
 
-    /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变。 */
+    /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变；空表回到各自的出厂表。 */
     private static void layerChoice() {
-        check(NineKeySidebarPolicy.sidebarSymbols(true, "， 。", "+ -").equals(List.of("+", "-")), "the digit layer reads the digit table");
-        check(NineKeySidebarPolicy.sidebarSymbols(false, "， 。", "+ -").equals(List.of("，", "。")), "the letter layer reads the letter table");
-        check(NineKeySidebarPolicy.sidebarSymbols(true, null, null).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), "the digit layer falls back to the digit defaults");
+        List<String> letters = List.of("，", "。");
+        List<String> digits = List.of("+", "-");
+        check(NineKeySidebarPolicy.sidebarSymbols(true, letters, digits).equals(digits), "the digit layer reads the digit table");
+        check(NineKeySidebarPolicy.sidebarSymbols(false, letters, digits).equals(letters), "the letter layer reads the letter table");
+        check(NineKeySidebarPolicy.sidebarSymbols(true, List.of(), List.of()).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS),
+            "an empty digit table falls back to the digit defaults");
+        check(NineKeySidebarPolicy.sidebarSymbols(false, List.of(), List.of()).equals(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS),
+            "an empty letter table falls back to the letter defaults");
     }
 
-    /** 右侧大回车去掉右列的 ！，它接在字母键面默认表的末尾；自定义的表（与默认表相同的除外，设置页「恢复默认」会把默认表原样写进存储）和数字键面的表不变，其他样式不受影响。 */
+    /** 右侧大回车去掉右列的 ！，它只接在字母键面出厂表的末尾：空表（和别处写下的与出厂表相同的表）接，自定义的表原样使用、不接；数字键面的表不变，其他样式不受影响。 */
     private static void tallReturn() {
         List<String> tall = List.of("，", "。", "？", "！");
+        List<String> none = List.of();
         check(NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS.equals(tall), "！ is appended to the default letter table");
-        check(NineKeySidebarPolicy.letterSymbols(null, true).equals(tall), "nothing stored reads as the tall-return defaults");
-        check(NineKeySidebarPolicy.letterSymbols(NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), true)
-            .equals(tall), "the default table written back by 恢复默认 still gets the ！");
-        check(NineKeySidebarPolicy.letterSymbols("+ -", true).equals(List.of("+", "-")), "a custom table is used as it is");
-        check(NineKeySidebarPolicy.letterSymbols("， 。", true).equals(List.of("，", "。")), "a shortened custom table stays short");
-        check(NineKeySidebarPolicy.letterSymbols(null, false).equals(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS),
+        check(NineKeySidebarPolicy.letterSymbols(none, true).equals(tall), "an empty table reads as the tall-return defaults");
+        check(NineKeySidebarPolicy.letterSymbols(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS, true).equals(tall),
+            "a table equal to the defaults still gets the ！");
+        check(NineKeySidebarPolicy.letterSymbols(List.of("+", "-"), true).equals(List.of("+", "-")), "a custom table is used as it is");
+        check(NineKeySidebarPolicy.letterSymbols(List.of("，", "。"), true).equals(List.of("，", "。")), "a shortened custom table stays short");
+        check(NineKeySidebarPolicy.letterSymbols(none, false).equals(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS),
             "other styles keep the three-symbol default");
-        check(NineKeySidebarPolicy.sidebarSymbols(true, null, null, true).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS),
+        check(NineKeySidebarPolicy.sidebarSymbols(true, none, none, true).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS),
             "the digit table already ends its punctuation with ！ and does not change");
-        check(NineKeySidebarPolicy.sidebarSymbols(false, null, null, true).equals(tall), "the letter layer reads the tall table");
+        check(NineKeySidebarPolicy.sidebarSymbols(false, none, none, true).equals(tall), "the letter layer reads the tall table");
         check(tall.size() <= NineKeySidebarPolicy.VISIBLE_ROWS, "the four symbols fit one screen");
         // 接上去的 ！ 接替右列 ！ 上滑输入 0、长按上下标 0 的手势：只有它，数字键面、别的样式和自定义表里的 ！ 都不带。
-        check(NineKeySidebarPolicy.appendedExclamationIndex(false, null, true) == 3, "the appended ！ is the fourth entry");
-        check(NineKeySidebarPolicy.appendedExclamationIndex(false,
-            NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), true) == 3, "the stored default table still appends ！");
-        check(tall.get(NineKeySidebarPolicy.appendedExclamationIndex(false, null, true)).equals("！"), "the index points at ！");
-        check(NineKeySidebarPolicy.appendedExclamationIndex(false, null, false) == -1, "other styles append nothing");
-        check(NineKeySidebarPolicy.appendedExclamationIndex(true, null, true) == -1, "the digit layer appends nothing");
-        check(NineKeySidebarPolicy.appendedExclamationIndex(false, "， 。 ？ ！", true) == -1, "a custom ！ stays a plain symbol");
-        check(NineKeySidebarPolicy.appendedExclamationIndex(false, "+ -", true) == -1, "a custom table appends nothing");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, none, true) == 3, "the appended ！ is the fourth entry");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS, true) == 3,
+            "a table equal to the defaults still appends ！");
+        check(tall.get(NineKeySidebarPolicy.appendedExclamationIndex(false, none, true)).equals("！"), "the index points at ！");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, none, false) == -1, "other styles append nothing");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(true, none, true) == -1, "the digit layer appends nothing");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, tall, true) == -1, "a custom ！ stays a plain symbol");
+        check(NineKeySidebarPolicy.appendedExclamationIndex(false, List.of("+", "-"), true) == -1, "a custom table appends nothing");
     }
 
     private static void defaults() {
@@ -56,8 +64,7 @@ public final class NineKeySidebarPolicySmoke {
         check(!letters.contains("！"), "！ stays in the right column and is not repeated in the rail");
         check(letters.size() <= NineKeySidebarPolicy.VISIBLE_ROWS, "the default rail fits without scrolling");
         check(NineKeySidebarPolicy.VISIBLE_ROWS == 5, "five symbols per screen instead of three");
-        check(NineKeySidebarPolicy.letterSymbols(null).equals(letters), "nothing stored reads as the defaults");
-        check(NineKeySidebarPolicy.letterSymbols("   ").equals(letters), "blank text reads as the defaults");
+        check(NineKeySidebarPolicy.letterSymbols(List.of()).equals(letters), "an empty table reads as the defaults");
     }
 
     /** #5590：数字键面的左栏先给四则运算符号，叹号挪到后面，滚动才看得到。 */
@@ -67,11 +74,11 @@ public final class NineKeySidebarPolicySmoke {
         check(digits.indexOf("！") >= NineKeySidebarPolicy.VISIBLE_ROWS, "！ moved into the rail below the first screen");
         check(!digits.contains("."), "the decimal point has its own key in the right column");
         check(digits.size() == digits.stream().distinct().count(), "no symbol is repeated");
-        check(NineKeySidebarPolicy.digitSymbols(null).equals(digits), "nothing stored reads as the digit defaults");
-        check(List.of("+", "-").equals(NineKeySidebarPolicy.digitSymbols("+ -")), "a custom digit table reads back");
+        check(NineKeySidebarPolicy.digitSymbols(List.of()).equals(digits), "an empty table reads as the digit defaults");
+        check(List.of("+", "-").equals(NineKeySidebarPolicy.digitSymbols(List.of("+", "-"))), "a custom digit table reads back");
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS);
         check(spec.kind == AndroidLocalSettings.Spec.Kind.TEXT && !spec.synced
-            && NineKeySidebarPolicy.format(digits).equals(spec.defaultValue), "the digit table is a local text setting");
+            && NineKeySidebarPolicy.format(digits).equals(spec.defaultValue), "the legacy digit key is still a local text setting");
     }
 
     private static void rowHeight() {
@@ -103,10 +110,64 @@ public final class NineKeySidebarPolicySmoke {
         check(NineKeySidebarPolicy.parse("x".repeat(NineKeySidebarPolicy.MAX_TEXT_LENGTH + 1)) == null, "oversized text is refused");
         check("， 。 ？".equals(NineKeySidebarPolicy.normalize("，  。 ？ ，")), "storage form is single-space separated");
         check(NineKeySidebarPolicy.normalize("toolong") == null, "an invalid table normalises to null");
-        check(NineKeySidebarPolicy.letterSymbols("toolong").equals(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS),
-            "an invalid stored table falls back to the defaults");
         check("a b".equals(NineKeySidebarPolicy.summary(List.of("a", "b"), 4)), "a short table is listed whole");
         check("a b 等 3 个".equals(NineKeySidebarPolicy.summary(List.of("a", "b", "c"), 2)), "a long table is summarised");
+    }
+
+    /** 共享偏好 `touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`：JSON 字符串数组，只留字符串元素；空表是出厂表；自定义与否按出厂表比。 */
+    private static void sharedPreference() {
+        check(NineKeySidebarPolicy.LETTER_PREFERENCE.equals("touch_nine_key_sidebar_symbols")
+            && NineKeySidebarPolicy.DIGIT_PREFERENCE.equals("touch_nine_key_digit_sidebar_symbols"), "shared preference names");
+        check(NineKeySidebarPolicy.EDIT_ARGUMENT.equals("edit_sidebar_key"), "the long-press page argument keeps its name");
+        check(NineKeySidebarPolicy.stored(java.util.Arrays.asList("、", 1, null, true, "……")).equals(List.of("、", "……")),
+            "non-string elements are dropped");
+        check(NineKeySidebarPolicy.stored(List.of()).isEmpty(), "an empty array is the factory table");
+        check(NineKeySidebarPolicy.fromPreference(null).isEmpty() && NineKeySidebarPolicy.fromPreference("， 。").isEmpty(),
+            "a missing key or a value that is not an array reads as the factory table");
+        List<String> letters = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        check(!NineKeySidebarPolicy.custom(List.of(), letters), "an empty table is not custom");
+        check(!NineKeySidebarPolicy.custom(letters, letters), "a table equal to the defaults is not custom");
+        check(NineKeySidebarPolicy.custom(List.of("？", "。", "，"), letters), "a reordered table is custom");
+        check(NineKeySidebarPolicy.symbols(List.of(), letters) == letters, "an empty table shows the defaults");
+        // 与 client-core 的 NINE_KEY_SIDEBAR_MAX_SYMBOLS、NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS、NINE_KEY_SIDEBAR_MAX_TEXT_UTF16 相同。
+        check(NineKeySidebarPolicy.MAX_SYMBOLS == 30 && NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS == 4
+            && NineKeySidebarPolicy.MAX_TEXT_LENGTH == 200, "limits match client-core");
+    }
+
+    /** 编辑器：整表校验决定保存可不可点，手动输入一项先过单项校验，确认时等于出厂表写空数组。 */
+    private static void editor() {
+        List<String> letters = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        check(NineKeySidebarPolicy.valid(letters) && NineKeySidebarPolicy.valid(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS),
+            "both factory tables are valid");
+        check(!NineKeySidebarPolicy.valid(List.of()), "an empty table cannot be saved");
+        check(!NineKeySidebarPolicy.valid(List.of("a", "a")), "duplicates cannot be saved");
+        check(!NineKeySidebarPolicy.valid(List.of("a b")), "an item with a space cannot be saved");
+        check(!NineKeySidebarPolicy.valid(List.of("a\u3000b")) && !NineKeySidebarPolicy.valid(List.of("a\u00a0b")),
+            "ideographic and no-break spaces are spaces too");
+        check(!NineKeySidebarPolicy.valid(List.of("abcde")), "an item over four code points cannot be saved");
+        check(NineKeySidebarPolicy.valid(List.of("👍🏽", "……", ":-)", "#+=")), "short strings, emoji with skin tone and #+= are fine");
+        check(!NineKeySidebarPolicy.valid(List.of("👨‍👩‍👧")), "a five-code-point family emoji is refused");
+        check(!NineKeySidebarPolicy.valid(List.of("a\u0007")), "control characters cannot be saved");
+        List<String> thirty = new java.util.ArrayList<>();
+        for (int index = 0; index < NineKeySidebarPolicy.MAX_SYMBOLS; index++) thirty.add(String.valueOf(index));
+        check(NineKeySidebarPolicy.valid(thirty), "thirty symbols are allowed");
+        List<String> more = new java.util.ArrayList<>(thirty);
+        more.add("x");
+        check(!NineKeySidebarPolicy.valid(more), "a thirty-first symbol is refused");
+        // 每项 4 个码位、7 个 UTF-16 单元，26 项用空格连起来是 26 × 7 + 25 = 207，超过 200。
+        List<String> wide = new java.util.ArrayList<>();
+        for (int index = 0; index < 26; index++) wide.add("👍🏽" + (char) ('a' + index) + "🏽");
+        check(NineKeySidebarPolicy.format(wide).length() > NineKeySidebarPolicy.MAX_TEXT_LENGTH
+            && !NineKeySidebarPolicy.valid(wide), "a table longer than 200 UTF-16 units is refused");
+        check(NineKeySidebarPolicy.addable(letters, " 、 ").equals("、"), "a typed symbol is trimmed");
+        check(NineKeySidebarPolicy.addable(letters, "，") == null, "a duplicate cannot be added");
+        check(NineKeySidebarPolicy.addable(letters, "a b") == null && NineKeySidebarPolicy.addable(letters, "") == null
+            && NineKeySidebarPolicy.addable(letters, null) == null, "only one symbol at a time");
+        check(NineKeySidebarPolicy.addable(thirty, "x") == null, "nothing is added to a full table");
+        check(NineKeySidebarPolicy.toPreference(letters, letters).isEmpty(), "the factory table is written as an empty array");
+        check(NineKeySidebarPolicy.toPreference(List.of("，", "。", "？", "！"), letters).equals(List.of("，", "。", "？", "！")),
+            "a custom table is written as it is");
+        check(NineKeySidebarPolicy.toPreference(List.of("？", "。", "，"), letters).size() == 3, "order matters for 恢复默认");
     }
 
     private static void choices() {
@@ -121,6 +182,7 @@ public final class NineKeySidebarPolicySmoke {
             "every fixed choice is a valid single symbol");
     }
 
+    /** 本机旧键只留给迁移读：声明和规范化不变，读出来的值经 parse 交给迁移。 */
     private static void localSetting() {
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SYMBOLS);
         check(spec.kind == AndroidLocalSettings.Spec.Kind.TEXT && !spec.synced, "a local-only text setting");
@@ -131,8 +193,8 @@ public final class NineKeySidebarPolicySmoke {
             "invalid tables and non-text values are refused");
         AndroidLocalSettings.Snapshot custom = new AndroidLocalSettings.Snapshot(
             AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.NINE_KEY_SYMBOLS, "+ -")));
-        check(List.of("+", "-").equals(NineKeySidebarPolicy.letterSymbols(custom.text(AndroidLocalSettings.NINE_KEY_SYMBOLS))),
-            "a stored table reads back");
+        check(List.of("+", "-").equals(NineKeySidebarPolicy.parse(custom.text(AndroidLocalSettings.NINE_KEY_SYMBOLS))),
+            "a stored legacy table reads back");
         check(!custom.synced().containsKey(AndroidLocalSettings.NINE_KEY_SYMBOLS), "the table never syncs");
         boolean threw = false;
         try { custom.bool(AndroidLocalSettings.NINE_KEY_SYMBOLS); } catch (IllegalArgumentException expected) { threw = true; }

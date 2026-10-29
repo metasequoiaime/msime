@@ -1195,7 +1195,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
     | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.NUMBER_ROW, null\);' "$style_migration" \
-  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\);' "$account_service" \
+  || ! rg -q -U '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\)\n\s*\+ ":" \+ NineKeySidebarPolicy\.format\(nineKeySidebarSymbols\) \+ ":" \+ NineKeySidebarPolicy\.format\(nineKeyDigitSidebarSymbols\);' "$account_service" \
   || ! rg -q 'preferences\.optBoolean\(TouchKeyStyle\.NUMBER_ROW_PREFERENCE, false\)' "$account_service" \
   || ! rg -q '\+ ":" \+ english \+ ":" \+ style' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java" \
   || ! sed -n '/private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows" | rg_q_stdin 'if \(builtNumberRow\) addNumberRow\(rows\.size\(\)\);'; then
@@ -1260,8 +1260,8 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F '() -> choose(shown, option)));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
   || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst),' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, nineKeySidebar),' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, nineKeySidebar));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));' <<< "$style_refresh" \
   || ! rg_q_stdin -F '() -> { if (!checked) choose.run(); });' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
@@ -1313,6 +1313,41 @@ if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPad
     | rg_q_stdin -U 'numberPadSpace = choice;\n\s*refreshNumberPad\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.NUMBER_PAD_SPACE_PREFERENCE, choice\.wire\)\);' \
   || ! rg -qF 'preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java"; then
   echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, put the swap toggle after the 26-key style note and the 数字键盘 chips in their own group in 按键布局, and draw the heatmap with the swap" >&2
+  exit 1
+fi
+# 九键左侧符号栏的两张表（#10223，.agents/notes/implemented/feature/2026-10-29-nine-key-sidebar-shared.md）：空表回到出厂表、右侧大回车只给出厂表接 ！、编辑器整表校验和「等于出厂表写空数组」由 NineKeySidebarPolicySmoke 覆盖，迁移与备份恢复的转换由 TouchKeyStyleSmoke 覆盖，9 键预览左列与高亮、摘要由 KeyLayoutStylesPolicySmoke 覆盖；接线在 InputMethodService、设置页和迁移里，JVM 冒烟碰不到，这里钉住：本机两个旧键只有迁移读（请求带上两张表、迁完与另两个旧键一起删）；键盘从共享偏好读两张表（冷启动的皮肤片段也记着），变了经 touchGeometryKey 重画、sidebarStale 重建；长按符号栏打开「按键布局」并带上那张表的偏好名；键盘页不再列这两行；「按键布局」在 9 键分段的说明后、「数字键盘」一组说明后各列一行，只在 9 键分段显示字母表那一行，预览按字母表画左列并高亮；编辑页按修订号只写这一张表的共享偏好，不再写本机设置。
+sidebar_readers=$(rg -l 'AndroidLocalSettings\.(NINE_KEY_SYMBOLS|NINE_KEY_DIGIT_SYMBOLS)\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
+sidebar_sheet="$repo_root/platforms/android/java/app/msime/android/home/NineKeySidebarSheet.java"
+sidebar_layout_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"
+sidebar_section=$(sed -n '/    private void styleSection(/,/^    }$/p' "$style_page")
+sidebar_number_pad=$(sed -n '/    private void numberPadSection(/,/^    }$/p' "$style_page")
+sidebar_refresh=$(sed -n '/    private void refreshStyles() {$/,/^    }$/p' "$style_page")
+if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_SYMBOLS, null\);' "$style_migration" \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_DIGIT_SYMBOLS, null\);' "$style_migration" \
+  || ! rg -qF '.put("nine_key_symbols", new JSONArray(nineKeySymbols))' "$style_migration" \
+  || ! rg -qF '.put("nine_key_digit_symbols", new JSONArray(nineKeyDigitSymbols));' "$style_migration" \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'nineKeyDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);' \
+  || ! rg -qF 'nineKeySidebarSymbols = nextSidebarSymbols;' "$account_service" \
+  || ! rg -qF 'nineKeyDigitSidebarSymbols = nextDigitSidebarSymbols;' "$account_service" \
+  || ! rg_q_stdin -F 'NineKeySidebarPolicy.LETTER_PREFERENCE, NineKeySidebarPolicy.DIGIT_PREFERENCE,' <<< "$skin_hint_keys" \
+  || ! rg -qF '|| imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()' "$account_service" \
+  || ! sed -n '/    java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {$/,/^    }$/p' "$sidebar_layout_rows" \
+    | rg_q_stdin -F 'NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,' \
+  || ! rg -qF 's.openHostPage("KEY_LAYOUT_STYLES", args);' "$sidebar_layout_rows" \
+  || ! rg -qF 'args.putString(NineKeySidebarPolicy.EDIT_ARGUMENT, digits' "$sidebar_layout_rows" \
+  || rg -q 'NineKeySidebar|edit_sidebar_key|"九键左侧符号"|"九键数字键盘左侧符号"' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE, null,' <<< "$sidebar_section" \
+  || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.DIGIT_SIDEBAR_TITLE, null,' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -U 'numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -F 'if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);' <<< "$sidebar_refresh" \
+  || ! rg -qF 'KeyboardSheets.save(owner, edited -> edited.put(key, new JSONArray(stored)),' "$sidebar_sheet" \
+  || ! rg -qF 'List<String> stored = NineKeySidebarPolicy.toPreference(symbols, defaults);' "$sidebar_sheet" \
+  || rg -q 'saveLocal' "$sidebar_sheet"; then
+  echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
   exit 1
 fi
 # 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画热力图的同一套整块外框。

@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」子页（{@link KeyLayoutStylesPage}）里不碰 Android 的部分：列出哪几种键盘类型、默认停在哪一种、每种样式叫什么、选中后下面那行说明写什么、预览高亮哪几个键，以及整块键盘预览画哪些键。三端（iOS、共享设置页）按同一份规格画同样的页面。
+ * 「按键布局」子页（{@link KeyLayoutStylesPage}）里不碰 Android 的部分：列出哪几种键盘类型、默认停在哪一种、每种样式叫什么、选中后下面那行说明写什么、预览高亮哪几个键，整块键盘预览画哪些键，以及两行左侧符号（#10223）的标题、摘要和编辑页说明。三端（iOS、共享设置页）按同一份规格画同样的页面。
  *
  * <p>预览的键序、宽度份额和跨行取自键盘自己用的表：26 键和九键外框取统计页热力图的同一套布局（{@link KeyHeatmapLayout#soft}、{@link KeyHeatmapLayout#nine}，由 KeyHeatmapLayoutSmoke 钉住与键盘一致），14 键与 18 键取 {@link FourteenKeyLayout}、{@link EighteenKeyLayout} 和 `ImeLetterRows#rebuildFourteenKeyRows` 用的份额，底行都是 {@link KeyboardActionRow#designEntries}。check-host 直接编译并在 JVM 里测它。
  */
@@ -122,6 +122,19 @@ public final class KeyLayoutStylesPolicy {
     static final String EMOJI_NOTE = "长按 123 打开符号。";
     static final String TALL_RETURN_NOTE = "回车竖占两行，符号键在左下角。";
 
+    // 两行左侧符号（9 键分段卡片里一行、「数字键盘」一组后一行）的标题和编辑页顶部的说明，三端逐字相同（iOS `NineKeySidebarPreference`、共享设置页 `touch-key-layout-styles.ts`），scripts/test-nine-key-sidebar-parity.py 核对。
+    public static final String NINE_KEY_SIDEBAR_TITLE = "九键左侧符号";
+    public static final String DIGIT_SIDEBAR_TITLE = "数字键盘左侧符号";
+    public static final String NINE_KEY_SIDEBAR_NOTE = "拼音九键、九键双拼和笔画共用，多于一屏时上下滑动。";
+    public static final String DIGIT_SIDEBAR_NOTE = "所有九宫格数字键盘共用，#+= 固定在最后。";
+    /** 导航行右侧的摘要最多列几项，多出来的写成「等 N 个」。 */
+    static final int SIDEBAR_SUMMARY_LIMIT = 4;
+
+    /** 导航行右侧的摘要：存的表（空表时是本端出厂表 `defaults`）不超过四项时用空格连起来，多于四项时前四项加「 等 N 个」。 */
+    public static String sidebarSummary(List<String> stored, List<String> defaults) {
+        return NineKeySidebarPolicy.summary(NineKeySidebarPolicy.symbols(stored, defaults), SIDEBAR_SUMMARY_LIMIT);
+    }
+
     /** 胶囊下面那行说明，只说当前选中样式不显而易见的副作用；没有副作用的样式为 null，页面不画这一行。 */
     public static String note(Kind kind, TouchKeyStyle.Row row) {
         return switch (row) {
@@ -146,6 +159,16 @@ public final class KeyLayoutStylesPolicy {
             case EMOJI -> Set.of(EMOJI);
             case TALL_RETURN -> Set.of(RETURN);
         };
+    }
+
+    /** 同上，另按九键左侧符号（`touch_nine_key_sidebar_symbols`）：9 键分段里字母表是自定义的（{@link NineKeySidebarPolicy#custom}）时，再高亮整条左列（{@link #SIDEBAR}）；空表或与出厂表相同时不高亮。 */
+    public static Set<String> highlights(Kind kind, TouchKeyStyle.Row row, boolean symbolFirst, List<String> nineKeySidebar) {
+        Set<String> base = highlights(kind, row, symbolFirst);
+        if (kind != Kind.NINE || !NineKeySidebarPolicy.custom(nineKeySidebar, NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS))
+            return base;
+        Set<String> marked = new HashSet<>(base);
+        marked.add(SIDEBAR);
+        return Set.copyOf(marked);
     }
 
     /** 同上，另按「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`）：打开时 26 键所选样式的底行真有 符 可换（{@link KeyboardActionRow#symbolFirstMoves}，标准和逗号句号；长空格、表情键没有 符），在样式的高亮之外再高亮 符 和 123。 */
@@ -173,6 +196,8 @@ public final class KeyLayoutStylesPolicy {
     static final String RETURN = "Enter";
     static final String SYMBOL = "SoftSymbol";
     static final String LAYER = "SoftLayer";
+    /** 9 键预览里画成一整条的左侧符号栏。键盘上这一列记 `SoftPunctuation`，可标准外框右列的 ！ 也记它，按它高亮会连 ！ 一起描边，所以预览给整条左列单起一个只在预览里用的 id。 */
+    static final String SIDEBAR = "NineKeySidebar";
     private static final String SHIFT = "ShiftLeft";
     /** 热力图把 26 键第三行左端画成组字中的「分词」、记 `Quote`；预览画空闲时的 ⇧。 */
     private static final String SEPARATOR = "Quote";
@@ -183,9 +208,17 @@ public final class KeyLayoutStylesPolicy {
     public enum Tone { CHARACTER, FUNCTION, RETURN }
 
     /**
-     * 预览里的一个键：键面、在这一行里的宽度份额、id（没有时为空字符串）、底色，以及占几行（2 表示跨到下一行，0 表示被上一行跨下来的键盖住或只是占位的缩进，不画、只占宽度）。
+     * 预览里的一个键：键面、在这一行里的宽度份额、id（没有时为空字符串）、底色，以及占几行（2、3 表示跨到下面几行，0 表示被上一行跨下来的键盖住或只是占位的缩进，不画、只占宽度）。`stack` 不为空时这一格是一条竖栏：把占的整块高度等分给 `stack` 里的每一项，各画成一个键，`face` 不画（9 键的左侧符号栏）。
      */
-    public record Key(String face, float weight, String id, Tone tone, int rows) {}
+    public record Key(String face, float weight, String id, Tone tone, int rows, List<String> stack) {
+        public Key {
+            stack = List.copyOf(stack);
+        }
+
+        public Key(String face, float weight, String id, Tone tone, int rows) {
+            this(face, weight, id, tone, rows, List.of());
+        }
+    }
 
     /**
      * 整块键盘预览，自上而下逐行，每行按份额铺满整行：
@@ -202,6 +235,44 @@ public final class KeyLayoutStylesPolicy {
 
     /** 同上，`symbolFirst`（「26 键「符」与「123」互换」）打开时 26 键底行按键盘的同一条规则把 符 排到 123 左边（{@link KeyHeatmapLayout#soft(TouchKeyStyle.Row, boolean, boolean)}），没有 符 的样式不变；14/18 键和 9 键不受它影响。 */
     public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst) {
+        return keyboard(kind, style, numberRow, eighteen, symbolFirst, List.of());
+    }
+
+    /**
+     * 同上，9 键的左侧符号栏按共享偏好 `touch_nine_key_sidebar_symbols` 画，与键盘相同（{@link NineKeySidebarPolicy#letterSymbols(List, boolean)}）：自定义的表画一屏，最多 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 项，等高均分整条左列；空表画出厂的 ， 。 ？，右侧大回车时末尾接 ！ 共四项。只有出厂表、又不是右侧大回车时仍按热力图逐行画三格（与 #10208 的画面相同）。14/18 键和 26 键不受它影响。
+     */
+    public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst, List<String> nineKeySidebar) {
+        List<List<Key>> rows = keyboardRows(kind, style, numberRow, eighteen, symbolFirst);
+        if (kind != Kind.NINE) return rows;
+        boolean tallReturn = offered(kind, style) == TouchKeyStyle.Row.TALL_RETURN;
+        if (!tallReturn && !NineKeySidebarPolicy.custom(nineKeySidebar, NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS))
+            return rows;
+        return withSidebar(rows, NineKeySidebarPolicy.letterSymbols(nineKeySidebar, tallReturn));
+    }
+
+    /** 9 键预览前三行的第一格换成一整条左侧符号栏：第一行那一格跨三行、带着一屏的符号，下面两行同一格只占宽度。 */
+    private static List<List<Key>> withSidebar(List<List<Key>> rows, List<String> symbols) {
+        List<String> visible = symbols.subList(0, Math.min(symbols.size(), NineKeySidebarPolicy.VISIBLE_ROWS));
+        int spanned = Math.min(3, rows.size() - 1);
+        List<List<Key>> result = new ArrayList<>(rows.size());
+        for (int index = 0; index < rows.size(); index++) {
+            List<Key> row = rows.get(index);
+            if (index >= spanned) {
+                result.add(row);
+                continue;
+            }
+            List<Key> replaced = new ArrayList<>(row);
+            float weight = row.get(0).weight();
+            replaced.set(0, index == 0 ? new Key("", weight, SIDEBAR, Tone.CHARACTER, spanned, visible)
+                : new Key("", weight, "", Tone.CHARACTER, 0));
+            result.add(List.copyOf(replaced));
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<List<Key>> keyboardRows(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
             boolean symbolFirst) {
         boolean digits = drawsNumberRow(kind, numberRow);
         return switch (kind) {
