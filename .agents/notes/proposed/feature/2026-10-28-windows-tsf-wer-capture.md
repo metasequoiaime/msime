@@ -75,7 +75,9 @@ Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本
 
 三个回调的调用约定以[微软 SDK 头文件](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/WerApi.h)及验证机上的原版 SDK 为准，不能直接使用 MinGW 在 x86 下的不同 typedef。
 
-本轮同代次复用优化已由本机既有 MinGW x64 测试树以严格警告完整编译和链接，包含真实 `TsfCrashCapture.cpp`、生产 helper、读取计数与首次准备/暂停恢复的最终授权屏障回归。改动的四个 C++ 源文件亦通过 MinGW x86 严格语法检查。Windows 验证机 SSH 当前超时，尚未执行新测试的目标运行；既有系统 WER 结果不替代本轮运行，交由新候选的 Windows CI 继续核验。
+同代次复用优化首先通过既有 MinGW x64 测试树的严格编译和链接，四个 C++ 源文件亦通过 MinGW x86 严格语法检查。随后经 PVE 跳转重新接通 Windows 11 验证机，复用既有 MSVC 构建缓存，实际运行固定候选 `1ae2cf6c67207114fa19a388d44a797082193397` 的 x64/x86 回调与生命周期 CTest，分别全部通过（7.12、7.18 秒）。读取计数、首次准备/暂停恢复的最终授权屏障与反复 DLL 装卸均实际执行；两架构各七组真实系统 WER 用例全部通过，任务 helper 允许列表值已清理，未调用产品上传入口。243 个源码输入在构建前后逐项 SHA-256 一致，证据为 `target/pve-consent-1ae2cf6c67-evidence/`。旧 `win11` 别名连接失败不能代表 PVE 内的验证环境不可达；没有修改 SSH 配置或重启虚拟机。
+
+首次测试包装器因 PowerShell 5 误读无 BOM 中文而在解析阶段失败，未配置或执行测试；保留失败日志，为任务脚本补 UTF-8 BOM 后才取得上述完整结果。此前 `f21ba97116` 的 CI 被新提交推送取消，不将未执行完的 WER 步骤记作通过；本次目标运行证据也不替代完整安装包、真实编辑器、ARM64、Win7 或后台符号化验收。
 
 PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and run TSF system WER capture (x64 and x86)` 步骤已实际完成并报告 success。此前 runner 系统投递失败本轮未复现；该结果属于本轮同代次复用优化之前的候选，不替代新增读取计数与恢复屏障的运行验收，也不能单凭通过反推原失败根因。
 

@@ -58,6 +58,12 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 
 同一 aaeb 源码还完成 aarch64 Fcitx5 原生插件的独立闭环。按 Linux 顶层工程重建真实插件并收集两模块符号，在隔离 D-Bus 中先验收合成拼音上屏；调试器在真实插件的按键入口设置一次性断点，投递 SIGSEGV，不替换产品实现或写入合成故障文件。实际 daemon 退出后显式重启，继续输入、原生补报、SIGKILL 后再次重启输入和正常退出均通过。固定隔离后台共存储三条事件，其中恰好一条 crash 与一条 session_crash，数据库逐字段等于收到的三次请求；构建身份仍固定 aaeb、原构建运行、aarch64 与 input。实际后台帧按插件 build-id `8c776079f99a6106e6a7405f03505aae500196b1` 和偏移 `0x1721c0`，由 `target/linux/native-aaeb-fcitx-symbols.zip` 还原到 `FcitxEngine::keyEvent`、`platforms/linux/fcitx5/FcitxEngine.cpp:7677`；两条重复帧只算一个源码位置。前序在外部 Fcitx 事件循环注入信号时，故障和补报虽通过，栈里没有产品帧，符号验收已按原断言拒绝；不拿外部帧或调试器自身的错误代替本次成功结果。最终调试器正常退出，容器及内部网络清理完成。小证据另存 `target/linux-aaeb-fcitx-backend-evidence/`；这是 aarch64 隔离测试构建与显式 daemon 重启，不扩大到其他架构、发行版或自动恢复。
 
+### macOS arm64 输入进程的真实故障闭环
+
+固定候选 `1ae2cf6c67207114fa19a388d44a797082193397` 的 12,444 个源码条目，在既有构建缓存重建启用回环验收能力的静态 Host API 与真实原生输入法。arm64 `0.55.0` 产品在合成 HOME 与运行时偏好中启动，沙箱只允许专用回环端口；外部 `SIGSEGV` 后由原产品重启并发送，固定官方后台与临时 PostgreSQL 共收到四条事件，恰好一条 `crash` 和一条 `session_crash`。逐字段核对数据库与 HTTP 请求一致，原捕获身份保持原版本、提交、运行编号、架构与 `input`。实际后台帧的 UUID `efc384f710873096a1df3a7c36637bc3`、偏移 `0x9bbc` 经本轮独立符号归档还原到 `input_method_main.mm:214`。再次以 `SIGKILL` 终止并重启不增加崩溃。证据为 `target/macos-consent-input-evidence/`，远端完整记录与符号位于 `target/macos-runtime-acceptance/capture-final-consent-input-attempt1/`。
+
+这只验收原生输入进程启动路径及外部致命信号，不代表硬件访问冲突、IMK 真实编辑器、Tauri 设置及其他辅助入口通过。原生回退设置入口也实际故障并入库，但捕获的前 64 帧没有可匹配的自有模块，源码行断言拒绝通过；失败证据单独保留。LLDB 另因非交互调试权限被拒绝，未改变系统调试授权；改用向实际产品发送 POSIX 信号，不用测试桩伪造记录。前序动态库 `LINKEDIT`、沙箱地址语法、LLDB 模块命名和测试后台中继准备失败均保留，静态准备工具只操作合成偏好及离线握手，实际补报仍由原生产品执行。结束时已停止产品、临时后台、数据库、内部网络与 SSH 回环转发；重建不带回环特性的正式静态库和原生宿主，实际握手拒绝测试来源且未创建队列目录。运行前后的 12,444 个源码条目一致，没有安装或发布产品。
+
 ### Android API 28 的真实故障到后台与符号还原
 
 固定 `e865a66d0c6fe88ca7eaee550c36a2081acb6ada` 的 12,410 个源码条目，构建原生 full 版 arm64 Release APK；GitHub 分发配置按原规则省略按需资源，采用已有开发证书，不是正式签名发布包。包内八份固定词库及通知逐字节对照锁定生成物；Gradle 剥离后的两个原生模块与 APK 字节一致，未剥离符号模块的 build-id 与包内对应。正式 APK SHA-256 为 `2fce6751485dee16b0ee11d09da26fea9b5166a2651920a90f87d20a146f3f60`，JNI build-id 为 `8d9f57b69892fd6d0bdfbbd4edca3dcbef9beb97`，正式 Host API build-id 为 `96f546150ad35dfb62728e296f50fd15c2a9577c`。不能用剥离前后的完整文件哈希相等来验收 Gradle 产物；最初的错误比较已保留失败记录，后续按实际剥离产物与模块身份分别核对。
