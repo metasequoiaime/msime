@@ -93,6 +93,11 @@ public final class MSIMEInputService extends InputMethodService {
     static final int HANDWRITING_LAYOUT = 3;
     static final int FOURTEEN_KEY_LAYOUT = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
+    /** 会让内联高度条记下的键区屏幕上沿作废的配置变化：方向、屏幕尺寸（含分屏）和密度（显示大小）。 */
+    private static final int INLINE_HEIGHT_SCREEN_CHANGES = android.content.pm.ActivityInfo.CONFIG_ORIENTATION
+        | android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE
+        | android.content.pm.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE
+        | android.content.pm.ActivityInfo.CONFIG_DENSITY;
     static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
     static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
     private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
@@ -191,6 +196,8 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateScrollGeneration = -1;
     private int candidateScrollPage = -1;
     Button expandCandidates;
+    /** 上屏后联想时展开键左边的关闭键（#10078），显示与否由 {@link PredictionButtonsPolicy} 和 {@link #predictionButtons} 决定。 */
+    Button closePrediction;
     boolean candidatePanelOpen;
     JSONObject candidatePanelSnapshot;
     final ImeCandidateStrip imeCandidateStrip = new ImeCandidateStrip(this);
@@ -331,6 +338,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为关。 */
     private boolean quanpinShiftEnabled = false;
+    /** 上屏后联想时候选栏右端的按键样式，来自共享偏好 `next_word_prediction_buttons`，缺省为现有的只有展开键。 */
+    private PredictionButtonsPolicy.Style predictionButtons = PredictionButtonsPolicy.Style.EXPAND_ONLY;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
     TouchKeyStyle.Styles touchKeyStyles = TouchKeyStyle.Styles.DEFAULT;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
@@ -377,6 +386,10 @@ public final class MSIMEInputService extends InputMethodService {
     InlineHeightBar inlineHeightBar;
     boolean inlineHeightActive;
     private int inlineHeightOriginal;
+    /** 内联高度条打开时键区在屏幕上的上沿：拖动期间输入法窗口铺满，应用的避让边界固定在这里（#10025）。转屏后作废，等键区下一次布局重新记下。 */
+    private int inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+    /** 记下上沿时的配置：调整期间只有屏幕尺寸、方向或密度变了，记下的屏幕坐标才作废；深浅模式、字号这类变化不动避让边界。 */
+    private Configuration inlineHeightConfiguration;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
     /** 隐私会话重启时保留已打开的功能菜单。 */
@@ -495,6 +508,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
     boolean incognitoEnabled;
+    /** 「防止截屏」（#10098）：开着时输入法窗口和它自己开的弹窗都带 FLAG_SECURE，见 {@link ScreenCaptureProtection}。 */
+    boolean screenCaptureProtected;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
@@ -983,6 +998,8 @@ public final class MSIMEInputService extends InputMethodService {
     final Paint emojiGlyphPaint = new Paint();
     private java.util.List<EmojiCatalogModel.Item> emojiCombinationItems;
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
+    /** 键盘里常用语的读取和「添加到常用语」都在这条线程上排队（#10086）：`preferencesWorker` 在每个新输入框里先做建会话前的偏好读取和个人词库同步，常用语排在它后面，会话在建时点开的常用语面板要一直显示「正在读取」到会话快建好。读写放在同一条线程上，刚添加的那条在随后打开的面板里一定读得到。 */
+    final ExecutorService commonPhrasesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
@@ -1519,6 +1536,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean commitText(String text, TypingSource source) {
         clearQuickDeleteUndo();
+        dropDeferredToolbarTaps();
         editorReads.invalidate();
         if (connection == null) return false;
         boolean committed;
@@ -1555,6 +1573,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
         clearQuickDeleteUndo();
+        dropDeferredToolbarTaps();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
@@ -1927,6 +1946,16 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleEngineStartup(runtimeOptionsForSnapshot, engineStartGeneration);
     }
 
+    /**
+     * 表情目录和常用语只用运行时选项里的资源目录与偏好目录，不经引擎会话（#10086）：建会话前先按 startEngineSession 的同一套校验（必须是绝对路径）填上这两项，键盘一弹出表情、常用语就能点。stop 时照旧随 stopSessionState 清掉，会话建好时 startEngineSession 按同一份选项再写一次。
+     */
+    private void prefillSessionIndependentDirectories(JSONObject options) {
+        String resources = options.optString("resources", "");
+        if (new File(resources).isAbsolute()) emojiResources = resources;
+        String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
+        if (!directory.isEmpty() && new File(directory).isAbsolute()) preferencesDirectory = directory;
+    }
+
     /** 配置准备完成后仍初始化原输入框；不重复触发生命周期，也不重放已直出的文字。 */
     private void startInputRuntime(EditorInfo info, boolean restarting, boolean newDocument,
             long startGeneration, boolean engineWanted, boolean allowBootstrap, boolean deferEngine) {
@@ -1972,6 +2001,7 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 runtimeOptionsBase = "";
                 if (engineWanted) {
+                    prefillSessionIndependentDirectories(options);
                     runtimeOptionsBase = options.toString();
                     if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
                     runtimeOptionsForSnapshot = options.toString();
@@ -2212,6 +2242,8 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         // 工具栏面板一律走 closeToolbarPanels：逐个列举时漏掉过常用语，A 应用里打开的常用语会盖在 B 应用密码框的键盘上，一点就把短语上屏进密码框。
         closeToolbarPanels();
+        // 会话在建时记下的那一下「中」键属于这次弹出的键盘：收起后同一输入框重新弹出时启动会重新排上，不能在新键盘上自己执行（#10086）。
+        pendingLanguageTap = false;
         deactivateHandwriting();
         imeDebugOverlay.clearDiagnostic();
         // macOS resolves the same focus-loss boundary with finish_composition, so a keyboard put
@@ -2259,6 +2291,13 @@ public final class MSIMEInputService extends InputMethodService {
         // nine-key popup is anchored to the old tree, so it must not outlive the reflow.
         imeLayoutRows.dismissNineKeyHoldOptions();
         imeLayoutRows.hideJapaneseFlickPreview();
+        // 调整高度时转屏、改分屏尺寸或显示大小：旧屏幕坐标下的键区上沿已经不对，等键区在新窗口里布局后重新记下。深浅模式、字号等其他变化不清，否则下一次布局会记下拖动后的上沿，应用在调整中途跳一次。
+        if (inlineHeightActive) {
+            if (inlineHeightConfiguration == null
+                    || (inlineHeightConfiguration.diff(configuration) & INLINE_HEIGHT_SCREEN_CHANGES) != 0)
+                inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+            inlineHeightConfiguration = new Configuration(configuration);
+        }
         if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
         imeStyler.applyKeyboardGeometry();
@@ -2331,6 +2370,8 @@ public final class MSIMEInputService extends InputMethodService {
         flushTypingStatistics();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
+        // 已排上的「添加到常用语」照样写完。
+        commonPhrasesWorker.shutdown();
         // 同样排在 shutdown 之前：正在复制的那张写完后，这一步把它和更早的副本一起删掉。
         clearClipboardImages();
         clipboardImageWorker.shutdown();
@@ -2465,6 +2506,10 @@ public final class MSIMEInputService extends InputMethodService {
         pendingEngineStartup = -1;
         deferredEngineStartup = -1;
         pendingRuntimeBootstrap = null;
+        engineStartupRequestedAt = -1;
+        // 会话在建时推迟的点按只属于这个输入框的这一次启动（#10086）。
+        pendingToolbarPanel = null;
+        pendingLanguageTap = false;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
         // image after the user has enabled the privacy gate.
@@ -2572,7 +2617,11 @@ public final class MSIMEInputService extends InputMethodService {
      * the session after the bounded maintenance transaction has finished.
      */
     private void scheduleEngineStartup(String options, long generation) {
-        if (pendingEngineStartup != generation) dictionaryStartupRetryDeadline = SystemClock.uptimeMillis() + 5_000;
+        if (pendingEngineStartup != generation) {
+            dictionaryStartupRetryDeadline = SystemClock.uptimeMillis() + 5_000;
+            // 同一代的重试（词库维护忙、首次安装准备完再排一次）不重新计时，记下的是用户从这一代启动开始等了多久。
+            engineStartupRequestedAt = SystemClock.uptimeMillis();
+        }
         pendingEngineStartup = generation;
         Runnable complete = () -> {
             if (generation != engineStartGeneration || connection == null || session != 0) return;
@@ -2676,7 +2725,10 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 建会话在主线程上，这段时间里点按都要排队（#10086），单独记下它的耗时，与整段等待分开看。
+            long createStartedAt = SystemClock.uptimeMillis();
             String created = NativeClient.create(options.toString());
+            long createMillis = SystemClock.uptimeMillis() - createStartedAt;
             JSONObject response = new JSONObject(created);
             if ("dictionary maintenance busy".equals(response.optString("error"))
                     && engineStartupPending() && SystemClock.uptimeMillis() < dictionaryStartupRetryDeadline) {
@@ -2736,6 +2788,9 @@ public final class MSIMEInputService extends InputMethodService {
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
+            recordEngineSessionTiming(createMillis);
+            // 会话在建时点下的皮肤、输入方式或要轮换语言的「中」键，此刻会话和（多数时候）偏好都有了；偏好还没读到时由 reloadPreferences 第一次读到后再执行。排到这次建会话之后再做：打开面板出的错不能落进下面的 catch 把刚建好的会话停掉。
+            main.post(this::runDeferredToolbarTaps);
             // 窗口没显示时（会话在 onStartInput 里先于窗口建好，或在收起后为隐私模式重建）不起轮询，等 onWindowShown 再起。
             // 刚应用的就是几毫秒前读到的实时偏好，不必立刻再整套读一遍，按平常的节奏一秒后再查；没应用上时照旧马上读。
             if (hasPreferencesDirectory && imeWindowVisible) {
@@ -2983,6 +3038,10 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
+        // 设置应用里刚切换过时，下一次弹出键盘（onStartInputView 重读本地设置）就跟上；标志没变时不动窗口。
+        screenCaptureProtected = localSettings.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION);
+        android.app.Dialog imeWindow = getWindow();
+        ScreenCaptureProtection.apply(imeWindow == null ? null : imeWindow.getWindow(), screenCaptureProtected);
     }
 
     /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
@@ -3437,6 +3496,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousWubiMixedPinyin = wubiMixedPinyin;
         String previousWubiProfile = wubiProfile;
         KeyboardScheme previousScheme = selectedScheme;
+        PredictionButtonsPolicy.Style previousPredictionButtons = predictionButtons;
         try {
             if (response == null) throw new JSONException("Preferences unavailable");
             JSONObject snapshot = value(response);
@@ -3473,7 +3533,10 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousWubiMixedPinyin != wubiMixedPinyin
                 || !previousWubiProfile.equals(wubiProfile)
                 || previousScheme != selectedScheme
+                || previousPredictionButtons != predictionButtons
                 || !previousView.equals(view == null ? "" : view.toString())) render();
+        // 建会话前没读到实时偏好时，会话在建时推迟的点按等到这里第一次有偏好再执行（#10086）。
+        if (!previousPreferencesReady && preferencesSnapshot != null) runDeferredToolbarTaps();
     }
 
     /**
@@ -3535,6 +3598,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         boolean nextQuanpinShift = quanpinShiftFrom(preferences);
+        PredictionButtonsPolicy.Style nextPredictionButtons = PredictionButtonsPolicy.Style.parse(
+            JsonPolicy.strictString(preferences.opt(PredictionButtonsPolicy.PREFERENCE_KEY)));
         TouchKeyStyle.Styles nextTouchKeyStyles = touchKeyStylesFrom(preferences);
         boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
@@ -3626,6 +3691,8 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
         // 分词键的键面和点击都按它分支（usesQuanpinSeparator），变了立刻重画。
         quanpinShiftEnabled = nextQuanpinShift;
+        // 联想候选栏的关闭键与展开键在 render 里按它显示，变了经 reloadPreferences 的比较重画。
+        predictionButtons = nextPredictionButtons;
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
         numberRowEnabled = nextNumberRow;
@@ -3916,6 +3983,18 @@ public final class MSIMEInputService extends InputMethodService {
         } finally {
             editorReads.close();
         }
+    }
+
+    /**
+     * 联想候选栏上的关闭键（#10078）：送 Cancel 清掉上屏后联想。引擎对联想的 Cancel 报已处理，不上屏、不往输入框插空格（按空格关闭会多一个空格），已上屏的词序照旧保留；候选清空后 render 换回工具栏和「收起键盘」。展开面板开着时先收起，再取消。
+     */
+    void dismissPrediction() {
+        if (session == 0 || view == null || !view.optBoolean("prediction", false)) {
+            render();
+            return;
+        }
+        closeCandidatePanel();
+        command(3);
     }
 
     /** 复用本地模式的取消入口；英文直输必须核对编辑器，再删当前词。 */
@@ -4739,7 +4818,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
         if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
-        // 未单独设置工具栏尺寸时继续跟随读音行与候选行。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白。
+        // 未单独设置工具栏尺寸时继续跟随读音行与候选行，「候选栏大小」调小时工具栏这一行跟着变矮，按钮在 applyShortcutSize 里随行高缩小。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白，不允许工具栏单独比候选栏矮。
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
         int composingHeight = readingRow + pixels(line);
         boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
@@ -4765,7 +4844,10 @@ public final class MSIMEInputService extends InputMethodService {
                     ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
             ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
         }
-        imeToolbar.applyShortcutSize(sizePercent, customSize);
+        // 同一状态下「候选栏大小」为 100% 时的行高：读音行显示时只有 42 dp 的候选行，矮于 44 dp 的按钮是原有设计，100% 时按钮和图标不能因此缩小。
+        int designLine = pixels(ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP);
+        int designRowHeight = idleHeader ? designLine : readingRow + designLine;
+        imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight, designRowHeight);
     }
 
     private int readingRowHeight() {
@@ -4950,6 +5032,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean touched = imeTouchPoints.take(source);
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
+        dropDeferredToolbarTaps();
         if (connection == null) return;
         if (directEnglishActive()) {
             char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -5467,6 +5550,98 @@ public final class MSIMEInputService extends InputMethodService {
     /** 有一次会话启动在路上：排上之后没有换代（换输入框、收起、销毁都会换代），也没有被 stop 取消（建会话失败、输入连接失败都经过 stop）。 */
     private boolean engineStartupPending() {
         return session == 0 && pendingEngineStartup >= 0 && pendingEngineStartup == engineStartGeneration;
+    }
+
+    /** 工具栏入口与「中」键看的会话状态（{@link ToolbarReadinessPolicy}）：会话在建时表情、常用语和「中」键照常可用，皮肤和输入方式的点按推迟到会话就绪（#10086）。 */
+    ToolbarReadinessPolicy.Session toolbarSession() {
+        return ToolbarReadinessPolicy.session(session != 0, engineStartupPending());
+    }
+
+    /** 会话还在建时点下的皮肤或输入方式（null 为没有）：会话和偏好就绪后打开。换输入框（stop）、收起键盘或打开别的面板（closeToolbarPanels，以及不经它的功能面板 ImePanels.showFeedbackMenu 和表情面板 ImePanels.showEmojiPicker）、再点一次同一个按钮（deferrablePanelToggle）、开始打字或删字（dropDeferredToolbarTaps）时作废。 */
+    private ToolbarOrderPolicy.Item pendingToolbarPanel;
+    /** 会话还在建时点下、要轮换到其他语言键盘的那一下「中」键：会话和偏好就绪后照常按一次。换输入框（stop）、收起键盘（finishInputViewPresentation）、开始打字或删字（dropDeferredToolbarTaps）时作废，会话建好后再点一下「中」键时也作废（这一下照常交给引擎，不能等偏好读到后再补按一次）；已记下一下时再点不再记，见 ToolbarReadinessPolicy.languageTap。 */
+    private boolean pendingLanguageTap;
+    /** 这一代会话启动排上的时刻（uptime 毫秒），会话建好时算出等了多久写进性能记录；-1 为没有在等。 */
+    private long engineStartupRequestedAt = -1;
+
+    /**
+     * 皮肤、输入方式的点按：会话还在建时记下这一下并返回 true，调用方不再往下走；会话和偏好就绪后由 {@link #runDeferredToolbarTaps} 打开。会话已建好或这个输入框根本没有会话时返回 false，照原来的判断处理。
+     */
+    boolean deferUntilSessionReady(ToolbarOrderPolicy.Item panel) {
+        if (ToolbarReadinessPolicy.preferencePanelTap(toolbarSession(), preferencesSnapshot != null)
+                != ToolbarReadinessPolicy.PanelTap.DEFER) return false;
+        pendingToolbarPanel = panel;
+        render();
+        return true;
+    }
+
+    /** 皮肤、输入方式按钮的点按：推迟中的按钮画成选中，再点一次就是取消，和面板开着时再点一次回到键盘一致；其余情况照 {@link ImeToolbar#panelToggle} 处理。 */
+    private Runnable deferrablePanelToggle(ToolbarOrderPolicy.Item panel, Runnable toggle) {
+        return () -> {
+            if (pendingToolbarPanel == panel) {
+                pendingToolbarPanel = null;
+                render();
+                return;
+            }
+            toggle.run();
+        };
+    }
+
+    /** 推迟着皮肤或输入方式时用户打开了不经 closeToolbarPanels 的面板：推迟的面板不再在会话建好后自己弹出来。 */
+    void dropDeferredToolbarPanel() {
+        if (pendingToolbarPanel == null) return;
+        pendingToolbarPanel = null;
+        render();
+    }
+
+    /** 推迟着皮肤、输入方式或「中」键时用户开始打字或删字：面板不再在会话建好后弹出来打断输入，键盘也不在一个词打到一半时自己换语言。 */
+    private void dropDeferredToolbarTaps() {
+        if (pendingToolbarPanel == null && !pendingLanguageTap) return;
+        pendingToolbarPanel = null;
+        pendingLanguageTap = false;
+        render();
+    }
+
+    /**
+     * 会话建好时写两条性能记录（只在用户打开「记录输入日志」且隐私判断允许时写，见 {@link ImeDebugOverlay#recordPerf}）：主线程上 `NativeClient.create` 的耗时，以及从这一代启动排上到会话可用的整段等待。只有毫秒数，不带输入内容和路径。下次有人反馈「键盘弹出来要等」时，从诊断包就能看出慢在建会话本身还是前面的词库同步和偏好读取。
+     */
+    private void recordEngineSessionTiming(long createMillis) {
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_CREATE, createMillis);
+        if (engineStartupRequestedAt >= 0) {
+            imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_READY,
+                SystemClock.uptimeMillis() - engineStartupRequestedAt);
+        }
+        engineStartupRequestedAt = -1;
+    }
+
+    /** 会话建好、偏好读到后，执行会话在建时推迟的那一下。用户在等的时候已经打开了别的面板，推迟的面板就不再弹出来盖住它。 */
+    private void runDeferredToolbarTaps() {
+        if (!ToolbarReadinessPolicy.deferredTapReady(toolbarSession(), preferencesSnapshot != null)) return;
+        ToolbarOrderPolicy.Item panel = pendingToolbarPanel;
+        boolean language = pendingLanguageTap;
+        pendingToolbarPanel = null;
+        pendingLanguageTap = false;
+        if (language) languageKeyTapped();
+        if (panel == null) return;
+        if (!anyToolbarPanelOpen() && connection != null) {
+            if (panel == ToolbarOrderPolicy.Item.SKIN) imePanels.showSkinMenu(skinButton);
+            else if (panel == ToolbarOrderPolicy.Item.SCHEME) imePanels.showSchemePicker();
+        }
+        render();
+    }
+
+    /** 会话还在建时点「中」键：只翻转宿主的中英状态并照常记住；会话建好时 startEngineSession 按 dedicatedEnglish 交给引擎。英文直输本来就不经引擎，翻到英文后马上就能打字。 */
+    private void toggleInputLanguageBeforeSession() {
+        temporaryEnglishShift = false;
+        dedicatedEnglish = !dedicatedEnglish;
+        if (inputModeStore != null) inputModeStore.remember(imeModeScope, currentEditorPackage, dedicatedEnglish);
+        keyboardLayer = KeyboardLayout.Layer.LETTERS;
+        letterCase.reset();
+        imeLetterRows.refreshLetterCase();
+        clearEnglishSuggestions();
+        // 切回中文时 updateAutomaticCapitalization 不重画，这里统一画一次。
+        updateAutomaticCapitalization(false);
+        render();
     }
 
     boolean sendsChinesePunctuation() {
@@ -10059,7 +10234,13 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
-            if (stableDockedWindow()) keyboardRoot.invalidate();
+            if (inlineHeightActive && !overlayDrawn()
+                    && inlineHeightKeyboardTop == KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP) {
+                keyboardSurface.getLocationOnScreen(floatingLocation);
+                inlineHeightKeyboardTop = floatingLocation[1];
+            }
+            // 停靠背景只画键区所在的底部横带，键区伸缩后按新的上沿重画。
+            if (stableDockedWindow() || inlineHeightActive) keyboardRoot.invalidate();
             // 面板变高变窄（换布局、调高度、旋转）后按存着的千分比重新摆，保证仍在窗口里；跟随光标的候选栏换了内容、变了高度后同样按光标重新摆。
             if (overlayDrawn()) positionKeyboardSurface();
         });
@@ -10206,12 +10387,27 @@ public final class MSIMEInputService extends InputMethodService {
         keyId(shiftButton, "ShiftLeft");
         languageButton = keyId(button(controls, "中/英", this::toggleInputLanguage), "SoftLanguage");
         languageButton.setContentDescription("切换中英文");
-        // 没有会话时这个键仍可用（长按要能打开输入法选择框），但点按切不了中英：不给按键反馈、也不记一次按键，免得点上去有声有振动却什么也没发生。
+        // 没有会话、也没有会话在建时（密码框、数字框、启动失败）这个键仍可用（长按要能打开输入法选择框），但点按切不了中英：不给按键反馈、也不记一次按键，免得点上去有声有振动却什么也没发生。会话还在建时点按照常生效（#10086），见 ToolbarReadinessPolicy.languageTap。
         languageButton.setOnClickListener(ignored -> {
-            if (session == 0) return;
+            ToolbarReadinessPolicy.LanguageTap tap = ToolbarReadinessPolicy.languageTap(toolbarSession(),
+                languageKeyCycles(), dedicatedEnglish, selectedScheme != null && selectedScheme.otherLanguage(),
+                pendingLanguageTap);
+            if (tap == ToolbarReadinessPolicy.LanguageTap.IGNORE) return;
             imeKeyFeedback.playFeedback(languageButton);
             countKey(languageButton);
-            languageKeyTapped();
+            switch (tap) {
+                case ENGINE -> {
+                    // 会话建好、偏好还没读到时记着的那一下作废：这一下已经照常切了，读到偏好时不能再补按一次。
+                    pendingLanguageTap = false;
+                    languageKeyTapped();
+                }
+                case HOST_TOGGLE -> toggleInputLanguageBeforeSession();
+                case DEFER -> {
+                    pendingLanguageTap = true;
+                    render();
+                }
+                default -> { }
+            }
         });
         bindInputMethodPicker(languageButton);
         layerButton = button(controls, "123", () -> {
@@ -10254,11 +10450,13 @@ public final class MSIMEInputService extends InputMethodService {
         bindInputMethodPicker(globeButton);
         schemeButton = shortcutButton(controls, "输入方式",
             KeyboardShortcutIconPolicy.Icon.SCHEME,
-            imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker));
+            deferrablePanelToggle(ToolbarOrderPolicy.Item.SCHEME,
+                imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker)));
         schemeButton.setContentDescription("输入方案");
         skinButton = shortcutButton(controls, "皮肤",
             KeyboardShortcutIconPolicy.Icon.SKIN,
-            imeToolbar.panelToggle(() -> skinScroll, () -> imePanels.showSkinMenu(skinButton)));
+            deferrablePanelToggle(ToolbarOrderPolicy.Item.SKIN,
+                imeToolbar.panelToggle(() -> skinScroll, () -> imePanels.showSkinMenu(skinButton))));
         skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = shortcutButton(controls, "设置",
             KeyboardShortcutIconPolicy.Icon.SETTINGS, this::showLayoutSettings);
@@ -10512,6 +10710,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeToolbarPanels() {
+        // 推迟打开的皮肤或输入方式随面板一起作废：用户改点了别的面板或收起了键盘，它不该过一会儿自己弹出来。
+        pendingToolbarPanel = null;
         closeMoreTools();
         closeEmojiPicker();
         closeCommonPhrases();
@@ -10541,10 +10741,20 @@ public final class MSIMEInputService extends InputMethodService {
         closeToolbarPanels();
         closeCandidatePanel();
         inlineHeightOriginal = touchKeyboardHeightAdjustment;
+        // 拖动期间不再让输入法窗口跟着键区变高（#10025）：每次改窗口高度，应用都要按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，拖动时整块闪白、应用上下跳。进入时铺满成透明全高窗口，应用的避让边界固定在键区此刻的上沿，拖动只在窗口里伸缩键区；完成或取消时才恢复停靠窗口，只改一次高度。
+        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。浮动键盘不让应用避让，它的屏幕上沿不是边界，不记；调整中途停靠后由键区布局重新记下。
+        if (overlayDrawn()) {
+            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        } else {
+            keyboardSurface.getLocationOnScreen(floatingLocation);
+            inlineHeightKeyboardTop = floatingLocation[1];
+        }
+        inlineHeightConfiguration = new Configuration(getResources().getConfiguration());
         inlineHeightActive = true;
         inlineHeightBar.setPercent(
             KeyboardHeightPolicy.heightAdjustmentToPercent(touchKeyboardHeightAdjustment));
         render();
+        imeStyler.applySkin();
         inlineHeightBar.requestFocus();
     }
 
@@ -10558,13 +10768,17 @@ public final class MSIMEInputService extends InputMethodService {
     private void finishInlineHeight(boolean commit) {
         if (!inlineHeightActive) return;
         inlineHeightActive = false;
+        inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        inlineHeightConfiguration = null;
         if (commit) {
             saveTouchGeometry();
         } else {
             touchKeyboardHeightAdjustment = inlineHeightOriginal;
             imeStyler.applyKeyboardGeometry();
         }
+        // render 里的 applyFloatingLayout 按最终键区高度恢复停靠窗口，整个调整只在这里改一次窗口高度；根视图同时换回整块底色。
         render();
+        imeStyler.applySkin();
     }
 
     /** 触控板模式保存后接回统一快照；密码等直通编辑器没有 Engine 会话，也能保存面板选择。 */
@@ -10756,16 +10970,19 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
-     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
+     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。内联高度条打开期间也铺满，键区包裹内容贴底，拖动时只在窗口里伸缩，不改窗口高度。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded();
+        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded() || inlineHeightActive;
         if (!force && fullWindow == fullWindowLayoutApplied
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
+        // 调整高度期间在浮动与停靠之间切换（浮动条上的停靠键、接上或拔下实体键盘）：记下的键区上沿属于另一种布局，作废后等键区在新位置布局时重新记下，否则应用会停在浮动面板的上沿被截掉一截。
+        if (inlineHeightActive && floating != overlayLayoutApplied)
+            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         fullWindowLayoutApplied = fullWindow;
         overlayLayoutApplied = floating;
         caretLayoutApplied = caret;
@@ -10820,14 +11037,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
-     * 全文预览及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界。
+     * 全文预览、内联高度条及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界，全文预览和内联高度条期间固定为打开时记下的上沿。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
         // 候选栏、剪贴板预览和文本编辑放大条共用同一块输入区；停靠键盘只在稳定布局后参与 inset 计算。
         if ((!overlayDrawn() && !clipboardPreviewExpanded && !editorPreviewExpanded()
-                && !stableDockedWindow()) || keyboardSurface == null) return;
+                && !stableDockedWindow() && !inlineHeightActive) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -10840,6 +11057,14 @@ public final class MSIMEInputService extends InputMethodService {
             int[] windowOrigin = new int[2];
             window.getDecorView().getLocationOnScreen(windowOrigin);
             int keyboardTop = Math.max(0, clipboardPreviewKeyboardTop - windowOrigin[1]);
+            outInsets.contentTopInsets = keyboardTop;
+            outInsets.visibleTopInsets = keyboardTop;
+        } else if (inlineHeightActive && !overlayDrawn()) {
+            // 拖动高度条时应用的边界固定在进入时的键区上沿，键区变高就盖住应用的底部，变矮就露出下面的应用窗口，应用本身不重排。
+            int[] windowOrigin = new int[2];
+            window.getDecorView().getLocationOnScreen(windowOrigin);
+            int keyboardTop = KeyboardHeightPolicy.adjustingInsetTop(
+                inlineHeightKeyboardTop, windowOrigin[1], floatingLocation[1]);
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
         } else if (!overlayDrawn()) {
@@ -11354,13 +11579,16 @@ public final class MSIMEInputService extends InputMethodService {
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            int caretMark = caretEditable ? CompositionCaretPolicy.markIndex(spelling, editingText, caret) : -1;
+            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
+            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
+            int caretMark = caretEditable
+                ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
                 caretSpelling = editingText;
-                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret, caretKeyGrid);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            imeCompositionEditor.render(caretSpelling, editingText, caret);
+            imeCompositionEditor.render(caretSpelling, editingText, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
@@ -11487,12 +11715,15 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (emojiShortcutButton != null) {
             ViewPolicy.setVisible(emojiShortcutButton, toolbarEmoji);
-            ViewPolicy.setEnabled(emojiShortcutButton, session != 0 && !emojiResources.isEmpty());
+            // 会话还在建时也可点（#10086）：表情面板只用资源目录和输入连接。
+            ViewPolicy.setEnabled(emojiShortcutButton, ToolbarReadinessPolicy.emojiEnabled(toolbarSession(),
+                connection != null, !emojiResources.isEmpty()));
             ViewPolicy.setSelected(emojiShortcutButton, ViewPolicy.isVisible(emojiPanel));
         }
         if (phraseShortcutButton != null) {
             ViewPolicy.setVisible(phraseShortcutButton, toolbarPhrase);
-            ViewPolicy.setEnabled(phraseShortcutButton, session != 0 && !preferencesDirectory.isEmpty());
+            ViewPolicy.setEnabled(phraseShortcutButton, ToolbarReadinessPolicy.phraseEnabled(toolbarSession(),
+                !preferencesDirectory.isEmpty()));
             ViewPolicy.setSelected(phraseShortcutButton, ViewPolicy.isVisible(phraseScroll));
         }
         if (clipboardShortcutButton != null) {
@@ -11575,16 +11806,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (languageButton != null) {
             boolean cycles = languageKeyCycles();
             languageButton.setText(LanguageKeyCyclePolicy.label(cycles, selectedScheme, dedicatedEnglish, visibleSchemes));
-            // 没有会话（密码框、会话还在建）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，只把它画淡、读屏念成「暂不可用」，点按在点击监听里直接忽略。
-            boolean canToggle = session != 0;
+            // 没有会话也没有会话在建（密码框、数字框）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，只把它画淡、读屏念成「暂不可用」，点按在点击监听里直接忽略。会话还在建时点按照常生效，不画淡（#10086）。
+            boolean canToggle = ToolbarReadinessPolicy.languageKeyActive(toolbarSession());
             ViewPolicy.setEnabled(languageButton, true);
             ViewPolicy.setActiveAlpha(languageButton, canToggle, .45f);
             languageButton.setContentDescription(!canToggle ? "中英切换暂不可用，长按切换输入法"
                 : LanguageKeyCyclePolicy.description(nextLanguageTarget()));
             if (Build.VERSION.SDK_INT >= 30) {
+                // 会话在建时记下的那一下键面不变，读屏念出它记下了（#10086）。
                 languageButton.setStateDescription(!canToggle ? "输入会话未就绪"
                     : LanguageKeyCyclePolicy.stateDescription(cycles, selectedScheme, dedicatedEnglish,
-                        visibleSchemes));
+                        visibleSchemes) + (pendingLanguageTap ? "，准备好后切换" : ""));
             }
         }
         if (floatingShortcutButton != null) {
@@ -11611,14 +11843,18 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (schemeButton != null) {
             ViewPolicy.setVisible(schemeButton, toolbarScheme);
-            ViewPolicy.setSelected(schemeButton,
-                ViewPolicy.isVisible(schemeScroll));
+            // 会话在建时点下、等着打开的也画成选中，点按有了着落（#10086）。
+            ViewPolicy.setSelected(schemeButton, ViewPolicy.isVisible(schemeScroll)
+                || pendingToolbarPanel == ToolbarOrderPolicy.Item.SCHEME);
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge(wubiProfile));
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title(wubiProfile));
-            // 只按「会话与偏好是否就绪」决定可用：简繁、键高、方案的保存都在一瞬间完成，若跟着保存状态禁用，图标每切一次简繁就变灰再变回来。保存进行中的点按由 showSchemePicker 忽略。
-            ViewPolicy.setEnabled(schemeButton, session != 0 && preferencesSnapshot != null);
+            // 只按「会话与偏好是否就绪」决定可用：简繁、键高、方案的保存都在一瞬间完成，若跟着保存状态禁用，图标每切一次简繁就变灰再变回来。保存进行中的点按由 showSchemePicker 忽略。会话还在建时也可点，点按推迟到就绪后打开（ToolbarReadinessPolicy.preferencePanelTap）。
+            ViewPolicy.setEnabled(schemeButton, ToolbarReadinessPolicy.preferencePanelEnabled(toolbarSession(),
+                preferencesSnapshot != null));
             if (Build.VERSION.SDK_INT >= 30) {
-                String schemeState = session == 0 ? "输入会话未就绪"
+                String schemeState = toolbarSession() == ToolbarReadinessPolicy.Session.STARTING
+                    ? pendingToolbarPanel == ToolbarOrderPolicy.Item.SCHEME ? "准备好后打开" : "正在准备"
+                    : session == 0 ? "输入会话未就绪"
                     : preferencesSnapshot == null ? "设置加载中"
                     : schemeSaving ? "正在切换输入方案"
                     : touchGeometrySaving || traditionalOutputSaving ? "正在保存其他设置"
@@ -11628,13 +11864,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (skinButton != null) {
             ViewPolicy.setVisible(skinButton, toolbarSkin);
-            ViewPolicy.setSelected(skinButton,
-                ViewPolicy.isVisible(skinScroll));
-            // 同上：保存进行中的点按由 ImePanels.showSkinPicker 按 canSaveKeyboardSkin 忽略，图标不跟着变灰。
-            ViewPolicy.setEnabled(skinButton, session != 0 && preferencesSnapshot != null
-                && !preferencesDirectory.isEmpty());
+            ViewPolicy.setSelected(skinButton, ViewPolicy.isVisible(skinScroll)
+                || pendingToolbarPanel == ToolbarOrderPolicy.Item.SKIN);
+            // 同上：保存进行中的点按由 ImePanels.showSkinPicker 按 canSaveKeyboardSkin 忽略，图标不跟着变灰；会话还在建时同输入方式一样推迟。
+            ViewPolicy.setEnabled(skinButton, ToolbarReadinessPolicy.preferencePanelEnabled(toolbarSession(),
+                preferencesSnapshot != null && !preferencesDirectory.isEmpty()));
             skinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
-            if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
+            // 会话在建时和输入方式按钮一样念出这一下记下了没有（#10086），读屏用户才知道面板为什么还没出来。
+            if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(
+                toolbarSession() != ToolbarReadinessPolicy.Session.STARTING ? skin.title()
+                    : skin.title() + (pendingToolbarPanel == ToolbarOrderPolicy.Item.SKIN ? "，准备好后打开" : "，正在准备"));
         }
         synchronizeReplyKeyboard();
         if (layoutSettingsButton != null) ViewPolicy.hide(layoutSettingsButton);
@@ -11682,6 +11921,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (expandCandidates != null) ViewPolicy.hide(expandCandidates);
+        if (closePrediction != null) ViewPolicy.hide(closePrediction);
         if (view == null) {
             closeCandidatePanel();
             renderEnglishSuggestions(activeCandidates);
@@ -11691,6 +11931,11 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
+        // 上屏后联想时候选栏右端的按键按用户选的样式（#10078）；只有引擎候选占着这一行时才放，手写、义项、标点、邮箱后缀和英文建议照旧。
+        boolean prediction = view.optBoolean("prediction", false);
+        boolean expandAllowed = PredictionButtonsPolicy.allowsExpand(predictionButtons, prediction);
+        boolean closeShown = closePrediction != null && !hasDiagnostic
+            && PredictionButtonsPolicy.showsClose(predictionButtons, prediction);
         if (handwriting) {
             renderSharedHandwritingCandidates(activeCandidates);
         } else if (imeTranslationSenses.active()) {
@@ -11707,9 +11952,10 @@ public final class MSIMEInputService extends InputMethodService {
             renderEnglishSuggestions(activeCandidates);
         } else if (stripSnapshot != null) {
             imeCandidateStrip.render(stripSnapshot, candidates, horizontalCandidateScroll);
-            if (expandCandidates != null
+            if (expandCandidates != null && expandAllowed
                     && (strictCandidatePage(view, "page_count") > 1 || imeNineKeyPanel.eligible()))
                 ViewPolicy.show(expandCandidates);
+            if (closeShown) ViewPolicy.show(closePrediction);
         } else if (entries != null) {
             int visibleSlot = 0;
             for (int slot = 0; slot < entries.length(); slot++) {
@@ -11730,9 +11976,10 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (!hasDiagnostic && expandCandidates != null
+            if (!hasDiagnostic && expandCandidates != null && expandAllowed
                     && (strictCandidatePage(view, "page_count") > 1 || imeNineKeyPanel.eligible()))
                 ViewPolicy.show(expandCandidates);
+            if (closeShown) ViewPolicy.show(closePrediction);
         }
         int visibleSlots = entries == null ? 0 : entries.length();
         for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)

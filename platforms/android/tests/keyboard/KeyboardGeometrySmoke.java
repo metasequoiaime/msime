@@ -135,6 +135,14 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardHeightPolicy.adjustedRowHeight(48, 1, 3, 1) == 48);
         check(KeyboardHeightPolicy.displayHeight(0).equals("0"));
         check(KeyboardHeightPolicy.displayHeight(24).equals("+24"));
+        // 内联高度条拖动期间（#10025）：应用的避让边界固定在进入时记下的键区屏幕上沿，与键区此刻在哪无关；全高窗口从状态栏下开始时换算成窗口坐标，过渡中的窗口原点在记下的上沿之下时不出现负值。
+        check(KeyboardHeightPolicy.adjustingInsetTop(1500, 0, 1200) == 1500);
+        check(KeyboardHeightPolicy.adjustingInsetTop(1500, 0, 1700) == 1500);
+        check(KeyboardHeightPolicy.adjustingInsetTop(1500, 63, 1300) == 1437);
+        check(KeyboardHeightPolicy.adjustingInsetTop(1500, 1500, 0) == 0);
+        check(KeyboardHeightPolicy.adjustingInsetTop(1500, 1600, 0) == 0);
+        // 转屏后还没重新记下：退回键区此刻的上沿。
+        check(KeyboardHeightPolicy.adjustingInsetTop(KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP, 0, 900) == 900);
         check(KeyboardSpacingPolicy.display(35).equals("3.5"));
         check(KeyboardSpacingPolicy.display(100).equals("10.0"));
         check(KeyboardSpacingPolicy.halfGapPixels(60, 1) == 3);

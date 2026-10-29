@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -417,7 +418,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         String cleared = current.mode() == Mode.WEBDAV
             ? "会清除本机保存的网盘地址、账号和应用密码，网盘上的内容不受影响。"
             : "会清除本机保存的中继地址和令牌，中继上的内容不受影响。";
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("改回水杉账号？")
             .setMessage(cleared + "之后云剪贴板经水杉账号同步，要登录才能用。")
             .setNegativeButton("取消", null)
@@ -428,7 +429,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
                     MsToast.show(requireContext(), "已改回水杉账号");
                     reload();
                 }, this::reload))
-            .show();
+            .create());
     }
 
     /** 偏好里的同步方式；偏好读不了时为 null。网盘优先，与 {@link CloudClipboardRelay#binding} 相同（两者同时配置的文档共享层不认）。读文件，在工作线程上调用。 */
@@ -661,13 +662,13 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             mutate(() -> { api.setEnabled(true); return null; }, null);
             return;
         }
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("关闭云剪贴板？")
             .setMessage("关闭后，保存在" + store() + "上的全部记录都会删除，所有设备的登记也一起删除，再次开启时其他设备要重新允许。")
             .setNegativeButton("取消", (dialog, which) -> render())
             .setOnCancelListener(dialog -> render())
             .setPositiveButton("关闭", (dialog, which) -> mutate(() -> { api.setEnabled(false); return null; }, "已关闭"))
-            .show();
+            .create());
     }
 
     private void setRetention(int days) {

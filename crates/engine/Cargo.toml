@@ -1,9 +1,10 @@
 [package]
 name = "msime-engine"
-description = "Pure Rust input engine: composition state, schemes, dictionaries and learning. Replaces the C++ MSIME-Engine."
+description = "Input method engine for Chinese and other languages: quanpin, shuangpin, nine-key, wubi, zhuyin, Cantonese, Japanese, Korean and more, ranked over a word lattice with typo correction and learning from what the user picks. The engine of 水杉输入法 (Metasequoia IME)."
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+# 引擎的代码是 MPL-2.0（不附 Exhibit B），不随仓库其余部分的 GPL-3.0-only（README 的「许可证」一节）：其他输入法要能嵌入它。字段不从工作区继承：工作区的 license 是 GPL。表达式覆盖引擎的代码和编进引擎的数据，后面几项是其中保留各自许可证的数据与改编代码，逐个文件见本 crate 的 README.md：hanja.tsv、Zinnia 移植与 librime-octagram 移植是 BSD-3-Clause，darts-clone 的双数组布局是 BSD-2-Clause，chaizi 两张表是 CC-BY-3.0 加 Unihan 的 Unicode-3.0 加 OpenCC 的 Apache-2.0，symbol_groups.tsv 是 Unicode-3.0，cxx_sort.rs 是 libc++ 的 Apache-2.0 WITH LLVM-exception，latex_symbols.tsv 是 MIT，places.tsv 是 WTFPL。只给测试读的夹具不在表达式里：tests/golden/real 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选，src/handwriting/testdata 是手写参考实现的输出，它们仍按仓库的 GPL-3.0-only，发布到 crates.io 时用 include 白名单排除出包（README.md 的「许可证」一节）。
+license = "MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL"
 repository.workspace = true
 rust-version.workspace = true
 
@@ -19,8 +20,8 @@ libc.workspace = true
 lru = "0.18"
 lunar-lite = "0.1"
 memmap2 = "0.9"
-# V-mode unit conversion. MPL-2.0, used unmodified, so shipping the licence text (resources/licenses/MPL-2.0.txt) and naming the crate is all it asks. `bundle-files` embeds definitions.units; the live currency data, the one part that would need the network, is never loaded.
-rink-core = { version = "0.9.0", default-features = false, features = ["bundle-files"] }
+# V-mode unit conversion. MPL-2.0, used unmodified, so shipping the licence text (resources/licenses/MPL-2.0.txt) and naming the crate is all it asks. No features: `bundle-files` would embed rink's units database (forked from GNU Units, GPL-3.0-or-later), so local/units.rs loads its own definitions into an empty context instead; the live currency data, the one part that would need the network, is never loaded.
+rink-core = { version = "0.9.0", default-features = false }
 rusqlite = { workspace = true, features = ["bundled", "backup"] }
 serde.workspace = true
 serde_json.workspace = true

@@ -91,6 +91,8 @@ public final class KeyboardIconPaths {
         TEXT_EDIT(true, 1.7f),
         /** Lucide-style trash-2 (剪贴板左滑删除) */
         TRASH(true, 1.7f),
+        /** Lucide-style x (关闭上屏后联想) */
+        CLOSE(true, 1.8f),
         /** open box ␣ (数字页空格键) */
         SPACE_BAR(true, 1.7f);
 
@@ -190,6 +192,7 @@ public final class KeyboardIconPaths {
             case FLOATING -> appendFloating(p);
             case TEXT_EDIT -> appendTextEdit(p);
             case TRASH -> appendTrash(p);
+            case CLOSE -> appendClose(p);
             case SPACE_BAR -> appendSpaceBar(p);
         }
     }
@@ -959,6 +962,13 @@ public final class KeyboardIconPaths {
         p.lineTo(10f, 17f);
         p.moveTo(14f, 11f);
         p.lineTo(14f, 17f);
+    }
+
+    private static void appendClose(Path p) {
+        p.moveTo(18f, 6f);
+        p.lineTo(6f, 18f);
+        p.moveTo(6f, 6f);
+        p.lineTo(18f, 18f);
     }
 
     private static void appendSpaceBar(Path p) {

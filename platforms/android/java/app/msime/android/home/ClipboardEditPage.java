@@ -13,6 +13,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -133,8 +135,10 @@ public final class ClipboardEditPage extends ColumnDetailPage {
                     refresh();
                 });
                 card.footer("保存后替换原来那一条，位置和固定状态不变；改成已有的文字时两条合并成一条。");
+                // 只 requestFocus 不会弹键盘：从剪贴板历史页点「编辑」是在同一个窗口里压页，系统不会替新输入框弹键盘，SettingsNavigator.push 还会先收起历史页搜索框的键盘（#10074），所以这里自己弹，进页就能改。
                 input.requestFocus();
                 input.setSelection(input.length());
+                WindowCompat.getInsetsController(requireActivity().getWindow(), input).show(WindowInsetsCompat.Type.ime());
             }
         }
 

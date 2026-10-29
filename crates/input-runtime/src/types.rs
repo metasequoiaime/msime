@@ -123,6 +123,8 @@ pub struct View {
     pub nine_key: bool,
     /// 引擎当前的组码网格：`"none"`、`"nine_key"`、`"fourteen_key"`、`"nine_key_shuangpin"` 或 `"eighteen_key"`。宿主据此决定是否显示拼音条、读音行和三栏面板：几种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。九键双拼的数字和九键一样不当选词键，但 `nine_key` 为假（它没有英文九键，也不开注音九键）。
     pub key_grid: &'static str,
+    /// 这次组字是在组码网格里打的（九宫格会话在组字，或五笔 14 键在组字），转述引擎 `Session::grid_composing`。`key_grid` 开着时硬件键盘的字母照样走 26 键的全拼、双拼，这时它为假：宿主要分清当前组字走的是网格还是 26 键（例如光标隔着显示分隔画在哪一侧，两者的退格删的不是同一格）时看它，不看 `key_grid`。没有组字时为假。
+    pub grid_composing: bool,
     pub nine_key_spellings: Vec<String>,
     /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
     pub nine_key_reading: String,

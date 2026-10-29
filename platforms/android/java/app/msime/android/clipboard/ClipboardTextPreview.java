@@ -123,6 +123,8 @@ final class ClipboardTextPreview {
         try {
             window.showAtLocation(anchor, Gravity.TOP | Gravity.LEFT,
                 left - position[0] + inWindow[0], bottom - height - position[1] + inWindow[1]);
+            // 全文预览是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+            ScreenCaptureProtection.apply(window);
         } catch (WindowManager.BadTokenException ignored) {
             // 输入框恰好关闭时只撤销预览，不把窗口令牌错误带到输入法服务。
             dismiss();

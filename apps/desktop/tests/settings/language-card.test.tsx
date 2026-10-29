@@ -287,13 +287,17 @@ test("adding a language turns on its first scheme without switching to it", () =
 
 const snapshot: Snapshot = { format_version: 1, revision: 4, preferences: base };
 
-function renderInputPage(platform: string, host: Record<string, unknown> = {}) {
+function renderInputPage(
+  platform: string,
+  host: Record<string, unknown> = {},
+  preferences: Preferences = base,
+) {
   const save = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
       initialPage="input"
       client={{
-        load: vi.fn().mockResolvedValue(snapshot),
+        load: vi.fn().mockResolvedValue({ ...snapshot, preferences }),
         save,
         host: testHost({ platform, ...host }),
         fuzzyPinyin: true,
@@ -386,6 +390,80 @@ test("分别设置拼音邻键纠错和乱序纠错（全拼和双拼共用）",
       }),
     ),
   );
+});
+
+test.each(["macos", "linux", "windows"])(
+  "%s 的共享设置页在高级选项里分别设置全拼邻键纠错和乱序纠错",
+  async (platform) => {
+    const save = renderInputPage(platform);
+    await settingsFormReady();
+    selectSettingsTab("高级选项");
+    const page = inputPage();
+
+    const neighbor = within(page).getByRole("switch", {
+      name: "全拼邻键纠错",
+    }) as HTMLInputElement;
+    const transposition = within(page).getByRole("switch", {
+      name: "全拼乱序纠错",
+    }) as HTMLInputElement;
+    expect(neighbor.checked).toBe(true);
+    expect(transposition.checked).toBe(true);
+    // 说明里写清楚关掉后哪些纠错不再发生。
+    expect(within(page).getByText(/zhr → zhe/)).toBeTruthy();
+    expect(within(page).getByText(/shng → shang/)).toBeTruthy();
+    fireEvent.click(neighbor);
+    saveSettingsNow();
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        4,
+        expect.objectContaining({ quanpin: { autocorrect_neighbor: false } }),
+      ),
+    );
+  },
+);
+
+// 双拼也读 quanpin 下这两个字段（`request_autocorrect_types`），所以双拼方案下同样列出，标题按方案写，写回的仍是同一对字段。
+test("双拼方案下列出双拼纠错开关，写回同一对字段", async () => {
+  const save = renderInputPage("macos", {}, { ...base, scheme: "shuangpin" });
+  await settingsFormReady();
+  selectSettingsTab("高级选项");
+  const page = inputPage();
+
+  expect(within(page).queryByRole("switch", { name: "全拼邻键纠错" })).toBeNull();
+  const neighbor = within(page).getByRole("switch", { name: "双拼邻键纠错" }) as HTMLInputElement;
+  const transposition = within(page).getByRole("switch", {
+    name: "双拼乱序纠错",
+  }) as HTMLInputElement;
+  expect(neighbor.checked).toBe(true);
+  expect(transposition.checked).toBe(true);
+  fireEvent.click(transposition);
+  saveSettingsNow();
+
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ quanpin: { autocorrect_transposition: false } }),
+    ),
+  );
+});
+
+test("不纠错的方案不列出拼音纠错开关", async () => {
+  renderInputPage("macos", {}, { ...base, scheme: "wubi" });
+  await settingsFormReady();
+  selectSettingsTab("高级选项");
+
+  expect(within(inputPage()).queryByRole("switch", { name: /邻键纠错$/ })).toBeNull();
+  expect(within(inputPage()).queryByRole("switch", { name: /乱序纠错$/ })).toBeNull();
+});
+
+// iOS、Android 的拼音纠错在原生设置页里，共享页不重复画，也不画桌面才有的说明。
+test.each(["ios", "android"])("%s 的共享设置页不列出拼音纠错开关", async (platform) => {
+  renderInputPage(platform);
+  await settingsFormReady();
+
+  expect(within(inputPage()).queryByRole("switch", { name: /邻键纠错$/ })).toBeNull();
+  expect(within(inputPage()).queryByRole("switch", { name: /乱序纠错$/ })).toBeNull();
 });
 
 test("the desktop 输入 page keeps its own groups", async () => {

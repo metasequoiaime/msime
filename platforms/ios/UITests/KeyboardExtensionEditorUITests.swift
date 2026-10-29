@@ -775,7 +775,8 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       let space = key("spaceKey").frame
       // 三倍屏的像素取整允许相邻等宽键相差三分之一点，与布局单测容差一致。
       XCTAssertGreaterThanOrEqual(zero.width, key("nineKey8").frame.width - 0.5)
-      if !key("inputModeSwitchButton").exists {
+      // 借来的数字页底行对齐上方各列；原九键的数字层底行以 符 | 九键 打头、与字母层同一格（#10061），不对齐网格。
+      if scheme == "quanpin" && !key("inputModeSwitchButton").exists {
         XCTAssertEqual(zero.minX, key("nineKey7").frame.minX, accuracy: 1)
         XCTAssertEqual(zero.maxX, key("nineKey7").frame.maxX, accuracy: 1)
         XCTAssertEqual(space.minX, key("nineKey8").frame.minX, accuracy: 1)
@@ -799,7 +800,8 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       key("nineKeyDelete").tap()
       expected.removeLast()
       XCTAssertEqual(field.value as? String, expected)
-      let symbols = key("numberPadSymbolPanelKey")
+      // 借来的数字页的 符 在符号栏第三排，原九键数字层的 符 在底行最左。
+      let symbols = key(scheme == "quanpin" ? "numberPadSymbolPanelKey" : "symbolPanelKey")
       XCTAssertTrue(symbols.isHittable, "滚动后符号入口仍固定可点")
       symbols.tap()
       XCTAssertTrue(key("keyboardSymbolPanel").waitForExistence(timeout: 5))

@@ -3765,9 +3765,14 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
     assert_eq!(enabled["value"]["key_grid"], "fourteen_key");
     assert_eq!(enabled["value"]["nine_key"], false);
 
+    assert_eq!(enabled["value"]["grid_composing"], false);
+
+    // 网格开着，硬件字母照样走 26 键全拼：`grid_composing` 为假，宿主据此按 26 键的退格画光标。
     let hardware = read(msime_client_character(handle, b'q', false));
     assert_eq!(hardware["value"]["handled"], true);
     assert_eq!(hardware["value"]["view"]["preedit"], "q");
+    assert_eq!(hardware["value"]["view"]["key_grid"], "fourteen_key");
+    assert_eq!(hardware["value"]["view"]["grid_composing"], false);
     assert_eq!(
         read(msime_client_grid_key(handle, b'n'))["value"]["handled"],
         false
@@ -3777,6 +3782,7 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
     let typed = read(msime_client_grid_key(handle, b'n'));
     assert_eq!(typed["value"]["handled"], true, "{typed}");
     let view = &typed["value"]["view"];
+    assert_eq!(view["grid_composing"], true);
     assert!(!view["nine_key_spellings"].as_array().unwrap().is_empty());
     let generation = view["generation"].as_u64().unwrap();
     let selected = read(msime_client_choose_nine_key_spelling(handle, generation, 0));
@@ -3790,6 +3796,13 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
 
     let nine_key = read(msime_client_set_nine_key_mode(handle, true));
     assert_eq!(nine_key["value"]["key_grid"], "nine_key");
+    let letters = read(msime_client_character(handle, b'n', false));
+    assert_eq!(letters["value"]["view"]["preedit"], "n", "{letters}");
+    assert_eq!(letters["value"]["view"]["grid_composing"], false);
+    read(msime_client_command(handle, 3));
+    let digits = read(msime_client_character(handle, b'6', false));
+    assert_eq!(digits["value"]["view"]["grid_composing"], true, "{digits}");
+    read(msime_client_command(handle, 3));
     assert_eq!(
         read(msime_client_grid_key(handle, b'n'))["value"]["handled"],
         false

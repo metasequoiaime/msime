@@ -2059,7 +2059,7 @@ impl InputSession {
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {
         self.local_mode_options = options;
-        // Unit conversion loads rink's definitions once per process; doing it now, off this thread, keeps that load off the first key that needs it.
+        // Unit conversion builds its rink context from the definitions in local/units.rs once per process; doing it now, off this thread, keeps that load off the first key that needs it.
         if options.expression {
             crate::local::units::warm_up_in_background();
         }

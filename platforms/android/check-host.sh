@@ -127,6 +127,40 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，打开不经 closeToolbarPanels 的功能面板（更多）时作废；开始打字或删字时推迟的面板和记下的「中」键一起作废；收起键盘时作废记下的「中」键；会话建好后再点「中」键时作废记下的那一下，读到偏好时不再补按。
+service_java="$android_java/core/MSIMEInputService.java"
+panels_java="$android_java/core/ImePanels.java"
+emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
+skin_menu_body=$(sed -n '/^    void showSkinMenu(Button anchor) {$/,/^    }$/p' "$panels_java")
+scheme_picker_body=$(sed -n '/^    void showSchemePicker() {$/,/^    }$/p' "$panels_java")
+start_session_body=$(sed -n '/^    private void startEngineSession(String optionsText, String livePreferences) {$/,/^    }$/p' "$service_java")
+reload_body=$(sed -n '/^    private void reloadPreferences(String response) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(phraseShortcutButton, ToolbarReadinessPolicy\.phraseEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(schemeButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'setEnabled\(skinButton, ToolbarReadinessPolicy\.preferencePanelEnabled\(' "$service_java" \
+  || ! rg -q 'boolean canToggle = ToolbarReadinessPolicy\.languageKeyActive\(toolbarSession\(\)\);' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.languageTap\(toolbarSession\(\)' "$service_java" \
+  || ! rg -q 'ToolbarReadinessPolicy\.emojiEnabled\(s\.toolbarSession\(\)' <<< "$emoji_body" \
+  || rg -q 's\.session == 0' <<< "$emoji_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SKIN\)' <<< "$skin_menu_body" \
+  || ! rg -q 'deferUntilSessionReady\(ToolbarOrderPolicy\.Item\.SCHEME\)' <<< "$scheme_picker_body" \
+  || ! rg -q 'main\.post\(this::runDeferredToolbarTaps\);' <<< "$start_session_body" \
+  || ! rg -q 'recordEngineSessionTiming\(createMillis\);' <<< "$start_session_body" \
+  || ! rg -q 'runDeferredToolbarTaps\(\);' <<< "$reload_body" \
+  || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java" \
+  || ! sed -n '/^    void showCommonPhrases() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.commonPhrasesWorker\.execute' \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SKIN,' "$service_java" \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SCHEME,' "$service_java" \
+  || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    void deleteCodePointBeforeCursor() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    private void dropDeferredToolbarTaps() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
+  echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
 # 候选条按钮的最小宽度只有触控下限（CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP，CandidateAppearanceSmoke 覆盖它的值）；皮肤的 itemMinWidth 是桌面候选窗的格宽，`base = "microsoft"` 出厂 3.5em，套到候选条上一个字宽的候选也撑成一大格。样式在 ImeCandidates 里，JVM 冒烟碰不到，这里钉住接线。
 style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
@@ -778,14 +812,14 @@ if ! rg -q 'addSubMenu\(Menu\.NONE, Menu\.NONE, action\.ordinal\(\), action\.tit
   echo "Android candidate removal must confirm through the long-press submenu (#7793)" >&2
   exit 1
 fi
-# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
+# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。和常用语面板的读取同在 commonPhrasesWorker 上，不排在建会话的偏好读取和词库同步后面（#10086）。
 if ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'preferencesWorker\.execute' \
+    | rg_q_stdin 'commonPhrasesWorker\.execute' \
   || ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
     | rg_q_stdin 'CommonPhrasesStore\.add\(s, text\)'; then
-  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
+  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the common phrases worker (#5909, #10086)" >&2
   exit 1
 fi
 # 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。未被外层列表接手的纵向拖动也要取消卡片按压；列表只有一条时不可滚，Button 否则会把整段拖动当成点按。
@@ -837,6 +871,19 @@ if ! rg -q 'protected View fixedNavigation\(\)' "$clipboard_search_page" \
   || ! rg -q 'searchNavigation' "$clipboard_search_page" \
   || rg -q 'target\.addView\(search' "$clipboard_search_page"; then
   echo "Android clipboard search must keep its search field fixed above the scrolling results (#9958)" >&2
+  exit 1
+fi
+# 进剪贴板历史页不自动聚焦搜索框、不主动弹键盘，等用户点搜索框（#10074）；点胶囊任何地方都要和点输入框一样弹出键盘，否则点放大镜只有光标没有键盘。从设置首页搜索结果压页时，下面那一页搜索框拉起的键盘要先收起，否则它留在新页面上、不连着任何输入框；收起之后从历史页点「编辑」进的编辑页要自己弹键盘，否则只有光标。
+search_pill="$repo_root/platforms/android/java/app/msime/android/home/SearchPill.java"
+settings_navigator="$repo_root/platforms/android/java/app/msime/android/home/SettingsNavigator.java"
+if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page" \
+  || ! rg -A 3 'private void focusField\(' "$search_pill" | rg_q_stdin 'showSoftInput\(field' \
+  || ! rg -q 'bindClick\(this, this::focusField\)' "$search_pill" \
+  || ! rg -B 1 'transaction\.hide\(below\)' "$settings_navigator" | rg_q_stdin 'dismissKeyboard\(home, below\)' \
+  || ! rg -A 5 'private static void dismissKeyboard\(' "$settings_navigator" | rg_q_stdin 'hideSoftInputFromWindow' \
+  || ! rg -A 3 'input\.requestFocus\(\);' "$repo_root/platforms/android/java/app/msime/android/home/ClipboardEditPage.java" \
+    | rg_q_stdin 'getInsetsController\(requireActivity\(\)\.getWindow\(\), input\)\.show\(WindowInsetsCompat\.Type\.ime\(\)\)'; then
+  echo "Android clipboard search must not focus its search field or show the keyboard on entry, tapping anywhere on SearchPill must focus the field and show the keyboard, SettingsNavigator must dismiss the keyboard of the page it hides, and ClipboardEditPage must show the keyboard itself once its field is ready (#10074)" >&2
   exit 1
 fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
@@ -1073,12 +1120,12 @@ if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_servic
   echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
   exit 1
 fi
-# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
+# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话、也没有会话在建时把键画淡，点按在反馈和计数之前就忽略（会话在建时照常生效，见 #10086 的 ToolbarReadinessPolicy.languageTap）。
 if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
   || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
   || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
-  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg_q_stdin 'if \(session == 0\) return;' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg_q_stdin 'if \(tap == ToolbarReadinessPolicy\.LanguageTap\.IGNORE\) return;' \
   || ! rg -q 's\.bindInputMethodPicker\(language\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
@@ -1469,6 +1516,39 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
   || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
+  exit 1
+fi
+# 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
+while IFS= read -r activity; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then
+    echo "Android activity must apply screen capture protection in onCreate: ${activity#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'extends [A-Za-z.]*Activity\b' "$android_java")
+# 按出现次数数，不按行数：同一行里一处经过保护、一处没有时也要拦下。
+# 框架对话框类型列全：AppCompatDialog（InputDialog 的凭据、口令输入）漏数过一次。InputDialog 这类自家包装不是窗口，在它内部那一处 new 上数。
+dialog_types='MaterialAlertDialogBuilder|AlertDialog\.Builder|(AppCompat|BottomSheet|Alert)?Dialog'
+dialog_total=$({ rg -o --no-filename "\\bnew ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+dialog_protected=$({ rg -o --no-filename "ScreenCaptureProtection\\.(show|protect)\\(new ($dialog_types)\\(" "$android_java" || true; } | awk 'END { print NR }')
+if [[ "$dialog_total" != "$dialog_protected" ]]; then
+  echo "Android dialogs and bottom sheets must be created through ScreenCaptureProtection.show/protect ($dialog_protected of $dialog_total)" >&2
+  exit 1
+fi
+while IFS= read -r popup_source; do
+  if ! rg -q 'ScreenCaptureProtection\.apply\((popup|window)\);' "$popup_source"; then
+    echo "Android PopupWindow must apply screen capture protection after it is shown: ${popup_source#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'new PopupWindow\(' "$android_java")
+while IFS= read -r child_window; do
+  if ! rg -q 'ScreenCaptureProtectionPolicy\.windowFlags\(' "$child_window"; then
+    echo "Android IME child windows must carry the screen capture protection flag: ${child_window#"$repo_root/"}" >&2
+    exit 1
+  fi
+done < <(rg -l 'TYPE_APPLICATION_ATTACHED_DIALOG' "$android_java")
+apply_local_body=$(sed -n '/^    private void applyLocalSettings() {$/,/^    }$/p' "$android_java/core/MSIMEInputService.java")
+if ! rg -q 'ScreenCaptureProtection\.apply\(imeWindow == null \? null : imeWindow\.getWindow\(\), screenCaptureProtected\);' <<< "$apply_local_body"; then
+  echo "The Android input method window must follow the screen capture protection setting in applyLocalSettings" >&2
   exit 1
 fi
 # 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。

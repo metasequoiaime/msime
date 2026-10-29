@@ -274,12 +274,17 @@ final class ImePanels {
     }
 
     void showEmojiPicker() {
-        if (s.session == 0 || s.connection == null || s.emojiPanel == null || s.emojiResources.isEmpty()) {
+        // 表情面板只用资源目录和输入连接，会话还在建时也能打开（#10086）；表情经 commitText 直接上屏，不经引擎。
+        if (s.emojiPanel == null || !ToolbarReadinessPolicy.emojiEnabled(s.toolbarSession(),
+                s.connection != null, !s.emojiResources.isEmpty())) {
             s.notice("表情目录尚未就绪");
             return;
         }
         s.command(2);
-        if (s.session == 0 || s.connection == null) return;
+        // 有会话时 command 失败会经 fail 停掉会话、清掉资源目录。
+        if (s.connection == null || s.emojiResources.isEmpty()) return;
+        // 底行和长按进来的表情不经 closeToolbarPanels，推迟的皮肤、输入方式在这里作废（#10086）。
+        s.dropDeferredToolbarPanel();
         s.closeCandidatePanel();
         s.closeClipboardHistory();
         s.closeSchemePicker();
@@ -527,7 +532,10 @@ final class ImePanels {
     }
 
     void showSkinMenu(Button anchor) {
-        if (anchor == null || !s.canSaveKeyboardSkin() || s.skinScroll == null) return;
+        if (anchor == null || s.skinScroll == null) return;
+        // 会话还在建：记下这一下，会话和偏好就绪后打开（#10086）。
+        if (s.deferUntilSessionReady(ToolbarOrderPolicy.Item.SKIN)) return;
+        if (!s.canSaveKeyboardSkin()) return;
         s.closeEmojiPicker();
         s.closeSymbolPanel();
         s.closeCandidatePanel();
@@ -1217,6 +1225,8 @@ final class ImePanels {
     void showSchemePicker() {
         // 其他设置正在保存时只是这一下不打开：保存一瞬间就完成，不必弹「尚未就绪」。
         if (s.touchGeometrySaving || s.traditionalOutputSaving) return;
+        // 会话还在建：记下这一下，会话和偏好就绪后打开（#10086）。
+        if (s.deferUntilSessionReady(ToolbarOrderPolicy.Item.SCHEME)) return;
         if (s.session == 0 || s.preferencesSnapshot == null || s.preferencesDirectory.isEmpty()) {
             s.notice("输入方案尚未就绪");
             return;
@@ -2118,7 +2128,7 @@ final class ImePanels {
     /**
      * 长按操作行里的「添加到常用语」（#5909）：把这一条存成无编码常用语，之后在键盘的「常用语」面板里点一下就能上屏。
      *
-     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程显示独立提示，不重画剪贴板列表。先把回车换成换行，仍存不下的按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
+     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `commonPhrasesWorker` 上（与面板读取同一条线程，不排在建会话的偏好读取和词库同步后面），结果回到主线程显示独立提示，不重画剪贴板列表。先把回车换成换行，仍存不下的按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
      */
     private void addClipboardTextToPhrases(String entry) {
         long request = s.beginClipboardPhraseNotice();
@@ -2129,7 +2139,7 @@ final class ImePanels {
             return;
         }
         try {
-            s.preferencesWorker.execute(() -> {
+            s.commonPhrasesWorker.execute(() -> {
                 CommonPhrasesStore.Result result;
                 try {
                     result = CommonPhrasesStore.add(s, text);
@@ -2707,7 +2717,7 @@ final class ImePanels {
 
     private String expandedPhraseCategory = "all";
 
-    /** 工具栏「常用语」：后台读共享文档，每次打开采用保存的默认展开项。 */
+    /** 工具栏「常用语」：在 `commonPhrasesWorker` 上读共享文档，每次打开采用保存的默认展开项。会话还在建时也能打开（#10086），读取不排在建会话的偏好读取和词库同步后面。 */
     void showCommonPhrases() {
         if (s.phraseScroll == null || s.phrasePanel == null) return;
         s.command(2);
@@ -2716,7 +2726,7 @@ final class ImePanels {
         renderCommonPhrases(CommonPhrasesStore.Document.EMPTY, "正在读取常用语…");
         ViewPolicy.show(s.phraseScroll);
         try {
-            s.preferencesWorker.execute(() -> {
+            s.commonPhrasesWorker.execute(() -> {
                 CommonPhrasesStore.Result result;
                 try { result = CommonPhrasesStore.load(s); }
                 catch (RuntimeException | LinkageError error) { result = null; }
@@ -2838,6 +2848,8 @@ final class ImePanels {
 
     void showFeedbackMenu() {
         if (s.moreButton == null || s.moreToolsPanel == null || s.moreToolsScroll == null) return;
+        // 「更多」不经 closeToolbarPanels：会话在建时推迟的皮肤、输入方式在这里作废，用户回到键盘后它不再自己弹出来（#10086）。
+        s.dropDeferredToolbarPanel();
         s.closeEmojiPicker();
         s.closeSymbolPanel();
         s.closeCandidatePanel();
