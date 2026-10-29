@@ -141,7 +141,8 @@ def main() -> int:
         for literal in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]+)"', path.read_text(encoding="utf-8")):
             target = (path.parent / literal).resolve()
             relative = target.relative_to(source.resolve()).as_posix() if target.is_relative_to(source.resolve()) else None
-            if relative is None or any(marker in f"/{relative}" for marker in TEST_DATA):
+            # 引进来的 .rs 是本 crate 自己的源码（例如 diagnostics.rs 的测试读自身核对诊断码），归 crate 的 MPL-2.0 管，不是要登记的数据文件。
+            if relative is None or relative.endswith(".rs") or any(marker in f"/{relative}" for marker in TEST_DATA):
                 continue
             compiled.add(relative)
     unlisted = sorted(compiled - EMBEDDED.keys())
