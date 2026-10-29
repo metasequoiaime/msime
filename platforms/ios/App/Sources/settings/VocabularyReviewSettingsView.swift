@@ -178,10 +178,11 @@ struct VocabularyReviewSettingsView: View {
 
   private func answer(known: Bool) {
     guard let card = status.current else { return }
-    // A revealed card must not hand its revealed state to the next one, or the second card of
-    // every session shows its answer before the user has thought about it.
+    // 词书与卡片取自同一显示快照，异步作答不能重新读取可能已改变的选择。
+    let wordbook = status.wordbook
+    // 新卡从隐藏释义开始。
     revealed = false
-    act { try store.answer(card.word, known: known) }
+    act { try store.answer(wordbook: wordbook, word: card.word, known: known) }
   }
 
   private func reload() {

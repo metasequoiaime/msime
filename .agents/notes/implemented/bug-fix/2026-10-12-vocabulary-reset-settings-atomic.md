@@ -22,3 +22,5 @@ Status: implemented
 ## Verification
 
 新增测试先因缺少 `clear_review_progress` 编译失败，随后通过。`cargo test -p msime-client-core vocabulary:: --locked`：96 passed。其他门禁见 PR 验证记录。
+
+作答时的跨窗口词书归属见[卡片来源词书](../../implemented/bug-fix/2026-10-30-vocabulary-answer-wordbook.md)，宿主从显示快照携带书 id，共享层不从全局选择推断。

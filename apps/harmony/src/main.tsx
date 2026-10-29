@@ -1524,12 +1524,12 @@ function makeClient(
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "load" })),
       ),
-    answer: async (word: string, known: boolean) =>
+    answer: async (wordbook: string, word: string, known: boolean) =>
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(
           native,
           "vocabulary_review",
-          JSON.stringify({ operation: "answer", word, known }),
+          JSON.stringify({ operation: "answer", wordbook, word, known }),
         ),
       ),
     setSettings: async (settings) =>

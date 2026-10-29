@@ -16154,6 +16154,65 @@ fn vocabulary_boundary_lists_wordbook_packs_from_the_plugins_directory() {
 }
 
 #[test]
+fn vocabulary_boundary_answers_the_source_book_and_refuses_missing_ownership() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(), "resources": directory.path(),
+            "day": "2026-10-30", "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+    let import = |name: &str, meaning: &str| {
+        let result = call(
+            json!({"operation": "import", "name": name, "text": format!("alpha,{meaning}\n")}),
+        );
+        assert_eq!(result["ok"], true, "{result}");
+        result["value"]["settings"]["wordbook"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let first = import("合成词书甲", "合成释义甲");
+    let second = import("合成词书乙", "合成释义乙");
+    let progress_path = directory.path().join("vocabulary-progress.json");
+    let before = std::fs::read(&progress_path).unwrap();
+    for action in [
+        json!({"operation": "answer", "word": "alpha", "known": true}),
+        json!({"operation": "answer", "wordbook": "", "word": "alpha", "known": true}),
+        json!({"operation": "answer", "wordbook": "user-missing", "word": "alpha", "known": true}),
+    ] {
+        assert_eq!(call(action)["ok"], false);
+        assert_eq!(std::fs::read(&progress_path).unwrap(), before);
+    }
+    let answered =
+        call(json!({"operation": "answer", "wordbook": first, "word": "alpha", "known": true}));
+    assert_eq!(answered["ok"], true, "{answered}");
+    assert_eq!(answered["value"]["settings"]["wordbook"], second);
+    assert_eq!(answered["value"]["queue"][0]["meaning"], "合成释义乙");
+    assert_eq!(answered["value"]["answeredToday"], 1);
+    let progress =
+        msime_client_services::vocabulary::progress::VocabularyProgressStore::new(directory.path())
+            .load()
+            .unwrap();
+    assert!(progress.card(&first, "alpha").is_some());
+    assert!(progress.card(&second, "alpha").is_none());
+
+    assert_eq!(
+        call(json!({"operation": "remove", "wordbook": first}))["ok"],
+        true
+    );
+    let before = std::fs::read(&progress_path).unwrap();
+    assert_eq!(
+        call(json!({"operation": "answer", "wordbook": first, "word": "alpha", "known": true}))
+            ["ok"],
+        false
+    );
+    assert_eq!(std::fs::read(&progress_path).unwrap(), before);
+}
+
+#[test]
 fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
     let directory = tempfile::tempdir().unwrap();
     let call = |day: &str, action: Value| {
@@ -16203,7 +16262,7 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
     // 认识 schedules the card a day out, so it leaves today's queue and the day counts one answer.
     let answered = call(
         "2026-09-23",
-        json!({"operation": "answer", "word": "alpha", "known": true}),
+        json!({"operation": "answer", "wordbook": book_id, "word": "alpha", "known": true}),
     );
     assert_eq!(answered["value"]["answeredToday"], 1);
     assert_eq!(answered["value"]["queue"][0]["word"], "beta");
@@ -16211,7 +16270,7 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
     // 不认识 keeps the card in the same session.
     let failed = call(
         "2026-09-23",
-        json!({"operation": "answer", "word": "beta", "known": false}),
+        json!({"operation": "answer", "wordbook": book_id, "word": "beta", "known": false}),
     );
     assert_eq!(failed["value"]["answeredToday"], 2);
     let queue: Vec<&str> = failed["value"]["queue"]

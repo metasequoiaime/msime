@@ -437,7 +437,8 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * 托福/GRE, built by scripts/fetch_wordbooks.py). A host that stages none simply
  * offers the imported books; a bundled book is read-only and cannot be deleted.
  * {directory,resources,day:"YYYY-MM-DD",action:{operation:"load"}}
- * {directory,resources,day,action:{operation:"answer",word,known}}
+ * {directory,resources,day,action:{operation:"answer",wordbook,word,known}}
+ * 作答必须携带显示卡片时的来源 wordbook；缺少、为空或已不存在时拒绝，不推断当前选择。
  *   known is the 认识 button; false is 不认识 and returns the card to the same day.
  * {directory,resources,day,action:{operation:"set_settings",wordbook,new_per_day,session_limit}}
  * {directory,resources,day,action:{operation:"import",name,text}}

@@ -27,3 +27,5 @@ Windows 11 服务会话的 x64／x86 MSVC `/W4 /WX` 构建与四套面板 CTest 
 ## Consequences
 
 背单词的独立原生入口可复用完整词书管理与复习能力，代价是保留设置页的长布局，需要滚动。双架构词书与复习窗口回归已在 Win7 SP1 交互桌面通过，托盘启动器与安装包已集成；设置导入／导出的系统文件对话框另在最终安装路径打开并取消。最终 quick 见[产品构建](2026-10-24-windows7-product-build.md)。
+
+作答时的跨窗口词书归属见[卡片来源词书](../../implemented/bug-fix/2026-10-30-vocabulary-answer-wordbook.md)，宿主从显示快照携带书 id，共享层不从全局选择推断。

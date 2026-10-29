@@ -45,3 +45,5 @@ Status: implemented
 - [旧 MCP 确认的边界](../../implemented/bug-fix/2026-10-14-mcp-stale-entry-confirmation.md)：同样的异步交互守卫原则，属于另一个组件，不合并决定。
 - [词书进度原子清空](../../implemented/bug-fix/2026-10-12-vocabulary-reset-settings-atomic.md)：保护底层存储原子性，与本次界面交互归属互补。
 - [iOS 可见请求代次](../../implemented/simplification/2026-10-13-ios-visible-request-generation.md)：原生 Swift 界面，非本次 React 页，不修改。
+
+作答时的跨窗口词书归属见[卡片来源词书](../../implemented/bug-fix/2026-10-30-vocabulary-answer-wordbook.md)，宿主从显示快照携带书 id，共享层不从全局选择推断。

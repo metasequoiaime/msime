@@ -87,7 +87,8 @@ export type VocabularyReviewStatus = {
 
 export interface VocabularyReviewClient {
   load(): Promise<VocabularyReviewStatus>;
-  answer(word: string, known: boolean): Promise<VocabularyReviewStatus>;
+  /** 卡片与来源词书必须取自同一份已接受的状态快照。 */
+  answer(wordbook: string, word: string, known: boolean): Promise<VocabularyReviewStatus>;
   setSettings(settings: VocabularyReviewSettings): Promise<VocabularyReviewStatus>;
   /** Absent where the host cannot hand over a file. Render nothing rather than a dead button. */
   importWordbook?(name: string, text: string): Promise<VocabularyReviewStatus>;
@@ -183,7 +184,7 @@ export function VocabularyReviewPage({
   async function answer(known: boolean) {
     if (!card) return;
     setRevealed(false);
-    await update(() => client.answer(card.word, known));
+    await update(() => client.answer(selected, card.word, known));
   }
 
   async function chooseFile(file: File) {

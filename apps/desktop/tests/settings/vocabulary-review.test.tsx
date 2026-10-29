@@ -122,7 +122,7 @@ test.each(["settings", "panel"] as const)(
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     await screen.findByRole("button", { name: "显示 new-card 的释义" });
     fireEvent.click(screen.getByRole("button", { name: "认识" }));
-    expect(next.answer).toHaveBeenCalledWith("new-card", true);
+    expect(next.answer).toHaveBeenCalledWith("cet-4", "new-card", true);
     expect(previous.answer).not.toHaveBeenCalled();
   },
 );
@@ -191,7 +191,7 @@ test("answering sends the grade and hides the next card's meaning again", async 
   expect(screen.getByText("adj. 无处不在的")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "认识" }));
-  await waitFor(() => expect(answer).toHaveBeenCalledWith("ubiquitous", true));
+  await waitFor(() => expect(answer).toHaveBeenCalledWith("cet-4", "ubiquitous", true));
 
   // A revealed card must not hand its revealed state to the next one, or the second card of every
   // session shows its answer before the user has thought about it.
@@ -205,7 +205,7 @@ test("不认识 is sent as a failed grade", async () => {
   render(<VocabularyReviewPage client={client({ answer })} />);
 
   fireEvent.click(await screen.findByRole("button", { name: "不认识" }));
-  await waitFor(() => expect(answer).toHaveBeenCalledWith("ubiquitous", false));
+  await waitFor(() => expect(answer).toHaveBeenCalledWith("cet-4", "ubiquitous", false));
 });
 
 test("only one request is in flight, so a double tap grades once", async () => {
@@ -602,4 +602,18 @@ test("a promise reused by a new vocabulary generation keeps its new request owne
   await act(async () => finish(status()));
   expect(await screen.findByText("背单词")).toBeTruthy();
   expect((screen.getByRole("button", { name: "认识" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("answers with the book from the displayed queue snapshot after changing books", async () => {
+  const api = client({
+    setSettings: vi.fn(async (settings) => status({ settings })),
+  });
+  render(<VocabularyReviewPage client={api} />);
+  await screen.findByText("ubiquitous");
+  fireEvent.change(screen.getByLabelText("词书"), { target: { value: "user-list" } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "认识" }).hasAttribute("disabled")).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "认识" }));
+  expect(api.answer).toHaveBeenCalledWith("user-list", "ubiquitous", true);
 });
