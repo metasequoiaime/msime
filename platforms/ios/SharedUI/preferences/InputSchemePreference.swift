@@ -19,7 +19,7 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, with nothing learned.
   var isCantonese: Bool { self == .cantonese || self == .cantoneseShuangpin }
 
-  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案的 `;` 不是编码键，不加这个键。
+  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案不加这个键：全拼、小鹤等方案的 `;` 不是编码键；普通粤拼在一个声母后按 `;` 引擎也会当双拼韵母（`CantoneseScheme::accepts_semicolon`），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键。
   var showsSemicolonFinalKey: Bool { self == .microsoft || self == .cantoneseShuangpin }
 
   /// `;` 键的读屏标签：先说它是分号，再说它在当前方案里是哪个韵母。不显示这个键的方案只说「分号」。

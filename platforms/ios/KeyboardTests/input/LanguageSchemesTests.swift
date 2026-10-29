@@ -113,7 +113,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), .cantonese)
   }
 
-  /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案的 `;` 不是编码键，不加这个键。
+  /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案不加这个键（普通粤拼把 ing、ik 完整拼出来，全拼、小鹤等方案的 `;` 不是编码键）。
   func testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey() {
     XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .cantoneseShuangpin])
     XCTAssertEqual(ChineseInputScheme.microsoft.semicolonFinalKeyAccessibilityLabel, "分号，微软双拼 ing")
@@ -175,7 +175,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(frame(try letter("A", in: cantonese), in: cantonese).minX,
                    frame(try letter("A", in: microsoft), in: microsoft).minX, accuracy: 0.5)
 
-    // `;` 是韵母键：M 之后按它，组字变成 ming 或 mik 的候选，而不是上屏一个分号。排序由引擎和词库决定，这里只认两个韵母各一个常见字。
+    // `;` 是韵母键：M 之后按它，组字变成 ming 或 mik 的候选，而不是上屏一个分号。排序由引擎和词库决定，这里只要求出现 ming（名、明）或 mik（覓、冪）里的任意一个字。
     func candidates() -> [String] {
       cantonese.view.layoutIfNeeded()
       return nodes(cantonese.view).compactMap { $0 as? UIButton }
