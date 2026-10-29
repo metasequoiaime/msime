@@ -4681,7 +4681,10 @@ public final class MSIMEInputService extends InputMethodService {
                     ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
             ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
         }
-        imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight);
+        // 同一状态下「候选栏大小」为 100% 时的行高：读音行显示时只有 42 dp 的候选行，矮于 44 dp 的按钮是原有设计，100% 时按钮和图标不能因此缩小。
+        int designLine = pixels(ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP);
+        int designRowHeight = idleHeader ? designLine : readingRow + designLine;
+        imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight, designRowHeight);
     }
 
     private int readingRowHeight() {

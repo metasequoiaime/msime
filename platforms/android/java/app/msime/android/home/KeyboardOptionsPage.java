@@ -380,9 +380,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         boolean customSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int sizePercent = customSize ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
         int buttonDp = ToolbarSizePolicy.buttonHeightDp(sizePercent);
-        int previewDp = customSize ? buttonDp : ToolbarSizePolicy.followedButtonHeight(
-            ToolbarSizePolicy.followedHeightDp(candidateScale), buttonDp);
-        int chipPercent = customSize ? sizePercent : ToolbarSizePolicy.followedPercent(previewDp, buttonDp);
+        int rowDp = ToolbarSizePolicy.followedHeightDp(candidateScale);
+        int designRowDp = ToolbarSizePolicy.followedHeightDp(CandidateScalePolicy.DEFAULT_PERCENT);
+        int previewDp = customSize ? buttonDp : ToolbarSizePolicy.followedButtonHeight(rowDp, buttonDp, designRowDp);
+        int chipPercent = customSize ? sizePercent : ToolbarSizePolicy.followedPercent(rowDp, buttonDp, designRowDp);
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);

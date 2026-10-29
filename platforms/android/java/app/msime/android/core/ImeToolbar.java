@@ -96,17 +96,19 @@ final class ImeToolbar {
     /**
      * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。
      *
-     * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
+     * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 和 100% 时的行高（{@code designRowPx}）时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
      */
-    void applyShortcutSize(int percent, boolean custom, int rowHeightPx) {
+    void applyShortcutSize(int percent, boolean custom, int rowHeightPx, int designRowPx) {
         if (shortcutButtons == null) return;
         int followedButton = s.pixels(44);
         int height = custom ? s.pixels(ToolbarSizePolicy.buttonHeightDp(percent))
-            : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton);
-        int drawPercent = custom ? percent : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton);
+            : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton, designRowPx);
+        int drawPercent = custom ? percent
+            : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton, designRowPx);
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
-        for (Button button : new Button[] {s.moreButton, s.dismissShortcutButton}) {
+        // 26 键长空格样式的「符」和品牌键、收起键一样是两端的固定按钮，一起缩放，否则矮行里只有它伸出去被裁掉。
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, s.dismissShortcutButton}) {
             if (button == null) continue;
             resizeButton(button, edgeWidth, height);
             if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
