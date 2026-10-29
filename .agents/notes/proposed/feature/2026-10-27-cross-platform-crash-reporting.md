@@ -170,4 +170,6 @@ Fcitx5 子目录独立配置且两个波形后端均未启用时，`handler` 与
 
 Windows Server、IBus、Fcitx5 与 Win7 设置/面板的共用 `Telemetry` 包装器已接入持久授权代次与独立观察线程。macOS/Linux 真实子进程用例通过，覆盖在途发送期间撤回、重开与旧结果收尾；Fcitx5 与 IBus 已用同源 Host API 完成实际产品重建，共用层与 IBus 专项通过，Windows 目标运行仍待补验。macOS 输入法已复用共用协议，同源 Host API 重建和真实输入法链接成功，最终六项真实 CMake 专项通过；现代 Windows 原生设置已复用共用包装器，实际 Windows 编译运行待新一轮 CI；Android 与鸿蒙仍须逐入口核对共享队列协议，不能将这次共用包装器迁移写成全平台完成。具体协议与验证由[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)持有。
 
-本地集成候选 `c4f21a9a6073e9ce40d2f34469903bb3bb26e570` 合入固定 develop `1ffd90e137` 和两行注册表奇偶校验等价修补。12,612 条源码及模式与远端干净候选逐项一致；Windows GNU 目标的 Host/MCP 全 target 严格 Clippy 和格式检查通过，不代替 MSVC 结果。两行切片首次 quick 仅语音目录冷编译一百二十秒超时，第二轮退出 0；集成后的整轮结果另验。新增 WER 超时快照的原生状态与退出竞态专项通过，旧 x86 超时仍未定位；详见 TSF 笔记。此前 Linux/iOS 产品验收仍归属原固定 6bea，不转记为此次集成产物。
+本地集成候选 `c4f21a9a6073e9ce40d2f34469903bb3bb26e570` 合入固定 develop `1ffd90e137` 和两行注册表奇偶校验等价修补。12,612 条源码及模式与远端干净候选逐项一致，整轮 quick 退出 0，结束后再次逐项核对相同；Windows GNU 目标的 Host/MCP 全 target 严格 Clippy 和格式检查通过，不代替 MSVC 结果。两行切片首次 quick 仅语音目录冷编译一百二十秒超时，第二轮退出 0。新增 WER 超时快照的原生状态与退出竞态专项通过，旧 x86 超时仍未定位；详见 TSF 笔记。此前 Linux/iOS 产品验收仍归属原固定 6bea，不转记为此次集成产物；PVE Linux 旧整轮的两个画布断言失败也不因另一台机器的 quick 通过而视为修复。
+
+最终诊断候选 `b753f82b9adfa720d10ea41c344684c786759700` 在同一既有缓存执行整轮 quick，退出 0；12,612 条源码及模式在开始和结束后均与冻结清单逐项相同。203 项 Windows 可移植用例、契约与笔记、Rust workspace/Android/wasm、Android 宿主 Java、macOS 原生、Apple bridge 和 x64/x86 pipe-only 编译通过；鸿蒙 SDK/设置依赖、Docker 和 MinGW 原生工具缺失的阶段明确跳过，不算平台运行验收。证据为 `target/wer-snapshot-quick-evidence/`。Linux 旧两项画布失败与 Windows 旧 CI 退出超时仍保留，不从本轮通过推断根因。

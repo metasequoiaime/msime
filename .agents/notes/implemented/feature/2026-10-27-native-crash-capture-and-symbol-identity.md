@@ -175,3 +175,5 @@ Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源
 [队列代次笔记](../bug-fix/2026-10-28-epoch-bound-crash-collection.md)记录共享辅助采集器、MCP 与桌面设置/面板的迁移边界。提交 `26392812e7` 的 Native Platform CI `40615636973` 已完整重建 Rust/C++：Debian CTest 117 项无失败、1 项环境跳过，full/wubi 安装后的八入口故障套件通过；Fedora 108 项全部通过，包含原先失败的非 PIE 首帧断言和 Python 套件。保留此前本地 Python 两轮超时，不把那些轮次计为通过。该 CI 是新 MCP 与桌面授权迁移前的基线；后者新增验证单独记在队列代次笔记，不由旧 CI 推定通过。
 
 最新 `6bea262fd0` 的 Windows CI 在 MCP Clippy 阶段被上游注册表读取的两处 `manual_is_multiple_of` 阻断，WER 步骤未执行；旧 x86 系统 WER 退出超时仍未定位。Android API 35 作业已于 `2026-10-29T13:50:06Z` 完整成功，包含四共享 crate 设备单测、APK、崩溃/退出/ANR 专项和完整输入冒烟；该结果归属 6bea，不扩大为随后集成提交的设备验收。
+
+集成 develop 与注册表 Clippy 等价修补后的 `b753f82b9a` 在干净缓存完成整轮 quick，12,612 个源码条目前后相同；Windows GNU Host/MCP 全 target 严格 Clippy 已在其同源集成候选通过。PVE Windows 11 的同源 MSVC x64/x86 回调、生命周期及各七组真实系统 WER 全部通过，仍不证明旧 CI 的 x86 退出超时根因已修复；新 CI 另验。工具缺失而跳过的 Linux 原生、Windows 原生和鸿蒙编译不算目标通过，原 PVE Linux 两个画布断言失败也没有被本轮其他机器的通过覆盖。详细证据及边界由全平台提案和 TSF 笔记持有。
