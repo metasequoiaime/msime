@@ -5,6 +5,7 @@ add_executable(common-capture-only-test
   "${CMAKE_CURRENT_LIST_DIR}/../Telemetry.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/../CrashRecorder.cpp")
 target_compile_features(common-capture-only-test PRIVATE cxx_std_17)
+target_compile_definitions(common-capture-only-test PRIVATE MSIME_TELEMETRY_TEST_CAPTURE=1)
 target_include_directories(common-capture-only-test PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/.." "${CMAKE_CURRENT_LIST_DIR}/../../../crates/host-api/include")
 target_link_libraries(common-capture-only-test PRIVATE

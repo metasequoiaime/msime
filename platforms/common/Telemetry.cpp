@@ -42,6 +42,12 @@ extern "C" char *msime_test_telemetry_flush(const uint8_t *, size_t);
 extern "C" char *msime_test_telemetry_begin(const uint8_t *, size_t);
 #endif
 
+#if defined(MSIME_TELEMETRY_TEST_CAPTURE)
+// 只在独立采集回归中暂停发布，实际授权读取与记录器保持生产实现。
+extern "C" void msime_test_capture_before_arm();
+extern "C" void msime_test_capture_after_refresh();
+#endif
+
 namespace msime::telemetry {
 namespace {
 using Request = char *(*)(const uint8_t *, size_t);
@@ -424,6 +430,27 @@ struct CaptureOnly::State {
     cleared = false;
   }
 
+  bool arm_authorized(const Host &host, const std::string &epoch) {
+#if defined(MSIME_TELEMETRY_TEST_CAPTURE)
+    msime_test_capture_before_arm();
+#endif
+    // 准备与恢复均可能跨过一次撤回；真正武装前只认仍开启的原代次。
+    const auto consent = call(msime_client_telemetry_consent, consent_request(host));
+    if (!consent || !consent->is_object() || !consent->contains("enabled") ||
+        !(*consent)["enabled"].is_boolean() || !(*consent)["enabled"].get<bool>()) {
+      suspend();
+      return false;
+    }
+    const auto current_epoch = consent->find("epoch");
+    if (current_epoch == consent->end() || !current_epoch->is_string() ||
+        current_epoch->get_ref<const std::string &>() != epoch) {
+      suspend();
+      return false;
+    }
+    crash::arm(record_path, record_header);
+    return crash::is_armed();
+  }
+
   void refresh() noexcept {
     try {
       auto host = read_host();
@@ -470,7 +497,7 @@ struct CaptureOnly::State {
       const auto authorized_epoch = epoch->get<std::string>();
       if (same_target(*host) && consent_epoch == authorized_epoch && !record_path.empty()) {
         if (!crash::is_armed())
-          crash::arm(record_path, record_header);
+          arm_authorized(*host, authorized_epoch);
         return;
       }
       forget();
@@ -486,8 +513,7 @@ struct CaptureOnly::State {
         return;
       record_path = path->get<std::string>();
       record_header = header->get<std::string>();
-      crash::arm(record_path, record_header);
-      if (crash::is_armed()) {
+      if (arm_authorized(*host, authorized_epoch)) {
         consent_epoch = authorized_epoch;
         previous = std::move(host);
       }
@@ -502,6 +528,9 @@ struct CaptureOnly::State {
     while (!wake.wait_for(lock, std::chrono::milliseconds(500), [this] { return stop; })) {
       lock.unlock();
       refresh();
+#if defined(MSIME_TELEMETRY_TEST_CAPTURE)
+      msime_test_capture_after_refresh();
+#endif
       lock.lock();
     }
   }

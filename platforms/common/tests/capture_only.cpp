@@ -20,6 +20,22 @@
 
 namespace {
 struct Recovered {};
+std::mutex arming_mutex;
+std::condition_variable arming_changed;
+bool arming_paused = false;
+bool arming_entered = false;
+bool arming_released = false;
+bool refresh_completed = false;
+bool checkpoint_released = false;
+
+void release_checkpoint() {
+  {
+    std::lock_guard guard(arming_mutex);
+    arming_released = true;
+    checkpoint_released = true;
+  }
+  arming_changed.notify_all();
+}
 nlohmann::json result(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!owned)
@@ -64,6 +80,26 @@ void save(const std::string &directory, bool enabled, bool initialize_after_load
   std::exit(4);
 }
 } // namespace
+
+// 在最终武装之前暂停，再在该轮刷新结束后保持现场；两端都不依赖睡眠。
+extern "C" void msime_test_capture_before_arm() {
+  std::unique_lock lock(arming_mutex);
+  if (!arming_paused)
+    return;
+  arming_entered = true;
+  arming_changed.notify_all();
+  arming_changed.wait(lock, [] { return arming_released; });
+}
+
+extern "C" void msime_test_capture_after_refresh() {
+  std::unique_lock lock(arming_mutex);
+  if (!arming_entered || !arming_released)
+    return;
+  refresh_completed = true;
+  arming_changed.notify_all();
+  arming_changed.wait(lock, [] { return checkpoint_released; });
+  arming_paused = false;
+}
 
 int main(int argc, char **argv) {
   if (argc != 5 && argc != 6)
@@ -146,6 +182,26 @@ int main(int argc, char **argv) {
     while (std::getline(std::cin, command)) {
       if (command == "status") {
         std::cout << (msime::crash::is_armed() ? "armed" : "off") << '\n';
+      } else if (command == "arm-block") {
+        std::lock_guard guard(arming_mutex);
+        arming_paused = true;
+        arming_entered = false;
+        arming_released = false;
+        refresh_completed = false;
+        checkpoint_released = false;
+        std::cout << "blocked\n";
+      } else if (command == "arm-wait") {
+        std::unique_lock lock(arming_mutex);
+        if (!arming_changed.wait_for(lock, std::chrono::seconds(10), [] { return arming_entered; }))
+          std::exit(7);
+        std::cout << "preparing\n";
+      } else if (command == "arm-release") {
+        std::unique_lock lock(arming_mutex);
+        arming_released = true;
+        arming_changed.notify_all();
+        if (!arming_changed.wait_for(lock, std::chrono::seconds(10), [] { return refresh_completed; }))
+          std::exit(8);
+        std::cout << (msime::crash::is_armed() ? "armed" : "off") << '\n';
       } else if (command == "pause") {
         // 停在读取共享偏好之前，确定两次跨进程保存都发生在两次观察之间。
         std::unique_lock lock(observation_lock);
@@ -174,6 +230,7 @@ int main(int argc, char **argv) {
       } else if (command == "recover") {
         throw Recovered{};
       } else if (command == "stop") {
+        release_checkpoint();
         {
           std::lock_guard lock(observation_lock);
           pause_requested = false;

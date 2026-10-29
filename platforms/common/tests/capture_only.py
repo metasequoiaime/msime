@@ -213,6 +213,30 @@ def main():
                 fresh.cleanup()
         finally:
             helper.cleanup()
+        # 真实 begin 回包或同代次恢复之后改变授权，必须在本轮最终武装前拒绝。
+        for recovery in (False, True):
+            for change in ("disable", "reopen", "unreadable"):
+                helper = Helper(root / ("arm-%s-%s" % (recovery, change)), "prepare")
+                try:
+                    if recovery:
+                        helper.command("enable", "saved")
+                        helper.wait_state("armed")
+                        helper.command("unknown", "configured")
+                        helper.wait_state("off")
+                    helper.command("arm-block", "blocked")
+                    helper.command("valid" if recovery else "enable", "configured" if recovery else "saved")
+                    helper.command("arm-wait", "preparing")
+                    if change == "unreadable":
+                        (helper.preferences / "preferences.json").write_bytes(b"{synthetic-invalid")
+                    else:
+                        helper.command("disable", "saved")
+                        if change == "reopen":
+                            helper.command("enable", "saved")
+                    helper.command("arm-release", "off")
+                    helper.die("fault")
+                    assert not helper.records(), (recovery, change, "late publication captured a fault")
+                finally:
+                    helper.cleanup()
         helper = Helper(root / "consent", "watchdog")
         try:
             helper.command("disable", "saved")
