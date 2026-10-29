@@ -105,7 +105,14 @@ public final class TextTrackpadGesture {
         return taps == 2 ? Tap.WORD : taps == 3 ? Tap.LINE : Tap.NONE;
     }
 
-    /** 隐藏、失焦、多指或输入连接变化都清除余量和连续点按状态。 */
+    /** 同一输入框重启连接（#10141）：进行中的拖动和连续点按改认新连接，余量和选择状态不变。 */
+    public void retarget(Object previous, Object next) {
+        if (previous == null || next == null) return;
+        if (target == previous) target = next;
+        if (tapTarget == previous) tapTarget = next;
+    }
+
+    /** 隐藏、失焦、多指或换了输入框都清除余量和连续点按状态。 */
     public void cancel() {
         clearActive();
         taps = 0;

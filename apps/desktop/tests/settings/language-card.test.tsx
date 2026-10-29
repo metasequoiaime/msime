@@ -363,14 +363,14 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
   expect(within(page).queryByRole("radiogroup", { name: "中文输出" })).toBeNull();
 });
 
-test("分别设置全拼邻键纠错和乱序纠错", async () => {
+test("分别设置拼音邻键纠错和乱序纠错（全拼和双拼共用）", async () => {
   const save = renderInputPage("harmony");
   await settingsFormReady();
   const page = inputPage();
 
-  const neighbor = within(page).getByRole("switch", { name: "全拼邻键纠错" }) as HTMLInputElement;
+  const neighbor = within(page).getByRole("switch", { name: "拼音邻键纠错" }) as HTMLInputElement;
   const transposition = within(page).getByRole("switch", {
-    name: "全拼乱序纠错",
+    name: "拼音乱序纠错",
   }) as HTMLInputElement;
   expect(neighbor.checked).toBe(true);
   expect(transposition.checked).toBe(true);

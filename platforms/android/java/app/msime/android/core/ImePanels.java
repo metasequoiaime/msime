@@ -1352,6 +1352,7 @@ final class ImePanels {
 
     void clearClipboardDetail() {
         clipboardDetailItem = null;
+        clipboardDetailOrigin = ClipboardDetailPolicy.Origin.LIST;
         clipboardDetailScrollY = 0;
     }
 
@@ -1573,7 +1574,10 @@ final class ImePanels {
     private String clipboardActionText;
     /** 详情页只保留本次打开时的记录快照，返回后重新读取本机历史。 */
     private ClipboardHistory.Item clipboardDetailItem;
+    private ClipboardDetailPolicy.Origin clipboardDetailOrigin = ClipboardDetailPolicy.Origin.LIST;
     private int clipboardDetailScrollY;
+    /** 最近一次重绘时仍在列表里的长按记录（重新读取的那一份）；从全文预览进入的详情返回时用它重开预览。 */
+    private ClipboardHistory.Item clipboardListedActionItem;
     /** 本机历史的多选状态；文字是共享存储识别条目的键。 */
     private boolean clipboardSelectionMode;
     private final java.util.Set<String> clipboardSelectedTexts = new java.util.LinkedHashSet<>();
@@ -1688,6 +1692,7 @@ final class ImePanels {
 
     void renderClipboardHistory() {
         dismissClipboardPreview();
+        clipboardListedActionItem = null;
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardHeader.removeAllViews();
         s.clipboardPanel.removeAllViews();
@@ -1778,7 +1783,9 @@ final class ImePanels {
             KeyboardTypographyPolicy.setKeyTextSize(question, 13);
             ViewPolicy.setMaxLinesEllipsized(question, 1);
             LayoutPolicy.setHorizontalPaddingDp(question, s, 6);
-            header.addView(question, LayoutPolicy.weightedZeroParams(1));
+            ViewPolicy.setCenteredVertically(question);
+            // 问句必须和两侧按钮一样按 MATCH_PARENT 取高：顶行套在 HorizontalScrollView 里，量高时只拿到 AT_MOST 32px，这时横向 LinearLayout 只要有一个子视图不是 MATCH_PARENT，行高就只按非 MATCH_PARENT 子视图算。原来问句用 `weightedZeroParams` 高度为 0，整行跟着塌成 0 高，问句和「取消」「清空」都看不见、手指点不到，清空也就走不到系统认证（#10027）。
+            header.addView(question, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", () -> {
                 clipboardClearPending = false;
                 renderClipboardHistory();
@@ -1911,23 +1918,14 @@ final class ImePanels {
                     clipboardClearPending = false;
                     clipboardSwipedText = null;
                     renderClipboardHistory();
-                    clipboardPreview.show(item.text(), () -> s.insertClipboardText(item.text()), () -> {
-                        clipboardActionText = null;
-                        s.editClipboardItem(item);
-                    });
+                    showClipboardItemPreview(item);
                     return true;
                 });
                 View cell = clipboardSwipeCell(card, item, swiped, reveal);
                 if (!clipboardSelectionMode) {
                     LinearLayout withDetail = LayoutPolicy.row(s);
-                    Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ", () -> {
-                        clipboardDetailItem = item;
-                        clipboardDetailScrollY = s.clipboardScroll.getScrollY();
-                        clipboardActionText = null;
-                        clipboardSwipedText = null;
-                        renderClipboardHistory();
-                        s.clipboardScroll.scrollTo(0, 0);
-                    }), KeyboardKeyRole.GLYPH);
+                    Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ",
+                        () -> openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST)), KeyboardKeyRole.GLYPH);
                     detail.setContentDescription("查看这条剪贴板记录详情");
                     detail.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(38),
                         LinearLayout.LayoutParams.MATCH_PARENT));
@@ -1936,7 +1934,10 @@ final class ImePanels {
                     cell = withDetail;
                 }
                 placeClipboardCell(index, items.size(), cell);
-                if (managed) actionItem = item;
+                if (managed) {
+                    actionItem = item;
+                    clipboardListedActionItem = item;
+                }
                 // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
                 boolean rowEnds = index == items.size() - 1
                     || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
@@ -1959,14 +1960,34 @@ final class ImePanels {
         renderClipboardHistory();
     }
 
-    /** 详情仍在剪贴板面板内，返回只重绘上一级列表，不触碰输入框焦点。 */
+    /** 本机记录长按后的全文预览：详情、插入、修改都交回这条记录所属的面板。 */
+    private void showClipboardItemPreview(ClipboardHistory.Item item) {
+        clipboardPreview.show(item.text(), () -> openClipboardDetail(item, ClipboardDetailPolicy.Origin.PREVIEW),
+            () -> s.insertClipboardText(item.text()), () -> {
+                clipboardActionText = null;
+                s.editClipboardItem(item);
+            });
+    }
+
+    private void openClipboardDetail(ClipboardHistory.Item item, ClipboardDetailPolicy.Origin origin) {
+        clipboardDetailItem = item;
+        clipboardDetailOrigin = origin;
+        clipboardDetailScrollY = s.clipboardScroll.getScrollY();
+        // 从全文预览进入时保留长按展开的操作行，返回后列表和预览都回到进入前的样子。
+        if (origin == ClipboardDetailPolicy.Origin.LIST) clipboardActionText = null;
+        clipboardSwipedText = null;
+        renderClipboardHistory();
+        s.clipboardScroll.scrollTo(0, 0);
+    }
+
+    /** 详情仍在剪贴板面板内，返回重绘上一级列表，从全文预览进入时再重开预览；都不触碰输入框焦点。 */
     private void renderClipboardDetail(ClipboardHistory.Item item) {
         LinearLayout header = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(header);
         Button back = clipboardAction(header, "返回", () -> {
             returnFromClipboardDetail();
         });
-        back.setContentDescription("返回剪贴板历史列表");
+        back.setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
         TextView title = ViewPolicy.centeredText(s, "记录详情", 14);
         header.addView(title, LayoutPolicy.weightedMatchParentParams(1));
         s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(36)));
@@ -1983,7 +2004,9 @@ final class ImePanels {
         Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
             KeyboardKeyRole.RETURN);
         insert.setContentDescription("插入这条剪贴板记录");
-        clipboardAction(actions, "返回", this::returnFromClipboardDetail);
+        // 底部「返回」和顶栏的那个回到同一级，读屏说明也要一致，否则从预览进入时读屏用户听不出它会重开预览。
+        clipboardAction(actions, "返回", this::returnFromClipboardDetail)
+            .setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
         s.clipboardPanel.addView(actions, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
         s.imeStyler.applySkin();
         ViewPolicy.setTextColor(details, ImeStyler.fade(s.skin.keyForeground(), .8));
@@ -1991,9 +2014,12 @@ final class ImePanels {
 
     private void returnFromClipboardDetail() {
         int scrollY = clipboardDetailScrollY;
+        ClipboardDetailPolicy.Origin origin = clipboardDetailOrigin;
         clearClipboardDetail();
         renderClipboardHistory();
         s.clipboardScroll.post(() -> s.clipboardScroll.scrollTo(0, scrollY));
+        if (ClipboardDetailPolicy.reopensPreview(origin, clipboardListedActionItem != null))
+            showClipboardItemPreview(clipboardListedActionItem);
     }
 
     /**
