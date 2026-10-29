@@ -543,6 +543,32 @@ fn the_leading_correction_keeps_a_first_page_seat_behind_many_phrases() {
         .all(|item| item.corrected_from.is_empty() && item.word.chars().count() == 2));
 }
 
+/// #9903 想要的「请教你」不在随包词库里。用户打一次 qingjiaoni 上屏，`store_user_phrase_from_canonical_pinyin` 经 `create_word_from_canonical_pinyin` 存下的词条带 jp `qjn`，两个纠错开关都开着时 `qjn` 照样查得到它，并排在 qun/qin 的纠错读法前面。
+#[test]
+fn a_learned_phrase_leads_the_corrections_of_its_abbreviation() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("qun", "群", 500_000)
+        .insert("qin", "亲", 400_000);
+    fixture.table("qing'jiao'ni");
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let product = crate::types::request_autocorrect_mask(true, true);
+    assert!(!contains(
+        &query(&mut dictionary, "qjn", "", product),
+        "请教你"
+    ));
+
+    dictionary
+        .create_word_from_canonical_pinyin("qing'jiao'ni", "请教你")
+        .unwrap();
+    let qjn = query(&mut dictionary, "qjn", "", product);
+    assert_eq!(qjn[0].word, "请教你", "{:?}", words(&qjn));
+    assert!(qjn[0].corrected_from.is_empty());
+    let corrected = position(&qjn, "群");
+    assert!(corrected > 0, "{:?}", words(&qjn));
+    assert_eq!(qjn[corrected].corrected_from, "qjn");
+}
+
 /// 字面简拼一个吃满全部按键的多字词条都没有时，全辅音误触照旧由纠错读法打头（`shng` → 上）；带元音的输入不受这条规则影响，`sahng` 的「上」仍排在字面的「撒谎那个」前面。
 #[test]
 fn corrections_still_lead_without_a_literal_abbreviation_phrase() {
