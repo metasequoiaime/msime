@@ -1015,7 +1015,23 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             .ok_or("dictionary maintenance busy")?;
             msime_engine::host::reset_learned_data(&options)
                 .map_err(|_| "learned-data reset rejected")?;
-            Ok(json!({ "reset": true }))
+            // 命名词库的词经个人词库队列写进用户词库，重置把它们一起清掉了，集合却还写着启用。还拿着维护租约时把已启用集合的词重新排进待发送队列，宿主随后照常送出（Android 设置页紧接着 `synchronize`）。没给偏好目录的宿主（桌面）没有命名词库，不排。这一步失败时报错：再清除一次是安全的，会把两步都重做。
+            let requeued = match preferences_directory.as_deref() {
+                Some(directory) => {
+                    msime_client_services::dictionary::collections::DictionaryCollectionsStore::new(
+                        directory,
+                        PersonalDictionaryStore::new(
+                            Path::new(directory).join("PersonalDictionary"),
+                        ),
+                    )
+                    .requeue_enabled_after_reset()
+                    .map_err(|_| "learned-data reset collections unavailable")?
+                    .queued
+                    .unwrap_or(0)
+                }
+                None => 0,
+            };
+            Ok(json!({ "reset": true, "collections_requeued": requeued }))
         }
         Operation::Export {
             kind,

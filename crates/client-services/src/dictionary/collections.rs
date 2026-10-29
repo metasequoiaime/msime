@@ -726,6 +726,56 @@ impl DictionaryCollectionsStore {
         Ok(view)
     }
 
+    /// 清除学习记录（`reset_learned_data`）以后调用：重置把用户词库换回随包的一份，已启用集合送进去的词跟着没了，集合的元数据却还写着启用。这里把每个已启用集合的词重新排「加入」，由 [`Self::flush`] 照常分批送出，返回的视图里 `queued` 是排进去的词数。重置以后用户词库里不再有用户原有的词，`preexisting.json` 随之清空；和随包词库重复的词送出去会再留下回执，重新记成原有的。同一个词排着「删除」时换成「加入」，不像 [`Self::queue_words`] 那样相互抵消：重置以后那个词已经不在词库里了。从来没有建过集合目录（桌面宿主、iOS）时什么也不做，也不建目录。
+    pub fn requeue_enabled_after_reset(&self) -> Result<DictionaryCollectionsView> {
+        match std::fs::symlink_metadata(&self.directory) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(DictionaryCollectionsView {
+                    collections: Vec::new(),
+                    formats: IMPORT_FORMATS,
+                    outbox_pending: 0,
+                    import: None,
+                    sent: None,
+                    queued: Some(0),
+                    third_party_matches: None,
+                });
+            }
+            _ => {}
+        }
+        let lock = self.lock()?;
+        let mut state = self.read_state(&lock.directory)?;
+        if !state.preexisting.is_empty() {
+            state.preexisting.clear();
+            state.preexisting_dirty = true;
+        }
+        let mut queued = 0;
+        let enabled: Vec<Uuid> = state
+            .index
+            .collections
+            .iter()
+            .filter(|metadata| metadata.enabled)
+            .map(|metadata| metadata.id)
+            .collect();
+        for id in enabled {
+            for word in state.entries(id).to_vec() {
+                let identity = word.identity();
+                match state.outbox.get(&identity).map(|operation| operation.op) {
+                    Some(OutboxKind::Add) => continue,
+                    Some(OutboxKind::Remove) => {
+                        state.outbox.take(&identity);
+                    }
+                    None => {}
+                }
+                state.outbox.queue(OutboxKind::Add, id, word);
+                queued += 1;
+            }
+        }
+        self.commit(&lock.directory, &mut state)?;
+        let mut view = state.view();
+        view.queued = Some(queued);
+        Ok(view)
+    }
+
     /// 把待发送队列里的增删在个人词库队列有空位时送进去，返回这次送出的条数。个人词库正忙（键盘持有它的锁）或队列已满时什么也不送，等下次再来。
     pub fn flush(&self) -> Result<DictionaryCollectionsView> {
         self.begin_flush()?.flush()

@@ -79,6 +79,8 @@ struct Cloud {
     failures: HashMap<&'static str, VecDeque<AccountFailure>>,
     calls: Vec<&'static str>,
     snapshot_uploads: usize,
+    /// 每次上传的快照原文，按上传顺序。
+    uploaded_snapshots: Vec<String>,
     /// 读常用语时把会话换成另一个账号，模拟跑到一半在别处换了号。
     switch_account_on_phrases: Option<SharedStorage>,
 }
@@ -103,6 +105,7 @@ impl Default for Cloud {
             failures: HashMap::new(),
             calls: Vec::new(),
             snapshot_uploads: 0,
+            uploaded_snapshots: Vec::new(),
             switch_account_on_phrases: None,
         }
     }
@@ -312,6 +315,9 @@ impl AccountApi for FakeApi {
         }
         cloud.dictionary_revision += 1;
         cloud.snapshot_uploads += 1;
+        cloud
+            .uploaded_snapshots
+            .push(std::fs::read_to_string(snapshot).unwrap());
         Ok(AccountDictionarySnapshotRestore {
             revision: cloud.dictionary_revision,
             reset: true,
@@ -3740,4 +3746,176 @@ fn turning_sync_off_only_answers_a_cleared_cloud() {
     *fixture.storage.0.lock().unwrap() = None;
     let refused = disable(&fixture.session, &fixture.store, NOW + 72_000).unwrap();
     assert_eq!(refused["reason"], "signed_out", "{refused}");
+}
+
+/// `host_options_with_main_dictionary` 加上随包的英文词库：清除学习记录要从资源目录把两份词库都复制回来。
+fn resettable_host_options(root: &Path) -> Value {
+    let options = crate::tests::host_options_with_main_dictionary(root);
+    rusqlite::Connection::open(root.join("resources").join("msime-english.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE english(key TEXT,value TEXT,weight INTEGER);")
+        .unwrap();
+    options
+}
+
+fn add_user_word(options: &Value, key: &str, value: &str, request_id: &str) {
+    let request = json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": {"kind": "pinyin", "key": key, "value": value, "weight": 100}, "request_id": request_id}});
+    let edited = dictionary_request_json(request.to_string().as_bytes()).unwrap();
+    assert_eq!(edited["applied"], true, "{edited}");
+}
+
+fn reset_learned_data(options: &Value) -> Value {
+    let request = json!({"options": options, "action": {"operation": "reset"}});
+    dictionary_request_json(request.to_string().as_bytes()).unwrap()
+}
+
+fn user_words(options: &Value) -> Vec<String> {
+    let request = json!({"options": options, "action": {"operation": "list", "offset": 0, "limit": 100, "user_only": true}});
+    let listed = dictionary_request_json(request.to_string().as_bytes()).unwrap();
+    listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["value"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// 快照里每个词一条 `entry`。
+fn snapshot_entries(snapshot: &str) -> Vec<String> {
+    snapshot
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|record| record["type"] == "entry")
+        .map(|record| record["data"]["word"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// 设置页「清除学习记录」：重置以后宿主给词库分类打上待上传标记，下一轮同步把清除后的一份整份传上去，替换云端那份。不打标记时两边都没变，这一轮什么也不传，云端留着清除前的词。
+#[test]
+fn a_learned_data_reset_marked_for_upload_replaces_the_cloud_copy() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let fixture = Fixture::new();
+    let directory = tempfile::tempdir().unwrap();
+    let options = resettable_host_options(directory.path());
+    add_user_word(&options, "ni'hao", "你好", "seed-word");
+    let local = HostLocal {
+        options: Some(options.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    let round = |trigger: Trigger, now: u64| {
+        run(
+            &fixture.session,
+            &fixture.store,
+            &local,
+            RunRequest {
+                trigger,
+                choice: None,
+                capabilities: dictionary,
+                settings_locked: false,
+                excluded_phrase_texts: Vec::new(),
+            },
+            now,
+        )
+        .unwrap()
+    };
+    // 首次同步，云端没有词：上传本机这一份。
+    fixture.api.cloud().dictionary_items = 0;
+    fixture.enable();
+    let first = round(Trigger::Enable, NOW);
+    assert_eq!(
+        first["sections"]["dictionary"]["outcome"], "synced",
+        "{first}"
+    );
+    assert_eq!(
+        snapshot_entries(&fixture.api.cloud().uploaded_snapshots[0]),
+        ["你好"]
+    );
+
+    let reset = reset_learned_data(&options);
+    assert_eq!(reset, json!({"reset": true, "collections_requeued": 0}));
+    assert!(user_words(&options).is_empty());
+    let unmarked = round(Trigger::Manual, NOW + 60_000);
+    assert_eq!(unmarked["outcome"], "done", "{unmarked}");
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 1);
+
+    assert_eq!(
+        mark_dirty(&fixture.store, Section::Dictionary).unwrap()["marked"],
+        true
+    );
+    let marked = round(Trigger::Manual, NOW + 120_000);
+    assert_eq!(
+        marked["sections"]["dictionary"]["outcome"], "synced",
+        "{marked}"
+    );
+    let cloud = fixture.api.cloud();
+    assert_eq!(cloud.snapshot_uploads, 2);
+    assert!(snapshot_entries(&cloud.uploaded_snapshots[1]).is_empty());
+    drop(cloud);
+    assert!(!fixture.state().sections.dictionary.dirty());
+}
+
+/// 清除学习记录清掉用户自己的词，已启用命名词库的词重新排队、送回词库，停用的不送；之后上传的那一份里只有它们。
+#[test]
+fn a_learned_data_reset_keeps_the_words_of_enabled_named_dictionaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = resettable_host_options(directory.path());
+    let collections = DictionaryCollectionsStore::new(
+        directory.path(),
+        PersonalDictionaryStore::new(directory.path().join("PersonalDictionary")),
+    );
+    let pinyin = msime_client_services::dictionary::personal::PersonalWordKind::Pinyin;
+    let word = |key: &str, value: &str| PersonalWord {
+        kind: pinyin,
+        key: key.into(),
+        value: value.into(),
+        weight: 10_000,
+    };
+    let enabled = collections.create("常用", pinyin).unwrap().collections[0]
+        .id
+        .to_string();
+    collections
+        .add_words(&enabled, vec![word("ni'hao", "你好")])
+        .unwrap();
+    let view = collections.create("停用", pinyin).unwrap();
+    let idle = view
+        .collections
+        .iter()
+        .find(|item| item.name == "停用")
+        .unwrap()
+        .id
+        .to_string();
+    collections
+        .add_words(&idle, vec![word("niu'nai", "牛奶")])
+        .unwrap();
+    drain_personal_queue(&options);
+    // 「删除」要等「加入」应用过才送，所以先排空一次再停用。
+    collections.set_enabled(&idle, false).unwrap();
+    drain_personal_queue(&options);
+    add_user_word(&options, "nai'cha", "奶茶", "own-word");
+    let mut before = user_words(&options);
+    before.sort();
+    assert_eq!(before, ["你好", "奶茶"]);
+
+    let reset = reset_learned_data(&options);
+    assert_eq!(reset, json!({"reset": true, "collections_requeued": 1}));
+    assert!(user_words(&options).is_empty());
+    let local = HostLocal {
+        options: Some(options.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    // 送回去之前不能上传：那样云端会丢掉命名词库的词。
+    assert!(local.dictionary(None).unwrap().pending > 0);
+
+    drain_personal_queue(&options);
+    assert_eq!(user_words(&options), ["你好"]);
+    assert_eq!(local.dictionary(None).unwrap().pending, 0);
+    let file = directory.path().join("export.ndjson");
+    local.export_dictionary(&file).unwrap();
+    assert_eq!(
+        snapshot_entries(&std::fs::read_to_string(&file).unwrap()),
+        ["你好"]
+    );
 }
