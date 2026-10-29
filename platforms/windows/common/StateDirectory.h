@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "RegistryString.h"
 
 #include "../../../shared/contracts/msime_edition.h"
 
@@ -30,25 +31,13 @@ inline std::filesystem::path resolve_state_directory() {
         return value;
     }
   }
-  // The installer stores its user-selected directory in the 64-bit machine view so the 32-bit TSF DLL and the 64-bit Server resolve the same root. Keep the registry lookup after the environment override for enterprise launches that deliberately inject a temporary profile.
+  // 安装器把目录写入 64 位视图，两种架构必须读取同一份；企业启动器的环境覆盖仍优先。
   {
-    DWORD bytes = 0;
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, state_directory_registry_key,
-                     state_directory_registry_value,
-                     RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, nullptr,
-                     &bytes) == ERROR_SUCCESS &&
-        bytes >= sizeof(wchar_t)) {
-      std::wstring value(bytes / sizeof(wchar_t), L'\0');
-      if (RegGetValueW(HKEY_LOCAL_MACHINE, state_directory_registry_key,
-                       state_directory_registry_value,
-                       RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr,
-                       value.data(), &bytes) == ERROR_SUCCESS) {
-        value.resize((bytes / sizeof(wchar_t)) - 1);
-        const std::filesystem::path path(value);
-        if (path.is_absolute())
-          return path;
-      }
-    }
+    const auto value = read_registry_string_64(HKEY_LOCAL_MACHINE,
+        state_directory_registry_key, state_directory_registry_value);
+    const std::filesystem::path path(value);
+    if (path.is_absolute())
+      return path;
   }
   PWSTR app_data = nullptr;
   if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
