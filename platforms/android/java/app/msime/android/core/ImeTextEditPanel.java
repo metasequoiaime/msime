@@ -87,6 +87,8 @@ final class ImeTextEditPanel {
         panel.removeAllViews();
         LinearLayout modes = LayoutPolicy.row(s);
         modeButton = s.keyboardKey("切换为触控板", "切换为触控板", this::toggleTrackpad);
+        // 模式行固定 32 dp 高，六个字折成两行时第二行会被裁掉；窄窗口（自由窗口、分屏）里只缩字号、保持一行。
+        KeyboardTypographyPolicy.setFittedKeyTextSize(modeButton, 10, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         modes.addView(modeButton, LayoutPolicy.weightedMatchParentParams(1));
         trackpadSelect = s.keyboardKey("选择", "选择模式", () -> perform(TextEditPanelModel.Action.SELECT));
         modes.addView(trackpadSelect, LayoutPolicy.weightedMatchParentParams(1));
