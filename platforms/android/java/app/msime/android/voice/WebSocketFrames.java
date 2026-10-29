@@ -121,6 +121,31 @@ public final class WebSocketFrames {
         return upgrade && connection && accepted;
     }
 
+    /**
+     * 握手回应状态行里的三位状态码（`HTTP/1.1 401 Unauthorized` 得到 401），读不出时返回 -1。握手被拒时据此区分鉴权被拒、服务超时和超出限制，不再一律当成「服务未响应」。
+     */
+    public static int handshakeStatus(String response) {
+        if (response == null || !response.startsWith("HTTP/1.1 ") || response.length() < 12) return -1;
+        int status = 0;
+        for (int index = 9; index < 12; index++) {
+            char digit = response.charAt(index);
+            if (digit < '0' || digit > '9') return -1;
+            status = status * 10 + (digit - '0');
+        }
+        if (response.length() > 12 && response.charAt(12) != ' ' && response.charAt(12) != '\r') {
+            return -1;
+        }
+        return status;
+    }
+
+    /**
+     * 关闭帧载荷开头的两字节状态码（RFC 6455 第 5.5.1 节，大端），载荷不足两字节（关闭帧没带状态码）时返回 -1。豆包在最终结果之前关闭连接时据此区分服务结束会话、服务端故障和超出限制。
+     */
+    public static int closeStatus(byte[] payload) {
+        if (payload == null || payload.length < 2) return -1;
+        return ((payload[0] & 0xff) << 8) | (payload[1] & 0xff);
+    }
+
     /** HTTP list fields match a comma-separated token, not an arbitrary substring. */
     private static boolean containsToken(String value, String expected) {
         for (String token : value.split(",")) {

@@ -241,9 +241,15 @@ pub fn emoji_symbol_groups(resources: &Path) -> Result<Vec<EmojiSymbolGroup>> {
 }
 
 /// A fresh read-only connection per call, as bridge.cpp:1024-1030 opened one. The picker's calls are not per keystroke, and a cached handle would keep reading a replaced or once-unreadable `msime-others.db` until the process restarts.
+///
+/// 比引擎新的 `msime-others.db`（`format::check_format_version`）报它自己的错误，只带文件名不带路径；读不出 schema 的文件照旧交给后面的查询报 `EMOJI_CATALOG_QUERY_UNAVAILABLE`。
 fn open_catalog(resources: &Path) -> Result<Connection> {
-    open_read_only(&resources.join(assets::OTHER_DICTIONARY))
-        .map_err(|_| EngineError::failed(diagnostics::EMOJI_CATALOG_UNAVAILABLE))
+    let connection = open_read_only(&resources.join(assets::OTHER_DICTIONARY))
+        .map_err(|_| EngineError::failed(diagnostics::EMOJI_CATALOG_UNAVAILABLE))?;
+    match crate::format::check_format_version(&connection, assets::OTHER_DICTIONARY) {
+        Ok(_) | Err(EngineError::Sqlite(_)) => Ok(connection),
+        Err(error) => Err(error),
+    }
 }
 
 // SQLite's messages can expose resource paths or data, so every failure maps to a fixed message (bridge.cpp:1062).
@@ -497,5 +503,36 @@ mod tests {
             error.to_string(),
             diagnostics::EMOJI_CATALOG_QUERY_UNAVAILABLE
         );
+    }
+
+    /// 文件内版本：当前版本照常读；比引擎新的版本报带文件名的格式错误，按键路径上的连接缓存把它当作读不了。
+    #[test]
+    fn the_catalog_checks_the_in_file_format_version() {
+        let (_dir, resources) = fixture();
+        let path = resources.join(assets::OTHER_DICTIONARY);
+        let stamp = |version: i32| {
+            Connection::open(&path)
+                .unwrap()
+                .execute_batch(&format!(
+                    "{} INSERT OR REPLACE INTO metadata VALUES('format_version', '{version}');",
+                    crate::format::METADATA_SCHEMA
+                ))
+                .unwrap();
+        };
+        stamp(crate::format::FORMAT_VERSION);
+        assert!(emoji_symbol_groups(&resources).is_ok());
+        super::super::database::close_cached_local_databases();
+        assert!(super::super::database::open_local_database(&path).is_some());
+
+        stamp(crate::format::FORMAT_VERSION + 1);
+        super::super::database::close_cached_local_databases();
+        let error = emoji_symbol_groups(&resources).unwrap_err().to_string();
+        assert!(
+            error.starts_with(diagnostics::DICTIONARY_FORMAT_UNSUPPORTED),
+            "{error}"
+        );
+        assert!(error.contains(assets::OTHER_DICTIONARY), "{error}");
+        assert!(!error.contains(&*resources.to_string_lossy()), "{error}");
+        assert!(super::super::database::open_local_database(&path).is_none());
     }
 }

@@ -1810,6 +1810,68 @@ pub(super) mod tests {
         .is_none());
     }
 
+    /// 双拼的首选规则（#10018）拿 nonleading 模式给的那条纠错整句和字面整句比分：它必须是解出的路径里分数最高的那条带纠错边的路径。nonleading 取的是 64 条 n-best 里第一条带纠错边的，这只有在 n-best 按分数从高到低排时才成立，这里把两件事都钉住。
+    #[test]
+    fn the_nonleading_typo_sentence_is_the_best_scoring_typo_path() {
+        let rows = table(&[
+            ("ta", &[("他", 1000), ("她", 900)]),
+            ("shi", &[("时", 1000), ("是", 900)]),
+            ("jian", &[("间", 1000), ("见", 900)]),
+            ("ta'shi", &[("他时", 500)]),
+        ]);
+        let text = "ta'shi'jian";
+        let options = LatticeOptions::default();
+        let graph = build_graph(&syllables(text), &mut lookup(&rows), &options);
+        let wide = LatticeOptions {
+            nbest: 64,
+            ..options.clone()
+        };
+        let paths = decode_graph(&graph, &wide, None);
+        assert!(paths.len() > 3);
+        assert!(paths
+            .windows(2)
+            .all(|pair| pair[0].log_prob >= pair[1].log_prob));
+        let literal = &paths[0];
+        let edge = |start, end, key: &str, value: &str, weight, penalty| TypoEdge {
+            start,
+            end,
+            key: key.into(),
+            value: value.into(),
+            weight,
+            penalty,
+        };
+        // 三条互相重叠（一条路径只能用上其中一条）的纠错边，词频相近、罚分各不相同。
+        let edges = [
+            edge(1, 3, "shi'jian", "事件", 9000, 6.0),
+            edge(1, 3, "shi'jian", "实践", 9000, 2.0),
+            edge(0, 2, "ta'shi", "他是", 3000, 4.0),
+        ];
+        let best = decode_typo_on_graph_with_policy(&graph, &options, literal, &edges, true)
+            .expect("a typo path");
+        for single in &edges {
+            let alone = decode_typo_on_graph_with_policy(
+                &graph,
+                &options,
+                literal,
+                std::slice::from_ref(single),
+                true,
+            )
+            .expect("each edge alone gives a typo path");
+            assert!(
+                alone.score <= best.score,
+                "{} {}",
+                alone.sentence,
+                best.sentence
+            );
+        }
+        assert_eq!(best.sentence, "他实践");
+        assert_eq!(best.edges, 1);
+        // 只给罚分最高的那一条时，nonleading 仍给出用它的那条路径，分数更低。
+        let worse = decode_typo_on_graph_with_policy(&graph, &options, literal, &edges[..1], true)
+            .expect("a nonleading typo path");
+        assert!(worse.score < best.score);
+    }
+
     #[test]
     fn typo_leads_ignores_zero_edges() {
         let typo = TypoSentence {

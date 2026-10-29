@@ -595,9 +595,9 @@ int main() {
     check(is_authored_kind(L"symbol_set") && !is_authored_kind(L"sound") && !is_authored_kind(L"script"),
           "only text packs are editable");
     auto mine = pack(L"phrase_table", L"my-1a2b3c4d");
-    auto official = pack(L"phrase_table", L"latex-symbols");
-    official.builtin = true;
-    check(pack_editable(mine) && !pack_editable(official) && !pack_editable(pack(L"music", L"m")),
+    auto official_pack = pack(L"phrase_table", L"latex-symbols");
+    official_pack.builtin = true;
+    check(pack_editable(mine) && !pack_editable(official_pack) && !pack_editable(pack(L"music", L"m")),
           "the edit button is for user text packs");
     check(error_message(L"plugin_exists", L"", L"x") == L"本机已经有一个同样 id 的插件，没有覆盖它。" &&
               error_message(L"plugin_not_editable", L"内置插件", L"x") == L"这个插件不能在设置页编辑（内置插件）。",

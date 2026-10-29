@@ -15,7 +15,10 @@ mod grid_keys;
 mod metrics;
 mod touch_noise;
 
-use metrics::{Bucket, Observation, Report, TouchBucket, TouchObservation, TouchReport};
+use metrics::{
+    Bucket, ChangedFirst, FirstSeat, Observation, Report, TouchBucket, TouchObservation,
+    TouchReport,
+};
 use msime_engine::host::{Command, EngineOptions, Session};
 use msime_engine::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use msime_engine::{KeyGrid, SchemeType, ShuangpinProfileKind};
@@ -43,6 +46,8 @@ struct ShuangpinEval {
     tuning: Option<TouchTuning>,
     /// `--assert-top1-unchanged`：clean 集只要有一条用例的首选被改就失败。
     assert_top1_unchanged: bool,
+    /// `--assert-first-seat-gate`：clean 集首选被改的比例超过首选规则的门槛（σ=0 时为 0，总体不超过 0.1%，每个方案不超过 0.2%）就失败。纠错可以坐首选以后用它代替 `--assert-top1-unchanged`。
+    assert_first_seat_gate: bool,
     /// `--jobs`：同时跑几个方案。
     jobs: usize,
     /// `--learn-replay <n>`：每组（σ、偏置）跑完之后，把这组 noisy 集里按错的每一对两键码在日志里记成接受过 n 次，再把各个触点模式重跑一遍，量双拼纠错学习的效果。
@@ -103,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut touch_points = true;
     let mut tuning: Option<TouchTuning> = None;
     let mut assert_top1_unchanged = false;
+    let mut assert_first_seat_gate = false;
     let mut jobs = 1usize;
     let mut learn_replay: Option<i64> = None;
 
@@ -181,6 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--no-touch-points" => touch_points = false,
             "--touch-tuning" => tuning = Some(parse_tuning(&take(&mut index)?)?),
             "--assert-top1-unchanged" => assert_top1_unchanged = true,
+            "--assert-first-seat-gate" => assert_first_seat_gate = true,
             "--jobs" => jobs = take(&mut index)?.parse()?,
             "--learn-replay" => learn_replay = Some(take(&mut index)?.parse()?),
             other => return Err(format!("unknown option: {other}").into()),
@@ -237,6 +244,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             touch_points,
             tuning,
             assert_top1_unchanged,
+            assert_first_seat_gate,
             jobs,
             learn_replay,
         })
@@ -250,6 +258,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             || !touch_points
             || tuning.is_some()
             || assert_top1_unchanged
+            || assert_first_seat_gate
             || jobs != 1
             || learn_replay.is_some()
         {
@@ -307,6 +316,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = tempfile::tempdir()?;
     let mut clean_top1_changed = 0;
+    let mut clean_first_seat = Vec::new();
     let json = match &shuangpin {
         Some(eval) => run_shuangpin(
             &resources,
@@ -319,6 +329,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             first_page_rows,
             &verified.source_commit,
             &mut clean_top1_changed,
+            &mut clean_first_seat,
         )?,
         None => {
             let report = run(
@@ -353,6 +364,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "touches changed the first candidate of {clean_top1_changed} clean case(s)"
         )
         .into());
+    }
+    if shuangpin
+        .as_ref()
+        .is_some_and(|eval| eval.assert_first_seat_gate)
+    {
+        first_seat_gate(&clean_first_seat)?;
     }
 
     if let Some(path) = baseline {
@@ -408,6 +425,47 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
     Ok(cases)
 }
 
+/// clean 集里一组配置的首选变化：方案、σ、用例数、首选被改的条数。
+type CleanFirstSeat = (&'static str, f64, usize, usize);
+
+/// 首选规则的门槛（方案第八节 PR3）：σ=0 时 clean 集的首选一条都不能变（落点在键心，纠错不能抢首选），所有 clean 组合起来不超过 0.1%，每个方案不超过 0.2%。
+fn first_seat_gate(runs: &[CleanFirstSeat]) -> Result<(), String> {
+    if runs.is_empty() {
+        return Err("--assert-first-seat-gate needs clean runs".into());
+    }
+    let mut failures = Vec::new();
+    for (profile, sigma, cases, changed) in runs {
+        if *sigma == 0.0 && *changed > 0 {
+            failures.push(format!("{profile} sigma=0: {changed} of {cases}"));
+        }
+    }
+    let total = |runs: &mut dyn Iterator<Item = &CleanFirstSeat>| {
+        runs.fold((0, 0), |(cases, changed), run| {
+            (cases + run.2, changed + run.3)
+        })
+    };
+    let (cases, changed) = total(&mut runs.iter());
+    if changed as f64 > cases as f64 * 0.001 {
+        failures.push(format!("overall: {changed} of {cases}"));
+    }
+    let mut profiles: Vec<&str> = runs.iter().map(|run| run.0).collect();
+    profiles.dedup();
+    for profile in profiles {
+        let (cases, changed) = total(&mut runs.iter().filter(|run| run.0 == profile));
+        if changed as f64 > cases as f64 * 0.002 {
+            failures.push(format!("{profile}: {changed} of {cases}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "touches changed the first candidate of too many clean cases: {}",
+            failures.join("; ")
+        ))
+    }
+}
+
 /// 逗号分隔的一列数，每一项按 `parse` 解析和校验。
 fn parse_list(text: &str, parse: fn(&str) -> Result<f64, String>) -> Result<Vec<f64>, String> {
     text.split(',').map(parse).collect()
@@ -436,9 +494,11 @@ fn parse_tuning(text: &str) -> Result<TouchTuning, String> {
             "cut" => &mut tuning.cut,
             "show" => &mut tuning.show_margin,
             "show_pen" => &mut tuning.show_penalty,
+            "lead" => &mut tuning.lead_margin,
+            "lead_pen" => &mut tuning.lead_penalty,
             other => {
                 return Err(format!(
-                    "--touch-tuning: unknown {other} (expected base, scale, sigma_x, sigma_y, bias_y, min, max, cut, show or show_pen)"
+                    "--touch-tuning: unknown {other} (expected base, scale, sigma_x, sigma_y, bias_y, min, max, cut, show, show_pen, lead or lead_pen)"
                 ))
             }
         };
@@ -566,12 +626,15 @@ fn open_runtime(
     Ok(runtime)
 }
 
-/// 在清空的组字和上文里打一条用例，返回停顿重排之后的整张候选表（文字和来源）。带触点的键像 `msime_client_touch_character` 那样，派发前交上触点、派发后清掉。
+/// 整张候选表（文字和来源），以及首选是不是按首选规则坐上去的纠错行。
+type TypedCandidates = (Vec<(String, u8)>, bool);
+
+/// 在清空的组字和上文里打一条用例，返回停顿重排之后的整张候选表（文字和来源），以及首选是不是按首选规则坐上去的纠错行（视图的 `confident_correction`）。带触点的键像 `msime_client_touch_character` 那样，派发前交上触点、派发后清掉。
 fn type_case(
     runtime: &mut Runtime<Session>,
     context: &str,
     keys: impl IntoIterator<Item = (Action, Option<KeyTouch>)>,
-) -> Result<Vec<(String, u8)>, Box<dyn std::error::Error>> {
+) -> Result<TypedCandidates, Box<dyn std::error::Error>> {
     runtime.dispatch(Action::Command(Command::Cancel))?;
     // Cancel keeps the committed context and seeding appends to it, so without this every case would be ranked against the tail of the contexts of all the cases before it.
     runtime.clear_context();
@@ -593,8 +656,12 @@ fn type_case(
         .iter()
         .map(|c| (c.text.clone(), c.source))
         .collect();
+    let confident = snapshot
+        .candidates
+        .first()
+        .is_some_and(|candidate| candidate.confident_correction);
     runtime.dispatch(Action::Command(Command::Cancel))?;
-    Ok(candidates)
+    Ok((candidates, confident))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -635,7 +702,7 @@ fn run(
             Some(grid) => typed_keys(grid, case).unwrap_or_default().into_bytes(),
             None => case.input.bytes().collect(),
         };
-        let candidates = type_case(
+        let (candidates, _) = type_case(
             &mut runtime,
             &case.context,
             input.into_iter().map(|byte| (key_action(grid, byte), None)),
@@ -686,6 +753,7 @@ fn run_shuangpin(
     first_page_rows: Option<usize>,
     source_commit: &str,
     clean_top1_changed: &mut usize,
+    clean_first_seat: &mut Vec<CleanFirstSeat>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let models = Models::load(resources)?;
     // 落点分布只取决于几何、σ 和偏置，各方案、各模式共用同一份几何时不必重算；在开线程前一次算好，各方案只读。只有 noisy、realistic 和要送落点的 clean 要抽落点。
@@ -760,6 +828,7 @@ fn run_shuangpin(
         runs.extend(result.runs);
         dumped.push_str(&result.dump.unwrap_or_default());
         *clean_top1_changed += result.clean_top1_changed;
+        clean_first_seat.extend(result.clean_first_seat);
     }
     if let Some(path) = dump {
         if let Some(parent) = path.parent() {
@@ -770,13 +839,14 @@ fn run_shuangpin(
     Ok(render_shuangpin(eval, autocorrect, &encoding, &runs))
 }
 
-/// 一个方案的结果：编码统计、每组配置渲染好的报告行、`--dump` 的行和 clean 集首选被改的条数。
+/// 一个方案的结果：编码统计、每组配置渲染好的报告行、`--dump` 的行、clean 集首选被改的条数，以及每组 clean 配置的首选变化（`--assert-first-seat-gate` 用）。
 #[derive(Default)]
 struct ProfileRun {
     encoding: (&'static str, usize, usize),
     runs: Vec<String>,
     dump: Option<String>,
     clean_top1_changed: usize,
+    clean_first_seat: Vec<CleanFirstSeat>,
 }
 
 /// `run_shuangpin` 里一个方案的那一份。
@@ -877,6 +947,14 @@ fn run_profile(
                 None => None,
             };
             let (sigma, bias) = setting.unzip();
+            if let (TouchMode::Clean, Some(sigma)) = (mode, sigma) {
+                result.clean_first_seat.push((
+                    profile.name(),
+                    sigma,
+                    report.overall.cases,
+                    report.first_seat.first_changed,
+                ));
+            }
             result.runs.push(render_touch_run(
                 profile,
                 layout.map(|layout| eval.layouts[layout].name.as_str()),
@@ -1044,6 +1122,21 @@ fn measure_setting(
             rank: rank.rank,
             reference: reference[index].rank,
         });
+        let was = &reference[index];
+        report.first_seat.observe(
+            was.first.as_deref(),
+            rank.first.as_deref(),
+            rank.confident,
+            rank.rank == Some(1),
+            (mode == TouchMode::Clean).then_some(|| ChangedFirst {
+                id: case.id.clone(),
+                keys: typed.iter().map(|(key, _)| char::from(*key)).collect(),
+                gold: case.gold.clone(),
+                was: was.first.clone(),
+                now: rank.first.clone(),
+                confident: rank.confident,
+            }),
+        );
         if let Some(record) = record.as_mut() {
             record.observe_top1(mode, &reference[index], &rank);
         }
@@ -1138,6 +1231,8 @@ PRIMARY KEY(profile,typed,intended));",
 struct CandidateResult {
     rank: Option<usize>,
     first: Option<String>,
+    /// 首选是按首选规则坐上去的纠错行。
+    confident: bool,
 }
 
 impl CandidateResult {
@@ -1148,6 +1243,7 @@ impl CandidateResult {
                 .position(|(text, _)| text == gold)
                 .map(|position| position + 1),
             first: candidates.first().map(|(text, _)| text.clone()),
+            confident: false,
         }
     }
 }
@@ -1193,7 +1289,7 @@ fn gold_rank(
         return Ok(rank.clone());
     }
     let (_, keys, touches) = &memo;
-    let candidates = type_case(
+    let (candidates, confident) = type_case(
         runtime,
         &case.context,
         keys.iter().zip(touches).map(|(&value, &touch)| {
@@ -1206,7 +1302,10 @@ fn gold_rank(
             )
         }),
     )?;
-    let rank = CandidateResult::from_candidates(&candidates, &case.gold);
+    let rank = CandidateResult {
+        confident,
+        ..CandidateResult::from_candidates(&candidates, &case.gold)
+    };
     if let Some(dumped) = dumped {
         let rows: Vec<serde_json::Value> = candidates
             .iter()
@@ -1217,6 +1316,10 @@ fn gold_rank(
             "keys": String::from_utf8_lossy(keys), "gold": case.gold,
             "context": case.context, "candidates": rows,
         });
+        // 只在首选是按首选规则坐上去的纠错行时写，没有这种行的 dump 与以前逐字节相同。
+        if confident {
+            line["confident"] = true.into();
+        }
         // 只在送了触点时写：引擎收到的量化偏移（1/20 键）和第几个实例。
         if touches.iter().any(Option::is_some) {
             line["touches"] = touches
@@ -1274,8 +1377,17 @@ fn render_touch_run(
                 .collect(),
         ))
     };
+    // 送了触点的模式多一行首选规则的统计；none 模式就是对照，没有这一行，与以前逐字节相同。
+    let first_seat = if mode == TouchMode::None {
+        String::new()
+    } else {
+        format!(
+            ",\n      \"first_seat\": {}",
+            json(first_seat_json(&report.first_seat))
+        )
+    };
     format!(
-        "    {{\"profile\": {}, \"geometry\": {}, \"mode\": {}, \"sigma\": {}, \"bias_y\": {}, \"skipped\": {}{learned},\n      \"overall\": {},\n      \"by_syllables\": {},\n      \"by_errors\": {}}}",
+        "    {{\"profile\": {}, \"geometry\": {}, \"mode\": {}, \"sigma\": {}, \"bias_y\": {}, \"skipped\": {}{learned},\n      \"overall\": {},\n      \"by_syllables\": {},\n      \"by_errors\": {}{first_seat}}}",
         json(profile.name().into()),
         json(geometry.into()),
         json(mode.name().into()),
@@ -1286,6 +1398,28 @@ fn render_touch_run(
         buckets(&report.by_syllables),
         buckets(&report.by_errors),
     )
+}
+
+/// 首选规则的计数；clean 集另外逐条列出首选被改的用例（原样输入的首选、这次的首选、是不是纠错行坐上去的），供人工复核。
+fn first_seat_json(seat: &FirstSeat) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "first_changed": seat.first_changed,
+        "confident": seat.confident,
+        "confident_gold": seat.confident_gold,
+    });
+    if !seat.changed.is_empty() {
+        value["changed"] = seat
+            .changed
+            .iter()
+            .map(|case| {
+                serde_json::json!({
+                    "id": case.id, "keys": case.keys, "gold": case.gold,
+                    "was": case.was, "now": case.now, "confident": case.confident,
+                })
+            })
+            .collect();
+    }
+    value
 }
 
 fn render_shuangpin(
@@ -1317,6 +1451,7 @@ fn render_shuangpin(
                 "sigma_x": tuning.sigma_x, "sigma_y": tuning.sigma_y, "bias_y": tuning.bias_y,
                 "min": tuning.min_penalty, "max": tuning.max_penalty, "cut": tuning.cut,
                 "show": tuning.show_margin, "show_pen": tuning.show_penalty,
+                "lead": tuning.lead_margin, "lead_pen": tuning.lead_penalty,
             })
         )
     });
@@ -1488,5 +1623,47 @@ mod tuning_tests {
     fn reversed_penalty_range_is_rejected_before_evaluation() {
         assert!(parse_tuning("min=20,max=10").is_err());
         assert!(parse_tuning("min=10,max=10").is_ok());
+    }
+
+    #[test]
+    fn the_first_seat_rule_is_tuned_by_name() {
+        let tuning = parse_tuning("lead=3.5,lead_pen=9").unwrap();
+        assert_eq!((tuning.lead_margin, tuning.lead_penalty), (3.5, 9.0));
+        assert_eq!(
+            TouchTuning {
+                lead_margin: TouchTuning::default().lead_margin,
+                lead_penalty: TouchTuning::default().lead_penalty,
+                ..tuning
+            },
+            TouchTuning::default()
+        );
+        assert!(parse_tuning("lead=inf").is_err());
+    }
+
+    #[test]
+    fn the_first_seat_gate_follows_the_plan() {
+        let run = |profile, sigma, changed| (profile, sigma, 1000, changed);
+        // 每组 1000 条：σ=0 一条都不能变；总体 0.1%、每个方案 0.2%。
+        assert!(first_seat_gate(&[run("xiaohe", 0.0, 0), run("xiaohe", 0.25, 1)]).is_ok());
+        assert!(first_seat_gate(&[run("xiaohe", 0.0, 1), run("xiaohe", 0.25, 0)]).is_err());
+        // 小鹤 4/2000 刚好 0.2%，总体 4/4000 刚好 0.1%：都在门槛上，通过。
+        let edge = [
+            run("xiaohe", 0.0, 0),
+            run("xiaohe", 0.25, 4),
+            run("microsoft", 0.0, 0),
+            run("microsoft", 0.25, 0),
+        ];
+        assert!(first_seat_gate(&edge).is_ok());
+        // 小鹤 5/2000 超过 0.2%，总体 5/4000 也超过 0.1%。
+        let over = [
+            run("xiaohe", 0.0, 0),
+            run("xiaohe", 0.25, 5),
+            run("microsoft", 0.0, 0),
+            run("microsoft", 0.25, 0),
+        ];
+        let error = first_seat_gate(&over).unwrap_err();
+        assert!(error.contains("xiaohe: 5 of 2000"), "{error}");
+        assert!(error.contains("overall: 5 of 4000"), "{error}");
+        assert!(first_seat_gate(&[]).is_err());
     }
 }

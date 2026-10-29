@@ -32,6 +32,10 @@ unicode-segmentation.workspace = true
 # Vietnamese Telex and VNI transforms. MIT; pinned exactly because the uppercase workaround in vietnamese/scheme.rs is written against this version's output.
 vi = "=0.8.0"
 
+# 词库访问租约（`access.rs`）经目录句柄打开根目录和锁文件（`openat`，不跟随符号链接），Android 上用 `flock` 取锁；与 client-base 用的是同一版。
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
 # 翻译 sidecar 写入前在 Windows 上读硬链接数，见 host/options.rs 的 `has_single_link`；与 client-base 用的是同一版。
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1.11"

@@ -5,7 +5,7 @@ import Foundation
 ///
 /// 坐标都在键区（`KeyAreaStackView`）坐标系里，与滑行输入同一个；键的矩形取布局位置（`KeyAreaStackView.layoutFrame`），不受按下缩放影响，键距归属（`KeyGapRouting`）也不挪动按下点。宿主只上报按下点和几何，距离和罚分都由引擎算。落点只在会话内存里给双拼纠错计价，不落盘、不进统计。与 Android、HarmonyOS 的 `TouchPointPolicy` 是同一套规则。
 enum TouchPointPolicy {
-  /// 键区里此刻的字母键几何：a..z 二十六个字母键的布局矩形，按字母顺序；`semicolon` 是微软双拼显示的 `;` 键，其余方案为 nil。iOS 的分离键盘只在中间加一道中缝，不重复任何字母键，所以没有 `duplicates`。
+  /// 键区里此刻的字母键几何：a..z 二十六个字母键的布局矩形，按字母顺序；`semicolon` 是第二排显示中的 `;` 键（微软双拼、粤语双拼），其余方案为 nil；粤语双拼不走触点纠错（`sendsTouch` 只认 26 键双拼），不会把这份几何注册给引擎。iOS 的分离键盘只在中间加一道中缝，不重复任何字母键，所以没有 `duplicates`。
   struct Layout: Equatable {
     var letters: [CGRect]
     var semicolon: CGRect?
