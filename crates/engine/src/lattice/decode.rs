@@ -430,7 +430,7 @@ pub(super) fn build_graph(
                     edges.reserve(reserve);
                     let begin = edges.len();
                     let mut span_key = None;
-                    // 粗俗词不占 `span_limit` 的名额，后面的行补上来。
+                    // 含粗俗词的词不成边（`lattice::offensive`）。过滤在 `take` 之前，但产品路径的词库查询（`query_lattice_span`）已经在 SQL 里按 `span_limit` 限了行数，拦下一个词只是让这一段少一行，没有后面的行补上来。
                     for row in rows
                         .into_iter()
                         .filter(|row| offensive::admits_edge(&row.value, start, end, n))
@@ -1065,7 +1065,7 @@ pub(super) fn decode_typo_on_graph_with_policy(
 ) -> Option<TypoSentence> {
     let n = graph.len();
     let mut capacities = vec![0usize; n];
-    // 纠错边是替用户换的词，粗俗词与普通边一样只在独占整段输入时可用。
+    // 纠错边是替用户换的词，含粗俗词的词与普通边一样只在独占整段输入时可用。
     let usable = |typo: &TypoEdge| {
         typo.start < typo.end
             && typo.end <= n

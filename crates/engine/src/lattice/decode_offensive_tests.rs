@@ -48,8 +48,8 @@ fn an_offensive_word_spanning_the_whole_input_is_still_its_own_sentence() {
 }
 
 #[test]
-fn an_offensive_word_does_not_take_a_span_limit_seat() {
-    // 跨度只取一行时，被拦下的粗俗词不能占掉这个名额，让这一段没有多字词可用。
+fn a_blocked_word_is_filtered_before_the_span_limit_is_taken() {
+    // 过滤在 `take(span_limit)` 之前：这里的 lookup 不限行数，跨度只取一行时拦下的 巨乳 之后的 句如 补上来。产品路径的词库查询在 SQL 里已经按 `span_limit` 限了行数，那时拦下一个词只是让这一段少一行。
     let rows = table(&[
         ("wo", &[("我", 30_000_000)]),
         ("ju", &[("据", 323_831)]),
@@ -62,6 +62,86 @@ fn an_offensive_word_does_not_take_a_span_limit_seat() {
     };
     let paths = decode_sentences(&syllables("wo'ju'ru"), &mut lookup(&rows), &options);
     assert_eq!(paths[0].sentence, "我句如");
+}
+
+fn assert_clean(paths: &[SentencePath]) {
+    assert!(!paths.is_empty());
+    for path in paths {
+        assert!(
+            !path.words.iter().any(|word| offensive::is_offensive(word)),
+            "{}",
+            path.sentence
+        );
+    }
+}
+
+/// 含粗俗词的长词条同样不拼进整句：小狗吃食了 的 chi'shi'le 上词库有 吃屎了（837），三个音节的奖励让它压过 吃食|了。权重取自 dict-v2.0.39。
+#[test]
+fn a_longer_word_containing_an_offensive_word_is_not_assembled() {
+    let rows = table(&[
+        ("xiao", &[("小", 2_876_209)]),
+        ("gou", &[("狗", 28_740)]),
+        ("xiao'gou", &[("小狗", 39_026)]),
+        ("chi", &[("吃", 1_402_977)]),
+        ("shi", &[("食", 10_192), ("屎", 5_709)]),
+        ("le", &[("了", 52_009_647)]),
+        ("gou'chi", &[("狗吃", 1_067)]),
+        ("chi'shi", &[("吃屎", 18_952), ("吃食", 9_706)]),
+        ("chi'shi'le", &[("吃屎了", 837)]),
+    ]);
+    let paths = sentences("xiao'gou'chi'shi'le", &rows);
+    assert_clean(&paths);
+    assert_eq!(paths[0].sentence, "小狗吃食了");
+}
+
+/// 约炮（17,710）、炮友（7,075）比 巨乳 常见：我们约跑步吧 曾解成「我们约炮不把」，我的跑友很多 曾解成「我的炮友很多」（词库没有 跑友）。权重取自 dict-v2.0.39。
+#[test]
+fn sexual_slang_is_not_assembled_into_everyday_sentences() {
+    let rows = table(&[
+        ("wo", &[("我", 26_297_004)]),
+        ("men", &[("们", 544_382)]),
+        ("wo'men", &[("我们", 13_696_325)]),
+        ("de", &[("的", 454_876_841)]),
+        ("wo'de", &[("我的", 4_559_189)]),
+        ("yue", &[("约", 444_511)]),
+        ("pao", &[("跑", 660_436), ("炮", 25_754)]),
+        ("bu", &[("不", 4_807_412), ("步", 57_481)]),
+        ("ba", &[("吧", 8_469_475), ("把", 8_805_251)]),
+        ("you", &[("友", 19_462)]),
+        ("hen", &[("很", 2_544_248)]),
+        ("duo", &[("多", 4_347_697)]),
+        ("yue'pao", &[("约炮", 17_710)]),
+        ("pao'bu", &[("跑步", 335_220)]),
+        ("bu'ba", &[("不把", 61_125)]),
+        ("pao'you", &[("炮友", 7_075)]),
+        ("hen'duo", &[("很多", 8_495_676)]),
+    ]);
+    let paths = sentences("wo'men'yue'pao'bu'ba", &rows);
+    assert_clean(&paths);
+    assert_eq!(paths[0].sentence, "我们约跑步吧");
+    let paths = sentences("wo'de'pao'you'hen'duo", &rows);
+    assert_clean(&paths);
+    assert_eq!(paths[0].sentence, "我的跑友很多");
+}
+
+/// 豁免写法盖住的词照常拼句：水乳交融 含 乳交，但它是成语。
+#[test]
+fn an_exempt_word_is_still_assembled() {
+    let rows = table(&[
+        ("ta", &[("他", 13_506_151)]),
+        ("men", &[("们", 544_382)]),
+        ("ta'men", &[("他们", 8_697_542)]),
+        ("shui", &[("水", 125_437)]),
+        ("ru", &[("乳", 26_706)]),
+        ("jiao", &[("交", 392_654)]),
+        ("rong", &[("融", 24_888)]),
+        ("ru'jiao", &[("乳交", 1_196)]),
+        ("jiao'rong", &[("交融", 18_980)]),
+        ("shui'ru'jiao'rong", &[("水乳交融", 3_008)]),
+    ]);
+    let paths = sentences("ta'men'shui'ru'jiao'rong", &rows);
+    assert_clean(&paths);
+    assert_eq!(paths[0].sentence, "他们水乳交融");
 }
 
 #[test]

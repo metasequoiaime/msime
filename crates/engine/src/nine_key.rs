@@ -7113,6 +7113,57 @@ INSERT INTO tbl_2_y VALUES('you''ju','yj','邮局',22016);",
         assert!(words(&session).contains(&"巨乳".to_owned()));
     }
 
+    /// 含粗俗词的长词条也不拼进整句：九键打 我们要发展经济吧，发展 与 发现 同码（9426），词库里的 净鸡巴（jing'ji'ba，100）靠两个音节的奖励压过 经济|吧，首选曾是「我们要发现净鸡巴」。权重取自 dict-v2.0.39。
+    #[test]
+    fn sentences_are_not_assembled_from_words_containing_offensive_words() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_w VALUES('wo','w','我',26297004);
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_m VALUES('men','m','们',544382);
+CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_w VALUES('wo''men','wm','我们',13696325);
+CREATE TABLE tbl_3_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_3_w VALUES('wo''men''yao','wmy','我们要',330188);
+CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_y VALUES('yao','y','要',7812383);
+CREATE TABLE tbl_1_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_f VALUES('fa','f','发',666088);
+CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_z VALUES('zhan','z','展',973557);
+CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_x VALUES('xian','x','现',299876);
+CREATE TABLE tbl_2_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_f VALUES('fa''xian','fx','发现',3492384);
+INSERT INTO tbl_2_f VALUES('fa''zhan','fz','发展',2158053);
+CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_j VALUES('jing','j','经',289401);
+INSERT INTO tbl_1_j VALUES('jing','j','净',14695);
+INSERT INTO tbl_1_j VALUES('ji','j','济',7885);
+INSERT INTO tbl_1_j VALUES('ji','j','鸡',7677);
+CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_j VALUES('jing''ji','jj','经济',849252);
+INSERT INTO tbl_2_j VALUES('ji''ba','jb','鸡巴',2190);
+CREATE TABLE tbl_3_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_3_j VALUES('jing''ji''ba','jjb','净鸡巴',100);
+CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_b VALUES('ba','b','吧',8469475);
+INSERT INTO tbl_1_b VALUES('ba','b','巴',16099);",
+        );
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "9663692632942654645422");
+        assert!(
+            !sentence_words(&session).is_empty(),
+            "{:?}",
+            words(&session)
+        );
+        assert!(
+            words(&session).iter().all(|word| !word.contains("鸡巴")),
+            "{:?}",
+            words(&session)
+        );
+    }
+
     /// 键盘模型读不到时（测试目录里没有模型文件）没有模型行；词网格开关关着时，为重排解出的整句照样去掉，与 26 键里模型重排失败时一样。
     #[test]
     fn a_missing_keyboard_model_leaves_the_lattice_rows_to_their_switch() {
