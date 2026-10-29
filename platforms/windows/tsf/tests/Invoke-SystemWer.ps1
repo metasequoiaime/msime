@@ -52,6 +52,7 @@ try {
     $expectedExit = if ($case -eq 'caught') { 0 } else { -1073741819 }
     if ($process.ExitCode -ne $expectedExit) { throw "$case 退出码 $($process.ExitCode)，预期 $expectedExit" }
     $expected = Get-Content -LiteralPath (Join-Path $caseDirectory 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    Write-Output "$case error mode: inherited=$($expected.inherited_error_mode); effective=$($expected.effective_error_mode)"
     # WER 在目标进程退出后由独立 worker 投递；WaitForExit 只等待目标进程，不能代表 helper 已经运行完。
     # 给正、负两类样本都留出稳定窗口，避免把异步投递误判成缺失或在断言后才发现越权记录。
     $deadline = (Get-Date).AddSeconds(30)

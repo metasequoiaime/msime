@@ -50,8 +50,13 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   require(SetEnvironmentVariableW(L"LOCALAPPDATA", root.c_str()) &&
           SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", root.c_str()) &&
           SetEnvironmentVariableW(L"MSIME_TSF_TEST_SYSTEM_WER", L"1"), "synthetic environment failed");
-  // 只排入系统队列，不在专项里请求上传或改变系统级 WER 政策。
-  require(SUCCEEDED(WerSetFlags(WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP)), "WER flags failed");
+  // 自动化宿主可能继承禁用 WER 的错误模式；只在本合成子进程清除此位，不能改加载 TIP 的真实宿主。
+  const auto inherited_error_mode = GetErrorMode();
+  SetErrorMode(inherited_error_mode & ~SEM_NOGPFAULTERRORBOX);
+  require((GetErrorMode() & SEM_NOGPFAULTERRORBOX) == 0, "synthetic process still suppresses WER");
+  // 关闭弹窗用 WER 自己的标志，不能用 SEM_NOGPFAULTERRORBOX 把整个系统投递路径也关掉。
+  require(SUCCEEDED(WerSetFlags(WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP |
+                              WER_FAULT_REPORTING_NO_UI)), "WER flags failed");
   wchar_t buffer[32768]{};
   const auto length = GetModuleFileNameW(nullptr, buffer, 32768);
   require(length && length < 32768, "test executable path unavailable");
@@ -87,6 +92,7 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   // 致命故障前关闭夹具文件；预期头来自生产控制器发布的快照。
   {
     nlohmann::json expected{{"mode", mode}, {"record_expected", record_expected},
+      {"inherited_error_mode", inherited_error_mode}, {"effective_error_mode", GetErrorMode()},
       {"path", std::filesystem::path(std::u16string(current.path)).u8string()},
       {"initial_path", std::filesystem::path(std::u16string(first.path)).u8string()},
       {"header", current.header}, {"module", mode == "host" ? current.modules[1].name : current.modules[0].name}};
