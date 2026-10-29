@@ -124,6 +124,51 @@ fn a_local_failure_is_retried_without_changing_whether_it_is_active() {
     assert_eq!(planner.due, 2 * RETRY + 1);
 }
 
+#[test]
+fn an_active_local_failure_defers_an_overdue_file_poll_until_retry() {
+    let mut planner = planner();
+    planner.finished(0, done(schedule::PULL_INTERVAL_MS));
+    planner.rebase(Some(1), Some(100));
+    assert_eq!(planner.next(POLL), Step::Poll);
+
+    // 文件探测在更新 `next_poll` 前失败，下一步必须退避而不是马上重探。
+    planner.finished(POLL, Ran::Failed);
+    assert!(planner.active);
+    assert_eq!(planner.next(POLL), Step::Wait(RETRY));
+    assert_eq!(planner.next(POLL + RETRY - 1), Step::Wait(1));
+    assert_eq!(planner.next(POLL + RETRY), Step::Run(Trigger::Periodic));
+    planner.finished(POLL + RETRY, done(60_000));
+    assert_eq!(planner.next(POLL + RETRY), Step::Poll);
+    planner.polled(POLL + RETRY, Some(1));
+    assert_eq!(planner.next(POLL + RETRY), Step::Wait(POLL));
+}
+
+#[test]
+fn an_active_local_failure_defers_a_pending_fingerprint_until_retry() {
+    let mut planner = planner();
+    planner.finished(0, done(schedule::PULL_INTERVAL_MS));
+    planner.rebase(Some(1), Some(100));
+    planner.polled(POLL, Some(2));
+    planner.polled(2 * POLL, Some(2));
+    assert_eq!(planner.next(2 * POLL), Step::Fingerprint);
+
+    // 指纹检查失败前还没有清掉待检查标记，不能立即重复同一个失败步骤。
+    planner.finished(2 * POLL, Ran::Failed);
+    assert_eq!(planner.next(2 * POLL), Step::Wait(RETRY));
+    assert_eq!(planner.baseline, Some(100));
+    assert_eq!(planner.changed_since, Some(POLL));
+    // 重试再次失败时，从本次失败重新计时。
+    planner.finished(2 * POLL + RETRY, Ran::Failed);
+    assert_eq!(planner.next(2 * POLL + RETRY), Step::Wait(RETRY));
+    assert_eq!(
+        planner.next(2 * POLL + 2 * RETRY),
+        Step::Run(Trigger::Periodic)
+    );
+    // 后续发现未配置时恢复原来的空闲间隔，不遗留失败阶段。
+    planner.finished(2 * POLL + 2 * RETRY, Ran::Inactive);
+    assert_eq!(planner.next(2 * POLL + 2 * RETRY), Step::Wait(IDLE));
+}
+
 fn view() -> SyncView {
     SyncView {
         device_id: None,
