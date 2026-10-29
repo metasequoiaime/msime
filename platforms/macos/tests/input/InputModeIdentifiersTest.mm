@@ -185,26 +185,52 @@ int main() {
                     [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available, YES) isEqualToString:@"shuangpin"] &&
                     [MSIMESchemeForReportedInputMode(MSIMEInputMode::Japanese, @"shuangpin", nil, Available, YES) isEqualToString:@"japanese"],
                 "中 reported on switching back to the input method moved the scheme off the one in use.");
-        // 和控制器的顺序一致：离开时清空记录，切回后第一次报告 中 时记录为空，方案不动，同步把菜单栏重新选回 双；之后在水杉里从 双 切到 中，记录不为空，才改用全拼。
+        // 和控制器的顺序一致：采纳之前读 switchedIn，采纳之后清掉它。
+        auto report = [](MSIMESystemInputModeState &state, NSString *mode, NSString *scheme) -> NSString * {
+            const BOOL switchedIn = state.switchedIn;
+            if (!MSIMEAdoptReportedInputMode(state, mode)) return @"not adopted";
+            state.switchedIn = false;
+            return MSIMESchemeForReportedInputMode(MSIMEInputModeForID(mode), scheme, nil, Available, switchedIn) ?: @"kept";
+        };
         {
+            // 进程刚启动和离开水杉清空记录之后都算刚切进；清空时把标记一起恢复。
             MSIMESystemInputModeState state;
-            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            require(state.switchedIn, "A fresh record was not marked as just switched in.");
+            state.switchedIn = false;
             MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
             MSIMEResetSystemInputModeState(state);
-            BOOL switchedIn = state.current == nil;
-            require(switchedIn && MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID) &&
-                        MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available, switchedIn) == nil,
+            require(state.switchedIn && state.current == nil, "Leaving the input method did not mark the record as just switched in.");
+        }
+        {
+            // 报告先于激活校准：切回后第一次报告 中，方案不动，同步把菜单栏重新选回 双；之后在水杉里从 双 切到 中，才改用全拼。
+            MSIMESystemInputModeState state;
+            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"kept"] && !state.switchedIn,
                     "The first 中 after switching back moved shuangpin to quanpin.");
             require(MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
                         [client.selected isEqualToArray:@[MSIMEShuangpinInputModeID]] && [state.current isEqualToString:MSIMEShuangpinInputModeID],
                     "Keeping shuangpin after switching back did not select 双 again.");
-            switchedIn = state.current == nil;
-            require(!switchedIn && MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID) &&
-                        [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available, switchedIn) isEqualToString:@"quanpin"],
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
                     "中 picked over 双 inside the input method did not move to quanpin.");
-            // 激活时校准过记录（系统已恢复到 中）再收到的 中 是重复报告，不会被采纳，也就不会改方案。
-            MSIMEResetSystemInputModeState(state);
-            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) && !MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID),
+        }
+        {
+            // 激活校准先于报告：校准记下系统落在的 中，随后的同步选回 双，滞后到达的 中 报告虽然和记录不同、会被采纳，仍按切回处理而不改全拼。
+            MSIMESystemInputModeState state;
+            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&
+                        MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) && state.switchedIn,
+                    "Calibration or the select after it cleared the switched-in mark.");
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"kept"],
+                    "A 中 arriving after calibration had selected 双 moved shuangpin to quanpin.");
+            require(MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
+                        [report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
+                    "中 picked after the switch back had been handled did not move to quanpin.");
+        }
+        {
+            // 校准记下的 中 被重复报告时不采纳，也不清掉标记：之后滞后的选择仍按切回处理，直到第一次采纳或按键。
+            MSIMESystemInputModeState state;
+            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&
+                        [report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"not adopted"] && state.switchedIn,
                     "A 中 repeating the restored mode was adopted as a choice.");
         }
 
@@ -350,8 +376,10 @@ int main() {
         require(state.current == nil && !state.selecting, "Resetting left the record naming a mode.");
         require(MSIMEAdoptReportedInputMode(state, MSIMEEnglishInputModeID) && [state.current isEqualToString:MSIMEEnglishInputModeID],
                 "A report after leaving the input method was not adopted.");
+        MSIMESharedSystemInputModeState().switchedIn = false;
         MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
-        require(MSIMESharedSystemInputModeState().current == nil, "The shared record did not reset.");
+        require(MSIMESharedSystemInputModeState().current == nil && MSIMESharedSystemInputModeState().switchedIn,
+                "The shared record did not reset.");
         MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
 
         // 粤拼、注音、越南文、藏文和笔画各有自己的模式，每个模式都映射回自己的方案。

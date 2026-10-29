@@ -5281,10 +5281,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!optIn || [self enableOptInInputMode:optIn]) _appearance.lastSyncedInputScheme = scheme;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
-    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
 }
+// 系统输入菜单里某个模式是否可选。单独的入口让原生测试换上合成的可用性，不依赖开发者或 CI 机器上真实启用了哪些模式。
+- (MSIMEInputModeAvailability)inputModeAvailability { return MSIMEInputSourceIsEnabled; }
 // 单独读取入口让原生测试注入合成输入源，不切换开发者的真实输入源。
 - (NSString *)selectedSystemInputModeID {
     TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
@@ -5331,9 +5333,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEInputController *focused = MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
-    // 离开水杉时共享记录被清空，激活后的校准（MSIMERecordRestoredSystemInputMode）或本控制器的选择都会再记下一个模式。记录为空说明这是从别的输入源切回来后的第一次报告，不是用户在水杉里换了模式（#10199）。
-    const BOOL switchedIn = state.current == nil;
+    // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
+    const BOOL switchedIn = state.switchedIn;
     if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    state.switchedIn = false;
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
@@ -5343,7 +5346,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
     NSString *target =
-        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled, switchedIn);
+        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     if (target && ![target isEqualToString:scheme]) {
@@ -7345,6 +7348,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (queueMs >= 8.0) msime_macos_diagnostic_writef("[key-latency] stage=queue type=%s elapsed_ms=%.3f", label, queueMs);
     }
     _smartPunctuationShadowWritten = NO;
+    // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) MSIMESharedSystemInputModeState().switchedIn = false;
     if (event.type == NSEventTypeKeyDown && sender) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)

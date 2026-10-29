@@ -249,9 +249,12 @@ static inline NSString *MSIMESchemeForInputMode(MSIMEInputMode mode) {
 // Keeps the system's selected input mode and the controller's Chinese/English state and scheme in step without either side echoing the other. The selected mode is global to the login session, so one state serves every controller instance.
 //
 // `current` is the mode last reported by the system or last requested by the controller; a report that repeats it is the system confirming what is already shown, not a user choice, so it does not flip the controller's state. `selecting` is set while the controller is asking the client to switch, so a report delivered synchronously from inside that call is not treated as a new choice either.
+//
+// `switchedIn` 表示切进水杉之后还没见到用户在水杉里做过选择：离开水杉时的清空和进程启动都把它置为真，第一次被采纳的报告或第一次按下的键把它清掉。激活后的校准（MSIMERecordRestoredSystemInputMode）和控制器自己的选择（MSIMESelectSystemInputMode）都不碰它，所以切回时系统落在 中 上的那次报告不论排在校准和随后选回 双 之前还是之后，都仍按切回处理，不当作用户越过 双 选了 中（#10199）。进程启动也算切进：Sparkle 在切走时装更新、进程退出，切回时系统从新 bundle 拉起的正是这种情况；代价是进程刚启动、还没按键时用户在输入菜单里明确选 中，这一次不改方案。它依赖离开时的清空真的发生：离开回调在通知送达时才读当前输入源，用户很快地切走又切回（连按两次 Caps Lock 或 Ctrl+Space）、或者通知送达得晚，读到的已经是水杉，就不会清空，这时切回报告的 中 仍按水杉里的选择处理。
 struct MSIMESystemInputModeState {
     NSString *current = nil;
     bool selecting = false;
+    bool switchedIn = true;
 };
 
 // The system's selected input mode is global to the login session, so every controller instance shares one record of it. Leaving the input method clears it, so the first report after coming back is adopted even if it names the mode shown before leaving.
@@ -282,7 +285,7 @@ static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState 
 
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
 //
-// `switchedIn` 表示这是从别的输入源切回水杉后的第一次报告（共享记录在离开时被清空，还没有记下任何模式）。这时系统报告的 中 不算用户越过 双 等模式做的选择：macOS 切回时可能落在 中 入口上，而用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式；只有已经在用水杉时从 双 等模式切到 中，才改用默认方案。
+// `switchedIn` 取自共享记录的同名字段（MSIMESystemInputModeState），表示切进水杉后还没见到用户的选择。这时系统报告的 中 不算用户越过 双 等模式做的选择：macOS 切回时可能落在 中 入口上，而用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式；只有已经在水杉里按过键或做过选择之后从 双 等模式切到 中，才改用默认方案。
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available, BOOL switchedIn) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);
