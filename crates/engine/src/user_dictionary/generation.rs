@@ -107,6 +107,12 @@ pub fn prepare_runtime_paths_for(
         .suffix(STAGE_SUFFIX)
         .tempdir_in(&parent)?;
     let staged = (|| -> Result<()> {
+        if main_dictionary {
+            check_dictionary_format(
+                &resources.join(assets::MAIN_DICTIONARY),
+                assets::MAIN_DICTIONARY,
+            )?;
+        }
         for name in generation_dictionaries(main_dictionary) {
             copy_database(&resources.join(name), &stage.path().join(name))?;
         }
@@ -171,6 +177,11 @@ fn open_ready_generation(
     }
     // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。没有工作主词库的代次没有地方放五笔表。
     if main_dictionary {
+        // 代次里的主库副本带着来源文件的 `metadata`。就绪的代次可能是更新的引擎用更新格式的词库准备的（宿主降级后仍选着那份下载的词库更新），这里不查，会话就会照旧格式去读它。
+        check_dictionary_format(
+            &result.dictionary(assets::MAIN_DICTIONARY),
+            assets::MAIN_DICTIONARY,
+        )?;
         merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
     }
     // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
@@ -440,6 +451,7 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
     if !is_real_file(&source) {
         return Ok(());
     }
+    check_dictionary_format(&source, assets::WUBI_DICTIONARY)?;
     let merged = (|| -> rusqlite::Result<()> {
         let source = crate::paths::sqlite_read_only_path_no_follow(&source)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
@@ -511,6 +523,40 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
             source.display()
         ))
     })
+}
+
+/// 资源目录里的主库或五笔库在复制、合并进代次之前先查文件内版本（[`crate::format::check_format_version`]）：比这个引擎新的格式拒绝，旧格式和没有 `metadata` 表的旧发布照常使用。`name` 只用于错误信息。文件不在、打不开或不是数据库时这里不报错，复制与合并照原来的方式报告它。
+pub(crate) fn check_dictionary_format(path: &Path, name: &str) -> Result<()> {
+    let Ok(resolved) = crate::paths::sqlite_read_only_path_no_follow(path) else {
+        return Ok(());
+    };
+    let Ok(connection) = Connection::open_with_flags(
+        &resolved,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return Ok(());
+    };
+    // 与 `copy_database` 一样不等锁：资源文件没有写者，读不了就交给后面的步骤报告。
+    if connection.busy_timeout(Duration::ZERO).is_err() {
+        return Ok(());
+    }
+    match crate::format::check_format_version(&connection, name) {
+        Ok(_) | Err(EngineError::Sqlite(_)) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// 只读布局（代次目录就是资源目录，网页引擎、后端和部分测试这样用）没有准备代次这一步，建会话时在这里查主库和五笔库的文件内版本，规则与准备代次时相同。其他布局什么也不做：它们的文件在准备代次时已经查过。
+pub(crate) fn check_read_only_layout(paths: &RuntimePaths) -> Result<()> {
+    if paths.dictionaries != paths.resources {
+        return Ok(());
+    }
+    for name in [assets::MAIN_DICTIONARY, assets::WUBI_DICTIONARY] {
+        check_dictionary_format(&paths.dictionary(name), name)?;
+    }
+    Ok(())
 }
 
 /// 把资源带的可选 n-gram 表复制进代次。已就绪的代次也会以 `replace_existing` 为假调用它：后来的版本才开始发布的表不用换代次就能补上，会话可能已经映射着的那张保持不动（RP:76-90）。
@@ -1943,5 +1989,128 @@ mod tests {
 
         assert!(write_private_file(&marker, b"ready\n").is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+    }
+
+    fn stamp(path: &Path, version: i32) {
+        sql(
+            path,
+            &format!(
+                "{} INSERT OR REPLACE INTO metadata VALUES('format_version', '{version}');",
+                crate::format::METADATA_SCHEMA
+            ),
+        );
+    }
+
+    fn assert_unsupported(error: &EngineError, file: &str) {
+        let text = error.to_string();
+        assert!(
+            text.starts_with(diagnostics::DICTIONARY_FORMAT_UNSUPPORTED),
+            "{text}"
+        );
+        assert!(text.contains(file), "{text}");
+    }
+
+    /// 带文件内版本的主库照常准备，`metadata` 随备份一起进代次；比引擎新的主库拒绝准备，不留下代次也不留下暂存目录。没有 `metadata` 的旧发布由其余测试覆盖。
+    #[test]
+    fn preparation_checks_the_main_dictionary_format_version() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let main = resources.join(assets::MAIN_DICTIONARY);
+
+        stamp(&main, crate::format::FORMAT_VERSION);
+        let prepared = prepare_runtime_paths(&resources, &user, &cache, "current").unwrap();
+        let copy = Connection::open(prepared.dictionary(assets::MAIN_DICTIONARY)).unwrap();
+        assert_eq!(
+            crate::format::check_format_version(&copy, assets::MAIN_DICTIONARY).unwrap(),
+            crate::format::FORMAT_VERSION
+        );
+
+        stamp(&main, crate::format::FORMAT_VERSION + 1);
+        let error = prepare_runtime_paths(&resources, &user, &cache, "newer").unwrap_err();
+        assert_unsupported(&error, assets::MAIN_DICTIONARY);
+        assert!(!user.join("dictionaries").join("newer").exists());
+        assert!(stages(&user).is_empty());
+    }
+
+    /// 已经就绪的代次再次打开时也查主库副本：更新的引擎用更新格式准备好的代次，降级后的引擎不能照旧格式去读。
+    #[test]
+    fn reopening_a_ready_generation_checks_the_main_dictionary_format_version() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let prepared = prepare_runtime_paths(&resources, &user, &cache, "current").unwrap();
+        let copy = prepared.dictionary(assets::MAIN_DICTIONARY);
+        assert!(prepared
+            .dictionaries
+            .join(assets::GENERATION_READY)
+            .is_file());
+
+        stamp(&copy, crate::format::FORMAT_VERSION);
+        prepare_runtime_paths(&resources, &user, &cache, "current").unwrap();
+
+        stamp(&copy, crate::format::FORMAT_VERSION + 1);
+        let error = prepare_runtime_paths(&resources, &user, &cache, "current").unwrap_err();
+        assert_unsupported(&error, assets::MAIN_DICTIONARY);
+    }
+
+    /// 单独发布的五笔库同样检查：比引擎新的 `msime-wubi.db` 不会并进代次。
+    #[test]
+    fn preparation_checks_the_wubi_dictionary_format_version() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let wubi = resources.join(assets::WUBI_DICTIONARY);
+        sql(
+            &wubi,
+            "CREATE TABLE wubi86(key TEXT NOT NULL,value TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,UNIQUE(key,value));
+             INSERT INTO wubi86 VALUES('wq','你',10);",
+        );
+        stamp(&wubi, crate::format::FORMAT_VERSION + 1);
+        let error = prepare_runtime_paths(&resources, &user, &cache, "newer").unwrap_err();
+        assert_unsupported(&error, assets::WUBI_DICTIONARY);
+        assert!(!user.join("dictionaries").join("newer").exists());
+
+        stamp(&wubi, crate::format::FORMAT_VERSION);
+        let prepared = prepare_runtime_paths(&resources, &user, &cache, "current").unwrap();
+        assert_eq!(
+            weight(
+                &prepared.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM wubi86 WHERE value='你'"
+            ),
+            Some(10)
+        );
+    }
+
+    /// 只读布局在建会话时检查；其他布局不在这里查。
+    #[test]
+    fn the_read_only_layout_checks_the_format_version() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let paths = RuntimePaths {
+            resources: resources.clone(),
+            user_data: root.path().join("user"),
+            cache: root.path().join("cache"),
+            dictionaries: resources.clone(),
+        };
+        check_read_only_layout(&paths).unwrap();
+        stamp(
+            &resources.join(assets::MAIN_DICTIONARY),
+            crate::format::FORMAT_VERSION + 1,
+        );
+        let error = check_read_only_layout(&paths).unwrap_err();
+        assert_unsupported(&error, assets::MAIN_DICTIONARY);
+        let error = crate::Session::new(crate::SessionOptions::new(paths.clone()))
+            .err()
+            .expect("a newer dictionary format refuses the session");
+        assert_unsupported(&error, assets::MAIN_DICTIONARY);
+        let generation = RuntimePaths {
+            dictionaries: root.path().join("user/dictionaries/v1"),
+            ..paths
+        };
+        check_read_only_layout(&generation).unwrap();
     }
 }

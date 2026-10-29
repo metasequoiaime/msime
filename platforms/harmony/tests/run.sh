@@ -437,6 +437,48 @@ if ! grep -qF 'this.recordLetterTouch($$.letter, event);' "$view" \
   echo "KeyboardView must record each letter's touch-down against the key it pressed, drop it on Cancel and when the face is replaced, record the semicolon key, take it through takeTouch at the key's current rect, and compute touchLayout on every key without a cache" >&2
   exit 1
 fi
+# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，流式识别停顿自动结束。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
+lock_branch=$(sed -n '/^      if (action === VoiceHotkeyAction.LOCK) {$/,/^      }$/p' "$view")
+if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
+  || ! grep -qF 'primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),' "$view" \
+  || ! grep -qF 'cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),' "$view"; then
+  echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
+  exit 1
+fi
+# 双拼纠错坐上首选的显式标记（#10018）：引擎只在那一行带 `confident_correction: true`。读法、读屏后缀、标记色以及展开面板选哪套令牌由 keyboard-logic.test.ts 的 `CorrectionMarkPolicy` 覆盖；会话和视图是 ArkTS，这里钉住接线和每处传进去的令牌：会话把引擎行变成候选栏、展开面板的三处都经 `CorrectionMarkPolicy.confident` 读这个键，翻译页的行一律不标；视图在候选窗、触屏胶囊上的候选字经 `candidateWordColor`、注释释义经 `candidateDetailTint` 换成标记色（两处里不再有没经过它的次要色），展开面板格子经 `CorrectionMarkPolicy.cellTextColor` 用 `expandedSurfaceColors`；两套令牌逐项钉住，交换高亮字色与强调色、换掉画布判断都会失败；两处读屏朗读都接上「已纠正」后缀。去掉空白和换行后比较整段调用，参数换行不影响。
+view_body() { sed -n "/^  $1\$/,/^  }\$/p" "$view" | tr -d ' \n'; }
+label_body=$(sed -n '/^  private candidateLabel(candidate: CandidateEntry, index: number): string {$/,/^  }$/p' "$view")
+expanded_label_body=$(sed -n '/^  private expandedLabel(index: number): string {$/,/^  }$/p' "$view")
+primary_body=$(view_body 'candidatePrimaryLine(candidate: CandidateEntry) {')
+cell_body=$(view_body 'candidateCell(candidate: CandidateEntry, index: number) {')
+chip_body=$(view_body 'candidateChip(candidate: CandidateEntry, index: number) {')
+grid_body=$(view_body 'expandedGrid() {')
+surface_body=$(view_body 'private candidateSurfaceColors(): CorrectionSurfaceColors {')
+word_body=$(view_body 'private candidateWordColor(candidate: CandidateEntry): string {')
+detail_body=$(view_body 'private candidateDetailTint(candidate: CandidateEntry, base: string): string {')
+expanded_surface_body=$(view_body 'private expandedSurfaceColors(): CorrectionSurfaceColors {')
+if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)' "$session") -ne 3 ]] \
+  || ! grep -qF 'fixedPosition: 0, source: 0, translation: null, confidentCorrection: false' "$session" \
+  || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$primary_body" | wc -l) -ne 1 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$primary_body" | wc -l) -ne 5 ]] \
+  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$primary_body" \
+  || ! grep -qF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$cell_body" \
+  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$cell_body" \
+  || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$chip_body" | wc -l) -ne 1 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.skin.secondary))' <<< "$chip_body" | wc -l) -ne 3 ]] \
+  || grep -qF '.fontColor(this.skin.secondary)' <<< "$chip_body" \
+  || ! grep -qF '.fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,this.expandedHighlighted(cell.index),this.expandedSurfaceColors()))' <<< "$grid_body" \
+  || ! grep -qF 'text:this.candidateTextColor(),highlightedText:this.candidateSelectedTextColor(),accent:this.candidateAccentColor()' <<< "$surface_body" \
+  || ! grep -qF 'if(CandidatePresentationPolicy.aiPlaceholder(candidate.source))returnthis.candidateDetailColor();returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,CandidateSkinPolicy.rowTextColor(candidate.highlighted,candidate.fixedPosition>0,this.candidateTextColor(),this.candidateSelectedTextColor()),this.candidateSurfaceColors());' <<< "$word_body" \
+  || ! grep -qF 'returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,base,this.candidateSurfaceColors());' <<< "$detail_body" \
+  || ! grep -qF 'text:this.skin.keyForeground,highlightedText:this.skin.toggleForeground,accent:this.skin.accent' <<< "$expanded_surface_body" \
+  || ! grep -qF 'returnCorrectionMarkPolicy.expandedSurface(this.settings.candidateCanvas!==null,this.candidateSurfaceColors(),keyboard);' <<< "$expanded_surface_body" \
+  || grep -qF 'correctionDecoration' "$view" \
+  || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
+  || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
+  echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。

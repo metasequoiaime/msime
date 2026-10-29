@@ -34,6 +34,8 @@ pub const DEFAULT_KEEP_MULTI: usize = 200_000;
 const WUBI86_TABLE: &str = "wubi86";
 const WUBI98_TABLE: &str = "wubi98";
 const EMPTIED_TABLES: [&str; 2] = [WUBI98_TABLE, "quick_parases"];
+/// 文件内版本表（`msime_engine::format::METADATA_SCHEMA`）。两个输出库原样保留拼音库的这张表，`msime-wubi.db` 的同名表不再复制：裁出的库与拼音库同一个格式版本。
+const METADATA_TABLE: &str = "metadata";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flavour {
@@ -212,7 +214,7 @@ fn open_read_only(path: &Path) -> Result<Connection> {
     sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))
 }
 
-/// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`（和 SQLite 自己的统计表），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
+/// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`（和 SQLite 自己的统计表，以及跳过不复制的 `metadata`），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
 fn merge_wubi(connection: &mut Connection, wubi: &Path) -> Result<()> {
     let source = open_read_only(wubi)?;
     let mut statement = source.prepare(
@@ -236,6 +238,9 @@ fn merge_wubi(connection: &mut Connection, wubi: &Path) -> Result<()> {
     }
     let transaction = connection.transaction()?;
     for (kind, name, sql) in &schema {
+        if kind == "table" && name == METADATA_TABLE {
+            continue;
+        }
         if kind == "table" {
             if name != WUBI86_TABLE && name != WUBI98_TABLE {
                 bail!("{}: unexpected table {name}", wubi.display());
@@ -283,7 +288,7 @@ fn vacuum_into(connection: &Connection, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`quick_parases` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
+/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`quick_parases`、`metadata` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
 fn classify(connection: &Connection) -> Result<Tables> {
     let single_names: HashSet<String> = SHIPPED_INITIALS
         .bytes()
@@ -307,7 +312,10 @@ fn classify(connection: &Connection) -> Result<Tables> {
             tables.multi.push(name);
         } else if name == WUBI86_TABLE {
             wubi86 = true;
-        } else if !EMPTIED_TABLES.contains(&name.as_str()) && !name.starts_with("sqlite_") {
+        } else if !EMPTIED_TABLES.contains(&name.as_str())
+            && name != METADATA_TABLE
+            && !name.starts_with("sqlite_")
+        {
             bail!("unexpected table {name} in the input dictionary");
         }
     }

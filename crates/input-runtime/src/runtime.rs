@@ -718,6 +718,9 @@ impl<E: InputEngine> Runtime<E> {
             if snapshot.candidate_touch_supported.len() == order.len() {
                 snapshot.candidate_touch_supported.swap(left, right);
             }
+            if snapshot.candidate_confident_correction.len() == order.len() {
+                snapshot.candidate_confident_correction.swap(left, right);
+            }
             engine_order.swap(left, right);
         });
     }
@@ -1773,6 +1776,14 @@ impl<E: InputEngine> Runtime<E> {
                 .get(index)
                 .copied()
                 .unwrap_or(false),
+            // 只标真正坐在第一位的那一行：插件或固定位置把它挪开以后，它只是一条普通的纠错行。
+            confident_correction: index == 0
+                && self
+                    .cached
+                    .candidate_confident_correction
+                    .first()
+                    .copied()
+                    .unwrap_or(false),
             fixed_position: self
                 .cached
                 .candidate_positions
@@ -2849,6 +2860,9 @@ impl<E: InputEngine> Runtime<E> {
         if snapshot.candidate_touch_supported.len() == count {
             rotate_to_front(&mut snapshot.candidate_touch_supported, promote);
         }
+        if snapshot.candidate_confident_correction.len() == count {
+            rotate_to_front(&mut snapshot.candidate_confident_correction, promote);
+        }
         rotate_to_front(&mut self.engine_order, promote);
         true
     }
@@ -2970,6 +2984,7 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_answers_key: Vec::new(),
                     candidate_static_evidence: Vec::new(),
                     candidate_touch_supported: Vec::new(),
+                    candidate_confident_correction: Vec::new(),
                     candidate_list_open: false,
                     microsoft_shuangpin: false,
                     shuangpin_profile: String::new(),
@@ -3022,7 +3037,9 @@ impl<E: InputEngine> Runtime<E> {
                 && self.cached.candidate_corrected == previous.candidate_corrected
                 && self.cached.candidate_answers_key == previous.candidate_answers_key
                 && self.cached.candidate_static_evidence == previous.candidate_static_evidence
-                && self.cached.candidate_touch_supported == previous.candidate_touch_supported;
+                && self.cached.candidate_touch_supported == previous.candidate_touch_supported
+                && self.cached.candidate_confident_correction
+                    == previous.candidate_confident_correction;
             if candidates_held {
                 self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
             } else if previous_highlight > 0 {
@@ -3060,6 +3077,7 @@ impl<E: InputEngine> Runtime<E> {
             || cached.multilingual_conversion != previous.multilingual_conversion
             || cached.candidate_positions != previous.candidate_positions
             || cached.candidate_corrected != previous.candidate_corrected
+            || cached.candidate_confident_correction != previous.candidate_confident_correction
             || cached.candidate_list_open != previous.candidate_list_open
             || cached.prediction != previous.prediction
         {

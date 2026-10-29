@@ -17,6 +17,7 @@ import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/CorrectionMarkPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
@@ -137,6 +138,7 @@ import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
+import { VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
 
 import { TextPolicy } from './TextPolicy';
 import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
@@ -900,6 +902,8 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.LOCK) {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
+        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
+        this.voiceHeldByKey = false;
       }
     };
     KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
@@ -4105,38 +4109,36 @@ struct KeyboardView {
     Row() {
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
         .fontWeight(this.candidateWeight(candidate))
-        .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
-          : CandidateSkinPolicy.rowTextColor(candidate.highlighted,
-          candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateSelectedTextColor()))
+        .fontColor(this.candidateWordColor(candidate))
       if (candidate.badge.length > 0) {
         Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
       }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 2 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 2 })
       }
       // Only where there is no gloss line, the vertical 2in1 list; everywhere else the 훈음 is on the line under the Hanja.
       if (candidate.hunEum.length > 0 && !this.candidateUsesGlossLine()) {
         Text(candidate.hunEum)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
       if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailColor())
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
             .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
         } else {
           Text(candidate.annotation)
             .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-            .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
         }
       } else if (candidate.annotation.length > 0 && !candidate.annotationIsTranslation) {
         Text(candidate.annotation)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
     }
     .alignItems(VerticalAlign.Center)
@@ -4156,8 +4158,45 @@ struct KeyboardView {
     const suffix: string = CandidateGlossPolicy.hunEumAccessibilitySuffix(candidate.hunEum)
       + CandidateGlossPolicy.accessibilitySuffix(
         candidate.annotationIsTranslation ? null : annotation,
-        candidate.annotationIsTranslation ? annotation : null, true);
+        candidate.annotationIsTranslation ? annotation : null, true)
+      + CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection);
     return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
+  }
+
+  /** 候选窗与触屏胶囊画字所用的令牌，首选纠错行（`confidentCorrection`）的标记色由它经 `CorrectionMarkPolicy.markColor` 算出。 */
+  private candidateSurfaceColors(): CorrectionSurfaceColors {
+    const colors: CorrectionSurfaceColors = {
+      text: this.candidateTextColor(),
+      highlightedText: this.candidateSelectedTextColor(),
+      accent: this.candidateAccentColor()
+    };
+    return colors;
+  }
+
+  /** 候选窗与触屏胶囊上候选字的颜色：在线占位行画次要色，首选纠错行画标记色，其余按固定词与高亮的规则。 */
+  private candidateWordColor(candidate: CandidateEntry): string {
+    if (CandidatePresentationPolicy.aiPlaceholder(candidate.source)) return this.candidateDetailColor();
+    return CorrectionMarkPolicy.tint(candidate.confidentCorrection, candidate.highlighted,
+      CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
+        this.candidateTextColor(), this.candidateSelectedTextColor()),
+      this.candidateSurfaceColors());
+  }
+
+  /** 这一行注释、释义、编码提示的颜色：`base` 是这一处原来的次要色，首选纠错行换成标记色，原始按键注释因此在高亮的首选上也看得出标记。 */
+  private candidateDetailTint(candidate: CandidateEntry, base: string): string {
+    return CorrectionMarkPolicy.tint(candidate.confidentCorrection, candidate.highlighted, base,
+      this.candidateSurfaceColors());
+  }
+
+  /** 展开面板格子的令牌：有候选包画布时用候选区配色，没有时格子是按键，高亮格用 `toggleForeground`，与格子的底色同源。 */
+  private expandedSurfaceColors(): CorrectionSurfaceColors {
+    const keyboard: CorrectionSurfaceColors = {
+      text: this.skin.keyForeground,
+      highlightedText: this.skin.toggleForeground,
+      accent: this.skin.accent
+    };
+    return CorrectionMarkPolicy.expandedSurface(this.settings.candidateCanvas !== null,
+      this.candidateSurfaceColors(), keyboard);
   }
 
   /** The line under a candidate: a Korean Hanja's 훈음 and then the translation. An Engine annotation is not on it; that stays beside the word. */
@@ -4183,7 +4222,7 @@ struct KeyboardView {
           this.candidatePrimaryLine(candidate)
           Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailColor())
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
             // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
             .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
             .maxLines(1)
@@ -4624,9 +4663,7 @@ struct KeyboardView {
           .fontSize(this.chipFontSize())
           .lineHeight(this.chipFontSize() * CHIP_WORD_LINE_HEIGHT)
           .fontWeight(this.candidateWeight(candidate))
-          .fontColor(CandidatePresentationPolicy.aiPlaceholder(candidate.source) ? this.candidateDetailColor()
-            : CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
-            this.candidateTextColor(), this.candidateSelectedTextColor()))
+          .fontColor(this.candidateWordColor(candidate))
           .fontFamily(this.candidateFontFamily())
           .maxLines(1)
         if (candidate.badge.length > 0) {
@@ -4640,14 +4677,14 @@ struct KeyboardView {
         if (candidate.hint.length > 0) {
           Text(candidate.hint)
             .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
-            .fontColor(this.skin.secondary)
+            .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
             .padding({ left: 2 })
             .maxLines(1)
         }
         if (this.chipAnnotationBeside(candidate)) {
           Text(candidate.annotation)
             .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
-            .fontColor(this.skin.secondary)
+            .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
             .padding({ left: 3 })
             .maxLines(1)
         }
@@ -4658,7 +4695,7 @@ struct KeyboardView {
         Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
           .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
           .lineHeight(this.stripSized(CHIP_GLOSS_LINE_VP))
-          .fontColor(this.skin.secondary)
+          .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
           .fontFamily(this.candidateFontFamily())
           .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
           .maxLines(1)
@@ -7921,20 +7958,17 @@ struct KeyboardView {
     return this.voiceDone.length > 0 ? '已识别：' : '';
   }
 
-  /** 手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。 */
-  private voicePrimaryLabel(): string {
-    if (this.voiceDone.length > 0 || (this.voiceHeldByKey && this.voiceBusy)) return '';
-    if (this.voiceFinishing) return '正在识别…';
-    if (this.voiceBusy) return '说完了';
-    return this.voiceText.length > 0 ? '插入文字' : '重新录音';
-  }
-
   /**
-   * 按住说话（空格长按或快捷键按住）的会话在忙时不给任何按钮：松手就是结束，整块高度都留给圆盘和文字。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间同样没有按钮，结束和取消走快捷键自己的 STOP、CANCEL。点按开始的会话可以取消；不忙时（提示、出错、识别完成）一律留「返回键盘」，否则没有路离开面板。
+   * 聆听面板按钮要看的会话状态，按钮文字由 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 决定。手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间没有按钮，结束和取消走快捷键自己的 STOP、CANCEL，LOCK 之后按点按开始对待。
    */
-  private voiceCancelLabel(): string {
-    if (!this.voiceBusy) return '返回键盘';
-    return this.voiceHeldByKey ? '' : '取消';
+  private voiceListeningSession(): VoiceListeningSession {
+    return {
+      busy: this.voiceBusy,
+      finishing: this.voiceFinishing,
+      heldByKey: this.voiceHeldByKey,
+      done: this.voiceDone.length > 0,
+      hasText: this.voiceText.length > 0
+    };
   }
 
   private voicePrimaryAction(): void {
@@ -7970,9 +8004,9 @@ struct KeyboardView {
           hintTail: this.voiceListeningHintTail(),
           hintPrefix: this.voiceListeningHintPrefix(),
           level: this.voiceLevel,
-          primaryLabel: this.voicePrimaryLabel(),
+          primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),
           primaryEnabled: !this.voiceFinishing,
-          cancelLabel: this.voiceCancelLabel(),
+          cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),
           onPrimary: (): void => this.voicePrimaryAction(),
           onCancel: (): void => this.cancelListening()
         })
@@ -8832,9 +8866,9 @@ struct KeyboardView {
     return ExpandedCandidateLayout.rows(indices, spans, this.expandedColumns());
   }
 
-  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮以及占几列（行尾那格的宽度会随后面的候选变）。 */
+  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮、是否标成首选纠错以及占几列（行尾那格的宽度会随后面的候选变）。 */
   private expandedCellKey(cell: ExpandedCandidateCell): string {
-    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${cell.span}`;
+    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${this.expanded[cell.index].confidentCorrection}:${cell.span}`;
   }
 
   /** 当工具条显示的是网格所列列表的开头时，网格标出工具条高亮的那个候选。 */
@@ -8847,7 +8881,8 @@ struct KeyboardView {
   private expandedLabel(index: number): string {
     const gloss: string = this.expandedGlossLine(index);
     return KeyAccessibilityPolicy.candidate(index + 1, this.expanded[index].text, '',
-      gloss.length > 0 ? `，${gloss}` : '');
+      (gloss.length > 0 ? `，${gloss}` : '')
+        + CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection));
   }
 
   /**
@@ -8913,9 +8948,8 @@ struct KeyboardView {
                   : this.expandedHighlighted(cell.index) ? this.skin.toggleBackground : this.skin.keyBackground)
                 .fontSize(EXPANDED_FONT_SIZE)
                 .fontWeight(this.expandedHighlighted(cell.index) ? 600 : 400)
-                .fontColor(this.settings.candidateCanvas !== null
-                  ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selectedText : this.candidateColors().text)
-                  : this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
+                .fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,
+                  this.expandedHighlighted(cell.index), this.expandedSurfaceColors()))
                 .fontFamily(this.candidateFontFamily())
                 .textAlign(TextAlign.Center)
                 .maxLines(1)

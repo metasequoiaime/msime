@@ -383,6 +383,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 无痕输入切换后等键盘窗口收起再重建引擎，避免当前键盘整窗闪烁。 */
     private boolean privacySessionRestartPending;
     boolean aiAssistChooserOpen;
+    /** 功能菜单的「设备信息」子面板（#10045）开着。 */
+    boolean deviceInfoOpen;
     /** 常用语面板。 */
     ScrollView phraseScroll;
     LinearLayout phrasePanel;
@@ -693,40 +695,91 @@ public final class MSIMEInputService extends InputMethodService {
 
     void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
+    /** 复制的代次：每次「复制全部」加一，最后一次说了算；服务销毁时也加一。 */
     private long deviceInfoCopyGeneration;
+    /**
+     * 插入的代次：只在服务销毁时加一。插入不互相取消：子面板开着就是为了连着插几项，前一项还在读时点下一项，两项都要插进去；工作线程串行，结果仍按点按顺序回来。
+     */
+    private long deviceInfoInsertGeneration;
 
-    /** 只在用户点击时读取白名单信息；后台收集不阻塞按键，也不触碰组字会话。 */
-    void copyDeviceInfo() {
-        long generation = ++deviceInfoCopyGeneration;
-        DeviceInfoCollector.Screen screen = DeviceInfoCollector.screen(moreButton);
+    /** 只在用户点击时读取白名单信息；后台收集不阻塞按键，也不触碰组字会话。{@code current} 在主线程上判断结果是否还该用。 */
+    private void collectDeviceInfo(java.util.function.BooleanSupplier current,
+                                   java.util.function.Consumer<java.util.List<DeviceInfoReport.Item>> done,
+                                   Runnable unavailable) {
+        // 屏幕参数要从已附着的视图取 Display，在主线程读好再交给工作线程。
+        DeviceInfoReport.ScreenFacts screen = DeviceInfoCollector.screenFacts(moreButton);
+        try {
+            preferencesWorker.execute(() -> {
+                var items = DeviceInfoCollector.keyboard(getApplicationContext(), screen);
+                main.post(() -> {
+                    if (!current.getAsBoolean() || preferencesWorker.isShutdown()) return;
+                    done.accept(items);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            unavailable.run();
+        }
+    }
+
+    /** 子面板里的「复制全部」：整段按所选语言放进剪贴板。 */
+    void copyDeviceInfo(DeviceInfoReport.Language language) {
         // 复制完成后直接回到键盘，提示会在键盘内部显示，避免用户还要手动关闭工具面板。
         closeMoreTools();
         render();
-        try {
-            preferencesWorker.execute(() -> {
-                var entries = DeviceInfoCollector.collect(getApplicationContext(), screen);
-                main.post(() -> {
-                    if (generation != deviceInfoCopyGeneration || preferencesWorker.isShutdown()) return;
-                    try {
-                        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
-                        if (clipboard == null) {
-                            notice("无法复制设备信息");
-                            return;
-                        }
-                        clipboard.setPrimaryClip(ClipData.newPlainText("设备信息",
-                            DeviceInfoCollector.text(this, entries)));
-                        // 剪贴板监听会把刚复制的内容放进键盘顶部预览；预览可用时不要再用诊断行盖住它。
-                        offerRecentClip(true);
-                        if (recentClipRow == null || !recentClipRow.isShown())
-                            notice("已复制设备信息");
-                    } catch (RuntimeException unavailable) {
-                        notice("无法复制设备信息");
-                    }
-                });
-            });
-        } catch (java.util.concurrent.RejectedExecutionException unavailable) {
-            notice("无法复制设备信息");
+        long generation = ++deviceInfoCopyGeneration;
+        collectDeviceInfo(() -> generation == deviceInfoCopyGeneration, items -> {
+            try {
+                ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                if (clipboard == null) {
+                    notice("无法复制设备信息");
+                    return;
+                }
+                clipboard.setPrimaryClip(ClipData.newPlainText("设备信息",
+                    DeviceInfoCollector.text(this, items, language)));
+                // 剪贴板监听会把刚复制的内容放进键盘顶部预览；预览可用时不要再用诊断行盖住它。
+                offerRecentClip(true);
+                if (recentClipRow == null || !recentClipRow.isShown())
+                    notice("已复制设备信息");
+            } catch (RuntimeException unavailable) {
+                notice("无法复制设备信息");
+            }
+        }, () -> notice("无法复制设备信息"));
+    }
+
+    /** 插入设备信息要有输入框，密码框里不插。 */
+    boolean deviceInfoInsertable() {
+        return connection != null && !EditorPolicy.password(editorInputType);
+    }
+
+    /**
+     * 子面板里的单项或「全部」（{@code field} 为 null）：读完后直接写进当前输入框，不经过剪贴板（#10045）。子面板保持打开，方便接着插下一项；读的过程中换了输入框就不写。
+     *
+     * <p>插入格不按输入框状态置灰（子面板开着时输入框会变），这里是唯一的判断处，插不了就说明原因，不悄悄忽略这次点按。
+     */
+    void insertDeviceInfo(DeviceInfoReport.Field field, DeviceInfoReport.Language language) {
+        if (connection == null) {
+            notice("没有可插入的输入框");
+            return;
         }
+        if (!deviceInfoInsertable()) {
+            notice("密码框里不插入设备信息");
+            return;
+        }
+        InputConnection target = connection;
+        long generation = deviceInfoInsertGeneration;
+        collectDeviceInfo(() -> generation == deviceInfoInsertGeneration, items -> {
+            if (connection != target || !deviceInfoInsertable()) return;
+            String text = field == null ? DeviceInfoCollector.text(this, items, language)
+                : DeviceInfoReport.line(DeviceInfoReport.item(items, field), language);
+            if (session != 0 && hasEngineComposition()) command(2);
+            if (connection != target) return;
+            // 只看光标前一个字符决定要不要先换行，读到的内容不保存、不进报告。
+            boolean multiLine = (editorInputType & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0;
+            String inserted = DeviceInfoReport.afterText(
+                InputConnectionGuard.textBeforeCursor(target, 1), multiLine, text);
+            if (!commitText(inserted, TypingSource.LOCAL)) notice("无法插入设备信息");
+            render();
+        }, () -> notice("无法插入设备信息"));
     }
 
     String preferencesDirectory = "";
@@ -2235,6 +2288,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (inlineAutofill != null) inlineAutofill.finishInput();
         clearQuickDeleteUndo();
         deviceInfoCopyGeneration++;
+        deviceInfoInsertGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
@@ -6804,6 +6858,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeOcr != null) imeOcr.close();
         localInputToolsOpen = false;
         aiAssistChooserOpen = false;
+        deviceInfoOpen = false;
         if (moreToolsScroll != null) ViewPolicy.hide(moreToolsScroll);
     }
 
@@ -8942,7 +8997,13 @@ public final class MSIMEInputService extends InputMethodService {
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted) {
-        if (annotation.isEmpty() && prefix.isEmpty())
+        return candidateLabel(prefix, text, annotation, highlighted, false);
+    }
+
+    /** `corrected` 为真时这一行是坐上首选的触点纠错：颜色由 {@link CandidateCorrectionMarkPolicy} 决定，候选字盖上标记色，注释画成标记色实色、不再调淡（首选 chip 上候选字本来就是强调色，标记靠注释看得见）。 */
+    CharSequence candidateLabel(String prefix, String text, String annotation,
+                                        boolean highlighted, boolean corrected) {
+        if (CandidateCorrectionMarkPolicy.plainLabel(prefix, annotation, corrected))
             return CandidateSymbolLabel.apply(this, text, 0, text.length());
         String primary = prefix + text;
         SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
@@ -8950,14 +9011,17 @@ public final class MSIMEInputService extends InputMethodService {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.numberFor(highlighted)), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        Integer mark = CandidateCorrectionMarkPolicy.wordMark(candidateAppearance, highlighted, corrected);
+        if (mark != null) {
+            label.setSpan(new ForegroundColorSpan(mark), prefix.length(), primary.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         if (annotation.isEmpty()) return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
         // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
         label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        int foreground = candidateAppearance.textFor(highlighted);
-        int secondary = candidateAppearance.externalSkin()
-            ? candidateAppearance.secondaryFor(highlighted) : ColorPolicy.withAlpha(foreground, 0.58f);
+        int secondary = CandidateCorrectionMarkPolicy.annotationColour(candidateAppearance, highlighted, corrected);
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
@@ -9208,7 +9272,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
-        button.setText(candidateLabel(number, text, annotation, highlighted));
+        boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
+        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -9222,7 +9287,8 @@ public final class MSIMEInputService extends InputMethodService {
         // Avoid creating its candidate drawables before that pass.
         String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：",
             ContactCandidatePolicy.description(source, text),
-            candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate));
+            candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate)
+                + CandidateCorrectionMarkPolicy.accessibilitySuffix(corrected));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
                 && AiPendingCandidatePolicy.offersMenu(source)

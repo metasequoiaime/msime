@@ -62,6 +62,9 @@ public final class VoicePage extends ReloadingDetailPage {
     private static final int TRIGGER_SPACE = 0;
     private static final int TRIGGER_TOOLBAR = 1;
     private static final int TRIGGER_NONE = 2;
+    /** 「无」只是空格键和工具栏上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格不进语音，松手仍是空格。「更多工具」面板的「语音输入」磁贴只在工具栏语音按钮露出时才藏（`ImeFunctionPanel`），选「无」时它还在，说明里照实写出来，免得用户以为语音整个关掉了（#10143）。 */
+    static final String TRIGGER_NONE_HINT = "空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」";
+    static final String TRIGGER_SHEET_HINT = "选「无」时" + TRIGGER_NONE_HINT;
 
     /**
      * 页面渲染时读到的偏好与识别器。
@@ -204,7 +207,8 @@ public final class VoicePage extends ReloadingDetailPage {
         int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
         GroupCard.Row[] triggerRow = new GroupCard.Row[1];
-        triggerRow[0] = recognition.nav("启动方式", null, TRIGGER_LABELS[trigger],
+        triggerRow[0] = recognition.nav("启动方式", trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT : null,
+            TRIGGER_LABELS[trigger],
             () -> pickTrigger(trigger, triggerRow[0]));
 
         polishGroup(target, voice, state);
@@ -686,7 +690,7 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
     private void pickTrigger(int selected, GroupCard.Row row) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "启动方式", null);
+        OptionSheet sheet = new OptionSheet(requireContext(), "启动方式", TRIGGER_SHEET_HINT);
         for (int index = 0; index < TRIGGER_LABELS.length; index++) {
             int choice = index;
             sheet.option(TRIGGER_LABELS[index], index == selected, () -> {

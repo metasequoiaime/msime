@@ -182,6 +182,8 @@ fn tuning() -> TouchTuning {
         cut: 16.0,
         show_margin: 0.0,
         show_penalty: f64::INFINITY,
+        lead_margin: f64::INFINITY,
+        lead_penalty: f64::INFINITY,
     }
 }
 
@@ -347,6 +349,8 @@ fn the_default_tuning_is_the_swept_one() {
             cut: 16.0,
             show_margin: 6.0,
             show_penalty: 14.0,
+            lead_margin: f64::INFINITY,
+            lead_penalty: 10.0,
         }
     );
 }

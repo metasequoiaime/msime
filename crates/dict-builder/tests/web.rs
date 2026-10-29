@@ -292,6 +292,33 @@ fn swapped_inputs_are_rejected() {
     assert!(!output.status.success());
 }
 
+/// 带文件内版本的 release（两个输入都有 `metadata`）：两个输出库各留一份拼音库的 `metadata`，引擎读到当前版本；`msime-wubi.db` 的那份不复制。
+#[test]
+fn versioned_inputs_keep_one_metadata_table() {
+    let (dir, pinyin, wubi) = inputs();
+    for path in [&pinyin, &wubi] {
+        Connection::open(path)
+            .unwrap()
+            .execute_batch(&format!(
+                "{} INSERT INTO metadata VALUES('format_version', '{}');",
+                msime_engine::format::METADATA_SCHEMA,
+                msime_engine::format::FORMAT_VERSION
+            ))
+            .unwrap();
+    }
+    let out = dir.path().join("web");
+    run(&pinyin, &wubi, &out, Some(2));
+    for name in ["msime-pinyin.db", "msime-wubi86.db"] {
+        let db = open(&out.join(name));
+        assert_eq!(count(&db, "metadata"), 1, "{name}");
+        assert_eq!(
+            msime_engine::format::check_format_version(&db, name).unwrap(),
+            msime_engine::format::FORMAT_VERSION,
+            "{name}"
+        );
+    }
+}
+
 // ---- 日语模型 ----
 
 /// MSJPDT1 文件：`(读法, 词, 成本)` 按读法排好，左右上下文都是 0，1×1 的连接矩阵。
