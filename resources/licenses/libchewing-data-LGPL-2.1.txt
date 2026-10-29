@@ -4,11 +4,83 @@ Copyright (c) 2025 libchewing Core Team
 
 Used by MSIME: dict/chewing/tsi.csv and dict/chewing/word.csv, each of which declares "dc:license,LGPL-2.1-or-later" in its header. MSIME converts them into its Zhuyin dictionary (msime-zhuyin.db) and derives its bopomofo syllable inventory from them; no other file of libchewing-data is used.
 
-The same Zhuyin dictionary also includes the converted supplement `sources/zhuyin/mcbopomofo-supplement.txt`, derived from openvanilla/McBopomofo, commit be6564acad6c4d3265c34a2e1a872d80f9db6068, `Source/Data/BPMFMappings.txt`. The upstream data notes that the multi-character mappings originate from BSD-licensed libtabe with modifications. MSIME converts each row to `text,0,reading` and removes combinations already present in `tsi.csv`; the supplement is distributed under the BSD terms that apply to that upstream data.
+The same Zhuyin dictionary also includes the converted supplement `sources/zhuyin/mcbopomofo-supplement.txt`, derived from openvanilla/McBopomofo, commit be6564acad6c4d3265c34a2e1a872d80f9db6068, `Source/Data/BPMFMappings.txt`. The upstream Source/Data/README.md describes the multi-character mappings as "Originally simplified from tsi.src of libtabe (BSD Licensed) with modifications". MSIME converts each row to `text,0,reading` and removes combinations already present in `tsi.csv`. The supplement is therefore distributed under the BSD terms of libtabe's tsi.src, reproduced below, and under McBopomofo's MIT License, reproduced after them.
 
 Supplement source: https://github.com/openvanilla/McBopomofo/tree/be6564acad6c4d3265c34a2e1a872d80f9db6068/Source/Data
 
-The Zhuyin dictionary also takes ranking weights from `Source/Data/phrase.occ` of openvanilla/McBopomofo at the same commit (msime-dictionary's `sources/zhuyin/phrase.occ`, kept verbatim), McBopomofo's phrase counts over its own corpus. MSIME gives a phrase of two or more characters that no tsi.csv row counts its phrase.occ count, scaled to tsi.csv's counts and held below the counted entries of the same reading. McBopomofo is released under the MIT License (LICENSE.txt at that commit):
+libtabe's tsi-src/COPYING, the terms of tsi.src, as committed in the libtabe repository at https://github.com/kcwu/libtabe, commit ea382a829c916f2cceda2022afdf8e8471e6e7b5 (reproduced verbatim, including its "Copyrighy" spelling):
+
+  /*
+   * Copyrighy (c) 1999 TaBE Project.
+   * Copyright (c) 1999 Pai-Hsiang Hsiao.
+   * All rights reserved.
+   *
+   * Redistribution and use in source and binary forms, with or without
+   * modification, are permitted provided that the following conditions
+   * are met:
+   *
+   * . Redistributions of source code must retain the above copyright
+   *   notice, this list of conditions and the following disclaimer.
+   * . Redistributions in binary form must reproduce the above copyright
+   *   notice, this list of conditions and the following disclaimer in
+   *   the documentation and/or other materials provided with the
+   *   distribution.
+   * . Neither the name of the TaBE Project nor the names of its
+   *   contributors may be used to endorse or promote products derived
+   *   from this software without specific prior written permission.
+   *
+   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+   * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+   * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+   * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+   * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+   * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+   * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+   * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+   * OF THE POSSIBILITY OF SUCH DAMAGE.
+   */
+
+  /*
+   * Copyright (c) 1999 Computer Systems and Communication Lab,
+   *                    Institute of Information Science, Academia Sinica.
+   * All rights reserved.
+   *
+   * Redistribution and use in source and binary forms, with or without
+   * modification, are permitted provided that the following conditions
+   * are met:
+   *
+   * . Redistributions of source code must retain the above copyright
+   *   notice, this list of conditions and the following disclaimer.
+   * . Redistributions in binary form must reproduce the above copyright
+   *   notice, this list of conditions and the following disclaimer in
+   *   the documentation and/or other materials provided with the
+   *   distribution.
+   * . Neither the name of the Computer Systems and Communication Lab
+   *   nor the names of its contributors may be used to endorse or
+   *   promote products derived from this software without specific
+   *   prior written permission.
+   *
+   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+   * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+   * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+   * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+   * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+   * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+   * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+   * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+   * OF THE POSSIBILITY OF SUCH DAMAGE.
+   */
+
+  Copyright 1996 Chih-Hao Tsai @ Beckman Institute, University of Illinois
+  c-tsai4@uiuc.edu  http://casper.beckman.uiuc.edu/~c-tsai4
+
+The Zhuyin dictionary also takes ranking weights from `Source/Data/phrase.occ` of openvanilla/McBopomofo at the same commit (msime-dictionary's `sources/zhuyin/phrase.occ`, kept verbatim), McBopomofo's phrase counts over its own corpus. MSIME gives a phrase of two or more characters that no tsi.csv row counts its phrase.occ count, scaled to tsi.csv's counts and held below the counted entries of the same reading. McBopomofo, which also covers its modifications to the supplement above, is released under the MIT License (LICENSE.txt at that commit):
 
   MIT License
 

@@ -91,6 +91,19 @@ test.each(nineKeyStyleOptions.map((option) => option.value))(
   },
 );
 
+test("9 键左列换成用户的符号表时画那张表的一屏，与「按键布局」子页相同", () => {
+  const rows = harmonyTouchRowsForPreferences({
+    ...base,
+    ...nineKey,
+    touch_nine_key_sidebar_symbols: ["@", "#", "~", "%"],
+  });
+  expect(rows).toHaveLength(4);
+  expect(rows[0][0]).toMatchObject({ rowSpan: 3, stack: ["@", "#", "~"] });
+  expect(rows[1][0].label).toBe("");
+  expect(rows[2][0].label).toBe("");
+  expect(labels(rows[0]).slice(1)).toEqual(["@#", "ABC", "DEF", "⌫"]);
+});
+
 test("「符」与「123」互换和数字行跟着偏好", () => {
   const rows = rowsFor({ touch_twenty_six_symbol_first: true, touch_number_row: true });
   expect(rows[0]).toEqual([..."1234567890"]);
@@ -177,6 +190,21 @@ test("屏幕键盘页的 9 键预览画右侧大回车，回车跨两行", async
   expect(rows[2].at(-1)).toBe("↵");
   expect(rows[3]).toEqual(["符", "123", "空格", "中"]);
   expect(preview.querySelector("[data-keyboard-key='↵']")?.getAttribute("data-row-span")).toBe("2");
+});
+
+test("屏幕键盘页的 9 键预览按用户的左侧符号表画左列，各项等高", async () => {
+  await renderPage("screen-keyboard", {
+    ...nineKey,
+    touch_nine_key_sidebar_symbols: ["、", "……", "；"],
+  });
+  const preview = screen.getByRole("group", { name: "屏幕键盘预览" }).querySelector("svg")!;
+  const rows = drawnRows(preview);
+  expect(rows[0].slice(0, 3)).toEqual(["、", "……", "；"]);
+  expect(rows[1][0]).toBe("GHI");
+  const heights = ["、", "……", "；"].map((label) =>
+    preview.querySelector(`[data-keyboard-key='${label}'] text`)!.getAttribute("y"),
+  );
+  expect(new Set(heights).size).toBe(3);
 });
 
 test("皮肤卡片的缩略图跟着 14 键样式，数字行挤在原来的高度里", async () => {

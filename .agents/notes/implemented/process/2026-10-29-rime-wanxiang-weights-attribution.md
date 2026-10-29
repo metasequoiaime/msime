@@ -30,7 +30,7 @@ msime-dictionary 在 #84（提交 `060c102515f176ca3dfaf2a2cba1f320901ef414`，`
 ## Consequences
 
 - **收益**：六个平台、网页引擎和 C 库数据包都带上 rime-wanxiang 的署名、改动说明与 CC BY 4.0 全文；渠道里漏掉它，或副本落后于词库锁所指的发布，契约测试就失败。
-- **代价与已知上限**：`msime-stroke.db` 的 `license` 元数据仍是 `LGPL-3.0-only AND GPL-3.0-only`，没写 `CC-BY-4.0`；要改 `crates/dict-builder/src/stroke.rs` 的 `LICENSE` 并重新发布词库，这次没有动。Android、iOS、HarmonyOS 的通知渠道仍不带 `msime-engine-dictionary-NOTICE.md` 本身。各平台的 CMake、Xcode 工程与打包脚本只在 CI 的平台构建里真正打包，本地跑的是契约脚本、iOS 工程配置测试和网页引擎 NOTICE 的重新生成。CC BY 4.0 与 GPL-3.0 词库合在一起分发的关系、App Store 渠道与第 2(a)(5)(C) 条技术措施条款的关系，未经法务审阅。
+- **代价与已知上限**：`msime-stroke.db` 的 `license` 元数据当时仍是 `LGPL-3.0-only AND GPL-3.0-only`，Android、iOS、HarmonyOS 的通知渠道也不带 `msime-engine-dictionary-NOTICE.md`；两处都由[语言词库的许可证表达式写全来源，移动端带上词库来源说明](2026-10-29-language-dictionary-licence-expressions-and-mobile-notice.md)补上，元数据要等语言词库重新发布才进入安装包。各平台的 CMake、Xcode 工程与打包脚本只在 CI 的平台构建里真正打包，本地跑的是契约脚本、iOS 工程配置测试和网页引擎 NOTICE 的重新生成。CC BY 4.0 与 GPL-3.0 词库合在一起分发的关系、App Store 渠道与第 2(a)(5)(C) 条技术措施条款的关系，未经法务审阅。
 
 ## Verification
 

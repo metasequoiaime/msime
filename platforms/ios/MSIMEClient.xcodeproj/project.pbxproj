@@ -343,6 +343,7 @@
 		4BD8B1233035F298E6374FDF /* InlineCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76DA101B3EBB4BB070C5F919 /* InlineCompositionTests.swift */; };
 		4C20D26C1A0DF8BD52A963AA /* WubiLookupRequestState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4C9BFDD309672CF6D982C3 /* WubiLookupRequestState.swift */; };
 		4C6E08CC07C9866DED30C8AF /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */; };
+		4D1860FC148DE397529FCBF3 /* msime-engine-dictionary-NOTICE.md in Resources */ = {isa = PBXBuildFile; fileRef = F1ED59A26CD1D48229C6FCE0 /* msime-engine-dictionary-NOTICE.md */; };
 		4D75864D7F7F73C65A375DAF /* SkinCommunityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4DF64DBA4E83E11DF1882F /* SkinCommunityView.swift */; };
 		4DE47CB57EB43B711FDE7B2A /* MSIMEDoubaoTransport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4DEF296D805464716B6BAA6C /* BackendRustSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C75B24716202A8D4ABCF61 /* BackendRustSessionStore.swift */; };
@@ -771,6 +772,7 @@
 		B376052746955E56FBACB168 /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		B3925080F278AF81719F415A /* KeyboardVoicePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85BAC20261DD7AC0622794B /* KeyboardVoicePanelView.swift */; };
 		B3CF55FE03F31B2075B32162 /* BackendCommunityResourceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FA6A2465AAF8B5759E2157 /* BackendCommunityResourceClient.swift */; };
+		B3D1199B76D5DF485F20A3BF /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 9776B18C73C12963EBD7C59F /* LICENSE */; };
 		B43B0B725FE05BA0550DAF6E /* KeyboardInputContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22544622BDEADB0149155DF /* KeyboardInputContext.swift */; };
 		B4C52EC4A28F116834EBD3E0 /* WubiLookupRequestStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E8D8CCE3BDAFFC98C21A05 /* WubiLookupRequestStateTests.swift */; };
 		B4E11ED8C2CD129F40E3566C /* NineKeyShuangpinLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A015A7C186EE5829EE62B4 /* NineKeyShuangpinLayout.swift */; };
@@ -1476,6 +1478,7 @@
 		962B4266475311E751681270 /* AIProviderCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderCatalog.swift; sourceTree = "<group>"; };
 		96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClipboardTimePolicy.swift; sourceTree = "<group>"; };
 		97321DEF0C025C03E6933837 /* DictionarySyncCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySyncCenter.swift; sourceTree = "<group>"; };
+		9776B18C73C12963EBD7C59F /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		97A20F485F35F65899A8101C /* latex-symbols-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "latex-symbols-MIT.txt"; sourceTree = "<group>"; };
 		97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyGapRouting.swift; sourceTree = "<group>"; };
 		98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePreference.swift; sourceTree = "<group>"; };
@@ -1675,6 +1678,7 @@
 		F00250F90DDDC57808459590 /* vi-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "vi-MIT.txt"; sourceTree = "<group>"; };
 		F062B819666D4A4D9287AD8D /* KeyboardPhrasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPhrasesView.swift; sourceTree = "<group>"; };
 		F0CE1B2A79B2393496CDEF85 /* GlobalTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalTheme.swift; sourceTree = "<group>"; };
+		F1ED59A26CD1D48229C6FCE0 /* msime-engine-dictionary-NOTICE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "msime-engine-dictionary-NOTICE.md"; sourceTree = "<group>"; };
 		F2134ADB15FD507683C832FF /* SkinCommunityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityTests.swift; sourceTree = "<group>"; };
 		F3223CD85934FCF0DF98B2D0 /* ClipboardHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryTests.swift; sourceTree = "<group>"; };
 		F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "librime-octagram-BSD-3-Clause.txt"; sourceTree = "<group>"; };
@@ -2084,6 +2088,7 @@
 				8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */,
 				F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */,
 				2B280D46D76272886DB59790 /* MPL-2.0.txt */,
+				F1ED59A26CD1D48229C6FCE0 /* msime-engine-dictionary-NOTICE.md */,
 				DAC83802853B57ACCD2EE104 /* OpenCC-Apache-2.0.txt */,
 				C2B3C113E4F9178CDCF5B797 /* pinyin-data-MIT.txt */,
 				1F20B02F929E235778145090 /* python-pinyin-MIT.txt */,
@@ -2469,6 +2474,15 @@
 			path = clients;
 			sourceTree = "<group>";
 		};
+		904729A1862A276CA2F7850E /* msime */ = {
+			isa = PBXGroup;
+			children = (
+				9776B18C73C12963EBD7C59F /* LICENSE */,
+			);
+			name = msime;
+			path = ../..;
+			sourceTree = "<group>";
+		};
 		9147BD05AF2023082AC4C63F /* core */ = {
 			isa = PBXGroup;
 			children = (
@@ -2494,6 +2508,7 @@
 				F9EA923EEA8552CA5B40C156 /* KeyboardTests */,
 				4F0AF611BB68015729427D50 /* licenses */,
 				E1C293D3D42B58A25A5BB2D4 /* licenses */,
+				904729A1862A276CA2F7850E /* msime */,
 				03F8B35C0D4227CC69308EFB /* Resources */,
 				2D0850B6CE243D7108C48DFC /* Services */,
 				9C7D7C31663A12BCDFE90671 /* ServiceTests */,
@@ -3115,6 +3130,7 @@
 				D01D3BD63697B467209A4EE9 /* Assets.xcassets in Resources */,
 				5DEF6271B362D6938DEEFF7A /* ECDICT-MIT.txt in Resources */,
 				EEDABC563F556FDBBE40A504 /* GoogleSignIn-Dependencies.txt in Resources */,
+				B3D1199B76D5DF485F20A3BF /* LICENSE in Resources */,
 				301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */,
 				7EB33C5330748EE93BA3A1DB /* MLKit-Dependencies.txt in Resources */,
 				84B7B0B173F1C93261D00BFC /* MLKit-NOTICES.txt in Resources */,
@@ -3131,6 +3147,7 @@
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,
 				700183FCED3A471BFF991B5B /* librime-octagram-BSD-3-Clause.txt in Resources */,
 				84FD87453189A438FAF20604 /* msime-dictionary-manifest.json in Resources */,
+				4D1860FC148DE397529FCBF3 /* msime-engine-dictionary-NOTICE.md in Resources */,
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				D0159A5BC412DB529DDDC934 /* pinyin-data-MIT.txt in Resources */,
 				36B00ED2F3F238D7E5A96F9B /* python-pinyin-MIT.txt in Resources */,

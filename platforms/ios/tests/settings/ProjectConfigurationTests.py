@@ -164,6 +164,24 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
             self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
 
+    def test_app_ships_the_dictionary_sources_notice(self):
+        # 键盘扩展的 EngineResources 带着 msime-bigram.bin、msime-trigram.bin 和 msime-wubi.db 等桌面词库：n-gram 表统计自中文维基百科，CC BY-SA 4.0 要求再分发时署名，五笔码表混着几份不同许可的来源，这些都只写在词库来源说明里。说明是 Markdown，关于页按 md 扩展名找它。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        notice = "msime-engine-dictionary-NOTICE.md"
+        path = f"../../resources/licenses/{notice}"
+        blocks = source_path_blocks(app, path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("中文维基百科", "CC-BY-SA 4.0", "### 拼音权重与万象对齐"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count(f"{notice} in Resources"), 2)
+        self.assertIn('LicenseNotice(file: "msime-engine-dictionary-NOTICE"', about)
+        self.assertIn('fileExtension: "md")', about)
+
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
         project = (IOS_ROOT / "project.yml").read_text()
@@ -207,6 +225,28 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn(phrase, (IOS_ROOT / path).read_text())
             self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
             self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+
+    def test_app_ships_the_gpl_text_of_the_app_and_the_pinyin_dictionary(self):
+        # 水杉输入法本身是 GPL-3.0-only，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，GPL-3.0 要求随目标代码附上许可证全文。键盘扩展只随 App 一起安装，所以全文作为 App 的资源分发：仓库根目录的 LICENSE 原样进 bundle，关于页按没有扩展名的 LICENSE 找它，排在第一项。
+        project = (IOS_ROOT / "project.yml").read_text()
+        targets = dict(target_blocks(project))
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        path = "../../LICENSE"
+        blocks = source_path_blocks(targets["MSIMEApp"], path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("GNU GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "END OF TERMS AND CONDITIONS"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count("/* LICENSE in Resources */"), 2)
+        self.assertIn("path = ../..;", generated)
+        notices = about[about.index("private static let all = ["):]
+        first = re.search(r"LicenseNotice\(file: \"([^\"]+)\"", notices)
+        self.assertEqual(first.group(1), "LICENSE")
+        self.assertIn('LicenseNotice(file: "LICENSE", title: "水杉输入法", detail: "本应用与拼音词库 · GPL-3.0", fileExtension: "")', about)
+        # 键盘扩展不带第二份：它没有许可页，和 App 一起安装。
+        self.assertEqual(source_path_blocks(targets["MSIMEKeyboardExtension"], path), [])
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"

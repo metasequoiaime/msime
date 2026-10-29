@@ -31,6 +31,7 @@ public final class KeyboardPreviewLayoutSmoke {
         numberRowAndSymbolFirst();
         swapLanguageNumber();
         nineActionColumn();
+        nineKeySidebar();
         caption();
         System.out.println("keyboard preview layout: passed");
     }
@@ -48,11 +49,11 @@ public final class KeyboardPreviewLayoutSmoke {
         check(KeyLayoutStylesPolicy.previewKind(new TouchKeyStyle.Groups(false, false, false), KeyboardScheme.QUANPIN_NINE_KEY, SIX, SIX)
             == Kind.TWENTY_SIX, "an edition with no styled kinds still draws 26 keys");
         Preview eighteen = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, SIX, SIX,
-            TouchKeyStyle.Styles.DEFAULT, false, false, false);
+            TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of());
         check(eighteen.kind() == Kind.FOURTEEN && eighteen.eighteen(), "quanpin 18 draws the 18-key grid");
         check(faces(eighteen.rows().get(0)).equals(List.of("，", "Q", "WE", "RT", "Y", "U", "IO", "P")), "18-key first row");
         Preview fourteen = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_FOURTEEN_KEY, SIX, SIX,
-            TouchKeyStyle.Styles.DEFAULT, false, false, false);
+            TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of());
         check(!fourteen.eighteen() && faces(fourteen.rows().get(0)).equals(List.of("，", "QW", "ER", "TY", "UI", "OP")),
             "14-key first row");
     }
@@ -147,6 +148,18 @@ public final class KeyboardPreviewLayoutSmoke {
         List<List<Key>> tall = new Preview(Kind.NINE, new TouchKeyStyle.Styles(Row.STANDARD, Row.STANDARD, Row.TALL_RETURN),
             false, false, false, false).rows();
         check(last(tall.get(2)).tone() == Tone.RETURN, "the tall return keeps the accent");
+    }
+
+    /** 九键左侧符号换成用户的表时，皮肤页这些预览与「按键布局」页画同一屏：第一行的左列是跨三行的一整条，里面是表的一屏（最多 NineKeySidebarPolicy.VISIBLE_ROWS 项）；出厂表照热力图逐行画三格。 */
+    private static void nineKeySidebar() {
+        Preview custom = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_NINE_KEY, SIX, SIX,
+            TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of("@", "#", "~", "%"));
+        List<List<Key>> rows = custom.rows();
+        Key rail = rows.get(0).get(0);
+        check(rail.rows() == 3 && rail.stack().equals(List.of("@", "#", "~", "%")), "a custom nine-key sidebar draws one screen of it");
+        check(rows.get(1).get(0).rows() == 0 && rows.get(2).get(0).rows() == 0, "the rail covers the next two rows");
+        check(custom.with(Kind.TWENTY_SIX).with(Kind.NINE).equals(custom), "switching kinds keeps the sidebar table");
+        check(Preview.STANDARD.with(Kind.NINE).rows().get(0).get(0).stack().isEmpty(), "the factory sidebar stays three keys");
     }
 
     private static void caption() {

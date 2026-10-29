@@ -30,6 +30,8 @@ Win7 的 WOW64 实测中，32 位进程以 `RegGetValueW` 的 `RRF_SUBKEY_WOW646
 
 这增加一次显式打开与关闭，但避免维护两份安装登记。原生状态目录测试在隔离的 HKCU Classes 子树分别写入两个视图的不同合成值，要求实际读取函数选中 64 位值，并拒绝缺键、缺值与错误类型；在 Win7 WOW64 运行才能覆盖本次系统差异。最终完整包的双架构真实输入复验另行记录。
 
+#10252 合并时没有任何 CI 作业运行这个测试：根 `platforms/windows` 构建树只由 Windows GNU 交叉编译作业编译，那里不跑 ctest；其余 Windows ctest 用的是 Win7 设置、面板、兼容 API 等别的构建树，而且全是 x64 进程，64 位视图本来就是缺省，旧的 `RRF_SUBKEY_WOW6464KEY` 写法照样能过。现在 `ci-platforms.yml` 的 Windows release script tests 作业以 pipe-only 配置（不链接 Rust 库，只从 runner 自带的 vcpkg 装 nlohmann_json 头文件库）单独编译 `windows-state-directory`，x64 和 Win32 各跑一次 ctest；#10272 自己的 CI（run 40877812892）上两种架构均编译通过、测试通过，整步约 42 秒。Win32 进程在 x64 runner 上走 WOW64，覆盖 32 位进程显式打开 64 位视图以及多余终止符、缺值、缺键和非字符串值；它运行在现代 Windows 上，那里两种写法结果相同，所以它锁住的是读取函数的契约，不能证明 Win7 上的系统差异已修复，后者仍以上面的 Win7 x64 实测为准。
+
 ### 既有笔记审计
 
 - [完整 Win7 支持](2026-10-23-windows7-support.md)：部分重叠，本篇只持有完整构建、启动入口与安装布局，完整功能验收由总笔记持有。

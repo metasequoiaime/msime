@@ -229,7 +229,7 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
     response(|| focus_session(handle, focused))
 }
 
-/// 写出本进程攒着的打字统计上屏（`record` 的批次）：`inline` 时在当前线程上写完再返回，否则交给后台线程。
+/// 写出本进程攒着的打字统计上屏（`record` 的批次）和会话交出的选词位置（`flush_selections`）：`inline` 时在当前线程上写完再返回，否则交给后台线程。
 ///
 /// 失焦和会话销毁都要写：移动宿主的键盘扩展和输入法进程可能在收起后被系统直接杀掉，桌面宿主停下不打字以后最后一批也要等到下一次上屏满间隔才写，设置页一直看不到。宿主另在统计工作线程上调 `flush` 时这里再写一次也只是空转。
 pub(crate) fn flush_typing_statistics(inline: bool) {
@@ -255,7 +255,7 @@ pub(crate) fn focus_session(handle: u64, focused: bool) -> Result<Value, String>
     with_session(handle, |session| {
         // 在换插件表之前采样：换表会刷新打开着的 `/` 列表，这也算这次 focus 的变化。
         let pending = session.lifecycle_begin(lifecycle::Call::Focus(focused));
-        // Focus-out is where a host's field ends, so selections counted in it are written here rather than waiting for a batch to fill. The same goes for the engine's delayed context learning: the iOS keyboard extension and the Android IME process can be killed without ever destroying their sessions, and the engine no longer writes that queue at process exit.
+        // Focus-out is where a host's field ends, so selections counted in it are handed to the process's statistics batch here rather than waiting for a batch to fill, and `flush_typing_statistics` writes that batch right after. The same goes for the engine's delayed context learning: the iOS keyboard extension and the Android IME process can be killed without ever destroying their sessions, and the engine no longer writes that queue at process exit.
         if !focused {
             session.flush_selections();
             flush_typing_statistics(FLUSHES_TYPING_STATISTICS_INLINE_ON_FOCUS_OUT);

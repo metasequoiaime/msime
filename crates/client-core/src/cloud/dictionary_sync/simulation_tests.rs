@@ -1501,6 +1501,50 @@ fn scheduled_protocol_savepoints_keep_the_existing_request_window() {
 }
 
 #[test]
+fn scheduled_pending_edits_resume_after_clock_rewind_and_restart() {
+    let share = Share::new();
+    let mut a = Device::new(0xa1, Some(K1));
+    let drive = |device: &mut Device, trigger: Trigger| {
+        let mut connection = Connection {
+            share: share.clone(),
+        };
+        let mut parts = Parts {
+            remote: &mut connection,
+            local: &mut device.engine,
+            env: &mut device.env,
+            sink: &mut device.sink,
+        };
+        schedule::drive(
+            &mut device.state,
+            &mut parts,
+            &device.ring,
+            trigger,
+            Options::default(),
+        )
+    };
+    a.advance(2 * 60 * 60 * 1_000);
+    let first = drive(&mut a, Trigger::Opened);
+    assert!(first.network && first.result.is_ok());
+    a.env.now_ms = START_MS;
+    a.add(&pinyin("ma", "合成词"));
+    let requests = share.with(|disk| disk.requests);
+    let changed = drive(&mut a, Trigger::LocalChange);
+    assert!(!changed.network && changed.result.is_ok());
+    assert_eq!(share.with(|disk| disk.requests), requests);
+    assert_eq!(a.state.outbox_len(), 1);
+    assert_eq!(changed.next_check_ms, schedule::MIN_PUSH_INTERVAL_MS);
+    a.reboot();
+    a.advance(changed.next_check_ms);
+    let resumed = drive(&mut a, Trigger::Periodic);
+    assert!(resumed.network && resumed.result.is_ok());
+    assert_eq!(a.state.outbox_len(), 0);
+    assert!(share
+        .published(&[K1])
+        .iter()
+        .any(|(_, key, live, _)| *live && key == &pinyin("ma", "合成词")));
+}
+
+#[test]
 fn an_exhausted_automatic_budget_sleeps_until_requests_expire() {
     let share = Share::new();
     let mut a = Device::new(0xa1, Some(K1));

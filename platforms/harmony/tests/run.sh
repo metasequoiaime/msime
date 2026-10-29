@@ -58,6 +58,29 @@ if ! grep -qF 'return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.
   echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
   exit 1
 fi
+# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按打开设置。
+session_file="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
+if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
+  || ! grep -qF 'TouchLayoutStylePolicy.NINE_KEY_SIDEBAR_DEFAULTS' "$session_file" \
+  || ! grep -qF 'preferences.touch_nine_key_digit_sidebar_symbols,' "$session_file" \
+  || ! grep -qF 'TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS' "$session_file" \
+  || [[ $(grep -cF 'TouchLayoutStylePolicy.sidebarSymbols(' "$session_file") -ne 2 ]] \
+  || ! grep -qF 'this.fixedKey(this.customSidebarOptions(item.symbol, true));' "$keyboard_view" \
+  || ! grep -qF 'if (PairedPunctuationPolicy.literalPairClosing(text) !== null) {' "$session_file" \
+  || ! grep -qF 'this.nineKeySidebarSymbols = this.settings.nineKeySidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'this.nineKeyDigitSidebarSymbols = this.settings.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'if (this.symbols && NineKeyLayout.customSidebar(this.digitSidebarTable())) {' "$keyboard_view" \
+  || ! grep -qF '} else if (NineKeyLayout.customSidebar(this.letterSidebarTable())) {' "$keyboard_view" \
+  || [[ $(grep -cF 'NineKeyLayout.customSidebar(this.letterSidebarTable())' "$keyboard_view") -ne 2 ]] \
+  || ! grep -qF 'return this.english ? [] : this.nineKeySidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'return this.english ? [] : this.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
+  || [[ $(grep -cF 'KeyboardSession.shared.insertSidebarSymbol(' "$keyboard_view") -ne 2 ]] \
+  || [[ $(grep -cF '(item: NineKeySidebarItem) => item.key)' "$keyboard_view") -ne 3 ]] \
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))' "$keyboard_view") -ne 6 ]] \
+  || ! grep -qF "KeyboardSession.shared.openSettings('screen-keyboard');" <<< "$(sed -n '/^  private openSidebarSettings(): void {$/,/^  }$/p' "$keyboard_view")"; then
+  echo "Harmony must draw the nine-key sidebars from touch_nine_key_sidebar_symbols and touch_nine_key_digit_sidebar_symbols" >&2
+  exit 1
+fi
 # 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
 statistics_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/StatisticsAuthentication.ets"
 if [[ $(grep -cF "getSync('enabled', false)" "$statistics_auth") -ne 2 ]] \

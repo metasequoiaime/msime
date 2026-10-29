@@ -20,6 +20,7 @@ import app.msime.android.ViewPolicy;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
 import app.msime.android.JsonPolicy;
+import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.TouchKeyStyle;
 import app.msime.android.core.InputViewValuePolicy;
@@ -87,7 +88,7 @@ public final class KeyboardPreview extends View {
     }
 
     /**
-     * 从共享偏好读出预览要画的那一副（{@link KeyLayoutStylesPolicy#preview}）：画哪一类键盘与「按键布局」页默认停的那一类同一条规则，各类所选样式、顶部数字行和「符」与「123」互换读的是键盘读的同几项，另加本机的「交换语言键与数字键」。会读本机设置文件，要在工作线程上调用。
+     * 从共享偏好读出预览要画的那一副（{@link KeyLayoutStylesPolicy#preview}）：画哪一类键盘与「按键布局」页默认停的那一类同一条规则，各类所选样式、顶部数字行、「符」与「123」互换和九键左侧符号读的是键盘读的同几项，另加本机的「交换语言键与数字键」。会读本机设置文件，要在工作线程上调用。
      *
      * @param preferences 共享偏好（{@code KeyboardSheets.preferences}）；null 时按标准样式画，只保留本机的互换设置
      */
@@ -108,7 +109,8 @@ public final class KeyboardPreview extends View {
                 JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE))),
             preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
             preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false),
-            swap);
+            swap,
+            NineKeySidebarPolicy.fromPreference(preferences.opt(NineKeySidebarPolicy.LETTER_PREFERENCE)));
     }
 
     /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
@@ -278,23 +280,37 @@ public final class KeyboardPreview extends View {
             for (KeyLayoutStylesPolicy.Key cell : row) {
                 float width = unit * cell.weight();
                 if (cell.rows() > 0) {
-                    key.set(x, y, x + width, y + cell.rows() * rowHeight + (cell.rows() - 1) * gap);
-                    boolean action = cell.tone() == KeyLayoutStylesPolicy.Tone.RETURN;
-                    boolean function = cell.tone() == KeyLayoutStylesPolicy.Tone.FUNCTION;
-                    paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
-                    canvas.drawRoundRect(key, radius, radius, paint);
+                    float height = cell.rows() * rowHeight + (cell.rows() - 1) * gap;
                     boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
-                    String label = space ? caption : cell.face();
-                    if (!label.isEmpty()) {
-                        paint.setColor(action ? returnLabel() : space ? secondary() : ink());
-                        fitText(label, DimensionPolicy.floatPixels(getContext(), label.length() > 2 ? 10 : 13) * s, key);
-                        Paint.FontMetrics metrics = paint.getFontMetrics();
-                        canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
+                    List<String> stack = cell.stack();
+                    if (stack.isEmpty()) {
+                        drawKey(canvas, cell, space ? caption : cell.face(), x, y, width, height, radius, s);
+                    } else {
+                        // 9 键的左侧符号栏：整条栏的高度等分给栏里的每一项，与「按键布局」页的 KeyLayoutPreview 画法相同。
+                        float item = (height - gap * (stack.size() - 1)) / stack.size();
+                        for (int index = 0; index < stack.size(); index++)
+                            drawKey(canvas, cell, stack.get(index), x, y + index * (item + gap), width, item, radius, s);
                     }
                 }
                 x += width + gap;
             }
         }
         canvas.restoreToCount(saved);
+    }
+
+    /** 一个键帽：按底色画圆角块，再把键面居中画上（空格键面是皮肤说明，用次要色）。 */
+    private void drawKey(Canvas canvas, KeyLayoutStylesPolicy.Key cell, String label, float left, float top, float width,
+            float height, float radius, float s) {
+        key.set(left, top, left + width, top + height);
+        boolean action = cell.tone() == KeyLayoutStylesPolicy.Tone.RETURN;
+        boolean function = cell.tone() == KeyLayoutStylesPolicy.Tone.FUNCTION;
+        paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
+        canvas.drawRoundRect(key, radius, radius, paint);
+        if (label.isEmpty()) return;
+        boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
+        paint.setColor(action ? returnLabel() : space ? secondary() : ink());
+        fitText(label, DimensionPolicy.floatPixels(getContext(), label.length() > 2 ? 10 : 13) * s, key);
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
     }
 }

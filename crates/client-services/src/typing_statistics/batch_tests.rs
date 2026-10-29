@@ -18,12 +18,21 @@ fn on_disk(directory: &tempfile::TempDir) -> TypingStatistics {
     }
 }
 
-/// 代替另一个进程（设置页）在文件锁内改统计文件：它看不到本进程攒着的上屏，也不会替本进程写出它们。
+/// 代替另一个进程（设置页）在文件锁内改统计文件：它看不到本进程攒着的上屏和选词，也不会替本进程写出它们。不经 `read_locked` 和 `write_locked`，那两处会把读到、写下的文件状态记成本进程所知的，而本进程并不知道别的进程改了什么。
 fn other_process(store: &TypingStatisticsStore, change: impl FnOnce(&mut TypingStatistics)) {
     let lock = store.lock_file().unwrap();
-    let mut value = store.read_locked(&lock).unwrap();
+    let mut value = match fs::read(store.path()) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => TypingStatistics::default(),
+        Err(error) => panic!("{error}"),
+    };
     change(&mut value);
-    store.write_locked(&lock, &value).unwrap();
+    crate::file_lock::write_private_file_at(
+        &lock.directory,
+        std::ffi::OsStr::new(STATISTICS_FILE),
+        &serde_json::to_vec(&value).unwrap(),
+    )
+    .unwrap();
 }
 
 const DAY: &str = "2026-10-27";
@@ -467,4 +476,165 @@ fn the_background_flush_writes_what_the_process_holds() {
         );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+}
+
+/// 输入线程交过来的选词只进本进程的批次，不取文件锁、不碰磁盘：目录根本建不出来时照样攒下。
+#[test]
+fn queueing_selections_never_touches_the_statistics_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let blocker = directory.path().join("not-a-directory");
+    fs::write(&blocker, b"").unwrap();
+    let unreachable = TypingStatisticsStore::new(blocker.join("statistics"));
+    assert_eq!(unreachable.queue_selections(&[(1, 2)]).unwrap(), None);
+    assert_eq!(unreachable.known_enabled(), None);
+    // 同一个目录，在当前线程上写的那条路就失败了。
+    assert!(unreachable.record_selections(&[(1, 1)]).is_err());
+
+    let (directory, store) = enabled_store();
+    let before = fs::read(directory.path().join(STATISTICS_FILE)).unwrap();
+    // `set_enabled` 刚写过文件，本进程知道统计开着。
+    assert_eq!(
+        store.queue_selections(&[(1, 2), (3, 1), (12, 1)]).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        fs::read(directory.path().join(STATISTICS_FILE)).unwrap(),
+        before
+    );
+    // 整批攒下或都不攒。
+    assert!(matches!(
+        store.queue_selections(&[(2, 1), (0, 1)]),
+        Err(TypingStatisticsError::InvalidPosition)
+    ));
+
+    store.flush().unwrap();
+    let written = on_disk(&directory).selections;
+    assert_eq!(written.ranks[0], 2);
+    assert_eq!(written.ranks[1], 0);
+    assert_eq!(written.ranks[2], 1);
+    assert_eq!(written.beyond, 1);
+    assert_eq!(written.total(), 4);
+    // 写出一次就不再攒着：再 flush 不碰文件，也不会算两遍。
+    let after = fs::read(directory.path().join(STATISTICS_FILE)).unwrap();
+    store.flush().unwrap();
+    assert_eq!(
+        fs::read(directory.path().join(STATISTICS_FILE)).unwrap(),
+        after
+    );
+}
+
+/// 读统计的地方（统计页、上传、另一个 store 实例）先把攒着的选词写进去，所以总看得到它们；满间隔的 `record` 也连同上屏一起写。
+#[test]
+fn readers_and_the_due_record_write_queued_selections() {
+    let (directory, store) = enabled_store();
+    store.queue_selections(&[(1, 1)]).unwrap();
+    let other = TypingStatisticsStore::new(directory.path());
+    assert_eq!(other.load().unwrap().selections.total(), 1);
+    assert_eq!(on_disk(&directory).selections.total(), 1);
+
+    store
+        .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
+        .unwrap();
+    store.queue_selections(&[(2, 3)]).unwrap();
+    assert_eq!(on_disk(&directory).selections.total(), 1);
+    store
+        .record_at(
+            "世界",
+            TypingSource::Quanpin,
+            DAY,
+            Some(9),
+            1_000 + COMMIT_FLUSH_INTERVAL_MS,
+        )
+        .unwrap();
+    let written = on_disk(&directory);
+    assert_eq!(written.total, 4);
+    assert_eq!(written.selections.ranks[1], 3);
+    assert_eq!(written.selections.total(), 4);
+}
+
+/// 和攒着的上屏一样：写出时文件里的统计已被关掉，或已被清空过，攒着的选词整批丢掉；清空之后再攒的照常写。
+#[test]
+fn queued_selections_follow_the_switch_and_a_reset_elsewhere() {
+    let (directory, store) = enabled_store();
+    store.queue_selections(&[(1, 5)]).unwrap();
+    other_process(&store, |value| value.enabled = false);
+    let before = fs::read(directory.path().join(STATISTICS_FILE)).unwrap();
+    store.flush().unwrap();
+    assert_eq!(
+        fs::read(directory.path().join(STATISTICS_FILE)).unwrap(),
+        before
+    );
+    // 刚读到关着的开关：之后交来的选词当场丢掉，打开以后不会补记关着时的选词。
+    assert_eq!(store.queue_selections(&[(1, 1)]).unwrap(), Some(false));
+    other_process(&store, |value| value.enabled = true);
+    store.flush().unwrap();
+    assert_eq!(on_disk(&directory).selections.total(), 0);
+
+    // 本进程重新读到开着的开关以后照常攒。
+    assert!(store.load().unwrap().enabled);
+    assert_eq!(store.queue_selections(&[(1, 2)]).unwrap(), Some(true));
+    other_process_reset(&store);
+    store.flush().unwrap();
+    assert_eq!(on_disk(&directory).selections.total(), 0);
+    store.queue_selections(&[(4, 1)]).unwrap();
+    store.flush().unwrap();
+    let written = on_disk(&directory).selections;
+    assert_eq!(written.ranks[3], 1);
+    assert_eq!(written.total(), 1);
+}
+
+/// 本进程清空统计时，清空之前交来、还没写出的选词随清空一起删掉，不在清空之后写回来。
+#[test]
+fn a_reset_in_this_process_clears_queued_selections() {
+    let (directory, store) = enabled_store();
+    store.queue_selections(&[(1, 2)]).unwrap();
+    assert_eq!(store.reset().unwrap().selections.total(), 0);
+    store.flush().unwrap();
+    assert_eq!(on_disk(&directory).selections.total(), 0);
+}
+
+/// 后台 flush 也写只攒着选词、没有上屏的目录。
+#[test]
+fn the_background_flush_writes_queued_selections() {
+    let (directory, store) = enabled_store();
+    store.queue_selections(&[(1, 1)]).unwrap();
+    flush_pending_commits_in_background();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while on_disk(&directory).selections.total() != 1 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the background flush never wrote the queued selection"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// 统计文件还不存在时统计按默认关着：攒着的选词在写出时丢掉，不会建出一份关着却带着选词的新文件；Android 写效率时取锁带出攒着的选词，也是同一条路。之后打开统计，关着时攒的选词不补记。
+#[test]
+fn queued_selections_never_create_a_statistics_file_while_statistics_are_off_by_default() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(STATISTICS_FILE);
+    let store = TypingStatisticsStore::new(directory.path());
+    // 本进程还没读过这个文件，照攒。
+    assert_eq!(store.queue_selections(&[(1, 2), (3, 1)]).unwrap(), None);
+    flush_pending_commits();
+    assert!(!path.exists());
+    // 读到的是不存在的文件，也就知道了统计关着：之后交来的当场丢掉。
+    assert_eq!(store.known_enabled(), Some(false));
+    assert_eq!(store.queue_selections(&[(1, 1)]).unwrap(), Some(false));
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(STATISTICS_FILE);
+    let store = TypingStatisticsStore::new(directory.path());
+    assert_eq!(store.queue_selections(&[(1, 2)]).unwrap(), None);
+    let mut efficiency = CommitEfficiency::default();
+    efficiency.count_commit(2, 4, false, false);
+    store.record_efficiency(&efficiency).unwrap();
+    assert!(!path.exists());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    assert_eq!(store.queue_selections(&[(2, 3)]).unwrap(), None);
+    assert!(store.set_enabled(true).unwrap().enabled);
+    assert_eq!(on_disk(&directory).selections.total(), 0);
 }

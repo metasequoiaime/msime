@@ -1,3 +1,4 @@
+import ObjectiveC
 import XCTest
 import UIKit
 
@@ -9,6 +10,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     TouchKeyLayoutStyle.twentySixKeyDocumentKey, TouchKeyLayoutStyle.fourteenKeyDocumentKey,
     TouchKeyLayoutStyle.nineKeyDocumentKey, TouchKeyLayoutStyle.numberRowDocumentKey,
     TouchKeyLayoutStyle.symbolFirstDocumentKey, TouchKeyLayoutStyle.numberPadSpaceDocumentKey,
+    TouchKeyLayoutStyle.nineKeySidebarDocumentKey, TouchKeyLayoutStyle.digitSidebarDocumentKey,
   ]
 
   override func setUp() {
@@ -904,6 +906,10 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(layer.tallReturn, style == .tallReturn, style.rawValue)
       XCTAssertEqual(layer.nineKeySidebar, style == .tallReturn ? ["，", "。", "？", "！"] : ["，", "。", "？"], style.rawValue)
       XCTAssertEqual(layer.nineKeyControls, style == .tallReturn ? ["⌫", "分词"] : ["⌫", "分词", "！"], style.rawValue)
+      // 换了字母层的表时，皮肤页这些预览与「按键布局」页一样画那张表的一屏，右侧大回车也不再接 ！。
+      let custom = TouchKeyLayoutStyle(nineKey: style, nineKeySidebar: ["@", "#", "~", "%"])
+      XCTAssertEqual(KeyboardPreviewLetterLayer(nineKey: true, letterGrid: false, style: custom, language: true).nineKeySidebar,
+                     ["@", "#", "~"], style.rawValue)
     }
     // 每一类只读自己那一项样式：别的两类换了样式，底行不变。
     let mixed = TouchKeyLayoutStyle(twentySixKey: .emoji, fourteenKey: .longSpace, nineKey: .tallReturn)
@@ -964,6 +970,62 @@ final class KeyLayoutStyleTests: XCTestCase {
       }
       XCTAssertEqual(drawn, [numberRow, numberRow, false], "\(numberRow)")
     }
+  }
+
+  /// 「键盘」页和皮肤页的预览画用户正在用的那一类键盘（`KeyboardPreviewFace`），与 `TouchKeyLayoutKind.of`、Android `previewKind` 和鸿蒙相同：笔画和拼音九键、九键双拼一样画九宫格外框、读九键样式。以前 iOS 的「键盘」页给笔画画 26 键标准底行，皮肤页不论什么键盘都画 26 键。
+  func testPreviewFaceFollowsTheCurrentKeyboardKind() {
+    let layouts = TouchShuangpinLayoutPreference.Layout.allCases.flatMap { shuangpin in
+      TouchWubiLayoutPreference.Layout.allCases.map { (shuangpin, $0) }
+    }
+    for scheme in ChineseInputScheme.allCases {
+      for (shuangpin, wubi) in layouts {
+        let face = KeyboardPreviewFace(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+        let kind = TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+        let label = "\(scheme) \(shuangpin) \(wubi)"
+        let layer = KeyboardPreviewLetterLayer(nineKey: face.nineKey, letterGrid: face.letterGrid != nil,
+                                               style: TouchKeyLayoutStyle(), language: true)
+        // 不读样式的方案（手写、注音、日文、韩文等）画 26 键。
+        XCTAssertEqual(layer.kind, kind ?? .twentySixKey, label)
+        XCTAssertEqual(face.styled, kind != nil, label)
+        XCTAssertEqual(face.letterGrid, LetterKeyGrid.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi), label)
+        XCTAssertEqual(face.nineKeyZero, scheme == .nineKeyShuangpin, label)
+      }
+    }
+
+    // 九键一族都画九宫格外框；选了右侧大回车时笔画同样画竖跨两行的回车，与键盘的 `nineKeyFrame`、`tallReturn` 一致。
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
+      let face = KeyboardPreviewFace(scheme, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
+      XCTAssertTrue(face.nineKey, "\(scheme)")
+      XCTAssertTrue(face.styled, "\(scheme)")
+      let tall = KeyboardPreviewLetterLayer(nineKey: face.nineKey, letterGrid: face.letterGrid != nil,
+                                            style: TouchKeyLayoutStyle(nineKey: .tallReturn), language: true, nineKeyZero: face.nineKeyZero)
+      XCTAssertEqual(tall.kind, .nineKey, "\(scheme)")
+      XCTAssertTrue(tall.tallReturn, "\(scheme)")
+      XCTAssertEqual(tall.nineKeyControls, ["⌫", "分词"], "\(scheme)")
+    }
+
+    // 14/18 键画各自的字母格，五笔 14 键第三排左端是 符。
+    let quanpinEighteen = KeyboardPreviewFace(.eighteenKey, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
+    XCTAssertEqual(quanpinEighteen.letterGrid, .eighteenKey)
+    XCTAssertTrue(quanpinEighteen.gridSplitsSyllables)
+    XCTAssertEqual(KeyboardPreviewFace(.shuangpin, shuangpinLayout: .fourteenKey, wubiLayout: .twentySixKey).letterGrid, .fourteenKey)
+    let wubiFourteen = KeyboardPreviewFace(.wubi, shuangpinLayout: .eighteenKey, wubiLayout: .fourteenKey)
+    XCTAssertEqual(wubiFourteen.letterGrid, .fourteenKey)
+    XCTAssertFalse(wubiFourteen.gridSplitsSyllables)
+    XCTAssertFalse(wubiFourteen.nineKey)
+  }
+
+  /// 皮肤页从共享文档读方案和双拼、五笔布局（`KeyboardPreviewFace(in:)`），文档里选的是笔画时缩略图画九宫格外框，选双拼 18 键时画 18 键字母格。
+  func testPreviewFaceReadsTheSharedDocument() {
+    let stroke: [String: Any] = ["touch_keyboard_schemes": ["selected": "stroke", "enabled": ["quanpin", "stroke"]]]
+    XCTAssertEqual(KeyboardPreviewFace(in: stroke), KeyboardPreviewFace(.stroke, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey))
+    XCTAssertTrue(KeyboardPreviewFace(in: stroke).nineKey)
+    let eighteen: [String: Any] = [
+      "touch_keyboard_schemes": ["selected": "xiaohe", "enabled": ["quanpin", "xiaohe"]],
+      TouchShuangpinLayoutPreference.documentKey: TouchShuangpinLayoutPreference.Layout.eighteenKey.rawValue,
+    ]
+    XCTAssertEqual(KeyboardPreviewFace(in: eighteen).letterGrid, .eighteenKey)
+    XCTAssertFalse(KeyboardPreviewFace(in: eighteen).nineKey)
   }
 
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
@@ -1690,6 +1752,249 @@ final class KeyLayoutStyleTests: XCTestCase {
                    [TypingKeyID.layer, TypingKeyID.symbol])
   }
 
+  // MARK: - 左侧符号栏
+
+  /// 两张符号表的读法：逐项丢坏值（不是字符串的、空串、带空白或控制字符的、超过四个码位的和重复的），不是数组时是出厂表；镜像与文档一致。
+  func testSidebarTablesReadItemByItem() {
+    let document: [String: Any] = [
+      TouchKeyLayoutStyle.nineKeySidebarDocumentKey: ["、", 3, " ； ", "、", "", "a b", "👨‍👩‍👧", NSNull()] as [Any],
+      TouchKeyLayoutStyle.digitSidebarDocumentKey: "= %",
+    ]
+    let style = TouchKeyLayoutStyle(in: document)
+    XCTAssertEqual(style.nineKeySidebar, ["、", "；"])
+    XCTAssertEqual(style.digitSidebar, [], "a value that is not an array reads as the factory table")
+    XCTAssertEqual(style.sidebarSymbols(.letter), ["、", "；"])
+    XCTAssertEqual(style.sidebarSymbols(.digit), ["+", "-", "*", "/"])
+    XCTAssertEqual(TouchKeyLayoutStyle(in: [:]).sidebarSymbols(.letter), ["，", "。", "？"])
+    TouchKeyLayoutStyle.mirror(document)
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.nineKeySidebar, ["、", "；"])
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.digitSidebar, [])
+  }
+
+  /// 编辑页保存只写这一张表，文档接受了才写镜像；与 iOS 出厂表逐项相同（包括「恢复默认」）时写空数组，client-core 从文档里省掉它。
+  func testSavingASidebarTableWritesOneFieldAndTheMirror() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(TouchKeyLayoutStyle.save(sidebar: ["、", "……", "（）"], table: .letter, stateRoot: state))
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document[TouchKeyLayoutStyle.nineKeySidebarDocumentKey] as? [String], ["、", "……", "（）"])
+    XCTAssertNil(document[TouchKeyLayoutStyle.digitSidebarDocumentKey], "the other table stays out of the document")
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.nineKeySidebar, ["、", "……", "（）"])
+    XCTAssertTrue(TouchKeyLayoutStyle.save(sidebar: ["=", "%"], table: .digit, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(sidebar: ["，", "。", "？"], table: .letter, stateRoot: state))
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertTrue((document[TouchKeyLayoutStyle.nineKeySidebarDocumentKey] as? [Any])?.isEmpty ?? true,
+                  "the factory table is written as an empty table")
+    XCTAssertEqual(document[TouchKeyLayoutStyle.digitSidebarDocumentKey] as? [String], ["=", "%"])
+    XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(digitSidebar: ["=", "%"]))
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.nineKeySidebar, [])
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.digitSidebar, ["=", "%"])
+    XCTAssertTrue(TouchKeyLayoutStyle.save(sidebar: ["+", "-", "*", "/"], table: .digit, stateRoot: state))
+    XCTAssertEqual(TouchKeyLayoutStyle(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)),
+                   TouchKeyLayoutStyle())
+  }
+
+  /// 9 键预览的符号栏：出厂表与键盘、热力图画的一样（右侧大回车接 ！），不描边；自定义表画一屏三项、每一格描边，右侧大回车也不接 ！。数字表不进 9 键预览，热力图始终画出厂的 ，。？。
+  func testNineKeyPreviewDrawsTheLetterTable() {
+    XCTAssertEqual(TouchKeyLayoutKind.previewSidebar(TouchKeyLayoutStyle()), ["，", "。", "？"])
+    XCTAssertEqual(TouchKeyLayoutKind.previewSidebar(TouchKeyLayoutStyle()).joined(),
+                   TypingKeyHeatmap.nineKeySidebar(for: .standard).face)
+    XCTAssertEqual(TouchKeyLayoutKind.previewSidebar(TouchKeyLayoutStyle(nineKey: .tallReturn)).joined(),
+                   TypingKeyHeatmap.nineKeySidebar(for: .tallReturn).face)
+    let five = ["、", "；", "：", "……", ":-)"]
+    XCTAssertEqual(TouchKeyLayoutKind.previewSidebar(TouchKeyLayoutStyle(nineKeySidebar: five)), ["、", "；", "："])
+    XCTAssertEqual(TouchKeyLayoutKind.previewSidebar(TouchKeyLayoutStyle(nineKey: .tallReturn, nineKeySidebar: ["、"])), ["、"])
+    XCTAssertFalse(TouchKeyLayoutKind.nineKey.highlightsSidebar(TouchKeyLayoutStyle()))
+    XCTAssertFalse(TouchKeyLayoutKind.nineKey.highlightsSidebar(TouchKeyLayoutStyle(digitSidebar: ["="])))
+    XCTAssertTrue(TouchKeyLayoutKind.nineKey.highlightsSidebar(TouchKeyLayoutStyle(nineKeySidebar: ["、"])))
+    XCTAssertFalse(TouchKeyLayoutKind.twentySixKey.highlightsSidebar(TouchKeyLayoutStyle(nineKeySidebar: ["、"])))
+    XCTAssertEqual(TouchKeyLayoutKind.nineKey.highlightedSlots(TouchKeyLayoutStyle(nineKeySidebar: ["、"])), [])
+    XCTAssertEqual(TypingKeyHeatmap.cells(nineKey: true, style: TouchKeyLayoutStyle(nineKeySidebar: five)).first?.face, "，。？")
+  }
+
+  /// 出厂表时左列仍是原来的 ，。？ 三格：贴满符号栏、等高平分，与改版前逐点相同，自定义表的滚动列藏着。当场换成自定义表再换回出厂表，三格的帧和原来一样。
+  func testFactorySidebarKeepsItsFrames() async throws {
+    select(.nineKey)
+    let controller = keyboard()
+    let sidebar = try view("nineKeySidebar", in: controller)
+    let custom = try view("nineKeyCustomSidebar", in: controller)
+    let factory = sidebarMarks(sidebar)
+    XCTAssertEqual(factory.map(\.title), ["，", "。", "？"])
+    for (index, mark) in factory.enumerated() {
+      XCTAssertEqual(mark.frame.height, sidebar.bounds.height / 3, accuracy: 0.5, mark.title)
+      XCTAssertEqual(mark.frame.minY, sidebar.bounds.height / 3 * CGFloat(index), accuracy: 0.5, mark.title)
+      XCTAssertEqual(mark.frame.minX, 0, accuracy: 0.5, mark.title)
+      XCTAssertEqual(mark.frame.width, sidebar.bounds.width, accuracy: 0.5, mark.title)
+    }
+    XCTAssertFalse(shown(custom))
+    try await restyle(controller, TouchKeyLayoutStyle(nineKeySidebar: ["、", "；"]), "custom") { self.shown(custom) }
+    XCTAssertEqual(sidebarMarks(sidebar).map(\.title), ["、", "；"])
+    try await restyle(controller, TouchKeyLayoutStyle(), "factory again") { !self.shown(custom) }
+    let again = sidebarMarks(sidebar)
+    XCTAssertEqual(again.map(\.title), factory.map(\.title))
+    for (drawn, original) in zip(again, factory) {
+      XCTAssertEqual(drawn.frame.minY, original.frame.minY, accuracy: 0.5, drawn.title)
+      XCTAssertEqual(drawn.frame.height, original.frame.height, accuracy: 0.5, drawn.title)
+      XCTAssertEqual(drawn.frame.width, original.frame.width, accuracy: 0.5, drawn.title)
+    }
+    controller.viewDidDisappear(false)
+  }
+
+  /// 自定义字母表：一屏最多三项、每项等高且不低于 28pt，多的上下滚动，从符号起滑交给滚动；少于三项时按项数均分左列。九宫格和右列不动。
+  func testCustomLetterSidebarScrollsThreeAScreen() throws {
+    select(.nineKey)
+    let five = ["、", "；", "：", "……", ":-)"]
+    XCTAssertTrue(write(TouchKeyLayoutStyle(nineKeySidebar: five)))
+    let controller = keyboard()
+    let scroll = try XCTUnwrap(try view("nineKeyCustomSidebar", in: controller) as? NineKeySidebarScrollView)
+    let sidebar = try view("nineKeySidebar", in: controller)
+    XCTAssertTrue(shown(scroll))
+    XCTAssertEqual(scroll.frame.size, sidebar.bounds.size)
+    XCTAssertEqual(scroll.buttons.map { $0.configuration?.title }, five)
+    XCTAssertEqual(scroll.visibleRows, 3)
+    for (index, key) in scroll.buttons.enumerated() {
+      XCTAssertEqual(key.frame.height, scroll.bounds.height / 3, accuracy: 0.5, five[index])
+      XCTAssertGreaterThanOrEqual(key.frame.height, NineKeySidebar.minRowHeight, five[index])
+      XCTAssertEqual(key.frame.width, scroll.bounds.width, accuracy: 0.5, five[index])
+      XCTAssertEqual(key.accessibilityIdentifier, "nineKeySidebarSymbol\(index)")
+      XCTAssertEqual(key.accessibilityLabel, "符号 \(five[index])")
+      XCTAssertTrue(scroll.touchesShouldCancel(in: key), "a drag that starts on a symbol scrolls")
+    }
+    XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
+    XCTAssertFalse(descendants(sidebar).contains { ($0 as? UIButton)?.configuration?.title == "，" && shown($0) })
+    // 右列的 ⌫、分词、！ 仍与九宫格三行对齐。
+    for (index, identifier) in ["nineKeyDelete", "nineKeyMiddleKey", "nineKeyClosingMark"].enumerated() {
+      let key = try button(identifier, in: controller)
+      let row = try button("nineKey\(index * 3 + 3)", in: controller)
+      XCTAssertEqual(key.convert(key.bounds, to: controller.view).midY, row.convert(row.bounds, to: controller.view).midY,
+                     accuracy: 0.5, identifier)
+    }
+    controller.viewDidDisappear(false)
+
+    XCTAssertTrue(write(TouchKeyLayoutStyle(nineKeySidebar: ["、", "；"])))
+    let short = keyboard()
+    let shortScroll = try XCTUnwrap(try view("nineKeyCustomSidebar", in: short) as? NineKeySidebarScrollView)
+    XCTAssertEqual(shortScroll.visibleRows, 2)
+    for key in shortScroll.buttons { XCTAssertEqual(key.frame.height, shortScroll.bounds.height / 2, accuracy: 0.5) }
+    XCTAssertEqual(shortScroll.contentSize.height, shortScroll.bounds.height, accuracy: 0.5)
+    short.viewDidDisappear(false)
+  }
+
+  /// 右侧大回车加自定义字母表：符号栏照用户的表画，末尾不接 ！；回车照样伸下来占右列第三格。
+  func testTallReturnWithACustomTableAppendsNoExclamation() throws {
+    select(.nineKey)
+    XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: .tallReturn, nineKeySidebar: ["、", "；"])))
+    let controller = keyboard()
+    XCTAssertEqual(sidebarMarks(try view("nineKeySidebar", in: controller)).map(\.title), ["、", "；"])
+    XCTAssertFalse(shown(try button("nineKeySidebarClosingMark", in: controller)))
+    XCTAssertTrue(shown(try button("tallReturnKey", in: controller)))
+    controller.viewDidDisappear(false)
+  }
+
+  /// 数字层的自定义表：九键自己的数字层和全拼借来的数字九宫格都换成用户的表，每项与右列的 ⌫ 同高，#+= 仍是同一个滚动栈的最后一项；当场换回出厂表时又是原来的四个运算符。
+  func testDigitSidebarFollowsTheDigitTable() async throws {
+    for scheme in [ChineseInputScheme.nineKey, .quanpin] {
+      let label = scheme.rawValue
+      select(scheme)
+      XCTAssertTrue(write(TouchKeyLayoutStyle(digitSidebar: ["=", "%", "(", ")", "（）"])), label)
+      let controller = keyboard()
+      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      let scroll = try view("numberPadOperatorScroll", in: controller)
+      let stack = try XCTUnwrap(scroll.subviews.compactMap { $0 as? UIStackView }.first, label)
+      func titles() -> [String?] { stack.arrangedSubviews.map { ($0 as? UIButton)?.configuration?.title } }
+      XCTAssertEqual(titles(), ["=", "%", "(", ")", "（）", "#+="], label)
+      XCTAssertEqual(stack.arrangedSubviews.last?.accessibilityIdentifier, "numberPadMoreSymbols", label)
+      let delete = try button("nineKeyDelete", in: controller)
+      for key in stack.arrangedSubviews { XCTAssertEqual(key.bounds.height, delete.bounds.height, accuracy: 0.5, label) }
+      XCTAssertEqual(try button("numberPadSidebarSymbol0", in: controller).accessibilityLabel, "符号 =", label)
+      XCTAssertTrue(shown(try button("numberPadSidebarSymbol0", in: controller)), label)
+      try await restyle(controller, TouchKeyLayoutStyle(), label) { titles().first == "+" }
+      XCTAssertEqual(titles(), ["+", "-", "*", "/", "#+="], label)
+      XCTAssertNotNil(descendants(stack).first { $0.accessibilityLabel == "运算符 +" }, label)
+      controller.viewDidDisappear(false)
+    }
+  }
+
+  /// 自定义表的项按字面上屏，不经 Engine 的标点路由：先结束组字，表项正好是一对成对符号时光标退到两者中间，其余的项不动光标。字母层和数字层都一样。
+  func testCustomSidebarItemsTypeLiterally() throws {
+    let document = SidebarDocument()
+    try attach(document)
+    select(.nineKey)
+    XCTAssertTrue(write(TouchKeyLayoutStyle(nineKeySidebar: ["（）", "、", ":-)"], digitSidebar: ["()", "="])))
+    let controller = keyboard()
+    try button("nineKeySidebarSymbol0", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(document.text, "（）")
+    XCTAssertEqual(document.caretMoves, [-1], "the caret sits between the pair")
+    try button("nineKeySidebarSymbol2", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(document.text, "（）:-)", "typed as it is, not as full-width marks")
+    XCTAssertEqual(document.caretMoves, [-1])
+    // 组字中点一项：组字按首选上屏，再接上这一项。
+    let idlePreedit = try button("preeditButton", in: controller).accessibilityValue
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse((try button("preeditButton", in: controller).accessibilityValue ?? "").isEmpty, "typing opens a composition")
+    try button("nineKeySidebarSymbol1", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, idlePreedit, "the composition ends")
+    XCTAssertTrue(document.text.hasSuffix("、"))
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    try button("numberPadSidebarSymbol0", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(document.text.hasSuffix("、()"))
+    XCTAssertEqual(document.caretMoves, [-1, -1])
+    try button("numberPadSidebarSymbol1", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(document.text.hasSuffix("、()="))
+    XCTAssertEqual(document.caretMoves, [-1, -1])
+    controller.viewDidDisappear(false)
+  }
+
+  /// 符号栏里显示着的键，自上而下，帧换算到符号栏里。
+  private func sidebarMarks(_ sidebar: UIView) -> [(title: String, frame: CGRect)] {
+    descendants(sidebar).compactMap { $0 as? UIButton }.filter { shown($0) }
+      .map { ($0.configuration?.title ?? "", $0.convert($0.bounds, to: sidebar)) }
+      .sorted { $0.frame.minY < $1.frame.minY }
+  }
+
+  /// 内存里的一份文档：测试宿主里的 `textDocumentProxy` 没有文档，上屏看不到（见 `EmailSuffixKeyboardTests`）。光标总在末尾，`adjustTextPosition` 只记下挪了几格。
+  @MainActor
+  private final class SidebarDocument: NSObject, UITextDocumentProxy {
+    var text = ""
+    var caretMoves: [Int] = []
+    var documentContextBeforeInput: String? { text }
+    var documentContextAfterInput: String? { nil }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var documentIdentifier = UUID()
+    var hasText: Bool { !text.isEmpty }
+    func insertText(_ inserted: String) { text += inserted }
+    func deleteBackward() { if !text.isEmpty { text.removeLast() } }
+    func adjustTextPosition(byCharacterOffset offset: Int) { caretMoves.append(offset) }
+    func setMarkedText(_ markedText: String, selectedRange: NSRange) {}
+    func unmarkText() {}
+  }
+
+  private static let proxySelector = #selector(getter: UIInputViewController.textDocumentProxy)
+
+  /// 让 `KeyboardViewController` 的 `textDocumentProxy` 返回 `document`，用例结束时换回父类的实现。
+  private func attach(_ document: SidebarDocument) throws {
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, Self.proxySelector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, Self.proxySelector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, Self.proxySelector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, Self.proxySelector) {
+        method_setImplementation(own, original)
+      }
+      imp_removeBlock(replacement)
+    }
+  }
+
   // MARK: - 辅助
 
   private func write(_ style: TouchKeyLayoutStyle) -> Bool {
@@ -1700,6 +2005,8 @@ final class KeyLayoutStyleTests: XCTestCase {
       document[TouchKeyLayoutStyle.numberRowDocumentKey] = style.numberRow
       document[TouchKeyLayoutStyle.symbolFirstDocumentKey] = style.symbolFirst
       document[TouchKeyLayoutStyle.numberPadSpaceDocumentKey] = style.numberPadSpace.rawValue
+      document[TouchKeyLayoutStyle.nineKeySidebarDocumentKey] = style.nineKeySidebar
+      document[TouchKeyLayoutStyle.digitSidebarDocumentKey] = style.digitSidebar
     }
     if written { TouchKeyLayoutStyle.mirrored = style }
     return written

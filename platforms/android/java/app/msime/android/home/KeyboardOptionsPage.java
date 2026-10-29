@@ -35,7 +35,6 @@ import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
-import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
@@ -56,20 +55,16 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式与顶部数字行，{@link KeyLayoutStylesPage}）、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift 和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
-    @Nullable private String initialSidebarKey;
-    private boolean initialSidebarOpened;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
         clipboardExport.restore(saved);
-        android.os.Bundle args = getArguments();
-        initialSidebarKey = args == null ? null : args.getString("edit_sidebar_key");
     }
 
     @Override public void onSaveInstanceState(android.os.Bundle saved) {
@@ -155,22 +150,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 "中英键依次切换中文、英文和已添加的日语、韩语等键盘，再回到中文；没有添加其他语言时仍只切中英",
                 settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
                 checked -> saveLocalSetting(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
-        }
-        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行只看拼音九键。
-        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
-        if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
-            java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
-                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
-            layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
-                NineKeySidebarPolicy.summary(sidebar, 4),
-                () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
-        }
-        if (quanpinNineKey) {
-            java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
-                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
-                NineKeySidebarPolicy.summary(digitSidebar, 4),
-                () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         }
         layout.nav("文本编辑按键顺序", "调整文本编辑面板两侧的七个功能键，方向键与换行位置固定",
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
@@ -271,7 +250,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         directionRow[0] = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection, directionRow[0]));
         directionRow[0].setEnabled(swipeSymbols);
-        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
+        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。本版本没有拼音九键时不列。
+        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {
             String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
             GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
@@ -378,16 +358,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
-
-        if (!initialSidebarOpened && initialSidebarKey != null) {
-            initialSidebarOpened = true;
-            boolean digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS.equals(initialSidebarKey);
-            java.util.List<String> sidebarCurrent = NineKeySidebarPolicy.sidebarSymbols(digits,
-                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
-                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            editSidebarSymbols(digits ? "九键数字键盘左侧符号" : "九键左侧符号",
-                initialSidebarKey, sidebarCurrent);
-        }
 
     }
 
@@ -553,13 +523,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             if (saved == null) MsToast.show(requireContext(), "保存失败，键盘保留当前布局");
             reload();
         });
-    }
-
-    /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
-    private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
-        java.util.List<String> defaults = key.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
-            ? NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS : NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
-        new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
     }
 
     private void pickAnimation(GroupCard.Row row) {

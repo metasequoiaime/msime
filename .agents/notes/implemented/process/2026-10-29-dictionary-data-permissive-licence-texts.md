@@ -16,7 +16,7 @@ Status: implemented
 
 ## Alternatives considered
 
-- **只靠 `msime-engine-dictionary-NOTICE.md` 列出来源** — 改动最小，而且那份文件已经随每个平台分发。但它只写名字和许可证类型，没有版权行和许可正文，不满足 MIT 与 Apache-2.0 的随附条件。
+- **只靠 `msime-engine-dictionary-NOTICE.md` 列出来源** — 改动最小，而且那份文件已经随桌面平台和 C 库数据包分发（移动端到[语言词库的许可证表达式写全来源，移动端带上词库来源说明](2026-10-29-language-dictionary-licence-expressions-and-mobile-notice.md)才带上）。但它只写名字和许可证类型，没有版权行和许可正文，不满足 MIT 与 Apache-2.0 的随附条件。
 - **五笔码表借用 `resources/helpcodes/NOTICE-wubi86.md` 末尾的 Apache-2.0 全文** — 那份说明已经随每个平台分发，正文完全相同，不必再存一份。但它说明的是辅助码表 `wubi86_helpcode.txt`，`msime-wubi.db` 的码表借它的全文，读声明的人对不上；以后辅助码表退出，码表的许可证也会跟着消失。单独一份文件可以被契约测试按名字检查。
 - **rime-wubi86-jidian 改按现行的 MIT 附上** — 文本更短，与上游现状一致。但码表取自改许可之前，按取用时的条款履行不需要判断改许可是否覆盖旧版本。
 

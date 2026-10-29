@@ -92,22 +92,25 @@ struct KeyboardLayoutSettingsView: View {
     keyLayoutStyle.numberRow && !nineKey && scheme != .japaneseNineKey && scheme != .handwriting
       && !scheme.isStroke && !scheme.isZhuyin
   }
-  /// 预览按的「按键布局」：预览画的键面正是当前方案读样式的那一类时用用户选的样式，日文罗马字、韩文等不读这几项样式的键面（`TouchKeyLayoutKind.of` 为 nil 或不是同一类）画标准底行，「符」与「123」互换照旧，与键盘一致；顶部数字行只在键盘上真会画时画（`drawsPhoneNumberRow`）。
+  /// 预览画的键面：用户当前的中文键盘属于哪一类（`KeyboardPreviewFace`），九键一族连同笔画都画九宫格外框，与键盘和 Android、鸿蒙的「键盘」页一致。
+  private var previewFace: KeyboardPreviewFace {
+    KeyboardPreviewFace(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+  }
+  /// 预览按的「按键布局」：当前方案读样式时（`KeyboardPreviewFace.styled`）用用户在这一类里选的样式，笔画因此和拼音九键一样画九键样式（含右侧大回车）；日文罗马字、韩文等不读这几项样式的方案画标准底行，「符」与「123」互换照旧，与键盘一致；顶部数字行只在键盘上真会画时画（`drawsPhoneNumberRow`）。
   private var previewKeyLayout: TouchKeyLayoutStyle {
-    let drawn: TouchKeyLayoutKind = nineKey ? .nineKey : letterGrid != nil ? .letterGrid : .twentySixKey
-    let styled = TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout) == drawn
-    var style = styled ? keyLayoutStyle : TouchKeyLayoutStyle(symbolFirst: keyLayoutStyle.symbolFirst)
+    var style = previewFace.styled ? keyLayoutStyle : TouchKeyLayoutStyle(symbolFirst: keyLayoutStyle.symbolFirst)
     style.numberRow = drawsPhoneNumberRow
     return style
   }
 
   private var preview: some View {
-    VStack(spacing: 6) {
+    let face = previewFace
+    return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, letterGrid: letterGrid, gridSplitsSyllables: scheme != .wubi,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
-        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: scheme == .nineKeyShuangpin
+        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )
       .gesture(spacingDrag)
       .accessibilityIdentifier("keyboardLayoutPreview")

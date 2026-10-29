@@ -108,6 +108,8 @@ cp resources/licenses/python-pinyin-MIT.txt "$notices/python-pinyin-MIT.txt"
 cp resources/licenses/rime-wubi86-jidian-Apache-2.0.txt "$notices/rime-wubi86-jidian-Apache-2.0.txt"
 # msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随副本分发。
 cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang-CC-BY-4.0.txt"
+# 随 APK 和资源包分发的词库（msime-pinyin.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，按需下载或随非瘦包带上的 msime-wubi.db 与日文词典）逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
+cp resources/licenses/msime-engine-dictionary-NOTICE.md "$notices/msime-engine-dictionary-NOTICE.md"
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-符号栏每个项目支持长按，通过带 `edit_sidebar_key` 参数的 `KEYBOARD_OPTIONS` 深链打开现有 `NineKeySidebarSheet`。编辑器继续使用 Android 本地设置的既有默认值、校验、排序、添加、删除和保存流程；数字键盘符号栏与字母键面使用各自的设置键。
+符号栏每个项目支持长按，通过带 `edit_sidebar_key` 参数的 `KEY_LAYOUT_STYLES` 深链打开「按键布局」页并直接进入 `NineKeySidebarSheet`，参数是那张表的共享偏好名（`touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`）；两张表提为共享偏好、入口挪进「按键布局」的经过见[九键左侧符号栏三端共享](2026-10-29-nine-key-sidebar-shared.md)。编辑器沿用既有的默认值、校验、排序、添加、删除和保存流程；数字键盘符号栏与字母键面各是一张表。
 
 ## Alternatives considered
 

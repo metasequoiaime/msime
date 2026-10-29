@@ -177,3 +177,7 @@ Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源
 最新 `6bea262fd0` 的 Windows CI 在 MCP Clippy 阶段被上游注册表读取的两处 `manual_is_multiple_of` 阻断，WER 步骤未执行；旧 x86 系统 WER 退出超时仍未定位。Android API 35 作业已于 `2026-10-29T13:50:06Z` 完整成功，包含四共享 crate 设备单测、APK、崩溃/退出/ANR 专项和完整输入冒烟；该结果归属 6bea，不扩大为随后集成提交的设备验收。
 
 集成 develop 与注册表 Clippy 等价修补后的 `b753f82b9a` 在干净缓存完成整轮 quick，12,612 个源码条目前后相同；Windows GNU Host/MCP 全 target 严格 Clippy 已在其同源集成候选通过。PVE Windows 11 的同源 MSVC x64/x86 回调、生命周期及各七组真实系统 WER 全部通过，仍不证明旧 CI 的 x86 退出超时根因已修复；新 CI 另验。工具缺失而跳过的 Linux 原生、Windows 原生和鸿蒙编译不算目标通过，原 PVE Linux 两个画布断言失败也没有被本轮其他机器的通过覆盖。详细证据及边界由全平台提案和 TSF 笔记持有。
+
+固定 6bea 的 Ubuntu x64 原 IBus 监督器已在真实 Mousepad 经 GTK IBus 模块完成连续上屏、故障后继续输入、SIGKILL 对照与活跃撤回重开。两条实际故障到隔离后台，原始头的新旧授权不同；独立两模块符号包将两条实际后台帧还原到 `ibus_main.cpp:296`，错 build-id 拒绝。首轮误用仅桌面启用回环的设置验收前缀而未收件，失败保留；另建前缀明确链接同源回环 Host API 后完整通过，未替换正式安装前缀。资源、网络隔离、生命周期、字段一致性、清理与正式缓存恢复由全平台提案持有，不扩展为 Fcitx5 或原生 Wayland 编辑器验收。
+
+整合候选树 `22ddd3af98853b3219332188a76310c9b040925f` 的整轮 `scripts/verify-local.sh --quick` 已退出 0，12,626 条源码及模式在开始和结束后逐项一致。授权迁移回归通过，Windows GNU 的 core/Host/MCP 全 target 严格 Clippy、203 项 Windows 可移植用例、仓库契约及笔记、Rust workspace/Android/wasm、Android Java/JNI、macOS 原生、共享 Apple bridge 与 x64/x86 pipe-only 编译通过。鸿蒙 SDK/设置依赖、Docker 及 Windows 完整原生工具缺失的阶段明确跳过，不计平台验收。证据为 `target/merge-c1c0-quick-evidence/`；随后只补验证笔记，不把既有 6bea 产品或 b753 WER 的通过转记为本次集成产物。

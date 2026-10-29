@@ -26,13 +26,13 @@ LICENCES = {
         "chewing/libchewing-data",
         "c44e81aef24b06f1509f19e1be54c99812d0c43f",
         "sources/zhuyin/",
-        ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS", "Source/Data/phrase.occ", "Copyright (c) 2011-2026 Mengjuei Hsieh et al.", "Permission is hereby granted, free of charge", "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.", "THE SOFTWARE IS PROVIDED \"AS IS\""),
+        ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS", "Source/Data/phrase.occ", "Copyright (c) 2011-2026 Mengjuei Hsieh et al.", "Permission is hereby granted, free of charge", "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.", "THE SOFTWARE IS PROVIDED \"AS IS\"", "Copyrighy (c) 1999 TaBE Project.", "Copyright (c) 1999 Computer Systems and Communication Lab,", "Redistributions in binary form must reproduce the above copyright", "Copyright 1996 Chih-Hao Tsai @ Beckman Institute, University of Illinois"),
     ),
     "resources/licenses/rime-stroke-LGPL-3.0.txt": (
         "rime/rime-stroke",
         "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48",
         "sources/stroke/",
-        ("四季的風", "Kunki Chou", "宋天", "數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw", "北大中文論壇", "sources/pinyin/single-chars.txt", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48", "https://www.gnu.org/licenses/gpl-3.0.txt"),
+        ("四季的風", "Kunki Chou", "宋天", "數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw", "北大中文論壇", "sources/pinyin/single-chars.txt", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48", "https://www.gnu.org/licenses/gpl-3.0.txt", "Creator: amzxyz", "https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit 7ab73ee0c7f80190004233e70f954833df64c80e", "https://creativecommons.org/licenses/by/4.0/", "round(rime-wanxiang weight × 9.42)", "disclaimer of warranties", "rime-wanxiang-CC-BY-4.0.txt"),
     ),
 }
 # 许可证文件还覆盖的其他上游：锁文件里的引用名，以及许可证文件写出那个引用的提交时用的文字。HKCanCor 的词频随粤拼词库分发，McBopomofo 的补充表与 phrase.occ 随注音词库分发，换了它们的提交却忘了改许可证会在这里失败。
@@ -88,7 +88,24 @@ WANXIANG_COMMIT = "7ab73ee0c7f80190004233e70f954833df64c80e"
 WANXIANG_LICENCE = "resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
 # msime-engine-dictionary-NOTICE.md 的前半部分逐字取自 msime-dictionary 某个提交的 NOTICE.md，开头写明是哪个 dict-v 发布的源数据提交；词库锁换了发布却没有重新同步，会在这里失败。
 DESKTOP_LOCK = ROOT / "resources/desktop-dictionary.lock.json"
+# 词库来源说明本身也要随每个分发桌面词库的渠道走：它是 msime-bigram.bin、msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名和 msime-wubi.db 各份码表出处唯一写着的地方。六个平台都随包或经资源包分发这些词库（Android 的 assets/dictionary 与五笔、日文资源包，iOS 键盘扩展的 EngineResources，HarmonyOS 的 resfile/engine），C 库数据包带拼音库和英文词库。iOS 关于页按 md 扩展名列出它。
+ENGINE_NOTICE_CHANNELS = ("platforms/windows/Collect-Notices.ps1", "platforms/macos/CMakeLists.txt", "platforms/linux/CMakeLists.txt", "platforms/android/build-native.sh", "platforms/ios/project.yml", "platforms/ios/tests/settings/ProjectConfigurationTests.py", "platforms/ios/App/Sources/settings/AboutAndDownloadViews.swift", "platforms/harmony/stage-resources.sh", "crates/engine-capi/packaging/data-pack.py")
 ENGINE_NOTICE_MARKERS = ("### 拼音权重与万象对齐", "## msime 构建时另加的输入", "### 整句词格的上下文表", "Copyright 2000-2026 by Kevin Atkinson", "中文维基百科")
+# 水杉输入法本身以 GPL-3.0-only 发布（仓库根目录的 LICENSE），msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，输入引擎（crates/engine、crates/path-trust）是 MPL-2.0。三个移动端都把引擎编进安装包、随包分发拼音库，GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，引擎的 MPL-2.0 全文也随每份引擎构建分发，所以每个移动端渠道都要带上两份全文，关于页列出它们。各渠道给 GPL-3.0 全文起的名字不同（Android 的 client-LICENSE.txt，iOS bundle 里原样的 LICENSE，HarmonyOS 的 GPL-3.0.txt），这里逐个写出要在非注释行出现的片段。MPL-2.0 全文在所有渠道里的固定由 scripts/test-engine-license.py 负责，这里只把移动端的一并写出，让三端的两份全文在同一处可查。
+PROJECT_LICENCE = "LICENSE"
+PROJECT_LICENCE_MARKERS = ("GNU GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "END OF TERMS AND CONDITIONS")
+ENGINE_LICENCE = "resources/licenses/MPL-2.0.txt"
+ENGINE_LICENCE_MARKERS = ("Mozilla Public License Version 2.0", "Exhibit A - Source Code Form License Notice")
+MOBILE_LICENCE_CHANNELS = {
+    "platforms/android/build-apk.sh": ('cp LICENSE "$assets/client-LICENSE.txt"',),
+    "platforms/android/build-client-apk.sh": ('cp LICENSE "$assets/client-LICENSE.txt"',),
+    "platforms/android/build-native.sh": ('cp resources/licenses/MPL-2.0.txt "$notices/MPL-2.0.txt"',),
+    "platforms/android/java/app/msime/android/home/AboutPage.java": ('"client-LICENSE.txt"', 'assets.list("native-notices")'),
+    "platforms/ios/project.yml": ("- path: ../../LICENSE", "- path: ../../resources/licenses/MPL-2.0.txt"),
+    "platforms/ios/tests/settings/ProjectConfigurationTests.py": ('"../../LICENSE"', '"MPL-2.0.txt"'),
+    "platforms/ios/App/Sources/settings/AboutAndDownloadViews.swift": ('LicenseNotice(file: "LICENSE"', 'LicenseNotice(file: "MPL-2.0"'),
+    "platforms/harmony/stage-resources.sh": ('cp LICENSE "$licenses_staged/GPL-3.0.txt"', 'cp resources/licenses/MPL-2.0.txt "$licenses_staged/"'),
+}
 WEB_DATA_CHANNELS = ("scripts/web-engine-notice.sh", "resources/licenses/web-engine-NOTICE.md")
 DATA_PACK_CHANNEL = "crates/engine-capi/packaging/data-pack.py"
 PARTIAL_DATA_CHANNELS = {
@@ -180,12 +197,27 @@ def main() -> int:
     check(len(releases) == 1 and f"`{next(iter(releases))}`" in header, f"{ENGINE_NOTICE} opens with {header[:80]!r}, which does not name the release the desktop dictionary lock pins ({sorted(releases)}); re-sync it from that release's source data commit")
     for marker in ENGINE_NOTICE_MARKERS:
         check(marker in engine_notice, f"{ENGINE_NOTICE} no longer contains {marker!r}")
+    notice_name = Path(ENGINE_NOTICE).name
+    notice_stem = notice_name.removesuffix(".md")
+    for channel in ENGINE_NOTICE_CHANNELS:
+        live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
+        check(any(notice_name in line or f'"{notice_stem}"' in line for line in live), f"{channel} does not ship {notice_name}")
+    for relative, markers in ((PROJECT_LICENCE, PROJECT_LICENCE_MARKERS), (ENGINE_LICENCE, ENGINE_LICENCE_MARKERS)):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for marker in markers:
+            check(marker in text, f"{relative} no longer contains {marker!r}")
+    for channel, fragments in MOBILE_LICENCE_CHANNELS.items():
+        live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith(("#", "//"))]
+        for fragment in fragments:
+            # project.yml 的 `- path:` 条目要整行相等，`../../LICENSE` 才不会被 `../../LICENSE.md` 之类的路径冒充。
+            exact = fragment.startswith("- path: ")
+            check(any(fragment == line.strip() if exact else fragment in line for line in live), f"{channel} does not ship the GPL-3.0 or MPL-2.0 text: no live line contains {fragment!r}")
 
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, {len(DATA_LICENCES)} dictionary data licences in {len(DATA_CHANNELS)} channels, vi in {len(VI_CHANNELS)} channels, ewts in {len(EWTS_CHANNELS)} channels")
+    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, {len(DATA_LICENCES)} dictionary data licences in {len(DATA_CHANNELS)} channels, the dictionary sources notice in {len(ENGINE_NOTICE_CHANNELS)} channels, the GPL-3.0 and MPL-2.0 texts in {len(MOBILE_LICENCE_CHANNELS)} mobile channels, vi in {len(VI_CHANNELS)} channels, ewts in {len(EWTS_CHANNELS)} channels")
     return 0
 
 

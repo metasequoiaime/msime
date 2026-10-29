@@ -164,6 +164,12 @@ targets:
       # msime-pinyin.db 与语言词库的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随 App 分发。
       - path: ../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt
         buildPhase: resources
+      # 键盘扩展的 EngineResources 带着桌面词库（msime-pinyin.db、msime-wubi.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，日文词典按需下载），它们逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
+      - path: ../../resources/licenses/msime-engine-dictionary-NOTICE.md
+        buildPhase: resources
+      # 水杉输入法本身以 GPL-3.0-only 发布，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 原样作为 App 资源分发（键盘扩展只随 App 一起安装），关于页列在第一项。Android 以 client-LICENSE.txt、HarmonyOS 以 resfile/licenses/GPL-3.0.txt 分发同一份文件。
+      - path: ../../LICENSE
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

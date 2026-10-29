@@ -474,6 +474,7 @@ export function ScreenKeyboardSettingsPage() {
                   scheme={selectedTouchKeyboardScheme}
                   groups={keyLayoutGroups}
                   open={keyLayoutSubview === true}
+                  mobile={harmonyPhone}
                   onChange={onPreferencesChange}
                 />
               </section>

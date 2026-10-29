@@ -16,6 +16,8 @@ Status: implemented
 
 社区皮肤只带配色、不带作者的键位，所以按读卡人自己的偏好画：他想看的是装到自己键盘上的样子。拿不到偏好时画标准样式。
 
+画哪一类由用户当前的方案和双拼、五笔布局决定，三端用同一条规则：iOS `KeyboardPreviewFace`（取 `TouchKeyLayoutKind.of`），Android `KeyLayoutStylesPolicy.previewKind`，共享页 `touchKeyLayoutKind`（`harmonyTouchRowsForPreferences` 把 `"nine"` 一类都画成九宫格）。读不了样式的方案（手写、注音、日文、韩文等）画 26 键。iOS 最初合入时「键盘」页用 `isMandarinNineKey` 判九键，漏了笔画，笔画用户看到的是 26 键标准底行；皮肤页的缩略图写死 `nineKey: false`，九键和 14/18 键用户看到的都是 26 键。跟进时两处都改成按 `KeyboardPreviewFace` 画，笔画因此画九宫格外框并读九键样式（含右侧大回车），与键盘的 `nineKeyFrame` 一致。
+
 ## Alternatives considered
 
 - **只修 iOS「键盘」页**：这是看到的那一处。不采用：三端的皮肤页预览是同一个毛病，修一处另两处照旧画错。
@@ -30,4 +32,5 @@ Android 皮肤页预览的 26 键第二排铺满整行、字母大写，九键�
 - iOS：Studio 上 xcodegen 生成工程后 `MSIMEApp` 和 `MSIMEClientTests` 编译通过；新增 3 个 `KeyLayoutStyleTests` 用例只编译、没跑（Studio 没有可用的模拟器）；`scripts/test-ios-key-layout-settings.py` 等契约脚本通过。
 - Android：`check-host.sh` 311 项冒烟通过（新增 `KeyboardPreviewLayoutSmoke`），`build-editor.sh` 和 Gradle `compileFullDebugJavaWithJavac` 通过。
 - 共享页：`npx vitest run tests/settings tests/community tests/keyboard` 593 个文件 3719 项通过（新增 `harmony-keyboard-preview-layout.test.tsx`，含九键双拼、笔画画九宫格），`tsc`、`vp fmt --check`、`vp lint` 通过。
+- iOS 跟进（笔画画九宫格、皮肤页按当前键盘类型画）：新增 `KeyLayoutStyleTests.testPreviewFaceFollowsTheCurrentKeyboardKind` 和 `testPreviewFaceReadsTheSharedDocument`，结果见跟进 PR 的验证一节和它的 iOS Simulator CI。
 - 三端都没在模拟器或真机上看过修好后的预览。

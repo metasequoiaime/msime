@@ -447,8 +447,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
+  /// 字母层用自定义符号表（`touch_nine_key_sidebar_symbols`）时的左列：一屏最多三项、等高，多的上下滚动。出厂表时隐藏，左列仍是原来的 `punctuationStack`，画面不变。
+  private let customSidebarScroll = NineKeySidebarScrollView()
+  /// 两张符号表此刻画在左列上的样子（空表是出厂表），变了才重建按键。
+  private var builtLetterSidebar: [String] = []
+  private var builtDigitSidebar: [String] = []
   private let numberPadSidebar = UIStackView()
   private let numberPadOperators = UIStackView()
+  /// 九键右列的 ⌫：数字九宫格左列每一项与它同高。
+  private weak var nineKeyDeleteKey: UIButton?
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
   /// 14 键和手写等底行的独立句号；手机 26 键通过逗号长按输入句号。
@@ -1913,14 +1920,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       operators.widthAnchor.constraint(equalTo: operatorScroll.frameLayoutGuide.widthAnchor),
     ])
     numberPadSidebar.addArrangedSubview(operatorScroll)
-    for symbol in ["+", "-", "*", "/"] {
-      let button = makeKey(title: symbol, accessibilityLabel: "运算符 \(symbol)") { [weak self] in
-        guard let self else { return }
-        countKeyPress(TypingKeyID.punctuation)
-        insertNumberPadLiteral(symbol)
-      }
-      Self.drawBareInSidebar(button)
-      operators.addArrangedSubview(button)
+    for (index, symbol) in NineKeySidebar.defaultDigitSymbols.enumerated() {
+      operators.addArrangedSubview(makeDigitSidebarKey(symbol, index: index, custom: false))
     }
     let more = makeKey(title: "#+=", accessibilityLabel: "更多符号", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.layer)
@@ -1938,7 +1939,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     Self.drawBareInSidebar(symbols)
     numberPadSidebar.addArrangedSubview(symbols)
     numberPadSymbolsKey = symbols
-    for content in [punctuationStack, numberPadSidebar, makeSpellingStrip()] {
+    customSidebarScroll.accessibilityIdentifier = "nineKeyCustomSidebar"
+    customSidebarScroll.isHidden = true
+    for content in [punctuationStack, customSidebarScroll, numberPadSidebar, makeSpellingStrip()] {
       content.translatesAutoresizingMaskIntoConstraints = false
       sidebar.addSubview(content)
       NSLayoutConstraint.activate([
@@ -2037,6 +2040,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "nineKeyDelete"
     controls.addArrangedSubview(delete)
+    nineKeyDeleteKey = delete
     let middle = makeKey(title: "", accessibilityLabel: "", function: true) { [weak self] in
       self?.handleNineKeyMiddleKey()
     }
@@ -2065,6 +2069,58 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolsHeight.isActive = true
     controls.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
     return nineKeyContainer
+  }
+
+  /// 数字九宫格左列的一项。出厂表（`custom` 为 false）照原来的运算符键：读作「运算符 +」，按数字页的字面路径上屏（`insertNumberPadLiteral`）；自定义表的项读作「符号 …」，按 `insertSidebarLiteral` 上屏，标识是 `numberPadSidebarSymbol` 加下标。
+  private func makeDigitSidebarKey(_ symbol: String, index: Int, custom: Bool) -> UIButton {
+    let button = makeKey(title: symbol, accessibilityLabel: custom ? "符号 \(symbol)" : "运算符 \(symbol)") { [weak self] in
+      guard let self else { return }
+      countKeyPress(TypingKeyID.punctuation)
+      if custom { insertSidebarLiteral(symbol, digits: true) } else { insertNumberPadLiteral(symbol) }
+    }
+    Self.drawBareInSidebar(button)
+    if custom { button.accessibilityIdentifier = "numberPadSidebarSymbol\(index)" }
+    return button
+  }
+
+  /// 字母层自定义左列的一项：按 `insertSidebarLiteral` 上屏，标识是 `nineKeySidebarSymbol` 加下标。「……」这类两个字宽的符号缩小字号，不折行。
+  private func makeLetterSidebarKey(_ symbol: String, index: Int) -> UIButton {
+    let button = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
+      guard let self else { return }
+      countKeyPress(TypingKeyID.punctuation)
+      insertSidebarLiteral(symbol, digits: false)
+    }
+    Self.drawBareInSidebar(button)
+    button.titleLabel?.adjustsFontSizeToFitWidth = true
+    button.titleLabel?.minimumScaleFactor = 0.5
+    button.accessibilityIdentifier = "nineKeySidebarSymbol\(index)"
+    return button
+  }
+
+  /// 按两张符号表换左列的键，表没变时不做事。字母层：空表时左列是原来的 ，。？（`punctuationStack`，右侧大回车时末尾接 ！），自定义表换成 `customSidebarScroll`。数字层：空表是原来的四个运算符，自定义表换成用户的表；两种都在同一个滚动栈里、#+= 总在最后，每项与右列的 ⌫ 同高。
+  private func applySidebarSymbols(_ style: TouchKeyLayoutStyle) {
+    if !NineKeySidebar.same(style.nineKeySidebar, builtLetterSidebar) {
+      builtLetterSidebar = style.nineKeySidebar
+      customSidebarScroll.buttons.forEach { $0.removeFromSuperview() }
+      customSidebarScroll.buttons = style.nineKeySidebar.enumerated().map { index, symbol in
+        let button = makeLetterSidebarKey(symbol, index: index)
+        customSidebarScroll.addSubview(button)
+        return button
+      }
+      customSidebarScroll.setContentOffset(.zero, animated: false)
+    }
+    if !NineKeySidebar.same(style.digitSidebar, builtDigitSidebar), let delete = nineKeyDeleteKey {
+      builtDigitSidebar = style.digitSidebar
+      for key in numberPadOperators.arrangedSubviews where key.accessibilityIdentifier != "numberPadMoreSymbols" {
+        key.removeFromSuperview()
+      }
+      let custom = !style.digitSidebar.isEmpty
+      for (index, symbol) in style.sidebarSymbols(.digit).enumerated() {
+        let key = makeDigitSidebarKey(symbol, index: index, custom: custom)
+        numberPadOperators.insertArrangedSubview(key, at: index)
+        key.heightAnchor.constraint(equalTo: delete.heightAnchor).isActive = true
+      }
+    }
   }
 
   private func applyNineKeyDigitLayer(_ digits: Bool) {
@@ -3561,9 +3617,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var activeKeyLayoutStyle: TouchKeyLayoutStyle {
     guard Self.keepsStandardBottomRows(keyboardType: inputContext.keyboardType, secure: textDocumentProxy.isSecureTextEntry,
                                        contentType: textDocumentProxy.textContentType ?? nil) else { return keyLayoutStyle }
-    // 「符」与「123」互换和数字键盘空格位置是键位习惯，不随输入框退回：标准底行同样有 符，数字框里的数字键盘也按用户选的排法画。
+    // 「符」与「123」互换、数字键盘空格位置和左侧符号栏的两张表是键位习惯，不随输入框退回：标准底行同样有 符，数字框里的数字键盘也按用户选的排法和符号表画。
     return TouchKeyLayoutStyle(numberRow: keyLayoutStyle.numberRow, symbolFirst: keyLayoutStyle.symbolFirst,
-                               numberPadSpace: keyLayoutStyle.numberPadSpace)
+                               numberPadSpace: keyLayoutStyle.numberPadSpace, nineKeySidebar: keyLayoutStyle.nineKeySidebar,
+                               digitSidebar: keyLayoutStyle.digitSidebar)
   }
 
   /// 输入框是否保留标准底行：安全输入或内容类型标成密码的框，以及数字键盘、小数键盘和电话键盘这些只收数字的框，对应 Android 的 `EditorPolicy.password` 与 `numberInput`。系统通常不在安全输入框和电话键盘里调用第三方键盘，宿主仍然调用时也按这条退回。不是 private：测试会固定它。
@@ -3618,6 +3675,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     render(session.finishComposition())
     insertDirectText(text)
+  }
+
+  /// 自定义左侧符号栏的一项（`touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`）：先结束组字，组字的处理与点同一层出厂项时相同（字母层按当前首选上屏，与 `handleSymbol` 遇到 Engine 没有路由的符号时一样；数字层与 `insertNumberPadLiteral` 一样原样结束），再把这一项按字面上屏，不做全半角转换。表项正好是一对成对符号（`NineKeySidebar.literalPairClosing`，如 `（）`、`()`）时光标退到两者中间，与 Android `commitLiteralText` 相同。
+  private func insertSidebarLiteral(_ text: String, digits: Bool) {
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    playInputClick()
+    if digits {
+      render(session.commitRaw())
+    } else if isChineseMode {
+      render(session.finishComposition())
+    }
+    insertOwnText(text)
+    if let closing = NineKeySidebar.literalPairClosing(text) {
+      textDocumentProxy.adjustTextPosition(byCharacterOffset: -closing.count)
+      noteOwnEdit()
+    }
+    if !isChineseMode { refreshEnglishSuggestions() }
   }
 
   /// 数字页原样结束组字，与 Android、鸿蒙一致；普通符号页仍沿用选词后插入的路径。
@@ -6402,12 +6477,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
-  /// 拼音与标点只交换侧栏内容，不改变网格和底行约束。
+  /// 拼音与标点只交换侧栏内容，不改变网格和底行约束。字母层用自定义符号表时标点列换成 `customSidebarScroll`，组字时同样被拼音盖住。
   private func updateNineKeySidebar() {
     let hasSpellings = sidebarCarriesSpellings
     let numberPad = numberPadShown
+    let custom = !builtLetterSidebar.isEmpty
     spellingScrollView.isHidden = !hasSpellings
-    punctuationStack.isHidden = hasSpellings || numberPad
+    punctuationStack.isHidden = hasSpellings || numberPad || custom
+    if customSidebarScroll.isHidden != (hasSpellings || numberPad || !custom) {
+      customSidebarScroll.isHidden = hasSpellings || numberPad || !custom
+    }
     numberPadSidebar.isHidden = !numberPad
   }
 
@@ -6582,6 +6661,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && !nineKey && !strokes && !fourteenKey && !sourceHandwriting
       && (!drawsChineseTwentySixKey || [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey))
     updateNineKeyMiddleKey()
+    applySidebarSymbols(activeKeyLayoutStyle)
     updateNineKeySidebar()
     if actionRow != nil {
       let phoneRow = Self.usesPhoneBottomRow(formFactor: keyFaceFormFactor, nineKeyFrame: nineKeyFrame, handwriting: writes,

@@ -24,9 +24,9 @@ C ABI of the 水杉输入法 (Metasequoia IME) input engine: a C library (shared
 Linux、macOS 上用 pkg-config（macOS 把归档名换成 `macos-universal` 那个）：
 
 ```sh
-tar -xzf msime-engine-capi-0.1.0-linux-x86_64.tar.gz
+tar -xzf msime-engine-capi-0.1.1-linux-x86_64.tar.gz
 tar -xzf msime-engine-data-quanpin-2.0.39.tar.gz
-capi=$PWD/msime-engine-capi-0.1.0-linux-x86_64
+capi=$PWD/msime-engine-capi-0.1.1-linux-x86_64
 export PKG_CONFIG_PATH=$capi/lib/pkgconfig
 cc -o example "$capi/examples/c/example.c" $(pkg-config --cflags --libs msime-engine) -Wl,-rpath,"$capi/lib"
 ./example "$PWD/msime-engine-data-quanpin-2.0.39" "$PWD/user" "$PWD/cache"
@@ -37,9 +37,9 @@ cc -o example "$capi/examples/c/example.c" $(pkg-config --cflags --libs msime-en
 Windows 上在 x64 的 Developer Command Prompt 里：
 
 ```bat
-tar -xf msime-engine-capi-0.1.0-windows-x86_64-msvc.zip
+tar -xf msime-engine-capi-0.1.1-windows-x86_64-msvc.zip
 tar -xf msime-engine-data-quanpin-2.0.39.zip
-set CAPI=%CD%\msime-engine-capi-0.1.0-windows-x86_64-msvc
+set CAPI=%CD%\msime-engine-capi-0.1.1-windows-x86_64-msvc
 cl /nologo /MD /I "%CAPI%\include" "%CAPI%\examples\c\example.c" /link "%CAPI%\lib\msime_engine.dll.lib"
 copy "%CAPI%\bin\msime_engine.dll" .
 example.exe "%CD%\msime-engine-data-quanpin-2.0.39" "%CD%\user" "%CD%\cache"
@@ -55,7 +55,7 @@ cmake --build build --config Release
 在 dict-v2.0.39 的数据包上，示例打出（库的版本号随发布）。「你好世界」本来就是词库里的词，学习只调它的词频，不往个人词典里加一条；在 `tests/fixture` 的最小词库上它是整句联想解出的句子，那里会读回一条个人词条：
 
 ```text
-msime-engine 0.1.0, ABI 1.0
+msime-engine 0.1.1, ABI 1.0
 preedit: ni'hao'shi'jie (revision 11, 192 candidates)
   1. 你好世界 [ni'hao'shi'jie] source 0
   2. 你好是饥饿 [ni'hao'shi'ji'e] source 8

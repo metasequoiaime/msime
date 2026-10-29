@@ -30,6 +30,7 @@ EMBEDDED = {
     "local/latex_symbols.tsv": {"MIT"},
     # 本项目自写，与代码同为 MPL-2.0。
     "local/symbol_candidates.tsv": {"MPL-2.0"},
+    "lattice/offensive_words.txt": {"MPL-2.0"},
     # 聚合统计事实，不带许可证（维护者 2026-10-29 裁定，见 docs/third-party.md）。
     "nine_key/syllable_frequency.tsv": set(),
 }

@@ -14,7 +14,7 @@ readme = "README.md"
 keywords = ["ime", "input-method", "pinyin", "chinese", "shuangpin"]
 categories = ["text-processing", "internationalization"]
 # 发布到 crates.io 的包只带这几样：源码、编进引擎的数据表、快速上手示例、说明和许可证。白名单而不是 exclude：tests/ 下的金样（录自 GPL-3.0 词库，约 5 MB）、src/handwriting/testdata、src/pinyin/autocorrect_table_fixture.txt 和读仓库里词库的其余 examples/ 都不进包，新加的文件也要显式列在这里才会发布。这些测试和示例读仓库外的文件，所以包里的源码只能编译，跑不了 cargo test（README.md 的「从 crates.io 使用」一节）。examples/quickstart.rs 不读仓库里的任何文件，数据目录由命令行给出，所以它随包发布，README 的「快速上手」就是它的节选。
-include = ["src/**/*.rs", "src/korean/hanja.tsv", "src/local/*.tsv", "src/nine_key/syllable_frequency.tsv", "examples/quickstart.rs", "licenses/*", "README.md", "LICENSE", "Cargo.toml"]
+include = ["src/**/*.rs", "src/korean/hanja.tsv", "src/local/*.tsv", "src/nine_key/syllable_frequency.tsv", "src/lattice/offensive_words.txt", "examples/quickstart.rs", "licenses/*", "README.md", "LICENSE", "Cargo.toml"]
 
 [dependencies]
 # 发布时 path 被去掉，留下 version：crates.io 上的引擎依赖同一版本线的 msime-path-trust。
