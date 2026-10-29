@@ -1340,22 +1340,25 @@ final class ImePanels {
      * 最近复制那一行的快捷键（#10079）：打开剪贴板面板的本机历史，直接进入这条内容的分词点选（`segment` 为真）或「移动到分类」，和长按这条记录再选「分词」「移动分类」是同一条路。
      *
      * <p>分词和分类都只画在本机分段里，所以先切回本机。打开面板时的补读已经同步把系统剪贴板里这一条记进历史；共享存储拒收的内容（过长、含控制字符）不在历史里，移动分类必然失败，这时直接说明原因，留在历史列表上。
+     *
+     * @return 真正进入了分词点选或「移动到分类」时为真；面板没打开或这一条不在历史里时为假，调用方据此决定这一条算不算用过。
      */
-    void openRecentClipAction(String text, boolean segment) {
+    boolean openRecentClipAction(String text, boolean segment) {
         s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         showClipboardHistory();
-        if (!clipboardPanelOpen()) return;
+        if (!clipboardPanelOpen()) return false;
         if (segment) {
             startClipboardSegmentation(text);
-            return;
+            return true;
         }
         if (!localHistoryContains(text)) {
             s.notice("这条内容不在剪贴板历史里，不能移动分类");
-            return;
+            return false;
         }
         clipboardCategoryMovingText = text;
         renderClipboardHistory();
         if (s.clipboardScroll != null) s.clipboardScroll.scrollTo(0, 0);
+        return true;
     }
 
     /** 本机剪贴板历史里有没有这段文字（共享存储以文字标识条目）；读不出历史时按没有处理。 */

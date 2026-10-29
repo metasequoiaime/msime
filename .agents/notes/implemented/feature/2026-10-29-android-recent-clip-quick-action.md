@@ -8,11 +8,11 @@ Status: implemented
 
 ## Decision
 
-- 「最近复制」那一行（[工具栏显示最近复制](2026-10-08-android-recent-clip-toolbar.md)）在预览和 × 之间多一个文字快捷键（`ImeToolbar.addRecentClipRow` 的 `recentClipActionButton`），写「分词」或「分类」，宽度随字、至少 44 dp，预览仍占剩下的全部宽度。它用 `GLYPH` 角色，和 × 同色、不画键帽。
+- 「最近复制」那一行（[工具栏显示最近复制](2026-10-08-android-recent-clip-toolbar.md)）在预览和 × 之间多一个文字快捷键（`ImeToolbar.addRecentClipRow` 的 `recentClipActionButton`），写「分词」或「分类」，宽度随字、至少和两边按钮一样宽（工具栏 100% 时 44 dp，`applyShortcutSize` 随工具栏大小一起缩放这个最小宽度），预览仍占剩下的全部宽度。它用 `GLYPH` 角色，和 × 同色、不画键帽。
 - 显不显示、显示哪个只由 `RecentClipboardSuggestion.quickAction(actionSetting, kind, image)` 判断：总开关关着返回 null；这一条是图片时也返回 null（图片不能分词，剪贴板历史也不记图片，没有记录可移动分类）；不认识的取值按出厂默认的分类。最近复制本身不显示时（历史关着、隐私规则、正在组词等）快捷键跟着整行一起不显示，规则不重复。
 - 两个本地设置，只在本机、不随账号同步：`platform.android.clipboard_suggestion_action`（布尔，默认开）和 `platform.android.clipboard_suggestion_action_kind`（`segment` / `category`，默认 `category`）。出厂默认开，是 issue 明确要的产品决定。
-- 点快捷键（`MSIMEInputService.runRecentClipQuickAction`）：这一条算用过，和粘贴一样 `recentClip.dismiss()`；收起别的工具栏面板（最近复制也显示在文本编辑面板上），再由 `ImePanels.openRecentClipAction` 打开剪贴板面板。分词和分类都只画在本机分段里，所以先把分段切回本机。之后走长按菜单同一条路：分词调 `startClipboardSegmentation(text)`，分类把 `clipboardCategoryMovingText` 设成这段文字后重画，进「移动到分类」选择器。
-- 移动分类按文字找历史里的记录。复制监听和打开面板时的补读都已同步把这一条写进历史，正常情况下记录一定在；共享存储拒收的内容（过长、含控制字符）不在历史里，选了分类也只会得到「移动失败，记录或分类可能已改变」。所以分类前先查一次本机历史（`localHistoryContains`），不在时提示「这条内容不在剪贴板历史里，不能移动分类」，停在历史列表上。分词不依赖历史记录，不查。
+- 点快捷键（`MSIMEInputService.runRecentClipQuickAction`）：收起别的工具栏面板（最近复制也显示在文本编辑面板上），再由 `ImePanels.openRecentClipAction` 打开剪贴板面板。它返回是否真正进入了分词点选或「移动到分类」，进去了这一条才算用过，和粘贴一样 `recentClip.dismiss()`；没进去（面板没打开，或下面说的不在历史里）时保留这一条，关掉面板回到键盘后还能点它粘贴，不会因为一次没成功的点按把粘贴入口也丢掉。分词和分类都只画在本机分段里，所以先把分段切回本机。之后走长按菜单同一条路：分词调 `startClipboardSegmentation(text)`，分类把 `clipboardCategoryMovingText` 设成这段文字后重画，进「移动到分类」选择器。
+- 移动分类按文字找历史里的记录。复制监听和打开面板时的补读都已同步把这一条写进历史，正常情况下记录一定在；共享存储拒收的内容（过长、含控制字符）不在历史里，选了分类也只会得到「移动失败，记录或分类可能已改变」。所以分类前先查一次本机历史（`localHistoryContains`），不在时提示「这条内容不在剪贴板历史里，不能移动分类」，停在历史列表上。分词不依赖历史记录，不查。分类这条路上打开面板、查记录、进选择器各读一次本机历史（都在主线程，条数受历史上限约束）；省掉其中一次要把 `showClipboardHistory` 和 `renderClipboardHistory` 改成能传入已读的列表，牵动所有打开面板的路径，一次点按多读两次不值得为此改共用的渲染入口。
 - 设置在「键盘 › 工具栏 › 剪贴板」：「工具栏显示最近复制」下面是开关「复制后自动显示快捷键」和导航行「快捷键功能」（点开是和「排列」同样的底部单选：分词、分类）。剪贴板历史或最近复制关着时两行都置灰，快捷键总开关关着时「快捷键功能」置灰。开关保存成功后页面不重画，所以开关的回调里直接更新这两行的置灰状态。设置搜索的关键词补上两行标题和「分词」。
 - `check-host.sh` 钉住 JVM 冒烟碰不到的接线：服务经 `RecentClipboardSuggestion.quickAction` 用这两个设置、工具栏按 `s.recentClipQuickAction(image)` 显隐、点按经 `imePanels.openRecentClipAction` 进入分词和移动分类。
 
@@ -24,7 +24,7 @@ Status: implemented
 
 - **一个三值设置（`off` / `segment` / `category`）** — 一个键就说清楚，不会出现「总开关关着、功能选了分词」这种无效组合。不用的原因是 issue 要的界面就是一个总开关加一个二选一，而本页其余「开关 + 细项」（「滑动输入符号」和「滑动方向」）也都存成两个键；拆成两个键，关掉再打开时用户选过的功能还在。
 - **同时放「分词」「分类」两个按钮，不让选** — 省掉设置项。不用的原因是这一行本来就挤（剪贴板、预览、×、收起），再放两个字按钮，窄屏上预览只剩几个字；issue 也明确要求二选一。
-- **点快捷键不收起最近复制** — 关掉面板回到键盘时还能粘贴它。不用的原因是这一条已经被用过了（分词后可以插入、复制，分类后在历史里），和点预览粘贴后同一条不再出现的规则一致；不收的话面板一关它又占着工具栏。
+- **点快捷键不收起最近复制** — 关掉面板回到键盘时还能粘贴它。不用的原因是这一条已经被用过了（分词后可以插入、复制，分类后在历史里），和点预览粘贴后同一条不再出现的规则一致；不收的话面板一关它又占着工具栏。只有没进得去的那次（不在历史里不能分类）保留它：这时这一条没被用过，收掉只会让用户连粘贴也做不了。
 
 ## Consequences
 

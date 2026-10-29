@@ -8374,7 +8374,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 点最近复制那一行的分词或分类快捷键（#10079）：收起别的面板，打开剪贴板面板的本机历史，直接进入这一条的分词点选或「移动到分类」，省去进面板、长按、再选操作这几步。这一条算用过，和粘贴一样不再出现。
+     * 点最近复制那一行的分词或分类快捷键（#10079）：收起别的面板，打开剪贴板面板的本机历史，直接进入这一条的分词点选或「移动到分类」，省去进面板、长按、再选操作这几步。真正进入了分词或分类时这一条算用过，和粘贴一样不再出现；没进去（这一条不在历史里，不能移动分类）时保留它，关掉面板后还能点它粘贴。
      */
     void runRecentClipQuickAction() {
         String text = recentClip.text(System.currentTimeMillis());
@@ -8383,9 +8383,9 @@ public final class MSIMEInputService extends InputMethodService {
             render();
             return;
         }
-        recentClip.dismiss();
         closeToolbarPanels();
-        imePanels.openRecentClipAction(text, RecentClipboardSuggestion.ACTION_SEGMENT.equals(action));
+        if (imePanels.openRecentClipAction(text, RecentClipboardSuggestion.ACTION_SEGMENT.equals(action)))
+            recentClip.dismiss();
         render();
     }
 

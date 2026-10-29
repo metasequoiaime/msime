@@ -130,6 +130,9 @@ final class ImeToolbar {
                 }
                 if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(percent);
             }
+            // 分词或分类快捷键（#10079）宽度随字，最小宽度跟两边按钮一起随工具栏大小缩放。
+            if (recentClipActionButton != null && recentClipActionButton.getMinWidth() != edgeWidth)
+                ViewPolicy.setMinimumWidth(recentClipActionButton, edgeWidth);
         }
     }
 
