@@ -4,7 +4,7 @@ Status: rejected — 严口径下 complete2 的收益不存在，首页内的七
 
 ## Problem
 
-九键打字流评测（`typing_sim`，在未合并的 `test/typing-sim-eval` 分支上）的缺口分析里，oracle「complete2」看起来是排序上最大的一项：不打切分时也把多音节补全排到同覆盖的完整读法后面（`rank_key_for_reading` 的 `completion` 改成 `(prefer_exact || canonical.contains('\''))`），主配置 CFA 0.601 → 0.616（Tatoeba）、0.608 → 0.630（聊天）。它是整张表的硬分档，正是 [首页内折算](../../implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md) 否掉的第一轮做法：停在声母上的金标准会被挤出 `CANDIDATE_LIMIT`。所以要找一种只在首页里调序、召回不变、又保住这份收益的做法。
+九键打字流评测（`typing_sim`，在未合并的 `test/typing-sim-eval` 分支上）的缺口分析里，oracle「complete2」看起来是排序上最大的一项：不打切分时也把多音节补全排到同覆盖的完整读法后面（`rank_key_for_reading` 的 `completion` 只把其中的 `prefer_exact` 一项换掉，成为 `(prefer_exact || canonical.contains('\'')) && grid.reading_code_len(canonical) > covered`），主配置 CFA 0.601 → 0.616（Tatoeba）、0.608 → 0.630（聊天）。它是整张表的硬分档，正是 [首页内折算](../../implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md) 否掉的第一轮做法：停在声母上的金标准会被挤出 `CANDIDATE_LIMIT`。所以要找一种只在首页里调序、召回不变、又保住这份收益的做法。
 
 后来打字流评测把主口径改成严口径：一块里补完简拼或锁过拼写之后点到的第一位不再算首选。complete2 的数字是按宽口径量的。
 
@@ -71,11 +71,11 @@ typing_sim 严口径 CFA，test，括号里是相对 A0 的首选字数（Tatoeb
 
 `3` → 的 那一句在所有臂上都成立。所以 Km ≠ 1 和任何一类取 ∞ 都不只是调一个倍数，而是要翻转 [首页内折算](../../implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md) 里写明的契约。如果资格门按全部现有单元测试从严执行，就只剩 A3（dev +0.03pp，不到 0.10pp），结论同样是不改。
 
-按规则：最大的 dev 增量是 A5、A7 的 +0.126pp（3971 字里多 5 个字），相差 0.10pp 以内的是 A4、A5、A6、A7，最靠近现状的是 A4（只改 Km，倍数 4）。A4 在主配置 test 上是 Tatoeba −10 字、聊天 −2 字，验证不过，所以不改。A5 与 A7 结果逐字相同：拼满多音节词时被 Kp 折算的那些补全，本来就是多音节补全。
+按规则：最大的 dev 增量是 A5、A7 的 +0.126pp（3971 字里多 5 个字），相差 0.10pp 以内的是 A4、A5、A6、A7，最靠近现状的是 A4（只改 Km，倍数 4）。A4 在主配置 test 上是 Tatoeba −10 字、聊天 −2 字，验证不过，所以不改。A5 与 A7 结果逐字相同，是因为两臂只在这样的首页上排得不一样：首页里有拼满的多音节词，而某个单音节补全的权重比它高出 6 倍以上（A5 按 6 倍比，A7 把拼满的完整读法整个排在单音节补全前面）。评测集里没有遇到这种首页，至少没有一页因此改变结果。单元测试的 `266` 能把两臂分开：从（con 补成 cong，权重 3000 万）比拼满的 阿莫 重 6 倍多一点，A5 是 从 在前，A7 是 阿莫 在前。
 
 `RULE.md` 还要求另报几组不参与判定的数字：选中的臂在 14 键主配置上的结果、简拼比例 0 和 0.6、首页 9 行、两份长句和语气词集，以及选中的臂叠加 pinwords 的一臂。这些都没有跑，因为 A4 在验证上已经不过，不会发。prefix 两份的 top1 和 `fourteen-key` 见上。
 
-complete2 的收益是宽口径造出来的。按块是否简拼拆开，Tatoeba 主配置：
+complete2 的收益是宽口径造出来的。按块是否简拼拆开，Tatoeba 主配置 dev + test（共 10547 字）：
 
 | | 打全的块（7334 字） | 简拼的块（3213 字）严口径 | 简拼的块 宽口径 |
 |---|---|---|---|

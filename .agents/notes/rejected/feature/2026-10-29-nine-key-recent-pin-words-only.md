@@ -13,7 +13,7 @@ Status: rejected — 评测 8 格里 7 格不降，一词一块打字 +0.8 到 +
 ### 和已有决定的关系
 
 - 它不是笔记里否决过的任何一种做法。#8492 否掉的是「靠全局调频强制置顶」「让单字进个人模型」「另建一张表」，[锁定读法后的最近选择](../../implemented/bug-fix/2026-10-21-nine-key-locked-selection-recent.md) 否掉的是「去掉上下文里的锁定部分」。
-- 但它收回了这两篇的核心承诺。#8492 的需求就是单字：「像能这样的字仍可能需要展开候选栏」，Consequences 写明「单字和多字词都适用」，单元测试 `recently_selected_candidate_leads_the_same_nine_key_context` 用的就是 能。#9066 修的 #9041 录屏也是单字：`64` 锁 mi / ni 再确认 米 / 你，`spelling_*` 一组单元测试、Android `NineKeyPanelDeviceSmoke -e recent-learning true` 设备验收和 Android README 都按单字写。所以要做就是翻转决定，要另立一篇 implemented 笔记、改这几处测试和文档，并由产品确认。
+- 但它收回了这两篇的核心承诺。#8492 的需求就是单字：「像能这样的字仍可能需要展开候选栏」，Consequences 写明「单字和多字词都适用」，单元测试 `recently_selected_candidate_leads_the_same_nine_key_context` 用的就是 能。#9066 修的 #9041 录屏也是单字：`64` 锁 mi / ni 再确认 米 / 你，`spelling_*` 一组单元测试和 Android `NineKeyPanelDeviceSmoke -e recent-learning true` 设备验收都按单字写，Android README 的描述对单字同样成立，也要改。所以要做就是翻转决定，要另立一篇 implemented 笔记、改这几处测试和文档，并由产品确认。
 
 ### 事先写下的门
 
