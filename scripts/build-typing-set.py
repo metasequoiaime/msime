@@ -5,7 +5,7 @@
 
 两种来源：
 
-  tatoeba  Tatoeba 的普通话句子导出（`cmn_sentences_detailed.tsv`，CC BY 2.0 FR），固定种子随机抽样，只留简体、4 到 40 个汉字的句子，按去掉标点后的文字去重。每句是一条独立的消息，前 `--warmup` 条是预热。
+  tatoeba  Tatoeba 的普通话句子导出（`cmn_sentences_detailed.tsv`，CC BY 2.0 FR），固定种子随机抽样，只留简体、4 到 40 个汉字的句子，按去掉标点后的文字去重。每句是一条独立的消息，前 `--warmup` 条是预热。CC BY 要求署名跟着文本走，所以输出多一列 `author`，是导出文件第 4 列里这句的 Tatoeba 用户名；文件头写明许可的地址和本仓库加了什么。
   persona  为本仓库手写的单人聊天记录（`# day N` 分天，`@对象` 分会话，其余每行一条消息），随仓库以 GPL-3.0 发布。前 `--warmup-days` 天是预热，之后逢 3 的倍数的那天进 dev，其余进 test。
 
 切词用 jieba（MIT），拼音用 pypinyin（MIT）按整句标，再按词归组：整句标能用上下文（还钱 huan，还是 hai），逐词标会把单独切出来的「还」一律标成 hai。两者都不是仓库依赖，跑这个脚本的人自己装（`pip install jieba==0.42.1 pypinyin opencc-python-reimplemented`）；仓库只收生成好的文件。
@@ -94,6 +94,8 @@ def tatoeba_rows(args):
         if len(parts) < 4 or parts[1] != "cmn":
             continue
         sid, text = parts[0], parts[2].strip()
+        # 导出里没有作者的句子（孤儿句）用户名是 `\N`，写成 `-`。
+        author = parts[3] if parts[3] not in ("", "\\N") else "-"
         han = han_count(text)
         # 只收简体：OpenCC 繁转简之后不变的句子。
         if han < 4 or han > 40 or t2s.convert(text) != text:
@@ -102,22 +104,23 @@ def tatoeba_rows(args):
         if key in seen:
             continue
         seen.add(key)
-        rows.append((int(sid), text))
+        rows.append((int(sid), text, author))
     eligible = len(rows)
     rows.sort()
     random.Random(args.seed).shuffle(rows)
     rows = rows[: args.count]
     kept = []
-    for position, (sid, text) in enumerate(rows):
+    for position, (sid, text, author) in enumerate(rows):
         if str(sid) in drop:
             continue
         if position < args.warmup:
             split = "warmup"
         else:
             split = "dev" if sid % 3 == 0 else "test"
-        kept.append((f"t{sid}", f"t{sid}", split, text))
+        kept.append((f"t{sid}", f"t{sid}", split, text, author))
     header = [
-        "# Tatoeba 普通话句子（https://tatoeba.org），CC BY 2.0 FR。每行一句，id 是 Tatoeba 的句子编号去掉前缀 t，署名与原文见 https://tatoeba.org/sentences/show/<编号>。",
+        "# Tatoeba 普通话句子（https://tatoeba.org），许可 CC BY 2.0 FR（https://creativecommons.org/licenses/by/2.0/fr/）。每行一句，id 去掉前缀 t 就是 Tatoeba 的句子编号，原文在 https://tatoeba.org/sentences/show/<编号>；最后一列 author 是这句在 Tatoeba 上的作者（用户名，导出里没有作者的写作 -）。",
+        "# 本仓库的改动：抽样和分 warmup/dev/test（规则见下），加了切词和拼音（tokens 列，人工改正过部分读音）；text 列是导出里的原句，只去掉了首尾空白。",
         f"# 抽样：导出文件 cmn_sentences_detailed.tsv 里简体、4 到 40 个汉字、去重后的 {eligible} 句，按句子编号排序后用种子 {args.seed} 打乱，取前 {args.count} 句；前 {args.warmup} 句是预热（warmup），其余句子编号能被 3 整除的进 dev，其余进 test。",
         f"# 人工评审只看两件事：是不是正确的中文，适不适合放进公开仓库。去掉 {len(rows) - len(kept)} 句（病句、错字、性、暴力、政治话题、个人信息），没有一句是按引擎的输出去掉的。",
     ]
@@ -147,7 +150,7 @@ def persona_rows(args):
             split = "warmup"
         else:
             split = "dev" if day % 3 == 0 else "test"
-        rows.append((f"{doc}m{message}", doc, split, line))
+        rows.append((f"{doc}m{message}", doc, split, line, None))
     header = [
         "# 手写的单人聊天记录：一个在杭州做产品经理的人一个多月里发出的消息，按天、按会话排好，只有本人发的那一侧。为这份评测集而写，人名、公司和项目是虚构的，地名只用了杭州常见的地方，随仓库以 GPL-3.0 发布。",
         f"# 第 1 到 {args.warmup_days} 天是预热（warmup），之后天数是 3 的倍数的进 dev，其余进 test；doc 是一天里的一段会话。",
@@ -169,18 +172,19 @@ def main():
     args = parser.parse_args()
 
     header, rows = tatoeba_rows(args) if args.kind == "tatoeba" else persona_rows(args)
-    ids = {row_id for row_id, _, _, _ in rows}
+    ids = {row[0] for row in rows}
     # 改正文件两份集合共用，只取这一份里的行。
     overrides = {key: value for key, value in load_overrides(args.readings).items() if key[0] in ids}
     applied = len(overrides)
     out = []
-    for row_id, doc, split, text in rows:
+    for row_id, doc, split, text, author in rows:
         tokens = tokens_for(text, overrides, row_id)
-        out.append(f"{row_id}\t{doc}\t{split}\t{text}\t{' '.join(tokens)}")
+        line = f"{row_id}\t{doc}\t{split}\t{text}\t{' '.join(tokens)}"
+        out.append(line if author is None else f"{line}\t{author}")
     if overrides:
         raise SystemExit(f"unused reading overrides: {sorted(overrides)[:5]}")
     counts = {}
-    for row_id, doc, split, text in rows:
+    for _, _, split, text, _ in rows:
         counts.setdefault(split, [0, 0])
         counts[split][0] += 1
         counts[split][1] += han_count(text)
@@ -188,7 +192,7 @@ def main():
     print("\n".join(header))
     print("# 切词 jieba 0.42.1，拼音 pypinyin 按整句标再按词归组（ü 写作 v）；" + f"人工改正读音 {applied} 处（--readings）。" + f"{summary}。")
     print("# 生成：scripts/build-typing-set.py " + " ".join(sys.argv[1:2]) + " <source> " + " ".join(a for a in sys.argv[3:] if not a.startswith("/")))
-    print("id\tdoc\tsplit\ttext\ttokens")
+    print("id\tdoc\tsplit\ttext\ttokens" + ("\tauthor" if args.kind == "tatoeba" else ""))
     print("\n".join(out))
 
 

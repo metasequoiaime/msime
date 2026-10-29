@@ -65,8 +65,9 @@ pub fn load(path: &Path) -> Result<(Vec<Row>, u64), String> {
 
 fn parse_row(line: &str) -> Result<Row, String> {
     let fields: Vec<&str> = line.split('\t').collect();
-    let [id, doc, split, _text, tokens] = fields[..] else {
-        return Err(format!("expected 5 columns, found {}", fields.len()));
+    // Tatoeba 那份多一列 `author`（CC BY 的署名），模拟用不上。
+    let ([id, doc, split, _text, tokens] | [id, doc, split, _text, tokens, _]) = fields[..] else {
+        return Err(format!("expected 5 or 6 columns, found {}", fields.len()));
     };
     let split = match split {
         "warmup" => Split::Warmup,
@@ -337,6 +338,12 @@ mod tests {
         assert!(parse_row("r\td\ttest\t-\t我们=wo").is_err());
         assert!(parse_row("r\td\tnope\t-\t我=wo").is_err());
         assert!(parse_row("r\td\ttest\t-\t我=Wo").is_err());
+        // 第 6 列是署名，读进来的和没有这一列时一样。
+        assert_eq!(
+            parse_row("r\td\ttest\t-\t我=wo\tsomeone").unwrap().tokens,
+            parse_row("r\td\ttest\t-\t我=wo").unwrap().tokens
+        );
+        assert!(parse_row("r\td\ttest\t-\t我=wo\ta\tb").is_err());
     }
 
     #[test]

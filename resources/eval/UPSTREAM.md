@@ -10,7 +10,7 @@
 
 这两份只在本仓库里，`typing_sim` 用（见 README「打字流评测」）：
 
-- `typing-tatoeba-v1.tsv`：[Tatoeba](https://tatoeba.org) 的普通话句子，许可 [CC BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/)。取自 2026-10-24 的导出 `https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences_detailed.tsv.bz2`（sha256 `7af009b234bbb21ed6a254c2b55fa7c81c9dd53509d0982cd92c1097573f9af5`），抽样规则写在文件头。署名随文本走：每行的 id 去掉 `t` 就是 Tatoeba 的句子编号，作者和原文在 `https://tatoeba.org/sentences/show/<编号>`。
+- `typing-tatoeba-v1.tsv`：[Tatoeba](https://tatoeba.org) 的普通话句子，许可 [CC BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/)。取自 2026-10-24 的导出 `https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences_detailed.tsv.bz2`（sha256 `7af009b234bbb21ed6a254c2b55fa7c81c9dd53509d0982cd92c1097573f9af5`），抽样规则写在文件头。署名随文本走：文件头写明许可的地址和本仓库做的改动（抽样、分 warmup/dev/test、加切词和拼音的 `tokens` 列、人工改正部分读音；`text` 列是原句，只去掉首尾空白），每行最后一列 `author` 是导出文件第 4 列里这句的 Tatoeba 用户名，id 去掉 `t` 就是句子编号，原文在 `https://tatoeba.org/sentences/show/<编号>`。`typing_sim` 不读 `author` 列。
 - `typing-chat-v1.tsv`：为本仓库手写的单人聊天记录，源文件是同目录的 `typing-chat-v1.txt`，随仓库以 GPL-3.0 发布。
 - `typing-readings-reviewed.tsv`：两份集合人工改正的读音。
 
