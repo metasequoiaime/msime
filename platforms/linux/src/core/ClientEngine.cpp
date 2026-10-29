@@ -2138,7 +2138,8 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
     paired_modifiers |= static_cast<std::uint32_t>(
         msime::linux_host::PairedPunctuationModifier::Mod5);
   const auto closing = msime::linux_host::paired_closing_for_key(
-      static_cast<char>(key), s.fullwidth, s.paired_tracker);
+      static_cast<char>(key), s.fullwidth, s.paired_tracker,
+      view_punctuation_marks(s.view).corner_quotes);
   if (!closing) return false;
   const auto following = surrounding_following_character(s);
   const bool modifiers_allowed =

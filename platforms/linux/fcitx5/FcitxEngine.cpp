@@ -3720,7 +3720,8 @@ public:
     const auto typed = fcitx::Key::keySymToUTF8(sym);
     if (typed.size() != 1) return false;
     const auto closing =
-        msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_);
+        msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_,
+                                                  viewPunctuationMarks().corner_quotes);
     if (!closing) return false;
     using Modifier = msime::linux_host::PairedPunctuationModifier;
     std::uint32_t modifiers = 0;

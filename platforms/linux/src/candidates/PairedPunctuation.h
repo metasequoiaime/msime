@@ -77,16 +77,17 @@ class PairedPunctuationTracker {
   std::vector<std::string> closings_;
 };
 
-// 这个键能跨过的后半个。引号和方头括号有两组字（quote_style、bracket_style），样式可能在一对还开着时换掉，所以按 tracker 栈顶挑：栈顶是其中之一就给它，否则给缺省那个，consume 会照旧清空栈。
+// 这个键能跨过的后半个。引号和方头括号有两组字（quote_style、bracket_style），样式可能在一对还开着时换掉，所以按 tracker 栈顶挑：栈顶是其中之一就给它，否则给缺省那个，consume 会照旧清空栈。`'` 例外：」也是 `{` 补出的（契约第 5 版），弯引号样式下 `'` 出的是‘’，不能拿它去跨过 `{` 那一对的」，所以只在 View 报告直角引号样式（corner_quotes）时才认」，与 Windows 按当前样式解析出的字判断一致。
 inline std::optional<std::string> paired_closing_for_key(
-    char key, bool fullwidth, const PairedPunctuationTracker &tracker) {
+    char key, bool fullwidth, const PairedPunctuationTracker &tracker,
+    bool corner_quotes) {
   const auto either = [&tracker](const char *first,
                                  const char *second) -> std::string {
     return tracker.matches(second) ? second : first;
   };
   switch (key) {
     case '"': return either("”", "』");
-    case '\'': return either("’", "」");
+    case '\'': return corner_quotes ? either("’", "」") : std::string("’");
     case ')': return std::string("）");
     case ']': return either("】", "〗");
     // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。

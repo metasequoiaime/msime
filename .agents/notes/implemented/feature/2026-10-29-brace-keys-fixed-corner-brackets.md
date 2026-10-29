@@ -21,17 +21,17 @@ issue #10047 要求中文标点下按 `{`（`Shift+[`）出「、按 `}`（`Shif
 - `shared/input/EnglishModeOutput.h`（macOS、IBus、Fcitx5 英文模式下锁中文标点）：`{` `}` 改成固定的两行，删掉两个交替状态字段。
 - Windows TIP：`Globals.cpp` 的 `PunctuationTable` 两行改成「/」。`PairedPunctuationHostPolicy.h` 删掉 `{`/`｛` 的成对条目、候选侧对花括号的排除、只为全角花括号存在的 `PairedPunctuationKeyOpening` 和跨过时的全角参数：`{` 出的「按已有的「→」条目补全，`}` 出的」按已有的」分支跨过。`KeyHandler.cpp` 去掉 `fullWidthPair`，并让 `{` `}` 出的「」不武装空格转换。
 - Linux：IBus（`ClientEngine.cpp`）与 Fcitx5（`FcitxEngine.cpp`）的 `{` 改走 `msime_client_punctuation`，和 `(` `[` `<` 一样交给引擎中文标点表。`PunctuationPairMode::Brace` 认上屏末尾的「补」；`paired_closing_for_key('}')` 在配对栈顶是」时跨过」。
-- macOS：可见行为不变。`MSIMEKeyProducesCornerQuote` 里 `}` 不再算出『』的键（契约里它已不出『』），注释同步。
+- macOS：普通中文方案的 `{` `}` 本来就由宿主拦成「/」，那条路线可见行为不变。`MSIMEKeyProducesCornerQuote` 里 `}` 不再算出『』的键（契约里它已不出『』），注释同步。不经过宿主拦截、直接用契约表的两条路线行为会变，与 Windows、Linux 同步：英文模式下锁中文标点（标点锁定固定为中文，或跟随时用 Ctrl + . 打开）走 `EnglishModeOutput.h`，连按 `{` 从「」交替变成「「，`}` 从『』交替变成固定的」；日文方案在成对补全关掉时 `{` `}` 到达引擎，同样从交替表变成固定「/」（成对补全打开时 `{` 仍走宿主的花括号补全）。这两条路线没有 macOS 端的测试，共享表由 Linux 的 `smart_punctuation_space.cpp` 断言。
 - iOS：`SymbolLayerLayout.engineTranslatedKeys` 加上 `{` `}`，中文层 `#+=` 上这两个键按键面原样插入，见下文「移动端」。
 - Windows 的「`{` `}` 不武装空格转换」写成纯函数 `Global::PunctuationKeyArmsSpaceConversion`，`punctuation_key_policy.cpp` 按行为测它，`paired_punctuation_wiring.cpp` 只查武装处用的是它。
 
 ## 专用英文与引擎不处理的情况
 
-Linux 两个宿主在成对补全路线上保留了花括号补全：引擎写 ASCII 标点的方案（专用英文：组字中把 `{` 跟在上屏串后，空闲时交回宿主）出的仍是 `{`，`Brace` 模式照旧补 `}`（全角 ｛｝），空闲时宿主自己补 `{}`。`}` 跨过时按配对栈顶在」和花括号之间挑。这样专用英文的行为与改动前一致，与 macOS 「独立英文模式保留大括号的成对补全」相同。Fcitx5 现在经 `punctuation()` 走带上下文的标点路由，大写锁定英文标点打开时 `{` 走 ASCII 路线，同样落回花括号补全。
+Linux 两个宿主在成对补全路线上保留了花括号补全：引擎写 ASCII 标点的方案（专用英文：组字中把 `{` 跟在上屏串后，空闲时交回宿主）出的仍是 `{`，`Brace` 模式照旧补 `}`（全角 ｛｝），空闲时宿主自己补 `{}`。`}` 跨过时按配对栈顶在」和花括号之间挑。」现在也可能是 `{` 补出的，所以 `paired_closing_for_key` 只在 View 报告直角引号样式时让 `'` 认」：弯引号样式下 `{` 你好 `'` 应当开一对‘’，而不是跨过 `{` 那一对的」。这与 Windows 按当前样式解析 `'` 出的字再判断跨过一致；代价是直角引号样式下 `'` 开的一对还没关、样式就换成弯引号时，`'` 不再跨过那个」。这样专用英文的行为与改动前一致，与 macOS 「独立英文模式保留大括号的成对补全」相同。Fcitx5 现在经 `punctuation()` 走带上下文的标点路由，大写锁定英文标点打开时 `{` 走 ASCII 路线，同样落回花括号补全。
 
 ## 空格转换
 
-Windows 与 Linux 的空格转换都不认 `{` `}` 出的「」：Linux 的 `is_space_conversion_key('{')` 本来就是假（[宿主表笔记](2026-10-22-punctuation-host-tables-enum-comma-space.md) 决定花括号不进空格转换名单），Windows 的 `SmartPunctuationAsciiFor` 会把「」按引号样式转回 `'`，所以在武装处按键排除。macOS 宿主把 `{` 出的「转回 `{`（#9062 带来的宿主扩展），`}` 出的」仍转回 `'`，这次不动 macOS 的可见行为。`crates/client-core/src/punctuation.rs::ascii_for_chinese_mark` 也不动：移动端触屏的 `{` 在 `#+=` 层按字面插入（见下文「移动端」），不会以 `{` 的身份送来「。
+Windows 与 Linux 的空格转换都不认 `{` `}` 出的「」：Linux 的 `is_space_conversion_key('{')` 本来就是假（[宿主表笔记](2026-10-22-punctuation-host-tables-enum-comma-space.md) 决定花括号不进空格转换名单），Windows 的 `SmartPunctuationAsciiFor` 会把「」按引号样式转回 `'`，所以在武装处按键排除。macOS 宿主把 `{` 出的「转回 `{`（#9062 带来的宿主扩展），`}` 出的」仍转回 `'`，普通中文方案的空格转换行为不变；日文方案不武装空格转换（`HostSmartPunctuation` 不含日文），不受影响。`crates/client-core/src/punctuation.rs::ascii_for_chinese_mark` 也不动：移动端触屏的 `{` 在 `#+=` 层按字面插入（见下文「移动端」），不会以 `{` 的身份送来「。
 
 ## 不做的部分
 
@@ -56,4 +56,4 @@ Android 实体键盘的可打印键走 `character()`，引擎随契约出「」�
 - 中文标点下 `{` `}` 在 macOS、Windows、Linux 上一致：固定「/」，成对补全打开时 `{` 出「」并把光标放在中间，`}` 跨过补出的」；全角模式下也是「」。
 - 代价：Windows 和 Linux 上在中文标点下打花括号的用户（LaTeX、代码）要切英文标点或英文模式，没有开关；Windows 全角模式的 `{` 不再出 ｛｝。日文方案在 Windows、Linux 上的 `{` `}` 也随契约出「」；macOS 的日文在成对补全打开时仍走宿主的花括号补全，没有跟着改。
 - Windows 组字中按 `{` `}` 的路径没改（它们不在 `CommitWithHighlightedCandPunc`，Server 的 `candidate_punctuation` 也不认它们），只是出的字换成「」。
-- 验证：`cargo test -p msime-engine` 与 `cargo test -p msime-host-api --lib punctuation` 通过，其中 `punctuation::tests::shifted_brackets_give_corner_quotes` 按新语义重写（旧实现下 `{}{{}` 出「『」「』，断言必然失败）；`python3 shared/contracts/punctuation/generate.py --check` 通过；`punctuation_contract.cpp`、Linux 的 `smart_punctuation_space.cpp` 与 `paired_punctuation.cpp`、Windows TSF 的 `punctuation_key_policy.cpp` 与 `paired_punctuation_wiring.cpp` 用主机编译器单独编译运行通过。iOS 的 `SymbolLayerLayout.input` 用 `swiftc` 单独编译 `KeyboardLayoutTables.swift` 加一个断言脚本验证 `{` `}` 在中文层按字面插入；`NineKeyKeyboardTests` 的同一组断言已改，留给 CI 的 iOS 测试跑。Windows、Linux 宿主没有整体编译，也没有在记事本、IBus、Fcitx5 里实际打字验收，留给 PR 的 CI 与真机。
+- 验证：`cargo test -p msime-engine` 与 `cargo test -p msime-host-api --lib punctuation` 通过，其中 `punctuation::tests::shifted_brackets_give_corner_quotes` 按新语义重写（旧实现下 `{}{{}` 出「『」「』，断言必然失败）；`python3 shared/contracts/punctuation/generate.py --check` 通过；`punctuation_contract.cpp`、Linux 的 `smart_punctuation_space.cpp` 与 `paired_punctuation.cpp`（含弯引号样式下 `'` 不跨过 `{` 补出的」）、Windows TSF 的 `punctuation_key_policy.cpp` 与 `paired_punctuation_wiring.cpp` 用主机编译器单独编译运行通过。iOS 的 `SymbolLayerLayout.input` 用 `swiftc` 单独编译 `KeyboardLayoutTables.swift` 加一个断言脚本验证 `{` `}` 在中文层按字面插入；`NineKeyKeyboardTests` 的同一组断言已改，留给 CI 的 iOS 测试跑。Windows、Linux 宿主没有整体编译，也没有在记事本、IBus、Fcitx5 里实际打字验收，留给 PR 的 CI 与真机。
