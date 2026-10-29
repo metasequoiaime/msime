@@ -10,6 +10,13 @@ $executable = (Resolve-Path -LiteralPath (Join-Path $payload 'msime-tsf-capture-
 $helper = (Resolve-Path -LiteralPath (Join-Path $payload 'MetasequoiaImeCrashWer.dll')).Path
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) { throw '输出目录必须是尚不存在的合成专项目录' }
+# GitHub Windows runner 可能让 WER 服务处于按需停止状态；运行时 helper 只有在服务真正接管故障后才会收到回调。
+# 只启动服务，不改 WER 策略或注册表策略；服务本来已运行时保持原状。
+$werService = Get-Service -Name WerSvc -ErrorAction SilentlyContinue
+if ($werService -and $werService.Status -ne 'Running') {
+  Start-Service -Name WerSvc
+  $werService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(15))
+}
 # 只登记本次 helper 的完整路径，不改变系统通用 WER 策略或其他模块的值。
 $image = [IO.File]::ReadAllBytes($executable)
 $machine = [BitConverter]::ToUInt16($image, [BitConverter]::ToInt32($image, 0x3c) + 4)
