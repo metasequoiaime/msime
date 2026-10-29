@@ -117,6 +117,8 @@ pub struct EngineSnapshot {
     pub candidate_static_evidence: Vec<Option<crate::ordering::StaticEvidence>>,
     /// 与候选同步排列：这一行是 26 键双拼按触点计过价、落点支持留在引擎座位上的纠错整句（`WordItem::touch_supported`），runtime 不把它当作次选读法挪到表尾（`ordering::runner_up_order_with`）。一行都没有时为空，没有触点的请求（桌面、实体键盘）永远为空；按行而不是按整张表，因为同一张表里别的纠错行（模糊音替代读法按平面表查出的）没过落点的闸。
     pub candidate_touch_supported: Vec<bool>,
+    /// 与候选同步排列：这一行是按首选规则坐上第一位的双拼触点纠错（`WordItem::confident_correction`），视图据此给它标 `Candidate::confident_correction`，宿主画强调色、读屏念「已纠正」。一行都没有时为空，没有触点的请求永远为空；本地模式和专用英文下也为空。
+    pub candidate_confident_correction: Vec<bool>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list, the Zhuyin conversion list); candidates are its rows while it is.
     pub candidate_list_open: bool,
     /// 整句改字时改好的整句，否则为空（`SessionSnapshot::conversion`）。
@@ -248,6 +250,10 @@ impl Session {
         let count = value.candidates.len();
         // 一行都没有落点支持时整列留空，桌面每次快照不多一次分配。
         let touch_supported = value.candidates.iter().any(|row| row.touch_supported);
+        // 首选规则 (f)：本地模式、专用英文不算，那里的行不是双拼的回答。
+        let confident = value.local_mode == LocalInputMode::None
+            && !value.dedicated_english
+            && value.candidates.iter().any(|row| row.confident_correction);
         let display_reading = if !value.scheme.draws_reading() {
             String::new()
         } else if value.scheme == SchemeType::JapaneseRomaji
@@ -316,6 +322,11 @@ impl Session {
             } else {
                 Vec::new()
             },
+            candidate_confident_correction: if confident {
+                Vec::with_capacity(count)
+            } else {
+                Vec::new()
+            },
             candidate_list_open: value.candidate_list_open,
             conversion: value.conversion,
             conversion_focus_start: value.conversion_focus.0,
@@ -379,6 +390,11 @@ impl Session {
                 output
                     .candidate_touch_supported
                     .push(candidate.touch_supported);
+            }
+            if confident {
+                output
+                    .candidate_confident_correction
+                    .push(candidate.confident_correction);
             }
             output.candidate_codes.push(candidate.pinyin.into_string());
             output.candidates.push(candidate.word.into_string());

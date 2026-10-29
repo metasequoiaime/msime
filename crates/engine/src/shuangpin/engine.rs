@@ -18,7 +18,8 @@ use crate::helpcode::{
 use crate::paths::RuntimePaths;
 use crate::quanpin::QuanpinDictionary;
 use crate::types::{
-    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType, WordItem,
+    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType,
+    ShuangpinProfileKind, WordItem,
 };
 
 // 双拼模糊候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
@@ -386,6 +387,7 @@ impl ShuangpinEngine {
                 );
             }
         }
+        settle_confident_correction(&mut candidates, request.raw_input.len());
         candidates
     }
 
@@ -460,7 +462,7 @@ impl ShuangpinEngine {
             };
             sort_by_coverage(&mut candidates);
         }
-        keep_typo_sentence_off_first_seat(&mut candidates);
+        keep_typo_sentence_off_first_seat(&mut candidates, request.raw_input.len());
         candidates
     }
 
@@ -662,7 +664,7 @@ impl ShuangpinEngine {
             append_fuzzy_rows(&mut candidates, direct);
             append_fuzzy_rows(&mut candidates, prefixes);
         }
-        keep_typo_sentence_off_first_seat(&mut candidates);
+        keep_typo_sentence_off_first_seat(&mut candidates, request.raw_input.len());
         candidates
     }
 
@@ -775,6 +777,9 @@ impl ShuangpinEngine {
             &request.raw_input,
             request.key_geometry.as_ref(),
             request.touch_tuning,
+            // m_sp 是无穷大（默认）时首选规则不起作用，连请求也不用看。
+            request.touch_tuning.lead_margin < f64::INFINITY
+                && confident_correction_allowed(request, self.profile),
         );
     }
 
@@ -867,14 +872,49 @@ fn sort_dictionary_weights(rows: &mut [WordItem]) {
 }
 
 /// 纠错整句不抢首选（见 `dictionary::typo_sentence_seat`）。词典放好座位之后还有几道重排会把它挪到第一位：模糊音按覆盖长度排序（整句块为空、全码又没有词条时它是唯一最长的一行），单辅助码把匹配的行提到最前，双辅助码滤掉排在它前面的行。所以不在每道重排里各自守，而在 `query` 返回前统一处理：首位是纠错行时，把第一条非纠错行提到首位，其余行相对顺序不变。整张表只剩纠错行（例如双辅助码只留下了它）时没有可让的位置，和 `typo_sentence_seat` 在表空时不给纠错行一样，整张表清空，免得空格直接上屏一条改正。
-fn keep_typo_sentence_off_first_seat(rows: &mut Vec<WordItem>) {
+fn keep_typo_sentence_off_first_seat(rows: &mut Vec<WordItem>, keys: usize) {
     if rows.first().is_none_or(|row| row.corrected_from.is_empty()) {
+        return;
+    }
+    // 唯一的例外：按首选规则坐上第一位、回答整串按键的那一行（`confident_correction`）。只回答前缀的（上一键缓存下来的整句答案，这一键成了前缀）照旧让开。
+    if rows[0].confident_correction && coverage(&rows[0]) == keys {
         return;
     }
     match rows.iter().position(|row| row.corrected_from.is_empty()) {
         Some(literal) => rows[..=literal].rotate_right(1),
         None => rows.clear(),
     }
+}
+
+/// 视图里的 `confident_correction` 只给真正坐在第一位、回答整串按键的那一行：别的行（被模糊音、辅助码的重排挪开的，或只回答前缀的）清掉标记，它们仍是普通的纠错行。
+fn settle_confident_correction(rows: &mut [WordItem], keys: usize) {
+    for (seat, row) in rows.iter_mut().enumerate() {
+        if row.confident_correction && (seat != 0 || coverage(row) != keys) {
+            row.confident_correction = false;
+        }
+    }
+}
+
+/// 首选规则 (a)、(f) 里只有请求知道的那几条：整串输入每个键都带触点（撤回选词重打、光标前缀查询、模糊音的替代拼写都拿不到触点），没有手打的 `'`，没有任何辅助码在起作用（末尾段、句中约束、末尾直接辅助码、大写辅助码），内置方案（自定义方案不学，没有拒绝记录可查，见 `ShuangpinDictionary::correction_rejected`）。其余几条由词典按缓存键判断；这一条交给词典进触点签名，不允许时的答案与没有首选规则时相同。
+fn confident_correction_allowed(
+    request: &QueryRequest,
+    profile: &'static ShuangpinProfile,
+) -> bool {
+    request.scheme == SchemeType::Shuangpin
+        && profile.kind != ShuangpinProfileKind::Custom
+        && request.key_geometry.is_some()
+        && !request.key_touches.is_empty()
+        && request.key_touches.len() == request.raw_input.len()
+        && request.key_touches.iter().all(Option::is_some)
+        && !request.raw_input.contains('\'')
+        && request.end_helpcodes.is_empty()
+        && request.syllable_helpcodes.is_empty()
+        && request.raw_input_with_helpcode_marks.is_empty()
+        && !request
+            .raw_input_with_cases
+            .bytes()
+            .any(|byte| byte.is_ascii_uppercase())
+        && active_helpcode_query(request, profile).is_none()
 }
 
 /// 只需段数时直接统计分隔符，避免为每个模糊候选复制音节字符串。
@@ -997,8 +1037,9 @@ mod tests {
     }
 
     use super::{
-        append_fuzzy_rows, keep_typo_sentence_off_first_seat, relabel_fuzzy_rows, segment_count,
-        sort_by_coverage, sort_dictionary_weights,
+        append_fuzzy_rows, confident_correction_allowed, keep_typo_sentence_off_first_seat,
+        relabel_fuzzy_rows, segment_count, settle_confident_correction, sort_by_coverage,
+        sort_dictionary_weights,
     };
     use crate::types::{CandidateSource, WordItem};
 
@@ -1272,7 +1313,7 @@ mod tests {
     fn sorting_by_coverage_keeps_the_typo_sentence_off_the_first_seat() {
         let sort = |rows: &mut Vec<WordItem>| {
             sort_by_coverage(rows);
-            keep_typo_sentence_off_first_seat(rows);
+            keep_typo_sentence_off_first_seat(rows, 6);
         };
         let prefix =
             |word: &str| WordItem::new("mwgf", word, 1, CandidateSource::Database, "mei'gen");
@@ -1316,7 +1357,173 @@ mod tests {
         let mut other_typo = typo.clone();
         other_typo.word = "美关系".into();
         let mut rows = vec![typo, other_typo, prefix("没跟"), prefix("没")];
-        keep_typo_sentence_off_first_seat(&mut rows);
+        keep_typo_sentence_off_first_seat(&mut rows, 6);
         assert_eq!(words(&rows), ["没跟", "没关系", "美关系", "没"]);
+    }
+
+    fn typo_sentence(typed: &str) -> WordItem {
+        let mut typo = WordItem::new(
+            typed,
+            "没关系",
+            1,
+            CandidateSource::Generated,
+            "mei'guan'xi",
+        );
+        typo.sentence_association = true;
+        typo.corrected_from = typed.into();
+        typo
+    }
+
+    /// 守卫的另一半：按首选规则坐上第一位、回答整串按键的纠错行留在首位，标记保留；只回答前缀的（上一键缓存下来的整句答案）、没有标记的照旧让开，被挪离第一位的行清掉标记。
+    #[test]
+    fn only_a_confident_correction_of_the_whole_input_keeps_the_first_seat() {
+        let words = |rows: &[WordItem]| {
+            rows.iter()
+                .map(|item| (item.word.to_string(), item.confident_correction))
+                .collect::<Vec<_>>()
+        };
+        let literal = WordItem::new(
+            "mwgfxi",
+            "没跟系",
+            1,
+            CandidateSource::Generated,
+            "mei'gen'xi",
+        );
+        let mut confident = typo_sentence("mwgfxi");
+        confident.confident_correction = true;
+        let settle = |rows: &mut Vec<WordItem>| {
+            keep_typo_sentence_off_first_seat(rows, 6);
+            settle_confident_correction(rows, 6);
+        };
+
+        let mut rows = vec![confident.clone(), literal.clone(), row("没")];
+        settle(&mut rows);
+        assert_eq!(
+            words(&rows),
+            [
+                ("没关系".to_owned(), true),
+                ("没跟系".to_owned(), false),
+                ("没".to_owned(), false)
+            ]
+        );
+
+        // 同一行回答的只是前缀 `mwgf`（这串输入多打了两键）：让开，清掉标记。
+        let mut prefix = confident.clone();
+        prefix.pinyin = "mwgf".into();
+        let mut rows = vec![prefix, literal.clone()];
+        settle(&mut rows);
+        assert_eq!(
+            words(&rows),
+            [("没跟系".to_owned(), false), ("没关系".to_owned(), false)]
+        );
+
+        // 没有标记的纠错行照旧让开。
+        let mut rows = vec![typo_sentence("mwgfxi"), literal.clone()];
+        settle(&mut rows);
+        assert_eq!(rows[0].word, "没跟系");
+
+        // 被别的重排挪到后面的那一行不再带标记。
+        let mut rows = vec![literal.clone(), confident.clone()];
+        settle(&mut rows);
+        assert_eq!(
+            words(&rows),
+            [("没跟系".to_owned(), false), ("没关系".to_owned(), false)]
+        );
+
+        // 只剩它一行时它也回答整串按键，可以单独坐首选。
+        let mut rows = vec![confident];
+        settle(&mut rows);
+        assert_eq!(words(&rows), [("没关系".to_owned(), true)]);
+    }
+
+    /// 首选规则里只有请求知道的几条：整串带触点、有几何、没有 `'`、没有任何辅助码（末尾段、句中约束、大写、末尾直接辅助码）、内置方案。少了任何一条都不允许。
+    #[test]
+    fn the_request_allows_a_confident_correction_only_without_helpcodes() {
+        use crate::shuangpin::profile::profile;
+        use crate::touch::{KeyGeometry, KeyTouch};
+        use crate::types::{QueryRequest, SchemeType, ShuangpinProfileKind, SyllableHelpcode};
+        use std::sync::Arc;
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        let geometry = {
+            let mut keys = [[0.0f32; 4]; 26];
+            for (index, key) in keys.iter_mut().enumerate() {
+                *key = [10.0 * index as f32, 0.0, 10.0, 14.0];
+            }
+            Arc::new(KeyGeometry::new(1, &keys, None, &[]).unwrap())
+        };
+        let touch = Some(KeyTouch {
+            dx: 0,
+            dy: 0,
+            copy: 0,
+        });
+        let touched = |typed: &str| QueryRequest {
+            scheme: SchemeType::Shuangpin,
+            raw_input: typed.to_ascii_lowercase(),
+            raw_input_with_cases: typed.to_owned(),
+            key_touches: vec![touch; typed.len()],
+            key_geometry: Some(Arc::clone(&geometry)),
+            valid: true,
+            ..QueryRequest::default()
+        };
+        assert!(confident_correction_allowed(&touched("mwgfxi"), xiaohe));
+        let refused = [
+            QueryRequest {
+                key_touches: Vec::new(),
+                key_geometry: None,
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                key_touches: vec![touch, None, touch, touch, touch, touch],
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                key_geometry: None,
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                key_touches: vec![touch; 5],
+                ..touched("mwgfxi")
+            },
+            touched("mw'gfxi"),
+            touched("mwgfxI"),
+            QueryRequest {
+                end_helpcodes: "ab".into(),
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                syllable_helpcodes: vec![SyllableHelpcode {
+                    syllable: 1,
+                    first: b'a',
+                    second: 0,
+                }],
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                raw_input_with_helpcode_marks: "mwgf|ab".into(),
+                ..touched("mwgfxi")
+            },
+            QueryRequest {
+                enable_shuangpin_helpcode: true,
+                ..touched("mwgfxim")
+            },
+            QueryRequest {
+                scheme: SchemeType::Quanpin,
+                ..touched("mwgfxi")
+            },
+        ];
+        for request in &refused {
+            assert!(
+                !confident_correction_allowed(request, xiaohe),
+                "{request:?}"
+            );
+        }
+        // 辅助码开着、但这串输入没有辅助码时照常允许。
+        assert!(confident_correction_allowed(
+            &QueryRequest {
+                enable_shuangpin_helpcode: true,
+                ..touched("mwgfxi")
+            },
+            xiaohe
+        ));
     }
 }

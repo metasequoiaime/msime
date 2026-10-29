@@ -12,7 +12,8 @@ use super::query::{
 };
 use super::typo_edges::{
     collect_priced_shuangpin_typo_edges, collect_shuangpin_typo_edges, priced_shuangpin_variants,
-    touch_supports_correction, LearnedTypos, SHUANGPIN_TYPO_TYPES,
+    touch_correction_pairs, touch_leads_correction, touch_supports_correction, LearnedTypos,
+    SHUANGPIN_TYPO_TYPES,
 };
 use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmentation};
 use super::ShuangpinProfile;
@@ -131,6 +132,8 @@ pub struct ShuangpinDictionary {
     typo_profile: Arc<PersonalTypoProfile>,
     /// 带触点的答案按哪一代学习结果计的价；代次变了就清掉整句答案（`set_key_touches`）。
     typo_generation: u64,
+    /// 当前请求允许纠错整句坐首选（`ShuangpinEngine` 按请求判断：整串带触点、没有辅助码、内置方案），而且 `lead_margin` 不是无穷大。为真时触点签名多一个标记，这样的答案和不允许时的答案各存各的缓存，不允许的请求（例如末尾单辅助码）读到的整句答案与没有首选规则时逐字节相同。
+    lead_allowed: bool,
 }
 
 impl ShuangpinDictionary {
@@ -179,16 +182,18 @@ impl ShuangpinDictionary {
             touch_tuning: TouchTuning::default(),
             typo_profile,
             typo_generation,
+            lead_allowed: false,
         }
     }
 
-    /// 请求的触点跟着请求走（`ShuangpinEngine::query` 在查询之前交来）。`touches` 为空时清掉，之后的答案和缓存键与没有触点时完全相同。
+    /// 请求的触点跟着请求走（`ShuangpinEngine::query` 在查询之前交来）。`touches` 为空时清掉，之后的答案和缓存键与没有触点时完全相同。`lead_allowed` 是请求层面的首选规则（见字段 `lead_allowed`）。
     pub fn set_key_touches(
         &mut self,
         touches: &[Option<KeyTouch>],
         input: &str,
         geometry: Option<&Arc<KeyGeometry>>,
         tuning: TouchTuning,
+        lead_allowed: bool,
     ) {
         if self.touch_tuning != tuning {
             self.touch_tuning = tuning;
@@ -201,12 +206,14 @@ impl ShuangpinDictionary {
         self.key_touches.clear();
         self.touch_input.clear();
         self.key_geometry = None;
+        self.lead_allowed = false;
         let Some(geometry) = geometry.filter(|_| touches.len() == input.len()) else {
             return;
         };
         self.key_touches.extend_from_slice(touches);
         self.touch_input.push_str(input);
         self.key_geometry = Some(Arc::clone(geometry));
+        self.lead_allowed = lead_allowed && tuning.lead_margin < f64::INFINITY;
         // 只有带触点的答案读学习结果：没有触点时连日志的状态也不看，桌面的缓存和以前一样。代次变了，按旧学习结果计价的整句答案作废（同全拼 `QuanpinDictionary` 按代次清缓存）。
         self.typo_profile.refresh_if_changed();
         let generation = self.typo_profile.generation();
@@ -243,6 +250,9 @@ impl ShuangpinDictionary {
                 }
                 None => signature.push('\u{3}'),
             }
+        }
+        if self.lead_allowed {
+            signature.push('\u{5}');
         }
         Some(signature)
     }
@@ -686,7 +696,7 @@ impl ShuangpinDictionary {
             &self.rescoring_context,
             true,
         );
-        // 纠错整句不抢首选：不论比字面整句好多少，一律排在全码词条和整句块之后，只作为一个可选的改正。
+        // 纠错整句默认不抢首选：一律排在全码词条和整句块之后，只作为一个可选的改正。只有带触点、触点支持而且明显比字面整句好的那一行按首选规则坐第一位（`confident`）。
         let Some(typo) = typo else {
             return;
         };
@@ -696,6 +706,7 @@ impl ShuangpinDictionary {
         let Some(at) = typo_sentence_seat(candidates, segments) else {
             return;
         };
+        let leads = typo.leads(tuning.lead_margin);
         let mut sentence = WordItem::new(
             typed,
             typo.sentence,
@@ -714,10 +725,76 @@ impl ShuangpinDictionary {
                     sentence.canonical_pinyin.as_str(),
                 )
         });
+        // 首选规则（#10018 PR3），以下全部满足才坐第一位：
+        // (a) 这段输入的每个键都有触点（请求整串都带触点、不是前缀，由 `ShuangpinEngine` 再核对一次）；
+        // (b) 纠错整句的分数比字面整句高出每条纠错边 `lead_margin`；
+        // (c) 改动的每一键在落点下的原价都不超过 `lead_penalty`；
+        // (d) 字面没有全码词条，第一行就是字面整句块，坐上去以后字面整句紧跟在第二位；
+        // (e) 这几对键码没被拒绝过（被抑制的输入根本不带触点）；
+        // (f) 辅助码由 `ShuangpinEngine` 按请求把关（`lead_allowed`，进缓存键），本地模式由会话把关。
+        // 另外它一定也是落点支持留在座位上的那一行（`touch_supported`）。`lead_allowed` 为假（`lead_margin` 是无穷大，或请求不允许）时后面几道闸一道也不算。
+        let confident = touched.is_some_and(|(touches, geometry)| {
+            self.lead_allowed
+                && touch_supported
+                && touches.iter().all(Option::is_some)
+                && leads
+                && whole_sentence_insert_position(candidates, segments) == 0
+                && candidates
+                    .first()
+                    .is_some_and(|row| row.sentence_association && row.corrected_from.is_empty())
+                && touch_leads_correction(
+                    profile,
+                    codes.as_slice(),
+                    touches,
+                    geometry,
+                    &tuning,
+                    sentence.canonical_pinyin.as_str(),
+                    types,
+                )
+                && !self.correction_rejected(
+                    rows_key,
+                    touches,
+                    geometry,
+                    sentence.canonical_pinyin.as_str(),
+                )
+        });
         sentence.touch_supported = touch_supported;
+        sentence.confident_correction = confident;
         sentence.sentence_words = typo.words;
         sentence.corrected_from = fold_reading(typed).into();
-        candidates.insert(at, sentence);
+        candidates.insert(if confident { 0 } else { at }, sentence);
+    }
+
+    /// 首选规则 (e)：用户拒绝过这条纠错改动的某一对两键码（首选是纠错行时选了别的行，见 `session::learning`），这一对就一票否决首选，纠错行仍可排在后面。记哪一对与学习时同一个算法（`touch_correction_pairs`），对不上的（模糊音的替代拼写）当作否决。自定义方案不学，没有可查的记录，也就没法否决，所以一律不坐首选。
+    fn correction_rejected(
+        &self,
+        typed: &str,
+        touches: &[Option<KeyTouch>],
+        geometry: &KeyGeometry,
+        corrected_key: &str,
+    ) -> bool {
+        let kind = self.profile.kind;
+        if kind == ShuangpinProfileKind::Custom {
+            return true;
+        }
+        let Some(pairs) = touch_correction_pairs(
+            self.profile,
+            typed,
+            touches,
+            geometry,
+            &self.touch_tuning,
+            LearnedTypos::new(&self.typo_profile, kind),
+            corrected_key,
+            self.autocorrect_types,
+        ) else {
+            return true;
+        };
+        pairs.iter().any(|pair| {
+            self.typo_profile
+                .shuangpin_counts(kind, pair.typed, pair.intended)
+                .rejected
+                > 0
+        })
     }
 
     /// 辅助码命中行优先；没有命中时先保留完整前缀，避免未完成尾音节让首选变短。
@@ -1325,6 +1402,49 @@ mod tests {
         }
     }
 
+    /// 请求允许首选时（`lead_allowed`，而且 `lead_margin` 不是无穷大），触点签名多一个标记：允许和不允许时的答案各存各的缓存，不允许的请求（末尾辅助码的基础部分）读不到坐了首选的整句答案。不带触点时没有签名，键与以前相同。
+    #[test]
+    fn the_first_seat_rule_keys_its_own_cached_answers() {
+        use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
+        use crate::types::ShuangpinProfileKind;
+        use std::sync::Arc;
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().to_path_buf();
+        let paths = RuntimePaths {
+            resources: directory.clone(),
+            user_data: directory.clone(),
+            cache: directory.clone(),
+            dictionaries: directory,
+        };
+        let selected = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        let mut dictionary = ShuangpinDictionary::new(selected, &paths);
+        let mut keys = [[0.0f32; 4]; 26];
+        for (index, key) in keys.iter_mut().enumerate() {
+            *key = [index as f32 * 10.0, 0.0, 10.0, 10.0];
+        }
+        let geometry = Arc::new(KeyGeometry::new(7, &keys, None, &[]).unwrap());
+        let touches = [Some(KeyTouch {
+            dx: 0,
+            dy: 0,
+            copy: 0,
+        }); 4];
+        let leading = TouchTuning {
+            lead_margin: 0.0,
+            ..TouchTuning::default()
+        };
+        let mut signature = |tuning: TouchTuning, allowed: bool| {
+            dictionary.set_key_touches(&touches, "mwgf", Some(&geometry), tuning, allowed);
+            dictionary.touch_signature("mwgf")
+        };
+        let ruled = signature(leading, true).unwrap();
+        let refused = signature(leading, false).unwrap();
+        assert_ne!(ruled, refused);
+        assert_eq!(signature(TouchTuning::default(), true).unwrap(), refused);
+        assert_eq!(signature(TouchTuning::default(), false).unwrap(), refused);
+        dictionary.set_key_touches(&[], "mwgf", None, leading, true);
+        assert_eq!(dictionary.touch_signature("mwgf"), None);
+    }
+
     /// 学习结果换了代次，按旧结果计价的整句和辅助码答案在下一次带触点的查询前清掉；不带触点的查询不看学习结果，缓存留着（桌面不变）。
     #[test]
     fn a_new_typo_generation_clears_touched_answers_only_on_the_touch_path() {
@@ -1370,21 +1490,39 @@ mod tests {
                 .unwrap();
         };
 
-        dictionary.set_key_touches(&touches, "mwgf", Some(&geometry), TouchTuning::default());
+        dictionary.set_key_touches(
+            &touches,
+            "mwgf",
+            Some(&geometry),
+            TouchTuning::default(),
+            false,
+        );
         cached(&mut dictionary);
         // 代次没变：带触点的查询也不清。
-        dictionary.set_key_touches(&touches, "mwgf", Some(&geometry), TouchTuning::default());
+        dictionary.set_key_touches(
+            &touches,
+            "mwgf",
+            Some(&geometry),
+            TouchTuning::default(),
+            false,
+        );
         assert!(dictionary.series_cache.contains(&"mwgf".to_owned()));
 
         learn();
         // 不带触点：不看学习结果，缓存留着。
-        dictionary.set_key_touches(&[], "mwgf", None, TouchTuning::default());
+        dictionary.set_key_touches(&[], "mwgf", None, TouchTuning::default(), false);
         assert!(dictionary.series_cache.contains(&"mwgf".to_owned()));
         assert!(dictionary
             .single_helpcode_cache
             .contains(&"mwgf".to_owned()));
         // 带触点：代次变了，整句和辅助码答案都清掉。
-        dictionary.set_key_touches(&touches, "mwgf", Some(&geometry), TouchTuning::default());
+        dictionary.set_key_touches(
+            &touches,
+            "mwgf",
+            Some(&geometry),
+            TouchTuning::default(),
+            false,
+        );
         assert!(!dictionary.series_cache.contains(&"mwgf".to_owned()));
         assert!(!dictionary
             .single_helpcode_cache
