@@ -14,8 +14,8 @@ iOS 与鸿蒙没有这个问题：iOS 数字页的空格在底行，键面写「
 
 键本身不变，只换键面：右列这一格仍是空格，点按输入空格，长按说话、拖动移光标照旧。
 
-- 数字页的 `SpaceKeyFace` 走单独的键面（`setNumberPadFace`）：居中画空格符号 ␣（`KeyboardIconPaths.Icon.SPACE_BAR`，22 dp，与 ⌫ 同尺寸、同取键前景色），不写方案短名。
-- 麦克风缩成右上角 14 dp 的次要提示，位置对齐九键角标数字（`KeyHintButton.CORNER_HINT_TOP_DP` / `CORNER_HINT_RIGHT_DP`），颜色仍是原来麦克风的 `toolbarIcon`；它只在开着长按空格语音时画，沿用 #10143 的规则。关掉长按语音时只剩 ␣。
+- 数字页的 `SpaceKeyFace` 走单独的键面（`setNumberPadFace`）：居中画空格符号 ␣（`KeyboardIconPaths.Icon.SPACE_BAR`，22 dp，与 ⌫ 同尺寸），不写方案短名。颜色取本键的文字色：数字页这一格按普通键（`KeyboardKeyRole.KEY`）着色，拿到的是皮肤的 `keyForeground`，与它自己的键帽底色配对；⌫ 是功能键（`ACCENT`），取 `functionForeground`，两者在某些皮肤里不同色，这是有意的，␣ 跟着键帽走而不是跟着 ⌫ 走。
+- 麦克风缩成右上角 14 dp 的次要提示，位置对齐九键角标数字（`KeyHintButton.CORNER_HINT_TOP_DP` / `CORNER_HINT_RIGHT_DP`），颜色与透明度同九键角标数字（`NineKeyDigitButton`）：取皮肤的 `hint`，可用时不透明、停用时 alpha 96，和 ␣ 一起调暗，不再用字母层麦克风的 `toolbarIcon`，以免在部分皮肤里比同位置的角标数字更抢眼；它只在开着长按空格语音时画，沿用 #10143 的规则。关掉长按语音时只剩 ␣。
 - `ImeBottomRow.updateActionRow` 每次重排底行时按 `numberPad` 设一次 `setNumberPadFace`，回到字母层就恢复「麦克风 + 方案短名」的键面。拖动移光标时的「移动光标」照常盖住整个键面。
 - 「右侧大回车」样式的数字层，空格在底行 0 的右边，同样是数字页，也画这个键面。
 - 读屏名称不变，仍是以「空格」开头的 `SPACE_CURSOR_DESCRIPTION`。
@@ -40,7 +40,11 @@ iOS 与鸿蒙没有这个问题：iOS 数字页的空格在底行，键面写「
 
 代价：数字页空格的键面与字母层不同（字母层仍是麦克风 + 方案短名）；Android 数字页的空格与 iOS（写「空格」）、鸿蒙（写方案短名）的画法也不一样，三端只在「不会只剩一个麦克风」这一点上一致。iOS 与鸿蒙本来就没有误导，这次不改。
 
+范围：issue 要的是「右列点按开语音、空格挪到 0 上滑并在 0 下画 ␣」，本篇只改了键面，没有实现那套手势，理由见 Alternatives considered。这是一项产品取舍，需要用户拍板，所以 PR 只写 `Refs #10059`，issue 保持打开，等用户决定是接受本篇的收窄范围，还是另做整套手势。
+
+三端一致：本篇之前三端已经各画各的（Android 只画麦克风、iOS 写「空格」、鸿蒙写麦克风 + 方案短名），根子在 Android 数字页把空格放在右列窄键上（#8058），iOS 与鸿蒙在底行宽键上，排布本来就不同。本篇没有新增分歧，只把 Android 从「只剩麦克风」改成「主标是空格」，和 iOS「一眼看出是空格」的语义对齐。要不要把三端数字页空格统一成同一种画法（例如都画 ␣ 加角标麦克风，或 Android 也写「空格」），留给用户决定，不在本篇里替 iOS 和鸿蒙改。
+
 ## Testing
 
-- `SpaceKeyMicSmoke` 钉住：␣ 与 ⌫ 同尺寸、角标麦克风比字母层的麦克风小、`updateActionRow` 每次按 `numberPad` 设键面并清空数字页的方案短名、`drawNumberPadFace` 先画 ␣ 再按 `showsMic` 决定画不画麦克风、手势提示文字仍能盖住数字页键面、读屏名称以「空格」开头。`KeyboardIconPathsSmoke` 要求 `SPACE_BAR` 图标存在并与生成脚本一致；`generate_keyboard_icons.py --check` 通过。
+- `SpaceKeyMicSmoke` 钉住：␣ 与 ⌫ 同尺寸、角标麦克风比字母层的麦克风小、`updateActionRow` 每次按 `numberPad` 设键面并清空数字页的方案短名、`drawNumberPadFace` 先画 ␣ 再按 `showsMic` 决定画不画麦克风、角标麦克风取 `hint` 色并随停用调暗、手势提示文字仍能盖住数字页键面、读屏名称以「空格」开头。`KeyboardIconPathsSmoke` 要求 `SPACE_BAR` 图标存在并与生成脚本一致；`generate_keyboard_icons.py --check` 通过。
 - `SpaceKeyFace` 是 View，JVM 冒烟画不出来；真实键面（␣ 的粗细、角标麦克风在窄键帽上的位置、深浅色皮肤下的对比度）没有在模拟器或真机上看过。

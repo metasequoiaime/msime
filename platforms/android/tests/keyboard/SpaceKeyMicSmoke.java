@@ -45,6 +45,11 @@ public final class SpaceKeyMicSmoke {
         int mic = numberPadFace.indexOf("KeyboardIconPaths.Icon.MIC");
         check(glyph >= 0 && guard > glyph && mic > guard,
             "the number pad face always draws the space glyph and the mic only behind the long-press voice switch");
+        // 角标麦克风与九键角标数字同色同透明度：取皮肤 hint，停用时和 ␣ 一起调暗。
+        check(numberPadFace.contains("ColorPolicy.withAlpha(cornerHintColor, ColorPolicy.enabledAlpha(isEnabled(), 255, 96))"),
+            "the corner mic uses the corner hint colour and dims when the key is disabled");
+        check(read("core/ImeStyler.java").contains("space.setCornerHintColor(color(target.hint()));"),
+            "the styler gives the space key the skin's corner hint colour");
         check(read("core/MSIMEInputService.java").contains("SPACE_CURSOR_DESCRIPTION = \"空格；"),
             "screen readers still announce the number pad key as 空格");
         check(body(bottomRow, "void syncSplitSpace() {").contains("splitSpace.setShowsMic(spaceShowsMic());"),

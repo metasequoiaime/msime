@@ -8,7 +8,7 @@ import android.graphics.Paint;
 /**
  * 空格键：键面画 22 dp 的麦克风描边图标加方案短名（13 sp，kbSub），例如「全拼」「双拼 · 小鹤」「五笔 86」，英文模式是「space」。麦克风只在开着「长按空格语音输入」时画，由 {@link ImeBottomRow} 经 {@link #setShowsMic} 设置。
  *
- * <p>数字页（{@link #setNumberPadFace}）的空格只有一个功能键宽，主标改画空格符号 ␣，颜色与 ⌫ 等图标键相同；麦克风缩到右上角作次要提示，同样只在开着长按空格语音时画（#10059）。只画麦克风会让人以为这是点一下就说话的语音键。
+ * <p>数字页（{@link #setNumberPadFace}）的空格只有一个功能键宽，主标改画空格符号 ␣，颜色取本键的文字色（数字页这一格按普通键着色，是皮肤的键前景色，不是 ⌫ 那样的功能键前景色）；麦克风缩到右上角作次要提示，和九键角标数字一样取皮肤的提示色、停用时同样调暗，也只在开着长按空格语音时画（#10059）。只画麦克风会让人以为这是点一下就说话的语音键。
  *
  * <p>节点 text 仍是「空格」（§2.8），只是不绘制；键帽背景照常由样式通道设置。麦克风与短名的颜色由调用方从皮肤取后传入。
  */
@@ -26,6 +26,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
     private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
     private String schemeLabel = "";
     private int faceColor = 0xFF56685A;
+    private int cornerHintColor = 0xFF8A968C;
     private boolean showsMic = true;
     private boolean numberPadFace;
     private String transientLabel = "";
@@ -51,6 +52,13 @@ public final class SpaceKeyFace extends KeyboardPressButton {
     public void setFaceColor(int color) {
         if (faceColor == color) return;
         faceColor = color;
+        invalidate();
+    }
+
+    /** 数字页右上角麦克风提示的颜色（皮肤的 hint，与九键角标数字同色）。 */
+    public void setCornerHintColor(int color) {
+        if (cornerHintColor == color) return;
+        cornerHintColor = color;
         invalidate();
     }
 
@@ -150,7 +158,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         }
     }
 
-    /** 数字页键面：居中画 ␣；开着长按空格语音时在右上角画小麦克风，位置与九键角标数字（{@link KeyHintButton#CORNER_HINT_TOP_DP}、{@link KeyHintButton#CORNER_HINT_RIGHT_DP}）对齐。 */
+    /** 数字页键面：居中画 ␣（本键文字色）；开着长按空格语音时在右上角画小麦克风，颜色与透明度同 {@link NineKeyDigitButton} 的角标数字，位置与九键角标数字（{@link KeyHintButton#CORNER_HINT_TOP_DP}、{@link KeyHintButton#CORNER_HINT_RIGHT_DP}）对齐。 */
     private void drawNumberPadFace(Canvas canvas) {
         float glyph = BoundsPolicy.atMost(DimensionPolicy.floatPixels(getContext(), NUMBER_PAD_GLYPH_DP),
             DimensionPolicy.shorterSide(getWidth(), getHeight()));
@@ -162,6 +170,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         float mic = DimensionPolicy.floatPixels(getContext(), NUMBER_PAD_MIC_DP);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC,
             getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) - mic,
-            DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP), mic, faceColor);
+            DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP), mic,
+            ColorPolicy.withAlpha(cornerHintColor, ColorPolicy.enabledAlpha(isEnabled(), 255, 96)));
     }
 }
