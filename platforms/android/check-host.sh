@@ -99,6 +99,24 @@ if [[ $(rg -c 'setTouchPoints\(' "$android_java/core/MSIMEInputService.java") !=
   echo "Only double-pinyin letter keys may record touch-downs in the key area" >&2
   exit 1
 fi
+# 文本编辑面板只在同一输入框重启连接时留着（#10141）。手势改认新连接由 TextTrackpadGestureSmoke 和 TextTrackpadHoldSmoke 覆盖；判断是不是同一输入框、走哪条收尾的接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：同一输入框还要求初始选区等于最近的回报（只比 fieldId 分不出同一个 WebView 里的两个输入框），两条 onStartInput 路径都按它在 editorRestarted 和 editorChanged 之间选，stop 只因它跳过关这个面板、更多工具照关；editorRestarted 全宿主只在 onStartInput 里调用。
+start_input_body=$(sed -n '/^    @Override public void onStartInput(EditorInfo info, boolean restarting) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+stop_body=$(sed -n '/^    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession, boolean keepTextEdit) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+restarted_calls=$({ rg -c 'editorRestarted\(' "$android_java" || true; } | awk -F: '{ total += $2 } END { print total + 0 }')
+if ! rg -q 'sameEditor\(info\) && imeTextEditPanel\.reportedSelection\(info\.initialSelStart, info\.initialSelEnd\);' <<< "$start_input_body" \
+  || [[ $(rg -c 'if \(sameEditorRestart\) \{' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ $(rg -c 'imeTextEditPanel\.editorRestarted\(' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ "$restarted_calls" != 3 ]] \
+  || ! rg -q 'if \(keepSession\) stopKeepingSession\(sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'else stop\(false, sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'if \(keepMoreTools \|\| keepTextEdit\) \{' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepMoreTools\) closeMoreTools\(\);' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepTextEdit\) imeTextEditPanel\.close\(\);' <<< "$stop_body"; then
+  echo "The text edit panel may survive only a same-field restart (same editor and the last reported selection); stop must still close More Tools" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
 toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
@@ -109,7 +127,7 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，开始打字或删字时作废；收起键盘时作废记下的「中」键。
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，打开不经 closeToolbarPanels 的功能面板（更多）时作废；开始打字或删字时推迟的面板和记下的「中」键一起作废；收起键盘时作废记下的「中」键；会话建好后再点「中」键时作废记下的那一下，读到偏好时不再补按。
 service_java="$android_java/core/MSIMEInputService.java"
 panels_java="$android_java/core/ImePanels.java"
 emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
@@ -135,7 +153,11 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SKIN,' "$service_java" \
   || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SCHEME,' "$service_java" \
   || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
-  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarPanel\(\);'; then
+  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    void deleteCodePointBeforeCursor() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarTaps\(\);' \
+  || ! sed -n '/^    private void dropDeferredToolbarTaps() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
@@ -173,6 +195,31 @@ style_body=$(sed -n '/^    void styleCandidateButton(Button button) {$/,/^    }$
 if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   || rg -q '\.itemMinWidth' <<< "$style_body"; then
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
+  exit 1
+fi
+# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
+service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
+expanded_body=$(sed -n '/^    Button expandedCandidateButton(JSONObject candidate) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
+label_body=$(sed -n '/^                                        boolean highlighted, boolean corrected) {$/,/^    }$/p' "$service_source")
+for body in "$update_body" "$expanded_body"; do
+  if ! rg -q 'CandidateCorrectionMarkPolicy\.confident\(candidate\.opt\(CandidateCorrectionMarkPolicy\.FIELD\)\)' <<< "$body" \
+    || ! rg -q 'candidateLabel\([^;]*, corrected\)\)' <<< "$body" \
+    || ! rg -q 'CandidateCorrectionMarkPolicy\.accessibilitySuffix\(corrected\)' <<< "$body"; then
+    echo "Candidate strip and expanded panel must mark a confident shuangpin correction in colour and in the spoken description" >&2
+    exit 1
+  fi
+done
+plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
+if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
+  || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -qU 'if \(mark != null\) \{\n\s*label\.setSpan\(new ForegroundColorSpan\(mark\), prefix\.length\(\), primary\.length\(\),\n\s*Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*\}' <<< "$label_body" \
+  || rg -q 'UnderlineSpan' <<< "$label_body" \
+  || ! rg -q 'int secondary = CandidateCorrectionMarkPolicy\.annotationColour\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -q 'new ForegroundColorSpan\(secondary\), annotationStart' <<< "$label_body" \
+  || ! rg -q 'return candidateLabel\(prefix, text, annotation, highlighted, false\);' <<< "$plain_label_body"; then
+  echo "candidateLabel must take its spans and colours from CandidateCorrectionMarkPolicy and mark a confident correction in colour only, like iOS and HarmonyOS" >&2
   exit 1
 fi
 # 每次按键的 render 末尾都会把候选重新上色一遍：外观和密度没变、按钮的底也还是上次装上的那块时，不能再给每个候选新建五块 GradientDrawable 和一个 StateListDrawable，文字配色也共用一份 ColorStateList。低端机上每键几十个候选、几百个短命 Drawable，是打字发热和卡顿的来源之一。
@@ -891,6 +938,19 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
   exit 1
 fi
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
+  || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 10 'private void returnFromClipboardDetail\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
+  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+  echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
+  exit 1
+fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
 if ! rg -A 20 'void addRecentClipRow\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
@@ -1243,14 +1303,15 @@ for manifest in \
     exit 1
   fi
 done
-# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
+# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
 if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
   || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
-  || ! rg -qF 'if (platform != null) return;' "$voice_entry" \
+  || ! rg -qF 'heard(session, firstResult(partialResults), false);' "$voice_entry" \
+  || ! rg -qF 'heard(session, update, false)' "$voice_entry" \
   || ! rg -qF 'listening.resetLevel();' "$voice_entry"; then
   echo "Android platform speech callbacks must keep coded errors, the activity hand-off, the uncut pause and the level reset" >&2
   exit 1
@@ -1462,6 +1523,21 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
+# 登录前的明示同意（.agents/notes/implemented/bug-fix/2026-10-27-login-privacy-consent.md）：勾选规则由 LoginConsentPolicySmoke 覆盖，接线在 LoginSheet 里，JVM 冒烟碰不到，这里钉住：面板上不再有「登录即表示同意」；每一个发请求的登录操作（经 begin 进入忙碌状态的 Apple、Google、发送验证码和验证码登录）都在同一行先过 confirmConsent；Google、Apple 和邮箱验证码的登录流程只从 LoginSheet 发起，新入口不能绕过面板；文字与提示和共享设置页 login-consent.tsx 的一字不差。
+login_sheet="$repo_root/platforms/android/java/app/msime/android/home/LoginSheet.java"
+login_consent="$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java"
+shared_login_consent="$repo_root/packages/ui/src/account/login-consent.tsx"
+if rg -q '登录即' "$login_sheet" \
+  || ! awk '/[^a-zA-Z]begin\("/ { calls++; if ($0 !~ /!confirmConsent\(\) \|\|/) bad = 1 } END { exit (bad || calls != 4) }' "$login_sheet" \
+  || rg -l 'SignIn\.(startGoogle|startApple|requestEmailCode|verifyEmailCode)\(' "$repo_root/platforms/android/java" \
+    | rg -v '/home/LoginSheet\.java$' >/dev/null \
+  || ! rg -qF 'export const LOGIN_CONSENT_PROMPT = "请先阅读并勾选同意《用户协议》和《隐私政策》";' "$shared_login_consent" \
+  || ! rg -qF 'aria-label="我已阅读并同意《用户协议》和《隐私政策》"' "$shared_login_consent" \
+  || ! rg -qF 'TEXT = "我已阅读并同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent" \
+  || ! rg -qF 'PROMPT = "请先阅读并勾选同意" + TERMS_TITLE + "和" + PRIVACY_TITLE;' "$login_consent"; then
+  echo "Every Android sign-in request must first pass LoginSheet's explicit consent checkbox, worded as the shared login-consent.tsx" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
@@ -1523,6 +1599,7 @@ fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \

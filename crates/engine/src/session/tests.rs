@@ -541,6 +541,9 @@ impl Fixture {
 
     fn options(&self) -> SessionOptions {
         let mut options = SessionOptions::new(self.paths());
+        // 这些测试按参照实现的默认值写成：辅助码开、表名 `lantian`（引擎库默认关，见 `SessionOptions::new`）。
+        options.helpcode = true;
+        options.helpcode_schema = "lantian".to_owned();
         // Frequency learning off, as the reference session tests configured it, so only the behaviour under test moves the order.
         options.frequency = FrequencyAdjustmentOptions {
             mode: FrequencyAdjustmentMode::Disabled,
@@ -1461,6 +1464,121 @@ fn picking_another_row_over_a_leading_correction_counts_a_rejection() {
     assert_eq!(select_word(&mut session, "没关系").diagnostic, None);
     assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
     assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(1));
+}
+
+/// 首选规则可用时的计价参数（其余照默认值）：分数比字面整句高就算明显更优，改动的那一键原价不超过 10。f 那一键落在 f 和 r 正中时原价是 B = 8。
+fn lead_tuning() -> crate::touch::TouchTuning {
+    crate::touch::TouchTuning {
+        lead_margin: 0.0,
+        lead_penalty: 10.0,
+        ..crate::touch::TouchTuning::default()
+    }
+}
+
+/// 拒绝一票否决首选（#10018 PR3）：首选是按首选规则坐上去的纠错整句，用户选了字面整句，记一次拒绝；之后同一串输入带同样的触点，纠错整句不再坐首选，但仍在表里，选中它照样是接受。
+#[test]
+fn rejecting_a_confident_correction_vetoes_its_first_seat() {
+    let fixture = touch_learning_fixture();
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    session.set_touch_tuning(lead_tuning());
+    type_touched(&mut session, true);
+    let snapshot = session.snapshot();
+    assert_eq!(
+        snapshot.candidates[0].word,
+        "没关系",
+        "{:?}",
+        words(&session)
+    );
+    assert!(snapshot.candidates[0].confident_correction);
+    assert!(snapshot.candidates[1..]
+        .iter()
+        .all(|row| !row.confident_correction));
+    assert_eq!(select_word(&mut session, "没跟系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+
+    type_touched(&mut session, true);
+    let snapshot = session.snapshot();
+    assert_ne!(
+        snapshot.candidates[0].word,
+        "没关系",
+        "{:?}",
+        words(&session)
+    );
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
+    assert!(snapshot
+        .candidates
+        .iter()
+        .any(|row| row.word == "没关系" && !row.corrected_from.is_empty()));
+    assert_eq!(select_word(&mut session, "没关系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(1));
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+}
+
+/// 首选规则 (a)、(f) 落在会话上：撤回选词后重打的那一段没有触点、按键全在键心、或者不带触点（平面表），纠错整句都不坐首选；被抑制的输入（用户按原样上屏过）不再带触点，也不坐首选。
+#[test]
+fn the_session_puts_a_correction_first_only_with_every_key_touched() {
+    let fixture = touch_learning_fixture();
+    let first_is_confident = |session: &Session| {
+        let snapshot = session.snapshot();
+        assert!(snapshot.candidates[1..]
+            .iter()
+            .all(|row| !row.confident_correction));
+        snapshot.candidates[0].confident_correction
+    };
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    session.set_touch_tuning(lead_tuning());
+    type_touched(&mut session, false);
+    assert!(!first_is_confident(&session));
+    session.command(Command::Cancel);
+    // 最后一键没有触点（宿主没送、无障碍点击）。
+    for (index, byte) in b"mwgfxi".iter().enumerate() {
+        let (dx, dy) = if index == 3 { (-5, -10) } else { (0, 0) };
+        if index < 5 {
+            session.set_key_touch(Some(crate::touch::KeyTouch { dx, dy, copy: 0 }));
+        }
+        session.character(*byte, false);
+    }
+    assert!(!first_is_confident(&session));
+    session.command(Command::Cancel);
+    type_touched(&mut session, true);
+    assert!(first_is_confident(&session));
+    // 用户按原样上屏：记抑制，之后同一串输入按字面回答、请求不带触点。
+    session.command(Command::CommitRaw);
+    type_touched(&mut session, true);
+    assert!(request_touches(&session).is_empty());
+    assert!(session
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction && row.corrected_from.is_empty()));
+    session.command(Command::Cancel);
+
+    // 本地模式（超级简拼）里同样的按键带同样的触点：触点不进方案，没有一行坐首选。
+    let mut local = fixture.session_with(touch_shuangpin);
+    local.set_key_geometry(Some(qwerty_geometry()));
+    local.set_touch_tuning(lead_tuning());
+    local.character(b'J', true);
+    type_touched(&mut local, true);
+    let snapshot = local.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::SuperJianpin);
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
+
+    let mut flat = fixture.session_with(touch_shuangpin);
+    flat.set_touch_tuning(lead_tuning());
+    type_text(&mut flat, "mwgfxi");
+    assert!(flat
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
 }
 
 /// 日志里有双拼的接受、拒绝和抑制记录，不带触点的会话（桌面、实体键盘）逐字节和没有这些记录时一样。
@@ -6988,15 +7106,96 @@ fn rejected_capital_after_bare_shortcut_keeps_both_letters_composing() {
     }
 }
 
+/// #10123：大写字母入口后只打了字母，模式不收的字母（小写或大写）把整串转回普通组字，驼峰英文不会在中途上屏。
+#[test]
+fn rejected_letter_after_letter_only_shortcut_keeps_the_whole_word_composing() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        for text in [
+            "TextBlock",
+            "TxB",
+            "TbU",
+            "UbU",
+            "TuU",
+            "Uu",
+            "Ui",
+            "Uq",
+            "Uw",
+            "Uo",
+            "Ur",
+            "Uy",
+            "Ut",
+            "Up",
+            "KabA",
+            "Trq",
+        ] {
+            let mut session = fixture.session_with(|options| options.scheme = scheme);
+            for byte in text.bytes() {
+                let result = session.character(byte, byte.is_ascii_uppercase());
+                assert!(
+                    result.handled && result.commit.is_none(),
+                    "{scheme:?} {text}: {} gave {result:?}",
+                    byte as char
+                );
+            }
+            let snapshot = session.snapshot();
+            // `Trq` 全是日期时间模式收的小写，留在模式里；其余都在第一个被拒字母处转回普通组字。
+            let expected_mode = if text == "Trq" {
+                LocalInputMode::DateTime
+            } else {
+                LocalInputMode::None
+            };
+            assert_eq!(snapshot.local_mode, expected_mode, "{scheme:?} {text}");
+            assert_eq!(snapshot.editing_text, text, "{scheme:?} {text}");
+            assert_eq!(
+                session.command(Command::CommitRaw).commit.as_deref(),
+                Some(text),
+                "{scheme:?} {text}"
+            );
+        }
+
+        // 转回后退格只删最后一个字母，仍是普通组字，不回到模式。
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        assert!(session.character(b'U', true).handled);
+        assert!(session.character(b'i', false).handled);
+        assert!(session.command(Command::Backspace).handled);
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.local_mode, LocalInputMode::None);
+        assert_eq!(snapshot.editing_text, "U");
+
+        // 十六进制字母仍是 Unicode 码位。
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        assert!(session.character(b'U', true).handled);
+        for byte in *b"ae" {
+            assert!(session.character(byte, false).handled);
+        }
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::Unicode);
+        assert_eq!(session.snapshot().editing_text, "Uae");
+    }
+}
+
+/// 五笔不走拼音的大写字面组字，入口后的拒绝字母沿用提交并透传。
+#[test]
+fn wubi_rejected_letter_after_shortcut_still_commits_and_returns_the_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    assert!(session.character(b'U', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Unicode);
+    let result = session.character(b'i', false);
+    assert!(!result.handled);
+    assert_eq!(result.commit.as_deref(), Some("U"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert!(session.snapshot().editing_text.is_empty());
+}
+
 #[test]
 fn rejected_local_mode_characters_commit_raw_and_return_the_key() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for (entry, spelling, rejected) in [
-        (b'U', "", b'i'),
         (b'U', "0041", b'I'),
         (b'U', "0041", b'g'),
-        (b'T', "rq", b'A'),
-        (b'K', "ab", b'A'),
+        (b'T', "rq", b'1'),
+        (b'K', "ab", b'1'),
         (b'E', "xiao", b'0'),
         (b'M', "xiao", b'0'),
         (b'J', "nh", b'0'),
@@ -8626,11 +8825,16 @@ fn expression_mode_evaluates_what_follows_shift_v() {
     assert_eq!(snapshot.local_mode, LocalInputMode::Expression);
     assert_eq!(snapshot.spelling_symbols, "0123456789+-*/.()%^#$&");
     assert_eq!(words(&session), ["V"]);
-    // 数字之前的字母不能表示单位，提交入口字母后交还当前键。
+    // 数字之前的字母不能表示单位，入口和它一起转回普通组字（#10123），不提前上屏。
     let rejected = session.character(b'x', false);
-    assert!(!rejected.handled);
-    assert_eq!(rejected.commit.as_deref(), Some("V"));
-    assert!(session.snapshot().preedit.is_empty());
+    assert!(
+        rejected.handled && rejected.commit.is_none(),
+        "{rejected:?}"
+    );
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.editing_text, "Vx");
+    assert!(session.command(Command::Cancel).handled);
 
     session.character(b'V', true);
     assert!(session.character(b'1', false).handled);
@@ -14155,3 +14359,4 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod lifecycle;

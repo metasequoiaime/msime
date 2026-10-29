@@ -202,6 +202,11 @@ final class ImeBottomRow {
         return face;
     }
 
+    /** 空格键面上画不画麦克风：跟着「长按空格语音输入」走。关掉后长按空格不进语音（{@link #bindSpaceCursor} 按同一个开关武装长按），键面也不再暗示能按住说话（#10143）。组字中长按同样不进语音，但这里不看它，否则每打一个码麦克风就闪一下。 */
+    private boolean spaceShowsMic() {
+        return touchPreference(AndroidLocalSettings.SPACE_VOICE);
+    }
+
     /** 空格键面上的方案短名。 */
     private String spaceLabel() {
         return SpaceKeyFace.schemeLabel(s.selectedScheme, s.wubiProfile, s.dedicatedEnglish);
@@ -251,15 +256,19 @@ final class ImeBottomRow {
             splitSpace.setText(s.spaceKeyTitle());
             splitSpace.setContentDescription(s.spaceKeyDescription());
         }
+        splitSpace.setShowsMic(spaceShowsMic());
         splitSpace.setSchemeLabel(spaceLabel());
         ViewPolicy.setEnabled(splitSpace, s.spaceButton.isEnabled());
     }
 
     void moveEditorCursor(int offset) {
+        if (offset == 0 || s.connection == null) return;
         // 方向键由编辑器自己解释（换行、代理对、双向文字），落点算不出来。
-        if (offset != 0) s.selectionEcho.invalidate();
-        int keyCode = offset < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
-        for (int index = 0; index < Math.abs(offset); index++) s.sendEditorKeyEvents(keyCode);
+        s.selectionEcho.invalidate();
+        // 光标已在文档首尾时不再往外发（#10141），否则编辑器把多出来的方向键当作焦点导航。
+        int steps = s.imeTextEditPanel.cursorPlan(s.connection, offset, 0, false).horizontal();
+        int keyCode = steps < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+        for (int index = 0; index < Math.abs(steps); index++) s.sendEditorKeyEvents(keyCode);
     }
 
     /** 一个空格键自己的手势状态。分离式键盘有两个空格键，两根拇指可能先后按住它们，状态不能共用，否则后按下的会把先按下的那次长按计时和手势仲裁一起冲掉。 */
@@ -624,8 +633,12 @@ final class ImeBottomRow {
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         refreshPeriodFace();
-        if (s.spaceButton instanceof SpaceKeyFace face)
+        if (s.spaceButton instanceof SpaceKeyFace face) {
+            face.setShowsMic(spaceShowsMic());
+            // 数字页的空格主标画 ␣，麦克风只在右上角提示长按可说话（#10059）；方案短名只在字母层显示。
+            face.setNumberPadFace(numberPad);
             face.setSchemeLabel(numberPad ? "" : spaceLabel());
+        }
         // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
         if (numberPad) s.keyId(zeroButton(), layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
             ? "Nine0" : KeyPressIds.forCharacter('0'));

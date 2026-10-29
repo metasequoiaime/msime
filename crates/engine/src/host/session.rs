@@ -1,7 +1,7 @@
 //! The bridge's `Session` wrapper over the engine session (api-contract §1a, §2, §5): ASCII checks, command numbering with `CommitRawWithoutLearning`, the raw-commit learning policy, the flattened snapshot and the online query snapshot.
 
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -13,7 +13,6 @@ use crate::helpcode::{
     compute_helpcodes, load_helpcode_keymap_with_fallback, HelpcodeKeymap, SharedKeymap,
 };
 use crate::japanese::romaji::romaji_display_reading_into;
-use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
@@ -23,7 +22,6 @@ use crate::types::{
     KeyResult, LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery,
     QuickPhraseEntry, SchemeType,
 };
-use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 use crate::user_dictionary::removal::learn_entered_english_word;
 
 /// The weight an entered English word is learned at: the C++ default argument of `learn_entered_english_word` (user_dictionary_journal.h:136-137), which the bridge relied on.
@@ -117,6 +115,8 @@ pub struct EngineSnapshot {
     pub candidate_static_evidence: Vec<Option<crate::ordering::StaticEvidence>>,
     /// 与候选同步排列：这一行是 26 键双拼按触点计过价、落点支持留在引擎座位上的纠错整句（`WordItem::touch_supported`），runtime 不把它当作次选读法挪到表尾（`ordering::runner_up_order_with`）。一行都没有时为空，没有触点的请求（桌面、实体键盘）永远为空；按行而不是按整张表，因为同一张表里别的纠错行（模糊音替代读法按平面表查出的）没过落点的闸。
     pub candidate_touch_supported: Vec<bool>,
+    /// 与候选同步排列：这一行是按首选规则坐上第一位的双拼触点纠错（`WordItem::confident_correction`），视图据此给它标 `Candidate::confident_correction`，宿主画强调色、读屏念「已纠正」。一行都没有时为空，没有触点的请求永远为空；本地模式和专用英文下也为空。
+    pub candidate_confident_correction: Vec<bool>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list, the Zhuyin conversion list); candidates are its rows while it is.
     pub candidate_list_open: bool,
     /// 整句改字时改好的整句，否则为空（`SessionSnapshot::conversion`）。
@@ -164,8 +164,6 @@ pub struct Session {
     helpcode_keymap: Option<SharedKeymap>,
     helpcode_enabled: bool,
     show_helpcode: bool,
-    /// The generation and resource directories the local-mode queries read; dropped after `inner`, so the last session to go closes their cached connections.
-    _local_databases: LocalDatabaseLease,
     _thread_confined: PhantomData<Rc<()>>,
 }
 
@@ -228,10 +226,6 @@ impl Session {
             helpcode_keymap,
             helpcode_enabled: options.helpcode,
             show_helpcode: options.show_helpcode,
-            _local_databases: LocalDatabaseLease::new([
-                PathBuf::from(&options.dictionaries),
-                PathBuf::from(&options.resources),
-            ]),
             _thread_confined: PhantomData,
         })
     }
@@ -248,6 +242,10 @@ impl Session {
         let count = value.candidates.len();
         // 一行都没有落点支持时整列留空，桌面每次快照不多一次分配。
         let touch_supported = value.candidates.iter().any(|row| row.touch_supported);
+        // 首选规则 (f)：本地模式、专用英文不算，那里的行不是双拼的回答。
+        let confident = value.local_mode == LocalInputMode::None
+            && !value.dedicated_english
+            && value.candidates.iter().any(|row| row.confident_correction);
         let display_reading = if !value.scheme.draws_reading() {
             String::new()
         } else if value.scheme == SchemeType::JapaneseRomaji
@@ -316,6 +314,11 @@ impl Session {
             } else {
                 Vec::new()
             },
+            candidate_confident_correction: if confident {
+                Vec::with_capacity(count)
+            } else {
+                Vec::new()
+            },
             candidate_list_open: value.candidate_list_open,
             conversion: value.conversion,
             conversion_focus_start: value.conversion_focus.0,
@@ -379,6 +382,11 @@ impl Session {
                 output
                     .candidate_touch_supported
                     .push(candidate.touch_supported);
+            }
+            if confident {
+                output
+                    .candidate_confident_correction
+                    .push(candidate.confident_correction);
             }
             output.candidate_codes.push(candidate.pinyin.into_string());
             output.candidates.push(candidate.word.into_string());
@@ -491,10 +499,10 @@ impl Session {
                         .map(Path::new),
                 )
                 .unwrap_or_else(|error| {
-                    eprintln!(
-                        "msime: helpcode schema {} unavailable, using an empty table: {error}",
+                    crate::logging::warn(format_args!(
+                        "helpcode schema {} unavailable, using an empty table: {error}",
                         self.options.helpcode_schema
-                    );
+                    ));
                     HelpcodeKeymap::default()
                 }),
             ),
@@ -839,19 +847,6 @@ impl Session {
             }
         }
         result_for(result)
-    }
-}
-
-/// The C++ registered `PersonalNgramStore::flush_all` with `atexit` (personal_ngram_store.cpp:255), so context learned in the last ~2 s reached the journal when the host quit. Rust runs no destructors for statics and `atexit` needs unsafe, so the session writes its journal's queue when the host drops it, which hosts do on deactivation and shutdown. A host that can exit without dropping its sessions (macOS `[NSApp terminate:]` runs `exit()`) calls `flush_personal_learning`, through host-api's `msime_client_flush_all`, from its will-terminate hook instead.
-impl Drop for Session {
-    fn drop(&mut self) {
-        let journal = runtime_paths(&self.options).user(assets::USER_JOURNAL);
-        // Nobody is left to report to: a failed write stays queued and flagged in the store, and the next record reports it and schedules another try.
-        let _ = flush_journal(&journal);
-        // A host thread whose sessions are gone (a quiesced IME, a closed window) holds no journal handle.
-        crate::user_dictionary::journal::release_thread_journal();
-        // Nothing of this session writes the journal after this point. A host-api session still holds its dictionary access here (its Runtime drops first), so no dictionary maintenance can change the file between the write above and this record.
-        note_settled(&journal);
     }
 }
 

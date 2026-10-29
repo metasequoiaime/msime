@@ -229,7 +229,7 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 
 设置应用首次启动时在启动画面上弹出原生授权弹窗（`privacy/PrivacyConsentDialog.ets`，在 `pages/Settings.ets` 的 `onPageShow` 打开）：几句话说明处理什么、为什么，可以点开的《用户协议》和《隐私政策》（`https://msime.app/terms/`、`https://msime.app/privacy/`，经 `openExternalUrl` 交给系统浏览器），「不同意」「同意」两个按钮。首次弹窗不能用返回手势关掉。协议列表是 `PrivacyConsentPolicy.DOCUMENTS`，只列已经上线、点得开的页面。
 
-选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
+选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策或用户协议有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。弹窗一次征得两份文档的同意，常量虽然名叫隐私政策版本，用户协议的重要变更（msime.app/terms/「协议的接受与变更」里要再次征得同意的那一类）也靠它重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
 
 没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、词库同步（`dictionary_sync`，只有 `status` 不要授权）、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
 

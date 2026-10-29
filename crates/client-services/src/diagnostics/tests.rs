@@ -90,6 +90,7 @@ fn local_failure_categories_survive_export_without_private_fields() {
         "voice_failure_runtime_missing",
         "voice_failure_permission",
         "voice_failure_null_pointer",
+        "voice_failure_timeout",
     ];
     let mut rows = String::new();
     for kind in kinds {

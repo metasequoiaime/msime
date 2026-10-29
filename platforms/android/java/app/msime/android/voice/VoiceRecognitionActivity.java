@@ -439,28 +439,13 @@ public final class VoiceRecognitionActivity extends Activity {
         providerWorker.execute(() -> {
             String text = null;
             String message = null;
+            String notice = null;
             try {
                 text = running.recognize(requestId, language, requestFormat, endpoint, model, token);
+                if (running.capped()) notice = VoiceFailurePolicy.capped(HttpAsrRecognizer.MAX_MILLIS);
             } catch (HttpAsrRecognizer.Refused refused) {
-                diagnostic(switch (refused.failure()) {
-                    case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
-                    case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
-                    case NETWORK -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
-                    case TIMEOUT -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
-                    case SERVICE_TIMEOUT, LIMIT, SERVICE -> DiagnosticEventKind.VOICE_FAILURE_RESPONSE;
-                    case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
-                    case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
-                });
-                message = switch (refused.failure()) {
-                    case PERMISSION -> "语音识别需要麦克风权限";
-                    case UNAVAILABLE -> "麦克风被其他应用占用";
-                    case NETWORK -> "语音服务未响应，请检查网络与密钥";
-                    case TIMEOUT, SERVICE_TIMEOUT -> "语音服务请求超时，请稍后重试";
-                    case LIMIT -> "音频超过服务限制，请缩短录音";
-                    case SERVICE -> "语音服务拒绝请求，请检查服务配置";
-                    case EMPTY -> "没有听到内容";
-                    case CANCELLED -> null;
-                };
+                diagnostic(VoiceFailurePolicy.diagnostic(refused.failure()));
+                message = VoiceFailurePolicy.message(refused.failure());
             } catch (RuntimeException | LinkageError error) {
                 diagnostic(VoiceDiagnostics.unexpected(error));
                 // 识别组件的意外失败也必须结束请求，不能让录音页永远停在转写中。
@@ -468,11 +453,16 @@ public final class VoiceRecognitionActivity extends Activity {
             }
             String finalText = text;
             String finalMessage = message;
+            String finalNotice = notice;
             String polishedText = finalText == null ? null : polished(finalText);
             runOnUiThread(() -> {
                 if (finished) return;
-                if (polishedText != null) saveResult(polishedText);
-                else if (finalMessage != null) fail(finalMessage);
+                if (polishedText != null) {
+                    saveResult(polishedText);
+                    if (finalNotice != null) fail(finalNotice);
+                } else if (finalMessage != null) {
+                    fail(finalMessage);
+                }
                 finishRequest();
             });
         });
@@ -481,7 +471,7 @@ public final class VoiceRecognitionActivity extends Activity {
     /**
      * A window that says it is recording, and a way to end the recording and keep the result.
      *
-     * <p>这个 Activity 是对话框主题，自己从不设置内容视图，没有这里的话每条路径都只在屏幕上放一个空白框。服务商上传和豆包流式会一直录到六十秒上限，没有这两个按钮时唯一的出路是返回键，而返回会取消并丢掉转写结果，没法表达「我说完了，开始转写」。系统识别服务在说话人停顿时会自己结束，但什么都不画的话，麦克风开着时屏幕上只有对话框的灰色蒙层，看不出有任何东西在听（#5553），所以它也用同一个窗口。
+     * <p>这个 Activity 是对话框主题，自己从不设置内容视图，没有这里的话每条路径都只在屏幕上放一个空白框。服务商上传会一直录到六十秒上限、豆包流式录到五分钟上限，没有这两个按钮时唯一的出路是返回键，而返回会取消并丢掉转写结果，没法表达「我说完了，开始转写」。系统识别服务在说话人停顿时会自己结束，但什么都不画的话，麦克风开着时屏幕上只有对话框的灰色蒙层，看不出有任何东西在听（#5553），所以它也用同一个窗口。
      *
      * <p>Built in code rather than as a layout, which is how this host builds its keyboard: the
      * two buttons are the whole surface, and a resource file for them would be one more place for
@@ -589,9 +579,20 @@ public final class VoiceRecognitionActivity extends Activity {
         providerWorker.execute(() -> {
             String text = null;
             String message = null;
+            String notice = null;
             try {
                 text = running.recognize(endpoint, headers, itn, punctuation, ddc, boosting,
                     null);
+                HttpAsrRecognizer.Failure interrupted = running.interruption();
+                if (interrupted != null) {
+                    diagnostic(VoiceFailurePolicy.diagnostic(interrupted));
+                    notice = VoiceFailurePolicy.interrupted(interrupted);
+                } else if (running.capped()) {
+                    notice = VoiceFailurePolicy.capped(DoubaoRecognizer.MAX_MILLIS);
+                }
+            } catch (HttpAsrRecognizer.Refused refused) {
+                diagnostic(VoiceFailurePolicy.diagnostic(refused.failure()));
+                message = VoiceFailurePolicy.message(refused.failure());
             } catch (RuntimeException | LinkageError error) {
                 diagnostic(VoiceDiagnostics.unexpected(error));
                 // 参数、TLS 或共享 JNI 的意外失败不能让请求悬挂在录音窗口。
@@ -599,11 +600,16 @@ public final class VoiceRecognitionActivity extends Activity {
             }
             String polishedText = text == null ? null : polished(text);
             String finalMessage = message;
+            String finalNotice = notice;
             runOnUiThread(() -> {
                 if (finished) return;
-                if (polishedText != null && !polishedText.isEmpty()) saveResult(polishedText);
-                else if (finalMessage != null) fail(finalMessage);
-                else {
+                if (polishedText != null && !polishedText.isEmpty()) {
+                    saveResult(polishedText);
+                    if (finalNotice != null) fail(finalNotice);
+                } else if (finalMessage != null) {
+                    fail(finalMessage);
+                } else if (polishedText != null) {
+                    // 识别出了文字、润色却给回空串；取消时两者都是 null，什么也不提示。
                     diagnostic(DiagnosticEventKind.VOICE_FAILURE_RESPONSE);
                     fail("语音识别未返回结果");
                 }
