@@ -325,6 +325,17 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(bounds(header, cancel).right <= bounds(header, confirm).left,
                     "clipboard clear cancel and confirm overlap at " + widthDp + "dp");
             }
+            // 「提示明显」的另一半：确认按钮必须是回车键的强调键帽，「取消」仍是普通文字按钮。只量几何时，去掉 RETURN 也照样通过。
+            View cancel = descendant(header, view -> view instanceof Button
+                && "取消".contentEquals(((Button) view).getText()));
+            View confirm = descendant(header, view -> view instanceof Button
+                && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+            Class<?> press = confirm.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            Method role = method(press, "keyboardRole");
+            check(press.isInstance(confirm) && "RETURN".equals(String.valueOf(role.invoke(confirm))),
+                "clipboard clear confirm is not drawn as the emphasized return key cap");
+            check(press.isInstance(cancel) && !"RETURN".equals(String.valueOf(role.invoke(cancel))),
+                "clipboard clear cancel took the emphasized return key cap");
         } finally {
             pending.setBoolean(panels, false);
             render.invoke(panels);
