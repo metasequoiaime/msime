@@ -32,6 +32,7 @@ source = r'''
 #include <nlohmann/json.hpp>
 #include "platforms/common/Telemetry.h"
 #define MSIME_EDITION_USER_DATA_DIRECTORY "synthetic-edition"
+#define MSIME_EDITION_ID "full"
 namespace msime::telemetry {
 std::filesystem::path default_directory() { return "/synthetic/telemetry"; }
 }
@@ -47,6 +48,7 @@ int main(int argc, char **argv) {
   const std::filesystem::path state(argv[1]);
   auto read = [&] { return msime::windows::auxiliary_crash_host("prepare", "0.0.0", state); };
   assert(read()->preferences_directory == state);
+  assert(read()->edition == "full");
   std::ofstream(state / "runtime-options.json") << "synthetic";
   for (const auto &document : {"null", "{", "[]", "{\"preferences_directory\":false}",
                               "{\"preferences_directory\":\"\"}",

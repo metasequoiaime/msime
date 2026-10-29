@@ -16,10 +16,12 @@ BINARY = str(Path(sys.argv[1]).resolve())
 
 
 class Helper:
-    def __init__(self, root, component, initial="off"):
+    def __init__(self, root, component, initial="off", edition=None):
         self.directory = root / "telemetry"
         self.preferences = root / "preferences"
         self.arguments = [BINARY, "serve", str(self.directory), str(self.preferences), component]
+        if edition is not None:
+            self.arguments.append(edition)
         self.environment = dict(os.environ, HOME=str(root), LOCALAPPDATA=str(root), XDG_STATE_HOME=str(root))
         self.process = subprocess.Popen(self.arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, env=self.environment)
@@ -30,9 +32,12 @@ class Helper:
     def read_output(self):
         for line in self.process.stdout:
             self.lines.put(line.rstrip("\n"))
+        self.lines.put(None)
 
     def read(self):
-        return self.lines.get(timeout=10)
+        line = self.lines.get(timeout=10)
+        assert line is not None, f"helper exited before response (exit={self.process.poll()})"
+        return line
 
     def send(self, command):
         self.process.stdin.write(command + "\n")
@@ -119,6 +124,26 @@ class Helper:
 def main():
     with tempfile.TemporaryDirectory(prefix="msime-helper-capture-") as temporary:
         root = Path(temporary).resolve()
+        # 固定首次 load/save 之间出现授权初始化的时序，不能靠多跑几次等待碰撞。
+        subprocess.run([BINARY, "enable-after-consent", str(root / "first-save-telemetry"),
+                        str(root / "first-save-preferences"), "prepare"], check=True, timeout=15)
+        # 准备程序先独占建好空目录，但此时尚未写 edition 标记；采集器不得抢先保存 full 默认值。
+        editions = json.loads((Path(__file__).resolve().parents[3] / "shared/contracts/editions.json").read_text())["editions"]
+        for edition in editions:
+            state = root / ("bootstrap-" + edition["id"])
+            (state / "preferences").mkdir(parents=True)
+            helper = Helper(state, "prepare", initial="armed", edition=edition["id"])
+            try:
+                preferences = json.loads((helper.preferences / "preferences.json").read_text())["preferences"]
+                assert preferences["scheme"] == edition["default_scheme"], (edition["id"], preferences["scheme"])
+                assert preferences.get("last_chinese_scheme") == ("wubi" if edition["id"] == "wubi" else None)
+                defaults = edition.get("preference_defaults", {})
+                if "wubi_mixed_pinyin" in defaults:
+                    assert preferences["wubi_mixed_pinyin"] == defaults["wubi_mixed_pinyin"]
+                helper.stop()
+                assert not [e for e in helper.events() if e["kind"] in ("session", "session_crash")]
+            finally:
+                helper.cleanup()
         for component in ("watchdog", "prepare"):
             for command in ("fault", "terminate"):
                 helper = Helper(root / (component + "-" + command), component)

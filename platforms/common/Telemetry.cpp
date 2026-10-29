@@ -105,6 +105,13 @@ nlohmann::json session_request(const Host &host) {
   return request;
 }
 
+nlohmann::json consent_request(const Host &host) {
+  nlohmann::json request{{"directory", utf8(host.preferences_directory)}};
+  if (!host.edition.empty())
+    request["edition"] = host.edition;
+  return request;
+}
+
 void forget_capture_locked() {
   crash::disarm();
   session_id.clear();
@@ -116,8 +123,7 @@ void forget_capture_locked() {
 std::optional<nlohmann::json> consent_locked() {
   if (!current.preferences_directory.is_absolute())
     return std::nullopt;
-  const auto value = call(msime_client_telemetry_consent,
-      nlohmann::json{{"directory", utf8(current.preferences_directory)}});
+  const auto value = call(msime_client_telemetry_consent, consent_request(current));
   if (!value || !value->is_object() || !value->contains("enabled") || !(*value)["enabled"].is_boolean())
     return std::nullopt;
   return value;
@@ -401,7 +407,7 @@ struct CaptureOnly::State {
     return previous && previous->directory == host.directory &&
            previous->preferences_directory == host.preferences_directory &&
            previous->platform == host.platform && previous->version == host.version &&
-           previous->component == host.component;
+           previous->component == host.component && previous->edition == host.edition;
   }
 
   void suspend() {
@@ -432,8 +438,7 @@ struct CaptureOnly::State {
         suspend();
         return;
       }
-      const auto consent = call(msime_client_telemetry_consent,
-                                nlohmann::json{{"directory", utf8(host->preferences_directory)}});
+      const auto consent = call(msime_client_telemetry_consent, consent_request(*host));
       if (!consent || !consent->is_object() || !consent->contains("enabled") ||
           !(*consent)["enabled"].is_boolean()) {
         suspend();

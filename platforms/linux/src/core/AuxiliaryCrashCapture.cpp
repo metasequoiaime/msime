@@ -44,7 +44,8 @@ std::optional<telemetry::Host> auxiliary_crash_host(
     return std::nullopt;
   return telemetry::Host{"linux", MSIME_LINUX_VERSION,
                          directory.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY,
-                         std::nullopt, actual_preferences, component, true};
+                         std::nullopt, actual_preferences, component, true,
+                         MSIME_EDITION_ID};
 }
 
 AuxiliaryCrashCapture::AuxiliaryCrashCapture(std::string component,

@@ -37,6 +37,7 @@ inline std::optional<telemetry::Host> auxiliary_crash_host(
   }
   return telemetry::Host{"windows", version,
                          base.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY,
-                         std::nullopt, preferences, component, true};
+                         std::nullopt, preferences, component, true,
+                         MSIME_EDITION_ID};
 }
 } // namespace msime::windows

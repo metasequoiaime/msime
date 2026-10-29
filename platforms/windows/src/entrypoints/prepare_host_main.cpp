@@ -20,7 +20,7 @@ int wmain(int argc, wchar_t **argv) {
     std::unique_ptr<msime::telemetry::CaptureOnly> crash_capture;
     const std::filesystem::path state(argv[2]);
     msime::windows::prepare_host_state(argv[1], state, [&](const std::string &request) {
-      // 独占建目录之后才读取新偏好，避免遥测抢先创建目录使首次准备必败。
+      // 独占建目录之后才按包内版本读取新偏好；既不能抢建目录，也不能在版本标记之前保存 full 默认值。
       crash_capture = std::make_unique<msime::telemetry::CaptureOnly>([state] {
         return msime::windows::auxiliary_crash_host("prepare", MSIME_WINDOWS_VERSION, state);
       });

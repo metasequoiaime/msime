@@ -28,7 +28,8 @@ std::optional<msime::telemetry::Host> crash_host(const std::filesystem::path &pr
     return std::nullopt;
   return msime::telemetry::Host{"linux", MSIME_LINUX_VERSION,
                                base.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY,
-                               std::nullopt, preferences, "prepare", true};
+                               std::nullopt, preferences, "prepare", true,
+                               MSIME_EDITION_ID};
 }
 
 struct Descriptor {
@@ -225,7 +226,7 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
-    // 已取得新状态目录的所有权，再读取同意并保护共享层的词库准备过程。
+    // 已取得新状态目录的所有权，按包内版本初始化持续同意，保护共享层准备过程而不抢写 full 默认值。
     msime::telemetry::CaptureOnly crash_capture([state] { return crash_host(state); });
     auto raw = msime::host_api::own_string(
         msime_client_prepare_host(reinterpret_cast<const uint8_t *>(request.data()), request.size()));

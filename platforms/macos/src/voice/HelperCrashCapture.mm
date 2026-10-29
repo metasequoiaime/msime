@@ -65,7 +65,8 @@ std::optional<telemetry::Host> read_host() {
       return std::nullopt;
     NSURL *directory = [support URLByAppendingPathComponent:MSIMEUsageReportingDirectoryNameIn(info) isDirectory:YES];
     return telemetry::Host{"macos", version.UTF8String, directory.fileSystemRepresentation,
-                           std::nullopt, [preferences fileSystemRepresentation], "voice-local", true};
+                           std::nullopt, [preferences fileSystemRepresentation], "voice-local", true,
+                           edition.UTF8String};
   }
 }
 } // namespace

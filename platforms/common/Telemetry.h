@@ -20,6 +20,9 @@ struct Host {
   // 组件名只含构建标识字符；独立进程只采集崩溃，不建立输入会话。
   std::string component = "input";
   bool capture_only = false;
+  // 准备全新状态目录时指定包内版本，避免首次读取持续同意把偏好按 full 初始化。
+  // 已经写入 edition 标记的运行时宿主不需要填写它。
+  std::string edition = "";
 };
 
 // 自有辅助进程的独立采集器；本进程只能有一个，不与输入会话包装器同时使用。

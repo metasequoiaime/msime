@@ -30,9 +30,17 @@ nlohmann::json result(char *raw) {
   return response.at("value");
 }
 
-void save(const std::string &directory, bool enabled) {
+void save(const std::string &directory, bool enabled, bool initialize_after_load = false) {
+  const auto request = nlohmann::json{{"directory", directory}}.dump();
+  const auto initialize = [&] {
+    result(msime_client_telemetry_consent(reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+  };
+  // 先初始化持续授权，再读取 CAS 修订号；后台观察器不能在首次 load 和 save 之间抢先升版。
+  initialize();
   auto snapshot = result(msime_client_load_preferences(
       reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+  if (initialize_after_load)
+    initialize();
   snapshot["preferences"]["usage_reporting"] = enabled;
   const auto document = snapshot.dump();
   result(msime_client_save_preferences(
@@ -58,7 +66,7 @@ void save(const std::string &directory, bool enabled) {
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 5)
+  if (argc != 5 && argc != 6)
     return 2;
 #ifdef _WIN32
   SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
@@ -84,8 +92,10 @@ int main(int argc, char **argv) {
   const std::string directory = argv[2];
   const std::string preferences = argv[3];
   const std::string component = argv[4];
-  if (std::string(argv[1]) == "enable" || std::string(argv[1]) == "disable") {
-    save(preferences, std::string(argv[1]) == "enable");
+  const std::string edition = argc == 6 ? argv[5] : "";
+  if (std::string(argv[1]) == "enable" || std::string(argv[1]) == "disable" ||
+      std::string(argv[1]) == "enable-after-consent") {
+    save(preferences, std::string(argv[1]) != "disable", std::string(argv[1]) == "enable-after-consent");
     return 0;
   }
   if (std::string(argv[1]) == "collect") {
@@ -128,7 +138,8 @@ int main(int argc, char **argv) {
         throw std::runtime_error("synthetic-private-configuration");
       // 故意提供相反的缓存同意，验证观察器始终使用真实共享偏好。
       return msime::telemetry::Host{platform, "1.2.3", std::filesystem::u8path(directory),
-                                   false, std::filesystem::u8path(preferences), component, false};
+                                   false, std::filesystem::u8path(preferences), component, false,
+                                   edition};
     });
     std::cout << (msime::crash::is_armed() ? "armed" : "off") << '\n';
     std::string command;
