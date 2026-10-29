@@ -32,7 +32,7 @@ Minimal runtime data for the msime-engine input engine (quanpin and shuangpin), 
 
 | 文件 | 数据许可证 |
 | --- | --- |
-| `msime-pinyin.db` | **GPL-3.0**：词条来自 [iDvel/rime-ice](https://github.com/iDvel/rime-ice) 及其补充和 msime-dictionary 的自建词条。与 rime-wanxiang 共有词条的权重和字频为 CC-BY-4.0；单字读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data)（MIT，`licenses/pinyin-data-MIT.txt`）校正；行政区划地名来自 [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)（WTFPL，`licenses/Administrative-divisions-of-China-WTFPL.txt`） |
+| `msime-pinyin.db` | **GPL-3.0**：词条来自 [iDvel/rime-ice](https://github.com/iDvel/rime-ice) 及其补充和 msime-dictionary 的自建词条。与 [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 共有词条的权重和字频改编自它（CC-BY-4.0，署名、改动说明与许可证在 `licenses/rime-wanxiang-CC-BY-4.0.txt`）；单字读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data)（MIT，`licenses/pinyin-data-MIT.txt`）校正；行政区划地名来自 [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)（WTFPL，`licenses/Administrative-divisions-of-China-WTFPL.txt`） |
 | `msime-english.db` | **GPL-3.0**：rime-ice 的 rime-ice-en 及补充。英文词表含 [SCOWL](https://github.com/en-wl/wordlist) 的词，条款要求在所有副本中保留版权与许可声明：`msime-scowl_Copyright.txt` 必须和它一起分发。中英释义取自 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT)（MIT，`licenses/ECDICT-MIT.txt`）。Google 词频（<https://www.norvig.com/ngrams/count_1w.txt>）以来源页面的说明为准 |
 | `msime-bigram.bin`、`msime-trigram.bin` | **CC-BY-SA-4.0**：计数统计自[中文维基百科 20260901 的条目转储](https://dumps.wikimedia.org/zhwiki/20260901/)（Wikipedia contributors，CC BY-SA 4.0，<https://creativecommons.org/licenses/by-sa/4.0/>），只含词序列的统计量，不含原文；词表来自 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-scowl_Copyright.txt` | SCOWL 的声明本身 |
@@ -42,6 +42,7 @@ Minimal runtime data for the msime-engine input engine (quanpin and shuangpin), 
 - **分发这些文件（或从它们改出来的数据）时**，按 GPL-3.0 提供：附上 GPL-3.0 全文（`licenses/GPL-3.0.txt`），保留对 rime-ice 的署名，并能给出对应的源。这些数据的源是 msime-dictionary 仓库里的词条文件和 msime 仓库的构建器 [`crates/dict-builder`](https://github.com/metasequoiaime/msime/tree/develop/crates/dict-builder)，`dict-v{{version}}` 发布里的 `msime-dictionary-manifest.json` 记下了构建所用的两个提交。
 - **n-gram 表**另外要保留对中文维基百科的署名（例如「Contains statistics derived from Chinese Wikipedia, CC BY-SA 4.0」），并按 CC BY-SA 4.0 提供这两个文件本身；CC BY-SA 4.0 单向兼容 GPL-3.0。
 - **`msime-english.db`** 一定和 `msime-scowl_Copyright.txt` 放在一起。
+- **`msime-pinyin.db` 的权重**有一部分改编自 rime-wanxiang（CC BY 4.0）：分发它时带上 `licenses/rime-wanxiang-CC-BY-4.0.txt`，或以同样完整的方式给出作者 amzxyz、来源链接、许可证链接和改动说明；再改这些权重时补上你的改动说明。
 - **引擎本身仍是 MPL-2.0**，数据不随它改许可证。把这些数据和你的程序一起分发时要承担哪些义务，由你按自己的分发方式判断；不能接受 GPL-3.0 数据的采用方可以给引擎换一套自己的数据，格式见 [docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md)。
 
 `licenses/` 里的文件：
@@ -52,4 +53,5 @@ Minimal runtime data for the msime-engine input engine (quanpin and shuangpin), 
 | `Administrative-divisions-of-China-WTFPL.txt` | 行政区划名称的 WTFPL 全文与来源 |
 | `pinyin-data-MIT.txt` | mozillazg/pinyin-data 的 MIT 许可证全文（`msime-pinyin.db` 的单字读音） |
 | `ECDICT-MIT.txt` | skywind3000/ECDICT 的 MIT 许可证全文（`msime-english.db` 的中英释义） |
+| `rime-wanxiang-CC-BY-4.0.txt` | amzxyz/rime-wanxiang 的署名、权重的改动说明与 CC BY 4.0 全文（`msime-pinyin.db` 里与它共有的词条的权重） |
 | `msime-engine-dictionary-NOTICE.md` | msime-dictionary 每个来源的上游、提交与条款（含 SCOWL 声明、中文维基百科的署名要求） |

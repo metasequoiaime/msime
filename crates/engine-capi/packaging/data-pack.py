@@ -5,7 +5,7 @@
 
 数据包是 `docs/data-formats.md` §20「全拼、双拼、九键」一行的必需加产品同等文件：`msime-pinyin.db`、`msime-english.db`、`msime-bigram.bin`、`msime-trigram.bin`，加上分发 `msime-english.db` 时必须同带的 `msime-scowl_Copyright.txt`。五个文件都按 `resources/desktop-dictionary.lock.json` 下载，逐个核对大小和 SHA-256，必须来自同一个 msime-dictionary `dict-v*` 发布，包名里的版本号就是它的。
 
-包里的顶层目录直接就是引擎的 `resources` 目录：五个数据文件、说明数据许可证的 `README.md`（模板是同目录的 `data-pack-README.md`）和 `licenses/`（GPL-3.0 全文、行政区划名称的 WTFPL、词库的来源与授权说明）。输出 `.tar.gz` 和给 Windows 用的 `.zip`，内容相同。
+包里的顶层目录直接就是引擎的 `resources` 目录：五个数据文件、说明数据许可证的 `README.md`（模板是同目录的 `data-pack-README.md`）和 `licenses/`（GPL-3.0 全文、行政区划名称的 WTFPL、pinyin-data 与 ECDICT 的 MIT 全文、rime-wanxiang 权重的 CC BY 4.0 署名与全文、词库的来源与授权说明）。输出 `.tar.gz` 和给 Windows 用的 `.zip`，内容相同。
 
 下载复用 `scripts/download_retry.py` 的重试；已经下载过、摘要对得上的文件不再下载（缓存在 `target/engine-capi/data-download/`）。
 """
@@ -30,12 +30,13 @@ CACHE = ROOT / "target/engine-capi/data-download"
 # docs/data-formats.md §20：全拼、双拼的必需文件、产品同等再加的 n-gram 表，以及随 msime-english.db 必须携带的 SCOWL 声明。
 FILES = ("msime-pinyin.db", "msime-english.db", "msime-scowl_Copyright.txt", "msime-bigram.bin", "msime-trigram.bin")
 
-# 数据许可证要求随附的全文与声明（README 模板逐个说明）：msime-pinyin.db、msime-english.db 的 GPL-3.0 全文是仓库根目录的 LICENSE；行政区划名称是 WTFPL；msime-pinyin.db 的单字读音按 pinyin-data 校正、msime-english.db 的中英释义取自 ECDICT，两者都是 MIT，MIT 要求随副本附上版权与许可声明全文；词库每个来源的上游与条款在 msime-dictionary 的 NOTICE 里，这份是它在本仓库的副本。
+# 数据许可证要求随附的全文与声明（README 模板逐个说明）：msime-pinyin.db、msime-english.db 的 GPL-3.0 全文是仓库根目录的 LICENSE；行政区划名称是 WTFPL；msime-pinyin.db 的单字读音按 pinyin-data 校正、msime-english.db 的中英释义取自 ECDICT，两者都是 MIT，MIT 要求随副本附上版权与许可声明全文；msime-pinyin.db 里与 rime-wanxiang 共有的词条权重改编自它，CC BY 4.0 要求署名、改动说明和许可证随副本分发；词库每个来源的上游与条款在 msime-dictionary 的 NOTICE 里，这份是它在本仓库的副本。
 LICENCES = {
     "GPL-3.0.txt": ROOT / "LICENSE",
     "Administrative-divisions-of-China-WTFPL.txt": ROOT / "resources/licenses/Administrative-divisions-of-China-WTFPL.txt",
     "pinyin-data-MIT.txt": ROOT / "resources/licenses/pinyin-data-MIT.txt",
     "ECDICT-MIT.txt": ROOT / "resources/licenses/ECDICT-MIT.txt",
+    "rime-wanxiang-CC-BY-4.0.txt": ROOT / "resources/licenses/rime-wanxiang-CC-BY-4.0.txt",
     "msime-engine-dictionary-NOTICE.md": ROOT / "resources/licenses/msime-engine-dictionary-NOTICE.md",
 }
 
