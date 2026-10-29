@@ -11,7 +11,7 @@ export type NineKeyStyle = NonNullable<Preferences["touch_nine_key_style"]>;
 /** 设置页「按键布局」里每种样式的名字，三端相同。 */
 export const twentySixKeyStyleOptions: readonly { value: TwentySixKeyStyle; label: string }[] = [
   { value: "standard", label: "标准" },
-  { value: "comma_period", label: "逗号句号在空格两侧" },
+  { value: "comma_period", label: "逗号句号" },
   { value: "long_space", label: "长空格" },
   { value: "emoji", label: "表情键" },
 ];
@@ -29,10 +29,36 @@ export const nineKeyStyleOptions: readonly { value: NineKeyStyle; label: string 
   { value: "tall_return", label: "右侧大回车" },
 ];
 
-/** 设置页「按键布局」各组下方的说明，三端逐字相同：样式名说不清的事（符号键去了哪、怎么打开符号）写在这里。 */
-export const twentySixKeyStyleNote = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。";
-export const fourteenKeyStyleNote = "表情键：长按 123 打开符号。";
-export const nineKeyStyleNote = "右侧大回车：回车竖占两行，符号键在左下角。";
+/** 设置页「按键布局」样式胶囊下方的一行说明，只写当前选中样式的副作用（符号键去了哪、怎么打开符号），三端逐字相同；表里没有的样式不画这一行。 */
+export const twentySixKeyStyleNotes: Readonly<Partial<Record<TwentySixKeyStyle, string>>> = {
+  long_space: "符号键移到工具栏。",
+  emoji: "长按 123 打开符号。",
+};
+export const fourteenKeyStyleNotes: Readonly<Partial<Record<FourteenKeyStyle, string>>> = {
+  emoji: "长按 123 打开符号。",
+};
+export const nineKeyStyleNotes: Readonly<Partial<Record<NineKeyStyle, string>>> = {
+  tall_return: "回车竖占两行，符号键在左下角。",
+};
+
+/** 设置页整块键盘预览里，这个样式与「标准」不同、要用强调色描边的键，按键 id（`PreviewKey.code`）认，不比较键面文字；标准样式不高亮。三端高亮同一组键。 */
+export const twentySixKeyStyleHighlights: Readonly<Record<TwentySixKeyStyle, readonly string[]>> = {
+  standard: [],
+  comma_period: ["Comma", "Period"],
+  long_space: ["Space"],
+  emoji: ["SoftEmoji"],
+};
+export const fourteenKeyStyleHighlights: Readonly<Record<FourteenKeyStyle, readonly string[]>> = {
+  standard: [],
+  long_space: ["Space"],
+  emoji: ["SoftEmoji"],
+};
+export const nineKeyStyleHighlights: Readonly<Record<NineKeyStyle, readonly string[]>> = {
+  standard: [],
+  comma_period: ["Comma", "Period"],
+  emoji: ["SoftEmoji"],
+  tall_return: ["Enter"],
+};
 /** 「顶部数字行」开关的说明，三端逐字相同。 */
 export const numberRowDescription = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";
 /** 屏幕键盘页「按键布局」入口行的副标题，三端逐字相同。 */
@@ -143,13 +169,10 @@ const tallReturnLayer = key("123", layer.weight * tallReturnScale, "SoftLayer");
 const tallReturnLanguage = key("中", language.weight * tallReturnScale, "SoftLanguage");
 const tallReturnSpace = tallReturnGrid - tallReturnLayer.weight - tallReturnLanguage.weight;
 
-/** 可能跨行的示意键：`rowSpan` 为 2 时这个键从所在行往下多占一行（「右侧大回车」的回车），下一行同一位置是没有 `code` 的占位。 */
-export type FramePreviewKey = PreviewKey & { rowSpan?: number };
-
 /**
  * 九键字母层每种样式的底行（`NineKeyLayout.actionRow`）：标准 符 | 123 | 空格 | 中 | 回车；底栏带标点在空格两侧加 ， 和 。，各从空格让出一份；表情键在 123 右边加 😀，从空格让出 1.05。
  *
- * 右侧大回车的底行按外框的三列排（份额总和与网格行相同）：符 1.15 | 123 | 空格 | 中 | 回车 1.15，123 和 中 与标准底行同宽（`tallReturnLayer`、`tallReturnLanguage`），回车其实从上一行往下跨两行，示意图见 `nineKeyTallReturnPreview`。
+ * 右侧大回车的底行按外框的三列排（份额总和与网格行相同）：符 1.15 | 123 | 空格 | 中 | 回车 1.15，123 和 中 与标准底行同宽（`tallReturnLayer`、`tallReturnLanguage`），回车其实从上一行往下跨两行，整块外框见 `keyboard-heatmap.ts` 的 `nineTallReturnRows`。
  */
 export const nineKeyBottomRows: Record<NineKeyStyle, PreviewKey[]> = {
   standard: nineKeyStandardRow,
@@ -178,20 +201,6 @@ export const nineKeyBottomRows: Record<NineKeyStyle, PreviewKey[]> = {
     key("↵", tallReturnSide, "Enter"),
   ],
 };
-
-/**
- * 设置页「右侧大回车」选项下的示意：九宫格最后一行和它下面的底行。左列是符号栏（末尾多了从右列让过来的 ！），栏下方是 符；回车在右列、跨这两行，底行在回车下方的位置是占位。
- */
-export const nineKeyTallReturnPreview: FramePreviewKey[][] = [
-  [
-    key("？！", tallReturnSide, "SoftPunctuation"),
-    key("PQRS", 2, "Nine7"),
-    key("TUV", 2, "Nine8"),
-    key("WXYZ", 2, "Nine9"),
-    { ...key("↵", tallReturnSide, "Enter"), rowSpan: 2 },
-  ],
-  [...nineKeyBottomRows.tall_return.slice(0, -1), { label: "", weight: tallReturnSide }],
-];
 
 /** 字母上方数字行的十个键，按下记 `Digit1`…`Digit0`。 */
 export const numberRowKeys: PreviewKey[] = [..."1234567890"].map((digit) =>

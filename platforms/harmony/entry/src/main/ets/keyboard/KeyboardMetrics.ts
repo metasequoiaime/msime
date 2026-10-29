@@ -27,7 +27,10 @@ export class KeyboardMetrics {
    * 工具栏按钮、图标和标志跟着工具条缩小的倍数：工具条矮于设计的 50vp 时按同一比例缩小，不会伸出这一行；放大时按钮仍是设计尺寸，与 Android 跟随候选栏时按钮最高 44 dp 一致。
    */
   static toolbarScale(scalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT): number {
-    return Math.min(1, KeyboardMetrics.stripHeightVp(scalePercent) / KeyboardMetrics.STRIP_HEIGHT_VP);
+    return Math.min(
+      1,
+      KeyboardMetrics.stripHeightVp(scalePercent) / KeyboardMetrics.STRIP_HEIGHT_VP,
+    );
   }
 
   /** 触屏时条带与第一行按键之间的固定间距。 */
@@ -90,7 +93,9 @@ export class KeyboardMetrics {
       const extra: number = Number.isFinite(extraRows) && extraRows > 0 ? Math.floor(extraRows) : 0;
       return (
         KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-        (withStrip ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP : 0) +
+        (withStrip
+          ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP
+          : 0) +
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
         extra * (KeyboardMetrics.ROW_HEIGHT_VP + rowSpacingTenths / 10) +

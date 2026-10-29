@@ -34,6 +34,12 @@ public final class FourteenKeyLayout {
     /** 一个字母键（两个字母）在一行里的宽度份额；一行五个键正好是 26 键第一行十个字母的宽度。 */
     public static final float LETTER_WEIGHT = 2f;
 
+    /** 14 键与 18 键字母块左侧拼音栏的宽度份额：空闲时显示九键的默认符号，组字时纵向选拼音；与右边的字母列 {@link #LETTER_COLUMN_WEIGHT} 并排铺满字母块。 */
+    public static final float SPELLING_SIDEBAR_WEIGHT = 0.7f;
+
+    /** 同上，字母列（三行字母键）的宽度份额。 */
+    public static final float LETTER_COLUMN_WEIGHT = 3.8f;
+
     /** 符号层（123 层）上返回 14 键的键面。 */
     public static final String LAYER_TITLE = "14键";
 

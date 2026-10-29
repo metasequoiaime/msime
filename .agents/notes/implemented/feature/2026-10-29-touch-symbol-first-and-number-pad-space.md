@@ -75,7 +75,7 @@ Status: implemented
 - 排布在 `KeyboardActionRow.designEntries(..., style, symbolFirst, space)` 和 `numberPadEntries(..., style, symbolFirst, space)`，旧重载按「不互换、`platform_default`」转发，原有调用方和冒烟不变。数字层空格位置的份额常数是 `NUMBER_PAD_SMALL_KEY_WEIGHT`（= 中/英的 1.05）。
 - `TouchKeyStyle` 新增 `SYMBOL_FIRST_PREFERENCE`、`NUMBER_PAD_SPACE_PREFERENCE` 和 `NumberPadSpace`（`resolved()` 把 `platform_default` 换成 `RIGHT_COLUMN`）。`MSIMEInputService` 在 `applyTouchGeometry` 与重读偏好时读两项，两项进了 `touchGeometryKey` 和皮肤片段 `SKIN_HINT_KEYS`（冷启动第一帧就按用户的选择画）；`ImeBottomRow.updateActionRow` 的底行签名带着两项。
 - `ImeLayoutRows.rebuildNineKeyRows` 的数字层右列按 `NumberPadSpace.inRightColumn()` 放空格（`adoptBarKey` 搬同一个 `spaceButton`）或 ！，并记下建成时的状态；换了空格位置时 `numberPadSpaceStale()` 让下一次渲染重建键行。
-- 设置页 `KeyLayoutStylesPage`：26 键一组末尾的开关、「数字键盘」一组单选；`BottomRowPreview` 多一个 `symbolFirst` 参数；设置搜索关键词加了这几个选项名。
+- 设置页 `KeyLayoutStylesPage`：26 键一组末尾的开关、「数字键盘」一组单选；`BottomRowPreview` 多一个 `symbolFirst` 参数；设置搜索关键词加了这几个选项名。后来按键布局页改版（[按键布局设置页改版](2026-10-29-key-layout-page-redesign.md)），开关移到 26 键分段卡片里，「数字键盘」改成等宽胶囊，`BottomRowPreview` 删除，`symbolFirst` 经 `KeyHeatmapLayout.soft` 画进新的整块预览。
 
 ### iOS
 

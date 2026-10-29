@@ -293,7 +293,7 @@ xcrun simctl install booted "$app"
 
 ## 26 键「符」与「123」互换、数字键盘空格位置
 
-「键盘 › 按键布局」里 26 键一组末尾的「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`，默认关）把手机 26 键底行的 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格按九键一族的次序排（符 | 返回）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，文档缺键或写 `platform_default` 时是 iOS 原来的「空格在 0 右边」。空格在右列时右列第三格的 ！ 让位给一个与底行空格同一工厂的空格键（`numberPadColumnSpaceKey`），底行空格隐藏；右侧大回车不受影响。iOS 不随账号同步这两项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
+「键盘 › 按键布局」26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`，默认关）把手机 26 键底行的 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格按九键一族的次序排（符 | 返回）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，文档缺键或写 `platform_default` 时是 iOS 原来的「空格在 0 右边」。空格在右列时右列第三格的 ！ 让位给一个与底行空格同一工厂的空格键（`numberPadColumnSpaceKey`），底行空格隐藏；右侧大回车不受影响。iOS 不随账号同步这两项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
 ## 运行 iOS Swift 测试
 

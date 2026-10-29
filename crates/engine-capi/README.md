@@ -171,7 +171,7 @@ python3 -X utf8 platforms/linux/collect-notices.py cargo dist/THIRD_PARTY_NOTICE
 - 引擎的许可证：`crates/engine/LICENSE`（MPL-2.0 全文与 Exhibit A 声明，引擎、`msime-path-trust` 和 rink-core 用），以及这个目录的 `LICENSE`（同一份 MPL-2.0 全文，这个 crate 用）。
 - rink-core 的源码位置（MPL-2.0 §3.2）：crates.io 上的 `rink-core` 0.9，上游是 codeberg.org/tiffany/rink。
 - `ewts` 的许可证：`resources/licenses/ewts-MIT.txt`。crate 自己不带许可证文件，这份 MIT 全文末尾还附着它转换表来源 ewts-js 的 Apache-2.0 署名。
-- 编进引擎的数据表和改编代码的许可证与署名：逐个文件见 [`crates/engine/README.md`](../engine/README.md) 的「许可证」一节，表里「全文」一列的文件都在 `resources/licenses/` 下，原样放进归档。
+- 编进引擎的数据表和改编代码的许可证与署名：逐个文件见 [`crates/engine/README.md`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md) 的「许可证」一节，表里「全文」一列的文件都在 `resources/licenses/` 下，原样放进归档。
 
 CI 的 `engine-capi` 作业每次都跑一遍上面的命令，核对它能为这张依赖图生成声明，并且不带许可证文件的 crate 仍只有上面列出的三个：依赖图里多出一个时作业失败，先在这里补上它的许可证文本。
 

@@ -3598,11 +3598,16 @@ group("九键一族的数字层：符 和切换键留在字母层那一格（#10
         `0 的一份从空格让出：${label}`,
       );
       check(
-        digits[0].kind === letters[0].kind && digits[0].weight === letters[0].weight
-          && digits[1].kind === letters[1].kind && digits[1].weight === letters[1].weight,
+        digits[0].kind === letters[0].kind &&
+          digits[0].weight === letters[0].weight &&
+          digits[1].kind === letters[1].kind &&
+          digits[1].weight === letters[1].weight,
         `符 和切换键与字母层同宽同位：${label}`,
       );
-      check(Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9, `整行份额与字母层相同：${label}`);
+      check(
+        Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9,
+        `整行份额与字母层相同：${label}`,
+      );
     }
   }
   check(

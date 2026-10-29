@@ -152,8 +152,8 @@ public final class KeyHeatmapLayout {
         return List.copyOf(rows);
     }
 
-    /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。 */
-    private static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
+    /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。「按键布局」页画 14 键与 18 键的预览时也用这一行（{@code KeyLayoutStylesPolicy}）。 */
+    public static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
         return bottom(touchLayout, style, false);
     }
 

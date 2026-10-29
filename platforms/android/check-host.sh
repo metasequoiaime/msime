@@ -1242,24 +1242,52 @@ while IFS= read -r key; do
     exit 1
   fi
 done <<< "$touch_style_reads"
-# 「按键布局」页的「顶部数字行」开关与 iOS、鸿蒙一样放在没有标题的一组；数字行只画在 26 键和 14/18 键上，本版本两类键面都没有时不列这个开关（与鸿蒙同一条规则）。各版本有哪几组由 TouchKeyStyleSmoke 钉住的 TouchKeyStyle.Groups 决定，这里钉住页面按它列组。
+# 「按键布局」页（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：顶部是本版本提供的键盘类型的分段控件，下面是整块键盘预览、样式胶囊和当前样式的说明（26 键分段再接「符」与「123」互换开关，接着是「数字键盘」一组，这两项在下面 #10056 那一段钉住），最后是没有标题的一组里的「顶部数字行」开关。哪几类、默认停在哪一类、胶囊名字、高亮哪些键、说明文字和预览画哪些键都在 KeyLayoutStylesPolicy 里，由 KeyLayoutStylesPolicySmoke 覆盖；这里钉住页面的接线：按 TouchKeyStyle.Groups 列类型，只有一种时不画分段，默认值按键盘页读的同一批偏好（storedScheme、双拼和五笔的排法）定，切分段只重画不写偏好，点胶囊先就地换预览再写这一类的偏好、点已选中的不做事，说明没有时不画，数字行开关在两类键面都没有时不列，胶囊等宽铺满一行、不横向滚动，读成按钮并带「已选择」「未选择」，预览对读屏隐藏。
 style_page="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPage.java"
-style_render=$(sed -n '/private void render(@Nullable JSONObject preferences) {$/,/^    }$/p' "$style_page")
+style_policy="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java"
+style_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutPreview.java"
+style_render=$(sed -n '/    private void render(@Nullable JSONObject preferences) {$/,/^    }$/p' "$style_page")
+style_section=$(sed -n '/    private void styleSection(/,/^    }$/p' "$style_page")
+style_refresh=$(sed -n '/    private void refreshStyles() {$/,/^    }$/p' "$style_page")
+style_chip=$(sed -n '/    private static TextView chip(/,/^    }$/p' "$style_page")
+style_add_chip=$(sed -n '/    private static void addChip(/,/^    }$/p' "$style_page")
 if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers = GroupCard\.add\(target, null\);' <<< "$style_render" \
   || ! rg_q_stdin -F 'TouchKeyStyle.Groups groups = TouchKeyStyle.Groups.offeredBy(AppEdition.current());' <<< "$style_render" \
-  || ! rg_q_stdin -U 'if \(groups\.twentySix\(\)\) \{\n\s*GroupCard twentySix = styleGroup\(target, "26 键", .*\n.*\n.*TWENTY_SIX_KEY_NOTE, symbolFirst\);' <<< "$style_render" \
-  || ! rg_q_stdin -U 'if \(groups\.fourteen\(\)\)\n\s*styleGroup\(target, "14 键与 18 键", .*\n.*FOURTEEN_KEY_NOTE\);' <<< "$style_render" \
-  || ! rg_q_stdin -U 'if \(groups\.nine\(\)\)\n\s*styleGroup\(target, "9 键", .*\n.*NINE_KEY_NOTE\);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", NUMBER_ROW_NOTE,' <<< "$style_render"; then
-  echo "Android 按键布局 must list each group by TouchKeyStyle.Groups with its note, and put 顶部数字行 in an untitled group hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
+  || ! rg_q_stdin -F 'List<KeyLayoutStylesPolicy.Kind> kinds = KeyLayoutStylesPolicy.offered(groups);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'kind = KeyLayoutStylesPolicy.initialKind(kinds, current, shuangpinLayout, wubiLayout);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'eighteen = KeyLayoutStylesPolicy.eighteen(current, shuangpinLayout);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", NUMBER_ROW_NOTE, numberRow, checked -> {' <<< "$style_render" \
+  || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
+  || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
+  || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
+  || rg_q_stdin -F 'HorizontalScrollView' <<< "$style_section" \
+  || ! rg_q_stdin -F 'LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);' <<< "$style_add_chip" \
+  || ! rg_q_stdin -F 'addChip(context, row, chip(context, KeyLayoutStylesPolicy.label(shown, option), checked,' <<< "$style_refresh" \
+  || ! rg_q_stdin -F '() -> choose(shown, option)));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
+  || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst),' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F '() -> { if (!checked) choose.run(); });' <<< "$style_chip" \
+  || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
+  || ! rg_q_stdin -F 'info.setStateDescription(checked ? "已选择" : "未选择");' <<< "$style_chip" \
+  || ! sed -n '/    private void choose(/,/^    }$/p' "$style_page" \
+    | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(shown\.preference, option\.wire\)\);' \
+  || ! rg -qF 'KeyboardSheets.save(this, edit, null, this::reload);' "$style_page" \
+  || ! rg -qF 'setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' "$style_preview" \
+  || rg -q 'BottomRowPreview|styleGroup\(|optionRow\(|group\.footer\(' "$style_page" \
+  || [[ -e "$repo_root/platforms/android/java/app/msime/android/home/BottomRowPreview.java" ]]; then
+  echo "Android 按键布局 must list key layout kinds by TouchKeyStyle.Groups in a segmented control defaulting to the current Chinese keyboard, redraw the whole-keyboard preview without saving when the segment changes, lay the style chips out at equal width without horizontal scrolling, save a chip choice after redrawing, show the selected style's note only when it has one, and keep 顶部数字行 in an untitled group hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
   exit 1
 fi
-# 「按键布局」各组卡片下方的说明、「顶部数字行」的说明和键盘页入口的副标题与 iOS、鸿蒙逐字相同（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）；键盘页只在本版本至少有一组样式时列入口（与鸿蒙 keyLayoutOffered 同一条规则），设置搜索同样不列这一页。
-if ! rg -qF 'static final String TWENTY_SIX_KEY_NOTE = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。";' "$style_page" \
-  || ! rg -qF 'static final String FOURTEEN_KEY_NOTE = "表情键：长按 123 打开符号。";' "$style_page" \
-  || ! rg -qF 'static final String NINE_KEY_NOTE = "右侧大回车：回车竖占两行，符号键在左下角。";' "$style_page" \
+# 「按键布局」当前样式的说明、「顶部数字行」的说明和键盘页入口的副标题与 iOS、鸿蒙逐字相同；原来三条组末说明由四条按样式的说明取代（26 键长空格、26 键与 14/18 键表情键、9 键右侧大回车），其他样式不显示说明。键盘页只在本版本至少有一组样式时列入口（与鸿蒙 keyLayoutOffered 同一条规则），设置搜索同样不列这一页。
+if ! rg -qF 'static final String LONG_SPACE_NOTE = "符号键移到工具栏。";' "$style_policy" \
+  || ! rg -qF 'static final String EMOJI_NOTE = "长按 123 打开符号。";' "$style_policy" \
+  || ! rg -qF 'static final String TALL_RETURN_NOTE = "回车竖占两行，符号键在左下角。";' "$style_policy" \
+  || rg -q 'TWENTY_SIX_KEY_NOTE|FOURTEEN_KEY_NOTE|NINE_KEY_NOTE' "$style_page" "$style_policy" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
-  || ! sed -n '/    private GroupCard styleGroup(LinearLayout target, String title, int touchLayout, List<TouchKeyStyle.Row> rows,$/,/^    }$/p' "$style_page" | rg_q_stdin -F 'group.footer(note);' \
   || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
@@ -1269,22 +1297,32 @@ if ! rg -qF 'static final String TWENTY_SIX_KEY_NOTE = "长空格：符号键移
   echo "Android 按键布局 notes and entry subtitle must match iOS and HarmonyOS word for word, and the entry and its search result must only appear when the edition offers a style group" >&2
   exit 1
 fi
-# 「26 键「符」与「123」互换」和数字键盘空格位置（#10056）：排布由 TouchKeyStyleSmoke 覆盖，这里钉住接线：底行签名带着两项、两种底行都按它们排；数字层右列按空格位置放空格或 ！，换了位置时 render 经 numberPadSpaceStale 重建；设置页 26 键一组末尾是互换开关，接着是「数字键盘」一组单选和组末说明。
+# 「26 键「符」与「123」互换」和数字键盘空格位置（#10056）：排布由 TouchKeyStyleSmoke 覆盖，预览里 符 排到 123 左边并高亮这两键由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着两项、两种底行都按它们排；数字层右列按空格位置放空格或 ！，换了位置时 render 经 numberPadSpaceStale 重建；设置页的互换开关接在样式说明后面、只在 26 键分段显示，改它先重画预览再写 touch_twenty_six_symbol_first；「数字键盘」是样式之后、顶部数字行之前的独立一组，选项用与样式同一个 chip 画的等宽胶囊，点了先换胶囊再写 touch_number_pad_space，说明在胶囊下方。
 bottom_row_file="$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java"
+number_pad_section=$(sed -n '/    private void numberPadSection(/,/^    }$/p' "$style_page")
+number_pad_refresh=$(sed -n '/    private void refreshNumberPad() {$/,/^    }$/p' "$style_page")
 if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved()' "$bottom_row_file" \
   || ! rg -qF 'KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
   || ! rg -qF 'KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
   || ! sed -n '/    void rebuildNineKeyRows() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java" \
     | rg_q_stdin -F 'if (spaceInColumn) adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);' \
   || ! rg -qF '|| imeLayoutRows.numberPadSpaceStale()' "$account_service" \
-  || ! rg_q_stdin -F 'twentySix.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, TouchKeyStyle.SYMBOL_FIRST_NOTE, symbolFirst,' <<< "$style_render" \
-  || ! rg_q_stdin -F 'GroupCard numberPad = GroupCard.add(target, TouchKeyStyle.NUMBER_PAD_SPACE_GROUP).withDividers(16);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'numberPad.footer(TouchKeyStyle.NUMBER_PAD_SPACE_NOTE);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);' <<< "$style_render" \
+  || ! rg_q_stdin -U 'note = caption;\n\n\s*//.*\n\s*if \(kinds\.contains\(KeyLayoutStylesPolicy\.Kind\.TWENTY_SIX\)\) \{\n\s*GroupCard swap = GroupCard\.add\(target, null\);' <<< "$style_section" \
+  || ! rg_q_stdin -U 'swap\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, TouchKeyStyle\.SYMBOL_FIRST_NOTE, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -F 'if (swap != null) ViewPolicy.setVisible(swap, shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);' <<< "$style_refresh" \
+  || ! rg_q_stdin -U 'if \(kind != null\) styleSection\(context, target, kinds\);\n\s*//.*\n\s*if \(groups\.any\(\)\) numberPadSection\(context, target\);\n\s*//.*\n\s*if \(!groups\.numberRow\(\)\) return;' <<< "$style_render" \
+  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
+  || rg_q_stdin -F 'HorizontalScrollView' <<< "$number_pad_section" \
+  || ! rg_q_stdin -F 'for (TouchKeyStyle.NumberPadSpace choice : TouchKeyStyle.NumberPadSpace.CHOICES)' <<< "$number_pad_refresh" \
+  || ! rg_q_stdin -F 'addChip(context, row, chip(context, choice.title, choice == numberPadSpace, () -> chooseNumberPadSpace(choice)));' <<< "$number_pad_refresh" \
+  || ! sed -n '/    private void chooseNumberPadSpace(/,/^    }$/p' "$style_page" \
+    | rg_q_stdin -U 'numberPadSpace = choice;\n\s*refreshNumberPad\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.NUMBER_PAD_SPACE_PREFERENCE, choice\.wire\)\);' \
   || ! rg -qF 'preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java"; then
-  echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, list both in 按键布局, and draw the heatmap with the swap" >&2
+  echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, put the swap toggle after the 26-key style note and the 数字键盘 chips in their own group in 按键布局, and draw the heatmap with the swap" >&2
   exit 1
 fi
-# 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画外框最后两行。
+# 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画热力图的同一套整块外框。
 for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   body=$(sed -n "/    $builder\$/,/^    }\$/p" "$layout_rows")
   if ! rg_q_stdin 'boolean tallReturn = tallReturnDrawn\(\);' <<< "$body" \
@@ -1297,10 +1335,9 @@ for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
 done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
   || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
-  || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_page" \
-  || ! rg -q 'if \(KeyboardActionRow\.drawsTallReturn\(touchLayout, style\)\) return tallReturnRows\(\);' \
-    "$repo_root/platforms/android/java/app/msime/android/home/BottomRowPreview.java"; then
-  echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the frame" >&2
+  || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
+  || ! rg -qF 'case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));' "$style_policy"; then
+  echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
   exit 1
 fi
 # 右侧大回车外框的列宽按画着的键面取（KeyboardActionRow.tallReturnSideWeight / tallReturnGridWeight / tallReturnGridShare，TouchKeyStyleSmoke 钉住份额）：笔画的数字层经 rebuildNineKeyRows 借九键数字九宫格，键面仍是笔画，大回车分支必须按 displayedTouchLayout 取份额，不能写死九键的 3 / 14，否则切 123 时 符、123 和回车横移。
@@ -1684,6 +1721,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
   "${test_sources[@]}"
 # 可选 OCR 模块的前后处理只用 Java 标准库，跟宿主的纯 Java 模型一起编译，由 tests/ocr/OcrPipelineSmoke.java 覆盖；模块里调用 ONNX Runtime 和 Android 图形接口的 OcrModule 只由 Gradle 编译。
