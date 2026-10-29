@@ -27,7 +27,7 @@ Status: implemented
 ### 座位与守卫
 
 - 满足时词典把它插到第 0 位而不是整句块之后；`typo_sentence_seat` 本身不改（它的 `.max(1)` 只对没标记的行起作用）。
-- `keep_typo_sentence_off_first_seat(rows, keys)` 只豁免首位带标记、覆盖整串按键的那一行；上一键缓存下来、这一键成了前缀的答案照旧让开。`settle_confident_correction` 在 `query` 返回前清掉不在第一位、或不回答整串按键的行的标记。
+- `keep_typo_sentence_off_first_seat(rows, keys)` 只豁免首位带标记、覆盖整串按键的那一行；上一键缓存下来、这一键成了前缀的答案照旧让开。`settle_confident_correction` 在 `query` 返回前清掉不在第一位、或不回答整串按键的行的标记；清掉标记的行如果还排在字面整句前面，挪回字面整句块之后，也就是没有首选规则时 `typo_sentence_seat` 给它的座位。会走到这一步的是模糊音：坐上首选以后桶里第一行是纠错整句（`sentence_association`），(d) 又保证没有非模糊的全码词条，`sort_by_coverage` 就把全码的模糊词条排到它前面，只清标记的话它会以没有标记的改正排在字面整句前面。全码的模糊词条和 (d) 的字面全码词条一样，让纠错整句坐回原来的座位；这时首选不是纠错行，用户选别的行也不记拒绝，没坐过首选的改法本来就不该被否决。
 - runtime 不改排序：首行是双拼纠错行时 `rerank_needs_model` 为假（`corrections_may_lead`），模型不跑；它带 `touch_supported`，`runner_up_order_with` 不挪它，字面整句在第二位，前三条字面读法照旧。
 - 请求允许首选（`lead_allowed`）而且 m_sp 不是无穷大时，触点签名末尾多一个标记，允许和不允许时的答案各存各的缓存：末尾辅助码的基础部分读不到坐了首选的整句答案，与没有这条规则时逐字节相同。m_sp 是无穷大时 `ShuangpinEngine` 连请求也不看。
 
@@ -89,13 +89,166 @@ sentences-neutral-v1（1064 条能编码），小鹤和微软，σ∈{0.15, 0.25
 
 最接近门槛的一组（m_sp 0、P_LEAD 9）按 README 的完整组合跑了一遍：五个方案 × clean、noisy、realistic × σ∈{0, 0.15, 0.25, 0.35} × b∈{0, 0.1}（clean 共 60760 条），对照是这一期重新生成的基线（m_sp 无穷大）。
 
-- clean 首选被改 82 / 60760（0.135%），超过 0.1% 的总门槛；按方案是小鹤 23、自然码 17、手心 16、微软 11、智能 ABC 15（每个方案 12152 条，最高 0.189%，在 0.2% 之内）；按 σ 是 0、1、33、48。σ=0 一条都没变，(c) 在键心落点上挡住了全部改动。82 条里只有 1 条改成了金标准（小鹤 σ=0.25 `mwwftijngewo`），其余都是语言模型更偏爱的错读法，例如「政府令中指出」改成「政府瓶中指出」、「我正在贵州旅行」改成「我正在贵州铝壶」、「让荆州古城日益绽放出新的迷人魅力」在三个方案上都改成「糖精周谷城日益绽放出新的迷人美丽」。完整清单在评测报告每组 clean 的 `first_seat.changed` 里。
+- clean 首选被改 82 / 60760（0.135%），超过 0.1% 的总门槛；按方案是小鹤 23、自然码 17、手心 16、微软 11、智能 ABC 15（每个方案 12152 条，最高 0.189%，在 0.2% 之内）；按 σ 是 0、1、33、48。σ=0 一条都没变，(c) 在键心落点上挡住了全部改动。82 条里只有 1 条改成了金标准（小鹤 σ=0.25 `mwwftijngewo`），其余都是语言模型更偏爱的错读法，例如「政府令中指出」改成「政府瓶中指出」、「我正在贵州旅行」改成「我正在贵州铝壶」、「让荆州古城日益绽放出新的迷人魅力」在三个方案上都改成「糖精周谷城日益绽放出新的迷人美丽」。逐条清单见下面的[首选变了的 clean 用例](#首选变了的-clean-用例)。
 - realistic 净 top-1：σ=0 为 0，σ=0.15 平均 +0.13 个点，σ=0.25 平均 +2.06（各组 +1.4 至 +2.8），σ=0.35 平均 +0.79，所有组平均 +0.74，离 +3 个点很远。realistic 里首选换成纠错行的 1437 次中 462 次是金标准。
 - noisy 集 top-1 升得多（σ=0.15 平均 +13.5 个点，0.25 为 +5.3，0.35 为 +1.1）：按错之后纠错行坐上首选的那部分正是收益，只是 realistic 里按错的用例占少数，摊下来不够。
 
 ### 结论
 
 没有一组 (m_sp, P_LEAD) 同时过两道门槛：净 top-1 要到 +3 个点，调参集上要 P_LEAD 12（clean 被改 0.30%–0.44%，σ≥0.25 那几组），留出集上同一组是 0.80%；clean 被改最接近门槛的 m_sp 0、P_LEAD 9 在完整的整句族上是 0.135%（仍超过 0.1%），净 top-1 只有平均 +0.74、σ=0.25 也只有 +2.06 个点。`lead_margin` 默认取无穷大，`lead_penalty` 默认 10（无穷大的 m_sp 下不起作用，留作下次扫参的起点），`touch::tests::the_default_tuning_is_the_swept_one` 钉住这组默认值。typo_beam 没有扫：它只决定纠错路径找不找得到，代价和收益同样会一起涨落，不改变上面的结论。
+
+### 首选变了的 clean 用例
+
+m_sp 0、P_LEAD 9 这一点上，clean 集里实际首选与不送触点时不同的每一条，供人工复查。三份清单从 Studio 上的报告（`/Volumes/Workspace/rbuild/evidence/sp-first-seat-20261029/out/` 的 `full-m0-p9-sentences.json`、`tune-m0-p9.json`、`hold-m0-p9.json`，每组 clean 的 `first_seat.changed`）逐条抄出，报告本身没有提交。「坐了首选」是现首选是不是按首选规则坐上去的纠错行：三份清单全部是，没有一条首选变化来自别的原因。
+
+<details>
+<summary>整句族，82 条（小鹤 23、自然码 17、手心 16、微软 11、智能 ABC 15；改成金标准的 1 条）</summary>
+
+| 方案 | 几何 | σ | b | id | 按键 | 金标准 | 原首选 | 现首选 | 坐了首选 |
+|---|---|---|---|---|---|---|---|---|---|
+| xiaohe | android-portrait | 0.25 | 0.0 | `s-056` | `mwwftijngewo` | 没问题交给我 | 没问题叫个我 | 没问题交给我 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.0 | `h-0130` | `vgfulkvsviiu` | 政府令中指出 | 政府令中指出 | 政府瓶中指出 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.0 | `h-0383` | `dzbusinvzisoys` | 都不似女子所用 | 都不死女子所用 | 都不四女自作用 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.0 | `h-0462` | `rugonbyexlhxfwuc` | 如果您也想花费少 | 如果您也想花费少 | 如果您也像话费神 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0202` | `dzzdvelijuhh` | 都在这里举行 | 都在这理据行 | 都在这里出航 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0208` | `svhzfjdjdcle` | 随后反弹到了 | 随后反但到了 | 随后返抵到了 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0309` | `wovgzdgvvzlvhh` | 我正在贵州旅行 | 我正在贵州旅行 | 我正在贵州铝壶 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0322` | `riyixlnscymjyj` | 日益向农村蔓延 | 日一项农村蔓延 | 如意巷农村蔓延 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0402` | `buychfnidelcuile` | 不要恨你的老师了 | 不要很你的老实了 | 不要很难得老实了 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0506` | `whvetdyhdvzijiuo` | 望着太阳对自己说 | 王者太阳对自己说 | 王者太阳队自己是 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0833` | `yenglkhljbuzuicvcjruxb` | 也能令黄金首饰璀璨如新 | 也能领黄金首饰璀璨如新 | 也能灵光金首饰璀璨如新 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `s-031` | `womfykgdzcyidmqu` | 我们应该早一点去 | 我们应该早一点去 | 我们应该早已先去 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0123` | `dakdkduiyyhh` | 打开开始运行 | 打开开始运行 | 打开开始宇航 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0203` | `dzngkdqicimf` | 都能开启此门 | 都能开其次门 | 都能开启之门 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0479` | `xuhllimazdmfqixx` | 徐晃立马在门旗下 | 徐晃立马在门旗下 | 虚晃立马塞门旗下 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0904` | `duiagszojljmiiwftidcxl` | 督察工作将坚持问题导向 | 督查工作将坚持问题导向 | 督查工作将建是问题导向 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `p073` | `viuiya` | 只是呀 | 只是呀 | 只是用 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0395` | `pmdeuibprfdeqm` | 骗的是别人的钱 | 骗的是别人的钱 | 练的是别人的钱 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0438` | `qpuibcvgvrhuyyhh` | 切实保证专户运行 | 切实保证专户云行 | 妾室保证专户宇航 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0462` | `rugonbyexlhxfwuc` | 如果您也想花费少 | 如果您也想花费少 | 如果您也像话匪巢 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0679` | `whziluiuughzhfmntn` | 王子露出生后很苗条 | 王子路出生后很苗条 | 王子路出生后海苗条 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-1033` | `gurjxmzdvuuhlebcxmjmgudexbju` | 固然现在住上了保险坚固的新居 | 固然现在住上了保险坚固的新剧 | 固然现在长上了保险坚固的新剧 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `p-0018` | `mkvjiemjdclu` | 命战车满道路 | 名战车慢道路 | 铭感车迷道路 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `h-0123` | `daklkluiyphh` | 打开开始运行 | 打开开始运行 | 打开开始晕乎 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `h-0435` | `jtdyuiwzgowzmnde` | 决定是为国为民的 | 决定是为国为民的 | 决定是为果味您的 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `h-0449` | `labaivqilejdjply` | 喇叭吹起了将军令 | 喇叭吹起了将军令 | 喇叭吹气可将军令 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `h-0676` | `qqkjhjgomjhwdewhvi` | 求看韩国漫画的网址 | 求看韩国漫画的网址 | 求满汉国漫画的网址 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `h-0757` | `vitydethwumfybbzgruh` | 只听的堂屋门又被关上 | 只听的堂屋门又被关上 | 只听段塘屋门又被关上 | 是 |
+| ziranma | android-portrait | 0.25 | 0.0 | `p-0169` | `yndobickckdajp` | 因躲避曹操大军 | 吲哚比曹操大军 | 阴道壁曹操大军 | 是 |
+| ziranma | android-portrait | 0.25 | 0.1 | `h-0888` | `ualenackrfyigecoubbuji` | 杀了那曹仁一个措手不及 | 啥了那曹仁一个措手不及 | 傻了吗草人一个措手不及 | 是 |
+| ziranma | android-portrait | 0.25 | 0.1 | `p-0036` | `ruhekfxq` | 如何肯休 | 如何肯修 | 如何宽袖 | 是 |
+| ziranma | android-portrait | 0.35 | 0.0 | `h-0208` | `svhbfjdjdkle` | 随后反弹到了 | 随后反但到了 | 随后反倒到了 | 是 |
+| ziranma | android-portrait | 0.35 | 0.0 | `h-0700` | `quvbdkukyhdehoiepc` | 衢州到邵阳的火车票 | 衢州到邵阳的火车票 | 衢州盗号羊的火车票 | 是 |
+| ziranma | android-portrait | 0.35 | 0.0 | `h-0712` | `rrjmyphhdesuduhfmj` | 软件运行的速度很慢 | 软件运行的速度很慢 | 软件晕乎的速度很慢 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-0035` | `bmpgdkljlude` | 便碰到拦路的 | 便碰到拦路的 | 变冷捣烂录的 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-0198` | `veuiyibfiitj` | 这是一本侈谈 | 这是一本侈谈 | 这是一本吃饭 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-0599` | `jntmwomfjuhhzotjhv` | 今天我们举行座谈会 | 今天我们局行座谈会 | 今天我们菊虎座谈会 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-0888` | `ualenackrfyigecoubbuji` | 杀了那曹仁一个措手不及 | 啥了那曹仁一个措手不及 | 傻了吧草人一个措手不及 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-0908` | `gzlehzujjpsskbqidejihv` | 给了黑山军松口气的机会 | 给了黑山君松口气的机会 | 给了黑山纯送口气的机会 | 是 |
+| ziranma | android-portrait | 0.35 | 0.1 | `h-1103` | `rhjyvbguigriyivjfhiuxndemirfmzli` | 让荆州古城日益绽放出新的迷人魅力 | 让荆州古城日益绽放出新的迷人魅力 | 糖精周谷城日益绽放出新的迷人美丽 | 是 |
+| shoudao | android-portrait | 0.25 | 0.0 | `h-0111` | `zheixcjiqqkg` | 总是心急求快 | 总是心急求快 | 总是新机秋景 | 是 |
+| shoudao | android-portrait | 0.25 | 0.1 | `h-0203` | `dsnfklqicimk` | 都能开启此门 | 都能开其次门 | 都能开启西门 | 是 |
+| shoudao | android-portrait | 0.25 | 0.1 | `h-0816` | `gktheihejqddlgiklxdn` | 跟同事喝酒到凌晨两点 | 跟同时喝酒到凌晨两点 | 国通适合就到凌晨两点 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0035` | `bnpfddljlude` | 便碰到拦路的 | 便碰到拦路的 | 变频捣烂录的 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0130` | `vffulgvhviiu` | 政府令中指出 | 政府令中指出 | 政府领涨指出 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0151` | `gygueisjlnyy` | 港股十三连阳 | 港股是三连养 | 港股十三炼狱 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0203` | `dsnfklqicimk` | 都能开启此门 | 都能开其次门 | 都能开启西门 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0318` | `moqgleqiyedieu` | 摸清了企业底数 | 摸清了企业底数 | 抹去了企业抵数 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0780` | `vweianqthtbdefijghzo` | 抓实安全环保生产工作 | 抓实安全环保生产工作 | 这是安全环保生产工作 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-0816` | `gktheihejqddlgiklxdn` | 跟同事喝酒到凌晨两点 | 跟同时喝酒到凌晨两点 | 很痛适合就到凌晨两点 | 是 |
+| shoudao | android-portrait | 0.35 | 0.0 | `h-1103` | `ryjgvsguifriyivjfyiuxcdemirkmmli` | 让荆州古城日益绽放出新的迷人魅力 | 让荆州古城日益绽放出新的迷人魅力 | 糖精周谷城日益绽放出新的迷人美丽 | 是 |
+| shoudao | android-portrait | 0.35 | 0.1 | `s-031` | `womkygglzdyidnqu` | 我们应该早一点去 | 我们应该早一点去 | 我们应该早已得去 | 是 |
+| shoudao | android-portrait | 0.35 | 0.1 | `h-0045` | `bgitblnagehd` | 冰川白哪个好 | 冰川白那个好 | 冰川百纳挂号 | 是 |
+| shoudao | android-portrait | 0.35 | 0.1 | `h-0352` | `qpnilfvegeyyzi` | 瞧你冷这个样子 | 瞧你冷这个样子 | 瞧你愣着这样子 | 是 |
+| shoudao | android-portrait | 0.35 | 0.1 | `h-0525` | `qqmibndaghbnkjqq` | 球迷边打工边看球 | 球迷边打工边看球 | 球迷变大干煸看球 | 是 |
+| shoudao | android-portrait | 0.35 | 0.1 | `h-0599` | `jctnwomkjuhyzotjhv` | 今天我们举行座谈会 | 今天我们局行座谈会 | 今天我们菊虎座谈会 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0134` | `j;sevebmduhk` | 景色这边独好 | 景色这边都好 | 景色这边符号 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0310` | `vauitvjnuvugtl` | 扎实推进水生态 | 扎实推进水生态 | 炸鸡腿进水生态 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0896` | `rjhbysuhyaiidivuxwzvip` | 然后用上牙齿抵住下嘴唇 | 然后用上牙齿地主下嘴唇 | 然后用上牙齿地虎侠嘴唇 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `p-0187` | `zldmjwuplixwjdhb` | 在电价顺利下降后 | 在店家顺利下降后 | 在电话顺利下降后 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.1 | `h-0712` | `rrjmyphhdesuduhfmj` | 软件运行的速度很慢 | 软件运行的速度很慢 | 软件云冈的速度很慢 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0417` | `ufmefgbaniivllle` | 什么风把你吹来了 | 什么风把你吹来了 | 什么风把击锤来了 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0749` | `xmrexxfztghbrelzy;kd` | 先热血沸腾后热泪盈眶 | 先热血沸腾后热泪盈眶 | 先热谢飞滕州热泪盈眶 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-1103` | `rhj;vbguigriyivjfhiuxndemirfmzli` | 让荆州古城日益绽放出新的迷人魅力 | 让荆州古城日益绽放出新的迷人魅力 | 糖精周谷城日益绽放出新的迷人美丽 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `p095` | `uujula` | 数据啦 | 数据啦 | 数据流 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `h-0123` | `daklkluiyphh` | 打开开始运行 | 打开开始运行 | 打开开始云冈 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `h-0739` | `geyavbyihkxdmuzljmvs` | 个亚洲一号项目在建中 | 戈雅周毅浩项目在建中 | 戈雅周一好像木作减重 | 是 |
+| smart_abc | android-portrait | 0.15 | 0.1 | `h-1031` | `zoklfaderfdmdwnkpqaiykqrbudi` | 做开发的人对电脑配置要求不低 | 做开发的人堆电脑配置要求不低 | 早开发的人堆电脑配置要求不敌 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.0 | `h-0462` | `rugoncyexthdfqvk` | 如果您也想花费少 | 如果您也想花费少 | 如果您也像话非说 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.0 | `h-0734` | `vhvultbumftsgkfaeuhb` | 上述两部门通告发出后 | 上述两部门通告发出后 | 尚书令部门通告发出后 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.0 | `h-1103` | `rhjyabguegriyiajfheuxcdemirfmqli` | 让荆州古城日益绽放出新的迷人魅力 | 让荆州古城日益绽放出新的迷人魅力 | 柔静周谷城日益绽放出新的迷人美丽 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.0 | `p-0053` | `dhmwlctufayiwlhojiby` | 当面临突发意外或疾病 | 当面临突发意外或疾病 | 当面淋浴法医外活疾病 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.1 | `h-0529` | `deeaxtbwvnaehuzm` | 的茶香便顺着壶嘴 | 德差想变顺着糊嘴 | 的哇想变顺着壶嘴 | 是 |
+| smart_abc | android-portrait | 0.25 | 0.1 | `h-0757` | `aitydethwumfybbqgpvh` | 只听的堂屋门又被关上 | 只听的堂屋门又被关上 | 只听德方屋门又被关上 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.0 | `h-0558` | `zbdedmclngzbdeyp` | 走得对才能走得远 | 走的对才能走得远 | 走得到才能走得远 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.0 | `h-0803` | `dgqrjzlebxrfzlqujxjm` | 等求教了别人再去解决 | 等求教了别人再去解决 | 橙球叫了别人再去解决 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.0 | `p-0248` | `dathrfxtlldsdeaioftubk` | 大唐人向来懂得之恩图报 | 大唐人向来懂得知恩图报 | 大唐人像来大的知恩图报 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.1 | `h-0202` | `dbzlaelijuhh` | 都在这里举行 | 都在这理据行 | 都在这里护航 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.1 | `h-0762` | `datmhbcehewlcerbtldo` | 大腿后侧和外侧肉太多 | 大腿后侧和外侧肉太多 | 大腿后侧河外侧头太多 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.1 | `h-0888` | `valenackrfyigecovbbuji` | 杀了那曹仁一个措手不及 | 啥了那曹仁一个措手不及 | 傻脸娜草人一个措手不及 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.1 | `p-0007` | `fhchyiypviyilzehso` | 方舱医院是医疗场所 | 方舱医院是医疗场所 | 方舱医院十一瞭望所 | 是 |
+| smart_abc | android-portrait | 0.35 | 0.1 | `p-0012` | `taenhhrfruai` | 踏春行人如织 | 踏春行人入职 | 踏春后人入职 | 是 |
+
+</details>
+
+<details>
+<summary>调参集，6 条（改成金标准的 1 条）</summary>
+
+| 方案 | 几何 | σ | b | id | 按键 | 金标准 | 原首选 | 现首选 | 坐了首选 |
+|---|---|---|---|---|---|---|---|---|---|
+| xiaohe | android-portrait | 0.25 | 0.0 | `s-056` | `mwwftijngewo` | 没问题交给我 | 没问题叫个我 | 没问题交给我 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `s-031` | `womfykgdzcyidmqu` | 我们应该早一点去 | 我们应该早一点去 | 我们应该早已先去 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `p-0189` | `zlldgeffvjslvsubhogrjp` | 在两个分站赛中收获冠军 | 在两个分站赛中收获冠军 | 在两个奋战袋中收获冠军 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.1 | `p-0012` | `taiphhrfruvi` | 踏春行人如织 | 踏春行人入职 | 踏春汉人入职 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `p-0007` | `fhchyiyruiyilcihso` | 方舱医院是医疗场所 | 方舱医院是医疗场所 | 方舱一月十医疗场所 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `p-0288` | `vbdpyidgliuirfwu` | 周敦颐等历史人物 | 周敦颐等历史人物 | 周迅一等历史人物 | 是 |
+
+</details>
+
+<details>
+<summary>留出集，37 条（改成金标准的 0 条）</summary>
+
+| 方案 | 几何 | σ | b | id | 按键 | 金标准 | 原首选 | 现首选 | 坐了首选 |
+|---|---|---|---|---|---|---|---|---|---|
+| xiaohe | android-portrait | 0.15 | 0.1 | `h-0734` | `uhuullbumftsgcfaiuhz` | 上述两部门通告发出后 | 上述两部门通告发出后 | 上述两部门童高发除垢 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.0 | `h-0151` | `ghguuisjlmyh` | 港股十三连阳 | 港股是三连养 | 港股十三廉航 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.0 | `h-0749` | `xmrexpfwtghzrelwykkl` | 先热血沸腾后热泪盈眶 | 先热血沸腾后热泪盈眶 | 先热谢飞退后热泪盈眶 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0035` | `bmpgdcljlude` | 便碰到拦路的 | 便碰到拦路的 | 变冷捣烂录的 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0120` | `wodetsvojnjy` | 我的同桌叫军 | 我的同桌叫均 | 我的同桌进军 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0123` | `dakdkduiyyhh` | 打开开始运行 | 打开开始运行 | 打开开始宇航 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0438` | `qpuibcvgvrhuyyhh` | 切实保证专户运行 | 切实保证专户云行 | 妾室保证专户宇航 | 是 |
+| xiaohe | android-portrait | 0.25 | 0.1 | `h-0700` | `quvzdcucyhdehoiepn` | 衢州到邵阳的火车票 | 衢州到邵阳的火车票 | 衢州倒水羊的火车票 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0470` | `jltviuiydmdsiexk` | 将推出纯电动车型 | 将退出纯电动车型 | 江涛初春电动车型 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0700` | `quvzdcucyhdehoiepn` | 衢州到邵阳的火车票 | 衢州到邵阳的火车票 | 衢州刀身羊的火车票 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0712` | `rrjmyyhhdesuduhfmj` | 软件运行的速度很慢 | 软件运行的速度很慢 | 软件蕴含的速度很慢 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.0 | `h-0888` | `ualenaccrfyigecouzbuji` | 杀了那曹仁一个措手不及 | 啥了那曹仁一个措手不及 | 傻了吗草人一个措手不及 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0035` | `bmpgdcljlude` | 便碰到拦路的 | 便碰到拦路的 | 变胖捣烂录的 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0120` | `wodetsvojnjy` | 我的同桌叫军 | 我的同桌叫均 | 我的同桌建军 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0281` | `rugoxrzeciuevi` | 如果选择此设置 | 如果选择此设置 | 如果选择只设置 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0419` | `csbolivjdcuhzzgo` | 从玻璃栈道上走过 | 从玻璃站到上走过 | 擦玻璃占到上走过 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0435` | `jtdkuiwwgowwmbde` | 决定是为国为民的 | 决定是为国为民的 | 决定是为果味喵的 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0582` | `buhviuxmiugvdexmxl` | 不会出现出轨的现象 | 不会出现出轨的现象 | 不会出现常规的现象 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0739` | `geyavzyihcxlmuzdjmvs` | 个亚洲一号项目在建中 | 戈雅周毅浩项目在建中 | 戈雅周一好像木塞减重 | 是 |
+| xiaohe | android-portrait | 0.35 | 0.1 | `h-0888` | `ualenaccrfyigecouzbuji` | 杀了那曹仁一个措手不及 | 啥了那曹仁一个措手不及 | 啥了纳粹任一个措手不及 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0130` | `vgful;vsviiu` | 政府令中指出 | 政府令中指出 | 政府令状指出 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0640` | `dlwol;lvsijidebmhr` | 带我领略四季的变换 | 带我领略司机的变换 | 带我领略低级的变换 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0734` | `uhuuldbumftsgkfaiuhb` | 上述两部门通告发出后 | 上述两部门通告发出后 | 上述两部门童高发滁州 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.0 | `h-0833` | `yengl;hdjnubuicvcjruxn` | 也能令黄金首饰璀璨如新 | 也能领黄金首饰璀璨如新 | 也能灵光金首饰璀璨如新 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.1 | `h-0740` | `gerfbuffzlgszinzkbjc` | 个人部分在工资内扣缴 | 个人部分在工资内口角 | 个人部分鳃弓自内口角 | 是 |
+| microsoft | android-portrait-microsoft | 0.25 | 0.1 | `h-0816` | `gftsuihejqdkl;iflddm` | 跟同事喝酒到凌晨两点 | 跟同时喝酒到凌晨两点 | 镇痛适合就到凌晨两点 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0123` | `daklkluiyphh` | 打开开始运行 | 打开开始运行 | 打开开始云冈 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0151` | `ghguuisjlmyh` | 港股十三连阳 | 港股是三连养 | 港股十三廉航 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0202` | `dbzlvelijuhh` | 都在这里举行 | 都在这理据行 | 都在这里护航 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0277` | `rujnwosjuijisv` | 如今我三十几岁 | 如今我三十几岁 | 如今我玩十几岁 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0309` | `wovgzlgvvblyhh` | 我正在贵州旅行 | 我正在贵州旅行 | 我正在贵州旅港 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0599` | `jntmwomfjuhhzotjhv` | 今天我们举行座谈会 | 今天我们局行座谈会 | 今天我们巨痒座谈会 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0731` | `fzxdzlmjtmrvxtvivs` | 飞翔在漫天瑞雪之中 | 飞翔在满天瑞雪之中 | 飞翔在蓝天瑞雪之中 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.0 | `h-0925` | `yelimaojfuqilehrvedeq;xu` | 也立马安抚起了患者的情绪 | 也立马安抚起了患者的情绪 | 夜里马鞍泛起了患者的情绪 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `h-0552` | `uebzueuiyphhvgih` | 设备设施运行正常 | 设备设施运行正常 | 设备设施云阳正常 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `h-0749` | `xmrexxfztghbrelzy;kd` | 先热血沸腾后热泪盈眶 | 先热血沸腾后热泪盈眶 | 先热谢飞烫后热泪盈眶 | 是 |
+| microsoft | android-portrait-microsoft | 0.35 | 0.1 | `h-1033` | `gurjxmzlvuuhlebkxmjmgudexnju` | 固然现在住上了保险坚固的新居 | 固然现在住上了保险坚固的新剧 | 固然现在沾上了保险坚固的新剧 | 是 |
+
+</details>
 
 ## Alternatives considered
 
@@ -119,8 +272,8 @@ sentences-neutral-v1（1064 条能编码），小鹤和微软，σ∈{0.15, 0.25
 全部在 Mac Studio 上经 `rbuild` 跑；资源目录 `/Volumes/Workspace/rbuild/msime-test-resources` 的 12 个文件逐个按本分支 `desktop-dictionary.lock.json` 核对 sha256 全部相符，没有 `sentence-model-desktop.safetensors`。评测的原始输出（报告、stderr、退出码、跑法脚本）在 Studio 的 `/Volumes/Workspace/rbuild/evidence/sp-first-seat-20261029/`：`out/` 是扫参、留出集和整句族，`g0/` 是 G0，`lat/` 是延迟。扫参进行到一半时 Studio 重启过一次（重启前负载 800 以上，原因不明），没跑完的那几组删掉输出后重跑，已经跑完的几组的报告没有动。
 
 - **单元和集成测试**（最终提交上）：`cargo test -p msime-engine --lib` 2798 项通过（57 项本来就忽略）；`--test golden` 31 项；`cargo test -p msime-input-runtime --lib --example convert_eval --example rerank_latency` 408、32、26 项；`cargo test -p msime-host-api --no-fail-fast` 库测试 1055 项通过（5 项忽略），其余目标全部通过。Studio 重启后 shell 的打开文件数上限回到 256，第一遍并行跑引擎和 host-api 的测试时 300 来项在建夹具时失败（打开 SQLite 失败），`ulimit -n 10240` 以后全部通过，单独跑其中一项也通过；`cargo clippy -p msime-engine -p msime-input-runtime -p msime-host-api --all-targets -- -D warnings` 无警告。新增的：
-  - `shuangpin::tests`：规则全部满足时坐首选、字面整句在第二位、命中缓存也一样，默认参数下不坐（`a_clearly_better_supported_correction_takes_the_first_seat`，小鹤和自然码）；键心落点在 m_sp 放到 −1000、P_LEAD 19 时也不坐，两键正中的落点要 P_LEAD 到 12 才坐（`a_key_centre_touch_never_puts_a_correction_first`）；分数差的线高于这次的分数差就不坐（`a_correction_leads_only_by_the_margin`）；任何一键没有触点不坐（`a_correction_leads_only_when_every_key_was_touched`）；字面有全码词条不坐（`a_literal_dictionary_entry_keeps_the_first_seat`）；这一对被拒绝过不坐、别的方案和别的码对的拒绝不算、接受不否决（`a_rejected_pair_vetoes_the_first_seat`）；末尾单辅助码时不坐，结果与没有规则的新引擎逐行相同（`an_active_helpcode_keeps_the_correction_off_the_first_seat`）；自定义方案不坐（`a_custom_profile_never_puts_a_correction_first`）。
-  - `shuangpin::engine::tests`：守卫的两半（带标记、回答整串按键的留在首位，只回答前缀的和没标记的让开，挪离首位的清掉标记）和请求层面的每一条允许条件；把 `active_helpcode_query` 那一条去掉，请求层面的测试失败。`shuangpin::dictionary::tests::the_first_seat_rule_keys_its_own_cached_answers` 钉住触点签名的标记。
+  - `shuangpin::tests`：规则全部满足时坐首选、字面整句在第二位、命中缓存也一样，默认参数下不坐（`a_clearly_better_supported_correction_takes_the_first_seat`，小鹤和自然码）；键心落点在 m_sp 放到 −1000、P_LEAD 19 时也不坐，两键正中的落点要 P_LEAD 到 12 才坐（`a_key_centre_touch_never_puts_a_correction_first`）；分数差的线高于这次的分数差就不坐（`a_correction_leads_only_by_the_margin`）；任何一键没有触点不坐（`a_correction_leads_only_when_every_key_was_touched`）；字面有全码词条不坐（`a_literal_dictionary_entry_keeps_the_first_seat`）；这一对被拒绝过不坐、别的方案和别的码对的拒绝不算、接受不否决（`a_rejected_pair_vetoes_the_first_seat`）；末尾单辅助码时不坐，结果与没有规则的新引擎逐行相同（`an_active_helpcode_keeps_the_correction_off_the_first_seat`）；自定义方案不坐（`a_custom_profile_never_puts_a_correction_first`）；模糊音把全码的模糊词条排到它前面时不再带标记、回到字面整句之后，与没有首选规则的新引擎逐行相同（`a_fuzzy_word_ahead_sends_the_correction_back_behind_the_literal_sentence`，n/l 模糊音）。
+  - `shuangpin::engine::tests`：守卫的两半（带标记、回答整串按键的留在首位，只回答前缀的和没标记的让开，挪离首位的清掉标记，还排在字面整句前面的挪回字面整句块之后）和请求层面的每一条允许条件；把 `active_helpcode_query` 那一条去掉，请求层面的测试失败。`shuangpin::dictionary::tests::the_first_seat_rule_keys_its_own_cached_answers` 钉住触点签名的标记。
   - `lattice::decode::tests::the_nonleading_typo_sentence_is_the_best_scoring_typo_path`（n-best 降序、nonleading 取到最好的纠错路径）；`ordering::tests::a_shuangpin_correction_the_engine_put_first_stays_first`（重排器不跑模型，`runner_up_order_with` 不挪它，字面整句在第二位）；`session::tests::rejecting_a_confident_correction_vetoes_its_first_seat`（选了字面整句记一次拒绝，之后不再坐首选，选中它照样记接受）和 `the_session_puts_a_correction_first_only_with_every_key_touched`（键心、缺一键触点、平面表、超级简拼本地模式、按原样上屏被抑制以后都不坐）；复用候选行的几处（韩文汉字、日文、英文词典、页复制、会话候选复制）同时清掉或复制这个标记。
   - `msime-input-runtime` 的 `a_confident_shuangpin_correction_leads_the_view_and_only_it_is_marked`：真实会话、模型偏爱字面整句时纠错整句仍在首位，字面整句在前三，视图只有第一行带 `confident_correction`、JSON 里也只有它有这个字段，默认参数下一行都没有。`msime-host-api` 的 `touched_views_carry_no_confident_correction_by_default`：经 FFI 带触点打字，视图 JSON 里没有这个字段。
   - `convert_eval`：`first_seat` 的计数和清单、门槛判定（恰在门槛上通过、超过时报出方案和总体）、`lead`、`lead_pen` 的解析。
