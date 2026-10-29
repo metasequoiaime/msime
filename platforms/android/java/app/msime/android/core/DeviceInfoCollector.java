@@ -18,9 +18,13 @@ import android.provider.Settings;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.InputMethodInfo;
 import app.msime.android.DeviceInfoReport.Entry;
+import app.msime.android.DeviceInfoReport.Field;
+import app.msime.android.DeviceInfoReport.Item;
+import app.msime.android.DeviceInfoReport.Language;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -60,6 +64,46 @@ public final class DeviceInfoCollector {
         }
     }
 
+    /**
+     * 键盘子面板的屏幕参数（#10045）：从 IME 已附着的视图取 Display，在主线程读好再交给工作线程。每项单独兜底，改过系统的机型在某一项上抛异常只让那一项读不到。
+     *
+     * <p>亮度和亮度模式随时在变，对排错没有帮助，不读。
+     */
+    @SuppressWarnings("deprecation")
+    public static DeviceInfoReport.ScreenFacts screenFacts(View view) {
+        Display display = null;
+        try { display = view == null ? null : view.getDisplay(); }
+        catch (RuntimeException unavailable) { /* 当作读不到 */ }
+        if (display == null) return new DeviceInfoReport.ScreenFacts(0, 0, 0, 0, 0, fontScale(view), null, null, null);
+        Display target = display;
+        DisplayMetrics metrics = new DisplayMetrics();
+        try { target.getRealMetrics(metrics); }
+        catch (RuntimeException unavailable) { metrics = new DisplayMetrics(); }
+        float[] rates = read(() -> {
+            Display.Mode[] modes = target.getSupportedModes();
+            float[] values = new float[modes.length];
+            for (int index = 0; index < modes.length; index++) values[index] = modes[index].getRefreshRate();
+            return values;
+        });
+        int[] hdr = read(() -> {
+            Display.HdrCapabilities capabilities = target.getHdrCapabilities();
+            return capabilities == null ? null : capabilities.getSupportedHdrTypes();
+        });
+        Boolean wide = read(target::isWideColorGamut);
+        return new DeviceInfoReport.ScreenFacts(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
+            metrics.xdpi, metrics.ydpi, fontScale(view), rates, hdr, wide);
+    }
+
+    private static float fontScale(View view) {
+        try { return view == null ? 0 : view.getResources().getConfiguration().fontScale; }
+        catch (RuntimeException unavailable) { return 0; }
+    }
+
+    private static <T> T read(Supplier<T> value) {
+        try { return value.get(); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
     /** 系统已启用的输入法与当前默认输入法是两个独立事实。 */
     public static boolean keyboardEnabled(Context context) {
         InputMethodManager manager = context.getSystemService(InputMethodManager.class);
@@ -81,6 +125,81 @@ public final class DeviceInfoCollector {
     /** 复制文本与设置页使用相同标题和字段。 */
     public static String text(Context context, List<Entry> entries) {
         return DeviceInfoReport.text(context.getApplicationInfo().loadLabel(context.getPackageManager()) + " 设备信息", entries);
+    }
+
+    /** 键盘子面板复制或「全部」插入的文本；中文标题与设置页相同，英文用产品的英文名。 */
+    public static String text(Context context, List<Item> items, Language language) {
+        String title = language == Language.CHINESE
+            ? context.getApplicationInfo().loadLabel(context.getPackageManager()) + " 设备信息"
+            : "Metasequoia IME device information";
+        return DeviceInfoReport.text(title, items, language);
+    }
+
+    /** 键盘子面板（#10045）的全部字段，中英两份一次格式化好；和 {@link #collect} 一样逐项兜底。 */
+    public static List<Item> keyboard(Context context, DeviceInfoReport.ScreenFacts screen) {
+        List<Item> items = new ArrayList<>(Field.values().length);
+        items.add(item(Field.APP_VERSION, () -> {
+            AppVersionPolicy.Version version = appVersionOrNull(context);
+            return language -> version == null ? null
+                : DeviceInfoReport.appVersion(version.name(), version.code(), AppEdition.current().id(), language);
+        }));
+        items.add(item(Field.BRAND, () -> constant(Build.BRAND)));
+        items.add(item(Field.MODEL, () -> constant(Build.MODEL)));
+        items.add(item(Field.ANDROID, () -> {
+            String release = Build.VERSION.RELEASE;
+            int sdk = Build.VERSION.SDK_INT;
+            return language -> DeviceInfoReport.android(release, sdk, language);
+        }));
+        items.add(item(Field.BUILD, () -> constant(Build.DISPLAY)));
+        items.add(item(Field.ABIS, () -> {
+            String[] abis = Build.SUPPORTED_ABIS;
+            return language -> DeviceInfoReport.abis(abis, language);
+        }));
+        items.add(item(Field.CPU, () -> constant(DeviceInfoReport.cpu(
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Build.SOC_MANUFACTURER : null,
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Build.SOC_MODEL : null, Build.HARDWARE))));
+        items.add(item(Field.STORAGE, () -> {
+            StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
+            long available = stat.getAvailableBytes(), total = stat.getTotalBytes();
+            return language -> DeviceInfoReport.storage(available, total, language);
+        }));
+        items.add(item(Field.MEMORY, () -> {
+            long total = totalMemory(context);
+            return language -> DeviceInfoReport.memory(total, language);
+        }));
+        items.add(item(Field.WEBVIEW, () -> {
+            PackageInfo info = WebView.getCurrentWebViewPackage();
+            return language -> info == null ? DeviceInfoReport.webView(null, null, language)
+                : DeviceInfoReport.webView(info.packageName, info.versionName, language);
+        }));
+        items.add(item(Field.KEYBOARD, () -> {
+            boolean enabled = keyboardEnabled(context), isDefault = keyboardDefault(context);
+            return language -> DeviceInfoReport.keyboard(enabled, isDefault, language);
+        }));
+        items.add(item(Field.DISPLAY, () -> language -> DeviceInfoReport.screen(screen, language)));
+        return items;
+    }
+
+    private static Function<Language, String> constant(String value) {
+        return language -> value;
+    }
+
+    /** 先读系统再按两种语言格式化；读或格式化时抛运行时异常的那一项记为读不到。 */
+    private static Item item(Field field, Supplier<Function<Language, String>> read) {
+        try {
+            Function<Language, String> format = read.get();
+            return new Item(field, format.apply(Language.CHINESE), format.apply(Language.ENGLISH));
+        } catch (RuntimeException unavailable) {
+            return new Item(field, null, null);
+        }
+    }
+
+    private static AppVersionPolicy.Version appVersionOrNull(Context context) {
+        try {
+            return AppVersionPolicy.current(context);
+        } catch (PackageManager.NameNotFoundException missing) {
+            return null;
+        }
     }
 
     /** 逐项读；任何一项在改过系统的机型上抛异常都只让那一项显示为未知，不让整组卡在「正在读取」、复制也没有反应。 */
@@ -129,11 +248,16 @@ public final class DeviceInfoCollector {
     }
 
     private static String memory(Context context) {
+        return DeviceInfoReport.memory(totalMemory(context), Language.CHINESE);
+    }
+
+    /** 运行内存总量；读不到时为 0。 */
+    private static long totalMemory(Context context) {
         ActivityManager manager = context.getSystemService(ActivityManager.class);
-        if (manager == null) return DeviceInfoReport.UNKNOWN;
+        if (manager == null) return 0;
         ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
         manager.getMemoryInfo(info);
-        return info.totalMem > 0 ? DeviceInfoReport.bytes(info.totalMem) : DeviceInfoReport.UNKNOWN;
+        return info.totalMem;
     }
 
     /** 系统当前选用的 WebView 实现及其版本：合包里的管理界面和别的应用里的网页输入框都靠它，网页里出问题时要对照这一项。 */

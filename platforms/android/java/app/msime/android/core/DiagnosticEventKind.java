@@ -48,7 +48,9 @@ public enum DiagnosticEventKind {
     VOICE_PLATFORM_UNAVAILABLE("voice_platform_unavailable", false),
     VOICE_PLATFORM_OTHER("voice_platform_other", false),
     VOICE_FAILURE_RESPONSE("voice_failure_response", false),
-    // 引擎会话建立的耗时（#10086），只进本机导出的诊断包的性能记录：主线程上建会话本身，和从启动排上到会话可用的整段等待。
+    /** 本机这一侧等服务回应超时（连接、握手或等最终结果）；服务端报的 408/504 仍记 {@link #VOICE_FAILURE_RESPONSE}。追加在末尾：识别窗口跨进程只传序号。 */
+    VOICE_FAILURE_TIMEOUT("voice_failure_timeout", false),
+    // 引擎会话建立的耗时（#10086），只进本机导出的诊断包的性能记录：主线程上建会话本身，和从启动排上到会话可用的整段等待。追加在 VOICE_FAILURE_TIMEOUT 之后，不改已有种类的序号。
     ENGINE_SESSION_CREATE("engine_session_create", false),
     ENGINE_SESSION_READY("engine_session_ready", false);
 

@@ -137,6 +137,7 @@ import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
+import { VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
 
 import { TextPolicy } from './TextPolicy';
 import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
@@ -900,6 +901,8 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.LOCK) {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
+        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
+        this.voiceHeldByKey = false;
       }
     };
     KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
@@ -7905,20 +7908,17 @@ struct KeyboardView {
     return this.voiceDone.length > 0 ? '已识别：' : '';
   }
 
-  /** 手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。 */
-  private voicePrimaryLabel(): string {
-    if (this.voiceDone.length > 0 || (this.voiceHeldByKey && this.voiceBusy)) return '';
-    if (this.voiceFinishing) return '正在识别…';
-    if (this.voiceBusy) return '说完了';
-    return this.voiceText.length > 0 ? '插入文字' : '重新录音';
-  }
-
   /**
-   * 按住说话（空格长按或快捷键按住）的会话在忙时不给任何按钮：松手就是结束，整块高度都留给圆盘和文字。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间同样没有按钮，结束和取消走快捷键自己的 STOP、CANCEL。点按开始的会话可以取消；不忙时（提示、出错、识别完成）一律留「返回键盘」，否则没有路离开面板。
+   * 聆听面板按钮要看的会话状态，按钮文字由 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 决定。手机面板的主操作只结束采集；识别回调负责自动上屏，位置变化的结果才需显式插入。空格长按的面板在松手收尾时才出现；快捷键一按下就打开面板（`onVoiceHotkey` 的 START），按住期间没有按钮，结束和取消走快捷键自己的 STOP、CANCEL，LOCK 之后按点按开始对待。
    */
-  private voiceCancelLabel(): string {
-    if (!this.voiceBusy) return '返回键盘';
-    return this.voiceHeldByKey ? '' : '取消';
+  private voiceListeningSession(): VoiceListeningSession {
+    return {
+      busy: this.voiceBusy,
+      finishing: this.voiceFinishing,
+      heldByKey: this.voiceHeldByKey,
+      done: this.voiceDone.length > 0,
+      hasText: this.voiceText.length > 0
+    };
   }
 
   private voicePrimaryAction(): void {
@@ -7954,9 +7954,9 @@ struct KeyboardView {
           hintTail: this.voiceListeningHintTail(),
           hintPrefix: this.voiceListeningHintPrefix(),
           level: this.voiceLevel,
-          primaryLabel: this.voicePrimaryLabel(),
+          primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),
           primaryEnabled: !this.voiceFinishing,
-          cancelLabel: this.voiceCancelLabel(),
+          cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),
           onPrimary: (): void => this.voicePrimaryAction(),
           onCancel: (): void => this.cancelListening()
         })

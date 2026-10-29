@@ -437,6 +437,14 @@ if ! grep -qF 'this.recordLetterTouch($$.letter, event);' "$view" \
   echo "KeyboardView must record each letter's touch-down against the key it pressed, drop it on Cancel and when the face is replaced, record the semicolon key, take it through takeTouch at the key's current rect, and compute touchLayout on every key without a cache" >&2
   exit 1
 fi
+# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，流式识别停顿自动结束。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
+lock_branch=$(sed -n '/^      if (action === VoiceHotkeyAction.LOCK) {$/,/^      }$/p' "$view")
+if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
+  || ! grep -qF 'primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),' "$view" \
+  || ! grep -qF 'cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),' "$view"; then
+  echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。

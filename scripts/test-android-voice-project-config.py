@@ -222,6 +222,9 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         recognizer = (
             ROOT / "platforms/android/java/app/msime/android/voice/DoubaoRecognizer.java"
         ).read_text()
+        session = (
+            ROOT / "platforms/android/java/app/msime/android/voice/DoubaoStreamSession.java"
+        ).read_text()
 
         # The two protocols are chosen between, never both.
         self.assertIn("DoubaoAsrPolicy.usable(", plugin)
@@ -236,8 +239,16 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("NativeClient.doubaoStartFrame(", recognizer)
         self.assertIn("NativeClient.doubaoAudioFrame(", recognizer)
         self.assertIn("NativeClient.doubaoDecodeFrame(", recognizer)
-        self.assertIn("MAX_INBOUND_FRAME_BYTES = 1_048_576 + 10", recognizer)
-        self.assertIn("if (pending == inbound.length) return null;", recognizer)
+        self.assertIn("MAX_INBOUND_FRAME_BYTES = 1_048_576 + 10", session)
+        self.assertIn("if (pending == inbound.length) {", session)
+        # 收发分开：读线程一直阻塞在 read 上。Conscrypt 的 available() 不会去网络上取数据，拿它判断有没有回包会让说话期间一帧也读不到（#9886）。
+        self.assertNotIn(".available()", session)
+        self.assertNotIn(".available()", recognizer)
+        self.assertIn('new Thread(this::receive, "msime-doubao-reader")', session)
+        # 整句流式的文档把 result 写成分句列表，iOS 和 Windows 两种形状都读；只读对象时 Android 上读出来是空的。
+        self.assertIn("result instanceof JSONArray segments", recognizer)
+        # 错误帧的错误码要交给失败分类，不能一律当拒绝请求。
+        self.assertIn("VoiceFailurePolicy.doubaoError(", recognizer)
         # Cancelling has to release both the microphone and the socket.
         self.assertIn("streaming.cancel()", activity)
         self.assertIn("socket.close()", recognizer)

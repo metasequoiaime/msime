@@ -41,6 +41,17 @@ export interface VoiceListeningPlan {
   top: number;
 }
 
+/** 聆听面板的按钮只看会话的这几项。`heldByKey` 是会话由按住的键结束（空格长按或快捷键按住）；快捷键 LOCK 之后为 false，按点按开始的会话对待。 */
+export interface VoiceListeningSession {
+  busy: boolean;
+  finishing: boolean;
+  heldByKey: boolean;
+  /** 结果刚上屏，面板正显示「识别完成」。 */
+  done: boolean;
+  /** 有一段可以显式插入的识别结果（输入位置变了时留下的）。 */
+  hasText: boolean;
+}
+
 export class VoiceListeningPolicy {
   /**
    * 按钮行上面那块区域的排布：`height` 不含按钮行和它周围的边距，按住说话的会话没有按钮行时就是整个面板的高度；`titleLine`、`hintLine` 是标题和提示单行的实测高度。依次试「两行标题加提示」「一行标题加提示」「一行标题不带提示」，取第一个圆盘不小于下限的；两行时圆盘还要不小于 `VOICE_TWO_LINE_MIN_ORB_VP`。都放不下时圆盘先停在下限、光圈收窄，再不够才把圆盘缩到剩下的高度。
@@ -192,6 +203,22 @@ export class VoiceListeningPolicy {
       }
     }
     return VOICE_ELLIPSIS + points.slice(best).join("");
+  }
+
+  /** 主按钮：录音中「说完了」，收尾时「正在识别…」（禁用），空闲时插入留下的结果或重新录音。按住说话的会话忙时和刚上屏时没有主按钮。 */
+  static primaryLabel(session: VoiceListeningSession): string {
+    if (session.done || (session.heldByKey && session.busy)) return "";
+    if (session.finishing) return "正在识别…";
+    if (session.busy) return "说完了";
+    return session.hasText ? "插入文字" : "重新录音";
+  }
+
+  /**
+   * 取消按钮：按住说话的会话忙时不给按钮，松手就是结束，结束和取消走按键本身；点按开始（含快捷键 LOCK 之后）的会话可以取消。不忙时（提示、出错、识别完成）一律留「返回键盘」，否则没有路离开面板。两个按钮都为空时面板不画按钮行。
+   */
+  static cancelLabel(session: VoiceListeningSession): string {
+    if (!session.busy) return "返回键盘";
+    return session.heldByKey ? "" : "取消";
   }
 }
 
