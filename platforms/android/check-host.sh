@@ -1565,6 +1565,27 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
+# 大屏单手侧边数字键盘（#10203，.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md）：宽度由 KeyboardFormFactorPolicySmoke、显示条件和偏好读法由 OneHandSidePadPolicySmoke 覆盖；接线在 InputMethodService、ImeFrame 和设置页里，JVM 冒烟碰不到，这里钉住：键盘从共享偏好读侧边面板，进 touchGeometryKey（变了就重画）和皮肤片段（冷启动第一帧就按它画）；ImeFrame.applyOneHanded 按宽度和 OneHandSidePadPolicy.shown 摆上或摘下面板，签名带着面板宽度；面板的数字和小数点走数字层的字面上屏，⌫ 带连删；键距、行高跟着主键区重排；设置页的标题和说明与 iOS、鸿蒙逐字相同。
+side_pad_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeFrame.java")
+side_pad_builder="$repo_root/platforms/android/java/app/msime/android/core/ImeSidePad.java"
+if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_pad_service" \
+  || ! rg -qF 'oneHandedSidePanel = nextOneHandedSidePanel;' "$side_pad_service" \
+  || ! rg -qF '            + ":" + oneHandedSidePanel.wire' "$side_pad_service" \
+  || ! rg -qF '        OneHandSidePadPolicy.PREFERENCE_KEY,' "$side_pad_service" \
+  || ! rg_q_stdin -F 'KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'OneHandSidePadPolicy.shown(s.oneHandedSidePanel, mode, padDp,' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'String applied = mode + ":" + blockDp + ":" + (padShown ? padDp : 0);' <<< "$side_pad_frame" \
+  || ! rg -qF 's.imeLayoutRows.commitNineKeyLiteral(digit)' "$side_pad_builder" \
+  || ! rg -qF 's.imeLayoutRows.nineKeyDecimalKey()' "$side_pad_builder" \
+  || ! rg -qF 's.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);' "$side_pad_builder" \
+  || ! rg -qF 'if (sidePad != null) applySidePadGeometry(sidePad);' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java" \
+  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg -qF 'savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"; then
+  echo "Android one-handed side number pad wiring is missing: read touch_one_handed_side_panel into the geometry key and skin hint, place the pad in ImeFrame.applyOneHanded, reuse the digit-layer literal commit and backspace repeat, follow the key geometry, and keep the shared settings wording" >&2
+  exit 1
+fi
 # 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。
 while IFS= read -r activity; do
   if ! rg -q 'ScreenCaptureProtection\.apply\(this\);' "$activity"; then

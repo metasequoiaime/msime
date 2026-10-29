@@ -36,6 +36,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.RecentClipboardSuggestion;
 import app.msime.android.SchemePreferences;
@@ -216,6 +217,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 SplitKeyboardPolicy.GAP_PERCENT_STEP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP),
                 value -> value + "%", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_GAP, value))
                 .setEnabled(splitEnabled);
+            // #10203：大屏单手模式空出来的一侧放数字键盘。写共享偏好（随账号同步），三端标题和说明逐字相同；不认识的取值（以后的文本编辑面板）按关显示。
+            boolean sidePad = OneHandSidePadPolicy.parse(JsonPolicy.strictString(
+                preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY))) == OneHandSidePadPolicy.Panel.NUMBER_PAD;
+            layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+                sidePad, checked -> savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,
+                    (checked ? OneHandSidePadPolicy.Panel.NUMBER_PAD : OneHandSidePadPolicy.Panel.OFF).wire));
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),

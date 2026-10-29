@@ -52,6 +52,14 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 键高、键盘高度设置、键距和行距都不变；打开「顶部数字行」时数字行同样从中间分开（12345 | 67890）。旋转、换布局或开关变化后，下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.splitStale`），不动 Engine session 和当前组合。
 - `KeyboardHeightDeviceSmoke` 的 `-e portrait-split true` 专项通过真实键盘节点测量中缝，覆盖大屏竖屏热更新与组字保留、原生设置保存、数字符号页、窄外屏恢复和横屏兼容；测试结束恢复窗口尺寸、密度、旋转与偏好。模拟窗口变化不等于折叠屏真机验收。
 
+### 大屏单手侧边数字键盘
+
+大屏（`smallestScreenWidthDp` ≥ 600）上单手模式把「侧栏 + 键区」缩到 424 dp 贴到一侧（#10204，`KeyboardFormFactorPolicy.oneHandedBlockWidthDp`），空出来的那一侧可以放一块数字键盘（#10203）：键盘设置「布局」里大屏才列出的「大屏单手时侧边显示数字键盘」，写共享偏好 `touch_one_handed_side_panel`（`off` 默认 / `number_pad`，随账号同步，同步键 `platform.android.one_handed_side_panel`；不认识的取值按 `off` 读，给以后的文本编辑面板留位置）。见 `.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md`。
+
+- 什么时候画（`OneHandSidePadPolicy.shown`，五条全满足）：偏好是 `number_pad`；单手模式此刻生效（分离式、浮动时让位，`ImeFrame.effectiveOneHanded`）；大屏且空出来的宽度不少于 150 dp；主键区画的是拼音九键、九键双拼或笔画的字母层（123 / #+= 层、英文、本地模式、26 键、14/18 键、注音九键、日文假名九键、手写都不画）；按键没被面板盖住（面板和侧栏、键区在同一行，外接键盘收起整行、候选画布盖住整行时一起收起或隐藏）。
+- 宽度是窗口宽减去 424 dp，最多 300 dp（`KeyboardFormFactorPolicy.oneHandedSidePadWidthDp`）：600 dp 的平板 176 dp，竖屏 800 dp 和横屏都是 300 dp。面板贴在屏幕边上，它和侧栏之间是一块不接触摸、读屏跳过的空白（普通 `View`）；行的排法是 [面板, 空白, 侧栏, 键列]（键在右）或 [键列, 侧栏, 空白, 面板]（键在左），`ImeFrame.applyOneHanded` 每次渲染都按状态签名（含面板宽度）决定要不要重排。
+- 键面是 3 × 4 拨号盘 `1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`（`ImeSidePad`）：前三行是九宫格高度的键块、第四行是底行高度，整块贴底，与主键区的九键网格和底行逐行对齐；键距、行距、高度调整跟着主键区的 `ImeStyler.applyKeyboardGeometry` 一起重排。面板是独立的 `KeyboardKeyArea`，键间空隙交给最近的键。数字和 `.` 走数字层的 `commitNineKeyLiteral`（组字中先把拼音原样上屏），⌫ 与九键右列的 ⌫ 同一个动作和连删；读屏是「数字 N」「小数点」「删除」，统计记普通数字键、`Period`、`Backspace`。
+
 ### 数字行
 
 键盘设置「布局」→「按键布局」里的「顶部数字行」（共享偏好 `touch_number_row`，布尔，默认关，随账号同步，同步键 `platform.android.number_row`；见 `.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md`，最早是 #6022 的本机设置）打开后，标准 26 键一族、韩文两套式、14 键和 18 键的字母层在字母上方多一行 1–0，所有设备都有（14 / 18 键这一行在左侧拼音栏和字母块上方铺满整宽）；窗口可用高度低于 480 dp（手机横屏，`KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP`）时不画，否则默认高度的键盘再加一行就把工具栏或底行挤出窗口，转回竖屏后自动回来。这一行和第一行字母一样高、按同样的方式分摊键盘高度调整，所以键盘整体高出一行；切到 123 / #+= 时保留同高的补充行：数字九宫格补括号、货币和上标，常规 123 补扩展符号，#+= 补 1–0（#8210），切层不缩高。源布局改为九键、笔画、手写、日文假名网格或注音时没有这排，键盘回到原行数。密码框和 SSH 类应用的自动数字行（`AutomaticNumberRow`）照旧，与这个开关取或。数字键经 `type()` 交给 Engine：没有组字时 Engine 不收，宿主上屏这个数字（全角模式下是全角）；组字中当前页有对应候选的 1–9 由 runtime 选词，当前页之外的 1–9 被 runtime 吞掉、什么也不发生；Engine 不收的 `0` 和没有候选时的 1–9 先按首选结束组合再上屏（`DeclinedKeyPolicy`，否则数字会顶掉组字区里的拼音）；英文直输时直接上屏。判定在 `KeyboardLayout.drawsNumberRow`，由 `KeyboardLayoutSmoke` 覆盖；开关变化后下一次渲染发现键行与应画状态不一致时重建键行（`ImeLetterRows.numberRowStale`）。这一项和下面的底行样式都记在键盘进程的皮肤片段（`SKIN_HINT_KEYS`）里，冷启动的第一帧就按用户的选择画，不会先画没有数字行的键盘、一两秒后再高出一行。数字键按 `Digit0`–`Digit9` 计入打字统计，26 键热力图在打开数字行时多画这一行。
