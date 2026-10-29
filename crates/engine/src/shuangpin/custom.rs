@@ -198,7 +198,7 @@ pub fn validate_custom_profile(table: &ShuangpinCustomTable) -> Result<(), Custo
     custom_profile(table).map(|_| ())
 }
 
-/// 与 [`validate_custom_profile`] 的结论相同，但什么也不留下：不进按内容去重的那份列表，也不 leak。给编辑中的表用，例如设置页每改一个键就问一次：编辑过程中的每一张合法的中间表都不是用户最后要用的那张，留下来就是永久泄漏，列表也越查越慢。真要用这张表建会话时仍走 [`custom_profile`]。
+/// 与 [`validate_custom_profile`] 的结论相同，但什么也不留下：不进按内容去重的那份列表，也不 leak。给编辑中的表用，例如设置页每改一个键就问一次：编辑过程中的每一张合法的中间表都不是用户最后要用的那张，留下来就是永久泄漏，列表也越查越慢。真要用这张表建会话时把它交给 `SessionOptions::shuangpin_custom_profile`，会话按内容去重留下一份。
 pub fn check_custom_profile(table: &ShuangpinCustomTable) -> Result<(), CustomProfileError> {
     check_codes(&canonicalize(table)?)
 }

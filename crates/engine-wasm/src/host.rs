@@ -2,23 +2,22 @@
 //!
 //! 这一层是纯 Rust，不碰浏览器，原生测试可以直接驱动它（`tests/routing.rs`、`tests/parity.rs`）。它做的事和桌面宿主里的 `msime_input_runtime::Runtime` 相同——每次选择都经过 `engine_order` 座位映射，排序决策调用 `msime_engine::ordering` 里同一组函数——只是去掉了网页用不到的部分（在线候选、九键、本地模式、词组暂存），并多了网页自己要管的东西：英文模式开关、引号状态和慢帧熔断。
 //!
-//! 引擎用的是核心 `msime_engine::Session`，不是 `msime_engine::host::Session`：后者构造时要写翻译 sidecar，在 wasm 上没有文件系统可写。
+//! 引擎用的是核心 `msime_engine::Session`，不是 `msime_engine::host::Session`：后者构造时要写翻译 sidecar，在 wasm 上没有文件系统可写。快照什么时候过期、两次排序之间引擎改过几次，都按核心会话的候选修订号（`Session::candidate_revision`）判断，这里不另记一份。排序（`msime_engine::ordering`）和浏览器存储（`msime_engine::web`）是产品胶水，只给 msime 自己的宿主用，不在引擎文档化的 API 里；翻页、高亮和数字键选第几个是宿主的事，引擎只按下标给候选，所以留在这里。
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use msime_engine::host::{HelpcodeKeymap, SharedKeymap};
 use msime_engine::ordering::{
     rerank_pick, rotate_to_front, runner_up_order, OrderRow, Reranker, ScoredOrderRows,
     SentenceModel,
 };
 use msime_engine::time::Instant;
 use msime_engine::{
-    Command, EnglishInputOptions, FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult,
-    LocalInputMode, LocalModeOptions, MixedExpressiveOptions, RuntimePaths, SchemeType,
-    SentenceAssociationOptions, Session, SessionOptions, SessionSnapshot, ShuangpinProfileKind,
-    WubiInputOptions, WubiProfileKind,
+    Command, EnglishInputOptions, FrequencyAdjustmentOptions, FuzzyPinyinOptions, HelpcodeKeymap,
+    KeyResult, LocalInputMode, LocalModeOptions, MixedExpressiveOptions, RuntimePaths, SchemeType,
+    SentenceAssociationOptions, Session, SessionOptions, SessionSnapshot, SharedKeymap,
+    ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
 };
 
 /// 上文最多保留的字节数，和 `Runtime::remember_commit` 一样：引擎的查询拒绝更长的上文，超长时整次查询失效而不是截断。
@@ -251,7 +250,7 @@ pub struct Frame {
     pub caret: u32,
     /// 当前页，最多 `page_size` 行。
     pub page: Vec<Row>,
-    /// 列表版本只在候选身份改变时前进，翻页与移动高亮不改变它。
+    /// 列表版本只在候选身份改变时前进，翻页与移动高亮不改变它。它是排序后列表的版本，不是核心会话的 `Session::candidate_revision`：模型开关和上文变化会改顺序而核心修订号不动，引擎不收的键会让核心修订号前进而列表不变。
     pub candidate_revision: u64,
     pub page_start: u32,
     pub page_size: u32,
@@ -301,19 +300,22 @@ pub struct WebHost {
     /// 页面的空闲退格是否真的删字（`set_backspace_deletes`）；出错时停下打开时页面不删，上文也就不能删。
     backspace_deletes: bool,
     english: bool,
-    /// 最近一次快照；None 表示引擎状态变了还没重新取。
-    snapshot: Option<SessionSnapshot>,
-    /// 快照过期时，是否已知正在组字（字母键处理后一定在组字，不必为路由下一个键专门取快照）。
-    composing_hint: Option<bool>,
+    /// 最近一次快照。
+    snapshot: SessionSnapshot,
+    /// 取 `snapshot` 时核心会话的候选修订号；和现在的修订号不同（或还没取过）时快照已经过期。改状态的调用不必各自记得作废快照。
+    snapshot_revision: Option<u64>,
+    /// 快照过期时已知的组字状态，连同得知它时的修订号（字母键处理后一定在组字，不必为路由下一个键专门取快照）；修订号又变过就不再作数。
+    composing_hint: Option<(u64, bool)>,
     ordered: Ordered,
-    /// `ordered` 是否对应当前快照。
+    /// 排序之后网页自己的输入（模型开关、上文）没有变过；引擎这一侧变没变看 `ordered_revision`。
     order_valid: bool,
-    /// 上次排序之后改变引擎状态的次数。`Runtime::refresh` 每个键都比较一次，惰性排序（D19）只比较批首和批末；中间改过不止一次时，批首批末相同也不代表组字没换过（上屏后重打同一个码，退格后补回同一个字母）。
-    engine_changes: u32,
+    /// 上次排序时核心会话的候选修订号。`Runtime::refresh` 每个键都比较一次，惰性排序（D19）只比较批首和批末；修订号在两次排序之间前进了不止一次时，批首批末相同也不代表组字没换过（上屏后重打同一个码，退格后补回同一个字母）。
+    ordered_revision: u64,
     /// 当前高亮的座位（整个列表里的下标，不是页内下标）。
     highlighted: usize,
     /// 这次组字已经尝试过展开被截留的候选。
     expanded: bool,
+    /// [`Frame::candidate_revision`]。
     candidate_revision: u64,
     panel_open: bool,
     out: Vec<Out>,
@@ -367,6 +369,7 @@ impl WebHost {
         // 网页引擎按自己的每页候选数决定全长组要不要并入补全词。
         options.first_page_rows = page_size;
         let session = open_session(&options)?;
+        let revision = session.candidate_revision();
         // 五笔、日语和韩文不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
         let reranker = model
             .filter(|_| scheme.uses_model())
@@ -385,11 +388,12 @@ impl WebHost {
             context: String::new(),
             backspace_deletes: true,
             english: false,
-            snapshot: None,
-            composing_hint: Some(false),
+            snapshot: SessionSnapshot::default(),
+            snapshot_revision: None,
+            composing_hint: Some((revision, false)),
+            ordered_revision: revision,
             ordered: Ordered::default(),
             order_valid: false,
-            engine_changes: 0,
             highlighted: 0,
             expanded: false,
             candidate_revision: 0,
@@ -519,7 +523,6 @@ impl WebHost {
                 self.options.helpcode = false;
             }
         }
-        self.invalidate();
         Ok(())
     }
 
@@ -546,8 +549,12 @@ impl WebHost {
             .checked_add(1)
             .expect("candidate revision exhausted");
         self.ordered = Ordered::default();
-        self.invalidate();
-        self.composing_hint = Some(false);
+        // 重建的会话的修订号从头算起，所以这里明说快照和排序都已过期，不靠修订号比较。
+        let revision = self.session.candidate_revision();
+        self.snapshot_revision = None;
+        self.composing_hint = Some((revision, false));
+        self.ordered_revision = revision;
+        self.order_valid = false;
         self.frame()
     }
 
@@ -695,15 +702,18 @@ impl WebHost {
             return;
         }
         let composing = self.composing();
+        let before = self.session.candidate_revision();
         let result = self.session.character(byte, false);
         if result.commit.is_some() {
             self.apply(result, -1);
         } else if result.handled {
-            // 只标记过期，排序留到这批按键结束或下一个要用座位的键之前（D19）。
-            self.invalidate();
-            self.composing_hint = Some(true);
-        } else if !composing {
-            // 组字中引擎不收的字母什么也不做；空闲时原样打出。
+            // 排序留到这批按键结束或下一个要用座位的键之前（D19）；修订号已经前进，快照和排序自然过期。
+            self.composing_hint = Some((self.session.candidate_revision(), true));
+        } else if composing {
+            // 组字中引擎不收的字母什么也不做。
+            self.keep_order_after_refused_key(before);
+        } else {
+            // 空闲时原样打出。
             self.type_text(char::from(byte).to_string());
         }
     }
@@ -725,9 +735,7 @@ impl WebHost {
         let handled = result.handled;
         if result.commit.is_some() {
             self.apply(result, -1);
-        } else if handled {
-            self.invalidate();
-        } else if idle_before {
+        } else if !handled && idle_before {
             self.type_text(char::from(byte).to_string());
             return;
         }
@@ -742,8 +750,7 @@ impl WebHost {
         if result.commit.is_some() {
             self.apply(result, -1);
         } else if result.handled {
-            self.invalidate();
-            self.composing_hint = Some(true);
+            self.composing_hint = Some((self.session.candidate_revision(), true));
         } else {
             self.commit_plain();
             self.type_text(char::from(byte).to_string());
@@ -766,11 +773,13 @@ impl WebHost {
             return;
         }
         // 先让引擎看数字（`Runtime::dispatch`），它不收时 1-9 选前九个、0 选第十个；页里没有那一格时吞掉。
+        let before = self.session.candidate_revision();
         let result = self.session.character(byte, false);
         if result.handled || result.commit.is_some() {
             self.apply(result, -1);
             return;
         }
+        self.keep_order_after_refused_key(before);
         self.ensure_ordered();
         let slot = digit_slot(byte);
         let seat = self.page_start() + slot;
@@ -805,11 +814,13 @@ impl WebHost {
                 _ => false,
             };
         if spells {
+            let before = self.session.candidate_revision();
             let result = self.session.character(byte, false);
             if result.handled || result.commit.is_some() {
                 self.apply(result, -1);
                 return;
             }
+            self.keep_order_after_refused_key(before);
         }
         let mut finished = false;
         if composing {
@@ -844,10 +855,7 @@ impl WebHost {
         }
         let result = self.session.punctuation(byte);
         match result.commit {
-            Some(text) => {
-                self.invalidate();
-                self.commit(text, -1);
-            }
+            Some(text) => self.commit(text, -1),
             // 没有中文形式的 ASCII 标点：结束了组字时和组字一起上屏（`Runtime::punctuation`），空闲时原样打出。
             None if finished => self.commit(char::from(byte).to_string(), -1),
             None => self.type_text(char::from(byte).to_string()),
@@ -902,8 +910,6 @@ impl WebHost {
         if !self.session.expand_initial_candidates() {
             return false;
         }
-        self.snapshot = None;
-        self.order_valid = false;
         self.order(true);
         true
     }
@@ -943,19 +949,11 @@ impl WebHost {
         self.ordered.engine_order.get(seat).copied().unwrap_or(seat)
     }
 
-    /// 处理一次改变了引擎状态的调用：有上屏就输出，并让缓存的快照和排序过期。
+    /// 处理一次改变了引擎状态的调用的上屏；缓存的快照和排序随核心会话的修订号过期。
     fn apply(&mut self, result: KeyResult, seat: i32) {
-        self.invalidate();
         if let Some(text) = result.commit {
             self.commit(text, seat);
         }
-    }
-
-    fn invalidate(&mut self) {
-        self.engine_changes = self.engine_changes.saturating_add(1);
-        self.snapshot = None;
-        self.composing_hint = None;
-        self.order_valid = false;
     }
 
     fn commit(&mut self, text: String, seat: i32) {
@@ -1000,20 +998,47 @@ impl WebHost {
     }
 
     fn composing(&mut self) -> bool {
-        if self.snapshot.is_none() {
-            if let Some(composing) = self.composing_hint {
-                return composing;
+        let revision = self.session.candidate_revision();
+        if self.snapshot_revision != Some(revision) {
+            if let Some((known_at, composing)) = self.composing_hint {
+                if known_at == revision {
+                    return composing;
+                }
             }
         }
         is_composing(self.ensure_snapshot())
     }
 
+    /// 修订号变过（或还没取过）时重新取快照。
+    fn refresh_snapshot(&mut self) {
+        let revision = self.session.candidate_revision();
+        if self.snapshot_revision != Some(revision) {
+            self.snapshot = self.session.snapshot();
+            self.snapshot_revision = Some(revision);
+        }
+    }
+
     fn ensure_snapshot(&mut self) -> &SessionSnapshot {
-        self.snapshot.get_or_insert_with(|| self.session.snapshot())
+        self.refresh_snapshot();
+        &self.snapshot
+    }
+
+    /// 引擎没收、也没上屏的键。核心会话照样前进修订号（它只说候选“可能”变了），排序若只按修订号判断，就会为这一键重排一次（开着模型时是一次整句重排，可能上百毫秒），两次这样的键还会被当成换了一次组字，高亮回到首位、网页手里的候选身份作废。进这一键之前的快照和排序若都对得上当时的修订号，就重取快照比一比：一样时把两者挪到新的修订号上，和 `Runtime::refresh` 每个键都比对前后快照、组字和候选都没变就留住高亮一致；不一样时照常过期。快照本来就过期时没有可比的，照常走修订号。
+    fn keep_order_after_refused_key(&mut self, before: u64) {
+        let after = self.session.candidate_revision();
+        if after == before || self.snapshot_revision != Some(before) {
+            return;
+        }
+        let snapshot = self.session.snapshot();
+        if snapshot == self.snapshot && self.ordered_revision == before {
+            self.ordered_revision = after;
+        }
+        self.snapshot = snapshot;
+        self.snapshot_revision = Some(after);
     }
 
     fn ensure_ordered(&mut self) {
-        if !self.order_valid {
+        if !self.order_valid || self.ordered_revision != self.session.candidate_revision() {
             self.order(false);
         }
     }
@@ -1023,7 +1048,9 @@ impl WebHost {
         let started = Instant::now();
         let use_model = self.model_on();
         let hints = self.helpcode_on();
-        let snapshot = self.snapshot.get_or_insert_with(|| self.session.snapshot());
+        self.refresh_snapshot();
+        let revision = self.session.candidate_revision();
+        let snapshot = &self.snapshot;
         let scheme = snapshot.scheme as u8;
         let rows: Vec<OrderRow<'_>> = snapshot
             .candidates
@@ -1095,9 +1122,9 @@ impl WebHost {
             .collect();
         let editing_text = snapshot.editing_text.clone();
         // `Runtime::refresh`：列表和组字都没变时高亮留在原处，否则回到首位；换了一次组字，展开也要重新来过。上次排序后引擎改过不止一次时，中间必定经过别的状态，`Runtime` 在那里已经回到首位。
-        let same_composition =
-            self.engine_changes <= 1 && editing_text == self.ordered.editing_text;
-        self.engine_changes = 0;
+        let same_composition = revision.wrapping_sub(self.ordered_revision) <= 1
+            && editing_text == self.ordered.editing_text;
+        self.ordered_revision = revision;
         let unchanged = same_composition && ordered_rows == self.ordered.rows;
         if !unchanged || order != self.ordered.engine_order {
             self.candidate_revision = self

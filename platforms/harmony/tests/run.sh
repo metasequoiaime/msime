@@ -521,6 +521,32 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
   exit 1
 fi
+# 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。
+capture_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+capture_settings="$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"
+capture_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/ScreenCaptureAuthentication.ets"
+capture_protection="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/ScreenCaptureProtection.ets"
+capture_bridge=$(sed -n '/^  private async screenCaptureProtectionSettings(payload: string): Promise<string> {$/,/^  }$/p' "$capture_settings")
+capture_available=$(sed -n '/^  static available(): boolean {$/,/^  }$/p' "$capture_auth")
+if ! grep -qF '"name": "ohos.permission.PRIVACY_WINDOW"' "$repo_root/platforms/harmony/entry/src/main/module.json5" \
+  || ! grep -qF "ScreenCaptureProtection.protectPanel(toolbar, this.screenCaptureProtected(), 'toolbar');" "$capture_ability" \
+  || ! grep -qF "ScreenCaptureProtection.protectPanel(hud, this.screenCaptureProtected(), 'mode badge');" "$capture_ability" \
+  || ! grep -qF 'ScreenCaptureProtection.protectPanel(panel, this.screenCaptureProtected(),' "$capture_ability" \
+  || [[ $(grep -cF 'this.applyScreenCaptureProtection();' "$capture_ability") -ne 2 ]] \
+  || ! grep -qF 'if (ScreenCaptureProtection.panelModes.get(panel) === enabled) return;' "$capture_protection" \
+  || ! grep -qF 'ScreenCaptureProtection.panelModes.set(panel, enabled);' "$capture_protection" \
+  || ! grep -qF 'ScreenCaptureProtection.protectWindow(stage.getMainWindowSync(), true);' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/entryability/EntryAbility.ets" \
+  || ! grep -qF "kind === 'screen_capture_protection_settings'" "$capture_settings" \
+  || ! grep -qF 'ScreenCaptureProtectionPolicy.decide(current, next,' <<< "$capture_bridge" \
+  || ! grep -qF 'ScreenCaptureProtection.protectLastWindow(context, saved.enabled);' <<< "$capture_bridge" \
+  || ! grep -qF 'this.publishShared();' <<< "$capture_bridge" \
+  || ! grep -qF 'screen capture protection not published to the keyboard' <<< "$capture_bridge" \
+  || ! grep -qF 'return false;' <<< "$capture_available" \
+  || [[ $(grep -cF 'return true;' <<< "$capture_available") -ne 1 ]]; then
+  echo "Screen capture protection must declare PRIVACY_WINDOW, set privacy mode on all three keyboard panels and on the settings window, re-apply it after each focus import, skip panels whose mode has not changed, publish every change to the keyboard without reporting a saved change as failed when that publish fails, and refuse when no system authentication is set up" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。

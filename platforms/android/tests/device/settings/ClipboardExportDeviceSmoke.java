@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Rect;
@@ -27,6 +29,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.json.JSONObject;
@@ -151,6 +156,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         check(second.size() == first.size() + 1, "direct export document count");
         for (var entry : second.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
+        concurrentExports();
+        second = files();
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
         var clipboard = getTargetContext().getSystemService(android.content.ClipboardManager.class);
@@ -175,6 +182,9 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         }
         stage = "real keyboard panel export control";
         int beforeKeyboardWrite = textWriteProbe("hold-text-write");
+        // 「导出」收进了顶行的「更多」菜单（#10037）。
+        tap(node -> "更多剪贴板操作".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
             && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
@@ -322,6 +332,56 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         seed();
         check(DocumentsContract.deleteDocument(getTargetContext().getContentResolver(), document(ROOT, "root")), "delete root");
         check(export().contains("重新选择"), "deleted directory not redirected");
+    }
+
+    /** 暂停一笔已生成缓存快照的导出，让另一笔先完成并清理自己的临时文件。 */
+    private void concurrentExports() throws Exception {
+        stage = "concurrent exports retain separate snapshots";
+        CountDownLatch staged = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        Context delayed = new ContextWrapper(getTargetContext()) {
+            private boolean cacheUsed;
+            @Override public File getCacheDir() {
+                cacheUsed = true;
+                return super.getCacheDir();
+            }
+            @Override public ContentResolver getContentResolver() {
+                if (cacheUsed) {
+                    cacheUsed = false;
+                    staged.countDown();
+                    try {
+                        if (!resume.await(30, TimeUnit.SECONDS))
+                            throw new IllegalStateException("synthetic export gate timed out");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("synthetic export interrupted", interrupted);
+                    }
+                }
+                return super.getContentResolver();
+            }
+        };
+        var worker = Executors.newSingleThreadExecutor();
+        int before = files().size();
+        int completed = textWriteProbe("text-write-status");
+        var pending = worker.submit(() -> export(delayed));
+        try {
+            check(staged.await(30, TimeUnit.SECONDS), "first export staged before destination access");
+            check(export().startsWith("导出完成"), "second concurrent export succeeds");
+            resume.countDown();
+            check(pending.get(30, TimeUnit.SECONDS).startsWith("导出完成"),
+                "first concurrent export retains its snapshot after second export cleanup");
+            waitFor(() -> textWriteProbe("text-write-status") == completed + 2, "both concurrent exports close");
+            Map<String, byte[]> exported = files();
+            check(exported.size() == before + 2, "two concurrent export documents");
+            for (var entry : exported.entrySet()) {
+                checkName(documentName(entry.getKey()));
+                checkText(entry.getValue());
+            }
+        } finally {
+            resume.countDown();
+            worker.shutdownNow();
+            check(worker.awaitTermination(30, TimeUnit.SECONDS), "concurrent export worker stopped");
+        }
     }
 
     private void seed() throws Exception {
@@ -489,8 +549,9 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         check(host.getMethod("savePreferences", Context.class, JSONObject.class)
             .invoke(null, getTargetContext(), snapshot) != null, "clipboard shortcut save");
     }
-    private String export() throws Exception { return (String) getTargetContext().getClassLoader()
-        .loadClass("app.msime.android.ClipboardExport").getMethod("export", Context.class).invoke(null, getTargetContext()); }
+    private String export() throws Exception { return export(getTargetContext()); }
+    private String export(Context context) throws Exception { return (String) getTargetContext().getClassLoader()
+        .loadClass("app.msime.android.ClipboardExport").getMethod("export", Context.class).invoke(null, context); }
     private void restore() throws Exception {
         if (clipChanged) {
             var clipboard = getTargetContext().getSystemService(android.content.ClipboardManager.class);

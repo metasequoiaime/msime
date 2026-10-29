@@ -43,12 +43,17 @@ jobs:
         run: |
           set -euo pipefail
           # 批量列表（包括 GraphQL 的 pullRequests 连接）不会触发 GitHub 计算 mergeable，一直是 UNKNOWN；逐个 GET /pulls/{number} 才会。所以先列出编号，再一个个读，读到 null 说明还在算，隔 10 秒再读，最多 4 次。
-          gh pr list --state open --limit 500 --json number,labels \
-            --jq '.[] | "\(.number) \(any(.labels[]; .name == env.LABEL))"' > prs.txt
+          # GitHub API 偶尔回一段不是 JSON 的错误页（`invalid character 'S' looking for beginning of value`），在 set -e 下一次抖动就让整个作业变红、挂在当时触发它的 PR 上。列表重试几次；单个 PR 读失败按「还没算出来」处理，留到下一次触发，不中止其余 PR。
+          for attempt in 1 2 3 4; do
+            gh pr list --state open --limit 500 --json number,labels \
+              --jq '.[] | "\(.number) \(any(.labels[]; .name == env.LABEL))"' > prs.txt && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep 10
+          done
           while read -r number labelled; do
             mergeable=null
             for attempt in 1 2 3 4; do
-              mergeable=$(gh api "repos/$GH_REPO/pulls/$number" --jq '.mergeable')
+              mergeable=$(gh api "repos/$GH_REPO/pulls/$number" --jq '.mergeable') || mergeable=null
               [ "$mergeable" != null ] && break
               [ "$attempt" = 4 ] || sleep 10
             done

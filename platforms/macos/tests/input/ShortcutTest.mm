@@ -2823,6 +2823,69 @@ static void TestRestoredInputModeActivation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 系统输入菜单里的模式可用性由测试决定：TestSystemInputModeReport 用真实的 TIS 查询，CI 上「双」没有启用，切回分支在那里分不出修复前后。
+@interface AvailableModesController : ModeController
+@end
+@implementation AvailableModesController
+- (MSIMEInputModeAvailability)inputModeAvailability {
+    return +[](NSString *identifier) -> BOOL { return MSIMEIsInputModeID(identifier); };
+}
+@end
+
+// #10199：从别的输入源切回水杉时系统落在「中」上，不是用户越过「双」选了「中」，双拼保持不变并把菜单栏选回「双」；切回已经处理过之后再报告「中」才改用全拼。激活校准抢先写记录并选回「双」时，滞后到达的「中」同样按切回处理；按过键之后的「中」是用户的选择。
+static void TestSwitchBackKeepsShuangpin() {
+    NSString *suite = [@"msime.switch-back." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    appearance.inputModeStatusItem = NO;
+    AvailableModesController *controller = [AvailableModesController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    // 按键那一段不关心按键本身，Engine 不处理它，交还给客户端。
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null,
+                                @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    MSIMEFocusedController = controller;
+    auto switchBack = [&]() -> ModeSelectingClient * {
+        ModeSelectingClient *client = [ModeSelectingClient new];
+        [controller setValue:client forKey:@"activeClient"];
+        appearance.inputScheme = @"shuangpin";
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        return client;
+    };
+
+    // 报告先于激活校准到达。
+    ModeSelectingClient *client = switchBack();
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"] && !appearance.englishMode);
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && client.selectedModes.count == 1);
+
+    // 激活校准先记下「中」并选回「双」，切回时的「中」报告随后才到。
+    client = switchBack();
+    assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEChineseInputModeID));
+    [controller syncSystemInputModeForClient:client];
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+    assert([client.selectedModes isEqualToArray:(@[MSIMEShuangpinInputModeID, MSIMEShuangpinInputModeID])]);
+
+    // 切回后先在水杉里按了键，之后报告的「中」是用户的选择。
+    client = switchBack();
+    assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEShuangpinInputModeID));
+    [controller handleEvent:KeypadKey(122, [NSString stringWithFormat:@"%C", (unichar)NSF1FunctionKey], 0, NO) client:client];
+    assert(!MSIMESharedSystemInputModeState().switchedIn);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+
+    MSIMEFocusedController = nil;
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The selected input mode, 中, 英 or 日, follows the controller's state. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state and, for 中 and 日, the scheme, and is not selected back.
 static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
@@ -15298,6 +15361,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestDedicatedEnglish(appearance); }
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
+        @autoreleasepool { TestSwitchBackKeepsShuangpin(); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestRestoredInputModeActivation(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
