@@ -752,7 +752,7 @@ fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
             &mut bytes,
         )
     };
-    if sized != ERROR_SUCCESS || bytes < 2 || bytes % 2 != 0 || bytes / 2 > 32768 {
+    if sized != ERROR_SUCCESS || bytes < 2 || !bytes.is_multiple_of(2) || bytes / 2 > 32768 {
         return None;
     }
     let mut value = vec![0u16; (bytes as usize).div_ceil(std::mem::size_of::<u16>())];
@@ -768,7 +768,7 @@ fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
             &mut bytes,
         )
     };
-    if read != ERROR_SUCCESS || bytes % 2 != 0 || bytes as usize / 2 > value.len() {
+    if read != ERROR_SUCCESS || !bytes.is_multiple_of(2) || bytes as usize / 2 > value.len() {
         return None;
     }
     value.truncate(bytes as usize / 2);
