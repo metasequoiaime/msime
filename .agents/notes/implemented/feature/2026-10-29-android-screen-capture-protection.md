@@ -21,7 +21,7 @@ Status: implemented
 
 窗口效果由 `ScreenCaptureProtection` 落到 `FLAG_SECURE` 上。这个标志只作用于设了它的那一个窗口，所以每类窗口各自处理：
 
-- 设置应用的全部 9 个 Activity 在 `onCreate` 里调用 `ScreenCaptureProtection.apply(this)`，窗口显示前就带上标志；`HomeActivity` 在 `onResume` 里再读一次；隐私页写入成功后当场改本页所在窗口；认证过的「重置所有设置」把它和其他本地设置一起恢复为关闭，开发者页当场去掉窗口标志。
+- 设置应用的全部 9 个 Activity 在 `onCreate` 里调用 `ScreenCaptureProtection.apply(this)`，窗口显示前就带上标志；`HomeActivity` 在 `onResume` 里再读一次；隐私页写入成功后当场改所在 Activity 的窗口（写完由工作线程直接投到主线程，不经页面视图的结果回调：那个回调在用户退出隐私页后会被丢掉，而写入可能排在共用工作线程上晚于退出完成，曾导致文件写成「开着」、其余设置页仍可截屏到下次 `onResume`）；认证过的「重置所有设置」把它和其他本地设置一起恢复为关闭，开发者页当场去掉窗口标志。
 - 设置应用里的对话框和底部面板是独立窗口，不继承 Activity 的标志。全部 `MaterialAlertDialogBuilder`、`BottomSheetDialog` 以及 `InputDialog` 内部的 `AppCompatDialog` 改为经 `ScreenCaptureProtection.show` / `protect` 在显示前设好。`InputDialog` 是 AI 凭据、WebDAV 账号和应用密码、自建中继令牌、语音服务密钥、常用语正文、QQ 绑定码共用的输入框，第一版只数了 `MaterialAlertDialogBuilder` 和 `BottomSheetDialog`，漏了它，评审时补上。
 - 输入法窗口在 `MSIMEInputService.applyLocalSettings` 里跟随设置，`onStartInputView` 每次重读本地设置，所以在设置应用里切换后，下一次弹出键盘就生效。
 - 输入法自己开的三个 `PopupWindow`（剪贴板全文预览、九键长按选项、文本触控板放大镜）没有设置窗口标志的公开接口，显示之后立即改根视图的 `WindowManager.LayoutParams` 再 `updateViewLayout`；第一次布局是排到下一帧执行的，所以第一帧已经带着标志。常用语操作提示（`ImeOperationNotice` 在 Android 11 起单开的子窗口）在 `addView` 前直接带上标志。
@@ -41,7 +41,7 @@ Status: implemented
 
 iOS 没有公开接口阻止系统截屏或录屏，键盘扩展同样不行，不做。
 
-HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `window.setWindowPrivacyMode`，需要 `ohos.permission.PRIVACY_WINDOW`，SDK 里这个权限是 `normal` 级、`system_grant`，不是高风险权限。这次没有做：鸿蒙的设置界面是共享 React 设置页，开关和认证要经 ArkTS 原生桥接 `userAuth`，设置要放进键盘扩展能读到的本机存储，还有软键盘、浮动工具条和输入模式提示三块面板要分别处理；这些只能做类型检查，HAP 编译和设备验证都做不了。留作后续单独跟进。
+HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `window.setWindowPrivacyMode`，需要 `ohos.permission.PRIVACY_WINDOW`，SDK 里这个权限是 `normal` 级、`system_grant`，不是高风险权限。这次没有做：鸿蒙的设置界面是共享 React 设置页，开关和认证要经 ArkTS 原生桥接 `userAuth`，设置要放进键盘扩展能读到的本机存储，还有软键盘、浮动工具条和输入模式提示三块面板要分别处理；这些只能做类型检查，HAP 编译和设备验证都做不了。后续在 #10194 跟进。
 
 ## Alternatives considered
 
@@ -57,4 +57,4 @@ HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `w
 
 代价：设置应用里新增或改动对话框、弹窗时必须经 `ScreenCaptureProtection`，否则 check-host 失败；打开后用户自己也无法截屏反馈问题，需要先关掉（要认证）。全屏的输入法窗口在截图里整块变黑，见上一节。
 
-验证：`compileFullDebugJavaWithJavac`（JDK 21）成功；`platforms/android/check-host.sh` 成功，299 项 Android JVM smoke（含新增的 `ScreenCaptureProtectionPolicySmoke`、补了关键词的 `SettingsSearchIndexSmoke`）和 255 项设备套件源码编译通过。check-host 的新检查分别删掉一处 `apply(this)`、一处弹窗保护（含 `InputDialog` 的 `AppCompatDialog`）、一处 `PopupWindow` 处理、子窗口标志和输入法窗口接线后都会失败。没有在模拟器或真机上验证截图是否变黑、认证弹窗与回滚、`PopupMenu` 是否随父窗口涂黑以及厂商 ROM 的截屏和录屏行为。
+验证：`compileFullDebugJavaWithJavac`（JDK 21）成功；`platforms/android/check-host.sh` 成功，299 项 Android JVM smoke（含新增的 `ScreenCaptureProtectionPolicySmoke`、补了关键词的 `SettingsSearchIndexSmoke`）和 255 项设备套件源码编译通过。check-host 的新检查分别删掉一处 `apply(this)`、一处弹窗保护（含 `InputDialog` 的 `AppCompatDialog`）、一处 `PopupWindow` 处理、子窗口标志和输入法窗口接线后都会失败。设备套件新增 `ScreenCaptureProtectionDeviceCheck`（`SettingsDeviceSmoke -e screen-capture true`，在 `smoke.sh` 默认路径上，PR 的 API 35 设备验收会跑），读系统真正拿到的窗口属性：开着时 `HomeActivity` 和经 `ScreenCaptureProtection.protect` 的对话框窗口带 `FLAG_SECURE`，关上后重新打开的窗口不带。没有在模拟器或真机上验证截图是否变黑、认证弹窗与回滚、`PopupMenu` 是否随父窗口涂黑以及厂商 ROM 的截屏和录屏行为。

@@ -1,6 +1,9 @@
 package app.msime.android.home;
 
+import android.app.Activity;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.LinearLayout;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
@@ -32,6 +35,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private static final String POLICY = "https://msime.app/privacy/";
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final InputFeatureToggle[] NETWORK = {
         InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT, InputFeatureToggle.USAGE_REPORTING,
     };
@@ -186,27 +190,36 @@ public final class PrivacyPage extends ReloadingDetailPage {
         if (context != null) MsToast.show(context, value ? "未通过系统认证，防止截屏保持关闭" : "未通过系统认证，防止截屏保持开启");
     }
 
-    /** 写入开关；打开时同一次写入记下「打开过」，此后的切换都要认证。写好后当场给本页所在的窗口加上或去掉保护。 */
+    /**
+     * 写入开关；打开时同一次写入记下「打开过」，此后的切换都要认证。写好后当场给本页所在 Activity 的窗口加上或去掉保护。
+     *
+     * <p>窗口不跟着本页的视图走：{@link HostTask} 在页面视图销毁后会丢掉结果回调，而写入排在共用的工作线程上可能晚于用户退出本页完成。若靠那个回调改窗口，用户打开后立刻返回时文件已经写成「开着」，设置应用的其他页面却一直可以截屏，要等下次 {@code onResume} 才跟上。所以写成后直接把窗口更新投到主线程，只认 Activity 是否还在。
+     */
     private void writeScreenCaptureProtection(boolean value) {
         pendingScreenCaptureValue = value;
         render();
+        Activity activity = requireActivity();
         HostTask.run(this, context -> {
             Map<String, Object> edits = new LinkedHashMap<>(2);
             edits.put(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION, value);
             if (value) edits.put(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE, true);
+            final AndroidLocalSettings.Snapshot saved;
             try {
-                return AndroidLocalSettings.update(context, edits);
+                saved = AndroidLocalSettings.update(context, edits);
             } catch (java.io.IOException | IllegalArgumentException error) {
                 return null;
             }
+            boolean protect = saved.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION);
+            MAIN.post(() -> {
+                if (!activity.isDestroyed()) ScreenCaptureProtection.apply(activity.getWindow(), protect);
+            });
+            return saved;
         }, saved -> {
             pendingScreenCaptureValue = null;
             if (saved == null) {
                 MsToast.show(requireContext(), "没有保存，请重试");
             } else {
                 localSettings = saved;
-                ScreenCaptureProtection.apply(requireActivity().getWindow(),
-                    saved.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));
             }
             render();
         });
