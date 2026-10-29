@@ -1643,11 +1643,19 @@ final class ImePanels {
         layoutClipboardFloating();
     }
 
-    /** 「撤销」占住右下角；「返回顶部」和它同时出现时挪到它正上方，两者不重叠，「撤销」收起后再落回角上。 */
+    /**
+     * 「撤销」占住右下角；「返回顶部」和它同时出现时挪到它正上方，两者不重叠，「撤销」收起后再落回角上。
+     *
+     * <p>「撤销」显示期间列表底部多留出按钮高度加 8dp 的内边距：否则列表刚好不滚动或双列时，右下角那张卡片被按钮盖住、点不到，横滑露出的删除、固定也按不到，最长要等 9 秒。
+     */
     private void layoutClipboardFloating() {
         if (s.clipboardBackToTop == null || s.clipboardUndoButton == null) return;
+        boolean undoShown = ViewPolicy.isVisible(s.clipboardUndoButton);
+        if (s.clipboardPanel != null) {
+            LayoutPolicy.setPaddingDp(s.clipboardPanel, s, 8, 8, 8, undoShown ? 8 + CLIPBOARD_UNDO_HEIGHT_DP + 8 : 8);
+        }
         int bottom = s.pixels(8);
-        if (ViewPolicy.isVisible(s.clipboardUndoButton)) bottom += s.pixels(CLIPBOARD_UNDO_HEIGHT_DP + 8);
+        if (undoShown) bottom += s.pixels(CLIPBOARD_UNDO_HEIGHT_DP + 8);
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) s.clipboardBackToTop.getLayoutParams();
         if (params == null || params.bottomMargin == bottom) return;
         params.bottomMargin = bottom;

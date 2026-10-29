@@ -486,6 +486,17 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 "clipboard undo is not floating on the panel surface");
             check(descendant(header, view -> describedAs(view, "撤销刚才删除的剪贴板记录")) == null,
                 "clipboard header still has the old undo button");
+            // 「撤销」要用回车键的强调键帽，字色是当前皮肤的回车键前景色，并且由换肤那一遍重新上色（深浅色切换时不重建按钮）；只量几何时换成普通键帽或漏了换肤也照样通过。
+            Class<?> press = undo.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            check(press.isInstance(undo) && "RETURN".equals(String.valueOf(method(press, "keyboardRole").invoke(undo))),
+                "clipboard undo is not drawn as the emphasized return key cap");
+            undo.setTextColor(android.graphics.Color.MAGENTA);
+            Object styler = field(type, "imeStyler").get(service);
+            method(styler.getClass(), "applySkin").invoke(styler);
+            Object skin = field(type, "skin").get(service);
+            check(undo.getCurrentTextColor() == android.graphics.Color.parseColor(
+                    (String) skin.getClass().getMethod("returnForeground").invoke(skin)),
+                "clipboard undo is not restyled with the skin's return key label colour");
             for (int widthDp : new int[] {320, 600}) {
                 int width = Math.round(widthDp * density);
                 int height = Math.round(300 * density);
@@ -506,6 +517,11 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(!Rect.intersects(undoArea, topArea) && topArea.bottom <= undoArea.top,
                     "back to top overlaps clipboard undo at " + widthDp + "dp: " + topArea.toShortString()
                         + " vs " + undoArea.toShortString());
+                // 列表底部给「撤销」让出位置：滚到底时最后一行卡片整个落在按钮上方，点得到、横滑也够得着。
+                Rect last = bounds(surface, cards.getChildAt(cards.getChildCount() - 1));
+                check(last.bottom <= undoArea.top,
+                    "clipboard undo covers the last card when scrolled to the bottom at " + widthDp + "dp: "
+                        + last.toShortString() + " vs " + undoArea.toShortString());
                 scroll.scrollTo(0, 0);
                 updateBackToTop.invoke(panels);
             }
@@ -521,6 +537,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
                 "clipboard undo did not disappear when the countdown reached zero");
             check(!containsText(load.invoke(history), target), "an expired undo restored the record");
+            check(cards.getPaddingBottom() == cards.getPaddingTop(),
+                "clipboard list kept the extra bottom room after undo expired: " + cards.getPaddingBottom());
             layout(surface, Math.round(320 * density), Math.round(300 * density));
             scroll.scrollTo(0, cards.getHeight());
             updateBackToTop.invoke(panels);

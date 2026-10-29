@@ -2243,6 +2243,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
         main.removeCallbacks(clipboardImageCleanup);
+        // 撤销倒数每秒重排自己，不取消的话服务销毁后还会跑到期限，并去刷新已经脱离窗口的按钮。
+        main.removeCallbacks(clipboardUndoTick);
         clipboardImageGeneration++;
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
