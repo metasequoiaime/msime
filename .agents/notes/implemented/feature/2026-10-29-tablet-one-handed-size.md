@@ -33,7 +33,7 @@ iOS 的单手模式只在 iPhone 上提供（`KeyboardOneHandLayout.effective`�
 
 ## Consequences
 
-平板上单手模式空出来的一侧是一大块键盘底色，没有按键。#10203 在这块地方放数字键盘，iPad 也补上单手模式，见[大屏单手模式空出来的一侧放数字键盘](../../proposed/feature/2026-10-29-tablet-one-hand-side-number-pad.md)。
+平板上单手模式空出来的一侧是一大块键盘底色，没有按键。#10203 在这块地方放数字键盘，iPad 也补上单手模式，见[大屏单手模式空出来的一侧放数字键盘](2026-10-29-tablet-one-hand-side-number-pad.md)。
 
 ## Verification
 
