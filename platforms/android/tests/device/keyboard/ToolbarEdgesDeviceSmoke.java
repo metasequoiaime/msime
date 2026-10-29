@@ -392,7 +392,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             Object skin = field(type, "skin").get(service);
             int foreground = android.graphics.Color.parseColor(
                 (String) skin.getClass().getMethod("keyForeground").invoke(skin));
-            Class<?> press = menu.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            // 菜单容器是系统的 LinearLayout，它的类加载器是启动类加载器，找不到应用类，会抛 ClassNotFoundException；要用加载服务类的那个加载器。
+            Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
                 View button = descendant((ViewGroup) menu, view -> describedAs(view, item));
@@ -487,7 +488,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             check(descendant(header, view -> describedAs(view, "撤销刚才删除的剪贴板记录")) == null,
                 "clipboard header still has the old undo button");
             // 「撤销」要用回车键的强调键帽，字色是当前皮肤的回车键前景色，并且由换肤那一遍重新上色（深浅色切换时不重建按钮）；只量几何时换成普通键帽或漏了换肤也照样通过。
-            Class<?> press = undo.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             check(press.isInstance(undo) && "RETURN".equals(String.valueOf(method(press, "keyboardRole").invoke(undo))),
                 "clipboard undo is not drawn as the emphasized return key cap");
             undo.setTextColor(android.graphics.Color.MAGENTA);
