@@ -897,6 +897,9 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
         revision: u64,
         long_space: bool,
         number_row: bool,
+        /// 本机旧设置 `platform.android.nine_key_swipe` 的原值；本机没有这个键时不带。
+        #[serde(default)]
+        nine_key_swipe: Option<String>,
     }
     response(|| {
         if request.is_null() || length > 65536 {
@@ -912,7 +915,17 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
             "preferences directory must be absolute",
         )?;
         let saved = PreferencesStore::new(directory)
-            .migrate_android_key_layout(request.revision, request.long_space, request.number_row)
+            .migrate_android_key_layout(
+                request.revision,
+                request.long_space,
+                request.number_row,
+                // 不认识的旧值（不会出现，旧设置只存过 off、up、down）当作没有旧值，不迁。
+                request
+                    .nine_key_swipe
+                    .as_deref()
+                    .and_then(msime_client_core::preferences::TouchNineKeySwipeDigits::parse)
+                    .unwrap_or_default(),
+            )
             .map_err(|error| error.to_string())?;
         serde_json::to_value(saved).map_err(|error| error.to_string())
     })

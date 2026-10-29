@@ -470,6 +470,82 @@ fn number_pad_space_wire_strings_are_pinned_and_unknown_strings_read_as_the_plat
 }
 
 #[test]
+fn nine_key_swipe_digits_defaults_to_off_is_not_written_and_round_trips() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.touch_nine_key_swipe_digits,
+        TouchNineKeySwipeDigits::Off
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("touch_nine_key_swipe_digits").is_none());
+
+    // 没有这个键的旧文档读出关闭，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(
+        loaded.touch_nine_key_swipe_digits,
+        TouchNineKeySwipeDigits::Off
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 选过的方向照写法存取，关回默认后不再写进文档。
+    let mut revision = store.load().unwrap().revision;
+    for swipe in [TouchNineKeySwipeDigits::Up, TouchNineKeySwipeDigits::Down] {
+        let configured = Preferences {
+            touch_nine_key_swipe_digits: swipe,
+            ..Preferences::default()
+        };
+        revision = store.save(revision, configured.clone()).unwrap().revision;
+        let loaded = store.load().unwrap().preferences;
+        assert_eq!(loaded, configured);
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(
+            raw["preferences"]["touch_nine_key_swipe_digits"],
+            swipe.as_str()
+        );
+    }
+    store.save(revision, Preferences::default()).unwrap();
+    let raw: serde_json::Value = serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert!(raw["preferences"]
+        .get("touch_nine_key_swipe_digits")
+        .is_none());
+}
+
+#[test]
+fn nine_key_swipe_digits_wire_strings_are_pinned_and_unknown_strings_read_as_off() {
+    for (swipe, wire) in [
+        (TouchNineKeySwipeDigits::Off, "off"),
+        (TouchNineKeySwipeDigits::Up, "up"),
+        (TouchNineKeySwipeDigits::Down, "down"),
+    ] {
+        assert_eq!(serde_json::to_value(swipe).unwrap(), wire);
+        assert_eq!(swipe.as_str(), wire);
+        assert_eq!(TouchNineKeySwipeDigits::parse(wire), Some(swipe));
+        assert_eq!(
+            serde_json::from_value::<TouchNineKeySwipeDigits>(wire.into()).unwrap(),
+            swipe
+        );
+    }
+    assert_eq!(TouchNineKeySwipeDigits::parse("left"), None);
+    assert_eq!(TouchNineKeySwipeDigits::parse("Up"), None);
+
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    let mut document = legacy.clone();
+    document["touch_nine_key_swipe_digits"] = "both_ways".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(document).unwrap(),
+        Preferences::default()
+    );
+    let mut wrong = legacy;
+    wrong["touch_nine_key_swipe_digits"] = true.into();
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();
@@ -9521,7 +9597,7 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
             document["preferences"]["touch_nine_key_style"] = "future_nine".into();
             fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
             let saved = store
-                .migrate_android_key_layout(1, true, number_row)
+                .migrate_android_key_layout(1, true, number_row, TouchNineKeySwipeDigits::Off)
                 .unwrap();
             let raw: serde_json::Value =
                 serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
@@ -9539,16 +9615,84 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
             let before = fs::read(store.path()).unwrap();
             assert_eq!(
                 store
-                    .migrate_android_key_layout(saved.revision, true, number_row)
+                    .migrate_android_key_layout(
+                        saved.revision,
+                        true,
+                        number_row,
+                        TouchNineKeySwipeDigits::Off
+                    )
                     .unwrap()
                     .revision,
                 saved.revision
             );
             assert!(matches!(
-                store.migrate_android_key_layout(0, true, true),
+                store.migrate_android_key_layout(0, true, true, TouchNineKeySwipeDigits::Up),
                 Err(PreferencesError::Conflict)
             ));
             assert_eq!(fs::read(store.path()).unwrap(), before);
         }
+    }
+}
+
+#[test]
+fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_key() {
+    use TouchNineKeySwipeDigits::{Down, Off, Up};
+    // (共享文档里原来的写法, 本机旧值, 迁移后文档里的写法；None 表示不写这个键)
+    let cases: [(Option<&str>, TouchNineKeySwipeDigits, Option<&str>); 9] = [
+        (None, Up, Some("up")),
+        (None, Down, Some("down")),
+        (Some("off"), Up, Some("up")),
+        (Some("off"), Down, Some("down")),
+        // 别的设备同步来的方向不被本机旧值覆盖。
+        (Some("down"), Up, Some("down")),
+        (Some("up"), Down, Some("up")),
+        // 较新版本写的方向原样留着，不被宽松读出来的关闭覆盖。
+        (Some("both_ways"), Up, Some("both_ways")),
+        (Some("both_ways"), Off, Some("both_ways")),
+        // 本机旧值是关闭（或没有、不认识）时什么也不写。
+        (None, Off, None),
+    ];
+    for (shared, local, expected) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        document["revision"] = 1.into();
+        if let Some(shared) = shared {
+            document["preferences"]["touch_nine_key_swipe_digits"] = shared.into();
+        }
+        fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        let saved = store
+            .migrate_android_key_layout(1, false, false, local)
+            .unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(
+            raw["preferences"].get("touch_nine_key_swipe_digits"),
+            expected.map(serde_json::Value::from).as_ref(),
+            "{shared:?} {local:?}"
+        );
+        assert_eq!(
+            saved.preferences.touch_nine_key_swipe_digits,
+            expected
+                .and_then(TouchNineKeySwipeDigits::parse)
+                .unwrap_or_default(),
+            "{shared:?} {local:?}"
+        );
+        // 两项旧开关都没开，迁移九键滑动不碰底行样式和数字行。
+        assert!(!saved.preferences.touch_number_row);
+        assert_eq!(
+            saved.preferences.touch_twenty_six_key_style,
+            TouchTwentySixKeyStyle::Standard
+        );
+        // 再迁一次不增加修订号，文件不变。
+        let before = fs::read(store.path()).unwrap();
+        assert_eq!(
+            store
+                .migrate_android_key_layout(saved.revision, false, false, local)
+                .unwrap()
+                .revision,
+            saved.revision
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), before);
     }
 }

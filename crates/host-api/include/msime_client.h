@@ -395,7 +395,7 @@ char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
-/* Android 本机旧布局迁移：{directory:绝对路径,revision:u64,long_space:bool,number_row:bool}。
+/* Android 本机旧布局迁移：{directory:绝对路径,revision:u64,long_space:bool,number_row:bool,nine_key_swipe?:string}，nine_key_swipe 是本机旧设置 platform.android.nine_key_swipe 的原值（off/up/down），本机没有时不带。
  * 在偏好锁内按原始字段决定迁移并校验修订号；未知样式原样保留。返回 PreferencesSnapshot。
  * 请求最多 64 KiB，工作线程调用，结果用 msime_client_string_free 释放。 */
 char *msime_client_migrate_android_key_layout(const uint8_t *request, size_t length);

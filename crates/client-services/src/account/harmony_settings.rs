@@ -60,6 +60,7 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     number_row: "platform.harmony.number_row",
     twenty_six_symbol_first: "platform.harmony.twenty_six_symbol_first",
     number_pad_space: "platform.harmony.number_pad_space",
+    nine_key_swipe_digits: "platform.harmony.nine_key_swipe",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 
