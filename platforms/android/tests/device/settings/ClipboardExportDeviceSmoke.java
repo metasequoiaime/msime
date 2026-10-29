@@ -24,8 +24,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
@@ -119,14 +121,16 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         DeviceCredentialFixture.enter(automation);
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
-            waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
-            Map<String, byte[]> exported = files();
-            check(exported.size() == 1, "first authorized export");
+            Map<String, byte[]> exported = awaitExportedFiles(1, "first authorized export");
             for (String id : exported.keySet()) checkName(documentName(id));
-            checkText(exported.values().iterator().next());
         } else {
+            // 产品写完正文后才把下载条目的 IS_PENDING 归零（ClipboardExport.writeDownloads），downloads() 只认已发布的条目，读到时正文已经写完；SAF 目录没有发布这一步，要等正文写完（见 awaitExportedFiles）。
             waitFor(() -> downloadsUnchecked().size() == 1, "default Download export");
-            for (var entry : downloads().entrySet()) { checkName(downloadName(entry.getKey())); checkText(entry.getValue()); }
+            for (var entry : downloads().entrySet()) {
+                String name = downloadName(entry.getKey());
+                checkName(name);
+                checkText(name, entry.getValue());
+            }
             choose();
             selectFolder(null);
         }
@@ -141,12 +145,14 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         stage = "native direct export after restart";
         tap(text("导出"));
         DeviceCredentialFixture.enter(automation);
-        waitFor(() -> filesUnchecked().size() == first.size() + 1, "direct export");
-        Map<String, byte[]> second = files();
-        for (var entry : second.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
+        Map<String, byte[]> second = awaitExportedFiles(first.size() + 1, "direct export");
+        for (String id : second.keySet()) checkName(documentName(id));
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
+        // 合成历史里的 LONG 是 seed() 写进去的，只等它「出现」证明不了输入法捕获过这次复制。先记下它的时间戳：输入法捕获同一段文字时，共享存储保留置顶、把它换上新的时间戳再写盘。
+        long seededTimestamp = clipboardTimestamp(LONG);
+        check(seededTimestamp > 0, "seeded clipboard entry readable before keyboard capture");
         var clipboard = getTargetContext().getSystemService(android.content.ClipboardManager.class);
         previousClip = clipboard.getPrimaryClip();
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("合成导出记录", LONG));
@@ -155,8 +161,6 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         shell("ime set app.msime.android/.MSIMEInputService");
         shell("am start -W -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(node -> "msime-test-plain".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
-        stage = "real keyboard panel clipboard capture";
-        waitFor(() -> clipboardContains(LONG), "synthetic clipboard history entry");
         stage = "real keyboard panel clipboard entry";
         // 输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前工具栏的「剪贴板」是灰的，点了没有反应（CI 的 API 35 上曾在输入法进程刚冷启动、主线程还在卡顿时停在这一步等满 15 秒）。等它可用再点。
         try {
@@ -167,13 +171,21 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             throw new AssertionError(missing.getMessage() + "; cached " + clipboardEntryState()
                 + "; fresh " + freshClipboardEntryState(), missing);
         }
+        stage = "real keyboard panel clipboard capture";
+        // 冷启动的 `:ime` 进程在 onCreate 才注册剪贴板监听，收不到它起来之前设好的这条，要等打开剪贴板面板时补读（ImePanels.showClipboardHistory）才捕获；输入法进程早已在运行时则由监听在设剪贴板时捕获。两种情况到这里都已发生，所以在面板打开之后、点导出之前等时间戳变化，导出读到的一定是捕获写盘后的历史。
+        try {
+            waitFor(() -> clipboardTimestamp(LONG) > seededTimestamp, "keyboard captured the synthetic clipboard");
+        } catch (AssertionError missing) {
+            throw new AssertionError(missing.getMessage() + "; seeded timestamp " + seededTimestamp
+                + ", current " + clipboardTimestamp(LONG) + " (-1 = entry missing or unreadable)", missing);
+        }
         stage = "real keyboard panel export control";
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
             && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
         DeviceCredentialFixture.enter(automation);
-        waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
-        for (var entry : files().entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
+        Map<String, byte[]> keyboardExports = awaitExportedFiles(beforeKeyboard + 1, "keyboard export action");
+        for (String id : keyboardExports.keySet()) checkName(documentName(id));
         stage = "history page prompt interrupted by leaving";
         // 认证窗口开着时离开再回来：Android 10 起系统关掉后台应用的认证窗口，回来必须重新认证并读出记录，不能停在既无授权也无认证窗口的「正在读取…」；Android 9 的凭据确认是本任务里的 Activity，回来时仍在原处，认证成功后不再弹第二次。
         seed();
@@ -486,14 +498,58 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         try { method.invoke(null, args); throw new AssertionError("expected storage failure"); }
         catch (InvocationTargetException failed) { check(failed.getCause() instanceof IOException || failed.getCause() instanceof SecurityException, "storage failure category"); }
     }
-    private static void checkText(byte[] bytes) {
+    private static void checkText(String name, byte[] bytes) {
+        String problems = textProblems(bytes);
+        if (problems != null) throw new AssertionError("complete Unicode snapshot and order: " + name + ": " + problems);
+    }
+
+    /**
+     * 导出全文缺了哪几项，齐全时为 null。逐项检查，失败消息里写出缺的是条目数、置顶顺序还是正文，再附上字节数和条目头行（所有 `==========` 行和「共 N 条」那一行），不带 5000 字的正文（#10215）。
+     */
+    private static String textProblems(byte[] bytes) {
         String text = new String(bytes, StandardCharsets.UTF_8);
-        check(text.contains("共 2 条") && text.contains("官网：https://msime.app/")
-            && text.contains("项目：https://github.com/metasequoiaime/msime")
-            && text.contains("1 · 已置顶 ==========\n记录时间：")
-            && text.contains("来源 App：系统未提供\n包名：系统未提供\n正文：\n" + LONG + "\n")
-            && text.contains("2 ==========\n记录时间：")
-            && text.contains("正文：\n合成新记录\n"), "complete Unicode snapshot and order");
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("entry count 2", "共 2 条");
+        expected.put("website link", "官网：https://msime.app/");
+        expected.put("project link", "项目：https://github.com/metasequoiaime/msime");
+        expected.put("pinned first entry header", "1 · 已置顶 ==========\n记录时间：");
+        expected.put("first entry source and full body", "来源 App：系统未提供\n包名：系统未提供\n正文：\n" + LONG + "\n");
+        expected.put("second entry header", "2 ==========\n记录时间：");
+        expected.put("second entry body", "正文：\n合成新记录\n");
+        List<String> missing = new ArrayList<>();
+        for (var item : expected.entrySet()) if (!text.contains(item.getValue())) missing.add(item.getKey());
+        if (missing.isEmpty()) return null;
+        List<String> headers = new ArrayList<>();
+        for (String line : text.split("\n", -1)) {
+            if (!line.contains("==========") && !line.matches(".*共 \\d+ 条.*")) continue;
+            headers.add(line.length() > 80 ? line.substring(0, 80) + "…" : line);
+        }
+        // 长正文缺失时区分是整段没有、还是换行或首尾空白被改过。
+        String body = missing.contains("first entry source and full body")
+            ? "; long body exact=" + text.contains(LONG) + " crlf-normalized=" + text.contains(LONG.replace("\r\n", "\n"))
+                + " trimmed=" + text.contains(LONG.strip()) + " tail=" + text.contains("合成尾行")
+            : "";
+        return "missing " + missing + "; bytes=" + bytes.length + "; headers " + headers + body;
+    }
+
+    /**
+     * 等导出目录里的 `.txt` 到 `count` 份，并且每一份正文都完整，返回此时的全部文件。
+     *
+     * <p>提供方先建一个空文档，导出方随后才打开它写入（ExportDirectory.write），文件数一到就读，读到的可能是空文件或写了一半的正文。所以文件数到了之后继续读，直到每份都通过正文检查；超时仍不完整，按最后一次读到的内容报出缺了哪一项。
+     */
+    private Map<String, byte[]> awaitExportedFiles(int count, String message) throws Exception {
+        waitFor(() -> filesUnchecked().size() == count, message);
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        Map<String, byte[]> current = filesUnchecked();
+        while (SystemClock.uptimeMillis() < deadline) {
+            current = filesUnchecked();
+            if (current.size() == count && current.values().stream().allMatch(bytes -> textProblems(bytes) == null)) return current;
+            SystemClock.sleep(100);
+        }
+        current = files();
+        check(current.size() == count, message + ": expected " + count + " files, found " + current.size());
+        for (var entry : current.entrySet()) checkText(entry.getKey(), entry.getValue());
+        return current;
     }
 
     private String namePrefix() {
@@ -612,18 +668,19 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         throw new AssertionError(message);
     }
 
-    private boolean clipboardContains(String expected) {
+    /** 历史里这段文字的记录时间；没有这一条或这一轮读不出时为 -1。 */
+    private long clipboardTimestamp(String expected) {
         try {
             Object loaded = store.getClass().getMethod("load").invoke(store);
-            if (!(loaded instanceof Iterable<?> entries)) return false;
+            if (!(loaded instanceof Iterable<?> entries)) return -1;
             for (Object entry : entries) {
                 Object text = entry.getClass().getMethod("text").invoke(entry);
-                if (expected.equals(text)) return true;
+                if (expected.equals(text)) return (Long) entry.getClass().getMethod("timestamp").invoke(entry);
             }
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             // 输入法正在写共享剪贴板文件时，下一轮读取即可；超时会把阶段写进失败信息。
         }
-        return false;
+        return -1;
     }
 
     private static Predicate<AccessibilityNodeInfo> text(String value) {
