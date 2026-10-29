@@ -50,11 +50,11 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
-    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
-    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
-    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
-    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    append_unique_words, fold_reading, lead_literal_abbreviation_phrases,
+    mark_autocorrect_candidates, merge_alternative_rows, merge_alternative_segmentations,
+    merge_series_by_coverage, resolve_series_query, series_cache_key, SeriesResolution,
+    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
+    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -869,6 +869,9 @@ impl QuanpinDictionary {
                 let rows = self.query_series(raw, &join_segments(costlier), costlier);
                 append_unique_words(&mut result, rows);
             }
+            // 全辅音输入是简拼：字面简拼读满全部按键的多字词条排到纠错读法前面，打头的纠错候选最多退到首页最后一个座位，首位永远不让给它（#9903）。
+            let kept_seat = self.first_page_rows.get().saturating_sub(1).max(1);
+            lead_literal_abbreviation_phrases(&mut result, raw, kept_seat);
         } else {
             result = self.query_series(raw, primary_segmentation, &segments);
             if !alternatives.is_empty() {
