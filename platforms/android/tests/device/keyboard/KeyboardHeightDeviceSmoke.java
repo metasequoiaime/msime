@@ -324,9 +324,13 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             + " --ez msime_test_editor_probe true");
         tap(field("msime-test-plain"));
         await(key("n"));
+        // 打开高度条那一刻应用也不能跳：铺满窗口后固定的边界必须就是停靠键盘原来让出的那条线。
+        int docked = awaitSettledVisibleBottom();
         stage = "drag keeps the editor frame: open inline height";
         openHeightBar();
         int frame = awaitSettledVisibleBottom();
+        if (frame != docked)
+            throw new AssertionError("Opening the height bar moved the editor frame: " + docked + " -> " + frame);
         for (int target : new int[] {130, 80, 120}) {
             stage = "drag keeps the editor frame: preview " + target + "%";
             setHeight(target);

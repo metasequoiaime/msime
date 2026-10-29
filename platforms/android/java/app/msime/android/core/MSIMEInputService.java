@@ -93,6 +93,11 @@ public final class MSIMEInputService extends InputMethodService {
     static final int HANDWRITING_LAYOUT = 3;
     static final int FOURTEEN_KEY_LAYOUT = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
+    /** 会让内联高度条记下的键区屏幕上沿作废的配置变化：方向、屏幕尺寸（含分屏）和密度（显示大小）。 */
+    private static final int INLINE_HEIGHT_SCREEN_CHANGES = android.content.pm.ActivityInfo.CONFIG_ORIENTATION
+        | android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE
+        | android.content.pm.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE
+        | android.content.pm.ActivityInfo.CONFIG_DENSITY;
     static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
     static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
     private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
@@ -378,6 +383,8 @@ public final class MSIMEInputService extends InputMethodService {
     private int inlineHeightOriginal;
     /** 内联高度条打开时键区在屏幕上的上沿：拖动期间输入法窗口铺满，应用的避让边界固定在这里（#10025）。转屏后作废，等键区下一次布局重新记下。 */
     private int inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+    /** 记下上沿时的配置：调整期间只有屏幕尺寸、方向或密度变了，记下的屏幕坐标才作废；深浅模式、字号这类变化不动避让边界。 */
+    private Configuration inlineHeightConfiguration;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
     /** 隐私会话重启时保留已打开的功能菜单。 */
@@ -2187,8 +2194,13 @@ public final class MSIMEInputService extends InputMethodService {
         // nine-key popup is anchored to the old tree, so it must not outlive the reflow.
         imeLayoutRows.dismissNineKeyHoldOptions();
         imeLayoutRows.hideJapaneseFlickPreview();
-        // 调整高度时转屏：旧屏幕坐标下的键区上沿已经不对，等键区在新窗口里布局后重新记下。
-        if (inlineHeightActive) inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        // 调整高度时转屏、改分屏尺寸或显示大小：旧屏幕坐标下的键区上沿已经不对，等键区在新窗口里布局后重新记下。深浅模式、字号等其他变化不清，否则下一次布局会记下拖动后的上沿，应用在调整中途跳一次。
+        if (inlineHeightActive) {
+            if (inlineHeightConfiguration == null
+                    || (inlineHeightConfiguration.diff(configuration) & INLINE_HEIGHT_SCREEN_CHANGES) != 0)
+                inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+            inlineHeightConfiguration = new Configuration(configuration);
+        }
         if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
         imeStyler.applyKeyboardGeometry();
@@ -10437,6 +10449,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。
         keyboardSurface.getLocationOnScreen(floatingLocation);
         inlineHeightKeyboardTop = floatingLocation[1];
+        inlineHeightConfiguration = new Configuration(getResources().getConfiguration());
         inlineHeightActive = true;
         inlineHeightBar.setPercent(
             KeyboardHeightPolicy.heightAdjustmentToPercent(touchKeyboardHeightAdjustment));
@@ -10456,6 +10469,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!inlineHeightActive) return;
         inlineHeightActive = false;
         inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        inlineHeightConfiguration = null;
         if (commit) {
             saveTouchGeometry();
         } else {
