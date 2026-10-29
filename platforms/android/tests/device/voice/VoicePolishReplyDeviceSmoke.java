@@ -69,9 +69,11 @@ public final class VoicePolishReplyDeviceSmoke extends Instrumentation {
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: voice replies and automatic voice insertion\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
-            // 只输出异常类别，不输出服务正文或请求数据。
+            // 其他异常只输出类别，不输出服务正文或请求数据；AssertionError 只来自测试自己的检查，消息是固定的测试文字和出错位置，照常输出，否则 CI 上分不出是哪一条检查失败。
+            String detail = error instanceof AssertionError && error.getMessage() != null
+                ? ": " + error.getMessage() : "";
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: voice polish replies ("
-                + error.getClass().getSimpleName() + ")\n");
+                + error.getClass().getSimpleName() + detail + ")\n");
             finish(Activity.RESULT_CANCELED, result);
         }
     }
