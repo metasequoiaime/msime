@@ -340,6 +340,10 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链。
           rustup toolchain install
           cargo test --locked -p msime-engine
+      # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
+      - name: Published crates build from their packages
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo package --locked -p msime-path-trust -p msime-engine -p msime-engine-capi
       # 三个发布到 crates.io 的 crate 的文档由 docs.rs 渲染，坏掉的 intra-doc 链接在那里就是点不开的链接或原样的方括号，而 cargo test 和 clippy 都不跑 rustdoc 的检查，此前积下的 10 个警告（链到私有项、没转义的方括号、裸 URL）就是这样一直没人发现。所以按 docs.rs 的方式只给这三个 crate 生成文档，并把 rustdoc 的警告当错误。链到私有项的那类警告只在不加 --document-private-items 时出现，这里也不加，和 docs.rs 一致。
       - name: Published crates document without rustdoc warnings
         if: ${{ needs.changes.outputs.engine == 'true' }}
