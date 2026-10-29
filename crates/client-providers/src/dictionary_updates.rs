@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const API: &str =
@@ -590,7 +590,7 @@ fn download_manifest(
 
 /// 下载一个词库文件：没下完的部分留在 `dictionary-updates/.partial-downloads/`，下次检查用 HTTP Range 接着下，换源规则见 [`prefixes`]。交出的文件已按长度和摘要校验，读完丢掉时删除。
 fn download_file(
-    transport: &dyn Transport,
+    files: &dyn Fetcher,
     artifact: &Artifact,
     mirrors: &[String],
     state: &Path,
@@ -602,11 +602,29 @@ fn download_file(
         PARTIALS,
         artifact,
         &prefixes(artifact, mirrors),
-        transport.files(),
+        files,
         cancel,
         progress,
     )
     .map_err(update_error)
+}
+
+/// 每向一个源发请求前查一次开关。停滞的连接不会再调进度回调，只能等这次读取超时报错；换下一个源前在这里发现开关已关，就以取消结束，不再去试其余的源。
+struct SwitchAware<'a> {
+    files: &'a dyn Fetcher,
+    folder: &'a Path,
+    enabled_at_start: bool,
+    cancel: &'a AtomicBool,
+}
+
+impl Fetcher for SwitchAware<'_> {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        if switched_off(self.folder, self.enabled_at_start) {
+            self.cancel.store(true, Ordering::Relaxed);
+            return Err(LocalModelError::Cancelled);
+        }
+        self.files.fetch(url, offset)
+    }
 }
 
 /// 本次检查开始时自动更新是开着的、之后被关掉：视为用户要求停下。开始时就关着的手动检查不受开关影响。
@@ -712,7 +730,7 @@ fn plan(
     Ok(selection)
 }
 
-/// 安装 `set` 这一代。`status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]。
+/// 安装 `set` 这一代。`status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]：有数据进来时每写一次状态查一次，停滞的连接等这次连接或读取超时，之后不再换源（[`SwitchAware`]）。
 fn install(
     context: &UpdateContext,
     set: &ResourceSet,
@@ -723,6 +741,12 @@ fn install(
     let folder = root(&context.state_root);
     let start = status.downloaded_bytes;
     let cancel = AtomicBool::new(false);
+    let files = SwitchAware {
+        files: transport.files(),
+        folder: &folder,
+        enabled_at_start,
+        cancel: &cancel,
+    };
     // ResourceStore 把取字节的错误一律折成 I/O 错误；这里记下原因，好让网络失败和取消照实报告。
     let mut failure = None;
     let installed = store(&context.state_root).install(set, |file| {
@@ -769,7 +793,7 @@ fn install(
         let offset = status.downloaded_bytes;
         let mut reported = offset;
         let downloaded = download_file(
-            transport,
+            &files,
             file,
             &context.mirrors,
             &context.state_root,
@@ -780,7 +804,7 @@ fn install(
                     reported = status.downloaded_bytes;
                     let _ = write(&folder.join("status.json"), status);
                     if switched_off(&folder, enabled_at_start) {
-                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        cancel.store(true, Ordering::Relaxed);
                     }
                 }
             },
@@ -788,6 +812,12 @@ fn install(
         match downloaded {
             Ok(source) => Ok(Box::new(source) as Box<dyn Read>),
             Err(error) => {
+                // 最后一个源停滞到读取超时时，开关可能已在等待中被关掉：这次失败是用户要求停下，不报网络错误。
+                let error = if switched_off(&folder, enabled_at_start) {
+                    UpdateError::Cancelled
+                } else {
+                    error
+                };
                 let reported = io::Error::other(error.to_string());
                 failure = Some(error);
                 Err(reported)

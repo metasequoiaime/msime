@@ -13,6 +13,8 @@ struct Fixture {
     stalls: RefCell<BTreeMap<String, usize>>,
     /// 读这个地址的正文时先关掉自动更新，模拟用户在下载途中关开关。
     switch_off_on: RefCell<Option<String>>,
+    /// 停滞的连接在报超时之前先关掉自动更新，模拟用户看着「正在下载」不动时关开关。
+    switch_off_while_stalled: std::cell::Cell<bool>,
 }
 
 impl Transport for Fixture {
@@ -55,23 +57,33 @@ impl Fetcher for Fixture {
         if self.switch_off_on.borrow().as_deref() == Some(url) {
             configure(&self.context, false).unwrap();
         }
+        let stall = Stall {
+            stalled: stalled.is_some(),
+            switch_off: self.switch_off_while_stalled.get().then_some(&self.context),
+        };
         Ok(Fetched {
-            reader: Box::new(io::Cursor::new(body).chain(Stall(stalled.is_some()))),
+            reader: Box::new(io::Cursor::new(body).chain(stall)),
             offset: start,
         })
     }
 }
 
 /// 读完前面的字节后报超时，像 reqwest 阻塞客户端在连接没有数据时那样。
-struct Stall(bool);
+struct Stall<'a> {
+    stalled: bool,
+    /// 报超时之前先关掉这份上下文的自动更新。
+    switch_off: Option<&'a UpdateContext>,
+}
 
-impl Read for Stall {
+impl Read for Stall<'_> {
     fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-        if self.0 {
-            Err(io::Error::new(io::ErrorKind::TimedOut, "stalled"))
-        } else {
-            Ok(0)
+        if !self.stalled {
+            return Ok(0);
         }
+        if let Some(context) = self.switch_off {
+            configure(context, false).unwrap();
+        }
+        Err(io::Error::new(io::ErrorKind::TimedOut, "stalled"))
     }
 }
 
@@ -108,6 +120,7 @@ impl Fixture {
             ranges: RefCell::default(),
             stalls: RefCell::default(),
             switch_off_on: RefCell::default(),
+            switch_off_while_stalled: std::cell::Cell::default(),
         }
     }
 
@@ -943,4 +956,42 @@ fn switching_automatic_updates_off_stops_the_download_and_keeps_the_received_byt
     assert_eq!(result.version, "dict-v2.0.10");
     assert!(fixture.ranges.borrow().is_empty());
     assert!(!fixture.partials().exists());
+}
+
+#[test]
+fn switching_automatic_updates_off_during_a_stall_cancels_without_trying_other_sources() {
+    // 停在 0 字节的 CDN（#10134 的「正在下载 0 / 258 MiB」）：读取超时后不再去试原地址。
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.mirror_assets();
+    let cdn = format!(
+        "{}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db",
+        crate::resource_packs::PROJECT_MIRRORS[0]
+    );
+    fixture.stalls.borrow_mut().insert(cdn.clone(), 0);
+    fixture.switch_off_while_stalled.set(true);
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "cancelled");
+    assert_eq!(result.error, None);
+    assert_eq!(&*fixture.ranges.borrow(), &[(cdn, 0)]);
+    assert!(selected(&fixture.context.state_root, &fixture.context.baseline).is_none());
+
+    // 停滞的是最后一个源：读取超时照样报取消，不报网络错误，已收到的字节留着。
+    let fixture = Fixture::new();
+    configure(&fixture.context, true).unwrap();
+    let data = b"updated synthetic dictionary";
+    fixture.release("dict-v2.0.10", data, 1);
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    fixture.stalls.borrow_mut().insert(origin, 5);
+    fixture.switch_off_while_stalled.set(true);
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "cancelled");
+    assert_eq!(result.error, None);
+    assert_eq!(status(&fixture.context).phase, "cancelled");
+    let partial = fixture.partials().join(format!(
+        "{}-msime-pinyin.db",
+        hex::encode(Sha256::digest(data))
+    ));
+    assert_eq!(std::fs::read(&partial).unwrap(), &data[..5]);
 }
