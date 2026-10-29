@@ -413,4 +413,47 @@ mod tests {
         std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
         assert_eq!(crate::recorded_helpcode_bundle(&state, &baseline), None);
     }
+
+    /// 检查任务用的镜像来自设置里保存的 `voice_input.asr_model_mirror`：读实时偏好文件，不用准备宿主时那份副本；实时文件读不了时才用副本。
+    #[test]
+    fn saved_mirror_comes_from_the_live_preferences_and_falls_back_to_the_document_copy() {
+        use msime_client_core::preferences::{Preferences, PreferencesStore};
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        std::fs::create_dir(&state).unwrap();
+        let mut copy = Preferences::default();
+        copy.voice_input.asr_model_mirror = "https://copy.example.test/".into();
+        let options: HostOptions = serde_json::from_value(json!({
+            "api_version": 1,
+            "resources": root.path().join("resources"),
+            "user_data": root.path().join("user"),
+            "cache": root.path().join("cache"),
+            "dictionaries": root.path().join("dictionaries"),
+            "preferences": copy,
+            "preferences_directory": state,
+        }))
+        .unwrap();
+
+        let store = PreferencesStore::new(&state);
+        let mut saved = Preferences::default();
+        saved.voice_input.asr_model_mirror = "https://saved.example.test/".into();
+        store.save(store.load().unwrap().revision, saved).unwrap();
+        assert_eq!(
+            saved_mirrors(&options, &state),
+            ["https://saved.example.test/"]
+        );
+
+        // 用户在设置里清空镜像：不再用副本里的旧值。
+        let cleared = store.load().unwrap();
+        store
+            .save(cleared.revision, Preferences::default())
+            .unwrap();
+        assert!(saved_mirrors(&options, &state).is_empty());
+
+        std::fs::write(state.join("preferences.json"), b"{").unwrap();
+        assert_eq!(
+            saved_mirrors(&options, &state),
+            ["https://copy.example.test/"]
+        );
+    }
 }

@@ -2368,6 +2368,8 @@ fn partial_path(
 }
 
 /// 按顺序从每个源下载 `file` 到 `partial`：先是 `mirrors` 里每个非空前缀加原地址，最后是原地址本身。一个源失败（网络、HTTP 状态、长度或摘要不符）就换下一个，取消和本地读写错误直接返回。
+///
+/// 已有部分时，不支持 Range、整份返回的源（不是最后一个）先跳过，不清空已有的字节：用户镜像排在最前面，它若不支持续传、又在半路停滞，每次检查都会把别的源已经下好的部分清掉，续传永远没有进展。所有源都失败后，再按原来的顺序让跳过的源从头下载一次，只有这一个源能连通时照样下得完。
 fn download_from_sources(
     fetcher: &dyn Fetcher,
     mirrors: &[&str],
@@ -2385,10 +2387,40 @@ fn download_from_sources(
             .map(|mirror| mirrored(mirror, &file.url)),
     );
     sources.push(file.url.clone());
+    let last = sources.len() - 1;
     let mut failure = None;
-    for url in &sources {
-        match download_resumable(fetcher, url, file, partials, partial_name, cancel, progress) {
-            Ok(()) => return Ok(()),
+    let mut skipped = Vec::new();
+    for (index, url) in sources.iter().enumerate() {
+        match download_resumable(
+            fetcher,
+            url,
+            file,
+            partials,
+            partial_name,
+            index == last,
+            cancel,
+            progress,
+        ) {
+            Ok(Attempt::Complete) => return Ok(()),
+            Ok(Attempt::RangeIgnored) => skipped.push(url),
+            Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
+                return Err(error)
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    for url in skipped {
+        match download_resumable(
+            fetcher,
+            url,
+            file,
+            partials,
+            partial_name,
+            true,
+            cancel,
+            progress,
+        ) {
+            Ok(_) => return Ok(()),
             Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
                 return Err(error)
             }
@@ -2398,16 +2430,26 @@ fn download_from_sources(
     Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(file.name.clone())))
 }
 
-/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时从头下载。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+/// [`download_resumable`] 一次尝试的结果。
+enum Attempt {
+    /// 文件已完整，长度和摘要都对。
+    Complete,
+    /// 已有部分时源不支持 Range、整份返回，而调用方不让这次从头下：没有读正文，已有的字节原样留着。
+    RangeIgnored,
+}
+
+/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时，`restart` 为真就从头下载，为假就不动已有的部分、报 [`Attempt::RangeIgnored`]。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+#[allow(clippy::too_many_arguments)]
 fn download_resumable(
     fetcher: &dyn Fetcher,
     url: &str,
     file: &crate::resources::Artifact,
     partials: &PartialDirectory,
     partial_name: &OsStr,
+    restart: bool,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64),
-) -> Result<(), LocalModelError> {
+) -> Result<Attempt, LocalModelError> {
     if !url.starts_with("https://") {
         return Err(LocalModelError::Network(
             "only https downloads are allowed".into(),
@@ -2455,6 +2497,9 @@ fn download_resumable(
         if fetched.offset != downloaded {
             if fetched.offset != 0 {
                 return Err(LocalModelError::Network("unexpected content range".into()));
+            }
+            if !restart {
+                return Ok(Attempt::RangeIgnored);
             }
             // 源不支持续传，从头再来。
             output.set_len(0)?;
@@ -2504,13 +2549,14 @@ fn download_resumable(
                 file,
                 partials,
                 partial_name,
+                restart,
                 cancel,
                 progress,
             );
         }
         return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
     }
-    Ok(())
+    Ok(Attempt::Complete)
 }
 
 /// [`download_partial`] 交出的已校验文件。读完丢掉时删掉 `.partial-<id>` 里的这份文件（目录空了也一并删掉）：字节已经被调用方复制走，留着只占盘。

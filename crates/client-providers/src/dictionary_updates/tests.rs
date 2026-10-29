@@ -15,6 +15,8 @@ struct Fixture {
     switch_off_on: RefCell<Option<String>>,
     /// 停滞的连接在报超时之前先关掉自动更新，模拟用户看着「正在下载」不动时关开关。
     switch_off_while_stalled: std::cell::Cell<bool>,
+    /// 这些地址不支持 Range，总是整份返回。
+    ignore_range: RefCell<Vec<String>>,
 }
 
 impl Transport for Fixture {
@@ -44,7 +46,13 @@ impl Fetcher for Fixture {
             .cloned()
             .ok_or_else(|| LocalModelError::Network("fixture".into()))?;
         // 和真实服务器一样支持 Range：起点超出长度时整份返回。
-        let start = if offset as usize <= bytes.len() {
+        let start = if offset as usize <= bytes.len()
+            && !self
+                .ignore_range
+                .borrow()
+                .iter()
+                .any(|ignored| ignored == url)
+        {
             offset
         } else {
             0
@@ -121,6 +129,7 @@ impl Fixture {
             stalls: RefCell::default(),
             switch_off_on: RefCell::default(),
             switch_off_while_stalled: std::cell::Cell::default(),
+            ignore_range: RefCell::default(),
         }
     }
 
@@ -872,6 +881,76 @@ fn a_stalled_source_falls_back_and_the_next_one_resumes_from_the_received_bytes(
         "CDN 停滞后换到原地址，从已收到的 7 字节接着下"
     );
     assert!(!fixture.partials().exists(), "装好后不留没下完的部分");
+}
+
+#[test]
+fn a_user_mirror_without_range_support_keeps_the_received_bytes_for_the_next_source() {
+    let data = b"updated synthetic dictionary";
+    let mirror = "https://mirror.example.test/";
+    let fixture = {
+        let mut fixture = Fixture::new();
+        fixture.context.mirrors = vec![mirror.into()];
+        fixture
+    };
+    fixture.release("dict-v2.0.10", data, 1);
+    fixture.mirror_assets_at(&[mirror]);
+    fixture.mirror_assets();
+    let at_mirror = format!("{mirror}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    let cdn = format!(
+        "{}{DOWNLOAD}dict-v2.0.10/msime-pinyin.db",
+        crate::resource_packs::PROJECT_MIRRORS[0]
+    );
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    fixture.ignore_range.borrow_mut().push(at_mirror.clone());
+    let received = |fixture: &Fixture| {
+        std::fs::create_dir_all(fixture.partials()).unwrap();
+        let partial = fixture.partials().join(format!(
+            "{}-msime-pinyin.db",
+            hex::encode(Sha256::digest(data))
+        ));
+        std::fs::write(partial, &data[..10]).unwrap();
+    };
+    received(&fixture);
+    let downloads = |fixture: &Fixture| {
+        fixture
+            .ranges
+            .borrow()
+            .iter()
+            .filter(|(url, _)| url.ends_with("msime-pinyin.db"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert_eq!(
+        downloads(&fixture),
+        [(at_mirror.clone(), 10), (cdn.clone(), 10)],
+        "整份返回的用户镜像不清空已有的 10 字节，项目 CDN 从那里接着下"
+    );
+    assert!(!fixture.partials().exists());
+
+    // 只有这个镜像连得上时，其余的源都失败后让它从头下一次。
+    let fixture = {
+        let mut fixture = Fixture::new();
+        fixture.context.mirrors = vec![mirror.into()];
+        fixture
+    };
+    fixture.release("dict-v2.0.10", data, 1);
+    fixture.mirror_assets_at(&[mirror]);
+    fixture.files.borrow_mut().remove(&origin);
+    fixture.ignore_range.borrow_mut().push(at_mirror.clone());
+    received(&fixture);
+    let result = check_with(&fixture.context, false, &fixture).unwrap();
+    assert_eq!(result.phase, "ready");
+    assert_eq!(
+        downloads(&fixture),
+        [
+            (at_mirror.clone(), 10),
+            (cdn, 10),
+            (origin, 10),
+            (at_mirror, 10),
+        ]
+    );
 }
 
 #[test]
