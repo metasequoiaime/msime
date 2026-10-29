@@ -8702,8 +8702,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
   private func setKeyRowsCovered(_ covered: Bool, keepsTouches: Bool = false) {
-    // 「右侧大回车」的回车叠在按键列上、不在任何一行里，跟着这些行一起盖住。
-    for row in keyColumn.arrangedSubviews + [oneHandGutter] + [tallReturnKey].compactMap({ $0 }) {
+    // 「右侧大回车」的回车和数字层右列的空格叠在按键列上、不在任何一行里，跟着这些行一起盖住。
+    for row in keyColumn.arrangedSubviews + [oneHandGutter] + [tallReturnKey, numberPadColumnSpace].compactMap({ $0 }) {
       row.alpha = covered ? 0 : 1
       row.isUserInteractionEnabled = !covered || keepsTouches
       row.accessibilityElementsHidden = covered

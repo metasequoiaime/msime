@@ -1400,6 +1400,29 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
   }
 
+  /// 数字层右列的空格叠在按键列上、不在任何一行里：面板盖住按键时它要和各行一起藏起来（不画、不接触摸、VoiceOver 读不到），关掉面板再回来。
+  func testNumberPadColumnSpaceIsCoveredByAPanel() throws {
+    select(.nineKey)
+    XCTAssertTrue(write(TouchKeyLayoutStyle(numberPadSpace: .rightColumn)))
+    let controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    let columnSpace = try button("numberPadColumnSpaceKey", in: controller)
+    XCTAssertTrue(shown(columnSpace))
+
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
+    XCTAssertEqual(columnSpace.alpha, 0, "the space does not show through the panel")
+    XCTAssertFalse(columnSpace.isUserInteractionEnabled)
+    XCTAssertTrue(columnSpace.accessibilityElementsHidden, "VoiceOver cannot reach the covered space")
+
+    try button("dismissShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(columnSpace.alpha, 1)
+    XCTAssertTrue(columnSpace.isUserInteractionEnabled)
+    XCTAssertFalse(columnSpace.accessibilityElementsHidden)
+    controller.viewDidDisappear(false)
+  }
+
   /// 统计热力图跟着互换画：26 键底行的 符 在 123 左边。
   func testHeatmapFollowsSymbolFirst() {
     let rows = TypingKeyHeatmap.letterRows(for: TouchKeyLayoutStyle(symbolFirst: true))
