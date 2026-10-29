@@ -402,6 +402,58 @@ impl<'de> Deserialize<'de> for TouchNumberPadSpace {
     }
 }
 
+/// 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时，按键贴到一侧后空出来的另一侧放什么（#10203）。只在单手模式生效、主键区画着九键字母层时才放；手机、分离式键盘和浮动键盘不受影响。桌面宿主原样保留、不使用。
+///
+/// 做成取值而不是开关，是因为以后还要加「文本编辑面板」这一种：开关改成字符串时，还没升级的版本读到字符串会把整份偏好文档判成类型错误。不认识的字符串（较新版本加的面板）读成 [`Self::Unknown`]，原样留着写法：宿主按空着画，存文档、账号同步导出时照原样写回，这样旧版本既不会在下一次保存时把它删掉，也不会把它当成本机改动、拿 `off` 覆盖云端较新设备的选择。不是字符串照样报错，和其他字段的类型错误一致。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TouchOneHandedSidePanel {
+    /// 空着，露出键盘底色，即 #10204 之后的样子。默认值，不写进文档。
+    #[default]
+    Off,
+    /// 数字键盘：3 × 4 拨号盘，1–9、0、小数点和退格。
+    NumberPad,
+    /// 较新版本加的面板，本版本不认识，里面是原样的写法。宿主按 [`Self::Off`] 画。
+    Unknown(String),
+}
+
+impl TouchOneHandedSidePanel {
+    /// 文档和同步键里的写法；不认识的取值原样返回。
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Off => "off",
+            Self::NumberPad => "number_pad",
+            Self::Unknown(value) => value,
+        }
+    }
+
+    /// 按写法取值：认识的两种之外一律是 [`Self::Unknown`]，写法原样留着。偏好文档和账号同步都走它。
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "off" => Self::Off,
+            "number_pad" => Self::NumberPad,
+            other => Self::Unknown(other.to_owned()),
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl Serialize for TouchOneHandedSidePanel {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchOneHandedSidePanel {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的面板）原样留着；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::from_wire(&value))
+    }
+}
+
 /// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
@@ -1795,6 +1847,9 @@ pub struct Preferences {
     /// 手机触屏九宫格数字键盘里空格的位置，见 [`TouchNumberPadSpace`]。默认是各端原来的排法且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchNumberPadSpace::is_default")]
     pub touch_number_pad_space: TouchNumberPadSpace,
+    /// 大屏单手模式时空出来的一侧放什么，见 [`TouchOneHandedSidePanel`]。默认空着且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchOneHandedSidePanel::is_default")]
+    pub touch_one_handed_side_panel: TouchOneHandedSidePanel,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4028,6 +4083,7 @@ impl Default for Preferences {
             touch_number_row: false,
             touch_twenty_six_symbol_first: false,
             touch_number_pad_space: TouchNumberPadSpace::default(),
+            touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

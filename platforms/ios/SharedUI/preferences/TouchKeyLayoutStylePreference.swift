@@ -429,6 +429,33 @@ enum TouchKeyLayoutKind: String, CaseIterable, Hashable {
   }
 }
 
+/// 整块键盘预览（`KeyboardSkinPreview`：键盘页的实时预览，以及皮肤、工具栏、AI 皮肤和自定义皮肤编辑器各页的键盘缩略图）字母层的框架：画哪一类键面、顶上画不画 1 到 0、底行的键和份额，九键时左侧符号栏和右列各画什么。样式取用户在「按键布局」里选的（`TouchKeyLayoutStyle`，含「符」与「123」互换），中/英键跟「隐藏中/英键」设置，键序和份额与键盘、「按键布局」页取自同一张表（`TouchKeyLayoutKind.bottomRow`、`TouchBottomRowLayout`、`TypingKeyHeatmap`），不另写一套。预览不做高亮，高亮只在「按键布局」页。
+struct KeyboardPreviewLetterLayer: Equatable {
+  let kind: TouchKeyLayoutKind
+  /// 字母行上方画不画一排 1 到 0（`TouchKeyLayoutKind.drawsNumberRow`）：只在 26 键和 14/18 键上画。
+  let numberRow: Bool
+  /// 字母层底行，从左到右；不画地球键。「右侧大回车」时第一格 符 画在符号栏下方、最后一格回车画在右列并竖跨两行，中间几格画在九宫格下方。
+  let bottomRow: [TouchBottomRowLayout.Key]
+  /// 九键「右侧大回车」：回车从右列第三格伸到底行。
+  let tallReturn: Bool
+  /// 九键左侧符号栏自上而下的标点，与「按键布局」页的 9 键预览相同（`TouchKeyLayoutKind.previewSidebar`）：出厂表时右侧大回车把右列的 ！ 接到末尾；用户换了字母层的表时画那张表的一屏。
+  let nineKeySidebar: [String]
+  /// 九键右列在九宫格旁的几格（⌫、分词、！），右侧大回车时只剩 ⌫ 和分词。
+  let nineKeyControls: [String]
+
+  /// `nineKey` 与 `letterGrid` 是预览画的键面：九键优先，其次 14/18 键，其余是 26 键。`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格。`nineKeyZero` 是九键双拼字母层空格后面的 0。
+  init(nineKey: Bool, letterGrid: Bool, style: TouchKeyLayoutStyle, language: Bool, nineKeyZero: Bool = false) {
+    kind = nineKey ? .nineKey : letterGrid ? .letterGrid : .twentySixKey
+    numberRow = kind.drawsNumberRow(style)
+    bottomRow = kind == .nineKey
+      ? TouchBottomRowLayout.nineKey(style.nineKey, globe: false, zero: nineKeyZero, language: language)
+      : kind.bottomRow(style, language: language)
+    tallReturn = kind == .nineKey && style.nineKey == .tallReturn
+    nineKeySidebar = TouchKeyLayoutKind.previewSidebar(style)
+    nineKeyControls = TypingKeyHeatmap.nineKeyControls(for: style.nineKey).map { $0.id == TypingKeyID.backspace ? "⌫" : $0.face }
+  }
+}
+
 /// 手机触屏底行按「按键布局」样式的排法：每个显示的键、从左到右的顺序和它在本行里的宽度份额。三端相同，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
 ///
 /// 标准样式就是原来的底行（`KeyboardViewController` 的 `phoneActionWidths`、`nineKeyActionWidths` 等），表里照抄一份，供统计热力图、设置页预览和测试使用；其余样式由键盘控制器按这张表排列并加宽度约束。样式加的键都从空格里让出份额，整行总份额不变。地球键只在宿主要求时出现，占 1 份，从行宽里另外分；隐藏中/英键时它的 1.05 份交给空格。

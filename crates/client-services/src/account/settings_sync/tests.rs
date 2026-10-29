@@ -210,6 +210,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.number_keypad_order",
             "platform.android.number_pad_space",
             "platform.android.number_row",
+            "platform.android.one_handed_side_panel",
             "platform.android.quanpin_shift",
             "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
@@ -1657,6 +1658,47 @@ fn nine_key_sidebar_symbols_sync_as_space_separated_text() {
             ..local
         }
     );
+}
+
+/// 大屏单手的侧边面板按共享偏好的写法上传，空着（`off`）也导出，云端才能被改回空着。云端是本机不认识的面板（较新版本的 `text_edit`）时照原样收下，下一次导出写回同一个值：与应用时记下的基线相同，不会被当成本机改动、拿 `off` 覆盖较新设备的选择。
+#[test]
+fn one_handed_side_panel_syncs_by_its_wire_name() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[ONE_HANDED_SIDE_PANEL],
+        AccountPreferenceValue::String("off".into())
+    );
+
+    let local = Preferences {
+        touch_one_handed_side_panel: TouchOneHandedSidePanel::NumberPad,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&local, None).unwrap();
+    assert_eq!(
+        exported[ONE_HANDED_SIDE_PANEL],
+        AccountPreferenceValue::String("number_pad".into())
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, local);
+
+    let applied = apply(&local, defaults, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    let newer = AccountPreferenceValue::String("text_edit".into());
+    let applied = apply(
+        &local,
+        BTreeMap::from([(ONE_HANDED_SIDE_PANEL.to_owned(), newer.clone())]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.touch_one_handed_side_panel,
+        TouchOneHandedSidePanel::Unknown("text_edit".into())
+    );
+    let next_round = export_android_settings(&applied.preferences, None).unwrap();
+    assert_eq!(next_round[ONE_HANDED_SIDE_PANEL], newer);
 }
 
 /// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。

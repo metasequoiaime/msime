@@ -401,6 +401,42 @@ final class TouchPointTests: XCTestCase {
     try export(data, as: "ios-ipad-split")
   }
 
+  /// iPad 全宽键盘的单手模式把 26 键收进手机大小的一块、贴到一侧（#10203）：注册的几何跟着按键的实际矩形走，比两手的 iPad 键盘窄，全部落在靠左的那一块里。键盘这边不用另做什么，量的本来就是布局矩形。
+  func testTheOneHandedTabletKeyboardRegistersTheDockedBlock() throws {
+    let previous = InputSchemePreference.scheme
+    let previousOneHanded = KeyboardLayoutPreference.oneHanded
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.oneHanded = previousOneHanded
+    }
+    func tablet() -> KeyboardViewController {
+      InputSchemePreference.scheme = .shuangpin
+      let controller = KeyboardViewController()
+      controller.traitOverrides.userInterfaceIdiom = .pad
+      controller.traitOverrides.horizontalSizeClass = .regular
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 1032, height: KeyboardViewController.keyboardHeight(.tablet))
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    KeyboardLayoutPreference.oneHanded = .off
+    let full = try XCTUnwrap(try decode(try XCTUnwrap(tablet().keyGeometryExport))["keys"] as? [[Double]])
+    KeyboardLayoutPreference.oneHanded = .left
+    let controller = tablet()
+    let docked = try XCTUnwrap(try decode(try XCTUnwrap(controller.keyGeometryExport))["keys"] as? [[Double]])
+    XCTAssertEqual(docked.count, 26)
+    XCTAssertLessThan(docked[0][2], full[0][2], "the keys are narrower")
+    // 键区坐标从键区左边起算（iPad 左右内边距 8 之内），按键那一段宽约 360。
+    let keysWidth = KeyboardOneHandLayout.keysWidth(available: 1032 - 16, mode: .left, formFactor: .tablet)
+    for key in docked {
+      XCTAssertLessThanOrEqual(key[0] + key[2] / 2, Double(keysWidth) + 0.5, "every letter sits in the docked block")
+    }
+    try press("w", in: controller)
+    XCTAssertEqual(controller.keyGeometryRegistration.id, 1)
+    XCTAssertEqual(controller.touchCharacterCount, 1)
+  }
+
   /// 26 键双拼的字母键取走按下点后照常组字；`sendActions` 没有按下点，走原来的 msime_client_character，两条路组出同样的字母。
   func testLetterKeysTypeWithTheirTouchDownAndDropIt() throws {
     let previous = InputSchemePreference.scheme

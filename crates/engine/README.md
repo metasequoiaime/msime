@@ -4,6 +4,65 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
 
 水杉输入法的输入引擎：组字状态、各输入方案、词库查询、排序与学习。它是 GPL-3.0 的 C++ [metasequoiaime/msime-engine](https://github.com/metasequoiaime/msime-engine) 的 Rust 移植，移植时对照的参考提交记在 `tools/engine-golden/README.md`。
 
+## 快速上手
+
+Rust 项目只要 `cargo add msime-engine`：SQLite 已经编进引擎，不用另装任何库，也不用克隆仓库。
+
+引擎不带词库，运行时要一个数据目录。最省事的是 [msime-engine-capi 的发布](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) 里的最小数据包 `msime-engine-data-quanpin-<词库版本>.tar.gz`（Windows 用同名的 `.zip`），解开的目录就是数据目录，里面是全拼、双拼要的 `msime-pinyin.db`、`msime-english.db`、`msime-bigram.bin`、`msime-trigram.bin` 和 `msime-scowl_Copyright.txt`；也可以从 [msime-dictionary 的 `dict-v*` 发布](https://github.com/metasequoiaime/msime-dictionary/releases) 逐个下载这五个文件放进一个目录。**这些数据不是 MPL-2.0**：主体是 GPL-3.0，n-gram 表是 CC-BY-SA-4.0，逐项见数据包里的 `README.md`。
+
+```rust
+use msime_engine::{prepare_runtime_paths, DictionaryAccess, Session, SessionOptions};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 数据目录（解开的数据包）和放学习日志、工作词库的目录，都要是绝对路径。
+    let resources = std::path::absolute("msime-engine-data-quanpin-2.0.39")?;
+    let work = std::env::temp_dir().join("msime-quickstart");
+
+    // 准备代次：复制工作词库、回放学习日志。数据换了就换一个 content id。
+    let paths = prepare_runtime_paths(&resources, &work.join("user"), &work.join("cache"), "dict-v2_0_39")?;
+    // 会话期间持共享租约，与改个人词典、重置学习这类维护互斥。
+    let access = DictionaryAccess::try_session(&paths.user_data, &paths.dictionaries)?
+        .ok_or("the dictionaries are being maintained")?;
+    // 引擎库的默认值：全拼、小鹤双拼、学习开。
+    let mut session = Session::new(SessionOptions::new(paths))?;
+
+    for key in b"nihao" {
+        session.character(*key, false);
+    }
+    let state = session.display_snapshot();
+    println!("preedit: {}", state.preedit);
+    for (index, candidate) in state.candidates.iter().take(9).enumerate() {
+        println!("{}. {}", index + 1, candidate.word);
+    }
+    if let Some(text) = session.select(0).commit {
+        println!("commit: {text}");
+    }
+
+    drop(session); // 结束会话：写下它的学习、交还日志连接
+    drop(access);
+    msime_engine::shutdown(); // 退出前写完排着的学习，停掉后台写线程
+    Ok(())
+}
+```
+
+在 dict-v2.0.39 的数据包上，它打出：
+
+```text
+preedit: ni'hao
+1. 你好
+2. 你好像
+3. 你好好
+4. 你好多
+5. 拟好
+6. 你哈哦
+7. 你还
+8. 泥蚶
+9. 你
+commit: 你好
+```
+
+完整的版本是随包发布的 [`examples/quickstart.rs`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/examples/quickstart.rs)，数据目录从命令行给出：在仓库里 `cargo run --release --example quickstart -- <数据目录>`。其余方案要的文件见 [docs/data-formats.md 的「每个方案的最小数据集」](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#20-每个方案的最小数据集)；从 C 或别的语言用，见 [msime-engine-capi](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md#快速上手)。
+
 ## 能做什么
 
 - 方案：全拼、双拼（含自定义双拼表 `ShuangpinCustomTable`）、九键与 14 键、五笔 86/98、注音、粤拼、笔画、日文罗马字、韩文（两套式与罗马字布局）、越南文（Telex、VNI）、藏文（EWTS）。
@@ -13,7 +72,7 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
 
 引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），每个方案都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据。用哪套数据由采用方自己决定。
 
-给其他语言用的 C ABI 计划放在单独的 `msime-engine-capi`，设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
+给其他语言用的 C ABI 是单独的 [`msime-engine-capi`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md)，发布里有预编译好的库；可嵌入引擎库的设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
 
 ## 从 crates.io 使用
 
@@ -27,7 +86,7 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
   ```
 
   release 构建不受影响。
-- **包里的源码只能编译，不能跑测试**：测试、金样和 `examples/` 读仓库里锁定的词库与仓库外的文件，`include` 白名单没有把它们放进包。要跑测试请克隆 [仓库](https://github.com/metasequoiaime/msime)。
+- **包里的源码只能编译，不能跑测试**：测试、金样和 `examples/` 读仓库里锁定的词库与仓库外的文件，`include` 白名单没有把它们放进包；只有不读仓库文件的 `examples/quickstart.rs` 随包发布。要跑测试请克隆 [仓库](https://github.com/metasequoiaime/msime)。
 - **许可证扫描**：越南文方案依赖的 `vi` 0.8.0 在元数据里没有 SPDX `license` 字段，只有 `license-file`（内容是 MIT）。`cargo-deny` 之类按 SPDX 判断的工具会把它当成未知许可证，需要在配置里按 MIT 加一条澄清。
 
 ## 许可证

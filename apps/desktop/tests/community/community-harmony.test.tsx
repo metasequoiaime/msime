@@ -333,6 +333,31 @@ test("the Harmony skin detail follows the selected 14-key layout", async () => {
   expect(keys).not.toContain("q");
 });
 
+// 社区卡片不知道作者的键位，画的是读卡人自己的按键布局：他想看的是这款皮肤装到自己键盘上的样子。
+test("Harmony skin cards draw the reader's own bottom row style and number row", async () => {
+  renderHarmony({
+    mobile: true,
+    preferences: { ...preferences, touch_twenty_six_key_style: "emoji", touch_number_row: true },
+  });
+  const open = await screen.findByRole("button", { name: "查看皮肤 春芽" });
+  const rows = [...card("春芽").querySelectorAll("[data-keyboard-row]")].map((row) =>
+    [...row.querySelectorAll("[data-keyboard-key]")].map((key) =>
+      key.getAttribute("data-keyboard-key"),
+    ),
+  );
+  expect(rows[0]).toEqual([..."1234567890"]);
+  expect(rows.at(-1)).toEqual(["123", "😀", "空格", "，", "中", "↵"]);
+
+  fireEvent.click(open);
+  await screen.findByRole("button", { name: "下载并试用" });
+  const detail = [...document.querySelectorAll("[data-keyboard-row]")].at(-1)!;
+  expect(
+    [...detail.querySelectorAll("[data-keyboard-key]")].map((key) =>
+      key.getAttribute("data-keyboard-key"),
+    ),
+  ).toEqual(["123", "😀", "空格", "，", "中", "↵"]);
+});
+
 test("添加 imports a dictionary into this device and settles on 已添加", async () => {
   const resources = resourceClient();
   const importWords = vi.fn().mockResolvedValue({ applied: 2 });

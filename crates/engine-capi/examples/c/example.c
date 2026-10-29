@@ -3,7 +3,9 @@
  *
  *   example RESOURCES USER_DATA CACHE
  *
- * RESOURCES 里要有 msime-pinyin.db 和 msime-english.db（tests/fixture/make_fixture.py 生成最小的一份），三个目录都要是绝对路径。成功退出 0，任何一步不对都打印原因并退出 1。
+ * RESOURCES 里要有 msime-pinyin.db 和 msime-english.db（tests/fixture/make_fixture.py 生成最小的一份，或者发布里的数据包 msime-engine-data-quanpin-*），三个目录都要是绝对路径。成功退出 0，任何一步不对都打印原因并退出 1。
+ *
+ * 选中的是整句联想解出的句子时，学习把它作为用户词写进个人词典（夹具词库就是这样）；词库里本来就有这个词时（真实词库里的「你好世界」），学习只调它的词频，个人词典里不会多出一条，这时不要求读回。
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -129,6 +131,7 @@ int main(int argc, char **argv) {
     printf("preedit: %.*s (revision %llu, %u candidates)\n", (int)state.preedit.len, state.preedit.ptr,
            (unsigned long long)state.revision, state.candidate_count);
     uint32_t page = state.candidate_count < 5 ? state.candidate_count : 5;
+    int first_is_sentence = 0;
     for (uint32_t index = 0; index < page; ++index) {
         msime_engine_candidate candidate;
         memset(&candidate, 0, sizeof candidate);
@@ -136,6 +139,9 @@ int main(int argc, char **argv) {
         CHECK("candidate_get", msime_engine_candidate_get(session, state.revision, index, &candidate));
         printf("  %u. %.*s [%.*s] source %u\n", index + 1, (int)candidate.word.len, candidate.word.ptr,
                (int)candidate.code.len, candidate.code.ptr, candidate.source);
+        if (index == 0) {
+            first_is_sentence = (candidate.flags & MSIME_ENGINE_CANDIDATE_SENTENCE) != 0;
+        }
     }
 
     /* 5. 修订号对不上的选择被拒绝，什么也不做。 */
@@ -158,7 +164,7 @@ int main(int argc, char **argv) {
     CHECK("flush_learning", msime_engine_flush_learning(0));
     CHECK("session_free", msime_engine_session_free(session));
 
-    /* 8. 个人词典里有刚学到的这句。会话都释放了，维护类的调用才拿得到租约；列表不需要。 */
+    /* 8. 选的是整句时，个人词典里有刚学到的这句。会话都释放了，维护类的调用才拿得到租约；列表不需要。 */
     char *listed = NULL;
     CHECK("user_dict_list", msime_engine_user_dict_list(&paths, 0, 0, 0, &listed));
     printf("personal dictionary: %s\n", listed);
@@ -166,9 +172,12 @@ int main(int argc, char **argv) {
     msime_engine_string_free(listed);
     msime_engine_string_free(dictionaries);
     CHECK("flush_learning(stop)", msime_engine_flush_learning(MSIME_ENGINE_FLUSH_STOP_THREAD));
-    if (!learned) {
+    if (first_is_sentence && !learned) {
         fprintf(stderr, "the sentence was not learned\n");
         return 1;
+    }
+    if (!first_is_sentence) {
+        printf("the dictionary already has this word: learning adjusted its frequency instead of adding a personal entry\n");
     }
     printf("ok\n");
     return 0;

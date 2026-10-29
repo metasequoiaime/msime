@@ -1364,8 +1364,16 @@ done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
   || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
-  || ! rg -qF 'case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));' "$style_policy"; then
+  || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style))));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
+  exit 1
+fi
+# 皮肤页的整键盘预览（KeyboardPreview：AI 皮肤页、皮肤列表、社区皮肤卡片和详情）按用户的偏好画（KeyLayoutStylesPolicy.Preview，由 KeyboardPreviewLayoutSmoke 覆盖），不能再写死一套键面：以前它的 NINE_KEY_ROWS / FULL_ROWS 把底行写成 `123 | ， | 空格 | 。 | 中 | ↵`，不认用户选的样式。这里钉住预览从 Preview 取行、偏好由 KeyboardPreview.layout 读。
+keyboard_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyboardPreview.java"
+if ! rg -qF 'this.rows = layout.rows();' "$keyboard_preview" \
+  || ! rg -qF 'return KeyLayoutStylesPolicy.preview(TouchKeyStyle.Groups.offeredBy(edition),' "$keyboard_preview" \
+  || rg -q 'NINE_KEY_ROWS|FULL_ROWS|String\[\]\[\]' "$keyboard_preview"; then
+  echo "Android skin previews must draw the user's own rows from KeyLayoutStylesPolicy.Preview, not a fixed table" >&2
   exit 1
 fi
 # 右侧大回车外框的列宽按画着的键面取（KeyboardActionRow.tallReturnSideWeight / tallReturnGridWeight / tallReturnGridShare，TouchKeyStyleSmoke 钉住份额）：笔画的数字层经 rebuildNineKeyRows 借九键数字九宫格，键面仍是笔画，大回车分支必须按 displayedTouchLayout 取份额，不能写死九键的 3 / 14，否则切 123 时 符、123 和回车横移。
@@ -1635,6 +1643,27 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
   || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
+  exit 1
+fi
+# 大屏单手侧边数字键盘（#10203，.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md）：宽度由 KeyboardFormFactorPolicySmoke、显示条件和偏好读法由 OneHandSidePadPolicySmoke 覆盖；接线在 InputMethodService、ImeFrame 和设置页里，JVM 冒烟碰不到，这里钉住：键盘从共享偏好读侧边面板，进 touchGeometryKey（变了就重画）和皮肤片段（冷启动第一帧就按它画）；ImeFrame.applyOneHanded 按宽度和 OneHandSidePadPolicy.shown 摆上或摘下面板，签名带着面板宽度；面板的数字和小数点走数字层的字面上屏，⌫ 带连删；键距、行高跟着主键区重排；设置页的标题和说明与 iOS、鸿蒙逐字相同。
+side_pad_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeFrame.java")
+side_pad_builder="$repo_root/platforms/android/java/app/msime/android/core/ImeSidePad.java"
+if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_pad_service" \
+  || ! rg -qF 'oneHandedSidePanel = nextOneHandedSidePanel;' "$side_pad_service" \
+  || ! rg -qF '            + ":" + oneHandedSidePanel.wire' "$side_pad_service" \
+  || ! rg -qF '        OneHandSidePadPolicy.PREFERENCE_KEY,' "$side_pad_service" \
+  || ! rg_q_stdin -F 'KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'OneHandSidePadPolicy.shown(s.oneHandedSidePanel, mode, padDp,' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'String applied = mode + ":" + blockDp + ":" + (padShown ? padDp : 0);' <<< "$side_pad_frame" \
+  || ! rg -qF 's.imeLayoutRows.commitNineKeyLiteral(digit)' "$side_pad_builder" \
+  || ! rg -qF 's.imeLayoutRows.nineKeyDecimalKey()' "$side_pad_builder" \
+  || ! rg -qF 's.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);' "$side_pad_builder" \
+  || ! rg -qF 'if (sidePad != null) applySidePadGeometry(sidePad);' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java" \
+  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg -qF 'savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"; then
+  echo "Android one-handed side number pad wiring is missing: read touch_one_handed_side_panel into the geometry key and skin hint, place the pad in ImeFrame.applyOneHanded, reuse the digit-layer literal commit and backspace repeat, follow the key geometry, and keep the shared settings wording" >&2
   exit 1
 fi
 # 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。

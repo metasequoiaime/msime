@@ -1,0 +1,258 @@
+name: Release msime-engine-capi
+
+# 把引擎的 C 接口（crates/engine-capi，crates.io 上的 msime-engine-capi）编成预编译归档，连同最小的全拼、双拼数据包发成 msime-engine-capi-vX.Y.Z release，别的输入法下载就能用，不必克隆仓库、装 Rust 和 cargo-c，也不必自己去凑词库。版本取 crates/engine-capi/Cargo.toml：先经普通 PR 改好版本号合进 develop，再在 develop 或 main 上手动运行并勾选 publish。
+#
+# 归档三个：Linux x86_64（glibc，在 Ubuntu 22.04 上构建，需要的 glibc 版本由下面的检查卡住）、macOS universal（arm64 和 x86_64 用 lipo 合成一份，macOS 11 起）、Windows x86_64 MSVC。每个都是 cargo cinstall --release 装出的头文件、共享库与静态库和 .pc，加上许可证、第三方声明和源码位置，由 crates/engine-capi/packaging/package.sh 打包；打完之后解到别的目录，用 crates/engine-capi/tests/c-example.sh --prefix 编译 C 示例并在夹具词库上运行（macOS 上两个架构各跑一遍），过不了的归档不会上传。数据包由 crates/engine-capi/packaging/data-pack.py 按 resources/desktop-dictionary.lock.json 下载并逐个校验，之后 smoke 作业照 README 的「快速上手」，用 pkg-config 和 cc 把 Linux 归档里的示例编出来，在数据包上打字上屏。
+#
+# 改了这个 workflow 或 crates/engine-capi 的 PR 上照样跑全部构建、打包、数据包和 smoke，产物作为 workflow artifact 上传，不建 release，所以 PR 自己的 CI 就证明发布流程能走通。只有手动运行并勾选 publish 才建 release：只能在 develop 或 main 上，同一个 tag 已经存在时失败（发出去的 release 不替换，要修正就改版本号再发）。release 从不标为 latest，仓库的「最新发布」留给应用；tag 以 msime-engine-capi-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本。
+on:
+  workflow_dispatch:
+    inputs:
+      publish: {description: "Create the msime-engine-capi-vX.Y.Z release with the archives and the data pack (otherwise they are only uploaded as workflow artifacts)", required: false, default: false, type: boolean}
+  pull_request:
+    paths:
+      - .github/workflows/release-engine-capi.yml
+      - crates/engine-capi/**
+permissions: {contents: read}
+# 库要求的最高 glibc 版本，README 与 release 说明写的就是它；Linux 归档打包后按它核对。
+env:
+  GLIBC_CEILING: '2.35'
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('release-engine-capi-pr-{0}', github.event.pull_request.number) || 'release-engine-capi' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  # 先定下版本号；勾了 publish 时拒绝别的分支和已经存在的 tag，几秒内就失败，不用等构建跑完。
+  version:
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - id: resolve
+        env:
+          PUBLISH: "${{ github.event_name == 'workflow_dispatch' && inputs.publish }}"
+          BRANCH: "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("crates/engine-capi/Cargo.toml", "rb"))["package"]["version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected msime-engine-capi version '$version'" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$PUBLISH" == true ]]; then
+            case "$BRANCH" in develop|main) ;; *) echo "msime-engine-capi is released from develop or main only, not '$BRANCH'" >&2; exit 1 ;; esac
+            if [[ -n "$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" "msime-engine-capi-v$version")" ]]; then
+              echo "msime-engine-capi-v$version already exists; releases are never replaced, bump the version in crates/engine-capi/Cargo.toml" >&2
+              exit 1
+            fi
+          fi
+          echo "msime-engine-capi $version"
+
+  build:
+    needs: version
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 的 glibc 是 2.35：在它上面构建，库要求的 glibc 不会比这更新；打包后的检查再按 GLIBC_CEILING 卡一次。
+          - {name: Linux, runner: depot-ubuntu-22.04-8, targets: x86_64-unknown-linux-gnu, archive: linux-x86_64}
+          # Depot 的 macOS runner 都是 Apple 芯片：x86_64 交叉编译，验收时经 Rosetta 运行（release-pack-tool.yml 在同一种 runner 上也这样做）。
+          - {name: macOS, runner: depot-macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin, archive: macos-universal}
+          - {name: Windows, runner: depot-windows-2025-8, targets: x86_64-pc-windows-msvc, archive: windows-x86_64-msvc}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_C_VERSION: 0.10.26
+      ARCHIVE: msime-engine-capi-${{ needs.version.outputs.version }}-${{ matrix.archive }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
+      - name: Install system packages (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake pkg-config libsqlite3-dev
+      # cargo-c 从源码编要几分钟，按版本和 runner 缓存装好的几个可执行文件。键里是 runner 标签而不是系统：在 Ubuntu 24.04 上编的 cargo-c 要更新的 glibc，在 22.04 上跑不起来。
+      - name: Restore cargo-c
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-capi*
+            ~/.cargo/bin/cargo-cbuild*
+            ~/.cargo/bin/cargo-cinstall*
+            ~/.cargo/bin/cargo-ctest*
+          key: cargo-c-${{ env.CARGO_C_VERSION }}-${{ matrix.runner }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml') }}
+      - name: Install the pinned toolchain and cargo-c
+        env: {TARGETS: "${{ matrix.targets }}"}
+        run: |
+          set -euo pipefail
+          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上这次的目标。
+          rustup toolchain install
+          read -ra targets <<< "$TARGETS"
+          rustup target add "${targets[@]}"
+          # 问 cargo 而不是 PATH：缓存还原的可执行文件在 ~/.cargo/bin，Windows 的 Git Bash 里它可能不在 PATH 上，cargo 照样找得到子命令。缓存不还原 cargo 的安装记录，所以重装时要 --force 覆盖这些文件。
+          if ! cargo cinstall --version 2>/dev/null | grep -q "^cargo-c $CARGO_C_VERSION"; then
+            cargo install cargo-c --locked --force --version "$CARGO_C_VERSION"
+          fi
+      - name: Build the C library
+        env: {TARGETS: "${{ matrix.targets }}"}
+        run: |
+          set -euo pipefail
+          # 两个 macOS 目标定同一个最低版本：rustc 和编 bundled SQLite 的 cc 都读它。
+          if [[ "$RUNNER_OS" == macOS ]]; then export MACOSX_DEPLOYMENT_TARGET=11.0; fi
+          read -ra targets <<< "$TARGETS"
+          # 路径从 $PWD 起算：Windows 上 RUNNER_TEMP 是带反斜杠的 D:\a\_temp，bash 的通配和拼接会把反斜杠当转义。交给 cargo 的换成 D:/a/... 的写法。
+          for target in "${targets[@]}"; do
+            prefix="$PWD/target/engine-capi/install-$target"
+            rm -rf "$prefix"
+            [[ "$RUNNER_OS" == Windows ]] && prefix=$(cygpath -m "$prefix")
+            cargo cinstall --locked --release -p msime-engine-capi --target "$target" --prefix "$prefix" --libdir lib
+          done
+      # macOS：两个架构的共享库和静态库用 lipo 合成一份，头文件、.pc 和符号链接取 arm64 那一份（两边相同）。
+      - name: Assemble the install prefix
+        run: |
+          set -euo pipefail
+          prefix="$PWD/target/engine-capi/install"
+          rm -rf "$prefix"
+          if [[ "$RUNNER_OS" != macOS ]]; then
+            mv "$PWD"/target/engine-capi/install-* "$prefix"
+            exit 0
+          fi
+          arm="$PWD/target/engine-capi/install-aarch64-apple-darwin"
+          intel="$PWD/target/engine-capi/install-x86_64-apple-darwin"
+          diff -r "$arm/include" "$intel/include"
+          cp -RP "$arm" "$prefix"
+          for library in libmsime_engine.1.0.0.dylib libmsime_engine.a; do
+            lipo -create "$arm/lib/$library" "$intel/lib/$library" -output "$prefix/lib/$library"
+            lipo -info "$prefix/lib/$library"
+          done
+          # 每个架构的最低系统版本都要是 11.0。
+          minimums=$(vtool -show-build "$prefix/lib/libmsime_engine.1.0.0.dylib" | awk '$1 == "minos" { print $2 }' | sort -u)
+          echo "minos: $minimums"
+          [[ "$minimums" == 11.0 ]] || { echo "expected macOS 11.0 as the minimum of every slice, got: $minimums" >&2; exit 1; }
+      - name: Package
+        run: bash crates/engine-capi/packaging/package.sh "$PWD/target/engine-capi/install" "$ARCHIVE" dist
+      # 归档里库要求的最高 glibc 符号版本不能超过 README 写的 GLIBC_CEILING。
+      - name: Check the glibc requirement (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          set -euo pipefail
+          library=target/engine-capi/package/$ARCHIVE/lib/libmsime_engine.so.1.0.0
+          required=$(objdump -T "$library" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
+          echo "libmsime_engine.so needs glibc $required (ceiling ${GLIBC_CEILING})"
+          [[ "$(printf '%s\n%s\n' "$required" "${GLIBC_CEILING}" | sort -V | tail -n 1)" == "${GLIBC_CEILING}" ]] || { echo "the library needs glibc $required, newer than the documented ${GLIBC_CEILING}" >&2; exit 1; }
+      # 验收打出来的归档本身：解到一个新目录（证明 .pc 和 install name 不依赖构建目录），核对头文件、库名、.pc 和第三方声明，按动态库、静态库编译 C 示例并在夹具词库上运行。
+      - name: Test the archive
+        run: |
+          set -euo pipefail
+          verify="$PWD/target/engine-capi/verify"
+          rm -rf "$verify"
+          mkdir -p "$verify"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            python -m zipfile -e "dist/$ARCHIVE.zip" "$(cygpath -m "$verify")"
+          else
+            tar -xzf "dist/$ARCHIVE.tar.gz" -C "$verify"
+          fi
+          bash crates/engine-capi/tests/c-example.sh --prefix "$verify/$ARCHIVE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: dist/
+          if-no-files-found: error
+
+  data:
+    needs: version
+    name: Data pack
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Download, verify and pack the minimal data
+        run: python3 crates/engine-capi/packaging/data-pack.py dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-engine-data-quanpin
+          path: dist/
+          if-no-files-found: error
+
+  # 照 crates/engine-capi/README.md 的「快速上手」做一遍：下载的 Linux 归档加数据包，用 pkg-config 和 cc 编译归档里的 C 示例，在真实词库上打字、选词、上屏、读回学到的句子。
+  smoke:
+    needs: [version, build, data]
+    runs-on: depot-ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      ARCHIVE: msime-engine-capi-${{ needs.version.outputs.version }}-linux-x86_64
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: "${{ env.ARCHIVE }}", path: dist}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: msime-engine-data-quanpin, path: dist}
+      - name: Build and run the quick start
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pkg-config
+          cd "$RUNNER_TEMP"
+          tar -xzf "$GITHUB_WORKSPACE/dist/$ARCHIVE.tar.gz"
+          tar -xzf "$GITHUB_WORKSPACE"/dist/msime-engine-data-quanpin-*.tar.gz
+          data=$(echo "$PWD"/msime-engine-data-quanpin-*/)
+          export PKG_CONFIG_PATH="$PWD/$ARCHIVE/lib/pkgconfig"
+          # shellcheck disable=SC2046 # pkg-config 的输出要按空格拆成参数。
+          cc -o example "$ARCHIVE/examples/c/example.c" $(pkg-config --cflags --libs msime-engine) -Wl,-rpath,"$PWD/$ARCHIVE/lib"
+          ./example "${data%/}" "$PWD/user" "$PWD/cache"
+
+  release:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    needs: [version, build, data, smoke]
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {path: dist, merge-multiple: true}
+      - name: Create the release
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          VERSION: "${{ needs.version.outputs.version }}"
+          SHA: "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          assets=(*.tar.gz *.zip)
+          [[ ${#assets[@]} -eq 5 ]] || { echo "expected 3 library archives and the data pack as .tar.gz and .zip, got: ${assets[*]}" >&2; exit 1; }
+          sha256sum -- "${assets[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          data=$(printf '%s\n' msime-engine-data-quanpin-*.tar.gz | sed 's/\.tar\.gz$//')
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "msime-engine-capi ${VERSION}：水杉输入法输入引擎的 C 库（ABI 1），预编译好的头文件、共享库与静态库和 pkg-config 文件，源码是提交 ${SHA}，同一版本也在 crates.io：https://crates.io/crates/msime-engine-capi/${VERSION}"
+            echo
+            echo "- \`msime-engine-capi-${VERSION}-linux-x86_64.tar.gz\`：Linux x86_64，需要 glibc ${GLIBC_CEILING} 或更新。"
+            echo "- \`msime-engine-capi-${VERSION}-macos-universal.tar.gz\`：macOS 11 起，arm64 与 x86_64 合一。库只有 ad-hoc 签名：用浏览器下载的先去掉隔离属性（\`xattr -dr com.apple.quarantine <解开的目录>\`）。"
+            echo "- \`msime-engine-capi-${VERSION}-windows-x86_64-msvc.zip\`：Windows x86_64，MSVC，动态 CRT（需要 Visual C++ 运行库）。"
+            echo "- \`${data}.tar.gz\`、\`${data}.zip\`：全拼、双拼的最小数据包，取自 msime-dictionary 的词库发布，解开的目录就是引擎的 resources 目录。**这份数据不是 MPL-2.0**：主体是 GPL-3.0，n-gram 表是 CC-BY-SA-4.0，逐项见包里的 README.md。"
+            echo
+            echo "库的代码是 MPL-2.0，链接进去的第三方 crate 和编进引擎的数据表保留各自的许可证（归档里的 LICENSE、licenses/、THIRD_PARTY_NOTICES.txt 和 SOURCE.txt）。用法从 [README 的「快速上手」](https://github.com/metasequoiaime/msime/blob/${SHA}/crates/engine-capi/README.md#快速上手) 开始。校验值在 SHA256SUMS。"
+          } > "$notes"
+          gh release create "msime-engine-capi-v${VERSION}" "${assets[@]}" SHA256SUMS --target "${SHA}" --title "msime-engine-capi ${VERSION}" --notes-file "$notes" --latest=false

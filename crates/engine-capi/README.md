@@ -6,6 +6,70 @@ C ABI of the 水杉输入法 (Metasequoia IME) input engine: a C library (shared
 
 头文件 [`include/msime_engine.h`](include/msime_engine.h) 由 cbindgen 从 `src/` 生成并提交，每个函数、结构体和常量的说明都在里面；这份 README 讲它们之间的约定。
 
+## 快速上手
+
+不用装 Rust，也不用克隆仓库：从 [msime-engine-capi 的发布](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) 下载自己平台的归档和数据包，校验值在同一个发布的 `SHA256SUMS` 里。
+
+| 文件 | 内容 |
+| --- | --- |
+| `msime-engine-capi-<版本>-linux-x86_64.tar.gz` | Linux x86_64，在 Ubuntu 22.04 上构建，需要 glibc 2.35 或更新 |
+| `msime-engine-capi-<版本>-macos-universal.tar.gz` | macOS 11 起，arm64 与 x86_64 合在同一个库里。库只有 ad-hoc 签名：用浏览器下载的先 `xattr -dr com.apple.quarantine <解开的目录>` |
+| `msime-engine-capi-<版本>-windows-x86_64-msvc.zip` | Windows x86_64，MSVC 工具链，链接动态 CRT：运行要有 Visual C++ 运行库，静态链接时自己的代码也用 `/MD` 编译 |
+| `msime-engine-data-quanpin-<词库版本>.tar.gz`、`.zip` | 全拼、双拼的最小数据包：`msime-pinyin.db`、`msime-english.db`、`msime-bigram.bin`、`msime-trigram.bin` 和 `msime-scowl_Copyright.txt`，逐字节取自 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `dict-v*` 发布，解开的目录就是 `resources`。**这份数据不是 MPL-2.0**：主体是 GPL-3.0，n-gram 表是 CC-BY-SA-4.0，逐项见包里的 `README.md` |
+
+库的归档解开后是一个装好的前缀：`include/msime_engine.h`；`lib/` 里的共享库和静态库（Windows 的 DLL 在 `bin/msime_engine.dll`，导入库是 `lib/msime_engine.dll.lib`，静态库是 `lib/msime_engine.lib`）；`lib/pkgconfig/msime-engine.pc`，它的 prefix 写的是相对 `.pc` 所在目录的 `${pcfiledir}/../..`，归档解到哪里都能直接用；macOS 的共享库 install name 是 `@rpath/libmsime_engine.1.dylib`。另外有 [C 示例](examples/c/example.c) 和它的 CMakeLists.txt，以及 `LICENSE`、`licenses/`、`THIRD_PARTY_NOTICES.txt`、`SOURCE.txt`（见[二进制归档与第三方声明](#二进制归档与第三方声明)）。
+
+下面把归档里的 C 示例编出来，在数据包上打一句全拼 `nihaoshijie`、选第一个候选上屏、冲刷学习、再读个人词典。示例的三个参数是 `resources`、`user_data`、`cache`，都要是绝对路径；后两个由库建出来。
+
+Linux、macOS 上用 pkg-config（macOS 把归档名换成 `macos-universal` 那个）：
+
+```sh
+tar -xzf msime-engine-capi-0.1.0-linux-x86_64.tar.gz
+tar -xzf msime-engine-data-quanpin-2.0.39.tar.gz
+capi=$PWD/msime-engine-capi-0.1.0-linux-x86_64
+export PKG_CONFIG_PATH=$capi/lib/pkgconfig
+cc -o example "$capi/examples/c/example.c" $(pkg-config --cflags --libs msime-engine) -Wl,-rpath,"$capi/lib"
+./example "$PWD/msime-engine-data-quanpin-2.0.39" "$PWD/user" "$PWD/cache"
+```
+
+没有 pkg-config 时直接写：`cc -o example "$capi/examples/c/example.c" -I"$capi/include" -L"$capi/lib" -lmsime_engine -Wl,-rpath,"$capi/lib"`。静态链接把 `-lmsime_engine` 换成 `"$capi/lib/libmsime_engine.a"`，再接上 `.pc` 的 `Libs.private` 列的系统库（`pkg-config --static --libs msime-engine` 打印的除 `-lmsime_engine` 以外的部分，见[构建](#构建)）。
+
+Windows 上在 x64 的 Developer Command Prompt 里：
+
+```bat
+tar -xf msime-engine-capi-0.1.0-windows-x86_64-msvc.zip
+tar -xf msime-engine-data-quanpin-2.0.39.zip
+set CAPI=%CD%\msime-engine-capi-0.1.0-windows-x86_64-msvc
+cl /nologo /MD /I "%CAPI%\include" "%CAPI%\examples\c\example.c" /link "%CAPI%\lib\msime_engine.dll.lib"
+copy "%CAPI%\bin\msime_engine.dll" .
+example.exe "%CD%\msime-engine-data-quanpin-2.0.39" "%CD%\user" "%CD%\cache"
+```
+
+每个平台也都可以用 CMake，动态和静态链接一样写，静态库要的系统库它从 `.pc` 里读：
+
+```sh
+cmake -S "$capi/examples/c" -B build -DMSIME_ENGINE_PREFIX="$capi" -DMSIME_ENGINE_LINK=static
+cmake --build build --config Release
+```
+
+在 dict-v2.0.39 的数据包上，示例打出（库的版本号随发布）。「你好世界」本来就是词库里的词，学习只调它的词频，不往个人词典里加一条；在 `tests/fixture` 的最小词库上它是整句联想解出的句子，那里会读回一条个人词条：
+
+```text
+msime-engine 0.1.0, ABI 1.0
+preedit: ni'hao'shi'jie (revision 11, 192 candidates)
+  1. 你好世界 [ni'hao'shi'jie] source 0
+  2. 你好是饥饿 [ni'hao'shi'ji'e] source 8
+  3. 你哈哦世界 [ni'ha'o'shi'jie] source 8
+  4. 你哈哦是饥饿 [ni'ha'o'shi'ji'e] source 8
+  5. 你好 [ni'hao] source 0
+commit: 你好世界
+personal dictionary: {"entries":[],"has_more":false}
+the dictionary already has this word: learning adjusted its frequency instead of adding a personal entry
+ok
+```
+
+Rust 程序不需要这个库，直接 `cargo add msime-engine`，见 [msime-engine 的快速上手](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md#快速上手)。
+
 ## 构建
 
 用 [cargo-c](https://github.com/lu-zero/cargo-c)（`cargo install cargo-c --locked`，要 0.10.26 或更新）：
@@ -38,7 +102,7 @@ cargo cinstall --locked --release -p msime-engine-capi --prefix /usr/local --lib
 bash crates/engine-capi/tests/c-example.sh --update-header
 ```
 
-这个脚本也是 CI 的 `engine-capi` 作业：用 cargo-c 装进 `target/engine-capi/stage`，核对提交的头文件没有漂移，再用 CMake 把 [C 示例](examples/c/example.c) 按动态库、静态库（Linux、macOS 上再加一个同时链接系统 SQLite 的静态版本）各编一遍，在 `tests/fixture` 生成的最小词库上打一句全拼、选词上屏、冲刷学习，再从个人词典读回学到的这句。
+这个脚本也是 CI 的 `engine-capi` 作业（加 `--prefix <目录>` 时不构建，对一个已经装好的前缀做同样的检查和示例，发布流程用它验收解开的归档）：用 cargo-c 装进 `target/engine-capi/stage`，核对提交的头文件没有漂移，再用 CMake 把 [C 示例](examples/c/example.c) 按动态库、静态库（Linux、macOS 上再加一个同时链接系统 SQLite 的静态版本）各编一遍，在 `tests/fixture` 生成的最小词库上打一句全拼、选词上屏、冲刷学习，再从个人词典读回学到的这句。
 
 ## 生命周期
 
@@ -142,7 +206,7 @@ msime_engine_string_free(dictionaries);
 
 ## 要带的数据文件
 
-库本身不带词库。运行时文件放在 `resources` 里，可以从 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `dict-v*` 发布取，也可以自己按同样的格式生成。数据许可证跟着数据走，不随引擎：采用方按自己的发布方式挑选数据。
+库本身不带词库。运行时文件放在 `resources` 里，可以从 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `dict-v*` 发布取，也可以自己按同样的格式生成（[docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md)）。全拼、双拼要的那几个文件连同它们要求随附的许可证，在本库的发布里打成了一个数据包（见[快速上手](#快速上手)）。数据许可证跟着数据走，不随引擎：采用方按自己的发布方式挑选数据。
 
 ABI 1.0 的 `msime_engine_prepare_runtime` 和 `msime_engine_reset_learning` 不分方案，所以每个方案都要 `msime-pinyin.db` 和 `msime-english.db`，包括不读拼音词库的日文、韩文、越南文和藏文。引擎内部能按方案只准备 `msime-english.db`（msime 自己的宿主这样用），但它还不是公开接口，C 接口 1.0 也没有这个选项；以后要加就在次版本里追加一个带方案集合的函数，已有的两个不变。
 
@@ -160,7 +224,7 @@ ABI 1.0 的 `msime_engine_prepare_runtime` 和 `msime_engine_reset_learning` 不
 
 ## 二进制归档与第三方声明
 
-C 库的二进制静态链接了整张 Rust 依赖图和 bundled SQLite，每个二进制归档都要带上这些依赖的声明。用 Linux 打包同一个收集脚本，只走 `msime-engine-capi` 的依赖图：
+C 库的二进制静态链接了整张 Rust 依赖图和 bundled SQLite，每个二进制归档都要带上这些依赖的声明。本库发布的预编译归档已经带齐下面这些（由 [`packaging/package.sh`](packaging/package.sh) 组装，`.github/workflows/release-engine-capi.yml` 在三个平台上调用，`SOURCE.txt` 写明对应源码的提交和 rink-core 的源码位置）；自己构建、自己分发二进制时照同样的清单准备。用 Linux 打包同一个收集脚本，只走 `msime-engine-capi` 的依赖图：
 
 ```sh
 python3 -X utf8 platforms/linux/collect-notices.py cargo dist/THIRD_PARTY_NOTICES.txt msime-engine-capi

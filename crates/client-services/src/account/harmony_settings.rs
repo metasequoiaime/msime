@@ -62,6 +62,7 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     number_pad_space: "platform.harmony.number_pad_space",
     nine_key_sidebar_symbols: "platform.harmony.nine_key_symbols",
     nine_key_digit_sidebar_symbols: "platform.harmony.nine_key_digit_symbols",
+    one_handed_side_panel: "platform.harmony.one_handed_side_panel",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 

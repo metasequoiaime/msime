@@ -68,7 +68,7 @@ CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 
 
 - **收益**：第三方前端拿到一个带版本、带头文件和 `.pc` 的 C 库，按键路径上没有 JSON 和额外分配，候选按下标随取，选择有修订号保护；会话可以在任何线程上用；会话与维护按 msime 宿主的同一把文件锁互斥；头文件、SONAME、第三方声明和三平台上的打字流程都有 CI 守着。
 - **代价**：cargo-c 总是按显式的目标三元组构建，产物在 `target/<三元组>/` 下，是与 `target/debug` 分开的第二棵构建树（CI 和本机跑脚本时都多编一遍引擎）。苹果平台的 dylib 不剥调试信息，体积大一些。CI 在引擎相关的 PR 上多占三台 runner，其中一台是 macOS。快照缓存在只读调用之间可能多取一次快照。
-- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布等 P2 改许可证，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
+- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布见 [msime-engine-capi 的预编译归档、最小数据包与快速上手](../process/2026-10-29-engine-capi-prebuilt-release-and-data-pack.md)，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
 
 ## 相关笔记
 

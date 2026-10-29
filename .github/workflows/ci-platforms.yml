@@ -340,6 +340,10 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链。
           rustup toolchain install
           cargo test --locked -p msime-engine
+      # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
+      - name: Published crates build from their packages
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo package --locked -p msime-path-trust -p msime-engine -p msime-engine-capi
       - name: Engine unchanged
         if: ${{ needs.changes.outputs.engine != 'true' }}
         run: echo 'No engine or shared changes; engine tests skipped.'

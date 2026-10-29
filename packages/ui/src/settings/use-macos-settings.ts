@@ -34,6 +34,7 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   // Set once the user dismisses the notice, so a later focus refresh does not bring it back in this window.
   const inputSourceDismissed = useRef(false);
   const inputSourceRequest = useAsyncGeneration(client, macos);
+  const inputSourcePending = useRef<number | null>(null);
   const refreshInputSourceStartup = useCallback(async () => {
     const startup = macos ? client.inputSourceStartup : undefined;
     const request = ++inputSourceRequest.current;
@@ -41,10 +42,16 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       setInputSourceStartup(null);
       return;
     }
-    const value = await startup.status().catch(() => null);
-    // Only the newest request answers: a slow start-time read must not overwrite a later one taken after the user enabled the source.
-    if (request === inputSourceRequest.current && !inputSourceDismissed.current) {
-      setInputSourceStartup(value);
+    inputSourcePending.current = request;
+    try {
+      const value = await startup.status().catch(() => null);
+      // 只采纳最新读取，避免启动时的旧结果覆盖用户启用输入源后的状态。
+      if (request === inputSourceRequest.current && !inputSourceDismissed.current) {
+        setInputSourceStartup(value);
+      }
+    } finally {
+      // 主动重查或客户端切换后的旧请求不能释放当前请求的占位。
+      if (inputSourcePending.current === request) inputSourcePending.current = null;
     }
   }, [client, macos]);
   const dismissInputSourceStartup = useCallback(() => {
@@ -72,7 +79,11 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   // 系统设置可能与本窗口并排，添加输入源不一定带来焦点变化；提示等待用户操作时也定期重查。
   const waitingOnUser = inputSourceNeedsRecheck(inputSourceStartup);
   useInterval(
-    () => void refreshInputSourceStartup(),
+    () => {
+      // 等待当前探测完成，保留焦点和主动重查优先取新状态的行为。
+      if (inputSourcePending.current === inputSourceRequest.current) return;
+      void refreshInputSourceStartup();
+    },
     waitingOnUser && typeof window !== "undefined" ? INPUT_SOURCE_RECHECK_MS : null,
   );
 

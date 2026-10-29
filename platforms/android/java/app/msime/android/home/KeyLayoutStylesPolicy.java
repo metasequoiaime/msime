@@ -18,6 +18,8 @@ import java.util.Set;
  * 「按键布局」子页（{@link KeyLayoutStylesPage}）里不碰 Android 的部分：列出哪几种键盘类型、默认停在哪一种、每种样式叫什么、选中后下面那行说明写什么、预览高亮哪几个键，整块键盘预览画哪些键，以及两行左侧符号（#10223）的标题、摘要和编辑页说明。三端（iOS、共享设置页）按同一份规格画同样的页面。
  *
  * <p>预览的键序、宽度份额和跨行取自键盘自己用的表：26 键和九键外框取统计页热力图的同一套布局（{@link KeyHeatmapLayout#soft}、{@link KeyHeatmapLayout#nine}，由 KeyHeatmapLayoutSmoke 钉住与键盘一致），14 键与 18 键取 {@link FourteenKeyLayout}、{@link EighteenKeyLayout} 和 `ImeLetterRows#rebuildFourteenKeyRows` 用的份额，底行都是 {@link KeyboardActionRow#designEntries}。check-host 直接编译并在 JVM 里测它。
+ *
+ * <p>皮肤页那几块整键盘预览（{@link KeyboardPreview}）也从这里取行（{@link Preview}），所以它们和这一页、和键盘本身画的是同一副底行。
  */
 public final class KeyLayoutStylesPolicy {
     private KeyLayoutStylesPolicy() {}
@@ -198,11 +200,12 @@ public final class KeyLayoutStylesPolicy {
     static final String LAYER = "SoftLayer";
     /** 9 键预览里画成一整条的左侧符号栏。键盘上这一列记 `SoftPunctuation`，可标准外框右列的 ！ 也记它，按它高亮会连 ！ 一起描边，所以预览给整条左列单起一个只在预览里用的 id。 */
     static final String SIDEBAR = "NineKeySidebar";
+    static final String LANGUAGE = "SoftLanguage";
     private static final String SHIFT = "ShiftLeft";
     /** 热力图把 26 键第三行左端画成组字中的「分词」、记 `Quote`；预览画空闲时的 ⇧。 */
     private static final String SEPARATOR = "Quote";
     private static final Set<String> FUNCTION_IDS = Set.of(SHIFT, SEPARATOR, "Backspace", SYMBOL, LAYER,
-        "SoftLanguage", "SoftGlobe", EMOJI);
+        LANGUAGE, "SoftGlobe", EMOJI);
 
     /** 预览里一个键的底色：字符键用键帽色，功能键用功能键色，回车用强调色。 */
     public enum Tone { CHARACTER, FUNCTION, RETURN }
@@ -277,9 +280,108 @@ public final class KeyLayoutStylesPolicy {
         boolean digits = drawsNumberRow(kind, numberRow);
         return switch (kind) {
             case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst));
-            case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));
+            case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style))));
             case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen);
         };
+    }
+
+    /** 九键右列（⌫、重输，以及标准外框最下面的 ！）在键盘上都是功能键（`ImeLayoutRows` 给它们 `KeyboardKeyRole.ACCENT`）；！ 与左栏的符号同记 `SoftPunctuation`，按 id 分不出来，这里按位置把右列改成功能键，回车不变。 */
+    private static List<List<Key>> nineActionColumn(List<List<Key>> rows) {
+        List<List<Key>> result = new ArrayList<>(rows.size());
+        for (int index = 0; index < rows.size(); index++) {
+            List<Key> row = rows.get(index);
+            Key right = row.get(row.size() - 1);
+            if (index == rows.size() - 1 || right.tone() != Tone.CHARACTER) {
+                result.add(row);
+                continue;
+            }
+            List<Key> changed = new ArrayList<>(row);
+            changed.set(row.size() - 1, new Key(right.face(), right.weight(), right.id(), Tone.FUNCTION, right.rows()));
+            result.add(List.copyOf(changed));
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * 「按键布局」页以外那几块整键盘预览（AI 皮肤页、皮肤列表、社区皮肤卡片和详情，{@link KeyboardPreview}）画哪一副：用户自己的共享偏好里这一类键盘选的样式、顶部数字行、「符」与「123」互换、九键左侧符号（`touch_nine_key_sidebar_symbols`），以及本机的「交换语言键与数字键」（`platform.android.swap_language_number_keys`）。键序和份额就是 {@link #keyboard} 那一副，不做高亮。Android 没有隐藏中/英键的设置，底行总画中/英。
+     *
+     * @param kind 画哪一类键盘（{@link #previewKind}，AI 皮肤页由它自己的「26 键 | 9 键」分段定）
+     * @param eighteen 14/18 键画 18 键的字母格（{@link #eighteen}）
+     * @param swapLanguageNumber 本机设置「交换语言键与数字键」：底行的 123 与中/英对调，两键的宽度跟着键走，与键盘的 {@code KeyboardActionRow} 相同
+     * @param nineKeySidebar 九键字母层左侧符号栏的表（空表是出厂表），9 键时左列与「按键布局」页、键盘画同一屏
+     */
+    public record Preview(Kind kind, TouchKeyStyle.Styles styles, boolean numberRow, boolean eighteen,
+            boolean symbolFirst, boolean swapLanguageNumber, List<String> nineKeySidebar) {
+        /** 拿不到偏好时（读偏好失败、尚未读完，或展示的东西根本不画预览）画的那一副：26 键标准底行，不开数字行、不互换。 */
+        public static final Preview STANDARD = new Preview(Kind.TWENTY_SIX, TouchKeyStyle.Styles.DEFAULT, false, false,
+            false, false);
+
+        public Preview {
+            if (kind == null || styles == null) throw new IllegalArgumentException("Preview needs a kind and styles");
+            nineKeySidebar = List.copyOf(nineKeySidebar);
+        }
+
+        /** 九键左侧符号用出厂表的那一副。 */
+        public Preview(Kind kind, TouchKeyStyle.Styles styles, boolean numberRow, boolean eighteen, boolean symbolFirst,
+                boolean swapLanguageNumber) {
+            this(kind, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, List.of());
+        }
+
+        /** 只换画哪一类键盘，其余偏好不变；AI 皮肤页切「26 键 | 9 键」时用。 */
+        public Preview with(Kind next) {
+            return new Preview(next, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, nineKeySidebar);
+        }
+
+        /** 自上而下逐行的键，与 {@link KeyboardPreview} 画的相同。 */
+        public List<List<Key>> rows() {
+            List<List<Key>> rows = keyboard(kind, kind.selected(styles), numberRow, eighteen, symbolFirst,
+                nineKeySidebar);
+            return swapLanguageNumber ? swappedLanguageNumber(rows) : rows;
+        }
+
+        /** 社区皮肤详情在空格上标的那一句，说的是画的哪种键盘：九键、14 键、18 键或 26 键。 */
+        public String caption() {
+            return switch (kind) {
+                case NINE -> "九键";
+                case FOURTEEN -> eighteen ? "18 键" : "14 键";
+                case TWENTY_SIX -> "26 键";
+            };
+        }
+    }
+
+    /** 预览画哪一类键盘：用户当前在用的中文键盘类型，判断的规则与「按键布局」页默认停的那一类相同（{@link #initialKind}）；判断不了或本版本一类都没有时画 26 键。 */
+    public static Kind previewKind(TouchKeyStyle.Groups groups, KeyboardScheme current, String shuangpinLayout,
+            String wubiLayout) {
+        Kind kind = initialKind(offered(groups), current, shuangpinLayout, wubiLayout);
+        return kind == null ? Kind.TWENTY_SIX : kind;
+    }
+
+    /** 由共享偏好里读出的几项定下预览（{@link Preview}）；读偏好的那一半在 {@link KeyboardPreview#layout} 里。 */
+    public static Preview preview(TouchKeyStyle.Groups groups, KeyboardScheme current, String shuangpinLayout,
+            String wubiLayout, TouchKeyStyle.Styles styles, boolean numberRow, boolean symbolFirst,
+            boolean swapLanguageNumber, List<String> nineKeySidebar) {
+        return new Preview(previewKind(groups, current, shuangpinLayout, wubiLayout), styles, numberRow,
+            eighteen(current, shuangpinLayout), symbolFirst, swapLanguageNumber, nineKeySidebar);
+    }
+
+    /** 每一行里同时有 123（`SoftLayer`）和中/英（`SoftLanguage`）时对调两键，宽度跟着键走；右侧大回车外框九宫格下方那一行同样对调，与键盘的 `tallReturnEntries` 一致。 */
+    private static List<List<Key>> swappedLanguageNumber(List<List<Key>> rows) {
+        List<List<Key>> result = new ArrayList<>(rows.size());
+        for (List<Key> row : rows) {
+            int layer = -1, language = -1;
+            for (int index = 0; index < row.size(); index++) {
+                if (LAYER.equals(row.get(index).id())) layer = index;
+                if (LANGUAGE.equals(row.get(index).id())) language = index;
+            }
+            if (layer < 0 || language < 0) {
+                result.add(row);
+                continue;
+            }
+            List<Key> swapped = new ArrayList<>(row);
+            java.util.Collections.swap(swapped, layer, language);
+            result.add(List.copyOf(swapped));
+        }
+        return List.copyOf(result);
     }
 
     private static TouchKeyStyle.Row offered(Kind kind, TouchKeyStyle.Row style) {

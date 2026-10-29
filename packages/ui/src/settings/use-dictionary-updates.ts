@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DictionaryClient, DictionaryUpdateStatus } from "../dictionary/dictionary-contracts";
 import { subscribeToInterval } from "../core/use-interval";
 import { useAsyncGeneration } from "./use-async-generation";
@@ -8,8 +8,12 @@ export function useDictionaryUpdates(request: NonNullable<DictionaryClient["upda
   const [status, setStatus] = useState<DictionaryUpdateStatus | null>(null);
   const [error, setError] = useState("");
   const generation = useAsyncGeneration(request);
+  const pending = useRef<number | null>(null);
   const action = async (command: Parameters<typeof request>[0], enabled?: boolean) => {
+    // 轮询等待当前请求，避免慢于两秒的读取或写入一直被新 tick 作废。
+    if (command === "status" && pending.current === generation.current) return;
     const current = ++generation.current;
+    pending.current = current;
     try {
       const next = await request(command, enabled);
       if (current === generation.current) {
@@ -18,6 +22,9 @@ export function useDictionaryUpdates(request: NonNullable<DictionaryClient["upda
       }
     } catch {
       if (current === generation.current) setError("词库更新暂不可用，请稍后重试");
+    } finally {
+      // 旧客户端或被手动动作替换的请求，只能释放自己的占位。
+      if (pending.current === current) pending.current = null;
     }
   };
   useEffect(() => {

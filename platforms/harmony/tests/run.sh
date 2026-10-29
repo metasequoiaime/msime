@@ -517,6 +517,27 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
   exit 1
 fi
+# 大屏单手的侧边数字键盘（#10203）：宽度、取值和显示条件由 keyboard-logic.test.ts 的 `OneHandedPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 sidePanel 读共享偏好，视图随设置重读、转屏时按按键这一行的宽度重算，handedKeys 只在 sidePadShown 时画面板，数字和小数点走字面上屏，设置桥按设备形态（含可折叠）报告能力位。
+side_pad_body=$(awk '/^  oneHandSidePad\(\) \{/,/^  \}$/' "$keyboard_view")
+side_pad_key_body=$(awk '/^  private sidePadDigitKey\(digit: string\): KeyOptions \{/,/^  \}$/' "$keyboard_view")
+if ! grep -qF 'oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.oneHandedSidePanel = this.settings.oneHandedSidePanel;' "$keyboard_view" \
+  || ! grep -qF 'widthVp - 2 * KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP, largeScreen);' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.sidePadShown(this.oneHandedSidePanel, this.oneHandActive(), this.oneHandSidePadVp,' "$keyboard_view" \
+  || [[ $(grep -cF 'if (this.oneHandSidePadShown() && ' "$keyboard_view") -ne 2 ]] \
+  || ! grep -qF ".id('oneHandSidePad')" <<< "$side_pad_body" \
+  || ! grep -qF "this.insertNumberPadLiteral('.');" <<< "$side_pad_body" \
+  || ! grep -qF 'this.deleteKey(' <<< "$side_pad_body" \
+  || ! grep -qF 'this.insertNumberPadLiteral(digit);' <<< "$side_pad_key_body" \
+  || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(digit));' <<< "$side_pad_key_body" \
+  || ! grep -qF "value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets" \
+  || ! grep -qF 'SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType, this.foldable());' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony must draw the one-handed side number pad from touch_one_handed_side_panel only when OneHandedPolicy.sidePadShown allows, type its digits literally, and report the capability by form factor" >&2
+  exit 1
+fi
 # 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。
 capture_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 capture_settings="$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"
