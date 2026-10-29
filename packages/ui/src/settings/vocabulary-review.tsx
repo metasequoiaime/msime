@@ -124,6 +124,7 @@ export function VocabularyReviewPage({
   const [importNote, setImportNote] = useState("");
   const requestRef = useRef<Promise<VocabularyReviewStatus> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileReadVersion = useRef(0);
   const mounted = useMountedRef();
   const generation = useAsyncGeneration(client);
 
@@ -189,7 +190,10 @@ export function VocabularyReviewPage({
   async function chooseFile(file: File) {
     if (!client.importWordbook || requestRef.current) return;
     const current = generation.current;
-    const isCurrent = () => mounted.current && generation.current === current;
+    // 同一客户端再次选文件也会让旧读取失效，不能迟到导入或覆盖新文件的提示。
+    const version = ++fileReadVersion.current;
+    const isCurrent = () =>
+      mounted.current && generation.current === current && fileReadVersion.current === version;
     setImportNote("");
     setError("");
     // Real word lists arrive as UTF-16-with-BOM and GB18030 from Windows tools, which is why the

@@ -526,6 +526,42 @@ test.each(["resolve", "reject"] as const)(
   },
 );
 
+test.each(["resolve", "reject"] as const)(
+  "a later file choice supersedes an older read that will %s on the same client",
+  async (outcome) => {
+    let finish!: (value: ArrayBuffer) => void;
+    let fail!: (reason: Error) => void;
+    const oldBytes = vi.fn(
+      () =>
+        new Promise<ArrayBuffer>((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    const older = new File(["older,synthetic"], "older.csv");
+    Object.defineProperty(older, "arrayBuffer", { value: oldBytes });
+    const newer = new File(["newer,synthetic"], "newer.csv");
+    Object.defineProperty(newer, "arrayBuffer", {
+      value: vi.fn(async () => new TextEncoder().encode("newer,synthetic").buffer),
+    });
+    const importWordbook = vi.fn(async () => status({ answeredToday: 17 }));
+    const view = render(<VocabularyReviewPage client={client({ importWordbook })} />);
+    await screen.findByText("今日待复习");
+    const input = view.container.querySelector('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [older] } });
+    await waitFor(() => expect(oldBytes).toHaveBeenCalledOnce());
+    fireEvent.change(input, { target: { files: [newer] } });
+    await screen.findByText("已导入「newer」。");
+    await act(async () => {
+      if (outcome === "resolve") finish(new TextEncoder().encode("older,synthetic").buffer);
+      else fail(new Error("synthetic delayed older read failure"));
+    });
+    expect(importWordbook).toHaveBeenCalledExactlyOnceWith("newer", "newer,synthetic");
+    expect(screen.queryByText("无法读取所选文件，请重新选择。")).toBeNull();
+    expect(screen.getByText("已导入「newer」。")).toBeTruthy();
+  },
+);
+
 test("a completed import from a replaced vocabulary client cannot show its success note", async () => {
   let finish!: (value: VocabularyReviewStatus) => void;
   const importWordbook = vi.fn(
