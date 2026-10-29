@@ -6,7 +6,8 @@ public final class VoiceDiagnosticsSmoke {
         check(VoiceDiagnostics.platformFailure(9) == DiagnosticEventKind.VOICE_FAILURE_PERMISSION);
         check(VoiceDiagnostics.platformFailure(3) == DiagnosticEventKind.VOICE_FAILURE_AUDIO);
         check(VoiceDiagnostics.platformFailure(8) == DiagnosticEventKind.VOICE_PLATFORM_BUSY);
-        check(VoiceDiagnostics.platformFailure(1) == DiagnosticEventKind.VOICE_FAILURE_NETWORK);
+        check(VoiceDiagnostics.platformFailure(1) == DiagnosticEventKind.VOICE_FAILURE_TIMEOUT);
+        check(VoiceDiagnostics.platformFailure(2) == DiagnosticEventKind.VOICE_FAILURE_NETWORK);
         check(VoiceDiagnostics.platformFailure(7) == DiagnosticEventKind.VOICE_EMPTY);
         check(VoiceDiagnostics.platformFailure(-1) == DiagnosticEventKind.VOICE_PLATFORM_OTHER);
         check(VoiceDiagnostics.unexpected(new SecurityException("synthetic-private-marker"))

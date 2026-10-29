@@ -348,8 +348,10 @@ final class ImeStyler {
             hintButton.setHintColor(color(target.accent()));
             hintButton.setCornerHintColor(color(target.hint()));
         }
-        if (button instanceof SpaceKeyFace space)
+        if (button instanceof SpaceKeyFace space) {
             space.setFaceColor(color(target.toolbarIcon()));
+            space.setCornerHintColor(color(target.hint()));
+        }
         if (button instanceof NineKeyDigitButton digitButton)
             digitButton.setDigitColor(color(target.hint()));
         applySkinTypeface(button, target);
@@ -618,7 +620,7 @@ final class ImeStyler {
         }
     };
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；浮动时是一块缩窄的圆角面板。 */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
@@ -634,8 +636,8 @@ final class ImeStyler {
         }
         s.keyboardSurface.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         s.keyboardSurface.setClipToOutline(false);
-        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
-            configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
+        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(configuration.smallestScreenWidthDp,
+            configuration.screenWidthDp, s.splitKeyboardDrawn(), ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(s)));
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
             width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight

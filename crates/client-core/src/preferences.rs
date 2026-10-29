@@ -1341,6 +1341,7 @@ pub struct SentenceAssociationPreferences {
     /// Runs the desktop sentence model as the input runtime's settled reranker once typing pauses, when a host has installed it; the Engine never loads that model.
     #[serde(default)]
     pub neural_desktop: bool,
+    /// 整句联想「增强」: mounts the keyboard sentence model as the input runtime's per-keystroke reranker when the edition ships the model. The Engine's own keyboard-model rerank does not follow it.
     #[serde(default)]
     pub neural_keyboard: bool,
     #[serde(default)]

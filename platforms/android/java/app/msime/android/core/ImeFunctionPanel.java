@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能菜单：四列，手机竖屏和平板三行、手机横屏两行（{@link MSIMEInputService#pickerPhoneLandscape}），面板矮时磁贴整体缩小（{@link PagedTileGrid#pickerGrid}），常用操作在前、其他工具在后，过滤顶部已有的入口；条目见 {@link FunctionPanelModel}。本地输入与「AI 回复与润色」各有一个子页。
+ * 功能菜单：四列，手机竖屏和平板三行、手机横屏两行（{@link MSIMEInputService#pickerPhoneLandscape}），面板矮时磁贴整体缩小（{@link PagedTileGrid#pickerGrid}），常用操作在前、其他工具在后，过滤顶部已有的入口；条目见 {@link FunctionPanelModel}。本地输入、「AI 回复与润色」和设备信息各有一个子页。
  *
  * <p>旧面板「开启态卡片渲染成深色块」的根因：开启的 TILE 卡片底色是 accentSoft（自定义皮肤里是 accent 加 0x24 透明度），经 `KeyboardSkinKeyDrawable` 绘制时选中卡片按 action 处理，`paint.setAlpha(opacity)` 把颜色自带的 0x24 透明度覆盖成 255，底色变成实心 accent，而文字 accentText 也是 accent，于是成了一块看不见字的深色块。面板条目不画底色（FunctionPanelView 挡掉样式通道给的键帽），开启态用强调色和勾标表示。
  */
@@ -24,6 +24,10 @@ final class ImeFunctionPanel {
     private String chooserTitle = "";
     private List<String> chooserLabels = List.of();
     private View easterEgg;
+    /** 设备信息子面板插入和复制用的语言；只在键盘进程里记着，默认中文。 */
+    private DeviceInfoReport.Language deviceInfoLanguage = DeviceInfoReport.Language.CHINESE;
+    private Button deviceInfoChinese;
+    private Button deviceInfoEnglish;
 
     ImeFunctionPanel(MSIMEInputService s) {
         this.s = s;
@@ -55,7 +59,12 @@ final class ImeFunctionPanel {
         }
         // 子页没有 FunctionPanelView，由容器自己承担「更多工具」的描述，免得同一面板出现两个同名节点。
         s.moreToolsPanel.setContentDescription(
-            s.localInputToolsOpen || s.aiAssistChooserOpen ? "更多工具" : null);
+            s.localInputToolsOpen || s.aiAssistChooserOpen || s.deviceInfoOpen ? "更多工具" : null);
+        if (s.deviceInfoOpen) {
+            renderDeviceInfo();
+            s.imeStyler.applySkin();
+            return;
+        }
         if (s.localInputToolsOpen) {
             renderLocalInput();
             s.imeStyler.applySkin();
@@ -79,7 +88,8 @@ final class ImeFunctionPanel {
             if (s.toolbarClipboard) hiddenItems.add(FunctionPanelModel.Id.CLIPBOARD);
             if (s.toolbarFloating) hiddenItems.add(FunctionPanelModel.Id.FLOATING);
             if (s.toolbarTextEdit) hiddenItems.add(FunctionPanelModel.Id.TEXT_EDIT);
-            if (ViewPolicy.isVisible(s.voiceShortcutButton)) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);
+            // 和上面几项一样看开关，不看按钮视图：按钮曾经从工具栏上拆下来却仍被设成可见，面板据此藏掉磁贴，用户选「工具栏按钮」后两处语音入口都没了（#10142）。
+            if (s.touchVoiceShortcutEnabled) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);
         }
         if (!s.hasPendingVoiceResult()) hiddenItems.add(FunctionPanelModel.Id.VOICE_RESULT);
         List<FunctionPanelModel.Item> visibleItems = FunctionPanelModel.itemsExcept(hiddenItems);
@@ -181,7 +191,10 @@ final class ImeFunctionPanel {
                 icon(item, KeyboardIconPaths.Icon.FEEDBACK, () -> host("FEEDBACK"), null),
                 FunctionPanelView.State.NONE, true);
             case COPY_DEVICE_INFO -> add(entries, states, enabled,
-                icon(item, KeyboardIconPaths.Icon.DEVICE_INFO, s::copyDeviceInfo, null),
+                icon(item, KeyboardIconPaths.Icon.DEVICE_INFO, () -> {
+                    s.deviceInfoOpen = true;
+                    renderMoreTools();
+                }, null),
                 FunctionPanelView.State.NONE, true);
             case PROMOTION -> add(entries, states, enabled,
                 glyph(item, "吆", () -> {
@@ -356,9 +369,93 @@ final class ImeFunctionPanel {
             s.aiPolishConfiguration != null && s.aiPolishReady()), 2, 1);
     }
 
+    /**
+     * 设备信息（#10045）：标题栏右侧切换中文 / English，下面一行说明用途，九个字段各一格，点一下按所选语言直接插进输入框；「全部」插入整段，「复制全部」保留原来复制到剪贴板的做法。磁贴标签不随语言变，变的只是插进去的文字。
+     *
+     * <p>插入格一直可点：输入框会在子面板开着时变化（WebView 里焦点移到密码框、或者连接晚一步才到），按渲染那一刻的状态置灰会过时，所以改在点按时判断，插不了就提示原因；复制不受影响。
+     */
+    private void renderDeviceInfo() {
+        List<FunctionPanelView.Entry> entries = new ArrayList<>(DeviceInfoReport.INSERTABLE.size() + 2);
+        List<Boolean> enabled = new ArrayList<>(DeviceInfoReport.INSERTABLE.size() + 2);
+        for (DeviceInfoReport.Field field : DeviceInfoReport.INSERTABLE) {
+            String label = field == DeviceInfoReport.Field.WEBVIEW ? "WebView"
+                : field.label(DeviceInfoReport.Language.CHINESE);
+            String glyph = switch (field) {
+                case BRAND -> "牌";
+                case MODEL -> "型";
+                case ANDROID -> "版";
+                case ABIS -> "架";
+                case STORAGE -> "存";
+                case MEMORY -> "内";
+                case WEBVIEW -> "W";
+                case CPU -> "芯";
+                case DISPLAY -> "屏";
+                default -> "";
+            };
+            entries.add(FunctionPanelView.Entry.glyph(label,
+                "插入" + field.label(DeviceInfoReport.Language.CHINESE), glyph,
+                played(() -> s.insertDeviceInfo(field, deviceInfoLanguage)), null));
+            enabled.add(true);
+        }
+        entries.add(FunctionPanelView.Entry.glyph("全部", "插入全部设备信息", "全",
+            played(() -> s.insertDeviceInfo(null, deviceInfoLanguage)), null));
+        enabled.add(true);
+        entries.add(FunctionPanelView.Entry.icon("复制全部", "复制设备信息", KeyboardIconPaths.Icon.DEVICE_INFO,
+            played(() -> s.copyDeviceInfo(deviceInfoLanguage)), null));
+        enabled.add(true);
+        renderChooser("设备信息", entries, enabled, 4, 3, this::deviceInfoLanguageSwitch,
+            "插入设备参数，不含账号、输入内容和设备标识");
+        ImePanels.selectReplySegment(deviceInfoChinese, deviceInfoLanguage == DeviceInfoReport.Language.CHINESE);
+        ImePanels.selectReplySegment(deviceInfoEnglish, deviceInfoLanguage == DeviceInfoReport.Language.ENGLISH);
+    }
+
+    /**
+     * 标题栏右侧的语言切换：两个小按钮，选中的那个铺实心强调色、文字用 onAccent，和简繁开关、回复面板分段的选中态一样。
+     *
+     * <p>不能用 TILE 角色：选中的 TILE 底色是 accentSoft，自定义皮肤的 KeyboardSkinKeyDrawable 按 action 绘制时把它自带的 0x24 透明度改成不透明，文字 accentText 又是同一个 accent，就成了看不见字的实心块（见本类开头）。
+     */
+    private View deviceInfoLanguageSwitch() {
+        LinearLayout row = LayoutPolicy.row(s);
+        deviceInfoChinese = languageButton("中文", "中文标签", DeviceInfoReport.Language.CHINESE);
+        deviceInfoEnglish = languageButton("English", "英文标签", DeviceInfoReport.Language.ENGLISH);
+        LinearLayout.LayoutParams chinese = LayoutPolicy.linearParamsPx(s.pixels(52), s.pixels(32));
+        LinearLayout.LayoutParams english = LayoutPolicy.linearParamsPx(s.pixels(68), s.pixels(32));
+        english.leftMargin = s.pixels(4);
+        english.rightMargin = s.pixels(6);
+        row.addView(deviceInfoChinese, chinese);
+        row.addView(deviceInfoEnglish, english);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        return row;
+    }
+
+    private Button languageButton(String label, String description, DeviceInfoReport.Language language) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setKeyboardRole(KeyboardKeyRole.KEY);
+        button.setText(label);
+        button.setContentDescription(description);
+        ViewPolicy.setPadding(button, 0, 0, 0, 0);
+        KeyboardTypographyPolicy.setKeyTextSize(button, 13);
+        ViewPolicy.bindClick(button, played(() -> {
+            if (deviceInfoLanguage == language) return;
+            deviceInfoLanguage = language;
+            renderMoreTools();
+        }));
+        return button;
+    }
+
     /** 子页用同一紧凑标题栏；刷新只更新状态，保留条目与点按区域。 */
     private void renderChooser(String title, List<FunctionPanelView.Entry> entries,
                                List<Boolean> enabled, int columns, int rows) {
+        renderChooser(title, entries, enabled, columns, rows, null, null);
+    }
+
+    /**
+     * @param trailing 标题栏右侧的控件，为 null 时留一块与返回键等宽的空白让标题居中；只在子页重新挂上时调用
+     * @param note 标题栏下面的一行说明，为 null 时不显示
+     */
+    private void renderChooser(String title, List<FunctionPanelView.Entry> entries,
+                               List<Boolean> enabled, int columns, int rows,
+                               java.util.function.Supplier<View> trailing, String note) {
         List<String> labels = new ArrayList<>(entries.size());
         for (FunctionPanelView.Entry entry : entries) labels.add(entry.label);
         boolean changed = chooserPanel == null || !title.equals(chooserTitle)
@@ -394,14 +491,25 @@ final class ImeFunctionPanel {
         ViewPolicy.bindClick(back, played(() -> {
             s.localInputToolsOpen = false;
             s.aiAssistChooserOpen = false;
+            s.deviceInfoOpen = false;
             renderMoreTools();
         }));
         header.addView(back, LayoutPolicy.linearParamsPx(s.pixels(44), s.pixels(44)));
         TextView heading = ViewPolicy.centeredText(s, title, 15);
         KeyboardTypographyPolicy.setKeyTextSize(heading, 15);
         header.addView(heading, LayoutPolicy.weightedHeightPxParams(s.pixels(44), 1));
-        header.addView(new View(s), LayoutPolicy.linearParamsPx(s.pixels(44), s.pixels(44)));
+        if (trailing == null) header.addView(new View(s), LayoutPolicy.linearParamsPx(s.pixels(44), s.pixels(44)));
+        else header.addView(trailing.get(), LayoutPolicy.linearParamsPx(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
         s.moreToolsPanel.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
+        if (note != null) {
+            TextView explanation = ViewPolicy.centeredText(s, note, 12);
+            KeyboardTypographyPolicy.setKeyTextSize(explanation, 12);
+            // 行高固定 20dp，大字体或窄屏上折成两行会被截掉下半截，所以只留一行、放不下用省略号。
+            explanation.setMaxLines(1);
+            explanation.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            s.moreToolsPanel.addView(explanation, LayoutPolicy.matchWidthHeightPx(s.pixels(20)));
+        }
         s.moreToolsPanel.addView(chooserPanel, LayoutPolicy.matchWidthHeightPx(
             s.pixels(rows * 52 + (rows - 1) * 8 + 14)));
         s.moreToolsScroll.scrollTo(0, 0);

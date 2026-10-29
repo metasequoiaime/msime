@@ -1383,6 +1383,7 @@ fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) 
         target.sentence_association = false;
         target.sentence_words.clear();
         target.touch_supported = false;
+        target.confident_correction = false;
     }
     if destination.len() > source.len() {
         destination.truncate(source.len());

@@ -98,6 +98,7 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("TRASH", STROKE, 1.7, "Lucide-style trash-2 (剪贴板左滑删除)",
      "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"),
     ("CLOSE", STROKE, 1.8, "Lucide-style x (关闭上屏后联想)", "M18 6 6 18M6 6l12 12"),
+    ("SPACE_BAR", STROKE, 1.7, "open box ␣ (数字页空格键)", "M5 10.5v3.5h14v-3.5"),
 ]
 
 # 仅 iOS 的图标：key -> (样式, 以 viewBox 单位计的描边宽度, 来源, 路径数据)。用 dict 而不是 `ICONS` 那样的行，让解析本脚本中 `ICONS` 行的 Android 冒烟测试永远看不到它们。

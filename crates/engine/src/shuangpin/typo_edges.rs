@@ -156,6 +156,52 @@ pub(crate) fn touch_supports_correction(
         })
 }
 
+/// 首选规则 (c)：纠错整句改动过的每个音节，在这一键的落点下改过去的价都不超过 `TouchTuning::lead_penalty`，也就是触点本身支持这次改正。按不打学习折扣的原价算：接受过的改法分数更高、更容易留在座位上，但按在键心的字母（改到邻键的原价接近 B + s）永远不会被首选改掉。`codes[i]` 是第 i 个音节的两键码，`touches` 与它们逐字节对齐（第 2i、2i+1 个按键）；对调和没有触点的位置照平面表付 20。`corrected_key` 是纠错整句的读音（逐音节以 `'` 相连），音节数对不上、或某个改动不在这个两键码的变体里时为假。
+pub(crate) fn touch_leads_correction(
+    profile: &'static ShuangpinProfile,
+    codes: &[&str],
+    touches: &[Option<KeyTouch>],
+    geometry: &KeyGeometry,
+    tuning: &TouchTuning,
+    corrected_key: &str,
+    autocorrect_types: u32,
+) -> bool {
+    let corrected: Vec<&str> = corrected_key.split('\'').collect();
+    if corrected.len() != codes.len() || touches.len() != codes.len() * 2 {
+        return false;
+    }
+    let decoded = &profile_tables(profile).decoded;
+    let types = autocorrect_types & SHUANGPIN_TYPO_TYPES;
+    corrected
+        .iter()
+        .zip(codes)
+        .enumerate()
+        .all(|(position, (corrected, code))| {
+            let &[first, second] = code.as_bytes() else {
+                return false;
+            };
+            let Some(literal) = decoded_syllable(decoded, [first, second]) else {
+                return false;
+            };
+            let corrected = normalized_syllable(corrected);
+            if corrected == literal {
+                return true;
+            }
+            let touched = [touches[2 * position], touches[2 * position + 1]];
+            priced_code_variants(
+                decoded,
+                [first, second],
+                touched,
+                geometry,
+                tuning,
+                LearnedTypos::default(),
+                types,
+            )
+            .iter()
+            .any(|variant| variant.syllable == corrected && variant.penalty <= tuning.lead_penalty)
+        })
+}
+
 /// 一条纠错在某个音节上的改动：第 `position` 个两键码 `typed` 被改成了 `intended`，解出 `syllable`。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CorrectionPair {
@@ -572,6 +618,8 @@ mod tests {
             cut: 16.0,
             show_margin: 0.0,
             show_penalty: f64::INFINITY,
+            lead_margin: f64::INFINITY,
+            lead_penalty: f64::INFINITY,
         }
     }
 

@@ -612,6 +612,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Shared storage replacement tests failed' }
           cargo test --locked -p msime-client-core --lib -j 2 -- preferences::tests::save_waits_for_a_reader preferences::tests::error_wordings_the_harmony_host_matches_on
           if ($LASTEXITCODE -ne 0) { throw 'Preferences save retry tests failed' }
+      # 会话在一个线程上创建、换到另一个线程上用完并销毁，创建它的线程还活着时，清除学习数据要能改名替换日志：别的线程空闲着的日志连接也得先关掉。开着的句柄只在 Windows 上挡住改名，Linux 的 engine 作业跑同一个测试测不出来。
+      - name: Test resetting learned data after a session crossed threads
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --locked -p msime-engine -j 2 --test session_threads
+          if ($LASTEXITCODE -ne 0) { throw 'Engine session thread tests failed' }
       - name: Build and test the compatibility settings host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh

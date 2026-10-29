@@ -4812,6 +4812,107 @@ fn key_geometry_survives_an_engine_replacement() {
     assert!(!type_mwgfxi(&mut runtime));
 }
 
+/// 首选规则（#10018 PR3）经 runtime 到视图：引擎把落点支持、明显更优的双拼纠错整句放在第一位时，重排器不把它换下去（模型偏爱字面整句也一样），字面整句留在前三，视图只给第一位那一行标 `confident_correction`，序列化成 JSON 时也只有它带这个字段。默认参数（m_sp 无穷大）下一行都不标，JSON 与没有这个字段时相同。
+#[test]
+fn a_confident_shuangpin_correction_leads_the_view_and_only_it_is_marked() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 1;
+    options.autocorrect_transposition = true;
+    options.autocorrect_neighbor = true;
+    rusqlite::Connection::open(
+        std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY),
+    )
+    .unwrap()
+    .execute_batch(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_m VALUES('mei','m','没',1000);\
+         CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',500);\
+         CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_x VALUES('xi','x','系',1000);\
+         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);",
+    )
+    .unwrap();
+    let mut keys = [[0.0f32; 4]; 26];
+    for (letters, left, y) in [
+        ("qwertyuiop", 5.0, 7.0),
+        ("asdfghjkl", 10.0, 21.0),
+        ("zxcvbnm", 20.0, 35.0),
+    ] {
+        for (column, letter) in letters.bytes().enumerate() {
+            keys[usize::from(letter - b'a')] = [left + 10.0 * column as f32, y, 10.0, 14.0];
+        }
+    }
+    let typed = |tuning: Option<msime_engine::touch::TouchTuning>| {
+        let mut session = msime_engine::host::Session::new(&options).unwrap();
+        if let Some(tuning) = tuning {
+            session.set_touch_tuning(tuning);
+        }
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        // 模型偏爱字面整句「没跟系」的字：它若能重排，就会把字面整句提到第一位。
+        let model = favouring_model(&['没', '跟', '关', '系'], &['跟']);
+        runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+        runtime.focus(true).unwrap();
+        runtime.set_key_geometry(Some(
+            msime_engine::touch::KeyGeometry::new(9, &keys, None, &[]).unwrap(),
+        ));
+        for byte in *b"mwgfxi" {
+            let [x, y, _, _] = keys[usize::from(byte - b'a')];
+            // f 那一键落在 r 的键心上。
+            let (x, y) = if byte == b'f' {
+                (x - 5.0, y - 14.0)
+            } else {
+                (x, y)
+            };
+            let touch = runtime.key_touch(byte, 9, x, y);
+            assert!(touch.is_some());
+            runtime.set_key_touch(touch);
+            runtime
+                .dispatch(Action::Character {
+                    value: byte,
+                    shift: false,
+                })
+                .unwrap();
+            runtime.set_key_touch(None);
+        }
+        runtime.view()
+    };
+    let marks = |view: &View| {
+        view.candidates
+            .iter()
+            .map(|candidate| {
+                let json = serde_json::to_value(candidate).unwrap();
+                assert_eq!(
+                    json.get("confident_correction").is_some(),
+                    candidate.confident_correction
+                );
+                candidate.confident_correction
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let tuning = msime_engine::touch::TouchTuning {
+        lead_margin: 0.0,
+        lead_penalty: 10.0,
+        ..msime_engine::touch::TouchTuning::default()
+    };
+    let view = typed(Some(tuning));
+    let words = texts(&view);
+    assert_eq!(words[0], "没关系", "{words:?}");
+    assert!(view.candidates[0].corrected);
+    assert_eq!(view.candidates[0].annotation, "mwgfxi");
+    assert!(words[..3].contains(&"没跟系".to_owned()), "{words:?}");
+    let marked = marks(&view);
+    assert!(marked[0] && marked[1..].iter().all(|marked| !marked));
+
+    let view = typed(None);
+    let words = texts(&view);
+    assert_ne!(words[0], "没关系", "{words:?}");
+    assert!(marks(&view).iter().all(|marked| !marked));
+}
+
 #[test]
 fn dedicated_english_caret_does_not_turn_rejected_keys_into_candidate_picks() {
     for value in *b"1! " {
@@ -5763,13 +5864,31 @@ fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
     }
 }
 
+/// #10123：Shift 字母入口后只打了字母，模式不收的字母让整串留在 runtime 的组字里，驼峰英文不会中途上屏。
+#[test]
+fn camel_case_after_a_shortcut_entry_stays_in_the_runtime_composition() {
+    for text in ["TextBlock", "TxB", "UbU", "Ui", "Uq", "KaA"] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, text);
+        let view = runtime.view();
+        assert_eq!(view.local_mode, "none", "{text}");
+        assert_eq!(view.editing_text, text);
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some(text));
+    }
+}
+
 #[test]
 fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
     for (entry, spelling, rejected) in [
-        (b'U', "", b'i'),
         (b'U', "0", b'I'),
-        (b'K', "a", b'A'),
-        (b'T', "r", b'A'),
+        (b'U', "0", b'g'),
         (b'E', "", b'1'),
         (b'U', "", b'!'),
     ] {
@@ -9228,6 +9347,58 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
     drop(runtime);
     msime_engine::flush_personal_learning();
     assert_eq!(database_rows(directory.path()), before);
+}
+
+/// #10085：粤语双拼打 `sxcr` 后点「上」，经宿主点选候选同一条 `Action::Select` 路线上屏的是「上」，不是编码 `sx`；剩下的 `cr` 继续组字并给出「傳」。「粤语」自动识别和独立「粤语双拼」两个入口都走一遍。
+#[test]
+fn cantonese_shuangpin_tap_commits_the_word_and_keeps_the_rest_composing() {
+    for force in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-cantonese.db");
+        {
+            use msime_engine::language_dictionary::{
+                FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA,
+            };
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.execute_batch(SCHEMA).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO metadata VALUES (?1, ?2)",
+                    (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+                )
+                .unwrap();
+            connection
+                .execute_batch(
+                    "INSERT INTO syllables VALUES ('soeng'),('soek'),('cyun'),('cyut'),('cuk');\
+                     INSERT INTO entries VALUES ('soeng cyun','相傳',978),('soeng','上',9000),('soeng','相',5000),('soek','削',200),('cyun','傳',3000),('cuk','速',2000);",
+                )
+                .unwrap();
+        }
+        let mut options = real_engine_options(directory.path());
+        options.scheme = CANTONESE_SCHEME;
+        options.cantonese_dictionary = path.to_str().unwrap().to_owned();
+        options.force_cantonese_shuangpin = force;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+
+        let typed = compose_cantonese(&mut runtime, "sxcr");
+        assert_eq!(typed.view.editing_text, "sx cr", "force={force}");
+        assert_eq!(
+            texts(&typed.view),
+            ["相傳", "上", "相", "削"],
+            "force={force}"
+        );
+        let id = typed.view.candidates[1].id;
+        let picked = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(picked.commit.as_deref(), Some("上"), "force={force}");
+        assert_eq!(picked.view.editing_text, "cr", "force={force}");
+        assert_eq!(texts(&picked.view), ["傳", "速"], "force={force}");
+        let id = picked.view.candidates[0].id;
+        let rest = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(rest.commit.as_deref(), Some("傳"), "force={force}");
+        assert_eq!(rest.view.editing_text, "", "force={force}");
+    }
 }
 
 /// The sentence model and the runner-up demotion reorder Chinese lattice readings; a Cantonese or Stroke list comes from its own dictionary in its own order, so neither touches it.

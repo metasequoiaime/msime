@@ -72,6 +72,7 @@ fn frozen_read_rows(rows: &mut rusqlite::Rows<'_>, limit: usize, candidates: &mu
                         candidate.sentence_association = false;
                         candidate.sentence_words.clear();
                         candidate.touch_supported = false;
+                        candidate.confident_correction = false;
                     } else {
                         if count == candidates.capacity() {
                             candidates.reserve_exact(limit - count);
@@ -246,6 +247,7 @@ fn ordinary_decoder_reuses_and_resets_rows_like_frozen_entry() {
         original.sentence_association = true;
         original.sentence_words = vec!["sentence".into()];
         original.touch_supported = true;
+        original.confident_correction = true;
         let mut expected = vec![original.clone(), original.clone(), original.clone()];
         let mut actual = expected.clone();
         let old_ptr = actual.as_ptr();
@@ -254,7 +256,9 @@ fn ordinary_decoder_reuses_and_resets_rows_like_frozen_entry() {
         read_prefix_rows(&mut statement.query([]).unwrap(), limit, &mut actual);
         assert_eq!(actual, expected);
         // 复用的行不能带着上一次的落点支持标记，否则 runtime 会把它当落点支持的纠错整句留在座位上。
-        assert!(actual.iter().all(|row| !row.touch_supported));
+        assert!(actual
+            .iter()
+            .all(|row| !row.touch_supported && !row.confident_correction));
         assert_eq!(actual.capacity(), expected.capacity());
         assert_eq!(actual.as_ptr(), old_ptr);
     }

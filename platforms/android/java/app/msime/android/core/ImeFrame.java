@@ -5,7 +5,9 @@ import app.msime.android.LayoutPolicy;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
+import android.content.res.Configuration;
 import android.os.Build;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -15,7 +17,7 @@ import android.widget.LinearLayout;
 /**
  * 包住键区的容器：键行与底行经这里放进键盘的竖向布局，导航栏颜色在这里跟随键盘底色。
  *
- * <p>单手模式（`touch_one_handed` 为 `left` / `right`）时，键行与底行收窄到总宽的 85% 推向那一侧，另一侧是 {@link OneHandGutterView}：‹ 换到另一侧、⤢ 退出单手模式，两者都只写偏好（经 SVC 的 toggleOneHanded）。工具栏与候选条不在这里，保持全宽。`off` 时侧栏不显示，键区占满全宽，与原来相同。
+ * <p>单手模式（`touch_one_handed` 为 `left` / `right`）时，键行与底行收窄到总宽的 85% 推向那一侧（大屏上「侧栏 + 键区」缩到手机大小贴到屏幕那一侧，见 {@link KeyboardFormFactorPolicy#oneHandedBlockWidthDp}），另一侧是 {@link OneHandGutterView}：‹ 换到另一侧、⤢ 退出单手模式，两者都只写偏好（经 SVC 的 toggleOneHanded）。工具栏与候选条不在这里，保持全宽。`off` 时侧栏不显示，键区占满全宽，与原来相同。
  */
 final class ImeFrame {
     private final MSIMEInputService s;
@@ -44,6 +46,13 @@ final class ImeFrame {
     /** 偏好值是否开启单手模式。 */
     static boolean oneHanded(String mode) {
         return "left".equals(mode) || "right".equals(mode);
+    }
+
+    /** 实际生效的单手取值：分离式键盘与浮动键盘画着的时候单手模式让位，返回 `off`；存着的偏好不变。 */
+    static String effectiveOneHanded(MSIMEInputService s) {
+        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode,
+            s.splitKeyboardDrawn() || s.floatingDrawn());
+        return oneHanded(stored) ? stored : "off";
     }
 
     /** 竖向一列里一个可见的子视图都没有时（回复键盘等盖住键区的面板打开时），整行不占高度，侧栏也不画。 */
@@ -125,28 +134,46 @@ final class ImeFrame {
     void applyOneHanded() {
         if (row == null || gutter == null || column == null) return;
         // 浮动键盘本身就是一块窄面板，单手模式与分离式键盘一样不生效，存着的值不变。
-        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode,
-            s.splitKeyboardDrawn() || s.floatingDrawn());
-        String mode = oneHanded(stored) ? stored : "off";
+        String mode = effectiveOneHanded(s);
         if (s.skin != null) {
             gutter.setColors(Color.parseColor(s.skin.keyBackground()), Color.parseColor(s.skin.toolbarIcon()));
         }
-        if (mode.equals(appliedMode)) return;
-        appliedMode = mode;
+        Configuration configuration = s.getResources().getConfiguration();
+        int blockDp = oneHanded(mode) ? KeyboardFormFactorPolicy.oneHandedBlockWidthDp(
+            configuration.smallestScreenWidthDp, configuration.screenWidthDp) : 0;
+        String applied = mode + ":" + blockDp;
+        if (applied.equals(appliedMode)) return;
+        boolean surfaceChanged = !appliedMode.startsWith(mode + ":");
+        appliedMode = applied;
+        // 大屏上单手模式开关会改变键盘表面铺不铺满窗口（KeyboardFormFactorPolicy.surfaceWidthDp），表面要跟着重排。
+        if (surfaceChanged) s.imeStyler.applyKeyboardSurfaceGeometry();
         if (gutter.getParent() != null) row.removeView(gutter);
         if (!oneHanded(mode)) {
             ViewPolicy.hide(gutter);
+            row.setGravity(Gravity.NO_GRAVITY);
             column.setLayoutParams(LayoutPolicy.weightedWrapParams(1));
             row.requestLayout();
             return;
         }
-        float gutterWeight = OneHandGutterView.GUTTER_FRACTION;
-        LinearLayout.LayoutParams gutterParams = LayoutPolicy.weightedMatchParentParams(gutterWeight);
         boolean left = gutterOnLeft(mode);
+        LinearLayout.LayoutParams gutterParams;
+        if (blockDp > 0) {
+            // 大屏：侧栏与键区按手机大小取固定宽度，整块贴到键盘所在的那一侧，另一侧空着。
+            int block = s.pixels(blockDp);
+            gutterParams = LayoutPolicy.linearParamsPx(OneHandGutterView.gutterWidth(block),
+                LinearLayout.LayoutParams.MATCH_PARENT);
+            column.setLayoutParams(LayoutPolicy.linearParamsPx(OneHandGutterView.keysWidth(block),
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+            row.setGravity(left ? Gravity.END : Gravity.START);
+        } else {
+            float gutterWeight = OneHandGutterView.GUTTER_FRACTION;
+            gutterParams = LayoutPolicy.weightedMatchParentParams(gutterWeight);
+            column.setLayoutParams(LayoutPolicy.weightedWrapParams(1f - gutterWeight));
+            row.setGravity(Gravity.NO_GRAVITY);
+        }
         gutter.setKeyboardOnRight(left);
         ViewPolicy.show(gutter);
         row.addView(gutter, left ? 0 : 1, gutterParams);
-        column.setLayoutParams(LayoutPolicy.weightedWrapParams(1f - gutterWeight));
         row.requestLayout();
     }
 

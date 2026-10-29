@@ -6549,6 +6549,10 @@ mod tests {
             result.diagnostic.as_deref(),
             Some(diagnostics::NINE_KEY_DIGIT_LIMIT)
         );
+        assert_eq!(
+            result.diagnostic_code(),
+            Some(diagnostics::DiagnosticCode::NineKeyDigitLimit)
+        );
         assert_eq!(session.snapshot().editing_text.len(), DIGIT_LIMIT);
         assert!(session.snapshot().candidates.is_empty());
         // Finishing with nothing to choose commits the digits as typed.
