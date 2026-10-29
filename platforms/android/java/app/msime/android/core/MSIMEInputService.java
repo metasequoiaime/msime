@@ -1700,13 +1700,17 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
         InputConnection previousConnection = connection;
-        // 同一输入框重启连接时文本编辑面板留着（#10141）：它直接作用于编辑器，不依赖引擎会话；换了输入框才关。
+        // 同一输入框重启连接时文本编辑面板留着（#10141）：它直接作用于编辑器，不依赖引擎会话；换了输入框才关。包名、fieldId、输入类型和 imeOptions 分不出同一个 WebView 或 Compose 视图里的两个输入框，所以还要求新连接的初始选区就是编辑器最近报来的选区；对不上或选区未知时按换输入框处理。
         boolean sameEditorRestart = restarting && nextConnection != null && previousConnection != null
-            && sameEditor(info);
+            && sameEditor(info) && imeTextEditPanel.reportedSelection(info.initialSelStart, info.initialSelEnd);
         if (restarting && retainRestartedComposition(info, nextConnection)) {
             imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
             connection = nextConnection;
-            imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
+            if (sameEditorRestart) {
+                imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
+            } else {
+                imeTextEditPanel.editorChanged(info.initialSelStart, info.initialSelEnd);
+            }
             resetCaretAnchor();
             updateAutomaticCapitalization();
             render();

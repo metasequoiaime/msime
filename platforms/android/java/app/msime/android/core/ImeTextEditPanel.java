@@ -607,8 +607,26 @@ final class ImeTextEditPanel {
      */
     TextCursorEdgePolicy.Plan cursorPlan(InputConnection target, int horizontal, int vertical, boolean extend) {
         return TextCursorEdgePolicy.plan(horizontal, vertical, extend, selectionStart, selectionEnd,
-            s.editorInputType, limit -> InputConnectionGuard.textBeforeCursor(target, limit),
-            limit -> InputConnectionGuard.textAfterCursor(target, limit));
+            s.editorInputType, new TextCursorEdgePolicy.Editor() {
+                @Override public CharSequence before(int limit) { return InputConnectionGuard.textBeforeCursor(target, limit); }
+                @Override public CharSequence after(int limit) { return InputConnectionGuard.textAfterCursor(target, limit); }
+                @Override public CharSequence selected() { return InputConnectionGuard.selectedText(target); }
+                @Override public boolean confirmsEmpty() { return extractedTextEmpty(target); }
+            });
+    }
+
+    /** 编辑器经 getExtractedText 报的全文是不是空的。不维护文字、只收按键的编辑器（BaseInputConnection 的默认实现）不提供抽取文字，确认不了；调用失败同样算确认不了。 */
+    private static boolean extractedTextEmpty(InputConnection target) {
+        try {
+            android.view.inputmethod.ExtractedTextRequest request =
+                new android.view.inputmethod.ExtractedTextRequest();
+            request.hintMaxChars = 1;
+            android.view.inputmethod.ExtractedText extracted = target.getExtractedText(request, 0);
+            return extracted != null && extracted.text != null && extracted.text.length() == 0
+                && extracted.startOffset == 0 && extracted.partialStartOffset == -1;
+        } catch (RuntimeException disconnected) {
+            return false;
+        }
     }
 
     private int cursorSteps(InputConnection target, TextEditPanelModel.Action action, int count, boolean extend) {
@@ -634,6 +652,11 @@ final class ImeTextEditPanel {
         if (shortcutTouch != null) shortcutTouch.retarget(previous, next);
         if (previewActive) setPreviewActive(true);
         selectionChanged(start, end);
+    }
+
+    /** 编辑器最近一次报来的选区是不是这一对，两端都已知才算（同一输入框重启的佐证，见 MSIMEInputService.onStartInput）。 */
+    boolean reportedSelection(int start, int end) {
+        return start >= 0 && end >= 0 && selectionStart == start && selectionEnd == end;
     }
 
     void selectionChanged(int start, int end) {
