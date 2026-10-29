@@ -12,12 +12,12 @@ Status: implemented
 
 新写 example `crates/input-runtime/examples/typing_sim/`，让一个模拟用户用手机出厂配置把一整段文字流从头打到尾。生产代码只多一个 `host::Session::set_clock`，委托给引擎会话已有的 `Session::set_clock`，只给评测和测试用。
 
-- **配置**（`profile.rs`）：每个值从 `Preferences::default()` 读，照 host-api `apply_pending`、`apply_local_mode_resource_gates` 和 `ffi::session` 的映射换成 `EngineOptions` 和 runtime 设置：学习开、调频 promote 1/1、混输英文和行内日期时间开、每页 6 个、`first_page_rows` 6、`phrase_preedit` 开、不挂模型。`--model keyboard` 打开 `neural_keyboard` 并挂上键盘重排器，和 host-api `keyboard_reranker` 一样；不挂 settled 重排（移动端没有那个模型）。报告的 `config.engine` 原样列出这些值。
+- **配置**（`profile.rs`）：每个值从 `Preferences::default()` 读，照 host-api `apply_pending`、`apply_local_mode_resource_gates` 和 `ffi::session` 的映射换成 `EngineOptions` 和 runtime 设置：学习开、调频 promote 1/1、混输英文和行内日期时间开、每页 6 个、`first_page_rows` 6、`phrase_preedit` 开、不挂模型。`--model keyboard` 只挂上 runtime 逐键的键盘重排器，引擎内的键盘模型层（`neural_keyboard`）固定关，和 #10197 之后 host-api 按 `keyboard_reranker_enabled` 挂重排器、不再把这个偏好交给引擎一样；README 表里「挂模型」两列是 #10197 之前两层同开时量的。不挂 settled 重排（移动端没有那个模型）。报告的 `config.engine` 原样列出这些值。
 - **打字流**（`main.rs`）：一个 Runtime 从头打到尾；每行是一条消息，发出后失焦再聚焦；标点和非汉字写进上文不计分；学习开着时先打预热。会话时钟换成虚拟时钟，按键 350 ms、选择 700 ms、块间 1 s、消息间 20 s，行内日期时间钉在 2026-01-05 10:00。
 - **切块和简拼**（`corpus.rs`）：块长 1 加几何分布（平均 3.5 字、最长 8 字、词不拆开），三成的块末音节只打声母。两者都只由种子、行号和块的位置决定，不用随机数生成器的状态，所以换文档顺序也切出同样的块，0.3 的简拼块一定也在 0.6 里。
 - **选词**（`user.rs`）：候选栏前 6 个里挑盖住最多剩余金标准的那个，一样长取靠前的；没有就开面板（每页 24 个，最多两页），再没有就锁拼写列的下一个音节；简拼的块只看候选栏，没有就补完声母那个音节。选完核对剩下的键是否等于剩余金标准的键，对不上就走失败路径，剩下的字留在分母里。
 - **口径**（`metrics.rs`）：逐字首选率 `cfa`（严口径，纠正之后点的第一位不算，见下文「严口径」）和宽口径 `cfa_lenient`、整块首选率 `cca`、每次上屏首选率 `cpr`（和设备上打字统计 `ranks[0]` 同口径）、零修正块率 `zcr`、每字按键 `kspc`、`key_saving`、`chars_per_commit`，按文档 cluster bootstrap 的 95% 区间，按块长、简拼、首次出现、预热里见过、键串对应多个金标准、常见块分桶，每 2000 字一桶的学习曲线。
-- **评测集**：`typing-tatoeba-v1.tsv`（Tatoeba 普通话句子，CC BY 2.0 FR，随机抽样）和 `typing-chat-v1.tsv`（为本仓库手写的单人聊天，GPL-3.0），由 `scripts/build-typing-set.py` 用 jieba 切词、pypinyin 按整句标读音生成，读音和引擎不一致的 423 个词逐条读过，改正 39 处（`typing-readings-reviewed.tsv`）。按文档分 warmup、dev、test；`--dump` 和 `sample_failures` 不写 test 的文字。
+- **评测集**：`typing-tatoeba-v1.tsv`（Tatoeba 普通话句子，CC BY 2.0 FR，随机抽样）和 `typing-chat-v1.tsv`（为本仓库手写的单人聊天，GPL-3.0），Tatoeba 那份每行带 Tatoeba 作者的用户名（`author` 列，CC BY 署名），由 `scripts/build-typing-set.py` 用 jieba 切词、pypinyin 按整句标读音生成，读音和引擎不一致的 423 个词逐条读过，改正 39 处（`typing-readings-reviewed.tsv`）。按文档分 warmup、dev、test；`--dump` 和 `sample_failures` 不写 test 的文字。
 - **门禁**：`verify-local.sh` 加一段默认不跑的 `typing simulation eval`（`MSIME_TYPING_EVAL=1` 加 `MSIME_EVAL_RESOURCES`），手写聊天集上九键主配置对照 `baseline-typing-chat-nine-key.json`。整组运行用 `scripts/typing-eval-matrix.sh`，不进门禁。
 
 主配置事先定下：九键、手机出厂配置、学习开、不挂模型、抽样切块 3.5 字、三成末音节简拼、候选栏 6 个、`dict-v2.0.39`。「九成」指它在 test 上的 `cfa`，同时看 `cca`。

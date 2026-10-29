@@ -208,7 +208,7 @@ cargo run --release -p msime-input-runtime --example typing_sim -- \
   --set resources/eval/typing-tatoeba-v1.tsv --keyboard nine
 ```
 
-不加别的参数就是主配置（见下）。`--keyboard full|nine|fourteen`，`--learning on|off`，`--model off|keyboard`（挂上随资源的键盘模型，等于手机上整句联想选「增强」），`--abbreviate 0–1` 和 `--abbreviate-mode last|all`，`--chunk sampled|clause|word` 和 `--chunk-mean`，`--first-page-rows 9`（iOS 每页 9 个），`--order-seed N` 换一种文档顺序，`--slip 0.02` 让用户有 2% 的块先点错一次，`--timing key=350,select=700,chunk=1000,literal=500,turn=20000` 是虚拟时钟每个动作走的毫秒数。`--report`、`--dump`、`--baseline`/`--update-baseline` 同 `convert_eval`；`--lint-readings` 列出评测集读音和引擎自己的读音（`hanzi_to_pinyin`）不一致的词，用来人工核对。整组运行用 `scripts/typing-eval-matrix.sh`。
+不加别的参数就是主配置（见下）。`--keyboard full|nine|fourteen`，`--learning on|off`，`--model off|keyboard`（把随资源的键盘模型挂成 runtime 逐键重排器，引擎内的键盘模型层不开，等于 #10197 之后手机上整句联想选「增强」；要量引擎那一层用 `convert_eval --keyboard-neural`），`--abbreviate 0–1` 和 `--abbreviate-mode last|all`，`--chunk sampled|clause|word` 和 `--chunk-mean`，`--first-page-rows 9`（iOS 每页 9 个），`--order-seed N` 换一种文档顺序，`--slip 0.02` 让用户有 2% 的块先点错一次，`--timing key=350,select=700,chunk=1000,literal=500,turn=20000` 是虚拟时钟每个动作走的毫秒数。`--report`、`--dump`、`--baseline`/`--update-baseline` 同 `convert_eval`；`--lint-readings` 列出评测集读音和引擎自己的读音（`hanzi_to_pinyin`）不一致的词，用来人工核对。整组运行用 `scripts/typing-eval-matrix.sh`。
 
 ### 模拟的是什么
 
