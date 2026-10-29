@@ -176,7 +176,8 @@ public final class AiSettingsPage extends ReloadingDetailPage {
 
     /** 回复模板的详情：和完整列表里点开的是同一个面板，没有「添加」，可以举报。 */
     private void showReply(CommunityCatalog.Item item) {
-        CommunitySkinSheet.show(requireContext(), item, false, "", null,
+        // 回复模板没有皮肤，面板不画键盘预览，布局传标准样式即可。
+        CommunitySkinSheet.show(requireContext(), item, KeyLayoutStylesPolicy.Preview.STANDARD, "", null,
             () -> CommunityReportDialog.show(this, item), null);
     }
 

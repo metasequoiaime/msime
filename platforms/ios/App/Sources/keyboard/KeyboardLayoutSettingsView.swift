@@ -90,6 +90,14 @@ struct KeyboardLayoutSettingsView: View {
     keyLayoutStyle.numberRow && !nineKey && scheme != .japaneseNineKey && scheme != .handwriting
       && !scheme.isStroke && !scheme.isZhuyin
   }
+  /// 预览按的「按键布局」：预览画的键面正是当前方案读样式的那一类时用用户选的样式，日文罗马字、韩文等不读这几项样式的键面（`TouchKeyLayoutKind.of` 为 nil 或不是同一类）画标准底行，「符」与「123」互换照旧，与键盘一致；顶部数字行只在键盘上真会画时画（`drawsPhoneNumberRow`）。
+  private var previewKeyLayout: TouchKeyLayoutStyle {
+    let drawn: TouchKeyLayoutKind = nineKey ? .nineKey : letterGrid != nil ? .letterGrid : .twentySixKey
+    let styled = TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout) == drawn
+    var style = styled ? keyLayoutStyle : TouchKeyLayoutStyle(symbolFirst: keyLayoutStyle.symbolFirst)
+    style.numberRow = drawsPhoneNumberRow
+    return style
+  }
 
   private var preview: some View {
     VStack(spacing: 6) {
@@ -97,7 +105,7 @@ struct KeyboardLayoutSettingsView: View {
       KeyboardSkinPreview(
         skin: skin, nineKey: nineKey, letterGrid: letterGrid, gridSplitsSyllables: scheme != .wubi,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
-        heightAdjustment: height
+        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: scheme == .nineKeyShuangpin
       )
       .gesture(spacingDrag)
       .accessibilityIdentifier("keyboardLayoutPreview")

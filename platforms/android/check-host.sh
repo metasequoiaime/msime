@@ -1329,8 +1329,16 @@ done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
   || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
-  || ! rg -qF 'case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));' "$style_policy"; then
+  || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style))));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
+  exit 1
+fi
+# 皮肤页的整键盘预览（KeyboardPreview：AI 皮肤页、皮肤列表、社区皮肤卡片和详情）按用户的偏好画（KeyLayoutStylesPolicy.Preview，由 KeyboardPreviewLayoutSmoke 覆盖），不能再写死一套键面：以前它的 NINE_KEY_ROWS / FULL_ROWS 把底行写成 `123 | ， | 空格 | 。 | 中 | ↵`，不认用户选的样式。这里钉住预览从 Preview 取行、偏好由 KeyboardPreview.layout 读。
+keyboard_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyboardPreview.java"
+if ! rg -qF 'this.rows = layout.rows();' "$keyboard_preview" \
+  || ! rg -qF 'return KeyLayoutStylesPolicy.preview(TouchKeyStyle.Groups.offeredBy(edition),' "$keyboard_preview" \
+  || rg -q 'NINE_KEY_ROWS|FULL_ROWS|String\[\]\[\]' "$keyboard_preview"; then
+  echo "Android skin previews must draw the user's own rows from KeyLayoutStylesPolicy.Preview, not a fixed table" >&2
   exit 1
 fi
 # 右侧大回车外框的列宽按画着的键面取（KeyboardActionRow.tallReturnSideWeight / tallReturnGridWeight / tallReturnGridShare，TouchKeyStyleSmoke 钉住份额）：笔画的数字层经 rebuildNineKeyRows 借九键数字九宫格，键面仍是笔画，大回车分支必须按 displayedTouchLayout 取份额，不能写死九键的 3 / 14，否则切 123 时 符、123 和回车横移。

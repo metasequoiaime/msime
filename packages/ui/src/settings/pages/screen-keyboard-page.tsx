@@ -1,7 +1,6 @@
 import { MobileKeyboardFeedbackSettings } from "../mobile-keyboard-feedback-settings";
 import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
-import { harmonyTouchKeyboardRows, harmonyTouchLayout } from "../../keyboard/keyboard-layouts";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
@@ -23,7 +22,11 @@ import { useEffect } from "react";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { fullScreenColumn, fullScreenSurface } from "../../core/full-screen-style";
 import { SettingsPageHeader } from "../settings-page-header";
-import { TouchKeyLayoutSettings, touchKeyLayoutGroups } from "../touch-key-layout-settings";
+import {
+  TouchKeyLayoutSettings,
+  harmonyTouchRowsForPreferences,
+  touchKeyLayoutGroups,
+} from "../touch-key-layout-settings";
 import { keyLayoutEntryDescription } from "../../keyboard/touch-key-layout-styles";
 import { SettingsSearchReveal } from "../settings-search-reveal";
 
@@ -231,13 +234,7 @@ export function ScreenKeyboardSettingsPage() {
       phone={harmonyPhone}
       touchRows={
         harmonyPhone
-          ? harmonyTouchKeyboardRows[
-              harmonyTouchLayout(
-                selectedTouchKeyboardScheme,
-                draft.touch_shuangpin_layout ?? "twenty_six_key",
-                draft.touch_wubi_layout ?? "twenty_six_key",
-              )
-            ]
+          ? harmonyTouchRowsForPreferences(draft, selectedTouchKeyboardScheme)
           : undefined
       }
     />

@@ -56,7 +56,7 @@ public final class SkinsPage extends ReloadingDetailPage {
     /** 本地皮肤卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */
     private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected) {}
 
-    private record Model(List<Card> themes, List<Card> designs, boolean nineKey) {}
+    private record Model(List<Card> themes, List<Card> designs, KeyLayoutStylesPolicy.Preview layout) {}
 
     private static final String COMMUNITY_TAG = "skin-community";
     private boolean catalogueChecked;
@@ -216,8 +216,8 @@ public final class SkinsPage extends ReloadingDetailPage {
                     item.design(), selected));
             }
         }
-        return new Model(themes, designs, "nine_key".equals(
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")));
+        // 卡片上的预览按用户自己的键盘画：键盘类型、所选底行样式、数字行和两种互换。
+        return new Model(themes, designs, KeyboardPreview.layout(context, preferences));
     }
 
     private void render(@Nullable Model model) {
@@ -300,7 +300,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         View cell = localCard(context);
         KeyboardPreview preview = cell.findViewById(R.id.community_item_preview);
         preview.setCornerRadiusDp(5f);
-        preview.setKeyboard(card.skin(), model != null && model.nineKey());
+        preview.setKeyboard(card.skin(), model != null ? model.layout() : KeyLayoutStylesPolicy.Preview.STANDARD);
         ViewPolicy.show(preview);
 
         TextView name = cell.findViewById(R.id.community_item_name);
