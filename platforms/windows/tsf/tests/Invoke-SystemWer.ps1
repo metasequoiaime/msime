@@ -43,6 +43,45 @@ function Save-CaseOutput {
     }
   }
 }
+function Save-SystemWerTimeout {
+  param([Diagnostics.Process]$Target, [string]$Directory, [string]$Case)
+  # 只保存本合成目标的有界状态；不采集内存、环境、命令行或其他应用的线程。
+  $threads = @()
+  $threadError = $null
+  try {
+    $threads = @($Target.Threads | Select-Object -First 128 | ForEach-Object {
+      $entry = [ordered]@{ id = $_.Id }
+      try {
+        $state = $_.ThreadState
+        $entry.state = $state.ToString()
+        if ($state -eq [Diagnostics.ThreadState]::Wait) { $entry.wait_reason = $_.WaitReason.ToString() }
+      } catch { $entry.snapshot_error = $_.Exception.GetType().Name }
+      $entry
+    })
+  } catch { $threadError = $_.Exception.GetType().Name }
+  $workers = @()
+  $workerError = $null
+  try {
+    $targetPattern = '(?:^|\s)-p\s+' + $Target.Id + '(?:\s|$)'
+    $workers = @(Get-CimInstance Win32_Process -Filter "Name = 'WerFault.exe' OR Name = 'WerFaultSecure.exe'" -OperationTimeoutSec 3 |
+      Where-Object { $_.ParentProcessId -eq $Target.Id -or $_.CommandLine -match $targetPattern } |
+      Select-Object -First 16 | ForEach-Object {
+        [ordered]@{ id = $_.ProcessId; name = $_.Name; parent_id = $_.ParentProcessId }
+      })
+  } catch { $workerError = $_.Exception.GetType().Name }
+  # 记录落盘和系统退出分别判断，不能延长期限或把已有记录当成成功退出。
+  [ordered]@{
+    case = $Case
+    target_pid = $Target.Id
+    target_has_exited = $Target.HasExited
+    completed_records = @(Get-ChildItem -LiteralPath $Directory -Filter '*.crash' -File | ForEach-Object Name)
+    partial_records = @(Get-ChildItem -LiteralPath $Directory -Filter '*.werpartial' -File | ForEach-Object Name)
+    target_threads = $threads
+    thread_snapshot_error = $threadError
+    related_wer_workers = $workers
+    worker_snapshot_error = $workerError
+  } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Directory 'timeout.json') -Encoding UTF8
+}
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
@@ -62,14 +101,7 @@ try {
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit(45000)) {
-      # 记录已经落盘不代表系统处置已结束；保留两者状态，不延长期限或放宽退出码断言。
-      [ordered]@{
-        case = $case
-        target_pid = $process.Id
-        target_has_exited = $process.HasExited
-        completed_records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.crash' -File | ForEach-Object Name)
-        partial_records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.werpartial' -File | ForEach-Object Name)
-      } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $caseDirectory 'timeout.json') -Encoding UTF8
+      Save-SystemWerTimeout -Target $process -Directory $caseDirectory -Case $case
       throw "$case 的系统 WER 投递超时"
     }
     $process.WaitForExit()

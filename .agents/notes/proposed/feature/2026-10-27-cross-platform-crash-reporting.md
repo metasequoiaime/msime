@@ -32,7 +32,7 @@ Status: proposed
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原 | 回退设置、Tauri 设置及其他辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 实际设置启动器代收、真实内存故障、重启补报与非零源码行，正式产物恢复 | 真实编辑器；其余架构与部分发行版符号 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea 共享设备单测、APK 和崩溃专项已过，完整输入套件仍在运行；真机与其他架构、最新候选后台传输仍缺 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份；固定 `6bea262fd0` 的原生 Release App 模拟器信号、真实内存故障、重启补报、隔离后台、动态授权、SIGKILL 对照，独立符号 ZIP 还原到 `consent.rs:105` 与 `UsageReporting.swift:346/299`，正式产物恢复 | 键盘扩展实际故障；系统 MetricKit 回调；真机 dSYM 与后台链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
@@ -124,7 +124,7 @@ Native Platform CI `40853458086` 的 `95cc68519e` Android API 35 作业于 `2026
 
 后续 Native Platform CI `40863279233`（`ab3a30ecd1`）的 Android API 35 整作业也已成功，包含四个共享 crate 设备单测、实际 APK、崩溃/退出/ANR 专项和完整输入冒烟；仍不包含随后新增的返回信号修补。该运行的 Windows job `123411749829` 失败：x64 七组通过，x86 的 `tip/host/external` 通过后，`withdrawn` 目标在原有 45 秒期限仍活着，诊断没有 `.crash/.werpartial`；与上一轮 `host` 已有完整记录的超时是否同因尚未确认。PVE 用相同 `ab3a30ecd1` 的 243 个源码条目前后核对，两架构 CTest 与十四组系统 WER 全部通过，原允许列表已清理；这不是 CI 超时原因已修复的证据。
 
-最新 `6bea262fd0` 的 Native Platform CI `40875035104` 中，Windows job `123452209115` 在 MCP 严格 Clippy 阶段被上游新注册表读取代码的两处 `manual_is_multiple_of` 阻断，WER 步骤未执行；这次失败不能当作旧 x86 退出超时复现或已解决。Android job `123452209374` 的四共享 crate 设备单测、APK 和崩溃/退出/ANR 专项已通过，完整输入冒烟仍在运行，不把专项通过记为整作业成功。
+最新 `6bea262fd0` 的 Native Platform CI `40875035104` 中，Windows job `123452209115` 在 MCP 严格 Clippy 阶段被上游新注册表读取代码的两处 `manual_is_multiple_of` 阻断，WER 步骤未执行；这次失败不能当作旧 x86 退出超时复现或已解决。Android job `123452209374` 已于 `2026-10-29T13:50:06Z` 整作业成功结束：四共享 crate 设备单测、APK、崩溃/退出/ANR 专项和完整输入冒烟均通过，包含返回信号修补；旧语音润色失败根因仍不由此次通过反推。
 
 ## Alternatives considered
 
@@ -169,3 +169,5 @@ Fcitx5 子目录独立配置且两个波形后端均未启用时，`handler` 与
 ### 共用输入会话的持续授权
 
 Windows Server、IBus、Fcitx5 与 Win7 设置/面板的共用 `Telemetry` 包装器已接入持久授权代次与独立观察线程。macOS/Linux 真实子进程用例通过，覆盖在途发送期间撤回、重开与旧结果收尾；Fcitx5 与 IBus 已用同源 Host API 完成实际产品重建，共用层与 IBus 专项通过，Windows 目标运行仍待补验。macOS 输入法已复用共用协议，同源 Host API 重建和真实输入法链接成功，最终六项真实 CMake 专项通过；现代 Windows 原生设置已复用共用包装器，实际 Windows 编译运行待新一轮 CI；Android 与鸿蒙仍须逐入口核对共享队列协议，不能将这次共用包装器迁移写成全平台完成。具体协议与验证由[采集与队列绑定](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)持有。
+
+本地集成候选 `c4f21a9a6073e9ce40d2f34469903bb3bb26e570` 合入固定 develop `1ffd90e137` 和两行注册表奇偶校验等价修补。12,612 条源码及模式与远端干净候选逐项一致；Windows GNU 目标的 Host/MCP 全 target 严格 Clippy 和格式检查通过，不代替 MSVC 结果。两行切片首次 quick 仅语音目录冷编译一百二十秒超时，第二轮退出 0；集成后的整轮结果另验。新增 WER 超时快照的原生状态与退出竞态专项通过，旧 x86 超时仍未定位；详见 TSF 笔记。此前 Linux/iOS 产品验收仍归属原固定 6bea，不转记为此次集成产物。
