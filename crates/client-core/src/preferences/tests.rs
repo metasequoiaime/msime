@@ -2236,7 +2236,14 @@ fn reporting_consent_survives_android_layout_migration_without_initializing_hist
         }
         let before = store.load().unwrap();
         let migrated = store
-            .migrate_android_key_layout(before.revision, true, true, &[], &[])
+            .migrate_android_key_layout(
+                before.revision,
+                true,
+                true,
+                &[],
+                &[],
+                TouchNineKeySwipeDigits::Off,
+            )
             .unwrap();
         assert_eq!(
             migrated.preferences.touch_twenty_six_key_style,
