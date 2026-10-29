@@ -393,6 +393,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             Object skin = field(type, "skin").get(service);
             int foreground = android.graphics.Color.parseColor(
                 (String) skin.getClass().getMethod("keyForeground").invoke(skin));
+            // 菜单容器是系统的 LinearLayout，它的类加载器是启动类加载器，找不到应用类，会抛 ClassNotFoundException；要用加载服务类的那个加载器。
             Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
