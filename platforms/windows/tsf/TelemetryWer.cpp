@@ -31,29 +31,6 @@ bool snapshot(HANDLE process, const void *address, Context &result) {
       result.sequence == sequence && result.armed == 1 && current(process, address, sequence);
 }
 
-bool same_security_context(HANDLE process) {
-  HANDLE target = nullptr;
-  HANDLE own = nullptr;
-  if (!OpenProcessToken(process, TOKEN_QUERY, &target)) return false;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &own)) { CloseHandle(target); return false; }
-  alignas(TOKEN_USER) BYTE targetUser[256]{};
-  alignas(TOKEN_USER) BYTE ownUser[256]{};
-  alignas(TOKEN_MANDATORY_LABEL) BYTE targetLevel[256]{};
-  alignas(TOKEN_MANDATORY_LABEL) BYTE ownLevel[256]{};
-  DWORD length = 0;
-  const bool matches = GetTokenInformation(target, TokenUser, targetUser, sizeof(targetUser), &length) &&
-      GetTokenInformation(own, TokenUser, ownUser, sizeof(ownUser), &length) &&
-      EqualSid(reinterpret_cast<TOKEN_USER *>(targetUser)->User.Sid,
-               reinterpret_cast<TOKEN_USER *>(ownUser)->User.Sid) &&
-      GetTokenInformation(target, TokenIntegrityLevel, targetLevel, sizeof(targetLevel), &length) &&
-      GetTokenInformation(own, TokenIntegrityLevel, ownLevel, sizeof(ownLevel), &length) &&
-      EqualSid(reinterpret_cast<TOKEN_MANDATORY_LABEL *>(targetLevel)->Label.Sid,
-               reinterpret_cast<TOKEN_MANDATORY_LABEL *>(ownLevel)->Label.Sid);
-  CloseHandle(own);
-  CloseHandle(target);
-  return matches;
-}
-
 // WER 可能以较宽权限运行；所有路径检查和写盘都模拟目标令牌，不能替沙箱越权。
 class TargetIdentity {
 public:
@@ -214,7 +191,7 @@ bool write_x86_frames(HANDLE file, HANDLE process, const Context &context, const
 void record(const void *remote, const WER_RUNTIME_EXCEPTION_INFORMATION &event) {
   Context context{};
   if (!event.bIsFatal || !snapshot(event.hProcess, remote, context) ||
-      !same_security_context(event.hProcess) || !valid_record(context)) return;
+      !valid_record(context)) return;
   const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(event.exceptionRecord.ExceptionAddress));
   const auto *module = owner(context, address);
   if (!module) return;
