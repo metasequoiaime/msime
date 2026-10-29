@@ -159,7 +159,8 @@ if ! sed -n '2p' <<< "$start_view_body" | rg_q_stdin 'super\.onStartInputView\(i
   || ! rg -q 'DiagnosticEventKind\.KEYBOARD_FIRST_DRAW' <<< "$first_frame_body" \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_PREFERENCES, preferencesMillis' <<< "$schedule_body" \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_DICTIONARY_SYNC, syncMillis' <<< "$schedule_body" \
-  || ! sed -n '/^    @Override public void onCreate() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'DiagnosticEventKind\.IME_SERVICE_CREATE' \
+  || ! sed -n '/^    @Override public void onCreate() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'imeDebugOverlay\.holdServiceCreate\(' \
+  || ! rg -A 3 '^        allowLearning = info != null && EditorPolicy\.allowLearning\(info\.imeOptions\);$' "$service_java" | rg_q_stdin '^        imeDebugOverlay\.flushServiceCreate\(\);$' \
   || ! sed -n '/^    @Override public View onCreateInputView() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'DiagnosticEventKind\.INPUT_VIEW_CREATE' \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_MAIN, mainThreadMillis' "$service_java" \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_SESSION_DESTROY,' "$service_java"; then

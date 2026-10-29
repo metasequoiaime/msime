@@ -1774,6 +1774,7 @@ public final class MSIMEInputService extends InputMethodService {
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         refreshLocalSettings();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
+        imeDebugOverlay.flushServiceCreate();
         preferencesNotice = "";
         statisticsFailureReported = false;
         // 外观和引擎是两件事。皮肤、方案角标和键高来自同一份偏好，但它们该跟着用户走，而不是跟着
@@ -1999,8 +2000,8 @@ public final class MSIMEInputService extends InputMethodService {
         clearClipboardImages();
         imeDictionarySync = new ImeDictionarySync(this, main);
         imeDictionarySync.start();
-        // 键盘进程被系统回收后，下一次弹出键盘先要走这里（#9916）；本地设置上面已经读过，隐私判断和日志开关可用。
-        imeDebugOverlay.recordPerf(DiagnosticEventKind.IME_SERVICE_CREATE, SystemClock.uptimeMillis() - createStartedAt);
+        // 键盘进程被系统回收后，下一次弹出键盘先要走这里（#9916）。这时还没进输入框，隐私判断没有依据，耗时先留着，进了允许记录的输入框再写（onStartInput）。
+        imeDebugOverlay.holdServiceCreate(SystemClock.uptimeMillis() - createStartedAt);
     }
 
     @android.annotation.TargetApi(30)
@@ -5476,7 +5477,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 这次弹出的第一帧已经交出去：记下耗时，马上放行等着的建会话。已经被兜底放行、又弹出了一次或已经收起时，这一帧不属于它。 */
+    /** 这次弹出的第一帧已经交出去：记下耗时，马上放行等着的建会话。又弹出了一次或已经收起时，这一帧不属于它。兜底时间到了先放行了建会话时，晚到的这一帧照样记耗时（这才是第一帧真正的耗时），那时已经没有排着的建会话可放行。 */
     private void firstFrameCommitted(long armedAt) {
         if (firstFrameArmedAt != armedAt) return;
         firstFrameArmedAt = -1;
