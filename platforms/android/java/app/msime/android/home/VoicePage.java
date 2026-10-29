@@ -62,8 +62,8 @@ public final class VoicePage extends ReloadingDetailPage {
     private static final int TRIGGER_SPACE = 0;
     private static final int TRIGGER_TOOLBAR = 1;
     private static final int TRIGGER_NONE = 2;
-    /** 「无」只是键盘上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格不进语音，松手仍是空格（#10143）。 */
-    static final String TRIGGER_NONE_HINT = "键盘上不显示语音入口，长按空格只输入空格";
+    /** 「无」只是空格键和工具栏上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格不进语音，松手仍是空格。「更多工具」面板的「语音输入」磁贴只在工具栏语音按钮露出时才藏（`ImeFunctionPanel`），选「无」时它还在，说明里照实写出来，免得用户以为语音整个关掉了（#10143）。 */
+    static final String TRIGGER_NONE_HINT = "空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」";
     static final String TRIGGER_SHEET_HINT = "选「无」时" + TRIGGER_NONE_HINT;
 
     /**
