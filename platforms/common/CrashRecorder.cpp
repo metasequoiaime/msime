@@ -466,6 +466,21 @@ bool sent_by_a_process(const siginfo_t *info) {
   return info->si_code == SI_USER || info->si_code == SI_QUEUE;
 }
 
+bool same_signal_action(const struct sigaction &left, const struct sigaction &right) {
+  if (left.sa_flags != right.sa_flags)
+    return false;
+  if (left.sa_flags & SA_SIGINFO) {
+    if (left.sa_sigaction != right.sa_sigaction) return false;
+  } else if (left.sa_handler != right.sa_handler) {
+    return false;
+  }
+  for (int number = 1; number < NSIG; ++number) {
+    if (sigismember(&left.sa_mask, number) != sigismember(&right.sa_mask, number))
+      return false;
+  }
+  return true;
+}
+
 // 先用信号安全的写入保存摘要，再尽力展开预热过的运行时栈；展开器仍可能受损坏栈影响。
 void crash_signal(int number, siginfo_t *info, void *context) {
   const int saved = errno;
@@ -473,8 +488,11 @@ void crash_signal(int number, siginfo_t *info, void *context) {
   while (index < crash_signal_count && crash_signals[index].number != number)
     ++index;
   ConfigurationGuard configuration;
-  if (configuration.owns && index < crash_signal_count && armed.load(std::memory_order_acquire) && !handling.exchange(true)) {
-    const int fd = msime_crash_file_create(record_path, temporary_record_path);
+  int fd = -1;
+  const bool owns_handling = configuration.owns && index < crash_signal_count
+      && armed.load(std::memory_order_acquire) && !handling.exchange(true);
+  if (owns_handling) {
+    fd = msime_crash_file_create(record_path, temporary_record_path);
     if (fd >= 0) {
       write_all(fd, record_header, record_header_size);
       // 静态缓冲区减少信号栈占用；handling 保证只由一个崩溃处理器使用。
@@ -542,12 +560,14 @@ void crash_signal(int number, siginfo_t *info, void *context) {
       }
 #endif
       (void)::fsync(fd);
-      ::close(fd);
     }
   }
   // 恢复既有处理器（包括 Fcitx5 自带的崩溃日志），否则交给系统默认动作。
   if (index < crash_signal_count) {
     const auto &previous = previous_actions[index];
+    struct sigaction capture_action {};
+    const bool has_capture_action = sigaction(number, nullptr, &capture_action) == 0
+        && (capture_action.sa_flags & SA_SIGINFO) && capture_action.sa_sigaction == crash_signal;
     sigaction(number, &previous, nullptr);
     if ((previous.sa_flags & SA_SIGINFO) && previous.sa_sigaction) {
       previous.sa_sigaction(number, info, context);
@@ -562,8 +582,28 @@ void crash_signal(int number, siginfo_t *info, void *context) {
       }
       // 当前信号在处理期间被屏蔽，返回后按默认动作送达；主动 raise 的信号也需要重新发送。
       raise(number);
+      // 默认动作在回调返回后才结束进程；文件锁必须由内核随进程退出释放。
+      errno = saved;
+      return;
+    }
+    // 既有处理器返回代表本次故障已被接管；持锁撤掉临时记录，不能抢先被另一进程补报。
+    if (fd >= 0) {
+      // 扫描器可能已打开旧 inode、尚未尝试文件锁；清空后再删名，旧描述符也读不到误报。
+      (void)ftruncate(fd, 0);
+      (void)unlink(record_path);
+      ::close(fd);
+      fd = -1;
+    }
+    // 前任可能恢复默认处置后等故障指令重试；更新下一次的委托，不能因此丢掉后续采集。
+    struct sigaction after {};
+    if (has_capture_action && sigaction(number, nullptr, &after) == 0
+        && !same_signal_action(capture_action, after)) {
+      previous_actions[index] = after;
+      sigaction(number, &capture_action, nullptr);
     }
   }
+  if (fd >= 0) ::close(fd);
+  if (owns_handling) handling.store(false);
   errno = saved;
 }
 #endif

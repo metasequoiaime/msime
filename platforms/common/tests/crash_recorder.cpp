@@ -3,6 +3,7 @@
 #include <cassert>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
 #include <fstream>
@@ -34,6 +35,82 @@ template<class Body> int child(Body body) {
 }
 
 void earlier_handler(int) { _exit(42); }
+volatile sig_atomic_t recovered_signals = 0;
+void *recoverable_page = nullptr;
+int handled_ready = -1;
+int handled_proceed = -1;
+
+void returning_handler(int) {
+  ++recovered_signals;
+  if (recovered_signals == 3) _exit(43);
+}
+
+void restoring_default_handler(int number) {
+  struct sigaction action{};
+  action.sa_handler = SIG_DFL;
+  sigemptyset(&action.sa_mask);
+  sigaction(number, &action, nullptr);
+}
+
+void replacement_handler(int) { _exit(47); }
+void replacing_handler(int number) {
+  struct sigaction action{};
+  action.sa_handler = replacement_handler;
+  sigemptyset(&action.sa_mask);
+  sigaction(number, &action, nullptr);
+}
+
+void recovering_handler(int, siginfo_t *, void *) {
+  ++recovered_signals;
+  if (mprotect(recoverable_page, 4096, PROT_READ | PROT_WRITE) != 0) _exit(44);
+}
+
+void blocked_handler(int) {
+  if (write(handled_ready, "r", 1) != 1) _exit(45);
+  char token;
+  if (::read(handled_proceed, &token, 1) != 1) _exit(46);
+}
+
+// 另一个收集进程已经打开记录：前任返回之前锁不可取，返回之后旧描述符也不能读到误报。
+void handled_file(const std::filesystem::path &root) {
+  const auto path = root / "blocked-handled.crash";
+  int ready[2], proceed[2];
+  assert(pipe(ready) == 0 && pipe(proceed) == 0);
+  const pid_t writer = fork();
+  assert(writer >= 0);
+  if (writer == 0) {
+    close(ready[0]);
+    close(proceed[1]);
+    handled_ready = ready[1];
+    handled_proceed = proceed[0];
+    struct sigaction previous{};
+    previous.sa_handler = blocked_handler;
+    sigemptyset(&previous.sa_mask);
+    sigaction(SIGSEGV, &previous, nullptr);
+    msime_native_crash_install();
+    msime_native_crash_arm(path.c_str(), header);
+    raise(SIGSEGV);
+    assert(!std::filesystem::exists(path));
+    _exit(0);
+  }
+  close(ready[1]);
+  close(proceed[0]);
+  char token;
+  assert(::read(ready[0], &token, 1) == 1);
+  const int reader = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  assert(reader >= 0);
+  assert(flock(reader, LOCK_EX | LOCK_NB) == -1 && (errno == EWOULDBLOCK || errno == EAGAIN));
+  assert(write(proceed[1], "p", 1) == 1);
+  int status;
+  assert(waitpid(writer, &status, 0) == writer);
+  assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  assert(flock(reader, LOCK_EX | LOCK_NB) == 0);
+  assert(::read(reader, &token, 1) == 0);
+  assert(!std::filesystem::exists(path));
+  close(reader);
+  close(ready[0]);
+  close(proceed[1]);
+}
 
 // 两个进程在摘要与栈之间交错：发布文件名时已经持锁，退出后才允许收件。
 void concurrent_file(const std::filesystem::path &root, bool interrupted) {
@@ -170,5 +247,90 @@ int main() {
   });
   assert(WIFEXITED(status) && WEXITSTATUS(status) == 42);
   assert(read(chained).rfind(header, 0) == 0);
+
+  // 既有处理器返回表示信号已被接管，不能留下可补报的崩溃；后续致命信号仍要记录。
+  const auto handled = root / "handled.crash";
+  status = child([&] {
+    struct sigaction previous{};
+    previous.sa_handler = returning_handler;
+    sigemptyset(&previous.sa_mask);
+    sigaction(SIGSEGV, &previous, nullptr);
+    msime_native_crash_install();
+    msime_native_crash_arm(handled.c_str(), header);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      raise(SIGSEGV);
+      assert(!std::filesystem::exists(handled));
+      assert(msime::crash::is_armed());
+    }
+    raise(SIGSEGV);
+  });
+  assert(WIFEXITED(status) && WEXITSTATUS(status) == 43);
+  assert(read(handled).rfind(header, 0) == 0);
+
+  // 前任显式更换回调后，下一次必须委托给新回调，不能继续调用旧回调或漏掉记录。
+  const auto replaced = root / "replaced-handler.crash";
+  status = child([&] {
+    struct sigaction previous{};
+    previous.sa_handler = replacing_handler;
+    sigemptyset(&previous.sa_mask);
+    sigaction(SIGSEGV, &previous, nullptr);
+    msime_native_crash_install();
+    msime_native_crash_arm(replaced.c_str(), header);
+    raise(SIGSEGV);
+    assert(!std::filesystem::exists(replaced));
+    raise(SIGSEGV);
+  });
+  assert(WIFEXITED(status) && WEXITSTATUS(status) == 47);
+  assert(read(replaced).rfind(header, 0) == 0);
+
+  // Rust 的前任会改回默认处置并返回；外部信号不算崩溃，之后的真实故障仍必须采集。
+  for (const bool synthetic_first : {false, true}) {
+    const auto reset = root / (synthetic_first ? "reset-after-synthetic.crash" : "reset-after-fault.crash");
+    status = child([&] {
+      struct sigaction previous{};
+      previous.sa_handler = restoring_default_handler;
+      sigemptyset(&previous.sa_mask);
+      sigaction(SIGSEGV, &previous, nullptr);
+      sigaction(SIGBUS, &previous, nullptr);
+      msime_native_crash_install();
+      msime_native_crash_arm(reset.c_str(), header);
+      if (synthetic_first) {
+        raise(SIGSEGV);
+        assert(!std::filesystem::exists(reset));
+      }
+      void *page = mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+      assert(page != MAP_FAILED);
+      synthetic_fault(page);
+    });
+    assert(WIFSIGNALED(status) && (WTERMSIG(status) == SIGSEGV || WTERMSIG(status) == SIGBUS));
+    assert(read(reset).rfind(header, 0) == 0);
+  }
+
+  // 真实保护页故障由原处理器修复后会重试原指令，两次恢复都不应被当作进程崩溃。
+  const auto recovered = root / "recovered.crash";
+  status = child([&] {
+    recoverable_page = mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    assert(recoverable_page != MAP_FAILED);
+    struct sigaction previous{};
+    previous.sa_sigaction = recovering_handler;
+    previous.sa_flags = SA_SIGINFO;
+    sigemptyset(&previous.sa_mask);
+    sigaction(SIGSEGV, &previous, nullptr);
+    sigaction(SIGBUS, &previous, nullptr);
+    msime_native_crash_install();
+    msime_native_crash_arm(recovered.c_str(), header);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      synthetic_fault(recoverable_page);
+      assert(*static_cast<volatile char *>(recoverable_page) == 7);
+      assert(!std::filesystem::exists(recovered));
+      assert(mprotect(recoverable_page, 4096, PROT_NONE) == 0);
+    }
+    assert(recovered_signals == 2);
+    assert(munmap(recoverable_page, 4096) == 0);
+  });
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    std::fprintf(stderr, "recoverable signal child status: %d\n", status);
+  assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  handled_file(root);
   std::filesystem::remove_all(root);
 }

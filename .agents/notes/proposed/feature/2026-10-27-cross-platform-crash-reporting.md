@@ -106,6 +106,8 @@ API 35 首次完整冒烟因专用 AVD 沿用之前专项的双拼九键布局�
 
 ### PVE x64 Linux 与 Android 整轮补验
 
+实际 `msime-linux-settings` 启动器在独立 Xvfb、D-Bus、合成 HOME 与匿名网络命名空间内，已完成原生 helper、Python HTTP worker 的代收，以及设置窗口 `SIGABRT` 后原产品重启补报；运行中撤回重开与 `SIGKILL` 对照通过。两轮末项 GDB 外部 `SIGSEGV` 均在六十秒期限失败：进程没有结束，既有处理器返回，但产品已经发送一条 crash，确认了误报，不能记为完整故障闭环通过。共用 POSIX 记录器改为跨前任处置持续持文件锁，前任返回时清空 inode 再删除记录；macOS/Linux 严格原生回归、Apple 故障帧与归档源码行专项及 Android 两 ABI 语法检查通过。补充前任更换回调、恢复默认后真实故障重发的回归，避免删除误报后丢失 Rust 的后续致命故障。PVE 最新完整 quick 与原提交干净基线同在两个候选画布像素断言失败，未加豁免，整轮不能记通过；修复后的真实设置产品、后台与归档仍待补验。原失败、后台实际收件和清理证据保留在 `target/pve-linux-settings-acceptance/` 与本机 `target/pve-linux-settings-backend-attempt{1,2}-evidence/`。
+
 `c713178d8e` 的 x64 Linux 优化构建已完成八个 Python 与十二个原生辅助入口的实际信号/异常、关闭对照、共享 ABI 代收、隔离官方后台与数据库核对，二十条故障保留原身份，没有输入会话；十二份原生实际后台返回帧经独立符号包还原到非零源码行。X11 监听器使用独立 Xvfb；代收/发送由验收程序调用真实 ABI，完整设置宿主的代收重启仍须补验。HTTP worker 的普通队列采集额外中位数约 3–4 ms，64 条、约 908 KB 队列约 6–7 ms；在线真实入口开启/关闭各二十四次均完成 100 ms 总预算。本轮不削弱短命采集或重写传输。恢复正式 Host API 后，九十七项原生测试全部通过，正式库拒绝回环测试握手；12,444 个源码条目前后一致。配置不匹配的首次原生代理测试失败与后台验收程序排序切片错误均保留，原因、范围、符号与清理见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)。
 
 Native Platform CI `40853458086` 的 `95cc68519e` Android API 35 作业于 `2026-10-29T11:05:39Z` 完整成功：四个共享 crate 的设备单测、实际 APK、崩溃/系统退出/ANR 专项及整套输入冒烟全部通过，语音回复与自动插入用例亦实际通过；本轮通过不证明此前 `voice polish replies (AssertionError)` 的根因已经修复。该运行整体验收仍为失败，因为 Windows x86 系统 WER 的目标退出超时；它已留完整记录，新增诊断的 PVE 两架构专项与完整 quick 通过，仍待新 CI。不能将 Android 整作业通过写成全仓 CI 绿，也不能将旧提交结果写成尚未运行的新 head 验收。
