@@ -1,12 +1,10 @@
 import Foundation
 import CoreFoundation
 
-/// Where candidate glosses come from: nowhere online (the default), a service the user signed up for with their own credentials, or the 水杉 account's translation API. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable. The account is used only when the user explicitly chose it (`translation_account`) and none of their own services applies; it is never a fallback. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
+/// Where candidate glosses come from: nowhere online (the default), a service the user signed up for with their own credentials, the 水杉 account's translation API, or the AI configuration of 「AI 润色与回复」. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable. The account is used only when the user explicitly chose it (`translation_account`) and none of their own services applies; it is never a fallback. AI-assisted translation (`translation_ai`) likewise only when the user chose it, whether or not AI candidates are on, as in the shared layer. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
 enum TranslationProvider: String, CaseIterable, Sendable {
   case off, account, niutrans, tencent, custom, ai
 
-  // AI 翻译复用单独的 ai_assistant 设置；它不是本页可以选择或保存的服务。
-  static let allCases: [TranslationProvider] = [.off, .account, .niutrans, .tencent, .custom]
   var title: String {
     switch self {
     case .off: "不使用在线翻译"
@@ -14,7 +12,7 @@ enum TranslationProvider: String, CaseIterable, Sendable {
     case .niutrans: "小牛翻译"
     case .tencent: "腾讯云机器翻译"
     case .custom: "自定义接口（DeepLX 或 DeepL API）"
-    case .ai: "AI 助手配置"
+    case .ai: "AI 辅助"
     }
   }
 }
@@ -66,6 +64,8 @@ enum TranslationProviderPreference {
   static let tencentKey = "tencent_tmt"
   /// True only when the user explicitly picked the 水杉 account in 「翻译服务」; absent means no.
   static let accountKey = "translation_account"
+  /// True only when the user explicitly picked 「AI 辅助」 in 「翻译服务」; absent means no. Read regardless of `ai_assistant.enabled`, which is the AI candidates switch.
+  static let aiKey = "translation_ai"
   static let defaultTencentRegion = "ap-guangzhou"
 
   /// The same check as client-core's `usable_credential`: empty strings, `<placeholders>` and `FAKESECRET_` samples are not credentials.
@@ -95,16 +95,18 @@ enum TranslationProviderPreference {
       let region = trimmed(tencent["region"] as? String ?? "")
       return .tencent(secretID: secretID, secretKey: secretKey, region: region.isEmpty ? defaultTencentRegion : region)
     }
+    if preferences?[accountKey] as? Bool == true { return .account }
+    // Like `selected_translation_services`: an enabled Tencent without secrets is still the selected service there, so it sends nothing and AI does not stand in for it. Choosing 「AI 辅助」 writes Tencent disabled, and so does the one-time migration of older documents.
     let ai = preferences?["ai_assistant"] as? [String: Any] ?? [:]
-    if ai["enabled"] as? Bool == true,
-       preferences?[accountKey] as? Bool != true,
+    if preferences?[aiKey] as? Bool == true,
+       tencent["enabled"] as? Bool == false,
        let provider = ai["provider"] as? String,
        let endpoint = ai["endpoint"] as? String,
        let model = ai["model"] as? String,
        !provider.isEmpty, !endpoint.isEmpty, !model.isEmpty {
       return .ai(provider: provider, endpoint: endpoint, model: model, token: "")
     }
-    return preferences?[accountKey] as? Bool == true ? .account : .none
+    return .none
   }
 
   /// 自定义服务能否发出请求，交给键盘实际调用的共享请求构造判断：DeepL 官方地址没有密钥时共享层不构造请求，这里若仍算可用，设置页不会显示「凭据不完整」，键盘却每个词都拿不到释义。与 macOS 翻译设置窗口保存前的检查是同一个判断。
@@ -117,12 +119,14 @@ enum TranslationProviderPreference {
     return MetasequoiaInputSessionBridge.translationRequest(provider: "custom", probe) != nil
   }
 
-  /// The provider the settings page shows as selected, which may be one whose credentials are still incomplete.
+  /// The provider the settings page shows as selected, which may be one whose credentials are still incomplete. 「AI 辅助」 behind an enabled Tencent without secrets shows as off, since the keyboard sends nothing then (see `route`).
   static func selected(in preferences: [String: Any]?) -> TranslationProvider {
     if (preferences?[niutransKey] as? [String: Any])?["enabled"] as? Bool == true { return .niutrans }
     if (preferences?[customKey] as? [String: Any])?["enabled"] as? Bool == true { return .custom }
     if case .tencent = route(in: preferences) { return .tencent }
-    return preferences?[accountKey] as? Bool == true ? .account : .off
+    if preferences?[accountKey] as? Bool == true { return .account }
+    let tencentEnabled = (preferences?[tencentKey] as? [String: Any])?["enabled"] as? Bool ?? true
+    return preferences?[aiKey] as? Bool == true && !tencentEnabled ? .ai : .off
   }
 
   /// Write one provider as the only enabled one. Credentials of the others are kept so switching back does not lose them; Tencent is written disabled explicitly because its default is enabled.
@@ -137,6 +141,7 @@ enum TranslationProviderPreference {
                             "region": region.isEmpty ? defaultTencentRegion : region]
     // Present only when chosen, as the shared core writes it, so saving an unchanged choice leaves the document equal.
     if provider == .account { document[accountKey] = true } else { document.removeValue(forKey: accountKey) }
+    if provider == .ai { document[aiKey] = true } else { document.removeValue(forKey: aiKey) }
   }
 
   private static func trimmed(_ value: String) -> String { value.trimmingCharacters(in: .whitespacesAndNewlines) }

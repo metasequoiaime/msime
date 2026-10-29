@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let work = std::env::temp_dir().join("msime-quickstart");
 
     // 准备代次：复制工作词库、回放学习日志。数据换了就换一个 content id。
-    let paths = prepare_runtime_paths(&resources, &work.join("user"), &work.join("cache"), "dict-v2_0_39")?;
+    let paths = prepare_runtime_paths(&resources, &work.join("user"), &work.join("cache"), "dict-v2_0_41")?;
     // 会话期间持共享租约，与改个人词典、重置学习这类维护互斥。
     let access = DictionaryAccess::try_session(&paths.user_data, &paths.dictionaries)?
         .ok_or("the dictionaries are being maintained")?;
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-在 dict-v2.0.39 的数据包上，它打出：
+在 dict-v2.0.41 的数据包上，它打出：
 
 ```text
 preedit: ni'hao

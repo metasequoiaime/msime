@@ -7,7 +7,7 @@
 //! A trigram cannot be searched the same way without carrying two words of history in every beam entry, so it is applied after the search: the n best paths are rescored with what the third word adds over the second, then reordered. That is the reason to decode more paths than are shown.
 
 use std::cell::RefCell;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
@@ -562,6 +562,220 @@ struct Hyp<'g> {
     typo_edges: usize,
 }
 
+/// [`BeamPrefixCache`] 最多留下的整句图。九键每键要解十几到二十几张图，下一键的图几乎都是上一键某张图多一个音节或换了末音节，32 张盖得住上一键的大部分。
+pub(crate) const BEAM_PREFIX_CAPACITY: usize = 32;
+
+/// 解码时用到的、决定非末列束状态的全部参数。两张图共用前若干音节、这些参数又都相同时，那几列剪枝后的假设逐位相同。浮点数按位比较；二元表和个人模型按地址比较，个人模型另带调用方给的版本号。
+#[derive(PartialEq)]
+struct BeamScoring {
+    beam: usize,
+    span_limit: usize,
+    max_phrase_syllables: usize,
+    weights: [u64; 7],
+    bigram: Option<usize>,
+    personal: Option<usize>,
+    personal_version: u64,
+    collocation: bool,
+}
+
+impl BeamScoring {
+    fn of(options: &LatticeOptions<'_>, personal_version: u64) -> Self {
+        Self {
+            beam: options.beam,
+            span_limit: options.span_limit,
+            max_phrase_syllables: options.max_phrase_syllables,
+            weights: [
+                options.unigram_z.to_bits(),
+                options.phrase_length_bonus.to_bits(),
+                options.bigram_weight.to_bits(),
+                options.personal_weight.to_bits(),
+                options.personal_reference_probability.to_bits(),
+                options.personal_max_bonus.to_bits(),
+                options.collocation_weight.to_bits(),
+            ],
+            bigram: options
+                .bigram
+                .as_ref()
+                .map(|table| Arc::as_ptr(table) as usize),
+            personal: options
+                .personal
+                .map(|personal| std::ptr::from_ref(personal) as usize),
+            personal_version,
+            collocation: options.collocation_scorer.is_some(),
+        }
+    }
+}
+
+/// 存下来的假设：图边记成它在起点列（`prev.0`）里的下标，换一张图时按下标取回同一条边。
+#[derive(Clone, Copy)]
+struct SavedHyp {
+    score: f64,
+    prev: (u32, u32),
+    edge: Option<u32>,
+    typo_edges: u32,
+}
+
+/// 一张解完的整句图留下的非末列（列 0..n）剪枝后的假设，顺序与剪枝结果相同。
+struct SavedBeam {
+    syllables: Vec<String>,
+    scoring: BeamScoring,
+    /// 按地址比较二元表，持有它免得地址被别的表重用。
+    _bigram: Option<Arc<NgramTable>>,
+    columns: Vec<Vec<SavedHyp>>,
+}
+
+/// 整句束搜索的前缀状态缓存。
+///
+/// 列 k 的假设只来自终点为 k 的边，这些边的起点、音节和查到的词库行都在前 k 个音节之内；末列之前的打分也只看前驱和这条边（句末语气词加分、搭配的句尾项只在终点是末列时才算）。所以两张图共用前 m 个音节、`m` 在两张图里都不是末列、打分参数又相同时，列 0..=m 剪枝后的假设逐位相同，新图可以从第 m 列接着解：照搬列 0..=m，只把起点在 m 之前、终点越过 m 的边重新展开一遍。往同一列推假设的先后与从头解完全一样（起点列升序、列内假设升序、边升序），所以堆选择、平分时谁留下也一样。
+///
+/// 图边在列内按终点升序排列，终点不越过 m 的边在两张图里是同一批跨度查出来的同一批行，下标相同；接上之前逐条核对下标所指的边终点没变，对不上就当没命中、从头解。
+///
+/// 只给不带纠错附加边的解码用。调用方在词库行、个人模型或解码参数变化时调用 [`Self::clear`]，规则同整句解码缓存。
+#[derive(Default)]
+pub(crate) struct BeamPrefixCache {
+    entries: VecDeque<SavedBeam>,
+    /// 测试用：接上前缀的次数。
+    #[cfg(test)]
+    pub(crate) resumed: usize,
+}
+
+impl BeamPrefixCache {
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// 找与 `syllables` 共用前缀最长的存档，把列 0..=m 填进 `columns`，返回 m；没有可用的存档返回 0，`columns` 不动。
+    fn restore<'g>(
+        &mut self,
+        syllables: &[String],
+        scoring: &BeamScoring,
+        graph: &'g Graph,
+        columns: &mut [BeamColumn<'g>],
+    ) -> usize {
+        let n = syllables.len();
+        let mut best: Option<(&SavedBeam, usize)> = None;
+        for saved in &self.entries {
+            if saved.scoring != *scoring {
+                continue;
+            }
+            // 第 m 列在旧图和新图里都不能是末列。
+            let limit = (n - 1).min(saved.syllables.len() - 1);
+            let shared = saved
+                .syllables
+                .iter()
+                .zip(syllables)
+                .take(limit)
+                .take_while(|(left, right)| left == right)
+                .count();
+            if shared > best.map_or(0, |(_, m)| m) {
+                best = Some((saved, shared));
+            }
+        }
+        let Some((saved, m)) = best else {
+            return 0;
+        };
+        let fits = saved.columns[..=m]
+            .iter()
+            .enumerate()
+            .all(|(column, hyps)| {
+                hyps.iter().all(|hyp| match hyp.edge {
+                    None => column == 0,
+                    Some(at) => graph
+                        .get(hyp.prev.0 as usize)
+                        .and_then(|edges| edges.get(at as usize))
+                        .is_some_and(|edge| edge.end == column && (hyp.prev.0 as usize) < column),
+                })
+            });
+        if !fits {
+            return 0;
+        }
+        for (target, hyps) in columns.iter_mut().zip(&saved.columns[..=m]) {
+            target.hyps.clear();
+            target.hyps.extend(hyps.iter().map(|hyp| Hyp {
+                score: hyp.score,
+                prev: (hyp.prev.0 as usize, hyp.prev.1 as usize),
+                edge: hyp.edge.map(|at| &graph[hyp.prev.0 as usize][at as usize]),
+                typo_edges: hyp.typo_edges as usize,
+            }));
+            // 已经剪过枝：长度不超过束宽，下面的 `keep_beam` 原样留下。
+            target.streamed = false;
+        }
+        #[cfg(test)]
+        {
+            self.resumed += 1;
+        }
+        m
+    }
+
+    /// 存下这张图的非末列（剪枝之后）。同一串音节只留最新的一份；满了先丢最早的。
+    fn save(
+        &mut self,
+        syllables: &[String],
+        scoring: BeamScoring,
+        bigram: Option<Arc<NgramTable>>,
+        graph: &Graph,
+        columns: &[BeamColumn<'_>],
+    ) {
+        let index = |edge: &Edge, column: usize| -> Option<u32> {
+            let start = graph[column].as_ptr() as usize;
+            let offset = (std::ptr::from_ref(edge) as usize).checked_sub(start)?;
+            let at = offset / std::mem::size_of::<Edge>();
+            debug_assert!(std::ptr::eq(&graph[column][at], edge));
+            u32::try_from(at).ok()
+        };
+        let mut saved = Vec::with_capacity(columns.len());
+        for column in columns {
+            let mut hyps = Vec::with_capacity(column.hyps.len());
+            for hyp in &column.hyps {
+                let (Ok(prev_column), Ok(prev_at), Ok(typo_edges)) = (
+                    u32::try_from(hyp.prev.0),
+                    u32::try_from(hyp.prev.1),
+                    u32::try_from(hyp.typo_edges),
+                ) else {
+                    return;
+                };
+                let edge = match hyp.edge {
+                    None => None,
+                    Some(edge) => match index(edge, hyp.prev.0) {
+                        Some(at) => Some(at),
+                        None => return,
+                    },
+                };
+                hyps.push(SavedHyp {
+                    score: hyp.score,
+                    prev: (prev_column, prev_at),
+                    edge,
+                    typo_edges,
+                });
+            }
+            saved.push(hyps);
+        }
+        self.entries
+            .retain(|entry| entry.syllables.as_slice() != syllables);
+        if self.entries.len() >= BEAM_PREFIX_CAPACITY {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(SavedBeam {
+            syllables: syllables.to_vec(),
+            scoring,
+            _bigram: bigram,
+            columns: saved,
+        });
+    }
+}
+
+/// [`decode_graph_resuming`] 的入参：这张图的音节、前缀缓存和个人模型版本。
+pub(crate) struct BeamResume<'a> {
+    pub(crate) syllables: &'a [String],
+    pub(crate) cache: &'a mut BeamPrefixCache,
+    pub(crate) personal_version: u64,
+}
+
 /// 搭配查询的上下文窗口：`.gram` 的查询键最多编入 8 个码点，尾窗留 8 个足够。
 const COLLOCATION_TAIL_CODEPOINTS: usize = 8;
 
@@ -709,9 +923,22 @@ pub(super) fn decode_graph(
 ) -> Vec<SentencePath> {
     // 常见预算与非末列一致，单独实例化以保留展开循环的固定束宽。
     if options.nbest > options.beam {
-        decode_graph_with_terminal::<true>(graph, options, extra)
+        decode_graph_with_terminal::<true>(graph, options, extra, None)
     } else {
-        decode_graph_with_terminal::<false>(graph, options, extra)
+        decode_graph_with_terminal::<false>(graph, options, extra, None)
+    }
+}
+
+/// 同 [`decode_graph`]（不带附加边），但先在 `resume.cache` 里找共用前缀的图接着解，解完把这张图的非末列存回去，见 [`BeamPrefixCache`]。结果与 `decode_graph` 逐位相同。
+pub(super) fn decode_graph_resuming(
+    graph: &Graph,
+    options: &LatticeOptions<'_>,
+    resume: &mut BeamResume<'_>,
+) -> Vec<SentencePath> {
+    if options.nbest > options.beam {
+        decode_graph_with_terminal::<true>(graph, options, None, Some(resume))
+    } else {
+        decode_graph_with_terminal::<false>(graph, options, None, Some(resume))
     }
 }
 
@@ -719,6 +946,7 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
     graph: &Graph,
     options: &LatticeOptions<'_>,
     extra: Option<&Graph>,
+    mut resume: Option<&mut BeamResume<'_>>,
 ) -> Vec<SentencePath> {
     let n = graph.len();
     let personal = active_personal(options);
@@ -759,25 +987,54 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
         edge: None,
         typo_edges: 0,
     });
+    // 只有不带附加边、音节数与图相符时才接前缀；接上时列 0..=resumed_at 已经是剪枝后的终态。
+    let resume_scoring = resume
+        .as_deref()
+        .filter(|resume| extra.is_none() && resume.syllables.len() == n && n > 1)
+        .map(|resume| BeamScoring::of(options, resume.personal_version));
+    let resumed_at = match (resume.as_deref_mut(), resume_scoring.as_ref()) {
+        (Some(resume), Some(scoring)) => {
+            resume
+                .cache
+                .restore(resume.syllables, scoring, graph, &mut columns)
+        }
+        _ => 0,
+    };
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
     let row_capacity = options.beam.max(options.nbest);
     let mut bigram_rows: Vec<Vec<f32>> = Vec::new();
     let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
     let mut small_bigram_row_words = [""; SMALL_BIGRAM_ROWS];
-    for pos in 0..n {
-        if columns[pos].streamed {
-            cxx_sort::finish_partial(&mut columns[pos].hyps, options.beam, &mut scores_higher);
-        } else {
-            keep_beam(&mut columns[pos].hyps, options.beam);
+    // 接上前缀时，先按原来的先后把列 0..resumed_at 里终点越过 resumed_at 的边补展开一遍（这些列已是终态，不再剪枝），再从 resumed_at 列照常往后解。
+    let passes = (0..resumed_at)
+        .map(|pos| (pos, true))
+        .chain((resumed_at..n).map(|pos| (pos, false)));
+    for (pos, crossing_only) in passes {
+        if !crossing_only {
+            if columns[pos].streamed {
+                cxx_sort::finish_partial(&mut columns[pos].hyps, options.beam, &mut scores_higher);
+            } else {
+                keep_beam(&mut columns[pos].hyps, options.beam);
+            }
         }
+        // 图边在列内按终点升序排；补展开只走终点越过 resumed_at 的那一段列尾。
+        let literal = if crossing_only {
+            let edges = &graph[pos];
+            let crossing = &edges[edges.partition_point(|edge| edge.end <= resumed_at)..];
+            if crossing.is_empty() {
+                continue;
+            }
+            crossing
+        } else {
+            &graph[pos]
+        };
         let (done, ahead) = columns.split_at_mut(pos + 1);
         let current = &done[pos].hyps;
         // 行存储跨列复用；前词索引和有效行数只属于当前列，评分必须重新填满。
         let mut used_bigram_rows = 0;
         bigram_row_indices.clear();
         // 只读原始切片，评分与展开都按主图、附加图的相同顺序重新遍历。
-        let literal = &graph[pos];
         let extra_edges = extra.map_or(&[][..], |extra| extra[pos].as_slice());
         let outgoing_len = literal.len() + extra_edges.len();
         let outgoing = literal.iter().chain(extra_edges.iter());
@@ -967,6 +1224,15 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
         retain_unique_sentences(&mut paths, take);
     }
     rescore_with_trigram(&mut paths, options);
+    if let (Some(resume), Some(scoring)) = (resume, resume_scoring) {
+        resume.cache.save(
+            resume.syllables,
+            scoring,
+            options.bigram.clone(),
+            graph,
+            &columns[..n],
+        );
+    }
     paths
 }
 
@@ -1992,6 +2258,10 @@ mod return_tests;
 #[cfg(test)]
 #[path = "decode_prefix_tests.rs"]
 mod prefix_tests;
+
+#[cfg(test)]
+#[path = "decode_prefix_resume_tests.rs"]
+mod prefix_resume_tests;
 
 #[cfg(test)]
 #[path = "decode_outgoing_tests.rs"]

@@ -344,6 +344,21 @@ pub(crate) fn mark_dirty(store: &SyncStateStore, section: Section) -> Result<Val
     Ok(json!({ "marked": marked }))
 }
 
+/// `dictionary_reset`：本机清除学习记录以后调用，只做文件操作，不读会话。先取消状态里绑定账号排在激活队列里、还没激活的云端快照（宿主带了队列目录时），再忘掉等激活的记录、给词库打待上传标记（[`SyncState::forget_dictionary_before_reset`]），下一轮把清除后的这一份整份上传，而不是把清除前下载的那份云端词并回来。返回 `{marked}`，开关关着时为假；取消失败时报 `cloud_sync_storage`，什么也没记，宿主可以再调一次。
+pub(crate) fn dictionary_reset<L: SyncLocal>(
+    store: &SyncStateStore,
+    local: &L,
+) -> Result<Value, String> {
+    let account = store.peek().map_err(storage)?.account_id;
+    if !account.is_empty() {
+        local.cancel_dictionary(&account).map_err(storage)?;
+    }
+    let marked = store
+        .update(|state| state.forget_dictionary_before_reset())
+        .map_err(storage)?;
+    Ok(json!({ "marked": marked }))
+}
+
 /// 旧版本的状态。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -77,10 +77,20 @@ pub async fn load_vocabulary_review(
 pub async fn answer_vocabulary_card(
     app: tauri::AppHandle,
     state: tauri::State<'_, VocabularyState>,
+    wordbook: String,
     word: String,
     known: bool,
 ) -> Result<ReviewStatus, CommandError> {
-    run(app, state, ReviewAction::Answer { word, known }).await
+    run(
+        app,
+        state,
+        ReviewAction::Answer {
+            wordbook,
+            word,
+            known,
+        },
+    )
+    .await
 }
 
 #[tauri::command]

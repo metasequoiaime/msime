@@ -38,6 +38,8 @@ struct Fixture {
     remaining_after_select: Option<String>,
     /// The seat each candidate is fixed to, parallel to `words`: 1-based, 0 for unfixed. Empty means nothing is fixed.
     positions: Vec<u8>,
+    /// 九宫格标的窄裁决点（`ordering::CONTEST_*`），与 `words` 同序；空的是一行都没标。
+    contests: Vec<u8>,
     /// What the Engine reports as the reading, which the Japanese scheme sets to the converted kana. Empty means no reading.
     reading: String,
     /// What the Engine reports it takes as characters rather than punctuation.
@@ -1082,6 +1084,11 @@ impl InputEngine for Fixture {
             },
             candidate_corrected: vec![false; self.words.len()],
             candidate_answers_key: vec![true; self.words.len()],
+            candidate_contest: if self.contests.len() == self.words.len() {
+                self.contests.clone()
+            } else {
+                Vec::new()
+            },
             candidate_list_open: false,
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: "xiaohe".into(),
@@ -1790,6 +1797,7 @@ fn runtime() -> Runtime<Fixture> {
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -1849,6 +1857,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 sources,
                 remaining_after_select: None,
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2099,6 +2108,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 sources,
                 remaining_after_select: None,
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2438,6 +2448,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 sources: Vec::new(),
                 remaining_after_select: remaining.map(str::to_owned),
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2545,6 +2556,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             sources: Vec::new(),
             remaining_after_select: Some("p".into()),
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -3423,6 +3435,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -7704,6 +7717,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -10703,6 +10717,8 @@ mod parallel_order_allocations;
 mod static_evidence;
 
 mod rerank_declined;
+
+mod model_contests;
 
 mod settled_async;
 

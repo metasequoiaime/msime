@@ -1,10 +1,11 @@
 use super::leading_entry_tests::candidate_push as push_ranked;
 use super::*;
 
-// 固定 8f011cb59c 的完整刷新，去掉注释并替换入列为单次查询实验。
+// 固定 8f011cb59c 的完整刷新，去掉注释并替换入列为单次查询实验。末尾另补上后来加的 `mark_contests`，快照里的裁决标记才和生产刷新一致。
 impl NineKeySession {
     pub(super) fn candidate_entry_refresh(&mut self) {
         self.candidates.clear();
+        self.contests.clear();
         self.reading.clear();
         if !self.active() {
             self.path_scratch.pages.clear();
@@ -332,14 +333,9 @@ impl NineKeySession {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
-        positions::apply_fixed_positions(
-            &self.paths.user(assets::USER_JOURNAL),
-            &format!("nine-key:{}:{locked_key}", self.digits),
-            &mut candidates,
-            false,
-            None,
-            false,
-        );
+        let journal = self.paths.user(assets::USER_JOURNAL);
+        let context = format!("nine-key:{}:{locked_key}", self.digits);
+        positions::apply_fixed_positions(&journal, &context, &mut candidates, false, None, false);
         keep_expressive_rows_off_the_lead(&mut candidates);
         if let Some(front) = candidates.first() {
             let offset = if locked_key.is_empty() {
@@ -359,6 +355,14 @@ impl NineKeySession {
         let mut reading = std::mem::take(&mut self.reading);
         self.write_reading(candidates.first(), &mut reading);
         self.reading = reading;
+        super::mark_contests(
+            &candidates,
+            self.digits.len(),
+            self.first_page_rows.get(),
+            grid,
+            |word, kind| manually_pinned(&journal, &context, locked_key.len(), word, kind),
+            &mut self.contests,
+        );
         self.candidates = candidates;
         self.path_buffer = alternatives;
         let remaining = remaining_digits(&self.digits, locked_length);

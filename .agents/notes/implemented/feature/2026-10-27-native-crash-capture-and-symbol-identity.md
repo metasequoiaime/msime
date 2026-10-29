@@ -81,6 +81,8 @@ Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能�
 
 首轮后台验收程序错误地按行数切片以 ID 排序的数据库结果，将先前事件计入新一轮而失败；改为比较事件 ID 集合后，重建空的隔离后台再完整运行，未修改产品。专项使用的回环库故意禁止代理，首次原生整套的 `linux-ibus-startup-telemetry` 因要求正式 HTTPS 代理路径而失败，其余九十六项通过；完成故障验收、保留测试符号后，复用原树恢复不带回环特性的正式库，测试握手在建队列和发送前被拒绝。带正式发布行表选项的最终原生整套九十七项全部通过，耗时 122.92 秒；该代理专项实际通过。12,444 个源码条目的 Git blob、模式与 SHA-256 前后逐项一致。所有产品子进程、Xvfb、临时后台、数据库、内部网络和 SSH 转发均已回收，没有安装或发布测试构建。小证据为 `target/pve-linux-final-c713-evidence/`、`target/pve-linux-native-backend-c713-evidence/`、`target/pve-linux-backend-client-attempt2-evidence/` 与后台两轮证据；符号归档保留在 PVE 的 `target/pve-linux-worker/`。
 
+原生 Wayland 与 systemd 的后续证据由[全平台提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#linux-原生-wayland-与-systemd-验收)持有：固定 6bea 的 Mousepad/Fcitx5 在无 Xwayland 的真实 Wayland 窗口完成输入、故障恢复和动态授权；真实内存访问的后台帧还原到 `FcitxEngine.cpp:7678`。正式在线服务入口在任务专用 systemd unit 中完成自动重启、SIGKILL、撤回重开、主动停止与退出码 2 专项；后者只到共享队列，未联网，不能扩大为全部系统服务与后台闭环。
+
 ## Alternatives considered
 
 - **先调用前任，返回后才写记录**：不留下已处理信号的中间文件，但前任可能直接退出或中止进程，返回后的采集永远不会发生；因此先写并持续持锁，只有确实返回才撤掉。**先关文件、前任返回再删除**实现较短，却允许其他收件进程在这段窗口上传；仅删除名字也不能撤销已打开的 inode，所以清空、删名与关闭必须在同一文件锁内完成。

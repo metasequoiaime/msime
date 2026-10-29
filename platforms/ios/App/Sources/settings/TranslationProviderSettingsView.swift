@@ -10,6 +10,9 @@ struct TranslationProviderSettingsView: View {
   @State private var tencentRegion = TranslationProviderPreference.defaultTencentRegion
   @State private var customEndpoint = ""
   @State private var customKey = ""
+  /// Whether 「AI 辅助」 can translate: the keyboard has an AI configuration published to it and the shared document names its provider, endpoint and model. Its summary is 「服务商 · 模型」.
+  @State private var aiReady = false
+  @State private var aiSummary = ""
   @State private var status: String?
   @State private var testing = false
   @State private var operation: Task<Void, Never>?
@@ -77,16 +80,23 @@ struct TranslationProviderSettingsView: View {
         .designRow()
       case .ai:
         Section {
-          Text("候选翻译复用「AI 助手」页中的配置；请在那里修改服务商、接口地址、模型和凭据。")
-            .foregroundStyle(.secondary)
+          LabeledContent("当前服务商与模型", value: aiSummary.isEmpty ? "未配置" : aiSummary)
+            .accessibilityIdentifier("translationAISummary")
+        } header: {
+          SettingsGroupHeader(title: "复用 AI 辅助配置")
+        } footer: {
+          Text("复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「候选栏 AI 候选」。")
         }
         .designRow()
       }
       Section {
         if credentialsIncomplete {
-          Text("凭据不完整，键盘暂不联网翻译。").font(.footnote).foregroundStyle(.secondary)
+          Text(provider == .ai
+            ? "AI 配置不完整，键盘暂不联网翻译。请在「AI 润色与回复」页打开「在键盘中启用 AI」，填好接口地址、模型和 API Key 后保存配置。"
+            : "凭据不完整，键盘暂不联网翻译。").font(.footnote).foregroundStyle(.secondary)
         }
-        if provider != .account && provider != .off {
+        // AI 辅助的连接在「AI 润色与回复」页测试，本页没有它的凭据。
+        if provider != .account && provider != .off && provider != .ai {
           Button(testing ? "正在测试…" : "测试翻译「你好」") { test() }
             .disabled(testing)
             .accessibilityIdentifier("translationProviderTest")
@@ -121,6 +131,7 @@ struct TranslationProviderSettingsView: View {
 
   private var credentialsIncomplete: Bool {
     guard provider != .off, provider != .account else { return false }
+    if provider == .ai { return !aiReady }
     var document: [String: Any] = [:]
     write(into: &document)
     return TranslationProviderPreference.route(in: document) == .none
@@ -140,6 +151,18 @@ struct TranslationProviderSettingsView: View {
     tencentRegion = region.isEmpty ? TranslationProviderPreference.defaultTencentRegion : region
     customEndpoint = custom["endpoint"] as? String ?? ""
     customKey = custom["api_key"] as? String ?? ""
+    let ai = preferences?["ai_assistant"] as? [String: Any] ?? [:]
+    let probe: [String: Any] = [TranslationProviderPreference.aiKey: true,
+                                TranslationProviderPreference.tencentKey: ["enabled": false], "ai_assistant": ai]
+    if case let .ai(_, endpoint, _, _) = TranslationProviderPreference.route(in: probe) {
+      aiReady = KeyboardAIService.translationToken(endpoint: endpoint) != nil
+    } else {
+      aiReady = false
+    }
+    let aiProvider = ai["provider"] as? String ?? ""
+    let aiModel = ai["model"] as? String ?? ""
+    let aiTitle = AIProviderPreset(rawValue: aiProvider)?.title ?? aiProvider
+    aiSummary = aiProvider.isEmpty ? "" : "\(aiTitle.isEmpty ? aiProvider : aiTitle) · \(aiModel.isEmpty ? "未配置" : aiModel)"
     savedProvider = provider
     savedFields = fields
     autosave.reset()

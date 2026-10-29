@@ -71,8 +71,10 @@ pub struct ReviewStatus {
 pub enum ReviewAction {
     Load,
     Answer {
+        /// 显示卡片时所属词书，不从全局当前选择推断。
+        wordbook: String,
         word: String,
-        /// The 认识 button. False is 不认识 and returns the card to the same day.
+        /// 「认识」按钮；为 false 时表示「不认识」，卡片留在当天队列。
         known: bool,
     },
     SetSettings {
@@ -109,14 +111,17 @@ pub fn apply(
     }
     let library = WordbookLibrary::new(directory);
     let store = VocabularyProgressStore::new(directory);
-    // 作答时已经读过的选中书，交给最后的 `status` 复用：插件书最大 4 MiB，没必要在一次作答里再解析一遍。
+    // 作答时已经读过的来源书，仍是当前选择时交给 `status` 复用，避免重复解析。
     let mut answered_book = None;
 
     match action {
         ReviewAction::Load => {}
-        ReviewAction::Answer { word, known } => {
-            let document = store.load()?;
-            let book = selected_book(&library, resources, plugins, &document.settings.wordbook)?
+        ReviewAction::Answer {
+            wordbook,
+            word,
+            known,
+        } => {
+            let book = selected_book(&library, resources, plugins, &wordbook)?
                 .ok_or(ReviewSessionError::UnknownWordbook)?;
             let grade = if known {
                 ReviewGrade::Known
@@ -431,9 +436,75 @@ mod tests {
     }
 
     #[test]
+    fn an_old_card_answers_its_source_book_after_the_selection_changes() {
+        let root = directory();
+        let first = import(root.path(), "合成词书甲");
+        let second = apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::Import {
+                name: "合成词书乙".into(),
+                text: "alpha,合成释义乙\n".into(),
+            },
+        )
+        .unwrap();
+        let action: ReviewAction = serde_json::from_value(serde_json::json!({
+            "operation": "answer", "wordbook": first.settings.wordbook,
+            "word": first.queue[0].word, "known": true,
+        }))
+        .unwrap();
+        let answered = apply(root.path(), root.path(), None, TODAY, action).unwrap();
+        let progress = VocabularyProgressStore::new(root.path()).load().unwrap();
+        assert!(progress.card(&first.settings.wordbook, "alpha").is_some());
+        assert!(progress.card(&second.settings.wordbook, "alpha").is_none());
+        assert_eq!(answered.settings, second.settings);
+        assert_eq!(answered.queue, second.queue);
+        assert_eq!(answered.answered_today, 1);
+    }
+
+    #[test]
+    fn an_answer_without_its_source_book_is_refused() {
+        let action = serde_json::from_value::<ReviewAction>(serde_json::json!({
+            "operation": "answer", "word": "alpha", "known": true,
+        }));
+        assert!(action.is_err(), "缺少来源词书时不能猜测当前选择");
+    }
+
+    #[test]
+    fn a_missing_source_book_never_answers_the_current_selection() {
+        let root = directory();
+        let first = import(root.path(), "合成词书甲");
+        let second = import(root.path(), "合成词书乙");
+        WordbookLibrary::new(root.path())
+            .remove(&first.settings.wordbook)
+            .unwrap();
+        let before = VocabularyProgressStore::new(root.path()).load().unwrap();
+        for id in [first.settings.wordbook.as_str(), "", "user-missing"] {
+            let action: ReviewAction = serde_json::from_value(serde_json::json!({
+                "operation": "answer", "wordbook": id, "word": "alpha", "known": true,
+            }))
+            .unwrap();
+            assert!(apply(root.path(), root.path(), None, TODAY, action).is_err());
+        }
+        let after = VocabularyProgressStore::new(root.path()).load().unwrap();
+        assert_eq!(
+            serde_json::to_value(after).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+        assert_eq!(
+            status(root.path(), root.path(), None, TODAY)
+                .unwrap()
+                .settings,
+            second.settings
+        );
+    }
+
+    #[test]
     fn recall_leaves_todays_queue_and_a_lapse_stays_in_it() {
         let root = directory();
-        import(root.path(), "合成词表");
+        let book = import(root.path(), "合成词表").settings.wordbook;
 
         let answered = apply(
             root.path(),
@@ -441,6 +512,7 @@ mod tests {
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: book.clone(),
                 word: "alpha".to_owned(),
                 known: true,
             },
@@ -455,6 +527,7 @@ mod tests {
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: book.clone(),
                 word: "beta".to_owned(),
                 known: false,
             },
@@ -470,13 +543,14 @@ mod tests {
     #[test]
     fn the_next_day_starts_its_own_count_and_the_recalled_card_is_due() {
         let root = directory();
-        import(root.path(), "合成词表");
+        let book = import(root.path(), "合成词表").settings.wordbook;
         apply(
             root.path(),
             root.path(),
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: book.clone(),
                 word: "alpha".to_owned(),
                 known: true,
             },
@@ -510,6 +584,7 @@ mod tests {
                 None,
                 TODAY,
                 ReviewAction::Answer {
+                    wordbook: chosen.settings.wordbook.clone(),
                     word: word.to_owned(),
                     known,
                 },
@@ -540,6 +615,7 @@ mod tests {
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: book.clone(),
                 word: "alpha".to_owned(),
                 known: true,
             },
@@ -563,6 +639,7 @@ mod tests {
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: book.clone(),
                 word: "alpha".to_owned(),
                 known: true,
             },
@@ -649,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn answering_without_a_selected_book_is_refused() {
+    fn answering_without_a_source_book_is_refused() {
         let root = directory();
         assert!(matches!(
             apply(
@@ -658,6 +735,7 @@ mod tests {
                 None,
                 TODAY,
                 ReviewAction::Answer {
+                    wordbook: String::new(),
                     word: "alpha".to_owned(),
                     known: true,
                 },
@@ -730,6 +808,7 @@ mod tests {
             None,
             TODAY,
             ReviewAction::Answer {
+                wordbook: "cet4".to_owned(),
                 word: "alpha".to_owned(),
                 known: true,
             },
@@ -855,6 +934,7 @@ mod tests {
         .unwrap();
         assert_eq!(chosen.queue[0].word, "cache");
         let answered = apply_with(ReviewAction::Answer {
+            wordbook: "pack-cs-words".to_owned(),
             word: "cache".to_owned(),
             known: true,
         })

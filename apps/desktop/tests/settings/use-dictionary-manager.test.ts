@@ -948,3 +948,203 @@ test("清除学习成功清理期间已经发布的查询错误", async () => {
     vi.useRealTimers();
   }
 });
+
+test.each(["replace", "unmount"] as const)("文本读取期间 %s 后不再提交词库导入", async (change) => {
+  let finishRead!: (bytes: ArrayBuffer) => void;
+  const file = new File(["合成词\tfixture\t10\n"], "synthetic.txt");
+  const read = vi.fn(
+    () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  Object.defineProperty(file, "arrayBuffer", { value: read });
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const importWords = vi.fn().mockResolvedValue({ applied: 1, failed: 0 });
+  const oldClient: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn(), import: importWords },
+  };
+  const nextClient: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+  const { result, rerender, unmount } = renderHook(
+    ({ client }) => useDictionaryManager({ client, confirm: vi.fn() }),
+    { initialProps: { client: oldClient } },
+  );
+  let importing!: Promise<void>;
+  act(() => {
+    importing = result.current.importPhrases(file, "standard");
+  });
+  expect(read).toHaveBeenCalledOnce();
+  if (change === "replace") rerender({ client: nextClient });
+  else unmount();
+  await act(async () => {
+    finishRead(new TextEncoder().encode("合成词\tfixture\t10\n").buffer);
+    await importing;
+  });
+  expect(importWords).not.toHaveBeenCalled();
+});
+
+test.each(["read", "convert"] as const)("SCEL %s 期间替换客户端后不再调用旧宿主", async (stage) => {
+  let finishRead!: (bytes: ArrayBuffer) => void;
+  let finishConversion!: (result: {
+    name: string;
+    category: string;
+    entries: number;
+    text: string;
+  }) => void;
+  const file = new File([new Uint8Array([0x40, 0x15, 0, 0])], "synthetic.scel");
+  const read = vi.fn(() =>
+    stage === "read"
+      ? new Promise<ArrayBuffer>((resolve) => {
+          finishRead = resolve;
+        })
+      : Promise.resolve(new Uint8Array([0x40, 0x15, 0, 0]).buffer),
+  );
+  Object.defineProperty(file, "arrayBuffer", { value: read });
+  const converted = {
+    name: "合成词库",
+    category: "合成分类",
+    entries: 1,
+    text: "合成词\tfixture\n",
+  };
+  const scelText = vi.fn(() =>
+    stage === "read"
+      ? Promise.resolve(converted)
+      : new Promise<typeof converted>((resolve) => {
+          finishConversion = resolve;
+        }),
+  );
+  const importWords = vi.fn().mockResolvedValue({ applied: 1, failed: 0 });
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const oldClient: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn(), import: importWords, scelText },
+  };
+  const nextClient: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+  const { result, rerender } = renderHook(
+    ({ client }) => useDictionaryManager({ client, confirm: vi.fn() }),
+    { initialProps: { client: oldClient } },
+  );
+  act(() => result.current.setDictionaryKind("pinyin"));
+  let importing!: Promise<void>;
+  act(() => {
+    importing = result.current.importPhrases(file, "scel");
+  });
+  if (stage === "convert") await waitFor(() => expect(scelText).toHaveBeenCalledOnce());
+  rerender({ client: nextClient });
+  await act(async () => {
+    if (stage === "read") finishRead(new Uint8Array([0x40, 0x15, 0, 0]).buffer);
+    else
+      finishConversion({
+        name: "合成词库",
+        category: "合成分类",
+        entries: 1,
+        text: "合成词\tfixture\n",
+      });
+    await importing;
+  });
+  if (stage === "read") expect(scelText).not.toHaveBeenCalled();
+  expect(importWords).not.toHaveBeenCalled();
+});
+
+test("SCEL 识别期间替换客户端后不再读取整份文件", async () => {
+  let finishHeader!: (bytes: ArrayBuffer) => void;
+  const header = new Blob([new Uint8Array([0x40, 0x15, 0, 0])]);
+  Object.defineProperty(header, "arrayBuffer", {
+    value: () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        finishHeader = resolve;
+      }),
+  });
+  const file = new File(["synthetic"], "synthetic.dat");
+  Object.defineProperty(file, "slice", { value: () => header });
+  const read = vi.fn().mockResolvedValue(new ArrayBuffer(4));
+  Object.defineProperty(file, "arrayBuffer", { value: read });
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const scelText = vi.fn().mockResolvedValue({
+    name: "合成词库",
+    category: "合成分类",
+    entries: 1,
+    text: "合成词\tfixture\n",
+  });
+  const importWords = vi.fn().mockResolvedValue({ applied: 1, failed: 0 });
+  const oldClient: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn(), scelText, import: importWords },
+  };
+  const nextClient: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+  const { result, rerender } = renderHook(
+    ({ client }) => useDictionaryManager({ client, confirm: vi.fn() }),
+    { initialProps: { client: oldClient } },
+  );
+  act(() => result.current.setDictionaryKind("pinyin"));
+  let importing!: Promise<void>;
+  act(() => {
+    importing = result.current.importPhrases(file, "standard");
+  });
+  rerender({ client: nextClient });
+  await act(async () => {
+    finishHeader(new Uint8Array([0x40, 0x15, 0, 0]).buffer);
+    await importing;
+  });
+  expect(read).not.toHaveBeenCalled();
+  expect(scelText).not.toHaveBeenCalled();
+  expect(importWords).not.toHaveBeenCalled();
+});
+
+test.each(["replace", "unmount"] as const)(
+  "逐条导入首条等待期间 %s 后不再提交剩余词条",
+  async (change) => {
+    let finishEdit!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finishEdit = resolve;
+    });
+    const edit = vi.fn(() => pending);
+    const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+    const oldClient: DictionaryManagerClient = { dictionary: { list, edit } };
+    const nextClient: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() } };
+    const { result, rerender, unmount } = renderHook(
+      ({ client }) => useDictionaryManager({ client, confirm: vi.fn() }),
+      { initialProps: { client: oldClient } },
+    );
+    let importing!: Promise<void>;
+    act(() => {
+      importing = result.current.importPhrases(
+        new File(["合成一\tfirst\t10\n合成二\tsecond\t10\n"], "synthetic.txt"),
+        "standard",
+      );
+    });
+    await waitFor(() => expect(edit).toHaveBeenCalledOnce());
+    if (change === "replace") rerender({ client: nextClient });
+    else unmount();
+    await act(async () => {
+      finishEdit();
+      await importing;
+    });
+    expect(edit).toHaveBeenCalledOnce();
+  },
+);
+
+test.each(["scel", "standard"] as const)("当前客户端仍可按 %s 识别并导入 SCEL", async (format) => {
+  const file = new File([new Uint8Array([0x40, 0x15, 0, 0])], "synthetic.dat");
+  const text = "合成词\tfixture\n";
+  const scelText = vi
+    .fn()
+    .mockResolvedValue({ name: "合成词库", category: "合成分类", entries: 1, text });
+  const importWords = vi.fn().mockResolvedValue({ applied: 1, failed: 0 });
+  const client: DictionaryManagerClient = {
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit: vi.fn(),
+      import: importWords,
+      scelText,
+    },
+  };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm: vi.fn() }));
+  act(() => result.current.setDictionaryKind("pinyin"));
+  await act(async () => {
+    await result.current.importPhrases(file, format);
+  });
+  expect(scelText).toHaveBeenCalledWith("QBUAAA==");
+  expect(importWords).toHaveBeenCalledWith("pinyin", "standard", text, expect.any(String));
+  expect(result.current.phraseNotice).toContain("合成词库");
+  expect(result.current.phraseError).toBe("");
+  expect(result.current.phraseBusy).toBe(false);
+});

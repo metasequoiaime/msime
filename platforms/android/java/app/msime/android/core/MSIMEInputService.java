@@ -3262,8 +3262,8 @@ public final class MSIMEInputService extends InputMethodService {
         return candidateTranslationRouteFrom(preferences).provider() == CandidateTranslationRoute.Provider.ACCOUNT;
     }
 
-    /** 候选翻译的路由，规则在 {@link CandidateTranslationPolicy#route}；没有偏好时什么都不发。腾讯缺 `enabled` 时按共享层的默认值算开着，但没有凭据照样选不中。 */
-    private static CandidateTranslationRoute candidateTranslationRouteFrom(JSONObject preferences) {
+    /** 候选翻译的路由，规则在 {@link CandidateTranslationPolicy#route}；没有偏好时什么都不发。腾讯缺 `enabled` 时按共享层的默认值算开着，但没有凭据照样选不中。「翻译服务」设置页也用它判断 AI 辅助的配置能不能用，与键盘读同一份规则。 */
+    public static CandidateTranslationRoute candidateTranslationRouteFrom(JSONObject preferences) {
         if (preferences == null) return CandidateTranslationRoute.NONE;
         JSONObject niutrans = preferences.optJSONObject("niutrans");
         JSONObject custom = preferences.optJSONObject("custom_translation");
@@ -3285,7 +3285,7 @@ public final class MSIMEInputService extends InputMethodService {
             translationProviderText(custom, "api_key"),
             translationProviderEnabled(tencent, true), translationProviderText(tencent, "secret_id"),
             translationProviderText(tencent, "secret_key"), translationProviderText(tencent, "region"),
-            ai != null && ai.optBoolean("enabled", false), translationProviderText(ai, "provider"),
+            preferences.optBoolean("translation_ai", false), translationProviderText(ai, "provider"),
             aiEndpoint, translationProviderText(ai, "model"), aiToken);
     }
 

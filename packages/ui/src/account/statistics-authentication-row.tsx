@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Row, Switch } from "../core/platform-controls";
 import { FluentIcon } from "../core/fluent-icons";
 import { useToast } from "../core/toast";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import type { StatisticsAuthenticationSettings } from "../settings/statistics-authentication-gate";
 
 /** 「我的」页上的本机认证开关，保存失败保留原选择。 */
@@ -11,12 +12,13 @@ export function StatisticsAuthenticationRow({
   client: StatisticsAuthenticationSettings;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
+  const { busy, run } = useAsyncActionRunner(setError, undefined, client);
   useEffect(() => {
     let current = true;
     setEnabled(null);
+    setError("");
     void client.load().then(
       (value) => {
         if (current) setEnabled(value);
@@ -29,16 +31,17 @@ export function StatisticsAuthenticationRow({
       current = false;
     };
   }, [client]);
-  async function change(value: boolean) {
-    setBusy(true);
-    try {
-      await client.save(value);
-      setEnabled(value);
-    } catch {
-      toast("没有保存，请重试");
-    } finally {
-      setBusy(false);
-    }
+  function change(value: boolean) {
+    void run(
+      async (isCurrent) => {
+        await client.save(value);
+        if (isCurrent()) setEnabled(value);
+      },
+      {
+        formatError: () => "",
+        onError: () => toast("没有保存，请重试"),
+      },
+    );
   }
   return (
     <Row

@@ -482,8 +482,9 @@ fn page_copy_preserves_all_fields_and_clone_capacities_across_shapes() {
     }
 }
 
+/// 文本字段是 `SharedString`：复制页与原页共用字符串，不覆写淘汰页的旧缓冲区；外层向量和 `sentence_words` 仍复用淘汰页里容量恰好的缓冲区。整页复制不申请。
 #[test]
-fn exact_page_copy_reuses_outer_and_nested_buffers_without_allocating() {
+fn exact_page_copy_shares_strings_and_reuses_outer_and_nested_buffers_without_allocating() {
     let mut row = WordItem::new("ni", "合成新值😀", -7, CandidateSource::Generated, "ni'hao");
     row.corrected_from = "合成新码".into();
     row.sentence_association = true;
@@ -493,14 +494,20 @@ fn exact_page_copy_reuses_outer_and_nested_buffers_without_allocating() {
     previous[0].word = "合成旧值😀".into();
     previous[0].sentence_words[0] = "合成旧段".into();
     let outer = previous.as_ptr();
-    let word = previous[0].word.as_ptr();
     let words = previous[0].sentence_words.as_ptr();
     let inner = previous[0].sentence_words[0].as_ptr();
     let (actual, allocations) = count(|| page_copy::clone_rows_reusing(&source, previous));
-    assert_eq!(allocations, 6);
+    assert_eq!(allocations, 0);
     assert_rows(&actual, &source, true);
     assert_eq!(actual.as_ptr(), outer);
-    assert_eq!(actual[0].word.as_ptr(), word);
+    assert!(actual[0].word.shares_storage_with(&source[0].word));
+    assert!(actual[0].pinyin.shares_storage_with(&source[0].pinyin));
+    assert!(actual[0]
+        .canonical_pinyin
+        .shares_storage_with(&source[0].canonical_pinyin));
+    assert!(actual[0]
+        .corrected_from
+        .shares_storage_with(&source[0].corrected_from));
     assert_eq!(actual[0].sentence_words.as_ptr(), words);
     assert_eq!(actual[0].sentence_words[0].as_ptr(), inner);
 }

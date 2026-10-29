@@ -1118,6 +1118,56 @@ fn collections_a_word_the_user_deleted_by_hand_is_the_collection_s_again() {
     assert!(!fixture.has(&own));
 }
 
+/// 清除学习记录把用户词库换回随包的一份：已启用集合的词重新排队送回词库，停用的集合不送；原来记着的「用户原有」作废，重置以后这些词是集合写进去的，停用时照常删掉。
+#[test]
+fn collections_enabled_words_are_queued_again_after_a_learned_data_reset() {
+    let mut fixture = Fixture::new();
+    let own = shuishan(4_321);
+    fixture.dictionary.insert(own.identity(), own.weight);
+    let view = fixture
+        .store
+        .create("拼音", PersonalWordKind::Pinyin)
+        .unwrap();
+    let pinyin = id_of(&view, "拼音");
+    fixture
+        .store
+        .add_words(&pinyin, vec![shuishan(10_000)])
+        .unwrap();
+    let kept = english("kept");
+    create_with(&fixture, "英文", std::slice::from_ref(&kept));
+    let idle_word = english("idle");
+    let idle = create_with(&fixture, "停用", std::slice::from_ref(&idle_word));
+    fixture.store.set_enabled(&idle, false).unwrap();
+    fixture.drain();
+    assert_eq!(fixture.dictionary.get(&own.identity()), Some(&own.weight));
+
+    fixture.dictionary.clear();
+    let view = fixture.store.requeue_enabled_after_reset().unwrap();
+    assert_eq!(view.queued, Some(2));
+    fixture.drain();
+    assert_eq!(fixture.dictionary.get(&own.identity()), Some(&10_000));
+    assert!(fixture.has(&kept));
+    assert!(!fixture.has(&idle_word));
+
+    fixture.store.set_enabled(&pinyin, false).unwrap();
+    fixture.drain();
+    assert!(!fixture.has(&own), "重置以后这个词是集合写进去的");
+}
+
+/// 从来没有建过集合的宿主（桌面、iOS）清除学习记录时不建集合目录。
+#[test]
+fn collections_requeue_after_reset_leaves_a_missing_directory_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DictionaryCollectionsStore::new(
+        root.path().join("preferences"),
+        PersonalDictionaryStore::new(root.path().join("personal")),
+    );
+    let view = store.requeue_enabled_after_reset().unwrap();
+    assert_eq!(view.queued, Some(0));
+    assert!(view.collections.is_empty());
+    assert!(!root.path().join("preferences").exists());
+}
+
 fn scel_import(
     fixture: &Fixture,
     format: &str,

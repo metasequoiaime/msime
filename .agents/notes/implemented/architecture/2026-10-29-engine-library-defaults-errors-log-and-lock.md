@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-引擎要做成给其他输入法嵌入的库（PR #10167 的提案 `proposed/architecture/2026-10-29-embeddable-engine-library.md`，P3「ABI 稳定之前引擎侧要修的硬点」；本分支的基点早于它合入）。[核心会话收尾与日志连接的线程归属](2026-10-29-core-session-lifecycle-and-journal-threads.md) 修完了生命周期和线程那几项，剩下四项与对外契约有关：
+引擎要做成给其他输入法嵌入的库（PR #10167 的提案 `implemented/architecture/2026-10-29-embeddable-engine-library.md`，P3「ABI 稳定之前引擎侧要修的硬点」；本分支的基点早于它合入）。[核心会话收尾与日志连接的线程归属](2026-10-29-core-session-lifecycle-and-journal-threads.md) 修完了生命周期和线程那几项，剩下四项与对外契约有关：
 
 - 两套默认值。核心 `SessionOptions::new` 照参照实现默认辅助码开、表名 `lantian`、学习开；host 门面的 `prepare_options` 默认 `ziranma`、学习关，`session_options` 再从 `SessionOptions::new` 出发改写大部分字段，没写到的字段（`personal_context`）悄悄继承核心默认值。核心默认值一改，产品就跟着变。另外随仓库的七张辅助码表里只有 `wubi86` 写明了来源与许可，`lantian` 和 `ziranma` 都没有再分发授权（`resources/helpcodes/NOTICE.md`），引擎库默认去读它们不合适。
 - 错误只有字符串。`EngineError` 四个变体都只给说明文字，`KeyResult.diagnostic` 是 `diagnostics.rs` 常量的自由文本，C ABI 要按数字返回。

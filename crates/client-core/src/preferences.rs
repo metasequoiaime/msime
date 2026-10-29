@@ -2262,6 +2262,9 @@ pub struct Preferences {
     /// 候选翻译服务选的是 AI 辅助时为真，复用 `ai_assistant` 的服务商、接口地址、Token 与模型做候选词翻译；不要求 `ai_assistant.enabled`，只想用翻译、不开 AI 联想也能生效。与 `translation_account` 一样必须由用户显式选择。
     #[serde(default)]
     pub translation_ai: bool,
+    /// 内部标记，不是设置：这份文档已经按「AI 辅助翻译要显式选择」定过一次。Android 和 iOS 以前不读 `translation_ai`，AI 联想开着、又没选别的翻译服务时就用 AI 翻译候选；现在各端都只认 `translation_ai`，所以读到没有这个标记的文档时，在这两个平台上把当时实际在用 AI 翻译的情形一次性写成显式选择，再标上它（`Preferences::settle_translation_ai_selection`）；之后用户改选别的服务也不会再被改回来。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub translation_ai_migrated: bool,
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
@@ -3934,6 +3937,38 @@ impl Preferences {
     }
 }
 
+/// Android 和 iOS 以前不读 `translation_ai`：AI 联想（`ai_assistant.enabled`）开着、又没选别的翻译服务时，键盘就用 AI 配置翻译候选。读入没有 `translation_ai_migrated` 标记的旧文档时，要把这种情形一次性写成显式选择；其余平台一直只认 `translation_ai`，不动。
+const TRANSLATION_AI_WAS_IMPLICIT: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+impl Preferences {
+    /// 读入偏好文档时调用一次：文档还没有 `translation_ai_migrated` 标记，就是各端统一成「AI 辅助翻译要显式选择」之前写下的。`was_implicit` 为真（Android、iOS，见 [`TRANSLATION_AI_WAS_IMPLICIT`]）、AI 联想开着且服务商、接口地址、模型都已填写、没有选 AI 翻译、没有选水杉账号、小牛和自定义都没启用、腾讯仍是默认的开着但两项凭据不全时，那台设备当时就在用 AI 翻译候选：把 `translation_ai` 打开，同时关掉没有凭据的腾讯（不关的话共享层的选路会先选中它），与设置页选「AI 辅助」写下的样子相同。腾讯关着说明用户在旧版「翻译服务」页存过「不使用在线翻译」之类的非腾讯选择（旧版两端的那一页都没有 AI 选项，选非腾讯项时会把腾讯显式写成关），那是明确不要在线翻译，不能改成 AI；三项 AI 配置不全时旧版键盘也不发 AI 请求，同样不选。令牌不在这里查：iOS 的令牌在钥匙串里，共享层看不到。不论平台都标上标记，之后再读不会重来。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
+    fn settle_translation_ai_selection(&mut self, was_implicit: bool) {
+        if self.translation_ai_migrated {
+            return;
+        }
+        let tencent_unconfigured = self.tencent_tmt.enabled
+            && !(crate::translation::usable_credential(&self.tencent_tmt.secret_id)
+                && crate::translation::usable_credential(&self.tencent_tmt.secret_key));
+        let ai = &self.ai_assistant;
+        let ai_configured = !ai.provider.trim().is_empty()
+            && !ai.endpoint.trim().is_empty()
+            && !ai.model.trim().is_empty();
+        if was_implicit
+            && ai.enabled
+            && ai_configured
+            && !self.translation_ai
+            && !self.translation_account
+            && !self.niutrans.enabled
+            && !self.custom_translation.enabled
+            && tencent_unconfigured
+        {
+            self.translation_ai = true;
+            self.tencent_tmt.enabled = false;
+        }
+        self.translation_ai_migrated = true;
+    }
+}
+
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
 ///
 /// `platforms/windows/installer/config.default.toml` has all three `true`, matching the source's factory configuration, but like smart punctuation that file is only the installed template - the running host reads this document - so the effective first-run value on Windows was `false`. macOS is the port of that desktop product and follows it. None of the three depends on the platform: muting uses CoreAudio on macOS, DDC is a Doubao request flag, and polishing still needs a polish token before anything is sent.
@@ -4291,6 +4326,7 @@ impl Default for Preferences {
             translation_secondary_language: None,
             translation_account: false,
             translation_ai: false,
+            translation_ai_migrated: true,
             usage_reporting: true,
             usage_reporting_consent: None,
             update_channel: UpdateChannel::Stable,
@@ -5612,6 +5648,9 @@ impl PreferencesStore {
         snapshot
             .preferences
             .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
+        snapshot
+            .preferences
+            .settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
         // 读到哪份文档就按哪份文档的代理设置发请求：设置窗口和输入宿主都可能建 HTTP 客户端，
         // 每个进程自己那份 `network::current` 由它读到的最近一版偏好决定（见 `crate::network`）。
         crate::network::install(&snapshot.preferences.network);
@@ -5956,6 +5995,10 @@ impl PreferencesStore {
         // 智能标点的一次性迁移标记同样只增不减：`current` 是按迁移后的样子读出来的，标记总在；写入方（设置页、宿主、MCP、同步）的偏好里没有这个键时照样带上，否则下一次读会把用户刚关掉的智能标点又打开。
         if current.preferences.smart_punctuation_migrated {
             preferences.smart_punctuation_migrated = true;
+        }
+        // AI 辅助翻译的迁移标记同理：不带上它，下一次读会把用户刚改选的服务又改回 AI 辅助。
+        if current.preferences.translation_ai_migrated {
+            preferences.translation_ai_migrated = true;
         }
         // 切换热键在文档里只有规范形一种写法：别名写法在写入处归一，与出厂值等价的写法按出厂值不落盘。
         preferences.keybindings.normalize_toggle_hotkeys();
@@ -6508,6 +6551,10 @@ fn salvage_preferences(
     if !source.contains_key("smart_punctuation_migrated") {
         salvaged.remove("smart_punctuation_migrated");
     }
+    // AI 辅助翻译的迁移标记也一样：没有它的损坏文档出自统一成显式选择之前，读回来照旧文档那样迁移一次。
+    if !source.contains_key("translation_ai_migrated") {
+        salvaged.remove("translation_ai_migrated");
+    }
     let mut kept = false;
     let mut not_kept = BTreeSet::new();
     for (key, value) in &source {
@@ -6547,6 +6594,7 @@ fn salvage_preferences(
         deserialize_keeping_unknown::<Preferences>(&serde_json::Value::Object(salvaged), &[])?;
     unknown.extend(newer_list_values(&serde_json::Value::Object(source)));
     preferences.settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
+    preferences.settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
     Ok(Salvage {
         preferences,
         kept,

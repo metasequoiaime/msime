@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-可嵌入引擎库的提案（`proposed/architecture/2026-10-29-embeddable-engine-library.md`，PR #10167）把 P7 定为「msime 宿主自用」：input-runtime、host-api、engine-wasm、backend-engine 只用文档化的公开 API，`host` 门面只剩产品胶水。P3 之后核心 `Session` 已经自己收尾、维护候选修订号、只有一套默认值，但：
+可嵌入引擎库的提案（`implemented/architecture/2026-10-29-embeddable-engine-library.md`，PR #10167）把 P7 定为「msime 宿主自用」：input-runtime、host-api、engine-wasm、backend-engine 只用文档化的公开 API，`host` 门面只剩产品胶水。P3 之后核心 `Session` 已经自己收尾、维护候选修订号、只有一套默认值，但：
 
 - 核心层自己的签名用到的类型只能经 `host` 拿到：`SessionOptions::helpcode_table` 与 `Session::set_helpcode_table` 收 `SharedKeymap`，`set_command_table`、`set_mention_entries`、`set_quick_phrase_table` 与对应的 `SessionOptions` 字段收 `CommandTableEntry`、`MentionEntry`、`QuickPhraseEntry`，而这几个类型只在 `host` 里重新导出。第三方照文档用核心层，连选项都填不出来。
 - v1 对第三方承诺的自定义是 `ShuangpinCustomTable`，它的校验（`validate_shuangpin_custom_profile` 等）只在 `host` 里；根上导出了 `KeyGrid::NineKeyShuangpin` 要的 `NineKeyShuangpin`，造它的函数却也只在 `host` 里。

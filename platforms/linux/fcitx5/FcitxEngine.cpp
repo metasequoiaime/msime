@@ -592,8 +592,19 @@ public:
           return true;
         });
   }
-  // 离开输入框时不论会话关不关都要做的：写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
+  void cancelModifierTaps() {
+    // 旧手势的松开可能落在别的窗口；清除按住状态，但迟到的松开仍算取消的手势。
+    shift_in_combination_ = shift_in_combination_ || shift_down_;
+    ctrl_in_combination_ = ctrl_in_combination_ || ctrl_down_;
+    shift_down_ = false;
+    ctrl_down_ = false;
+    pure_shift_candidate_ = false;
+    pure_ctrl_candidate_ = false;
+    modifier_toggle_deadline_ = {};
+  }
+  // 离开输入框时不论会话关不关都要做的：结束修饰键手势，写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
   void releaseFocusResources() {
+    cancelModifierTaps();
     candidate_theme_refresh_at_.reset();
     flushKeyPresses(key_presses_.take());
     key_presses_.forget_held();
@@ -1245,7 +1256,9 @@ public:
     syncSessionChinesePunctuation();
   }
   bool toggleInputMode() {
-    if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
+    // 不检查拼写的地址栏允许本地模式切换，学习和联网仍由 privateInput() 限制。
+    if (!session_ || restricted() || ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) ||
+        !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
     // 用户手动切换：这个程序的应用例外在这次停留里让位。
@@ -7672,6 +7685,7 @@ public:
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    state->cancelModifierTaps();
     state->backspace_hold_.reset();
     state->caps_lock_tap_.reset();
     state->caps_lock_down_ = false;
@@ -8950,9 +8964,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       const bool within_window =
           !armed || std::chrono::steady_clock::now() <= modifier_toggle_deadline_;
       if (candidate && enabled && within_window && ic_.hasFocus() && !restricted() &&
-          !privateInput() &&
+          !ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) &&
           !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
                                           fcitx::KeyState::Hyper}) &&
+          !event.rawKey().states().test(shiftRelease ? fcitx::KeyState::Ctrl : fcitx::KeyState::Shift) &&
           !(shiftRelease ? ctrl_down_ : shift_down_)) {
         try {
           // Same follow-up as the existing Ctrl+Shift+E and Ctrl+Shift+Space

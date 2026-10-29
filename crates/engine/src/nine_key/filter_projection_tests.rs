@@ -3,10 +3,11 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
-// 固定 3cef2fd2439328c1f20b185c065d536f190ee0be 的完整刷新，仅改入口名和移除注释。
+// 固定 3cef2fd2439328c1f20b185c065d536f190ee0be 的完整刷新，仅改入口名和移除注释。末尾另补上后来加的 `mark_contests`，快照里的裁决标记才和生产刷新一致。
 impl NineKeySession {
     fn legacy_filtered_refresh(&mut self) {
         self.candidates.clear();
+        self.contests.clear();
         self.spellings.clear();
         self.reading.clear();
         if !self.active() {
@@ -280,14 +281,9 @@ impl NineKeySession {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
-        positions::apply_fixed_positions(
-            &self.paths.user(assets::USER_JOURNAL),
-            &self.ranking_context(),
-            &mut candidates,
-            false,
-            None,
-            false,
-        );
+        let journal = self.paths.user(assets::USER_JOURNAL);
+        let context = self.ranking_context();
+        positions::apply_fixed_positions(&journal, &context, &mut candidates, false, None, false);
         keep_expressive_rows_off_the_lead(&mut candidates);
         if let Some(front) = candidates.first() {
             let offset = if locked_key.is_empty() {
@@ -305,6 +301,14 @@ impl NineKeySession {
             }
         }
         self.reading = self.reading_for(candidates.first());
+        super::mark_contests(
+            &candidates,
+            self.digits.len(),
+            self.first_page_rows.get(),
+            grid,
+            |word, kind| manually_pinned(&journal, &context, locked_key.len(), word, kind),
+            &mut self.contests,
+        );
         self.candidates = candidates;
         let remaining = remaining_digits(&self.digits, locked_length);
         if remaining.is_empty() {

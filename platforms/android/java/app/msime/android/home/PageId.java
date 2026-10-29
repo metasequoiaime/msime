@@ -58,7 +58,7 @@ public enum PageId {
         "联系人", "电话本", "导入联系人", "清空联系人", "刷新联系人"),
     TRANSLATION_SERVICE("TranslationServicePage", "翻译服务", HostDeepLink.TAB_SETTINGS,
         "不使用", "水杉账号", "小牛翻译", "腾讯云机器翻译", "自定义", "DeepLX", "DeepL", "接口地址", "API Key", "App ID",
-        "SecretId", "SecretKey", "地域", "测试连接"),
+        "SecretId", "SecretKey", "地域", "测试连接", "AI 辅助", "当前服务商与模型"),
     WUBI_LOOKUP("WubiLookupPage", "五笔查码", HostDeepLink.TAB_SETTINGS,
         "查汉字的五笔编码", "五笔编码", "86 五笔", "98 五笔", "反查"),
     NINE_KEY_SHUANGPIN("NineKeyShuangpinPage", "九键双拼", HostDeepLink.TAB_SETTINGS,

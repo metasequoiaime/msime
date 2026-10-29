@@ -30,6 +30,28 @@ const SMALL_RERANK_TEXTS: usize = 128;
 /// 静态证据分支只比较前九条真正回答按键的候选。
 const STATIC_RERANK_LIMIT: usize = 9;
 
+/// 候选行不在任何窄裁决点上。
+pub const CONTEST_NONE: u8 = 0;
+/// 九宫格里固定在第 1 位的最近选择，和没有它时会领先的那条词典行。
+pub const CONTEST_RECENCY: u8 = 1;
+/// 九宫格首页里拼满读法、字数相同、权重相近的前两条词典行：同一串数字的另一个读音（监狱/教育），或者同音的另一个词（他/她）。
+pub const CONTEST_RUNNER_UP: u8 = 2;
+
+/// 最近选择要让位，模型给另一行的逐字平均自然对数概率得比它高出这么多。最近选择是用户上一次在同一串键上的选择，是不弱的证据，margin 为 0 时 dev 上一词一块聊天集反而变差；dev 上按事先写下的规则在 0、1、2 里选了 1，见 `.agents/notes/implemented/feature/2026-10-29-nine-key-model-contests.md`。
+const RECENCY_MARGIN: f32 = 1.0;
+
+/// 拼满读法的第二名要越过词典首选，逐字平均自然对数概率得比它高出这么多。首选的词频是模型没有的证据，dev 上 margin 0 在聊天集上变差；按事先写下的规则在 0、1 里选了 1。
+const RUNNER_UP_MARGIN: f32 = 1.0;
+
+/// 每种裁决点上挑战者要比首行高出多少（逐字平均自然对数）才换到首位；`None` 是没有这种裁决点。
+fn contest_margin(kind: u8) -> Option<f32> {
+    match kind {
+        CONTEST_RECENCY => Some(RECENCY_MARGIN),
+        CONTEST_RUNNER_UP => Some(RUNNER_UP_MARGIN),
+        _ => None,
+    }
+}
+
 /// The traits of the scheme behind `scheme`, which the Engine reports as its `SchemeType` ordinal. Only the placeholder snapshot of a failed refresh carries an ordinal no scheme has; each caller decides what that placeholder means, the way the ordinal comparisons this replaces did.
 fn scheme_type(scheme: u8) -> Option<SchemeType> {
     SchemeType::from_u8(scheme)
@@ -155,6 +177,11 @@ pub trait OrderRowSource<'a> {
         None
     }
 
+    /// 这一行所在的窄裁决点（`CONTEST_*`）；不标记的调用方永远是 `CONTEST_NONE`。
+    fn contest(&self, _index: usize) -> u8 {
+        CONTEST_NONE
+    }
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -215,6 +242,9 @@ impl<'a, R: OrderRowSource<'a> + ?Sized> OrderRowSource<'a> for ScoredOrderRows<
         }
         self.evidence.get(index).copied().flatten()
     }
+    fn contest(&self, index: usize) -> u8 {
+        self.rows.contest(index)
+    }
 }
 
 /// 借用快照里的并行候选数组，避免排序前复制一份行数组。
@@ -224,6 +254,7 @@ pub struct ParallelOrderRows<'a> {
     answers_key: &'a [bool],
     corrected: &'a [bool],
     static_evidence: Option<&'a [Option<StaticEvidence>]>,
+    contests: Option<&'a [u8]>,
 }
 
 /// 找出实际交给模型比较的候选中最长的一行。
@@ -256,11 +287,18 @@ impl<'a> ParallelOrderRows<'a> {
             answers_key,
             corrected,
             static_evidence: None,
+            contests: None,
         }
     }
 
     pub fn with_static_evidence(mut self, evidence: &'a [Option<StaticEvidence>]) -> Self {
         self.static_evidence = (evidence.len() == self.texts.len()).then_some(evidence);
+        self
+    }
+
+    /// 附上引擎标的裁决点；长度和候选不一致时当作没有标记。
+    pub fn with_contests(mut self, contests: &'a [u8]) -> Self {
+        self.contests = (contests.len() == self.texts.len()).then_some(contests);
         self
     }
 }
@@ -272,6 +310,12 @@ impl<'a> OrderRowSource<'a> for ParallelOrderRows<'a> {
 
     fn static_evidence(&self, index: usize) -> Option<StaticEvidence> {
         self.static_evidence?.get(index).copied().flatten()
+    }
+
+    fn contest(&self, index: usize) -> u8 {
+        self.contests
+            .and_then(|contests| contests.get(index).copied())
+            .unwrap_or(CONTEST_NONE)
     }
 
     fn get(&self, index: usize) -> OrderRow<'a> {
@@ -324,6 +368,9 @@ pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
     if !row_answers_key(scheme, leader) {
         return false;
     }
+    if contest_rows(scheme, rows, &mut [0; CONTEST_LIMIT]).is_some() {
+        return true;
+    }
     // 词典命中携带当前按键的词频；全拼出现任何纠错行时，这份依据不再可信，
     // 整表撤销豁免。双拼纠错行不许领先，也不撤销词典首选的豁免。
     let corrected_key = any_corrected_key(scheme, rows);
@@ -343,6 +390,10 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
 ) -> Option<usize> {
     if !rerank_needs_model(scheme, answered_by_pinyin_fallback, rows) {
         return None;
+    }
+    let mut contested = [0; CONTEST_LIMIT];
+    if let Some((count, margin)) = contest_rows(scheme, rows, &mut contested) {
+        return pick_contest(reranker, context, rows, &contested[..count], margin);
     }
     let answers_key = |row: OrderRow<'a>| row_answers_key(scheme, row);
     let corrected_key = any_corrected_key(scheme, rows);
@@ -377,6 +428,62 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
                 && !corrected_key,
         })
     })
+}
+
+/// 一次窄裁决最多比较几行：首页放得下的行数。
+const CONTEST_LIMIT: usize = 9;
+
+/// 首行带裁决标记、这种裁决点开着、同种标记又回答按键的行至少两条时，把它们的下标写进 `out`（首行在最前），返回条数和 margin。
+fn contest_rows<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &'a R,
+    out: &mut [usize; CONTEST_LIMIT],
+) -> Option<(usize, f32)> {
+    let kind = rows.contest(0);
+    if kind == CONTEST_NONE {
+        return None;
+    }
+    let margin = contest_margin(kind)?;
+    let mut count = 0;
+    for index in 0..rows.len() {
+        if count == CONTEST_LIMIT {
+            break;
+        }
+        if rows.contest(index) == kind && row_answers_key(scheme, rows.get(index)) {
+            out[count] = index;
+            count += 1;
+        }
+    }
+    (count >= 2 && out[0] == 0).then_some((count, margin))
+}
+
+/// 只在被标记的几行之间让模型挑：挑战者的逐字平均对数概率比首行高出 `margin` 才提到首位。
+fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
+    reranker: &mut Reranker,
+    context: &str,
+    rows: &'a R,
+    contested: &[usize],
+    margin: f32,
+) -> Option<usize> {
+    let mut texts = [""; CONTEST_LIMIT];
+    let mut longest = 0;
+    for (slot, &index) in contested.iter().enumerate() {
+        texts[slot] = rows.get(index).text;
+        longest = longest.max(texts[slot].chars().count());
+    }
+    let texts = &texts[..contested.len()];
+    let context = rerank_context(context, reranker.model().context_length(), longest);
+    let scores = reranker.log_probabilities(context, texts);
+    if scores.len() != texts.len() {
+        return None;
+    }
+    let mut best = 0;
+    for slot in 1..scores.len() {
+        if scores[slot] > scores[best] {
+            best = slot;
+        }
+    }
+    (best != 0 && scores[best] - scores[0] > margin).then(|| contested[best])
 }
 
 fn fill_static_rerank_inputs<'a, R, F>(

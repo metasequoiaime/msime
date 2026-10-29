@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-引擎要做成给其他输入法嵌入的库（PR #10167 合入的提案「msime-engine 作为可嵌入的输入引擎库」，`proposed/architecture/2026-10-29-embeddable-engine-library.md`，本分支的基点早于它合入），其中 P4 是新 crate `crates/engine-capi`：一个只包核心层 `msime_engine::Session` 的 C 库。仓库里唯一的 C ABI 是 host-api 的 `msime_client.h`，它是 GPL 的客户端门面，每次按键走 JSON，错误只有字符串，会话绑定在线程上，不能直接给第三方。草案定下了 33 个函数、`struct_size` 版本协商、`int32_t` 返回码、线程局部的错误说明、热路径上借用的字符串和 cargo-c 构建；P3 的两篇笔记（[核心会话收尾与日志连接的线程归属](2026-10-29-core-session-lifecycle-and-journal-threads.md)、[引擎库的一套默认值、错误码、日志出口与维护锁归属](2026-10-29-engine-library-defaults-errors-log-and-lock.md)）给出了它依赖的修订号、核心收尾、`Send` 的会话、错误码和搬进引擎的维护锁。落地时要定的是草案没写到或者写得和代码对不上的细节。
+引擎要做成给其他输入法嵌入的库（PR #10167 合入的提案「msime-engine 作为可嵌入的输入引擎库」，`implemented/architecture/2026-10-29-embeddable-engine-library.md`，本分支的基点早于它合入），其中 P4 是新 crate `crates/engine-capi`：一个只包核心层 `msime_engine::Session` 的 C 库。仓库里唯一的 C ABI 是 host-api 的 `msime_client.h`，它是 GPL 的客户端门面，每次按键走 JSON，错误只有字符串，会话绑定在线程上，不能直接给第三方。草案定下了 33 个函数、`struct_size` 版本协商、`int32_t` 返回码、线程局部的错误说明、热路径上借用的字符串和 cargo-c 构建；P3 的两篇笔记（[核心会话收尾与日志连接的线程归属](2026-10-29-core-session-lifecycle-and-journal-threads.md)、[引擎库的一套默认值、错误码、日志出口与维护锁归属](2026-10-29-engine-library-defaults-errors-log-and-lock.md)）给出了它依赖的修订号、核心收尾、`Send` 的会话、错误码和搬进引擎的维护锁。落地时要定的是草案没写到或者写得和代码对不上的细节。
 
 ## Decision
 

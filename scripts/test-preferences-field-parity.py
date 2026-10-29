@@ -25,6 +25,8 @@ RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "smart_punctuation_migrated",
+        # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
+        "translation_ai_migrated",
         # 持续上报同意的本机身份由共享存储与开关原子维护，设置页不能编辑或指定它。
         "usage_reporting_consent",
         # 快捷符号当前只有 iOS 原生设置页提供编辑，其他宿主保留共享字段，不在 React 设置页重复增加入口。

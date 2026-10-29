@@ -841,6 +841,7 @@ mod desktop {
             msime_engine::ordering::ensure_engine_order(&mut self.engine_order, count);
             let snapshot = &mut self.cached;
             let evidence = snapshot.candidate_static_evidence.len() == count;
+            let contests = snapshot.candidate_contest.len() == count;
             let touch_supported = snapshot.candidate_touch_supported.len() == count;
             let confident = snapshot.candidate_confident_correction.len() == count;
             let pick = |slot: &Slot| match *slot {
@@ -875,6 +876,11 @@ mod desktop {
             if evidence {
                 rebuild!(snapshot.candidate_static_evidence, |_: &Slot| {
                     Default::default()
+                });
+            }
+            if contests {
+                rebuild!(snapshot.candidate_contest, |_: &Slot| {
+                    msime_engine::ordering::CONTEST_NONE
                 });
             }
             if touch_supported {
@@ -933,6 +939,7 @@ mod desktop {
             retain_seats(&mut snapshot.candidate_corrected, &keep);
             retain_seats(&mut snapshot.candidate_answers_key, &keep);
             retain_seats(&mut snapshot.candidate_static_evidence, &keep);
+            retain_seats(&mut snapshot.candidate_contest, &keep);
             retain_seats(&mut snapshot.candidate_touch_supported, &keep);
             retain_seats(&mut snapshot.candidate_confident_correction, &keep);
             retain_seats(&mut self.engine_order, &keep);

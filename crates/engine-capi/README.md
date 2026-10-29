@@ -54,7 +54,7 @@ cmake -S "$capi/examples/c" -B build -DMSIME_ENGINE_PREFIX="$capi" -DMSIME_ENGIN
 cmake --build build --config Release
 ```
 
-在 dict-v2.0.39 的数据包上，示例打出（库的版本号随发布）。「你好世界」本来就是词库里的词，学习只调它的词频，不往个人词典里加一条；在 `tests/fixture` 的最小词库上它是整句联想解出的句子，那里会读回一条个人词条：
+在 dict-v2.0.41 的数据包上，示例打出（库的版本号随发布）。「你好世界」本来就是词库里的词，学习只调它的词频，不往个人词典里加一条；在 `tests/fixture` 的最小词库上它是整句联想解出的句子，那里会读回一条个人词条：
 
 ```text
 msime-engine 0.1.2, ABI 1.1
@@ -109,7 +109,7 @@ bash crates/engine-capi/tests/c-example.sh --update-header
 ## 生命周期
 
 ```c
-msime_engine_prepare_runtime(&paths, "dict-v2_0_39", 12, &dictionaries); // 准备代次，交回代次目录
+msime_engine_prepare_runtime(&paths, "dict-v2_0_41", 12, &dictionaries); // 准备代次，交回代次目录
 msime_engine_session_new(options_json, len, &session);                 // 选项 JSON 见下文
 msime_engine_key_char(session, 'n', 0, &result);                       // 按键……
 msime_engine_state_get(session, &state);                               // 读状态和修订号
@@ -120,7 +120,7 @@ msime_engine_flush_learning(MSIME_ENGINE_FLUSH_STOP_THREAD);           // 退出
 msime_engine_string_free(dictionaries);
 ```
 
-- **准备运行时**：`msime_engine_prepare_runtime` 在 `user_data/dictionaries/<content_id>` 原子地准备一个代次：从 `resources` 复制工作词库，回放学习日志。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据一变就换一个（例如数据发布的版本号，点要换掉：`dict-v2.0.39` 写成 `dict-v2_0_39`）；同一个 id 再调只补回放。`paths.dictionaries` 这时还没有，不读也不用填。`msime_engine_prepare_runtime` 按全部方案准备，`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`；只用几个方案时用 `msime_engine_prepare_runtime_for`（ABI 1.1 起），多传一个方案位集合（第 n 位是序号为 n 的方案，与选项的 `enabled_schemes` 相同），`resources` 只要有这些方案读的文件（见[要带的数据文件](#要带的数据文件)）。它交回的代次目录就是建会话时的 `paths.dictionaries`。三个根目录都要是绝对路径、互不重叠：`resources` 只读，`user_data` 是用户数据（学习日志 `msime_user.db` 和代次），`cache` 随时可以清空。
+- **准备运行时**：`msime_engine_prepare_runtime` 在 `user_data/dictionaries/<content_id>` 原子地准备一个代次：从 `resources` 复制工作词库，回放学习日志。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据一变就换一个（例如数据发布的版本号，点要换掉：`dict-v2.0.41` 写成 `dict-v2_0_41`）；同一个 id 再调只补回放。`paths.dictionaries` 这时还没有，不读也不用填。`msime_engine_prepare_runtime` 按全部方案准备，`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`；只用几个方案时用 `msime_engine_prepare_runtime_for`（ABI 1.1 起），多传一个方案位集合（第 n 位是序号为 n 的方案，与选项的 `enabled_schemes` 相同），`resources` 只要有这些方案读的文件（见[要带的数据文件](#要带的数据文件)）。它交回的代次目录就是建会话时的 `paths.dictionaries`。三个根目录都要是绝对路径、互不重叠：`resources` 只读，`user_data` 是用户数据（学习日志 `msime_user.db` 和代次），`cache` 随时可以清空。
 - **会话**：`msime_engine_session_new` 建会话时取这两个目录（`user_data` 和代次）上的共享词库租约，`msime_engine_session_free` 时交还。会话结束时写下最近约 2 秒排着的上下文学习、关掉自己的日志连接。
 - **维护**：`msime_engine_user_dict_edit` 和 `msime_engine_reset_learning`（用 `_for` 准备的代次用 `msime_engine_reset_learning_for`，传同一个方案集合）要独占租约，同一份数据上还有会话开着（本进程、别的进程，包括 msime 自己的输入法）时返回 `MSIME_ENGINE_BUSY`、什么也不改：先释放会话。`msime_engine_user_dict_list` 只读，随时可以调。进行中的维护也让 `msime_engine_session_new` 返回 `MSIME_ENGINE_BUSY`。
 - **退出与卸载**：会话都释放之后调 `msime_engine_flush_learning(MSIME_ENGINE_FLUSH_STOP_THREAD)` 写完并停掉后台写线程。删除或替换数据目录之前调 `msime_engine_close_databases`。引擎还有进程级的缓存和单位换算的后台线程，没有办法全部收回，所以不要 `dlclose` 这个库后再重新加载，把它当作每个进程一份。
@@ -170,7 +170,7 @@ msime_engine_string_free(dictionaries);
 ```json
 {
   "version": 1,
-  "paths": {"resources": "/abs/res", "user_data": "/abs/user", "cache": "/abs/cache", "dictionaries": "/abs/user/dictionaries/dict-v2_0_39"},
+  "paths": {"resources": "/abs/res", "user_data": "/abs/user", "cache": "/abs/cache", "dictionaries": "/abs/user/dictionaries/dict-v2_0_41"},
   "scheme": "quanpin",
   "enabled_schemes": ["quanpin", "shuangpin", "wubi"],
   "shuangpin": {"profile": "xiaohe", "preedit_shows_keys": true},

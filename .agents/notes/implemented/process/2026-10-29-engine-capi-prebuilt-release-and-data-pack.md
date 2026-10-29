@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-引擎三个 crate（msime-path-trust、msime-engine、msime-engine-capi 的 0.1.0）已经发到 crates.io，但别的输入法要用它，仍得自己做两件事：C 采用方要装 Rust 和 cargo-c、从源码编出库；所有采用方都要去 msime-dictionary 的发布里认出该下哪几个文件、各要带哪些许可证文本。可嵌入引擎库的提案（`proposed/architecture/2026-10-29-embeddable-engine-library.md`）的 P5 要「按方案组装最小数据集，每个文件带许可证」，P6 写了「capi 的二进制、头文件和 `.pc` 走 GitHub Releases」，[C ABI 笔记](../architecture/2026-10-29-engine-capi.md) 把二进制发布留作「没做的」。两个 README 也没有一段从零到打出第一个字的说明。
+引擎三个 crate（msime-path-trust、msime-engine、msime-engine-capi 的 0.1.0）已经发到 crates.io，但别的输入法要用它，仍得自己做两件事：C 采用方要装 Rust 和 cargo-c、从源码编出库；所有采用方都要去 msime-dictionary 的发布里认出该下哪几个文件、各要带哪些许可证文本。可嵌入引擎库的提案（`implemented/architecture/2026-10-29-embeddable-engine-library.md`）的 P5 要「按方案组装最小数据集，每个文件带许可证」，P6 写了「capi 的二进制、头文件和 `.pc` 走 GitHub Releases」，[C ABI 笔记](../architecture/2026-10-29-engine-capi.md) 把二进制发布留作「没做的」。两个 README 也没有一段从零到打出第一个字的说明。
 
 ## Decision
 
@@ -51,4 +51,4 @@ smoke 作业照 capi README 的「快速上手」逐字做一遍：在 Ubuntu 22
 
 ## 相关笔记
 
-按 engine-capi、release、data pack、数据包、预编译检索活跃笔记：[引擎的 C ABI](../architecture/2026-10-29-engine-capi.md) 是本篇打包的对象，它「没做的」里的二进制发布由本篇回答，部分重叠，互链；可嵌入引擎库的提案（`../../proposed/architecture/2026-10-29-embeddable-engine-library.md`）的 P5、P6 里的数据集与 Releases 两项由本篇落地，部分重叠；[Depot runner 默认](2026-10-27-depot-runners-by-default.md) 是 runner 选择的依据，部分重叠。没有被本篇吸收或取代的笔记。
+按 engine-capi、release、data pack、数据包、预编译检索活跃笔记：[引擎的 C ABI](../architecture/2026-10-29-engine-capi.md) 是本篇打包的对象，它「没做的」里的二进制发布由本篇回答，部分重叠，互链；可嵌入引擎库的提案（`../../implemented/architecture/2026-10-29-embeddable-engine-library.md`）的 P5、P6 里的数据集与 Releases 两项由本篇落地，部分重叠；[Depot runner 默认](2026-10-27-depot-runners-by-default.md) 是 runner 选择的依据，部分重叠。没有被本篇吸收或取代的笔记。

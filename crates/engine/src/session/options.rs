@@ -208,6 +208,8 @@ pub struct SessionSnapshot {
     pub candidate_annotations: Vec<String>,
     /// Whether each candidate answers the whole key rather than a prefix of it or a completion past it.
     pub candidate_answers_key: Vec<bool>,
+    /// 与 `candidates` 同序：九宫格标出的窄裁决点（`ordering::CONTEST_*`），runtime 的键盘模型只在首行带标记时于同种标记的行之间改首选。一行都没有标记时为空。
+    pub candidate_contest: Vec<u8>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list). Hosts read this instead of inferring it from the scheme and a non-empty list.
     pub candidate_list_open: bool,
     /// 整句改字时改好的整句，否则为空。宿主在它非空时把它画在行内代替拼音。

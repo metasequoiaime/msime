@@ -293,7 +293,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     /**
-     * 写一个开关。打开「用水杉账号翻译候选」等于在「翻译服务」里选水杉账号：同一次读改写里关掉小牛、自定义和腾讯，否则用户自己的服务仍然优先，这个开关开了也不生效。与共享设置页的 `setTranslationProvider("account")` 相同；关掉它只删 `translation_account`，不动其他服务。
+     * 写一个开关。打开「用水杉账号翻译候选」等于在「翻译服务」里选水杉账号：同一次读改写里关掉小牛、自定义和腾讯，并取消 AI 辅助（`translation_ai`），否则用户自己的服务仍然优先，这个开关开了也不生效。与共享设置页的 `setTranslationProvider("account")` 相同；关掉它只删 `translation_account`，不动其他服务。
      */
     @Nullable private static JSONObject write(Context context, InputFeatureToggle toggle, boolean value) {
         if (toggle != InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT || !value)
@@ -302,6 +302,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
             KeyboardSheets.child(preferences, "niutrans").put("enabled", false);
             KeyboardSheets.child(preferences, "custom_translation").put("enabled", false);
             KeyboardSheets.child(preferences, "tencent_tmt").put("enabled", false);
+            preferences.remove("translation_ai");
             preferences.put(toggle.key(), true);
         });
     }

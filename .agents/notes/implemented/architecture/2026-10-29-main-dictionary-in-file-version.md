@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-引擎要做成给其他输入法用的库（设计笔记在 `feat/engine-library-mpl` 分支的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`，P5），采用方会拿到、甚至自己产出词库文件。三个语言词库从一开始就带 `metadata.format_version`，读端不认识就拒绝；但 `msime-pinyin.db`、`msime-wubi.db`、`msime-others.db` 没有任何文件内版本，版本只记在发布清单的 `engine_compatibility.dictionary_format` 里，而引擎根本不读清单。一个改了表结构的新词库放进旧引擎的资源目录，旧引擎会照旧按老规则去读，结果是查不到词或悄悄读错，而不是一个看得懂的错误。同时规格文档（代码里到处引用的 `data-formats.md`）不在仓库里，第三方无从知道这些文件长什么样。
+引擎要做成给其他输入法用的库（设计笔记 `.agents/notes/implemented/architecture/2026-10-29-embeddable-engine-library.md`，P5），采用方会拿到、甚至自己产出词库文件。三个语言词库从一开始就带 `metadata.format_version`，读端不认识就拒绝；但 `msime-pinyin.db`、`msime-wubi.db`、`msime-others.db` 没有任何文件内版本，版本只记在发布清单的 `engine_compatibility.dictionary_format` 里，而引擎根本不读清单。一个改了表结构的新词库放进旧引擎的资源目录，旧引擎会照旧按老规则去读，结果是查不到词或悄悄读错，而不是一个看得懂的错误。同时规格文档（代码里到处引用的 `data-formats.md`）不在仓库里，第三方无从知道这些文件长什么样。
 
 ## Decision
 

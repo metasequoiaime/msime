@@ -392,6 +392,8 @@ pub struct NineKeySession {
     /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
+    /// 与 `candidates` 同序的窄裁决标记（`ordering::CONTEST_*`），随候选一起重建；一行都没有标记时为空。
+    contests: Vec<u8>,
     /// 前几次刷新排在前面、覆盖全部数字的几行的全拼（`'` 连接）。下一次刷新把它们去掉最后一个音节，接上余下数字的切分一起查，见 `seeded_paths`。
     sentence_seeds: Vec<String>,
     /// 算下一批种子用的空缓冲，和 `sentence_seeds` 轮换，刷新时不再分配。
@@ -510,6 +512,7 @@ impl NineKeySession {
             spelling_match_indices: Vec::new(),
             reading: String::new(),
             candidates: Vec::new(),
+            contests: Vec::new(),
             // 两个缓冲一开始就留够容量，按键时轮换着用，不再分配。
             sentence_seeds: Vec::with_capacity(SEED_RETAIN_LIMIT),
             seed_buffer: Vec::with_capacity(SEED_RETAIN_LIMIT),
@@ -1195,12 +1198,27 @@ impl NineKeySession {
             return KeyResult::unhandled();
         }
         let selected = self.candidates[index].clone();
-        let replaces_recent = selected.fixed_position == 0
-            && self
-                .candidates
-                .iter()
-                .any(|candidate| candidate.fixed_position == 1);
-        let diagnostic = self.adjust_frequency(index, true);
+        // 已经坐在第 1 槽的行（多半是自动记下的最近选择）是固定行，调频会拒绝它；先放开这一槽，同别的置顶一样把权重抬到最高，再固定回第 1 位。这样它以后被别的选择挤下第 1 槽时，也和别的置顶一样按权重排在前面，不会掉回词典原位。
+        let holds_first = selected.fixed_position == 1;
+        let released = holds_first
+            .then(|| {
+                positions::clear_fixed_position(
+                    &self.paths.user(assets::USER_JOURNAL),
+                    &self.ranking_context(),
+                    &selected.canonical_pinyin,
+                    &selected.word,
+                )
+                .err()
+                .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+            })
+            .flatten();
+        let replaces_recent = holds_first
+            || (selected.fixed_position == 0
+                && self
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.fixed_position == 1));
+        let diagnostic = released.or_else(|| self.adjust_frequency(index, true));
         let position_diagnostic = replaces_recent.then(|| {
             positions::set_fixed_position(
                 &self.paths.user(assets::USER_JOURNAL),
@@ -1212,8 +1230,11 @@ impl NineKeySession {
             .err()
             .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
         });
-        self.refresh();
         let mut diagnostic = diagnostic.or(position_diagnostic.flatten());
+        if diagnostic.is_none() {
+            diagnostic = self.remember_manual_pin(&selected.word);
+        }
+        self.refresh();
         // 首页里的补全按权重的几分之一和完整读法比，置顶写进去的权重（最重的权重再加一点）越不过完整读法；这时同 `replaces_recent` 一样固定到第 1 位。
         if diagnostic.is_none()
             && self.completions_discounted
@@ -1290,8 +1311,17 @@ impl NineKeySession {
                 diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string(),
             ));
         }
+        // 手动固定到第 1 位和置顶一样是用户明说的首选，同样记下来，不交给「增强」裁决；取消固定或挪到别的槽位时，这个词在这个上下文里的手动置顶记录随之解除，以后它再被自动记成最近选择时照旧裁决。
+        let word = self.candidates[index].word.clone();
+        let diagnostic = if position == 1 {
+            self.remember_manual_pin(&word)
+        } else {
+            positions::clear_pinned_candidate(&journal, &context, &word)
+                .err()
+                .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+        };
         self.refresh();
-        KeyResult::handled()
+        KeyResult::handled().with_diagnostic(diagnostic)
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -1368,12 +1398,18 @@ impl NineKeySession {
                 .iter()
                 .map(|item| item.pinyin.len() >= self.digits.len())
                 .collect(),
+            candidate_contest: if self.contests.len() == self.candidates.len() {
+                self.contests.clone()
+            } else {
+                Vec::new()
+            },
             ..SessionSnapshot::default()
         }
     }
 
     fn refresh(&mut self) {
         self.candidates.clear();
+        self.contests.clear();
         self.reading.clear();
         self.completions_discounted = false;
         if !self.active() {
@@ -1463,6 +1499,8 @@ impl NineKeySession {
 
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
+        // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
+        let mut covered_digits = CoveredDigits::new(&self.digits);
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
@@ -1562,7 +1600,7 @@ impl NineKeySession {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
-                candidate.pinyin = SharedString::from(&self.digits[..covered]);
+                candidate.pinyin = covered_digits.prefix(covered);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -1744,9 +1782,11 @@ impl NineKeySession {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
+        let journal = self.paths.user(assets::USER_JOURNAL);
+        let position_context = format!("nine-key:{}:{locked_key}", self.digits);
         positions::apply_fixed_positions(
-            &self.paths.user(assets::USER_JOURNAL),
-            &format!("nine-key:{}:{locked_key}", self.digits),
+            &journal,
+            &position_context,
             &mut candidates,
             false,
             None,
@@ -1782,6 +1822,14 @@ impl NineKeySession {
         let mut reading = std::mem::take(&mut self.reading);
         self.write_reading(candidates.first(), &mut reading);
         self.reading = reading;
+        mark_contests(
+            &candidates,
+            self.digits.len(),
+            self.first_page_rows.get(),
+            grid,
+            |word, kind| manually_pinned(&journal, &position_context, locked_key.len(), word, kind),
+            &mut self.contests,
+        );
         self.candidates = candidates;
         self.path_buffer = alternatives;
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -2459,6 +2507,17 @@ impl NineKeySession {
         .err()
         .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
     }
+
+    /// 把 `word` 记成当前九键上下文里用户手动置顶的词（`pinned_candidates`，每个上下文一条，后一次手动置顶替换它）。固定位置表分不清手动和自动写进第 1 槽的行，`mark_contests` 靠这一条把手动置顶的首行排除在裁决之外。自动记下的最近选择不写也不清它：同一个词以后又因为最近选择回到第 1 位时，仍按用户置顶过它对待。
+    fn remember_manual_pin(&self, word: &str) -> Option<String> {
+        positions::record_pinned_candidate(
+            &self.paths.user(assets::USER_JOURNAL),
+            &self.ranking_context(),
+            word,
+        )
+        .err()
+        .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+    }
 }
 
 /// 键盘模型的一次重排：上屏上下文、交给模型的整句和词网格分（`comparable_weight`），以及模型给出的顺序（没有重排时为空）。
@@ -2565,6 +2624,31 @@ fn place_keyboard_pick(
     }
     if !word_lattice {
         candidates.retain(|item| !is_lattice_sentence(item));
+    }
+}
+
+/// 一次刷新里按切分查出的候选行的 `pinyin`：输入数字的前缀，按长度各建一份共享字符串，行里存的是同一份的引用。
+struct CoveredDigits<'a> {
+    digits: &'a str,
+    prefixes: Vec<Option<SharedString>>,
+}
+
+impl<'a> CoveredDigits<'a> {
+    fn new(digits: &'a str) -> Self {
+        Self {
+            digits,
+            prefixes: Vec::new(),
+        }
+    }
+
+    /// 前 `len` 个数字。
+    fn prefix(&mut self, len: usize) -> SharedString {
+        if self.prefixes.len() <= len {
+            self.prefixes.resize(len + 1, None);
+        }
+        self.prefixes[len]
+            .get_or_insert_with(|| SharedString::from(&self.digits[..len]))
+            .clone()
     }
 }
 
@@ -3105,6 +3189,100 @@ fn reads_pinyin(source: CandidateSource) -> bool {
         || source.is_generated_or_fallback()
         || source == CandidateSource::NeuralKeyboard
 }
+
+/// 九宫格里让 runtime 键盘模型参与的窄裁决点，标在 `out` 里（与候选同序，没有标记时清空）。首行是可信的词典命中时 runtime 一向不重排；这里只在下面的位置上把首行和它的对手标出来，模型凭上文在它们之间挑，其余情况 `trusted_leader` 照旧。没有挂模型（「增强」关着）时标记不起作用。
+///
+/// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位、拼满读法（不是补全）的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行；它也得拼满读法、字数和首行相同，否则不裁决。置顶记录本身不动，模型只决定这一次谁坐首位。
+/// - 拼满读法的前两名（`CONTEST_RUNNER_UP`）：首行是没有固定、拼满读法（不是补全）的词典行，对手是首页里其后第一条同样条件、字数相同的词典行，读音可以不同（监狱/教育）也可以相同（他/她），权重不低于首行的 `RUNNER_UP_WEIGHT_RATIO`。
+///
+/// 首行是用户手动置顶的词（`manually_pinned` 按词面和裁决种类查 `pinned_candidates`，`pin` 和固定到第 1 位时写，见 [`manually_pinned`]）时两种都不标：手动置顶是用户明说的首选，模型只裁决自动记下的最近选择和词频排出来的首选。这一查只在真要标的时候做，没有裁决点的按键不碰日志。
+fn mark_contests(
+    candidates: &[WordItem],
+    digits: usize,
+    first_page_rows: usize,
+    grid: KeyGrid,
+    manually_pinned: impl FnOnce(&str, u8) -> bool,
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    let Some(leader) = candidates.first() else {
+        return;
+    };
+    let rows = first_page_rows.min(candidates.len());
+    let plain = |item: &WordItem| {
+        item.source.is_dictionary()
+            && item.pinyin.len() == digits
+            && !item.fuzzy
+            && !is_initials_row(item)
+    };
+    if !plain(leader) {
+        return;
+    }
+    let full_reading = |item: &WordItem| grid.reading_code_len(&item.canonical_pinyin) <= digits;
+    let chars = count_utf8_chars(&leader.word);
+    let contest = if leader.fixed_position == 1 {
+        if !full_reading(leader) {
+            return;
+        }
+        // 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（您 对 你们）时不裁决：逐字平均分偏向第二个字好猜的多字补全，两边不能放在一起比。
+        (1..rows)
+            .find(|&seat| {
+                let item = &candidates[seat];
+                item.fixed_position == 0 && plain(item) && item.word != leader.word
+            })
+            .filter(|&seat| {
+                let item = &candidates[seat];
+                full_reading(item) && count_utf8_chars(&item.word) == chars
+            })
+            .map(|rival| (rival, crate::ordering::CONTEST_RECENCY))
+    } else {
+        let spelled =
+            |item: &WordItem| item.fixed_position == 0 && plain(item) && full_reading(item);
+        if !spelled(leader) || leader.weight <= 0 {
+            return;
+        }
+        (1..rows)
+            .find(|&seat| {
+                let item = &candidates[seat];
+                spelled(item) && count_utf8_chars(&item.word) == chars
+            })
+            .filter(|&rival| {
+                let weight = candidates[rival].weight;
+                weight > 0 && weight as f64 >= leader.weight as f64 * RUNNER_UP_WEIGHT_RATIO
+            })
+            .map(|rival| (rival, crate::ordering::CONTEST_RUNNER_UP))
+    };
+    let Some((rival, kind)) = contest else {
+        return;
+    };
+    if manually_pinned(&leader.word, kind) {
+        return;
+    }
+    out.resize(candidates.len(), crate::ordering::CONTEST_NONE);
+    out[0] = kind;
+    out[rival] = kind;
+}
+
+/// `word` 是不是 `mark_contests` 这一种裁决里用户手动置顶的首行。`context` 是这次刷新的上下文 `nine-key:<数字>:<锁定>`，`locked_len` 是末尾锁定部分的长度。
+///
+/// - 最近选择：首行坐的是这个上下文的固定第 1 槽，只认同一个上下文里的记录。
+/// - 前两名：首行没有固定，是靠置顶写进的全局权重领先的，而权重不分锁定读法；所以同一串数字下任何锁定读法（包括不锁定）里置顶过它都算，不锁定时置顶、锁定读法后再看（或者反过来）仍然不裁决。
+fn manually_pinned(
+    user_db: &std::path::Path,
+    context: &str,
+    locked_len: usize,
+    word: &str,
+    kind: u8,
+) -> bool {
+    if kind == crate::ordering::CONTEST_RECENCY {
+        positions::is_pinned_candidate(user_db, context, word)
+    } else {
+        positions::is_pinned_candidate_under(user_db, &context[..context.len() - locked_len], word)
+    }
+}
+
+/// 拼满读法的第二名至少要有首选权重的这一份，才交给模型裁决；差得更远时首选的词频已经说明了问题。dev 上按事先写下的规则在 0.1 和 0.3 里选了 0.1。
+const RUNNER_UP_WEIGHT_RATIO: f64 = 0.1;
 
 /// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 fn is_initials_row(item: &WordItem) -> bool {
@@ -5471,6 +5649,43 @@ mod tests {
         }
     }
 
+    /// 按切分查出的词库行的 `pinyin` 是它覆盖的那段数字；同样长度的行共用一份字符串，不各自申请。简拼行就地改写自己的缓冲区，不在此列。
+    #[test]
+    fn rows_with_the_same_covered_digits_share_one_pinyin_buffer() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);INSERT INTO tbl_1_n VALUES('ni','n','尼',90);INSERT INTO tbl_1_n VALUES('ni','n','泥',80);CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mi','m','米',50);INSERT INTO tbl_1_m VALUES('mi','m','秘',40);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);INSERT INTO tbl_2_n VALUES('ni''hui','nh','你会',900);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mi''hu','mh','迷糊',800);",
+        );
+        for digits in ["64426", "64", "644"] {
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, digits);
+            let rows: Vec<&WordItem> = session
+                .candidates
+                .iter()
+                .filter(|item| reads_pinyin(item.source) && !is_initials_row(item))
+                .collect();
+            assert!(rows.len() >= 3, "{digits}: {:?}", session.candidates);
+            for row in &rows {
+                assert!(digits.starts_with(row.pinyin.as_str()), "{digits}: {row:?}");
+            }
+            let mut compared = 0;
+            for (index, row) in rows.iter().enumerate() {
+                for other in &rows[index + 1..] {
+                    if row.pinyin == other.pinyin {
+                        assert!(
+                            row.pinyin.shares_storage_with(&other.pinyin),
+                            "{digits}: {} and {} hold separate copies of {}",
+                            row.word,
+                            other.word,
+                            row.pinyin
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+            assert!(compared > 0, "{digits}: no two rows cover the same digits");
+        }
+    }
+
     fn index_of(session: &NineKeySession, word: &str) -> usize {
         session
             .snapshot()
@@ -7540,6 +7755,284 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         type_digits(&mut repeated, "6364");
         assert_eq!(words(&repeated)[0], "能");
         assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+    }
+
+    /// 置顶的最近选择和没有它时会领先的词典行被标成一次裁决，交给 runtime 的键盘模型；没有置顶时不标。
+    #[test]
+    fn a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+        );
+        let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut first, "6364");
+        assert_eq!(words(&first)[0], "恁");
+        assert!(contest_seats(&first, crate::ordering::CONTEST_RECENCY).is_empty());
+        let selected = index_of(&first, "能");
+        assert_eq!(first.select(selected).commit.as_deref(), Some("能"));
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        let snapshot = repeated.snapshot();
+        assert_eq!(words(&repeated)[..2], ["能", "恁"]);
+        assert_eq!(
+            contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+            [0, 1]
+        );
+        assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
+    }
+
+    /// 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（让 对 萨米）时不标：逐字平均分不能在这两种行之间比。
+    #[test]
+    fn a_recent_pin_is_not_contested_by_a_completion_or_a_longer_word() {
+        for rival in [
+            "CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_r VALUES('ran''hou','rh','然后',1000);",
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('sa''mi','sm','萨米',1000);",
+        ] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_r VALUES('rang','r','让',1);{rival}"
+            ));
+            let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut first, "7264");
+            let leader = words(&first)[0].clone();
+            assert_ne!(leader, "让", "{rival}");
+            let selected = index_of(&first, "让");
+            assert_eq!(first.select(selected).commit.as_deref(), Some("让"));
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "7264");
+            assert_eq!(words(&repeated)[..2], ["让", leader.as_str()]);
+            assert!(
+                contest_seats(&repeated, crate::ordering::CONTEST_RECENCY).is_empty(),
+                "{leader}"
+            );
+        }
+    }
+
+    fn contest_seats(session: &NineKeySession, kind: u8) -> Vec<usize> {
+        session
+            .snapshot()
+            .candidate_contest
+            .iter()
+            .enumerate()
+            .filter(|(_, marked)| **marked == kind)
+            .map(|(seat, _)| seat)
+            .collect()
+    }
+
+    /// 拼满读法、字数相同的前两名词典行，权重相近时标成一次裁决：读音不同（监狱/教育）和同音（他/她）都算；第二名差得太远时不标。
+    #[test]
+    fn close_spelled_runners_up_are_marked_as_a_contest() {
+        let runner_up = crate::ordering::CONTEST_RUNNER_UP;
+        for (weight, marked) in [(500, vec![0, 1]), (50, vec![])] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_j VALUES('jiao''yu','jy','教育',1000),('jian''yu','jy','监狱',{weight});"
+            ));
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, "542698");
+            assert_eq!(words(&session)[..2], ["教育", "监狱"]);
+            assert_eq!(
+                contest_seats(&session, runner_up),
+                marked,
+                "weight {weight}"
+            );
+        }
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_t VALUES('ta','t','他',1000),('ta','t','她',600);",
+        );
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "82");
+        assert_eq!(words(&session)[..2], ["他", "她"]);
+        assert_eq!(contest_seats(&session, runner_up), [0, 1]);
+    }
+
+    /// 用户手动置顶的首行不标任何裁决：置顶靠调频领先（没有最近选择时）、置顶接管自动记下的第 1 槽、固定到第 1 位、置顶已经坐在第 1 槽的最近选择，四种都算。自动记下的最近选择照旧标，见 `a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest`。三种置顶都把权重抬到最高：之后选了别的词、它被挤下第 1 槽时排在第 2；固定到第 1 位不改权重，挤下去后回到词典原位。
+    #[test]
+    fn a_manual_pin_is_never_marked_as_a_contest() {
+        const FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);";
+        let marked = |session: &NineKeySession| -> Vec<usize> {
+            [
+                crate::ordering::CONTEST_RECENCY,
+                crate::ordering::CONTEST_RUNNER_UP,
+            ]
+            .into_iter()
+            .flat_map(|kind| contest_seats(session, kind))
+            .collect()
+        };
+        type Manage = fn(&mut NineKeySession) -> KeyResult;
+        let cases: [(&str, Manage, usize); 4] = [
+            (
+                "pin by weight",
+                |session| session.pin(index_of(session, "能")),
+                1,
+            ),
+            (
+                "pin over a recent pick",
+                |session| {
+                    assert!(session.select(index_of(session, "嫩")).commit.is_some());
+                    type_digits(session, "6364");
+                    assert_eq!(words(session)[0], "嫩");
+                    session.pin(index_of(session, "能"))
+                },
+                1,
+            ),
+            (
+                "fix at 1",
+                |session| session.set_position(index_of(session, "能"), 1),
+                2,
+            ),
+            (
+                "pin the recent pick",
+                |session| {
+                    assert!(session.select(index_of(session, "能")).commit.is_some());
+                    type_digits(session, "6364");
+                    assert_eq!(words(session)[0], "能");
+                    assert_eq!(
+                        contest_seats(session, crate::ordering::CONTEST_RECENCY),
+                        [0, 1]
+                    );
+                    session.pin(0)
+                },
+                1,
+            ),
+        ];
+        for (case, manage, after_another_pick) in cases {
+            let fixture = fixture_with(FIXTURE);
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut session, "6364");
+            assert_eq!(words(&session)[..2], ["恁", "嫩"], "{case}");
+            assert_eq!(marked(&session), [0, 1], "{case}: runner-up before");
+            assert_eq!(manage(&mut session), KeyResult::handled(), "{case}");
+            assert_eq!(words(&session)[0], "能", "{case}");
+            assert!(marked(&session).is_empty(), "{case}");
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "能", "{case}");
+            assert!(marked(&repeated).is_empty(), "{case}: after reopening");
+
+            assert!(repeated.select(index_of(&repeated, "嫩")).commit.is_some());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "嫩", "{case}");
+            assert_eq!(index_of(&repeated, "能"), after_another_pick, "{case}");
+        }
+    }
+
+    /// 取消固定或者把手动固定在第 1 位的词挪到别的槽位，就解除了它的手动置顶：以后它再被自动记成最近选择时，照旧交给模型裁决。固定在别的槽位的词选了也不会记成最近选择，所以挪到第 2 位之后先让别的词占掉第 2 位、再取消那个词的固定，它才重新是普通的行。
+    #[test]
+    fn unfixing_a_manual_pin_lets_its_recent_pick_be_contested() {
+        for position in [0, 2] {
+            let fixture = fixture_with(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+            );
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut session, "6364");
+            assert_eq!(
+                session.set_position(index_of(&session, "能"), 1),
+                KeyResult::handled()
+            );
+            assert_eq!(
+                session.set_position(index_of(&session, "能"), position),
+                KeyResult::handled(),
+                "{position}"
+            );
+            if position == 2 {
+                for slot in [2, 0] {
+                    assert_eq!(
+                        session.set_position(index_of(&session, "嫩"), slot),
+                        KeyResult::handled()
+                    );
+                }
+                assert_eq!(
+                    session.snapshot().candidates[index_of(&session, "能")].fixed_position,
+                    0
+                );
+            }
+            assert!(session.select(index_of(&session, "能")).commit.is_some());
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "能", "{position}");
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+            assert_eq!(
+                contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+                [0, 1],
+                "{position}"
+            );
+        }
+    }
+
+    /// 靠调频坐上首位的置顶不分锁定读法：不锁定时置顶、锁定读法后再看，或者锁定读法时置顶、不锁定再看，首行都不交给「前两名」裁决。
+    #[test]
+    fn a_weight_pin_stays_uncontested_under_another_lock() {
+        for pin_locked in [false, true] {
+            let fixture = fixture_with(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+            );
+            let type_neng = |session: &mut NineKeySession, locked: bool| {
+                type_digits(session, "6364");
+                if locked {
+                    assert!(
+                        session
+                            .choose_spelling(spelling_index(session, "neng"))
+                            .handled
+                    );
+                    assert_eq!(session.snapshot().preedit, "neng");
+                }
+            };
+            let runner_up = crate::ordering::CONTEST_RUNNER_UP;
+            for locked in [false, true] {
+                let mut fresh = open(&fixture.paths, true, EnglishInputOptions::default());
+                type_neng(&mut fresh, locked);
+                assert_eq!(words(&fresh)[..2], ["恁", "嫩"], "{locked}");
+                assert_eq!(contest_seats(&fresh, runner_up), [0, 1], "{locked}");
+            }
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_neng(&mut session, pin_locked);
+            assert_eq!(session.pin(index_of(&session, "能")), KeyResult::handled());
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_neng(&mut repeated, !pin_locked);
+            assert_eq!(words(&repeated)[0], "能", "pinned locked: {pin_locked}");
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 0);
+            assert!(
+                contest_seats(&repeated, runner_up).is_empty(),
+                "pinned locked: {pin_locked}"
+            );
+        }
+    }
+
+    /// 手动置顶记的是那一个词：之后选了别的词，自动记下的最近选择接管第 1 槽，它照旧交给模型裁决。
+    #[test]
+    fn a_recent_pick_after_a_manual_pin_is_still_contested() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+        );
+        let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut session, "6364");
+        assert_eq!(
+            session.set_position(index_of(&session, "能"), 1),
+            KeyResult::handled()
+        );
+        assert!(session.select(index_of(&session, "嫩")).commit.is_some());
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        assert_eq!(words(&repeated)[0], "嫩");
+        assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+        assert_eq!(
+            contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+            [0, 1]
+        );
     }
 
     const SPELLING_RECENT_FIXTURE: &str =

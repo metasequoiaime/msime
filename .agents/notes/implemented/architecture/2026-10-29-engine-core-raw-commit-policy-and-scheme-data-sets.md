@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-可嵌入引擎库的提案（[embeddable-engine-library](../../proposed/architecture/2026-10-29-embeddable-engine-library.md)）在 P3 硬点表里留了两件事，P7（[engine-host-dogfood](2026-10-29-engine-host-dogfood.md)）做完之后仍没动：
+可嵌入引擎库的提案（[embeddable-engine-library](../../implemented/architecture/2026-10-29-embeddable-engine-library.md)）在 P3 硬点表里留了两件事，P7（[engine-host-dogfood](2026-10-29-engine-host-dogfood.md)）做完之后仍没动：
 
 - 回车学英文词的产品策略和 `CommitRawWithoutLearning` 只在 `host::Session` 里。核心 `Session` 的 `CommitRaw` 只在专用英文里学词；临时模式里原样上屏的字母、全拼双拼里拼不成音节的拼音是否学成英文词，Rust 核心 API 和 C ABI 的使用者都拿不到，也没有「上屏但不学」的命令。
 - `prepare_runtime_paths_for` 只放开了 `msime-pinyin.db`：不含全拼、双拼、五笔的方案集合照样要求 `msime-english.db`，只用韩语、越南语、藏文、日文、粤语、注音、笔画的采用方也得带 rime-ice-en 的 GPL-3.0 数据。重置（`reset_learned_data_with`）同样要求它；C ABI 1.0 的 `prepare_runtime`、`reset_learning` 不分方案，连 `msime-pinyin.db` 都要。

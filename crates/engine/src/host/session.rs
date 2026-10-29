@@ -101,6 +101,8 @@ pub struct EngineSnapshot {
     pub candidate_answers_key: Vec<bool>,
     /// 与候选同步排列的词网格逐字评分证据；非词网格行为空，证据缺失或长度不符时沿用原模型决策。
     pub candidate_static_evidence: Vec<Option<crate::ordering::StaticEvidence>>,
+    /// 与候选同步排列：九宫格标出的窄裁决点（`ordering::CONTEST_*`，见 `SessionSnapshot::candidate_contest`）。一行都没有标记时为空。
+    pub candidate_contest: Vec<u8>,
     /// 与候选同步排列：这一行是 26 键双拼按触点计过价、落点支持留在引擎座位上的纠错整句（`WordItem::touch_supported`），runtime 不把它当作次选读法挪到表尾（`ordering::runner_up_order_with`）。一行都没有时为空，没有触点的请求（桌面、实体键盘）永远为空；按行而不是按整张表，因为同一张表里别的纠错行（模糊音替代读法按平面表查出的）没过落点的闸。
     pub candidate_touch_supported: Vec<bool>,
     /// 与候选同步排列：这一行是按首选规则坐上第一位的双拼触点纠错（`WordItem::confident_correction`），视图据此给它标 `Candidate::confident_correction`，宿主画强调色、读屏念「已纠正」。一行都没有时为空，没有触点的请求永远为空；本地模式和专用英文下也为空。
@@ -278,6 +280,11 @@ impl Session {
             candidate_corrected: Vec::with_capacity(count),
             candidate_answers_key: Vec::with_capacity(count),
             candidate_static_evidence: Vec::with_capacity(count),
+            candidate_contest: if value.candidate_contest.len() == count {
+                value.candidate_contest
+            } else {
+                Vec::new()
+            },
             candidate_touch_supported: if touch_supported {
                 Vec::with_capacity(count)
             } else {

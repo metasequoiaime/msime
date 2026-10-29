@@ -318,6 +318,28 @@ fn readme_names_this_version() {
         }
     }
     assert!(packs > 0, "README no longer names the data pack");
+    // 两份 README 的快速上手和示例输出都写明是哪一版词库（`dict-v2.0.41`，代次 id 写成 `dict-v2_0_41`），也要跟着词库锁。
+    for (name, text) in [
+        ("crates/engine-capi/README.md", readme),
+        (
+            "crates/engine/README.md",
+            include_str!("../../engine/README.md"),
+        ),
+    ] {
+        for (start, _) in text.match_indices("dict-v") {
+            let named: String = text[start + "dict-v".len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '_')
+                .collect();
+            let named = named.trim_end_matches(['.', '_']).replace('_', ".");
+            if named.starts_with(|c: char| c.is_ascii_digit()) {
+                assert_eq!(
+                    named, dictionary,
+                    "{name} names dict-v{named}, the dictionary lock is dict-v{dictionary}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

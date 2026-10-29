@@ -31,7 +31,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `loadMacosShuangpinKeymap` | macOS 升级前存在原生 defaults 域里的双拼键位提示开关，只在共享偏好 `shuangpin_keymap_hint` 还没有值时读来显示；开关本身已并入共享偏好，由 `shuangpin_keymap_hint` 能力门控（macOS、Windows、Linux） |
 | `openScreenKeyboard`、`openHandwriting`、`openVoice` | 桌面把这三个开成独立面板窗口；本宿主它们是键盘自己的面（`SURFACE_*`） |
 | `pickVoiceModelPath` | 按路径加载本地语音模型；本宿主用系统识别器或 HTTP provider |
-| `resetLearnedData` | 共享 C ABI 对移动端明确返回 `learned-data reset is unavailable on mobile` |
+| `resetLearnedData` | 共享设置页的入口（`personal_dictionary_request_json`）对移动端明确返回 `learned-data reset is unavailable on mobile`；Android 和 iOS 的「清除学习记录」走的是 `msime_client_dictionary` 的 `reset`。鸿蒙不接它，是因为设置应用的 `reset` 只清得到设置应用沙箱里那一份；键盘的调频、整句联想等学习记录在键盘自己的沙箱里，「我的词条」镜像只交换用户词，设置页说「已清除」会是假的。Android 和 iOS 的「清除学习记录」见 `.agents/notes/implemented/feature/2026-10-29-mobile-clear-learning.md`，鸿蒙要等键盘一侧能接清除请求 |
 | `clipboard` | 设置页里的剪贴板历史列表。iOS 与 Android 也都不提供——Apple 的剪贴板管理在键盘的 `KeyboardClipboardView` 里，对应本宿主的 `SURFACE_CLIPBOARD` |
 | `resolveFontFamilies` | 候选字体预览的字族解析。iOS 的 `candidate_font_controls` 为 false，根本不显示候选字体控件；本宿主与 Android 一致 |
 | `loadDefaultPreferences`、`openThirdPartyLicenses` | 「恢复默认设置」与第三方许可。MSIME-Apple 的 iOS 上都不存在（iOS 的「恢复默认」只作用于皮肤设计和键盘布局），属桌面功能 |

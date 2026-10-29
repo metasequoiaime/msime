@@ -876,6 +876,7 @@ impl Session {
                         && input.selection_completes_composition(item)
                 })
                 .collect(),
+            candidate_contest: Vec::new(),
             candidate_list_open: input.candidate_list_open(),
             conversion: input
                 .conversion

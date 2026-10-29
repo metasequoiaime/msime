@@ -87,7 +87,8 @@ export type VocabularyReviewStatus = {
 
 export interface VocabularyReviewClient {
   load(): Promise<VocabularyReviewStatus>;
-  answer(word: string, known: boolean): Promise<VocabularyReviewStatus>;
+  /** 卡片与来源词书必须取自同一份已接受的状态快照。 */
+  answer(wordbook: string, word: string, known: boolean): Promise<VocabularyReviewStatus>;
   setSettings(settings: VocabularyReviewSettings): Promise<VocabularyReviewStatus>;
   /** Absent where the host cannot hand over a file. Render nothing rather than a dead button. */
   importWordbook?(name: string, text: string): Promise<VocabularyReviewStatus>;
@@ -124,6 +125,7 @@ export function VocabularyReviewPage({
   const [importNote, setImportNote] = useState("");
   const requestRef = useRef<Promise<VocabularyReviewStatus> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileReadVersion = useRef(0);
   const mounted = useMountedRef();
   const generation = useAsyncGeneration(client);
 
@@ -183,13 +185,16 @@ export function VocabularyReviewPage({
   async function answer(known: boolean) {
     if (!card) return;
     setRevealed(false);
-    await update(() => client.answer(card.word, known));
+    await update(() => client.answer(selected, card.word, known));
   }
 
   async function chooseFile(file: File) {
     if (!client.importWordbook || requestRef.current) return;
     const current = generation.current;
-    const isCurrent = () => mounted.current && generation.current === current;
+    // 同一客户端再次选文件也会让旧读取失效，不能迟到导入或覆盖新文件的提示。
+    const version = ++fileReadVersion.current;
+    const isCurrent = () =>
+      mounted.current && generation.current === current && fileReadVersion.current === version;
     setImportNote("");
     setError("");
     // Real word lists arrive as UTF-16-with-BOM and GB18030 from Windows tools, which is why the

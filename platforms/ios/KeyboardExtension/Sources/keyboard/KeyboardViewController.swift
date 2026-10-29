@@ -8177,10 +8177,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func synchronizeTranslationRoute() -> Bool {
     var route = TranslationProviderPreference.route(in: session.sharedPreferences)
     if case let .ai(provider, endpoint, model, _) = route,
-       let configuration = KeyboardAIService.configuration(),
-       let configuredURL = try? configuration.validatedURL(allowsLocalHTTP: true),
-       configuredURL.absoluteString == endpoint,
-       let token = try? KeyboardAIService.token(for: configuration) {
+       let token = KeyboardAIService.translationToken(endpoint: endpoint) {
       route = .ai(provider: provider, endpoint: endpoint, model: model, token: token)
     }
     translationRouteGeneration &+= 1
