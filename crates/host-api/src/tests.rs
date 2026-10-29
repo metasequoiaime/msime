@@ -8422,7 +8422,7 @@ fn destroying_a_session_drops_its_unfinished_settled_job() {
     assert_eq!(read(msime_client_destroy(other))["ok"], true);
 }
 
-/// The desktop model preference switches the runtime's settled rerank, at creation and on a later update, and the keyboard model switch reaches the rebuilt Engine the same way.
+/// The desktop model preference switches the runtime's settled rerank, at creation and on a later update. The keyboard model switch (整句联想「增强」) never reaches the Engine, created or rebuilt: it mounts only the runtime's per-keystroke reranker.
 #[test]
 fn sentence_model_switches_follow_the_preferences() {
     let directory = tempfile::tempdir().unwrap();
@@ -8439,7 +8439,7 @@ fn sentence_model_switches_follow_the_preferences() {
             )
         })
     };
-    assert_eq!(switches(), (true, true));
+    assert_eq!(switches(), (true, false));
 
     preferences.sentence_association.neural_desktop = false;
     preferences.sentence_association.neural_keyboard = false;
@@ -8448,12 +8448,29 @@ fn sentence_model_switches_follow_the_preferences() {
     assert_eq!(switches(), (false, false));
 
     preferences.sentence_association.neural_desktop = true;
+    preferences.sentence_association.neural_keyboard = true;
     assert_eq!(update(handle, 2, &preferences)["ok"], true);
     assert_eq!(switches(), (true, false));
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
-/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
+/// 「增强」只决定 runtime 的逐键重排器：偏好打开且版本带键盘模型时才挂，交给 Engine 的选项里引擎那层键盘模型始终关着。
+#[test]
+fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
+    let mut association = msime_client_core::preferences::SentenceAssociationPreferences::default();
+    assert!(!keyboard_reranker_enabled(&association, Edition::full()));
+    association.neural_keyboard = true;
+    assert!(keyboard_reranker_enabled(&association, Edition::full()));
+    assert!(!engine_sentence_association(&association, None).neural_keyboard);
+    // 不带键盘模型的版本（五笔版）不挂。
+    let wubi = Edition::by_id("wubi").unwrap();
+    assert!(!wubi.features.neural_keyboard);
+    assert!(!keyboard_reranker_enabled(&association, wubi));
+    // 关着时连模型文件都不去读。
+    assert!(ffi::keyboard_reranker(false, "", None).is_none());
+}
+
+/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
     let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
@@ -8476,8 +8493,14 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
         assert_eq!(created["ok"], true, "{created}");
         created["value"]["session"].as_u64().unwrap()
     };
-    let attached =
-        |handle: u64| SESSIONS.with(|sessions| sessions.borrow()[&handle].runtime.has_reranker());
+    // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
+    let attached = |handle: u64| {
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(!session.options.sentence_association.neural_keyboard);
+            session.runtime.has_reranker()
+        })
+    };
 
     let directory = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();

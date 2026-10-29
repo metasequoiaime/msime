@@ -903,6 +903,7 @@ pub fn request_autocorrect_mask(transposition: bool, neighbor: bool) -> u32 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SentenceAssociationOptions {
     pub word_lattice: bool,
+    /// The Engine's own keyboard-model rerank: nine-key reranks once across its segmentations, the quanpin and shuangpin dictionaries rerank inside the lattice, and the model's pick becomes a `NeuralKeyboard` row after the lattice best. Hosts leave it off: 整句联想「增强」 (the `neural_keyboard` preference) mounts the input runtime's per-keystroke reranker instead (host-api `keyboard_reranker_enabled`). It stays for evals and experiments that build the options directly (`convert_eval --keyboard-neural`).
     pub neural_keyboard: bool,
     pub show_next_on_duplicate: bool,
     /// octagram `.gram` 语法模型的路径（宿主按模型包解析好后传入）；空 = 关闭。
