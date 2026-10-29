@@ -72,7 +72,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：C 包装层与引擎之间的每一处映射（快照、编号、选项 JSON、快照缓存、学习、个人词典）都在 201 个场景的每一步上被核对，引擎改动只要让 C ABI 看到的东西不同，三个桌面平台的 CI 就会变红。落地时没有发现差异；把 C 侧的状态改成读 `snapshot()`、把 `learning` 映射取反之后，76 个场景报出差异，报告直接指到 `steps[1] type "nihao": view.preedit: expected "ni'hao", got "nihao"` 这样的位置。真实词库四个集合在 Studio 上 4477 行没有差异，调试构建约 3 分钟。
-- **代价与已知上限**：golden_support 的单元测试在两个测试二进制里各跑一次；`golden_dir()` 假设两个 crate 在 `crates/` 下相邻；完整回放在 `engine-capi` 作业的 Linux 和 macOS 上约 7 秒，Windows 上约 2 分钟（多半花在 SQLite 文件的建与删上）。CI 没有真实词库，真实集合的对照只在设了 `MSIME_EVAL_RESOURCES` 的机器上跑。下限要人手上调，ABI 新增选项或函数之后不调，新覆盖的场景退回跳过时测试不会发现。
+- **代价与已知上限**：golden_support 的单元测试在两个测试二进制里各跑一次；`golden_dir()` 假设两个 crate 在 `crates/` 下相邻；完整回放在 `engine-capi` 作业的 Linux 和 macOS 上约 7 秒，Windows 上约 2 分钟（CI 实测）。CI 没有真实词库，真实集合的对照只在设了 `MSIME_EVAL_RESOURCES` 的机器上跑。下限要人手上调，ABI 新增选项或函数之后不调，新覆盖的场景退回跳过时测试不会发现。
 - **跳过表也是 ABI 的缺口清单**：调频方式、混排 emoji 与颜文字、本地模式开关不在选项 JSON 里，C 采用方现在打不开调频（引擎缺省是 `disabled`）；`candidate_key`、`validate_entry` 没有 C 函数。要不要补由 ABI 的次版本决定，补上一项就把它从跳过表里拿掉并上调下限。
 
 ## Verification
