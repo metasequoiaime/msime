@@ -556,7 +556,7 @@ impl Models {
     }
 }
 
-/// 建一个和宿主同样配置的 Runtime：关学习、关调频、关混输和本地模式，挂上资源里有的重排模型。`configure` 在建会话前改方案相关的选项，`tuning` 覆盖触点计价参数。
+/// 建一个和宿主同样配置的 Runtime：关学习、关调频、关混输和本地模式，每页候选数同时交给引擎和 runtime，挂上资源里有的重排模型。`configure` 在建会话前改方案相关的选项，`tuning` 覆盖触点计价参数。
 #[allow(clippy::too_many_arguments)]
 fn open_runtime(
     resources: &Path,
@@ -597,22 +597,39 @@ fn open_runtime(
     options.local_super_jianpin = false;
     options.local_temporary_english = false;
     options.local_temporary_japanese = false;
+    // 其余本地模式也关掉，和上面一样量的是转换本身。行内日期时间和「📅日期」菜单是产品默认开的，不关时 `riqi`、`shijian`、`jintian` 这类输入第 2 格起是运行当天的日期时间，词级集的结果随运行日期变化。
+    options.local_date_time_inline = false;
+    options.local_date_time_menu = false;
+    options.local_expression = false;
+    options.local_command = false;
+    options.local_mention = false;
+    options.local_chaizi = false;
+    options.local_symbol = false;
+    options.local_shift_letter_entry = false;
     // Measure the shipped path: the host asks for every reading and crops the list itself.
     options.sentence_alternatives = true;
     options.sentence_association.neural_keyboard = keyboard_neural;
-    // 首页行数同时交给引擎排序和运行时分页，未指定时保留各自的默认值。
-    if let Some(rows) = first_page_rows {
-        options.first_page_rows = rows;
-    }
+    // 每页候选数和宿主一样同时是引擎的首屏门槛和 runtime 的分页（`Runtime::new` 会把它交给引擎，这里先写进选项，建会话时就是同一个数）。不给 `--first-page-rows` 时取共享偏好的出厂值，桌面三端、Android 和鸿蒙都用它；iOS 和网页引擎每页 9 个，用 `--first-page-rows 9` 量。
+    let page_size = first_page_rows.unwrap_or(usize::from(
+        msime_client_core::preferences::Preferences::default().candidate_page_size,
+    ));
+    let page_size = u8::try_from(page_size)
+        .ok()
+        .filter(|size| (1..=msime_input_runtime::MAX_CANDIDATE_PAGE_SIZE).contains(size))
+        .ok_or_else(|| {
+            format!(
+                "--first-page-rows must be 1 to {}",
+                msime_input_runtime::MAX_CANDIDATE_PAGE_SIZE
+            )
+        })?;
+    options.first_page_rows = usize::from(page_size);
     configure(&mut options);
 
     let mut engine = Session::new(&options)?;
     if let Some(tuning) = tuning {
         engine.set_touch_tuning(tuning);
     }
-    // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.
-    let page_size = first_page_rows.map_or(9, |rows| rows.clamp(1, 9));
-    let mut runtime = Runtime::new(engine, u8::try_from(page_size)?)?;
+    let mut runtime = Runtime::new(engine, page_size)?;
     // 每个 Runtime 各建自己的 `Reranker`（前缀缓存跟着会话走），模型本身共用。
     if let Some(model) = &models.settled {
         runtime.set_settled_reranker(Some(Reranker::new(Arc::clone(model))));

@@ -725,6 +725,8 @@ struct KeyboardView {
   @State nineKeySidebarSymbols: string[] = KeyboardSession.shared.preferences().nineKeySidebarSymbols;
   /** 共享偏好 `touch_nine_key_digit_sidebar_symbols`：九宫格数字键盘左列 #+= 上面的表，空表画出厂的四则运算（`NineKeyLayout.digitSidebar`）。 */
   @State nineKeyDigitSidebarSymbols: string[] = KeyboardSession.shared.preferences().nineKeyDigitSidebarSymbols;
+  /** 共享偏好 `touch_language_key_side` 为 `left`：设计底行、九键外框、数字九宫格和手写底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageBeforeSpace`、`NineKeyLayout.actionRow` 的 `languageLeft`）。 */
+  @State languageKeyLeft: boolean = KeyboardSession.shared.preferences().languageKeyLeft;
   /** 「右侧大回车」外框（`tallReturnNineKeyFrame`）量到的宽度，网格下方那一段底行按它定 123、中/英 和数字层空格的绝对宽度（`NineKeyLayout.tallReturnRow`）；量到之前和外框消失后为 0，按份额排。 */
   @State tallReturnFaceWidth: number = 0;
   /** 共享偏好 `touch_number_row`：26/14/18 键字母上方画 1 到 0，键盘高一行（`numberRowExtraRows`）。 */
@@ -3121,6 +3123,7 @@ struct KeyboardView {
     this.nineKeySidebarSymbols = this.settings.nineKeySidebarSymbols;
     this.nineKeyDigitSidebarSymbols = this.settings.nineKeyDigitSidebarSymbols;
     this.oneHandedSidePanel = this.settings.oneHandedSidePanel;
+    this.languageKeyLeft = this.settings.languageKeyLeft;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -3360,7 +3363,7 @@ struct KeyboardView {
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
-      + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:`
+      + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:${this.languageKeyLeft}:`
       + `${this.standardRowsField}:${this.skin.key()}`;
   }
 
@@ -4855,7 +4858,7 @@ struct KeyboardView {
    * 九键样式「右侧大回车」的外框（`tallReturnFrame`），拼音九键、九键双拼、笔画键盘和它们的数字层共用，三列与普通网格同宽（`NineKeyLayout.SIDE_SHARE`、`GRID_SHARE`）：
    *
    * - 左列：跨网格三行的标点栏（拼音九键是 ，。？！、组字时的读音、数字层的四则运算和 #+=；笔画是标点栏），栏下方底行放与它同宽的 符，数字层也在这里。
-   * - 中间：3×3 网格（笔画是笔画键），格下方是恰好与网格同宽的底行 `nineKeyActionRow`：123 | 空格 | 中/英，数字层 切换键 | 0 | 空格 | 中/英。123、中/英 和数字层的空格与标准九键底行里同宽，空格（数字层是 0）占剩下的部分；外框量到自己的宽度（`tallReturnFaceWidth`）后按 `NineKeyLayout.tallReturnRow` 定宽，之前按 `NineKeyLayout.actionRow` 的份额排。
+   * - 中间：3×3 网格（笔画是笔画键），格下方是恰好与网格同宽的底行 `nineKeyActionRow`：123 | 空格 | 中/英，数字层 切换键 | 0 | 空格 | 中/英（「中/英键放在空格左边」时是 123 | 中/英 | 空格、切换键 | 中/英 | 0 | 空格）。123、中/英 和数字层的空格与标准九键底行里同宽，空格（数字层是 0）占剩下的部分；外框量到自己的宽度（`tallReturnFaceWidth`）后按 `NineKeyLayout.tallReturnRow` 定宽，之前按 `NineKeyLayout.actionRow` 的份额排。
    * - 右列：与中间网格逐行对齐（`tallReturnGridRowHeight`），回车跨网格最后一行和底行、两倍高中间无缝。拼音九键 ⌫ 在第一行，第二行是拼音分词（数字层小数点），回车跨第三行和底行；原来第三行的 ！ 接到左列末尾。笔画网格只有两行（`StrokeLayout.ROWS`），⌫ 占第一行，回车跨第二行和底行。
    *
    * 中/英 与回车不在同一行，回车不让出键帽，两键都是普通的触摸区。
@@ -5330,14 +5333,14 @@ struct KeyboardView {
     KeyboardSession.shared.punctuation(mark.input.charCodeAt(0));
   }
 
-  /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号，中文九键的字母层按 `touch_nine_key_style` 排（`NineKeyLayout.actionRow`），「右侧大回车」时是网格下方那一段。拼音九键、九键双拼和笔画的数字层带着 符，符 和切换键与字母层同一格（#10061）；借来的数字九宫格不带。 */
+  /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号，中文九键的字母层按 `touch_nine_key_style` 排（`NineKeyLayout.actionRow`），「右侧大回车」时是网格下方那一段。拼音九键、九键双拼和笔画的数字层带着 符，符 和切换键与字母层同一格（#10061）；借来的数字九宫格不带。「中/英键放在空格左边」时每一种排法（含右侧大回车和数字层）的 中/英 都挪到空格左边（`NineKeyLayout.actionRow` 的 `languageLeft`）。 */
   private nineKeyActions(): NineKeyAction[] {
     // 「符」与「123」互换后 26 键字母层以 符 打头，从它借来的数字九宫格也按九键一族的次序排（符 | 返回），返回键仍在字母层 123 那一格（#10056）。
     const nineKeyDigits: boolean = this.symbols
       && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.strokeFace()
         || this.letterRowSymbolLeads());
     return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,
-      this.numberPadSpace);
+      this.numberPadSpace, this.languageKeyLeft);
   }
 
   /** 这块键面字母层的设计底行是否以 符 打头：只有打开「符」与「123」互换、字母层是 26 键一族、底行样式里有 符（标准、逗号句号在空格两侧）时才是。不看此刻在不在数字层，借来的数字九宫格按它排前两键。手写、14/18 键、大千注音的字母层底行没有 符。 */
@@ -5379,7 +5382,8 @@ struct KeyboardView {
    */
   private nineKeyActionItems(): NineKeyActionItem[] {
     const fixed: NineKeyAction[] = this.tallReturnFrame() && this.tallReturnFaceWidth > 0
-      ? NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing()) : [];
+      ? NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing(), this.languageKeyLeft)
+      : [];
     return NineKeyLayout.actionItems(this.nineKeyActions(), fixed, NineKeyLayout.tallReturnFill(this.symbols));
   }
 
@@ -6221,11 +6225,13 @@ struct KeyboardView {
       : TouchLayoutStylePolicy.STANDARD;
   }
 
-  /** 设计底行的键序与份额（`TouchLayoutStylePolicy.designRow`）；打开「符」与「123」互换时 26 键一族的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`）。 */
+  /** 设计底行的键序与份额（`TouchLayoutStylePolicy.designRow`）；打开「符」与「123」互换时 26 键一族的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`），之后「中/英键放在空格左边」再把 中/英 挪到空格（和紧贴空格的标点）左边（`TouchLayoutStylePolicy.languageBeforeSpace`）。密码框和数字框里样式退回标准，这两项不退回。 */
   private designRowEntries(): DesignRowEntry[] {
     const styled: StyledFace = this.designRowStyledFace();
-    return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(),
-      this.designEnglishPeriod(), styled, this.designRowStyle(styled)), this.twentySixSymbolFirst);
+    const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(
+      this.designCommaSecondaryPeriod(), this.designEnglishPeriod(), styled, this.designRowStyle(styled)),
+      this.twentySixSymbolFirst);
+    return TouchLayoutStylePolicy.languageBeforeSpace(row, this.languageKeyLeft);
   }
 
   /**
@@ -6462,6 +6468,8 @@ struct KeyboardView {
    * 触屏手写的底行：123 1.25 | ， 1 | space 2.4 | 。 1 | 中 1.05 | 重写 1.25 | ⌫ 1.25 | return 1.6，即 Android 的 `KeyboardActionRow.designEntries(HANDWRITING_LAYOUT)` 和 iOS 的手写底行。书写区铺满整行，原来它右侧的「重写」和 ⌫ 排在中/英与回车之间；原来左侧的 ？ ！ 由 ， 和 。 的长按输入，两键都画角标。
    *
    * ⌫ 有笔迹时撤回一笔、没有时删除光标前的字符（`deleteHandwriting`），紧挨回车，所以回车不让出键帽（`besideLanguage` 为假）。
+   *
+   * 「中/英键放在空格左边」（`languageKeyLeft`）时 中/英 排到 ， 左边：123 | 中 | ， | 空格 | 。 | 重写 | ⌫ | 回车，与设计底行同一条规则（`TouchLayoutStylePolicy.languageBeforeSpace`），份额不变。右边时那一格照原样写在 。 后面，`scripts/test-mobile-handwriting-pad-parity.py` 按它读三端的默认键序；左边时画 `handwritingLeftLanguageKey`。
    */
   @Builder
   handwritingActionRow() {
@@ -6481,6 +6489,9 @@ struct KeyboardView {
       .layoutWeight(HANDWRITING_LAYER_SHARE)
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
+      if (this.languageKeyLeft) {
+        this.handwritingLeftLanguageKey()
+      }
       Column() {
         this.fixedKey({
           face: this.chinesePunctuationFaces() ? '，' : ',',
@@ -6517,20 +6528,22 @@ struct KeyboardView {
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
         KeyboardSession.shared.punctuation(0x21);
       }))
-      this.fixedKey({
-        face: this.languageFace(),
-        label: KeyAccessibilityPolicy.language(),
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: HANDWRITING_LANGUAGE_SHARE,
-        action: () => {
-          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
-          this.toggleTouchLanguage();
-        }
-      });
+      if (!this.languageKeyLeft) {
+        this.fixedKey({
+          face: this.languageFace(),
+          label: KeyAccessibilityPolicy.language(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: 0,
+          share: HANDWRITING_LANGUAGE_SHARE,
+          action: () => {
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
+            this.toggleTouchLanguage();
+          }
+        });
+      }
       this.fixedKey({
         face: '重写',
         label: '清空手写',
@@ -6560,6 +6573,25 @@ struct KeyboardView {
     }
     .width('100%')
     .height(this.rowHeight(3))
+  }
+
+  /** 「中/英键放在空格左边」时手写底行排在 123 和 ， 之间的 中/英，与右边时 。 后面那一格同一个键：同样的份额、点按、读屏文字和统计 id（`handwritingActionRow`）。 */
+  @Builder
+  handwritingLeftLanguageKey() {
+    this.fixedKey({
+      face: this.languageFace(),
+      label: KeyAccessibilityPolicy.language(),
+      size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+      fontWeight: FUNCTION_LABEL_WEIGHT,
+      emphasized: false,
+      special: true,
+      width: 0,
+      share: HANDWRITING_LANGUAGE_SHARE,
+      action: () => {
+        KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_LANGUAGE);
+        this.toggleTouchLanguage();
+      }
+    });
   }
 
   /** 触屏键盘的回车键，无论显示什么都用操作色：回车箭头、编辑框的动作词，或有组合时的「确认」。`besideLanguage` 为真时它左边紧挨中/英键，两者的触摸分界挪进回车键帽（`returnKeyHitRegion`）。 */

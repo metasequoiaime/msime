@@ -272,6 +272,7 @@ const styled = (style: Partial<TouchKeyLayoutStyle>): TouchKeyLayoutStyle => ({
   nineKeyStyle: "standard",
   numberRow: false,
   twentySixSymbolFirst: false,
+  languageKeyLeft: false,
   ...style,
 });
 
@@ -350,6 +351,83 @@ test("with 「符」与「123」互换 the 26-key heatmap bottom row is the Harm
   expect(phoneHeatmapLayoutRows("nine", styled({ twentySixSymbolFirst: true }))).toEqual(
     phoneHeatmapRows.nine,
   );
+});
+
+test("with 中/英键放在空格左边 both heatmaps draw the HarmonyOS keyboard's rows with 中/英 left of the space (#10228)", () => {
+  for (const style of ["standard", "comma_period", "long_space", "emoji"] as const)
+    for (const symbolFirst of [false, true]) {
+      const rows = phoneHeatmapLayoutRows(
+        "full",
+        styled({
+          twentySixKeyStyle: style,
+          twentySixSymbolFirst: symbolFirst,
+          languageKeyLeft: true,
+        }),
+      );
+      const keyboard = TouchLayoutStylePolicy.languageBeforeSpace(
+        TouchLayoutStylePolicy.symbolFirst(
+          TouchLayoutStylePolicy.designRow(true, false, StyledFace.TWENTY_SIX, style),
+          symbolFirst,
+        ),
+        true,
+      );
+      expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual(
+        keyboard.map((entry) => [slotIds[entry.slot], round(entry.share)]),
+      );
+    }
+  expect(
+    phoneHeatmapLayoutRows("full", styled({ languageKeyLeft: true }))[3].map((key) => key.label),
+  ).toEqual(["123", "符", "中", "空格", "，", "↵"]);
+  expect(
+    phoneHeatmapLayoutRows(
+      "full",
+      styled({ twentySixKeyStyle: "comma_period", languageKeyLeft: true }),
+    )[3].map((key) => key.label),
+  ).toEqual(["123", "符", "中", "，", "空格", "。", "↵"]);
+  const faces: Record<string, string> = {
+    symbol_panel: "SoftSymbol",
+    layer_toggle: "SoftLayer",
+    comma: "Comma",
+    period: "Period",
+    emoji: "SoftEmoji",
+    space: "Space",
+    language: "SoftLanguage",
+    return: "Enter",
+  };
+  for (const style of ["standard", "comma_period", "emoji"] as const) {
+    const rows = phoneHeatmapLayoutRows(
+      "nine",
+      styled({ nineKeyStyle: style, languageKeyLeft: true }),
+    );
+    expect(rows.slice(0, 3)).toEqual(phoneHeatmapRows.nine.slice(0, 3));
+    expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual(
+      NineKeyLayout.actionRow(false, false, style, false, "before_zero", true).map((action) => [
+        faces[action.kind],
+        round(action.weight),
+      ]),
+    );
+  }
+  // 右侧大回车：底行 符 | 123 | 中 | 空格，回车仍从上一行跨下来；每个键的统计 id 和份额不变。
+  const tall = phoneHeatmapLayoutRows(
+    "nine",
+    styled({ nineKeyStyle: "tall_return", languageKeyLeft: true }),
+  );
+  const right = phoneHeatmapLayoutRows("nine", styled({ nineKeyStyle: "tall_return" }));
+  expect(tall.slice(0, 3)).toEqual(right.slice(0, 3));
+  expect(tall[3].map((key) => key.code)).toEqual([
+    "SoftSymbol",
+    "SoftLayer",
+    "SoftLanguage",
+    "Space",
+    undefined,
+  ]);
+  for (const key of right[3]) expect(tall[3]).toContainEqual(key);
+  // 文档里写 left 才算左。
+  expect(touchKeyLayoutStyle({ touch_language_key_side: "left" } as never)).toEqual(
+    styled({ languageKeyLeft: true }),
+  );
+  for (const value of ["right", "middle", undefined])
+    expect(touchKeyLayoutStyle({ touch_language_key_side: value } as never)).toEqual(styled({}));
 });
 
 test("each 9-key style's heatmap bottom row is the HarmonyOS nine-key frame's row", () => {

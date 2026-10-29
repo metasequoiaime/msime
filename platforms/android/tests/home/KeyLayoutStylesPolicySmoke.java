@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「数字键盘」一组胶囊的名字、顺序和写法，以及两行左侧符号的标题、摘要、编辑页说明和 9 键预览的左列（#10223）。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
+ * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「中/英键放在空格左边」打开后三类预览底行的中/英排到空格（和贴着空格的标点）左边并高亮它，「数字键盘」一组胶囊的名字、顺序和写法，以及两行左侧符号的标题、摘要、编辑页说明和 9 键预览的左列（#10223）。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
  */
 public final class KeyLayoutStylesPolicySmoke {
     public static void main(String[] arguments) {
@@ -27,6 +27,7 @@ public final class KeyLayoutStylesPolicySmoke {
         fourteenKeyboard();
         nineKeyboard();
         symbolFirst();
+        languageLeft();
         numberPadSpace();
         nineKeySidebar();
         System.out.println("key layout styles page: passed");
@@ -272,6 +273,70 @@ public final class KeyLayoutStylesPolicySmoke {
             }
             for (String id : KeyLayoutStylesPolicy.highlights(Kind.TWENTY_SIX, style, true))
                 check(drawn.contains(id), "swapped " + style + " draws its highlighted " + id);
+        }
+    }
+
+    /** 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：三个分段的预览底行都按键盘的同一条规则重排（{@link KeyboardActionRow#languageBeforeSpace}），与互换叠加；打开时在样式和互换的高亮之外只多高亮中/英，关上时预览与高亮和原来逐键相同。 */
+    private static void languageLeft() {
+        check(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE.equals("touch_language_key_side")
+            && TouchKeyStyle.languageKeySideWire(true).equals("left") && TouchKeyStyle.languageKeySideWire(false).equals("right"),
+            "the toggle writes left when on and right when off");
+        check(TouchKeyStyle.LANGUAGE_LEFT_TITLE.equals("中/英键放在空格左边")
+            && TouchKeyStyle.LANGUAGE_LEFT_NOTE.equals("中/英 排到空格左边，逗号、句号仍紧挨空格。"), "toggle title and note");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, false, true).get(3))
+            .equals(List.of("123", "符", "中", "空格", "，", "↵")), "26 standard puts 中 before the space");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.COMMA_PERIOD, false, false, false, true).get(3))
+            .equals(List.of("123", "符", "中", "，", "空格", "。", "↵")), "26 comma-period keeps ， against the space");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.LONG_SPACE, false, false, false, true).get(3))
+            .equals(List.of("123", "中", "，", "空格", "↵")), "26 long space");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.EMOJI, false, false, false, true).get(3))
+            .equals(List.of("123", "😀", "中", "空格", "，", "↵")), "26 emoji");
+        check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, true, true).get(3))
+            .equals(List.of("符", "123", "中", "空格", "，", "↵")), "the swap and 中 on the left combine");
+        check(faces(last(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, false, false, true)))
+            .equals(List.of("123", "中", "，", "空格", "。", "↵")), "14/18 standard");
+        check(faces(last(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, true)))
+            .equals(List.of("符", "123", "中", "空格", "↵")), "9 standard");
+        check(faces(last(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.COMMA_PERIOD, false, false, false, true)))
+            .equals(List.of("符", "123", "中", "，", "空格", "。", "↵")), "9 bottom-bar punctuation");
+        List<Key> tall = last(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.TALL_RETURN, false, false, false, true));
+        check(faces(tall).subList(0, 4).equals(List.of("符", "123", "中", "空格")) && tall.get(tall.size() - 1).rows() == 0,
+            "tall return: 123 | 中 | 空格 under the grid, the return still covers the bottom-right cell");
+        for (Kind kind : Kind.values()) {
+            for (Row style : kind.rows) {
+                for (boolean symbolFirst : new boolean[] {false, true}) {
+                    List<List<Key>> off = KeyLayoutStylesPolicy.keyboard(kind, style, true, false, symbolFirst, false);
+                    List<List<Key>> on = KeyLayoutStylesPolicy.keyboard(kind, style, true, false, symbolFirst, true);
+                    String label = kind + " " + style + " symbolFirst " + symbolFirst;
+                    check(off.equals(KeyLayoutStylesPolicy.keyboard(kind, style, true, false, symbolFirst)), label + ": off is today's preview");
+                    check(on.size() == off.size() && on.subList(0, on.size() - 1).equals(off.subList(0, off.size() - 1)),
+                        label + ": only the bottom row changes");
+                    check(near(sum(last(on)), sum(last(off))) && last(on).containsAll(last(off)), label + ": same keys, same widths");
+                    Set<String> highlighted = KeyLayoutStylesPolicy.highlights(kind, style, symbolFirst, true);
+                    Set<String> without = KeyLayoutStylesPolicy.highlights(kind, style, symbolFirst);
+                    check(KeyLayoutStylesPolicy.highlights(kind, style, symbolFirst, false).equals(without), label + ": off adds no highlight");
+                    check(highlighted.contains("SoftLanguage") && highlighted.containsAll(without) && highlighted.size() == without.size() + 1,
+                        label + ": on adds only 中/英 to the highlights");
+                    List<String> drawn = new ArrayList<>();
+                    for (Key key : last(on)) if (key.rows() > 0) drawn.add(key.id());
+                    check(drawn.contains("SoftLanguage"), label + ": the highlighted 中/英 is drawn in the bottom row");
+                }
+            }
+        }
+        for (Row style : Kind.TWENTY_SIX.rows) {
+            sameEntries(last(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, style, false, false, true, true)),
+                KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, false, false, false, style, true,
+                    TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, true), "26-key preview follows the keyboard " + style);
+        }
+        for (Row style : Kind.FOURTEEN.rows) {
+            sameEntries(last(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, style, false, false, false, true)),
+                KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false, false, false, false, style, false,
+                    TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, true), "14/18 preview follows the keyboard " + style);
+        }
+        for (Row style : List.of(Row.STANDARD, Row.COMMA_PERIOD, Row.EMOJI)) {
+            sameEntries(last(KeyLayoutStylesPolicy.keyboard(Kind.NINE, style, false, false, false, true)),
+                KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false, false, false, false, style, false,
+                    TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, true), "9 preview follows the keyboard " + style);
         }
     }
 

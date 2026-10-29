@@ -147,7 +147,7 @@ fn product_mobile(options: &mut EngineOptions) {
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
 }
 
-/// `convert_eval::open_runtime` 的设置。
+/// `convert_eval::open_runtime` 的设置，停在 2026-10-29 改口径之前：那次 `convert_eval` 的默认每页候选数改成共享偏好的出厂值，并关掉了行内日期时间等其余本地模式；这里仍是每页 9 个（见 [`page_size`]），行内日期时间由虚拟时钟钉住，结果不随运行日期变化。
 fn convert_eval(options: &mut EngineOptions) {
     options.learning = false;
     options.frequency_mode = "disabled".into();

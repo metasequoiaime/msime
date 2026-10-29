@@ -387,6 +387,8 @@ final class ImeLayoutRows {
     private boolean builtNineFrame;
     private boolean builtTallReturn;
     private boolean builtTallReturnGlobe;
+    /** 右侧大回车外框建的时候九宫格下方那一行的中/英是否排在空格左边（`touch_language_key_side`）。 */
+    private boolean builtTallReturnLanguageLeft;
     /** 建九键数字层（不是右侧大回车）时右列最下面一格放的是不是空格（{@link TouchKeyStyle.NumberPadSpace#inRightColumn}）；没建数字层时为 null。 */
     private Boolean builtSpaceInColumn;
 
@@ -405,11 +407,12 @@ final class ImeLayoutRows {
         return KeyboardActionRow.drawsTallReturn(layout, s.bottomRowStyle(layout));
     }
 
-    /** 九键外框建出来时的右侧大回车与现在该画的不一致（换了样式、进出密码框），或者大回车外框九宫格下方那一行的地球键变了：下一次渲染重建键行。 */
+    /** 九键外框建出来时的右侧大回车与现在该画的不一致（换了样式、进出密码框），或者大回车外框九宫格下方那一行的地球键、中/英在空格哪一边变了：下一次渲染重建键行。 */
     boolean tallReturnStale() {
         if (!builtNineFrame) return false;
         boolean tall = tallReturnDrawn();
-        return tall != builtTallReturn || tall && builtTallReturnGlobe != s.offersGlobeKey();
+        return tall != builtTallReturn
+            || tall && (builtTallReturnGlobe != s.offersGlobeKey() || builtTallReturnLanguageLeft != s.languageKeyLeft);
     }
 
     /** 九键数字层建出来时右列最下面一格（空格还是 ！）与现在的数字键盘空格位置不一致（设置页换了 `touch_number_pad_space`）：下一次渲染重建键行。 */
@@ -452,7 +455,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 右侧大回车外框的中列：九宫格（或笔画网格）占三行，正下方是与它同宽的 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}）。数字层是切换键 |（地球）| 0 | 空格 | 中/英，空格就是常驻的空格键，长按语音和拖动光标的手势跟着它走。
+     * 右侧大回车外框的中列：九宫格（或笔画网格）占三行，正下方是与它同宽的 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}；中/英放在空格左边时是 123 |（地球）| 中/英 | 空格）。数字层是切换键 |（地球）| 0 | 空格 | 中/英（左边时 切换键 |（地球）| 中/英 | 0 | 空格），空格就是常驻的空格键，长按语音和拖动光标的手势跟着它走。
      */
     private LinearLayout tallReturnMiddleColumn(LinearLayout grid, float gridShare, boolean digits) {
         LinearLayout middle = LayoutPolicy.column(s);
@@ -460,8 +463,10 @@ final class ImeLayoutRows {
         LinearLayout cell = tallReturnBottomCell(true);
         boolean globe = s.offersGlobeKey();
         builtTallReturnGlobe = globe;
+        boolean languageLeft = s.languageKeyLeft;
+        builtTallReturnLanguageLeft = languageLeft;
         for (KeyboardActionRow.DesignEntry entry : KeyboardActionRow.tallReturnEntries(gridShare, globe,
-                s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits)) {
+                s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {
             Button key = s.imeBottomRow.actionRowKey(entry.slot());
             if (key == null) continue;
             s.imeBottomRow.placeKey(cell, entry.slot(), key, LayoutPolicy.weightedMatchParentParams(entry.weight()));

@@ -29,7 +29,7 @@ pub trait InputEngine {
     fn reset_context(&mut self) {}
     /// The committed text the Engine's neural sentence models condition on, pushed by the runtime whenever the text it keeps changes. Engines without such models ignore it.
     fn set_rescoring_context(&mut self, _context: &str) {}
-    /// 首页放得下几行，宿主改每页候选数时跟着分页一起下发；没有按切分查词库的引擎忽略它。
+    /// 首页放得下几行，runtime 建立、换引擎和改每页候选数时都把自己的分页下发给它；没有按切分查词库的引擎忽略它。
     fn set_first_page_rows(&mut self, _rows: usize) {}
     /// Moves the caret prefix decoding answers for; `None` returns to the end of the composition. Engines without
     /// prefix decoding ignore it and report nothing pending below.

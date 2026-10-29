@@ -2,7 +2,7 @@
 //!
 //! 需要真实的词库和句子模型，只在设置了 `MSIME_EVAL_RESOURCES` 时运行，否则打印 skipped 后通过。用 release 跑：四个评测集共两万多例。
 //!
-//! Runtime 一侧照 convert_eval 配置（`prepare_options`、关掉学习和所有本地模式、`sentence_alternatives` 打开、挂上 `sentence-model.safetensors`），另有两处按网页和产品宿主对齐：引擎的首屏门槛 `first_page_rows` 等于每页候选数（见 `PAGE_SIZE`），行内日期时间和日期菜单也关掉（网页没有本地模式）。每例先 `Cancel` + `clear_context` + `seed_context`。WebHost 一侧读同一份暂存出来的工作副本，每例 `reset` + `seed_context_for_eval`。convert_eval 还会在资源里有桌面版的定稿模型时挂上它并在每例末尾 `rerank_settled`；网页不发布那个模型，这里两边都不用它。
+//! Runtime 一侧照 convert_eval 配置（`prepare_options`、关掉学习和所有本地模式、`sentence_alternatives` 打开、挂上 `sentence-model.safetensors`），只有每页候选数不同：convert_eval 默认取共享偏好的出厂值 6，这里用网页的默认值 9（见 `PAGE_SIZE`）。每例先 `Cancel` + `clear_context` + `seed_context`。WebHost 一侧读同一份暂存出来的工作副本，每例 `reset` + `seed_context_for_eval`。convert_eval 还会在资源里有桌面版的定稿模型时挂上它并在每例末尾 `rerank_settled`；网页不发布那个模型，这里两边都不用它。
 
 #[path = "support/eval.rs"]
 mod eval;
@@ -17,7 +17,7 @@ use msime_input_runtime::{Action, Reranker, Runtime, SentenceModel};
 /// 失败时最多打印多少例。
 const SHOWN_MISMATCHES: usize = 20;
 
-/// 两边共用的每页候选数。产品宿主把同一个数既交给 runtime 分页，也交给引擎作首屏门槛（host-api 的 `options.first_page_rows = page_size`，`WebHost::with_paths` 同样如此）：全长组的精确同音词不足这么多行时，补全词并进首页。只给 runtime 传分页、引擎留在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入两边首页就不同。
+/// 两边共用的每页候选数。产品宿主把同一个数既交给 runtime 分页，也交给引擎作首屏门槛（host-api 的 `options.first_page_rows = page_size`，`WebHost::with_paths` 同样如此）：全长组的精确同音词不足这么多行时，补全词并进首页。只给 runtime 传分页、引擎留在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入两边首页就不同；`Runtime::new` 现在会把分页交给引擎，下面仍在选项里写同一个数，建会话时就对齐。
 const PAGE_SIZE: u8 = 9;
 
 fn runtime(resources: &Path, state: &Path, model: &[u8]) -> (Runtime, String) {

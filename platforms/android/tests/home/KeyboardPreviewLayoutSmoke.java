@@ -32,6 +32,7 @@ public final class KeyboardPreviewLayoutSmoke {
         swapLanguageNumber();
         nineActionColumn();
         nineKeySidebar();
+        languageLeft();
         caption();
         System.out.println("keyboard preview layout: passed");
     }
@@ -160,6 +161,37 @@ public final class KeyboardPreviewLayoutSmoke {
         check(rows.get(1).get(0).rows() == 0 && rows.get(2).get(0).rows() == 0, "the rail covers the next two rows");
         check(custom.with(Kind.TWENTY_SIX).with(Kind.NINE).equals(custom), "switching kinds keeps the sidebar table");
         check(Preview.STANDARD.with(Kind.NINE).rows().get(0).get(0).stack().isEmpty(), "the factory sidebar stays three keys");
+    }
+
+    /** 「中/英键放在空格左边」（#10228）打开时皮肤页这些预览与键盘排同一行：三类底行都先把中/英挪到空格左边，本机交换在最后一步做；右侧大回车是九宫格下方那一段；九键左侧符号换成用户的表时左列照样画那一屏，底行不受影响。 */
+    private static void languageLeft() {
+        Preview left = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN, SIX, SIX, TouchKeyStyle.Styles.DEFAULT,
+            false, false, false, List.of(), true);
+        check(left.languageLeft() && faces(last(left.rows())).equals(List.of("123", "符", "中", "空格", "，", "↵")),
+            "26 keys put 中 left of the space");
+        check(faces(last(left.with(Kind.NINE).rows())).equals(List.of("符", "123", "中", "空格", "↵")),
+            "9 keys put 中 left of the space");
+        check(left.with(Kind.TWENTY_SIX).with(Kind.NINE).with(Kind.TWENTY_SIX).equals(left), "switching kinds keeps the side");
+        for (Kind kind : Kind.values()) {
+            for (Row style : kind.rows) {
+                if (style == Row.TALL_RETURN) continue;
+                for (boolean swap : new boolean[] {false, true}) {
+                    Preview chosen = new Preview(kind, kind.with(TouchKeyStyle.Styles.DEFAULT, style), false, false, false, swap,
+                        List.of(), true);
+                    sameEntries(last(chosen.rows()), KeyboardActionRow.designEntries(touchLayout(kind), false, swap, false, false,
+                        style, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, true),
+                        "language left " + kind + " " + style + (swap ? " swapped" : ""));
+                }
+            }
+        }
+        List<Key> tall = last(new Preview(Kind.NINE, new TouchKeyStyle.Styles(Row.STANDARD, Row.STANDARD, Row.TALL_RETURN),
+            false, false, false, false, List.of(), true).rows());
+        check(faces(tall).subList(1, 4).equals(List.of("123", "中", "空格")), "the tall-return strip puts 中 before the space");
+        Preview custom = new Preview(Kind.NINE, TouchKeyStyle.Styles.DEFAULT, false, false, false, false,
+            List.of("@", "#", "~"), true);
+        List<List<Key>> rows = custom.rows();
+        check(rows.get(0).get(0).stack().equals(List.of("@", "#", "~")), "a custom sidebar still draws with 中 on the left");
+        check(faces(last(rows)).equals(List.of("符", "123", "中", "空格", "↵")), "the custom sidebar leaves the bottom row alone");
     }
 
     private static void caption() {

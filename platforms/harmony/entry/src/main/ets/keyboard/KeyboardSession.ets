@@ -1003,6 +1003,8 @@ interface PreparedPreferences {
   touch_nine_key_digit_sidebar_symbols?: string[];
   /** 大屏单手模式空出来的一侧放什么（off / number_pad）；默认值不写进文档。 */
   touch_one_handed_side_panel?: string;
+  /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
+  touch_language_key_side?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1182,6 +1184,8 @@ export interface KeyboardPreferences {
   readonly nineKeyDigitSidebarSymbols: string[];
   /** `touch_one_handed_side_panel`：大屏单手模式空出来的一侧放什么，不认识的值按空着（`OneHandedPolicy.sidePanel`）。 */
   readonly oneHandedSidePanel: OneHandedSidePanel;
+  /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
+  readonly languageKeyLeft: boolean;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1518,7 +1522,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO,
     nineKeySidebarSymbols: [],
     nineKeyDigitSidebarSymbols: [],
-    oneHandedSidePanel: OneHandedSidePanel.OFF
+    oneHandedSidePanel: OneHandedSidePanel.OFF,
+    languageKeyLeft: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1966,7 +1971,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.touch_nine_key_digit_sidebar_symbols,
         TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS
       ),
-      oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel)
+      oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel),
+      languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

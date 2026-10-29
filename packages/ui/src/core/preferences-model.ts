@@ -170,6 +170,8 @@ export type Preferences = PunctuationPreferences &
     touch_number_pad_space?: "platform_default" | "right_column" | "after_zero" | "before_zero";
     /** 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时空出来的一侧放什么：`off` 空着，`number_pad` 数字键盘；只在主键区是九键字母层时显示，分离式和浮动键盘不受影响。缺省为 `off`，client-core 不写进文档，不认识的值读作 `off`；桌面宿主保留、不读。 */
     touch_one_handed_side_panel?: "off" | "number_pad";
+    /** 手机触屏底行的中/英键在空格哪一边：`right` 在空格右边、紧挨回车；`left` 在空格左边，空格左边有逗号或句号时排在标点左边，标点仍紧挨空格。iPad 全尺寸键盘和鸿蒙 2in1 不受影响。缺省为 `right`，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_language_key_side?: "right" | "left";
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;

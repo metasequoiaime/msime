@@ -303,6 +303,10 @@ xcrun simctl install booted "$app"
 
 九键左侧符号栏可以自定义（#10223）：「键盘 › 按键布局」9 键分段卡片里、当前样式说明下面的「九键左侧符号」改字母层那张表（拼音九键、九键双拼和笔画共用，共享偏好 `touch_nine_key_sidebar_symbols`），「数字键盘」一组最后的「数字键盘左侧符号」改所有九宫格数字键盘左列那张表（`touch_nine_key_digit_sidebar_symbols`），导航行右侧是当前表的摘要。两张表共用编辑页 `NineKeySidebarEditorView`：滑动删除、按住拖动调整顺序、从常用符号里点选或手动输入一项、恢复默认；整表合规（不空、最多 30 项、每项最多 4 个码位且不含空白和控制字符、空格连起来最多 200 个 UTF-16 单元，规则在 `SharedUI/preferences/NineKeySidebarPreference.swift`，与 client-core 和 Android 相同）时才能保存，与 iOS 出厂表相同时写空数组。空表就是出厂表：字母层仍是原来的 ，。？（右侧大回车时末尾接 ！），画面逐点不变；自定义表换成 `NineKeySidebarScrollView`，一屏最多三项、等高，每项不矮于 28pt，多的上下滚动，右侧大回车不再接 ！，9 键预览的符号栏画一屏并逐格描边。数字层出厂是原来的 + - * /，自定义表换进同一个滚动栈，#+= 总在最后。自定义项先结束组字（字母层按首选上屏，数字层原样结束），再按字面上屏，不做全半角转换；表项正好是一对成对符号（`（）`、`()` 等，表照抄 Android `PairedPunctuationPolicy`）时光标停在中间。出厂项照旧走原来的标点和数字页路径，热力图仍画 ，。？。长按符号栏不做事（键盘扩展打不开宿主 App 的某一页），设置搜索收录两个标题、打开「键盘」页。iOS 不随账号同步这两项（`ios_settings.rs` 不收按键布局偏好），Android 与鸿蒙同步。见 `.agents/notes/implemented/feature/2026-10-29-nine-key-sidebar-shared.md`。
 
+## 中/英键放在空格左边
+
+「键盘 › 按键布局」每个分段的样式卡片里、当前样式说明下面（26 键排在「符」与「123」互换之后）的「中/英键放在空格左边」（共享偏好 `touch_language_key_side`，`right` 默认、`left`；只有恰好写着 `left` 时算左）在样式、互换和数字键盘空格位置都排完之后，把中/英左边紧挨着的那一串空格、0、逗号、句号整串右移一格，中/英排到这一串最左边，宽度不变（`TouchBottomRowLayout.languageBeforeSpace`）。没有标点贴着空格的行中/英紧挨空格，有标点的行（逗号句号、长空格、14/18 键、英文的句点、手写）标点仍紧挨空格。作用于手机底行（26 键一族、14/18 键、大千、手写）和九键外框（字母层、数字层、借来的数字九宫格、右侧大回车）；没有表的那几种排法由 `arrangeActionRow` 对按键视图套同一条规则，宽度约束照旧。iPad 全尺寸底行和 123 / #+= 层不变；隐藏了中/英键时不起作用，开关照样显示、照样写偏好。密码框和数字框照用户的选择，不退回。iOS 不随账号同步这一项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
+
 ## 运行 iOS Swift 测试
 
 `KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过 XcodeGen 生成工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：

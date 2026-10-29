@@ -655,18 +655,20 @@ final class ImeBottomRow {
         // 「符」与「123」互换是键位习惯，密码框和数字字段里也照样互换（样式在那里退回标准底行，标准底行同样有 符）。
         boolean symbolFirst = s.twentySixSymbolFirst;
         TouchKeyStyle.NumberPadSpace numberPadSpace = s.numberPadSpace;
+        // 中/英在空格左边同样是位置习惯，密码框和数字字段里照用户的选择，不退回。
+        boolean languageLeft = s.languageKeyLeft;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
-            + ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved()
+            + ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved() + ":" + languageLeft
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         // 数字九宫格的底行跟着进入它的键面排：返回键留在原来 123 那一格（签名里已有 layout，换入口会重排）。
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace)
-            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace);
+            : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace, languageLeft)
+            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace, languageLeft);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
-        // 中/英紧挨回车时，回车把键帽左边几 dp 让给中/英。每次都重设：回车键换成图标键后是另一个视图。
+        // 中/英紧挨回车时，回车把键帽左边几 dp 让给中/英；中/英挪到空格左边后不再紧挨回车，回车不让。每次都重设：回车键换成图标键后是另一个视图。
         if (s.actionRow instanceof KeyboardKeyArea area) {
             boolean yield = KeyboardActionRow.languageBesideReturn(entries);
             area.setYield(yield ? s.enterButton : null, yield ? s.languageButton : null,

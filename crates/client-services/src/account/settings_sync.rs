@@ -16,8 +16,9 @@ use crate::preferences::{
     format_nine_key_sidebar_symbols, parse_nine_key_sidebar_symbols, BracketStyle, FrequencyMode,
     FrequencyPreferences, GrammarModel, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
     SecondThirdCandidateKeys, ShuangpinProfile, ThemeMode, TouchFourteenKeyStyle,
-    TouchKeyboardLayout, TouchNineKeyStyle, TouchNumberPadSpace, TouchOneHandedSidePanel,
-    TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
+    TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle, TouchNumberPadSpace,
+    TouchOneHandedSidePanel, TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout,
+    WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,8 @@ const NINE_KEY_SIDEBAR_SYMBOLS: &str = "platform.android.nine_key_symbols";
 const NINE_KEY_DIGIT_SIDEBAR_SYMBOLS: &str = "platform.android.nine_key_digit_symbols";
 /// 共享偏好 `touch_one_handed_side_panel`；账号字段表收录它之前上传时会被滤掉。
 const ONE_HANDED_SIDE_PANEL: &str = "platform.android.one_handed_side_panel";
+/// 共享偏好 `touch_language_key_side`；账号字段表收录它之前上传时会被滤掉。
+const LANGUAGE_KEY_SIDE: &str = "platform.android.language_key_side";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -93,6 +96,7 @@ pub(super) struct TouchHostKeys {
     pub(super) nine_key_sidebar_symbols: &'static str,
     pub(super) nine_key_digit_sidebar_symbols: &'static str,
     pub(super) one_handed_side_panel: &'static str,
+    pub(super) language_key_side: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -124,6 +128,7 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     nine_key_sidebar_symbols: NINE_KEY_SIDEBAR_SYMBOLS,
     nine_key_digit_sidebar_symbols: NINE_KEY_DIGIT_SIDEBAR_SYMBOLS,
     one_handed_side_panel: ONE_HANDED_SIDE_PANEL,
+    language_key_side: LANGUAGE_KEY_SIDE,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -602,6 +607,11 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.one_handed_side_panel,
         preferences.touch_one_handed_side_panel.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.language_key_side,
+        preferences.touch_language_key_side.as_str(),
     );
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
@@ -1519,6 +1529,11 @@ pub(super) fn apply_touch_settings(
     // 单手侧边面板连本机不认识的写法（较新版本加的面板，如文本编辑面板）也照原样收下：宿主按空着画，下一次导出写回同一个值，与这次记下的基线相同，不会被当成本机改动拿 `off` 覆盖云端。
     applier.set_string(keys.one_handed_side_panel, |preferences, value| {
         preferences.touch_one_handed_side_panel = TouchOneHandedSidePanel::from_wire(value);
+        Some(())
+    })?;
+    // 中/英键位置同样按严格写法应用，本机不认识的位置只跳过这一个键。
+    applier.set_string(keys.language_key_side, |preferences, value| {
+        preferences.touch_language_key_side = TouchLanguageKeySide::parse(value)?;
         Some(())
     })?;
 

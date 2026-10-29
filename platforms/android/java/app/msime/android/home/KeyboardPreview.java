@@ -88,7 +88,7 @@ public final class KeyboardPreview extends View {
     }
 
     /**
-     * 从共享偏好读出预览要画的那一副（{@link KeyLayoutStylesPolicy#preview}）：画哪一类键盘与「按键布局」页默认停的那一类同一条规则，各类所选样式、顶部数字行、「符」与「123」互换和九键左侧符号读的是键盘读的同几项，另加本机的「交换语言键与数字键」。会读本机设置文件，要在工作线程上调用。
+     * 从共享偏好读出预览要画的那一副（{@link KeyLayoutStylesPolicy#preview}）：画哪一类键盘与「按键布局」页默认停的那一类同一条规则，各类所选样式、顶部数字行、「符」与「123」互换、九键左侧符号和「中/英键放在空格左边」读的是键盘读的同几项，另加本机的「交换语言键与数字键」。会读本机设置文件，要在工作线程上调用。
      *
      * @param preferences 共享偏好（{@code KeyboardSheets.preferences}）；null 时按标准样式画，只保留本机的互换设置
      */
@@ -110,7 +110,8 @@ public final class KeyboardPreview extends View {
             preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
             preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false),
             swap,
-            NineKeySidebarPolicy.fromPreference(preferences.opt(NineKeySidebarPolicy.LETTER_PREFERENCE)));
+            NineKeySidebarPolicy.fromPreference(preferences.opt(NineKeySidebarPolicy.LETTER_PREFERENCE)),
+            TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE)));
     }
 
     /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
