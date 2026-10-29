@@ -1134,9 +1134,9 @@ fn collections_enabled_words_are_queued_again_after_a_learned_data_reset() {
         .add_words(&pinyin, vec![shuishan(10_000)])
         .unwrap();
     let kept = english("kept");
-    create_with(&fixture, "英文", &[kept.clone()]);
+    create_with(&fixture, "英文", std::slice::from_ref(&kept));
     let idle_word = english("idle");
-    let idle = create_with(&fixture, "停用", &[idle_word.clone()]);
+    let idle = create_with(&fixture, "停用", std::slice::from_ref(&idle_word));
     fixture.store.set_enabled(&idle, false).unwrap();
     fixture.drain();
     assert_eq!(fixture.dictionary.get(&own.identity()), Some(&own.weight));
