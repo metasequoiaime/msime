@@ -3,6 +3,8 @@
  *
  * 移植自本键盘所遵循的先例 Android：存储值及其默认值是 `AndroidLocalSettings` 中的 `platform.android.one_handed`（`off`、`left` 或 `right`，默认 `off`），磁贴的点按和长按是 `MSIMEInputService.toggleOneHanded`，侧边栏是 `ImeFrame` 加 `OneHandGutterView`。侧边栏位于按键让开的那一侧，占宽度的 15%；工具栏和候选条保持全宽。侧边栏的尺寸取自设计稿（全平台 UI.dc.html 的单手按键区）：40vp 按钮间隔 14vp，20vp 图标描边 1.9，侧边栏与按键间距 6vp，按下缩放 .9。
  *
+ * 大屏上（平板、折叠屏内屏）沿用手机的 15% 会让按键有上千 vp 宽，单手够不着（#10202）。所以大屏上「侧栏 + 间距 + 按键」这一块按按键 360vp 算（`blockWidthVp`），贴到按键所在的那一侧，另一侧空着，与 Android 的 `KeyboardFormFactorPolicy.oneHandedBlockWidthDp` 相同。
+ *
  * 只有按键会变窄。替换按键的面板（功能面板、表情、剪贴板等）全宽绘制，就像 Android 的侧边栏在没有按键行显示时隐藏一样。2in1 在条带上不绘制自己的触摸按键，所以该模式在那里从不生效。
  */
 export enum OneHandedMode {
@@ -25,6 +27,23 @@ export class OneHandedPolicy {
   static readonly ICON_VP: number = 20;
   static readonly ICON_STROKE: number = 1.9;
   static readonly PRESSED_SCALE: number = 0.9;
+  /** 大屏上按键最宽多少，与 Android 的 `ONE_HANDED_KEYS_MAX_WIDTH_DP` 相同。 */
+  static readonly KEYS_MAX_WIDTH_VP: number = 360;
+
+  /**
+   * 单手模式下「侧栏 + 间距 + 按键」这一块的宽度（vp）。返回 0 表示手机：铺满整行，侧栏照旧占 15%。
+   * 大屏上按键取 `KEYS_MAX_WIDTH_VP`，侧栏仍占这一块的 15%；屏幕窄到放不下时整行都给它。
+   */
+  static blockWidthVp(screenWidthVp: number, largeScreen: boolean): number {
+    if (!largeScreen) {
+      return 0;
+    }
+    const block: number = Math.round(
+      (OneHandedPolicy.KEYS_MAX_WIDTH_VP + OneHandedPolicy.RAIL_GAP_VP) /
+        (1 - OneHandedPolicy.RAIL_PERCENT / 100),
+    );
+    return screenWidthVp > 0 ? Math.min(screenWidthVp, block) : block;
+  }
 
   /** 本版本认得的存储值；其他值一律返回 `fallback`。 */
   static parse(

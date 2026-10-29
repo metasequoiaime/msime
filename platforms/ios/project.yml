@@ -498,6 +498,8 @@ targets:
           - build-native.sh
           - tools/**
       - path: KeyboardTests/input/InputSchemeTestSupport.swift
+      # 登录前的同意勾选规则，LoginConsentPolicyTests 直接测它。
+      - path: App/Sources/account/LoginConsentPolicy.swift
       - path: App/Services/BoundedFileReader.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/AIProviderCatalog.swift

@@ -3560,6 +3560,38 @@ fn key_geometry_is_validated_at_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// 视图 JSON 里候选的 `confident_correction` 只在按首选规则坐上第一位的双拼触点纠错行上出现（#10018 PR3）；默认参数（m_sp 无穷大）下带触点打字，视图里没有一行带这个字段，与加字段之前逐字节相同。
+#[test]
+fn touched_views_carry_no_confident_correction_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        set_key_geometry(handle, &touch_geometry_json(4))["ok"],
+        true
+    );
+    let mut view = Value::Null;
+    for byte in *b"nihc" {
+        let x = f32::from(byte - b'a') * 10.0 + 1.0;
+        let typed = read(msime_client_touch_character(handle, byte, false, 4, x, 1.0));
+        assert_eq!(typed["ok"], true, "{typed}");
+        view = typed["value"]["view"].clone();
+    }
+    let candidates = view["candidates"].as_array().unwrap();
+    assert!(!candidates.is_empty(), "{view}");
+    for candidate in candidates {
+        assert!(
+            candidate.get("confident_correction").is_none(),
+            "{candidate}"
+        );
+    }
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn a_malformed_glide_request_fails_without_touching_the_session() {
     let dir = tempfile::tempdir().unwrap();
@@ -8435,7 +8467,7 @@ fn destroying_a_session_drops_its_unfinished_settled_job() {
     assert_eq!(read(msime_client_destroy(other))["ok"], true);
 }
 
-/// The desktop model preference switches the runtime's settled rerank, at creation and on a later update, and the keyboard model switch reaches the rebuilt Engine the same way.
+/// The desktop model preference switches the runtime's settled rerank, at creation and on a later update. The keyboard model switch (整句联想「增强」) never reaches the Engine, created or rebuilt: it mounts only the runtime's per-keystroke reranker.
 #[test]
 fn sentence_model_switches_follow_the_preferences() {
     let directory = tempfile::tempdir().unwrap();
@@ -8452,7 +8484,7 @@ fn sentence_model_switches_follow_the_preferences() {
             )
         })
     };
-    assert_eq!(switches(), (true, true));
+    assert_eq!(switches(), (true, false));
 
     preferences.sentence_association.neural_desktop = false;
     preferences.sentence_association.neural_keyboard = false;
@@ -8461,23 +8493,42 @@ fn sentence_model_switches_follow_the_preferences() {
     assert_eq!(switches(), (false, false));
 
     preferences.sentence_association.neural_desktop = true;
+    preferences.sentence_association.neural_keyboard = true;
     assert_eq!(update(handle, 2, &preferences)["ok"], true);
     assert_eq!(switches(), (true, false));
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
-/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
+/// 「增强」只决定 runtime 的逐键重排器：偏好打开且版本带键盘模型时才挂，交给 Engine 的选项里引擎那层键盘模型始终关着。
+#[test]
+fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
+    let mut association = msime_client_core::preferences::SentenceAssociationPreferences::default();
+    assert!(!keyboard_reranker_enabled(&association, Edition::full()));
+    association.neural_keyboard = true;
+    assert!(keyboard_reranker_enabled(&association, Edition::full()));
+    assert!(!engine_sentence_association(&association, None).neural_keyboard);
+    // 不带键盘模型的版本（五笔版）不挂。
+    let wubi = Edition::by_id("wubi").unwrap();
+    assert!(!wubi.features.neural_keyboard);
+    assert!(!keyboard_reranker_enabled(&association, wubi));
+    // 关着时连模型文件都不去读。
+    assert!(ffi::keyboard_reranker(false, "", None).is_none());
+}
+
+/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
-    let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
+    let synthetic = tempfile::tempdir().unwrap();
+    let model = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
         .into_iter()
         .filter_map(std::env::var_os)
         .map(|directory| std::path::PathBuf::from(directory).join(ffi::SENTENCE_MODEL_FILE))
         .find(|path| path.is_file())
-    else {
-        eprintln!("skipping: no sentence model in MSIME_EVAL_RESOURCES or MSIME_NEURAL_MODEL_DIR");
-        return;
-    };
+        .unwrap_or_else(|| {
+            let path = synthetic.path().join(ffi::SENTENCE_MODEL_FILE);
+            write_context_free_sentence_model(&path);
+            path
+        });
     let create = |root: &std::path::Path, preferences: &Preferences| {
         let path = |name| {
             let path = root.join(name);
@@ -8489,8 +8540,14 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
         assert_eq!(created["ok"], true, "{created}");
         created["value"]["session"].as_u64().unwrap()
     };
-    let attached =
-        |handle: u64| SESSIONS.with(|sessions| sessions.borrow()[&handle].runtime.has_reranker());
+    // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
+    let attached = |handle: u64| {
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert!(!session.options.sentence_association.neural_keyboard);
+            session.runtime.has_reranker()
+        })
+    };
 
     let directory = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
@@ -8518,6 +8575,51 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
         "增强 attaches the keyboard model when the session opens"
     );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// Writes the smallest sentence model `SentenceModel::load` accepts: no layers, a one-wide embedding and only the three special tokens, so every context gets the same logits. It is good for checking that a reranker is mounted, not for anything it would rank.
+fn write_context_free_sentence_model(path: &std::path::Path) {
+    const CONTEXT: usize = 16;
+    let vocabulary = ["<pad>", "<unk>", "<bos>"];
+    let config = format!(
+        r#"{{"vocab":{},"n_layer":0,"n_head":1,"n_embd":1,"context":{CONTEXT},"dropout":0.0}}"#,
+        vocabulary.len()
+    );
+    let tensors: [(&str, Vec<usize>, Vec<f32>); 4] = [
+        (
+            "tok.weight",
+            vec![vocabulary.len(), 1],
+            vec![0.0, -8.0, 0.0],
+        ),
+        ("pos.weight", vec![CONTEXT, 1], vec![0.0; CONTEXT]),
+        ("ln_f.weight", vec![1], vec![0.0]),
+        ("ln_f.bias", vec![1], vec![1.0]),
+    ];
+    let mut header = serde_json::Map::new();
+    header.insert(
+        "__metadata__".into(),
+        json!({
+            "format": "chinese-ime-lm",
+            "version": "1",
+            "precision": "f32",
+            "config": config,
+            "vocab": serde_json::to_string(&vocabulary).unwrap(),
+        }),
+    );
+    let mut data = Vec::new();
+    for (name, shape, values) in tensors {
+        let start = data.len();
+        data.extend(values.iter().flat_map(|value| value.to_le_bytes()));
+        header.insert(
+            name.into(),
+            json!({"dtype": "F32", "shape": shape, "data_offsets": [start, data.len()]}),
+        );
+    }
+    let header = serde_json::to_vec(&Value::Object(header)).unwrap();
+    let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+    bytes.extend_from_slice(&header);
+    bytes.extend_from_slice(&data);
+    std::fs::write(path, bytes).unwrap();
 }
 
 fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {

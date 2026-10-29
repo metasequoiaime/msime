@@ -6,6 +6,7 @@ import {
   VoiceLevelThrottle,
   VoiceListeningPlan,
   VoiceListeningPolicy,
+  VoiceListeningSession,
 } from "../entry/src/main/ets/keyboard/faces/VoiceListeningPolicy";
 
 declare const process: { exitCode?: number };
@@ -308,6 +309,39 @@ expect("fit/head-ellipsis", VoiceListeningPolicy.fitTail("abcdefghij", codePoint
     (candidate: string): boolean => width(candidate) <= 7,
   );
   expect("fit/measured", fitted === "…成文字", fitted);
+}
+
+// ---- buttons ----
+{
+  const session = (overrides: Partial<VoiceListeningSession>): VoiceListeningSession => ({
+    busy: false,
+    finishing: false,
+    heldByKey: false,
+    done: false,
+    hasText: false,
+    ...overrides,
+  });
+  const labels = (state: VoiceListeningSession): string =>
+    `${VoiceListeningPolicy.primaryLabel(state)}|${VoiceListeningPolicy.cancelLabel(state)}`;
+  // 按住说话（空格长按、快捷键按住）录音和收尾时都没有按钮，面板不画按钮行。
+  expect("buttons/held-recording", labels(session({ busy: true, heldByKey: true })) === "|");
+  expect(
+    "buttons/held-finishing",
+    labels(session({ busy: true, finishing: true, heldByKey: true })) === "|",
+  );
+  // 快捷键 LOCK 之后 heldByKey 为 false：和点按开始的会话一样给「说完了」「取消」。
+  const tapped = labels(session({ busy: true }));
+  expect("buttons/tap-recording", tapped === "说完了|取消", tapped);
+  expect("buttons/locked-is-tap", labels(session({ busy: true, heldByKey: false })) === tapped);
+  expect(
+    "buttons/tap-finishing",
+    labels(session({ busy: true, finishing: true })) === "正在识别…|取消",
+  );
+  // 不忙时一律能「返回键盘」，按住说话结束后也一样。
+  expect("buttons/idle", labels(session({})) === "重新录音|返回键盘");
+  expect("buttons/idle-after-hold", labels(session({ heldByKey: true })) === "重新录音|返回键盘");
+  expect("buttons/idle-with-text", labels(session({ hasText: true })) === "插入文字|返回键盘");
+  expect("buttons/done", labels(session({ done: true, heldByKey: true })) === "|返回键盘");
 }
 
 // ---- throttle ----

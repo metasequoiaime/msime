@@ -46,6 +46,8 @@ pub const RUNTIME_REPLAY_FAILED: &str = "Runtime dictionary replay failed: ";
 /// Followed by the source path.
 pub const RUNTIME_COPY_FAILED: &str = "Unable to copy runtime dictionary: ";
 pub const RUNTIME_FINALIZE_FAILED: &str = "Cannot finalize runtime dictionary generation";
+/// 后面接文件名和原因，见 `format::check_format_version`。
+pub const DICTIONARY_FORMAT_UNSUPPORTED: &str = "Dictionary format version unsupported: ";
 pub const INVALID_DICTIONARY_STATE: &str = "Invalid or unavailable dictionary state";
 
 // ---- Host facade errors (the C++ bridge) ----

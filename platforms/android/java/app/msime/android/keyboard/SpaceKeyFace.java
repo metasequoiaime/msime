@@ -6,7 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 
 /**
- * 空格键：键面画 22 dp 的麦克风描边图标加方案短名（13 sp，kbSub），例如「全拼」「双拼 · 小鹤」「五笔 86」，英文模式是「space」。
+ * 空格键：键面画 22 dp 的麦克风描边图标加方案短名（13 sp，kbSub），例如「全拼」「双拼 · 小鹤」「五笔 86」，英文模式是「space」。麦克风只在开着「长按空格语音输入」时画，由 {@link ImeBottomRow} 经 {@link #setShowsMic} 设置。
  *
  * <p>节点 text 仍是「空格」（§2.8），只是不绘制；键帽背景照常由样式通道设置。麦克风与短名的颜色由调用方从皮肤取后传入。
  */
@@ -55,7 +55,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         invalidate();
     }
 
-    /** 语音不可用时可以只画短名。 */
+    /** 关掉长按空格语音时不画麦克风，只画短名。 */
     public void setShowsMic(boolean value) {
         if (showsMic == value) return;
         showsMic = value;
@@ -90,6 +90,11 @@ public final class SpaceKeyFace extends KeyboardPressButton {
             case TIBETAN -> "藏文";
             case STROKE -> "笔画";
         };
+    }
+
+    /** 数字页空格键的短名：数字页的空格只有一个功能键宽，平时只画麦克风；不画麦克风时写「空格」，免得键面一片空白。 */
+    public static String numberPadLabel(boolean showsMic) {
+        return showsMic ? "" : "空格";
     }
 
     /** 键面内容总宽：麦克风、间距与短名，供居中计算；纯算术，冒烟可测。 */

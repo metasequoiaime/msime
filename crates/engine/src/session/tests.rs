@@ -1463,6 +1463,121 @@ fn picking_another_row_over_a_leading_correction_counts_a_rejection() {
     assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(1));
 }
 
+/// 首选规则可用时的计价参数（其余照默认值）：分数比字面整句高就算明显更优，改动的那一键原价不超过 10。f 那一键落在 f 和 r 正中时原价是 B = 8。
+fn lead_tuning() -> crate::touch::TouchTuning {
+    crate::touch::TouchTuning {
+        lead_margin: 0.0,
+        lead_penalty: 10.0,
+        ..crate::touch::TouchTuning::default()
+    }
+}
+
+/// 拒绝一票否决首选（#10018 PR3）：首选是按首选规则坐上去的纠错整句，用户选了字面整句，记一次拒绝；之后同一串输入带同样的触点，纠错整句不再坐首选，但仍在表里，选中它照样是接受。
+#[test]
+fn rejecting_a_confident_correction_vetoes_its_first_seat() {
+    let fixture = touch_learning_fixture();
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    session.set_touch_tuning(lead_tuning());
+    type_touched(&mut session, true);
+    let snapshot = session.snapshot();
+    assert_eq!(
+        snapshot.candidates[0].word,
+        "没关系",
+        "{:?}",
+        words(&session)
+    );
+    assert!(snapshot.candidates[0].confident_correction);
+    assert!(snapshot.candidates[1..]
+        .iter()
+        .all(|row| !row.confident_correction));
+    assert_eq!(select_word(&mut session, "没跟系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+
+    type_touched(&mut session, true);
+    let snapshot = session.snapshot();
+    assert_ne!(
+        snapshot.candidates[0].word,
+        "没关系",
+        "{:?}",
+        words(&session)
+    );
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
+    assert!(snapshot
+        .candidates
+        .iter()
+        .any(|row| row.word == "没关系" && !row.corrected_from.is_empty()));
+    assert_eq!(select_word(&mut session, "没关系").diagnostic, None);
+    assert_eq!(shuangpin_typo_count(&fixture, "accepted"), Some(1));
+    assert_eq!(shuangpin_typo_count(&fixture, "rejected"), Some(1));
+}
+
+/// 首选规则 (a)、(f) 落在会话上：撤回选词后重打的那一段没有触点、按键全在键心、或者不带触点（平面表），纠错整句都不坐首选；被抑制的输入（用户按原样上屏过）不再带触点，也不坐首选。
+#[test]
+fn the_session_puts_a_correction_first_only_with_every_key_touched() {
+    let fixture = touch_learning_fixture();
+    let first_is_confident = |session: &Session| {
+        let snapshot = session.snapshot();
+        assert!(snapshot.candidates[1..]
+            .iter()
+            .all(|row| !row.confident_correction));
+        snapshot.candidates[0].confident_correction
+    };
+    let mut session = fixture.session_with(touch_shuangpin);
+    session.set_key_geometry(Some(qwerty_geometry()));
+    session.set_touch_tuning(lead_tuning());
+    type_touched(&mut session, false);
+    assert!(!first_is_confident(&session));
+    session.command(Command::Cancel);
+    // 最后一键没有触点（宿主没送、无障碍点击）。
+    for (index, byte) in b"mwgfxi".iter().enumerate() {
+        let (dx, dy) = if index == 3 { (-5, -10) } else { (0, 0) };
+        if index < 5 {
+            session.set_key_touch(Some(crate::touch::KeyTouch { dx, dy, copy: 0 }));
+        }
+        session.character(*byte, false);
+    }
+    assert!(!first_is_confident(&session));
+    session.command(Command::Cancel);
+    type_touched(&mut session, true);
+    assert!(first_is_confident(&session));
+    // 用户按原样上屏：记抑制，之后同一串输入按字面回答、请求不带触点。
+    session.command(Command::CommitRaw);
+    type_touched(&mut session, true);
+    assert!(request_touches(&session).is_empty());
+    assert!(session
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction && row.corrected_from.is_empty()));
+    session.command(Command::Cancel);
+
+    // 本地模式（超级简拼）里同样的按键带同样的触点：触点不进方案，没有一行坐首选。
+    let mut local = fixture.session_with(touch_shuangpin);
+    local.set_key_geometry(Some(qwerty_geometry()));
+    local.set_touch_tuning(lead_tuning());
+    local.character(b'J', true);
+    type_touched(&mut local, true);
+    let snapshot = local.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::SuperJianpin);
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
+
+    let mut flat = fixture.session_with(touch_shuangpin);
+    flat.set_touch_tuning(lead_tuning());
+    type_text(&mut flat, "mwgfxi");
+    assert!(flat
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|row| !row.confident_correction));
+}
+
 /// 日志里有双拼的接受、拒绝和抑制记录，不带触点的会话（桌面、实体键盘）逐字节和没有这些记录时一样。
 #[test]
 fn shuangpin_typo_learning_never_reaches_a_session_without_touches() {
@@ -14155,3 +14270,4 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod lifecycle;

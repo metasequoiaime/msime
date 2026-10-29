@@ -33,11 +33,12 @@ struct VoiceSettingsView: View {
             .accessibilityIdentifier("voicePunctuationToggle")
           DesignDivider()
           DesignSelectRow(title: "启动方式",
+                          subtitle: trigger == .none ? VoiceTrigger.noneHint : nil,
                           options: [DesignOption(title: "长按空格", value: VoiceTrigger.space, identifier: "voiceStartSpace"),
                                     DesignOption(title: "工具栏按钮", value: VoiceTrigger.toolbar, identifier: "voiceStartToolbar"),
                                     DesignOption(title: "无", value: VoiceTrigger.none, identifier: "voiceStartNone")],
                           selection: Binding(get: { trigger }, set: saveTrigger),
-                          sheetTitle: "启动方式", identifier: "voiceStartPicker")
+                          sheetTitle: "启动方式", sheetMessage: VoiceTrigger.sheetHint, identifier: "voiceStartPicker")
         }
 
         DesignGroup(title: "服务") {
@@ -110,6 +111,10 @@ enum VoiceTrigger: Hashable {
   init(spaceVoice: Bool, voiceShortcut: Bool) {
     self = spaceVoice ? .space : voiceShortcut ? .toolbar : .none
   }
+
+  /// 「无」只是空格键和工具栏上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格改为移动光标（键盘的 `handleSpaceVoiceHold`），这里照实写，不照搬 Android「只输入空格」的说法。「更多工具」里的「语音输入」磁贴只在工具栏语音按钮露出时才藏（键盘的 `makeTools`），选「无」时它还在，说明里也写出来（#10143）。
+  static let noneHint = "空格键和工具栏上不放语音入口，长按空格改为移动光标；要说话可在「更多工具」里点「语音输入」"
+  static let sheetHint = "选「无」时" + noneHint
 }
 
 /// 单独一页的本地语音模型，内容与语音服务页里的那一节相同。

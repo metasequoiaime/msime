@@ -3,6 +3,8 @@
 //! This crate replaces the C++ MSIME-Engine that used to be fetched from `engine-lock.json` and patched by overlay scripts. It owns the input algorithms; `msime-input-runtime` keeps orchestrating hosts and does not duplicate any of it.
 //!
 //! Two public layers: `Session` and the functions beside it mirror the C++ `metasequoia::` API the golden fixtures were recorded against, and `host` is the flattened surface host-api and input-runtime call. The module map and who owns what is `.migration/spec/modules.md`.
+//!
+//! 引擎在运行时读写的每个文件（词库、模型、学习日志、代次目录）的格式、版本检查、产出方与数据许可证见仓库里的 `docs/data-formats.md`；代码注释里的 `data-formats.md §N` 指它的章节。
 
 pub mod assets;
 pub mod backend;
@@ -101,7 +103,12 @@ pub fn flush_personal_learning() {
     user_dictionary::ngram_store::flush_all()
 }
 
-/// Drop every cached journal, personal-context and local-mode connection. Call before deleting or replacing a data directory.
+/// Write every queued personal-context transition and stop the background thread that writes them, waiting for it to end. Call before unloading the engine or exiting the process; sessions still work afterwards, and the next transition they record starts the thread again.
+pub fn shutdown() {
+    user_dictionary::ngram_store::shutdown()
+}
+
+/// Drop every cached journal, personal-context and local-mode connection, on every thread (a connection an operation is using closes when that operation ends). Call before deleting or replacing a data directory.
 pub fn close_cached_databases() {
     user_dictionary::journal::close_cached_journals()
 }
