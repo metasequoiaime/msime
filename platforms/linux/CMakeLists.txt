@@ -1269,7 +1269,7 @@ if(NOT MSIME_ENABLE_FCITX5)
   message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
                  "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
 endif()
-# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS), under which the package as a whole is distributed; the input engine (crates/engine and crates/path-trust) is this project's code under MPL-2.0, whose LICENSE files collect-notices.py puts in rust-crates-NOTICES.txt. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the octagram reader, ported from librime-octagram (BSD-3-Clause) with darts-clone's double-array layout (BSD-2-Clause); the beam sorts reproduced from libc++ (Apache-2.0 WITH LLVM-exception); the LaTeX command table of symbol mode, this project's own data under MIT, whose text is installed whether or not the latex-symbols plugin pack is; the component reverse lookup table of 拆字反查 (C mode), adapted from kfcd/chaizi (CC BY 3.0, whose attribution and list of changes travel with it), with readings, ranks and traditional variants from the Unicode Han Database (Unicode License V3); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the stroke orders of the Stroke scheme, from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered; the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
+# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS), under which the package as a whole is distributed; the input engine (crates/engine and crates/path-trust) is this project's code under MPL-2.0, whose LICENSE files collect-notices.py puts in rust-crates-NOTICES.txt. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the octagram reader, ported from librime-octagram (BSD-3-Clause) with darts-clone's double-array layout (BSD-2-Clause); the beam sorts reproduced from libc++ (Apache-2.0 WITH LLVM-exception); the LaTeX command table of symbol mode, this project's own data under MIT, whose text is installed whether or not the latex-symbols plugin pack is; the component reverse lookup table of 拆字反查 (C mode), adapted from kfcd/chaizi (CC BY 3.0, whose attribution and list of changes travel with it), with readings, ranks and traditional variants from the Unicode Han Database (Unicode License V3); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the stroke orders of the Stroke scheme, from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered; the MIT and Apache-2.0 data in the dictionaries msime-linux-setup downloads, whose licence texts have to accompany every copy: the single-character readings of msime-pinyin.db (mozillazg/pinyin-data), the English–Chinese glosses of msime-english.db (skywind3000/ECDICT), the kaomoji and the keyword phrase readings of msime-others.db (aoguai/rime_kaomoji_dict, mozillazg/python-pinyin) and the 86 Wubi table of msime-wubi.db (KyleBing/rime-wubi86-jidian, Apache-2.0); the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
 set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
@@ -1290,7 +1290,12 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt")
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/pinyin-data-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/python-pinyin-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
   copyright
@@ -1311,7 +1316,12 @@ set(MSIME_NOTICE_NAMES
   libchewing-data-LGPL-2.1.txt
   ewts-MIT.txt
   rime-stroke-LGPL-3.0.txt
-  OpenCC-Apache-2.0.txt)
+  OpenCC-Apache-2.0.txt
+  pinyin-data-MIT.txt
+  ECDICT-MIT.txt
+  rime_kaomoji_dict-MIT.txt
+  python-pinyin-MIT.txt
+  rime-wubi86-jidian-Apache-2.0.txt)
 # The handwriting model's LGPL-2.1 license travels with the model, so it is a notice only when the model is installed.
 if(MSIME_HANDWRITING_MODEL_DIR)
   list(APPEND MSIME_NOTICE_SOURCES "${MSIME_HANDWRITING_MODEL_DIR}/HandwritingModel-LICENSE.txt")

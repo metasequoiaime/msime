@@ -150,6 +150,17 @@ targets:
       # 简繁转换内嵌的 OpenCC 词表许可证随 App 分发。
       - path: ../../resources/licenses/OpenCC-Apache-2.0.txt
         buildPhase: resources
+      # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据，两种许可都要求随副本附上全文：msime-pinyin.db 的单字读音（mozillazg/pinyin-data）、msime-english.db 的中英释义（skywind3000/ECDICT）、msime-others.db 的颜文字（aoguai/rime_kaomoji_dict）与关键词整词读音（mozillazg/python-pinyin）、msime-wubi.db 的 86 码表（KyleBing/rime-wubi86-jidian，Apache-2.0）。
+      - path: ../../resources/licenses/pinyin-data-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/ECDICT-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/rime_kaomoji_dict-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/python-pinyin-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

@@ -353,7 +353,12 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "MPL-2.0", title: "输入引擎与 rink-core", detail: "引擎、单位换算 · MPL-2.0"),
     LicenseNotice(file: "librime-octagram-BSD-3-Clause", title: "librime-octagram 与 darts-clone", detail: "搭配模型查询 · BSD-3-Clause 与 BSD-2-Clause"),
     LicenseNotice(file: "libcxx-Apache-2.0-WITH-LLVM-exception", title: "LLVM libc++", detail: "整句排序 · Apache-2.0 WITH LLVM-exception"),
-    LicenseNotice(file: "latex-symbols-MIT", title: "LaTeX 符号表", detail: "符号模式 · MIT")
+    LicenseNotice(file: "latex-symbols-MIT", title: "LaTeX 符号表", detail: "符号模式 · MIT"),
+    LicenseNotice(file: "pinyin-data-MIT", title: "pinyin-data", detail: "拼音词库单字读音 · MIT"),
+    LicenseNotice(file: "ECDICT-MIT", title: "ECDICT", detail: "英文词库中英释义 · MIT"),
+    LicenseNotice(file: "rime_kaomoji_dict-MIT", title: "rime_kaomoji_dict", detail: "颜文字 · MIT"),
+    LicenseNotice(file: "python-pinyin-MIT", title: "python-pinyin", detail: "表情与颜文字关键词读音 · MIT"),
+    LicenseNotice(file: "rime-wubi86-jidian-Apache-2.0", title: "rime-wubi86-jidian", detail: "五笔 86 码表 · Apache-2.0")
   ]
 
   /// 本次构建的 bundle 里实际存在的声明文件。

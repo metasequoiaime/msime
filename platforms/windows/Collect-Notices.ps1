@@ -21,6 +21,11 @@ $documents.Add("MSIME third-party notice collection`nThis collection is not a li
 foreach ($notice in @(
     @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-bigram.bin, msime-trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
+    @('resources/licenses/pinyin-data-MIT.txt', 'Single-character readings of msime-pinyin.db, corrected against mozillazg/pinyin-data, and per-character readings of the emoji, kaomoji and symbol keywords in msime-others.db from the pinyin crate''s copy of the same data, MIT'),
+    @('resources/licenses/ECDICT-MIT.txt', 'English-Chinese glosses of msime-english.db, skywind3000/ECDICT ecdict.csv @ bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b, MIT'),
+    @('resources/licenses/rime_kaomoji_dict-MIT.txt', 'Kaomoji of msime-others.db, aoguai/rime_kaomoji_dict, MIT'),
+    @('resources/licenses/python-pinyin-MIT.txt', 'Phrase readings of the emoji, kaomoji and symbol keywords in msime-others.db, lazy_pinyin output of mozillazg/python-pinyin 0.55, MIT'),
+    @('resources/licenses/rime-wubi86-jidian-Apache-2.0.txt', '86 Wubi table of msime-wubi.db, KyleBing/rime-wubi86-jidian, Apache-2.0 (the upstream LICENSE @ 063377a0e3ae7d4084a45f03e4269f62f874f7dc, the terms the table was taken under; upstream moved to MIT on 2026-10-29)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
     @('resources/helpcodes/NOTICE-wubi86.md', 'Helpcode table (wubi86), generated from KyleBing/rime-wubi86-jidian, Apache-2.0, with 16 characters from rime/rime-wubi, LGPL-3.0 distributed under GPL-3.0'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),
