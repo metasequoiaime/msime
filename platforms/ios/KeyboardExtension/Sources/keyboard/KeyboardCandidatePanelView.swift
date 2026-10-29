@@ -5,6 +5,9 @@ struct KeyboardCandidateAnnotation: Equatable {
   let accessibilityDescription: String
 
   static let none = KeyboardCandidateAnnotation(text: "", accessibilityDescription: "")
+
+  /// 坐了首选的双拼纠错（`confident_correction`）在候选条和展开网格里的读屏标签都以它结尾，Android 与鸿蒙念同一句。
+  static let confidentCorrectionSpoken = "，已纠正"
 }
 
 extension UIColor {
@@ -43,6 +46,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var markers: [[CandidateMarker]]
   /// 在线占位行（AI 的「…」或云的「☁」）的下标：画成次要色，读屏念状态，不当成真候选（#6888）。
   private var aiPlaceholders: Set<Int>
+  /// 坐了首选的双拼纠错（`confident_correction`）的下标：字和纠错注释用强调色，读屏在末尾念「已纠正」。
+  private var confidentCorrections: Set<Int>
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   /// 长按候选块时提供的菜单。与候选条共用：在候选条里能管理词条的长按，展开列表后不应失效。
@@ -88,7 +93,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   }
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
-       markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [],
+       markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        selectedIndex: Int = 0, showsHeader: Bool = true, palette: CandidatePalette? = nil,
        canvas: ExternalCandidateSkin.Canvas? = nil,
@@ -102,6 +107,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.annotations = annotations
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
+    self.confidentCorrections = confidentCorrections
     self.display = display
     self.menuElements = menuElements
     self.onSelect = onSelect
@@ -242,11 +248,12 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   /// 换成另一代候选，面板不关。九键面板里选拼音、退格或筛选之后回到列表开头；只是 AI 行变了（回答插进第一页最后一格、多出来的接在末尾）时 `keepingScrollPosition` 留在原处，不跳回开头（#6888）。
   func reload(candidates: [String], annotations: [KeyboardCandidateAnnotation], markers: [[CandidateMarker]],
-              aiPlaceholders: Set<Int> = [], keepingScrollPosition: Bool = false) {
+              aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [], keepingScrollPosition: Bool = false) {
     self.candidates = candidates
     self.annotations = annotations
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
+    self.confidentCorrections = confidentCorrections
     count.text = "\(candidates.count) 个候选"
     if !keepingScrollPosition { scrollView.setContentOffset(.zero, animated: false) }
     rebuildChips()
@@ -341,6 +348,10 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let marks = markers.indices.contains(index) ? markers[index] : []
     let selected = index == selectedIndex
     let secondary = (selected ? palette?.selectedTranslation : nil) ?? palette?.secondary ?? skin.secondary
+    // 坐了首选的双拼纠错：字按固定词的规则取强调色，注释行（纠错前的拼写和释义）也用强调色，和没坐首选的纠错区分开。选中格画在调色板的选中底色上，调色板给了那里的翻译色或文字色（选中翻译色，其次选中文字色）就照用，都没给才用强调色：微信外观的选中底色就是强调色，强调色的注释会看不见。与候选条同一条规则。
+    let confidentCorrection = confidentCorrections.contains(index)
+    let annotationColor = confidentCorrection
+      ? (selected ? palette?.selectedTranslation ?? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : secondary
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     paragraph.alignment = .center
@@ -355,13 +366,13 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       for line in annotation.text.split(separator: "\n", omittingEmptySubsequences: false) {
         title += AttributedString("\n" + String(line), attributes: AttributeContainer([
           .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
-          .foregroundColor: secondary,
+          .foregroundColor: annotationColor,
         ]))
       }
     }
     var configuration = UIButton.Configuration.plain()
     configuration.attributedTitle = title
-    configuration.baseForegroundColor = selected || marks.contains(where: \.pinned)
+    configuration.baseForegroundColor = selected || marks.contains(where: \.pinned) || confidentCorrection
       ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
     let aiPlaceholder = aiPlaceholders.contains(index)
     if aiPlaceholder { configuration.baseForegroundColor = secondary }
@@ -390,6 +401,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       ? "候选词 \(number)：\(text)"
       : "候选词 \(number)：\(text)，\(annotation.accessibilityDescription)"
     for marker in marks { chip.accessibilityLabel? += "，\(marker.spoken)" }
+    if confidentCorrection { chip.accessibilityLabel? += KeyboardCandidateAnnotation.confidentCorrectionSpoken }
     if aiPlaceholder { chip.accessibilityLabel = "候选词 \(number)：\(CandidateMarker.pendingSpoken(candidate, markers: marks))" }
     chip.accessibilityTraits = selected ? [.button, .selected] : [.button]
     // 测量复用同一个按钮，不创建交互闭包；复用可见格子时先移除上一条候选的选择动作。

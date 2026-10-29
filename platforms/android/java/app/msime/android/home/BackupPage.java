@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.content.Context;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -260,7 +261,7 @@ public final class BackupPage extends DetailPage {
         message.append("和全部设置。")
             .append("\n\n恢复后设置按备份改写；皮肤、常用语、词和输入记录合并进来，本机已有的不会删除。");
         boolean[] decided = {false};
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("从备份恢复")
             .setMessage(message)
             .setNegativeButton("取消", null)
@@ -271,7 +272,7 @@ public final class BackupPage extends DetailPage {
             .setOnDismissListener(dialog -> {
                 if (!decided[0]) discard(prepared);
             })
-            .show();
+            .create());
     }
 
     private void restore(LocalBackup.Prepared prepared) {

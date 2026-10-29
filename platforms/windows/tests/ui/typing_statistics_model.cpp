@@ -234,6 +234,13 @@ int main() {
             upload_error_message(L"account_network", true).find(L"稍后会自动再试") != std::wstring::npos &&
             upload_error_message(L"account_network", false).find(L"没有删掉") != std::wstring::npos,
         "upload errors");
+  // 打开后没有传上去任何一天（last_upload_ms 为空）时不说已经传上去了。
+  UploadStatus nothing{true, std::nullopt, true};
+  UploadStatus uploaded{true, 1'700'000'000'000ull, true};
+  check(upload_done_message(true, nothing).find(L"还没有可上传的打字计数") != std::wstring_view::npos &&
+            upload_done_message(true, uploaded).find(L"已传到你的水杉账号") != std::wstring_view::npos &&
+            upload_done_message(false, nothing).find(L"已删除") != std::wstring_view::npos,
+        "upload done message follows the last upload");
   check(disabled_notice(true).find(L"上传到云端") != std::wstring_view::npos &&
             disabled_notice(false).find(L"不联网") != std::wstring_view::npos,
         "local-only notice follows the upload switch");

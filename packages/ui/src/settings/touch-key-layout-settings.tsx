@@ -1,37 +1,67 @@
-import { useId } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 import type { Preferences } from "../core/preferences-model";
 import type { InputScheme } from "../core/input-scheme";
-import type { PreviewKey } from "../keyboard/keyboard-layouts";
-import { GroupList } from "../core/platform-controls";
-import { SettingsGroupNote } from "./settings-group-note";
+import {
+  harmonyTouchKeyboardRows,
+  harmonyTouchLayout,
+  type HarmonyTouchLayout,
+  type PreviewKey,
+} from "../keyboard/keyboard-layouts";
+import { GroupList, Segmented } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
+import { SettingsSearchReveal } from "./settings-search-reveal";
+import { phoneHeatmapLayoutRows } from "./keyboard-heatmap";
+import {
+  inferredTouchKeyboardScheme,
+  type TouchKeyboardScheme,
+} from "./touch-keyboard-scheme-helpers";
 import {
   fourteenKeyBottomRows,
   fourteenKeyStyle,
-  fourteenKeyStyleNote,
+  fourteenKeyStyleHighlights,
+  fourteenKeyStyleNotes,
   fourteenKeyStyleOptions,
-  nineKeyBottomRows,
   nineKeyStyle,
-  nineKeyStyleNote,
+  nineKeyStyleHighlights,
+  nineKeyStyleNotes,
   nineKeyStyleOptions,
-  nineKeyTallReturnPreview,
+  numberPadSpace,
+  numberPadSpaceNote,
+  numberPadSpaceOptions,
+  numberPadSpaceTitle,
   numberRowDescription,
+  numberRowKeys,
+  symbolFirstDescription,
+  symbolFirstTitle,
   twentySixKeyBottomRows,
-  type FramePreviewKey,
   twentySixKeyStyle,
-  twentySixKeyStyleNote,
+  twentySixKeyStyleHighlights,
+  twentySixKeyStyleNotes,
   twentySixKeyStyleOptions,
+  withSymbolFirst,
 } from "../keyboard/touch-key-layout-styles";
 
-/** 「按键布局」子页上哪几组画出来：版本没有的键盘类型不列它的组。 */
+/** 「按键布局」子页上提供哪几种键盘类型：版本没有的键盘类型不进分段控件。 */
 export type TouchKeyLayoutGroups = {
   twentySix: boolean;
   fourteen: boolean;
   nine: boolean;
 };
 
+/** 子页分段控件的一段：26 键、14 键与 18 键（共用一个样式）、9 键。 */
+export type TouchKeyLayoutKind = keyof TouchKeyLayoutGroups;
+
+const touchKeyLayoutKinds: readonly TouchKeyLayoutKind[] = ["twentySix", "fourteen", "nine"];
+
+/** 分段控件上的名字，三端相同。 */
+export const touchKeyLayoutKindTitles: Readonly<Record<TouchKeyLayoutKind, string>> = {
+  twentySix: "26 键",
+  fourteen: "14/18 键",
+  nine: "9 键",
+};
+
 /**
- * 按版本提供的方案决定列哪几组：中文 26 键来自全拼、双拼、五笔和粤拼；14 键与 18 键来自全拼、双拼（14/18 键）和五笔（14 键）；九键来自全拼九键、九键双拼和笔画。只有日文、韩文等非中文方案的版本一组都没有。
+ * 按版本提供的方案决定提供哪几种键盘类型：中文 26 键来自全拼、双拼、五笔和粤拼；14 键与 18 键来自全拼、双拼（14/18 键）和五笔（14 键）；九键来自全拼九键、九键双拼和笔画。只有日文、韩文等非中文方案的版本一种都没有。
  */
 export function touchKeyLayoutGroups(schemes: readonly InputScheme[]): TouchKeyLayoutGroups {
   const has = (...wanted: InputScheme[]) => wanted.some((scheme) => schemes.includes(scheme));
@@ -42,167 +72,443 @@ export function touchKeyLayoutGroups(schemes: readonly InputScheme[]): TouchKeyL
   };
 }
 
-/** 一种样式底行的小示意图：按份额铺满一行，键面只是提示，不可点，读屏跳过它（选项本身已有名字）。 */
-function BottomRowPreview({ row }: { row: readonly PreviewKey[] }) {
-  return (
-    <span className="flex w-full gap-[3px]" aria-hidden="true" data-key-layout-preview="">
-      {row.map((key, index) => (
-        <span
-          key={`${index}-${key.label}`}
-          className="flex h-6 min-w-0 items-center justify-center overflow-hidden rounded-[4px] border text-[11px] leading-none whitespace-nowrap [border-color:var(--p-row-divider)] [color:var(--p-sub)]"
-          style={{ flex: `${key.weight} 1 0%` }}
-          data-weight={key.weight}
-        >
-          {key.label}
-        </span>
-      ))}
-    </span>
-  );
+/**
+ * 用户当前正在用的中文键盘属于哪一类：全拼、双拼、五笔、粤拼 26 键是 26 键；全拼 14 / 18 键、双拼 14 / 18 键、五笔 14 键是 14/18 键；全拼九键、九键双拼和笔画是 9 键。别的方案（日文、韩文、手写等）判断不了，返回 null，子页停在第一段。
+ */
+export function touchKeyLayoutKind(
+  scheme: TouchKeyboardScheme,
+  shuangpinLayout: Preferences["touch_shuangpin_layout"],
+  wubiLayout: Preferences["touch_wubi_layout"],
+): TouchKeyLayoutKind | null {
+  switch (scheme) {
+    case "nine_key":
+    case "nine_key_shuangpin":
+    case "stroke":
+      return "nine";
+    case "fourteen_key":
+    case "eighteen_key":
+      return "fourteen";
+    case "xiaohe":
+    case "ziranma":
+    case "microsoft":
+    case "shoudao":
+      return shuangpinLayout === "fourteen_key" || shuangpinLayout === "eighteen_key"
+        ? "fourteen"
+        : "twentySix";
+    case "wubi":
+      return wubiLayout === "fourteen_key" ? "fourteen" : "twentySix";
+    case "quanpin":
+    case "cantonese":
+      return "twentySix";
+    default:
+      return null;
+  }
 }
 
-/** 跨两行的回车往下伸到下一行的占位上：高度是两行加一道行距，下边距收回一行，所在行的高度不变。 */
-const PREVIEW_ROW_PX = 24;
-const PREVIEW_GAP_PX = 3;
+/** 预览里的一个键：`tone` 决定键帽颜色（字母键、功能键、强调色的回车），`highlighted` 是这个样式与「标准」不同、要描边的键，`rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车）。没有 `label` 的是占位，只占宽度不画键帽。 */
+export type KeyLayoutPreviewKey = PreviewKey & {
+  tone: "letter" | "function" | "return";
+  highlighted: boolean;
+  rowSpan?: number;
+};
 
-/** 一种样式里不止底行变了时（九键「右侧大回车」）的示意图：画网格最后一行和底行，`rowSpan` 为 2 的键跨这两行。每一行与 `BottomRowPreview` 同样按份额铺满。 */
-function FramePreview({ rows }: { rows: readonly (readonly FramePreviewKey[])[] }) {
-  return (
-    <span
-      className="flex w-full flex-col"
-      style={{ gap: PREVIEW_GAP_PX }}
-      aria-hidden="true"
-      data-key-layout-frame=""
-    >
-      {rows.map((row, rowIndex) => (
-        <span
-          key={rowIndex}
-          className="flex w-full items-start"
-          style={{ gap: PREVIEW_GAP_PX }}
-          data-key-layout-preview=""
-        >
-          {row.map((key, index) => {
-            const span = key.rowSpan ?? 1;
-            return (
-              <span
-                key={`${index}-${key.label}`}
-                className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[4px] text-[11px] leading-none whitespace-nowrap [color:var(--p-sub)] ${key.label ? "border [border-color:var(--p-row-divider)]" : ""}`}
-                style={{
-                  flex: `${key.weight} 1 0%`,
-                  height: span * PREVIEW_ROW_PX + (span - 1) * PREVIEW_GAP_PX,
-                  marginBottom: -(span - 1) * (PREVIEW_ROW_PX + PREVIEW_GAP_PX),
-                }}
-                data-weight={key.weight}
-                data-row-span={span}
-              >
-                {key.label}
-              </span>
-            );
-          })}
-        </span>
-      ))}
-    </span>
+/** 预览的一行：`numberRow` 为真的是字母上方的数字行，画得比字母行矮一些。 */
+export type KeyLayoutPreviewRow = { keys: KeyLayoutPreviewKey[]; numberRow?: boolean };
+
+/** 14/18 键预览画哪一种字母格：用户当前在用 18 键（全拼或双拼）时画 18 键，双拼画带 ； 的那一种，其余画全拼 14 键。 */
+function fourteenKeyFace(
+  scheme: TouchKeyboardScheme,
+  preferences: Preferences,
+): HarmonyTouchLayout {
+  const face = harmonyTouchLayout(
+    scheme,
+    preferences.touch_shuangpin_layout,
+    preferences.touch_wubi_layout,
   );
+  return face === "eighteen_key" ||
+    face === "fourteen_key_shuangpin" ||
+    face === "eighteen_key_shuangpin"
+    ? face
+    : "fourteen_key";
 }
 
-/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意）；`note` 是组末的说明，读屏把它当作这组单选的描述。 */
-function StyleChoices<T extends string>({
-  title,
-  options,
-  rows,
-  frames,
-  note,
-  value,
-  onChange,
-}: {
-  title: string;
-  options: readonly { value: T; label: string }[];
-  rows: Record<T, PreviewKey[]>;
-  frames?: Partial<Record<T, FramePreviewKey[][]>>;
-  note: string;
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  const name = useId();
-  const noteId = useId();
-  return (
-    <GroupList title={title}>
-      <div role="radiogroup" aria-label={title} aria-describedby={noteId} className="flex flex-col">
-        {options.map((option) => (
-          <label
-            key={option.value}
-            className="flex cursor-pointer flex-col gap-2 border-b px-4 py-3 [border-color:var(--p-row-divider)] last:border-b-0 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent"
-            data-settings-search-label={option.label}
-          >
-            <span className="flex items-center gap-2.5 [font-size:var(--p-row-fs)]">
-              <input
-                type="radio"
-                name={name}
-                value={option.value}
-                checked={value === option.value}
-                onChange={() => onChange(option.value)}
-                className="m-0 shrink-0 accent-accent"
-              />
-              {option.label}
-            </span>
-            {frames?.[option.value] ? (
-              <FramePreview rows={frames[option.value] ?? []} />
-            ) : (
-              <BottomRowPreview row={rows[option.value]} />
-            )}
-          </label>
-        ))}
-      </div>
-      <SettingsGroupNote>
-        <span id={noteId}>{note}</span>
-      </SettingsGroupNote>
-    </GroupList>
+/**
+ * 鸿蒙手机键盘 `layout` 按用户的按键布局偏好排出的整块键盘（数字行、字母行、底行），「按键布局」子页的整块预览和其他设置页的键盘预览都从这里取，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行；日语 9 键是假名格，不受这些偏好影响，原样画。
+ *
+ * `chineseTwentySix` 为假时 26 键不按 `touch_twenty_six_key_style` 排，画 26 键一族的标准底行：与 HarmonyOS `designRowStyledFace` 相同，样式只作用于中文 26 键，日语等 26 键用标准底行，但「符」与「123」互换照样生效（`designRowEntries` 对所有 26 键一族的底行都套 `symbolFirst`）。鸿蒙没有隐藏中/英键的设置，底行一直有 中。
+ */
+function harmonyStyledRows(
+  layout: HarmonyTouchLayout,
+  preferences: Preferences | undefined,
+  chineseTwentySix: boolean,
+): PreviewKey[][] {
+  if (layout === "japanese_nine_key") return harmonyTouchKeyboardRows.japanese_nine_key;
+  if (layout === "nine_key")
+    return phoneHeatmapLayoutRows("nine", {
+      twentySixKeyStyle: "standard",
+      nineKeyStyle: preferences ? nineKeyStyle(preferences) : "standard",
+      numberRow: false,
+    });
+  const letters = harmonyTouchKeyboardRows[layout].slice(0, -1);
+  const bottom =
+    layout === "twenty_six_key"
+      ? withSymbolFirst(
+          twentySixKeyBottomRows[
+            preferences && chineseTwentySix ? twentySixKeyStyle(preferences) : "standard"
+          ],
+          preferences?.touch_twenty_six_symbol_first === true,
+        )
+      : fourteenKeyBottomRows[preferences ? fourteenKeyStyle(preferences) : "standard"];
+  const numberRow = preferences?.touch_number_row === true ? [numberRowKeys] : [];
+  return [...numberRow, ...letters, bottom];
+}
+
+/**
+ * 鸿蒙手机设置页里键盘预览（屏幕键盘页「尺寸」、皮肤页的皮肤卡片与编辑器、社区皮肤卡片与详情）画的键：用户当前的中文键盘（`harmonyTouchLayout`），按他的按键布局偏好排（`harmonyStyledRows`），与「按键布局」子页、实际键盘的底行和数字行一致。预览不做高亮，高亮只在「按键布局」子页。
+ *
+ * `scheme` 缺省按偏好推断；屏幕键盘页传入它正显示为选中的方案。没有偏好可读时（`preferences` 为 undefined）画默认的全拼 26 键、标准底行、无数字行。
+ */
+export function harmonyTouchRowsForPreferences(
+  preferences: Preferences | undefined,
+  scheme: TouchKeyboardScheme = preferences ? inferredTouchKeyboardScheme(preferences) : "quanpin",
+): PreviewKey[][] {
+  const shuangpinLayout = preferences?.touch_shuangpin_layout;
+  const wubiLayout = preferences?.touch_wubi_layout;
+  const kind = touchKeyLayoutKind(scheme, shuangpinLayout, wubiLayout);
+  // 九键双拼和笔画也画九宫格外框（字母格用拼音九键的 ABC），与 Android 的皮肤预览、「按键布局」页 9 键分段同一条规则；`harmonyTouchLayout` 只认拼音九键，其余会落到 26 键。
+  return harmonyStyledRows(
+    kind === "nine" ? "nine_key" : harmonyTouchLayout(scheme, shuangpinLayout, wubiLayout),
+    preferences,
+    kind === "twentySix",
   );
 }
 
 /**
- * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行），每组末尾一句说明（与 Android、iOS 逐字相同）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」整块预览要画的键：`kind` 那一类键盘按用户偏好排出的整块键盘（`harmonyStyledRows`，与其他设置页的键盘预览同一张表），14/18 键画用户在用的那种字母格（`fourteenKeyFace`）。
+ *
+ * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123。
+ */
+export function keyLayoutPreviewRows(
+  kind: TouchKeyLayoutKind,
+  preferences: Preferences,
+  scheme: TouchKeyboardScheme,
+): KeyLayoutPreviewRow[] {
+  const layout: HarmonyTouchLayout =
+    kind === "nine"
+      ? "nine_key"
+      : kind === "fourteen"
+        ? fourteenKeyFace(scheme, preferences)
+        : "twenty_six_key";
+  const styled = harmonyStyledRows(layout, preferences, true);
+  const numberRow = kind !== "nine" && preferences.touch_number_row === true;
+  const grid = styled.slice(numberRow ? 1 : 0, -1);
+  const bottom = styled[styled.length - 1];
+  let highlights: readonly string[];
+  if (kind === "nine") {
+    highlights = nineKeyStyleHighlights[nineKeyStyle(preferences)];
+  } else if (kind === "fourteen") {
+    highlights = fourteenKeyStyleHighlights[fourteenKeyStyle(preferences)];
+  } else {
+    const style = twentySixKeyStyle(preferences);
+    // 互换打开且这个样式有 符 时，符 和 123 也描边，让人看出开关动的是哪两个键。
+    highlights =
+      preferences.touch_twenty_six_symbol_first === true &&
+      bottom.some((key) => key.code === "SoftSymbol")
+        ? [...twentySixKeyStyleHighlights[style], "SoftSymbol", "SoftLayer"]
+        : twentySixKeyStyleHighlights[style];
+  }
+  const highlighted = (key: PreviewKey) => key.code !== undefined && highlights.includes(key.code);
+  const place = (
+    key: PreviewKey & { rowSpan?: number },
+    tone: KeyLayoutPreviewKey["tone"],
+  ): KeyLayoutPreviewKey => ({
+    label: key.label,
+    weight: key.weight,
+    ...(key.code === undefined ? {} : { code: key.code }),
+    ...(key.rowSpan === undefined ? {} : { rowSpan: key.rowSpan }),
+    tone: key.code === "Enter" ? "return" : tone,
+    highlighted: highlighted(key),
+  });
+  const rows: KeyLayoutPreviewRow[] = [];
+  if (numberRow) rows.push({ keys: styled[0].map((key) => place(key, "letter")), numberRow: true });
+  grid.forEach((row, rowIndex) => {
+    const edges = kind === "nine" || rowIndex === grid.length - 1;
+    rows.push({
+      keys: row.map((key, index) =>
+        place(key, edges && (index === 0 || index === row.length - 1) ? "function" : "letter"),
+      ),
+    });
+  });
+  rows.push({
+    keys: bottom.map((key) => place(key, key.code === "Space" ? "letter" : "function")),
+  });
+  return rows;
+}
+
+/** 预览的几何：字母行按 1 份高、数字行 0.7 份，行距和外框内边距 5px；外框按 `PREVIEW_ASPECT_WIDTH` 宽、每份 `PREVIEW_ROW_UNIT` 高的比例随页面宽度等比缩放，手机竖屏（预览约 326px 宽）上四行约 185px 高、加数字行约 218px。 */
+const PREVIEW_GAP_PX = 5;
+const NUMBER_ROW_UNITS = 0.7;
+const PREVIEW_ASPECT_WIDTH = 340;
+const PREVIEW_ROW_UNIT = 42;
+
+const toneClass: Record<KeyLayoutPreviewKey["tone"], string> = {
+  letter: "[background:var(--p-seg-on)] [color:var(--p-text)]",
+  function:
+    "[background:color-mix(in_srgb,var(--p-seg-on)_88%,var(--p-text))] [color:var(--p-text)]",
+  return: "bg-accent-strong text-white",
+};
+
+/** 跨两行的键（右侧大回车）往下伸到下一行的占位上：高度是两行加一道行距；各行按份额定高，所以它不撑高所在行。 */
+function keySpan(rowSpan: number | undefined): CSSProperties {
+  const span = rowSpan ?? 1;
+  if (span <= 1) return {};
+  return {
+    height: `calc(${span * 100}% + ${(span - 1) * PREVIEW_GAP_PX}px)`,
+    alignSelf: "flex-start",
+  };
+}
+
+/** 整块键盘预览：画成真实键盘的样子，各行按份额铺满整行，这个样式与「标准」不同的键用强调色描边。只是示意，不可点，读屏跳过它（样式胶囊本身有名字，下方的说明讲副作用）。 */
+function KeyLayoutPreview({
+  kind,
+  rows,
+}: {
+  kind: TouchKeyLayoutKind;
+  rows: KeyLayoutPreviewRow[];
+}) {
+  const units = rows.reduce((sum, row) => sum + (row.numberRow ? NUMBER_ROW_UNITS : 1), 0);
+  const height = units * PREVIEW_ROW_UNIT + PREVIEW_GAP_PX * (rows.length + 1);
+  return (
+    <div
+      className="flex w-full flex-col rounded-[14px] [background:var(--p-bg)]"
+      style={{
+        gap: PREVIEW_GAP_PX,
+        padding: PREVIEW_GAP_PX,
+        aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${height}`,
+      }}
+      aria-hidden="true"
+      data-key-layout-preview={kind}
+    >
+      {rows.map((row, rowIndex) => (
+        <div
+          key={rowIndex}
+          className="flex min-h-0"
+          style={{ gap: PREVIEW_GAP_PX, flex: `${row.numberRow ? NUMBER_ROW_UNITS : 1} 1 0%` }}
+          data-key-layout-row={row.numberRow ? "number" : rowIndex}
+        >
+          {row.keys.map((key, index) =>
+            key.label ? (
+              <span
+                key={index}
+                className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                style={{ flex: `${key.weight} 1 0%`, ...keySpan(key.rowSpan) }}
+                data-key-code={key.code}
+                data-key-tone={key.tone}
+                data-highlighted={key.highlighted ? "" : undefined}
+                data-row-span={key.rowSpan}
+                data-weight={key.weight}
+              >
+                {key.label}
+              </span>
+            ) : (
+              <span key={index} style={{ flex: `${key.weight} 1 0%` }} data-weight={key.weight} />
+            ),
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 一排等宽胶囊：等宽铺满一行、不横向滚动（每类最多四种、名字最长五个字，等分后放得下，字号很大时显示省略号）；选中的强调色实底白字，其余浅底。点一下立刻写偏好，点已选中的不做事。`label` 是读屏念的这排胶囊的名字，`note` 是胶囊下方的说明（样式胶囊是当前选中样式的副作用，数字键盘一组是组末说明），没有就不画这一行，读屏把它当作这排胶囊的描述。 */
+function StyleChips<T extends string>({
+  label,
+  options,
+  value,
+  note,
+  onChange,
+}: {
+  label: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  note: string | undefined;
+  onChange: (value: T) => void;
+}) {
+  const noteId = useId();
+  return (
+    <>
+      <div
+        role="group"
+        aria-label={label}
+        aria-describedby={note ? noteId : undefined}
+        className="flex gap-1.5"
+      >
+        {options.map((option) => {
+          const on = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={on}
+              className={`m-0 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-full border-0 px-1.5 py-1.5 text-[14px] text-ellipsis whitespace-nowrap [font-family:inherit] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50 ${on ? "bg-accent-strong font-medium text-white" : "bg-[var(--p-seg-bg)] [color:var(--p-text)]"}`}
+              data-settings-search-label={option.label}
+              data-key-layout-style={option.value}
+              onClick={() => {
+                if (!on) onChange(option.value);
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {note && (
+        <p
+          id={noteId}
+          className="m-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]"
+          data-key-layout-note=""
+        >
+          {note}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first` 或 `touch_number_row`，键盘开着时当场换排法。
+ *
+ * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
  */
 export function TouchKeyLayoutSettings({
   preferences,
+  scheme,
   groups,
+  open,
   onChange,
 }: {
   preferences: Preferences;
+  /** 用户当前选中的触屏方案（`selectedTouchKeyboardScheme`），决定默认分段和 14/18 键画哪种字母格。 */
+  scheme: TouchKeyboardScheme;
   groups: TouchKeyLayoutGroups;
+  open: boolean;
   onChange: (patch: Partial<Preferences>) => void;
 }) {
-  return (
-    <>
-      {groups.twentySix && (
-        <StyleChoices
-          title="26 键"
+  const offered = touchKeyLayoutKinds.filter((kind) => groups[kind]);
+  const current = touchKeyLayoutKind(
+    scheme,
+    preferences.touch_shuangpin_layout,
+    preferences.touch_wubi_layout,
+  );
+  const fallback = current && offered.includes(current) ? current : offered[0];
+  const [chosen, setChosen] = useState<TouchKeyLayoutKind | null>(null);
+  useEffect(() => {
+    if (!open) setChosen(null);
+  }, [open]);
+  const kind = chosen && offered.includes(chosen) ? chosen : fallback;
+  const chips = (panel: TouchKeyLayoutKind) => {
+    const label = `${touchKeyLayoutKindTitles[panel]}样式`;
+    if (panel === "twentySix") {
+      const value = twentySixKeyStyle(preferences);
+      return (
+        <StyleChips
+          label={label}
           options={twentySixKeyStyleOptions}
-          rows={twentySixKeyBottomRows}
-          note={twentySixKeyStyleNote}
-          value={twentySixKeyStyle(preferences)}
+          value={value}
+          note={twentySixKeyStyleNotes[value]}
           onChange={(touch_twenty_six_key_style) => onChange({ touch_twenty_six_key_style })}
         />
-      )}
-      {groups.fourteen && (
-        <StyleChoices
-          title="14 键与 18 键"
+      );
+    }
+    if (panel === "fourteen") {
+      const value = fourteenKeyStyle(preferences);
+      return (
+        <StyleChips
+          label={label}
           options={fourteenKeyStyleOptions}
-          rows={fourteenKeyBottomRows}
-          note={fourteenKeyStyleNote}
-          value={fourteenKeyStyle(preferences)}
+          value={value}
+          note={fourteenKeyStyleNotes[value]}
           onChange={(touch_fourteen_key_style) => onChange({ touch_fourteen_key_style })}
         />
+      );
+    }
+    const value = nineKeyStyle(preferences);
+    return (
+      <StyleChips
+        label={label}
+        options={nineKeyStyleOptions}
+        value={value}
+        note={nineKeyStyleNotes[value]}
+        onChange={(touch_nine_key_style) => onChange({ touch_nine_key_style })}
+      />
+    );
+  };
+  return (
+    <>
+      {kind && (
+        <GroupList>
+          <div className="flex min-w-0 flex-col gap-3 px-4 py-4">
+            {offered.length > 1 && (
+              <div className="flex [&>span]:flex [&>span]:w-full [&>span>label]:flex-1">
+                <Segmented
+                  aria-label="键盘类型"
+                  options={offered.map((value) => ({
+                    value,
+                    label: touchKeyLayoutKindTitles[value],
+                  }))}
+                  value={kind}
+                  onChange={setChosen}
+                />
+              </div>
+            )}
+            {offered.map((panel) => (
+              <SettingsSearchReveal
+                key={panel}
+                label={touchKeyLayoutKindTitles[panel]}
+                hidden={panel !== kind}
+                onReveal={() => setChosen(panel)}
+              >
+                <div className="flex min-w-0 flex-col gap-3" data-key-layout-panel={panel}>
+                  <KeyLayoutPreview
+                    kind={panel}
+                    rows={keyLayoutPreviewRows(panel, preferences, scheme)}
+                  />
+                  {chips(panel)}
+                </div>
+              </SettingsSearchReveal>
+            ))}
+          </div>
+          {groups.twentySix && (
+            // 互换开关是卡片里说明之后的一行，只在 26 键分段显示；搜索命中它时切到 26 键。
+            <SettingsSearchReveal
+              label={touchKeyLayoutKindTitles.twentySix}
+              hidden={kind !== "twentySix"}
+              onReveal={() => setChosen("twentySix")}
+            >
+              <SwitchRow
+                title={symbolFirstTitle}
+                description={symbolFirstDescription}
+                checked={preferences.touch_twenty_six_symbol_first === true}
+                onChange={(touch_twenty_six_symbol_first) =>
+                  onChange({ touch_twenty_six_symbol_first })
+                }
+              />
+            </SettingsSearchReveal>
+          )}
+        </GroupList>
       )}
-      {groups.nine && (
-        <StyleChoices
-          title="9 键"
-          options={nineKeyStyleOptions}
-          rows={nineKeyBottomRows}
-          frames={{ tall_return: nineKeyTallReturnPreview }}
-          note={nineKeyStyleNote}
-          value={nineKeyStyle(preferences)}
-          onChange={(touch_nine_key_style) => onChange({ touch_nine_key_style })}
-        />
+      {(groups.twentySix || groups.fourteen || groups.nine) && (
+        <GroupList title={numberPadSpaceTitle}>
+          <div className="flex min-w-0 flex-col gap-3 px-4 py-4">
+            <StyleChips
+              label={numberPadSpaceTitle}
+              options={numberPadSpaceOptions}
+              value={numberPadSpace(preferences)}
+              note={numberPadSpaceNote}
+              onChange={(touch_number_pad_space) => onChange({ touch_number_pad_space })}
+            />
+          </div>
+        </GroupList>
       )}
       {(groups.twentySix || groups.fourteen) && (
         <GroupList>

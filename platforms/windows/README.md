@@ -652,6 +652,8 @@ msime_client_set_chinese_punctuation 是 ABI 1 的附加符号，适配器和宿
 
 共享偏好 `quote_style`（`curly`、`corner`、`corner_when_traditional`）和 `bracket_style`（`solid`、`hollow`）决定中文标点下 `'` `"` `[` `]` 出什么字。TIP 自己的标点表（`PunctuationTable`、`SetupPunctuationPair`）不变，`GetPunctuation` 查表后经 `Global::StyledPunctuation` 换字，所以空闲标点、候选带标点、英文模式和智能标点重复都一起跟着样式走；交替和嵌套状态照旧。Server 按偏好算出生效样式（`apply_punctuation_marks`，规则与 client-core 的 `punctuation_marks` 相同，`corner_when_traditional` 看 `traditional_chinese_output`），用 Worker 帧 PunctuationMarksChanged（31，载荷 `q<0|1>b<0|1>`）推给 TIP；推送到达前 TIP 是弯引号、实心括号。新 Server 配旧 TIP 时旧 TIP 丢掉这个帧，组字经 Server 结束时带出的标点已是直角而 TIP 空闲时出的还是弯引号，安装包同时替换两者，只有开发时手动换单个 DLL 才会碰到。成对补全、跨过、改回前引号和空格转换的表（`PairedPunctuationHostPolicy.h`、`Composition.cpp` 的 `SmartPunctuationAsciiFor`）都认「」『』〖〗。
 
+`{` `}` 在中文标点下固定出「」（标点契约第 5 版，`PunctuationTable` 的两行），不交替，也不随引号样式换字，全角模式下同样是「」。成对补全打开时 `{` 按「补出」，`}` 跨过补出的那个」；ASCII 花括号和全角 ｛｝ 不再成对。这两个键出的「」不武装空格转换（与 Linux 宿主一致，花括号不在空格转换的名单里）。组字中按 `{` `}` 仍走原来的路径，只是出的字换成「」。
+
 ### 发往 TSF 的模式请求
 
 WindowsServer/SessionController::request_mode(lease, mode) 提供中英文、中文/ASCII 标点、全/半角六种命令，线格式使用固定 Engine worker opcode 与清零的 404 字节帧，不支持任意 opcode 或文本。调用方从已确认焦点事件获取 lease，并在外部线程调用；输入/事件/控制回调内调用会拒绝，避免递归焦点锁。有限时写入可能阻塞，不宜直接占用 UI 线程。

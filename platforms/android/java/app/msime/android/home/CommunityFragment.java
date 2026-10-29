@@ -1,13 +1,13 @@
 package app.msime.android.home;
 
 import app.msime.android.ViewPolicy;
-import app.msime.android.core.InputViewValuePolicy;
 
 import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Animation;
 import android.view.inputmethod.EditorInfo;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
@@ -58,7 +58,7 @@ public final class CommunityFragment extends Fragment {
     private boolean hasMore;
     private long requestGeneration;
     // 预览按用户自己的布局画。读不到就按 26 键，那是默认值。
-    private boolean nineKey;
+    private KeyLayoutStylesPolicy.Preview layout = KeyLayoutStylesPolicy.Preview.STANDARD;
 
     /** 打开某一类作品的完整列表：皮肤和词库切到「社区」tab 并选中那一类，其余类型压在当前页面上面。 */
     public static void browse(Context context, CommunityRequest.Kind kind) {
@@ -114,6 +114,12 @@ public final class CommunityFragment extends Fragment {
         return inflater.inflate(R.layout.page_community, parent, false);
     }
 
+    // 压在 home_content 回退栈里的完整列表不继承 HomeTabFragment，换 tab 清栈时同样不播回退动画（#10092）。
+    @Override @Nullable public Animation onCreateAnimation(int transit, boolean enter, int nextAnim) {
+        Animation none = HomeTabFragment.leavingWithoutAnimation(this);
+        return none != null ? none : super.onCreateAnimation(transit, enter, nextAnim);
+    }
+
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         Bundle arguments = getArguments();
         kind = kind(arguments);
@@ -161,12 +167,14 @@ public final class CommunityFragment extends Fragment {
         updateCategories();
 
         adapter = new CommunityAdapter(this::open, this::act);
-        HostTask.run(this, HostStore::loadPreferences, snapshot -> {
+        HostTask.run(this, context -> {
             // loadPreferences hands back the whole snapshot; the layout lives one level down.
-            JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
-            nineKey = preferences != null && "nine_key".equals(
-                InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"));
-            adapter.setNineKey(nineKey);
+            JSONObject snapshot = HostStore.loadPreferences(context);
+            return KeyboardPreview.layout(context, snapshot == null ? null : snapshot.optJSONObject("preferences"));
+        }, value -> {
+            // 宿主不可用时 HostTask 交回 null，按标准样式画。
+            layout = value == null ? KeyLayoutStylesPolicy.Preview.STANDARD : value;
+            adapter.setLayout(layout);
         });
         refreshTaken();
         RecyclerView items = view.findViewById(R.id.community_items);
@@ -359,7 +367,7 @@ public final class CommunityFragment extends Fragment {
         String label = CommunityAdapter.label(item, action);
         boolean live = !label.isEmpty() && action != CommunityAdapter.Action.BUSY
             && !(item.kind() != CommunityRequest.Kind.SKIN && action == CommunityAdapter.Action.DONE);
-        CommunitySkinSheet.show(requireContext(), item, nineKey, label,
+        CommunitySkinSheet.show(requireContext(), item, layout, label,
             live ? () -> act(item) : null,
             () -> report(item),
             item.owned() && item.category() != null ? next -> changeCategory(item, next) : null);

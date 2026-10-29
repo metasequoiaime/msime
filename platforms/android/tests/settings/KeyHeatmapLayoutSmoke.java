@@ -296,10 +296,16 @@ public final class KeyHeatmapLayoutSmoke {
         check(layoutRows.contains("if (digits) addNineKey(actions, nineKeyDecimalKey());")
             && !layoutRows.contains("s.imeBottomRow.placeKey(actions, KeyboardActionRow.DesignSlot.SPACE"),
             "the tall frame's number layer puts the decimal point in the right column and leaves space in the strip");
-        // 「按键布局」预览里长空格样式的空格也写「空格」，与 iOS、鸿蒙的预览一致。
-        String preview = read("home/BottomRowPreview.java");
-        check(preview.contains("case SPACE -> \"空格\";") && !preview.contains("\"长空格\""),
-            "the layout preview labels every space key 空格");
+        // 「按键布局」预览的底行取自这里（KeyLayoutStylesPolicy），长空格样式的空格也写「空格」，与 iOS、鸿蒙的预览一致。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT,
+                KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT}) {
+            for (TouchKeyStyle.Row style : TouchKeyStyle.Row.values()) {
+                for (Key key : KeyHeatmapLayout.bottom(layout, style)) {
+                    if (key.ids().contains("Space"))
+                        check(key.face().equals("空格"), "the layout preview labels every space key 空格: " + style);
+                }
+            }
+        }
         String view = read("home/KeyHeatmapView.java");
         check(view.contains("if (key.rows() == 0) {")
             && view.contains("float keyHeight = key.rows() * height + (key.rows() - 1) * gap;"),

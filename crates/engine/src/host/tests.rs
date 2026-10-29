@@ -7,6 +7,10 @@ use rusqlite::Connection;
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
 use crate::types::{CandidateSource, SchemeType, WordItem};
+use crate::{
+    CommandTableEntry, DictionaryStateRecord, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
+    SentenceAssociationOptions,
+};
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -1430,6 +1434,36 @@ fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
     assert_eq!(session.snapshot().unwrap().local_mode, "none");
 }
 
+/// 换上的本地墙钟就是日期时间模式读的那一个：评测靠它钉住行内日期时间行，同一份输入在哪天跑都打出同样的候选。
+#[test]
+fn a_replaced_clock_is_what_the_date_time_mode_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = Session::new(&options(dir.path())).unwrap();
+    session.set_clock(crate::Clock {
+        steady: Box::new(std::time::Instant::now),
+        local: std::sync::Arc::new(|| crate::LocalDateTime {
+            year: 2026,
+            month: 1,
+            day: 5,
+            weekday: 1,
+            hour: 10,
+            minute: 0,
+            second: 0,
+        }),
+    });
+    assert!(session.character(b'T', true).unwrap().handled);
+    type_text(&mut session, b"sj");
+    let snapshot = session.snapshot().unwrap();
+    assert!(
+        snapshot
+            .candidates
+            .iter()
+            .any(|candidate| candidate == "2026-01-05 10:00:00"),
+        "{:?}",
+        snapshot.candidates
+    );
+}
+
 #[test]
 fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
     let dir = tempfile::tempdir().unwrap();
@@ -1484,6 +1518,26 @@ fn real_engine_reports_the_fourteen_key_grid_apart_from_nine_key() {
     let snapshot = session.snapshot().unwrap();
     assert!(!snapshot.nine_key);
     assert_eq!(snapshot.key_grid, None);
+}
+
+/// 宿主拿 `shuangpin_profile` 画键面、算键盘外观的缓存键，九宫格组字途中它也得是会话跑的方案名；核心快照这时留空，门面不能照抄。
+#[test]
+fn snapshot_names_the_shuangpin_profile_while_a_grid_composes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = crate::ShuangpinProfileKind::Ziranma as u8;
+    let mut session = Session::new(&options).unwrap();
+    let table =
+        crate::resolve_fourteen_key_shuangpin(crate::ShuangpinProfileKind::Ziranma, None).unwrap();
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKeyShuangpin(table)))
+        .unwrap();
+    assert_eq!(session.snapshot().unwrap().shuangpin_profile, "ziranma");
+    assert!(session.grid_key(b'n').unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.grid_composing);
+    assert_eq!(snapshot.shuangpin_profile, "ziranma");
 }
 
 #[test]
@@ -2299,6 +2353,26 @@ fn session_options_map_every_host_field() {
     assert!(!mapped.sentence_alternatives);
     assert!(mapped.personal_context);
     assert_eq!(mapped.enabled_schemes, crate::SchemeSet::ALL);
+}
+
+/// 引擎库只有一套默认值（`SessionOptions::new`：辅助码关、表名 `wubi86`、学习开），门面不从它继承：宿主给的辅助码、学习开关原样交给会话，个人上下文按产品一直的取值打开。
+#[test]
+fn session_options_do_not_inherit_the_library_defaults() {
+    let library = crate::SessionOptions::new(crate::RuntimePaths::default());
+    assert!(!library.helpcode);
+    assert_eq!(library.helpcode_schema, "wubi86");
+    assert!(library.learning && library.personal_context);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.helpcode = true;
+    value.helpcode_schema = "ziranma".into();
+    value.learning = false;
+    let mapped = super::options::session_options(&value).unwrap();
+    assert!(mapped.helpcode);
+    assert_eq!(mapped.helpcode_schema, "ziranma");
+    assert!(!mapped.learning);
+    assert!(mapped.personal_context);
 }
 
 /// `enabled_schemes` 原样交给会话。双拼不在其中时双拼键位不校验，不合法的值按小鹤处理；双拼在其中时照旧报错。
@@ -3185,7 +3259,7 @@ fn local_mode_reads_follow_a_dictionary_replaced_after_the_sessions_are_gone() {
 /// user_dictionary_journal.cpp:445-452: the reference opened msime's journal per call, so no thread kept it open. A one-shot call releases its thread's cached journal on return, a dropped session releases it too, and a live session keeps it for the keystroke path.
 #[test]
 fn journal_handles_are_released_when_a_thread_is_done_with_them() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.learning = true;
@@ -3217,6 +3291,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
     .unwrap();
 
     let mut session = Session::new(&value).unwrap();
+    let generation = cache_generation();
     type_text(&mut session, b"nihao");
     let snapshot = session.snapshot().unwrap();
     let index = snapshot
@@ -3225,7 +3300,8 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
         .position(|word| word == "拟好")
         .unwrap();
     session.select(index).unwrap();
-    assert!(thread_holds_journal());
+    // Another test closing every journal meanwhile takes the parked connection away.
+    assert!(thread_holds_journal() || cache_generation() != generation);
     drop(session);
     assert!(!thread_holds_journal());
 }
@@ -3233,7 +3309,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
 /// Hosts keep their sessions in a thread-local map, so a session can be dropped while its thread exits, after that thread's cached journal is already destroyed. Its drop still flushes and releases without touching the destroyed cache; it used to abort the process (`cannot access a Thread Local Storage value during or after destruction`).
 #[test]
 fn a_session_dropped_while_its_thread_exits_does_not_abort() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     thread_local! {
         static HELD: std::cell::RefCell<Option<Session>> = const { std::cell::RefCell::new(None) };
     }
@@ -3251,6 +3327,7 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
     }
     let journal = Path::new(&value.user_data).join("msime_user.db");
     std::thread::spawn(move || {
+        let generation = cache_generation();
         // The map is registered before the journal cache, so thread exit destroys the cache first.
         HELD.with(|held| {
             *held.borrow_mut() = Some(Session::new(&value).unwrap());
@@ -3266,7 +3343,8 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
                 .unwrap();
             session.select(index).unwrap();
         });
-        assert!(thread_holds_journal());
+        // Another test closing every journal meanwhile takes the parked connection away.
+        assert!(thread_holds_journal() || cache_generation() != generation);
     })
     .join()
     .unwrap();

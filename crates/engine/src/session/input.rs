@@ -608,12 +608,8 @@ impl InputSession {
             LocalInputMode::None => return KeyResult::unhandled(),
         };
         if !accepted {
-            // 空入口还没有模式内容，拒绝的第二枚大写留在同一组字，避免把 UV 拆开上屏。
-            if value.is_ascii_uppercase()
-                && self.local_preedit.len() == 1
-                && self.local_preedit.as_bytes()[0].is_ascii_uppercase()
-                && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
-            {
+            // 大写字母入口后只有字母时，模式不收的字母说明用户在打英文（UV、Ui、TextBlock），整串连同这个键留在同一组字，不提前上屏。含数字、符号的模式内容、符号入口和长度上限仍走下面的提交并透传。
+            if self.rejected_letter_continues_composition(value) {
                 let mut raw = self.local_preedit.clone();
                 raw.push(value as char);
                 self.reset_composition();
@@ -629,6 +625,16 @@ impl InputSession {
         self.invalidate_online_requests();
         self.local_preedit.push(value as char);
         KeyResult::handled().with_diagnostic(self.update_local_candidates())
+    }
+
+    /// 本地模式拒绝 `value` 时，是否把模式原文连同它转回普通组字：全拼、双拼，模式由 Shift 大写字母进入，预编辑只有 ASCII 字母且没到长度上限，被拒的键也是字母。
+    fn rejected_letter_continues_composition(&self, value: u8) -> bool {
+        let preedit = self.local_preedit.as_bytes();
+        value.is_ascii_alphabetic()
+            && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
+            && preedit.first().is_some_and(u8::is_ascii_uppercase)
+            && preedit.iter().all(u8::is_ascii_alphabetic)
+            && preedit.len() < GENERATED_MODE_INPUT_LIMIT
     }
 
     /// Korean keys: every letter is a jamo and always handled, carrying the syllables it finished as a commit; a letter typed into an open Hanja list closes it and keeps composing. Any other key leaves the scheme alone. Punctuation stays unhandled without touching the composition, because the punctuation route commits the open syllable ahead of the mark; a digit 1-9 with the Hanja list open stays unhandled with nothing committed, so the runtime's page selection picks the Hanja; any other digit, a space or another symbol commits the open syllable and stays unhandled, so the host inserts the key after the commit.
@@ -2053,7 +2059,7 @@ impl InputSession {
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {
         self.local_mode_options = options;
-        // Unit conversion loads rink's definitions once per process; doing it now, off this thread, keeps that load off the first key that needs it.
+        // Unit conversion builds its rink context from the definitions in local/units.rs once per process; doing it now, off this thread, keeps that load off the first key that needs it.
         if options.expression {
             crate::local::units::warm_up_in_background();
         }

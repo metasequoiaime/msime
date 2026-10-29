@@ -3022,7 +3022,8 @@ fn the_grant_page_lists_each_plugin_command_with_its_state() {
 fn the_grant_page_and_the_engine_resolve_plugin_commands_alike() {
     use msime_client_services::plugins::script_commands::{resolve, CommandStatus};
     use msime_client_services::plugins::script_pack::ScriptCommand;
-    use msime_engine::host::{usable_command_table, usable_plugin_commands, CommandTableEntry};
+    use msime_engine::host::{usable_command_table, usable_plugin_commands};
+    use msime_engine::CommandTableEntry;
     use msime_input_runtime::PluginCommand;
     // xorshift64：固定种子，每次运行同一批输入。
     let mut seed: u64 = 0x2545_f491_4f6c_dd1d;

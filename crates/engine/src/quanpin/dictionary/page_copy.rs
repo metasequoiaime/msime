@@ -64,6 +64,7 @@ fn clone_row_reusing(source: &WordItem, previous: WordItem) -> WordItem {
         sentence_association: _,
         sentence_words,
         touch_supported: _,
+        confident_correction: _,
     } = previous;
     WordItem {
         pinyin: clone_shared_string_reusing(&source.pinyin, pinyin),
@@ -82,5 +83,6 @@ fn clone_row_reusing(source: &WordItem, previous: WordItem) -> WordItem {
             |source, previous| clone_string_reusing(source, previous),
         ),
         touch_supported: source.touch_supported,
+        confident_correction: source.confident_correction,
     }
 }

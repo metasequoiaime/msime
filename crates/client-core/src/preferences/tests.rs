@@ -390,6 +390,163 @@ fn touch_key_style_wire_strings_are_pinned_and_unknown_strings_read_as_standard(
 }
 
 #[test]
+fn symbol_first_and_number_pad_space_default_to_each_hosts_keyboard_and_are_not_written() {
+    let defaults = Preferences::default();
+    assert!(!defaults.touch_twenty_six_symbol_first);
+    assert_eq!(
+        defaults.touch_number_pad_space,
+        TouchNumberPadSpace::PlatformDefault
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    for key in ["touch_twenty_six_symbol_first", "touch_number_pad_space"] {
+        assert!(written.get(key).is_none(), "{key}");
+    }
+
+    // 没有这两个键的旧文档读出默认值，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(!loaded.touch_twenty_six_symbol_first);
+    assert_eq!(
+        loaded.touch_number_pad_space,
+        TouchNumberPadSpace::PlatformDefault
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 选过的值照写法存取。
+    let mut revision = store.load().unwrap().revision;
+    for space in [
+        TouchNumberPadSpace::RightColumn,
+        TouchNumberPadSpace::AfterZero,
+        TouchNumberPadSpace::BeforeZero,
+    ] {
+        let configured = Preferences {
+            touch_twenty_six_symbol_first: true,
+            touch_number_pad_space: space,
+            ..Preferences::default()
+        };
+        revision = store.save(revision, configured.clone()).unwrap().revision;
+        let loaded = store.load().unwrap().preferences;
+        assert_eq!(loaded, configured);
+        let written = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(written["touch_twenty_six_symbol_first"], true);
+        assert_eq!(written["touch_number_pad_space"], space.as_str());
+    }
+}
+
+#[test]
+fn number_pad_space_wire_strings_are_pinned_and_unknown_strings_read_as_the_platform_default() {
+    for (space, wire) in [
+        (TouchNumberPadSpace::PlatformDefault, "platform_default"),
+        (TouchNumberPadSpace::RightColumn, "right_column"),
+        (TouchNumberPadSpace::AfterZero, "after_zero"),
+        (TouchNumberPadSpace::BeforeZero, "before_zero"),
+    ] {
+        assert_eq!(serde_json::to_value(space).unwrap(), wire);
+        assert_eq!(space.as_str(), wire);
+        assert_eq!(TouchNumberPadSpace::parse(wire), Some(space));
+        assert_eq!(
+            serde_json::from_value::<TouchNumberPadSpace>(wire.into()).unwrap(),
+            space
+        );
+    }
+    assert_eq!(TouchNumberPadSpace::parse("space_in_grid"), None);
+
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    let mut document = legacy.clone();
+    document["touch_number_pad_space"] = "space_in_grid".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(document).unwrap(),
+        Preferences::default()
+    );
+    let mut wrong = legacy.clone();
+    wrong["touch_number_pad_space"] = serde_json::json!(1);
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+    let mut wrong = legacy;
+    wrong["touch_twenty_six_symbol_first"] = "true".into();
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
+fn one_handed_side_panel_defaults_off_and_is_not_written() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.touch_one_handed_side_panel,
+        TouchOneHandedSidePanel::Off
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("touch_one_handed_side_panel").is_none());
+
+    // 没有这个键的旧文档读出空着，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(
+        loaded.touch_one_handed_side_panel,
+        TouchOneHandedSidePanel::Off
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 选了数字键盘照写法存取；改回空着时键从文档里去掉。
+    let revision = store.load().unwrap().revision;
+    let configured = Preferences {
+        touch_one_handed_side_panel: TouchOneHandedSidePanel::NumberPad,
+        ..Preferences::default()
+    };
+    let revision = store.save(revision, configured.clone()).unwrap().revision;
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, configured);
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap()["touch_one_handed_side_panel"],
+        "number_pad"
+    );
+    store.save(revision, Preferences::default()).unwrap();
+    let written = serde_json::to_value(store.load().unwrap().preferences).unwrap();
+    assert!(written.get("touch_one_handed_side_panel").is_none());
+}
+
+#[test]
+fn one_handed_side_panel_wire_strings_are_pinned_and_unknown_strings_are_kept() {
+    for (panel, wire) in [
+        (TouchOneHandedSidePanel::Off, "off"),
+        (TouchOneHandedSidePanel::NumberPad, "number_pad"),
+    ] {
+        assert_eq!(serde_json::to_value(&panel).unwrap(), wire);
+        assert_eq!(panel.as_str(), wire);
+        assert_eq!(TouchOneHandedSidePanel::from_wire(wire), panel);
+        assert_eq!(
+            serde_json::from_value::<TouchOneHandedSidePanel>(wire.into()).unwrap(),
+            panel
+        );
+    }
+    // 以后加的「文本编辑面板」在今天的版本里不认识：写法原样留着，宿主按空着画。
+    let newer = TouchOneHandedSidePanel::Unknown("text_edit".into());
+    assert_eq!(TouchOneHandedSidePanel::from_wire("text_edit"), newer);
+    assert_eq!(newer.as_str(), "text_edit");
+
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    let mut document = legacy.clone();
+    document["touch_one_handed_side_panel"] = "text_edit".into();
+    let read = serde_json::from_value::<Preferences>(document).unwrap();
+    assert_eq!(read.touch_one_handed_side_panel, newer);
+    let mut wrong = legacy;
+    wrong["touch_one_handed_side_panel"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+
+    // 旧版本读进来再存回去，较新版本写下的值不丢。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let revision = store.load().unwrap().revision;
+    store.save(revision, read).unwrap();
+    let written = serde_json::to_value(store.load().unwrap().preferences).unwrap();
+    assert_eq!(written["touch_one_handed_side_panel"], "text_edit");
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();

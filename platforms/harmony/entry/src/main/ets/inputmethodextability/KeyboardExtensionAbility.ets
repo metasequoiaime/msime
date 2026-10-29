@@ -45,6 +45,7 @@ import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -207,6 +208,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.toolbar = toolbar;
+      ScreenCaptureProtection.protectPanel(toolbar, this.screenCaptureProtected(), 'toolbar');
       KeyboardSession.shared.onToolbarResize = async (): Promise<void> => {
         await this.resizeToolbar(this.density, toolbar);
       };
@@ -284,6 +286,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.hud = hud;
+      ScreenCaptureProtection.protectPanel(hud, this.screenCaptureProtected(), 'mode badge');
       await this.resizeModeBadge(hud);
       if (this.tornDown || generation !== this.statusPanelGeneration) {
         if (this.hud !== hud) {
@@ -579,6 +582,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // next composition beside the last editor's text, which is worse than not knowing at all.
       this.caret = [0, 0, 0];
       KeyboardSession.shared.attach(inputClient);
+      this.applyScreenCaptureProtection();
       // A keyboard belongs on screen the moment an editor takes focus; a candidate window has
       // nothing to offer until something is being spelled, and waits for onComposition to say so.
       if (!KeyboardFormFactor.isDesktop()) {
@@ -865,6 +869,24 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
   }
 
+  /** 设置应用里的「防止截屏」，读本进程 `files/state` 里经共享沙箱镜像过来的那一份；拿不到共享目录时没有这份文件，按关闭处理。 */
+  private screenCaptureProtected(): boolean {
+    return ScreenCaptureProtection.load(`${this.context.filesDir}/state`).enabled;
+  }
+
+  /**
+   * 「防止截屏」落到键盘的每一块面板上：软键盘（2in1 上是候选窗）、浮动工具条和输入模式提示。每次编辑框获得焦点、`attach` 导入了设置应用的镜像之后调用，所以在设置应用里切换后，下一次弹出键盘就生效；面板新建时也各自设一次（`openToolbar`、`openModeBadge`、`onCreate`）。值没变的面板不再调用窗口管理（`ScreenCaptureProtection.protectPanel` 记着每块面板上次设的值），焦点路径上通常一次 IPC 也没有。
+   */
+  private applyScreenCaptureProtection(): void {
+    const enabled: boolean = this.screenCaptureProtected();
+    if (this.panel !== undefined) {
+      ScreenCaptureProtection.protectPanel(this.panel, enabled,
+        KeyboardFormFactor.isDesktop() ? 'candidate window' : 'soft keyboard');
+    }
+    if (this.toolbar !== undefined) ScreenCaptureProtection.protectPanel(this.toolbar, enabled, 'toolbar');
+    if (this.hud !== undefined) ScreenCaptureProtection.protectPanel(this.hud, enabled, 'mode badge');
+  }
+
   /** 用户是否给了键盘完整体验模式。基础访问模式下键盘对共享沙箱只读，只导入、不发布。 */
   private fullAccessMode(): boolean {
     try {
@@ -982,6 +1004,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           return;
         }
         this.panel = panel;
+        // 挂上视图之前就设好隐私模式，面板第一次显示时已经截不到。
+        ScreenCaptureProtection.protectPanel(panel, this.screenCaptureProtected(),
+          desktop ? 'candidate window' : 'soft keyboard');
         if (!desktop) {
           // 挂上视图之前定下手机面板第一帧的形状：键面要等视图画出来才知道，按视图上次记下的键面和现在的偏好定（`TouchLayoutStylePolicy.firstPanel`），第一帧就带上数字行和长空格样式一直画着的工具条，不再先矮一行、过一帧再长高。视图出现时（`aboutToAppear`）从同一个形状出发核对高度，所以要在 `setUiContent` 之前。
           // 上一个面板的视图在释放之后发来的高度请求不属于这个面板，作废。
@@ -1015,7 +1040,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
           : requested !== null ? requested : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);
+            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);
         // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         const widthPx: number = desktop
           ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)
@@ -1090,6 +1115,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         if (this.pending !== undefined) {
           KeyboardSession.shared.attach(this.pending);
           this.pending = undefined;
+          this.applyScreenCaptureProtection();
           if (!desktop) {
             this.panel.show();
           }

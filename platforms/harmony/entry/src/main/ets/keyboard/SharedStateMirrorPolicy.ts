@@ -7,6 +7,10 @@
  */
 
 import { PRIVACY_CONSENT_ENTRY, PRIVACY_CONSENT_FILE } from "../privacy/PrivacyConsentPolicy";
+import {
+  SCREEN_CAPTURE_PROTECTION_ENTRY,
+  SCREEN_CAPTURE_PROTECTION_FILE,
+} from "./settings/ScreenCaptureProtectionPolicy";
 
 export type MirrorPublisher = "settings" | "keyboard";
 
@@ -152,6 +156,14 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
     kind: "file",
     base: "state",
     path: PRIVACY_CONSENT_FILE,
+    fullModeOnly: false,
+  },
+  // 「防止截屏」同样只由设置应用决定（切换要经系统认证）、只往键盘一个方向镜像；键盘在基础访问模式下也要读到它，给面板设隐私模式。不进 `KEYBOARD_ENTRIES`：键盘不能把它改回去。
+  {
+    name: SCREEN_CAPTURE_PROTECTION_ENTRY,
+    kind: "file",
+    base: "state",
+    path: SCREEN_CAPTURE_PROTECTION_FILE,
     fullModeOnly: false,
   },
   {

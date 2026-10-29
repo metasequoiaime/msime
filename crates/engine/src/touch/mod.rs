@@ -41,7 +41,7 @@ pub type KeyRect = [f32; 4];
 pub enum KeyGeometryError {
     /// `id` 为 0：那是「清除几何」，不是一份几何。
     ZeroId,
-    /// 某个数不是有限数，宽高不为正，或归一后的键心离原点超过 [`COORDINATE_LIMIT`] 个键。
+    /// 某个数不是有限数，宽高不为正，或归一后的键心离原点超过 `COORDINATE_LIMIT` 个键。
     InvalidRect,
     /// 重复键不是一个小写字母。
     InvalidDuplicate,
@@ -62,7 +62,7 @@ impl std::fmt::Display for KeyGeometryError {
 impl std::error::Error for KeyGeometryError {}
 
 impl KeyGeometry {
-    /// `keys` 是 a 到 z，`semicolon` 是微软双拼显示的 `;` 键，`duplicates` 是分离键盘里重复的字母键。数值都要有限、宽高为正，归一后的键心都在 [`COORDINATE_LIMIT`] 之内，否则整份拒绝。
+    /// `keys` 是 a 到 z，`semicolon` 是微软双拼显示的 `;` 键，`duplicates` 是分离键盘里重复的字母键。数值都要有限、宽高为正，归一后的键心都在 `COORDINATE_LIMIT` 之内，否则整份拒绝。
     pub fn new(
         id: u32,
         keys: &[KeyRect; 26],
@@ -193,7 +193,7 @@ impl KeyGeometry {
         })
     }
 
-    /// 宿主坐标里的按下点 (x, y) 落在 `key` 上的触点：取 `key` 离它最近的那个实例，偏移量化到 1/20 键并钳到 ±1.5 键。`key` 不在几何里（没有 `;` 键时的 `;`、不是字母）、坐标不是有限数或归一后超出 [`COORDINATE_LIMIT`] 时为 `None`，这一键按没有触点处理。大写字母按小写算。
+    /// 宿主坐标里的按下点 (x, y) 落在 `key` 上的触点：取 `key` 离它最近的那个实例，偏移量化到 1/20 键并钳到 ±1.5 键。`key` 不在几何里（没有 `;` 键时的 `;`、不是字母）、坐标不是有限数或归一后超出 `COORDINATE_LIMIT` 时为 `None`，这一键按没有触点处理。大写字母按小写算。
     pub fn touch(&self, key: u8, x: f32, y: f32) -> Option<KeyTouch> {
         let point = (x / self.unit.0, y / self.unit.1);
         if !within_limit(point.0) || !within_limit(point.1) {
@@ -279,6 +279,10 @@ pub struct TouchTuning {
     pub show_margin: f64,
     /// 同时要求纠错整句改动的每一键在落点下的价都不超过它，落点才算支持这次改正。打对的输入里，按在键心附近的那一键改过去的价高，挡在这条线外；只看分数差时，字面整句本来就排得很靠后的那些用例常有一条分数接近的纠错整句，它坐到整句块之后，把金标准往后挤一位。
     pub show_penalty: f64,
+    /// m_sp（方案里的 `shuangpin_touch_lead_margin`）：纠错整句坐首选要求它的分数（已扣罚分）比字面整句高出这么多乘以纠错边数（`TypoSentence::leads`）。双拼触点专用，不复用全拼值为无穷大的 `typo_lead_margin`；只在 Rust 侧可调，宿主经 FFI 设不了。无穷大时首选规则整个不起作用。
+    pub lead_margin: f64,
+    /// P_LEAD：坐首选还要求改动的每一键在落点下改过去的价（不打学习折扣）都不超过它。按在键心的字母改到邻键的价接近 B + s，挡在这条线外，所以打在键心的字母永远不会被首选改掉。
+    pub lead_penalty: f64,
 }
 
 impl Default for TouchTuning {
@@ -295,6 +299,8 @@ impl Default for TouchTuning {
             cut: 16.0,
             show_margin: 6.0,
             show_penalty: 14.0,
+            lead_margin: f64::INFINITY,
+            lead_penalty: 10.0,
         }
     }
 }

@@ -401,6 +401,42 @@ final class TouchPointTests: XCTestCase {
     try export(data, as: "ios-ipad-split")
   }
 
+  /// iPad 全宽键盘的单手模式把 26 键收进手机大小的一块、贴到一侧（#10203）：注册的几何跟着按键的实际矩形走，比两手的 iPad 键盘窄，全部落在靠左的那一块里。键盘这边不用另做什么，量的本来就是布局矩形。
+  func testTheOneHandedTabletKeyboardRegistersTheDockedBlock() throws {
+    let previous = InputSchemePreference.scheme
+    let previousOneHanded = KeyboardLayoutPreference.oneHanded
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.oneHanded = previousOneHanded
+    }
+    func tablet() -> KeyboardViewController {
+      InputSchemePreference.scheme = .shuangpin
+      let controller = KeyboardViewController()
+      controller.traitOverrides.userInterfaceIdiom = .pad
+      controller.traitOverrides.horizontalSizeClass = .regular
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 1032, height: KeyboardViewController.keyboardHeight(.tablet))
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    KeyboardLayoutPreference.oneHanded = .off
+    let full = try XCTUnwrap(try decode(try XCTUnwrap(tablet().keyGeometryExport))["keys"] as? [[Double]])
+    KeyboardLayoutPreference.oneHanded = .left
+    let controller = tablet()
+    let docked = try XCTUnwrap(try decode(try XCTUnwrap(controller.keyGeometryExport))["keys"] as? [[Double]])
+    XCTAssertEqual(docked.count, 26)
+    XCTAssertLessThan(docked[0][2], full[0][2], "the keys are narrower")
+    // 键区坐标从键区左边起算（iPad 左右内边距 8 之内），按键那一段宽约 360。
+    let keysWidth = KeyboardOneHandLayout.keysWidth(available: 1032 - 16, mode: .left, formFactor: .tablet)
+    for key in docked {
+      XCTAssertLessThanOrEqual(key[0] + key[2] / 2, Double(keysWidth) + 0.5, "every letter sits in the docked block")
+    }
+    try press("w", in: controller)
+    XCTAssertEqual(controller.keyGeometryRegistration.id, 1)
+    XCTAssertEqual(controller.touchCharacterCount, 1)
+  }
+
   /// 26 键双拼的字母键取走按下点后照常组字；`sendActions` 没有按下点，走原来的 msime_client_character，两条路组出同样的字母。
   func testLetterKeysTypeWithTheirTouchDownAndDropIt() throws {
     let previous = InputSchemePreference.scheme
@@ -660,6 +696,111 @@ final class TouchPointTests: XCTestCase {
       layout.append((CACurrentMediaTime() - start) * 1000)
     }
     report("key-geometry-measure-and-encode", layout)
+  }
+
+  /// 坐了首选的双拼纠错（View 的 `confident_correction`）在候选条上：字和纠错前的拼写用强调色，读屏标签以「，已纠正」结尾；没坐首选的纠错照旧画次要色。下一次回应没有这个标记时，复用的词块放回原样。
+  func testTheStripMarksAConfidentCorrection() throws {
+    let previous = InputSchemePreference.scheme
+    let follows = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidatePalette.defaults.set(follows, forKey: CandidatePalette.followsDesktopKey)
+    }
+    CandidatePalette.defaults.set(false, forKey: CandidatePalette.followsDesktopKey)
+    setCandidateGloss(false)
+    let controller = keyboard(.shuangpin)
+    defer { controller.viewDidDisappear(false) }
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    func chip(_ number: Int) throws -> KeyboardKeyButton {
+      try XCTUnwrap(nodes(controller.view).first {
+        $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden
+      } as? KeyboardKeyButton, "候选条上没有第 \(number) 个词块")
+    }
+    func hintColor(_ button: UIButton, _ hint: String) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: hint)
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+    let skin = KeyboardTheme.current
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: "true")))
+    controller.view.layoutIfNeeded()
+    let first = try chip(1)
+    XCTAssertEqual(first.accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(first.configuration?.baseForegroundColor, skin.accent)
+    XCTAssertEqual(try hintColor(first, "womfjbtnqugsyr"), skin.accent, "纠错前的拼写用强调色")
+    XCTAssertEqual(try chip(2).accessibilityLabel, "候选词 2：我们今天去公，还需输入 womfjbtnqugs")
+    XCTAssertEqual(try chip(2).configuration?.baseForegroundColor, skin.keyForeground)
+    XCTAssertEqual(try hintColor(chip(2), "womfjbtnqugs"), skin.secondary, "没坐首选的纠错注释照旧是次要色")
+    XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：我们")
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.accent, "键盘自己的配色里首选本来就是强调色")
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), skin.secondary, "默认文档的纠错首选不画强调色注释")
+  }
+
+  /// 跟随桌面调色板时（#10018）：首个词块画在选中底色上，坐了首选的纠错照用调色板给那里的颜色。字是选中文字色，不换成强调色；纠错前的拼写从次要色换成选中翻译色、没给时用选中文字色，标记照样看得出来。这里取色器选中色设成强调色本身，client-services 于是按亮度给出白色的选中文字色。
+  func testTheStripMarksAConfidentCorrectionOnADesktopPalette() throws {
+    preserveSharedTheme()
+    setCandidateGloss(false)
+    let previous = InputSchemePreference.scheme
+    let follows = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    addTeardownBlock {
+      InputSchemePreference.scheme = previous
+      CandidatePalette.defaults.set(follows, forKey: CandidatePalette.followsDesktopKey)
+    }
+    CandidatePalette.defaults.set(true, forKey: CandidatePalette.followsDesktopKey)
+    XCTAssertTrue(GlobalThemePreference.update {
+      $0["global_theme"] = GlobalThemeCatalog.customId
+      $0["custom_theme"] = ["base": "paper", "candidate_colors": ["selected": "#2C7A4B"]]
+    })
+    let palette = try XCTUnwrap(CandidatePalette.active(in: MetasequoiaInputSessionBridge.loadSharedPreferences(), systemDark: false))
+    let selectedText = try XCTUnwrap(palette.selectedText)
+    XCTAssertNotEqual(selectedText, palette.accent, "夹具要让选中文字色和强调色不同")
+    let markedCaption = palette.selectedTranslation ?? selectedText
+    let plainCaption = palette.selectedTranslation ?? palette.secondary
+    XCTAssertNotEqual(markedCaption, plainCaption, "夹具要让标记改变注释颜色")
+
+    InputSchemePreference.scheme = .shuangpin
+    let controller = KeyboardViewController()
+    controller.overrideUserInterfaceStyle = .light
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    defer { controller.viewDidDisappear(false) }
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    func chip(_ number: Int) throws -> KeyboardKeyButton {
+      try XCTUnwrap(nodes(controller.view).first {
+        $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden
+      } as? KeyboardKeyButton, "候选条上没有第 \(number) 个词块")
+    }
+    func hintColor(_ button: UIButton, _ hint: String) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: hint)
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: "true")))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, selectedText, "选中底色上的字不换成强调色")
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), markedCaption)
+    XCTAssertEqual(try chip(2).configuration?.baseForegroundColor, palette.text)
+    XCTAssertEqual(try hintColor(chip(2), "womfjbtnqugs"), palette.secondary)
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, selectedText)
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), plainCaption, "没有标记时注释回到调色板原来的颜色")
   }
 
   private func report(_ label: String, _ samples: [Double]) {

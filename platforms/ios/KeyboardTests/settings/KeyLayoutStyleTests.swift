@@ -8,6 +8,7 @@ final class KeyLayoutStyleTests: XCTestCase {
   private static let styleKeys = [
     TouchKeyLayoutStyle.twentySixKeyDocumentKey, TouchKeyLayoutStyle.fourteenKeyDocumentKey,
     TouchKeyLayoutStyle.nineKeyDocumentKey, TouchKeyLayoutStyle.numberRowDocumentKey,
+    TouchKeyLayoutStyle.symbolFirstDocumentKey, TouchKeyLayoutStyle.numberPadSpaceDocumentKey,
   ]
 
   override func setUp() {
@@ -57,7 +58,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(\.rawValue), ["standard", "long_space", "emoji"])
     XCTAssertEqual(TouchNineKeyStyle.allCases.map(\.rawValue), ["standard", "comma_period", "emoji", "tall_return"])
     // 设置页上的名字。
-    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(\.title), ["标准", "逗号句号在空格两侧", "长空格", "表情键"])
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(\.title), ["标准", "逗号句号", "长空格", "表情键"])
     XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(\.title), ["标准", "长空格", "表情键"])
     XCTAssertEqual(TouchNineKeyStyle.allCases.map(\.title), ["标准", "底栏带标点", "表情键", "右侧大回车"])
   }
@@ -144,7 +145,25 @@ final class KeyLayoutStyleTests: XCTestCase {
                    ["symbols 1.28", "layer 1.25", "zero 3.24", "space 1.05", "language 1.05", "returnKey 1.28"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: true, zero: true, language: false, digits: true)),
                    ["symbols 1.42", "layer 1.25", "globe 1.00", "zero 4.01", "space 1.05", "returnKey 1.42"])
+    // 九键一族自己的数字层（#10061）：符 和切换键与字母层同一格、同宽，0 和空格合起来占字母层空格（九键双拼还有它的 0）那一份；隐藏中/英时它的份额给 0。
+    XCTAssertEqual(row(TouchBottomRowLayout.nineKeyDigits(globe: false)),
+                   ["symbols 1.05", "layer 1.25", "zero 3.15", "space 1.05", "language 1.05", "returnKey 1.60"])
+    XCTAssertEqual(row(TouchBottomRowLayout.nineKeyDigits(globe: true, zero: true, language: false)),
+                   ["symbols 1.05", "layer 1.25", "globe 1.00", "zero 5.25", "space 1.05", "returnKey 1.60"])
     func total(_ keys: [TouchBottomRowLayout.Key]) -> Double { keys.reduce(0) { $0 + Double($1.weight) } }
+    for globe in [false, true] {
+      for zero in [false, true] {
+        for language in [false, true] {
+          let letters = TouchBottomRowLayout.nineKey(.standard, globe: globe, zero: zero, language: language)
+          let digits = TouchBottomRowLayout.nineKeyDigits(globe: globe, zero: zero, language: language)
+          let label = "globe \(globe) zero \(zero) language \(language)"
+          XCTAssertEqual(total(digits), total(letters), accuracy: 1e-9, label)
+          XCTAssertEqual(Array(digits.prefix(globe ? 3 : 2)), Array(letters.prefix(globe ? 3 : 2)), label)
+          XCTAssertEqual(digits.last, letters.last, label)
+          XCTAssertEqual(digits.filter { $0.slot == .zero }.count, 1, label)
+        }
+      }
+    }
     for style in TouchTwentySixKeyStyle.allCases {
       XCTAssertEqual(total(TouchBottomRowLayout.twentySixKey(style, globe: false)),
                      total(TouchBottomRowLayout.twentySixKey(.standard, globe: false)), accuracy: 1e-9, style.rawValue)
@@ -356,7 +375,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
   }
 
-  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不变。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
+  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不跟样式，按 `TouchBottomRowLayout.nineKeyDigits` 排。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
   func testNineKeyStylesDrawTheTable() throws {
     for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
@@ -377,9 +396,12 @@ final class KeyLayoutStyleTests: XCTestCase {
             XCTAssertEqual(comma.configuration?.title, "，")
             XCTAssertNotNil(comma.menu)
           }
-          // 数字层照旧：0 在中间，没有 ， 和 。。
+          // 数字层不跟样式：符 | 九键 | 0 | 空格 | 中 | 回车，符 和切换键与字母层同一格（#10061），没有 ， 和 。。
           try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
           controller.view.layoutIfNeeded()
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(
+            globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage),
+                              "\(scheme.rawValue) \(style.rawValue) digits hidesLanguage=\(hidesLanguage)")
           XCTAssertFalse(shown(try button("quickPunctuationKey", in: controller)), "\(scheme.rawValue) \(style.rawValue)")
           XCTAssertFalse(shown(try button("bottomPeriodKey", in: controller)))
           XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
@@ -695,13 +717,253 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(Set(TouchKeyLayoutOffering.twentySixKeySchemes), Set(twentySixKey))
   }
 
-  /// 设置页的入口副标题和几段说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。
+  /// 设置页的入口副标题、各样式的说明和数字行开关的说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。说明只给有副作用的四个样式，其余样式页面不画说明这一行。
   func testSettingsTextsMatchTheOtherPlatforms() {
-    XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式和顶部数字行")
-    XCTAssertEqual(TouchKeyLayoutOffering.twentySixKeyFooter, "长空格：符号键移到工具栏；表情键：长按 123 打开符号。")
-    XCTAssertEqual(TouchKeyLayoutOffering.letterGridFooter, "表情键：长按 123 打开符号。")
-    XCTAssertEqual(TouchKeyLayoutOffering.nineKeyFooter, "右侧大回车：回车竖占两行，符号键在左下角。")
+    XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式、键位和顶部数字行")
     XCTAssertEqual(TouchKeyLayoutOffering.numberRowSubtitle, "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。")
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(TouchKeyLayoutOffering.note),
+                   [nil, nil, "符号键移到工具栏。", "长按 123 打开符号。"])
+    XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(TouchKeyLayoutOffering.note), [nil, nil, "长按 123 打开符号。"])
+    XCTAssertEqual(TouchNineKeyStyle.allCases.map(TouchKeyLayoutOffering.note), [nil, nil, nil, "回车竖占两行，符号键在左下角。"])
+    // 页面按分段取当前样式的说明：换了分段说的是那一类选中的样式。
+    let style = TouchKeyLayoutStyle(twentySixKey: .longSpace, fourteenKey: .standard, nineKey: .tallReturn)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.note(style), "符号键移到工具栏。")
+    XCTAssertNil(TouchKeyLayoutKind.letterGrid.note(style))
+    XCTAssertEqual(TouchKeyLayoutKind.nineKey.note(style), "回车竖占两行，符号键在左下角。")
+    XCTAssertNil(TouchKeyLayoutKind.twentySixKey.note(TouchKeyLayoutStyle()))
+    XCTAssertEqual(TouchKeyLayoutKind.letterGrid.note(TouchKeyLayoutStyle(fourteenKey: .emoji)), "长按 123 打开符号。")
+  }
+
+  /// 「按键布局」页顶部的分段：按 26 键、14/18 键、9 键的顺序只列本版本提供的类型，分段名和 identifier 三端一致；只有一类时页面不画分段控件，一类都没有时没有分段。
+  func testSettingsPageKindsFollowTheOffering() {
+    func offering(_ engineSchemes: Set<String>) -> TouchKeyLayoutOffering {
+      TouchKeyLayoutOffering { engineSchemes.contains($0.engineScheme) }
+    }
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map(\.title), ["26 键", "14/18 键", "9 键"])
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map(\.identifier), ["keyLayoutKind_26", "keyLayoutKind_14", "keyLayoutKind_9"])
+    XCTAssertEqual(offering(["quanpin"]).kinds, [.twentySixKey, .letterGrid, .nineKey])
+    XCTAssertEqual(offering(["shuangpin"]).kinds, [.twentySixKey, .letterGrid])
+    XCTAssertEqual(offering(["cantonese"]).kinds, [.twentySixKey])
+    XCTAssertEqual(offering(["stroke"]).kinds, [.nineKey])
+    XCTAssertEqual(offering(["zhuyin"]).kinds, [])
+    XCTAssertNil(offering(["zhuyin"]).initialKind(current: .twentySixKey))
+  }
+
+  /// 分段默认停在用户当前在用的中文键盘那一类：全拼、双拼、五笔、粤拼的 26 键停在 26 键；全拼 14 键、18 键和选了 14/18 键布局的双拼、五笔停在 14/18 键；九键、九键双拼和笔画停在 9 键。判断不了（手写、注音、非中文 26 键）或本版本不列那一类时停在第一个。
+  func testSettingsPageStartsOnTheCurrentKeyboard() {
+    func kind(_ scheme: ChineseInputScheme, shuangpin: TouchShuangpinLayoutPreference.Layout = .twentySixKey,
+              wubi: TouchWubiLayoutPreference.Layout = .twentySixKey) -> TouchKeyLayoutKind? {
+      TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+    }
+    for scheme in [ChineseInputScheme.quanpin, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .cantonese, .cantoneseShuangpin] {
+      XCTAssertEqual(kind(scheme), .twentySixKey, scheme.rawValue)
+    }
+    for scheme in [ChineseInputScheme.fourteenKey, .eighteenKey] {
+      XCTAssertEqual(kind(scheme), .letterGrid, scheme.rawValue)
+    }
+    XCTAssertEqual(kind(.shuangpin, shuangpin: .fourteenKey), .letterGrid)
+    XCTAssertEqual(kind(.ziranma, shuangpin: .eighteenKey), .letterGrid)
+    XCTAssertEqual(kind(.wubi, wubi: .fourteenKey), .letterGrid)
+    // 双拼、五笔的字母键布局只管它们自己：全拼 26 键不因为双拼选了 14 键就算 14/18 键。
+    XCTAssertEqual(kind(.quanpin, shuangpin: .fourteenKey, wubi: .fourteenKey), .twentySixKey)
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
+      XCTAssertEqual(kind(scheme), .nineKey, scheme.rawValue)
+    }
+    for scheme in [ChineseInputScheme.handwriting, .zhuyin, .japanese, .japaneseNineKey, .korean, .vietnamese, .tibetan] {
+      XCTAssertNil(kind(scheme), scheme.rawValue)
+    }
+    let everything = TouchKeyLayoutOffering { _ in true }
+    XCTAssertEqual(everything.initialKind(current: .nineKey), .nineKey)
+    XCTAssertEqual(everything.initialKind(current: .letterGrid), .letterGrid)
+    XCTAssertEqual(everything.initialKind(current: nil), .twentySixKey, "a keyboard the page cannot place starts on the first kind")
+    let strokeOnly = TouchKeyLayoutOffering { $0.engineScheme == "stroke" }
+    XCTAssertEqual(strokeOnly.initialKind(current: .twentySixKey), .nineKey, "a kind the edition does not list falls back to the first one listed")
+  }
+
+  /// 预览里高亮的键按底行表的键位认：标准样式不高亮，其余样式高亮它与标准不同的那几个键，而且这些键都在这个样式的底行里。
+  func testSettingsPreviewHighlightsWhatTheStyleChanges() {
+    typealias Slots = Set<Slot>
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots),
+                   [[], [.comma, .period], [.space], [.emoji]] as [Slots])
+    XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots), [[], [.space], [.emoji]] as [Slots])
+    XCTAssertEqual(TouchNineKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots),
+                   [[], [.comma, .period], [.emoji], [.returnKey]] as [Slots])
+    let styles = TouchTwentySixKeyStyle.allCases.flatMap { twentySix in
+      TouchFourteenKeyStyle.allCases.flatMap { fourteen in
+        TouchNineKeyStyle.allCases.map { TouchKeyLayoutStyle(twentySixKey: twentySix, fourteenKey: fourteen, nineKey: $0) }
+      }
+    }
+    for style in styles {
+      for kind in TouchKeyLayoutKind.allCases {
+        let label = "\(kind.rawValue) \(style)"
+        let row = Set(kind.bottomRow(style).map(\.slot))
+        XCTAssertTrue(kind.highlightedSlots(style).isSubset(of: row), label)
+      }
+    }
+    // 预览的底行就是键盘用的那张表，隐藏中/英键时与键盘一样把它的份额并进空格。
+    let style = TouchKeyLayoutStyle(twentySixKey: .emoji, fourteenKey: .longSpace, nineKey: .tallReturn)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style), TouchBottomRowLayout.twentySixKey(.emoji, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.letterGrid.bottomRow(style), TouchBottomRowLayout.letterGrid(.longSpace, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.nineKey.bottomRow(style), TouchBottomRowLayout.nineKey(.tallReturn, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style, language: false),
+                   TouchBottomRowLayout.twentySixKey(.emoji, globe: false, language: false))
+  }
+
+  /// 打开「符」与「123」互换后，26 键分段的预览底行照键盘把 符 排到 123 左边，并在样式高亮之外再高亮 符 和 123；长空格和表情键样式没有 符，底行和高亮都不变；14/18 键和 9 键不受这个开关影响。
+  func testSettingsPreviewFollowsSymbolFirst() {
+    for style in TouchTwentySixKeyStyle.allCases {
+      let off = TouchKeyLayoutStyle(twentySixKey: style)
+      let on = TouchKeyLayoutStyle(twentySixKey: style, symbolFirst: true)
+      let label = style.rawValue
+      let standardRow = TouchBottomRowLayout.twentySixKey(style, globe: false)
+      XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(off), standardRow, label)
+      XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(on), TouchBottomRowLayout.symbolFirst(standardRow), label)
+      XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(on, language: false),
+                     TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(style, globe: false, language: false)), label)
+      XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.highlightedSlots(off), TouchKeyLayoutOffering.highlightedSlots(style), label)
+      let slots = TouchKeyLayoutKind.twentySixKey.bottomRow(on).map(\.slot)
+      if standardRow.contains(where: { $0.slot == .symbols }) {
+        XCTAssertEqual(Array(slots.prefix(2)), [.symbols, .layer], label)
+        XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.highlightedSlots(on),
+                       TouchKeyLayoutOffering.highlightedSlots(style).union([.symbols, .layer]), label)
+      } else {
+        XCTAssertEqual(slots, standardRow.map(\.slot), label)
+        XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.highlightedSlots(on), TouchKeyLayoutOffering.highlightedSlots(style), label)
+      }
+      XCTAssertTrue(TouchKeyLayoutKind.twentySixKey.highlightedSlots(on).isSubset(of: Set(slots)), label)
+    }
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(TouchKeyLayoutStyle(symbolFirst: true)).map(\.slot),
+                   [.symbols, .layer, .space, .comma, .language, .returnKey])
+    let swapped = TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod, symbolFirst: true)
+    let plain = TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod)
+    for kind in [TouchKeyLayoutKind.letterGrid, .nineKey] {
+      XCTAssertEqual(kind.bottomRow(swapped), kind.bottomRow(plain), kind.rawValue)
+      XCTAssertEqual(kind.highlightedSlots(swapped), kind.highlightedSlots(plain), kind.rawValue)
+    }
+  }
+
+  /// 数字行开着时 26 键和 14/18 键的预览顶上画一排 1 到 0，9 键的预览不画；关着时三类都不画。
+  func testSettingsPreviewDrawsTheNumberRowOnLetterKeyboardsOnly() {
+    let on = TouchKeyLayoutStyle(numberRow: true)
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map { $0.drawsNumberRow(on) }, [true, true, false])
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map { $0.drawsNumberRow(TouchKeyLayoutStyle()) }, [false, false, false])
+    XCTAssertEqual(TypingKeyHeatmap.numberRow.map(\.face), "1234567890".map(String.init))
+    // 预览的 26 键字母行与热力图同一张表：数字行开着时热力图就是数字行加这三排再加底行。
+    XCTAssertEqual(TypingKeyHeatmap.letterRows(for: on),
+                   [TypingKeyHeatmap.numberRow] + TypingKeyHeatmap.twentySixKeyLetterRows + [TypingKeyHeatmap.letterRows(for: on).last!])
+    XCTAssertEqual(TypingKeyHeatmap.twentySixKeyLetterRows.map { $0.map(\.face).joined() },
+                   ["QWERTYUIOP", "ASDFGHJKL", "分词ZXCVBNM删除"])
+  }
+
+  // MARK: - 整块键盘预览（键盘页、皮肤页）
+
+  /// 键盘页和皮肤各页的整块预览（`KeyboardSkinPreview`）按用户的样式画字母层底行，键序和份额与键盘同一张表。以前它写死 `123 | ， | 空格 | 中/英 | 换行`，用户的标准底行 `123 | 符 | 空格 | ， | 中 | 回车` 在预览里对不上（2026-10-29 iPhone XR）。
+  func testSkinPreviewBottomRowFollowsEachStyle() {
+    func slots(nineKey: Bool = false, letterGrid: Bool = false, _ style: TouchKeyLayoutStyle) -> [Slot] {
+      KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: style, language: true).bottomRow.map(\.slot)
+    }
+    let twentySix: [TouchTwentySixKeyStyle: [Slot]] = [
+      .standard: [.layer, .symbols, .space, .comma, .language, .returnKey],
+      .commaPeriod: [.layer, .symbols, .comma, .space, .period, .language, .returnKey],
+      .longSpace: [.layer, .comma, .space, .language, .returnKey],
+      .emoji: [.layer, .emoji, .space, .comma, .language, .returnKey],
+    ]
+    for style in TouchTwentySixKeyStyle.allCases {
+      let keyLayout = TouchKeyLayoutStyle(twentySixKey: style)
+      let layer = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false, style: keyLayout, language: true)
+      XCTAssertEqual(layer.kind, .twentySixKey, style.rawValue)
+      XCTAssertEqual(layer.bottomRow.map(\.slot), twentySix[style], style.rawValue)
+      XCTAssertEqual(layer.bottomRow, TouchBottomRowLayout.twentySixKey(style, globe: false), style.rawValue)
+      XCTAssertFalse(layer.tallReturn, style.rawValue)
+    }
+    let letterGrid: [TouchFourteenKeyStyle: [Slot]] = [
+      .standard: [.layer, .comma, .space, .period, .language, .returnKey],
+      .longSpace: [.layer, .comma, .space, .language, .returnKey],
+      .emoji: [.layer, .emoji, .space, .comma, .language, .returnKey],
+    ]
+    for style in TouchFourteenKeyStyle.allCases {
+      let keyLayout = TouchKeyLayoutStyle(fourteenKey: style)
+      let layer = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: true, style: keyLayout, language: true)
+      XCTAssertEqual(layer.kind, .letterGrid, style.rawValue)
+      XCTAssertEqual(layer.bottomRow.map(\.slot), letterGrid[style], style.rawValue)
+      XCTAssertEqual(layer.bottomRow, TouchBottomRowLayout.letterGrid(style, globe: false), style.rawValue)
+    }
+    let nine: [TouchNineKeyStyle: [Slot]] = [
+      .standard: [.symbols, .layer, .space, .language, .returnKey],
+      .commaPeriod: [.symbols, .layer, .comma, .space, .period, .language, .returnKey],
+      .emoji: [.symbols, .layer, .emoji, .space, .language, .returnKey],
+      .tallReturn: [.symbols, .layer, .space, .language, .returnKey],
+    ]
+    for style in TouchNineKeyStyle.allCases {
+      let keyLayout = TouchKeyLayoutStyle(nineKey: style)
+      // 九键优先于字母格：两个都传时画九键。
+      let layer = KeyboardPreviewLetterLayer(nineKey: true, letterGrid: true, style: keyLayout, language: true)
+      XCTAssertEqual(layer.kind, .nineKey, style.rawValue)
+      XCTAssertEqual(layer.bottomRow.map(\.slot), nine[style], style.rawValue)
+      XCTAssertEqual(layer.bottomRow, TouchBottomRowLayout.nineKey(style, globe: false), style.rawValue)
+      XCTAssertEqual(layer.tallReturn, style == .tallReturn, style.rawValue)
+      XCTAssertEqual(layer.nineKeySidebar, style == .tallReturn ? ["，", "。", "？", "！"] : ["，", "。", "？"], style.rawValue)
+      XCTAssertEqual(layer.nineKeyControls, style == .tallReturn ? ["⌫", "分词"] : ["⌫", "分词", "！"], style.rawValue)
+    }
+    // 每一类只读自己那一项样式：别的两类换了样式，底行不变。
+    let mixed = TouchKeyLayoutStyle(twentySixKey: .emoji, fourteenKey: .longSpace, nineKey: .tallReturn)
+    XCTAssertEqual(slots(mixed), twentySix[.emoji])
+    XCTAssertEqual(slots(letterGrid: true, mixed), letterGrid[.longSpace])
+    XCTAssertEqual(slots(nineKey: true, mixed), nine[.tallReturn])
+    // 右侧大回车的中间几格合起来与九宫格同宽，两端 符 和回车各占一个侧列，与键盘的外框相同。
+    let tall = KeyboardPreviewLetterLayer(nineKey: true, letterGrid: false, style: TouchKeyLayoutStyle(nineKey: .tallReturn), language: true)
+    let side = TouchBottomRowLayout.nineKeySideWeight(globe: false)
+    XCTAssertEqual(tall.bottomRow.first?.weight ?? 0, side, accuracy: 0.0001)
+    XCTAssertEqual(tall.bottomRow.last?.weight ?? 0, side, accuracy: 0.0001)
+    XCTAssertEqual(tall.bottomRow.reduce(0) { $0 + $1.weight }, TouchBottomRowLayout.nineKeyRowWeight(globe: false), accuracy: 0.0001)
+  }
+
+  /// 预览照键盘认「符」与「123」互换和「隐藏中/英键」：互换只动 26 键里带 符 的样式，隐藏中/英时它的份额并进空格；九键双拼的 0 跟在空格后面。
+  func testSkinPreviewBottomRowFollowsSymbolFirstAndHiddenLanguage() {
+    for style in TouchTwentySixKeyStyle.allCases {
+      let on = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false,
+                                          style: TouchKeyLayoutStyle(twentySixKey: style, symbolFirst: true), language: true)
+      XCTAssertEqual(on.bottomRow, TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(style, globe: false)), style.rawValue)
+    }
+    let swapped = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false, style: TouchKeyLayoutStyle(symbolFirst: true), language: true)
+    XCTAssertEqual(swapped.bottomRow.map(\.slot), [.symbols, .layer, .space, .comma, .language, .returnKey])
+    let longSpace = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false,
+                                               style: TouchKeyLayoutStyle(twentySixKey: .longSpace, symbolFirst: true), language: true)
+    XCTAssertEqual(longSpace.bottomRow.map(\.slot), [.layer, .comma, .space, .language, .returnKey])
+    for (nineKey, letterGrid) in [(false, true), (true, false)] {
+      let plain = KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: TouchKeyLayoutStyle(), language: true)
+      let on = KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: TouchKeyLayoutStyle(symbolFirst: true), language: true)
+      XCTAssertEqual(on.bottomRow, plain.bottomRow, "\(plain.kind)")
+    }
+
+    for (nineKey, letterGrid) in [(false, false), (false, true), (true, false)] {
+      let style = TouchKeyLayoutStyle(twentySixKey: .commaPeriod, fourteenKey: .emoji, nineKey: .tallReturn)
+      let shown = KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: style, language: true)
+      let hidden = KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: style, language: false)
+      let label = "\(shown.kind)"
+      XCTAssertEqual(hidden.bottomRow.map(\.slot), shown.bottomRow.map(\.slot).filter { $0 != .language }, label)
+      XCTAssertEqual(hidden.bottomRow.reduce(0) { $0 + $1.weight }, shown.bottomRow.reduce(0) { $0 + $1.weight }, accuracy: 0.0001, label)
+      let space = { (layer: KeyboardPreviewLetterLayer) in layer.bottomRow.first { $0.slot == .space }?.weight ?? 0 }
+      XCTAssertEqual(space(hidden), space(shown) + TouchBottomRowLayout.languageWeight, accuracy: 0.0001, label)
+    }
+
+    let zero = KeyboardPreviewLetterLayer(nineKey: true, letterGrid: false, style: TouchKeyLayoutStyle(), language: true, nineKeyZero: true)
+    XCTAssertEqual(zero.bottomRow, TouchBottomRowLayout.nineKey(.standard, globe: false, zero: true))
+    XCTAssertEqual(zero.bottomRow.map(\.slot), [.symbols, .layer, .space, .zero, .language, .returnKey])
+    // 26 键和 14/18 键没有 0，传了也不画。
+    let letters = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false, style: TouchKeyLayoutStyle(), language: true, nineKeyZero: true)
+    XCTAssertFalse(letters.bottomRow.contains { $0.slot == .zero })
+  }
+
+  /// 数字行开着时 26 键和 14/18 键的整块预览顶上画 1 到 0，九键不画；关着时都不画。
+  func testSkinPreviewDrawsTheNumberRowOnLetterKeyboardsOnly() {
+    for numberRow in [false, true] {
+      let style = TouchKeyLayoutStyle(numberRow: numberRow)
+      let drawn = [(false, false), (false, true), (true, false)].map { nineKey, letterGrid in
+        KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: style, language: true).numberRow
+      }
+      XCTAssertEqual(drawn, [numberRow, numberRow, false], "\(numberRow)")
+    }
   }
 
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
@@ -1103,15 +1365,27 @@ final class KeyLayoutStyleTests: XCTestCase {
       try assertTallReturnFrame(controller, digits: false, standard: standard, "\(label) letters again")
       controller.viewDidDisappear(false)
     }
-    // 标准九键的数字层：符 在符号栏第三排。
+    // 标准九键的数字层：符 在底行最左、与字母层同一格（#10061），符号栏里不再放第二个 符。
     select(.nineKey)
     XCTAssertTrue(write(TouchKeyLayoutStyle()))
     var controller = keyboard()
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
+    XCTAssertFalse(shown(try button("numberPadSymbolPanelKey", in: controller)))
+    XCTAssertTrue(shown(try button("symbolPanelKey", in: controller)))
+    try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(globe: controller.needsInputModeSwitchKey),
+                        "standard nine-key digits")
+    controller.viewDidDisappear(false)
+    // 借来的数字九宫格：符 仍在符号栏第三排。
+    select(.quanpin)
+    XCTAssertTrue(write(TouchKeyLayoutStyle()))
+    controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
     XCTAssertTrue(shown(try button("numberPadSymbolPanelKey", in: controller)))
     XCTAssertEqual(try button("numberPadSymbolPanelKey", in: controller).bounds.height,
                    try button("nineKeyDelete", in: controller).bounds.height, accuracy: 0.5)
+    XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
     controller.viewDidDisappear(false)
     // 全拼借用的数字九宫格。
     select(.quanpin)
@@ -1191,6 +1465,231 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(drawn.map(\.id).filter { !TypingKeyID.known.contains($0) }, [], "only ids the store accepts")
   }
 
+  // MARK: - 「符」与「123」互换、数字键盘空格位置（#10056）
+
+  /// 两项的读法：互换不是布尔值时按关；空格位置缺键、写 `platform_default` 或不认识时按 iOS 原来的 `afterZero`。线上写法、选项名和设置页文字与 client-core、Android、鸿蒙逐字相同。
+  func testSymbolFirstAndNumberPadSpaceParsing() {
+    XCTAssertEqual(TouchKeyLayoutStyle(in: ["touch_twenty_six_symbol_first": true, "touch_number_pad_space": "before_zero"]),
+                   TouchKeyLayoutStyle(symbolFirst: true, numberPadSpace: .beforeZero))
+    XCTAssertEqual(TouchKeyLayoutStyle(in: ["touch_number_pad_space": "right_column"]).numberPadSpace, .rightColumn)
+    for unknown: Any in ["platform_default", "space_in_grid", 3] {
+      XCTAssertEqual(TouchKeyLayoutStyle(in: ["touch_number_pad_space": unknown]).numberPadSpace, .afterZero, "\(unknown)")
+    }
+    XCTAssertFalse(TouchKeyLayoutStyle(in: ["touch_twenty_six_symbol_first": "true"]).symbolFirst)
+    XCTAssertEqual(TouchKeyLayoutStyle().numberPadSpace, .afterZero, "iOS keeps its own number pad by default")
+    XCTAssertEqual(TouchNumberPadSpace.allCases.map(\.rawValue), ["right_column", "after_zero", "before_zero"])
+    XCTAssertEqual(TouchNumberPadSpace.allCases.map(\.title), ["空格在右列", "空格在 0 右边", "空格在 0 左边"])
+    XCTAssertEqual(TouchKeyLayoutOffering.symbolFirstTitle, "26 键「符」与「123」互换")
+    XCTAssertEqual(TouchKeyLayoutOffering.symbolFirstSubtitle, "符 排在 123 左边；长空格和表情键样式没有 符，不受影响。")
+    XCTAssertEqual(TouchKeyLayoutOffering.numberPadTitle, "数字键盘")
+    XCTAssertEqual(TouchKeyLayoutOffering.numberPadFooter, "九宫格数字键盘里空格的位置；右侧大回车不受影响。")
+  }
+
+  /// 保存：互换开关关着时不留在文档里；数字键盘写用户点的那一种，包括与 iOS 出厂排法相同的 `after_zero`（明确选过，同步到别的设备也按它画）。
+  func testSymbolFirstAndNumberPadSpaceSaving() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(TouchKeyLayoutStyle.save(symbolFirst: true, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(numberPadSpace: .afterZero, stateRoot: state))
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["touch_twenty_six_symbol_first"] as? Bool, true)
+    XCTAssertEqual(document["touch_number_pad_space"] as? String, "after_zero")
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.numberPadSpace, .afterZero)
+    XCTAssertTrue(TouchKeyLayoutStyle.mirrored.symbolFirst)
+    XCTAssertTrue(TouchKeyLayoutStyle.save(symbolFirst: false, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(numberPadSpace: .rightColumn, stateRoot: state))
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertNil(document["touch_twenty_six_symbol_first"], "the default is not written")
+    XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(numberPadSpace: .rightColumn))
+  }
+
+  /// 表：互换只把 符 挪到 123 左边、份额不变，没有 符 的样式不变；数字层三种空格位置的键序和份额，整行总份额不变。
+  func testSymbolFirstAndNumberPadSpaceTables() {
+    for style in TouchTwentySixKeyStyle.allCases {
+      for globe in [false, true] {
+        let row = TouchBottomRowLayout.twentySixKey(style, globe: globe)
+        let swapped = TouchBottomRowLayout.symbolFirst(row)
+        XCTAssertEqual(Set(swapped), Set(row), style.rawValue)
+        XCTAssertEqual(swapped.first?.slot, [.standard, .commaPeriod].contains(style) ? .symbols : .layer, style.rawValue)
+        if [.standard, .commaPeriod].contains(style) {
+          XCTAssertEqual(swapped[1].slot, .layer, style.rawValue)
+          if globe { XCTAssertEqual(swapped[2].slot, .globe, "the globe stays after 123") }
+        } else {
+          XCTAssertEqual(swapped, row, "\(style.rawValue) has no 符")
+        }
+      }
+    }
+    XCTAssertEqual(TouchBottomRowLayout.nineKeyDigits(globe: false), TouchBottomRowLayout.nineKeyDigits(globe: false, space: .afterZero))
+    for zero in [false, true] {
+      for language in [true, false] {
+        let after = TouchBottomRowLayout.nineKeyDigits(globe: false, zero: zero, language: language, space: .afterZero)
+        let before = TouchBottomRowLayout.nineKeyDigits(globe: false, zero: zero, language: language, space: .beforeZero)
+        let column = TouchBottomRowLayout.nineKeyDigits(globe: false, zero: zero, language: language, space: .rightColumn)
+        let total = { (keys: [TouchBottomRowLayout.Key]) in keys.reduce(0) { $0 + $1.weight } }
+        XCTAssertEqual(total(before), total(after), accuracy: 1e-9)
+        XCTAssertEqual(total(column), total(after), accuracy: 1e-9)
+        let wide = after.first { $0.slot == .zero }!.weight
+        XCTAssertEqual(before.map(\.slot), after.map(\.slot).map { $0 == .zero ? .space : $0 == .space ? .zero : $0 })
+        XCTAssertEqual(before.first { $0.slot == .space }!.weight, wide, accuracy: 1e-9)
+        XCTAssertEqual(before.first { $0.slot == .zero }!.weight, TouchBottomRowLayout.zeroWeight, accuracy: 1e-9)
+        XCTAssertFalse(column.contains { $0.slot == .space })
+        XCTAssertEqual(column.first { $0.slot == .zero }!.weight, wide + TouchBottomRowLayout.zeroWeight, accuracy: 1e-9)
+      }
+    }
+    XCTAssertEqual(TouchBottomRowLayout.borrowedNumberPad(globe: true, space: .beforeZero).map(\.slot),
+                   [.layer, .globe, .space, .zero, .language, .returnKey])
+    let column = TouchBottomRowLayout.borrowedNumberPad(globe: false, language: false, space: .rightColumn)
+    XCTAssertEqual(column.map(\.slot), [.layer, .zero, .returnKey])
+    XCTAssertEqual(column[1].weight, 6.3, accuracy: 1e-9, "0 takes the space's, its own and the hidden 中/英's shares")
+  }
+
+  /// 真键盘：互换后中文 26 键（标准和逗号句号在空格两侧）与英文 26 键的底行以 符 打头，宽度与不互换时相同；从它进的数字九宫格按九键一族排（符 | 返回），符号栏里不再放第二个 符。
+  func testSymbolFirstSwapsTheTwentySixKeyRowAndItsNumberPad() throws {
+    select(.quanpin)
+    for style in [TouchTwentySixKeyStyle.standard, .commaPeriod] {
+      XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: style)))
+      var controller = keyboard()
+      let plain = visibleBottomRow(controller)
+      controller.viewDidDisappear(false)
+      XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: style, symbolFirst: true)))
+      controller = keyboard()
+      let swapped = visibleBottomRow(controller)
+      XCTAssertEqual(swapped.map(\.slot), TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(
+        style, globe: controller.needsInputModeSwitchKey)).map(\.slot), style.rawValue)
+      for key in plain {
+        let width = try XCTUnwrap(swapped.first { $0.slot == key.slot }).width
+        XCTAssertEqual(width, key.width, accuracy: 0.5, "\(style.rawValue) \(key.slot.rawValue) keeps its width")
+      }
+      attach(controller, "26 键 \(style.title) 符与123互换")
+      // 数字九宫格：符 和返回键在字母层 符 和 123 那两格。
+      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      XCTAssertEqual(try button("nineKey7", in: controller).configuration?.title, "7")
+      try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(globe: controller.needsInputModeSwitchKey),
+                          "\(style.rawValue) number pad")
+      XCTAssertFalse(shown(try button("numberPadSymbolPanelKey", in: controller)), "\(style.rawValue) one 符 only")
+      controller.viewDidDisappear(false)
+    }
+    // 表情键样式没有 符，互换不起作用，借来的数字九宫格照旧以返回打头。
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .emoji, symbolFirst: true)))
+    var controller = keyboard()
+    XCTAssertEqual(visibleBottomRow(controller).first?.slot, .layer)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(visibleBottomRow(controller).first?.slot, .layer)
+    XCTAssertTrue(shown(try button("numberPadSymbolPanelKey", in: controller)))
+    controller.viewDidDisappear(false)
+    // 英文 26 键同样互换。
+    XCTAssertTrue(write(TouchKeyLayoutStyle(symbolFirst: true)))
+    controller = keyboard()
+    try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(visibleBottomRow(controller).map(\.slot),
+                   [.symbols, .layer] + (controller.needsInputModeSwitchKey ? [.globe] : []) + [.period, .space, .comma, .language, .returnKey])
+    // 英文 26 键的 123 打开 123 / #+= 层：返回键排在字母层 123 那一格（😀 或 符号 | 返回）。
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    for layer in ["123", "#+="] {
+      let row = visibleBottomRow(controller).map(\.slot)
+      XCTAssertEqual(row.firstIndex(of: .layer), 1, "English \(layer) layer keeps 返回 where 123 was")
+      XCTAssertTrue(row.first == .emoji || row.first == .symbols, "English \(layer) layer: \(row)")
+      if layer == "123" {
+        try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+      }
+    }
+    controller.viewDidDisappear(false)
+    // 长空格样式没有 符，它的 123 层照旧以返回打头。
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace, symbolFirst: true)))
+    controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(visibleBottomRow(controller).first?.slot, .layer, "long space 123 layer")
+    controller.viewDidDisappear(false)
+    // 九键底行本来以 符 打头，不受影响。
+    select(.nineKey)
+    controller = keyboard()
+    XCTAssertEqual(visibleBottomRow(controller).map(\.slot),
+                   TouchBottomRowLayout.nineKey(.standard, globe: controller.needsInputModeSwitchKey).map(\.slot))
+    controller.viewDidDisappear(false)
+  }
+
+  /// 真键盘：拼音九键自己的数字层和全拼借来的数字九宫格，三种空格位置的底行键序、右列空格的显隐和 ！ 的让位；缺省（`afterZero`）就是原来的数字层。
+  func testNumberPadSpacePositionsOnTheRealKeyboard() throws {
+    for scheme in [ChineseInputScheme.nineKey, .quanpin] {
+      select(scheme)
+      for space in TouchNumberPadSpace.allCases {
+        XCTAssertTrue(write(TouchKeyLayoutStyle(numberPadSpace: space)))
+        let controller = keyboard()
+        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+        let label = "\(scheme.rawValue) \(space.rawValue)"
+        let globe = controller.needsInputModeSwitchKey
+        if scheme == .nineKey {
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(globe: globe, space: space), label)
+        } else {
+          let middle: [Slot] = switch space {
+          case .afterZero: [.zero, .space]
+          case .beforeZero: [.space, .zero]
+          case .rightColumn: [.zero]
+          }
+          XCTAssertEqual(visibleBottomRow(controller).map(\.slot),
+                         [.layer] + (globe ? [.globe] : []) + middle + [.language, .returnKey], label)
+        }
+        let columnSpace = try button("numberPadColumnSpaceKey", in: controller)
+        let closing = try button("nineKeyClosingMark", in: controller)
+        XCTAssertEqual(shown(columnSpace), space == .rightColumn, label)
+        XCTAssertEqual(closing.alpha, space == .rightColumn ? 0 : 1, label)
+        XCTAssertEqual(closing.isAccessibilityElement, space != .rightColumn, label)
+        if space == .rightColumn {
+          XCTAssertEqual(columnSpace.convert(columnSpace.bounds, to: controller.view),
+                         closing.convert(closing.bounds, to: controller.view), "\(label) the space sits on the third cell")
+        }
+        attach(controller, "数字键盘 \(label)")
+        // 回到字母层：底行的空格回来，右列空格收起。
+        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+        XCTAssertFalse(shown(columnSpace), label)
+        XCTAssertTrue(shown(try button("spaceKey", in: controller)), label)
+        XCTAssertEqual(closing.alpha, 1, label)
+        controller.viewDidDisappear(false)
+      }
+    }
+  }
+
+  /// 数字层右列的空格叠在按键列上、不在任何一行里：面板盖住按键时它要和各行一起藏起来（不画、不接触摸、VoiceOver 读不到），关掉面板再回来。
+  func testNumberPadColumnSpaceIsCoveredByAPanel() throws {
+    select(.nineKey)
+    XCTAssertTrue(write(TouchKeyLayoutStyle(numberPadSpace: .rightColumn)))
+    let controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    let columnSpace = try button("numberPadColumnSpaceKey", in: controller)
+    XCTAssertTrue(shown(columnSpace))
+
+    try button("emojiShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
+    XCTAssertEqual(columnSpace.alpha, 0, "the space does not show through the panel")
+    XCTAssertFalse(columnSpace.isUserInteractionEnabled)
+    XCTAssertTrue(columnSpace.accessibilityElementsHidden, "VoiceOver cannot reach the covered space")
+
+    try button("dismissShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(columnSpace.alpha, 1)
+    XCTAssertTrue(columnSpace.isUserInteractionEnabled)
+    XCTAssertFalse(columnSpace.accessibilityElementsHidden)
+    controller.viewDidDisappear(false)
+  }
+
+  /// 统计热力图跟着互换画：26 键底行的 符 在 123 左边。
+  func testHeatmapFollowsSymbolFirst() {
+    let rows = TypingKeyHeatmap.letterRows(for: TouchKeyLayoutStyle(symbolFirst: true))
+    XCTAssertEqual(rows.last?.prefix(2).map(\.id), [TypingKeyID.symbol, TypingKeyID.layer])
+    XCTAssertEqual(TypingKeyHeatmap.letterRows(for: TouchKeyLayoutStyle()).last?.prefix(2).map(\.id),
+                   [TypingKeyID.layer, TypingKeyID.symbol])
+  }
+
   // MARK: - 辅助
 
   private func write(_ style: TouchKeyLayoutStyle) -> Bool {
@@ -1199,6 +1698,8 @@ final class KeyLayoutStyleTests: XCTestCase {
       document[TouchKeyLayoutStyle.fourteenKeyDocumentKey] = style.fourteenKey.rawValue
       document[TouchKeyLayoutStyle.nineKeyDocumentKey] = style.nineKey.rawValue
       document[TouchKeyLayoutStyle.numberRowDocumentKey] = style.numberRow
+      document[TouchKeyLayoutStyle.symbolFirstDocumentKey] = style.symbolFirst
+      document[TouchKeyLayoutStyle.numberPadSpaceDocumentKey] = style.numberPadSpace.rawValue
     }
     if written { TouchKeyLayoutStyle.mirrored = style }
     return written

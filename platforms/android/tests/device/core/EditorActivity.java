@@ -168,6 +168,10 @@ public final class EditorActivity extends Activity {
         result.putInt("top", position[1]);
         result.putInt("right", position[0] + editor.getWidth());
         result.putInt("bottom", position[1] + editor.getHeight());
+        // 应用窗口此刻的可见区下沿：输入法的 visibleTopInsets 落在这里，用来核对键盘有没有让应用重排。
+        android.graphics.Rect visible = new android.graphics.Rect();
+        editor.getWindowVisibleDisplayFrame(visible);
+        result.putInt("visible_bottom", visible.bottom);
         return result;
     }
 

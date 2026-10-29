@@ -184,7 +184,9 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "keyboard_layout",
             "nine_key_style",
             "number_keypad_order",
+            "number_pad_space",
             "number_row",
+            "one_handed_side_panel",
             "quanpin_shift",
             "shuangpin_key_hints",
             "sound_enabled",
@@ -193,6 +195,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "touch_row_spacing_tenths",
             "twenty_six_key_number_layout",
             "twenty_six_key_style",
+            "twenty_six_symbol_first",
             "voice_shortcut",
         ]
     );
@@ -602,6 +605,7 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
             string("comma_period"),
         ),
         ("platform.harmony.nine_key_style", string("long_space")),
+        ("platform.harmony.number_pad_space", string("space_in_grid")),
         (HARMONY_KEYBOARD_LAYOUT, string("future_layout")),
         (HARMONY_FEEDBACK_KEYS[2], string("loud")),
         (
@@ -1066,6 +1070,9 @@ fn every_exported_key_round_trips() {
         touch_fourteen_key_style: TouchFourteenKeyStyle::LongSpace,
         touch_nine_key_style: TouchNineKeyStyle::Emoji,
         touch_number_row: !Preferences::default().touch_number_row,
+        touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
+        touch_number_pad_space: crate::preferences::TouchNumberPadSpace::AfterZero,
+        touch_one_handed_side_panel: crate::preferences::TouchOneHandedSidePanel::NumberPad,
         global_theme: GlobalTheme::Custom,
         ..Preferences::default()
     };

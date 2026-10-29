@@ -206,7 +206,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.nine_key_style",
             "platform.android.number_keypad_order",
+            "platform.android.number_pad_space",
             "platform.android.number_row",
+            "platform.android.one_handed_side_panel",
             "platform.android.quanpin_shift",
             "platform.android.shuangpin_key_hints",
             "platform.android.sound_enabled",
@@ -223,6 +225,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.touch_row_spacing_tenths",
             "platform.android.twenty_six_key_number_layout",
             "platform.android.twenty_six_key_style",
+            "platform.android.twenty_six_symbol_first",
             "platform.android.voice_language",
             "platform.android.voice_shortcut",
         ]
@@ -365,6 +368,8 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_fourteen_key_style: TouchFourteenKeyStyle::Emoji,
         touch_nine_key_style: TouchNineKeyStyle::CommaPeriod,
         touch_number_row: !Preferences::default().touch_number_row,
+        touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
+        touch_number_pad_space: TouchNumberPadSpace::BeforeZero,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {
@@ -1488,6 +1493,124 @@ fn touch_key_styles_and_number_row_sync_by_their_wire_names() {
             ..local
         }
     );
+}
+
+/// 「符」与「123」互换和数字键盘空格位置按共享偏好的写法上传，读回来还是原值；默认值也导出（`platform_default` 表示各端原来的排法），云端是本机不认识的排法时只跳过那一个键。
+#[test]
+fn symbol_first_and_number_pad_space_sync_by_their_wire_names() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[TWENTY_SIX_SYMBOL_FIRST],
+        AccountPreferenceValue::Boolean(false)
+    );
+    assert_eq!(
+        defaults[NUMBER_PAD_SPACE],
+        AccountPreferenceValue::String("platform_default".into())
+    );
+
+    for space in [
+        TouchNumberPadSpace::RightColumn,
+        TouchNumberPadSpace::AfterZero,
+        TouchNumberPadSpace::BeforeZero,
+    ] {
+        let local = Preferences {
+            touch_twenty_six_symbol_first: true,
+            touch_number_pad_space: space,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert_eq!(
+            exported[NUMBER_PAD_SPACE],
+            AccountPreferenceValue::String(space.as_str().into())
+        );
+        assert_eq!(
+            exported[TWENTY_SIX_SYMBOL_FIRST],
+            AccountPreferenceValue::Boolean(true)
+        );
+        let applied = apply(&Preferences::default(), exported, &full_schema());
+        assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+        assert_eq!(applied.preferences, local);
+    }
+
+    // 云端写回 `platform_default` 时本机回到自己原来的排法。
+    let chosen = Preferences {
+        touch_number_pad_space: TouchNumberPadSpace::AfterZero,
+        ..Preferences::default()
+    };
+    let applied = apply(
+        &chosen,
+        BTreeMap::from([(
+            NUMBER_PAD_SPACE.to_owned(),
+            AccountPreferenceValue::String("platform_default".into()),
+        )]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    let applied = apply(
+        &chosen,
+        BTreeMap::from([
+            (
+                NUMBER_PAD_SPACE.to_owned(),
+                AccountPreferenceValue::String("space_in_grid".into()),
+            ),
+            (
+                TWENTY_SIX_SYMBOL_FIRST.to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+        ]),
+        &full_schema(),
+    );
+    assert_eq!(applied.skipped, [NUMBER_PAD_SPACE]);
+    assert_eq!(
+        applied.preferences,
+        Preferences {
+            touch_twenty_six_symbol_first: true,
+            ..chosen
+        }
+    );
+}
+
+/// 大屏单手的侧边面板按共享偏好的写法上传，空着（`off`）也导出，云端才能被改回空着。云端是本机不认识的面板（较新版本的 `text_edit`）时照原样收下，下一次导出写回同一个值：与应用时记下的基线相同，不会被当成本机改动、拿 `off` 覆盖较新设备的选择。
+#[test]
+fn one_handed_side_panel_syncs_by_its_wire_name() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[ONE_HANDED_SIDE_PANEL],
+        AccountPreferenceValue::String("off".into())
+    );
+
+    let local = Preferences {
+        touch_one_handed_side_panel: TouchOneHandedSidePanel::NumberPad,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&local, None).unwrap();
+    assert_eq!(
+        exported[ONE_HANDED_SIDE_PANEL],
+        AccountPreferenceValue::String("number_pad".into())
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, local);
+
+    let applied = apply(&local, defaults, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    let newer = AccountPreferenceValue::String("text_edit".into());
+    let applied = apply(
+        &local,
+        BTreeMap::from([(ONE_HANDED_SIDE_PANEL.to_owned(), newer.clone())]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.touch_one_handed_side_panel,
+        TouchOneHandedSidePanel::Unknown("text_edit".into())
+    );
+    let next_round = export_android_settings(&applied.preferences, None).unwrap();
+    assert_eq!(next_round[ONE_HANDED_SIDE_PANEL], newer);
 }
 
 /// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。

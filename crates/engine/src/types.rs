@@ -575,7 +575,7 @@ pub struct SchemeSet(u16);
 impl SchemeSet {
     /// 序号最大的方案。加方案时改这里，`scheme_set_all_covers_every_scheme` 会在漏改时失败。
     const LAST: SchemeType = SchemeType::Stroke;
-    /// 全部方案：序号 0 到 [`Self::LAST`] 的每一位。
+    /// 全部方案：序号 0 到 `Self::LAST` 的每一位。
     pub const ALL: Self = Self((1 << (Self::LAST as u16 + 1)) - 1);
     pub const EMPTY: Self = Self(0);
 
@@ -800,10 +800,13 @@ pub struct WordItem {
     pub sentence_words: Vec<String>,
     /// 26 键双拼按触点计价的纠错整句，而且落点支持把它留在引擎给的座位上（分数不比字面整句低出 `TouchTuning::show_margin`）：runtime 不把它当整句的次选读法挪到表尾。其余行永远为假。
     pub touch_supported: bool,
+    /// 26 键双拼按触点计价的纠错整句，触点支持而且明显比字面整句好，按首选规则（`shuangpin::dictionary` 的 `confident_correction`）坐了第一位。宿主据此给首选画强调色、读屏念「已纠正」（视图里的 `confident_correction`）。带它的行同时 `touch_supported`；其余行永远为假。
+    pub confident_correction: bool,
 }
 
 impl WordItem {
-    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。
+    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。产品门面 `ordering` 的输入，和它一样不进文档。
+    #[doc(hidden)]
     pub fn static_evidence(&self) -> Option<crate::ordering::StaticEvidence> {
         if !self.sentence_association
             || !matches!(
@@ -903,6 +906,7 @@ pub fn request_autocorrect_mask(transposition: bool, neighbor: bool) -> u32 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SentenceAssociationOptions {
     pub word_lattice: bool,
+    /// The Engine's own keyboard-model rerank: nine-key reranks once across its segmentations, the quanpin and shuangpin dictionaries rerank inside the lattice, and the model's pick becomes a `NeuralKeyboard` row after the lattice best. Hosts leave it off: 整句联想「增强」 (the `neural_keyboard` preference) mounts the input runtime's per-keystroke reranker instead (host-api `keyboard_reranker_enabled`). It stays for evals and experiments that build the options directly (`convert_eval --keyboard-neural`).
     pub neural_keyboard: bool,
     pub show_next_on_duplicate: bool,
     /// octagram `.gram` 语法模型的路径（宿主按模型包解析好后传入）；空 = 关闭。
@@ -1186,6 +1190,13 @@ impl KeyResult {
     pub fn with_diagnostic(mut self, diagnostic: Option<String>) -> Self {
         self.diagnostic = diagnostic;
         self
+    }
+
+    /// `diagnostic` 的稳定数字码（映射表见 `diagnostics::DIAGNOSTIC_CODES`）；没有诊断时为 None。
+    pub fn diagnostic_code(&self) -> Option<crate::diagnostics::DiagnosticCode> {
+        self.diagnostic
+            .as_deref()
+            .map(crate::diagnostics::DiagnosticCode::from_message)
     }
 }
 

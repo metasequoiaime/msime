@@ -104,15 +104,19 @@ test("普通重渲染保留两秒轮询边界，下载状态更新进度与操�
   expect((screen.getByRole("button", { name: "恢复" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-test.each(["success", "failure"])("旧轮询的迟到结果不覆盖最新状态（%s）", async (outcome) => {
+test.each(["success", "failure"])("手动操作优先于旧轮询的迟到结果（%s）", async (outcome) => {
   vi.useFakeTimers();
   const old = deferredStatus();
   const request = vi
     .fn()
+    .mockResolvedValueOnce(ready)
     .mockReturnValueOnce(old.promise)
     .mockResolvedValue({ ...ready, version: "synthetic-latest" });
   render(<DictionaryUpdates request={request} />);
+  await act(async () => {});
   await act(async () => vi.advanceTimersByTime(2000));
+  fireEvent.click(screen.getByRole("switch"));
+  await act(async () => {});
   expect(screen.getByText("synthetic-latest")).toBeTruthy();
   await act(async () => {
     if (outcome === "success") old.resolve({ ...ready, version: "synthetic-stale" });
@@ -137,11 +141,13 @@ test("入口替换使旧请求失效，立即刷新并重新计算轮询边界",
   expect(screen.getByText(ready.version)).toBeTruthy();
   await act(async () => old.resolve({ ...ready, version: "synthetic-old-owner" }));
   expect(screen.queryByText("synthetic-old-owner")).toBeNull();
-  await act(async () => vi.advanceTimersByTime(1000));
+  await act(async () => vi.advanceTimersByTime(2000));
   expect(nextRequest).toHaveBeenCalledTimes(1);
   await act(async () => next.resolve({ ...ready, version: "synthetic-new-owner" }));
   expect(screen.getByText("synthetic-new-owner")).toBeTruthy();
-  await act(async () => vi.advanceTimersByTime(1000));
+  await act(async () => vi.advanceTimersByTime(1999));
+  expect(nextRequest).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTime(1));
   expect(nextRequest).toHaveBeenCalledTimes(2);
   expect(oldRequest).toHaveBeenCalledTimes(2);
 });
@@ -161,4 +167,106 @@ test("当前请求失败保留版本，后续轮询成功清除错误", async ()
   await act(async () => vi.advanceTimersByTime(2000));
   expect(screen.queryByText("词库更新暂不可用，请稍后重试")).toBeNull();
   expect(screen.getByText("词库已是最新版本")).toBeTruthy();
+});
+
+test("慢于两秒的状态读取仍发布结果，完成后按原相位继续轮询", async () => {
+  vi.useFakeTimers();
+  const pending = deferredStatus();
+  const request = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(ready);
+  render(<DictionaryUpdates request={request} />);
+  await act(async () => vi.advanceTimersByTime(6000));
+  expect(screen.getByText("读取中…")).toBeTruthy();
+  await act(async () => pending.resolve({ ...ready, version: "synthetic-slow-read" }));
+  expect(screen.getByText("synthetic-slow-read")).toBeTruthy();
+  expect(request).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTime(2000));
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(screen.getByText(ready.version)).toBeTruthy();
+});
+
+test.each(["configure", "check", "rollback"] as const)(
+  "轮询等待慢速 %s 操作，保留成功状态并在完成后恢复",
+  async (command) => {
+    vi.useFakeTimers();
+    const pending = deferredStatus();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(ready)
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(ready);
+    render(<DictionaryUpdates request={request} />);
+    await act(async () => {});
+    if (command === "configure") fireEvent.click(screen.getByRole("switch"));
+    else
+      fireEvent.click(
+        screen.getByRole("button", { name: command === "check" ? "检查更新" : "恢复" }),
+      );
+    expect(request.mock.calls[1][0]).toBe(command);
+    await act(async () => vi.advanceTimersByTime(6000));
+    await act(async () =>
+      pending.resolve({ ...ready, enabled: false, version: "synthetic-slow-write" }),
+    );
+    expect(screen.getByText("synthetic-slow-write")).toBeTruthy();
+    expect((screen.getByRole("switch") as HTMLInputElement).checked).toBe(false);
+    expect(request).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(request).toHaveBeenCalledTimes(3);
+  },
+);
+
+test.each(["status", "configure", "check", "rollback"] as const)(
+  "慢速 %s 失败仍显示错误，后续轮询可以恢复",
+  async (command) => {
+    vi.useFakeTimers();
+    const pending = deferredStatus();
+    const request =
+      command === "status"
+        ? vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(ready)
+        : vi
+            .fn()
+            .mockResolvedValueOnce(ready)
+            .mockReturnValueOnce(pending.promise)
+            .mockResolvedValue(ready);
+    render(<DictionaryUpdates request={request} />);
+    await act(async () => {});
+    if (command === "configure") fireEvent.click(screen.getByRole("switch"));
+    else if (command !== "status")
+      fireEvent.click(
+        screen.getByRole("button", { name: command === "check" ? "检查更新" : "恢复" }),
+      );
+    await act(async () => vi.advanceTimersByTime(6000));
+    await act(async () => pending.reject(new Error("synthetic slow failure")));
+    expect(screen.getByText("词库更新暂不可用，请稍后重试")).toBeTruthy();
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(screen.queryByText("词库更新暂不可用，请稍后重试")).toBeNull();
+    expect(screen.getByText(ready.version)).toBeTruthy();
+  },
+);
+
+test.each(["success", "failure"])("旧读取结束不能释放仍在途的手动操作（%s）", async (outcome) => {
+  vi.useFakeTimers();
+  const old = deferredStatus();
+  const write = deferredStatus();
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(ready)
+    .mockReturnValueOnce(old.promise)
+    .mockReturnValueOnce(write.promise)
+    .mockResolvedValue(ready);
+  render(<DictionaryUpdates request={request} />);
+  await act(async () => {});
+  await act(async () => vi.advanceTimersByTime(2000));
+  fireEvent.click(screen.getByRole("switch"));
+  await act(async () => {
+    if (outcome === "success") old.resolve({ ...ready, version: "synthetic-stale" });
+    else old.reject(new Error("synthetic stale failure"));
+  });
+  await act(async () => vi.advanceTimersByTime(4000));
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(screen.queryByText("synthetic-stale")).toBeNull();
+  expect(screen.queryByText("词库更新暂不可用，请稍后重试")).toBeNull();
+  await act(async () => write.resolve({ ...ready, enabled: false }));
+  expect((screen.getByRole("switch") as HTMLInputElement).checked).toBe(false);
+  await act(async () => vi.advanceTimersByTime(2000));
+  expect(request).toHaveBeenCalledTimes(4);
 });

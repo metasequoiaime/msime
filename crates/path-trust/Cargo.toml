@@ -1,11 +1,20 @@
 [package]
 name = "msime-path-trust"
 description = "The one list of system symbolic links a storage path may pass through, and the walk that rejects every other link on the way to it."
-version.workspace = true
+# 自己的版本号，不继承工作区的 0.1.0：这个 crate 随 msime-engine 发布到 crates.io，版本按它自己的发布走（.github/workflows/release-engine-crates.yml）。
+version = "0.1.0"
 edition.workspace = true
-license.workspace = true
+# 和 msime-engine 一样用 MPL-2.0（不附 Exhibit B），不随仓库其余部分的 GPL-3.0-only：引擎依赖它，可嵌入的引擎库要连它一起发布（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL。
+license = "MPL-2.0"
 repository.workspace = true
 rust-version.workspace = true
+homepage = "https://github.com/metasequoiaime/msime/tree/develop/crates/path-trust"
+documentation = "https://docs.rs/msime-path-trust"
+readme = "README.md"
+keywords = ["symlink", "path", "filesystem", "security"]
+categories = ["filesystem"]
+# 发布到 crates.io 的包只带源码、说明和许可证。
+include = ["src/**/*.rs", "README.md", "LICENSE", "Cargo.toml"]
 
 [target.'cfg(unix)'.dependencies]
 # geteuid 和 fstatat：判断多链接文件所在的目录是否只有 root 或当前用户能写（`multi_link_is_trusted`）。

@@ -22,8 +22,8 @@ permissions:
 jobs:
   device:
     name: Android device (API ${{ matrix.api }})
-    # 留在 GitHub 托管的 runner：模拟器要 KVM，这里的 ubuntu-24.04 有；Depot 的 runner 不保证。这个 job 不碰任何 secrets，APK 用开发密钥签名（scripts/signing.sh）。
-    runs-on: ubuntu-24.04
+    # 模拟器要 KVM。2026-10-29 实测（见 .agents/notes/implemented/process/2026-10-29-android-device-on-depot.md），depot-ubuntu-24.04-8 上 /dev/kvm 可用、`emulator -accel-check` 通过，API 35 开机 21 秒（GitHub 的 ubuntu-24.04 是 45 秒），所以跑在 Depot 上，不再占组织共用的 GitHub 托管名额。这个 job 不碰任何 secrets，APK 用开发密钥签名（scripts/signing.sh）。
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 90
     strategy:
       fail-fast: false

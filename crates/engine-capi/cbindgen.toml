@@ -1,0 +1,26 @@
+# cargo-c 生成 include/msime_engine.h 时读这份配置（README 的「构建」一节）。改了 Rust 侧的公开类型、常量或函数后重新生成并提交头文件，CI 的漂移检查核对二者一致。
+language = "C"
+include_guard = "MSIME_ENGINE_H"
+cpp_compat = true
+style = "both"
+sort_by = "None"
+documentation_style = "c99"
+usize_is_size_t = true
+sys_includes = ["stddef.h", "stdint.h"]
+no_includes = true
+header = """/*
+ * 水杉输入法引擎的 C 接口（msime-engine-capi）。
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * 本文件由 cbindgen 从 crates/engine-capi/src 生成，不要手改；用法、线程与内存约定见 crates/engine-capi/README.md。
+ */"""
+
+[parse]
+parse_deps = false
+
+[export]
+# 常量全部按 `MSIME_ENGINE_` 起名，类型按 `msime_engine_` 起名，不再加前缀。
+prefix = ""

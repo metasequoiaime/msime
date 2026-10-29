@@ -29,6 +29,7 @@ public final class CandidateChevronButton extends Button {
     private int iconColor = Color.GRAY;
     private int hairlineColor = 0x1F000000;
     private boolean expanded;
+    private boolean dividerShown = true;
     private float rotation;
     private ValueAnimator animator;
 
@@ -51,6 +52,13 @@ public final class CandidateChevronButton extends Button {
     }
 
     public boolean isExpanded() { return expanded; }
+
+    /** 左边的分隔线画不画：上屏后联想的关闭键（{@link CandidateCloseButton}）排在展开键左边时，分隔线由关闭键画在两个键的最左边，展开键这条不画。 */
+    public void setDividerShown(boolean shown) {
+        if (dividerShown == shown) return;
+        dividerShown = shown;
+        invalidate();
+    }
 
     /** 切换展开状态；{@code animate} 为假时直接到终点（例如重建视图时恢复状态）。 */
     public void setExpanded(boolean value, boolean animate) {
@@ -100,8 +108,9 @@ public final class CandidateChevronButton extends Button {
         divider.setColor(hairlineColor);
         float lineWidth = BoundsPolicy.bounded(
             DimensionPolicy.floatPixels(getContext(), 1), 1f, Float.MAX_VALUE);
-        canvas.drawRect(0, (height - dividerHeight) / 2f, lineWidth,
-            (height + dividerHeight) / 2f, divider);
+        if (dividerShown)
+            canvas.drawRect(0, (height - dividerHeight) / 2f, lineWidth,
+                (height + dividerHeight) / 2f, divider);
         float areaLeft = lineWidth;
         float areaWidth = getWidth() - areaLeft;
         float size = BoundsPolicy.atMost(DimensionPolicy.shorterSide(areaWidth, height),

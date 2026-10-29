@@ -725,17 +725,41 @@ fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
-        RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
+        RegCloseKey, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE,
+        KEY_WOW64_64KEY, RRF_RT_REG_SZ,
     };
     let key = wide(registry_key);
     let name: Vec<u16> = "DataDir\0".encode_utf16().collect();
-    let flags = RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY;
-    let mut bytes = 0u32;
-    // SAFETY: both names are NUL terminated; a null buffer asks only for the size.
-    let sized = unsafe {
-        RegGetValueW(
+    let mut opened = std::ptr::null_mut();
+    // Win7 不按 RegGetValueW 的新标志选择视图；先显式打开 64 位键。
+    // SAFETY: 键名以 NUL 结尾，输出指针有效，只申请查询权限。
+    if unsafe {
+        RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
             key.as_ptr(),
+            0,
+            KEY_QUERY_VALUE | KEY_WOW64_64KEY,
+            &mut opened,
+        )
+    } != ERROR_SUCCESS
+    {
+        return None;
+    }
+    struct OpenedKey(HKEY);
+    impl Drop for OpenedKey {
+        fn drop(&mut self) {
+            // SAFETY: 句柄由本函数成功打开，只在此处关闭一次。
+            unsafe { RegCloseKey(self.0) };
+        }
+    }
+    let opened = OpenedKey(opened);
+    let flags = RRF_RT_REG_SZ;
+    let mut bytes = 0u32;
+    // SAFETY: 句柄有效，值名以 NUL 结尾，空缓冲区只查询长度。
+    let sized = unsafe {
+        RegGetValueW(
+            opened.0,
+            std::ptr::null(),
             name.as_ptr(),
             flags,
             std::ptr::null_mut(),
@@ -743,15 +767,15 @@ fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
             &mut bytes,
         )
     };
-    if sized != ERROR_SUCCESS || (bytes as usize) < std::mem::size_of::<u16>() {
+    if sized != ERROR_SUCCESS || bytes < 2 || !bytes.is_multiple_of(2) || bytes / 2 > 32768 {
         return None;
     }
     let mut value = vec![0u16; (bytes as usize).div_ceil(std::mem::size_of::<u16>())];
-    // SAFETY: the buffer holds `bytes` bytes, the size the first call reported.
+    // SAFETY: 缓冲区容纳首次查询返回的 bytes 字节，句柄和值名仍有效。
     let read = unsafe {
         RegGetValueW(
-            HKEY_LOCAL_MACHINE,
-            key.as_ptr(),
+            opened.0,
+            std::ptr::null(),
             name.as_ptr(),
             flags,
             std::ptr::null_mut(),
@@ -759,10 +783,11 @@ fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
             &mut bytes,
         )
     };
-    if read != ERROR_SUCCESS {
+    if read != ERROR_SUCCESS || !bytes.is_multiple_of(2) || bytes as usize / 2 > value.len() {
         return None;
     }
-    // RRF_RT_REG_SZ guarantees a terminator; keep only what precedes it.
+    value.truncate(bytes as usize / 2);
+    // RRF_RT_REG_SZ 补齐终止符，只保留第一个终止符之前的内容。
     let length = value
         .iter()
         .position(|&unit| unit == 0)

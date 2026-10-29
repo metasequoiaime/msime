@@ -72,7 +72,7 @@ pub enum LearningHabit {
     },
 }
 
-/// [`merge_learning_habits`] 的结果。
+/// [`merge_learning_habits`](crate::host::merge_learning_habits) 的结果。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LearningHabitsMerge {
     /// 新写进来或调大了计数的记录。

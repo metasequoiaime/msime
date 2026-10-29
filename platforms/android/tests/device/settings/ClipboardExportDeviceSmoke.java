@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Rect;
@@ -27,6 +29,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.json.JSONObject;
@@ -50,6 +55,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private Activity activity;
     private android.content.ClipData previousClip;
     private boolean clipChanged;
+    private int accessibilityCacheMisses;
 
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
@@ -78,6 +84,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: clipboard export " + stage
                 + " (" + failed.getClass().getSimpleName() + ")\n");
         } finally {
+            result.putInt("accessibility_cache_misses", accessibilityCacheMisses);
+            try { textWriteProbe("release-text-write"); } catch (RuntimeException | AssertionError ignored) { }
             if (code != Activity.RESULT_OK || !phase.equals("select")) {
                 try { restore(); } catch (Exception ignored) { result.putString("cleanup", "restore failed"); }
                 try { DeviceCredentialFixture.clear(getTargetContext(), automation); }
@@ -119,7 +127,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         DeviceCredentialFixture.enter(automation);
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
-            waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
+            // 脚本已清空合成提供方，首份文本之前计数为 0；取得 SAF 授权后才能访问探针。
+            awaitTextWrite(0, "first authorized export");
             Map<String, byte[]> exported = files();
             check(exported.size() == 1, "first authorized export");
             for (String id : exported.keySet()) checkName(documentName(id));
@@ -139,12 +148,16 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         Map<String, byte[]> first = files();
         openPage();
         stage = "native direct export after restart";
+        int beforeDirectWrite = textWriteProbe("text-write-status");
         tap(text("导出"));
         DeviceCredentialFixture.enter(automation);
-        waitFor(() -> filesUnchecked().size() == first.size() + 1, "direct export");
+        awaitTextWrite(beforeDirectWrite, "direct export");
         Map<String, byte[]> second = files();
+        check(second.size() == first.size() + 1, "direct export document count");
         for (var entry : second.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         for (var entry : first.entrySet()) check(Arrays.equals(entry.getValue(), second.get(entry.getKey())), "old file retained");
+        concurrentExports();
+        second = files();
         stage = "real keyboard panel export action";
         int beforeKeyboard = files().size();
         var clipboard = getTargetContext().getSystemService(android.content.ClipboardManager.class);
@@ -168,12 +181,26 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
                 + "; fresh " + freshClipboardEntryState(), missing);
         }
         stage = "real keyboard panel export control";
+        int beforeKeyboardWrite = textWriteProbe("hold-text-write");
+        // 「导出」收进了顶行的「更多」菜单（#10037）。
+        tap(node -> "更多剪贴板操作".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
+            && node.isEnabled());
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString())
             && node.isEnabled());
         // 输入法进程经认证桥 Activity 拉起系统认证，通过后才导出。
         DeviceCredentialFixture.enter(automation);
         waitFor(() -> filesUnchecked().size() == beforeKeyboard + 1, "keyboard export action");
-        for (var entry : files().entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
+        stage = "real keyboard panel export pending document";
+        for (var entry : files().entrySet()) {
+            if (!second.containsKey(entry.getKey())) check(entry.getValue().length == 0,
+                "new document is visible before text is written");
+        }
+        textWriteProbe("release-text-write");
+        awaitTextWrite(beforeKeyboardWrite, "keyboard export action");
+        stage = "real keyboard panel export complete snapshot";
+        Map<String, byte[]> keyboard = files();
+        check(keyboard.size() == beforeKeyboard + 1, "keyboard export document count");
+        for (var entry : keyboard.entrySet()) { checkName(documentName(entry.getKey())); checkText(entry.getValue()); }
         stage = "history page prompt interrupted by leaving";
         // 认证窗口开着时离开再回来：Android 10 起系统关掉后台应用的认证窗口，回来必须重新认证并读出记录，不能停在既无授权也无认证窗口的「正在读取…」；Android 9 的凭据确认是本任务里的 Activity，回来时仍在原处，认证成功后不再弹第二次。
         seed();
@@ -192,6 +219,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         stage = "history page export prompt interrupted by leaving";
         // 已授权时导出认证被离开打断：Android 10 起导出认证被系统取消，回来按重新进入处理，先认证页面、不导出；Android 9 回到仍在进行的凭据确认，认证后照常导出。
         int beforeInterrupted = files().size();
+        int beforeInterruptedWrite = textWriteProbe("text-write-status");
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         stage = "history page export prompt interrupted by leaving: prompt before leaving";
         DeviceCredentialFixture.awaitPrompt(automation);
@@ -201,7 +229,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         DeviceCredentialFixture.enter(automation);
         stage = "history page export prompt interrupted by leaving: outcome";
         if (Build.VERSION.SDK_INT < 29) {
-            waitFor(() -> filesUnchecked().size() == beforeInterrupted + 1, "credential confirmation survives leaving");
+            awaitTextWrite(beforeInterruptedWrite, "credential confirmation survives leaving");
+            check(files().size() == beforeInterrupted + 1, "interrupted export document count");
         } else {
             await(text("合成新记录"));
             SystemClock.sleep(1000);
@@ -214,9 +243,11 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         // 历史页打开时先认证才读取记录，页内导出再认证一次。
         DeviceCredentialFixture.enter(automation);
         int beforeSearch = files().size();
+        int beforeSearchWrite = textWriteProbe("text-write-status");
         tap(node -> "导出全部剪贴板历史".equals(node.getContentDescription() == null ? null : node.getContentDescription().toString()));
         DeviceCredentialFixture.enter(automation);
-        waitFor(() -> filesUnchecked().size() == beforeSearch + 1, "history page export action");
+        awaitTextWrite(beforeSearchWrite, "history page export action");
+        check(files().size() == beforeSearch + 1, "history page export document count");
         openPage();
         stage = "cancel directory change";
         choose();
@@ -303,6 +334,56 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         check(export().contains("重新选择"), "deleted directory not redirected");
     }
 
+    /** 暂停一笔已生成缓存快照的导出，让另一笔先完成并清理自己的临时文件。 */
+    private void concurrentExports() throws Exception {
+        stage = "concurrent exports retain separate snapshots";
+        CountDownLatch staged = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        Context delayed = new ContextWrapper(getTargetContext()) {
+            private boolean cacheUsed;
+            @Override public File getCacheDir() {
+                cacheUsed = true;
+                return super.getCacheDir();
+            }
+            @Override public ContentResolver getContentResolver() {
+                if (cacheUsed) {
+                    cacheUsed = false;
+                    staged.countDown();
+                    try {
+                        if (!resume.await(30, TimeUnit.SECONDS))
+                            throw new IllegalStateException("synthetic export gate timed out");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("synthetic export interrupted", interrupted);
+                    }
+                }
+                return super.getContentResolver();
+            }
+        };
+        var worker = Executors.newSingleThreadExecutor();
+        int before = files().size();
+        int completed = textWriteProbe("text-write-status");
+        var pending = worker.submit(() -> export(delayed));
+        try {
+            check(staged.await(30, TimeUnit.SECONDS), "first export staged before destination access");
+            check(export().startsWith("导出完成"), "second concurrent export succeeds");
+            resume.countDown();
+            check(pending.get(30, TimeUnit.SECONDS).startsWith("导出完成"),
+                "first concurrent export retains its snapshot after second export cleanup");
+            waitFor(() -> textWriteProbe("text-write-status") == completed + 2, "both concurrent exports close");
+            Map<String, byte[]> exported = files();
+            check(exported.size() == before + 2, "two concurrent export documents");
+            for (var entry : exported.entrySet()) {
+                checkName(documentName(entry.getKey()));
+                checkText(entry.getValue());
+            }
+        } finally {
+            resume.countDown();
+            worker.shutdownNow();
+            check(worker.awaitTermination(30, TimeUnit.SECONDS), "concurrent export worker stopped");
+        }
+    }
+
     private void seed() throws Exception {
         store.getClass().getMethod("clear").invoke(store);
         store.getClass().getMethod("add", String.class).invoke(store, LONG);
@@ -383,6 +464,17 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         return result;
     }
 
+    private int textWriteProbe(String method) {
+        Bundle status = getTargetContext().getContentResolver().call(Uri.parse(ROOT), method, null, null);
+        check(status != null && status.getInt("failed") == 0, "synthetic text stream closed cleanly");
+        return status.getInt("completed");
+    }
+
+    /** 文档数会在输出流打开之前增加；只在提供方确认流正常关闭后检查全文，不重试内容断言。 */
+    private void awaitTextWrite(int before, String message) {
+        waitFor(() -> textWriteProbe("text-write-status") == before + 1, message + " stream closed");
+    }
+
     private void clearPendingSyntheticExports() {
         if (Build.VERSION.SDK_INT < 29) return;
         var resolver = getTargetContext().getContentResolver();
@@ -457,8 +549,9 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         check(host.getMethod("savePreferences", Context.class, JSONObject.class)
             .invoke(null, getTargetContext(), snapshot) != null, "clipboard shortcut save");
     }
-    private String export() throws Exception { return (String) getTargetContext().getClassLoader()
-        .loadClass("app.msime.android.ClipboardExport").getMethod("export", Context.class).invoke(null, getTargetContext()); }
+    private String export() throws Exception { return export(getTargetContext()); }
+    private String export(Context context) throws Exception { return (String) getTargetContext().getClassLoader()
+        .loadClass("app.msime.android.ClipboardExport").getMethod("export", Context.class).invoke(null, context); }
     private void restore() throws Exception {
         if (clipChanged) {
             var clipboard = getTargetContext().getSystemService(android.content.ClipboardManager.class);
@@ -488,12 +581,14 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     }
     private static void checkText(byte[] bytes) {
         String text = new String(bytes, StandardCharsets.UTF_8);
-        check(text.contains("共 2 条") && text.contains("官网：https://msime.app/")
-            && text.contains("项目：https://github.com/metasequoiaime/msime")
-            && text.contains("1 · 已置顶 ==========\n记录时间：")
-            && text.contains("来源 App：系统未提供\n包名：系统未提供\n正文：\n" + LONG + "\n")
-            && text.contains("2 ==========\n记录时间：")
-            && text.contains("正文：\n合成新记录\n"), "complete Unicode snapshot and order");
+        check(text.contains("共 2 条"), "snapshot count; bytes=" + bytes.length);
+        check(text.contains("官网：https://msime.app/")
+            && text.contains("项目：https://github.com/metasequoiaime/msime"), "snapshot links");
+        check(text.contains("1 · 已置顶 ==========\n记录时间："), "snapshot pinned order");
+        check(text.contains("来源 App：系统未提供\n包名：系统未提供\n正文：\n" + LONG + "\n"),
+            "snapshot complete Unicode body; bytes=" + bytes.length);
+        check(text.contains("2 ==========\n记录时间：")
+            && text.contains("正文：\n合成新记录\n"), "snapshot second record");
     }
 
     private String namePrefix() {
@@ -645,6 +740,17 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     }
 
     private AccessibilityNodeInfo findAll(Predicate<AccessibilityNodeInfo> predicate) {
+        AccessibilityNodeInfo found = findCached(predicate);
+        if (found == null && Build.VERSION.SDK_INT >= 34) {
+            // 动态提示可能已经显示而缓存树未更新；重新观察当前窗口，不重试点击或延长等待。
+            automation.clearCache();
+            found = findCached(predicate);
+            if (found != null) accessibilityCacheMisses++;
+        }
+        return found;
+    }
+
+    private AccessibilityNodeInfo findCached(Predicate<AccessibilityNodeInfo> predicate) {
         AccessibilityNodeInfo active = find(automation.getRootInActiveWindow(), predicate);
         if (active != null) return active;
         for (var window : automation.getWindows()) {

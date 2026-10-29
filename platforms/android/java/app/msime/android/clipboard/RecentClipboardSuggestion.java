@@ -27,6 +27,31 @@ public final class RecentClipboardSuggestion {
         return clipboardHistoryEnabled && suggestionSetting;
     }
 
+    /** 复制后快捷键（#10079）的功能：进入分词点选。取值即本地设置 `platform.android.clipboard_suggestion_action_kind` 的存储值。 */
+    public static final String ACTION_SEGMENT = "segment";
+    /** 复制后快捷键的功能：进入「移动到分类」，出厂默认是它。 */
+    public static final String ACTION_CATEGORY = "category";
+
+    /**
+     * 「最近复制」那一行预览右边的快捷键（#10079）该做什么：{@link #ACTION_SEGMENT}、{@link #ACTION_CATEGORY}，不显示时为 null。
+     *
+     * <p>本地开关 `platform.android.clipboard_suggestion_action` 关着时不显示；这一条是图片时也不显示：图片不能分词，剪贴板历史也不记图片，没有可移动分类的记录。不认识的取值按出厂默认的分类处理。
+     */
+    public static String quickAction(boolean actionSetting, String kind, boolean image) {
+        if (!actionSetting || image) return null;
+        return ACTION_SEGMENT.equals(kind) ? ACTION_SEGMENT : ACTION_CATEGORY;
+    }
+
+    /** 快捷键上的字：分词或分类。 */
+    public static String quickActionLabel(String action) {
+        return ACTION_SEGMENT.equals(action) ? "分词" : "分类";
+    }
+
+    /** 快捷键的无障碍描述。 */
+    public static String quickActionDescription(String action) {
+        return ACTION_SEGMENT.equals(action) ? "给复制的内容分词" : "把复制的内容移动到分类";
+    }
+
     /** 复制时刻是否还在显示窗口里；读不到复制时刻（小于等于 0）时为假，只有亲眼看到的复制才算刚复制。 */
     public static boolean fresh(long copiedAtMs, long nowMs) {
         return copiedAtMs > 0 && nowMs - copiedAtMs <= WINDOW_MS;

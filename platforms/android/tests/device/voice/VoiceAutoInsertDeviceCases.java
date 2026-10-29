@@ -74,11 +74,12 @@ final class VoiceAutoInsertDeviceCases {
                     owned[1] = entry;
                     checkUploadControls(entry, context, loader);
                     field(entryType, "generation").setLong(entry, 7);
+                    // 签名与 ImeVoiceEntry.delivered 一致：session、text、failure、notice、pcm、elapsedMillis、language、provider。反射查找不经编译检查，产品改了参数这里要同步改。
                     Method delivered = method(entryType, "delivered", long.class, String.class, String.class,
-                        byte[].class, long.class, String.class, String.class);
-                    delivered.invoke(entry, 7L, "synthetic direct", null, null, 0L, "zh-CN", "synthetic");
+                        String.class, byte[].class, long.class, String.class, String.class);
+                    delivered.invoke(entry, 7L, "synthetic direct", null, null, null, 0L, "zh-CN", "synthetic");
                     check(editor.getText().toString().equals("synthetic direct"), "识别完成必须直接上屏");
-                    delivered.invoke(entry, 6L, "stale", null, null, 0L, "zh-CN", "synthetic");
+                    delivered.invoke(entry, 6L, "stale", null, null, null, 0L, "zh-CN", "synthetic");
                     check(editor.getText().toString().equals("synthetic direct"), "旧识别不能上屏");
                     field(serviceType, "voiceActivityGeneration").setLong(service, 10);
                     ResultReceiver receiver = (ResultReceiver) method(serviceType,
@@ -133,7 +134,7 @@ final class VoiceAutoInsertDeviceCases {
             check(inserted.await(3, java.util.concurrent.TimeUnit.SECONDS), "窗口结果必须自动填入原输入框");
             instrumentation.waitForIdleSync();
             if (verify[0] != null && failure[0] == null) instrumentation.runOnMainSync(verify[0]);
-            if (failure[0] != null) throw new AssertionError("语音自动插入回归失败", failure[0]);
+            if (failure[0] != null) throw described(failure[0]);
         } finally {
             for (Object owner : owned) {
                 if (owner == null) continue;
@@ -261,6 +262,30 @@ final class VoiceAutoInsertDeviceCases {
             throw new AssertionError("HTTP 前台回退回归失败：" + cause.getClass().getSimpleName()
                 + " at " + cause.getStackTrace()[0], failure[0]);
         }
+    }
+
+    /**
+     * 本类自己的检查失败原样抛出，消息是固定的测试文字；其他异常（反射找不到成员、产品代码抛出的异常）只报每层的类型和本类里的出错行，不带异常消息。
+     *
+     * <p>以前一律包成「语音自动插入回归失败」，CI 上只看得到 `AssertionError`：2026-10-29 产品给 `delivered` 加了参数，这里的反射查找抛 `NoSuchMethodException`，看起来却和断言失败一样。
+     */
+    private static AssertionError described(Throwable failure) {
+        if (failure instanceof AssertionError assertion) return assertion;
+        StringBuilder message = new StringBuilder("语音自动插入回归失败：");
+        Throwable root = failure;
+        for (Throwable layer = failure; layer != null; layer = layer.getCause()) {
+            if (layer != failure) message.append(" <- ");
+            message.append(layer.getClass().getSimpleName());
+            root = layer;
+        }
+        String self = VoiceAutoInsertDeviceCases.class.getName();
+        String separator = " at ";
+        for (StackTraceElement frame : root.getStackTrace()) {
+            if (!frame.getClassName().startsWith(self)) continue;
+            message.append(separator).append(frame.getMethodName()).append(':').append(frame.getLineNumber());
+            separator = ", ";
+        }
+        return new AssertionError(message.toString(), failure);
     }
 
     private static Field field(Class<?> type, String name) throws Exception {

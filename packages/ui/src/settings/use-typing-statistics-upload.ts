@@ -22,6 +22,16 @@ export function uploadErrorMessage(error: unknown, enabling: boolean): string {
     : "已关闭上传，但云端的数据没有删掉，请联网后打开再关闭一次。";
 }
 
+/**
+ * 开关变更成功后页面上的说法。打开时宿主立刻上传一次，但本机统计里还没有字数的日子时什么都不发，`lastUploadMs` 仍然为空，服务端也还不认识这台设备；这时不能说已经传上去了。设置应用没有常驻的上传任务，打开这一页时会补传一次，所以告诉用户打字以后回到这里就会传上去。
+ */
+function uploadChangedMessage(enabled: boolean, next: TypingStatisticsUploadStatus): string {
+  if (!enabled) return "已关闭上传，云端的打字统计已删除。";
+  return next.lastUploadMs
+    ? "已打开上传，最近 7 天的每日计数已传到你的水杉账号。"
+    : "已打开上传。本机还没有可上传的打字计数，打字以后再打开这一页会自动上传。";
+}
+
 export interface UseTypingStatisticsUploadOptions {
   client: TypingStatisticsUploadClient;
   onEnabledChange?: (enabled: boolean) => void;
@@ -86,11 +96,7 @@ export function useTypingStatisticsUpload({
           const next = await client.setEnabled(enabled);
           if (!isCurrent()) return;
           apply(next);
-          setMessage(
-            enabled
-              ? "已打开上传，最近 7 天的每日计数已传到你的水杉账号。"
-              : "已关闭上传，云端的打字统计已删除。",
-          );
+          setMessage(uploadChangedMessage(enabled, next));
         } catch (error) {
           if (!isCurrent()) return;
           setMessage(uploadErrorMessage(error, enabled));

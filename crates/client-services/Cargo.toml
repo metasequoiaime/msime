@@ -16,6 +16,8 @@ telemetry-loopback = []
 [dependencies]
 msime-client-base = { path = "../client-base" }
 msime-client-core = { path = "../client-core" }
+# 词库访问租约（`dictionary::access`）的锁在引擎里，这里只包一层。依赖本 crate 的 host-api、桌面设置应用、mcp-server 本来就链接引擎，只有 pack-tool 因此多编一份引擎。
+msime-engine = { path = "../engine" }
 msime-path-trust = { path = "../path-trust" }
 serde.workspace = true
 serde_json.workspace = true

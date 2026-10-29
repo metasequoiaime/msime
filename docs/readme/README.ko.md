@@ -16,6 +16,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](../../LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](../../Cargo.toml)
@@ -102,6 +103,16 @@ Linux 로컬 빌드, 격리된 D-Bus / IBus 테스트, 설치 후 최초 설정�
 
 기능 정합은 MSIME-Windows의 전체 기능을 동작 기준선으로 삼습니다: 공통 비즈니스 로직은 항목별로 공유 계층에 연결하고 화면은 플랫폼별 담당에 따라 공유 React 페이지나 해당 플랫폼의 네이티브 설정에 연결하며, Windows는 TSF DLL과 Server가 프로세스를 나누는 구조를 그대로 따르지만, 둘 사이의 프로토콜은 이 저장소의 같은 버전 빌드만을 위한 것으로, MSIME-Windows의 옛 설정, 공유 메모리, 버전 없는 핸드셰이크, 옛 음성 파이프와는 더 이상 호환하지 않습니다. Android, iOS, macOS, Linux, HarmonyOS는 각 시스템의 역량에 맞게 적응합니다. `scripts/test-reference-*.py`는 이 기준선을 다시 실행할 수 있는 게이트로 고정합니다 — 참조 구현의 출고 설정 키, 네 화면의 기계 판독 가능한 기능 목록, changelog의 모든 기능 항목, 그리고 `windows/`, `server/`, `ui/src` 아래의 모든 소스 파일은 반드시 이 저장소의 구현이나 이유를 명시한 부재 기록 하나에 대응되어야 합니다.
 
+## 수삼 엔진을 내 입력기에서 사용하기
+
+수삼의 입력 엔진은 다른 입력기에 내장할 수 있습니다. 단어 격자 기반 문장 변환과 신경망 재순위화, 오타 교정, 사용자 선택 학습을 갖추고 전병음, 쌍병음, 오필, 일본어, 한국어, 광둥어 병음, 주음, 베트남어, 티베트어, 필획 입력을 지원합니다. 바로 쓸 수 있는 엔진 라이브러리이며, Rime처럼 스키마로 구동되는 프레임워크는 아닙니다.
+
+- **Rust**: `cargo add msime-engine`([crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)). 빠른 시작은 [crates/engine/README.md](../../crates/engine/README.md)의 「快速上手」 절에 있습니다.
+- **C와 C를 호출할 수 있는 언어**(fcitx5, ibus, Windows TSF 같은 C/C++ 프런트엔드, Swift, Kotlin/JNI, Go, Python, C#): Linux, macOS, Windows용 사전 빌드 라이브러리와 헤더 `msime_engine.h`, `msime-engine.pc`를 [GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true)에서 받을 수 있습니다. 빠른 시작은 [crates/engine-capi/README.md](../../crates/engine-capi/README.md)에 있습니다.
+- **사전**: 엔진에는 사전이 들어 있지 않습니다. 같은 릴리스에 전병음·쌍병음용 최소 데이터 팩이 있습니다.
+
+엔진 코드는 MPL-2.0이라 비공개 소스나 App Store 앱에도 넣을 수 있습니다. 사전 데이터는 각자의 라이선스를 따르며 MPL이 아닙니다. 기본 중국어 데이터에는 GPL-3.0인 rime-ice 데이터와 CC-BY-SA-4.0인 n-gram 빈도가 들어 있으니 용도에 맞게 데이터를 고르세요.
+
 ## 입력 엔진
 
 ```sh
@@ -154,6 +165,6 @@ Windows 정식판은 현재 [msime-windows](https://github.com/metasequoiaime/ms
 
 ## 라이선스
 
-소스 코드는 **GPL-3.0-only**이며, 전문은 [LICENSE](../../LICENSE)를 참고하십시오.
+소스 코드는 **GPL-3.0-only**이며, 전문은 [LICENSE](../../LICENSE)를 참고하십시오. 예외로 스크립트 플러그인 SDK([crates/script-sdk](../../crates/script-sdk/)), 템플릿([docs/script-plugin-template](../../docs/script-plugin-template/)), 스크립트 플러그인 모음([plugins/script](../../plugins/script/))의 코드는 MIT이고, 입력 엔진([crates/engine](../../crates/engine/), `msime-engine`)과 [crates/path-trust](../../crates/path-trust/)(`msime-path-trust`)는 다른 입력기에 넣어 쓸 수 있도록 MPL-2.0(Exhibit B 없음)이며, 전문은 각 디렉터리의 `LICENSE`에 있습니다. 엔진에 내장된 데이터 표와 옮겨 온 서드파티 코드는 각자의 라이선스를 따르며 파일별 목록은 [crates/engine/README.md](../../crates/engine/README.md)에 있습니다. 실행 중에 읽는 사전과 모델도 각자의 라이선스를 따릅니다. `crates/engine`과 `crates/path-trust`에 대한 기여는 GPL-3.0-only OR MPL-2.0으로 제공됩니다. 입력기 제품 전체는 GPL-3.0-only로 배포됩니다.
 
 업스트림 코드, 사전, 모델, 각 플랫폼 SDK는 각자의 라이선스와 고지를 따르며, 그중 Android와 iOS의 필기 인식은 Google ML Kit을 사용하고 오픈소스 라이선스가 아닌 해당 서비스 약관에 따라 사용이 허가됩니다. 전체 대조표는 [서드파티 컴포넌트 목록](../third-party.md)을 참고하십시오.

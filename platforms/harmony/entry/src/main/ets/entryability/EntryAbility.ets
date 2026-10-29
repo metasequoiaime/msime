@@ -14,6 +14,7 @@ import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPoli
 import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
 
 /**
  * The application the keyboard belongs to.
@@ -128,6 +129,14 @@ export default class EntryAbility extends UIAbility {
       });
     } catch (error) {
       KeyboardLog.error(`window stage events unavailable: ${describeError(error)}`);
+    }
+    // 「防止截屏」开着时，在页面载入之前给主窗口设上隐私模式，第一帧就截不到；之后的切换由设置页写入时当场更新（`SettingsBridge.screenCaptureProtectionSettings`）。
+    try {
+      if (ScreenCaptureProtection.load(`${this.context.filesDir}/state`).enabled) {
+        ScreenCaptureProtection.protectWindow(stage.getMainWindowSync(), true);
+      }
+    } catch (error) {
+      KeyboardLog.error(`main window unavailable for privacy mode: ${describeError(error)}`);
     }
     // An AsyncCallback is handed a BusinessError whether it succeeded or not, and on success that
     // object carries code 0. Testing the object itself reported a failure on every successful load,

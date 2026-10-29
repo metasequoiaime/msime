@@ -97,7 +97,7 @@ impl<'a> EngineDictionary<'a> {
         let mut words = BTreeSet::new();
         let mut weights = HashMap::new();
         msime_engine::host::stream_dictionary_state(self.options, &mut |record| {
-            if let msime_engine::host::DictionaryStateRecord::Entry {
+            if let msime_engine::DictionaryStateRecord::Entry {
                 kind,
                 key,
                 value,

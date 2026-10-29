@@ -43,15 +43,15 @@ use msime_client_services::typing_statistics::{
 use msime_engine::host::{
     check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
     nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints, release_gloss_caches,
-    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
-    shuangpin_builtin_table, validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile,
-    CandidateEdge, Command, EngineOptions, NineKeyShuangpinError, NineKeyShuangpinKeyHint,
-    NineKeyShuangpinKind, NineKeyShuangpinTable, Session, ShuangpinCustomProfileError,
-    ShuangpinCustomTable, ShuangpinCustomTablePart,
+    shuangpin_builtin_table, Command, EngineOptions, Session,
 };
 use msime_engine::{
-    release_idle_personal_models, release_japanese_dictionary_cache, SchemeSet, SchemeType,
-    ShuangpinProfileKind,
+    release_idle_personal_models, release_japanese_dictionary_cache,
+    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
+    validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge,
+    NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
+    SchemeSet, SchemeType, ShuangpinCustomProfileError, ShuangpinCustomTable,
+    ShuangpinCustomTablePart, ShuangpinProfileKind,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -303,6 +303,8 @@ struct HostSession {
     statistics_private: bool,
     /// 只用来看候选的会话（`ffi::session::SessionUse::Preview`）：在任何平台上都不记选词位置和上屏效率。
     preview: bool,
+    /// 宿主在会话选项里写了 `selection_statistics: false`：选词由另一个会话记，这个会话不记选词位置和上屏效率。
+    statistics_recorded_elsewhere: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
@@ -435,8 +437,16 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     if options.multilingual_languages.len() < 2 {
         options.multilingual_languages.clear();
     }
-    // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
+    // 引擎里的键盘模型读的是同一份随版本资源锁走的模型；宿主不打开它（见 `engine_sentence_association`），不带模型的版本更不交给 Engine。
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
+}
+
+/// 整句联想「增强」挂不挂 runtime 的逐键重排器（[`ffi::keyboard_reranker`]）：偏好打开、且本版本带键盘模型。它只管 runtime 这一层，引擎里的键盘模型不跟这个开关走，见 `engine_sentence_association`。
+fn keyboard_reranker_enabled(
+    preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    edition: &Edition,
+) -> bool {
+    preferences.neural_keyboard && edition.features.neural_keyboard
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -447,11 +457,11 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
     }
 }
 
-/// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
+/// The Engine's sentence association switches. Neither model switch reaches it: the desktop one gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs, and the keyboard one (整句联想「增强」) mounts the runtime's per-keystroke reranker (`keyboard_reranker_enabled`), so the Engine's own keyboard-model rerank stays off.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
     state_root: Option<&std::path::Path>,
-) -> msime_engine::host::SentenceAssociationOptions {
+) -> msime_engine::SentenceAssociationOptions {
     // 选中的语法模型装好后才有文件路径；选中但没装（或包装在别处的 state_root
     // 下没发布）时留空，引擎逐字节退回无模型基线。
     let pack = match preferences.grammar_model {
@@ -478,9 +488,10 @@ fn engine_sentence_association(
                 .and_then(|artifact| resource_packs::installed_file(root, pack, &artifact.name))
         })
         .unwrap_or_default();
-    msime_engine::host::SentenceAssociationOptions {
+    msime_engine::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
-        neural_keyboard: preferences.neural_keyboard,
+        // 引擎自己那层键盘模型（九键跨切分重排、全拼和双拼词库内重排）不跟「增强」打开：在 runtime 的逐键重排之外它几乎不加分，却让按键延迟和内存再涨一截，取舍见 .agents/notes/implemented/feature/2026-10-29-enhanced-runtime-reranker-only.md。它留给直接构造 `EngineOptions` 的评测和实验（`convert_eval`）。
+        neural_keyboard: false,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
         collocation_model,
         collocation_rerank: pack.is_some(),
@@ -653,9 +664,11 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）在任何平台上都不计。
+    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）和宿主声明由别的会话记统计的会话（`statistics_recorded_elsewhere`）在任何平台上都不计。
     fn private_session(&self) -> bool {
-        self.preview || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
+        self.preview
+            || self.statistics_recorded_elsewhere
+            || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
@@ -705,16 +718,21 @@ impl HostSession {
         })
     }
 
+    /// 打字统计目录，即 HostOptions 的 `preferences_directory`（`state_root`）：各宿主记字数和按键、统计页和上传读的都是这里的 `typing-statistics.json`，选词位置和上屏效率要写进同一份。`user_data` 是 Engine 的个人词库目录，没有宿主在那里读写统计。不是绝对路径时为 `None`，这时什么都不记。
+    fn statistics_directory(&self) -> Option<&Path> {
+        self.state_root.as_deref()
+    }
+
     /// 统计开关；读不到统计目录或文件时当作关闭。
     fn statistics_enabled(&mut self) -> Option<bool> {
         if let Some(enabled) = self.statistics_enabled {
             return Some(enabled);
         }
-        let directory = std::path::Path::new(&self.options.user_data);
-        let enabled = directory.is_absolute()
-            && TypingStatisticsStore::new(directory)
+        let enabled = self.statistics_directory().is_some_and(|directory| {
+            TypingStatisticsStore::new(directory)
                 .load()
-                .is_ok_and(|statistics| statistics.enabled);
+                .is_ok_and(|statistics| statistics.enabled)
+        });
         self.statistics_enabled = Some(enabled);
         Some(enabled)
     }
@@ -731,10 +749,9 @@ impl HostSession {
     /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
     fn flush_selections(&mut self) {
         let pending = std::mem::take(&mut self.pending_selections);
-        let directory = std::path::Path::new(&self.options.user_data);
-        if !directory.is_absolute() {
+        let Some(directory) = self.statistics_directory().map(Path::to_path_buf) else {
             return;
-        }
+        };
         let mut batch = Vec::with_capacity(RANKS);
         batch.extend(
             pending
@@ -743,15 +760,15 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let store = TypingStatisticsStore::new(directory);
+        let store = TypingStatisticsStore::new(&directory);
         let enabled = store.record_selections(&batch).ok().flatten();
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
             if cfg!(test) {
-                record_efficiency(&self.options, &commits);
+                record_efficiency(&self.options, &directory, &commits);
             } else {
-                record_efficiency_in_background(self.options.clone(), commits);
+                record_efficiency_in_background(self.options.clone(), directory, commits);
             }
         }
         // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
@@ -975,9 +992,11 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        if options.sentence_association.neural_keyboard != self.runtime.has_reranker() {
+        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        if keyboard != self.runtime.has_reranker() {
             self.runtime.set_reranker(ffi::keyboard_reranker(
-                &options,
+                keyboard,
+                &options.resources,
                 self.recorded_sentence_model.as_deref(),
             ));
         }
@@ -2053,6 +2072,9 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
+    /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection_statistics: Option<bool>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2825,6 +2847,7 @@ fn prepare_shipped_host_configuration(
                 .to_owned(),
         ),
         phrase_preedit: None,
+        selection_statistics: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,
@@ -3614,7 +3637,8 @@ const EFFICIENCY_BATCH_LIMIT: usize = 256;
 
 /// 等后台写进统计的上屏批次，和是否已有一个线程在写。
 struct EfficiencyQueue {
-    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    /// 每一批：查读音用的 Engine 选项、写入的统计目录和这批上屏。
+    pending: Vec<(EngineOptions, PathBuf, Vec<EfficiencyCandidate>)>,
     running: bool,
 }
 
@@ -3630,10 +3654,14 @@ fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
 }
 
 /// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
-fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+fn record_efficiency_in_background(
+    options: EngineOptions,
+    directory: PathBuf,
+    commits: Vec<EfficiencyCandidate>,
+) {
     {
         let mut queue = efficiency_queue();
-        queue.pending.push((options, commits));
+        queue.pending.push((options, directory, commits));
         if queue.running {
             return;
         }
@@ -3659,8 +3687,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
                 }
                 std::mem::take(&mut queue.pending)
             };
-            for (options, commits) in batches {
-                record_efficiency(&options, &commits);
+            for (options, directory, commits) in batches {
+                record_efficiency(&options, &directory, &commits);
             }
         }
     };
@@ -3674,12 +3702,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
     }
 }
 
-/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
-fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
-    let directory = std::path::Path::new(&options.user_data);
-    if !directory.is_absolute() {
-        return;
-    }
+/// 把一批上屏算成效率计数写进统计目录 `directory`（[`HostSession::statistics_directory`]）：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, directory: &Path, commits: &[EfficiencyCandidate]) {
     let mut efficiency = CommitEfficiency::default();
     for commit in commits {
         let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);

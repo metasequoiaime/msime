@@ -94,6 +94,8 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
             capture("filter");
 
             stage = "keyboard classification management shortcut";
+            // 「分类」收进了顶行的「更多」菜单（#10037）。
+            tap(described("更多剪贴板操作"));
             tap(described("管理剪贴板分类"));
             await(hostText(NAME));
             tap(hostText(NAME));
@@ -108,6 +110,7 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
             assertAbsent(card(1), "Reload lost category filter");
 
             stage = "delete category retains body and returns unclassified";
+            tap(described("更多剪贴板操作"));
             tap(described("管理剪贴板分类"));
             tap(hostText("删除"));
             await(hostText("添加"));

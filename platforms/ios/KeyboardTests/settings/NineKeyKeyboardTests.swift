@@ -302,7 +302,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let zero = try button("nineKeyZero", in: controller)
     XCTAssertFalse(zero.isHidden)
     XCTAssertEqual(zero.configuration?.title, "0")
-    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
+    // 符 留在底行最左，与字母层同一格（#10061）；符号栏里不再放第二个。
+    XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
+    XCTAssertTrue(try button("numberPadSymbolPanelKey", in: controller).isHidden)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
@@ -1007,12 +1009,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     for face in ["1", "-", "/", "@"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: false), Input.symbol(face), face)
     }
-    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号：这些按键面所画直接插入。
-    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "\\", "^", "_"] {
+    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号、把 { } 转成「」：这些按键面所画直接插入。
+    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "{", "}", "\\", "^", "_"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.literal(face), face)
     }
     // Engine 原样透传的 ASCII 走符号键路径，所以网址和拼写用的符号仍能进入组字。
-    for face in ["-", "/", "@", "{", "}", "#", "%", "*", "+", "=", "|", "~", "&"] {
+    for face in ["-", "/", "@", "#", "%", "*", "+", "=", "|", "~", "&"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.symbol(face), face)
     }
     // 英文层发送所有 ASCII 符号，其余的直接插入。
@@ -3151,7 +3153,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for boundary in ["space", "delete", "dismiss", "hostChange", "mode"] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
-      controller.asynchronousNineKeyInputEnabled = true
+      controller.asynchronousInputEnabled = true
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
       controller.viewWillAppear(false)
@@ -3642,7 +3644,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(comma.onCornerHint)
   }
 
-  /// 九键字母层保留大空格；数字层的底行对齐上方五列，需要额外地球键时保留比例布局。
+  /// 九键字母层保留大空格；数字层的 符 和切换键留在字母层那一格，0 和空格分掉字母层空格的宽度。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
     let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey
@@ -3672,33 +3674,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIButton)
       .sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    // 数字层：九键、0、空格、中/英、换行分别对齐左栏和四列按键。
+    // 数字层：符 | 九键 | 0 | 空格 | 中/英 | 换行（#10061，与 Android #9113 相同）。符 和切换键与字母层同一格、同宽，只因数字层多一个键、多一道键距而差不到一个键距；符号栏里不再有第二个 符。
+    func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
+    let letterSymbols = frame(try button("symbolPanelKey", in: controller))
+    let letterLayer = frame(try button("layoutToggleButton", in: controller))
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
-                   ["layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
+                   ["symbolPanelKey", "layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertTrue(try button("numberPadSymbolPanelKey", in: controller).isHidden)
+    for (letters, digits) in [(letterSymbols, frame(try button("symbolPanelKey", in: controller))),
+                              (letterLayer, frame(try button("layoutToggleButton", in: controller)))] {
+      XCTAssertEqual(digits.minX, letters.minX, accuracy: row.spacing + 0.5)
+      XCTAssertEqual(digits.maxX, letters.maxX, accuracy: row.spacing + 0.5)
+      XCTAssertTrue(digits.contains(CGPoint(x: letters.midX, y: digits.midY)))
+    }
     let zero = try button("nineKeyZero", in: controller)
     let space = try button("spaceKey", in: controller)
-    if controller.needsInputModeSwitchKey {
-      XCTAssertGreaterThan(zero.bounds.width, space.bounds.width * 3)
-    } else {
-      let bottom = [try button("layoutToggleButton", in: controller), zero, space,
-                    try button("bottomLanguageKey", in: controller), try button("returnKey", in: controller)]
-      let top = [try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeySidebar" }),
-                 try button("nineKey7", in: controller), try button("nineKey8", in: controller),
-                 try button("nineKey9", in: controller), try button("nineKeyDelete", in: controller)]
-      for (lower, upper) in zip(bottom, top) {
-        let lowerFrame = lower.convert(lower.bounds, to: controller.view)
-        let upperFrame = upper.convert(upper.bounds, to: controller.view)
-        XCTAssertEqual(lowerFrame.minX, upperFrame.minX, accuracy: 0.5)
-        XCTAssertEqual(lowerFrame.maxX, upperFrame.maxX, accuracy: 0.5)
-      }
-    }
+    let language = try button("bottomLanguageKey", in: controller)
+    let enter = try button("returnKey", in: controller)
+    // The unit comes from the four keys right of the layer key, not from the narrow space key alone: each width is snapped to a pixel, and a 1/3 pt error on space grows past the tolerance once multiplied by the 0 key's 3.15 share.
+    let zeroWeight = KeyboardViewController.nineKeySpaceWeight - 1.05
+    let digitUnit = (zero.bounds.width + space.bounds.width + language.bounds.width + enter.bounds.width) / (zeroWeight + 1.05 + 1.05 + 1.6)
+    XCTAssertEqual(zero.bounds.width, digitUnit * zeroWeight, accuracy: 0.75)
+    XCTAssertEqual(space.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(language.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(enter.bounds.width, digitUnit * 1.6, accuracy: 0.75)
     XCTAssertGreaterThanOrEqual(zero.bounds.width, try button("nineKey8", in: controller).bounds.width)
     XCTAssertLessThan(zero.frame.maxX, space.frame.minX)
     XCTAssertNil(space.configuration?.image)
     let zeroWidth = zero.bounds.width
     let spaceWidth = space.bounds.width
+    // 隐藏中/英时它的份额并进 0，空格宽度不变。
     KeyboardLayoutPreference.hideLanguageKey = true
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -3706,17 +3713,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
     XCTAssertGreaterThan(zero.bounds.width, zeroWidth)
     XCTAssertEqual(space.bounds.width, spaceWidth, accuracy: 1)
-    if !controller.needsInputModeSwitchKey {
-      let seven = try button("nineKey7", in: controller)
-      let eight = try button("nineKey8", in: controller)
-      let nine = try button("nineKey9", in: controller)
-      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).minX,
-                     seven.convert(seven.bounds, to: controller.view).minX, accuracy: 0.5)
-      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).maxX,
-                     eight.convert(eight.bounds, to: controller.view).maxX, accuracy: 0.5)
-      XCTAssertEqual(space.convert(space.bounds, to: controller.view).minX,
-                     nine.convert(nine.bounds, to: controller.view).minX, accuracy: 0.5)
-    }
     KeyboardLayoutPreference.hideLanguageKey = false
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
@@ -3759,21 +3755,28 @@ final class NineKeyKeyboardTests: XCTestCase {
     assertAccent("composing")
   }
 
-  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；VoiceOver 仍读作 空格。
+  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；关掉长按空格语音后不带麦克风；VoiceOver 仍读作 空格。
   func testSpaceFaceNamesTheScheme() throws {
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "全拼", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false).label,
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false, voice: true).label,
                    ChineseInputScheme.shuangpin.shortLabel)
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: true),
                    .init(label: "space", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: true),
                    .init(label: "空格", mic: true))
     // 手写板的空格键同样显示方案名，与 Android 的 SpaceKeyFace.schemeLabel 给 HANDWRITING 的 手写 一致。
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "手写", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true, voice: true),
                    .init(label: "変換", mic: false))
+    // 关掉「长按空格语音输入」后长按空格不进语音，键面只留文字（#10143）。
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: false),
+                   .init(label: "全拼", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: false),
+                   .init(label: "space", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: false),
+                   .init(label: "空格", mic: false))
 
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -4302,7 +4305,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
   }
 
-  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。
+  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。符号栏里的 符 只在借来的数字九宫格上（拼音九键一族的 符 在底行），所以这里从全拼进数字页。
   func testNumberPadSidebarKeepsLargeKeysAndAFixedSymbolEntry() throws {
     let previous = InputSchemePreference.scheme
     let previousSpacing = KeyboardLayoutPreference.rowSpacing
@@ -4312,7 +4315,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     for tablet in [false, true] {
       KeyboardLayoutPreference.rowSpacing = tablet ? 10 : 4
-      InputSchemePreference.scheme = .nineKey
+      InputSchemePreference.scheme = .quanpin
       let controller = KeyboardViewController()
       if tablet {
         controller.traitOverrides.userInterfaceIdiom = .pad

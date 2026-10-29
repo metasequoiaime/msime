@@ -133,14 +133,18 @@ final class TextTrackpadDeviceChecks {
             t.tap(t.described("返回原键盘"));
             open("edit");
             stage("trackpad mode persistence");
+            modeLabel("切换为方向键");
             t.tap(t.described("切换为方向键"));
             waitMode(preferences, false);
+            modeLabel("切换为触控板");
             t.restartIme();
             launch("edit");
             t.tap(t.described("文本编辑"));
             t.await(t.described("光标左移"));
+            modeLabel("切换为触控板");
             t.tap(t.described("切换为触控板"));
             waitMode(preferences, true);
+            modeLabel("切换为方向键");
             pad();
             stage("temporary trackpad restores prior panel");
             t.tap(t.described("返回键盘"));
@@ -474,6 +478,11 @@ final class TextTrackpadDeviceChecks {
         if (!t.await(t.field("trackpad-editor")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, arguments))
             throw new AssertionError("Synthetic editor selection rejected");
         selection(start, end);
+    }
+
+    /** 模式切换键的可见文字与读屏描述同为动作（#10058）；只按描述找键时，键面退回「触控板 / 方向键」也查不出来。 */
+    private void modeLabel(String action) {
+        t.await(t.described(action).and(node -> DeviceSmoke.equalsText(action, node.getText())));
     }
 
     private void waitMode(File file, boolean enabled) throws Exception {

@@ -77,6 +77,8 @@ public final class TextTrackpadMagnifier {
                 popup.setWidth(width);
                 popup.setHeight(height);
                 popup.showAtLocation(keyboard, Gravity.TOP | Gravity.LEFT, x, y);
+                // 放大镜重画的是编辑器里的文字，是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+                ScreenCaptureProtection.apply(popup);
             }
         } catch (RuntimeException ignored) {
             // 输入法窗口可在跨进程回读期间失去 token，迟到预览直接丢弃。

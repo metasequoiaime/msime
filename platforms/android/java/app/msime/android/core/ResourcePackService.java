@@ -132,13 +132,13 @@ public final class ResourcePackService extends Service {
             start(context, pack);
             return;
         }
-        new MaterialAlertDialogBuilder(context)
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(context)
             .setTitle("使用移动数据下载？")
             .setMessage("当前网络按流量计费。下载" + title(pack) + "需要 " + size(size)
                 + "，下载后只保存在本机。也可以连上 Wi-Fi 后再下载。")
             .setNegativeButton("取消", null)
             .setPositiveButton("下载", (dialog, which) -> start(context, pack))
-            .show();
+            .create());
     }
 
     /**
@@ -160,13 +160,13 @@ public final class ResourcePackService extends Service {
             }
             metered = connectivity.isActiveNetworkMetered();
         }
-        new MaterialAlertDialogBuilder(context)
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(context)
             .setTitle("下载" + title(pack) + "？")
             .setMessage(reason + "下载需要 " + size(size) + "，下载后只保存在本机。"
                 + (metered ? "当前网络按流量计费，也可以连上 Wi-Fi 后再下载。" : ""))
             .setNegativeButton("以后再说", null)
             .setPositiveButton("下载", (dialog, which) -> start(context, pack))
-            .show();
+            .create());
     }
 
     /** 本地语音模型在这里的键；{@link #status}、{@link #cancel}、{@link Listener} 收到的都是它。 */

@@ -14,7 +14,17 @@ crates/host-api                版本化 C 接口，线程绑定会话句柄
 crates/input-runtime           会话编排、焦点、候选分页、带代次的选择
     ↓
 crates/engine                  输入算法与组合状态（纯 Rust）
+
+第三方输入法前端               嵌入引擎的其他输入法，各自进程
+    ↓  C ABI（msime_engine.h）
+crates/engine-capi             引擎的 C 接口：带版本的结构体、按下标取候选、带修订号的选择
+    ↓
+crates/engine                  同上，只经核心层 `Session`
 ```
+
+`crates/engine-capi`（`msime-engine-capi`）是给其他输入法嵌入引擎用的 C 库，与上面那条产品链路平行：它直接包核心层 `msime_engine::Session`，不经过 `host-api` 和 `input-runtime`，也不用 `host` 门面，msime 自己的宿主不走它。它的代码是 MPL-2.0，用 cargo-c 构建出共享库、静态库、生成的头文件和 pkg-config 文件，约定见 [crates/engine-capi/README.md](../crates/engine-capi/README.md)。
+
+`crates/engine` 的文档化 API 是 crate 根上的核心层；`host`（产品会话与选项、词库管理与同步、释义、文本工具）、`ordering`（msime 的候选排序）、`backend`（msime-cloud 协议）和 `web`（网页存储）是 msime 自己的产品胶水。核心层签名用到的类型和第三方用核心选项必需的函数（辅助码表、`/` `@` K 模式的表项、自定义双拼与九键双拼表的校验与取表）放在根上，设置页编辑这些表用的辅助函数留在 `host`，`input-runtime`、`host-api`、`engine-wasm`、`backend-engine` 也从根上导入它们，`host` 不再重新导出；边界与理由见[产品 crate 只经文档化的引擎 API](../.agents/notes/implemented/architecture/2026-10-29-engine-host-dogfood.md)。
 
 `host-api` 的词库管理接口（个人词条、固定资源的校验与编辑）直接调用 `crates/engine`，不经过 `input-runtime`；按键与会话一律走上面这条链路。
 
@@ -57,13 +67,15 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 输入引擎是本仓库里的 `crates/engine`（`msime-engine`），随 workspace 一起构建和测试，没有锁文件，也不再从外部拉取源码归档。它由 C++ 版 MSIME-Engine 移植而来：移植时用参考实现（固定 commit 加当时的 overlay）录下了行为基准，提交在 `crates/engine/tests/golden/`，由 `crates/engine/tests/golden.rs` 对照；录制方法和参考实现的来源记在 `tools/engine-golden/README.md`，只在需要从归档的参考构建重新录制时才用得上。引擎行为的改动直接改 `crates/engine` 并更新对应的基准，不再有 overlay 这一层。
 
+引擎在运行时读写的文件（主库、五笔库、英文库、n-gram 表、日文模型、语言词库、手写与神经模型、学习日志和代次目录）的格式、文件内版本、产出方、各方案的最小数据集和逐文件的数据许可证规定在 [data-formats.md](data-formats.md)。改动这些文件的结构时同一个提交里更新它；读端不认识的改动要把 `format::FORMAT_VERSION` 加一，引擎拒绝比自己新的版本，没有 `metadata` 表的旧发布按版本 0 照常读。
+
 平台仍要用到的非引擎文件已随仓库提交：Windows 与各宿主共用的 IPC 契约头文件在 `shared/contracts/`，辅助码表在 `resources/helpcodes/`，Windows 提示音用的 miniaudio 在 `platforms/windows/third_party/miniaudio/`。
 
 引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制。
 
 OpenCC 七份简繁转换表归 `msime-dictionary/sources/opencc/`，由 `resources/opencc.lock.json` 固定词库仓提交、OpenCC 上游提交及逐文件 SHA-256 与大小。`client-base/build.rs` 在构建主机用 Python 3.10+ 调用 `scripts/fetch_opencc.py` 准备输入，之后仍由 `include_str!` 内嵌。首次构建需要网络；后续复用逐文件校验的 `target/opencc/<commit>/`。离线构建可先运行 `python3 scripts/fetch_opencc.py` 准备缓存，再设置 `MSIME_OPENCC_OFFLINE=1`；也可用 `MSIME_OPENCC_SOURCE_DIR=/path/to/msime-dictionary/sources/opencc` 指定离线检出，字节必须与锁一致。`MSIME_PYTHON` 可指定解释器。运行时转换不读外部文件、不访问网络；许可证仍随各平台打包。
 
-符号数据同样归词库仓：打拼音出符号的名称表和 LaTeX 命令名表是 `msime-dictionary/sources/symbols/` 下的 `symbol-names.tsv`、`latex-symbols.tsv`，改符号名称改那里。`resources/symbol-tables.lock.json` 固定词库仓提交和逐文件 SHA-256 与大小，`scripts/sync_symbol_tables.py` 把它们逐字节同步成仓库里的副本 `crates/engine/src/local/symbol_candidates.tsv`（引擎 `include_str!`）和 `plugins/phrase_table/latex-symbols/symbols.tsv`（官方短语表生成器与符号模式），`scripts/test-symbol-tables.py` 离线核对副本等于锁。和 OpenCC 不同，副本提交进仓库、编译不联网：引擎被 Linux 的 Nix、Debian、RPM 离线打包和网页引擎一起编译，构建期下载会让每条打包流程都要再备一份离线输入。
+符号数据同样归词库仓：打拼音出符号的名称表和 LaTeX 命令名表是 `msime-dictionary/sources/symbols/` 下的 `symbol-names.tsv`、`latex-symbols.tsv`，改符号名称改那里。`resources/symbol-tables.lock.json` 固定词库仓提交和逐文件 SHA-256 与大小，`scripts/sync_symbol_tables.py` 把它们逐字节同步成仓库里的三份副本：`crates/engine/src/local/symbol_candidates.tsv` 和 `crates/engine/src/local/latex_symbols.tsv`（引擎 `include_str!`，后者供符号模式按 LaTeX 命令名查符号，放在 crate 内是为了 `cargo package` 能带上），以及 `plugins/phrase_table/latex-symbols/symbols.tsv`（官方短语表生成器），`scripts/test-symbol-tables.py` 离线核对副本等于锁。和 OpenCC 不同，副本提交进仓库、编译不联网：引擎被 Linux 的 Nix、Debian、RPM 离线打包和网页引擎一起编译，构建期下载会让每条打包流程都要再备一份离线输入。
 
 ## 验证
 

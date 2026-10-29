@@ -50,7 +50,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     private final Map<String, Action> actions = new HashMap<>(CommunityRequest.PAGE_SIZE);
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
-    private boolean nineKey;
+    private KeyLayoutStylesPolicy.Preview layout = KeyLayoutStylesPolicy.Preview.STANDARD;
 
     /**
      * @param onOpen open the detail sheet (larger preview, description, 举报)
@@ -110,10 +110,10 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         return false;
     }
 
-    /** Draw skin previews as the layout this user types on. */
-    public void setNineKey(boolean value) {
-        if (nineKey == value) return;
-        nineKey = value;
+    /** 皮肤卡片上的预览按读卡人自己的键盘画（{@link KeyboardPreview#layout}）：作品不带作者的键位，读卡人想看的是这款皮肤装到自己键盘上的样子。 */
+    public void setLayout(KeyLayoutStylesPolicy.Preview value) {
+        if (layout.equals(value)) return;
+        layout = value;
         notifyDataSetChanged();
     }
 
@@ -208,7 +208,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         KeyboardSkin skin = preview(item);
         if (holder.preview != null) {
             holder.preview.setCornerRadiusDp(5f);
-            holder.preview.setKeyboard(skin, nineKey);
+            holder.preview.setKeyboard(skin, layout);
             ViewPolicy.setVisible(holder.preview, skin != null);
         }
         if (holder.badge != null) ViewPolicy.setVisible(holder.badge, skin == null);

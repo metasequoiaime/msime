@@ -26,6 +26,8 @@ enum KeyboardLayoutPreference {
     set { defaults.set(newValue, forKey: hideLanguageKeyKey) }
   }
   static let oneHandedKey = "keyboard.oneHanded"
+  /// 单手模式以前只在手机形态的键盘上画（iPhone、iPad 浮动键盘和窄窗口），全宽的 iPad 键盘一律不画；全宽键盘补上单手模式（#10203）之后，升级前存下的值不能直接带过去，否则在浮动键盘上开过单手的人一升级，停靠的全宽键盘就缩成单手块。用户之后每次切换单手模式都会打上这个标记；没有标记时，全宽键盘第一次画单手之前把存下的值改成关闭（`adoptOneHandedOnDockedTablet`）。
+  static let oneHandedDockedTabletKey = "keyboard.oneHandedDockedTablet"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
     set { defaults.set(SharedNumber.clamped(newValue, to: 3...6), forKey: keySpacingKey) }
@@ -220,7 +222,15 @@ enum KeyboardLayoutPreference {
   /// 「单手模式」：手机键盘的按键收窄到 85% 并靠向一侧，另一侧是「换到另一侧」和「退出单手」组成的一列。默认关闭；它只存在本设备的 App Group 里，不进共享文档，iOS 的设置同步也不携带它；Android 的 `platform.android.one_handed` 会同步。无法识别的存储值按关闭处理。
   static var oneHanded: KeyboardOneHandedMode {
     get { defaults.string(forKey: oneHandedKey).flatMap(KeyboardOneHandedMode.init(rawValue:)) ?? .off }
-    set { defaults.set(newValue.rawValue, forKey: oneHandedKey) }
+    set {
+      defaults.set(newValue.rawValue, forKey: oneHandedKey)
+      defaults.set(true, forKey: oneHandedDockedTabletKey)
+    }
+  }
+  /// 全宽 iPad 键盘画单手模式之前调用：存下的值是升级前留下的（没有 `oneHandedDockedTabletKey` 标记）就改成关闭并打上标记，只做一次。返回此后该画的存储值。
+  static func adoptOneHandedOnDockedTablet() -> KeyboardOneHandedMode {
+    if !defaults.bool(forKey: oneHandedDockedTabletKey) { oneHanded = .off }
+    return oneHanded
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
 

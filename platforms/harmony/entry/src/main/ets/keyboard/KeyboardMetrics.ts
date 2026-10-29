@@ -1,4 +1,5 @@
 import { KeyboardGeometry } from "./KeyboardGeometry";
+import { CandidateScalePolicy } from "./candidate/CandidateScalePolicy";
 
 /**
  * 键盘的尺寸。触屏框架遵循设计稿的鸿蒙键盘（`全平台 UI.dc.html`，`kbPad: '8px 4px 6px'`、`kbGap: '10px'`、50px 的工具栏或候选栏、44px 的按键间隔 6px）；按键尺寸最初取自 iOS 扩展 `platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift`，让两个键盘的布局一致。
@@ -15,6 +16,23 @@ export class KeyboardMetrics {
   static readonly TOUCH_ROOT_BOTTOM_PADDING_VP: number = 6;
   /** 触屏时按键上方的条带：空闲时是工具栏，输入中是候选栏，高度固定相同，切换时不会挪动任何按键。 */
   static readonly STRIP_HEIGHT_VP: number = 50;
+  /**
+   * 触屏工具条按「候选栏大小」缩放后的高度：工具栏和候选栏仍共用这一行，所以组字开始、结束时按键照样不动（#10137）。缺省 100% 时就是 `STRIP_HEIGHT_VP`。
+   */
+  static stripHeightVp(scalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT): number {
+    return CandidateScalePolicy.scaled(KeyboardMetrics.STRIP_HEIGHT_VP, scalePercent);
+  }
+
+  /**
+   * 工具栏按钮、图标和标志跟着工具条缩小的倍数：工具条矮于设计的 50vp 时按同一比例缩小，不会伸出这一行；放大时按钮仍是设计尺寸，与 Android 跟随候选栏时按钮最高 44 dp 一致。
+   */
+  static toolbarScale(scalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT): number {
+    return Math.min(
+      1,
+      KeyboardMetrics.stripHeightVp(scalePercent) / KeyboardMetrics.STRIP_HEIGHT_VP,
+    );
+  }
+
   /** 触屏时条带与第一行按键之间的固定间距。 */
   static readonly STRIP_GAP_VP: number = 10;
   /** 按键行之间的默认间距，可由 `touch_row_spacing_tenths` 偏好覆盖。设计稿画的是 10；取 7 是为了与其他平台的默认值一致。 */
@@ -50,11 +68,13 @@ export class KeyboardMetrics {
    *
    * 行间距和高度调整来自用户设置，由 `KeyboardGeometry` 限定范围。它们作为参数传入而不是在这里读取，让这里保持为纯计算，ability 和视图都能算并得出一致结果。
    *
-   * 触屏（`compact` 为 false）时框架固定：顶部内边距、50vp 条带、10vp 间距、按键行及其间的行间距、底部内边距。条带在自身高度内容纳候选及其释义，所以字号和释义行不会改变面板。`compact` 是 2in1 键盘和表情界面，它们保留一直以来的叠放组合行、候选行和释义预留。
+   * 触屏（`compact` 为 false）时框架固定：顶部内边距、50vp 条带（按「候选栏大小」缩放）、10vp 间距、按键行及其间的行间距、底部内边距。条带在自身高度内容纳候选及其释义，所以字号和释义行不会改变面板。`compact` 是 2in1 键盘和表情界面，它们保留一直以来的叠放组合行、候选行和释义预留。
    *
    * `withStrip` 为 false 时触屏框架不带条带和它下面的间距：工具栏设成隐藏或工具全关、又没有在组字也没有打开面板时（`TouchToolbarPolicy.stripShown`），这一行不画，键盘相应变矮。`compact` 时不看它。
    *
    * `extraRows` 是触屏框架在四行之外多出的行（`handwritingExtraRows`）：每行一个不带高度调整的 `ROW_HEIGHT_VP` 加一道行距，用户的高度调整仍只加一次。`compact` 时不看它。
+   *
+   * `stripScalePercent` 是「候选栏大小」：触屏条带按 `stripHeightVp` 缩放，按键行不变，面板只差条带变化的那一段。`compact` 时不看它。
    */
   static totalHeightVp(
     rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
@@ -65,6 +85,7 @@ export class KeyboardMetrics {
     compact: boolean = false,
     withStrip: boolean = true,
     extraRows: number = 0,
+    stripScalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT,
   ): number {
     const keys: number =
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
@@ -72,7 +93,9 @@ export class KeyboardMetrics {
       const extra: number = Number.isFinite(extraRows) && extraRows > 0 ? Math.floor(extraRows) : 0;
       return (
         KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-        (withStrip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
+        (withStrip
+          ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP
+          : 0) +
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
         extra * (KeyboardMetrics.ROW_HEIGHT_VP + rowSpacingTenths / 10) +

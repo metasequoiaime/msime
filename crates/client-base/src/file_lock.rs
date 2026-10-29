@@ -77,6 +77,18 @@ pub fn open_private_directory(path: impl AsRef<Path>) -> io::Result<PrivateDirec
 }
 
 impl PrivateDirectory {
+    /// 接管一个已经不跟随符号链接打开的目录句柄，例如引擎词库租约取锁时打开的根目录（`msime_engine::DictionaryAccess::directory`）。之后的操作都绑定在这个目录上；句柄不是目录时报错。
+    #[cfg(unix)]
+    pub fn from_opened(directory: File) -> io::Result<Self> {
+        if !directory.metadata()?.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "private directory is not a real directory",
+            ));
+        }
+        Ok(Self { directory })
+    }
+
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             directory: crate::storage::clone_private_directory(&self.directory)?,

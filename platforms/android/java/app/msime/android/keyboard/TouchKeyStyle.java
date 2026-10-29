@@ -12,6 +12,62 @@ public final class TouchKeyStyle {
     public static final String FOURTEEN_KEY_PREFERENCE = "touch_fourteen_key_style";
     public static final String NINE_KEY_PREFERENCE = "touch_nine_key_style";
     public static final String NUMBER_ROW_PREFERENCE = "touch_number_row";
+    /** 26 键底行 符 排在 123 左边（共享偏好 `touch_twenty_six_symbol_first`，缺省关），见 {@link KeyboardActionRow#designEntries(int, boolean, boolean, boolean, boolean, Row, boolean, NumberPadSpace)}。 */
+    public static final String SYMBOL_FIRST_PREFERENCE = "touch_twenty_six_symbol_first";
+    /** 九宫格数字键盘里空格的位置（共享偏好 `touch_number_pad_space`），见 {@link NumberPadSpace}。 */
+    public static final String NUMBER_PAD_SPACE_PREFERENCE = "touch_number_pad_space";
+
+    /**
+     * 九宫格数字键盘（拼音九键、九键双拼、笔画的数字层，以及其他键面借来的数字九宫格）里空格放在哪，0 总在底行；右侧大回车的数字层有自己的排法，不受它影响。三端出厂排法不同，共享偏好缺省是 `platform_default`，Android 按 {@link #RIGHT_COLUMN} 画；三种排法三端都能选，设置页文字三端逐字相同。
+     */
+    public enum NumberPadSpace {
+        /** 各端原来的排法；Android 是 {@link #RIGHT_COLUMN}。设置页不单列这一项。 */
+        PLATFORM_DEFAULT("platform_default", ""),
+        /** 空格在右列 ⌫、小数点下面，0 占底行中间整个空格份额（#8058）。 */
+        RIGHT_COLUMN("right_column", "空格在右列"),
+        /** 0 和空格都在底行，0 在左、空格在它右边与中/英同宽（iOS 的出厂排法）；右列最下面一格是 ！。 */
+        AFTER_ZERO("after_zero", "空格在 0 右边"),
+        /** 0 和空格都在底行，空格在左、0 在它右边与中/英同宽（鸿蒙的出厂排法）；右列最下面一格是 ！。 */
+        BEFORE_ZERO("before_zero", "空格在 0 左边");
+
+        public final String wire;
+        /** 设置页的选项名，三端逐字相同。 */
+        public final String title;
+
+        NumberPadSpace(String wire, String title) {
+            this.wire = wire;
+            this.title = title;
+        }
+
+        /** 设置页列出的三种排法，按这个次序。 */
+        public static final List<NumberPadSpace> CHOICES = List.of(RIGHT_COLUMN, AFTER_ZERO, BEFORE_ZERO);
+
+        /** 实际画哪一种：`platform_default` 换成 Android 原来的 {@link #RIGHT_COLUMN}。 */
+        public NumberPadSpace resolved() {
+            return this == PLATFORM_DEFAULT ? RIGHT_COLUMN : this;
+        }
+
+        /** 空格是否在右列：数字层右列最下面一格放空格，底行没有空格。 */
+        public boolean inRightColumn() {
+            return resolved() == RIGHT_COLUMN;
+        }
+
+        /** 偏好里的写法；缺键、不认识（较新版本加的排法）都按 `platform_default` 读，与 client-core 的宽松读取一致。 */
+        public static NumberPadSpace parse(String wire) {
+            if (wire != null) {
+                for (NumberPadSpace space : values()) if (space.wire.equals(wire)) return space;
+            }
+            return PLATFORM_DEFAULT;
+        }
+    }
+
+    /** 设置页「按键布局」里数字键盘空格位置那一组的标题，三端逐字相同。 */
+    public static final String NUMBER_PAD_SPACE_GROUP = "数字键盘";
+    /** 设置页「数字键盘」一组末尾的说明，三端逐字相同（iOS `TouchKeyLayoutOffering.numberPadFooter`、鸿蒙 `numberPadSpaceNote`）。 */
+    public static final String NUMBER_PAD_SPACE_NOTE = "九宫格数字键盘里空格的位置；右侧大回车不受影响。";
+    /** 「「符」与「123」互换」开关的标题和说明，三端逐字相同（iOS `TouchKeyLayoutOffering.symbolFirstTitle`、鸿蒙 `symbolFirstTitle`）。 */
+    public static final String SYMBOL_FIRST_TITLE = "26 键「符」与「123」互换";
+    public static final String SYMBOL_FIRST_NOTE = "符 排在 123 左边；长空格和表情键样式没有 符，不受影响。";
 
     /** 底行的一种排法；每类键面只提供其中几种（{@link #TWENTY_SIX_KEY_ROWS}、{@link #FOURTEEN_KEY_ROWS}、{@link #NINE_KEY_ROWS}）。 */
     public enum Row {

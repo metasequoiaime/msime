@@ -16,6 +16,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](../../LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](../../Cargo.toml)
@@ -102,6 +103,16 @@ Linux 本機建置、隔離的 D-Bus / IBus 測試和安裝後的首次設定見
 
 功能對齊以 MSIME-Windows 的完整功能為行為基準：公用業務逐項接入共用層，介面按平台歸屬接入共用 React 頁或該平台的原生設定，Windows 沿用 TSF DLL 與 Server 分行程的結構，但兩者之間的協定只服務本儲存庫同版本的建置，不再相容 MSIME-Windows 的舊設定、共享記憶體、無版本交握和舊語音管道，Android、iOS、macOS、Linux 與 HarmonyOS 依各自的系統能力適配。`scripts/test-reference-*.py` 把這條基準固化成可重跑的關卡——參考實作的出廠設定鍵、四個介面的機器可讀能力清單、changelog 的每條特性、以及 `windows/`、`server/`、`ui/src` 下的每個原始檔，都必須對應到本儲存庫的實作或一條寫明理由的缺席紀錄。
 
+## 在你的輸入法裡使用水杉引擎
+
+水杉的輸入引擎可以單獨嵌進別的輸入法：詞格整句加神經重排、拼寫糾錯、按使用者選擇學習，方案有全拼、雙拼、五筆、日文、韓文、粵拼、注音、越南文、藏文和筆畫。它是開箱即用的引擎庫，不是 Rime 那樣靠方案設定驅動的框架。
+
+- **Rust**：`cargo add msime-engine`（[crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)），上手見 [crates/engine/README.md](../../crates/engine/README.md) 的「快速上手」。
+- **C 和其他能呼叫 C 的語言**（fcitx5、ibus、Windows TSF 等 C/C++ 前端，Swift、Kotlin/JNI、Go、Python、C#）：[GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) 上有 Linux、macOS、Windows 的預先編譯函式庫，附標頭檔 `msime_engine.h` 和 `msime-engine.pc`；上手見 [crates/engine-capi/README.md](../../crates/engine-capi/README.md)。
+- **詞庫**：引擎本身不帶詞庫。同一個 Release 裡有全拼、雙拼用的最小資料包。
+
+引擎程式碼是 MPL-2.0，可以嵌進閉源或上架 App Store 的應用程式；詞庫資料保留各自的授權條款，不是 MPL：預設中文詞庫含 GPL-3.0 的 rime-ice 資料，n-gram 計數是 CC-BY-SA-4.0，請依需求另選資料。
+
 ## 輸入引擎
 
 ```sh
@@ -154,6 +165,6 @@ Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msi
 
 ## 授權條款
 
-原始碼採用 **GPL-3.0-only**，全文見 [LICENSE](../../LICENSE)。
+原始碼採用 **GPL-3.0-only**，全文見 [LICENSE](../../LICENSE)。例外是腳本外掛的 SDK（[crates/script-sdk](../../crates/script-sdk/)）、範本（[docs/script-plugin-template](../../docs/script-plugin-template/)）和腳本外掛合集（[plugins/script](../../plugins/script/)）的程式碼採用 MIT，以及輸入引擎（[crates/engine](../../crates/engine/)，`msime-engine`）和 [crates/path-trust](../../crates/path-trust/)（`msime-path-trust`）採用 MPL-2.0（不附 Exhibit B），讓其他輸入法可以嵌入引擎；全文在各自目錄的 `LICENSE`。引擎內嵌的資料表與改編的第三方程式碼保留各自的授權條款，逐個檔案見 [crates/engine/README.md](../../crates/engine/README.md)；引擎執行時讀取的詞庫與模型也按各自的授權條款。對 `crates/engine` 與 `crates/path-trust` 的貢獻以「GPL-3.0-only OR MPL-2.0」授權。整個輸入法產品仍以 GPL-3.0-only 發布。
 
 上游程式碼、詞庫、模型和各平台 SDK 以各自的授權條款和聲明為準，其中 Android 與 iOS 的手寫辨識使用 Google ML Kit，依其服務條款授權，而非開源授權條款。完整對照見[第三方元件清單](../third-party.md)。

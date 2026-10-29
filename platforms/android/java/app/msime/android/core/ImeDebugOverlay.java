@@ -176,6 +176,8 @@ final class ImeDebugOverlay {
     /** 最近一次按键的时刻（uptime 毫秒），下一次引擎结果到达时据此算按键到候选更新的耗时；没有待测的按键时为 -1。 */
     private long pendingKeyAt = -1;
     private long lastEngineMillis = -1;
+    /** `onCreate` 量到的服务创建耗时（毫秒），还没写进日志时为 -1。那时还没有输入框，`allowLearning` 是默认的 false，隐私判断按「不做个性化学习的输入框」挡掉一切记录，只能等进了允许记录的输入框再补写（#9916）。 */
+    private long pendingServiceCreateMillis = -1;
 
     ImeDebugOverlay(MSIMEInputService s) {
         this.s = s;
@@ -231,6 +233,19 @@ final class ImeDebugOverlay {
         if (!logging()) return;
         EventLog target = log();
         if (target != null) target.perf(kind, durationMillis);
+    }
+
+    /** 记下 `onCreate` 的耗时，等 {@link #flushServiceCreate} 在允许记录的输入框里写出；同一个服务只写一次。 */
+    void holdServiceCreate(long durationMillis) {
+        pendingServiceCreateMillis = durationMillis;
+    }
+
+    /** 进了输入框、隐私判断有了依据之后调用：有待写的服务创建耗时且此刻允许记录时写出。不允许时继续留着，等下一个允许记录的输入框。 */
+    void flushServiceCreate() {
+        if (pendingServiceCreateMillis < 0 || !logging()) return;
+        long durationMillis = pendingServiceCreateMillis;
+        pendingServiceCreateMillis = -1;
+        recordPerf(DiagnosticEventKind.IME_SERVICE_CREATE, durationMillis);
     }
 
     /** 一次按键按下：开始计时，并记 key_down（删除键记 backspace）。 */

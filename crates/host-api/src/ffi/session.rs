@@ -58,6 +58,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let sentence_model_path = options.sentence_model.clone();
     let recorded_settled_model = options.settled_model.clone();
     let phrase_preedit = options.phrase_preedit.unwrap_or(false);
+    let statistics_recorded_elsewhere = options.selection_statistics == Some(false);
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
     let recorded_language_dictionaries = options
@@ -149,7 +150,11 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
+    runtime.set_reranker(keyboard_reranker(
+        keyboard_reranker_enabled(&applied.sentence_association, edition),
+        &options.resources,
+        sentence_model_path.as_deref(),
+    ));
 
     // The settled model is optional and independent: a resource set that ships only the small
     // one behaves exactly as before, and one that ships both gets the fast model per keystroke
@@ -194,6 +199,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 key_grid_override: None,
                 statistics_private: false,
                 preview: usage == SessionUse::Preview,
+                statistics_recorded_elsewhere,
                 ai_credential: None,
                 ai_provider_cache,
                 voice: VoiceSessionState::default(),

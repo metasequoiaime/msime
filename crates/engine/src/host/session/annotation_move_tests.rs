@@ -7,8 +7,8 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
     let value = session.inner.snapshot_for_host(true);
     let helpcode_scheme = value.scheme.helpcode();
     let uppercase_all = value.scheme == SchemeType::Quanpin;
-    let keymap = session.helpcode_keymap.as_deref().filter(|_| {
-        session.helpcode_enabled && helpcode_scheme && !value.local_mode.annotates_rows()
+    let keymap = session.inner.helpcode_table().filter(|_| {
+        session.options.helpcode && helpcode_scheme && !value.local_mode.annotates_rows()
     });
     let count = value.candidates.len();
     let display_reading = if !value.scheme.draws_reading() {
@@ -28,15 +28,15 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         local_mode: value.local_mode.name().to_owned(),
         spelling_symbols: value.spelling_symbols,
         dedicated_english: value.dedicated_english,
-        nine_key: session.key_grid == Some(KeyGrid::NineKey),
-        key_grid: session.key_grid,
+        nine_key: session.inner.key_grid() == Some(KeyGrid::NineKey),
+        key_grid: session.inner.key_grid(),
         nine_key_spellings: value.nine_key_spellings,
         nine_key_reading: value.nine_key_reading,
         nine_key_single_character: value.nine_key_single_character,
         nine_key_strokes: value.nine_key_strokes,
         grid_composing: session.inner.grid_composing(),
-        microsoft_shuangpin: session.microsoft_shuangpin,
-        shuangpin_profile: session.shuangpin_profile.clone(),
+        microsoft_shuangpin: session.microsoft_shuangpin(),
+        shuangpin_profile: session.inner.shuangpin_layout().kind.name().to_owned(),
         preedit: value.preedit,
         display_reading,
         reading: if value.scheme.draws_reading() {
@@ -71,6 +71,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         caret_edit_suffix: value.caret_edit_suffix,
         caret_edit_prefix: value.caret_edit_prefix,
         candidate_touch_supported: Vec::new(),
+        candidate_confident_correction: Vec::new(),
     };
     for (index, candidate) in value.candidates.into_iter().enumerate() {
         let mut annotation = value
@@ -79,7 +80,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
             .cloned()
             .unwrap_or_else(|| candidate.corrected_from.to_string());
         if let Some(keymap) = keymap {
-            if !session.show_helpcode {
+            if !session.options.show_helpcode {
                 let helpcode = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 if !helpcode.is_empty() && annotation == helpcode {
                     annotation = candidate.corrected_from.to_string();

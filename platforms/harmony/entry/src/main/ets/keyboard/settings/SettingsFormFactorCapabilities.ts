@@ -18,6 +18,8 @@ export interface SettingsFormFactorProjection {
   /** A phone draws its candidates as one horizontal strip whatever the preference says; only the 2in1 candidate window can be a vertical list. */
   fixedCandidateLayout: "horizontal" | null;
   candidateFollowCursor: boolean;
+  /** 「候选栏大小」（`candidate_scale_percent`）：手机和平板的键盘按它把候选栏和跟随候选栏的工具栏一起缩放、按键不动（#10137），所以只在这两种形态声明；2in1 的候选卡片只随字号调整，平台层面的能力位保持关闭。 */
+  candidateWindowScale: boolean;
   /** The keyboard fades and rounds only the 2in1 candidate card; the phone strip keeps its own surface and corner, so these sliders would do nothing there. */
   candidateWindowOpacity: boolean;
   candidateCornerRadius: boolean;
@@ -42,11 +44,17 @@ export interface SettingsFormFactorProjection {
   touchPluginPacks: boolean;
   /** 皮肤页的「制作皮肤」标签：编辑器是桌面形态的设置界面，只在 2in1 上声明；手机的皮肤页保持原样。 */
   candidateSkinEditor: boolean;
+  /** 屏幕键盘页「大屏单手时侧边显示数字键盘」（`touch_one_handed_side_panel`，#10203）：只在有大屏触屏键盘的设备上声明，即平板和可折叠手机（展开后是大屏）；直板手机的单手模式铺满整行，空不出一侧，2in1 不画触摸按键。 */
+  oneHandedSidePanel: boolean;
 }
 
 /** Keep the shared settings page aligned with the keyboard's actual device form factor. */
 export class SettingsFormFactorCapabilities {
-  static resolve(deviceType: string | null | undefined): SettingsFormFactorProjection {
+  /** `foldable` 是设备能不能折叠（`display.isFoldable()`），只影响手机上的 `oneHandedSidePanel`。 */
+  static resolve(
+    deviceType: string | null | undefined,
+    foldable: boolean = false,
+  ): SettingsFormFactorProjection {
     const desktop: boolean = KeyboardFormFactorPolicy.isDesktop(deviceType);
     return {
       mobileSettings: !desktop,
@@ -62,6 +70,7 @@ export class SettingsFormFactorCapabilities {
       voiceHotkeys: true,
       fixedCandidateLayout: desktop ? null : "horizontal",
       candidateFollowCursor: desktop,
+      candidateWindowScale: !desktop,
       candidateWindowOpacity: desktop,
       candidateCornerRadius: desktop,
       inputModeHud: desktop,
@@ -75,6 +84,7 @@ export class SettingsFormFactorCapabilities {
       touchKeySoundPacks: !desktop,
       touchPluginPacks: !desktop,
       candidateSkinEditor: desktop,
+      oneHandedSidePanel: deviceType === "tablet" || (deviceType === "phone" && foldable),
     };
   }
 }

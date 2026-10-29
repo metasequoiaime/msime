@@ -16,6 +16,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](../../LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](../../Cargo.toml)
@@ -102,6 +103,16 @@ For local Linux builds, isolated D-Bus / IBus tests and first-time setup after i
 
 Feature parity takes the complete feature set of MSIME-Windows as the behavioral baseline: the shared business logic is wired into the shared layer item by item, and the UI goes into the shared React pages or the platform's native settings according to the per-platform ownership. Windows keeps the split-process structure of TSF DLL and Server, but the protocol between them only serves same-version builds of this repository and is no longer compatible with MSIME-Windows's old configuration, shared memory, unversioned handshake or old voice pipe; Android, iOS, macOS, Linux and HarmonyOS adapt according to their own system capabilities. `scripts/test-reference-*.py` turns this baseline into a rerunnable gate — the reference implementation's factory configuration keys, the machine-readable capability inventories of its four UIs, every feature in its changelog, and every source file under `windows/`, `server/` and `ui/src` must each map to an implementation in this repository or to an absence record that states the reason.
 
+## Using the MSIME engine in your input method
+
+MSIME's input engine can be embedded in other input methods: word-lattice sentence composition with neural reranking, typo correction and learning from what the user picks, for quanpin, shuangpin, wubi, Japanese, Korean, Cantonese, zhuyin, Vietnamese, Tibetan and stroke input. It is a ready-to-use engine library, not a schema-driven framework like Rime.
+
+- **Rust**: `cargo add msime-engine` ([crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)); the quickstart is in [crates/engine/README.md](../../crates/engine/README.md).
+- **C and any language that can call C** (C/C++ frontends such as fcitx5, ibus or Windows TSF, Swift, Kotlin/JNI, Go, Python, C#): prebuilt libraries for Linux, macOS and Windows with the header `msime_engine.h` and `msime-engine.pc` are on [GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true); the quickstart is in [crates/engine-capi/README.md](../../crates/engine-capi/README.md).
+- **Dictionaries**: the engine ships none. The same release has a minimal data pack for quanpin and shuangpin.
+
+The engine code is MPL-2.0, so it can go into closed-source and App Store apps. The dictionary data keeps its own licences and is not MPL: the default Chinese data includes GPL-3.0 rime-ice data and CC-BY-SA-4.0 n-gram counts; choose your data accordingly.
+
 ## Input engine
 
 ```sh
@@ -154,6 +165,6 @@ Official Windows releases are currently built, signed and published by [msime-wi
 
 ## License
 
-The source code is licensed under **GPL-3.0-only**; see [LICENSE](../../LICENSE) for the full text.
+The source code is licensed under **GPL-3.0-only**; see [LICENSE](../../LICENSE) for the full text. The exceptions are the code of the script plugin SDK ([crates/script-sdk](../../crates/script-sdk/)), its template ([docs/script-plugin-template](../../docs/script-plugin-template/)) and the script plugin collection ([plugins/script](../../plugins/script/)), which is under MIT, and the input engine ([crates/engine](../../crates/engine/), `msime-engine`) with [crates/path-trust](../../crates/path-trust/) (`msime-path-trust`), which is under MPL-2.0 without Exhibit B, so that other input methods can embed it; each of these directories has its own `LICENSE`. The data tables and adapted third-party code inside the engine keep their own licenses, listed file by file in [crates/engine/README.md](../../crates/engine/README.md), and the dictionaries and models it reads at run time keep theirs. Contributions to `crates/engine` and `crates/path-trust` are licensed under GPL-3.0-only OR MPL-2.0. The input method as a whole is released under GPL-3.0-only.
 
 Upstream code, dictionaries, models and platform SDKs are governed by their own licenses and notices; in particular, handwriting recognition on Android and iOS uses Google ML Kit, which is licensed under its terms of service rather than an open-source license. For the complete mapping, see the [third-party component inventory](../third-party.md).

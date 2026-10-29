@@ -396,6 +396,8 @@ struct DesignInlineButtonRow: View {
 /// 右侧带短滑块的行（紧凑宽度下 110pt，常规宽度下 160pt），格式化后的值放在 46pt 宽的一列里。
 struct DesignSliderRow: View {
   let title: String
+  /// 标题下的说明行；缺省不画。
+  var subtitle: String? = nil
   @Binding var value: Double
   let range: ClosedRange<Double>
   let step: Double
@@ -403,9 +405,10 @@ struct DesignSliderRow: View {
   var identifier: String? = nil
   @Environment(\.horizontalSizeClass) private var widthClass
 
-  init(title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, identifier: String? = nil,
-       format: @escaping (Double) -> String) {
+  init(title: String, subtitle: String? = nil, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
+       identifier: String? = nil, format: @escaping (Double) -> String) {
     self.title = title
+    self.subtitle = subtitle
     _value = value
     self.range = range
     self.step = step
@@ -414,7 +417,7 @@ struct DesignSliderRow: View {
   }
 
   var body: some View {
-    DesignRowLayout(title: title, subtitle: nil) {
+    DesignRowLayout(title: title, subtitle: subtitle) {
       HStack(spacing: 8) {
         Slider(value: $value, in: range, step: step) { Text(title) }
           .tint(MetasequoiaTheme.accent)
@@ -860,7 +863,7 @@ struct ToastOverlay: View {
 
 // MARK: - 分段控件
 
-/// 设计稿的分段控件。`.capsule` 是剪贴板和 AI 设计皮肤的切换器（选中的滑块上是强调色文字）；`.rounded` 是统计页、皮肤页和社区页的切换器（主文字色，着色轨道）。每一项都是一个按钮，id 为 "<identifierPrefix>-<index>"。
+/// 设计稿的分段控件。`.capsule` 是剪贴板和 AI 设计皮肤的切换器（选中的滑块上是强调色文字）；`.rounded` 是统计页、皮肤页和社区页的切换器（主文字色，着色轨道）。每一项都是一个按钮，id 为 "<identifierPrefix>-<index>"；给了 `itemIdentifier` 时按项的值取 id，列出的项随版本增减时 id 不跟着挪位。
 ///
 /// iOS 26 起两种样式都画成系统分段控件的液态玻璃外形：胶囊轨道是 `glassEffect`，选中的滑块是一枚浮起的胶囊，切换时滑过去，与标签栏、导航栏同一种材质。更早的系统沿用设计稿的平面轨道。
 struct DesignSegmentedControl<Value: Hashable>: View {
@@ -870,13 +873,20 @@ struct DesignSegmentedControl<Value: Hashable>: View {
   @Binding var selection: Value
   var style: Style = .capsule
   let identifierPrefix: String
+  let itemIdentifier: ((Value) -> String)?
   @Namespace private var thumbSpace
 
-  init(items: [(title: String, value: Value)], selection: Binding<Value>, style: Style = .capsule, identifierPrefix: String) {
+  init(items: [(title: String, value: Value)], selection: Binding<Value>, style: Style = .capsule, identifierPrefix: String,
+       itemIdentifier: ((Value) -> String)? = nil) {
     self.items = items
     _selection = selection
     self.style = style
     self.identifierPrefix = identifierPrefix
+    self.itemIdentifier = itemIdentifier
+  }
+
+  private func identifier(_ index: Int) -> String {
+    itemIdentifier?(items[index].value) ?? "\(identifierPrefix)-\(index)"
   }
 
   private static var thumbFill: Color {
@@ -929,7 +939,7 @@ struct DesignSegmentedControl<Value: Hashable>: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .accessibilityIdentifier("\(identifierPrefix)-\(index)")
+    .accessibilityIdentifier(identifier(index))
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
@@ -955,7 +965,7 @@ struct DesignSegmentedControl<Value: Hashable>: View {
         .contentShape(Capsule())
     }
     .buttonStyle(.plain)
-    .accessibilityIdentifier("\(identifierPrefix)-\(index)")
+    .accessibilityIdentifier(identifier(index))
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 

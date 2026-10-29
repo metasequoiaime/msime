@@ -1,4 +1,4 @@
-//! The Dachen keyboard: which ASCII key types which bopomofo symbol, the tone keys, and the non-letter keys the scheme claims in each state. The table follows libchewing's `standard.rs`.
+//! The Dachen keyboard: which ASCII key types which bopomofo symbol, the tone keys, and the non-letter keys the scheme claims in each state. This is the standard published Dachen (大千) layout, the same one libchewing's `standard.rs` implements.
 
 /// The slot a bopomofo symbol fills in a syllable. A key of a kind already present replaces that slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
