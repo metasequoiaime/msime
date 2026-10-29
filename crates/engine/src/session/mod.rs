@@ -735,6 +735,11 @@ impl Session {
         self.snapshot_with_display_options(true, false)
     }
 
+    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
+    pub fn display_snapshot(&self) -> SessionSnapshot {
+        self.snapshot_with_display_options(true, true)
+    }
+
     pub(crate) fn snapshot_for_host(&self, show_helpcode: bool) -> SessionSnapshot {
         self.snapshot_with_display_options(show_helpcode, true)
     }

@@ -8,8 +8,8 @@ The one list of system symbolic links a storage path may pass through, and the w
 
 ## 许可证
 
-按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。crate 里只有本项目自己的代码，没有第三方数据。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](../../README.md#许可证)。
+按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。crate 里只有本项目自己的代码，没有第三方数据。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](https://github.com/metasequoiaime/msime/blob/develop/README.md#许可证)。
 
 ## 贡献
 
-向本 crate 提交的贡献按「GPL-3.0-only OR MPL-2.0」授权，规则与 `msime-engine` 相同，见 [crates/engine/README.md](../engine/README.md#贡献)。
+向本 crate 提交的贡献按「GPL-3.0-only OR MPL-2.0」授权，规则与 `msime-engine` 相同，见 [crates/engine/README.md](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md#贡献)。

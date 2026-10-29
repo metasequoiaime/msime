@@ -21,7 +21,7 @@ Status: implemented
 ## Alternatives considered
 
 - **`stopSessionState` 不再清空 `preferencesSnapshot`，皮肤、输入方式在会话建好前直接打开、直接保存**：triage 计划的原方案，用户点下去面板马上出来，体验最好。不用的原因在保存路径上：`saveKeyboardSkin` 记下 `targetSession` 并在 `preferencesWorker` 上排队写偏好，而建会话的那一轮实时偏好读取排在它前面，会话建好时 `applyPreferencesSnapshot` 先把皮肤画回旧的；保存回来时 `finishKeyboardSkinSave` 见 `session != targetSession` 直接返回，`skinSaving` 一直为真，皮肤面板再也打不开。切方案要经会话的 `applyPreferences`，更没法在会话之前做。保留旧快照还会改变另外七十多处读 `preferencesSnapshot` 的地方在空档里的语义。推迟到会话就绪再打开，点按不丢，代价是面板晚出来等于空档的长度。
-- **把 `NativeClient.create` 挪出主线程**：主线程上建会话期间所有点按都在排队，这也可能是「点了要缓一会」的一部分。没做：会话句柄是线程绑定的（`host-api` 的约定），挪线程要重新核对 JNI 的线程约束，本次先用 `engine_session_create` 量出它到底占多少。
+- **把 `NativeClient.create` 挪出主线程**：主线程上建会话期间所有点按都在排队，这也可能是「点了要缓一会」的一部分。没做：会话句柄是线程绑定的（`host-api` 的约定），挪线程要重新核对 JNI 的线程约束，本次先用 `engine_session_create` 量出它到底占多少。键盘弹出时它不再插到第一帧前面，见[建会话排到第一帧之后](2026-10-29-android-first-show-session-after-first-frame.md)（#9916）。
 - **轮换打开但没有启用其他语言键盘时，「中」键从英文出发也直接翻中英**：这时 `LanguageKeyCyclePolicy.next` 的下一步确实只是回中文。没做：`stop` 时 `visibleSchemes` 退回出厂方案列表，会话在建时宿主手里的列表不代表用户实际启用了哪些语言键盘，按它判断会把本该切到日语的一下错翻回中文；推迟到偏好读到再按是稳妥的一边。
 - **让会话跨输入框保留**：从根上消掉空档。没做：换输入框时销毁会话是词库维护拿独占锁的时机（`onFinishInput` 里的个人词库同步和快照处理），改它要另立计划。
 

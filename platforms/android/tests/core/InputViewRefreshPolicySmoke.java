@@ -99,6 +99,26 @@ public final class InputViewRefreshPolicySmoke {
         check(!InputViewRefreshPolicy.keepsSessionAcrossRestart(
                 true, 3, true, 5, true, true, false, false, false, true),
             "a session built without learning is rebuilt once learning is allowed again");
+        // #9916：键盘从收起到弹出时，主线程上的建会话排到第一帧之后，最多等 FIRST_FRAME_WAIT_MILLIS。
+        check(InputViewRefreshPolicy.armsFirstFrameWait(false, true),
+            "a keyboard coming up from hidden waits for its first frame");
+        check(!InputViewRefreshPolicy.armsFirstFrameWait(true, true),
+            "a keyboard already on screen has no first frame to wait for");
+        check(!InputViewRefreshPolicy.armsFirstFrameWait(false, false),
+            "no keyboard view means no frame will arrive");
+        long wait = InputViewRefreshPolicy.FIRST_FRAME_WAIT_MILLIS;
+        check(InputViewRefreshPolicy.waitsForFirstFrame(1_000, 1_000),
+            "a session ready before the first frame waits for it");
+        check(InputViewRefreshPolicy.waitsForFirstFrame(1_000, 1_000 + wait - 1),
+            "the wait holds until its limit");
+        check(!InputViewRefreshPolicy.waitsForFirstFrame(1_000, 1_000 + wait),
+            "a first frame that never comes does not hold the session past the limit");
+        check(!InputViewRefreshPolicy.waitsForFirstFrame(-1, 1_000),
+            "with no first frame pending the session is built right away");
+        check(InputViewRefreshPolicy.firstFrameWaitRemaining(1_000, 1_100) == wait - 100,
+            "the fallback fires at the limit counted from onStartInputView");
+        check(InputViewRefreshPolicy.firstFrameWaitRemaining(1_000, 1_000 + wait + 50) == 0,
+            "an overdue fallback fires at once");
         System.out.println("Android delayed input-view refresh guards passed");
     }
 }

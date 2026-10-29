@@ -308,21 +308,70 @@ public final class KeyboardActionRow {
             longSpace && usesCommaSecondaryPeriod(touchLayout) ? TouchKeyStyle.Row.LONG_SPACE : TouchKeyStyle.Row.STANDARD);
     }
 
-    /** 按底行样式（{@link #baseEntries}）排布字母层底行；九键数字层不受样式影响，只有右侧大回车例外：那时字母层和数字层都没有单独的底行（{@link #drawsTallReturn}）。 */
+    /** 按底行样式（{@link #baseEntries}）排布字母层底行；九键数字层不受样式影响，只有右侧大回车例外：那时字母层和数字层都没有单独的底行（{@link #drawsTallReturn}）。「符」与「123」不互换，数字层空格在右列（Android 原来的排法）。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits, boolean english, TouchKeyStyle.Row style) {
+        return designEntries(touchLayout, globe, swapLanguageNumber, digits, english, style, false,
+            TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
+    }
+
+    /** 数字层底行里与 0 并排的那个小键（空格或 0）的宽度份额，与中/英同宽；iOS `TouchBottomRowLayout.zeroWeight`、鸿蒙 `NineKeyLayout.ZERO_WEIGHT` 相同。 */
+    public static final float NUMBER_PAD_SMALL_KEY_WEIGHT = DESIGN_LANGUAGE_WEIGHT;
+
+    /**
+     * 同上，另按两项共享偏好排：
+     *
+     * <ul>
+     * <li>{@code symbolFirst}（`touch_twenty_six_symbol_first`）：26 键字母层底行里有 符 时（标准、逗号句号在空格两侧和英文底行）把 符 排到 123 左边：符 | 123 |（地球）| …，与九键外框的前两键同序；长空格和表情键样式没有 符，不变。其他键面的底行本来就以 符 打头或没有 符，也不变。</li>
+     * <li>{@code space}（`touch_number_pad_space`）：拼音九键数字层（{@code digits}）里空格放在哪。右列（{@link TouchKeyStyle.NumberPadSpace#RIGHT_COLUMN}）时 0 接替整个空格份额，空格由右列提供；在 0 右边或左边时两键都在底行，左边那个占空格份额减去 {@link #NUMBER_PAD_SMALL_KEY_WEIGHT}，右边那个是 {@link #NUMBER_PAD_SMALL_KEY_WEIGHT}，整行总份额不变。</li>
+     * </ul>
+     */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
+            boolean swapLanguageNumber, boolean digits, boolean english, TouchKeyStyle.Row style,
+            boolean symbolFirst, TouchKeyStyle.NumberPadSpace space) {
         if (drawsTallReturn(touchLayout, style)) return List.of();
         List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits,
             digits ? TouchKeyStyle.Row.STANDARD : style);
         if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
-            List<DesignEntry> numeric = new ArrayList<>(entries);
-            for (int index = 0; index < numeric.size(); index++) {
-                if (numeric.get(index).slot() == DesignSlot.SPACE)
-                    numeric.set(index, new DesignEntry(DesignSlot.ZERO, DESIGN_SPACE_WEIGHT));
+            List<DesignEntry> numeric = new ArrayList<>(entries.size() + 1);
+            TouchKeyStyle.NumberPadSpace resolved = space.resolved();
+            for (DesignEntry entry : entries) {
+                if (entry.slot() != DesignSlot.SPACE) {
+                    numeric.add(entry);
+                    continue;
+                }
+                float wide = entry.weight() - NUMBER_PAD_SMALL_KEY_WEIGHT;
+                switch (resolved) {
+                    case AFTER_ZERO -> {
+                        numeric.add(new DesignEntry(DesignSlot.ZERO, wide));
+                        numeric.add(new DesignEntry(DesignSlot.SPACE, NUMBER_PAD_SMALL_KEY_WEIGHT));
+                    }
+                    case BEFORE_ZERO -> {
+                        numeric.add(new DesignEntry(DesignSlot.SPACE, wide));
+                        numeric.add(new DesignEntry(DesignSlot.ZERO, NUMBER_PAD_SMALL_KEY_WEIGHT));
+                    }
+                    default -> numeric.add(new DesignEntry(DesignSlot.ZERO, entry.weight()));
+                }
             }
             entries = List.copyOf(numeric);
+        } else if (symbolFirst && !digits) {
+            entries = symbolFirst(entries);
         }
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
+    }
+
+    /** 把排在 123 后面的 符 挪到 123 左边，其余键次序和宽度不变；没有 符 或 符 已经在前面时原样返回。 */
+    private static List<DesignEntry> symbolFirst(List<DesignEntry> entries) {
+        int layer = -1, symbol = -1;
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).slot() == DesignSlot.LAYER) layer = index;
+            if (entries.get(index).slot() == DesignSlot.SYMBOL_PANEL) symbol = index;
+        }
+        if (layer < 0 || symbol < layer) return entries;
+        List<DesignEntry> moved = new ArrayList<>(entries);
+        DesignEntry panel = moved.remove(symbol);
+        moved.add(layer, panel);
+        return List.copyOf(moved);
     }
 
     /**
@@ -341,8 +390,20 @@ public final class KeyboardActionRow {
      */
     public static List<DesignEntry> numberPadEntries(int sourceLayout, boolean globe, boolean swapLanguageNumber,
             TouchKeyStyle.Row style) {
-        List<DesignEntry> entries = designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false, true, false, style);
-        if (!entries.isEmpty() && numberPadLayerFirst(sourceLayout)) {
+        return numberPadEntries(sourceLayout, globe, swapLanguageNumber, style, false,
+            TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
+    }
+
+    /**
+     * 同上，另按两项共享偏好排：{@code symbolFirst} 打开时 26 键字母层底行以 符 打头（{@link #designEntries(int, boolean, boolean, boolean, boolean, TouchKeyStyle.Row, boolean, TouchKeyStyle.NumberPadSpace)}），从它借来的数字九宫格因此按九键的次序排（符 | 返回 | …），返回键仍在字母层 123 那一格；{@code space} 决定 0 和空格的排法。
+     *
+     * @param style 来源键面的底行样式，用来判断右侧大回车和来源底行有没有 符
+     */
+    public static List<DesignEntry> numberPadEntries(int sourceLayout, boolean globe, boolean swapLanguageNumber,
+            TouchKeyStyle.Row style, boolean symbolFirst, TouchKeyStyle.NumberPadSpace space) {
+        List<DesignEntry> entries = designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false, true, false,
+            style, false, space);
+        if (!entries.isEmpty() && numberPadLayerFirst(sourceLayout, style, symbolFirst)) {
             List<DesignEntry> reordered = new ArrayList<>(entries);
             int symbol = -1;
             for (int index = 0; index < reordered.size(); index++)
@@ -362,8 +423,21 @@ public final class KeyboardActionRow {
 
     /** 这个键面的字母层底行是否以 123 打头；是的话借用数字九宫格时返回键也排在第一格（{@link #numberPadEntries}）。 */
     public static boolean numberPadLayerFirst(int sourceLayout) {
-        List<DesignEntry> letters = designEntries(sourceLayout, false);
+        return numberPadLayerFirst(sourceLayout, TouchKeyStyle.Row.STANDARD, false);
+    }
+
+    /** 同上，按来源键面此刻的底行样式和「符」与「123」互换判断：互换后 26 键底行以 符 打头，长空格和表情键样式没有 符、仍以 123 打头。 */
+    public static boolean numberPadLayerFirst(int sourceLayout, TouchKeyStyle.Row style, boolean symbolFirst) {
+        // 右侧大回车没有单独的底行，按九键外框（符 打头）算。
+        if (drawsTallReturn(sourceLayout, style)) return false;
+        List<DesignEntry> letters = designEntries(sourceLayout, false, false, false, false, style, symbolFirst,
+            TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
         return !letters.isEmpty() && letters.get(0).slot() == DesignSlot.LAYER;
+    }
+
+    /** 打开「符」与「123」互换时，这个键面的字母层底行是否真的换了（原来以 123 打头、换后以 符 打头）。是的话 123 / #+= 层的底行也把返回键排到第二格（{@link KeyboardLayout#numberLayer(boolean, boolean, boolean, boolean, boolean, boolean)}），返回键仍在字母层 123 那一格；长空格、表情键样式和本来就以 符 打头或没有 符 的键面不换。 */
+    public static boolean symbolFirstMoves(int touchLayout, TouchKeyStyle.Row style) {
+        return numberPadLayerFirst(touchLayout, style, false) && !numberPadLayerFirst(touchLayout, style, true);
     }
 
     /** 对调层键和中/英，两键的宽度跟着键走；缺任何一个时原样返回。 */

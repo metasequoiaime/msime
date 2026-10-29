@@ -7,7 +7,8 @@ The two crates are licensed under MPL-2.0 without Exhibit B while the rest of th
 - the license field of crates/path-trust/Cargo.toml is MPL-2.0, and that of crates/engine/Cargo.toml is the SPDX expression of the code and the data compiled into the engine: MPL-2.0 for the code plus the licences of the data files and adapted code listed in EMBEDDED and ADAPTED below, no more and no fewer, and no GPL or LGPL;
 - every data file the engine compiles in with include_str! or include_bytes! from inside its own directory is either in EMBEDDED or is test data, every EMBEDDED and ADAPTED file is named in the crate README's table, and nothing compiled in reaches outside the crate (cargo package cannot carry such a file);
 - the licence texts those files need ship in every channel that lists notices by hand, and the inbound "GPL-3.0-only OR MPL-2.0" rule is stated where contributors read it;
-- the distribution metadata lists the engine's licences.
+- the distribution metadata lists the engine's licences;
+- the package published to crates.io carries what those licences ask for: the engine's licenses/ holds the licence texts the README table names, each a byte-for-byte copy of the file of the same name in resources/licenses/, and the include whitelist of crates/engine/Cargo.toml takes in every compiled-in data file, licenses/, LICENSE and README.md while leaving out tests/, examples/ and the test data; both crates carry a version of their own, the engine's path dependency on msime-path-trust names that version, and the READMEs link outside their crate only by absolute URL, since crates.io renders them away from the repository.
 """
 import re
 import sys
@@ -64,6 +65,20 @@ CHANNELS = {
     "docs/third-party.md": (LLVM_LICENCE, "crates/engine/README.md"),
 }
 COLLECTOR = "platforms/linux/collect-notices.py"
+# 随 crates.io 上的引擎包发布的许可证全文：README 表里「全文」一列指向的文件，逐字节复制自 resources/licenses/。
+PACKAGED_LICENCES = {
+    "libhangul-hanja-BSD-3-Clause.txt",
+    "Administrative-divisions-of-China-WTFPL.txt",
+    "kfcd-chaizi-CC-BY-3.0.txt",
+    "Unicode-License-V3.txt",
+    "OpenCC-Apache-2.0.txt",
+    "latex-symbols-MIT.txt",
+    "Zinnia-LICENSE.txt",
+    "librime-octagram-BSD-3-Clause.txt",
+    LLVM_LICENCE,
+}
+# 一定不能进包的路径（相对 crates/engine）：录自 GPL 词库的金样、手写参考输出、自动纠错表的转储，以及读仓库里词库的示例。
+UNPACKAGED = ("tests/golden.rs", "tests/golden/real/example.json", "src/handwriting/testdata/strokes.tsv", "src/pinyin/autocorrect_table_fixture.txt", "examples/query_dictionary.rs")
 INBOUND_DOCS = ("crates/engine/README.md", "crates/path-trust/README.md", ".github/CONTRIBUTING.md", ".github/pull_request_template.md", "README.md")
 failures = []
 
@@ -118,6 +133,27 @@ def crate_license(name: str) -> str:
     return match.group(1) if match else ""
 
 
+def include_patterns(manifest: str) -> list[str]:
+    match = re.search(r"^include = \[([^\]]*)\]$", manifest, re.MULTILINE)
+    return re.findall(r'"([^"]+)"', match.group(1)) if match else []
+
+
+def included(path: str, patterns: list[str]) -> bool:
+    """Whether cargo's include globs take in path: `**/` spans any number of directories, a trailing `**` everything below, `*` stays within one directory."""
+    for pattern in patterns:
+        regex = "".join({"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*"}.get(part, re.escape(part)) for part in re.split(r"(\*\*/|\*\*|\*)", pattern))
+        if re.fullmatch(regex, path):
+            return True
+    return False
+
+
+def own_version(name: str) -> str:
+    manifest = (ROOT / "crates" / name / "Cargo.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"$', manifest, re.MULTILINE)
+    check(match is not None and re.search(r"^version\.workspace", manifest, re.MULTILINE) is None, f"crates/{name}/Cargo.toml inherits the workspace version instead of carrying its own")
+    return match.group(1) if match else ""
+
+
 def main() -> int:
     mpl = MPL_TEXT.read_text(encoding="utf-8")
     for name in ("engine", "path-trust"):
@@ -137,8 +173,11 @@ def main() -> int:
 
     source = ENGINE / "src"
     compiled = set()
+    # 只看编进产品的代码：测试里读的文件（例如 diagnostics.rs 的测试读它自己的源码核对常量）不随二进制分发，不需要许可证条目。去掉测试代码的规则与下面检查 crate 外读取的那段相同。
     for path in sorted(source.rglob("*.rs")):
-        for literal in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]+)"', path.read_text(encoding="utf-8")):
+        if path.name.endswith("tests.rs") or "tests" in path.relative_to(source).parts[:-1]:
+            continue
+        for literal in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]+)"', production_code(path.read_text(encoding="utf-8"))):
             target = (path.parent / literal).resolve()
             relative = target.relative_to(source.resolve()).as_posix() if target.is_relative_to(source.resolve()) else None
             # 引进来的 .rs 是本 crate 自己的源码（例如 diagnostics.rs 的测试读自身核对诊断码），归 crate 的 MPL-2.0 管，不是要登记的数据文件。
@@ -197,6 +236,31 @@ def main() -> int:
     # 后三项不是引擎的，是同一个派生编进或链接的 Wayland 协议代码与 Rust 依赖，rpm/msime.spec 的 License 也列着。
     for attribute in ("mpl20", "cc-by-30", "unicode-30", "bsd2", "bsd3", "wtfpl", "llvm-exception", "hpnd", "isc", "zlib"):
         check(f"lib.licenses.{attribute}\n" in nix, f"platforms/linux/nix/fcitx5.nix meta.license lacks lib.licenses.{attribute}")
+
+    licences = ENGINE / "licenses"
+    shipped = {path.name for path in licences.iterdir()} if licences.is_dir() else set()
+    check(shipped == PACKAGED_LICENCES, f"crates/engine/licenses holds {sorted(shipped)}, the README table needs {sorted(PACKAGED_LICENCES)}")
+    for name in sorted(shipped & PACKAGED_LICENCES):
+        check((licences / name).read_bytes() == (ROOT / "resources/licenses" / name).read_bytes(), f"crates/engine/licenses/{name} differs from resources/licenses/{name}; copy the file again")
+    named = set(re.findall(r"\]\(licenses/([^)]+)\)", readme))
+    check(named == PACKAGED_LICENCES, f"the crates/engine/README.md table links {sorted(named)}, crates/engine/licenses holds {sorted(PACKAGED_LICENCES)}")
+    engine_manifest = (ENGINE / "Cargo.toml").read_text(encoding="utf-8")
+    patterns = include_patterns(engine_manifest)
+    check(bool(patterns), "crates/engine/Cargo.toml has no include whitelist, so the test fixtures and examples would be published")
+    for required in ["Cargo.toml", "LICENSE", "README.md", "src/lib.rs", *(f"src/{relative}" for relative in EMBEDDED), *(f"licenses/{name}" for name in PACKAGED_LICENCES)]:
+        check(included(required, patterns), f"the include whitelist of crates/engine/Cargo.toml leaves out {required}")
+    for excluded in UNPACKAGED:
+        check(not included(excluded, patterns), f"the include whitelist of crates/engine/Cargo.toml takes in {excluded}")
+    for name in ("engine", "path-trust"):
+        manifest = (ROOT / "crates" / name / "Cargo.toml").read_text(encoding="utf-8")
+        for field in ("readme", "keywords", "categories", "homepage", "documentation", "include"):
+            check(re.search(rf"^{field} = ", manifest, re.MULTILINE) is not None, f"crates/{name}/Cargo.toml lacks the {field} crates.io shows")
+        outside = re.findall(r"\]\((\.\./[^)]*)\)", (ROOT / "crates" / name / "README.md").read_text(encoding="utf-8"))
+        check(not outside, f"crates/{name}/README.md links outside the crate by relative path, which breaks on crates.io: {outside}")
+    path_trust = own_version("path-trust")
+    own_version("engine")
+    dependency = re.search(r"^msime-path-trust = \{([^}]*)\}$", engine_manifest, re.MULTILINE)
+    check(dependency is not None and f'version = "{path_trust}"' in dependency.group(1), f"crates/engine/Cargo.toml must depend on msime-path-trust by version {path_trust} as well as by path, or it cannot be published")
 
     if failures:
         for failure in failures:

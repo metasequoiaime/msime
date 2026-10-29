@@ -652,14 +652,17 @@ final class ImeBottomRow {
         TouchKeyStyle.Row style = s.bottomRowStyle(layout);
         // 英文 26 键在空格左边多一个句点，中英切换时底行要重排。
         boolean english = s.dedicatedEnglish;
+        // 「符」与「123」互换是键位习惯，密码框和数字字段里也照样互换（样式在那里退回标准底行，标准底行同样有 符）。
+        boolean symbolFirst = s.twentySixSymbolFirst;
+        TouchKeyStyle.NumberPadSpace numberPadSpace = s.numberPadSpace;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
-            + ":" + english + ":" + style
+            + ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved()
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         // 数字九宫格的底行跟着进入它的键面排：返回键留在原来 123 那一格（签名里已有 layout，换入口会重排）。
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style)
-            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style);
+            : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace)
+            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

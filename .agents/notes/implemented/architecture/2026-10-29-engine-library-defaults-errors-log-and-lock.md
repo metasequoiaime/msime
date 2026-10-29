@@ -39,7 +39,7 @@ golden 基准按参照实现录制，`tests/golden_support/replay.rs` 的 `refer
 
 `msime-client-services` 的 `DictionaryAccess` 改为包一层引擎的租约，`try_session`、`try_maintenance`、`directory` 的签名和语义不变，host-api 一行不改。`directory` 在 Unix 上用引擎交出的、取锁时打开的根目录句柄（`msime_client_base::file_lock::PrivateDirectory::from_opened`），仍绑定在取锁时的那个目录上；非 Unix 的目录句柄本来就是确认过的路径。`msime-client-base` 的 `file_lock.rs`、`storage.rs` 其余调用方很多，原样保留，引擎里是同样规则的一份。`msime-client-services` 因此依赖 `msime-engine`：host-api、桌面设置应用、mcp-server 本来就链接引擎，只有 pack-tool 多编一份。
 
-核心 `Session` 不取共享租约。golden 的 `dict_edit` 和不少引擎测试在会话开着时改个人词库，核心会话一取共享租约它们就全部报忙；采用方的会话与维护是否互斥，要等 C ABI 定下「会话打开时不调用 `user_dict_edit`/`reset_learning`」还是「会话持共享租约」再说。
+核心 `Session` 不取共享租约。golden 的 `dict_edit` 和不少引擎测试在会话开着时改个人词库，核心会话一取共享租约它们就全部报忙；采用方的会话与维护由 C ABI 的包装层互斥：C ABI 的会话持共享租约，见 [引擎的 C ABI](2026-10-29-engine-capi.md)。
 
 ## Alternatives considered
 
@@ -55,7 +55,7 @@ golden 基准按参照实现录制，`tests/golden_support/replay.rs` 的 `refer
 
 - **收益**：引擎库的默认值有一处文档、不读没有授权的辅助码表；产品取值逐字段写在门面里，以后改库默认值不会改到产品。宿主和 C ABI 能按数字处理错误和诊断。嵌入方能接住引擎的日志。引擎层的维护接口与 msime 各版本的宿主进程按同一把文件锁互斥。
 - **代价**：辅助码默认关是对直接用 `SessionOptions::new` 的调用方的行为变化（仓库里只有 engine-wasm，它原来就关；golden 与测试夹具已补回参照值）。`EngineError` 多一个变体，按变体穷举匹配的外部代码要补一支（仓库里没有）。引擎多一份与 client-base 同规则的目录与锁代码，两边改规则要一起改。pack-tool 的编译图多了引擎。
-- **没做的**：核心会话不取共享租约；字节与标量单位的统一、CommitRaw 学习策略与辅助码注释规则下放到核心层仍在 P3 的剩余项里。
+- **没做的**：核心会话不取共享租约（C ABI 的会话在包装层取）；字节与标量单位的统一、CommitRaw 学习策略与辅助码注释规则下放到核心层仍在 P3 的剩余项里。
 
 ## Verification
 

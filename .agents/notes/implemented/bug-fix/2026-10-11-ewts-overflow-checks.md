@@ -21,7 +21,7 @@ release 段同时打开 `debug-assertions`，是因为 cargo 只在包的 `overf
 
 `crates/engine/src/tibetan/scheme.rs` 新增 `a_second_consonant_that_may_be_a_subscript_converts_in_every_build`，固定 `bw`、`yw`、`bwa` 的转换结果；`fuzz/seeds/host_session/tibetan-subscript-wa` 是同一个最短复现输入（藏文方案、`b`、`w`）。
 
-上游发版后，升级 `crates/engine/Cargo.toml` 里的 `ewts`，并删掉根 `Cargo.toml` 和 `fuzz/Cargo.toml` 里这几段。
+上游发版后，升级 `crates/engine/Cargo.toml` 里的 `ewts`，并删掉根 `Cargo.toml` 和 `fuzz/Cargo.toml` 里这几段。2026-10-29 已照做：emgyrz/ewts-rs#1 于 2026-10-12 合并并发布为 0.1.4（`converter.rs` 改用 `checked_sub(2)`，越界时走同一个 `unwrap_or` 分支），引擎依赖改为 `ewts = "0.1.4"`，两处 `[profile]` 覆盖删掉。这一步也是引擎发布到 crates.io 的前提：工作区的 `[profile]` 不随包发布，下游的 debug 构建只能靠这个版本下限避开 panic。
 
 ## Alternatives considered
 

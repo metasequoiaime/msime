@@ -509,14 +509,16 @@ struct TypingKeyHeatmap: Equatable {
   /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。用户选了别的「按键布局」时画 `letterRows(for:)`。
   static let keyboardRows: [[Cell]] = letterRows(for: TouchKeyLayoutStyle())
 
-  /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`，打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
+  /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`（打开「符」与「123」互换时 符 排在 123 左边），打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
   static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
     let number: [[Cell]] = style.numberRow ? ["1234567890".map { Cell("Digit\($0)", String($0)) }] : []
     let rows: [[Cell]] = [
       letters("QWERTYUIOP"),
       letters("ASDFGHJKL"),
       [Cell(TypingKeyID.pinyinSeparator, "分词", width: 1.2)] + letters("ZXCVBNM") + [Cell(TypingKeyID.backspace, "删除", width: 1.2)],
-      bottomRow(TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)),
+      bottomRow(style.symbolFirst
+        ? TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false))
+        : TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)),
     ]
     return number + rows
   }

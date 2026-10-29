@@ -464,6 +464,63 @@ function Assert-CommandLineCandidates($window) {
     }
     Write-Host '命令行查询候选 default, save and retained diagnostic log switches passed'
 }
+function Assert-PinyinAutocorrect($window, [string]$scheme) {
+    # 「高级选项」的全拼纠错 / 双拼纠错组（#10210）照共享页：只在全拼、双拼方案下出现，标题和说明按方案写，两个开关都写 quanpin 下的字段、默认开。全拼、双拼方案下都经实际开关各关一次再打开，每次只改自己的字段，quanpin 下其他字段保持原值；关着时整页重画一次，开关要读回关；其他方案下这一组不画。
+    $titles = @{
+        quanpin = @('全拼纠错', '全拼邻键纠错', '全拼乱序纠错')
+        shuangpin = @('双拼纠错', '双拼邻键纠错', '双拼乱序纠错')
+    }
+    $descriptions = @{
+        quanpin = '把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。'
+        shuangpin = '把两键编码前后颠倒的音节纠回来，同样只用于三个音节以上的整句。关闭后不再按乱序猜测编码。'
+    }
+    Select-PageTab $window 'input-tab-advanced' '启用模糊音'
+    $content = Find-ById $window 'settings-content'
+    foreach ($family in @('quanpin', 'shuangpin')) {
+        foreach ($name in $titles[$family]) {
+            $shown = [bool](Find-ByName $content $name)
+            if ($shown -ne ($family -eq $scheme)) { throw "Autocorrect row $name shown=$shown under scheme $scheme" }
+        }
+    }
+    if ($titles.ContainsKey($scheme) -and -not (Find-ByName $content $descriptions[$scheme])) { throw "Autocorrect transposition description does not follow the shared page under $scheme" }
+    if ($titles.ContainsKey($scheme)) {
+        $path = Join-Path $state 'preferences.json'
+        $toggleable = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
+        foreach ($row in @(@($titles[$scheme][1], 'autocorrect_neighbor'), @($titles[$scheme][2], 'autocorrect_transposition'))) {
+            $name = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $row[0])
+            $condition = New-Object System.Windows.Automation.AndCondition($name, $toggleable)
+            $toggle = (Find-ById $window 'settings-content').FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+            if (-not $toggle -or -not $toggle.Current.IsEnabled) { throw "Advanced tab is missing the $($row[0]) switch" }
+            $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+            if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "$($row[0]) must default to on" }
+            $before = ((Read-SettingsSnapshotText $path) | ConvertFrom-Json).preferences.quanpin
+            if ($before.($row[1]) -ne $true) { throw "Synthetic preferences do not start with quanpin.$($row[1]) on" }
+            foreach ($expected in @($false, $true)) {
+                $pattern.Toggle()
+                $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                do {
+                    Start-Sleep -Milliseconds 200
+                    $quanpin = ((Read-SettingsSnapshotText $path) | ConvertFrom-Json).preferences.quanpin
+                } while ($quanpin.($row[1]) -ne $expected -and [DateTime]::UtcNow -lt $deadline)
+                if ($quanpin.($row[1]) -ne $expected) { throw "$($row[0]) was not saved as quanpin.$($row[1]) = $expected" }
+                foreach ($field in $before.PSObject.Properties) {
+                    if ($field.Name -ne $row[1] -and $quanpin.($field.Name) -ne $field.Value) { throw "Saving $($row[0]) changed quanpin.$($field.Name)" }
+                }
+                if (-not $expected) {
+                    # 存着的值与回退值（开）不同时整页重画，开关必须读回关，证明它读的是 quanpin 下这个字段而不是只显示回退值。
+                    Select-PageTab $window 'input-tab-scheme' '中文方案'
+                    Select-PageTab $window 'input-tab-advanced' '启用模糊音'
+                    $toggle = (Find-ById $window 'settings-content').FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+                    if (-not $toggle) { throw "Advanced tab lost the $($row[0]) switch after a redraw" }
+                    $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+                    if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw "$($row[0]) does not read back quanpin.$($row[1]) = false after a redraw" }
+                }
+            }
+        }
+        Write-Host "$scheme autocorrect switches default on, read back and save their own quanpin fields and keep the rest"
+    }
+    Select-PageTab $window 'input-tab-scheme' '中文方案'
+}
 function Find-CandidatePageSizeSlider($window) {
     $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '每页候选项数量')
     $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
@@ -1422,7 +1479,7 @@ try {
                     Select-PageTab $window 'clip-tab-clipboard' '历史记录上限'
                 }
                 if ($page -eq 'typing') {
-                    # 其余五个标签逐个截图；「二三候选」「自动纠错」照 macOS 不在设置里，偏好本身不动。
+                    # 其余五个标签逐个截图；「二三候选」照 macOS 不在设置里，偏好本身不动。拼音纠错不叫「自动纠错」，是「高级选项」里按方案出现的全拼纠错 / 双拼纠错组，见 Assert-PinyinAutocorrect。
                     foreach ($pair in @(@('mode', '默认中英文'), @('selection', '以词定字'), @('candidates', '云候选来源'), @('output', '中文输出'), @('advanced', '启用模糊音'))) {
                         Select-PageTab $window "input-tab-$($pair[0])" $pair[1]
                         $content = Find-ById $window 'settings-content'
@@ -1660,6 +1717,7 @@ try {
                 if (-not $badge -or $badge.Current.IsOffscreen) { throw "Toolbar preview does not reflect scheme: $scheme" }
                 Open-Page $window 'typing'
             }
+            Assert-PinyinAutocorrect $window $scheme
         }
         Assert-CanvasPreview $window $theme
         # 侧栏搜索照 macOS：有查询时页面列表整个换成结果列表，名字匹配的页面排在最前，设置行的第二行（读屏帮助文本）是「页 › 标签 › 分组」；查不到时写「没有匹配的设置」；Esc 清空查询，页面列表回来。

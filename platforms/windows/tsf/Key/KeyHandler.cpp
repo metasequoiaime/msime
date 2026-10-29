@@ -2227,7 +2227,10 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     std::wstring pendingPunctuationCommitText = prefetchedText;
     const bool hasPendingPunctuationCommitText = !pendingPunctuationCommitText.empty();
     std::wstring punctuationStr;
-    if (!hasPendingPunctuationCommitText)
+    // 独立智能标点需要编辑器前文和后续手势状态，交给下方原有流程；组字中的标点仍由宿主会话处理。
+    const bool standaloneSmartPunctuation = !_IsComposing() && _candidateMode == CANDIDATE_NONE &&
+                                            CCompositionProcessorEngine::IsSmartAsciiPunctuationKey(wch);
+    if (!hasPendingPunctuationCommitText && !standaloneSmartPunctuation)
     {
         if (auto *host = pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
         {

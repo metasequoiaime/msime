@@ -711,6 +711,10 @@ struct KeyboardView {
   @State fourteenKeyStyle: string = KeyboardSession.shared.preferences().fourteenKeyStyle;
   /** 共享偏好 `touch_nine_key_style`：九键字母层的底行样式（`NineKeyLayout.actionRow`）。 */
   @State nineKeyStyle: string = KeyboardSession.shared.preferences().nineKeyStyle;
+  /** 共享偏好 `touch_twenty_six_symbol_first`：26 键底行 符 排在 123 左边（`TouchLayoutStylePolicy.symbolFirst`）。 */
+  @State twentySixSymbolFirst: boolean = KeyboardSession.shared.preferences().twentySixSymbolFirst;
+  /** 共享偏好 `touch_number_pad_space`：九宫格数字键盘里空格的位置（`NineKeyLayout.actionRow` 的 `space`），鸿蒙缺省是 `before_zero`。 */
+  @State numberPadSpace: string = KeyboardSession.shared.preferences().numberPadSpace;
   /** 「右侧大回车」外框（`tallReturnNineKeyFrame`）量到的宽度，网格下方那一段底行按它定 123、中/英 和数字层空格的绝对宽度（`NineKeyLayout.tallReturnRow`）；量到之前和外框消失后为 0，按份额排。 */
   @State tallReturnFaceWidth: number = 0;
   /** 共享偏好 `touch_number_row`：26/14/18 键字母上方画 1 到 0，键盘高一行（`numberRowExtraRows`）。 */
@@ -3102,6 +3106,8 @@ struct KeyboardView {
     this.fourteenKeyStyle = this.settings.fourteenKeyStyle;
     this.nineKeyStyle = this.settings.nineKeyStyle;
     this.numberRow = this.settings.numberRow;
+    this.twentySixSymbolFirst = this.settings.twentySixSymbolFirst;
+    this.numberPadSpace = this.settings.numberPadSpace;
     // 取会话持有的副本而不是再读一次磁盘：会话在构建和每次获得焦点时读取，读不到时保留上次的值，视图跟着它就不会因一次读取失败把隐私模式等显示成关闭。
     this.feedback = KeyboardSession.shared.feedbackSettings();
     this.traditional = KeyboardSession.shared.usesTraditional();
@@ -3341,6 +3347,7 @@ struct KeyboardView {
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
+      + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:`
       + `${this.standardRowsField}:${this.skin.key()}`;
   }
 
@@ -5099,7 +5106,12 @@ struct KeyboardView {
         .layoutWeight(1)
         .width('100%')
         Column() {
-          this.fixedKey(this.nineKeyMarkOptions(NineKeyLayout.closingMark()));
+          // 数字层选了「空格在右列」（`touch_number_pad_space`）时这一格是带语音和拖动光标手势的空格，0 占底行（`NineKeyLayout.actionRow`）；其余时候是 ！。
+          if (this.symbols && this.numberPadSpace === TouchLayoutStylePolicy.RIGHT_COLUMN) {
+            this.spaceKey(true, 0, '100%')
+          } else {
+            this.fixedKey(this.nineKeyMarkOptions(NineKeyLayout.closingMark()));
+          }
         }
         .layoutWeight(1)
         .width('100%')
@@ -5191,9 +5203,27 @@ struct KeyboardView {
 
   /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号，中文九键的字母层按 `touch_nine_key_style` 排（`NineKeyLayout.actionRow`），「右侧大回车」时是网格下方那一段。拼音九键、九键双拼和笔画的数字层带着 符，符 和切换键与字母层同一格（#10061）；借来的数字九宫格不带。 */
   private nineKeyActions(): NineKeyAction[] {
+    // 「符」与「123」互换后 26 键字母层以 符 打头，从它借来的数字九宫格也按九键一族的次序排（符 | 返回），返回键仍在字母层 123 那一格（#10056）。
     const nineKeyDigits: boolean = this.symbols
-      && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.strokeFace());
-    return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits);
+      && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.strokeFace()
+        || this.letterRowSymbolLeads());
+    return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,
+      this.numberPadSpace);
+  }
+
+  /** 这块键面字母层的设计底行是否以 符 打头：只有打开「符」与「123」互换、字母层是 26 键一族、底行样式里有 符（标准、逗号句号在空格两侧）时才是。不看此刻在不在数字层，借来的数字九宫格按它排前两键。手写、14/18 键、大千注音的字母层底行没有 符。 */
+  private letterRowSymbolLeads(): boolean {
+    if (!this.twentySixSymbolFirst
+      || KeyboardScheme.usesHandwritingFace(this.scheme, this.english, false, this.localMode)) {
+      return false;
+    }
+    const commaSecondary: boolean = KeyboardScheme.designRowUsesCommaSecondaryPeriod(
+      SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english, this.localMode),
+      this.drawsFourteenKey(), false);
+    const styled: StyledFace = this.chineseTwentySixFace() && commaSecondary ? StyledFace.TWENTY_SIX : StyledFace.NONE;
+    const row: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(commaSecondary,
+      KeyboardScheme.designRowHasEnglishPeriod(this.english, commaSecondary), styled, this.designRowStyle(styled));
+    return TouchLayoutStylePolicy.symbolLeads(TouchLayoutStylePolicy.symbolFirst(row, true));
   }
 
   /**
@@ -6062,11 +6092,11 @@ struct KeyboardView {
       : TouchLayoutStylePolicy.STANDARD;
   }
 
-  /** 设计底行的键序与份额（`TouchLayoutStylePolicy.designRow`）。 */
+  /** 设计底行的键序与份额（`TouchLayoutStylePolicy.designRow`）；打开「符」与「123」互换时 26 键一族的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`）。 */
   private designRowEntries(): DesignRowEntry[] {
     const styled: StyledFace = this.designRowStyledFace();
-    return TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(), this.designEnglishPeriod(),
-      styled, this.designRowStyle(styled));
+    return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(),
+      this.designEnglishPeriod(), styled, this.designRowStyle(styled)), this.twentySixSymbolFirst);
   }
 
   /**
@@ -11070,73 +11100,97 @@ struct KeyboardView {
     .height(this.rowHeight(2))
 
     Row({ space: this.keySpacing() }) {
-      this.fixedKey({
-        face: NumberSymbolLayout.lettersKeyTitle(this.designLayerChinese()),
-        label: this.designLayerRows()[3][0].description,
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        special: true,
-        width: 0,
-        share: NumberSymbolLayout.BACK_WEIGHT,
-        action: () => this.toggleSymbolLayer()
-      });
-      if (this.longSpaceActive()) {
-        // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，上滑或下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
-        Column() {
-          this.fixedKey({
-            face: this.chinesePunctuationFaces() ? '，' : ',',
-            label: '逗号；上滑或下滑输入句号',
-            size: TOUCH_LETTER_FONT_SIZE,
-            emphasized: false,
-            width: '100%',
-            action: () => {
-              if (this.commaSwipe.swallows()) {
-                return;
-              }
-              this.typeComma();
-            }
-          });
-        }
-        .layoutWeight(NumberSymbolLayout.EMOJI_WEIGHT)
-        .height('100%')
-        .onTouch((event: TouchEvent): void => this.commaSwipeTouch(event))
-      } else if (this.moreSymbols) {
-        this.fixedKey({
-          face: this.designLayerRows()[3][1].text,
-          label: this.designLayerRows()[3][1].description,
-          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-          fontWeight: FUNCTION_LABEL_WEIGHT,
-          emphasized: false,
-          special: true,
-          width: 0,
-          share: NumberSymbolLayout.EMOJI_WEIGHT,
-          action: () => {
-            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
-            this.openSymbolSurface();
-          }
-        });
+      // 「符」与「123」互换后字母层是 符 | 123：这一层换成 😀/符号 | 返回，返回键留在字母层 123 那一格（`designLayerSymbolFirst`）。
+      if (this.designLayerSymbolFirst()) {
+        this.designLayerPanelKey()
+        this.designLayerBackKey()
       } else {
-        this.fixedKey({
-          face: this.designLayerRows()[3][1].text,
-          label: this.designLayerRows()[3][1].description,
-          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-          emphasized: false,
-          special: true,
-          width: 0,
-          share: NumberSymbolLayout.EMOJI_WEIGHT,
-          icon: KeyboardIconPaths.TOOLBAR_EMOJI,
-          action: () => {
-            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
-            this.openEmojiSurface();
-          }
-        });
+        this.designLayerBackKey()
+        this.designLayerPanelKey()
       }
       this.spaceKey(true, NumberSymbolLayout.SPACE_WEIGHT, 0);
       this.designReturnKey(NumberSymbolLayout.RETURN_WEIGHT, false);
     }
     .width('100%')
     .height(this.rowHeight(3))
+  }
+
+  /** 123 / #+= 层底行回到字母的「返回」。 */
+  @Builder
+  designLayerBackKey() {
+    this.fixedKey({
+      face: NumberSymbolLayout.lettersKeyTitle(this.designLayerChinese()),
+      label: this.designLayerRows()[3][0].description,
+      size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+      fontWeight: FUNCTION_LABEL_WEIGHT,
+      emphasized: false,
+      special: true,
+      width: 0,
+      share: NumberSymbolLayout.BACK_WEIGHT,
+      action: () => this.toggleSymbolLayer()
+    });
+  }
+
+  /** 123 / #+= 层底行的第二个键：长空格样式是逗号，#+= 层是「符号」，123 层是表情。 */
+  @Builder
+  designLayerPanelKey() {
+    if (this.longSpaceActive()) {
+      // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，上滑或下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
+      Column() {
+        this.fixedKey({
+          face: this.chinesePunctuationFaces() ? '，' : ',',
+          label: '逗号；上滑或下滑输入句号',
+          size: TOUCH_LETTER_FONT_SIZE,
+          emphasized: false,
+          width: '100%',
+          action: () => {
+            if (this.commaSwipe.swallows()) {
+              return;
+            }
+            this.typeComma();
+          }
+        });
+      }
+      .layoutWeight(NumberSymbolLayout.EMOJI_WEIGHT)
+      .height('100%')
+      .onTouch((event: TouchEvent): void => this.commaSwipeTouch(event))
+    } else if (this.moreSymbols) {
+      this.fixedKey({
+        face: this.designLayerRows()[3][1].text,
+        label: this.designLayerRows()[3][1].description,
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: NumberSymbolLayout.EMOJI_WEIGHT,
+        action: () => {
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
+          this.openSymbolSurface();
+        }
+      });
+    } else {
+      this.fixedKey({
+        face: this.designLayerRows()[3][1].text,
+        label: this.designLayerRows()[3][1].description,
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        emphasized: false,
+        special: true,
+        width: 0,
+        share: NumberSymbolLayout.EMOJI_WEIGHT,
+        icon: KeyboardIconPaths.TOOLBAR_EMOJI,
+        action: () => {
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
+          this.openEmojiSurface();
+        }
+      });
+    }
+  }
+
+  /** 123 / #+= 层底行是否把返回键排到第二格：打开「符」与「123」互换、并且这块键面的字母层底行以 符 打头（`letterRowSymbolLeads`），返回键留在字母层 123 那一格（#10061 的规则）。九键和笔画的字母层本来就以 符 打头，它们的 #+= 层不跟着这一项变。 */
+  private designLayerSymbolFirst(): boolean {
+    return !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) && !this.strokeFace()
+      && this.letterRowSymbolLeads();
   }
 
   /** The Zhuyin Dachen keys: four rows in the height of the three letter rows, Delete closing the last, then the shared action row. The symbol layer stays the shared one. */

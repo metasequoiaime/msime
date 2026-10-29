@@ -14,7 +14,15 @@ crates/host-api                版本化 C 接口，线程绑定会话句柄
 crates/input-runtime           会话编排、焦点、候选分页、带代次的选择
     ↓
 crates/engine                  输入算法与组合状态（纯 Rust）
+
+第三方输入法前端               嵌入引擎的其他输入法，各自进程
+    ↓  C ABI（msime_engine.h）
+crates/engine-capi             引擎的 C 接口：带版本的结构体、按下标取候选、带修订号的选择
+    ↓
+crates/engine                  同上，只经核心层 `Session`
 ```
+
+`crates/engine-capi`（`msime-engine-capi`）是给其他输入法嵌入引擎用的 C 库，与上面那条产品链路平行：它直接包核心层 `msime_engine::Session`，不经过 `host-api` 和 `input-runtime`，也不用 `host` 门面，msime 自己的宿主不走它。它的代码是 MPL-2.0，用 cargo-c 构建出共享库、静态库、生成的头文件和 pkg-config 文件，约定见 [crates/engine-capi/README.md](../crates/engine-capi/README.md)。
 
 `host-api` 的词库管理接口（个人词条、固定资源的校验与编辑）直接调用 `crates/engine`，不经过 `input-runtime`；按键与会话一律走上面这条链路。
 

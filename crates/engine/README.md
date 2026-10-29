@@ -11,28 +11,43 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
 - 纠错：全拼的拼写纠错，触屏键盘的触点纠错。
 - 学习：用户选过的词与个人词典存在本地 SQLite，按日志回放。
 
-引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](../../docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），每个方案都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据。用哪套数据由采用方自己决定。
+引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），每个方案都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据。用哪套数据由采用方自己决定。
 
-本 crate 还没有发布到 crates.io。0.x 期间 Rust API 不承诺稳定：`host`、`backend` 等模块是 msime 自己的宿主用的产品门面。给其他语言用的 C ABI 计划放在单独的 `msime-engine-capi`，设计见 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
+给其他语言用的 C ABI 计划放在单独的 `msime-engine-capi`，设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
+
+## 从 crates.io 使用
+
+- **API 不稳定**：0.x 期间 Rust API 不承诺稳定，小版本之间也可能改。文档里的公开面是核心层：`Session`、`SessionOptions` 和它们旁边的函数与类型。`host`、`backend`、`ordering`、`web` 是水杉输入法自己的宿主用的产品门面，只为同一仓库里的 crate 保持 `pub`，不进文档，也不要依赖它们。
+- **SQLite 是内置的**：`rusqlite` 开着 `bundled`，引擎自带一份编进去的 SQLite，不用系统的 libsqlite3。`libsqlite3-sys` 声明了 `links = "sqlite3"`，一个依赖图里只能有一个版本的 `libsqlite3-sys`：你的 crate 如果直接或间接依赖不兼容的另一版 `rusqlite`（引擎用 0.40，对应 `libsqlite3-sys` 0.38），cargo 会拒绝同时解析两者，要把 `rusqlite` 对齐到 0.40。
+- **dev 构建里神经整句很慢**：打开 `SentenceAssociationOptions::neural_keyboard` 后，`chinese-ime-lm` 的句子模型每个按键都在调用线程上做整数点积给整句打分，这个 crate 不开优化时足以让候选窗口卡上好几秒。仓库自己的工作区对它单独开了 `opt-level = 3`，但 `[profile]` 不随 crate 发布，下游要在自己的工作区根 `Cargo.toml` 里加上：
+
+  ```toml
+  [profile.dev.package.chinese-ime-lm]
+  opt-level = 3
+  ```
+
+  release 构建不受影响。
+- **包里的源码只能编译，不能跑测试**：测试、金样和 `examples/` 读仓库里锁定的词库与仓库外的文件，`include` 白名单没有把它们放进包。要跑测试请克隆 [仓库](https://github.com/metasequoiaime/msime)。
+- **许可证扫描**：越南文方案依赖的 `vi` 0.8.0 在元数据里没有 SPDX `license` 字段，只有 `license-file`（内容是 MIT）。`cargo-deny` 之类按 SPDX 判断的工具会把它当成未知许可证，需要在配置里按 MIT 加一条澄清。
 
 ## 许可证
 
-代码按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](../../README.md#许可证)。同一仓库里的 `msime-path-trust`（本 crate 的依赖）也是 MPL-2.0。
+代码按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](https://github.com/metasequoiaime/msime/blob/develop/README.md#许可证)。同一仓库里的 `msime-path-trust`（本 crate 的依赖）也是 MPL-2.0。
 
 引擎移植自 GPL-3.0 的 C++ msime-engine 与 msime-windows 的引擎代码。被移植或收进本 crate 与 `msime-path-trust` 的贡献，其版权人都同意以 MPL-2.0（不附 Exhibit B）再许可，同意记录由维护者留存。
 
-下面这些文件保留各自的许可证，不按 MPL-2.0。`Cargo.toml` 的 `license` 字段是引擎代码和编进引擎的数据的 SPDX 表达式，包括了它们。只给测试读的夹具不在 MPL-2.0 与这个表达式之内，仍按仓库的 GPL-3.0-only：`tests/golden/real/` 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选列表，`src/handwriting/testdata/` 是手写参考实现的输出；发布到 crates.io 的包要用 `include` 白名单把它们排除在外（crate 还没有发布）。许可证全文在仓库的 `resources/licenses/`，二进制分发时要随附；msime 自己各平台的声明渠道见 [docs/third-party.md](../../docs/third-party.md#通知文件在哪)。
+下面这些文件保留各自的许可证，不按 MPL-2.0。`Cargo.toml` 的 `license` 字段是引擎代码和编进引擎的数据的 SPDX 表达式，包括了它们。只给测试读的夹具不在 MPL-2.0 与这个表达式之内，仍按仓库的 GPL-3.0-only：`tests/golden/real/` 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选列表，`src/handwriting/testdata/` 是手写参考实现的输出；`Cargo.toml` 的 `include` 白名单把它们排除在发布到 crates.io 的包之外。许可证全文在本 crate 的 `licenses/` 目录，随包发布，与仓库 `resources/licenses/` 里的同名文件逐字节相同；分发编进了引擎的二进制时要随附它们和 `LICENSE`。msime 自己各平台的声明渠道见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md#通知文件在哪)。
 
 | 文件 | 来源 | 许可证 | 全文 |
 | --- | --- | --- | --- |
-| `src/korean/hanja.tsv` | [libhangul](https://github.com/libhangul/libhangul) 提交 `717409ce61524bb3d8426060a384822f21354c62` 的 `data/hanja/hanja.txt`，Copyright (c) 2005,2006 Choe Hwanjin | BSD-3-Clause | `resources/licenses/libhangul-hanja-BSD-3-Clause.txt` |
-| `src/local/places.tsv` | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) 提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` | WTFPL | `resources/licenses/Administrative-divisions-of-China-WTFPL.txt` |
-| `src/local/chaizi.tsv`、`src/local/chaizi-chars.tsv` | [kfcd/chaizi](https://github.com/kfcd/chaizi) 提交 `e177ab54ce4edf255315a60593ffecbd8167e96b`（© 2015 開放詞典）改编；读音、名次与繁体字形取自 Unihan 17.0.0 和 [OpenCC](https://github.com/BYVoid/OpenCC) 提交 `26753884f1984add422f3b0249ccee8613deaff6` 的简繁表 | CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 | `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`（含署名与改动说明）、`Unicode-License-V3.txt`、`OpenCC-Apache-2.0.txt` |
-| `src/local/symbol_groups.tsv` | 组员按 Unicode 字符数据库 17.0.0 的 `UnicodeData.txt`、`Blocks.txt`、`EquivalentUnifiedIdeograph.txt` 挑选，规则写在 `scripts/build_symbol_groups.py` | Unicode-3.0 | `resources/licenses/Unicode-License-V3.txt` |
-| `src/local/latex_symbols.tsv` | 本项目自写，唯一的编辑入口是 msime-dictionary 的 `sources/symbols/latex-symbols.tsv` | MIT | `resources/licenses/latex-symbols-MIT.txt`（与 `plugins/phrase_table/LICENSE` 同一份正文） |
-| `src/handwriting/model.rs`、`src/handwriting/features.rs` | 移植自 [Zinnia](https://github.com/taku910/zinnia) 提交 `581faa8f`，Copyright (c) 2005-2007 Taku Kudo | BSD-3-Clause（与本项目的 MPL-2.0 改动一起） | `resources/licenses/Zinnia-LICENSE.txt` |
-| `src/lattice/octagram.rs` | 格式与查询算法来自 [lotem/librime-octagram](https://github.com/lotem/librime-octagram) 提交 `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，Copyright (c) 2014, RIME Developers；双数组读取按 [darts-clone](https://github.com/s-yata/darts-clone) 0.32 的布局重新实现，Copyright (c) 2008-2014, Susumu Yata | BSD-3-Clause AND BSD-2-Clause（与本项目的 MPL-2.0 改动一起） | `resources/licenses/librime-octagram-BSD-3-Clause.txt`（末尾附 darts-clone 的条款） |
-| `src/lattice/cxx_sort.rs` | 逐步复现 LLVM libc++ 的 `__algorithm/partial_sort.h`、`sort.h`、`make_heap.h`、`sift_down.h`、`pop_heap.h`、`push_heap.h`、`sort_heap.h` | Apache-2.0 WITH LLVM-exception（与本项目的 MPL-2.0 改动一起） | `resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt` |
+| `src/korean/hanja.tsv` | [libhangul](https://github.com/libhangul/libhangul) 提交 `717409ce61524bb3d8426060a384822f21354c62` 的 `data/hanja/hanja.txt`，Copyright (c) 2005,2006 Choe Hwanjin | BSD-3-Clause | [`licenses/libhangul-hanja-BSD-3-Clause.txt`](licenses/libhangul-hanja-BSD-3-Clause.txt) |
+| `src/local/places.tsv` | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) 提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` | WTFPL | [`licenses/Administrative-divisions-of-China-WTFPL.txt`](licenses/Administrative-divisions-of-China-WTFPL.txt) |
+| `src/local/chaizi.tsv`、`src/local/chaizi-chars.tsv` | [kfcd/chaizi](https://github.com/kfcd/chaizi) 提交 `e177ab54ce4edf255315a60593ffecbd8167e96b`（© 2015 開放詞典）改编；读音、名次与繁体字形取自 Unihan 17.0.0 和 [OpenCC](https://github.com/BYVoid/OpenCC) 提交 `26753884f1984add422f3b0249ccee8613deaff6` 的简繁表 | CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 | [`licenses/kfcd-chaizi-CC-BY-3.0.txt`](licenses/kfcd-chaizi-CC-BY-3.0.txt)（含署名与改动说明）、[`licenses/Unicode-License-V3.txt`](licenses/Unicode-License-V3.txt)、[`licenses/OpenCC-Apache-2.0.txt`](licenses/OpenCC-Apache-2.0.txt) |
+| `src/local/symbol_groups.tsv` | 组员按 Unicode 字符数据库 17.0.0 的 `UnicodeData.txt`、`Blocks.txt`、`EquivalentUnifiedIdeograph.txt` 挑选，规则写在 `scripts/build_symbol_groups.py` | Unicode-3.0 | [`licenses/Unicode-License-V3.txt`](licenses/Unicode-License-V3.txt) |
+| `src/local/latex_symbols.tsv` | 本项目自写，唯一的编辑入口是 msime-dictionary 的 `sources/symbols/latex-symbols.tsv` | MIT | [`licenses/latex-symbols-MIT.txt`](licenses/latex-symbols-MIT.txt)（与 `plugins/phrase_table/LICENSE` 同一份正文） |
+| `src/handwriting/model.rs`、`src/handwriting/features.rs` | 移植自 [Zinnia](https://github.com/taku910/zinnia) 提交 `581faa8f`，Copyright (c) 2005-2007 Taku Kudo | BSD-3-Clause（与本项目的 MPL-2.0 改动一起） | [`licenses/Zinnia-LICENSE.txt`](licenses/Zinnia-LICENSE.txt) |
+| `src/lattice/octagram.rs` | 格式与查询算法来自 [lotem/librime-octagram](https://github.com/lotem/librime-octagram) 提交 `57d18b9f58e5284bd891d559f6bdd16cf60341e9`，Copyright (c) 2014, RIME Developers；双数组读取按 [darts-clone](https://github.com/s-yata/darts-clone) 0.32 的布局重新实现，Copyright (c) 2008-2014, Susumu Yata | BSD-3-Clause AND BSD-2-Clause（与本项目的 MPL-2.0 改动一起） | [`licenses/librime-octagram-BSD-3-Clause.txt`](licenses/librime-octagram-BSD-3-Clause.txt)（末尾附 darts-clone 的条款） |
+| `src/lattice/cxx_sort.rs` | 逐步复现 LLVM libc++ 的 `__algorithm/partial_sort.h`、`sort.h`、`make_heap.h`、`sift_down.h`、`pop_heap.h`、`push_heap.h`、`sort_heap.h` | Apache-2.0 WITH LLVM-exception（与本项目的 MPL-2.0 改动一起） | [`licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt`](licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt) |
 
 另外三处不另带许可证：
 
@@ -42,4 +57,4 @@ The input method engine of 水杉输入法 (Metasequoia IME): quanpin, shuangpin
 
 ## 贡献
 
-向本 crate（`crates/engine`）和 `crates/path-trust` 提交的贡献，按「GPL-3.0-only OR MPL-2.0」授权：提交 PR 即表示你同意你的改动既可按仓库的 GPL-3.0-only、也可按这两个 crate 的 MPL-2.0 使用。不能接受这一点的话请不要改这两个目录。引入第三方代码或数据时，在上表加一行并把许可证全文放进 `resources/licenses/`，再接到各平台的声明渠道。流程见 [CONTRIBUTING](../../.github/CONTRIBUTING.md)。
+向本 crate（`crates/engine`）和 `crates/path-trust` 提交的贡献，按「GPL-3.0-only OR MPL-2.0」授权：提交 PR 即表示你同意你的改动既可按仓库的 GPL-3.0-only、也可按这两个 crate 的 MPL-2.0 使用。不能接受这一点的话请不要改这两个目录。引入第三方代码或数据时，在上表加一行，把许可证全文放进仓库的 `resources/licenses/` 并复制一份到本 crate 的 `licenses/`（`scripts/test-engine-license.py` 核对两份相同），再接到各平台的声明渠道。流程见 [CONTRIBUTING](https://github.com/metasequoiaime/msime/blob/develop/.github/CONTRIBUTING.md)。
