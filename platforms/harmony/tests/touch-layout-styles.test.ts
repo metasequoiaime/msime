@@ -1014,7 +1014,7 @@ group("「符」与「123」互换（#10056）：26 键底行里有 符 时挪�
     check(close(total(P.symbolFirst(row, true)), total(row)), `${style} 整行份额不变`);
     check(P.symbolLeads(P.symbolFirst(row, true)) && !P.symbolLeads(row), `${style} 互换后以 符 打头`);
   }
-  // 借来的数字九宫格按九键一族的次序排：符 和返回键与互换后的字母层前两键同宽同位。
+  // 借来的数字九宫格按九键一族的次序排（`nineKeyDigits`）：前两键与互换后的字母层同序，都是 符 | 返回，各键宽度与九键数字层相同。
   const pad = NineKeyLayout.actionRow(true, false, P.STANDARD, true);
   const swapped = P.symbolFirst(standard, true);
   check(
@@ -1022,9 +1022,8 @@ group("「符」与「123」互换（#10056）：26 键底行里有 符 时挪�
     nine(pad),
   );
   check(
-    close(pad[0].weight / total(pad), swapped[0].share / total(swapped)) &&
-      close(pad[1].weight / total(pad), swapped[1].share / total(swapped)),
-    "前两键占整行的比例与 26 键字母层一致",
+    swapped[0].slot === DesignRowSlot.SYMBOL_PANEL && swapped[1].slot === DesignRowSlot.LAYER,
+    describe(swapped),
   );
 });
 
