@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "platforms/android/native/client_jni.cpp"
 text = SOURCE.read_text(encoding="utf-8")
 
-if "constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;" not in text:
+if "constexpr jsize kVocabularyReviewRequestLimit = 17 * 1024 * 1024;" not in text:
     raise SystemExit("Android vocabulary-review request limit is missing")
 
 marker = "Java_app_msime_android_NativeClient_vocabularyReviewRaw"

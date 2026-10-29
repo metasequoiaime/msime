@@ -3149,11 +3149,9 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
     }
 
     response(|| {
-        // Deliberately not the 65_536 the other entry points use. Those carry a setting or one
-        // clipboard row; this one carries an imported word list, and a five-thousand-word CET book
-        // is a few hundred kilobytes of text. Copying the smaller cap here would have made the
-        // import path reject every real file while looking like it was merely being careful.
-        if request.is_null() || length > session::MAX_IMPORT_BYTES {
+        // 文件本身仍由共享解析器限制为 8 MiB；请求另给常规 JSON 转义的两倍空间及目录等元数据余量。
+        const MAX_REQUEST_BYTES: usize = 17 * 1024 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
             return Err("invalid vocabulary review buffer".into());
         }
         // SAFETY: guaranteed by the documented caller contract.
