@@ -33,6 +33,7 @@ import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
 import { OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
+import { SplitKeyboardPolicy, SplitKeyboardSettings } from './SplitKeyboardPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -1004,6 +1005,14 @@ interface PreparedPreferences {
   touch_nine_key_digit_sidebar_symbols?: string[];
   /** 大屏单手模式空出来的一侧放什么（off / number_pad）；默认值不写进文档。 */
   touch_one_handed_side_panel?: string;
+  /** 大屏分离式键盘的主开关；默认关，不写进文档。 */
+  touch_keyboard_split?: boolean;
+  /** 分离式键盘开着时竖放也分离；默认关。 */
+  touch_keyboard_split_portrait?: boolean;
+  /** 分离式键盘的启用宽度（vp），480–1000、步进 20；默认 600，不写进文档。 */
+  touch_keyboard_split_threshold?: number;
+  /** 分离式键盘中间空隙的百分比，10–40、步进 5；默认 25，不写进文档。 */
+  touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
   /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
@@ -1187,6 +1196,8 @@ export interface KeyboardPreferences {
   readonly nineKeyDigitSidebarSymbols: string[];
   /** `touch_one_handed_side_panel`：大屏单手模式空出来的一侧放什么，不认识的值按空着（`OneHandedPolicy.sidePanel`）。 */
   readonly oneHandedSidePanel: OneHandedSidePanel;
+  /** `touch_keyboard_split`、`touch_keyboard_split_portrait`、`touch_keyboard_split_threshold` 和 `touch_keyboard_split_gap`：大屏分离式键盘，不合规的值按默认值（`SplitKeyboardPolicy.settings`）。 */
+  readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
   /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
@@ -1528,6 +1539,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     nineKeySidebarSymbols: [],
     nineKeyDigitSidebarSymbols: [],
     oneHandedSidePanel: OneHandedSidePanel.OFF,
+    splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
     nineKeySwipeDigits: NineKeySwipePolicy.OFF
   };
@@ -1978,6 +1990,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS
       ),
       oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel),
+      splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_keyboard_split,
+        preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
+        preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
       nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
     };

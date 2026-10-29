@@ -581,6 +581,25 @@ if ! grep -qF 'oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_o
   echo "Harmony must draw the one-handed side number pad from touch_one_handed_side_panel only when OneHandedPolicy.sidePadShown allows, type its digits literally, and report the capability by form factor" >&2
   exit 1
 fi
+# 大屏分离式键盘（#10224）：启用条件和几何由 split-keyboard.test.ts 的 `SplitKeyboardPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 SplitKeyboardPolicy.settings 读四项共享偏好，视图随设置重读、转屏时记下屏幕宽高，分离时单手让位，字母三排、数字行、补充行、123 / #+= 层和两种底行都插入空隙，重复的 G、V 不记滑行键位，设置桥按设备形态报告能力位。
+split_letter_body=$(awk '/^  splitLetterFace\(\) \{/,/^  \}$/' "$keyboard_view")
+split_action_body=$(awk '/^  designActionRow\(\) \{/,/^  \}$/' "$keyboard_view")
+if ! grep -qF 'splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_keyboard_split,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.splitKeyboard = this.settings.splitKeyboard;' "$keyboard_view" \
+  || ! grep -qF 'this.screenWidthVp = widthVp;' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn();' "$keyboard_view" \
+  || ! grep -qF '} else if (this.splitDrawn()) {' "$keyboard_view" \
+  || ! grep -qF 'this.splitGap(this.splitLetterRow(row).gapShare)' <<< "$split_letter_body" \
+  || ! grep -qF 'this.duplicateLetterKey(' <<< "$split_letter_body" \
+  || ! grep -qF 'this.splitGap(this.designRowSplitSpace().gap)' <<< "$split_action_body" \
+  || [[ $(grep -cF 'this.splitGap(' "$keyboard_view") -ne 8 ]] \
+  || ! grep -qF 'if ($$.duplicate !== true) {' "$keyboard_view" \
+  || ! grep -qF "value['touch_keyboard_split'] = projection.splitKeyboard;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony must draw the split keyboard from the touch_keyboard_split preferences only when SplitKeyboardPolicy.drawn allows, put a dead gap into every split row, give way to one-handed mode, and report the capability by form factor" >&2
+  exit 1
+fi
 # 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。
 capture_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 capture_settings="$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"

@@ -2319,6 +2319,7 @@ class SettingsBridge {
       value['touch_plugin_packs'] = projection.touchPluginPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;
+      value['touch_keyboard_split'] = projection.splitKeyboard;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;
