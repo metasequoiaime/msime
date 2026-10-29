@@ -265,6 +265,19 @@ impl SelectionCounts {
         Ok(())
     }
 
+    /// 把 `other` 的每个位置加进来：整批加上或报错，报错时 `self` 可能已加了一部分，调用方丢掉它。
+    fn merge(&mut self, other: &Self) -> Result<(), TypingStatisticsError> {
+        for (slot, count) in other.ranks.iter().enumerate() {
+            if *count > 0 {
+                self.add(slot + 1, *count)?;
+            }
+        }
+        if other.beyond > 0 {
+            self.add(RANKS + 1, other.beyond)?;
+        }
+        Ok(())
+    }
+
     /// Commits counted here, which is the denominator for any rate drawn from `ranks`.
     pub fn total(&self) -> u64 {
         self.ranks
@@ -1048,11 +1061,56 @@ fn pending_commits() -> MutexGuard<'static, BTreeMap<PathBuf, PendingCommits>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// 把本进程为所有目录攒着的上屏都写出去。尽力而为：写不进的那批丢掉，统计不能成为别的操作失败的原因。
+/// 本进程为一个统计目录攒着的选词位置，和本进程上次读写那个文件时看到的统计开关与清空代号。
+#[derive(Default)]
+struct PendingSelections {
+    /// 本进程上次读到或写下统计文件时它的 `(开关, 清空代号)`；本进程还没读过这个文件时为 `None`。
+    file: Option<(bool, u64)>,
+    /// 攒着还没写进文件的选词位置。`file` 为 `None` 时攒下的，由下一次读到的开关和代号决定去留。
+    counts: SelectionCounts,
+}
+
+impl PendingSelections {
+    /// 记下本进程刚读到或刚写下的文件状态。文件里的统计关着，或代号变了（别的进程或本进程清空过，攒着的选词是清空之前计的），攒着的选词整批丢掉，和攒着的上屏一样。
+    fn observe(&mut self, value: &TypingStatistics) {
+        if !value.enabled
+            || self
+                .file
+                .is_some_and(|(_, generation)| generation != value.generation)
+        {
+            self.counts = SelectionCounts::default();
+        }
+        self.file = Some((value.enabled, value.generation));
+    }
+}
+
+/// 按目录攒着的选词位置，整个进程一份，和 [`PENDING_COMMITS`] 一起写出（见 `write_pending_locked`）。
+///
+/// 选词位置在宿主的输入线程上交过来（host-api 的 `flush_selections`），所以单独一把锁：它只在加计数、取计数和记文件状态的一瞬间拿着，拿着它时不取别的锁、不读写文件。[`PENDING_COMMITS`] 在写文件时一直拿着，输入线程取它就可能等别的线程的 fsync。锁的顺序是先 [`PENDING_COMMITS`]、再文件锁、最后这把，不会互相等死。
+static PENDING_SELECTIONS: Mutex<BTreeMap<PathBuf, PendingSelections>> =
+    Mutex::new(BTreeMap::new());
+
+fn pending_selections() -> MutexGuard<'static, BTreeMap<PathBuf, PendingSelections>> {
+    PENDING_SELECTIONS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 本进程攒着选词位置的目录。
+fn directories_holding_selections() -> Vec<PathBuf> {
+    pending_selections()
+        .iter()
+        .filter(|(_, entry)| entry.counts.total() > 0)
+        .map(|(directory, _)| directory.clone())
+        .collect()
+}
+
+/// 把本进程为所有目录攒着的上屏和选词位置都写出去。尽力而为：写不进的那批丢掉，统计不能成为别的操作失败的原因。
 ///
 /// 给不知道具体目录、又能在当前线程上等磁盘的收尾点用（Windows 的失焦、桌面宿主的会话销毁、`msime_client_flush_all`）；在 UI 线程上的收尾点用 [`flush_pending_commits_in_background`]。知道目录的宿主调 [`TypingStatisticsStore::flush`]。
 pub fn flush_pending_commits() {
-    let directories: Vec<PathBuf> = pending_commits().keys().cloned().collect();
+    let mut directories: BTreeSet<PathBuf> = pending_commits().keys().cloned().collect();
+    directories.extend(directories_holding_selections());
     for directory in directories {
         let _ = TypingStatisticsStore::new(directory).flush();
     }
@@ -1060,14 +1118,14 @@ pub fn flush_pending_commits() {
 
 /// [`flush_pending_commits`]，但在新开的后台线程上写，调用方不等磁盘，也不等别的线程手里的 [`PENDING_COMMITS`]。
 ///
-/// 给可能在 UI 线程或主线程上的收尾点用（移动宿主的失焦和会话销毁、macOS 和 Linux 的失焦）：那里不能整份读写统计文件再 fsync，也不能等统计工作线程正在做的那次写。本进程没有攒着任何目录时什么都不做，不开线程；锁正被别的线程拿着时照样开线程，由它去等。开不了线程时退回到在当前线程上写：丢计数比卡一下更糟。
+/// 给可能在 UI 线程或主线程上的收尾点用（移动宿主的失焦和会话销毁、macOS 和 Linux 的失焦）：那里不能整份读写统计文件再 fsync，也不能等统计工作线程正在做的那次写。本进程没有攒着任何目录的上屏或选词时什么都不做，不开线程；锁正被别的线程拿着时照样开线程，由它去等。开不了线程时退回到在当前线程上写：丢计数比卡一下更糟。
 pub fn flush_pending_commits_in_background() {
-    let nothing_held = match PENDING_COMMITS.try_lock() {
+    let no_commits_held = match PENDING_COMMITS.try_lock() {
         Ok(pending) => pending.is_empty(),
         Err(std::sync::TryLockError::Poisoned(pending)) => pending.into_inner().is_empty(),
         Err(std::sync::TryLockError::WouldBlock) => false,
     };
-    if nothing_held {
+    if no_commits_held && directories_holding_selections().is_empty() {
         return;
     }
     if std::thread::Builder::new()
@@ -1112,16 +1170,34 @@ impl TypingStatisticsStore {
         self.directory.join(STATISTICS_FILE)
     }
 
-    /// 取统计文件锁，并先把本进程为这个目录攒着的上屏写进文件：读这个目录的任何操作都看得到之前的上屏，改开关、改保留期和清空都排在它们之后。
+    /// 取统计文件锁，并先把本进程为这个目录攒着的上屏和选词位置写进文件：读这个目录的任何操作都看得到它们，改开关、改保留期和清空都排在它们之后。
     ///
     /// 攒着的那批写不进时丢掉，不让这次操作跟着失败：文件本身坏了，操作自己的读照样会报出来。写过以后状态也一并丢掉，下一次 `record` 重新读文件里的开关。
     fn lock(&self) -> Result<StatisticsLock, TypingStatisticsError> {
         let mut pending = pending_commits();
         let lock = self.lock_file()?;
-        if let Some(entry) = pending.remove(&self.directory) {
-            let _ = self.write_commits_locked(&lock, &entry.commits, entry.generation);
+        let (commits, generation) = pending
+            .remove(&self.directory)
+            .map_or((Vec::new(), 0), |entry| (entry.commits, entry.generation));
+        if !commits.is_empty() || self.holds_selections() {
+            let _ = self.write_pending_locked(&lock, &commits, generation);
         }
         Ok(lock)
+    }
+
+    /// 本进程为这个目录攒着选词位置。
+    fn holds_selections(&self) -> bool {
+        pending_selections()
+            .get(&self.directory)
+            .is_some_and(|entry| entry.counts.total() > 0)
+    }
+
+    /// 记下本进程刚读到或刚写下的文件状态，见 [`PendingSelections::observe`]。
+    fn observe_file(&self, value: &TypingStatistics) {
+        pending_selections()
+            .entry(self.directory.clone())
+            .or_default()
+            .observe(value);
     }
 
     /// 只取统计文件锁，不碰攒着的上屏。调用方必须已经拿着 [`PENDING_COMMITS`]，见那里的锁顺序。
@@ -1166,6 +1242,7 @@ impl TypingStatisticsStore {
         })?;
         let value: TypingStatistics = serde_json::from_slice(&bytes)?;
         value.validate()?;
+        self.observe_file(&value);
         Ok(value)
     }
 
@@ -1181,42 +1258,53 @@ impl TypingStatisticsStore {
             std::ffi::OsStr::new(STATISTICS_FILE),
             &bytes,
         )?;
+        self.observe_file(value);
         Ok(())
     }
 
-    /// 在文件锁内重读统计，按到达的顺序把攒着的上屏逐条记进去，再写一次。
+    /// 在文件锁内重读统计，按到达的顺序把攒着的上屏逐条记进去，连同本进程攒着的选词位置，再写一次。
     ///
-    /// 重读是因为别的进程（设置页）可能在这期间清空了统计、改了保留期或关掉了统计：改了保留期就合并进它写下的文件；统计关着，或文件的清空代号已经不是 `generation`（这批上屏是清空之前打的，攒批之前它们早已在文件里、随清空一起删掉），整批丢掉不写。每条上屏带着自己的时刻、日期和小时，记法与当初逐条写入完全相同。整批成功或文件不变。返回重读（并在有上屏时合并）后的统计。
-    fn write_commits_locked(
+    /// 重读是因为别的进程（设置页）可能在这期间清空了统计、改了保留期或关掉了统计：改了保留期就合并进它写下的文件；统计关着，或文件的清空代号已经不是 `generation`（这批上屏是清空之前打的，攒批之前它们早已在文件里、随清空一起删掉），整批丢掉不写。每条上屏带着自己的时刻、日期和小时，记法与当初逐条写入完全相同。选词位置在重读之后取走，重读已按同样的规矩丢掉了不该写的那些（[`PendingSelections::observe`]）；读不出文件时它们留在内存里，等下一次写。上屏和选词都没有要写的就不写。整批成功或文件不变。返回重读（并在有要写的时合并）后的统计。
+    fn write_pending_locked(
         &self,
         lock: &StatisticsLock,
         commits: &[PendingCommit],
         generation: u64,
     ) -> Result<TypingStatistics, TypingStatisticsError> {
         let mut value = self.read_locked(lock)?;
-        if !value.enabled || commits.is_empty() || value.generation != generation {
+        let selections = pending_selections()
+            .get_mut(&self.directory)
+            .map(|entry| std::mem::take(&mut entry.counts))
+            .unwrap_or_default();
+        let commits = if value.enabled && value.generation == generation {
+            commits
+        } else {
+            &[]
+        };
+        if commits.is_empty() && selections.total() == 0 {
             return Ok(value);
         }
         for commit in commits {
             value.apply_commit(commit)?;
         }
+        value.selections.merge(&selections)?;
         self.write_locked(lock, &value)?;
         Ok(value)
     }
 
-    /// 把本进程为这个目录攒着的上屏写进统计文件。没有攒着的上屏时不碰磁盘。
+    /// 把本进程为这个目录攒着的上屏和选词位置写进统计文件。两样都没有攒着时不碰磁盘。
     ///
-    /// 宿主在键盘收起、输入框失焦和进程或服务退出前，在它平时调统计的那个工作线程上调用。之后的 `record` 重新读文件里的开关。写不进时这一批丢掉，不留着下次重试，和选词位置的批次一样。
+    /// 宿主在键盘收起、输入框失焦和进程或服务退出前，在它平时调统计的那个工作线程上调用。之后的 `record` 重新读文件里的开关。写不进时这一批丢掉，不留着下次重试。
     pub fn flush(&self) -> Result<(), TypingStatisticsError> {
         let mut pending = pending_commits();
-        let Some(entry) = pending.remove(&self.directory) else {
-            return Ok(());
-        };
-        if entry.commits.is_empty() {
+        let (commits, generation) = pending
+            .remove(&self.directory)
+            .map_or((Vec::new(), 0), |entry| (entry.commits, entry.generation));
+        if commits.is_empty() && !self.holds_selections() {
             return Ok(());
         }
         let lock = self.lock_file()?;
-        self.write_commits_locked(&lock, &entry.commits, entry.generation)
+        self.write_pending_locked(&lock, &commits, generation)
             .map(|_| ())
     }
 
@@ -1301,7 +1389,7 @@ impl TypingStatisticsStore {
 
     /// 给这次上屏分类计数，攒进本进程这个目录的批次，答 `(这次记下的字数, 累计字数)`。
     ///
-    /// 这个目录在本进程里还没有状态时（第一次上屏，或刚 flush、刚有别的操作写过文件）读一次文件，只为知道统计开关和累计字数，不写；统计关着时答 0、不攒，满一个间隔后再读一次开关。距上次读写满 [`COMMIT_FLUSH_INTERVAL_MS`] 或攒满上限时，连同这次一起在文件锁内合并写出，见 `write_commits_locked`；那时文件里的统计已被关掉，这次答 0。
+    /// 这个目录在本进程里还没有状态时（第一次上屏，或刚 flush、刚有别的操作写过文件）读一次文件，只为知道统计开关和累计字数，不写；统计关着时答 0、不攒，满一个间隔后再读一次开关。距上次读写满 [`COMMIT_FLUSH_INTERVAL_MS`] 或攒满上限时，连同这次和本进程攒着的选词位置一起在文件锁内合并写出，见 `write_pending_locked`；那时文件里的统计已被关掉，这次答 0。
     pub fn record_with_total_at(
         &self,
         text: &str,
@@ -1366,7 +1454,7 @@ impl TypingStatisticsStore {
         let commits = std::mem::take(&mut entry.commits);
         match self
             .lock_file()
-            .and_then(|lock| self.write_commits_locked(&lock, &commits, entry.generation))
+            .and_then(|lock| self.write_pending_locked(&lock, &commits, entry.generation))
         {
             Ok(value) => {
                 entry.enabled = value.enabled;
@@ -1395,9 +1483,9 @@ impl TypingStatisticsStore {
 
     /// Count several commits at once, each `(position, count)` pair adding `count` commits from that one-based position, under one lock, one read and at most one write.
     ///
-    /// This is what lets a host keep selections in memory and hand them over in batches instead of paying a full read, fsync and rename per selection. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
+    /// This writes on the calling thread: a full read, fsync and rename. A host handing selections over from its input thread uses [`Self::queue_selections`] instead. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
     ///
-    /// 返回这次读到的统计开关，宿主拿它当下一批的开关缓存，不必在输入线程上再读一遍文件；批次全是零、没有读文件时为 `None`。
+    /// 返回这次读到的统计开关；批次全是零、没有读文件时为 `None`。
     pub fn record_selections(
         &self,
         selections: &[(usize, u64)],
@@ -1415,6 +1503,39 @@ impl TypingStatisticsStore {
         }
         self.write_locked(&lock, &value)?;
         Ok(Some(true))
+    }
+
+    /// 把一批选词位置攒进本进程这个目录的批次，和攒着的上屏一起写出；不取统计文件锁，也不碰磁盘。返回本进程所知的统计开关（[`Self::known_enabled`]）。
+    ///
+    /// 给在输入线程上交出选词的宿主用（host-api 每满一批、失焦和销毁会话时）：那里不能整份读写统计文件再 fsync，也不能等别的线程手里那次写。攒着的选词由写上屏批次的地方一并写出：[`Self::flush`]、[`flush_pending_commits`] 和它的后台版本、满间隔的 `record`，以及这个目录上的任何其他操作（统计页读取、上传），所以读统计的地方总看得到它们。所知的开关关着时整批丢掉不攒；写出时文件里的统计关着，或文件已被清空过（攒下时所知的清空代号与文件的不同），也整批丢掉，和攒着的上屏一样。本进程还没读过这个文件时照攒，由第一次读到的开关和代号决定去留。整批攒下或都不攒：位置是 0 或计数用尽时报错，之前攒着的不受影响。
+    pub fn queue_selections(
+        &self,
+        selections: &[(usize, u64)],
+    ) -> Result<Option<bool>, TypingStatisticsError> {
+        let mut pending = pending_selections();
+        let entry = pending.entry(self.directory.clone()).or_default();
+        let known = entry.file.map(|(enabled, _)| enabled);
+        if known == Some(false) {
+            return Ok(known);
+        }
+        let mut counts = entry.counts.clone();
+        for &(position, count) in selections {
+            if count > 0 {
+                counts.add(position, count)?;
+            }
+        }
+        entry.counts = counts;
+        Ok(known)
+    }
+
+    /// 本进程上次读到或写下这个目录的统计文件时看到的统计开关，不碰磁盘；本进程还没读过这个文件时为 `None`。
+    ///
+    /// 给不能在当前线程上读文件、又想在统计关着时少做点事的调用方（host-api 在输入线程上决定要不要攒上屏效率）。它可能落后于别的进程刚做的改动：写入时统计文件自己的开关作数。
+    pub fn known_enabled(&self) -> Option<bool> {
+        pending_selections()
+            .get(&self.directory)
+            .and_then(|entry| entry.file)
+            .map(|(enabled, _)| enabled)
     }
 
     /// Count key presses for `day`, each entry adding `count` presses of one [`KEY_IDS`] key, under one lock, one read and at most one write. Returns how many presses were added.

@@ -7728,7 +7728,7 @@ fn selection_statistics_are_written_once_a_batch_fills() {
         commit_candidate_by_position(handle, round % 2);
     }
     assert_eq!(store.load().unwrap().selections.total(), 0);
-    // The selection that fills the batch writes it, with no focus-out, which bounds what a killed process loses.
+    // The selection that fills the batch hands it to the process's statistics batch, with no focus-out, which bounds what a killed process loses. `load` writes that batch first, as every reader of the statistics does.
     commit_candidate_by_position(handle, 0);
     assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
     // 填满这一批的那次上屏，效率也在同一批里写下。
@@ -7741,6 +7741,30 @@ fn selection_statistics_are_written_once_a_batch_fills() {
     assert_eq!(selections.ranks[0], SELECTION_BATCH / 2 + 1);
     assert_eq!(selections.ranks[1], SELECTION_BATCH / 2);
     read(msime_client_destroy(handle));
+}
+/// 交出选词在宿主的输入线程上，只把计数攒进本进程的统计批次，不读写统计文件：这一路要是读了文件，读不出的那一批就丢了。批次随后由失焦或收尾的 flush 写出，一次也不少。
+#[test]
+fn selections_handed_over_on_the_input_thread_wait_for_the_statistics_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    let path = store.directory().join("typing-statistics.json");
+    let readable = std::fs::read(&path).unwrap();
+    // 文件读不出来：之前那样在选词的线程上读写，就会把这一批丢掉；别的测试这期间做的 flush 也读不出，只能留着它。
+    std::fs::write(&path, b"not statistics").unwrap();
+    for round in 0..SELECTION_BATCH as usize {
+        commit_candidate_by_position(handle, round % 2);
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), b"not statistics");
+    std::fs::write(&path, &readable).unwrap();
+    // 和宿主失焦、销毁会话时一样把本进程的批次写出去，再直接看文件。
+    msime_client_services::typing_statistics::flush_pending_commits();
+    let written: msime_client_services::typing_statistics::TypingStatistics =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(written.selections.total(), SELECTION_BATCH);
+    assert_eq!(written.selections.ranks[0], SELECTION_BATCH / 2);
+    assert_eq!(written.selections.ranks[1], SELECTION_BATCH / 2);
+    read(msime_client_destroy(handle));
+    assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
 }
 #[test]
 fn selection_statistics_write_nothing_while_switched_off() {
