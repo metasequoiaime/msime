@@ -53,14 +53,27 @@ typing_sim 严口径 CFA，test，括号里是相对 A0 的首选字数（Tatoeb
 | A7 (∞, ∞) | +0.13 | 0.4965 (−15) | 0.5107 (−8) | 0.7905 (+24) | 0.8249 (+2) |
 | R complete2 | −0.78 | 0.4911 (−55) | 0.5118 (−6) | 0.7911 (+28) | 0.8266 (+5) |
 
-`convert_eval`（挂模型，与提交的基线同一口径）top1，A0 / A1 / A2 / A3 / A4 / A5 / A6 / A7：
+`convert_eval`（挂模型，与提交的基线同一口径；`nine-key` 和 `nine-key-prefix` 在 A0、A5 上去掉模型重跑过，金标准的名次逐条相同，所以这两份门量到的也就是手机出厂配置）top1，A0 / A1 / A2 / A3 / A4 / A5 / A6 / A7：
 
 - `nine-key`：0.5532 / 0.5557 / 0.5586 / 0.5546 / 0.5568 / 0.5586 / 0.5575 / 0.5586，只赢不输（A5 +15 条：发热、国库、惊讶、尽义务、扣杀、民心、母爱、闹意见）；
 - `nine-key-prefix`：0.1932 / 0.1885 / 0.1845 / 0.1895 / 0.1870 / 0.1827 / 0.1859 / 0.1827，只输不赢（A5 −29 条：`bidesh` 比得上 → 彼得斯，`chengsh` 城市 → 撑起，`congsh` 从事 → 从其，`duilim` 对立面 → 对劲）；
 - `fourteen-key`：0.6302 → 0.6338–0.6356；`fourteen-key-prefix`：0.3276 → 0.3240–0.3276；
-- A1–A7 在四份集合上的 top6、top9 和 found 逐条不变（top5 只有几条的变化），资格门全部通过。
+- A1–A7 在四份集合上的 top6、top9 和 found 逐条不变（top5 只有几条的变化）。`RULE.md` 写下的四道资格门（prefix 两份的 found 和 top6、`nine-key` 的 top1、一词一块 test、`3` → 的）A1–A7 都通过。
+
+现有单元测试当时没有跑，事后用同一个探针开关补跑了 `discount` 一组和 `completions_compare_with_each_other_at_their_own_weights`（共 9 个）。只有 A3 全部通过，其余各臂挂的测试和挂的原因如下：
+
+| 臂 | 挂的测试 | 收回的是哪一条 |
+|---|---|---|
+| A1 (16, 1) | `the_discount_keeps_the_first_page_and_the_rest_of_the_list`（阿莫 越过 从） | 不算收回契约：测试按 `COMPLETION_WEIGHT_RATIO` = 6 写死了 阿莫 的权重，改倍数本来就要跟着改 |
+| A2 (∞, 1) | 同上，加上 `completions_compare_with_each_other_at_their_own_weights`（权重 500 的 猪啊 越过权重一千万的 主编） | 「比完整读法常用得多的补全仍在前面」 |
+| A4 (6, 4)、A6 (16, 4) | `completions_compare_with_each_other_at_their_own_weights`（装 越过 主编），`the_discount_keeps_…`（聪 越过 按钮、澳门） | 「所有补全按原权重彼此比较」 |
+| A5 (6, ∞)、A7 (∞, ∞) | 上面两个，再加 `without_a_spelled_phrase_on_the_first_page_nothing_is_discounted` 里 `536` 那一句（得到 冷、肯、可能） | 上面两条，加上「首页里没有拼满的多音节词时不折算」 |
+
+`3` → 的 那一句在所有臂上都成立。所以 Km ≠ 1 和任何一类取 ∞ 都不只是调一个倍数，而是要翻转 [首页内折算](../../implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md) 里写明的契约。如果资格门按全部现有单元测试从严执行，就只剩 A3（dev +0.03pp，不到 0.10pp），结论同样是不改。
 
 按规则：最大的 dev 增量是 A5、A7 的 +0.126pp（3971 字里多 5 个字），相差 0.10pp 以内的是 A4、A5、A6、A7，最靠近现状的是 A4（只改 Km，倍数 4）。A4 在主配置 test 上是 Tatoeba −10 字、聊天 −2 字，验证不过，所以不改。A5 与 A7 结果逐字相同：拼满多音节词时被 Kp 折算的那些补全，本来就是多音节补全。
+
+`RULE.md` 还要求另报几组不参与判定的数字：选中的臂在 14 键主配置上的结果、简拼比例 0 和 0.6、首页 9 行、两份长句和语气词集，以及选中的臂叠加 pinwords 的一臂。这些都没有跑，因为 A4 在验证上已经不过，不会发。prefix 两份的 top1 和 `fourteen-key` 见上。
 
 complete2 的收益是宽口径造出来的。按块是否简拼拆开，Tatoeba 主配置：
 
@@ -78,4 +91,6 @@ complete2 在简拼的块上宽口径 +4.0pp、严口径 −3.5pp：用户在候
 
 - 不要再用宽口径的 complete2 数字当收益依据；任何补全排序的改动都要报严口径，并按块是否简拼拆开。
 - 拿到设备上的 `chars_per_commit` 和停在声母上的比例之前，改倍数只是在两种用户之间换。
+- 想让多音节补全在首页里另打一次折（Km ≠ 1），或者让某一类整个排到后面，都要按翻转决定的流程改 #10110 那一篇和上表里的单元测试，不能当成调参。
+- `discount_completions_on_first_page` 由 `NineKeySession` 的所有网格共用，包括十八键、九键双拼、14 键双拼和十八键双拼。typing_sim 只有全键盘、九键、14 键，这四种网格这次都没有量。
 - 真正能两头都赢的是停在声母上时按上下文挑补全（缺口分析的 E1，当时按宽口径估的上限约 4 个点），那要新数据。
