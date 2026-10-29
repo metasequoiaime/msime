@@ -27,7 +27,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private int sizePercent = 100;
 
     public void setSizePercent(int percent) {
-        int valid = ToolbarSizePolicy.percent(percent);
+        int valid = ToolbarSizePolicy.drawPercent(percent);
         if (sizePercent == valid) return;
         sizePercent = valid;
         invalidate();

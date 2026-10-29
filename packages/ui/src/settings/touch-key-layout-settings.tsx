@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import type { Preferences } from "../core/preferences-model";
 import type { InputScheme } from "../core/input-scheme";
 import type { PreviewKey } from "../keyboard/keyboard-layouts";
@@ -15,13 +15,25 @@ import {
   nineKeyStyleNote,
   nineKeyStyleOptions,
   nineKeyTallReturnPreview,
+  numberPadSpace,
+  numberPadSpaceNote,
+  numberPadSpaceOptions,
+  numberPadSpaceTitle,
   numberRowDescription,
+  symbolFirstDescription,
+  symbolFirstTitle,
   twentySixKeyBottomRows,
   type FramePreviewKey,
   twentySixKeyStyle,
   twentySixKeyStyleNote,
   twentySixKeyStyleOptions,
+  withSymbolFirst,
 } from "../keyboard/touch-key-layout-styles";
+
+/** 打开「符」与「123」互换时 26 键一组的示意图：每种样式的底行都把 符 挪到 123 左边（没有 符 的样式不变）。 */
+const twentySixKeyRowsSymbolFirst = Object.fromEntries(
+  Object.entries(twentySixKeyBottomRows).map(([style, row]) => [style, withSymbolFirst(row, true)]),
+) as typeof twentySixKeyBottomRows;
 
 /** 「按键布局」子页上哪几组画出来：版本没有的键盘类型不列它的组。 */
 export type TouchKeyLayoutGroups = {
@@ -104,7 +116,7 @@ function FramePreview({ rows }: { rows: readonly (readonly FramePreviewKey[])[] 
   );
 }
 
-/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意）；`note` 是组末的说明，读屏把它当作这组单选的描述。 */
+/** 一组单选：每个选项是一行，名字在上、它的底行示意图在下（`frames` 里有的样式画多行示意，没有 `rows` 时不画示意）；`note` 是组末的说明，读屏把它当作这组单选的描述；`children` 画在选项之后、说明之前（26 键一组的「符」与「123」互换开关）。 */
 function StyleChoices<T extends string>({
   title,
   options,
@@ -113,14 +125,16 @@ function StyleChoices<T extends string>({
   note,
   value,
   onChange,
+  children,
 }: {
   title: string;
   options: readonly { value: T; label: string }[];
-  rows: Record<T, PreviewKey[]>;
+  rows?: Record<T, PreviewKey[]>;
   frames?: Partial<Record<T, FramePreviewKey[][]>>;
   note: string;
   value: T;
   onChange: (value: T) => void;
+  children?: ReactNode;
 }) {
   const name = useId();
   const noteId = useId();
@@ -146,12 +160,13 @@ function StyleChoices<T extends string>({
             </span>
             {frames?.[option.value] ? (
               <FramePreview rows={frames[option.value] ?? []} />
-            ) : (
+            ) : rows ? (
               <BottomRowPreview row={rows[option.value]} />
-            )}
+            ) : null}
           </label>
         ))}
       </div>
+      {children}
       <SettingsGroupNote>
         <span id={noteId}>{note}</span>
       </SettingsGroupNote>
@@ -160,7 +175,7 @@ function StyleChoices<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行），每组末尾一句说明（与 Android、iOS 逐字相同）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 和 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容：26 键、14 键与 18 键、9 键三组底行样式各选一种，每个选项下画出它的底行（九键「右侧大回车」画网格最后一行和底行，回车跨两行），每组末尾一句说明（与 Android、iOS 逐字相同）；26 键一组里另有「26 键「符」与「123」互换」开关，打开时这组的示意图也把 符 画在 123 左边；接着是「数字键盘」一组（空格在右列、0 右边或 0 左边，没选过时勾鸿蒙原来的「空格在 0 左边」）；最后是「顶部数字行」开关。写的是共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_number_pad_space` 和 `touch_number_row`，键盘开着时当场换排法。
  */
 export function TouchKeyLayoutSettings({
   preferences,
@@ -171,17 +186,27 @@ export function TouchKeyLayoutSettings({
   groups: TouchKeyLayoutGroups;
   onChange: (patch: Partial<Preferences>) => void;
 }) {
+  const symbolFirst = preferences.touch_twenty_six_symbol_first === true;
   return (
     <>
       {groups.twentySix && (
         <StyleChoices
           title="26 键"
           options={twentySixKeyStyleOptions}
-          rows={twentySixKeyBottomRows}
+          rows={symbolFirst ? twentySixKeyRowsSymbolFirst : twentySixKeyBottomRows}
           note={twentySixKeyStyleNote}
           value={twentySixKeyStyle(preferences)}
           onChange={(touch_twenty_six_key_style) => onChange({ touch_twenty_six_key_style })}
-        />
+        >
+          <SwitchRow
+            title={symbolFirstTitle}
+            description={symbolFirstDescription}
+            checked={symbolFirst}
+            onChange={(touch_twenty_six_symbol_first) =>
+              onChange({ touch_twenty_six_symbol_first })
+            }
+          />
+        </StyleChoices>
       )}
       {groups.fourteen && (
         <StyleChoices
@@ -202,6 +227,15 @@ export function TouchKeyLayoutSettings({
           note={nineKeyStyleNote}
           value={nineKeyStyle(preferences)}
           onChange={(touch_nine_key_style) => onChange({ touch_nine_key_style })}
+        />
+      )}
+      {(groups.twentySix || groups.fourteen || groups.nine) && (
+        <StyleChoices
+          title={numberPadSpaceTitle}
+          options={numberPadSpaceOptions}
+          note={numberPadSpaceNote}
+          value={numberPadSpace(preferences)}
+          onChange={(touch_number_pad_space) => onChange({ touch_number_pad_space })}
         />
       )}
       {(groups.twentySix || groups.fourteen) && (

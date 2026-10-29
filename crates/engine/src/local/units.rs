@@ -1,8 +1,8 @@
 //! `V` 模式单位换算：数值后接源单位及可选的目标单位（`3jin'g`、`3jintog`、`5kmmi`、`-10cf`、`1mu`）。单位字母必须完整匹配拼音和缩写白名单；传给 rink-core 的查询由表内单位名称与经过校验的带符号十进制数值拼成。其余输入交给算式路径。
 //!
-//! The 市制 units are added to rink's definitions here: rink's own `catty`, `liang` and `li` are the older or Japanese measures, not the ones in use in mainland China. Temperature is computed directly, because its scales differ by an offset as well as a factor and a plain ratio of units would be wrong.
+//! rink-core is used without its bundled units database: the context starts empty and loads only the definitions written in this file, the SI and international units the table names (`BASE_DEFINITIONS`) and the 市制 units (`SHIZHI_DEFINITIONS`), each at its statutory value. Temperature is computed directly, because its scales differ by an offset as well as a factor and a plain ratio of units would be wrong.
 //!
-//! Loading rink's definitions takes long enough that it must not happen on a key: the context lives in a `OnceLock`, and `warm_up` (spawned in the background when the `V` mode is enabled) builds it ahead of the first conversion.
+//! The context is built once and kept in a `OnceLock`, and `warm_up` (spawned in the background when the `V` mode is enabled) builds it ahead of the first conversion so that no key waits for it.
 
 use std::sync::{Once, OnceLock};
 
@@ -12,6 +12,29 @@ use rink_core::Context;
 
 use super::command::TEXT_UTF16_LIMIT;
 use super::expression::{format_number, RESULT_LIMIT};
+
+/// Every non-市制 unit `UNITS` names, in rink's definition syntax, with the kilogram and the metre as base units. The values are the SI definitions and the exact international values of 1959 (yard 0.9144 m, pound 0.45359237 kg); the acre is the international acre and the gallon the US liquid gallon of 231 cubic inches.
+const BASE_DEFINITIONS: &str = "\
+kg !
+m !
+g 1|1000 kg
+mg 1|1000 g
+tonne 1000 kg
+lb 0.45359237 kg
+oz 1|16 lb
+km 1000 m
+cm 1|100 m
+mm 1|1000 m
+inch 2.54 cm
+ft 12 inch
+yard 3 ft
+mile 1760 yard
+hectare 10000 m^2
+acre 4840 yard^2
+liter 1|1000 m^3
+mL 1|1000 liter
+usgallon 231 inch^3
+";
 
 /// The 市制 units as defined since 1959 (国务院《关于统一我国计量制度的命令》), in rink's definition syntax.
 const SHIZHI_DEFINITIONS: &str =
@@ -133,7 +156,7 @@ const UNITS: &[Unit] = &[
 static CONTEXT: OnceLock<Option<Context>> = OnceLock::new();
 static WARM_UP: Once = Once::new();
 
-/// Build the conversion context if it is not built yet. Blocks for as long as loading rink's definitions takes, so call it off the key path.
+/// Build the conversion context if it is not built yet. Blocks while the definitions are parsed, so call it off the key path.
 pub fn warm_up() {
     context();
 }
@@ -151,7 +174,8 @@ pub fn warm_up_in_background() {
 fn context() -> Option<&'static Context> {
     CONTEXT
         .get_or_init(|| {
-            let mut context = rink_core::simple_context().ok()?;
+            let mut context = Context::new();
+            context.load_definitions(BASE_DEFINITIONS).ok()?;
             context.load_definitions(SHIZHI_DEFINITIONS).ok()?;
             Some(context)
         })
@@ -427,6 +451,33 @@ mod tests {
         ] {
             assert_eq!(query_units(code), None, "{code:?}");
         }
+    }
+
+    #[test]
+    fn every_table_unit_is_defined_at_its_statutory_value() {
+        for source in UNITS.iter().filter(|unit| !unit.rink.is_empty()) {
+            for target in UNITS
+                .iter()
+                .filter(|unit| unit.quantity == source.quantity && !std::ptr::eq(*unit, source))
+            {
+                assert!(
+                    convert("1", 1.0, source, target).is_some(),
+                    "{} -> {}",
+                    source.rink,
+                    target.rink
+                );
+            }
+        }
+        assert_eq!(rows("1t'kg")[0], "1000千克");
+        assert_eq!(rows("1mg'g")[0], "0.001克");
+        assert_eq!(rows("1oz'g")[0], "28.349523125克");
+        assert_eq!(rows("1inch'mm")[0], "25.4毫米");
+        assert_eq!(rows("1ft'cm")[0], "30.48厘米");
+        assert_eq!(rows("1yd'm")[0], "0.9144米");
+        assert_eq!(rows("1sqkm'ha")[0], "100公顷");
+        assert_eq!(rows("1acre'sqm")[0], "4046.8564224平方米");
+        assert_eq!(rows("1gal'ml")[0], "3785.411784毫升");
+        assert_eq!(rows("1l'ml")[0], "1000毫升");
     }
 
     #[test]

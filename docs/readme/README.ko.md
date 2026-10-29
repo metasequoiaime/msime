@@ -154,6 +154,6 @@ Windows 정식판은 현재 [msime-windows](https://github.com/metasequoiaime/ms
 
 ## 라이선스
 
-소스 코드는 **GPL-3.0-only**이며, 전문은 [LICENSE](../../LICENSE)를 참고하십시오.
+소스 코드는 **GPL-3.0-only**이며, 전문은 [LICENSE](../../LICENSE)를 참고하십시오. 예외로 스크립트 플러그인 SDK([crates/script-sdk](../../crates/script-sdk/)), 템플릿([docs/script-plugin-template](../../docs/script-plugin-template/)), 스크립트 플러그인 모음([plugins/script](../../plugins/script/))의 코드는 MIT이고, 입력 엔진([crates/engine](../../crates/engine/), `msime-engine`)과 [crates/path-trust](../../crates/path-trust/)(`msime-path-trust`)는 다른 입력기에 넣어 쓸 수 있도록 MPL-2.0(Exhibit B 없음)이며, 전문은 각 디렉터리의 `LICENSE`에 있습니다. 엔진에 내장된 데이터 표와 옮겨 온 서드파티 코드는 각자의 라이선스를 따르며 파일별 목록은 [crates/engine/README.md](../../crates/engine/README.md)에 있습니다. 실행 중에 읽는 사전과 모델도 각자의 라이선스를 따릅니다. `crates/engine`과 `crates/path-trust`에 대한 기여는 GPL-3.0-only OR MPL-2.0으로 제공됩니다. 입력기 제품 전체는 GPL-3.0-only로 배포됩니다.
 
 업스트림 코드, 사전, 모델, 각 플랫폼 SDK는 각자의 라이선스와 고지를 따르며, 그중 Android와 iOS의 필기 인식은 Google ML Kit을 사용하고 오픈소스 라이선스가 아닌 해당 서비스 약관에 따라 사용이 허가됩니다. 전체 대조표는 [서드파티 컴포넌트 목록](../third-party.md)을 참고하십시오.

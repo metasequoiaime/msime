@@ -74,21 +74,38 @@ public final class CompositionCaretPolicy {
         return map[BoundsPolicy.atMost(offset, display.length())];
     }
 
-    /** 光标 {@code caret} 该画在读音的哪个下标前；光标在末尾或对不上时返回 -1。同一个光标位置对应好几处时（中间隔着显示用的分隔）画在最后一处，也就是分隔后面：引擎的退格先删光标前的切分。 */
-    public static int markIndex(String display, String editing, int caret) {
+    /**
+     * 光标 {@code caret} 该画在读音的哪个下标前；光标在末尾或对不上时返回 -1。同一个光标位置对应好几处时（中间隔着只在显示时才有的分隔），按退格真正删掉的那一格来画：
+     *
+     * <ul>
+     *   <li>组码网格（{@code keyGrid}：这次组字是在九键、14 键、18 键、九键双拼的网格里打的，引擎 View 的 {@code grid_composing}）画在最后一处，也就是分隔后面（{@code 94'|26}、14 键的 {@code ba'|ba}）：网格组字的退格先删光标前的用户切分，切分不在 {@code editing_text} 里。读法自带、不是用户切分的分隔（{@code 9426} 读成 {@code xi'an}）也画在后面，那里退格删的是分隔前的数字，两者对不上，#10133 没有改它。</li>
+     *   <li>26 键的全拼、双拼、五笔、粤拼画在第一处，也就是分隔前面（{@code zuo|'tian}，#10133）：分隔是引擎加的，不在按键里，退格删的是分隔前的字母；画在分隔后面会让光标从 {@code zuo't|ian} 一步跳到 {@code zuo'|tian} 再跳到 {@code zu|o'tian}，看起来停不到 o 后面。</li>
+     * </ul>
+     *
+     * 不按按键里有没有数字来分：14 键、18 键的按键是组码字母（{@code bugao}），走的却是网格的退格。用户在 26 键自己打的 {@code '} 在按键里，按同一个键一一对齐，不受这条规则影响。
+     *
+     * @param keyGrid 这次组字在引擎的组码网格里（View 的 {@code grid_composing}；网格开着时硬件键盘打的字母走 26 键，为假）
+     */
+    public static int markIndex(String display, String editing, int caret, boolean keyGrid) {
         if (editing == null || caret < 0 || caret >= editing.length()) return -1;
         int[] map = alignment(display, editing);
         if (map == null) return -1;
-        for (int index = map.length - 1; index >= 0; index--) {
-            if (map[index] == caret) return index;
+        if (keyGrid) {
+            for (int index = map.length - 1; index >= 0; index--) {
+                if (map[index] == caret) return index;
+            }
+        } else {
+            for (int index = 0; index < map.length; index++) {
+                if (map[index] == caret) return index;
+            }
         }
         return -1;
     }
 
     /** 放大条包含末尾光标；原读音行仍只在离开末尾后画光标。 */
-    public static int displayOffset(String display, String editing, int caret) {
+    public static int displayOffset(String display, String editing, int caret, boolean keyGrid) {
         if (display == null || editing == null || alignment(display, editing) == null) return -1;
-        return caret == editing.length() ? display.length() : markIndex(display, editing, caret);
+        return caret == editing.length() ? display.length() : markIndex(display, editing, caret, keyGrid);
     }
 
     /** 只接住完整组字区内的单点选择，读音分隔符和已选词前缀走同一份映射。 */

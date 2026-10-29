@@ -17,7 +17,7 @@ $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -a
 if ($editionEntry.Count -ne 1) { throw "Edition $Edition has no Windows section in shared/contracts/editions.json" }
 $documents = [Collections.Generic.List[string]]::new()
 $documents.Add("MSIME third-party notice collection`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
-# 随数据和代码一起提交的声明。安装包不带手写模型：设置应用按需下载模型时一并下载它的 LGPL-2.1 许可证（HandwritingModel-LICENSE.txt，在 resources/handwriting-model.lock.json 里和模型锁在一起），所以模型的许可证随下载走，这里不收集；zinnia 本身的许可证保留，因为宿主库编进了从它移植的识别器。输入引擎是本仓库自己的 Rust crate，适用根目录的 LICENSE，安装包以 LICENSE.txt 带着它，所以没有单独的条目。
+# 随数据和代码一起提交的声明。安装包不带手写模型：设置应用按需下载模型时一并下载它的 LGPL-2.1 许可证（HandwritingModel-LICENSE.txt，在 resources/handwriting-model.lock.json 里和模型锁在一起），所以模型的许可证随下载走，这里不收集；zinnia 本身的许可证保留，因为宿主库编进了从它移植的识别器。输入引擎（crates/engine 与 crates/path-trust）是本仓库自己的 Rust crate，按 MPL-2.0 授权，它们的 LICENSE 由 collect-notices.py 收进作为补充声明传入的 rust-crates-NOTICES.txt；安装包整体按根目录的 LICENSE 分发（以 LICENSE.txt 带着），所以这里没有单独的条目。
 foreach ($notice in @(
     @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-bigram.bin, msime-trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
@@ -25,16 +25,16 @@ foreach ($notice in @(
     @('resources/helpcodes/NOTICE-wubi86.md', 'Helpcode table (wubi86), generated from KyleBing/rime-wubi86-jidian, Apache-2.0, with 16 characters from rime/rime-wubi, LGPL-3.0 distributed under GPL-3.0'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),
     @('resources/licenses/Administrative-divisions-of-China-WTFPL.txt', 'Chinese administrative divisions compiled into the host library for @ mode, modood/Administrative-divisions-of-China @ c49d495b40ac73eb1a66f6eeae5f8fd10696f035, WTFPL'),
-    @('resources/licenses/librime-octagram-BSD-3-Clause.txt', '语法模型查询与编码逻辑的 Rust 移植，lotem/librime-octagram @ 57d18b9f58e5284bd891d559f6bdd16cf60341e9，BSD-3-Clause'),
+    @('resources/licenses/librime-octagram-BSD-3-Clause.txt', '语法模型查询与编码逻辑的 Rust 移植，lotem/librime-octagram @ 57d18b9f58e5284bd891d559f6bdd16cf60341e9，BSD-3-Clause；双数组读取按 darts-clone 0.32 的布局重新实现，BSD-2-Clause，条款附在文件末尾'),
+    @('resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt', 'Beam sorts of the sentence decoder in the host library (crates/engine/src/lattice/cxx_sort.rs), reproduced step by step from LLVM libc++ __algorithm/partial_sort.h, sort.h, make_heap.h, sift_down.h, pop_heap.h, push_heap.h and sort_heap.h, Apache-2.0 WITH LLVM-exception'),
     @('resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'Korean Hanja table compiled into the host library for Hanja conversion, libhangul data/hanja/hanja.txt @ 717409ce61524bb3d8426060a384822f21354c62, BSD-3-Clause'),
     @('resources/licenses/kfcd-chaizi-CC-BY-3.0.txt', 'Component reverse lookup table compiled into the host library for 拆字反查 (C mode), adapted from kfcd/chaizi chaizi-jt.txt and chaizi-ft.txt @ e177ab54ce4edf255315a60593ffecbd8167e96b, © 2015 開放詞典, CC BY 3.0'),
-    @('resources/licenses/rime-wanxiang-CC-BY-4.0.txt', 'Group codes and code points of the symbol mode (S mode) table compiled into the host library, from wanxiang_symbols.yaml of amzxyz/rime-wanxiang v18.0.16 @ 7ab73ee0c7f80190004233e70f954833df64c80e, CC BY 4.0, with Chinese group names and their order written by this project'),
-    @('resources/licenses/Unicode-License-V3.txt', 'Readings, ranks and traditional variants of the 拆字反查 (C mode) table compiled into the host library, from the Unicode Han Database (Unihan) 17.0.0 fields kMandarin, kTGHZ2013, kTGH and kTraditionalVariant, Unicode License V3'),
+    @('resources/licenses/Unicode-License-V3.txt', 'Readings, ranks and traditional variants of the 拆字反查 (C mode) table compiled into the host library, from the Unicode Han Database (Unihan) 17.0.0 fields kMandarin, kTGHZ2013, kTGH and kTraditionalVariant, and the symbol mode (S mode) table compiled into the host library, whose groups this project chooses from the blocks, general categories, names and decompositions of the Unicode Character Database 17.0.0, Unicode License V3'),
     @('resources/licenses/rime-cantonese-CC-BY-4.0.txt', 'Jyutping syllables and words of the Cantonese scheme in the host library, rime/rime-cantonese @ 259f0e48bba840c3a2e0d117539e96937f3d89bc, CC BY 4.0, with word weights from fcbond/hkcancor @ 39aeadf920e0b5ca93d0ad7792c59e740e7bdd65, CC BY 4.0'),
     @('resources/licenses/libchewing-data-LGPL-2.1.txt', 'Bopomofo syllables and words of the Zhuyin scheme in the host library, chewing/libchewing-data @ c44e81aef24b06f1509f19e1be54c99812d0c43f, LGPL-2.1-or-later, with phrase weights from openvanilla/McBopomofo @ be6564acad6c4d3265c34a2e1a872d80f9db6068 phrase.occ, MIT'),
     @('resources/licenses/rime-stroke-LGPL-3.0.txt', 'Stroke orders of the Stroke scheme in the host library, rime/rime-stroke @ 1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48 (main table from CNS11643, 數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw), LGPL-3.0'),
     @('resources/licenses/vi-MIT.txt', 'vi crate behind the Vietnamese scheme in the host library, ZeroX-DG/vi-rs 0.8.0, MIT'),
-    @('resources/licenses/ewts-MIT.txt', 'ewts crate behind the Tibetan scheme in the host library, emgyrz/ewts-rs 0.1.3, MIT OR Apache-2.0 used under MIT'),
+    @('resources/licenses/ewts-MIT.txt', 'ewts crate behind the Tibetan scheme in the host library, emgyrz/ewts-rs 0.1.4, MIT OR Apache-2.0 used under MIT'),
     @('platforms/windows/msimeui/UPSTREAM.md', 'Windows 皮肤图片解码器来源、固定提交和本地调整'),
     @('platforms/windows/msimeui/LICENSE', 'msime-windows AnimatedImage，GPL-3.0'),
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
@@ -43,7 +43,7 @@ foreach ($notice in @(
     @('resources/licenses/world-clock-NOTICE.txt', '离线世界时钟：IANA 城市目录与 Rust 时间、时区和太阳事件依赖'),
     @('resources/licenses/OpenCC-Apache-2.0.txt', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
     @('plugins/script/LICENSE', 'Official script plugin uuid in server\plugin-packs, this project''s own code under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'),
-    @('plugins/phrase_table/LICENSE', 'Official phrase table latex-symbols in server\plugin-packs, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {
+    @('plugins/phrase_table/LICENSE', 'LaTeX command table compiled into the host library for symbol mode (S mode, crates/engine/src/local/latex_symbols.tsv), and the official phrase table latex-symbols in server\plugin-packs built from the same data, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {
     $relative = $notice[0]
     $noticePath = Join-Path $RepoRoot $relative
     if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) {

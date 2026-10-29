@@ -36,7 +36,44 @@ export const nineKeyStyleNote = "右侧大回车：回车竖占两行，符号�
 /** 「顶部数字行」开关的说明，三端逐字相同。 */
 export const numberRowDescription = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";
 /** 屏幕键盘页「按键布局」入口行的副标题，三端逐字相同。 */
-export const keyLayoutEntryDescription = "各类键盘的底行样式和顶部数字行";
+export const keyLayoutEntryDescription = "各类键盘的底行样式、键位和顶部数字行";
+
+/** 共享偏好 `touch_twenty_six_symbol_first` 开关的标题和说明，三端逐字相同（Android `TouchKeyStyle.SYMBOL_FIRST_TITLE`、iOS `TouchKeyLayoutOffering.symbolFirstTitle`）。 */
+export const symbolFirstTitle = "26 键「符」与「123」互换";
+export const symbolFirstDescription = "符 排在 123 左边；长空格和表情键样式没有 符，不受影响。";
+
+/** 共享偏好 `touch_number_pad_space` 的取值（`client_core::preferences::TouchNumberPadSpace`）。 */
+export type NumberPadSpace = NonNullable<Preferences["touch_number_pad_space"]>;
+/** 设置页里能选的三种排法，`platform_default` 不单列；名字三端逐字相同。 */
+export type NumberPadSpaceChoice = Exclude<NumberPadSpace, "platform_default">;
+export const numberPadSpaceOptions: readonly { value: NumberPadSpaceChoice; label: string }[] = [
+  { value: "right_column", label: "空格在右列" },
+  { value: "after_zero", label: "空格在 0 右边" },
+  { value: "before_zero", label: "空格在 0 左边" },
+];
+/** 「数字键盘」一组的标题和组末说明，三端逐字相同。 */
+export const numberPadSpaceTitle = "数字键盘";
+export const numberPadSpaceNote = "九宫格数字键盘里空格的位置；右侧大回车不受影响。";
+
+/** 共享 React 设置页只在鸿蒙手机上给出这一组：缺键、`platform_default` 和不认识的值按鸿蒙原来的排法（空格在 0 左边），与键盘的 `TouchLayoutStylePolicy.numberPadSpace` 相同。 */
+export function numberPadSpace(preferences: Preferences): NumberPadSpaceChoice {
+  const value = preferences.touch_number_pad_space;
+  return value === "right_column" || value === "after_zero" ? value : "before_zero";
+}
+
+/** 「符」与「123」互换打开时把底行里排在 123 后面的 符 挪到 123 左边，其余键不变，与键盘的 `TouchLayoutStylePolicy.symbolFirst` 相同；没有 符 的行原样返回。 */
+export function withSymbolFirst<T extends { code?: string }>(
+  row: readonly T[],
+  enabled: boolean,
+): T[] {
+  const layer = row.findIndex((item) => item.code === "SoftLayer");
+  const symbol = row.findIndex((item) => item.code === "SoftSymbol");
+  if (!enabled || layer < 0 || symbol < layer) return [...row];
+  const moved = [...row];
+  const [panel] = moved.splice(symbol, 1);
+  moved.splice(layer, 0, panel);
+  return moved;
+}
 
 const key = (label: string, weight: number, code: string): PreviewKey => ({ label, weight, code });
 
@@ -182,11 +219,12 @@ export function nineKeyStyle(preferences: Preferences): NineKeyStyle {
   return value && known(nineKeyBottomRows, value) ? value : "standard";
 }
 
-/** 统计热力图要照着画的那几项：两种键盘的底行样式和数字行。 */
+/** 统计热力图要照着画的那几项：两种键盘的底行样式、数字行和「符」与「123」互换（缺省为关）。 */
 export type TouchKeyLayoutStyle = {
   twentySixKeyStyle: TwentySixKeyStyle;
   nineKeyStyle: NineKeyStyle;
   numberRow: boolean;
+  twentySixSymbolFirst?: boolean;
 };
 
 export function touchKeyLayoutStyle(preferences: Preferences): TouchKeyLayoutStyle {
@@ -194,5 +232,6 @@ export function touchKeyLayoutStyle(preferences: Preferences): TouchKeyLayoutSty
     twentySixKeyStyle: twentySixKeyStyle(preferences),
     nineKeyStyle: nineKeyStyle(preferences),
     numberRow: preferences.touch_number_row === true,
+    twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
   };
 }

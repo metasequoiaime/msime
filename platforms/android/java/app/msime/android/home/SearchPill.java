@@ -9,6 +9,7 @@ import android.content.Context;
 import android.text.InputType;
 import android.util.AttributeSet;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -51,8 +52,13 @@ public final class SearchPill extends LinearLayout {
         LayoutParams params = new LayoutParams(0, DimensionPolicy.pixels(context, Ui.SEARCH_HEIGHT), 1f);
         params.setMarginStart(DimensionPolicy.pixels(context, 14));
         addView(field, params);
-        // 点到胶囊的任何地方都把焦点交给输入框，而不只是那一行字。
-        ViewPolicy.bindClick(this, field::requestFocus);
+        // 点到胶囊的任何地方（放大镜、左右留白）都和点那一行字一样：焦点交给输入框并弹出键盘。只 requestFocus 不会弹键盘，光标亮着却没法打字。
+        ViewPolicy.bindClick(this, this::focusField);
+    }
+
+    private void focusField() {
+        field.requestFocus();
+        getContext().getSystemService(InputMethodManager.class).showSoftInput(field, 0);
     }
 
     /** 输入框本身，需要监听回车或改样式时用。 */

@@ -122,7 +122,8 @@ public final class SettingsSearchIndexSmoke {
             {"PRIVACY", "用水杉账号翻译候选"}, {"PRIVACY", "匿名使用统计"}, {"PRIVACY", "剪贴板历史"},
             {"KEYBOARD_OPTIONS", "表情"}, {"KEYBOARD_OPTIONS", "常用语"}, {"KEYBOARD_OPTIONS", "剪贴板"},
             {"KEYBOARD_OPTIONS", "皮肤"}, {"KEYBOARD_OPTIONS", "输入方式"}, {"KEYBOARD_OPTIONS", "浮动键盘"},
-            {"KEYBOARD_OPTIONS", "文本编辑"},
+            {"KEYBOARD_OPTIONS", "文本编辑"}, {"KEYBOARD_OPTIONS", "撤销"}, {"KEYBOARD_OPTIONS", "重做"},
+            {"KEYBOARD_OPTIONS", "语音"},
         };
         for (String[] row : rows) {
             Page page = pages.get(row[0]);

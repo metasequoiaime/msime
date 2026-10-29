@@ -113,6 +113,11 @@ public final class TextTrackpadView extends View {
         invalidate();
     }
 
+    /** 同一输入框重启连接时让进行中的手势接着走（{@link TextTrackpadGesture#retarget}）。 */
+    public void retarget(Object previous, Object next) {
+        if (gesture != null) gesture.retarget(previous, next);
+    }
+
     public void cancel() {
         if (gesture != null) gesture.cancel();
         finishVisual();

@@ -386,6 +386,8 @@ final class ImeLayoutRows {
     private boolean builtNineFrame;
     private boolean builtTallReturn;
     private boolean builtTallReturnGlobe;
+    /** 建九键数字层（不是右侧大回车）时右列最下面一格放的是不是空格（{@link TouchKeyStyle.NumberPadSpace#inRightColumn}）；没建数字层时为 null。 */
+    private Boolean builtSpaceInColumn;
 
     /** 键行换成别的布局时调用。 */
     void forgetNineKeyGrid() {
@@ -393,6 +395,7 @@ final class ImeLayoutRows {
         builtShuangpinFaces = null;
         builtNineFrame = false;
         builtTallReturn = false;
+        builtSpaceInColumn = null;
     }
 
     /** 当前键面该画右侧大回车外框（{@link KeyboardActionRow#drawsTallReturn}）：拼音九键、笔画和它们的数字九宫格，选了右侧大回车且不是密码框、数字框。26 键等借用的数字九宫格按借出键面的样式算，永远不画。 */
@@ -406,6 +409,11 @@ final class ImeLayoutRows {
         if (!builtNineFrame) return false;
         boolean tall = tallReturnDrawn();
         return tall != builtTallReturn || tall && builtTallReturnGlobe != s.offersGlobeKey();
+    }
+
+    /** 九键数字层建出来时右列最下面一格（空格还是 ！）与现在的数字键盘空格位置不一致（设置页换了 `touch_number_pad_space`）：下一次渲染重建键行。 */
+    boolean numberPadSpaceStale() {
+        return builtSpaceInColumn != null && builtSpaceInColumn != s.numberPadSpace.inRightColumn();
     }
 
     /** 笔画外框左右两列与中间笔画网格的宽度份额。 */
@@ -505,6 +513,7 @@ final class ImeLayoutRows {
         boolean tallReturn = tallReturnDrawn();
         builtNineFrame = true;
         builtTallReturn = tallReturn;
+        builtSpaceInColumn = null;
         LinearLayout container = LayoutPolicy.row(s);
         if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
         else container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
@@ -516,7 +525,7 @@ final class ImeLayoutRows {
         // 右侧大回车外框的列宽按画着的键面取：笔画的数字层借的是这块九宫格，沿用笔画外框的份额，和它的字母层是同一个外框，切层时 符、切换键和回车不横移。
         int frameLayout = s.displayedTouchLayout(s.view);
         float tallSide = KeyboardActionRow.tallReturnSideWeight(frameLayout);
-        // 左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和带语音手势的空格，0 移到底行中间（借用数字页同样如此）。
+        // 左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和最下面一格：空格在右列时（Android 原来的排法）是带语音手势的空格、0 移到底行中间，空格在底行时是 ！（借用数字页同样如此，见 `touch_number_pad_space`）。
         FrameLayout sidebar = symbolSidebar(digits, true, tallReturn, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         if (tallReturn) {
@@ -601,9 +610,13 @@ final class ImeLayoutRows {
             return;
         }
         if (digits) {
-            // 小数点按字面上屏；移动原空格键保留点按、长按语音与光标手势，0 由底行提供。
+            // 小数点按字面上屏；0 由底行提供。
             addNineKey(actions, nineKeyDecimalKey());
-            adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
+            boolean spaceInColumn = s.numberPadSpace.inRightColumn();
+            builtSpaceInColumn = spaceInColumn;
+            // 空格在右列：移动原空格键，保留点按、长按语音与光标手势。空格在底行（0 的左边或右边）：这一格放 ！，与 iOS、鸿蒙数字层右列相同。
+            if (spaceInColumn) adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
+            else addNineKey(actions, nineKeyDigitExclamationKey());
             // 重建数字网格时空格换了父容器，即使底行签名相同也要重新确认归属。
             s.actionRowSignature = "";
             container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
@@ -621,6 +634,17 @@ final class ImeLayoutRows {
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+    }
+
+    /** 空格在底行时数字层右列最下面一格的 ！：按字面上屏，记 `SoftPunctuation`，与字母层右列的 ！ 同一个字，不带字母层那个键上滑出 0 的手势（0 就在底行）。 */
+    private Button nineKeyDigitExclamationKey() {
+        java.util.List<String> punctuation = NineKeyLayout.punctuation();
+        String last = punctuation.get(punctuation.size() - 1);
+        NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
+            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
+        exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        return exclamation;
     }
 
     /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面。 */
@@ -703,6 +727,7 @@ final class ImeLayoutRows {
         boolean tallReturn = tallReturnDrawn();
         builtNineFrame = true;
         builtTallReturn = tallReturn;
+        builtSpaceInColumn = null;
         LinearLayout container = LayoutPolicy.row(s);
         if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
         else s.imeStyler.adjustThreeRowBlockHeight(container);
@@ -1231,6 +1256,8 @@ final class ImeLayoutRows {
         // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
         popup.showAsDropDown(anchor, x - anchorPosition[0],
             y - anchorPosition[1] - anchor.getHeight());
+        // 弹窗是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+        ScreenCaptureProtection.apply(popup);
         return options;
     }
 

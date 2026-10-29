@@ -1056,6 +1056,8 @@ final class OnboardingUITests: XCTestCase {
     let google = app.buttons["backendGoogleSignIn"]
     // 不装 pod 的构建没有 GoogleSignIn，账号服务也可能没开 Google 登录。
     guard google.waitForExistence(timeout: 10) else { throw XCTSkip("这个构建或账号服务不提供 Google 登录") }
+    // 登录前要先勾选同意，见 testLoginRequiresExplicitConsent。
+    app.buttons["accountLoginConsent"].tap()
     google.tap()
 
     // ASWebAuthenticationSession 先由系统询问是否允许打开 google.com。
@@ -1079,6 +1081,62 @@ final class OnboardingUITests: XCTestCase {
     app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"])).firstMatch.tap()
     XCTAssertTrue(google.waitForExistence(timeout: 10))
     XCTAssertFalse(app.staticTexts["accountLoginStatus"].exists)
+  }
+
+  /// 登录前要明示同意（AppGallery 按「登录即表示同意」的写法驳回过鸿蒙版）：勾选框默认不勾，《用户协议》《隐私政策》各是一个链接；没勾时点「发送验证码」只显示提示、不发请求，勾上后提示消失。关掉面板再打开要重新勾。
+  @MainActor
+  func testLoginRequiresExplicitConsent() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+    let card = app.buttons["accountProfileCard"]
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    guard card.label == "未登录，点按登录" else { throw XCTSkip("模拟器上已有登录会话") }
+    card.tap()
+    XCTAssertTrue(app.descendants(matching: .any)["accountLoginSheet"].waitForExistence(timeout: 5))
+    let emailLogin = app.buttons["backendCodeLogin_email"]
+    guard emailLogin.waitForExistence(timeout: 10) else { throw XCTSkip("账号服务没有提供邮箱登录") }
+
+    let consent = app.buttons["accountLoginConsent"]
+    XCTAssertTrue(consent.exists)
+    XCTAssertEqual(consent.label, "我已阅读并同意《用户协议》和《隐私政策》")
+    XCTAssertEqual(consent.value as? String, "未勾选")
+    XCTAssertTrue(app.descendants(matching: .any)["accountLoginTerms"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["accountLoginPrivacy"].exists)
+    XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '登录即'")).firstMatch.exists)
+    let consentShot = XCTAttachment(screenshot: app.screenshot())
+    consentShot.name = "Login consent unchecked"
+    consentShot.lifetime = .keepAlways
+    add(consentShot)
+
+    emailLogin.tap()
+    let target = app.textFields["backendCodeTarget"]
+    XCTAssertTrue(target.waitForExistence(timeout: 5))
+    target.typeText("tester@example.com")
+    app.buttons["backendSendCode"].tap()
+    let prompt = app.staticTexts["accountLoginConsentPrompt"]
+    XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+    XCTAssertEqual(prompt.label, "请先阅读并勾选同意《用户协议》和《隐私政策》")
+    // 没有发出请求：仍停在填邮箱这一步，没有换成验证码输入框。
+    XCTAssertTrue(target.exists)
+    XCTAssertFalse(app.textFields["backendVerificationCode"].exists)
+    let promptShot = XCTAttachment(screenshot: app.screenshot())
+    promptShot.name = "Login consent prompt"
+    promptShot.lifetime = .keepAlways
+    add(promptShot)
+
+    consent.tap()
+    XCTAssertEqual(consent.value as? String, "已勾选")
+    XCTAssertFalse(prompt.exists)
+
+    app.buttons["accountLoginClose"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.tap()
+    XCTAssertTrue(app.buttons["accountLoginConsent"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.buttons["accountLoginConsent"].value as? String, "未勾选")
   }
 
   @MainActor

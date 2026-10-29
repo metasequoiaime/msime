@@ -3,7 +3,7 @@ import app.msime.android.ClipboardCapturePolicy;
 import app.msime.android.ClipboardImagePolicy;
 import app.msime.android.RecentClipboardSuggestion;
 
-/** #5692：工具栏上的「最近复制」显示多久、什么时候不再出现，以及它的预览文字；#6781：复制的是图片时的同一套状态。 */
+/** #5692：工具栏上的「最近复制」显示多久、什么时候不再出现，以及它的预览文字；#6781：复制的是图片时的同一套状态；#10079：预览右边的分词或分类快捷键。 */
 public final class RecentClipboardSuggestionSmoke {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -92,6 +92,33 @@ public final class RecentClipboardSuggestionSmoke {
         check(AndroidLocalSettings.defaults().bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
             "the toolbar shows the last copy by default");
         check(!spec.synced, "the switch is local only: the sync field table does not know it");
+
+        // #10079：复制后快捷键默认开、默认分类；关掉总开关或这一条是图片时不显示。
+        check(AndroidLocalSettings.defaults().bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION),
+            "the quick action is on by default so users find it");
+        check(RecentClipboardSuggestion.ACTION_CATEGORY.equals(
+                AndroidLocalSettings.defaults().choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND)),
+            "the quick action moves to a category by default");
+        AndroidLocalSettings.Spec actionSpec = AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
+        AndroidLocalSettings.Spec kindSpec = AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
+        check(!actionSpec.synced && !kindSpec.synced, "the quick action settings stay on this device");
+        check(java.util.Arrays.equals(kindSpec.choices(), new String[] {
+                RecentClipboardSuggestion.ACTION_SEGMENT, RecentClipboardSuggestion.ACTION_CATEGORY}),
+            "the quick action is either segmentation or category");
+        check(kindSpec.accept("off") == null, "turning the quick action off is the switch, not a kind");
+        check(RecentClipboardSuggestion.ACTION_CATEGORY.equals(RecentClipboardSuggestion.quickAction(
+                true, RecentClipboardSuggestion.ACTION_CATEGORY, false)), "category shows the category action");
+        check(RecentClipboardSuggestion.ACTION_SEGMENT.equals(RecentClipboardSuggestion.quickAction(
+                true, RecentClipboardSuggestion.ACTION_SEGMENT, false)), "segment shows the segmentation action");
+        check(RecentClipboardSuggestion.quickAction(false, RecentClipboardSuggestion.ACTION_SEGMENT, false) == null,
+            "the switch hides the quick action");
+        check(RecentClipboardSuggestion.quickAction(true, RecentClipboardSuggestion.ACTION_CATEGORY, true) == null,
+            "an image copy has no quick action: it cannot be segmented and is not in the history");
+        check(RecentClipboardSuggestion.ACTION_CATEGORY.equals(RecentClipboardSuggestion.quickAction(true, null, false)),
+            "an unknown kind falls back to the factory default");
+        check("分词".equals(RecentClipboardSuggestion.quickActionLabel(RecentClipboardSuggestion.ACTION_SEGMENT))
+                && "分类".equals(RecentClipboardSuggestion.quickActionLabel(RecentClipboardSuggestion.ACTION_CATEGORY)),
+            "the button says what it does");
         System.out.println("RecentClipboardSuggestionSmoke ok");
     }
 }

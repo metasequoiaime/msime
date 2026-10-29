@@ -1,10 +1,19 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 //! The input engine: composition state, input schemes, dictionary queries, ranking and learning.
 //!
 //! This crate replaces the C++ MSIME-Engine that used to be fetched from `engine-lock.json` and patched by overlay scripts. It owns the input algorithms; `msime-input-runtime` keeps orchestrating hosts and does not duplicate any of it.
 //!
-//! Two public layers: `Session` and the functions beside it mirror the C++ `metasequoia::` API the golden fixtures were recorded against, and `host` is the flattened surface host-api and input-runtime call. The module map and who owns what is `.migration/spec/modules.md`.
+//! The documented API is the core layer: `Session` and the functions and types beside it, which mirror the C++ `metasequoia::` API the golden fixtures were recorded against. The modules `host`, `backend`, `ordering` and `web` are the product facade of 水杉输入法 itself (the surface host-api and input-runtime call, the msime-cloud query process, the shared candidate ordering and the browser storage). They stay `pub` only so those crates in the same repository can reach them, are hidden from the documentation and are outside what a 0.x release tries to keep stable; other programs should not use them. The crate's README says which dictionary files a session reads, what to set in a downstream workspace, and the licences of the data compiled in.
+//!
+//! 引擎在运行时读写的每个文件（词库、模型、学习日志、代次目录）的格式、版本检查、产出方与数据许可证见仓库里的 `docs/data-formats.md`；代码注释里的 `data-formats.md §N` 指它的章节。
 
+// 非测试代码的日志一律走 `logging::warn`，嵌入方才换得掉出口（`set_log_sink`）；测试和基准测量照旧可以直接打印。
+#![cfg_attr(not(test), deny(clippy::print_stderr))]
+
+pub mod access;
 pub mod assets;
+#[doc(hidden)]
 pub mod backend;
 mod cache;
 pub mod cantonese;
@@ -14,6 +23,7 @@ mod error;
 pub mod format;
 mod handwriting;
 mod helpcode;
+#[doc(hidden)]
 pub mod host;
 mod ime;
 mod japanese;
@@ -22,9 +32,11 @@ pub use korean::KoreanLayout;
 pub mod language_dictionary;
 mod lattice;
 mod local;
+pub mod logging;
 pub mod multilingual;
 mod nine_key;
 mod nine_key_shuangpin;
+#[doc(hidden)]
 pub mod ordering;
 mod paths;
 mod pinyin;
@@ -42,14 +54,17 @@ mod types;
 mod user_dictionary;
 pub mod vietnamese;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[doc(hidden)]
 pub mod web;
 mod wubi;
 pub mod zhuyin;
 
-pub use error::{EngineError, Result};
+pub use access::DictionaryAccess;
+pub use error::{EngineError, ErrorCode, Result};
 #[cfg(not(target_os = "android"))]
 pub use handwriting::handwriting_recognize;
 pub use handwriting::order_handwriting_candidates;
+pub use logging::{set_log_sink, LogSink};
 // 按需下载的 `.gram` 语法模型由宿主侧资源包管理，删除包时需要释放
 // `GramDb::shared` 缓存的内存映射，经这个窄出口暴露给 host-api。
 pub use lattice::octagram;
@@ -61,7 +76,7 @@ pub use punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
 pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
-    Command, CommandTranslationQuery, EnglishInputOptions, FrequencyAdjustmentMode,
+    Command, CommandTranslationQuery, EnglishInputOptions, FirstPageRows, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode, LocalModeOptions,
     MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineInputMode,
     OnlineQuery, PersonalDictionaryEntry, PersonalDictionaryKind, PluginCommand,
@@ -101,7 +116,12 @@ pub fn flush_personal_learning() {
     user_dictionary::ngram_store::flush_all()
 }
 
-/// Drop every cached journal, personal-context and local-mode connection. Call before deleting or replacing a data directory.
+/// Write every queued personal-context transition and stop the background thread that writes them, waiting for it to end. Call before unloading the engine or exiting the process; sessions still work afterwards, and the next transition they record starts the thread again.
+pub fn shutdown() {
+    user_dictionary::ngram_store::shutdown()
+}
+
+/// Drop every cached journal, personal-context and local-mode connection, on every thread (a connection an operation is using closes when that operation ends). Call before deleting or replacing a data directory.
 pub fn close_cached_databases() {
     user_dictionary::journal::close_cached_journals()
 }

@@ -22,7 +22,14 @@ int main() {
     check(PairedPunctuationStepOverCandidate(L')', L"）") == L'）', "full-width paren closes");
     check(PairedPunctuationStepOverCandidate(L']', L"】") == L'】', "lenticular bracket closes");
     check(PairedPunctuationStepOverCandidate(L'>', L"》") == L'》', "book title mark closes");
-    check(PairedPunctuationStepOverCandidate(L'}', L"}") == L'}', "brace closes");
+    // 契约第 5 版：`}` 出」，跨过的是 `{` 补出的」；ASCII 花括号不再是成对标点。
+    check(PairedPunctuationStepOverCandidate(L'}', L"」") == L'」', "shifted right bracket steps over the corner bracket");
+    check(PairedPunctuationStepOverCandidate(L'}', L"}") == 0, "an ascii brace never steps over");
+    // `{` `}` 出的「」不武装空格转换，其余标点键照常。
+    check(!PunctuationKeyArmsSpaceConversion(L'{'), "the left brace key does not arm the space conversion");
+    check(!PunctuationKeyArmsSpaceConversion(L'}'), "the right brace key does not arm the space conversion");
+    check(PunctuationKeyArmsSpaceConversion(L','), "comma arms the space conversion");
+    check(PunctuationKeyArmsSpaceConversion(L'\''), "the quote key arms the space conversion");
     check(PairedPunctuationStepOverCandidate(L'"', L"“") == L'”', "double quote is keyed, not resolved");
     check(PairedPunctuationStepOverCandidate(L'"', L"”") == L'”', "double quote right half");
     check(PairedPunctuationStepOverCandidate(L'\'', L"‘") == L'’', "single quote is keyed, not resolved");
@@ -32,9 +39,7 @@ int main() {
     check(PairedPunctuationStepOverCandidate(L'(', L"（") == 0, "opening half never steps over");
     check(PairedPunctuationStepOverCandidate(L'^', L"……") == 0, "multi-character output never steps over");
     check(PairedPunctuationStepOverCandidate(L')', L"") == 0, "empty output never steps over");
-    check(PairedPunctuationStepOverCandidate(L'}', L"}", true) == L'｝', "full-width brace pair is stepped over by its full-width half");
-    check(PairedPunctuationStepOverCandidate(L'}', L"}", false) == L'}', "half-width brace pair keeps its ASCII half");
-    check(PairedPunctuationStepOverCandidate(L')', L"）", true) == L'）', "full width changes only the brace");
+    check(PairedPunctuationStepOverCandidate(L'}', L"｝") == 0, "a full-width brace never steps over");
     check(PairedPunctuationStepOverCandidate(L'x', L"」") == L'」', "corner bracket closing half steps over");
     // 直角引号与空心括号（quote_style、bracket_style）：引号键看出的是哪一组，后半个就是那一组的。
     check(PairedPunctuationStepOverCandidate(L'"', L"『") == L'』', "corner double quote is keyed to its own group");
@@ -65,11 +70,11 @@ int main() {
     check(ReopenedPairedQuote(L'\'', L'』') == L'』', "another key's half is left alone");
     check(ReopenedPairedQuote(L'(', L'）') == L'）', "non-quote keys are left alone");
 
-    // 成对表：与 macOS 的 MSIMEPunctuationPairs 一致，另含按键才补的 {} 与全角 ｛｝。
+    // 成对表：与 macOS 的 MSIMEPunctuationPairs 一致。`{` 键出「，按「补」；花括号本身不再成对。
     check(PairedPunctuationClosingFor(L'（') == L'）', "paren pair");
     check(PairedPunctuationClosingFor(L'「') == L'」', "corner bracket pair");
-    check(PairedPunctuationClosingFor(L'｛') == L'｝', "full-width brace pair");
-    check(PairedPunctuationClosingFor(L'{') == L'}', "ascii brace pair");
+    check(PairedPunctuationClosingFor(L'｛') == 0, "full-width brace is not paired");
+    check(PairedPunctuationClosingFor(L'{') == 0, "ascii brace is not paired");
     check(PairedPunctuationClosingFor(L'“') == L'”', "double quote pair");
     check(PairedPunctuationClosingFor(L'『') == L'』', "corner double quote pair");
     check(PairedPunctuationClosingFor(L'〖') == L'〗', "hollow bracket pair");
@@ -77,7 +82,7 @@ int main() {
     check(PairedPunctuationClosingFor(L'。') == 0, "full stop is not an opening");
     check(PairedPunctuationClosingFor(L'）') == 0, "closing half is not an opening");
 
-    // 候选上屏只在整条文字恰好是一个左半边时补全，花括号只由按键补全。
+    // 候选上屏只在整条文字恰好是一个左半边时补全。
     check(PairedPunctuationClosingForCandidate(L"「") == L'」', "corner bracket candidate opens a pair");
     check(PairedPunctuationClosingForCandidate(L"《") == L'》', "book title candidate opens a pair");
     check(PairedPunctuationClosingForCandidate(L"‘") == L'’', "single quote candidate opens a pair");
@@ -86,10 +91,9 @@ int main() {
     check(PairedPunctuationClosingForCandidate(L"你好（") == 0, "a phrase ending in an opening mark stays as it is");
     check(PairedPunctuationClosingForCandidate(L"") == 0, "empty commit opens nothing");
 
-    // 全角模式下 `{` 键开的是 ｛，其余按键与半角时不变。
-    check(PairedPunctuationKeyOpening(L'{', L'{', true) == L'｛', "full-width brace key opens a full-width pair");
-    check(PairedPunctuationKeyOpening(L'{', L'{', false) == L'{', "half-width brace key keeps the ASCII brace");
-    check(PairedPunctuationKeyOpening(L'(', L'（', true) == L'（', "full width leaves other keys alone");
+    // `{` 键在成对模式下出的「不被改回：ReopenedPairedQuote 只改引号键的后半个；`}` 出的」也原样上屏，再由跨过收起补出的那一个。
+    check(ReopenedPairedQuote(L'{', L'「') == L'「', "the shifted left bracket keeps its corner bracket");
+    check(ReopenedPairedQuote(L'}', L'」') == L'」', "the shifted right bracket is not reopened");
 
     // Candidate navigation keeps paging on the main-row -/= and Tab, but not on the numpad arithmetic keys.
     check(IsCandidateNavigationKeyBeforePunctuation(0xBD), "main-row minus pages");

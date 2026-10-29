@@ -34,6 +34,20 @@ class KeyLayoutSettingsContract(unittest.TestCase):
             self.assertRegex(source, re.escape(f'choiceGroup(title: "{title}", footer: TouchKeyLayoutOffering.{footer},'))
         self.assertIn('DesignToggleRow(title: "顶部数字行", subtitle: TouchKeyLayoutOffering.numberRowSubtitle,', source)
 
+    def test_symbol_first_and_number_pad_use_the_shared_texts(self):
+        # #10056：互换开关在 26 键一组里，数字键盘一组有入口就列，文字取自三端共用的常量。
+        source = KEY_LAYOUT_PAGE.read_text()
+        self.assertIn("DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle,", source)
+        self.assertIn("subtitle: TouchKeyLayoutOffering.symbolFirstSubtitle,", source)
+        self.assertIn("save(TouchKeyLayoutStyle.save(symbolFirst: $0))", source)
+        self.assertRegex(source, re.escape("if offering.offersAnyGroup {") + r"[\s\S]*?"
+                         + re.escape("choiceGroup(title: TouchKeyLayoutOffering.numberPadTitle, footer: TouchKeyLayoutOffering.numberPadFooter,"))
+        self.assertIn("save(TouchKeyLayoutStyle.save(numberPadSpace: next))", source)
+        twenty_six = source.index('choiceGroup(title: "26 键"')
+        fourteen = source.index('choiceGroup(title: "14 键与 18 键"')
+        self.assertLess(twenty_six, source.index("TouchKeyLayoutOffering.symbolFirstTitle"))
+        self.assertLess(source.index("TouchKeyLayoutOffering.symbolFirstTitle"), fourteen, "the toggle sits in the 26-key group")
+
 
 if __name__ == "__main__":
     unittest.main()

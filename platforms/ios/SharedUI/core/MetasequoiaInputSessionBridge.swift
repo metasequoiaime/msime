@@ -417,6 +417,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateFixedPositions: [Int]
   /// 引擎当前页的高亮状态，跟随候选一起过滤与换页。
   let candidateHighlighted: [Bool]
+  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧在 `candidateAnnotations` 里。
+  let candidateConfidentCorrections: [Bool]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -458,7 +460,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
        candidateGlosses: [String] = [],
        candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
-       candidateHighlighted: [Bool] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateHighlighted: [Bool] = [], candidateConfidentCorrections: [Bool] = [],
+       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
@@ -479,6 +482,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidateSources = candidateSources
     self.candidateFixedPositions = candidateFixedPositions
     self.candidateHighlighted = candidateHighlighted
+    self.candidateConfidentCorrections = candidateConfidentCorrections
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
@@ -528,13 +532,29 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return !pendingCharacters.isEmpty
   }
 
-  /// 只接收普通全拼九键数字；字节与句柄按值移交，所有结果仍按投递顺序交给主线程。
+  /// 26 键双拼一键的按下点（#10018），含义与 `handleTouchCharacter` 的参数相同。
+  struct TouchPoint: Equatable {
+    let geometryID: UInt32
+    let x: Float
+    let y: Float
+  }
+
+  /// 能交给会话线程异步处理的按键：九键网格下的数字 2–9，不用网格（26 键）时的小写字母和微软双拼的 `;`；按下点只在 26 键上带。其余按键（分词、大写、标点、其他网格）仍走同步入口。
+  static func acceptsAsynchronousCharacter(_ byte: UInt8, grid: KeyGrid, touched: Bool) -> Bool {
+    switch grid {
+    case .nineKey: return !touched && (50...57).contains(byte)
+    case .none: return (97...122).contains(byte) || byte == 59
+    default: return false
+    }
+  }
+
+  /// 普通全拼九键数字，或 26 键全拼、双拼的字母（#10031）；方案由键盘判断，这里只按网格和字节把关。字节、句柄与按下点按值移交，所有结果仍按投递顺序交给主线程。
   @discardableResult
-  func enqueueNineKeyCharacter(_ character: String,
-                               completion: @escaping (MetasequoiaInputSnapshot) -> Void) -> Bool {
+  func enqueueCharacter(_ character: String, touch: TouchPoint? = nil,
+                        completion: @escaping (MetasequoiaInputSnapshot) -> Void) -> Bool {
     precondition(Thread.isMainThread)
-    guard handle != 0, keyGrid == .nineKey,
-          let byte = Self.ascii(character), (50...57).contains(byte) else { return false }
+    guard handle != 0, let byte = Self.ascii(character),
+          Self.acceptsAsynchronousCharacter(byte, grid: keyGrid, touched: touch != nil) else { return false }
     let pending = PendingCharacter(completion)
     let sessionHandle = handle
     pendingCharactersLock.lock()
@@ -544,7 +564,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       guard let self else { return }
       let snapshot: MetasequoiaInputSnapshot
       do {
-        guard let value = try Self.decode(msimeClientCharacter(sessionHandle, byte, false)) as? [String: Any]
+        let response = touch.map {
+          msimeClientTouchCharacter(sessionHandle, byte, false, $0.geometryID, $0.x, $0.y)
+        } ?? msimeClientCharacter(sessionHandle, byte, false)
+        guard let value = try Self.decode(response) as? [String: Any]
         else { throw InputBridgeFailure.invalidResponse }
         snapshot = try Self.snapshot(value)
       } catch {
@@ -2267,6 +2290,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidateHighlighted: try rows.map { try strictBool($0["highlighted"], fallback: false) },
+      candidateConfidentCorrections: try rows.map { try strictBool($0["confident_correction"], fallback: false) },
       candidatePageCount: pageCount,
       answeredByPinyinFallback: try strictBool(view["answered_by_pinyin_fallback"], fallback: false),
       diagnosticText: value["diagnostic"] as? String,

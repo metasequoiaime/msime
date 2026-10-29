@@ -37,12 +37,27 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   exit 1
 fi
 # 底行样式和数字行同理：设置页改了之后键盘开着也要按新排法重建键，所以这四个值都要在 faceKey() 里；密码框、数字框退回标准底行也换键，所以编辑框这一项也要在。
-for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField; do
+for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField this.twentySixSymbolFirst this.numberPadSpace; do
   if ! grep -qF "$field" <<< "$face_key_body"; then
     echo "KeyboardView.faceKey must include $field so a live layout style change redraws the keys" >&2
     exit 1
   fi
 done
+# 「符」与「123」互换和数字键盘空格位置（#10056）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行按开关互换，借来的数字九宫格按互换后的字母层排前两键，数字层底行按空格位置排，右列最下面一格在空格位置为右列时画空格；两项从会话偏好读，设置页改了就随 applySettings 换。
+keyboard_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+if ! grep -qF 'return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(),' "$keyboard_view" \
+  || ! grep -qF '|| this.letterRowSymbolLeads());' "$keyboard_view" \
+  || ! grep -qF 'return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,' "$keyboard_view" \
+  || ! grep -qF 'if (this.symbols && this.numberPadSpace === TouchLayoutStylePolicy.RIGHT_COLUMN) {' "$keyboard_view" \
+  || ! grep -qF 'this.twentySixSymbolFirst = this.settings.twentySixSymbolFirst;' "$keyboard_view" \
+  || ! grep -qF 'this.numberPadSpace = this.settings.numberPadSpace;' "$keyboard_view" \
+  || ! grep -qF 'numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"; then
+  echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
+  exit 1
+fi
 # 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
 statistics_auth="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/settings/StatisticsAuthentication.ets"
 if [[ $(grep -cF "getSync('enabled', false)" "$statistics_auth") -ne 2 ]] \
@@ -83,12 +98,12 @@ if ! grep -qF 'KeyboardSession.shared.pressElseCommitThenType(' <<< "$digit_body
   echo "A number-row digit typed while composing must go through KeyboardSession.pressElseCommitThenType, which decides on the engine's handled flag and types the digit after the commit when the engine declines it" >&2
   exit 1
 fi
-# 冷启动第一帧的高度（`TouchLayoutStylePolicy.firstPanel`，规则由 touch-layout-styles.test.ts 覆盖）：扩展能力要在挂上视图之前定下形状，视图出现时在任何带 @Watch 的状态被赋值之前从同一个形状出发核对，否则两边起点不同，记下的键面与实际不符时面板会停在错的高度。两边都是 ArkTS，这里钉住接线次序。
+# 冷启动第一帧的高度（`TouchLayoutStylePolicy.firstPanel`，规则由 touch-layout-styles.test.ts 覆盖）：扩展能力要在挂上视图之前定下形状，视图出现时在任何带 @Watch 的状态被赋值之前从同一个形状出发核对，否则两边起点不同，记下的键面与实际不符时面板会停在错的高度。第一帧的工具条也要按「候选栏大小」定高（#10137），和视图的 `stripHeight` 一致。两边都是 ArkTS，这里钉住接线次序。
 ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 decide_line=$(grep -nF 'KeyboardSession.shared.decideFirstTouchPanel(' "$ability" | head -n 1 | cut -d: -f1)
 mount_line=$(grep -nF "await panel.setUiContent('keyboard/KeyboardView');" "$ability" | head -n 1 | cut -d: -f1)
 if [[ -z "$decide_line" || -z "$mount_line" ]] || (( decide_line >= mount_line )) \
-  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);' "$ability"; then
+  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);' "$ability"; then
   echo "KeyboardExtensionAbility must decide the first touch panel shape before mounting KeyboardView and size the panel from it" >&2
   exit 1
 fi
@@ -435,6 +450,48 @@ if ! grep -qF 'this.recordLetterTouch($$.letter, event);' "$view" \
   || [[ $(grep -cF 'TouchPointPolicy.geometryLayout(' "$view") -ne 1 ]] \
   || grep -qE 'touchLayout(Cache|Dirty)' "$view"; then
   echo "KeyboardView must record each letter's touch-down against the key it pressed, drop it on Cancel and when the face is replaced, record the semicolon key, take it through takeTouch at the key's current rect, and compute touchLayout on every key without a cache" >&2
+  exit 1
+fi
+# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，流式识别停顿自动结束。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
+lock_branch=$(sed -n '/^      if (action === VoiceHotkeyAction.LOCK) {$/,/^      }$/p' "$view")
+if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
+  || ! grep -qF 'primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),' "$view" \
+  || ! grep -qF 'cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),' "$view"; then
+  echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
+  exit 1
+fi
+# 双拼纠错坐上首选的显式标记（#10018）：引擎只在那一行带 `confident_correction: true`。读法、读屏后缀、标记色以及展开面板选哪套令牌由 keyboard-logic.test.ts 的 `CorrectionMarkPolicy` 覆盖；会话和视图是 ArkTS，这里钉住接线和每处传进去的令牌：会话把引擎行变成候选栏、展开面板的三处都经 `CorrectionMarkPolicy.confident` 读这个键，翻译页的行一律不标；视图在候选窗、触屏胶囊上的候选字经 `candidateWordColor`、注释释义经 `candidateDetailTint` 换成标记色（两处里不再有没经过它的次要色），展开面板格子经 `CorrectionMarkPolicy.cellTextColor` 用 `expandedSurfaceColors`；两套令牌逐项钉住，交换高亮字色与强调色、换掉画布判断都会失败；两处读屏朗读都接上「已纠正」后缀。去掉空白和换行后比较整段调用，参数换行不影响。
+view_body() { sed -n "/^  $1\$/,/^  }\$/p" "$view" | tr -d ' \n'; }
+label_body=$(sed -n '/^  private candidateLabel(candidate: CandidateEntry, index: number): string {$/,/^  }$/p' "$view")
+expanded_label_body=$(sed -n '/^  private expandedLabel(index: number): string {$/,/^  }$/p' "$view")
+primary_body=$(view_body 'candidatePrimaryLine(candidate: CandidateEntry) {')
+cell_body=$(view_body 'candidateCell(candidate: CandidateEntry, index: number) {')
+chip_body=$(view_body 'candidateChip(candidate: CandidateEntry, index: number) {')
+grid_body=$(view_body 'expandedGrid() {')
+surface_body=$(view_body 'private candidateSurfaceColors(): CorrectionSurfaceColors {')
+word_body=$(view_body 'private candidateWordColor(candidate: CandidateEntry): string {')
+detail_body=$(view_body 'private candidateDetailTint(candidate: CandidateEntry, base: string): string {')
+expanded_surface_body=$(view_body 'private expandedSurfaceColors(): CorrectionSurfaceColors {')
+if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)' "$session") -ne 3 ]] \
+  || ! grep -qF 'fixedPosition: 0, source: 0, translation: null, confidentCorrection: false' "$session" \
+  || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$primary_body" | wc -l) -ne 1 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$primary_body" | wc -l) -ne 5 ]] \
+  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$primary_body" \
+  || ! grep -qF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$cell_body" \
+  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$cell_body" \
+  || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$chip_body" | wc -l) -ne 1 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.skin.secondary))' <<< "$chip_body" | wc -l) -ne 3 ]] \
+  || grep -qF '.fontColor(this.skin.secondary)' <<< "$chip_body" \
+  || ! grep -qF '.fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,this.expandedHighlighted(cell.index),this.expandedSurfaceColors()))' <<< "$grid_body" \
+  || ! grep -qF 'text:this.candidateTextColor(),highlightedText:this.candidateSelectedTextColor(),accent:this.candidateAccentColor()' <<< "$surface_body" \
+  || ! grep -qF 'if(CandidatePresentationPolicy.aiPlaceholder(candidate.source))returnthis.candidateDetailColor();returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,CandidateSkinPolicy.rowTextColor(candidate.highlighted,candidate.fixedPosition>0,this.candidateTextColor(),this.candidateSelectedTextColor()),this.candidateSurfaceColors());' <<< "$word_body" \
+  || ! grep -qF 'returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,base,this.candidateSurfaceColors());' <<< "$detail_body" \
+  || ! grep -qF 'text:this.skin.keyForeground,highlightedText:this.skin.toggleForeground,accent:this.skin.accent' <<< "$expanded_surface_body" \
+  || ! grep -qF 'returnCorrectionMarkPolicy.expandedSurface(this.settings.candidateCanvas!==null,this.candidateSurfaceColors(),keyboard);' <<< "$expanded_surface_body" \
+  || grep -qF 'correctionDecoration' "$view" \
+  || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
+  || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
+  echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

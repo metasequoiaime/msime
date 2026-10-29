@@ -40,6 +40,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_quanpin_shift",
         # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
         "next_word_prediction",
+        # 上屏后联想候选栏右端的按键样式（#10078）随联想开关一起只在 Android 原生设置页提供。
+        "next_word_prediction_buttons",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """检查符号名称表的副本没有在 msime 里被手改。
 
-crates/engine/src/local/symbol_candidates.tsv 与 plugins/phrase_table/latex-symbols/symbols.tsv 是 msime-dictionary 的 sources/symbols/ 下两份表的逐字节副本，由 scripts/sync_symbol_tables.py 按 resources/symbol-tables.lock.json 同步。这里离线核对副本的大小和 SHA-256 等于锁，改副本而不改词库仓、或改了锁却没同步，都在这里失败；不联网。
+crates/engine/src/local/symbol_candidates.tsv、crates/engine/src/local/latex_symbols.tsv 与 plugins/phrase_table/latex-symbols/symbols.tsv 是 msime-dictionary 的 sources/symbols/ 下两份表的逐字节副本（LaTeX 命令名表有引擎和短语表两份），由 scripts/sync_symbol_tables.py 按 resources/symbol-tables.lock.json 同步。这里离线核对副本的大小和 SHA-256 等于锁，改副本而不改词库仓、或改了锁却没同步，都在这里失败；不联网。
 """
 import sys
 from pathlib import Path

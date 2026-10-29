@@ -39,7 +39,7 @@ Status: implemented
 ### 座位
 
 - 纠错整句的分数（已扣罚分）不比字面整句低出 `show_margin`，而且它改动的每一键在落点下改过去的价都不超过 `show_penalty`（`touch_supports_correction` 按纠错读音逐音节对回两键码，在规划纠错边时算好的那一份计价变体里查这一键，不重新计价）时，这一行标上 `WordItem::touch_supported`。快照带一列与候选同步排列的 `candidate_touch_supported`（一行都没有时为空），runtime 调 `ordering::runner_up_order_with(scheme, rows, &candidate_touch_supported)`：标上的纠错行不算整句读法，留在引擎给的座位上（整句块之后），前三条字面读法照旧，其余读法照旧挪到表尾。没标上的纠错行和没有触点的表一样沉底，网页引擎和桌面不受影响。按行而不是按整张表：开了模糊音时，替代拼写按平面表查出的纠错整句也带 `corrected_from`，却没有触点、没过闸；整张表一个标志会让它跟着主纠错行一起逃过沉底。
-- 纠错整句仍不抢首选：`typo_sentence_seat`、`keep_typo_sentence_off_first_seat`、`corrections_may_lead` 都没动，旧评测的 `top1_changed` 为 0，只能说明原本排第一的金标准没有降位；实际首选是否变化由单独比较候选文本的 `--assert-top1-unchanged` 检查。
+- 纠错整句仍不抢首选：`typo_sentence_seat`、`keep_typo_sentence_off_first_seat`、`corrections_may_lead` 都没动，旧评测的 `top1_changed` 为 0，只能说明原本排第一的金标准没有降位；实际首选是否变化由单独比较候选文本的 `--assert-top1-unchanged` 检查。坐首选的规则后来另立一篇，见[双拼触点纠错坐首选的规则](2026-10-29-shuangpin-touch-first-seat.md)。
 
 ### 参数
 
@@ -198,7 +198,7 @@ iOS 三份是测试宿主排出来的，不是键盘扩展在系统里真正注�
   - 光标前缀查询、撤回选词后重打、无障碍点击和程序化点击没有触点，按平面表算。
   - 1–2 个音节的输入还没有纠错（纠错整句至少 3 个音节），是后面一期的事。
 - **隐私**：坐标只在会话内存里用，量化后的触点只进内存里的缓存键，不落盘、不进统计、不上传。
-- **重访信号**：有了真机导出的几何或真实盲打的落点分布之后要重扫这里的全部参数；首选规则（`confident_correction`）那一期要在这里的 `touch_supported` 之外另设更严的闸。用户接受过的码对给这里的罚分打折、被拒绝的输入不再纠，见[双拼纠错按两键码学习](2026-10-28-shuangpin-typo-learning.md)。
+- **重访信号**：有了真机导出的几何或真实盲打的落点分布之后要重扫这里的全部参数；首选规则（`confident_correction`）在这里的 `touch_supported` 之外另设了更严的闸，见[双拼触点纠错坐首选的规则](2026-10-29-shuangpin-touch-first-seat.md)。用户接受过的码对给这里的罚分打折、被拒绝的输入不再纠，见[双拼纠错按两键码学习](2026-10-28-shuangpin-typo-learning.md)。
 
 ## Verification
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「键盘 › 按键布局」：26 键、14 键与 18 键、9 键三类键面各选一种底行样式，外加顶部数字行开关，对应共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 与 `touch_number_row`（`TouchKeyLayoutStyle`）。三端同一套选项和画法，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
+/// 「键盘 › 按键布局」：26 键、14 键与 18 键、9 键三类键面各选一种底行样式，26 键一组末尾是「26 键「符」与「123」互换」开关，接着是「数字键盘」一组（空格在右列、0 右边或 0 左边，没选过时勾 iOS 原来的「空格在 0 右边」），外加顶部数字行开关，对应共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_number_pad_space` 与 `touch_number_row`（`TouchKeyLayoutStyle`）。三端同一套选项和画法，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md 与 2026-10-29-touch-symbol-first-and-number-pad-space.md。
 ///
 /// 每个选项下面画一条那种底行的缩略图，键的顺序和宽度取自键盘用的同一张表（`TouchBottomRowLayout`）。本版本不提供的键面类型不列出它那一组，既没有中文 26 键也没有 14/18 键时不列顶部数字行开关（`TouchKeyLayoutOffering`）。改动只写刚选的那一项，键盘下次出现或重载文档时当场换上，不打断正在组的字。
 struct KeyboardKeyLayoutSettingsView: View {
@@ -16,7 +16,16 @@ struct KeyboardKeyLayoutSettingsView: View {
           choiceGroup(title: "26 键", footer: TouchKeyLayoutOffering.twentySixKeyFooter,
                       options: TouchTwentySixKeyStyle.allCases, selected: style.twentySixKey, label: \.title,
                       identifier: { "keyLayout26_\($0.rawValue)" },
-                      preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.twentySixKey($0, globe: false)) }) { next in
+                      preview: { option in
+                        let keys = TouchBottomRowLayout.twentySixKey(option, globe: false)
+                        return KeyLayoutRowPreview(keys: style.symbolFirst ? TouchBottomRowLayout.symbolFirst(keys) : keys)
+                      },
+                      trailing: AnyView(
+                        DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle,
+                                        subtitle: TouchKeyLayoutOffering.symbolFirstSubtitle,
+                                        isOn: Binding(get: { style.symbolFirst },
+                                                      set: { save(TouchKeyLayoutStyle.save(symbolFirst: $0)) }))
+                          .accessibilityIdentifier("keyLayoutSymbolFirstToggle"))) { next in
             save(TouchKeyLayoutStyle.save(twentySixKey: next))
           }
         }
@@ -34,6 +43,14 @@ struct KeyboardKeyLayoutSettingsView: View {
                       identifier: { "keyLayout9_\($0.rawValue)" },
                       preview: { KeyLayoutRowPreview(keys: TouchBottomRowLayout.nineKey($0, globe: false), tallReturn: $0 == .tallReturn) }) { next in
             save(TouchKeyLayoutStyle.save(nineKey: next))
+          }
+        }
+        if offering.offersAnyGroup {
+          // 九宫格数字键盘从各类中文键面都进得去（九键自己的数字层或借来的数字九宫格），有入口就列这一组。
+          choiceGroup(title: TouchKeyLayoutOffering.numberPadTitle, footer: TouchKeyLayoutOffering.numberPadFooter,
+                      options: TouchNumberPadSpace.allCases, selected: style.numberPadSpace, label: \.title,
+                      identifier: { "keyLayoutNumberPad_\($0.rawValue)" }) { next in
+            save(TouchKeyLayoutStyle.save(numberPadSpace: next))
           }
         }
         if offering.numberRow {
@@ -60,10 +77,11 @@ struct KeyboardKeyLayoutSettingsView: View {
     .reloadOnAppearAndActive(readPreferences)
   }
 
+  /// 一组单选；`preview` 为空时选项下不画缩略图，`trailing` 画在选项之后（26 键一组的互换开关）。
   private func choiceGroup<Value: Hashable>(
     title: String, footer: String?, options: [Value], selected: Value, label optionTitle: @escaping (Value) -> String,
-    identifier: @escaping (Value) -> String, preview: @escaping (Value) -> KeyLayoutRowPreview,
-    onSelect: @escaping (Value) -> Void
+    identifier: @escaping (Value) -> String, preview: ((Value) -> KeyLayoutRowPreview)? = nil,
+    trailing: AnyView? = nil, onSelect: @escaping (Value) -> Void
   ) -> some View {
     DesignGroup(title: title, footer: footer) {
       ForEach(Array(options.enumerated()), id: \.offset) { index, option in
@@ -81,7 +99,7 @@ struct KeyboardKeyLayoutSettingsView: View {
                   .foregroundStyle(MetasequoiaTheme.accent).accessibilityHidden(true)
               }
             }
-            preview(option).accessibilityHidden(true)
+            if let preview { preview(option).accessibilityHidden(true) }
           }
           .padding(.vertical, 10)
           .padding(.horizontal, 20)
@@ -92,6 +110,10 @@ struct KeyboardKeyLayoutSettingsView: View {
         .accessibilityIdentifier(identifier(option))
         .accessibilityValue(option == selected ? "已选择" : "未选择")
         .accessibilityAddTraits(option == selected ? .isSelected : [])
+      }
+      if let trailing {
+        DesignDivider()
+        trailing
       }
     }
   }
