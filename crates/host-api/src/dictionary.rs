@@ -971,8 +971,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let start = chunk * IMPORT_EDIT_BATCH;
                 for (offset, written) in import_chunk(&options, rows, ids).into_iter().enumerate() {
                     if !written {
-                        // A hans import has no parsed report, so its rows have no
-                        // line to name; they are still counted.
+                        // A hans import has no parsed report, so its rows have no line to name; they are still counted.
                         rejected_lines.push(source_lines.get(start + offset).copied().unwrap_or(0));
                         continue;
                     }

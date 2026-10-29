@@ -36,7 +36,7 @@ Linux 两个宿主建会话时先拿整份回复，`msime::linux_host::dictionar
 
 ## Verification
 
-- `cargo test -p msime-host-api --lib settings_import`：`a_settings_import_writes_across_bounded_batches_and_names_a_refused_line` 导入 300 行，第 201 行用触发器 `RAISE(ROLLBACK)` 撤销外层事务，断言只拒掉这一行（applied 299、`first_failures` 行号 201）、同一请求重放不重复写入、去掉触发器后重放补上这一行；若没有逐行退回，第二块的 128 行会因为这一行整块被拒。`a_settings_import_the_engine_refuses_entirely_is_a_failed_import` 断言全部被拒时整次导入失败。
+- `cargo test -p msime-host-api --lib settings_import`：`a_settings_import_writes_across_bounded_batches_and_names_a_refused_line` 导入 300 行，第 201 行用触发器 `RAISE(ROLLBACK)` 撤销外层事务，断言只拒掉这一行（applied 299、`first_failures` 行号 201）、同一请求重放不重复写入、去掉触发器后重放补上这一行；若没有逐行退回，第二块的 128 行会因为这一行整块被拒。同一测试另挂一个触发器，记下写每一行的连接到此为止的 `total_changes()`：第一块 128 行、第三块 44 行各自计数两两不同（一条连接、一个事务写完），第二块的 127 行计数全相同（逐行各开一条连接），所以一个总是走逐行退回的实现也会失败。`a_settings_import_the_engine_refuses_entirely_is_a_failed_import` 断言全部被拒时整次导入失败。
 - `synthetic_settings_import_throughput`（`#[ignore]`，`MSIME_BATCH_BENCH_WORDS=20000`，debug 构建，Mac Studio）：逐行写入共 165641 ms、最长的 1000 行请求 11830 ms；分批之后共 7051 ms、最长请求 595 ms。只用合成词和空主库，不能外推为真机或慢盘上的承诺。
 - `cargo test -p msime-client-services --lib dictionary::quiesce`：`a_request_that_runs_past_the_renewal_interval_keeps_the_lease_renewed` 把续期间隔调成 20 ms，断言请求执行 200 ms 期间租约过期时间被推后、请求返回后不再改写、放下后租约撤掉。
-- `platforms/linux/tests/core/dictionary_quiesce_lease.cpp` 覆盖 `dictionary_maintenance_busy` 只认 `ok` 为假且原因正好是 `dictionary maintenance busy` 的回复；`tests/core/fcitx5_contract.py` 断言两个宿主都在建会话之后、会话 opt-in 之前做这项判断。Fcitx5 和 IBus 宿主本体只在 PR CI 的 Linux 构建里编译；在 Deepin 或其他 Linux 实机上导入大词库并同时打字还没有验收。
+- `platforms/linux/tests/core/dictionary_quiesce_lease.cpp`（目标带 `-UNDEBUG`，Release 构建的 ctest 里断言照样生效）覆盖 `dictionary_maintenance_busy` 只认 `ok` 为假且原因正好是 `dictionary maintenance busy` 的回复；`tests/core/fcitx5_contract.py` 断言两个宿主都在建会话之后、会话 opt-in 之前做这项判断。Fcitx5 和 IBus 宿主本体只在 PR CI 的 Linux 构建里编译；在 Deepin 或其他 Linux 实机上导入大词库并同时打字还没有验收。

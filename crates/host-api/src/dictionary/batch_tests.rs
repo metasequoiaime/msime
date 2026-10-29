@@ -640,9 +640,29 @@ fn a_settings_import_writes_across_bounded_batches_and_names_a_refused_line() {
     // 第 201 行落在第二块（第 129 到 256 行）中间；它撤销整个外层事务，这一块要退回逐行写入，只拒掉它自己。
     let journal = rusqlite::Connection::open(root.path().join("user/msime_user.db")).unwrap();
     journal.execute_batch(&format!("CREATE TRIGGER synthetic_rollback BEFORE INSERT ON user_dictionary_operations WHEN NEW.value='{}' BEGIN SELECT RAISE(ROLLBACK,'synthetic rollback'); END;", word(1200).value)).unwrap();
+    // 每写一行记下写它的连接到此为止的累计改动数（total_changes()）。同一个事务里连续写的一块共用一条连接，计数逐行增长；逐行写入每行新开连接，计数每行都一样。
+    journal.execute_batch("CREATE TABLE import_audit(value TEXT NOT NULL, changes INTEGER NOT NULL); CREATE TRIGGER import_audit AFTER INSERT ON user_dictionary_operations BEGIN INSERT INTO import_audit VALUES(NEW.value, total_changes()); END;").unwrap();
     let text = settings_import_text(1000..1300);
     let imported = settings_import(&options, &text, "ui-import-batch");
     assert_eq!(imported["ok"], true, "{imported}");
+    let audit: std::collections::HashMap<String, i64> = journal
+        .prepare("SELECT value, changes FROM import_audit")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let distinct_changes = |words: std::ops::Range<u32>| {
+        words
+            .filter_map(|index| audit.get(&word(index).value).copied())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    // 第一块和第三块各在一个事务里写完；第二块整块被撤销后逐行重写，127 行（除被拒的第 201 行）每行一条新连接。
+    assert_eq!(distinct_changes(1000..1128), 128, "{audit:?}");
+    assert_eq!(distinct_changes(1256..1300), 44, "{audit:?}");
+    assert_eq!(distinct_changes(1128..1256), 1, "{audit:?}");
+    assert_eq!(audit.len(), 299, "{audit:?}");
     assert_eq!(imported["value"]["applied"], 299, "{imported}");
     assert_eq!(imported["value"]["failed"], 1, "{imported}");
     assert_eq!(
