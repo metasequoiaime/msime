@@ -1443,13 +1443,14 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--modifier-focus" ||
+                                       std::string(argv[2]) == "--mode-field-hints" ||
                                        std::string(argv[2]) == "--caps-lock" ||
                                        std::string(argv[2]) == "--app-rules" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--modifier-focus|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
+            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--modifier-focus|--mode-field-hints|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1773,6 +1774,64 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--mode-field-hints") {
+      const auto modifier = [&](fcitx::KeySym sym, bool release = false) {
+        const auto held = (sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R)
+            ? fcitx::KeyState::Shift : fcitx::KeyState::Ctrl;
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, release ? fcitx::KeyStates(held)
+                                                        : fcitx::KeyStates()), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto tap = [&](fcitx::KeySym sym) {
+        modifier(sym);
+        require(!modifier(sym, true), "模式切换的修饰键松开仍交还应用");
+      };
+      // 普通不检查拼写字段与地址栏都允许本地切换，学习及联网限制仍保留。
+      for (const auto purpose : {fcitx::CapabilityFlag::NoFlag, fcitx::CapabilityFlag::Url}) {
+        ic.setCapabilityFlags(fcitx::CapabilityFlags{
+            fcitx::CapabilityFlag::Preedit, fcitx::CapabilityFlag::NoSpellCheck, purpose});
+        require(state->ensure(), "不检查拼写的字段仍可建立输入会话");
+        state->input_enabled_ = true;
+        for (const auto shift : {FcitxKey_Shift_L, FcitxKey_Shift_R}) {
+          tap(shift);
+          require(!state->input_enabled_, "不检查拼写的字段应允许 Shift 切到英文");
+          tap(shift);
+          require(state->input_enabled_, "不检查拼写的字段应允许 Shift 切回中文");
+        }
+        state->mode_ctrl_enabled_ = true;
+        tap(FcitxKey_Control_L);
+        require(!state->input_enabled_, "开启单按 Ctrl 时不检查拼写的字段也可切换");
+        tap(FcitxKey_Control_L);
+        require(state->input_enabled_, "单按 Ctrl 可以切回中文");
+        state->mode_ctrl_enabled_ = false;
+        require(!state->preferences_.at("learning").get<bool>() &&
+                !state->preferences_.at("cloud_candidates").get<bool>() &&
+                !state->preferences_.at("ai_assistant").at("enabled").get<bool>(),
+                "切换中英文不放开不检查拼写字段的学习和联网");
+      }
+      // NoSpellCheck 不得掩盖更严格的字段限制。
+      for (const auto restriction : {fcitx::CapabilityFlag::Sensitive, fcitx::CapabilityFlag::Password,
+                                     fcitx::CapabilityFlag::Disable, fcitx::CapabilityFlag::Digit,
+                                     fcitx::CapabilityFlag::Number, fcitx::CapabilityFlag::Dialable}) {
+        ic.setCapabilityFlags(fcitx::CapabilityFlags{
+            fcitx::CapabilityFlag::Preedit, fcitx::CapabilityFlag::NoSpellCheck, restriction});
+        state->ensure();
+        const bool before = state->input_enabled_;
+        tap(FcitxKey_Shift_L);
+        require(state->input_enabled_ == before, "敏感或受限字段仍禁止 Shift 切换");
+        require(!state->toggleInputMode(), "模式切换入口仍遵守敏感及受限字段限制");
+      }
+      ic.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
+      require(state->ensure(), "返回普通输入框后会话恢复");
+      state->input_enabled_ = true;
+      tap(FcitxKey_Shift_L);
+      require(!state->input_enabled_, "返回普通输入框后 Shift 仍可切换");
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 不检查拼写字段的模式切换与隐私边界通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--modifier-focus") {
       const auto shiftHeld = fcitx::KeyStates(fcitx::KeyState::Shift);
       const auto ctrlHeld = fcitx::KeyStates(fcitx::KeyState::Ctrl);

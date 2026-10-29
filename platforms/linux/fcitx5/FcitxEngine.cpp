@@ -1251,7 +1251,9 @@ public:
     syncSessionChinesePunctuation();
   }
   bool toggleInputMode() {
-    if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
+    // 不检查拼写的地址栏允许本地模式切换，学习和联网仍由 privateInput() 限制。
+    if (!session_ || restricted() || ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) ||
+        !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
     // 用户手动切换：这个程序的应用例外在这次停留里让位。
@@ -8935,7 +8937,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       const bool within_window =
           !armed || std::chrono::steady_clock::now() <= modifier_toggle_deadline_;
       if (candidate && enabled && within_window && ic_.hasFocus() && !restricted() &&
-          !privateInput() &&
+          !ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) &&
           !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
                                           fcitx::KeyState::Hyper}) &&
           !event.rawKey().states().test(shiftRelease ? fcitx::KeyState::Ctrl : fcitx::KeyState::Shift) &&

@@ -295,6 +295,8 @@ if(BUILD_TESTING)
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
     add_test(NAME fcitx5-modifier-focus
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --modifier-focus)
+    add_test(NAME fcitx5-mode-field-hints
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --mode-field-hints)
     add_test(NAME fcitx5-native-smart-abc
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --smart-abc)
     add_test(NAME fcitx5-punctuation-context
