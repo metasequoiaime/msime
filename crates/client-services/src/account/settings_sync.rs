@@ -15,8 +15,9 @@ use crate::host_surface::HostPlatform;
 use crate::preferences::{
     BracketStyle, FrequencyMode, FrequencyPreferences, GrammarModel, InputScheme,
     NumberKeypadOrder, Preferences, QuoteStyle, SecondThirdCandidateKeys, ShuangpinProfile,
-    ThemeMode, TouchFourteenKeyStyle, TouchKeyboardLayout, TouchNineKeyStyle, TouchNumberPadSpace,
-    TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
+    ThemeMode, TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle,
+    TouchNumberPadSpace, TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout,
+    WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,8 @@ const NUMBER_ROW: &str = "platform.android.number_row";
 const TWENTY_SIX_SYMBOL_FIRST: &str = "platform.android.twenty_six_symbol_first";
 /// 共享偏好 `touch_number_pad_space`；账号字段表收录它之前上传时会被滤掉。
 const NUMBER_PAD_SPACE: &str = "platform.android.number_pad_space";
+/// 共享偏好 `touch_language_key_side`；账号字段表收录它之前上传时会被滤掉。
+const LANGUAGE_KEY_SIDE: &str = "platform.android.language_key_side";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -83,6 +86,7 @@ pub(super) struct TouchHostKeys {
     pub(super) number_row: &'static str,
     pub(super) twenty_six_symbol_first: &'static str,
     pub(super) number_pad_space: &'static str,
+    pub(super) language_key_side: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -111,6 +115,7 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     number_row: NUMBER_ROW,
     twenty_six_symbol_first: TWENTY_SIX_SYMBOL_FIRST,
     number_pad_space: NUMBER_PAD_SPACE,
+    language_key_side: LANGUAGE_KEY_SIDE,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -573,6 +578,11 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.number_pad_space,
         preferences.touch_number_pad_space.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.language_key_side,
+        preferences.touch_language_key_side.as_str(),
     );
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
@@ -1471,6 +1481,11 @@ pub(super) fn apply_touch_settings(
     // 数字键盘空格位置按严格写法应用：较新版本加的排法本机不认识时只跳过这一个键。`platform_default` 是「各端照自己原来的排法」，在另一端应用时得到那一端的出厂排法。
     applier.set_string(keys.number_pad_space, |preferences, value| {
         preferences.touch_number_pad_space = TouchNumberPadSpace::parse(value)?;
+        Some(())
+    })?;
+    // 中/英键位置同样按严格写法应用，本机不认识的位置只跳过这一个键。
+    applier.set_string(keys.language_key_side, |preferences, value| {
+        preferences.touch_language_key_side = TouchLanguageKeySide::parse(value)?;
         Some(())
     })?;
 

@@ -204,6 +204,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_layout",
             "platform.android.keyboard_skin_dark",
             "platform.android.keyboard_skin_light",
+            "platform.android.language_key_side",
             "platform.android.nine_key_style",
             "platform.android.number_keypad_order",
             "platform.android.number_pad_space",
@@ -369,6 +370,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_number_row: !Preferences::default().touch_number_row,
         touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
         touch_number_pad_space: TouchNumberPadSpace::BeforeZero,
+        touch_language_key_side: TouchLanguageKeySide::Left,
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {
@@ -1567,6 +1569,63 @@ fn symbol_first_and_number_pad_space_sync_by_their_wire_names() {
         Preferences {
             touch_twenty_six_symbol_first: true,
             ..chosen
+        }
+    );
+}
+
+/// 中/英键位置按共享偏好的写法上传，读回来还是原值；默认的右边也导出，云端写回 `right` 时本机回到右边，云端是本机不认识的位置时只跳过这一个键。
+#[test]
+fn language_key_side_syncs_by_its_wire_name() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[LANGUAGE_KEY_SIDE],
+        AccountPreferenceValue::String("right".into())
+    );
+
+    let left = Preferences {
+        touch_language_key_side: TouchLanguageKeySide::Left,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&left, None).unwrap();
+    assert_eq!(
+        exported[LANGUAGE_KEY_SIDE],
+        AccountPreferenceValue::String("left".into())
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, left);
+
+    let applied = apply(
+        &left,
+        BTreeMap::from([(
+            LANGUAGE_KEY_SIDE.to_owned(),
+            AccountPreferenceValue::String("right".into()),
+        )]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    let applied = apply(
+        &left,
+        BTreeMap::from([
+            (
+                LANGUAGE_KEY_SIDE.to_owned(),
+                AccountPreferenceValue::String("before_space".into()),
+            ),
+            (
+                TWENTY_SIX_SYMBOL_FIRST.to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+        ]),
+        &full_schema(),
+    );
+    assert_eq!(applied.skipped, [LANGUAGE_KEY_SIDE]);
+    assert_eq!(
+        applied.preferences,
+        Preferences {
+            touch_twenty_six_symbol_first: true,
+            ..left
         }
     );
 }

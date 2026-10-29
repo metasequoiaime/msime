@@ -164,6 +164,8 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_symbol_first?: boolean;
     /** 手机触屏九宫格数字键盘里空格的位置：`right_column` 在右列（0 占底行中间），`after_zero` 在底行 0 的右边，`before_zero` 在底行 0 的左边；`platform_default` 是各端原来的排法（Android 右列、iOS 0 右边、鸿蒙 0 左边）。右侧大回车的数字层不受影响。缺省为 `platform_default`，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_number_pad_space?: "platform_default" | "right_column" | "after_zero" | "before_zero";
+    /** 手机触屏底行的中/英键在空格哪一边：`right` 在空格右边、紧挨回车；`left` 在空格左边，空格左边有逗号或句号时排在标点左边，标点仍紧挨空格。iPad 全尺寸键盘和鸿蒙 2in1 不受影响。缺省为 `right`，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_language_key_side?: "right" | "left";
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;
