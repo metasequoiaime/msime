@@ -8470,18 +8470,20 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(ffi::keyboard_reranker(false, "", None).is_none());
 }
 
-/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
+/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
-    let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
+    let synthetic = tempfile::tempdir().unwrap();
+    let model = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
         .into_iter()
         .filter_map(std::env::var_os)
         .map(|directory| std::path::PathBuf::from(directory).join(ffi::SENTENCE_MODEL_FILE))
         .find(|path| path.is_file())
-    else {
-        eprintln!("skipping: no sentence model in MSIME_EVAL_RESOURCES or MSIME_NEURAL_MODEL_DIR");
-        return;
-    };
+        .unwrap_or_else(|| {
+            let path = synthetic.path().join(ffi::SENTENCE_MODEL_FILE);
+            write_context_free_sentence_model(&path);
+            path
+        });
     let create = |root: &std::path::Path, preferences: &Preferences| {
         let path = |name| {
             let path = root.join(name);
@@ -8528,6 +8530,51 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
         "增强 attaches the keyboard model when the session opens"
     );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// Writes the smallest sentence model `SentenceModel::load` accepts: no layers, a one-wide embedding and only the three special tokens, so every context gets the same logits. It is good for checking that a reranker is mounted, not for anything it would rank.
+fn write_context_free_sentence_model(path: &std::path::Path) {
+    const CONTEXT: usize = 16;
+    let vocabulary = ["<pad>", "<unk>", "<bos>"];
+    let config = format!(
+        r#"{{"vocab":{},"n_layer":0,"n_head":1,"n_embd":1,"context":{CONTEXT},"dropout":0.0}}"#,
+        vocabulary.len()
+    );
+    let tensors: [(&str, Vec<usize>, Vec<f32>); 4] = [
+        (
+            "tok.weight",
+            vec![vocabulary.len(), 1],
+            vec![0.0, -8.0, 0.0],
+        ),
+        ("pos.weight", vec![CONTEXT, 1], vec![0.0; CONTEXT]),
+        ("ln_f.weight", vec![1], vec![0.0]),
+        ("ln_f.bias", vec![1], vec![1.0]),
+    ];
+    let mut header = serde_json::Map::new();
+    header.insert(
+        "__metadata__".into(),
+        json!({
+            "format": "chinese-ime-lm",
+            "version": "1",
+            "precision": "f32",
+            "config": config,
+            "vocab": serde_json::to_string(&vocabulary).unwrap(),
+        }),
+    );
+    let mut data = Vec::new();
+    for (name, shape, values) in tensors {
+        let start = data.len();
+        data.extend(values.iter().flat_map(|value| value.to_le_bytes()));
+        header.insert(
+            name.into(),
+            json!({"dtype": "F32", "shape": shape, "data_offsets": [start, data.len()]}),
+        );
+    }
+    let header = serde_json::to_vec(&Value::Object(header)).unwrap();
+    let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+    bytes.extend_from_slice(&header);
+    bytes.extend_from_slice(&data);
+    std::fs::write(path, bytes).unwrap();
 }
 
 fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {

@@ -22,7 +22,7 @@ Status: implemented
 - 「增强」只挂 runtime 的逐键重排器。是否挂由 host-api `keyboard_reranker_enabled` 决定：偏好 `neural_keyboard` 打开、且本版本 `edition.features.neural_keyboard` 为真。建会话（`ffi/session.rs`）和应用偏好（`HostSession::apply_pending`）都用它；`ffi::keyboard_reranker` 改为接收这个布尔值和资源目录，不再读 `EngineOptions` 里的引擎开关。
 - `engine_sentence_association` 把引擎的 `SentenceAssociationOptions::neural_keyboard` 固定为 false。引擎层的代码、选项和测试原样保留，默认关，留给直接构造选项的评测和实验（`convert_eval --keyboard-neural`、测量补丁里的 `rerank_latency --model-arm engine|both`）。
 - 不新增偏好字段。引擎选项本身就是独立开关，评测直接设它；给用户加一个隐藏偏好要动偏好 schema、各端合并逻辑和发版偏好快照，而真机上需要比较的只有「关」和「只 runtime」两臂。
-- 「增强」的缺省值仍是关；是否默认打开等真机测量后另行决定。
+- 「增强」的缺省值仍是关。2026-10-29 在 Pixel 3 XL 上量过只开 runtime 层的这一版（见下面的真机测量），按键 p95 191 ms，远超 16 ms 的按键预算，所以不默认打开；三端宿主都不改缺省值。
 - 设置文案不改：Android「增强增加神经模型重排」、iOS、HarmonyOS（共享设置页）的描述都不区分层次，只开 runtime 层后依旧准确。
 - `apply_local_mode_resource_gates` 里对引擎开关的版本门控保留：宿主不再打开它，这一行对 host-api 构造的选项不起作用，但仍表达「不带模型的版本不交给 Engine」这条约束。
 - 桌面不受影响：桌面设置页写的是 `neural_desktop`，它只控制 runtime 的 settled 重排（`Runtime::set_settled_rerank_enabled`），从来不进引擎，没有同样的耦合。桌面宿主同样经 host-api 读 `neural_keyboard`，界面不提供这个开关；手改偏好文件打开它时，桌面也只挂 runtime 层。
@@ -36,10 +36,20 @@ Status: implemented
 ## Consequences
 
 - **收益**：打开「增强」的九键、14 键首选准确率与两层同开相同，九键按键 p95 从 16–17 ms 降到约 10 ms，内存增量从 +70 MB 降到 +30 MB；全键盘 p95 从 13.6 ms 降到 3.8 ms。
-- **代价**：全键盘 CFA 比两层同开少 0.6 点（0.788 → 0.782）。打开「增强」后候选里不再出现引擎插入的 `NeuralKeyboard` 整句行（候选预览里的 `sentence_model` 来源），排序变化全部来自 runtime 重排。九键笔记里「词网格关闭而模型打开时由模型行占位」的组合，宿主不再走到：「增强」这一档本来就同时打开词网格。
+- **代价**：全键盘 CFA 比两层同开少 0.6 点（0.788 → 0.782）。打开「增强」后候选里不再出现引擎插入的 `NeuralKeyboard` 整句行（候选预览里的 `sentence_model` 来源），排序变化全部来自 runtime 重排。九键笔记里「词网格关闭而模型打开时由模型行占位」的组合：三档选择器写不出它（「增强」同时打开词网格）；共享设置页在非鸿蒙手机的触屏外壳上把词网格和键盘神经联想分成两个开关，能存出「词网格关、神经开」，这时不再有整句行，只剩 runtime 在单词候选之间重排，和三档里「关闭」的语义一致。
+- **真机测量（Pixel 3 XL，骁龙 845，Android 12，full 版发布签名覆盖安装）**：九键在试用键盘页按 nks 和 chat 两份样本连续点按（每键约 0.21 s），计时从按键反馈到 `apply()` 显示候选，与 `perf.jsonl` 的 `candidate_shown` 同口径。
+
+  | 组 | 键数 | p50 | p95 | p99 | 内存（IME 进程 PSS） |
+  | --- | --- | --- | --- | --- | --- |
+  | 「标准」 | 3343 | 59 | 129 | 162 | 261.5 MB |
+  | 「增强」只开 runtime（本改动） | 4123 | 68 | 191 | 247 | 278.9 MB（+17.4） |
+  | 「增强」两层同开（改动前 develop，只算正常块） | 1533 | 107 | 351 | 473 | 285.3 MB（+23.8，取自后段卡死的一次，只作参考） |
+
+  两层同开时连续几键各卡 200–390 ms 后，键盘常停在「编辑拼写」或留着没上屏的组字（两段里 21/30 个十句块坏掉），和 2026-10-07 `b8d1cb20c3`（键盘模型在「标准」下也逐键运行，安卓快打落后、丢键）那类问题同属用户可见的打字错乱；只开 runtime 层没有出现。这台手机连「标准」的 p95 都是 129 ms，内存压力大（空闲约 87 MB、zram 已用 1.5 GB），刚 adb 装的包只有 JIT，绝对值偏高，但三组条件相同。结论：本改动把「增强」在旧手机上的代价从「不能用」降到「比标准慢约 60 ms」，仍不够默认打开；先要解决的是九键基础路径在这类手机上的耗时。
+- **测量工具的跟进**：PR #10183 的 `typing_sim` 示例（`main.rs` 的 `--model` 和 `profile.rs` 的偏好映射）照抄的是改动前「偏好开就两层同开」的连线，与本改动谁后合并都要在那边改成只挂 runtime 重排器、引擎层固定关，否则它量的不是出货的「增强」（全键盘 CFA 多算 0.6 点，`--latency` 也多算引擎层的耗时）。要量引擎层另加显式参数。
 - **重访信号**：如果出现专门给九键或全键盘训练、在引擎层确实加分的模型，或者真机测量显示 runtime 层单独的延迟仍超预算，需要重新评估两层的分工。
 
 ## Verification
 
-- `cargo test -p msime-host-api`：`enhanced_mounts_the_runtime_reranker_without_the_engine_layer`（偏好开、full 版挂 runtime 重排器，五笔版不挂，交给 Engine 的选项里引擎层关着）、`sentence_model_switches_follow_the_preferences`（建会话和应用偏好之后引擎层都关着）、`keyboard_reranker_follows_the_keyboard_model_switch`（需要 `MSIME_NEURAL_MODEL_DIR` 或 `MSIME_EVAL_RESOURCES` 指向带 `sentence-model.safetensors` 的目录；开关切换时 runtime 重排器挂上又摘掉，引擎层始终关）。
+- `cargo test -p msime-host-api`：`enhanced_mounts_the_runtime_reranker_without_the_engine_layer`（偏好开、full 版挂 runtime 重排器，五笔版不挂，交给 Engine 的选项里引擎层关着）、`sentence_model_switches_follow_the_preferences`（建会话和应用偏好之后引擎层都关着）、`keyboard_reranker_follows_the_keyboard_model_switch`（开关切换时 runtime 重排器挂上又摘掉，引擎层始终关；有 `MSIME_NEURAL_MODEL_DIR` 或 `MSIME_EVAL_RESOURCES` 时用真模型，没有时写一个最小的无上下文模型，所以 CI 也验证建会话和应用偏好确实经过 `keyboard_reranker_enabled`）。
 - 延迟和 CFA 的分层数字来自未入库的测量补丁（`rerank_latency --model-arm`、`typing_sim --latency`，叠在 `typing_sim` 示例 PR #10183 上）。
