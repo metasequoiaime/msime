@@ -695,13 +695,109 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(Set(TouchKeyLayoutOffering.twentySixKeySchemes), Set(twentySixKey))
   }
 
-  /// 设置页的入口副标题和几段说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。
+  /// 设置页的入口副标题、各样式的说明和数字行开关的说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。说明只给有副作用的四个样式，其余样式页面不画说明这一行。
   func testSettingsTextsMatchTheOtherPlatforms() {
     XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式和顶部数字行")
-    XCTAssertEqual(TouchKeyLayoutOffering.twentySixKeyFooter, "长空格：符号键移到工具栏；表情键：长按 123 打开符号。")
-    XCTAssertEqual(TouchKeyLayoutOffering.letterGridFooter, "表情键：长按 123 打开符号。")
-    XCTAssertEqual(TouchKeyLayoutOffering.nineKeyFooter, "右侧大回车：回车竖占两行，符号键在左下角。")
     XCTAssertEqual(TouchKeyLayoutOffering.numberRowSubtitle, "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。")
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(TouchKeyLayoutOffering.note),
+                   [nil, nil, "符号键移到工具栏。", "长按 123 打开符号。"])
+    XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(TouchKeyLayoutOffering.note), [nil, nil, "长按 123 打开符号。"])
+    XCTAssertEqual(TouchNineKeyStyle.allCases.map(TouchKeyLayoutOffering.note), [nil, nil, nil, "回车竖占两行，符号键在左下角。"])
+    // 页面按分段取当前样式的说明：换了分段说的是那一类选中的样式。
+    let style = TouchKeyLayoutStyle(twentySixKey: .longSpace, fourteenKey: .standard, nineKey: .tallReturn)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.note(style), "符号键移到工具栏。")
+    XCTAssertNil(TouchKeyLayoutKind.letterGrid.note(style))
+    XCTAssertEqual(TouchKeyLayoutKind.nineKey.note(style), "回车竖占两行，符号键在左下角。")
+    XCTAssertNil(TouchKeyLayoutKind.twentySixKey.note(TouchKeyLayoutStyle()))
+    XCTAssertEqual(TouchKeyLayoutKind.letterGrid.note(TouchKeyLayoutStyle(fourteenKey: .emoji)), "长按 123 打开符号。")
+  }
+
+  /// 「按键布局」页顶部的分段：按 26 键、14/18 键、9 键的顺序只列本版本提供的类型，分段名和 identifier 三端一致；只有一类时页面不画分段控件，一类都没有时没有分段。
+  func testSettingsPageKindsFollowTheOffering() {
+    func offering(_ engineSchemes: Set<String>) -> TouchKeyLayoutOffering {
+      TouchKeyLayoutOffering { engineSchemes.contains($0.engineScheme) }
+    }
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map(\.title), ["26 键", "14/18 键", "9 键"])
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map(\.identifier), ["keyLayoutKind_26", "keyLayoutKind_14", "keyLayoutKind_9"])
+    XCTAssertEqual(offering(["quanpin"]).kinds, [.twentySixKey, .letterGrid, .nineKey])
+    XCTAssertEqual(offering(["shuangpin"]).kinds, [.twentySixKey, .letterGrid])
+    XCTAssertEqual(offering(["cantonese"]).kinds, [.twentySixKey])
+    XCTAssertEqual(offering(["stroke"]).kinds, [.nineKey])
+    XCTAssertEqual(offering(["zhuyin"]).kinds, [])
+    XCTAssertNil(offering(["zhuyin"]).initialKind(current: .twentySixKey))
+  }
+
+  /// 分段默认停在用户当前在用的中文键盘那一类：全拼、双拼、五笔、粤拼的 26 键停在 26 键；全拼 14 键、18 键和选了 14/18 键布局的双拼、五笔停在 14/18 键；九键、九键双拼和笔画停在 9 键。判断不了（手写、注音、非中文 26 键）或本版本不列那一类时停在第一个。
+  func testSettingsPageStartsOnTheCurrentKeyboard() {
+    func kind(_ scheme: ChineseInputScheme, shuangpin: TouchShuangpinLayoutPreference.Layout = .twentySixKey,
+              wubi: TouchWubiLayoutPreference.Layout = .twentySixKey) -> TouchKeyLayoutKind? {
+      TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+    }
+    for scheme in [ChineseInputScheme.quanpin, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .cantonese, .cantoneseShuangpin] {
+      XCTAssertEqual(kind(scheme), .twentySixKey, scheme.rawValue)
+    }
+    for scheme in [ChineseInputScheme.fourteenKey, .eighteenKey] {
+      XCTAssertEqual(kind(scheme), .letterGrid, scheme.rawValue)
+    }
+    XCTAssertEqual(kind(.shuangpin, shuangpin: .fourteenKey), .letterGrid)
+    XCTAssertEqual(kind(.ziranma, shuangpin: .eighteenKey), .letterGrid)
+    XCTAssertEqual(kind(.wubi, wubi: .fourteenKey), .letterGrid)
+    // 双拼、五笔的字母键布局只管它们自己：全拼 26 键不因为双拼选了 14 键就算 14/18 键。
+    XCTAssertEqual(kind(.quanpin, shuangpin: .fourteenKey, wubi: .fourteenKey), .twentySixKey)
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
+      XCTAssertEqual(kind(scheme), .nineKey, scheme.rawValue)
+    }
+    for scheme in [ChineseInputScheme.handwriting, .zhuyin, .japanese, .japaneseNineKey, .korean, .vietnamese, .tibetan] {
+      XCTAssertNil(kind(scheme), scheme.rawValue)
+    }
+    let everything = TouchKeyLayoutOffering { _ in true }
+    XCTAssertEqual(everything.initialKind(current: .nineKey), .nineKey)
+    XCTAssertEqual(everything.initialKind(current: .letterGrid), .letterGrid)
+    XCTAssertEqual(everything.initialKind(current: nil), .twentySixKey, "a keyboard the page cannot place starts on the first kind")
+    let strokeOnly = TouchKeyLayoutOffering { $0.engineScheme == "stroke" }
+    XCTAssertEqual(strokeOnly.initialKind(current: .twentySixKey), .nineKey, "a kind the edition does not list falls back to the first one listed")
+  }
+
+  /// 预览里高亮的键按底行表的键位认：标准样式不高亮，其余样式高亮它与标准不同的那几个键，而且这些键都在这个样式的底行里。
+  func testSettingsPreviewHighlightsWhatTheStyleChanges() {
+    typealias Slots = Set<Slot>
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots),
+                   [[], [.comma, .period], [.space], [.emoji]] as [Slots])
+    XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots), [[], [.space], [.emoji]] as [Slots])
+    XCTAssertEqual(TouchNineKeyStyle.allCases.map(TouchKeyLayoutOffering.highlightedSlots),
+                   [[], [.comma, .period], [.emoji], [.returnKey]] as [Slots])
+    let styles = TouchTwentySixKeyStyle.allCases.flatMap { twentySix in
+      TouchFourteenKeyStyle.allCases.flatMap { fourteen in
+        TouchNineKeyStyle.allCases.map { TouchKeyLayoutStyle(twentySixKey: twentySix, fourteenKey: fourteen, nineKey: $0) }
+      }
+    }
+    for style in styles {
+      for kind in TouchKeyLayoutKind.allCases {
+        let label = "\(kind.rawValue) \(style)"
+        let row = Set(kind.bottomRow(style).map(\.slot))
+        XCTAssertTrue(kind.highlightedSlots(style).isSubset(of: row), label)
+      }
+    }
+    // 预览的底行就是键盘用的那张表，隐藏中/英键时与键盘一样把它的份额并进空格。
+    let style = TouchKeyLayoutStyle(twentySixKey: .emoji, fourteenKey: .longSpace, nineKey: .tallReturn)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style), TouchBottomRowLayout.twentySixKey(.emoji, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.letterGrid.bottomRow(style), TouchBottomRowLayout.letterGrid(.longSpace, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.nineKey.bottomRow(style), TouchBottomRowLayout.nineKey(.tallReturn, globe: false))
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style, language: false),
+                   TouchBottomRowLayout.twentySixKey(.emoji, globe: false, language: false))
+  }
+
+  /// 数字行开着时 26 键和 14/18 键的预览顶上画一排 1 到 0，9 键的预览不画；关着时三类都不画。
+  func testSettingsPreviewDrawsTheNumberRowOnLetterKeyboardsOnly() {
+    let on = TouchKeyLayoutStyle(numberRow: true)
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map { $0.drawsNumberRow(on) }, [true, true, false])
+    XCTAssertEqual(TouchKeyLayoutKind.allCases.map { $0.drawsNumberRow(TouchKeyLayoutStyle()) }, [false, false, false])
+    XCTAssertEqual(TypingKeyHeatmap.numberRow.map(\.face), "1234567890".map(String.init))
+    // 预览的 26 键字母行与热力图同一张表：数字行开着时热力图就是数字行加这三排再加底行。
+    XCTAssertEqual(TypingKeyHeatmap.letterRows(for: on),
+                   [TypingKeyHeatmap.numberRow] + TypingKeyHeatmap.twentySixKeyLetterRows + [TypingKeyHeatmap.letterRows(for: on).last!])
+    XCTAssertEqual(TypingKeyHeatmap.twentySixKeyLetterRows.map { $0.map(\.face).joined() },
+                   ["QWERTYUIOP", "ASDFGHJKL", "分词ZXCVBNM删除"])
   }
 
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。

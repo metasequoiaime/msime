@@ -184,7 +184,7 @@ export function ScreenKeyboardSettingsPage() {
   useEffect(() => {
     if (page !== "screen-keyboard") resetKeyLayout();
   }, [page, resetKeyLayout]);
-  // 版本没有的键盘类型不列它的组；一组都没有时（只有日文、韩文这类方案的版本）也不画入口。
+  // 版本没有的键盘类型不进子页的分段控件；一种都没有时（只有日文、韩文这类方案的版本）也不画入口。
   const keyLayoutGroups = touchKeyLayoutGroups(supportedInputSchemes(host));
   const keyLayoutOffered =
     harmonyPhone && (keyLayoutGroups.twentySix || keyLayoutGroups.fourteen || keyLayoutGroups.nine);
@@ -465,7 +465,9 @@ export function ScreenKeyboardSettingsPage() {
                 <SettingsPageHeader title="按键布局" onBack={closeKeyLayout} level={2} />
                 <TouchKeyLayoutSettings
                   preferences={draft}
+                  scheme={selectedTouchKeyboardScheme}
                   groups={keyLayoutGroups}
+                  open={keyLayoutSubview === true}
                   onChange={onPreferencesChange}
                 />
               </section>

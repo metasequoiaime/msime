@@ -7,10 +7,14 @@ import { SettingsPage, type InputScheme, type Snapshot } from "@msime/ui";
 import {
   fourteenKeyBottomRows,
   nineKeyBottomRows,
-  nineKeyTallReturnPreview,
   twentySixKeyBottomRows,
 } from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
-import { touchKeyLayoutGroups } from "../../../../packages/ui/src/settings/touch-key-layout-settings";
+import {
+  TouchKeyLayoutSettings,
+  touchKeyLayoutGroups,
+  touchKeyLayoutKind,
+} from "../../../../packages/ui/src/settings/touch-key-layout-settings";
+import type { Preferences } from "../../../../packages/ui/src/core/preferences-model";
 import {
   collectSettingsSearchTargets,
   revealSettingsSearchTarget,
@@ -101,104 +105,160 @@ const description = (node: HTMLElement | null) =>
     .map((id) => document.getElementById(id)?.textContent ?? "")
     .join(" ");
 
-/** 选项的名字：标签里单选框旁边那段字，不含读屏跳过的底行示意图。 */
-const optionName = (radio: HTMLElement) => radio.parentElement?.textContent ?? "";
+/** 键盘类型分段控件；只有一种类型时不画，返回 null。 */
+const kindControl = (dialog: HTMLElement) =>
+  within(dialog).queryByRole("radiogroup", { name: "键盘类型" });
 
-const optionLabels = (dialog: HTMLElement, group: string) =>
-  within(within(dialog).getByRole("radiogroup", { name: group }))
+const kindLabels = (dialog: HTMLElement) =>
+  within(kindControl(dialog)!)
     .getAllByRole("radio")
-    .map(optionName);
+    .map((radio) => radio.parentElement?.textContent ?? "");
 
-const checkedOption = (dialog: HTMLElement, group: string) => {
-  const radio = within(within(dialog).getByRole("radiogroup", { name: group }))
+const checkedKind = (dialog: HTMLElement) => {
+  const control = kindControl(dialog);
+  if (!control) return undefined;
+  const radio = within(control)
     .getAllByRole("radio")
     .find((node) => (node as HTMLInputElement).checked);
-  return radio ? optionName(radio) : undefined;
+  return radio?.parentElement?.textContent ?? undefined;
 };
+
+const chooseKind = (dialog: HTMLElement, label: string) =>
+  fireEvent.click(within(kindControl(dialog)!).getByRole("radio", { name: label }));
+
+/** 当前分段（唯一没有隐藏的那一块）里的样式胶囊。 */
+const chipGroup = (dialog: HTMLElement) => {
+  const groups = within(dialog)
+    .getAllByRole("group")
+    .filter((node) => node.getAttribute("aria-label")?.endsWith("样式"));
+  if (groups.length !== 1) throw new Error(`expected one visible chip row, got ${groups.length}`);
+  return groups[0];
+};
+
+const chipLabels = (dialog: HTMLElement) =>
+  within(chipGroup(dialog))
+    .getAllByRole("button")
+    .map((chip) => chip.textContent);
+
+const pressedChip = (dialog: HTMLElement) =>
+  within(chipGroup(dialog))
+    .getAllByRole("button")
+    .filter((chip) => chip.getAttribute("aria-pressed") === "true")
+    .map((chip) => chip.textContent);
+
+const chooseChip = (dialog: HTMLElement, label: string) =>
+  fireEvent.click(within(chipGroup(dialog)).getByRole("button", { name: label }));
+
+/** 当前分段的整块预览：读屏跳过它，所以按 data 属性找，隐藏的分段不算。 */
+const visiblePreview = (dialog: HTMLElement) => {
+  const previews = [...dialog.querySelectorAll<HTMLElement>("[data-key-layout-preview]")].filter(
+    (node) => !node.closest("[hidden]"),
+  );
+  if (previews.length !== 1)
+    throw new Error(`expected one visible preview, got ${previews.length}`);
+  return previews[0];
+};
+
+const previewRows = (dialog: HTMLElement) =>
+  [...visiblePreview(dialog).querySelectorAll("[data-key-layout-row]")].map((row) =>
+    [...row.children].map((key) => key.textContent),
+  );
+
+/** 预览里描边高亮的键，按键 id 列出。 */
+const highlightedCodes = (dialog: HTMLElement) =>
+  [...visiblePreview(dialog).querySelectorAll("[data-highlighted]")].map((key) =>
+    key.getAttribute("data-key-code"),
+  );
+
+const note = (dialog: HTMLElement) =>
+  [...dialog.querySelectorAll("[data-key-layout-note]")]
+    .filter((node) => !node.closest("[hidden]"))
+    .map((node) => node.textContent);
 
 test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub page", async () => {
   renderSettings();
   const dialog = await openKeyLayout();
-  const groups = [...dialog.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groups).toEqual(["26 键", "14 键与 18 键", "9 键"]);
-  expect(optionLabels(dialog, "26 键")).toEqual(["标准", "逗号句号在空格两侧", "长空格", "表情键"]);
-  expect(optionLabels(dialog, "14 键与 18 键")).toEqual(["标准", "长空格", "表情键"]);
-  expect(optionLabels(dialog, "9 键")).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
-  // 文档里没有这几个键时都是标准，数字行关着。
-  for (const group of ["26 键", "14 键与 18 键", "9 键"])
-    expect(checkedOption(dialog, group)).toBe("标准");
+  // 分段控件只列版本提供的键盘类型，全拼用户默认停在 26 键。
+  expect(kindLabels(dialog)).toEqual(["26 键", "14/18 键", "9 键"]);
+  expect(checkedKind(dialog)).toBe("26 键");
+  expect(chipLabels(dialog)).toEqual(["标准", "逗号句号在空格两侧", "长空格", "表情键"]);
+  // 文档里没有这几个键时都是标准：标准不高亮、没有说明，数字行关着。
+  expect(pressedChip(dialog)).toEqual(["标准"]);
+  expect(highlightedCodes(dialog)).toEqual([]);
+  expect(note(dialog)).toEqual([]);
+  expect(description(chipGroup(dialog))).toBe("");
   const numberRow = within(dialog).getByRole("switch", { name: "顶部数字行" }) as HTMLInputElement;
   expect(numberRow.checked).toBe(false);
-  // 说明与 Android、iOS 逐字相同：数字行开关一句，每组末尾一句，读屏把组末说明当作这组单选的描述。
   expect(description(numberRow)).toBe("在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。");
-  const notes: Record<string, string> = {
-    "26 键": "长空格：符号键移到工具栏；表情键：长按 123 打开符号。",
-    "14 键与 18 键": "表情键：长按 123 打开符号。",
-    "9 键": "右侧大回车：回车竖占两行，符号键在左下角。",
-  };
-  for (const [group, note] of Object.entries(notes)) {
-    const radiogroup = within(dialog).getByRole("radiogroup", { name: group });
-    expect(description(radiogroup)).toBe(note);
-    expect(radiogroup.closest("section")?.querySelector("p")?.textContent).toBe(note);
-  }
+  // 原来的三条组末说明已经由各样式的说明取代。
+  expect(dialog.textContent).not.toContain("长空格：");
+  // 切分段只换预览和胶囊。
+  chooseKind(dialog, "14/18 键");
+  expect(chipLabels(dialog)).toEqual(["标准", "长空格", "表情键"]);
+  chooseKind(dialog, "9 键");
+  expect(chipLabels(dialog)).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
+  // 9 键时照样列数字行开关（它对 26/14/18 生效）。
+  expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
   // 返回关上子页，回到键盘页。
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
   expect(entryRow()?.textContent).toContain("各类键盘的底行样式和顶部数字行");
   expect(description(entryRow())).toBe("各类键盘的底行样式和顶部数字行");
+  // 再打开时分段回到当前在用的键盘类型。
+  fireEvent.click(entryRow()!);
+  expect(checkedKind(screen.getByRole("dialog", { name: "按键布局" }))).toBe("26 键");
 });
 
-test("settings search finds the sub page's rows under 按键布局 and opens the sub page", async () => {
-  renderSettings();
-  await settingsFormReady();
-  await waitFor(() => {
-    if (!entryRow()) throw new Error("no 按键布局 row");
-  });
-  // 子页关着时它的选项也在索引里，路径带上子页名和组名。
-  const targets = () =>
-    collectSettingsSearchTargets(document.body, new Map([["screen-keyboard", "屏幕键盘"]]));
-  const numberRow = targets().find((target) => target.title === "顶部数字行");
-  expect(numberRow?.path).toEqual(["屏幕键盘", "按键布局"]);
-  const longSpace = targets().filter((target) => target.title === "长空格");
-  expect(longSpace.map((target) => target.path)).toEqual([
-    ["屏幕键盘", "按键布局", "26 键"],
-    ["屏幕键盘", "按键布局", "14 键与 18 键"],
-  ]);
-  expect(targets().some((target) => target.title === "底栏带标点")).toBe(true);
-  expect(targets().find((target) => target.title === "右侧大回车")?.path).toEqual([
-    "屏幕键盘",
-    "按键布局",
-    "9 键",
-  ]);
-  expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
-  // 命中子页里的行时打开子页；再命中正文里的行时关上子页回到正文。
-  revealSettingsSearchTarget(numberRow!);
-  const dialog = await screen.findByRole("dialog", { name: "按键布局" });
-  expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
-  expect(entryRow()).toBeNull();
-  const height = targets().find((target) => target.title === "键盘高度");
-  expect(height).toBeTruthy();
-  revealSettingsSearchTarget(height!);
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
-  expect(entryRow()).toBeTruthy();
+test("the sub page opens on the key type the user is typing with", async () => {
+  expect(touchKeyLayoutKind("quanpin", undefined, undefined)).toBe("twentySix");
+  expect(touchKeyLayoutKind("cantonese", undefined, undefined)).toBe("twentySix");
+  expect(touchKeyLayoutKind("xiaohe", "twenty_six_key", undefined)).toBe("twentySix");
+  expect(touchKeyLayoutKind("ziranma", "eighteen_key", undefined)).toBe("fourteen");
+  expect(touchKeyLayoutKind("wubi", undefined, "fourteen_key")).toBe("fourteen");
+  expect(touchKeyLayoutKind("wubi", undefined, "twenty_six_key")).toBe("twentySix");
+  expect(touchKeyLayoutKind("fourteen_key", undefined, undefined)).toBe("fourteen");
+  expect(touchKeyLayoutKind("eighteen_key", undefined, undefined)).toBe("fourteen");
+  expect(touchKeyLayoutKind("nine_key", undefined, undefined)).toBe("nine");
+  expect(touchKeyLayoutKind("nine_key_shuangpin", undefined, undefined)).toBe("nine");
+  expect(touchKeyLayoutKind("stroke", undefined, undefined)).toBe("nine");
+  expect(touchKeyLayoutKind("japanese", undefined, undefined)).toBeNull();
+  expect(touchKeyLayoutKind("handwriting", undefined, undefined)).toBeNull();
+  for (const [preferences, kind] of [
+    [{ touch_keyboard_layout: "nine_key" }, "9 键"],
+    [
+      {
+        touch_keyboard_schemes: { enabled: ["quanpin", "eighteen_key"], selected: "eighteen_key" },
+      },
+      "14/18 键",
+    ],
+    [{ scheme: "shuangpin", touch_shuangpin_layout: "fourteen_key" }, "14/18 键"],
+    // 判断不了（日文 26 键）时停在第一段。
+    [
+      { touch_keyboard_schemes: { enabled: ["quanpin", "japanese"], selected: "japanese" } },
+      "26 键",
+    ],
+  ] as const) {
+    renderSettings({ preferences });
+    const dialog = await openKeyLayout();
+    expect(checkedKind(dialog)).toBe(kind);
+    // 切分段不写偏好。
+    chooseKind(dialog, kind === "9 键" ? "26 键" : "9 键");
+    saveSettingsNow();
+    cleanup();
+    window.history.replaceState({}, "");
+  }
 });
 
 test("choosing styles and the number row saves the four shared preferences", async () => {
   const { save } = renderSettings();
   const dialog = await openKeyLayout();
-  const choose = (group: string, label: string) => {
-    // 读屏念的名字只有样式名，示意图被跳过。
-    fireEvent.click(
-      within(within(dialog).getByRole("radiogroup", { name: group })).getByRole("radio", {
-        name: label,
-      }),
-    );
-  };
-  choose("26 键", "长空格");
-  choose("14 键与 18 键", "表情键");
-  choose("9 键", "右侧大回车");
+  chooseChip(dialog, "长空格");
+  expect(pressedChip(dialog)).toEqual(["长空格"]);
+  chooseKind(dialog, "14/18 键");
+  chooseChip(dialog, "表情键");
+  chooseKind(dialog, "9 键");
+  chooseChip(dialog, "右侧大回车");
   fireEvent.click(within(dialog).getByRole("switch", { name: "顶部数字行" }));
-  expect(checkedOption(dialog, "26 键")).toBe("长空格");
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalled());
   const saved = save.mock.calls.at(-1)?.[1];
@@ -206,6 +266,37 @@ test("choosing styles and the number row saves the four shared preferences", asy
   expect(saved.touch_fourteen_key_style).toBe("emoji");
   expect(saved.touch_nine_key_style).toBe("tall_return");
   expect(saved.touch_number_row).toBe(true);
+});
+
+test("clicking a chip calls onChange with its own preference, and the chosen chip does nothing", () => {
+  const onChange = vi.fn();
+  render(
+    <TouchKeyLayoutSettings
+      preferences={{ touch_nine_key_style: "emoji" } as Preferences}
+      scheme="nine_key"
+      groups={{ twentySix: true, fourteen: true, nine: true }}
+      open
+      onChange={onChange}
+    />,
+  );
+  const page = document.body;
+  expect(checkedKind(page)).toBe("9 键");
+  // 点已选中的胶囊不做事。
+  chooseChip(page, "表情键");
+  expect(onChange).not.toHaveBeenCalled();
+  chooseChip(page, "底栏带标点");
+  expect(onChange).toHaveBeenLastCalledWith({ touch_nine_key_style: "comma_period" });
+  chooseKind(page, "26 键");
+  // 切分段不写偏好。
+  expect(onChange).toHaveBeenCalledTimes(1);
+  chooseChip(page, "逗号句号在空格两侧");
+  expect(onChange).toHaveBeenLastCalledWith({ touch_twenty_six_key_style: "comma_period" });
+  chooseKind(page, "14/18 键");
+  chooseChip(page, "长空格");
+  expect(onChange).toHaveBeenLastCalledWith({ touch_fourteen_key_style: "long_space" });
+  fireEvent.click(within(page).getByRole("switch", { name: "顶部数字行" }));
+  expect(onChange).toHaveBeenLastCalledWith({ touch_number_row: true });
+  expect(onChange).toHaveBeenCalledTimes(4);
 });
 
 test("a stored style is shown, and one this page does not know reads as 标准", async () => {
@@ -218,89 +309,151 @@ test("a stored style is shown, and one this page does not know reads as 标准",
     },
   });
   const dialog = await openKeyLayout();
-  expect(checkedOption(dialog, "26 键")).toBe("表情键");
-  expect(checkedOption(dialog, "14 键与 18 键")).toBe("标准");
-  expect(checkedOption(dialog, "9 键")).toBe("右侧大回车");
+  expect(pressedChip(dialog)).toEqual(["表情键"]);
+  chooseKind(dialog, "14/18 键");
+  expect(pressedChip(dialog)).toEqual(["标准"]);
+  chooseKind(dialog, "9 键");
+  expect(pressedChip(dialog)).toEqual(["右侧大回车"]);
   expect(
     (within(dialog).getByRole("switch", { name: "顶部数字行" }) as HTMLInputElement).checked,
   ).toBe(true);
 });
 
-test("each option's preview draws the keyboard's bottom row for that style, key by key", async () => {
+test("the note says only the chosen style's side effect, word for word across platforms", async () => {
   renderSettings();
   const dialog = await openKeyLayout();
-  const preview = (group: string, label: string) => {
-    const option = within(within(dialog).getByRole("radiogroup", { name: group }))
-      .getByRole("radio", { name: label })
-      .closest("label");
-    const row = option?.querySelector("[data-key-layout-preview]");
-    if (!row) throw new Error(`no preview for ${label}`);
-    return [...row.children].map((key) => [
-      key.textContent,
-      Number(key.getAttribute("data-weight")),
-    ]);
-  };
-  expect(preview("26 键", "逗号句号在空格两侧")).toEqual([
-    ["123", 1.25],
-    ["符", 1.05],
-    ["，", 1],
-    ["空格", 3],
-    ["。", 1],
-    ["中", 1.05],
-    ["↵", 1.9],
-  ]);
-  expect(preview("26 键", "长空格")).toEqual([
-    ["123", 1.25],
-    ["，", 1],
-    ["空格", 5.05],
-    ["中", 1.05],
-    ["↵", 1.9],
-  ]);
-  expect(preview("9 键", "表情键").map(([label]) => label)).toEqual([
-    "符",
-    "123",
-    "😀",
-    "空格",
-    "中",
-    "↵",
-  ]);
-  // 右侧大回车画两行：网格最后一行（左列 ？！、右列跨两行的回车）和底行（符 | 123 | 空格 | 中，回车下伸的位置是占位）。
-  const tall = within(within(dialog).getByRole("radiogroup", { name: "9 键" }))
-    .getByRole("radio", { name: "右侧大回车" })
-    .closest("label")
-    ?.querySelector("[data-key-layout-frame]");
-  if (!tall) throw new Error("no frame preview for 右侧大回车");
-  const frame = [...tall.querySelectorAll("[data-key-layout-preview]")].map((row) =>
-    [...row.children].map((key) => [
-      key.textContent,
-      Math.round(Number(key.getAttribute("data-weight")) * 100) / 100,
-      Number(key.getAttribute("data-row-span")),
-    ]),
-  );
-  expect(frame).toEqual([
-    [
-      ["？！", 1.15, 1],
-      ["PQRS", 2, 1],
-      ["TUV", 2, 1],
-      ["WXYZ", 2, 1],
-      ["↵", 1.15, 2],
-    ],
-    [
-      // 123 和 中 与标准底行同宽：标准底行 9.15 份铺满整行，外框 8.3 份，按 8.3 / 9.15 换算。
-      ["符", 1.15, 1],
-      ["123", 1.13, 1],
-      ["空格", 3.91, 1],
-      ["中", 0.95, 1],
-      ["", 1.15, 1],
-    ],
-  ]);
-  // 跨两行的回车高两行加一道行距，下边距收回一行，所在行不变高。
-  const returnCap = tall.querySelector("[data-row-span='2']") as HTMLElement;
-  expect(returnCap.style.height).toBe("51px");
-  expect(returnCap.style.marginBottom).toBe("-27px");
+  const notes: [string, string, string | undefined][] = [
+    ["26 键", "标准", undefined],
+    ["26 键", "逗号句号在空格两侧", undefined],
+    ["26 键", "长空格", "符号键移到工具栏。"],
+    ["26 键", "表情键", "长按 123 打开符号。"],
+    ["14/18 键", "标准", undefined],
+    ["14/18 键", "长空格", undefined],
+    ["14/18 键", "表情键", "长按 123 打开符号。"],
+    ["9 键", "标准", undefined],
+    ["9 键", "底栏带标点", undefined],
+    ["9 键", "表情键", undefined],
+    ["9 键", "右侧大回车", "回车竖占两行，符号键在左下角。"],
+  ];
+  for (const [kind, style, text] of notes) {
+    chooseKind(dialog, kind);
+    chooseChip(dialog, style);
+    // 没有说明时不画这一行（不留空位），有说明时读屏把它当作这排胶囊的描述。
+    expect(note(dialog)).toEqual(text ? [text] : []);
+    expect(description(chipGroup(dialog))).toBe(text ?? "");
+  }
 });
 
-test("the preview rows are the HarmonyOS keyboard's rows, shares included", () => {
+test("the preview draws the whole keyboard and outlines the keys the style changes", async () => {
+  renderSettings();
+  const dialog = await openKeyLayout();
+  // 26 键：三行字母（⇧ z–m ⌫）加所选样式的底行；读屏跳过整个预览。
+  expect(visiblePreview(dialog).getAttribute("aria-hidden")).toBe("true");
+  expect(previewRows(dialog)).toEqual([
+    [..."qwertyuiop"],
+    ["", ..."asdfghjkl", ""],
+    ["⇧", ..."zxcvbnm", "⌫"],
+    ["123", "符", "空格", "，", "中", "↵"],
+  ]);
+  const highlights: [string, string, string[]][] = [
+    ["26 键", "标准", []],
+    ["26 键", "逗号句号在空格两侧", ["Comma", "Period"]],
+    ["26 键", "长空格", ["Space"]],
+    ["26 键", "表情键", ["SoftEmoji"]],
+    ["14/18 键", "标准", []],
+    ["14/18 键", "长空格", ["Space"]],
+    ["14/18 键", "表情键", ["SoftEmoji"]],
+    ["9 键", "标准", []],
+    ["9 键", "底栏带标点", ["Comma", "Period"]],
+    ["9 键", "表情键", ["SoftEmoji"]],
+    ["9 键", "右侧大回车", ["Enter"]],
+  ];
+  for (const [kind, style, codes] of highlights) {
+    chooseKind(dialog, kind);
+    chooseChip(dialog, style);
+    expect([kind, style, highlightedCodes(dialog)]).toEqual([kind, style, codes]);
+  }
+  // 回车用强调色；14/18 键画 14 键的字母格。
+  chooseKind(dialog, "14/18 键");
+  expect(
+    visiblePreview(dialog).querySelector("[data-key-code='Enter']")?.getAttribute("data-key-tone"),
+  ).toBe("return");
+  expect(previewRows(dialog).slice(0, 3)).toEqual([
+    ["QW", "ER", "TY", "UI", "OP"],
+    ["AS", "DF", "GH", "JK", "L"],
+    ["符", "ZX", "CV", "BN", "M", "⌫"],
+  ]);
+  // 9 键「右侧大回车」：左侧符号栏、九宫格，回车竖跨最后两行（下一行同一位置是占位），符 在左下角。
+  chooseKind(dialog, "9 键");
+  expect(previewRows(dialog)).toEqual([
+    ["，", "@#", "ABC", "DEF", "⌫"],
+    ["。", "GHI", "JKL", "MNO", "分词"],
+    ["？！", "PQRS", "TUV", "WXYZ", "↵"],
+    ["符", "123", "空格", "中", ""],
+  ]);
+  const tall = visiblePreview(dialog).querySelector("[data-key-code='Enter']");
+  expect(tall?.getAttribute("data-row-span")).toBe("2");
+  chooseChip(dialog, "标准");
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "空格", "中", "↵"]);
+});
+
+test("the number row is drawn over 26 and 14/18 keys when it is on, never over 9 keys", async () => {
+  renderSettings({
+    preferences: {
+      touch_keyboard_schemes: { enabled: ["quanpin", "eighteen_key"], selected: "eighteen_key" },
+    },
+  });
+  const dialog = await openKeyLayout();
+  const numberRow = () =>
+    visiblePreview(dialog).querySelector("[data-key-layout-row='number']")?.textContent ?? null;
+  // 用户在用 18 键时 14/18 键画 18 键的字母格。
+  expect(checkedKind(dialog)).toBe("14/18 键");
+  expect(previewRows(dialog)[0]).toEqual(["Q", "WE", "RT", "Y", "U", "IO", "P"]);
+  expect(numberRow()).toBeNull();
+  fireEvent.click(within(dialog).getByRole("switch", { name: "顶部数字行" }));
+  expect(numberRow()).toBe("1234567890");
+  chooseKind(dialog, "26 键");
+  expect(numberRow()).toBe("1234567890");
+  expect(previewRows(dialog)).toHaveLength(5);
+  chooseKind(dialog, "9 键");
+  expect(numberRow()).toBeNull();
+  expect(previewRows(dialog)).toHaveLength(4);
+});
+
+test("settings search finds every style under its key type and opens that segment", async () => {
+  renderSettings();
+  await settingsFormReady();
+  await waitFor(() => {
+    if (!entryRow()) throw new Error("no 按键布局 row");
+  });
+  // 子页关着时它的样式也在索引里，路径带上子页名和键盘类型。
+  const targets = () =>
+    collectSettingsSearchTargets(document.body, new Map([["screen-keyboard", "屏幕键盘"]]));
+  const numberRow = targets().find((target) => target.title === "顶部数字行");
+  expect(numberRow?.path).toEqual(["屏幕键盘", "按键布局"]);
+  const longSpace = targets().filter((target) => target.title === "长空格");
+  expect(longSpace.map((target) => target.path)).toEqual([
+    ["屏幕键盘", "按键布局", "26 键"],
+    ["屏幕键盘", "按键布局", "14/18 键"],
+  ]);
+  expect(targets().some((target) => target.title === "底栏带标点")).toBe(true);
+  const tall = targets().find((target) => target.title === "右侧大回车");
+  expect(tall?.path).toEqual(["屏幕键盘", "按键布局", "9 键"]);
+  expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
+  // 命中别的分段里的样式时打开子页并切到那一段；再命中正文里的行时关上子页回到正文。
+  revealSettingsSearchTarget(tall!);
+  const dialog = await screen.findByRole("dialog", { name: "按键布局" });
+  await waitFor(() => expect(checkedKind(dialog)).toBe("9 键"));
+  expect(chipLabels(dialog)).toContain("右侧大回车");
+  expect(entryRow()).toBeNull();
+  const height = targets().find((target) => target.title === "键盘高度");
+  expect(height).toBeTruthy();
+  revealSettingsSearchTarget(height!);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
+  expect(entryRow()).toBeTruthy();
+});
+
+test("the bottom rows are the HarmonyOS keyboard's rows, shares included", () => {
   const round = (value: number) => Math.round(value * 100) / 100;
   for (const style of ["standard", "comma_period", "long_space", "emoji"] as const)
     expect(twentySixKeyBottomRows[style].map((key) => round(key.weight))).toEqual(
@@ -336,9 +489,6 @@ test("the preview rows are the HarmonyOS keyboard's rows, shares included", () =
   ]);
   expect(fraction(nineKeyBottomRows.tall_return, 1)).toBe(fraction(nineKeyBottomRows.standard, 1));
   expect(fraction(nineKeyBottomRows.tall_return, 3)).toBe(fraction(nineKeyBottomRows.standard, 3));
-  expect(nineKeyTallReturnPreview[1].slice(0, -1)).toEqual(
-    nineKeyBottomRows.tall_return.slice(0, -1),
-  );
 });
 
 test("groups follow the key types the edition offers", async () => {
@@ -360,9 +510,16 @@ test("groups follow the key types the edition offers", async () => {
   });
   renderSettings({ inputSchemes: ["wubi"] });
   const dialog = await openKeyLayout();
-  const groups = [...dialog.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groups).toEqual(["26 键", "14 键与 18 键"]);
+  expect(kindLabels(dialog)).toEqual(["26 键", "14/18 键"]);
   expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
+  cleanup();
+  window.history.replaceState({}, "");
+  // 只有一种类型（笔画版只有 9 键）时不画分段控件，也没有数字行开关。
+  renderSettings({ inputSchemes: ["stroke"], preferences: { scheme: "stroke" } });
+  const nine = await openKeyLayout();
+  expect(kindControl(nine)).toBeNull();
+  expect(chipLabels(nine)).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
+  expect(within(nine).queryByRole("switch", { name: "顶部数字行" })).toBeNull();
 });
 
 test("an edition without Chinese key types has no 按键布局 row", async () => {
