@@ -662,6 +662,51 @@ final class TouchPointTests: XCTestCase {
     report("key-geometry-measure-and-encode", layout)
   }
 
+  /// 坐了首选的双拼纠错（View 的 `confident_correction`）在候选条上：字和纠错前的拼写用强调色，读屏标签以「，已纠正」结尾；没坐首选的纠错照旧画次要色。下一次回应没有这个标记时，复用的词块放回原样。
+  func testTheStripMarksAConfidentCorrection() throws {
+    let previous = InputSchemePreference.scheme
+    let follows = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidatePalette.defaults.set(follows, forKey: CandidatePalette.followsDesktopKey)
+    }
+    CandidatePalette.defaults.set(false, forKey: CandidatePalette.followsDesktopKey)
+    setCandidateGloss(false)
+    let controller = keyboard(.shuangpin)
+    defer { controller.viewDidDisappear(false) }
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    func chip(_ number: Int) throws -> KeyboardKeyButton {
+      try XCTUnwrap(nodes(controller.view).first {
+        $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden
+      } as? KeyboardKeyButton, "候选条上没有第 \(number) 个词块")
+    }
+    func hintColor(_ button: UIButton, _ hint: String) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: hint)
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+    let skin = KeyboardTheme.current
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: "true")))
+    controller.view.layoutIfNeeded()
+    let first = try chip(1)
+    XCTAssertEqual(first.accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(first.configuration?.baseForegroundColor, skin.accent)
+    XCTAssertEqual(try hintColor(first, "womfjbtnqugsyr"), skin.accent, "纠错前的拼写用强调色")
+    XCTAssertEqual(try chip(2).accessibilityLabel, "候选词 2：我们今天去公，还需输入 womfjbtnqugs")
+    XCTAssertEqual(try chip(2).configuration?.baseForegroundColor, skin.keyForeground)
+    XCTAssertEqual(try hintColor(chip(2), "womfjbtnqugs"), skin.secondary, "没坐首选的纠错注释照旧是次要色")
+    XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：我们")
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), skin.secondary, "默认文档的纠错首选不画强调色注释")
+  }
+
   private func report(_ label: String, _ samples: [Double]) {
     let sorted = samples.sorted()
     let at = { (q: Double) in sorted[Int((Double(sorted.count - 1) * q).rounded())] }

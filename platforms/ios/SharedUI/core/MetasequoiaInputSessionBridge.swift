@@ -417,6 +417,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateFixedPositions: [Int]
   /// 引擎当前页的高亮状态，跟随候选一起过滤与换页。
   let candidateHighlighted: [Bool]
+  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧在 `candidateAnnotations` 里。
+  let candidateConfidentCorrections: [Bool]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
@@ -458,7 +460,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
        candidateGlosses: [String] = [],
        candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
-       candidateHighlighted: [Bool] = [], candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
+       candidateHighlighted: [Bool] = [], candidateConfidentCorrections: [Bool] = [],
+       candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
@@ -479,6 +482,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidateSources = candidateSources
     self.candidateFixedPositions = candidateFixedPositions
     self.candidateHighlighted = candidateHighlighted
+    self.candidateConfidentCorrections = candidateConfidentCorrections
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
@@ -2224,12 +2228,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return !deferred
   }
 
-  /// Runtime state flags are protocol booleans. Keep absent optional fields on
-  /// their documented defaults, but never let NSNumber or strings coerce into
-  /// a state transition.
+  /// Runtime state flags are protocol booleans. Keep absent optional fields on their documented defaults, but never let NSNumber or strings coerce into a state transition.
+  ///
+  /// JSONSerialization 把 JSON 的 `1` 和 `true` 都交成 NSNumber，`as? Bool` 对两者都成功，所以要看它是不是 CFBoolean：只有 JSON 里写的 `true`/`false` 才算。
   private static func strictBool(_ value: Any?, fallback: Bool) throws -> Bool {
     guard let value else { return fallback }
-    guard let boolean = value as? Bool else { throw InputBridgeFailure.invalidResponse }
+    guard let boolean = value as? Bool,
+          (value as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) ?? true else {
+      throw InputBridgeFailure.invalidResponse
+    }
     return boolean
   }
 
@@ -2267,6 +2274,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidateHighlighted: try rows.map { try strictBool($0["highlighted"], fallback: false) },
+      candidateConfidentCorrections: try rows.map { try strictBool($0["confident_correction"], fallback: false) },
       candidatePageCount: pageCount,
       answeredByPinyinFallback: try strictBool(view["answered_by_pinyin_fallback"], fallback: false),
       diagnosticText: value["diagnostic"] as? String,
