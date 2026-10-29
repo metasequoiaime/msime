@@ -281,14 +281,9 @@ impl NineKeySession {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
-        positions::apply_fixed_positions(
-            &self.paths.user(assets::USER_JOURNAL),
-            &self.ranking_context(),
-            &mut candidates,
-            false,
-            None,
-            false,
-        );
+        let journal = self.paths.user(assets::USER_JOURNAL);
+        let context = self.ranking_context();
+        positions::apply_fixed_positions(&journal, &context, &mut candidates, false, None, false);
         keep_expressive_rows_off_the_lead(&mut candidates);
         if let Some(front) = candidates.first() {
             let offset = if locked_key.is_empty() {
@@ -311,6 +306,7 @@ impl NineKeySession {
             self.digits.len(),
             self.first_page_rows.get(),
             grid,
+            |word| positions::is_pinned_candidate(&journal, &context, word),
             &mut self.contests,
         );
         self.candidates = candidates;

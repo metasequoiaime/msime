@@ -14,8 +14,9 @@ runtime 的逐键重排器（「增强」，#10197 之后只挂这一层）只�
 - **`rerank_pick` 的裁决路径**：首行带标记、这种裁决点有 margin、同种标记并且回答按键的行至少两条（最多 9 条）时，只把这几行交给 `Reranker::log_probabilities`，挑战者的逐字平均自然对数概率比首行高出 margin 才提到首位，否则不动。首行是可信词典命中也一样。没有标记时 `trusted_leader` 和原来的比较集合原样不变。
 - **只交给逐键模型，停顿重排不裁决。** 落定模型（桌面 `neural_desktop` 打开时停顿后跑的那一层，`rerank_settled`、`begin_settled_rerank` / `score_settled_rerank`）读的候选行不带标记，`rerank_needs_model` 照旧按 `trusted_leader` 判断，可信的词典首选不会因为标记在停顿后被换掉。margin 是在随包的键盘模型上调出来的，落定模型没有量过；Linux fcitx5 和 Windows win7 面板的九键模式再加上用户打开 `neural_desktop` 才走得到那里。评审时发现第一版两条停顿路径都会读标记，已改；`tests/model_contests.rs` 的 `only_the_keystroke_model_settles_a_contest` 覆盖。
 - **只有挂了 runtime 重排器才起作用。** 标记本身不改任何顺序；「增强」关着（移动端缺省）时没有模型，行为逐字节不变（`typing_sim --model off` 四个变体都与基线的报告和 dump 相同）。全键盘不走 `NineKeySession`，四格逐字节不变。
-- **最近选择（`CONTEST_RECENCY`）**：首行是固定在第 1 位、覆盖全部数字、不是简拼行、拼满读法（规范读音的组码不比数字长）的词典行，对手是首页里其后第一条没有固定、同样条件、文字不同的词典行，也就是没有置顶时会领先的那一行；那一行是补全或字数和首行不同时不裁决。只比这两行。margin `RECENCY_MARGIN` = 1.0 nat/字。置顶记录的写入（#8492、#9066）一点不改：模型只决定这一次谁坐首位；用户点了被提上来的那一行，`NineKeySession::select` 照旧把它当作非首位的选择记成新的最近选择。
+- **最近选择（`CONTEST_RECENCY`）**：首行是固定在第 1 位（不是手动置顶，见下）、覆盖全部数字、不是简拼行、拼满读法（规范读音的组码不比数字长）的词典行，对手是首页里其后第一条没有固定、同样条件、文字不同的词典行，也就是没有置顶时会领先的那一行；那一行是补全或字数和首行不同时不裁决。只比这两行。margin `RECENCY_MARGIN` = 1.0 nat/字。置顶记录的写入（#8492、#9066）一点不改：模型只决定这一次谁坐首位；用户点了被提上来的那一行，`NineKeySession::select` 照旧把它当作非首位的选择记成新的最近选择。
 - **拼满读法的前两名（`CONTEST_RUNNER_UP`）**：首行是没有固定、拼满读法（规范读音的组码不比数字长，不是补全）、覆盖全部数字、不是简拼行、权重为正的词典行；对手是首页里其后第一条同样条件、字数相同的词典行，读音可以不同（监狱/教育、乘客/成了）也可以相同（他/她、件/间），权重不低于首行的 `RUNNER_UP_WEIGHT_RATIO` = 0.1。只比这两行，margin `RUNNER_UP_MARGIN` = 1.0 nat/字。首行固定在第 1 位时走上面的最近选择，不走这一条。
+- **用户手动置顶的词不裁决。** 首行是用户在这个上下文里手动置顶的词时两种都不标（`mark_contests` 的 `manually_pinned`）：手动置顶是用户明说的首选，模型只裁决自动记下的最近选择和词频排出来的首选。固定位置表分不清手动和自动写进第 1 槽的行，所以九键的 `pin` 和固定到第 1 位（`set_position(…, 1)`）另外往 `pinned_candidates` 记一条 `(nine-key:<digits>:<locked>, 词)`，和 26 键置顶记的是同一张表、同一个「每个上下文一条，后一次手动置顶替换它」的规则（26 键用它不让个人上下文重排挪走置顶的词），上下文前缀 `nine-key:` 不会和 26 键的拼音上下文撞。自动记下的最近选择既不写也不清这一条：用户置顶过的词以后被别的选择挤下第 1 槽、又因为再选它回到第 1 位时，仍按手动置顶对待；挤上来的别的词照旧裁决。置顶已经坐在第 1 槽的行（多半是自动记下的最近选择）时不再调频，只记这一条：原来这一步会因为它是固定行而调频失败、报 `NINE_KEY_FREQUENCY_NOT_PERSISTED`，现在是用户把自动记下的首选「钉住」、不让模型动的那个操作。查这一条只在真要标的时候做，没有裁决点的按键不碰日志。
 
 ## 测量
 
@@ -69,6 +70,10 @@ test，相对 A0：
 
 dev 上的例子（在第一版最近选择之上多出来的，九键 Tatoeba 一词一块 16 赢 3 输）：赢 说道（说到）、早就（研究）、四楼（纰漏）、儿子（而已）、好点（干掉）；输 荒唐（观光）、争议性（正义性）、不成材（不成才）。聊天主配置 3 赢 1 输：放（当）、不动（不懂）、两点（亮点）；输 方案（蛋糕）。
 
+### 手动置顶不裁决
+
+这一条在评审之后加，不改任何数字：`typing_sim` 和 `convert_eval` 都不手动置顶，`pinned_candidates` 里没有九键上下文的行，`manually_pinned` 永远是假。实测核对过：c570588eee 和加上这一条的二进制，九键、14 键各 4 格（`--model keyboard`，学习开）的报告和 dump 逐字节相同，报告也与上面最终状态的 test 数字逐字节相同（九键 Tatoeba 主配置 0.524、一词一块 0.834，聊天 0.531 / 0.861）；`convert_eval` 的 nine-key、nine-key-prefix、nine-key-sentences 报告逐字节相同，nine-key 的 dump 只差行内日期时间行的秒数（`convert_eval` 用真实时钟），把时刻抹掉后也相同。按键路径上多出的只有要标裁决时的一次 `pinned_candidates` 查询，没有另测延迟。报告和 dump 的哈希在 `/Users/e-hu/worktrees/_scratch/nine-key-manual-pin/`。
+
 ### 延迟
 
 M4 Pro 本机，`typing_sim --latency`，最终状态的二进制对 A0，按「A0、终态、终态、A0」交替，本机负载 3.5–6.8：
@@ -82,7 +87,7 @@ p95 增量 +0.02 ms 和 +0.65 ms，在 2.5 ms 的代理门槛之内。事先写�
 
 ## 和已有决定的关系
 
-- [最近选中的候选优先](2026-10-17-nine-key-recent-candidate-priority.md)、[锁定读法后的最近选择](../bug-fix/2026-10-21-nine-key-locked-selection-recent.md)：部分重叠。存储、写入、清除、手动槽位的规则都不变；「增强」打开时，置顶的最近选择在上文明显指向没有置顶时的首选时让出这一次的首位。单字和多字词一样适用。两篇加了互链。
+- [最近选中的候选优先](2026-10-17-nine-key-recent-candidate-priority.md)、[锁定读法后的最近选择](../bug-fix/2026-10-21-nine-key-locked-selection-recent.md)：部分重叠。最近选择的存储、写入、清除和手动槽位的规则都不变；九键的手动置顶和固定到第 1 位另外在 `pinned_candidates` 里记一条，只给裁决用。「增强」打开时，自动记下的最近选择在上文明显指向没有它时的首选时让出这一次的首位，手动置顶的不让。单字和多字词一样适用。两篇加了互链。
 - [最近选择只给多字词](../../rejected/feature/2026-10-29-nine-key-recent-pin-words-only.md)：同一类错误（G）的另一种修法，它收回单字契约而这里不收；那篇的「不要让一部分选择写、另一部分不写」这里遵守，写入规则没有任何分支。
 - [补全行在打字流里进一步往后排](../../rejected/bug-fix/2026-10-29-nine-key-completion-order-in-typing-flow.md) 结尾提到的「停在声母上时按上下文挑补全」这次也试了，没过门，见 [停在声母上的补全裁决](../../rejected/feature/2026-10-29-nine-key-completion-contest.md)。
 - [独立句子排序保留静态证据](../bug-fix/2026-10-14-rerank-static-evidence.md)：不重叠。裁决路径只比被标出的词典行，它们没有静态证据，不和词网格分混合。
@@ -95,18 +100,23 @@ p95 增量 +0.02 ms 和 +0.65 ms，在 2.5 ms 的代理门槛之内。事先写�
 - **前两名不设权重门，或门设到 0.3**：0.3 的两臂在 dev 上少 0.05–0.11pp；不设门没有跑，历史上没有门的宽版本已经否决。
 - **margin 取 0 或 2**：dev 上 m=0 在聊天一词一块上输得多（−2.44pp），m=2 收益少（合并 +1.47pp）；按事先写下的规则取 m=1。
 - **模型分数和词频（或置顶本身）加权混合**：置顶行没有和模型同单位的分；给最近选择一个可调的先验，等价于 margin，只多一个参数。
-- **用存储区分手动置顶和自动记下的最近选择，只裁决后者**：固定位置表分不清两者（[只给多字词](../../rejected/feature/2026-10-29-nine-key-recent-pin-words-only.md) 里也提到），要改落盘格式、同步和清除路径；这次不改存储，手动固定在第 1 位的行同样参与裁决，代价见下。
+- **手动置顶也交给模型裁决**：第一版这样做，理由是固定位置表分不清手动和自动（[只给多字词](../../rejected/feature/2026-10-29-nine-key-recent-pin-words-only.md) 里也提到）。用户明说要某个词坐首位，「增强」却按上文把它换下去，这是在替用户改他刚做的决定；评审时定为手动置顶不裁决。
+- **给 `fixed_candidate_positions` 加一列标手动 / 自动**：最直接，但要改落盘格式、迁移，同步设计（`docs/learning-sync.md` 的 `position` 记录）和备份恢复也得跟着带这一列。`pinned_candidates` 已经是「这个上下文用户手动置顶了哪个词」，同步、备份、删词、重置都已经带着它，复用它不改任何格式。
+- **自动记下最近选择时清掉这个上下文的手动置顶记录**：能让「手动」只跟着当前第 1 槽的主人走，被挤下去又回来的词改按自动对待。但 `pinned_candidates` 的同步规则写明取消置顶只发生在删词时、没有删除记录，这里加一条删除路径，别的设备上的副本以后还会把它带回来；而且用户置顶过的词又回到首位时继续保护它，本身也说得通。
 - **把裁决放进引擎（引擎内键盘模型那一层）**：引擎层 #10197 之后固定关，开它要多一份模型和约 40 MB 内存、九键 p95 多 6–7 ms；runtime 已经挂着同一个模型，标记交过去就够了。
 
 ## Consequences
 
 - 收益：「增强」第一次在一词一块打字里起作用，两条一起九键 test 合并 +2.72pp（Tatoeba 一词一块 0.787 → 0.834、聊天 0.824 → 0.861），14 键同向；主配置也涨。「标准」不受影响，桌面的停顿重排也不受影响。
-- 代价：用户在九键里手动固定在第 1 位的词（`set_position` 固定第 1 位，或置顶时写进第 1 槽）同样会在上文明显不对时让出首位，存储里分不出它和自动记下的最近选择；只在「增强」打开时发生。每次首行是置顶词典行、或者前两名权重相近时多一次两行的模型评分，本机按键 p50 约多 0.2–0.3 ms，一词一块 p95 多 0.65 ms。冷启动的 `nine-key` 词级集 top1 −0.25pp。
+- 代价：每次首行是固定在第 1 位的词典行、或者前两名权重相近时多一次两行的模型评分（要标的时候还多一次 `pinned_candidates` 查询），本机按键 p50 约多 0.2–0.3 ms，一词一块 p95 多 0.65 ms。冷启动的 `nine-key` 词级集 top1 −0.25pp。
 - 没量的：标记由 `NineKeySession` 的所有网格共用，十八键、九键双拼、14 键双拼、十八键双拼都会标，`typing_sim` 只量了九键和 14 键；`convert_eval` 学习关，量不到最近选择；Android README 原先写的「下次直接输入同一数字串也会优先显示这次选择」在「增强」打开时不再无条件成立，已在那段补上例外；真机（Pixel 3 XL）没有复测，桌面 25M 模型的上限臂没有跑（资源里没有那份模型）。
-- 重访信号：真机上「增强」默认打开时，或者固定位置表能分清手动和自动之后，再看要不要只裁决自动记下的那一种。
+- 手动置顶：九键里置顶、固定到第 1 位的词不再被「增强」换下去；`pinned_candidates` 从此也有九键上下文的行，随备份、同步和删词一起走。一个上下文里手动置顶的那个词一直受保护，直到用户在这个上下文里手动置顶别的词或者删掉它；它被自动记下的最近选择挤下去时，挤上来的词照旧裁决。置顶已经坐在第 1 槽的自动最近选择不再报调频失败。
+- 重访信号：真机上「增强」默认打开时，再看裁决点的 margin 和对手规则。
 
 ## Verification
 
 - `cargo test -p msime-engine --lib -- recent contest close_spelled`：`a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest`（置顶后第 1、2 行标成最近选择裁决，没有置顶时不标），`a_recent_pin_is_not_contested_by_a_completion_or_a_longer_word`（没有置顶时会领先的是补全 然后 或两字词 萨米 时，置顶的 让 不标），`close_spelled_runners_up_are_marked_as_a_contest`（监狱/教育 权重相近时标、差得远时不标，他/她 同音也标），原有最近选择的测试照旧通过。
 - `cargo test -p msime-input-runtime --lib -- model_contests rerank static_evidence`：`tests/model_contests.rs` 覆盖可信首行没有标记时不动、标记的两行之间由模型挑、只比被标出的行、模型站在首行一边或打平时不动、首行没标或只有一行回答按键时不裁决、标记长度不对时忽略、两种标记互不混比，`only_the_keystroke_model_settles_a_contest`：同一个模型挂成逐键模型时裁决，挂成落定模型时停顿重排不裁决、也不为它取出模型。
+- `cargo test -p msime-engine --lib -- contest`：`a_manual_pin_is_never_marked_as_a_contest`（置顶靠调频领先、置顶接管自动记下的第 1 槽、固定到第 1 位、置顶已经坐在第 1 槽的最近选择，四种都不标，重开会话后也不标），`a_recent_pick_after_a_manual_pin_is_still_contested`（手动固定 能 之后选了 嫩，自动记下的 嫩 照旧标成最近选择裁决）。
+- `cargo test -p msime-input-runtime --lib -- model_contests`：`a_manual_pin_stays_first_when_the_keystroke_model_prefers_another_word` 用真引擎九宫格挂一个偏爱 恁 的逐键模型：选过 能 之后再打，模型把首位还给 恁；置顶或固定到第 1 位的 能 留在首位。同一个测试放到 c570588eee 上，置顶那一步就被模型换成 恁 而失败。
 - 评测数字见上，原始报告和 dump 在研究目录 `/Users/e-hu/worktrees/_scratch/nine-key-model-decisions/`（`RULE.md`、`sweep-dev.md`、`sweep-dev-fix.md`、`test-table.md`、`test-table-fix.md`、`convert-summary.md`、`convert-summary-fix.md`、`lat/`）。

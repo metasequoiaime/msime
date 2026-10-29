@@ -148,3 +148,65 @@ fn only_the_keystroke_model_settles_a_contest() {
     settled.rerank_settled();
     assert_eq!(texts(&settled), ["甲", "乙"]);
 }
+
+/// 真引擎的九宫格，「增强」挂着一个偏爱 恁 的逐键模型：自动记下的最近选择 能 照旧让模型把首位还给 恁；用户手动置顶（置顶、固定到第 1 位）的 能 不交给模型，留在首位。
+#[test]
+fn a_manual_pin_stays_first_when_the_keystroke_model_prefers_another_word() {
+    type Engine = msime_engine::host::Session;
+    let id_of = |runtime: &Runtime<Engine>, text: &str| {
+        runtime
+            .view()
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == text)
+            .unwrap_or_else(|| panic!("{text} is on the first page"))
+            .id
+    };
+    let leader_after = |manage: &dyn Fn(&mut Runtime<Engine>, CandidateId)| -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.learning = true;
+        let database = std::path::Path::new(&options.dictionaries).join("msime-pinyin.db");
+        rusqlite::Connection::open(database)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+            )
+            .unwrap();
+        let mut runtime = Runtime::new(Engine::new(&options).unwrap(), 5).unwrap();
+        runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(favouring_model(
+            &['能', '恁', '嫩'],
+            &['恁'],
+        )))));
+        runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "6364");
+        assert_eq!(runtime.view().candidates[0].text, "恁");
+        let id = id_of(&runtime, "能");
+        manage(&mut runtime, id);
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        type_characters(&mut runtime, "6364");
+        runtime.view().candidates[0].text.clone()
+    };
+
+    let select = |runtime: &mut Runtime<Engine>, id| {
+        let selected = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(selected.commit.as_deref(), Some("能"));
+    };
+    assert_eq!(leader_after(&select), "恁");
+
+    let pin = |runtime: &mut Runtime<Engine>, id| {
+        runtime.dispatch(Action::PinCandidate(id)).unwrap();
+        assert_eq!(runtime.view().candidates[0].text, "能");
+    };
+    assert_eq!(leader_after(&pin), "能");
+
+    let fix = |runtime: &mut Runtime<Engine>, id| {
+        runtime
+            .dispatch(Action::FixCandidatePosition(id, 1))
+            .unwrap();
+        assert_eq!(runtime.view().candidates[0].text, "能");
+    };
+    assert_eq!(leader_after(&fix), "能");
+}
