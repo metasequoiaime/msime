@@ -2126,8 +2126,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeOcr != null && imeOcr.active()) closeMoreTools();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
-        // 收起前第一帧还没画：不再等它，也不记这次弹出的耗时；排着的建会话由兜底按时放行（收起已经换代，到时多半直接作废）。
+        // 收起前第一帧还没交出去：不再等它，也不记这次弹出的耗时。排着的建会话马上放行，不空等兜底：它自己核对启动代次，用户收起时 onFinishInputView 已经先换了代，放行即作废；跟随光标的候选栏自己收起窗口时不换代，会话照常马上建好。
         firstFrameArmedAt = -1;
+        runSessionStartAfterFirstFrame();
         preferencesReloader.stop();
         flushTypingStatistics();
         super.onWindowHidden();
@@ -5436,15 +5437,15 @@ public final class MSIMEInputService extends InputMethodService {
     /** 现在这个会话建立时是否按不学习建的。引擎的 learning 只在建会话时定，同一输入框重启连接时只有和现在的要求一致才留着会话。 */
     private boolean sessionLearningSuppressed;
 
-    /** 这次弹出的键盘还在等第一帧时，从 onStartInputView 开始等的时刻（uptime 毫秒）；没有在等时为 -1（#9916，{@link InputViewRefreshPolicy#armsFirstFrameWait}）。 */
+    /** 这次弹出的键盘还在等第一帧交出去时，从 onStartInputView 开始等的时刻（uptime 毫秒）；没有在等时为 -1（#9916，{@link InputViewRefreshPolicy#armsFirstFrameWait}）。 */
     private long firstFrameArmedAt = -1;
-    /** 工作线程交回来、等第一帧画完再在主线程上做的建会话；没有时为 null。它自己核对启动代次，换输入框、收起和销毁换代后放行时直接作废，和原来 post 回主线程的那一步一样。 */
+    /** 工作线程交回来、等第一帧交出去再在主线程上做的建会话；没有时为 null。它自己核对启动代次，换输入框、收起和销毁换代后放行时直接作废，和原来 post 回主线程的那一步一样。 */
     private Runnable sessionStartAfterFirstFrame;
     /** 第一帧迟迟不来时的兜底：到 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS} 照常建会话。 */
     private final Runnable firstFrameWaitTimeout = this::runSessionStartAfterFirstFrame;
 
     /**
-     * 键盘从收起到弹出时，开始等这次弹出的第一帧（#9916）：在键盘视图的 ViewTreeObserver 上挂一个只触发一次的画帧前监听，记下 onStartInputView 到第一帧的耗时，并把这段时间里工作线程交回来的建会话放到这一帧之后。窗口本来就显示着时不等。
+     * 键盘从收起到弹出时，开始等这次弹出的第一帧（#9916）：在键盘视图的 ViewTreeObserver 上挂一个只触发一次的画帧前监听，到这一帧时再登记帧提交回调（{@link #awaitFirstFrameCommit}），等这一帧真正交出去后记下 onStartInputView 到这时的耗时，并放行这段时间里工作线程交回来的建会话。窗口本来就显示着时不等。
      */
     private void armFirstFrameWait() {
         View root = keyboardRoot;
@@ -5456,25 +5457,34 @@ public final class MSIMEInputService extends InputMethodService {
             @Override public boolean onPreDraw() {
                 android.view.ViewTreeObserver observer = root.getViewTreeObserver();
                 if (observer.isAlive()) observer.removeOnPreDrawListener(this);
-                firstFrameDrawn(armedAt);
+                awaitFirstFrameCommit(observer, armedAt);
                 return true;
             }
         });
     }
 
-    /** 这次弹出的第一帧要画了：记下耗时，等着的建会话排到这一帧画完之后。又弹出了一次（重新开始等）或已经收起时，这一帧不属于它。 */
-    private void firstFrameDrawn(long armedAt) {
+    /**
+     * 这次弹出的第一帧开始画了，但画帧前离窗口亮出来还早：RenderThread 还要画完、交换缓冲，系统收到画完的报告（finishDrawing）才把窗口亮出来。API 30 上这份报告是 RenderThread 画完后用 postAtFrontOfQueue 排回主线程的，在画帧前监听里 post 出去的建会话会在这一帧遍历结束后马上轮到，往往抢在报告前面，整段建会话就又挡在窗口亮出来之前。所以在这一帧里登记帧提交回调：它和画完的报告在同一个 postAtFrontOfQueue 里、排在报告后面（API 29 不需要报告时直接在 RenderThread 上回调），回调里 post 回主线程再放行。API 28 没有帧提交回调，退一步等下一帧的 Choreographer 回调，那时这一帧多半已经交出去。哪种都由 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS} 的兜底封顶：这一帧没有画出东西、或者不走硬件渲染时，帧提交回调不会来。又弹出了一次（重新开始等）或已经收起时，这一帧不属于它。
+     */
+    private void awaitFirstFrameCommit(android.view.ViewTreeObserver observer, long armedAt) {
         if (firstFrameArmedAt != armedAt) return;
-        firstFrameArmedAt = -1;
-        imeDebugOverlay.recordPerf(DiagnosticEventKind.KEYBOARD_FIRST_DRAW, SystemClock.uptimeMillis() - armedAt);
-        // 画帧前监听还在这一帧的遍历里，post 出去的那一步在这一帧画完之后才轮到。
-        if (sessionStartAfterFirstFrame != null) {
-            main.removeCallbacks(firstFrameWaitTimeout);
-            main.post(this::runSessionStartAfterFirstFrame);
+        Runnable committed = () -> firstFrameCommitted(armedAt);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && observer.isAlive()) {
+            observer.registerFrameCommitCallback(() -> main.post(committed));
+        } else {
+            android.view.Choreographer.getInstance().postFrameCallback(frameTimeNanos -> main.post(committed));
         }
     }
 
-    /** 工作线程准备好建会话：键盘这次弹出的第一帧还没画时排到它之后（兜底到 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS}），否则马上建。 */
+    /** 这次弹出的第一帧已经交出去：记下耗时，马上放行等着的建会话。已经被兜底放行、又弹出了一次或已经收起时，这一帧不属于它。 */
+    private void firstFrameCommitted(long armedAt) {
+        if (firstFrameArmedAt != armedAt) return;
+        firstFrameArmedAt = -1;
+        imeDebugOverlay.recordPerf(DiagnosticEventKind.KEYBOARD_FIRST_DRAW, SystemClock.uptimeMillis() - armedAt);
+        runSessionStartAfterFirstFrame();
+    }
+
+    /** 工作线程准备好建会话：键盘这次弹出的第一帧还没交出去时排到它之后（兜底到 {@link InputViewRefreshPolicy#FIRST_FRAME_WAIT_MILLIS}），否则马上建。 */
     private void startEngineSessionAfterFirstFrame(Runnable build) {
         long now = SystemClock.uptimeMillis();
         if (!InputViewRefreshPolicy.waitsForFirstFrame(firstFrameArmedAt, now)) {

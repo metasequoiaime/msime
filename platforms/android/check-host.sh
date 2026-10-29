@@ -139,16 +139,23 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
-# 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧画完把等着的建会话 post 到这一帧之后；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
+# 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧在画帧前登记帧提交回调（API 28 退到下一帧回调），交出去后才放行等着的建会话，而不是在画帧前直接 post（API 30 上那样会抢在画完的报告前面）；收起时马上放行等着的建会话；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
 start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
 schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")
-first_frame_body=$(sed -n '/^    private void firstFrameDrawn(long armedAt) {$/,/^    }$/p' "$service_java")
+first_frame_body=$(sed -n '/^    private void firstFrameCommitted(long armedAt) {$/,/^    }$/p' "$service_java")
+frame_commit_body=$(sed -n '/^    private void awaitFirstFrameCommit(android\.view\.ViewTreeObserver observer, long armedAt) {$/,/^    }$/p' "$service_java")
+window_hidden_body=$(sed -n '/^    @Override public void onWindowHidden() {$/,/^    }$/p' "$service_java")
 if ! sed -n '2p' <<< "$start_view_body" | rg_q_stdin 'super\.onStartInputView\(info, restarting\);' \
   || ! sed -n '3p' <<< "$start_view_body" | rg_q_stdin '^        armFirstFrameWait\(\);$' \
   || ! rg -q 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" \
   || ! rg -A 3 'startEngineSessionAfterFirstFrame\(\(\) -> \{' <<< "$schedule_body" | rg_q_stdin 'if \(generation != engineStartGeneration \|\| connection == null \|\| session != 0\) return;' \
   || rg -q '^                    startEngineSession\(startOptions' <<< "$schedule_body" \
-  || ! rg -q 'main\.post\(this::runSessionStartAfterFirstFrame\);' <<< "$first_frame_body" \
+  || ! rg -q 'runSessionStartAfterFirstFrame\(\);' <<< "$first_frame_body" \
+  || rg -q 'main\.post\(this::runSessionStartAfterFirstFrame\)' "$service_java" \
+  || ! rg -q 'observer\.registerFrameCommitCallback\(\(\) -> main\.post\(committed\)\);' <<< "$frame_commit_body" \
+  || ! rg -q 'Choreographer\.getInstance\(\)\.postFrameCallback\(frameTimeNanos -> main\.post\(committed\)\);' <<< "$frame_commit_body" \
+  || ! rg -q 'awaitFirstFrameCommit\(observer, armedAt\);' "$service_java" \
+  || ! rg -A 1 '^        firstFrameArmedAt = -1;$' <<< "$window_hidden_body" | rg_q_stdin '^        runSessionStartAfterFirstFrame\(\);$' \
   || ! rg -q 'DiagnosticEventKind\.KEYBOARD_FIRST_DRAW' <<< "$first_frame_body" \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_PREFERENCES, preferencesMillis' <<< "$schedule_body" \
   || ! rg -q 'DiagnosticEventKind\.ENGINE_STARTUP_DICTIONARY_SYNC, syncMillis' <<< "$schedule_body" \
