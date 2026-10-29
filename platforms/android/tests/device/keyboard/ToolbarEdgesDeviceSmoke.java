@@ -419,11 +419,62 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 "clipboard more menu clear did not close the menu and ask for confirmation");
             check(descendant(cards, view -> describedAs(view, "管理剪贴板分类")) == null,
                 "clipboard more menu stayed open after choosing clear");
+            pending.setBoolean(panels, false);
+            checkClipboardMoreDetailReturn(type, service, panels, cards, surface, density);
         } finally {
             open.setBoolean(panels, false);
             pending.setBoolean(panels, false);
             render.invoke(panels);
         }
+    }
+    /**
+     * 菜单开着时点一条的 ⓘ 看详情，再返回：菜单已收起、列表整体上移了菜单那一截，返回后刚看的那条要停在离开时的位置（#10037）。
+     *
+     * <p>原来记的是菜单还在时的 `getScrollY()`，返回后列表往下错开约 140 dp，刚看的那条可能被滚出顶部。
+     */
+    private static void checkClipboardMoreDetailReturn(Class<?> type, Object service, Object panels,
+            ViewGroup cards, ViewGroup surface, float density) throws Exception {
+        Field open = field(panels.getClass(), "clipboardMoreOpen");
+        Field saved = field(panels.getClass(), "clipboardDetailScrollY");
+        ScrollView scroll = (ScrollView) field(type, "clipboardScroll").get(service);
+        int width = Math.round(360 * density);
+        int height = Math.round(300 * density);
+        int target = 5;
+        try {
+            open.setBoolean(panels, true);
+            method(panels.getClass(), "renderClipboardHistory").invoke(panels);
+            layout(surface, width, height);
+            check(descendant(cards, view -> describedAs(view, "管理剪贴板分类")) != null,
+                "clipboard more menu is not open before opening a record's details");
+            java.util.List<View> details = describedViews(cards, "查看这条剪贴板记录详情");
+            check(details.size() > target, "synthetic clipboard history has too few detail buttons");
+            View detail = details.get(target);
+            scroll.scrollTo(0, bounds(cards, detail).top - Math.round(40 * density));
+            check(scroll.getScrollY() > 0, "clipboard history did not scroll before opening details");
+            int before = bounds(surface, detail).top;
+            check(detail.performClick() && !open.getBoolean(panels),
+                "clipboard detail button did not close the more menu");
+            int restored = saved.getInt(panels);
+            method(panels.getClass(), "returnFromClipboardDetail").invoke(panels);
+            layout(surface, width, height);
+            scroll.scrollTo(0, restored);
+            java.util.List<View> returned = describedViews(cards, "查看这条剪贴板记录详情");
+            check(returned.size() > target, "clipboard history did not come back after details");
+            int after = bounds(surface, returned.get(target)).top;
+            check(after == before, "clipboard record moved after returning from details with the more menu open: "
+                + before + " -> " + after);
+        } finally {
+            method(panels.getClass(), "clearClipboardDetail").invoke(panels);
+        }
+    }
+    private static java.util.List<View> describedViews(ViewGroup root, String text) {
+        java.util.List<View> result = new java.util.ArrayList<>();
+        for (int index = 0; index < root.getChildCount(); index++) {
+            View child = root.getChildAt(index);
+            if (describedAs(child, text)) result.add(child);
+            if (child instanceof ViewGroup group) result.addAll(describedViews(group, text));
+        }
+        return result;
     }
     /**
      * 删除后出现「撤销」、键盘只有 240dp 时，顶行内容比键盘宽，左边那些按钮要横滑；「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。

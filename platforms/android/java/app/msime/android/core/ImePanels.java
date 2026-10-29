@@ -1747,7 +1747,7 @@ final class ImePanels {
             if (cloudAllowed) addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
         if (!confirmingClear && !selecting) {
-            // 分段和「清空」之间原来是一块空白，现在居中写「已存条数/上限」（#5905），不另占地方；没有可数的内容时它是空的，布局和原来一样。
+            // 分段和右侧按钮之间原来是一块空白，现在居中写「已存条数/上限」（#5905），不另占地方；没有可数的内容时它是空的，布局和原来一样。
             Integer count = cloud
                 ? CloudClipboardPanelPolicy.cloudCount(s.cloudClipboardStatus, s.cloudClipboardItems.size())
                 : items == null ? null : items.size();
@@ -1956,7 +1956,7 @@ final class ImePanels {
                     LinearLayout withDetail = LayoutPolicy.row(s);
                     Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ", () -> {
                         clipboardDetailItem = item;
-                        clipboardDetailScrollY = s.clipboardScroll.getScrollY();
+                        clipboardDetailScrollY = clipboardScrollYWithoutMoreMenu();
                         clipboardMoreOpen = false;
                         clipboardActionText = null;
                         clipboardSwipedText = null;
@@ -2027,6 +2027,18 @@ final class ImePanels {
         params.bottomMargin = s.pixels(8);
         s.clipboardPanel.addView(menu, params);
         return menu;
+    }
+
+    /** 列表当前的滚动位置，按「更多」菜单收起之后的布局算。菜单画在列表最上面，从详情返回时它已收起、列表整体上移了菜单那一截；直接记 `getScrollY()` 会让返回后的列表比离开时往下错开约 140 dp，刚看过的那条可能被滚出顶部（#10037）。 */
+    private int clipboardScrollYWithoutMoreMenu() {
+        int scrollY = s.clipboardScroll.getScrollY();
+        LinearLayout menu = clipboardMoreMenu;
+        if (menu == null || menu.getParent() != s.clipboardPanel) return scrollY;
+        int menuSpace = menu.getHeight();
+        if (menu.getLayoutParams() instanceof LinearLayout.LayoutParams params) {
+            menuSpace += params.topMargin + params.bottomMargin;
+        }
+        return Math.max(0, scrollY - menuSpace);
     }
 
     private void clipboardMoreItem(LinearLayout menu, String label, String description, Runnable action) {
