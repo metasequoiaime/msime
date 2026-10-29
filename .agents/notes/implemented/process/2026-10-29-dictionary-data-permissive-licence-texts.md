@@ -23,7 +23,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：六个平台和网页引擎的声明里都有这五份全文；渠道里漏掉任何一份，`test-language-data-notices.py` 就失败。
-- **代价与已知上限**：Windows、macOS、Linux 的 CMake 和 iOS 工程文件只在 CI 的平台构建里真正打包，本地只跑了契约脚本和 iOS 工程配置测试。rime-wanxiang（CC BY 4.0）给拼音库部分词条提供的权重与字频，不属于这次的 MIT 与 Apache-2.0 范围，各平台的总览还没有署名它，`msime-engine-dictionary-NOTICE.md` 的副本也落后于 msime-dictionary 的 `NOTICE.md`，需要另行处理。新的宽松许可数据进入随包词库时，在 `DATA_LICENCES` 加一项并接上全部渠道。
+- **代价与已知上限**：Windows、macOS、Linux 的 CMake 和 iOS 工程文件只在 CI 的平台构建里真正打包，本地只跑了契约脚本和 iOS 工程配置测试。rime-wanxiang（CC BY 4.0）给拼音库部分词条提供的权重与字频不属于这次的 MIT 与 Apache-2.0 范围，它的署名和 `msime-engine-dictionary-NOTICE.md` 副本的同步见[词库里改编自 rime-wanxiang 的权重重新署名](2026-10-29-rime-wanxiang-weights-attribution.md)。新的宽松许可数据进入随包词库时，在 `DATA_LICENCES` 加一项并接上全部渠道。
 
 ## Verification
 

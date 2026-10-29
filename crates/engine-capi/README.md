@@ -212,12 +212,12 @@ ABI 1.0 的 `msime_engine_prepare_runtime` 和 `msime_engine_reset_learning` 不
 
 | 方案 | 至少要有 | 数据许可证 |
 | --- | --- | --- |
-| 每个方案 | `msime-pinyin.db`、`msime-english.db`，以及 `msime-english.db` 的 SCOWL 版权文件 `msime-scowl_Copyright.txt`（分发 `msime-english.db` 时必须一同携带） | `msime-pinyin.db` 是 GPL-3.0（rime-ice 加补充）；`msime-english.db` 是 GPL-3.0（rime-ice-en 加补充），英文词表含 SCOWL 的词 |
+| 每个方案 | `msime-pinyin.db`、`msime-english.db`，以及 `msime-english.db` 的 SCOWL 版权文件 `msime-scowl_Copyright.txt`（分发 `msime-english.db` 时必须一同携带） | `msime-pinyin.db` 是 GPL-3.0（rime-ice 加补充），与万象共有词条的权重改编自 rime-wanxiang（CC BY 4.0，署名与改动说明在 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`）；`msime-english.db` 是 GPL-3.0（rime-ice-en 加补充），英文词表含 SCOWL 的词 |
 | 全拼、双拼 | 排序与 msime 一样还要 `msime-bigram.bin`、`msime-trigram.bin` | n-gram 的计数来自 zhwiki（CC-BY-SA-4.0），词表来自 GPL-3.0 的 `msime-pinyin.db` |
 | 五笔 | 再加 `msime-wubi.db` | 混有 Apache-2.0（86 极点码表）、GPL-3.0（rime-ice 词条与人工词条补入的词）、GPL-3.0-or-later（Fcitx 的 98 表）、Unlicense（98 五笔小组的表）和 WTFPL（区划名称）的来源，逐项见 `resources/licenses/msime-engine-dictionary-NOTICE.md` |
 | 日文 | 再加 `msime-japanese.dat` | Mozc 开源词库（BSD-3-Clause 加词典附加条款），带它的 README 与 LICENSE（`msime-mozc_dictionary_oss_README.txt`、`msime-mozc_LICENSE.txt`） |
 | 韩文、越南文、藏文 | 不用再加 | 只有第一行的两个库 |
-| 粤语、注音、笔画 | 再加 `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db`（经 `language_dictionaries`） | 粤语 CC BY 4.0；注音 LGPL-2.1-or-later 加 MIT；笔画 LGPL-3.0-only 加 GPL-3.0-only（笔顺码来自 rime-stroke，排序权重来自 rime-ice），带 `resources/licenses/` 下对应的许可证文件 |
+| 粤语、注音、笔画 | 再加 `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db`（经 `language_dictionaries`） | 粤语 CC BY 4.0；注音 LGPL-2.1-or-later 加 MIT；笔画 LGPL-3.0-only 加 GPL-3.0-only（笔顺码来自 rime-stroke，排序权重来自 rime-ice 的字频，其中与万象共有的读音改编自 rime-wanxiang，CC BY 4.0），带 `resources/licenses/` 下对应的许可证文件 |
 | 辅助码 | `resources/helpcodes/` 下的表 | 只有 `wubi86` 有来源与许可说明；仓库里其余几张没有再分发授权，不要随产品分发 |
 
 数据格式的规格文档还没有写完（引擎库方案的 P5），在那之前以 `crates/engine` 的读端为准。

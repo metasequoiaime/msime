@@ -551,7 +551,7 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
 | `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor） |
 | `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；McBopomofo 的词频 `phrase.occ` 为 MIT，补充词表（`BPMFMappings.txt`，源自 libtabe）为 BSD |
-| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频（文件内记为 `LGPL-3.0-only AND GPL-3.0-only`） |
+| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内仍只记为 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |
 | octagram `.gram` | 按模型：rime-wanxiang-data CC-BY-4.0、rime-octagram-data LGPL-3.0、rime-frost GPL-3.0 |
 | `handwriting-zh_CN.model` | LGPL-2.1，附 `HandwritingModel-LICENSE.txt` |
