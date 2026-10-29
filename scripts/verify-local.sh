@@ -760,6 +760,14 @@ build_windows_host_library() {
     return 1
   fi
   mkdir -p "$MSIME_NATIVE_BUILD/Debug" && cp -f "$runtime" "$MSIME_NATIVE_BUILD/Debug/"
+  # add_subdirectory 的子项目把自己的测试放在各自的输出目录里（tsf/Debug、
+  # shared-voice/Debug），那里同样要有这个运行时，否则它们一个都起不来：
+  # Windows 上缺 DLL 的进程会挂到 ctest 的超时，看起来像测试本身卡死，而
+  # msime-tsf-class-factory 这种直接 LoadLibrary 的会静默返回 1。两者都不在
+  # known-failures.txt 里，于是每次都被当成新失败。
+  for sub in "$MSIME_NATIVE_BUILD"/*/Debug; do
+    [ -d "$sub" ] && cp -f "$runtime" "$sub/"
+  done
 }
 
 note "compile: native host"
