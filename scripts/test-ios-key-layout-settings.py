@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口副标题取自 SharedUI 里三端共用的文字；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明的一张卡片（26 键卡片里还有「符」与「123」互换开关），下面是「数字键盘」一组胶囊和顶部数字行开关（KeyLayoutStyleTests 钉住文字本身和预览的底行、高亮）。"""
+"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口副标题取自 SharedUI 里三端共用的文字；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明的一张卡片（26 键卡片里还有「符」与「123」互换开关，9 键卡片里还有「九键左侧符号」导航行），下面是「数字键盘」一组胶囊（组末是「数字键盘左侧符号」导航行）和顶部数字行开关；两张符号表共用一个编辑页（KeyLayoutStyleTests 与 NineKeySidebarSettingsTests 钉住文字本身、预览的底行和高亮、编辑规则）。"""
 from pathlib import Path
 import re
 import unittest
@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 KEYBOARD = ROOT / "platforms/ios/App/Sources/keyboard"
 LAYOUT_PAGE = KEYBOARD / "KeyboardLayoutSettingsView.swift"
 KEY_LAYOUT_PAGE = KEYBOARD / "KeyboardKeyLayoutSettingsView.swift"
+SIDEBAR_EDITOR = KEYBOARD / "NineKeySidebarEditorView.swift"
+SETTINGS_DESIGN = ROOT / "platforms/ios/App/Sources/app/SettingsDesign.swift"
 
 
 def member(source: str, signature: str) -> str:
@@ -104,6 +106,55 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn('identifier: { "keyLayoutNumberPad_\\($0.rawValue)" }) { save(TouchKeyLayoutStyle.save(numberPadSpace: $0)) }', group)
         self.assertLess(pills, group.index("Text(TouchKeyLayoutOffering.numberPadFooter)"))
         self.assertNotIn("KeyLayoutKeyboardPreview", group)
+
+    def test_nine_key_card_lists_the_letter_sidebar_row_after_the_note(self):
+        # #10223：「九键左侧符号」是 9 键分段卡片里说明之后的一行，与 26 键卡片的互换开关同一种写法。
+        card = member(self.source, "  private func styleCard(")
+        note = card.index("if let note = kind.note(style) {")
+        gate = card.index("if kind == .nineKey {")
+        self.assertLess(note, gate)
+        self.assertIn("DesignDivider()\n        sidebarLink(.letter)", card[gate:])
+        self.assertEqual(self.source.count("sidebarLink(.letter)"), 1)
+
+    def test_number_pad_group_ends_with_the_digit_sidebar_row(self):
+        group = member(self.source, "  private var numberPadGroup: some View {")
+        footer = group.index("Text(TouchKeyLayoutOffering.numberPadFooter)")
+        link = group.index("sidebarLink(.digit)")
+        self.assertLess(footer, link)
+        self.assertEqual(self.source.count("sidebarLink(.digit)"), 1)
+
+    def test_sidebar_rows_open_the_editor_with_the_summary(self):
+        link = member(self.source, "  private func sidebarLink(")
+        self.assertIn("NavigationLink(destination: NineKeySidebarEditorView(table: table)) {", link)
+        self.assertIn("DesignNavRowLabel(title: table.title, value: NineKeySidebar.summary(style.sidebarSymbols(table)))", link)
+        self.assertIn(".buttonStyle(PressFillButtonStyle())", link)
+        self.assertIn('.accessibilityIdentifier("keyLayoutSidebar_\\(table.rawValue)")', link)
+
+    def test_nine_key_preview_draws_the_letter_table_and_highlights_a_custom_one(self):
+        preview = self.source[self.source.index("private struct KeyLayoutKeyboardPreview: View {"):]
+        self.assertIn("let marks = TouchKeyLayoutKind.previewSidebar(style)", preview)
+        self.assertIn("let sidebarHighlighted = kind.highlightsSidebar(style)", preview)
+        self.assertEqual(preview.count("sidebar(marks, highlighted: sidebarHighlighted)"), 2)
+        self.assertNotIn("TypingKeyHeatmap.nineKeySidebar(", preview)
+
+    def test_sidebar_editor_saves_one_table_and_draws_no_preview(self):
+        editor = SIDEBAR_EDITOR.read_text()
+        self.assertIn("Text(table.note)", editor)
+        self.assertIn(".onDelete { draft.remove(at: $0) }", editor)
+        self.assertIn(".onMove { draft.move(from: $0, to: $1) }", editor)
+        self.assertIn("ForEach(draft.addable, id: \\.self)", editor)
+        self.assertIn("draft.restoreDefaults()", editor)
+        self.assertIn(".disabled(!draft.canSave)", editor)
+        self.assertIn("TouchKeyLayoutStyle.save(sidebar: draft.symbols, table: table)", editor)
+        self.assertIn("SettingsSaveFailure.message", editor)
+        self.assertIn(".navigationTitle(table.title)", editor)
+        self.assertNotIn("KeyLayoutKeyboardPreview", editor)
+        self.assertNotIn("updateSharedPreferences", editor, "the editor writes only through TouchKeyLayoutStyle.save")
+
+    def test_settings_search_finds_both_sidebar_rows(self):
+        layout = next(line for line in SETTINGS_DESIGN.read_text().splitlines() if "case .layout: return [" in line)
+        self.assertIn("NineKeySidebar.letterTitle", layout)
+        self.assertIn("NineKeySidebar.digitTitle", layout)
 
     def test_number_row_toggle_closes_the_page(self):
         rows = self.body[self.body.index("if offering.numberRow {"):]
