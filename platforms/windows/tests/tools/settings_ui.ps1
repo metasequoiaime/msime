@@ -465,7 +465,7 @@ function Assert-CommandLineCandidates($window) {
     Write-Host '命令行查询候选 default, save and retained diagnostic log switches passed'
 }
 function Assert-PinyinAutocorrect($window, [string]$scheme) {
-    # 「高级选项」的全拼纠错 / 双拼纠错组（#10210）照共享页：只在全拼、双拼方案下出现，标题和说明按方案写，两个开关都写 quanpin 下的字段、默认开。全拼时经实际开关各关一次再打开，每次只改自己的字段，quanpin 下其他字段保持原值；其他方案下这一组不画。
+    # 「高级选项」的全拼纠错 / 双拼纠错组（#10210）照共享页：只在全拼、双拼方案下出现，标题和说明按方案写，两个开关都写 quanpin 下的字段、默认开。全拼、双拼方案下都经实际开关各关一次再打开，每次只改自己的字段，quanpin 下其他字段保持原值；关着时整页重画一次，开关要读回关；其他方案下这一组不画。
     $titles = @{
         quanpin = @('全拼纠错', '全拼邻键纠错', '全拼乱序纠错')
         shuangpin = @('双拼纠错', '双拼邻键纠错', '双拼乱序纠错')
@@ -483,12 +483,13 @@ function Assert-PinyinAutocorrect($window, [string]$scheme) {
         }
     }
     if ($titles.ContainsKey($scheme) -and -not (Find-ByName $content $descriptions[$scheme])) { throw "Autocorrect transposition description does not follow the shared page under $scheme" }
-    if ($scheme -eq 'quanpin') {
+    if ($titles.ContainsKey($scheme)) {
         $path = Join-Path $state 'preferences.json'
         $toggleable = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
-        foreach ($row in @(@('全拼邻键纠错', 'autocorrect_neighbor'), @('全拼乱序纠错', 'autocorrect_transposition'))) {
+        foreach ($row in @(@($titles[$scheme][1], 'autocorrect_neighbor'), @($titles[$scheme][2], 'autocorrect_transposition'))) {
             $name = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $row[0])
-            $toggle = $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($name, $toggleable)))
+            $condition = New-Object System.Windows.Automation.AndCondition($name, $toggleable)
+            $toggle = (Find-ById $window 'settings-content').FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
             if (-not $toggle -or -not $toggle.Current.IsEnabled) { throw "Advanced tab is missing the $($row[0]) switch" }
             $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
             if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "$($row[0]) must default to on" }
@@ -505,9 +506,18 @@ function Assert-PinyinAutocorrect($window, [string]$scheme) {
                 foreach ($field in $before.PSObject.Properties) {
                     if ($field.Name -ne $row[1] -and $quanpin.($field.Name) -ne $field.Value) { throw "Saving $($row[0]) changed quanpin.$($field.Name)" }
                 }
+                if (-not $expected) {
+                    # 存着的值与回退值（开）不同时整页重画，开关必须读回关，证明它读的是 quanpin 下这个字段而不是只显示回退值。
+                    Select-PageTab $window 'input-tab-scheme' '中文方案'
+                    Select-PageTab $window 'input-tab-advanced' '启用模糊音'
+                    $toggle = (Find-ById $window 'settings-content').FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+                    if (-not $toggle) { throw "Advanced tab lost the $($row[0]) switch after a redraw" }
+                    $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+                    if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw "$($row[0]) does not read back quanpin.$($row[1]) = false after a redraw" }
+                }
             }
         }
-        Write-Host 'Pinyin autocorrect switches default on, save their own quanpin fields and keep the rest'
+        Write-Host "$scheme autocorrect switches default on, read back and save their own quanpin fields and keep the rest"
     }
     Select-PageTab $window 'input-tab-scheme' '中文方案'
 }

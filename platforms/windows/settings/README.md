@@ -118,7 +118,7 @@ Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项�
 
 ## 界面验收
 
-`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 16 页，在浅色、深色及 800／1000 宽窗口下保存截图（「输入」「快捷键」「标点与翻译」的其余标签也逐个切过去截图，并确认「输入」页不再出现「二三候选」「自动纠错」），并核对侧栏搜索：结果替换页面列表、页面结果在前、设置行的位置写成「页 › 标签 › 分组」、查不到时的「没有匹配的设置」、Esc 换回页面列表，以及回车打开的结果切到所在标签、展开折叠区（「键盘与手写」的「打开手写识别板」，「输入」页「高级选项」里的「@ 地名」）；「关于」的四个标签和帮助视图、「维护与诊断」的四组也逐一核对（不点「重启」和各个复制按钮）；最后经 `MSIME_CLIENT_HOST_OPTIONS` 给一份合成运行时选项再开一次窗口，核对连接助手的助手标签、权限开关和「复制命令」点后显示「已复制」再复原（会改写系统剪贴板）；产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
+`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 16 页，在浅色、深色及 800／1000 宽窗口下保存截图（「输入」「快捷键」「标点与翻译」的其余标签也逐个切过去截图，并确认「输入」页不再出现「二三候选」「自动纠错」），在双拼、五笔、全拼三个方案下核对「高级选项」的全拼纠错 / 双拼纠错组只按当前方案出现、乱序纠错的说明与共享页相同，并在全拼、双拼下把两个开关经实际控件各关一次再打开：每次只改 `preferences.json` 里自己的 `quanpin.autocorrect_neighbor` 或 `quanpin.autocorrect_transposition`，关着时整页重画后开关读回关；并核对侧栏搜索：结果替换页面列表、页面结果在前、设置行的位置写成「页 › 标签 › 分组」、查不到时的「没有匹配的设置」、Esc 换回页面列表，以及回车打开的结果切到所在标签、展开折叠区（「键盘与手写」的「打开手写识别板」，「输入」页「高级选项」里的「@ 地名」）；「关于」的四个标签和帮助视图、「维护与诊断」的四组也逐一核对（不点「重启」和各个复制按钮）；最后经 `MSIME_CLIENT_HOST_OPTIONS` 给一份合成运行时选项再开一次窗口，核对连接助手的助手标签、权限开关和「复制命令」点后显示「已复制」再复原（会改写系统剪贴板）；产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
 
 ```powershell
 powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
