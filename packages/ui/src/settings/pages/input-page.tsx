@@ -306,7 +306,7 @@ export function InputSettingsPage() {
               <option value="traditional">繁体</option>
             </SelectRow>
             <SwitchRow
-              title="全拼邻键纠错"
+              title="拼音邻键纠错"
               checked={draft.quanpin?.autocorrect_neighbor ?? true}
               onChange={(checked) =>
                 onPreferencesChange({
@@ -318,7 +318,7 @@ export function InputSettingsPage() {
               }
             />
             <SwitchRow
-              title="全拼乱序纠错"
+              title="拼音乱序纠错"
               checked={draft.quanpin?.autocorrect_transposition ?? true}
               onChange={(checked) =>
                 onPreferencesChange({

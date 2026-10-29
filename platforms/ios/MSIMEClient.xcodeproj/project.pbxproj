@@ -210,6 +210,7 @@
 		3014ECA4EE0B5695576DD6F1 /* IOSCloudSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7987ED59A86BCCC48CAE3C16 /* IOSCloudSettings.swift */; };
 		301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0A83D8DED0888156567425AF /* LaunchScreen.storyboard */; };
 		30748AC7DE037442DBBC3E1A /* AboutUpdateRequestStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B65369702DF08F20727C45 /* AboutUpdateRequestStateTests.swift */; };
+		309959345C6BA0F455C16DCE /* LoginConsentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488D8F45870DB2FAFDE45A9E /* LoginConsentPolicy.swift */; };
 		30B098A0EC5EC3822EFA957D /* IdleMaintenancePoll.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE6DA021AE9E8608A973605 /* IdleMaintenancePoll.swift */; };
 		30EEC9D84813804DA6329964 /* LetterHintTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DE6E51394632D069890D0E /* LetterHintTable.swift */; };
 		31403C80A5C4244BB3FC5E81 /* VoicePolishPresetCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64399A092FAAF3062A589BC5 /* VoicePolishPresetCatalog.swift */; };
@@ -466,6 +467,7 @@
 		6BB07A13BC0E798DDC20C30B /* LocalSpeechModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12239F7A8C13CF7CC7C376B5 /* LocalSpeechModel.swift */; };
 		6C15CB1913FC55FE18DA4F97 /* EighteenKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80EF68361517CA226C19DC8 /* EighteenKeyLayout.swift */; };
 		6C5A0AA00DB661F5C289EDAF /* WordCharacterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A152549B4D3E07752BF4A2A /* WordCharacterTests.swift */; };
+		6CA2C66C2DCC95695C8D65FC /* LoginConsentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 488D8F45870DB2FAFDE45A9E /* LoginConsentPolicy.swift */; };
 		6CB752D750521373CE35BAC1 /* KeyboardEmojiCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFBC401DFCE3F18547806B1E /* KeyboardEmojiCatalog.swift */; };
 		6CC2174CAF276D07A9952D62 /* HandwritingPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02CDCCB6B85652DB09992D7 /* HandwritingPreference.swift */; };
 		6CCD3E12CF261DB5283996FB /* TouchPointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C67DD61572191810C3ED934 /* TouchPointPolicy.swift */; };
@@ -751,6 +753,7 @@
 		B173886C45F9075957F69576 /* AIProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962B4266475311E751681270 /* AIProviderCatalog.swift */; };
 		B1A2369A77062FDEF7BD12C7 /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574E6D9379A517BF9C5CEB82 /* SpaceCursorMovement.swift */; };
 		B1D2E3A87B9C6F7C88210DFC /* DoubaoLiveFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56116E1E60ACAF9CC705B0D2 /* DoubaoLiveFailureTests.swift */; };
+		B1DAEDBC1CB1B53B2E2F4768 /* LoginConsentPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A10B89FD2F8F0388A8C6878 /* LoginConsentPolicyTests.swift */; };
 		B28586C994CA2F0D4425851B /* CandidateMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B836D28DBED9680F0BBDD3 /* CandidateMarker.swift */; };
 		B2D406BD3029AAA4AF982BBF /* CloudClipboardTimePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A6C4BAD194E965A914892 /* CloudClipboardTimePolicyTests.swift */; };
 		B2D9B9A7A9E6AB944761C169 /* HelpcodeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A648FB41B90E98C5CE44CA23 /* HelpcodeSettingsView.swift */; };
@@ -1177,6 +1180,7 @@
 		095C484ED3DA6A52CA13FE71 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		098F3E7B257AD9D72906A6FB /* BackendRustAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendRustAccount.swift; sourceTree = "<group>"; };
 		09ADCCD7226D6D9037DF7D6F /* KeyboardClipboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardClipboardView.swift; sourceTree = "<group>"; };
+		0A10B89FD2F8F0388A8C6878 /* LoginConsentPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginConsentPolicyTests.swift; sourceTree = "<group>"; };
 		0A376B038D8B2BE88A7BDA2B /* KeyboardDictionarySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDictionarySync.swift; sourceTree = "<group>"; };
 		0A83D8DED0888156567425AF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		0BA0F6652DC4817F9B83399B /* AppNotices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotices.swift; sourceTree = "<group>"; };
@@ -1305,6 +1309,7 @@
 		45B65369702DF08F20727C45 /* AboutUpdateRequestStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutUpdateRequestStateTests.swift; sourceTree = "<group>"; };
 		460A90066E261D34294ABDB8 /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		488B833986CE8AAD950359C9 /* SkinCommunityAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityAccountTests.swift; sourceTree = "<group>"; };
+		488D8F45870DB2FAFDE45A9E /* LoginConsentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginConsentPolicy.swift; sourceTree = "<group>"; };
 		48A3043BEB523A667119A0CF /* KeyboardKeyLayoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardKeyLayoutSettingsView.swift; sourceTree = "<group>"; };
 		48AB1E7A5D30BF8A8B9B3AD6 /* OneHandModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneHandModeTests.swift; sourceTree = "<group>"; };
 		494F3DE82DE97AA16039FEBE /* CandidateGlossModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossModelTests.swift; sourceTree = "<group>"; };
@@ -1770,6 +1775,7 @@
 				D8B381E4EB8A994D9BAA5646 /* CloudSyncMarkingTests.swift */,
 				A2FCBDD503ED38EAEC810296 /* CloudSyncStateTests.swift */,
 				25B1C8E88C7D7E0CA6F9BC93 /* CommunityDictionaryImportsTests.swift */,
+				0A10B89FD2F8F0388A8C6878 /* LoginConsentPolicyTests.swift */,
 				DB19D5E11787887C1A08FCEE /* UsageReportingTests.swift */,
 				2E458895F904999F03A6A88F /* VerificationCodePolicyTests.swift */,
 			);
@@ -1904,6 +1910,7 @@
 				B6143C747F0F245DEA7172E3 /* AccountProfileView.swift */,
 				C0DC8199813CDBAA3590BDFF /* AccountSettingsView.swift */,
 				A2553CFA247A85DED74EC90F /* CloudSync.swift */,
+				488D8F45870DB2FAFDE45A9E /* LoginConsentPolicy.swift */,
 				4F2A8907E434BFEB64AF3F2E /* QQLinksService.swift */,
 				DC9C93E2840EF49E51D19C81 /* QQLinksView.swift */,
 			);
@@ -3827,6 +3834,8 @@
 				B3925080F278AF81719F415A /* KeyboardVoicePanelView.swift in Sources */,
 				262C056FDCA3214CD54FB035 /* KeyboardVoiceView.swift in Sources */,
 				30EEC9D84813804DA6329964 /* LetterHintTable.swift in Sources */,
+				309959345C6BA0F455C16DCE /* LoginConsentPolicy.swift in Sources */,
+				B1DAEDBC1CB1B53B2E2F4768 /* LoginConsentPolicyTests.swift in Sources */,
 				A88CC8B28DF1DFB3E3C04D93 /* MLKitStatsOptOut.swift in Sources */,
 				5364F9B6D52C9C5DCA7F047D /* MSIMELogoShape.swift in Sources */,
 				C02096B80C178CBCCC15C8AD /* MetasequoiaInputSessionBridge.swift in Sources */,
@@ -4125,6 +4134,7 @@
 				698EF5AAD8E4706057684B05 /* LocalSpeechModelStore.swift in Sources */,
 				56D83128B499AAB87AC60CEE /* LocalSpeechModelsView.swift in Sources */,
 				F9FD5F8C9D88FA1F22061A9B /* LocalSpeechRecognizer.swift in Sources */,
+				6CA2C66C2DCC95695C8D65FC /* LoginConsentPolicy.swift in Sources */,
 				9385D389E5AB0A22C99A5374 /* MSIMELogoShape.swift in Sources */,
 				76E0714F0583DF3A437D73AE /* MetasequoiaImeApp.swift in Sources */,
 				9444AEA990CC78F76BFD5054 /* MetasequoiaInputSessionBridge.swift in Sources */,

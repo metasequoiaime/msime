@@ -3759,21 +3759,28 @@ final class NineKeyKeyboardTests: XCTestCase {
     assertAccent("composing")
   }
 
-  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；VoiceOver 仍读作 空格。
+  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；关掉长按空格语音后不带麦克风；VoiceOver 仍读作 空格。
   func testSpaceFaceNamesTheScheme() throws {
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "全拼", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false).label,
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false, voice: true).label,
                    ChineseInputScheme.shuangpin.shortLabel)
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: true),
                    .init(label: "space", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: true),
                    .init(label: "空格", mic: true))
     // 手写板的空格键同样显示方案名，与 Android 的 SpaceKeyFace.schemeLabel 给 HANDWRITING 的 手写 一致。
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "手写", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true, voice: true),
                    .init(label: "変換", mic: false))
+    // 关掉「长按空格语音输入」后长按空格不进语音，键面只留文字（#10143）。
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: false),
+                   .init(label: "全拼", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: false),
+                   .init(label: "space", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: false),
+                   .init(label: "空格", mic: false))
 
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }

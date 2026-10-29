@@ -800,6 +800,8 @@ pub struct WordItem {
     pub sentence_words: Vec<String>,
     /// 26 键双拼按触点计价的纠错整句，而且落点支持把它留在引擎给的座位上（分数不比字面整句低出 `TouchTuning::show_margin`）：runtime 不把它当整句的次选读法挪到表尾。其余行永远为假。
     pub touch_supported: bool,
+    /// 26 键双拼按触点计价的纠错整句，触点支持而且明显比字面整句好，按首选规则（`shuangpin::dictionary` 的 `confident_correction`）坐了第一位。宿主据此给首选画强调色、读屏念「已纠正」（视图里的 `confident_correction`）。带它的行同时 `touch_supported`；其余行永远为假。
+    pub confident_correction: bool,
 }
 
 impl WordItem {

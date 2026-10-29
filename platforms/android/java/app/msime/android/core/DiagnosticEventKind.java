@@ -47,7 +47,9 @@ public enum DiagnosticEventKind {
     VOICE_PLATFORM_BUSY("voice_platform_busy", false),
     VOICE_PLATFORM_UNAVAILABLE("voice_platform_unavailable", false),
     VOICE_PLATFORM_OTHER("voice_platform_other", false),
-    VOICE_FAILURE_RESPONSE("voice_failure_response", false);
+    VOICE_FAILURE_RESPONSE("voice_failure_response", false),
+    /** 本机这一侧等服务回应超时（连接、握手或等最终结果）；服务端报的 408/504 仍记 {@link #VOICE_FAILURE_RESPONSE}。追加在末尾：识别窗口跨进程只传序号。 */
+    VOICE_FAILURE_TIMEOUT("voice_failure_timeout", false);
 
     private final String wire;
 

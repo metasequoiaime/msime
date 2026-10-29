@@ -68,6 +68,37 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["candidates": [["text": "合成", "highlighted": 1]]]]))
   }
 
+  /// 双拼触点纠错坐了首选时，View 的那一行候选带 `confident_correction: true`（#10018），其余行和默认文档里这个字段不出现。解码与行对齐，缺省为假，字符串冒充时整份回应作废（与 `highlighted` 走同一个 strictBool），换上屏文字时留着。
+  func testConfidentCorrectionIsOptionalStrictAndAlignedWithRows() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let snapshot = try bridge.snapshot(from: try Self.viewFixture(confident: "true"))
+    XCTAssertEqual(snapshot.candidates, ["我们今天去公园", "我们今天去公", "我们"])
+    XCTAssertEqual(snapshot.candidateConfidentCorrections, [true, false, false])
+    XCTAssertEqual(snapshot.candidateAnnotations.first, "(womfjbtnqugsyr)", "纠错前的拼写照旧作为注释")
+    XCTAssertEqual(snapshot.replacingCommit("，").candidateConfidentCorrections, [true, false, false])
+    let visible = CandidateMarker.visibleIndices(sources: snapshot.candidateSources)
+    XCTAssertEqual(visible.map { snapshot.candidateConfidentCorrections[$0] }, [true, false, false])
+
+    let plain = try bridge.snapshot(from: try Self.viewFixture(confident: nil))
+    XCTAssertEqual(plain.candidateConfidentCorrections, [false, false, false], "默认文档里没有这个字段")
+    XCTAssertThrowsError(try bridge.snapshot(from: try Self.viewFixture(confident: "\"true\"")))
+  }
+
+  /// host-api 的 View JSON：首行是改过一键、坐了首选的纠错整句，第二行是没坐首选的纠错，`confident` 为 nil 时不写 `confident_correction`。
+  static func viewFixture(confident: String?) throws -> [String: Any] {
+    let flag = confident.map { #", "confident_correction": \#($0)"# } ?? ""
+    let json = """
+    {"handled": true, "view": {"preedit": "womfjbtnqugsyr", "generation": 3, "page_count": 1, "candidates": [
+      {"id": {"session": 1, "generation": 3, "index": 0}, "text": "我们今天去公园", "code": "womfjbtmqugsyr", "annotation": "(womfjbtnqugsyr)", "source": 0, "corrected": true, "fixed_position": 0, "highlighted": true\(flag)},
+      {"id": {"session": 1, "generation": 3, "index": 1}, "text": "我们今天去公", "code": "womfjbtmqugs", "annotation": "(womfjbtnqugs)", "source": 0, "corrected": true, "fixed_position": 0, "highlighted": false},
+      {"id": {"session": 1, "generation": 3, "index": 2}, "text": "我们", "code": "womf", "annotation": "", "source": 0, "corrected": false, "fixed_position": 0, "highlighted": false}
+    ]}}
+    """
+    return try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+  }
+
   func testAllSessionCallsUseOneOwningThread() {
     let owner = MSIMEInputThread.shared.sync { Thread.current }
     XCTAssertFalse(owner.isMainThread)

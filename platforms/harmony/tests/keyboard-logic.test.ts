@@ -259,6 +259,10 @@ import {
   CandidateGlossPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
+import {
+  CorrectionMarkPolicy,
+  CorrectionSurfaceColors,
+} from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
@@ -8901,6 +8905,135 @@ group("the key geometry is registered once per layout and session", () => {
   check(
     sent.every((json) => (JSON.parse(json) as { id: number }).id !== 0),
     "an id of 0 would clear, so it is never used",
+  );
+});
+
+group("双拼纠错坐上首选的那一行字和注释画标记色，读屏念「已纠正」（#10018）", () => {
+  // 引擎只在坐上首选的纠错行带 confident_correction: true，其余行没有这个键；按 JSON 解析出来的样子核对。
+  type Row = { text: string; confident_correction?: boolean };
+  const rows = JSON.parse(
+    '[{"text":"我们","confident_correction":true},{"text":"文明"},{"text":"问名","confident_correction":false}]',
+  ) as Row[];
+  check(CorrectionMarkPolicy.confident(rows[0].confident_correction), "带 true 的那一行要标");
+  check(
+    !CorrectionMarkPolicy.confident(rows[1].confident_correction),
+    "没有这个键的行不标，默认视图与以前相同",
+  );
+  check(!CorrectionMarkPolicy.confident(rows[2].confident_correction), "false 不标");
+  check(!CorrectionMarkPolicy.confident(null), "null 不标");
+  const malformed = JSON.parse('{"confident_correction":"true"}') as {
+    confident_correction?: boolean;
+  };
+  check(
+    !CorrectionMarkPolicy.confident(malformed.confident_correction),
+    "不是布尔值的畸形回应不标",
+  );
+
+  check(CorrectionMarkPolicy.accessibilitySuffix(true) === "，已纠正", "读屏后缀是「，已纠正」");
+  check(CorrectionMarkPolicy.accessibilitySuffix(false) === "", "不标的行朗读不变");
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，已纠正",
+    "「已纠正」接在整行朗读的末尾",
+  );
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CandidateGlossPolicy.accessibilitySuffix("wo men", null, true) +
+        CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，提示：wo men，已纠正",
+    "原始按键的注释照旧读，「已纠正」在它之后",
+  );
+
+  // 与 Android（Palette.correctionFor）、iOS 同一条规则：没高亮的行用强调色，高亮的行用这一处的高亮字色。
+  const filled: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#FFFFFF",
+    accent: "#2C7A4B",
+  };
+  check(CorrectionMarkPolicy.markColor(false, filled) === "#2C7A4B", "没高亮时标记色是强调色");
+  check(
+    CorrectionMarkPolicy.markColor(true, filled) === "#FFFFFF",
+    "高亮时用这一处的高亮字色，皮肤把高亮底填成强调色时字仍看得见",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, false, "#8A8F98", filled) === "#2C7A4B",
+    "标记的行，平时画次要色的注释换成强调色",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, true, "#8A8F98", filled) === "#FFFFFF",
+    "标记的高亮行，注释换成高亮字色",
+  );
+  check(
+    CorrectionMarkPolicy.tint(false, true, "#8A8F98", filled) === "#8A8F98" &&
+      CorrectionMarkPolicy.tint(false, false, "#1F2328", filled) === "#1F2328",
+    "不标的行保持调用方原来的颜色，默认视图不变",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, false, CandidateSkinPolicy.FIXED_POSITION_COLOR, filled) ===
+      "#2C7A4B",
+    "标记盖过固定词的颜色",
+  );
+  // 触屏候选栏的内置配色里高亮字色就是强调色（KeyboardView.candidateColors 的 selectedText: skin.accent）：高亮的首选字色不变，标记靠换了色的原始按键注释看出来。
+  const touch: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#2C7A4B",
+    accent: "#2C7A4B",
+  };
+  check(
+    CorrectionMarkPolicy.tint(true, true, "#1F2328", touch) === "#2C7A4B" &&
+      CorrectionMarkPolicy.tint(true, true, "#8A8F98", touch) === "#2C7A4B",
+    "内置配色下高亮首选的字和注释都是强调色",
+  );
+
+  // 展开面板格子：不标的格子与以前一样按高亮取高亮字色或普通字色。
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, false, filled) === "#1F2328",
+    "不标的普通格用普通字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, true, filled) === "#FFFFFF",
+    "不标的高亮格用高亮字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, false, filled) === "#2C7A4B",
+    "标记的普通格用强调色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, true, filled) === "#FFFFFF",
+    "标记的高亮格用高亮字色",
+  );
+  const keyboard: CorrectionSurfaceColors = {
+    text: "#000000",
+    highlightedText: "#FAFAFA",
+    accent: "#0A59F7",
+  };
+  check(
+    CorrectionMarkPolicy.expandedSurface(true, filled, keyboard) === filled,
+    "有候选包画布时展开面板用候选区配色",
+  );
+  check(
+    CorrectionMarkPolicy.expandedSurface(false, filled, keyboard) === keyboard,
+    "没有画布时展开面板格子是按键，用键盘配色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(
+      true,
+      false,
+      CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+    ) === "#0A59F7" &&
+      CorrectionMarkPolicy.cellTextColor(
+        true,
+        true,
+        CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+      ) === "#FAFAFA",
+    "没有画布时标记的格子取键盘的强调色与高亮格字色",
   );
 });
 

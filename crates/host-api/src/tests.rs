@@ -3560,6 +3560,38 @@ fn key_geometry_is_validated_at_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// 视图 JSON 里候选的 `confident_correction` 只在按首选规则坐上第一位的双拼触点纠错行上出现（#10018 PR3）；默认参数（m_sp 无穷大）下带触点打字，视图里没有一行带这个字段，与加字段之前逐字节相同。
+#[test]
+fn touched_views_carry_no_confident_correction_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        set_key_geometry(handle, &touch_geometry_json(4))["ok"],
+        true
+    );
+    let mut view = Value::Null;
+    for byte in *b"nihc" {
+        let x = f32::from(byte - b'a') * 10.0 + 1.0;
+        let typed = read(msime_client_touch_character(handle, byte, false, 4, x, 1.0));
+        assert_eq!(typed["ok"], true, "{typed}");
+        view = typed["value"]["view"].clone();
+    }
+    let candidates = view["candidates"].as_array().unwrap();
+    assert!(!candidates.is_empty(), "{view}");
+    for candidate in candidates {
+        assert!(
+            candidate.get("confident_correction").is_none(),
+            "{candidate}"
+        );
+    }
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn a_malformed_glide_request_fails_without_touching_the_session() {
     let dir = tempfile::tempdir().unwrap();
