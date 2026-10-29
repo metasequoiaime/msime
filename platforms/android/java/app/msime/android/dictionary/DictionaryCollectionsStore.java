@@ -121,6 +121,41 @@ public final class DictionaryCollectionsStore {
         return Result.of(sent == null ? 0 : sent);
     }
 
+    /** 「清除学习记录」的结果：重新排队的命名词库词数，以及这一次没写完、等键盘空闲时继续写的条数。 */
+    public record ResetReport(int requeued, int pending) {}
+
+    /**
+     * 清除学习记录：`msime_client_dictionary` 的 `reset` 换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），并把已启用命名词库的词重新排队；设置、常用语、剪贴板和打字统计不动。
+     *
+     * <p>成功后给「个人词库」同步分类打待上传标记，下一轮云同步把清除后的这一份整份传上去、替换云端那份（重新排队的词全部写进词库之前不会上传）。接着趁设置页拿得到维护权，在两秒预算内把重新排队的词写回去，剩下的由键盘空闲时继续。键盘会话开着时 Rust 报忙，什么也不换。
+     */
+    public static Result<ResetReport> resetLearning(Context context) {
+        String options = hostOptions(context);
+        if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
+        final String response;
+        try {
+            response = NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(options)).put("action", action("reset")).toString());
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return Result.failed(resetFailureMessage(""));
+        }
+        JSONObject value = value(response);
+        if (value == null || !JsonPolicy.strictTrue(value.opt("reset"))) {
+            return Result.failed(resetFailureMessage(errorOf(response)));
+        }
+        SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
+        int requeued = JsonPolicy.nonNegativeInteger(value.opt("collections_requeued"), 0);
+        if (requeued == 0) return Result.of(new ResetReport(0, 0));
+        Result<DictionaryImportSynchronization.Batch> written = synchronize(options, 2000);
+        return Result.of(new ResetReport(requeued, written.ok() ? written.value().pending() : requeued));
+    }
+
+    /** 清除学习记录失败时的话：键盘会话开着时 Rust 报 `dictionary maintenance busy`，其余一律按通用失败说。 */
+    public static String resetFailureMessage(String error) {
+        if ("dictionary maintenance busy".equals(error)) return "键盘正在使用词库，请先收起键盘再试。";
+        return "清除学习记录失败，请稍后重试。";
+    }
+
     /** 空闲工作线程以短预算继续导入；返回的待处理数量包含尚未进入活动队列的词。 */
     public static Result<DictionaryImportSynchronization.Batch> synchronizeIdle(String options) {
         return synchronize(options, 100);

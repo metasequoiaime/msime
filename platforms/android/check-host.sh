@@ -1617,6 +1617,17 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
   exit 1
 fi
+# 「词库 › 学习」的「清除学习记录」（.agents/notes/implemented/feature/2026-10-29-mobile-clear-learning.md）：文案和失败提示由 ClearLearningSmoke 覆盖，Rust 那一半由 host-api 的 cloud_sync 测试覆盖；页面的接线 JVM 冒烟碰不到，这里钉住：学习组里有这一行，点了先弹确认框，确认后在工作线程上走 DictionaryCollectionsStore.resetLearning；resetLearning 只在 reset 成功后给词库分类打待上传标记。
+clear_store="$repo_root/platforms/android/java/app/msime/android/dictionary/DictionaryCollectionsStore.java"
+clear_reset=$(sed -n '/    public static Result<ResetReport> resetLearning(Context context) {$/,/^    }$/p' "$clear_store")
+if ! rg -qF 'learning.button(ClearLearningCopy.TITLE, ClearLearningCopy.SUBTITLE, ClearLearningCopy.ACTION, this::confirmClearLearning);' "$lexicon_page" \
+  || ! rg -qF 'MessageDialog.confirm(requireContext(), ClearLearningCopy.CONFIRM_TITLE, ClearLearningCopy.CONFIRM_MESSAGE,' "$lexicon_page" \
+  || ! rg -qF 'HostTask.run(this, DictionaryCollectionsStore::resetLearning, result -> {' "$lexicon_page" \
+  || ! rg_q_stdin -F '.put("action", action("reset"))' <<< "$clear_reset" \
+  || ! awk '/strictTrue\(value\.opt\("reset"\)\)/ { checked = NR } /SyncSignals\.markDirty\(context, SyncSwitch\.DICTIONARY\);/ { marked = NR } END { exit !(checked && marked > checked) }' <<< "$clear_reset"; then
+  echo "Android clear-learning wiring is missing: the learning group row, its confirmation, the worker-thread reset through DictionaryCollectionsStore.resetLearning, and marking the dictionary section only after the reset succeeded" >&2
+  exit 1
+fi
 # 大屏单手侧边数字键盘（#10203，.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md）：宽度由 KeyboardFormFactorPolicySmoke、显示条件和偏好读法由 OneHandSidePadPolicySmoke 覆盖；接线在 InputMethodService、ImeFrame 和设置页里，JVM 冒烟碰不到，这里钉住：键盘从共享偏好读侧边面板，进 touchGeometryKey（变了就重画）和皮肤片段（冷启动第一帧就按它画）；ImeFrame.applyOneHanded 按宽度和 OneHandSidePadPolicy.shown 摆上或摘下面板，签名带着面板宽度；面板的数字和小数点走数字层的字面上屏，⌫ 带连删；键距、行高跟着主键区重排；设置页的标题和说明与 iOS、鸿蒙逐字相同。
 side_pad_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeFrame.java")
