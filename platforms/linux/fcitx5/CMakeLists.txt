@@ -293,6 +293,8 @@ if(BUILD_TESTING)
     set_tests_properties(fcitx5-helpcode-trigger PROPERTIES TIMEOUT 60)
     add_test(NAME fcitx5-native-context
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
+    add_test(NAME fcitx5-modifier-focus
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --modifier-focus)
     add_test(NAME fcitx5-native-smart-abc
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --smart-abc)
     add_test(NAME fcitx5-punctuation-context

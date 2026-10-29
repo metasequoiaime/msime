@@ -1442,13 +1442,14 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--voice-hotkey" ||
                                        std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
+                                       std::string(argv[2]) == "--modifier-focus" ||
                                        std::string(argv[2]) == "--caps-lock" ||
                                        std::string(argv[2]) == "--app-rules" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
+            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--modifier-focus|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1772,6 +1773,95 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--modifier-focus") {
+      const auto shiftHeld = fcitx::KeyStates(fcitx::KeyState::Shift);
+      const auto ctrlHeld = fcitx::KeyStates(fcitx::KeyState::Ctrl);
+      const auto modifier = [&](fcitx::KeySym sym, bool release = false,
+                                fcitx::KeyStates modifiers = fcitx::KeyStates()) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, modifiers), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto refocus = [&] {
+        blur();
+        ic.focusIn();
+        engine.activate(entry, focus);
+      };
+      const auto shiftTap = [&] {
+        modifier(FcitxKey_Shift_L);
+        require(!modifier(FcitxKey_Shift_L, true, shiftHeld), "Shift 松开仍交还应用");
+      };
+      require(state->input_enabled_, "修饰键焦点测试从中文开始");
+      for (const auto ctrl : {FcitxKey_Control_L, FcitxKey_Control_R}) {
+        modifier(ctrl);
+        modifier(FcitxKey_Alt_L, false, ctrlHeld);
+        // 松开留在其他窗口，原上下文只收到失焦和重新聚焦。
+        refocus();
+        shiftTap();
+        require(!state->input_enabled_, "Ctrl 松开丢失后，重新聚焦的 Shift 应切到英文");
+        shiftTap();
+        require(state->input_enabled_, "恢复后 Shift 可以切回中文");
+      }
+
+      // 未完成的旧手势只结束，不把跨焦点的松开认成新的轻按。
+      modifier(FcitxKey_Shift_L);
+      refocus();
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(state->input_enabled_, "失焦前按住的 Shift 松开不切换");
+      shiftTap();
+      require(!state->input_enabled_, "跨焦点旧松开之后新的 Shift 轻按仍有效");
+      shiftTap();
+
+      // 前端可能只报告松开；事件中的 Ctrl 仍按住时不能当作独立 Shift。
+      modifier(FcitxKey_Shift_L, true, shiftHeld | ctrlHeld);
+      require(state->input_enabled_, "只收到松开且 Ctrl 仍按住时不切换");
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(!state->input_enabled_, "没有其他修饰键的仅松开前端仍可切换");
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(state->input_enabled_, "仅松开前端可以切回中文");
+
+      modifier(FcitxKey_Control_L);
+      fcitx::InputContextEvent resetEvent(&ic, fcitx::EventType::InputContextReset);
+      engine.reset(entry, resetEvent);
+      shiftTap();
+      require(!state->input_enabled_, "reset 结束旧 Ctrl 手势，后续 Shift 正常");
+      shiftTap();
+
+      modifier(FcitxKey_Control_L);
+      fcitx::InputContextEvent switchEvent(&ic, fcitx::EventType::InputContextSwitchInputMethod);
+      engine.deactivate(entry, switchEvent);
+      engine.activate(entry, focus);
+      shiftTap();
+      require(!state->input_enabled_, "输入法停用后旧 Ctrl 状态不影响下一次启用");
+      shiftTap();
+
+      // 开启裸 Ctrl 时，跨焦点旧松开也不应成为轻按。
+      modifier(FcitxKey_Control_L);
+      refocus();
+      state->mode_ctrl_enabled_ = true;
+      modifier(FcitxKey_Control_L, true, ctrlHeld);
+      require(state->input_enabled_, "失焦前按住的 Ctrl 松开不切换");
+      modifier(FcitxKey_Control_L);
+      modifier(FcitxKey_Control_L, true, ctrlHeld);
+      require(!state->input_enabled_, "新的 Ctrl 轻按仍按开关正常切换");
+      modifier(FcitxKey_Control_L);
+      modifier(FcitxKey_Control_L, true, ctrlHeld);
+      require(state->input_enabled_, "新的 Ctrl 轻按可以切回中文");
+      modifier(FcitxKey_Shift_L);
+      refocus();
+      state->mode_ctrl_enabled_ = true;
+      modifier(FcitxKey_Control_L);
+      modifier(FcitxKey_Control_L, true, ctrlHeld);
+      require(!state->input_enabled_, "Shift 松开丢失后，新的 Ctrl 轻按仍正常切换");
+      modifier(FcitxKey_Control_L);
+      modifier(FcitxKey_Control_L, true, ctrlHeld);
+      state->mode_ctrl_enabled_ = false;
+
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 跨焦点修饰键手势与恢复通过\n";
+      return 0;
+    }
     if (customVoiceProvider) {
       // 原始 X 键码 24 对应物理 Q；布局给出 a 时仍须命中同一录键位置。
       const auto chord = [&](bool release = false, bool shift = false) {
