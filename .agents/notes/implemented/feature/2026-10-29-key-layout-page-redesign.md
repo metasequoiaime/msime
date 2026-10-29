@@ -24,6 +24,8 @@ Status: implemented
 
 各端的位置：iOS `KeyboardKeyLayoutSettingsView`，数据在 `TouchKeyLayoutStylePreference.swift`（`TouchKeyLayoutKind`、各样式的 `note(_:)`、`highlightedSlots(_:)`）；Android `KeyLayoutStylesPage` + `KeyLayoutPreview`，纯逻辑在 `KeyLayoutStylesPolicy`（`BottomRowPreview` 删除）；共享页 `touch-key-layout-settings.tsx`，数据在 `touch-key-layout-styles.ts`（`*StyleNotes`、`*StyleHighlights`，`nineKeyTallReturnPreview` 删除，改用热力图的 `nineTallReturnRows`）。
 
+9 键分段卡片在样式说明之后的「九键左侧符号」一行、「数字键盘」一组末尾的「数字键盘左侧符号」一行，以及 9 键预览左列按用户的字母表画并描边，见[九键左侧符号栏三端共享](2026-10-29-nine-key-sidebar-shared.md)。
+
 ## Alternatives considered
 
 - **保留三组列表，只把缩略图换成整块键盘**：改动小。不采用：十一块整键盘排成一列比现在更长，「找自己那组」的问题更重。
