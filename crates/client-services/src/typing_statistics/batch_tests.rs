@@ -608,3 +608,33 @@ fn the_background_flush_writes_queued_selections() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
+
+/// 统计文件还不存在时统计按默认关着：攒着的选词在写出时丢掉，不会建出一份关着却带着选词的新文件；Android 写效率时取锁带出攒着的选词，也是同一条路。之后打开统计，关着时攒的选词不补记。
+#[test]
+fn queued_selections_never_create_a_statistics_file_while_statistics_are_off_by_default() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(STATISTICS_FILE);
+    let store = TypingStatisticsStore::new(directory.path());
+    // 本进程还没读过这个文件，照攒。
+    assert_eq!(store.queue_selections(&[(1, 2), (3, 1)]).unwrap(), None);
+    flush_pending_commits();
+    assert!(!path.exists());
+    // 读到的是不存在的文件，也就知道了统计关着：之后交来的当场丢掉。
+    assert_eq!(store.known_enabled(), Some(false));
+    assert_eq!(store.queue_selections(&[(1, 1)]).unwrap(), Some(false));
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(STATISTICS_FILE);
+    let store = TypingStatisticsStore::new(directory.path());
+    assert_eq!(store.queue_selections(&[(1, 2)]).unwrap(), None);
+    let mut efficiency = CommitEfficiency::default();
+    efficiency.count_commit(2, 4, false, false);
+    store.record_efficiency(&efficiency).unwrap();
+    assert!(!path.exists());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    assert_eq!(store.queue_selections(&[(2, 3)]).unwrap(), None);
+    assert!(store.set_enabled(true).unwrap().enabled);
+    assert_eq!(on_disk(&directory).selections.total(), 0);
+}

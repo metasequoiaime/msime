@@ -1064,7 +1064,7 @@ fn pending_commits() -> MutexGuard<'static, BTreeMap<PathBuf, PendingCommits>> {
 /// 本进程为一个统计目录攒着的选词位置，和本进程上次读写那个文件时看到的统计开关与清空代号。
 #[derive(Default)]
 struct PendingSelections {
-    /// 本进程上次读到或写下统计文件时它的 `(开关, 清空代号)`；本进程还没读过这个文件时为 `None`。
+    /// 本进程上次读到或写下统计文件时它的 `(开关, 清空代号)`；读时文件还不存在，记的是默认值（关着，代号 0）。本进程还没读过这个文件时为 `None`。
     file: Option<(bool, u64)>,
     /// 攒着还没写进文件的选词位置。`file` 为 `None` 时攒下的，由下一次读到的开关和代号决定去留。
     counts: SelectionCounts,
@@ -1233,7 +1233,10 @@ impl TypingStatisticsStore {
         ) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(TypingStatistics::default());
+                // 文件还不存在也是读到了一个状态：默认值，统计关着。记下它，攒着的选词随之丢掉，不会建出一份关着却带着选词的新文件。
+                let value = TypingStatistics::default();
+                self.observe_file(&value);
+                return Ok(value);
             }
             Err(_) => return Err(TypingStatisticsError::InvalidDocument),
         };
@@ -1264,7 +1267,7 @@ impl TypingStatisticsStore {
 
     /// 在文件锁内重读统计，按到达的顺序把攒着的上屏逐条记进去，连同本进程攒着的选词位置，再写一次。
     ///
-    /// 重读是因为别的进程（设置页）可能在这期间清空了统计、改了保留期或关掉了统计：改了保留期就合并进它写下的文件；统计关着，或文件的清空代号已经不是 `generation`（这批上屏是清空之前打的，攒批之前它们早已在文件里、随清空一起删掉），整批丢掉不写。每条上屏带着自己的时刻、日期和小时，记法与当初逐条写入完全相同。选词位置在重读之后取走，重读已按同样的规矩丢掉了不该写的那些（[`PendingSelections::observe`]）；读不出文件时它们留在内存里，等下一次写。上屏和选词都没有要写的就不写。整批成功或文件不变。返回重读（并在有要写的时合并）后的统计。
+    /// 重读是因为别的进程（设置页）可能在这期间清空了统计、改了保留期或关掉了统计：改了保留期就合并进它写下的文件；统计关着，或文件的清空代号已经不是 `generation`（这批上屏是清空之前打的，攒批之前它们早已在文件里、随清空一起删掉），整批丢掉不写。每条上屏带着自己的时刻、日期和小时，记法与当初逐条写入完全相同。选词位置在重读之后取走，重读已按同样的规矩丢掉了不该写的那些（[`PendingSelections::observe`]，文件还不存在时按默认的关着算）；读不出文件时它们留在内存里，等下一次写。上屏和选词都没有要写的就不写。整批成功或文件不变。返回重读（并在有要写的时合并）后的统计。
     fn write_pending_locked(
         &self,
         lock: &StatisticsLock,
@@ -1280,6 +1283,12 @@ impl TypingStatisticsStore {
             commits
         } else {
             &[]
+        };
+        // 重读时已丢掉不该写的选词；统计关着时这里再挡一次，关着就什么都不写，也不会因为选词建出文件。
+        let selections = if value.enabled {
+            selections
+        } else {
+            SelectionCounts::default()
         };
         if commits.is_empty() && selections.total() == 0 {
             return Ok(value);
@@ -1507,7 +1516,7 @@ impl TypingStatisticsStore {
 
     /// 把一批选词位置攒进本进程这个目录的批次，和攒着的上屏一起写出；不取统计文件锁，也不碰磁盘。返回本进程所知的统计开关（[`Self::known_enabled`]）。
     ///
-    /// 给在输入线程上交出选词的宿主用（host-api 每满一批、失焦和销毁会话时）：那里不能整份读写统计文件再 fsync，也不能等别的线程手里那次写。攒着的选词由写上屏批次的地方一并写出：[`Self::flush`]、[`flush_pending_commits`] 和它的后台版本、满间隔的 `record`，以及这个目录上的任何其他操作（统计页读取、上传），所以读统计的地方总看得到它们。所知的开关关着时整批丢掉不攒；写出时文件里的统计关着，或文件已被清空过（攒下时所知的清空代号与文件的不同），也整批丢掉，和攒着的上屏一样。本进程还没读过这个文件时照攒，由第一次读到的开关和代号决定去留。整批攒下或都不攒：位置是 0 或计数用尽时报错，之前攒着的不受影响。
+    /// 给在输入线程上交出选词的宿主用（host-api 每满一批、失焦和销毁会话时）：那里不能整份读写统计文件再 fsync，也不能等别的线程手里那次写。攒着的选词由写上屏批次的地方一并写出：[`Self::flush`]、[`flush_pending_commits`] 和它的后台版本、满间隔的 `record`，以及这个目录上的任何其他操作（统计页读取、上传），所以读统计的地方总看得到它们。所知的开关关着时整批丢掉不攒；写出时文件里的统计关着（文件还不存在时按默认的关着算），或文件已被清空过（攒下时所知的清空代号与文件的不同），也整批丢掉，和攒着的上屏一样。本进程还没读过这个文件时照攒，由第一次读到的开关和代号决定去留。整批攒下或都不攒：位置是 0 或计数用尽时报错，之前攒着的不受影响。
     pub fn queue_selections(
         &self,
         selections: &[(usize, u64)],
