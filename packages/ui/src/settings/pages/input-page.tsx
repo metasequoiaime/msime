@@ -513,7 +513,7 @@ export function InputSettingsPage() {
             {!harmonyPhone && client.fuzzyPinyin && (
               <GroupList title="模糊音">{fuzzyPinyinSection("section")}</GroupList>
             )}
-            {/* 桌面共享设置页把这两个开关放在高级选项；鸿蒙手机的在「中文」组里，iOS、Android 的拼音纠错在各自的原生设置里，这里都不画。全拼和双拼都读 quanpin 下这两个字段（字段名带 quanpin 是历史原因，见 `shuangpin::engine::request_autocorrect_types`），所以两个方案下都列出，标题和说明按当前方案写。五笔的混输拼音和 z 键拼音反查也带着这两个字段查全拼（`ime::apply_request_options`），但两者都是五笔里的附属输入、混输默认关，这里不为它们单列一组：五笔用户切回全拼方案关掉后，回到五笔照样生效；其他方案不纠错，不列出。Windows 发布的设置窗口是原生的 `msime-client-settings.exe`，不用这个共享页，那里照 macOS 原先的取舍不放纠错开关（见 platforms/windows/settings/README.md）。全拼两个都关掉时漏字、多字的纠错一起关闭（`request_autocorrect_mask`），双拼没有这一类。 */}
+            {/* 桌面共享设置页把这两个开关放在高级选项；鸿蒙手机的在「中文」组里，iOS、Android 的拼音纠错在各自的原生设置里，这里都不画。全拼和双拼都读 quanpin 下这两个字段（字段名带 quanpin 是历史原因，见 `shuangpin::engine::request_autocorrect_types`），所以两个方案下都列出，标题和说明按当前方案写。五笔的混输拼音和 z 键拼音反查也带着这两个字段查全拼（`ime::apply_request_options`），但两者都是五笔里的附属输入、混输默认关，这里不为它们单列一组：五笔用户切回全拼方案关掉后，回到五笔照样生效；其他方案不纠错，不列出。Windows 发布的设置窗口是原生的 `msime-client-settings.exe`，不用这个共享页，那里的「高级选项」同样在模糊音之后提供这一组，标题、说明与这里逐字相同（`build_autocorrect_group`，见 platforms/windows/settings/README.md），改文案时两边一起改。全拼两个都关掉时漏字、多字的纠错一起关闭（`request_autocorrect_mask`），双拼没有这一类。 */}
             {!mobilePlatform && (draft.scheme === "quanpin" || draft.scheme === "shuangpin") && (
               <GroupList title={draft.scheme === "shuangpin" ? "双拼纠错" : "全拼纠错"}>
                 <SwitchRow

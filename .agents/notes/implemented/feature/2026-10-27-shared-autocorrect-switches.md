@@ -17,3 +17,5 @@ Status: implemented
 ## Consequences
 
 用户可以独立关闭两类全拼纠错，设置保存后宿主仍沿用原有字段。桌面共享设置页的同一对开关放在「高级选项」的「全拼纠错」组，`qjn`、`zhr` 这类全辅音简拼被纠错抢首位的问题由引擎修复，见[全辅音简拼的字面整词排在全拼纠错前面](../bug-fix/2026-10-29-quanpin-jianpin-over-autocorrect.md)。
+
+Windows 发布的设置窗口是原生 WinUI（`platforms/windows/settings/main.cpp`），不用共享页。#10210 在它的「高级选项」里模糊音之后加了同一组（`build_autocorrect_group`）：只在全拼、双拼方案下画，组名、标题和说明与桌面共享页 `input-page.tsx` 逐字相同，写的仍是 `quanpin.autocorrect_neighbor`、`quanpin.autocorrect_transposition`，默认开。文案在两处各写一份，没有抽成共享表，因为 WinUI 窗口的其他行也是直接写在 `main.cpp` 里，改共享页的说明时要同步改 `main.cpp`，`tests/tools/settings_ui.ps1` 的 `Assert-PinyinAutocorrect` 按乱序纠错的完整说明找行，漏改会在 CI 的「Windows native settings」任务里失败。Win7 原生设置（`win7/AdvancedInputForm.h`）不在 #10210 的范围内，仍没有这两个开关。

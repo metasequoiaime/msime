@@ -14481,6 +14481,7 @@ private:
     fold_index_.clear();
 
     build_fuzzy_group(page);
+    build_autocorrect_group(page);
     build_helpcode_group(page);
 
     // 与共享页的 FrequencySection 相同，只按条件显示，不改存着的值（这几项会上云）：学习选词习惯关闭时整组不画；调频方式为「关闭」时不画触发频次；步长只有线性调频读。
@@ -15270,6 +15271,25 @@ private:
       doc.SetBoolean(L"fuzzy_pinyin.enabled", false);
       doc.SetStrings(L"fuzzy_pinyin.rules", std::vector<std::wstring>{});
     }, true);
+  }
+
+  // 「全拼纠错」/「双拼纠错」组，照共享页 input-page.tsx 高级选项里模糊音之后的那一组：只在当前方案是全拼或双拼时画，标题和说明按当前方案写，文案与共享页逐字相同。全拼和双拼都读 quanpin 下的 autocorrect_neighbor、autocorrect_transposition（字段名带 quanpin 是历史原因，见 shuangpin::engine::request_autocorrect_types），默认都开。全拼两个都关掉时漏打、多打字母的纠错也一起关闭（request_autocorrect_mask），双拼没有这一类纠错，所以只有全拼的说明写这一句。五笔的混输拼音和 z 键拼音反查也带着这两个字段，但与共享页一样不为它们单列，其他方案不纠错，不画。
+  void build_autocorrect_group(StackPanel const &page) {
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+    if ((scheme != L"quanpin" && scheme != L"shuangpin") || !edition_offers_scheme(scheme))
+      return;
+    const bool shuangpin = scheme == L"shuangpin";
+    auto group = add_group(page, shuangpin ? L"双拼纠错" : L"全拼纠错");
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼邻键纠错" : L"全拼邻键纠错",
+             shuangpin
+                 ? L"把按偏到相邻键的双拼编码纠回来，只用于三个音节以上的整句，纠错整句排在词条和整句后面。关闭后不再按邻键猜测编码。"
+                 : L"把按偏到相邻键的字母纠回来，例如 shabg → shang、zhr → zhe。全是辅音的输入（qjn、zhr）先列简拼词，纠错候选排在后面。关闭后不再按邻键猜测拼写。",
+             L"quanpin.autocorrect_neighbor", true);
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼乱序纠错" : L"全拼乱序纠错",
+             shuangpin
+                 ? L"把两键编码前后颠倒的音节纠回来，同样只用于三个音节以上的整句。关闭后不再按乱序猜测编码。"
+                 : L"把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。",
+             L"quanpin.autocorrect_transposition", true);
   }
 
   // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
