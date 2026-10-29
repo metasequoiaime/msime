@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`android-device.yml` 的 job 跑在 `depot-ubuntu-24.04-8`。打开 KVM 权限的 udev 步骤保留：Depot 上 `/dev/kvm` 本来就是 0666，这一步不改变什么，GitHub 托管 runner 上则必须有，以后要临时退回时不用再加。
+`android-device.yml` 的 job 跑在 `depot-ubuntu-24.04-8`。权限准备先确认 `/dev/kvm` 是字符设备；当前用户已经可读写时直接使用，否则仅对这一现有节点执行 `sudo chmod a+rw`，随后重新检查实际访问权限。安装模拟器后执行 `emulator -accel-check`，不把节点存在等同于加速可用。权限不依赖 udev：Depot 的静态节点不保证能重新触发设备事件，GitHub 托管 runner 的 0660 节点也可以按同一流程开放当前作业所需权限。
 
 依据是 #10190 里的一次性探测（`depot-android-kvm-probe.yml`，在两种 runner 上做同一件事，结论记下后在同一个 PR 里删掉），2026-10-29 的结果：
 
@@ -28,6 +28,7 @@ Status: implemented
 
 ## Alternatives considered
 
+- **保留 udev 规则并强制触发**：可在节点后来重建时继续维持权限，也是原 GitHub runner 的流程。但 Depot 的实际完整作业在 `udevadm trigger --name-match=kvm` 返回 `Failed to open the device 'kvm': Invalid argument`，发生在安装工具和设备测试之前；先前只验证模拟器加速的探测没有覆盖这一步。本作业只使用 runner 已存在的设备节点，不依赖热插拔，直接检查和修正该节点即可，不忽略 udev 错误后继续冒充准备成功。
 - **留在 GitHub，限制 `android-device-pr` 的触发**（比如打标签才跑）：不占 Depot 额度。不采用：Depot 上跑得更快，限制触发会把 10-28 那篇要解决的「合并后才看见界面验收失败」重新带回来。
 - **用 `depot-ubuntu-24.04-4`**：更便宜。不采用：这个 job 要在同一台机器上交叉编译四个 client crate 的单测和 APK，同时跑模拟器，8 核 31 GB 开机快一倍，构建也是 8 核的规格；按 [Depot 默认](2026-10-27-depot-runners-by-default.md) 的规格划分，编 Rust 用 `-8`。
 
@@ -38,3 +39,9 @@ GitHub 托管的 Linux 名额只剩发版、发布和 Pages 这类持有凭据�
 ## Verification
 
 `actionlint` 通过。这个 PR 改到了 `android-device.yml`，`ci-platforms.yml` 的 `android_device` 会点亮，PR 上的 API 35 整套验收就在 Depot 上实跑一遍。API 28 只在合并后的 develop 推送上跑，合并后看第一次的结果。
+
+崩溃完善分支的固定 `d955936174`、Native Platform CI `40891776963`、设备 job `123510423275` 实际在旧 udev 准备步骤失败；Rust 设备单测、APK 和故障专项均未开始，不能记为设备验收失败或通过。上述权限准备修补需单独核对 Linux 实际设备与拒绝分支，并由下一轮 Depot 作业验证模拟器加速和完整套件；旧 `6bea262fd0` 的 GitHub runner 整作业成功不替代本轮。
+
+修补后的完整 Bash 步骤在 PVE Linux 非 root 用户上直接执行，真实可访问的 KVM 节点保持原身份与权限；私有挂载命名空间内另外验证可访问字符节点、受限字符节点权限修正、普通文件拒绝和缺失节点拒绝，五项均符合预期。所有替换与 chmod 仅作用于命名空间绑定的合成节点，原设备未修改；`actionlint`、Bash 语法和显式 Bash 模式的 ShellCheck 均通过。证据为 `target/kvm-permission-fixture-attempt1.log` 及远端 `target/kvm-permission-verification-d955-attempt1/verification.json`。这不替代 Depot 上的实际加速与完整设备作业，仍待下一轮。
+
+权限修补候选树 `d5c3c96217f4d8cf1603ff7f411ea4dc561f8109` 的整轮 `scripts/verify-local.sh --quick` 退出 0，12,612 个源码及模式条目在开始和结束后均逐项一致。可移植 Windows、契约与笔记、Rust/Android/wasm、Android Java、macOS、Apple bridge 和 x64/x86 pipe-only 通过；工具缺失的目标阶段仍按原规则跳过。证据为 `target/kvm-candidate-quick-evidence/`；随后只补充本篇验证事实，设备加速与整套输入仍待新 CI。

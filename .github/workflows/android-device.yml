@@ -42,9 +42,12 @@ jobs:
       - name: Enable KVM for the emulator
         run: |
           set -euo pipefail
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          # Depot 的静态设备已可访问，不能依赖 udev 为它重新触发事件。
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+          fi
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Install tools, the pinned NDK and the emulator image
         run: |
           set -euo pipefail
@@ -60,6 +63,7 @@ jobs:
             emulator platform-tools 'system-images;android-${{ matrix.api }};default;x86_64' >/dev/null
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
           test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
+          "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
       - name: Boot the dedicated AVD
         run: |
           set -euo pipefail
