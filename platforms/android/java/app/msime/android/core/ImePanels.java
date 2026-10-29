@@ -1992,7 +1992,9 @@ final class ImePanels {
         Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
             KeyboardKeyRole.RETURN);
         insert.setContentDescription("插入这条剪贴板记录");
-        clipboardAction(actions, "返回", this::returnFromClipboardDetail);
+        // 底部「返回」和顶栏的那个回到同一级，读屏说明也要一致，否则从预览进入时读屏用户听不出它会重开预览。
+        clipboardAction(actions, "返回", this::returnFromClipboardDetail)
+            .setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
         s.clipboardPanel.addView(actions, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
         s.imeStyler.applySkin();
         ViewPolicy.setTextColor(details, ImeStyler.fade(s.skin.keyForeground(), .8));

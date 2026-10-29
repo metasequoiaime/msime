@@ -833,14 +833,16 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
   exit 1
 fi
-# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览。
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
 if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
   || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -A 10 'private void returnFromClipboardDetail\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\('; then
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
+  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
   echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
   exit 1
 fi
