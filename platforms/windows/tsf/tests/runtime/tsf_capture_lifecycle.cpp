@@ -82,8 +82,10 @@ void tests() {
     std::filesystem::path path;
     ~Cleanup() { std::error_code error; std::filesystem::remove_all(path, error); }
   } cleanup{temporary};
+  const auto preferences = temporary / "preferences";
+  require(std::filesystem::create_directory(preferences), "synthetic preferences creation failed");
   require(SetEnvironmentVariableW(L"LOCALAPPDATA", temporary.c_str()) != FALSE &&
-          SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", temporary.c_str()) != FALSE, "synthetic environment failed");
+          SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", preferences.c_str()) != FALSE, "synthetic environment failed");
   const HMODULE host = LoadLibraryW((directory / MSIME_EDITION_HOST_DLL).c_str());
   require(host != nullptr, "Host API boundary load failed");
   const auto initialize = load<void (*)(const char *)>(host, "msime_test_host_initialize");
@@ -115,6 +117,15 @@ void tests() {
     require(tip.armed().sequence == initial.sequence && preparations() == 1,
             "steady refresh republished the same capture");
     tip.resume_refresh();
+    // 文件通知可能合并或重复，先等未消费事件安静，再跨过三个旧轮询周期。
+    unsigned quiet_reads = 0;
+    until([&] {
+      quiet_reads = consent_reads();
+      Sleep(200);
+      return consent_reads() == quiet_reads;
+    }, "preference notifications did not settle");
+    Sleep(1600);
+    require(consent_reads() == quiet_reads, "idle observer still polls consent every 500 ms");
     WER_RUNTIME_EXCEPTION_INFORMATION information{};
     information.dwSize = sizeof(information);
     information.hProcess = GetCurrentProcess();
@@ -138,7 +149,7 @@ void tests() {
     tip.release(first);
     require(tip.armed().sequence != 0 && tip.registered() == 1, "one instance removed another lease");
     mode(2); tip.disarmed();
-    mode(1);
+    mode(4);
     require(std::strcmp(tip.armed().header, initial.header) == 0 && preparations() == 1,
             "temporary read failure changed capture identity");
     mode(0); tip.disarmed();
@@ -147,6 +158,31 @@ void tests() {
     const auto reopened = tip.armed();
     mode(3);
     until([&] { return std::strcmp(tip.armed().header, reopened.header) != 0; }, "missed epoch change reused identity");
+
+    // 静默改变共享边界，再从目录外移入文件，只有原子替换本身能唤醒观察者。
+    const auto replacement = temporary / "replacement";
+    { std::ofstream replacement_stream(replacement); replacement_stream << "synthetic-consent"; }
+    mode(5);
+    require(MoveFileExW(replacement.c_str(), (preferences / "consent-marker").c_str(),
+                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE,
+            "synthetic atomic replacement failed");
+    tip.disarmed();
+    mode(1); tip.armed();
+
+    // 目录移走后旧观察句柄不能继续代表当前路径；恢复后仍须接到新目录的撤回。
+    const auto moved = temporary / "preferences-moved";
+    std::filesystem::rename(preferences, moved);
+    tip.disarmed();
+    require(std::filesystem::create_directory(preferences), "replacement preferences creation failed");
+    mode(0);
+    tip.disarmed();
+    mode(1); tip.armed();
+    mode(0); tip.disarmed();
+    mode(1); tip.armed();
+    std::filesystem::remove_all(preferences);
+    tip.disarmed();
+    require(std::filesystem::create_directory(preferences), "deleted preferences recreation failed");
+    mode(1); tip.armed();
 
     // 等待生产读取确实被阻塞，再释放最后租约；停用必须在解除阻塞之前返回。
     block(1);
@@ -225,7 +261,7 @@ void tests() {
   }
   require(invalid() == 0, "capture used invalid shared ABI request or barrier timed out");
   FreeLibrary(helper); finish(); FreeLibrary(host);
-  std::puts("PASS TSF shared leases, authorization, blocked I/O and repeated DLL unload");
+  std::puts("PASS TSF directory notifications, idle reads, shared leases, authorization and repeated DLL unload");
 }
 }
 int main() {

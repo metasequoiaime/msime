@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <string>
 
@@ -19,6 +20,15 @@ std::atomic<unsigned> preparations{0}, invalid{0}, consent_reads{0};
 std::atomic<int> block{0};
 HANDLE entered = nullptr, resumed = nullptr;
 std::string root;
+std::filesystem::path preferences;
+unsigned marker = 0;
+void notify() {
+  const auto path = preferences / "consent-marker";
+  std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+  stream << ++marker;
+  stream.close();
+  if (stream.fail()) ++invalid;
+}
 char *response(nlohmann::json value) {
   const auto body = nlohmann::json{{"ok", true}, {"value", std::move(value)}}.dump();
   auto *out = static_cast<char *>(std::malloc(body.size() + 1));
@@ -40,6 +50,10 @@ __declspec(noinline) void msime_test_host_crash() {
 }
 void msime_test_host_initialize(const char *directory) {
   root = directory;
+  wchar_t value[32768]{};
+  const DWORD length = GetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", value, 32768);
+  preferences = length && length < 32768 ? std::filesystem::path(value) : std::filesystem::u8path(root);
+  notify();
   entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 }
@@ -50,8 +64,16 @@ void msime_test_host_mode(int mode) {
   else if (mode == 1) { if (!enabled) ++epoch; enabled = true; readable = true; }
   else if (mode == 2) readable = false;
   else if (mode == 3) { ++epoch; enabled = true; readable = true; }
+  // 不通知的恢复用来验证读取失败后的快速重试，不能依赖新的文件事件。
+  else if (mode == 4) { readable = true; return; }
+  else if (mode == 5) { enabled = false; return; }
+  notify();
 }
-void msime_test_host_block(int phase) { ResetEvent(entered); ResetEvent(resumed); block = phase; }
+void msime_test_host_block(int phase) {
+  ResetEvent(entered); ResetEvent(resumed); block = phase;
+  std::lock_guard<std::mutex> guard(lock);
+  notify();
+}
 bool msime_test_host_wait(DWORD timeout) { return WaitForSingleObject(entered, timeout) == WAIT_OBJECT_0; }
 void msime_test_host_resume() { SetEvent(resumed); }
 unsigned msime_test_host_preparations() { return preparations.load(); }

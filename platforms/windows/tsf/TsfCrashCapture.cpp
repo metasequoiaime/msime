@@ -185,15 +185,14 @@ void forget(State &state) {
   state.path.clear();
   state.header.clear();
 }
-void refresh(State &state, std::uint64_t generation) {
-  const auto preferences = default_state_directory();
+bool refresh(State &state, std::uint64_t generation, const std::string &preferences) {
   const auto directory = telemetry_directory();
   if (preferences.empty() || !std::filesystem::u8path(preferences).is_absolute() || directory.empty()) {
-    disarm(state); return;
+    disarm(state); return false;
   }
   std::error_code error;
   if (!std::filesystem::is_directory(std::filesystem::u8path(preferences), error) || error) {
-    disarm(state); return;
+    disarm(state); return false;
   }
   if (state.preferences != preferences || state.directory != directory || state.prepared_generation != generation) {
     forget(state);
@@ -204,7 +203,7 @@ void refresh(State &state, std::uint64_t generation) {
   }
   const auto consent = call(msime_client_telemetry_consent, {{"directory", preferences}});
   if (!consent || !consent->is_object() || !consent->contains("enabled") || !(*consent)["enabled"].is_boolean()) {
-    disarm(state); return;
+    disarm(state); return false;
   }
   if (boolean(*consent, "enabled", false)) {
     forget(state);
@@ -213,11 +212,11 @@ void refresh(State &state, std::uint64_t generation) {
           {{"directory", path_to_utf8(directory)}, {"preferences_directory", preferences}});
       state.cleared = cleared && cleared->is_boolean() && cleared->get<bool>();
     }
-    return;
+    return state.cleared;
   }
   const auto epoch = consent->find("epoch");
   if (epoch == consent->end() || !epoch->is_string() || epoch->get_ref<const std::string &>().empty()) {
-    disarm(state); return;
+    disarm(state); return false;
   }
   const auto authorized = epoch->get<std::string>();
   if (state.epoch != authorized || state.path.empty()) {
@@ -227,10 +226,10 @@ void refresh(State &state, std::uint64_t generation) {
          {"platform", "windows"},
          {"version", std::to_string(MSIME_TSF_VERSION_MAJOR) + "." + std::to_string(MSIME_TSF_VERSION_MINOR) + "." + std::to_string(MSIME_TSF_VERSION_PATCH)},
          {"component", "tsf"}, {"capture_only", true}, {"consent_epoch", authorized}});
-    if (!response || !boolean(*response, "enabled", true)) return;
+    if (!response || !boolean(*response, "enabled", true)) return false;
     const auto path = response->find("crash_record_path");
     const auto header = response->find("crash_record_header");
-    if (path == response->end() || !path->is_string() || header == response->end() || !header->is_string()) return;
+    if (path == response->end() || !path->is_string() || header == response->end() || !header->is_string()) return false;
     state.path = path->get<std::string>();
     state.header = header->get<std::string>();
     state.epoch = authorized;
@@ -241,14 +240,76 @@ void refresh(State &state, std::uint64_t generation) {
     Guard guard;
     if (current_state != &state || !state.leases || state.generation != generation) {
       disarm(state);
-      return;
+      return false;
     }
     // 同代次已武装时保留快照；首次准备和暂停恢复仍走发布前的最终授权复核。
     if (InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&state.context.armed), 0, 0) == 1)
-      return;
+      return true;
   }
-  if (!publish_authorized(state, generation, authorized)) disarm(state);
+  if (publish_authorized(state, generation, authorized)) return true;
+  disarm(state);
+  return false;
 }
+
+class PreferenceChanges {
+public:
+  ~PreferenceChanges() { reset(); }
+  void reset() noexcept {
+    close(directory_);
+    close(parent_);
+  }
+  bool prepare(const std::string &preferences) {
+    const auto path = std::filesystem::u8path(preferences);
+    if (path != path_) {
+      reset();
+      path_ = path;
+    }
+    // 远程文件系统可能不投递变化通知，继续使用快速读取兜底。
+    if (!path.is_absolute() || GetDriveTypeW(path.root_path().c_str()) == DRIVE_REMOTE) return false;
+    // 必须先订阅再读取授权，不能丢失首次检查期间的撤回。
+    if (parent_ == INVALID_HANDLE_VALUE)
+      parent_ = FindFirstChangeNotificationW(path.parent_path().c_str(), FALSE,
+          FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SECURITY);
+    if (directory_ == INVALID_HANDLE_VALUE)
+      directory_ = FindFirstChangeNotificationW(path.c_str(), FALSE,
+          FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE |
+          FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SECURITY);
+    return parent_ != INVALID_HANDLE_VALUE && directory_ != INVALID_HANDLE_VALUE;
+  }
+  bool wait(HANDLE wake, DWORD timeout) noexcept {
+    HANDLE handles[3]{wake};
+    DWORD count = 1;
+    if (parent_ != INVALID_HANDLE_VALUE) handles[count++] = parent_;
+    if (directory_ != INVALID_HANDLE_VALUE) handles[count++] = directory_;
+    const DWORD result = WaitForMultipleObjects(count, handles, FALSE, timeout);
+    if (result == WAIT_OBJECT_0) return true;
+    if (result > WAIT_OBJECT_0 && result < WAIT_OBJECT_0 + count) {
+      const HANDLE signaled = handles[result - WAIT_OBJECT_0];
+      if (signaled == parent_) {
+        // 子目录可能已被移走；旧句柄仍观察旧目录，下一轮必须按当前路径重建。
+        close(directory_);
+        if (!FindNextChangeNotification(parent_)) close(parent_);
+      } else if (!FindNextChangeNotification(directory_)) {
+        close(directory_);
+      }
+      return true;
+    }
+    if (result == WAIT_TIMEOUT) {
+      // 低频兜底同时重新解析父路径，覆盖更上层目录整体替换。
+      if (timeout == 30000) reset();
+      return true;
+    }
+    reset();
+    return false;
+  }
+private:
+  static void close(HANDLE &handle) noexcept {
+    if (handle != INVALID_HANDLE_VALUE) FindCloseChangeNotification(handle);
+    handle = INVALID_HANDLE_VALUE;
+  }
+  std::filesystem::path path_;
+  HANDLE directory_ = INVALID_HANDLE_VALUE, parent_ = INVALID_HANDLE_VALUE;
+};
 
 void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
   std::unique_ptr<State> owner(static_cast<State *>(context));
@@ -256,6 +317,7 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
   state.callback_owns_module = true;
   FreeLibraryWhenCallbackReturns(instance, state.module);
   CallbackMayRunLong(instance);
+  PreferenceChanges changes;
   for (;;) {
     std::uint64_t generation = 0;
     bool finished = false;
@@ -274,14 +336,19 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
       ResetEvent(state.wake);
     }
     if (finished) break;
+    bool stable = false;
     if (generation) {
-      try { refresh(state, generation); }
+      try {
+        const auto preferences = default_state_directory();
+        const bool watching = changes.prepare(preferences);
+        stable = refresh(state, generation, preferences) && watching;
+      }
       catch (...) { disarm(state); }
 #if defined(MSIME_TSF_CRASH_CAPTURE_TEST)
       msime_test_tsf_after_refresh();
 #endif
     }
-    WaitForSingleObject(state.wake, 500);
+    if (!changes.wait(state.wake, stable ? 30000 : 500)) disarm(state);
   }
 }
 
