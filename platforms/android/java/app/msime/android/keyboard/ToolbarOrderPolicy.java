@@ -7,6 +7,8 @@ import java.util.List;
 /** 工具栏的稳定按钮身份；显隐不影响顺序，品牌和收起键不参与排列。 */
 public final class ToolbarOrderPolicy {
     public static final int MAX_STORED_CHARS = 512;
+    /** 工具栏语音按钮的共享偏好，见 {@link Item#VOICE}。 */
+    public static final String VOICE_SHORTCUT_PREFERENCE = "touch_voice_shortcut";
 
     public enum Item {
         EMOJI("emoji", "表情", "emoji"),
@@ -17,7 +19,9 @@ public final class ToolbarOrderPolicy {
         FLOATING("floating", "浮动键盘", AndroidLocalSettings.TOOLBAR_FLOATING),
         TEXT_EDIT("text_edit", "文本编辑", AndroidLocalSettings.TOOLBAR_TEXT_EDIT),
         UNDO("undo", "撤销", "undo"),
-        REDO("redo", "重做", "redo");
+        REDO("redo", "重做", "redo"),
+        /** 语音按钮的开关不在 `touch_toolbar` 里，是共享偏好顶层的 `touch_voice_shortcut`（与「语音输入 → 启动方式」选「工具栏按钮」写的是同一项），默认关。排在最后：旧版本存下的顺序里没有它，`parse` 把它补在末尾（#10142）。 */
+        VOICE("voice", "语音", VOICE_SHORTCUT_PREFERENCE);
 
         public final String id;
         public final String label;

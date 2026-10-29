@@ -324,7 +324,8 @@ public final class MSIMEInputService extends InputMethodService {
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
     int touchRowSpacingTenths = KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS;
     int touchKeyboardHeightAdjustment = KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP;
-    private boolean touchVoiceShortcutEnabled;
+    /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；「语音输入 → 启动方式」选「工具栏按钮」或工具栏设置里打开「语音」时为真（#10142）。 */
+    boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
 
@@ -2897,7 +2898,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarRowHidden() {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
-            || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
+            || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
+            || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
