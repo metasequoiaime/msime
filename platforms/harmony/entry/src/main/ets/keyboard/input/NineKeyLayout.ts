@@ -277,12 +277,14 @@ export class NineKeyLayout {
    * @param english 英文模式下的九键（数字层不受影响）
    * @param style 九键样式（`TouchLayoutStylePolicy.nineKeyStyle` 读出的值），缺省为 `standard`
    * @param nineKeyDigits 数字层是从拼音九键、九键双拼或笔画进的（字母层底行以 符 打头），只在 `digitLayer` 时有意义；缺省为借来的数字九宫格
+   * @param space 数字层空格的位置（`TouchLayoutStylePolicy.numberPadSpace` 读出的值，共享偏好 `touch_number_pad_space`），只在 `digitLayer` 且不是右侧大回车时有意义：`before_zero`（缺省，鸿蒙原来的排法）空格在 0 左边占大份、0 与中/英同宽；`after_zero` 两键对调，0 占大份、空格与中/英同宽；`right_column` 底行没有空格，0 占两键合起来的份额，空格画在网格右列最下面一格（`KeyboardView.touchNineKeyGrid`）
    */
   static actionRow(
     digitLayer: boolean,
     english: boolean = false,
     style: string = "standard",
     nineKeyDigits: boolean = false,
+    space: string = "before_zero",
   ): NineKeyAction[] {
     const row: NineKeyAction[] = [];
     const englishMarks: boolean = english && !digitLayer;
@@ -330,12 +332,21 @@ export class NineKeyLayout {
       // 九键一族的数字层：0 的一份从空格里让出，整行份额与字母层相同。
       spaceWeight -= NineKeyLayout.ZERO_WEIGHT;
     }
-    row.push(action(NineKeyActionKind.SPACE, spaceWeight));
-    if (englishMarks) {
-      row.push(action(NineKeyActionKind.COMMA, NineKeyLayout.PUNCTUATION_WEIGHT));
-    }
-    if (digitLayer) {
-      row.push(action(NineKeyActionKind.ZERO, NineKeyLayout.ZERO_WEIGHT));
+    if (digitLayer && space === "right_column") {
+      // 空格在右列：0 占空格和 0 合起来的份额。
+      row.push(action(NineKeyActionKind.ZERO, spaceWeight + NineKeyLayout.ZERO_WEIGHT));
+    } else if (digitLayer && space === "after_zero") {
+      // 两键对调：0 占大份，空格与中/英同宽。
+      row.push(action(NineKeyActionKind.ZERO, spaceWeight));
+      row.push(action(NineKeyActionKind.SPACE, NineKeyLayout.ZERO_WEIGHT));
+    } else {
+      row.push(action(NineKeyActionKind.SPACE, spaceWeight));
+      if (englishMarks) {
+        row.push(action(NineKeyActionKind.COMMA, NineKeyLayout.PUNCTUATION_WEIGHT));
+      }
+      if (digitLayer) {
+        row.push(action(NineKeyActionKind.ZERO, NineKeyLayout.ZERO_WEIGHT));
+      }
     }
     row.push(action(NineKeyActionKind.LANGUAGE, NineKeyLayout.LANGUAGE_WEIGHT));
     row.push(action(NineKeyActionKind.RETURN, NineKeyLayout.RETURN_WEIGHT));

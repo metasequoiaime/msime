@@ -982,6 +982,10 @@ interface PreparedPreferences {
   touch_nine_key_style?: string;
   /** 26/14/18 键字母上方的 1 到 0 数字行；默认关，不写进文档。 */
   touch_number_row?: boolean;
+  /** 26 键底行 符 排在 123 左边；默认关，不写进文档。 */
+  touch_twenty_six_symbol_first?: boolean;
+  /** 九宫格数字键盘里空格的位置（platform_default / right_column / after_zero / before_zero）；默认值不写进文档。 */
+  touch_number_pad_space?: string;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1149,6 +1153,10 @@ export interface KeyboardPreferences {
   readonly nineKeyStyle: string;
   /** `touch_number_row`：26/14/18 键字母上方画 1 到 0。 */
   readonly numberRow: boolean;
+  /** `touch_twenty_six_symbol_first`：26 键底行 符 排在 123 左边（`TouchLayoutStylePolicy.symbolFirst`）。 */
+  readonly twentySixSymbolFirst: boolean;
+  /** `touch_number_pad_space`：九宫格数字键盘里空格的位置，`platform_default` 和不认识的值按鸿蒙原来的 `before_zero`（`TouchLayoutStylePolicy.numberPadSpace`）。 */
+  readonly numberPadSpace: string;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1479,7 +1487,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
     fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
     nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
-    numberRow: false
+    numberRow: false,
+    twentySixSymbolFirst: false,
+    numberPadSpace: TouchLayoutStylePolicy.BEFORE_ZERO
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1911,7 +1921,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
       fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
       nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
-      numberRow: preferences.touch_number_row === true
+      numberRow: preferences.touch_number_row === true,
+      twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
+      numberPadSpace: TouchLayoutStylePolicy.numberPadSpace(preferences.touch_number_pad_space)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

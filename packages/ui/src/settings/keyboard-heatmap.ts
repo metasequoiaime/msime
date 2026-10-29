@@ -9,6 +9,7 @@ import {
   nineKeyBottomRows,
   numberRowKeys,
   twentySixKeyBottomRows,
+  withSymbolFirst,
   type TouchKeyLayoutStyle,
 } from "../keyboard/touch-key-layout-styles";
 
@@ -350,7 +351,7 @@ const nineTallReturnRows: PhoneHeatmapKey[][] = (() => {
 })();
 
 /**
- * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`），九键「右侧大回车」换成它的外框（`nineTallReturnRows`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
+ * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`；打开 `touch_twenty_six_symbol_first` 时 26 键底行的 符 排在 123 左边），九键「右侧大回车」换成它的外框（`nineTallReturnRows`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
  */
 export function phoneHeatmapLayoutRows(
   layout: PhoneHeatmapLayout,
@@ -361,7 +362,7 @@ export function phoneHeatmapLayoutRows(
   if (layout === "nine" && style.nineKeyStyle === "tall_return") return nineTallReturnRows;
   const bottom =
     layout === "full"
-      ? twentySixKeyBottomRows[style.twentySixKeyStyle]
+      ? withSymbolFirst(twentySixKeyBottomRows[style.twentySixKeyStyle], style.twentySixSymbolFirst === true)
       : nineKeyBottomRows[style.nineKeyStyle];
   const numberRow = layout === "full" && style.numberRow ? [numberRowKeys] : [];
   return [...numberRow, ...rows.slice(0, -1), bottom];

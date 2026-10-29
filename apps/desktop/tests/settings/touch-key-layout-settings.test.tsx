@@ -120,7 +120,7 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   renderSettings();
   const dialog = await openKeyLayout();
   const groups = [...dialog.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groups).toEqual(["26 键", "14 键与 18 键", "9 键"]);
+  expect(groups).toEqual(["26 键", "14 键与 18 键", "9 键", "数字键盘"]);
   expect(optionLabels(dialog, "26 键")).toEqual(["标准", "逗号句号在空格两侧", "长空格", "表情键"]);
   expect(optionLabels(dialog, "14 键与 18 键")).toEqual(["标准", "长空格", "表情键"]);
   expect(optionLabels(dialog, "9 键")).toEqual(["标准", "底栏带标点", "表情键", "右侧大回车"]);
@@ -206,6 +206,61 @@ test("choosing styles and the number row saves the four shared preferences", asy
   expect(saved.touch_fourteen_key_style).toBe("emoji");
   expect(saved.touch_nine_key_style).toBe("tall_return");
   expect(saved.touch_number_row).toBe(true);
+});
+
+test("26 键「符」与「123」互换 and the number pad's space position save their shared preferences (#10056)", async () => {
+  const { save } = renderSettings();
+  const dialog = await openKeyLayout();
+  // 互换开关在 26 键一组里，说明与 Android、iOS 逐字相同；关着时示意图仍是 123 | 符。
+  const swap = within(dialog).getByRole("switch", { name: "26 键「符」与「123」互换" }) as HTMLInputElement;
+  expect(swap.checked).toBe(false);
+  expect(description(swap)).toBe("符 排在 123 左边；长空格和表情键样式没有 符，不受影响。");
+  expect(swap.closest("section")?.querySelector("[data-group-title]")?.textContent).toBe("26 键");
+  const firstKeys = () =>
+    [
+      ...(within(within(dialog).getByRole("radiogroup", { name: "26 键" }))
+        .getByRole("radio", { name: "标准" })
+        .closest("label")
+        ?.querySelector("[data-key-layout-preview]")?.children ?? []),
+    ]
+      .slice(0, 2)
+      .map((key) => key.textContent);
+  expect(firstKeys()).toEqual(["123", "符"]);
+  // 数字键盘一组：三种排法，没选过时勾鸿蒙原来的「空格在 0 左边」，组末一句说明。
+  expect(optionLabels(dialog, "数字键盘")).toEqual(["空格在右列", "空格在 0 右边", "空格在 0 左边"]);
+  expect(checkedOption(dialog, "数字键盘")).toBe("空格在 0 左边");
+  expect(description(within(dialog).getByRole("radiogroup", { name: "数字键盘" }))).toBe(
+    "九宫格数字键盘里空格的位置；右侧大回车不受影响。",
+  );
+
+  fireEvent.click(swap);
+  expect(firstKeys()).toEqual(["符", "123"]);
+  fireEvent.click(
+    within(within(dialog).getByRole("radiogroup", { name: "数字键盘" })).getByRole("radio", {
+      name: "空格在右列",
+    }),
+  );
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1];
+  expect(saved.touch_twenty_six_symbol_first).toBe(true);
+  expect(saved.touch_number_pad_space).toBe("right_column");
+});
+
+test("a stored number pad choice is shown; platform_default and unknown values read as 空格在 0 左边", async () => {
+  for (const [stored, expected] of [
+    ["after_zero", "空格在 0 右边"],
+    ["platform_default", "空格在 0 左边"],
+    ["space_in_grid", "空格在 0 左边"],
+  ]) {
+    renderSettings({ preferences: { touch_number_pad_space: stored, touch_twenty_six_symbol_first: true } });
+    const dialog = await openKeyLayout();
+    expect(checkedOption(dialog, "数字键盘")).toBe(expected);
+    expect(
+      (within(dialog).getByRole("switch", { name: "26 键「符」与「123」互换" }) as HTMLInputElement).checked,
+    ).toBe(true);
+    cleanup();
+  }
 });
 
 test("a stored style is shown, and one this page does not know reads as 标准", async () => {

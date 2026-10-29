@@ -271,6 +271,7 @@ const styled = (style: Partial<TouchKeyLayoutStyle>): TouchKeyLayoutStyle => ({
   twentySixKeyStyle: "standard",
   nineKeyStyle: "standard",
   numberRow: false,
+  twentySixSymbolFirst: false,
   ...style,
 });
 
@@ -321,6 +322,29 @@ test("each 26-key style's heatmap bottom row is the HarmonyOS keyboard's row for
       (key) => key.label,
     ),
   ).toEqual(["123", "😀", "空格", "，", "中", "↵"]);
+});
+
+test("with 「符」与「123」互换 the 26-key heatmap bottom row is the HarmonyOS keyboard's swapped row (#10056)", () => {
+  for (const style of ["standard", "comma_period", "long_space", "emoji"] as const) {
+    const rows = phoneHeatmapLayoutRows("full", styled({ twentySixKeyStyle: style, twentySixSymbolFirst: true }));
+    const keyboard = TouchLayoutStylePolicy.symbolFirst(
+      TouchLayoutStylePolicy.designRow(true, false, StyledFace.TWENTY_SIX, style),
+      true,
+    );
+    expect(rows[3].map((key) => [key.code, round(key.weight)])).toEqual(
+      keyboard.map((entry) => [slotIds[entry.slot], round(entry.share)]),
+    );
+  }
+  expect(
+    phoneHeatmapLayoutRows("full", styled({ twentySixSymbolFirst: true }))[3].map((key) => key.label),
+  ).toEqual(["符", "123", "空格", "，", "中", "↵"]);
+  expect(touchKeyLayoutStyle({ touch_twenty_six_symbol_first: true } as never)).toEqual(
+    styled({ twentySixSymbolFirst: true }),
+  );
+  // 九键底行不受它影响。
+  expect(phoneHeatmapLayoutRows("nine", styled({ twentySixSymbolFirst: true }))).toEqual(
+    phoneHeatmapRows.nine,
+  );
 });
 
 test("each 9-key style's heatmap bottom row is the HarmonyOS nine-key frame's row", () => {
