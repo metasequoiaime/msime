@@ -63,6 +63,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean noticeQueue;
     private boolean phraseNotes;
     private boolean phraseCategories;
+    private boolean screenCapture;
 
     @Override public void onCreate(Bundle arguments) {
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
@@ -70,10 +71,12 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
         phraseNotes = arguments != null && "true".equals(arguments.getString("phrase-notes"));
         phraseCategories = arguments != null && "true".equals(arguments.getString("phrase-categories"));
+        screenCapture = arguments != null && "true".equals(arguments.getString("screen-capture"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (screenCapture) return "screen capture protection reaches the settings activity and dialog windows and clears when turned off";
         if (phraseCategories) return "native common phrase categories, accordion defaults, insertion and ZIP backup";
         if (phraseNotes) return "native common phrase note CRUD, persistence, backup and body-only keyboard insertion";
         if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
@@ -82,6 +85,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (screenCapture) {
+            new ScreenCaptureProtectionDeviceCheck(this).run();
+            return;
+        }
         if (phraseCategories) {
             new CommonPhraseCategoriesDeviceCheck(this).run();
             return;
