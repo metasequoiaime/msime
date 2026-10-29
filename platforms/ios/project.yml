@@ -209,9 +209,10 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
+        # libmsime_host_api.a 必须排在 $(inherited) 和 -lsqlite3 前面：它带着 rusqlite 打包的 SQLite，而 $(inherited) 里有 MLKit pod 带进来的 -l"sqlite3"。排在后面时，用 Xcode 27 的 SDK 链接，62 个 sqlite3_* 全部绑到系统的 /usr/lib/libsqlite3.dylib；rusqlite 0.40 调用的 sqlite3_set_errmsg 在 iOS 27 之前的系统库里没有，App 和键盘扩展在 iOS 18 上一启动就被 dyld 杀掉。ProjectConfigurationTests 检查这个顺序，其余链接主机库的目标同理。
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
           - "-framework"
@@ -321,8 +322,8 @@ targets:
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]: HandwritingInputView.swift HandwritingDownloadSession.m
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -441,8 +442,8 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -502,8 +503,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ""
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -556,8 +557,8 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"

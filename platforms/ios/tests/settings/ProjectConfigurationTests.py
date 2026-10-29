@@ -440,6 +440,22 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path = HelpAndFeedbackViews.swift", project)
         self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
 
+    def test_host_library_links_before_the_system_sqlite(self):
+        # The host library carries rusqlite's bundled SQLite. Linked after $(inherited) (MLKit's -l"sqlite3") or -lsqlite3, the Xcode 27 SDK binds every sqlite3_* to /usr/lib/libsqlite3.dylib, and sqlite3_set_errmsg does not exist there before iOS 27.
+        project = (IOS_ROOT / "project.yml").read_text()
+        pbxproj = (IOS_ROOT / "MSIMEClient.xcodeproj" / "project.pbxproj").read_text()
+        linked = [name for name, body in target_blocks(project) if '"-lmsime_host_api"' in body]
+        self.assertIn("MSIMEApp", linked)
+        self.assertIn("MSIMEKeyboardExtension", linked)
+        for name, body in target_blocks(project):
+            if name not in linked:
+                continue
+            flags = re.findall(r'^ +- "?([^"\n]+)"?$', body.split("OTHER_LDFLAGS:", 1)[1].split("\n        L", 1)[0], re.M)
+            self.assertEqual(flags[0], "-lmsime_host_api", name)
+        for block in re.findall(r"OTHER_LDFLAGS = \(\n(.*?)\);", pbxproj, re.S):
+            if '"-lmsime_host_api"' in block:
+                self.assertEqual(block.split("\n", 1)[0].strip(), '"-lmsime_host_api",')
+
     def test_shipping_build_uses_the_native_ios_host(self):
         script = (IOS_ROOT / "build-app.sh").read_text()
         self.assertIn('tauri_target=aarch64-sim', script)
