@@ -24,7 +24,8 @@ jobs:
     name: Android device (API ${{ matrix.api }})
     # 模拟器要 KVM。Depot 的一次性探测曾可用，但 2026-10-29 的实际 PR 作业在初始化时没有 /dev/kvm；有完整同源通过证据的 GitHub ubuntu-24.04 才是当前可靠 runner。这个 job 不碰任何 secrets，APK 用开发密钥签名（scripts/signing.sh）。
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # API 35 的完整输入冒烟在 2026-10-29 已通过 96 项套件后才到达英文长按阶段，90 分钟总上限在最后少数套件前取消；每项 instrumentation 仍受 smoke.sh 的 300 秒上限约束。给整套验收留出有限的 120 分钟，不把单项超时变成无限等待。
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

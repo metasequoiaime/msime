@@ -26,3 +26,5 @@ Status: implemented
 
 设备 job 会重新占用 GitHub Linux 并发，启动时间可能比 Depot 长，但 API 35 的完整输入和崩溃验收有实际通过路径。若以后重新选择 Depot，必须先用完整 workflow 在多个实际分配实例上验证 `/dev/kvm` 和 `emulator -accel-check`，不能只依赖探测 job。
 
+完整输入冒烟的总时限同时从 90 分钟调整为 120 分钟。`40907715096` 的 GitHub runner 已完成 KVM、设备单测、APK、崩溃专项以及 96 项输入套件，最后在英文长按和剪贴板生命周期之前被总时限取消；日志没有套件失败或 instrumentation 卡死。单项仍由 `MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS`（默认 300 秒）有界，新增总时限只覆盖整套套件的累计时间。
+
