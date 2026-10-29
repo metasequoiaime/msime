@@ -606,6 +606,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             check(undo.performClick(), "clipboard undo did not handle the click after an action row deletion");
             check(sameItem(before, item(load.invoke(history), target)),
                 "undo after an action row deletion did not restore the timestamp and pin");
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo stayed after restoring an action row deletion");
 
             // 到期：再删一次，把截止时刻改到过去后走一次倒数，按钮收起，记录不回来。
             managed.set(panels, target);
