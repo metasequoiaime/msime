@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+本篇的 runner 选择由[按实际 KVM 支持选择 runner](2026-10-30-android-device-kvm-runner.md)取代：后续新 runner 缺少字符设备，普通 Depot GitHub Actions runner 也不承诺 KVM。以下单台探测记录保留为当时的证据；按权限初始化、有界采集与清理的决定继续有效。
+
 `android-device.yml` 的 job 跑在 `depot-ubuntu-24.04-8`。先确认 `/dev/kvm` 是字符设备；当前用户已经可读写时直接使用，不再要求 udev 能枚举该设备。权限不足时才保留原有 udev 规则与触发流程，供 GitHub 托管 runner 等环境开放权限；`udevadm trigger --name-match` 传完整设备路径 `/dev/kvm`，用 `--settle` 等待本次权限规则处理完成再检查，[官方接口](https://freedesktop.org/software/systemd/man/latest/udevadm.html)定义这两项参数。缺失设备或权限仍不足都直接失败。
 
 日志采集与停止模拟器只在 `SERIAL` 已设定后运行；初始化之前失败时还没有模拟器，不能让 adb 等待不存在的设备。日志采集先创建输出目录，每条 adb 命令最多等待 30 秒，停止命令最多等待 15 秒，开机失败也不会无限等待设备重新出现。
