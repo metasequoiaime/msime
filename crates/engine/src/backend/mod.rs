@@ -3,6 +3,8 @@
 //! msime-cloud runs `msime-backend-engine <resources> <scratch>` once per request and writes the request to its stdin (`internal/engine/client.go` there). This module is that process's behaviour; it replaces the C++ bridge `native/main.cpp` that linked the archived MSIME-Engine, and keeps its request and response shapes so the Go server is unchanged. Errors are the four codes the server maps to HTTP statuses: `invalid_request` (400), `invalid_dictionary_entry` (400), `resources_unavailable` (503) and anything else (502).
 //!
 //! Paths only ever come from the process arguments, never from the request, and nothing is kept between requests.
+//!
+//! Product glue: this is msime-cloud's protocol, used only by `msime-backend-engine`, and is not part of the engine's documented API.
 
 mod catalogs;
 mod common;

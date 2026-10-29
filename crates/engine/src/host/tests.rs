@@ -7,6 +7,10 @@ use rusqlite::Connection;
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
 use crate::types::{CandidateSource, SchemeType, WordItem};
+use crate::{
+    CommandTableEntry, DictionaryStateRecord, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
+    SentenceAssociationOptions,
+};
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -1514,6 +1518,26 @@ fn real_engine_reports_the_fourteen_key_grid_apart_from_nine_key() {
     let snapshot = session.snapshot().unwrap();
     assert!(!snapshot.nine_key);
     assert_eq!(snapshot.key_grid, None);
+}
+
+/// 宿主拿 `shuangpin_profile` 画键面、算键盘外观的缓存键，九宫格组字途中它也得是会话跑的方案名；核心快照这时留空，门面不能照抄。
+#[test]
+fn snapshot_names_the_shuangpin_profile_while_a_grid_composes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = crate::ShuangpinProfileKind::Ziranma as u8;
+    let mut session = Session::new(&options).unwrap();
+    let table =
+        crate::resolve_fourteen_key_shuangpin(crate::ShuangpinProfileKind::Ziranma, None).unwrap();
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKeyShuangpin(table)))
+        .unwrap();
+    assert_eq!(session.snapshot().unwrap().shuangpin_profile, "ziranma");
+    assert!(session.grid_key(b'n').unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.grid_composing);
+    assert_eq!(snapshot.shuangpin_profile, "ziranma");
 }
 
 #[test]

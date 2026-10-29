@@ -390,7 +390,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -5549,7 +5549,7 @@ fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
     assert_eq!(catalog["ok"], true);
     assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
     let schema = catalog["value"][0]["schema"].as_str().unwrap();
-    let loaded = msime_engine::host::load_helpcode_keymap(&resources, schema).unwrap();
+    let loaded = msime_engine::load_helpcode_keymap(&resources, schema).unwrap();
     assert_eq!(loaded.code("你"), Some("ab"));
 }
 

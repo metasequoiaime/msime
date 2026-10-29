@@ -695,7 +695,8 @@ fn learning_records(
     updated_at: &str,
     budget: usize,
 ) -> Result<LearningRecords, &'static str> {
-    use msime_engine::host::{DictionaryKind, DictionaryStateRecord};
+    use msime_engine::host::DictionaryKind;
+    use msime_engine::DictionaryStateRecord;
     // 与 `inspect_snapshot_record` 对编码、词和上下文的要求相同，写出去的记录不会让自检失败。
     let fits = |text: &str, maximum: usize| {
         !text.is_empty() && text.len() <= maximum && snapshot_safe(text)
@@ -1033,7 +1034,7 @@ fn remove_if_present(path: &Path) -> Result<(), &'static str> {
 
 /// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词）`count`，以及输入习惯的行数 `habits`（[`habits`]），只读。本地备份恢复时用它判断本机是不是还什么都没学过。
 pub(crate) fn learning_count(options: &EngineOptions) -> Result<Value, &'static str> {
-    use msime_engine::host::DictionaryStateRecord;
+    use msime_engine::DictionaryStateRecord;
     let mut count = 0usize;
     msime_engine::host::stream_dictionary_state(options, &mut |record| {
         if !matches!(
@@ -1173,7 +1174,7 @@ fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
     on_demand: &[&[&str]],
-    stream: impl Iterator<Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>>
+    stream: impl Iterator<Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>>
         + 'static,
 ) -> Result<Prepared, &'static str> {
     if request.records > 500_000 || request.expected_version.len() != 64 {
@@ -1794,7 +1795,7 @@ impl SnapshotFileRecords {
 }
 
 impl Iterator for SnapshotFileRecords {
-    type Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>;
+    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.failed {

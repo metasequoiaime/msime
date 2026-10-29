@@ -41,7 +41,7 @@ Status: implemented
 
 iOS 没有公开接口阻止系统截屏或录屏，键盘扩展同样不行，不做。
 
-HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `window.setWindowPrivacyMode`，需要 `ohos.permission.PRIVACY_WINDOW`，SDK 里这个权限是 `normal` 级、`system_grant`，不是高风险权限。这次没有做：鸿蒙的设置界面是共享 React 设置页，开关和认证要经 ArkTS 原生桥接 `userAuth`，设置要放进键盘扩展能读到的本机存储，还有软键盘、浮动工具条和输入模式提示三块面板要分别处理；这些只能做类型检查，HAP 编译和设备验证都做不了。后续在 #10194 跟进。
+HarmonyOS 有接口：`inputMethodEngine.Panel.setPrivacyMode`（API 11）和 `window.setWindowPrivacyMode`，需要 `ohos.permission.PRIVACY_WINDOW`，SDK 里这个权限是 `normal` 级、`system_grant`，不是高风险权限。这次没有做：鸿蒙的设置界面是共享 React 设置页，开关和认证要经 ArkTS 原生桥接 `userAuth`，设置要放进键盘扩展能读到的本机存储，还有软键盘、浮动工具条和输入模式提示三块面板要分别处理；这些只能做类型检查，HAP 编译和设备验证都做不了。#10194 跟进了鸿蒙，做法和与本篇的不同见 [HarmonyOS 防止截屏](2026-10-29-harmony-screen-capture-protection.md)。
 
 ## Alternatives considered
 
