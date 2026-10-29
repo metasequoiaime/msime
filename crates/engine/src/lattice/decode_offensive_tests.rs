@@ -181,3 +181,41 @@ fn a_typo_edge_never_substitutes_an_offensive_word() {
     .expect("an ordinary typo word is used");
     assert_eq!(typo.sentence, "我句如");
 }
+
+/// 纠错边盖住整段输入时也不换成含粗俗词的词：整段例外只给词库行（整句就是用户打的这串读音对应的词），纠错边的词来自另一串读音，不是用户打的。全拼三个音节的输入就能有 `0..3` 的纠错边（跨度 2 到 3 个音节）。
+#[test]
+fn a_typo_edge_spanning_the_whole_input_never_substitutes_an_offensive_word() {
+    let rows = table(&[
+        ("chi", &[("吃", 1_402_977)]),
+        ("si", &[("四", 1_011_573)]),
+        ("le", &[("了", 52_009_647)]),
+    ]);
+    let text = "chi'si'le";
+    let options = LatticeOptions::default();
+    let literal = decode_sentences(&syllables(text), &mut lookup(&rows), &options);
+    let edge = |value: &str| TypoEdge {
+        start: 0,
+        end: 3,
+        key: "chi'shi'le".into(),
+        value: value.into(),
+        weight: 837,
+        penalty: 0.5,
+    };
+    assert!(decode_typo_sentence(
+        &syllables(text),
+        &mut lookup(&rows),
+        &options,
+        &literal[0],
+        &[edge("吃屎了")],
+    )
+    .is_none());
+    let typo = decode_typo_sentence(
+        &syllables(text),
+        &mut lookup(&rows),
+        &options,
+        &literal[0],
+        &[edge("吃食了")],
+    )
+    .expect("an ordinary typo word is used");
+    assert_eq!(typo.sentence, "吃食了");
+}

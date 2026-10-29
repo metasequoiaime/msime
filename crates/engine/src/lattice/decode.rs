@@ -1065,12 +1065,12 @@ pub(super) fn decode_typo_on_graph_with_policy(
 ) -> Option<TypoSentence> {
     let n = graph.len();
     let mut capacities = vec![0usize; n];
-    // 纠错边是替用户换的词，含粗俗词的词与普通边一样只在独占整段输入时可用。
+    // 纠错边是替用户换的词，含粗俗词的一律不用，盖住整段输入也不行：词库行的整段例外是因为整句就是用户打的这串读音对应的词，纠错边的词来自另一串读音（`lattice::offensive`）。
     let usable = |typo: &TypoEdge| {
         typo.start < typo.end
             && typo.end <= n
             && !typo.value.is_empty()
-            && offensive::admits_edge(&typo.value, typo.start, typo.end, n)
+            && !offensive::is_offensive(&typo.value)
     };
     for typo in edges {
         if usable(typo) {
