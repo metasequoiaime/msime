@@ -1,6 +1,6 @@
 import UIKit
 
-/// 功能面板（更多工具）里的一个图块，按设计稿的菜单项绘制：30pt 图标区在上、12.5pt 文字在下，相隔 7pt，在 52pt 的格子里居中，没有背景。
+/// 功能面板（更多工具）里的一个图块，按设计稿的菜单项绘制：30pt 图标区在上、12.5pt 文字在下，相隔 7pt，在 52pt 的格子里居中，没有背景（把背景交给系统底板的皮肤下只有一层几乎透明的 `nativeBackgroundFill`）。
 ///
 /// 这里刻意用普通的 UIControl。键盘的皮肤处理（`applyKeyboardSkin`）会把每个 configuration 带填充的 UIButton 重绘成键帽，KeyboardKeyButton 又是按按键样式绘制的，所以用这两者搭出来的图块都会变成实心色块。
 ///
@@ -41,7 +41,6 @@ final class KeyboardFunctionTileView: UIControl {
     self.tool = tool
     self.skin = skin
     super.init(frame: .zero)
-    backgroundColor = .clear
     isAccessibilityElement = true
     for shape in [iconLayer, glyphBoxLayer, badgeCheckLayer] {
       shape.fillColor = nil
@@ -75,6 +74,8 @@ final class KeyboardFunctionTileView: UIControl {
     self.tool = tool
     self.skin = skin
     titleLabel.text = tool.title
+    // 图标是 `CAShapeLayer`，#7682 在真机上看到只挂这种图层的按钮收不到触摸；把背景交给系统底板的皮肤下格子整格铺一层几乎看不出的底色，点在格子任何一处都落在它自己的内容上（#10173）。其他皮肤保持无背景。
+    backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : .clear
     applyFonts()
     switch tool.face {
     case .glyph(let glyph):

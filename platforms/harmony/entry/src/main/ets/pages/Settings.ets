@@ -1,4 +1,11 @@
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
+import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
+import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
+import {
+  ScreenCaptureProtectionDecision,
+  ScreenCaptureProtectionPolicy,
+  ScreenCaptureProtectionState
+} from '../keyboard/settings/ScreenCaptureProtectionPolicy';
 import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
@@ -375,6 +382,12 @@ interface TypingStatisticsAction {
   user_words?: number;
   /** `record_skin`：刚应用的皮肤，供「换装达人」徽章使用。 */
   id?: string;
+}
+
+/** 页面经 `screen_capture_protection_settings` 发来的动作：`load` 读当前值，`save` 按切换规则保存 `enabled`。 */
+interface ScreenCaptureProtectionAction {
+  operation?: string;
+  enabled?: boolean;
 }
 
 /** One 插件 page request; only the operation is read here, the rest travels to `msime_client_plugins` as the page wrote it. */
@@ -997,6 +1010,9 @@ class SettingsBridge {
   // 设置文档是否已加载完成，让宿主到页面的调用只发给能接收的页面。在此之前页面会在启动时自己读取所需的一切。
   private pageReady: boolean = false;
   private statisticsAuthentication: StatisticsAuthentication = new StatisticsAuthentication();
+  private screenCaptureAuthentication: ScreenCaptureAuthentication = new ScreenCaptureAuthentication();
+  // 「防止截屏」正在认证或写入时为真，第二次切换直接拒绝，不叠两个认证框。
+  private screenCaptureBusy: boolean = false;
 
   resumeStatistics(): void {
     this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-statistics-active'))").catch((): void => {});
@@ -1417,6 +1433,8 @@ class SettingsBridge {
       });
     } else if (kind === 'statistics_auth_settings') {
       this.statisticsAuthenticationSettings(payload).then(deliver).catch(failed);
+    } else if (kind === 'screen_capture_protection_settings') {
+      this.screenCaptureProtectionSettings(payload).then(deliver).catch(failed);
     } else if (kind === 'statistics_auth') {
       if (this.context === undefined) {
         failed(new Error('认证宿主未就绪'));
@@ -2506,6 +2524,50 @@ class SettingsBridge {
       throw new Error('无效的认证设置');
     }
     return JSON.stringify({ ok: true, value: this.statisticsAuthentication.enabled(this.context) });
+  }
+
+  /**
+   * 「防止截屏」的读和写（#10194）。写入按 `ScreenCaptureProtectionPolicy.decide`：第一次打开直接保存，打开过以后先过系统认证，设备没有系统认证时拒绝。保存后当场更新本窗口的隐私模式，并立即发布给键盘（键盘下一次获得焦点时给面板设上）。拒绝时回答错误码，页面据此提示并让开关回到原值：`screen_capture_authentication_unavailable` 没有可用的系统认证，`screen_capture_authentication_failed` 认证取消或失败，`screen_capture_busy` 上一次切换还没完成。
+   */
+  private async screenCaptureProtectionSettings(payload: string): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) throw new Error('认证宿主未就绪');
+    const action: ScreenCaptureProtectionAction = JSON.parse(payload) as ScreenCaptureProtectionAction;
+    const current: ScreenCaptureProtectionState = ScreenCaptureProtection.load(this.stateDirectory);
+    if (action.operation === 'load') {
+      return JSON.stringify({ ok: true, value: current.enabled } as FlagReply);
+    }
+    const next: boolean | undefined = action.enabled;
+    if (action.operation !== 'save' || typeof next !== 'boolean') throw new Error('无效的防止截屏设置');
+    if (this.screenCaptureBusy) return JSON.stringify({ ok: false, error: 'screen_capture_busy' });
+    const decision: ScreenCaptureProtectionDecision = ScreenCaptureProtectionPolicy.decide(current, next,
+      ScreenCaptureAuthentication.available());
+    if (decision === ScreenCaptureProtectionDecision.UNCHANGED) {
+      return JSON.stringify({ ok: true, value: current.enabled } as FlagReply);
+    }
+    if (decision === ScreenCaptureProtectionDecision.UNAVAILABLE) {
+      return JSON.stringify({ ok: false, error: 'screen_capture_authentication_unavailable' });
+    }
+    this.screenCaptureBusy = true;
+    try {
+      if (decision === ScreenCaptureProtectionDecision.AUTHENTICATE
+        && !(await this.screenCaptureAuthentication.authenticate(next))) {
+        return JSON.stringify({ ok: false, error: 'screen_capture_authentication_failed' });
+      }
+      const saved: ScreenCaptureProtectionState = ScreenCaptureProtectionPolicy.after(current, next);
+      if (!ScreenCaptureProtection.save(this.stateDirectory, saved)) throw new Error('防止截屏没有保存');
+      KeyboardLog.info(`screen capture protection ${saved.enabled ? 'on' : 'off'}`);
+      ScreenCaptureProtection.protectLastWindow(context, saved.enabled);
+      // 文件已经写好、窗口也已改过，发布失败不能让页面以为没保存而把开关退回旧值；只记日志，窗口退到后台时的 `publishShared` 会再发布一次。
+      try {
+        this.publishShared();
+      } catch (error) {
+        KeyboardLog.error(`screen capture protection not published to the keyboard: ${describeError(error)}`);
+      }
+      return JSON.stringify({ ok: true, value: saved.enabled } as FlagReply);
+    } finally {
+      this.screenCaptureBusy = false;
+    }
   }
 
   typingStatistics(actionDocument: string): string {

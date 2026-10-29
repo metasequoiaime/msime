@@ -9,11 +9,12 @@ use msime_client_services::plugins::{
     command_table, helpcode_pack, kind_directory, mentions, pack_directory, phrase_table,
     BuiltinDirs, PluginKind, MANIFEST_FILE,
 };
-use msime_engine::host::{
-    load_helpcode_keymap, CommandTableEntry, EngineOptions, HelpcodeKeymap, MentionEntry,
-    QuickPhraseEntry, SharedKeymap,
-};
+use msime_engine::host::EngineOptions;
 use msime_engine::SchemeType;
+use msime_engine::{
+    load_helpcode_keymap, CommandTableEntry, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
+    SharedKeymap,
+};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;

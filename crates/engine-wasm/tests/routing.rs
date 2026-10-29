@@ -421,6 +421,26 @@ fn a_new_composition_in_the_same_batch_starts_at_the_first_seat() {
     assert_eq!(frame.highlight, 1);
 }
 
+/// 引擎不收、页里也没有那一格的数字什么也不做。核心会话照样为它前进修订号，但列表没变：不为它重新排序（`rerank_ms` 是 0，开着模型时这就是省下的一次整句重排），高亮和网页手里的候选身份都留着。
+#[test]
+fn swallowed_digits_keep_the_order_the_highlight_and_the_list_identity() {
+    let mut fixture = quanpin();
+    let frame = type_text(&mut fixture.host, "ni");
+    assert_eq!(frame.page.len(), 3, "{:?}", texts(&frame.page));
+    let second = frame.page[1].text.clone();
+    let frame = fixture.host.keys(&[Key::HighlightNext]);
+    assert_eq!(frame.highlight, 1);
+    let revision = frame.candidate_revision;
+    let frame = type_text(&mut fixture.host, "88");
+    assert!(frame.out.is_empty());
+    assert!(frame.composing);
+    assert_eq!(frame.rerank_ms, 0.0);
+    assert_eq!(frame.highlight, 1);
+    assert_eq!(frame.candidate_revision, revision);
+    let frame = fixture.host.pick_candidate(1, revision, &second, false);
+    assert_eq!(frame.out, vec![commit(&second, 1)]);
+}
+
 #[test]
 fn an_apostrophe_separates_syllables() {
     let mut fixture = quanpin();
@@ -1224,6 +1244,28 @@ fn helpcode_survives_reset_and_can_be_turned_off_mid_composition() {
     assert!(frame.composing);
     assert_eq!(frame.page[0].text, "你");
     assert!(frame.page.iter().all(|row| row.hint.is_empty()));
+}
+
+/// 组字中换辅助码设置，引擎按新设置重新查询，列表换了一份：高亮回到首位，旧的候选身份不再作数。
+#[test]
+fn turning_helpcode_on_mid_composition_starts_the_list_over() {
+    let mut fixture = quanpin();
+    type_text(&mut fixture.host, "ni");
+    let frame = fixture.host.keys(&[Key::HighlightNext]);
+    assert_eq!(frame.highlight, 1);
+    let old = frame.candidate_revision;
+    let second = frame.page[1].text.clone();
+    fixture.host.set_helpcode(Some(HELPCODE_TABLE)).unwrap();
+    let frame = fixture.host.keys(&[]);
+    assert!(frame.composing);
+    assert_eq!(frame.highlight, 0);
+    assert!(frame.candidate_revision > old);
+    assert_eq!(frame.page[2].hint, "(CD)");
+    assert!(fixture
+        .host
+        .pick_candidate(1, old, &second, false)
+        .out
+        .is_empty());
 }
 
 #[test]
