@@ -160,7 +160,9 @@ export class TouchLayoutStylePolicy {
    * 「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`）：底行里 符 排在 123 后面时把它挪到 123 左边，其余键次序和份额不变，与 Android `KeyboardActionRow.designEntries`、iOS `TouchBottomRowLayout.symbolFirst` 相同。只有 26 键一族的底行（标准、逗号句号在空格两侧和英文底行）是 123 | 符 打头，长空格和表情键样式、14/18 键和大千注音没有 符，原样返回。
    */
   static symbolFirst(row: readonly DesignRowEntry[], enabled: boolean): DesignRowEntry[] {
-    const layer: number = row.findIndex((item: DesignRowEntry): boolean => item.slot === DesignRowSlot.LAYER);
+    const layer: number = row.findIndex(
+      (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.LAYER,
+    );
     const symbol: number = row.findIndex(
       (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.SYMBOL_PANEL,
     );

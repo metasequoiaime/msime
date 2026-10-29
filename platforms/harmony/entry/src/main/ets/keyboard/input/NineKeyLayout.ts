@@ -327,7 +327,9 @@ export class NineKeyLayout {
     if (englishMarks) {
       row.push(action(NineKeyActionKind.PERIOD, NineKeyLayout.PUNCTUATION_WEIGHT));
     }
-    let spaceWeight: number = englishMarks ? NineKeyLayout.ENGLISH_SPACE_WEIGHT : NineKeyLayout.SPACE_WEIGHT;
+    let spaceWeight: number = englishMarks
+      ? NineKeyLayout.ENGLISH_SPACE_WEIGHT
+      : NineKeyLayout.SPACE_WEIGHT;
     if (digitLayer && symbolPanel) {
       // 九键一族的数字层：0 的一份从空格里让出，整行份额与字母层相同。
       spaceWeight -= NineKeyLayout.ZERO_WEIGHT;

@@ -362,7 +362,10 @@ export function phoneHeatmapLayoutRows(
   if (layout === "nine" && style.nineKeyStyle === "tall_return") return nineTallReturnRows;
   const bottom =
     layout === "full"
-      ? withSymbolFirst(twentySixKeyBottomRows[style.twentySixKeyStyle], style.twentySixSymbolFirst === true)
+      ? withSymbolFirst(
+          twentySixKeyBottomRows[style.twentySixKeyStyle],
+          style.twentySixSymbolFirst === true,
+        )
       : nineKeyBottomRows[style.nineKeyStyle];
   const numberRow = layout === "full" && style.numberRow ? [numberRowKeys] : [];
   return [...numberRow, ...rows.slice(0, -1), bottom];

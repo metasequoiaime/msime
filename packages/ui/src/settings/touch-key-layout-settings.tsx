@@ -202,7 +202,9 @@ export function TouchKeyLayoutSettings({
             title={symbolFirstTitle}
             description={symbolFirstDescription}
             checked={symbolFirst}
-            onChange={(touch_twenty_six_symbol_first) => onChange({ touch_twenty_six_symbol_first })}
+            onChange={(touch_twenty_six_symbol_first) =>
+              onChange({ touch_twenty_six_symbol_first })
+            }
           />
         </StyleChoices>
       )}

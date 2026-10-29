@@ -212,7 +212,9 @@ test("26 键「符」与「123」互换 and the number pad's space position save
   const { save } = renderSettings();
   const dialog = await openKeyLayout();
   // 互换开关在 26 键一组里，说明与 Android、iOS 逐字相同；关着时示意图仍是 123 | 符。
-  const swap = within(dialog).getByRole("switch", { name: "26 键「符」与「123」互换" }) as HTMLInputElement;
+  const swap = within(dialog).getByRole("switch", {
+    name: "26 键「符」与「123」互换",
+  }) as HTMLInputElement;
   expect(swap.checked).toBe(false);
   expect(description(swap)).toBe("符 排在 123 左边；长空格和表情键样式没有 符，不受影响。");
   expect(swap.closest("section")?.querySelector("[data-group-title]")?.textContent).toBe("26 键");
@@ -227,7 +229,11 @@ test("26 键「符」与「123」互换 and the number pad's space position save
       .map((key) => key.textContent);
   expect(firstKeys()).toEqual(["123", "符"]);
   // 数字键盘一组：三种排法，没选过时勾鸿蒙原来的「空格在 0 左边」，组末一句说明。
-  expect(optionLabels(dialog, "数字键盘")).toEqual(["空格在右列", "空格在 0 右边", "空格在 0 左边"]);
+  expect(optionLabels(dialog, "数字键盘")).toEqual([
+    "空格在右列",
+    "空格在 0 右边",
+    "空格在 0 左边",
+  ]);
   expect(checkedOption(dialog, "数字键盘")).toBe("空格在 0 左边");
   expect(description(within(dialog).getByRole("radiogroup", { name: "数字键盘" }))).toBe(
     "九宫格数字键盘里空格的位置；右侧大回车不受影响。",
@@ -253,11 +259,14 @@ test("a stored number pad choice is shown; platform_default and unknown values r
     ["platform_default", "空格在 0 左边"],
     ["space_in_grid", "空格在 0 左边"],
   ]) {
-    renderSettings({ preferences: { touch_number_pad_space: stored, touch_twenty_six_symbol_first: true } });
+    renderSettings({
+      preferences: { touch_number_pad_space: stored, touch_twenty_six_symbol_first: true },
+    });
     const dialog = await openKeyLayout();
     expect(checkedOption(dialog, "数字键盘")).toBe(expected);
     expect(
-      (within(dialog).getByRole("switch", { name: "26 键「符」与「123」互换" }) as HTMLInputElement).checked,
+      (within(dialog).getByRole("switch", { name: "26 键「符」与「123」互换" }) as HTMLInputElement)
+        .checked,
     ).toBe(true);
     cleanup();
   }
@@ -416,7 +425,8 @@ test("groups follow the key types the edition offers", async () => {
   renderSettings({ inputSchemes: ["wubi"] });
   const dialog = await openKeyLayout();
   const groups = [...dialog.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groups).toEqual(["26 键", "14 键与 18 键"]);
+  // 数字键盘一组有入口就列：五笔借来的数字九宫格同样受它影响。
+  expect(groups).toEqual(["26 键", "14 键与 18 键", "数字键盘"]);
   expect(within(dialog).getByRole("switch", { name: "顶部数字行" })).toBeTruthy();
 });
 

@@ -62,7 +62,10 @@ export function numberPadSpace(preferences: Preferences): NumberPadSpaceChoice {
 }
 
 /** 「符」与「123」互换打开时把底行里排在 123 后面的 符 挪到 123 左边，其余键不变，与键盘的 `TouchLayoutStylePolicy.symbolFirst` 相同；没有 符 的行原样返回。 */
-export function withSymbolFirst<T extends { code?: string }>(row: readonly T[], enabled: boolean): T[] {
+export function withSymbolFirst<T extends { code?: string }>(
+  row: readonly T[],
+  enabled: boolean,
+): T[] {
   const layer = row.findIndex((item) => item.code === "SoftLayer");
   const symbol = row.findIndex((item) => item.code === "SoftSymbol");
   if (!enabled || layer < 0 || symbol < layer) return [...row];
