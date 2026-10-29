@@ -11083,7 +11083,7 @@ group("the function panel follows the design's order, then the Harmony extras", 
     labels.join(",") ===
       "全角,中文标点,模糊音,繁体,手写,词库,键盘高度,设置," +
         "按键音,振动,单手模式,隐私模式,反馈,关于,宣传,候选翻译,符号," +
-        "本地输入,语音输入,高情商回复,AI 润色,振动强度",
+        "本地输入,语音输入,高情商回复,AI 润色,振动强度,浮动键盘",
     `the tiles in page order: ${labels.join(",")}`,
   );
   check(FunctionPanelPolicy.PAGE_SIZE === 8, "a page is four columns by two rows");
@@ -11283,7 +11283,8 @@ group("each tile draws one glyph or one icon and says what it is", () => {
     .filter((item: FunctionPanelItem) => item.toggle)
     .map((item: FunctionPanelItem) => item.label);
   check(
-    toggles.join(",") === "全角,中文标点,模糊音,繁体,手写,按键音,振动,单手模式,隐私模式,候选翻译",
+    toggles.join(",") ===
+      "全角,中文标点,模糊音,繁体,手写,按键音,振动,单手模式,隐私模式,候选翻译,浮动键盘",
     `the switches: ${toggles.join(",")}`,
   );
   const oneHand = panelItem(FunctionPanelPolicy.ONE_HAND);
