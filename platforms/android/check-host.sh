@@ -825,6 +825,13 @@ if awk '/ (void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|rend
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
+# 单条删除（长按操作行的「删除」、左滑的垃圾桶）和多选删除一样能撤销（#10080）：走 remove_many 拿到删除前的完整条目，交给 holdClipboardUndo 倒数。改回单条的 remove 时拿不到快照，撤销按钮不会出现，撤销也无从恢复时间戳和固定状态。
+if ! rg -A 6 'void removeClipboardItem\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg_q_stdin 'holdClipboardUndo\(clipboardHistory\.removeMany\('; then
+  echo "Android single clipboard deletion must keep an undo snapshot via removeMany (#10080)" >&2
+  exit 1
+fi
 # 删除候选词的确认收在长按菜单的子菜单里（ImeCandidates），与 iOS 的嵌套 UIMenu 一致：点开「删除词条…」当场展开「确认删除此词条」，一次长按删完；不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起），也不要退出去再长按一次的两步确认。
 if rg -q 'new AlertDialog' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
@@ -1195,7 +1202,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
     | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.NUMBER_ROW, null\);' "$style_migration" \
-  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\) \+ ":" \+ languageKeyLeft;' "$account_service" \
+  || ! rg -q -U '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\) \+ ":" \+ languageKeyLeft\n\s*\+ ":" \+ NineKeySidebarPolicy\.format\(nineKeySidebarSymbols\) \+ ":" \+ NineKeySidebarPolicy\.format\(nineKeyDigitSidebarSymbols\);' "$account_service" \
   || ! rg -q 'preferences\.optBoolean\(TouchKeyStyle\.NUMBER_ROW_PREFERENCE, false\)' "$account_service" \
   || ! rg -q '\+ ":" \+ english \+ ":" \+ style' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java" \
   || ! sed -n '/private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows" | rg_q_stdin 'if \(builtNumberRow\) addNumberRow\(rows\.size\(\)\);'; then
@@ -1262,8 +1269,8 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F '() -> choose(shown, option)));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
   || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft),' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, languageLeft));' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar),' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, languageLeft, nineKeySidebar));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));' <<< "$style_refresh" \
   || ! rg_q_stdin -F '() -> { if (!checked) choose.run(); });' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
@@ -1317,6 +1324,41 @@ if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPad
   echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, put the swap toggle after the 26-key style note and the 数字键盘 chips in their own group in 按键布局, and draw the heatmap with the swap" >&2
   exit 1
 fi
+# 九键左侧符号栏的两张表（#10223，.agents/notes/implemented/feature/2026-10-29-nine-key-sidebar-shared.md）：空表回到出厂表、右侧大回车只给出厂表接 ！、编辑器整表校验和「等于出厂表写空数组」由 NineKeySidebarPolicySmoke 覆盖，迁移与备份恢复的转换由 TouchKeyStyleSmoke 覆盖，9 键预览左列与高亮、摘要由 KeyLayoutStylesPolicySmoke 覆盖；接线在 InputMethodService、设置页和迁移里，JVM 冒烟碰不到，这里钉住：本机两个旧键只有迁移读（请求带上两张表、迁完与另两个旧键一起删）；键盘从共享偏好读两张表（冷启动的皮肤片段也记着），变了经 touchGeometryKey 重画、sidebarStale 重建；长按符号栏打开「按键布局」并带上那张表的偏好名；键盘页不再列这两行；「按键布局」在 9 键分段的说明后、「数字键盘」一组说明后各列一行，只在 9 键分段显示字母表那一行，预览按字母表画左列并高亮；编辑页按修订号只写这一张表的共享偏好，不再写本机设置。
+sidebar_readers=$(rg -l 'AndroidLocalSettings\.(NINE_KEY_SYMBOLS|NINE_KEY_DIGIT_SYMBOLS)\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
+sidebar_sheet="$repo_root/platforms/android/java/app/msime/android/home/NineKeySidebarSheet.java"
+sidebar_layout_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"
+sidebar_section=$(sed -n '/    private void styleSection(/,/^    }$/p' "$style_page")
+sidebar_number_pad=$(sed -n '/    private void numberPadSection(/,/^    }$/p' "$style_page")
+sidebar_refresh=$(sed -n '/    private void refreshStyles() {$/,/^    }$/p' "$style_page")
+if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_SYMBOLS, null\);' "$style_migration" \
+  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_DIGIT_SYMBOLS, null\);' "$style_migration" \
+  || ! rg -qF '.put("nine_key_symbols", new JSONArray(nineKeySymbols))' "$style_migration" \
+  || ! rg -qF '.put("nine_key_digit_symbols", new JSONArray(nineKeyDigitSymbols));' "$style_migration" \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'nineKeyDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);' \
+  || ! rg -qF 'nineKeySidebarSymbols = nextSidebarSymbols;' "$account_service" \
+  || ! rg -qF 'nineKeyDigitSidebarSymbols = nextDigitSidebarSymbols;' "$account_service" \
+  || ! rg_q_stdin -F 'NineKeySidebarPolicy.LETTER_PREFERENCE, NineKeySidebarPolicy.DIGIT_PREFERENCE,' <<< "$skin_hint_keys" \
+  || ! rg -qF '|| imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()' "$account_service" \
+  || ! sed -n '/    java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {$/,/^    }$/p' "$sidebar_layout_rows" \
+    | rg_q_stdin -F 'NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,' \
+  || ! rg -qF 's.openHostPage("KEY_LAYOUT_STYLES", args);' "$sidebar_layout_rows" \
+  || ! rg -qF 'args.putString(NineKeySidebarPolicy.EDIT_ARGUMENT, digits' "$sidebar_layout_rows" \
+  || rg -q 'NineKeySidebar|edit_sidebar_key|"九键左侧符号"|"九键数字键盘左侧符号"' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE, null,' <<< "$sidebar_section" \
+  || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.DIGIT_SIDEBAR_TITLE, null,' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -U 'numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -F 'if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);' <<< "$sidebar_refresh" \
+  || ! rg -qF 'KeyboardSheets.save(owner, edited -> edited.put(key, new JSONArray(stored)),' "$sidebar_sheet" \
+  || ! rg -qF 'List<String> stored = NineKeySidebarPolicy.toPreference(symbols, defaults);' "$sidebar_sheet" \
+  || rg -q 'saveLocal' "$sidebar_sheet"; then
+  echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
+  exit 1
+fi
 # 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排法由 TouchKeyStyleSmoke 覆盖，预览与高亮由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着它、字母层底行和数字九宫格都按它排；右侧大回车九宫格下方那一行按它排，变了经 tallReturnStale 整块重建；设置页三个分段都显示这个开关（不在 26 键的 if 里，排在互换开关之后），改它先重画预览再写 left / right；热力图跟着画；设置搜索登记了标题。
 if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   || ! rg -qF '+ ":" + numberPadSpace.resolved() + ":" + languageLeft' "$bottom_row_file" \
@@ -1346,8 +1388,16 @@ done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
   || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
-  || ! rg -qF 'case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft));' "$style_policy"; then
+  || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft)));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
+  exit 1
+fi
+# 皮肤页的整键盘预览（KeyboardPreview：AI 皮肤页、皮肤列表、社区皮肤卡片和详情）按用户的偏好画（KeyLayoutStylesPolicy.Preview，由 KeyboardPreviewLayoutSmoke 覆盖），不能再写死一套键面：以前它的 NINE_KEY_ROWS / FULL_ROWS 把底行写成 `123 | ， | 空格 | 。 | 中 | ↵`，不认用户选的样式。这里钉住预览从 Preview 取行、偏好由 KeyboardPreview.layout 读。
+keyboard_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyboardPreview.java"
+if ! rg -qF 'this.rows = layout.rows();' "$keyboard_preview" \
+  || ! rg -qF 'return KeyLayoutStylesPolicy.preview(TouchKeyStyle.Groups.offeredBy(edition),' "$keyboard_preview" \
+  || rg -q 'NINE_KEY_ROWS|FULL_ROWS|String\[\]\[\]' "$keyboard_preview"; then
+  echo "Android skin previews must draw the user's own rows from KeyLayoutStylesPolicy.Preview, not a fixed table" >&2
   exit 1
 fi
 # 右侧大回车外框的列宽按画着的键面取（KeyboardActionRow.tallReturnSideWeight / tallReturnGridWeight / tallReturnGridShare，TouchKeyStyleSmoke 钉住份额）：笔画的数字层经 rebuildNineKeyRows 借九键数字九宫格，键面仍是笔画，大回车分支必须按 displayedTouchLayout 取份额，不能写死九键的 3 / 14，否则切 123 时 符、123 和回车横移。
@@ -1617,6 +1667,27 @@ if ! rg -q 'installed\.headerAction\(manageButton\(context\)\)' "$lexicon_page" 
   || ! rg -q 'menu\.getMenu\(\)\.add\("导出词库"\)' "$lexicon_page" \
   || rg -q 'GroupCard manage =|manage\.addView\(KeyboardSheets\.actionRow' "$lexicon_page"; then
   echo "Android lexicon page must expose its four management actions from the installed header menu" >&2
+  exit 1
+fi
+# 大屏单手侧边数字键盘（#10203，.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md）：宽度由 KeyboardFormFactorPolicySmoke、显示条件和偏好读法由 OneHandSidePadPolicySmoke 覆盖；接线在 InputMethodService、ImeFrame 和设置页里，JVM 冒烟碰不到，这里钉住：键盘从共享偏好读侧边面板，进 touchGeometryKey（变了就重画）和皮肤片段（冷启动第一帧就按它画）；ImeFrame.applyOneHanded 按宽度和 OneHandSidePadPolicy.shown 摆上或摘下面板，签名带着面板宽度；面板的数字和小数点走数字层的字面上屏，⌫ 带连删；键距、行高跟着主键区重排；设置页的标题和说明与 iOS、鸿蒙逐字相同。
+side_pad_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeFrame.java")
+side_pad_builder="$repo_root/platforms/android/java/app/msime/android/core/ImeSidePad.java"
+if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_pad_service" \
+  || ! rg -qF 'oneHandedSidePanel = nextOneHandedSidePanel;' "$side_pad_service" \
+  || ! rg -qF '            + ":" + oneHandedSidePanel.wire' "$side_pad_service" \
+  || ! rg -qF '        OneHandSidePadPolicy.PREFERENCE_KEY,' "$side_pad_service" \
+  || ! rg_q_stdin -F 'KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'OneHandSidePadPolicy.shown(s.oneHandedSidePanel, mode, padDp,' <<< "$side_pad_frame" \
+  || ! rg_q_stdin -F 'String applied = mode + ":" + blockDp + ":" + (padShown ? padDp : 0);' <<< "$side_pad_frame" \
+  || ! rg -qF 's.imeLayoutRows.commitNineKeyLiteral(digit)' "$side_pad_builder" \
+  || ! rg -qF 's.imeLayoutRows.nineKeyDecimalKey()' "$side_pad_builder" \
+  || ! rg -qF 's.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);' "$side_pad_builder" \
+  || ! rg -qF 'if (sidePad != null) applySidePadGeometry(sidePad);' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java" \
+  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg -qF 'savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"; then
+  echo "Android one-handed side number pad wiring is missing: read touch_one_handed_side_panel into the geometry key and skin hint, place the pad in ImeFrame.applyOneHanded, reuse the digit-layer literal commit and backspace repeat, follow the key geometry, and keep the shared settings wording" >&2
   exit 1
 fi
 # 「防止截屏」（#10098）：FLAG_SECURE 只作用于设了它的那一个窗口，切换规则由 ScreenCaptureProtectionPolicySmoke 覆盖，窗口接线 JVM 冒烟碰不到，这里钉住：每个 Activity 在 onCreate 里经 ScreenCaptureProtection.apply(this) 加上；对话框和底部面板一律经 ScreenCaptureProtection.show / protect 创建；输入法自己开的 PopupWindow 在显示后经 ScreenCaptureProtection.apply 处理，单开的子窗口提示经 ScreenCaptureProtectionPolicy.windowFlags 带上标志；输入法窗口在 applyLocalSettings 里跟随设置。新加的窗口漏掉这一步，截屏里就会露出内容。

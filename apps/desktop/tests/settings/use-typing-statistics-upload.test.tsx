@@ -93,6 +93,18 @@ test("开关同步防重并公布宿主返回状态，完成后允许关闭", as
   expect(hook.result.current.message).toBe("已关闭上传，云端的打字统计已删除。");
 });
 
+test("打开后宿主没有可传的日子时不说已经传上去", async () => {
+  const upload = client();
+  upload.setEnabled.mockResolvedValueOnce({ enabled: true, signedIn: true, lastUploadMs: null });
+  const hook = renderHook(() => useTypingStatisticsUpload({ client: upload }));
+  await waitFor(() => expect(hook.result.current.status).toEqual(off));
+  await act(async () => hook.result.current.toggle(true));
+  expect(hook.result.current.status?.enabled).toBe(true);
+  expect(hook.result.current.message).toBe(
+    "已打开上传。本机还没有可上传的打字计数，打字以后再打开这一页会自动上传。",
+  );
+});
+
 test.each([
   ["account_unauthorized", true, "先在「账号」页登录水杉账号，再打开上传。"],
   ["account_rate_limited", true, "上传过于频繁，过一会儿会自动再传。"],

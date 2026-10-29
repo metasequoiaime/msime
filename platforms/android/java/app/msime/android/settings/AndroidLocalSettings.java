@@ -81,7 +81,7 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
-    /** 剪贴板多选删除后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
+    /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
     /** 「复制后自动显示快捷键」（#10079）：最近复制那一行在预览右边多一个分词或分类快捷键，默认开，好让用户知道有这个功能；最近复制不显示时它也不显示。只在本机。 */
     public static final String CLIPBOARD_SUGGESTION_ACTION = "platform.android.clipboard_suggestion_action";
@@ -93,9 +93,9 @@ public final class AndroidLocalSettings {
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
     /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响 {@link #NINE_KEY_SWIPE}，26 键的滑动阈值不变。和 {@link #NINE_KEY_SWIPE} 一样只在本机。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
-    /** 拼音九键和笔画键盘左侧符号栏的符号（{@link NineKeySidebarPolicy}），用空格分开。服务端的同步字段表还没有这个键，所以先只在本机。 */
+    /** 旧版的九键左侧符号（字母键面那张表，用空格分开），只在本机。现在由共享偏好 `touch_nine_key_sidebar_symbols`（{@link NineKeySidebarPolicy#LETTER_PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值（不认识的键在读取时会被丢掉）。同步的 `platform.android.nine_key_symbols` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
-    /** 拼音九键数字键面左侧符号栏的符号，格式同 {@link #NINE_KEY_SYMBOLS}，同样只在本机。 */
+    /** 旧版的九键数字键盘左侧符号，格式同 {@link #NINE_KEY_SYMBOLS}，只在本机。现在由共享偏好 `touch_nine_key_digit_sidebar_symbols`（{@link NineKeySidebarPolicy#DIGIT_PREFERENCE}）接替，同样只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删。 */
     public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
     /** 退格键上滑快速删除的范围：默认只删光标前，可选清空整个输入框。 */
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";

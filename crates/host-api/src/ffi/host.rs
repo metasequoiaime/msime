@@ -897,6 +897,12 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
         revision: u64,
         long_space: bool,
         number_row: bool,
+        /// 本机旧键里用户自定义的九键左侧符号表；缺省或空表表示不迁。
+        #[serde(default)]
+        nine_key_symbols: Vec<String>,
+        /// 本机旧键里用户自定义的九键数字键盘左侧符号表；缺省或空表表示不迁。
+        #[serde(default)]
+        nine_key_digit_symbols: Vec<String>,
     }
     response(|| {
         if request.is_null() || length > 65536 {
@@ -912,7 +918,13 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
             "preferences directory must be absolute",
         )?;
         let saved = PreferencesStore::new(directory)
-            .migrate_android_key_layout(request.revision, request.long_space, request.number_row)
+            .migrate_android_key_layout(
+                request.revision,
+                request.long_space,
+                request.number_row,
+                &request.nine_key_symbols,
+                &request.nine_key_digit_symbols,
+            )
             .map_err(|error| error.to_string())?;
         serde_json::to_value(saved).map_err(|error| error.to_string())
     })

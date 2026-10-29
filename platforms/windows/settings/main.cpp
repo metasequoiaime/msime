@@ -18886,7 +18886,7 @@ private:
       stats_upload_busy_ = false;
       if (auto status = typing_upload_status(response)) {
         stats_upload_ = status;
-        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled));
+        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled, *status));
       } else {
         stats_upload_message_ = typing::upload_error_message(account_failure(response), enabled);
         read_typing_upload();

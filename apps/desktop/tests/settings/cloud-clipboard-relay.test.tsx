@@ -457,10 +457,16 @@ test.each(["水杉账号", "自建中继"])(
     );
     await settingsFormReady();
     const next = { ...WEBDAV, url: "https://dav.example.test/dav/other" };
-    fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
-      target: { value: next.url },
+    const address = screen.getByRole("textbox", { name: "服务器地址" }) as HTMLInputElement;
+    // 表单出现时加载仍可能收尾，先等已保存配置回填且输入框可用。
+    await waitFor(() => {
+      expect(address.matches(":disabled")).toBe(false);
+      expect(address.value).toBe(WEBDAV.url);
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 设置" }));
+    fireEvent.change(address, { target: { value: next.url } });
+    const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" });
+    await waitFor(() => expect(saveButton.matches(":disabled")).toBe(false));
+    fireEvent.click(saveButton);
     await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledExactlyOnceWith(next));
     fireEvent.click(screen.getByRole("radio", { name: mode }));
     await act(async () => {

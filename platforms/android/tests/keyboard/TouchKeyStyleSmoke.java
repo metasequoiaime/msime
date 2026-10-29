@@ -370,6 +370,41 @@ public final class TouchKeyStyleSmoke {
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.LONG_SPACE_LAYOUT).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced,
             "the legacy keys never travel through android_local");
+        nineKeySidebarMigration();
+    }
+
+    /**
+     * 两张九键左侧符号表的旧键（#10223）：解析得出又不等于出厂表时才放进迁移请求（client-core 只在共享偏好缺键或是空数组时写入，已有的非空表不覆盖，由 preferences/tests.rs 钉住）；出厂旧值、不合规的旧值都不迁。旧键不管迁没迁都算待删，删掉以后再走迁移入口就没有可迁的，用户「恢复默认」后的空表不会被旧表写回。
+     */
+    private static void nineKeySidebarMigration() {
+        String letters = AndroidLocalSettings.NINE_KEY_SYMBOLS;
+        String digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS;
+        List<String> letterDefaults = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        List<String> digitDefaults = NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS;
+        AndroidLocalSettings.Snapshot factory = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, NineKeySidebarPolicy.format(letterDefaults), digits, NineKeySidebarPolicy.format(digitDefaults))));
+        check(KeyLayoutStyleMigration.pending(factory), "factory-valued legacy tables still have to be deleted");
+        check(KeyLayoutStyleMigration.legacyTable(factory, letters, letterDefaults).isEmpty()
+            && KeyLayoutStyleMigration.legacyTable(factory, digits, digitDefaults).isEmpty(),
+            "a legacy table equal to the factory table is not uploaded as a choice");
+        AndroidLocalSettings.Snapshot custom = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, "、 ……  ：", digits, "+ - ×")));
+        check(KeyLayoutStyleMigration.legacyTable(custom, letters, letterDefaults).equals(List.of("、", "……", "：")),
+            "a custom letter table is migrated in order");
+        check(KeyLayoutStyleMigration.legacyTable(custom, digits, digitDefaults).equals(List.of("+", "-", "×")),
+            "a custom digit table is migrated");
+        // 只写了字母表：数字表不在请求里（空表），也照样算待删。
+        AndroidLocalSettings.Snapshot lettersOnly = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, "+ -")));
+        check(KeyLayoutStyleMigration.pending(lettersOnly)
+            && KeyLayoutStyleMigration.legacyTable(lettersOnly, digits, digitDefaults).isEmpty(), "a missing legacy key migrates nothing");
+        // 不合规的旧文本读文件时就被丢掉（AndroidLocalSettings 的规范化），直接交给解析也不迁。
+        check(KeyLayoutStyleMigration.legacyTable("toolong", letterDefaults).isEmpty()
+            && KeyLayoutStyleMigration.legacyTable("", letterDefaults).isEmpty(), "an unparsable legacy table migrates nothing");
+        check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of()))),
+            "once the legacy keys are gone there is nothing to migrate again");
+        check(!AndroidLocalSettings.spec(letters).synced && !AndroidLocalSettings.spec(digits).synced,
+            "the legacy tables never travel through android_local");
     }
 
     /** 恢复旧备份使用备份里的显式值；新格式字段优先，缺失或无效旧键不改当前偏好。 */
@@ -387,7 +422,21 @@ public final class TouchKeyStyleSmoke {
         check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, "false"), Map.of()).isEmpty(),
             "无效旧值与缺失键不制造默认值");
         check(KeyLayoutStyleMigration.legacyKey(oldNumber) && KeyLayoutStyleMigration.legacyKey(oldSpace)
-            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除两个已转换旧键");
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SYMBOLS)
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
+            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除四个已转换旧键");
+        // 两张符号表：旧备份的文本转成账号文档的写法；等于出厂表或解析不出时写空串（出厂表）；备份里已有新字段时以新字段为准。账号字段名与旧键同名。
+        String letters = "platform.android.nine_key_symbols";
+        String digits = "platform.android.nine_key_digit_symbols";
+        check(letters.equals(AndroidLocalSettings.NINE_KEY_SYMBOLS) && digits.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS),
+            "账号字段与本机旧键同名");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "、  …… ：", digits, "+ -"), Map.of())
+            .equals(Map.of(letters, "、 …… ：", digits, "+ -")), "旧备份的自定义符号表恢复成共享写法");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "， 。 ？", digits, "toolong abcde"), Map.of())
+            .equals(Map.of(letters, "", digits, "")), "出厂表和解析不出的旧表恢复成出厂表");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "、"), Map.of(letters, "+")).isEmpty(),
+            "备份已带新字段时不用旧表");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, 3), Map.of()).isEmpty(), "不是文本的旧值不恢复");
     }
 
     /**

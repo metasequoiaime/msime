@@ -97,6 +97,16 @@ cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$notices/kfcd-chaizi.txt"
 cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
 # 简繁转换内嵌的 OpenCC 词表许可证与原生库一并打包。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$notices/OpenCC-Apache-2.0.txt"
+# 随 APK 和资源包分发的词库里有 MIT 与 Apache-2.0 的数据，两种许可都要求随副本附上全文：msime-pinyin.db 的单字读音（mozillazg/pinyin-data）、msime-english.db 的中英释义（skywind3000/ECDICT）、msime-others.db 的颜文字（aoguai/rime_kaomoji_dict）与关键词整词读音（mozillazg/python-pinyin）、msime-wubi.db 的 86 码表（KyleBing/rime-wubi86-jidian，Apache-2.0）。
+cp resources/licenses/pinyin-data-MIT.txt "$notices/pinyin-data-MIT.txt"
+cp resources/licenses/ECDICT-MIT.txt "$notices/ECDICT-MIT.txt"
+cp resources/licenses/rime_kaomoji_dict-MIT.txt "$notices/rime_kaomoji_dict-MIT.txt"
+cp resources/licenses/python-pinyin-MIT.txt "$notices/python-pinyin-MIT.txt"
+cp resources/licenses/rime-wubi86-jidian-Apache-2.0.txt "$notices/rime-wubi86-jidian-Apache-2.0.txt"
+# msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随副本分发。
+cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang-CC-BY-4.0.txt"
+# 随 APK 和资源包分发的词库（msime-pinyin.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，按需下载或随非瘦包带上的 msime-wubi.db 与日文词典）逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
+cp resources/licenses/msime-engine-dictionary-NOTICE.md "$notices/msime-engine-dictionary-NOTICE.md"
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

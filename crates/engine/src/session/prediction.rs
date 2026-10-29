@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::dictionary::pinyin::PinyinDatabase;
+use crate::lattice::offensive::is_offensive;
 use crate::text::is_all_han;
 use crate::types::{CandidateSource, WordItem};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
@@ -96,6 +97,10 @@ impl Prediction {
         seed_pinyin: String,
     ) {
         if self.rows.len() == LIMIT || self.rows.iter().any(|row| row.word == word) {
+            return;
+        }
+        // 联想是用户什么都没打时给的词，粗俗词不给，见 `lattice::offensive`。词库联想给的是词的后半截（上屏 巨 联想 乳），所以连同上屏的部分（`seed_word`）一起查。
+        if is_offensive(word) || is_offensive(&seed_word) {
             return;
         }
         let mut row = WordItem::new("", word, weight, CandidateSource::Generated, pinyin);

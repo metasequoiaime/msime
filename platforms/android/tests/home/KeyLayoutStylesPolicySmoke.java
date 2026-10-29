@@ -1,6 +1,7 @@
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.KeyboardScheme;
+import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.TouchKeyStyle;
 import app.msime.android.TouchKeyStyle.Row;
 import app.msime.android.home.KeyLayoutStylesPolicy;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「中/英键放在空格左边」打开后三类预览底行的中/英排到空格（和贴着空格的标点）左边并高亮它，以及「数字键盘」一组胶囊的名字、顺序和写法。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
+ * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「中/英键放在空格左边」打开后三类预览底行的中/英排到空格（和贴着空格的标点）左边并高亮它，「数字键盘」一组胶囊的名字、顺序和写法，以及两行左侧符号的标题、摘要、编辑页说明和 9 键预览的左列（#10223）。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
  */
 public final class KeyLayoutStylesPolicySmoke {
     public static void main(String[] arguments) {
@@ -28,6 +29,7 @@ public final class KeyLayoutStylesPolicySmoke {
         symbolFirst();
         languageLeft();
         numberPadSpace();
+        nineKeySidebar();
         System.out.println("key layout styles page: passed");
     }
 
@@ -353,6 +355,65 @@ public final class KeyLayoutStylesPolicySmoke {
             "an unset number pad selects 空格在右列");
         check(TouchKeyStyle.NUMBER_PAD_SPACE_GROUP.equals("数字键盘")
             && TouchKeyStyle.NUMBER_PAD_SPACE_NOTE.equals("九宫格数字键盘里空格的位置；右侧大回车不受影响。"), "number pad group title and note");
+    }
+
+    private static void nineKeySidebar() {
+        check(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE.equals("九键左侧符号")
+            && KeyLayoutStylesPolicy.DIGIT_SIDEBAR_TITLE.equals("数字键盘左侧符号"), "row and editor titles");
+        check(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_NOTE.equals("拼音九键、九键双拼和笔画共用，多于一屏时上下滑动。")
+            && KeyLayoutStylesPolicy.DIGIT_SIDEBAR_NOTE.equals("所有九宫格数字键盘共用，#+= 固定在最后。"), "editor notes");
+        List<String> letters = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        List<String> digits = NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS;
+        // 摘要：空表显示出厂表；不超过四项时全列，多于四项时前四项加「 等 N 个」。
+        check(KeyLayoutStylesPolicy.sidebarSummary(List.of(), letters).equals("， 。 ？"), "an empty letter table summarises the defaults");
+        check(KeyLayoutStylesPolicy.sidebarSummary(List.of(), digits).equals("+ - * / 等 14 个"), "the digit defaults are summarised");
+        check(KeyLayoutStylesPolicy.sidebarSummary(List.of("，", "。", "？", "！", "、", "；", "：", "…"), letters)
+            .equals("， 。 ？ ！ 等 8 个"), "a long custom table is summarised");
+        check(KeyLayoutStylesPolicy.sidebarSummary(List.of("、", "……"), letters).equals("、 ……"), "a short custom table is listed whole");
+
+        // 出厂表、非右侧大回车：与 #10208 相同，左列逐行画 ， 。 ？，不高亮。
+        List<List<Key>> standard = KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, List.of());
+        check(standard.equals(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false)), "the factory table draws as before");
+        check(standard.equals(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, letters)),
+            "a table equal to the factory table draws as the factory table");
+        check(KeyLayoutStylesPolicy.highlights(Kind.NINE, Row.STANDARD, false, List.of()).isEmpty()
+            && KeyLayoutStylesPolicy.highlights(Kind.NINE, Row.STANDARD, false, letters).isEmpty(), "the factory table is not highlighted");
+
+        // 自定义表：左列是一整条跨三行的栏，一屏最多五项、等分，整条描强调色；右列的 ！ 不跟着高亮。
+        List<String> custom = List.of("、", "……", "：", "；", "～", "·", "（）");
+        List<List<Key>> drawn = KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, custom);
+        Key rail = drawn.get(0).get(0);
+        check(rail.rows() == 3 && rail.stack().equals(custom.subList(0, NineKeySidebarPolicy.VISIBLE_ROWS)),
+            "the custom rail spans the grid and shows one screen");
+        check(drawn.get(1).get(0).rows() == 0 && drawn.get(2).get(0).rows() == 0, "the rows below only keep the rail's width");
+        for (int index = 0; index < 3; index++)
+            check(near(drawn.get(index).get(0).weight(), standard.get(index).get(0).weight())
+                && faces(drawn.get(index)).subList(1, 5).equals(faces(standard.get(index)).subList(1, 5)),
+                "the grid and right column do not move on row " + index);
+        check(faces(drawn.get(3)).equals(faces(standard.get(3))), "the bottom row does not change");
+        Set<String> marked = KeyLayoutStylesPolicy.highlights(Kind.NINE, Row.STANDARD, false, custom);
+        check(marked.contains(rail.id()) && marked.size() == 1, "only the rail is highlighted");
+        check(!marked.contains(standard.get(2).get(4).id()), "the right-column ！ is not highlighted with it");
+        Key single = KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, List.of("、")).get(0).get(0);
+        check(single.stack().equals(List.of("、")), "a single symbol fills the rail");
+        check(KeyLayoutStylesPolicy.highlights(Kind.NINE, Row.COMMA_PERIOD, false, custom).equals(Set.of("Comma", "Period", rail.id())),
+            "the rail adds to the style's own highlights");
+
+        // 右侧大回车：出厂表接 ！ 共四项、不高亮；自定义表原样，不接 ！。
+        List<List<Key>> tall = KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.TALL_RETURN, false, false, false, List.of());
+        check(tall.get(0).get(0).stack().equals(NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS), "the tall frame draws ， 。 ？ ！");
+        check(KeyLayoutStylesPolicy.highlights(Kind.NINE, Row.TALL_RETURN, false, List.of()).equals(Set.of("Enter")),
+            "the tall factory rail is not highlighted");
+        check(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.TALL_RETURN, false, false, false, List.of("、", "……")).get(0).get(0)
+            .stack().equals(List.of("、", "……")), "a custom tall rail gets no ！");
+        check(tall.get(3).get(0).face().equals("符"), "符 stays under the rail");
+
+        // 字母表只影响 9 键：26 键、14/18 键的预览和高亮不变。
+        for (Kind kind : List.of(Kind.TWENTY_SIX, Kind.FOURTEEN)) {
+            check(KeyLayoutStylesPolicy.keyboard(kind, Row.STANDARD, false, false, false, custom)
+                .equals(KeyLayoutStylesPolicy.keyboard(kind, Row.STANDARD, false, false)), kind + " ignores the letter table");
+            check(KeyLayoutStylesPolicy.highlights(kind, Row.STANDARD, false, custom).isEmpty(), kind + " highlights nothing for it");
+        }
     }
 
     private static List<Key> last(List<List<Key>> rows) {

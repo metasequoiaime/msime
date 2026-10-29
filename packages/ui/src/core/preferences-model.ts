@@ -158,12 +158,18 @@ export type Preferences = PunctuationPreferences &
     touch_fourteen_key_style?: "standard" | "long_space" | "emoji";
     /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式；除 `tall_return`（右侧大回车：回车跨右列下两行，符 移到符号栏下方，右列的 ！ 并进符号栏）外，符号栏和右侧功能列不变。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_nine_key_style?: "standard" | "comma_period" | "emoji" | "tall_return";
+    /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序。缺省或空数组是各端出厂表（三端都是 ， 。 ？），等于出厂表时写空数组；读入时 client-core 逐项丢掉不合规的项（空串、含空白或控制字符、超过 4 个码位、重复），最多 30 项、用空格连起来不超过 200 个 UTF-16 单元。空数组不写进文档；桌面宿主保留、不读。 */
+    touch_nine_key_sidebar_symbols?: string[];
+    /** 手机触屏九宫格数字键盘（九键自己的数字层和其他键盘借来的数字九宫格）左侧符号栏的符号，规则同 `touch_nine_key_sidebar_symbols`；缺省或空数组是各端出厂表（鸿蒙是 + - * /），`#+=` 不在表里。空数组不写进文档；桌面宿主保留、不读。 */
+    touch_nine_key_digit_sidebar_symbols?: string[];
     /** 手机触屏 26 键、14 键和 18 键字母层上方的 1 到 0 数字行；窗口太矮时宿主不画。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_number_row?: boolean;
     /** 手机触屏 26 键字母层底行把 符 排到 123 左边；只作用于底行里有 符 的样式，长空格和表情键样式不受影响。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_twenty_six_symbol_first?: boolean;
     /** 手机触屏九宫格数字键盘里空格的位置：`right_column` 在右列（0 占底行中间），`after_zero` 在底行 0 的右边，`before_zero` 在底行 0 的左边；`platform_default` 是各端原来的排法（Android 右列、iOS 0 右边、鸿蒙 0 左边）。右侧大回车的数字层不受影响。缺省为 `platform_default`，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_number_pad_space?: "platform_default" | "right_column" | "after_zero" | "before_zero";
+    /** 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时空出来的一侧放什么：`off` 空着，`number_pad` 数字键盘；只在主键区是九键字母层时显示，分离式和浮动键盘不受影响。缺省为 `off`，client-core 不写进文档，不认识的值读作 `off`；桌面宿主保留、不读。 */
+    touch_one_handed_side_panel?: "off" | "number_pad";
     /** 手机触屏底行的中/英键在空格哪一边：`right` 在空格右边、紧挨回车；`left` 在空格左边，空格左边有逗号或句号时排在标点左边，标点仍紧挨空格。iPad 全尺寸键盘和鸿蒙 2in1 不受影响。缺省为 `right`，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_language_key_side?: "right" | "left";
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */

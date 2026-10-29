@@ -18,6 +18,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
+  /// 「大屏单手时侧边显示数字键盘」（共享偏好 `touch_one_handed_side_panel`），取自共享文档。
+  @State private var oneHandSidePad = TouchOneHandedSidePanelPreference.load() == .numberPad
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
@@ -90,14 +92,25 @@ struct KeyboardLayoutSettingsView: View {
     keyLayoutStyle.numberRow && !nineKey && scheme != .japaneseNineKey && scheme != .handwriting
       && !scheme.isStroke && !scheme.isZhuyin
   }
+  /// 预览画的键面：用户当前的中文键盘属于哪一类（`KeyboardPreviewFace`），九键一族连同笔画都画九宫格外框，与键盘和 Android、鸿蒙的「键盘」页一致。
+  private var previewFace: KeyboardPreviewFace {
+    KeyboardPreviewFace(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+  }
+  /// 预览按的「按键布局」：当前方案读样式时（`KeyboardPreviewFace.styled`）用用户在这一类里选的样式，笔画因此和拼音九键一样画九键样式（含右侧大回车）；日文罗马字、韩文等不读这几项样式的方案画标准底行，「符」与「123」互换照旧，与键盘一致；顶部数字行只在键盘上真会画时画（`drawsPhoneNumberRow`）。
+  private var previewKeyLayout: TouchKeyLayoutStyle {
+    var style = previewFace.styled ? keyLayoutStyle : TouchKeyLayoutStyle(symbolFirst: keyLayoutStyle.symbolFirst)
+    style.numberRow = drawsPhoneNumberRow
+    return style
+  }
 
   private var preview: some View {
-    VStack(spacing: 6) {
+    let face = previewFace
+    return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, letterGrid: letterGrid, gridSplitsSyllables: scheme != .wubi,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
-        heightAdjustment: height
+        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )
       .gesture(spacingDrag)
       .accessibilityIdentifier("keyboardLayoutPreview")
@@ -377,7 +390,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var tabletGroup: some View {
-    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n横屏分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
+    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n横屏分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；横屏分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
       DesignToggleRow(title: "数字行与 Tab 键", isOn: Binding(get: { tabletFullKeys }, set: { enabled in
         tabletFullKeys = enabled
         KeyboardLayoutPreference.tabletFullKeys = enabled
@@ -394,7 +407,17 @@ struct KeyboardLayoutSettingsView: View {
         KeyboardLayoutPreference.tabletSplit = enabled
       }))
       .accessibilityIdentifier("appTabletSplitSwitch")
+      DesignDivider()
+      DesignToggleRow(title: TouchOneHandedSidePanelPreference.title, subtitle: TouchOneHandedSidePanelPreference.subtitle,
+                      isOn: Binding(get: { oneHandSidePad }, set: { saveOneHandSidePad($0) }))
+        .accessibilityIdentifier("appOneHandSidePadSwitch")
     }
+  }
+
+  /// 打开写 `number_pad`，关掉写 `off`（client-core 存成缺键）；文档没接受时页面回到文档里的值，并在「布局」一组下面提示没保存上。「恢复默认」不动它：它不是这一页的间距或高度。
+  private func saveOneHandSidePad(_ enabled: Bool) {
+    saveFailed = !TouchOneHandedSidePanelPreference.save(enabled ? .numberPad : .off)
+    oneHandSidePad = saveFailed ? TouchOneHandedSidePanelPreference.load() == .numberPad : enabled
   }
 
   private var resetGroup: some View {
@@ -597,6 +620,7 @@ struct KeyboardLayoutSettingsView: View {
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
+    oneHandSidePad = TouchOneHandedSidePanel(in: preferences) == .numberPad
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()

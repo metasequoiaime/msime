@@ -31,6 +31,8 @@ struct SkinSettingsView: View {
   @State private var skinSaveFailed = false
   /// 本地皮肤库（「我的」分类列出的设计）。
   @State private var library: [SavedKeyboardSkin] = CustomSkinLibrary.designs
+  /// 缩略图画用户正在用的那一类键盘（`KeyboardPreviewFace`）：九键一族连同笔画画九宫格外框，14/18 键画字母格，与 Android `SkinsPage` 相同；共享文档读回来之前按 App Group 镜像画。
+  @State private var previewFace = KeyboardPreviewFace.mirrored
 
   private static let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
   /// 设计稿中的键盘缩略图是 390 × 292。
@@ -147,8 +149,7 @@ struct SkinSettingsView: View {
       }
     } label: {
       tileFace(title: item.name, selected: selected) {
-        KeyboardSkinPreview(skin: .designed(item.design), nineKey: false,
-                            topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]), letterHints: true)
+        tilePreview(skin: .designed(item.design))
       }
     }
     .buttonStyle(SkinTilePressStyle())
@@ -191,6 +192,14 @@ struct SkinSettingsView: View {
     .contentShape(Rectangle())
   }
 
+  /// 一格里的键盘缩略图：带空闲状态的工具栏，键面是用户正在用的那一类键盘（`previewFace`），底行和数字行按用户的「按键布局」画。
+  private func tilePreview(skin: KeyboardTheme) -> KeyboardSkinPreview {
+    KeyboardSkinPreview(skin: skin, nineKey: previewFace.nineKey, letterGrid: previewFace.letterGrid,
+                        gridSplitsSyllables: previewFace.gridSplitsSyllables,
+                        topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]), letterHints: true,
+                        nineKeyZero: previewFace.nineKeyZero)
+  }
+
   /// 一格：主题的键盘缩略图（带空闲状态的工具栏），选中时外圈描强调色，名字在下方。
   private func themeTile(_ option: KeyboardTheme) -> some View {
     // 所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
@@ -204,8 +213,7 @@ struct SkinSettingsView: View {
       }
     } label: {
       tileFace(title: option.title, selected: selected) {
-        KeyboardSkinPreview(skin: option, nineKey: false, topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]),
-                            letterHints: true)
+        tilePreview(skin: option)
           .id(option.isCustom ? customSkinData : Data())
           .environment(\.colorScheme, tileScheme(option))
       }
@@ -275,6 +283,7 @@ struct SkinSettingsView: View {
     themeCards = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: preferences) }
     customBase = GlobalThemePreference.base(in: preferences)
     keyboardStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
+    previewFace = KeyboardPreviewFace(in: preferences)
   }
 }
 

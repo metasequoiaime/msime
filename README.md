@@ -14,6 +14,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](Cargo.toml)
@@ -99,6 +100,16 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 Linux 本地构建、隔离 D-Bus / IBus 测试和安装后的首次配置见 [Linux 宿主](platforms/linux/README.md)。宿主支持设置文件自动重读，安装后由随装的 `msime-linux-setup` 备齐词库并准备运行配置；`msime-linux-setup --download` 按 `resources/desktop-dictionary.lock.json` 取回缺失词库，图形入口在缺少 `runtime-options.json` 时会打开同一套首次配置页。
 
 功能对齐以 MSIME-Windows 的完整功能为行为基线：公共业务逐项接入共享层，界面按平台归属接入共享 React 页或该平台的原生设置，Windows 沿用 TSF DLL 与 Server 分进程的结构，但两者之间的协议只服务本仓库同版本构建，不再兼容 MSIME-Windows 的旧配置、共享内存、无版本握手和旧语音管道，Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配。`scripts/test-reference-*.py` 把这条基线固化成可复跑的门禁——参考实现的出厂配置键、四个界面的机器可读能力清单、changelog 的每条特性、以及 `windows/`、`server/`、`ui/src` 下的每个源文件，都必须对应到本仓库的实现或一条写明理由的缺席记录。
+
+## 在你的输入法里使用水杉引擎
+
+水杉的输入引擎可以单独嵌进别的输入法：词格整句加神经重排、拼写纠错、按用户选择学习，方案有全拼、双拼、五笔、日文、韩文、粤拼、注音、越南文、藏文和笔画。它是开箱即用的引擎库，不是 Rime 那样靠方案配置驱动的框架。
+
+- **Rust**：`cargo add msime-engine`（[crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)），上手见 [crates/engine/README.md](crates/engine/README.md) 的「快速上手」。
+- **C 和其他能调用 C 的语言**（fcitx5、ibus、Windows TSF 等 C/C++ 前端，Swift、Kotlin/JNI、Go、Python、C#）：[GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) 上有 Linux、macOS、Windows 的预编译库，附头文件 `msime_engine.h` 和 `msime-engine.pc`；上手见 [crates/engine-capi/README.md](crates/engine-capi/README.md)。
+- **词库**：引擎本身不带词库。同一个 Release 里有全拼、双拼用的最小数据包。
+
+引擎代码是 MPL-2.0，可以嵌进闭源或上架 App Store 的应用；词库数据保留各自的许可证，不是 MPL：默认中文词库含 GPL-3.0 的 rime-ice 数据，n-gram 计数是 CC-BY-SA-4.0，按需另选数据。
 
 ## 输入引擎
 

@@ -58,6 +58,14 @@ cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 # 简繁转换内嵌的 OpenCC 词表许可证随 HAP 分发。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$licenses_staged/"
 cp resources/licenses/world-clock-NOTICE.txt "$licenses_staged/"
+# 随 HAP 分发的词库里有 MIT 与 Apache-2.0 的数据，两种许可都要求随副本附上全文：msime-pinyin.db 的单字读音（mozillazg/pinyin-data）、msime-english.db 的中英释义（skywind3000/ECDICT）、msime-others.db 的颜文字（aoguai/rime_kaomoji_dict）与关键词整词读音（mozillazg/python-pinyin）、msime-wubi.db 的 86 码表（KyleBing/rime-wubi86-jidian，Apache-2.0）。
+cp resources/licenses/pinyin-data-MIT.txt resources/licenses/ECDICT-MIT.txt resources/licenses/rime_kaomoji_dict-MIT.txt resources/licenses/python-pinyin-MIT.txt resources/licenses/rime-wubi86-jidian-Apache-2.0.txt "$licenses_staged/"
+# msime-pinyin.db 与语言词库的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随 HAP 分发。
+cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
+# resfile/engine 带着完整的桌面词库（msime-pinyin.db、msime-wubi.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin、日文词典），它们逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
+cp resources/licenses/msime-engine-dictionary-NOTICE.md "$licenses_staged/"
+# 水杉输入法本身以 GPL-3.0-only 发布，resfile/engine 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 以 GPL-3.0.txt 随 HAP 分发，与 macOS 包和引擎 C 库数据包里的名字相同。
+cp LICENSE "$licenses_staged/GPL-3.0.txt"
 echo "Licences staged for the HAP: $licenses_staged"
 
 # 内置音效包，由 scripts/generate_sound_packs.py 合成。放在 engine 目录旁边而不是里面，因为放进去会被上面的锁文件校验拒绝；resfile 会把它们解压到 context.resourceDir/sound-packs，也就是键盘告诉 client-services 的内置包根目录。

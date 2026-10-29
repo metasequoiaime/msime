@@ -87,6 +87,165 @@ export function numberPadSpace(preferences: Preferences): NumberPadSpaceChoice {
   return value === "right_column" || value === "after_zero" ? value : "before_zero";
 }
 
+/** 九键左侧符号栏的两张表（#10223）：`letter` 是拼音九键、九键双拼和笔画字母层共用的那张（共享偏好 `touch_nine_key_sidebar_symbols`），`digit` 是所有九宫格数字键盘 #+= 上面那张（`touch_nine_key_digit_sidebar_symbols`）。 */
+export type NineKeySidebarKind = "letter" | "digit";
+
+/** 一张表最多几项、一项最多几个 Unicode 码位、用一个空格连起来最多几个 UTF-16 单元，与 client-core `NINE_KEY_SIDEBAR_MAX_*`、Android `NineKeySidebarPolicy.MAX_*` 相同。 */
+export const nineKeySidebarMaxSymbols = 30;
+export const nineKeySidebarMaxSymbolCodePoints = 4;
+export const nineKeySidebarMaxTextUtf16 = 200;
+
+/** 编辑页里可以点一下加入的常用符号，照 Android `NineKeySidebarPolicy.ADDABLE_SYMBOLS` 逐项抄，顺序固定。 */
+export const nineKeySidebarAddableSymbols: readonly string[] = [
+  "，",
+  "。",
+  "？",
+  "！",
+  "、",
+  "；",
+  "：",
+  "…",
+  "……",
+  "—",
+  "·",
+  "“",
+  "”",
+  "‘",
+  "’",
+  "（",
+  "）",
+  "（）",
+  "《",
+  "》",
+  "【",
+  "】",
+  "～",
+  "+",
+  "-",
+  "*",
+  "/",
+  "=",
+  "%",
+  "(",
+  ")",
+  "()",
+  ":",
+  "@",
+  "#",
+  "&",
+  "_",
+  "|",
+  "<",
+  ">",
+  "^",
+  "￥",
+  "★",
+  "☆",
+  "♡",
+  "♥",
+  "→",
+  "←",
+  "↑",
+  "↓",
+  ":-)",
+];
+
+/** 两张表的导航行标题和编辑页标题，三端逐字相同（Android `KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE` / `DIGIT_SIDEBAR_TITLE`）。 */
+export const nineKeySidebarTitle = "九键左侧符号";
+export const numberPadSidebarTitle = "数字键盘左侧符号";
+/** 编辑页顶部的一行说明，三端逐字相同。 */
+export const nineKeySidebarNote = "拼音九键、九键双拼和笔画共用，多于一屏时上下滑动。";
+export const numberPadSidebarNote = "所有九宫格数字键盘共用，#+= 固定在最后。";
+
+/** 鸿蒙的出厂表，写成键盘和编辑器里显示的样子：字母层 ，。？（键盘把 ASCII 的 , . ? 交给 Engine，按当前标点模式出字），数字层四则运算。编辑器「等于出厂表就写空数组」按它逐项比较。 */
+export const nineKeySidebarDefaults: Readonly<Record<NineKeySidebarKind, readonly string[]>> = {
+  letter: ["，", "。", "？"],
+  digit: ["+", "-", "*", "/"],
+};
+
+/** 两张表各存在哪个共享偏好里。 */
+export const nineKeySidebarPreference: Readonly<
+  Record<
+    NineKeySidebarKind,
+    "touch_nine_key_sidebar_symbols" | "touch_nine_key_digit_sidebar_symbols"
+  >
+> = {
+  letter: "touch_nine_key_sidebar_symbols",
+  digit: "touch_nine_key_digit_sidebar_symbols",
+};
+
+/** 设置页 9 键预览的左列一屏画几项，与鸿蒙键盘 `NineKeyLayout.LETTER_SIDEBAR_VISIBLE_ROWS` 相同。 */
+export const nineKeySidebarVisibleRows = 3;
+
+/** 偏好里存着的表，只留非空字符串（client-core 读写时已经规范化）；缺键、不是数组读成空表，即出厂表。与出厂表逐项、同顺序相同的非空表也读成空表（不描边、摘要照出厂表），与 Android `NineKeySidebarPolicy.custom` 相同。 */
+export function storedNineKeySidebar(preferences: Preferences, kind: NineKeySidebarKind): string[] {
+  const value: unknown = preferences[nineKeySidebarPreference[kind]];
+  if (!Array.isArray(value)) return [];
+  const symbols = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
+  return nineKeySidebarStoredValue(kind, symbols);
+}
+
+/** 字母层左列实际画的符号：用户的表，空表时是鸿蒙出厂表。 */
+export function nineKeySidebarSymbols(preferences: Preferences): readonly string[] {
+  const stored = storedNineKeySidebar(preferences, "letter");
+  return stored.length > 0 ? stored : nineKeySidebarDefaults.letter;
+}
+
+/** 九宫格数字键盘左列 #+= 上面实际画的符号：用户的表，空表时是鸿蒙出厂表。 */
+export function numberPadSidebarSymbols(preferences: Preferences): readonly string[] {
+  const stored = storedNineKeySidebar(preferences, "digit");
+  return stored.length > 0 ? stored : nineKeySidebarDefaults.digit;
+}
+
+/** 导航行右侧的摘要，照 Android `NineKeySidebarPolicy.summary(symbols, 4)`：不超过 4 项时用空格连起来，多于 4 项时前 4 项加「 等 N 个」。 */
+export function nineKeySidebarSummary(symbols: readonly string[]): string {
+  const limit = 4;
+  if (symbols.length <= limit) return symbols.join(" ");
+  return `${symbols.slice(0, limit).join(" ")} 等 ${symbols.length} 个`;
+}
+
+// 空白按 Unicode White_Space、控制字符按 Cc 认，与 Rust 的 `char::is_whitespace`、`char::is_control` 相同（JS 的 `\s` 多认一个 U+FEFF）。
+const sidebarForbidden = /[\p{White_Space}\p{Cc}]/u;
+
+/** 一项本身合不合规：非空，不含空白（含全角空格、NBSP）和控制字符，最多 `nineKeySidebarMaxSymbolCodePoints` 个码位（不是字素：`👍🏽` 两个码位可以，`👨‍👩‍👧` 五个码位不行）。 */
+export function validNineKeySidebarSymbol(symbol: string): boolean {
+  return (
+    symbol.length > 0 &&
+    !sidebarForbidden.test(symbol) &&
+    [...symbol].length <= nineKeySidebarMaxSymbolCodePoints
+  );
+}
+
+/** 整张表能不能确认，照 Android `NineKeySidebarPolicy.parse`：不空、不超过 30 项、每项合规、没有重复，用一个空格连起来不超过 200 个 UTF-16 单元。 */
+export function validNineKeySidebar(symbols: readonly string[]): boolean {
+  return (
+    symbols.length > 0 &&
+    symbols.length <= nineKeySidebarMaxSymbols &&
+    symbols.every(validNineKeySidebarSymbol) &&
+    new Set(symbols).size === symbols.length &&
+    symbols.join(" ").length <= nineKeySidebarMaxTextUtf16
+  );
+}
+
+/** 这一项还能不能接到表末尾：本身合规、不重复，加上以后整张表仍合规。重复项在加入时就挡掉。 */
+export function canAddNineKeySidebarSymbol(symbols: readonly string[], symbol: string): boolean {
+  return !symbols.includes(symbol) && validNineKeySidebar([...symbols, symbol]);
+}
+
+/** 确认时写进偏好的值：与这张表的出厂表逐项、同顺序相同时写空数组（「恢复默认」也是它），否则写用户的表。 */
+export function nineKeySidebarStoredValue(
+  kind: NineKeySidebarKind,
+  symbols: readonly string[],
+): string[] {
+  const defaults = nineKeySidebarDefaults[kind];
+  const same =
+    symbols.length === defaults.length &&
+    symbols.every((symbol, index) => symbol === defaults[index]);
+  return same ? [] : [...symbols];
+}
+
 /** 「符」与「123」互换打开时把底行里排在 123 后面的 符 挪到 123 左边，其余键不变，与键盘的 `TouchLayoutStylePolicy.symbolFirst` 相同；没有 符 的行原样返回。 */
 export function withSymbolFirst<T extends { code?: string }>(
   row: readonly T[],

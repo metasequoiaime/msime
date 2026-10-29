@@ -139,6 +139,15 @@ public final class TypingUploadApi {
         return generalMessage(failure);
     }
 
+    /**
+     * 打开上传并立刻上传一次之后的说法，对应共享设置页的 `uploadChangedMessage`。本机统计里还没有字数的日子时共享层什么都不发，上次上传的时间（`lastUploadMs`）仍然为 null，服务端也还不认识这台设备，这时不能说已经传上去了。App 只在回到前台和打开打字统计页时上传，所以说的是打字以后再打开 App。
+     */
+    public static String enabledMessage(Long lastUploadMs) {
+        return lastUploadMs == null
+            ? "已打开上传。本机还没有可上传的打字计数，用水杉键盘打字以后再打开 App 会自动上传。"
+            : "已打开上传，最近 7 天的每日计数已传到你的水杉账号。";
+    }
+
     /** 上传、删除失败时的说法，与共享设置页的 `uploadErrorMessage` 相同；`enabling` 是这次是在打开还是关闭。 */
     public static String uploadMessage(CloudApi.Failure failure, boolean enabling) {
         if (failure.signedOut()) return "先在「我的」页登录水杉账号，再打开上传。";

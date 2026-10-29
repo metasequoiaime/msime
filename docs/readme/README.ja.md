@@ -16,6 +16,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](../../LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](../../Cargo.toml)
@@ -101,6 +102,16 @@ Android の統合パッケージのビルドとデバイステストについて
 Linux のローカルビルド、隔離した D-Bus / IBus テスト、インストール後の初回設定については [Linux ホスト](../../platforms/linux/README.md)を参照してください。ホストは設定ファイルの自動再読み込みに対応しており、インストール後は同梱の `msime-linux-setup` が辞書を揃えて実行設定を準備します。`msime-linux-setup --download` は `resources/desktop-dictionary.lock.json` に従って不足している辞書を取得し、グラフィカルなエントリは `runtime-options.json` がない場合に同じ初回設定画面を開きます。
 
 機能の揃え込みは、MSIME-Windows の全機能を動作のベースラインとします：共通の業務ロジックは一項目ずつ共有層に組み込み、画面はプラットフォームごとの担当に従って共有 React ページかそのプラットフォームのネイティブ設定に組み込みます。Windows は TSF DLL と Server を別プロセスに分ける構造を踏襲しますが、両者間のプロトコルは本リポジトリの同一バージョンのビルド間でのみ使用し、MSIME-Windows の旧設定、共有メモリ、バージョンなしのハンドシェイク、旧音声パイプとの互換性はもう維持しません。Android、iOS、macOS、Linux、HarmonyOS はそれぞれのシステムの機能に合わせて適応します。`scripts/test-reference-*.py` はこのベースラインを再実行可能なゲートとして固定しています——参照実装の出荷時設定キー、4 つの画面の機械可読な機能一覧、changelog の各機能項目、そして `windows/`、`server/`、`ui/src` 配下のすべてのソースファイルは、本リポジトリの実装か、理由を明記した欠落記録のいずれかに対応していなければなりません。
+
+## 水杉のエンジンを自分の入力メソッドで使う
+
+水杉の入力エンジンは他の入力メソッドに組み込めます。単語ラティスによる文変換とニューラル再ランキング、入力ミスの補正、ユーザーの選択からの学習を備え、全拼、双拼、五筆、日本語、韓国語、粤拼、注音、ベトナム語、チベット語、筆画に対応します。そのまま使えるエンジンライブラリで、Rime のようなスキーマ駆動のフレームワークではありません。
+
+- **Rust**：`cargo add msime-engine`（[crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)）。入門は [crates/engine/README.md](../../crates/engine/README.md) の「快速上手」。
+- **C と C を呼べる言語**（fcitx5、ibus、Windows TSF などの C/C++ フロントエンド、Swift、Kotlin/JNI、Go、Python、C#）：Linux、macOS、Windows 向けのビルド済みライブラリとヘッダー `msime_engine.h`、`msime-engine.pc` を [GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) で配布しています。入門は [crates/engine-capi/README.md](../../crates/engine-capi/README.md)。
+- **辞書**：エンジン自体は辞書を含みません。同じリリースに全拼・双拼用の最小データパックがあります。
+
+エンジンのコードは MPL-2.0 で、クローズドソースや App Store のアプリにも組み込めます。辞書データはそれぞれのライセンスに従い、MPL ではありません。既定の中国語データには GPL-3.0 の rime-ice のデータと CC-BY-SA-4.0 の n-gram 頻度が含まれるため、用途に応じてデータを選んでください。
 
 ## 入力エンジン
 

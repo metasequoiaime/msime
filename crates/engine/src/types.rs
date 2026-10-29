@@ -575,7 +575,7 @@ pub struct SchemeSet(u16);
 impl SchemeSet {
     /// 序号最大的方案。加方案时改这里，`scheme_set_all_covers_every_scheme` 会在漏改时失败。
     const LAST: SchemeType = SchemeType::Stroke;
-    /// 全部方案：序号 0 到 [`Self::LAST`] 的每一位。
+    /// 全部方案：序号 0 到 `Self::LAST` 的每一位。
     pub const ALL: Self = Self((1 << (Self::LAST as u16 + 1)) - 1);
     pub const EMPTY: Self = Self(0);
 

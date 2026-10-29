@@ -58,6 +58,29 @@ if ! grep -qF 'const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(
   echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
   exit 1
 fi
+# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按打开设置。
+session_file="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
+if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
+  || ! grep -qF 'TouchLayoutStylePolicy.NINE_KEY_SIDEBAR_DEFAULTS' "$session_file" \
+  || ! grep -qF 'preferences.touch_nine_key_digit_sidebar_symbols,' "$session_file" \
+  || ! grep -qF 'TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS' "$session_file" \
+  || [[ $(grep -cF 'TouchLayoutStylePolicy.sidebarSymbols(' "$session_file") -ne 2 ]] \
+  || ! grep -qF 'this.fixedKey(this.customSidebarOptions(item.symbol, true));' "$keyboard_view" \
+  || ! grep -qF 'if (PairedPunctuationPolicy.literalPairClosing(text) !== null) {' "$session_file" \
+  || ! grep -qF 'this.nineKeySidebarSymbols = this.settings.nineKeySidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'this.nineKeyDigitSidebarSymbols = this.settings.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'if (this.symbols && NineKeyLayout.customSidebar(this.digitSidebarTable())) {' "$keyboard_view" \
+  || ! grep -qF '} else if (NineKeyLayout.customSidebar(this.letterSidebarTable())) {' "$keyboard_view" \
+  || [[ $(grep -cF 'NineKeyLayout.customSidebar(this.letterSidebarTable())' "$keyboard_view") -ne 2 ]] \
+  || ! grep -qF 'return this.english ? [] : this.nineKeySidebarSymbols;' "$keyboard_view" \
+  || ! grep -qF 'return this.english ? [] : this.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
+  || [[ $(grep -cF 'KeyboardSession.shared.insertSidebarSymbol(' "$keyboard_view") -ne 2 ]] \
+  || [[ $(grep -cF '(item: NineKeySidebarItem) => item.key)' "$keyboard_view") -ne 3 ]] \
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))' "$keyboard_view") -ne 6 ]] \
+  || ! grep -qF "KeyboardSession.shared.openSettings('screen-keyboard');" <<< "$(sed -n '/^  private openSidebarSettings(): void {$/,/^  }$/p' "$keyboard_view")"; then
+  echo "Harmony must draw the nine-key sidebars from touch_nine_key_sidebar_symbols and touch_nine_key_digit_sidebar_symbols" >&2
+  exit 1
+fi
 # 「中/英键放在空格左边」（#10228）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行在「符」与「123」互换之后再挪 中/英，九键外框（字母层、数字层、借来的数字九宫格）和右侧大回车量到宽度后的固定宽度都带上这一项，手写底行左边时把 中/英 画在 123 和 ， 之间、右边时照原样画在 。 后面；值从会话偏好读，设置页改了就随 applySettings 换。
 handwriting_row_body=$(sed -n '/^  handwritingActionRow() {$/,/^  }$/p' "$keyboard_view")
 left_language_line=$(grep -nF 'this.handwritingLeftLanguageKey()' <<< "$handwriting_row_body" | cut -d: -f1 || true)
@@ -508,6 +531,27 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
+  exit 1
+fi
+# 大屏单手的侧边数字键盘（#10203）：宽度、取值和显示条件由 keyboard-logic.test.ts 的 `OneHandedPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 sidePanel 读共享偏好，视图随设置重读、转屏时按按键这一行的宽度重算，handedKeys 只在 sidePadShown 时画面板，数字和小数点走字面上屏，设置桥按设备形态（含可折叠）报告能力位。
+side_pad_body=$(awk '/^  oneHandSidePad\(\) \{/,/^  \}$/' "$keyboard_view")
+side_pad_key_body=$(awk '/^  private sidePadDigitKey\(digit: string\): KeyOptions \{/,/^  \}$/' "$keyboard_view")
+if ! grep -qF 'oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.oneHandedSidePanel = this.settings.oneHandedSidePanel;' "$keyboard_view" \
+  || ! grep -qF 'widthVp - 2 * KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP, largeScreen);' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.sidePadShown(this.oneHandedSidePanel, this.oneHandActive(), this.oneHandSidePadVp,' "$keyboard_view" \
+  || [[ $(grep -cF 'if (this.oneHandSidePadShown() && ' "$keyboard_view") -ne 2 ]] \
+  || ! grep -qF ".id('oneHandSidePad')" <<< "$side_pad_body" \
+  || ! grep -qF "this.insertNumberPadLiteral('.');" <<< "$side_pad_body" \
+  || ! grep -qF 'this.deleteKey(' <<< "$side_pad_body" \
+  || ! grep -qF 'this.insertNumberPadLiteral(digit);' <<< "$side_pad_key_body" \
+  || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(digit));' <<< "$side_pad_key_body" \
+  || ! grep -qF "value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets" \
+  || ! grep -qF 'SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType, this.foldable());' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony must draw the one-handed side number pad from touch_one_handed_side_panel only when OneHandedPolicy.sidePadShown allows, type its digits literally, and report the capability by form factor" >&2
   exit 1
 fi
 # 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。

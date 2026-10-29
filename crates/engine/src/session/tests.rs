@@ -348,6 +348,31 @@ fn next_word_prediction_is_opt_in_and_has_no_composing_text() {
     assert!(on.snapshot().candidates.iter().any(|row| row.word == "菜"));
 }
 
+/// 联想按上屏的词查以它开头的长词，给的是后半截：上屏 巨 不联想出 巨乳 的 乳。
+#[test]
+fn next_word_prediction_skips_offensive_words() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_j VALUES('ju','j','巨',1000);
+CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_j VALUES('ju''ru','jr','巨乳',300);
+INSERT INTO tbl_2_j VALUES('ju''ren','jr','巨人',100);",
+    );
+    let mut session = fixture.session_with(|options| {
+        options.next_word_prediction = true;
+        options.learning = false;
+    });
+    type_text(&mut session, "ju");
+    assert_eq!(
+        select_word(&mut session, "巨").commit.as_deref(),
+        Some("巨")
+    );
+    let snapshot = session.snapshot();
+    assert!(snapshot.prediction);
+    assert!(snapshot.candidates.iter().any(|row| row.word == "人"));
+    assert!(snapshot.candidates.iter().all(|row| row.word != "乳"));
+}
+
 #[test]
 fn next_word_prediction_never_commits_on_space_return_delete_or_finish() {
     let fixture = prediction_fixture();

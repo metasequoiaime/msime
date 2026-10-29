@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.text.InputType;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,8 +22,13 @@ import com.google.android.material.chip.ChipGroup;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.json.JSONArray;
 
-/** 九键左侧符号栏的可视化编辑面板：符号逐项列出，顺序和删除动作不靠编辑一串文本完成。 */
+/**
+ * 一张左侧符号表的编辑页（「按键布局」里的「九键左侧符号」「数字键盘左侧符号」共用，参数不同）：当前表逐项列出，可删除、按住把手拖动排序；可从常用符号里点选加到末尾，也可手动输入一项；「恢复默认」回到本端出厂表。整张表不合规（空表、超过 30 项、合起来超过 200 个字符）时保存不可点。
+ *
+ * <p>保存只写这一张表的共享偏好（`touch_nine_key_sidebar_symbols` 或 `touch_nine_key_digit_sidebar_symbols`），按修订号读改写（{@link KeyboardSheets#save}）；与出厂表逐项相同时写空数组，否则写用户的表。保存失败时提示并留在编辑页，偏好不变。
+ */
 final class NineKeySidebarSheet {
     private final Fragment owner;
     private final String key;
@@ -30,12 +36,19 @@ final class NineKeySidebarSheet {
     private final SettingsSheet sheet;
     private final LinearLayout rows;
     private final GroupCard.Row resetRow;
+    private final GroupCard.Row addRow;
+    private final GroupCard.Row typeRow;
     private final GroupCard.Row saveRow;
     private final Runnable saved;
     private List<String> symbols;
     private boolean saving;
 
-    NineKeySidebarSheet(Fragment owner, String title, String key, List<String> current,
+    /**
+     * @param key 这张表的共享偏好名
+     * @param current 当前显示的表（共享偏好里是空表时传出厂表）
+     * @param defaults 本端出厂表，「恢复默认」和「等于出厂表写空数组」都按它比
+     */
+    NineKeySidebarSheet(Fragment owner, String title, String note, String key, List<String> current,
             List<String> defaults, Runnable saved) {
         this.owner = owner;
         this.key = key;
@@ -43,7 +56,7 @@ final class NineKeySidebarSheet {
         this.symbols = new ArrayList<>(current);
         this.saved = saved;
         Context context = owner.requireContext();
-        sheet = new SettingsSheet(context, title, "按住拖动把手调整顺序，删除或添加单个符号。保存后应用到键盘。");
+        sheet = new SettingsSheet(context, title, note);
         rows = LayoutPolicy.column(context);
         GroupCard orderCard = GroupCard.add(sheet.content(), "当前顺序");
         orderCard.card().addView(rows, LayoutPolicy.matchWidthWrapParams());
@@ -52,8 +65,10 @@ final class NineKeySidebarSheet {
             symbols = new ArrayList<>(this.defaults);
             render();
         });
-        actions.button("添加符号", "从常用符号中选择，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
+        addRow = actions.button("添加符号", "从常用符号中选择，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
             "添加", this::addSymbol);
+        typeRow = actions.button("输入符号", "一项最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符，如 …… 或 :-)",
+            "输入", this::typeSymbol);
         saveRow = actions.button("保存符号栏", null, "保存", this::save);
         actions.button("放弃本次调整", null, "取消", sheet::dismiss);
         render();
@@ -65,15 +80,23 @@ final class NineKeySidebarSheet {
         rows.removeAllViews();
         Context context = owner.requireContext();
         if (symbols.isEmpty()) {
-            TextView empty = ViewPolicy.styledLabel(context, "当前没有符号，保存后恢复默认符号。",
+            TextView empty = ViewPolicy.styledLabel(context, "当前没有符号。至少加入一个，或点「恢复默认」。",
                 Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
             ViewPolicy.setPaddingDp(context, empty, 16, 12, 16, 12);
             rows.addView(empty, LayoutPolicy.matchWidthWrapParams());
         } else {
             for (int index = 0; index < symbols.size(); index++) addRow(index);
         }
+        boolean valid = NineKeySidebarPolicy.valid(symbols);
+        boolean room = symbols.size() < NineKeySidebarPolicy.MAX_SYMBOLS;
         resetRow.setEnabled(!saving);
-        saveRow.setEnabled(!saving);
+        addRow.setEnabled(!saving && room);
+        typeRow.setEnabled(!saving && room);
+        // 整表校验与 NineKeySidebarPolicy.parse 同一套规则；不合规时保存不可点，并说明缺了什么。
+        saveRow.setEnabled(!saving && valid);
+        saveRow.setSubtitle(valid ? null : symbols.isEmpty() ? "至少保留一个符号"
+            : "最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个，合起来不超过 "
+                + NineKeySidebarPolicy.MAX_TEXT_LENGTH + " 个字符");
     }
 
     private void addRow(int index) {
@@ -174,6 +197,7 @@ final class NineKeySidebarSheet {
         grid.setChipSpacingVertical(DimensionPolicy.pixels(context, 8));
         ViewPolicy.setPaddingDp(context, grid, 16, 8, 16, 8);
         for (String symbol : NineKeySidebarPolicy.addableSymbols(symbols)) {
+            if (NineKeySidebarPolicy.addable(symbols, symbol) == null) continue;
             Chip chip = new Chip(context);
             chip.setText(symbol);
             chip.setTextSize(Ui.TEXT_ROW_TITLE);
@@ -182,8 +206,7 @@ final class NineKeySidebarSheet {
             chip.setContentDescription("添加 " + symbol);
             ViewPolicy.bindClick(chip, () -> {
                 choices.dismiss();
-                if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS
-                        || symbols.contains(symbol)) return;
+                if (saving || NineKeySidebarPolicy.addable(symbols, symbol) == null) return;
                 symbols.add(symbol);
                 render();
             });
@@ -196,12 +219,29 @@ final class NineKeySidebarSheet {
         choices.show();
     }
 
+    /** 手动输入一项：去掉首尾空白后必须是一个合规的符号、表里还没有，接上后整张表仍合规，否则确认键不可点。 */
+    private void typeSymbol() {
+        if (saving || symbols.size() >= NineKeySidebarPolicy.MAX_SYMBOLS) return;
+        InputDialog dialog = new InputDialog(owner.requireContext(), "输入符号",
+            "一项最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符，不含空格，不能与已有的重复");
+        dialog.addField("符号", "", InputType.TYPE_CLASS_TEXT).setContentDescription("要加入符号栏的符号");
+        dialog.setValidator(values -> NineKeySidebarPolicy.addable(symbols, values.get(0)) != null);
+        dialog.setPrimary("加入", values -> {
+            String symbol = NineKeySidebarPolicy.addable(symbols, values.get(0));
+            if (saving || symbol == null) return;
+            symbols.add(symbol);
+            render();
+        });
+        dialog.show();
+    }
+
     private void save() {
-        if (saving) return;
+        if (saving || !NineKeySidebarPolicy.valid(symbols)) return;
         saving = true;
         render();
-        String value = symbols.isEmpty() ? null : NineKeySidebarPolicy.format(symbols);
-        KeyboardSheets.saveLocal(owner, key, value,
+        // 与出厂表相同时写空数组，键盘和别的设备都按自己的出厂表画；只改这一个字段。
+        List<String> stored = NineKeySidebarPolicy.toPreference(symbols, defaults);
+        KeyboardSheets.save(owner, edited -> edited.put(key, new JSONArray(stored)),
             () -> {
                 sheet.dismiss();
                 saved.run();

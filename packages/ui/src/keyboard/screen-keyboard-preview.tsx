@@ -69,6 +69,9 @@ const thumbnailWidth = 390;
 const thumbnailHeight = 292;
 const thumbnailToolbarHeight = 50;
 const thumbnailInset = 3;
+const thumbnailKeyHeight = 43;
+const thumbnailRowGap = 11;
+const thumbnailDesignRows = 4;
 /** 手机预览里一排键在默认键盘高度下的高度，单位约等于 vp。 */
 const phoneKeyHeight = 44;
 // 键盘工具栏上水杉标志之后的图标，以绘制它们的 24 单位方框为坐标：表情、常用语、剪贴板、皮肤和键盘，最后是收起箭头。
@@ -153,7 +156,7 @@ export function ScreenKeyboardPreview({
   heightAdjustment?: number;
   /** 省略时取 `ScreenKeyboardLayoutContext`，即宿主自己的键盘。 */
   layout?: "desktop" | "touch";
-  /** 触屏键盘画哪几排键。省略时是通用的 26 键；HarmonyOS 的「尺寸」预览按当前的中文键盘传入（`harmonyTouchKeyboardRows`），切到 9 键或 14 键时预览跟着变。 */
+  /** 触屏键盘画哪几排键。省略时是通用的 26 键；HarmonyOS 手机的预览按当前的中文键盘和按键布局偏好传入（`harmonyTouchRowsForPreferences`），切到 9 键或 14 键、换底行样式或打开数字行时预览跟着变。`rowSpan` 为 2 的键往下画到下一行（九键「右侧大回车」）。 */
   touchRows?: PreviewKey[][];
   /** 按手机键盘的比例和外观画，几何跟随设置，见上。 */
   phone?: boolean;
@@ -191,8 +194,18 @@ export function ScreenKeyboardPreview({
   const inset = phoneLook ? thumbnailInset : 7;
   const rowsTop = phoneLook ? thumbnailToolbarHeight + 8 : 28;
   // 默认插图保持逐字节等价，非默认的几何则明显跟随 iOS 键盘设置里的滑块。缩略图保留设计的固定几何，因为它展示的是皮肤而不是用户的键距。手机预览的画布约等于手机的 vp 宽度，键距和行距直接按 dp 画。
+  // 缩略图的画布高度固定：多出数字行（或日语 9 键的五行）时，键高和行距按比例缩小，仍画在设计里四行键占的那一段高度内，卡片大小不变。
+  const thumbnailScale = Math.min(
+    1,
+    (thumbnailDesignRows * thumbnailKeyHeight + (thumbnailDesignRows - 1) * thumbnailRowGap) /
+      (layoutRows.length * thumbnailKeyHeight + (layoutRows.length - 1) * thumbnailRowGap),
+  );
   const keyGap = thumbnail ? 6 : phone ? keySpacing : 4 + keySpacing - 6;
-  const rowGap = thumbnail ? 11 : phone ? rowSpacing : 4 + rowSpacing - 7;
+  const rowGap = thumbnail
+    ? thumbnailRowGap * thumbnailScale
+    : phone
+      ? rowSpacing
+      : 4 + rowSpacing - 7;
   // 手机预览：每排键 44 高，「键盘高度」的增减摊到各排，底下留 8。
   const phoneHeight =
     rowsTop + layoutRows.length * phoneKeyHeight + rowGap * (layoutRows.length - 1) + 8;
@@ -202,7 +215,7 @@ export function ScreenKeyboardPreview({
       ? phoneHeight + clamp(heightAdjustment, -12, 48)
       : 400 + clamp(heightAdjustment, -12, 48);
   const height = thumbnail
-    ? 43
+    ? thumbnailKeyHeight * thumbnailScale
     : phone
       ? (canvasHeight - rowsTop - 8 - rowGap * (layoutRows.length - 1)) / layoutRows.length
       : (canvasHeight - 28 - 7 - rowGap * (layoutRows.length - 1)) / layoutRows.length;
@@ -328,7 +341,7 @@ export function ScreenKeyboardPreview({
         const available = canvasWidth - inset * 2 - keyGap * (row.length - 1);
         const total = row.reduce((sum, item) => sum + item.weight, 0);
         let x = inset;
-        const y = rowsTop + rowIndex * (height + rowGap);
+        const rowY = rowsTop + rowIndex * (height + rowGap);
         return (
           <g data-keyboard-row={rowIndex} key={rowIndex}>
             {row.map((item, index) => {
@@ -338,77 +351,87 @@ export function ScreenKeyboardPreview({
               // An unlabelled entry is the half-key inset that centres the home row, not a key the
               // user can press: it takes up its width and draws nothing.
               if (!item.label) return null;
-              const action = actionKeyboardLabels.has(item.label);
-              const path = keyboardKeyPath(
-                left,
-                y,
-                width,
-                height - (keyMaterial === "raised" ? 3 : 0),
-                keyShape,
-                cornerRadius,
-              );
-              const depthPath = keyboardKeyPath(
-                left,
-                y + 3,
-                width,
-                height - 3,
-                keyShape,
-                cornerRadius,
-              );
-              const fill =
-                keyMaterial === "glass" || keyMaterial === "raised"
-                  ? `url(#${action ? actionMaterialId : keyMaterialId})`
-                  : action
-                    ? palette.action
-                    : palette.key;
-              return (
-                <g
-                  data-keyboard-key={item.label}
-                  key={index}
-                  filter={shadowOpacity > 0 ? `url(#${shadowId})` : undefined}
-                >
-                  {keyMaterial === "raised" && (
-                    <path
-                      d={depthPath}
-                      fill={action ? palette.action : palette.key}
-                      opacity=".72"
-                    />
-                  )}
-                  <path
-                    d={path}
-                    fill={fill}
-                    fillOpacity={action ? 1 : keyOpacity}
-                    stroke={
-                      borderWidth
-                        ? custom?.customBorderColor === undefined
-                          ? palette.accent
-                          : skinColor(custom.customBorderColor)
-                        : "none"
-                    }
-                    strokeOpacity={custom ? 1 : 0.28}
-                    strokeWidth={borderWidth}
-                  />
-                  {keyMaterial === "paper" && (
-                    <path
-                      d={`${path}M${left + 3} ${y + 10}H${left + width - 3}M${left + 3} ${y + 18}H${left + width - 3}M${left + 3} ${y + 26}H${left + width - 3}`}
-                      fill="none"
-                      stroke="#000"
-                      strokeOpacity=".08"
-                      strokeWidth=".5"
-                    />
-                  )}
-                  <text
-                    x={left + width / 2}
-                    y={y + height / 2}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fontSize={item.label.length === 1 ? (phoneLook ? 22 : 15) : phoneLook ? 15 : 12}
-                    fill={action ? palette.actionForeground : palette.foreground}
+              // 跨两行的键（右侧大回车）高两行加一道行距，下一行在它下面留的是占位。
+              const span = item.rowSpan ?? 1;
+              const spanHeight = height * span + rowGap * (span - 1);
+              // 九键左列换成用户的符号表时是一整格栈：整格的高度等分给栈里的每一项，各画成一个键，与键盘的符号栏相同。
+              const stack = item.stack ?? [item.label];
+              const keyHeight = (spanHeight - rowGap * (stack.length - 1)) / stack.length;
+              return stack.map((label, at) => {
+                const y = rowY + at * (keyHeight + rowGap);
+                const action = actionKeyboardLabels.has(label);
+                const path = keyboardKeyPath(
+                  left,
+                  y,
+                  width,
+                  keyHeight - (keyMaterial === "raised" ? 3 : 0),
+                  keyShape,
+                  cornerRadius,
+                );
+                const depthPath = keyboardKeyPath(
+                  left,
+                  y + 3,
+                  width,
+                  keyHeight - 3,
+                  keyShape,
+                  cornerRadius,
+                );
+                const fill =
+                  keyMaterial === "glass" || keyMaterial === "raised"
+                    ? `url(#${action ? actionMaterialId : keyMaterialId})`
+                    : action
+                      ? palette.action
+                      : palette.key;
+                return (
+                  <g
+                    data-keyboard-key={label}
+                    data-row-span={span > 1 && item.stack === undefined ? span : undefined}
+                    key={item.stack === undefined ? index : `${index}-${at}`}
+                    filter={shadowOpacity > 0 ? `url(#${shadowId})` : undefined}
                   >
-                    {item.label}
-                  </text>
-                </g>
-              );
+                    {keyMaterial === "raised" && (
+                      <path
+                        d={depthPath}
+                        fill={action ? palette.action : palette.key}
+                        opacity=".72"
+                      />
+                    )}
+                    <path
+                      d={path}
+                      fill={fill}
+                      fillOpacity={action ? 1 : keyOpacity}
+                      stroke={
+                        borderWidth
+                          ? custom?.customBorderColor === undefined
+                            ? palette.accent
+                            : skinColor(custom.customBorderColor)
+                          : "none"
+                      }
+                      strokeOpacity={custom ? 1 : 0.28}
+                      strokeWidth={borderWidth}
+                    />
+                    {keyMaterial === "paper" && (
+                      <path
+                        d={`${path}M${left + 3} ${y + 10}H${left + width - 3}M${left + 3} ${y + 18}H${left + width - 3}M${left + 3} ${y + 26}H${left + width - 3}`}
+                        fill="none"
+                        stroke="#000"
+                        strokeOpacity=".08"
+                        strokeWidth=".5"
+                      />
+                    )}
+                    <text
+                      x={left + width / 2}
+                      y={y + keyHeight / 2}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={label.length === 1 ? (phoneLook ? 22 : 15) : phoneLook ? 15 : 12}
+                      fill={action ? palette.actionForeground : palette.foreground}
+                    >
+                      {label}
+                    </text>
+                  </g>
+                );
+              });
             })}
           </g>
         );

@@ -18,8 +18,8 @@ pub const SUPPLEMENT: &str = "sources/zhuyin/mcbopomofo-supplement.txt";
 pub const OCCURRENCES: &str = "sources/zhuyin/phrase.occ";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "libchewing-data";
-/// The SPDX identifier recorded as the database's `license`, as the CSV headers declare it.
-pub const LICENSE: &str = "LGPL-2.1-or-later";
+/// 记入数据库 `license` 的 SPDX 表达式，每个进入库里的来源各一项：`tsi.csv` 与 `word.csv` 的词条按文件头声明是 LGPL-2.1-or-later；McBopomofo 补充表的词条源自 libtabe 的 `tsi.src`（BSD-3-Clause），McBopomofo 的改动和用来补权重的 `phrase.occ` 是 MIT。随库分发的 `LICENSE_NAME` 带着这三项的声明。
+pub const LICENSE: &str = "LGPL-2.1-or-later AND BSD-3-Clause AND MIT";
 pub const DATABASE: &str = "msime-zhuyin.db";
 /// The licence text in `resources/licenses/` and the name it ships under beside the database.
 pub const LICENSE_SOURCE: &str = "libchewing-data-LGPL-2.1.txt";
@@ -541,6 +541,29 @@ mod tests {
         (dir, path)
     }
 
+    /// 补充表的词条源自 libtabe 的 `tsi.src`（BSD-3-Clause，二进制分发要附上版权、条款和免责声明），McBopomofo 的改动和 `phrase.occ` 的权重是 MIT，所以 `license` 三项都要写，随库分发的许可证文本也要带着两份声明的原文。
+    #[test]
+    fn the_licence_names_every_source_the_entries_and_weights_come_from() {
+        assert_eq!(LICENSE, "LGPL-2.1-or-later AND BSD-3-Clause AND MIT");
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/licenses")
+                .join(LICENSE_SOURCE),
+        )
+        .unwrap();
+        for phrase in [
+            "GNU LESSER GENERAL PUBLIC LICENSE",
+            "Copyrighy (c) 1999 TaBE Project.",
+            "Copyright (c) 1999 Computer Systems and Communication Lab,",
+            "Redistributions in binary form must reproduce the above copyright",
+            "Copyright 1996 Chih-Hao Tsai @ Beckman Institute, University of Illinois",
+            "Copyright (c) 2011-2026 Mengjuei Hsieh et al.",
+            "Permission is hereby granted, free of charge",
+        ] {
+            assert!(text.contains(phrase), "{LICENSE_SOURCE} lacks {phrase:?}");
+        }
+    }
+
     #[test]
     fn the_engine_reads_what_is_written_and_the_bytes_repeat() {
         let dictionary = sample();
@@ -567,7 +590,7 @@ mod tests {
                 .metadata(language_dictionary::METADATA_LICENSE)
                 .unwrap()
                 .as_deref(),
-            Some(LICENSE)
+            Some("LGPL-2.1-or-later AND BSD-3-Clause AND MIT")
         );
         let first = std::fs::read(&path).unwrap();
         write(

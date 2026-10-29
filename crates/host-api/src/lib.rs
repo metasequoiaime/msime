@@ -303,6 +303,8 @@ struct HostSession {
     statistics_private: bool,
     /// 只用来看候选的会话（`ffi::session::SessionUse::Preview`）：在任何平台上都不记选词位置和上屏效率。
     preview: bool,
+    /// 宿主在会话选项里写了 `selection_statistics: false`：选词由另一个会话记，这个会话不记选词位置和上屏效率。
+    statistics_recorded_elsewhere: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
@@ -312,7 +314,7 @@ struct HostSession {
     pending_selections: [u64; RANKS + 1],
     /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
     pending_efficiency: Vec<EfficiencyCandidate>,
-    /// 打字统计的开关，第一次要计效率时从统计文件读一次，每次写入后作废重读；`None` 是还没读。统计关闭时效率一项都不查。
+    /// 本进程所知的打字统计开关（`TypingStatisticsStore::known_enabled`），每次交出选词时更新；`None` 是本进程还没读过统计文件，下次要计效率时再问。统计关闭时效率一项都不查。
     statistics_enabled: Option<bool>,
     /// Where this session's plugin packs, command tables and name list are read from.
     plugin_roots: key_sound::PluginRoots,
@@ -662,9 +664,11 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）在任何平台上都不计。
+    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）和宿主声明由别的会话记统计的会话（`statistics_recorded_elsewhere`）在任何平台上都不计。
     fn private_session(&self) -> bool {
-        self.preview || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
+        self.preview
+            || self.statistics_recorded_elsewhere
+            || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
@@ -714,18 +718,22 @@ impl HostSession {
         })
     }
 
-    /// 统计开关；读不到统计目录或文件时当作关闭。
+    /// 打字统计目录，即 HostOptions 的 `preferences_directory`（`state_root`）：各宿主记字数和按键、统计页和上传读的都是这里的 `typing-statistics.json`，选词位置和上屏效率要写进同一份。`user_data` 是 Engine 的个人词库目录，没有宿主在那里读写统计。不是绝对路径时为 `None`，这时什么都不记。
+    fn statistics_directory(&self) -> Option<&Path> {
+        self.state_root.as_deref()
+    }
+
+    /// 统计开关，只看本进程所知的（上次读写统计文件时看到的），不在输入线程上读文件：这里在每次选词的路上，读一次就要取文件锁、先把本进程攒着的整批写出去再 fsync。本进程还没读过统计文件时当作打开，效率照攒，写入时统计文件自己的开关作数，关着就整批丢掉。没有统计目录时当作关闭。
     fn statistics_enabled(&mut self) -> Option<bool> {
         if let Some(enabled) = self.statistics_enabled {
             return Some(enabled);
         }
-        let directory = std::path::Path::new(&self.options.user_data);
-        let enabled = directory.is_absolute()
-            && TypingStatisticsStore::new(directory)
-                .load()
-                .is_ok_and(|statistics| statistics.enabled);
-        self.statistics_enabled = Some(enabled);
-        Some(enabled)
+        let enabled = match self.statistics_directory() {
+            Some(directory) => TypingStatisticsStore::new(directory).known_enabled(),
+            None => Some(false),
+        };
+        self.statistics_enabled = enabled;
+        Some(enabled.unwrap_or(true))
     }
 
     /// 记下一次上屏，等下一次写统计时一起算。上限 [`EFFICIENCY_BATCH_LIMIT`]，超出的不计。
@@ -735,15 +743,14 @@ impl HostSession {
         }
     }
 
-    /// Write the selections counted since the last flush, in the store the host already keeps.
+    /// Hand the selections counted since the last flush to the process's pending typing-statistics batch for the statistics directory.
     ///
-    /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
+    /// 只加内存里的计数，不取统计文件锁、不碰磁盘（`TypingStatisticsStore::queue_selections`）：这里在宿主的输入线程上跑（满一批、失焦和销毁会话时），macOS 的 IMK 主线程、Linux 的 GLib 主循环和移动宿主的 UI 线程都不能整份读写统计文件再 fsync，也不能等统计工作线程手里那次写。攒着的选词和宿主经 `record` 攒的上屏一起写出：失焦和销毁随后的 `flush_typing_statistics`（Windows 失焦和桌面销毁在当前线程上，其余在后台线程上）、满间隔的 `record`，以及读统计的任何操作。尽力而为：统计不能成为按键失败的原因，store 拒收的批次丢掉，不报出去。统计开关由 store 在写出时自己看，这里不另查，免得两处不一致。
     fn flush_selections(&mut self) {
         let pending = std::mem::take(&mut self.pending_selections);
-        let directory = std::path::Path::new(&self.options.user_data);
-        if !directory.is_absolute() {
+        let Some(directory) = self.statistics_directory().map(Path::to_path_buf) else {
             return;
-        }
+        };
         let mut batch = Vec::with_capacity(RANKS);
         batch.extend(
             pending
@@ -752,18 +759,20 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let store = TypingStatisticsStore::new(directory);
-        let enabled = store.record_selections(&batch).ok().flatten();
+        let enabled = TypingStatisticsStore::new(&directory)
+            .queue_selections(&batch)
+            .ok()
+            .flatten();
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
             if cfg!(test) {
-                record_efficiency(&self.options, &commits);
+                record_efficiency(&self.options, &directory, &commits);
             } else {
-                record_efficiency_in_background(self.options.clone(), commits);
+                record_efficiency_in_background(self.options.clone(), directory, commits);
             }
         }
-        // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
+        // 用户可能在设置里关掉或打开了统计：换成本进程此刻所知的开关，它随每次写统计更新。不在输入线程上为一个开关读文件。
         self.statistics_enabled = enabled;
     }
 
@@ -2064,6 +2073,9 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
+    /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection_statistics: Option<bool>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2836,6 +2848,7 @@ fn prepare_shipped_host_configuration(
                 .to_owned(),
         ),
         phrase_preedit: None,
+        selection_statistics: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,
@@ -3625,7 +3638,8 @@ const EFFICIENCY_BATCH_LIMIT: usize = 256;
 
 /// 等后台写进统计的上屏批次，和是否已有一个线程在写。
 struct EfficiencyQueue {
-    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    /// 每一批：查读音用的 Engine 选项、写入的统计目录和这批上屏。
+    pending: Vec<(EngineOptions, PathBuf, Vec<EfficiencyCandidate>)>,
     running: bool,
 }
 
@@ -3641,10 +3655,14 @@ fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
 }
 
 /// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
-fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+fn record_efficiency_in_background(
+    options: EngineOptions,
+    directory: PathBuf,
+    commits: Vec<EfficiencyCandidate>,
+) {
     {
         let mut queue = efficiency_queue();
-        queue.pending.push((options, commits));
+        queue.pending.push((options, directory, commits));
         if queue.running {
             return;
         }
@@ -3670,8 +3688,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
                 }
                 std::mem::take(&mut queue.pending)
             };
-            for (options, commits) in batches {
-                record_efficiency(&options, &commits);
+            for (options, directory, commits) in batches {
+                record_efficiency(&options, &directory, &commits);
             }
         }
     };
@@ -3685,12 +3703,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
     }
 }
 
-/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
-fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
-    let directory = std::path::Path::new(&options.user_data);
-    if !directory.is_absolute() {
-        return;
-    }
+/// 把一批上屏算成效率计数写进统计目录 `directory`（[`HostSession::statistics_directory`]）：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, directory: &Path, commits: &[EfficiencyCandidate]) {
     let mut efficiency = CommitEfficiency::default();
     for commit in commits {
         let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);
@@ -3730,9 +3744,9 @@ struct EfficiencyCandidate {
     prediction: bool,
 }
 
-/// How many committing selections a session holds in memory before writing them to typing statistics.
+/// How many committing selections a session holds in memory before handing them to the process's pending typing-statistics batch.
 ///
-/// Writing one means locking, reading and parsing the whole document, then an fsync (F_FULLFSYNC on Apple platforms) and a rename, all on the host's input thread, which cost a few milliseconds per tapped or clicked candidate. A session also writes what it holds on focus-out and on destroy, so this only bounds what a process killed mid-field loses - the iOS keyboard extension and the Android IME process can be killed without either. 32 selections is some tens of seconds of typing, a small loss for a statistic that only ever reports a rate, and it turns 32 writes into one.
+/// 交出去只是加内存里的计数（`flush_selections`），写文件跟着宿主经 `record` 攒的上屏走：满间隔的 `record`、失焦和销毁、读统计的操作。会话在失焦和销毁时也会交出手里的选词，所以这个数只限定输入框用着时有多少选词赶不上定期的写，也就是进程在输入框里被杀时丢多少：iOS 键盘扩展和 Android 输入法进程可能既不失焦也不销毁就被杀掉。32 次选词是几十秒的输入，对一个只报比例的统计丢得起，也免得每次选词都去取进程级的那把锁。
 const SELECTION_BATCH: u64 = 32;
 
 #[cfg(test)]

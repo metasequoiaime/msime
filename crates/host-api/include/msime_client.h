@@ -233,6 +233,7 @@ char *msime_client_cloud_dictionary(const uint8_t *request, size_t length);
  * field ahead of editing_text - it is separate because caret_position is an
  * offset into editing_text in the host's own string unit. Omitted means each
  * piece is committed as it is picked, as before.
+ * Optional selection_statistics=false stops this session from recording candidate positions and commit efficiency in <preferences_directory>/typing-statistics.json. It is for a mirror session that repeats selections another session already made: the Windows TIP's in-process session follows the Server's choice, and only the Server's session records it. Omitted means the session records them.
  * The host must prepare and validate its dictionary generation before creation.
  * Creation acquires cooperative shared access to user_data and dictionaries until
  * destroy. It fails immediately while a participating maintenance writer holds
@@ -395,7 +396,8 @@ char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
-/* Android 本机旧布局迁移：{directory:绝对路径,revision:u64,long_space:bool,number_row:bool}。
+/* Android 本机旧布局迁移：{directory:绝对路径,revision:u64,long_space:bool,number_row:bool,nine_key_symbols?:[string],nine_key_digit_symbols?:[string]}。
+ * 两张九键左侧符号表是本机旧键里不等于出厂表的自定义表，缺省或空表表示不迁；共享偏好里这一项缺键或是空数组时才写入。
  * 在偏好锁内按原始字段决定迁移并校验修订号；未知样式原样保留。返回 PreferencesSnapshot。
  * 请求最多 64 KiB，工作线程调用，结果用 msime_client_string_free 释放。 */
 char *msime_client_migrate_android_key_layout(const uint8_t *request, size_t length);

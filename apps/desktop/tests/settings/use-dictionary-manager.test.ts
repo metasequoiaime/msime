@@ -791,3 +791,160 @@ test("桌面分页导出保留保存取消提示", async () => {
   expect(result.current.phraseNotice).toBe("已取消导出。");
   expect(result.current.phraseError).toBe("");
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+test.each(["success", "failure"])("清除学习成功后丢弃期间发起的旧读取（%s）", async (outcome) => {
+  vi.useFakeTimers();
+  const old = { kind: "quick_phrase" as const, key: "old", value: "合成旧词", weight: 1 };
+  const next = { ...old, key: "new", value: "合成新词" };
+  const stale = {
+    entries: [old],
+    has_more: true,
+    pending_count: 2,
+    failed_requests: [
+      { request_id: "synthetic-request", label: "合成任务", error: "synthetic-error" },
+    ],
+    snapshot_error: "synthetic-snapshot",
+  };
+  const pendingRead = deferred<typeof stale>();
+  const pendingReset = deferred<void>();
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce(stale)
+    .mockReturnValueOnce(pendingRead.promise)
+    .mockResolvedValue({ entries: [next], has_more: false });
+  const resetLearnedData = vi.fn(() => pendingReset.promise);
+  const client: DictionaryManagerClient = { dictionary: { list, edit: vi.fn() }, resetLearnedData };
+  const { result, unmount } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(280));
+    expect(result.current.phrases).toEqual([old]);
+    let clearing!: Promise<void>;
+    await act(async () => {
+      clearing = result.current.resetLearnedData();
+    });
+    expect(resetLearnedData).toHaveBeenCalledOnce();
+    await act(async () => {
+      window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    });
+    expect(list).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      pendingReset.resolve();
+      await clearing;
+    });
+    expect(result.current.phrases).toEqual([]);
+    expect(result.current.phrasePage.status).toBe("已清除学习数据");
+    await act(async () => {
+      if (outcome === "success") pendingRead.resolve(stale);
+      else pendingRead.reject(new Error("synthetic stale read failure"));
+    });
+    expect(result.current.phrases).toEqual([]);
+    expect(result.current.phrasePage).toEqual({
+      offset: 0,
+      hasMore: false,
+      status: "已清除学习数据",
+    });
+    expect(result.current.dictionaryPendingCount).toBe(0);
+    expect(result.current.dictionaryFailures).toEqual([]);
+    expect(result.current.dictionarySnapshotError).toBe("");
+    expect(result.current.phraseError).toBe("");
+    expect(result.current.learnedDataNotice).toContain("已清除所有学习数据");
+    expect(result.current.phraseBusy).toBe(false);
+    await act(async () => {
+      window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    });
+    expect(result.current.phrases).toEqual([next]);
+    expect(result.current.phraseBusy).toBe(false);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});
+
+test("清除学习失败时仍接收期间发起的当前查询", async () => {
+  vi.useFakeTimers();
+  const old = { kind: "quick_phrase" as const, key: "old", value: "合成保留词", weight: 1 };
+  const pendingRead = deferred<{ entries: (typeof old)[]; has_more: boolean }>();
+  const pendingReset = deferred<void>();
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockReturnValueOnce(pendingRead.promise);
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn() },
+    resetLearnedData: () => pendingReset.promise,
+  };
+  const { result, unmount } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(280));
+    let clearing!: Promise<void>;
+    await act(async () => {
+      clearing = result.current.resetLearnedData();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    });
+    await act(async () => {
+      pendingReset.reject(new Error("synthetic reset failure"));
+      await clearing;
+    });
+    await act(async () => pendingRead.resolve({ entries: [old], has_more: false }));
+    expect(result.current.phrases).toEqual([old]);
+    expect(result.current.learnedDataError).toContain("清除学习数据失败");
+    expect(result.current.learnedDataNotice).toBe("");
+    expect(result.current.phraseBusy).toBe(false);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});
+
+test("清除学习成功清理期间已经发布的查询错误", async () => {
+  vi.useFakeTimers();
+  const pendingReset = deferred<void>();
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockRejectedValueOnce(new Error("synthetic read failure"));
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn() },
+    resetLearnedData: () => pendingReset.promise,
+  };
+  const { result, unmount } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+  try {
+    await act(async () => vi.advanceTimersByTimeAsync(280));
+    let clearing!: Promise<void>;
+    await act(async () => {
+      clearing = result.current.resetLearnedData();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event(HOST_USER_WORDS_CHANGED_EVENT));
+    });
+    expect(result.current.phraseError).toBe("无法读取词库。");
+    await act(async () => {
+      pendingReset.resolve();
+      await clearing;
+    });
+    expect(result.current.phraseError).toBe("");
+    expect(result.current.phrasePage.status).toBe("已清除学习数据");
+    expect(result.current.learnedDataNotice).toContain("已清除所有学习数据");
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});

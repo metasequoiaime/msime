@@ -281,18 +281,18 @@ final class ImeLayoutRows {
     private java.util.List<String> builtSidebarSymbols;
     private boolean builtSidebarDigits;
     private boolean builtSidebarCapped;
-    /** 符号栏是按右侧大回车外框建的：字母键面的默认表末尾多一个 ！（{@link NineKeySidebarPolicy#letterSymbols(String, boolean)}）。 */
+    /** 符号栏是按右侧大回车外框建的：字母键面的出厂表末尾多一个 ！（{@link NineKeySidebarPolicy#letterSymbols(java.util.List, boolean)}）。 */
     private boolean builtSidebarTallReturn;
 
-    /** 本地设置里的左侧符号（不合规时是默认的那张表）：字母键面一张，拼音九键的数字键面另一张。 */
+    /** 共享偏好里的左侧符号（空表时是出厂的那张表）：字母键面一张，九宫格数字键盘另一张（`touch_nine_key_sidebar_symbols`、`touch_nine_key_digit_sidebar_symbols`，键盘每次读偏好时更新）。 */
     java.util.List<String> sidebarSymbols(boolean digits) {
         return sidebarSymbols(digits, false);
     }
 
-    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的默认表末尾多一个 ！，自定义的表原样使用。 */
+    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。 */
     java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {
-        return NineKeySidebarPolicy.sidebarSymbols(digits, s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
-            s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS), tallReturn);
+        return NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,
+            tallReturn);
     }
 
     /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行。 */
@@ -324,7 +324,7 @@ final class ImeLayoutRows {
             boolean zeroShortcut) {
         java.util.List<String> symbols = sidebarSymbols(digits, tallReturn);
         int zeroIndex = zeroShortcut ? NineKeySidebarPolicy.appendedExclamationIndex(digits,
-            s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS), tallReturn) : -1;
+            s.nineKeySidebarSymbols, tallReturn) : -1;
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
         rail.setContentDescription("符号栏，可上下滑动");
         for (int index = 0; index < symbols.size(); index++) {
@@ -341,12 +341,13 @@ final class ImeLayoutRows {
                 // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
                 key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
                     () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                // 长按打开「按键布局」并直接进入这一张表的编辑页（#10223），参数是这张表的共享偏好名。
                 key.setOnLongClickListener(ignored -> {
                     Bundle args = new Bundle();
-                    args.putString("edit_sidebar_key", digits
-                        ? AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS
-                        : AndroidLocalSettings.NINE_KEY_SYMBOLS);
-                    s.openHostPage("KEYBOARD_OPTIONS", args);
+                    args.putString(NineKeySidebarPolicy.EDIT_ARGUMENT, digits
+                        ? NineKeySidebarPolicy.DIGIT_PREFERENCE
+                        : NineKeySidebarPolicy.LETTER_PREFERENCE);
+                    s.openHostPage("KEY_LAYOUT_STYLES", args);
                     return true;
                 });
             }
@@ -652,8 +653,8 @@ final class ImeLayoutRows {
         return exclamation;
     }
 
-    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面。 */
-    private Button nineKeyDecimalKey() {
+    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
+    Button nineKeyDecimalKey() {
         Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
         KeyboardTypographyPolicy.setKeyTextSize(period, 22);
         if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);

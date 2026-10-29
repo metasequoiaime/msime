@@ -263,6 +263,33 @@ fn manifest_version(section: &str) -> &'static str {
         .unwrap_or_else(|| panic!("{section} has no version"))
 }
 
+/// README 的「快速上手」照着 GitHub Releases 上的归档名写，这些名字带着 crate 版本；README 随包进 crates.io，发出去就改不了，所以升版本时漏改它，这里就要失败（0.1.1 的包里写的还是 0.1.0 的归档名）。示例打印的版本行同样跟着 crate 版本。
+#[test]
+fn readme_names_this_version() {
+    let readme = include_str!("../README.md");
+    let version = env!("CARGO_PKG_VERSION");
+    let prefix = "msime-engine-capi-";
+    let mut names = 0;
+    for (start, _) in readme.match_indices(prefix) {
+        let rest = &readme[start + prefix.len()..];
+        let Some(named) = rest.split('-').next() else {
+            continue;
+        };
+        if named.starts_with(|c: char| c.is_ascii_digit()) {
+            assert_eq!(
+                named, version,
+                "README names {prefix}{named}-…, the crate is {version}"
+            );
+            names += 1;
+        }
+    }
+    assert!(names > 0, "README no longer names any release archive");
+    assert!(
+        readme.contains(&format!("msime-engine {version}, ABI ")),
+        "README's sample output does not print msime-engine {version}"
+    );
+}
+
 #[test]
 fn library_version_follows_the_abi() {
     let abi = format!("{MSIME_ENGINE_ABI_MAJOR}.{MSIME_ENGINE_ABI_MINOR}.0");

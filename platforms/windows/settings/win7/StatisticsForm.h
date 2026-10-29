@@ -106,7 +106,7 @@ public:
     const auto error = response.find("operation_error");
     if (error != response.end() && error->is_string()) notice += L"\r\n" + statistics_model::upload_error_message(control_text::wide(error->get<std::string>()),
         response.contains("operation_enabled") && response.at("operation_enabled").is_boolean() ? response.at("operation_enabled").get<bool>() : status.enabled);
-    else if (changing) notice += L"\r\n" + std::wstring(statistics_model::upload_done_message(status.enabled));
+    else if (changing) notice += L"\r\n" + std::wstring(statistics_model::upload_done_message(status.enabled, status));
     SetWindowTextW(get(statistics_upload_notice), notice.c_str());
     update();
   }

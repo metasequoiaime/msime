@@ -210,11 +210,23 @@ final class ImeStyler {
         ViewPolicy.setHorizontalPaddingPreservingVertical(s.keyRows, edge);
         if (s.actionRow != null)
             ViewPolicy.setHorizontalPaddingPreservingVertical(s.actionRow, edge);
+        // 大屏单手的侧边数字键盘建过就跟着重排：键距、行距和高度调整与主键区相同（#10203）。
+        KeyboardKeyArea sidePad = s.imeFrame.sidePad.built();
+        if (sidePad != null) applySidePadGeometry(sidePad);
         s.keyRows.requestLayout();
         if (s.keyboardRoot != null) {
             s.keyboardRoot.requestLayout();
             s.keyboardRoot.getRootView().requestLayout();
         }
+    }
+
+    /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
+    void applySidePadGeometry(View pad) {
+        applyKeyboardGeometry(pad);
+        applyKeyboardHeight(pad);
+        ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
+            s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
+        pad.requestLayout();
     }
 
     void applyKeyboardHeight(View node) {

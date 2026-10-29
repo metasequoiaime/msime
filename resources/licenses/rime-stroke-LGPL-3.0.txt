@@ -6,9 +6,18 @@ Credits, as recorded in the rime-stroke AUTHORS file and the stroke.dict.yaml he
 - The supplementary table, kept for Mainland China's standard glyph forms, comes from 北大中文論壇 and was compiled by 孙海峰, 徐孟罗, 唐捺之 and 谢振斌.
 - The extension data up to CJK Unified Ideographs Extension J comes from 宋天 (http://soongsky.com/) (LGPL).
 
-Used by MSIME: stroke.dict.yaml only. MSIME converts it into its Stroke dictionary (msime-stroke.db): every character<TAB>code row becomes one entry keyed by its stroke letters (h, s, p, n, z) unchanged, and the YAML header and comment lines are dropped. No code or character is changed, added or removed. The upstream file has no weights; each entry's weight is the sum of the character's frequencies in sources/pinyin/single-chars.txt of metasequoiaime/msime-dictionary, which derives from iDvel/rime-ice (GPL-3.0-only) with readings corrected by mozillazg/pinyin-data (MIT). No other file of rime-stroke is used.
+Used by MSIME: stroke.dict.yaml only. MSIME converts it into its Stroke dictionary (msime-stroke.db): every character<TAB>code row becomes one entry keyed by its stroke letters (h, s, p, n, z) unchanged, and the YAML header and comment lines are dropped. No code or character is changed or added; rows of characters outside the CJK Unified Ideographs block (U+4E00-9FFF) and Extension A (U+3400-4DBF) are left out unless the character has a frequency. The upstream file has no weights; each entry's weight is the sum of the character's frequencies in sources/pinyin/single-chars.txt of metasequoiaime/msime-dictionary, which derives from iDvel/rime-ice (GPL-3.0-only) with readings corrected by mozillazg/pinyin-data (MIT). No other file of rime-stroke is used.
 
-The data is licensed under the GNU Lesser General Public License, version 3. The corresponding source, unmodified, is available at the pinned commit:
+Since msime-dictionary release dict-v2.0.30 those frequencies are partly adapted from rime-wanxiang, so the weights of msime-stroke.db carry adapted rime-wanxiang data (for example 万 weighs 2702880, the sum of its two readings 2701552 + 1328):
+
+- Creator: amzxyz (万象拼音 / rime-wanxiang, https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit 7ab73ee0c7f80190004233e70f954833df64c80e. Neither the README nor the LICENSE at that commit supplies a copyright notice.
+- Licence: Creative Commons Attribution 4.0 International (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/).
+- Changes: msime-dictionary gave every reading of single-chars.txt that the rime-wanxiang dictionaries imported by wanxiang.dict.yaml (cuoyin excepted) also list the weight round(rime-wanxiang weight × 9.42), after removing the tone marks of rime-wanxiang's pinyin and keeping the highest weight where a toneless reading occurs more than once; MSIME then adds up a character's readings into the weight of each of its stroke codes. No character, code or other text is taken from rime-wanxiang.
+- amzxyz does not endorse MSIME or the way MSIME uses the work. The work is provided as-is; Section 5 of the licence is its disclaimer of warranties and limitation of liability.
+
+The full attribution, covering msime-pinyin.db as well, and the full text of CC BY 4.0 are in rime-wanxiang-CC-BY-4.0.txt, which MSIME ships with its other licence notices.
+
+The rime-stroke data is licensed under the GNU Lesser General Public License, version 3. The corresponding source, unmodified, is available at the pinned commit:
 
   https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48
 

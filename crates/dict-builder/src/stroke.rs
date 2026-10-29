@@ -1,4 +1,4 @@
-//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自 msime-dictionary 的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0；没有记录固定它的大小和 SHA-256，内容只由 `--dictionary` checkout 的提交决定）。
+//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自 msime-dictionary 的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0；`dict-v2.0.30` 起其中与 rime-wanxiang 共有读音的字频改编自 rime-wanxiang，CC BY 4.0，见 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`；没有记录固定它的大小和 SHA-256，内容只由 `--dictionary` checkout 的提交决定）。
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
@@ -29,8 +29,8 @@ pub const SOURCE_SIZE: u64 = 3_396_330;
 pub const SOURCE_SHA256: &str = "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1094c786579a665791";
 /// 五种笔画，也是 `syllables` 表的全部内容。
 pub const STROKES: [char; 5] = ['h', 's', 'p', 'n', 'z'];
-/// 记入数据库 `license` 的 SPDX 表达式：笔顺码是 rime-stroke 的 LGPL-3.0，权重取自 rime-ice 的 GPL-3.0 字频。
-pub const LICENSE: &str = "LGPL-3.0-only AND GPL-3.0-only";
+/// 记入数据库 `license` 的 SPDX 表达式，每个进入库里的来源各一项：笔顺码是 rime-stroke 的 LGPL-3.0；权重是 `single-chars.txt` 里一个字各读音的字频之和，这些字频取自 rime-ice（GPL-3.0），与 rime-wanxiang 共有的读音改编自 rime-wanxiang（CC BY 4.0）。`single-chars.txt` 的读音按 MIT 的 pinyin-data 校正，但库里不存读音，所以不列 MIT。随库分发的 `LICENSE_NAME` 写着这三项的署名。
+pub const LICENSE: &str = "LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0";
 pub const DATABASE: &str = "msime-stroke.db";
 /// `resources/licenses/` 里的许可证文本，以及它在数据库旁边的文件名。
 pub const LICENSE_SOURCE: &str = "rime-stroke-LGPL-3.0.txt";
@@ -536,6 +536,29 @@ mod tests {
         assert_eq!(crate::sources::upstream_reference(SOURCE), Some(REFERENCE));
     }
 
+    /// 库里的字频之和含有改编自 rime-wanxiang 的字频（「万」2702880 = 2701552 + 1328），所以 `license` 要写上 CC-BY-4.0，随库分发的许可证文本也要有 CC BY 4.0 第 3(a) 条要的署名：作者、上游与固定提交、许可证地址、改动说明和免责声明的指引。
+    #[test]
+    fn the_licence_names_every_source_the_weights_come_from() {
+        assert_eq!(LICENSE, "LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0");
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/licenses")
+                .join(LICENSE_SOURCE),
+        )
+        .unwrap();
+        for phrase in [
+            "iDvel/rime-ice (GPL-3.0-only)",
+            "amzxyz/rime-wanxiang",
+            "7ab73ee0c7f80190004233e70f954833df64c80e",
+            "Creator: amzxyz",
+            "https://creativecommons.org/licenses/by/4.0/",
+            "rime-wanxiang-CC-BY-4.0.txt",
+            "disclaimer of warranties",
+        ] {
+            assert!(text.contains(phrase), "{LICENSE_SOURCE} lacks {phrase:?}");
+        }
+    }
+
     fn written(dictionary: &Dictionary) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(DATABASE);
@@ -586,7 +609,7 @@ mod tests {
                 .metadata(language_dictionary::METADATA_LICENSE)
                 .unwrap()
                 .as_deref(),
-            Some(LICENSE)
+            Some("LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0")
         );
         let first = std::fs::read(&path).unwrap();
         write(&dictionary, &path, COMMIT).unwrap();
