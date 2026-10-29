@@ -251,6 +251,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
+            checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
             method(type, "render").invoke(service);
@@ -377,7 +378,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(area.width() > 0 && area.height() > 0 && area.right <= header.getWidth() - header.getPaddingRight(),
                     "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
             }
-            checkClipboardMorePinned(type, service, panels, header, surface, density);
+            checkClipboardMorePinned(panels, header, surface, density);
             View more = descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
@@ -397,6 +398,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             Object skin = field(type, "skin").get(service);
             int foreground = android.graphics.Color.parseColor(
                 (String) skin.getClass().getMethod("keyForeground").invoke(skin));
+            // 菜单容器是系统的 LinearLayout，它的类加载器是启动类加载器，找不到应用类，会抛 ClassNotFoundException；要用加载服务类的那个加载器。
             Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
@@ -483,35 +485,140 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         return result;
     }
     /**
-     * 删除后出现「撤销」、键盘只有 240dp 时，顶行内容比键盘宽，左边那些按钮要横滑；「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
+     * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *
-     * <p>只在 360dp、无撤销时量「顶行不需横滑」，恰好避开了会超宽的情形：「更多」原来是横向滚动里最后一个，最先被挤出屏外。
+     * <p>只在 360dp 量「顶行不需横滑」，恰好避开了会超宽的情形：「更多」原来是横向滚动里最后一个，最先被挤出屏外。删除后的「撤销」原来也在顶行里，240dp 时靠它把顶行撑宽；它改成浮在面板右下角以后（#10073），从 240dp 往下收窄键盘，直到顶行确实超宽再量。
      */
-    private static void checkClipboardMorePinned(Class<?> type, Object service, Object panels, ViewGroup header,
-            ViewGroup surface, float density) throws Exception {
-        Field undo = field(type, "clipboardUndoTexts");
-        Object history = field(type, "clipboardHistory").get(service);
+    private static void checkClipboardMorePinned(Object panels, ViewGroup header, ViewGroup surface, float density)
+            throws Exception {
         Method render = method(panels.getClass(), "renderClipboardHistory");
         try {
-            java.util.List<?> items = (java.util.List<?>) history.getClass().getMethod("load").invoke(history);
-            undo.set(service, new java.util.ArrayList<>(items.subList(0, 1)));
             render.invoke(panels);
-            layout(surface, Math.round(240 * density), Math.round(300 * density));
-            ViewGroup scroll = (ViewGroup) descendant(header, view -> view instanceof android.widget.HorizontalScrollView);
-            check(scroll != null && descendant(scroll, view -> describedAs(view, "撤销刚才删除的剪贴板记录")) != null,
-                "clipboard header has no undo button after a deletion");
-            check(scroll.getChildAt(0).getWidth() > scroll.getWidth(),
-                "clipboard header with undo at 240dp no longer overflows; the pinned more button is untested");
+            ViewGroup scroll = null;
+            int widthDp = 240;
+            for (; widthDp >= 120; widthDp -= 20) {
+                layout(surface, Math.round(widthDp * density), Math.round(300 * density));
+                scroll = (ViewGroup) descendant(header, view -> view instanceof android.widget.HorizontalScrollView);
+                check(scroll != null, "clipboard header has no horizontal scroll at " + widthDp + "dp");
+                if (scroll.getChildAt(0).getWidth() > scroll.getWidth()) break;
+            }
+            check(widthDp >= 120,
+                "clipboard header never overflows down to 120dp; the pinned more button is untested");
             View more = descendant(header, view -> view instanceof Button && describedAs(view, "更多剪贴板操作"));
             check(more != null && !inside(more, scroll), "clipboard more button scrolls with the header row");
             Rect area = bounds(header, more);
             check(area.width() > 0 && area.height() > 0 && area.left >= header.getPaddingLeft()
                     && area.right <= header.getWidth() - header.getPaddingRight(),
-                "clipboard more button leaves the keyboard width with undo at 240dp: " + area.toShortString());
+                "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
         } finally {
-            undo.set(service, null);
             render.invoke(panels);
         }
+    }
+
+    /**
+     * 多选删除后的「撤销」浮在剪贴板面板右下角、不在顶行里，按钮上从设置的秒数开始倒数，点了恢复记录，到期收起；和「返回顶部」同时出现时两者不重叠（#10073）。
+     *
+     * <p>整段跑在 `runOnMainSync` 里，删除时投递的倒数回调不会在断言之间执行；到期用改截止时刻再手动走一次倒数来模拟。
+     */
+    private static void checkClipboardUndoFloating(Class<?> type, Object service, Object panels, ViewGroup header,
+            ViewGroup surface, ScrollView scroll, ViewGroup cards, float density) throws Exception {
+        Field seconds = field(type, "clipboardUndoSeconds");
+        int previousSeconds = seconds.getInt(service);
+        Object history = field(type, "clipboardHistory").get(service);
+        Method load = history.getClass().getMethod("load");
+        Method remove = method(type, "removeClipboardItems", java.util.List.class);
+        Method hasUndo = method(type, "hasClipboardUndo");
+        Method updateBackToTop = method(panels.getClass(), "updateClipboardBackToTop");
+        Button undo = (Button) field(type, "clipboardUndoButton").get(service);
+        Button backToTop = (Button) field(type, "clipboardBackToTop").get(service);
+        String target = "合成剪贴板记录 3";
+        try {
+            check(undo.getVisibility() == View.GONE, "clipboard undo is visible before any deletion");
+            seconds.setInt(service, 7);
+            remove.invoke(service, java.util.List.of(target));
+            check(!containsText(load.invoke(history), target), "clipboard deletion did not remove the record");
+            check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after a deletion");
+            check("撤销（7 秒）".contentEquals(undo.getText()),
+                "clipboard undo does not count down from the configured 7 seconds: " + undo.getText());
+            check(undo.getParent() == surface && !inside(undo, header) && !inside(undo, scroll),
+                "clipboard undo is not floating on the panel surface");
+            check(descendant(header, view -> describedAs(view, "撤销刚才删除的剪贴板记录")) == null,
+                "clipboard header still has the old undo button");
+            // 「撤销」要用回车键的强调键帽，字色是当前皮肤的回车键前景色，并且由换肤那一遍重新上色（深浅色切换时不重建按钮）；只量几何时换成普通键帽或漏了换肤也照样通过。
+            Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            check(press.isInstance(undo) && "RETURN".equals(String.valueOf(method(press, "keyboardRole").invoke(undo))),
+                "clipboard undo is not drawn as the emphasized return key cap");
+            undo.setTextColor(android.graphics.Color.MAGENTA);
+            Object styler = field(type, "imeStyler").get(service);
+            method(styler.getClass(), "applySkin").invoke(styler);
+            Object skin = field(type, "skin").get(service);
+            check(undo.getCurrentTextColor() == android.graphics.Color.parseColor(
+                    (String) skin.getClass().getMethod("returnForeground").invoke(skin)),
+                "clipboard undo is not restyled with the skin's return key label colour");
+            for (int widthDp : new int[] {320, 600}) {
+                int width = Math.round(widthDp * density);
+                int height = Math.round(300 * density);
+                layout(surface, width, height);
+                scroll.scrollTo(0, cards.getHeight());
+                updateBackToTop.invoke(panels);
+                // 「返回顶部」的位置随「撤销」改了边距，要重新量一次。
+                layout(surface, width, height);
+                check(backToTop.getVisibility() == View.VISIBLE, "back to top did not appear while undo is shown");
+                Rect undoArea = bounds(surface, undo);
+                Rect topArea = bounds(surface, backToTop);
+                check(undoArea.height() >= Math.round(48 * density) - 1
+                        && undoArea.right <= width && undoArea.bottom <= height
+                        && undoArea.right >= width - Math.round(16 * density)
+                        && undoArea.bottom >= height - Math.round(16 * density),
+                    "clipboard undo is not a large button in the lower-right corner at " + widthDp + "dp: "
+                        + undoArea.toShortString());
+                check(!Rect.intersects(undoArea, topArea) && topArea.bottom <= undoArea.top,
+                    "back to top overlaps clipboard undo at " + widthDp + "dp: " + topArea.toShortString()
+                        + " vs " + undoArea.toShortString());
+                // 列表底部给「撤销」让出位置：滚到底时最后一行卡片整个落在按钮上方，点得到、横滑也够得着。
+                Rect last = bounds(surface, cards.getChildAt(cards.getChildCount() - 1));
+                check(last.bottom <= undoArea.top,
+                    "clipboard undo covers the last card when scrolled to the bottom at " + widthDp + "dp: "
+                        + last.toShortString() + " vs " + undoArea.toShortString());
+                scroll.scrollTo(0, 0);
+                updateBackToTop.invoke(panels);
+            }
+            check(undo.performClick(), "clipboard undo did not handle the click");
+            check(containsText(load.invoke(history), target), "clipboard undo did not restore the deleted record");
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo stayed after restoring");
+
+            remove.invoke(service, java.util.List.of(target));
+            check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after the second deletion");
+            field(type, "clipboardUndoDeadline").setLong(service, android.os.SystemClock.uptimeMillis() - 1);
+            method(type, "tickClipboardUndo").invoke(service);
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo did not disappear when the countdown reached zero");
+            check(!containsText(load.invoke(history), target), "an expired undo restored the record");
+            check(cards.getPaddingBottom() == cards.getPaddingTop(),
+                "clipboard list kept the extra bottom room after undo expired: " + cards.getPaddingBottom());
+            layout(surface, Math.round(320 * density), Math.round(300 * density));
+            scroll.scrollTo(0, cards.getHeight());
+            updateBackToTop.invoke(panels);
+            layout(surface, Math.round(320 * density), Math.round(300 * density));
+            Rect corner = bounds(surface, backToTop);
+            check(corner.bottom >= surface.getHeight() - Math.round(16 * density),
+                "back to top did not return to the corner after undo expired: " + corner.toShortString());
+            scroll.scrollTo(0, 0);
+            history.getClass().getMethod("add", String.class).invoke(history, target);
+        } finally {
+            seconds.setInt(service, previousSeconds);
+            field(type, "clipboardUndoTexts").set(service, null);
+            android.os.Handler main = (android.os.Handler) field(type, "main").get(service);
+            main.removeCallbacks((Runnable) field(type, "clipboardUndoTick").get(service));
+            method(panels.getClass(), "renderClipboardHistory").invoke(panels);
+        }
+    }
+
+    private static boolean containsText(Object items, String text) throws Exception {
+        for (Object item : (java.util.List<?>) items)
+            if (text.equals(item.getClass().getMethod("text").invoke(item))) return true;
+        return false;
     }
     /** 无障碍说明等于 `text` 的视图；容器没有说明，`String.contentEquals(null)` 会抛空指针。 */
     private static boolean describedAs(View view, String text) {
