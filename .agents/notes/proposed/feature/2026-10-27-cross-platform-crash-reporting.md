@@ -29,11 +29,11 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `6bc13ef19d` 的 CI `40834862691` 已通过 x64/x86 WER 系统投递步骤 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；新增同代次快照复用与计数/屏障回归的目标运行；设备到后台链路；500 ms 轮询成本 |
-| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过） | 实际故障到后台及其精确源码还原 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路；500 ms 轮询成本 |
+| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原 | 回退设置、Tauri 设置及其他辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 旧完整输入套件语音润色失败未关闭；候选 `6bc13ef19d` 的共享设备单测、APK 构建与独立崩溃步骤已通过，完整输入套件仍在运行；真机与其他架构、最新候选后台传输仍缺 |
-| iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
+| iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份；候选 `a03cced2a5` 的原生 Release App 模拟器 `SIGSEGV`/`SIGABRT`、重启补报、隔离后台入库、动态撤回重开及 SIGKILL 负对照 | 键盘扩展实际故障；系统 MetricKit 回调；真机 dSYM 与后台链路；App 当前仅还原到生成入口 `MetasequoiaImeApp.swift:0`，非零源码行仍缺 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
 所有平台继续保留“栈展开尽力而为、备用栈仅安装线程、后加载模块快照要重新准备”的边界。TSF 进程外 WER 适配遵循 Microsoft 的[注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)、[不认领异常的回调语义](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)和[注销要求](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werunregisterruntimeexceptionmodule)。[TSF WER 提案](2026-10-28-windows-tsf-wer-capture.md)持有完整方案与分级验证：产品生命周期、安装器和符号已接线，x86/x64 的实际 DLL 装卸、授权变化、阻塞读取、迟到结果和生产 helper 落盘联动通过，负对照能识别短暂的旧租约武装；ARM64 目标编译与 Arm64X helper 两阶段链接通过。x86/x64 合成外部宿主的七组真实系统 WER 投递现已通过，覆盖 TIP/Host API 自有故障、外部故障、撤回重开、释放卸载和被宿主捕获的异常；完整产品包、真实编辑器与后台仍未验收，不能据此认定 TSF 闭环完成。
@@ -89,6 +89,20 @@ API 35 首次完整冒烟因专用 AVD 沿用之前专项的双拼九键布局�
 `029e18636e` 的同源原生 arm64 Release 配置包（开发证书）在空白 API 35 专用 AVD 完成 `smoke.sh --crash-only`，退出 0。App/IME 的真实 Java/JNI 故障、持续授权撤回/重开、系统退出归属和实际输入超时 ANR 通过；系统退出及 ANR 的隔离队列清空后再次重启不重复入队。后一步模拟发送确认，不表示本轮已向后台传输。APK、Gradle 剥离产物及未剥离符号的实际身份已核对，三份新装包、合成数据与外网规则已移除，AVD 已停止；详细证据与首次包装器前提失败保留在[队列代次笔记](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)。API 28/35 的四个共享 crate 同候选设备测试均通过，原完整输入套件的语音润色失败和其他平台缺口仍未关闭。
 
 该提交 CI 的两条仓库契约门禁失败于新上游的引擎许可证检查：把 `include_str!("diagnostics.rs")` 引入的本 crate Rust 源码当作待登记数据。`origin/develop` 的固定提交 `05d9917cd1548f1392578ed40c2e90596beb4b2e` 已在 PR #10214 修复该检查；本地分支尚无该新检查，所以原 quick 通过不等于这条合成合并检查通过。后续候选 `6bc13ef19d` 的 CI 两条仓库契约门禁均已通过；旧失败仍保留，不改许可证声明。该候选的 macOS arm64 与 iOS 模拟器作业通过，Windows x64/x86 WER 和 Android API 35 崩溃专项步骤通过；Windows 原生设置所在完整作业随后已完成并报告 success，包含 Win7 手写、版本检查与页面检查；Android 完整输入套件仍在运行，不把其崩溃专项单步通过写成整作业通过。新增同代次快照复用与计数/屏障回归不包含在该 CI 候选中。
+
+### iOS 原生 App 的模拟器故障与动态授权闭环
+
+固定候选 `a03cced2a553206dae77071539faeac422bc991c`，在既有 `target/ios-cargo/simulator`、`target/ios/derived-simulator` 缓存构建真实原生 `MSIMEApp`，Release、arm64、产品版本 `0.52.0`，没有以键盘测试 host 替代产品。首次构建与源码审计均通过，12,444 个条目逐项一致。验收限定本任务独立的 iOS 26.5 模拟器，不覆盖真实用户设备或其他会话的模拟器。
+
+`telemetry-loopback` 只约束遥测，不改变 App 启动时的账号注册目标。因此最终验收产物额外显式链接仅测试用的回环传输护栏：Foundation 默认、临时、共享会话在发往网络服务前拒绝非指定目标，原生解析与连接也拒绝非指定回环；构造器没有审计日志路径或写日志失败即退出。独立探针确认三种 Foundation 会话、DNS 与原生连接均拒绝负例，指定回环正常收件；产品每次启动同时检查构造器日志及 `vmmap` 中的实际护栏映射，不能只相信启动命令的环境变量。此库不进入提交、正式产品或发布流程，测试链接不改产品源码。
+
+最终 `linked-acceptance-attempt2` 实际执行五个 App 进程：开启时 `SIGSEGV`，原 App 重启补报；`SIGKILL` 后重启不新增崩溃；活跃 App 经实际共享 Rust 偏好 ABI 撤回，观察器清掉捕获后 `SIGSEGV` 不留记录，关闭状态重启也不补报；同一活跃 App 重开授权后 `SIGABRT`，原 App 再次补报且使用新 epoch。固定官方后台与临时 PostgreSQL 在基线外新增两条事件，恰好两条 `crash`，没有 `session` 或 `session_crash`；数据库与 HTTP 收件的事件 ID、平台、版本、消息、栈和安装身份逐字段一致。两份实际故障记录均保留 `application`、原提交、运行编号及架构。
+
+实际后台自有帧 UUID `034f751d09483bceb6df057f22d20ea7`、偏移 `0x44bcd4` 与本轮 App/dSYM 匹配，`atos` 仅还原到 `main (MetasequoiaImeApp.swift:0)`。这证明构建身份、模块偏移和函数归属，**非零源码行验收仍未通过**；系统 MetricKit 实际投递、键盘扩展故障、真机签名与后台仍未验收。证据为 `target/ios-product-local-evidence/`，远端进程、记录与核对材料在 `target/ios-product-loopback-a03/linked-acceptance-attempt2/`。
+
+准备失败全部保留：模拟器缺少 `sandbox_init` 所需的库，外层 `sandbox-exec` 没有约束被系统启动的子进程，动态注入与额外调试签名的部分启动未获确认或被拒绝，外部标准流路径出现 `Launchd job spawn failed`，最终采用包内必须依赖、App Group 内审计路径及逐进程映射检查。不能将这些失败算通过，也不能仅凭后续成功认定它们各自的唯一原因。首次显式链接专项在发送信号后没有记录而失败，没有建立可单独核验的就绪证据，根因未确认；保留原目录，后续完整重跑退出 0，不放宽故障必须留记录的断言。
+
+验收后已经重新编译无回环特性的 iOS Host API 静态库与原生 App，真实模拟器 ABI 调用拒绝 `test_origin` 且没有创建握手目录；App、键盘扩展均不再依赖护栏，包内护栏文件已删除。正式静态库 SHA-256 为 `c37fab70a07eaab32577a69b6671fb4084073b38b27c1bc3bbe3230a809e88ab`，正式 App 二进制为 `0d0b13471b7795497ef6de9cd93e91eee8ca7ed18c31d937324c4250c16085df`；恢复前后的 12,444 个源码条目相同。产品进程、任务模拟器、临时后台与数据库、内部网络和专用 SSH 转发均已清理，未改动其他模拟器。
 
 ## Alternatives considered
 
