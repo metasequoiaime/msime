@@ -5,14 +5,17 @@ import XCTest
 @MainActor
 final class OneHandModeTests: XCTestCase {
   private var stored: Any?
+  private var storedDockedTablet: Any?
   private var storedScheme = InputSchemePreference.scheme
 
   override func setUp() {
     super.setUp()
     enableAllInputSchemes()
     stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.oneHandedKey)
+    storedDockedTablet = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.oneHandedDockedTabletKey)
     storedScheme = InputSchemePreference.scheme
     KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.oneHandedKey)
+    KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.oneHandedDockedTabletKey)
     InputSchemePreference.scheme = .quanpin
     // 用例改的是模拟器共用的那份文档和 App Group：侧边面板、iPad 数字行和分离式键盘的开关结束后都放回原样，用例开始时一律关着。
     let panel = MetasequoiaInputSessionBridge.loadSharedPreferences()?[TouchOneHandedSidePanel.documentKey]
@@ -32,6 +35,7 @@ final class OneHandModeTests: XCTestCase {
   override func tearDown() {
     if let stored { KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.oneHandedKey) }
     else { KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.oneHandedKey) }
+    KeyboardLayoutPreference.defaults.set(storedDockedTablet, forKey: KeyboardLayoutPreference.oneHandedDockedTabletKey)
     InputSchemePreference.scheme = storedScheme
     super.tearDown()
   }
@@ -252,19 +256,48 @@ final class OneHandModeTests: XCTestCase {
     XCTAssertEqual(try frame("tabletDeleteKey", in: twoHanded).maxX, 820 - 8, accuracy: 0.5)
   }
 
-  /// 打开了「数字行与 Tab 键」时，iPad 单手同样不画 Tab 和 iPad 数字行；退出单手后它们回来。
-  func testTheTabletOneHandedFaceDropsTheFullKeys() throws {
+  /// 打开了「数字行与 Tab 键」时，iPad 单手不画 Tab，1 到 0 这一排照画：排数不变，键盘高度和双手时相同。
+  func testTheTabletOneHandedFaceKeepsTheNumberRowButDropsTab() throws {
     KeyboardLayoutPreference.tabletFullKeys = true
     let full = tablet(width: 1032)
     XCTAssertTrue(shown(try view("tabKey", in: full)))
     XCTAssertTrue(shown(try view("numberRow", in: full)))
+    let fullHeight = try requestedHeight(full)
     KeyboardLayoutPreference.oneHanded = .left
     let oneHanded = tablet(width: 1032)
     XCTAssertFalse(shown(try view("tabKey", in: oneHanded)))
-    XCTAssertFalse(shown(try view("numberRow", in: oneHanded)))
+    XCTAssertTrue(shown(try view("numberRow", in: oneHanded)), "the digits stay above the letters")
+    XCTAssertEqual(try requestedHeight(oneHanded), fullHeight, accuracy: 0.5, "turning one-handed on keeps the keyboard height")
     XCTAssertEqual(try frame("letterDeleteKey", in: oneHanded).maxX,
                    8 + 431 - 431 * KeyboardOneHandLayout.gutterRatio - KeyboardOneHandLayout.gap, accuracy: 0.5,
                    "the keys sit at the left edge, the column beside them")
+    // 数字和符号页用补充行保持同样的排数，切层时键盘不跳。
+    try button("layoutToggleButton", in: oneHanded).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(oneHanded)
+    XCTAssertEqual(try requestedHeight(oneHanded), fullHeight, accuracy: 0.5, "the symbol layer keeps the height")
+  }
+
+  /// 升级前在浮动键盘或窄窗口（手机形态）存下的单手模式不带到全宽键盘上：全宽键盘第一次画单手之前把它改成关闭，只做一次；浮动键盘照旧用它。用户之后自己打开的单手模式在全宽键盘上照画。
+  func testAValueStoredBeforeTheUpgradeDoesNotShrinkTheDockedKeyboard() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    defaults.set("right", forKey: KeyboardLayoutPreference.oneHandedKey)
+    let floating = tablet(width: 320, compact: true)
+    XCTAssertTrue(shown(try view("oneHandGutter", in: floating)), "the floating keyboard keeps its one-handed mode")
+    XCTAssertEqual(KeyboardLayoutPreference.oneHanded, .right)
+    XCTAssertNil(defaults.object(forKey: KeyboardLayoutPreference.oneHandedDockedTabletKey))
+
+    let docked = tablet(width: 820)
+    XCTAssertFalse(shown(try view("oneHandGutter", in: docked)), "the docked keyboard stays two-handed")
+    XCTAssertTrue(shown(try view("tabletDeleteKey", in: docked)))
+    XCTAssertEqual(KeyboardLayoutPreference.oneHanded, .off)
+    XCTAssertTrue(defaults.bool(forKey: KeyboardLayoutPreference.oneHandedDockedTabletKey))
+    _ = try openMenu(in: docked)
+    XCTAssertEqual(try control("moreCard-单手模式", in: docked).accessibilityValue, "已关闭")
+
+    // 只做一次：用户在全宽键盘上自己打开后，新建的键盘照画单手。
+    try control("moreCard-单手模式", in: docked).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.oneHanded, .right)
+    XCTAssertTrue(shown(try view("oneHandGutter", in: tablet(width: 820))))
   }
 
   /// 横屏分离式键盘画着时单手让位：不画侧栏，存的值不变；九键不分离，同一台 iPad 横屏照样画单手。

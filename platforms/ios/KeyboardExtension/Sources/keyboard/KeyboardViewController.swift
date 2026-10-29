@@ -261,7 +261,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterRowPunctuationKeys: [UIButton] = []
   /// 键盘的设备形态：键盘高度、上下内边距、顶栏下的间隔、按键高度和排数，以及面板和候选栏都按它。
   private var formFactor: KeyboardFormFactor { .resolve(traitCollection) }
-  /// 键面按哪种形态画：iPad 全宽键盘单手时按键缩到手机大小，键面用手机的（没有 iPad 数字行、Tab 和 iPad 底行，字母字号、中间一排缩进和底行样式都按手机），键盘高度和内边距仍按 `formFactor`，单手开关不改键盘外框的高度。
+  /// 键面按哪种形态画：iPad 全宽键盘单手时按键缩到手机大小，键面用手机的（没有 Tab 和 iPad 底行，字母字号、中间一排缩进和底行样式都按手机；「数字行与 Tab 键」的数字行照画，见 `updateKeyboardLayout`），键盘高度和内边距仍按 `formFactor`，单手开关不改键盘外框的高度。
   private var keyFaceFormFactor: KeyboardFormFactor {
     formFactor == .tablet && (appliedOneHanded ?? .off) != .off ? .phone : formFactor
   }
@@ -1555,6 +1555,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 方案在按键建好之前就已应用，那一步已经请求过布局。
     guard keyColumn.superview === oneHandRow else { return }
     let formFactor = formFactor
+    // 升级前存下的单手模式只在手机形态的键盘上画过，第一次在全宽 iPad 键盘上画时按关闭处理，见 `KeyboardLayoutPreference.oneHandedDockedTabletKey`。
+    if formFactor == .tablet && !splitKeyboardShown && oneHandedMode != .off {
+      oneHandedMode = KeyboardLayoutPreference.adoptOneHandedOnDockedTablet()
+    }
     let mode = KeyboardOneHandLayout.effective(oneHandedMode, formFactor: formFactor, split: splitKeyboardShown)
     let available = view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing
     // 宽度还没定下来（第一次布局之前）时先按手机的比例排，`viewDidLayoutSubviews` 有了宽度再排一次。
@@ -6533,14 +6537,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     oneHandSidePadStack.spacing = keyRowSpacing
     applyTabletLetterKeys()
     let fullKeys = keyFaceFormFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
+    // 「数字行与 Tab 键」的数字行按键盘形态取：iPad 单手时键面是手机的、不画 Tab，1 到 0 这一排照画，排数与双手时相同，单手开关不改键盘高度。
+    let fullKeyNumberRow = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
     let sourceHandwriting = isChineseMode && inputScheme == .handwriting && !isInLocalMode
     // 「按键布局」的顶部数字行（`touch_number_row`）：26 键、14 键和 18 键的字母层上方一排 1 到 0，手机横屏不画；这些键面的数字和符号页用补充行保持同样的五排高度，切层时键盘不跳。iPad 没开「数字行与 Tab 键」时与手机一样按它画，与 Android、HarmonyOS 的平板相同；开着时 iPad 全尺寸 26 键画自己的数字行和 Tab，14 键和 18 键仍按它画。
     let touchNumberRow = keyLayoutStyle.numberRow && numberRowFits
     let numberRowShown = !showsSymbols
-      && ((letterRowsShown && (fullKeys || touchNumberRow)) || (fourteenKeyRows && touchNumberRow))
+      && ((letterRowsShown && (fullKeyNumberRow || touchNumberRow)) || (fourteenKeyRows && touchNumberRow))
     if numberRowView?.isHidden == numberRowShown { numberRowView?.isHidden = !numberRowShown }
     let extraRowShown = showsSymbols && !nineKey && !sourceHandwriting && !kana && !dachen && !strokes
-      && (fourteenKey ? touchNumberRow : fullKeys || touchNumberRow)
+      && (fourteenKey ? touchNumberRow : fullKeyNumberRow || touchNumberRow)
     if symbolExtraRowView?.isHidden == extraRowShown { symbolExtraRowView?.isHidden = !extraRowShown }
     // 上下留白按排数算，要等数字行和补充行这一趟的显隐定下来再算，否则数字行刚出现或刚收起时会沿用上一趟的排数。
     applyPhoneLetterVerticalPadding()
