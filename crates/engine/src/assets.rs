@@ -1,4 +1,4 @@
-//! File names of the runtime asset contract (`contracts/assets/assets.json`, contract version 1). Every module names files through these constants so a rename stays one edit.
+//! 运行时资源契约（契约版本 1）的文件名。每个文件的格式、谁写谁读、放在哪个根目录下，见 `docs/data-formats.md`。各模块都经这些常量引用文件名，改名只改一处。
 
 pub const CONTRACT_VERSION: i32 = 1;
 
@@ -31,8 +31,6 @@ pub const LEGACY_NAMES: [(&str, &str); 8] = [
 pub const TRANSLATIONS: &str = "custom_translations.txt";
 /// The user journal every learning write goes through.
 pub const USER_JOURNAL: &str = "msime_user.db";
-/// The gloss cache name the asset contract gives. msime writes `LEARNED_GLOSSES` instead; that is what users have on disk.
-pub const GLOSS_CACHE: &str = "gloss_cache.db";
 /// The learned-gloss store the host writes (`save_candidate_gloss`) and reads first.
 pub const LEARNED_GLOSSES: &str = "translation-glosses.db";
 /// Written last into a staged generation; its presence means the generation is complete.

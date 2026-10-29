@@ -3007,13 +3007,18 @@
 html[data-macos-liquid-glass="true"]:has([data-settings-shell][data-platform="mac"]),
 html[data-macos-liquid-glass="true"] body:has([data-settings-shell][data-platform="mac"]),
 html[data-macos-liquid-glass="true"] [data-settings-shell][data-platform="mac"],
-html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar,
 html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-drag-row {
   background: transparent;
 }
 
+/* 原生玻璃不带底色，侧栏完全透明时颜色由窗口背后的壁纸决定，深色壁纸会把浅色主题的侧栏染成深紫灰。按主题叠一层半透明底色，玻璃仍然模糊背景，但明暗跟随主题、与正文一致。 */
 html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {
   border-right-color: transparent;
+  background: rgba(40, 40, 42, 0.78);
+}
+
+html[data-theme="light"][data-macos-liquid-glass="true"] [data-platform="mac"] .settings-sidebar {
+  background: rgba(236, 236, 240, 0.88);
 }
 
 html[data-macos-liquid-glass="true"] [data-platform="mac"] .settings-mac-toolbar {

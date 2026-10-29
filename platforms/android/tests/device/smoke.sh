@@ -370,6 +370,8 @@ check "Native saved skin deletion acceptance failed" MSIME_DEVICE_SMOKE_PASSED r
 check "Bundled wordbook acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true
 # 公告获取和关闭即使等待独立文件锁，实际设置内容也必须可读；复用设置 runner，覆盖最低 API。
 check "Notice queue isolation acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e notice-queue true
+# 「防止截屏」（#10098）读系统真正拿到的窗口属性：开着时设置应用的 Activity 和对话框窗口带 FLAG_SECURE，关上后重新打开的窗口不带；复用设置 runner，最低 API 也覆盖。
+check "Screen capture protection window acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e screen-capture true
 # 常用语备注经原生设置、真实键盘和本地备份验收；最低 API 的核心验收也执行。
 check "Native common phrase note acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-notes true
 # 常用语分类覆盖原生管理、纵向展开、正文插入和本地备份；最低 API 同样执行。

@@ -18,6 +18,8 @@ export interface SettingsFormFactorProjection {
   /** A phone draws its candidates as one horizontal strip whatever the preference says; only the 2in1 candidate window can be a vertical list. */
   fixedCandidateLayout: "horizontal" | null;
   candidateFollowCursor: boolean;
+  /** 「候选栏大小」（`candidate_scale_percent`）：手机和平板的键盘按它把候选栏和跟随候选栏的工具栏一起缩放、按键不动（#10137），所以只在这两种形态声明；2in1 的候选卡片只随字号调整，平台层面的能力位保持关闭。 */
+  candidateWindowScale: boolean;
   /** The keyboard fades and rounds only the 2in1 candidate card; the phone strip keeps its own surface and corner, so these sliders would do nothing there. */
   candidateWindowOpacity: boolean;
   candidateCornerRadius: boolean;
@@ -62,6 +64,7 @@ export class SettingsFormFactorCapabilities {
       voiceHotkeys: true,
       fixedCandidateLayout: desktop ? null : "horizontal",
       candidateFollowCursor: desktop,
+      candidateWindowScale: !desktop,
       candidateWindowOpacity: desktop,
       candidateCornerRadius: desktop,
       inputModeHud: desktop,

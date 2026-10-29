@@ -229,7 +229,7 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 
 设置应用首次启动时在启动画面上弹出原生授权弹窗（`privacy/PrivacyConsentDialog.ets`，在 `pages/Settings.ets` 的 `onPageShow` 打开）：几句话说明处理什么、为什么，可以点开的《用户协议》和《隐私政策》（`https://msime.app/terms/`、`https://msime.app/privacy/`，经 `openExternalUrl` 交给系统浏览器），「不同意」「同意」两个按钮。首次弹窗不能用返回手势关掉。协议列表是 `PrivacyConsentPolicy.DOCUMENTS`，只列已经上线、点得开的页面。
 
-选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
+选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策或用户协议有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。弹窗一次征得两份文档的同意，常量虽然名叫隐私政策版本，用户协议的重要变更（msime.app/terms/「协议的接受与变更」里要再次征得同意的那一类）也靠它重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
 
 没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、词库同步（`dictionary_sync`，只有 `status` 不要授权）、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
 
@@ -287,7 +287,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 九键外框的底行和 1 键
 
-触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，所以那一层底行是 `九键 | 空格 | 0 | 中/英 | 回车`，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
+触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，0 补在底行：拼音九键、九键双拼和笔画的数字层是 `符 1.05 | 九键 1.25 | 空格 3.15 | 0 1.05 | 中/英 | 回车`，符 和切换键与字母层同一格（#10061，与 Android #9113、iOS 相同），0 的一份从空格里让出；从 26 键、14 键、18 键、手写借来的数字九宫格是 `返回 | 空格 | 0 | 中/英 | 回车`，返回键在它们 123 那一格，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
 
 触屏 26 键一族（全拼、双拼、五笔、英文、韩文、越南语等）的字母层设计底行（`designActionRow`）为 `123 1.25 | 符 1.05 | 空格 4 | ， 1 | 中/英 1.05 | 回车 1.9`，逗号长按直接输入句号，不再放独立句号键，中英文模式相同（`KeyboardScheme.designRowUsesCommaSecondaryPeriod`）。符 同样打开符号面板、记作 `SoftSymbol`。14 键（第三行左端已有 符）、大千注音和它沿用的共享符号行仍是 `123 | ， | 空格 | 。 | 中/英 | 回车`，123 / #+= 层自带底行。
 
@@ -633,7 +633,7 @@ hvigorw assembleHap --no-daemon
 
 `stage-resources.sh` 还把仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 
-引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。拆字反查（工具面板「本地输入」的最后一项「拆字」，实体键盘上是 Shift+C）的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0，© 2015 開放詞典）改编后编进引擎，署名、固定提交和改动说明在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`；表里的读音、名次和繁体字形取自 Unihan，它的 Unicode License V3（`resources/licenses/Unicode-License-V3.txt`）一起暂存到 `resfile/licenses/`。
+引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。拆字反查（工具面板「本地输入」的最后一项「拆字」，实体键盘上是 Shift+C）的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0，© 2015 開放詞典）改编后编进引擎，署名、固定提交和改动说明在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`；表里的读音、名次和繁体字形取自 Unihan，它的 Unicode License V3（`resources/licenses/Unicode-License-V3.txt`）一起暂存到 `resfile/licenses/`。同一目录里还有引擎本身和它链接的 rink-core 的 `MPL-2.0.txt`、`octagram.rs` 所移植的 librime-octagram 声明 `librime-octagram-BSD-3-Clause.txt`（末尾附 darts-clone 的 BSD-2-Clause 条款）、`cxx_sort.rs` 逐步复现的 libc++ 的 `libcxx-Apache-2.0-WITH-LLVM-exception.txt`，以及符号模式 LaTeX 表的 `latex-symbols-MIT.txt`。
 
 `stage-resources.sh` 的第二个参数（默认 `target/offline-glosses`）是可选的非英文离线释义，由 `scripts/build_offline_glosses.py` 生成。数据库和 `offline-glosses-NOTICE.txt` 都在时暂存到 `resfile/offline-glosses`，键盘启动时用同一个 `StagedResources` 复制到 `files/offline-glosses`，与 `files/engine` 相邻，引擎就在那里找 `zh-<lang>.db`；新包不带它们时会删掉旧副本。已安装词典的目标语言在翻译查询里以 `offline_gloss_languages` 出现：用户自己配置的在线翻译先答，离线词典只补在线没答上的候选，同一行按目标顺序合并。
 

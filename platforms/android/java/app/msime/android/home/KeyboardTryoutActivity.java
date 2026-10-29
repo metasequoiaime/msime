@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.os.Bundle;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -15,6 +16,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         // 重建时 FragmentManager 自己恢复页面，只在第一次创建时加。
         if (state == null) {

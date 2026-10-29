@@ -22,7 +22,7 @@ const CREATE_QUICK_PHRASE_TABLE: &str = "\n            CREATE TABLE quick_parase
 /// Characters added to the pinned single-character whitelist. The whitelist only applies to a build that includes unlicensed inputs (a licensed build accepts every single character), but where it applies it must not drop a reading the source has.
 pub const WHITELIST_ADDITIONS: &str = "cn/SingleCharWhitelist.additions.txt";
 
-/// Every quanpin table name, numbered buckets first, as `contracts/dictionary/format.json` lists them.
+/// Every quanpin table name, numbered buckets first, following the naming contract in `msime_engine::format` (`docs/data-formats.md` §4.1).
 pub fn quanpin_tables() -> Vec<String> {
     (1..=MAXIMUM_NUMBERED_SYLLABLES + 1)
         .flat_map(|count| {

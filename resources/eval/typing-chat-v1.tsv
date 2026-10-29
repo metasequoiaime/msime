@@ -1,0 +1,337 @@
+# 手写的单人聊天记录：一个在杭州做产品经理的人一个多月里发出的消息，按天、按会话排好，只有本人发的那一侧。为这份评测集而写，人名、公司和项目是虚构的，地名只用了杭州常见的地方，随仓库以 GPL-3.0 发布。
+# 第 1 到 8 天是预热（warmup），之后天数是 3 的倍数的进 dev，其余进 test；doc 是一天里的一段会话。
+# 写好之后、跑引擎之前就定稿了，没有按引擎的输出改过一个字。
+# 切词 jieba 0.42.1，拼音 pypinyin 按整句标再按词归组（ü 写作 v）；人工改正读音 3 处（--readings）。dev 83 行 862 字, test 166 行 1690 字, warmup 82 行 959 字。
+# 生成：scripts/build-typing-set.py persona <source> --warmup-days 8 --readings resources/eval/typing-readings-reviewed.tsv
+id	doc	split	text	tokens
+d01c1m1	d01c1	warmup	妈我到公司了	妈=ma 我=wo 到=dao 公司=gong'si 了=le
+d01c1m2	d01c1	warmup	早上地铁人太多了，差点没挤上去	早上=zao'shang 地铁=di'tie 人太多=ren'tai'duo 了=le ~， 差点=cha'dian 没=mei 挤上去=ji'shang'qu
+d01c1m3	d01c1	warmup	晚上不回去吃饭了，要加班	晚上=wan'shang 不=bu 回去=hui'qu 吃饭=chi'fan 了=le ~， 要=yao 加班=jia'ban
+d01c1m4	d01c1	warmup	你别等我了，早点休息	你别=ni'bie 等=deng 我=wo 了=le ~， 早点=zao'dian 休息=xiu'xi
+d01c2m1	d01c2	warmup	周哥，会员体系的需求文档我发群里了	周哥=zhou'ge ~， 会员=hui'yuan 体系=ti'xi 的=de 需求=xu'qiu 文档=wen'dang 我=wo 发群=fa'qun 里=li 了=le
+d01c2m2	d01c2	warmup	你有空先看一下技术方案那部分	你=ni 有空=you'kong 先看=xian'kan 一下=yi'xia 技术=ji'shu 方案=fang'an 那=na 部分=bu'fen
+d01c2m3	d01c2	warmup	下午三点开评审会可以吗	下午=xia'wu 三点=san'dian 开=kai 评审会=ping'shen'hui 可以=ke'yi 吗=ma
+d01c3m1	d01c3	warmup	今天估计要九点以后才能走	今天=jin'tian 估计=gu'ji 要=yao 九点=jiu'dian 以后=yi'hou 才能=cai'neng 走=zou
+d01c3m2	d01c3	warmup	你先吃吧，冰箱里还有昨天的饺子	你=ni 先=xian 吃=chi 吧=ba ~， 冰箱=bing'xiang 里=li 还有=hai'you 昨天=zuo'tian 的=de 饺子=jiao'zi
+d01c3m3	d01c3	warmup	记得给年糕添猫粮	记得=ji'de 给=gei 年糕=nian'gao 添猫=tian'mao 粮=liang
+d01c3m4	d01c3	warmup	它昨天晚上又把杯子推到地上了	它=ta 昨天晚上=zuo'tian'wan'shang 又=you 把=ba 杯子=bei'zi 推=tui 到=dao 地上=di'shang 了=le
+d02c1m1	d02c1	warmup	小美，首页那个弹窗的设计稿什么时候能出	小美=xiao'mei ~， 首页=shou'ye 那个=na'ge 弹窗=tan'chuang 的=de 设计=she'ji 稿=gao 什么=shen'me 时候=shi'hou 能出=neng'chu
+d02c1m2	d02c1	warmup	运营那边催得比较急	运营=yun'ying 那边=na'bian 催得=cui'de 比较=bi'jiao 急=ji
+d02c1m3	d02c1	warmup	颜色能不能再浅一点，现在看着有点压抑	颜色=yan'se 能=neng 不能=bu'neng 再=zai 浅=qian 一点=yi'dian ~， 现在=xian'zai 看着=kan'zhe 有点=you'dian 压抑=ya'yi
+d02c1m4	d02c1	warmup	按钮的文案我待会儿改一下发你	按钮=an'niu 的=de 文案=wen'an 我=wo 待会儿=dai'hui'er 改=gai 一下=yi'xia 发=fa 你=ni
+d02c2m1	d02c2	warmup	评审会上提的那几个问题我整理好了	评审=ping'shen 会上=hui'shang 提=ti 的=de 那=na 几个=ji'ge 问题=wen'ti 我=wo 整理=zheng'li 好=hao 了=le
+d02c2m2	d02c2	warmup	积分过期的逻辑还要再确认一下	积分=ji'fen 过期=guo'qi 的=de 逻辑=luo'ji 还要=hai'yao 再=zai 确认=que'ren 一下=yi'xia
+d02c2m3	d02c2	warmup	你觉得放到下个版本做行不行	你=ni 觉得=jue'de 放到=fang'dao 下个=xia'ge 版本=ban'ben 做=zuo 行不行=xing'bu'xing
+d02c3m1	d02c3	warmup	晚上想吃什么	晚上=wan'shang 想=xiang 吃=chi 什么=shen'me
+d02c3m2	d02c3	warmup	要不去楼下那家面馆吧	要=yao 不=bu 去=qu 楼下=lou'xia 那=na 家=jia 面馆=mian'guan 吧=ba
+d02c3m3	d02c3	warmup	我下班的时候给你打电话	我=wo 下班=xia'ban 的=de 时候=shi'hou 给=gei 你=ni 打电话=da'dian'hua
+d03c1m1	d03c1	warmup	周末有空吗，好久没见了	周末=zhou'mo 有空=you'kong 吗=ma ~， 好久没=hao'jiu'mei 见=jian 了=le
+d03c1m2	d03c1	warmup	我们去西溪湿地走走吧	我们=wo'men 去=qu 西溪=xi'xi 湿地=shi'di 走走=zou'zou 吧=ba
+d03c1m3	d03c1	warmup	天气预报说周六不下雨	天气预报=tian'qi'yu'bao 说=shuo 周六=zhou'liu 不下雨=bu'xia'yu
+d03c1m4	d03c1	warmup	叫上胖虎一起呗	叫=jiao 上=shang 胖虎=pang'hu 一起=yi'qi 呗=bei
+d03c2m1	d03c2	warmup	妈，你上次说的那个降压药还在吃吗	妈=ma ~， 你=ni 上次=shang'ci 说=shuo 的=de 那个=na'ge 降压药=jiang'ya'yao 还=hai 在=zai 吃=chi 吗=ma
+d03c2m2	d03c2	warmup	我给你在网上又买了两盒，明天应该就到了	我=wo 给=gei 你=ni 在=zai 网上=wang'shang 又=you 买=mai 了=le 两盒=liang'he ~， 明天=ming'tian 应该=ying'gai 就=jiu 到=dao 了=le
+d03c2m3	d03c2	warmup	到了你记得去门口拿一下	到=dao 了=le 你=ni 记得=ji'de 去=qu 门口=men'kou 拿=na 一下=yi'xia
+d03c2m4	d03c2	warmup	别老是舍不得开空调，热坏了不值得	别老是=bie'lao'shi 舍不得=she'bu'de 开=kai 空调=kong'tiao ~， 热坏=re'huai 了=le 不=bu 值得=zhi'de
+d03c3m1	d03c3	warmup	测试环境好像挂了，我这边一直登录不上	测试环境=ce'shi'huan'jing 好像=hao'xiang 挂=gua 了=le ~， 我=wo 这边=zhe'bian 一直=yi'zhi 登录=deng'lu 不上=bu'shang
+d03c3m2	d03c3	warmup	是不是昨天晚上发版的问题	是不是=shi'bu'shi 昨天晚上=zuo'tian'wan'shang 发版=fa'ban 的=de 问题=wen'ti
+d03c3m3	d03c3	warmup	麻烦帮忙看一下，谢谢周哥	麻烦=ma'fan 帮忙=bang'mang 看=kan 一下=yi'xia ~， 谢谢=xie'xie 周哥=zhou'ge
+d04c1m1	d04c1	warmup	我今天早点回去，六点半左右到家	我=wo 今天=jin'tian 早点=zao'dian 回去=hui'qu ~， 六点半=liu'dian'ban 左右=zuo'you 到家=dao'jia
+d04c1m2	d04c1	warmup	顺路去超市买点菜	顺路去=shun'lu'qu 超市=chao'shi 买点=mai'dian 菜=cai
+d04c1m3	d04c1	warmup	你想吃红烧肉还是糖醋排骨	你=ni 想=xiang 吃=chi 红烧肉=hong'shao'rou 还是=hai'shi 糖醋排骨=tang'cu'pai'gu
+d04c1m4	d04c1	warmup	那就都做吧哈哈	那=na 就=jiu 都=dou 做=zuo 吧=ba 哈哈=ha'ha
+d04c2m1	d04c2	warmup	设计稿收到了，整体挺好的	设计=she'ji 稿=gao 收到=shou'dao 了=le ~， 整体=zheng'ti 挺=ting 好=hao 的=de
+d04c2m2	d04c2	warmup	就是第二页的图标有点小，在手机上看不太清	就是=jiu'shi 第二页=di'er'ye 的=de 图标=tu'biao 有点=you'dian 小=xiao ~， 在=zai 手机=shou'ji 上=shang 看=kan 不太清=bu'tai'qing
+d04c2m3	d04c2	warmup	能不能改大一号	能=neng 不能=bu'neng 改=gai 大=da 一号=yi'hao
+d04c2m4	d04c2	warmup	辛苦啦，晚上请你喝奶茶	辛苦=xin'ku 啦=la ~， 晚上=wan'shang 请=qing 你=ni 喝=he 奶茶=nai'cha
+d04c3m1	d04c3	warmup	王总，这周的进度我整理成周报发您邮箱了	王总=wang'zong ~， 这周=zhe'zhou 的=de 进度=jin'du 我=wo 整理=zheng'li 成=cheng 周报=zhou'bao 发=fa 您=nin 邮箱=you'xiang 了=le
+d04c3m2	d04c3	warmup	主要风险是接口联调可能会延期两天	主要=zhu'yao 风险=feng'xian 是=shi 接口=jie'kou 联调=lian'tiao 可能=ke'neng 会=hui 延期=yan'qi 两天=liang'tian
+d04c3m3	d04c3	warmup	我们已经在想办法压缩测试时间	我们=wo'men 已经=yi'jing 在=zai 想=xiang 办法=ban'fa 压缩=ya'suo 测试=ce'shi 时间=shi'jian
+d05c1m1	d05c1	warmup	我到了，在门口等你们	我=wo 到=dao 了=le ~， 在=zai 门口=men'kou 等=deng 你们=ni'men
+d05c1m2	d05c1	warmup	你们还有多久	你们=ni'men 还有=hai'you 多久=duo'jiu
+d05c1m3	d05c1	warmup	胖虎又迟到了吧，每次都这样	胖虎=pang'hu 又=you 迟到=chi'dao 了=le 吧=ba ~， 每次=mei'ci 都=dou 这样=zhe'yang
+d05c1m4	d05c1	warmup	我先去买票，你们到了直接进来	我=wo 先=xian 去=qu 买票=mai'piao ~， 你们=ni'men 到=dao 了=le 直接=zhi'jie 进来=jin'lai
+d05c2m1	d05c2	warmup	你到底到哪儿了	你=ni 到底=dao'di 到=dao 哪儿=na'er 了=le
+d05c2m2	d05c2	warmup	地铁坐过站了？哈哈哈	地铁=di'tie 坐过=zuo'guo 站=zhan 了=le ~？ 哈哈哈=ha'ha'ha
+d05c2m3	d05c2	warmup	算了算了，我们在湖边那个亭子等你	算了算=suan'le'suan 了=le ~， 我们=wo'men 在=zai 湖边=hu'bian 那个=na'ge 亭子=ting'zi 等=deng 你=ni
+d05c3m1	d05c3	warmup	妈，我们在西溪湿地玩呢	妈=ma ~， 我们=wo'men 在=zai 西溪=xi'xi 湿地=shi'di 玩=wan 呢=ne
+d05c3m2	d05c3	warmup	拍了几张照片发给你看看	拍=pai 了=le 几张=ji'zhang 照片=zhao'pian 发给你=fa'gei'ni 看看=kan'kan
+d05c3m3	d05c3	warmup	风景特别好，下次带你和爸一起来	风景=feng'jing 特别=te'bie 好=hao ~， 下次=xia'ci 带=dai 你=ni 和=he 爸=ba 一=yi 起来=qi'lai
+d06c1m1	d06c1	warmup	今天好累啊，走了两万多步	今天=jin'tian 好累=hao'lei 啊=a ~， 走=zou 了=le 两万多=liang'wan'duo 步=bu
+d06c1m2	d06c1	warmup	脚都磨出泡了	脚=jiao 都=dou 磨出=mo'chu 泡=pao 了=le
+d06c1m3	d06c1	warmup	晚上不想做饭了，点外卖吧	晚上=wan'shang 不想=bu'xiang 做饭=zuo'fan 了=le ~， 点=dian 外卖=wai'mai 吧=ba
+d06c1m4	d06c1	warmup	你帮我看看有没有那家酸菜鱼	你=ni 帮=bang 我=wo 看看=kan'kan 有没有=you'mei'you 那=na 家=jia 酸菜鱼=suan'cai'yu
+d06c2m1	d06c2	warmup	今天玩得好开心	今天=jin'tian 玩得=wan'de 好开心=hao'kai'xin
+d06c2m2	d06c2	warmup	照片我都传到群相册了	照片=zhao'pian 我=wo 都=dou 传到=chuan'dao 群=qun 相册=xiang'ce 了=le
+d06c2m3	d06c2	warmup	下个月我们去爬山吧	下个月=xia'ge'yue 我们=wo'men 去=qu 爬山=pa'shan 吧=ba
+d06c2m4	d06c2	warmup	胖虎说他要减肥，我看悬	胖虎=pang'hu 说=shuo 他=ta 要=yao 减肥=jian'fei ~， 我=wo 看=kan 悬=xuan
+d07c1m1	d07c1	warmup	周哥，周一的站会改到十点了	周哥=zhou'ge ~， 周一=zhou'yi 的=de 站=zhan 会=hui 改到=gai'dao 十点=shi'dian 了=le
+d07c1m2	d07c1	warmup	王总说要一起过一下排期	王总说=wang'zong'shuo 要=yao 一起=yi'qi 过=guo 一下=yi'xia 排期=pai'qi
+d07c1m3	d07c1	warmup	接口文档你那边更新了吗	接口=jie'kou 文档=wen'dang 你=ni 那边=na'bian 更新=geng'xin 了=le 吗=ma
+d07c1m4	d07c1	warmup	我想先跟前端对一下字段	我=wo 想=xiang 先=xian 跟=gen 前端=qian'duan 对=dui 一下=yi'xia 字=zi 段=duan
+d07c2m1	d07c2	warmup	弹窗的动效能不能做得简单一点	弹窗=tan'chuang 的=de 动=dong 效能=xiao'neng 不能=bu'neng 做=zuo 得=de 简单=jian'dan 一点=yi'dian
+d07c2m2	d07c2	warmup	开发那边说太复杂了，这个版本来不及	开发=kai'fa 那边=na'bian 说=shuo 太=tai 复杂=fu'za 了=le ~， 这个=zhe'ge 版本=ban'ben 来不及=lai'bu'ji
+d07c2m3	d07c2	warmup	先用渐隐就行，下个版本再优化	先=xian 用=yong 渐隐=jian'yin 就行=jiu'xing ~， 下个=xia'ge 版本=ban'ben 再=zai 优化=you'hua
+d07c3m1	d07c3	warmup	明天早上我送年糕去打疫苗	明天=ming'tian 早上=zao'shang 我=wo 送=song 年糕=nian'gao 去=qu 打=da 疫苗=yi'miao
+d07c3m2	d07c3	warmup	你帮我请个半天假的话我就自己去	你=ni 帮=bang 我=wo 请=qing 个=ge 半天=ban'tian 假=jia 的话=de'hua 我=wo 就=jiu 自己=zi'ji 去=qu
+d07c3m3	d07c3	warmup	算了还是我自己请吧	算了=suan'le 还是=hai'shi 我=wo 自己=zi'ji 请=qing 吧=ba
+d08c1m1	d08c1	warmup	妈，药收到了吗	妈=ma ~， 药=yao 收到=shou'dao 了=le 吗=ma
+d08c1m2	d08c1	warmup	快递显示已经签收了	快递=kuai'di 显示=xian'shi 已经=yi'jing 签收=qian'shou 了=le
+d08c1m3	d08c1	warmup	你看看是不是放在门卫那里了	你=ni 看看=kan'kan 是不是=shi'bu'shi 放在=fang'zai 门卫=men'wei 那里=na'li 了=le
+d08c1m4	d08c1	warmup	爸的腰好点没有，别让他搬重东西	爸=ba 的=de 腰=yao 好点=hao'dian 没有=mei'you ~， 别=bie 让=rang 他=ta 搬重=ban'zhong 东西=dong'xi
+d08c2m1	d08c2	warmup	上线时间定在下周四晚上	上线=shang'xian 时间=shi'jian 定=ding 在=zai 下=xia 周四=zhou'si 晚上=wan'shang
+d08c2m2	d08c2	warmup	回滚方案需要你们准备一下	回滚=hui'gun 方案=fang'an 需要=xu'yao 你们=ni'men 准备=zhun'bei 一下=yi'xia
+d08c2m3	d08c2	warmup	数据迁移那块我有点担心	数据=shu'ju 迁移=qian'yi 那块=na'kuai 我=wo 有点=you'dian 担心=dan'xin
+d08c2m4	d08c2	warmup	要不要先在灰度环境跑一遍	要=yao 不要=bu'yao 先=xian 在=zai 灰度=hui'du 环境=huan'jing 跑=pao 一遍=yi'bian
+d08c3m1	d08c3	warmup	年糕打完疫苗了，医生说很健康	年糕=nian'gao 打=da 完=wan 疫苗=yi'miao 了=le ~， 医生=yi'sheng 说=shuo 很=hen 健康=jian'kang
+d08c3m2	d08c3	warmup	就是有点胖，要控制一下饮食	就是=jiu'shi 有点=you'dian 胖=pang ~， 要=yao 控制=kong'zhi 一下=yi'xia 饮食=yin'shi
+d08c3m3	d08c3	warmup	它在医院里吓得一直叫	它=ta 在=zai 医院=yi'yuan 里=li 吓=xia 得=de 一直=yi'zhi 叫=jiao
+d09c1m1	d09c1	dev	小美，会员中心的页面需要再加一个入口	小美=xiao'mei ~， 会员中心=hui'yuan'zhong'xin 的=de 页面=ye'mian 需要=xu'yao 再=zai 加=jia 一个=yi'ge 入口=ru'kou
+d09c1m2	d09c1	dev	放在我的页面最上面	放在=fang'zai 我=wo 的=de 页面=ye'mian 最=zui 上面=shang'mian
+d09c1m3	d09c1	dev	就是那种卡片的样式	就是=jiu'shi 那种=na'zhong 卡片=ka'pian 的=de 样式=yang'shi
+d09c1m4	d09c1	dev	你看今天能不能先出个草图	你=ni 看=kan 今天=jin'tian 能=neng 不能=bu'neng 先出=xian'chu 个=ge 草图=cao'tu
+d09c2m1	d09c2	dev	灰度环境跑通了，数据都没问题	灰度=hui'du 环境=huan'jing 跑通=pao'tong 了=le ~， 数据=shu'ju 都=dou 没=mei 问题=wen'ti
+d09c2m2	d09c2	dev	就是有一个接口响应比较慢	就是=jiu'shi 有=you 一个=yi'ge 接口=jie'kou 响应=xiang'ying 比较慢=bi'jiao'man
+d09c2m3	d09c2	dev	大概要两秒多，用户肯定会觉得卡	大概=da'gai 要=yao 两秒=liang'miao 多=duo ~， 用户=yong'hu 肯定=ken'ding 会=hui 觉得=jue'de 卡=ka
+d09c2m4	d09c2	dev	能不能加个缓存	能=neng 不能=bu'neng 加个=jia'ge 缓存=huan'cun
+d09c3m1	d09c3	dev	晚上我想去健身房	晚上=wan'shang 我=wo 想=xiang 去=qu 健身房=jian'shen'fang
+d09c3m2	d09c3	dev	你要不要一起去	你=ni 要=yao 不要=bu'yao 一起=yi'qi 去=qu
+d09c3m3	d09c3	dev	上次办的卡快过期了，再不去就浪费了	上次=shang'ci 办=ban 的=de 卡快=ka'kuai 过期=guo'qi 了=le ~， 再不去=zai'bu'qu 就=jiu 浪费=lang'fei 了=le
+d10c1m1	d10c1	test	王总，下周四上线的方案已经确认了	王总=wang'zong ~， 下=xia 周四=zhou'si 上线=shang'xian 的=de 方案=fang'an 已经=yi'jing 确认=que'ren 了=le
+d10c1m2	d10c1	test	运营那边的活动也准备好了	运营=yun'ying 那边=na'bian 的=de 活动=huo'dong 也=ye 准备=zhun'bei 好=hao 了=le
+d10c1m3	d10c1	test	到时候我会在群里同步进度	到时候=dao'shi'hou 我会=wo'hui 在=zai 群里=qun'li 同步=tong'bu 进度=jin'du
+d10c1m4	d10c1	test	有问题随时找我	有=you 问题=wen'ti 随时=sui'shi 找=zhao 我=wo
+d10c2m1	d10c2	test	你上次说的那家火锅店叫什么名字来着	你=ni 上次=shang'ci 说=shuo 的=de 那家=na'jia 火锅店=huo'guo'dian 叫=jiao 什么=shen'me 名字=ming'zi 来=lai 着=zhe
+d10c2m2	d10c2	test	我想周末带阿杰去吃	我=wo 想=xiang 周末=zhou'mo 带=dai 阿杰=a'jie 去=qu 吃=chi
+d10c2m3	d10c2	test	是不是在万象城那边	是不是=shi'bu'shi 在=zai 万象=wan'xiang 城=cheng 那边=na'bian
+d10c2m4	d10c2	test	要提前排队吗	要=yao 提前=ti'qian 排队=pai'dui 吗=ma
+d10c3m1	d10c3	test	妈，下周我可能回不去了，要上线	妈=ma ~， 下周=xia'zhou 我=wo 可能=ke'neng 回不去=hui'bu'qu 了=le ~， 要=yao 上线=shang'xian
+d10c3m2	d10c3	test	等忙完这阵子我请两天假回家	等=deng 忙=mang 完=wan 这阵子=zhe'zhen'zi 我=wo 请=qing 两天=liang'tian 假=jia 回家=hui'jia
+d10c3m3	d10c3	test	你和爸注意身体	你=ni 和=he 爸=ba 注意=zhu'yi 身体=shen'ti
+d11c1m1	d11c1	test	周哥，缓存加上以后快多了	周哥=zhou'ge ~， 缓存=huan'cun 加上=jia'shang 以后=yi'hou 快=kuai 多=duo 了=le
+d11c1m2	d11c1	test	现在基本都在两百毫秒以内	现在=xian'zai 基本=ji'ben 都=dou 在=zai 两百=liang'bai 毫秒=hao'miao 以内=yi'nei
+d11c1m3	d11c1	test	你们太厉害了	你们=ni'men 太=tai 厉害=li'hai 了=le
+d11c1m4	d11c1	test	今晚请大家吃夜宵	今晚=jin'wan 请=qing 大家=da'jia 吃=chi 夜宵=ye'xiao
+d11c2m1	d11c2	test	草图我看了，方向是对的	草图=cao'tu 我=wo 看=kan 了=le ~， 方向=fang'xiang 是=shi 对=dui 的=de
+d11c2m2	d11c2	test	卡片的圆角再大一点会更好看	卡片=ka'pian 的=de 圆角=yuan'jiao 再大=zai'da 一点=yi'dian 会=hui 更好=geng'hao 看=kan
+d11c2m3	d11c2	test	文字的颜色跟背景有点接近，看不清楚	文字=wen'zi 的=de 颜色=yan'se 跟=gen 背景=bei'jing 有点=you'dian 接近=jie'jin ~， 看不清楚=kan'bu'qing'chu
+d11c2m4	d11c2	test	改完直接发我就行	改完=gai'wan 直接=zhi'jie 发=fa 我=wo 就=jiu 行=xing
+d11c3m1	d11c3	test	今天开心，项目进度终于赶上了	今天=jin'tian 开心=kai'xin ~， 项目=xiang'mu 进度=jin'du 终于=zhong'yu 赶上=gan'shang 了=le
+d11c3m2	d11c3	test	晚上回家给你做好吃的	晚上=wan'shang 回家=hui'jia 给=gei 你=ni 做=zuo 好吃=hao'chi 的=de
+d11c3m3	d11c3	test	你想喝什么，我顺路买	你=ni 想=xiang 喝=he 什么=shen'me ~， 我=wo 顺路=shun'lu 买=mai
+d12c1m1	d12c1	dev	火锅太好吃了，谢谢推荐	火锅=huo'guo 太=tai 好吃=hao'chi 了=le ~， 谢谢=xie'xie 推荐=tui'jian
+d12c1m2	d12c1	dev	阿杰吃得停不下来	阿杰=a'jie 吃=chi 得=de 停不下来=ting'bu'xia'lai
+d12c1m3	d12c1	dev	就是排了一个多小时的队	就是=jiu'shi 排=pai 了=le 一个多=yi'ge'duo 小时=xiao'shi 的=de 队=dui
+d12c1m4	d12c1	dev	下次我们工作日去	下次=xia'ci 我们=wo'men 工作日=gong'zuo'ri 去=qu
+d12c2m1	d12c2	dev	你减肥减得怎么样了	你=ni 减肥=jian'fei 减=jian 得=de 怎么样=zen'me'yang 了=le
+d12c2m2	d12c2	dev	我看你朋友圈天天在吃	我=wo 看=kan 你=ni 朋友圈=peng'you'quan 天天=tian'tian 在=zai 吃=chi
+d12c2m3	d12c2	dev	别骗自己了哈哈哈	别骗=bie'pian 自己=zi'ji 了=le 哈哈哈=ha'ha'ha
+d12c2m4	d12c2	dev	周末一起打羽毛球吧	周末=zhou'mo 一起=yi'qi 打=da 羽毛球=yu'mao'qiu 吧=ba
+d12c3m1	d12c3	dev	测试那边提了十几个问题	测试=ce'shi 那边=na'bian 提了=ti'le 十几个=shi'ji'ge 问题=wen'ti
+d12c3m2	d12c3	dev	大部分是样式问题，小美在改	大部分=da'bu'fen 是=shi 样式=yang'shi 问题=wen'ti ~， 小美=xiao'mei 在=zai 改=gai
+d12c3m3	d12c3	dev	有两个是逻辑问题，需要你们看一下	有=you 两个=liang'ge 是=shi 逻辑=luo'ji 问题=wen'ti ~， 需要=xu'yao 你们=ni'men 看=kan 一下=yi'xia
+d12c3m4	d12c3	dev	我已经在系统里指给你了	我=wo 已经=yi'jing 在=zai 系统=xi'tong 里=li 指=zhi 给=gei 你=ni 了=le
+d13c1m1	d13c1	test	今天下雨了，你带伞了吗	今天=jin'tian 下雨=xia'yu 了=le ~， 你=ni 带=dai 伞=san 了=le 吗=ma
+d13c1m2	d13c1	test	没带的话我去地铁站接你	没带=mei'dai 的话=de'hua 我=wo 去=qu 地铁站=di'tie'zhan 接=jie 你=ni
+d13c1m3	d13c1	test	你到了给我发个消息	你=ni 到=dao 了=le 给我发=gei'wo'fa 个=ge 消息=xiao'xi
+d13c1m4	d13c1	test	别着凉了	别=bie 着凉=zhao'liang 了=le
+d13c2m1	d13c2	test	妈，今天降温了，多穿点衣服	妈=ma ~， 今天=jin'tian 降温=jiang'wen 了=le ~， 多=duo 穿点=chuan'dian 衣服=yi'fu
+d13c2m2	d13c2	test	你们那边是不是下雪了	你们=ni'men 那边=na'bian 是不是=shi'bu'shi 下雪=xia'xue 了=le
+d13c2m3	d13c2	test	爸又出去钓鱼了吗	爸=ba 又=you 出去=chu'qu 钓鱼=diao'yu 了=le 吗=ma
+d13c2m4	d13c2	test	让他别在河边待太久	让=rang 他=ta 别=bie 在=zai 河边=he'bian 待=dai 太久=tai'jiu
+d13c3m1	d13c3	test	改好的稿子我看了，很完美	改好=gai'hao 的=de 稿子=gao'zi 我=wo 看=kan 了=le ~， 很=hen 完美=wan'mei
+d13c3m2	d13c3	test	我已经转给开发了	我=wo 已经=yi'jing 转给=zhuan'gei 开发=kai'fa 了=le
+d13c3m3	d13c3	test	这次真的辛苦你了	这次=zhe'ci 真的=zhen'de 辛苦=xin'ku 你=ni 了=le
+d14c1m1	d14c1	test	今晚上线，大家辛苦一下	今晚=jin'wan 上线=shang'xian ~， 大家=da'jia 辛苦=xin'ku 一下=yi'xia
+d14c1m2	d14c1	test	我会一直在线，有问题随时喊我	我会=wo'hui 一直=yi'zhi 在线=zai'xian ~， 有=you 问题=wen'ti 随时=sui'shi 喊=han 我=wo
+d14c1m3	d14c1	test	发版之前再确认一遍配置	发版=fa'ban 之前=zhi'qian 再=zai 确认=que'ren 一遍=yi'bian 配置=pei'zhi
+d14c1m4	d14c1	test	数据库备份做了吗	数据库=shu'ju'ku 备份=bei'fen 做=zuo 了=le 吗=ma
+d14c2m1	d14c2	test	王总，上线一切顺利	王总=wang'zong ~， 上线=shang'xian 一切顺利=yi'qie'shun'li
+d14c2m2	d14c2	test	核心指标都正常	核心=he'xin 指标=zhi'biao 都=dou 正常=zheng'chang
+d14c2m3	d14c2	test	明天早上我再看一下用户反馈	明天=ming'tian 早上=zao'shang 我=wo 再=zai 看=kan 一下=yi'xia 用户=yong'hu 反馈=fan'kui
+d14c3m1	d14c3	test	终于上完线了，现在才到家	终于=zhong'yu 上=shang 完线=wan'xian 了=le ~， 现在=xian'zai 才=cai 到=dao 家=jia
+d14c3m2	d14c3	test	累死了，我先去洗澡	累死=lei'si 了=le ~， 我=wo 先=xian 去=qu 洗澡=xi'zao
+d14c3m3	d14c3	test	年糕又睡在我的枕头上了	年糕=nian'gao 又=you 睡=shui 在=zai 我=wo 的=de 枕头=zhen'tou 上=shang 了=le
+d15c1m1	d15c1	dev	我们部门今天聚餐，喝了点酒	我们=wo'men 部门=bu'men 今天=jin'tian 聚餐=ju'can ~， 喝=he 了=le 点=dian 酒=jiu
+d15c1m2	d15c1	dev	有点头晕，先回家了	有点=you'dian 头晕=tou'yun ~， 先=xian 回家=hui'jia 了=le
+d15c1m3	d15c1	dev	明天再跟你说	明天=ming'tian 再=zai 跟=gen 你=ni 说=shuo
+d15c2m1	d15c2	dev	用户反馈整体还不错	用户=yong'hu 反馈=fan'kui 整体=zheng'ti 还=hai 不错=bu'cuo
+d15c2m2	d15c2	dev	有人说积分页面打不开	有人=you'ren 说=shuo 积分=ji'fen 页面=ye'mian 打不开=da'bu'kai
+d15c2m3	d15c2	dev	我截了图发给你	我截=wo'jie 了=le 图=tu 发给你=fa'gei'ni
+d15c2m4	d15c2	dev	好像是安卓的老版本才有这个问题	好像=hao'xiang 是=shi 安卓=an'zhuo 的=de 老=lao 版本=ban'ben 才=cai 有=you 这个=zhe'ge 问题=wen'ti
+d15c3m1	d15c3	dev	妈，上线结束了，我这周末回家	妈=ma ~， 上线=shang'xian 结束=jie'shu 了=le ~， 我=wo 这=zhe 周末=zhou'mo 回家=hui'jia
+d15c3m2	d15c3	dev	你想吃什么，我给你带	你=ni 想=xiang 吃=chi 什么=shen'me ~， 我=wo 给=gei 你=ni 带=dai
+d15c3m3	d15c3	dev	爸喜欢的那个糕点我也买点	爸=ba 喜欢=xi'huan 的=de 那个=na'ge 糕点=gao'dian 我=wo 也=ye 买点=mai'dian
+d16c1m1	d16c1	test	我周末回家，你要不要一起	我=wo 周末=zhou'mo 回家=hui'jia ~， 你=ni 要=yao 不要=bu'yao 一起=yi'qi
+d16c1m2	d16c1	test	我妈一直念叨你呢	我妈=wo'ma 一直=yi'zhi 念叨=nian'dao 你=ni 呢=ne
+d16c1m3	d16c1	test	她说上次你修好的那个灯现在还好用	她=ta 说=shuo 上次=shang'ci 你=ni 修好=xiu'hao 的=de 那个=na'ge 灯=deng 现在=xian'zai 还好=hai'hao 用=yong
+d16c1m4	d16c1	test	那我买周六早上的高铁票了	那=na 我=wo 买=mai 周六=zhou'liu 早上=zao'shang 的=de 高铁=gao'tie 票=piao 了=le
+d16c2m1	d16c2	test	羽毛球改到下周吧	羽毛球=yu'mao'qiu 改=gai 到=dao 下周=xia'zhou 吧=ba
+d16c2m2	d16c2	test	这周我要回老家	这周=zhe'zhou 我=wo 要=yao 回老家=hui'lao'jia
+d16c2m3	d16c2	test	你先约别人打	你=ni 先约=xian'yue 别人=bie'ren 打=da
+d16c3m1	d16c3	test	下个版本的需求我先发你看看	下个=xia'ge 版本=ban'ben 的=de 需求=xu'qiu 我=wo 先发=xian'fa 你=ni 看看=kan'kan
+d16c3m2	d16c3	test	主要是签到和任务中心	主要=zhu'yao 是=shi 签到=qian'dao 和=he 任务=ren'wu 中心=zhong'xin
+d16c3m3	d16c3	test	时间不急，下周再讨论	时间=shi'jian 不=bu 急=ji ~， 下周=xia'zhou 再=zai 讨论=tao'lun
+d17c1m1	d17c1	test	妈，我们上高铁了	妈=ma ~， 我们=wo'men 上=shang 高铁=gao'tie 了=le
+d17c1m2	d17c1	test	大概中午十二点到	大概=da'gai 中午=zhong'wu 十二点=shi'er'dian 到=dao
+d17c1m3	d17c1	test	你不用来接，我们打车回去	你=ni 不=bu 用来=yong'lai 接=jie ~， 我们=wo'men 打车=da'che 回去=hui'qu
+d17c1m4	d17c1	test	饭别做太多，吃不完	饭别=fan'bie 做=zuo 太=tai 多=duo ~， 吃不完=chi'bu'wan
+d17c2m1	d17c2	test	我在老家呢，这边的天好蓝	我=wo 在=zai 老家=lao'jia 呢=ne ~， 这边=zhe'bian 的=de 天好=tian'hao 蓝=lan
+d17c2m2	d17c2	test	吃了好多好吃的，胖了三斤	吃=chi 了=le 好多=hao'duo 好吃=hao'chi 的=de ~， 胖=pang 了=le 三斤=san'jin
+d17c2m3	d17c2	test	周一回杭州再约	周=zhou 一回=yi'hui 杭州=hang'zhou 再=zai 约=yue
+d18c1m1	d18c1	dev	我妈给你装了一大袋子菜	我妈=wo'ma 给=gei 你=ni 装=zhuang 了=le 一大=yi'da 袋子=dai'zi 菜=cai
+d18c1m2	d18c1	dev	说外面买的没有家里的好吃	说=shuo 外面=wai'mian 买=mai 的=de 没有=mei'you 家里=jia'li 的=de 好吃=hao'chi
+d18c1m3	d18c1	dev	你记得跟她说谢谢	你=ni 记得=ji'de 跟=gen 她=ta 说=shuo 谢谢=xie'xie
+d18c1m4	d18c1	dev	回去的票买好了吗	回去=hui'qu 的=de 票=piao 买=mai 好了吗=hao'le'ma
+d18c2m1	d18c2	dev	妈，我们到杭州了，一路很顺利	妈=ma ~， 我们=wo'men 到=dao 杭州=hang'zhou 了=le ~， 一路=yi'lu 很=hen 顺利=shun'li
+d18c2m2	d18c2	dev	菜都放冰箱了	菜=cai 都=dou 放=fang 冰箱=bing'xiang 了=le
+d18c2m3	d18c2	dev	你和爸早点睡，别熬夜看电视	你=ni 和=he 爸=ba 早点=zao'dian 睡=shui ~， 别=bie 熬夜=ao'ye 看电视=kan'dian'shi
+d18c2m4	d18c2	dev	下个月我再回来	下个月=xia'ge'yue 我=wo 再=zai 回来=hui'lai
+d19c1m1	d19c1	test	周哥，签到功能的技术方案你们出了吗	周哥=zhou'ge ~， 签到=qian'dao 功能=gong'neng 的=de 技术=ji'shu 方案=fang'an 你们=ni'men 出=chu 了=le 吗=ma
+d19c1m2	d19c1	test	我这边需要评估一下工作量	我=wo 这边=zhe'bian 需要=xu'yao 评估=ping'gu 一下=yi'xia 工作量=gong'zuo'liang
+d19c1m3	d19c1	test	任务中心的规则比较复杂	任务=ren'wu 中心=zhong'xin 的=de 规则=gui'ze 比较复杂=bi'jiao'fu'za
+d19c1m4	d19c1	test	我们可能要拆成两期做	我们=wo'men 可能=ke'neng 要=yao 拆成=chai'cheng 两期=liang'qi 做=zuo
+d19c2m1	d19c2	test	签到的日历样式你先做两个方案	签到=qian'dao 的=de 日历=ri'li 样式=yang'shi 你=ni 先=xian 做=zuo 两个=liang'ge 方案=fang'an
+d19c2m2	d19c2	test	一个简洁一点，一个活泼一点	一个=yi'ge 简洁=jian'jie 一点=yi'dian ~， 一个=yi'ge 活泼=huo'po 一点=yi'dian
+d19c2m3	d19c2	test	到时候拿给王总选	到时候=dao'shi'hou 拿给=na'gei 王总选=wang'zong'xuan
+d19c3m1	d19c3	test	今天公司楼下的面馆关门了	今天=jin'tian 公司=gong'si 楼下=lou'xia 的=de 面馆=mian'guan 关门=guan'men 了=le
+d19c3m2	d19c3	test	不知道是不是要装修	不=bu 知道=zhi'dao 是不是=shi'bu'shi 要=yao 装修=zhuang'xiu
+d19c3m3	d19c3	test	中午只能吃食堂了，难吃死了	中午=zhong'wu 只能=zhi'neng 吃=chi 食堂=shi'tang 了=le ~， 难吃=nan'chi 死=si 了=le
+d20c1m1	d20c1	test	王总，签到和任务中心我们打算分两期上线	王总=wang'zong ~， 签到=qian'dao 和=he 任务=ren'wu 中心=zhong'xin 我们=wo'men 打算=da'suan 分=fen 两期=liang'qi 上线=shang'xian
+d20c1m2	d20c1	test	第一期先做签到，大概两周	第一期=di'yi'qi 先=xian 做=zuo 签到=qian'dao ~， 大概=da'gai 两周=liang'zhou
+d20c1m3	d20c1	test	第二期再做任务中心	第二期=di'er'qi 再=zai 做=zuo 任务=ren'wu 中心=zhong'xin
+d20c1m4	d20c1	test	您看这样安排可以吗	您=nin 看=kan 这样=zhe'yang 安排=an'pai 可以=ke'yi 吗=ma
+d20c2m1	d20c2	test	王总同意分两期了	王总=wang'zong 同意=tong'yi 分=fen 两期=liang'qi 了=le
+d20c2m2	d20c2	test	那我们第一期的排期就按两周来	那=na 我们=wo'men 第一期=di'yi'qi 的=de 排期=pai'qi 就=jiu 按=an 两周=liang'zhou 来=lai
+d20c2m3	d20c2	test	下周一开个启动会	下周一=xia'zhou'yi 开个=kai'ge 启动=qi'dong 会=hui
+d20c2m4	d20c2	test	你帮我叫上测试的同学	你=ni 帮=bang 我=wo 叫=jiao 上=shang 测试=ce'shi 的=de 同学=tong'xue
+d20c3m1	d20c3	test	最近在追一个剧，特别好看	最近=zui'jin 在=zai 追=zhui 一个=yi'ge 剧=ju ~， 特别=te'bie 好看=hao'kan
+d20c3m2	d20c3	test	讲的是一群年轻人在大城市打拼的故事	讲=jiang 的=de 是=shi 一群=yi'qun 年轻人=nian'qing'ren 在=zai 大城市=da'cheng'shi 打拼=da'pin 的=de 故事=gu'shi
+d20c3m3	d20c3	test	你有空也可以看看	你=ni 有空=you'kong 也=ye 可以=ke'yi 看看=kan'kan
+d21c1m1	d21c1	dev	你今天能早点回来吗	你=ni 今天=jin'tian 能=neng 早点=zao'dian 回来=hui'lai 吗=ma
+d21c1m2	d21c1	dev	我想把客厅的沙发换个位置	我=wo 想=xiang 把=ba 客厅=ke'ting 的=de 沙发=sha'fa 换个=huan'ge 位置=wei'zhi
+d21c1m3	d21c1	dev	一个人搬不动	一个=yi'ge 人=ren 搬=ban 不动=bu'dong
+d21c1m4	d21c1	dev	顺便把窗帘也洗一下	顺便=shun'bian 把=ba 窗帘=chuang'lian 也=ye 洗=xi 一下=yi'xia
+d21c2m1	d21c2	dev	这周六打羽毛球，你约到场地了吗	这=zhe 周六=zhou'liu 打=da 羽毛球=yu'mao'qiu ~， 你=ni 约=yue 到=dao 场地=chang'di 了=le 吗=ma
+d21c2m2	d21c2	dev	还是老地方吧	还是=hai'shi 老=lao 地方=di'fang 吧=ba
+d21c2m3	d21c2	dev	我带球，你带水	我=wo 带球=dai'qiu ~， 你=ni 带水=dai'shui
+d21c2m4	d21c2	dev	别再迟到了啊	别=bie 再=zai 迟到=chi'dao 了=le 啊=a
+d21c3m1	d21c3	dev	两个方案都挺好的，我更喜欢活泼的那个	两个=liang'ge 方案=fang'an 都=dou 挺=ting 好=hao 的=de ~， 我=wo 更=geng 喜欢=xi'huan 活泼=huo'po 的=de 那个=na'ge
+d21c3m2	d21c3	dev	不过还是让王总定吧	不过=bu'guo 还是=hai'shi 让=rang 王总定=wang'zong'ding 吧=ba
+d21c3m3	d21c3	dev	明天上午十点我们一起去找他	明天=ming'tian 上午=shang'wu 十点=shi'dian 我们=wo'men 一起=yi'qi 去=qu 找=zhao 他=ta
+d22c1m1	d22c1	test	启动会的纪要我发群里了	启动=qi'dong 会=hui 的=de 纪要=ji'yao 我=wo 发群=fa'qun 里=li 了=le
+d22c1m2	d22c1	test	大家有问题可以在下面留言	大家=da'jia 有=you 问题=wen'ti 可以=ke'yi 在=zai 下面=xia'mian 留言=liu'yan
+d22c1m3	d22c1	test	测试用例下周三之前给我	测试用例=ce'shi'yong'li 下=xia 周三=zhou'san 之前=zhi'qian 给=gei 我=wo
+d22c1m4	d22c1	test	接口文档先出一个初版	接口=jie'kou 文档=wen'dang 先出=xian'chu 一个=yi'ge 初版=chu'ban
+d22c2m1	d22c2	test	妈，你上次说的体检报告出来了吗	妈=ma ~， 你=ni 上次=shang'ci 说=shuo 的=de 体检=ti'jian 报告=bao'gao 出来=chu'lai 了=le 吗=ma
+d22c2m2	d22c2	test	医生怎么说	医生=yi'sheng 怎么=zen'me 说=shuo
+d22c2m3	d22c2	test	有什么问题一定要告诉我	有=you 什么=shen'me 问题=wen'ti 一定=yi'ding 要=yao 告诉=gao'su 我=wo
+d22c2m4	d22c2	test	别什么都瞒着我	别=bie 什么=shen'me 都=dou 瞒=man 着=zhe 我=wo
+d22c3m1	d22c3	test	沙发换了位置以后客厅大了好多	沙发=sha'fa 换=huan 了=le 位置=wei'zhi 以后=yi'hou 客厅=ke'ting 大=da 了=le 好多=hao'duo
+d22c3m2	d22c3	test	年糕好像不太习惯，一直在闻	年糕=nian'gao 好像=hao'xiang 不太=bu'tai 习惯=xi'guan ~， 一直=yi'zhi 在=zai 闻=wen
+d22c3m3	d22c3	test	今晚我们看个电影吧	今晚=jin'wan 我们=wo'men 看个=kan'ge 电影吧=dian'ying'ba
+d23c1m1	d23c1	test	你那个剧我看了两集，确实好看	你=ni 那个=na'ge 剧=ju 我=wo 看=kan 了=le 两集=liang'ji ~， 确实=que'shi 好看=hao'kan
+d23c1m2	d23c1	test	女主角演得太好了	女主角=nv'zhu'jue 演=yan 得=de 太好了=tai'hao'le
+d23c1m3	d23c1	test	就是有点虐，看得我直掉眼泪	就是=jiu'shi 有点=you'dian 虐=nve ~， 看得=kan'de 我=wo 直掉=zhi'diao 眼泪=yan'lei
+d23c2m1	d23c2	test	今天你打得不错啊	今天=jin'tian 你=ni 打=da 得=de 不错=bu'cuo 啊=a
+d23c2m2	d23c2	test	是不是偷偷练过	是不是=shi'bu'shi 偷偷=tou'tou 练过=lian'guo
+d23c2m3	d23c2	test	下次我一定要赢回来	下次=xia'ci 我=wo 一定=yi'ding 要=yao 赢回来=ying'hui'lai
+d23c2m4	d23c2	test	晚上一起去吃烧烤吗	晚上=wan'shang 一起=yi'qi 去=qu 吃=chi 烧烤=shao'kao 吗=ma
+d23c3m1	d23c3	test	周哥，签到的奖励规则有变化	周哥=zhou'ge ~， 签到=qian'dao 的=de 奖励=jiang'li 规则=gui'ze 有=you 变化=bian'hua
+d23c3m2	d23c3	test	运营那边想加一个连续签到的翻倍	运营=yun'ying 那边=na'bian 想加=xiang'jia 一个=yi'ge 连续=lian'xu 签到=qian'dao 的=de 翻倍=fan'bei
+d23c3m3	d23c3	test	这个改动大不大	这个=zhe'ge 改动=gai'dong 大不大=da'bu'da
+d23c3m4	d23c3	test	如果影响排期我去跟他们谈	如果=ru'guo 影响=ying'xiang 排期=pai'qi 我=wo 去=qu 跟=gen 他们=ta'men 谈=tan
+d24c1m1	d24c1	dev	王总，连续签到翻倍的需求我跟技术评估过了	王总=wang'zong ~， 连续=lian'xu 签到=qian'dao 翻倍=fan'bei 的=de 需求=xu'qiu 我=wo 跟=gen 技术=ji'shu 评估=ping'gu 过=guo 了=le
+d24c1m2	d24c1	dev	大概要多两天的工作量	大概=da'gai 要=yao 多=duo 两天=liang'tian 的=de 工作量=gong'zuo'liang
+d24c1m3	d24c1	dev	不影响整体上线时间	不=bu 影响=ying'xiang 整体=zheng'ti 上线=shang'xian 时间=shi'jian
+d24c1m4	d24c1	dev	我们会在测试阶段重点关注	我们=wo'men 会=hui 在=zai 测试阶段=ce'shi'jie'duan 重点=zhong'dian 关注=guan'zhu
+d24c2m1	d24c2	dev	王总选了活泼的方案	王总选=wang'zong'xuan 了=le 活泼=huo'po 的=de 方案=fang'an
+d24c2m2	d24c2	dev	你按那个继续细化吧	你=ni 按=an 那个=na'ge 继续=ji'xu 细化=xi'hua 吧=ba
+d24c2m3	d24c2	dev	动效这次可以做得丰富一点	动效=dong'xiao 这次=zhe'ci 可以=ke'yi 做=zuo 得=de 丰富=feng'fu 一点=yi'dian
+d24c2m4	d24c2	dev	时间上来得及	时间=shi'jian 上=shang 来得及=lai'de'ji
+d24c3m1	d24c3	dev	我今天被表扬了	我=wo 今天=jin'tian 被=bei 表扬=biao'yang 了=le
+d24c3m2	d24c3	dev	王总说我这次排期做得很合理	王总说=wang'zong'shuo 我=wo 这次=zhe'ci 排期=pai'qi 做=zuo 得=de 很=hen 合理=he'li
+d24c3m3	d24c3	dev	晚上我们出去庆祝一下吧	晚上=wan'shang 我们=wo'men 出去=chu'qu 庆祝=qing'zhu 一下=yi'xia 吧=ba
+d25c1m1	d25c1	test	妈，体检报告我看了，问题不大	妈=ma ~， 体检=ti'jian 报告=bao'gao 我=wo 看=kan 了=le ~， 问题=wen'ti 不=bu 大=da
+d25c1m2	d25c1	test	就是血脂有点高	就是=jiu'shi 血脂=xue'zhi 有点=you'dian 高=gao
+d25c1m3	d25c1	test	平时少吃点油腻的	平时=ping'shi 少吃点=shao'chi'dian 油腻=you'ni 的=de
+d25c1m4	d25c1	test	多出去走走，晒晒太阳	多=duo 出去=chu'qu 走走=zou'zou ~， 晒=shai 晒太阳=shai'tai'yang
+d25c2m1	d25c2	test	我们下周去爬山还去吗	我们=wo'men 下周=xia'zhou 去=qu 爬山=pa'shan 还=hai 去=qu 吗=ma
+d25c2m2	d25c2	test	我看了一下天气，好像会降温	我=wo 看=kan 了=le 一下=yi'xia 天气=tian'qi ~， 好像=hao'xiang 会=hui 降温=jiang'wen
+d25c2m3	d25c2	test	要不改成去看展览	要=yao 不=bu 改成=gai'cheng 去=qu 看=kan 展览=zhan'lan
+d25c2m4	d25c2	test	万象城那边新开了一个画展	万象=wan'xiang 城=cheng 那边=na'bian 新开=xin'kai 了=le 一个=yi'ge 画展=hua'zhan
+d25c3m1	d25c3	test	测试那边说签到页面在小屏手机上显示不全	测试=ce'shi 那边=na'bian 说=shuo 签到=qian'dao 页面=ye'mian 在=zai 小屏=xiao'ping 手机=shou'ji 上=shang 显示=xian'shi 不全=bu'quan
+d25c3m2	d25c3	test	你们看一下是不是适配的问题	你们=ni'men 看=kan 一下=yi'xia 是不是=shi'bu'shi 适配=shi'pei 的=de 问题=wen'ti
+d25c3m3	d25c3	test	截图我发你了	截图=jie'tu 我发=wo'fa 你=ni 了=le
+d26c1m1	d26c1	test	今天我们组团建，去郊外烧烤	今天=jin'tian 我们=wo'men 组团=zu'tuan 建=jian ~， 去=qu 郊外=jiao'wai 烧烤=shao'kao
+d26c1m2	d26c1	test	可能晚上八点以后才回来	可能=ke'neng 晚上=wan'shang 八点=ba'dian 以后=yi'hou 才=cai 回来=hui'lai
+d26c1m3	d26c1	test	你自己先吃饭吧	你=ni 自己=zi'ji 先=xian 吃饭=chi'fan 吧=ba
+d26c1m4	d26c1	test	别忘了喂年糕	别忘了=bie'wang'le 喂=wei 年糕=nian'gao
+d26c2m1	d26c2	test	动效做得太棒了	动效=dong'xiao 做=zuo 得=de 太棒了=tai'bang'le
+d26c2m2	d26c2	test	开发说有点难，但是会尽量还原	开发=kai'fa 说=shuo 有点=you'dian 难=nan ~， 但是=dan'shi 会=hui 尽量=jin'liang 还原=huan'yuan
+d26c2m3	d26c2	test	你明天跟他们对一下细节	你=ni 明天=ming'tian 跟=gen 他们=ta'men 对=dui 一下=yi'xia 细节=xi'jie
+d26c3m1	d26c3	test	你上次说的那个羽毛球拍在哪儿买的	你=ni 上次=shang'ci 说=shuo 的=de 那个=na'ge 羽毛球拍=yu'mao'qiu'pai 在=zai 哪儿=na'er 买=mai 的=de
+d26c3m2	d26c3	test	我也想换一个	我=wo 也=ye 想=xiang 换=huan 一个=yi'ge
+d26c3m3	d26c3	test	多少钱	多少=duo'shao 钱=qian
+d27c1m1	d27c1	dev	签到功能测试通过了	签到=qian'dao 功能测试=gong'neng'ce'shi 通过=tong'guo 了=le
+d27c1m2	d27c1	dev	我们按计划下周二上线	我们=wo'men 按计划=an'ji'hua 下=xia 周二=zhou'er 上线=shang'xian
+d27c1m3	d27c1	dev	上线前再过一遍回滚方案	上线=shang'xian 前=qian 再=zai 过=guo 一遍=yi'bian 回滚=hui'gun 方案=fang'an
+d27c1m4	d27c1	dev	这次不要再出问题了	这次=zhe'ci 不要=bu'yao 再出=zai'chu 问题=wen'ti 了=le
+d27c2m1	d27c2	dev	王总，签到功能下周二上线	王总=wang'zong ~， 签到=qian'dao 功能=gong'neng 下=xia 周二=zhou'er 上线=shang'xian
+d27c2m2	d27c2	dev	运营的推广文案已经准备好了	运营=yun'ying 的=de 推广=tui'guang 文案=wen'an 已经=yi'jing 准备=zhun'bei 好=hao 了=le
+d27c2m3	d27c2	dev	我把上线计划发您邮箱了	我=wo 把=ba 上线=shang'xian 计划=ji'hua 发=fa 您=nin 邮箱=you'xiang 了=le
+d27c3m1	d27c3	dev	画展我买好票了，周六下午两点	画展=hua'zhan 我=wo 买好=mai'hao 票=piao 了=le ~， 周六=zhou'liu 下午=xia'wu 两点=liang'dian
+d27c3m2	d27c3	dev	看完我们去吃那家日料	看=kan 完=wan 我们=wo'men 去=qu 吃=chi 那家=na'jia 日料=ri'liao
+d27c3m3	d27c3	dev	我请客，上次你请的火锅	我=wo 请客=qing'ke ~， 上次=shang'ci 你=ni 请=qing 的=de 火锅=huo'guo
+d28c1m1	d28c1	test	我想周末去看个画展，你要不要一起	我=wo 想=xiang 周末=zhou'mo 去=qu 看个=kan'ge 画展=hua'zhan ~， 你=ni 要=yao 不要=bu'yao 一起=yi'qi
+d28c1m2	d28c1	test	思思也去	思思=si'si 也=ye 去=qu
+d28c1m3	d28c1	test	看完一起吃饭	看=kan 完=wan 一起=yi'qi 吃饭=chi'fan
+d28c1m4	d28c1	test	你不想去的话就在家陪年糕吧哈哈	你=ni 不想=bu'xiang 去=qu 的话=de'hua 就=jiu 在家=zai'jia 陪=pei 年糕=nian'gao 吧=ba 哈哈=ha'ha
+d28c2m1	d28c2	test	妈，下个月是爸的生日	妈=ma ~， 下个月=xia'ge'yue 是=shi 爸=ba 的=de 生日=sheng'ri
+d28c2m2	d28c2	test	我想给他买个按摩椅	我=wo 想=xiang 给=gei 他=ta 买个=mai'ge 按摩椅=an'mo'yi
+d28c2m3	d28c2	test	你觉得他会喜欢吗	你=ni 觉得=jue'de 他会=ta'hui 喜欢=xi'huan 吗=ma
+d28c2m4	d28c2	test	别跟他说，给他个惊喜	别=bie 跟=gen 他=ta 说=shuo ~， 给=gei 他=ta 个=ge 惊喜=jing'xi
+d29c1m1	d29c1	test	周哥，上线前的最后一次确认	周哥=zhou'ge ~， 上线=shang'xian 前=qian 的=de 最后=zui'hou 一次=yi'ci 确认=que'ren
+d29c1m2	d29c1	test	配置都核对过了吗	配置=pei'zhi 都=dou 核对=he'dui 过=guo 了=le 吗=ma
+d29c1m3	d29c1	test	数据库备份做了吗	数据库=shu'ju'ku 备份=bei'fen 做=zuo 了=le 吗=ma
+d29c1m4	d29c1	test	今晚辛苦大家了	今晚=jin'wan 辛苦=xin'ku 大家=da'jia 了=le
+d29c2m1	d29c2	test	今晚又要上线，估计要到十二点以后	今晚=jin'wan 又=you 要=yao 上线=shang'xian ~， 估计=gu'ji 要=yao 到=dao 十二点=shi'er'dian 以后=yi'hou
+d29c2m2	d29c2	test	你先睡吧，不用等我	你=ni 先=xian 睡=shui 吧=ba ~， 不用=bu'yong 等=deng 我=wo
+d29c2m3	d29c2	test	早上我请半天假补觉	早上=zao'shang 我=wo 请=qing 半天=ban'tian 假补觉=jia'bu'jue
+d29c3m1	d29c3	test	上线了，你的动效用户都在夸	上线=shang'xian 了=le ~， 你=ni 的=de 动效=dong'xiao 用户=yong'hu 都=dou 在=zai 夸=kua
+d29c3m2	d29c3	test	好多人截图发到群里	好多=hao'duo 人=ren 截图=jie'tu 发到=fa'dao 群里=qun'li
+d29c3m3	d29c3	test	你真的太厉害了	你=ni 真的=zhen'de 太=tai 厉害=li'hai 了=le
+d30c1m1	d30c1	dev	王总，签到功能上线第一天，参与人数比预期多了三成	王总=wang'zong ~， 签到=qian'dao 功能=gong'neng 上线=shang'xian 第一天=di'yi'tian ~， 参与=can'yu 人数=ren'shu 比=bi 预期=yu'qi 多=duo 了=le 三成=san'cheng
+d30c1m2	d30c1	dev	连续签到的比例也不错	连续=lian'xu 签到=qian'dao 的=de 比例=bi'li 也=ye 不错=bu'cuo
+d30c1m3	d30c1	dev	后面我们会持续观察数据	后面=hou'mian 我们=wo'men 会=hui 持续=chi'xu 观察=guan'cha 数据=shu'ju
+d30c1m4	d30c1	dev	任务中心的方案下周给您	任务=ren'wu 中心=zhong'xin 的=de 方案=fang'an 下周=xia'zhou 给=gei 您=nin
+d30c2m1	d30c2	dev	画展太好看了，下次还想去	画展=hua'zhan 太=tai 好看=hao'kan 了=le ~， 下次=xia'ci 还=hai 想=xiang 去=qu
+d30c2m2	d30c2	dev	那家日料也很好吃	那家=na'jia 日料=ri'liao 也=ye 很=hen 好吃=hao'chi
+d30c2m3	d30c2	dev	就是有点贵，下次换我请	就是=jiu'shi 有点=you'dian 贵=gui ~， 下次=xia'ci 换=huan 我=wo 请=qing
+d30c3m1	d30c3	dev	周六打羽毛球，我新拍到了	周六=zhou'liu 打=da 羽毛球=yu'mao'qiu ~， 我=wo 新=xin 拍=pai 到=dao 了=le
+d30c3m2	d30c3	dev	这次你肯定赢不了我	这次=zhe'ci 你=ni 肯定=ken'ding 赢=ying 不了=bu'liao 我=wo
+d30c3m3	d30c3	dev	输的人请吃饭	输=shu 的=de 人=ren 请=qing 吃饭=chi'fan
+d31c1m1	d31c1	test	任务中心的需求我先写个初稿	任务=ren'wu 中心=zhong'xin 的=de 需求=xu'qiu 我先=wo'xian 写个=xie'ge 初稿=chu'gao
+d31c1m2	d31c1	test	你们技术上有什么限制提前告诉我	你们=ni'men 技术=ji'shu 上=shang 有=you 什么=shen'me 限制=xian'zhi 提前=ti'qian 告诉=gao'su 我=wo
+d31c1m3	d31c1	test	这次我们争取不加班	这次=zhe'ci 我们=wo'men 争取=zheng'qu 不=bu 加班=jia'ban
+d31c1m4	d31c1	test	你那边人手够吗	你=ni 那边=na'bian 人手=ren'shou 够=gou 吗=ma
+d31c2m1	d31c2	test	按摩椅我买好了，下周寄到我妈家	按摩椅=an'mo'yi 我=wo 买好=mai'hao 了=le ~， 下周=xia'zhou 寄到=ji'dao 我=wo 妈家=ma'jia
+d31c2m2	d31c2	test	爸肯定很开心	爸=ba 肯定=ken'ding 很=hen 开心=kai'xin
+d31c2m3	d31c2	test	你说要不要再给他买个蛋糕	你=ni 说=shuo 要=yao 不要=bu'yao 再=zai 给=gei 他=ta 买个=mai'ge 蛋糕=dan'gao
+d31c2m4	d31c2	test	生日那天我们视频给他唱歌	生日=sheng'ri 那天=na'tian 我们=wo'men 视频=shi'pin 给=gei 他=ta 唱歌=chang'ge
+d31c3m1	d31c3	test	妈，爸生日那天我们视频	妈=ma ~， 爸=ba 生日=sheng'ri 那天=na'tian 我们=wo'men 视频=shi'pin
+d31c3m2	d31c3	test	你记得把手机充好电	你=ni 记得=ji'de 把=ba 手机=shou'ji 充好=chong'hao 电=dian
+d31c3m3	d31c3	test	蛋糕我在网上订好了，中午送到	蛋糕=dan'gao 我=wo 在=zai 网上=wang'shang 订好=ding'hao 了=le ~， 中午=zhong'wu 送到=song'dao
+d31c3m4	d31c3	test	你们记得在家等着	你们=ni'men 记得=ji'de 在家=zai'jia 等=deng 着=zhe
+d32c1m1	d32c1	test	你又输了吧哈哈哈	你=ni 又=you 输=shu 了=le 吧=ba 哈哈哈=ha'ha'ha
+d32c1m2	d32c1	test	说好的请吃饭，跑不掉了	说好=shuo'hao 的=de 请=qing 吃饭=chi'fan ~， 跑不掉=pao'bu'diao 了=le
+d32c1m3	d32c1	test	就去上次那家烧烤吧	就=jiu 去=qu 上次=shang'ci 那=na 家=jia 烧烤=shao'kao 吧=ba
+d32c1m4	d32c1	test	叫上思思一起	叫=jiao 上=shang 思思=si'si 一起=yi'qi
+d32c2m1	d32c2	test	任务中心的设计你先别急	任务=ren'wu 中心=zhong'xin 的=de 设计=she'ji 你=ni 先=xian 别急=bie'ji
+d32c2m2	d32c2	test	需求还在改，等我定稿了再给你	需求=xu'qiu 还=hai 在=zai 改=gai ~， 等=deng 我=wo 定稿=ding'gao 了=le 再=zai 给=gei 你=ni
+d32c2m3	d32c2	test	这周你先休息一下	这周=zhe'zhou 你=ni 先=xian 休息=xiu'xi 一下=yi'xia
+d32c2m4	d32c2	test	上个版本真的太辛苦了	上=shang 个=ge 版本=ban'ben 真的=zhen'de 太=tai 辛苦=xin'ku 了=le
+d32c3m1	d32c3	test	今天终于不加班了	今天=jin'tian 终于=zhong'yu 不=bu 加班=jia'ban 了=le
+d32c3m2	d32c3	test	我们去西溪湿地散散步吧	我们=wo'men 去=qu 西溪=xi'xi 湿地=shi'di 散散步=san'san'bu 吧=ba
+d32c3m3	d32c3	test	好久没去了，听说那边的花开了	好久没=hao'jiu'mei 去=qu 了=le ~， 听说=ting'shuo 那边=na'bian 的=de 花开=hua'kai 了=le
+d32c3m4	d32c3	test	带上年糕的话它会不会跑丢	带上=dai'shang 年糕=nian'gao 的话=de'hua 它会=ta'hui 不会=bu'hui 跑=pao 丢=diu

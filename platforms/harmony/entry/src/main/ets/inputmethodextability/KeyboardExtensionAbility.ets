@@ -1013,7 +1013,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
           : requested !== null ? requested : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows);
+            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);
         // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         const widthPx: number = desktop
           ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)

@@ -20,7 +20,9 @@ final class VoiceDiagnostics {
 
     static DiagnosticEventKind platformFailure(int error) {
         return switch (error) {
-            case 1, 2 -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
+            // 1 是 ERROR_NETWORK_TIMEOUT：提示说的是「响应超时」，诊断也记超时，不和 2（网络错误）混在一起。
+            case 1 -> DiagnosticEventKind.VOICE_FAILURE_TIMEOUT;
+            case 2 -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
             case 3 -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
             case 4, 10, 11 -> DiagnosticEventKind.VOICE_PLATFORM_SERVER;
             case 5 -> DiagnosticEventKind.VOICE_PLATFORM_CLIENT;

@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.ImageViewPolicy;
@@ -13,6 +14,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.Rect;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -28,7 +30,10 @@ import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -43,19 +48,22 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ThreadPolicy;
 import app.msime.android.ViewPolicy;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.checkbox.MaterialCheckBox;
 import java.util.function.Consumer;
 
 /**
  * 登录面板（M3 modal bottom sheet）：通过 Apple 登录（黑底，深色下白底）、通过 Google 登录（描边）、使用邮箱登录（tonal），点邮箱后原地展开邮箱输入框与「发送验证码」，发出后换成 6 位验证码输入与「登录」。
  *
  * <p>设计写的是「发送登录链接」（魔法链接）；魔法链接需要网站侧的 App Links 配置，这里用后端已上线的 6 位验证码，按钮文案随之改为「发送验证码」。只显示后端接受、且本安装包能用的方式：Apple 要 `/v1/auth/providers` 的 `apple_web` 为真，Google 还要本包带着 server client ID。登录成功不触发同步。
+ *
+ * <p>按钮下方是默认不勾的「我已阅读并同意《用户协议》和《隐私政策》」（{@link LoginConsentPolicy}）。Apple、Google、发送验证码和验证码登录都先过它，没勾就不发请求，显示提示并把勾选框滚进可见区；点「使用邮箱登录」只展开表单，不拦。
  */
 final class LoginSheet {
     /** 用户没登录就关掉了面板时交给调用方的那句话；调用方可以据此不显示任何提示。 */
     static final String CANCELLED = "已取消登录";
 
-    private static final String PRIVACY_URL = "https://msime.app/privacy/";
     private static final String APPLE_PATH = "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701";
     private static final String[] GOOGLE_PATHS = {
         "M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z",
@@ -75,10 +83,15 @@ final class LoginSheet {
     private final LinearLayout email;
     private final TextView status;
     private final Consumer<String> appleResult;
+    private final LoginConsentPolicy consent = new LoginConsentPolicy();
+    private final CheckBox consentBox;
+    private final TextView consentPrompt;
     private BackendAccount.EmailChallenge challenge;
     private String emailAddress = "";
     private boolean busy;
     private boolean done;
+    /** 刚点的是同意那行里的文档名：这次点击只打开文档，不改变勾选。 */
+    private boolean consentLinkTapped;
 
     /**
      * 先读后端接受的登录方式，再打开面板。从主线程调用；`finished` 在主线程上收到空字符串（已登录）、失败说明或 {@link #CANCELLED}，只收一次。
@@ -106,7 +119,7 @@ final class LoginSheet {
         this.activity = activity;
         this.purpose = purpose;
         this.finished = finished;
-        dialog = new BottomSheetDialog(activity);
+        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(activity));
         appleResult = this::finishWith;
 
         LinearLayout root = LayoutPolicy.column(activity);
@@ -156,12 +169,20 @@ final class LoginSheet {
         ViewPolicy.hide(status);
         root.addView(status, LayoutPolicy.matchWidthWrapParams(activity, 12));
 
-        root.addView(agreement(), LayoutPolicy.matchWidthWrapParams(activity, 16));
+        consentBox = new MaterialCheckBox(activity);
+        root.addView(consentRow(), LayoutPolicy.matchWidthWrapParams(activity, 12));
+        consentPrompt = ViewPolicy.liveStatus(activity, 12, ThemeColorPolicy.danger(activity));
+        ViewPolicy.setCenteredHorizontally(consentPrompt);
+        ViewPolicy.hide(consentPrompt);
+        root.addView(consentPrompt, LayoutPolicy.matchWidthWrapParams(activity, 2));
 
         NestedScrollView scroll = new NestedScrollView(activity);
         scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT));
         dialog.setContentView(scroll);
+        // 直接展开，并且不留折叠高度：内容比折叠高度长时（小屏、大字号），底部的同意勾选不能停在屏幕外；往下拖就是关掉面板，不会停在一半让勾选和提示落到屏幕下面。
+        dialog.getBehavior().setSkipCollapsed(true);
+        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         dialog.setOnDismissListener(ignored -> {
             SignIn.stopWaitingForApple(appleResult);
             if (!done) {
@@ -174,7 +195,7 @@ final class LoginSheet {
     // ---- 三种方式 ----
 
     private void apple() {
-        if (!begin("正在打开 Apple 登录…")) return;
+        if (!confirmConsent() || !begin("正在打开 Apple 登录…")) return;
         SignIn.startApple(activity, purpose, appleResult);
         // 浏览器打开后面板留着等回调；用户可以随时关掉它，晚到的回调仍会完成登录。
         busy = false;
@@ -182,7 +203,7 @@ final class LoginSheet {
     }
 
     private void google() {
-        if (!begin("正在登录…")) return;
+        if (!confirmConsent() || !begin("正在登录…")) return;
         SignIn.startGoogle(activity, purpose, this::finishWith);
     }
 
@@ -205,7 +226,7 @@ final class LoginSheet {
     }
 
     private void sendCode(String address) {
-        if (!begin("正在发送验证码…")) return;
+        if (!confirmConsent() || !begin("正在发送验证码…")) return;
         Context context = activity.getApplicationContext();
         ThreadPolicy.startNamedThread("msime-email-code", () -> {
             SignIn.EmailCode result = SignIn.requestEmailCode(context, address, purpose);
@@ -255,7 +276,7 @@ final class LoginSheet {
 
     private void verify(String code) {
         BackendAccount.EmailChallenge current = challenge;
-        if (current == null || !begin("正在登录…")) return;
+        if (current == null || !confirmConsent() || !begin("正在登录…")) return;
         Context context = activity.getApplicationContext();
         ThreadPolicy.startNamedThread("msime-email-login", () -> {
             String failure = SignIn.verifyEmailCode(context, current, code);
@@ -264,6 +285,29 @@ final class LoginSheet {
     }
 
     // ---- 状态 ----
+
+    /**
+     * 登录操作发请求前的同意检查，对应共享页的 `consent.confirm()`。没勾时显示提示，收起键盘，把面板展开并把勾选框下方的提示滚进可见区，读屏焦点移到勾选框上；勾选框的读屏提示（hint）此时就是这句提示，焦点播报盖掉 live region 时也听得到。
+     */
+    private boolean confirmConsent() {
+        if (consent.confirm()) return true;
+        renderConsentPrompt();
+        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
+        View focused = dialog.getCurrentFocus();
+        if (focused != null) {
+            InputMethodManager keyboard = activity.getSystemService(InputMethodManager.class);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+        }
+        consentPrompt.post(() -> {
+            consentPrompt.requestRectangleOnScreen(new Rect(0, 0, consentPrompt.getWidth(), consentPrompt.getHeight()), false);
+            consentBox.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
+        });
+        return false;
+    }
+
+    private void renderConsentPrompt() {
+        ViewPolicy.setTextAndVisibility(consentPrompt, consent.prompting() ? LoginConsentPolicy.PROMPT : "");
+    }
 
     private boolean begin(String message) {
         if (busy || done) return false;
@@ -339,26 +383,53 @@ final class LoginSheet {
         return field;
     }
 
-    private TextView agreement() {
-        String text = "登录即表示同意《用户协议》和《隐私政策》";
-        SpannableString spanned = new SpannableString(text);
-        int start = text.indexOf("《隐私政策》");
-        spanned.setSpan(new ClickableSpan() {
+    /** 「☐ 我已阅读并同意《用户协议》和《隐私政策》」：点勾选框或这行字都会勾上或取消，点两个文档名只打开对应网页、不改变勾选。整行在窄屏上随文字折行。 */
+    private View consentRow() {
+        LinearLayout row = LayoutPolicy.row(activity);
+        ViewPolicy.setCentered(row);
+        consentBox.setContentDescription(LoginConsentPolicy.TEXT);
+        consentBox.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setHintText(consent.prompting() ? LoginConsentPolicy.PROMPT : null);
+            }
+        });
+        consentBox.setOnCheckedChangeListener((button, checked) -> {
+            consent.setAgreed(checked);
+            renderConsentPrompt();
+        });
+        row.addView(consentBox, LayoutPolicy.wrapParams());
+        SpannableString text = new SpannableString(LoginConsentPolicy.TEXT);
+        consentLink(text, LoginConsentPolicy.TERMS_TITLE, LoginConsentPolicy.TERMS_URL);
+        consentLink(text, LoginConsentPolicy.PRIVACY_TITLE, LoginConsentPolicy.PRIVACY_URL);
+        TextView label = ViewPolicy.styledLabel(activity, text, 12, 400, ThemeColorPolicy.subText(activity));
+        label.setMovementMethod(LinkMovementMethod.getInstance());
+        ViewPolicy.bindClick(label, () -> {
+            if (!consentLinkTapped) consentBox.toggle();
+        });
+        row.addView(label, LayoutPolicy.wrapParams());
+        return row;
+    }
+
+    /**
+     * 把文档名做成链接。TextView 的整行点击和链接的点击在同一次抬手里都会触发：抬手时 TextView 先交给 View 的触摸处理，那一步把整行点击 post 出去；随后 LinkMovementMethod 才同步执行链接的 onClick。所以链接记下 {@link #consentLinkTapped} 后再 post 的复位排在整行点击之后，整行点击执行时看到的还是 true。
+     */
+    private void consentLink(SpannableString text, String title, String url) {
+        int start = text.toString().indexOf(title);
+        text.setSpan(new ClickableSpan() {
             @Override public void onClick(View widget) {
-                if (!LinkActions.open(activity, PRIVACY_URL)) {
+                consentLinkTapped = true;
+                widget.post(() -> consentLinkTapped = false);
+                if (!LinkActions.open(activity, url)) {
                     say("这台设备上没有可以打开网页的浏览器");
                 }
             }
 
             @Override public void updateDrawState(android.text.TextPaint paint) {
-                paint.setColor(ThemeColorPolicy.subText(activity));
+                paint.setColor(ThemeColorPolicy.accent(activity));
                 paint.setUnderlineText(false);
             }
-        }, start, start + "《隐私政策》".length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView view = ViewPolicy.styledLabel(activity, spanned, 12, 400, ThemeColorPolicy.subText(activity));
-        view.setMovementMethod(LinkMovementMethod.getInstance());
-        ViewPolicy.setCenteredHorizontally(view);
-        return view;
+        }, start, start + title.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
     /** 按 SVG path 数据画的图标：每条 path 一种颜色，按 `viewport` 等比缩放到边界里。 */

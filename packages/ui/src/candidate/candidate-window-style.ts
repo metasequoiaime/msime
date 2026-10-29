@@ -7,6 +7,8 @@ export const defaultCandidateScalePercent = 100;
 export const defaultCandidateOpacityPercent = 100;
 /** The core accepts 50-200; the page's slider offers the part that still fits on a screen. */
 export const candidateScaleSlider = { min: 75, max: 150, step: 5 } as const;
+/** 触屏的「候选栏大小」给出核心接受的整个 50–200：候选栏和跟随它的工具栏一起缩放，按键不动；Android、iOS 原生设置页用同一范围和步长。 */
+export const touchCandidateScaleSlider = { min: 50, max: 200, step: 5 } as const;
 export const candidateOpacitySlider = { min: 50, max: 100, step: 5 } as const;
 /** The core accepts up to 32 like a skin package's `corner_radius_dip`; the slider stops at 16, past which a card reads as a pill. */
 export const candidateCornerRadiusSlider = { min: 0, max: 16, step: 1 } as const;

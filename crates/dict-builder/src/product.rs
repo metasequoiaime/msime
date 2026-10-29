@@ -238,6 +238,47 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 带文件内版本的三个产物（`docs/data-formats.md` §4、§9、§12）。语言词库另由 `language_writer` 写自己的 `metadata`。
+pub const FORMAT_VERSIONED: [&str; 3] = ["msime-pinyin.db", "msime-wubi.db", "msime-others.db"];
+
+/// 给 `out` 里已有的三个主库写上文件内版本：建 `metadata` 表（`msime_engine::format::METADATA_SCHEMA`），`format_version` 写 `msime_engine::format::FORMAT_VERSION`。在拆出五笔库之后、冻结之前调用；重复调用结果相同，只跑部分阶段时这次没重建的库也一样写上。
+pub fn stamp_format_versions(out: &Path) -> Result<()> {
+    for name in FORMAT_VERSIONED {
+        let path = out.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        let connection = crate::sqlite::open(&path)?;
+        connection.execute_batch(msime_engine::format::METADATA_SCHEMA)?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO metadata(name, value) VALUES(?1, ?2)",
+                (
+                    msime_engine::format::METADATA_FORMAT_VERSION,
+                    msime_engine::format::FORMAT_VERSION.to_string(),
+                ),
+            )
+            .with_context(|| format!("{name}: writing format_version"))?;
+    }
+    Ok(())
+}
+
+/// 三个主库都带着引擎当前的 `format_version`：用引擎自己的读端去读，发布出去的文件与引擎的检查是同一个契约。
+fn verify_format_versions(out: &Path) -> Result<()> {
+    for name in FORMAT_VERSIONED {
+        let connection = crate::sqlite::open_read_only(&out.join(name))?;
+        let version = msime_engine::format::check_format_version(&connection, name)
+            .map_err(|error| anyhow::anyhow!("{name}: {error}"))?;
+        if version != msime_engine::format::FORMAT_VERSION {
+            bail!(
+                "{name}: format_version {version}, expected {}",
+                msime_engine::format::FORMAT_VERSION
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Every shipping table exists with at least a floor number of rows, far below today's counts: these catch a table that came out empty because an input silently changed shape, not ordinary dictionary edits. A licensed build legitimately has fewer rows.
 pub fn verify(out: &Path, complete: bool) -> Result<()> {
     let floors: [(&str, &[(&str, i64)]); 4] = [
@@ -273,6 +314,8 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
             }
         }
     }
+
+    verify_format_versions(out)?;
 
     let msime = crate::sqlite::open_read_only(&out.join("msime-pinyin.db"))?;
     let mut quanpin_rows = 0;
@@ -645,5 +688,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    /// 拆出五笔库之后三个主库都写上文件内版本，引擎读到的正是 `FORMAT_VERSION`；再写一次结果不变，`metadata` 不会随五笔表搬进 `msime-wubi.db` 之外的地方。
+    #[test]
+    fn every_main_database_carries_the_format_version() {
+        let directory = tempfile::tempdir().unwrap();
+        let out = directory.path();
+        Connection::open(out.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER); CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER); INSERT INTO wubi86 VALUES('aaa','甲',10);",
+            )
+            .unwrap();
+        Connection::open(out.join("msime-others.db"))
+            .unwrap()
+            .execute_batch("CREATE TABLE emoji(emoji TEXT PRIMARY KEY)")
+            .unwrap();
+        assert!(verify_format_versions(out).is_err());
+
+        split_wubi_database(out).unwrap();
+        stamp_format_versions(out).unwrap();
+        stamp_format_versions(out).unwrap();
+        verify_format_versions(out).unwrap();
+        for name in FORMAT_VERSIONED {
+            let connection = Connection::open(out.join(name)).unwrap();
+            assert_eq!(
+                msime_engine::format::check_format_version(&connection, name).unwrap(),
+                msime_engine::format::FORMAT_VERSION,
+                "{name}"
+            );
+            let rows: i64 = connection
+                .query_row("SELECT count(*) FROM metadata", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(rows, 1, "{name}");
+        }
+
+        Connection::open(out.join("msime-wubi.db"))
+            .unwrap()
+            .execute_batch("UPDATE metadata SET value = '0' WHERE name = 'format_version'")
+            .unwrap();
+        let error = verify_format_versions(out).unwrap_err().to_string();
+        assert!(error.contains("msime-wubi.db"), "{error}");
     }
 }

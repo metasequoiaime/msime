@@ -924,6 +924,30 @@ mod tests {
         );
     }
 
+    /// 守卫的另一半（#10018 PR3）：引擎按首选规则把双拼纠错整句放在第一位时（它同时是落点支持的那一行），重排器不跑模型、不把它换下去，次选读法的后移也不动它，字面整句留在第二位、前三条字面读法照旧在它后面。全拼的纠错行本来就允许领先，同样一张表照常交给模型比较。
+    #[test]
+    fn a_shuangpin_correction_the_engine_put_first_stays_first() {
+        let shuangpin = SchemeType::Shuangpin as u8;
+        let rows = [
+            OrderRow {
+                corrected: true,
+                ..row("没关系", LATTICE_SOURCE)
+            },
+            row("没跟系", LATTICE_SOURCE),
+            row("美跟系", LATTICE_SOURCE),
+            row("没根系", LATTICE_SOURCE),
+            row("美根系", LATTICE_SOURCE),
+            row("没跟", 0),
+            row("没", 0),
+        ];
+        assert!(!rerank_needs_model(shuangpin, false, &rows));
+        assert!(rerank_needs_model(SchemeType::Quanpin as u8, false, &rows));
+        let supported = [true, false, false, false, false, false, false];
+        let order = runner_up_order_with(shuangpin, &rows, &supported).unwrap();
+        assert_eq!(order, vec![0, 1, 2, 3, 5, 6, 4]);
+        assert_eq!(order.iter().position(|&row| row == 1), Some(1));
+    }
+
     /// 同一张表里有两条纠错整句（模糊音替代读法按平面表查出的那条没过落点的闸）：只有落点支持的那条留在座位上，另一条照旧沉底。
     #[test]
     fn only_the_touch_supported_correction_keeps_its_seat() {

@@ -53,8 +53,8 @@ public final class KeyboardIconPathsSmoke {
             check(Math.abs(icon.strokeWidth() - expectedWidth) < 1e-4f, "stroke width of " + icon.name());
         }
 
-        // 工具栏六个图标、按键图标与对勾角标都在。
-        for (String required : new String[] {"TOOLBAR_EMOJI", "TOOLBAR_PHRASE", "TOOLBAR_CLIPBOARD", "TOOLBAR_SKIN", "TOOLBAR_SCHEME", "TOOLBAR_DISMISS", "SHIFT", "CAPS_LOCK", "BACKSPACE", "RETURN", "MIC", "CHEVRON", "CHECK"}) {
+        // 工具栏六个图标、按键图标、对勾角标与数字页空格的 ␣ 都在。
+        for (String required : new String[] {"TOOLBAR_EMOJI", "TOOLBAR_PHRASE", "TOOLBAR_CLIPBOARD", "TOOLBAR_SKIN", "TOOLBAR_SCHEME", "TOOLBAR_DISMISS", "SHIFT", "CAPS_LOCK", "BACKSPACE", "RETURN", "MIC", "CHEVRON", "CHECK", "SPACE_BAR"}) {
             check(names.contains(required), "missing icon " + required);
         }
         for (String fill : new String[] {"TOOLBAR_EMOJI", "TOOLBAR_PHRASE", "TOOLBAR_CLIPBOARD", "TOOLBAR_SKIN", "TOOLBAR_SCHEME"}) {

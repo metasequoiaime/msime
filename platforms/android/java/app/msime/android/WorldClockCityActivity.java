@@ -41,6 +41,8 @@ public final class WorldClockCityActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         try {
             catalog = new JSONArray(getIntent().getStringExtra("catalog"));
             selected = new JSONArray(getIntent().getStringExtra("selected"));

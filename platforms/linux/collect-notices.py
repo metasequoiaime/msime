@@ -6,7 +6,7 @@ The shared host library is a Rust cdylib and the desktop settings binary is a Ru
   collect-notices.py cargo OUTPUT PACKAGE[:FEATURES] ...   crates reachable through normal, non-proc-macro edges from each workspace package, as Cargo resolves them for the host target
   collect-notices.py npm OUTPUT PACKAGE_DIR                npm packages reachable through dependencies/optionalDependencies from PACKAGE_DIR, resolved through node_modules the way Node resolves them
 
-Workspace members are the project's own GPL-3.0 code and are not listed. Every license, notice or copyright file shipped in a collected package is copied verbatim; packages that ship none are listed with their declared license expression so the gap is visible instead of silently dropped. Only standard-library modules are used and nothing is fetched: the inputs are the already downloaded crates and the installed node_modules.
+Workspace members under the project's own GPL-3.0-only are not listed; the members with a license of their own (msime-engine and msime-path-trust under MPL-2.0, msime-script-sdk under MIT) are collected like any other crate, so their LICENSE travels with the binary. Every license, notice or copyright file shipped in a collected package is copied verbatim; packages that ship none are listed with their declared license expression so the gap is visible instead of silently dropped. Only standard-library modules are used and nothing is fetched: the inputs are the already downloaded crates and the installed node_modules.
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The workspace license; members that declare another one ship their own LICENSE.
+PROJECT_LICENSE = "GPL-3.0-only"
 LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|copyright|notice|unlicense)([-._].*)?$", re.IGNORECASE)
 
 
@@ -41,7 +43,8 @@ def collect_cargo(output: Path, roots: list[str]) -> None:
         ["cargo", "metadata", "--locked", "--format-version", "1"],
         check=True, capture_output=True, text=True).stdout)
     members = set(metadata["workspace_members"])
-    packages = {(p["name"], p["version"]): p for p in metadata["packages"] if p["id"] not in members}
+    packages = {(p["name"], p["version"]): p for p in metadata["packages"]
+                if p["id"] not in members or p.get("license") != PROJECT_LICENSE}
     reached: set[tuple[str, str]] = set()
     for root in roots:
         package, _, features = root.partition(":")

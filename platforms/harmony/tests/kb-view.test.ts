@@ -50,6 +50,7 @@ function drawnTouchHeight(
   adjustment: number,
   strip: boolean = true,
   extraRows: number = 0,
+  stripScalePercent: number = 100,
 ): number {
   let keys: number = 0;
   for (let row: number = 0; row < KeyboardMetrics.KEY_ROWS; row++) {
@@ -63,7 +64,8 @@ function drawnTouchHeight(
   const gaps: number = (rowSpacingTenths / 10) * (KeyboardMetrics.KEY_ROWS - 1);
   return (
     KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-    (strip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
+    // KeyboardView.stripHeight：工具条按「候选栏大小」缩放（#10137）。
+    (strip ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP : 0) +
     keys +
     gaps +
     // KeyboardView.surfaceHeight：竖屏手写多出的行不分摊高度调整，每行一个 ROW_HEIGHT_VP 加一道行距。
@@ -160,6 +162,25 @@ group("the touch frame the view draws is the panel height the ability asks for",
         check(
           Math.abs(tall - tallSized) < 1e-9,
           `handwriting, strip ${strip}, row spacing ${spacing}, adjustment ${adjustment}: drawn ${tall}, panel ${tallSized}`,
+        );
+      }
+      // 「候选栏大小」改变的只是工具条：画出的框架与面板高度在各个倍数下仍然一致。
+      for (const scale of [50, 75, 125, 200]) {
+        const scaled: number = drawnTouchHeight(spacing, adjustment, true, 0, scale);
+        const scaledSized: number = KeyboardMetrics.totalHeightVp(
+          spacing,
+          adjustment,
+          0,
+          18,
+          15,
+          false,
+          true,
+          0,
+          scale,
+        );
+        check(
+          Math.abs(scaled - scaledSized) < 1e-9,
+          `candidate bar ${scale}%, row spacing ${spacing}, adjustment ${adjustment}: drawn ${scaled}, panel ${scaledSized}`,
         );
       }
     }

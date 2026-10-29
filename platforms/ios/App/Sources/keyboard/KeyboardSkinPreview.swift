@@ -51,6 +51,8 @@ struct KeyboardSkinPreview: View {
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
   var heightAdjustment: Double = 0
   var topStrip: KeyboardPreviewTopStrip = .candidates
+  /// 「候选栏大小」的倍数：顶栏随它变矮或变高，按键不变；工具栏图标只随它缩小，与键盘的 `KeyboardToolbarButton.contentScale` 一致（#10137）。
+  var stripScale: CGFloat = 1
   /// 在 q–p 键的上角画数字提示，和设计稿的键盘缩略图一样。
   var letterHints: Bool = false
   @Environment(\.colorScheme) private var colorScheme
@@ -73,12 +75,19 @@ struct KeyboardSkinPreview: View {
   /// 390 点宽时的画布高度。带工具栏和无顶栏两种变体是设计稿的键盘缩略图（390 × 292，去掉工具栏为 234），按键下方以主屏指示条区域收尾；候选行变体保持原先的 260，不带该区域。
   private var referenceHeight: CGFloat {
     switch topStrip {
-    case .candidates: 260
-    case .toolbar: 292
+    case .candidates: 260 - Self.candidateStripHeight * (1 - stripScale)
+    case .toolbar: 292 - Self.toolbarStripHeight * (1 - stripScale)
     case .hidden: 234
-    case .reserved: 292
+    case .reserved: 292 - Self.toolbarStripHeight * (1 - stripScale)
     }
   }
+
+  /// 设计稿缩略图里两种顶栏的高度；缩放顶栏时画布高度同步增减这一段，按键大小因此不变。
+  private static let candidateStripHeight: CGFloat = 32
+  private static let toolbarStripHeight: CGFloat = 46
+
+  /// 工具栏图标和标志只随顶栏缩小、不随它放大。
+  private var toolbarContentScale: CGFloat { min(1, stripScale) }
 
   private var drawsHomeIndicator: Bool { topStrip != .candidates }
 
@@ -107,7 +116,7 @@ struct KeyboardSkinPreview: View {
     case .candidates: candidateStrip
     case .toolbar(let items): toolbarStrip(items)
     case .hidden: EmptyView()
-    case .reserved: Color.clear.frame(height: 46)
+    case .reserved: Color.clear.frame(height: Self.toolbarStripHeight * stripScale)
     }
   }
 
@@ -120,7 +129,7 @@ struct KeyboardSkinPreview: View {
       if KeyboardLayoutPreference.voiceShortcutEnabled { Image(systemName: "waveform").font(.caption) }
       Text(nineKey ? "九键" : letterGrid?.title ?? "全拼").font(.caption)
 
-    }.padding(.horizontal, 6).frame(height: 32)
+    }.padding(.horizontal, 6).frame(height: Self.candidateStripHeight * stripScale)
       .background(color(skin.keyBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
   }
 
@@ -131,17 +140,18 @@ struct KeyboardSkinPreview: View {
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         Group {
           if let symbol = item.symbol {
-            Image(systemName: symbol).font(.system(size: 17))
+            Image(systemName: symbol).font(.system(size: 17 * toolbarContentScale))
           } else {
-            Text(item.character).font(.system(size: 16, weight: .medium))
+            Text(item.character).font(.system(size: 16 * toolbarContentScale, weight: .medium))
           }
         }
         .frame(maxWidth: .infinity)
       }
-      Image(systemName: "chevron.down").font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity)
+      Image(systemName: "chevron.down").font(.system(size: 15 * toolbarContentScale, weight: .semibold))
+        .frame(maxWidth: .infinity)
     }
     .lineLimit(1)
-    .frame(height: 46)
+    .frame(height: Self.toolbarStripHeight * stripScale)
   }
 
   /// 22 点圆片上的应用标志，画法同 AppMarkDisc 但取皮肤配色：圆片用 mix(accent 浅色 14% / 深色 22%, 按键色)，白色描边下的标志框用 mix(accent 82%, black)。
@@ -149,7 +159,7 @@ struct KeyboardSkinPreview: View {
     let accent = resolved(skin.accent)
     let disc = AppThemePalette.mix(accent, colorScheme == .dark ? 22 : 14, resolved(skin.keyBackground).withAlphaComponent(1))
     let frame = AppThemePalette.mix(accent, 82, .black)
-    return LogoDisc(diameter: 22, markSize: 13,
+    return LogoDisc(diameter: 22 * toolbarContentScale, markSize: 13 * toolbarContentScale,
                     discFill: Color(uiColor: disc), frameFill: Color(uiColor: frame))
   }
 

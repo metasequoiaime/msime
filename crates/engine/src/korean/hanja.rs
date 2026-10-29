@@ -103,6 +103,7 @@ pub fn query_into(request: &QueryRequest, destination: &mut Vec<WordItem>) {
             item.sentence_association = false;
             item.sentence_words.clear();
             item.touch_supported = false;
+            item.confident_correction = false;
         } else {
             let mut item = WordItem::new(
                 &request.raw_input_with_cases,
@@ -226,8 +227,9 @@ mod tests {
         };
         let mut destination = candidates(&request);
         let word_pointer = destination[0].word.as_ptr();
-        // 复用的行带着上一次（双拼触点纠错整句）的落点支持标记，写入时要清掉。
+        // 复用的行带着上一次（双拼触点纠错整句）的落点支持和首选标记，写入时要清掉。
         destination[0].touch_supported = true;
+        destination[0].confident_correction = true;
         query_into(&request, &mut destination);
         assert_eq!(destination, candidates(&request));
         assert_eq!(destination[0].word.as_ptr(), word_pointer);

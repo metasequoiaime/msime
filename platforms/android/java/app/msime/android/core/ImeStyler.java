@@ -348,8 +348,10 @@ final class ImeStyler {
             hintButton.setHintColor(color(target.accent()));
             hintButton.setCornerHintColor(color(target.hint()));
         }
-        if (button instanceof SpaceKeyFace space)
+        if (button instanceof SpaceKeyFace space) {
             space.setFaceColor(color(target.toolbarIcon()));
+            space.setCornerHintColor(color(target.hint()));
+        }
         if (button instanceof NineKeyDigitButton digitButton)
             digitButton.setDigitColor(color(target.hint()));
         applySkinTypeface(button, target);
@@ -497,10 +499,14 @@ final class ImeStyler {
         // 浮动（以及候选栏跟随光标）时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
         boolean floating = s.overlayDrawn();
         int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
-        if (s.stableDockedWindow()) {
+        // 内联高度条打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
+        if (s.stableDockedWindow() || s.inlineHeightActive) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
             s.keyboardRoot.invalidate();
+        } else if (s.keyboardRoot.getBackground() == dockedBackground) {
+            // 高度调整结束：setBackgroundColor 遇到 ColorDrawable 只改颜色，会把只画底部横带的背景留下来，所以换一个普通底色。
+            ViewPolicy.setBackground(s.keyboardRoot, new ColorDrawable(rootColor));
         } else {
             ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
         }
@@ -620,7 +626,7 @@ final class ImeStyler {
         }
     };
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；浮动时是一块缩窄的圆角面板。 */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
@@ -636,12 +642,12 @@ final class ImeStyler {
         }
         s.keyboardSurface.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         s.keyboardSurface.setClipToOutline(false);
-        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
-            configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
+        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(configuration.smallestScreenWidthDp,
+            configuration.screenWidthDp, s.splitKeyboardDrawn(), ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(s)));
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
             width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight
-                : s.stableDockedWindow() ? FrameLayout.LayoutParams.WRAP_CONTENT
+                : s.stableDockedWindow() || s.inlineHeightActive ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.keyboardSurface.setLayoutParams(params);

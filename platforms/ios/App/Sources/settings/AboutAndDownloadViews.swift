@@ -349,8 +349,11 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "vi-MIT", title: "vi", detail: "越南文 · MIT"),
     LicenseNotice(file: "ewts-MIT", title: "ewts", detail: "藏文 · MIT"),
     LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0", title: "開放詞典 拆字表", detail: "拆字 · CC BY 3.0"),
-    LicenseNotice(file: "rime-wanxiang-CC-BY-4.0", title: "rime-wanxiang 符号表", detail: "符号模式 · CC BY 4.0"),
-    LicenseNotice(file: "Unicode-License-V3", title: "Unicode 汉字数据库", detail: "拆字读音 · Unicode License V3")
+    LicenseNotice(file: "Unicode-License-V3", title: "Unicode 字符数据库", detail: "拆字读音、符号模式 · Unicode License V3"),
+    LicenseNotice(file: "MPL-2.0", title: "输入引擎与 rink-core", detail: "引擎、单位换算 · MPL-2.0"),
+    LicenseNotice(file: "librime-octagram-BSD-3-Clause", title: "librime-octagram 与 darts-clone", detail: "搭配模型查询 · BSD-3-Clause 与 BSD-2-Clause"),
+    LicenseNotice(file: "libcxx-Apache-2.0-WITH-LLVM-exception", title: "LLVM libc++", detail: "整句排序 · Apache-2.0 WITH LLVM-exception"),
+    LicenseNotice(file: "latex-symbols-MIT", title: "LaTeX 符号表", detail: "符号模式 · MIT")
   ]
 
   /// 本次构建的 bundle 里实际存在的声明文件。

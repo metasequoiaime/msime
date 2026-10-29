@@ -24,6 +24,86 @@ Files: debian/*
 Copyright: 2026 Metasequoia IME contributors
 License: GPL-3.0-only
 
+Files: crates/engine/* crates/path-trust/*
+Copyright: 2023-2026 Metasequoia IME contributors, including the authors of the C++ msime-engine the input engine is ported from
+License: MPL-2.0
+Comment:
+ The input engine (msime-engine) and msime-path-trust are licensed under the Mozilla Public License 2.0 without Exhibit B, so they combine with the GPL-3.0-only rest of the program (MPL-2.0 section 3.3); the binary package as a whole is distributed under GPL-3.0-only. The files below keep their own licenses; crates/engine/README.md lists them.
+
+Files: crates/engine/src/korean/hanja.tsv
+Copyright: 2005, 2006 Choe Hwanjin
+License: BSD-3-clause
+Comment:
+ Single-syllable readings of data/hanja/hanja.txt from libhangul (https://github.com/libhangul/libhangul), commit 717409ce61524bb3d8426060a384822f21354c62; the license text is resources/licenses/libhangul-hanja-BSD-3-Clause.txt.
+
+Files: crates/engine/src/local/places.tsv
+Copyright: modood and the contributors of Administrative-divisions-of-China
+License: WTFPL
+Comment:
+ From https://github.com/modood/Administrative-divisions-of-China, commit c49d495b40ac73eb1a66f6eeae5f8fd10696f035.
+
+Files: crates/engine/src/local/chaizi.tsv crates/engine/src/local/chaizi-chars.tsv
+Copyright: 2015 開放詞典 (http://www.kaifangcidian.com)
+ 1991-2026 Unicode, Inc.
+ Carbo Kuo and the OpenCC contributors
+License: CC-BY-3.0 and Unicode-3.0 and Apache-2.0
+Comment:
+ Adapted from chaizi-jt.txt and chaizi-ft.txt of https://github.com/kfcd/chaizi, commit e177ab54ce4edf255315a60593ffecbd8167e96b, with readings, ranks and traditional variants from Unihan 17.0.0 and OpenCC; resources/licenses/kfcd-chaizi-CC-BY-3.0.txt records the attribution and the changes.
+
+Files: crates/engine/src/local/symbol_groups.tsv
+Copyright: 1991-2026 Unicode, Inc.
+License: Unicode-3.0
+Comment:
+ Group members chosen by scripts/build_symbol_groups.py from UnicodeData.txt, Blocks.txt and EquivalentUnifiedIdeograph.txt of the Unicode Character Database 17.0.0.
+
+Files: crates/engine/src/local/latex_symbols.tsv
+Copyright: 2026 Metasequoia IME contributors
+License: MIT
+Comment:
+ This project's own LaTeX command table, compiled into the input engine; the license text is resources/licenses/latex-symbols-MIT.txt, installed with the binary package whether or not it carries the latex-symbols plugin pack.
+
+Files: crates/engine/src/handwriting/model.rs crates/engine/src/handwriting/features.rs
+Copyright: 2005-2007 Taku Kudo
+ 2026 Metasequoia IME contributors
+License: MPL-2.0 and BSD-3-clause
+Comment:
+ Ported from zinnia (https://github.com/taku910/zinnia), commit 581faa8f; the license text is resources/licenses/Zinnia-LICENSE.txt.
+
+Files: crates/engine/src/lattice/octagram.rs
+Copyright: 2014 RIME Developers
+ 2008-2014 Susumu Yata
+ 2026 Metasequoia IME contributors
+License: MPL-2.0 and BSD-3-clause and BSD-2-clause
+Comment:
+ Ported from librime-octagram (https://github.com/lotem/librime-octagram), commit 57d18b9f58e5284bd891d559f6bdd16cf60341e9, with the double-array reading reimplemented after the layout of darts-clone 0.32; both license texts are in resources/licenses/librime-octagram-BSD-3-Clause.txt.
+
+Files: crates/engine/src/lattice/cxx_sort.rs
+Copyright: LLVM Project contributors
+ 2026 Metasequoia IME contributors
+License: MPL-2.0 and Apache-2.0 with LLVM exception
+Comment:
+ A step-by-step reproduction of sorts from LLVM libc++; the license text is resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt.
+
+Files: crates/engine/tests/golden/real/* crates/engine/src/handwriting/testdata/*
+Copyright: 2026 Metasequoia IME contributors
+ iDvel and the rime-ice contributors, and the other authors of the dictionary data listed in resources/licenses/msime-engine-dictionary-NOTICE.md
+License: GPL-3.0-only
+Comment:
+ Test fixtures that only the engine's tests read, not compiled into the engine and outside its MPL-2.0: tests/golden/real holds candidate lists recorded against the dictionaries of tools/engine-golden/README.md, whose pinyin and English data come from rime-ice (GPL-3.0), and src/handwriting/testdata holds output of the zinnia-based handwriting reference implementation. They stay under the repository's GPL-3.0-only.
+
+Files: crates/script-sdk/* docs/script-plugin-template/* plugins/script/* plugins/phrase_table/*
+Copyright: 2026 Metasequoia IME contributors
+License: MIT
+Comment:
+ The script plugin SDK, its template and the script plugin collection, and the data of the official phrase tables, are under MIT so that plugins built with them need not be GPL; each of these directories carries the text as LICENSE.
+
+Files: plugins/script/data/common-chars.bin
+Copyright: 1991-2026 Unicode, Inc.
+ Carbo Kuo and the OpenCC contributors
+License: Unicode-3.0 and Apache-2.0
+Comment:
+ Built from the Unihan kTGH and kTraditionalVariant fields and OpenCC's STCharacters.txt; see plugins/script/data/common-chars-NOTICE.txt.
+
 Files: vendor/cargo/*
 Copyright: The authors of each crate, as named in its Cargo.toml and license files
 License: MIT or Apache-2.0
@@ -134,6 +214,29 @@ License: MIT
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
+
+License: MPL-2.0
+ This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ .
+ On Debian systems, the complete text of the Mozilla Public License version 2.0 can be found in "/usr/share/common-licenses/MPL-2.0".
+
+License: BSD-3-clause
+ Redistribution and use in source and binary forms, with or without modification, are permitted provided that the conditions of the 3-clause BSD license are met. The full text, with each copyright holder's name, is in resources/licenses/libhangul-hanja-BSD-3-Clause.txt, resources/licenses/Zinnia-LICENSE.txt and resources/licenses/librime-octagram-BSD-3-Clause.txt in the source and is installed with the binary package.
+
+License: BSD-2-clause
+ Redistribution and use in source and binary forms, with or without modification, are permitted provided that the conditions of the 2-clause BSD license are met. The full text of darts-clone's license is at the end of resources/licenses/librime-octagram-BSD-3-Clause.txt in the source and is installed with the binary package.
+
+License: Apache-2.0 with LLVM exception
+ The Apache License, Version 2.0, with the LLVM Exceptions. The full text is resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt in the source and is installed with the binary package; on Debian systems the Apache License itself is in "/usr/share/common-licenses/Apache-2.0".
+
+License: CC-BY-3.0
+ Creative Commons Attribution 3.0 Unported. The full text, with the attribution and the list of changes, is resources/licenses/kfcd-chaizi-CC-BY-3.0.txt in the source and is installed with the binary package.
+
+License: Unicode-3.0
+ The Unicode License V3. The full text is resources/licenses/Unicode-License-V3.txt in the source and is installed with the binary package.
+
+License: WTFPL
+ Do What The Fuck You Want To Public License, version 2. The full text is resources/licenses/Administrative-divisions-of-China-WTFPL.txt in the source and is installed with the binary package.
 
 License: LGPL-2.1
  This library is free software; you can redistribute it and/or modify it

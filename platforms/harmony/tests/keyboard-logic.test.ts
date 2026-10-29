@@ -37,6 +37,7 @@ import {
   StatisticsAuthenticationCooldown,
 } from "../entry/src/main/ets/keyboard/settings/StatisticsAuthenticationCooldown";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
+import { CandidateScalePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateScalePolicy";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
 import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
 import {
@@ -259,6 +260,10 @@ import {
   CandidateGlossPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
+import {
+  CorrectionMarkPolicy,
+  CorrectionSurfaceColors,
+} from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
@@ -1512,6 +1517,12 @@ group("projects the same form factor into every settings capability", () => {
   check(
     !phone.candidateWindowOpacity && !phone.candidateCornerRadius,
     "phone settings hide the candidate card opacity and radius the strip ignores",
+  );
+  check(
+    phone.candidateWindowScale &&
+      SettingsFormFactorCapabilities.resolve("tablet").candidateWindowScale &&
+      !desktop.candidateWindowScale,
+    "phones and tablets offer 候选栏大小 their keyboard scales; the 2-in-1 card only follows the font size",
   );
   check(
     phone.touchToolbarTools && !desktop.touchToolbarTools,
@@ -3561,6 +3572,48 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
     letters[letters.length - 2].kind === NineKeyActionKind.LANGUAGE &&
       digits[digits.length - 2].kind === NineKeyActionKind.LANGUAGE,
     "中/英 两层都紧挨回车",
+  );
+});
+
+group("九键一族的数字层：符 和切换键留在字母层那一格（#10061，与 Android #9113、iOS 相同）", () => {
+  for (const english of [false, true]) {
+    for (const style of ["standard", "comma_period", "emoji"]) {
+      const letters: NineKeyAction[] = NineKeyLayout.actionRow(false, english, style);
+      const digits: NineKeyAction[] = NineKeyLayout.actionRow(true, english, style, true);
+      const label = `${english ? "英文" : "中文"} ${style}`;
+      check(
+        actionKinds(digits) ===
+          [
+            NineKeyActionKind.SYMBOL_PANEL,
+            NineKeyActionKind.LAYER_TOGGLE,
+            NineKeyActionKind.SPACE,
+            NineKeyActionKind.ZERO,
+            NineKeyActionKind.LANGUAGE,
+            NineKeyActionKind.RETURN,
+          ].join(" "),
+        `数字层不跟样式：${label} ${actionKinds(digits)}`,
+      );
+      check(
+        Math.abs(digits[2].weight - 3.15) < 1e-9 && digits[3].weight === 1.05,
+        `0 的一份从空格让出：${label}`,
+      );
+      check(
+        digits[0].kind === letters[0].kind && digits[0].weight === letters[0].weight
+          && digits[1].kind === letters[1].kind && digits[1].weight === letters[1].weight,
+        `符 和切换键与字母层同宽同位：${label}`,
+      );
+      check(Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9, `整行份额与字母层相同：${label}`);
+    }
+  }
+  check(
+    actionKinds(NineKeyLayout.actionRow(false, false, "standard", true)) ===
+      actionKinds(NineKeyLayout.actionRow(false)),
+    "字母层不看这个参数",
+  );
+  check(
+    actionKinds(NineKeyLayout.actionRow(true, false, "tall_return", true)) ===
+      actionKinds(NineKeyLayout.actionRow(true, false, "tall_return")),
+    "右侧大回车的数字层仍由外框画 符",
   );
 });
 
@@ -8163,6 +8216,36 @@ group("单手模式 follows Android's toggleOneHanded and gutter", () => {
   );
 });
 
+group("单手模式 on a large screen is phone-sized and hugs the chosen edge (#10202)", () => {
+  check(
+    KeyboardFormFactorPolicy.largeScreen(800, 1280) &&
+      KeyboardFormFactorPolicy.largeScreen(1280, 800) &&
+      KeyboardFormFactorPolicy.largeScreen(600, 960) &&
+      !KeyboardFormFactorPolicy.largeScreen(411, 915) &&
+      !KeyboardFormFactorPolicy.largeScreen(915, 411),
+    "a large screen is one whose shorter side is at least 600vp, whichever way it is turned",
+  );
+  check(OneHandedPolicy.blockWidthVp(411, false) === 0, "a phone keeps the full-width 85/15 split");
+  check(OneHandedPolicy.blockWidthVp(915, false) === 0, "so does a phone in landscape");
+  const block: number = OneHandedPolicy.blockWidthVp(1280, true);
+  const keys: number =
+    block * (1 - OneHandedPolicy.RAIL_PERCENT / 100) - OneHandedPolicy.RAIL_GAP_VP;
+  check(block === 431, `a tablet's rail, gap and keys take 431vp, not ${block}`);
+  check(
+    Math.abs(keys - OneHandedPolicy.KEYS_MAX_WIDTH_VP) < 1 &&
+      OneHandedPolicy.KEYS_MAX_WIDTH_VP === 360,
+    `which leaves the keys about 360vp, as on Android (${keys})`,
+  );
+  check(
+    OneHandedPolicy.blockWidthVp(400, true) === 400,
+    "a screen narrower than the block gives it the whole row",
+  );
+  check(
+    OneHandedPolicy.blockWidthVp(0, true) === 431,
+    "an unknown width still gets the phone-sized block",
+  );
+});
+
 console.log("PrivacyGate");
 
 group("隐私模式 and password fields keep no record, as Android's ImePrivacyGate", () => {
@@ -8901,6 +8984,135 @@ group("the key geometry is registered once per layout and session", () => {
   check(
     sent.every((json) => (JSON.parse(json) as { id: number }).id !== 0),
     "an id of 0 would clear, so it is never used",
+  );
+});
+
+group("双拼纠错坐上首选的那一行字和注释画标记色，读屏念「已纠正」（#10018）", () => {
+  // 引擎只在坐上首选的纠错行带 confident_correction: true，其余行没有这个键；按 JSON 解析出来的样子核对。
+  type Row = { text: string; confident_correction?: boolean };
+  const rows = JSON.parse(
+    '[{"text":"我们","confident_correction":true},{"text":"文明"},{"text":"问名","confident_correction":false}]',
+  ) as Row[];
+  check(CorrectionMarkPolicy.confident(rows[0].confident_correction), "带 true 的那一行要标");
+  check(
+    !CorrectionMarkPolicy.confident(rows[1].confident_correction),
+    "没有这个键的行不标，默认视图与以前相同",
+  );
+  check(!CorrectionMarkPolicy.confident(rows[2].confident_correction), "false 不标");
+  check(!CorrectionMarkPolicy.confident(null), "null 不标");
+  const malformed = JSON.parse('{"confident_correction":"true"}') as {
+    confident_correction?: boolean;
+  };
+  check(
+    !CorrectionMarkPolicy.confident(malformed.confident_correction),
+    "不是布尔值的畸形回应不标",
+  );
+
+  check(CorrectionMarkPolicy.accessibilitySuffix(true) === "，已纠正", "读屏后缀是「，已纠正」");
+  check(CorrectionMarkPolicy.accessibilitySuffix(false) === "", "不标的行朗读不变");
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，已纠正",
+    "「已纠正」接在整行朗读的末尾",
+  );
+  check(
+    KeyAccessibilityPolicy.candidate(
+      1,
+      "我们",
+      "",
+      CandidateGlossPolicy.accessibilitySuffix("wo men", null, true) +
+        CorrectionMarkPolicy.accessibilitySuffix(true),
+    ) === "候选词 1：我们，提示：wo men，已纠正",
+    "原始按键的注释照旧读，「已纠正」在它之后",
+  );
+
+  // 与 Android（Palette.correctionFor）、iOS 同一条规则：没高亮的行用强调色，高亮的行用这一处的高亮字色。
+  const filled: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#FFFFFF",
+    accent: "#2C7A4B",
+  };
+  check(CorrectionMarkPolicy.markColor(false, filled) === "#2C7A4B", "没高亮时标记色是强调色");
+  check(
+    CorrectionMarkPolicy.markColor(true, filled) === "#FFFFFF",
+    "高亮时用这一处的高亮字色，皮肤把高亮底填成强调色时字仍看得见",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, false, "#8A8F98", filled) === "#2C7A4B",
+    "标记的行，平时画次要色的注释换成强调色",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, true, "#8A8F98", filled) === "#FFFFFF",
+    "标记的高亮行，注释换成高亮字色",
+  );
+  check(
+    CorrectionMarkPolicy.tint(false, true, "#8A8F98", filled) === "#8A8F98" &&
+      CorrectionMarkPolicy.tint(false, false, "#1F2328", filled) === "#1F2328",
+    "不标的行保持调用方原来的颜色，默认视图不变",
+  );
+  check(
+    CorrectionMarkPolicy.tint(true, false, CandidateSkinPolicy.FIXED_POSITION_COLOR, filled) ===
+      "#2C7A4B",
+    "标记盖过固定词的颜色",
+  );
+  // 触屏候选栏的内置配色里高亮字色就是强调色（KeyboardView.candidateColors 的 selectedText: skin.accent）：高亮的首选字色不变，标记靠换了色的原始按键注释看出来。
+  const touch: CorrectionSurfaceColors = {
+    text: "#1F2328",
+    highlightedText: "#2C7A4B",
+    accent: "#2C7A4B",
+  };
+  check(
+    CorrectionMarkPolicy.tint(true, true, "#1F2328", touch) === "#2C7A4B" &&
+      CorrectionMarkPolicy.tint(true, true, "#8A8F98", touch) === "#2C7A4B",
+    "内置配色下高亮首选的字和注释都是强调色",
+  );
+
+  // 展开面板格子：不标的格子与以前一样按高亮取高亮字色或普通字色。
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, false, filled) === "#1F2328",
+    "不标的普通格用普通字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(false, true, filled) === "#FFFFFF",
+    "不标的高亮格用高亮字色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, false, filled) === "#2C7A4B",
+    "标记的普通格用强调色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(true, true, filled) === "#FFFFFF",
+    "标记的高亮格用高亮字色",
+  );
+  const keyboard: CorrectionSurfaceColors = {
+    text: "#000000",
+    highlightedText: "#FAFAFA",
+    accent: "#0A59F7",
+  };
+  check(
+    CorrectionMarkPolicy.expandedSurface(true, filled, keyboard) === filled,
+    "有候选包画布时展开面板用候选区配色",
+  );
+  check(
+    CorrectionMarkPolicy.expandedSurface(false, filled, keyboard) === keyboard,
+    "没有画布时展开面板格子是按键，用键盘配色",
+  );
+  check(
+    CorrectionMarkPolicy.cellTextColor(
+      true,
+      false,
+      CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+    ) === "#0A59F7" &&
+      CorrectionMarkPolicy.cellTextColor(
+        true,
+        true,
+        CorrectionMarkPolicy.expandedSurface(false, filled, keyboard),
+      ) === "#FAFAFA",
+    "没有画布时标记的格子取键盘的强调色与高亮格字色",
   );
 });
 
@@ -11399,6 +11611,58 @@ group("the design key changes whenever the drawing would", () => {
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 42]);
   check(CustomKeyboardSkin.from(document({}), png).key() !== base, "so does adding a photo");
   check(CustomKeyboardSkin.from(document({})).key() === base, "an empty document is the default");
+});
+
+group("候选栏大小 scales the touch strip together with the toolbar sharing it (#10137)", () => {
+  check(
+    CandidateScalePolicy.percent(50) === 50 && CandidateScalePolicy.percent(200) === 200,
+    "the shared 50–200 range is taken as it is",
+  );
+  check(
+    CandidateScalePolicy.percent(49) === 100 &&
+      CandidateScalePolicy.percent(201) === 100 &&
+      CandidateScalePolicy.percent(undefined) === 100 &&
+      CandidateScalePolicy.percent(null) === 100 &&
+      CandidateScalePolicy.percent(87.5) === 100,
+    "anything outside it, missing or fractional falls back to 100 like Android's CandidateScalePolicy",
+  );
+  check(
+    CandidateScalePolicy.scaled(20, 50) === 10 && CandidateScalePolicy.scaled(20, 150) === 30,
+    "a size is multiplied by the scale",
+  );
+  check(
+    KeyboardMetrics.stripHeightVp() === KeyboardMetrics.STRIP_HEIGHT_VP,
+    "the default strip is the design's 50vp",
+  );
+  check(
+    KeyboardMetrics.stripHeightVp(50) === 25 && KeyboardMetrics.stripHeightVp(200) === 100,
+    "the strip follows the scale both ways",
+  );
+  check(
+    KeyboardMetrics.toolbarScale(100) === 1 &&
+      KeyboardMetrics.toolbarScale(150) === 1 &&
+      KeyboardMetrics.toolbarScale(50) === 0.5,
+    "toolbar buttons shrink with a shorter strip so they never clip, and stay at the design size when it grows",
+  );
+  const base: number = KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false);
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, true, 0, 100) === base,
+    "100% leaves the panel as it was",
+  );
+  check(
+    base - KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, true, 0, 80) === 10,
+    "only the strip gets shorter: the key rows and the gap under the strip keep their size",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, false, 0, 50) ===
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false, false),
+    "a hidden strip takes no space at any scale",
+  );
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true, true, 0, 50) ===
+      KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true),
+    "the 2in1 frame ignores it",
+  );
 });
 
 group("the panel is as tall as what the view stacks inside it", () => {

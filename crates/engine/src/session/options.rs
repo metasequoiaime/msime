@@ -109,7 +109,9 @@ pub struct SessionOptions {
 }
 
 impl SessionOptions {
-    /// The reference defaults (session.h:12-54) on the given paths.
+    /// 引擎库唯一的一套默认值，建在给定路径上。大部分沿用参照实现（session.h:12-54）：全拼、小鹤、学习开、个人上下文开、中文标点和成对标点开、频率按 `FrequencyAdjustmentOptions::default()`。与参照实现不同的只有辅助码：默认关，表名默认 `wubi86`。随仓库的七张辅助码表里只有 `wubi86` 写明了来源与许可（`resources/helpcodes/NOTICE-wubi86.md`），参照实现默认的 `lantian` 和产品默认的 `ziranma` 都没有再分发授权（`resources/helpcodes/NOTICE.md`），引擎库默认不读它们；要辅助码的嵌入方自己打开并选表。
+    ///
+    /// 产品不靠这套默认值：host 门面（`host::options::session_options`）逐字段给出产品取值，golden 基准在 `tests/golden_support` 里按参照实现补回辅助码。
     pub fn new(paths: RuntimePaths) -> Self {
         Self {
             paths,
@@ -126,12 +128,12 @@ impl SessionOptions {
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
-            helpcode_schema: "lantian".to_owned(),
+            helpcode_schema: "wubi86".to_owned(),
             helpcode_trigger_key: None,
             helpcode_table: None,
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
-            helpcode: true,
+            helpcode: false,
             strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
