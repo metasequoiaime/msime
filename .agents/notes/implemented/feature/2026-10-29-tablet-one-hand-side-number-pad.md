@@ -24,9 +24,9 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 `crates/client-core/src/preferences.rs` 有 `touch_one_handed_side_panel: TouchOneHandedSidePanel`：
 
 - 取值 `off`（默认，空着，即 #10204 之后的样子）和 `number_pad`。等于默认值时不写进文档（`skip_serializing_if`），默认文档与加字段之前逐字节相同，老用户什么都看不到变化。
-- 读文档是宽松的：手写 `Deserialize`，不认识的字符串读作 `off`，不是字符串照样报错，与 `TouchNumberPadSpace` 相同；另有严格的 `parse` / `as_str` 给同步用。三端宿主读到不认识的值（包括以后的 `text_edit`）和不是字符串的值也都按 `off` 画（Android `OneHandSidePadPolicy.parse`，iOS `TouchOneHandedSidePanel(in:)`，鸿蒙 `OneHandedPolicy.sidePanel`）。
+- 不认识的字符串原样留着：手写 `Serialize` / `Deserialize`，不认识的写法读成 `TouchOneHandedSidePanel::Unknown(String)`，存文档、账号同步导出时照原样写回（`as_str` / `from_wire`）；不是字符串照样报错。三端宿主读到不认识的值（包括以后的 `text_edit`）和不是字符串的值都按 `off` 画（Android `OneHandSidePadPolicy.parse`，iOS `TouchOneHandedSidePanel(in:)`，鸿蒙 `OneHandedPolicy.sidePanel`）。这里不照 `TouchNumberPadSpace` 那样把不认识的值读成默认：那样旧版本下一次保存时会把较新版本写下的值删掉（`off` 不写进文档），账号同步里还会把它当成本机改动（本机导出 `off`，基线是云端的 `text_edit`），拿 `off` 覆盖云端较新设备的选择，再扩散到所有设备。`touch_number_pad_space` 等其他宽松读取的触屏枚举有同样的缺口，不在这次范围里。
 - 做成取值而不是开关：以后加文本编辑面板时只多一个取值 `text_edit`，今天的版本读到它按 `off` 画；要是今天做成布尔，以后改成字符串时还没升级的版本会把整份偏好文档判成类型错误。
-- 账号同步走触屏宿主共用的 `TouchHostKeys`，与 `touch_number_pad_space` 同一条路：Android `platform.android.one_handed_side_panel`，鸿蒙 `platform.harmony.one_handed_side_panel`，字符串。导出总是写（`off` 也写），云端才能被改回空着；应用时按严格写法解析，本机不认识的面板只跳过这一个键、不改本机的选择。服务端字段表收录这两个键之前，上传前的字段表过滤会去掉它们，这一步在仓库外（后端字段表）。iOS 的同步走 `ios_settings.rs` 的自有映射，与其他按键布局偏好一样不同步这一项。
+- 账号同步走触屏宿主共用的 `TouchHostKeys`，与 `touch_number_pad_space` 同一条路：Android `platform.android.one_handed_side_panel`，鸿蒙 `platform.harmony.one_handed_side_panel`，字符串。导出总是写（`off` 也写），云端才能被改回空着；应用时不认识的面板也照原样收下，下一次导出写回同一个值，与这次记下的基线相同，不会被当成本机改动。服务端字段表收录这两个键之前，上传前的字段表过滤会去掉它们，这一步在仓库外（后端字段表）。iOS 的同步走 `ios_settings.rs` 的自有映射，与其他按键布局偏好一样不同步这一项。
 - 共享 TS 模型 `packages/ui/src/core/preferences-model.ts` 有 `touch_one_handed_side_panel?: "off" | "number_pad"`；`platforms/macos/tests/settings/preference_coverage.py` 把它列为 macOS 不适用。
 
 单手模式本身仍是各端本机的设置（Android `platform.android.one_handed`，iOS App Group `keyboard.oneHanded`，鸿蒙按键反馈文件的 `oneHanded`），这一项只决定单手模式生效时空出来的那一侧放什么。
@@ -91,7 +91,7 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 
 - Android：`KeyboardOptionsPage` 第一个 `if (showLargeScreenOptions)` 块里「分离中间空隙」之后，文字直接写在页里（保持现有的设置搜索索引测试能读到），`check-host.sh` 逐字钉住；`PageId` 的设置搜索关键词有「大屏单手时侧边显示数字键盘」「侧边数字键盘」「单手」。
 - iOS：`KeyboardLayoutSettingsView.tabletGroup`（只在 iPad 上出现）里「横屏分离式键盘」之后，`accessibilityIdentifier("appOneHandSidePadSwitch")`，经 `TouchOneHandedSidePanelPreference.save(_:)` 用 `MetasequoiaInputSessionBridge.updateSharedPreferences` 写共享文档。这一组的说明加了一段 iPad 单手模式：「功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；横屏分离式键盘画着时单手模式让位。」「恢复默认」不动它（它不是这一页的间距或高度）。
-- 鸿蒙：共享 React 设置页 `TouchKeyboardGeometrySection` 的可选属性 `oneHandedSidePanel?: boolean` 和 `onOneHandedSidePanelChange`，`screen-keyboard-page.tsx` 只在宿主报告 `touch_one_handed_side_panel` 时传入。手机排法（`layoutRows` 给出时）放进开头的「布局」组、照例不画说明；鸿蒙平板走的也是手机排法，所以鸿蒙上这一项只有标题。其他排法放在「布局」组的「横屏分离式键盘」之后、带说明。能力位在 `packages/ui/src/core/host-capabilities.ts`（缺省按不提供处理），鸿蒙 `Settings.ets` 按设备形态报告：`SettingsFormFactorCapabilities.resolve(deviceType, foldable)` 的 `oneHandedSidePanel` 在 `tablet` 为真、`phone` 且 `display.isFoldable()` 为真、直板手机和 `2in1` 为假；`isFoldable` 调用出错时按不可折叠并记日志。
+- 鸿蒙：共享 React 设置页 `TouchKeyboardGeometrySection` 的可选属性 `oneHandedSidePanel?: boolean` 和 `onOneHandedSidePanelChange`，`screen-keyboard-page.tsx` 只在宿主报告 `touch_one_handed_side_panel` 时传入。手机排法（`layoutRows` 给出时）放进开头的「布局」组；手机排法的其他行不画说明，这一行破例带说明：它只在平板和可折叠手机上出现，不在窄屏上挤，没有说明的话打开后在 26 键或双手模式下看不到任何变化。鸿蒙平板走的也是手机排法。其他排法放在「布局」组的「横屏分离式键盘」之后、带说明。能力位在 `packages/ui/src/core/host-capabilities.ts`（缺省按不提供处理），鸿蒙 `Settings.ets` 按设备形态报告：`SettingsFormFactorCapabilities.resolve(deviceType, foldable)` 的 `oneHandedSidePanel` 在 `tablet` 为真、`phone` 且 `display.isFoldable()` 为真、直板手机和 `2in1` 为假；`isFoldable` 调用出错时按不可折叠并记日志。可折叠手机在折叠状态（外屏）下也列出这一项，与 Android 不同：Android 的 `KeyboardOptionsPage` 按打开设置页那一刻的 `smallestScreenWidthDp >= 600` 列出大屏一组，折叠时看不到，展开后才出现。这是有意的出入：这一项是偏好，只在展开后的大屏上生效，鸿蒙的能力位在设置桥里按设备形态算一次，按当前屏幕算的话折叠时打开设置页就找不到它，说明里也写着「折叠屏展开」时生效；Android 的大屏一组是整组按当前窗口列出的，单为这一项改成按设备能不能折叠要另找判断（`FEATURE_SENSOR_HINGE_ANGLE` 只在 API 30 以上有），不值得。
 
 ## 各端实现
 
@@ -107,7 +107,8 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 
 - `KeyboardOneHandLayout`：`effective(_:formFactor:split:)` 只在 iPad 画横屏分离式键盘时返回 `.off`；`tabletKeysWidth = 360`、`blockWidth`、`sidePadWidth`，`keysWidth` 多了 `formFactor` 参数。
 - `KeyboardViewController`：`oneHandRow` 里有空白 `oneHandSideSpacer` 和侧边面板 `oneHandSidePad`；iPad 单手时侧栏和按键列是常量宽度，空白吃掉剩下的宽度。`applyOneHanded` 用 `OneHandArrangement`（模式、块宽、面板宽）判断要不要重排，也在 `viewDidLayoutSubviews` 里跑，转屏和窗口尺寸变化会重算；分离与否在 `updateKeyboardLayout` 开头先定。显示条件 `oneHandSidePadWanted` 是 `numberPad && isChineseMode && !isInLocalMode && !showsSymbols && nineKeySchemes.contains(inputScheme)`（iOS 的数字九宫格只在 `showsSymbols` 时画）。侧边面板不参与横滑移动光标。
-- iPad 单手时键面用手机的：`keyFaceFormFactor` 在 `formFactor == .tablet && appliedOneHanded != .off` 时为 `.phone`。读它的是字母字号、中间行缩进、`canShowFullKeys`（数字行与 Tab）、行内标点、手机/平板底行、`applyTabletLetterKeys`、`chineseTwentySixKeyboard`、`symbolLayerSymbolFirst` 和 `layoutInputs`；键盘高度、上下内边距、`topRowGap`、按键高度仍读 `formFactor`。
+- iPad 单手时键面用手机的：`keyFaceFormFactor` 在 `formFactor == .tablet && appliedOneHanded != .off` 时为 `.phone`。读它的是字母字号、中间行缩进、`canShowFullKeys`（Tab）、行内标点、手机/平板底行、`applyTabletLetterKeys`、`chineseTwentySixKeyboard`、`symbolLayerSymbolFirst` 和 `layoutInputs`；键盘高度、上下内边距、`topRowGap`、按键高度仍读 `formFactor`。「数字行与 Tab 键」的数字行（和数字符号页的补充行）按 `formFactor` 取（`fullKeyNumberRow`）：iPad 单手时 Tab 不画，1 到 0 这一排照画，排数不变，单手开关不改键盘高度。
+- 升级前存下的单手值不带到全宽键盘上：`keyboard.oneHanded` 以前只在手机形态（iPhone、iPad 浮动键盘和窄窗口）上画。`KeyboardLayoutPreference.oneHanded` 的写入顺带打上 `keyboard.oneHandedDockedTablet` 标记；`applyOneHanded` 在全宽键盘（不分离）上读到非关闭的值而没有标记时，经 `adoptOneHandedOnDockedTablet` 把它改成关闭并打上标记，只做一次。浮动键盘照旧用存下的值。
 - 功能面板的「单手模式」磁贴在 iPad 上不再置灰。
 - 偏好：`SharedUI/preferences/TouchOneHandedSidePanelPreference.swift` 的 `TouchOneHandedSidePanel(in:)`、`TouchOneHandedSidePanelPreference.save` / `load` 和设置页文字。
 
@@ -129,14 +130,15 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 - **4 × 4 计算器排法，加空格和跨两行的键**：和桌面小键盘一样，能多放一个空格。不用它：空格、回车都在主键区底行，离得不远，重复放没有必要；跨行的键要单独处理行高，而 3 × 4 正好和九键的三行网格加底行逐行对齐。
 - **26 键也显示**：用 26 键的人也有数字需求。不用它：维护者定的是只在九键时显示；26 键有「顶部数字行」可选。
 - **三端用同一个侧边宽度公式（屏幕宽减块宽）**：数字三端完全一样，读的人好对照。不用它：鸿蒙和 iPad 的按键行两边有内边距、块与面板之间有固定间距，照搬 Android 的公式在最窄的大屏上会把这一行撑出屏幕；各端按这一行实际可用的宽度算，规则（下限 150、上限 300、贴屏幕边）相同。
-- **iPad 全宽键盘的单手模式另存一个键（例如 `keyboard.tablet.oneHanded`）**：iPad 浮动键盘是手机形态，本来就能开单手模式并存下 `keyboard.oneHanded`；共用一个键的话，升级后停靠的全宽键盘会突然按那个值变成单手。不用它：Android 和鸿蒙在手机、平板、折叠屏内外屏之间都只有一个单手取值，iOS 另存一个就要让磁贴按形态读写不同的键，同步、恢复默认也都要多一份；受影响的只是在浮动键盘上开过单手模式的 iPad 用户，侧栏上的退出按钮一下就能关掉。
+- **iPad 全宽键盘的单手模式另存一个键（例如 `keyboard.tablet.oneHanded`）**：iPad 浮动键盘是手机形态，本来就能开单手模式并存下 `keyboard.oneHanded`；共用一个键的话，升级后停靠的全宽键盘会突然按那个值变成单手。不用它：Android 和鸿蒙在手机、平板、折叠屏内外屏之间都只有一个单手取值，iOS 另存一个就要让磁贴按形态读写不同的键，同步、恢复默认也都要多一份。升级带来的那一次变化另用一次性标记 `keyboard.oneHandedDockedTablet` 挡住（见「各端实现 › iOS」），不靠拆键。
+- **升级前存下的单手值直接带到全宽键盘上，不做迁移**：最简单，侧栏的退出按钮一下就能关。不用它：这是默认行为的变化，在浮动键盘上开过单手的 iPad 用户一升级，停靠的键盘就缩成手机大小、换成手机键面，没有经过单独授权；一次性标记只多一个 App Group 键。
 - **iPad 单手时保留 iPad 的键面（数字行、Tab、iPad 底行）**：键面与平时一样，不用切换。不用它：iPad 26 键一排十一二个键，挤进 360pt 后每个键不到 30pt；iPad 浮动键盘本来就用手机键面，单手块和它一样大。
 
 ## Consequences
 
 - 设置页关掉开关即回到 #10204 的样子；代码回滚不影响文档格式，字段留在 client-core 里没人读，与[撤掉的数字键盘两项设置](../simplification/2026-10-11-remove-number-keypad-settings.md)一样无害。
-- iPad 键面切换牵涉面大：`keyFaceFormFactor` 与 `formFactor` 归错一处就会在 iPad 单手时画出半套 iPad 键面。打开「数字行与 Tab 键」的 iPad 用户开单手时数字行不画，键盘会矮一行，这是手机键面带来的，不是高度调整。
-- 浮动键盘存下的单手值会进到全宽键盘：在 iPad 浮动键盘上开过单手模式的用户，升级后停靠的全宽键盘是单手；侧栏的退出按钮能关。
+- iPad 键面切换牵涉面大：`keyFaceFormFactor` 与 `formFactor` 归错一处就会在 iPad 单手时画出半套 iPad 键面，或者让键盘高度随单手开关跳一排。数字行这一处按 `formFactor` 取，`OneHandModeTests` 钉住开着「数字行与 Tab 键」时单手前后请求的高度相同。
+- 升级前在浮动键盘上存下的单手值，第一次在全宽键盘上画时被改成关闭，浮动键盘上也随之关闭一次；这之后用户在任何形态上打开的单手模式都照存下的值画。
 - 组字中点侧边数字沿用数字层的做法，拼音按原样上屏再上屏数字，而不是先上屏首选；有反馈再改，届时三端一起改。
 - 折叠屏展开、折叠和转屏：Android 按 `Configuration` 重算，排法签名带着宽度会重排；鸿蒙在 `readOrientation` 的显示变化回调里重算；iPad 在 `viewDidLayoutSubviews` 和 `updateKeyboardLayout` 里重算。
 - 两个同步键要进后端字段表才会真的上传，在那之前同步不带这一项，本机照常生效。
@@ -144,9 +146,9 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 
 ## Verification
 
-- 共享偏好：`cargo test -p msime-client-core` 和 `cargo test -p msime-client-services --lib account::` 通过；默认文档不含这个键。
+- 共享偏好：`cargo test -p msime-client-core` 和 `cargo test -p msime-client-services --lib account::` 通过；默认文档不含这个键；不认识的写法存回文档不丢，账号同步应用后下一次导出写回同一个值。
 - Android：`platforms/android/check-host.sh` 通过，`KeyboardFormFactorPolicySmoke` 覆盖侧边宽度（手机 0、600dp 为 176、800dp 和 1280dp 为 300、宽度未知为 0、573dp 为 0、574dp 为 150），`OneHandSidePadPolicySmoke` 覆盖 `parse` 和每一条显示条件，`SettingsSearchIndexSmoke` 搜得到新的一行，`check-host.sh` 钉住接线和设置文字；Gradle `compileFullReleaseJavaWithJavac` 通过。
-- iOS：`MSIMEClientTests` 的 `build-for-testing` 和 `MSIMEApp` 编译通过。`OneHandModeTests` 的 iPad 用例（块宽、手机键面、分离让位、浮动、面板位置与对齐、显示条件、上屏和删除、空隙归属、偏好读写、设置文字）和 `TouchPointTests.testTheOneHandedTabletKeyboardRegistersTheDockedBlock` 只编译过，没有运行：编译机的 CoreSimulator 版本低于 Xcode 要求，模拟器不可用。
+- iOS：`MSIMEClientTests` 的 `build-for-testing` 和 `MSIMEApp` 编译通过。`OneHandModeTests` 的 iPad 用例（块宽、手机键面、数字行保高、升级迁移、分离让位、浮动、面板位置与对齐、显示条件、上屏和删除、空隙归属、偏好读写、设置文字）和 `TouchPointTests.testTheOneHandedTabletKeyboardRegistersTheDockedBlock` 的运行结果见 PR 的验证段。
 - 鸿蒙：`platforms/harmony/tests/run.sh` 通过，`keyboard-logic.test.ts` 覆盖 `sidePadWidthVp`、`sidePanel`、`sidePadShown`、键序、读屏名称和能力位，`run.sh` 钉住接线；`hvigorw assembleHap` 编译通过，改动的文件没有新的 ArkTS 警告。共享 React 页的 `touch-keyboard-geometry-section` 和 `harmony-one-handed-side-panel` 测试覆盖开关只在能力位为真时出现、文字逐字相同、写对取值。
 - `scripts/test-mobile-*-parity.py`、`test-preferences-field-parity.py`、`test-harmony-bridge-parity.py` 通过。
 - 没有在 Android 平板、iPad 或鸿蒙平板的模拟器和真机上看过实际画面和手点输入。

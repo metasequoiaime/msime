@@ -304,6 +304,17 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
+## 大屏单手侧边数字键盘
+
+平板和折叠屏内屏上单手模式把「侧栏 + 间距 + 按键」缩成手机大小的一块（按键 360vp，块宽 `round((360 + 6) / 0.85) = 431`，`OneHandedPolicy.blockWidthVp`，#10204），贴到按键那一侧；空出来的那一侧可以放一块数字键盘（#10203）。开关在共享 React 设置页「屏幕键盘 › 布局」的「大屏单手时侧边显示数字键盘」，写共享偏好 `touch_one_handed_side_panel`（`off` 默认 / `number_pad`，随账号同步，同步键 `platform.harmony.one_handed_side_panel`）；`KeyboardSession` 在读 `touch_number_pad_space` 的同一处读它，不认识的值（以后的 `text_edit`）按空着画（`OneHandedPolicy.sidePanel`），client-core 把写法原样留着。见 `.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md`。
+
+- 什么时候画（`OneHandedPolicy.sidePadShown`）：偏好是 `number_pad`；单手模式此刻生效（`OneHandedPolicy.active`，2in1 不生效）；大屏且空出来的宽度放得下；主键区画的是拼音九键、九键双拼或笔画的字母层（`KeyboardView.nineKeyFamilyLettersShowing`：123 层、英文、本地模式、注音、假名九键、手写、14/18 键和 26 键都不画）。符号、表情、剪贴板这些面板盖住按键时，面板和按键在同一行（`KeyboardView.handedKeys`），整行不画，侧边数字键盘跟着不见。
+- 宽度（`OneHandedPolicy.sidePadWidthVp`）：`side = (屏幕宽 - 2 × 4) - 431 - 6`，8 是键盘根的左右内边距 `KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP`，6 是面板与块之间 `Blank(RAIL_GAP_VP)` 的最小宽度；不到 150 不画，最宽 300。600vp 的设备上是 155。`readOrientation` 在显示变化（转屏、折叠屏展开和折叠）时重算。
+- 摆放：面板贴屏幕边，键在右时这一行是 [面板, 空白, 块]，键在左时是 [块, 空白, 面板]，中间的 `Blank` 是不接触摸的键盘底色。面板显示时这一行按底边对齐。
+- 键面（`KeyboardView.oneHandSidePad`）：3 × 4 拨号盘 `1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`，前三行高 `gridHeight()`、第四行高 `rowHeight(3)`，数字和 `.` 用 `fixedKey`，⌫ 用 `deleteKey`（带连删）。拼音九键和九键双拼的网格是三行，逐行对齐；笔画网格只有两行，面板的前三行平分网格高度，没法逐行对齐。数字和 `.` 走数字层的 `insertNumberPadLiteral`（组字中先把拼音原样上屏），读屏是「数字 N」「小数点」，统计记普通数字键、`Period` 和 `Backspace`。面板 `.id('oneHandSidePad')`。
+- 设置桥的能力位（`SettingsFormFactorCapabilities.resolve(deviceType, foldable)` 的 `oneHandedSidePanel`，报给共享设置页的 `touch_one_handed_side_panel`）：平板为真，手机在 `display.isFoldable()` 为真时为真（折叠状态下也列出，展开后生效），直板手机和 2in1 为假；`isFoldable` 出错时按不可折叠并记日志。鸿蒙平板走设置页的手机排法，这一行照样带说明，标题和说明与 Android、iOS 逐字相同。
+- 测试：`tests/keyboard-logic.test.ts` 覆盖宽度、取值、显示条件、键序、读屏名称和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-one-handed-side-panel.test.tsx`。
+
 ## 全拼九键的三栏展开面板
 
 候选条末尾的 ∨ 此前在手机和平板上打不开任何东西：surface 改成单值（#2503）之后，它只取了完整候选列表，却没有切到展开面板。现在它打开面板，再点一次收起；面板开着时每次 `onChanged` 都重取候选，不再是打开那一刻的一份拷贝。
