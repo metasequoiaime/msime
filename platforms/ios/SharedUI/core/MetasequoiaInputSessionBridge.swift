@@ -2017,7 +2017,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case failed
   }
 
-  /// 设置 App「词库 › 学习」的「清除学习记录」：与五笔查码、词库同步一样经 `msime_client_prepare_host` 解析出键盘用的那套词库路径，发词库请求 `reset`，换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），共享偏好、常用语、剪贴板和打字统计不动。Rust 要独占的维护权；键盘扩展收起时就销毁会话放掉它，键盘还开着时是 `.busy`，什么也不换。没有开完全访问的键盘扩展用不到 App Group，它自己目录里的学习记录这里碰不到。读写文件，调用方放到主线程之外。
+  /// 设置 App「词库 › 学习」的「清除学习记录」：与五笔查码、词库同步一样经 `msime_client_prepare_host` 解析出键盘用的那套词库路径，发词库请求 `reset`，换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），共享偏好、常用语、剪贴板和打字统计不动。Rust 要独占的维护权；键盘扩展收起时就销毁会话放掉它，键盘还开着时是 `.busy`，什么也不换。键盘扩展有没有完全访问，状态目录都是 App Group 里的同一个 `MSIME`（`bootstrapOptions`），没有另一份：没开完全访问时键盘写不了 App Group，它学到的东西本来就落不了盘，所以这里清的就是键盘下次读的那一份。读写文件，调用方放到主线程之外。
   static func resetLearnedData(resources: URL? = PersonalDictionaryBridge.packagedResources,
                                stateRoot: URL? = nil) throws {
     guard let resources else { throw LearnedDataResetFailure.failed }

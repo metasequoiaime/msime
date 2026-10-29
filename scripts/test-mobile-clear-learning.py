@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「词库 › 学习」的「清除学习记录」在 Android 和 iOS 上用同一套文案和同一条路。
 
-文案逐字相同，只差确认框末尾：Android 的账号同步含个人词库，说会同步；iOS 不含，也没有命名词库，改说导入的词一并删除。两端都先确认、在主线程之外发 `msime_client_dictionary` 的 `reset`。鸿蒙不提供这一项，原因见 `.agents/notes/implemented/feature/2026-10-29-mobile-clear-learning.md`：键盘的学习记录在它自己的沙箱里，设置应用清不到。
+标题、说明、按钮、确认框第一句、网盘同步那一句和失败提示逐字相同，确认框中间各说各的：Android 的账号同步含个人词库，说账号和同账号的其他设备会跟着换；iOS 不含，也没有命名词库，改说导入的词一并删除。两端都先确认、在主线程之外发 `msime_client_dictionary` 的 `reset`。鸿蒙不提供这一项，原因见 `.agents/notes/implemented/feature/2026-10-29-mobile-clear-learning.md`：键盘的学习记录在它自己的沙箱里，设置应用清不到。
 """
 from pathlib import Path
 import re
@@ -15,7 +15,7 @@ IOS_PAGE = ROOT / "platforms/ios/App/Sources/settings/DictionarySettingsView.swi
 IOS_BRIDGE = ROOT / "platforms/ios/SharedUI/core/MetasequoiaInputSessionBridge.swift"
 HARMONY_CLIENT = ROOT / "apps/harmony/src/main.tsx"
 
-SHARED = {"TITLE": "title", "SUBTITLE": "subtitle", "ACTION": "action", "CONFIRM_TITLE": "confirmTitle", "REMOVED": "removed"}
+SHARED = {"TITLE": "title", "SUBTITLE": "subtitle", "ACTION": "action", "CONFIRM_TITLE": "confirmTitle", "REMOVED": "removed", "WEBDAV": "webdav", "BUSY": "busy", "FAILED": "failed"}
 
 
 def java_constant(source: str, name: str) -> str:
@@ -38,10 +38,13 @@ class ClearLearningContract(unittest.TestCase):
         ios = IOS_COPY.read_text(encoding="utf-8")
         for java_name, swift_name in SHARED.items():
             self.assertEqual(java_constant(android, java_name), swift_constant(ios, swift_name), java_name)
-        self.assertIn("开着云同步时，账号里的个人词库也会换成清除后的这一份。", android)
+        self.assertIn("开着云同步时，账号里的个人词库也会换成清除后的这一份，登录同一账号的其他设备同步时会跟着换掉，或者提示你选择。", android)
         self.assertIn("已添加的词库保留", android)
+        self.assertIn("+ WEBDAV;", android)
         self.assertIn("导入和从社区添加的词条也一并删除。", ios)
-        self.assertNotIn("同步", ios.split("static let confirmMessage", 1)[1].split("\n", 1)[0])
+        ios_message = ios.split("static let confirmMessage", 1)[1].split("\n", 1)[0]
+        self.assertNotIn("账号", ios_message)
+        self.assertTrue(ios_message.endswith("+ webdav"), ios_message)
 
     def test_android_confirms_before_resetting_off_the_main_thread(self):
         page = ANDROID_PAGE.read_text(encoding="utf-8")

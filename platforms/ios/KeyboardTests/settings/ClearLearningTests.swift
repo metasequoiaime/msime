@@ -28,14 +28,15 @@ final class ClearLearningTests: XCTestCase {
   }
 
   func testCopyNamesWhatGoesAndWhatStays() {
-    for removed in ["候选调频", "置顶和固定位置", "选词记录", "整句联想", "拼写纠错记录", "自造词", "无法撤销", "导入和从社区添加的词条"] {
+    for removed in ["候选调频", "置顶和固定位置", "选词记录", "整句联想", "拼写纠错记录", "自造词", "含快捷短语", "无法撤销", "导入和从社区添加的词条"] {
       XCTAssertTrue(ClearLearningCopy.confirmMessage.contains(removed), removed)
     }
     for kept in ["设置", "常用语", "剪贴板", "打字统计"] {
       XCTAssertTrue(ClearLearningCopy.confirmMessage.contains(kept), kept)
     }
-    // iOS 的账号同步不含个人词库，确认框不说会同步。
-    XCTAssertFalse(ClearLearningCopy.confirmMessage.contains("同步"))
+    // iOS 的账号同步不含个人词库，确认框不提账号；「我的词条」网盘同步会把删除带到别的设备，要说。
+    XCTAssertFalse(ClearLearningCopy.confirmMessage.contains("账号"))
+    XCTAssertTrue(ClearLearningCopy.confirmMessage.hasSuffix(ClearLearningCopy.webdav))
     XCTAssertTrue(ClearLearningCopy.confirmMessage.hasPrefix(ClearLearningCopy.removed))
   }
 }
