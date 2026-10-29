@@ -699,6 +699,8 @@ public final class VoicePage extends ReloadingDetailPage {
         for (int index = 0; index < TRIGGER_LABELS.length; index++) {
             int choice = index;
             sheet.option(TRIGGER_LABELS[index], index == selected, () -> {
+                // OptionSheet 点已选中的项也会跑动作。启动方式由两个开关派生，手势分页另开了长按空格时两个开关可能都开着、这里显示「长按空格」；重新点它不能写回、悄悄关掉工具栏按钮。
+                if (choice == selected) return;
                 row.setValue(TRIGGER_LABELS[choice]);
                 saveTrigger(choice);
             });
