@@ -397,6 +397,43 @@ struct KeyboardPreviewLetterLayer: Equatable {
   }
 }
 
+/// 整块键盘预览（「键盘」页的实时预览、皮肤页的缩略图）画哪一种键面：用户当前的中文键盘属于哪一类（`TouchKeyLayoutKind.of`），与 Android `KeyLayoutStylesPolicy.previewKind`、共享页相同。九键一族（拼音九键、九键双拼、笔画）都画九宫格外框，笔画与键盘一样沿用九键外框和九键的底行样式（含右侧大回车）；14/18 键画对应的字母格；其余方案，包括不读「按键布局」样式的手写、注音、日文和韩文等，画 26 键。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
+struct KeyboardPreviewFace: Equatable {
+  /// 当前方案读不读「按键布局」样式（`TouchKeyLayoutKind.of` 不为 nil）；不读时「键盘」页的预览画标准底行。
+  let styled: Bool
+  /// 画九宫格外框。
+  let nineKey: Bool
+  /// 14 键或 18 键的字母格；九键和 26 键为 nil。
+  let letterGrid: LetterKeyGrid?
+  /// 字母格第三排左端画「分词」：五笔 14 键没有音节可分，画「符」。
+  let gridSplitsSyllables: Bool
+  /// 九键双拼字母层空格后面的 0。
+  let nineKeyZero: Bool
+
+  init(_ scheme: ChineseInputScheme, shuangpinLayout: TouchShuangpinLayoutPreference.Layout,
+       wubiLayout: TouchWubiLayoutPreference.Layout) {
+    let kind = TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+    styled = kind != nil
+    nineKey = kind == .nineKey
+    letterGrid = LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+    gridSplitsSyllables = scheme != .wubi
+    nineKeyZero = scheme == .nineKeyShuangpin
+  }
+
+  /// 共享文档里用户正在用的方案和双拼、五笔布局；文档里没记的方案退回 App Group 镜像，与「键盘」页读的相同。
+  init(in document: [String: Any]?) {
+    self.init(InputSchemePreference.current(in: document).scheme,
+              shuangpinLayout: TouchShuangpinLayoutPreference.layout(in: document),
+              wubiLayout: TouchWubiLayoutPreference.layout(in: document))
+  }
+
+  /// App Group 镜像里的方案和布局，共享文档读回来之前先按它画。
+  static var mirrored: KeyboardPreviewFace {
+    KeyboardPreviewFace(InputSchemePreference.scheme, shuangpinLayout: TouchShuangpinLayoutPreference.layout,
+                        wubiLayout: TouchWubiLayoutPreference.layout)
+  }
+}
+
 /// 手机触屏底行按「按键布局」样式的排法：每个显示的键、从左到右的顺序和它在本行里的宽度份额。三端相同，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
 ///
 /// 标准样式就是原来的底行（`KeyboardViewController` 的 `phoneActionWidths`、`nineKeyActionWidths` 等），表里照抄一份，供统计热力图、设置页预览和测试使用；其余样式由键盘控制器按这张表排列并加宽度约束。样式加的键都从空格里让出份额，整行总份额不变。地球键只在宿主要求时出现，占 1 份，从行宽里另外分；隐藏中/英键时它的 1.05 份交给空格。

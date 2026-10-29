@@ -966,6 +966,62 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
   }
 
+  /// 「键盘」页和皮肤页的预览画用户正在用的那一类键盘（`KeyboardPreviewFace`），与 `TouchKeyLayoutKind.of`、Android `previewKind` 和鸿蒙相同：笔画和拼音九键、九键双拼一样画九宫格外框、读九键样式。以前 iOS 的「键盘」页给笔画画 26 键标准底行，皮肤页不论什么键盘都画 26 键。
+  func testPreviewFaceFollowsTheCurrentKeyboardKind() {
+    let layouts = TouchShuangpinLayoutPreference.Layout.allCases.flatMap { shuangpin in
+      TouchWubiLayoutPreference.Layout.allCases.map { (shuangpin, $0) }
+    }
+    for scheme in ChineseInputScheme.allCases {
+      for (shuangpin, wubi) in layouts {
+        let face = KeyboardPreviewFace(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+        let kind = TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi)
+        let label = "\(scheme) \(shuangpin) \(wubi)"
+        let layer = KeyboardPreviewLetterLayer(nineKey: face.nineKey, letterGrid: face.letterGrid != nil,
+                                               style: TouchKeyLayoutStyle(), language: true)
+        // 不读样式的方案（手写、注音、日文、韩文等）画 26 键。
+        XCTAssertEqual(layer.kind, kind ?? .twentySixKey, label)
+        XCTAssertEqual(face.styled, kind != nil, label)
+        XCTAssertEqual(face.letterGrid, LetterKeyGrid.of(scheme, shuangpinLayout: shuangpin, wubiLayout: wubi), label)
+        XCTAssertEqual(face.nineKeyZero, scheme == .nineKeyShuangpin, label)
+      }
+    }
+
+    // 九键一族都画九宫格外框；选了右侧大回车时笔画同样画竖跨两行的回车，与键盘的 `nineKeyFrame`、`tallReturn` 一致。
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
+      let face = KeyboardPreviewFace(scheme, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
+      XCTAssertTrue(face.nineKey, "\(scheme)")
+      XCTAssertTrue(face.styled, "\(scheme)")
+      let tall = KeyboardPreviewLetterLayer(nineKey: face.nineKey, letterGrid: face.letterGrid != nil,
+                                            style: TouchKeyLayoutStyle(nineKey: .tallReturn), language: true, nineKeyZero: face.nineKeyZero)
+      XCTAssertEqual(tall.kind, .nineKey, "\(scheme)")
+      XCTAssertTrue(tall.tallReturn, "\(scheme)")
+      XCTAssertEqual(tall.nineKeyControls, ["⌫", "分词"], "\(scheme)")
+    }
+
+    // 14/18 键画各自的字母格，五笔 14 键第三排左端是 符。
+    let quanpinEighteen = KeyboardPreviewFace(.eighteenKey, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
+    XCTAssertEqual(quanpinEighteen.letterGrid, .eighteenKey)
+    XCTAssertTrue(quanpinEighteen.gridSplitsSyllables)
+    XCTAssertEqual(KeyboardPreviewFace(.shuangpin, shuangpinLayout: .fourteenKey, wubiLayout: .twentySixKey).letterGrid, .fourteenKey)
+    let wubiFourteen = KeyboardPreviewFace(.wubi, shuangpinLayout: .eighteenKey, wubiLayout: .fourteenKey)
+    XCTAssertEqual(wubiFourteen.letterGrid, .fourteenKey)
+    XCTAssertFalse(wubiFourteen.gridSplitsSyllables)
+    XCTAssertFalse(wubiFourteen.nineKey)
+  }
+
+  /// 皮肤页从共享文档读方案和双拼、五笔布局（`KeyboardPreviewFace(in:)`），文档里选的是笔画时缩略图画九宫格外框，选双拼 18 键时画 18 键字母格。
+  func testPreviewFaceReadsTheSharedDocument() {
+    let stroke: [String: Any] = ["touch_keyboard_schemes": ["selected": "stroke", "enabled": ["quanpin", "stroke"]]]
+    XCTAssertEqual(KeyboardPreviewFace(in: stroke), KeyboardPreviewFace(.stroke, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey))
+    XCTAssertTrue(KeyboardPreviewFace(in: stroke).nineKey)
+    let eighteen: [String: Any] = [
+      "touch_keyboard_schemes": ["selected": "xiaohe", "enabled": ["quanpin", "xiaohe"]],
+      TouchShuangpinLayoutPreference.documentKey: TouchShuangpinLayoutPreference.Layout.eighteenKey.rawValue,
+    ]
+    XCTAssertEqual(KeyboardPreviewFace(in: eighteen).letterGrid, .eighteenKey)
+    XCTAssertFalse(KeyboardPreviewFace(in: eighteen).nineKey)
+  }
+
   /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
   func testTwentySixKeyStylesApplyToChineseSchemesOnly() throws {
     XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
