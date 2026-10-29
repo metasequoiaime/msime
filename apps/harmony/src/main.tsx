@@ -102,6 +102,7 @@ import type {
   OobeState,
   MobileKeyboardFeedback,
   PrivacyConsentClient,
+  ScreenCaptureProtectionClient,
   OnboardingChoices,
   OnboardingInputScheme,
   ResolvedAppTheme,
@@ -730,6 +731,31 @@ function privacyConsentClient(
     review: async () => {
       native.privacyConsent(JSON.stringify({ operation: "review" }));
     },
+  };
+}
+
+/**
+ * 「防止截屏」（#10194）：宿主存在本机、经共享沙箱传给键盘，切换规则和系统认证都在原生 `screenCaptureProtectionSettings` 里。打开过以后的切换要等用户在系统认证框里操作，期限与统计页的认证相同。拒绝时 `unwrap` 抛出带错误码的 `{ code }`，页面据此提示。
+ */
+function screenCaptureProtectionClient(native: NativeBridge): ScreenCaptureProtectionClient {
+  return {
+    load: async () =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "screen_capture_protection_settings",
+          JSON.stringify({ operation: "load" }),
+        ),
+      ),
+    save: async (enabled: boolean) =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "screen_capture_protection_settings",
+          JSON.stringify({ operation: "save", enabled }),
+          120000,
+        ),
+      ),
   };
 }
 
@@ -1599,6 +1625,7 @@ function makeClient(
     // shrinks to the few controls that have no capability behind them.
     host,
     privacyConsent: privacyConsentClient(native, networkAllowed),
+    screenCaptureProtection: screenCaptureProtectionClient(native),
     load: async () => unwrap<Snapshot>(native.loadPreferences()),
     // The keyboard writes preferences from its toolbar and the two are separate processes, so the
     // host calls this when the settings window comes back to the front and the document has moved.

@@ -21,6 +21,8 @@
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
       { "name": "ohos.permission.ACCESS_BIOMETRIC" },
+      // 「防止截屏」打开后给设置应用的窗口（`setWindowPrivacyMode`）和键盘的面板（`Panel.setPrivacyMode`）设隐私模式要用它。normal 级、system_grant，声明即授予，不弹授权框，见 keyboard/settings/ScreenCaptureProtection.ets。
+      { "name": "ohos.permission.PRIVACY_WINDOW" },
       {
         // Account and cloud clipboard requests use the HTTPS account service only when the user
         // opens the account or cloud surface; ordinary offline typing never touches the network.

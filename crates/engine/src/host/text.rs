@@ -124,8 +124,3 @@ pub fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>> {
 pub fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>> {
     catalog::emoji_catalog_groups(Path::new(resources), category)
 }
-
-/// The bridge returned a `Result` here and callers use `.ok()`; ordering itself cannot fail.
-pub fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>> {
-    Ok(crate::handwriting::order_handwriting_candidates(candidates))
-}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_RELAY_UNSUPPORTED,
@@ -427,6 +427,62 @@ test("the clipboard page saves a webdav drive only after the connection test pas
   expect("cloud_clipboard_webdav" in save.mock.calls[1][1]).toBe(false);
   expect("cloud_clipboard_relay" in save.mock.calls[1][1]).toBe(false);
 });
+
+test.each(["水杉账号", "自建中继"])(
+  "WebDAV 保存测试期间切到%s后，旧结果不能写入配置",
+  async (mode) => {
+    let finishProbe!: () => void;
+    const probeCloudClipboardWebDav = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishProbe = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const save = vi.fn(async (revision: number, preferences: Preferences) =>
+      snapshot(preferences, revision + 1),
+    );
+    render(
+      <SettingsPage
+        initialPage="tools"
+        client={{
+          load: vi.fn().mockResolvedValue(snapshot({ ...base, cloud_clipboard_webdav: WEBDAV })),
+          save,
+          cloudClipboardRelay: true,
+          probeCloudClipboardWebDav,
+        }}
+      />,
+    );
+    await settingsFormReady();
+    const next = { ...WEBDAV, url: "https://dav.example.test/dav/other" };
+    fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
+      target: { value: next.url },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 设置" }));
+    await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledExactlyOnceWith(next));
+    fireEvent.click(screen.getByRole("radio", { name: mode }));
+    await act(async () => {
+      finishProbe();
+    });
+    saveSettingsNow();
+    expect(save).not.toHaveBeenCalled();
+    expect((screen.getByRole("radio", { name: mode }) as HTMLInputElement).checked).toBe(true);
+
+    // 切回后保留未提交的草稿，旧测试不能冒充当前草稿的测试结果。
+    fireEvent.click(screen.getByRole("radio", { name: "WebDAV" }));
+    expect((screen.getByRole("textbox", { name: "服务器地址" }) as HTMLInputElement).value).toBe(
+      next.url,
+    );
+    expect(screen.queryByText("连接正常，可以保存。")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 设置" }));
+    await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledTimes(2));
+    saveSettingsNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual(next);
+  },
+);
 
 test("a saved app password is never echoed and is kept when only the folder changes", async () => {
   const save = vi.fn(async (revision: number, preferences: Preferences) =>

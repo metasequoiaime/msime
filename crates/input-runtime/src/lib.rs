@@ -41,13 +41,16 @@ pub use msime_client_core::preferences::MAX_CANDIDATE_PAGE_SIZE;
 /// View 里报告的已解析标点样式，类型与 client-core 的解析函数同源。
 pub use msime_client_core::punctuation::{PunctuationMarks, QuoteMarks};
 use msime_engine::host::{
-    local_mode_counts_as_typing, CandidateEdge, Command, CommandTableEntry,
-    CommandTranslationQuery, EngineResult, EngineSnapshot, MentionEntry, OnlineQuerySnapshot,
-    QuickPhraseEntry, Session, SharedKeymap,
+    local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
+    Session,
 };
-/// 脚本插件的 `/` 指令：宿主把会运行的插件声明的指令按执行顺序经 [`Runtime::set_plugin_commands`] 交给引擎，由引擎决定哪些生效。
-pub use msime_engine::host::{PluginCommand, PluginCommandQuery};
+use msime_engine::{
+    CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
+    SharedKeymap,
+};
 pub use msime_engine::{GlideKeyboard, GlidePoint, KeyGrid};
+/// 脚本插件的 `/` 指令：宿主把会运行的插件声明的指令按执行顺序经 [`Runtime::set_plugin_commands`] 交给引擎，由引擎决定哪些生效。
+pub use msime_engine::{PluginCommand, PluginCommandQuery};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

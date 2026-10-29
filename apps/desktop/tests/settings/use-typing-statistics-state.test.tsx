@@ -146,6 +146,88 @@ test("写入防重，失败保留快照并允许重试，客户端更换后丢�
   expect(hook.result.current.busy).toBe(false);
 });
 
+test.each(["成功", "失败"])("慢速写入%s前轮询与窗口恢复不能释放写入占位", async (outcome) => {
+  const source = client();
+  const hook = renderHook(() => useTypingStatisticsState(source));
+  await act(async () => {});
+  const pending = deferred<TypingStatisticsStatus>();
+  source.setEnabled.mockReturnValueOnce(pending.promise);
+  let writing!: Promise<void>;
+  act(() => {
+    writing = hook.result.current.update(source.setEnabled);
+  });
+
+  await act(async () => vi.advanceTimersByTimeAsync(20_000));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(source.load).toHaveBeenCalledTimes(1);
+  expect(hook.result.current.busy).toBe(true);
+  await act(async () => hook.result.current.update(source.reset));
+  expect(source.reset).not.toHaveBeenCalled();
+
+  const disabled = { ...status(), statistics: { ...status().statistics, enabled: false } };
+  await act(async () => {
+    if (outcome === "成功") pending.resolve(disabled);
+    else pending.reject(new Error("合成慢速写入失败"));
+    await writing;
+  });
+  expect(hook.result.current.busy).toBe(false);
+  if (outcome === "成功") {
+    expect(hook.result.current.status).toEqual(disabled);
+    expect(hook.result.current.error).toBe("");
+    source.load.mockResolvedValue(disabled);
+  } else {
+    expect(hook.result.current.status).toEqual(status());
+    expect(hook.result.current.error).toContain("原有统计不会被自动重置");
+  }
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(source.load).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.error).toBe("");
+  await act(async () => hook.result.current.update(source.reset));
+  expect(source.reset).toHaveBeenCalledTimes(1);
+});
+
+test("手动刷新超过十五秒仍允许轮询替换", async () => {
+  const source = client();
+  const hook = renderHook(() => useTypingStatisticsState(source));
+  await act(async () => {});
+  const pending = deferred<TypingStatisticsStatus>();
+  source.load.mockReturnValueOnce(pending.promise).mockResolvedValue(status(8));
+  act(() => void hook.result.current.update(source.load, true));
+  await act(async () => vi.advanceTimersByTimeAsync(20_000));
+  expect(source.load).toHaveBeenCalledTimes(3);
+  expect(hook.result.current.status).toEqual(status(8));
+  expect(hook.result.current.busy).toBe(false);
+  await act(async () => pending.resolve(status(99)));
+  expect(hook.result.current.status).toEqual(status(8));
+});
+
+test("旧客户端写入完成不能释放新客户端的慢速写入占位", async () => {
+  const source = client();
+  const hook = renderHook(({ source }) => useTypingStatisticsState(source), {
+    initialProps: { source },
+  });
+  await act(async () => {});
+  const previous = deferred<TypingStatisticsStatus>();
+  source.reset.mockReturnValueOnce(previous.promise);
+  act(() => void hook.result.current.update(source.reset));
+
+  const next = client();
+  next.load.mockResolvedValue(status(12));
+  hook.rerender({ source: next });
+  await act(async () => {});
+  const pending = deferred<TypingStatisticsStatus>();
+  next.reset.mockReturnValueOnce(pending.promise);
+  act(() => void hook.result.current.update(next.reset));
+  await act(async () => previous.resolve(status(99)));
+  await act(async () => vi.advanceTimersByTimeAsync(20_000));
+  expect(next.load).toHaveBeenCalledTimes(1);
+  expect(hook.result.current.busy).toBe(true);
+  expect(hook.result.current.status).toEqual(status(12));
+  await act(async () => pending.resolve(status(0)));
+  expect(hook.result.current.busy).toBe(false);
+  expect(hook.result.current.status).toEqual(status(0));
+});
+
 test("摘要读取期间统计变脏时，在回答后补读一次", async () => {
   const pending = deferred<TypingSummary>();
   const initial = summary();
