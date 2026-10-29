@@ -282,7 +282,11 @@ import {
   PickerGrid,
 } from "../entry/src/main/ets/keyboard/FunctionPanelPolicy";
 import { KeyboardIconPaths } from "../entry/src/main/ets/keyboard/KeyboardIconPaths";
-import { OneHandedMode, OneHandedPolicy } from "../entry/src/main/ets/keyboard/OneHandedPolicy";
+import {
+  OneHandedMode,
+  OneHandedPolicy,
+  OneHandedSidePanel,
+} from "../entry/src/main/ets/keyboard/OneHandedPolicy";
 import {
   PreferenceDocument,
   PrivacyGate,
@@ -1579,6 +1583,22 @@ group("projects the same form factor into every settings capability", () => {
     "the phone's candidate layout is fixed horizontal",
   );
   check(desktop.fixedCandidateLayout === null, "the 2-in-1 candidate layout stays a choice");
+  // 大屏单手的侧边数字键盘（#10203）只在有大屏触屏键盘的设备上列出。
+  check(
+    tablet.oneHandedSidePanel &&
+      SettingsFormFactorCapabilities.resolve("tablet", true).oneHandedSidePanel,
+    "a tablet offers the one-handed side number pad",
+  );
+  check(
+    !phone.oneHandedSidePanel &&
+      SettingsFormFactorCapabilities.resolve("phone", true).oneHandedSidePanel,
+    "a bar phone does not, a foldable phone does because it unfolds into a large screen",
+  );
+  check(
+    !desktop.oneHandedSidePanel &&
+      !SettingsFormFactorCapabilities.resolve("2in1", true).oneHandedSidePanel,
+    "a 2-in-1 draws no touch keys, so it never offers it",
+  );
 });
 
 group("SymbolPanelPolicy", () => {
@@ -3598,11 +3618,16 @@ group("九键一族的数字层：符 和切换键留在字母层那一格（#10
         `0 的一份从空格让出：${label}`,
       );
       check(
-        digits[0].kind === letters[0].kind && digits[0].weight === letters[0].weight
-          && digits[1].kind === letters[1].kind && digits[1].weight === letters[1].weight,
+        digits[0].kind === letters[0].kind &&
+          digits[0].weight === letters[0].weight &&
+          digits[1].kind === letters[1].kind &&
+          digits[1].weight === letters[1].weight,
         `符 和切换键与字母层同宽同位：${label}`,
       );
-      check(Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9, `整行份额与字母层相同：${label}`);
+      check(
+        Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9,
+        `整行份额与字母层相同：${label}`,
+      );
     }
   }
   check(
@@ -8243,6 +8268,80 @@ group("单手模式 on a large screen is phone-sized and hugs the chosen edge (#
   check(
     OneHandedPolicy.blockWidthVp(0, true) === 431,
     "an unknown width still gets the phone-sized block",
+  );
+});
+
+group("大屏单手的侧边数字键盘 fills the freed side only where it fits (#10203)", () => {
+  check(
+    OneHandedPolicy.SIDE_PAD_MAX_WIDTH_VP === 300 && OneHandedPolicy.SIDE_PAD_MIN_WIDTH_VP === 150,
+    "the pad is 150vp to 300vp wide, as on Android and the iPad",
+  );
+  check(OneHandedPolicy.sidePadWidthVp(403, false) === 0, "a phone frees no side");
+  check(OneHandedPolicy.sidePadWidthVp(907, false) === 0, "nor does a phone in landscape");
+  check(OneHandedPolicy.sidePadWidthVp(0, true) === 0, "an unknown width draws no pad");
+  check(
+    OneHandedPolicy.sidePadWidthVp(792, true) === 300,
+    `an 800vp tablet in portrait caps the pad at 300vp (${OneHandedPolicy.sidePadWidthVp(792, true)})`,
+  );
+  check(
+    OneHandedPolicy.sidePadWidthVp(1272, true) === 300,
+    "a landscape tablet still caps it, the rest is blank",
+  );
+  check(
+    OneHandedPolicy.sidePadWidthVp(592, true) === 592 - 431 - OneHandedPolicy.RAIL_GAP_VP,
+    "the smallest large screen gives the pad what is left after the block and one rail gap",
+  );
+  check(
+    OneHandedPolicy.sidePadWidthVp(431 + OneHandedPolicy.RAIL_GAP_VP + 149, true) === 0 &&
+      OneHandedPolicy.sidePadWidthVp(431 + OneHandedPolicy.RAIL_GAP_VP + 150, true) === 150,
+    "below 150vp three columns are too narrow, so nothing is drawn",
+  );
+
+  check(
+    OneHandedPolicy.sidePanel("number_pad") === OneHandedSidePanel.NUMBER_PAD &&
+      OneHandedPolicy.sidePanel("off") === OneHandedSidePanel.OFF,
+    "the two stored values read back",
+  );
+  check(
+    OneHandedPolicy.sidePanel(undefined) === OneHandedSidePanel.OFF &&
+      OneHandedPolicy.sidePanel(null) === OneHandedSidePanel.OFF &&
+      OneHandedPolicy.sidePanel("text_edit") === OneHandedSidePanel.OFF &&
+      OneHandedPolicy.sidePanel(true) === OneHandedSidePanel.OFF,
+    "a missing key, a later panel this build does not know and a wrong type all leave the side blank",
+  );
+
+  const pad = OneHandedSidePanel.NUMBER_PAD;
+  check(OneHandedPolicy.sidePadShown(pad, true, 300, true), "shown when every condition holds");
+  check(
+    !OneHandedPolicy.sidePadShown(OneHandedSidePanel.OFF, true, 300, true),
+    "not while the preference leaves the side blank",
+  );
+  check(
+    !OneHandedPolicy.sidePadShown(pad, false, 300, true),
+    "not while one-handed mode is off or the device is a 2in1",
+  );
+  check(
+    !OneHandedPolicy.sidePadShown(pad, true, 0, true),
+    "not on a phone or where the freed side is too narrow",
+  );
+  check(
+    !OneHandedPolicy.sidePadShown(pad, true, 300, false),
+    "not unless the keys are the letters of the nine-key family",
+  );
+
+  check(
+    JSON.stringify(OneHandedPolicy.sidePadDigitRows()) ===
+      JSON.stringify([
+        ["1", "2", "3"],
+        ["4", "5", "6"],
+        ["7", "8", "9"],
+      ]),
+    "the digits run 1 2 3 at the top, as a phone dial and the nine-key digit layer",
+  );
+  check(
+    OneHandedPolicy.sidePadDigitLabel("5") === "数字 5" &&
+      OneHandedPolicy.sidePadDecimalLabel() === "小数点",
+    "the keys read 数字 N and 小数点",
   );
 });
 
