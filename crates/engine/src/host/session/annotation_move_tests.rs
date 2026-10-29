@@ -64,6 +64,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         candidate_corrected: Vec::with_capacity(count),
         candidate_answers_key: Vec::with_capacity(count),
         candidate_static_evidence: Vec::with_capacity(count),
+        candidate_contest: Vec::new(),
         candidate_list_open: value.candidate_list_open,
         conversion: value.conversion,
         conversion_focus_start: value.conversion_focus.0,

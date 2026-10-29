@@ -15,6 +15,7 @@ Status: implemented
 ## Historical audit
 
 - [最近候选优先](../../implemented/feature/2026-10-17-nine-key-recent-candidate-priority.md)部分重叠：本决定扩展其“只记非首位、只在同一锁定状态读取”的范围，其它学习、分段和手动管理边界保留；两篇互链。
+- [窄决策点裁决](../feature/2026-10-29-nine-key-model-contests.md)部分重叠：记录规则不变，「增强」打开时置顶的最近选择可能被模型让出这一次的首位；两篇互链。
 - [简拼个人排序](../../implemented/feature/2026-10-09-nine-key-initials-personal-ranking.md)部分重叠但规则不变：不让单字进入个人模型，也不改变简拼调频。
 - [结束组字文本移动](../../implemented/testing/2026-10-17-nine-key-finish-text-move.md)、拼写匹配缓冲、路径排序、前页索引及其被拒绝性能方案与本行为修复无关；保留。
 - `proposed` 的数字词网格改变搜索表示，本次不改路径生成和候选覆盖；无需要删除或迁移的重复提案。

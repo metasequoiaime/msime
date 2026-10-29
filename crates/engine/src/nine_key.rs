@@ -392,6 +392,8 @@ pub struct NineKeySession {
     /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
+    /// 与 `candidates` 同序的窄裁决标记（`ordering::CONTEST_*`），随候选一起重建；一行都没有标记时为空。
+    contests: Vec<u8>,
     /// 前几次刷新排在前面、覆盖全部数字的几行的全拼（`'` 连接）。下一次刷新把它们去掉最后一个音节，接上余下数字的切分一起查，见 `seeded_paths`。
     sentence_seeds: Vec<String>,
     /// 算下一批种子用的空缓冲，和 `sentence_seeds` 轮换，刷新时不再分配。
@@ -510,6 +512,7 @@ impl NineKeySession {
             spelling_match_indices: Vec::new(),
             reading: String::new(),
             candidates: Vec::new(),
+            contests: Vec::new(),
             // 两个缓冲一开始就留够容量，按键时轮换着用，不再分配。
             sentence_seeds: Vec::with_capacity(SEED_RETAIN_LIMIT),
             seed_buffer: Vec::with_capacity(SEED_RETAIN_LIMIT),
@@ -1363,12 +1366,18 @@ impl NineKeySession {
                 .iter()
                 .map(|item| item.pinyin.len() >= self.digits.len())
                 .collect(),
+            candidate_contest: if self.contests.len() == self.candidates.len() {
+                self.contests.clone()
+            } else {
+                Vec::new()
+            },
             ..SessionSnapshot::default()
         }
     }
 
     fn refresh(&mut self) {
         self.candidates.clear();
+        self.contests.clear();
         self.reading.clear();
         self.completions_discounted = false;
         if !self.active() {
@@ -1777,6 +1786,12 @@ impl NineKeySession {
         let mut reading = std::mem::take(&mut self.reading);
         self.write_reading(candidates.first(), &mut reading);
         self.reading = reading;
+        mark_contests(
+            &candidates,
+            self.digits.len(),
+            self.first_page_rows.get(),
+            &mut self.contests,
+        );
         self.candidates = candidates;
         self.path_buffer = alternatives;
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -3102,6 +3117,45 @@ fn reads_pinyin(source: CandidateSource) -> bool {
 }
 
 /// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
+/// 九宫格里让 runtime 键盘模型参与的窄裁决点，标在 `out` 里（与候选同序，没有标记时清空）。首行是可信的词典命中时 runtime 一向不重排；这里只在下面的位置上把首行和它的对手标出来，模型凭上文在它们之间挑，其余情况 `trusted_leader` 照旧。没有挂模型（「增强」关着）时标记不起作用。
+///
+/// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行。置顶记录本身不动，模型只决定这一次谁坐首位。
+fn mark_contests(
+    candidates: &[WordItem],
+    digits: usize,
+    first_page_rows: usize,
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    let Some(leader) = candidates.first() else {
+        return;
+    };
+    let rows = first_page_rows.min(candidates.len());
+    let plain = |item: &WordItem| {
+        item.source.is_dictionary()
+            && item.pinyin.len() == digits
+            && !item.fuzzy
+            && !is_initials_row(item)
+    };
+    if !plain(leader) {
+        return;
+    }
+    let mut mark = |seats: &[usize], kind: u8| {
+        out.resize(candidates.len(), crate::ordering::CONTEST_NONE);
+        for &seat in seats {
+            out[seat] = kind;
+        }
+    };
+    if leader.fixed_position == 1 {
+        if let Some(rival) = (1..rows).find(|&seat| {
+            let item = &candidates[seat];
+            item.fixed_position == 0 && plain(item) && item.word != leader.word
+        }) {
+            mark(&[0, rival], crate::ordering::CONTEST_RECENCY);
+        }
+    }
+}
+
 fn is_initials_row(item: &WordItem) -> bool {
     is_initials_reading(item, item.pinyin.len(), &item.canonical_pinyin)
 }
@@ -7435,6 +7489,35 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         type_digits(&mut repeated, "6364");
         assert_eq!(words(&repeated)[0], "能");
         assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+    }
+
+    /// 置顶的最近选择和没有它时会领先的词典行被标成一次裁决，交给 runtime 的键盘模型；没有置顶时不标。
+    #[test]
+    fn a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+        );
+        let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut first, "6364");
+        assert_eq!(words(&first)[0], "恁");
+        assert!(first.snapshot().candidate_contest.is_empty());
+        let selected = index_of(&first, "能");
+        assert_eq!(first.select(selected).commit.as_deref(), Some("能"));
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        let snapshot = repeated.snapshot();
+        assert_eq!(words(&repeated)[..2], ["能", "恁"]);
+        let marked: Vec<usize> = snapshot
+            .candidate_contest
+            .iter()
+            .enumerate()
+            .filter(|(_, kind)| **kind == crate::ordering::CONTEST_RECENCY)
+            .map(|(seat, _)| seat)
+            .collect();
+        assert_eq!(marked, [0, 1]);
+        assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
     }
 
     const SPELLING_RECENT_FIXTURE: &str =

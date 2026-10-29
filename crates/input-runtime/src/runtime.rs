@@ -297,6 +297,7 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
         &snapshot.candidate_corrected,
     )
     .with_static_evidence(&snapshot.candidate_static_evidence)
+    .with_contests(&snapshot.candidate_contest)
 }
 
 /// 复制候选行，供停顿模型在会话线程之外评分。
@@ -306,6 +307,7 @@ struct SettledRerankRows {
     answers_key: Vec<bool>,
     corrected: Vec<bool>,
     static_evidence: Vec<Option<StaticEvidence>>,
+    contests: Vec<u8>,
 }
 
 /// 脱离会话借用的停顿评分请求；模型随请求转移，必须经
@@ -349,7 +351,8 @@ pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankS
             &request.rows.answers_key,
             &request.rows.corrected,
         )
-        .with_static_evidence(&request.rows.static_evidence);
+        .with_static_evidence(&request.rows.static_evidence)
+        .with_contests(&request.rows.contests);
         rerank_pick(
             &mut request.reranker,
             &request.context,
@@ -714,6 +717,9 @@ impl<E: InputEngine> Runtime<E> {
             snapshot.candidate_answers_key.swap(left, right);
             if snapshot.candidate_static_evidence.len() == order.len() {
                 snapshot.candidate_static_evidence.swap(left, right);
+            }
+            if snapshot.candidate_contest.len() == order.len() {
+                snapshot.candidate_contest.swap(left, right);
             }
             if snapshot.candidate_touch_supported.len() == order.len() {
                 snapshot.candidate_touch_supported.swap(left, right);
@@ -1233,6 +1239,11 @@ impl<E: InputEngine> Runtime<E> {
         } else {
             Vec::new()
         };
+        let contests = if self.cached.candidate_contest.len() == texts.len() {
+            self.cached.candidate_contest.clone()
+        } else {
+            Vec::new()
+        };
         let reranker = self.settled_reranker.take()?;
         Some(SettledRerankRequest {
             generation,
@@ -1247,6 +1258,7 @@ impl<E: InputEngine> Runtime<E> {
                 answers_key,
                 corrected,
                 static_evidence,
+                contests,
             },
             reranker,
         })
@@ -2858,6 +2870,9 @@ impl<E: InputEngine> Runtime<E> {
         if snapshot.candidate_static_evidence.len() == count {
             rotate_to_front(&mut snapshot.candidate_static_evidence, promote);
         }
+        if snapshot.candidate_contest.len() == count {
+            rotate_to_front(&mut snapshot.candidate_contest, promote);
+        }
         if snapshot.candidate_touch_supported.len() == count {
             rotate_to_front(&mut snapshot.candidate_touch_supported, promote);
         }
@@ -2984,6 +2999,7 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_corrected: Vec::new(),
                     candidate_answers_key: Vec::new(),
                     candidate_static_evidence: Vec::new(),
+                    candidate_contest: Vec::new(),
                     candidate_touch_supported: Vec::new(),
                     candidate_confident_correction: Vec::new(),
                     candidate_list_open: false,
@@ -3038,6 +3054,7 @@ impl<E: InputEngine> Runtime<E> {
                 && self.cached.candidate_corrected == previous.candidate_corrected
                 && self.cached.candidate_answers_key == previous.candidate_answers_key
                 && self.cached.candidate_static_evidence == previous.candidate_static_evidence
+                && self.cached.candidate_contest == previous.candidate_contest
                 && self.cached.candidate_touch_supported == previous.candidate_touch_supported
                 && self.cached.candidate_confident_correction
                     == previous.candidate_confident_correction;
