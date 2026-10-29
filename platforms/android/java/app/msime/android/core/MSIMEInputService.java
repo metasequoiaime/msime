@@ -332,6 +332,10 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean quanpinShiftEnabled = false;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
     TouchKeyStyle.Styles touchKeyStyles = TouchKeyStyle.Styles.DEFAULT;
+    /** 26 键底行 符 排在 123 左边，来自共享偏好 `touch_twenty_six_symbol_first`，缺省为关。 */
+    boolean twentySixSymbolFirst;
+    /** 九宫格数字键盘里空格的位置，来自共享偏好 `touch_number_pad_space`，缺省是 Android 原来的右列。 */
+    TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -2784,6 +2788,8 @@ public final class MSIMEInputService extends InputMethodService {
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
         touchKeyStyles = touchKeyStylesFrom(preferences);
         numberRowEnabled = numberRowFrom(preferences);
+        twentySixSymbolFirst = symbolFirstFrom(preferences);
+        numberPadSpace = numberPadSpaceFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -2816,6 +2822,17 @@ public final class MSIMEInputService extends InputMethodService {
     /** 顶部数字行；没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
     private static boolean numberRowFrom(JSONObject preferences) {
         return preferences != null && preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false);
+    }
+
+    /** 「符」与「123」互换；没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
+    private static boolean symbolFirstFrom(JSONObject preferences) {
+        return preferences != null && preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);
+    }
+
+    /** 数字键盘空格位置；没有偏好、缺键或不认识的写法都按 `platform_default`（Android 是右列），与 client-core 的宽松读取一致。 */
+    private static TouchKeyStyle.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {
+        return preferences == null ? TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
+            : TouchKeyStyle.NumberPadSpace.parse(JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE)));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -3318,7 +3335,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + touchKeyStyles + ":" + numberRowEnabled;
+            + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved();
     }
 
     private void reloadPreferences(String response) {
@@ -3453,6 +3470,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextQuanpinShift = quanpinShiftFrom(preferences);
         TouchKeyStyle.Styles nextTouchKeyStyles = touchKeyStylesFrom(preferences);
         boolean nextNumberRow = numberRowFrom(preferences);
+        boolean nextSymbolFirst = symbolFirstFrom(preferences);
+        TouchKeyStyle.NumberPadSpace nextNumberPadSpace = numberPadSpaceFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3545,6 +3564,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
         numberRowEnabled = nextNumberRow;
+        // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
+        twentySixSymbolFirst = nextSymbolFirst;
+        numberPadSpace = nextNumberPadSpace;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -6443,6 +6465,7 @@ public final class MSIMEInputService extends InputMethodService {
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
         TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
+        TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -11117,10 +11140,12 @@ public final class MSIMEInputService extends InputMethodService {
         // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
         // 借用的数字九宫格上切了中/英：触屏布局没变，也要换回对应的键面。
         // 九键外框换了是否画右侧大回车（设置页换了九键样式、进出密码框），或大回车外框的地球键变了：外框连同底行整块重建。
+        // 设置页换了数字键盘的空格位置：数字层右列最下面一格在空格和 ！ 之间换，按新状态重建。
         if (imeLetterRows.drawnTouchLayout() != displayedTouchLayout(view)
                 || imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
                 || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale()
+                || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();

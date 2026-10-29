@@ -26,6 +26,8 @@ public final class TouchKeyStyleSmoke {
         fourteenKeyRows();
         nineKeyRows();
         tallReturn();
+        symbolFirst();
+        numberPadSpace();
         numberRow();
         groups();
         migration();
@@ -385,6 +387,124 @@ public final class TouchKeyStyleSmoke {
             "无效旧值与缺失键不制造默认值");
         check(KeyLayoutStyleMigration.legacyKey(oldNumber) && KeyLayoutStyleMigration.legacyKey(oldSpace)
             && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除两个已转换旧键");
+    }
+
+    /**
+     * 「26 键「符」与「123」互换」（#10056，`touch_twenty_six_symbol_first`）：26 键底行里有 符 时（标准、逗号句号在空格两侧、英文、韩文）符 挪到 123 左边，宽度跟着键走，地球键仍紧跟 123；长空格和表情键没有 符，不变；九键外框、14/18 键和手写本来不以 123 | 符 打头，不变。从互换后的 26 键借来的数字九宫格按九键次序排（符 | 返回），返回键仍在字母层 123 那一格；没有 符 的样式照旧 返回 | 符。
+     */
+    private static void symbolFirst() {
+        int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
+        TouchKeyStyle.NumberPadSpace platform = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+        check(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE.equals("touch_twenty_six_symbol_first"), "symbol-first key matches client-core");
+        check(slots(KeyboardActionRow.designEntries(standard, false, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
+            .equals(List.of(SYMBOL, LAYER, SPACE, COMMA, LANGUAGE, RETURN)), "standard 26 key puts 符 first");
+        check(slots(KeyboardActionRow.designEntries(standard, true, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
+            .equals(List.of(SYMBOL, LAYER, GLOBE, SPACE, COMMA, LANGUAGE, RETURN)), "the globe stays right after 123");
+        check(slots(KeyboardActionRow.designEntries(standard, false, false, false, false, TouchKeyStyle.Row.COMMA_PERIOD, true, platform))
+            .equals(List.of(SYMBOL, LAYER, COMMA, SPACE, PERIOD, LANGUAGE, RETURN)), "comma_period swaps too");
+        check(slots(KeyboardActionRow.designEntries(standard, false, false, false, true, TouchKeyStyle.Row.STANDARD, true, platform))
+            .equals(List.of(SYMBOL, LAYER, PERIOD, SPACE, COMMA, LANGUAGE, RETURN)), "the English 26 key swaps too");
+        check(slots(KeyboardActionRow.designEntries(KeyboardLayout.KOREAN_LAYOUT, false, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
+            .get(0) == SYMBOL, "Korean swaps too");
+        for (TouchKeyStyle.Row style : List.of(TouchKeyStyle.Row.LONG_SPACE, TouchKeyStyle.Row.EMOJI))
+            check(KeyboardActionRow.designEntries(standard, false, false, false, false, style, true, platform).equals(row(standard, false, style)),
+                style + " has no 符 and is unchanged");
+        for (TouchKeyStyle.Row style : TouchKeyStyle.TWENTY_SIX_KEY_ROWS) {
+            List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(standard, false, false, false, false, style, true, platform);
+            check(Math.abs(total(swapped) - total(row(standard, false, style))) < 1e-5f, style + " keeps the row width");
+            check(swapped.containsAll(row(standard, false, style)), style + " only reorders the keys");
+        }
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
+                KeyboardLayout.ZHUYIN_LAYOUT})
+            check(KeyboardActionRow.designEntries(layout, true, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform)
+                .equals(KeyboardActionRow.designEntries(layout, true)), layout + " is unchanged");
+        // 交换中/英与 123 叠在互换之后：符 仍在最左。
+        check(slots(KeyboardActionRow.designEntries(standard, false, true, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
+            .equals(List.of(SYMBOL, LANGUAGE, SPACE, COMMA, LAYER, RETURN)), "the language/number swap still applies");
+        // 借来的数字九宫格：返回键留在字母层 123 那一格。
+        check(!KeyboardActionRow.numberPadLayerFirst(standard, TouchKeyStyle.Row.STANDARD, true)
+            && KeyboardActionRow.numberPadLayerFirst(standard, TouchKeyStyle.Row.STANDARD, false)
+            && KeyboardActionRow.numberPadLayerFirst(standard, TouchKeyStyle.Row.EMOJI, true)
+            && KeyboardActionRow.numberPadLayerFirst(KeyboardLayout.FOURTEEN_KEY_LAYOUT, TouchKeyStyle.Row.STANDARD, true),
+            "the borrowed pad follows the swapped source row");
+        for (boolean globe : new boolean[] {false, true}) {
+            List<KeyboardActionRow.DesignEntry> pad = KeyboardActionRow.numberPadEntries(standard, globe, false,
+                TouchKeyStyle.Row.STANDARD, true, platform);
+            List<KeyboardActionRow.DesignEntry> letters = KeyboardActionRow.designEntries(standard, globe, false, false, false,
+                TouchKeyStyle.Row.STANDARD, true, platform);
+            check(pad.get(0).slot() == SYMBOL && pad.get(1).slot() == LAYER
+                && Math.abs(pad.get(0).weight() - letters.get(0).weight()) < 1e-5f
+                && Math.abs(pad.get(1).weight() - letters.get(1).weight()) < 1e-5f,
+                "符 and 返回 sit where 符 and 123 were, globe " + globe);
+            check(pad.equals(KeyboardActionRow.numberPadEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false,
+                TouchKeyStyle.Row.STANDARD)), "the pad uses the nine-key order, globe " + globe);
+        }
+        check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.EMOJI, true, platform)).get(0) == LAYER,
+            "an emoji-style source keeps 返回 first");
+    }
+
+    /**
+     * 数字键盘空格位置（#10056，`touch_number_pad_space`）：缺省（`platform_default`）是 Android 原来的右列，0 接替整个空格份额；在 0 右边或左边时两键都在底行，左边那个占 4 − 1.05、右边那个 1.05（与中/英同宽），整行总份额不变。借来的数字九宫格、交换中/英与 123 都照样作用；右侧大回车不受影响。
+     */
+    private static void numberPadSpace() {
+        KeyboardActionRow.DesignSlot zero = KeyboardActionRow.DesignSlot.ZERO;
+        int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        check(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE.equals("touch_number_pad_space"), "number pad key matches client-core");
+        check(TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT.wire.equals("platform_default")
+            && TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN.wire.equals("right_column")
+            && TouchKeyStyle.NumberPadSpace.AFTER_ZERO.wire.equals("after_zero")
+            && TouchKeyStyle.NumberPadSpace.BEFORE_ZERO.wire.equals("before_zero"), "number pad wire strings match client-core");
+        check(TouchKeyStyle.NumberPadSpace.parse(null) == TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
+            && TouchKeyStyle.NumberPadSpace.parse("space_in_grid") == TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
+            && TouchKeyStyle.NumberPadSpace.parse("before_zero") == TouchKeyStyle.NumberPadSpace.BEFORE_ZERO,
+            "missing and unknown values read as the platform default");
+        check(TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT.resolved() == TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN
+            && TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT.inRightColumn()
+            && !TouchKeyStyle.NumberPadSpace.AFTER_ZERO.inRightColumn(), "Android's default keeps the space in the right column");
+        check(TouchKeyStyle.NumberPadSpace.CHOICES.stream().map(choice -> choice.title).toList()
+            .equals(List.of("空格在右列", "空格在 0 右边", "空格在 0 左边")), "choice titles match iOS and HarmonyOS");
+        check(TouchKeyStyle.NUMBER_PAD_SPACE_GROUP.equals("数字键盘")
+            && TouchKeyStyle.NUMBER_PAD_SPACE_NOTE.equals("九宫格数字键盘里空格的位置；右侧大回车不受影响。")
+            && TouchKeyStyle.SYMBOL_FIRST_TITLE.equals("26 键「符」与「123」互换")
+            && TouchKeyStyle.SYMBOL_FIRST_NOTE.equals("符 排在 123 左边；长空格和表情键样式没有 符，不受影响。"),
+            "settings texts match iOS and HarmonyOS word for word");
+
+        List<KeyboardActionRow.DesignEntry> today = KeyboardActionRow.designEntries(nine, false, false, true);
+        for (TouchKeyStyle.NumberPadSpace space : List.of(TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN))
+            check(KeyboardActionRow.designEntries(nine, false, false, true, false, TouchKeyStyle.Row.STANDARD, false, space).equals(today)
+                && today.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, zero, 4f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+                space + " is today's number layer");
+        List<KeyboardActionRow.DesignEntry> after = KeyboardActionRow.designEntries(nine, false, false, true, false,
+            TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.AFTER_ZERO);
+        check(after.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, zero, 2.95f, SPACE, 1.05f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "after_zero: 0 then a 1.05 space " + after);
+        List<KeyboardActionRow.DesignEntry> before = KeyboardActionRow.designEntries(nine, true, false, true, false,
+            TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.BEFORE_ZERO);
+        check(before.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, GLOBE, 1f, SPACE, 2.95f, zero, 1.05f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "before_zero: a wide space then a 1.05 zero " + before);
+        for (TouchKeyStyle.NumberPadSpace space : TouchKeyStyle.NumberPadSpace.values()) {
+            List<KeyboardActionRow.DesignEntry> pad = KeyboardActionRow.designEntries(nine, false, false, true, false,
+                TouchKeyStyle.Row.STANDARD, false, space);
+            check(Math.abs(total(pad) - total(KeyboardActionRow.designEntries(nine, false))) < 1e-5f, space + " keeps the row width");
+            check(slots(pad).stream().filter(slot -> slot == zero).count() == 1, space + " has one 0");
+            check(slots(pad).contains(SPACE) == !space.inRightColumn(), space + " draws the space in the row unless it is in the column");
+            // 借来的数字九宫格（26 键）同样按它排，返回键仍在第一格。
+            List<KeyboardActionRow.DesignEntry> borrowed = KeyboardActionRow.numberPadEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT,
+                false, false, TouchKeyStyle.Row.STANDARD, false, space);
+            check(borrowed.get(0).slot() == LAYER && borrowed.containsAll(pad), space + " lays the borrowed pad the same way");
+            // 交换中/英与 123 照样作用。
+            List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.numberPadEntries(nine, false, true,
+                TouchKeyStyle.Row.STANDARD, false, space);
+            check(swapped.get(1).slot() == LANGUAGE && slots(swapped).indexOf(LAYER) == slots(pad).indexOf(LANGUAGE),
+                space + " still swaps 中/英 and 123");
+            // 右侧大回车没有单独的底行，不受影响。
+            check(KeyboardActionRow.numberPadEntries(nine, false, false, TouchKeyStyle.Row.TALL_RETURN, false, space).isEmpty(),
+                space + " leaves tall_return alone");
+            // 字母层不受它影响。
+            check(KeyboardActionRow.designEntries(nine, false, false, false, false, TouchKeyStyle.Row.STANDARD, false, space)
+                .equals(KeyboardActionRow.designEntries(nine, false)), space + " leaves the letter layer alone");
+        }
     }
 
     private static List<KeyboardActionRow.DesignEntry> row(int layout, boolean globe, TouchKeyStyle.Row style) {

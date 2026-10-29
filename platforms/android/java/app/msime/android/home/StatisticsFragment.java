@@ -303,7 +303,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         return new Snapshot(model, TypingStatisticsSummary.from(HostStore.statisticsAction(context, action)), layouts);
     }
 
-    /** 热力图跟着键盘画：读共享偏好里 26 键、九键的底行样式和顶部数字行；读不到时返回 null。 */
+    /** 热力图跟着键盘画：读共享偏好里 26 键、九键的底行样式、顶部数字行和「符」与「123」互换；读不到时返回 null。 */
     @Nullable private static List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts(Context context) {
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
@@ -313,7 +313,8 @@ public final class StatisticsFragment extends HomeTabFragment {
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE)),
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE)));
         return List.of(KeyHeatmapLayout.soft(styles.twentySix(),
-                preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false)),
+                preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
+                preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),
             KeyHeatmapLayout.nine(styles.nine()));
     }
 

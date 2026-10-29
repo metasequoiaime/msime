@@ -1054,7 +1054,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
     | rg_q_stdin -U 'KeyLayoutStyleMigration\.migrate\(this, directory\);\n\s*String response = candidateSkinResolver\.read\(directory\);' \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.LONG_SPACE_LAYOUT, null\);' "$style_migration" \
   || ! rg -q 'removal\.put\(AndroidLocalSettings\.NUMBER_ROW, null\);' "$style_migration" \
-  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled;' "$account_service" \
+  || ! rg -q '\+ ":" \+ touchKeyStyles \+ ":" \+ numberRowEnabled \+ ":" \+ twentySixSymbolFirst \+ ":" \+ numberPadSpace\.resolved\(\);' "$account_service" \
   || ! rg -q 'preferences\.optBoolean\(TouchKeyStyle\.NUMBER_ROW_PREFERENCE, false\)' "$account_service" \
   || ! rg -q '\+ ":" \+ english \+ ":" \+ style' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java" \
   || ! sed -n '/private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows" | rg_q_stdin 'if \(builtNumberRow\) addNumberRow\(rows\.size\(\)\);'; then
@@ -1076,11 +1076,15 @@ if ! sed -n '/boolean toolbarRowHidden() {$/,/^    }$/p' "$account_service" | rg
 fi
 # 底行样式和顶部数字行在 applyTouchGeometry 里读，冷启动的第一帧按皮肤片段算；片段里没有它们时每次键盘进程冷启动都先画标准底行、没有数字行，一两秒后实时偏好到了键盘整体高出一行、底行换样。这里钉住 applyTouchGeometry 读到的每个 TouchKeyStyle 偏好键都在 SKIN_HINT_KEYS 里。
 skin_hint_keys=$(sed -n '/private static final String\[\] SKIN_HINT_KEYS = {/,/};$/p' "$account_service")
-touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+touch_style_reads=$(sed -n '/private static TouchKeyStyle\.Styles touchKeyStylesFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean numberRowFrom(JSONObject preferences) {$/,/^    }$/p;/private static boolean symbolFirstFrom(JSONObject preferences) {$/,/^    }$/p;/private static TouchKeyStyle\.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
   | rg -o 'TouchKeyStyle\.[A-Z_]+_PREFERENCE' | LC_ALL=C sort -u)
-if [[ -z "$skin_hint_keys" ]] || [[ "$(printf '%s\n' "$touch_style_reads" | wc -l | tr -d ' ')" -ne 4 ]] \
+if [[ -z "$skin_hint_keys" ]] || [[ "$(printf '%s\n' "$touch_style_reads" | wc -l | tr -d ' ')" -ne 6 ]] \
   || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
-    | rg_q_stdin 'touchKeyStyles = touchKeyStylesFrom\(preferences\);'; then
+    | rg_q_stdin 'touchKeyStyles = touchKeyStylesFrom\(preferences\);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'twentySixSymbolFirst = symbolFirstFrom\(preferences\);' \
+  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin 'numberPadSpace = numberPadSpaceFrom\(preferences\);'; then
   echo "Android check-host could not locate SKIN_HINT_KEYS or the touch key style readers in MSIMEInputService" >&2
   exit 1
 fi
@@ -1095,7 +1099,7 @@ style_page="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutSt
 style_render=$(sed -n '/private void render(@Nullable JSONObject preferences) {$/,/^    }$/p' "$style_page")
 if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers = GroupCard\.add\(target, null\);' <<< "$style_render" \
   || ! rg_q_stdin -F 'TouchKeyStyle.Groups groups = TouchKeyStyle.Groups.offeredBy(AppEdition.current());' <<< "$style_render" \
-  || ! rg_q_stdin -U 'if \(groups\.twentySix\(\)\)\n\s*styleGroup\(target, "26 键", .*\n.*TWENTY_SIX_KEY_NOTE\);' <<< "$style_render" \
+  || ! rg_q_stdin -U 'if \(groups\.twentySix\(\)\) \{\n\s*GroupCard twentySix = styleGroup\(target, "26 键", .*\n.*\n.*TWENTY_SIX_KEY_NOTE, symbolFirst\);' <<< "$style_render" \
   || ! rg_q_stdin -U 'if \(groups\.fourteen\(\)\)\n\s*styleGroup\(target, "14 键与 18 键", .*\n.*FOURTEEN_KEY_NOTE\);' <<< "$style_render" \
   || ! rg_q_stdin -U 'if \(groups\.nine\(\)\)\n\s*styleGroup\(target, "9 键", .*\n.*NINE_KEY_NOTE\);' <<< "$style_render" \
   || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", NUMBER_ROW_NOTE,' <<< "$style_render"; then
@@ -1107,7 +1111,7 @@ if ! rg -qF 'static final String TWENTY_SIX_KEY_NOTE = "长空格：符号键移
   || ! rg -qF 'static final String FOURTEEN_KEY_NOTE = "表情键：长按 123 打开符号。";' "$style_page" \
   || ! rg -qF 'static final String NINE_KEY_NOTE = "右侧大回车：回车竖占两行，符号键在左下角。";' "$style_page" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
-  || ! sed -n '/    private void styleGroup(/,/^    }$/p' "$style_page" | rg_q_stdin -F 'group.footer(note);' \
+  || ! sed -n '/    private GroupCard styleGroup(LinearLayout target, String title, int touchLayout, List<TouchKeyStyle.Row> rows,$/,/^    }$/p' "$style_page" | rg_q_stdin -F 'group.footer(note);' \
   || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式和顶部数字行", null,' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
@@ -1115,6 +1119,21 @@ if ! rg -qF 'static final String TWENTY_SIX_KEY_NOTE = "长空格：符号键移
   || ! rg -qF 'boolean keyLayoutOffered = TouchKeyStyle.Groups.offeredBy(AppEdition.current()).any();' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java"; then
   echo "Android 按键布局 notes and entry subtitle must match iOS and HarmonyOS word for word, and the entry and its search result must only appear when the edition offers a style group" >&2
+  exit 1
+fi
+# 「26 键「符」与「123」互换」和数字键盘空格位置（#10056）：排布由 TouchKeyStyleSmoke 覆盖，这里钉住接线：底行签名带着两项、两种底行都按它们排；数字层右列按空格位置放空格或 ！，换了位置时 render 经 numberPadSpaceStale 重建；设置页 26 键一组末尾是互换开关，接着是「数字键盘」一组单选和组末说明。
+bottom_row_file="$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java"
+if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved()' "$bottom_row_file" \
+  || ! rg -qF 'KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
+  || ! rg -qF 'KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace)' "$bottom_row_file" \
+  || ! sed -n '/    void rebuildNineKeyRows() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java" \
+    | rg_q_stdin -F 'if (spaceInColumn) adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);' \
+  || ! rg -qF '|| imeLayoutRows.numberPadSpaceStale()' "$account_service" \
+  || ! rg_q_stdin -F 'twentySix.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, TouchKeyStyle.SYMBOL_FIRST_NOTE, symbolFirst,' <<< "$style_render" \
+  || ! rg_q_stdin -F 'GroupCard numberPad = GroupCard.add(target, TouchKeyStyle.NUMBER_PAD_SPACE_GROUP).withDividers(16);' <<< "$style_render" \
+  || ! rg_q_stdin -F 'numberPad.footer(TouchKeyStyle.NUMBER_PAD_SPACE_NOTE);' <<< "$style_render" \
+  || ! rg -qF 'preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java"; then
+  echo "Android must lay both bottom rows by touch_twenty_six_symbol_first and touch_number_pad_space, rebuild the digit right column when the space moves, list both in 按键布局, and draw the heatmap with the swap" >&2
   exit 1
 fi
 # 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画外框最后两行。
