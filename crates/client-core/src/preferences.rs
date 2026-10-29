@@ -3817,21 +3817,26 @@ impl Preferences {
 const TRANSLATION_AI_WAS_IMPLICIT: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
 impl Preferences {
-    /// 读入偏好文档时调用一次：文档还没有 `translation_ai_migrated` 标记，就是各端统一成「AI 辅助翻译要显式选择」之前写下的。`was_implicit` 为真（Android、iOS，见 [`TRANSLATION_AI_WAS_IMPLICIT`]）、AI 联想开着、没有选 AI 翻译、没有选水杉账号、小牛和自定义都没启用、腾讯也不是「启用且两项凭据都可用」时，那台设备当时就在用 AI 翻译候选：把 `translation_ai` 打开，同时关掉没有凭据的腾讯（它的 `enabled` 默认就是开着的，不关的话共享层的选路会先选中它），与设置页选「AI 辅助」写下的样子相同。不论平台都标上标记，之后再读不会重来。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
+    /// 读入偏好文档时调用一次：文档还没有 `translation_ai_migrated` 标记，就是各端统一成「AI 辅助翻译要显式选择」之前写下的。`was_implicit` 为真（Android、iOS，见 [`TRANSLATION_AI_WAS_IMPLICIT`]）、AI 联想开着且服务商、接口地址、模型都已填写、没有选 AI 翻译、没有选水杉账号、小牛和自定义都没启用、腾讯仍是默认的开着但两项凭据不全时，那台设备当时就在用 AI 翻译候选：把 `translation_ai` 打开，同时关掉没有凭据的腾讯（不关的话共享层的选路会先选中它），与设置页选「AI 辅助」写下的样子相同。腾讯关着说明用户在旧版「翻译服务」页存过「不使用在线翻译」之类的非腾讯选择（旧版两端的那一页都没有 AI 选项，选非腾讯项时会把腾讯显式写成关），那是明确不要在线翻译，不能改成 AI；三项 AI 配置不全时旧版键盘也不发 AI 请求，同样不选。令牌不在这里查：iOS 的令牌在钥匙串里，共享层看不到。不论平台都标上标记，之后再读不会重来。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
     fn settle_translation_ai_selection(&mut self, was_implicit: bool) {
         if self.translation_ai_migrated {
             return;
         }
-        let tencent_usable = self.tencent_tmt.enabled
-            && crate::translation::usable_credential(&self.tencent_tmt.secret_id)
-            && crate::translation::usable_credential(&self.tencent_tmt.secret_key);
+        let tencent_unconfigured = self.tencent_tmt.enabled
+            && !(crate::translation::usable_credential(&self.tencent_tmt.secret_id)
+                && crate::translation::usable_credential(&self.tencent_tmt.secret_key));
+        let ai = &self.ai_assistant;
+        let ai_configured = !ai.provider.trim().is_empty()
+            && !ai.endpoint.trim().is_empty()
+            && !ai.model.trim().is_empty();
         if was_implicit
-            && self.ai_assistant.enabled
+            && ai.enabled
+            && ai_configured
             && !self.translation_ai
             && !self.translation_account
             && !self.niutrans.enabled
             && !self.custom_translation.enabled
-            && !tencent_usable
+            && tencent_unconfigured
         {
             self.translation_ai = true;
             self.tencent_tmt.enabled = false;

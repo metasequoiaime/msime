@@ -6391,9 +6391,18 @@ fn translation_ai_settle_selects_ai_only_where_it_was_implicit() {
     assert!(other.tencent_tmt.enabled);
     assert!(other.translation_ai_migrated);
 
-    // 以前在这些情形下手机上本来就不用 AI 翻译：AI 联想关着，或者选了水杉账号、小牛、自定义，或者腾讯有可用凭据。迁移照样不选 AI，只标上标记。
-    let unchanged: [(&str, fn(&mut Preferences)); 5] = [
+    // 以前在这些情形下手机上本来就不用 AI 翻译，或者用户明确不要在线翻译：AI 联想关着或配置不全，选了水杉账号、小牛、自定义，腾讯有可用凭据，或者在旧版「翻译服务」页选过「不使用在线翻译」（腾讯被显式写成关）。迁移照样不选 AI，只标上标记。
+    type Change = fn(&mut Preferences);
+    let unchanged: [(&str, Change); 9] = [
         ("AI assistant off", |p| p.ai_assistant.enabled = false),
+        ("AI provider missing", |p| p.ai_assistant.provider.clear()),
+        ("AI endpoint missing", |p| {
+            p.ai_assistant.endpoint = "  ".into()
+        }),
+        ("AI model missing", |p| p.ai_assistant.model.clear()),
+        ("online translation explicitly off", |p| {
+            p.tencent_tmt.enabled = false
+        }),
         ("account chosen", |p| p.translation_account = true),
         ("NiuTrans chosen", |p| p.niutrans.enabled = true),
         ("custom chosen", |p| p.custom_translation.enabled = true),

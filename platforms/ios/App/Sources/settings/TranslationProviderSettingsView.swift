@@ -154,8 +154,8 @@ struct TranslationProviderSettingsView: View {
     let ai = preferences?["ai_assistant"] as? [String: Any] ?? [:]
     let probe: [String: Any] = [TranslationProviderPreference.aiKey: true,
                                 TranslationProviderPreference.tencentKey: ["enabled": false], "ai_assistant": ai]
-    if case .ai = TranslationProviderPreference.route(in: probe) {
-      aiReady = KeyboardAIService.configuration() != nil
+    if case let .ai(_, endpoint, _, _) = TranslationProviderPreference.route(in: probe) {
+      aiReady = KeyboardAIService.translationToken(endpoint: endpoint) != nil
     } else {
       aiReady = false
     }
