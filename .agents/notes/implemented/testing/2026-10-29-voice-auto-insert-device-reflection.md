@@ -20,7 +20,7 @@ Status: implemented
 - `VoiceAutoInsertDeviceCases` 按 `delivered(long, String, String, String, byte[], long, String, String)` 查找，调用时 `notice` 传 `null`，其余断言不变。查找处注释写明参数顺序和「反射不经编译检查，产品改了参数这里要同步改」。
 - 失败输出分两类：
   - 本类 `check` 抛出的 `AssertionError` 原样抛出，消息是固定的测试文字；
-  - 其他异常（反射找不到成员、产品代码抛的异常）包成 `AssertionError`，消息是「语音自动插入回归失败：」加每层异常的类型（`InvocationTargetException <- NoSuchMethodException` 这样）和最内层异常落在本类里的方法与行号，不带任何异常消息。
+  - 其他异常（反射找不到成员、产品代码抛的异常）包成 `AssertionError`，消息是「语音自动插入回归失败：」加每层异常的类型和最内层异常落在本类里的方法与行号，不带任何异常消息。这次的签名漂移是 `method()` 直接调 `getDeclaredMethod` 抛的，输出是 `语音自动插入回归失败：NoSuchMethodException at method:<行号>, lambda$run$0:<行号>, …`；只有产品代码在 `delivered.invoke` 之类的反射调用里抛异常时，才会出现 `InvocationTargetException <- <产品异常>` 这样的多层类型。
 - `VoicePolishReplyDeviceSmoke` 对 `AssertionError` 输出类名和消息，其他异常仍只输出类名。这些消息只来自测试自己的固定文字和上面的类型、行号，不含服务正文、请求数据或用户输入。
 
 ## Alternatives considered
