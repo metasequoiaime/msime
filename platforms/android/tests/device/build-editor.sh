@@ -23,7 +23,7 @@ editor_manifest=platforms/android/tests/device/AndroidManifest.xml
 # 崩溃上报专项需要同时保留活跃键盘观察器和 App 同意/系统退出入口；复用一个清单，不增加正式产品组件。
 if [[ "${MSIME_ANDROID_CRASH_REPORTING:-0}" == 1 ]]; then
   editor_manifest="$build_dir/crash-reporting-manifest.xml"
-  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.TelemetryWatchDeviceSmoke/; /TelemetryWatchDeviceSmoke/s/ \/>/ android:targetProcesses="app.msime.android:ime" \/>/; s#</manifest>#    <instrumentation android:name="app.msime.android.test.DiagnosticConsentDeviceSmoke" android:targetPackage="app.msime.android" />\n</manifest>#' \
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.TelemetryWatchDeviceSmoke/; /TelemetryWatchDeviceSmoke/s/ \/>/ android:targetProcesses="app.msime.android:ime" \/>/; s/app.msime.android.test.CandidateSkinDeviceSmoke/app.msime.android.test.DiagnosticConsentDeviceSmoke/' \
     platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
 # 活跃键盘进程专项只替换测试入口，产品清单和输入法生命周期不变。
 elif [[ "${MSIME_ANDROID_TELEMETRY_WATCH:-0}" == 1 ]]; then
