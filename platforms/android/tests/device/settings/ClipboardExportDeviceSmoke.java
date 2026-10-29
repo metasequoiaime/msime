@@ -540,16 +540,16 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private Map<String, byte[]> awaitExportedFiles(int count, String message) throws Exception {
         waitFor(() -> filesUnchecked().size() == count, message);
         long deadline = SystemClock.uptimeMillis() + 15000;
-        Map<String, byte[]> current = filesUnchecked();
-        while (SystemClock.uptimeMillis() < deadline) {
+        Map<String, byte[]> current;
+        do {
             current = filesUnchecked();
             if (current.size() == count && current.values().stream().allMatch(bytes -> textProblems(bytes) == null)) return current;
             SystemClock.sleep(100);
-        }
-        current = files();
+        } while (SystemClock.uptimeMillis() < deadline);
+        // 超时后用循环最后一次读到的快照报错，不再另读：另读一次时若刚好写完，会把超时报成通过，消息也和循环看到的对不上。
         check(current.size() == count, message + ": expected " + count + " files, found " + current.size());
         for (var entry : current.entrySet()) checkText(entry.getKey(), entry.getValue());
-        return current;
+        throw new AssertionError(message + ": export text incomplete");
     }
 
     private String namePrefix() {

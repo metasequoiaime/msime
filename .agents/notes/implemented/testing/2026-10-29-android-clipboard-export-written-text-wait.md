@@ -16,7 +16,7 @@ Status: implemented
 
 只改 `platforms/android/tests/device/settings/ClipboardExportDeviceSmoke.java`，不动产品代码。
 
-- **SAF 目录的导出等正文写完再检查。** `awaitExportedFiles(count, message)` 先等 `.txt` 文件数到 `count`，再在 15 秒内反复读，直到每一份都通过正文检查才返回；超时后按最后一次读到的内容抛出具体缺了哪一项。select 段 Android 9 的首次授权导出、verify 段的直连导出和键盘导出都改用它。下载目录（Android 10 起的默认去处）不需要：产品写完正文才把 `IS_PENDING` 归零，`downloads()` 只认已发布的条目。
+- **SAF 目录的导出等正文写完再检查。** `awaitExportedFiles(count, message)` 先等 `.txt` 文件数到 `count`，再在 15 秒内反复读，直到每一份都通过正文检查才返回；超时后按循环最后一次读到的快照抛出具体缺了哪一项，不另读一次（另读时刚好写完会把超时报成通过）。select 段 Android 9 的首次授权导出、verify 段的直连导出和键盘导出都改用它。下载目录（Android 10 起的默认去处）不需要：产品写完正文才把 `IS_PENDING` 归零，`downloads()` 只认已发布的条目。
 - **键盘捕获改等 LONG 的时间戳变化。** 设系统剪贴板之前先读出历史里 LONG 的 `timestamp`；共享存储收下已有文字时保留置顶、换上新时间戳写盘（`client-core` 的 `push_validated`）。等待放在打开键盘剪贴板面板之后、点导出之前：verify 段每次都先 `am force-stop app.msime.android`，冷启动的 `:ime` 在 `onCreate` 才注册剪贴板监听，收不到它起来之前设好的那一条，要到打开面板时补读（`ImePanels.showClipboardHistory` 调 `captureClipboard(PANEL_OPENED)`）才捕获；输入法进程早已在运行时由监听在设剪贴板时捕获。两条路径到面板打开时都已经发生，此时等时间戳变化，既证明键盘真的捕获并写了盘，也保证导出读到的是写盘后的历史。超时消息带上原时间戳和当前时间戳（-1 表示这一条不在或读不出）。
 - **正文检查逐项报。** `textProblems` 对七项分别检查，失败消息写出缺失项的名字、文件字节数、全部条目头行（含 `==========` 的行和「共 N 条」那一行，每行截到 80 字），长正文缺失时再写出它是整段不在、换行被改成 `\n`、首尾空白被去掉，还是只有尾行在。消息里不带 5000 字的正文。
 
@@ -30,5 +30,6 @@ Status: implemented
 
 - 收益：去掉了读到未写完文件的竞态；键盘这一步真正验收了「输入法捕获剪贴板并写盘」；以后再失败时，断言能直接说明是条目数、顺序还是正文出了问题。
 - 代价：导出正文确实错了时，失败要等满 15 秒的正文等待才报出来。
+- 根因是从代码推出来的，不是观察到的：run 40827822650 的日志只有阶段名 `real keyboard panel export control` 和断言名，看不出文件是空的、写了一半还是内容本身不对。逐项断言加上之后，下一次失败会直接说明是哪一种。
 - 未在设备上跑过：本机只用 `check-host.sh` 编译了设备套件。需要 PR 上的 `android-device-pr`（API 35）和合并后 develop 上 API 28、35 的整套运行确认。若键盘捕获这一步在设备上超时，说明面板补读没有捕获（例如输入法读不到系统剪贴板），按消息里的时间戳再查。
 - 相关：同一套件键盘入口「real keyboard panel clipboard entry」的间歇失败见 [Nightly 设备失败](../bug-fix/2026-10-28-android-nightly-device-failures.md)，与本篇是不同阶段。
