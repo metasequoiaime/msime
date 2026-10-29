@@ -36,4 +36,19 @@ template <class Document> bool dictionary_maintenance_busy(const Document &reply
          error->template get_ref<const std::string &>() == kDictionaryMaintenanceBusy;
 }
 
+// 两个宿主建会话时对 `msime_client_create` 整份回复的同一个判断：词库正在维护时返回真，宿主不开会话、把按键交给应用；`noted` 记着这一段忙碌是否已经调过 `write`（写一条诊断日志），所以一段忙碌只写一条。会话建起来（`ok` 为真）时清掉记号，下一段忙碌再写一条；别的失败返回假、记号不动，由宿主照旧当成出错处理（#9918）。
+template <class Document, class Write>
+bool defer_session_for_dictionary_maintenance(const Document &reply, bool &noted, Write &&write) {
+  if (dictionary_maintenance_busy(reply)) {
+    if (!noted) write();
+    noted = true;
+    return true;
+  }
+  if (reply.is_object()) {
+    const auto ok = reply.find("ok");
+    if (ok != reply.end() && ok->is_boolean() && ok->template get<bool>()) noted = false;
+  }
+  return false;
+}
+
 }  // namespace msime::linux_host

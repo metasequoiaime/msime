@@ -301,7 +301,7 @@ pub fn is_lease_file(name: &OsStr) -> bool {
     })
 }
 
-/// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. 一个请求本身跑得比租约还长时（慢盘上的大批写入、激活整代词库），执行期间也每隔 [`RENEW_INTERVAL`] 续一次，否则租约在请求中途过期，宿主重新建会话时撞上独占锁（#9918）。`announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
+/// The hosts asked to let go of `user_data` for one settings-page action, which may be several requests: an import larger than one host request is sent in batches. The lease goes up the first time a request finds the dictionaries busy and stays up for every request after it, so the hosts close their sessions once rather than once per batch, and it is renewed before each later request so a long import does not outlive its expiry. 一个 `attempt` 本身跑得比租约还长时（慢盘上设置页的一个大批写入请求），执行期间也每隔 [`RENEW_INTERVAL`] 续一次，否则租约在请求中途过期，宿主重新建会话时撞上独占锁（#9918）。这只盖住 `attempt` 执行期间：`run` 返回之后才写入的调用方（WebDAV 同步、完整云备份的激活）仍要在写入期间自己再调 `run` 续期。`announce` runs once, right after the lease first goes up, so a host that can be told directly (the macOS input method) lets go at once instead of on its timer. Dropping this removes the lease, which is the resume.
 pub struct QuiescedHosts<'a, Announce: FnMut()> {
     user_data: Option<&'a Path>,
     announce: Announce,

@@ -2016,13 +2016,11 @@ public:
     const auto document = options.dump();
     auto created = hostReply(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样把按键交给应用，等维护做完再建会话，不报“请检查运行配置”。日志每段忙碌只记一条，不再每个按键一条（#9918）。
-    if (msime::linux_host::dictionary_maintenance_busy(created)) {
-      if (!dictionary_busy_noted_) msime_linux_diagnostic_write("dictionary_busy operation=session_create");
-      dictionary_busy_noted_ = true;
+    if (msime::linux_host::defer_session_for_dictionary_maintenance(created, dictionary_busy_noted_, [] {
+          msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+        }))
       return false;
-    }
     if (!created.value("ok", false)) throw std::runtime_error("MSIME request failed");
-    dictionary_busy_noted_ = false;
     view_ = created.at("value");
     session_ = msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("session"));
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。

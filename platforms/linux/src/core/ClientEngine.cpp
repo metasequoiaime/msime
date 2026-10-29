@@ -999,15 +999,13 @@ struct State {
     auto created = host_reply(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样不开会话、按键交给应用，等维护做完再建，不当成宿主操作失败。日志每段忙碌只记一条（#9918）。
-    if (msime::linux_host::dictionary_maintenance_busy(created)) {
-      if (!dictionary_busy_noted)
-        msime_linux_diagnostic_write("dictionary_busy operation=session_create");
-      dictionary_busy_noted = true;
+    if (msime::linux_host::defer_session_for_dictionary_maintenance(
+            created, dictionary_busy_noted, [] {
+              msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+            }))
       return;
-    }
     if (!created.at("ok").get<bool>())
       throw std::runtime_error("Host operation failed");
-    dictionary_busy_noted = false;
     view = created.at("value");
     session = view.at("session").get<uint64_t>();
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。

@@ -58,5 +58,29 @@ int main() {
   assert(!dictionary_maintenance_busy(Json::parse(R"({"ok":false,"error":["dictionary maintenance busy"]})")));
   assert(!dictionary_maintenance_busy(Json::parse(R"({"ok":false})")));
   assert(!dictionary_maintenance_busy(Json::parse(R"("dictionary maintenance busy")")));
+
+  // 两个宿主建会话时的判断：一段忙碌里每个键都不开会话，但日志只写一条；会话建起来后清掉记号，下一段忙碌再写一条；别的失败不算忙碌，也不清记号。
+  using msime::linux_host::defer_session_for_dictionary_maintenance;
+  const auto busy = Json::parse(R"({"ok":false,"error":"dictionary maintenance busy"})");
+  const auto created = Json::parse(R"({"ok":true,"value":{"session":1}})");
+  const auto failed = Json::parse(R"({"ok":false,"error":"invalid options buffer"})");
+  bool noted = false;
+  int writes = 0;
+  const auto write = [&writes] { ++writes; };
+  assert(defer_session_for_dictionary_maintenance(busy, noted, write));
+  assert(noted && writes == 1);
+  assert(defer_session_for_dictionary_maintenance(busy, noted, write));
+  assert(defer_session_for_dictionary_maintenance(busy, noted, write));
+  assert(noted && writes == 1);
+  assert(!defer_session_for_dictionary_maintenance(failed, noted, write));
+  assert(noted && writes == 1);
+  assert(!defer_session_for_dictionary_maintenance(created, noted, write));
+  assert(!noted && writes == 1);
+  assert(defer_session_for_dictionary_maintenance(busy, noted, write));
+  assert(noted && writes == 2);
+  noted = false;
+  assert(!defer_session_for_dictionary_maintenance(failed, noted, write));
+  assert(!defer_session_for_dictionary_maintenance(Json::parse(R"("dictionary maintenance busy")"), noted, write));
+  assert(!noted && writes == 2);
   return 0;
 }
