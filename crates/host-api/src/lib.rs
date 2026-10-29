@@ -435,8 +435,16 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     if options.multilingual_languages.len() < 2 {
         options.multilingual_languages.clear();
     }
-    // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
+    // 引擎里的键盘模型读的是同一份随版本资源锁走的模型；宿主不打开它（见 `engine_sentence_association`），不带模型的版本更不交给 Engine。
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
+}
+
+/// 整句联想「增强」挂不挂 runtime 的逐键重排器（[`ffi::keyboard_reranker`]）：偏好打开、且本版本带键盘模型。它只管 runtime 这一层，引擎里的键盘模型不跟这个开关走，见 `engine_sentence_association`。
+fn keyboard_reranker_enabled(
+    preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    edition: &Edition,
+) -> bool {
+    preferences.neural_keyboard && edition.features.neural_keyboard
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -447,7 +455,7 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
     }
 }
 
-/// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
+/// The Engine's sentence association switches. Neither model switch reaches it: the desktop one gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs, and the keyboard one (整句联想「增强」) mounts the runtime's per-keystroke reranker (`keyboard_reranker_enabled`), so the Engine's own keyboard-model rerank stays off.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
     state_root: Option<&std::path::Path>,
@@ -480,7 +488,8 @@ fn engine_sentence_association(
         .unwrap_or_default();
     msime_engine::host::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
-        neural_keyboard: preferences.neural_keyboard,
+        // 引擎自己那层键盘模型（九键跨切分重排、全拼和双拼词库内重排）不跟「增强」打开：在 runtime 的逐键重排之外它几乎不加分，却让按键延迟和内存再涨一截，取舍见 .agents/notes/implemented/feature/2026-10-29-enhanced-runtime-reranker-only.md。它留给直接构造 `EngineOptions` 的评测和实验（`convert_eval`）。
+        neural_keyboard: false,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
         collocation_model,
         collocation_rerank: pack.is_some(),
@@ -975,9 +984,11 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        if options.sentence_association.neural_keyboard != self.runtime.has_reranker() {
+        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        if keyboard != self.runtime.has_reranker() {
             self.runtime.set_reranker(ffi::keyboard_reranker(
-                &options,
+                keyboard,
+                &options.resources,
                 self.recorded_sentence_model.as_deref(),
             ));
         }

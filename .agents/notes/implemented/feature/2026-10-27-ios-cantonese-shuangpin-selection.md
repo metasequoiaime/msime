@@ -13,9 +13,19 @@ Status: implemented
 - 会话重建、切换到别的方案再切回、光标编辑和退格都保留所选模式。候选查询仍只读现有 `msime-cantonese.db`，不复制词表。
 - Android、HarmonyOS 等宿主若读到新标识应能保留偏好且不崩溃，但这次不在它们的方案列表增加新入口。
 
+## 分号键
+
+- 引擎的粤语双拼把 ing、ik 两个韵母只放在 `;` 上（`crates/engine/src/cantonese/shuangpin.rs`），会话在双拼组字的奇数位置把 `;` 当第二键（`session/input.rs` 的 `cantonese_final`），空闲时 `;` 仍是标点。入口刚上线时 iOS 只在微软双拼下显示第二排 L 右边的 `;` 键，粤语双拼在触屏上打不出 sing、ging、ming、sik 这类音节（#10099）。
+- 现在 `ChineseInputScheme.showsSemicolonFinalKey` 对微软双拼和粤语双拼为真：选了粤语双拼，26 键中文字母层就一直显示这个 `;` 键，位置、宽度和第二排不缩进的规则与微软双拼相同；英文、本地模式下照旧隐藏。没有设置开关。
+- 读屏标签按方案给出（`semicolonFinalKeyAccessibilityLabel`）：「分号，微软双拼 ing」「分号，粤语双拼 ing 和 ik」，不再被字母键的「字母 ;」覆盖，也不重复读键位提示。
+- 粤语双拼不在 `typesShuangpinLetters` 里，不走 #10018 的触点纠错；`;` 键进了键区布局，但这份几何只在 26 键双拼下注册给引擎。
+- 其他方案不加可选的分号键：全拼、小鹤、自然码等方案的 `;` 不是编码键，多一个键只会打出标点，还会把第二排的键挤窄。普通粤拼不同，引擎在一个声母后也把 `;` 当双拼韵母（`CantoneseScheme::accepts_semicolon`，`s;` 出 sing），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键，所以同样不显示。
+
 ## Alternatives considered
 
 - **只在 iOS 增加列表项并复用 `cantonese` 标识**：改动少，但共享文档无法区分两个入口，重建会话后丢失选择，同形码也仍走普通粤拼。
+- **粤语双拼的分号键做成默认关闭的开关**（#10099 报告者的原始建议）：最强的理由是不改变已经习惯九键第二排的用户的手感，想要的人自己打开。不采用，因为 ing、ik 只在 `;` 上，开关关着时这个方案缺两个韵母，默认状态下就是不完整的方案；微软双拼的 `;` 也是选了方案就显示，没有开关。
+- **给所有方案加一个「显示分号键」的通用开关**：能满足想在全拼下直接打分号的用户。不采用，全拼等方案的 `;` 不参与编码，普通粤拼完整拼写也用不到它，键盘多一个基本只出标点的键，第二排每个键都变窄，而符号层已经有分号。
 - **新增全局引擎方案编号**：每个宿主都能把双拼当独立方案，但需要改引擎方案集合、FFI 和所有平台的方案映射；这里两种输入共用粤拼词典及候选语义，独立的触屏入口加模式更贴合现有结构。
 
 ## Consequences
@@ -23,6 +33,8 @@ Status: implemented
 - 入口只增加 iOS 的触屏方案；共享偏好与引擎字段可被其他宿主读取但不会自动显示新入口。主应用的粤拼语言分组同时列出普通粤拼与粤语双拼；语言词典下载完成后同时提供两个入口，键盘里的「添加语言」跳转到此处启用。
 
 ## Verification
+
+- #10099 分号键：`LanguageSchemesTests.testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey` 核对只有微软双拼和粤语双拼显示 `;` 以及两种读屏标签；`testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL` 在暂存了 `msime-cantonese.db` 的测试宿主里核对键在 L 右边、与微软双拼横向几何一致、M 加 `;` 进入组字、出 ming 或 mik 的候选、普通粤拼不显示，词库缺席时跳过。未在真机或模拟器的系统键盘里看过实际画面。
 
 - 入口审查回归使用真实 `InputLanguage.swift` 和 `InputSchemePreference.swift` 编译 Swift harness，仅替代应用容器与外部资源服务。修复前准确报出添加入口、语言归属和下载词典三个失败，修复后 7 项检查通过；旧特性测试排除集合同步纳入粤语双拼，避免把它误当作不需要词典的方案。
 

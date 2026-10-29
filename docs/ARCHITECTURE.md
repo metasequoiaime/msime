@@ -57,6 +57,8 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 输入引擎是本仓库里的 `crates/engine`（`msime-engine`），随 workspace 一起构建和测试，没有锁文件，也不再从外部拉取源码归档。它由 C++ 版 MSIME-Engine 移植而来：移植时用参考实现（固定 commit 加当时的 overlay）录下了行为基准，提交在 `crates/engine/tests/golden/`，由 `crates/engine/tests/golden.rs` 对照；录制方法和参考实现的来源记在 `tools/engine-golden/README.md`，只在需要从归档的参考构建重新录制时才用得上。引擎行为的改动直接改 `crates/engine` 并更新对应的基准，不再有 overlay 这一层。
 
+引擎在运行时读写的文件（主库、五笔库、英文库、n-gram 表、日文模型、语言词库、手写与神经模型、学习日志和代次目录）的格式、文件内版本、产出方、各方案的最小数据集和逐文件的数据许可证规定在 [data-formats.md](data-formats.md)。改动这些文件的结构时同一个提交里更新它；读端不认识的改动要把 `format::FORMAT_VERSION` 加一，引擎拒绝比自己新的版本，没有 `metadata` 表的旧发布按版本 0 照常读。
+
 平台仍要用到的非引擎文件已随仓库提交：Windows 与各宿主共用的 IPC 契约头文件在 `shared/contracts/`，辅助码表在 `resources/helpcodes/`，Windows 提示音用的 miniaudio 在 `platforms/windows/third_party/miniaudio/`。
 
 引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制。

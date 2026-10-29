@@ -96,6 +96,7 @@ impl Rows<'_> {
             item.sentence_association = false;
             item.sentence_words.clear();
             item.touch_supported = false;
+            item.confident_correction = false;
         } else {
             self.items
                 .push(WordItem::new(self.code, word, weight, source, self.code));
@@ -275,6 +276,7 @@ impl JapaneseProvider {
                     target.sentence_association = item.sentence_association;
                     target.sentence_words.clone_from(&item.sentence_words);
                     target.touch_supported = item.touch_supported;
+                    target.confident_correction = item.confident_correction;
                 } else {
                     rows.items.push(item.clone());
                 }
@@ -457,8 +459,9 @@ mod tests {
         let request = request("ka");
         let mut destination = provider.query(&request);
         let word_pointer = destination[0].word.as_ptr();
-        // 复用的行带着上一次（双拼触点纠错整句）的落点支持标记，写入时要清掉。
+        // 复用的行带着上一次（双拼触点纠错整句）的落点支持和首选标记，写入时要清掉。
         destination[0].touch_supported = true;
+        destination[0].confident_correction = true;
 
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             provider.query_into(&request, &mut destination);
@@ -468,7 +471,9 @@ mod tests {
         assert_eq!(allocations, 0, "已有候选行与转换缓冲应复用");
         assert_eq!(words(&destination), ["か", "カ"]);
         assert_eq!(destination[0].word.as_ptr(), word_pointer);
-        assert!(destination.iter().all(|row| !row.touch_supported));
+        assert!(destination
+            .iter()
+            .all(|row| !row.touch_supported && !row.confident_correction));
     }
 
     #[test]

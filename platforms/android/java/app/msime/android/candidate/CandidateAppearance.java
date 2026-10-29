@@ -224,6 +224,11 @@ public final class CandidateAppearance {
             return selected ? (externalSkin ? chipText : accent) : text;
         }
 
+        /** 坐上首选的触点纠错行（#10018，CandidateCorrectionMarkPolicy）的标记色：选中的 chip 上取 {@link #chipText()}，未使用包时它就是皮肤强调色，用了包时是包给 chip 底配的选中文字色，标记不会和 chip 底撞色；不在选中位置时取强调色。 */
+        public int correctionFor(boolean selected) {
+            return selected ? chipText : accent;
+        }
+
         public String key() {
             return id + ":" + Integer.toHexString(text) + ":" + Integer.toHexString(number)
                 + ":" + Integer.toHexString(accent) + ":" + Integer.toHexString(selected)

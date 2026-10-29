@@ -2745,8 +2745,18 @@ int wmain(int argc, wchar_t **argv) {
     diagnostic_log.server(server_stop_line(failures));
     return failures.empty() ? 0 : 1;
   } catch (...) {
-    std::cerr << "Server failed at stage=" << startup_stage
-              << "; verify configuration, resources, state ownership and pipe availability.\n";
+    const std::string line =
+        std::string("Server failed at stage=") + startup_stage +
+        "; verify configuration, resources, state ownership and pipe availability.";
+    std::cerr << line << "\n";
+    // 受管启动没有控制台，标准错误会被丢弃；而在读到偏好之前失败时服务端开关还没打开，
+    // 两条出口同时哑掉，启动失败就完全不可见——资源目录被增删一个文件后 host_prepare
+    // 抛出异常，server.log 里连一行都没有，看起来就是 Watchdog 反复拉不起 Server。
+    // 致命失败只此一行，临时打开开关把它写进日志，随后进程就退出。
+    if (auto *log = host_api_diagnostic_log.load(std::memory_order_acquire)) {
+      log->set_enabled(true, log->tsf_enabled());
+      log->server(line);
+    }
     return 1;
   }
 }

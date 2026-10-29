@@ -5,7 +5,7 @@
  *
  * 拒绝不退出应用：本机打字、词库、皮肤、统计都不需要网络，照常可用；登录、云同步、社区、云剪贴板、检查更新、词库更新、匿名使用统计、公告，以及用户自己配置的云联想、在线翻译、AI 和云端语音一律不发请求，直到用户在「隐私」页重新打开弹窗并同意。拒绝是粘性的：之后启动不再自动弹窗，免得反复打扰（工信部 164 号文把拒绝后频繁弹窗列为违规）。
  *
- * 版本号只往上加：隐私政策有实质变化时把 `PRIVACY_POLICY_VERSION` 加一，已同意旧版本的用户下次打开应用时重新弹窗，同意之前联网功能保持关闭；拒绝过的用户本来就没有联网，不再追问。
+ * 版本号只往上加：隐私政策或用户协议有实质变化时把 `PRIVACY_POLICY_VERSION` 加一（弹窗同时征得两份文档的同意，两者共用这一个版本号），已同意旧版本的用户下次打开应用时重新弹窗，同意之前联网功能保持关闭；拒绝过的用户本来就没有联网，不再追问。
  *
  * 这里只有纯规则，读写文件在 `HarmonyPrivacyConsent.ets`，弹窗在 `PrivacyConsentDialog.ets`。
  */
@@ -16,7 +16,7 @@ export const PRIVACY_CONSENT_FILE: string = "privacy-consent.json";
 export const PRIVACY_CONSENT_ENTRY: string = "privacy-consent";
 /** 记录文件自身的格式号，与隐私政策的版本无关。 */
 export const PRIVACY_CONSENT_FORMAT: number = 1;
-/** 当前隐私政策的授权版本。隐私政策有实质变化时加一，已同意旧版本的用户会重新看到弹窗。 */
+/** 当前隐私政策和用户协议的授权版本。任一份有实质变化时加一，已同意旧版本的用户会重新看到弹窗。 */
 export const PRIVACY_POLICY_VERSION: number = 1;
 /** 完整隐私政策的地址，与 `packages/ui/src/settings/app-resources.ts` 的 `privacyUrl` 相同。 */
 export const PRIVACY_POLICY_URL: string = "https://msime.app/privacy/";
