@@ -180,7 +180,9 @@ check_script() {
 }
 # ---- 前置条件：这里失败，后面的检查都跑不起来 ----
 device_alive || stop "Test AVD has not booted"
-if [[ "$oobe" == true ]]; then
+if [[ "$crash_only" == true ]]; then
+  MSIME_ANDROID_CRASH_REPORTING=1 bash platforms/android/tests/device/build-editor.sh || stop "building the crash reporting test APK failed"
+elif [[ "$oobe" == true ]]; then
   MSIME_ANDROID_OOBE_SMOKE=1 bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
 else
   bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
