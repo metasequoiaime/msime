@@ -181,7 +181,7 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   // 分段控件只列版本提供的键盘类型，全拼用户默认停在 26 键。
   expect(kindLabels(dialog)).toEqual(["26 键", "14/18 键", "9 键"]);
   expect(checkedKind(dialog)).toBe("26 键");
-  expect(chipLabels(dialog)).toEqual(["标准", "逗号句号在空格两侧", "长空格", "表情键"]);
+  expect(chipLabels(dialog)).toEqual(["标准", "逗号句号", "长空格", "表情键"]);
   // 文档里没有这几个键时都是标准：标准不高亮、没有说明，数字行关着。
   expect(pressedChip(dialog)).toEqual(["标准"]);
   expect(highlightedCodes(dialog)).toEqual([]);
@@ -289,7 +289,7 @@ test("clicking a chip calls onChange with its own preference, and the chosen chi
   chooseKind(page, "26 键");
   // 切分段不写偏好。
   expect(onChange).toHaveBeenCalledTimes(1);
-  chooseChip(page, "逗号句号在空格两侧");
+  chooseChip(page, "逗号句号");
   expect(onChange).toHaveBeenLastCalledWith({ touch_twenty_six_key_style: "comma_period" });
   chooseKind(page, "14/18 键");
   chooseChip(page, "长空格");
@@ -324,7 +324,7 @@ test("the note says only the chosen style's side effect, word for word across pl
   const dialog = await openKeyLayout();
   const notes: [string, string, string | undefined][] = [
     ["26 键", "标准", undefined],
-    ["26 键", "逗号句号在空格两侧", undefined],
+    ["26 键", "逗号句号", undefined],
     ["26 键", "长空格", "符号键移到工具栏。"],
     ["26 键", "表情键", "长按 123 打开符号。"],
     ["14/18 键", "标准", undefined],
@@ -357,7 +357,7 @@ test("the preview draws the whole keyboard and outlines the keys the style chang
   ]);
   const highlights: [string, string, string[]][] = [
     ["26 键", "标准", []],
-    ["26 键", "逗号句号在空格两侧", ["Comma", "Period"]],
+    ["26 键", "逗号句号", ["Comma", "Period"]],
     ["26 键", "长空格", ["Space"]],
     ["26 键", "表情键", ["SoftEmoji"]],
     ["14/18 键", "标准", []],

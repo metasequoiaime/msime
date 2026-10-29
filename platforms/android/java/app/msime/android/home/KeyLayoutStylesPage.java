@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.Context;
 import android.view.View;
 import android.widget.Button;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
@@ -115,14 +114,11 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         target.addView(board, boardParams);
         preview = board;
 
-        // 胶囊横向排开，放不下时横向滚动，不折行。
-        HorizontalScrollView strip = new HorizontalScrollView(context);
-        strip.setHorizontalScrollBarEnabled(false);
+        // 胶囊等宽铺满一行，不横向滚动：每类最多四种、名字最长五个字，等分后放得下；系统字号很大时字跟着缩小（chip 里的 setAutoSizeSp）。
         LinearLayout row = LayoutPolicy.row(context);
-        strip.addView(row);
-        LinearLayout.LayoutParams stripParams = LayoutPolicy.matchWidthWrapParams();
-        stripParams.topMargin = DimensionPolicy.pixels(context, 12);
-        target.addView(strip, stripParams);
+        LinearLayout.LayoutParams rowParams = LayoutPolicy.matchWidthWrapParams();
+        rowParams.topMargin = DimensionPolicy.pixels(context, 12);
+        target.addView(row, rowParams);
         chips = row;
 
         TextView caption = ViewPolicy.styledLabel(context, "", 13, 400, ThemeColorPolicy.subText(context));
@@ -145,8 +141,8 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         Context context = requireContext();
         row.removeAllViews();
         for (TouchKeyStyle.Row option : shown.rows) {
-            LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
-            if (row.getChildCount() > 0) params.setMarginStart(DimensionPolicy.pixels(context, 8));
+            LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);
+            if (row.getChildCount() > 0) params.setMarginStart(DimensionPolicy.pixels(context, 6));
             row.addView(chip(context, shown, option, option == selected), params);
         }
         // 没有副作用的样式不画这一行，也不留空位。
@@ -159,8 +155,9 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         TextView chip = ViewPolicy.pillButton(context, title, Ui.TEXT_BUTTON_SMALL, checked ? 600 : 400,
             checked ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.rowBackground(context),
             checked ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.text(context),
-            Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V, Ui.COMPACT_BUTTON_MIN_HEIGHT, 0,
+            6, Ui.BUTTON_PADDING_V, Ui.COMPACT_BUTTON_MIN_HEIGHT, 0,
             () -> { if (!checked) choose(shown, option); });
+        ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);
         ViewPolicy.setSelected(chip, checked);
         ViewCompat.setAccessibilityDelegate(chip, new AccessibilityDelegateCompat() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfoCompat info) {

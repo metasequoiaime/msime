@@ -57,7 +57,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(\.rawValue), ["standard", "long_space", "emoji"])
     XCTAssertEqual(TouchNineKeyStyle.allCases.map(\.rawValue), ["standard", "comma_period", "emoji", "tall_return"])
     // 设置页上的名字。
-    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(\.title), ["标准", "逗号句号在空格两侧", "长空格", "表情键"])
+    XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(\.title), ["标准", "逗号句号", "长空格", "表情键"])
     XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(\.title), ["标准", "长空格", "表情键"])
     XCTAssertEqual(TouchNineKeyStyle.allCases.map(\.title), ["标准", "底栏带标点", "表情键", "右侧大回车"])
   }

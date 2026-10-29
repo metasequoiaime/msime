@@ -79,7 +79,7 @@ public final class KeyLayoutStylesPolicySmoke {
     }
 
     private static void choices() {
-        check(labels(Kind.TWENTY_SIX).equals(List.of("标准", "逗号句号在空格两侧", "长空格", "表情键")), "26-key chips");
+        check(labels(Kind.TWENTY_SIX).equals(List.of("标准", "逗号句号", "长空格", "表情键")), "26-key chips");
         check(labels(Kind.FOURTEEN).equals(List.of("标准", "长空格", "表情键")), "14/18-key chips");
         check(labels(Kind.NINE).equals(List.of("标准", "底栏带标点", "表情键", "右侧大回车")), "nine-key chips");
         // 选样式写这一类自己的共享偏好，写的是 wire 值，另外两类不动。

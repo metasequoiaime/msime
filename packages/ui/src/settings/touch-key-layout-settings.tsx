@@ -262,7 +262,7 @@ function KeyLayoutPreview({
   );
 }
 
-/** 预览下方的一排样式胶囊：横向排开，放不下时横向滚动、不折行；选中的强调色实底白字，其余浅底。点一下立刻写偏好，点已选中的不做事。`note` 是当前选中样式的副作用说明，没有就不画这一行，读屏把它当作这排胶囊的描述。 */
+/** 预览下方的一排样式胶囊：等宽铺满一行、不横向滚动（每类最多四种、名字最长五个字，等分后放得下，字号很大时显示省略号）；选中的强调色实底白字，其余浅底。点一下立刻写偏好，点已选中的不做事。`note` 是当前选中样式的副作用说明，没有就不画这一行，读屏把它当作这排胶囊的描述。 */
 function StyleChips<T extends string>({
   title,
   options,
@@ -283,7 +283,7 @@ function StyleChips<T extends string>({
         role="group"
         aria-label={`${title}样式`}
         aria-describedby={note ? noteId : undefined}
-        className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex gap-1.5"
       >
         {options.map((option) => {
           const on = option.value === value;
@@ -292,7 +292,7 @@ function StyleChips<T extends string>({
               key={option.value}
               type="button"
               aria-pressed={on}
-              className={`m-0 shrink-0 cursor-pointer rounded-full border-0 px-3.5 py-1.5 text-[14px] whitespace-nowrap [font-family:inherit] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50 ${on ? "bg-accent-strong font-medium text-white" : "bg-[var(--p-seg-bg)] [color:var(--p-text)]"}`}
+              className={`m-0 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-full border-0 px-1.5 py-1.5 text-[14px] text-ellipsis whitespace-nowrap [font-family:inherit] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50 ${on ? "bg-accent-strong font-medium text-white" : "bg-[var(--p-seg-bg)] [color:var(--p-text)]"}`}
               data-settings-search-label={option.label}
               data-key-layout-style={option.value}
               onClick={() => {

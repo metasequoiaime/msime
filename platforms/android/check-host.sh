@@ -1133,7 +1133,7 @@ while IFS= read -r key; do
     exit 1
   fi
 done <<< "$touch_style_reads"
-# 「按键布局」页（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：顶部是本版本提供的键盘类型的分段控件，下面是整块键盘预览、样式胶囊和当前样式的说明，最后是没有标题的一组里的「顶部数字行」开关。哪几类、默认停在哪一类、胶囊名字、高亮哪些键、说明文字和预览画哪些键都在 KeyLayoutStylesPolicy 里，由 KeyLayoutStylesPolicySmoke 覆盖；这里钉住页面的接线：按 TouchKeyStyle.Groups 列类型，只有一种时不画分段，默认值按键盘页读的同一批偏好（storedScheme、双拼和五笔的排法）定，切分段只重画不写偏好，点胶囊先就地换预览再写这一类的偏好、点已选中的不做事，说明没有时不画，数字行开关在两类键面都没有时不列，胶囊读成按钮并带「已选择」「未选择」，预览对读屏隐藏。
+# 「按键布局」页（.agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md）：顶部是本版本提供的键盘类型的分段控件，下面是整块键盘预览、样式胶囊和当前样式的说明，最后是没有标题的一组里的「顶部数字行」开关。哪几类、默认停在哪一类、胶囊名字、高亮哪些键、说明文字和预览画哪些键都在 KeyLayoutStylesPolicy 里，由 KeyLayoutStylesPolicySmoke 覆盖；这里钉住页面的接线：按 TouchKeyStyle.Groups 列类型，只有一种时不画分段，默认值按键盘页读的同一批偏好（storedScheme、双拼和五笔的排法）定，切分段只重画不写偏好，点胶囊先就地换预览再写这一类的偏好、点已选中的不做事，说明没有时不画，数字行开关在两类键面都没有时不列，胶囊等宽铺满一行、不横向滚动，读成按钮并带「已选择」「未选择」，预览对读屏隐藏。
 style_page="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPage.java"
 style_policy="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java"
 style_preview="$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutPreview.java"
@@ -1151,7 +1151,9 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
-  || ! rg_q_stdin -F 'HorizontalScrollView strip = new HorizontalScrollView(context);' <<< "$style_section" \
+  || rg_q_stdin -F 'HorizontalScrollView' <<< "$style_section" \
+  || ! rg_q_stdin -F 'LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
   || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen),' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected));' <<< "$style_refresh" \
@@ -1164,7 +1166,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg -qF 'KeyboardSheets.save(this, edit, null, this::reload);' "$style_page" \
   || ! rg -qF 'setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' "$style_preview" \
   || rg -q 'BottomRowPreview|styleGroup\(|footer\(' "$style_page"; then
-  echo "Android 按键布局 must list key layout kinds by TouchKeyStyle.Groups in a segmented control defaulting to the current Chinese keyboard, redraw the whole-keyboard preview without saving when the segment changes, save a chip choice after redrawing, show the selected style's note only when it has one, and keep 顶部数字行 in an untitled group hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
+  echo "Android 按键布局 must list key layout kinds by TouchKeyStyle.Groups in a segmented control defaulting to the current Chinese keyboard, redraw the whole-keyboard preview without saving when the segment changes, lay the style chips out at equal width without horizontal scrolling, save a chip choice after redrawing, show the selected style's note only when it has one, and keep 顶部数字行 in an untitled group hidden when the edition offers neither 26-key nor 14/18-key faces" >&2
   exit 1
 fi
 # 「按键布局」当前样式的说明、「顶部数字行」的说明和键盘页入口的副标题与 iOS、鸿蒙逐字相同；原来三条组末说明由四条按样式的说明取代（26 键长空格、26 键与 14/18 键表情键、9 键右侧大回车），其他样式不显示说明。键盘页只在本版本至少有一组样式时列入口（与鸿蒙 keyLayoutOffered 同一条规则），设置搜索同样不列这一页。

@@ -11,7 +11,7 @@ export type NineKeyStyle = NonNullable<Preferences["touch_nine_key_style"]>;
 /** 设置页「按键布局」里每种样式的名字，三端相同。 */
 export const twentySixKeyStyleOptions: readonly { value: TwentySixKeyStyle; label: string }[] = [
   { value: "standard", label: "标准" },
-  { value: "comma_period", label: "逗号句号在空格两侧" },
+  { value: "comma_period", label: "逗号句号" },
   { value: "long_space", label: "长空格" },
   { value: "emoji", label: "表情键" },
 ];

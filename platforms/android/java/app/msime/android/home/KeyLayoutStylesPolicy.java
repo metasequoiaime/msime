@@ -105,11 +105,11 @@ public final class KeyLayoutStylesPolicy {
         return current == KeyboardScheme.QUANPIN_EIGHTEEN_KEY;
     }
 
-    /** 胶囊上的名字；九键的「逗号句号在空格两侧」叫「底栏带标点」，因为九键的标点原本在侧栏里；「右侧大回车」只有九键有。 */
+    /** 胶囊上的名字；26 键与 14/18 键的逗号句号样式叫「逗号句号」，九键的叫「底栏带标点」，因为九键的标点原本在侧栏里；「右侧大回车」只有九键有。 */
     public static String label(Kind kind, TouchKeyStyle.Row row) {
         return switch (row) {
             case STANDARD -> "标准";
-            case COMMA_PERIOD -> kind == Kind.NINE ? "底栏带标点" : "逗号句号在空格两侧";
+            case COMMA_PERIOD -> kind == Kind.NINE ? "底栏带标点" : "逗号句号";
             case LONG_SPACE -> "长空格";
             case EMOJI -> "表情键";
             case TALL_RETURN -> "右侧大回车";

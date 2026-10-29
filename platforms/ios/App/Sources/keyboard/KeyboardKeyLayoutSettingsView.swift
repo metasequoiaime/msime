@@ -77,8 +77,7 @@ struct KeyboardKeyLayoutSettingsView: View {
         KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid,
                                  gridSplitsSyllables: gridSplitsSyllables, language: !hidesLanguageKey)
           .padding(.horizontal, 16)
-        // 换了分段就换一排新的胶囊，横向滚动回到开头，不沿用上一类滚到的位置。
-        stylePills(kind).id(kind)
+        stylePills(kind)
         if let note = kind.note(style) {
           Text(note).designSubtext()
             .fixedSize(horizontal: false, vertical: true)
@@ -106,42 +105,35 @@ struct KeyboardKeyLayoutSettingsView: View {
     }
   }
 
-  /// 一排横向的样式胶囊，放不下时横向滚动、不折行；出现时滚到选中的那一个，排在后面的选中项不会藏在屏幕外。选中的是强调色实底，其余是浅底；点一下立刻写偏好，点已选中的不做事。
+  /// 一排等宽的样式胶囊铺满整行，不横向滚动：每类最多四种、名字最长五个字，等分后放得下；系统字号很大时字跟着缩小。选中的是强调色实底，其余是浅底；点一下立刻写偏好，点已选中的不做事。
   private func pills<Value: Hashable>(
     _ options: [Value], selected: Value, title: @escaping (Value) -> String,
     identifier: @escaping (Value) -> String, onSelect: @escaping (Value) -> Void
   ) -> some View {
-    ScrollViewReader { proxy in
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 8) {
-          ForEach(options, id: \.self) { option in
-            let isSelected = option == selected
-            Button {
-              guard !isSelected else { return }
-              onSelect(option)
-            } label: {
-              Text(title(option))
-                .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? MetasequoiaTheme.onAccent : Color.primary)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 16)
-                .frame(minHeight: 36)
-                .background(isSelected ? MetasequoiaTheme.accent : MetasequoiaTheme.segBg, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .id(option)
-            .accessibilityIdentifier(identifier(option))
-            .accessibilityValue(isSelected ? "已选择" : "未选择")
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-          }
+    HStack(spacing: 6) {
+      ForEach(options, id: \.self) { option in
+        let isSelected = option == selected
+        Button {
+          guard !isSelected else { return }
+          onSelect(option)
+        } label: {
+          Text(title(option))
+            .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? MetasequoiaTheme.onAccent : Color.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(isSelected ? MetasequoiaTheme.accent : MetasequoiaTheme.segBg, in: Capsule())
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier(option))
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
       }
-      .contentMargins(.horizontal, 16, for: .scrollContent)
-      .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-      .onAppear { proxy.scrollTo(selected, anchor: .center) }
     }
+    .padding(.horizontal, 16)
   }
 
   /// 写进文档成功时页面换成新值；写不进去时提示并回到文档里存着的值。
@@ -223,8 +215,9 @@ private struct KeyLayoutKeyboardPreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
     .allowsHitTesting(false)
+    // 整块预览只是示意，读屏跳过：先收成一个元素再隐藏，键面上的字不会一个个露出来。不给它标识，加了标识的子元素会重新出现在读屏和 UI 测试的树里。
+    .accessibilityElement(children: .ignore)
     .accessibilityHidden(true)
-    .accessibilityIdentifier("keyLayoutPreview")
   }
 
   @ViewBuilder

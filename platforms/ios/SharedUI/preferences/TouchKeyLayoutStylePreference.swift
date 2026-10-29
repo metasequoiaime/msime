@@ -15,7 +15,7 @@ enum TouchTwentySixKeyStyle: String, CaseIterable, Hashable {
   var title: String {
     switch self {
     case .standard: "标准"
-    case .commaPeriod: "逗号句号在空格两侧"
+    case .commaPeriod: "逗号句号"
     case .longSpace: "长空格"
     case .emoji: "表情键"
     }
