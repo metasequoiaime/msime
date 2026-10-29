@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// 26 键全拼和 26 键双拼的字母交给会话线程查询（#10031）：主线程只投递，结果按顺序画出；空格、删除、Shift、收起、宿主编辑和切换中英先排空此前的字母，旧回调不能恢复已结束的组字。
+/// 26 键全拼和 26 键双拼的字母交给会话线程查询（#10031）：主线程只投递，结果按顺序画出；空格、删除、Shift、Tab、符号、收起、宿主编辑和切换中英先排空此前的字母，旧回调不能恢复已结束的组字。
 @MainActor
 final class AsynchronousLetterInputTests: XCTestCase {
   override func setUp() {
@@ -24,12 +24,20 @@ final class AsynchronousLetterInputTests: XCTestCase {
 
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
 
-  private func keyboard(_ scheme: ChineseInputScheme) -> KeyboardViewController {
+  /// `tablet` 时画全宽 iPad 键盘，第一排有 Tab，第三排末尾有逗号和句号。
+  private func keyboard(_ scheme: ChineseInputScheme, tablet: Bool = false,
+                        asynchronous: Bool = true) -> KeyboardViewController {
     InputSchemePreference.scheme = scheme
     let controller = KeyboardViewController()
-    controller.asynchronousInputEnabled = true
+    controller.asynchronousInputEnabled = asynchronous
+    if tablet {
+      controller.traitOverrides.userInterfaceIdiom = .pad
+      controller.traitOverrides.horizontalSizeClass = .regular
+    }
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.frame = tablet
+      ? CGRect(x: 0, y: 0, width: 1032, height: 440)
+      : CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller
@@ -160,6 +168,78 @@ final class AsynchronousLetterInputTests: XCTestCase {
       XCTAssertTrue(try composing(controller), "\(scheme): Shift 之后仍在组字")
       XCTAssertEqual(preedit(controller), "w", "\(scheme)")
     }
+  }
+
+  /// iPad 上字母还在会话线程时就按 Tab：要按字母已在组字来判断，打开候选面板，而不是按空闲时那样写入一个制表符。
+  func testTabRightAfterALetterOpensTheCandidatePanel() async throws {
+    let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    defer { KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey) }
+    KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
+    for scheme in [ChineseInputScheme.quanpin, .shuangpin] {
+      let controller = keyboard(scheme, tablet: true)
+      defer { controller.viewWillDisappear(false) }
+      let tab = try control("tabKey", in: controller)
+      XCTAssertFalse(tab.isHidden, "\(scheme)")
+      let gate = DispatchSemaphore(value: 0)
+      defer { gate.signal() }
+      MSIMEInputThread.shared.async { gate.wait() }
+      try press("w", in: controller)
+      gate.signal()
+      XCTAssertNil(nodes(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" }, "\(scheme)")
+      tab.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" },
+                      "\(scheme): 组字中的 Tab 打开候选面板")
+      await drainMainQueue()
+      XCTAssertTrue(try composing(controller), "\(scheme): Tab 没有结束组字")
+    }
+  }
+
+  /// 字母还在会话线程时就按符号键：符号接在字母之后，上屏首选和中文逗号、结束组字；事后的回调不能把组字画回来。
+  func testSymbolRightAfterALetterCommitsTheComposition() async throws {
+    for scheme in [ChineseInputScheme.quanpin, .shuangpin] {
+      let controller = keyboard(scheme, tablet: true)
+      defer { controller.viewWillDisappear(false) }
+      let comma = try control("letterRowCommaKey", in: controller)
+      XCTAssertFalse(comma.isHidden, "\(scheme)")
+      let gate = DispatchSemaphore(value: 0)
+      defer { gate.signal() }
+      MSIMEInputThread.shared.async { gate.wait() }
+      try press("w", in: controller)
+      gate.signal()
+      comma.sendActions(for: .primaryActionTriggered)
+      XCTAssertFalse(controller.hasPendingAsynchronousInput, "\(scheme)")
+      XCTAssertFalse(try composing(controller), "\(scheme): 逗号上屏组字")
+      await drainMainQueue()
+      XCTAssertFalse(try composing(controller), "\(scheme): 旧字母的回调不能恢复已结束的组字")
+    }
+  }
+
+  /// 微软双拼的 `;` 是韵母键，同样经会话线程查询；连打的结果与同步入口一致。
+  func testMicrosoftSemicolonGoesThroughTheSessionThread() async throws {
+    func type(_ controller: KeyboardViewController) throws {
+      try press("x", in: controller)
+      try control("microsoftFinalKey", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    let synchronous = keyboard(.microsoft, asynchronous: false)
+    try type(synchronous)
+    XCTAssertTrue(try composing(synchronous))
+    let expected = try XCTUnwrap(
+      (nodes(synchronous.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)?.accessibilityValue)
+    synchronous.viewWillDisappear(false)
+
+    let controller = keyboard(.microsoft)
+    defer { controller.viewWillDisappear(false) }
+    XCTAssertFalse(try control("microsoftFinalKey", in: controller).isHidden)
+    // 不挡会话线程：`;` 若走同步入口，会先排空 `x` 并当场画出，两者都不再待交付；异步时结果要等主线程下一轮才交付。
+    try type(controller)
+    XCTAssertTrue(controller.hasPendingAsynchronousInput, "`;` 也交给会话线程")
+    XCTAssertEqual(preedit(controller), "", "结果回到主线程之前不能先画出组字")
+    try await waitUntilSettled(controller)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(try composing(controller))
+    XCTAssertEqual((nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)?
+      .accessibilityValue, expected)
   }
 
   /// 只有普通全拼九键、26 键全拼和 26 键双拼异步；五笔、日语等其他 26 键方案仍走同步入口，按完当场画出，与改动前一样。
