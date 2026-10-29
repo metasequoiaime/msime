@@ -1518,6 +1518,7 @@ impl<E: InputEngine> Runtime<E> {
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode),
             nine_key: self.cached.nine_key,
             key_grid: key_grid_name(self.cached.key_grid),
+            grid_composing: self.cached.grid_composing,
             nine_key_spellings: self.cached.nine_key_spellings.clone(),
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,

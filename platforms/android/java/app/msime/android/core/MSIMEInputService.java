@@ -11236,9 +11236,8 @@ public final class MSIMEInputService extends InputMethodService {
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            // 隔着显示分隔时光标画在哪一侧，看组字是不是在引擎的组码网格里（九键、14 键、18 键的退格先删切分），不看按键是不是数字。
-            boolean caretKeyGrid = view != null
-                && !"none".equals(InputViewValuePolicy.textOr(view, "key_grid", "none"));
+            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
+            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             int caretMark = caretEditable
                 ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
