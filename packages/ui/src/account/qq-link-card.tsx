@@ -47,10 +47,14 @@ export function QqLinkCard({
     userId,
   );
 
-  const reload = async () => {
-    const current = clientGeneration.current;
+  const isCurrent = (generation: number) =>
+    mounted.current && clientGeneration.current === generation;
+
+  // 后续刷新沿用绑定或解绑开始时的代次，不能替旧操作认领当前账号。
+  const reload = async (current = clientGeneration.current) => {
+    if (!isCurrent(current)) return;
     const next = await client.list();
-    if (mounted.current && clientGeneration.current === current) setLinks(next);
+    if (isCurrent(current)) setLinks(next);
   };
 
   useEffect(() => {
@@ -66,17 +70,18 @@ export function QqLinkCard({
     if (busy) return;
     setMessage("");
     void perform(async () => {
+      const current = clientGeneration.current;
       try {
         await client.redeem(digits);
       } catch (error) {
         // 绑定码的几种失败各有说法，不交给通用的账号错误。
-        if (mounted.current) setMessage(qqLinkMessage(error));
+        if (isCurrent(current)) setMessage(qqLinkMessage(error));
         return;
       }
-      if (!mounted.current) return;
+      if (!isCurrent(current)) return;
       setCode("");
-      await reload();
-      if (mounted.current) {
+      await reload(current);
+      if (isCurrent(current)) {
         setAdding(false);
         setMessage("绑定成功。");
       }
@@ -148,9 +153,11 @@ export function QqLinkCard({
               <ActionButton
                 action={() =>
                   void perform(async () => {
+                    const current = clientGeneration.current;
                     await client.remove(link.id);
-                    await reload();
-                    if (mounted.current) setMessage("已解绑。");
+                    if (!isCurrent(current)) return;
+                    await reload(current);
+                    if (isCurrent(current)) setMessage("已解绑。");
                   })
                 }
                 className="secondary"
