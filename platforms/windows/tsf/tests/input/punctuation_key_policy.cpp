@@ -25,6 +25,11 @@ int main() {
     // 契约第 5 版：`}` 出」，跨过的是 `{` 补出的」；ASCII 花括号不再是成对标点。
     check(PairedPunctuationStepOverCandidate(L'}', L"」") == L'」', "shifted right bracket steps over the corner bracket");
     check(PairedPunctuationStepOverCandidate(L'}', L"}") == 0, "an ascii brace never steps over");
+    // `{` `}` 出的「」不武装空格转换，其余标点键照常。
+    check(!PunctuationKeyArmsSpaceConversion(L'{'), "the left brace key does not arm the space conversion");
+    check(!PunctuationKeyArmsSpaceConversion(L'}'), "the right brace key does not arm the space conversion");
+    check(PunctuationKeyArmsSpaceConversion(L','), "comma arms the space conversion");
+    check(PunctuationKeyArmsSpaceConversion(L'\''), "the quote key arms the space conversion");
     check(PairedPunctuationStepOverCandidate(L'"', L"“") == L'”', "double quote is keyed, not resolved");
     check(PairedPunctuationStepOverCandidate(L'"', L"”") == L'”', "double quote right half");
     check(PairedPunctuationStepOverCandidate(L'\'', L"‘") == L'’', "single quote is keyed, not resolved");

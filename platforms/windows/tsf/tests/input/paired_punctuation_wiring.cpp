@@ -87,7 +87,8 @@ int main(int argc, char **argv) {
             expect(rows, "{L'{', L\"{\"}", false, "'{' no longer gives an ascii brace");
         }
     }
-    // `{` `}` 出的「」不武装空格转换。
-    expect(handler, "const bool braceKey = wch == L'{' || wch == L'}';", true, "brace keys do not arm the space conversion");
+    // `{` `}` 出的「」不武装空格转换：判定本身在 punctuation_key_policy.cpp 里按行为测，这里只查武装处用的是它。
+    expect(handler, "_ArmSmartPunctuationSpace(punctuationStr.size() == 1 && Global::PunctuationKeyArmsSpaceConversion(wch)", true,
+           "the space conversion is armed through the brace-key policy");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

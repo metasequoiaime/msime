@@ -2399,9 +2399,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     // Chinese punctuation commit. Auto-completed pairs and candidate-prefixed
     // commits are deliberately left untouched so a following space cannot
     // rewrite half of a pair or historical candidate text.
-    // `{` `}` 出的「」不武装空格转换：花括号不在空格转换的名单里（与 Linux 宿主的 is_space_conversion_key 一致），而 SmartPunctuationAsciiFor 会把「」按引号样式转回 `'`。
-    const bool braceKey = wch == L'{' || wch == L'}';
-    _ArmSmartPunctuationSpace(punctuationStr.size() == 1 && !braceKey ? punctuationStr.back() : 0,
+    // `{` `}` 出的「」不武装空格转换，见 Global::PunctuationKeyArmsSpaceConversion。
+    _ArmSmartPunctuationSpace(punctuationStr.size() == 1 && Global::PunctuationKeyArmsSpaceConversion(wch) ? punctuationStr.back() : 0,
                               pairedClosing != 0 || punctuationStr.size() != 1, smartPunctuationBeforeChar);
     if (pairedClosing != 0)
     {

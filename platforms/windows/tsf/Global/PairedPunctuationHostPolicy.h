@@ -103,6 +103,12 @@ inline wchar_t PairedPunctuationClosingForCandidate(std::wstring_view text)
     return PairedPunctuationClosingFor(text[0]);
 }
 
+// 这个标点键出的字能不能武装空格转换（`_ArmSmartPunctuationSpace`）。`{` `}` 出的「」不能：花括号不在空格转换的名单里（与 Linux 宿主的 is_space_conversion_key 一致），而 SmartPunctuationAsciiFor 会把「」按引号样式转回 `'`，打出用户没按过的键。
+inline bool PunctuationKeyArmsSpaceConversion(wchar_t key)
+{
+    return key != L'{' && key != L'}';
+}
+
 // 按下的键能跨过的后半个，不能收起栈里的一对时为 0。只有宿主自动补出的后半个才算；ASCII 输出（直出的 `,` `.` `:`、小键盘的点）和无关的中文标点（。：；……）必须答 0，因为跨过时栈顶不符会清空整个栈，悄悄丢掉用户还在里面的那一对。引号按键判断：`"` 随旧的左右交替出哪一半都有可能，出的字说明不了意图，只能看键。`}` 出的是」（契约第 5 版），按出的字落到下面的」分支。
 inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view resolved)
 {
