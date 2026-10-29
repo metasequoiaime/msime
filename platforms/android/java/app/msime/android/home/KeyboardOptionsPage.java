@@ -138,7 +138,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         }
         // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组，一组都没有（例如日语版）时不列这个入口，与鸿蒙同一条规则。副标题三端相同。
         if (TouchKeyStyle.Groups.offeredBy(edition).any())
-            layout.nav("按键布局", "各类键盘的底行样式和顶部数字行", null,
+            layout.nav("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,
                 () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
         String spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));

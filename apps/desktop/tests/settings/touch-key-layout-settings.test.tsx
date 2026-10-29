@@ -144,8 +144,8 @@ test("the phone keyboard page lists 按键布局 in 布局 and opens it as a sub
   // 返回关上子页，回到键盘页。
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
-  expect(entryRow()?.textContent).toContain("各类键盘的底行样式和顶部数字行");
-  expect(description(entryRow())).toBe("各类键盘的底行样式和顶部数字行");
+  expect(entryRow()?.textContent).toContain("各类键盘的底行样式、键位和顶部数字行");
+  expect(description(entryRow())).toBe("各类键盘的底行样式、键位和顶部数字行");
 });
 
 test("settings search finds the sub page's rows under 按键布局 and opens the sub page", async () => {

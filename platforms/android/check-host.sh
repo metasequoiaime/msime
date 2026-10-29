@@ -1112,7 +1112,7 @@ if ! rg -qF 'static final String TWENTY_SIX_KEY_NOTE = "长空格：符号键移
   || ! rg -qF 'static final String NINE_KEY_NOTE = "右侧大回车：回车竖占两行，符号键在左下角。";' "$style_page" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
   || ! sed -n '/    private GroupCard styleGroup(LinearLayout target, String title, int touchLayout, List<TouchKeyStyle.Row> rows,$/,/^    }$/p' "$style_page" | rg_q_stdin -F 'group.footer(note);' \
-  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式和顶部数字行", null,' \
+  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java" \

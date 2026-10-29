@@ -36,7 +36,7 @@ export const nineKeyStyleNote = "右侧大回车：回车竖占两行，符号�
 /** 「顶部数字行」开关的说明，三端逐字相同。 */
 export const numberRowDescription = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";
 /** 屏幕键盘页「按键布局」入口行的副标题，三端逐字相同。 */
-export const keyLayoutEntryDescription = "各类键盘的底行样式和顶部数字行";
+export const keyLayoutEntryDescription = "各类键盘的底行样式、键位和顶部数字行";
 
 /** 共享偏好 `touch_twenty_six_symbol_first` 开关的标题和说明，三端逐字相同（Android `TouchKeyStyle.SYMBOL_FIRST_TITLE`、iOS `TouchKeyLayoutOffering.symbolFirstTitle`）。 */
 export const symbolFirstTitle = "26 键「符」与「123」互换";

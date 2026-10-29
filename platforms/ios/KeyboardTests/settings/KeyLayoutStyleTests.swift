@@ -719,7 +719,7 @@ final class KeyLayoutStyleTests: XCTestCase {
 
   /// 设置页的入口副标题和几段说明三端逐字相同，Android 和鸿蒙的设置页用同样的文字。
   func testSettingsTextsMatchTheOtherPlatforms() {
-    XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式和顶部数字行")
+    XCTAssertEqual(TouchKeyLayoutOffering.entrySubtitle, "各类键盘的底行样式、键位和顶部数字行")
     XCTAssertEqual(TouchKeyLayoutOffering.twentySixKeyFooter, "长空格：符号键移到工具栏；表情键：长按 123 打开符号。")
     XCTAssertEqual(TouchKeyLayoutOffering.letterGridFooter, "表情键：长按 123 打开符号。")
     XCTAssertEqual(TouchKeyLayoutOffering.nineKeyFooter, "右侧大回车：回车竖占两行，符号键在左下角。")

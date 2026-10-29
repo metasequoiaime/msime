@@ -50,6 +50,7 @@ Status: implemented
 
 - 26 键一组的单选之后是开关「26 键「符」与「123」互换」，说明「符 排在 123 左边；长空格和表情键样式没有 符，不受影响。」打开时这组每个样式的底行示意图也把 符 画在 123 左边。
 - 9 键一组之后是「数字键盘」一组单选：「空格在右列」「空格在 0 右边」「空格在 0 左边」，组末说明「九宫格数字键盘里空格的位置；右侧大回车不受影响。」没选过时勾本端原来的那一项；点哪一项写哪一项的写法（包括与本端默认相同的那一项），不写 `platform_default`。这一组没有示意图。本版本至少有一组按键布局（即有「按键布局」入口）就列，九宫格数字键盘从各类中文键面都进得去。
+- 键盘页「按键布局」入口的副标题从「各类键盘的底行样式和顶部数字行」改为「各类键盘的底行样式、键位和顶部数字行」：子页多了互换开关和数字键盘空格位置，只说底行样式和数字行的副标题会让人找不到这两项。「键位」把两项都盖住，副标题不逐项列举，免得在手机上折成两行。三处文字分别是 Android `KeyboardOptionsPage` 的入口行、iOS `TouchKeyLayoutOffering.entrySubtitle`、共享 React 页的 `keyLayoutEntryDescription`，[按键布局样式](2026-10-27-touch-key-layout-styles.md)的「设置页说明文字」一并更新。
 
 文字的位置：Android 是 `TouchKeyStyle.SYMBOL_FIRST_TITLE`、`SYMBOL_FIRST_NOTE`、`NUMBER_PAD_SPACE_GROUP`、`NUMBER_PAD_SPACE_NOTE` 和 `NumberPadSpace.title`；iOS 是 `TouchKeyLayoutOffering.symbolFirstTitle`、`symbolFirstSubtitle`、`numberPadTitle`、`numberPadFooter` 和 `TouchNumberPadSpace.title`；鸿蒙走共享 React 设置页，文字在 `packages/ui/src/keyboard/touch-key-layout-styles.ts` 的 `symbolFirstTitle`、`symbolFirstDescription`、`numberPadSpaceTitle`、`numberPadSpaceNote`、`numberPadSpaceOptions`。共享 React 页只在鸿蒙手机上给出这一页，`numberPadSpace(preferences)` 因此把缺键和 `platform_default` 读成鸿蒙的 `before_zero`。
 

@@ -225,7 +225,7 @@ struct TouchKeyLayoutOffering: Equatable {
   var offersAnyGroup: Bool { twentySixKey || letterGrid || nineKey }
 
   /// 键盘页「按键布局」入口的副标题。这一行和下面几段说明三端逐字相同（Android、鸿蒙的设置页用同样的文字）。
-  static let entrySubtitle = "各类键盘的底行样式和顶部数字行"
+  static let entrySubtitle = "各类键盘的底行样式、键位和顶部数字行"
   /// 26 键一组下面的说明。
   static let twentySixKeyFooter = "长空格：符号键移到工具栏；表情键：长按 123 打开符号。"
   /// 14 键与 18 键一组下面的说明。
