@@ -47,7 +47,7 @@ smoke 作业照 capi README 的「快速上手」逐字做一遍：在 Ubuntu 22
 
 - **收益**：C 采用方下载一个归档和一个数据包就能编译、链接、打出第一个字，`.pc` 和 install name 不依赖解开的位置；每个归档带齐 MPL-2.0、编进引擎的数据与改编代码、第三方 crate 的声明和源码位置；数据包带齐它的数据许可证要求随附的文本，并在开头说明它不是 MPL-2.0。Rust 采用方 `cargo add msime-engine` 后照 README 的十几行就能跑。归档在上传之前就在三个平台上被解开、编译、运行过，数据包在真实词库上被 C 示例用过。
 - **代价**：改 `crates/engine-capi/**` 的 PR 多占三台 runner，其中一台 macOS，release 构建比 CI 的调试构建慢。Linux 归档不支持 glibc 2.35 以前的系统。macOS 的库没有 Developer ID 签名和公证，浏览器下载的要先去掉隔离属性。数据包与 `desktop-dictionary.lock.json` 绑在一起：锁换到新的 `dict-v*`，下一次发布的数据包跟着换，锁里五个文件不来自同一个发布时打包失败。
-- **没做的**：MSVC 的 `cl` 命令行只在 README 里，CI 在 Windows 上走的是 CMake；Linux arm64 和 Windows arm64 没有归档；数据包只有全拼、双拼一种，五笔、日文等方案的文件仍要从 `dict-v*` 发布自取。拼音库里 MIT 来源（pinyin-data、Windows-classic-samples）的许可证全文不在数据包里，与各平台安装包的现状一致，只在 README 里列出来源。
+- **没做的**：MSVC 的 `cl` 命令行只在 README 里，CI 在 Windows 上走的是 CMake；Linux arm64 和 Windows arm64 没有归档；数据包只有全拼、双拼一种，五笔、日文等方案的文件仍要从 `dict-v*` 发布自取。数据包的 `licenses/` 带拼音库单字读音所据 pinyin-data 和英文词库中英释义所据 ECDICT 的 MIT 全文；Windows-classic-samples 的 SampleIME 词表不进任何词库，不在其列。各平台安装包怎样带上词库里的 MIT 与 Apache-2.0 全文见 [`2026-10-29-dictionary-data-permissive-licence-texts.md`](2026-10-29-dictionary-data-permissive-licence-texts.md)。
 
 ## 相关笔记
 

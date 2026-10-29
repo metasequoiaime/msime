@@ -70,6 +70,22 @@
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
 
+### 词库里要随附全文的 MIT 与 Apache-2.0 数据
+
+MIT 要求每份副本都附上版权与许可声明，Apache-2.0 第 4(a) 条要求把许可证副本交给接收者；只在 `msime-engine-dictionary-NOTICE.md` 里写出来源名字不够。下表是随包词库里属于这两种许可、并且确实进入了产物的数据，「进入产物的依据」一列是 `crates/dict-builder` 里读取它的位置：
+
+| 数据 | 上游 | 许可 | 进入的产物与依据 | 全文 |
+| --- | --- | --- | --- | --- |
+| 单字读音校正 | [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data)，Copyright (c) 2016 mozillazg | MIT | `msime-pinyin.db`：msime-dictionary 的 `sources/pinyin/single-chars.txt` 读音以它校正，`quanpin` 阶段经 `self.sources.pinned("sources/pinyin/single-chars.txt")` 读入（`main.rs`）。`msime-others.db` 表情、颜文字与符号关键词的逐字读音来自 `pinyin` crate 0.11（`pinyin.rs`），它的拼音表就是同一份 pinyin-data，crate 本身也是 mozillazg 的 MIT，版权行相同 | `resources/licenses/pinyin-data-MIT.txt` |
+| 中英释义 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 提交 `bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b` 的 `ecdict.csv`，Copyright (c) 2025 Linwei | MIT | `msime-english.db` 的双向释义表：`english.rs` 的 ECDICT 一节，经 `self.sources.pinned("ecdict/ecdict.csv")` 读入，文件由 `resources/dictionary-sources.lock.json` 固定 | `resources/licenses/ECDICT-MIT.txt`（与该提交的 `LICENSE` 逐字节相同） |
+| 颜文字 | [aoguai/rime_kaomoji_dict](https://github.com/aoguai/rime_kaomoji_dict)，Copyright (c) 2023 aoguai | MIT | `msime-others.db` 的 `kaomoji`、`kaomoji_catalog` 表：`Stage::Kaomoji` 读 `resources/dictionary-sources/kaomoji/kaomoji.txt`（文件头写明整理自该仓库），`others.rs` 的 `build_kaomoji` 写入 | `resources/licenses/rime_kaomoji_dict-MIT.txt`（上游提交 `2f10ddca83f4cd87f41672442d27943f733b488f` 的 `LICENSE`；该文件自 2023 年起未变） |
+| 关键词整词读音 | [mozillazg/python-pinyin](https://github.com/mozillazg/python-pinyin) 0.55 的 `lazy_pinyin` 输出，Copyright (c) 2016 mozillazg, 闲耘 | MIT | `msime-others.db` 表情、颜文字与符号关键词的拼音列：`resources/dictionary-sources/pinyin-overrides.txt`（60 行）经 `Pinyin::with_overrides` 覆盖多音字的逐字读音（`main.rs`、`pinyin.rs`）。这些是常用词的标准读音，按保守做法仍随附全文 | `resources/licenses/python-pinyin-MIT.txt`（标签 `v0.55.0` 的 `LICENSE.txt`） |
+| 86 五笔码表 | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 | `msime-wubi.db` 的 `wubi86` 表与 86 词组补充表的编码：msime-dictionary 的 `sources/wubi/wubi86-jidian.txt`（`wubi86_supplement.rs` 的 `JIDIAN`），网页引擎的 `msime-wubi86.db` 由它裁出。上游 2026-10-29 在提交 `33a1f9430fa9bcb30b2f32b698e4e497f8864091` 改成 MIT，这张表是在那之前按 Apache-2.0 取用的，所以随附当时的条款；上游仓库没有 `NOTICE` 文件 | `resources/licenses/rime-wubi86-jidian-Apache-2.0.txt`（提交 `063377a0e3ae7d4084a45f03e4269f62f874f7dc` 的 `LICENSE`） |
+
+这五份文本走与上文粤语、注音、笔画数据相同的全部通知渠道：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`，关于页「开源许可」逐个列出），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）；引擎 C 库的数据包另由 `crates/engine-capi/packaging/data-pack.py` 带上 `pinyin-data-MIT.txt` 与 `ECDICT-MIT.txt`。网页引擎只分发拼音库和五笔 86 库，`web-engine-NOTICE.md` 收 `pinyin-data-MIT.txt` 与 `rime-wubi86-jidian-Apache-2.0.txt`。`scripts/test-language-data-notices.py` 检查文本与这些渠道都还在。
+
+不在表里的几项：`source/SampleIMESimplifiedQuanPin.txt`（MIT）没有任何构建读取，不进 `msime-pinyin.db`，只被 `crates/input-runtime/examples/build_eval_set.rs` 固化成评测集；`msime-others.db` 表情英文关键词来自 Unicode Emoji 与 CLDR，其 Unicode License V3 全文已随引擎的符号表数据分发；McBopomofo 的 MIT 声明附在 `libchewing-data-LGPL-2.1.txt` 里；98 五笔表的 Unlicense 和行政区划的 WTFPL 不要求随附全文。
+
 ### 独立神经模型清单（`resources/neural-model.lock.json`）
 
 `resources/neural-model.lock.json` 把同一 `model-v1` 发布中的两个 safetensors 权重放在一起：`sentence-model.safetensors` 是键盘按键路径使用的小模型，`sentence-model-desktop.safetensors` 是桌面输入停顿后使用的大模型。两者都由 `scripts/fetch_neural_model.py` 按 HTTPS、字节数和 SHA-256 下载到 `target/neural-model`；文件不进版本库，锁和本节署名信息随仓库分发。发布的桌面安装包不再带大模型，由设置应用按需下载到 `resource-packs/settled-model/`；随包时（本地构建和发行版打包）放在词库目录的同级 `settled-model/`，因为词库目录必须与 `desktop-dictionary.lock.json` 完全相等。小模型仍由词库安装器从后者取回。
@@ -417,7 +433,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的数据与代码的声明，含韩语汉字表的 libhangul BSD-3-Clause 声明、引擎与 rink-core 的 MPL-2.0 全文和 `cxx_sort` 的 libc++ 许可证 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
 | `platforms/windows/Notices.md` | Windows 通知生成器的用法与限制；产物由 `Collect-Notices.ps1` 生成 |
-| `msime-engine-capi-vX.Y.Z` release 的库归档与数据包 | 引擎 C 库的预编译归档带 MPL-2.0 的 `LICENSE`、`licenses/`（引擎的 `LICENSE`、`crates/engine/licenses/` 里编进引擎的数据与改编代码的许可证全文、`ewts-MIT.txt`）、按 `msime-engine-capi` 依赖图生成的 `THIRD_PARTY_NOTICES.txt` 和写明对应源码与 rink-core 源码位置的 `SOURCE.txt`；全拼、双拼数据包 `msime-engine-data-quanpin-<词库版本>` 带说明各文件数据许可证的 `README.md`、`msime-scowl_Copyright.txt` 和 `licenses/`（GPL-3.0 全文、行政区划名称的 WTFPL、`msime-engine-dictionary-NOTICE.md`）。两者由 `crates/engine-capi/packaging/` 的 `package.sh`、`data-pack.py` 组装，`.github/workflows/release-engine-capi.yml` 发布 |
+| `msime-engine-capi-vX.Y.Z` release 的库归档与数据包 | 引擎 C 库的预编译归档带 MPL-2.0 的 `LICENSE`、`licenses/`（引擎的 `LICENSE`、`crates/engine/licenses/` 里编进引擎的数据与改编代码的许可证全文、`ewts-MIT.txt`）、按 `msime-engine-capi` 依赖图生成的 `THIRD_PARTY_NOTICES.txt` 和写明对应源码与 rink-core 源码位置的 `SOURCE.txt`；全拼、双拼数据包 `msime-engine-data-quanpin-<词库版本>` 带说明各文件数据许可证的 `README.md`、`msime-scowl_Copyright.txt` 和 `licenses/`（GPL-3.0 全文、行政区划名称的 WTFPL、`pinyin-data-MIT.txt`、`ECDICT-MIT.txt`、`msime-engine-dictionary-NOTICE.md`）。两者由 `crates/engine-capi/packaging/` 的 `package.sh`、`data-pack.py` 组装，`.github/workflows/release-engine-capi.yml` 发布 |
 | 网页引擎 `web-engine-vX.Y.Z` release 的 `NOTICE.md` | 网页内置输入法用的 wasm 引擎、裁剪后的拼音库与五笔 86 库和整句模型的来源与许可证（release 由 `.github/workflows/release-web-engine.yml` 构建）。来源是 `resources/licenses/web-engine-NOTICE.md`：词库、模型、编进 wasm 的数据等内容手写；仓库许可证全文与链接进 wasm 的 crate 两节由 `scripts/web-engine-notice.sh` 按 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro` 生成，`--check` 与 `crates/engine-wasm/tests/notice.rs` 在依赖变化而 NOTICE 没有重新生成时失败。`scripts/build-web-engine.sh` 把它复制成 `NOTICE.md`，并把源码链接里的占位符换成构建所用的提交 |
 
 这些生成器和收集器都在各自文档里写明「不是完整性或再分发授权的评估」。发布二进制前的逐平台要求见[开源发布清单](open-source-release.md)。
