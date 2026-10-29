@@ -362,8 +362,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(learning) = args.learning {
         options.learning = learning;
     }
-    // 键盘模型的开关和挂不挂重排器是同一件事（host-api `keyboard_reranker`）。
-    options.sentence_association.neural_keyboard = args.model;
+    // 「增强」只挂 runtime 逐键重排器（下面的 `set_reranker`），引擎内的键盘模型层固定关，与 host-api 的 `keyboard_reranker_enabled` 和 `engine_sentence_association` 一致（#10197）。要量引擎层用 `convert_eval --keyboard-neural`。
+    options.sentence_association.neural_keyboard = false;
 
     if args.lint_readings {
         return lint_readings(&options, &rows);

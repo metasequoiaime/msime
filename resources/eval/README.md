@@ -247,7 +247,7 @@ cargo run --release -p msime-input-runtime --example typing_sim -- \
 
 ### 现在的数（2026-10-29，`dict-v2.0.39`，develop 50bab97f3a，已含 #10110 和 #10111）
 
-test 部分，三成简拼，单元格是 `cfa`（括号里是宽口径 `cfa_lenient`）/ `cca`：
+test 部分，三成简拼，单元格是 `cfa`（括号里是宽口径 `cfa_lenient`）/ `cca`。「挂模型」两列是在 #10197 之前量的，当时 `--model keyboard` 同时打开 runtime 重排器和引擎内的键盘模型层；#10197 之后「增强」只挂 runtime 那层，`typing_sim` 也跟着改了。九键和 14 键上引擎层的贡献是 0，全键盘只开 runtime 层时比两层同开约低 0.6 个点。
 
 | 集合 | 键盘 | 学习关、不挂模型 | 学习关、挂模型 | 学习开、不挂模型（出厂） | 学习开、挂模型 |
 |---|---|---|---|---|---|

@@ -113,7 +113,8 @@ fn product_mobile(options: &mut EngineOptions) {
     );
     options.sentence_association = msime_engine::host::SentenceAssociationOptions {
         word_lattice: association.word_lattice,
-        neural_keyboard: association.neural_keyboard,
+        // host-api 不再把这个偏好交给引擎，它只决定挂不挂 runtime 重排器（`keyboard_reranker_enabled`，#10197）。
+        neural_keyboard: false,
         show_next_on_duplicate: association.show_next_on_duplicate,
         collocation_model: std::path::PathBuf::new(),
         collocation_rerank: false,
