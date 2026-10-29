@@ -1,6 +1,6 @@
 [package]
 name = "msime-engine-capi"
-# 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
+# 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，crate 经 .github/workflows/release-engine-crates.yml 发到 crates.io，预编译库经 release-engine-capi.yml 发到 GitHub Releases；SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
