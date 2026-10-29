@@ -173,6 +173,13 @@ fn folded_reading_equal(left: &str, right: &str) -> bool {
             .map(|character| character.to_ascii_lowercase()))
 }
 
+/// 这次查询的主切分或任一备选切分的字母和原文不同，也就是有纠错读法在作用。
+pub fn has_corrected_cut(raw: &str, primary_segmentation: &str, corrected_cuts: &[String]) -> bool {
+    std::iter::once(primary_segmentation)
+        .chain(corrected_cuts.iter().map(String::as_str))
+        .any(|cut| !cut.is_empty() && !folded_reading_equal(cut, raw))
+}
+
 /// QD:1006-1054: rows read from a corrected cut get `corrected_from = fold(raw)`.
 pub fn mark_autocorrect_candidates(
     candidates: &mut [WordItem],
@@ -181,11 +188,11 @@ pub fn mark_autocorrect_candidates(
     corrected_cuts: &[String],
 ) {
     // A row comes from a corrected reading exactly when its letters equal some correction cut's letters while those differ from the typed letters. Comparing letters alone would also sweep up prefix rows the user spelled correctly (keneng -> ke, single-letter jianpin expansions); both rules together keep those unmarked.
-    let cuts =
-        || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
-    if cuts().all(|cut| cut.is_empty() || folded_reading_equal(cut, raw)) {
+    if !has_corrected_cut(raw, primary_segmentation, corrected_cuts) {
         return;
     }
+    let cuts =
+        || std::iter::once(primary_segmentation).chain(corrected_cuts.iter().map(String::as_str));
     let mut raw_letters = None;
     for item in candidates
         .iter_mut()

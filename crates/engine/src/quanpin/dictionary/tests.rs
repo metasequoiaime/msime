@@ -569,6 +569,44 @@ fn a_learned_phrase_leads_the_corrections_of_its_abbreviation() {
     assert_eq!(qjn[corrected].corrected_from, "qjn");
 }
 
+/// 开着模糊音时 `query` 还要按匹配字母数重排一次（`merge_series_by_coverage`），即使模糊音一行也没查到。删字纠错的匹配码比原文多一个字母（`shng` → shang），不能借这一步重新排到字面简拼整词前面，保座也照旧（#9903）。
+#[test]
+fn literal_abbreviation_phrases_still_lead_after_the_fuzzy_merge() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("shang", "上", 900_000)
+        .insert("shang", "商", 800_000);
+    for (key, word, weight) in [
+        ("shi'na'ge", "是那个", 50_000),
+        ("shao'nian'gong", "少年宫", 40_000),
+        ("sa'huang'na'ge", "撒谎那个", 1_000),
+        ("shi'nian'gong", "十年功", 900),
+        ("shen'nong'gu", "神农谷", 800),
+        ("shi'neng'gou", "使能够", 700),
+    ] {
+        fixture.insert(key, word, weight);
+    }
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let product = crate::types::request_autocorrect_mask(true, true);
+    let fuzzy = FuzzyPinyinOptions {
+        rules: fuzzy_rule::AN_ANG,
+    };
+
+    let plain = query(&mut dictionary, "shng", "", product);
+    let with_fuzzy = dictionary.query("shng", "", product, fuzzy);
+    let seat = DEFAULT_FIRST_PAGE_ROWS - 1;
+    assert_eq!(
+        words(&with_fuzzy[..=seat]),
+        words(&plain[..=seat]),
+        "{:?}",
+        words(&with_fuzzy)
+    );
+    assert_eq!(with_fuzzy[0].word, "是那个", "{:?}", words(&with_fuzzy));
+    assert!(with_fuzzy[0].corrected_from.is_empty());
+    assert_eq!(with_fuzzy[seat].word, "上", "{:?}", words(&with_fuzzy));
+    assert_eq!(with_fuzzy[seat].corrected_from, "shng");
+}
+
 /// 字面简拼一个吃满全部按键的多字词条都没有时，全辅音误触照旧由纠错读法打头（`shng` → 上）；带元音的输入不受这条规则影响，`sahng` 的「上」仍排在字面的「撒谎那个」前面。
 #[test]
 fn corrections_still_lead_without_a_literal_abbreviation_phrase() {
