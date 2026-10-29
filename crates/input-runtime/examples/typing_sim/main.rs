@@ -10,6 +10,7 @@
 mod eval_resources;
 
 mod corpus;
+mod latency;
 mod metrics;
 mod profile;
 mod user;
@@ -148,6 +149,8 @@ struct Args {
     draws: usize,
     report: Option<PathBuf>,
     dump: Option<PathBuf>,
+    /// `--latency`：给每次派发计时，写到这个文件。
+    latency: Option<PathBuf>,
     baseline: Option<PathBuf>,
     update_baseline: bool,
     lint_readings: bool,
@@ -179,6 +182,7 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
     let mut draws = 1000;
     let mut report = None;
     let mut dump = None;
+    let mut latency = None;
     let mut baseline = None;
     let mut update_baseline = false;
     let mut lint_readings = false;
@@ -272,6 +276,7 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
             "--bootstrap" => draws = take(&mut index)?.parse()?,
             "--report" => report = Some(PathBuf::from(take(&mut index)?)),
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
+            "--latency" => latency = Some(PathBuf::from(take(&mut index)?)),
             "--baseline" => baseline = Some(PathBuf::from(take(&mut index)?)),
             "--update-baseline" => update_baseline = true,
             "--lint-readings" => lint_readings = true,
@@ -321,6 +326,7 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
         draws,
         report,
         dump,
+        latency,
         baseline,
         update_baseline,
         lint_readings,
@@ -420,6 +426,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         abbreviation: args.abbreviation,
         dump: args.dump.as_ref().map(|_| String::new()),
         failures: Vec::new(),
+        latency: args.latency.as_ref().map(|_| latency::Latency::default()),
+        chunk_keys: 0,
     };
     let mut run = Run::default();
     let mut seen: HashSet<String> = HashSet::new();
@@ -517,6 +525,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let (Some(path), Some(dump)) = (&args.dump, &simulator.dump) {
         write_file(path, dump)?;
+    }
+    if let (Some(path), Some(latency)) = (&args.latency, &simulator.latency) {
+        // 前 20 次派发是进程启动：词库第一次打开、模型第一次跑上文，单独列出不计入分布。
+        let mut value = latency.to_json(20, 16.0);
+        value["set"] = serde_json::json!(args
+            .set
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned()));
+        value["keyboard"] = serde_json::json!(args.keyboard.name());
+        value["model"] = serde_json::json!(if args.model { "keyboard" } else { "off" });
+        value["wall_seconds"] = serde_json::json!(elapsed.as_secs_f64());
+        write_file(
+            path,
+            &format!("{}\n", serde_json::to_string_pretty(&value)?),
+        )?;
     }
     if let Some(path) = &args.report {
         write_file(path, &format!("{json}\n"))?;
@@ -634,9 +657,37 @@ struct Simulator<'a> {
     abbreviation: Abbreviation,
     dump: Option<String>,
     failures: Vec<Failure>,
+    /// `--latency` 时每次派发的耗时。
+    latency: Option<latency::Latency>,
+    /// 这一块里已经派发过的键，`--latency` 用它标出每块的第一键和长串的尾巴。
+    chunk_keys: usize,
 }
 
 impl Simulator<'_> {
+    /// 派发一个动作；`--latency` 时给它计时。
+    fn send(
+        &mut self,
+        kind: latency::Kind,
+        action: Action,
+    ) -> Result<msime_input_runtime::Transition, Box<dyn std::error::Error>> {
+        let started = latency::Latency::start();
+        let transition = self.runtime.dispatch(action)?;
+        let elapsed = started.elapsed();
+        let depth = self.chunk_keys;
+        if matches!(kind, latency::Kind::Key | latency::Kind::Backspace) {
+            self.chunk_keys += 1;
+        }
+        if let Some(latency) = self.latency.as_mut() {
+            latency.record(
+                kind,
+                depth == 0 && kind == latency::Kind::Key,
+                depth,
+                elapsed,
+            );
+        }
+        Ok(transition)
+    }
+
     fn key(&mut self, byte: u8) -> Result<(), Box<dyn std::error::Error>> {
         let action = match self.keyboard {
             Keyboard::Fourteen => Action::GridKey(byte),
@@ -645,7 +696,7 @@ impl Simulator<'_> {
                 shift: false,
             },
         };
-        self.runtime.dispatch(action)?;
+        self.send(latency::Kind::Key, action)?;
         self.clock.advance(self.timing.key);
         Ok(())
     }
@@ -669,6 +720,7 @@ impl Simulator<'_> {
         if !self.runtime.is_idle() {
             return Err(format!("{}: composition left over before a chunk", row.id).into());
         }
+        self.chunk_keys = 0;
         let typed = corpus::typed_letters(chunk, abbreviated.then_some(self.abbreviation))
             .unwrap_or_else(|| chunk.syllables.clone());
         let mut record = ChunkRecord {
@@ -701,7 +753,8 @@ impl Simulator<'_> {
                 .collect();
             if let Some(seat) = user::slip(&texts, &chunk.text, self.policy) {
                 let id = snapshot.candidates[seat].id;
-                let transition = self.runtime.dispatch(Action::SelectAnyCandidate(id))?;
+                let transition =
+                    self.send(latency::Kind::Select, Action::SelectAnyCandidate(id))?;
                 self.clock.advance(self.timing.select);
                 record.selections.push(Selection {
                     seat,
@@ -713,7 +766,8 @@ impl Simulator<'_> {
                 record.slipped = true;
                 // 发现点错了：丢掉还在组字的部分，整块重打。点错上屏的字留在上文里，学到的也留着。
                 if !self.runtime.is_idle() {
-                    self.runtime.dispatch(Action::Command(Command::Cancel))?;
+                    self.send(latency::Kind::Cancel, Action::Command(Command::Cancel))?;
+                    self.chunk_keys = 0;
                 }
                 record.keys_typed += self.type_letters(&keys)?;
             }
@@ -778,13 +832,14 @@ impl Simulator<'_> {
                         if let Some(index) =
                             view.nine_key_spellings.iter().position(|s| s == target)
                         {
-                            self.runtime.dispatch(Action::ChooseNineKeySpelling(
-                                NineKeySpellingId {
+                            self.send(
+                                latency::Kind::Lock,
+                                Action::ChooseNineKeySpelling(NineKeySpellingId {
                                     session: view.session,
                                     generation: view.generation,
                                     index,
-                                },
-                            ))?;
+                                }),
+                            )?;
                             self.clock.advance(self.timing.select);
                             record.locks += 1;
                             corrected = true;
@@ -824,7 +879,7 @@ impl Simulator<'_> {
                 });
             }
             let id = snapshot.candidates[seat].id;
-            let transition = self.runtime.dispatch(Action::SelectAnyCandidate(id))?;
+            let transition = self.send(latency::Kind::Select, Action::SelectAnyCandidate(id))?;
             self.clock.advance(self.timing.select);
             record.selections.push(Selection {
                 seat,
@@ -861,6 +916,8 @@ impl Simulator<'_> {
                 "abbreviated": record.abbreviated,
                 "top1_exact": record.top1_exact,
                 "seats": record.selections.iter().map(|s| s.seat).collect::<Vec<_>>(),
+                // 严口径计入首选的字数，两臂按块配对比较时用。
+                "first_choice_chars": record.first_choice_chars(),
                 "after_correction": record.selections.iter().map(|s| s.after_correction).collect::<Vec<_>>(),
                 "panel_opens": record.panel_opens,
                 "locks": record.locks,
@@ -899,7 +956,10 @@ impl Simulator<'_> {
             .map(|p| self.keyboard.keys(&p.typed))
             .collect();
         for _ in 0..typed.len() {
-            self.runtime.dispatch(Action::Command(Command::Backspace))?;
+            self.send(
+                latency::Kind::Backspace,
+                Action::Command(Command::Backspace),
+            )?;
             self.clock.advance(self.timing.key);
             pressed += 1;
         }
@@ -922,7 +982,7 @@ impl Simulator<'_> {
         record.unreachable_chars = remaining.chars().count();
         let held = self.runtime.view().phrase_prefix;
         if !self.runtime.is_idle() {
-            self.runtime.dispatch(Action::Command(Command::Cancel))?;
+            self.send(latency::Kind::Cancel, Action::Command(Command::Cancel))?;
         }
         self.runtime.seed_context(&format!("{held}{remaining}"));
         Ok(())
