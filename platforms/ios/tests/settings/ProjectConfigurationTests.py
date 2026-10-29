@@ -142,6 +142,27 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
+    def test_app_ships_the_licences_of_the_dictionary_data(self):
+        # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据：msime-pinyin.db 的单字读音（pinyin-data）、msime-english.db 的中英释义（ECDICT）、msime-others.db 的颜文字（rime_kaomoji_dict）与关键词整词读音（python-pinyin）、msime-wubi.db 的 86 码表（rime-wubi86-jidian）；两种许可都要求随副本附上全文，关于页逐个列出。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        for licence, phrase in (
+            ("pinyin-data-MIT.txt", "Copyright (c) 2016 mozillazg"),
+            ("ECDICT-MIT.txt", "Copyright (c) 2025 Linwei"),
+            ("rime_kaomoji_dict-MIT.txt", "Copyright (c) 2023 aoguai"),
+            ("python-pinyin-MIT.txt", "Copyright (c) 2016 mozillazg, 闲耘"),
+            ("rime-wubi86-jidian-Apache-2.0.txt", "Version 2.0, January 2004"),
+        ):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1, licence)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(phrase, (IOS_ROOT / path).read_text())
+            self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
+            self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
         project = (IOS_ROOT / "project.yml").read_text()
