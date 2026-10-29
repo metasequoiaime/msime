@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-- **搜索放在水杉应用里的一页，不在键盘面板里放查询框**（产品拍板）。新页面 `ClipboardSearchPage`（`PageId.CLIPBOARD_SEARCH`，标题「剪贴板历史」），读键盘写的同一份共享存储（`ClipboardHistoryStore(getFilesDir())`），和面板里看到的是同一份历史。入口与页面组织复用 #5971 的编辑页：键盘本机分段顶行在「清空」左边加「搜索」（只在历史开启、读出了至少一条时出现），由 `MSIMEInputService.openClipboardSearch` 走 `openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args)` 深链打开。这一页不需要参数，所以带了关键词，设置首页搜「剪贴板历史」「搜索剪贴板」也能进来。
+- **搜索放在水杉应用里的一页，不在键盘面板里放查询框**（产品拍板）。新页面 `ClipboardSearchPage`（`PageId.CLIPBOARD_SEARCH`，标题「剪贴板历史」），读键盘写的同一份共享存储（`ClipboardHistoryStore(getFilesDir())`），和面板里看到的是同一份历史。入口与页面组织复用 #5971 的编辑页：键盘本机分段顶行加「搜索」（只在历史开启、读出了至少一条时出现；#10037 起排在「多选」「更多」左边），由 `MSIMEInputService.openClipboardSearch` 走 `openHostPage(ClipboardSearchPolicy.SEARCH_PAGE, args)` 深链打开。这一页不需要参数，所以带了关键词，设置首页搜「剪贴板历史」「搜索剪贴板」也能进来。
 - **筛选是不依赖 Android 的纯策略** `ClipboardSearchPolicy`：查询去掉首尾空白，和每条文字一起按 `Locale.ROOT` 转小写后做子串匹配；结果保留共享存储给的顺序（置顶在前，然后按时间），不按匹配程度重排；空查询返回全部；无结果时显示「没有包含“xx”的记录」。页面只在查询变化时重画结果卡片，搜索框本身不重建，焦点和输入法的组字不受影响。查询放在 ViewModel 里，旋转、换深浅模式后不丢。
 - **结果项的操作复用已有的**：点按一条经 `ClipboardActions.copyText` 复制回系统剪贴板；行尾「编辑」按 #5971 的方式把 `ClipboardHistoryPolicy.editKey` 交给 `ClipboardEditPage`（这次是应用内 `SettingsNavigator.open`），「删除」走 `ClipboardHistoryStore.remove`，和面板里的左滑删除一样不再确认。共享存储的操作都在 `HostTask` 的工作线程上。
 - **编辑用的键按共享存储里现在的那一条算**（`ClipboardSearchPolicy.currentEditKey`），不按列表上显示的。在应用里点按一条复制后页面留在原地，而键盘的复制监听（`clipboardWatcher`，整个输入法服务存活期间都注册着）会把它重新记一遍，`push_validated` 给它换上新的时间戳；列表上的旧时间戳算出的键，`ClipboardEditPage.find` 按键精确匹配就找不到，会说这一条已经不在了。所以点「编辑」时先在工作线程上重读存储，按文字找回那一条（共享存储按文字认条目，同一段文字只有一条），用它现在的时间戳算键；读不出或已经不在时退回列表上的键，由编辑页自己说读取失败或已经不在。编辑页的精确匹配不放宽。
