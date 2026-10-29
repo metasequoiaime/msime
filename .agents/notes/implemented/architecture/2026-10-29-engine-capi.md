@@ -55,6 +55,8 @@ Status: implemented
 
 CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 三个 runner 各跑 `cargo test -p msime-engine-capi` 和这个脚本。`changes` 作业新增 `engine_capi` 输出，只在 `crates/engine*`、`crates/path-trust/`、工作区清单与工具链、`collect-notices.py` 或这个 workflow 改动时为真；这个作业不是必需检查，所以在作业级跳过，不为不相干的改动占一台稀缺的 macOS runner。cargo-c 按版本、系统和工具链缓存装好的可执行文件，缓存不中才 `cargo install cargo-c --locked --version 0.10.26`。
 
+`tests/golden_replay.rs` 把引擎的 golden 场景经 C 函数回放，每一步与核心 API 的回放对照，同一条 `cargo test -p msime-engine-capi` 跑它；怎么比、跳过哪些、回放下限见 [引擎 C ABI 回放 golden 场景](../testing/2026-10-29-engine-capi-golden-replay.md)。
+
 ## Alternatives considered
 
 - **cbindgen 加自写脚本生成 `.pc`、设 SONAME** — 最强的理由是少一个构建工具，cbindgen 只是一个库或一个小命令。维护者选了 cargo-c：它一步给出头文件、`.pc`、按平台正确的库名和 SONAME/install name、Windows 的导入库，这些自己写要按三个平台分别处理，正是容易写错又没人测的部分。
