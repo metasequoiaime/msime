@@ -371,12 +371,18 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(area.width() > 0 && area.height() > 0 && area.right <= header.getWidth() - header.getPaddingRight(),
                     "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
             }
+            checkClipboardMorePinned(type, service, panels, header, surface, density);
             View more = descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
             layout(surface, Math.round(360 * density), Math.round(300 * density));
-            View menu = descendant(cards, view -> describedAs(view, "更多剪贴板操作菜单"));
-            check(menu != null, "clipboard more menu is not drawn in the panel");
+            // 菜单容器没有无障碍说明（免得 TalkBack 多停一个不能操作的节点），按菜单里「分类」那一项找回容器。
+            View category = descendant(cards, view -> describedAs(view, "管理剪贴板分类"));
+            check(category != null && category.getParent() instanceof ViewGroup,
+                "clipboard more menu is not drawn in the panel");
+            View menu = (View) category.getParent();
+            check(menu.getContentDescription() == null,
+                "clipboard more menu container has its own accessibility stop");
             Rect menuArea = bounds(surface, menu);
             Rect moreArea = bounds(surface, descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作")));
@@ -398,14 +404,55 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(((Button) button).getCurrentTextColor() == foreground,
                     "clipboard more menu item does not use the skin's key label colour: " + item);
             }
+            // 系统深浅色切换时 onConfigurationChanged 只换皮肤再走 applySkin，不重画剪贴板面板；外框要由换肤那一遍补画，不能只在 renderClipboardHistory 末尾画一次。
+            menu.setBackground(null);
+            Object styler = field(type, "imeStyler").get(service);
+            method(styler.getClass(), "applySkin").invoke(styler);
+            Object restyled = field(type, "skin").get(service);
+            check(menu.getBackground() instanceof android.graphics.drawable.GradientDrawable frame
+                    && frame.getColor() != null
+                    && frame.getColor().getDefaultColor() == android.graphics.Color.parseColor(
+                        (String) restyled.getClass().getMethod("background").invoke(restyled)),
+                "clipboard more menu frame is not restyled by the skin pass");
             View clear = descendant((ViewGroup) menu, view -> describedAs(view, "清空剪贴板历史"));
             check(clear.performClick() && pending.getBoolean(panels) && !open.getBoolean(panels),
                 "clipboard more menu clear did not close the menu and ask for confirmation");
-            check(descendant(cards, view -> describedAs(view, "更多剪贴板操作菜单")) == null,
+            check(descendant(cards, view -> describedAs(view, "管理剪贴板分类")) == null,
                 "clipboard more menu stayed open after choosing clear");
         } finally {
             open.setBoolean(panels, false);
             pending.setBoolean(panels, false);
+            render.invoke(panels);
+        }
+    }
+    /**
+     * 删除后出现「撤销」、键盘只有 240dp 时，顶行内容比键盘宽，左边那些按钮要横滑；「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
+     *
+     * <p>只在 360dp、无撤销时量「顶行不需横滑」，恰好避开了会超宽的情形：「更多」原来是横向滚动里最后一个，最先被挤出屏外。
+     */
+    private static void checkClipboardMorePinned(Class<?> type, Object service, Object panels, ViewGroup header,
+            ViewGroup surface, float density) throws Exception {
+        Field undo = field(type, "clipboardUndoTexts");
+        Object history = field(type, "clipboardHistory").get(service);
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        try {
+            java.util.List<?> items = (java.util.List<?>) history.getClass().getMethod("load").invoke(history);
+            undo.set(service, new java.util.ArrayList<>(items.subList(0, 1)));
+            render.invoke(panels);
+            layout(surface, Math.round(240 * density), Math.round(300 * density));
+            ViewGroup scroll = (ViewGroup) descendant(header, view -> view instanceof android.widget.HorizontalScrollView);
+            check(scroll != null && descendant(scroll, view -> describedAs(view, "撤销刚才删除的剪贴板记录")) != null,
+                "clipboard header has no undo button after a deletion");
+            check(scroll.getChildAt(0).getWidth() > scroll.getWidth(),
+                "clipboard header with undo at 240dp no longer overflows; the pinned more button is untested");
+            View more = descendant(header, view -> view instanceof Button && describedAs(view, "更多剪贴板操作"));
+            check(more != null && !inside(more, scroll), "clipboard more button scrolls with the header row");
+            Rect area = bounds(header, more);
+            check(area.width() > 0 && area.height() > 0 && area.left >= header.getPaddingLeft()
+                    && area.right <= header.getWidth() - header.getPaddingRight(),
+                "clipboard more button leaves the keyboard width with undo at 240dp: " + area.toShortString());
+        } finally {
+            undo.set(service, null);
             render.invoke(panels);
         }
     }

@@ -1563,6 +1563,8 @@ final class ImePanels {
     private boolean clipboardClearPending;
     /** 顶行「更多」菜单展开着（#10037）；换分段、重开面板、进入多选、打开分类选择器、长按或查看详情，以及点了菜单里的任何一项都会收起。 */
     private boolean clipboardMoreOpen;
+    /** 当前画在面板里的「更多」菜单；收起或面板重画后为 null。换肤遍历之后由 `styleClipboardMoreMenu` 补画外框。 */
+    private LinearLayout clipboardMoreMenu;
     /** 长按打开了操作行的那一条（共享存储以文字标识条目）；没有时为 null。 */
     private String clipboardActionText;
     /** 详情页只保留本次打开时的记录快照，返回后重新读取本机历史。 */
@@ -1687,6 +1689,7 @@ final class ImePanels {
         s.clipboardPanel.removeAllViews();
         clipboardCardRow = null;
         clipboardSwipedCell = null;
+        clipboardMoreMenu = null;
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         if (clipboardDetailItem != null) {
@@ -1723,6 +1726,8 @@ final class ImePanels {
         LinearLayout header = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(header);
         boolean confirmingClear = !cloud && s.clipboardHistoryEnabled && clipboardClearPending;
+        // 钉在横向滚动外、顶行最右边的那一段（目前只有「更多」）；没有时为 null。
+        LinearLayout moreSlot = null;
         boolean selecting = !cloud && s.clipboardHistoryEnabled && clipboardSelectionMode;
         // 等待确认清空时顶行整行给问句和两个按钮，分段先让出位置，窄屏上也放得下。
         if (!confirmingClear && !selecting) {
@@ -1806,6 +1811,7 @@ final class ImePanels {
             if (s.clipboardHistoryEnabled) {
                 // 「搜索」打开应用里可搜索的剪贴板历史页（#5973）：键盘里没有可输入的文本框，查询框放在应用里。没有可搜的记录（空或读不出）时不放。
                 if (items != null && !items.isEmpty()) {
+                    // 搜索通过认证后会关掉面板、去应用里的搜索页，重开面板时菜单已经收起，这里不必另外收。
                     Button search = clipboardAction(header, "搜索", s::openClipboardSearch);
                     search.setContentDescription("在水杉应用里搜索剪贴板历史");
                 }
@@ -1820,12 +1826,19 @@ final class ImePanels {
                 });
                 if (s.hasClipboardUndo()) {
                     // 撤销是删除后的限时恢复入口，使用完整键帽底色和边框，避免在顶行右侧被看成普通文字。
-                    Button undo = clipboardAction(header, "撤销", s::undoClipboardItems, KeyboardKeyRole.KEY);
+                    // 撤销会就地重画面板，先收起「更多」，和多选、长按一样不留着展开的菜单。
+                    Button undo = clipboardAction(header, "撤销", () -> {
+                        clipboardMoreOpen = false;
+                        s.undoClipboardItems();
+                    }, KeyboardKeyRole.KEY);
                     undo.setContentDescription("撤销刚才删除的剪贴板记录");
                 }
             }
             // 历史没开时菜单里只有「分类」，入口照旧在，和原来顶行一直有「分类」一致。
-            Button more = clipboardAction(header, clipboardMoreOpen ? "更多 ▴" : "更多 ▾", () -> {
+            // 「更多」不进横向滚动，钉在顶行最右边：云端分段、撤销、很长的分类名或大字号让顶行超宽时，横滑的只是左边那些按钮，「更多」始终在键盘宽度以内。
+            moreSlot = LayoutPolicy.row(s);
+            ViewPolicy.setCenteredVertically(moreSlot);
+            Button more = clipboardAction(moreSlot, clipboardMoreOpen ? "更多 ▴" : "更多 ▾", () -> {
                 boolean open = !clipboardMoreOpen;
                 resetClipboardCategoryPicker();
                 clipboardMoreOpen = open;
@@ -1847,10 +1860,16 @@ final class ImePanels {
             headerScroll.setHorizontalScrollBarEnabled(false);
             headerScroll.setFillViewport(true);
             headerScroll.addView(header, LayoutPolicy.scrollMatchWidthWrapParams());
-            s.clipboardHeader.addView(headerScroll, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+            if (moreSlot == null) {
+                s.clipboardHeader.addView(headerScroll, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+            } else {
+                // 横向 LinearLayout 先量不带权重的「更多」，滚动区只分到剩下的宽度。
+                moreSlot.addView(headerScroll, 0, LayoutPolicy.weightedMatchParentParams(1));
+                s.clipboardHeader.addView(moreSlot, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
+            }
         }
         // 分类选择器和「更多」菜单互斥：打开一个就收起另一个，这里再按选择器优先兜一次。
-        LinearLayout moreMenu = !cloud && !confirmingClear && !selecting && clipboardMoreOpen
+        clipboardMoreMenu = !cloud && !confirmingClear && !selecting && clipboardMoreOpen
             && !clipboardCategoryChoosing && clipboardCategoryMovingText == null
             ? renderClipboardMoreMenu(items) : null;
         if (!cloud && s.clipboardHistoryEnabled && items != null
@@ -1966,7 +1985,6 @@ final class ImePanels {
         }
         s.imeStyler.applySkin();
         for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
-        if (moreMenu != null) styleClipboardMoreMenu(moreMenu);
         s.clipboardScroll.post(this::updateClipboardBackToTop);
     }
 
@@ -1977,7 +1995,7 @@ final class ImePanels {
      */
     private LinearLayout renderClipboardMoreMenu(java.util.List<ClipboardHistory.Item> items) {
         LinearLayout menu = LayoutPolicy.column(s);
-        menu.setContentDescription("更多剪贴板操作菜单");
+        // 容器不设无障碍说明：TalkBack 会在一个不能操作的节点上多停一下，读屏用户直接落到三项按钮上。
         LayoutPolicy.setSymmetricPaddingDp(menu, s, 4, 4);
         ViewPolicy.setMinimumWidth(menu, s.pixels(96));
         clipboardMoreItem(menu, "分类", "管理剪贴板分类", () -> {
@@ -2019,8 +2037,11 @@ final class ImePanels {
         button.setLayoutParams(params);
     }
 
-    /** 菜单外框在换肤遍历之后补画：遍历只给按钮和文字上色，不碰容器。底色取面板底色，描边取按键前景色的淡色，深浅色皮肤下都看得出菜单的边界。 */
-    private void styleClipboardMoreMenu(LinearLayout menu) {
+    /** 菜单外框在换肤遍历之后补画：遍历只给按钮和文字上色，不碰容器。由 `ImeStyler.applySkin` 每次换肤后调用，系统深浅色切换时输入法窗口没关、面板不重画，外框也跟着新皮肤换色。底色取面板底色，描边取按键前景色的淡色，深浅色皮肤下都看得出菜单的边界。 */
+    void styleClipboardMoreMenu() {
+        LinearLayout menu = clipboardMoreMenu;
+        // 面板收着时（比如点一条上屏后）菜单还留在树里，不必每次换肤都给它新建一张底图；重开面板会重画并收起菜单。
+        if (menu == null || !ViewPolicy.isVisible(s.clipboardSurface)) return;
         ViewPolicy.setBackground(menu, DrawablePolicy.outlined(Color.parseColor(s.skin.background()),
             s.pixels(8), DimensionPolicy.atLeastOnePixel(s, 1), ImeStyler.fade(s.skin.keyForeground(), .25)));
         ViewPolicy.setElevation(menu, s.pixels(2));

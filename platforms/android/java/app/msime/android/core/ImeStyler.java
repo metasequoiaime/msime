@@ -574,6 +574,8 @@ final class ImeStyler {
         }
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
+        // 剪贴板「更多」菜单的外框也不按角色上色；系统深浅色切换只走这里、不重画剪贴板面板，外框要在这里跟着换。
+        s.imePanels.styleClipboardMoreMenu();
         s.imeLayoutRows.applySidebarRail();
         s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {
