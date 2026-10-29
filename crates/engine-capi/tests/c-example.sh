@@ -71,7 +71,7 @@ fi
 
 # `.pc` 的 Version 是 ABI 版本（Cargo.toml 的 package.metadata.capi.pkg_config），前端按它做编译期开关。
 pc_version=$(sed -n 's/^Version: //p' "$stage/lib/pkgconfig/msime-engine.pc" | tr -d '\r')
-[[ "$pc_version" == 1.0.0 ]] || { echo "unexpected msime-engine.pc Version: $pc_version" >&2; exit 1; }
+[[ "$pc_version" == 1.1.0 ]] || { echo "unexpected msime-engine.pc Version: $pc_version" >&2; exit 1; }
 
 # 共享库按 ABI 主版本命名：Linux 的 SONAME、macOS 的 install name 都带主版本 1（Cargo.toml 的 package.metadata.capi.library）。
 case "$(uname -s)" in

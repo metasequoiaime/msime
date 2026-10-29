@@ -16277,6 +16277,82 @@ fn vocabulary_boundary_imports_reviews_and_reports_one_whole_status() {
     assert_eq!(removed["value"]["queue"].as_array().unwrap().len(), 0);
 }
 #[test]
+fn vocabulary_boundary_accepts_imports_that_expand_when_json_escaped() {
+    use msime_client_services::vocabulary::session::{self, ReviewAction};
+
+    const ROWS: usize = 12_000;
+    let quoted = "\"\"".repeat(200);
+    let text: String = (0..ROWS)
+        .map(|index| format!("word{index},\"{quoted}\"\n"))
+        .collect();
+    assert!(text.len() < session::MAX_IMPORT_BYTES);
+    let directory = tempfile::tempdir().unwrap();
+    // 同一份合法 CSV 能经共享会话导入，JSON 转义不应缩小原始文件的额度。
+    let direct = session::apply(
+        &directory.path().join("direct"),
+        directory.path(),
+        None,
+        "2026-10-29",
+        ReviewAction::Import {
+            name: "合成引号词表".to_owned(),
+            text: text.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(direct.wordbooks[0].total, ROWS);
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path().join("ffi"),
+        "resources": directory.path(),
+        "day": "2026-10-29",
+        "action": {"operation": "import", "name": "合成引号词表", "text": text},
+    }))
+    .unwrap();
+    assert!(request.len() > session::MAX_IMPORT_BYTES);
+    let imported = read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) });
+    assert_eq!(imported["ok"], true, "{:?}", imported.get("error"));
+    assert_eq!(imported["value"]["wordbooks"][0]["total"], ROWS);
+    assert_eq!(imported["value"]["queue"][0]["meaning"], "\"".repeat(200));
+}
+
+#[test]
+fn vocabulary_boundary_keeps_raw_and_json_size_limits_without_writing() {
+    use msime_client_services::vocabulary::session::MAX_IMPORT_BYTES;
+
+    let directory = tempfile::tempdir().unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path(),
+        "resources": directory.path(),
+        "day": "2026-10-29",
+        "action": {
+            "operation": "import",
+            "name": "合成超限词表",
+            "text": "a".repeat(MAX_IMPORT_BYTES + 1),
+        },
+    }))
+    .unwrap();
+    let rejected = read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) });
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"], "wordbook import is too large");
+    assert!(!directory.path().join("vocabulary-progress.json").exists());
+    assert!(!directory.path().join("vocabulary-wordbooks").exists());
+
+    // 有效 JSON 补空白后超过传输预算，入口须先拒绝，不能进入共享会话创建状态。
+    let untouched = directory.path().join("untouched");
+    let mut request = serde_json::to_vec(&json!({
+        "directory": untouched,
+        "resources": directory.path(),
+        "day": "2026-10-29",
+        "action": {"operation": "load"},
+    }))
+    .unwrap();
+    request.resize(17 * 1024 * 1024 + 1, b' ');
+    let rejected = read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) });
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"], "invalid vocabulary review buffer");
+    assert!(!untouched.exists());
+}
+
+#[test]
 fn vocabulary_boundary_rejects_a_bad_envelope_without_touching_the_store() {
     let directory = tempfile::tempdir().unwrap();
     let call = |value: Value| {

@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 public final class VocabularyReviewText {
     private VocabularyReviewText() {}
 
-    /** 一次导入最多读多少字节，与共享层的 `session::MAX_IMPORT_BYTES`、JNI 的 `kVocabularyReviewRequestLimit` 和 iOS 的 `maximumImportBytes` 相同。请求还要带上目录和日期，所以文本本身比这再小一点也会被入口拒掉，那时报的是同一句「不是可用的词表」。 */
+    /** 原始词表最多读多少字节，与共享层的 `session::MAX_IMPORT_BYTES` 和 iOS 的 `maximumImportBytes` 相同；JSON 请求另外为转义和元数据留出空间。 */
     public static final int MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
     /** 导入的词表名最多几个字符，与 iOS 截取文件名的长度相同。 */

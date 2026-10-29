@@ -2497,7 +2497,8 @@ class SettingsBridge {
    * device's timezone, and the shared layer never derives a day from one.
    */
   private async vocabularyReview(actionDocument: string): Promise<string> {
-    if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
+    // 原始词表仍限 8 MiB；这里检查的是带 JSON 转义的动作，与原生桥和 C 入口的请求预算一致。
+    if (actionDocument.length === 0 || actionDocument.length > 17 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
     try {

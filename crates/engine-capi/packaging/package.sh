@@ -66,7 +66,7 @@ for path in "$installed" "$(native "$installed")"; do
 done
 
 if [[ "$(uname -s)" == Darwin ]]; then
-  dylib="$dir/lib/libmsime_engine.1.0.0.dylib"
+  dylib="$dir/lib/libmsime_engine.1.1.0.dylib"
   install_name_tool -id @rpath/libmsime_engine.1.dylib "$dylib"
   # 改了 install name，原来的签名就失效了；arm64 上没有有效签名的 dylib 加载不了。
   codesign --force --sign - "$dylib"

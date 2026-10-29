@@ -412,6 +412,7 @@ fn command_constant(command: Command) -> u32 {
         Command::ConvertHanja => MSIME_ENGINE_COMMAND_OPEN_CANDIDATE_LIST,
         Command::ConversionLeft => MSIME_ENGINE_COMMAND_CONVERSION_LEFT,
         Command::ConversionRight => MSIME_ENGINE_COMMAND_CONVERSION_RIGHT,
+        Command::CommitRawWithoutLearning => MSIME_ENGINE_COMMAND_COMMIT_RAW_WITHOUT_LEARNING,
     }
 }
 
@@ -443,6 +444,8 @@ fn capi_options(options: &SessionOptions) -> Result<Value, String> {
         rest.punctuation_lock = defaults.punctuation_lock;
     }
     rest.learning = defaults.learning;
+    rest.learn_english_on_enter = defaults.learn_english_on_enter;
+    rest.learn_typed_spellings_on_enter = defaults.learn_typed_spellings_on_enter;
     rest.personal_context = defaults.personal_context;
     rest.next_word_prediction = defaults.next_word_prediction;
     if options.fuzzy_pinyin.rules & !fuzzy_rule::ALL == 0 {
@@ -547,6 +550,8 @@ fn capi_options(options: &SessionOptions) -> Result<Value, String> {
             "mixed_candidates": options.english.mixed_candidates,
             "minimum_prefix": options.english.minimum_prefix,
             "first_page_count": options.english.first_page_count,
+            "learn_on_enter": options.learn_english_on_enter,
+            "learn_typed_spellings_on_enter": options.learn_typed_spellings_on_enter,
         },
         "first_page_rows": options.first_page_rows,
         "language_dictionaries": languages,
@@ -1568,7 +1573,13 @@ fn every_option_the_json_carries_is_written_out() {
     assert_eq!(json["vietnamese"]["input_method"], "vni");
     assert_eq!(
         json["english"],
-        json!({"mixed_candidates": true, "minimum_prefix": 5, "first_page_count": 1})
+        json!({
+            "mixed_candidates": true,
+            "minimum_prefix": 5,
+            "first_page_count": 1,
+            "learn_on_enter": true,
+            "learn_typed_spellings_on_enter": false,
+        })
     );
     assert_eq!(json["punctuation"]["lock"], "follow");
     assert_eq!(json["learning"], false);

@@ -12,6 +12,8 @@ Status: implemented
 
 `android-device.yml` 的 job 跑在 `depot-ubuntu-24.04-8`。权限准备先确认 `/dev/kvm` 是字符设备；当前用户已经可读写时直接使用，否则仅对这一现有节点执行 `sudo chmod a+rw`，随后重新检查实际访问权限。安装模拟器后执行 `emulator -accel-check`，不把节点存在等同于加速可用。权限不依赖 udev：Depot 的静态节点不保证能重新触发设备事件，GitHub 托管 runner 的 0660 节点也可以按同一流程开放当前作业所需权限。
 
+日志采集与停止模拟器只在 `SERIAL` 已设定后运行；初始化之前失败时还没有模拟器，不能让 adb 等待不存在的设备。日志采集先创建输出目录，每条 adb 命令最多等待 30 秒，停止命令最多等待 15 秒，开机失败也不会无限等待设备重新出现。
+
 依据是 #10190 里的一次性探测（`depot-android-kvm-probe.yml`，在两种 runner 上做同一件事，结论记下后在同一个 PR 里删掉），2026-10-29 的结果：
 
 | | `ubuntu-24.04` | `depot-ubuntu-24.04-8` |
@@ -31,6 +33,7 @@ Status: implemented
 - **保留 udev 规则并强制触发**：可在节点后来重建时继续维持权限，也是原 GitHub runner 的流程。但 Depot 的实际完整作业在 `udevadm trigger --name-match=kvm` 返回 `Failed to open the device 'kvm': Invalid argument`，发生在安装工具和设备测试之前；先前只验证模拟器加速的探测没有覆盖这一步。本作业只使用 runner 已存在的设备节点，不依赖热插拔，直接检查和修正该节点即可，不忽略 udev 错误后继续冒充准备成功。
 - **留在 GitHub，限制 `android-device-pr` 的触发**（比如打标签才跑）：不占 Depot 额度。不采用：Depot 上跑得更快，限制触发会把 10-28 那篇要解决的「合并后才看见界面验收失败」重新带回来。
 - **用 `depot-ubuntu-24.04-4`**：更便宜。不采用：这个 job 要在同一台机器上交叉编译四个 client crate 的单测和 APK，同时跑模拟器，8 核 31 GB 开机快一倍，构建也是 8 核的规格；按 [Depot 默认](2026-10-27-depot-runners-by-default.md) 的规格划分，编 Rust 用 `-8`。
+- **无条件执行原有 udev 命令**：最容易沿用 GitHub runner 的初始化流程。不采用：Depot 的实际设备访问可用，但 udev 无法枚举该设备；已有权限时仍执行命令会把足够的运行条件变成启动失败。
 
 ## Consequences
 
@@ -45,3 +48,7 @@ GitHub 托管的 Linux 名额只剩发版、发布和 Pages 这类持有凭据�
 修补后的完整 Bash 步骤在 PVE Linux 非 root 用户上直接执行，真实可访问的 KVM 节点保持原身份与权限；私有挂载命名空间内另外验证可访问字符节点、受限字符节点权限修正、普通文件拒绝和缺失节点拒绝，五项均符合预期。所有替换与 chmod 仅作用于命名空间绑定的合成节点，原设备未修改；`actionlint`、Bash 语法和显式 Bash 模式的 ShellCheck 均通过。证据为 `target/kvm-permission-fixture-attempt1.log` 及远端 `target/kvm-permission-verification-d955-attempt1/verification.json`。这不替代 Depot 上的实际加速与完整设备作业，仍待下一轮。
 
 权限修补候选树 `d5c3c96217f4d8cf1603ff7f411ea4dc561f8109` 的整轮 `scripts/verify-local.sh --quick` 退出 0，12,612 个源码及模式条目在开始和结束后均逐项一致。可移植 Windows、契约与笔记、Rust/Android/wasm、Android Java、macOS、Apple bridge 和 x64/x86 pipe-only 通过；工具缺失的目标阶段仍按原规则跳过。证据为 `target/kvm-candidate-quick-evidence/`；随后只补充本篇验证事实，设备加速与整套输入仍待新 CI。
+
+[原失败作业](https://github.com/metasequoiaime/msime/actions/runs/40891799388/job/123510811361)在 KVM 初始化阶段报 `Failed to open the device 'kvm': Invalid argument`；[完整设备路径的复验](https://github.com/metasequoiaime/msime/actions/runs/40894655655/job/123520558785)仍报 `Failed to open the device '/dev/kvm': No such device`，且采集阶段会等待尚不存在的模拟器。原探测只验证 KVM 可用和开机时间，没有覆盖 udev 命令。新的 runner 验收以权限检查和模拟器实际启动为准，不能把原探测当成整个 workflow 已通过。
+
+整合固定 develop `de5d51623a` 时，保留上述已验证的直接字符设备权限修正与加速检查，同时接入上游有界 adb 清理，避免初始化失败后等待未启动的模拟器。整合候选树 `56b8841f3765b02e3994d841eb49fd7d51fb9058` 的整轮 quick 退出 0，12,631 个源码及模式条目前后相同；此后只更新笔记，实际 Depot 加速和完整 API 35 设备作业仍需新 CI 独立验证。

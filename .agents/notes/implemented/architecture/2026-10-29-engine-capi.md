@@ -18,7 +18,7 @@ Status: implemented
 
 ### 函数面
 
-33 个函数与草案一一对应，按代码调整的地方：
+33 个函数与草案一一对应（ABI 1.1 为按方案准备追加了 `prepare_runtime_for`、`reset_learning_for`，见下文「不分方案」一条），按代码调整的地方：
 
 - 四个函数不返回状态码：`abi_version` 返回 `(major << 16) | minor`，`version` 和 `last_error` 返回 `const char*`，`string_free` 无返回值。其余 29 个返回 `int32_t`。
 - `prepare_runtime` 用 `char**` 交回代次目录，由 `string_free` 释放：采用方要把它原样放进选项的 `paths.dictionaries`，自己拼路径在 Windows 上容易错。所以 `string_free` 释放的是库交出的一切字符串，不只 JSON。
@@ -26,7 +26,7 @@ Status: implemented
 - `preload_model(kind, path, bytes)` 现在只有 `MSIME_ENGINE_MODEL_JAPANESE`，对应 `preload_japanese_dictionary`；`bytes` 为 NULL 且长度为 0 时撤掉。别的种类是 `UNSUPPORTED`，以后加种类不加函数。
 - 选项 JSON 比草案的子集多一个 `next_word_prediction`：没有它，`MSIME_ENGINE_OPTION_PREDICTION_ALLOWED` 这个门禁永远无事可管。枚举类的取值在 JSON 里用名字（`quanpin`、`xiaohe`、`z_zh`），整数编号只出现在 C 函数的参数里。
 - 命令 11 在 ABI 里叫 `MSIME_ENGINE_COMMAND_OPEN_CANDIDATE_LIST`：核心层的 `ConvertHanja` 是历史名，它现在开关的是当前方案可打开的列表（韩文汉字、注音整句），编号不变。
-- `prepare_runtime` 和 `reset_learning` 不分方案，用引擎的 `prepare_runtime_paths` 和 `reset_learned_data`，所以每个方案都要 `msime-pinyin.db`，包括提案数据表里只要 `msime-english.db` 的日文、韩文、越南文和藏文。引擎能按方案只准备英文库（`prepare_runtime_paths_for`、`reset_learned_data_with`，msime 宿主在用），但前者不是公开接口；按方案准备留给以后的次版本追加一个带方案集合的函数，README 的数据表写明 1.0 的要求。`prepare_runtime` 不读 `paths.dictionaries`：调用时还没有代次目录，C 调用方很自然地只填前三项。
+- `prepare_runtime` 和 `reset_learning` 不分方案，用引擎的 `prepare_runtime_paths` 和 `reset_learned_data`，所以要 `msime-pinyin.db` 和 `msime-english.db`。按方案准备由后加的 `prepare_runtime_for`、`reset_learning_for` 承担（带方案位集合，见 [回车学词策略进核心，代次准备按方案集合要求词库](2026-10-29-engine-core-raw-commit-policy-and-scheme-data-sets.md)），README 的数据表按方案写明要求。`prepare_runtime` 不读 `paths.dictionaries`：调用时还没有代次目录，C 调用方很自然地只填前三项。
 - 个人词典三个函数用引擎层自己取锁的版本（`edit_personal_dictionary`、`reset_learned_data`）和只读的 `personal_dictionary_entries`。引擎以后新加的词条种类在 JSON 里还没有名字，列表里先略过（`PersonalDictionaryKind` 是 `non_exhaustive`）。
 
 ### 会话句柄

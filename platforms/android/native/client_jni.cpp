@@ -57,7 +57,8 @@ constexpr jsize kCloudClipboardSourceDirectoryLimit = 16384;
 constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 // 与 msime_client_dictionary_sync 头文件里的请求上限（2 MiB，HostOptions 文档里带着整份偏好）一致；「测试连接」的请求带着应用密码，请求和响应都不记录。
 constexpr jsize kDictionarySyncRequestLimit = 2 * 1024 * 1024;
-constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;
+// 与 C 入口一致：为 8 MiB 原始词表的 JSON 转义和元数据留出空间。
+constexpr jsize kVocabularyReviewRequestLimit = 17 * 1024 * 1024;
 constexpr jsize kPrepareHostRequestLimit = 16384;
 constexpr jsize kSavePreferencesDirectoryLimit = 16384;
 constexpr jsize kSavePreferencesSnapshotLimit = 1 * 1024 * 1024;

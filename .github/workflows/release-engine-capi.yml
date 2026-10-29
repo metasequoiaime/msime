@@ -140,12 +140,12 @@ jobs:
           intel="$PWD/target/engine-capi/install-x86_64-apple-darwin"
           diff -r "$arm/include" "$intel/include"
           cp -RP "$arm" "$prefix"
-          for library in libmsime_engine.1.0.0.dylib libmsime_engine.a; do
+          for library in libmsime_engine.1.1.0.dylib libmsime_engine.a; do
             lipo -create "$arm/lib/$library" "$intel/lib/$library" -output "$prefix/lib/$library"
             lipo -info "$prefix/lib/$library"
           done
           # 每个架构的最低系统版本都要是 11.0。
-          minimums=$(vtool -show-build "$prefix/lib/libmsime_engine.1.0.0.dylib" | awk '$1 == "minos" { print $2 }' | sort -u)
+          minimums=$(vtool -show-build "$prefix/lib/libmsime_engine.1.1.0.dylib" | awk '$1 == "minos" { print $2 }' | sort -u)
           echo "minos: $minimums"
           [[ "$minimums" == 11.0 ]] || { echo "expected macOS 11.0 as the minimum of every slice, got: $minimums" >&2; exit 1; }
       - name: Package
@@ -155,7 +155,7 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         run: |
           set -euo pipefail
-          library=target/engine-capi/package/$ARCHIVE/lib/libmsime_engine.so.1.0.0
+          library=target/engine-capi/package/$ARCHIVE/lib/libmsime_engine.so.1.1.0
           required=$(objdump -T "$library" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
           echo "libmsime_engine.so needs glibc $required (ceiling ${GLIBC_CEILING})"
           [[ "$(printf '%s\n%s\n' "$required" "${GLIBC_CEILING}" | sort -V | tail -n 1)" == "${GLIBC_CEILING}" ]] || { echo "the library needs glibc $required, newer than the documented ${GLIBC_CEILING}" >&2; exit 1; }

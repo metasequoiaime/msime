@@ -106,7 +106,7 @@ P1 顺手补的既有缺口（与改许可证无关）：移动端声明渠道�
 
 | 硬点 | 现状 | 方向 |
 |---|---|---|
-| 收尾在门面不在核心 | `host::Session::drop` 冲刷本日志队列、`release_thread_journal`、`note_settled`（`host/session.rs:846-856`，都是 `pub(crate)`）；`LocalDatabaseLease`、CommitRaw 的英文学习策略与 `CommitRawWithoutLearning`、辅助码注释规则也只在门面 | 收尾进核心 `Drop` 或 `close(self)`；租约和提交策略改为核心层的可选项 |
+| 收尾在门面不在核心 | 已解决：核心 `Session` 的 `Drop` 冲刷本日志队列、交还日志连接、`note_settled`，`LocalDatabaseLease` 也在核心会话里（[核心会话收尾](../../implemented/architecture/2026-10-29-core-session-lifecycle-and-journal-threads.md)）；CommitRaw 的英文学习策略是核心选项 `SessionOptions::learn_typed_spellings_on_enter`（缺省关，门面打开），`CommitRawWithoutLearning` 是核心 `Command` 的 14 号（[回车学词策略进核心](../../implemented/architecture/2026-10-29-engine-core-raw-commit-policy-and-scheme-data-sets.md)）。辅助码注释规则仍只在门面 | 收尾进核心 `Drop` 或 `close(self)`；租约和提交策略改为核心层的可选项 |
 | 引擎里没有 revision | host-api 的 `generation` 来自 input-runtime | 核心会话自己维护候选 revision，每次改变候选的调用递增 |
 | 没有分页和按键路由 | 字符/标点/命令/数字选择由宿主决定（参考 `spelling_symbols`、`takes_local_separator`）；分段移动在 `input-runtime/src/engine.rs:197-238` 组合；分页只在 input-runtime 和 engine-wasm；单字母全拼只给前 24 行（`quanpin/dictionary.rs:80`），要 `expand_initial_candidates` | 头文件写明路由规则；分页留给宿主，但 `candidate_get` 按下标随取 |
 | `SessionOptions` 约 50 个公开字段、两套默认值 | 核心默认辅助码 `lantian`、学习开（`options.rs:129,141`）；门面默认 `ziranma`、学习关（`host/options.rs:234,247`）；加字段就是 Rust 的 semver 事件 | 只保留一套默认值；对外字段集合以 `options_json` 的文档为准 |
@@ -124,7 +124,7 @@ P1 顺手补的既有缺口（与改许可证无关）：移动端声明渠道�
 |---|---|---|---|---|
 | `msime-pinyin.db` | SQLite，`tbl_<1..7\|others>_<首字母>(key, jp, value, weight)`，`quick_parases` | 无 | 全拼、双拼、五笔、九键 | GPL-3.0（rime-ice 及补充） |
 | `msime-wubi.db` | SQLite，`wubi86`/`wubi98(key, value, weight)` | 只看表在不在 | 五笔 | Apache-2.0（wubi86 极点）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx wubi98）、Unlicense（98 五笔小组）、本项目生成的补充表 |
-| `msime-english.db` | SQLite，`english_words`、`en_zh_glosses`、`zh_en_glosses`、`source_notices` | 写 `user_version=3`，读端不查 | 每个代次都硬性要求 | GPL-3.0（rime-ice-en 及补充）；附 SCOWL 版权声明（`crates/dict-builder/README.md:3`）；Google 词频「以来源页面说明为准」 |
+| `msime-english.db` | SQLite，`english_words`、`en_zh_glosses`、`zh_en_glosses`、`source_notices` | 写 `user_version=3`，读端不查 | 全拼、双拼、五笔要求；其余方案只有专用英文用它，可缺（`SchemeSet::requires_english_dictionary`） | GPL-3.0（rime-ice-en 及补充）；附 SCOWL 版权声明（`crates/dict-builder/README.md:3`）；Google 词频「以来源页面说明为准」 |
 | `msime-bigram.bin`/`msime-trigram.bin` | `MSNG`，u32 版本 1，排序的 FNV-1a 64 键加 f32 | 魔数、版本、排序 | 句子打分，可缺 | 计数来自 zhwiki（CC-BY-SA-4.0）；词表是 GPL-3.0 的 `msime-pinyin.db`（msime-dictionary `README.md` 的补充说明） |
 | `msime-others.db` | SQLite，emoji、颜文字、符号目录 | 无 | 本地模式，可缺 | emoji 来源没有记录、PiliApp 符号未声明 |
 | `msime-japanese.dat` | `MSJPDT1\0`，56 字节头 | 魔数、版本、边界 | 日文，可缺（只出假名） | Mozc 开源词库，随 Mozc 的 README 与 LICENSE（BSD-3 加词典附加条款） |
@@ -137,11 +137,11 @@ P1 顺手补的既有缺口（与改许可证无关）：移动端声明渠道�
 
 产出方：`msime-dict-build` 主构建出 pinyin/wubi/english/others/japanese/bigram/trigram 和清单，由 msime-dictionary 的 `dict-v*` 发布；`msime-dict-build languages` 出粤语、注音、笔画库；octagram 模型来自 amzxyz/rime-wanxiang-data（CC-BY-4.0）、lotem/rime-octagram-data（LGPL-3.0）、gaboolic/rime-frost（GPL-3.0），按 `resources/grammar-models.lock.json` 固定；神经模型来自 chinese-ime-lm `model-v1`；手写模型来自 msime-engine `a9b9f09`。
 
-最小数据集：全拼/双拼/九键 = `msime-pinyin.db` + `msime-english.db`（产品同等排序再加 bigram/trigram）；五笔再加 `msime-wubi.db`；日文 = `msime-english.db` + `msime-japanese.dat` + Mozc 的 README 与 LICENSE；韩语、越南语、藏文只要 `msime-english.db`（所以只要韩语的采用方也得带 rime-ice-en 的 GPL-3.0 数据）；粤语/注音/笔画再加各自的库。
+最小数据集（按 `prepare_runtime_paths_for` 只为用到的方案准备时，见 [回车学词策略进核心，代次准备按方案集合要求词库](../../implemented/architecture/2026-10-29-engine-core-raw-commit-policy-and-scheme-data-sets.md)）：全拼/双拼/九键 = `msime-pinyin.db` + `msime-english.db`（产品同等排序再加 bigram/trigram）；五笔再加 `msime-wubi.db`；日文 = `msime-japanese.dat` + Mozc 的 README 与 LICENSE（缺了只出假名）；韩语、越南语、藏文什么也不用带；粤语/注音/笔画只要各自的库；这些非中文方案里 `msime-english.db` 只是专用英文的可选项。
 
-文档化之前要修的缺口：代码引用的 `data-formats.md`、`quanpin.md`、`user-dictionary.md` 等规格文档不在仓库里；pinyin/wubi/others 三个库没有文件内版本，读端要像语言库一样加 `metadata` 表并检查；`.gram` 写明是 Rime 上游格式；`GLOSS_CACHE` 等死常量；非拼音方案也被硬性要求 `msime-english.db`；只读布局（`dictionaries == resources`）没有写成受支持的模式；`assets.rs:1` 引用的运行时资源契约 `contracts/assets/assets.json` 不在仓库里；代次目录的 `.ready` 标记（`user_dictionary/generation.rs:124,145`）也是磁盘格式，要写进规格。
+文档化之前要修的缺口：代码引用的 `data-formats.md`、`quanpin.md`、`user-dictionary.md` 等规格文档不在仓库里；pinyin/wubi/others 三个库没有文件内版本，读端要像语言库一样加 `metadata` 表并检查；`.gram` 写明是 Rime 上游格式；`GLOSS_CACHE` 等死常量；只读布局（`dictionaries == resources`）没有写成受支持的模式；`assets.rs:1` 引用的运行时资源契约 `contracts/assets/assets.json` 不在仓库里；代次目录的 `.ready` 标记（`user_dictionary/generation.rs:124,145`）也是磁盘格式，要写进规格。
 
-数据发布的许可证跟着数据走，不随引擎变，逐文件见上表的「数据许可证」列：默认中文库是 rime-ice 的 GPL-3.0；每个方案都硬性要求的 `msime-english.db` 同样含 rime-ice-en 的 GPL-3.0；n-gram 计数来自 zhwiki（CC-BY-SA-4.0），词表来自 GPL-3.0 的 `msime-pinyin.db`；手写模型 LGPL-2.1，笔画库 LGPL-3.0，注音库 LGPL-2.1-or-later，五笔库混有 LGPL-3.0 与 GPL-3.0-or-later。`msime-others.db` 的 emoji 来源没有记录、PiliApp 符号未声明；辅助码表里 `lantian`、`ziranma`、`shouyou2_0`、`shouyouplus`、`xiaohe`、`jiajia` 六张都没有再分发授权（`resources/helpcodes/NOTICE.md:27`），核心默认的 `lantian` 和门面默认的 `ziranma` 都在其中，只有 `wubi86` 有自己的来源说明（`NOTICE-wubi86.md`）。没有授权的这些不能进数据发布；P3 统一默认值时，默认辅助码要么关掉，要么默认 `wubi86`，其余表由采用方自备。
+数据发布的许可证跟着数据走，不随引擎变，逐文件见上表的「数据许可证」列：默认中文库是 rime-ice 的 GPL-3.0；全拼、双拼、五笔要求的 `msime-english.db` 同样含 rime-ice-en 的 GPL-3.0（其余方案可以不带）；n-gram 计数来自 zhwiki（CC-BY-SA-4.0），词表来自 GPL-3.0 的 `msime-pinyin.db`；手写模型 LGPL-2.1，笔画库 LGPL-3.0，注音库 LGPL-2.1-or-later，五笔库混有 LGPL-3.0 与 GPL-3.0-or-later。`msime-others.db` 的 emoji 来源没有记录、PiliApp 符号未声明；辅助码表里 `lantian`、`ziranma`、`shouyou2_0`、`shouyouplus`、`xiaohe`、`jiajia` 六张都没有再分发授权（`resources/helpcodes/NOTICE.md:27`），核心默认的 `lantian` 和门面默认的 `ziranma` 都在其中，只有 `wubi86` 有自己的来源说明（`NOTICE-wubi86.md`）。没有授权的这些不能进数据发布；P3 统一默认值时，默认辅助码要么关掉，要么默认 `wubi86`，其余表由采用方自备。
 
 ### 与 librime 对照
 
@@ -175,7 +175,7 @@ P1 顺手补的既有缺口（与改许可证无关）：移动端声明渠道�
 ### 维护者已拍板（2026-10-29，均按推荐）
 
 1. `syllable_frequency.tsv` 算不算 rime-ice 的派生物。已定：先按聚合事实保留并写明来源，kHanyuPinlu 原型在九键评测不退步时替换。
-2. 默认数据（中文库 rime-ice GPL-3.0、n-gram CC-BY-SA-4.0、每个方案都硬性要求的 `msime-english.db` 含 rime-ice-en GPL-3.0）不能让 App Store 采用方直接带上。已定：v1 写明「引擎 MPL、数据按各自许可证」，由采用方选数据；宽松许可的最小数据集另立项目，前提是去掉非拼音方案对 `msime-english.db` 的硬性要求。
+2. 默认数据（中文库 rime-ice GPL-3.0、n-gram CC-BY-SA-4.0、全拼双拼五笔要求的 `msime-english.db` 含 rime-ice-en GPL-3.0）不能让 App Store 采用方直接带上。已定：v1 写明「引擎 MPL、数据按各自许可证」，由采用方选数据；宽松许可的最小数据集另立项目，前提是去掉非拼音方案对 `msime-english.db` 的硬性要求——这个前提已满足（[回车学词策略进核心，代次准备按方案集合要求词库](../../implemented/architecture/2026-10-29-engine-core-raw-commit-policy-and-scheme-data-sets.md)）。
 3. `fanlusky` 不同意时库还做不做。已无需决定：全部版权人已同意。
 4. 构建工具用 cargo-c（一步生成 cbindgen 头、`.pc`、SONAME 和两种库）还是 cbindgen 加自写脚本，二者都是新的构建依赖。已定：cargo-c。
 5. `symbol_groups.tsv` 的分组最初抄自 rime-prelude `symbols.yaml`（LGPL-3.0），这条链要不要按 LGPL-3.0 对待。已定：按 LGPL-3.0 对待，只用 Unicode 字符数据库的事实（区块、类别、字符名）重建分组，不再内嵌由 rime-prelude 派生的分组。

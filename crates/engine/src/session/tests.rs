@@ -8793,7 +8793,15 @@ fn convert_hanja_is_named_for_the_golden_scenarios() {
         Command::from_name("ConversionRight"),
         Some(Command::ConversionRight)
     );
-    assert_eq!(Command::from_u8(14), None);
+    assert_eq!(
+        Command::from_u8(14),
+        Some(Command::CommitRawWithoutLearning)
+    );
+    assert_eq!(
+        Command::from_name("CommitRawWithoutLearning"),
+        Some(Command::CommitRawWithoutLearning)
+    );
+    assert_eq!(Command::from_u8(15), None);
 }
 
 // ---- expression, command and mention modes ----
@@ -14385,3 +14393,4 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 
 mod caret_suffix;
 mod lifecycle;
+mod raw_commit;

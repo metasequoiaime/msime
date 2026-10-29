@@ -3,7 +3,9 @@
 use std::ffi::{c_char, CString};
 use std::path::{Path, PathBuf};
 
-use msime_engine::{PersonalDictionaryEntry, PersonalDictionaryKind, RuntimePaths};
+use msime_engine::{
+    PersonalDictionaryEntry, PersonalDictionaryKind, RuntimePaths, SchemeSet, SchemeType,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::abi::{
@@ -88,7 +90,7 @@ fn utf8_path(path: &Path) -> Outcome<String> {
         .ok_or_else(|| Failure::invalid("the path is not UTF-8"))
 }
 
-/// 准备运行时：在 `user_data/dictionaries/<content_id>` 原子地准备一个代次（从 `resources` 复制工作词库并回放学习日志），已就绪的代次只补回放。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据变了就换一个；带点的版本号要先换掉点（`dict-v2_0_39`）。三个根目录必须是绝对路径、互不重叠。`paths.dictionaries` 不读。ABI 1.0 不分方案：`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`，即使会话只用日文、韩文这类不读拼音词库的方案。成功时把代次目录写进 `*dictionaries`（可以是 NULL），用 `msime_engine_string_free` 释放；建会话时它就是 `paths.dictionaries`。
+/// 准备运行时：在 `user_data/dictionaries/<content_id>` 原子地准备一个代次（从 `resources` 复制工作词库并回放学习日志），已就绪的代次只补回放。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据变了就换一个；带点的版本号要先换掉点（`dict-v2_0_39`）。三个根目录必须是绝对路径、互不重叠。`paths.dictionaries` 不读。按全部方案准备：`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`；只用其中几个方案时用 `msime_engine_prepare_runtime_for`，只带那几个方案的数据。成功时把代次目录写进 `*dictionaries`（可以是 NULL），用 `msime_engine_string_free` 释放；建会话时它就是 `paths.dictionaries`。
 ///
 /// # Safety
 /// `paths` 按 `struct_size` 约定可读；`content_id` 指向 `content_id_len` 个可读字节；`dictionaries` 是 NULL 或可写一个指针。
@@ -99,20 +101,77 @@ pub unsafe extern "C" fn msime_engine_prepare_runtime(
     content_id_len: usize,
     dictionaries: *mut *mut c_char,
 ) -> i32 {
-    guard(|| {
-        // SAFETY: 调用方的前提。
-        let paths = unsafe { read_sized(paths, "paths") }?;
-        // SAFETY: 同上；`dictionaries` 不读。
-        let [resources, user_data, cache] = unsafe { roots(&paths) }?;
-        // SAFETY: 同上。
-        let content_id = unsafe { input_str(content_id, content_id_len, "content_id") }?;
-        let prepared =
-            msime_engine::prepare_runtime_paths(&resources, &user_data, &cache, content_id)?;
-        let directory = utf8_path(&prepared.dictionaries)?;
-        // SAFETY: 调用方的前提。
-        unsafe { write_owned(dictionaries, directory) };
-        Ok(())
+    // SAFETY: 调用方的前提。
+    guard(|| unsafe {
+        prepare(
+            paths,
+            content_id,
+            content_id_len,
+            SchemeSet::ALL,
+            dictionaries,
+        )
     })
+}
+
+/// ABI 1.1 起。同 `msime_engine_prepare_runtime`，只为 `schemes` 里的方案准备：`resources` 只要有这些方案读的词库。`schemes` 的第 n 位是序号为 n 的方案（`1u << MSIME_ENGINE_SCHEME_KOREAN`），要与会话选项的 `enabled_schemes` 相同，不能是 0，不认识的位是 `MSIME_ENGINE_INVALID_ARGUMENT`。有全拼、双拼或五笔时与 `msime_engine_prepare_runtime` 相同，要 `msime-pinyin.db` 和 `msime-english.db`；没有时两者都不要求，`resources` 带了 `msime-english.db` 就照样复制进代次（专用英文的补全与回车学词用它），没带时代次里没有它。日文的 `msime-japanese.dat` 和粤语、注音、笔画的语言库不经过代次，会话从 `resources` 或选项给的路径直接读。
+///
+/// # Safety
+/// 同 `msime_engine_prepare_runtime`。
+#[no_mangle]
+pub unsafe extern "C" fn msime_engine_prepare_runtime_for(
+    paths: *const msime_engine_paths,
+    content_id: *const c_char,
+    content_id_len: usize,
+    schemes: u32,
+    dictionaries: *mut *mut c_char,
+) -> i32 {
+    guard(|| {
+        let schemes = scheme_set(schemes)?;
+        // SAFETY: 调用方的前提。
+        unsafe { prepare(paths, content_id, content_id_len, schemes, dictionaries) }
+    })
+}
+
+/// `msime_engine_prepare_runtime` 与 `_for` 共用的部分。
+///
+/// # Safety
+/// 同 `msime_engine_prepare_runtime`。
+unsafe fn prepare(
+    paths: *const msime_engine_paths,
+    content_id: *const c_char,
+    content_id_len: usize,
+    schemes: SchemeSet,
+    dictionaries: *mut *mut c_char,
+) -> Outcome<()> {
+    // SAFETY: 调用方的前提。
+    let paths = unsafe { read_sized(paths, "paths") }?;
+    // SAFETY: 同上；`dictionaries` 不读。
+    let [resources, user_data, cache] = unsafe { roots(&paths) }?;
+    // SAFETY: 同上。
+    let content_id = unsafe { input_str(content_id, content_id_len, "content_id") }?;
+    let prepared = msime_engine::prepare_runtime_paths_for(
+        &resources, &user_data, &cache, content_id, schemes,
+    )?;
+    let directory = utf8_path(&prepared.dictionaries)?;
+    // SAFETY: 调用方的前提。
+    unsafe { write_owned(dictionaries, directory) };
+    Ok(())
+}
+
+/// 方案位集合：第 n 位是序号为 n 的方案（`MSIME_ENGINE_SCHEME_*`）。空集合和不认识的位都不合法。
+fn scheme_set(schemes: u32) -> Outcome<SchemeSet> {
+    if schemes == 0 {
+        return Err(Failure::invalid("schemes must name at least one scheme"));
+    }
+    (0..u32::BITS)
+        .filter(|bit| schemes & (1 << bit) != 0)
+        .try_fold(SchemeSet::EMPTY, |set, bit| {
+            u8::try_from(bit)
+                .ok()
+                .and_then(SchemeType::from_u8)
+                .map(|scheme| set.with(scheme))
+                .ok_or_else(|| Failure::invalid(format!("schemes names no scheme at bit {bit}")))
+        })
 }
 
 /// 立刻写下所有排着的个人上下文学习（平时延迟约 2 秒写）。`flags` 带 `MSIME_ENGINE_FLUSH_STOP_THREAD` 时再停掉后台写线程并等它结束：卸载库、退出进程前用。
@@ -345,7 +404,7 @@ pub unsafe extern "C" fn msime_engine_user_dict_edit(
     })
 }
 
-/// 清空学到的一切：换回随包的工作词库、清空学习日志。和 `msime_engine_prepare_runtime` 一样要求 `resources` 里有 `msime-pinyin.db`。还有会话开着时返回 `MSIME_ENGINE_BUSY`，什么也不换。
+/// 清空学到的一切：换回随包的工作词库、清空学习日志。和 `msime_engine_prepare_runtime` 一样要求 `resources` 里有 `msime-pinyin.db` 和 `msime-english.db`；代次是用 `msime_engine_prepare_runtime_for` 准备的，就用 `msime_engine_reset_learning_for` 传同一个方案集合。还有会话开着时返回 `MSIME_ENGINE_BUSY`，什么也不换。
 ///
 /// # Safety
 /// `paths` 按 `struct_size` 约定可读。
@@ -355,6 +414,24 @@ pub unsafe extern "C" fn msime_engine_reset_learning(paths: *const msime_engine_
         // SAFETY: 调用方的前提。
         let paths = unsafe { runtime_paths(paths) }?;
         msime_engine::reset_learned_data(&paths)?;
+        Ok(())
+    })
+}
+
+/// ABI 1.1 起。同 `msime_engine_reset_learning`，只换回 `schemes` 读的词库，规则与 `msime_engine_prepare_runtime_for` 相同：没有全拼、双拼、五笔时不要求 `msime-pinyin.db`，`msime-english.db` 在 `resources` 里有才换回，都没有时只清空日志。`schemes` 的写法同 `msime_engine_prepare_runtime_for`。
+///
+/// # Safety
+/// `paths` 按 `struct_size` 约定可读。
+#[no_mangle]
+pub unsafe extern "C" fn msime_engine_reset_learning_for(
+    paths: *const msime_engine_paths,
+    schemes: u32,
+) -> i32 {
+    guard(|| {
+        let schemes = scheme_set(schemes)?;
+        // SAFETY: 调用方的前提。
+        let paths = unsafe { runtime_paths(paths) }?;
+        msime_engine::reset_learned_data_for(&paths, schemes)?;
         Ok(())
     })
 }

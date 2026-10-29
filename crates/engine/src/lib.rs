@@ -101,14 +101,14 @@ pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,
     DictionaryTablePage,
 };
-pub use user_dictionary::generation::prepare_runtime_paths;
+pub use user_dictionary::generation::{prepare_runtime_paths, prepare_runtime_paths_for};
 pub use user_dictionary::journal::quarantine_corrupt_journal;
 pub use user_dictionary::personal::{
     edit_personal_dictionary, personal_dictionary_entries, validate_personal_dictionary_entry,
     PersonalDictionaryPage,
 };
 pub use user_dictionary::replay::{replay as replay_user_dictionary, ReplayResult};
-pub use user_dictionary::reset::reset_learned_data;
+pub use user_dictionary::reset::{reset_learned_data, reset_learned_data_for};
 pub use user_dictionary::state::{
     dictionary_state_revision, stage_dictionary_state, stream_dictionary_state,
     DictionaryStateRecord, DEFAULT_MAXIMUM_RECORDS,

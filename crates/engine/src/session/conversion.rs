@@ -203,7 +203,10 @@ impl InputSession {
     pub(super) fn handle_conversion_command(&mut self, command: Command) -> Option<KeyResult> {
         match command {
             Command::ConversionLeft | Command::ConversionRight => self.move_conversion(command),
-            Command::CommitCandidate | Command::CommitRaw => Some(self.commit_conversion()),
+            // `Session::command` 把 `CommitRawWithoutLearning` 换成了 `CommitRaw` 或 `Cancel`，到不了这里；与 `CommitRaw` 同列只为穷尽。
+            Command::CommitCandidate | Command::CommitRaw | Command::CommitRawWithoutLearning => {
+                Some(self.commit_conversion())
+            }
             // 回到拼音，组字保留；再按一次 Esc 才丢掉组字。
             Command::Backspace | Command::Cancel => {
                 self.leave_conversion();

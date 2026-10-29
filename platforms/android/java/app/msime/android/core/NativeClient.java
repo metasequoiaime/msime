@@ -29,8 +29,8 @@ public final class NativeClient {
     private static final int GLIDE_REQUEST_LIMIT = 65_536;
     /** 与 `msime_client_set_key_geometry` 的上限一致。 */
     private static final int KEY_GEOMETRY_LIMIT = 16_384;
-    /** An imported word list is the one request here that carries a whole file. */
-    private static final int VOCABULARY_REQUEST_LIMIT = 8 * 1024 * 1024;
+    /** 与 JNI 和 C 入口一致，为 8 MiB 原始词表的 JSON 转义及元数据留出空间。 */
+    private static final int VOCABULARY_REQUEST_LIMIT = 17 * 1024 * 1024;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     public static String create(String options) { return TextPolicy.utf8(createRaw(options.getBytes(StandardCharsets.UTF_8))); }

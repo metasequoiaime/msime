@@ -9,10 +9,11 @@ use crate::paths::RuntimePaths;
 use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
 use crate::user_dictionary::journal::{open_database, pinyin_table};
 use crate::user_dictionary::personal::{
-    check_receipt, column_i64, column_text, failed, maintenance, open_edit_connection, page_bind,
-    save_receipt, valid_request_id, Receipt, DICTIONARY_NOT_OPENED, EDIT_NOT_BEGUN, ENTRY_CHANGED,
-    INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, NO_CHINESE_DICTIONARY,
-    RETRY_NOT_FINISHED, STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
+    check_receipt, column_i64, column_text, failed, generation_has_main_dictionary, maintenance,
+    open_edit_connection, page_bind, save_receipt, valid_request_id, Receipt,
+    DICTIONARY_NOT_OPENED, EDIT_NOT_BEGUN, ENTRY_CHANGED, INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT,
+    MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, NO_CHINESE_DICTIONARY, RETRY_NOT_FINISHED,
+    STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
 };
 use crate::user_dictionary::replay::attach;
 
@@ -252,16 +253,17 @@ fn check_bundled_edit(
 ///
 /// Only the new weight is range-checked: a shipped English weight can lie far above what a user entry may carry, and such a row must still be deletable.
 ///
-/// 自己取独占的维护租约，规则同 [`crate::edit_personal_dictionary`]。
+/// 自己取独占的维护租约，规则同 [`crate::edit_personal_dictionary`]；代次里没有 `msime-pinyin.db` 时同样只能改英文词库的行。
 pub fn edit_bundled_dictionary_entry(
     paths: &RuntimePaths,
     previous: &PersonalDictionaryEntry,
     weight: Option<i64>,
     request_id: &str,
 ) -> Result<()> {
-    check_bundled_edit(true, previous, weight, request_id)?;
+    let main_dictionary = generation_has_main_dictionary(paths);
+    check_bundled_edit(main_dictionary, previous, weight, request_id)?;
     let _access = maintenance(paths)?;
-    edit_bundled_dictionary_entry_with(paths, true, previous, weight, request_id)
+    edit_bundled_dictionary_entry_with(paths, main_dictionary, previous, weight, request_id)
 }
 
 /// [`edit_bundled_dictionary_entry`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`。没有时只有英文词库的行能改，其余种类以 `NO_CHINESE_DICTIONARY` 失败。不取维护租约，调用方已经持有。

@@ -838,3 +838,152 @@ fn last_error_belongs_to_the_calling_thread() {
     assert_eq!(other, "");
     assert!(!last_error().is_empty());
 }
+
+/// 只带韩语的数据（空的资源目录）：`prepare_runtime_for` 只为韩语准备，代次里没有拼音库和英文库，会话照样建起来打字；`reset_learning_for` 只清空日志。按全部方案准备同一个目录仍然失败；空集合和不认识的位不合法。
+#[test]
+fn prepare_runtime_for_needs_only_the_schemes_data() {
+    let root = tempfile::tempdir().expect("temporary directory");
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).expect("resources");
+    let utf8 = |path: PathBuf| path.to_str().expect("UTF-8 temporary path").to_owned();
+    let mut fixture = Fixture {
+        resources: utf8(resources),
+        user_data: utf8(root.path().join("user")),
+        cache: utf8(root.path().join("cache")),
+        dictionaries: String::new(),
+        _root: root,
+    };
+    let korean = 1 << MSIME_ENGINE_SCHEME_KOREAN;
+    let id = "korean";
+    let mut directory: *mut c_char = ptr::null_mut();
+    // SAFETY: 路径结构、id 和输出参数都在这里活着。
+    let status = unsafe {
+        msime_engine_prepare_runtime_for(
+            &fixture.paths(),
+            id.as_ptr().cast(),
+            id.len(),
+            korean,
+            &mut directory,
+        )
+    };
+    assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+    fixture.dictionaries = take_string(directory);
+    let generation = Path::new(&fixture.dictionaries);
+    assert!(!generation.join("msime-pinyin.db").exists());
+    assert!(!generation.join("msime-english.db").exists());
+
+    let options = serde_json::json!({
+        "version": 1,
+        "paths": {
+            "resources": fixture.resources,
+            "user_data": fixture.user_data,
+            "cache": fixture.cache,
+            "dictionaries": fixture.dictionaries,
+        },
+        "scheme": "korean",
+        "enabled_schemes": ["korean"],
+    })
+    .to_string();
+    let session = new_session(&options).expect("Korean session");
+    type_keys(session, "dkssud");
+    let mut result = empty_result();
+    // SAFETY: 句柄有效。
+    let status =
+        unsafe { msime_engine_command(session, MSIME_ENGINE_COMMAND_COMMIT_RAW, &mut result) };
+    assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+    assert_eq!(text(result.commit), "녕");
+    free(session);
+
+    // SAFETY: 路径结构活着。
+    let status = unsafe { msime_engine_reset_learning_for(&fixture.paths(), korean) };
+    assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+    assert!(!generation.join("msime-english.db").exists());
+
+    for (schemes, expected) in [
+        (0, MSIME_ENGINE_INVALID_ARGUMENT),
+        (1 << 15, MSIME_ENGINE_INVALID_ARGUMENT),
+        (
+            korean | 1 << MSIME_ENGINE_SCHEME_QUANPIN,
+            MSIME_ENGINE_FAILED,
+        ),
+    ] {
+        let other = "other";
+        // SAFETY: 同上。
+        let status = unsafe {
+            msime_engine_prepare_runtime_for(
+                &fixture.paths(),
+                other.as_ptr().cast(),
+                other.len(),
+                schemes,
+                ptr::null_mut(),
+            )
+        };
+        assert_eq!(status, expected, "{schemes:#x}: {}", last_error());
+    }
+    // SAFETY: 同上。
+    let status = unsafe {
+        msime_engine_prepare_runtime(
+            &fixture.paths(),
+            id.as_ptr().cast(),
+            id.len(),
+            ptr::null_mut(),
+        )
+    };
+    assert_ne!(status, MSIME_ENGINE_OK);
+    // SAFETY: 同上。
+    assert_eq!(
+        unsafe { msime_engine_reset_learning_for(&fixture.paths(), 0) },
+        MSIME_ENGINE_INVALID_ARGUMENT
+    );
+}
+
+/// 回车学词：缺省只学专用英文；`english.learn_typed_spellings_on_enter` 打开后拼不成音节的拼音也学成英文词；`COMMIT_RAW_WITHOUT_LEARNING` 上屏同样的原文、不学。
+#[test]
+fn enter_learning_follows_the_english_options() {
+    let fixture = Fixture::new();
+    let english_words = || -> Vec<String> {
+        user_dictionary(&fixture)["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .filter(|entry| entry["kind"] == "english")
+            .map(|entry| entry["key"].as_str().expect("key").to_owned())
+            .collect()
+    };
+    let commit = |session, command| {
+        let mut result = empty_result();
+        // SAFETY: 句柄有效。
+        let status = unsafe { msime_engine_command(session, command, &mut result) };
+        assert_eq!(status, MSIME_ENGINE_OK, "{}", last_error());
+        text(result.commit)
+    };
+
+    let session = fixture.session();
+    type_keys(session, "xyz");
+    assert_eq!(commit(session, MSIME_ENGINE_COMMAND_COMMIT_RAW), "xyz");
+    free(session);
+    assert!(english_words().is_empty());
+
+    let mut options: serde_json::Value = serde_json::from_str(&fixture.options()).unwrap();
+    options["english"] = serde_json::json!({ "learn_typed_spellings_on_enter": true });
+    let session = new_session(&options.to_string()).expect("session");
+    type_keys(session, "xyz");
+    assert_eq!(commit(session, MSIME_ENGINE_COMMAND_COMMIT_RAW), "xyz");
+    type_keys(session, "qwz");
+    assert_eq!(
+        commit(session, MSIME_ENGINE_COMMAND_COMMIT_RAW_WITHOUT_LEARNING),
+        "qwz"
+    );
+    free(session);
+    assert_eq!(english_words(), ["xyz"]);
+
+    options["english"] = serde_json::json!({
+        "learn_on_enter": false,
+        "learn_typed_spellings_on_enter": true,
+    });
+    let session = new_session(&options.to_string()).expect("session");
+    type_keys(session, "zzq");
+    assert_eq!(commit(session, MSIME_ENGINE_COMMAND_COMMIT_RAW), "zzq");
+    free(session);
+    assert_eq!(english_words(), ["xyz"]);
+}

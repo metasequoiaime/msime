@@ -61,16 +61,16 @@ preedit: ni'hao
 commit: 你好
 ```
 
-完整的版本是随包发布的 [`examples/quickstart.rs`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/examples/quickstart.rs)，数据目录从命令行给出：在仓库里 `cargo run --release --example quickstart -- <数据目录>`。其余方案要的文件见 [docs/data-formats.md 的「每个方案的最小数据集」](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#20-每个方案的最小数据集)；从 C 或别的语言用，见 [msime-engine-capi](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md#快速上手)。
+完整的版本是随包发布的 [`examples/quickstart.rs`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/examples/quickstart.rs)，数据目录从命令行给出：在仓库里 `cargo run --release --example quickstart -- <数据目录>`。`prepare_runtime_paths` 按全部方案准备，要 `msime-pinyin.db` 和 `msime-english.db`。只用几个方案时用 `prepare_runtime_paths_for`，传入与 `SessionOptions::enabled_schemes` 相同的 `SchemeSet`，数据目录只要有这些方案读的文件：没有全拼、双拼、五笔时两个库都不要求，韩文、越南文、藏文什么也不用带，日文只要 `msime-japanese.dat`（没有时只出假名），粤语、注音、笔画只要各自的语言库；带了 `msime-english.db` 时专用英文照样有补全、回车学词。重置学习用同一个集合调 `reset_learned_data_for`。逐个方案的文件与许可证见 [docs/data-formats.md 的「每个方案的最小数据集」](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#20-每个方案的最小数据集)；从 C 或别的语言用，见 [msime-engine-capi](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md#快速上手)。
 
 ## 能做什么
 
 - 方案：全拼、双拼（含自定义双拼表 `ShuangpinCustomTable`）、九键与 14 键、五笔 86/98、注音、粤拼、笔画、日文罗马字、韩文（两套式与罗马字布局）、越南文（Telex、VNI）、藏文（EWTS）。
 - 整句：词格解码，可选 n-gram、octagram 搭配模型和神经重排模型给句子打分。
 - 纠错：全拼的拼写纠错，触屏键盘的触点纠错。
-- 学习：用户选过的词与个人词典存在本地 SQLite，按日志回放。
+- 学习：用户选过的词与个人词典存在本地 SQLite，按日志回放。回车（`Command::CommitRaw`）缺省只把专用英文里打的词学进英文词库；`SessionOptions::learn_typed_spellings_on_enter` 打开后，临时英文的字母和拼不成完整音节的拼音也学（msime 自己的策略），`Command::CommitRawWithoutLearning` 上屏同样的原文而不学。
 
-引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），每个方案都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据。用哪套数据由采用方自己决定。
+引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），全拼、双拼、五笔都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据（只用日文、韩文、越南文、藏文、粤语、注音、笔画时可以不带它）。用哪套数据由采用方自己决定。
 
 给其他语言用的 C ABI 是单独的 [`msime-engine-capi`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md)，发布里有预编译好的库；可嵌入引擎库的设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
 

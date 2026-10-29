@@ -12,6 +12,7 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
+use crate::types::SchemeSet;
 use crate::user_dictionary::generation::{copy_private_file, merge_split_wubi, weakly_canonical};
 use crate::user_dictionary::journal::{
     checkpoint_journal, close_cached_journals, ensure_schema, open_database,
@@ -33,25 +34,46 @@ struct Replacement {
 ///
 /// 自己取独占的维护租约（`DictionaryAccess::try_maintenance`），在建好两个目录之后、动任何文件之前：还有会话或别的维护持着租约时以 `Busy`（`DICTIONARY_MAINTENANCE_BUSY`）失败，什么也不换。
 pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
-    reset(paths, true, true)
+    reset(paths, true, true, true)
 }
 
-/// [`reset_learned_data`]，`main_dictionary` 为假（代次里没有 `msime-pinyin.db`，见 `SchemeSet::reads_main_dictionary`）时只换回 `msime-english.db` 和清空日志，不要求也不复制 `msime-pinyin.db`。不取维护租约，调用方（host 门面背后的 host-api）已经持有。
+/// [`reset_learned_data`]，按代次准备时的方案集合（[`crate::prepare_runtime_paths_for`] 的 `schemes`）换回词库：只换回、只要求这个集合读的那几个，与准备代次的规则相同。不读 `msime-pinyin.db` 的集合不要求也不复制它；不要求 `msime-english.db` 的集合在资源目录带了它时换回它，没带时只清空日志。还有会话开着时以 `Busy` 失败，规则同 [`reset_learned_data`]。
+pub fn reset_learned_data_for(paths: &RuntimePaths, schemes: SchemeSet) -> Result<()> {
+    let main_dictionary = schemes.reads_main_dictionary();
+    reset(
+        paths,
+        main_dictionary,
+        main_dictionary || schemes.requires_english_dictionary(),
+        true,
+    )
+}
+
+/// [`reset_learned_data`]，`main_dictionary` 为假（代次里没有 `msime-pinyin.db`，见 `SchemeSet::reads_main_dictionary`）时不要求也不复制 `msime-pinyin.db`，`msime-english.db` 在资源目录里有才换回，然后清空日志。不取维护租约，调用方（host 门面背后的 host-api）已经持有。
 pub fn reset_learned_data_with(paths: &RuntimePaths, main_dictionary: bool) -> Result<()> {
-    reset(paths, main_dictionary, false)
+    reset(paths, main_dictionary, main_dictionary, false)
 }
 
-/// `take_lease` 为真时自己取维护租约，持到换完为止。
-fn reset(paths: &RuntimePaths, main_dictionary: bool, take_lease: bool) -> Result<()> {
+/// `english_required` 为假时 `msime-english.db` 在资源目录里有才换回。`take_lease` 为真时自己取维护租约，持到换完为止。
+fn reset(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    english_required: bool,
+    take_lease: bool,
+) -> Result<()> {
     paths.validate()?;
     if weakly_canonical(&paths.resources)? == weakly_canonical(&paths.dictionaries)? {
         return Err(EngineError::invalid(diagnostics::RESET_IN_PLACE));
     }
-    let names: &[&str] = if main_dictionary {
-        &[assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY]
-    } else {
-        &[assets::ENGLISH_DICTIONARY]
-    };
+    // 不要求的英文库看资源目录里有没有这一项，符号链接也算有，交给下面的检查按原来的方式拒绝。
+    let english = english_required
+        || fs::symlink_metadata(paths.resource(assets::ENGLISH_DICTIONARY)).is_ok();
+    let names: Vec<&str> = [
+        (main_dictionary, assets::MAIN_DICTIONARY),
+        (english, assets::ENGLISH_DICTIONARY),
+    ]
+    .into_iter()
+    .filter_map(|(present, name)| present.then_some(name))
+    .collect();
     let sources: Vec<PathBuf> = names.iter().map(|name| paths.resource(name)).collect();
     if !sources.iter().all(|source| is_real_file(source)) {
         return Err(EngineError::failed(
@@ -142,7 +164,7 @@ fn swap(
         copy_private_file(source, &replacement.temporary)
             .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
     }
-    // 与准备代次相同：单独发布的五笔码表并回新的工作主词库，否则重置之后五笔学习与删词都找不到表。没有工作主词库时 `replacements[0]` 是英文词库，不并。
+    // 与准备代次相同：单独发布的五笔码表并回新的工作主词库，否则重置之后五笔学习与删词都找不到表。没有工作主词库时 `replacements[0]` 是英文词库或日志，不并。
     if main_dictionary {
         merge_split_wubi(resources, &replacements[0].temporary)
             .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
