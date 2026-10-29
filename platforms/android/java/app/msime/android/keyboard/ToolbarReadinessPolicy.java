@@ -4,6 +4,8 @@ package app.msime.android;
  * 引擎会话还在建时，工具栏的表情、常用语、皮肤、输入方式和底行「中」键能不能点、点了做什么（#10086）。
  *
  * <p>每换一个输入框宿主都会销毁会话、在工作线程上同步个人词库、读实时偏好，再回主线程建新会话，这段空档在低端机上有一两秒。表情和常用语只读资源目录与偏好目录，「中」键只改宿主的中英状态，它们不需要会话，空档里照常可用。皮肤和输入方式的保存要经会话应用偏好，空档里点按先记下，会话和偏好就绪后立即打开面板。没有会话、也没有会话在建的输入框（密码框、数字框、启动失败退回直接输入）保持原样：这些入口不可用，「中」键只留长按切换输入法。
+ *
+ * <p>只管工具栏和底行的「中/英」键。日语 9 键左列自己的语言键仍直接调 `languageKeyTapped`，会话在建时点按无效：这个布局只在已经选了日语方案时出现，不在 #10086 报告的范围里，要接上时按 {@link #languageTap} 同样处理。
  */
 public final class ToolbarReadinessPolicy {
     private ToolbarReadinessPolicy() {}
@@ -79,13 +81,17 @@ public final class ToolbarReadinessPolicy {
      * @param cycles 设置「中英键轮换其他语言」是否打开
      * @param english 英文直输是否开着
      * @param otherLanguageSelected 当前方案是不是其他语言键盘
+     * @param deferred 会话在建时已经记下了一下要轮换的点按
      */
     public static LanguageTap languageTap(Session session, boolean cycles, boolean english,
-            boolean otherLanguageSelected) {
+            boolean otherLanguageSelected, boolean deferred) {
         if (session == Session.READY) return LanguageTap.ENGINE;
         if (session == Session.UNAVAILABLE) return LanguageTap.IGNORE;
         // 轮换打开时，从英文或其他语言出发的下一步是切方案，要会话和偏好算出启用了哪些语言键盘，只能推迟；从中文出发的下一步总是进英文，和轮换关着时一样只翻中英。
-        if (cycles && (english || otherLanguageSelected)) return LanguageTap.DEFER;
+        if (cycles && (english || otherLanguageSelected)) {
+            // 已经记下一下时再点不再记：切方案要等保存完才能接着切，就绪后连按几下只有第一下生效；这一下不给反馈、不计数，免得有声有振动却被吞掉。
+            return deferred ? LanguageTap.IGNORE : LanguageTap.DEFER;
+        }
         return LanguageTap.HOST_TOGGLE;
     }
 }

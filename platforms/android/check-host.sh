@@ -109,7 +109,7 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时。
+# 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，开始打字或删字时作废；收起键盘时作废记下的「中」键。
 service_java="$android_java/core/MSIMEInputService.java"
 panels_java="$android_java/core/ImePanels.java"
 emoji_body=$(sed -n '/^    void showEmojiPicker() {$/,/^    }$/p' "$panels_java")
@@ -130,7 +130,12 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! rg -q 'main\.post\(this::runDeferredToolbarTaps\);' <<< "$start_session_body" \
   || ! rg -q 'recordEngineSessionTiming\(createMillis\);' <<< "$start_session_body" \
   || ! rg -q 'runDeferredToolbarTaps\(\);' <<< "$reload_body" \
-  || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java"; then
+  || ! rg -q 'prefillSessionIndependentDirectories\(options\);' "$service_java" \
+  || ! sed -n '/^    void showCommonPhrases() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.commonPhrasesWorker\.execute' \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SKIN,' "$service_java" \
+  || ! rg -q 'deferrablePanelToggle\(ToolbarOrderPolicy\.Item\.SCHEME,' "$service_java" \
+  || ! sed -n '/^    private void finishInputViewPresentation() {$/,/^    }$/p' "$service_java" | rg_q_stdin 'pendingLanguageTap = false;' \
+  || ! sed -n '/^    boolean commitText(String text, TypingSource source) {$/,/^    }$/p' "$service_java" | rg_q_stdin 'dropDeferredToolbarPanel\(\);'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
@@ -760,14 +765,14 @@ if ! rg -q 'addSubMenu\(Menu\.NONE, Menu\.NONE, action\.ordinal\(\), action\.tit
   echo "Android candidate removal must confirm through the long-press submenu (#7793)" >&2
   exit 1
 fi
-# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
+# 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。和常用语面板的读取同在 commonPhrasesWorker 上，不排在建会话的偏好读取和词库同步后面（#10086）。
 if ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'preferencesWorker\.execute' \
+    | rg_q_stdin 'commonPhrasesWorker\.execute' \
   || ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
     | rg_q_stdin 'CommonPhrasesStore\.add\(s, text\)'; then
-  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
+  echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the common phrases worker (#5909, #10086)" >&2
   exit 1
 fi
 # 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。未被外层列表接手的纵向拖动也要取消卡片按压；列表只有一条时不可滚，Button 否则会把整段拖动当成点按。

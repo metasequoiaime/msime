@@ -925,6 +925,8 @@ public final class MSIMEInputService extends InputMethodService {
     final Paint emojiGlyphPaint = new Paint();
     private java.util.List<EmojiCatalogModel.Item> emojiCombinationItems;
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
+    /** 键盘里常用语的读取和「添加到常用语」都在这条线程上排队（#10086）：`preferencesWorker` 在每个新输入框里先做建会话前的偏好读取和个人词库同步，常用语排在它后面，会话在建时点开的常用语面板要一直显示「正在读取」到会话快建好。读写放在同一条线程上，刚添加的那条在随后打开的面板里一定读得到。 */
+    final ExecutorService commonPhrasesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
@@ -1461,6 +1463,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean commitText(String text, TypingSource source) {
         clearQuickDeleteUndo();
+        dropDeferredToolbarPanel();
         editorReads.invalidate();
         if (connection == null) return false;
         boolean committed;
@@ -1497,6 +1500,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
         clearQuickDeleteUndo();
+        dropDeferredToolbarPanel();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
@@ -2149,6 +2153,8 @@ public final class MSIMEInputService extends InputMethodService {
         closeCandidatePanel();
         // 工具栏面板一律走 closeToolbarPanels：逐个列举时漏掉过常用语，A 应用里打开的常用语会盖在 B 应用密码框的键盘上，一点就把短语上屏进密码框。
         closeToolbarPanels();
+        // 会话在建时记下的那一下「中」键属于这次弹出的键盘：收起后同一输入框重新弹出时启动会重新排上，不能在新键盘上自己执行（#10086）。
+        pendingLanguageTap = false;
         deactivateHandwriting();
         imeDebugOverlay.clearDiagnostic();
         // macOS resolves the same focus-loss boundary with finish_composition, so a keyboard put
@@ -2267,6 +2273,8 @@ public final class MSIMEInputService extends InputMethodService {
         flushTypingStatistics();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
+        // 已排上的「添加到常用语」照样写完。
+        commonPhrasesWorker.shutdown();
         // 同样排在 shutdown 之前：正在复制的那张写完后，这一步把它和更早的副本一起删掉。
         clearClipboardImages();
         clipboardImageWorker.shutdown();
@@ -4893,6 +4901,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean touched = imeTouchPoints.take(source);
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
+        dropDeferredToolbarPanel();
         if (connection == null) return;
         if (directEnglishActive()) {
             char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
@@ -5417,9 +5426,9 @@ public final class MSIMEInputService extends InputMethodService {
         return ToolbarReadinessPolicy.session(session != 0, engineStartupPending());
     }
 
-    /** 会话还在建时点下的皮肤或输入方式（null 为没有）：会话和偏好就绪后打开。换输入框（stop）、收起键盘或打开别的面板（closeToolbarPanels）时作废。 */
+    /** 会话还在建时点下的皮肤或输入方式（null 为没有）：会话和偏好就绪后打开。换输入框（stop）、收起键盘或打开别的面板（closeToolbarPanels）、再点一次同一个按钮（deferrablePanelToggle）、开始打字或删字（dropDeferredToolbarPanel）时作废。 */
     private ToolbarOrderPolicy.Item pendingToolbarPanel;
-    /** 会话还在建时点下、要轮换到其他语言键盘的那一下「中」键：会话和偏好就绪后照常按一次。只在 stop 时作废。 */
+    /** 会话还在建时点下、要轮换到其他语言键盘的那一下「中」键：会话和偏好就绪后照常按一次。换输入框（stop）和收起键盘（finishInputViewPresentation）时作废；已记下一下时再点不再记，见 ToolbarReadinessPolicy.languageTap。 */
     private boolean pendingLanguageTap;
     /** 这一代会话启动排上的时刻（uptime 毫秒），会话建好时算出等了多久写进性能记录；-1 为没有在等。 */
     private long engineStartupRequestedAt = -1;
@@ -5433,6 +5442,25 @@ public final class MSIMEInputService extends InputMethodService {
         pendingToolbarPanel = panel;
         render();
         return true;
+    }
+
+    /** 皮肤、输入方式按钮的点按：推迟中的按钮画成选中，再点一次就是取消，和面板开着时再点一次回到键盘一致；其余情况照 {@link ImeToolbar#panelToggle} 处理。 */
+    private Runnable deferrablePanelToggle(ToolbarOrderPolicy.Item panel, Runnable toggle) {
+        return () -> {
+            if (pendingToolbarPanel == panel) {
+                pendingToolbarPanel = null;
+                render();
+                return;
+            }
+            toggle.run();
+        };
+    }
+
+    /** 推迟着皮肤或输入方式时用户开始打字或删字：面板不再在会话建好后弹出来打断输入。 */
+    private void dropDeferredToolbarPanel() {
+        if (pendingToolbarPanel == null) return;
+        pendingToolbarPanel = null;
+        render();
     }
 
     /**
@@ -10183,7 +10211,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 没有会话、也没有会话在建时（密码框、数字框、启动失败）这个键仍可用（长按要能打开输入法选择框），但点按切不了中英：不给按键反馈、也不记一次按键，免得点上去有声有振动却什么也没发生。会话还在建时点按照常生效（#10086），见 ToolbarReadinessPolicy.languageTap。
         languageButton.setOnClickListener(ignored -> {
             ToolbarReadinessPolicy.LanguageTap tap = ToolbarReadinessPolicy.languageTap(toolbarSession(),
-                languageKeyCycles(), dedicatedEnglish, selectedScheme != null && selectedScheme.otherLanguage());
+                languageKeyCycles(), dedicatedEnglish, selectedScheme != null && selectedScheme.otherLanguage(),
+                pendingLanguageTap);
             if (tap == ToolbarReadinessPolicy.LanguageTap.IGNORE) return;
             imeKeyFeedback.playFeedback(languageButton);
             countKey(languageButton);
@@ -10235,11 +10264,13 @@ public final class MSIMEInputService extends InputMethodService {
         bindInputMethodPicker(globeButton);
         schemeButton = shortcutButton(controls, "输入方式",
             KeyboardShortcutIconPolicy.Icon.SCHEME,
-            imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker));
+            deferrablePanelToggle(ToolbarOrderPolicy.Item.SCHEME,
+                imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker)));
         schemeButton.setContentDescription("输入方案");
         skinButton = shortcutButton(controls, "皮肤",
             KeyboardShortcutIconPolicy.Icon.SKIN,
-            imeToolbar.panelToggle(() -> skinScroll, () -> imePanels.showSkinMenu(skinButton)));
+            deferrablePanelToggle(ToolbarOrderPolicy.Item.SKIN,
+                imeToolbar.panelToggle(() -> skinScroll, () -> imePanels.showSkinMenu(skinButton))));
         skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = shortcutButton(controls, "设置",
             KeyboardShortcutIconPolicy.Icon.SETTINGS, this::showLayoutSettings);
@@ -11624,7 +11655,10 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(skinButton, ToolbarReadinessPolicy.preferencePanelEnabled(toolbarSession(),
                 preferencesSnapshot != null && !preferencesDirectory.isEmpty()));
             skinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
-            if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
+            // 会话在建时和输入方式按钮一样念出这一下记下了没有（#10086），读屏用户才知道面板为什么还没出来。
+            if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(
+                toolbarSession() != ToolbarReadinessPolicy.Session.STARTING ? skin.title()
+                    : skin.title() + (pendingToolbarPanel == ToolbarOrderPolicy.Item.SKIN ? "，准备好后打开" : "，正在准备"));
         }
         synchronizeReplyKeyboard();
         if (layoutSettingsButton != null) ViewPolicy.hide(layoutSettingsButton);

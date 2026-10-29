@@ -42,22 +42,28 @@ public final class ToolbarReadinessPolicySmoke {
         // 「中」键。
         check(ToolbarReadinessPolicy.languageKeyActive(Session.STARTING), "the language key is live while starting");
         check(!ToolbarReadinessPolicy.languageKeyActive(Session.UNAVAILABLE), "the language key is dimmed without a session");
-        check(ToolbarReadinessPolicy.languageTap(Session.READY, true, true, false) == LanguageTap.ENGINE,
+        check(ToolbarReadinessPolicy.languageTap(Session.READY, true, true, false, false) == LanguageTap.ENGINE,
             "a ready session handles the tap");
-        check(ToolbarReadinessPolicy.languageTap(Session.UNAVAILABLE, false, false, false) == LanguageTap.IGNORE,
+        check(ToolbarReadinessPolicy.languageTap(Session.UNAVAILABLE, false, false, false, false) == LanguageTap.IGNORE,
             "a sessionless editor ignores the tap");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, false, false) == LanguageTap.HOST_TOGGLE,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, false, false, false) == LanguageTap.HOST_TOGGLE,
             "Chinese to English flips on the host");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, true, false) == LanguageTap.HOST_TOGGLE,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, true, false, false) == LanguageTap.HOST_TOGGLE,
             "English to Chinese flips on the host");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, false, true) == LanguageTap.HOST_TOGGLE,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, false, false, true, false) == LanguageTap.HOST_TOGGLE,
             "without cycling another language keyboard only flips English");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, false, false) == LanguageTap.HOST_TOGGLE,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, false, false, false) == LanguageTap.HOST_TOGGLE,
             "cycling from Chinese always enters English");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, true, false) == LanguageTap.DEFER,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, true, false, false) == LanguageTap.DEFER,
             "cycling from English needs the enabled language keyboards");
-        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, false, true) == LanguageTap.DEFER,
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, false, true, false) == LanguageTap.DEFER,
             "cycling from another language needs the enabled language keyboards");
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, true, false, true) == LanguageTap.IGNORE,
+            "a second cycling tap during startup is not recorded twice");
+        check(ToolbarReadinessPolicy.languageTap(Session.STARTING, true, false, true, true) == LanguageTap.IGNORE,
+            "a second cycling tap from another language is not recorded twice");
+        check(ToolbarReadinessPolicy.languageTap(Session.READY, true, true, false, true) == LanguageTap.ENGINE,
+            "a ready session handles every tap");
         System.out.println("Android toolbar readiness policy passed");
     }
 

@@ -2063,7 +2063,7 @@ final class ImePanels {
     /**
      * 长按操作行里的「添加到常用语」（#5909）：把这一条存成无编码常用语，之后在键盘的「常用语」面板里点一下就能上屏。
      *
-     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `preferencesWorker` 上，结果回到主线程显示独立提示，不重画剪贴板列表。先把回车换成换行，仍存不下的按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
+     * <p>经 {@link CommonPhrasesStore#add} 写入，校验、去重、条数上限和标记同步都在那里；常用语读写要等文件锁，放在 `commonPhrasesWorker` 上（与面板读取同一条线程，不排在建会话的偏好读取和词库同步后面），结果回到主线程显示独立提示，不重画剪贴板列表。先把回车换成换行，仍存不下的按实际原因说明（{@link CommonPhrasesPanelPolicy#clipboardRefusal}）。
      */
     private void addClipboardTextToPhrases(String entry) {
         long request = s.beginClipboardPhraseNotice();
@@ -2074,7 +2074,7 @@ final class ImePanels {
             return;
         }
         try {
-            s.preferencesWorker.execute(() -> {
+            s.commonPhrasesWorker.execute(() -> {
                 CommonPhrasesStore.Result result;
                 try {
                     result = CommonPhrasesStore.add(s, text);
@@ -2652,7 +2652,7 @@ final class ImePanels {
 
     private String expandedPhraseCategory = "all";
 
-    /** 工具栏「常用语」：后台读共享文档，每次打开采用保存的默认展开项。 */
+    /** 工具栏「常用语」：在 `commonPhrasesWorker` 上读共享文档，每次打开采用保存的默认展开项。会话还在建时也能打开（#10086），读取不排在建会话的偏好读取和词库同步后面。 */
     void showCommonPhrases() {
         if (s.phraseScroll == null || s.phrasePanel == null) return;
         s.command(2);
@@ -2661,7 +2661,7 @@ final class ImePanels {
         renderCommonPhrases(CommonPhrasesStore.Document.EMPTY, "正在读取常用语…");
         ViewPolicy.show(s.phraseScroll);
         try {
-            s.preferencesWorker.execute(() -> {
+            s.commonPhrasesWorker.execute(() -> {
                 CommonPhrasesStore.Result result;
                 try { result = CommonPhrasesStore.load(s); }
                 catch (RuntimeException | LinkageError error) { result = null; }
