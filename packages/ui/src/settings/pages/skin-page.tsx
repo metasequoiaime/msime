@@ -40,7 +40,7 @@ import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { useAsyncGeneration } from "../use-async-generation";
-import { harmonyTouchRowsForPreferences } from "../../keyboard/keyboard-layouts";
+import { harmonyTouchRowsForPreferences } from "../touch-key-layout-settings";
 
 /** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题按顶部的「内置 / 我的 / 社区」分成键盘缩略图网格，点按即应用；标签栏和「社区」的完整图库由设置外壳画在表单之外，这里只画前两个分类的网格（`tabs`）。 */
 export function SkinSettingsPage({

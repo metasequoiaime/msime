@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」页的整块键盘预览：按 {@link KeyLayoutStylesPolicy#keyboard} 逐行画出所选样式下的整副键盘，每行按份额铺满，跨两行的回车画成一整块，被盖住的格和缩进只占宽度。键盘底色、键帽色和回车的强调色取应用当前主题；这个样式与「标准」不同的键（{@link KeyLayoutStylesPolicy#highlights}）外面描一圈强调色。
+ * 「按键布局」页的整块键盘预览：按 {@link KeyLayoutStylesPolicy#keyboard} 逐行画出所选样式下的整副键盘，每行按份额铺满，跨两行的回车画成一整块，被盖住的格和缩进只占宽度；带 {@link KeyLayoutStylesPolicy.Key#stack} 的一格（9 键的左侧符号栏）把它占的整块高度等分给栏里的每一项，键与键之间留同样的间隙。键盘底色、键帽色和回车的强调色取应用当前主题；这个样式与「标准」不同的键（{@link KeyLayoutStylesPolicy#highlights}）外面描一圈强调色。
  *
  * <p>只是示意，不可点，读屏跳过它：胶囊按钮自己有名字和选中状态，说明写在胶囊下面。
  */
@@ -105,20 +105,38 @@ final class KeyLayoutPreview extends View {
                         case FUNCTION -> function;
                         case CHARACTER -> character;
                     };
-                    fill.setColor(background);
-                    box.set(x, top, x + width, top + height);
-                    canvas.drawRoundRect(box, radius, radius, fill);
-                    if (highlights.contains(key.id())) {
-                        // 描边画在键外面一圈，回车本身是强调色时也看得出被高亮。
-                        box.inset(-ringOffset, -ringOffset);
-                        canvas.drawRoundRect(box, radius + ringOffset, radius + ringOffset, ring);
+                    int color = key.tone() == KeyLayoutStylesPolicy.Tone.RETURN ? onAccent : ink;
+                    boolean highlighted = highlights.contains(key.id());
+                    List<String> stack = key.stack();
+                    if (stack.isEmpty()) {
+                        drawKey(canvas, key.face(), x, top, width, height, background, highlighted, radius, ringOffset,
+                            maxText, minText, color);
+                    } else {
+                        // 竖栏里每项等高，与键盘的 NineKeySidebarPolicy.rowHeight 一样均分整条栏。
+                        float cell = (height - gap * (stack.size() - 1)) / stack.size();
+                        float cellText = Math.min(maxText, cell * .42f);
+                        for (int index = 0; index < stack.size(); index++) {
+                            drawKey(canvas, stack.get(index), x, top + index * (cell + gap), width, cell, background,
+                                highlighted, radius, ringOffset, cellText, Math.min(minText, cellText), color);
+                        }
                     }
-                    drawFace(canvas, key.face(), x, top, width, height, maxText, minText,
-                        key.tone() == KeyLayoutStylesPolicy.Tone.RETURN ? onAccent : ink);
                 }
                 x += width + gap;
             }
         }
+    }
+
+    /** 一个键：底色、高亮时外面一圈强调色描边（回车本身是强调色时也看得出被高亮），再画居中的键面。 */
+    private void drawKey(Canvas canvas, String face, float left, float top, float width, float height, int background,
+            boolean highlighted, float radius, float ringOffset, float maxText, float minText, int color) {
+        fill.setColor(background);
+        box.set(left, top, left + width, top + height);
+        canvas.drawRoundRect(box, radius, radius, fill);
+        if (highlighted) {
+            box.inset(-ringOffset, -ringOffset);
+            canvas.drawRoundRect(box, radius + ringOffset, radius + ringOffset, ring);
+        }
+        drawFace(canvas, face, left, top, width, height, maxText, minText, color);
     }
 
     /** 键面居中，放不下时缩小字号（最小 8sp），「空格」「重输」这类两个字的键面在窄键上也不出界。 */

@@ -18,7 +18,7 @@
 #define MSIME_ENGINE_ABI_MAJOR 1
 
 // ABI 次版本，每次追加加一。调用方可以按 `msime_engine_abi_version()` 判断运行时的库有没有某个后加的函数。
-#define MSIME_ENGINE_ABI_MINOR 0
+#define MSIME_ENGINE_ABI_MINOR 1
 
 // 成功。
 #define MSIME_ENGINE_OK 0
@@ -72,7 +72,7 @@
 // 上屏首选（引擎顺序的第 0 行）。宿主自己高亮了别的行时用 `msime_engine_select`。
 #define MSIME_ENGINE_COMMAND_COMMIT_CANDIDATE 1
 
-// 上屏按键原文（回车）。
+// 上屏按键原文（回车）。专用英文里打的词学进英文词库；选项 `english.learn_typed_spellings_on_enter` 打开时，临时英文的字母和拼不成音节的拼音也学。
 #define MSIME_ENGINE_COMMAND_COMMIT_RAW 2
 
 // 丢弃组字（Esc）。越南文和藏文的第一次只把显示切回按键原文，再发一次才丢弃；开着可打开的候选列表（韩文汉字）时第一次只关列表。
@@ -102,6 +102,9 @@
 
 // 整句改字的光标右移一个字；不在改字里时与 `MOVE_RIGHT` 相同。
 #define MSIME_ENGINE_COMMAND_CONVERSION_RIGHT 13
+
+// ABI 1.1 起：与 `COMMIT_RAW` 上屏同样的原文，但不学英文词（例如宿主的 Shift+回车）。1.0 的库对它返回 `MSIME_ENGINE_UNSUPPORTED`。
+#define MSIME_ENGINE_COMMAND_COMMIT_RAW_WITHOUT_LEARNING 14
 
 #define MSIME_ENGINE_SOURCE_DATABASE 0
 
@@ -350,7 +353,7 @@ const char *msime_engine_last_error(void);
 // `text` 是 NULL 或这个库交出、还没释放过的字符串。
 void msime_engine_string_free(char *text);
 
-// 准备运行时：在 `user_data/dictionaries/<content_id>` 原子地准备一个代次（从 `resources` 复制工作词库并回放学习日志），已就绪的代次只补回放。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据变了就换一个；带点的版本号要先换掉点（`dict-v2_0_39`）。三个根目录必须是绝对路径、互不重叠。`paths.dictionaries` 不读。ABI 1.0 不分方案：`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`，即使会话只用日文、韩文这类不读拼音词库的方案。成功时把代次目录写进 `*dictionaries`（可以是 NULL），用 `msime_engine_string_free` 释放；建会话时它就是 `paths.dictionaries`。
+// 准备运行时：在 `user_data/dictionaries/<content_id>` 原子地准备一个代次（从 `resources` 复制工作词库并回放学习日志），已就绪的代次只补回放。`content_id` 是 1 到 128 个 `[0-9A-Za-z_-]`，随包数据变了就换一个；带点的版本号要先换掉点（`dict-v2_0_39`）。三个根目录必须是绝对路径、互不重叠。`paths.dictionaries` 不读。按全部方案准备：`resources` 里必须有 `msime-pinyin.db` 和 `msime-english.db`；只用其中几个方案时用 `msime_engine_prepare_runtime_for`，只带那几个方案的数据。成功时把代次目录写进 `*dictionaries`（可以是 NULL），用 `msime_engine_string_free` 释放；建会话时它就是 `paths.dictionaries`。
 //
 // # Safety
 // `paths` 按 `struct_size` 约定可读；`content_id` 指向 `content_id_len` 个可读字节；`dictionaries` 是 NULL 或可写一个指针。
@@ -358,6 +361,16 @@ int32_t msime_engine_prepare_runtime(const struct msime_engine_paths *paths,
                                      const char *content_id,
                                      size_t content_id_len,
                                      char **dictionaries);
+
+// ABI 1.1 起。同 `msime_engine_prepare_runtime`，只为 `schemes` 里的方案准备：`resources` 只要有这些方案读的词库。`schemes` 的第 n 位是序号为 n 的方案（`1u << MSIME_ENGINE_SCHEME_KOREAN`），要与会话选项的 `enabled_schemes` 相同，不能是 0，不认识的位是 `MSIME_ENGINE_INVALID_ARGUMENT`。有全拼、双拼或五笔时与 `msime_engine_prepare_runtime` 相同，要 `msime-pinyin.db` 和 `msime-english.db`；没有时两者都不要求，`resources` 带了 `msime-english.db` 就照样复制进代次（专用英文的补全与回车学词用它），没带时代次里没有它。日文的 `msime-japanese.dat` 和粤语、注音、笔画的语言库不经过代次，会话从 `resources` 或选项给的路径直接读。
+//
+// # Safety
+// 同 `msime_engine_prepare_runtime`。
+int32_t msime_engine_prepare_runtime_for(const struct msime_engine_paths *paths,
+                                         const char *content_id,
+                                         size_t content_id_len,
+                                         uint32_t schemes,
+                                         char **dictionaries);
 
 // 立刻写下所有排着的个人上下文学习（平时延迟约 2 秒写）。`flags` 带 `MSIME_ENGINE_FLUSH_STOP_THREAD` 时再停掉后台写线程并等它结束：卸载库、退出进程前用。
 int32_t msime_engine_flush_learning(uint32_t flags);
@@ -396,11 +409,18 @@ int32_t msime_engine_user_dict_edit(const struct msime_engine_paths *paths,
                                     const char *edit_json,
                                     size_t edit_len);
 
-// 清空学到的一切：换回随包的工作词库、清空学习日志。和 `msime_engine_prepare_runtime` 一样要求 `resources` 里有 `msime-pinyin.db`。还有会话开着时返回 `MSIME_ENGINE_BUSY`，什么也不换。
+// 清空学到的一切：换回随包的工作词库、清空学习日志。和 `msime_engine_prepare_runtime` 一样要求 `resources` 里有 `msime-pinyin.db` 和 `msime-english.db`；代次是用 `msime_engine_prepare_runtime_for` 准备的，就用 `msime_engine_reset_learning_for` 传同一个方案集合。还有会话开着时返回 `MSIME_ENGINE_BUSY`，什么也不换。
 //
 // # Safety
 // `paths` 按 `struct_size` 约定可读。
 int32_t msime_engine_reset_learning(const struct msime_engine_paths *paths);
+
+// ABI 1.1 起。同 `msime_engine_reset_learning`，只换回 `schemes` 读的词库，规则与 `msime_engine_prepare_runtime_for` 相同：没有全拼、双拼、五笔时不要求 `msime-pinyin.db`，`msime-english.db` 在 `resources` 里有才换回，都没有时只清空日志。`schemes` 的写法同 `msime_engine_prepare_runtime_for`。
+//
+// # Safety
+// `paths` 按 `struct_size` 约定可读。
+int32_t msime_engine_reset_learning_for(const struct msime_engine_paths *paths,
+                                        uint32_t schemes);
 
 // 按选项 JSON（版本 1，键表见 README）建一个会话，成功时把句柄写进 `*session`，失败时写 NULL。会话持有这两个目录上的共享词库租约，直到释放：租约在维护（`msime_engine_user_dict_edit`、`msime_engine_reset_learning`）进行时拿不到，这时返回 `MSIME_ENGINE_BUSY`。
 //

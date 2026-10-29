@@ -22,10 +22,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// The largest imported word list this layer will parse, in bytes.
-///
-/// A five-thousand-word CET book is a few hundred kilobytes of text; this is the ceiling on the
-/// envelope, and [`wordbook_import`] applies its own row and entry limits underneath.
+/// 原始词表文本的字节上限，不包含宿主 JSON 请求的转义与元数据。
+/// [`wordbook_import`] 另外校验行数和词条内容；传输层不能直接用本值限制整个请求。
 pub const MAX_IMPORT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]

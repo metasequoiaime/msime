@@ -1,6 +1,6 @@
 //! zinnia's feature extraction (`feature.cpp` `Features::read`), ported for identical scores.
 //!
-//! Ported from zinnia (https://github.com/taku910/zinnia at 581faa8f), Copyright (c) 2005-2007 Taku Kudo, under its 3-clause BSD license, whose text ships with the product notices as `Zinnia-LICENSE.txt`.
+//! Ported from zinnia (<https://github.com/taku910/zinnia> at 581faa8f), Copyright (c) 2005-2007 Taku Kudo, under its 3-clause BSD license, whose text ships with the product notices as `Zinnia-LICENSE.txt`.
 //!
 //! The mixed precision is deliberate and is what the model was trained against: the reference stores coordinates as `float` but computes every expression involving the `double` literal `0.5` in double before truncating the result to `float`. Each function below keeps the reference's precision per expression. Rust never fuses a multiply and an add, so the results match a reference built without floating-point contraction (the x86-64 default).
 

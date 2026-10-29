@@ -9,7 +9,7 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 从真实九键侧栏输入完整括号，检查普通编辑器与忽略光标参数的编辑器（#8625）。 */
+/** 从真实九键侧栏输入完整括号，检查普通编辑器与忽略光标参数的编辑器（#8625）。两张符号表写在共享偏好 `touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols` 里（#10223），不再经本机设置文件。 */
 public final class NineKeySidebarPairDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return "nine-key sidebar pairs keep the caret inside on both layers and with automatic completion disabled";
@@ -23,21 +23,17 @@ public final class NineKeySidebarPairDeviceSmoke extends DeviceSmoke {
         if (!directory.toPath().startsWith(root.toPath()))
             throw new AssertionError("Preferences escaped the test sandbox");
         File preferences = new File(directory, "preferences.json");
-        File local = new File(new File(new File(root, "bootstrap"), "state"), "android-settings.json");
         byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
-        byte[] originalLocal = local.exists() ? Files.readAllBytes(local.toPath()) : null;
         long revision = original == null ? 0
             : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
+        JSONArray symbols = new JSONArray().put("()").put("（）").put(":-)").put("(");
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString())
             .put("scheme", "quanpin").put("touch_keyboard_layout", "nine_key")
             .put("touch_keyboard_schemes", new JSONObject()
-                .put("enabled", new JSONArray().put("nine_key")).put("selected", "nine_key"));
+                .put("enabled", new JSONArray().put("nine_key")).put("selected", "nine_key"))
+            .put("touch_nine_key_sidebar_symbols", symbols)
+            .put("touch_nine_key_digit_sidebar_symbols", symbols);
         try {
-            JSONObject settings = new JSONObject()
-                .put("platform.android.nine_key_symbols", "() （） :-) (")
-                .put("platform.android.nine_key_digit_symbols", "() （） :-) (");
-            publish(local, new JSONObject().put("version", 1).put("settings", settings).toString()
-                .getBytes(StandardCharsets.UTF_8));
             for (boolean automatic : new boolean[] {true, false}) {
                 stage = "prepare nine-key sidebar, automatic " + automatic;
                 base.put("paired_punctuation", automatic).put("character_width", "halfwidth");
@@ -96,8 +92,6 @@ public final class NineKeySidebarPairDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
-            if (originalLocal == null) Files.deleteIfExists(local.toPath());
-            else publish(local, originalLocal);
             restartIme();
         }
     }

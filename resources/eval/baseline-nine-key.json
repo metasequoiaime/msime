@@ -46,10 +46,10 @@
   "overall": {
     "cases": 2791,
     "found": 0.968,
-    "mrr": 0.674,
+    "mrr": 0.675,
     "top1": 0.553,
     "top1_char_prefix": 0.588,
-    "top5": 0.834,
+    "top5": 0.835,
     "top9": 0.892
   },
   "sample_failures": [

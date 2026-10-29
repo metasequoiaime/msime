@@ -50,7 +50,7 @@
     "top1": 0.75,
     "top1_char_prefix": 0.783,
     "top5": 0.943,
-    "top9": 0.981
+    "top9": 0.982
   },
   "sample_failures": [
     {

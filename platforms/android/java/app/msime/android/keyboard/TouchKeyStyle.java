@@ -69,6 +69,22 @@ public final class TouchKeyStyle {
     public static final String SYMBOL_FIRST_TITLE = "26 键「符」与「123」互换";
     public static final String SYMBOL_FIRST_NOTE = "符 排在 123 左边；长空格和表情键样式没有 符，不受影响。";
 
+    /** 中/英键在空格哪一边（共享偏好 `touch_language_key_side`，`right` 缺省、`left`），见 {@link KeyboardActionRow#languageBeforeSpace}。 */
+    public static final String LANGUAGE_KEY_SIDE_PREFERENCE = "touch_language_key_side";
+    /** 「中/英键放在空格左边」开关的标题和说明，三端逐字相同（iOS `TouchKeyLayoutOffering.languageLeftTitle`、共享设置页 `languageKeyLeftTitle`）。 */
+    public static final String LANGUAGE_LEFT_TITLE = "中/英键放在空格左边";
+    public static final String LANGUAGE_LEFT_NOTE = "中/英 排到空格左边，逗号、句号仍紧挨空格。";
+
+    /** 偏好里读到的值（`JSONObject.opt` 的结果，缺键时为 null）是不是「左」：只有字符串恰好是 `left` 才算，缺键、`right`、不认识的字符串和非字符串都按右读（不认识的字符串与 client-core 的宽松读取一致；非字符串在 client-core 那里整份文档报错，宿主拿到的偏好里不会有）。 */
+    public static boolean languageLeft(Object value) {
+        return "left".equals(value);
+    }
+
+    /** 设置页开关写进偏好的写法：打开写 `left`，关上写 `right`（client-core 保存时把缺省的 `right` 从文档里省掉）。 */
+    public static String languageKeySideWire(boolean left) {
+        return left ? "left" : "right";
+    }
+
     /** 底行的一种排法；每类键面只提供其中几种（{@link #TWENTY_SIX_KEY_ROWS}、{@link #FOURTEEN_KEY_ROWS}、{@link #NINE_KEY_ROWS}）。 */
     public enum Row {
         STANDARD("standard"),

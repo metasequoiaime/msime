@@ -206,7 +206,7 @@ public final class MSIMEInputService extends InputMethodService {
     FrameLayout clipboardSurface;
     LinearLayout clipboardHeader;
     Button clipboardBackToTop;
-    /** 多选删除后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073）；没有可撤销的记录时收起。 */
+    /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
     Button clipboardUndoButton;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
@@ -348,6 +348,14 @@ public final class MSIMEInputService extends InputMethodService {
     boolean twentySixSymbolFirst;
     /** 九宫格数字键盘里空格的位置，来自共享偏好 `touch_number_pad_space`，缺省是 Android 原来的右列。 */
     TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+    /** 九键左侧符号栏字母键面那张表，来自共享偏好 `touch_nine_key_sidebar_symbols`；空表表示用出厂表（{@link NineKeySidebarPolicy}）。 */
+    java.util.List<String> nineKeySidebarSymbols = java.util.List.of();
+    /** 九宫格数字键盘左列那张表，来自共享偏好 `touch_nine_key_digit_sidebar_symbols`；空表表示用出厂表。 */
+    java.util.List<String> nineKeyDigitSidebarSymbols = java.util.List.of();
+    /** 大屏单手模式空出来那一侧放什么（#10203），来自共享偏好 `touch_one_handed_side_panel`，缺省空着；画不画还要看单手、屏宽和键面，见 {@link OneHandSidePadPolicy#shown}。 */
+    OneHandSidePadPolicy.Panel oneHandedSidePanel = OneHandSidePadPolicy.Panel.OFF;
+    /** 中/英键排在空格左边，来自共享偏好 `touch_language_key_side`（只有 `left` 算），缺省在右边、紧挨回车。 */
+    boolean languageKeyLeft;
     /** 拼音九键「九键滑动输入数字」的方向，来自共享偏好 `touch_nine_key_swipe_digits`（{@link NineKeySwipePolicy#mode}），缺省关闭。只影响按键的触摸判定，不改键面，所以不进 touchGeometryKey；每次触摸判定时读当前值，改了下一次触摸就生效。 */
     String nineKeySwipeDigits = NineKeySwipePolicy.OFF;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
@@ -2956,6 +2964,10 @@ public final class MSIMEInputService extends InputMethodService {
         numberRowEnabled = numberRowFrom(preferences);
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
+        nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);
+        nineKeyDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);
+        oneHandedSidePanel = oneHandedSidePanelFrom(preferences);
+        languageKeyLeft = languageKeyLeftFrom(preferences);
         nineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
@@ -3000,6 +3012,22 @@ public final class MSIMEInputService extends InputMethodService {
     private static TouchKeyStyle.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {
         return preferences == null ? TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
             : TouchKeyStyle.NumberPadSpace.parse(JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE)));
+    }
+
+    /** 九键左侧符号栏的一张表；没有偏好、缺键或不是数组时是空表（出厂表），数组里不是字符串的元素丢掉，与 client-core 的宽松读取一致。 */
+    private static java.util.List<String> sidebarSymbolsFrom(JSONObject preferences, String key) {
+        return preferences == null ? java.util.List.of() : NineKeySidebarPolicy.fromPreference(preferences.opt(key));
+    }
+
+    /** 大屏单手侧边面板；没有偏好、缺键、不是字符串或不认识的写法都按空着，与 client-core 的宽松读取一致。 */
+    private static OneHandSidePadPolicy.Panel oneHandedSidePanelFrom(JSONObject preferences) {
+        return preferences == null ? OneHandSidePadPolicy.Panel.OFF
+            : OneHandSidePadPolicy.parse(JsonPolicy.strictString(preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY)));
+    }
+
+    /** 中/英键在空格左边；没有偏好、缺键、`right` 和不认识的写法都按右边，与 client-core 的宽松读取一致。 */
+    private static boolean languageKeyLeftFrom(JSONObject preferences) {
+        return preferences != null && TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
     }
 
     /** 九键滑动输入数字；没有偏好、缺键或不认识的写法都按关闭，与 client-core 的宽松读取一致。 */
@@ -3516,7 +3544,9 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved();
+            + ":" + oneHandedSidePanel.wire
+            + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved() + ":" + languageKeyLeft
+            + ":" + NineKeySidebarPolicy.format(nineKeySidebarSymbols) + ":" + NineKeySidebarPolicy.format(nineKeyDigitSidebarSymbols);
     }
 
     private void reloadPreferences(String response) {
@@ -3659,6 +3689,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextSymbolFirst = symbolFirstFrom(preferences);
         TouchKeyStyle.NumberPadSpace nextNumberPadSpace = numberPadSpaceFrom(preferences);
+        java.util.List<String> nextSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);
+        java.util.List<String> nextDigitSidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.DIGIT_PREFERENCE);
+        OneHandSidePadPolicy.Panel nextOneHandedSidePanel = oneHandedSidePanelFrom(preferences);
+        boolean nextLanguageKeyLeft = languageKeyLeftFrom(preferences);
         String nextNineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
@@ -3757,6 +3791,13 @@ public final class MSIMEInputService extends InputMethodService {
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
         numberPadSpace = nextNumberPadSpace;
+        // 两张左侧符号表也进了 touchGeometryKey：变了就 render()，render 里的 sidebarStale 按新表重建键行，不打断正在组的字。
+        nineKeySidebarSymbols = nextSidebarSymbols;
+        nineKeyDigitSidebarSymbols = nextDigitSidebarSymbols;
+        // 侧边面板同样进了 touchGeometryKey，变了就 render()，渲染里的 ImeFrame.applyOneHanded 按它摆上或摘下面板。
+        oneHandedSidePanel = nextOneHandedSidePanel;
+        // 中/英在空格哪一边同样进了 touchGeometryKey：底行签名带着它，右侧大回车外框由 render 里的 tallReturnStale 整块重建。
+        languageKeyLeft = nextLanguageKeyLeft;
         // 九键滑动只在触摸判定时读（bindNineKeySwipe），不用重画键盘，下一次触摸就按新方向判定。
         nineKeySwipeDigits = nextNineKeySwipeDigits;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
@@ -6833,6 +6874,9 @@ public final class MSIMEInputService extends InputMethodService {
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
         TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
         TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE,
+        NineKeySidebarPolicy.LETTER_PREFERENCE, NineKeySidebarPolicy.DIGIT_PREFERENCE,
+        OneHandSidePadPolicy.PREFERENCE_KEY,
+        TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE,
         NineKeySwipePolicy.PREFERENCE, "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
@@ -8803,10 +8847,27 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
+    /**
+     * 删除一条：长按操作行里的「删除」和左滑露出的垃圾桶都走这里。
+     *
+     * <p>和多选删除一样走共享存储的 `remove_many`，拿到删除前的完整条目（文字、时间戳、固定状态、分类），删除后同样可以在「撤销时长」内撤销（#10080）；共享层单条的 `remove` 只回答删没删，不交回快照，撤销时只能按文字重新加回，时间戳和固定状态都会丢。
+     */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
         try {
-            clipboardHistory.remove(item.text());
+            holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
+            forgetCurrentClip();
+        } catch (IllegalStateException error) {
+            notice("无法修改剪贴板历史");
+        }
+        imePanels.renderClipboardHistory();
+    }
+
+    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
+    void removeClipboardItems(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        try {
+            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
@@ -8815,26 +8876,20 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。
+     * 记下刚删掉的条目供撤销，并从头开始倒数；单条删除和多选删除共用，返回是否真的删掉了记录。
      *
-     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。
+     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。只留最近一次删除，新的删除替换还没到期的上一次。什么都没删掉时（记录已被别处删掉）不碰上一次的撤销，倒数照走。
      */
-    void removeClipboardItems(java.util.List<String> texts) {
-        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
-        try {
-            clipboardUndoTexts = clipboardHistory.removeMany(texts);
-            if (clipboardUndoTexts.isEmpty()) return;
-            main.removeCallbacks(clipboardUndoTick);
-            int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
-            long now = SystemClock.uptimeMillis();
-            clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
-            main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
-            forgetCurrentClip();
-            notice(ClipboardUndoPolicy.deletedNotice(texts.size(), seconds));
-        } catch (IllegalStateException error) {
-            notice("无法修改剪贴板历史");
-        }
-        imePanels.renderClipboardHistory();
+    private boolean holdClipboardUndo(java.util.List<ClipboardHistory.Item> removed) {
+        if (removed.isEmpty()) return false;
+        clipboardUndoTexts = removed;
+        main.removeCallbacks(clipboardUndoTick);
+        int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
+        long now = SystemClock.uptimeMillis();
+        clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
+        main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
+        notice(ClipboardUndoPolicy.deletedNotice(removed.size(), seconds));
+        return true;
     }
 
     private java.util.List<ClipboardHistory.Item> clipboardUndoTexts;

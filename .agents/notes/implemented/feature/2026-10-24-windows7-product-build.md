@@ -22,6 +22,16 @@ Status: implemented
 
 `windows7-tsf-desktop --desktop` 仅由可见交互桌面显式调用，不能加入普通 CTest。它启动本架构系统目录下的独立记事本，只读写并关闭自己创建的窗口，以 `SendInput` 虚拟键输入合成拼音，要求已安装 Server 显示候选，再按空格并核对中文结果；不使用 Unicode 直输或直接写编辑框冒充 TSF 验收。激活和恢复遵循 [ITfInputProcessorProfileMgr::ActivateProfile](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinputprocessorprofilemgr-activateprofile) 的会话范围，不修改默认输入法。探针显式打开自己创建的编辑器的临时中文状态：产品默认 `default_ime_mode=english` 保持不变，不能把英文模式下透传拼音判作兼容故障。通过系统默认 IME 窗口的 `WM_IME_CONTROL/IMC_SETOPENSTATUS` 选择中文，仍必须由真实虚拟键得到候选并提交中文。
 
+### 安装登记的注册表视图
+
+Win7 的 WOW64 实测中，32 位进程以 `RegGetValueW` 的 `RRF_SUBKEY_WOW6464KEY` 读取安装器的 `DataDir` 返回 2，而先 `RegOpenKeyExW(KEY_QUERY_VALUE | KEY_WOW64_64KEY)` 再查询同一值返回 0。旧实现使 32 位 TSF 回落到另一份状态目录，即使管道握手正常也不能得到正确候选。
+
+安装器仍只在 HKLM 的 64 位视图登记。C++ 状态根和 TSF 的 `ServerPath` 共用显式打开视图的字符串读取函数；Rust 的 MCP／共享面板宿主采用相同顺序。成功打开的句柄由局部 RAII 关闭；不依赖新 `RRF` 标志，不改变环境覆盖的优先级、回退目录或产品默认值。验收必须读取真实安装登记，不能注入 `DataDir` 环境变量绕过问题。
+
+这增加一次显式打开与关闭，但避免维护两份安装登记。原生状态目录测试在隔离的 HKCU Classes 子树分别写入两个视图的不同合成值，要求实际读取函数选中 64 位值，并拒绝缺键、缺值与错误类型；在 Win7 WOW64 运行才能覆盖本次系统差异。最终完整包的双架构真实输入复验另行记录。
+
+#10252 合并时没有任何 CI 作业运行这个测试：根 `platforms/windows` 构建树只由 Windows GNU 交叉编译作业编译，那里不跑 ctest；其余 Windows ctest 用的是 Win7 设置、面板、兼容 API 等别的构建树，而且全是 x64 进程，64 位视图本来就是缺省，旧的 `RRF_SUBKEY_WOW6464KEY` 写法照样能过。现在 `ci-platforms.yml` 的 Windows release script tests 作业以 pipe-only 配置（不链接 Rust 库，只从 runner 自带的 vcpkg 装 nlohmann_json 头文件库）单独编译 `windows-state-directory`，x64 和 Win32 各跑一次 ctest；#10272 自己的 CI（run 40877812892）上两种架构均编译通过、测试通过，整步约 42 秒。Win32 进程在 x64 runner 上走 WOW64，覆盖 32 位进程显式打开 64 位视图以及多余终止符、缺值、缺键和非字符串值；它运行在现代 Windows 上，那里两种写法结果相同，所以它锁住的是读取函数的契约，不能证明 Win7 上的系统差异已修复，后者仍以上面的 Win7 x64 实测为准。
+
 ### 既有笔记审计
 
 - [完整 Win7 支持](2026-10-23-windows7-support.md)：部分重叠，本篇只持有完整构建、启动入口与安装布局，完整功能验收由总笔记持有。
@@ -29,6 +39,8 @@ Status: implemented
 - [原生设置基础](../../implemented/feature/2026-10-23-windows7-native-settings-foundation.md)：部分重叠，页面和存储仍归现有原生承载。
 
 ## Alternatives considered
+
+- **把安装登记镜像到两个视图。** 能兼容旧读取代码，安装端一次写入即可生效；但会引入双份目录与 Server 路径的升级、迁移和卸载所有权，改用读取端明确选定唯一视图。
 
 - **把兼容面板改名成 `MSIME.exe` 并覆盖原文件。** 启动器可完全不改，但文件名掩盖承载差异，设置内跳转仍指向原生名称，而且暂存目录混用时难以发现误装。因此由构建配置明确指定，并逐项验证文件存在。
 - **按操作系统版本在普通安装包中选择两套界面。** 用户只下载一个包，但两套 Rust 目标与语音运行库、WinUI/WebView2 依赖和双架构安装都混在一起，当前普通包回归面会扩大。先提供明确 Win7 构建入口，继续共享源码和安装生命周期。

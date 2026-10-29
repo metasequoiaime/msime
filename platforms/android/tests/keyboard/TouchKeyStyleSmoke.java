@@ -28,6 +28,7 @@ public final class TouchKeyStyleSmoke {
         tallReturn();
         symbolFirst();
         numberPadSpace();
+        languageLeft();
         numberRow();
         groups();
         migration();
@@ -379,6 +380,41 @@ public final class TouchKeyStyleSmoke {
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE).synced,
             "the legacy keys never travel through android_local");
+        nineKeySidebarMigration();
+    }
+
+    /**
+     * 两张九键左侧符号表的旧键（#10223）：解析得出又不等于出厂表时才放进迁移请求（client-core 只在共享偏好缺键或是空数组时写入，已有的非空表不覆盖，由 preferences/tests.rs 钉住）；出厂旧值、不合规的旧值都不迁。旧键不管迁没迁都算待删，删掉以后再走迁移入口就没有可迁的，用户「恢复默认」后的空表不会被旧表写回。
+     */
+    private static void nineKeySidebarMigration() {
+        String letters = AndroidLocalSettings.NINE_KEY_SYMBOLS;
+        String digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS;
+        List<String> letterDefaults = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
+        List<String> digitDefaults = NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS;
+        AndroidLocalSettings.Snapshot factory = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, NineKeySidebarPolicy.format(letterDefaults), digits, NineKeySidebarPolicy.format(digitDefaults))));
+        check(KeyLayoutStyleMigration.pending(factory), "factory-valued legacy tables still have to be deleted");
+        check(KeyLayoutStyleMigration.legacyTable(factory, letters, letterDefaults).isEmpty()
+            && KeyLayoutStyleMigration.legacyTable(factory, digits, digitDefaults).isEmpty(),
+            "a legacy table equal to the factory table is not uploaded as a choice");
+        AndroidLocalSettings.Snapshot custom = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, "、 ……  ：", digits, "+ - ×")));
+        check(KeyLayoutStyleMigration.legacyTable(custom, letters, letterDefaults).equals(List.of("、", "……", "：")),
+            "a custom letter table is migrated in order");
+        check(KeyLayoutStyleMigration.legacyTable(custom, digits, digitDefaults).equals(List.of("+", "-", "×")),
+            "a custom digit table is migrated");
+        // 只写了字母表：数字表不在请求里（空表），也照样算待删。
+        AndroidLocalSettings.Snapshot lettersOnly = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            letters, "+ -")));
+        check(KeyLayoutStyleMigration.pending(lettersOnly)
+            && KeyLayoutStyleMigration.legacyTable(lettersOnly, digits, digitDefaults).isEmpty(), "a missing legacy key migrates nothing");
+        // 不合规的旧文本读文件时就被丢掉（AndroidLocalSettings 的规范化），直接交给解析也不迁。
+        check(KeyLayoutStyleMigration.legacyTable("toolong", letterDefaults).isEmpty()
+            && KeyLayoutStyleMigration.legacyTable("", letterDefaults).isEmpty(), "an unparsable legacy table migrates nothing");
+        check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of()))),
+            "once the legacy keys are gone there is nothing to migrate again");
+        check(!AndroidLocalSettings.spec(letters).synced && !AndroidLocalSettings.spec(digits).synced,
+            "the legacy tables never travel through android_local");
     }
 
     /** 恢复旧备份使用备份里的显式值；新格式字段优先，缺失或无效旧键不改当前偏好。 */
@@ -396,9 +432,23 @@ public final class TouchKeyStyleSmoke {
         check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, "false"), Map.of()).isEmpty(),
             "无效旧值与缺失键不制造默认值");
         check(KeyLayoutStyleMigration.legacyKey(oldNumber) && KeyLayoutStyleMigration.legacyKey(oldSpace)
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SYMBOLS)
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE)
             && !KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE)
-            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除三个已转换旧键，九键滑动距离留在本机");
+            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除五个已转换旧键，九键滑动距离留在本机");
+        // 两张符号表：旧备份的文本转成账号文档的写法；等于出厂表或解析不出时写空串（出厂表）；备份里已有新字段时以新字段为准。账号字段名与旧键同名。
+        String letters = "platform.android.nine_key_symbols";
+        String digits = "platform.android.nine_key_digit_symbols";
+        check(letters.equals(AndroidLocalSettings.NINE_KEY_SYMBOLS) && digits.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS),
+            "账号字段与本机旧键同名");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "、  …… ：", digits, "+ -"), Map.of())
+            .equals(Map.of(letters, "、 …… ：", digits, "+ -")), "旧备份的自定义符号表恢复成共享写法");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "， 。 ？", digits, "toolong abcde"), Map.of())
+            .equals(Map.of(letters, "", digits, "")), "出厂表和解析不出的旧表恢复成出厂表");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, "、"), Map.of(letters, "+")).isEmpty(),
+            "备份已带新字段时不用旧表");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(letters, 3), Map.of()).isEmpty(), "不是文本的旧值不恢复");
 
         // #10229：旧备份里的九键滑动方向转成同名的同步键，关闭也写；同一备份带着同步键时以它为准，不认识或类型不对的旧值不制造默认值。
         String oldNine = AndroidLocalSettings.NINE_KEY_SWIPE;
@@ -559,6 +609,203 @@ public final class TouchKeyStyleSmoke {
             check(KeyboardActionRow.designEntries(nine, false, false, false, false, TouchKeyStyle.Row.STANDARD, false, space)
                 .equals(KeyboardActionRow.designEntries(nine, false)), space + " leaves the letter layer alone");
         }
+    }
+
+    /**
+     * 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排好的底行里中/英左边紧挨着的一串空格、0、逗号、句号整串右移一格，中/英挪到这一串最左边，宽度跟着键走、整行总份额不变。空格左边没有标点时中/英紧挨空格，有标点时标点仍贴着空格。逐行钉住规格第 2.4 节：中文 26 键四种样式与互换、英文 26 键、14/18 键三种样式、九键外框三种样式、九键数字层三种空格位置、借来的数字九宫格、右侧大回车两层、手写；地球键照旧紧跟 123；本机「交换语言键与数字键」最后一步按键对调；中/英不再紧挨回车，回车不让；默认右边逐键不变；只有字符串 `left` 读成左。
+     */
+    private static void languageLeft() {
+        KeyboardActionRow.DesignSlot zero = KeyboardActionRow.DesignSlot.ZERO;
+        KeyboardActionRow.DesignSlot rewrite = KeyboardActionRow.DesignSlot.REWRITE;
+        KeyboardActionRow.DesignSlot delete = KeyboardActionRow.DesignSlot.DELETE;
+        TouchKeyStyle.NumberPadSpace platform = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+        int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
+        int fourteen = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
+        int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        // 读法与写法。
+        check(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE.equals("touch_language_key_side"), "language side key matches client-core");
+        check(TouchKeyStyle.languageLeft("left") && !TouchKeyStyle.languageLeft(null) && !TouchKeyStyle.languageLeft("right")
+            && !TouchKeyStyle.languageLeft("LEFT") && !TouchKeyStyle.languageLeft("middle") && !TouchKeyStyle.languageLeft(Boolean.TRUE)
+            && !TouchKeyStyle.languageLeft(1), "only the string left reads as left");
+        check(TouchKeyStyle.languageKeySideWire(true).equals("left") && TouchKeyStyle.languageKeySideWire(false).equals("right"),
+            "the toggle writes left and right");
+        check(TouchKeyStyle.LANGUAGE_LEFT_TITLE.equals("中/英键放在空格左边")
+            && TouchKeyStyle.LANGUAGE_LEFT_NOTE.equals("中/英 排到空格左边，逗号、句号仍紧挨空格。"), "settings texts match iOS and HarmonyOS word for word");
+
+        // 中文 26 键。
+        expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, false,
+            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+        expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, false,
+            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
+        expectLeft(standard, false, TouchKeyStyle.Row.LONG_SPACE, false,
+            entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 5.05f, RETURN, 1.9f));
+        expectLeft(standard, false, TouchKeyStyle.Row.EMOJI, false,
+            entries(LAYER, 1.25f, EMOJI, 1.05f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+        expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, true,
+            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+        expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, true,
+            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
+        // 英文 26 键：中/英与中文 26 键停在同一格（第三格），切中/英时不跳。
+        List<KeyboardActionRow.DesignEntry> english = KeyboardActionRow.designEntries(standard, false, false, false, true,
+            TouchKeyStyle.Row.STANDARD, false, platform, true);
+        check(english.equals(entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f)),
+            "English 26 key keeps . against the space " + english);
+        check(slots(english).indexOf(LANGUAGE) == slots(row(standard, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE),
+            "中/英 sits in the same slot on the Chinese and English 26 key");
+        check(slots(KeyboardActionRow.designEntries(KeyboardLayout.KOREAN_LAYOUT, false, false, false, false,
+            TouchKeyStyle.Row.STANDARD, false, platform, true)).equals(List.of(LAYER, SYMBOL, LANGUAGE, SPACE, COMMA, RETURN)), "Korean too");
+        // 14 / 18 键和大千注音。
+        for (int layout : new int[] {fourteen, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT})
+            check(row(layout, false, TouchKeyStyle.Row.STANDARD, false, true)
+                .equals(entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 4f, PERIOD, 1f, RETURN, 1.9f)), layout + " standard");
+        expectLeft(fourteen, false, TouchKeyStyle.Row.LONG_SPACE, false,
+            entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 5f, RETURN, 1.9f));
+        expectLeft(fourteen, false, TouchKeyStyle.Row.EMOJI, false,
+            entries(LAYER, 1.25f, EMOJI, 1f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+        // 九键外框（拼音九键、九键双拼、笔画）。
+        for (int layout : new int[] {nine, KeyboardLayout.STROKE_LAYOUT}) {
+            expectLeft(layout, false, TouchKeyStyle.Row.STANDARD, false,
+                entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 4f, RETURN, 1.9f));
+            expectLeft(layout, false, TouchKeyStyle.Row.COMMA_PERIOD, false,
+                entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 2f, PERIOD, 1f, RETURN, 1.9f));
+            expectLeft(layout, false, TouchKeyStyle.Row.EMOJI, false,
+                entries(SYMBOL, 1.05f, LAYER, 1.25f, EMOJI, 1.05f, LANGUAGE, 1.05f, SPACE, 2.95f, RETURN, 1.9f));
+        }
+        // 地球键照旧紧跟 123（互换后紧跟 123）。
+        check(slots(row(standard, true, TouchKeyStyle.Row.STANDARD, false, true))
+            .equals(List.of(LAYER, GLOBE, SYMBOL, LANGUAGE, SPACE, COMMA, RETURN)), "the globe stays right after 123");
+        check(slots(row(standard, true, TouchKeyStyle.Row.STANDARD, true, true))
+            .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, SPACE, COMMA, RETURN)), "the globe stays right after the swapped 123");
+        check(slots(row(nine, true, TouchKeyStyle.Row.STANDARD, false, true))
+            .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, SPACE, RETURN)), "nine-key globe");
+
+        // 九键数字层三种空格位置。
+        expectNumbers(nine, platform, entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, zero, 4f, RETURN, 1.9f));
+        expectNumbers(nine, TouchKeyStyle.NumberPadSpace.AFTER_ZERO,
+            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, zero, 2.95f, SPACE, 1.05f, RETURN, 1.9f));
+        expectNumbers(nine, TouchKeyStyle.NumberPadSpace.BEFORE_ZERO,
+            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 2.95f, zero, 1.05f, RETURN, 1.9f));
+        // 借来的数字九宫格：返回 | 符 之后是中/英，与 26 键字母层的中/英同一格；14/18 键差一格（数字九宫格多一个 符）。
+        for (int layout : new int[] {standard, KeyboardLayout.HANDWRITING_LAYOUT, fourteen})
+            expectNumbers(layout, TouchKeyStyle.NumberPadSpace.AFTER_ZERO,
+                entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, zero, 2.95f, SPACE, 1.05f, RETURN, 1.9f));
+        check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
+            .indexOf(LANGUAGE) == slots(row(standard, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE),
+            "the borrowed pad keeps 中/英 in the letter row's slot");
+        check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.STANDARD, true, platform, true))
+            .equals(List.of(SYMBOL, LAYER, LANGUAGE, zero, RETURN)), "the swapped 26 key lends 符 | 返回 | 中 | 0");
+        check(slots(KeyboardActionRow.numberPadEntries(fourteen, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
+            .indexOf(LANGUAGE) == 2 && slots(row(fourteen, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE) == 1,
+            "14/18 keys: 中/英 is one slot further right on the borrowed pad, accepted by the spec");
+        for (TouchKeyStyle.NumberPadSpace space : TouchKeyStyle.NumberPadSpace.values())
+            check(KeyboardActionRow.numberPadEntries(nine, false, false, TouchKeyStyle.Row.TALL_RETURN, false, space, true).isEmpty(),
+                space + ": tall_return still owns its bottom row");
+
+        // 手写：中/英挪到 ， 左边，重写、⌫、回车不动。
+        check(row(KeyboardLayout.HANDWRITING_LAYOUT, false, TouchKeyStyle.Row.STANDARD, false, true).equals(entries(
+                LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 2.4f, PERIOD, 1f, rewrite, 1.25f, delete, 1.25f, RETURN, 1.6f)),
+            "handwriting puts 中/英 before ，");
+
+        // 右侧大回车：123 |（地球）| 中/英 | 空格，数字层 切换 |（地球）| 中/英 | 0 | 空格；宽度与右边时相同。
+        float nineShare = KeyboardActionRow.tallReturnGridShare(nine);
+        for (boolean globe : new boolean[] {false, true}) {
+            for (boolean digits : new boolean[] {false, true}) {
+                List<KeyboardActionRow.DesignEntry> right = KeyboardActionRow.tallReturnEntries(nineShare, globe, false, digits);
+                List<KeyboardActionRow.DesignEntry> left = KeyboardActionRow.tallReturnEntries(nineShare, globe, false, digits, true);
+                check(right.equals(KeyboardActionRow.tallReturnEntries(nineShare, globe, false, digits, false)), "tall right is today's strip");
+                List<KeyboardActionRow.DesignSlot> expected = new ArrayList<>(List.of(LAYER));
+                if (globe) expected.add(GLOBE);
+                expected.add(LANGUAGE);
+                if (digits) expected.add(zero);
+                expected.add(SPACE);
+                check(slots(left).equals(expected), "tall strip globe " + globe + " digits " + digits + ": " + left);
+                check(left.containsAll(right) && Math.abs(total(left) - total(right)) < 1e-5f, "tall strip keeps every width");
+                // 交换中/英与 123 按键对调：中/英挪到左边后不在最后一格，不能再对调首尾。
+                List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.tallReturnEntries(nineShare, globe, true, digits, true);
+                check(swapped.get(0).equals(new KeyboardActionRow.DesignEntry(LANGUAGE, 1.05f))
+                    && swapped.get(slots(left).indexOf(LANGUAGE)).equals(new KeyboardActionRow.DesignEntry(LAYER, 1.25f))
+                    && swapped.get(swapped.size() - 1).slot() == SPACE, "tall strip swaps 中/英 and 123 by key: " + swapped);
+            }
+        }
+
+        // 本机「交换语言键与数字键」最后一步，按键对调：叠出百度「经典」中英 | 符 | 123 | 空格。
+        check(KeyboardActionRow.designEntries(standard, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true)
+            .equals(entries(LANGUAGE, 1.05f, SYMBOL, 1.05f, LAYER, 1.25f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f)), "26 key left + swap");
+        check(slots(KeyboardActionRow.designEntries(nine, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
+            .equals(List.of(SYMBOL, LANGUAGE, LAYER, SPACE, RETURN)), "nine key left + swap");
+        check(slots(KeyboardActionRow.numberPadEntries(standard, false, true, TouchKeyStyle.Row.STANDARD, false, platform, true))
+            .equals(List.of(LANGUAGE, SYMBOL, LAYER, zero, RETURN)), "borrowed pad left + swap");
+
+        // 每一行：只换次序、宽度和总份额不变，回车不再让给中/英；关上时逐键与原来相同；规则重复套用不再变。
+        for (int layout : new int[] {standard, KeyboardLayout.KOREAN_LAYOUT, fourteen, KeyboardLayout.EIGHTEEN_KEY_LAYOUT,
+                KeyboardLayout.ZHUYIN_LAYOUT, nine, KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+            for (TouchKeyStyle.Row style : TouchKeyStyle.Row.values()) {
+                for (boolean globe : new boolean[] {false, true}) {
+                    for (boolean symbolFirst : new boolean[] {false, true}) {
+                        for (boolean digits : new boolean[] {false, true}) {
+                            List<KeyboardActionRow.DesignEntry> right = KeyboardActionRow.designEntries(layout, globe, false, digits, false,
+                                style, symbolFirst, platform);
+                            List<KeyboardActionRow.DesignEntry> left = KeyboardActionRow.designEntries(layout, globe, false, digits, false,
+                                style, symbolFirst, platform, true);
+                            String label = layout + " " + style + " globe " + globe + " symbolFirst " + symbolFirst + " digits " + digits;
+                            check(KeyboardActionRow.designEntries(layout, globe, false, digits, false, style, symbolFirst, platform, false)
+                                .equals(right), label + ": right is today's row");
+                            check(left.size() == right.size() && left.containsAll(right) && Math.abs(total(left) - total(right)) < 1e-5f,
+                                label + ": only reorders");
+                            if (right.isEmpty()) continue;
+                            check(KeyboardActionRow.languageBesideReturn(right) == (layout != KeyboardLayout.HANDWRITING_LAYOUT),
+                                label + ": on the right, the return yields unless handwriting's keys sit between");
+                            check(!KeyboardActionRow.languageBesideReturn(left), label + ": on the left, the return no longer yields");
+                            check(KeyboardActionRow.languageBeforeSpace(left).equals(left), label + ": applying the rule twice changes nothing");
+                            int language = slots(left).indexOf(LANGUAGE);
+                            check(language > 0 && !List.of(SPACE, zero, COMMA, PERIOD).contains(left.get(language - 1).slot())
+                                && List.of(SPACE, zero, COMMA, PERIOD).contains(left.get(language + 1).slot()),
+                                label + ": 中/英 sits after the function keys and before the space run");
+                        }
+                    }
+                }
+            }
+        }
+        // 行里没有中/英、或中/英左边紧挨的不是空格一类时原样返回。
+        List<KeyboardActionRow.DesignEntry> noLanguage = entries(LAYER, 1.25f, SPACE, 4f, RETURN, 1.9f);
+        check(KeyboardActionRow.languageBeforeSpace(noLanguage) == noLanguage, "a row without 中/英 is unchanged");
+        List<KeyboardActionRow.DesignEntry> leading = entries(LANGUAGE, 1.05f, SPACE, 4f, RETURN, 1.9f);
+        check(KeyboardActionRow.languageBeforeSpace(leading) == leading, "中/英 already left of the space is unchanged");
+        check(KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true, false, false, false,
+                TouchKeyStyle.Row.STANDARD, false, platform, true).isEmpty()
+            && KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true, false, false, false,
+                TouchKeyStyle.Row.STANDARD, false, platform, true).isEmpty(), "kana and zhuyin nine-key grids are out of scope");
+    }
+
+    /** 中/英在左边时这一行逐个比槽位和宽度，再核对整行总份额等于同一样式在右边时的行。 */
+    private static void expectLeft(int layout, boolean globe, TouchKeyStyle.Row style, boolean symbolFirst,
+            List<KeyboardActionRow.DesignEntry> expected) {
+        List<KeyboardActionRow.DesignEntry> actual = row(layout, globe, style, symbolFirst, true);
+        check(sameWeights(actual, expected), layout + " " + style + " symbolFirst " + symbolFirst + ": " + actual);
+        check(Math.abs(total(actual) - total(row(layout, globe, style, symbolFirst, false))) < 1e-4f,
+            layout + " " + style + " keeps the row width");
+    }
+
+    /** 中/英在左边时从 `sourceLayout` 进的数字九宫格逐个比槽位和宽度。 */
+    private static void expectNumbers(int sourceLayout, TouchKeyStyle.NumberPadSpace space, List<KeyboardActionRow.DesignEntry> expected) {
+        List<KeyboardActionRow.DesignEntry> actual = KeyboardActionRow.numberPadEntries(sourceLayout, false, false,
+            TouchKeyStyle.Row.STANDARD, false, space, true);
+        check(sameWeights(actual, expected), sourceLayout + " " + space + " number pad: " + actual);
+    }
+
+    private static boolean sameWeights(List<KeyboardActionRow.DesignEntry> actual, List<KeyboardActionRow.DesignEntry> expected) {
+        if (actual.size() != expected.size()) return false;
+        for (int index = 0; index < expected.size(); index++) {
+            if (actual.get(index).slot() != expected.get(index).slot()
+                    || Math.abs(actual.get(index).weight() - expected.get(index).weight()) >= 1e-5f) return false;
+        }
+        return true;
+    }
+
+    private static List<KeyboardActionRow.DesignEntry> row(int layout, boolean globe, TouchKeyStyle.Row style,
+            boolean symbolFirst, boolean languageLeft) {
+        return KeyboardActionRow.designEntries(layout, globe, false, false, false, style, symbolFirst,
+            TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, languageLeft);
     }
 
     private static List<KeyboardActionRow.DesignEntry> row(int layout, boolean globe, TouchKeyStyle.Row style) {

@@ -29,7 +29,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `msime-pinyin.db` | `resources`，工作副本在代次里 | SQLite | `metadata.format_version`（没有表按 0） | 全拼、双拼、五笔、九键 | [§4](#4-msime-pinyindb) |
 | `msime-wubi.db` | `resources` | SQLite | `metadata.format_version`（没有表按 0） | 五笔 | [§9](#9-msime-wubidb) |
-| `msime-english.db` | `resources`，工作副本在代次里 | SQLite | 写 `user_version=3`，读端不查 | 每个代次都硬性要求 | [§5](#5-msime-englishdb) |
+| `msime-english.db` | `resources`，工作副本在代次里 | SQLite | 写 `user_version=3`，读端不查 | 全拼、双拼、五笔（英文混输、九键英文、临时英文、回车学词）；其余方案只有专用英文用它，可缺 | [§5](#5-msime-englishdb) |
 | `msime-bigram.bin`、`msime-trigram.bin` | `resources`，副本在代次里 | `MSNG` 二进制 | 魔数、版本、长度、键有序 | 整句打分，可缺 | [§7](#7-msime-bigrambin-与-msime-trigrambinmsng) |
 | `msime-others.db` | `resources` | SQLite | `metadata.format_version`（没有表按 0） | emoji、颜文字、符号模式与目录，可缺 | [§12](#12-msime-othersdb) |
 | `msime-japanese.dat` | `resources`，或 `SessionOptions::japanese_dictionary` | `MSJPDT1` 二进制 | 魔数、版本、全部边界、读音有序 | 日文，可缺（缺了只出假名） | [§8](#8-msime-japanesedatmsjpdt1) |
@@ -71,7 +71,7 @@
 
 ## 3. 代次目录
 
-`prepare_runtime_paths(resources, user_data, cache, content_id)`（`crates/engine/src/user_dictionary/generation.rs`）准备一个代次，返回 `dictionaries = user_data/dictionaries/<content_id>` 的 `RuntimePaths`。`prepare_runtime_paths_for` 多一个 `SchemeSet`：方案集合不读主库时（`SchemeSet::reads_main_dictionary` 为假，即不含全拼、双拼、五笔），代次里只有 `msime-english.db`，资源目录也不必有 `msime-pinyin.db`。
+`prepare_runtime_paths(resources, user_data, cache, content_id)`（`crates/engine/src/user_dictionary/generation.rs`）准备一个代次，返回 `dictionaries = user_data/dictionaries/<content_id>` 的 `RuntimePaths`。`prepare_runtime_paths_for` 多一个 `SchemeSet`，资源目录只要有这些方案读的词库：方案集合不读主库时（`SchemeSet::reads_main_dictionary` 为假，即不含全拼、双拼、五笔），资源目录不必有 `msime-pinyin.db`，代次里也没有它；这样的集合也不要求 `msime-english.db`（`SchemeSet::requires_english_dictionary` 为假），资源目录带了就复制进代次、日志只回放英文行，没带时代次里两个库都没有、日志一行也不回放（记录留在日志里）。代次里有没有不要求的英文库，以准备它时资源目录里有没有为准；之后才放进资源目录的英文库要换一个 `content_id` 才进代次。`reset_learned_data_for(paths, schemes)` 按同样的规则换回词库。
 
 **`content_id`** 是 1 到 128 个 `[0-9A-Za-z_-]`，由宿主给出，通常取自数据发布的版本或摘要；同一个 id 对应同一份资源内容，换了资源必须换 id。
 
@@ -82,8 +82,8 @@ user_data/
   msime_user.db
   dictionaries/
     <content_id>/                      完成的代次
-      msime-pinyin.db                  主库工作副本（只读主库的方案集合没有它）
-      msime-english.db                 英文库工作副本
+      msime-pinyin.db                  主库工作副本（不读主库的方案集合没有它）
+      msime-english.db                 英文库工作副本（不要求它的方案集合在资源目录没带它时没有）
       msime-bigram.bin                 n-gram 表副本（资源里有才有）
       msime-trigram.bin
       custom_translations.txt          宿主复制的释义 sidecar（可选）
@@ -97,10 +97,10 @@ user_data/
 1. 校验 id 和三个根，建 `user_data` 与 `cache`，恢复中途被杀的重置留下的备份，把不是数据库的日志挪开。
 2. 清扫被丢下的暂存目录：`<id>.<字母数字>.incoming`（以及旧版本固定名字的 `<id>.incoming`）本身和里面每一项都超过一小时没被修改，才先改名为 `.removing` 认领再删；已经是 `.removing` 的直接删。
 3. 代次目录里已有普通文件 `.ready` 时直接打开它（见下文）；`.ready` 是目录、设备或符号链接时报 `Incomplete runtime dictionary generation`。
-4. 否则在 `tempdir` 新建的 `<id>.<随机串>.incoming` 里暂存：检查资源 `msime-pinyin.db` 的文件内版本，经 SQLite backup API 复制 `msime-pinyin.db` 与 `msime-english.db`（backup 会带上已提交的 WAL 内容），把资源里的 `msime-wubi.db` 的 `wubi86`、`wubi98` 连同索引按 rowid 并进主库副本（先检查 `msime-wubi.db` 的文件内版本），复制 n-gram 表，回放日志，补建五笔反查索引，最后写 `.ready`（内容 `<content_id>\n`，独占新建、`fsync`），再把整个暂存目录改名为 `<content_id>`。任何一步失败只删这次自己的暂存目录。
+4. 否则在 `tempdir` 新建的 `<id>.<随机串>.incoming` 里暂存：检查资源 `msime-pinyin.db` 的文件内版本，经 SQLite backup API 复制 `msime-pinyin.db` 与 `msime-english.db`（按方案集合，见上文；backup 会带上已提交的 WAL 内容），把资源里的 `msime-wubi.db` 的 `wubi86`、`wubi98` 连同索引按 rowid 并进主库副本（先检查 `msime-wubi.db` 的文件内版本），复制 n-gram 表，回放日志，补建五笔反查索引，最后写 `.ready`（内容 `<content_id>\n`，独占新建、`fsync`），再把整个暂存目录改名为 `<content_id>`。任何一步失败只删这次自己的暂存目录。
 5. 改名失败而同名代次已经就绪（另一个进程抢先发布）时，改用那一份。
 
-**打开已就绪的代次**：放回重置途中被杀时挪开的词库，确认词库副本都是普通文件，五笔表不在时并入，重新回放当前日志（在新代次上学到的东西切回旧代次时不丢），补反查索引，补上后来才随资源发布的 n-gram 表（已有的不替换，会话可能正映射着它）。
+**打开已就绪的代次**：放回重置途中被杀时挪开的词库，确认方案集合要求的词库副本都是普通文件，五笔表不在时并入，重新回放当前日志（在新代次上学到的东西切回旧代次时不丢），补反查索引，补上后来才随资源发布的 n-gram 表（已有的不替换，会话可能正映射着它）。
 
 **n-gram 表的复制**：每张表先写进本次独有的 `<表名>.<随机串>.incoming`（独占新建），`fsync` 后改名就位，从不就地改写，因为会话以只读内存映射读它。一小时没被修改的 `<表名>.incoming`、`<表名>.<字母数字>.incoming` 在下次准备时删掉。
 
@@ -185,7 +185,7 @@ INSERT OR REPLACE INTO metadata(name, value) VALUES('format_version', '1');
 
 ## 5. `msime-english.db`
 
-英文词表和中英互译释义。每个代次都复制一份，所以即使只用韩语、越南语、藏文、日文的方案集合也要有它。
+英文词表和中英互译释义。方案集合含全拼、双拼或五笔时每个代次都复制一份，资源目录必须有它；只用日文、韩语、越南语、藏文、粤语、注音、笔画的集合不要求它，带了才复制进代次，供专用英文用（见 [§20](#20-每个方案的最小数据集)）。
 
 ```sql
 CREATE TABLE english_words (
@@ -455,7 +455,7 @@ CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT N
 CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);
 ```
 
-- `metadata` 有三行：`format_version`（必须恰好是 `"1"`，否则 `Language dictionary version unsupported`）、`source_commit`（源数据的上游提交）、`license`（源数据许可证的 SPDX 表达式：粤语 `CC-BY-4.0`，注音 `LGPL-2.1-or-later`，笔画 `LGPL-3.0-only AND GPL-3.0-only`）。
+- `metadata` 有三行：`format_version`（必须恰好是 `"1"`，否则 `Language dictionary version unsupported`）、`source_commit`（源数据的上游提交）、`license`（库里数据所有来源的许可证合成的 SPDX 表达式，每个来源一项：粤语 `CC-BY-4.0`，注音 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，笔画 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`；`dict-v2.0.39` 及以前发布的注音与笔画库还是构建器改正前写的 `LGPL-2.1-or-later`、`LGPL-3.0-only AND GPL-3.0-only`，下一次发布语言词库才换成新值）。
 - `syllables` 是方案的音节表；笔画库里是出现过的笔画码。
 - `entries.key` 是音节以单个空格连接（`nei hou`）；笔画库里是 `hspnz` 五个字母组成的笔画码，没有空格。
 - 文件缺失、打不开或不是数据库报 `Language dictionary unavailable`，方案激活失败。
@@ -524,18 +524,18 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 
 ## 20. 每个方案的最小数据集
 
-代次准备总是要求 `msime-english.db`，所以它出现在每一行。「产品同等」指与 msime 自己的产品排序相同还需要的文件。
+按 `prepare_runtime_paths_for` 只为用到的方案准备代次时，资源目录只要有下表的文件；`prepare_runtime_paths`（全部方案）要全拼那一行。几个方案一起用时取各行的并集。「产品同等」指与 msime 自己的产品排序相同还需要的文件。
 
 | 方案 | 必需 | 产品同等再加 | 可选 |
 | --- | --- | --- | --- |
 | 全拼、双拼、九键 | `msime-pinyin.db`、`msime-english.db` | `msime-bigram.bin`、`msime-trigram.bin` | `msime-others.db`（本地模式、表情混输）、`sentence-model.safetensors`、`.gram`、辅助码表 |
 | 五笔 | 上一行加 `msime-wubi.db` | 同上 | 同上 |
-| 日文 | `msime-english.db`、`msime-japanese.dat`、`msime-mozc_dictionary_oss_README.txt`、`msime-mozc_LICENSE.txt` | — | — |
-| 韩语、越南语、藏文 | `msime-english.db` | — | — |
-| 粤语、注音、笔画 | `msime-english.db`、对应的语言词库及其许可证文本 | — | — |
+| 日文 | 无（`msime-japanese.dat` 缺了只出假名） | `msime-japanese.dat`、`msime-mozc_dictionary_oss_README.txt`、`msime-mozc_LICENSE.txt` | `msime-english.db`（专用英文） |
+| 韩语、越南语、藏文 | 无 | — | `msime-english.db`（专用英文） |
+| 粤语、注音、笔画 | 对应的语言词库及其许可证文本（缺了激活失败） | — | `msime-english.db`（专用英文） |
 | 手写 | `handwriting-zh_CN.model` 及其许可证文本 | — | — |
 
-带 `msime-english.db` 时同时带 `msime-scowl_Copyright.txt`（SCOWL 的条款要求）。只用韩语、越南语或藏文的采用方现在也要带 `msime-english.db`，因而也带上了它的 GPL-3.0 数据；去掉这个硬性要求是另一项工作。
+全拼、双拼、五笔自己的功能读 `msime-english.db`：英文混输、九键英文、临时英文（Shift+Y）和回车学英文词，所以它在这几行是必需的。其余方案只有宿主打开专用英文（`Session::set_dedicated_english`）时才读它：带了就有英文补全，回车学词也写进它；没带时专用英文只出键入的字母、回车照常上屏而不学词，个人词典也存不下英文词（编辑以 `This input method has no English dictionary` 失败），引擎不会在代次里建一个空的英文库。带 `msime-english.db` 时同时带 `msime-scowl_Copyright.txt`（SCOWL 的条款要求）。
 
 ## 21. 数据许可证
 
@@ -550,8 +550,8 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
 | `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor） |
-| `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；McBopomofo 的词频 `phrase.occ` 为 MIT，补充词表（`BPMFMappings.txt`，源自 libtabe）为 BSD |
-| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频（文件内记为 `LGPL-3.0-only AND GPL-3.0-only`） |
+| `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.39` 及以前的发布只记了 `LGPL-2.1-or-later`） |
+| `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.39` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |
 | octagram `.gram` | 按模型：rime-wanxiang-data CC-BY-4.0、rime-octagram-data LGPL-3.0、rime-frost GPL-3.0 |
 | `handwriting-zh_CN.model` | LGPL-2.1，附 `HandwritingModel-LICENSE.txt` |

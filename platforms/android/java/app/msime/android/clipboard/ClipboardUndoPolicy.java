@@ -1,9 +1,9 @@
 package app.msime.android;
 
 /**
- * 剪贴板多选删除后的撤销期限（#10073）：本地设置 `platform.android.clipboard_undo_seconds`，5 到 9 秒，默认 5 秒。
+ * 剪贴板删除记录（单条或多选）后的撤销期限（#10073、#10080）：本地设置 `platform.android.clipboard_undo_seconds`，5 到 9 秒，默认 5 秒。
  *
- * <p>删除后剪贴板面板右下角浮着一个大号「撤销」按钮，按钮上倒数剩下的秒数，归零时连同可撤销的记录一起消失。这里只放和视图无关的计时与文案，键盘里的接线在 `MSIMEInputService.removeClipboardItems` 和 `ImePanels.updateClipboardUndo`。
+ * <p>删除后剪贴板面板右下角浮着一个大号「撤销」按钮，按钮上倒数剩下的秒数，归零时连同可撤销的记录一起消失。这里只放和视图无关的计时与文案，键盘里的接线在 `MSIMEInputService.holdClipboardUndo`（单条删除 `removeClipboardItem` 和多选删除 `removeClipboardItems` 共用）和 `ImePanels.updateClipboardUndo`。
  */
 public final class ClipboardUndoPolicy {
     public static final int MIN_SECONDS = 5;

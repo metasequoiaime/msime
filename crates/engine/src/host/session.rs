@@ -1,12 +1,11 @@
-//! The bridge's `Session` wrapper over the engine session (api-contract §1a, §2, §5): ASCII checks, command numbering with `CommitRawWithoutLearning`, the raw-commit learning policy, the flattened snapshot and the online query snapshot.
+//! The bridge's `Session` wrapper over the engine session (api-contract §1a, §2, §5): ASCII checks, the host command numbering, the flattened snapshot and the online query snapshot. The raw-commit learning policy and `CommitRawWithoutLearning` are core options and commands (`SessionOptions::learn_typed_spellings_on_enter`, `Command::CommitRawWithoutLearning`); the facade turns the policy on through `session_options` and maps the command by name.
 
 use std::marker::PhantomData;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::options::{runtime_paths, session_options, EngineOptions};
-use crate::assets;
+use super::options::{session_options, EngineOptions};
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::{
@@ -15,26 +14,14 @@ use crate::helpcode::{
 use crate::japanese::romaji::romaji_display_reading_into;
 use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
-use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, FirstPageRows,
     KeyResult, LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery,
     QuickPhraseEntry, SchemeType,
 };
-use crate::user_dictionary::removal::learn_entered_english_word;
 
-/// The weight an entered English word is learned at: the C++ default argument of `learn_entered_english_word` (user_dictionary_journal.h:136-137), which the bridge relied on.
-const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
-
-fn temporary_japanese_word(commit: &str) -> String {
-    let mut word = String::with_capacity(1 + commit.len());
-    word.push('R');
-    word.push_str(commit);
-    word
-}
-
-/// The host's command numbering. `CommitRawWithoutLearning` has no engine counterpart, and took 11 before the engine's `ConvertHanja` existed, so that one is 12 here and mapped by name rather than by ordinal. 整句改字的两条命令同样按名字映射，宿主编号比引擎多一。
+/// The host's command numbering. `CommitRawWithoutLearning` took 11 here before the engine had it, so the engine numbers it 14, and the engine's `ConvertHanja` (11) is 12 here; those are mapped by name rather than by ordinal. 整句改字的两条命令同样按名字映射，宿主编号比引擎多一。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Command {
@@ -670,11 +657,13 @@ impl Session {
         ))
     }
 
-    /// `CommitRaw` goes through the learning policy of bridge.cpp:1332-1359 and `CommitRawWithoutLearning` through :1321-1331.
+    /// `CommitRaw` 与 `CommitRawWithoutLearning` 交给核心同名的命令：回车学英文词的策略在核心里（`SessionOptions::learn_typed_spellings_on_enter`，产品打开），门面只换编号。
     pub fn command(&mut self, command: Command) -> Result<EngineResult> {
         match command {
-            Command::CommitRaw => Ok(self.commit_raw_with_policy()),
-            Command::CommitRawWithoutLearning => Ok(self.commit_raw_without_learning()),
+            Command::CommitRawWithoutLearning => Ok(result_for(
+                self.inner
+                    .command(crate::types::Command::CommitRawWithoutLearning),
+            )),
             Command::ConvertHanja => Ok(result_for(
                 self.inner.command(crate::types::Command::ConvertHanja),
             )),
@@ -765,67 +754,6 @@ impl Session {
         self.inner.set_dedicated_english(enabled);
         Ok(())
     }
-
-    /// The letters as typed, learned as nothing. The engine's own raw commit learns the word itself in dedicated English, so that mode takes the preedit and cancels instead (bridge.cpp:1320-1331). 上屏的就是预编辑原文，本地模式的入口字母也在内，和 `InputSession` 一致。
-    fn commit_raw_without_learning(&mut self) -> EngineResult {
-        let before = self.inner.snapshot();
-        if !before.dedicated_english {
-            return result_for(self.inner.command(crate::types::Command::CommitRaw));
-        }
-        let raw = before.preedit;
-        self.inner.command(crate::types::Command::Cancel);
-        result_for(KeyResult::committed(raw))
-    }
-
-    /// Windows 只在回车时学词：专用英文、本地模式里原样上屏的字母，以及不是完整音节序列的拼音，学成英文词（bridge.cpp:1332-1359）。九宫格（九键、14 键）组字时上屏的不是用户逐个打出的字母：九键是数字，14 键是结束组字后的首选，都不学成英文词。整条学习由 `input.enter_learns_english_word` 总开关控制（出厂为开），关掉后回车照常上屏、只是不入库。
-    fn commit_raw_with_policy(&mut self) -> EngineResult {
-        let grid_composing = self.inner.grid_composing();
-        let before = self.inner.snapshot();
-        let chinese_scheme = before.scheme.learns_english_words();
-        let complete_pure_pinyin = chinese_scheme && {
-            let segmentation = if before.normalized_segmentation.is_empty() {
-                &before.raw_segmentation
-            } else {
-                &before.normalized_segmentation
-            };
-            !segmentation.is_empty() && is_complete_pinyin_input(segmentation)
-        };
-        // 计算、指令和名单模式里是算式、触发词或键，网址也不是英文单词，都不是用户拼出的词，不进英文词库。
-        // 整句改字时回车上屏的是改好的汉字，不是拼出来的字母。
-        let should_learn = self.options.learn_english_on_enter
-            && before.conversion.is_empty()
-            && !grid_composing
-            && !before.local_mode.generates_text()
-            && before.local_mode != LocalInputMode::Url
-            && (before.dedicated_english
-                || before.local_mode != LocalInputMode::None
-                || (chinese_scheme && !complete_pure_pinyin));
-        let mut result = self.inner.command(crate::types::Command::CommitRaw);
-        if let Some(commit) = result.commit.as_deref().filter(|_| should_learn) {
-            // 进词库的词去掉临时模式的入口字母：回车上屏的原文带它，词库里不该有（#7616）。只有入口字母时正文为空，那就没有词可学（旧实现上屏空串，同样不学）。
-            let text = before.local_mode.without_entry_marker(commit);
-            if !text.is_empty() {
-                let word = if before.local_mode == LocalInputMode::TemporaryJapanese {
-                    temporary_japanese_word(text)
-                } else {
-                    text.to_owned()
-                };
-                let paths = runtime_paths(&self.options);
-                // The commit already happened; a word that could not be learned is reported beside it rather than undoing it.
-                if learn_entered_english_word(
-                    &paths.dictionary(assets::ENGLISH_DICTIONARY),
-                    &paths.user(assets::USER_JOURNAL),
-                    &word,
-                    ENTERED_ENGLISH_WORD_WEIGHT,
-                )
-                .is_err()
-                {
-                    result.diagnostic = Some(diagnostics::ENGLISH_WORD_NOT_LEARNED.to_owned());
-                }
-            }
-        }
-        result_for(result)
-    }
 }
 
 /// Whether a commit made in `local_mode` (a `local_mode` name, as `EngineSnapshot` carries it) counts as typing. Text the expression, command and mention modes generated does not; an unknown name does, as every mode did before those.
@@ -876,18 +804,6 @@ fn online_request(
         session_id: query.session_id,
     };
     Some((request, source))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::temporary_japanese_word;
-
-    #[test]
-    fn temporary_japanese_word_allocates_only_result_bytes() {
-        let word = temporary_japanese_word("かな");
-        assert_eq!(word, "Rかな");
-        assert_eq!(word.capacity(), word.len());
-    }
 }
 
 #[cfg(test)]

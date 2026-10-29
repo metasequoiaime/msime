@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 「键盘 › 按键布局」：26 键、14 键与 18 键、9 键三类键面各选一种底行样式，26 键另有「26 键「符」与「123」互换」开关，接着是「数字键盘」一组（空格在右列、0 右边或 0 左边，没选过时选中 iOS 原来的「空格在 0 右边」），外加顶部数字行开关，对应共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_number_pad_space` 与 `touch_number_row`（`TouchKeyLayoutStyle`）。三端同一套选项和画法，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md、2026-10-29-touch-symbol-first-and-number-pad-space.md 与 2026-10-29-key-layout-page-redesign.md。
+/// 「键盘 › 按键布局」：26 键、14 键与 18 键、9 键三类键面各选一种底行样式，26 键另有「26 键「符」与「123」互换」开关，每一类都有「中/英键放在空格左边」开关（三类是同一个偏好），9 键另有「九键左侧符号」一行，接着是「数字键盘」一组（空格在右列、0 右边或 0 左边，没选过时选中 iOS 原来的「空格在 0 右边」，再加「数字键盘左侧符号」一行），外加顶部数字行开关，对应共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_language_key_side`、`touch_nine_key_sidebar_symbols`、`touch_number_pad_space`、`touch_nine_key_digit_sidebar_symbols` 与 `touch_number_row`（`TouchKeyLayoutStyle`）。三端同一套选项和画法，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md、2026-10-29-touch-symbol-first-and-number-pad-space.md、2026-10-29-key-layout-page-redesign.md、2026-10-29-nine-key-sidebar-shared.md 与 2026-10-29-language-key-left-of-space.md。
 ///
-/// 自上而下：键盘类型分段控件（`TouchKeyLayoutKind`，只有一类时不画）、这一类键盘的整块预览、样式胶囊按钮、当前样式的说明（没有副作用的样式不画这一行），26 键分段在说明之后是「符」与「123」互换开关；样式卡片下面是「数字键盘」一组，选项是同一套等宽胶囊、说明在胶囊下方、不画预览，本版本提供任一类键面时都列出；最下面单独一组是顶部数字行开关。分段默认停在用户当前在用的中文键盘那一类；切分段只换预览和样式按钮，不写偏好。本版本不提供的键面类型不列进分段，既没有中文 26 键也没有 14/18 键时不列顶部数字行开关（`TouchKeyLayoutOffering`）。改动只写刚选的那一项，键盘下次出现或重载文档时当场换上，不打断正在组的字。
+/// 自上而下：键盘类型分段控件（`TouchKeyLayoutKind`，只有一类时不画）、这一类键盘的整块预览、样式胶囊按钮、当前样式的说明（没有副作用的样式不画这一行），说明之后是开关：26 键分段先是「符」与「123」互换，每个分段都有「中/英键放在空格左边」，9 键分段再接「九键左侧符号」导航行（右侧是当前表的摘要）；样式卡片下面是「数字键盘」一组，选项是同一套等宽胶囊、说明在胶囊下方、再下面是「数字键盘左侧符号」导航行，不画预览，本版本提供任一类键面时都列出；最下面单独一组是顶部数字行开关。两张符号表的编辑页是 `NineKeySidebarEditorView`。分段默认停在用户当前在用的中文键盘那一类；切分段只换预览和样式按钮，不写偏好。本版本不提供的键面类型不列进分段，既没有中文 26 键也没有 14/18 键时不列顶部数字行开关（`TouchKeyLayoutOffering`）。改动只写刚选的那一项，键盘下次出现或重载文档时当场换上，不打断正在组的字。
 struct KeyboardKeyLayoutSettingsView: View {
   @State private var style = TouchKeyLayoutStyle.mirrored
   @State private var saveFailed = false
@@ -71,7 +71,7 @@ struct KeyboardKeyLayoutSettingsView: View {
       style: .rounded, identifierPrefix: "keyLayoutKind", itemIdentifier: { $0.identifier })
   }
 
-  /// 预览、样式胶囊和当前样式的说明放在同一张卡片里；26 键在说明之后隔一道分隔线是「符」与「123」互换开关。
+  /// 预览、样式胶囊和当前样式的说明放在同一张卡片里；说明之后各隔一道分隔线是开关：26 键先是「符」与「123」互换，每个分段都有「中/英键放在空格左边」。用户隐藏了中/英键时这个开关照样显示、照样写偏好（同步到别的设备照样生效），只是这台设备的键盘和预览里没有中/英，看不出变化。
   private func styleCard(_ kind: TouchKeyLayoutKind) -> some View {
     DesignCard {
       VStack(alignment: .leading, spacing: 14) {
@@ -94,10 +94,28 @@ struct KeyboardKeyLayoutSettingsView: View {
                         isOn: Binding(get: { style.symbolFirst }, set: { save(TouchKeyLayoutStyle.save(symbolFirst: $0)) }))
           .accessibilityIdentifier("keyLayoutSymbolFirstToggle")
       }
+      DesignDivider()
+      DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, subtitle: TouchKeyLayoutOffering.languageLeftSubtitle,
+                      isOn: Binding(get: { style.languageKeySide == .left },
+                                    set: { save(TouchKeyLayoutStyle.save(languageKeySide: $0 ? .left : .right)) }))
+        .accessibilityIdentifier("keyLayoutLanguageLeftSwitch")
+      if kind == .nineKey {
+        DesignDivider()
+        sidebarLink(.letter)
+      }
     }
   }
 
-  /// 「数字键盘」一组：九宫格数字键盘从各类中文键面都进得去（九键自己的数字层或借来的数字九宫格），所以不跟着分段走。选项用和样式一样的等宽胶囊，说明在胶囊下方，不画预览。
+  /// 打开一张符号栏表的编辑页的导航行：标题取自三端共用的常量，右侧是这张表的摘要，空表时是 iOS 出厂表的摘要（`NineKeySidebar.summary`）。
+  private func sidebarLink(_ table: NineKeySidebarTable) -> some View {
+    NavigationLink(destination: NineKeySidebarEditorView(table: table)) {
+      DesignNavRowLabel(title: table.title, value: NineKeySidebar.summary(style.sidebarSymbols(table)))
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .accessibilityIdentifier("keyLayoutSidebar_\(table.rawValue)")
+  }
+
+  /// 「数字键盘」一组：九宫格数字键盘从各类中文键面都进得去（九键自己的数字层或借来的数字九宫格），所以不跟着分段走。选项用和样式一样的等宽胶囊，说明在胶囊下方，隔一道分隔线是「数字键盘左侧符号」导航行，不画预览。
   private var numberPadGroup: some View {
     DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle) {
       VStack(alignment: .leading, spacing: 14) {
@@ -110,6 +128,8 @@ struct KeyboardKeyLayoutSettingsView: View {
       }
       .padding(.vertical, 16)
       .frame(maxWidth: .infinity, alignment: .leading)
+      DesignDivider()
+      sidebarLink(.digit)
     }
   }
 
@@ -188,7 +208,7 @@ struct KeyboardKeyLayoutSettingsView: View {
   }
 }
 
-/// 一类键盘在所选样式下的整块示意图：26 键是（数字行）+ 三排字母 + 底行（打开「符」与「123」互换时 符 在 123 左边），14/18 键是（数字行）+ 字母格 + 底行，9 键是左侧符号栏 + 九宫格 + 右列 + 底行，「右侧大回车」的回车竖跨最后两行、符 在符号栏下方。字母行取自热力图和 14/18 键键面的同一张表（`TypingKeyHeatmap`、`FourteenKeyLayout`、`EighteenKeyLayout`），底行取自 `TouchBottomRowLayout`。这个样式与「标准」不同的键用强调色描边，26 键互换后的 符 和 123 也描边（`TouchKeyLayoutKind.highlightedSlots`）。
+/// 一类键盘在所选样式下的整块示意图：26 键是（数字行）+ 三排字母 + 底行（打开「符」与「123」互换时 符 在 123 左边），14/18 键是（数字行）+ 字母格 + 底行，9 键是左侧符号栏 + 九宫格 + 右列 + 底行，「右侧大回车」的回车竖跨最后两行、符 在符号栏下方。字母行取自热力图和 14/18 键键面的同一张表（`TypingKeyHeatmap`、`FourteenKeyLayout`、`EighteenKeyLayout`），底行取自 `TouchBottomRowLayout`（中/英键放在空格左边时照键盘重排），9 键的符号栏按用户的字母层符号表画一屏（`TouchKeyLayoutKind.previewSidebar`）。这个样式与「标准」不同的键用强调色描边，26 键互换后的 符 和 123、挪到空格左边的中/英也描边（`TouchKeyLayoutKind.highlightedSlots`），用自定义符号表时符号栏每一格也描边（`highlightsSidebar`）。
 ///
 /// 只是示意，不可点，读屏跳过整个预览（样式按钮本身有名字和说明）。按 390pt 宽的手机键盘画，整体等比缩放到页面宽度，358pt 宽时约 198pt 高。
 private struct KeyLayoutKeyboardPreview: View {
@@ -302,7 +322,8 @@ private struct KeyLayoutKeyboardPreview: View {
     let grid = Self.width - side * 2 - Self.nineKeyColumnGap * 2
     let rowHeight = (Self.height - Self.rowGap * 3) / 4
     let gridHeight = rowHeight * 3 + Self.rowGap * 2
-    let marks = TypingKeyHeatmap.nineKeySidebar(for: style.nineKey).face.map(String.init)
+    let marks = TouchKeyLayoutKind.previewSidebar(style)
+    let sidebarHighlighted = kind.highlightsSidebar(style)
     // 右列的 ⌫、分词和 ！ 都画成功能键，与键盘一样。
     let controls = TypingKeyHeatmap.nineKeyControls(for: style.nineKey).map { cell in
       var cap = Self.cap(cell)
@@ -315,7 +336,7 @@ private struct KeyLayoutKeyboardPreview: View {
       if style.nineKey == .tallReturn, let symbols = bottom.first, let enter = bottom.last {
         HStack(alignment: .top, spacing: Self.nineKeyColumnGap) {
           VStack(spacing: Self.rowGap) {
-            sidebar(marks).frame(height: gridHeight)
+            sidebar(marks, highlighted: sidebarHighlighted).frame(height: gridHeight)
             key(symbols).frame(height: rowHeight)
           }
           .frame(width: side)
@@ -333,7 +354,7 @@ private struct KeyLayoutKeyboardPreview: View {
       } else {
         VStack(spacing: Self.rowGap) {
           HStack(spacing: Self.nineKeyColumnGap) {
-            sidebar(marks).frame(width: side)
+            sidebar(marks, highlighted: sidebarHighlighted).frame(width: side)
             VStack(spacing: Self.rowGap) {
               ForEach(Array(gridRows.enumerated()), id: \.offset) { _, caps in row(caps, width: grid) }
             }
@@ -351,12 +372,22 @@ private struct KeyLayoutKeyboardPreview: View {
     .frame(width: Self.width, height: Self.height, alignment: .top)
   }
 
-  /// 九键左侧的标点栏：一整条半透明底，标点竖排、平分高度，与键盘的 `nineKeySidebar` 画法相同。
-  private func sidebar(_ marks: [String]) -> some View {
+  /// 九键左侧的标点栏：一整条半透明底，标点竖排、平分高度，与键盘的 `nineKeySidebar` 画法相同。`highlighted` 时（用自定义符号表）每一格在栏内描一圈强调色。
+  private func sidebar(_ marks: [String], highlighted: Bool = false) -> some View {
     VStack(spacing: 0) {
       ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
         Text(mark).font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.5)
+          .padding(.horizontal, 2)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .overlay {
+            if highlighted {
+              RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous)
+                .inset(by: 2)
+                .strokeBorder(MetasequoiaTheme.accent, lineWidth: 2)
+            }
+          }
       }
     }
     .background(MetasequoiaTheme.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))

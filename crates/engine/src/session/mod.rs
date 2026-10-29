@@ -19,6 +19,7 @@ mod online;
 pub mod options;
 mod plugin_commands;
 mod prediction;
+mod raw_commit;
 #[cfg(test)]
 mod tests;
 
@@ -50,6 +51,8 @@ pub struct Session {
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
+    /// `SessionOptions::learn_typed_spellings_on_enter`。
+    learn_typed_spellings_on_enter: bool,
     prediction: prediction::Prediction,
     /// See [`Self::candidate_revision`].
     revision: u64,
@@ -105,6 +108,7 @@ impl Session {
             nine_key,
             key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+            learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
                 options.paths.dictionary(crate::assets::MAIN_DICTIONARY),
@@ -320,7 +324,19 @@ impl Session {
         self.nine_key.set_filter(single_character, strokes)
     }
 
+    /// 一条编辑命令。`CommitRaw` 原样上屏，专用英文里打的词学进英文词库（`SessionOptions::learn_english_on_enter`），`learn_typed_spellings_on_enter` 打开时还学临时模式与拼不成音节的拼音；`CommitRawWithoutLearning` 原样上屏、不学英文词。规则见 `session/raw_commit.rs`。
     pub fn command(&mut self, command: Command) -> KeyResult {
+        match command {
+            Command::CommitRawWithoutLearning => self.commit_raw_without_learning(),
+            Command::CommitRaw if self.learn_typed_spellings_on_enter => {
+                self.commit_raw_learning_typed_spellings()
+            }
+            _ => self.dispatch_command(command),
+        }
+    }
+
+    /// 命令交给九宫格或组字，没有回车学词的策略。`CommitRawWithoutLearning` 不会到这里。
+    fn dispatch_command(&mut self, command: Command) -> KeyResult {
         self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
@@ -691,8 +707,7 @@ impl Session {
         self.nine_key.set_rescoring_context(context);
     }
 
-    /// 首页行数只决定词库要不要并入补全词。`Runtime::set_page_size` 在宿主改每页候选数时调它，
-    /// 因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
+    /// 首页行数只决定词库要不要并入补全词。`Runtime` 建立、换引擎和宿主改每页候选数（`Runtime::set_page_size`）时都调它，因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         self.candidates_may_change();
         self.input.set_first_page_rows(rows);

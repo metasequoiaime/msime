@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import app.msime.android.ViewPolicy;
-import app.msime.android.core.InputViewValuePolicy;
 
 import android.content.Context;
 import android.os.Bundle;
@@ -59,7 +58,7 @@ public final class CommunityFragment extends Fragment {
     private boolean hasMore;
     private long requestGeneration;
     // 预览按用户自己的布局画。读不到就按 26 键，那是默认值。
-    private boolean nineKey;
+    private KeyLayoutStylesPolicy.Preview layout = KeyLayoutStylesPolicy.Preview.STANDARD;
 
     /** 打开某一类作品的完整列表：皮肤和词库切到「社区」tab 并选中那一类，其余类型压在当前页面上面。 */
     public static void browse(Context context, CommunityRequest.Kind kind) {
@@ -168,12 +167,14 @@ public final class CommunityFragment extends Fragment {
         updateCategories();
 
         adapter = new CommunityAdapter(this::open, this::act);
-        HostTask.run(this, HostStore::loadPreferences, snapshot -> {
+        HostTask.run(this, context -> {
             // loadPreferences hands back the whole snapshot; the layout lives one level down.
-            JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
-            nineKey = preferences != null && "nine_key".equals(
-                InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"));
-            adapter.setNineKey(nineKey);
+            JSONObject snapshot = HostStore.loadPreferences(context);
+            return KeyboardPreview.layout(context, snapshot == null ? null : snapshot.optJSONObject("preferences"));
+        }, value -> {
+            // 宿主不可用时 HostTask 交回 null，按标准样式画。
+            layout = value == null ? KeyLayoutStylesPolicy.Preview.STANDARD : value;
+            adapter.setLayout(layout);
         });
         refreshTaken();
         RecyclerView items = view.findViewById(R.id.community_items);
@@ -366,7 +367,7 @@ public final class CommunityFragment extends Fragment {
         String label = CommunityAdapter.label(item, action);
         boolean live = !label.isEmpty() && action != CommunityAdapter.Action.BUSY
             && !(item.kind() != CommunityRequest.Kind.SKIN && action == CommunityAdapter.Action.DONE);
-        CommunitySkinSheet.show(requireContext(), item, nineKey, label,
+        CommunitySkinSheet.show(requireContext(), item, layout, label,
             live ? () -> act(item) : null,
             () -> report(item),
             item.owned() && item.category() != null ? next -> changeCategory(item, next) : null);

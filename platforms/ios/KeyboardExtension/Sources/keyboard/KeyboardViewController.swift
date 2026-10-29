@@ -169,12 +169,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var toolbarHasTools = true
   /// 按键行当前按哪种单手模式布局（`applyOneHanded`）；第一次布局之前为 nil。
   private var appliedOneHanded: KeyboardOneHandedMode?
-  /// 顶栏下面的那一行：各排按键组成的列，单手模式下还有它旁边的侧栏。
+  /// 上一次 `applyOneHanded` 排出的样子：模式之外还有 iPad 单手的块宽和侧边数字键盘的宽度，任何一项变了才重排。
+  private var appliedOneHandArrangement: OneHandArrangement?
+  /// 顶栏下面的那一行：各排按键组成的列，单手模式下还有它旁边的侧栏；iPad 单手时还有空出来那一侧的空白和侧边数字键盘。
   private let oneHandRow = UIStackView()
   /// 所有按键行，依次叠在顶栏下方。
   private let keyColumn = UIStackView()
   private let oneHandGutter = KeyboardOneHandGutterView()
+  /// 手机单手时侧栏占整行的 15%。
   private var oneHandGutterWidth: NSLayoutConstraint?
+  /// iPad 单手时侧栏和按键列的宽度是常量（手机大小的一块，`KeyboardOneHandLayout.blockWidth`），空出来的宽度交给 `oneHandSideSpacer`。
+  private var oneHandGutterTabletWidth: NSLayoutConstraint?
+  private var keyColumnTabletWidth: NSLayoutConstraint?
+  /// iPad 单手时空出来的那一侧：一块不接触摸、也不把触摸交给任何键的空白（普通 `UIView`，不是 stack view，`KeyAreaStackView` 不会为它找键），吃掉块和侧边数字键盘之外的宽度。
+  private let oneHandSideSpacer = UIView()
+  /// iPad 单手时贴在空出来那一侧屏幕边上的侧边数字键盘（共享偏好 `touch_one_handed_side_panel` 选了 `number_pad`，主键区画九键一族的字母层时显示）。它是行里的一个容器，里面的 `oneHandSidePadStack` 从顶上排下来：三行数字与九宫格逐行同高，`. 0 ⌫` 一行与底行同高。
+  private let oneHandSidePad = UIView()
+  private let oneHandSidePadStack = UIStackView()
+  private let oneHandSidePadGrid = UIStackView()
+  private var oneHandSidePadRows: [UIStackView] = []
+  private var oneHandSidePadWidth: NSLayoutConstraint?
+  /// 侧边数字键盘三行与九宫格同高、最后一行与底行同高；只在它显示时生效，九宫格隐藏时不跟着压成零高。
+  private var oneHandSidePadHeights: [NSLayoutConstraint] = []
+  /// 共享偏好 `touch_one_handed_side_panel`，键盘出现和读到新文档时更新。
+  private var oneHandedSidePanel: TouchOneHandedSidePanel = .off
   /// 长按空格键时在键区打开的语音面板。
   private var voicePanel: KeyboardVoicePanelView?
   /// 正在进行的按住说话，录音和识别在后台的主 App 里（`KeyboardVoiceDictation`）。
@@ -243,7 +261,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var microsoftFinalKey: UIButton?
   /// Comma and full stop at the end of the third letter row; shown only on the tablet keyboard.
   private var letterRowPunctuationKeys: [UIButton] = []
+  /// 键盘的设备形态：键盘高度、上下内边距、顶栏下的间隔、按键高度和排数，以及面板和候选栏都按它。
   private var formFactor: KeyboardFormFactor { .resolve(traitCollection) }
+  /// 键面按哪种形态画：iPad 全宽键盘单手时按键缩到手机大小，键面用手机的（没有 Tab 和 iPad 底行，字母字号、中间一排缩进和底行样式都按手机；「数字行与 Tab 键」的数字行照画，见 `updateKeyboardLayout`），键盘高度和内边距仍按 `formFactor`，单手开关不改键盘外框的高度。
+  private var keyFaceFormFactor: KeyboardFormFactor {
+    formFactor == .tablet && (appliedOneHanded ?? .off) != .off ? .phone : formFactor
+  }
   private var letterRowViews: [UIView] = []
   private var symbolExtraRowView: UIStackView?
   private var symbolExtraRowKeys: [UIButton] = []
@@ -426,8 +449,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
+  /// 字母层用自定义符号表（`touch_nine_key_sidebar_symbols`）时的左列：一屏最多三项、等高，多的上下滚动。出厂表时隐藏，左列仍是原来的 `punctuationStack`，画面不变。
+  private let customSidebarScroll = NineKeySidebarScrollView()
+  /// 两张符号表此刻画在左列上的样子（空表是出厂表），变了才重建按键。
+  private var builtLetterSidebar: [String] = []
+  private var builtDigitSidebar: [String] = []
   private let numberPadSidebar = UIStackView()
   private let numberPadOperators = UIStackView()
+  /// 九键右列的 ⌫：数字九宫格左列每一项与它同高。
+  private weak var nineKeyDeleteKey: UIButton?
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
   /// 14 键和手写等底行的独立句号；手机 26 键通过逗号长按输入句号。
@@ -863,6 +893,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ChineseOutputPreference.mirror(session.sharedPreferences)
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     oneHandedMode = KeyboardLayoutPreference.oneHanded
+    oneHandedSidePanel = TouchOneHandedSidePanel(in: session.sharedPreferences)
     readToolbarPreferences()
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -1378,6 +1409,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyColumn.addArrangedSubview(actionRow)
     installTallReturnKey()
     installNumberPadColumnSpace()
+    installOneHandSidePad()
     // 右侧大回车和数字层右列的空格不在任何一行里，单独告诉键区让它们分到相邻键距里靠它们的那一半。
     root.overlayKeys = [tallReturnKey, numberPadColumnSpace].compactMap { $0 }
     // 中/英紧挨回车的底行（手机、九键），回车把键帽左边几 pt 让给中/英；别的排法里两者不相邻，不起作用。
@@ -1404,7 +1436,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
-  /// 顶栏下面的那一行：填满它的按键列，以及单手模式的侧栏；侧栏默认隐藏，由 `applyOneHanded` 显示在按键的另一侧。这一行总是从左到右排列，因为存储的模式记的就是按键靠哪一侧。
+  /// 顶栏下面的那一行：填满它的按键列，以及单手模式的侧栏；侧栏默认隐藏，由 `applyOneHanded` 显示在按键的另一侧。iPad 单手时这一行里还有空出来那一侧的空白和侧边数字键盘（`installOneHandSidePad` 建它的键），默认也隐藏。这一行总是从左到右排列，因为存储的模式记的就是按键靠哪一侧。
   private func installOneHandRow(in root: UIStackView) {
     keyColumn.axis = .vertical
     keyColumn.spacing = root.spacing
@@ -1413,11 +1445,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     oneHandRow.distribution = .fill
     oneHandRow.spacing = KeyboardOneHandLayout.gap
     oneHandRow.semanticContentAttribute = .forceLeftToRight
+    oneHandSidePad.isHidden = true
+    oneHandRow.addArrangedSubview(oneHandSidePad)
+    oneHandSideSpacer.isHidden = true
+    oneHandSideSpacer.isAccessibilityElement = false
+    oneHandSideSpacer.accessibilityIdentifier = "oneHandSideSpacer"
+    oneHandRow.addArrangedSubview(oneHandSideSpacer)
     oneHandRow.addArrangedSubview(keyColumn)
     oneHandGutter.isHidden = true
     oneHandRow.addArrangedSubview(oneHandGutter)
     // 设为 required，且只在侧栏显示时生效：底行隐藏的键会打破它们可选的宽度权重，侧栏宽度如果也只是可选的，布局引擎会拿它和那些约束权衡，把按键压窄。
     oneHandGutterWidth = oneHandGutter.widthAnchor.constraint(equalTo: oneHandRow.widthAnchor, multiplier: KeyboardOneHandLayout.gutterRatio)
+    oneHandGutterTabletWidth = oneHandGutter.widthAnchor.constraint(equalToConstant: 0)
+    // 按键列的常量宽度也是 required，理由与上面侧栏的相同：字母行里 iPad 才画的键（Tab、iPad 的 ⌫ 和回车、行内 ，。、第二个 ⇧）隐藏时，它们按字母键宽度定的 999 宽度约束一直被 stack view 的零宽约束打破，字母越窄违反得越少；按键列的宽度若也是 999，布局引擎会把按键列压到字母键的下限（约 164pt），多出来的宽度都给了没有任何宽度约束的空白。空白只靠 stack view 的首尾相接定宽，窗口窄到放不下「块加间距」时（全宽 iPad 键盘实际不会这么窄，转屏的那一趟布局里可能短暂出现）由它让出那几 pt，不与这条约束冲突；多出来的宽度同样都给它。
+    keyColumnTabletWidth = keyColumn.widthAnchor.constraint(equalToConstant: 0)
+    oneHandSidePadWidth = oneHandSidePad.widthAnchor.constraint(equalToConstant: 0)
     oneHandGutter.onSwap = { [weak self] in
       guard let self else { return }
       setOneHanded(oneHandedMode.toggled(swapSide: true))
@@ -1429,36 +1471,172 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     root.addArrangedSubview(oneHandRow)
   }
 
-  /// 按单手模式布局按键行：按键收窄到侧栏留下的宽度，靠在存储的那一侧，侧栏在另一侧。只有手机键盘会画它（`KeyboardOneHandLayout.effective`）；存储的值无论如何都保留。工具栏、候选和盖在按键上的面板保持全宽。
+  /// iPad 单手时空出来那一侧的侧边数字键盘：3 × 4 拨号盘 `1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`，不随别的设置变。键用 `makeKey` 建，数字的键面和字号与九键数字层的数字相同；数字和 `.` 走数字层的字面上屏（`insertNumberPadLiteral`：正在组的拼音先按原样上屏，全角开关照常作用），⌫ 与九键右列的 ⌫ 同一个动作和连删。统计记普通数字键、`Period` 和 `Backspace`。不挂滑行、横滑光标、长按选项和角标。
+  ///
+  /// 键在 `oneHandSidePadStack` 里从顶上排下来：前三行平分与九键外框同高的一块（九宫格三行逐行对齐），`. 0 ⌫` 一行与底行同高。在底行建好之后调用，高度约束要用到它和九键外框；只在面板显示时生效（`applyOneHanded`）。
+  private func installOneHandSidePad() {
+    oneHandSidePad.accessibilityIdentifier = "oneHandSidePad"
+    oneHandSidePadStack.axis = .vertical
+    oneHandSidePadStack.alignment = .fill
+    oneHandSidePadStack.spacing = keyColumn.spacing
+    oneHandSidePadGrid.axis = .vertical
+    oneHandSidePadGrid.distribution = .fillEqually
+    oneHandSidePadGrid.spacing = 7
+    for digits in [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]] {
+      let row = makeRow()
+      for digit in digits { row.addArrangedSubview(makeSidePadDigitKey(digit)) }
+      oneHandSidePadRows.append(row)
+      oneHandSidePadGrid.addArrangedSubview(row)
+    }
+    let bottom = makeRow()
+    let decimal = makeKey(title: ".", accessibilityLabel: "小数点") { [weak self] in
+      self?.countKeyPress(TypingKeyID.character("."))
+      self?.insertNumberPadLiteral(".")
+    }
+    decimal.accessibilityIdentifier = "sidePadDecimal"
+    Self.drawNumberPadDigitFace(decimal)
+    bottom.addArrangedSubview(decimal)
+    bottom.addArrangedSubview(makeSidePadDigitKey("0"))
+    let delete = makeDeleteKey()
+    delete.accessibilityIdentifier = "sidePadDelete"
+    bottom.addArrangedSubview(delete)
+    oneHandSidePadRows.append(bottom)
+    oneHandSidePadStack.addArrangedSubview(oneHandSidePadGrid)
+    oneHandSidePadStack.addArrangedSubview(bottom)
+    oneHandSidePadStack.translatesAutoresizingMaskIntoConstraints = false
+    oneHandSidePad.addSubview(oneHandSidePadStack)
+    // 面板隐藏时 stack view 把容器压成零宽，三列键的键距放不进去；所以右边略低于 required，隐藏时让开，显示时照样成立。
+    let trailing = oneHandSidePadStack.trailingAnchor.constraint(equalTo: oneHandSidePad.trailingAnchor)
+    trailing.priority = .init(999)
+    NSLayoutConstraint.activate([
+      oneHandSidePadStack.topAnchor.constraint(equalTo: oneHandSidePad.topAnchor),
+      oneHandSidePadStack.leadingAnchor.constraint(equalTo: oneHandSidePad.leadingAnchor),
+      trailing,
+      oneHandSidePadStack.bottomAnchor.constraint(lessThanOrEqualTo: oneHandSidePad.bottomAnchor),
+    ])
+    oneHandSidePadHeights = [
+      oneHandSidePadGrid.heightAnchor.constraint(equalTo: nineKeyContainer.heightAnchor),
+      bottom.heightAnchor.constraint(equalTo: actionRow.heightAnchor),
+    ]
+  }
+
+  private func makeSidePadDigitKey(_ digit: String) -> UIButton {
+    let key = makeKey(title: digit, accessibilityLabel: "数字 \(digit)") { [weak self] in
+      self?.countKeyPress(TypingKeyID.character(digit))
+      self?.insertNumberPadLiteral(digit)
+    }
+    key.accessibilityIdentifier = "sidePadDigit\(digit)"
+    Self.drawNumberPadDigitFace(key)
+    return key
+  }
+
+  /// 九键数字层数字的键面：21pt 中粗、不留内边距，窄键上缩小而不换行（`makeNineKeyLayout` 给九宫格的同一套）。
+  private static func drawNumberPadDigitFace(_ button: UIButton) {
+    guard var configuration = button.configuration else { return }
+    configuration.contentInsets = .zero
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.font = KeyboardTheme.current.usesMonospacedFont
+        ? .monospacedSystemFont(ofSize: 21, weight: .medium) : .systemFont(ofSize: 21, weight: .medium)
+      return attributes
+    }
+    button.configuration = configuration
+    button.titleLabel?.adjustsFontSizeToFitWidth = true
+    button.titleLabel?.minimumScaleFactor = 0.7
+  }
+
+  /// `applyOneHanded` 排出的样子。`blockWidth` 是 iPad 单手时「侧栏加按键」那一块的宽度，手机上和宽度还没定下来时为 0（侧栏按比例跟着整行走）；`padWidth` 是侧边数字键盘的宽度，不显示时为 0。
+  private struct OneHandArrangement: Equatable {
+    let mode: KeyboardOneHandedMode
+    let blockWidth: CGFloat
+    let padWidth: CGFloat
+  }
+
+  /// 侧边数字键盘此刻该不该画（宽度另算）：偏好选了数字键盘，主键区画的是九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）的字母层。英文、本地模式（画 26 键）、123 数字层和 #+= 层、注音、假名九键、手写、14/18 键和 26 键都不画。面板盖住按键时它和按键一起遮住（`setKeyRowsCovered`），不在这里判断。
+  private var oneHandSidePadWanted: Bool {
+    oneHandedSidePanel == .numberPad && isChineseMode && !isInLocalMode && !showsSymbols
+      && TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme)
+  }
+
+  /// 按单手模式布局按键行：按键收窄到侧栏留下的宽度，靠在存储的那一侧，侧栏在另一侧。手机上「侧栏加按键」占整行；全宽的 iPad 键盘上这一块缩到手机大小贴到那一侧，空出来的一侧是空白，够宽、又画着九键一族的字母层时贴屏幕边放侧边数字键盘（键在右：面板、空白、侧栏、按键；键在左：按键、侧栏、空白、面板）。iPad 画横屏分离式键盘时单手让位（`KeyboardOneHandLayout.effective`）；存储的值无论如何都保留。工具栏、候选和盖在按键上的面板保持全宽。
+  ///
+  /// 模式变了键面也跟着变（`keyFaceFormFactor`），调用方随后要 `updateKeyboardLayoutIfNeeded`；`updateKeyboardLayout` 自己在排键面之前调用它。
   private func applyOneHanded() {
     // 方案在按键建好之前就已应用，那一步已经请求过布局。
     guard keyColumn.superview === oneHandRow else { return }
-    let mode = KeyboardOneHandLayout.effective(oneHandedMode, formFactor: formFactor)
-    guard mode != appliedOneHanded else { return }
+    let formFactor = formFactor
+    // 升级前存下的单手模式只在手机形态的键盘上画过，第一次在全宽 iPad 键盘上画时按关闭处理，见 `KeyboardLayoutPreference.oneHandedDockedTabletKey`。
+    if formFactor == .tablet && !splitKeyboardShown && oneHandedMode != .off {
+      oneHandedMode = KeyboardLayoutPreference.adoptOneHandedOnDockedTablet()
+    }
+    let mode = KeyboardOneHandLayout.effective(oneHandedMode, formFactor: formFactor, split: splitKeyboardShown)
+    let available = view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing
+    // 宽度还没定下来（第一次布局之前）时先按手机的比例排，`viewDidLayoutSubviews` 有了宽度再排一次。
+    let tablet = formFactor == .tablet && mode != .off && available > 0
+    let arrangement = OneHandArrangement(
+      mode: mode,
+      blockWidth: tablet ? KeyboardOneHandLayout.blockWidth(available: available, formFactor: formFactor) : 0,
+      padWidth: tablet && oneHandSidePadWanted ? KeyboardOneHandLayout.sidePadWidth(available: available, formFactor: formFactor) : 0)
+    guard arrangement != appliedOneHandArrangement else { return }
+    let previousKeyFace = keyFaceFormFactor
+    appliedOneHandArrangement = arrangement
     appliedOneHanded = mode
     let on = mode != .off
+    let padShown = arrangement.padWidth > 0
     oneHandGutter.setKeysOnRight(mode == .right)
-    let index = KeyboardOneHandLayout.gutterLeads(mode) ? 0 : 1
-    if oneHandRow.arrangedSubviews.firstIndex(of: oneHandGutter) != index {
-      oneHandRow.removeArrangedSubview(oneHandGutter)
-      oneHandRow.insertArrangedSubview(oneHandGutter, at: index)
+    let order: [UIView] = mode == .left
+      ? [keyColumn, oneHandGutter, oneHandSideSpacer, oneHandSidePad]
+      : [oneHandSidePad, oneHandSideSpacer, oneHandGutter, keyColumn]
+    for (index, item) in order.enumerated() where oneHandRow.arrangedSubviews.firstIndex(of: item) != index {
+      oneHandRow.removeArrangedSubview(item)
+      oneHandRow.insertArrangedSubview(item, at: index)
     }
-    // 宽度约束在侧栏隐藏之前停用、在显示之后启用，这样它不会碰上 stack view 给隐藏视图的零宽约束。
-    if on {
-      oneHandGutter.isHidden = false
-      oneHandGutterWidth?.isActive = true
-    } else {
-      oneHandGutterWidth?.isActive = false
-      oneHandGutter.isHidden = true
+    // 面板和空白之间不留间距，空白另一侧照常隔 6pt 才是侧栏或按键：面板贴屏幕边，「面板加空白」正好是整行减去块再减去一个间距。
+    oneHandRow.setCustomSpacing(mode == .left ? UIStackView.spacingUseDefault : 0, after: oneHandSidePad)
+    oneHandRow.setCustomSpacing(mode == .left ? 0 : UIStackView.spacingUseDefault, after: oneHandSideSpacer)
+    // 宽度约束在视图隐藏之前停用、在显示之后启用，这样它不会碰上 stack view 给隐藏视图的零宽约束。
+    if !on || tablet { oneHandGutterWidth?.isActive = false }
+    if !tablet {
+      oneHandGutterTabletWidth?.isActive = false
+      keyColumnTabletWidth?.isActive = false
+    }
+    if !padShown {
+      oneHandSidePadWidth?.isActive = false
+      NSLayoutConstraint.deactivate(oneHandSidePadHeights)
+    }
+    if oneHandGutter.isHidden == on { oneHandGutter.isHidden = !on }
+    if oneHandSideSpacer.isHidden == tablet { oneHandSideSpacer.isHidden = !tablet }
+    if oneHandSidePad.isHidden == padShown { oneHandSidePad.isHidden = !padShown }
+    if on && !tablet { oneHandGutterWidth?.isActive = true }
+    if tablet {
+      let gutter = arrangement.blockWidth * KeyboardOneHandLayout.gutterRatio
+      oneHandGutterTabletWidth?.constant = gutter
+      keyColumnTabletWidth?.constant = max(0, arrangement.blockWidth - gutter - KeyboardOneHandLayout.gap)
+      oneHandGutterTabletWidth?.isActive = true
+      keyColumnTabletWidth?.isActive = true
+    }
+    if padShown {
+      oneHandSidePadWidth?.constant = arrangement.padWidth
+      oneHandSidePadWidth?.isActive = true
+      NSLayoutConstraint.activate(oneHandSidePadHeights)
+    }
+    // 字母键的字号在按键重画配置时才按 `keyFaceFormFactor` 取（`applyLetterFont`），键面形态变了就让它们重画一次。把同一份配置原样赋回去不算变化，按键不会重画，字号停在旧键面上；重新装一个变换器才是一份新的配置，再请求一次配置更新，下一趟布局之前按新键面重画。
+    if keyFaceFormFactor != previousKeyFace {
+      let buttons: [UIButton] = letterButtons.map { $0.button } + letterGridButtons.map { $0.button }
+      for button in buttons {
+        applyLetterFont(to: button)
+        button.setNeedsUpdateConfiguration()
+      }
     }
     updateLetterRowInsets()
   }
 
-  /// 存储并画出新的单手模式，与 Android 的 `toggleOneHanded` 从磁贴和侧栏触发时一样。功能菜单开着时重画它的磁贴。
+  /// 存储并画出新的单手模式，与 Android 的 `toggleOneHanded` 从磁贴和侧栏触发时一样。iPad 上单手换了键面，随后按新键面重排。功能菜单开着时重画它的磁贴。
   private func setOneHanded(_ mode: KeyboardOneHandedMode) {
     oneHandedMode = mode
     KeyboardLayoutPreference.oneHanded = mode
     applyOneHanded()
+    updateKeyboardLayoutIfNeeded()
     updateShortcutButtons()
   }
 
@@ -1746,14 +1924,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       operators.widthAnchor.constraint(equalTo: operatorScroll.frameLayoutGuide.widthAnchor),
     ])
     numberPadSidebar.addArrangedSubview(operatorScroll)
-    for symbol in ["+", "-", "*", "/"] {
-      let button = makeKey(title: symbol, accessibilityLabel: "运算符 \(symbol)") { [weak self] in
-        guard let self else { return }
-        countKeyPress(TypingKeyID.punctuation)
-        insertNumberPadLiteral(symbol)
-      }
-      Self.drawBareInSidebar(button)
-      operators.addArrangedSubview(button)
+    for (index, symbol) in NineKeySidebar.defaultDigitSymbols.enumerated() {
+      operators.addArrangedSubview(makeDigitSidebarKey(symbol, index: index, custom: false))
     }
     let more = makeKey(title: "#+=", accessibilityLabel: "更多符号", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.layer)
@@ -1771,7 +1943,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     Self.drawBareInSidebar(symbols)
     numberPadSidebar.addArrangedSubview(symbols)
     numberPadSymbolsKey = symbols
-    for content in [punctuationStack, numberPadSidebar, makeSpellingStrip()] {
+    customSidebarScroll.accessibilityIdentifier = "nineKeyCustomSidebar"
+    customSidebarScroll.isHidden = true
+    for content in [punctuationStack, customSidebarScroll, numberPadSidebar, makeSpellingStrip()] {
       content.translatesAutoresizingMaskIntoConstraints = false
       sidebar.addSubview(content)
       NSLayoutConstraint.activate([
@@ -1880,6 +2054,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "nineKeyDelete"
     controls.addArrangedSubview(delete)
+    nineKeyDeleteKey = delete
     let middle = makeKey(title: "", accessibilityLabel: "", function: true) { [weak self] in
       self?.handleNineKeyMiddleKey()
     }
@@ -1908,6 +2083,58 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolsHeight.isActive = true
     controls.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
     return nineKeyContainer
+  }
+
+  /// 数字九宫格左列的一项。出厂表（`custom` 为 false）照原来的运算符键：读作「运算符 +」，按数字页的字面路径上屏（`insertNumberPadLiteral`）；自定义表的项读作「符号 …」，按 `insertSidebarLiteral` 上屏，标识是 `numberPadSidebarSymbol` 加下标。
+  private func makeDigitSidebarKey(_ symbol: String, index: Int, custom: Bool) -> UIButton {
+    let button = makeKey(title: symbol, accessibilityLabel: custom ? "符号 \(symbol)" : "运算符 \(symbol)") { [weak self] in
+      guard let self else { return }
+      countKeyPress(TypingKeyID.punctuation)
+      if custom { insertSidebarLiteral(symbol, digits: true) } else { insertNumberPadLiteral(symbol) }
+    }
+    Self.drawBareInSidebar(button)
+    if custom { button.accessibilityIdentifier = "numberPadSidebarSymbol\(index)" }
+    return button
+  }
+
+  /// 字母层自定义左列的一项：按 `insertSidebarLiteral` 上屏，标识是 `nineKeySidebarSymbol` 加下标。「……」这类两个字宽的符号缩小字号，不折行。
+  private func makeLetterSidebarKey(_ symbol: String, index: Int) -> UIButton {
+    let button = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
+      guard let self else { return }
+      countKeyPress(TypingKeyID.punctuation)
+      insertSidebarLiteral(symbol, digits: false)
+    }
+    Self.drawBareInSidebar(button)
+    button.titleLabel?.adjustsFontSizeToFitWidth = true
+    button.titleLabel?.minimumScaleFactor = 0.5
+    button.accessibilityIdentifier = "nineKeySidebarSymbol\(index)"
+    return button
+  }
+
+  /// 按两张符号表换左列的键，表没变时不做事。字母层：空表时左列是原来的 ，。？（`punctuationStack`，右侧大回车时末尾接 ！），自定义表换成 `customSidebarScroll`。数字层：空表是原来的四个运算符，自定义表换成用户的表；两种都在同一个滚动栈里、#+= 总在最后，每项与右列的 ⌫ 同高。
+  private func applySidebarSymbols(_ style: TouchKeyLayoutStyle) {
+    if !NineKeySidebar.same(style.nineKeySidebar, builtLetterSidebar) {
+      builtLetterSidebar = style.nineKeySidebar
+      customSidebarScroll.buttons.forEach { $0.removeFromSuperview() }
+      customSidebarScroll.buttons = style.nineKeySidebar.enumerated().map { index, symbol in
+        let button = makeLetterSidebarKey(symbol, index: index)
+        customSidebarScroll.addSubview(button)
+        return button
+      }
+      customSidebarScroll.setContentOffset(.zero, animated: false)
+    }
+    if !NineKeySidebar.same(style.digitSidebar, builtDigitSidebar), let delete = nineKeyDeleteKey {
+      builtDigitSidebar = style.digitSidebar
+      for key in numberPadOperators.arrangedSubviews where key.accessibilityIdentifier != "numberPadMoreSymbols" {
+        key.removeFromSuperview()
+      }
+      let custom = !style.digitSidebar.isEmpty
+      for (index, symbol) in style.sidebarSymbols(.digit).enumerated() {
+        let key = makeDigitSidebarKey(symbol, index: index, custom: custom)
+        numberPadOperators.insertArrangedSubview(key, at: index)
+        key.heightAnchor.constraint(equalTo: delete.heightAnchor).isActive = true
+      }
+    }
   }
 
   private func applyNineKeyDigitLayer(_ digits: Bool) {
@@ -2675,9 +2902,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       })
     }
     tools += [
-      // 与 Android 的磁贴一样：轻点在关闭和靠右之间切换，长按换边。磁贴显示存储的模式，在全宽的 iPad 键盘上变暗，因为那里从不画单手模式。
-      KeyboardTool(id: "oneHand", title: "单手模式", face: .icon(.oneHand), isToggle: true, selected: oneHandedMode != .off,
-                   enabled: formFactor == .phone) { [weak self] in
+      // 与 Android 的磁贴一样：轻点在关闭和靠右之间切换，长按换边。磁贴显示存储的模式；全宽的 iPad 键盘也画单手模式（手机大小的一块贴到一侧），只在画横屏分离式键盘时让位，所以磁贴不再变暗。
+      KeyboardTool(id: "oneHand", title: "单手模式", face: .icon(.oneHand), isToggle: true, selected: oneHandedMode != .off) { [weak self] in
         guard let self else { return }
         setOneHanded(oneHandedMode.toggled(swapSide: false))
       } longPress: { [weak self] in
@@ -3209,7 +3435,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func applyLetterFont(to button: UIButton) {
     button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { [weak self] attributes in
       var attributes = attributes
-      let size = Self.letterFontSize(self?.formFactor ?? .phone)
+      let size = Self.letterFontSize(self?.keyFaceFormFactor ?? .phone)
       attributes.font = KeyboardTheme.current.usesMonospacedFont
         ? .monospacedSystemFont(ofSize: size, weight: .regular) : .systemFont(ofSize: size)
       return attributes
@@ -3407,7 +3633,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 这块键盘的中文键面是中文 26 键：与 `drawsChineseTwentySixKey` 同一套判断，但不看此刻的中/英，同一块键盘切到英文 26 键时仍为真，与 Android `TouchKeyStyle.Styles.keepsToolbarRow` 和鸿蒙 `chineseTwentySixKeyboard` 相同。
   private var chineseTwentySixKeyboard: Bool {
-    formFactor == .phone && !isInLocalMode && !usesLetterGrid
+    keyFaceFormFactor == .phone && !isInLocalMode && !usesLetterGrid
       && !inputScheme.isMandarinNineKey && !inputScheme.isJapanese && !inputScheme.writesAsciiPunctuation
       && !inputScheme.isZhuyin && !inputScheme.isStroke && inputScheme != .handwriting
   }
@@ -3426,9 +3652,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var activeKeyLayoutStyle: TouchKeyLayoutStyle {
     guard Self.keepsStandardBottomRows(keyboardType: inputContext.keyboardType, secure: textDocumentProxy.isSecureTextEntry,
                                        contentType: textDocumentProxy.textContentType ?? nil) else { return keyLayoutStyle }
-    // 「符」与「123」互换和数字键盘空格位置是键位习惯，不随输入框退回：标准底行同样有 符，数字框里的数字键盘也按用户选的排法画。
+    // 「符」与「123」互换、数字键盘空格位置、左侧符号栏的两张表和中/英键在空格哪一边是键位习惯，不随输入框退回：标准底行同样有 符 和中/英，数字框里的数字键盘也按用户选的排法和符号表画。
     return TouchKeyLayoutStyle(numberRow: keyLayoutStyle.numberRow, symbolFirst: keyLayoutStyle.symbolFirst,
-                               numberPadSpace: keyLayoutStyle.numberPadSpace)
+                               numberPadSpace: keyLayoutStyle.numberPadSpace, nineKeySidebar: keyLayoutStyle.nineKeySidebar,
+                               digitSidebar: keyLayoutStyle.digitSidebar, languageKeySide: keyLayoutStyle.languageKeySide)
   }
 
   /// 输入框是否保留标准底行：安全输入或内容类型标成密码的框，以及数字键盘、小数键盘和电话键盘这些只收数字的框，对应 Android 的 `EditorPolicy.password` 与 `numberInput`。系统通常不在安全输入框和电话键盘里调用第三方键盘，宿主仍然调用时也按这条退回。不是 private：测试会固定它。
@@ -3483,6 +3710,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     render(session.finishComposition())
     insertDirectText(text)
+  }
+
+  /// 自定义左侧符号栏的一项（`touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`）：先结束组字，组字的处理与点同一层出厂项时相同（字母层按当前首选上屏，与 `handleSymbol` 遇到 Engine 没有路由的符号时一样；数字层与 `insertNumberPadLiteral` 一样原样结束），再把这一项按字面上屏，不做全半角转换。表项正好是一对成对符号（`NineKeySidebar.literalPairClosing`，如 `（）`、`()`）时光标退到两者中间，与 Android `commitLiteralText` 相同。
+  private func insertSidebarLiteral(_ text: String, digits: Bool) {
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    playInputClick()
+    if digits {
+      render(session.commitRaw())
+    } else if isChineseMode {
+      render(session.finishComposition())
+    }
+    insertOwnText(text)
+    if let closing = NineKeySidebar.literalPairClosing(text) {
+      textDocumentProxy.adjustTextPosition(byCharacterOffset: -closing.count)
+      noteOwnEdit()
+    }
+    if !isChineseMode { refreshEnglishSuggestions() }
   }
 
   /// 数字页原样结束组字，与 Android、鸿蒙一致；普通符号页仍沿用选词后插入的路径。
@@ -5622,6 +5867,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 「按键布局」：样式或数字行变了，下面的 `updateKeyboardLayoutIfNeeded` 当场重排底行和数字行。只动键面，不碰会话，正在组的字照常继续。
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle(in: preferences)
+    // 「大屏单手时侧边显示数字键盘」：变了当场重排单手那一行（`applyOneHanded` 只在排法变了时才动），同样不碰会话。
+    oneHandedSidePanel = TouchOneHandedSidePanel(in: preferences)
+    applyOneHanded()
 
     var selectedScheme: ChineseInputScheme?
     if let schemes = preferences["touch_keyboard_schemes"] as? [String: Any] {
@@ -6110,11 +6358,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
     // 手机的中间一排两侧各缩进半个键，显示 `;` 键时（微软双拼、粤语双拼的中文模式，见 `showsSemicolonKey`）用它填上这块空位，`;` 藏起来时缩进回来；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
-    // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄。
+    // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄（iPad 单手时收到手机大小的一块里的按键宽度）；键面形态决定是 iPad 的缩进还是手机的半键缩进。
     let keysWidth = KeyboardOneHandLayout.keysWidth(
-      available: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing, mode: appliedOneHanded ?? .off)
+      available: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing, mode: appliedOneHanded ?? .off,
+      formFactor: formFactor)
     let margins: UIEdgeInsets
-    if formFactor == .tablet {
+    if keyFaceFormFactor == .tablet {
       margins = UIEdgeInsets(top: 0, left: keysWidth * TabletLetterLayout.middleRowLeadingInset, bottom: 0, right: 0)
     } else {
       let inset: CGFloat = KeyboardLayoutPreference.geometry.centeredLetters && !showsSemicolonKey
@@ -6139,6 +6388,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineControls?.spacing = layout.rowSpacing
     numberPadSidebar.spacing = layout.rowSpacing
     numberPadOperators.spacing = layout.rowSpacing
+    // 侧边数字键盘的行距和键距与九宫格相同，三行才逐行对得齐。
+    oneHandSidePadGrid.spacing = layout.rowSpacing
+    oneHandSidePadStack.spacing = keyRowSpacing
     strokeKeys?.applySpacing(row: layout.rowSpacing, key: layout.keySpacing)
     nineKeyHeight.constant = layout.rowSpacing * 2
     japaneseHeight?.constant = Self.japaneseKeyBlockHeight
@@ -6152,6 +6404,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyRows += symbolRowViews
     keyRows += symbolLayerRowViews as [UIView]
     keyRows += nineKeyRows
+    keyRows += oneHandSidePadRows as [UIView]
     for row in keyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
@@ -6188,6 +6441,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let globe: Bool
     let geometry: KeyboardGeometry
     let formFactor: KeyboardFormFactor
+    /// 键面按哪种形态画（iPad 单手时是手机的），见 `keyFaceFormFactor`。
+    let keyFace: KeyboardFormFactor
     let fullKeys: Bool
     let split: Bool
     /// 「按键布局」的样式与数字行，以及数字行此刻放不放得下（手机横屏不画）。
@@ -6219,7 +6474,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbols: showsSymbols, moreSymbols: showsMoreSymbols,
       toolbarEmojiAvailable: toolbarEmojiAvailable, globe: needsInputModeSwitchKey,
       geometry: KeyboardLayoutPreference.geometry,
-      formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
+      formFactor: formFactor, keyFace: keyFaceFormFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
       split: wantsSplitKeyboard, keyStyle: activeKeyLayoutStyle, numberRowFits: numberRowFits)
   }
 
@@ -6260,12 +6515,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
-  /// 拼音与标点只交换侧栏内容，不改变网格和底行约束。
+  /// 拼音与标点只交换侧栏内容，不改变网格和底行约束。字母层用自定义符号表时标点列换成 `customSidebarScroll`，组字时同样被拼音盖住。
   private func updateNineKeySidebar() {
     let hasSpellings = sidebarCarriesSpellings
     let numberPad = numberPadShown
+    let custom = !builtLetterSidebar.isEmpty
     spellingScrollView.isHidden = !hasSpellings
-    punctuationStack.isHidden = hasSpellings || numberPad
+    punctuationStack.isHidden = hasSpellings || numberPad || custom
+    if customSidebarScroll.isHidden != (hasSpellings || numberPad || !custom) {
+      customSidebarScroll.isHidden = hasSpellings || numberPad || !custom
+    }
     numberPadSidebar.isHidden = !numberPad
   }
 
@@ -6348,6 +6607,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateKeyboardLayout() {
     ensureAlternateLetterRows()
+    // 分离与否先定下来：iPad 画横屏分离式键盘时单手让位，单手又决定下面各处按哪种键面画（`keyFaceFormFactor`）。是否分离只看方案、层和设备形态，不看键面。
+    splitKeyboardShown = wantsSplitKeyboard
     applyLayoutPreferences()
     applyKeyboardMetrics()
     applyOneHanded()
@@ -6392,25 +6653,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey)
     letterRowViews.forEach { $0.isHidden = !letterRowsShown }
     keyColumn.spacing = keyRowSpacing
+    oneHandSidePadStack.spacing = keyRowSpacing
     applyTabletLetterKeys()
-    let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
+    let fullKeys = keyFaceFormFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
+    // 「数字行与 Tab 键」的数字行按键盘形态取：iPad 单手时键面是手机的、不画 Tab，1 到 0 这一排照画，排数与双手时相同，单手开关不改键盘高度。
+    let fullKeyNumberRow = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
     let sourceHandwriting = isChineseMode && inputScheme == .handwriting && !isInLocalMode
     // 「按键布局」的顶部数字行（`touch_number_row`）：26 键、14 键和 18 键的字母层上方一排 1 到 0，手机横屏不画；这些键面的数字和符号页用补充行保持同样的五排高度，切层时键盘不跳。iPad 没开「数字行与 Tab 键」时与手机一样按它画，与 Android、HarmonyOS 的平板相同；开着时 iPad 全尺寸 26 键画自己的数字行和 Tab，14 键和 18 键仍按它画。
     let touchNumberRow = keyLayoutStyle.numberRow && numberRowFits
     let numberRowShown = !showsSymbols
-      && ((letterRowsShown && (fullKeys || touchNumberRow)) || (fourteenKeyRows && touchNumberRow))
+      && ((letterRowsShown && (fullKeyNumberRow || touchNumberRow)) || (fourteenKeyRows && touchNumberRow))
     if numberRowView?.isHidden == numberRowShown { numberRowView?.isHidden = !numberRowShown }
     let extraRowShown = showsSymbols && !nineKey && !sourceHandwriting && !kana && !dachen && !strokes
-      && (fourteenKey ? touchNumberRow : fullKeys || touchNumberRow)
+      && (fourteenKey ? touchNumberRow : fullKeyNumberRow || touchNumberRow)
     if symbolExtraRowView?.isHidden == extraRowShown { symbolExtraRowView?.isHidden = !extraRowShown }
     // 上下留白按排数算，要等数字行和补充行这一趟的显隐定下来再算，否则数字行刚出现或刚收起时会沿用上一趟的排数。
     applyPhoneLetterVerticalPadding()
     tabKey?.isHidden = !fullKeys
-    let rowPunctuation = formFactor.showsLetterRowPunctuation
+    let rowPunctuation = keyFaceFormFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // 横屏分离式键盘：每排的中缝和右半的第二个空格一起显示或隐藏。九键、笔画、假名、大千和手写不分（wantsSplitKeyboard），它们的符号页也跟着不分。
-    let split = wantsSplitKeyboard
-    splitKeyboardShown = split
+    let split = splitKeyboardShown
     for gap in splitGaps where gap.isHidden == split { gap.isHidden = !split }
     if splitSpaceButton?.isHidden == split { splitSpaceButton?.isHidden = !split }
     // 数字页复用三列网格，原方案与 Engine 的组码布局不变。
@@ -6432,21 +6695,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let symbolFirstSource = numberPad && !nineKey && !strokes && activeKeyLayoutStyle.symbolFirst
       && chineseTwentySixKeyboard && [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey)
     // 同一条规则用在 123 / #+= 层：字母层是互换过的手机 26 键底行（英文、本地模式和写 ASCII 标点的方案，以及中文 26 键标准和逗号句号在空格两侧的 #+= 层）时，这一层的返回键排在字母层 123 那一格（😀 或 符号 | 返回）。长空格和表情键样式没有 符，14/18 键、手写、九键和笔画的字母层底行不以 123 | 符 打头，这一层不变。
-    let symbolLayerSymbolFirst = symbolLayer && formFactor == .phone && activeKeyLayoutStyle.symbolFirst
+    let symbolLayerSymbolFirst = symbolLayer && keyFaceFormFactor == .phone && activeKeyLayoutStyle.symbolFirst
       && !nineKey && !strokes && !fourteenKey && !sourceHandwriting
       && (!drawsChineseTwentySixKey || [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey))
     updateNineKeyMiddleKey()
+    applySidebarSymbols(activeKeyLayoutStyle)
     updateNineKeySidebar()
     if actionRow != nil {
-      let phoneRow = Self.usesPhoneBottomRow(formFactor: formFactor, nineKeyFrame: nineKeyFrame, handwriting: writes, kana: kana,
-                                             fourteenKey: fourteenKeyRows)
-      let tabletRow = Self.usesTabletBottomRow(formFactor: formFactor, letterRows: letterRowsShown)
+      let phoneRow = Self.usesPhoneBottomRow(formFactor: keyFaceFormFactor, nineKeyFrame: nineKeyFrame, handwriting: writes,
+                                             kana: kana, fourteenKey: fourteenKeyRows)
+      let tabletRow = Self.usesTabletBottomRow(formFactor: keyFaceFormFactor, letterRows: letterRowsShown)
       let style: ActionRowStyle = symbolLayer ? .symbolLayer : nineKeyFrame ? .nineKey : tabletRow ? .tablet : phoneRow ? .phone : .standard
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
+      let showsLanguage = KeyboardLayoutPreference.geometry.showsBottomLanguage
       let styledRow = styledBottomRow(style: style, letterRows: letterRowsShown, letterGrid: fourteenKeyRows,
                                       numberPad: numberPad, nineKeyDigits: numberPad && (nineKey || strokes || symbolFirstSource),
-                                      tallReturn: tallReturn, language: KeyboardLayoutPreference.geometry.showsBottomLanguage)
+                                      tallReturn: tallReturn, language: showsLanguage)
+      // 「中/英键放在空格左边」（`touch_language_key_side`）：手机底行（26 键一族、14/18 键、大千、手写）和九键外框（字母层、数字层、借来的数字九宫格、右侧大回车）在其余排法之后把中/英排到空格左边；iPad 全尺寸底行、123 / #+= 层不动，隐藏了中/英键时不起作用。
+      let languageLeft = activeKeyLayoutStyle.languageKeySide == .left && showsLanguage && (style == .phone || style == .nineKey)
       let styledSlots = Set(styledRow?.map(\.slot) ?? [])
       // 数字层底行带 符 时（拼音九键、九键双拼和笔画的数字层，含右侧大回车），符号栏里不再放第二个 符；借来的数字九宫格仍在符号栏第三排放 符。
       let sidebarSymbols = !(numberPad && styledSlots.contains(.symbols))
@@ -6454,7 +6721,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       nineKeyPunctuationRowShown = style == .nineKey && styledSlots.contains(.comma)
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad, styled: styledRow,
                        tallReturn: tallReturn, symbolFirst: symbolLayer ? symbolLayerSymbolFirst : activeKeyLayoutStyle.symbolFirst,
-                       numberPadSpace: numberPadSpace)
+                       numberPadSpace: numberPadSpace, languageLeft: languageLeft)
       NSLayoutConstraint.deactivate(activeStyledActionWidths)
       activeStyledActionWidths = []
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
@@ -6658,9 +6925,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
   }
 
-  /// 「按键布局」选了非标准样式、当前底行正是它作用的那一行时，按 `TouchBottomRowLayout` 排出的键；标准样式、借来的数字九宫格和其他底行为 nil，照原来的约束画，默认底行因此与以前完全相同。26 键样式只作用于手机的中文 26 键字母层（`drawsChineseTwentySixKey`），14 键样式作用于 14 键和 18 键字母层，九键样式作用于拼音九键、九键双拼和笔画的字母层，其中「右侧大回车」（`tallReturn`）连同它们的数字层一起换成自己的外框。拼音九键、九键双拼和笔画自己的数字层（`nineKeyDigits`）不论样式都按 `TouchBottomRowLayout.nineKeyDigits` 排，符 和切换键与字母层同一格（#10061，与 Android #9113 相同）。密码框和只收数字的框按标准样式画（`activeKeyLayoutStyle`）。
+  /// 「按键布局」选了非标准样式、当前底行正是它作用的那一行时，按 `TouchBottomRowLayout` 排出的键；标准样式、借来的数字九宫格和其他底行为 nil，照原来的约束画，默认底行因此与以前完全相同。中/英键放在空格左边时表最后再过一遍 `TouchBottomRowLayout.languageBeforeSpace`；为 nil 的那些行由 `arrangeActionRow` 对按键视图套同一条规则，宽度约束不看次序，仍是原来那一组。26 键样式只作用于手机的中文 26 键字母层（`drawsChineseTwentySixKey`），14 键样式作用于 14 键和 18 键字母层，九键样式作用于拼音九键、九键双拼和笔画的字母层，其中「右侧大回车」（`tallReturn`）连同它们的数字层一起换成自己的外框。拼音九键、九键双拼和笔画自己的数字层（`nineKeyDigits`）不论样式都按 `TouchBottomRowLayout.nineKeyDigits` 排，符 和切换键与字母层同一格（#10061，与 Android #9113 相同）。密码框和只收数字的框按标准样式画（`activeKeyLayoutStyle`）。
   private func styledBottomRow(style: ActionRowStyle, letterRows: Bool, letterGrid: Bool, numberPad: Bool,
                                nineKeyDigits: Bool, tallReturn: Bool, language: Bool) -> [TouchBottomRowLayout.Key]? {
+    let row = styleTableRow(style: style, letterRows: letterRows, letterGrid: letterGrid, numberPad: numberPad,
+                            nineKeyDigits: nineKeyDigits, tallReturn: tallReturn, language: language)
+    guard let row, activeKeyLayoutStyle.languageKeySide == .left else { return row }
+    return TouchBottomRowLayout.languageBeforeSpace(row)
+  }
+
+  /// 样式本身（连同「符」与「123」互换和数字键盘空格位置）排出的表，还没管中/英在哪一边。
+  private func styleTableRow(style: ActionRowStyle, letterRows: Bool, letterGrid: Bool, numberPad: Bool,
+                             nineKeyDigits: Bool, tallReturn: Bool, language: Bool) -> [TouchBottomRowLayout.Key]? {
     let globe = needsInputModeSwitchKey
     let keyStyle = activeKeyLayoutStyle
     switch style {
@@ -6799,9 +7075,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     formFactor == .tablet && letterRows
   }
 
-  /// 按当前设备形态，在字母行里显示 iPad 键盘的 ⌫、回车和第二个 ⇧，或者手机的 ⌫ 和 44pt 的 ⇧。
+  /// 按当前键面形态（`keyFaceFormFactor`），在字母行里显示 iPad 键盘的 ⌫、回车和第二个 ⇧，或者手机的 ⌫ 和 44pt 的 ⇧。
   private func applyTabletLetterKeys() {
-    let tablet = formFactor == .tablet
+    let tablet = keyFaceFormFactor == .tablet
     for key in [tabletDeleteKey, tabletReturnKey, rightShiftButton].compactMap({ $0 }) where key.isHidden == tablet {
       key.isHidden = !tablet
     }
@@ -6828,7 +7104,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；英文 26 键在空格左边多一个句点（123 | 符 | . | space | , | 中 | return）；14 键和手写保留独立逗号句号。中/英 紧挨回车左边。
+    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；英文 26 键在空格左边多一个句点（123 | 符 | . | space | , | 中 | return）；14 键和手写保留独立逗号句号。中/英 紧挨回车左边；「中/英键放在空格左边」时排到空格和贴着空格的标点左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return；拼音九键、九键双拼和笔画的数字层为 符 | 九键 | 0 | 空格 | 中 | return（`TouchBottomRowLayout.nineKeyDigits`），借来的数字九宫格为 返回 | 0 | 空格 | 中 | return、符 在左侧栏。
     case nineKey
@@ -6841,10 +7117,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 按布局画出的顺序排列底行的键。按键是重新插入而不是从行里移除，所以它们的宽度约束一直保持安装；每种顺序都列出全部按键，隐藏的放在最后。
-  /// `symbolFirst`（`touch_twenty_six_symbol_first`）把手机 26 键底行的 符 排到 123 左边，在 123 / #+= 层（`.symbolLayer`）上把返回键排到 😀 或 符号 后面，调用方只在字母层底行确实互换时传真；`numberPadSpace`（`touch_number_pad_space`）决定借来的数字九宫格里 0 和空格的次序，空格在右列时底行的空格隐藏、排在最后。
+  /// `symbolFirst`（`touch_twenty_six_symbol_first`）把手机 26 键底行的 符 排到 123 左边，在 123 / #+= 层（`.symbolLayer`）上把返回键排到 😀 或 符号 后面，调用方只在字母层底行确实互换时传真；`numberPadSpace`（`touch_number_pad_space`）决定借来的数字九宫格里 0 和空格的次序，空格在右列时底行的空格隐藏、排在最后。`languageLeft`（`touch_language_key_side` 为 `left`，调用方只在手机底行和九键外框、中/英显示着时传真）让没有表的那几种排法也照 `TouchBottomRowLayout.languageBeforeSpace` 把中/英排到空格左边：中缝和第二个空格算作空格，隐藏着的逗号、句号、0 也算在这一串里（它们不占宽度，越过它们不改变看得见的次序）；有表的行已经在表里排好。
   private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool, numberPad: Bool,
                                 styled: [TouchBottomRowLayout.Key]? = nil, tallReturn: Bool = false,
-                                symbolFirst: Bool = false, numberPadSpace: TouchNumberPadSpace = .platformDefault) {
+                                symbolFirst: Bool = false, numberPadSpace: TouchNumberPadSpace = .platformDefault,
+                                languageLeft: Bool = false) {
     guard let toggle = layoutToggleButton, let language = bottomLanguageButton, let gap = actionSplitGap,
           let space = spaceButton, let splitSpace = splitSpaceButton, let enter = enterButton else { return }
     let symbols: UIView = nineKeySymbolsButton, globe: UIView = actionGlobeButton, delete: UIView = actionDeleteButton
@@ -6895,6 +7172,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       if style != .symbolLayer { order.append(layerComma) }
       order.append(tallSlot)
+      if languageLeft {
+        order = TouchBottomRowLayout.languageBeforeSpace(order) { view -> TouchBottomRowLayout.Slot? in
+          if view === space || view === gap || view === splitSpace { return .space }
+          if view === zero { return .zero }
+          if view === comma { return .comma }
+          if view === period { return .period }
+          return view === language ? .language : nil
+        }
+      }
     }
     guard actionRow.arrangedSubviews != order else { return }
     for (index, key) in order.enumerated() where actionRow.arrangedSubviews.firstIndex(of: key) != index {
@@ -7070,6 +7356,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard cursorSwipeEnabled, let root = keyboardRoot as? KeyAreaStackView,
           let touched = touch.view, touched.isDescendant(of: root),
           !touched.isDescendant(of: japaneseKeys),
+          // iPad 单手的侧边数字键盘不挂横滑光标，那里的横滑照常是按键。
+          !touched.isDescendant(of: oneHandSidePad),
           !root.gapRoutingExclusions.contains(where: { touched.isDescendant(of: $0) }) else { return false }
     var node: UIView? = touched
     while let current = node, current !== root {
@@ -8679,6 +8967,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       appliedCandidateColumnWidth = column
       if !visibleCandidates.isEmpty { renderCandidateStrip() }
     }
+    // iPad 单手的块宽和侧边数字键盘的宽度按键盘宽度算：第一次有了宽度、旋转和台前调度改窗口大小时在这里重排（排法没变时什么也不做）。
+    applyOneHanded()
     updateLetterRowInsets()
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
@@ -8836,10 +9126,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
   }
 
-  /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
+  /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
   private func setKeyRowsCovered(_ covered: Bool, keepsTouches: Bool = false) {
-    // 「右侧大回车」的回车和数字层右列的空格叠在按键列上、不在任何一行里，跟着这些行一起盖住。
-    for row in keyColumn.arrangedSubviews + [oneHandGutter] + [tallReturnKey, numberPadColumnSpace].compactMap({ $0 }) {
+    // 「右侧大回车」的回车和数字层右列的空格叠在按键列上、不在任何一行里，跟着这些行一起盖住；侧边数字键盘和侧栏一样在按键列旁边，也一起盖住。
+    for row in keyColumn.arrangedSubviews + [oneHandGutter, oneHandSidePad] + [tallReturnKey, numberPadColumnSpace].compactMap({ $0 }) {
       row.alpha = covered ? 0 : 1
       row.isUserInteractionEnabled = !covered || keepsTouches
       row.accessibilityElementsHidden = covered

@@ -41,7 +41,7 @@ pub type KeyRect = [f32; 4];
 pub enum KeyGeometryError {
     /// `id` 为 0：那是「清除几何」，不是一份几何。
     ZeroId,
-    /// 某个数不是有限数，宽高不为正，或归一后的键心离原点超过 [`COORDINATE_LIMIT`] 个键。
+    /// 某个数不是有限数，宽高不为正，或归一后的键心离原点超过 `COORDINATE_LIMIT` 个键。
     InvalidRect,
     /// 重复键不是一个小写字母。
     InvalidDuplicate,
@@ -62,7 +62,7 @@ impl std::fmt::Display for KeyGeometryError {
 impl std::error::Error for KeyGeometryError {}
 
 impl KeyGeometry {
-    /// `keys` 是 a 到 z，`semicolon` 是微软双拼显示的 `;` 键，`duplicates` 是分离键盘里重复的字母键。数值都要有限、宽高为正，归一后的键心都在 [`COORDINATE_LIMIT`] 之内，否则整份拒绝。
+    /// `keys` 是 a 到 z，`semicolon` 是微软双拼显示的 `;` 键，`duplicates` 是分离键盘里重复的字母键。数值都要有限、宽高为正，归一后的键心都在 `COORDINATE_LIMIT` 之内，否则整份拒绝。
     pub fn new(
         id: u32,
         keys: &[KeyRect; 26],
@@ -193,7 +193,7 @@ impl KeyGeometry {
         })
     }
 
-    /// 宿主坐标里的按下点 (x, y) 落在 `key` 上的触点：取 `key` 离它最近的那个实例，偏移量化到 1/20 键并钳到 ±1.5 键。`key` 不在几何里（没有 `;` 键时的 `;`、不是字母）、坐标不是有限数或归一后超出 [`COORDINATE_LIMIT`] 时为 `None`，这一键按没有触点处理。大写字母按小写算。
+    /// 宿主坐标里的按下点 (x, y) 落在 `key` 上的触点：取 `key` 离它最近的那个实例，偏移量化到 1/20 键并钳到 ±1.5 键。`key` 不在几何里（没有 `;` 键时的 `;`、不是字母）、坐标不是有限数或归一后超出 `COORDINATE_LIMIT` 时为 `None`，这一键按没有触点处理。大写字母按小写算。
     pub fn touch(&self, key: u8, x: f32, y: f32) -> Option<KeyTouch> {
         let point = (x / self.unit.0, y / self.unit.1);
         if !within_limit(point.0) || !within_limit(point.1) {

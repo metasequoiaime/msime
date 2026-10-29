@@ -1,7 +1,6 @@
 import { MobileKeyboardFeedbackSettings } from "../mobile-keyboard-feedback-settings";
 import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
-import { harmonyTouchKeyboardRows, harmonyTouchLayout } from "../../keyboard/keyboard-layouts";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
@@ -26,7 +25,11 @@ import { useEffect } from "react";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { fullScreenColumn, fullScreenSurface } from "../../core/full-screen-style";
 import { SettingsPageHeader } from "../settings-page-header";
-import { TouchKeyLayoutSettings, touchKeyLayoutGroups } from "../touch-key-layout-settings";
+import {
+  TouchKeyLayoutSettings,
+  harmonyTouchRowsForPreferences,
+  touchKeyLayoutGroups,
+} from "../touch-key-layout-settings";
 import { keyLayoutEntryDescription } from "../../keyboard/touch-key-layout-styles";
 import { SettingsSearchReveal } from "../settings-search-reveal";
 
@@ -239,13 +242,7 @@ export function ScreenKeyboardSettingsPage() {
       phone={harmonyPhone}
       touchRows={
         harmonyPhone
-          ? harmonyTouchKeyboardRows[
-              harmonyTouchLayout(
-                selectedTouchKeyboardScheme,
-                draft.touch_shuangpin_layout ?? "twenty_six_key",
-                draft.touch_wubi_layout ?? "twenty_six_key",
-              )
-            ]
+          ? harmonyTouchRowsForPreferences(draft, selectedTouchKeyboardScheme)
           : undefined
       }
     />
@@ -361,6 +358,12 @@ export function ScreenKeyboardSettingsPage() {
             }
             // 全拼 26 键组字保留 ⇧ 的开关：触屏宿主都提供（Android、iOS 原生设置页已有同一行），缺省为关。
             quanpinShift={mobilePlatform ? (draft.touch_quanpin_shift ?? false) : undefined}
+            // 大屏单手的侧边数字键盘：只有报告 `touch_one_handed_side_panel` 的宿主（HarmonyOS 平板和可折叠手机）在这里给出，Android 和 iOS 在原生设置页里给。关掉写 off，client-core 存成缺键。
+            oneHandedSidePanel={
+              host?.touch_one_handed_side_panel
+                ? draft.touch_one_handed_side_panel === "number_pad"
+                : undefined
+            }
             // 「九键滑动输入数字」：触屏宿主、且版本提供全拼九键（`nine_key` 背后是全拼）时列出，桌面和没有拼音九键的版本不画；写共享偏好，不经本机的按键反馈设置。
             nineKeySwipeDigits={
               mobilePlatform && supportedInputSchemes(host).includes("quanpin")
@@ -385,6 +388,9 @@ export function ScreenKeyboardSettingsPage() {
             }
             onQuanpinShiftChange={(touch_quanpin_shift) =>
               onPreferencesChange({ touch_quanpin_shift })
+            }
+            onOneHandedSidePanelChange={(enabled) =>
+              onPreferencesChange({ touch_one_handed_side_panel: enabled ? "number_pad" : "off" })
             }
             onNineKeySwipeDigitsChange={(touch_nine_key_swipe_digits) =>
               onPreferencesChange({ touch_nine_key_swipe_digits })
@@ -485,6 +491,7 @@ export function ScreenKeyboardSettingsPage() {
                   scheme={selectedTouchKeyboardScheme}
                   groups={keyLayoutGroups}
                   open={keyLayoutSubview === true}
+                  mobile={harmonyPhone}
                   onChange={onPreferencesChange}
                 />
               </section>

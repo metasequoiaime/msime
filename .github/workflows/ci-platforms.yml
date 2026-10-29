@@ -340,6 +340,16 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链。
           rustup toolchain install
           cargo test --locked -p msime-engine
+      # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
+      - name: Published crates build from their packages
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo package --locked -p msime-path-trust -p msime-engine -p msime-engine-capi
+      # 三个发布到 crates.io 的 crate 的文档由 docs.rs 渲染，坏掉的 intra-doc 链接在那里就是点不开的链接或原样的方括号，而 cargo test 和 clippy 都不跑 rustdoc 的检查，此前积下的 10 个警告（链到私有项、没转义的方括号、裸 URL）就是这样一直没人发现。所以按 docs.rs 的方式只给这三个 crate 生成文档，并把 rustdoc 的警告当错误。链到私有项的那类警告只在不加 --document-private-items 时出现，这里也不加，和 docs.rs 一致。
+      - name: Published crates document without rustdoc warnings
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --locked -p msime-path-trust -p msime-engine -p msime-engine-capi
       - name: Engine unchanged
         if: ${{ needs.changes.outputs.engine != 'true' }}
         run: echo 'No engine or shared changes; engine tests skipped.'
@@ -793,7 +803,7 @@ jobs:
   windows-scripts:
     needs: changes
     name: Windows release script tests
-    # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything.
+    # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything; the state directory step at the end is the one native build here, kept to a single test target.
     runs-on: depot-windows-2025-8
     timeout-minutes: 15
     steps:
@@ -822,6 +832,29 @@ jobs:
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
+          }
+      # 状态根和安装登记的注册表读取（common/StateDirectory.h、common/RegistryString.h）只能在真的 Windows 上跑：Windows GNU 交叉编译作业编这个测试但不运行，windows-settings 的 ctest 用的是 Win7 设置、面板和兼容 API 各自的构建树，所以这里单独编 windows-state-directory，x64 和 Win32 各跑一次。Win32 进程在这台 x64 runner 上走 WOW64，覆盖 32 位进程用 KEY_WOW64_64KEY 读 64 位视图，以及多余终止符、缺值、缺键和非字符串值。Win7 上 RRF_SUBKEY_WOW6464KEY 读不到、显式打开视图读得到的差别在现代 Windows 上不出现，这里测不出，只能在 Win7 x64 实机上验收。pipe-only 配置不链接 Rust 库，但根 CMakeLists 无条件找 nlohmann_json，所以只从 runner 自带的 vcpkg 装这一个头文件库，不按清单装 curl 等全部依赖。
+      - name: Test the state directory and registry view as x64 and x86
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # GitHub 的 Windows 镜像导出 VCPKG_INSTALLATION_ROOT；Depot 在同样的 C:\vcpkg 中提供它，但没有这个变量。
+          $vcpkgRoot = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { 'C:\vcpkg' }
+          $toolchain = Join-Path $vcpkgRoot 'scripts/buildsystems/vcpkg.cmake'
+          if (-not (Test-Path -LiteralPath $toolchain -PathType Leaf)) { throw 'vcpkg toolchain not found' }
+          $installed = Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-deps/state-directory'
+          foreach ($arch in @(@{ Platform = 'x64'; Triplet = 'x64-windows' }, @{ Platform = 'Win32'; Triplet = 'x86-windows' })) {
+            Write-Host "== $($arch.Platform)"
+            & (Join-Path $vcpkgRoot 'vcpkg.exe') install "nlohmann-json:$($arch.Triplet)" "--x-install-root=$installed" --disable-metrics
+            if ($LASTEXITCODE -ne 0) { throw "nlohmann-json install failed for $($arch.Triplet)" }
+            $output = "target/windows-state-directory/$($arch.Platform)"
+            cmake -S platforms/windows -B $output -A $arch.Platform -DMSIME_WINDOWS_PIPE_ONLY=ON "-DCMAKE_TOOLCHAIN_FILE=$toolchain" -DVCPKG_MANIFEST_MODE=OFF "-DVCPKG_INSTALLED_DIR=$installed" "-DVCPKG_TARGET_TRIPLET=$($arch.Triplet)"
+            if ($LASTEXITCODE -ne 0) { throw "State directory configuration failed for $($arch.Platform)" }
+            cmake --build $output --config Release --target windows-state-directory --parallel 2
+            if ($LASTEXITCODE -ne 0) { throw "State directory build failed for $($arch.Platform)" }
+            ctest --test-dir $output -C Release -R '^windows-state-directory$' --output-on-failure --no-tests=error
+            if ($LASTEXITCODE -ne 0) { throw "State directory tests failed for $($arch.Platform)" }
           }
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}

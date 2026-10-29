@@ -332,11 +332,15 @@ private struct LicenseNotice: Identifiable {
   let file: String
   let title: String
   let detail: String
+  /// 声明文件的扩展名，绝大多数是 `txt`，词库来源说明是 Markdown，本应用的 GPL-3.0 全文是仓库根目录没有扩展名的 `LICENSE`（空字符串表示没有扩展名）。
+  var fileExtension = "txt"
 
   var id: String { file }
-  var url: URL? { Bundle.main.url(forResource: file, withExtension: "txt") }
+  var url: URL? { Bundle.main.url(forResource: file, withExtension: fileExtension) }
 
   private static let all = [
+    // 本应用和键盘扩展里拼音词库的 rime-ice 数据都按 GPL-3.0 分发，排在第一项。
+    LicenseNotice(file: "LICENSE", title: "水杉输入法", detail: "本应用与拼音词库 · GPL-3.0", fileExtension: ""),
     LicenseNotice(file: "MLKit-NOTICES", title: "Google ML Kit", detail: "手写识别 · 第三方声明"),
     LicenseNotice(file: "MLKit-Dependencies", title: "ML Kit 依赖组件", detail: "手写识别 · 依赖清单"),
     LicenseNotice(file: "GoogleSignIn-Dependencies", title: "Google Sign-In", detail: "Google 登录 · Apache-2.0"),
@@ -353,7 +357,14 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "MPL-2.0", title: "输入引擎与 rink-core", detail: "引擎、单位换算 · MPL-2.0"),
     LicenseNotice(file: "librime-octagram-BSD-3-Clause", title: "librime-octagram 与 darts-clone", detail: "搭配模型查询 · BSD-3-Clause 与 BSD-2-Clause"),
     LicenseNotice(file: "libcxx-Apache-2.0-WITH-LLVM-exception", title: "LLVM libc++", detail: "整句排序 · Apache-2.0 WITH LLVM-exception"),
-    LicenseNotice(file: "latex-symbols-MIT", title: "LaTeX 符号表", detail: "符号模式 · MIT")
+    LicenseNotice(file: "latex-symbols-MIT", title: "LaTeX 符号表", detail: "符号模式 · MIT"),
+    LicenseNotice(file: "pinyin-data-MIT", title: "pinyin-data", detail: "拼音词库单字读音 · MIT"),
+    LicenseNotice(file: "ECDICT-MIT", title: "ECDICT", detail: "英文词库中英释义 · MIT"),
+    LicenseNotice(file: "rime_kaomoji_dict-MIT", title: "rime_kaomoji_dict", detail: "颜文字 · MIT"),
+    LicenseNotice(file: "python-pinyin-MIT", title: "python-pinyin", detail: "表情与颜文字关键词读音 · MIT"),
+    LicenseNotice(file: "rime-wubi86-jidian-Apache-2.0", title: "rime-wubi86-jidian", detail: "五笔 86 码表 · Apache-2.0"),
+    LicenseNotice(file: "rime-wanxiang-CC-BY-4.0", title: "rime-wanxiang", detail: "拼音与笔画词库的词频 · CC BY 4.0"),
+    LicenseNotice(file: "msime-engine-dictionary-NOTICE", title: "词库数据来源", detail: "各词库与整句上下文表的来源与条款", fileExtension: "md")
   ]
 
   /// 本次构建的 bundle 里实际存在的声明文件。
@@ -384,7 +395,7 @@ struct LicensesView: View {
             .buttonStyle(PressFillButtonStyle())
           }
         }
-        Text("水杉输入法本身以开源许可发布，源代码见关于页的 GitHub。")
+        Text("水杉输入法本身以 GPL-3.0 发布，全文见上方「水杉输入法」一项，源代码见关于页的 GitHub。")
           .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, 16)

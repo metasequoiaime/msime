@@ -18,7 +18,7 @@ Status: implemented
 
 ### 函数面
 
-33 个函数与草案一一对应，按代码调整的地方：
+33 个函数与草案一一对应（ABI 1.1 为按方案准备追加了 `prepare_runtime_for`、`reset_learning_for`，见下文「不分方案」一条），按代码调整的地方：
 
 - 四个函数不返回状态码：`abi_version` 返回 `(major << 16) | minor`，`version` 和 `last_error` 返回 `const char*`，`string_free` 无返回值。其余 29 个返回 `int32_t`。
 - `prepare_runtime` 用 `char**` 交回代次目录，由 `string_free` 释放：采用方要把它原样放进选项的 `paths.dictionaries`，自己拼路径在 Windows 上容易错。所以 `string_free` 释放的是库交出的一切字符串，不只 JSON。
@@ -26,7 +26,7 @@ Status: implemented
 - `preload_model(kind, path, bytes)` 现在只有 `MSIME_ENGINE_MODEL_JAPANESE`，对应 `preload_japanese_dictionary`；`bytes` 为 NULL 且长度为 0 时撤掉。别的种类是 `UNSUPPORTED`，以后加种类不加函数。
 - 选项 JSON 比草案的子集多一个 `next_word_prediction`：没有它，`MSIME_ENGINE_OPTION_PREDICTION_ALLOWED` 这个门禁永远无事可管。枚举类的取值在 JSON 里用名字（`quanpin`、`xiaohe`、`z_zh`），整数编号只出现在 C 函数的参数里。
 - 命令 11 在 ABI 里叫 `MSIME_ENGINE_COMMAND_OPEN_CANDIDATE_LIST`：核心层的 `ConvertHanja` 是历史名，它现在开关的是当前方案可打开的列表（韩文汉字、注音整句），编号不变。
-- `prepare_runtime` 和 `reset_learning` 不分方案，用引擎的 `prepare_runtime_paths` 和 `reset_learned_data`，所以每个方案都要 `msime-pinyin.db`，包括提案数据表里只要 `msime-english.db` 的日文、韩文、越南文和藏文。引擎能按方案只准备英文库（`prepare_runtime_paths_for`、`reset_learned_data_with`，msime 宿主在用），但前者不是公开接口；按方案准备留给以后的次版本追加一个带方案集合的函数，README 的数据表写明 1.0 的要求。`prepare_runtime` 不读 `paths.dictionaries`：调用时还没有代次目录，C 调用方很自然地只填前三项。
+- `prepare_runtime` 和 `reset_learning` 不分方案，用引擎的 `prepare_runtime_paths` 和 `reset_learned_data`，所以要 `msime-pinyin.db` 和 `msime-english.db`。按方案准备由后加的 `prepare_runtime_for`、`reset_learning_for` 承担（带方案位集合，见 [回车学词策略进核心，代次准备按方案集合要求词库](2026-10-29-engine-core-raw-commit-policy-and-scheme-data-sets.md)），README 的数据表按方案写明要求。`prepare_runtime` 不读 `paths.dictionaries`：调用时还没有代次目录，C 调用方很自然地只填前三项。
 - 个人词典三个函数用引擎层自己取锁的版本（`edit_personal_dictionary`、`reset_learned_data`）和只读的 `personal_dictionary_entries`。引擎以后新加的词条种类在 JSON 里还没有名字，列表里先略过（`PersonalDictionaryKind` 是 `non_exhaustive`）。
 
 ### 会话句柄
@@ -55,6 +55,8 @@ Status: implemented
 
 CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 三个 runner 各跑 `cargo test -p msime-engine-capi` 和这个脚本。`changes` 作业新增 `engine_capi` 输出，只在 `crates/engine*`、`crates/path-trust/`、工作区清单与工具链、`collect-notices.py` 或这个 workflow 改动时为真；这个作业不是必需检查，所以在作业级跳过，不为不相干的改动占一台稀缺的 macOS runner。cargo-c 按版本、系统和工具链缓存装好的可执行文件，缓存不中才 `cargo install cargo-c --locked --version 0.10.26`。
 
+`tests/golden_replay.rs` 把引擎的 golden 场景经 C 函数回放，每一步与核心 API 的回放对照，同一条 `cargo test -p msime-engine-capi` 跑它；怎么比、跳过哪些、回放下限见 [引擎 C ABI 回放 golden 场景](../testing/2026-10-29-engine-capi-golden-replay.md)。
+
 ## Alternatives considered
 
 - **cbindgen 加自写脚本生成 `.pc`、设 SONAME** — 最强的理由是少一个构建工具，cbindgen 只是一个库或一个小命令。维护者选了 cargo-c：它一步给出头文件、`.pc`、按平台正确的库名和 SONAME/install name、Windows 的导入库，这些自己写要按三个平台分别处理，正是容易写错又没人测的部分。
@@ -68,7 +70,7 @@ CI 的 `engine-capi` 作业在 `ci-platforms.yml` 里，Linux、macOS、Windows 
 
 - **收益**：第三方前端拿到一个带版本、带头文件和 `.pc` 的 C 库，按键路径上没有 JSON 和额外分配，候选按下标随取，选择有修订号保护；会话可以在任何线程上用；会话与维护按 msime 宿主的同一把文件锁互斥；头文件、SONAME、第三方声明和三平台上的打字流程都有 CI 守着。
 - **代价**：cargo-c 总是按显式的目标三元组构建，产物在 `target/<三元组>/` 下，是与 `target/debug` 分开的第二棵构建树（CI 和本机跑脚本时都多编一遍引擎）。苹果平台的 dylib 不剥调试信息，体积大一些。CI 在引擎相关的 PR 上多占三台 runner，其中一台是 macOS。快照缓存在只读调用之间可能多取一次快照。
-- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布等 P2 改许可证，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
+- **没做的**：ABI 1.0 没有日志回调和事件通知（引擎的警告仍写标准错误）；二进制发布见 [msime-engine-capi 的预编译归档、最小数据包与快速上手](../process/2026-10-29-engine-capi-prebuilt-release-and-data-pack.md)，crates.io 等 P6，msime 自己的宿主改用公开 API 是 P7；九键、触点、神经重排等留到 v1.x。数据格式的规格文档（P5）还没写，README 的数据表以提案为准，许可证一列按仓库自己的声明（`resources/licenses/msime-engine-dictionary-NOTICE.md`、`docs/third-party.md`）改正过。Linux 和 Windows 上的 C 示例只在 CI 里跑过，本机只在 macOS（Studio，arm64）上跑过三种链接方式。
 
 ## 相关笔记
 

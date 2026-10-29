@@ -2,23 +2,46 @@ import UIKit
 
 /// 单手模式的几何与规则（dc.html `ohDir`，占 15% 的侧栏），键盘和它的测试共用。
 ///
-/// 按键区变成一行：侧栏占整行的 15%，再留 6pt 间距，剩下的给按键，侧栏放在按键的另一侧。只对手机键盘生效，设计稿把它限定在 `mob && !pad`；全宽的 iPad 键盘（也只有它会分离）保留存下的值，但画的时候不带侧栏，和 Android 的 `SplitKeyboardPolicy.effectiveOneHanded` 在画分离式键盘时的做法一致。
+/// 按键区变成一行：侧栏占「侧栏加按键」这一块宽度的 15%，再留 6pt 间距，剩下的给按键，侧栏放在按键的另一侧。手机上这一块就是整行；全宽的 iPad 键盘上这一块缩到手机大小（按键 360pt，与鸿蒙的块宽同一个公式）贴到存下的那一侧，空出来的一侧够宽时可以放侧边数字键盘（`sidePadWidth`），与 Android、鸿蒙的大屏单手模式一致。iPad 画横屏分离式键盘时单手让位，存下的值保留，和 Android 的 `SplitKeyboardPolicy.effectiveOneHanded` 在画分离式键盘时的做法一致。
 enum KeyboardOneHandLayout {
-  /// 侧栏占按键行宽度的比例。
+  /// 侧栏占「侧栏加按键」这一块宽度的比例。
   static let gutterRatio: CGFloat = 0.15
   /// 侧栏和按键之间的间距。
   static let gap: CGFloat = 6
+  /// iPad 单手时按键的宽度，与手机竖屏的按键差不多宽。
+  static let tabletKeysWidth: CGFloat = 360
+  /// 侧边数字键盘的宽度上限：三列键每列约 100，与九键数字层的键差不多大；空出来的地方再宽，多出来的都是空白。
+  static let sidePadMaxWidth: CGFloat = 300
+  /// 侧边数字键盘的宽度下限：三列键每列约 50，再窄就不显示。
+  static let sidePadMinWidth: CGFloat = 150
 
-  /// 键盘实际画出的模式：手机键盘用存下的值，全宽的 iPad 键盘一律关闭。
-  static func effective(_ stored: KeyboardOneHandedMode, formFactor: KeyboardFormFactor) -> KeyboardOneHandedMode {
-    formFactor == .phone ? stored : .off
+  /// 键盘实际画出的模式：手机键盘用存下的值；全宽的 iPad 键盘也用存下的值，只在画横屏分离式键盘（`split`）时关闭。
+  static func effective(_ stored: KeyboardOneHandedMode, formFactor: KeyboardFormFactor, split: Bool = false) -> KeyboardOneHandedMode {
+    formFactor == .tablet && split ? .off : stored
+  }
+
+  /// 「侧栏加按键」这一块的宽度：手机上是整行 `available`；iPad 上是手机大小的一块，按键 `tabletKeysWidth` 加间距再除以按键占的比例，窗口比它还窄时取整行。
+  static func blockWidth(available: CGFloat, formFactor: KeyboardFormFactor) -> CGFloat {
+    let width = max(0, available)
+    guard formFactor == .tablet else { return width }
+    return min(width, ((tabletKeysWidth + gap) / (1 - gutterRatio)).rounded())
   }
 
   /// 按键行宽 `available` 时按键分到的宽度。
-  static func keysWidth(available: CGFloat, mode: KeyboardOneHandedMode) -> CGFloat {
+  static func keysWidth(available: CGFloat, mode: KeyboardOneHandedMode, formFactor: KeyboardFormFactor = .phone) -> CGFloat {
     let width = max(0, available)
     guard mode != .off else { return width }
-    return max(0, width - width * gutterRatio - gap)
+    let block = blockWidth(available: width, formFactor: formFactor)
+    return max(0, block - block * gutterRatio - gap)
+  }
+
+  /// 单手时空出来那一侧放侧边数字键盘的宽度：手机返回 0；iPad 上空出来的宽度（整行减去这一块，再减去它们之间的间距）不到 `sidePadMinWidth` 时为 0，否则不超过 `sidePadMaxWidth`。
+  static func sidePadWidth(available: CGFloat, formFactor: KeyboardFormFactor) -> CGFloat {
+    guard formFactor == .tablet else { return 0 }
+    let width = max(0, available)
+    let side = width - blockWidth(available: width, formFactor: formFactor) - gap
+    guard side >= sidePadMinWidth else { return 0 }
+    return min(side, sidePadMaxWidth)
   }
 
   /// 侧栏是否排在行首，也就是在左边：按键靠右时如此。

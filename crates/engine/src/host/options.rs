@@ -69,7 +69,7 @@ pub struct EngineOptions {
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
     pub learning: bool,
-    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。
+    /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。门面同时打开 `SessionOptions::learn_typed_spellings_on_enter`，所以学的不只是专用英文里打的词。
     pub learn_english_on_enter: bool,
     /// 上屏后联想；默认关闭，宿主只在支持空闲候选的键盘上启用。
     pub next_word_prediction: bool,
@@ -388,6 +388,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         },
         learning: options.learning,
         learn_english_on_enter: options.learn_english_on_enter,
+        // 产品的回车学词策略（bridge.cpp:1332-1359）：专用英文之外，临时模式里原样上屏的字母和拼不成音节的拼音也学成英文词。总开关仍是 `learn_english_on_enter`。
+        learn_typed_spellings_on_enter: true,
         sentence_alternatives: options.sentence_alternatives,
         first_page_rows: options.first_page_rows,
         single_character_only: options.single_character_only,

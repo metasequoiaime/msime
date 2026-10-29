@@ -1068,18 +1068,21 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// `page_size` 既是分页，也作为首屏门槛交给引擎（`InputEngine::set_first_page_rows`），见 [`Self::set_page_size`]。
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
         Self::new_with_touch_layout(engine, page_size, TouchKeyboardLayout::default())
     }
 
     pub fn new_with_touch_layout(
-        engine: E,
+        mut engine: E,
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<Self, RuntimeError> {
         if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
+        // 引擎的首屏门槛和分页同源，建立时就交给它，不靠调用方在引擎选项里另设一份：只在 `set_page_size` 下发时，直接 `Runtime::new` 的示例、测试和评测工具分页是 9，引擎却停在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入首页和任何宿主都不一样。
+        engine.set_first_page_rows(page_size.into());
         let session = NEXT_SESSION
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| RuntimeError::IdentityExhausted)?;
@@ -2033,21 +2036,22 @@ impl<E: InputEngine> Runtime<E> {
         }
         self.advance()?;
         self.page_size = page_size.into();
-        // 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。不在这里下发，它会一直停在重建引擎时那一份：
-        // 每页从 6 改成 9 时，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
+        // 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。建立和换引擎时都下发过，这里改了分页不跟着下发，它就停在旧的那一份：每页从 6 改成 9 时，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
         self.engine.set_first_page_rows(page_size.into());
         Ok(())
     }
 
     /// Preserve the host handle/focus while invalidating every old candidate ID.
     /// Validate the replacement before changing any live state.
+    ///
+    /// `page_size` 同 [`Self::new`]：既是分页，也是交给新引擎的首屏门槛。
     pub fn replace_engine(&mut self, engine: E, page_size: u8) -> Result<(), RuntimeError> {
         self.replace_engine_with_touch_layout(engine, page_size, self.touch_keyboard_layout)
     }
 
     pub fn replace_engine_with_touch_layout(
         &mut self,
-        engine: E,
+        mut engine: E,
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<(), RuntimeError> {
@@ -2057,6 +2061,8 @@ impl<E: InputEngine> Runtime<E> {
         if !self.is_idle() {
             return Err(RuntimeError::CompositionActive);
         }
+        // 新引擎的首屏门槛同样跟着这一次的分页，理由见 `new_with_touch_layout`。
+        engine.set_first_page_rows(page_size.into());
         let cached = engine.snapshot()?;
         self.advance()?;
         self.engine = engine;

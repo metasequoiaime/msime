@@ -190,7 +190,7 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
 
 /// SHA-256 hex over `text("msime-local-dictionary-state-v1")` and every streamed record, where `text(s)` is `integer(len)` then the bytes and `integer` is a big-endian u64 (dictionary_revision.rs). Apple computes the same digest; keep the framing byte for byte.
 ///
-/// 每次都完整读一遍日志。算完顺带把结果记进 [`cached_dictionary_state_revision`] 的缓存，所以准备、激活快照这些必须拿精确值的地方算出来的新结果，之后的预览也直接用上。
+/// 每次都完整读一遍日志。算完顺带把结果记进 [`cached_dictionary_state_revision`](crate::host::cached_dictionary_state_revision) 的缓存，所以准备、激活快照这些必须拿精确值的地方算出来的新结果，之后的预览也直接用上。
 pub fn dictionary_state_revision(paths: &RuntimePaths) -> Result<String> {
     state_revision(paths, false, SystemTime::now)
 }
@@ -573,7 +573,7 @@ fn build_generation(
     )
 }
 
-/// [`merge_dictionary_state`] 的结果：各类记录写进本机的条数，以及没写的条数和原因。
+/// [`merge_dictionary_state`](crate::host::merge_dictionary_state) 的结果：各类记录写进本机的条数，以及没写的条数和原因。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DictionaryStateMerge {
     /// 写进来的学习调权（`user_inserted = 0` 的 upsert）和删除记录。

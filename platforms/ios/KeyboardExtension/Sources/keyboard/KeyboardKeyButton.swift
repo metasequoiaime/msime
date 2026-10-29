@@ -699,3 +699,49 @@ final class KeyboardSpellingScrollView: UIScrollView {
     if contentSize != size { contentSize = size }
   }
 }
+
+/// 九键字母层用自定义符号表时的左列：每项等高，不超过一屏（`visibleRowLimit`，与九宫格三行对齐）时按实际项数均分左列高度，超过时一屏放满、其余上下滚动；每项会矮于 28pt（`NineKeySidebar.minRowHeight`）时少放几项。按帧排列，表变了不向整套键盘传播约束。
+final class NineKeySidebarScrollView: UIScrollView {
+  var buttons: [UIButton] = [] { didSet { setNeedsLayout() } }
+  var visibleRowLimit = NineKeySidebar.letterVisibleRows { didSet { setNeedsLayout() } }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    configure()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    configure()
+  }
+
+  private func configure() {
+    // 与 `CandidateScrollView` 一样：按下当场有反馈，手指一滑就交给滚动。
+    delaysContentTouches = false
+    showsVerticalScrollIndicator = true
+    showsHorizontalScrollIndicator = false
+    disableEdgeEffects()
+  }
+
+  override func touchesShouldCancel(in view: UIView) -> Bool {
+    if view is KeyboardKeyButton { return true }
+    return super.touchesShouldCancel(in: view)
+  }
+
+  /// 此刻一屏放几项。
+  var visibleRows: Int {
+    NineKeySidebar.visibleRows(count: buttons.count, limit: visibleRowLimit, height: bounds.height)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let rows = visibleRows
+    let height = rows > 0 ? bounds.height / CGFloat(rows) : 0
+    for (index, button) in buttons.enumerated() {
+      let frame = CGRect(x: 0, y: CGFloat(index) * height, width: bounds.width, height: height)
+      if button.frame != frame { button.frame = frame }
+    }
+    let size = CGSize(width: bounds.width, height: height * CGFloat(buttons.count))
+    if contentSize != size { contentSize = size }
+  }
+}

@@ -156,6 +156,28 @@ export class TouchLayoutStylePolicy {
     return value === P.AFTER_ZERO ? P.AFTER_ZERO : P.BEFORE_ZERO;
   }
 
+  /** 鸿蒙字母层出厂表的显示形式（键盘点按仍把 ASCII `, . ?` 交给 Engine），与共享设置页 `nineKeySidebarDefaults.letter` 相同。 */
+  static readonly NINE_KEY_SIDEBAR_DEFAULTS: string[] = ["，", "。", "？"];
+  /** 鸿蒙数字层出厂表：四则运算，#+= 不在表里。 */
+  static readonly DIGIT_SIDEBAR_DEFAULTS: string[] = ["+", "-", "*", "/"];
+
+  /** 九键左侧符号栏的一张表（共享偏好 `touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`，#10223）：client-core 读写时已经规范化，这里只留字符串元素；缺键、不是数组读成空表，即本端出厂表（`NineKeyLayout.sideMarks`、`digitSidebar`）。与 `defaults` 逐项、同顺序相同的非空表也读成空表，按出厂表画和上屏，与 Android `NineKeySidebarPolicy.custom` 相同。 */
+  static sidebarSymbols(value: unknown, defaults: readonly string[] = []): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const symbols: string[] = [];
+    for (const item of value as Object[]) {
+      if (typeof item === "string" && item.length > 0) {
+        symbols.push(item as string);
+      }
+    }
+    const factory: boolean =
+      symbols.length === defaults.length &&
+      symbols.every((symbol: string, index: number): boolean => symbol === defaults[index]);
+    return factory ? [] : symbols;
+  }
+
   /**
    * 「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`）：底行里 符 排在 123 后面时把它挪到 123 左边，其余键次序和份额不变，与 Android `KeyboardActionRow.designEntries`、iOS `TouchBottomRowLayout.symbolFirst` 相同。只有 26 键一族的底行（标准、逗号句号在空格两侧和英文底行）是 123 | 符 打头，长空格和表情键样式、14/18 键和大千注音没有 符，原样返回。
    */
@@ -172,6 +194,46 @@ export class TouchLayoutStylePolicy {
     const moved: DesignRowEntry[] = row.slice();
     const panel: DesignRowEntry[] = moved.splice(symbol, 1);
     moved.splice(layer, 0, panel[0]);
+    return moved;
+  }
+
+  /** 共享偏好 `touch_language_key_side` 里表示「中/英键在空格左边」的写法（`client_core::preferences::TouchLanguageKeySide::Left`）；另一个取值 `right` 是默认，不写进文档。 */
+  static readonly LANGUAGE_LEFT: string = "left";
+
+  /** 「中/英键放在空格左边」（`touch_language_key_side`）：只有值恰好是字符串 `left` 时算左；缺键、`right`、本版本不认识的写法和不是字符串的值都按右（现在的排法），与 client-core 宽松读取的规则相同。 */
+  static languageKeyLeft(value: unknown): boolean {
+    return value === TouchLayoutStylePolicy.LANGUAGE_LEFT;
+  }
+
+  /** 中/英 挪到左边时跟着整串右移一格的键：空格和紧贴空格的标点（设计底行没有 0，九键外框见 `NineKeyLayout.languageBeforeSpace`）。 */
+  private static readonly LANGUAGE_RUN: readonly DesignRowSlot[] = [
+    DesignRowSlot.SPACE,
+    DesignRowSlot.COMMA,
+    DesignRowSlot.PERIOD,
+  ];
+
+  /**
+   * 「中/英键放在空格左边」（共享偏好 `touch_language_key_side` 为 `left`）：在样式和「符」与「123」互换都排完之后，把 中/英 左边紧挨着的那一串空格和标点整串右移一格，中/英 挪到这一串的最左边；所有键的份额不变，只换次序。与 Android `KeyboardActionRow.languageBeforeSpace`、iOS `TouchBottomRowLayout.languageBeforeSpace` 同一条规则（笔记 2026-10-29-language-key-left-of-space.md）。
+   *
+   * 空格左边没有标点的行（26 键标准、表情键）中/英 紧挨空格：123 | 符 | 中 | 空格 | ， | 回车；空格左边有标点的行（逗号句号、长空格、14/18 键、大千注音、英文 26 键的句点）标点仍紧挨空格，中/英 排在标点左边：123 | 符 | 中 | ， | 空格 | 。 | 回车。行里没有 中/英，或 中/英 左边紧挨的不是空格或标点时原样返回。
+   */
+  static languageBeforeSpace(row: readonly DesignRowEntry[], enabled: boolean): DesignRowEntry[] {
+    const moved: DesignRowEntry[] = row.slice();
+    const language: number = moved.findIndex(
+      (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.LANGUAGE,
+    );
+    if (!enabled || language < 0) {
+      return moved;
+    }
+    let start: number = language;
+    while (start > 0 && TouchLayoutStylePolicy.LANGUAGE_RUN.includes(moved[start - 1].slot)) {
+      start--;
+    }
+    if (start === language) {
+      return moved;
+    }
+    const key: DesignRowEntry[] = moved.splice(language, 1);
+    moved.splice(start, 0, key[0]);
     return moved;
   }
 

@@ -509,11 +509,13 @@ struct TypingKeyHeatmap: Equatable {
   /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。用户选了别的「按键布局」时画 `letterRows(for:)`。
   static let keyboardRows: [[Cell]] = letterRows(for: TouchKeyLayoutStyle())
 
-  /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`（打开「符」与「123」互换时 符 排在 123 左边），打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
+  /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`（打开「符」与「123」互换时 符 排在 123 左边，中/英键放在空格左边时照 `TouchBottomRowLayout.languageBeforeSpace` 重排），打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。
   static func letterRows(for style: TouchKeyLayoutStyle) -> [[Cell]] {
     let number: [[Cell]] = style.numberRow ? [numberRow] : []
-    let bottom = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)
-    return number + twentySixKeyLetterRows + [bottomRow(style.symbolFirst ? TouchBottomRowLayout.symbolFirst(bottom) : bottom)]
+    let row = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false)
+    let swapped = style.symbolFirst ? TouchBottomRowLayout.symbolFirst(row) : row
+    let bottom = style.languageKeySide == .left ? TouchBottomRowLayout.languageBeforeSpace(swapped) : swapped
+    return number + twentySixKeyLetterRows + [bottomRow(bottom)]
   }
 
   /// 顶部数字行：一排 1 到 0，记 `Digit1`…`Digit0`。「按键布局」页的预览也画这一排。
@@ -568,9 +570,10 @@ struct TypingKeyHeatmap: Equatable {
   /// 九键底行（`nineKeyActionWidths`，空格为 4.2）：符 | 123 | 空格 | 中 | 回车。0 只出现在数字层，不画。用户选了别的「按键布局」时画 `nineKeyBottomCells(for:)`。
   static let nineKeyBottomRow: [Cell] = nineKeyBottomCells(for: .standard)
 
-  /// 按九键的「按键布局」画的底行，照 `TouchBottomRowLayout.nineKey`。「右侧大回车」的第一格 符 画在侧栏下方、最后一格回车画在右列、跨两排，中间几格画在九宫格下方。
-  static func nineKeyBottomCells(for style: TouchNineKeyStyle) -> [Cell] {
-    bottomRow(TouchBottomRowLayout.nineKey(style, globe: false))
+  /// 按九键的「按键布局」画的底行，照 `TouchBottomRowLayout.nineKey`；`languageLeft`（中/英键放在空格左边）时照 `TouchBottomRowLayout.languageBeforeSpace` 重排。「右侧大回车」的第一格 符 画在侧栏下方、最后一格回车画在右列、跨两排，中间几格画在九宫格下方。
+  static func nineKeyBottomCells(for style: TouchNineKeyStyle, languageLeft: Bool = false) -> [Cell] {
+    let row = TouchBottomRowLayout.nineKey(style, globe: false)
+    return bottomRow(languageLeft ? TouchBottomRowLayout.languageBeforeSpace(row) : row)
   }
 
   /// 九键的侧栏：「右侧大回车」把右列的 ！ 接到 ，。？ 后面，四个键都记 `SoftPunctuation`。
@@ -586,7 +589,7 @@ struct TypingKeyHeatmap: Equatable {
   /// 一块键盘上画出的全部键；`style` 是用户的「按键布局」，缺省为标准样式、没有数字行。
   static func cells(nineKey: Bool, style: TouchKeyLayoutStyle = TouchKeyLayoutStyle()) -> [Cell] {
     nineKey ? [nineKeySidebar(for: style.nineKey)] + nineKeyGrid.joined() + nineKeyControls(for: style.nineKey)
-      + nineKeyBottomCells(for: style.nineKey)
+      + nineKeyBottomCells(for: style.nineKey, languageLeft: style.languageKeySide == .left)
       : Array(letterRows(for: style).joined())
   }
 

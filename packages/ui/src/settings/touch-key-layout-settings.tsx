@@ -7,17 +7,30 @@ import {
   type HarmonyTouchLayout,
   type PreviewKey,
 } from "../keyboard/keyboard-layouts";
-import { GroupList, Segmented } from "../core/platform-controls";
+import { GroupList, LinkRow, Segmented } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
 import { SettingsSearchReveal } from "./settings-search-reveal";
 import { phoneHeatmapLayoutRows } from "./keyboard-heatmap";
-import type { TouchKeyboardScheme } from "./touch-keyboard-scheme-helpers";
+import {
+  inferredTouchKeyboardScheme,
+  type TouchKeyboardScheme,
+} from "./touch-keyboard-scheme-helpers";
+import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
+import { NineKeySidebarSettings } from "./nine-key-sidebar-settings";
 import {
   fourteenKeyBottomRows,
   fourteenKeyStyle,
   fourteenKeyStyleHighlights,
   fourteenKeyStyleNotes,
   fourteenKeyStyleOptions,
+  nineKeySidebarStoredValue,
+  nineKeySidebarSummary,
+  nineKeySidebarSymbols,
+  nineKeySidebarTitle,
+  nineKeySidebarVisibleRows,
+  languageKeyLeft,
+  languageKeyLeftDescription,
+  languageKeyLeftTitle,
   nineKeyStyle,
   nineKeyStyleHighlights,
   nineKeyStyleNotes,
@@ -26,6 +39,8 @@ import {
   numberPadSpaceNote,
   numberPadSpaceOptions,
   numberPadSpaceTitle,
+  numberPadSidebarSymbols,
+  numberPadSidebarTitle,
   numberRowDescription,
   numberRowKeys,
   symbolFirstDescription,
@@ -35,7 +50,10 @@ import {
   twentySixKeyStyleHighlights,
   twentySixKeyStyleNotes,
   twentySixKeyStyleOptions,
+  storedNineKeySidebar,
+  withLanguageKeyLeft,
   withSymbolFirst,
+  type NineKeySidebarKind,
 } from "../keyboard/touch-key-layout-styles";
 
 /** 「按键布局」子页上提供哪几种键盘类型：版本没有的键盘类型不进分段控件。 */
@@ -102,12 +120,36 @@ export function touchKeyLayoutKind(
   }
 }
 
-/** 预览里的一个键：`tone` 决定键帽颜色（字母键、功能键、强调色的回车），`highlighted` 是这个样式与「标准」不同、要描边的键，`rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车）。没有 `label` 的是占位，只占宽度不画键帽。 */
+/** 预览里的一个键：`tone` 决定键帽颜色（字母键、功能键、强调色的回车），`highlighted` 是这个样式与「标准」不同、要描边的键，`rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车）。没有 `label` 的是占位，只占宽度不画键帽。`stack` 是一格里自上而下等高排的几个键：9 键左列换成用户的符号表时，整列画成跨网格各行的一格，里面是表里的前几项（`nineKeySidebarStack`）。 */
 export type KeyLayoutPreviewKey = PreviewKey & {
   tone: "letter" | "function" | "return";
   highlighted: boolean;
   rowSpan?: number;
 };
+
+/**
+ * 9 键预览的左列换成用户的字母层表（#10223）：左列整列是跨网格各行的一格，里面自上而下等高排表里的前 `nineKeySidebarVisibleRows` 项（与鸿蒙键盘一屏的项数相同），其余行的左列是占位；份额和键 id `SoftPunctuation` 照旧。空表时不调用，左列仍是热力图那几格出厂标点。
+ */
+function nineKeySidebarStack(
+  grid: readonly (readonly PreviewKey[])[],
+  symbols: readonly string[],
+): PreviewKey[][] {
+  const visible = symbols.slice(0, nineKeySidebarVisibleRows);
+  return grid.map((row, index) => {
+    const [side, ...rest] = row;
+    const cell: PreviewKey =
+      index === 0
+        ? {
+            label: visible.join(" "),
+            weight: side.weight,
+            code: side.code,
+            rowSpan: grid.length,
+            stack: visible,
+          }
+        : { label: "", weight: side.weight };
+    return [cell, ...rest];
+  });
+}
 
 /** 预览的一行：`numberRow` 为真的是字母上方的数字行，画得比字母行矮一些。 */
 export type KeyLayoutPreviewRow = { keys: KeyLayoutPreviewKey[]; numberRow?: boolean };
@@ -130,61 +172,114 @@ function fourteenKeyFace(
 }
 
 /**
- * 「按键布局」整块预览要画的键，全部取自键盘已有的表，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（屏幕键盘页「尺寸」预览画的同一张表，照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行。
+ * 鸿蒙手机键盘 `layout` 按用户的按键布局偏好排出的整块键盘（数字行、字母行、底行），「按键布局」子页的整块预览和其他设置页的键盘预览都从这里取，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边；`touch_language_key_side` 为 `left` 时三类键盘再经 `withLanguageKeyLeft` 把 中/英 挪到空格左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变，中/英 换边同样由它排），用户换了字母层的左侧符号表（`touch_nine_key_sidebar_symbols`，#10223）时左列按那张表画一屏（`nineKeySidebarStack`），9 键不画数字行；日语 9 键是假名格，不受这些偏好影响，原样画。
  *
- * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123。
+ * `chineseTwentySix` 为假时 26 键不按 `touch_twenty_six_key_style` 排，画 26 键一族的标准底行：与 HarmonyOS `designRowStyledFace` 相同，样式只作用于中文 26 键，日语等 26 键用标准底行，但「符」与「123」互换和中/英 换边照样生效（`designRowEntries` 对所有 26 键一族的底行都套 `symbolFirst` 和 `languageBeforeSpace`）。鸿蒙没有隐藏中/英键的设置，底行一直有 中。
+ */
+function harmonyStyledRows(
+  layout: HarmonyTouchLayout,
+  preferences: Preferences | undefined,
+  chineseTwentySix: boolean,
+): PreviewKey[][] {
+  if (layout === "japanese_nine_key") return harmonyTouchKeyboardRows.japanese_nine_key;
+  if (layout === "nine_key") {
+    const rows = phoneHeatmapLayoutRows("nine", {
+      twentySixKeyStyle: "standard",
+      nineKeyStyle: preferences ? nineKeyStyle(preferences) : "standard",
+      numberRow: false,
+      languageKeyLeft: preferences ? languageKeyLeft(preferences) : false,
+    });
+    const sidebar = preferences ? storedNineKeySidebar(preferences, "letter") : [];
+    if (sidebar.length === 0) return rows;
+    return [...nineKeySidebarStack(rows.slice(0, -1), sidebar), rows[rows.length - 1]];
+  }
+  const letters = harmonyTouchKeyboardRows[layout].slice(0, -1);
+  const bottom = withLanguageKeyLeft(
+    layout === "twenty_six_key"
+      ? withSymbolFirst(
+          twentySixKeyBottomRows[
+            preferences && chineseTwentySix ? twentySixKeyStyle(preferences) : "standard"
+          ],
+          preferences?.touch_twenty_six_symbol_first === true,
+        )
+      : fourteenKeyBottomRows[preferences ? fourteenKeyStyle(preferences) : "standard"],
+    preferences ? languageKeyLeft(preferences) : false,
+  );
+  const numberRow = preferences?.touch_number_row === true ? [numberRowKeys] : [];
+  return [...numberRow, ...letters, bottom];
+}
+
+/**
+ * 鸿蒙手机设置页里键盘预览（屏幕键盘页「尺寸」、皮肤页的皮肤卡片与编辑器、社区皮肤卡片与详情）画的键：用户当前的中文键盘（`harmonyTouchLayout`），按他的按键布局偏好排（`harmonyStyledRows`），与「按键布局」子页、实际键盘的底行和数字行一致。预览不做高亮，高亮只在「按键布局」子页。
+ *
+ * `scheme` 缺省按偏好推断；屏幕键盘页传入它正显示为选中的方案。没有偏好可读时（`preferences` 为 undefined）画默认的全拼 26 键、标准底行、无数字行。
+ */
+export function harmonyTouchRowsForPreferences(
+  preferences: Preferences | undefined,
+  scheme: TouchKeyboardScheme = preferences ? inferredTouchKeyboardScheme(preferences) : "quanpin",
+): PreviewKey[][] {
+  const shuangpinLayout = preferences?.touch_shuangpin_layout;
+  const wubiLayout = preferences?.touch_wubi_layout;
+  const kind = touchKeyLayoutKind(scheme, shuangpinLayout, wubiLayout);
+  // 九键双拼和笔画也画九宫格外框（字母格用拼音九键的 ABC），与 Android 的皮肤预览、「按键布局」页 9 键分段同一条规则；`harmonyTouchLayout` 只认拼音九键，其余会落到 26 键。
+  return harmonyStyledRows(
+    kind === "nine" ? "nine_key" : harmonyTouchLayout(scheme, shuangpinLayout, wubiLayout),
+    preferences,
+    kind === "twentySix",
+  );
+}
+
+/**
+ * 「按键布局」整块预览要画的键：`kind` 那一类键盘按用户偏好排出的整块键盘（`harmonyStyledRows`，与其他设置页的键盘预览同一张表），14/18 键画用户在用的那种字母格（`fourteenKeyFace`）。
+ *
+ * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123；中/英 在空格左边且底行里有 中/英 时另加 中/英（被挤动的空格和标点宽度、样子都没变，不加）。
  */
 export function keyLayoutPreviewRows(
   kind: TouchKeyLayoutKind,
   preferences: Preferences,
   scheme: TouchKeyboardScheme,
 ): KeyLayoutPreviewRow[] {
-  let grid: readonly (readonly (PreviewKey & { rowSpan?: number })[])[];
-  let bottom: readonly PreviewKey[];
+  const layout: HarmonyTouchLayout =
+    kind === "nine"
+      ? "nine_key"
+      : kind === "fourteen"
+        ? fourteenKeyFace(scheme, preferences)
+        : "twenty_six_key";
+  const styled = harmonyStyledRows(layout, preferences, true);
+  const numberRow = kind !== "nine" && preferences.touch_number_row === true;
+  const grid = styled.slice(numberRow ? 1 : 0, -1);
+  const bottom = styled[styled.length - 1];
   let highlights: readonly string[];
-  let numberRow = preferences.touch_number_row === true;
+  const languageLeft = languageKeyLeft(preferences);
   if (kind === "nine") {
-    const style = nineKeyStyle(preferences);
-    const rows = phoneHeatmapLayoutRows("nine", {
-      twentySixKeyStyle: "standard",
-      nineKeyStyle: style,
-      numberRow: false,
-    });
-    grid = rows.slice(0, -1);
-    bottom = rows[rows.length - 1];
-    highlights = nineKeyStyleHighlights[style];
-    numberRow = false;
+    highlights = nineKeyStyleHighlights[nineKeyStyle(preferences)];
   } else if (kind === "fourteen") {
-    const style = fourteenKeyStyle(preferences);
-    grid = harmonyTouchKeyboardRows[fourteenKeyFace(scheme, preferences)].slice(0, -1);
-    bottom = fourteenKeyBottomRows[style];
-    highlights = fourteenKeyStyleHighlights[style];
+    highlights = fourteenKeyStyleHighlights[fourteenKeyStyle(preferences)];
   } else {
     const style = twentySixKeyStyle(preferences);
-    grid = harmonyTouchKeyboardRows.twenty_six_key.slice(0, -1);
-    const symbolFirst = preferences.touch_twenty_six_symbol_first === true;
-    bottom = withSymbolFirst(twentySixKeyBottomRows[style], symbolFirst);
     // 互换打开且这个样式有 符 时，符 和 123 也描边，让人看出开关动的是哪两个键。
     highlights =
-      symbolFirst && bottom.some((key) => key.code === "SoftSymbol")
+      preferences.touch_twenty_six_symbol_first === true &&
+      bottom.some((key) => key.code === "SoftSymbol")
         ? [...twentySixKeyStyleHighlights[style], "SoftSymbol", "SoftLayer"]
         : twentySixKeyStyleHighlights[style];
   }
+  // 中/英 挪到空格左边时也描边它，让人看出开关动的是哪个键。
+  if (languageLeft && bottom.some((key) => key.code === "SoftLanguage"))
+    highlights = [...highlights, "SoftLanguage"];
   const highlighted = (key: PreviewKey) => key.code !== undefined && highlights.includes(key.code);
-  const place = (
-    key: PreviewKey & { rowSpan?: number },
-    tone: KeyLayoutPreviewKey["tone"],
-  ): KeyLayoutPreviewKey => ({
+  // 用户换了左列的表时左列是一整格栈，整列描边（右列的 ！ 也记 `SoftPunctuation`，所以按位置认、不按键 id 加进高亮表）。
+  const place = (key: PreviewKey, tone: KeyLayoutPreviewKey["tone"]): KeyLayoutPreviewKey => ({
     label: key.label,
     weight: key.weight,
     ...(key.code === undefined ? {} : { code: key.code }),
     ...(key.rowSpan === undefined ? {} : { rowSpan: key.rowSpan }),
+    ...(key.stack === undefined ? {} : { stack: key.stack }),
     tone: key.code === "Enter" ? "return" : tone,
-    highlighted: highlighted(key),
+    highlighted: key.stack !== undefined || highlighted(key),
   });
   const rows: KeyLayoutPreviewRow[] = [];
-  if (numberRow)
-    rows.push({ keys: numberRowKeys.map((key) => place(key, "letter")), numberRow: true });
+  if (numberRow) rows.push({ keys: styled[0].map((key) => place(key, "letter")), numberRow: true });
   grid.forEach((row, rowIndex) => {
     const edges = kind === "nine" || rowIndex === grid.length - 1;
     rows.push({
@@ -251,7 +346,28 @@ function KeyLayoutPreview({
           data-key-layout-row={row.numberRow ? "number" : rowIndex}
         >
           {row.keys.map((key, index) =>
-            key.label ? (
+            key.stack ? (
+              <span
+                key={index}
+                className="flex min-w-0 flex-col"
+                style={{ flex: `${key.weight} 1 0%`, gap: PREVIEW_GAP_PX, ...keySpan(key.rowSpan) }}
+                data-key-stack=""
+                data-row-span={key.rowSpan}
+                data-weight={key.weight}
+              >
+                {key.stack.map((label, at) => (
+                  <span
+                    key={at}
+                    className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                    data-key-code={key.code}
+                    data-key-tone={key.tone}
+                    data-highlighted={key.highlighted ? "" : undefined}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </span>
+            ) : key.label ? (
               <span
                 key={index}
                 className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
@@ -330,15 +446,16 @@ function StyleChips<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first` 或 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；每个分段的卡片里都有「中/英键放在空格左边」开关（26 键分段里排在互换开关之后，三个分段是同一个偏好，切分段时状态不变），打开时预览把 中/英 画到空格左边并描边它；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first`、`touch_language_key_side`（打开写 `left`、关上写 `right`）或 `touch_number_row`，键盘开着时当场换排法。
  *
- * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
+ * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去；「中/英键放在空格左边」每个分段都显示，命中它时停在当前分段（子页刚打开时是用户在用的那一类，判断不了时是第一段）。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
  */
 export function TouchKeyLayoutSettings({
   preferences,
   scheme,
   groups,
   open,
+  mobile = false,
   onChange,
 }: {
   preferences: Preferences;
@@ -346,6 +463,8 @@ export function TouchKeyLayoutSettings({
   scheme: TouchKeyboardScheme;
   groups: TouchKeyLayoutGroups;
   open: boolean;
+  /** HarmonyOS 手机：两张左侧符号表的编辑页压一条历史记录，系统返回手势先关它。 */
+  mobile?: boolean;
   onChange: (patch: Partial<Preferences>) => void;
 }) {
   const offered = touchKeyLayoutKinds.filter((kind) => groups[kind]);
@@ -356,9 +475,35 @@ export function TouchKeyLayoutSettings({
   );
   const fallback = current && offered.includes(current) ? current : offered[0];
   const [chosen, setChosen] = useState<TouchKeyLayoutKind | null>(null);
+  // 九键左侧符号的编辑页（#10223）是「按键布局」上面的又一层子页，和「按键布局」本身一样压一条历史记录。
+  const {
+    value: editing,
+    open: openEditor,
+    close: closeEditor,
+    reset: resetEditor,
+  } = useMobileSettingsSubview<NineKeySidebarKind>({
+    mobile,
+    stateKey: "nineKeySidebar",
+    decode: (state) =>
+      state?.nineKeySidebar === "letter" || state?.nineKeySidebar === "digit"
+        ? state.nineKeySidebar
+        : null,
+    encode: (which) => ({ nineKeySidebar: which }),
+  });
   useEffect(() => {
-    if (!open) setChosen(null);
-  }, [open]);
+    if (open) return;
+    setChosen(null);
+    resetEditor();
+  }, [open, resetEditor]);
+  const saveSidebar = (which: NineKeySidebarKind, symbols: readonly string[]) => {
+    const value = nineKeySidebarStoredValue(which, symbols);
+    onChange(
+      which === "letter"
+        ? { touch_nine_key_sidebar_symbols: value }
+        : { touch_nine_key_digit_sidebar_symbols: value },
+    );
+    closeEditor();
+  };
   const kind = chosen && offered.includes(chosen) ? chosen : fallback;
   const chips = (panel: TouchKeyLayoutKind) => {
     const label = `${touchKeyLayoutKindTitles[panel]}样式`;
@@ -449,6 +594,27 @@ export function TouchKeyLayoutSettings({
               />
             </SettingsSearchReveal>
           )}
+          {groups.nine && (
+            // 九键左侧符号是 9 键分段卡片里说明之后的一行，与互换开关同一种写法；搜索命中它时切到 9 键。
+            <SettingsSearchReveal
+              label={touchKeyLayoutKindTitles.nine}
+              hidden={kind !== "nine"}
+              onReveal={() => setChosen("nine")}
+            >
+              <LinkRow
+                title={nineKeySidebarTitle}
+                value={nineKeySidebarSummary(nineKeySidebarSymbols(preferences))}
+                onClick={() => openEditor("letter")}
+              />
+            </SettingsSearchReveal>
+          )}
+          {/* 中/英 换边对三类键盘都生效，每个分段都显示同一个开关，不挂在哪个分段下。 */}
+          <SwitchRow
+            title={languageKeyLeftTitle}
+            description={languageKeyLeftDescription}
+            checked={languageKeyLeft(preferences)}
+            onChange={(left) => onChange({ touch_language_key_side: left ? "left" : "right" })}
+          />
         </GroupList>
       )}
       {(groups.twentySix || groups.fourteen || groups.nine) && (
@@ -462,6 +628,11 @@ export function TouchKeyLayoutSettings({
               onChange={(touch_number_pad_space) => onChange({ touch_number_pad_space })}
             />
           </div>
+          <LinkRow
+            title={numberPadSidebarTitle}
+            value={nineKeySidebarSummary(numberPadSidebarSymbols(preferences))}
+            onClick={() => openEditor("digit")}
+          />
         </GroupList>
       )}
       {(groups.twentySix || groups.fourteen) && (
@@ -473,6 +644,19 @@ export function TouchKeyLayoutSettings({
             onChange={(touch_number_row) => onChange({ touch_number_row })}
           />
         </GroupList>
+      )}
+      {editing && (
+        <NineKeySidebarSettings
+          key={editing}
+          kind={editing}
+          symbols={
+            editing === "letter"
+              ? nineKeySidebarSymbols(preferences)
+              : numberPadSidebarSymbols(preferences)
+          }
+          onSave={(symbols) => saveSidebar(editing, symbols)}
+          onBack={closeEditor}
+        />
       )}
     </>
   );

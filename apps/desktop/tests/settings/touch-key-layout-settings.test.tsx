@@ -8,6 +8,8 @@ import {
   fourteenKeyBottomRows,
   nineKeyBottomRows,
   twentySixKeyBottomRows,
+  withLanguageKeyLeft,
+  withSymbolFirst,
 } from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
 import {
   TouchKeyLayoutSettings,
@@ -179,6 +181,11 @@ const note = (dialog: HTMLElement) =>
 const symbolFirstSwitch = (dialog: HTMLElement) =>
   within(dialog).queryByRole("switch", {
     name: "26 键「符」与「123」互换",
+  }) as HTMLInputElement | null;
+
+const languageLeftSwitch = (dialog: HTMLElement) =>
+  within(dialog).queryByRole("switch", {
+    name: "中/英键放在空格左边",
   }) as HTMLInputElement | null;
 
 /** 「数字键盘」一组的胶囊；它不在分段里，任何分段都显示。 */
@@ -610,6 +617,214 @@ test("settings search finds every style under its key type and opens that segmen
   expect(entryRow()).toBeTruthy();
 });
 
+test("中/英键放在空格左边 sits in every segment's card and moves the preview's 中/英 left of the space (#10228)", async () => {
+  const { save } = renderSettings();
+  const dialog = await openKeyLayout();
+  // 开关在样式卡片里，26 键分段里排在互换开关之后；说明与 Android、iOS 逐字相同。
+  const toggle = languageLeftSwitch(dialog)!;
+  expect(toggle.checked).toBe(false);
+  expect(description(toggle)).toBe("中/英 排到空格左边，逗号、句号仍紧挨空格。");
+  const card = visiblePreview(dialog).closest("section")!;
+  expect(card.contains(toggle)).toBe(true);
+  expect(follows(chipGroup(dialog), toggle)).toBe(true);
+  expect(follows(symbolFirstSwitch(dialog)!, toggle)).toBe(true);
+  // 关着时 中/英 仍在空格右边、紧挨回车，不高亮。
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "空格", "，", "中", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual([]);
+
+  // 打开后 中/英 排到空格左边并描边；空格左边有标点的样式标点仍紧挨空格。
+  fireEvent.click(toggle);
+  expect(languageLeftSwitch(dialog)!.checked).toBe(true);
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "中", "空格", "，", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftLanguage"]);
+  const twentySix: [string, string[], string[]][] = [
+    ["逗号句号", ["123", "符", "中", "，", "空格", "。", "↵"], ["SoftLanguage", "Comma", "Period"]],
+    ["长空格", ["123", "中", "，", "空格", "↵"], ["SoftLanguage", "Space"]],
+    ["表情键", ["123", "😀", "中", "空格", "，", "↵"], ["SoftEmoji", "SoftLanguage"]],
+  ];
+  for (const [style, row, codes] of twentySix) {
+    chooseChip(dialog, style);
+    expect([style, previewRows(dialog).at(-1), highlightedCodes(dialog)]).toEqual([
+      style,
+      row,
+      codes,
+    ]);
+  }
+  // 与互换叠在一起：先互换，再挪 中/英。
+  chooseChip(dialog, "逗号句号");
+  fireEvent.click(symbolFirstSwitch(dialog)!);
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "中", "，", "空格", "。", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual([
+    "SoftSymbol",
+    "SoftLayer",
+    "SoftLanguage",
+    "Comma",
+    "Period",
+  ]);
+  // 切到另外两个分段，开关是同一个偏好，状态跟着。
+  chooseKind(dialog, "14/18 键");
+  expect(languageLeftSwitch(dialog)!.checked).toBe(true);
+  expect(visiblePreview(dialog).closest("section")!.contains(languageLeftSwitch(dialog)!)).toBe(
+    true,
+  );
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "中", "，", "空格", "。", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftLanguage"]);
+  chooseChip(dialog, "表情键");
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "😀", "中", "空格", "，", "↵"]);
+  chooseKind(dialog, "9 键");
+  expect(languageLeftSwitch(dialog)!.checked).toBe(true);
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "中", "空格", "↵"]);
+  expect(highlightedCodes(dialog)).toEqual(["SoftLanguage"]);
+  chooseChip(dialog, "底栏带标点");
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "中", "，", "空格", "。", "↵"]);
+  // 右侧大回车：回车（样式）和 中/英 都描边，符 和回车不动。
+  chooseChip(dialog, "右侧大回车");
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "中", "空格", ""]);
+  expect(highlightedCodes(dialog)).toEqual(["Enter", "SoftLanguage"]);
+
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1];
+  expect(saved.touch_language_key_side).toBe("left");
+  expect(saved.touch_twenty_six_symbol_first).toBe(true);
+});
+
+test("a stored left side is shown; right, unknown and missing values read as off (#10228)", async () => {
+  for (const [stored, expected] of [
+    ["left", true],
+    ["right", false],
+    ["middle", false],
+    [undefined, false],
+  ] as const) {
+    renderSettings({
+      preferences: stored === undefined ? {} : { touch_language_key_side: stored },
+    });
+    const dialog = await openKeyLayout();
+    expect(languageLeftSwitch(dialog)?.checked).toBe(expected);
+    expect(previewRows(dialog).at(-1)?.[2]).toBe(expected ? "中" : "空格");
+    cleanup();
+    window.history.replaceState({}, "");
+  }
+});
+
+test("the language side switch writes left when on and right when off", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <TouchKeyLayoutSettings
+      preferences={{} as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: true }}
+      open
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(languageLeftSwitch(document.body)!);
+  expect(onChange).toHaveBeenLastCalledWith({ touch_language_key_side: "left" });
+  rerender(
+    <TouchKeyLayoutSettings
+      preferences={{ touch_language_key_side: "left" } as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: true }}
+      open
+      onChange={onChange}
+    />,
+  );
+  expect(languageLeftSwitch(document.body)!.checked).toBe(true);
+  fireEvent.click(languageLeftSwitch(document.body)!);
+  expect(onChange).toHaveBeenLastCalledWith({ touch_language_key_side: "right" });
+  expect(onChange).toHaveBeenCalledTimes(2);
+});
+
+test("settings search finds 中/英键放在空格左边 under 按键布局 and keeps the segment it is on (#10228)", async () => {
+  renderSettings({ preferences: { touch_keyboard_layout: "nine_key" } });
+  await settingsFormReady();
+  await waitFor(() => {
+    if (!entryRow()) throw new Error("no 按键布局 row");
+  });
+  const targets = () =>
+    collectSettingsSearchTargets(document.body, new Map([["screen-keyboard", "屏幕键盘"]]));
+  const found = targets().filter((target) => target.title === "中/英键放在空格左边");
+  // 只登记一处，不挂在哪个分段下。
+  expect(found.map((target) => target.path)).toEqual([["屏幕键盘", "按键布局"]]);
+  // 子页关着时命中它：打开子页，停在用户在用的 9 键。
+  revealSettingsSearchTarget(found[0]);
+  const dialog = await screen.findByRole("dialog", { name: "按键布局" });
+  await waitFor(() => expect(checkedKind(dialog)).toBe("9 键"));
+  expect(languageLeftSwitch(dialog)).toBeTruthy();
+  // 停在 26 键时再命中它，不切分段。
+  chooseKind(dialog, "26 键");
+  revealSettingsSearchTarget(found[0]);
+  await waitFor(() => expect(checkedKind(dialog)).toBe("26 键"));
+});
+
+test("with the language key on the left the preview rows are the HarmonyOS keyboard's rows", () => {
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const codes: Record<string, string> = {
+    layer: "SoftLayer",
+    symbol_panel: "SoftSymbol",
+    emoji: "SoftEmoji",
+    comma: "Comma",
+    period: "Period",
+    space: "Space",
+    language: "SoftLanguage",
+    return: "Enter",
+    layer_toggle: "SoftLayer",
+  };
+  for (const style of ["standard", "comma_period", "long_space", "emoji"] as const)
+    for (const symbolFirst of [false, true])
+      expect(
+        withLanguageKeyLeft(withSymbolFirst(twentySixKeyBottomRows[style], symbolFirst), true).map(
+          (key) => [key.code, round(key.weight)],
+        ),
+      ).toEqual(
+        TouchLayoutStylePolicy.languageBeforeSpace(
+          TouchLayoutStylePolicy.symbolFirst(
+            TouchLayoutStylePolicy.designRow(true, false, StyledFace.TWENTY_SIX, style),
+            symbolFirst,
+          ),
+          true,
+        ).map((entry) => [codes[entry.slot], round(entry.share)]),
+      );
+  for (const style of ["standard", "long_space", "emoji"] as const)
+    expect(
+      withLanguageKeyLeft(fourteenKeyBottomRows[style], true).map((key) => [
+        key.code,
+        round(key.weight),
+      ]),
+    ).toEqual(
+      TouchLayoutStylePolicy.languageBeforeSpace(
+        TouchLayoutStylePolicy.designRow(false, false, StyledFace.FOURTEEN, style),
+        true,
+      ).map((entry) => [codes[entry.slot], round(entry.share)]),
+    );
+  for (const style of ["standard", "comma_period", "emoji"] as const)
+    expect(
+      withLanguageKeyLeft(nineKeyBottomRows[style], true).map((key) => [
+        key.code,
+        round(key.weight),
+      ]),
+    ).toEqual(
+      NineKeyLayout.actionRow(false, false, style, false, "before_zero", true).map((action) => [
+        codes[action.kind],
+        round(action.weight),
+      ]),
+    );
+  // 右侧大回车：符 和回车在外框两列，中间一段与键盘网格下方那一行同序。
+  expect(withLanguageKeyLeft(nineKeyBottomRows.tall_return, true).map((key) => key.code)).toEqual([
+    "SoftSymbol",
+    ...NineKeyLayout.actionRow(false, false, "tall_return", false, "before_zero", true).map(
+      (action) => codes[action.kind],
+    ),
+    "Enter",
+  ]);
+  // 关着时原样；没有 中/英 的行不变。
+  expect(withLanguageKeyLeft(twentySixKeyBottomRows.standard, false)).toEqual(
+    twentySixKeyBottomRows.standard,
+  );
+  const noLanguage = twentySixKeyBottomRows.long_space.filter((key) => key.code !== "SoftLanguage");
+  expect(withLanguageKeyLeft(noLanguage, true)).toEqual(noLanguage);
+});
+
 test("the bottom rows are the HarmonyOS keyboard's rows, shares included", () => {
   const round = (value: number) => Math.round(value * 100) / 100;
   for (const style of ["standard", "comma_period", "long_space", "emoji"] as const)
@@ -683,6 +898,9 @@ test("groups follow the key types the edition offers", async () => {
   expect(symbolFirstSwitch(nine)).toBeNull();
   expect(nine.textContent).not.toContain("26 键「符」与「123」互换");
   expect(numberPadLabels(nine)).toEqual(["空格在右列", "空格在 0 右边", "空格在 0 左边"]);
+  // 中/英 换边对九键同样生效，只有一种类型时照样在那张卡片里。
+  expect(languageLeftSwitch(nine)).toBeTruthy();
+  expect(visiblePreview(nine).closest("section")!.contains(languageLeftSwitch(nine)!)).toBe(true);
 });
 
 test("an edition without Chinese key types has no 按键布局 row", async () => {

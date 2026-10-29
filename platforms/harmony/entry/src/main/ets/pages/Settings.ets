@@ -17,6 +17,7 @@ import BuildProfile from 'BuildProfile';
 import { UIContext } from '@ohos.arkui.UIContext';
 import { InputMethodListDialog } from '@ohos.inputMethodList';
 import deviceInfo from '@ohos.deviceInfo';
+import display from '@ohos.display';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import webSocket from '@ohos.net.webSocket';
@@ -2264,6 +2265,16 @@ class SettingsBridge {
     }
   }
 
+  /** 设备能不能折叠：可折叠手机展开后是大屏，设置页才给出大屏单手的侧边数字键盘。显示服务查不到时按不能折叠，少列一项设置而不是让整份能力文档失败。 */
+  private foldable(): boolean {
+    try {
+      return display.isFoldable();
+    } catch (error) {
+      KeyboardLog.error(`foldable state unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
   hostCapabilities(): string {
     const document: string = client.hostCapabilities(PLATFORM);
     const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
@@ -2277,7 +2288,7 @@ class SettingsBridge {
       // 2-in-1 machines. Keep phone navigation on touch devices and give a 2-in-1 the large-screen
       // settings surface that matches its physical keyboard and candidate panel.
       const projection: SettingsFormFactorProjection =
-        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType);
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType, this.foldable());
       value['mobile_settings'] = projection.mobileSettings;
       value['panel_windows'] = projection.panelWindows;
       value['floating_toolbar'] = projection.floatingToolbar;
@@ -2307,6 +2318,7 @@ class SettingsBridge {
       value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
       value['touch_plugin_packs'] = projection.touchPluginPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
+      value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;
@@ -2487,7 +2499,8 @@ class SettingsBridge {
    * device's timezone, and the shared layer never derives a day from one.
    */
   private async vocabularyReview(actionDocument: string): Promise<string> {
-    if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
+    // 原始词表仍限 8 MiB；这里检查的是带 JSON 转义的动作，与原生桥和 C 入口的请求预算一致。
+    if (actionDocument.length === 0 || actionDocument.length > 17 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
     try {

@@ -45,7 +45,7 @@ use crate::zhuyin;
 use crate::zhuyin::scheme::ZhuyinKey;
 
 /// The weight an English word typed out and committed raw enters `msime-english.db` with (user_dictionary_journal.h:137).
-const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
+pub(super) const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
 
 /// A phrase being composed from consecutive partial selections.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -929,7 +929,8 @@ impl InputSession {
             Command::ConvertHanja => ZhuyinKey::OpenList,
             Command::Cancel => ZhuyinKey::Escape,
             Command::Backspace => ZhuyinKey::Backspace,
-            Command::CommitRaw => ZhuyinKey::Enter,
+            // `CommitRawWithoutLearning` 到不了组字（`Session::command` 已经换掉），与 `CommitRaw` 同列只为穷尽。
+            Command::CommitRaw | Command::CommitRawWithoutLearning => ZhuyinKey::Enter,
             Command::CommitCandidate if self.engine.zhuyin_list_open() => {
                 return Some(self.select_candidate(0));
             }
@@ -1078,7 +1079,8 @@ impl InputSession {
             }
             Command::Backspace => self.backspace(),
             Command::CommitCandidate => self.commit(0),
-            Command::CommitRaw => self.commit_raw(),
+            // `CommitRawWithoutLearning` 到不了组字（`Session::command` 已经换掉），与 `CommitRaw` 同列只为穷尽。
+            Command::CommitRaw | Command::CommitRawWithoutLearning => self.commit_raw(),
             Command::CommitReading => {
                 // Only Japanese has a reading to commit; the other schemes' normalized segmentation is pinyin, not text.
                 if self.scheme() != SchemeType::JapaneseRomaji {
@@ -1815,6 +1817,12 @@ impl InputSession {
         &self.journal_path
     }
 
+    /// 回车能不能学英文词。不要求 `msime-english.db` 的方案集合（[`crate::SchemeSet::requires_english_dictionary`]）在资源目录没带它时准备出的代次里没有它：这时英文行查不到，回车也不学词，免得学词时的建表把一个空库建进代次里（下一个代次不会有它，学到的词只剩日志里那一行）。要求它的集合照旧：准备代次保证它在，没经过准备的目录里缺了它就由学词时建出来。
+    pub(super) fn can_learn_english_words(&self) -> bool {
+        self.engine.enabled_schemes().requires_english_dictionary()
+            || self.paths.dictionary(assets::ENGLISH_DICTIONARY).is_file()
+    }
+
     /// The live scheme, which is Japanese during temporary Japanese.
     pub(super) fn is_wubi(&self) -> bool {
         self.engine.current_scheme_type() == SchemeType::Wubi
@@ -2355,6 +2363,7 @@ impl InputSession {
         let mut diagnostic = None;
         if self.learn_english_on_enter
             && self.dedicated_english
+            && self.can_learn_english_words()
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
                 self.journal_path(),

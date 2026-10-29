@@ -252,6 +252,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
+            checkClipboardSingleDeleteUndo(type, service, panels, cards);
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
             method(type, "render").invoke(service);
@@ -613,6 +614,104 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             main.removeCallbacks((Runnable) field(type, "clipboardUndoTick").get(service));
             method(panels.getClass(), "renderClipboardHistory").invoke(panels);
         }
+    }
+
+    /**
+     * 单条删除也能撤销（#10080）：左滑露出的垃圾桶和长按操作行里的「删除」各删一次，浮动「撤销」都出现，点了恢复原来的时间戳和固定状态；到期后撤销不再出现，记录也不会回来。
+     *
+     * <p>两个入口都从真实渲染出的控件点下去，不直接调 `removeClipboardItem`，入口换成别的删除路径时这里会失败。被删的那条先固定，排在列表最前面，也顺带核对撤销保留了固定状态。
+     */
+    private static void checkClipboardSingleDeleteUndo(Class<?> type, Object service, Object panels, ViewGroup cards)
+            throws Exception {
+        Object history = field(type, "clipboardHistory").get(service);
+        Method load = history.getClass().getMethod("load");
+        Method setPinned = history.getClass().getMethod("setPinned", String.class, boolean.class);
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        Method hasUndo = method(type, "hasClipboardUndo");
+        Field swiped = field(panels.getClass(), "clipboardSwipedText");
+        Field managed = field(panels.getClass(), "clipboardActionText");
+        Button undo = (Button) field(type, "clipboardUndoButton").get(service);
+        String target = "合成剪贴板记录 5";
+        try {
+            setPinned.invoke(history, target, true);
+            Object before = item(load.invoke(history), target);
+            check(before != null && (Boolean) before.getClass().getMethod("pinned").invoke(before),
+                "the synthetic clipboard record was not pinned before deletion");
+
+            // 左滑垃圾桶：渲染时按 clipboardSwipedText 把这一条画成打开着，只有打开的那一格垃圾桶可见。
+            swiped.set(panels, target);
+            render.invoke(panels);
+            View trash = descendant(cards, view -> view.getVisibility() == View.VISIBLE
+                && describedAs(view, "删除这条剪贴板记录"));
+            check(trash != null, "the swiped clipboard card shows no trash button");
+            check(trash.performClick(), "clipboard trash did not handle the click");
+            check(item(load.invoke(history), target) == null, "swipe deletion did not remove the record");
+            check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after a swipe deletion");
+            check(undo.performClick(), "clipboard undo did not handle the click after a swipe deletion");
+            check(sameItem(before, item(load.invoke(history), target)),
+                "undo after a swipe deletion did not restore the timestamp and pin");
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo stayed after restoring a swipe deletion");
+
+            // 长按后的操作行：渲染时按 clipboardActionText 在这一条下面画出操作行，点其中的「删除」。
+            managed.set(panels, target);
+            render.invoke(panels);
+            View delete = actionRowDelete(cards);
+            check(delete != null, "the clipboard action row has no delete button");
+            check(delete.performClick(), "clipboard action row delete did not handle the click");
+            check(item(load.invoke(history), target) == null, "action row deletion did not remove the record");
+            check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after an action row deletion");
+            check(undo.performClick(), "clipboard undo did not handle the click after an action row deletion");
+            check(sameItem(before, item(load.invoke(history), target)),
+                "undo after an action row deletion did not restore the timestamp and pin");
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo stayed after restoring an action row deletion");
+
+            // 到期：再删一次，把截止时刻改到过去后走一次倒数，按钮收起，记录不回来。
+            managed.set(panels, target);
+            render.invoke(panels);
+            check(actionRowDelete(cards).performClick(), "clipboard action row delete did not handle the second click");
+            check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after the second single deletion");
+            field(type, "clipboardUndoDeadline").setLong(service, android.os.SystemClock.uptimeMillis() - 1);
+            method(type, "tickClipboardUndo").invoke(service);
+            check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
+                "clipboard undo did not disappear when a single deletion's countdown reached zero");
+            check(item(load.invoke(history), target) == null, "an expired single-deletion undo restored the record");
+        } finally {
+            swiped.set(panels, null);
+            managed.set(panels, null);
+            field(type, "clipboardUndoTexts").set(service, null);
+            android.os.Handler main = (android.os.Handler) field(type, "main").get(service);
+            main.removeCallbacks((Runnable) field(type, "clipboardUndoTick").get(service));
+            if (item(load.invoke(history), target) == null)
+                history.getClass().getMethod("add", String.class).invoke(history, target);
+            setPinned.invoke(history, target, false);
+            render.invoke(panels);
+        }
+    }
+
+    /** 操作行（读屏说明「剪贴板记录操作」）里的「删除」按钮；没有画出操作行时为 null。 */
+    private static View actionRowDelete(ViewGroup cards) {
+        View row = descendant(cards, view -> describedAs(view, "剪贴板记录操作"));
+        if (!(row instanceof ViewGroup actions)) return null;
+        return descendant(actions, view -> view instanceof Button button && "删除".contentEquals(button.getText()));
+    }
+
+    /** 历史里文字为 `text` 的那一条；没有时为 null。 */
+    private static Object item(Object items, String text) throws Exception {
+        for (Object item : (java.util.List<?>) items)
+            if (text.equals(item.getClass().getMethod("text").invoke(item))) return item;
+        return null;
+    }
+
+    /** 两条记录的文字、时间戳和固定状态都相同。 */
+    private static boolean sameItem(Object expected, Object actual) throws Exception {
+        if (expected == null || actual == null) return false;
+        for (String getter : new String[] {"text", "timestamp", "pinned"}) {
+            Method read = expected.getClass().getMethod(getter);
+            if (!java.util.Objects.equals(read.invoke(expected), read.invoke(actual))) return false;
+        }
+        return true;
     }
 
     private static boolean containsText(Object items, String text) throws Exception {

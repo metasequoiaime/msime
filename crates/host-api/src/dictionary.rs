@@ -2759,8 +2759,11 @@ pub fn lookup_candidates(
     .ok_or("dictionary maintenance busy")?;
     let session =
         msime_engine::host::Session::new(&options).map_err(|_| "cannot open the dictionaries")?;
+    // 每页候选数用会话选项里那一份（用户偏好的每页候选数，`into_engine_options` 已经交给引擎作首屏门槛）：runtime 建立时会把自己的每页候选数交给引擎，两边要是同一个数，查到的才是用户打这串键时看到的那张表。
+    let page_size =
+        u8::try_from(options.first_page_rows).map_err(|_| "invalid candidate page size")?;
     let mut runtime =
-        msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
+        msime_input_runtime::Runtime::new(session, page_size).map_err(|error| error.to_string())?;
     // An unfocused runtime drops every keystroke.
     runtime.focus(true).map_err(|error| error.to_string())?;
     // 五笔四码唯一时，第四键直接上屏（`input-runtime` 的自动上屏），之后候选列表是空的。这时上屏的那个词就是这串编码给出的唯一候选，要照样报告。`committed` 只留最后一键的上屏，连同它的编码从哪一键开始。

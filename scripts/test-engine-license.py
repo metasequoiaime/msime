@@ -8,7 +8,7 @@ The two crates are licensed under MPL-2.0 without Exhibit B while the rest of th
 - every data file the engine compiles in with include_str! or include_bytes! from inside its own directory is either in EMBEDDED or is test data, every EMBEDDED and ADAPTED file is named in the crate README's table, and nothing compiled in reaches outside the crate (cargo package cannot carry such a file);
 - the licence texts those files need ship in every channel that lists notices by hand, and the inbound "GPL-3.0-only OR MPL-2.0" rule is stated where contributors read it;
 - the distribution metadata lists the engine's licences;
-- the package published to crates.io carries what those licences ask for: the engine's licenses/ holds the licence texts the README table names, each a byte-for-byte copy of the file of the same name in resources/licenses/, and the include whitelist of crates/engine/Cargo.toml takes in every compiled-in data file, licenses/, LICENSE and README.md while leaving out tests/, examples/ and the test data; both crates carry a version of their own, the engine's path dependency on msime-path-trust names that version, and the READMEs link outside their crate only by absolute URL, since crates.io renders them away from the repository.
+- the package published to crates.io carries what those licences ask for: the engine's licenses/ holds the licence texts the README table names, each a byte-for-byte copy of the file of the same name in resources/licenses/, and the include whitelist of crates/engine/Cargo.toml takes in every compiled-in data file, licenses/, LICENSE, README.md and the quickstart example (it reads no repository file, and the README's quick start is an excerpt of it) while leaving out tests/, the other examples/ and the test data; both crates carry a version of their own, the engine's path dependency on msime-path-trust names that version, and the READMEs link outside their crate only by absolute URL, since crates.io renders them away from the repository.
 """
 import re
 import sys
@@ -30,6 +30,7 @@ EMBEDDED = {
     "local/latex_symbols.tsv": {"MIT"},
     # 本项目自写，与代码同为 MPL-2.0。
     "local/symbol_candidates.tsv": {"MPL-2.0"},
+    "lattice/offensive_words.txt": {"MPL-2.0"},
     # 聚合统计事实，不带许可证（维护者 2026-10-29 裁定，见 docs/third-party.md）。
     "nine_key/syllable_frequency.tsv": set(),
 }
@@ -247,7 +248,7 @@ def main() -> int:
     engine_manifest = (ENGINE / "Cargo.toml").read_text(encoding="utf-8")
     patterns = include_patterns(engine_manifest)
     check(bool(patterns), "crates/engine/Cargo.toml has no include whitelist, so the test fixtures and examples would be published")
-    for required in ["Cargo.toml", "LICENSE", "README.md", "src/lib.rs", *(f"src/{relative}" for relative in EMBEDDED), *(f"licenses/{name}" for name in PACKAGED_LICENCES)]:
+    for required in ["Cargo.toml", "LICENSE", "README.md", "src/lib.rs", "examples/quickstart.rs", *(f"src/{relative}" for relative in EMBEDDED), *(f"licenses/{name}" for name in PACKAGED_LICENCES)]:
         check(included(required, patterns), f"the include whitelist of crates/engine/Cargo.toml leaves out {required}")
     for excluded in UNPACKAGED:
         check(not included(excluded, patterns), f"the include whitelist of crates/engine/Cargo.toml takes in {excluded}")

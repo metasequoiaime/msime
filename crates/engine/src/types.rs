@@ -575,7 +575,7 @@ pub struct SchemeSet(u16);
 impl SchemeSet {
     /// 序号最大的方案。加方案时改这里，`scheme_set_all_covers_every_scheme` 会在漏改时失败。
     const LAST: SchemeType = SchemeType::Stroke;
-    /// 全部方案：序号 0 到 [`Self::LAST`] 的每一位。
+    /// 全部方案：序号 0 到 `Self::LAST` 的每一位。
     pub const ALL: Self = Self((1 << (Self::LAST as u16 + 1)) - 1);
     pub const EMPTY: Self = Self(0);
 
@@ -597,6 +597,13 @@ impl SchemeSet {
 
     /// 集合里是否有读 `msime-pinyin.db` 的方案：全拼、双拼和五笔的候选、学习和用户词都在它里面（五笔混拼的拼音行也是）。没有这三个方案的集合（例如只有日文、越南文或藏文的版本）随包不带 `msime-pinyin.db`：代次里没有它的工作副本，用户词库只剩英文词。
     pub const fn reads_main_dictionary(self) -> bool {
+        self.contains(SchemeType::Quanpin)
+            || self.contains(SchemeType::Shuangpin)
+            || self.contains(SchemeType::Wubi)
+    }
+
+    /// 集合里是否有离不开 `msime-english.db` 的方案：全拼、双拼的英文混输、九键英文和回车学英文词，全拼、双拼、五笔的临时英文（Shift+Y）都读它，所以有这三个方案时准备代次要求资源目录里有它。其余方案（日文、韩语、越南语、藏文、粤语、注音、笔画）自己不读它，只有宿主打开专用英文（`Session::set_dedicated_english`）时才查英文补全、学回车上屏的词：这样的集合不要求它，资源目录里带了就照样复制进代次，没带时代次里没有它，专用英文只出键入的字母、回车不学词，个人词典的英文词也无处可存（编辑以 `NO_ENGLISH_DICTIONARY` 失败）。读 `msime-pinyin.db` 的集合（[`Self::reads_main_dictionary`]）一定要求它。
+    pub const fn requires_english_dictionary(self) -> bool {
         self.contains(SchemeType::Quanpin)
             || self.contains(SchemeType::Shuangpin)
             || self.contains(SchemeType::Wubi)
@@ -1086,7 +1093,7 @@ pub enum SchemeKey {
     Requery,
 }
 
-/// Engine-level composition commands (the C++ `metasequoia::Command`). The host facade adds its own `CommitRawWithoutLearning` on top.
+/// Engine-level composition commands (the C++ `metasequoia::Command`, plus `CommitRawWithoutLearning`). The host facade numbers them its own way (`host::Command`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Command {
@@ -1110,6 +1117,8 @@ pub enum Command {
     ConversionLeft = 12,
     /// 整句改字的光标右移一个字，最远到句末；不在改字里时与 `MoveRight` 相同。
     ConversionRight = 13,
+    /// 像 `CommitRaw` 一样原样上屏，但不把上屏的字母学成英文词：专用英文里上屏预编辑原文并结束组字（`CommitRaw` 会学这个词），其余情况与 `CommitRaw` 相同，`SessionOptions::learn_typed_spellings_on_enter` 也不起作用。拼写纠错的「回车上屏原文就关掉这段输入的纠错」照常记下。由 [`crate::Session::command`] 处理，组字的各条内部路径收不到它。
+    CommitRawWithoutLearning = 14,
 }
 
 impl Command {
@@ -1129,6 +1138,7 @@ impl Command {
             11 => Self::ConvertHanja,
             12 => Self::ConversionLeft,
             13 => Self::ConversionRight,
+            14 => Self::CommitRawWithoutLearning,
             _ => return None,
         })
     }
@@ -1149,11 +1159,12 @@ impl Command {
             Self::ConvertHanja => "ConvertHanja",
             Self::ConversionLeft => "ConversionLeft",
             Self::ConversionRight => "ConversionRight",
+            Self::CommitRawWithoutLearning => "CommitRawWithoutLearning",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        (0..=13)
+        (0..=14)
             .filter_map(Self::from_u8)
             .find(|command| command.name() == name)
     }
@@ -2269,6 +2280,35 @@ mod tests {
             SchemeType::Tibetan,
         ])
         .reads_main_dictionary());
+    }
+
+    /// 只有全拼、双拼、五笔离不开 `msime-english.db`；读主库的集合一定也要求它，准备代次时据此先查英文库再查主库。
+    #[test]
+    fn only_pinyin_and_wubi_require_the_english_dictionary() {
+        assert!(SchemeSet::ALL.requires_english_dictionary());
+        assert!(!SchemeSet::EMPTY.requires_english_dictionary());
+        for value in 0..=u8::MAX {
+            let Some(scheme) = SchemeType::from_u8(value) else {
+                continue;
+            };
+            let set = SchemeSet::of(&[scheme]);
+            let requires = matches!(
+                scheme,
+                SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+            );
+            assert_eq!(set.requires_english_dictionary(), requires, "{scheme:?}");
+            assert!(!set.reads_main_dictionary() || set.requires_english_dictionary());
+        }
+        assert!(!SchemeSet::of(&[
+            SchemeType::JapaneseRomaji,
+            SchemeType::Korean,
+            SchemeType::Vietnamese,
+            SchemeType::Tibetan,
+            SchemeType::Cantonese,
+            SchemeType::Zhuyin,
+            SchemeType::Stroke,
+        ])
+        .requires_english_dictionary());
     }
 
     #[test]
