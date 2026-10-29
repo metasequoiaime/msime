@@ -30,5 +30,5 @@ Status: implemented
 
 - **收益**：原生皮肤和经典兜底下，键盘每一处都有画出的内容，从空白处起手的点按、翻页和候选滑动不再被系统丢掉；视觉上仍透出系统底板。
 - **代价**：原生皮肤的底不再是严格的 `.clear`，而是 1% 的键盘底色（根视图和 `skinBackdrop` 两层约 2%）。日后新增的「把背景交给系统底板」的界面，如果不是 `view` 的子视图，要自己铺这层。
-- **测试**：`KeyboardSkinTests` 的真实键盘用例改为断言根视图和 `skinBackdrop` 的底色透明度大于 0、不超过 `nativeBackgroundFillAlpha`、颜色是键盘底色；新用例 `testNativeKeyboardDrawsContentUnderEveryPointForTouchDelivery` 在透明画布上渲染整块原生键盘，平时、打开功能面板和打开符号面板三种状态下都要求没有一个透明像素，同时确认面板自身仍是 `.clear`。修改前这三种状态在格子和候选的间隙都有透明像素。
+- **测试**：`KeyboardSkinTests` 的真实键盘用例改为断言根视图和 `skinBackdrop` 的底色透明度大于 0、不超过 `nativeBackgroundFillAlpha`、颜色是键盘底色；新用例 `testNativeKeyboardDrawsContentUnderEveryPointForTouchDelivery` 在透明画布上渲染整块原生键盘，平时、打开功能面板和打开符号面板三种状态下都要求没有一个透明像素，同时确认面板自身仍是 `.clear`。按修改前的代码（根视图、`skinBackdrop` 和面板全是 `.clear`），格子和候选的间隙会是透明像素；这一点是推算，没有对着修改前的代码实际跑过这条用例。本次在 Studio 上只完成了测试包的编译（`build-for-testing`），Studio 的 CoreSimulator 版本落后于 Xcode、经 SSH 起不了模拟器，用例本身交给 PR 上的 iOS CI 运行。
 - **未验证**：「系统只把落在画出内容上的触摸交给扩展」是由 #7682 的真机观察推断的，1% 的底色在真机上能否被系统算作内容、是否真的修好 #10173，都还没在 iPhone 上复现和验收；Instruments 的 Core Animation 帧率对照（排除合成开销）也没做。如果真机证明 1% 不够，调 `nativeBackgroundFillAlpha` 即可；如果证明是合成开销，就改走上面最后一个备选。
