@@ -322,7 +322,7 @@ test("offers the one-handed side number pad switch only where the host draws the
   expect(onOneHandedSidePanelChange).toHaveBeenCalledWith(true);
 });
 
-test("puts the one-handed side number pad switch in the phone 布局 group without its description", () => {
+test("puts the one-handed side number pad switch in the phone 布局 group with its description", () => {
   render(
     <TouchKeyboardGeometrySection
       {...baseProps}
@@ -344,5 +344,10 @@ test("puts the one-handed side number pad switch in the phone 布局 group witho
   expect(
     pad.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  expect(screen.queryByText(/空出来的一侧显示数字键盘/)).toBeNull();
+  // 手机排法的其他行不带说明，这一行带：它只在平板和可折叠手机上出现，三端文字逐字相同。
+  expect(
+    screen.getByText(
+      "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+    ),
+  ).toBeTruthy();
 });

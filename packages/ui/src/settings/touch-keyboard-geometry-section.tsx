@@ -138,11 +138,11 @@ export function TouchKeyboardGeometrySection({
       onChange={(enabled) => onQuanpinShiftChange?.(enabled)}
     />
   );
-  // 标题和说明与 Android、iOS 原生设置页逐字相同。
+  // 标题和说明与 Android、iOS 原生设置页逐字相同。手机排法里也带说明：这一行只在平板和可折叠手机上出现，不在窄屏上挤；没有说明时，打开后在 26 键或双手模式下看不到任何变化，也不知道为什么。
   const oneHandedSidePanelRow = oneHandedSidePanel !== undefined && (
     <SwitchRow
       title={oneHandedSidePanelTitle}
-      description={phone ? undefined : oneHandedSidePanelDescription}
+      description={oneHandedSidePanelDescription}
       checked={oneHandedSidePanel}
       onChange={(enabled) => onOneHandedSidePanelChange?.(enabled)}
     />
