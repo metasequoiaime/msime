@@ -696,6 +696,8 @@ struct KeyboardView {
   @State @Watch('syncStripHeight') phoneLandscape: boolean = false;
   /** 屏幕宽大于高（手机、平板都算）：横屏时手写区保持三行，不像竖屏那样多一行（`KeyboardMetrics.handwritingExtraRows`），与 iOS、Android 同一条规则。 */
   @State @Watch('syncStripHeight') landscape: boolean = false;
+  /** 单手模式下侧栏与按键这一块的宽度（`OneHandedPolicy.blockWidthVp`）：0 表示手机，铺满整行；大屏上是手机大小。转屏时随屏幕重读。 */
+  @State oneHandBlockVp: number = 0;
   private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
@@ -8255,9 +8257,11 @@ struct KeyboardView {
   private readOrientation(): void {
     try {
       const screen: display.Display = display.getDefaultDisplaySync();
-      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
-        screen.height / screen.densityPixels);
+      const widthVp: number = screen.width / screen.densityPixels;
+      const heightVp: number = screen.height / screen.densityPixels;
+      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(widthVp, heightVp);
       this.landscape = screen.width > screen.height;
+      this.oneHandBlockVp = OneHandedPolicy.blockWidthVp(widthVp, KeyboardFormFactorPolicy.largeScreen(widthVp, heightVp));
     } catch {
       // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
       KeyboardLog.error('keyboard orientation unavailable');
@@ -10750,28 +10754,37 @@ struct KeyboardView {
   }
 
   /**
-   * 按键，或按住某键时代替它们的键面（九键长按和日文变体），开启「单手模式」时在单手侧栏旁收窄绘制。关闭时与以前完全一样，直接画进调用方的列里。代替按键的面板不在这里绘制，保持全宽，与 Android 在没有按键行显示时隐藏侧栏一致。
+   * 按键，或按住某键时代替它们的键面（九键长按和日文变体），开启「单手模式」时在单手侧栏旁收窄绘制；大屏上侧栏和按键这一块缩到手机大小，贴到按键所在的那一侧（`oneHandBlockVp`）。关闭时与以前完全一样，直接画进调用方的列里。代替按键的面板不在这里绘制，保持全宽，与 Android 在没有按键行显示时隐藏侧栏一致。
    */
   @Builder
   handedKeys() {
     if (this.oneHandActive()) {
-      Row({ space: OneHandedPolicy.RAIL_GAP_VP }) {
-        if (OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
-          this.oneHandRail()
+      Row() {
+        Row({ space: OneHandedPolicy.RAIL_GAP_VP }) {
+          if (OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+            this.oneHandRail()
+          }
+          Column({ space: this.rowSpacing() }) {
+            this.keyArea()
+          }
+          .layoutWeight(1)
+          if (!OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
+            this.oneHandRail()
+          }
         }
-        Column({ space: this.rowSpacing() }) {
-          this.keyArea()
-        }
-        .layoutWeight(1)
-        if (!OneHandedPolicy.railOnLeft(this.feedback.oneHanded)) {
-          this.oneHandRail()
-        }
+        .width(this.oneHandBlockWidth())
+        .alignItems(VerticalAlign.Center)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Center)
+      .justifyContent(OneHandedPolicy.railOnLeft(this.feedback.oneHanded) ? FlexAlign.End : FlexAlign.Start)
     } else {
       this.keyArea()
     }
+  }
+
+  /** 侧栏与按键这一块的宽度：手机铺满整行，大屏上是 `oneHandBlockVp`。 */
+  private oneHandBlockWidth(): Length {
+    return this.oneHandBlockVp > 0 ? this.oneHandBlockVp : '100%';
   }
 
   /** 当前显示的那个键面。 */

@@ -1,4 +1,5 @@
 import app.msime.android.KeyboardFormFactorPolicy;
+import app.msime.android.OneHandGutterView;
 
 public final class KeyboardFormFactorPolicySmoke {
     public static void main(String[] args) {
@@ -16,7 +17,25 @@ public final class KeyboardFormFactorPolicySmoke {
             "a two-in-one gets a centered bounded keyboard");
         check(KeyboardFormFactorPolicy.surfaceWidthDp(720, 0) == 720,
             "an unknown expanded width has a safe bound");
-        System.out.println("Android keyboard form factors: handset fill and bounded large-screen surface passed");
+        // #10202：大屏单手模式不再沿用手机的 85%，「侧栏 + 键区」缩到键区 360 dp 加同比例的侧栏。
+        int block = KeyboardFormFactorPolicy.oneHandedBlockWidthDp(800, 1280);
+        check(block == 424, "a tablet's one-handed block is a phone-sized 424 dp, not " + block);
+        check(OneHandGutterView.keysWidth(block) == KeyboardFormFactorPolicy.ONE_HANDED_KEYS_MAX_WIDTH_DP
+                && OneHandGutterView.gutterWidth(block) == 64,
+            "the tablet block splits into 360 dp of keys and the usual 15% gutter");
+        check(KeyboardFormFactorPolicy.oneHandedBlockWidthDp(411, 915) == 0,
+            "a phone keeps the full-width 85/15 split, even in landscape");
+        check(KeyboardFormFactorPolicy.oneHandedBlockWidthDp(600, 400) == 400,
+            "a window narrower than the block gives it the whole row");
+        check(KeyboardFormFactorPolicy.oneHandedBlockWidthDp(800, 0) == 424,
+            "an unknown width still gets the phone-sized block");
+        check(KeyboardFormFactorPolicy.surfaceWidthDp(800, 1280, false, true) == 0,
+            "a one-handed tablet keyboard fills the window so the block can reach the screen edge");
+        check(KeyboardFormFactorPolicy.surfaceWidthDp(800, 1280, false, false) == 720,
+            "with one-handed off the tablet surface keeps its 720 dp cap");
+        check(KeyboardFormFactorPolicy.surfaceWidthDp(411, 915, false, true) == 0,
+            "a one-handed phone fills either way");
+        System.out.println("Android keyboard form factors: handset fill, bounded large-screen surface and phone-sized one-handed block passed");
     }
 
     private static void check(boolean condition, String message) {

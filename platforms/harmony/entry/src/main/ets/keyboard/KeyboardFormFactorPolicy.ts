@@ -14,4 +14,9 @@ export class KeyboardFormFactorPolicy {
   static phoneLandscape(widthVp: number, heightVp: number): boolean {
     return widthVp > heightVp && Math.min(widthVp, heightVp) < 600;
   }
+
+  /** 大屏：最短边不小于 600vp，平板和折叠屏的内屏，与 Android 的 `KeyboardFormFactorPolicy.expanded` 同一条界线。 */
+  static largeScreen(widthVp: number, heightVp: number): boolean {
+    return Math.min(widthVp, heightVp) >= 600;
+  }
 }
