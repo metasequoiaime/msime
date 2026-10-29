@@ -16,6 +16,8 @@ Android 的公开 `ClipboardManager` 和 `ClipDescription` 不能给出可靠的
 
 设备验收把 SAF 文档创建和写入结束分开等待。`createDocument` 返回后，空文档已经能被列出和读取，文件数增加不能充当全文已写完的信号。合成提供方用 `ParcelFileDescriptor.OnCloseListener` 报告写入流关闭；测试随后一次性核对条数、详情、置顶顺序和完整 Unicode 正文。键盘导出场景先用跨进程门闩暂停写入，确认新文档确实为空，再放行并等待关闭，使旧等待方式的竞态成为确定性回归。探针只在测试 APK 中，不进入产品，也不改真实存储提供方的行为。API 29 起的默认 Download 路径继续等待 `IS_PENDING` 清除。
 
+API 34 起，控件查找在缓存树中找不到目标时清空无障碍缓存，再观察当前窗口；不重新点击、不延长等待，也不重试整套用例。动态短提示会在缓存未更新时被遗漏。首次 SAF 授权之前不访问合成提供方探针；脚本清空了提供方数据，API 28 首份文本从已知为 0 的关闭计数开始，在授权后等待首个正常关闭事件。
+
 ## Alternatives considered
 
 - **直接修改共享 `export_text`**：实现行数少，但所有平台的既有导出格式都会改变；需求只指向 Android，平台内格式化更符合范围。
@@ -31,6 +33,8 @@ Android 导出文件可直接用于回看记录时间和项目来源，正文与
 ## Verification
 
 #10215 的原运行只报告合并后的全文断言失败，没有记录当时的文件长度，不能据此反推出是哪一项内容不同。本机 API 35 在当前源码完整重编的 APK 上，用写入门闩稳定重放同一窗口：旧的文件数等待在 `real keyboard panel export control` 阶段以 `snapshot count; bytes=0` 失败；选择目录和第一次导出已经通过。这确认了验收确实能把尚未写入的文件误判为快照损坏。
+
+当前源码完整构建 Rust/JNI、锁定词库与原生 APK，完整 API 35 `clipboard-export.sh` 的 select、verify 两阶段退出码均为 0。选择阶段记录 2 次、验证阶段记录 7 次缓存查找失败后刷新即可找到控件的观察；此前未刷新时重复停在无系统认证的短提示断言。中途主动结束的两轮不计通过；首次引入探针时 API 28 在授权前访问提供方导致的 `SecurityException` 也不计通过。本地 quick、NDK/JNI、JVM 宿主检查与笔记门禁通过；API 28 的完整复验单独记录。
 
 `ClipboardExportFormatSmoke` 用合成 Unicode、换行、固定项和缺时间记录检查格式与顺序，并覆盖全量、空选择、逆序选择、重复与失效选择以及筛选后元信息保持。`platforms/android/check-host.sh` 通过 287 项 JVM 冒烟、246 份设备测试源码编译及 Java/API、清单和资源检查；`pnpm run verify-notes` 通过。
 

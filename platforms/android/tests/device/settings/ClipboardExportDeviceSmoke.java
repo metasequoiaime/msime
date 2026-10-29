@@ -50,6 +50,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     private Activity activity;
     private android.content.ClipData previousClip;
     private boolean clipChanged;
+    private int accessibilityCacheMisses;
 
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
@@ -78,6 +79,7 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: clipboard export " + stage
                 + " (" + failed.getClass().getSimpleName() + ")\n");
         } finally {
+            result.putInt("accessibility_cache_misses", accessibilityCacheMisses);
             try { textWriteProbe("release-text-write"); } catch (RuntimeException | AssertionError ignored) { }
             if (code != Activity.RESULT_OK || !phase.equals("select")) {
                 try { restore(); } catch (Exception ignored) { result.putString("cleanup", "restore failed"); }
@@ -120,7 +122,8 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
         DeviceCredentialFixture.enter(automation);
         if (Build.VERSION.SDK_INT < 29) {
             selectFolder(null);
-            waitFor(() -> filesUnchecked().size() == 1, "first authorized export");
+            // 脚本已清空合成提供方，首份文本之前计数为 0；取得 SAF 授权后才能访问探针。
+            awaitTextWrite(0, "first authorized export");
             Map<String, byte[]> exported = files();
             check(exported.size() == 1, "first authorized export");
             for (String id : exported.keySet()) checkName(documentName(id));
@@ -676,6 +679,17 @@ public final class ClipboardExportDeviceSmoke extends Instrumentation {
     }
 
     private AccessibilityNodeInfo findAll(Predicate<AccessibilityNodeInfo> predicate) {
+        AccessibilityNodeInfo found = findCached(predicate);
+        if (found == null && Build.VERSION.SDK_INT >= 34) {
+            // 动态提示可能已经显示而缓存树未更新；重新观察当前窗口，不重试点击或延长等待。
+            automation.clearCache();
+            found = findCached(predicate);
+            if (found != null) accessibilityCacheMisses++;
+        }
+        return found;
+    }
+
+    private AccessibilityNodeInfo findCached(Predicate<AccessibilityNodeInfo> predicate) {
         AccessibilityNodeInfo active = find(automation.getRootInActiveWindow(), predicate);
         if (active != null) return active;
         for (var window : automation.getWindows()) {
