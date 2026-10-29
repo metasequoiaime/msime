@@ -48,7 +48,8 @@ public final class SpaceKeyMicSmoke {
         String voicePage = read("home/VoicePage.java");
         check(voicePage.contains("new OptionSheet(requireContext(), \"启动方式\", TRIGGER_SHEET_HINT)"),
             "the trigger sheet explains 无");
-        check(voicePage.contains("recognition.nav(\"启动方式\", trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT : null,"),
+        check(voicePage.contains("String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT :")
+                && voicePage.contains("recognition.nav(\"启动方式\", triggerHint,"),
             "the trigger row explains 无 once chosen");
         Matcher hintMatch = Pattern.compile("static final String TRIGGER_NONE_HINT = \"([^\"]*)\";").matcher(voicePage);
         check(hintMatch.find(), "missing TRIGGER_NONE_HINT");
