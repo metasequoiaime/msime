@@ -391,7 +391,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             Object skin = field(type, "skin").get(service);
             int foreground = android.graphics.Color.parseColor(
                 (String) skin.getClass().getMethod("keyForeground").invoke(skin));
-            Class<?> press = menu.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            Class<?> press = type.getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
                 View button = descendant((ViewGroup) menu, view -> describedAs(view, item));
