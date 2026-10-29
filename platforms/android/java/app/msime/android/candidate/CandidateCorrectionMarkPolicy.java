@@ -1,9 +1,9 @@
 package app.msime.android;
 
 /**
- * 双拼触点纠错坐上首选时的显式标记（#10018）。引擎只给按「触点支持且明显更优」规则坐上首选的纠错行带 `confident_correction: true`，其余候选不带这个字段，默认视图逐字节不变。宿主读到它就给这一行的候选字盖上标记色并加一道同色下划线、注释改成标记色实色（{@link CandidateAppearance.Palette#correctionFor}），读屏描述末尾补「，已纠正」；已有的 corrected_from 注释照旧显示。
+ * 双拼触点纠错坐上首选时的显式标记（#10018）。引擎只给按「触点支持且明显更优」规则坐上首选的纠错行带 `confident_correction: true`，其余候选不带这个字段，默认视图逐字节不变。宿主读到它就给这一行的候选字盖上标记色、注释改成标记色实色（{@link CandidateAppearance.Palette#correctionFor}），读屏描述末尾补「，已纠正」；已有的 corrected_from 注释照旧显示。
  *
- * 下划线不能省：坐上首选的纠错行总在高亮的首选 chip 上，未用候选包时那里的候选字本来就是强调色，只换颜色的话候选字看不出任何变化，只剩 0.62 倍的注释从 58% 透明变成实色。
+ * 与 iOS、鸿蒙同一条规则，只换颜色、不画下划线。坐上首选的纠错行总在高亮的首选 chip 上，未用候选包时那里的候选字本来就是强调色，看得出的标记是注释从 58% 透明变成标记色实色。
  */
 public final class CandidateCorrectionMarkPolicy {
     /** View JSON 候选对象上的字段名，候选条和展开面板都从 `candidate.opt(FIELD)` 读。 */
@@ -30,7 +30,7 @@ public final class CandidateCorrectionMarkPolicy {
         return prefix.isEmpty() && annotation.isEmpty() && !confident;
     }
 
-    /** 盖在候选字上的标记色，candidateLabel 在同一段再加一道下划线；不是坐上首选的纠错行时返回 null，候选字不加任何 span，照旧用按钮自己的选中/未选中文字色。 */
+    /** 盖在候选字上的标记色；不是坐上首选的纠错行时返回 null，候选字不加任何 span，照旧用按钮自己的选中/未选中文字色。 */
     public static Integer wordMark(CandidateAppearance.Palette palette, boolean highlighted, boolean confident) {
         return confident ? palette.correctionFor(highlighted) : null;
     }

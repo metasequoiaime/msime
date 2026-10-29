@@ -134,12 +134,12 @@ done
 plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
 if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
   || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
-  || ! rg -qU 'if \(mark != null\) \{\n\s*label\.setSpan\(new ForegroundColorSpan\(mark\), prefix\.length\(\), primary\.length\(\),\n\s*Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*label\.setSpan\(new UnderlineSpan\(\), prefix\.length\(\), primary\.length\(\), Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*\}' <<< "$label_body" \
-  || [ "$(rg -c 'UnderlineSpan' <<< "$label_body")" != 1 ] \
+  || ! rg -qU 'if \(mark != null\) \{\n\s*label\.setSpan\(new ForegroundColorSpan\(mark\), prefix\.length\(\), primary\.length\(\),\n\s*Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*\}' <<< "$label_body" \
+  || rg -q 'UnderlineSpan' <<< "$label_body" \
   || ! rg -q 'int secondary = CandidateCorrectionMarkPolicy\.annotationColour\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
   || ! rg -q 'new ForegroundColorSpan\(secondary\), annotationStart' <<< "$label_body" \
   || ! rg -q 'return candidateLabel\(prefix, text, annotation, highlighted, false\);' <<< "$plain_label_body"; then
-  echo "candidateLabel must take its spans and colours from CandidateCorrectionMarkPolicy and underline only a confident correction" >&2
+  echo "candidateLabel must take its spans and colours from CandidateCorrectionMarkPolicy and mark a confident correction in colour only, like iOS and HarmonyOS" >&2
   exit 1
 fi
 # 每次按键的 render 末尾都会把候选重新上色一遍：外观和密度没变、按钮的底也还是上次装上的那块时，不能再给每个候选新建五块 GradientDrawable 和一个 StateListDrawable，文字配色也共用一份 ColorStateList。低端机上每键几十个候选、几百个短命 Drawable，是打字发热和卡顿的来源之一。

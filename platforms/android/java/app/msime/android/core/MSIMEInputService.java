@@ -39,7 +39,6 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
-import android.text.style.UnderlineSpan;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
@@ -8943,7 +8942,7 @@ public final class MSIMEInputService extends InputMethodService {
         return candidateLabel(prefix, text, annotation, highlighted, false);
     }
 
-    /** `corrected` 为真时这一行是坐上首选的触点纠错：颜色由 {@link CandidateCorrectionMarkPolicy} 决定，候选字盖上标记色并加一道同色下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来），注释画成标记色实色、不再调淡。 */
+    /** `corrected` 为真时这一行是坐上首选的触点纠错：颜色由 {@link CandidateCorrectionMarkPolicy} 决定，候选字盖上标记色，注释画成标记色实色、不再调淡（首选 chip 上候选字本来就是强调色，标记靠注释看得见）。 */
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted, boolean corrected) {
         if (CandidateCorrectionMarkPolicy.plainLabel(prefix, annotation, corrected))
@@ -8958,7 +8957,6 @@ public final class MSIMEInputService extends InputMethodService {
         if (mark != null) {
             label.setSpan(new ForegroundColorSpan(mark), prefix.length(), primary.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            label.setSpan(new UnderlineSpan(), prefix.length(), primary.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         if (annotation.isEmpty()) return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
