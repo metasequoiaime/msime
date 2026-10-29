@@ -11236,13 +11236,17 @@ public final class MSIMEInputService extends InputMethodService {
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            int caretMark = caretEditable ? CompositionCaretPolicy.markIndex(spelling, editingText, caret) : -1;
+            // 隔着显示分隔时光标画在哪一侧，看组字是不是在引擎的组码网格里（九键、14 键、18 键的退格先删切分），不看按键是不是数字。
+            boolean caretKeyGrid = view != null
+                && !"none".equals(InputViewValuePolicy.textOr(view, "key_grid", "none"));
+            int caretMark = caretEditable
+                ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
                 caretSpelling = editingText;
-                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret, caretKeyGrid);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            imeCompositionEditor.render(caretSpelling, editingText, caret);
+            imeCompositionEditor.render(caretSpelling, editingText, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
