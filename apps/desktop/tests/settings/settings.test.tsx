@@ -8152,7 +8152,7 @@ test.each(optionHosts)(
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
     const input = await screen.findByRole("group", { name: "输入" });
-    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
+    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 全拼纠错 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
     const groups = [...input.querySelectorAll("[data-group-title]")].map(
       (node) => node.textContent ?? "",
     );
@@ -8164,6 +8164,7 @@ test.each(optionHosts)(
       "输出",
       "快捷模式",
       "模糊音",
+      "全拼纠错",
       "辅助码",
       "拼音方案调频",
     ]);

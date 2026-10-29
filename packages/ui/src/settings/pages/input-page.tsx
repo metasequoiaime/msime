@@ -513,6 +513,31 @@ export function InputSettingsPage() {
             {!harmonyPhone && client.fuzzyPinyin && (
               <GroupList title="模糊音">{fuzzyPinyinSection("section")}</GroupList>
             )}
+            {/* 鸿蒙手机的这两个开关在「中文」组里；其余平台的共享设置页放在高级选项，只在全拼方案下列出，引擎也只对全拼纠错。两个都关掉时漏字、多字的纠错一起关闭（`request_autocorrect_mask`）。 */}
+            {!harmonyPhone && draft.scheme === "quanpin" && (
+              <GroupList title="全拼纠错">
+                <SwitchRow
+                  title="全拼邻键纠错"
+                  description="把按偏到相邻键的字母纠回来，例如 shabg → shang、zhr → zhe，纠错出来的候选带 * 标记。全是辅音的输入（qjn、zhr）先列简拼词，纠错候选排在后面。关闭后不再按邻键猜测拼写。"
+                  checked={draft.quanpin?.autocorrect_neighbor ?? true}
+                  onChange={(checked) =>
+                    onPreferencesChange({
+                      quanpin: { ...draft.quanpin, autocorrect_neighbor: checked },
+                    })
+                  }
+                />
+                <SwitchRow
+                  title="全拼乱序纠错"
+                  description="把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。"
+                  checked={draft.quanpin?.autocorrect_transposition ?? true}
+                  onChange={(checked) =>
+                    onPreferencesChange({
+                      quanpin: { ...draft.quanpin, autocorrect_transposition: checked },
+                    })
+                  }
+                />
+              </GroupList>
+            )}
             {!harmonyPhone && helpcodeGroup}
           </>
         }
