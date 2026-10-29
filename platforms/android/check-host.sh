@@ -117,6 +117,31 @@ if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
   exit 1
 fi
+# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
+service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
+expanded_body=$(sed -n '/^    Button expandedCandidateButton(JSONObject candidate) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
+label_body=$(sed -n '/^                                        boolean highlighted, boolean corrected) {$/,/^    }$/p' "$service_source")
+for body in "$update_body" "$expanded_body"; do
+  if ! rg -q 'CandidateCorrectionMarkPolicy\.confident\(candidate\.opt\(CandidateCorrectionMarkPolicy\.FIELD\)\)' <<< "$body" \
+    || ! rg -q 'candidateLabel\([^;]*, corrected\)\)' <<< "$body" \
+    || ! rg -q 'CandidateCorrectionMarkPolicy\.accessibilitySuffix\(corrected\)' <<< "$body"; then
+    echo "Candidate strip and expanded panel must mark a confident shuangpin correction in colour and in the spoken description" >&2
+    exit 1
+  fi
+done
+plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
+if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
+  || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -qU 'if \(mark != null\) \{\n\s*label\.setSpan\(new ForegroundColorSpan\(mark\), prefix\.length\(\), primary\.length\(\),\n\s*Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*label\.setSpan\(new UnderlineSpan\(\), prefix\.length\(\), primary\.length\(\), Spanned\.SPAN_EXCLUSIVE_EXCLUSIVE\);\n\s*\}' <<< "$label_body" \
+  || [ "$(rg -c 'UnderlineSpan' <<< "$label_body")" != 1 ] \
+  || ! rg -q 'int secondary = CandidateCorrectionMarkPolicy\.annotationColour\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
+  || ! rg -q 'new ForegroundColorSpan\(secondary\), annotationStart' <<< "$label_body" \
+  || ! rg -q 'return candidateLabel\(prefix, text, annotation, highlighted, false\);' <<< "$plain_label_body"; then
+  echo "candidateLabel must take its spans and colours from CandidateCorrectionMarkPolicy and underline only a confident correction" >&2
+  exit 1
+fi
 # 每次按键的 render 末尾都会把候选重新上色一遍：外观和密度没变、按钮的底也还是上次装上的那块时，不能再给每个候选新建五块 GradientDrawable 和一个 StateListDrawable，文字配色也共用一份 ColorStateList。低端机上每键几十个候选、几百个短命 Drawable，是打字发热和卡顿的来源之一。
 if ! rg -q 'if \(!keepsChipFace\(button\)\) \{' <<< "$style_body" \
   || rg -q 'ColorPolicy\.stateList' <<< "$style_body"; then

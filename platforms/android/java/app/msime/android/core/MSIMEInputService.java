@@ -39,6 +39,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
+import android.text.style.UnderlineSpan;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
@@ -8939,7 +8940,13 @@ public final class MSIMEInputService extends InputMethodService {
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted) {
-        if (annotation.isEmpty() && prefix.isEmpty())
+        return candidateLabel(prefix, text, annotation, highlighted, false);
+    }
+
+    /** `corrected` 为真时这一行是坐上首选的触点纠错：颜色由 {@link CandidateCorrectionMarkPolicy} 决定，候选字盖上标记色并加一道同色下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来），注释画成标记色实色、不再调淡。 */
+    CharSequence candidateLabel(String prefix, String text, String annotation,
+                                        boolean highlighted, boolean corrected) {
+        if (CandidateCorrectionMarkPolicy.plainLabel(prefix, annotation, corrected))
             return CandidateSymbolLabel.apply(this, text, 0, text.length());
         String primary = prefix + text;
         SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
@@ -8947,14 +8954,18 @@ public final class MSIMEInputService extends InputMethodService {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.numberFor(highlighted)), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        Integer mark = CandidateCorrectionMarkPolicy.wordMark(candidateAppearance, highlighted, corrected);
+        if (mark != null) {
+            label.setSpan(new ForegroundColorSpan(mark), prefix.length(), primary.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            label.setSpan(new UnderlineSpan(), prefix.length(), primary.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         if (annotation.isEmpty()) return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
         // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
         label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        int foreground = candidateAppearance.textFor(highlighted);
-        int secondary = candidateAppearance.externalSkin()
-            ? candidateAppearance.secondaryFor(highlighted) : ColorPolicy.withAlpha(foreground, 0.58f);
+        int secondary = CandidateCorrectionMarkPolicy.annotationColour(candidateAppearance, highlighted, corrected);
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
@@ -9205,7 +9216,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9，每页十个时第十个标 0（#5584、#6679）。
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
-        button.setText(candidateLabel(number, text, annotation, highlighted));
+        boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
+        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -9219,7 +9231,8 @@ public final class MSIMEInputService extends InputMethodService {
         // Avoid creating its candidate drawables before that pass.
         String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：",
             ContactCandidatePolicy.description(source, text),
-            candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate));
+            candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate)
+                + CandidateCorrectionMarkPolicy.accessibilitySuffix(corrected));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null && candidateManagementEnabled()
                 && AiPendingCandidatePolicy.offersMenu(source)
