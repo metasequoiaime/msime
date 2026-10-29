@@ -192,3 +192,52 @@ test("没有客户端时不读取、不打开系统设置、不注册轮询", as
   expect(vi.getTimerCount()).toBe(0);
   expect(onError).not.toHaveBeenCalled();
 });
+
+test.each(["成功", "失败"])("轮询等待慢入口读取%s后再继续重查", async (outcome) => {
+  vi.useFakeTimers();
+  const pending = deferred<string[] | null>();
+  const current = client();
+  vi.mocked(current.enabled).mockReturnValueOnce(pending.promise);
+  const hook = renderHook(() =>
+    useMacosInputModes({ ...options, client: current, onError: vi.fn() }),
+  );
+  await act(async () => hook.result.current.openSettings());
+  await act(async () => vi.advanceTimersByTimeAsync(INPUT_MODE_RECHECK_MS * 2));
+  expect(current.enabled).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    if (outcome === "成功") pending.resolve([prefix + "Hans", prefix + "Cantonese"]);
+    else pending.reject(new Error("合成当前读取失败"));
+  });
+  expect(hook.result.current.current).toBeUndefined();
+  if (outcome === "失败") expect(hook.result.current.enabled).toBeNull();
+  await act(async () => vi.advanceTimersByTimeAsync(INPUT_MODE_RECHECK_MS));
+  expect(current.enabled).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.current?.mode).toBe("Cantonese");
+});
+
+test.each(["成功", "失败"])("焦点刷新接管慢读取后，旧%s不能释放当前轮询占位", async (outcome) => {
+  vi.useFakeTimers();
+  const previous = deferred<string[] | null>();
+  const pending = deferred<string[] | null>();
+  const current = client();
+  vi.mocked(current.enabled)
+    .mockReturnValueOnce(previous.promise)
+    .mockReturnValueOnce(pending.promise);
+  const hook = renderHook(() =>
+    useMacosInputModes({ ...options, client: current, onError: vi.fn() }),
+  );
+  await act(async () => hook.result.current.openSettings());
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(current.enabled).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    if (outcome === "成功") previous.resolve([prefix + "Hans"]);
+    else previous.reject(new Error("合成旧读取失败"));
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(INPUT_MODE_RECHECK_MS));
+  expect(current.enabled).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.enabled).toBeNull();
+  await act(async () => pending.resolve([prefix + "Hans", prefix + "Cantonese"]));
+  expect(hook.result.current.current).toBeUndefined();
+  await act(async () => vi.advanceTimersByTimeAsync(INPUT_MODE_RECHECK_MS));
+  expect(current.enabled).toHaveBeenCalledTimes(3);
+});
