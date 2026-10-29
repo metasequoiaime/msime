@@ -7021,7 +7021,7 @@ fn rejected_letter_after_letter_only_shortcut_keeps_the_whole_word_composing() {
                 );
             }
             let snapshot = session.snapshot();
-            // `Trq` 全是日期时间模式收的小写，留在模式里；其余都在第二个被拒字母处转回普通组字。
+            // `Trq` 全是日期时间模式收的小写，留在模式里；其余都在第一个被拒字母处转回普通组字。
             let expected_mode = if text == "Trq" {
                 LocalInputMode::DateTime
             } else {
