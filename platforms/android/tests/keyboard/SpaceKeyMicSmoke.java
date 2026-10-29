@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  *
  * <p>{@link SpaceKeyFace} 是 View，JVM 冒烟里只有抛 `Stub!` 的桩，画不出来；这里测纯函数 {@link SpaceKeyFace#numberPadLabel}，再按源码钉住 {@link ImeBottomRow} 给主空格和分离键盘右半边的空格都按同一个开关设置麦克风。源码比对前先把连续空白压成一个空格，换行、缩进的改动不会让它失败。
  *
- * <p>语音页「无」的说明要和键盘的真实行为对得上：选「无」时空格键和工具栏上没有语音入口，但「更多工具」面板的「语音输入」磁贴还在（只有工具栏语音按钮露出时才藏）。这里用 {@link FunctionPanelModel} 确认那块磁贴存在、钉住面板只在工具栏语音按钮可见时才藏它，并要求说明里写出磁贴的名字；哪天选「无」也藏掉这块磁贴，这里会失败，提醒同时改说明。
+ * <p>语音页「无」的说明要和键盘的真实行为对得上：选「无」时空格键和工具栏上没有语音入口，但「更多工具」面板的「语音输入」磁贴还在（只有工具栏语音按钮开着时才藏）。这里用 {@link FunctionPanelModel} 确认那块磁贴存在、钉住面板只在工具栏语音按钮的开关 `touchVoiceShortcutEnabled` 打开时才藏它（#10142 起看开关，不看按钮视图），并要求说明里写出磁贴的名字；哪天选「无」也藏掉这块磁贴，这里会失败，提醒同时改说明。
  */
 public final class SpaceKeyMicSmoke {
     public static void main(String[] args) throws Exception {
@@ -31,7 +31,7 @@ public final class SpaceKeyMicSmoke {
         check(body(bottomRow, "void syncSplitSpace() {").contains("splitSpace.setShowsMic(spaceShowsMic());"),
             "the split keyboard's right-hand space mirrors the mic");
 
-        // 「更多工具」里的语音磁贴：模型里一直有它，面板只在工具栏语音按钮可见时才把它藏起来。
+        // 「更多工具」里的语音磁贴：模型里一直有它，面板只在工具栏语音按钮开着时才把它藏起来。
         FunctionPanelModel.Item voiceTile = FunctionPanelModel.item(FunctionPanelModel.Id.VOICE_INPUT);
         check(FunctionPanelModel.itemsExcept(EnumSet.noneOf(FunctionPanelModel.Id.class)).contains(voiceTile),
             "the more-tools panel lists a voice tile");
@@ -40,8 +40,8 @@ public final class SpaceKeyMicSmoke {
         int hidden = 0;
         while (hides.find()) hidden++;
         check(hidden == 1 && panel.contains(
-                "if (ViewPolicy.isVisible(s.voiceShortcutButton)) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);"),
-            "the voice tile is hidden only while the toolbar voice button shows");
+                "if (s.touchVoiceShortcutEnabled) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);"),
+            "the voice tile is hidden only while the toolbar voice button is switched on");
         check(read("keyboard/FunctionPanelView.java").contains("setContentDescription(\"更多工具\");"),
             "the panel is called 更多工具");
 
