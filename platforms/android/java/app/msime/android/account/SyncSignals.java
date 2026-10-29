@@ -54,6 +54,23 @@ public final class SyncSignals {
         }
     }
 
+    /**
+     * 本机清除了学习记录以后调（Rust 的 `dictionary_reset`）：取消清除之前下载、还在激活队列里等着的云端快照，忘掉等激活的记录，再给「个人词库」打待上传标记。不忘掉的话那份快照因本机版本变了而激活不了，下一轮会按合并把云端清除前的词并回本机。只读写状态文件和快照队列、不联网，放在工作线程上。
+     *
+     * @return 标记是否已经记下；同步关着或读写失败时返回 false
+     */
+    public static boolean dictionaryReset(Context context) {
+        RustCloudSync.migrate(context);
+        try {
+            JSONObject extra = new JSONObject()
+                .put("snapshot_queue_directory", DictionarySnapshotQueue.directory(context).toString());
+            JSONObject value = call(stateDirectory(context), new JSONObject().put("operation", "dictionary_reset"), extra);
+            return value != null && JsonPolicy.strictTrue(value.opt("marked"));
+        } catch (IOException | JSONException unavailable) {
+            return false;
+        }
+    }
+
     /** 同步开关现在开着没有（Rust 的 `peek`，不读会话、不对齐、不写）；读不到时按关闭处理。 */
     public static boolean enabled(Context context) {
         RustCloudSync.migrate(context);
@@ -100,9 +117,9 @@ public final class SyncSignals {
     }
 
     /**
-     * 跑一个不带会话来源的云同步操作（`peek`、`mark_dirty`、`import_legacy`），返回它的 value；Rust 报失败或回答读不懂时为 null。
+     * 跑一个不带会话来源的云同步操作（`peek`、`mark_dirty`、`dictionary_reset`、`import_legacy`），返回它的 value；Rust 报失败或回答读不懂时为 null。
      *
-     * @param extra 请求里另外要带的字段（`import_legacy` 的 `snapshot_queue_directory`），没有时为 null
+     * @param extra 请求里另外要带的字段（`import_legacy` 和 `dictionary_reset` 的 `snapshot_queue_directory`），没有时为 null
      */
     static JSONObject call(String stateDirectory, JSONObject action, JSONObject extra) throws JSONException {
         JSONObject request = extra == null ? new JSONObject() : new JSONObject(extra.toString());

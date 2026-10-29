@@ -455,7 +455,8 @@ public final class LexiconPage extends ReloadingDetailPage {
                 MsToast.show(requireContext(), result == null ? DictionaryCollectionsStore.resetFailureMessage("") : result.failure());
                 return;
             }
-            MsToast.show(requireContext(), ClearLearningCopy.cleared(result.value().pending()));
+            DictionaryCollectionsStore.ResetReport report = result.value();
+            MsToast.show(requireContext(), ClearLearningCopy.cleared(report.pending(), report.collectionsFailed(), report.unsynced()));
             reload(false);
         });
     }
