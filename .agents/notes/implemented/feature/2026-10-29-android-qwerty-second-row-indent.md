@@ -23,7 +23,7 @@ Status: implemented
 
 ## Consequences
 
-标准 QWERTY 字母布局（中文、英文和其他语言键面）第二行向内收，单键横向宽度约减少 10%。分离式键盘继续保留相同的切分与重复键位置，微软双拼的十键行不因占位变窄。
+标准 QWERTY 字母布局（中文、英文和其他语言键面）第二行向内收，单键横向宽度约减少 10%。分离式键盘继续保留相同的切分与重复键位置，微软双拼的十键行不因占位变窄。iOS 与鸿蒙此前就按设计稿缩进第二行（iOS `KeyboardLayoutPreference.letterInsetRatio = 0.05`，鸿蒙 `secondRowIndented()` 的 0.5 份占位），Android 是三端中唯一铺满整行的一端；本次补齐后三端一致，「`;` 键显示时以它填位、隐藏时缩进」的规则也相同。
 
 ## Verification
 
