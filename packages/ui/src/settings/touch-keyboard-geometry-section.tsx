@@ -6,6 +6,7 @@ import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback";
 import { SelectRow } from "./select-row";
+import type { Preferences } from "../core/preferences-model";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import { touchKeyboardResetSubjects } from "./use-touch-keyboard-settings-reset";
 import * as settings from "./settings-style";
@@ -35,6 +36,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   /** 「滑动输入符号」开关及其方向，在宿主键盘实现了它们时传入；不传则两行都不绘制。 */
   swipeSymbols?: boolean;
   swipeSymbolsDirection?: SwipeSymbolsDirection;
+  /** 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`），宿主的触屏键盘提供拼音九键时给出当前值（缺键和不认识的值由调用方读成 `off`）；不传则不画这一行。 */
+  nineKeySwipeDigits?: NineKeySwipeDigits;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
   /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
@@ -49,6 +52,7 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onGlideTypingChange: (enabled: boolean) => void;
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
+  onNineKeySwipeDigitsChange?: (value: NineKeySwipeDigits) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
   /** 「恢复默认」：参数是这一页实际给出、会被恢复的几项，如「高度、间距和工具栏按钮」，确认框照它措辞。 */
@@ -58,6 +62,9 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   /** HarmonyOS 手机：「尺寸」卡片顶部的键盘预览（不带分组），在它上面拖动调的就是下面的间距。 */
   preview?: ReactNode;
 }
+
+/** 共享偏好 `touch_nine_key_swipe_digits` 的取值：关闭、上滑输入数字（下滑弹出字母）、下滑输入数字（上滑弹出字母）。 */
+export type NineKeySwipeDigits = NonNullable<Preferences["touch_nine_key_swipe_digits"]>;
 
 /** 间距以十分之一 dp 存，手机上显示成不带单位的数：6、6.5。 */
 const spacingText = (tenths: number) => String(tenths / 10);
@@ -81,6 +88,7 @@ export function TouchKeyboardGeometrySection({
   glideTyping,
   swipeSymbols,
   swipeSymbolsDirection = "up",
+  nineKeySwipeDigits,
   shuangpinKeyHints,
   quanpinShift,
   tabletFullKeysBusy,
@@ -95,6 +103,7 @@ export function TouchKeyboardGeometrySection({
   onGlideTypingChange,
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
+  onNineKeySwipeDigitsChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
   onReset,
@@ -277,7 +286,9 @@ export function TouchKeyboardGeometrySection({
           )}
         </GroupList>
       )}
-      {(glideTyping !== undefined || swipeSymbols !== undefined) && (
+      {(glideTyping !== undefined ||
+        swipeSymbols !== undefined ||
+        nineKeySwipeDigits !== undefined) && (
         <GroupList title="手势">
           {swipeSymbols !== undefined && (
             <>
@@ -304,6 +315,21 @@ export function TouchKeyboardGeometrySection({
                 <option value="up">上滑</option>
               </SelectRow>
             </>
+          )}
+          {/* 紧跟 26 键的「滑动方向」，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
+          {nineKeySwipeDigits !== undefined && (
+            <SelectRow
+              title="九键滑动输入数字"
+              description="沿所选方向滑动输入数字，反方向弹出字母。"
+              value={nineKeySwipeDigits}
+              onChange={(event) =>
+                onNineKeySwipeDigitsChange?.(event.target.value as NineKeySwipeDigits)
+              }
+            >
+              <option value="off">关闭</option>
+              <option value="up">上滑</option>
+              <option value="down">下滑</option>
+            </SelectRow>
           )}
           {glideTyping !== undefined && (
             <SwitchRow
