@@ -3691,11 +3691,15 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     let zero = try button("nineKeyZero", in: controller)
     let space = try button("spaceKey", in: controller)
-    // 单位宽由空格倒推，空格已经按像素取整，乘到 3.15、1.6 倍时误差跟着放大，UIStackView 还会把分不尽的余数给其中一个键，所以容差放到 1 点；相邻权重档之间差几十点，比例照样钉得住。
-    let digitUnit = space.bounds.width / 1.05
-    XCTAssertEqual(zero.bounds.width, digitUnit * (KeyboardViewController.nineKeySpaceWeight - 1.05), accuracy: 1)
-    XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, digitUnit * 1.05, accuracy: 1)
-    XCTAssertEqual(try button("returnKey", in: controller).bounds.width, digitUnit * 1.6, accuracy: 1)
+    let language = try button("bottomLanguageKey", in: controller)
+    let enter = try button("returnKey", in: controller)
+    // The unit comes from the four keys right of the layer key, not from the narrow space key alone: each width is snapped to a pixel, and a 1/3 pt error on space grows past the tolerance once multiplied by the 0 key's 3.15 share.
+    let zeroWeight = KeyboardViewController.nineKeySpaceWeight - 1.05
+    let digitUnit = (zero.bounds.width + space.bounds.width + language.bounds.width + enter.bounds.width) / (zeroWeight + 1.05 + 1.05 + 1.6)
+    XCTAssertEqual(zero.bounds.width, digitUnit * zeroWeight, accuracy: 0.75)
+    XCTAssertEqual(space.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(language.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(enter.bounds.width, digitUnit * 1.6, accuracy: 0.75)
     XCTAssertGreaterThanOrEqual(zero.bounds.width, try button("nineKey8", in: controller).bounds.width)
     XCTAssertLessThan(zero.frame.maxX, space.frame.minX)
     XCTAssertNil(space.configuration?.image)
