@@ -73,6 +73,7 @@ final class KeyboardFunctionTileView: UIControl {
   func configure(_ tool: KeyboardTool, skin: KeyboardTheme) {
     self.tool = tool
     self.skin = skin
+    titleLabel.text = tool.title
     // 图标是 `CAShapeLayer`，#7682 在真机上看到只挂这种图层的按钮收不到触摸；把背景交给系统底板的皮肤下格子整格铺一层几乎看不出的底色，点在格子任何一处都落在它自己的内容上（#10173）。其他皮肤保持无背景。
     backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : .clear
     applyFonts()
