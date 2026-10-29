@@ -579,6 +579,23 @@ impl Fixture {
         }
     }
 
+    /// 登录同一账号的另一台设备：共用这个云端，同步状态和本机各是各的。
+    fn another_device(&self) -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let state_directory = directory.path().to_path_buf();
+        let storage = SharedStorage(Arc::new(Mutex::new(Some(saved(USER, 'a')))));
+        let session = BackendAccountSession::new(self.api.clone(), storage.clone());
+        Self {
+            store: SyncStateStore::new(&state_directory),
+            _directory: directory,
+            state_directory,
+            api: self.api.clone(),
+            storage,
+            session,
+            local: FakeLocal::default(),
+        }
+    }
+
     fn enable(&self) {
         let value = set_enabled(&self.session, &self.store, true, NOW).unwrap();
         assert_eq!(value["enabled"], true);
@@ -3842,7 +3859,7 @@ fn a_learned_data_reset_marked_for_upload_replaces_the_cloud_copy() {
     assert_eq!(fixture.api.cloud().snapshot_uploads, 1);
 
     assert_eq!(
-        mark_dirty(&fixture.store, Section::Dictionary).unwrap()["marked"],
+        dictionary_reset(&fixture.store, &local).unwrap()["marked"],
         true
     );
     let marked = round(Trigger::Manual, NOW + 120_000);
@@ -3918,4 +3935,155 @@ fn a_learned_data_reset_keeps_the_words_of_enabled_named_dictionaries() {
         snapshot_entries(&std::fs::read_to_string(&file).unwrap()),
         ["你好"]
     );
+}
+
+/// 清除学习记录时还有一份下载下来的云端快照在等键盘激活：重置以后本机版本变了，它以冲突结束、不会激活。只打待上传标记时下一轮把它当成没激活的快照，按合并把云端清除前的词并回本机；`dictionary_reset` 取消它、忘掉这条记录，下一轮整份上传清除后的这一份。
+#[test]
+fn a_learned_data_reset_forgets_a_snapshot_still_waiting_for_activation() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    for forget in [false, true] {
+        let fixture = Fixture::new();
+        fixture.local.local().words = true;
+        fixture.enable();
+        let uploaded = fixture.run(Trigger::Enable, None, dictionary, NOW);
+        assert_eq!(uploaded["outcome"], "done", "{uploaded}");
+        // 另一台设备改了云端：下载下来交给激活队列，键盘还没激活。
+        fixture.api.cloud().dictionary_revision = 5;
+        let downloaded = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+        assert_eq!(
+            fixture.local.local().replaced,
+            [(USER.to_owned(), 5)],
+            "{downloaded}"
+        );
+        assert!(fixture.state().sections.dictionary.activation.is_some());
+
+        if forget {
+            let reset = dictionary_reset(&fixture.store, &fixture.local).unwrap();
+            assert_eq!(reset["marked"], true);
+            assert_eq!(fixture.local.local().cancelled, [USER]);
+            assert_eq!(fixture.state().sections.dictionary.activation, None);
+        } else {
+            store_mark(&fixture, Section::Dictionary);
+        }
+        fixture.local.finish_activation(false);
+        let next = fixture.run(Trigger::Manual, None, dictionary, NOW + 120_000);
+        assert_eq!(
+            next["sections"]["dictionary"]["outcome"], "synced",
+            "{next}"
+        );
+        let merged = fixture.local.local().merged;
+        let uploads = fixture.api.cloud().snapshot_uploads;
+        if forget {
+            assert_eq!((merged, uploads), (0, 2), "the cleared copy is uploaded");
+            assert!(!fixture.state().sections.dictionary.dirty());
+        } else {
+            assert_eq!((merged, uploads), (1, 1), "the old cloud words come back");
+        }
+    }
+}
+
+/// 两台设备登录同一账号、词库都同步过。A 清除学习记录以后整份上传（服务端整份恢复快照时写一条 reset），B 下一轮：A 上传的快照是空的（没有命名词库）时，云端看起来和「删除云端数据」一样被清空了，B 停下来问，不替换也不上传；快照里有词（命名词库的词）时，没有本机改动的 B 照常下载，用这一份整份替换自己的词库。确认框因此说登录同一账号的其他设备会跟着换掉，或者提示选择。
+#[test]
+fn a_learned_data_reset_reaches_the_other_devices_on_the_account() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    for items in [0, 3] {
+        let a = Fixture::new();
+        let b = a.another_device();
+        a.local.local().words = true;
+        a.enable();
+        let first = a.run(Trigger::Enable, None, dictionary, NOW);
+        assert_eq!(a.api.cloud().snapshot_uploads, 1, "{first}");
+        b.local.local().words = true;
+        b.enable();
+        let merged = b.run(Trigger::Choice, Some(Choice::Merge), dictionary, NOW);
+        assert_eq!(merged["outcome"], "done", "{merged}");
+        // B 合并完、本机的词也传上去以后两边一致：这里直接清掉 B 的标记，免得多一轮上传。
+        b.store
+            .update(|state| {
+                let section = &mut state.sections.dictionary;
+                section.clean = section.generation;
+            })
+            .unwrap();
+
+        a.local.local().words = items > 0;
+        assert_eq!(
+            dictionary_reset(&a.store, &a.local).unwrap()["marked"],
+            true
+        );
+        let cleared = a.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+        assert_eq!(
+            cleared["sections"]["dictionary"]["outcome"], "synced",
+            "{cleared}"
+        );
+        {
+            let mut cloud = a.api.cloud();
+            assert_eq!(cloud.snapshot_uploads, 2);
+            cloud.dictionary_reset = true;
+            cloud.dictionary_items = items;
+        }
+
+        let other = b.run(Trigger::Manual, None, dictionary, NOW + 120_000);
+        if items == 0 {
+            assert_eq!(other["outcome"], "needs_choice", "{other}");
+            assert_eq!(other["reason"], "cloud_cleared");
+            assert!(b.local.local().replaced.is_empty());
+        } else {
+            assert_eq!(
+                other["sections"]["dictionary"]["outcome"], "synced",
+                "{other}"
+            );
+            assert_eq!(b.local.local().replaced, [(USER.to_owned(), 2)]);
+        }
+        assert_eq!(a.api.cloud().snapshot_uploads, 2);
+    }
+}
+
+/// 本地备份恢复排下、还没合并的输入记录和输入习惯（含键盘认领了还没合并完的和失败计数）在清除时一起删掉，不会在键盘下次空闲时把清除前的学习并回来。
+#[test]
+fn a_learned_data_reset_drops_learning_still_waiting_to_be_merged() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = resettable_host_options(directory.path());
+    let names = [
+        "pending-learning-merge.ndjson",
+        "pending-learning-merge.claimed.ndjson",
+        "pending-learning-merge.attempts",
+        "pending-habits-merge.ndjson",
+        "pending-habits-merge.claimed.ndjson",
+        "pending-habits-merge.attempts",
+    ];
+    for name in names {
+        std::fs::write(directory.path().join(name), "synthetic\n").unwrap();
+    }
+    let reset = reset_learned_data(&options);
+    assert_eq!(reset, json!({"reset": true, "collections_requeued": 0}));
+    for name in names {
+        assert!(!directory.path().join(name).exists(), "{name}");
+    }
+}
+
+/// 命名词库的索引坏了、重新排队失败时，重置已经做完：照样回答 `reset:true`，宿主据此打云同步标记，并告诉用户已添加词库的词没能写回，而不是说清除失败。
+#[test]
+fn a_learned_data_reset_still_succeeds_when_named_dictionaries_cannot_be_requeued() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = resettable_host_options(directory.path());
+    add_user_word(&options, "ni'hao", "你好", "seed-word");
+    let collections = directory.path().join("DictionaryCollections");
+    std::fs::create_dir_all(&collections).unwrap();
+    std::fs::write(collections.join("index.json"), "not json").unwrap();
+    let reset = reset_learned_data(&options);
+    assert_eq!(
+        reset,
+        json!({
+            "reset": true,
+            "collections_requeued": null,
+            "collections_error": "learned-data reset collections unavailable",
+        })
+    );
+    assert!(user_words(&options).is_empty());
 }

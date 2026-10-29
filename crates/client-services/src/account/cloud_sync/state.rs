@@ -343,6 +343,12 @@ impl SyncState {
         true
     }
 
+    /// 本机清除了学习记录（`msime_client_dictionary` 的 `reset`）：忘掉等激活的云端快照（`activation`），再按 [`Self::mark_dirty`] 给词库记一次改动。等激活的那份是清除之前下载的，重置以后它因本机版本变了而冲突、不会激活；留着记录的话下一轮会把它当成没激活的快照、按合并把云端的旧词并回本机。不管开关开没开都忘掉：以后重新打开同步时也不该再去补它。不推进 `state_version`，与打标记一样不让进行中的那一轮作废。返回有没有记下改动。
+    pub fn forget_dictionary_before_reset(&mut self) -> bool {
+        self.sections.dictionary.activation = None;
+        self.mark_dirty(Section::Dictionary)
+    }
+
     pub fn any_dirty(&self) -> bool {
         Section::ALL
             .iter()

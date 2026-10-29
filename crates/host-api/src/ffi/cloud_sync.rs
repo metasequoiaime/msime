@@ -1,6 +1,6 @@
 //! `msime_client_cloud_sync`：多分类自动云同步的 C 入口，一个按 `operation` 分发的 JSON 请求。请求、各操作的返回值和错误码见头文件；驱动在 crate 的 `cloud_sync`。
 //!
-//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。`run` 和 `commit` 要联网、读写文件，宿主在工作线程调用；`mark_dirty` 只读写状态文件、`peek` 只读状态文件，键盘扩展和 Android 的 `:ime` 进程也能调；其余操作要会话来源，只有持有登录的进程能调（`status`、`set_enabled` 和 `run` 会按会话对账，看不到登录就清空共享的进度）。
+//! 属于 C ABI 的一部分，这些薄封装保证什么见父模块。`run` 和 `commit` 要联网、读写文件，宿主在工作线程调用；`mark_dirty` 只读写状态文件、`dictionary_reset` 只读写状态文件和快照激活队列、`peek` 只读状态文件，键盘扩展和 Android 的 `:ime` 进程也能调；其余操作要会话来源，只有持有登录的进程能调（`status`、`set_enabled` 和 `run` 会按会话对账，看不到登录就清空共享的进度）。
 
 use super::account::session_for;
 use super::session_store::{session_source, Source};
@@ -61,6 +61,8 @@ enum Action {
     MarkDirty {
         section: Section,
     },
+    /// 本机清除学习记录以后：取消等激活的云端快照并给词库打待上传标记（`cloud_sync::dictionary_reset`）。
+    DictionaryReset {},
     Run {
         trigger: Trigger,
         /// `merge`、`use_cloud`，或者只回答「云端被清空」的 `disable`（要和 `trigger:"choice"` 一起给）。
@@ -108,6 +110,19 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
     let action = match request.action {
         Action::Peek {} => return cloud_sync::peek(&store, now),
         Action::MarkDirty { section } => return cloud_sync::mark_dirty(&store, section),
+        Action::DictionaryReset {} => {
+            let local = HostLocal {
+                preferences: PathBuf::new(),
+                options: None,
+                snapshot_queue: request
+                    .snapshot_queue_directory
+                    .as_deref()
+                    .map(absolute)
+                    .transpose()?,
+                inputs: HostInputs::default(),
+            };
+            return cloud_sync::dictionary_reset(&store, &local);
+        }
         Action::ImportLegacy { ios_v1, android } => {
             let snapshot_queue = request
                 .snapshot_queue_directory
@@ -229,7 +244,10 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
                 now,
             )
         }
-        Action::Peek {} | Action::MarkDirty { .. } | Action::ImportLegacy { .. } => Err(invalid()),
+        Action::Peek {}
+        | Action::MarkDirty { .. }
+        | Action::DictionaryReset {}
+        | Action::ImportLegacy { .. } => Err(invalid()),
     }
 }
 

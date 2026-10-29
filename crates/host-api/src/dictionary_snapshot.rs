@@ -1025,6 +1025,16 @@ fn merge_pending(
     }
 }
 
+/// 清除学习记录（`msime_client_dictionary` 的 `reset`）时调用，调用方已经拿着独占维护权：删掉还没合并的输入记录和输入习惯（本地备份恢复排下的、键盘认领了还没合并完的，以及记失败次数的文件）。不删的话键盘下次空闲时会把清除前的调频、置顶、整句联想和拼写纠错并回来。
+pub(crate) fn discard_pending_learning(preferences: &Path) -> Result<(), &'static str> {
+    for files in [&LEARNING_FILES, &habits::HABITS_FILES] {
+        for name in [files.pending, files.claimed, files.attempts] {
+            remove_if_present(&preferences.join(name))?;
+        }
+    }
+    Ok(())
+}
+
 fn remove_if_present(path: &Path) -> Result<(), &'static str> {
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err("snapshot file unavailable"),
