@@ -199,7 +199,7 @@ public final class MSIMEInputService extends InputMethodService {
     FrameLayout clipboardSurface;
     LinearLayout clipboardHeader;
     Button clipboardBackToTop;
-    /** 多选删除后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073）；没有可撤销的记录时收起。 */
+    /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
     Button clipboardUndoButton;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
@@ -8397,10 +8397,27 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
+    /**
+     * 删除一条：长按操作行里的「删除」和左滑露出的垃圾桶都走这里。
+     *
+     * <p>和多选删除一样走共享存储的 `remove_many`，拿到删除前的完整条目（文字、时间戳、固定状态、分类），删除后同样可以在「撤销时长」内撤销（#10080）；共享层单条的 `remove` 只回答删没删，不交回快照，撤销时只能按文字重新加回，时间戳和固定状态都会丢。
+     */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
         try {
-            clipboardHistory.remove(item.text());
+            holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
+            forgetCurrentClip();
+        } catch (IllegalStateException error) {
+            notice("无法修改剪贴板历史");
+        }
+        imePanels.renderClipboardHistory();
+    }
+
+    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
+    void removeClipboardItems(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        try {
+            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
@@ -8409,26 +8426,20 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定。
+     * 记下刚删掉的条目供撤销，并从头开始倒数；单条删除和多选删除共用，返回是否真的删掉了记录。
      *
-     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。
+     * <p>删除后在设置的期限（「撤销时长」，5 到 9 秒，默认 5 秒，#10073）内可以撤销：剪贴板面板右下角浮出大号「撤销」按钮，每秒倒数一次，归零时按钮消失、记录不再能恢复。只留最近一次删除，新的删除替换还没到期的上一次。什么都没删掉时（记录已被别处删掉）不碰上一次的撤销，倒数照走。
      */
-    void removeClipboardItems(java.util.List<String> texts) {
-        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
-        try {
-            clipboardUndoTexts = clipboardHistory.removeMany(texts);
-            if (clipboardUndoTexts.isEmpty()) return;
-            main.removeCallbacks(clipboardUndoTick);
-            int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
-            long now = SystemClock.uptimeMillis();
-            clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
-            main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
-            forgetCurrentClip();
-            notice(ClipboardUndoPolicy.deletedNotice(texts.size(), seconds));
-        } catch (IllegalStateException error) {
-            notice("无法修改剪贴板历史");
-        }
-        imePanels.renderClipboardHistory();
+    private boolean holdClipboardUndo(java.util.List<ClipboardHistory.Item> removed) {
+        if (removed.isEmpty()) return false;
+        clipboardUndoTexts = removed;
+        main.removeCallbacks(clipboardUndoTick);
+        int seconds = ClipboardUndoPolicy.seconds(clipboardUndoSeconds);
+        long now = SystemClock.uptimeMillis();
+        clipboardUndoDeadline = ClipboardUndoPolicy.deadline(now, seconds);
+        main.postDelayed(clipboardUndoTick, ClipboardUndoPolicy.millisUntilNextTick(clipboardUndoDeadline, now));
+        notice(ClipboardUndoPolicy.deletedNotice(removed.size(), seconds));
+        return true;
     }
 
     private java.util.List<ClipboardHistory.Item> clipboardUndoTexts;

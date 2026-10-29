@@ -720,6 +720,13 @@ if rg -A 30 '(void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|r
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
+# 单条删除（长按操作行的「删除」、左滑的垃圾桶）和多选删除一样能撤销（#10080）：走 remove_many 拿到删除前的完整条目，交给 holdClipboardUndo 倒数。改回单条的 remove 时拿不到快照，撤销按钮不会出现，撤销也无从恢复时间戳和固定状态。
+if ! rg -A 6 'void removeClipboardItem\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg_q_stdin 'holdClipboardUndo\(clipboardHistory\.removeMany\('; then
+  echo "Android single clipboard deletion must keep an undo snapshot via removeMany (#10080)" >&2
+  exit 1
+fi
 # 删除候选词的确认收在长按菜单的子菜单里（ImeCandidates），与 iOS 的嵌套 UIMenu 一致：点开「删除词条…」当场展开「确认删除此词条」，一次长按删完；不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起），也不要退出去再长按一次的两步确认。
 if rg -q 'new AlertDialog' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then

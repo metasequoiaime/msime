@@ -77,7 +77,7 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
-    /** 剪贴板多选删除后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
+    /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
     /** 旧版的「数字行」（#6022），默认关，只在本机。现在由共享偏好 `touch_number_row` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；同步的 `platform.android.number_row` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NUMBER_ROW = "platform.android.number_row";
