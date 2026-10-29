@@ -188,7 +188,10 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
      * <p>`tap` 对本应用节点走无障碍点击，0 高度的按钮照样点得中；顶行曾整行塌成 0 高，测试一直能过，真机上手指却什么都点不到（#10027）。所以点确认之前先按屏幕上的实际尺寸断言三者可见。
      */
     private void confirmClearClipboard() throws Exception {
-        tap(key("清空"));
+        // 「清空」收进了顶行的「更多」菜单（#10037），点了菜单收起、顶行换成确认。
+        tap(described("更多剪贴板操作"));
+        assertDrawn(described("清空剪贴板历史"), "more menu clear");
+        tap(described("清空剪贴板历史"));
         assertDrawn(node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("确认清空全部记录（含固定项）？", node.getText()), "clear question");
         assertDrawn(key("取消").and(AccessibilityNodeInfo::isClickable), "clear cancel");

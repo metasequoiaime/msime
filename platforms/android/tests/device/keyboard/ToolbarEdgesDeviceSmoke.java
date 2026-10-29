@@ -245,6 +245,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(backToTop.getVisibility() == View.GONE, "back to top stayed visible at top");
             }
             checkClipboardClearConfirm(panels, header, surface, density);
+            checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
             method(type, "render").invoke(service);
@@ -337,6 +338,73 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             check(press.isInstance(cancel) && !"RETURN".equals(String.valueOf(role.invoke(cancel))),
                 "clipboard clear cancel took the emphasized return key cap");
         } finally {
+            pending.setBoolean(panels, false);
+            render.invoke(panels);
+        }
+    }
+    /**
+     * 顶行只留本机、云端、计数、搜索、多选和「更多」，常见宽度下一行放得下、不用横滑；分类、导出、清空在「更多」展开的菜单里（#10037）。
+     *
+     * <p>菜单项必须是普通键帽，字色就是当前皮肤的按键前景色：深色模式下菜单文字和底色融成一片是报告里特别提醒的问题，只查几何时把菜单项换成别的样式也会通过。
+     */
+    private static void checkClipboardMoreMenu(Class<?> type, Object service, Object panels, ViewGroup header,
+            ViewGroup cards, ViewGroup surface, float density) throws Exception {
+        Field open = field(panels.getClass(), "clipboardMoreOpen");
+        Field pending = field(panels.getClass(), "clipboardClearPending");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        try {
+            open.setBoolean(panels, false);
+            render.invoke(panels);
+            for (int widthDp : new int[] {360, 600}) {
+                layout(surface, Math.round(widthDp * density), Math.round(300 * density));
+                for (String moved : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"})
+                    check(descendant(surface, view -> moved.contentEquals(view.getContentDescription())) == null,
+                        "clipboard " + moved + " is still drawn while the more menu is closed");
+                View row = descendant(header, view -> view instanceof android.widget.HorizontalScrollView);
+                ViewGroup scroll = (ViewGroup) row;
+                check(scroll != null && scroll.getChildAt(0).getWidth() <= scroll.getWidth(),
+                    "clipboard header still needs horizontal scrolling at " + widthDp + "dp");
+                View more = descendant(header, view -> view instanceof Button
+                    && "更多剪贴板操作".contentEquals(view.getContentDescription()));
+                check(more != null, "clipboard header has no more button at " + widthDp + "dp");
+                Rect area = bounds(header, more);
+                check(area.width() > 0 && area.height() > 0 && area.right <= header.getWidth() - header.getPaddingRight(),
+                    "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
+            }
+            View more = descendant(header, view -> view instanceof Button
+                && "更多剪贴板操作".contentEquals(view.getContentDescription()));
+            check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
+            layout(surface, Math.round(360 * density), Math.round(300 * density));
+            View menu = descendant(cards, view -> "更多剪贴板操作菜单".contentEquals(view.getContentDescription()));
+            check(menu != null, "clipboard more menu is not drawn in the panel");
+            Rect menuArea = bounds(surface, menu);
+            Rect moreArea = bounds(surface, descendant(header, view -> view instanceof Button
+                && "更多剪贴板操作".contentEquals(view.getContentDescription())));
+            check(menuArea.top >= moreArea.bottom && menuArea.right <= surface.getWidth(),
+                "clipboard more menu is not below the more button: " + menuArea.toShortString());
+            Object skin = field(type, "skin").get(service);
+            int foreground = android.graphics.Color.parseColor(
+                (String) skin.getClass().getMethod("keyForeground").invoke(skin));
+            Class<?> press = menu.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
+            Method role = method(press, "keyboardRole");
+            for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
+                View button = descendant((ViewGroup) menu, view -> item.contentEquals(view.getContentDescription()));
+                check(button != null, "clipboard more menu has no " + item);
+                Rect itemArea = bounds(surface, button);
+                check(itemArea.width() > 0 && itemArea.height() > 0 && itemArea.right <= surface.getWidth(),
+                    "clipboard more menu item is not drawn inside the keyboard: " + item + " " + itemArea.toShortString());
+                check(press.isInstance(button) && "KEY".equals(String.valueOf(role.invoke(button))),
+                    "clipboard more menu item is not a plain key cap: " + item);
+                check(((Button) button).getCurrentTextColor() == foreground,
+                    "clipboard more menu item does not use the skin's key label colour: " + item);
+            }
+            View clear = descendant((ViewGroup) menu, view -> "清空剪贴板历史".contentEquals(view.getContentDescription()));
+            check(clear.performClick() && pending.getBoolean(panels) && !open.getBoolean(panels),
+                "clipboard more menu clear did not close the menu and ask for confirmation");
+            check(descendant(cards, view -> "更多剪贴板操作菜单".contentEquals(view.getContentDescription())) == null,
+                "clipboard more menu stayed open after choosing clear");
+        } finally {
+            open.setBoolean(panels, false);
             pending.setBoolean(panels, false);
             render.invoke(panels);
         }
