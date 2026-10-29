@@ -311,7 +311,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 View cancel = descendant(header, view -> view instanceof Button
                     && "取消".contentEquals(((Button) view).getText()));
                 View confirm = descendant(header, view -> view instanceof Button
-                    && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+                    && describedAs(view, "确认清空剪贴板历史"));
                 check(question != null && cancel != null && confirm != null,
                     "clipboard clear confirm row is missing its question or buttons at " + widthDp + "dp");
                 int right = header.getWidth() - header.getPaddingRight();
@@ -330,7 +330,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             View cancel = descendant(header, view -> view instanceof Button
                 && "取消".contentEquals(((Button) view).getText()));
             View confirm = descendant(header, view -> view instanceof Button
-                && "确认清空剪贴板历史".contentEquals(view.getContentDescription()));
+                && describedAs(view, "确认清空剪贴板历史"));
             Class<?> press = confirm.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             check(press.isInstance(confirm) && "RETURN".equals(String.valueOf(role.invoke(confirm))),
@@ -358,28 +358,28 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             for (int widthDp : new int[] {360, 600}) {
                 layout(surface, Math.round(widthDp * density), Math.round(300 * density));
                 for (String moved : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"})
-                    check(descendant(surface, view -> moved.contentEquals(view.getContentDescription())) == null,
+                    check(descendant(surface, view -> describedAs(view, moved)) == null,
                         "clipboard " + moved + " is still drawn while the more menu is closed");
                 View row = descendant(header, view -> view instanceof android.widget.HorizontalScrollView);
                 ViewGroup scroll = (ViewGroup) row;
                 check(scroll != null && scroll.getChildAt(0).getWidth() <= scroll.getWidth(),
                     "clipboard header still needs horizontal scrolling at " + widthDp + "dp");
                 View more = descendant(header, view -> view instanceof Button
-                    && "更多剪贴板操作".contentEquals(view.getContentDescription()));
+                    && describedAs(view, "更多剪贴板操作"));
                 check(more != null, "clipboard header has no more button at " + widthDp + "dp");
                 Rect area = bounds(header, more);
                 check(area.width() > 0 && area.height() > 0 && area.right <= header.getWidth() - header.getPaddingRight(),
                     "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
             }
             View more = descendant(header, view -> view instanceof Button
-                && "更多剪贴板操作".contentEquals(view.getContentDescription()));
+                && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
             layout(surface, Math.round(360 * density), Math.round(300 * density));
-            View menu = descendant(cards, view -> "更多剪贴板操作菜单".contentEquals(view.getContentDescription()));
+            View menu = descendant(cards, view -> describedAs(view, "更多剪贴板操作菜单"));
             check(menu != null, "clipboard more menu is not drawn in the panel");
             Rect menuArea = bounds(surface, menu);
             Rect moreArea = bounds(surface, descendant(header, view -> view instanceof Button
-                && "更多剪贴板操作".contentEquals(view.getContentDescription())));
+                && describedAs(view, "更多剪贴板操作")));
             check(menuArea.top >= moreArea.bottom && menuArea.right <= surface.getWidth(),
                 "clipboard more menu is not below the more button: " + menuArea.toShortString());
             Object skin = field(type, "skin").get(service);
@@ -388,7 +388,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             Class<?> press = menu.getClass().getClassLoader().loadClass("app.msime.android.KeyboardPressButton");
             Method role = method(press, "keyboardRole");
             for (String item : new String[] {"管理剪贴板分类", "导出全部剪贴板历史", "清空剪贴板历史"}) {
-                View button = descendant((ViewGroup) menu, view -> item.contentEquals(view.getContentDescription()));
+                View button = descendant((ViewGroup) menu, view -> describedAs(view, item));
                 check(button != null, "clipboard more menu has no " + item);
                 Rect itemArea = bounds(surface, button);
                 check(itemArea.width() > 0 && itemArea.height() > 0 && itemArea.right <= surface.getWidth(),
@@ -398,16 +398,21 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(((Button) button).getCurrentTextColor() == foreground,
                     "clipboard more menu item does not use the skin's key label colour: " + item);
             }
-            View clear = descendant((ViewGroup) menu, view -> "清空剪贴板历史".contentEquals(view.getContentDescription()));
+            View clear = descendant((ViewGroup) menu, view -> describedAs(view, "清空剪贴板历史"));
             check(clear.performClick() && pending.getBoolean(panels) && !open.getBoolean(panels),
                 "clipboard more menu clear did not close the menu and ask for confirmation");
-            check(descendant(cards, view -> "更多剪贴板操作菜单".contentEquals(view.getContentDescription())) == null,
+            check(descendant(cards, view -> describedAs(view, "更多剪贴板操作菜单")) == null,
                 "clipboard more menu stayed open after choosing clear");
         } finally {
             open.setBoolean(panels, false);
             pending.setBoolean(panels, false);
             render.invoke(panels);
         }
+    }
+    /** 无障碍说明等于 `text` 的视图；容器没有说明，`String.contentEquals(null)` 会抛空指针。 */
+    private static boolean describedAs(View view, String text) {
+        CharSequence description = view.getContentDescription();
+        return description != null && text.contentEquals(description);
     }
     private static View descendant(ViewGroup root, java.util.function.Predicate<View> match) {
         for (int index = 0; index < root.getChildCount(); index++) {
