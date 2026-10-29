@@ -8,6 +8,8 @@ Windows 0.3.0 的 Server 在 libcurl 里报 `EXCEPTION_ACCESS_VIOLATION (0xc0000
 
 `https_post` 构造头部链表时每追加一项就 `request_headers.reset(raw_headers)`。`curl_slist_append` 返回的是表头，从第二项起它就是 `unique_ptr` 已经持有的指针，而 `unique_ptr::reset` 收到同一个指针也会先删除旧值，于是 `curl_slist_free_all` 把整条表释放了，后面的追加和 `curl_easy_perform` 用的都是悬空链表。AI 请求至少带 `Authorization` 和 `Content-Type` 两个头，每次请求都踩到；崩溃地址不固定（`libcurl.dll+0x531db`、`+0x705e4`），因为释放后的内存何时被谁重用并不确定。`TranslationWorker.cpp` 的 `https_post` 是同一段代码，候选翻译走同样的路径。`CloudCandidateWorker.cpp`、`shared/voice/VoiceProviders.cpp` 和 `compat/Windows7WebSocket.h` 只在追加成功后接管表头或从不 reset，不受影响。
 
+随后复核同版本另一条签名 `eb10b30c71d7c49d`（`ntdll.dll+0x25bb6`）：PDB 将 `MetasequoiaImeServer.exe+0x1d447a` 映射到 `AiCandidateWorker::run` 的缓存查找附近，`+0x1d269e` 仍在同一 Worker 的 HTTP 请求路径，下一帧是 `libcurl.dll+0x4c9bd`。它与头部链表被提前释放的执行路径一致，但没有转储或新版本复现能单独证明根因，因此只记录为高度相关，不能把该签名宣布为独立确认或已由线上版本验证归零。
+
 ## Decision
 
 两处共用的头部校验与链表构造提到 `platforms/windows/src/candidate/CandidateCurlHeaders.h` 的 `candidate_curl_headers`：逐项校验名字与值（规则不变，仍用 `CandidateHttpPolicy.h`），追加失败返回 `nullopt`，只在链表还空时让 `unique_ptr` 接管表头。`AiCandidateWorker.cpp` 和 `TranslationWorker.cpp` 改为调用它。`tests/candidate/ai_candidate_worker.cpp` 加一段检查：三个头部全部按顺序留在链表里，空对象得到空链表，非法名字、带换行的值和非字符串值被拒绝。
