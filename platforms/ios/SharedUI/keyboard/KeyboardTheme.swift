@@ -137,7 +137,7 @@ struct KeyboardTheme: Equatable {
   var isNative: Bool { id == GlobalThemeCatalog.nativeId }
   /// 原生皮肤在 iOS 26 起画的扁平按键：字母键和功能键同色、没有底边阴影、圆角更大。
   private var drawsLiquidGlassKeys: Bool { isNative && SystemKeyboardTokens.drawsLiquidGlassKeyboard }
-  /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
+  /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景几乎透明（只铺一层 `nativeBackgroundFill`），同一块底板就能透出来，那一条看上去就成了键盘的一部分。
   var drawsNativeBackground: Bool { palette == nil && design == nil }
 
   /// `nativeBackgroundFill` 的透明度。取 1% 而不是更低：合成按 8 位通道量化，1% 约等于 2.55/255，量化后仍不为 0；再低（比如 0.1%）量化后可能变成 0，又成了「没画内容」。
