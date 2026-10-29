@@ -229,6 +229,8 @@ endif()
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME macos-crash-symbols
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-macos-crash-symbols.py" --require-tools)
 add_test(NAME apple-crash-fault-frame
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-apple-crash-fault-frame.py")
 set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")

@@ -9,6 +9,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -16,6 +17,10 @@ from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if "--require-tools" in sys.argv:
+    sys.argv.remove("--require-tools")
+    if platform.system() != "Darwin" or not shutil.which("xcrun") or not shutil.which("rustc"):
+        raise SystemExit("macOS 符号回归需要 macOS、Xcode 与 Rust 工具链")
 SPEC = importlib.util.spec_from_file_location("macos_crash_symbols", ROOT / "platforms/macos/scripts/crash_symbols.py")
 symbols = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(symbols)

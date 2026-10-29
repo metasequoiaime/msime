@@ -29,10 +29,10 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；复跑时即使启动 `WerSvc`，x64 `tip` 仍未收到系统记录 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；系统 WER 门禁在当前 GitHub runner 上的系统投递阻塞（需确认 runner WER 策略或换真实 Windows 环境）；设备到后台链路 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `6bc13ef19d` 的 CI `40834862691` 已通过 x64/x86 WER 系统投递步骤 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；新增同代次快照复用与计数/屏障回归的目标运行；设备到后台链路；500 ms 轮询成本 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过） | 实际故障到后台及其精确源码还原 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口及启动归属核对；aarch64 IBus/Fcitx5 真实故障、原生发送到隔离后台与源码行还原 | 设置及辅助入口的完整后台验收；其余架构与部分发行版符号 |
-| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | API 35 独立崩溃门禁已在同源 x86_64 API 35 AVD 通过；完整输入冒烟仍在运行，真机与其他架构验收仍缺 |
+| Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 旧完整输入套件语音润色失败未关闭；候选 `6bc13ef19d` 的共享设备单测、APK 构建与独立崩溃步骤已通过，完整输入套件仍在运行；真机与其他架构、最新候选后台传输仍缺 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份 | 实际 App/键盘致命故障、系统 MetricKit 回调、设备 dSYM 与后台收件链路 |
 | HarmonyOS | App/键盘 APP_CRASH、APP_FREEZE 监听，共享只读权威授权与独立观察，系统自定义参数固定原 UUID/构建头，ELF 帧身份；逻辑、适配器回归、同源 arm64 原生库/HAP 与两模块符号身份核对 | API 21 本进程兼容入口实际致命故障（原生与主线程 ArkTS 已接入，三架构严格目标编译与四组实际适配器故障回归通过）；原身份实际系统投递；真实设备系统回调与后台精确符号化 |
 
@@ -82,7 +82,7 @@ API 35 首次完整冒烟因专用 AVD 沿用之前专项的双拼九键布局�
 
 `029e18636e` 的同源原生 arm64 Release 配置包（开发证书）在空白 API 35 专用 AVD 完成 `smoke.sh --crash-only`，退出 0。App/IME 的真实 Java/JNI 故障、持续授权撤回/重开、系统退出归属和实际输入超时 ANR 通过；系统退出及 ANR 的隔离队列清空后再次重启不重复入队。后一步模拟发送确认，不表示本轮已向后台传输。APK、Gradle 剥离产物及未剥离符号的实际身份已核对，三份新装包、合成数据与外网规则已移除，AVD 已停止；详细证据与首次包装器前提失败保留在[队列代次笔记](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)。API 28/35 的四个共享 crate 同候选设备测试均通过，原完整输入套件的语音润色失败和其他平台缺口仍未关闭。
 
-该提交 CI 的两条仓库契约门禁失败于新上游的引擎许可证检查：把 `include_str!("diagnostics.rs")` 引入的本 crate Rust 源码当作待登记数据。`origin/develop` 的固定提交 `05d9917cd1548f1392578ed40c2e90596beb4b2e` 已在 PR #10214 修复该检查；本地分支尚无该新检查，所以原 quick 通过不等于这条合成合并检查通过。后续文档推送触发的新 CI 需要实际确认，不改许可证声明、不把此失败列成通过。
+该提交 CI 的两条仓库契约门禁失败于新上游的引擎许可证检查：把 `include_str!("diagnostics.rs")` 引入的本 crate Rust 源码当作待登记数据。`origin/develop` 的固定提交 `05d9917cd1548f1392578ed40c2e90596beb4b2e` 已在 PR #10214 修复该检查；本地分支尚无该新检查，所以原 quick 通过不等于这条合成合并检查通过。后续候选 `6bc13ef19d` 的 CI 两条仓库契约门禁均已通过；旧失败仍保留，不改许可证声明。该候选的 macOS arm64 与 iOS 模拟器作业通过，Windows x64/x86 WER 和 Android API 35 崩溃专项步骤通过；Windows 原生设置所在完整作业随后已完成并报告 success，包含 Win7 手写、版本检查与页面检查；Android 完整输入套件仍在运行，不把其崩溃专项单步通过写成整作业通过。新增同代次快照复用与计数/屏障回归不包含在该 CI 候选中。
 
 ## Alternatives considered
 

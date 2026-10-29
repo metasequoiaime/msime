@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
+# 保留 Release 的原优化级别，只额外生成供崩溃符号归档使用的调试行。
+option(MSIME_RELEASE_CRASH_SYMBOLS "Keep source lines for release crash symbols" OFF)
+if(MSIME_RELEASE_CRASH_SYMBOLS)
+  add_compile_options("$<$<CONFIG:Release>:-g1>")
+endif()
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
 include(cmake/Edition.cmake)
@@ -32,6 +37,8 @@ add_custom_target(uninstall
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  add_test(NAME windows-auxiliary-crash-consent
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-windows-auxiliary-crash-consent.py" --require-tools)
   add_test(NAME linux-fcitx5-contract
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/fcitx5_contract.py")
   add_test(NAME linux-ibus-component-contract

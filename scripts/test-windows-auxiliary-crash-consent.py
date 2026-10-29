@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """实际编译辅助进程的配置选择函数，拒绝用默认目录替代非法同意来源。"""
 
+import argparse
 import os
 from pathlib import Path
 import shutil
@@ -9,8 +10,13 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--require-tools", action="store_true")
+arguments = parser.parse_args()
 compiler = shutil.which(os.environ.get("CXX", "c++"))
 if compiler is None:
+    if arguments.require_tools:
+        raise SystemExit("C++ compiler not installed")
     print("skipped: C++ compiler not installed")
     raise SystemExit(0)
 
@@ -20,6 +26,8 @@ probe = subprocess.run(
     input="#include <nlohmann/json.hpp>\n", text=True, capture_output=True,
 )
 if probe.returncode:
+    if arguments.require_tools:
+        raise SystemExit("nlohmann/json.hpp not installed")
     print("skipped: nlohmann/json.hpp not installed")
     raise SystemExit(0)
 

@@ -179,7 +179,8 @@ docker run --rm --init \
       prefix=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" install_prefix)
       rm -f "$build/CMakeCache.txt"
       cmake -S platforms/linux -B "$build" -G Ninja \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
         -DCMAKE_INSTALL_PREFIX="$prefix" \
         -DMSIME_EDITION="$edition" \
         -DBUILD_TESTING="$testing" \

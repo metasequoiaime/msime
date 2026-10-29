@@ -21,6 +21,8 @@ if [[ ! -x "$compiler" ]]; then
   echo "Missing $compiler; this NDK does not provide a wrapper for $rust_target" >&2
   exit 1
 fi
+# 发布与原生构建复用此入口；已选 ABI 的符号回归缺工具时直接失败。
+MSIME_OHOS_NDK="$ndk" python3 scripts/test-harmony-crash-symbols.py --require-tools --target "$rust_target"
 cargo_linker="CARGO_TARGET_$(printf '%s' "$rust_target" | tr '[:lower:]-' '[:upper:]_')_LINKER"
 underscored=${rust_target//-/_}
 env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \

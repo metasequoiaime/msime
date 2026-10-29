@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """用生产脚本的 Rust 链接参数生成 Android ELF，验证符号归档与源码还原。"""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--require-tools", action="store_true")
+    parser.add_argument("--target", choices=("aarch64-linux-android", "x86_64-linux-android"))
+    arguments = parser.parse_args()
     sdk = Path(os.environ.get("ANDROID_SDK_ROOT", str(Path.home() / "Library/Android/sdk")))
     ndk = Path(os.environ.get("MSIME_ANDROID_NDK", str(sdk / "ndk/28.2.13676358")))
     tag = "darwin-x86_64" if sys.platform == "darwin" else "linux-x86_64"
@@ -23,12 +28,18 @@ def main():
     if not shutil.which("rustc") or not shutil.which("rustup") or not all(
         (tools / name).is_file() for name in ("llvm-readelf", "llvm-nm", "llvm-addr2line")
     ):
+        if arguments.require_tools:
+            raise SystemExit("Android 符号回归需要 Rust 与固定版本 NDK 工具链")
         print("skipped: Android 符号回归需要 Rust 与固定版本 NDK 工具链")
         return
     installed = subprocess.check_output(["rustup", "target", "list", "--installed"], text=True).splitlines()
     targets = [("aarch64-linux-android", "aarch64-linux-android"), ("x86_64-linux-android", "x86_64-linux-android")]
+    if arguments.target:
+        targets = [pair for pair in targets if pair[0] == arguments.target]
     targets = [(rust, clang) for rust, clang in targets if rust in installed and (tools / (clang + "28-clang")).is_file()]
     if not targets:
+        if arguments.require_tools:
+            raise SystemExit("没有已安装的 Android Rust target 或 NDK 编译器")
         print("skipped: 没有已安装的 Android Rust target")
         return
     build = (ROOT / "platforms/android/build-native.sh").read_text()

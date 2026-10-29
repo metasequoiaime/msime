@@ -38,6 +38,10 @@ Status: implemented
 
 ### 符号归属
 
+Linux 官方容器包保持 `Release`，通过 `MSIME_RELEASE_CRASH_SYMBOLS=ON` 在该配置下额外加入 `-g1`，不改变默认优化参数。发行版源码定义继续采用自身的调试分包配置；打包一致性契约将该官方归档开关列为明确差异，同时要求官方包保持 Release 且开关为 ON。此前直接切为 `RelWithDebInfo` 会把 GCC 的 `-O3` 降成 `-O2`，这不是增加符号所必需的；开发构建与未开启该选项的其他渠道保持各自配置。
+
+符号与授权专项由具备真实依赖的入口负责执行：macOS 原生 CTest 跑完整 Clang/Swift/Rust 符号用例，Linux 原生 CTest 跑 Windows 辅助配置来源的可移植 C++ 回归；Android 与 HarmonyOS 的 `build-native.sh` 在构建所选 ABI 前，强制执行该 ABI 的 ELF 身份、归档和源码还原回归。`scripts/run-checks.sh` 的 `special_checks` 明确登记这些所有者。原生入口传入 `--require-tools`，缺工具直接失败，不把 `skipped` 当成平台验证。鸿蒙的 PR 逻辑作业没有 NDK，此回归由真实原生构建入口（包含发布构建）执行，不宣称已有新的 PR 鸿蒙 NDK 作业。没有触发发布或修改发布工作流。
+
 ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。Android 的 Rust 链接参数与 JNI 一样显式使用 `--build-id=sha1`；NDK 的 clang 驱动不会为 Rust 的最终共享库补上该参数，不能只给 JNI 加身份而让 Host API 无身份。保持既有 16KB 页对齐和发布调试行配置，不用放宽归档器的身份要求掩盖缺失。
 
 鸿蒙同源原生构建暴露相同的 Rust ELF 身份缺失：NAPI 已有 build-id，Host API 的 clang 驱动仍不会自动添加。`build-native.sh` 使用 `cargo rustc` 只为最终 Host API crate 显式传递 `-C link-arg=-Wl,--build-id=sha1`，避免仅修链接参数却改变所有未修改依赖的指纹；调试行与严格共享链接保持。`scripts/test-harmony-crash-symbols.py` 读取生产最终链接参数，以已安装的实际 OHOS Rust target 和 NDK 编译合成 cdylib，检查 40 位 build-id、归档和函数/源码第三行还原。本机 aarch64 目标的身份、归档与源码行回归已通过；临时移除生产 build-id 参数后，归档器按预期拒绝 ELF，恢复脚本后差异检查通过。完整同源库和 HAP 的结果单独记录，不能用小型合成模块替代。
@@ -69,6 +73,9 @@ Windows 看门狗和准备程序发现 `runtime-options.json` 明确提供 `pref
 Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能依赖 NDK 链接器的默认行为。使用同一 NDK 的最小 Rust 动态库已复现旧参数没有 `build-id`，加入参数后同时具有构建身份和源码行表；完整 APK 符号归档由设备门禁继续验证。关闭测试分别等待解除武装和队列清理完成，因为生产实现先停用故障记录器、再执行磁盘清理；原有清空与关闭后不记录断言保持。
 
 ## Alternatives considered
+
+- **保留 `RelWithDebInfo` 作为 Linux 官方包配置**：能直接取得编译器调试信息，但同时改变优化级别并与原有 Release 渠道分叉；仅增加调试行即可满足符号目的，因此恢复 Release。
+- **继续让平台符号脚本由通用 contracts 自动发现**：本机有 SDK 时会执行，但 Ubuntu contracts 缺 Xcode、NDK 或 JSON 头文件时会持续跳过。将它们登记给实际具备工具链的构建或 CTest 入口，并强制工具存在；不为鸿蒙 PR 引入需要私有下载凭据的新 SDK 安装任务。
 
 - **只依靠当前开关、进程内 generation 或共享队列清空**：无需新增文件，既有现场报告也已能清理。但 ActivityManager 的历史记录不归队列所有，API 35 实际复现撤回后重开、重启会重新入队；进程内计数无法证明历史同意。持久 epoch 直接区分每次重新同意，另加起点过滤异常时间，时钟回拨也不能认领前一 epoch。
 - **把 Android epoch 下沉到共享 Rust 存储和 C ABI**：可为所有延迟诊断提供统一状态，但系统摘要的空间、退出理由和回调都在 Android 宿主，本轮会扩大跨平台 ABI/JNI 改动。先将 Android 专有的短身份边界留在宿主，并在同一锁内检查共享偏好。
@@ -134,6 +141,10 @@ Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能�
 macOS PR CI `40823292562` 的 `common-capture-only` 在首次 `enable` 后等待 `saved` 超时，其余原生测试通过。首次 `load` 创建偏好目录但不写文档，观察器可能在 CAS 保存前初始化持续授权并提高修订号。合成保存器先初始化授权再取快照，避免把正确的修订冲突误当采集失败；确定时序的 `enable-after-consent` 在取快照后再次初始化，专门验证该窗口。stdout EOF 立即报告子进程退出，不再掩盖为十秒队列超时。受控顺序在旧保存器实际触发冲突并使 `enable-after-consent` 退出失败，初始化后的夹具整套通过；旧代码和修复均真实重编并链接 Host API。不提高超时、不放宽生产 CAS；CI 原超时没有错误信封，不能仅据此唯一认定原失败根因。
 
 本轮收尾候选的完整 `scripts/verify-local.sh --quick` 退出 0，前后核对全部 12,444 个源码条目；包含最终 edition、32 KiB 收据状态与首次授权保存夹具。203 项 Windows 可移植测试、Android Java/JNI、鸿蒙 ArkTS、Rust workspace/Android/wasm、macOS 原生与共享 Apple bridge 通过。该构建机缺 Docker 与 MinGW，Linux 原生/桌面、Windows 原生/pipe-only/x86 语法明确跳过，不算目标平台验证通过。证据为 `target/review-fixes-final-quick-gate/`；此后只更新验证笔记，10,221 个非 Markdown 代码条目另与本地逐项核对一致。
+
+本轮符号专项的实际执行结果为 macOS 8 项全部通过，Android aarch64/x86_64 的 ELF 身份、16KB 对齐、归档与源码还原通过，HarmonyOS 已安装的 aarch64 目标通过，Windows 辅助配置来源的可移植 C++ 回归通过。缺 NDK 和缺 JSON 头文件时，强制模式确实以非零退出；所有者登记校验通过。抽取生产 Linux CMake 选项后，在 macOS Clang 的真实配置、编译与运行中同时保留 `-O3` 和 `-g1`；不将它当作 Linux GCC 产品构建。首轮 quick 抓到新官方符号开关尚未列入发行版差异契约，修正后的定向检查通过，未要求发行版改变自身调试分包策略；完整 quick 的原失败与后续结果分别保留。
+
+本轮完整 `scripts/verify-local.sh --quick` 的首次结果为退出 1，唯一失败阶段是新增符号开关尚未列为官方容器与发行版的有意差异。修正后整轮复跑输出 `quick check passed`：203 项 Windows 可移植用例、仓库契约、工作区/Android/wasm 编译、Android 宿主、鸿蒙 HAP、macOS 原生与共享 Apple bridge 均通过。Linux 原生/桌面及 Windows 原生/pipe-only/x86 语法因构建机缺 Docker/MinGW 跳过，不算通过。冻结前核对全部 12,444 个条目；结束包装器因期间两次正常提交把 HEAD 从 `6bc13ef19d` 改为 `0d22599d44` 而在基线断言退出 1，独立结束审计确认该 HEAD 仍为原基线后代，12,444 个源码条目与原清单逐一完全一致，保留原退出与独立审计，不将包装器写成退出 0。相对该冻结清单，本机 10,221 个非 Markdown 条目一致，此后只更新验证笔记。证据为 `target/fcitx-tsf-final-quick-evidence/` 与 `target/fcitx-tsf-recheck-quick-evidence/`。
 
 ## Consequences
 

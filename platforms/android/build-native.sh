@@ -31,6 +31,8 @@ case $(uname -s) in
 esac
 toolchain="$ndk/toolchains/llvm/prebuilt/$host_tag"
 compiler="$toolchain/bin/${compiler_target}28-clang"
+# 真正构建该 ABI 时必须运行身份和源码行回归，工具缺失不能作为跳过。
+MSIME_ANDROID_NDK="$ndk" python3 scripts/test-android-crash-symbols.py --require-tools --target "$rust_target"
 # vcpkg provides only nlohmann-json, which shared/voice/LocalAsr.cpp includes. Manifest installs reconcile their root, so the ABIs are kept apart and one build cannot uninstall the other ABI's copy.
 deps="$repo_root/target/android-deps/$abi"
 ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
