@@ -293,6 +293,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 「按键布局」页（共享 React 设置页）还有两项（#10056，共享偏好、随账号同步，同步键 `platform.harmony.twenty_six_symbol_first` / `platform.harmony.number_pad_space`）：26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`，默认关）把 26 键一族设计底行的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格带上 符、按九键一族的次序排（`KeyboardView.letterRowSymbolLeads`）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，缺键或 `platform_default` 是鸿蒙原来的「空格在 0 左边」（`NineKeyLayout.actionRow` 的 `space`）。空格在右列时网格右列最下面一格从 ！ 换成空格（`touchNineKeyGrid`），右侧大回车不受影响。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
+每个分段的样式卡片里还有「中/英键放在空格左边」（#10228，共享偏好 `touch_language_key_side`，`right` 默认、`left` 时打开，同步键 `platform.harmony.language_key_side`，26 键分段里排在互换开关之后）：样式和互换排完之后把 中/英 左边紧挨着的那一串空格、0、逗号和句号整串右移一格，中/英 挪到这一串最左边，份额不变（`TouchLayoutStylePolicy.languageBeforeSpace`、`NineKeyLayout.actionRow` 的 `languageLeft`）。空格左边没有标点的行 中/英 紧挨空格（`123 | 符 | 中/英 | 空格 | ， | 回车`、`符 | 123 | 中/英 | 空格 | 回车`），有标点的行标点仍紧挨空格（`123 | 符 | 中/英 | ， | 空格 | 。 | 回车`）。设计底行（26 键一族、14/18 键、大千注音）、九键外框和它的数字层、借来的数字九宫格、右侧大回车网格下方那一段和手写底行都算，2in1 底行和假名网格不动；中/英 离开回车后回车不再让出键帽，密码框和数字框不退回。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
+
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
 ## 全拼九键的三栏展开面板

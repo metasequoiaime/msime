@@ -9,6 +9,7 @@ import {
   nineKeyBottomRows,
   numberRowKeys,
   twentySixKeyBottomRows,
+  withLanguageKeyLeft,
   withSymbolFirst,
   type TouchKeyLayoutStyle,
 } from "../keyboard/touch-key-layout-styles";
@@ -332,11 +333,11 @@ export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PhoneHeatmapKey[][]> =
 };
 
 /**
- * 九键「右侧大回车」的热力图，照 HarmonyOS `KeyboardView.tallReturnNineKeyFrame` 画：网格两行与默认相同（右列 ⌫、分词）；第三行左列印「？！」（！ 让到了符号栏末尾，四个标点仍记同一个 `SoftPunctuation`），右列是跨第三行和底行的回车；底行 符 | 123 | 空格 | 中 与左列、网格对齐（`nineKeyBottomRows.tall_return`），回车下伸的位置是占位。统计 id 与其他样式相同。
+ * 九键「右侧大回车」的热力图，照 HarmonyOS `KeyboardView.tallReturnNineKeyFrame` 画：网格两行与默认相同（右列 ⌫、分词）；第三行左列印「？！」（！ 让到了符号栏末尾，四个标点仍记同一个 `SoftPunctuation`），右列是跨第三行和底行的回车；底行 符 | 123 | 空格 | 中 与左列、网格对齐（`nineKeyBottomRows.tall_return`），打开「中/英键放在空格左边」时是 符 | 123 | 中 | 空格，回车下伸的位置是占位。统计 id 与其他样式相同。
  */
-const nineTallReturnRows: PhoneHeatmapKey[][] = (() => {
+function nineTallReturnFrame(languageLeft: boolean): PhoneHeatmapKey[][] {
   const [first, second, third] = phoneHeatmapRows.nine;
-  const bottom = nineKeyBottomRows.tall_return;
+  const bottom = withLanguageKeyLeft(nineKeyBottomRows.tall_return, languageLeft);
   const returnKey = bottom[bottom.length - 1];
   return [
     first,
@@ -348,10 +349,12 @@ const nineTallReturnRows: PhoneHeatmapKey[][] = (() => {
     ],
     [...bottom.slice(0, -1), { label: "", weight: returnKey.weight }],
   ];
-})();
+}
+const nineTallReturnRows = nineTallReturnFrame(false);
+const nineTallReturnLanguageLeftRows = nineTallReturnFrame(true);
 
 /**
- * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`；打开 `touch_twenty_six_symbol_first` 时 26 键底行的 符 排在 123 左边），九键「右侧大回车」换成它的外框（`nineTallReturnRows`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
+ * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`；打开 `touch_twenty_six_symbol_first` 时 26 键底行的 符 排在 123 左边，`touch_language_key_side` 为 `left` 时两种键盘底行的 中/英 排到空格左边，见 `withLanguageKeyLeft`），九键「右侧大回车」换成它的外框（`nineTallReturnRows`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
  */
 export function phoneHeatmapLayoutRows(
   layout: PhoneHeatmapLayout,
@@ -359,14 +362,18 @@ export function phoneHeatmapLayoutRows(
 ): PhoneHeatmapKey[][] {
   const rows = phoneHeatmapRows[layout];
   if (!style) return rows;
-  if (layout === "nine" && style.nineKeyStyle === "tall_return") return nineTallReturnRows;
-  const bottom =
+  const languageLeft = style.languageKeyLeft === true;
+  if (layout === "nine" && style.nineKeyStyle === "tall_return")
+    return languageLeft ? nineTallReturnLanguageLeftRows : nineTallReturnRows;
+  const bottom = withLanguageKeyLeft(
     layout === "full"
       ? withSymbolFirst(
           twentySixKeyBottomRows[style.twentySixKeyStyle],
           style.twentySixSymbolFirst === true,
         )
-      : nineKeyBottomRows[style.nineKeyStyle];
+      : nineKeyBottomRows[style.nineKeyStyle],
+    languageLeft,
+  );
   const numberRow = layout === "full" && style.numberRow ? [numberRowKeys] : [];
   return [...numberRow, ...rows.slice(0, -1), bottom];
 }

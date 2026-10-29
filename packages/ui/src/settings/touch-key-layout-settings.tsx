@@ -18,6 +18,9 @@ import {
   fourteenKeyStyleHighlights,
   fourteenKeyStyleNotes,
   fourteenKeyStyleOptions,
+  languageKeyLeft,
+  languageKeyLeftDescription,
+  languageKeyLeftTitle,
   nineKeyStyle,
   nineKeyStyleHighlights,
   nineKeyStyleNotes,
@@ -35,6 +38,7 @@ import {
   twentySixKeyStyleHighlights,
   twentySixKeyStyleNotes,
   twentySixKeyStyleOptions,
+  withLanguageKeyLeft,
   withSymbolFirst,
 } from "../keyboard/touch-key-layout-styles";
 
@@ -130,9 +134,9 @@ function fourteenKeyFace(
 }
 
 /**
- * 「按键布局」整块预览要画的键，全部取自键盘已有的表，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（屏幕键盘页「尺寸」预览画的同一张表，照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行。
+ * 「按键布局」整块预览要画的键，全部取自键盘已有的表，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（屏幕键盘页「尺寸」预览画的同一张表，照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边；`touch_language_key_side` 为 `left` 时三类键盘再经 `withLanguageKeyLeft` 把 中/英 挪到空格左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变），9 键不画数字行。
  *
- * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123。
+ * 键帽颜色按位置定：九宫格两侧的列、字母区第三行两端（⇧ / 符 和 ⌫）、底行除空格和回车外的键是功能键，回车用强调色。要高亮的键按所选样式的高亮表（`twentySixKeyStyleHighlights` 等）用键 id 认；26 键互换打开且样式有 符 时另加 符 和 123；中/英 在空格左边且底行里有 中/英 时另加 中/英（被挤动的空格和标点宽度、样子都没变，不加）。
  */
 export function keyLayoutPreviewRows(
   kind: TouchKeyLayoutKind,
@@ -143,12 +147,14 @@ export function keyLayoutPreviewRows(
   let bottom: readonly PreviewKey[];
   let highlights: readonly string[];
   let numberRow = preferences.touch_number_row === true;
+  const languageLeft = languageKeyLeft(preferences);
   if (kind === "nine") {
     const style = nineKeyStyle(preferences);
     const rows = phoneHeatmapLayoutRows("nine", {
       twentySixKeyStyle: "standard",
       nineKeyStyle: style,
       numberRow: false,
+      languageKeyLeft: languageLeft,
     });
     grid = rows.slice(0, -1);
     bottom = rows[rows.length - 1];
@@ -157,19 +163,25 @@ export function keyLayoutPreviewRows(
   } else if (kind === "fourteen") {
     const style = fourteenKeyStyle(preferences);
     grid = harmonyTouchKeyboardRows[fourteenKeyFace(scheme, preferences)].slice(0, -1);
-    bottom = fourteenKeyBottomRows[style];
+    bottom = withLanguageKeyLeft(fourteenKeyBottomRows[style], languageLeft);
     highlights = fourteenKeyStyleHighlights[style];
   } else {
     const style = twentySixKeyStyle(preferences);
     grid = harmonyTouchKeyboardRows.twenty_six_key.slice(0, -1);
     const symbolFirst = preferences.touch_twenty_six_symbol_first === true;
-    bottom = withSymbolFirst(twentySixKeyBottomRows[style], symbolFirst);
+    bottom = withLanguageKeyLeft(
+      withSymbolFirst(twentySixKeyBottomRows[style], symbolFirst),
+      languageLeft,
+    );
     // 互换打开且这个样式有 符 时，符 和 123 也描边，让人看出开关动的是哪两个键。
     highlights =
       symbolFirst && bottom.some((key) => key.code === "SoftSymbol")
         ? [...twentySixKeyStyleHighlights[style], "SoftSymbol", "SoftLayer"]
         : twentySixKeyStyleHighlights[style];
   }
+  // 中/英 挪到空格左边时也描边它，让人看出开关动的是哪个键。
+  if (languageLeft && bottom.some((key) => key.code === "SoftLanguage"))
+    highlights = [...highlights, "SoftLanguage"];
   const highlighted = (key: PreviewKey) => key.code !== undefined && highlights.includes(key.code);
   const place = (
     key: PreviewKey & { rowSpan?: number },
@@ -330,9 +342,9 @@ function StyleChips<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first` 或 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；每个分段的卡片里都有「中/英键放在空格左边」开关（26 键分段里排在互换开关之后，三个分段是同一个偏好，切分段时状态不变），打开时预览把 中/英 画到空格左边并描边它；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first`、`touch_language_key_side`（打开写 `left`、关上写 `right`）或 `touch_number_row`，键盘开着时当场换排法。
  *
- * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
+ * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去；「中/英键放在空格左边」每个分段都显示，命中它时停在当前分段（子页刚打开时是用户在用的那一类，判断不了时是第一段）。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
  */
 export function TouchKeyLayoutSettings({
   preferences,
@@ -449,6 +461,13 @@ export function TouchKeyLayoutSettings({
               />
             </SettingsSearchReveal>
           )}
+          {/* 中/英 换边对三类键盘都生效，每个分段都显示同一个开关，不挂在哪个分段下。 */}
+          <SwitchRow
+            title={languageKeyLeftTitle}
+            description={languageKeyLeftDescription}
+            checked={languageKeyLeft(preferences)}
+            onChange={(left) => onChange({ touch_language_key_side: left ? "left" : "right" })}
+          />
         </GroupList>
       )}
       {(groups.twentySix || groups.fourteen || groups.nine) && (
