@@ -7315,9 +7315,9 @@ fn selection_statistics_host(
     root: &std::path::Path,
     enabled: bool,
 ) -> (u64, TypingStatisticsStore) {
-    let store = TypingStatisticsStore::new(root.join("user"));
+    let store = TypingStatisticsStore::new(root);
     store.set_enabled(enabled).unwrap();
-    let handle = test_host_with_pinyin_fixture(root, chinese_preferences());
+    let handle = statistics_test_host(root, chinese_preferences());
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     (handle, store)
 }
@@ -7352,17 +7352,49 @@ fn selection_statistics_reach_the_store_at_focus_out() {
     read(msime_client_destroy(handle));
     assert_eq!(store.load().unwrap().selections.total(), 3);
 }
+/// 选词位置写进宿主记字数和按键的那份统计（`preferences_directory`），不写进 Engine 的 `user_data`：之前写的是 `user_data`，那里的统计文件不存在、按关闭处理，所有宿主的选词位置都一条没记下，上传的候选位次也一直是空的。
+#[test]
+fn selection_statistics_land_in_the_hosts_statistics_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    for index in [0, 1] {
+        commit_candidate_by_position(handle, index);
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let statistics = store.load().unwrap();
+    assert_eq!(statistics.selections.total(), 2);
+    assert_eq!(statistics.efficiency.commits, 2);
+    assert!(!dir.path().join("user/typing-statistics.json").exists());
+    read(msime_client_destroy(handle));
+}
+/// 没有 `preferences_directory` 的会话不知道统计在哪里，选词位置和效率都不记，也不会退回 `user_data` 去写。
+#[test]
+fn a_session_without_a_statistics_directory_records_no_selections() {
+    let dir = tempfile::tempdir().unwrap();
+    let user = TypingStatisticsStore::new(dir.path().join("user"));
+    user.set_enabled(true).unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for round in 0..SELECTION_BATCH as usize + 1 {
+        commit_candidate_by_position(handle, round % 2);
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    read(msime_client_destroy(handle));
+    let statistics = user.load().unwrap();
+    assert_eq!(statistics.selections.total(), 0);
+    assert_eq!(statistics.efficiency.commits, 0);
+}
 /// 用户自己关掉学习不影响统计；宿主标出的隐私会话（Android 的隐私模式和不允许学习的输入框）不计选词位置，取消标记后照常计数。
 #[test]
 fn only_a_private_session_counts_no_selection_statistics() {
     let dir = tempfile::tempdir().unwrap();
-    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    let store = TypingStatisticsStore::new(dir.path());
     store.set_enabled(true).unwrap();
     let preferences = Preferences {
         learning: false,
         ..chinese_preferences()
     };
-    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    let handle = statistics_test_host(dir.path(), preferences);
     SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.learning));
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     for index in [0, 1] {
@@ -7407,9 +7439,9 @@ fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_noth
     read(msime_client_destroy(handle));
 
     let dir = tempfile::tempdir().unwrap();
-    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    let store = TypingStatisticsStore::new(dir.path());
     store.set_enabled(true).unwrap();
-    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    let handle = statistics_test_host(dir.path(), chinese_preferences());
     assert_eq!(
         read(msime_client_set_private_session(handle, true))["ok"],
         true
@@ -7425,14 +7457,14 @@ fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_noth
 #[test]
 fn a_shuangpin_commit_counts_its_keys_against_quanpin() {
     let dir = tempfile::tempdir().unwrap();
-    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    let store = TypingStatisticsStore::new(dir.path());
     store.set_enabled(true).unwrap();
     let preferences = Preferences {
         scheme: InputScheme::Shuangpin,
         shuangpin_profile: ShuangpinProfile::Xiaohe,
         ..chinese_preferences()
     };
-    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    let handle = statistics_test_host(dir.path(), preferences);
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     let mut view = Value::Null;
     for byte in b"nihc" {
@@ -7456,6 +7488,7 @@ fn background_efficiency_batches_share_one_writer_and_all_land() {
     let (handle, store) = selection_statistics_host(dir.path(), true);
     let options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
     read(msime_client_destroy(handle));
+    let directory = store.directory().to_path_buf();
     let commit = || EfficiencyCandidate {
         text: "ok".into(),
         typed_keys: 2,
@@ -7463,7 +7496,11 @@ fn background_efficiency_batches_share_one_writer_and_all_land() {
         prediction: false,
     };
     for _ in 0..5 {
-        record_efficiency_in_background(options.clone(), vec![commit(), commit()]);
+        record_efficiency_in_background(
+            options.clone(),
+            directory.clone(),
+            vec![commit(), commit()],
+        );
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
@@ -7505,9 +7542,9 @@ fn generated_mode_selections_stay_out_of_selection_statistics() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
     preferences.local_modes.expression = true;
-    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    let store = TypingStatisticsStore::new(dir.path());
     store.set_enabled(true).unwrap();
-    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    let handle = statistics_test_host(dir.path(), preferences);
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     let entered = read(msime_client_character(handle, b'V', true));
     assert_eq!(entered["value"]["view"]["local_mode"], "expression");
@@ -8170,6 +8207,19 @@ fn test_host_preferences(root: &std::path::Path, preferences: Preferences) -> u6
     created["value"]["session"].as_u64().unwrap()
 }
 fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preferences) -> u64 {
+    pinyin_fixture_host(root, preferences, None)
+}
+
+/// 同 [`test_host_with_pinyin_fixture`]，并像各平台宿主那样把 `root` 作为 `preferences_directory`：打字统计就在 `root` 下。
+fn statistics_test_host(root: &std::path::Path, preferences: Preferences) -> u64 {
+    pinyin_fixture_host(root, preferences, Some(root))
+}
+
+fn pinyin_fixture_host(
+    root: &std::path::Path,
+    preferences: Preferences,
+    preferences_directory: Option<&std::path::Path>,
+) -> u64 {
     let path = |name| {
         let path = root.join(name);
         std::fs::create_dir_all(&path).unwrap();
@@ -8191,7 +8241,11 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
             .unwrap();
     }
     bundle_wubi_table(&resources);
-    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+    let mut options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences });
+    if let Some(directory) = preferences_directory {
+        options["preferences_directory"] = json!(directory);
+    }
+    let options = options.to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true);
     created["value"]["session"].as_u64().unwrap()

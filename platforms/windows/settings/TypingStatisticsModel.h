@@ -1380,9 +1380,12 @@ inline std::wstring upload_error_message(std::wstring_view code, bool enabling) 
                   : L"已关闭上传，但云端的数据没有删掉，请联网后打开再关闭一次。";
 }
 
-inline std::wstring_view upload_done_message(bool enabled) {
-  return enabled ? L"已打开上传，最近 7 天的每日计数已传到你的水杉账号。"
-                 : L"已关闭上传，云端的打字统计已删除。";
+// 开关变更成功后的说法（共享页的 uploadChangedMessage）。打开时 Rust 立刻上传一次，但本机统计里还没有字数的日子时什么都不发，`last_upload_ms` 仍然为空，服务端也还不认识这台设备，这时不能说已经传上去了；设置窗口打开和进入本页时会补传，所以说的是打字以后再打开这一页。
+inline std::wstring_view upload_done_message(bool enabled, UploadStatus const &status) {
+  if (!enabled)
+    return L"已关闭上传，云端的打字统计已删除。";
+  return status.last_upload_ms ? L"已打开上传，最近 7 天的每日计数已传到你的水杉账号。"
+                               : L"已打开上传。本机还没有可上传的打字计数，打字以后再打开这一页会自动上传。";
 }
 
 // 统计关着时的说明和页底的隐私说明：打开了上传时改写「只保存在本机」（typing-statistics.tsx 的 uploadEnabled 分支）。

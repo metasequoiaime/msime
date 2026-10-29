@@ -714,16 +714,21 @@ impl HostSession {
         })
     }
 
+    /// 打字统计目录，即 HostOptions 的 `preferences_directory`（`state_root`）：各宿主记字数和按键、统计页和上传读的都是这里的 `typing-statistics.json`，选词位置和上屏效率要写进同一份。`user_data` 是 Engine 的个人词库目录，没有宿主在那里读写统计。不是绝对路径时为 `None`，这时什么都不记。
+    fn statistics_directory(&self) -> Option<&Path> {
+        self.state_root.as_deref()
+    }
+
     /// 统计开关；读不到统计目录或文件时当作关闭。
     fn statistics_enabled(&mut self) -> Option<bool> {
         if let Some(enabled) = self.statistics_enabled {
             return Some(enabled);
         }
-        let directory = std::path::Path::new(&self.options.user_data);
-        let enabled = directory.is_absolute()
-            && TypingStatisticsStore::new(directory)
+        let enabled = self.statistics_directory().is_some_and(|directory| {
+            TypingStatisticsStore::new(directory)
                 .load()
-                .is_ok_and(|statistics| statistics.enabled);
+                .is_ok_and(|statistics| statistics.enabled)
+        });
         self.statistics_enabled = Some(enabled);
         Some(enabled)
     }
@@ -740,10 +745,9 @@ impl HostSession {
     /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
     fn flush_selections(&mut self) {
         let pending = std::mem::take(&mut self.pending_selections);
-        let directory = std::path::Path::new(&self.options.user_data);
-        if !directory.is_absolute() {
+        let Some(directory) = self.statistics_directory().map(Path::to_path_buf) else {
             return;
-        }
+        };
         let mut batch = Vec::with_capacity(RANKS);
         batch.extend(
             pending
@@ -752,15 +756,15 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let store = TypingStatisticsStore::new(directory);
+        let store = TypingStatisticsStore::new(&directory);
         let enabled = store.record_selections(&batch).ok().flatten();
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
             if cfg!(test) {
-                record_efficiency(&self.options, &commits);
+                record_efficiency(&self.options, &directory, &commits);
             } else {
-                record_efficiency_in_background(self.options.clone(), commits);
+                record_efficiency_in_background(self.options.clone(), directory, commits);
             }
         }
         // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
@@ -3625,7 +3629,8 @@ const EFFICIENCY_BATCH_LIMIT: usize = 256;
 
 /// 等后台写进统计的上屏批次，和是否已有一个线程在写。
 struct EfficiencyQueue {
-    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    /// 每一批：查读音用的 Engine 选项、写入的统计目录和这批上屏。
+    pending: Vec<(EngineOptions, PathBuf, Vec<EfficiencyCandidate>)>,
     running: bool,
 }
 
@@ -3641,10 +3646,14 @@ fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
 }
 
 /// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
-fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+fn record_efficiency_in_background(
+    options: EngineOptions,
+    directory: PathBuf,
+    commits: Vec<EfficiencyCandidate>,
+) {
     {
         let mut queue = efficiency_queue();
-        queue.pending.push((options, commits));
+        queue.pending.push((options, directory, commits));
         if queue.running {
             return;
         }
@@ -3670,8 +3679,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
                 }
                 std::mem::take(&mut queue.pending)
             };
-            for (options, commits) in batches {
-                record_efficiency(&options, &commits);
+            for (options, directory, commits) in batches {
+                record_efficiency(&options, &directory, &commits);
             }
         }
     };
@@ -3685,12 +3694,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
     }
 }
 
-/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
-fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
-    let directory = std::path::Path::new(&options.user_data);
-    if !directory.is_absolute() {
-        return;
-    }
+/// 把一批上屏算成效率计数写进统计目录 `directory`（[`HostSession::statistics_directory`]）：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, directory: &Path, commits: &[EfficiencyCandidate]) {
     let mut efficiency = CommitEfficiency::default();
     for commit in commits {
         let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);

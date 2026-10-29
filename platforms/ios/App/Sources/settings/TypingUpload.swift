@@ -46,11 +46,19 @@ actor TypingUpload {
   func setEnabled(_ enabled: Bool) async -> Change? {
     do {
       let status = try await call(["operation": "typing_upload_set", "enabled": enabled], dated: true)
-      return Change(status: status, message: enabled ? "已打开上传，最近 7 天的每日计数已传到你的水杉账号。" : "已关闭上传，云端的打字统计已删除。")
+      return Change(status: status, message: Self.changedMessage(status, enabling: enabled))
     } catch {
       guard let status = try? await call(["operation": "typing_upload_status"], dated: false) else { return nil }
       return Change(status: status, message: Self.message(error, enabling: enabled))
     }
+  }
+
+  /// 打开或关闭成功时的说法，对应共享设置页的 `uploadChangedMessage`。打开时 Rust 立刻上传一次，但本机统计里还没有字数的日子时什么都不发，`lastUpload` 仍然为空，服务端也还不认识这台设备，这时不能说已经传上去了。App 只在回到前台和打开统计页时上传，所以说的是打字以后再打开 App。
+  static func changedMessage(_ status: Status, enabling: Bool) -> String {
+    guard enabling else { return "已关闭上传，云端的打字统计已删除。" }
+    return status.lastUpload == nil
+      ? "已打开上传。本机还没有可上传的打字计数，用水杉键盘打字以后再打开 App 会自动上传。"
+      : "已打开上传，最近 7 天的每日计数已传到你的水杉账号。"
   }
 
   /// 失败时的说法，与共享设置页的 `uploadErrorMessage` 相同；`enabling` 是这次在打开还是关闭。

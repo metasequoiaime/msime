@@ -48,6 +48,8 @@ Status: implemented
 
 代价：这是一条新的、带账号令牌的上传路径，PRIVACY.md 已经加了「打字统计上传」一节。上传只在设置应用或 App 打开时发生，长期不开设置应用或 App 的用户，群助手看到的数据会停在最后一次上传。Windows 原生设置、Android、iOS 和鸿蒙已经接上，macOS 原生仍只有 C ABI，尚未接入界面和发送。Android、iOS 和鸿蒙只在应用回到前台和打开统计页时上传，键盘进程不上传，长期只用键盘、不开应用的用户同样停在最后一次上传。两步形状把串行化交给了宿主：`upload_request`、发送、`upload_succeeded` 和关闭后的 `DELETE` 要放在同一个串行队列里，否则关闭时的删除可能先于还在路上的上传到达服务端，`record_upload` 只能保证本地状态不被写回。统计模型的分层见 [打字统计契约](../../implemented/architecture/2026-10-15-typing-statistics-model.md)，这里只在模型上加了 `cloudUpload` 这个可选能力。
 
+打开上传后，本机还没有可上传的日子时不说已经传上去，见 [选词位置写进宿主的统计目录](../bug-fix/2026-10-29-typing-statistics-selection-directory.md)；同一篇修正了候选位次一直为空的原因。
+
 ## Verification
 
 - `cargo test -p msime-client-services`：覆盖构建（7 天上限、60 天窗口、键名过滤和 32 个上限、24 桶校验）、状态（默认关闭、节流、发送失败不记时间、发送中被关掉不写回、坏文件读成关闭）、绑定码和编号的形状、列表解析，以及两个错误码的映射。
