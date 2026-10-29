@@ -346,6 +346,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean twentySixSymbolFirst;
     /** 九宫格数字键盘里空格的位置，来自共享偏好 `touch_number_pad_space`，缺省是 Android 原来的右列。 */
     TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+    /** 中/英键排在空格左边，来自共享偏好 `touch_language_key_side`（只有 `left` 算），缺省在右边、紧挨回车。 */
+    boolean languageKeyLeft;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -2948,6 +2950,7 @@ public final class MSIMEInputService extends InputMethodService {
         numberRowEnabled = numberRowFrom(preferences);
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
+        languageKeyLeft = languageKeyLeftFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -2991,6 +2994,11 @@ public final class MSIMEInputService extends InputMethodService {
     private static TouchKeyStyle.NumberPadSpace numberPadSpaceFrom(JSONObject preferences) {
         return preferences == null ? TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT
             : TouchKeyStyle.NumberPadSpace.parse(JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE)));
+    }
+
+    /** 中/英键在空格左边；没有偏好、缺键、`right` 和不认识的写法都按右边，与 client-core 的宽松读取一致。 */
+    private static boolean languageKeyLeftFrom(JSONObject preferences) {
+        return preferences != null && TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -3500,7 +3508,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved();
+            + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved() + ":" + languageKeyLeft;
     }
 
     private void reloadPreferences(String response) {
@@ -3643,6 +3651,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextSymbolFirst = symbolFirstFrom(preferences);
         TouchKeyStyle.NumberPadSpace nextNumberPadSpace = numberPadSpaceFrom(preferences);
+        boolean nextLanguageKeyLeft = languageKeyLeftFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3740,6 +3749,8 @@ public final class MSIMEInputService extends InputMethodService {
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
         numberPadSpace = nextNumberPadSpace;
+        // 中/英在空格哪一边同样进了 touchGeometryKey：底行签名带着它，右侧大回车外框由 render 里的 tallReturnStale 整块重建。
+        languageKeyLeft = nextLanguageKeyLeft;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
@@ -6814,6 +6825,7 @@ public final class MSIMEInputService extends InputMethodService {
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
         TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
         TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE,
+        TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE,
         "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";

@@ -160,6 +160,15 @@ public final class KeyLayoutStylesPolicy {
         return Set.copyOf(swapped);
     }
 
+    /** 同上，另按「中/英键放在空格左边」（`touch_language_key_side` 为 `left`）：打开时在样式和互换的高亮之外再高亮中/英这一个键；被它挤动的空格和标点宽度、样子都没变，不高亮。三类键面的预览底行都有中/英（右侧大回车在九宫格下方那一行），所以三类都高亮。 */
+    public static Set<String> highlights(Kind kind, TouchKeyStyle.Row row, boolean symbolFirst, boolean languageLeft) {
+        Set<String> base = highlights(kind, row, symbolFirst);
+        if (!languageLeft) return base;
+        Set<String> moved = new HashSet<>(base);
+        moved.add(LANGUAGE);
+        return Set.copyOf(moved);
+    }
+
     /** 预览画不画顶部数字行：开关打开、画的是 26 键或 14/18 键时才画；9 键不画，开关只对 26/14/18 键生效。 */
     public static boolean drawsNumberRow(Kind kind, boolean numberRow) {
         return numberRow && kind != Kind.NINE;
@@ -173,11 +182,12 @@ public final class KeyLayoutStylesPolicy {
     static final String RETURN = "Enter";
     static final String SYMBOL = "SoftSymbol";
     static final String LAYER = "SoftLayer";
+    static final String LANGUAGE = "SoftLanguage";
     private static final String SHIFT = "ShiftLeft";
     /** 热力图把 26 键第三行左端画成组字中的「分词」、记 `Quote`；预览画空闲时的 ⇧。 */
     private static final String SEPARATOR = "Quote";
     private static final Set<String> FUNCTION_IDS = Set.of(SHIFT, SEPARATOR, "Backspace", SYMBOL, LAYER,
-        "SoftLanguage", "SoftGlobe", EMOJI);
+        LANGUAGE, "SoftGlobe", EMOJI);
 
     /** 预览里一个键的底色：字符键用键帽色，功能键用功能键色，回车用强调色。 */
     public enum Tone { CHARACTER, FUNCTION, RETURN }
@@ -203,11 +213,17 @@ public final class KeyLayoutStylesPolicy {
     /** 同上，`symbolFirst`（「26 键「符」与「123」互换」）打开时 26 键底行按键盘的同一条规则把 符 排到 123 左边（{@link KeyHeatmapLayout#soft(TouchKeyStyle.Row, boolean, boolean)}），没有 符 的样式不变；14/18 键和 9 键不受它影响。 */
     public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
             boolean symbolFirst) {
+        return keyboard(kind, style, numberRow, eighteen, symbolFirst, false);
+    }
+
+    /** 同上，`languageLeft`（「中/英键放在空格左边」）打开时三类键面的底行都按键盘的同一条规则把中/英排到空格左边（{@link KeyboardActionRow#languageBeforeSpace}），排在「符」与「123」互换之后；右侧大回车是九宫格下方那一行。 */
+    public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst, boolean languageLeft) {
         boolean digits = drawsNumberRow(kind, numberRow);
         return switch (kind) {
-            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst));
-            case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style)));
-            case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen);
+            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst, languageLeft));
+            case NINE -> converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft));
+            case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen, languageLeft);
         };
     }
 
@@ -238,7 +254,8 @@ public final class KeyLayoutStylesPolicy {
         return Tone.CHARACTER;
     }
 
-    private static List<List<Key>> fourteen(TouchKeyStyle.Row style, boolean numberRow, boolean eighteen) {
+    private static List<List<Key>> fourteen(TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean languageLeft) {
         List<List<FourteenKeyLayout.Key>> letters = eighteen ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
         // 与 ImeLetterRows#rebuildFourteenKeyRows 相同：14 键每个字母键两份、两端 1.4 份，18 键都是一份、第二行两端各缩进半键。
         float letterWeight = eighteen ? 1f : FourteenKeyLayout.LETTER_WEIGHT;
@@ -268,7 +285,8 @@ public final class KeyLayoutStylesPolicy {
             for (Key cell : cells) row.add(new Key(cell.face(), cell.weight() * scale, cell.id(), cell.tone(), cell.rows()));
             rows.add(List.copyOf(row));
         }
-        rows.add(converted(List.of(KeyHeatmapLayout.bottom(KeyboardLayout.FOURTEEN_KEY_LAYOUT, style))).get(0));
+        rows.add(converted(List.of(KeyHeatmapLayout.bottom(KeyboardLayout.FOURTEEN_KEY_LAYOUT, style, false,
+            languageLeft))).get(0));
         return List.copyOf(rows);
     }
 

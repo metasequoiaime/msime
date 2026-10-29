@@ -303,7 +303,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         return new Snapshot(model, TypingStatisticsSummary.from(HostStore.statisticsAction(context, action)), layouts);
     }
 
-    /** 热力图跟着键盘画：读共享偏好里 26 键、九键的底行样式、顶部数字行和「符」与「123」互换；读不到时返回 null。 */
+    /** 热力图跟着键盘画：读共享偏好里 26 键、九键的底行样式、顶部数字行、「符」与「123」互换和中/英在空格哪一边；读不到时返回 null。 */
     @Nullable private static List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts(Context context) {
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
@@ -312,10 +312,11 @@ public final class StatisticsFragment extends HomeTabFragment {
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)),
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE)),
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE)));
+        boolean languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
         return List.of(KeyHeatmapLayout.soft(styles.twentySix(),
                 preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
-                preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false)),
-            KeyHeatmapLayout.nine(styles.nine()));
+                preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false), languageLeft),
+            KeyHeatmapLayout.nine(styles.nine(), languageLeft));
     }
 
     /** 用户自己添加的词条数（徽章「造词者」）；词库读不到时返回 null，summary 按 0 计。 */
