@@ -1245,6 +1245,26 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchKeyLayoutOffering.numberPadFooter, "九宫格数字键盘里空格的位置；右侧大回车不受影响。")
   }
 
+  /// 保存：互换开关关着时不留在文档里；数字键盘写用户点的那一种，包括与 iOS 出厂排法相同的 `after_zero`（明确选过，同步到别的设备也按它画）。
+  func testSymbolFirstAndNumberPadSpaceSaving() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(TouchKeyLayoutStyle.save(symbolFirst: true, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(numberPadSpace: .afterZero, stateRoot: state))
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["touch_twenty_six_symbol_first"] as? Bool, true)
+    XCTAssertEqual(document["touch_number_pad_space"] as? String, "after_zero")
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored.numberPadSpace, .afterZero)
+    XCTAssertTrue(TouchKeyLayoutStyle.mirrored.symbolFirst)
+    XCTAssertTrue(TouchKeyLayoutStyle.save(symbolFirst: false, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(numberPadSpace: .rightColumn, stateRoot: state))
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertNil(document["touch_twenty_six_symbol_first"], "the default is not written")
+    XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(numberPadSpace: .rightColumn))
+  }
+
   /// 表：互换只把 符 挪到 123 左边、份额不变，没有 符 的样式不变；数字层三种空格位置的键序和份额，整行总份额不变。
   func testSymbolFirstAndNumberPadSpaceTables() {
     for style in TouchTwentySixKeyStyle.allCases {
