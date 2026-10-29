@@ -8,9 +8,9 @@ The contract holds stateless simple mappings plus the opening/closing pairs for 
 
 `enumerationComma` 列出中文标点下哪些 ASCII 键可以出顿号「、」：`\` 和 `/`。和 `simple` 不同，这一段是「可被偏好关掉的键」——共享偏好 `enumeration_comma_backslash`（默认开）与 `enumeration_comma_slash`（默认关）各自控制一个键，没打开的键不是中文标点，按普通字符交回宿主；两个键至少保留一个（都关时按「`\` 开」读）。`\` 同时留在 `simple` 里：它从第 1 版起就是无条件映射，`is_supported` 与 `simple` 的读者看到的行为不变；`/` 只在这一段，不打开偏好时 `is_supported('/')` 为假。`enumeration_comma_output` 给出某个键启用时出的字，宿主是否启用要读 View 的 `punctuation_marks`，不自己解析偏好。
 
-## `{` `}` 与样式（第 3 版）
+## `{` `}` 固定出「」（第 5 版）
 
-第 3 版在 `alternating` 里加了 `{` → 「」和 `}` → 『』：`Shift+[` `Shift+]` 直接出直角引号，与 `'` `"` 的弯引号（或 corner 样式下的同一组直角引号）并存，两组交替状态按键独立保存。`styles.cornerQuotes` 里 `{` `}` 两行与 `alternating` 相同——这两键出的本来就是直角引号，换样式不换它们。
+第 5 版把 `{` `}` 从 `alternating` 和 `styles.cornerQuotes` 挪进 `simple`：`Shift+[` 固定出「，`Shift+]` 固定出」，不交替，也不随引号样式换字，与 `'` `"` 的弯引号（或 corner 样式下的同一组直角引号）并存。第 3 版曾让它们分别交替出「」和『』，与 macOS 宿主的固定「/」不一致，见 `.agents/notes/implemented/feature/2026-10-29-brace-keys-fixed-corner-brackets.md`。Windows 与 Linux 的空格转换不认这两个键出的「」，macOS 宿主把 `{` 出的「转回 `{`。
 
 ## 样式（第 2 版）
 

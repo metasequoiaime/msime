@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -14,6 +15,7 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -25,19 +27,21 @@ import org.json.JSONObject;
  * they stop. That is what the protocol is for, and it is why it is worth carrying a WebSocket
  * implementation for one endpoint.
  *
- * <p>Nothing about the protocol is decided here. The authentication headers arrive already built
- * by the shared policy, and every frame the session sends comes from the shared builders through
- * {@link NativeClient}; this class owns the socket, the microphone and the loop between them.
+ * <p>协议本身不在这里决定：鉴权头由共享策略构造好传进来，会话发出的每一帧都经 {@link NativeClient} 由共享层构造和解码。本类持有 socket 和麦克风，边录边发、同时一直读回包的收发过程在 {@link DoubaoStreamSession}。
  */
 public final class DoubaoRecognizer {
     private static final int CONNECT_TIMEOUT_MILLIS = 10_000;
+    /** 握手回应的读超时，也是发出最后一帧之后等最终结果的时限。 */
     private static final int READ_TIMEOUT_MILLIS = 30_000;
-    private static final int MAX_MILLIS = 60_000;
-    private static final int MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
-    /** The shared Doubao decoder accepts one-megabyte wire frames; keep room for a WebSocket header. */
-    private static final int MAX_INBOUND_FRAME_BYTES = 1_048_576 + 10;
-    /** Roughly 100 ms of 16 kHz mono PCM: small enough to stream, large enough not to thrash. */
+    /**
+     * 单次录音的安全上限：五分钟。流式协议边说边识别，不像整句上传那样受请求体大小和读超时的限制，这个上限只防忘了关麦克风；以前和整句上传一样是 60 秒，到点悄悄截断（#9886）。
+     */
+    public static final int MAX_MILLIS = 5 * 60_000;
+    /** 约 100 ms 的 16 kHz 单声道 PCM：小到能流起来，大到不至于频繁发帧。 */
     private static final int CHUNK_BYTES = 3200;
+    /** 留给语音贡献的音频上限，与 {@link VoiceContributionApi#MAX_DURATION_MILLIS} 一致。 */
+    private static final long RETAIN_LIMIT_BYTES =
+        (long) WavAudio.SAMPLE_RATE * 2 * VoiceContributionApi.MAX_DURATION_MILLIS / 1000;
 
     /** What the caller does with each update; interim results arrive before the final one. */
     public interface Listener {
@@ -49,15 +53,19 @@ public final class DoubaoRecognizer {
     private final SecureRandom random = new SecureRandom();
     /** The plain socket under TLS, so cancel() can unblock a pending read without TLS I/O. */
     private volatile java.net.Socket transport;
+    /** 这次录音是否到了 {@link #MAX_MILLIS} 由识别器自己结束。 */
+    private volatile boolean capped;
+    /** 已经识别出文字之后连接才失败时的原因；正常结束为 null。 */
+    private volatile HttpAsrRecognizer.Failure interruption;
 
-    /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把这次送出的 PCM 也留一份在内存里（最多 60 秒），识别结束后经 {@link #retainedAudio()} 取走。 */
+    /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把这次送出的 PCM 也留一份在内存里（最多 60 秒，超过就整段不留），识别结束后经 {@link #retainedAudio()} 取走。 */
     private volatile ByteArrayOutputStream retained;
 
     public void retainAudio(boolean value) {
         retained = value ? new ByteArrayOutputStream(WavAudio.SAMPLE_RATE * 2 * 4) : null;
     }
 
-    /** 留下的 16 kHz 单声道 16 位 PCM；没有打开留存时为 null。取走后清空。 */
+    /** 留下的 16 kHz 单声道 16 位 PCM；没有打开留存或录音超过 60 秒时为 null。取走后清空。 */
     public byte[] retainedAudio() {
         ByteArrayOutputStream value = retained;
         retained = null;
@@ -74,6 +82,16 @@ public final class DoubaoRecognizer {
         levels = sink == null ? level -> { } : sink;
     }
 
+    /** 录音是否到了单次上限、由识别器自己结束；{@link #recognize} 返回后读取。 */
+    public boolean capped() {
+        return capped;
+    }
+
+    /** {@link #recognize} 返回了文字、但连接在最终结果之前就失败时的原因；正常结束为 null。 */
+    public HttpAsrRecognizer.Failure interruption() {
+        return interruption;
+    }
+
     public void stop() {
         stopped.set(true);
     }
@@ -81,41 +99,60 @@ public final class DoubaoRecognizer {
     public void cancel() {
         cancelled.set(true);
         stopped.set(true);
+        closeTransport();
+    }
+
+    /** 关掉 TLS 下面的那层 socket：阻塞中的读写都会立即失败，而且不需要 TLS 的收尾 I/O。 */
+    private void closeTransport() {
         java.net.Socket active = transport;
         if (active != null) {
             try {
                 active.close();
             } catch (IOException | RuntimeException ignored) {
-                // The blocked read fails either way, which is the point.
+                // 阻塞的读写反正都会失败，这正是要的结果。
             }
         }
     }
 
     /**
-     * Run one streaming session and return the final transcript, or null.
+     * 跑一次流式识别，返回识别出的文字；没有文字时抛出 {@link HttpAsrRecognizer.Refused}，原因和整句上传归在同一组里，调用方用 {@link VoiceFailurePolicy} 翻成提示。
      *
-     * <p>Blocking, and never called on the main thread: it holds the microphone and a socket for
-     * as long as the user is speaking.
+     * <p>识别到一半连接断了，已经识别出的文字照样返回，原因经 {@link #interruption()} 取；录音到了 {@link #MAX_MILLIS} 由 {@link #capped()} 说明。
+     *
+     * <p>阻塞，不能在主线程调用：用户说话期间它一直占着麦克风和连接。
      */
     public String recognize(String endpoint, String[] headers, boolean itn, boolean punctuation,
-                            boolean ddc, String boostingTableId, Listener listener) {
+                            boolean ddc, String boostingTableId, Listener listener)
+            throws HttpAsrRecognizer.Refused {
+        capped = false;
+        interruption = null;
+        // 地址或起始帧在本机就构造不出来，是服务配置的问题。
         Endpoint descriptor = Endpoint.parse(endpoint);
-        if (descriptor == null) return null;
+        if (descriptor == null) throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.SERVICE);
         byte[] start = NativeClient.doubaoStartFrame(itn, punctuation, ddc, boostingTableId);
-        if (start == null) return null;
+        if (start == null) throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.SERVICE);
         AudioRecord recorder = null;
         SSLSocket socket = null;
         try {
             socket = connect(descriptor, headers);
-            if (socket == null || cancelled.get()) return null;
+            if (cancelled.get()) throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.CANCELLED);
+            // 握手之后读不再设超时：说话期间服务端可以很久不回包（整句流式只在说完后回），等最终结果的时限由会话自己计。
+            socket.setSoTimeout(0);
             OutputStream out = socket.getOutputStream();
-            InputStream in = socket.getInputStream();
-            send(out, start);
+            sendFrame(out, WebSocketFrames.OPCODE_BINARY, start);
             recorder = record();
-            if (recorder == null) return null;
-            return stream(recorder, in, out, listener);
+            DoubaoStreamSession.Listener updates = listener == null ? null : listener::onUpdate;
+            long limit = (long) WavAudio.SAMPLE_RATE * 2 * MAX_MILLIS / 1000;
+            DoubaoStreamSession.Outcome outcome = new DoubaoStreamSession(socket.getInputStream(),
+                connection(out), microphone(recorder), codec(), updates, stopped, cancelled,
+                limit, CHUNK_BYTES, READ_TIMEOUT_MILLIS).run();
+            return transcript(outcome);
+        } catch (SocketTimeoutException error) {
+            throw new HttpAsrRecognizer.Refused(cancelled.get()
+                ? HttpAsrRecognizer.Failure.CANCELLED : HttpAsrRecognizer.Failure.TIMEOUT);
         } catch (IOException error) {
-            return null;
+            throw new HttpAsrRecognizer.Refused(cancelled.get()
+                ? HttpAsrRecognizer.Failure.CANCELLED : HttpAsrRecognizer.Failure.NETWORK);
         } finally {
             if (recorder != null) {
                 VoicePcmRecorder.stopIfRecording(recorder);
@@ -126,132 +163,120 @@ public final class DoubaoRecognizer {
                 try {
                     socket.close();
                 } catch (IOException ignored) {
-                    // The session is over either way.
+                    // 会话已经结束。
                 }
             }
         }
     }
 
-    private String stream(AudioRecord recorder, InputStream in, OutputStream out, Listener listener)
-            throws IOException {
-        byte[] chunk = new byte[CHUNK_BYTES];
-        byte[] inbound = new byte[MAX_INBOUND_FRAME_BYTES];
-        int pending = 0;
-        int sequence = 1;
-        int sent = 0;
-        int limit = WavAudio.SAMPLE_RATE * 2 / 1000 * MAX_MILLIS;
-        String transcript = null;
-        boolean finished = false;
-        ByteArrayOutputStream fragmented = null;
-        while (!finished) {
-            if (cancelled.get()) return null;
-            boolean last = stopped.get() || sent >= limit;
-            // Release the microphone before waiting on the final answer.
-            if (last) VoicePcmRecorder.stopIfRecording(recorder);
-            int requested = last ? 0 : VoiceCapturePolicy.readLength(limit, sent, chunk.length);
-            int read = requested == 0 ? 0 : recorder.read(chunk, 0, requested);
-            if (read < 0) return null;
-            if (read > 0) levels.accept(VoiceAudioLevel.fromPcm16le(chunk, read));
-            ByteArrayOutputStream keep = retained;
-            if (keep != null && read > 0) {
-                synchronized (keep) { keep.write(chunk, 0, read); }
-            }
-            sent += read;
-            byte[] frame = NativeClient.doubaoAudioFrame(sequence++, chunk, read, last);
-            if (frame == null) return null;
-            send(out, frame);
-            // Drain whatever has arrived without blocking the next chunk; after the final frame
-            // there is nothing left to send, so waiting for the answer is all that remains.
-            while (in.available() > 0 || last) {
-                // A zero-length read is not a portable way to ask for more data. If a frame fills
-                // the bounded buffer without decoding, reject it instead of handing read() a zero
-                // count and silently ending the session with a partial transcript.
-                if (pending == inbound.length) return null;
-                int got = in.read(inbound, pending, inbound.length - pending);
-                if (got <= 0) return transcript;
-                pending += got;
-                WebSocketFrames.Frame decoded;
-                while ((decoded = WebSocketFrames.decode(inbound, pending)) != null) {
-                    System.arraycopy(inbound, decoded.consumed(), inbound, 0,
-                        pending - decoded.consumed());
-                    pending -= decoded.consumed();
-                    if (decoded.opcode() == WebSocketFrames.OPCODE_CLOSE) return transcript;
-                    if (decoded.opcode() == WebSocketFrames.OPCODE_PING) {
-                        sendFrame(out, WebSocketFrames.OPCODE_PONG, decoded.payload());
-                        continue;
-                    }
-                    if (decoded.opcode() == WebSocketFrames.OPCODE_PONG) continue;
-                    if (decoded.opcode() != WebSocketFrames.OPCODE_BINARY
-                            && decoded.opcode() != WebSocketFrames.OPCODE_CONTINUATION) {
-                        continue;
-                    }
-                    byte[] payload;
-                    if (decoded.opcode() == WebSocketFrames.OPCODE_BINARY) {
-                        // A new data message cannot begin while a previous one is fragmented.
-                        if (fragmented != null) return transcript;
-                        if (decoded.fin()) {
-                            payload = decoded.payload();
-                        } else {
-                            fragmented = new ByteArrayOutputStream(decoded.payload().length);
-                            if (!append(fragmented, decoded.payload())) return transcript;
-                            continue;
-                        }
-                    } else {
-                        // Continuation frames only have meaning after an unfinished binary frame.
-                        if (fragmented == null) return transcript;
-                        if (!append(fragmented, decoded.payload())) return transcript;
-                        if (!decoded.fin()) continue;
-                        payload = fragmented.toByteArray();
-                        fragmented = null;
-                    }
-                    Update update = update(payload);
-                    if (update == null) return transcript;
-                    if (update.text != null && !update.text.isEmpty()) {
-                        transcript = update.text;
-                        if (listener != null) listener.onUpdate(update.text, update.last);
-                    }
-                    if (update.last) {
-                        finished = true;
-                        break;
-                    }
-                }
-                if (finished || pending >= inbound.length) break;
-            }
-            if (last && !finished) return transcript;
+    /** 会话结果交给调用方：有文字就返回文字，没有文字按原因抛出。 */
+    private String transcript(DoubaoStreamSession.Outcome outcome) throws HttpAsrRecognizer.Refused {
+        capped = outcome.capped();
+        if (outcome.failure() == HttpAsrRecognizer.Failure.CANCELLED) {
+            throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.CANCELLED);
         }
-        return transcript;
+        String text = outcome.text();
+        if (text == null || text.isEmpty()) {
+            throw new HttpAsrRecognizer.Refused(outcome.failure() == null
+                ? HttpAsrRecognizer.Failure.EMPTY : outcome.failure());
+        }
+        interruption = outcome.failure();
+        return text;
     }
 
-    private static boolean append(ByteArrayOutputStream message, byte[] payload) {
-        if (payload.length > MAX_MESSAGE_BYTES - message.size()) return false;
-        message.write(payload, 0, payload.length);
-        return true;
+    private DoubaoStreamSession.Connection connection(OutputStream out) {
+        return new DoubaoStreamSession.Connection() {
+            @Override public void send(int opcode, byte[] payload) throws IOException {
+                sendFrame(out, opcode, payload);
+            }
+
+            @Override public void abort() {
+                closeTransport();
+            }
+        };
     }
 
-    private record Update(String text, boolean last) {}
+    private DoubaoStreamSession.Microphone microphone(AudioRecord recorder) {
+        return new DoubaoStreamSession.Microphone() {
+            @Override public int read(byte[] buffer, int length) {
+                int read = recorder.read(buffer, 0, length);
+                if (read > 0) {
+                    levels.accept(VoiceAudioLevel.fromPcm16le(buffer, read));
+                    retain(buffer, read);
+                }
+                return read;
+            }
+
+            @Override public void stop() {
+                VoicePcmRecorder.stopIfRecording(recorder);
+            }
+        };
+    }
+
+    private DoubaoStreamSession.Codec codec() {
+        return new DoubaoStreamSession.Codec() {
+            @Override public byte[] audioFrame(int sequence, byte[] pcm, int length, boolean last) {
+                return NativeClient.doubaoAudioFrame(sequence, pcm, length, last);
+            }
+
+            @Override public DoubaoStreamSession.Update decode(byte[] payload) {
+                return update(payload);
+            }
+        };
+    }
+
+    /** 语音贡献只收 60 秒以内的整段音频；超过就整段不留，截掉后半段的音频和整段识别文字对不上。 */
+    private void retain(byte[] chunk, int length) {
+        ByteArrayOutputStream keep = retained;
+        if (keep == null) return;
+        synchronized (keep) {
+            if (keep.size() + (long) length > RETAIN_LIMIT_BYTES) {
+                retained = null;
+                return;
+            }
+            keep.write(chunk, 0, length);
+        }
+    }
 
     /** One decoded response frame, read through the shared decoder. */
-    private Update update(byte[] payload) {
+    private DoubaoStreamSession.Update update(byte[] payload) {
         try {
             JSONObject response = new JSONObject(NativeClient.doubaoDecodeFrame(payload));
             if (!JsonPolicy.strictTrue(response.opt("ok"))) return null;
             JSONObject value = JsonPolicy.objectValue(response);
             if (value == null) return null;
-            // An error frame ends the session; the code is the provider's and is not shown.
-            if (value.has("error_code")) return null;
+            // 错误帧结束会话。错误码不显示给用户，只用来区分空音频、服务端超时、服务过载和拒绝请求。
+            if (value.has("error_code")) {
+                return DoubaoStreamSession.Update.failed(
+                    VoiceFailurePolicy.doubaoError(JsonPolicy.strictInteger(value.opt("error_code"))));
+            }
             String payloadText = JsonPolicy.strictString(value.opt("payload"));
             if (payloadText == null) return null;
-            JSONObject document = new JSONObject(payloadText);
-            JSONObject result = document.optJSONObject("result");
-            String text = result == null ? "" : HttpAsrPolicy.strictText(result.opt("text"));
+            String text = resultText(new JSONObject(payloadText));
             Boolean last = JsonPolicy.strictBoolean(value.opt("last"));
-            return last == null ? null : new Update(text, last);
+            return last == null ? null : new DoubaoStreamSession.Update(text, last);
         } catch (JSONException error) {
             return null;
         }
     }
 
-    private SSLSocket connect(Endpoint endpoint, String[] headers) throws IOException {
+    /**
+     * 回包里的识别文字。双向流式（{@code bigmodel_async}）的 {@code result} 是一个对象；整句流式（{@code bigmodel_nostream}）的文档把它写成分句列表，iOS 和 Windows 两种都读，这里也按顺序拼起分句。以前只读对象，服务按列表回时读出来是空的，现在会被当成「没有听到内容」。
+     */
+    private static String resultText(JSONObject document) {
+        Object result = document.opt("result");
+        if (result instanceof JSONObject object) return HttpAsrPolicy.strictText(object.opt("text"));
+        if (!(result instanceof JSONArray segments)) return "";
+        StringBuilder joined = new StringBuilder();
+        for (int index = 0; index < segments.length(); index++) {
+            JSONObject segment = segments.optJSONObject(index);
+            if (segment != null) joined.append(HttpAsrPolicy.strictText(segment.opt("text")));
+        }
+        return HttpAsrPolicy.strictText(joined.toString());
+    }
+
+    private SSLSocket connect(Endpoint endpoint, String[] headers)
+            throws IOException, HttpAsrRecognizer.Refused {
         int port = endpoint.port;
         // Connect first, then hand the connected socket to TLS, so the connect attempt is bounded:
         // SSLSocketFactory.createSocket(host, port) connects with no timeout at all.
@@ -280,8 +305,10 @@ public final class DoubaoRecognizer {
             socket.getOutputStream().flush();
             String response = readHandshake(socket.getInputStream());
             if (!WebSocketFrames.handshakeAccepted(response, key)) {
+                // 握手被拒：按状态码区分鉴权被拒、服务超时和超出限制，读不出状态码是连接在握手中途断了。
+                HttpAsrRecognizer.Failure failure = VoiceFailurePolicy.handshake(response);
                 socket.close();
-                return null;
+                throw new HttpAsrRecognizer.Refused(failure);
             }
             return socket;
         } catch (IOException | RuntimeException error) {
@@ -313,39 +340,40 @@ public final class DoubaoRecognizer {
         return head.toString();
     }
 
-    private AudioRecord record() {
+    /** 打开麦克风；失败原因与整句上传的采集一致：构造失败或没初始化多半是没有录音权限，开始录音失败是麦克风被占用。 */
+    private AudioRecord record() throws HttpAsrRecognizer.Refused {
         int minimum = VoicePcmRecorder.minimumBufferBytes();
-        if (minimum <= 0) return null;
+        if (minimum <= 0) throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.UNAVAILABLE);
         AudioRecord recorder;
         try {
             recorder = VoicePcmRecorder.create(BoundsPolicy.atLeast(CHUNK_BYTES * 4, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
-            return null;
+            throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.PERMISSION);
         }
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
             recorder.release();
-            return null;
+            throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.PERMISSION);
         }
         try {
             recorder.startRecording();
         } catch (IllegalStateException error) {
             recorder.release();
-            return null;
+            throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.UNAVAILABLE);
         }
         if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
             recorder.release();
-            return null;
+            throw new HttpAsrRecognizer.Refused(HttpAsrRecognizer.Failure.UNAVAILABLE);
         }
         return recorder;
     }
 
-    private void send(OutputStream out, byte[] payload) throws IOException {
-        sendFrame(out, WebSocketFrames.OPCODE_BINARY, payload);
-    }
-
+    /** 读线程回 pong 和采集线程发音频共用一条连接，整帧串行写出，两帧的字节不能交错。 */
     private void sendFrame(OutputStream out, int opcode, byte[] payload) throws IOException {
-        out.write(WebSocketFrames.clientFrame(opcode, payload, payload.length, mask()));
-        out.flush();
+        byte[] frame = WebSocketFrames.clientFrame(opcode, payload, payload.length, mask());
+        synchronized (out) {
+            out.write(frame);
+            out.flush();
+        }
     }
 
     private byte[] mask() {

@@ -1324,12 +1324,12 @@ static BOOL MSIMEIsCornerQuoteMark(id mark) {
     const unichar c = [mark characterAtIndex:0];
     return c >= 0x300C && c <= 0x300F;
 }
-// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；契约第 3 版起引擎里 `{` `}` 也分别出这两组。普通中文方案的 `{` `}` 在到达引擎前被上面的宿主分支拦成「/」，仍按契约分组判：`{` 算出「」的键，`}` 不算——把它算进「」组会让 `}` 上的屏的」被改回「。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
+// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；`{` 固定出「（契约第 5 版，普通中文方案在到达引擎前由上面的宿主分支拦成同一个字），算出「」的键。`}` 固定出」，不算——把它算进「」组会让 `}` 上屏的」被改回「；它也不再出『』。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
 static BOOL MSIMEKeyProducesCornerQuote(unichar key, unichar mark, int scheme) {
     const BOOL zhuyin = scheme == msime::mac::scheme::Zhuyin;
     switch (mark) {
     case 0x300C: case 0x300D: return key == '\'' || (!zhuyin && key == '{'); // 「 」
-    case 0x300E: case 0x300F: return key == '"' || (!zhuyin && key == '}');  // 『 』
+    case 0x300E: case 0x300F: return key == '"';  // 『 』
     default: return NO;
     }
 }
@@ -8408,7 +8408,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'' ||
         punctuationKey == '{' || punctuationKey == '}';
-    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`，以及契约第 3 版起非注音方案的 `{` `}`。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
+    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`；`{` 只出前半个「，`}` 固定出的」是用户要打的后半个，不改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
     const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
     if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&

@@ -31,6 +31,9 @@ pub struct Candidate {
     /// True when Engine corrected the typed spelling for this candidate.
     /// Presentation layers may mark it without changing committed text.
     pub corrected: bool,
+    /// 这一行是 26 键双拼按首选规则坐上第一位的触点纠错（#10018）：宿主给它画平台已有的强调色，读屏标签后面接「，已纠正」；`annotation` 里的原始按键照旧显示。只会出现在第一位，为假时不出现在 JSON 里，没有触点的宿主（桌面、实体键盘）永远看不到它。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub confident_correction: bool,
     /// Engine fixed-position slot, or zero when dynamically ranked.
     pub fixed_position: u8,
     pub highlighted: bool,

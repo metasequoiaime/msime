@@ -18,9 +18,9 @@ Status: proposed
 | --- | --- | --- |
 | `Generated = 8` | 普通词格行、纠错及整句改字 | `crates/engine/src/lattice/merge.rs` 的 `lattice_row_source`、`generated_block_linear` 与 `reranked_block` |
 | `Collocation = 17` | octagram 语法模型参与词格打分，标记解码首选行 | 同文件的 `include_collocation_best` 分支；`crates/engine/src/lattice/octagram.rs` 与 `merge_collocation_tests.rs` |
-| `NeuralKeyboard = 11` | 键盘神经模型挑出的整句行；正常 UI 只在触屏宿主提供开关 | `reranked_block` 与 `packages/ui/src/settings/sentence-association-section.tsx` |
+| `NeuralKeyboard = 11` | 键盘神经模型挑出的整句行；只在直接打开引擎层键盘模型的评测里出现（`convert_eval --keyboard-neural`），2026-10-29 起任何宿主都不打开这一层，「增强」只挂 runtime 逐键重排器 | `reranked_block` 与 `packages/ui/src/settings/sentence-association-section.tsx` |
 
-macOS 默认未选择语法模型时主要是 `Generated`；用户安装并启用语法模型后，`Collocation` 已可达，普通词格备选仍可标为 `Generated`。因此常规桌面路径最多两种模型来源，触屏路径可涉及三种，不能再写成“全平台最多两种”。这里统计的是来源类别，不保证一张候选列表同时出现全部类别。
+macOS 默认未选择语法模型时主要是 `Generated`；用户安装并启用语法模型后，`Collocation` 已可达，普通词格备选仍可标为 `Generated`。因此常规桌面路径最多两种模型来源。触屏路径在 2026-10-29 之前打开「增强」时可涉及三种；此后「增强」不再打开引擎层键盘模型（见 [「增强」只挂 runtime 逐键重排器](../../implemented/feature/2026-10-29-enhanced-runtime-reranker-only.md)），宿主产出的候选也最多两种，`NeuralKeyboard` 只剩评测路径会出现，徽标设计仍要能显示它。这里统计的是来源类别，不保证一张候选列表同时出现全部类别。
 
 万象、八股文等具体语法模型共用 `Collocation`，没有分别占用 wire 值。它是同一词格解码路径叠加语法分后的首选归属，也不表示每种模型都是一个独立解码器。桌面神经联想仍通过运行时落定重排调整已有候选及其元数据顺序，不将来源改写成新的神经桌面值。
 

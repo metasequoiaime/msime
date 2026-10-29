@@ -471,7 +471,7 @@ mod tests {
         assert!(candidates.iter().all(|item| item.word != "他事件"));
     }
 
-    /// The keyboard-model rerank on the real dictionary, keystroke by keystroke, as a mobile host with the switch on runs it: every prefix of a nine-syllable reading is answered and the full reading carries the NeuralKeyboard row. This pins that the rerank is on the key path; its latency is measured by `crates/input-runtime/examples/rerank_latency.rs`, not here, because a debug `cargo test` timing would only be noise. Needs the dict-v2.0.1 resources with the keyboard model in `MSIME_EVAL_RESOURCES`.
+    /// The keyboard-model rerank on the real dictionary, keystroke by keystroke, as it runs when the Engine's own keyboard-model switch is set directly (`convert_eval --keyboard-neural`; no host sets it, 整句联想「增强」 mounts only the runtime's reranker): every prefix of a nine-syllable reading is answered and the full reading carries the NeuralKeyboard row. This pins that the rerank is on the key path; its latency is measured by `crates/input-runtime/examples/rerank_latency.rs`, not here, because a debug `cargo test` timing would only be noise. Needs the dict-v2.0.1 resources with the keyboard model in `MSIME_EVAL_RESOURCES`.
     #[test]
     fn the_keyboard_rerank_answers_every_keystroke_on_the_real_dictionary() {
         use crate::paths::RuntimePaths;

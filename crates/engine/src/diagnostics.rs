@@ -46,7 +46,11 @@ pub const RUNTIME_REPLAY_FAILED: &str = "Runtime dictionary replay failed: ";
 /// Followed by the source path.
 pub const RUNTIME_COPY_FAILED: &str = "Unable to copy runtime dictionary: ";
 pub const RUNTIME_FINALIZE_FAILED: &str = "Cannot finalize runtime dictionary generation";
+/// 后面接文件名和原因，见 `format::check_format_version`。
+pub const DICTIONARY_FORMAT_UNSUPPORTED: &str = "Dictionary format version unsupported: ";
 pub const INVALID_DICTIONARY_STATE: &str = "Invalid or unavailable dictionary state";
+/// 拿不到词库的独占维护租约（`DictionaryAccess::try_maintenance`）：还有会话或另一次维护开着。错误码是 `ErrorCode::Busy`。
+pub const DICTIONARY_MAINTENANCE_BUSY: &str = "Dictionary maintenance busy";
 
 // ---- Host facade errors (the C++ bridge) ----
 pub const CHARACTER_MUST_BE_ASCII: &str = "Engine character must be ASCII";
@@ -104,3 +108,281 @@ pub const EMOJI_CATALOG_UNAVAILABLE: &str = "Emoji catalog unavailable";
 pub const EMOJI_CATALOG_QUERY_UNAVAILABLE: &str = "Emoji catalog query unavailable";
 pub const EMOJI_CATALOG_QUERY_REJECTED: &str = "Emoji catalog query rejected";
 pub const EMOJI_CATALOG_READ_FAILED: &str = "Emoji catalog read failed";
+
+// ---- 诊断码 ----
+
+/// `KeyResult::diagnostic` 的稳定数字码（`KeyResult::diagnostic_code`），供宿主和 C ABI 按数字分支，不必比对说明文字。说明文字仍是上面那些常量，原样保留。编号一经发布只追加、不改、不复用；新加一条 KeyResult 诊断时在 [`DIAGNOSTIC_CODES`] 末尾接一个新号。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u16)]
+pub enum DiagnosticCode {
+    EnglishWordNotLearned = 1,
+    FrequencyNotPersisted = 2,
+    EnglishFrequencyNotPersisted = 3,
+    PinNotPersisted = 4,
+    RemovalNotPersisted = 5,
+    PositionNotPersisted = 6,
+    PhraseNotPersisted = 7,
+    SentenceNotPersisted = 8,
+    TypoNotPersisted = 9,
+    AutocorrectPreferenceNotPersisted = 10,
+    PickTransitionNotPersisted = 11,
+    PersonalContextNotPersisted = 12,
+    NineKeyFrequencyNotPersisted = 13,
+    NineKeyRemovalNotPersisted = 14,
+    NineKeyPositionNotPersisted = 15,
+    NineKeyDigitLimit = 16,
+    QuickPhraseUnavailable = 17,
+    QuickPhraseQueryFailed = 18,
+    EmojiUnavailable = 19,
+    EmojiQueryFailed = 20,
+    KaomojiUnavailable = 21,
+    KaomojiQueryFailed = 22,
+    SuperJianpinUnavailable = 23,
+    SuperJianpinQueryFailed = 24,
+    /// 九键笔画筛选拿不到笔画词库（`LANGUAGE_DICTIONARY_UNAVAILABLE`）。这条常量放在宿主门面错误那段，因为它同时是查语言词库接口的错误文字。
+    LanguageDictionaryUnavailable = 25,
+    /// 不在映射表里的说明文字：注音的选字与按键把底层错误原文（`EngineError` 的 `Display`）放进诊断，这类文字没有自己的码。
+    Other = 0xFFFF,
+}
+
+/// 诊断码与说明文字的映射表，KeyResult 诊断常量各占一行，按编号排。
+pub const DIAGNOSTIC_CODES: [(DiagnosticCode, &str); 25] = [
+    (
+        DiagnosticCode::EnglishWordNotLearned,
+        ENGLISH_WORD_NOT_LEARNED,
+    ),
+    (
+        DiagnosticCode::FrequencyNotPersisted,
+        FREQUENCY_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::EnglishFrequencyNotPersisted,
+        ENGLISH_FREQUENCY_NOT_PERSISTED,
+    ),
+    (DiagnosticCode::PinNotPersisted, PIN_NOT_PERSISTED),
+    (DiagnosticCode::RemovalNotPersisted, REMOVAL_NOT_PERSISTED),
+    (DiagnosticCode::PositionNotPersisted, POSITION_NOT_PERSISTED),
+    (DiagnosticCode::PhraseNotPersisted, PHRASE_NOT_PERSISTED),
+    (DiagnosticCode::SentenceNotPersisted, SENTENCE_NOT_PERSISTED),
+    (DiagnosticCode::TypoNotPersisted, TYPO_NOT_PERSISTED),
+    (
+        DiagnosticCode::AutocorrectPreferenceNotPersisted,
+        AUTOCORRECT_PREFERENCE_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::PickTransitionNotPersisted,
+        PICK_TRANSITION_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::PersonalContextNotPersisted,
+        PERSONAL_CONTEXT_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::NineKeyFrequencyNotPersisted,
+        NINE_KEY_FREQUENCY_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::NineKeyRemovalNotPersisted,
+        NINE_KEY_REMOVAL_NOT_PERSISTED,
+    ),
+    (
+        DiagnosticCode::NineKeyPositionNotPersisted,
+        NINE_KEY_POSITION_NOT_PERSISTED,
+    ),
+    (DiagnosticCode::NineKeyDigitLimit, NINE_KEY_DIGIT_LIMIT),
+    (
+        DiagnosticCode::QuickPhraseUnavailable,
+        QUICK_PHRASE_UNAVAILABLE,
+    ),
+    (
+        DiagnosticCode::QuickPhraseQueryFailed,
+        QUICK_PHRASE_QUERY_FAILED,
+    ),
+    (DiagnosticCode::EmojiUnavailable, EMOJI_UNAVAILABLE),
+    (DiagnosticCode::EmojiQueryFailed, EMOJI_QUERY_FAILED),
+    (DiagnosticCode::KaomojiUnavailable, KAOMOJI_UNAVAILABLE),
+    (DiagnosticCode::KaomojiQueryFailed, KAOMOJI_QUERY_FAILED),
+    (
+        DiagnosticCode::SuperJianpinUnavailable,
+        SUPER_JIANPIN_UNAVAILABLE,
+    ),
+    (
+        DiagnosticCode::SuperJianpinQueryFailed,
+        SUPER_JIANPIN_QUERY_FAILED,
+    ),
+    (
+        DiagnosticCode::LanguageDictionaryUnavailable,
+        LANGUAGE_DICTIONARY_UNAVAILABLE,
+    ),
+];
+
+impl DiagnosticCode {
+    pub const fn value(self) -> u16 {
+        self as u16
+    }
+
+    /// 一条 KeyResult 诊断文字对应的码；表外的文字是 [`DiagnosticCode::Other`]。
+    pub fn from_message(message: &str) -> Self {
+        DIAGNOSTIC_CODES
+            .iter()
+            .find(|(_, text)| *text == message)
+            .map_or(Self::Other, |(code, _)| *code)
+    }
+
+    /// 这个码的说明文字；[`DiagnosticCode::Other`] 没有固定文字。
+    pub fn message(self) -> Option<&'static str> {
+        DIAGNOSTIC_CODES
+            .iter()
+            .find(|(code, _)| *code == self)
+            .map(|(_, text)| *text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 编号一经发布就冻结，表按编号排、每条文字只出现一次，查表来回一致。
+    #[test]
+    fn diagnostic_codes_are_frozen_and_round_trip() {
+        for (index, (code, message)) in DIAGNOSTIC_CODES.iter().enumerate() {
+            assert_eq!(usize::from(code.value()), index + 1, "{message}");
+            assert_eq!(DiagnosticCode::from_message(message), *code);
+            assert_eq!(code.message(), Some(*message));
+        }
+        assert_eq!(DiagnosticCode::Other.value(), 0xFFFF);
+        assert_eq!(DiagnosticCode::Other.message(), None);
+        assert_eq!(
+            DiagnosticCode::from_message("database is locked"),
+            DiagnosticCode::Other
+        );
+        assert_eq!(
+            DiagnosticCode::from_message(NINE_KEY_DIGIT_LIMIT).value(),
+            16
+        );
+        assert_eq!(
+            DiagnosticCode::from_message(SUPER_JIANPIN_QUERY_FAILED).value(),
+            24
+        );
+        assert_eq!(
+            DiagnosticCode::from_message(LANGUAGE_DICTIONARY_UNAVAILABLE).value(),
+            25
+        );
+    }
+
+    /// 本文件里 `pub const` 字符串常量的名字和值，值可能换到下一行。
+    fn constants() -> Vec<(&'static str, &'static str)> {
+        let source = include_str!("diagnostics.rs");
+        let production = &source[..source.find("// ---- 诊断码").unwrap()];
+        production
+            .split("pub const ")
+            .skip(1)
+            .map(|item| {
+                let name = &item[..item.find(':').unwrap()];
+                let literal = &item[item.find('"').unwrap() + 1..];
+                (name, &literal[..literal.find('"').unwrap()])
+            })
+            .collect()
+    }
+
+    /// 「KeyResult diagnostics」和「Local mode query diagnostics」两段的每个常量都有码：新加的诊断忘了给码，这里会报出它的名字。
+    #[test]
+    fn every_key_result_diagnostic_constant_has_a_code() {
+        let source = include_str!("diagnostics.rs");
+        let start = source.find("// ---- KeyResult diagnostics").unwrap();
+        let end = source.find("// ---- Engine errors").unwrap();
+        let section = &source[start..end];
+        let mut checked = 0;
+        for (name, message) in constants() {
+            if section.contains(&format!("pub const {name}:")) {
+                assert_ne!(
+                    DiagnosticCode::from_message(message),
+                    DiagnosticCode::Other,
+                    "{name}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 24);
+    }
+
+    /// 直接交给 `KeyResult::with_diagnostic` 的固定常量也都有码，不管它定义在本文件哪一段：九键笔画筛选给的 `LANGUAGE_DICTIONARY_UNAVAILABLE` 在宿主门面错误那段，按分段数漏掉过它。扫的是引擎源码里每个 `with_diagnostic(...)` 的实参（测试模块除外）。
+    #[test]
+    fn every_constant_passed_to_with_diagnostic_has_a_code() {
+        fn sources(directory: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    sources(&path, found);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        /// 从左括号之后到与它配对的右括号之前，跳过字符串字面量里的括号。
+        fn argument(text: &str) -> &str {
+            let (mut depth, mut quoted, mut escaped) = (1, false, false);
+            for (index, character) in text.char_indices() {
+                match character {
+                    _ if escaped => escaped = false,
+                    '\\' if quoted => escaped = true,
+                    '"' => quoted = !quoted,
+                    '(' if !quoted => depth += 1,
+                    ')' if !quoted => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return &text[..index];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            panic!("unbalanced with_diagnostic call");
+        }
+
+        let constants = constants();
+        let mut files = Vec::new();
+        sources(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let mut passed = std::collections::BTreeSet::new();
+        for path in files {
+            let source = std::fs::read_to_string(&path).unwrap();
+            let production = source.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            for (start, call) in production.match_indices("with_diagnostic(") {
+                let argument = argument(&production[start + call.len()..]);
+                for reference in argument.split("diagnostics::").skip(1) {
+                    let name: String = reference
+                        .chars()
+                        .take_while(|character| {
+                            character.is_ascii_uppercase()
+                                || character.is_ascii_digit()
+                                || *character == '_'
+                        })
+                        .collect();
+                    if name.len() < 2 {
+                        continue;
+                    }
+                    let message = constants
+                        .iter()
+                        .find(|(constant, _)| *constant == name)
+                        .unwrap_or_else(|| panic!("{} uses unknown {name}", path.display()))
+                        .1;
+                    assert_ne!(
+                        DiagnosticCode::from_message(message),
+                        DiagnosticCode::Other,
+                        "{} passes {name} to with_diagnostic without a code",
+                        path.display()
+                    );
+                    passed.insert(name);
+                }
+            }
+        }
+        assert!(
+            passed.contains("LANGUAGE_DICTIONARY_UNAVAILABLE")
+                && passed.contains("NINE_KEY_DIGIT_LIMIT"),
+            "{passed:?}"
+        );
+    }
+}

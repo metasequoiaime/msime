@@ -52,7 +52,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     XCTAssertFalse(controller.gestureRecognizerShouldBegin(hold))
   }
 
-  /// 「长按空格语音输入」关掉后，长按改为移动光标，VoiceOver 提示和操作里都没有语音。
+  /// 「长按空格语音输入」关掉后，长按改为移动光标，键面上的麦克风、VoiceOver 提示和操作里都没有语音；再打开、键盘重新出现时麦克风回来（#10143）。
   func testTheSpaceVoiceSwitchReachesTheSpaceBar() throws {
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.spaceVoiceKey)
     addTeardownBlock {
@@ -64,10 +64,13 @@ final class SpaceVoicePanelTests: XCTestCase {
     let space = try XCTUnwrap(spaceKeys(in: controller).first)
     XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移"])
     XCTAssertTrue(space.accessibilityHint?.contains("长按移动光标") ?? false)
+    XCTAssertNil(space.configuration?.image, "no mic while long-press space voice is off")
+    XCTAssertFalse(space.configuration?.title?.isEmpty ?? true, "the scheme label stays")
     let hold = try XCTUnwrap(space.gestureRecognizers?.first { $0.name == "spaceVoiceHold" })
     XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
     KeyboardLayoutPreference.spaceVoice = true
     controller.viewWillAppear(false)
+    XCTAssertNotNil(space.configuration?.image, "the mic returns with the switch")
     XCTAssertEqual(space.accessibilityCustomActions?.map(\.name), ["光标左移", "光标右移", "语音输入"])
     XCTAssertTrue(space.accessibilityHint?.contains("按住说话，松开上屏") ?? false)
   }

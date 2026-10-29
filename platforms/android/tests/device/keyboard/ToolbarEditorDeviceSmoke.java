@@ -36,7 +36,8 @@ public final class ToolbarEditorDeviceSmoke extends DeviceSmoke {
 
         stage = "native toolbar order sheet";
         tap(node -> equalsText("按钮顺序", node.getText()));
-        await(described("保存，保存按钮顺序"));
+        // 十个按钮（含语音，#10142）的列表在折叠的面板里会把保存、取消挤到可见区以外，所以只要求节点存在；后面的点击走无障碍动作，不依赖它在屏幕上。
+        awaitAny(described("保存，保存按钮顺序"));
         stage = "cancel toolbar order sheet";
         tap(described("取消，放弃本次调整"));
         awaitToolbarEditor();

@@ -279,6 +279,10 @@ pub struct TouchTuning {
     pub show_margin: f64,
     /// 同时要求纠错整句改动的每一键在落点下的价都不超过它，落点才算支持这次改正。打对的输入里，按在键心附近的那一键改过去的价高，挡在这条线外；只看分数差时，字面整句本来就排得很靠后的那些用例常有一条分数接近的纠错整句，它坐到整句块之后，把金标准往后挤一位。
     pub show_penalty: f64,
+    /// m_sp（方案里的 `shuangpin_touch_lead_margin`）：纠错整句坐首选要求它的分数（已扣罚分）比字面整句高出这么多乘以纠错边数（`TypoSentence::leads`）。双拼触点专用，不复用全拼值为无穷大的 `typo_lead_margin`；只在 Rust 侧可调，宿主经 FFI 设不了。无穷大时首选规则整个不起作用。
+    pub lead_margin: f64,
+    /// P_LEAD：坐首选还要求改动的每一键在落点下改过去的价（不打学习折扣）都不超过它。按在键心的字母改到邻键的价接近 B + s，挡在这条线外，所以打在键心的字母永远不会被首选改掉。
+    pub lead_penalty: f64,
 }
 
 impl Default for TouchTuning {
@@ -295,6 +299,8 @@ impl Default for TouchTuning {
             cut: 16.0,
             show_margin: 6.0,
             show_penalty: 14.0,
+            lead_margin: f64::INFINITY,
+            lead_penalty: 10.0,
         }
     }
 }

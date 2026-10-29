@@ -31,7 +31,7 @@ pub enum BackendError {
     InvalidRequest,
     /// A personal dictionary entry failed validation.
     InvalidDictionaryEntry,
-    /// The resource directory lacks a file the operation reads, or the file cannot be opened.
+    /// The resource directory lacks a file the operation reads, the file cannot be opened, or a dictionary is in a newer format than this engine reads.
     ResourcesUnavailable,
     /// The operation failed after its input was accepted.
     EngineFailure,
@@ -81,6 +81,7 @@ pub fn execute(
         if request.operation() == "convert" {
             return text_tools::convert(&request, roots, simplified_to_traditional);
         }
+        check_dictionary_formats(roots)?;
         route(&request, roots)
     });
     match answer {
@@ -105,6 +106,28 @@ pub fn execute_raw(
         }
         _ => BackendError::InvalidRequest.response(),
     }
+}
+
+/// 后端直接打开资源目录里的词库，不经过建会话（`Session::new`）或准备代次，所以在这里按同样的规则查主库、五笔库和 `msime-others.db` 的文件内版本：比这个引擎新的格式整次请求都不答，免得旧的后端照旧格式读新发布的词库。文件不在或打不开时什么也不做，由各个操作按原来的方式报告。
+fn check_dictionary_formats(roots: Roots) -> Result<(), BackendError> {
+    // 资源根不是绝对路径时不去碰工作目录里的同名文件，读文件的操作自己会报 `resources_unavailable`。
+    if roots.require_resources().is_err() {
+        return Ok(());
+    }
+    let paths = crate::RuntimePaths {
+        resources: roots.resources.to_path_buf(),
+        user_data: std::path::PathBuf::new(),
+        cache: std::path::PathBuf::new(),
+        dictionaries: roots.resources.to_path_buf(),
+    };
+    crate::user_dictionary::generation::check_read_only_layout(&paths)
+        .and_then(|()| {
+            crate::user_dictionary::generation::check_dictionary_format(
+                &roots.resource(assets::OTHER_DICTIONARY),
+                assets::OTHER_DICTIONARY,
+            )
+        })
+        .map_err(|_| BackendError::ResourcesUnavailable)
 }
 
 /// Answer one parsed request against `roots`. A personal query calls this again with `dictionaries` pointing at the user's replayed generation.

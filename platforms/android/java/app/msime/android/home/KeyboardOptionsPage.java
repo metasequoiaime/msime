@@ -291,11 +291,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         gestures.note("空格键上滑后松手可复制当前输入框的全文，滑回可取消；复制预览遵守下方剪贴板设置。长按语音开始后，上滑仍用于取消语音。");
         renderTrackpad(sectionColumn(target, "手势"), preferences, state.trackpadOptions());
 
-        JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
-        if (toolbar == null) toolbar = new JSONObject();
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
-        bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin(),
+        bar.addView(toolbarPreview(requireContext(), preferences, settings, state.skin(),
             TouchKeyStyle.Row.LONG_SPACE.wire.equals(JsonPolicy.strictString(
                 preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)))));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
@@ -309,8 +307,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
             String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
-                ? "由当前应用处理；部分输入框不支持，密码框不可用" : null;
-            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(toolbar, settings, member),
+                ? "由当前应用处理；部分输入框不支持，密码框不可用"
+                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION : null;
+            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(preferences, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -373,18 +372,24 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     }
 
+    /** 工具栏设置里「语音」开关的说明：打开它等于语音设置的启动方式选「工具栏按钮」，长按空格语音会一起关掉（`saveToolbar`）。 */
+    static final String VOICE_TOGGLE_DESCRIPTION = "点按开始语音输入；打开时关闭长按空格语音，等同「语音输入 → 启动方式」选「工具栏按钮」";
+
     private static java.util.List<ToolbarOrderPolicy.Item> toolbarOrder(AndroidLocalSettings.Snapshot settings) {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
-    /** 工具栏按钮是否开启：本地项读取本地设置，其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
-    private static boolean toolbarButton(JSONObject toolbar, AndroidLocalSettings.Snapshot settings, String member) {
+    /** 工具栏按钮是否开启：本地项读取本地设置，语音读共享偏好顶层的 `touch_voice_shortcut`（缺键为关），其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
+    private static boolean toolbarButton(JSONObject preferences, AndroidLocalSettings.Snapshot settings, String member) {
         if (AndroidLocalSettings.specs().containsKey(member)) return settings.bool(member);
+        if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) return preferences.optBoolean(member, false);
+        JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
+        if (toolbar == null) return !member.equals("undo") && !member.equals("redo");
         return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。26 键选了长空格样式时符号入口在工具栏上，预览也画出来。 */
-    private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
+    private static View toolbarPreview(Context context, JSONObject preferences, AndroidLocalSettings.Snapshot settings,
                                        KeyboardSkin skin, boolean longSpace) {
         LinearLayout strip = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(strip);
@@ -401,7 +406,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
-            anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
+            anyButton |= toolbarButton(preferences, settings, button.preferenceKey);
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         if (hidden && !longSpace) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
@@ -414,7 +419,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), sizePercent);
             if (longSpace) addChip(context, plate, "符", icon, sizePercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
+                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, ToolbarSizePolicy.buttonHeightDp(sizePercent)));
         strip.setContentDescription("工具栏预览");
@@ -735,10 +740,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         savePreferences(preferences -> KeyboardSheets.child(preferences, "android_text_trackpad").put(key, value));
     }
 
-    /** 改一个工具栏开关（`touch_toolbar` 的成员或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
+    /** 改一个工具栏开关（`touch_toolbar` 的成员、语音的 `touch_voice_shortcut` 或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
     private void saveToolbar(String member, boolean value) {
         if (AndroidLocalSettings.specs().containsKey(member)) {
             KeyboardSheets.saveLocal(this, member, value, this::reload, this::reload);
+            return;
+        }
+        // 打开语音按钮和语音页选「工具栏按钮」一样，一起关掉本地的长按空格语音，空格键上的麦克风随之消失（#10142 要两处入口不并存，#10143）；否则两个都开时语音页「启动方式」只能显示「长按空格」，再点一次它就会把这里刚打开的按钮关掉。关掉按钮只改这一项，不替用户打开长按空格。先写本地再写共享，与 VoicePage.saveTrigger 同序。
+        if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) {
+            HostTask.run(this, context -> !value || KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE, false)
+                ? KeyboardSheets.write(context, preferences -> preferences.put(member, value))
+                : null, saved -> {
+                    if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
+                    reload();
+                });
             return;
         }
         KeyboardSheets.save(this, preferences -> KeyboardSheets.child(preferences, "touch_toolbar").put(member, value),

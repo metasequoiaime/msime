@@ -1504,6 +1504,7 @@ fn main() -> Result<()> {
     }
 
     product::split_wubi_database(&build.out)?;
+    product::stamp_format_versions(&build.out)?;
 
     for name in product::SHIPPING_ARTIFACTS
         .iter()
