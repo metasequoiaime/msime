@@ -746,6 +746,19 @@ impl TelemetryStore {
 
     /// 补收本地崩溃记录，再排进当天的 `active`。不开始新会话，设置应用和长时间运行的宿主也能补报，不必等待键盘再次启动。
     pub fn record_active(&self, app: &TelemetryApp, now: SystemTime) -> Result<(), TelemetryError> {
+        self.record_activity(app, Some(now))
+    }
+
+    /// 只补收原有崩溃，不把代收的宿主算作今天活跃；调用方仍须先核对实际授权代次。
+    pub fn collect_crashes(&self, app: &TelemetryApp) -> Result<(), TelemetryError> {
+        self.record_activity(app, None)
+    }
+
+    fn record_activity(
+        &self,
+        app: &TelemetryApp,
+        now: Option<SystemTime>,
+    ) -> Result<(), TelemetryError> {
         let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
@@ -763,7 +776,8 @@ impl TelemetryStore {
         }
         let collected =
             self.ingest_crash_records(&directory, app, &mut state, &install_id, &mut queue)?;
-        let active = push_active(&mut state, &mut queue, app, &install_id, now);
+        let active =
+            now.is_some_and(|now| push_active(&mut state, &mut queue, app, &install_id, now));
         if active || !collected.records.is_empty() {
             self.write_queue(&queue)?;
             self.write_state(&state)?;

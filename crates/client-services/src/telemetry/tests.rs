@@ -1648,3 +1648,41 @@ fn maximum_sessions_and_receipts_fit_the_state_read_limit() {
     assert_eq!(store.read_state().received_crashes, state.received_crashes);
     assert_eq!(store.read_state().open_sessions.len(), MAX_OPEN_SESSIONS);
 }
+
+#[test]
+fn collecting_another_hosts_crashes_does_not_mark_it_active_today() {
+    let (_directory, store) = store();
+    let session = store.begin_session(&app(), noon()).unwrap();
+    let sender = ScriptedSender::new([]);
+    assert_eq!(store.flush(&sender, noon()).unwrap().sent, 1);
+    let active_day = store.read_state().active_day;
+    store
+        .record_crash_for(
+            &session.session_id,
+            "Synthetic fatal error",
+            "synthetic.so+0x123",
+        )
+        .unwrap();
+    let collector = TelemetryApp::new("linux", "99.0.0")
+        .unwrap()
+        .with_component("desktop")
+        .unwrap();
+    store.collect_crashes(&collector).unwrap();
+    let events = store.queued().unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(events
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Crash));
+    assert!(events
+        .iter()
+        .any(|event| event.kind == TelemetryKind::SessionCrash));
+    assert!(events.iter().all(|event| event.version == app().version()));
+    assert_eq!(store.read_state().active_day, active_day);
+    assert!(!store.directory.join(SESSION_FILE).exists());
+    assert!(!session.crash_record_path.exists());
+    assert_eq!(store.flush(&sender, noon()).unwrap().sent, 2);
+    TelemetryStore::new(store.directory())
+        .collect_crashes(&collector)
+        .unwrap();
+    assert!(store.queued().unwrap().is_empty());
+}

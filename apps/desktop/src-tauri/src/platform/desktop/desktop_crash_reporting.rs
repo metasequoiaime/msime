@@ -190,13 +190,21 @@ impl Reporter {
         store: &TelemetryStore,
         consent: UsageReportingConsent,
         sender: &impl TelemetrySender,
+        record_active: bool,
     ) -> Option<FlushReport> {
+        // 代收不能初始化从未使用的框架目录，或为另一套输入法增加日活。
+        if !record_active && !store.directory().is_dir() {
+            return None;
+        }
         // 本地准备按偏好、队列顺序加锁，发送期间不持偏好锁。
         let epoch = consent.epoch.to_string();
         let store = with_consent_epoch(&self.preferences, &epoch, store, |bound, _| {
-            bound
-                .record_active(&self.app, SystemTime::now())
-                .map_err(|error| error.to_string())?;
+            if record_active {
+                bound.record_active(&self.app, SystemTime::now())
+            } else {
+                bound.collect_crashes(&self.app)
+            }
+            .map_err(|error| error.to_string())?;
             Ok(bound.clone())
         })
         .ok()??;
@@ -236,15 +244,16 @@ pub(crate) fn refresh() {
         .name("msime-desktop-telemetry".to_owned())
         .spawn(move || {
             if let Ok(sender) = backend_sender() {
-                let _ = reporter.flush(&reporter.store, consent, &sender);
+                let _ = reporter.flush(&reporter.store, consent, &sender, true);
                 #[cfg(target_os = "linux")]
                 {
-                    // Fcitx5 的会话目录与 IBus 分开，补收时也绑定同一实际授权。
+                    // Fcitx5 的会话目录与 IBus 分开，只代收既有目录，不为未使用的框架计日活。
                     if let Some(root) = directory() {
                         let _ = reporter.flush(
                             &TelemetryStore::new(root.join("fcitx5")),
                             consent,
                             &sender,
+                            false,
                         );
                     }
                 }

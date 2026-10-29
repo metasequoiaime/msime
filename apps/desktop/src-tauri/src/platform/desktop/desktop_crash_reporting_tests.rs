@@ -259,7 +259,12 @@ fn blocked_send(reopen_while_blocked: bool) {
     let worker_reporter = Arc::clone(&reporter);
     let worker_sender = Arc::clone(&sender);
     let worker = std::thread::spawn(move || {
-        worker_reporter.flush(&worker_reporter.store, consent, worker_sender.as_ref())
+        worker_reporter.flush(
+            &worker_reporter.store,
+            consent,
+            worker_sender.as_ref(),
+            true,
+        )
     });
     sender.entered.wait();
     let (written, observed) = mpsc::channel();
@@ -289,7 +294,7 @@ fn blocked_send(reopen_while_blocked: bool) {
         .unwrap();
     assert_ne!(reopened.epoch, consent.epoch);
     assert!(reporter
-        .flush(&reporter.store, consent, sender.as_ref())
+        .flush(&reporter.store, consent, sender.as_ref(), true)
         .is_none());
     assert_eq!(sender.calls.load(Ordering::SeqCst), 1);
 }
@@ -298,4 +303,72 @@ fn blocked_send(reopen_while_blocked: bool) {
 fn in_flight_send_does_not_block_revoke_or_send_next_event() {
     blocked_send(false);
     blocked_send(true);
+}
+
+#[derive(Default)]
+struct RecordingSender(Mutex<Vec<serde_json::Value>>);
+
+impl TelemetrySender for RecordingSender {
+    fn send(&self, body: &[u8]) -> Delivery {
+        self.0
+            .lock()
+            .unwrap()
+            .push(serde_json::from_slice(body).unwrap());
+        Delivery::Accepted
+    }
+}
+
+#[test]
+fn collecting_fcitx_crashes_does_not_create_an_unused_host_or_an_active_event() {
+    let root = tempfile::tempdir().unwrap();
+    let reporter = reporter(root.path());
+    let consent = reporter
+        .preferences
+        .usage_reporting_consent()
+        .unwrap()
+        .unwrap();
+    let store = TelemetryStore::new(root.path().join("fcitx5"));
+    let sender = RecordingSender::default();
+    assert!(reporter.flush(&store, consent, &sender, false).is_none());
+    assert!(!store.directory().exists());
+    assert!(sender.0.lock().unwrap().is_empty());
+
+    let bound = reporter
+        .preferences
+        .with_usage_reporting_consent(|_, _| store.activate_consent_epoch(consent.epoch).unwrap())
+        .unwrap();
+    let original = TelemetryApp::new("linux", "0.1.0").unwrap();
+    let previous = SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_856_000);
+    let capture = bound.begin_session(&original, previous).unwrap();
+    assert_eq!(bound.flush(&sender, previous).unwrap().sent, 1);
+    sender.0.lock().unwrap().clear();
+    bound
+        .record_crash_for(
+            &capture.session_id,
+            "Synthetic fatal error",
+            "synthetic.so+0x123",
+        )
+        .unwrap();
+    assert_eq!(
+        reporter
+            .flush(&store, consent, &sender, false)
+            .unwrap()
+            .sent,
+        2
+    );
+    let events = sender.0.lock().unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().any(|event| event["kind"] == "crash"));
+    assert!(events.iter().any(|event| event["kind"] == "session_crash"));
+    assert!(events.iter().all(|event| event["version"] == "0.1.0"));
+    drop(events);
+    assert!(!capture.crash_record_path.exists());
+    assert_eq!(
+        reporter
+            .flush(&store, consent, &sender, false)
+            .unwrap()
+            .sent,
+        0
+    );
+    assert_eq!(sender.0.lock().unwrap().len(), 2);
 }
