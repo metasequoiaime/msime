@@ -63,6 +63,12 @@ def main():
         raw = shell("cat " + telemetry + "/telemetry.json", check=False)
         return [event for event in json.loads(raw or "[]") if event.get("kind") == "crash"]
 
+    def crash_context(event):
+        marker = "\n[msime-crash-v1] "
+        message = event.get("message", "")
+        assert marker in message, "system crash lost its crash build identity"
+        return json.loads(message.split(marker, 1)[1])
+
     def crash():
         output = shell("am instrument -w -e phase system-crash "
                        "app.msime.android.test/app.msime.android.test.DiagnosticConsentDeviceSmoke")
@@ -97,8 +103,13 @@ def main():
         crash()
         # 夹具只解除现场采集，真实 ActivityManager 历史补录仍走产品入口。
         start()
-        wait(lambda: any(event.get("message", "").startswith("Crash Android system reason ")
-                         for event in crashes()), "actual system exit collection")
+        first = wait(lambda: [event for event in crashes()
+                              if event.get("message", "").startswith("Crash Android system reason ")],
+                     "actual system exit collection")
+        assert len(first) == 1, "system crash must create one diagnostic"
+        identity = crash_context(first[0])
+        assert identity["component"] == "application", "system crash component identity changed"
+        assert identity["version"] != "unknown", "system crash lost the app version"
         assert read(ledger) == old, "continuous consent changed at restart"
         print("API 35: actual system exit -> queue; continuous consent survived restart", flush=True)
 

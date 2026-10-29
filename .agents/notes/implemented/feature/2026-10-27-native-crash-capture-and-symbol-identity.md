@@ -127,6 +127,8 @@ Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能�
 
 - Android API 35 的 Native Platform CI `40621677101` 在构建 APK 的符号归档阶段拒绝缺少 build-id 的 `libmsime_host_api.so`，设备四组共享单测此前已通过。修复后 `scripts/test-android-crash-symbols.py` 直接读取生产 `RUSTFLAGS`，用固定 NDK 28.2 为 aarch64 与 x86_64 编译合成 Rust cdylib，两个架构的 40 位 build-id、16KB LOAD 对齐、符号归档与函数/源码第三行还原均通过；暂时移除生产 Rust build-id 参数时，同一回归以归档器拒绝无身份 ELF 失败，恢复源码后差异检查通过。此专项不编译完整 Host API、不替代实际 APK 构建和设备验收；完整构建结果另记。
 
+- Android API 30+ 的 `ApplicationExitInfo` 现在优先把真实 PID 交给共享遥测层。这样键盘进程的历史致命故障会按持久会话标记认领，复用故障发生时的版本、提交、运行号、架构和组件，而不是用 `unknown` 构造一个新的独立身份；ANR 和低内存仍保持独立诊断语义，没有 PID 的旧系统也保留稳定回退。`telemetry-consent.py` 增加了真实系统故障的构建身份断言；本地 Android host 门禁、Python 语法、笔记校验和差异检查已通过，完整 API 35 设备门禁等待本轮 CI。
+
 ## Consequences
 
 Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源码树没有生成的安装身份时安静停用；安装门禁必须确认桥、Python 模块和生成路径齐全。Linux 原来仅依赖 JSON/X11 的剪贴板工具与本地语音 helper 因此新增 Host API 共享库依赖，安装 RPATH 随接入一并设置；每个独立工具也承担一条同意观察线程。新增入口让独立进程和原生故障进入既有队列，构建身份能指导选择精确符号。队列容量不再允许普通统计挤掉崩溃；全为崩溃时保留后续原文件。共享层异常写入完整落盘后原子发布，损坏的新格式身份不回退为当前版本。
