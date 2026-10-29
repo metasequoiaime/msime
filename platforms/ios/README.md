@@ -295,6 +295,10 @@ xcrun simctl install booted "$app"
 
 「键盘 › 按键布局」26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`，默认关）把手机 26 键底行的 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格按九键一族的次序排（符 | 返回）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，文档缺键或写 `platform_default` 时是 iOS 原来的「空格在 0 右边」。空格在右列时右列第三格的 ！ 让位给一个与底行空格同一工厂的空格键（`numberPadColumnSpaceKey`），底行空格隐藏；右侧大回车不受影响。iOS 不随账号同步这两项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
+## 中/英键放在空格左边
+
+「键盘 › 按键布局」每个分段的样式卡片里、当前样式说明下面（26 键排在「符」与「123」互换之后）的「中/英键放在空格左边」（共享偏好 `touch_language_key_side`，`right` 默认、`left`；只有恰好写着 `left` 时算左）在样式、互换和数字键盘空格位置都排完之后，把中/英左边紧挨着的那一串空格、0、逗号、句号整串右移一格，中/英排到这一串最左边，宽度不变（`TouchBottomRowLayout.languageBeforeSpace`）。没有标点贴着空格的行中/英紧挨空格，有标点的行（逗号句号、长空格、14/18 键、英文的句点、手写）标点仍紧挨空格。作用于手机底行（26 键一族、14/18 键、大千、手写）和九键外框（字母层、数字层、借来的数字九宫格、右侧大回车）；没有表的那几种排法由 `arrangeActionRow` 对按键视图套同一条规则，宽度约束照旧。iPad 全尺寸底行和 123 / #+= 层不变；隐藏了中/英键时不起作用，开关照样显示、照样写偏好。密码框和数字框照用户的选择，不退回。iOS 不随账号同步这一项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
+
 ## 运行 iOS Swift 测试
 
 `KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过 XcodeGen 生成工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：
