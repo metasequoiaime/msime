@@ -108,3 +108,10 @@ WER 可能被宿主自有处理器、调试器或系统策略绕过；系统回�
 负对照只把稳定等待改回 500 ms，新增回归实际以 `idle observer still polls consent every 500 ms` 失败；恢复逐字节生产源码并强制更新时间后重新构建，两条 CTest 通过。另一个合成 x64 进程不通知地撤回授权，最初两秒保持原状态，在约 28.985 秒后由三十秒兜底复核解除武装，只新增一次读取。低频兜底不是永久缓存授权。首轮测试的变量遮蔽被 `/WX` 拒绝，改名后完整重跑；一次传输未结束就启动包装器只得到文件缺失，未算执行通过。
 
 同一代码快照的完整 quick 与包装器均退出 0，12,444 个源码条目前后相同。203 项可移植 Windows 用例、契约、Rust workspace/Android/wasm、Android 宿主、鸿蒙 HAP、macOS 原生和 Apple bridge 编译通过；远端没有 Docker/MinGW，Linux 原生/设置及 Windows 原生/pipe-only/x86 语法跳过。另复用本机已有独立测试缓存完成 MinGW x64 严格编译链接；外层残留 CMakeCache 没有 Makefile 的首次命令失败，改用实际 `capture-lifecycle` 缓存才编译通过。以上不代替完整产品、编辑器、Win7 或 ARM64 运行验收。
+
+
+### CI 的目标退出超时
+
+候选 `95cc68519e` 的 Native Platform CI `40853458086` 实际完成 x64 七组系统 WER；x86 `tip` 通过，随后 `host` 在 45 秒目标退出等待处失败。上传 artifact 已有该 `host` 的唯一完整原头记录及 `msime_host_api.dll+0x3fb0e`，不能把这个失败称为未采集，也不能把落盘等同于系统原处置已经结束。x64/x86 的 CTest 已通过。当前没有转储或仍存活的 runner 进程，目标为何未退出尚未确认。
+
+包装器原先只在目标正常结束后保存 stdout/stderr，超时会丢失这部分证据。超时现在先写合成案例名、PID、目标结束状态和已完成/未完成记录名，失败清理后仅保存已经完成的输出任务，不能在诊断阶段再无限等待管道。四十五秒期限、致命退出码、原头、记录数量和允许列表清理断言保持原样；不据单份记录跳过失败，也不延长超时掩盖根因。更新后的同源脚本在 PVE 重新完成 MSVC x64/x86 构建、回调及生命周期 CTest、各七组真实系统 WER，用例全部通过。独立合成进程写入固定输出和完成/部分记录后休眠，实际包装器在原四十五秒期限失败，超时 JSON、输出保存、子进程回收及允许列表清理均通过；此探针不触发真实故障或上传。243 个输入文件前后相同，证据为 `target/pve-timeout-c713-evidence/`。同一快照的完整 quick 与包装器退出 0，12,444 个源码条目前后一致；可移植 Windows 203 项、契约/笔记、Rust workspace/Android/wasm、Android Java、鸿蒙 HAP、macOS 与 Apple bridge 通过，远端缺 Docker/MinGW 的 Linux/Windows 阶段跳过。证据为 `target/wer-timeout-quick-evidence/`，随后仅补充本篇验证结果；仍须核对新 CI，专项复跑通过不能解释旧 runner 的退出超时。

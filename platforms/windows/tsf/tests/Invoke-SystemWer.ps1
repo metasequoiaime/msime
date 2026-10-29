@@ -29,12 +29,28 @@ if ($key.GetValueNames() -contains $helper) {
   throw '测试路径已经在允许列表中，拒绝覆盖'
 }
 $process = $null
+$stdout = $null
+$stderr = $null
+$caseDirectory = $null
+function Save-CaseOutput {
+  # 超时也保留已读取的诊断；只能取已完成任务，不能让失败清理再卡在管道上。
+  if ($caseDirectory) {
+    if ($stdout -and $stdout.Status -eq [Threading.Tasks.TaskStatus]::RanToCompletion) {
+      [IO.File]::WriteAllText((Join-Path $caseDirectory 'stdout.txt'), $stdout.GetAwaiter().GetResult())
+    }
+    if ($stderr -and $stderr.Status -eq [Threading.Tasks.TaskStatus]::RanToCompletion) {
+      [IO.File]::WriteAllText((Join-Path $caseDirectory 'stderr.txt'), $stderr.GetAwaiter().GetResult())
+    }
+  }
+}
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
   foreach ($case in @('tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
     $caseDirectory = Join-Path $output $case
     New-Item -ItemType Directory -Path $caseDirectory | Out-Null
+    $stdout = $null
+    $stderr = $null
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo.FileName = $executable
     $process.StartInfo.Arguments = "$case `"$caseDirectory`""
@@ -45,7 +61,17 @@ try {
     # 夹具只写有界诊断；先开始读取，避免子进程管道互相等待。
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(45000)) { throw "$case 的系统 WER 投递超时" }
+    if (-not $process.WaitForExit(45000)) {
+      # 记录已经落盘不代表系统处置已结束；保留两者状态，不延长期限或放宽退出码断言。
+      [ordered]@{
+        case = $case
+        target_pid = $process.Id
+        target_has_exited = $process.HasExited
+        completed_records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.crash' -File | ForEach-Object Name)
+        partial_records = @(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.werpartial' -File | ForEach-Object Name)
+      } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $caseDirectory 'timeout.json') -Encoding UTF8
+      throw "$case 的系统 WER 投递超时"
+    }
     $process.WaitForExit()
     [IO.File]::WriteAllText((Join-Path $caseDirectory 'stdout.txt'), $stdout.GetAwaiter().GetResult())
     [IO.File]::WriteAllText((Join-Path $caseDirectory 'stderr.txt'), $stderr.GetAwaiter().GetResult())
@@ -86,6 +112,7 @@ try {
 } finally {
   if ($process) {
     if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+    Save-CaseOutput
     $process.Dispose()
   }
   $key.DeleteValue($helper, $false)
