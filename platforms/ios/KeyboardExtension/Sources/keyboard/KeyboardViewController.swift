@@ -467,6 +467,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   /// 非标准样式底行的宽度约束，按 `TouchBottomRowLayout` 的一行缓存，换样式或换键面时整组停用再启用另一组。
   private var styledActionWidthCache: [[TouchBottomRowLayout.Key]: [NSLayoutConstraint]] = [:]
+  /// 借来的数字九宫格在另两种空格位置下的宽度约束（`borrowedNumberPadWidths`）。
+  private var borrowedNumberPadWidthCache: [BorrowedNumberPadWidthsKey: [NSLayoutConstraint]] = [:]
+  private struct BorrowedNumberPadWidthsKey: Hashable {
+    let space: TouchNumberPadSpace
+    let hidesLanguage: Bool
+    let globe: Bool
+  }
   private var activeStyledActionWidths: [NSLayoutConstraint] = []
   /// 九键「右侧大回车」底行的宽度约束（`tallReturnActionWidths`），按行和底行键距缓存：约束的常数里扣了键距，键距一变就是另一组。
   private var tallReturnActionWidthCache: [TallReturnWidthsKey: [NSLayoutConstraint]] = [:]
@@ -478,6 +485,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private weak var tallReturnKey: UIButton?
   /// 「右侧大回车」在底行原来回车的位置留出的空格，与右列同宽，伸下来的回车盖在它上面。
   private let tallReturnSlot = UIView()
+  /// 数字键盘选了「空格在右列」（`touch_number_pad_space`）时右列第三格的空格（`installNumberPadColumnSpace`）：叠在 ！ 上，手势与底行空格相同，底行的空格这时隐藏。
+  private weak var numberPadColumnSpace: UIButton?
   /// 九键右列第三格的 ！；「右侧大回车」时它让出位置给回车，！ 改由符号栏末尾的 `nineKeySidebarClosingMark` 输入。
   private weak var nineKeyClosingButton: UIButton?
   private weak var nineKeySidebarClosingMark: UIButton?
@@ -1343,8 +1352,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     actionRow = makeActionRow()
     keyColumn.addArrangedSubview(actionRow)
     installTallReturnKey()
-    // 右侧大回车不在任何一行里，单独告诉键区让它分到相邻键距里靠它的那一半。
-    root.overlayKeys = [tallReturnKey].compactMap { $0 }
+    installNumberPadColumnSpace()
+    // 右侧大回车和数字层右列的空格不在任何一行里，单独告诉键区让它们分到相邻键距里靠它们的那一半。
+    root.overlayKeys = [tallReturnKey, numberPadColumnSpace].compactMap { $0 }
     // 中/英紧挨回车的底行（手机、九键），回车把键帽左边几 pt 让给中/英；别的排法里两者不相邻，不起作用。
     root.yieldingKey = enterButton
     root.yieldReceiver = bottomLanguageButton
@@ -1919,15 +1929,41 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     tallReturnKey = enter
   }
 
-  /// 换上或撤下九键「右侧大回车」的外框：右列第三格的 ！ 让位给伸下来的回车（留着占位、不画不接触摸），！ 接到符号栏默认标点的末尾。底行由 `TouchBottomRowLayout.nineKeyTallReturn` 排，数字层符号栏里的 符 随底行一起挪走（`updateKeyboardLayout` 按底行有没有 符 决定）。
+  /// 数字键盘「空格在右列」时右列第三格的空格：与底行空格同一个工厂（`makeSpaceKey`），轻点、拖动移光标和长按语音都相同；叠在 ！ 上，按 ！ 的四边约束，不在任何一行里。只在数字层、不是右侧大回车、选了 `rightColumn` 时显示（`applyNumberPadColumnSpace`）。
+  private func installNumberPadColumnSpace() {
+    guard let closing = nineKeyClosingButton else { return }
+    let space = makeSpaceKey()
+    space.accessibilityIdentifier = "numberPadColumnSpaceKey"
+    space.isHidden = true
+    space.translatesAutoresizingMaskIntoConstraints = false
+    keyColumn.addSubview(space)
+    NSLayoutConstraint.activate([
+      space.leadingAnchor.constraint(equalTo: closing.leadingAnchor),
+      space.trailingAnchor.constraint(equalTo: closing.trailingAnchor),
+      space.topAnchor.constraint(equalTo: closing.topAnchor),
+      space.bottomAnchor.constraint(equalTo: closing.bottomAnchor),
+    ])
+    numberPadColumnSpace = space
+  }
+
+  /// 换上或撤下数字层右列的空格：显示时底行的空格隐藏、右列的 ！ 让位（留着占位、不画不接触摸）。
+  private func applyNumberPadColumnSpace(_ shown: Bool) {
+    if numberPadColumnSpace?.isHidden == shown { numberPadColumnSpace?.isHidden = !shown }
+    if spaceButton?.isHidden != shown { spaceButton?.isHidden = shown }
+  }
+
+  /// 右列第三格的 ！ 让位：「右侧大回车」伸下来的回车或数字层右列的空格盖在它上面时，留着占位、不画不接触摸。
+  private func applyNineKeyClosingCovered(_ covered: Bool) {
+    guard let closing = nineKeyClosingButton else { return }
+    closing.alpha = covered ? 0 : 1
+    closing.isUserInteractionEnabled = !covered
+    closing.isAccessibilityElement = !covered
+  }
+
+  /// 换上或撤下九键「右侧大回车」的外框：右列第三格的 ！ 让位给伸下来的回车（`applyNineKeyClosingCovered`），！ 接到符号栏默认标点的末尾。底行由 `TouchBottomRowLayout.nineKeyTallReturn` 排，数字层符号栏里的 符 随底行一起挪走（`updateKeyboardLayout` 按底行有没有 符 决定）。
   private func applyNineKeyTallReturn(_ shown: Bool) {
     if tallReturnKey?.isHidden == shown { tallReturnKey?.isHidden = !shown }
     if nineKeySidebarClosingMark?.isHidden == shown { nineKeySidebarClosingMark?.isHidden = !shown }
-    if let closing = nineKeyClosingButton {
-      closing.alpha = shown ? 0 : 1
-      closing.isUserInteractionEnabled = !shown
-      closing.isAccessibilityElement = !shown
-    }
   }
 
   /// 九键外框的左列；！ 是右列的最后一个键（`nineKeyClosingMark`）。
@@ -3328,7 +3364,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var activeKeyLayoutStyle: TouchKeyLayoutStyle {
     guard Self.keepsStandardBottomRows(keyboardType: inputContext.keyboardType, secure: textDocumentProxy.isSecureTextEntry,
                                        contentType: textDocumentProxy.textContentType ?? nil) else { return keyLayoutStyle }
-    return TouchKeyLayoutStyle(numberRow: keyLayoutStyle.numberRow)
+    // 「符」与「123」互换和数字键盘空格位置是键位习惯，不随输入框退回：标准底行同样有 符，数字框里的数字键盘也按用户选的排法画。
+    return TouchKeyLayoutStyle(numberRow: keyLayoutStyle.numberRow, symbolFirst: keyLayoutStyle.symbolFirst,
+                               numberPadSpace: keyLayoutStyle.numberPadSpace)
   }
 
   /// 输入框是否保留标准底行：安全输入或内容类型标成密码的框，以及数字键盘、小数键盘和电话键盘这些只收数字的框，对应 Android 的 `EditorPolicy.password` 与 `numberInput`。系统通常不在安全输入框和电话键盘里调用第三方键盘，宿主仍然调用时也按这条退回。不是 private：测试会固定它。
@@ -3840,9 +3878,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return actions
   }
 
-  /// 底部那一排的两个空格键；第二个只在分离式键盘里显示，标题随第一个一起更新。
+  /// 底部那一排的两个空格键和数字层右列的空格；第二个只在分离式键盘里显示，第三个只在数字键盘「空格在右列」时显示，标题随第一个一起更新。
   private var spaceKeys: [UIButton] {
-    [spaceButton, splitSpaceButton].compactMap { $0 }
+    [spaceButton, splitSpaceButton, numberPadColumnSpace].compactMap { $0 }
   }
 
   private func makeDeleteKey() -> UIButton {
@@ -6273,6 +6311,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 九键「右侧大回车」：拼音九键、九键双拼和笔画自己的字母层和数字层；从别的键面借来的数字九宫格不跟九键的样式。
     let tallReturn = nineKeyFrame && (nineKey || strokes) && activeKeyLayoutStyle.nineKey == .tallReturn
     applyNineKeyTallReturn(tallReturn)
+    // 数字键盘「空格在右列」（`touch_number_pad_space`）：右列第三格是空格，底行没有空格；右侧大回车有自己的数字层，不受它影响。
+    let numberPadSpace = activeKeyLayoutStyle.numberPadSpace
+    let columnSpace = numberPad && !tallReturn && numberPadSpace == .rightColumn
+    applyNumberPadColumnSpace(columnSpace)
+    applyNineKeyClosingCovered(tallReturn || columnSpace)
+    // 「符」与「123」互换后 26 键字母层以 符 打头，从它借来的数字九宫格按九键一族的次序排（符 | 返回），返回键仍在字母层 123 那一格。
+    let symbolFirstSource = numberPad && !nineKey && !strokes && activeKeyLayoutStyle.symbolFirst
+      && chineseTwentySixKeyboard && [.standard, .commaPeriod].contains(activeKeyLayoutStyle.twentySixKey)
     updateNineKeyMiddleKey()
     updateNineKeySidebar()
     if actionRow != nil {
@@ -6283,7 +6329,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
       let styledRow = styledBottomRow(style: style, letterRows: letterRowsShown, letterGrid: fourteenKeyRows,
-                                      numberPad: numberPad, nineKeyDigits: numberPad && (nineKey || strokes),
+                                      numberPad: numberPad, nineKeyDigits: numberPad && (nineKey || strokes || symbolFirstSource),
                                       tallReturn: tallReturn, language: KeyboardLayoutPreference.geometry.showsBottomLanguage)
       let styledSlots = Set(styledRow?.map(\.slot) ?? [])
       // 数字层底行带 符 时（拼音九键、九键双拼和笔画的数字层，含右侧大回车），符号栏里不再放第二个 符；借来的数字九宫格仍在符号栏第三排放 符。
@@ -6291,7 +6337,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if numberPadSymbolsKey?.isHidden == sidebarSymbols { numberPadSymbolsKey?.isHidden = !sidebarSymbols }
       nineKeyPunctuationRowShown = style == .nineKey && styledSlots.contains(.comma)
       arrangeActionRow(style, commaSecondary: style == .phone && letterRowsShown, numberPad: numberPad, styled: styledRow,
-                       tallReturn: tallReturn)
+                       tallReturn: tallReturn, symbolFirst: activeKeyLayoutStyle.symbolFirst, numberPadSpace: numberPadSpace)
       NSLayoutConstraint.deactivate(activeStyledActionWidths)
       activeStyledActionWidths = []
       NSLayoutConstraint.deactivate(standardActionWidths + nineKeyActionWidths + phoneActionWidths + layerActionWidths
@@ -6440,7 +6486,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             : englishPeriod ? (hidesLanguage ? phoneEnglishExpandedSpaceWidths : phoneEnglishActionWidths)
             : (hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths))
         case .nineKey:
-          if numberPad {
+          if numberPad && numberPadSpace != .afterZero {
+            // 借来的数字九宫格选了另两种空格位置：不带地球键时仍与上方五列对齐，带地球键时按 `TouchBottomRowLayout.borrowedNumberPad` 的份额。
+            activeStyledActionWidths = borrowedNumberPadWidths(space: numberPadSpace, hidesLanguage: hidesLanguage)
+            NSLayoutConstraint.activate(activeStyledActionWidths)
+          } else if numberPad {
             // 系统要求额外地球键时仍保留其触控宽度；通常的手机数字页按网格对齐。
             NSLayoutConstraint.activate(needsInputModeSwitchKey
               ? (hidesLanguage ? numberPadExpandedZeroWidths : numberPadActionWidths)
@@ -6498,14 +6548,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let keyStyle = activeKeyLayoutStyle
     switch style {
     case .phone where letterRows && drawsChineseTwentySixKey && keyStyle.twentySixKey != .standard:
-      return TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language)
+      let keys = TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language)
+      return keyStyle.symbolFirst ? TouchBottomRowLayout.symbolFirst(keys) : keys
     case .phone where letterGrid && keyStyle.fourteenKey != .standard:
       return TouchBottomRowLayout.letterGrid(keyStyle.fourteenKey, globe: globe, language: language)
     case .nineKey where tallReturn:
       return TouchBottomRowLayout.nineKeyTallReturn(globe: globe, zero: !numberPad && inputScheme == .nineKeyShuangpin,
                                                     language: language, digits: numberPad)
     case .nineKey where nineKeyDigits:
-      return TouchBottomRowLayout.nineKeyDigits(globe: globe, zero: inputScheme == .nineKeyShuangpin, language: language)
+      return TouchBottomRowLayout.nineKeyDigits(globe: globe, zero: inputScheme == .nineKeyShuangpin, language: language,
+                                                space: keyStyle.numberPadSpace)
     case .nineKey where !numberPad && keyStyle.nineKey != .standard:
       return TouchBottomRowLayout.nineKey(keyStyle.nineKey, globe: globe, zero: inputScheme == .nineKeyShuangpin,
                                           language: language)
@@ -6557,17 +6609,54 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return constraints
   }
 
-  /// 一行非标准样式的宽度约束：每个键相对空格键的份额，与原来的底行一样以空格为基准。时有时无的键略低于 required，换样式时先隐藏的键让 stack view 的零宽约束胜出。按行缓存，同一样式来回切换不再新建约束。
+  /// 一行非标准样式的宽度约束：每个键相对空格键的份额，与原来的底行一样以空格为基准；数字键盘「空格在右列」的底行没有空格，改以 0 为基准。时有时无的键略低于 required，换样式时先隐藏的键让 stack view 的零宽约束胜出。按行缓存，同一样式来回切换不再新建约束。
   private func styledActionWidths(_ row: [TouchBottomRowLayout.Key]) -> [NSLayoutConstraint] {
     if let cached = styledActionWidthCache[row] { return cached }
-    guard let space = spaceButton, let spaceWeight = row.first(where: { $0.slot == .space })?.weight else { return [] }
+    guard let anchorKey = row.first(where: { $0.slot == .space }) ?? row.first(where: { $0.slot == .zero }),
+          let anchor = actionRowKey(anchorKey.slot) else { return [] }
     let constraints = row.compactMap { key -> NSLayoutConstraint? in
-      guard key.slot != .space, let view = actionRowKey(key.slot) else { return nil }
-      let constraint = view.widthAnchor.constraint(equalTo: space.widthAnchor, multiplier: key.weight / spaceWeight)
+      guard key.slot != anchorKey.slot, let view = actionRowKey(key.slot) else { return nil }
+      let constraint = view.widthAnchor.constraint(equalTo: anchor.widthAnchor, multiplier: key.weight / anchorKey.weight)
       if ![.layer, .language, .returnKey].contains(key.slot) { constraint.priority = .init(999) }
       return constraint
     }
     styledActionWidthCache[row] = constraints
+    return constraints
+  }
+
+  /// 借来的数字九宫格选了「空格在 0 左边」或「空格在右列」时的宽度约束，按空格位置、中/英显隐和地球键缓存。不带地球键时与上方五列对齐，与原来的数字页同一个规矩：返回与符号栏同宽、回车与右列同宽，0、空格、中/英里各占一列的键与数字键同宽，占两列的那个（`beforeZero` 隐藏中/英时的空格、`rightColumn` 的 0）不加约束、拿剩下的；带地球键时各键按 `TouchBottomRowLayout.borrowedNumberPad` 的份额相对返回键定宽。
+  private func borrowedNumberPadWidths(space: TouchNumberPadSpace, hidesLanguage: Bool) -> [NSLayoutConstraint] {
+    let key = BorrowedNumberPadWidthsKey(space: space, hidesLanguage: hidesLanguage, globe: needsInputModeSwitchKey)
+    if let cached = borrowedNumberPadWidthCache[key] { return cached }
+    guard let toggle = layoutToggleButton, let enter = enterButton, let space0 = spaceButton,
+          let language = bottomLanguageButton else { return [] }
+    let zero: UIView = nineKeyZeroButton
+    var constraints: [NSLayoutConstraint] = []
+    if !key.globe, let sidebar = nineSidebarWidth?.firstItem as? UIView, let controls = nineControls,
+       let digit = nineKeyGridKeys.first?.button {
+      constraints = [
+        toggle.widthAnchor.constraint(equalTo: sidebar.widthAnchor),
+        enter.widthAnchor.constraint(equalTo: controls.widthAnchor),
+      ]
+      // 各占一列的键与数字键同宽；最后一个不加约束的键拿剩下的宽度。
+      var single: [UIView] = []
+      switch space {
+      case .beforeZero: single = hidesLanguage ? [zero] : [space0, language]
+      case .rightColumn: single = hidesLanguage ? [] : [language]
+      case .afterZero: single = hidesLanguage ? [space0] : [zero, language]
+      }
+      constraints += single.map { $0.widthAnchor.constraint(equalTo: digit.widthAnchor) }
+    } else {
+      let row = TouchBottomRowLayout.borrowedNumberPad(globe: key.globe, language: !hidesLanguage, space: space)
+      let layerWeight = TouchBottomRowLayout.layerWeight
+      constraints = row.compactMap { item -> NSLayoutConstraint? in
+        guard item.slot != .layer, let view = actionRowKey(item.slot) else { return nil }
+        let constraint = view.widthAnchor.constraint(equalTo: toggle.widthAnchor, multiplier: item.weight / layerWeight)
+        if item.slot == .globe { constraint.priority = .init(999) }
+        return constraint
+      }
+    }
+    borrowedNumberPadWidthCache[key] = constraints
     return constraints
   }
 
@@ -6635,8 +6724,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 按布局画出的顺序排列底行的键。按键是重新插入而不是从行里移除，所以它们的宽度约束一直保持安装；每种顺序都列出全部按键，隐藏的放在最后。
+  /// `symbolFirst`（`touch_twenty_six_symbol_first`）把手机 26 键底行的 符 排到 123 左边；`numberPadSpace`（`touch_number_pad_space`）决定借来的数字九宫格里 0 和空格的次序，空格在右列时底行的空格隐藏、排在最后。
   private func arrangeActionRow(_ style: ActionRowStyle, commaSecondary: Bool, numberPad: Bool,
-                                styled: [TouchBottomRowLayout.Key]? = nil, tallReturn: Bool = false) {
+                                styled: [TouchBottomRowLayout.Key]? = nil, tallReturn: Bool = false,
+                                symbolFirst: Bool = false, numberPadSpace: TouchNumberPadSpace = .platformDefault) {
     guard let toggle = layoutToggleButton, let language = bottomLanguageButton, let gap = actionSplitGap,
           let space = spaceButton, let splitSpace = splitSpaceButton, let enter = enterButton else { return }
     let symbols: UIView = nineKeySymbolsButton, globe: UIView = actionGlobeButton, delete: UIView = actionDeleteButton
@@ -6665,12 +6756,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       switch style {
       case .phone:
         order = commaSecondary
-          ? [toggle, globe, symbols, period, space, gap, splitSpace, comma, language, enter, delete, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+          ? (symbolFirst
+            ? [symbols, toggle, globe, period, space, gap, splitSpace, comma, language, enter, delete, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
+            : [toggle, globe, symbols, period, space, gap, splitSpace, comma, language, enter, delete, emoji, zero, tabletLayer, dismiss, rewrite, handwritingDelete])
           : [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, rewrite, handwritingDelete, enter, emoji, zero, tabletLayer, dismiss]
       case .nineKey:
-        order = numberPad
-          ? [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
-          : [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
+        order = !numberPad
+          ? [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
+          : numberPadSpace == .beforeZero
+          ? [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
+          : [symbols, toggle, globe, zero, space, gap, splitSpace, language, enter, delete, comma, period, emoji, tabletLayer, dismiss, rewrite, handwritingDelete]
       case .symbolLayer:
         order = [toggle, emoji, symbols, layerComma, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss, rewrite, handwritingDelete]
       case .tablet:
