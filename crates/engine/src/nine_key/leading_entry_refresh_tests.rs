@@ -364,6 +364,7 @@ impl NineKeySession {
             &candidates,
             self.digits.len(),
             self.first_page_rows.get(),
+            grid,
             &mut self.contests,
         );
         self.candidates = candidates;

@@ -1790,6 +1790,7 @@ impl NineKeySession {
             &candidates,
             self.digits.len(),
             self.first_page_rows.get(),
+            grid,
             &mut self.contests,
         );
         self.candidates = candidates;
@@ -3120,10 +3121,12 @@ fn reads_pinyin(source: CandidateSource) -> bool {
 /// 九宫格里让 runtime 键盘模型参与的窄裁决点，标在 `out` 里（与候选同序，没有标记时清空）。首行是可信的词典命中时 runtime 一向不重排；这里只在下面的位置上把首行和它的对手标出来，模型凭上文在它们之间挑，其余情况 `trusted_leader` 照旧。没有挂模型（「增强」关着）时标记不起作用。
 ///
 /// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行。置顶记录本身不动，模型只决定这一次谁坐首位。
+/// - 拼满读法的前两名（`CONTEST_RUNNER_UP`）：首行是没有固定、拼满读法（不是补全）的词典行，对手是首页里其后第一条同样条件、字数相同的词典行，读音可以不同（监狱/教育）也可以相同（他/她），权重不低于首行的 `RUNNER_UP_WEIGHT_RATIO`。
 fn mark_contests(
     candidates: &[WordItem],
     digits: usize,
     first_page_rows: usize,
+    grid: KeyGrid,
     out: &mut Vec<u8>,
 ) {
     out.clear();
@@ -3153,8 +3156,31 @@ fn mark_contests(
         }) {
             mark(&[0, rival], crate::ordering::CONTEST_RECENCY);
         }
+        return;
+    }
+    let spelled = |item: &WordItem| {
+        item.fixed_position == 0
+            && plain(item)
+            && grid.reading_code_len(&item.canonical_pinyin) <= digits
+    };
+    if !spelled(leader) || leader.weight <= 0 {
+        return;
+    }
+    let chars = count_utf8_chars(&leader.word);
+    let rival = (1..rows).find(|&seat| {
+        let item = &candidates[seat];
+        spelled(item) && count_utf8_chars(&item.word) == chars
+    });
+    if let Some(rival) = rival {
+        let weight = candidates[rival].weight;
+        if weight > 0 && weight as f64 >= leader.weight as f64 * RUNNER_UP_WEIGHT_RATIO {
+            mark(&[0, rival], crate::ordering::CONTEST_RUNNER_UP);
+        }
     }
 }
+
+/// 拼满读法的第二名至少要有首选权重的这一份，才交给模型裁决；差得更远时首选的词频已经说明了问题。dev 上按事先写下的规则在 0.1 和 0.3 里选了 0.1。
+const RUNNER_UP_WEIGHT_RATIO: f64 = 0.1;
 
 fn is_initials_row(item: &WordItem) -> bool {
     is_initials_reading(item, item.pinyin.len(), &item.canonical_pinyin)
@@ -7501,7 +7527,7 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
         type_digits(&mut first, "6364");
         assert_eq!(words(&first)[0], "恁");
-        assert!(first.snapshot().candidate_contest.is_empty());
+        assert!(contest_seats(&first, crate::ordering::CONTEST_RECENCY).is_empty());
         let selected = index_of(&first, "能");
         assert_eq!(first.select(selected).commit.as_deref(), Some("能"));
 
@@ -7509,15 +7535,50 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         type_digits(&mut repeated, "6364");
         let snapshot = repeated.snapshot();
         assert_eq!(words(&repeated)[..2], ["能", "恁"]);
-        let marked: Vec<usize> = snapshot
+        assert_eq!(
+            contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+            [0, 1]
+        );
+        assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
+    }
+
+    fn contest_seats(session: &NineKeySession, kind: u8) -> Vec<usize> {
+        session
+            .snapshot()
             .candidate_contest
             .iter()
             .enumerate()
-            .filter(|(_, kind)| **kind == crate::ordering::CONTEST_RECENCY)
+            .filter(|(_, marked)| **marked == kind)
             .map(|(seat, _)| seat)
-            .collect();
-        assert_eq!(marked, [0, 1]);
-        assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
+            .collect()
+    }
+
+    /// 拼满读法、字数相同的前两名词典行，权重相近时标成一次裁决：读音不同（监狱/教育）和同音（他/她）都算；第二名差得太远时不标。
+    #[test]
+    fn close_spelled_runners_up_are_marked_as_a_contest() {
+        let runner_up = crate::ordering::CONTEST_RUNNER_UP;
+        for (weight, marked) in [(500, vec![0, 1]), (50, vec![])] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_j VALUES('jiao''yu','jy','教育',1000),('jian''yu','jy','监狱',{weight});"
+            ));
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, "542698");
+            assert_eq!(words(&session)[..2], ["教育", "监狱"]);
+            assert_eq!(
+                contest_seats(&session, runner_up),
+                marked,
+                "weight {weight}"
+            );
+        }
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_t VALUES('ta','t','他',1000),('ta','t','她',600);",
+        );
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "82");
+        assert_eq!(words(&session)[..2], ["他", "她"]);
+        assert_eq!(contest_seats(&session, runner_up), [0, 1]);
     }
 
     const SPELLING_RECENT_FIXTURE: &str =

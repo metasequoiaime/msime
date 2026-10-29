@@ -1,6 +1,7 @@
 use super::*;
 use msime_engine::ordering::{
     rerank_needs_model, rerank_pick, ParallelOrderRows, CONTEST_NONE, CONTEST_RECENCY,
+    CONTEST_RUNNER_UP,
 };
 
 /// 两行都是回答整个按键的词典命中（来源 0），第一行是可信首选。
@@ -85,4 +86,18 @@ fn a_contest_respects_the_schemes_that_never_reorder() {
             None
         );
     }
+}
+
+/// 两种裁决点互不混比：首行标的是哪一种，就只和同种标记的行比。
+#[test]
+fn a_contest_compares_only_rows_of_the_leaders_kind() {
+    let (texts, sources, answers, corrected) = dictionary_rows(&["甲", "乙", "丙"]);
+    let contests = [CONTEST_RUNNER_UP, CONTEST_RECENCY, CONTEST_RUNNER_UP];
+    let rows =
+        ParallelOrderRows::new(&texts, &sources, &answers, &corrected).with_contests(&contests);
+    assert_eq!(rerank_pick(&mut model(&['乙']), "", 0, false, &rows), None);
+    assert_eq!(
+        rerank_pick(&mut model(&['丙']), "", 0, false, &rows),
+        Some(2)
+    );
 }

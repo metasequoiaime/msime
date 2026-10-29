@@ -32,14 +32,20 @@ const STATIC_RERANK_LIMIT: usize = 9;
 pub const CONTEST_NONE: u8 = 0;
 /// 九宫格里固定在第 1 位的最近选择，和没有它时会领先的那条词典行。
 pub const CONTEST_RECENCY: u8 = 1;
+/// 九宫格首页里拼满读法、字数相同、权重相近的前两条词典行：同一串数字的另一个读音（监狱/教育），或者同音的另一个词（他/她）。
+pub const CONTEST_RUNNER_UP: u8 = 2;
 
 /// 最近选择要让位，模型给另一行的逐字平均自然对数概率得比它高出这么多。最近选择是用户上一次在同一串键上的选择，是不弱的证据，margin 为 0 时 dev 上一词一块聊天集反而变差；dev 上按事先写下的规则在 0、1、2 里选了 1，见 `.agents/notes/implemented/feature/2026-10-29-nine-key-model-contests.md`。
 const RECENCY_MARGIN: f32 = 1.0;
+
+/// 拼满读法的第二名要越过词典首选，逐字平均自然对数概率得比它高出这么多。首选的词频是模型没有的证据，dev 上 margin 0 在聊天集上变差；按事先写下的规则在 0、1 里选了 1。
+const RUNNER_UP_MARGIN: f32 = 1.0;
 
 /// 每种裁决点上挑战者要比首行高出多少（逐字平均自然对数）才换到首位；`None` 是没有这种裁决点。
 fn contest_margin(kind: u8) -> Option<f32> {
     match kind {
         CONTEST_RECENCY => Some(RECENCY_MARGIN),
+        CONTEST_RUNNER_UP => Some(RUNNER_UP_MARGIN),
         _ => None,
     }
 }
