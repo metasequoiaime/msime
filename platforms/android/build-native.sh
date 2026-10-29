@@ -75,8 +75,14 @@ cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onn
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
 # The input engine in libmsime_host_api.so embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, which is BSD-3-Clause: clause 2 requires its notice in every binary distribution, so it travels with the library's other notices into assets/native-notices.
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$notices/libhangul-hanja.txt"
-# 语法模型查询逻辑的移植声明随引擎分发。
+# 语法模型查询逻辑的移植声明随引擎分发，文件末尾附着双数组读取所依的 darts-clone（BSD-2-Clause）条款。
 cp resources/licenses/librime-octagram-BSD-3-Clause.txt "$notices/librime-octagram-BSD-3-Clause.txt"
+# 引擎的 cxx_sort.rs 逐步复现了 libc++ 的排序算法，源码级翻译要按 Apache-2.0 第 4 条随附许可证（LLVM 例外不覆盖）。
+cp resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt "$notices/libcxx-Apache-2.0-WITH-LLVM-exception.txt"
+# 符号模式按它查命令名的 LaTeX 表是本项目自写的 MIT 数据，编进了引擎，MIT 全文随引擎分发。
+cp resources/licenses/latex-symbols-MIT.txt "$notices/latex-symbols-MIT.txt"
+# 输入引擎本身（crates/engine、crates/path-trust，源码在本仓库）和它链接的 rink-core（单位换算，源码在 crates.io）是 MPL-2.0，二进制分发要附上许可证全文。
+cp resources/licenses/MPL-2.0.txt "$notices/MPL-2.0.txt"
 # The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). build-apk.sh and build-client-apk.sh package the dictionaries themselves, each beside its own licence text, when target/language-dictionaries (or MSIME_LANGUAGE_DICTIONARIES) holds them; the notices travel with every engine build either way so that one notice list covers every platform.
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt "$notices/rime-cantonese.txt"
 cp resources/licenses/libchewing-data-LGPL-2.1.txt "$notices/libchewing-data.txt"
@@ -87,9 +93,7 @@ cp resources/licenses/vi-MIT.txt "$notices/vi.txt"
 cp resources/licenses/ewts-MIT.txt "$notices/ewts.txt"
 # 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进 libmsime_host_api.so，第 4(b) 条要求随改编作品署名并说明改动；许可证文件里写着署名、固定提交、改动说明和法律文本全文。
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$notices/kfcd-chaizi.txt"
-# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），第 3(a) 条要求随改编数据署名并说明改动；许可证文件里写着这些和法律文本全文。
-cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang.txt"
-# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），符号模式（S 模式）的分组表按 Unicode 字符数据库 17.0.0 挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
 cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
 # 简繁转换内嵌的 OpenCC 词表许可证与原生库一并打包。
 cp resources/licenses/OpenCC-Apache-2.0.txt "$notices/OpenCC-Apache-2.0.txt"

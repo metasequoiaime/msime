@@ -154,6 +154,6 @@ Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msi
 
 ## 授權條款
 
-原始碼採用 **GPL-3.0-only**，全文見 [LICENSE](../../LICENSE)。
+原始碼採用 **GPL-3.0-only**，全文見 [LICENSE](../../LICENSE)。例外是腳本外掛的 SDK（[crates/script-sdk](../../crates/script-sdk/)）、範本（[docs/script-plugin-template](../../docs/script-plugin-template/)）和腳本外掛合集（[plugins/script](../../plugins/script/)）的程式碼採用 MIT，以及輸入引擎（[crates/engine](../../crates/engine/)，`msime-engine`）和 [crates/path-trust](../../crates/path-trust/)（`msime-path-trust`）採用 MPL-2.0（不附 Exhibit B），讓其他輸入法可以嵌入引擎；全文在各自目錄的 `LICENSE`。引擎內嵌的資料表與改編的第三方程式碼保留各自的授權條款，逐個檔案見 [crates/engine/README.md](../../crates/engine/README.md)；引擎執行時讀取的詞庫與模型也按各自的授權條款。對 `crates/engine` 與 `crates/path-trust` 的貢獻以「GPL-3.0-only OR MPL-2.0」授權。整個輸入法產品仍以 GPL-3.0-only 發布。
 
 上游程式碼、詞庫、模型和各平台 SDK 以各自的授權條款和聲明為準，其中 Android 與 iOS 的手寫辨識使用 Google ML Kit，依其服務條款授權，而非開源授權條款。完整對照見[第三方元件清單](../third-party.md)。

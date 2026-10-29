@@ -131,6 +131,14 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
+/// 录制基准时参照实现（session.h:12-54）的默认值。引擎库的默认值只在辅助码上不同（默认关、表名 `wubi86`，见 `SessionOptions::new`），场景没写这两项时按参照实现补回，录下的结果才对得上。
+pub fn reference_options() -> SessionOptions {
+    let mut options = SessionOptions::new(RuntimePaths::default());
+    options.helpcode = true;
+    options.helpcode_schema = "lantian".to_owned();
+    options
+}
+
 /// The recorder's output document `{name, steps, final_journal?}` for one scenario spec, replayed under `work`.
 pub fn replay_scenario(spec: &Value, work: &Path) -> Value {
     let name = spec["name"].as_str().expect("scenario name");
@@ -140,7 +148,7 @@ pub fn replay_scenario(spec: &Value, work: &Path) -> Value {
     }
     std::fs::create_dir_all(&root).unwrap();
     let options_spec = spec.get("options").cloned().unwrap_or_else(|| json!({}));
-    let mut options = SessionOptions::new(RuntimePaths::default());
+    let mut options = reference_options();
     apply_options(&mut options, &options_spec);
     let mut scenario = Scenario {
         roots: root_spellings(&root),
@@ -933,7 +941,7 @@ mod tests {
         ];
         for path in selected_scenarios_from(None) {
             let spec = read_json(&path);
-            let mut options = SessionOptions::new(RuntimePaths::default());
+            let mut options = reference_options();
             apply_options(&mut options, &spec["options"]);
             for step in spec["steps"].as_array().unwrap() {
                 let op = step["op"].as_str().unwrap();
@@ -947,7 +955,7 @@ mod tests {
 
     #[test]
     fn options_map_onto_the_reference_fields() {
-        let mut options = SessionOptions::new(RuntimePaths::default());
+        let mut options = reference_options();
         apply_options(
             &mut options,
             &json!({
@@ -989,7 +997,7 @@ mod tests {
 
     #[test]
     fn vietnamese_options_map_onto_the_session_fields() {
-        let mut options = SessionOptions::new(RuntimePaths::default());
+        let mut options = reference_options();
         assert_eq!(options.vietnamese_input_method, InputMethod::Telex);
         assert_eq!(options.vietnamese_tone_style, ToneStyle::Modern);
         apply_options(
@@ -1004,7 +1012,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "unknown or unsupported option learning_undo")]
     fn learning_undo_is_refused() {
-        let mut options = SessionOptions::new(RuntimePaths::default());
+        let mut options = reference_options();
         apply_options(&mut options, &json!({"learning_undo": true}));
     }
 

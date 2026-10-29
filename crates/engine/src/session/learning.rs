@@ -793,6 +793,9 @@ mod tests {
 
         fn session(&self, adjust: impl FnOnce(&mut SessionOptions)) -> Session {
             let mut options = SessionOptions::new(self.paths.clone());
+            // 按参照实现的默认值打开辅助码（引擎库默认关，见 `SessionOptions::new`）。
+            options.helpcode = true;
+            options.helpcode_schema = "lantian".to_owned();
             adjust(&mut options);
             Session::new(options).unwrap()
         }
@@ -1078,6 +1081,8 @@ mod tests {
             )
             .unwrap();
             let mut options = SessionOptions::new(paths);
+            options.helpcode = true;
+            options.helpcode_schema = "lantian".to_owned();
             options.frequency = frequency(FrequencyAdjustmentMode::Pin, 1, 1);
             options.scheme = SchemeType::Wubi;
             Session::new(options).unwrap()

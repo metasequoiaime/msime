@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在 HarmonyOS 手机共享输入页分别显示“全拼邻键纠错”和“全拼乱序纠错”，各自只更新对应的 `quanpin` 字段，并保留默认开启行为。
+在 HarmonyOS 手机共享输入页分别显示“拼音邻键纠错”和“拼音乱序纠错”，各自只更新对应的 `quanpin` 字段，并保留默认开启行为。最初写的是“全拼…”；双拼纠错整句（[2026-10-09](2026-10-09-shuangpin-typo-sentence.md)）和触屏双拼纠错（#10018）也受这两个字段控制，所以标题改成“拼音…”，`apps/desktop/tests/settings/language-card.test.tsx` 按新标题找开关。macOS 原生设置里同名的两个开关仍写“全拼…”，但那张卡片是隐藏的，用户看不到，没有改。
 
 ## Alternatives considered
 
@@ -16,4 +16,4 @@ Status: implemented
 
 ## Consequences
 
-用户可以独立关闭两类全拼纠错，设置保存后宿主仍沿用原有字段。qjn 的词库召回、纠错候选标记和其他平台设置入口不在本次改动范围内，仍需独立的词库与产品规格验收。
+用户可以独立关闭两类全拼纠错，设置保存后宿主仍沿用原有字段。桌面共享设置页的同一对开关放在「高级选项」的「全拼纠错」组，`qjn`、`zhr` 这类全辅音简拼被纠错抢首位的问题由引擎修复，见[全辅音简拼的字面整词排在全拼纠错前面](../bug-fix/2026-10-29-quanpin-jianpin-over-autocorrect.md)。

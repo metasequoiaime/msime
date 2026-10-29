@@ -158,4 +158,6 @@ Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msi
 
 源码为 **GPL-3.0-only**，全文见 [LICENSE](LICENSE)。例外是脚本插件的 SDK（[crates/script-sdk](crates/script-sdk/)）、模板（[docs/script-plugin-template](docs/script-plugin-template/)）和脚本插件合集（[plugins/script](plugins/script/)）的代码，用 MIT，全文分别在这三个目录的 `LICENSE`：SDK 要编进每个插件，作者用它写的插件不必因此变成 GPL。插件包里编进的第三方数据按各自的许可证。
 
+输入引擎 [crates/engine](crates/engine/)（`msime-engine`）和它依赖的 [crates/path-trust](crates/path-trust/)（`msime-path-trust`）是另一个例外，用 MPL-2.0（不附 Exhibit B），全文在这两个目录各自的 `LICENSE`：其他输入法可以嵌入这个引擎，而它仍能和仓库其余的 GPL 代码组合。引擎里内嵌的几张数据表和改编的第三方代码保留各自的许可证，逐个文件见 [crates/engine/README.md](crates/engine/README.md#许可证)；引擎运行时读的词库和模型按各自的许可证分发，不随引擎改变。向这两个目录提交的贡献按「GPL-3.0-only OR MPL-2.0」授权。整个输入法产品仍按 GPL-3.0-only 发布。
+
 上游代码、词库、模型和各平台 SDK 以各自许可证和通知为准，其中 Android 与 iOS 的手写识别使用 Google ML Kit，按其服务条款授权而非开源许可证。完整对照见[第三方组件清单](docs/third-party.md)。

@@ -396,6 +396,8 @@ struct DesignInlineButtonRow: View {
 /// 右侧带短滑块的行（紧凑宽度下 110pt，常规宽度下 160pt），格式化后的值放在 46pt 宽的一列里。
 struct DesignSliderRow: View {
   let title: String
+  /// 标题下的说明行；缺省不画。
+  var subtitle: String? = nil
   @Binding var value: Double
   let range: ClosedRange<Double>
   let step: Double
@@ -403,9 +405,10 @@ struct DesignSliderRow: View {
   var identifier: String? = nil
   @Environment(\.horizontalSizeClass) private var widthClass
 
-  init(title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, identifier: String? = nil,
-       format: @escaping (Double) -> String) {
+  init(title: String, subtitle: String? = nil, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
+       identifier: String? = nil, format: @escaping (Double) -> String) {
     self.title = title
+    self.subtitle = subtitle
     _value = value
     self.range = range
     self.step = step
@@ -414,7 +417,7 @@ struct DesignSliderRow: View {
   }
 
   var body: some View {
-    DesignRowLayout(title: title, subtitle: nil) {
+    DesignRowLayout(title: title, subtitle: subtitle) {
       HStack(spacing: 8) {
         Slider(value: $value, in: range, step: step) { Text(title) }
           .tint(MetasequoiaTheme.accent)

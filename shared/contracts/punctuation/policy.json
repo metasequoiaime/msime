@@ -1,5 +1,5 @@
 {
-  "contractVersion": 4,
+  "contractVersion": 5,
   "simple": [
     { "input": ",", "output": "，" },
     { "input": ".", "output": "。" },
@@ -15,13 +15,13 @@
     { "input": "`", "output": "·" },
     { "input": "$", "output": "￥" },
     { "input": "^", "output": "……" },
-    { "input": "_", "output": "——" }
+    { "input": "_", "output": "——" },
+    { "input": "{", "output": "「" },
+    { "input": "}", "output": "」" }
   ],
   "alternating": [
     { "input": "\"", "opening": "“", "closing": "”" },
-    { "input": "'", "opening": "‘", "closing": "’" },
-    { "input": "{", "opening": "「", "closing": "」" },
-    { "input": "}", "opening": "『", "closing": "』" }
+    { "input": "'", "opening": "‘", "closing": "’" }
   ],
   "nested": {
     "openingInput": "<",
@@ -38,9 +38,7 @@
   "styles": {
     "cornerQuotes": [
       { "input": "\"", "opening": "『", "closing": "』" },
-      { "input": "'", "opening": "「", "closing": "」" },
-      { "input": "{", "opening": "「", "closing": "」" },
-      { "input": "}", "opening": "『", "closing": "』" }
+      { "input": "'", "opening": "「", "closing": "」" }
     ],
     "hollowBrackets": [
       { "input": "[", "output": "〖" },

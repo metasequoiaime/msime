@@ -144,7 +144,25 @@ final class KeyLayoutStyleTests: XCTestCase {
                    ["symbols 1.28", "layer 1.25", "zero 3.24", "space 1.05", "language 1.05", "returnKey 1.28"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKeyTallReturn(globe: true, zero: true, language: false, digits: true)),
                    ["symbols 1.42", "layer 1.25", "globe 1.00", "zero 4.01", "space 1.05", "returnKey 1.42"])
+    // 九键一族自己的数字层（#10061）：符 和切换键与字母层同一格、同宽，0 和空格合起来占字母层空格（九键双拼还有它的 0）那一份；隐藏中/英时它的份额给 0。
+    XCTAssertEqual(row(TouchBottomRowLayout.nineKeyDigits(globe: false)),
+                   ["symbols 1.05", "layer 1.25", "zero 3.15", "space 1.05", "language 1.05", "returnKey 1.60"])
+    XCTAssertEqual(row(TouchBottomRowLayout.nineKeyDigits(globe: true, zero: true, language: false)),
+                   ["symbols 1.05", "layer 1.25", "globe 1.00", "zero 5.25", "space 1.05", "returnKey 1.60"])
     func total(_ keys: [TouchBottomRowLayout.Key]) -> Double { keys.reduce(0) { $0 + Double($1.weight) } }
+    for globe in [false, true] {
+      for zero in [false, true] {
+        for language in [false, true] {
+          let letters = TouchBottomRowLayout.nineKey(.standard, globe: globe, zero: zero, language: language)
+          let digits = TouchBottomRowLayout.nineKeyDigits(globe: globe, zero: zero, language: language)
+          let label = "globe \(globe) zero \(zero) language \(language)"
+          XCTAssertEqual(total(digits), total(letters), accuracy: 1e-9, label)
+          XCTAssertEqual(Array(digits.prefix(globe ? 3 : 2)), Array(letters.prefix(globe ? 3 : 2)), label)
+          XCTAssertEqual(digits.last, letters.last, label)
+          XCTAssertEqual(digits.filter { $0.slot == .zero }.count, 1, label)
+        }
+      }
+    }
     for style in TouchTwentySixKeyStyle.allCases {
       XCTAssertEqual(total(TouchBottomRowLayout.twentySixKey(style, globe: false)),
                      total(TouchBottomRowLayout.twentySixKey(.standard, globe: false)), accuracy: 1e-9, style.rawValue)
@@ -356,7 +374,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
   }
 
-  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不变。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
+  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不跟样式，按 `TouchBottomRowLayout.nineKeyDigits` 排。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
   func testNineKeyStylesDrawTheTable() throws {
     for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
@@ -377,9 +395,12 @@ final class KeyLayoutStyleTests: XCTestCase {
             XCTAssertEqual(comma.configuration?.title, "，")
             XCTAssertNotNil(comma.menu)
           }
-          // 数字层照旧：0 在中间，没有 ， 和 。。
+          // 数字层不跟样式：符 | 九键 | 0 | 空格 | 中 | 回车，符 和切换键与字母层同一格（#10061），没有 ， 和 。。
           try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
           controller.view.layoutIfNeeded()
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(
+            globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage),
+                              "\(scheme.rawValue) \(style.rawValue) digits hidesLanguage=\(hidesLanguage)")
           XCTAssertFalse(shown(try button("quickPunctuationKey", in: controller)), "\(scheme.rawValue) \(style.rawValue)")
           XCTAssertFalse(shown(try button("bottomPeriodKey", in: controller)))
           XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
@@ -1103,15 +1124,27 @@ final class KeyLayoutStyleTests: XCTestCase {
       try assertTallReturnFrame(controller, digits: false, standard: standard, "\(label) letters again")
       controller.viewDidDisappear(false)
     }
-    // 标准九键的数字层：符 在符号栏第三排。
+    // 标准九键的数字层：符 在底行最左、与字母层同一格（#10061），符号栏里不再放第二个 符。
     select(.nineKey)
     XCTAssertTrue(write(TouchKeyLayoutStyle()))
     var controller = keyboard()
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
+    XCTAssertFalse(shown(try button("numberPadSymbolPanelKey", in: controller)))
+    XCTAssertTrue(shown(try button("symbolPanelKey", in: controller)))
+    try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(globe: controller.needsInputModeSwitchKey),
+                        "standard nine-key digits")
+    controller.viewDidDisappear(false)
+    // 借来的数字九宫格：符 仍在符号栏第三排。
+    select(.quanpin)
+    XCTAssertTrue(write(TouchKeyLayoutStyle()))
+    controller = keyboard()
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
     XCTAssertTrue(shown(try button("numberPadSymbolPanelKey", in: controller)))
     XCTAssertEqual(try button("numberPadSymbolPanelKey", in: controller).bounds.height,
                    try button("nineKeyDelete", in: controller).bounds.height, accuracy: 0.5)
+    XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
     controller.viewDidDisappear(false)
     // 全拼借用的数字九宫格。
     select(.quanpin)

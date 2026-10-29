@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`ClipboardSearchPage` 将搜索框放入 `DetailPage.fixedNavigation()` 返回的固定导航区域，结果卡片继续留在详情页滚动列中。查询文字仍由 `Query` `ViewModel` 保存，重建页面时恢复文本和首次聚焦行为；查询变化只重绘结果卡片，不重建固定搜索框。
+`ClipboardSearchPage` 将搜索框放入 `DetailPage.fixedNavigation()` 返回的固定导航区域，结果卡片继续留在详情页滚动列中。查询文字仍由 `Query` `ViewModel` 保存，重建页面时恢复文本；查询变化只重绘结果卡片，不重建固定搜索框。
 
 ## Alternatives considered
 
@@ -16,4 +16,4 @@ Status: implemented
 
 ## Consequences
 
-搜索框在滚动历史记录时持续可见，修改查询不必返回顶部；详情页滚动区会自动让出固定导航的高度。固定导航仍占用顶部空间，打开页面首次聚焦搜索框时键盘行为保持不变。宿主检查新增契约，防止搜索框重新放回滚动内容列。
+搜索框在滚动历史记录时持续可见，修改查询不必返回顶部；详情页滚动区会自动让出固定导航的高度。固定导航仍占用顶部空间。进页不再自动聚焦搜索框、弹键盘，见 [安卓剪贴板历史页进页不自动弹键盘](2026-10-29-android-clipboard-search-no-autofocus.md)。宿主检查新增契约，防止搜索框重新放回滚动内容列。

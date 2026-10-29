@@ -90,6 +90,7 @@ import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
   CandidateGlossLayoutPolicy, CandidateGlossProviderState
 } from './candidate/CandidateGlossLayoutPolicy';
@@ -101,6 +102,7 @@ import {
 import { CandidateSkinPackageIdentity, SkinFileStat } from './candidate/CandidateSkinPackageIdentity';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
+import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
@@ -187,6 +189,8 @@ interface Candidate {
   translation?: string | null;
   /** 「仅当前高亮」生效、这一页会请求释义时，高亮那一行为真；为假时 JSON 里没有这个键。2in1 候选窗据此在同一页里保持宽度，见 `CandidateWidthPolicy.steadyWidthVp`。 */
   translation_reserved?: boolean;
+  /** 双拼触屏纠错按首选规则坐上第 0 位的那一行为真；其余行 JSON 里没有这个键（#10018），见 `CorrectionMarkPolicy`。 */
+  confident_correction?: boolean;
 }
 
 /** A candidate as the view draws it: the text, and whatever is printed beside it. */
@@ -206,6 +210,8 @@ export interface CandidateEntry {
   readonly source: number;
   /** Translation attached to this exact Engine candidate, when one has been resolved. */
   readonly translation: string | null;
+  /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
+  readonly confidentCorrection: boolean;
 }
 
 interface EngineView extends EngineViewNumericFields {
@@ -493,6 +499,8 @@ export interface ExpandedCandidate {
   readonly annotationIsTranslation: boolean;
   /** As CandidateEntry.hunEum. */
   readonly hunEum: string;
+  /** 同 CandidateEntry.confidentCorrection。 */
+  readonly confidentCorrection: boolean;
 }
 
 interface CandidateSnapshot {
@@ -924,6 +932,8 @@ interface PreparedPreferences {
   tsf_preedit_style?: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
+  /** 候选栏大小，50..200；client-core 总会写出它，旧文档缺省时按 100。 */
+  candidate_scale_percent?: number;
   /** 50..100; absent in documents that never changed it, which means an opaque card. */
   candidate_opacity_percent?: number;
   /** 0..32 points; absent or null leaves the card to the skin package, then the host. */
@@ -1127,6 +1137,8 @@ export interface KeyboardPreferences {
   readonly candidateLayout: string;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
+  /** 触屏键盘的「候选栏大小」（`candidate_scale_percent`）：工具条高度和候选栏的字号、行高都按它缩放（#10137），上面两项字号已经乘过它。2in1 恒为 100，候选卡片只随字号调整。 */
+  readonly candidateScalePercent: number;
   readonly candidateFontFamily: string;
   readonly candidateEnglishFont: string | null;
   readonly candidateFallbackFonts: string[];
@@ -1466,6 +1478,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     },
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
+    candidateScalePercent: 100,
     candidateFontFamily: 'Noto Sans SC',
     candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
@@ -1827,6 +1840,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const opacityPercent: number | undefined = preferences.candidate_opacity_percent;
     const windowOpacity: number = typeof opacityPercent === 'number' && Number.isFinite(opacityPercent)
       ? Math.max(50, Math.min(100, opacityPercent)) / 100 : 1;
+    // 「候选栏大小」只作用于触屏工具条；2in1 的设置桥不声明它，候选卡片照旧只随字号调整。
+    const touchScale: number = KeyboardFormFactor.isDesktop()
+      ? CandidateScalePolicy.DEFAULT_PERCENT : CandidateScalePolicy.percent(preferences.candidate_scale_percent);
     this.appearance = {
       dark: keyboardDark,
       globalThemeId: preferences.global_theme,
@@ -1890,9 +1906,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The shared store validates these to 12..32 and strips control
       // characters from family names. Clamp again at the host boundary so
       // an older staged document cannot produce an unusable panel.
-      candidateFontSize: CandidateFontSizePolicy.bounded(preferences.candidate_font_size),
-      candidatePreeditFontSize:
-        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size),
+      candidateFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_font_size), touchScale),
+      candidatePreeditFontSize: CandidateScalePolicy.scaled(
+        CandidateFontSizePolicy.bounded(preferences.candidate_preedit_font_size), touchScale),
+      candidateScalePercent: touchScale,
       candidateFontFamily: preferences.candidate_font_family.trim().length > 0
         ? preferences.candidate_font_family : 'Noto Sans SC',
       candidateEnglishFont: preferences.candidate_english_font ?? null,
@@ -4982,7 +5000,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
-        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
       });
     }
     if (this.onChanged !== undefined) {
@@ -5057,7 +5076,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
-        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
       });
     }
     const reading: string = KeyboardSession.drawnReading(view);
@@ -5160,7 +5180,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
       text: text, hint: '', annotation: '', annotationIsTranslation: false, hunEum: '',
       highlighted: index === this.translationHighlight, badge: '',
-      fixedPosition: 0, source: 0, translation: null
+      fixedPosition: 0, source: 0, translation: null, confidentCorrection: false
     }));
     this.onChanged({
       candidates: entries,
@@ -7777,7 +7797,8 @@ export class KeyboardSession implements HardwareKeyTarget {
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
             this.candidateGlossEnabled),
-          hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+          hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
         });
       }
       return entries;
