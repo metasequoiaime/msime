@@ -6331,6 +6331,150 @@ fn smart_punctuation_recovery_migrates_only_a_legacy_document() {
     assert!(!snapshot.preferences.smart_punctuation);
 }
 
+/// 统一成「AI 辅助翻译要显式选择」之前手机上写下的文档：AI 联想开着、配置齐全，没选任何翻译服务（腾讯是默认的「启用但没有凭据」），没有 `translation_ai` 的选择，也没有迁移标记。
+fn implicit_ai_translation_legacy_document() -> serde_json::Value {
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    preferences.insert(
+        "ai_assistant".into(),
+        serde_json::json!({
+            "enabled": true,
+            "provider": "deepseek",
+            "endpoint": "https://api.deepseek.com/chat/completions",
+            "model": "deepseek-v4-flash",
+        }),
+    );
+    preferences.insert(
+        "tencent_tmt".into(),
+        serde_json::json!({ "enabled": true, "secret_id": "", "secret_key": "" }),
+    );
+    preferences.remove("translation_ai");
+    assert_eq!(
+        preferences.remove("translation_ai_migrated"),
+        Some(true.into())
+    );
+    legacy
+}
+
+// 新文档从一开始就带着标记，AI 联想开着也不会被当成以前的隐式 AI 翻译。
+#[test]
+fn a_new_document_carries_the_translation_ai_marker() {
+    let defaults = Preferences::default();
+    assert!(defaults.translation_ai_migrated);
+    assert!(!defaults.translation_ai);
+    let mut enabled = defaults;
+    enabled.ai_assistant.enabled = true;
+    enabled.settle_translation_ai_selection(true);
+    assert!(!enabled.translation_ai);
+}
+
+// 迁移本身与平台无关地验证：以前隐式用 AI 翻译的平台把那种情形写成显式选择（连同关掉没有凭据的腾讯），其余平台不动；两种都标上标记，用户之后改选别的服务不会再被改回来。
+#[test]
+fn translation_ai_settle_selects_ai_only_where_it_was_implicit() {
+    let legacy: Preferences =
+        serde_json::from_value(implicit_ai_translation_legacy_document()["preferences"].clone())
+            .unwrap();
+    assert!(!legacy.translation_ai_migrated);
+
+    let mut mobile = legacy.clone();
+    mobile.settle_translation_ai_selection(true);
+    assert!(mobile.translation_ai);
+    assert!(!mobile.tencent_tmt.enabled);
+    assert!(mobile.translation_ai_migrated);
+    mobile.translation_ai = false;
+    mobile.settle_translation_ai_selection(true);
+    assert!(!mobile.translation_ai);
+
+    let mut other = legacy.clone();
+    other.settle_translation_ai_selection(false);
+    assert!(!other.translation_ai);
+    assert!(other.tencent_tmt.enabled);
+    assert!(other.translation_ai_migrated);
+
+    // 以前在这些情形下手机上本来就不用 AI 翻译：AI 联想关着，或者选了水杉账号、小牛、自定义，或者腾讯有可用凭据。迁移照样不选 AI，只标上标记。
+    let unchanged: [(&str, fn(&mut Preferences)); 5] = [
+        ("AI assistant off", |p| p.ai_assistant.enabled = false),
+        ("account chosen", |p| p.translation_account = true),
+        ("NiuTrans chosen", |p| p.niutrans.enabled = true),
+        ("custom chosen", |p| p.custom_translation.enabled = true),
+        ("usable Tencent", |p| {
+            p.tencent_tmt.secret_id = "AKIDsynthetic".into();
+            p.tencent_tmt.secret_key = "synthetic".into();
+        }),
+    ];
+    for (name, change) in unchanged {
+        let mut preferences = legacy.clone();
+        change(&mut preferences);
+        let tencent = preferences.tencent_tmt.enabled;
+        preferences.settle_translation_ai_selection(true);
+        assert!(!preferences.translation_ai, "{name}");
+        assert_eq!(preferences.tencent_tmt.enabled, tencent, "{name}");
+        assert!(preferences.translation_ai_migrated, "{name}");
+    }
+}
+
+// 经过存储的完整路径：旧文档读入时迁移（Android、iOS 选上 AI 辅助，其余平台不动），文件在下一次真正的保存之前保持原样；用户随后改选「不使用」，保存下来的文档带着标记，再读还是不选。
+#[test]
+fn translation_ai_migration_runs_once_and_a_later_choice_sticks() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = implicit_ai_translation_legacy_document();
+    legacy["revision"] = 3.into();
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+
+    let selected = TRANSLATION_AI_WAS_IMPLICIT;
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.revision, 3);
+    assert_eq!(loaded.preferences.translation_ai, selected);
+    assert_eq!(loaded.preferences.tencent_tmt.enabled, !selected);
+    assert!(loaded.preferences.translation_ai_migrated);
+    assert_eq!(store.load().unwrap(), loaded);
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+    // 写入方的偏好里没有标记时保存也带上，否则下一次读会把刚改选的「不使用」又改回 AI 辅助。
+    let mut none = serde_json::to_value(&loaded.preferences).unwrap();
+    none.as_object_mut().unwrap().remove("translation_ai");
+    none["tencent_tmt"]["enabled"] = false.into();
+    none["candidate_translation_single_sense"] = true.into();
+    none.as_object_mut()
+        .unwrap()
+        .remove("translation_ai_migrated")
+        .unwrap();
+    let none: Preferences = serde_json::from_value(none).unwrap();
+    assert!(!none.translation_ai_migrated);
+    let saved = store.save(3, none).unwrap();
+    assert!(saved.preferences.translation_ai_migrated);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        on_disk["preferences"]["translation_ai_migrated"],
+        serde_json::Value::Bool(true)
+    );
+    let reloaded = store.load().unwrap();
+    assert_eq!(reloaded, saved);
+    assert!(!reloaded.preferences.translation_ai);
+}
+
+// 修复损坏文档时，没有标记的旧文档照样迁移一次。
+#[test]
+fn translation_ai_recovery_migrates_a_legacy_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = implicit_ai_translation_legacy_document();
+    legacy["preferences"]["learning"] = serde_json::json!("yes");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(store.load().is_err());
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(
+        snapshot.preferences.translation_ai,
+        TRANSLATION_AI_WAS_IMPLICIT
+    );
+    assert!(snapshot.preferences.translation_ai_migrated);
+    assert_eq!(store.load().unwrap(), snapshot);
+}
+
 // The source ships muting, DDC and text polishing on; `config.default.toml` says so for Windows, and macOS follows the desktop product it ports. Each is a plain voice switch, so no platform reason keeps them off there. The other hosts keep what they have shipped, and a stored value is never reinterpreted.
 #[test]
 fn voice_first_run_follows_the_source_on_desktop_ports() {

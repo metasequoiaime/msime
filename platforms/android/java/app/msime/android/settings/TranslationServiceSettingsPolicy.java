@@ -11,13 +11,15 @@ public final class TranslationServiceSettingsPolicy {
     /** 腾讯云地域的字节上限。 */
     public static final int MAX_REGION_BYTES = 64;
 
-    /** 页面上的五个选项，顺序就是单选列表的顺序。 */
+    /** 页面上的六个选项，顺序就是单选列表的顺序。 */
     public enum Choice {
         NONE("不使用", null),
         ACCOUNT("水杉账号", null),
         NIUTRANS("小牛翻译", "translation.niutrans"),
         TENCENT("腾讯云机器翻译", "translation.tencent"),
-        CUSTOM("自定义（DeepLX 或 DeepL API）", "translation.custom");
+        CUSTOM("自定义（DeepLX 或 DeepL API）", "translation.custom"),
+        /** 复用「AI 润色与回复」页的服务商、接口地址、令牌和模型，写 `translation_ai`；配置在那一页改，这里没有自己的凭据和连接测试。 */
+        AI("AI 辅助", null);
 
         private final String title;
         private final String testService;
@@ -39,15 +41,16 @@ public final class TranslationServiceSettingsPolicy {
     private TranslationServiceSettingsPolicy() {}
 
     /**
-     * 页面显示为选中的那一项，与 iOS 的 `TranslationProviderPreference.selected` 相同：先看小牛、自定义的启用，再看腾讯，最后看水杉账号。小牛和自定义只要启用就算选中（凭据不全时页面提示「凭据不完整」）；腾讯的 `enabled` 默认就开着，所以只有两项凭据都可用才算用户选了它，否则新装的用户会看到一个自己没选过的腾讯。
+     * 页面显示为选中的那一项，与 iOS 的 `TranslationProviderPreference.selected` 相同：先看小牛、自定义的启用，再看腾讯，再看水杉账号，最后看 AI 辅助（`translation_ai`）。小牛和自定义只要启用就算选中（凭据不全时页面提示「凭据不完整」）；腾讯的 `enabled` 默认就开着，所以只有两项凭据都可用才算用户选了它，否则新装的用户会看到一个自己没选过的腾讯。腾讯启用而没有凭据时，共享层的选路照样先选中它、轮不到 AI（见 {@link CandidateTranslationPolicy#route}），键盘什么都不发，所以这时 AI 辅助也显示成「不使用」。AI 配置不全时 AI 辅助仍显示为选中，页面提示去补配置。
      */
     public static Choice selected(boolean translationAccount, boolean niutransEnabled, boolean customEnabled,
-            boolean tencentEnabled, String tencentSecretId, String tencentSecretKey) {
+            boolean tencentEnabled, String tencentSecretId, String tencentSecretKey, boolean translationAi) {
         if (niutransEnabled) return Choice.NIUTRANS;
         if (customEnabled) return Choice.CUSTOM;
         if (tencentEnabled && CandidateTranslationPolicy.usableCredential(tencentSecretId)
                 && CandidateTranslationPolicy.usableCredential(tencentSecretKey)) return Choice.TENCENT;
-        return translationAccount ? Choice.ACCOUNT : Choice.NONE;
+        if (translationAccount) return Choice.ACCOUNT;
+        return translationAi && !tencentEnabled ? Choice.AI : Choice.NONE;
     }
 
     /** 小牛的 App ID 或 API Key：可以留空；填了就不能是 `<...>` 占位符或 `FAKESECRET_` 样例。返回给用户看的原因，可以保存时为 null。 */

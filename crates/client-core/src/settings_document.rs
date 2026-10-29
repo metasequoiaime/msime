@@ -78,7 +78,7 @@ pub fn export_document(preferences: &Preferences) -> Result<String, serde_json::
     serde_json::to_string_pretty(&Value::Object(document))
 }
 
-/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
+/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated` 和 `translation_ai_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
 pub fn import_document(
     bytes: &[u8],
     current: &Preferences,
@@ -127,6 +127,9 @@ pub fn import_document(
     // 智能标点的一次性迁移标记只从假变真。文件里的智能标点照文件的值导入，不再迁移：那是用户自己选来覆盖本机的设置，旧文件里的 `false` 也可能是在 Linux 或手机上有意关掉的，分不出来。
     preferences.smart_punctuation_migrated =
         current.smart_punctuation_migrated || preferences.smart_punctuation_migrated;
+    // AI 辅助翻译的迁移标记同理：文件里的翻译服务选择照文件的值导入，不再迁移。
+    preferences.translation_ai_migrated =
+        current.translation_ai_migrated || preferences.translation_ai_migrated;
     narrow_to_edition(&mut preferences, current, edition);
     preferences
         .validate()
@@ -237,6 +240,24 @@ mod tests {
             import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
         assert!(!imported.smart_punctuation);
         assert!(imported.smart_punctuation_migrated);
+    }
+
+    // 统一成显式选择之前导出的文件没有 AI 辅助翻译的迁移标记。导入照文件的值来，本机的标记保留，之后读文档不会再按旧规则改写导入的翻译服务。
+    #[test]
+    fn an_old_file_keeps_its_translation_service_and_this_machine_s_marker() {
+        let mut document: Value =
+            serde_json::from_str(&export_document(&Preferences::default()).unwrap()).unwrap();
+        let preferences = document["preferences"].as_object_mut().unwrap();
+        assert_eq!(
+            preferences.remove("translation_ai_migrated"),
+            Some(Value::Bool(true))
+        );
+        let text = serde_json::to_string(&document).unwrap();
+
+        let imported =
+            import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
+        assert!(!imported.translation_ai);
+        assert!(imported.translation_ai_migrated);
     }
 
     #[test]

@@ -187,6 +187,59 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertEqual(TranslationProviderPreference.route(in: incomplete), .none, "the account is never a fallback for the user's own service")
   }
 
+  /// 「AI 辅助」要显式选择（`translation_ai`），与共享层 `selected_translation_services` 相同：候选栏 AI 候选（`ai_assistant.enabled`）开没开不参与；水杉账号和用户自己的服务排在它前面，选中的服务凭据不全时也不改用它；腾讯启用而没有密钥时共享层照样选中腾讯、什么都不发。
+  func testAIIsUsedOnlyWhenChosenExplicitly() {
+    let ai: [String: Any] = ["enabled": false, "provider": "openAI", "endpoint": "https://api.openai.com/v1/chat/completions",
+                             "model": "synthetic-model"]
+    let expected = TranslationRoute.ai(provider: "openAI", endpoint: "https://api.openai.com/v1/chat/completions",
+                                       model: "synthetic-model", token: "")
+    let chosen: [String: Any] = ["translation_ai": true, "tencent_tmt": ["enabled": false], "ai_assistant": ai]
+    XCTAssertEqual(TranslationProviderPreference.route(in: chosen), expected, "AI candidates being off does not matter")
+    XCTAssertEqual(TranslationProviderPreference.selected(in: chosen), .ai)
+
+    var candidatesOn = chosen
+    candidatesOn["translation_ai"] = nil
+    candidatesOn["ai_assistant"] = ai.merging(["enabled": true]) { _, new in new }
+    XCTAssertEqual(TranslationProviderPreference.route(in: candidatesOn), .none, "AI candidates alone no longer choose AI translation")
+    XCTAssertEqual(TranslationProviderPreference.selected(in: candidatesOn), .off)
+
+    var tencentDefault = chosen
+    tencentDefault["tencent_tmt"] = nil
+    XCTAssertEqual(TranslationProviderPreference.route(in: tencentDefault), .none)
+    XCTAssertEqual(TranslationProviderPreference.selected(in: tencentDefault), .off)
+
+    var account = chosen
+    account["translation_account"] = true
+    XCTAssertEqual(TranslationProviderPreference.route(in: account), .account)
+    XCTAssertEqual(TranslationProviderPreference.selected(in: account), .account)
+
+    var niutrans = chosen
+    niutrans["niutrans"] = ["enabled": true, "app_id": "", "apikey": "key"]
+    XCTAssertEqual(TranslationProviderPreference.route(in: niutrans), .none, "a chosen but incomplete service does not fall back to AI")
+
+    var unconfigured = chosen
+    unconfigured["ai_assistant"] = ["provider": "openAI", "endpoint": "", "model": "synthetic-model"]
+    XCTAssertEqual(TranslationProviderPreference.route(in: unconfigured), .none)
+    XCTAssertEqual(TranslationProviderPreference.selected(in: unconfigured), .ai, "the page keeps the choice and asks for the configuration")
+  }
+
+  func testSelectingAIWritesTheExplicitChoice() {
+    var document: [String: Any] = [
+      "translation_account": true,
+      "ai_assistant": ["provider": "openAI", "endpoint": "https://api.openai.com/v1/chat/completions", "model": "synthetic-model"],
+    ]
+    TranslationProviderPreference.select(.ai, niutrans: ("", ""), tencent: ("", "", ""), custom: ("", ""), in: &document)
+    XCTAssertEqual(document["translation_ai"] as? Bool, true)
+    XCTAssertNil(document["translation_account"])
+    XCTAssertEqual((document["tencent_tmt"] as? [String: Any])?["enabled"] as? Bool, false)
+    XCTAssertEqual(TranslationProviderPreference.selected(in: document), .ai)
+    if case .ai = TranslationProviderPreference.route(in: document) {} else { XCTFail("choosing AI routes to AI") }
+    TranslationProviderPreference.select(.off, niutrans: ("", ""), tencent: ("", "", ""), custom: ("", ""), in: &document)
+    XCTAssertNil(document["translation_ai"])
+    XCTAssertEqual(TranslationProviderPreference.route(in: document), .none)
+    XCTAssertEqual(TranslationProvider.allCases.last, .ai, "the page lists AI 辅助")
+  }
+
   func testURLRequestRejectsMalformedNumericDescriptorValues() {
     let descriptor: [String: Any] = [
       "url": "https://example.invalid/translate", "method": "POST", "body": ["text": "x"],
