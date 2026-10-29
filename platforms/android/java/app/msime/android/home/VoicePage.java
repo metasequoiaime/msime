@@ -65,6 +65,8 @@ public final class VoicePage extends ReloadingDetailPage {
     /** 「无」只是空格键和工具栏上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格不进语音，松手仍是空格。「更多工具」面板的「语音输入」磁贴只在工具栏语音按钮露出时才藏（`ImeFunctionPanel`），选「无」时它还在，说明里照实写出来，免得用户以为语音整个关掉了（#10143）。 */
     static final String TRIGGER_NONE_HINT = "空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」";
     static final String TRIGGER_SHEET_HINT = "选「无」时" + TRIGGER_NONE_HINT;
+    /** 选了「工具栏按钮」而「键盘 → 工具栏 → 显示方式」是「隐藏」时，工具栏上的按钮全都不显示，语音按钮也不例外；「更多工具」的「语音输入」磁贴这时保留（`ImeFunctionPanel` 只在工具栏未隐藏时去重）。照实写出来，免得用户以为选了却没生效（#10142）。 */
+    static final String TRIGGER_TOOLBAR_HIDDEN_HINT = "工具栏已隐藏，按钮暂不显示；可在「键盘 → 工具栏」把显示方式改为「输入时显示」，或在「更多工具」里点「语音输入」";
 
     /**
      * 页面渲染时读到的偏好与识别器。
@@ -206,8 +208,11 @@ public final class VoicePage extends ReloadingDetailPage {
 
         int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
+        String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT
+            : trigger == TRIGGER_TOOLBAR && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN) ? TRIGGER_TOOLBAR_HIDDEN_HINT
+            : null;
         GroupCard.Row[] triggerRow = new GroupCard.Row[1];
-        triggerRow[0] = recognition.nav("启动方式", trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT : null,
+        triggerRow[0] = recognition.nav("启动方式", triggerHint,
             TRIGGER_LABELS[trigger],
             () -> pickTrigger(trigger, triggerRow[0]));
 
@@ -694,6 +699,8 @@ public final class VoicePage extends ReloadingDetailPage {
         for (int index = 0; index < TRIGGER_LABELS.length; index++) {
             int choice = index;
             sheet.option(TRIGGER_LABELS[index], index == selected, () -> {
+                // OptionSheet 点已选中的项也会跑动作。启动方式由两个开关派生，手势分页另开了长按空格时两个开关可能都开着、这里显示「长按空格」；重新点它不能写回、悄悄关掉工具栏按钮。
+                if (choice == selected) return;
                 row.setValue(TRIGGER_LABELS[choice]);
                 saveTrigger(choice);
             });

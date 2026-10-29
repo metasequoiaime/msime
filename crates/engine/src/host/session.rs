@@ -1,7 +1,7 @@
 //! The bridge's `Session` wrapper over the engine session (api-contract §1a, §2, §5): ASCII checks, command numbering with `CommitRawWithoutLearning`, the raw-commit learning policy, the flattened snapshot and the online query snapshot.
 
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -13,7 +13,6 @@ use crate::helpcode::{
     compute_helpcodes, load_helpcode_keymap_with_fallback, HelpcodeKeymap, SharedKeymap,
 };
 use crate::japanese::romaji::romaji_display_reading_into;
-use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
@@ -23,7 +22,6 @@ use crate::types::{
     KeyResult, LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery,
     QuickPhraseEntry, SchemeType,
 };
-use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 use crate::user_dictionary::removal::learn_entered_english_word;
 
 /// The weight an entered English word is learned at: the C++ default argument of `learn_entered_english_word` (user_dictionary_journal.h:136-137), which the bridge relied on.
@@ -166,8 +164,6 @@ pub struct Session {
     helpcode_keymap: Option<SharedKeymap>,
     helpcode_enabled: bool,
     show_helpcode: bool,
-    /// The generation and resource directories the local-mode queries read; dropped after `inner`, so the last session to go closes their cached connections.
-    _local_databases: LocalDatabaseLease,
     _thread_confined: PhantomData<Rc<()>>,
 }
 
@@ -230,10 +226,6 @@ impl Session {
             helpcode_keymap,
             helpcode_enabled: options.helpcode,
             show_helpcode: options.show_helpcode,
-            _local_databases: LocalDatabaseLease::new([
-                PathBuf::from(&options.dictionaries),
-                PathBuf::from(&options.resources),
-            ]),
             _thread_confined: PhantomData,
         })
     }
@@ -507,10 +499,10 @@ impl Session {
                         .map(Path::new),
                 )
                 .unwrap_or_else(|error| {
-                    eprintln!(
-                        "msime: helpcode schema {} unavailable, using an empty table: {error}",
+                    crate::logging::warn(format_args!(
+                        "helpcode schema {} unavailable, using an empty table: {error}",
                         self.options.helpcode_schema
-                    );
+                    ));
                     HelpcodeKeymap::default()
                 }),
             ),
@@ -855,19 +847,6 @@ impl Session {
             }
         }
         result_for(result)
-    }
-}
-
-/// The C++ registered `PersonalNgramStore::flush_all` with `atexit` (personal_ngram_store.cpp:255), so context learned in the last ~2 s reached the journal when the host quit. Rust runs no destructors for statics and `atexit` needs unsafe, so the session writes its journal's queue when the host drops it, which hosts do on deactivation and shutdown. A host that can exit without dropping its sessions (macOS `[NSApp terminate:]` runs `exit()`) calls `flush_personal_learning`, through host-api's `msime_client_flush_all`, from its will-terminate hook instead.
-impl Drop for Session {
-    fn drop(&mut self) {
-        let journal = runtime_paths(&self.options).user(assets::USER_JOURNAL);
-        // Nobody is left to report to: a failed write stays queued and flagged in the store, and the next record reports it and schedules another try.
-        let _ = flush_journal(&journal);
-        // A host thread whose sessions are gone (a quiesced IME, a closed window) holds no journal handle.
-        crate::user_dictionary::journal::release_thread_journal();
-        // Nothing of this session writes the journal after this point. A host-api session still holds its dictionary access here (its Runtime drops first), so no dictionary maintenance can change the file between the write above and this record.
-        note_settled(&journal);
     }
 }
 

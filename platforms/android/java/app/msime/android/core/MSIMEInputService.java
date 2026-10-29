@@ -324,7 +324,8 @@ public final class MSIMEInputService extends InputMethodService {
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
     int touchRowSpacingTenths = KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS;
     int touchKeyboardHeightAdjustment = KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP;
-    private boolean touchVoiceShortcutEnabled;
+    /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；「语音输入 → 启动方式」选「工具栏按钮」或工具栏设置里打开「语音」时为真（#10142）。 */
+    boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
 
@@ -667,11 +668,6 @@ public final class MSIMEInputService extends InputMethodService {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
-    /**
-     * 偏好里在用五笔、本机却没有五笔码表（{@link KeyboardScheme#wubiTableWanted}）时，在键盘上提示一句去设置应用下载。
-     *
-     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，在那里点了「以后再说」、之后只用键盘的人只会看到五笔不见了。偏好取最近一次读到的实时偏好，码表在不在取 onStartInput 刚算的 {@link #resourcePacks}：键盘进程常常比设置应用活得久，码表消失（设置应用启动时换了代次）之后偏好并没有变，所以读到实时偏好时、每次开始输入时和键盘窗口显示时都判断一次。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
-     */
     /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
     private void rememberWubiNoticePreferences(JSONObject preferences) {
         wubiNoticeScheme = InputViewValuePolicy.textOr(preferences, "scheme", "");
@@ -680,6 +676,11 @@ public final class MSIMEInputService extends InputMethodService {
         announceWubiTableMissing();
     }
 
+    /**
+     * 偏好里在用五笔、本机却没有五笔码表（{@link KeyboardScheme#wubiTableWanted}）时，在键盘上提示一句去设置应用下载。
+     *
+     * <p>full 和拼音版的瘦包不带五笔码表，安装包换了词库锁时已装的 wubi 资源包也随之过期。这时键盘不列五笔、host-api 回退到别的方案，而输入法进程从不联网，下载只能由设置应用发起（{@code HomeActivity} 回到前台时会问）。不提示的话，在那里点了「以后再说」、之后只用键盘的人只会看到五笔不见了。偏好取最近一次读到的实时偏好，码表在不在取 onStartInput 刚算的 {@link #resourcePacks}：键盘进程常常比设置应用活得久，码表消失（设置应用启动时换了代次）之后偏好并没有变，所以读到实时偏好时、每次开始输入时和键盘窗口显示时都判断一次。键盘窗口在屏幕上才提示，同一个进程里至少隔 {@link #WUBI_TABLE_NOTICE_INTERVAL_MILLIS}。
+     */
     private void announceWubiTableMissing() {
         if (wubiNoticeScheme == null || !imeWindowVisible) return;
         if (!KeyboardScheme.wubiTableWanted(wubiNoticeScheme, wubiNoticeLastChinese, wubiNoticeEnabledIds,
@@ -1752,11 +1753,18 @@ public final class MSIMEInputService extends InputMethodService {
         if (inlineAutofill != null) inlineAutofill.startInput();
         cancelInputViewRefresh();
         InputConnection nextConnection = getCurrentInputConnection();
+        InputConnection previousConnection = connection;
+        // 同一输入框重启连接时文本编辑面板留着（#10141）：它直接作用于编辑器，不依赖引擎会话；换了输入框才关。包名、fieldId、输入类型和 imeOptions 分不出同一个 WebView 或 Compose 视图里的两个输入框，所以还要求新连接的初始选区就是编辑器最近报来的选区；对不上或选区未知时按换输入框处理。
+        boolean sameEditorRestart = restarting && nextConnection != null && previousConnection != null
+            && sameEditor(info) && imeTextEditPanel.reportedSelection(info.initialSelStart, info.initialSelEnd);
         if (restarting && retainRestartedComposition(info, nextConnection)) {
             imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_START);
             connection = nextConnection;
-            imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
-                info == null ? -1 : info.initialSelEnd);
+            if (sameEditorRestart) {
+                imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
+            } else {
+                imeTextEditPanel.editorChanged(info.initialSelStart, info.initialSelEnd);
+            }
             resetCaretAnchor();
             updateAutomaticCapitalization();
             render();
@@ -1780,12 +1788,16 @@ public final class MSIMEInputService extends InputMethodService {
             currentDocumentIdentifier = nextDocumentIdentifier++;
         }
         imeBottomRow.resetSpaceCursor();
-        if (keepSession) stopKeepingSession();
-        else stop(false);
+        if (keepSession) stopKeepingSession(sameEditorRestart);
+        else stop(false, sameEditorRestart);
         inputFailureRecoveryAttempts = 0;
         connection = getCurrentInputConnection();
-        imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
-            info == null ? -1 : info.initialSelEnd);
+        if (sameEditorRestart) {
+            imeTextEditPanel.editorRestarted(previousConnection, info.initialSelStart, info.initialSelEnd);
+        } else {
+            imeTextEditPanel.editorChanged(info == null ? -1 : info.initialSelStart,
+                info == null ? -1 : info.initialSelEnd);
+        }
         resetCaretAnchor();
         selectionEcho.reset(info == null ? -1 : info.initialSelStart,
             info == null ? -1 : info.initialSelEnd);
@@ -1837,11 +1849,16 @@ public final class MSIMEInputService extends InputMethodService {
         startInputRuntime(info, restarting, newDocument, startGeneration, engineWanted, true, deferEngine);
     }
 
+    /** 新连接与当前记下的是不是同一个输入框：包名、fieldId、输入类型和 imeOptions 都没变。 */
+    private boolean sameEditor(EditorInfo info) {
+        return info != null && info.inputType == editorInputType && info.fieldId == currentEditorFieldId
+            && info.imeOptions == currentEditorImeOptions && currentEditorPackage.equals(info.packageName);
+    }
+
     /** 同一输入框重启连接时能否留着引擎会话（{@link InputViewRefreshPolicy#keepsSessionAcrossRestart}）。 */
     private boolean keepsSessionAcrossRestart(EditorInfo info, boolean restarting, InputConnection next) {
         if (!restarting || info == null || next == null || session == 0) return false;
-        boolean sameEditor = info.inputType == editorInputType && info.fieldId == currentEditorFieldId
-            && info.imeOptions == currentEditorImeOptions && currentEditorPackage.equals(info.packageName);
+        boolean sameEditor = sameEditor(info);
         if (!sameEditor) return false;
         // 资源包可能刚在设置应用里装好或删掉：方案切换器、日文临时模式和音标可用与否都是建会话时按资源包算的，留着会话就一直是旧的。原来每次重启连接都重建、重读一遍，这里同样一次 JNI 列出，变了就不留会话。
         if (!ResourcePacks.installedIds(this).equals(installedResourcePackIds)) return false;
@@ -2415,16 +2432,21 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
+        stop(finish, false);
+    }
+
+    /** @param keepTextEdit 同一输入框重启连接时留着文本编辑面板（#10141） */
+    private void stop(boolean finish, boolean keepTextEdit) {
         boolean keepMoreTools = preserveMoreToolsOnStop;
         preserveMoreToolsOnStop = false;
-        stop(finish, keepMoreTools, false);
+        stop(finish, keepMoreTools, false, keepTextEdit);
     }
 
     /** 同一输入框重启连接、留着引擎会话时的收尾（{@link InputViewRefreshPolicy#keepsSessionAcrossRestart}）：只做编辑器边界上的复位。 */
-    private void stopKeepingSession() {
+    private void stopKeepingSession(boolean keepTextEdit) {
         boolean keepMoreTools = preserveMoreToolsOnStop;
         preserveMoreToolsOnStop = false;
-        stop(false, keepMoreTools, true);
+        stop(false, keepMoreTools, true, keepTextEdit);
     }
 
     /**
@@ -2432,7 +2454,7 @@ public final class MSIMEInputService extends InputMethodService {
      *
      * @param keepSession 为真时不销毁引擎会话，会话带着的偏好快照、皮肤、翻译路由和保存中的状态都不动，只关面板、收起组字区、作废这个输入框上还在路上的请求，与输入框一起结束的那些照常复位。
      */
-    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession) {
+    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession, boolean keepTextEdit) {
         if (imeWorldClock != null) imeWorldClock.close();
         if (imeOcr != null) imeOcr.close();
         imeCompositionEditor.close();
@@ -2475,7 +2497,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         closeCandidatePanel();
         // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
-        if (keepMoreTools) {
+        if (keepMoreTools || keepTextEdit) {
+            if (!keepMoreTools) closeMoreTools();
             closeEmojiPicker();
             closeCommonPhrases();
             closeClipboardHistory();
@@ -2486,7 +2509,7 @@ public final class MSIMEInputService extends InputMethodService {
             closeVoiceResult();
             closeLayoutSettings();
             closeReplyKeyboard();
-            imeTextEditPanel.close();
+            if (!keepTextEdit) imeTextEditPanel.close();
         } else {
             closeToolbarPanels();
         }
@@ -2897,7 +2920,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarRowHidden() {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
-            || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo);
+            || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
+            || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */

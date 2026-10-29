@@ -8174,6 +8174,36 @@ group("单手模式 follows Android's toggleOneHanded and gutter", () => {
   );
 });
 
+group("单手模式 on a large screen is phone-sized and hugs the chosen edge (#10202)", () => {
+  check(
+    KeyboardFormFactorPolicy.largeScreen(800, 1280) &&
+      KeyboardFormFactorPolicy.largeScreen(1280, 800) &&
+      KeyboardFormFactorPolicy.largeScreen(600, 960) &&
+      !KeyboardFormFactorPolicy.largeScreen(411, 915) &&
+      !KeyboardFormFactorPolicy.largeScreen(915, 411),
+    "a large screen is one whose shorter side is at least 600vp, whichever way it is turned",
+  );
+  check(OneHandedPolicy.blockWidthVp(411, false) === 0, "a phone keeps the full-width 85/15 split");
+  check(OneHandedPolicy.blockWidthVp(915, false) === 0, "so does a phone in landscape");
+  const block: number = OneHandedPolicy.blockWidthVp(1280, true);
+  const keys: number =
+    block * (1 - OneHandedPolicy.RAIL_PERCENT / 100) - OneHandedPolicy.RAIL_GAP_VP;
+  check(block === 431, `a tablet's rail, gap and keys take 431vp, not ${block}`);
+  check(
+    Math.abs(keys - OneHandedPolicy.KEYS_MAX_WIDTH_VP) < 1 &&
+      OneHandedPolicy.KEYS_MAX_WIDTH_VP === 360,
+    `which leaves the keys about 360vp, as on Android (${keys})`,
+  );
+  check(
+    OneHandedPolicy.blockWidthVp(400, true) === 400,
+    "a screen narrower than the block gives it the whole row",
+  );
+  check(
+    OneHandedPolicy.blockWidthVp(0, true) === 431,
+    "an unknown width still gets the phone-sized block",
+  );
+});
+
 console.log("PrivacyGate");
 
 group("隐私模式 and password fields keep no record, as Android's ImePrivacyGate", () => {

@@ -50,6 +50,11 @@ public final class TextTrackpadHold {
         return tap ? End.TAP : result;
     }
 
+    /** 同一输入框重启连接（#10141）：按住中的临时触控板改认新连接，不因此结束。 */
+    public void retarget(Object previous, Object next) {
+        if (previous != null && next != null && target == previous) target = next;
+    }
+
     public End cancel() {
         End result = active ? End.RESTORE : End.NONE;
         target = null;

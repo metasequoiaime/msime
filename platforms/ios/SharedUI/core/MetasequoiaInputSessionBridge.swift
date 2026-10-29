@@ -532,13 +532,29 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return !pendingCharacters.isEmpty
   }
 
-  /// 只接收普通全拼九键数字；字节与句柄按值移交，所有结果仍按投递顺序交给主线程。
+  /// 26 键双拼一键的按下点（#10018），含义与 `handleTouchCharacter` 的参数相同。
+  struct TouchPoint: Equatable {
+    let geometryID: UInt32
+    let x: Float
+    let y: Float
+  }
+
+  /// 能交给会话线程异步处理的按键：九键网格下的数字 2–9，不用网格（26 键）时的小写字母和微软双拼的 `;`；按下点只在 26 键上带。其余按键（分词、大写、标点、其他网格）仍走同步入口。
+  static func acceptsAsynchronousCharacter(_ byte: UInt8, grid: KeyGrid, touched: Bool) -> Bool {
+    switch grid {
+    case .nineKey: return !touched && (50...57).contains(byte)
+    case .none: return (97...122).contains(byte) || byte == 59
+    default: return false
+    }
+  }
+
+  /// 普通全拼九键数字，或 26 键全拼、双拼的字母（#10031）；方案由键盘判断，这里只按网格和字节把关。字节、句柄与按下点按值移交，所有结果仍按投递顺序交给主线程。
   @discardableResult
-  func enqueueNineKeyCharacter(_ character: String,
-                               completion: @escaping (MetasequoiaInputSnapshot) -> Void) -> Bool {
+  func enqueueCharacter(_ character: String, touch: TouchPoint? = nil,
+                        completion: @escaping (MetasequoiaInputSnapshot) -> Void) -> Bool {
     precondition(Thread.isMainThread)
-    guard handle != 0, keyGrid == .nineKey,
-          let byte = Self.ascii(character), (50...57).contains(byte) else { return false }
+    guard handle != 0, let byte = Self.ascii(character),
+          Self.acceptsAsynchronousCharacter(byte, grid: keyGrid, touched: touch != nil) else { return false }
     let pending = PendingCharacter(completion)
     let sessionHandle = handle
     pendingCharactersLock.lock()
@@ -548,7 +564,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       guard let self else { return }
       let snapshot: MetasequoiaInputSnapshot
       do {
-        guard let value = try Self.decode(msimeClientCharacter(sessionHandle, byte, false)) as? [String: Any]
+        let response = touch.map {
+          msimeClientTouchCharacter(sessionHandle, byte, false, $0.geometryID, $0.x, $0.y)
+        } ?? msimeClientCharacter(sessionHandle, byte, false)
+        guard let value = try Self.decode(response) as? [String: Any]
         else { throw InputBridgeFailure.invalidResponse }
         snapshot = try Self.snapshot(value)
       } catch {

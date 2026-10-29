@@ -99,6 +99,24 @@ if [[ $(rg -c 'setTouchPoints\(' "$android_java/core/MSIMEInputService.java") !=
   echo "Only double-pinyin letter keys may record touch-downs in the key area" >&2
   exit 1
 fi
+# 文本编辑面板只在同一输入框重启连接时留着（#10141）。手势改认新连接由 TextTrackpadGestureSmoke 和 TextTrackpadHoldSmoke 覆盖；判断是不是同一输入框、走哪条收尾的接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：同一输入框还要求初始选区等于最近的回报（只比 fieldId 分不出同一个 WebView 里的两个输入框），两条 onStartInput 路径都按它在 editorRestarted 和 editorChanged 之间选，stop 只因它跳过关这个面板、更多工具照关；editorRestarted 全宿主只在 onStartInput 里调用。
+start_input_body=$(sed -n '/^    @Override public void onStartInput(EditorInfo info, boolean restarting) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+stop_body=$(sed -n '/^    private void stop(boolean finish, boolean keepMoreTools, boolean keepSession, boolean keepTextEdit) {$/,/^    }$/p' \
+  "$android_java/core/MSIMEInputService.java")
+restarted_calls=$({ rg -c 'editorRestarted\(' "$android_java" || true; } | awk -F: '{ total += $2 } END { print total + 0 }')
+if ! rg -q 'sameEditor\(info\) && imeTextEditPanel\.reportedSelection\(info\.initialSelStart, info\.initialSelEnd\);' <<< "$start_input_body" \
+  || [[ $(rg -c 'if \(sameEditorRestart\) \{' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ $(rg -c 'imeTextEditPanel\.editorRestarted\(' <<< "$start_input_body" || true) != 2 ]] \
+  || [[ "$restarted_calls" != 3 ]] \
+  || ! rg -q 'if \(keepSession\) stopKeepingSession\(sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'else stop\(false, sameEditorRestart\);' <<< "$start_input_body" \
+  || ! rg -q 'if \(keepMoreTools \|\| keepTextEdit\) \{' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepMoreTools\) closeMoreTools\(\);' <<< "$stop_body" \
+  || ! rg -q 'if \(!keepTextEdit\) imeTextEditPanel\.close\(\);' <<< "$stop_body"; then
+  echo "The text edit panel may survive only a same-field restart (same editor and the last reported selection); stop must still close More Tools" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
 toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
@@ -856,6 +874,19 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   || ! rg -q 'exportSelectedText' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
+  exit 1
+fi
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
+  || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 10 'private void returnFromClipboardDetail\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
+  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+  echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
   exit 1
 fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。

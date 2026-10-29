@@ -50,14 +50,14 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、撤销、重做、语音、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         appliedOrder = null;
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
+            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
         s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
         for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, dismissButton}) {
@@ -84,9 +84,9 @@ final class ImeToolbar {
             s.shortcutBar.addView(button, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
-        // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
+        // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「语音输入 → 启动方式」选「工具栏按钮」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
-                s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {
+                s.replyShortcutButton, s.layoutSettingsButton}) {
             if (retired == null) continue;
             if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
             ViewPolicy.hide(retired);
@@ -181,6 +181,7 @@ final class ImeToolbar {
                 case TEXT_EDIT -> s.textEditShortcutButton;
                 case UNDO -> s.undoShortcutButton;
                 case REDO -> s.redoShortcutButton;
+                case VOICE -> s.voiceShortcutButton;
             };
             // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
             s.shortcutBar.addView(button, index + 1);
