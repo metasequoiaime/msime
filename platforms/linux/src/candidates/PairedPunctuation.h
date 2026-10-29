@@ -77,19 +77,23 @@ class PairedPunctuationTracker {
   std::vector<std::string> closings_;
 };
 
-// 这个键能跨过的后半个。引号和方头括号有两组字（quote_style、bracket_style），样式可能在一对还开着时换掉，所以按 tracker 栈顶挑：栈顶是其中之一就给它，否则给缺省那个，consume 会照旧清空栈。
+// 这个键能跨过的后半个。引号和方头括号有两组字（quote_style、bracket_style），样式可能在一对还开着时换掉，所以按 tracker 栈顶挑：栈顶是其中之一就给它，否则给缺省那个，consume 会照旧清空栈。`'` 例外：」也是 `{` 补出的（契约第 5 版），弯引号样式下 `'` 出的是‘’，不能拿它去跨过 `{` 那一对的」，所以只在 View 报告直角引号样式（corner_quotes）时才认」，与 Windows 按当前样式解析出的字判断一致。
 inline std::optional<std::string> paired_closing_for_key(
-    char key, bool fullwidth, const PairedPunctuationTracker &tracker) {
+    char key, bool fullwidth, const PairedPunctuationTracker &tracker,
+    bool corner_quotes) {
   const auto either = [&tracker](const char *first,
                                  const char *second) -> std::string {
     return tracker.matches(second) ? second : first;
   };
   switch (key) {
     case '"': return either("”", "』");
-    case '\'': return either("’", "」");
+    case '\'': return corner_quotes ? either("’", "」") : std::string("’");
     case ')': return std::string("）");
     case ']': return either("】", "〗");
-    case '}': return fullwidth ? std::string("｝") : std::string("}");
+    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
+    case '}':
+      if (tracker.matches("」")) return std::string("」");
+      return fullwidth ? std::string("｝") : std::string("}");
     case '>': return std::string("〉");
     default: return std::nullopt;
   }
@@ -108,7 +112,7 @@ inline const char *paired_punctuation_closing(std::string_view text) {
   }
   return nullptr;
 }
-// How a host completes the opening mark Engine committed for a paired key: brackets and the book title get their closing mark, `{` its brace, and a quote key always yields an opening and closing quote pair whichever half Engine chose. Both Linux hosts use this, then step the caret back between the two marks.
+// 宿主怎样补全引擎为成对键写出的前半个：方括号、圆括号和书名号补后半个；`{` 在中文标点下出「（契约第 5 版）、补」，引擎写的是 ASCII 花括号时（专用英文）补 `}`；引号键不论引擎出了哪一半，都补成完整的一对。两个 Linux 宿主都用它，再把光标退回两半之间。
 enum class PunctuationPairMode {
   Unpaired,
   Bracket,
@@ -120,6 +124,10 @@ inline bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mo
   if (mode == PunctuationPairMode::Unpaired)
     return false;
   if (mode == PunctuationPairMode::Brace) {
+    if (text.size() >= 3 && text.compare(text.size() - 3, 3, "「") == 0) {
+      text += "」";
+      return true;
+    }
     if (!text.empty() && text.back() == '{') {
       text.push_back('}');
       return true;

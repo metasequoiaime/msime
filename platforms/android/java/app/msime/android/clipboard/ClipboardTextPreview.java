@@ -24,11 +24,11 @@ final class ClipboardTextPreview {
     }
 
     void show(String text) {
-        show(text, null, null);
+        show(text, null, null, null);
     }
 
-    /** 动作由记录所属面板提供；只读预览不带插入和修改入口。 */
-    void show(String text, Runnable insert, Runnable edit) {
+    /** 动作由记录所属面板提供；只读预览不带详情、插入和修改入口。 */
+    void show(String text, Runnable detail, Runnable insert, Runnable edit) {
         dismiss();
         View anchor = service.keyboardRoot;
         if (anchor == null || !anchor.isShown() || !anchor.isAttachedToWindow()) return;
@@ -38,13 +38,13 @@ final class ClipboardTextPreview {
         pendingLayout = () -> {
             if (anchor.isLayoutRequested()) return;
             clearPendingLayout();
-            showInWindow(anchor, text, insert, edit);
+            showInWindow(anchor, text, detail, insert, edit);
         };
         anchor.getViewTreeObserver().addOnGlobalLayoutListener(pendingLayout);
         anchor.requestLayout();
     }
 
-    private void showInWindow(View anchor, String text, Runnable insert, Runnable edit) {
+    private void showInWindow(View anchor, String text, Runnable detail, Runnable insert, Runnable edit) {
         if (!anchor.isShown() || !anchor.isAttachedToWindow()) { dismiss(); return; }
         View keyboard = service.keyboardSurface;
         int gap = service.pixels(12);
@@ -83,6 +83,8 @@ final class ClipboardTextPreview {
         LinearLayout actions = new LinearLayout(service);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setContentDescription("剪贴板全文预览操作");
+        // 「详情」在操作行最左侧、「插入」左边（#9963）；详情页的返回会重新打开这个预览。
+        if (detail != null) addAction(actions, "详情", "查看剪贴板全文的记录详情", detail);
         if (insert != null) addAction(actions, "插入", "插入剪贴板全文", insert);
         if (edit != null) addAction(actions, "修改", "修改剪贴板记录", edit);
         addAction(actions, "关闭", "关闭剪贴板全文预览", () -> { });
@@ -143,7 +145,7 @@ final class ClipboardTextPreview {
         row.addView(button, params);
         button.setOnClickListener(ignored -> {
             service.imeKeyFeedback.playFeedback(button);
-            // 先清理浮层、正文和临时父窗口，再向编辑器或应用编辑页交付动作。
+            // 先清理浮层、正文和临时父窗口，再向编辑器、应用编辑页或面板内详情交付动作。
             dismiss();
             action.run();
         });

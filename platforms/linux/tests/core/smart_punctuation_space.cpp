@@ -172,11 +172,11 @@ int main() {
   assert(english_mode_output(U'"', false, true, false, english, {}) == "”");
   assert(english_mode_output(U'\'', false, true, false, english, {}) == "‘");
   assert(english_mode_output(U'\'', false, true, false, english, {}) == "’");
-  // 契约第 3 版：`{` `}` 出直角引号，交替状态与弯引号分开。
+  // 契约第 5 版：`{` `}` 固定出「」，连按也不交替。
   assert(english_mode_output(U'{', false, true, false, english, {}) == "「");
-  assert(english_mode_output(U'{', false, true, false, english, {}) == "」");
-  assert(english_mode_output(U'}', false, true, false, english, {}) == "『");
-  assert(english_mode_output(U'}', false, true, false, english, {}) == "』");
+  assert(english_mode_output(U'{', false, true, false, english, {}) == "「");
+  assert(english_mode_output(U'}', false, true, false, english, {}) == "」");
+  assert(english_mode_output(U'}', false, true, false, english, {}) == "」");
   assert(english_mode_output(U'<', false, true, false, english, {}) == "《");
   assert(english_mode_output(U'<', false, true, false, english, {}) == "〈");
   assert(english_mode_output(U'>', false, true, false, english, {}) == "〉");
@@ -205,7 +205,7 @@ int main() {
   assert(english_mode_output(U'"', false, true, false, styled, corner) == "』");
   // `{` `}` 出的本来就是直角引号，样式不换它们。
   assert(english_mode_output(U'{', false, true, false, styled, corner) == "「");
-  assert(english_mode_output(U'}', false, true, false, styled, corner) == "『");
+  assert(english_mode_output(U'}', false, true, false, styled, corner) == "」");
   assert(english_mode_output(U'[', false, true, false, styled, corner) == "〖");
   assert(english_mode_output(U']', false, true, false, styled, corner) == "〗");
   assert(english_mode_output(U',', false, true, false, styled, corner) == "，");

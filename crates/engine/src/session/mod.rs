@@ -22,10 +22,12 @@ mod prediction;
 #[cfg(test)]
 mod tests;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
+use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::{KeyGrid, NineKeySession};
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
@@ -34,6 +36,8 @@ use crate::types::{
     LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery, QuickPhraseEntry,
     SchemeType, WordItem,
 };
+use crate::user_dictionary::journal::{release_thread_journal, JournalUse};
+use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 
 use crate::types::FirstPageRows;
 pub use clock::{Clock, LocalClock};
@@ -47,7 +51,20 @@ pub struct Session {
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
     prediction: prediction::Prediction,
+    /// See [`Self::candidate_revision`].
+    revision: u64,
+    /// `msime_user.db` of this session's paths, written once more as the session ends.
+    journal: PathBuf,
+    journal_use: JournalUse,
+    /// The generation and resource directories the local-mode queries read; dropped after the rest of the session, so the last session to go closes their cached connections.
+    _local_databases: LocalDatabaseLease,
 }
+
+// A session may move to another thread between calls (a host's worker pool, the C ABI); calls into one session are still serialised by its owner, so it does not need to be `Sync`. The journal connections it opens are cached per thread, and its end closes the idle ones on every thread (`JournalUse`), so a session used on several threads leaves none open.
+const _: fn() = || {
+    fn moves_between_threads<T: Send>() {}
+    moves_between_threads::<Session>();
+};
 
 impl Session {
     /// Validates the paths and every option (`INVALID_SESSION_OPTIONS`, `UNKNOWN_HELPCODE_SCHEMA`), loads the helpcode table and applies the options in the reference order (session.cpp:11-30, 57-66).
@@ -82,6 +99,7 @@ impl Session {
         nine_key.set_rescoring_context(&options.rescoring_context);
         // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。
         nine_key.set_personal_context_enabled(options.personal_context);
+        let journal = options.paths.user(crate::assets::USER_JOURNAL);
         Ok(Session {
             input,
             nine_key,
@@ -91,7 +109,23 @@ impl Session {
                 options.next_word_prediction,
                 options.paths.dictionary(crate::assets::MAIN_DICTIONARY),
             ),
+            revision: 0,
+            journal_use: JournalUse::new(journal.clone()),
+            journal,
+            _local_databases: LocalDatabaseLease::new([
+                options.paths.dictionaries.clone(),
+                options.paths.resources.clone(),
+            ]),
         })
+    }
+
+    /// Changes whenever a call may have changed the candidate list, so a host that read the candidates under one revision can tell that an index it holds no longer means the same row. Read-only calls never change it; neither do the setters that only affect later keys (clock, key touch and geometry, touch tuning, punctuation options, rescoring context). Starts at 0 and only grows.
+    pub fn candidate_revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn candidates_may_change(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// 会话建立时定下的双拼方案（内置的表，或校验过的用户表）。
@@ -110,6 +144,7 @@ impl Session {
 
     /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；九键双拼交的是方案用到的数字（可以有 1 和 0）；注音九键的数字由注音编辑器自己处理。待用的触点（[`Self::set_key_touch`]）只交给 26 键组字，九宫格的数字用不到它，一律在这一键后作废。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         let touch = self.input.pending_touch.take();
         // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。九键双拼没有英文九键，专用英文里数字照常是数字。
@@ -159,6 +194,7 @@ impl Session {
 
     /// 滑过字母键的一笔：它最可能拼出的全拼字母写到光标处，与已有组字之间用 `'` 隔开。不是全拼、在本地模式或专用英文里、九键数字正在组字，以及没有串跟得上这一笔时，不处理。
     pub fn glide(&mut self, keyboard: &GlideKeyboard, points: &[GlidePoint]) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         if self.nine_key.active() {
@@ -179,6 +215,7 @@ impl Session {
 
     /// 换触屏的组码网格，先丢掉网格里的组字，所以在换键盘布局、没有组字时调用。英文九键和注音九键只在九键下打开（注音组字会被丢掉）：14 键的英文模式画全键盘，注音没有 14 键。
     pub fn set_key_grid(&mut self, grid: Option<KeyGrid>) {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         self.input.helpcode_entry = None;
@@ -195,6 +232,7 @@ impl Session {
 
     /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表，五笔在 14 键下按组展开码表（`wubi::grid`）；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         let Some(
@@ -253,6 +291,7 @@ impl Session {
 
     /// 九宫格会话活跃时选它的拼写；否则在注音里钉目标音节的读音。
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.nine_key.active() && self.input.zhuyin_rules_apply() {
             return self.input.choose_zhuyin_spelling(index);
@@ -263,6 +302,7 @@ impl Session {
 
     /// 九宫格组字时按单字、按笔画筛选候选（`NineKeySession::set_filter`）；没有九宫格组字时不处理。
     pub fn set_nine_key_filter(&mut self, single_character: bool, strokes: &str) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.nine_key.active() {
             return KeyResult::unhandled();
@@ -271,6 +311,7 @@ impl Session {
     }
 
     pub fn command(&mut self, command: Command) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             self.prediction.clear();
@@ -302,6 +343,7 @@ impl Session {
 
     /// 整句改字的左移，进入改字时从第 `index` 个候选（宿主高亮的那一行）开始；已在改字里时与 `command(ConversionLeft)` 相同。九宫格和进不了改字时按 `MoveLeft` 处理。
     pub fn conversion_left_from(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         if self.nine_key.active() {
@@ -312,6 +354,7 @@ impl Session {
 
     /// `1`..`9` 选择组字候选；空闲联想不接管数字键。
     pub fn candidate_key(&mut self, value: u8) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         if self.nine_key.active() {
@@ -326,6 +369,7 @@ impl Session {
 
     /// Finishes the composition and appends the Chinese mark; unhandled when Chinese punctuation is off or locked to ASCII, or the key has no mark.
     pub fn punctuation(&mut self, value: u8) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         if !self.nine_key.active() {
@@ -375,6 +419,7 @@ impl Session {
     }
 
     pub fn select(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             let Some((row, word, pinyin)) = self.prediction.selected(index) else {
@@ -402,6 +447,7 @@ impl Session {
 
     /// Commit the first or last Han character of a candidate and drop the rest of the composition.
     pub fn select_edge(&mut self, index: usize, edge: CandidateEdge) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             return KeyResult::unhandled();
@@ -414,6 +460,7 @@ impl Session {
 
     /// Promote a dictionary candidate without committing; unsupported rows are unhandled, persistence failures carry a diagnostic.
     pub fn pin(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             return KeyResult::unhandled();
@@ -426,6 +473,7 @@ impl Session {
 
     /// Remove a dictionary phrase without committing; single-character non-English rows are protected.
     pub fn remove(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             return KeyResult::unhandled();
@@ -438,6 +486,7 @@ impl Session {
 
     /// Fix a dictionary candidate to slot 1..=5 in this input context; unhandled for any other slot.
     pub fn fix_position(&mut self, index: usize, position: i32) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             return KeyResult::unhandled();
@@ -452,6 +501,7 @@ impl Session {
     }
 
     pub fn clear_position(&mut self, index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if !self.prediction.rows.is_empty() {
             return KeyResult::unhandled();
@@ -464,6 +514,7 @@ impl Session {
 
     /// 从宿主高亮的候选开始结束整段组字（没有高亮时为 0），剩余片段使用各自首选；索引无效时提交原文。普通拼音中的大写片段由字面候选保留。
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         if self.nine_key.active() {
@@ -475,6 +526,7 @@ impl Session {
 
     /// Discards the composition. Fails, staying in the current scheme with the composition untouched, when the new scheme's dictionary cannot be opened (Cantonese without a usable `msime-cantonese.db`, Stroke without a usable `msime-stroke.db`: `LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`).
     pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         self.input.switch_scheme(scheme)?;
         self.prediction.clear();
@@ -488,21 +540,25 @@ impl Session {
 
     /// False for an unsupported schema or a table that cannot be loaded.
     pub fn set_helpcode_schema(&mut self, schema: &str) -> bool {
+        self.candidates_may_change();
         self.input.set_helpcode_schema(schema)
     }
 
     /// 换上宿主给的辅助码表，替换当前的表；全拼和双拼都用它。
     pub fn set_helpcode_table(&mut self, table: crate::helpcode::SharedKeymap) {
+        self.candidates_may_change();
         self.input.set_helpcode_table(table);
     }
 
     /// Quanpin and shuangpin together, as `SessionOptions::helpcode` does.
     pub fn set_helpcode_enabled(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.input.set_helpcode_enabled(enabled);
     }
 
     /// 只有模式改变时才取消组字；重复设置保留当前输入。
     pub fn set_dedicated_english(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.input.pending_touch = None;
         if self.input.dedicated_english == enabled {
             return;
@@ -524,6 +580,7 @@ impl Session {
     }
 
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.input.set_wubi_mixed_pinyin(enabled);
     }
 
@@ -534,6 +591,7 @@ impl Session {
 
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型和没有会话在用的个人学习模型，让不再用它们的进程能交还内存；本会话若正持有模型，照常用到会话结束。
     pub fn reset_cache(&mut self) {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.reset_cache();
         crate::japanese::decoder::JapaneseDictionary::release_shared();
@@ -542,11 +600,13 @@ impl Session {
 
     /// Replace the `/` mode's command table; rows it cannot use are dropped. A diagnostic only if the open command list could not be refreshed.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Option<String> {
+        self.candidates_may_change();
         self.input.set_command_table(table)
     }
 
     /// 替换脚本插件的 `/` 指令；用不了的被丢弃（`local::command::usable_plugin_commands`），缓存的插件行清掉。只有打开的 `/` 列表刷新失败时才返回诊断。
     pub fn set_plugin_commands(&mut self, commands: &[PluginCommand]) -> Option<String> {
+        self.candidates_may_change();
         self.input.set_plugin_commands(commands)
     }
 
@@ -557,21 +617,25 @@ impl Session {
 
     /// 替换 K 模式的宿主短语表；用不了的行被丢弃。只有打开的 K 模式列表刷新失败时才返回诊断。
     pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) -> Option<String> {
+        self.candidates_may_change();
         self.input.set_quick_phrase_table(table)
     }
 
     /// Replace the `@` mode's list; entries it cannot use are dropped.
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
+        self.candidates_may_change();
         self.input.set_mention_entries(entries)
     }
 
     /// Turn the embedded places of `@` mode on or off.
     pub fn set_mention_places(&mut self, enabled: bool) -> Option<String> {
+        self.candidates_may_change();
         self.input.set_mention_places(enabled)
     }
 
     /// Forget the committed-word context (focus or application change, host-inserted text).
     pub fn reset_context(&mut self) {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         self.input.reset_commit_context();
@@ -579,11 +643,13 @@ impl Session {
 
     /// 宿主的即时隐私门禁；关闭时清掉建议，用户偏好仍保留。
     pub fn set_prediction_allowed(&mut self, allowed: bool) {
+        self.candidates_may_change();
         self.prediction.set_allowed(allowed);
     }
 
     /// Disabling also ends the current context.
     pub fn set_personal_context_enabled(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.set_personal_context_enabled(enabled);
         self.nine_key.set_personal_context_enabled(enabled);
@@ -596,6 +662,7 @@ impl Session {
 
     /// 让宿主把云候选的固定席位交给当前会话；关闭时立即去掉尚未回答的占位行。
     pub fn set_cloud_candidates_enabled(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.input.set_cloud_candidates_enabled(enabled);
     }
 
@@ -604,6 +671,7 @@ impl Session {
     }
 
     pub fn set_english_online_candidates_enabled(&mut self, enabled: bool) {
+        self.candidates_may_change();
         self.input.set_english_online_candidates_enabled(enabled);
     }
 
@@ -616,6 +684,7 @@ impl Session {
     /// 首页行数只决定词库要不要并入补全词。`Runtime::set_page_size` 在宿主改每页候选数时调它，
     /// 因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
+        self.candidates_may_change();
         self.input.set_first_page_rows(rows);
         self.nine_key.set_first_page_rows(rows);
     }
@@ -627,11 +696,16 @@ impl Session {
         if self.nine_key.active() {
             return false;
         }
-        self.input.expand_initial_candidates()
+        let grew = self.input.expand_initial_candidates();
+        if grew {
+            self.candidates_may_change();
+        }
+        grew
     }
 
     /// 设置前缀解码的组字光标（overlays.md §7.6）；位置限制在可编辑范围，不能越过本地模式的入口标记。`None` 回到末尾，九键组码时无操作。
     pub fn set_caret(&mut self, caret: Option<usize>) {
+        self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
         // 五笔 14 键的组码不是逐个字母，没有可以落脚的光标位置。
@@ -838,7 +912,11 @@ impl Session {
         if self.nine_key.active() {
             return false;
         }
-        self.input.apply_command_translation(query, translation)
+        let applied = self.input.apply_command_translation(query, translation);
+        if applied {
+            self.candidates_may_change();
+        }
+        applied
     }
 
     /// 插件指令要宿主去问的那一次；见 `InputSession::plugin_command_query`。
@@ -858,7 +936,11 @@ impl Session {
         if self.nine_key.active() {
             return false;
         }
-        self.input.apply_plugin_command_rows(query, rows)
+        let applied = self.input.apply_plugin_command_rows(query, rows);
+        if applied {
+            self.candidates_may_change();
+        }
+        applied
     }
 
     /// Whether the rows now show; false (not an error) for a stale query.
@@ -871,11 +953,16 @@ impl Session {
         if self.nine_key.active() {
             return false;
         }
-        self.input.apply_online_candidates(query, words, source)
+        let applied = self.input.apply_online_candidates(query, words, source);
+        if applied {
+            self.candidates_may_change();
+        }
+        applied
     }
 
     /// Remove one online provider's rows from cached and visible candidates.
     pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.candidates_may_change();
         self.input.clear_online_candidates(source);
     }
 
@@ -888,7 +975,11 @@ impl Session {
         if self.nine_key.active() {
             return false;
         }
-        self.input.apply_online_candidate(query, word, source)
+        let applied = self.input.apply_online_candidate(query, word, source);
+        if applied {
+            self.candidates_may_change();
+        }
+        applied
     }
 
     /// Grid commits bypass the input session, so the word after one must not read the word before it as its context (session.cpp:37-45).
@@ -929,5 +1020,19 @@ impl Session {
             .personal_context_applies()
             .then_some(self.input.personal_context.as_ref());
         self.prediction.show(word, pinyin, previous, personal);
+    }
+}
+
+/// The C++ registered `PersonalNgramStore::flush_all` with `atexit` (personal_ngram_store.cpp:255), so context learned in the last ~2 s reached the journal when the host quit. Rust runs no destructors for statics and `atexit` needs unsafe, so the session writes its journal's queue as it ends, which hosts do on deactivation and shutdown. A host that can exit without dropping its sessions (macOS `[NSApp terminate:]` runs `exit()`) calls [`crate::flush_personal_learning`] (host-api's `msime_client_flush_all`) or [`crate::shutdown`] from its will-terminate hook instead.
+impl Drop for Session {
+    fn drop(&mut self) {
+        // Nobody is left to report to: a failed write stays queued and flagged in the store, and the next record reports it and schedules another try.
+        let _ = flush_journal(&self.journal);
+        // A host thread whose sessions are gone (a quiesced IME, a closed window) holds no journal handle.
+        release_thread_journal();
+        // The last session on this journal also closes the idle connections other threads keep to it, so a session created on one thread and ended on another leaves nothing open. Before the record below: closing the last connection to a WAL journal checkpoints it, which changes the files the record describes.
+        self.journal_use.end();
+        // Nothing of this session writes the journal after this point. A host-api session still holds its dictionary access here (its Runtime drops first), so no dictionary maintenance can change the file between the write above and this record.
+        note_settled(&self.journal);
     }
 }

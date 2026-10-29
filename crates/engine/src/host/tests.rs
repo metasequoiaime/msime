@@ -2301,6 +2301,26 @@ fn session_options_map_every_host_field() {
     assert_eq!(mapped.enabled_schemes, crate::SchemeSet::ALL);
 }
 
+/// 引擎库只有一套默认值（`SessionOptions::new`：辅助码关、表名 `wubi86`、学习开），门面不从它继承：宿主给的辅助码、学习开关原样交给会话，个人上下文按产品一直的取值打开。
+#[test]
+fn session_options_do_not_inherit_the_library_defaults() {
+    let library = crate::SessionOptions::new(crate::RuntimePaths::default());
+    assert!(!library.helpcode);
+    assert_eq!(library.helpcode_schema, "wubi86");
+    assert!(library.learning && library.personal_context);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.helpcode = true;
+    value.helpcode_schema = "ziranma".into();
+    value.learning = false;
+    let mapped = super::options::session_options(&value).unwrap();
+    assert!(mapped.helpcode);
+    assert_eq!(mapped.helpcode_schema, "ziranma");
+    assert!(!mapped.learning);
+    assert!(mapped.personal_context);
+}
+
 /// `enabled_schemes` 原样交给会话。双拼不在其中时双拼键位不校验，不合法的值按小鹤处理；双拼在其中时照旧报错。
 #[test]
 fn session_options_skip_the_shuangpin_profile_without_shuangpin() {
@@ -3185,7 +3205,7 @@ fn local_mode_reads_follow_a_dictionary_replaced_after_the_sessions_are_gone() {
 /// user_dictionary_journal.cpp:445-452: the reference opened msime's journal per call, so no thread kept it open. A one-shot call releases its thread's cached journal on return, a dropped session releases it too, and a live session keeps it for the keystroke path.
 #[test]
 fn journal_handles_are_released_when_a_thread_is_done_with_them() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.learning = true;
@@ -3217,6 +3237,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
     .unwrap();
 
     let mut session = Session::new(&value).unwrap();
+    let generation = cache_generation();
     type_text(&mut session, b"nihao");
     let snapshot = session.snapshot().unwrap();
     let index = snapshot
@@ -3225,7 +3246,8 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
         .position(|word| word == "拟好")
         .unwrap();
     session.select(index).unwrap();
-    assert!(thread_holds_journal());
+    // Another test closing every journal meanwhile takes the parked connection away.
+    assert!(thread_holds_journal() || cache_generation() != generation);
     drop(session);
     assert!(!thread_holds_journal());
 }
@@ -3233,7 +3255,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
 /// Hosts keep their sessions in a thread-local map, so a session can be dropped while its thread exits, after that thread's cached journal is already destroyed. Its drop still flushes and releases without touching the destroyed cache; it used to abort the process (`cannot access a Thread Local Storage value during or after destruction`).
 #[test]
 fn a_session_dropped_while_its_thread_exits_does_not_abort() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     thread_local! {
         static HELD: std::cell::RefCell<Option<Session>> = const { std::cell::RefCell::new(None) };
     }
@@ -3251,6 +3273,7 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
     }
     let journal = Path::new(&value.user_data).join("msime_user.db");
     std::thread::spawn(move || {
+        let generation = cache_generation();
         // The map is registered before the journal cache, so thread exit destroys the cache first.
         HELD.with(|held| {
             *held.borrow_mut() = Some(Session::new(&value).unwrap());
@@ -3266,7 +3289,8 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
                 .unwrap();
             session.select(index).unwrap();
         });
-        assert!(thread_holds_journal());
+        // Another test closing every journal meanwhile takes the parked connection away.
+        assert!(thread_holds_journal() || cache_generation() != generation);
     })
     .join()
     .unwrap();

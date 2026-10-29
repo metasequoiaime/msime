@@ -16,6 +16,8 @@ IME on a device to appear.
 The discriminator here is deliberate. `Mutex::lock()` reads identically and is everywhere, so a
 lock call is only reported when the same function opened a file just above it - which is exactly the
 shape of a lock sidecar, and was the shape of the defect.
+
+`msime-engine` is the one crate that cannot take this route: it is an embeddable library below the client crates, so its dictionary maintenance lease (`crates/engine/src/access.rs`) keeps its own copy of the same split. It is still scanned, and passes the same way any other code does: every std lock call there sits in a function marked `#[cfg(not(target_os = "android"))]`, with a rustix `flock` twin for Android.
 """
 import re
 import sys

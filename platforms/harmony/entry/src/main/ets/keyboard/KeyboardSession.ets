@@ -90,6 +90,7 @@ import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
   CandidateGlossLayoutPolicy, CandidateGlossProviderState
 } from './candidate/CandidateGlossLayoutPolicy';
@@ -187,6 +188,8 @@ interface Candidate {
   translation?: string | null;
   /** 「仅当前高亮」生效、这一页会请求释义时，高亮那一行为真；为假时 JSON 里没有这个键。2in1 候选窗据此在同一页里保持宽度，见 `CandidateWidthPolicy.steadyWidthVp`。 */
   translation_reserved?: boolean;
+  /** 双拼触屏纠错按首选规则坐上第 0 位的那一行为真；其余行 JSON 里没有这个键（#10018），见 `CorrectionMarkPolicy`。 */
+  confident_correction?: boolean;
 }
 
 /** A candidate as the view draws it: the text, and whatever is printed beside it. */
@@ -206,6 +209,8 @@ export interface CandidateEntry {
   readonly source: number;
   /** Translation attached to this exact Engine candidate, when one has been resolved. */
   readonly translation: string | null;
+  /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
+  readonly confidentCorrection: boolean;
 }
 
 interface EngineView extends EngineViewNumericFields {
@@ -493,6 +498,8 @@ export interface ExpandedCandidate {
   readonly annotationIsTranslation: boolean;
   /** As CandidateEntry.hunEum. */
   readonly hunEum: string;
+  /** 同 CandidateEntry.confidentCorrection。 */
+  readonly confidentCorrection: boolean;
 }
 
 interface CandidateSnapshot {
@@ -4982,7 +4989,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
-        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
       });
     }
     if (this.onChanged !== undefined) {
@@ -5057,7 +5065,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
-        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
       });
     }
     const reading: string = KeyboardSession.drawnReading(view);
@@ -5160,7 +5169,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
       text: text, hint: '', annotation: '', annotationIsTranslation: false, hunEum: '',
       highlighted: index === this.translationHighlight, badge: '',
-      fixedPosition: 0, source: 0, translation: null
+      fixedPosition: 0, source: 0, translation: null, confidentCorrection: false
     }));
     this.onChanged({
       candidates: entries,
@@ -7777,7 +7786,8 @@ export class KeyboardSession implements HardwareKeyTarget {
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
             this.candidateGlossEnabled),
-          hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
+          hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
+          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
         });
       }
       return entries;

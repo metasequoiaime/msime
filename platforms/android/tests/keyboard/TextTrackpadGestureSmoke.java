@@ -48,6 +48,21 @@ public final class TextTrackpadGestureSmoke {
         steps(gesture.move(EDITOR, 1, 24, 56), 0, 0, false);
         gesture.down(EDITOR, 0, 0, 30);
         steps(gesture.move(EDITOR, 1, 12, 28), 1, 1, false);
+
+        // 同一输入框重启连接（#10141）：改认新连接后拖动接着走，余量不丢；旧连接随即失效。
+        Object restarted = new Object();
+        gesture.down(EDITOR, 0, 0, 40);
+        steps(gesture.move(EDITOR, 1, 6, 0), 0, 0, false);
+        gesture.retarget(EDITOR, restarted);
+        check(gesture.active(), "改认新连接后手势仍在");
+        steps(gesture.move(restarted, 1, 12, 0), 1, 0, false);
+        steps(gesture.move(EDITOR, 1, 24, 0), 0, 0, false);
+        check(!gesture.active(), "改认之后旧连接不能再移动");
+        // 不是当前手势的连接不会被误认。
+        gesture.down(EDITOR, 0, 0, 50);
+        gesture.retarget(new Object(), restarted);
+        steps(gesture.move(restarted, 1, 12, 0), 0, 0, false);
+        check(!gesture.active(), "无关连接的重启不接管手势");
     }
 
     private static void longPressAndTapSelection() {
