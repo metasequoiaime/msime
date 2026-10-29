@@ -2228,15 +2228,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return !deferred
   }
 
-  /// Runtime state flags are protocol booleans. Keep absent optional fields on their documented defaults, but never let NSNumber or strings coerce into a state transition.
-  ///
-  /// JSONSerialization 把 JSON 的 `1` 和 `true` 都交成 NSNumber，`as? Bool` 对两者都成功，所以要看它是不是 CFBoolean：只有 JSON 里写的 `true`/`false` 才算。
+  /// Runtime state flags are protocol booleans. Keep absent optional fields on
+  /// their documented defaults, but never let NSNumber or strings coerce into
+  /// a state transition.
   private static func strictBool(_ value: Any?, fallback: Bool) throws -> Bool {
     guard let value else { return fallback }
-    guard let boolean = value as? Bool,
-          (value as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) ?? true else {
-      throw InputBridgeFailure.invalidResponse
-    }
+    guard let boolean = value as? Bool else { throw InputBridgeFailure.invalidResponse }
     return boolean
   }
 

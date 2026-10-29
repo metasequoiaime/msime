@@ -348,9 +348,10 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let marks = markers.indices.contains(index) ? markers[index] : []
     let selected = index == selectedIndex
     let secondary = (selected ? palette?.selectedTranslation : nil) ?? palette?.secondary ?? skin.secondary
-    // 坐了首选的双拼纠错：字按固定词的规则取强调色；选中格本来就是强调色，所以注释行（纠错前的拼写和释义）也用强调色，和没坐首选的纠错区分开，与候选条同一条规则。
+    // 坐了首选的双拼纠错：字按固定词的规则取强调色，注释行（纠错前的拼写和释义）也用强调色，和没坐首选的纠错区分开。选中格画在调色板的选中底色上，调色板给了那里的翻译色或文字色（选中翻译色，其次选中文字色）就照用，都没给才用强调色：微信外观的选中底色就是强调色，强调色的注释会看不见。与候选条同一条规则。
     let confidentCorrection = confidentCorrections.contains(index)
-    let annotationColor = confidentCorrection ? palette?.accent ?? skin.accent : secondary
+    let annotationColor = confidentCorrection
+      ? (selected ? palette?.selectedTranslation ?? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : secondary
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     paragraph.alignment = .center

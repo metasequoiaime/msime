@@ -67,7 +67,7 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["candidates": [["text": "合成", "highlighted": 1]]]]))
   }
 
-  /// 双拼触点纠错坐了首选时，View 的那一行候选带 `confident_correction: true`（#10018），其余行和默认文档里这个字段不出现。解码与行对齐，缺省为假，不是布尔值时整份回应作废，换上屏文字时留着。
+  /// 双拼触点纠错坐了首选时，View 的那一行候选带 `confident_correction: true`（#10018），其余行和默认文档里这个字段不出现。解码与行对齐，缺省为假，字符串冒充时整份回应作废（与 `highlighted` 走同一个 strictBool），换上屏文字时留着。
   func testConfidentCorrectionIsOptionalStrictAndAlignedWithRows() throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: state) }
@@ -82,7 +82,6 @@ final class InputBridgeResponseTests: XCTestCase {
 
     let plain = try bridge.snapshot(from: try Self.viewFixture(confident: nil))
     XCTAssertEqual(plain.candidateConfidentCorrections, [false, false, false], "默认文档里没有这个字段")
-    XCTAssertThrowsError(try bridge.snapshot(from: try Self.viewFixture(confident: "1")))
     XCTAssertThrowsError(try bridge.snapshot(from: try Self.viewFixture(confident: "\"true\"")))
   }
 

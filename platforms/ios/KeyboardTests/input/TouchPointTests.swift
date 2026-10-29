@@ -704,7 +704,67 @@ final class TouchPointTests: XCTestCase {
     controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.accent, "键盘自己的配色里首选本来就是强调色")
     XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), skin.secondary, "默认文档的纠错首选不画强调色注释")
+  }
+
+  /// 跟随桌面调色板时（#10018）：首个词块画在选中底色上，坐了首选的纠错照用调色板给那里的颜色。字是选中文字色，不换成强调色；纠错前的拼写从次要色换成选中翻译色、没给时用选中文字色，标记照样看得出来。这里取色器选中色设成强调色本身，client-services 于是按亮度给出白色的选中文字色。
+  func testTheStripMarksAConfidentCorrectionOnADesktopPalette() throws {
+    preserveSharedTheme()
+    setCandidateGloss(false)
+    let previous = InputSchemePreference.scheme
+    let follows = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    addTeardownBlock {
+      InputSchemePreference.scheme = previous
+      CandidatePalette.defaults.set(follows, forKey: CandidatePalette.followsDesktopKey)
+    }
+    CandidatePalette.defaults.set(true, forKey: CandidatePalette.followsDesktopKey)
+    XCTAssertTrue(GlobalThemePreference.update {
+      $0["global_theme"] = GlobalThemeCatalog.customId
+      $0["custom_theme"] = ["base": "paper", "candidate_colors": ["selected": "#2C7A4B"]]
+    })
+    let palette = try XCTUnwrap(CandidatePalette.active(in: MetasequoiaInputSessionBridge.loadSharedPreferences(), systemDark: false))
+    let selectedText = try XCTUnwrap(palette.selectedText)
+    XCTAssertNotEqual(selectedText, palette.accent, "夹具要让选中文字色和强调色不同")
+    let markedCaption = palette.selectedTranslation ?? selectedText
+    let plainCaption = palette.selectedTranslation ?? palette.secondary
+    XCTAssertNotEqual(markedCaption, plainCaption, "夹具要让标记改变注释颜色")
+
+    InputSchemePreference.scheme = .shuangpin
+    let controller = KeyboardViewController()
+    controller.overrideUserInterfaceStyle = .light
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    defer { controller.viewDidDisappear(false) }
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    func chip(_ number: Int) throws -> KeyboardKeyButton {
+      try XCTUnwrap(nodes(controller.view).first {
+        $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden
+      } as? KeyboardKeyButton, "候选条上没有第 \(number) 个词块")
+    }
+    func hintColor(_ button: UIButton, _ hint: String) throws -> UIColor? {
+      let title = NSAttributedString(try XCTUnwrap(button.configuration?.attributedTitle))
+      let range = (title.string as NSString).range(of: hint)
+      XCTAssertNotEqual(range.location, NSNotFound, title.string)
+      return title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+    }
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: "true")))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr，已纠正")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, selectedText, "选中底色上的字不换成强调色")
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), markedCaption)
+    XCTAssertEqual(try chip(2).configuration?.baseForegroundColor, palette.text)
+    XCTAssertEqual(try hintColor(chip(2), "womfjbtnqugs"), palette.secondary)
+
+    controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, selectedText)
+    XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), plainCaption, "没有标记时注释回到调色板原来的颜色")
   }
 
   private func report(_ label: String, _ samples: [Double]) {
