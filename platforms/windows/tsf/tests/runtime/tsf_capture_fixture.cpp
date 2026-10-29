@@ -65,15 +65,19 @@ unsigned msime_test_tsf_registered() { return registered.load(); }
 unsigned msime_test_tsf_unregistered() { return unregistered.load(); }
 void msime_test_tsf_fail_unregister(unsigned count) { failures = count; }
 void msime_test_tsf_block_refresh() {
-  refresh_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  refresh_barrier.resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!refresh_barrier.entered) refresh_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!refresh_barrier.resumed) refresh_barrier.resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  ResetEvent(refresh_barrier.entered);
+  ResetEvent(refresh_barrier.resumed);
   refresh_barrier.blocked = true;
 }
 bool msime_test_tsf_wait_refresh(DWORD timeout) { return WaitForSingleObject(refresh_barrier.entered, timeout) == WAIT_OBJECT_0; }
 void msime_test_tsf_resume_refresh() { SetEvent(refresh_barrier.resumed); }
 void msime_test_tsf_block_publish() {
-  publish_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  publish_barrier.resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!publish_barrier.entered) publish_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!publish_barrier.resumed) publish_barrier.resumed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  ResetEvent(publish_barrier.entered);
+  ResetEvent(publish_barrier.resumed);
   publish_barrier.blocked = true;
 }
 bool msime_test_tsf_wait_publish(DWORD timeout) {

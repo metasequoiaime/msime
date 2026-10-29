@@ -15,7 +15,7 @@ namespace {
 std::mutex lock;
 bool enabled = true, readable = true;
 unsigned epoch = 1;
-std::atomic<unsigned> preparations{0}, invalid{0};
+std::atomic<unsigned> preparations{0}, invalid{0}, consent_reads{0};
 std::atomic<int> block{0};
 HANDLE entered = nullptr, resumed = nullptr;
 std::string root;
@@ -56,8 +56,10 @@ bool msime_test_host_wait(DWORD timeout) { return WaitForSingleObject(entered, t
 void msime_test_host_resume() { SetEvent(resumed); }
 unsigned msime_test_host_preparations() { return preparations.load(); }
 unsigned msime_test_host_invalid() { return invalid.load(); }
+unsigned msime_test_host_consent_reads() { return consent_reads.load(); }
 char *msime_client_telemetry_consent(const uint8_t *, size_t) {
   barrier(1);
+  ++consent_reads;
   std::lock_guard<std::mutex> guard(lock);
   return readable ? response({{"enabled", enabled}, {"epoch", std::to_string(epoch)}}) : nullptr;
 }

@@ -94,6 +94,7 @@ void tests() {
   const auto resume = load<void (*)()>(host, "msime_test_host_resume");
   const auto preparations = load<unsigned (*)()>(host, "msime_test_host_preparations");
   const auto invalid = load<unsigned (*)()>(host, "msime_test_host_invalid");
+  const auto consent_reads = load<unsigned (*)()>(host, "msime_test_host_consent_reads");
   const auto root = temporary.u8string();
   initialize(root.c_str());
   const HMODULE helper = LoadLibraryW((directory / L"MetasequoiaImeCrashWer.dll").c_str());
@@ -103,6 +104,17 @@ void tests() {
     Tip tip(directory);
     auto *first = tip.acquire();
     const auto initial = tip.armed();
+    // 固定下一轮的首次同意读取与刷新结束，不能靠睡眠猜测是否完整执行了一轮。
+    block(1);
+    require(entered(6000), "steady consent barrier not reached");
+    const auto reads_before = consent_reads();
+    tip.block_refresh();
+    resume();
+    require(tip.wait_refresh(6000), "steady refresh checkpoint not reached");
+    require(consent_reads() == reads_before + 1, "steady refresh reads consent more than once");
+    require(tip.armed().sequence == initial.sequence && preparations() == 1,
+            "steady refresh republished the same capture");
+    tip.resume_refresh();
     WER_RUNTIME_EXCEPTION_INFORMATION information{};
     information.dwSize = sizeof(information);
     information.hProcess = GetCurrentProcess();
@@ -169,18 +181,30 @@ void tests() {
     tip.armed();
     require(preparations() == prepared + 1, "late prepare armed replacement lease");
 
-    // begin 回包后授权可能已经撤回或换代；最终复核前不能把旧身份武装。
-    tip.block_publish();
-    auto *race = tip.acquire();
-    require(tip.wait_publish(6000), "publish authorization barrier not reached");
-    const auto before_race = tip.armed();
-    mode(3);
-    tip.resume_publish();
-    tip.disarmed();
-    const auto after_race = tip.armed();
-    require(std::strcmp(after_race.header, before_race.header) != 0,
-            "revoked capture was published before authorization recheck");
-    tip.release(race);
+    // 首次准备和暂停恢复都必须最终复核；稳定观察不再发布，故先明确制造这两种发布条件。
+    for (const bool fresh_epoch : {false, true}) {
+      const auto before_race = tip.armed();
+      if (!fresh_epoch) {
+        mode(2);
+        tip.disarmed();
+      }
+      tip.block_publish();
+      auto *race = tip.acquire();
+      mode(fresh_epoch ? 3 : 1);
+      require(tip.wait_publish(6000), "publish authorization barrier not reached");
+      tip.block_refresh();
+      mode(3);
+      tip.resume_publish();
+      require(tip.wait_refresh(6000), "revoked publish checkpoint not reached");
+      Context revoked{};
+      require(tip.snapshot(&revoked) && revoked.armed == 0,
+              "revoked capture armed before authorization recheck");
+      tip.resume_refresh();
+      const auto after_race = tip.armed();
+      require(std::strcmp(after_race.header, before_race.header) != 0,
+              "revoked capture reused its old identity");
+      tip.release(race);
+    }
 
     // 系统注销失败时仍保留上下文与 DLL，重试成功后才能卸载。
     tip.fail_unregister(1);

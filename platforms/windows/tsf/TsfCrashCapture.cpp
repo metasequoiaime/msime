@@ -237,6 +237,16 @@ void refresh(State &state, std::uint64_t generation) {
     state.prepared_generation = generation;
     state.cleared = false;
   }
+  {
+    Guard guard;
+    if (current_state != &state || !state.leases || state.generation != generation) {
+      disarm(state);
+      return;
+    }
+    // 同代次已武装时保留快照；首次准备和暂停恢复仍走发布前的最终授权复核。
+    if (InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&state.context.armed), 0, 0) == 1)
+      return;
+  }
   if (!publish_authorized(state, generation, authorized)) disarm(state);
 }
 

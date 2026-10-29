@@ -10,6 +10,8 @@ TSF DLL 在其他应用进程内执行，直接安装全进程未处理异常或
 
 正常路径按共享偏好准备独立捕获 UUID、原构建头和自有模块范围，组件为 `tsf`，不建立输入会话或联网。通过 Windows 7 起提供的 `WerRegisterRuntimeExceptionModule` 注册独立 helper DLL；回调只接收致命事件，读取一致的预备快照，故障地址必须落在 TSF 或本 edition Host API 模块内。始终返回不认领，不修改事件名、签名与调试器参数，宿主继续原 WER 处置。只保存异常码、模块名与偏移，不读取宿主内存内容、用户文本或转储。
 
+同一授权代次且快照已武装时，每轮只读取一次同意，不重新发布模块快照；首次准备和读失败后恢复仍在发布前复读授权，租约换代仍拒绝迟到结果。回归用读取计数及刷新/发布屏障固定窗口，不靠睡眠猜测一轮是否完成。500 ms 轮询频率本轮不改变，文件变化通知或更低频读取仍是性能待办。
+
 每个激活实例持有采集租约。独立后台任务每 500 ms 核对持续授权，读失败暂停，撤回重开换身份，晚准备不能重新武装已停用实例。最后租约释放立即停写，后台任务持有 DLL 加载引用，注销完成后才释放上下文和加载引用；停用不等待文件锁或网络，不在 DllMain 内做 I/O 或线程等待。安装器只登记自己 helper 的 WER 模块允许列表，卸载只移除对应值，不改变宿主或系统 WER 策略。
 
 WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不把 pContext 当作 helper 本地指针。回调运行在 `WerFault` 进程，不能把 helper 自身的令牌和崩溃目标令牌直接比较；注册的 WER helper 边界负责确认调用来源，写盘前仍复制并模拟目标进程令牌，路径、目录句柄和模块归属检查拒绝跨上下文越权。预备头和记录路径有固定上限，记录先写临时文件、同步后无覆盖发布，原首份记录保持。故障现场未准备、外部模块首帧、WER 被宿主或策略绕过时保守不记录，不声称百分之百投递。
@@ -49,7 +51,7 @@ Windows 11 的同源 MSVC x64/x86 七组用例均通过；两架构原有回调�
 
 首次真实探针已证明生产 helper 可被 WER 调用。扩展夹具的首次 x64 编译与 CTest 通过，但 PowerShell 5 将无 BOM 的中文脚本误读而导致解析失败，未执行系统验收；新脚本显式使用 UTF-8 BOM 后，直接 `-File` 与脚本调用均可执行，没有改动既有产品打包脚本。MinGW 的严格编译拒绝直接常量空地址写入的边界警告，夹具改为读取 `volatile` 故障地址再触发；不关闭编译警告。实际 TIP 还需完整产品包、安装器、真实编辑器及后台验收，不能据七组合成进程推定这些均已完成。
 
-为避免系统投递专项只在维护者机器上运行，Windows 平台门禁现在在 Windows runner 中用 MSVC 分别配置 x64 与 x86 的独立 `capture_lifecycle` CMake 测试树，复用前序 Win7 设置工程已有的 nlohmann-json 头文件配置，不重新构建完整产品依赖或错误混用 x64 Rust 导入库。构建生产 `TsfCrashCapture.cpp`、`MetasequoiaImeCrashWer.dll` 和合成宿主，再直接调用 `Invoke-SystemWer.ps1`。每个架构先执行回调与生命周期 CTest，再执行七组系统 WER 用例；artifact 仅上传系统专项合成目录与 JUnit 结果，不上传整个构建树。首轮用相同独立工程在 Windows 11 实跑发现最新发布前授权屏障的三个夹具函数没有列入 `.def`，生命周期 CTest 在加载 `msime_test_tsf_block_publish` 时失败；补齐显式导出后继续复验。此门禁接线尚待新的 CI 运行确认，不能把已完成的手工专项当成新增门禁通过。用例不加载完整产品、不注册输入法、不调用生产后台，所以它证明的是 WER 注册、回调边界、授权撤回和宿主处置在持续集成中的可重复性，仍不等于完整安装包、真实编辑器、ARM64 设备或后台源码还原。
+为避免系统投递专项只在维护者机器上运行，Windows 平台门禁现在在 Windows runner 中用 MSVC 分别配置 x64 与 x86 的独立 `capture_lifecycle` CMake 测试树，复用前序 Win7 设置工程已有的 nlohmann-json 头文件配置，不重新构建完整产品依赖或错误混用 x64 Rust 导入库。构建生产 `TsfCrashCapture.cpp`、`MetasequoiaImeCrashWer.dll` 和合成宿主，再直接调用 `Invoke-SystemWer.ps1`。每个架构先执行回调与生命周期 CTest，再执行七组系统 WER 用例；artifact 仅上传系统专项合成目录与 JUnit 结果，不上传整个构建树。首轮用相同独立工程在 Windows 11 实跑发现最新发布前授权屏障的三个夹具函数没有列入 `.def`，生命周期 CTest 在加载 `msime_test_tsf_block_publish` 时失败；补齐显式导出后继续复验。候选 `6bc13ef19d` 的 CI `40834862691` 已实际完成 x64/x86 WER 系统投递步骤并报告 success；这不包含后续同代次快照复用优化及新增计数/屏障回归，也不能据此唯一归因此前 runner 的系统投递失败。用例不加载完整产品、不注册输入法、不调用生产后台，所以它证明的是 WER 注册、回调边界、授权撤回和宿主处置在持续集成中的可重复性，仍不等于完整安装包、真实编辑器、ARM64 设备或后台源码还原。
 
 ### 自动化进程的错误模式
 
@@ -72,6 +74,10 @@ Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本
 [注册接口](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nf-werapi-werregisterruntimeexceptionmodule)要求三个命名导出、模块允许列表和退出前注销；无处理器认领时保留 native WER。[事件回调](https://learn.microsoft.com/en-us/windows/win32/api/werapi/nc-werapi-pfn_wer_runtime_exception_event)明确不认领时不能填写其余输出。[系统设置](https://learn.microsoft.com/en-us/windows/win32/wer/wer-settings)明确 RuntimeExceptionHelperModules 的完整路径值名，值内容被忽略。
 
 三个回调的调用约定以[微软 SDK 头文件](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/WerApi.h)及验证机上的原版 SDK 为准，不能直接使用 MinGW 在 x86 下的不同 typedef。
+
+本轮同代次复用优化已由本机既有 MinGW x64 测试树以严格警告完整编译和链接，包含真实 `TsfCrashCapture.cpp`、生产 helper、读取计数与首次准备/暂停恢复的最终授权屏障回归。改动的四个 C++ 源文件亦通过 MinGW x86 严格语法检查。Windows 验证机 SSH 当前超时，尚未执行新测试的目标运行；既有系统 WER 结果不替代本轮运行，交由新候选的 Windows CI 继续核验。
+
+PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and run TSF system WER capture (x64 and x86)` 步骤已实际完成并报告 success。此前 runner 系统投递失败本轮未复现；该结果属于本轮同代次复用优化之前的候选，不替代新增读取计数与恢复屏障的运行验收，也不能单凭通过反推原失败根因。
 
 ## Alternatives considered
 
