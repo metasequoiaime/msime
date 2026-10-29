@@ -39,6 +39,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   shuangpinKeyHints?: boolean;
   /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
   quanpinShift?: boolean;
+  /** 宿主的触屏键盘在大屏单手模式空出来的一侧画数字键盘（`HostCapabilities.touch_one_handed_side_panel`）时给出：`touch_one_handed_side_panel` 是不是 `number_pad`。没有时不画这一行。 */
+  oneHandedSidePanel?: boolean;
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -51,6 +53,7 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
+  onOneHandedSidePanelChange?: (enabled: boolean) => void;
   /** 「恢复默认」：参数是这一页实际给出、会被恢复的几项，如「高度、间距和工具栏按钮」，确认框照它措辞。 */
   onReset: (subjects: string) => void;
   /** HarmonyOS 手机：「布局」组开头的行。给出时按手机的排法：「布局」只放键盘的选择，「尺寸」把预览、三个滑块和「恢复默认」放进同一张卡片，各行不带长说明。 */
@@ -58,6 +61,11 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   /** HarmonyOS 手机：「尺寸」卡片顶部的键盘预览（不带分组），在它上面拖动调的就是下面的间距。 */
   preview?: ReactNode;
 }
+
+/** 「大屏单手时侧边显示数字键盘」的标题和说明，三端逐字相同（Android `KeyboardOptionsPage`、iOS `KeyboardLayoutSettingsView`）。 */
+const oneHandedSidePanelTitle = "大屏单手时侧边显示数字键盘";
+const oneHandedSidePanelDescription =
+  "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。";
 
 /** 间距以十分之一 dp 存，手机上显示成不带单位的数：6、6.5。 */
 const spacingText = (tenths: number) => String(tenths / 10);
@@ -83,6 +91,7 @@ export function TouchKeyboardGeometrySection({
   swipeSymbolsDirection = "up",
   shuangpinKeyHints,
   quanpinShift,
+  oneHandedSidePanel,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -97,6 +106,7 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsDirectionChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
+  onOneHandedSidePanelChange,
   onReset,
   layoutRows,
   preview,
@@ -128,6 +138,15 @@ export function TouchKeyboardGeometrySection({
       onChange={(enabled) => onQuanpinShiftChange?.(enabled)}
     />
   );
+  // 标题和说明与 Android、iOS 原生设置页逐字相同。
+  const oneHandedSidePanelRow = oneHandedSidePanel !== undefined && (
+    <SwitchRow
+      title={oneHandedSidePanelTitle}
+      description={phone ? undefined : oneHandedSidePanelDescription}
+      checked={oneHandedSidePanel}
+      onChange={(enabled) => onOneHandedSidePanelChange?.(enabled)}
+    />
+  );
   // 只列这一页上看得到的几项：工具栏按钮只在触屏宿主的「工具栏」组里出现，以前桌面上也写着它。
   const resetSubjects = touchKeyboardResetSubjects({
     height: showHeight,
@@ -146,6 +165,7 @@ export function TouchKeyboardGeometrySection({
             {layoutRows}
             {shuangpinKeyHintsRow}
             {quanpinShiftRow}
+            {oneHandedSidePanelRow}
           </GroupList>
           {/* 预览和它调的三个滑块在同一张卡片里；「恢复默认」是卡片末尾的一行文字按钮，它也照旧重置工具栏按钮。 */}
           <GroupList title="尺寸">
@@ -253,7 +273,8 @@ export function TouchKeyboardGeometrySection({
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
         (shuangpinKeyHints !== undefined && !phone) ||
-        (quanpinShift !== undefined && !phone)) && (
+        (quanpinShift !== undefined && !phone) ||
+        (oneHandedSidePanel !== undefined && !phone)) && (
         <GroupList title="布局">
           {!phone && shuangpinKeyHintsRow}
           {!phone && quanpinShiftRow}
@@ -275,6 +296,7 @@ export function TouchKeyboardGeometrySection({
               onChange={onTabletSplitKeyboardChange}
             />
           )}
+          {!phone && oneHandedSidePanelRow}
         </GroupList>
       )}
       {(glideTyping !== undefined || swipeSymbols !== undefined) && (

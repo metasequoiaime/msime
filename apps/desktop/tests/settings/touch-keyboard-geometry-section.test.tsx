@@ -292,3 +292,57 @@ test("puts the shuangpin key hint switch in the size group when that group is al
     hints.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 });
+
+test("offers the one-handed side number pad switch only where the host draws the pad", () => {
+  const onOneHandedSidePanelChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByRole("switch", { name: "大屏单手时侧边显示数字键盘" })).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      oneHandedSidePanel={false}
+      onOneHandedSidePanelChange={onOneHandedSidePanelChange}
+    />,
+  );
+  // 只有这一行时也要有「布局」分组来放它；标题和说明与 Android、iOS 原生设置页逐字相同。
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const pad = screen.getByRole("switch", {
+    name: "大屏单手时侧边显示数字键盘",
+  }) as HTMLInputElement;
+  expect(pad.checked).toBe(false);
+  expect(
+    screen.getByText(
+      "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+    ),
+  ).toBeTruthy();
+  fireEvent.click(pad);
+  expect(onOneHandedSidePanelChange).toHaveBeenCalledWith(true);
+});
+
+test("puts the one-handed side number pad switch in the phone 布局 group without its description", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      oneHandedSidePanel
+      onOneHandedSidePanelChange={vi.fn()}
+      layoutRows={<div>中文键盘</div>}
+    />,
+  );
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const pad = screen.getByRole("switch", {
+    name: "大屏单手时侧边显示数字键盘",
+  }) as HTMLInputElement;
+  expect(pad.checked).toBe(true);
+  expect(
+    screen.getByText("中文键盘").compareDocumentPosition(pad) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    pad.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(screen.queryByText(/空出来的一侧显示数字键盘/)).toBeNull();
+});
