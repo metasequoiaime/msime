@@ -14,7 +14,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 
 ## Decision
 
-- `.github/workflows/android-device.yml` 是可复用 workflow，在 depot-ubuntu-24.04-8（有 KVM；最初在 GitHub 托管的 ubuntu-24.04 上，2026-10-29 挪走，见 [Android 设备验收挪到 Depot](../process/2026-10-29-android-device-on-depot.md)）上按 API 28（minSdk）和 35（targetSdk）各起一台 x86_64 模拟器，依次：
+- `.github/workflows/android-device.yml` 是可复用 workflow，在 GitHub 托管的 `ubuntu-24.04` 上（[runner 选择](../process/2026-10-30-android-device-kvm-runner.md)记录普通 Depot runner 缺少 KVM 的边界）按 API 28（minSdk）和 35（targetSdk）各起一台 x86_64 模拟器，依次：
   - `build-core-test.sh` 交叉编译 client-base、client-core、client-providers 和 client-services 的单测，`run-core-test.sh` 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它在设备上整套运行（拆分见 [按职责把 client-core 拆成四个 crate](../architecture/2026-10-15-client-core-split.md)）；
   - 用开发密钥打 x86_64 APK，`smoke.sh` 装包，走首次启动、词库准备和输入验收。API 28 用 `--core`，只到 DeviceSmoke 的打字主路径。
   - 两个 API 级别的设备套件都运行 `NumberPadDeviceSmoke` 的笔画和注音分支，打包前统一用 `fetch_language_dictionaries.py` 取回锁定词库，并设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`；缺失就拒绝打包。nightly 首次运行中，未准备词库的 APK 正常回退到拼音，导致依赖这些方案的键面断言等不到目标键面；这是测试输入缺失，不应靠跳过套件解决。
@@ -59,7 +59,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - **只在发版前跑，不在 PR 上跑**：最强的理由是省 CI 时间，每个 PR 少两个各几十分钟的 job。不用它是因为 0.3.0 的两个回归都是发版当天才合入的，发版门禁拦下时离用户要更新只差一步，修的人还得回头找是哪个 PR；在 PR 上失败，责任和上下文都还在。
 - **用 `reactivecircus/android-emulator-runner` 这类 action 起模拟器**：省掉 KVM 规则、等开机这些样板。不用是因为本机和 CI 应该走同一套 `start-emulator.sh`，否则 CI 绿而本机复现不了（或反过来）；而且要多引入一个第三方 action。
 - **只跑 client-core 单测，不装 APK**：快得多，也能抓住前两个问题。但 Android 9 的启动崩溃是资源加载问题，只有装包启动才看得见。
-- **在 Depot runner 上跑，复用 sccache**：构建更快。当时以为 Depot 的 runner 不保证有 KVM，没有 KVM 的模拟器慢到不可用；这一条没实测过，2026-10-29 实测 Depot 有 KVM 之后已经挪过去，见 [Android 设备验收挪到 Depot](../process/2026-10-29-android-device-on-depot.md)。
+- **在 Depot runner 上跑，复用 sccache**：构建更快、节省 GitHub 托管并发。单台探测可用不足以保证后续 runner 都提供 KVM，普通 Depot GitHub Actions runner 官方也不支持该设备，因此设备 job 使用 GitHub runner，见[按实际 KVM 支持选择 runner](../process/2026-10-30-android-device-kvm-runner.md)。
 
 - **失败的验收自动重试一次**：最强的理由是 runner 偶发慢时能少一次红灯，改动也只在 `smoke.sh` 里。不采用：2026-10-25 到 10-27 的夜间失败里，触控板三击丢掉选行是产品里的真实竞态，只在 API 35 上间歇出现，重试一过就看不见了；皮肤卡片文字那类确定性失配重试也不会过，只是多等一轮。归因见 #10089 的 `bug-fix/2026-10-28-android-nightly-device-failures.md`。
 - **保持第一处失败就退出，靠重跑看后面的**：脚本最简单，失败的位置一定是第一个出问题的地方。不采用：每次重跑要从头构建、装包、准备词库再跑到那里，二十多分钟只多看到一项；那三晚每晚停在不同的地方，同时存在的几个独立问题要排着队一个一个修才看得见。

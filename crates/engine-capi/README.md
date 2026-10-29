@@ -2,6 +2,8 @@
 
 C ABI of the 水杉输入法 (Metasequoia IME) input engine: a C library (shared and static), a generated header and a pkg-config file.
 
+Overview, integration examples and FAQ: <https://msime.app/engine/> (in Chinese).
+
 水杉输入法输入引擎的 C 接口。它把核心层的 `msime_engine::Session` 包成 35 个带版本的 C 函数，符号一律以 `msime_engine_` 开头。v1 覆盖词格整句、拼写纠错、学习、个人词典和 10 个方案（全拼、双拼、五笔、日文、韩文、粤语、注音、越南文、藏文、笔画）；九键、触点纠错、神经重排和搭配模型在 Rust crate 里可用，C 接口留到后续版本。设计与取舍见 `.agents/notes/implemented/architecture/2026-10-29-engine-capi.md`。
 
 头文件 [`include/msime_engine.h`](include/msime_engine.h) 由 cbindgen 从 `src/` 生成并提交，每个函数、结构体和常量的说明都在里面；这份 README 讲它们之间的约定。

@@ -59,6 +59,12 @@ public final class KeyHeatmapLayout {
 
     /** 同上，`symbolFirst`（共享偏好 `touch_twenty_six_symbol_first`）为真时底行的 符 排在 123 左边，与键盘相同。 */
     public static List<List<Key>> soft(TouchKeyStyle.Row style, boolean numberRow, boolean symbolFirst) {
+        return soft(style, numberRow, symbolFirst, false);
+    }
+
+    /** 同上，`languageLeft`（共享偏好 `touch_language_key_side` 为 `left`）为真时底行的中/英排到空格左边（{@link KeyboardActionRow#languageBeforeSpace}），与键盘相同。 */
+    public static List<List<Key>> soft(TouchKeyStyle.Row style, boolean numberRow, boolean symbolFirst,
+            boolean languageLeft) {
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
         List<List<Key>> rows = new ArrayList<>(letters.size() + 2);
         if (numberRow) {
@@ -79,13 +85,18 @@ public final class KeyHeatmapLayout {
             if (last) row.add(new Key("⌫", KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT, List.of("Backspace")));
             rows.add(List.copyOf(row));
         }
-        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT, style, symbolFirst));
+        rows.add(bottom(KeyboardLayout.STANDARD_TOUCH_LAYOUT, style, symbolFirst, languageLeft));
         return List.copyOf(rows);
     }
 
     /** 拼音九键，底行按 `style` 排；除右侧大回车（{@link #tallReturnNine}）外，左栏、网格和右列不随样式变。 */
     public static List<List<Key>> nine(TouchKeyStyle.Row style) {
-        if (KeyboardActionRow.drawsTallReturn(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style)) return tallReturnNine();
+        return nine(style, false);
+    }
+
+    /** 同上，`languageLeft`（共享偏好 `touch_language_key_side` 为 `left`）为真时底行（右侧大回车是九宫格下方那一行）的中/英排到空格左边，与键盘相同。 */
+    public static List<List<Key>> nine(TouchKeyStyle.Row style, boolean languageLeft) {
+        if (KeyboardActionRow.drawsTallReturn(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style)) return tallReturnNine(languageLeft);
         List<List<NineKeyLayout.Key>> grid = NineKeyLayout.rows();
         List<String> sidebar = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
         List<String> punctuation = NineKeyLayout.punctuation();
@@ -108,7 +119,7 @@ public final class KeyHeatmapLayout {
             row.add(actions.get(index));
             rows.add(List.copyOf(row));
         }
-        rows.add(bottom(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style));
+        rows.add(bottom(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, style, false, languageLeft));
         return List.copyOf(rows);
     }
 
@@ -117,7 +128,7 @@ public final class KeyHeatmapLayout {
      *
      * <p>左栏的默认符号是 ，。？！ 四个，键盘上四个均分整栏高度，这里逐行只画得下前三个；！ 与它们同记 `SoftPunctuation`，按它的次数照样落在这三格的颜色里（{@link #sharedIds}）。
      */
-    private static List<List<Key>> tallReturnNine() {
+    private static List<List<Key>> tallReturnNine(boolean languageLeft) {
         List<List<NineKeyLayout.Key>> grid = NineKeyLayout.rows();
         List<String> sidebar = NineKeySidebarPolicy.TALL_RETURN_LETTER_SYMBOLS;
         float side = NineKeyLayout.SIDE_COLUMN_WEIGHT;
@@ -138,7 +149,7 @@ public final class KeyHeatmapLayout {
             rows.add(List.copyOf(row));
         }
         List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.tallReturnEntries(
-            NineKeyLayout.GRID_WEIGHT / (2 * side + NineKeyLayout.GRID_WEIGHT), false, false, false);
+            NineKeyLayout.GRID_WEIGHT / (2 * side + NineKeyLayout.GRID_WEIGHT), false, false, false, languageLeft);
         float total = 0;
         for (KeyboardActionRow.DesignEntry entry : entries) total += entry.weight();
         List<Key> bottom = new ArrayList<>(entries.size() + 2);
@@ -154,12 +165,13 @@ public final class KeyHeatmapLayout {
 
     /** 默认设置下的功能行：不交换中/英和 123，Android 9 起不画地球键；键的排法跟着底行样式。「按键布局」页画 14 键与 18 键的预览时也用这一行（{@code KeyLayoutStylesPolicy}）。 */
     public static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style) {
-        return bottom(touchLayout, style, false);
+        return bottom(touchLayout, style, false, false);
     }
 
-    private static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style, boolean symbolFirst) {
+    /** 同上，另按「符」与「123」互换（`symbolFirst`）和中/英在空格左边（`languageLeft`）排，与键盘的 {@link KeyboardActionRow#designEntries} 相同。 */
+    public static List<Key> bottom(int touchLayout, TouchKeyStyle.Row style, boolean symbolFirst, boolean languageLeft) {
         List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(touchLayout, false, false,
-            false, false, style, symbolFirst, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
+            false, false, style, symbolFirst, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, languageLeft);
         List<Key> row = new ArrayList<>(entries.size());
         for (KeyboardActionRow.DesignEntry entry : entries) row.add(key(touchLayout, entry));
         return List.copyOf(row);

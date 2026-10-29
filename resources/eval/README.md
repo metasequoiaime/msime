@@ -67,7 +67,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `convert_eval --grid fourteen` 打开 Runtime 的 14 键网格，把每个字母换成它所在键的组码（QW 键是 q，BN 键是 b，即每组的首字母），用宿主触屏键面用的 `GridKey` 逐键送进去，金标准不变。14 键与九键是同一套解码（`KeyGrid`），只换码表：421 个全拼音节在九键上是 218 种码，在 14 键上是 314 种，重码少了，所以同一份集合上 14 键应当不低于九键。`verify-local.sh` 以 `fourteen-key`（`quanpin-words-v1.tsv --limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`）跑它们，对照 `baseline-fourteen-key.json` 和 `baseline-fourteen-key-sentences.json`。
 
-同一次 release 构建、同一份代码，挂 `sentence-model.safetensors`，分别在换锁前的 dict-v2.0.24 和现在锁定的 dict-v2.0.39 上跑（[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)）：
+同一次 release 构建、同一份代码，挂 `sentence-model.safetensors`，分别在换锁前的 dict-v2.0.24 和当时换上的 dict-v2.0.39 上跑（[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)）：
 
 | 集合 | 词库 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
 |---|---|---|---|---|---|
@@ -82,7 +82,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `rerank_latency` 在同一锁定资源上交替测量修复前后三轮，挂着重排模型的 p95 中位数九键 21.65→21.22 ms、14 键 20.57→19.37 ms；全拼 8.12→7.56 ms。九键、14 键前后都超出 16 ms 的帧预算，现有长串延迟缺口仍在；本次未观察到新增退化。详细对照条件见文末的评分决策笔记。
 
-14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库（dict-v2.0.39）里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
+14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在 dict-v2.0.39 里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
 
 ### `--cut-last-syllable`：打到末音节的声母就停
 
@@ -96,7 +96,9 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 ### `--first-page-rows`：宿主的每页候选数
 
-宿主把每页候选数交给引擎（`first_page_rows`，首页放得下几行）：全拼据此决定整组补全词并不并进来，九键的补全折算只在首页里调序。偏好默认每页 6 个，iOS 固定 9 个。`convert_eval` 不给这个参数时引擎用默认的 6 行，给了就同时作为引擎的首页行数和 runtime 的每页候选数（最多 9）。首页行数不同，top-5、top-6 会跟着变，比较时两边要用同一个值。
+宿主把同一个每页候选数既交给 runtime 分页，也交给引擎作首屏门槛（`first_page_rows`，首页放得下几行）：全拼据此决定整组补全词并不并进来，九键的补全折算只在首页里调序。偏好默认每页 6 个，桌面三端、Android 和鸿蒙都用它；iOS 和网页引擎每页 9 个。`convert_eval` 照宿主的做法把一个数同时交给两边（`Runtime::new` 会把页大小交给引擎）：不给这个参数时取共享偏好的出厂值（`Preferences::default().candidate_page_size`），给了就用给的值，范围 1 到 10；iOS 的数用 `--first-page-rows 9` 量。首页行数不同，top-5、top-6 会跟着变，比较时两边要用同一个值。
+
+**口径变化（2026-10-29，#10283）。** 在此之前不给这个参数时 runtime 分页是 9、引擎门槛停在默认的 6（`Runtime::new` 当时不把页大小交给引擎），行内日期时间和「📅日期」菜单也开着；现在两边都是出厂值 6，本地模式全关。分页不进 `convert_eval` 的任何指标（`all_candidates` 不分页，也没有云和 AI 行），引擎门槛也仍是 6，所以前后差别全部来自日期时间候选，原先这几份基线随运行的日期、星期几和钟点变化。`verify-local.sh` 的 13 份基线里只有四份变了，都是千分之一：`words` top9 0.981 → 0.982，`nine-key` top5 0.834 → 0.835、mrr 0.674 → 0.675，`fourteen-key` top9 0.937 → 0.938，`nine-key-prefix` 只有两音节分桶的 top5 0.200 → 0.201；其余逐字节不变。上文引用的九键词级 top-5 0.834（`--nine-key` 和 `--grid fourteen` 两节）按新口径是 0.835。逐例对照见[评测口径笔记](../../.agents/notes/implemented/testing/2026-10-29-eval-page-size-and-local-modes.md)。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
@@ -212,7 +214,7 @@ cargo run --release -p msime-input-runtime --example typing_sim -- \
 
 ### 模拟的是什么
 
-- **配置是手机出厂配置。** 每个值都从 `Preferences::default()` 读，再照 host-api 建会话时的映射换成引擎选项：学习开，调频 promote 1/1，混输英文、行内日期时间开，纠错按偏好默认，每页 6 个（引擎的 `first_page_rows` 也是 6），不挂模型，runtime 暂存部分选择。映射是照抄的，报告的 `config.engine` 原样列出每一项，host-api 加了新开关而这里没跟上时一眼能看出来。`--profile convert-eval` 换成 `convert_eval` 那一套，好和冷启动的数字接上。
+- **配置是手机出厂配置。** 每个值都从 `Preferences::default()` 读，再照 host-api 建会话时的映射换成引擎选项：学习开，调频 promote 1/1，混输英文、行内日期时间开，纠错按偏好默认，每页 6 个（引擎的 `first_page_rows` 也是 6），不挂模型，runtime 暂存部分选择。映射是照抄的，报告的 `config.engine` 原样列出每一项，host-api 加了新开关而这里没跟上时一眼能看出来。`--profile convert-eval` 换成 `convert_eval` 那一套，好和冷启动的数字接上；它仍是 `convert_eval` 改口径之前的样子（每页 9 个、引擎门槛也是 9，行内日期时间开着、钉在虚拟时钟上），和现在 `convert_eval` 的默认（每页 6 个、本地模式全关）不完全相同。
 - **一个用户，一个会话，按顺序打。** 每行是一条消息；发出一条后失焦再聚焦，上文和上屏词链清掉，学到的东西留着。标点、数字、字母不经拼音打，原样写进上文，不计入分母。学习开着时先打预热部分（不计分），学习关着时预热什么也留不下，不打。
 - **按块打。** 一条消息切成用户一口气打完再去选词的块：每块的目标字数是 1 加一个几何分布，平均 3.5 字，最长 8 字，按词往里放，词不拆开（`--chunk sampled`）。实测平均每块约 2.7 字，因为放不下下一个词就收口。`clause`（标点之间整段）和 `word`（一词一块）用来看结论有多依赖这个假设。
 - **简拼。** 三成的块只打到末音节的声母（`--abbreviate 0.3`，zh、ch、sh 算一个声母）；哪几块简拼只由种子和块的位置决定，0.3 选中的块一定也在 0.6 里。简拼的块用户只看候选栏，没有要的词就把这个音节打全，补的键计入按键。
@@ -355,4 +357,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 词表覆盖（词级集的金标准 99.94% 本来就在词典里）、语言模型困惑度（没有语料）。用户学习与调频在 `convert_eval` 里强制关闭（否则前一条会污染后一条），由 `typing_sim` 的打字流量。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖（只支持全拼及其网格），26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
-共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.39`，换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.41`：从 `dict-v2.0.39` 换过来时十三份集合的报告与原基线逐字节相同，打字流基线只换了记录资源来源的 `generation` 与 `source_commit`。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。

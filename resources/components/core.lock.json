@@ -1,28 +1,28 @@
 {
-  "source_commit": "8bb181be2ed36ed9559a87434cc4c9048077ff29",
+  "source_commit": "09a69f20b4726f75d4aa318975e3e891c1135aaf",
   "artifacts": [
     {
       "name": "msime-english.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.39/msime-english.db",
-      "sha256": "1b5497d6764f15ebd2f86225c29b0fa1e45961638dfb0e13859214fbfc6f4bfd",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.41/msime-english.db",
+      "sha256": "3a69b3ca5da4b463e229eebdcfb64f7859584d7c8a14100ff1ce484ef9be4b82",
       "size": 4526080
     },
     {
       "name": "msime-scowl_Copyright.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.39/msime-scowl_Copyright.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.41/msime-scowl_Copyright.txt",
       "sha256": "586063cc4345559d5347c6cdb73fbb4d1261118bb009a03530754df004419193",
       "size": 4028
     },
     {
       "name": "msime-others.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.39/msime-others.db",
-      "sha256": "9f3cae5b407038e0e4536c40582a0bc0feb732657f0ae2d38196374cede52f94",
-      "size": 1314816
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.41/msime-others.db",
+      "sha256": "a251a8846e1e36b64cfa753d4bb9b405a8d8d2b592399d234af1f882b7c20b98",
+      "size": 1318912
     },
     {
       "name": "msime-dictionary-manifest.json",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.39/msime-dictionary-manifest.json",
-      "sha256": "d697cc197ac4c61fc6447a42eb8cb96d9913bec4ebdd79fad4c68d91f37bbb55",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.41/msime-dictionary-manifest.json",
+      "sha256": "a4a570633166ba257110f86ddb29fff823ad6f969b6e90d9bec7ce4525abb776",
       "size": 4769
     }
   ]

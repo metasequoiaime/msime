@@ -6681,17 +6681,35 @@ fn page_size_accepts_one_to_ten() {
     ));
 }
 
-/// 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。宿主在 fcitx5 的「9 个候选」这类菜单里改了每页候选数
-/// 时不会重建引擎，不在这里下发，门槛就一直是重建时那一份：每页从 6 改成 9，有 6 到 8 个精确同音词的输入
-/// 整组补全词都被丢掉，而窗口其实有 9 个座位。
+/// 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。宿主在 fcitx5 的「9 个候选」这类菜单里改了每页候选数时不会重建引擎，不在这里下发，门槛就一直是重建时那一份：每页从 6 改成 9，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
 #[test]
 fn resizing_the_page_tells_the_engine_its_first_page_gate() {
     let mut runtime = Runtime::new(Fixture::default(), 6).unwrap();
-    assert_eq!(runtime.engine.first_page_rows, 0, "the gate starts unset");
+    assert_eq!(runtime.engine.first_page_rows, 6);
     runtime.set_page_size(9).unwrap();
     assert_eq!(runtime.engine.first_page_rows, 9);
     runtime.set_page_size(3).unwrap();
     assert_eq!(runtime.engine.first_page_rows, 3);
+}
+
+/// 建立 runtime 和换引擎时同样要把分页交给引擎，不靠调用方在引擎选项里另设一份。原先只有 `set_page_size` 下发：直接 `Runtime::new(engine, 9)` 的示例、测试和评测工具（`convert_eval`、`parity.rs`）分页是 9，引擎的门槛却停在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入首页和任何宿主都不一样。
+#[test]
+fn constructing_or_replacing_the_engine_tells_it_the_first_page_gate() {
+    let runtime = Runtime::new(Fixture::default(), 9).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 9);
+    let mut runtime =
+        Runtime::new_with_touch_layout(Fixture::default(), 7, TouchKeyboardLayout::NineKey)
+            .unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 7);
+    runtime.replace_engine(Fixture::default(), 5).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 5);
+    runtime
+        .replace_engine_with_touch_layout(Fixture::default(), 8, TouchKeyboardLayout::TwentySixKey)
+        .unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 8);
+    // 页数和原来相同时 `set_page_size` 什么也不做，换上来的引擎照样不能留在 0。
+    runtime.replace_engine(Fixture::default(), 8).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 8);
 }
 
 /// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.

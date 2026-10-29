@@ -185,6 +185,25 @@ public final class KeyLayoutStylesPolicy {
         return Set.copyOf(swapped);
     }
 
+    /** 同上，另按「中/英键放在空格左边」（`touch_language_key_side` 为 `left`）：打开时在样式和互换的高亮之外再高亮中/英这一个键；被它挤动的空格和标点宽度、样子都没变，不高亮。三类键面的预览底行都有中/英（右侧大回车在九宫格下方那一行），所以三类都高亮。 */
+    public static Set<String> highlights(Kind kind, TouchKeyStyle.Row row, boolean symbolFirst, boolean languageLeft) {
+        Set<String> base = highlights(kind, row, symbolFirst);
+        if (!languageLeft) return base;
+        Set<String> moved = new HashSet<>(base);
+        moved.add(LANGUAGE);
+        return Set.copyOf(moved);
+    }
+
+    /** 同上，「中/英键放在空格左边」与九键左侧符号的高亮都加上：两个重载各管一项，互不影响。 */
+    public static Set<String> highlights(Kind kind, TouchKeyStyle.Row row, boolean symbolFirst, boolean languageLeft,
+            List<String> nineKeySidebar) {
+        Set<String> base = highlights(kind, row, symbolFirst, nineKeySidebar);
+        if (!languageLeft) return base;
+        Set<String> moved = new HashSet<>(base);
+        moved.add(LANGUAGE);
+        return Set.copyOf(moved);
+    }
+
     /** 预览画不画顶部数字行：开关打开、画的是 26 键或 14/18 键时才画；9 键不画，开关只对 26/14/18 键生效。 */
     public static boolean drawsNumberRow(Kind kind, boolean numberRow) {
         return numberRow && kind != Kind.NINE;
@@ -239,15 +258,27 @@ public final class KeyLayoutStylesPolicy {
     /** 同上，`symbolFirst`（「26 键「符」与「123」互换」）打开时 26 键底行按键盘的同一条规则把 符 排到 123 左边（{@link KeyHeatmapLayout#soft(TouchKeyStyle.Row, boolean, boolean)}），没有 符 的样式不变；14/18 键和 9 键不受它影响。 */
     public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
             boolean symbolFirst) {
-        return keyboard(kind, style, numberRow, eighteen, symbolFirst, List.of());
+        return keyboard(kind, style, numberRow, eighteen, symbolFirst, false, List.of());
+    }
+
+    /** 同上，`languageLeft`（「中/英键放在空格左边」）打开时三类键面的底行都按键盘的同一条规则把中/英排到空格左边（{@link KeyboardActionRow#languageBeforeSpace}），排在「符」与「123」互换之后；右侧大回车是九宫格下方那一行。 */
+    public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst, boolean languageLeft) {
+        return keyboard(kind, style, numberRow, eighteen, symbolFirst, languageLeft, List.of());
+    }
+
+    /** 同上，中/英在右边，只换九键左侧符号栏的表，见下一个重载。 */
+    public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean symbolFirst, List<String> nineKeySidebar) {
+        return keyboard(kind, style, numberRow, eighteen, symbolFirst, false, nineKeySidebar);
     }
 
     /**
-     * 同上，9 键的左侧符号栏按共享偏好 `touch_nine_key_sidebar_symbols` 画，与键盘相同（{@link NineKeySidebarPolicy#letterSymbols(List, boolean)}）：自定义的表画一屏，最多 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 项，等高均分整条左列；空表画出厂的 ， 。 ？，右侧大回车时末尾接 ！ 共四项。只有出厂表、又不是右侧大回车时仍按热力图逐行画三格（与 #10208 的画面相同）。14/18 键和 26 键不受它影响。
+     * 同上，「中/英键放在空格左边」之外，9 键的左侧符号栏按共享偏好 `touch_nine_key_sidebar_symbols` 画，与键盘相同（{@link NineKeySidebarPolicy#letterSymbols(List, boolean)}）：自定义的表画一屏，最多 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 项，等高均分整条左列；空表画出厂的 ， 。 ？，右侧大回车时末尾接 ！ 共四项。只有出厂表、又不是右侧大回车时仍按热力图逐行画三格（与 #10208 的画面相同）。14/18 键和 26 键不受符号表影响；左列只换前三行的第一格，底行中/英的位置不受符号表影响。
      */
     public static List<List<Key>> keyboard(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
-            boolean symbolFirst, List<String> nineKeySidebar) {
-        List<List<Key>> rows = keyboardRows(kind, style, numberRow, eighteen, symbolFirst);
+            boolean symbolFirst, boolean languageLeft, List<String> nineKeySidebar) {
+        List<List<Key>> rows = keyboardRows(kind, style, numberRow, eighteen, symbolFirst, languageLeft);
         if (kind != Kind.NINE) return rows;
         boolean tallReturn = offered(kind, style) == TouchKeyStyle.Row.TALL_RETURN;
         if (!tallReturn && !NineKeySidebarPolicy.custom(nineKeySidebar, NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS))
@@ -276,12 +307,12 @@ public final class KeyLayoutStylesPolicy {
     }
 
     private static List<List<Key>> keyboardRows(Kind kind, TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
-            boolean symbolFirst) {
+            boolean symbolFirst, boolean languageLeft) {
         boolean digits = drawsNumberRow(kind, numberRow);
         return switch (kind) {
-            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst));
-            case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style))));
-            case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen);
+            case TWENTY_SIX -> converted(KeyHeatmapLayout.soft(offered(kind, style), digits, symbolFirst, languageLeft));
+            case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft)));
+            case FOURTEEN -> fourteen(offered(kind, style), digits, eighteen, languageLeft);
         };
     }
 
@@ -303,15 +334,16 @@ public final class KeyLayoutStylesPolicy {
     }
 
     /**
-     * 「按键布局」页以外那几块整键盘预览（AI 皮肤页、皮肤列表、社区皮肤卡片和详情，{@link KeyboardPreview}）画哪一副：用户自己的共享偏好里这一类键盘选的样式、顶部数字行、「符」与「123」互换、九键左侧符号（`touch_nine_key_sidebar_symbols`），以及本机的「交换语言键与数字键」（`platform.android.swap_language_number_keys`）。键序和份额就是 {@link #keyboard} 那一副，不做高亮。Android 没有隐藏中/英键的设置，底行总画中/英。
+     * 「按键布局」页以外那几块整键盘预览（AI 皮肤页、皮肤列表、社区皮肤卡片和详情，{@link KeyboardPreview}）画哪一副：用户自己的共享偏好里这一类键盘选的样式、顶部数字行、「符」与「123」互换、九键左侧符号（`touch_nine_key_sidebar_symbols`）、「中/英键放在空格左边」（`touch_language_key_side`），以及本机的「交换语言键与数字键」（`platform.android.swap_language_number_keys`）。键序和份额就是 {@link #keyboard} 那一副，不做高亮。Android 没有隐藏中/英键的设置，底行总画中/英。
      *
      * @param kind 画哪一类键盘（{@link #previewKind}，AI 皮肤页由它自己的「26 键 | 9 键」分段定）
      * @param eighteen 14/18 键画 18 键的字母格（{@link #eighteen}）
      * @param swapLanguageNumber 本机设置「交换语言键与数字键」：底行的 123 与中/英对调，两键的宽度跟着键走，与键盘的 {@code KeyboardActionRow} 相同
      * @param nineKeySidebar 九键字母层左侧符号栏的表（空表是出厂表），9 键时左列与「按键布局」页、键盘画同一屏
+     * @param languageLeft 「中/英键放在空格左边」：三类键盘的底行都先把中/英排到空格左边，再做本机的交换，与键盘的次序相同
      */
     public record Preview(Kind kind, TouchKeyStyle.Styles styles, boolean numberRow, boolean eighteen,
-            boolean symbolFirst, boolean swapLanguageNumber, List<String> nineKeySidebar) {
+            boolean symbolFirst, boolean swapLanguageNumber, List<String> nineKeySidebar, boolean languageLeft) {
         /** 拿不到偏好时（读偏好失败、尚未读完，或展示的东西根本不画预览）画的那一副：26 键标准底行，不开数字行、不互换。 */
         public static final Preview STANDARD = new Preview(Kind.TWENTY_SIX, TouchKeyStyle.Styles.DEFAULT, false, false,
             false, false);
@@ -321,21 +353,28 @@ public final class KeyLayoutStylesPolicy {
             nineKeySidebar = List.copyOf(nineKeySidebar);
         }
 
-        /** 九键左侧符号用出厂表的那一副。 */
+        /** 九键左侧符号用出厂表、中/英在右边的那一副。 */
         public Preview(Kind kind, TouchKeyStyle.Styles styles, boolean numberRow, boolean eighteen, boolean symbolFirst,
                 boolean swapLanguageNumber) {
             this(kind, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, List.of());
         }
 
+        /** 中/英在右边的那一副。 */
+        public Preview(Kind kind, TouchKeyStyle.Styles styles, boolean numberRow, boolean eighteen, boolean symbolFirst,
+                boolean swapLanguageNumber, List<String> nineKeySidebar) {
+            this(kind, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, nineKeySidebar, false);
+        }
+
         /** 只换画哪一类键盘，其余偏好不变；AI 皮肤页切「26 键 | 9 键」时用。 */
         public Preview with(Kind next) {
-            return new Preview(next, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, nineKeySidebar);
+            return new Preview(next, styles, numberRow, eighteen, symbolFirst, swapLanguageNumber, nineKeySidebar,
+                languageLeft);
         }
 
         /** 自上而下逐行的键，与 {@link KeyboardPreview} 画的相同。 */
         public List<List<Key>> rows() {
             List<List<Key>> rows = keyboard(kind, kind.selected(styles), numberRow, eighteen, symbolFirst,
-                nineKeySidebar);
+                languageLeft, nineKeySidebar);
             return swapLanguageNumber ? swappedLanguageNumber(rows) : rows;
         }
 
@@ -360,8 +399,16 @@ public final class KeyLayoutStylesPolicy {
     public static Preview preview(TouchKeyStyle.Groups groups, KeyboardScheme current, String shuangpinLayout,
             String wubiLayout, TouchKeyStyle.Styles styles, boolean numberRow, boolean symbolFirst,
             boolean swapLanguageNumber, List<String> nineKeySidebar) {
+        return preview(groups, current, shuangpinLayout, wubiLayout, styles, numberRow, symbolFirst, swapLanguageNumber,
+            nineKeySidebar, false);
+    }
+
+    /** 同上，另带「中/英键放在空格左边」。 */
+    public static Preview preview(TouchKeyStyle.Groups groups, KeyboardScheme current, String shuangpinLayout,
+            String wubiLayout, TouchKeyStyle.Styles styles, boolean numberRow, boolean symbolFirst,
+            boolean swapLanguageNumber, List<String> nineKeySidebar, boolean languageLeft) {
         return new Preview(previewKind(groups, current, shuangpinLayout, wubiLayout), styles, numberRow,
-            eighteen(current, shuangpinLayout), symbolFirst, swapLanguageNumber, nineKeySidebar);
+            eighteen(current, shuangpinLayout), symbolFirst, swapLanguageNumber, nineKeySidebar, languageLeft);
     }
 
     /** 每一行里同时有 123（`SoftLayer`）和中/英（`SoftLanguage`）时对调两键，宽度跟着键走；右侧大回车外框九宫格下方那一行同样对调，与键盘的 `tallReturnEntries` 一致。 */
@@ -411,7 +458,8 @@ public final class KeyLayoutStylesPolicy {
         return Tone.CHARACTER;
     }
 
-    private static List<List<Key>> fourteen(TouchKeyStyle.Row style, boolean numberRow, boolean eighteen) {
+    private static List<List<Key>> fourteen(TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
+            boolean languageLeft) {
         List<List<FourteenKeyLayout.Key>> letters = eighteen ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
         // 与 ImeLetterRows#rebuildFourteenKeyRows 相同：14 键每个字母键两份、两端 1.4 份，18 键都是一份、第二行两端各缩进半键。
         float letterWeight = eighteen ? 1f : FourteenKeyLayout.LETTER_WEIGHT;
@@ -441,7 +489,8 @@ public final class KeyLayoutStylesPolicy {
             for (Key cell : cells) row.add(new Key(cell.face(), cell.weight() * scale, cell.id(), cell.tone(), cell.rows()));
             rows.add(List.copyOf(row));
         }
-        rows.add(converted(List.of(KeyHeatmapLayout.bottom(KeyboardLayout.FOURTEEN_KEY_LAYOUT, style))).get(0));
+        rows.add(converted(List.of(KeyHeatmapLayout.bottom(KeyboardLayout.FOURTEEN_KEY_LAYOUT, style, false,
+            languageLeft))).get(0));
         return List.copyOf(rows);
     }
 

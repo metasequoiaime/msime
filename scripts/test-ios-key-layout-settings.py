@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口副标题取自 SharedUI 里三端共用的文字；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明的一张卡片（26 键卡片里还有「符」与「123」互换开关，9 键卡片里还有「九键左侧符号」导航行），下面是「数字键盘」一组胶囊（组末是「数字键盘左侧符号」导航行）和顶部数字行开关；两张符号表共用一个编辑页（KeyLayoutStyleTests 与 NineKeySidebarSettingsTests 钉住文字本身、预览的底行和高亮、编辑规则）。"""
+"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口副标题取自 SharedUI 里三端共用的文字；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明的一张卡片（26 键卡片里还有「符」与「123」互换开关，每张卡片都有「中/英键放在空格左边」开关，9 键卡片里还有「九键左侧符号」导航行），下面是「数字键盘」一组胶囊（组末是「数字键盘左侧符号」导航行）和顶部数字行开关；两张符号表共用一个编辑页（KeyLayoutStyleTests 与 NineKeySidebarSettingsTests 钉住文字本身、预览的底行和高亮、编辑规则）。"""
 from pathlib import Path
 import re
 import unittest
@@ -94,6 +94,22 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn("isOn: Binding(get: { style.symbolFirst }, set: { save(TouchKeyLayoutStyle.save(symbolFirst: $0)) }))", toggle)
         self.assertIn('.accessibilityIdentifier("keyLayoutSymbolFirstToggle")', toggle)
         self.assertEqual(self.source.count("TouchKeyLayoutOffering.symbolFirstTitle"), 1, "one toggle, only in the 26-key card")
+
+    def test_language_left_toggle_sits_in_every_card_after_the_other_toggles(self):
+        # #10228：「中/英键放在空格左边」在每个分段的样式卡片里，不按分段设条件；26 键里排在「符」与「123」互换之后，文字取自三端共用的常量，打开写 left、关上写 right。
+        card = member(self.source, "  private func styleCard(")
+        note = card.index("if let note = kind.note(style) {")
+        symbol_first = card.index("TouchKeyLayoutOffering.symbolFirstTitle")
+        toggle = card.index("DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, subtitle: TouchKeyLayoutOffering.languageLeftSubtitle,")
+        self.assertLess(note, toggle)
+        self.assertLess(symbol_first, toggle)
+        # 互换开关的条件块在中/英开关之前就闭合了：中/英开关不在 `if kind == .twentySixKey` 里。
+        gated = card[card.index("if kind == .twentySixKey {"):toggle]
+        self.assertEqual(gated.count("{") - gated.count("}"), 0, "the language toggle is shown on every kind")
+        self.assertIn("isOn: Binding(get: { style.languageKeySide == .left },", card[toggle:])
+        self.assertIn("set: { save(TouchKeyLayoutStyle.save(languageKeySide: $0 ? .left : .right)) }))", card[toggle:])
+        self.assertIn('.accessibilityIdentifier("keyLayoutLanguageLeftSwitch")', card[toggle:])
+        self.assertEqual(self.source.count("TouchKeyLayoutOffering.languageLeftTitle"), 1, "one toggle, in the shared card")
 
     def test_number_pad_group_uses_the_same_pills_below_the_style_card(self):
         # #10056：「数字键盘」一组有入口就列，在样式卡片和顶部数字行开关之间；选项是同一套等宽胶囊，说明在胶囊下方，不画预览。

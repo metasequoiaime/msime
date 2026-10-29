@@ -27,9 +27,9 @@ import java.util.List;
 import org.json.JSONObject;
 
 /**
- * 「按键布局」子页（键盘页「布局」组进来），自上而下：键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列本版本提供的类型，只有一种时不画），这一类键盘所选样式下的整块键盘预览（{@link KeyLayoutPreview}，与标准不同的键描强调色），一排样式胶囊，当前样式的副作用说明（没有就不画），26 键分段时再加一行「26 键「符」与「123」互换」开关，9 键分段时再加一行「九键左侧符号」；接着是「数字键盘」一组空格位置的胶囊（空格在右列、在 0 右边、在 0 左边）、组末说明和一行「数字键盘左侧符号」；最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。各项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_nine_key_sidebar_symbols`、`touch_number_pad_space`、`touch_nine_key_digit_sidebar_symbols`、`touch_number_row`，{@link TouchKeyStyle}、{@link NineKeySidebarPolicy}），随账号同步，键盘每秒重读偏好时就地换底行和符号栏，不打断正在组的字。本版本三类都没有时键盘页不列入口（{@link TouchKeyStyle.Groups}）。哪一类、叫什么、高亮哪些键、说明写什么都在 {@link KeyLayoutStylesPolicy} 里。
+ * 「按键布局」子页（键盘页「布局」组进来），自上而下：键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列本版本提供的类型，只有一种时不画），这一类键盘所选样式下的整块键盘预览（{@link KeyLayoutPreview}，与标准不同的键描强调色），一排样式胶囊，当前样式的副作用说明（没有就不画），说明下面一张卡片里是开关：26 键分段先是「26 键「符」与「123」互换」，每个分段都有「中/英键放在空格左边」，9 键分段时再加一行「九键左侧符号」；接着是「数字键盘」一组空格位置的胶囊（空格在右列、在 0 右边、在 0 左边）、组末说明和一行「数字键盘左侧符号」；最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。各项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_language_key_side`、`touch_nine_key_sidebar_symbols`、`touch_number_pad_space`、`touch_nine_key_digit_sidebar_symbols`、`touch_number_row`，{@link TouchKeyStyle}、{@link NineKeySidebarPolicy}），随账号同步，键盘每秒重读偏好时就地换底行和符号栏，不打断正在组的字。本版本三类都没有时键盘页不列入口（{@link TouchKeyStyle.Groups}）。哪一类、叫什么、高亮哪些键、说明写什么都在 {@link KeyLayoutStylesPolicy} 里。
  *
- * <p>分段控件默认停在用户当前在用的中文键盘类型；切分段只换预览、胶囊和互换开关的显隐，不写任何偏好。点胶囊或开关立刻换预览再写偏好，保存失败时提示并重新读一遍，拨回磁盘上的值。
+ * <p>分段控件默认停在用户当前在用的中文键盘类型；切分段只换预览、胶囊和互换开关的显隐，不写任何偏好；「中/英键放在空格左边」三个分段是同一项偏好，切分段时开关状态不变。点胶囊或开关立刻换预览再写偏好，保存失败时提示并重新读一遍，拨回磁盘上的值。
  *
  * <p>两行左侧符号点开是同一个编辑页（{@link NineKeySidebarSheet}），确认后只写那一张表；字母表是自定义的时 9 键预览的左列画用户的表并整条描强调色。键盘上长按符号栏带着 {@link NineKeySidebarPolicy#EDIT_ARGUMENT} 打开这一页，读到偏好后直接打开那张表的编辑页（字母表同时切到 9 键分段）。
  *
@@ -44,12 +44,13 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
     private TouchKeyStyle.Styles styles = TouchKeyStyle.Styles.DEFAULT;
     private boolean numberRow;
     private boolean symbolFirst;
+    private boolean languageLeft;
     private TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN;
     private boolean eighteen;
     @Nullable private KeyLayoutPreview preview;
     @Nullable private LinearLayout chips;
     @Nullable private TextView note;
-    @Nullable private View symbolFirstGroup;
+    @Nullable private GroupCard.Row symbolFirstRow;
     @Nullable private LinearLayout numberPadChips;
     /** 两张左侧符号表（共享偏好里存的，空表表示出厂表）。 */
     private List<String> nineKeySidebar = List.of();
@@ -80,7 +81,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         preview = null;
         chips = null;
         note = null;
-        symbolFirstGroup = null;
+        symbolFirstRow = null;
         numberPadChips = null;
         nineKeySidebarGroup = null;
         if (preferences == null) {
@@ -95,6 +96,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE)));
         numberRow = preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false);
         symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);
+        languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
         // 没选过时选中 Android 原来的「空格在右列」，点哪一枚写哪一枚的写法。
         numberPadSpace = TouchKeyStyle.NumberPadSpace.parse(
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE))).resolved();
@@ -149,7 +151,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
             NineKeySidebarPolicy.symbols(stored, defaults), defaults, this::reload).show();
     }
 
-    /** 分段控件、预览、胶囊、说明、26 键的互换开关和 9 键的「九键左侧符号」：分段只有一种时不画；预览、胶囊、说明、开关和那一行的显隐由 {@link #refreshStyles} 按当前一类填。 */
+    /** 分段控件、预览、胶囊、说明、说明下面的开关（26 键的互换、各分段共用的中/英位置）和 9 键的「九键左侧符号」：分段只有一种时不画；预览、胶囊、说明、互换开关和那一行的显隐由 {@link #refreshStyles} 按当前一类填。 */
     private void styleSection(Context context, LinearLayout target, List<KeyLayoutStylesPolicy.Kind> kinds) {
         if (kinds.size() > 1) {
             SegmentedControl segments = new SegmentedControl(context);
@@ -184,16 +186,21 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         target.addView(caption, LayoutPolicy.matchWidthWrapParams());
         note = caption;
 
-        // 「符」与「123」互换只作用于 26 键：开关接在说明后面，与页面其他开关同样式，只在 26 键分段显示；打开时预览底行把 符 排到 123 左边并高亮这两键（refreshStyles）。
+        // 说明后面一张卡片放开关，与页面其他开关同样式。「符」与「123」互换只作用于 26 键，只在 26 键分段显示；打开时预览底行把 符 排到 123 左边并高亮这两键（refreshStyles）。
+        GroupCard toggles = GroupCard.add(target, null);
         if (kinds.contains(KeyLayoutStylesPolicy.Kind.TWENTY_SIX)) {
-            GroupCard swap = GroupCard.add(target, null);
-            swap.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, TouchKeyStyle.SYMBOL_FIRST_NOTE, symbolFirst, checked -> {
+            symbolFirstRow = toggles.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, TouchKeyStyle.SYMBOL_FIRST_NOTE, symbolFirst, checked -> {
                 symbolFirst = checked;
                 refreshStyles();
                 save(edited -> edited.put(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, checked));
             });
-            symbolFirstGroup = swap.view();
         }
+        // 「中/英键放在空格左边」三类键面都有中/英，每个分段都显示（26 键排在互换开关之后），三个分段是同一项偏好；打开时预览底行把中/英排到空格左边并高亮它。
+        toggles.toggle(TouchKeyStyle.LANGUAGE_LEFT_TITLE, TouchKeyStyle.LANGUAGE_LEFT_NOTE, languageLeft, checked -> {
+            languageLeft = checked;
+            refreshStyles();
+            save(edited -> edited.put(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle.languageKeySideWire(checked)));
+        });
         // 九键左侧符号接在说明后面，与互换开关同一种写法，只在 9 键分段显示；右侧是当前字母表的摘要，点开进编辑页。
         if (kinds.contains(KeyLayoutStylesPolicy.Kind.NINE)) {
             GroupCard sidebar = GroupCard.add(target, null);
@@ -205,7 +212,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         refreshStyles();
     }
 
-    /** 按当前一类、所选样式、数字行开关和「符」与「123」互换重画预览、胶囊和说明，并按分段显隐互换开关；不读也不写偏好。 */
+    /** 按当前一类、所选样式、数字行开关、「符」与「123」互换和中/英位置重画预览、胶囊和说明，并按分段显隐互换开关；不读也不写偏好。 */
     private void refreshStyles() {
         KeyLayoutStylesPolicy.Kind shown = kind;
         KeyLayoutPreview board = preview;
@@ -213,8 +220,8 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         TextView caption = note;
         if (shown == null || board == null || row == null || caption == null) return;
         TouchKeyStyle.Row selected = shown.selected(styles);
-        board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, nineKeySidebar),
-            KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, nineKeySidebar));
+        board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar),
+            KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, languageLeft, nineKeySidebar));
         Context context = requireContext();
         row.removeAllViews();
         for (TouchKeyStyle.Row option : shown.rows) {
@@ -224,8 +231,8 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         }
         // 没有副作用的样式不画这一行，也不留空位。
         ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));
-        View swap = symbolFirstGroup;
-        if (swap != null) ViewPolicy.setVisible(swap, shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);
+        GroupCard.Row swap = symbolFirstRow;
+        if (swap != null) swap.setVisible(shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);
         View sidebar = nineKeySidebarGroup;
         if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);
     }

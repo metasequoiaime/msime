@@ -113,6 +113,8 @@ Linux のローカルビルド、隔離した D-Bus / IBus テスト、インス
 
 エンジンのコードは MPL-2.0 で、クローズドソースや App Store のアプリにも組み込めます。辞書データはそれぞれのライセンスに従い、MPL ではありません。既定の中国語データには GPL-3.0 の rime-ice のデータと CC-BY-SA-4.0 の n-gram 頻度が含まれるため、用途に応じてデータを選んでください。
 
+詳しい紹介、各言語の組み込み例、よくある質問は公式サイトの[エンジンライブラリのページ](https://msime.app/engine/)（中国語）にあります。
+
 ## 入力エンジン
 
 ```sh
@@ -131,7 +133,7 @@ cargo test -p msime-engine --locked
 
 ## 固定辞書リソース
 
-`resources/desktop-dictionary.lock.json` は、`metasequoiaime/msime-dictionary` の公開済み `dict-v2.0.39` のソース、長さ、SHA-256 を固定します。そのうち `msime-mozc_dictionary_oss_README.txt` と `msime-mozc_LICENSE.txt` は日本語辞書のライセンス全文（前者は IPAdic と ICOT の条項、後者は Mozc の 3 条項 BSD）で、`msime-scowl_Copyright.txt` は `msime-english.db` に含まれる SCOWL 単語リストの著作権とライセンスの表示です。これらの条項はいずれもデータと一緒に配布することを求めているため、再パッケージ時に省略してはいけません。詳しくは[サードパーティコンポーネント一覧](../third-party.md#日文词库的分发义务)を参照してください。初回のダウンロードは約 270 MB です。辞書ロックの `source_commit` は、この辞書一式が本リポジトリのどのコミットで `msime-dict-build` によって生成されたかを記録しており、そのうち `msime-bigram.bin` と `msime-trigram.bin` は文全体の単語ラティスの調停に使う言語モデルの表です。表がない場合でも engine はエラーにならず、文全体の経路で重み付けを行わないだけです——候補は出ますが、順序は悪くなります。そのため辞書のバージョンを変更する際は、`crates/engine` が新しい表を読めることを確認し、文変換の評価を再実行してください。開発準備用のコマンド：
+`resources/desktop-dictionary.lock.json` は、`metasequoiaime/msime-dictionary` の公開済み `dict-v2.0.41` のソース、長さ、SHA-256 を固定します。そのうち `msime-mozc_dictionary_oss_README.txt` と `msime-mozc_LICENSE.txt` は日本語辞書のライセンス全文（前者は IPAdic と ICOT の条項、後者は Mozc の 3 条項 BSD）で、`msime-scowl_Copyright.txt` は `msime-english.db` に含まれる SCOWL 単語リストの著作権とライセンスの表示です。これらの条項はいずれもデータと一緒に配布することを求めているため、再パッケージ時に省略してはいけません。詳しくは[サードパーティコンポーネント一覧](../third-party.md#日文词库的分发义务)を参照してください。初回のダウンロードは約 270 MB です。辞書ロックの `source_commit` は、この辞書一式が本リポジトリのどのコミットで `msime-dict-build` によって生成されたかを記録しており、そのうち `msime-bigram.bin` と `msime-trigram.bin` は文全体の単語ラティスの調停に使う言語モデルの表です。表がない場合でも engine はエラーにならず、文全体の経路で重み付けを行わないだけです——候補は出ますが、順序は悪くなります。そのため辞書のバージョンを変更する際は、`crates/engine` が新しい表を読めることを確認し、文変換の評価を再実行してください。開発準備用のコマンド：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

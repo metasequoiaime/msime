@@ -503,18 +503,19 @@ struct StatisticsKeyboardHeatmap: View {
           }
         }
       }
-      keyRow(TypingKeyHeatmap.nineKeyBottomCells(for: style.nineKey), width: width, firstOrder: 15)
+      keyRow(TypingKeyHeatmap.nineKeyBottomCells(for: style.nineKey, languageLeft: style.languageKeySide == .left),
+             width: width, firstOrder: 15)
     }
     .frame(width: width)
   }
 
-  /// 「右侧大回车」的九键：左列是 ，。？！ 侧栏和它下方同宽的 符，中间是九宫格和它下方的 123 | 空格 | 中，右列是 ⌫、分词和跨第三排与底行的回车，与键盘的外框一致。
+  /// 「右侧大回车」的九键：左列是 ，。？！ 侧栏和它下方同宽的 符，中间是九宫格和它下方的 123 | 空格 | 中（中/英键放在空格左边时是 123 | 中 | 空格），右列是 ⌫、分词和跨第三排与底行的回车，与键盘的外框一致。
   private func tallReturnNineKeyBoard(width: CGFloat) -> some View {
     let side = width * CGFloat(TypingKeyHeatmap.nineKeySideRatio)
     let gridWidth = width - side * 2 - Self.gap * 2
     let cell = (gridWidth - Self.gap * 2) / 3
     let gridHeight = keyHeight * 3 + Self.rowGap * 2
-    let bottom = TypingKeyHeatmap.nineKeyBottomCells(for: .tallReturn)
+    let bottom = TypingKeyHeatmap.nineKeyBottomCells(for: .tallReturn, languageLeft: style.languageKeySide == .left)
     let controls = TypingKeyHeatmap.nineKeyControls(for: .tallReturn)
     return HStack(alignment: .top, spacing: Self.gap) {
       VStack(spacing: Self.rowGap) {

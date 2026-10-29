@@ -707,8 +707,7 @@ impl Session {
         self.nine_key.set_rescoring_context(context);
     }
 
-    /// 首页行数只决定词库要不要并入补全词。`Runtime::set_page_size` 在宿主改每页候选数时调它，
-    /// 因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
+    /// 首页行数只决定词库要不要并入补全词。`Runtime` 建立、换引擎和宿主改每页候选数（`Runtime::set_page_size`）时都调它，因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         self.candidates_may_change();
         self.input.set_first_page_rows(rows);

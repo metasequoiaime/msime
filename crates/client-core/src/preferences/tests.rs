@@ -810,6 +810,93 @@ fn one_handed_side_panel_wire_strings_are_pinned_and_unknown_strings_are_kept() 
 }
 
 #[test]
+fn language_key_side_defaults_to_the_right_and_is_not_written() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.touch_language_key_side,
+        TouchLanguageKeySide::Right
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("touch_language_key_side").is_none());
+
+    // 没有这个键的旧文档读出右边，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded.touch_language_key_side, TouchLanguageKeySide::Right);
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 选左边照写法存取；改回右边时这个键从文档里消失。
+    let mut revision = store.load().unwrap().revision;
+    let left = Preferences {
+        touch_language_key_side: TouchLanguageKeySide::Left,
+        ..Preferences::default()
+    };
+    revision = store.save(revision, left.clone()).unwrap().revision;
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, left);
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap()["touch_language_key_side"],
+        "left"
+    );
+    store.save(revision, Preferences::default()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, Preferences::default());
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert!(
+        !on_disk.to_string().contains("touch_language_key_side"),
+        "{on_disk}"
+    );
+}
+
+#[test]
+fn language_key_side_wire_strings_are_pinned_and_unknown_strings_read_as_the_right() {
+    for (side, wire) in [
+        (TouchLanguageKeySide::Right, "right"),
+        (TouchLanguageKeySide::Left, "left"),
+    ] {
+        assert_eq!(serde_json::to_value(side).unwrap(), wire);
+        assert_eq!(side.as_str(), wire);
+        assert_eq!(TouchLanguageKeySide::parse(wire), Some(side));
+        assert_eq!(
+            serde_json::from_value::<TouchLanguageKeySide>(wire.into()).unwrap(),
+            side
+        );
+    }
+    for unknown in ["before_space", "Left", ""] {
+        assert_eq!(TouchLanguageKeySide::parse(unknown), None, "{unknown}");
+    }
+
+    // 写 `right` 的文档与默认相同；不认识的位置按右边读，不让整份文档失败。
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    for stored in ["right", "before_space"] {
+        let mut document = legacy.clone();
+        document["touch_language_key_side"] = stored.into();
+        assert_eq!(
+            serde_json::from_value::<Preferences>(document).unwrap(),
+            Preferences::default(),
+            "{stored}"
+        );
+    }
+    let mut document = legacy.clone();
+    document["touch_language_key_side"] = "left".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(document)
+            .unwrap()
+            .touch_language_key_side,
+        TouchLanguageKeySide::Left
+    );
+    for wrong_type in [serde_json::json!(true), serde_json::json!(1)] {
+        let mut wrong = legacy.clone();
+        wrong["touch_language_key_side"] = wrong_type;
+        assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+    }
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();

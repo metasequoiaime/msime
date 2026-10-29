@@ -22,8 +22,8 @@ permissions:
 jobs:
   device:
     name: Android device (API ${{ matrix.api }})
-    # 模拟器要 KVM。2026-10-29 实测（见 .agents/notes/implemented/process/2026-10-29-android-device-on-depot.md），depot-ubuntu-24.04-8 上 /dev/kvm 可用、`emulator -accel-check` 通过，API 35 开机 21 秒（GitHub 的 ubuntu-24.04 是 45 秒），所以跑在 Depot 上，不再占组织共用的 GitHub 托管名额。这个 job 不碰任何 secrets，APK 用开发密钥签名（scripts/signing.sh）。
-    runs-on: depot-ubuntu-24.04-8
+    # 模拟器需要 KVM；普通 Depot GitHub Actions runner 不提供 /dev/kvm，不能用单台探测结果代替平台能力保证。见 .agents/notes/implemented/process/2026-10-30-android-device-kvm-runner.md。此 job 不接触 secrets，APK 使用开发密钥。
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -42,8 +42,11 @@ jobs:
       - name: Enable KVM for the emulator
         run: |
           set -euo pipefail
-          test -c /dev/kvm
-          # Depot 已开放设备权限，但容器的 udev 不一定能枚举宿主透传的设备。
+          if [[ ! -c /dev/kvm ]]; then
+            echo "::error::Android 设备验收需要 /dev/kvm 字符设备，请检查 runner 的 KVM 支持。"
+            exit 1
+          fi
+          # 设备已可访问时直接使用，否则由 udev 规则开放当前 runner 的权限。
           if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
             echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
             sudo udevadm control --reload-rules

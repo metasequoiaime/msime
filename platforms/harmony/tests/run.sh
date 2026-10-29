@@ -37,7 +37,7 @@ if ! grep -qF 'this.shuangpinKeyHints' <<< "$face_key_body"; then
   exit 1
 fi
 # 底行样式和数字行同理：设置页改了之后键盘开着也要按新排法重建键，所以这四个值都要在 faceKey() 里；密码框、数字框退回标准底行也换键，所以编辑框这一项也要在。
-for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField this.twentySixSymbolFirst this.numberPadSpace; do
+for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this.numberRow this.standardRowsField this.twentySixSymbolFirst this.numberPadSpace this.languageKeyLeft; do
   if ! grep -qF "$field" <<< "$face_key_body"; then
     echo "KeyboardView.faceKey must include $field so a live layout style change redraws the keys" >&2
     exit 1
@@ -45,7 +45,7 @@ for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this
 done
 # 「符」与「123」互换和数字键盘空格位置（#10056）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行按开关互换，借来的数字九宫格按互换后的字母层排前两键，数字层底行按空格位置排，右列最下面一格在空格位置为右列时画空格；两项从会话偏好读，设置页改了就随 applySettings 换。
 keyboard_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
-if ! grep -qF 'return TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(this.designCommaSecondaryPeriod(),' "$keyboard_view" \
+if ! grep -qF 'const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(' "$keyboard_view" \
   || ! grep -qF '|| this.letterRowSymbolLeads());' "$keyboard_view" \
   || ! grep -qF 'return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,' "$keyboard_view" \
   || ! grep -qF 'if (this.symbols && this.numberPadSpace === TouchLayoutStylePolicy.RIGHT_COLUMN) {' "$keyboard_view" \
@@ -79,6 +79,22 @@ if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
   || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))' "$keyboard_view") -ne 6 ]] \
   || ! grep -qF "KeyboardSession.shared.openSettings('screen-keyboard');" <<< "$(sed -n '/^  private openSidebarSettings(): void {$/,/^  }$/p' "$keyboard_view")"; then
   echo "Harmony must draw the nine-key sidebars from touch_nine_key_sidebar_symbols and touch_nine_key_digit_sidebar_symbols" >&2
+  exit 1
+fi
+# 「中/英键放在空格左边」（#10228）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行在「符」与「123」互换之后再挪 中/英，九键外框（字母层、数字层、借来的数字九宫格）和右侧大回车量到宽度后的固定宽度都带上这一项，手写底行左边时把 中/英 画在 123 和 ， 之间、右边时照原样画在 。 后面；值从会话偏好读，设置页改了就随 applySettings 换。
+handwriting_row_body=$(sed -n '/^  handwritingActionRow() {$/,/^  }$/p' "$keyboard_view")
+left_language_line=$(grep -nF 'this.handwritingLeftLanguageKey()' <<< "$handwriting_row_body" | cut -d: -f1 || true)
+comma_line=$(grep -nF 'action: () => this.typeComma()' <<< "$handwriting_row_body" | cut -d: -f1 || true)
+if ! grep -qF 'return TouchLayoutStylePolicy.languageBeforeSpace(row, this.languageKeyLeft);' "$keyboard_view" \
+  || ! grep -qF 'this.numberPadSpace, this.languageKeyLeft);' "$keyboard_view" \
+  || ! grep -qF 'NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing(), this.languageKeyLeft)' "$keyboard_view" \
+  || ! grep -qF 'this.languageKeyLeft = this.settings.languageKeyLeft;' "$keyboard_view" \
+  || ! grep -qF 'languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || [[ $(grep -cF 'if (this.languageKeyLeft) {' <<< "$handwriting_row_body") -ne 1 ]] \
+  || [[ $(grep -cF 'if (!this.languageKeyLeft) {' <<< "$handwriting_row_body") -ne 1 ]] \
+  || [[ -z "$left_language_line" || -z "$comma_line" || "$left_language_line" -ge "$comma_line" ]]; then
+  echo "Harmony must move the 中/英 key left of the space by touch_language_key_side on the design row, the nine-key frame, the tall return segment and the handwriting row" >&2
   exit 1
 fi
 # 统计页认证默认关闭，认证成功后五分钟冷却。冷却规则由 keyboard-logic.test.ts 的 `StatisticsAuthenticationCooldown` 覆盖；认证本身是 ArkTS，node 下编不了，这里钉住接线：默认值是关、冷却期内直接放行、认证成功开启冷却、离开时从现在算起，时钟用含深度睡眠的开机时间。
@@ -160,7 +176,7 @@ if ! grep -qF 'ForEach(this.designRowItems(), (item: DesignRowItem) => {' <<< "$
 fi
 if ! grep -qF 'ForEach(this.nineKeyActionItems(), (item: NineKeyActionItem) => {' <<< "$nine_row_body" \
   || ! grep -qF '(item: NineKeyActionItem): string => NineKeyLayout.actionItemKey(item))' <<< "$nine_row_body" \
-  || ! grep -qF 'NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing())' <<< "$nine_items_body" \
+  || ! grep -qF 'NineKeyLayout.tallReturnRow(this.symbols, this.tallReturnFaceWidth, this.keySpacing(), this.languageKeyLeft)' <<< "$nine_items_body" \
   || ! grep -qF 'NineKeyLayout.actionItems(this.nineKeyActions(), fixed, NineKeyLayout.tallReturnFill(this.symbols))' <<< "$nine_items_body" \
   || ! grep -qF '.width(item.width)' <<< "$nine_key_body" \
   || ! grep -qF '.layoutWeight(item.share)' <<< "$nine_key_body" \

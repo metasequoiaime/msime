@@ -95,6 +95,14 @@ function action(kind: NineKeyActionKind, weight: number): NineKeyAction {
   return { kind: kind, weight: weight };
 }
 
+/** 中/英 挪到空格左边时跟着整串右移一格的键（`NineKeyLayout.languageBeforeSpace`）。 */
+const LANGUAGE_RUN: readonly NineKeyActionKind[] = [
+  NineKeyActionKind.SPACE,
+  NineKeyActionKind.ZERO,
+  NineKeyActionKind.COMMA,
+  NineKeyActionKind.PERIOD,
+];
+
 export class NineKeyLayout {
   /** 只换数字页显示，不修改中文方案；独立语言、本地工具和英文保留原符号契约。 */
   static opensNumberPad(
@@ -160,14 +168,18 @@ export class NineKeyLayout {
    *
    * 「绝对宽度」按同一块键面上的标准底行算：标准底行五个键、四道键距铺满整块宽度（`actionRow(digitLayer)`，两层都是 9.15 份），外框三列、两道键距，中列按 `GRID_SHARE` 分到的宽度里再有 `length - 1` 道键距。返回的 `weight` 是宽度，单位与 `faceWidth`、`keySpacing` 相同；键距为 0、`faceWidth` 取三列份额之和时就是 `actionRow` 里的份额。
    *
+   * 「中/英键放在空格左边」时 中/英 排到 123（数字层的切换键）后面：字母层 123 | 中 | 空格，数字层 切换键 | 中 | 0 | 空格（`languageBeforeSpace`），每个键的宽度与右边时相同，只换次序。
+   *
    * @param digitLayer 画的是数字层
    * @param faceWidth 整块键面（外框）的宽度
    * @param keySpacing 横向键距
+   * @param languageLeft 共享偏好 `touch_language_key_side` 为 `left`（`TouchLayoutStylePolicy.languageKeyLeft`），缺省为右
    */
   static tallReturnRow(
     digitLayer: boolean,
     faceWidth: number,
     keySpacing: number,
+    languageLeft: boolean = false,
   ): NineKeyAction[] {
     const standard: NineKeyAction[] = NineKeyLayout.actionRow(digitLayer);
     const standardShare: number = standard.reduce(
@@ -195,7 +207,30 @@ export class NineKeyLayout {
       NineKeyLayout.tallReturnFill(digitLayer),
       grid - fixed.length * keySpacing - taken,
     );
-    return [fixed[0], fill].concat(fixed.slice(1));
+    return NineKeyLayout.languageBeforeSpace([fixed[0], fill].concat(fixed.slice(1)), languageLeft);
+  }
+
+  /**
+   * 「中/英键放在空格左边」（共享偏好 `touch_language_key_side` 为 `left`）：把 中/英 左边紧挨着的那一串空格、0、逗号和句号整串右移一格，中/英 挪到这一串的最左边，份额不变，只换次序；与设计底行的 `TouchLayoutStylePolicy.languageBeforeSpace`、Android `KeyboardActionRow.languageBeforeSpace`、iOS `TouchBottomRowLayout.languageBeforeSpace` 同一条规则。标准九键 符 | 123 | 中 | 空格 | 回车；底栏带标点 符 | 123 | 中 | ， | 空格 | 。 | 回车；数字层 符 | 九键 | 中 | 空格 | 0 | 回车。行里没有 中/英，或它左边紧挨的不是这几种键时原样返回。
+   */
+  static languageBeforeSpace(row: readonly NineKeyAction[], enabled: boolean): NineKeyAction[] {
+    const moved: NineKeyAction[] = row.slice();
+    const language: number = moved.findIndex(
+      (item: NineKeyAction): boolean => item.kind === NineKeyActionKind.LANGUAGE,
+    );
+    if (!enabled || language < 0) {
+      return moved;
+    }
+    let start: number = language;
+    while (start > 0 && LANGUAGE_RUN.includes(moved[start - 1].kind)) {
+      start--;
+    }
+    if (start === language) {
+      return moved;
+    }
+    const key: NineKeyAction[] = moved.splice(language, 1);
+    moved.splice(start, 0, key[0]);
+    return moved;
   }
 
   /**
@@ -285,6 +320,7 @@ export class NineKeyLayout {
    * @param style 九键样式（`TouchLayoutStylePolicy.nineKeyStyle` 读出的值），缺省为 `standard`
    * @param nineKeyDigits 数字层是从拼音九键、九键双拼或笔画进的（字母层底行以 符 打头），只在 `digitLayer` 时有意义；缺省为借来的数字九宫格
    * @param space 数字层空格的位置（`TouchLayoutStylePolicy.numberPadSpace` 读出的值，共享偏好 `touch_number_pad_space`），只在 `digitLayer` 且不是右侧大回车时有意义：`before_zero`（缺省，鸿蒙原来的排法）空格在 0 左边占大份、0 与中/英同宽；`after_zero` 两键对调，0 占大份、空格与中/英同宽；`right_column` 底行没有空格，0 占两键合起来的份额，空格画在网格右列最下面一格（`KeyboardView.touchNineKeyGrid`）
+   * @param languageLeft 共享偏好 `touch_language_key_side` 为 `left`（`TouchLayoutStylePolicy.languageKeyLeft`）：上面每一种排法排完之后再把 中/英 挪到空格左边（`languageBeforeSpace`），字母层、数字层和右侧大回车都算；缺省为右，就是上面的排法
    */
   static actionRow(
     digitLayer: boolean,
@@ -292,6 +328,21 @@ export class NineKeyLayout {
     style: string = "standard",
     nineKeyDigits: boolean = false,
     space: string = "before_zero",
+    languageLeft: boolean = false,
+  ): NineKeyAction[] {
+    return NineKeyLayout.languageBeforeSpace(
+      NineKeyLayout.styledActionRow(digitLayer, english, style, nineKeyDigits, space),
+      languageLeft,
+    );
+  }
+
+  /** `actionRow` 在 中/英 换边之前的排法，参数同 `actionRow`。 */
+  private static styledActionRow(
+    digitLayer: boolean,
+    english: boolean,
+    style: string,
+    nineKeyDigits: boolean,
+    space: string,
   ): NineKeyAction[] {
     const row: NineKeyAction[] = [];
     const englishMarks: boolean = english && !digitLayer;

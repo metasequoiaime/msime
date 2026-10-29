@@ -197,6 +197,46 @@ export class TouchLayoutStylePolicy {
     return moved;
   }
 
+  /** 共享偏好 `touch_language_key_side` 里表示「中/英键在空格左边」的写法（`client_core::preferences::TouchLanguageKeySide::Left`）；另一个取值 `right` 是默认，不写进文档。 */
+  static readonly LANGUAGE_LEFT: string = "left";
+
+  /** 「中/英键放在空格左边」（`touch_language_key_side`）：只有值恰好是字符串 `left` 时算左；缺键、`right`、本版本不认识的写法和不是字符串的值都按右（现在的排法），与 client-core 宽松读取的规则相同。 */
+  static languageKeyLeft(value: unknown): boolean {
+    return value === TouchLayoutStylePolicy.LANGUAGE_LEFT;
+  }
+
+  /** 中/英 挪到左边时跟着整串右移一格的键：空格和紧贴空格的标点（设计底行没有 0，九键外框见 `NineKeyLayout.languageBeforeSpace`）。 */
+  private static readonly LANGUAGE_RUN: readonly DesignRowSlot[] = [
+    DesignRowSlot.SPACE,
+    DesignRowSlot.COMMA,
+    DesignRowSlot.PERIOD,
+  ];
+
+  /**
+   * 「中/英键放在空格左边」（共享偏好 `touch_language_key_side` 为 `left`）：在样式和「符」与「123」互换都排完之后，把 中/英 左边紧挨着的那一串空格和标点整串右移一格，中/英 挪到这一串的最左边；所有键的份额不变，只换次序。与 Android `KeyboardActionRow.languageBeforeSpace`、iOS `TouchBottomRowLayout.languageBeforeSpace` 同一条规则（笔记 2026-10-29-language-key-left-of-space.md）。
+   *
+   * 空格左边没有标点的行（26 键标准、表情键）中/英 紧挨空格：123 | 符 | 中 | 空格 | ， | 回车；空格左边有标点的行（逗号句号、长空格、14/18 键、大千注音、英文 26 键的句点）标点仍紧挨空格，中/英 排在标点左边：123 | 符 | 中 | ， | 空格 | 。 | 回车。行里没有 中/英，或 中/英 左边紧挨的不是空格或标点时原样返回。
+   */
+  static languageBeforeSpace(row: readonly DesignRowEntry[], enabled: boolean): DesignRowEntry[] {
+    const moved: DesignRowEntry[] = row.slice();
+    const language: number = moved.findIndex(
+      (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.LANGUAGE,
+    );
+    if (!enabled || language < 0) {
+      return moved;
+    }
+    let start: number = language;
+    while (start > 0 && TouchLayoutStylePolicy.LANGUAGE_RUN.includes(moved[start - 1].slot)) {
+      start--;
+    }
+    if (start === language) {
+      return moved;
+    }
+    const key: DesignRowEntry[] = moved.splice(language, 1);
+    moved.splice(start, 0, key[0]);
+    return moved;
+  }
+
   /** 这一行以 符 打头（互换后的 26 键底行）：从它借来的数字九宫格按九键一族的次序排，符 | 返回 | …（`NineKeyLayout.actionRow` 的 `nineKeyDigits`），返回键仍在字母层 123 那一格。 */
   static symbolLeads(row: readonly DesignRowEntry[]): boolean {
     return row.length > 0 && row[0].slot === DesignRowSlot.SYMBOL_PANEL;

@@ -329,6 +329,15 @@ public final class KeyboardActionRow {
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits, boolean english, TouchKeyStyle.Row style,
             boolean symbolFirst, TouchKeyStyle.NumberPadSpace space) {
+        return designEntries(touchLayout, globe, swapLanguageNumber, digits, english, style, symbolFirst, space, false);
+    }
+
+    /**
+     * 同上，另按共享偏好 `touch_language_key_side` 排：{@code languageLeft} 为真时，样式、「符」与「123」互换和数字层空格位置都排完之后，把中/英挪到空格左边（{@link #languageBeforeSpace}），宽度不变；「交换语言键与数字键」最后一步在挪好的次序上对调 123 与中/英。手写底行、九键数字层同样作用。
+     */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
+            boolean swapLanguageNumber, boolean digits, boolean english, TouchKeyStyle.Row style,
+            boolean symbolFirst, TouchKeyStyle.NumberPadSpace space, boolean languageLeft) {
         if (drawsTallReturn(touchLayout, style)) return List.of();
         List<DesignEntry> entries = baseEntries(touchLayout, globe, english && !digits,
             digits ? TouchKeyStyle.Row.STANDARD : style);
@@ -357,7 +366,32 @@ public final class KeyboardActionRow {
         } else if (symbolFirst && !digits) {
             entries = symbolFirst(entries);
         }
+        if (languageLeft) entries = languageBeforeSpace(entries);
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
+    }
+
+    /** 中/英左边能被它越过的键：空格、0 和逗号句号。 */
+    private static final java.util.Set<DesignSlot> LANGUAGE_PASSES = java.util.EnumSet.of(
+        DesignSlot.SPACE, DesignSlot.ZERO, DesignSlot.COMMA, DesignSlot.PERIOD);
+
+    /**
+     * 「中/英键放在空格左边」（`touch_language_key_side` 为 `left`）对排好的底行做的一步重排：中/英左边紧挨着的、由空格、0、逗号、句号组成的一串连续的键整串右移一格，中/英挪到这一串的最左边，所有键宽度不变。空格左边没有标点时中/英紧挨空格（123 | 符 | 中 | 空格 | ， | 回车，与豆包、百度九键「系统布局」相同）；空格左边有标点时标点仍紧挨空格，中/英排在标点左边（123 | 符 | 中 | ， | 空格 | 。 | 回车），逗号句号样式不被拆开，中文和英文 26 键的中/英停在同一格。行里没有中/英、或它左边紧挨着的不是这四种键时原样返回。iOS `TouchBottomRowLayout.languageBeforeSpace`、鸿蒙 `TouchLayoutStylePolicy.languageBeforeSpace` 是同一条规则。
+     */
+    public static List<DesignEntry> languageBeforeSpace(List<DesignEntry> entries) {
+        int language = -1;
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).slot() == DesignSlot.LANGUAGE) {
+                language = index;
+                break;
+            }
+        }
+        if (language < 0) return entries;
+        int start = language;
+        while (start > 0 && LANGUAGE_PASSES.contains(entries.get(start - 1).slot())) start--;
+        if (start == language) return entries;
+        List<DesignEntry> moved = new ArrayList<>(entries);
+        moved.add(start, moved.remove(language));
+        return List.copyOf(moved);
     }
 
     /** 把排在 123 后面的 符 挪到 123 左边，其余键次序和宽度不变；没有 符 或 符 已经在前面时原样返回。 */
@@ -401,6 +435,12 @@ public final class KeyboardActionRow {
      */
     public static List<DesignEntry> numberPadEntries(int sourceLayout, boolean globe, boolean swapLanguageNumber,
             TouchKeyStyle.Row style, boolean symbolFirst, TouchKeyStyle.NumberPadSpace space) {
+        return numberPadEntries(sourceLayout, globe, swapLanguageNumber, style, symbolFirst, space, false);
+    }
+
+    /** 同上，{@code languageLeft}（`touch_language_key_side` 为 `left`）为真时在返回键和 符 排好之后把中/英挪到 0 和空格左边（{@link #languageBeforeSpace}），再按「交换语言键与数字键」对调；26 键借来的是 返回 | 符 | 中/英 | 0 …，中/英与字母层同一格。 */
+    public static List<DesignEntry> numberPadEntries(int sourceLayout, boolean globe, boolean swapLanguageNumber,
+            TouchKeyStyle.Row style, boolean symbolFirst, TouchKeyStyle.NumberPadSpace space, boolean languageLeft) {
         List<DesignEntry> entries = designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false, true, false,
             style, false, space);
         if (!entries.isEmpty() && numberPadLayerFirst(sourceLayout, style, symbolFirst)) {
@@ -418,6 +458,7 @@ public final class KeyboardActionRow {
             reordered.add(after, panel);
             entries = List.copyOf(reordered);
         }
+        if (languageLeft) entries = languageBeforeSpace(entries);
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
     }
 
@@ -492,6 +533,12 @@ public final class KeyboardActionRow {
      */
     public static List<DesignEntry> tallReturnEntries(float gridShare, boolean globe,
             boolean swapLanguageNumber, boolean digits) {
+        return tallReturnEntries(gridShare, globe, swapLanguageNumber, digits, false);
+    }
+
+    /** 同上，{@code languageLeft}（`touch_language_key_side` 为 `left`）为真时中/英挪到空格（数字层是 0）左边：123 |（地球）| 中/英 | 空格，数字层 切换 |（地球）| 中/英 | 0 | 空格（{@link #languageBeforeSpace}），各键宽度不变；交换中/英与 123 在挪好的次序上按键对调。 */
+    public static List<DesignEntry> tallReturnEntries(float gridShare, boolean globe,
+            boolean swapLanguageNumber, boolean digits, boolean languageLeft) {
         float total = 0;
         for (DesignEntry entry : designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe)) total += entry.weight();
         float fixed = DESIGN_LAYER_WEIGHT + (globe ? DESIGN_GLOBE_WEIGHT : 0) + DESIGN_LANGUAGE_WEIGHT
@@ -502,8 +549,9 @@ public final class KeyboardActionRow {
         entries.add(new DesignEntry(digits ? DesignSlot.ZERO : DesignSlot.SPACE, total * gridShare - fixed));
         if (digits) entries.add(new DesignEntry(DesignSlot.SPACE, TALL_RETURN_DIGIT_SPACE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
-        if (swapLanguageNumber) java.util.Collections.swap(entries, 0, entries.size() - 1);
-        return List.copyOf(entries);
+        List<DesignEntry> laid = languageLeft ? languageBeforeSpace(entries) : List.copyOf(entries);
+        // 按键对调 123 与中/英，不按首尾两格：中/英挪到左边后它不在最后一格。
+        return swapLanguageNumber ? swapLanguageNumber(laid) : laid;
     }
 
     /**

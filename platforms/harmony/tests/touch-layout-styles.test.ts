@@ -1102,6 +1102,245 @@ group(
   },
 );
 
+group("「中/英键放在空格左边」（#10228）偏好读法：只有字符串 left 算左，其余都按右", () => {
+  check(P.languageKeyLeft("left"), "left 是左");
+  for (const value of [undefined, null, "right", "", "LEFT", "middle", 1, true, false]) {
+    check(!P.languageKeyLeft(value), `${String(value)} 按右`);
+  }
+});
+
+group(
+  "「中/英键放在空格左边」（#10228）：设计底行的 中/英 挪到空格和紧贴空格的标点左边，份额不变，回车不再让位",
+  () => {
+    const left = (row: DesignRowEntry[]) => P.languageBeforeSpace(row, true);
+    const cases: [string, DesignRowEntry[], string][] = [
+      [
+        "中文 26 键标准",
+        P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD),
+        "layer:1.25 symbol_panel:1.05 language:1.05 space:4 comma:1 return:1.9",
+      ],
+      [
+        "中文 26 键逗号句号",
+        P.designRow(true, false, StyledFace.TWENTY_SIX, P.COMMA_PERIOD),
+        "layer:1.25 symbol_panel:1.05 language:1.05 comma:1 space:3 period:1 return:1.9",
+      ],
+      [
+        "中文 26 键长空格",
+        P.designRow(true, false, StyledFace.TWENTY_SIX, P.LONG_SPACE),
+        "layer:1.25 language:1.05 comma:1 space:5.05 return:1.9",
+      ],
+      [
+        "中文 26 键表情键",
+        P.designRow(true, false, StyledFace.TWENTY_SIX, P.EMOJI),
+        "layer:1.25 emoji:1.05 language:1.05 space:4 comma:1 return:1.9",
+      ],
+      [
+        "标准 + 互换",
+        P.symbolFirst(P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD), true),
+        "symbol_panel:1.05 layer:1.25 language:1.05 space:4 comma:1 return:1.9",
+      ],
+      [
+        "逗号句号 + 互换",
+        P.symbolFirst(P.designRow(true, false, StyledFace.TWENTY_SIX, P.COMMA_PERIOD), true),
+        "symbol_panel:1.05 layer:1.25 language:1.05 comma:1 space:3 period:1 return:1.9",
+      ],
+      [
+        "英文 26 键",
+        P.designRow(true, true, StyledFace.NONE, P.STANDARD),
+        "layer:1.25 symbol_panel:1.05 language:1.05 period:1 space:3 comma:1 return:1.9",
+      ],
+      [
+        "14/18 键标准",
+        P.designRow(false, false, StyledFace.FOURTEEN, P.STANDARD),
+        "layer:1.25 language:1.05 comma:1 space:4 period:1 return:1.9",
+      ],
+      [
+        "14/18 键长空格",
+        P.designRow(false, false, StyledFace.FOURTEEN, P.LONG_SPACE),
+        "layer:1.25 language:1.05 comma:1 space:5 return:1.9",
+      ],
+      [
+        "14/18 键表情键",
+        P.designRow(false, false, StyledFace.FOURTEEN, P.EMOJI),
+        "layer:1.25 emoji:1 language:1.05 space:4 comma:1 return:1.9",
+      ],
+      [
+        "大千注音",
+        P.designRow(false, false, StyledFace.NONE, P.STANDARD),
+        "layer:1.25 language:1.05 comma:1 space:4 period:1 return:1.9",
+      ],
+    ];
+    for (const [name, row, expected] of cases) {
+      const moved = left(row);
+      check(describe(moved) === expected, `${name}：${describe(moved)}`);
+      check(close(total(moved), total(row)), `${name} 整行份额不变`);
+      check(describe(P.languageBeforeSpace(row, false)) === describe(row), `${name} 关着时原样`);
+      // 已经在左边时再排一次不动。
+      check(describe(left(moved)) === expected, `${name} 再排一次不变`);
+      // 中/英 不再紧挨回车：两键都不让出键帽。
+      check(!P.languageBesideReturn(moved), `${name} 回车不让位`);
+      check(
+        P.designRowItems(moved).every((item) => !item.besideReturn),
+        `${name} 每个键都不让位`,
+      );
+      check(P.languageBesideReturn(row), `${name} 右边时仍紧挨回车`);
+    }
+    // 中文 26 键和英文 26 键的 中/英 停在同一格（第三格），切中/英时这个键不跳。
+    for (const style of [P.STANDARD, P.COMMA_PERIOD]) {
+      const chinese = left(P.designRow(true, false, StyledFace.TWENTY_SIX, style));
+      const english = left(P.designRow(true, true, StyledFace.NONE, P.STANDARD));
+      const slot = (row: DesignRowEntry[]) =>
+        row.findIndex((item) => item.slot === DesignRowSlot.LANGUAGE);
+      check(slot(chinese) === 2 && slot(english) === 2, `${style} 与英文 26 键同一格`);
+    }
+    // 行里没有 中/英（比如被别的设置去掉），或 中/英 左边不是空格和标点时原样返回。
+    const noLanguage: DesignRowEntry[] = [
+      { slot: DesignRowSlot.LAYER, share: 1.25 },
+      { slot: DesignRowSlot.SPACE, share: 5.05 },
+      { slot: DesignRowSlot.RETURN, share: 1.9 },
+    ];
+    check(describe(left(noLanguage)) === describe(noLanguage), "没有 中/英 时不变");
+    const afterLayer: DesignRowEntry[] = [
+      { slot: DesignRowSlot.LAYER, share: 1.25 },
+      { slot: DesignRowSlot.LANGUAGE, share: 1.05 },
+      { slot: DesignRowSlot.SPACE, share: 4 },
+      { slot: DesignRowSlot.RETURN, share: 1.9 },
+    ];
+    check(describe(left(afterLayer)) === describe(afterLayer), "中/英 紧跟 123 时不变");
+  },
+);
+
+group(
+  "「中/英键放在空格左边」（#10228）：九键外框、数字层、借来的数字九宫格和右侧大回车的 中/英 都挪到空格左边",
+  () => {
+    const cases: [string, NineKeyAction[], NineKeyAction[], string][] = [
+      [
+        "九键标准",
+        NineKeyLayout.actionRow(false),
+        NineKeyLayout.actionRow(false, false, P.STANDARD, false, P.BEFORE_ZERO, true),
+        "symbol_panel:1.05 layer_toggle:1.25 language:1.05 space:4.2 return:1.6",
+      ],
+      [
+        "底栏带标点",
+        NineKeyLayout.actionRow(false, false, P.COMMA_PERIOD),
+        NineKeyLayout.actionRow(false, false, P.COMMA_PERIOD, false, P.BEFORE_ZERO, true),
+        "symbol_panel:1.05 layer_toggle:1.25 language:1.05 comma:1 space:2.2 period:1 return:1.6",
+      ],
+      [
+        "表情键",
+        NineKeyLayout.actionRow(false, false, P.EMOJI),
+        NineKeyLayout.actionRow(false, false, P.EMOJI, false, P.BEFORE_ZERO, true),
+        "symbol_panel:1.05 layer_toggle:1.25 emoji:1.05 language:1.05 space:3.15 return:1.6",
+      ],
+      [
+        "英文九键",
+        NineKeyLayout.actionRow(false, true),
+        NineKeyLayout.actionRow(false, true, P.STANDARD, false, P.BEFORE_ZERO, true),
+        "symbol_panel:1.05 layer_toggle:1.25 language:1.05 period:1 space:2.2 comma:1 return:1.6",
+      ],
+      [
+        "右侧大回车字母层",
+        NineKeyLayout.actionRow(false, false, P.TALL_RETURN),
+        NineKeyLayout.actionRow(false, false, P.TALL_RETURN, false, P.BEFORE_ZERO, true),
+        "layer_toggle language space",
+      ],
+      [
+        "右侧大回车数字层",
+        NineKeyLayout.actionRow(true, false, P.TALL_RETURN, true),
+        NineKeyLayout.actionRow(true, false, P.TALL_RETURN, true, P.BEFORE_ZERO, true),
+        "layer_toggle language zero space",
+      ],
+    ];
+    for (const nineKeyDigits of [true, false]) {
+      const lead = nineKeyDigits ? "symbol_panel:1.05 layer_toggle:1.25" : "layer_toggle:1.25";
+      const wide = nineKeyDigits ? 3.15 : 4.2;
+      const pads: [string, string][] = [
+        [P.BEFORE_ZERO, `${lead} language:1.05 space:${wide} zero:1.05 return:1.6`],
+        [P.AFTER_ZERO, `${lead} language:1.05 zero:${wide} space:1.05 return:1.6`],
+        [
+          P.RIGHT_COLUMN,
+          `${lead} language:1.05 zero:${Math.round((wide + 1.05) * 100) / 100} return:1.6`,
+        ],
+      ];
+      for (const [space, expected] of pads) {
+        cases.push([
+          `${nineKeyDigits ? "九键一族" : "借来的"}数字九宫格 ${space}`,
+          NineKeyLayout.actionRow(true, false, P.STANDARD, nineKeyDigits, space),
+          NineKeyLayout.actionRow(true, false, P.STANDARD, nineKeyDigits, space, true),
+          expected,
+        ]);
+      }
+    }
+    for (const [name, right, left, expected] of cases) {
+      // 右侧大回车的份额是按外框换算的小数，只核对次序。
+      const shown = name.startsWith("右侧大回车")
+        ? left.map((item) => item.kind).join(" ")
+        : nine(left);
+      check(shown === expected, `${name}：${shown}`);
+      check(close(total(left), total(right)), `${name} 整行份额不变`);
+      for (const item of right) {
+        const same = left.find((moved) => moved.kind === item.kind);
+        check(
+          same !== undefined && close(same.weight, item.weight),
+          `${name} ${item.kind} 份额不变`,
+        );
+      }
+      check(!NineKeyLayout.languageBesideReturn(left), `${name} 回车不让位`);
+      check(
+        NineKeyLayout.actionItems(left, [], NineKeyActionKind.SPACE).every(
+          (item) => !item.besideReturn,
+        ),
+        `${name} 每个键都不让位`,
+      );
+      check(
+        nine(NineKeyLayout.languageBeforeSpace(left, true)) === nine(left),
+        `${name} 再排一次不变`,
+      );
+    }
+    // 右侧大回车量到外框宽度后：每个键的固定宽度与右边时相同，只换次序，ForEach 按键位取宽度。
+    for (const digitLayer of [false, true]) {
+      const right = NineKeyLayout.tallReturnRow(digitLayer, 360, 6);
+      const left = NineKeyLayout.tallReturnRow(digitLayer, 360, 6, true);
+      check(
+        left.map((item) => item.kind).join(" ") ===
+          (digitLayer ? "layer_toggle language zero space" : "layer_toggle language space"),
+        left.map((item) => item.kind).join(" "),
+      );
+      for (const item of right) {
+        const same = left.find((moved) => moved.kind === item.kind);
+        check(same !== undefined && close(same.weight, item.weight), `${item.kind} 宽度不变`);
+      }
+      const fill = NineKeyLayout.tallReturnFill(digitLayer);
+      const row = NineKeyLayout.actionRow(
+        digitLayer,
+        false,
+        P.TALL_RETURN,
+        true,
+        P.BEFORE_ZERO,
+        true,
+      );
+      const items = NineKeyLayout.actionItems(row, left, fill);
+      check(
+        items.map((item) => item.kind).join(" ") === left.map((item) => item.kind).join(" "),
+        "画出来的次序就是左边的次序",
+      );
+      for (const item of items) {
+        const pinned = right.find((fixed) => fixed.kind === item.kind)!;
+        check(
+          item.kind === fill ? item.width === 0 : close(item.width, pinned.weight),
+          `${item.kind} 取右边时的固定宽度`,
+        );
+      }
+    }
+    // 字母层与它借出的数字九宫格之间 中/英 不跳：九键一族字母层和数字层都在第三格。
+    const letters = NineKeyLayout.actionRow(false, false, P.STANDARD, false, P.BEFORE_ZERO, true);
+    const digits = NineKeyLayout.actionRow(true, false, P.STANDARD, true, P.BEFORE_ZERO, true);
+    const slot = (row: NineKeyAction[]) =>
+      row.findIndex((item) => item.kind === NineKeyActionKind.LANGUAGE);
+    check(slot(letters) === 2 && slot(digits) === 2, "九键字母层和数字层同一格");
+  },
+);
+
 if (failures > 0) {
   console.log(`${failures} touch layout style group(s) failed`);
   throw new Error("touch layout style checks failed");

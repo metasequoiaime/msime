@@ -511,8 +511,8 @@
     },
     "profile": "product-mobile",
     "resources": {
-      "generation": "576494c48ac513d15b9920111a73cf149fb79aedcb8cc6947d0799cf36006553",
-      "source_commit": "8bb181be2ed36ed9559a87434cc4c9048077ff29"
+      "generation": "641a853a12de31e99579e3370742c08b182033f35a19cf62e0722df81367975d",
+      "source_commit": "09a69f20b4726f75d4aa318975e3e891c1135aaf"
     },
     "seed": 1,
     "set": "typing-chat-v1.tsv",

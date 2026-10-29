@@ -454,6 +454,50 @@ impl<'de> Deserialize<'de> for TouchOneHandedSidePanel {
     }
 }
 
+/// 手机触屏底行的中/英键放在空格哪一边（#10228）。默认 [`Self::Right`] 是原来的排法：中/英在空格右边、紧挨回车。[`Self::Left`] 把中/英挪到空格左边：它左边紧挨着的那一串空格、0、逗号、句号整体右移一格，中/英排到这一串的最左边，所以空格左边有标点时标点仍贴着空格、中/英在标点左边；各键宽度不变。作用于 26 键一族（含英文、韩文等同一条底行）、14/18 键、九键外框（含右侧大回车）、九宫格数字键盘和手写的底行，iPad 全尺寸键盘和鸿蒙 2in1 的底行不受影响；底行没有中/英（iOS 隐藏了中/英键）时不起作用。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchLanguageKeySide {
+    /// 中/英在空格右边、紧挨回车，不写进文档。
+    #[default]
+    Right,
+    /// 中/英在空格左边，排在 123、地球键、符、😀 这些左侧功能键之后。
+    Left,
+}
+
+impl TouchLanguageKeySide {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Left => "left",
+        }
+    }
+
+    /// 严格解析：只认两种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "right" => Some(Self::Right),
+            "left" => Some(Self::Left),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchLanguageKeySide {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的位置）按原来的右边读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
@@ -1850,6 +1894,9 @@ pub struct Preferences {
     /// 大屏单手模式时空出来的一侧放什么，见 [`TouchOneHandedSidePanel`]。默认空着且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchOneHandedSidePanel::is_default")]
     pub touch_one_handed_side_panel: TouchOneHandedSidePanel,
+    /// 手机触屏底行的中/英键在空格哪一边，见 [`TouchLanguageKeySide`]。默认在右边且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchLanguageKeySide::is_default")]
+    pub touch_language_key_side: TouchLanguageKeySide,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4084,6 +4131,7 @@ impl Default for Preferences {
             touch_twenty_six_symbol_first: false,
             touch_number_pad_space: TouchNumberPadSpace::default(),
             touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
+            touch_language_key_side: TouchLanguageKeySide::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

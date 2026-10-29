@@ -304,6 +304,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 九键左侧符号栏可以自定义（#10223，共享偏好、随账号同步，同步键 `platform.harmony.nine_key_symbols` / `platform.harmony.nine_key_digit_symbols`，值是空格分隔的写法，空串是出厂表）：「按键布局」9 键分段卡片里的「九键左侧符号」改字母层那张表（`touch_nine_key_sidebar_symbols`，拼音九键、九键双拼和笔画共用），「数字键盘」一组里的「数字键盘左侧符号」改所有九宫格数字键盘 #+= 上面那张表（`touch_nine_key_digit_sidebar_symbols`，九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读）。空表是鸿蒙出厂表，键盘照原来的画法：字母层 `, . ?`（显示与编辑器里写作 ，。？，点按交给 Engine 的标点处理），右侧大回车接 !，笔画的标点栏四格，数字层四则运算加 #+= 五格等高。用户的表画成可滚动的等高栈（`NineKeyLayout.sidebarItems`）：字母层一屏最多 3 项（右侧大回车也不再接 !），数字层是四格高的滚动区加最下面一格 #+=、一屏最多 4 项，每项不矮于 28 vp。自定义项点按先按首选结束组字再字面上屏，不做全半角转换，`（）`、`()` 这类整对符号光标停在中间（`KeyboardSession.insertSidebarSymbol`、`PairedPunctuationPolicy.literalPairClosing`，配对表照 Android）；统计仍记 `SoftPunctuation`。长按左列任一项打开设置的「屏幕键盘」页（键盘只能按页打开设置，开不到「按键布局」里的编辑页）。英文九键、2in1 屏幕键盘不读这两张表。
 
+每个分段的样式卡片里还有「中/英键放在空格左边」（#10228，共享偏好 `touch_language_key_side`，`right` 默认、`left` 时打开，同步键 `platform.harmony.language_key_side`，26 键分段里排在互换开关之后）：样式和互换排完之后把 中/英 左边紧挨着的那一串空格、0、逗号和句号整串右移一格，中/英 挪到这一串最左边，份额不变（`TouchLayoutStylePolicy.languageBeforeSpace`、`NineKeyLayout.actionRow` 的 `languageLeft`）。空格左边没有标点的行 中/英 紧挨空格（`123 | 符 | 中/英 | 空格 | ， | 回车`、`符 | 123 | 中/英 | 空格 | 回车`），有标点的行标点仍紧挨空格（`123 | 符 | 中/英 | ， | 空格 | 。 | 回车`）。设计底行（26 键一族、14/18 键、大千注音）、九键外框和它的数字层、借来的数字九宫格、右侧大回车网格下方那一段和手写底行都算，2in1 底行和假名网格不动；中/英 离开回车后回车不再让出键帽，密码框和数字框不退回。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
+
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
 ## 大屏单手侧边数字键盘

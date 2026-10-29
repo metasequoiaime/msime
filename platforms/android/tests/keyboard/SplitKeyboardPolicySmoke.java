@@ -216,16 +216,19 @@ public final class SplitKeyboardPolicySmoke {
     }
 
     private static void spaceSplit() {
+        // 中/英挪到空格左边（`touch_language_key_side` 为 `left`）后中缝仍在空格里、照样居中。
+        for (boolean languageLeft : new boolean[] {false, true})
         for (boolean globe : new boolean[] {false, true}) {
             for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
-                List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(layout, globe);
+                List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(layout, globe, false, false, false,
+                    TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, languageLeft);
                 float[] weights = new float[entries.size()];
                 int space = -1;
                 for (int index = 0; index < weights.length; index++) {
                     weights[index] = entries.get(index).weight();
                     if (entries.get(index).slot() == KeyboardActionRow.DesignSlot.SPACE) space = index;
                 }
-                checkCenteredSpace(weights, space, "action row globe=" + globe + " layout=" + layout);
+                checkCenteredSpace(weights, space, "action row globe=" + globe + " layout=" + layout + " languageLeft=" + languageLeft);
                 // 常用标点键隐藏时（记 0）空隙仍然居中。
                 float[] noComma = weights.clone();
                 for (int index = 0; index < noComma.length; index++)

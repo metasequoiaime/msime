@@ -15,6 +15,7 @@ import {
   nineKeyStyleOptions,
   twentySixKeyBottomRows,
   twentySixKeyStyleOptions,
+  withLanguageKeyLeft,
 } from "../../../../packages/ui/src/keyboard/touch-key-layout-styles";
 
 afterEach(() => {
@@ -117,6 +118,38 @@ test("「符」与「123」互换和数字行跟着偏好", () => {
   });
   expect(fourteen[0]).toEqual([..."1234567890"]);
   expect(fourteen.at(-1)).toEqual(labels(fourteenKeyBottomRows.standard));
+});
+
+test("「中/英键放在空格左边」三类预览都跟着排，日语 26 键同样排，九键换了左列的表时底行照样排", () => {
+  const left: Partial<Preferences> = { touch_language_key_side: "left" };
+  expect(rowsFor(left).at(-1)).toEqual(["123", "符", "中", "空格", "，", "↵"]);
+  expect(rowsFor({ ...left, touch_twenty_six_symbol_first: true }).at(-1)).toEqual([
+    "符",
+    "123",
+    "中",
+    "空格",
+    "，",
+    "↵",
+  ]);
+  expect(rowsFor({ ...left, ...fourteenKey }).at(-1)).toEqual(
+    labels(withLanguageKeyLeft(fourteenKeyBottomRows.standard, true)),
+  );
+  expect(rowsFor({ ...left, ...japanese }).at(-1)).toEqual(
+    labels(withLanguageKeyLeft(twentySixKeyBottomRows.standard, true)),
+  );
+  const nine = harmonyTouchRowsForPreferences({
+    ...base,
+    ...nineKey,
+    ...left,
+    touch_nine_key_sidebar_symbols: ["@", "#", "~"],
+  });
+  expect(nine[0][0]).toMatchObject({ rowSpan: 3, stack: ["@", "#", "~"] });
+  expect(labels(nine[nine.length - 1])).toEqual(
+    labels(withLanguageKeyLeft(nineKeyBottomRows.standard, true)),
+  );
+  expect(labels(nine[nine.length - 1])).not.toEqual(labels(nineKeyBottomRows.standard));
+  // 缺键、`right` 和不认识的值都按右边。
+  expect(rowsFor({ touch_language_key_side: "right" }).at(-1)).toEqual(rowsFor({}).at(-1));
 });
 
 test("九键双拼和笔画也画九宫格外框，底行跟着 9 键样式，不画数字行", () => {

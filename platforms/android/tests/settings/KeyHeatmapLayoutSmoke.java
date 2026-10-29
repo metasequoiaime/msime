@@ -188,6 +188,29 @@ public final class KeyHeatmapLayoutSmoke {
             "without the number row and the emoji style both are listed under 其他键");
         check(KeyHeatmapLayout.others(counts, KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, true)).isEmpty(),
             "with them both are drawn");
+        // 「中/英键放在空格左边」（#10228）：热力图底行与键盘按同一条规则重排，只换次序，记的 id 不变；字母和九宫格不动。
+        check(faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.STANDARD, false, false, true)))
+                .equals(List.of("123", "符", "中", "空格", "，", "↵"))
+            && faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.COMMA_PERIOD, false, true, true)))
+                .equals(List.of("符", "123", "中", "，", "空格", "。", "↵"))
+            && faces(last(KeyHeatmapLayout.nine(TouchKeyStyle.Row.STANDARD, true))).equals(List.of("符", "123", "中", "空格", "↵"))
+            && faces(last(KeyHeatmapLayout.nine(TouchKeyStyle.Row.TALL_RETURN, true))).subList(0, 4)
+                .equals(List.of("符", "123", "中", "空格")), "the heatmap bottom rows follow 中/英 on the left");
+        for (TouchKeyStyle.Row style : TouchKeyStyle.NINE_KEY_ROWS) {
+            List<List<Key>> right = KeyHeatmapLayout.nine(style, false);
+            List<List<Key>> left = KeyHeatmapLayout.nine(style, true);
+            check(right.equals(KeyHeatmapLayout.nine(style)) && left.subList(0, 3).equals(right.subList(0, 3))
+                && last(left).containsAll(last(right)) && last(left).size() == last(right).size()
+                && Set.copyOf(KeyHeatmapLayout.ids(left)).equals(Set.copyOf(KeyHeatmapLayout.ids(right))),
+                "nine " + style + ": only the bottom row's order changes");
+        }
+        for (TouchKeyStyle.Row style : TouchKeyStyle.TWENTY_SIX_KEY_ROWS) {
+            List<List<Key>> left = KeyHeatmapLayout.soft(style, true, false, true);
+            List<List<Key>> right = KeyHeatmapLayout.soft(style, true, false);
+            check(left.subList(0, left.size() - 1).equals(right.subList(0, right.size() - 1))
+                && last(left).containsAll(last(right)) && last(left).size() == last(right).size(),
+                "26 " + style + ": only the bottom row's order changes");
+        }
     }
 
     /**
@@ -322,8 +345,9 @@ public final class KeyHeatmapLayoutSmoke {
             "the 其他键 card lists the undrawn keys, hides when empty and follows the 26 / 9 switch");
         check(page.contains("heatmap.setLayouts(layouts.get(0), layouts.get(1));")
             && page.contains("KeyHeatmapLayout.soft(styles.twentySix(),")
-            && page.contains("KeyHeatmapLayout.nine(styles.nine())"),
-            "the heatmap draws the user's bottom-row styles and number row");
+            && page.contains("KeyHeatmapLayout.nine(styles.nine(), languageLeft)")
+            && page.contains("TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE))"),
+            "the heatmap draws the user's bottom-row styles, number row and 中/英 side");
     }
 
     private static List<String> faces(List<Key> row) {
