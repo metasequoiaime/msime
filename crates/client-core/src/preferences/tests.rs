@@ -469,6 +469,269 @@ fn number_pad_space_wire_strings_are_pinned_and_unknown_strings_read_as_the_plat
     assert!(serde_json::from_value::<Preferences>(wrong).is_err());
 }
 
+fn strings(symbols: &[&str]) -> Vec<String> {
+    symbols.iter().map(|symbol| (*symbol).to_owned()).collect()
+}
+
+#[test]
+fn nine_key_sidebar_symbols_default_to_each_hosts_table_and_are_not_written() {
+    let defaults = Preferences::default();
+    assert!(defaults.touch_nine_key_sidebar_symbols.is_empty());
+    assert!(defaults.touch_nine_key_digit_sidebar_symbols.is_empty());
+    let written = serde_json::to_value(&defaults).unwrap();
+    for key in [
+        "touch_nine_key_sidebar_symbols",
+        "touch_nine_key_digit_sidebar_symbols",
+    ] {
+        assert!(written.get(key).is_none(), "{key}");
+    }
+
+    // 没有这两个键的旧文档读出空表，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.touch_nine_key_sidebar_symbols.is_empty());
+    assert!(loaded.touch_nine_key_digit_sidebar_symbols.is_empty());
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 自定义的表照顺序存取；写回空表（恢复默认）后键又从文档里消失。
+    let revision = store.load().unwrap().revision;
+    let configured = Preferences {
+        touch_nine_key_sidebar_symbols: strings(&["，", "……", ":-)", "😀"]),
+        touch_nine_key_digit_sidebar_symbols: strings(&["=", "（）", "+"]),
+        ..Preferences::default()
+    };
+    let revision = store.save(revision, configured.clone()).unwrap().revision;
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, configured);
+    let written = serde_json::to_value(&loaded).unwrap();
+    assert_eq!(
+        written["touch_nine_key_sidebar_symbols"],
+        serde_json::json!(["，", "……", ":-)", "😀"])
+    );
+    assert_eq!(
+        written["touch_nine_key_digit_sidebar_symbols"],
+        serde_json::json!(["=", "（）", "+"])
+    );
+    store.save(revision, Preferences::default()).unwrap();
+    let raw: serde_json::Value = serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert!(raw["preferences"]
+        .get("touch_nine_key_sidebar_symbols")
+        .is_none());
+    assert!(raw["preferences"]
+        .get("touch_nine_key_digit_sidebar_symbols")
+        .is_none());
+}
+
+#[test]
+fn nine_key_sidebar_symbols_normalize_item_by_item() {
+    // 去首尾空白；空串、中间有空白、控制字符、超过四个码位的项和重复项丢掉，其余保持原来的先后。
+    assert_eq!(
+        normalize_nine_key_sidebar_symbols(&strings(&[
+            " ， ",
+            "",
+            "  ",
+            "a b",
+            "\u{3000}",
+            "\u{7}",
+            "。\u{0}",
+            "12345",
+            "……",
+            "，",
+            ":-)",
+            "👍🏽",
+            "👨‍👩‍👧",
+        ])),
+        strings(&["，", "……", ":-)", "👍🏽"])
+    );
+    // 正好四个码位的项留下（👍🏽 是两个码位，👨‍👩‍👧 是五个）。
+    assert_eq!(
+        normalize_nine_key_sidebar_symbols(&strings(&["abcd", "abcde"])),
+        strings(&["abcd"])
+    );
+    assert!(normalize_nine_key_sidebar_symbols(&strings(&["", "toolong"])).is_empty());
+
+    // 最多三十项，多的截掉。
+    let many: Vec<String> = (0..40).map(|index| index.to_string()).collect();
+    let normalized = normalize_nine_key_sidebar_symbols(&many);
+    assert_eq!(normalized.len(), NINE_KEY_SIDEBAR_MAX_SYMBOLS);
+    assert_eq!(normalized, many[..NINE_KEY_SIDEBAR_MAX_SYMBOLS]);
+
+    // 用空格连起来不超过 200 个 UTF-16 单元：25 个四码位的增补平面字符串，每项 8 个单元，连上空格第 23 项会到 206。
+    let wide: Vec<String> = (0..25)
+        .map(|index| {
+            char::from_u32(0x1F600 + index)
+                .unwrap()
+                .to_string()
+                .repeat(4)
+        })
+        .collect();
+    let normalized = normalize_nine_key_sidebar_symbols(&wide);
+    assert_eq!(normalized, wide[..22]);
+    let text = format_nine_key_sidebar_symbols(&normalized);
+    assert_eq!(text.encode_utf16().count(), 22 * 8 + 21);
+    assert!(text.encode_utf16().count() <= NINE_KEY_SIDEBAR_MAX_TEXT_UTF16);
+
+    // 空格分隔的写法：任意空白（含全角空格）都能分开，读回来和规范化结果相同。
+    assert_eq!(
+        parse_nine_key_sidebar_symbols(" ，\u{3000}。\t？  ， toolong "),
+        strings(&["，", "。", "？"])
+    );
+    assert!(parse_nine_key_sidebar_symbols("").is_empty());
+    assert_eq!(
+        format_nine_key_sidebar_symbols(&strings(&["，", "……", ":-)"])),
+        "， …… :-)"
+    );
+    assert_eq!(format_nine_key_sidebar_symbols(&[]), "");
+}
+
+#[test]
+fn nine_key_sidebar_symbols_read_tolerantly_and_validate_strictly() {
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    let mut document = legacy.clone();
+    document["touch_nine_key_sidebar_symbols"] =
+        serde_json::json!(["？", 1, null, "toolong", "？", ["！"], "！"]);
+    document["touch_nine_key_digit_sidebar_symbols"] = serde_json::json!([true, "toolong"]);
+    let read: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(read.touch_nine_key_sidebar_symbols, strings(&["？", "！"]));
+    // 全部被丢掉时就是空表，用本端出厂表。
+    assert!(read.touch_nine_key_digit_sidebar_symbols.is_empty());
+    read.validate().unwrap();
+
+    // 一项坏值不让整份文档读失败；不是数组照样报错。
+    for wrong in [
+        serde_json::json!("， 。"),
+        serde_json::json!(1),
+        serde_json::json!({}),
+    ] {
+        for key in [
+            "touch_nine_key_sidebar_symbols",
+            "touch_nine_key_digit_sidebar_symbols",
+        ] {
+            let mut document = legacy.clone();
+            document[key] = wrong.clone();
+            assert!(
+                serde_json::from_value::<Preferences>(document).is_err(),
+                "{key}: {wrong}"
+            );
+        }
+    }
+
+    // 直接构造的结构体要等于自己的规范化结果。
+    for symbols in [
+        strings(&["，", "，"]),
+        strings(&[" ，"]),
+        strings(&[""]),
+        strings(&["toolong"]),
+        (0..31).map(|index| index.to_string()).collect(),
+    ] {
+        for digits in [false, true] {
+            let mut preferences = Preferences::default();
+            if digits {
+                preferences.touch_nine_key_digit_sidebar_symbols = symbols.clone();
+            } else {
+                preferences.touch_nine_key_sidebar_symbols = symbols.clone();
+            }
+            assert!(
+                matches!(
+                    preferences.validate(),
+                    Err(PreferencesError::InvalidTouchNineKeySidebarSymbols)
+                ),
+                "{symbols:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tables() {
+    let custom = strings(&["、", "……", ":-)"]);
+    let digits = strings(&["=", "（）"]);
+    for (letter_on_disk, digit_on_disk) in [
+        (None, None),
+        (Some(serde_json::json!([])), Some(serde_json::json!([]))),
+        (
+            Some(serde_json::json!(["！"])),
+            Some(serde_json::json!(["toolong"])),
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        document["revision"] = 1.into();
+        if let Some(value) = &letter_on_disk {
+            document["preferences"]["touch_nine_key_sidebar_symbols"] = value.clone();
+        }
+        if let Some(value) = &digit_on_disk {
+            document["preferences"]["touch_nine_key_digit_sidebar_symbols"] = value.clone();
+        }
+        fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        let saved = store
+            .migrate_android_key_layout(1, false, false, &custom, &digits)
+            .unwrap();
+        let absent = |value: &Option<serde_json::Value>| {
+            value
+                .as_ref()
+                .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty))
+        };
+        // 盘上缺键或是空数组时写入本机的自定义表；已经有非空数组（哪怕本版本读出来是空表）时不覆盖。
+        assert_eq!(
+            saved.preferences.touch_nine_key_sidebar_symbols,
+            if absent(&letter_on_disk) {
+                custom.clone()
+            } else {
+                strings(&["！"])
+            }
+        );
+        assert_eq!(
+            saved.preferences.touch_nine_key_digit_sidebar_symbols,
+            if absent(&digit_on_disk) {
+                digits.clone()
+            } else {
+                Vec::new()
+            }
+        );
+        assert_eq!(store.load().unwrap().preferences, saved.preferences);
+
+        // 迁完再走一次：两张表都已经在盘上（或保持原状），重复迁移不增加修订号。
+        let before = fs::read(store.path()).unwrap();
+        if absent(&letter_on_disk) && absent(&digit_on_disk) {
+            assert_eq!(
+                store
+                    .migrate_android_key_layout(saved.revision, false, false, &custom, &digits)
+                    .unwrap()
+                    .revision,
+                saved.revision
+            );
+            assert_eq!(fs::read(store.path()).unwrap(), before);
+        }
+    }
+
+    // 没有自定义表要迁（本机是出厂表或读不出）时传空表，什么也不写。
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["revision"] = 1.into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    let before = fs::read(store.path()).unwrap();
+    let saved = store
+        .migrate_android_key_layout(1, false, false, &[], &[])
+        .unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(fs::read(store.path()).unwrap(), before);
+
+    // 宿主传来的表也按规范化写入。
+    let saved = store
+        .migrate_android_key_layout(1, false, false, &strings(&[" ， ", "，", "toolong"]), &[])
+        .unwrap();
+    assert_eq!(
+        saved.preferences.touch_nine_key_sidebar_symbols,
+        strings(&["，"])
+    );
+}
+
 #[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
@@ -9521,7 +9784,7 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
             document["preferences"]["touch_nine_key_style"] = "future_nine".into();
             fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
             let saved = store
-                .migrate_android_key_layout(1, true, number_row)
+                .migrate_android_key_layout(1, true, number_row, &[], &[])
                 .unwrap();
             let raw: serde_json::Value =
                 serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
@@ -9539,13 +9802,13 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
             let before = fs::read(store.path()).unwrap();
             assert_eq!(
                 store
-                    .migrate_android_key_layout(saved.revision, true, number_row)
+                    .migrate_android_key_layout(saved.revision, true, number_row, &[], &[])
                     .unwrap()
                     .revision,
                 saved.revision
             );
             assert!(matches!(
-                store.migrate_android_key_layout(0, true, true),
+                store.migrate_android_key_layout(0, true, true, &[], &[]),
                 Err(PreferencesError::Conflict)
             ));
             assert_eq!(fs::read(store.path()).unwrap(), before);

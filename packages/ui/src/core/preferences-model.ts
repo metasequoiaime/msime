@@ -158,6 +158,10 @@ export type Preferences = PunctuationPreferences &
     touch_fourteen_key_style?: "standard" | "long_space" | "emoji";
     /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式；除 `tall_return`（右侧大回车：回车跨右列下两行，符 移到符号栏下方，右列的 ！ 并进符号栏）外，符号栏和右侧功能列不变。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_nine_key_style?: "standard" | "comma_period" | "emoji" | "tall_return";
+    /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序。缺省或空数组是各端出厂表（三端都是 ， 。 ？），等于出厂表时写空数组；读入时 client-core 逐项丢掉不合规的项（空串、含空白或控制字符、超过 4 个码位、重复），最多 30 项、用空格连起来不超过 200 个 UTF-16 单元。空数组不写进文档；桌面宿主保留、不读。 */
+    touch_nine_key_sidebar_symbols?: string[];
+    /** 手机触屏九宫格数字键盘（九键自己的数字层和其他键盘借来的数字九宫格）左侧符号栏的符号，规则同 `touch_nine_key_sidebar_symbols`；缺省或空数组是各端出厂表（鸿蒙是 + - * /），`#+=` 不在表里。空数组不写进文档；桌面宿主保留、不读。 */
+    touch_nine_key_digit_sidebar_symbols?: string[];
     /** 手机触屏 26 键、14 键和 18 键字母层上方的 1 到 0 数字行；窗口太矮时宿主不画。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_number_row?: boolean;
     /** 手机触屏 26 键字母层底行把 符 排到 123 左边；只作用于底行里有 符 的样式，长空格和表情键样式不受影响。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */

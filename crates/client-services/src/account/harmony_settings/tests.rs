@@ -182,7 +182,9 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "haptics_enabled",
             "keyboard_height_adjustment",
             "keyboard_layout",
+            "nine_key_digit_symbols",
             "nine_key_style",
+            "nine_key_symbols",
             "number_keypad_order",
             "number_pad_space",
             "number_row",
@@ -1071,6 +1073,8 @@ fn every_exported_key_round_trips() {
         touch_number_row: !Preferences::default().touch_number_row,
         touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
         touch_number_pad_space: crate::preferences::TouchNumberPadSpace::AfterZero,
+        touch_nine_key_sidebar_symbols: vec!["，".into(), "……".into(), ":-)".into()],
+        touch_nine_key_digit_sidebar_symbols: vec!["+".into(), "（）".into()],
         global_theme: GlobalTheme::Custom,
         ..Preferences::default()
     };

@@ -204,7 +204,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_layout",
             "platform.android.keyboard_skin_dark",
             "platform.android.keyboard_skin_light",
+            "platform.android.nine_key_digit_symbols",
             "platform.android.nine_key_style",
+            "platform.android.nine_key_symbols",
             "platform.android.number_keypad_order",
             "platform.android.number_pad_space",
             "platform.android.number_row",
@@ -369,6 +371,8 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_number_row: !Preferences::default().touch_number_row,
         touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
         touch_number_pad_space: TouchNumberPadSpace::BeforeZero,
+        touch_nine_key_sidebar_symbols: vec!["、".into(), "……".into(), "（）".into()],
+        touch_nine_key_digit_sidebar_symbols: vec!["=".into(), "%".into()],
         ..Preferences::default()
     };
     expected.frequency = FrequencyPreferences {
@@ -1567,6 +1571,90 @@ fn symbol_first_and_number_pad_space_sync_by_their_wire_names() {
         Preferences {
             touch_twenty_six_symbol_first: true,
             ..chosen
+        }
+    );
+}
+
+/// 九键左侧符号栏两张表按空格连起来的写法上传，读回来还是原表；用出厂表时导出空串，云端写回空串时本机回到出厂表；云端的值一项都读不出来时只跳过那一个键，本机的表不变，读得出几项就留几项。
+#[test]
+fn nine_key_sidebar_symbols_sync_as_space_separated_text() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    for key in [NINE_KEY_SIDEBAR_SYMBOLS, NINE_KEY_DIGIT_SIDEBAR_SYMBOLS] {
+        assert_eq!(defaults[key], AccountPreferenceValue::String(String::new()));
+    }
+
+    let local = Preferences {
+        touch_nine_key_sidebar_symbols: vec!["，".into(), "……".into(), ":-)".into()],
+        touch_nine_key_digit_sidebar_symbols: vec!["+".into(), "（）".into(), "@".into()],
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&local, None).unwrap();
+    assert_eq!(
+        exported[NINE_KEY_SIDEBAR_SYMBOLS],
+        AccountPreferenceValue::String("， …… :-)".into())
+    );
+    assert_eq!(
+        exported[NINE_KEY_DIGIT_SIDEBAR_SYMBOLS],
+        AccountPreferenceValue::String("+ （） @".into())
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, local);
+
+    // 云端写回空串（另一台设备恢复了默认）时本机也回到出厂表；只有空白同样算空。
+    let applied = apply(
+        &local,
+        BTreeMap::from([
+            (
+                NINE_KEY_SIDEBAR_SYMBOLS.to_owned(),
+                AccountPreferenceValue::String(String::new()),
+            ),
+            (
+                NINE_KEY_DIGIT_SIDEBAR_SYMBOLS.to_owned(),
+                AccountPreferenceValue::String(" \u{3000} ".into()),
+            ),
+        ]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    // 全角空格和连续空白都能分开，不合规的项和重复项逐项丢掉。
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([(
+            NINE_KEY_SIDEBAR_SYMBOLS.to_owned(),
+            AccountPreferenceValue::String("？\u{3000}！  toolong ？ 、".into()),
+        )]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.touch_nine_key_sidebar_symbols,
+        ["？", "！", "、"]
+    );
+
+    // 一项都读不出来时不当成恢复默认：只跳过这个键，另一张表照常应用。
+    let applied = apply(
+        &local,
+        BTreeMap::from([
+            (
+                NINE_KEY_SIDEBAR_SYMBOLS.to_owned(),
+                AccountPreferenceValue::String("toolong 12345".into()),
+            ),
+            (
+                NINE_KEY_DIGIT_SIDEBAR_SYMBOLS.to_owned(),
+                AccountPreferenceValue::String("=".into()),
+            ),
+        ]),
+        &full_schema(),
+    );
+    assert_eq!(applied.skipped, [NINE_KEY_SIDEBAR_SYMBOLS]);
+    assert_eq!(
+        applied.preferences,
+        Preferences {
+            touch_nine_key_digit_sidebar_symbols: vec!["=".into()],
+            ..local
         }
     );
 }

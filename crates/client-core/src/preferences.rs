@@ -1772,6 +1772,20 @@ pub struct Preferences {
     /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；除右侧大回车样式外，左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
     pub touch_nine_key_style: TouchNineKeyStyle,
+    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序排列，规则见 [`normalize_nine_key_sidebar_symbols`]。空表表示用各端自己的出厂表（三端都是 ， 。 ？；右侧大回车样式时各端在出厂表末尾接 ！，自定义表原样使用），所以等于出厂表时宿主写空表。Android 的 14 键左侧底轨也读这张表。接替 Android 本机设置 `platform.android.nine_key_symbols`。读入时逐项丢掉不合规的元素（见 `deserialize_nine_key_sidebar_symbols`），不是数组时照样报错。空表不写进文档。桌面宿主原样保留、不使用。
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_nine_key_sidebar_symbols"
+    )]
+    pub touch_nine_key_sidebar_symbols: Vec<String>,
+    /// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画的数字层，以及 26 键、14/18 键、手写等借来的数字九宫格）左侧符号栏的符号，规则与 [`Self::touch_nine_key_sidebar_symbols`] 相同。空表表示用各端自己的出厂表，三端的出厂表本来就不同（Android 14 项，iOS 和鸿蒙是 + - * /）；`#+=` 不属于这张表，各端留在原来的位置。接替 Android 本机设置 `platform.android.nine_key_digit_symbols`。空表不写进文档。桌面宿主原样保留、不使用。
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_nine_key_sidebar_symbols"
+    )]
+    pub touch_nine_key_digit_sidebar_symbols: Vec<String>,
     /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_number_row: bool,
@@ -3849,6 +3863,67 @@ pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
     }
 }
 
+/// 九键左侧符号栏一张表最多几项，与 Android `NineKeySidebarPolicy.MAX_SYMBOLS` 相同。
+pub const NINE_KEY_SIDEBAR_MAX_SYMBOLS: usize = 30;
+/// 九键左侧符号栏一项最多几个码位（「……」「:-)」这类短串也允许），与 Android `NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS` 相同。
+pub const NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS: usize = 4;
+/// 九键左侧符号栏用一个空格连起来（同步值和 Android 本机存储的写法，见 [`format_nine_key_sidebar_symbols`]）最长几个 UTF-16 单元，与 Android `NineKeySidebarPolicy.MAX_TEXT_LENGTH` 相同；账号字段表收录同步键时按这个长度定上限。
+pub const NINE_KEY_SIDEBAR_MAX_TEXT_UTF16: usize = 200;
+
+/// 九键左侧符号栏（`touch_nine_key_sidebar_symbols` 与 `touch_nine_key_digit_sidebar_symbols`）的规范形式：每项去掉首尾空白；丢掉空串、中间含空白或控制字符的、超过 [`NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS`] 个码位的项，以及重复项（保留第一次出现的位置）；保留下来的项到 [`NINE_KEY_SIDEBAR_MAX_SYMBOLS`] 项，或者再加一项会让空格连起来的写法超过 [`NINE_KEY_SIDEBAR_MAX_TEXT_UTF16`] 个 UTF-16 单元时，后面的全部截掉。
+///
+/// 结果为空就是「用本端出厂表」，不像快捷符号那样换成某一端的默认列表：三端的出厂表不同。Android 编辑器对整张表另有更严的校验（任何一项不合规整张表都不收），交给共享偏好的总是已经合规的表；这里按项丢弃，是为了读别处写的文档时不让一项坏值连累整张表。
+pub fn normalize_nine_key_sidebar_symbols(symbols: &[String]) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::new();
+    let mut text_units = 0;
+    for symbol in symbols {
+        let value = symbol.trim();
+        if value.is_empty()
+            || value.chars().count() > NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS
+            || value.chars().any(|c| c.is_whitespace() || c.is_control())
+            || normalized.iter().any(|stored| stored == value)
+        {
+            continue;
+        }
+        // 第一项前面没有分隔的空格。
+        let units = value.encode_utf16().count() + usize::from(!normalized.is_empty());
+        if normalized.len() == NINE_KEY_SIDEBAR_MAX_SYMBOLS
+            || text_units + units > NINE_KEY_SIDEBAR_MAX_TEXT_UTF16
+        {
+            break;
+        }
+        text_units += units;
+        normalized.push(value.to_owned());
+    }
+    normalized
+}
+
+/// 把空白分隔的写法（同步值、Android 本机存储的旧值）读成规范化的符号表：按任意空白（含全角空格）切开，再走 [`normalize_nine_key_sidebar_symbols`]。空串读成空表。
+pub fn parse_nine_key_sidebar_symbols(text: &str) -> Vec<String> {
+    let symbols: Vec<String> = text.split_whitespace().map(str::to_owned).collect();
+    normalize_nine_key_sidebar_symbols(&symbols)
+}
+
+/// 符号表的空格分隔写法，[`parse_nine_key_sidebar_symbols`] 的反向；空表写成空串。
+pub fn format_nine_key_sidebar_symbols(symbols: &[String]) -> String {
+    symbols.join(" ")
+}
+
+/// 九键左侧符号栏的宽松读法：先按任意 JSON 值的数组读，不是字符串的元素丢掉，再走 [`normalize_nine_key_sidebar_symbols`]，不合规的项逐项丢掉，全被丢掉时就是空表（用本端出厂表）。一张符号表里的一项坏值不该让整份偏好读不了（#9975 的教训）。不是数组时照旧报错，与其他字段的类型错误一致。
+fn deserialize_nine_key_sidebar_symbols<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let symbols: Vec<String> = Vec::<serde_json::Value>::deserialize(d)?
+        .into_iter()
+        .filter_map(|value| match value {
+            serde_json::Value::String(symbol) => Some(symbol),
+            _ => None,
+        })
+        .collect();
+    Ok(normalize_nine_key_sidebar_symbols(&symbols))
+}
+
 fn default_touch_key_spacing_tenths() -> u8 {
     60
 }
@@ -3948,6 +4023,8 @@ impl Default for Preferences {
             touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
             touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
             touch_nine_key_style: TouchNineKeyStyle::default(),
+            touch_nine_key_sidebar_symbols: Vec::new(),
+            touch_nine_key_digit_sidebar_symbols: Vec::new(),
             touch_number_row: false,
             touch_twenty_six_symbol_first: false,
             touch_number_pad_space: TouchNumberPadSpace::default(),
@@ -4873,6 +4950,15 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
         }
+        if [
+            &self.touch_nine_key_sidebar_symbols,
+            &self.touch_nine_key_digit_sidebar_symbols,
+        ]
+        .into_iter()
+        .any(|symbols| *symbols != normalize_nine_key_sidebar_symbols(symbols))
+        {
+            return Err(PreferencesError::InvalidTouchNineKeySidebarSymbols);
+        }
         self.custom_theme.validate()?;
         if [
             &self.android_keyboard_skin_light,
@@ -5045,6 +5131,8 @@ pub enum PreferencesError {
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
+    #[error("九键左侧符号栏必须是去重的列表，最多三十项、用空格连起来不超过 200 个 UTF-16 单元，每项最多四个码位且不含空白或控制字符")]
+    InvalidTouchNineKeySidebarSymbols,
     #[error(
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
@@ -5484,13 +5572,16 @@ impl PreferencesStore {
         self.save_locked(current, &unknown, expected_revision, preferences)
     }
 
-    /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。
-    /// 较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
+    /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
+    ///
+    /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
     pub fn migrate_android_key_layout(
         &self,
         expected_revision: u64,
         long_space: bool,
         number_row: bool,
+        nine_key_symbols: &[String],
+        nine_key_digit_symbols: &[String],
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, mut unknown) = self.read_locked_keeping_unknown()?;
@@ -5518,6 +5609,25 @@ impl PreferencesStore {
                 .is_none_or(|value| value.as_bool() == Some(false))
         {
             preferences.touch_number_row = true;
+        }
+        for (key, legacy, field) in [
+            (
+                "touch_nine_key_sidebar_symbols",
+                nine_key_symbols,
+                &mut preferences.touch_nine_key_sidebar_symbols,
+            ),
+            (
+                "touch_nine_key_digit_sidebar_symbols",
+                nine_key_digit_symbols,
+                &mut preferences.touch_nine_key_digit_sidebar_symbols,
+            ),
+        ] {
+            let absent = document
+                .pointer(&format!("/preferences/{key}"))
+                .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty));
+            if absent {
+                *field = normalize_nine_key_sidebar_symbols(legacy);
+            }
         }
         // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
         for (key, is_known) in [
