@@ -77,6 +77,8 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
+    /** 剪贴板多选删除后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
+    public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
     /** 旧版的「数字行」（#6022），默认关，只在本机。现在由共享偏好 `touch_number_row` 接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；同步的 `platform.android.number_row` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 拼音九键网格键的滑动（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，不改变原来九键的点按。和 26 键的「滑动输入符号」分开，服务端的同步字段表还没有这个键，所以先只在本机。 */
@@ -224,6 +226,8 @@ public final class AndroidLocalSettings {
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);
         bool(CLIPBOARD_SUGGESTION, true, false);
+        integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
+            ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
         bool(NUMBER_ROW, false, false);
         choice(NINE_KEY_SWIPE, NineKeySwipePolicy.OFF, false, NineKeySwipePolicy.OFF, SwipeHintPolicy.UP,
             SwipeHintPolicy.DOWN);

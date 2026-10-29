@@ -28,6 +28,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -328,6 +329,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
+        // 多选删除后可撤销的秒数（#10073），只影响之后的删除；键盘每次删除时读这一项。
+        int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboard.nav("撤销时长", "多选删除后，剪贴板面板右下角的「撤销」按钮保留几秒",
+            ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
@@ -587,6 +592,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
                 () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_COLUMNS, value,
+                    this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardUndoSeconds(int selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "撤销时长", null);
+        for (int seconds = ClipboardUndoPolicy.MIN_SECONDS; seconds <= ClipboardUndoPolicy.MAX_SECONDS; seconds++) {
+            int value = seconds;
+            sheet.option(ClipboardUndoPolicy.settingLabel(value), value == selected,
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS, value,
                     this::reload, this::reload));
         }
         sheet.show();
