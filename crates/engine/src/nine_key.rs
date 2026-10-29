@@ -3117,10 +3117,9 @@ fn reads_pinyin(source: CandidateSource) -> bool {
         || source == CandidateSource::NeuralKeyboard
 }
 
-/// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 /// 九宫格里让 runtime 键盘模型参与的窄裁决点，标在 `out` 里（与候选同序，没有标记时清空）。首行是可信的词典命中时 runtime 一向不重排；这里只在下面的位置上把首行和它的对手标出来，模型凭上文在它们之间挑，其余情况 `trusted_leader` 照旧。没有挂模型（「增强」关着）时标记不起作用。
 ///
-/// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行。置顶记录本身不动，模型只决定这一次谁坐首位。
+/// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位、拼满读法（不是补全）的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行；它也得拼满读法、字数和首行相同，否则不裁决。置顶记录本身不动，模型只决定这一次谁坐首位。
 /// - 拼满读法的前两名（`CONTEST_RUNNER_UP`）：首行是没有固定、拼满读法（不是补全）的词典行，对手是首页里其后第一条同样条件、字数相同的词典行，读音可以不同（监狱/教育）也可以相同（他/她），权重不低于首行的 `RUNNER_UP_WEIGHT_RATIO`。
 fn mark_contests(
     candidates: &[WordItem],
@@ -3149,24 +3148,31 @@ fn mark_contests(
             out[seat] = kind;
         }
     };
+    let full_reading = |item: &WordItem| grid.reading_code_len(&item.canonical_pinyin) <= digits;
+    let chars = count_utf8_chars(&leader.word);
     if leader.fixed_position == 1 {
-        if let Some(rival) = (1..rows).find(|&seat| {
-            let item = &candidates[seat];
-            item.fixed_position == 0 && plain(item) && item.word != leader.word
-        }) {
+        if !full_reading(leader) {
+            return;
+        }
+        // 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（您 对 你们）时不裁决：逐字平均分偏向第二个字好猜的多字补全，两边不能放在一起比。
+        let rival = (1..rows)
+            .find(|&seat| {
+                let item = &candidates[seat];
+                item.fixed_position == 0 && plain(item) && item.word != leader.word
+            })
+            .filter(|&seat| {
+                let item = &candidates[seat];
+                full_reading(item) && count_utf8_chars(&item.word) == chars
+            });
+        if let Some(rival) = rival {
             mark(&[0, rival], crate::ordering::CONTEST_RECENCY);
         }
         return;
     }
-    let spelled = |item: &WordItem| {
-        item.fixed_position == 0
-            && plain(item)
-            && grid.reading_code_len(&item.canonical_pinyin) <= digits
-    };
+    let spelled = |item: &WordItem| item.fixed_position == 0 && plain(item) && full_reading(item);
     if !spelled(leader) || leader.weight <= 0 {
         return;
     }
-    let chars = count_utf8_chars(&leader.word);
     let rival = (1..rows).find(|&seat| {
         let item = &candidates[seat];
         spelled(item) && count_utf8_chars(&item.word) == chars
@@ -3182,6 +3188,7 @@ fn mark_contests(
 /// 拼满读法的第二名至少要有首选权重的这一份，才交给模型裁决；差得更远时首选的词频已经说明了问题。dev 上按事先写下的规则在 0.1 和 0.3 里选了 0.1。
 const RUNNER_UP_WEIGHT_RATIO: f64 = 0.1;
 
+/// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 fn is_initials_row(item: &WordItem) -> bool {
     is_initials_reading(item, item.pinyin.len(), &item.canonical_pinyin)
 }
@@ -7540,6 +7547,36 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
             [0, 1]
         );
         assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
+    }
+
+    /// 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（让 对 萨米）时不标：逐字平均分不能在这两种行之间比。
+    #[test]
+    fn a_recent_pin_is_not_contested_by_a_completion_or_a_longer_word() {
+        for rival in [
+            "CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_r VALUES('ran''hou','rh','然后',1000);",
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('sa''mi','sm','萨米',1000);",
+        ] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_r VALUES('rang','r','让',1);{rival}"
+            ));
+            let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut first, "7264");
+            let leader = words(&first)[0].clone();
+            assert_ne!(leader, "让", "{rival}");
+            let selected = index_of(&first, "让");
+            assert_eq!(first.select(selected).commit.as_deref(), Some("让"));
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "7264");
+            assert_eq!(words(&repeated)[..2], ["让", leader.as_str()]);
+            assert!(
+                contest_seats(&repeated, crate::ordering::CONTEST_RECENCY).is_empty(),
+                "{leader}"
+            );
+        }
     }
 
     fn contest_seats(session: &NineKeySession, kind: u8) -> Vec<usize> {
