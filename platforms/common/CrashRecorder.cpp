@@ -564,11 +564,18 @@ void crash_signal(int number, siginfo_t *info, void *context) {
   }
   // 恢复既有处理器（包括 Fcitx5 自带的崩溃日志），否则交给系统默认动作。
   if (index < crash_signal_count) {
-    const auto &previous = previous_actions[index];
+    const auto previous = previous_actions[index];
     struct sigaction capture_action {};
     const bool has_capture_action = sigaction(number, nullptr, &capture_action) == 0
         && (capture_action.sa_flags & SA_SIGINFO) && capture_action.sa_sigaction == crash_signal;
-    sigaction(number, &previous, nullptr);
+    auto disposition = previous;
+    if (previous.sa_flags & SA_RESETHAND) {
+      // 直接委托不会由内核重置一次性回调，先恢复默认处置再调用原回调。
+      disposition = {};
+      disposition.sa_handler = SIG_DFL;
+      sigemptyset(&disposition.sa_mask);
+    }
+    sigaction(number, &disposition, nullptr);
     if ((previous.sa_flags & SA_SIGINFO) && previous.sa_sigaction) {
       previous.sa_sigaction(number, info, context);
     } else if (previous.sa_handler != SIG_DFL && previous.sa_handler != SIG_IGN && previous.sa_handler) {
@@ -589,7 +596,7 @@ void crash_signal(int number, siginfo_t *info, void *context) {
     // 既有处理器返回代表本次故障已被接管；持锁撤掉临时记录，不能抢先被另一进程补报。
     if (fd >= 0) {
       // 扫描器可能已打开旧 inode、尚未尝试文件锁；清空后再删名，旧描述符也读不到误报。
-      (void)ftruncate(fd, 0);
+      (void)!ftruncate(fd, 0);
       (void)unlink(record_path);
       ::close(fd);
       fd = -1;

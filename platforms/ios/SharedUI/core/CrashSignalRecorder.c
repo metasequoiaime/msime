@@ -135,12 +135,24 @@ static const char *msime_signal_name(int signal) {
   }
 }
 
+static bool msime_same_signal_action(const struct sigaction *left, const struct sigaction *right) {
+  if (left->sa_flags != right->sa_flags) return false;
+  if (left->sa_flags & SA_SIGINFO) {
+    if (left->sa_sigaction != right->sa_sigaction) return false;
+  } else if (left->sa_handler != right->sa_handler) return false;
+  for (int signal = 1; signal < NSIG; ++signal) {
+    if (sigismember(&left->sa_mask, signal) != sigismember(&right->sa_mask, signal)) return false;
+  }
+  return true;
+}
+
 static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
-  (void)info;
+  const int saved_errno = errno;
   const bool owns = !atomic_flag_test_and_set(&msime_configuration);
   const char *path = owns ? atomic_load(&msime_crash_path) : NULL;
+  int fd = -1;
   if (path != NULL) {
-    int fd = msime_crash_file_create(path, msime_temporary_path);
+    fd = msime_crash_file_create(path, msime_temporary_path);
     if (fd >= 0) {
       (void)!write(fd, msime_record_header, msime_record_header_size);
       const char *prefix = "Fatal signal ";
@@ -163,12 +175,47 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
       int count = backtrace(frames, 64);
       for (int index = 1; index < count; ++index) msime_write_frame(fd, (uintptr_t)frames[index]);
       (void)fsync(fd);
-      close(fd);
     }
   }
+  const struct sigaction previous = msime_previous_actions[signal];
+  struct sigaction capture_action = {0};
+  const bool has_capture_action = sigaction(signal, NULL, &capture_action) == 0 &&
+      (capture_action.sa_flags & SA_SIGINFO) && capture_action.sa_sigaction == msime_crash_signal;
+  struct sigaction disposition = previous;
+  if (previous.sa_flags & SA_RESETHAND) {
+    // 直接委托时内核不会替我们重置一次性回调。
+    disposition = (struct sigaction){0};
+    disposition.sa_handler = SIG_DFL;
+    sigemptyset(&disposition.sa_mask);
+  }
+  sigaction(signal, &disposition, NULL);
+  if (previous.sa_handler == SIG_DFL) {
+    // 当前信号被屏蔽，默认处置在回调返回后生效；文件锁交给内核在进程退出时释放。
+    raise(signal);
+    if (owns) atomic_flag_clear(&msime_configuration);
+    errno = saved_errno;
+    return;
+  }
+  if (previous.sa_handler != SIG_IGN && previous.sa_handler != NULL) {
+    // 前任直接收到原始故障上下文，才能修复保护页或调整返回指令。
+    if (previous.sa_flags & SA_SIGINFO) previous.sa_sigaction(signal, info, context);
+    else previous.sa_handler(signal);
+  }
+  if (fd >= 0) {
+    // 已打开旧 inode 的收件进程也必须看不到恢复执行的误报，清空和删名均在持锁时完成。
+    (void)!ftruncate(fd, 0);
+    (void)unlink(path);
+    close(fd);
+  }
+  struct sigaction after = {0};
+  if (has_capture_action && sigaction(signal, NULL, &after) == 0 &&
+      !msime_same_signal_action(&capture_action, &after)) {
+    // 前任更换回调或恢复默认处置时，下一次委托新处置，保留真正重发故障的采集。
+    msime_previous_actions[signal] = after;
+    sigaction(signal, &capture_action, NULL);
+  }
   if (owns) atomic_flag_clear(&msime_configuration);
-  sigaction(signal, &msime_previous_actions[signal], NULL);
-  raise(signal);
+  errno = saved_errno;
 }
 
 // 正常执行路径固定路径与构建头，信号处理器只尝试一次配置锁，不能等待。

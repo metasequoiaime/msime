@@ -35,6 +35,7 @@ template<class Body> int child(Body body) {
 }
 
 void earlier_handler(int) { _exit(42); }
+void one_shot_handler(int) {}
 volatile sig_atomic_t recovered_signals = 0;
 void *recoverable_page = nullptr;
 int handled_ready = -1;
@@ -266,6 +267,30 @@ int main() {
   });
   assert(WIFEXITED(status) && WEXITSTATUS(status) == 43);
   assert(read(handled).rfind(header, 0) == 0);
+
+  // 直接调用前任仍须遵循一次性回调；第二次信号交给默认处置并保留崩溃。
+  const auto one_shot = root / "one-shot.crash";
+  status = child([&] {
+    struct sigaction previous{};
+    previous.sa_handler = one_shot_handler;
+    previous.sa_flags = SA_RESETHAND;
+    sigemptyset(&previous.sa_mask);
+    sigaction(SIGSEGV, &previous, nullptr);
+    struct sigaction observed{};
+    assert(sigaction(SIGSEGV, nullptr, &observed) == 0);
+    if (!(observed.sa_flags & SA_RESETHAND)) _exit(77);
+    msime_native_crash_install();
+    msime_native_crash_arm(one_shot.c_str(), header);
+    raise(SIGSEGV);
+    assert(!std::filesystem::exists(one_shot));
+    raise(SIGSEGV);
+  });
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 77) {
+    std::fprintf(stderr, "SKIP one-shot: sigaction does not expose SA_RESETHAND\n");
+  } else {
+    assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);
+    assert(read(one_shot).rfind(header, 0) == 0);
+  }
 
   // 前任显式更换回调后，下一次必须委托给新回调，不能继续调用旧回调或漏掉记录。
   const auto replaced = root / "replaced-handler.crash";
