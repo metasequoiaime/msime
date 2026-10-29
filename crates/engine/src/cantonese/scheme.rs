@@ -356,7 +356,7 @@ impl CantoneseScheme {
         self.candidates_into_jyutping(dictionary, buffer, candidates, true)
     }
 
-    /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母，按 `prefixes` 补全，再用双拼规则核对补出的音节确实以 `key` 开头。
+    /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母，按 `prefixes` 补全，再用双拼规则核对补出的音节确实以 `key` 开头。每个前缀最多留最重的 `SPAN_LIMIT` 行。
     fn trailing_initial_candidates(
         &self,
         dictionary: &LanguageDictionary,
@@ -368,15 +368,17 @@ impl CantoneseScheme {
     ) -> Result<()> {
         let syllables = reading.split('\'').filter(|part| !part.is_empty()).count() + 1;
         let end = self.shuangpin_code_end(syllables);
+        buffer.key.clear();
+        for part in reading.split('\'').filter(|part| !part.is_empty()) {
+            buffer.key.push_str(part);
+            buffer.key.push(' ');
+        }
+        let base = buffer.key.len();
         for prefix in prefixes {
-            buffer.key.clear();
-            for part in reading.split('\'').filter(|part| !part.is_empty()) {
-                buffer.key.push_str(part);
-                buffer.key.push(' ');
-            }
+            buffer.key.truncate(base);
             buffer.key.push_str(prefix);
-            // 前缀可能补出属于别的双拼键的音节（`n` 补出 `ngo`），核对前多取一些，免得有效行被挤出上限。
             dictionary.lookup_completions_into(&buffer.key, SPAN_LIMIT, &mut buffer.completions)?;
+            let start = expanded.len();
             for (entry_key, entry) in &buffer.completions {
                 let last = entry_key.rsplit(' ').next().unwrap_or_default();
                 if shuangpin::encode(last).is_some_and(|code| code[0] == key) {
@@ -389,6 +391,43 @@ impl CantoneseScheme {
                     });
                 }
             }
+            let filtered = buffer.completions.len() - (expanded.len() - start);
+            if buffer.completions.len() < SPAN_LIMIT || filtered == 0 {
+                continue;
+            }
+            // 前缀补出了别的双拼键上的音节（`n` 补出 `ngo`，零声母的 `m` 补出 `maa`），而且取满了上限：本键的有效行可能被那些更重的行挤出去，改为逐个音节精确查询。
+            expanded.truncate(start);
+            let mut last_syllables = self
+                .inventory
+                .syllables()
+                .filter(|syllable| {
+                    syllable.starts_with(prefix.as_str())
+                        && shuangpin::encode(syllable).is_some_and(|code| code[0] == key)
+                })
+                .collect::<Vec<_>>();
+            last_syllables.sort_unstable();
+            for last in last_syllables {
+                buffer.key.truncate(base);
+                buffer.key.push_str(last);
+                dictionary.lookup_into(&buffer.key, SPAN_LIMIT, &mut buffer.entries)?;
+                for entry in &buffer.entries {
+                    expanded.push(CantoneseCandidate {
+                        text: entry.text.clone(),
+                        weight: entry.weight,
+                        key: buffer.key.clone(),
+                        syllables,
+                        end,
+                    });
+                }
+            }
+            // 与区间查询的顺序一致：权重从重到轻，同权重按文字。
+            expanded[start..].sort_by(|left, right| {
+                right
+                    .weight
+                    .cmp(&left.weight)
+                    .then_with(|| left.text.cmp(&right.text))
+            });
+            expanded.truncate(start + SPAN_LIMIT);
         }
         Ok(())
     }
@@ -947,6 +986,11 @@ mod tests {
     ];
 
     fn shuangpin_fixture() -> Fixture {
+        shuangpin_fixture_with(&[])
+    }
+
+    /// 在双拼小词库之外再写入 `extra` 行。
+    fn shuangpin_fixture_with(extra: &[(&str, String, i64)]) -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("msime-cantonese.db");
         let connection = Connection::open(&path).unwrap();
@@ -963,6 +1007,14 @@ mod tests {
                 .unwrap();
         }
         for (key, text, weight) in SHUANGPIN_ENTRIES {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        for (key, text, weight) in extra {
             connection
                 .execute(
                     "INSERT INTO entries VALUES (?1, ?2, ?3)",
@@ -991,7 +1043,7 @@ mod tests {
         scheme
     }
 
-    /// Each candidate as `text/syllables/end`.
+    /// 把每个候选写成 `文字/音节数/末端位置`。
     fn listed_with_end(scheme: &CantoneseScheme, dictionary: &LanguageDictionary) -> Vec<String> {
         scheme
             .candidates(dictionary)
@@ -1110,6 +1162,31 @@ mod tests {
         assert!(scheme.is_empty());
         // 自动识别入口的奇数长度仍交给普通粤拼，避免把正在拼的粤拼音节当成下一个声母。
         assert_eq!(shuangpin_typed("vod", false).shuangpin_expansions(), None);
+    }
+
+    #[test]
+    fn a_trailing_single_key_keeps_its_rows_when_other_keys_share_the_spelling() {
+        // `n` 键的 `nei` 与 `v` 键的 `ngo` 同以 `n` 开头，零声母 `o` 键的 `m` 与 `m` 键的 `maa` 同以 `m` 开头；别的键上比上限还多的重行不能把本键的行挤掉。
+        let mut extra = Vec::new();
+        for index in 0..SPAN_LIMIT + 10 {
+            let weight = 20_000 + i64::try_from(index).unwrap();
+            extra.push(("ngo", format!("我{index}"), weight));
+            extra.push(("maa", format!("媽{index}"), weight));
+        }
+        let fixture = shuangpin_fixture_with(&extra);
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("n", true), &fixture.dictionary),
+            ["你/1/1"]
+        );
+        let rows = listed_with_end(&shuangpin_typed("o", true), &fixture.dictionary);
+        assert!(rows.contains(&"唔/1/1".to_owned()), "{rows:?}");
+        assert!(rows.contains(&"誒/1/1".to_owned()), "{rows:?}");
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.starts_with('我') || row.starts_with('媽')),
+            "{rows:?}"
+        );
     }
 
     #[test]
