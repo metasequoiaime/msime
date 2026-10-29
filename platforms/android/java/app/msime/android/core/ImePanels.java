@@ -1603,6 +1603,55 @@ final class ImePanels {
             && clipboardSegments == null && !clipboardCategoryChoosing && clipboardCategoryMovingText == null;
         if (shown) ViewPolicy.show(s.clipboardBackToTop);
         else ViewPolicy.hide(s.clipboardBackToTop);
+        layoutClipboardFloating();
+    }
+
+    /** 浮动「撤销」的高度（dp），比 44dp 的「返回顶部」大一号，手指好找好按。 */
+    static final int CLIPBOARD_UNDO_HEIGHT_DP = 48;
+    /** 当前画着的是本机列表的常态（不在云端、确认清空、多选、详情或分词里），浮动「撤销」只在这时出现，和原来顶行里「撤销」出现的条件相同。 */
+    private boolean clipboardUndoAllowed;
+
+    /**
+     * 多选删除后浮在剪贴板面板右下角的大号「撤销」（#10073）。原来「撤销」排在可横滑的顶行末尾，常见宽度下要先往左滑才看得到，5 秒里来不及；现在固定在右下角，按钮上倒数剩余秒数，归零后消失。
+     *
+     * <p>用回车键的强调键帽，和卡片、顶行的普通按钮区分开，由换肤遍历按当前皮肤上色。
+     */
+    Button buildClipboardUndo() {
+        int remaining = ClipboardUndoPolicy.DEFAULT_SECONDS;
+        Button button = phraseButton(KeyboardKeyRole.RETURN, ClipboardUndoPolicy.buttonLabel(remaining),
+            ClipboardUndoPolicy.buttonDescription(remaining), () -> {
+                // 撤销会就地重画面板，先收起「更多」，和多选、长按一样不留着展开的菜单。
+                clipboardMoreOpen = false;
+                s.undoClipboardItems();
+            });
+        ViewPolicy.setTextSizeSp(button, 16);
+        LayoutPolicy.setHorizontalPaddingDp(button, s, 20);
+        return button;
+    }
+
+    /** 按剩余秒数刷新浮动「撤销」：有可撤销的记录、且面板在本机列表常态时显示并更新倒数，否则收起。 */
+    void updateClipboardUndo() {
+        if (s.clipboardUndoButton == null) return;
+        int remaining = s.clipboardUndoRemainingSeconds();
+        if (remaining > 0 && clipboardUndoAllowed) {
+            s.clipboardUndoButton.setText(ClipboardUndoPolicy.buttonLabel(remaining));
+            s.clipboardUndoButton.setContentDescription(ClipboardUndoPolicy.buttonDescription(remaining));
+            ViewPolicy.show(s.clipboardUndoButton);
+        } else {
+            ViewPolicy.hide(s.clipboardUndoButton);
+        }
+        layoutClipboardFloating();
+    }
+
+    /** 「撤销」占住右下角；「返回顶部」和它同时出现时挪到它正上方，两者不重叠，「撤销」收起后再落回角上。 */
+    private void layoutClipboardFloating() {
+        if (s.clipboardBackToTop == null || s.clipboardUndoButton == null) return;
+        int bottom = s.pixels(8);
+        if (ViewPolicy.isVisible(s.clipboardUndoButton)) bottom += s.pixels(CLIPBOARD_UNDO_HEIGHT_DP + 8);
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) s.clipboardBackToTop.getLayoutParams();
+        if (params == null || params.bottomMargin == bottom) return;
+        params.bottomMargin = bottom;
+        s.clipboardBackToTop.setLayoutParams(params);
     }
 
     private String clipboardCategoryLabel() {
@@ -1692,6 +1741,9 @@ final class ImePanels {
         clipboardMoreMenu = null;
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
+        // 详情、分词、云端、确认清空和多选都不显示浮动「撤销」；画到本机列表常态时再打开。
+        clipboardUndoAllowed = false;
+        updateClipboardUndo();
         if (clipboardDetailItem != null) {
             renderClipboardDetail(clipboardDetailItem);
             return;
@@ -1807,7 +1859,8 @@ final class ImePanels {
             });
             ViewPolicy.setEnabled(remove, !clipboardSelectedTexts.isEmpty());
         } else {
-            // 顶行只留常用的搜索、多选（和删除后限时出现的撤销），用得少的分类、导出、清空收进最右边的「更多」，常见宽度下一行放得下、不用横滑（#10037）。
+            // 顶行只留常用的搜索和多选，用得少的分类、导出、清空收进最右边的「更多」，常见宽度下一行放得下、不用横滑（#10037）。删除后的「撤销」不在顶行，浮在面板右下角（#10073，`updateClipboardUndo`）。
+            clipboardUndoAllowed = s.clipboardHistoryEnabled;
             if (s.clipboardHistoryEnabled) {
                 // 「搜索」打开应用里可搜索的剪贴板历史页（#5973）：键盘里没有可输入的文本框，查询框放在应用里。没有可搜的记录（空或读不出）时不放。
                 if (items != null && !items.isEmpty()) {
@@ -1824,18 +1877,9 @@ final class ImePanels {
                     clipboardSwipedText = null;
                     renderClipboardHistory();
                 });
-                if (s.hasClipboardUndo()) {
-                    // 撤销是删除后的限时恢复入口，使用完整键帽底色和边框，避免在顶行右侧被看成普通文字。
-                    // 撤销会就地重画面板，先收起「更多」，和多选、长按一样不留着展开的菜单。
-                    Button undo = clipboardAction(header, "撤销", () -> {
-                        clipboardMoreOpen = false;
-                        s.undoClipboardItems();
-                    }, KeyboardKeyRole.KEY);
-                    undo.setContentDescription("撤销刚才删除的剪贴板记录");
-                }
             }
             // 历史没开时菜单里只有「分类」，入口照旧在，和原来顶行一直有「分类」一致。
-            // 「更多」不进横向滚动，钉在顶行最右边：云端分段、撤销、很长的分类名或大字号让顶行超宽时，横滑的只是左边那些按钮，「更多」始终在键盘宽度以内。
+            // 「更多」不进横向滚动，钉在顶行最右边：云端分段、很长的分类名或大字号让顶行超宽时，横滑的只是左边那些按钮，「更多」始终在键盘宽度以内。
             moreSlot = LayoutPolicy.row(s);
             ViewPolicy.setCenteredVertically(moreSlot);
             Button more = clipboardAction(moreSlot, clipboardMoreOpen ? "更多 ▴" : "更多 ▾", () -> {
@@ -1868,6 +1912,7 @@ final class ImePanels {
                 s.clipboardHeader.addView(moreSlot, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
             }
         }
+        updateClipboardUndo();
         // 分类选择器和「更多」菜单互斥：打开一个就收起另一个，这里再按选择器优先兜一次。
         clipboardMoreMenu = !cloud && !confirmingClear && !selecting && clipboardMoreOpen
             && !clipboardCategoryChoosing && clipboardCategoryMovingText == null
