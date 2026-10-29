@@ -805,7 +805,8 @@ pub struct WordItem {
 }
 
 impl WordItem {
-    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。
+    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。产品门面 `ordering` 的输入，和它一样不进文档。
+    #[doc(hidden)]
     pub fn static_evidence(&self) -> Option<crate::ordering::StaticEvidence> {
         if !self.sentence_association
             || !matches!(

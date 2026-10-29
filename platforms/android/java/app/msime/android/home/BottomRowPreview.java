@@ -37,8 +37,13 @@ final class BottomRowPreview extends View {
     private final List<List<Cell>> rows;
 
     BottomRowPreview(Context context, int touchLayout, TouchKeyStyle.Row style) {
+        this(context, touchLayout, style, false);
+    }
+
+    /** `symbolFirst`：「「符」与「123」互换」打开时 26 键的小图也把 符 画在 123 左边，与键盘相同。 */
+    BottomRowPreview(Context context, int touchLayout, TouchKeyStyle.Row style, boolean symbolFirst) {
         super(context);
-        rows = rows(touchLayout, style);
+        rows = rows(touchLayout, style, symbolFirst);
         label.setTextAlign(Paint.Align.CENTER);
         ViewPolicy.setTypeface(label, Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         ViewPolicy.setTextSizeSp(label, context, 12);
@@ -47,9 +52,14 @@ final class BottomRowPreview extends View {
 
     /** 小图画的行：右侧大回车是外框最后两行，其他样式是一行底行。 */
     static List<List<Cell>> rows(int touchLayout, TouchKeyStyle.Row style) {
+        return rows(touchLayout, style, false);
+    }
+
+    static List<List<Cell>> rows(int touchLayout, TouchKeyStyle.Row style, boolean symbolFirst) {
         if (KeyboardActionRow.drawsTallReturn(touchLayout, style)) return tallReturnRows();
         List<Cell> row = new ArrayList<>();
-        for (KeyboardActionRow.DesignEntry entry : KeyboardActionRow.designEntries(touchLayout, false, false, false, false, style)) {
+        for (KeyboardActionRow.DesignEntry entry : KeyboardActionRow.designEntries(touchLayout, false, false, false, false,
+                style, symbolFirst, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT)) {
             Tone tone = switch (entry.slot()) {
                 case RETURN -> Tone.RETURN;
                 case SPACE, COMMA, PERIOD, ZERO -> Tone.CHARACTER;

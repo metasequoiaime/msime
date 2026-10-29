@@ -37,6 +37,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
+import app.msime.android.RecentClipboardSuggestion;
 import app.msime.android.SchemePreferences;
 import app.msime.android.ShuangpinKeyHintPolicy;
 import app.msime.android.SplitKeyboardPolicy;
@@ -139,7 +140,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         }
         // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组，一组都没有（例如日语版）时不列这个入口，与鸿蒙同一条规则。副标题三端相同。
         if (TouchKeyStyle.Groups.offeredBy(edition).any())
-            layout.nav("按键布局", "各类键盘的底行样式和顶部数字行", null,
+            layout.nav("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,
                 () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
         String spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
@@ -326,11 +327,37 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("导出文件夹", "全文保存为 TXT；自选目录只在本机生效", state.exportDirectory(), clipboardExport::choose);
         // 剪贴板历史关着时键盘不显示最近复制，也不为它读剪贴板（RecentClipboardSuggestion.enabled），这一项跟着置灰。
         boolean clipboardHistory = preferences.optBoolean("clipboard_history", false);
+        // 复制后快捷键（#10079）挂在最近复制那一行上：最近复制关着时置灰，快捷键总开关关着时功能单选也置灰。开关切换后保存成功不重画页面，所以由这里直接更新两行的置灰状态。
+        boolean[] quickActionState = {settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
+            settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION)};
+        GroupCard.Row[] quickActionRows = new GroupCard.Row[2];
+        Runnable syncQuickActionRows = () -> {
+            if (quickActionRows[0] != null) quickActionRows[0].setEnabled(clipboardHistory && quickActionState[0]);
+            if (quickActionRows[1] != null)
+                quickActionRows[1].setEnabled(clipboardHistory && quickActionState[0] && quickActionState[1]);
+        };
         GroupCard.Row recentClipRow = clipboard.toggle("工具栏显示最近复制",
             "复制文字或图片后一分钟内，键盘顶部显示这条内容：文字点按即可粘贴，图片在支持收图片的输入框里点按即可发送；需先在「隐私」里打开剪贴板历史。隐私模式、密码框和系统标为敏感的内容不显示",
-            settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
-            checked -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
+            quickActionState[0],
+            checked -> {
+                quickActionState[0] = checked;
+                syncQuickActionRows.run();
+                saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked);
+            });
         recentClipRow.setEnabled(clipboardHistory);
+        quickActionRows[0] = clipboard.toggle("复制后自动显示快捷键",
+            "最近复制那一行的预览右边多一个快捷键，点按直接进入这条内容的分词或移动分类；复制的是图片时不显示",
+            quickActionState[1],
+            checked -> {
+                quickActionState[1] = checked;
+                syncQuickActionRows.run();
+                saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION, checked);
+            });
+        String quickActionKind = settings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
+        quickActionRows[1] = clipboard.nav("快捷键功能", "点按快捷键时进入分词点选，还是移动到分类",
+            RecentClipboardSuggestion.quickActionLabel(quickActionKind),
+            () -> pickClipboardQuickAction(quickActionKind, quickActionRows[1]));
+        syncQuickActionRows.run();
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
@@ -605,6 +632,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
                 () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_COLUMNS, value,
                     this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardQuickAction(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "快捷键功能", null);
+        for (String value : new String[] {RecentClipboardSuggestion.ACTION_SEGMENT,
+                RecentClipboardSuggestion.ACTION_CATEGORY}) {
+            String label = RecentClipboardSuggestion.quickActionLabel(value);
+            sheet.option(label, value.equals(selected), () -> {
+                row.setValue(label);
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND, value,
+                    this::reload, this::reload);
+            });
         }
         sheet.show();
     }

@@ -1,19 +1,28 @@
 [package]
 name = "msime-engine"
 description = "Input method engine for Chinese and other languages: quanpin, shuangpin, nine-key, wubi, zhuyin, Cantonese, Japanese, Korean and more, ranked over a word lattice with typo correction and learning from what the user picks. The engine of 水杉输入法 (Metasequoia IME)."
-version.workspace = true
+# 自己的版本号，不继承工作区的 0.1.0：这个 crate 发布到 crates.io，版本按它自己的发布走（.github/workflows/release-engine-crates.yml）。
+version = "0.1.0"
 edition.workspace = true
 # 引擎的代码是 MPL-2.0（不附 Exhibit B），不随仓库其余部分的 GPL-3.0-only（README 的「许可证」一节）：其他输入法要能嵌入它。字段不从工作区继承：工作区的 license 是 GPL。表达式覆盖引擎的代码和编进引擎的数据，后面几项是其中保留各自许可证的数据与改编代码，逐个文件见本 crate 的 README.md：hanja.tsv、Zinnia 移植与 librime-octagram 移植是 BSD-3-Clause，darts-clone 的双数组布局是 BSD-2-Clause，chaizi 两张表是 CC-BY-3.0 加 Unihan 的 Unicode-3.0 加 OpenCC 的 Apache-2.0，symbol_groups.tsv 是 Unicode-3.0，cxx_sort.rs 是 libc++ 的 Apache-2.0 WITH LLVM-exception，latex_symbols.tsv 是 MIT，places.tsv 是 WTFPL。只给测试读的夹具不在表达式里：tests/golden/real 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选，src/handwriting/testdata 是手写参考实现的输出，它们仍按仓库的 GPL-3.0-only，发布到 crates.io 时用 include 白名单排除出包（README.md 的「许可证」一节）。
 license = "MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL"
 repository.workspace = true
 rust-version.workspace = true
+homepage = "https://github.com/metasequoiaime/msime/tree/develop/crates/engine"
+documentation = "https://docs.rs/msime-engine"
+readme = "README.md"
+keywords = ["ime", "input-method", "pinyin", "chinese", "shuangpin"]
+categories = ["text-processing", "internationalization"]
+# 发布到 crates.io 的包只带这几样：源码、编进引擎的数据表、说明和许可证。白名单而不是 exclude：tests/ 下的金样（录自 GPL-3.0 词库，约 5 MB）、src/handwriting/testdata、src/pinyin/autocorrect_table_fixture.txt 和读仓库里词库的 examples/ 都不进包，新加的文件也要显式列在这里才会发布。这些测试和示例读仓库外的文件，所以包里的源码只能编译，跑不了 cargo test（README.md 的「从 crates.io 使用」一节）。
+include = ["src/**/*.rs", "src/korean/hanja.tsv", "src/local/*.tsv", "src/nine_key/syllable_frequency.tsv", "licenses/*", "README.md", "LICENSE", "Cargo.toml"]
 
 [dependencies]
-msime-path-trust = { path = "../path-trust" }
+# 发布时 path 被去掉，留下 version：crates.io 上的引擎依赖同一版本线的 msime-path-trust。
+msime-path-trust = { version = "0.1.0", path = "../path-trust" }
 chinese-ime-lm = "0.2"
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
 # 藏文方案的 EWTS（扩展威利转写）到 Unicode 藏文的转换。MIT OR Apache-2.0，无依赖。
-ewts = "0.1.3"
+ewts = "0.1.4"
 exmex = "0.21"
 hex = "0.4"
 libc.workspace = true

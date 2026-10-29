@@ -89,6 +89,7 @@ Status: implemented
 
 ## Verification
 
+- Windows TSF 不组字且没有候选时，独立的 `,`、`.`、`:` 必须经过 `_HandleCompositionPunctuation` 原有的编辑器前文与手势流程，不能先被无前文的 `host->punctuation` 上屏，否则数字后的点仍是「。」且后续重复按键、空格转换没有机会记录状态。`scripts/test-windows-smart-punctuation-route.py` 编译执行真实入口片段与 `ResolvePunctuation`，覆盖数字、字母、中文、空白、无前文、总开关和两个直出开关；其他标点、组字与候选期间仍走原宿主入口，已预取的提交不重复分发。新增用例在旧入口上先失败，独立智能标点跳过无前文调用后通过。Windows 实际编辑器验收仍需报告者复验。
 - `msime-host-api::smart_punctuation_space_decision_rechecks_live_switches`：真实上屏「。」并保存快照，经公开偏好更新接口分别保持开启、关闭总开关、关闭空格转换开关，再传回同一份有效快照。旧实现关闭总开关后仍返回 ASCII `46`；修复后只有两项都开启时允许转换。
 - `msime-host-api::the_repeat_gesture_rechecks_the_scheme_after_a_preferences_update`：全拼数字后的句点交给宿主按 ASCII 上屏并保存快照，公开偏好更新接口切换到全拼、双拼、五笔、日文、韩文、注音、越南文、藏文后传回同一快照。注音使用合成词库，逐项断言实际方案与更新非延后；旧实现切到韩文仍返回「。」，修复后仅原本支持重复手势的方案允许替换。
 - `msime-client-core`（Studio，macOS，迁移会翻转的平台）：`preferences::tests::smart_punctuation_defaults_on_everywhere`、`smart_punctuation_settle_flips_only_where_the_old_default_was_off`（两种平台参数都测）、`smart_punctuation_migration_runs_once_and_a_later_off_sticks`（旧文档读入时打开、文件不变、写入方漏掉标记照样落盘、关掉后再读仍关、恢复默认回到开）、`smart_punctuation_turned_off_on_a_fresh_profile_stays_off`、`smart_punctuation_recovery_migrates_only_a_legacy_document`；`punctuation::tests::the_shipped_defaults_do_what_the_switch_says_they_do`（默认偏好下数字和字母后的 `,` `.` `:` 走 ASCII，中文、空格、中文标点和无前文后归 Engine，重复按句点换回「。」）；`settings_document::tests::an_old_file_keeps_its_smart_punctuation_and_this_machine_s_marker`。全部 395 项通过。

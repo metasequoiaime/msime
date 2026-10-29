@@ -291,6 +291,10 @@ xcrun simctl install booted "$app"
 
 签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。这条路径在仓库代码之外，未修改任何 vendored crate。它只影响 Tauri 这个公共组件：产品宿主 `MSIMEApp` 不加载 WebView，在同一台模拟器上正常启动，要在模拟器里看界面走下面那条路。
 
+## 26 键「符」与「123」互换、数字键盘空格位置
+
+「键盘 › 按键布局」里 26 键一组末尾的「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`，默认关）把手机 26 键底行的 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格按九键一族的次序排（符 | 返回）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，文档缺键或写 `platform_default` 时是 iOS 原来的「空格在 0 右边」。空格在右列时右列第三格的 ！ 让位给一个与底行空格同一工厂的空格键（`numberPadColumnSpaceKey`），底行空格隐藏；右侧大回车不受影响。iOS 不随账号同步这两项，与其他按键布局偏好相同。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
+
 ## 运行 iOS Swift 测试
 
 `KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过 XcodeGen 生成工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：

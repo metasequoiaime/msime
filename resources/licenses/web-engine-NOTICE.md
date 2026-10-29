@@ -1836,7 +1836,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `digest` | 0.11.3 | MIT OR Apache-2.0 | L06、L15 |
 | `enum-ordinalize` | 4.4.2 | MIT | L16 |
 | `equivalent` | 1.0.2 | Apache-2.0 OR MIT | L04、L17 |
-| `ewts` | 0.1.3 | MIT OR Apache-2.0 | L18 |
+| `ewts` | 0.1.4 | MIT OR Apache-2.0 | L18 |
 | `exmex` | 0.21.0 | MIT OR Apache-2.0 | 未附带 |
 | `fallible-iterator` | 0.3.0 | MIT/Apache-2.0 | L19、L20 |
 | `fallible-streaming-iterator` | 0.1.9 | MIT/Apache-2.0 | L19、L21 |
@@ -3121,7 +3121,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L18（ewts-MIT.txt）
 
-用于：`ewts` 0.1.3
+用于：`ewts` 0.1.4
 
 ````text
 Copyright (c) Maxim Zommer

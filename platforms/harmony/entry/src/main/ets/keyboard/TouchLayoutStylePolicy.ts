@@ -103,6 +103,13 @@ export class TouchLayoutStylePolicy {
   /** 九键「右侧大回车」：回车跨右列下两行，符 在符号栏下方（`NineKeyLayout.tallReturn`）。 */
   static readonly TALL_RETURN: string = "tall_return";
 
+  /** 九宫格数字键盘空格位置（共享偏好 `touch_number_pad_space`）：空格在右列最下面一格，0 占底行里原来两键的份额（Android 的出厂排法）。 */
+  static readonly RIGHT_COLUMN: string = "right_column";
+  /** 0 和空格都在底行，空格在 0 右边、与中/英同宽（iOS 的出厂排法）。 */
+  static readonly AFTER_ZERO: string = "after_zero";
+  /** 0 和空格都在底行，空格在 0 左边、0 与中/英同宽：鸿蒙的出厂排法，文档里缺键或写 `platform_default` 时就是它。 */
+  static readonly BEFORE_ZERO: string = "before_zero";
+
   /** 设计底行的份额：123 1.25 | 符 1.05 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，`KeyboardView.designActionRow` 按它们定宽。 */
   static readonly LAYER_SHARE: number = 1.25;
   static readonly SYMBOL_PANEL_SHARE: number = 1.05;
@@ -138,6 +145,39 @@ export class TouchLayoutStylePolicy {
   /** `touch_twenty_six_key_style` 的值；缺键、不是字符串或本版本不认识的样式（较新版本加的）都按 `standard`，与 client-core 宽松读取的规则相同。 */
   static twentySixKeyStyle(value: unknown): string {
     return TouchLayoutStylePolicy.known(value, TouchLayoutStylePolicy.TWENTY_SIX_STYLES);
+  }
+
+  /** `touch_number_pad_space` 的值：缺键、`platform_default`、不是字符串或本版本不认识的写法都按鸿蒙原来的 `before_zero`，与 client-core 宽松读取的规则相同。 */
+  static numberPadSpace(value: unknown): string {
+    const P = TouchLayoutStylePolicy;
+    if (value === P.RIGHT_COLUMN) {
+      return P.RIGHT_COLUMN;
+    }
+    return value === P.AFTER_ZERO ? P.AFTER_ZERO : P.BEFORE_ZERO;
+  }
+
+  /**
+   * 「26 键「符」与「123」互换」（共享偏好 `touch_twenty_six_symbol_first`）：底行里 符 排在 123 后面时把它挪到 123 左边，其余键次序和份额不变，与 Android `KeyboardActionRow.designEntries`、iOS `TouchBottomRowLayout.symbolFirst` 相同。只有 26 键一族的底行（标准、逗号句号在空格两侧和英文底行）是 123 | 符 打头，长空格和表情键样式、14/18 键和大千注音没有 符，原样返回。
+   */
+  static symbolFirst(row: readonly DesignRowEntry[], enabled: boolean): DesignRowEntry[] {
+    const layer: number = row.findIndex(
+      (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.LAYER,
+    );
+    const symbol: number = row.findIndex(
+      (item: DesignRowEntry): boolean => item.slot === DesignRowSlot.SYMBOL_PANEL,
+    );
+    if (!enabled || layer < 0 || symbol < layer) {
+      return row.slice();
+    }
+    const moved: DesignRowEntry[] = row.slice();
+    const panel: DesignRowEntry[] = moved.splice(symbol, 1);
+    moved.splice(layer, 0, panel[0]);
+    return moved;
+  }
+
+  /** 这一行以 符 打头（互换后的 26 键底行）：从它借来的数字九宫格按九键一族的次序排，符 | 返回 | …（`NineKeyLayout.actionRow` 的 `nineKeyDigits`），返回键仍在字母层 123 那一格。 */
+  static symbolLeads(row: readonly DesignRowEntry[]): boolean {
+    return row.length > 0 && row[0].slot === DesignRowSlot.SYMBOL_PANEL;
   }
 
   /** `touch_fourteen_key_style` 的值，14 键与 18 键共用；读法同上。 */

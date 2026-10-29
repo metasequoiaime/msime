@@ -84,4 +84,28 @@ public final class InputViewRefreshPolicy {
             && !privacyRestartPending
             && learningSuppressed == sessionLearningSuppressed;
     }
+
+    /** 主线程上的建会话最多等键盘这次弹出的第一帧这么久（毫秒），从 onStartInputView 算起；窗口刚显示就被收起、视图被重建这类第一帧迟迟不来的情况，到点照常建。 */
+    public static final long FIRST_FRAME_WAIT_MILLIS = 500;
+
+    /**
+     * onStartInputView 时是否开始等这次弹出的第一帧（#9916）：键盘窗口还没显示（这次是从收起到弹出，键盘要先画出这一帧才看得见：窗口新建或重新布局时系统要等画完的报告才把它亮出来，API 30 起进程还活着时键盘由插入动画显隐，也要先有这一帧的内容），而且键盘视图已经建好。窗口本来就显示着（同一应用里换输入框）时不等：那时没有新的一帧必然到来，等只会白白推迟会话。
+     */
+    public static boolean armsFirstFrameWait(boolean windowVisible, boolean inputViewCreated) {
+        return !windowVisible && inputViewCreated;
+    }
+
+    /**
+     * 工作线程把建会话交回主线程时是否先等第一帧（#9916）。建会话（`NativeClient.create`、按实时偏好应用快照、重画）在主线程上，会话句柄绑定线程，挪不走；新打开的应用里点输入框时 onStartInput 和弹出键盘几乎同时到，工作线程读完偏好、同步完词库常常赶在键盘第一帧之前，这一整段就插在第一帧前面，键盘晚这么久才出来。第一帧交出去（帧提交回调）后马上建，用户在键盘出来之前本来也点不了键。
+     *
+     * @param armedAt 开始等第一帧的时刻（uptime 毫秒），没有在等时为负
+     */
+    public static boolean waitsForFirstFrame(long armedAt, long now) {
+        return armedAt >= 0 && now - armedAt < FIRST_FRAME_WAIT_MILLIS;
+    }
+
+    /** 还要等第一帧多久（毫秒）再照常建会话，不为负。 */
+    public static long firstFrameWaitRemaining(long armedAt, long now) {
+        return Math.max(0, FIRST_FRAME_WAIT_MILLIS - (now - armedAt));
+    }
 }
