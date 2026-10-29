@@ -112,6 +112,12 @@ impl ChunkRecord {
             && self.selections.iter().all(|selection| selection.seat == 0)
     }
 
+    /// 补完简拼多按的键（退格也算）：既记进 `completion_keys`，也记进 `keys_typed`，`kspc` 和 `key_saving` 才把它们算上。
+    pub fn add_completion_keys(&mut self, keys: usize) {
+        self.completion_keys += keys;
+        self.keys_typed += keys;
+    }
+
     pub fn taps(&self) -> usize {
         self.selections.len() + self.panel_opens + self.page_turns + self.locks
     }
@@ -453,6 +459,39 @@ mod tests {
             serde_json::json!(round(1.0 / 3.0))
         );
         assert_eq!(totals.to_json()["chars_per_commit"], serde_json::json!(2.0));
+    }
+
+    #[test]
+    fn completing_an_abbreviation_counts_the_extra_keys_as_typed() {
+        // 「辞掉」打全拼要 6 键，简拼打成 `cid` 是 3 键；候选栏里没有，补上 `iao` 再点第一位。
+        let mut record = ChunkRecord {
+            doc: "d".into(),
+            chars: 2,
+            keys_typed: 3,
+            keys_spelled: 6,
+            abbreviated: true,
+            selections: vec![corrected(0, 2, true)],
+            ..ChunkRecord::default()
+        };
+        let mut before = Totals::default();
+        before.add(&record);
+        assert_eq!(before.to_json()["key_saving"], serde_json::json!(0.5));
+        record.add_completion_keys(3);
+        assert_eq!((record.keys_typed, record.completion_keys), (6, 3));
+        let mut after = Totals::default();
+        after.add(&record);
+        let json = after.to_json();
+        // 补完之后和打全拼按的键一样多，省下的键是 0。
+        assert_eq!(json["key_saving"], serde_json::json!(0.0));
+        assert_eq!(json["input_keys_per_char"], serde_json::json!(3.0));
+        // 6 个输入键加 1 次点选。
+        assert_eq!(json["kspc"], serde_json::json!(3.5));
+        assert_eq!(json["completion_keys_per_100"], serde_json::json!(150.0));
+        // 首选率不受按键记账影响。
+        assert_eq!(
+            (after.cfa(), after.cfa_lenient()),
+            (before.cfa(), before.cfa_lenient())
+        );
     }
 
     #[test]

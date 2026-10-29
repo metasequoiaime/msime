@@ -767,7 +767,8 @@ impl Simulator<'_> {
                 }
                 Decision::NotFound => {
                     if abbreviation_pending {
-                        record.completion_keys += self.complete_spelling(&mut pending)?;
+                        let pressed = self.complete_spelling(&mut pending)?;
+                        record.add_completion_keys(pressed);
                         corrected = true;
                         continue;
                     }
