@@ -1,4 +1,6 @@
 //! 浏览器没有文件系统（仅 wasm32-unknown-unknown）：宿主把 SQLite 词库的字节交给这里，导入 sqlite-wasm-rs 默认的内存 VFS，路径就是 `RuntimePaths` 解析出的那个绝对路径，所以 `Connection::open` 照常能打开。句子模型从字节加载，n-gram 不随网页发布，因此这里不保存非数据库文件。
+//!
+//! 这是网页引擎（`msime-engine-wasm`）的产品胶水，不在引擎文档化的 API 里。
 
 use rusqlite::ffi::{MemVfsUtil, WasmOsCallback};
 

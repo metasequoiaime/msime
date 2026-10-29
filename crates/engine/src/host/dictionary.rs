@@ -9,12 +9,14 @@ use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
 use crate::user_dictionary::journal::release_thread_journal;
 use crate::user_dictionary::{bundled, habits, personal, replay, reset, state};
 
+// 产品胶水：桥接层沿用下来的名字，指的就是根上文档化的 `PersonalDictionaryKind`、`PersonalDictionaryEntry`、`PersonalDictionaryPage`。msime 自己的宿主照旧用这几个名字，第三方用根上的名字。
 pub type DictionaryKind = PersonalDictionaryKind;
 pub type DictionaryEntry = PersonalDictionaryEntry;
-pub use crate::user_dictionary::bundled::{DictionaryTableEntry, DictionaryTablePage};
+use crate::user_dictionary::bundled::DictionaryTablePage;
 pub use crate::user_dictionary::habits::{habit_is_storable, LearningHabit, LearningHabitsMerge};
 pub use crate::user_dictionary::personal::PersonalDictionaryPage as DictionaryPage;
-pub use crate::user_dictionary::state::{DictionaryStateMerge, DictionaryStateRecord};
+pub use crate::user_dictionary::state::DictionaryStateMerge;
+use crate::user_dictionary::state::DictionaryStateRecord;
 
 /// A sanitised transport failure (cancellation, truncation, bad checksum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

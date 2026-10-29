@@ -4546,7 +4546,7 @@ fn key_grid_checks_the_scheme_and_the_composition() {
 /// 九键双拼只给全拼；它的数字和九键一样是组码，引擎没有收下的数字（米旮旯 2 不用的 1 以外的键也一样）也不当选词键，而不用网格时同一个数字会选词。
 #[test]
 fn nine_key_shuangpin_grid_is_quanpin_only_and_its_digits_never_pick() {
-    use msime_engine::host::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
+    use msime_engine::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
     let table = resolve_nine_key_shuangpin(NineKeyShuangpinKind::Migala2, None).unwrap();
     let grid = Some(KeyGrid::NineKeyShuangpin(table));
     let digit = || Action::Character {
@@ -5513,7 +5513,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -6770,7 +6770,7 @@ fn generated_mode_runtime(directory: &std::path::Path) -> Runtime {
     options.local_expression = true;
     options.local_command = true;
     options.local_mention = true;
-    options.mention_entries = vec![msime_engine::host::MentionEntry {
+    options.mention_entries = vec![msime_engine::MentionEntry {
         phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
@@ -7115,12 +7115,12 @@ fn wubi_literal_marks_do_not_open_table_modes() {
     options.scheme = 2;
     options.local_command = true;
     options.local_mention = true;
-    options.command_table = vec![msime_engine::host::CommandTableEntry {
+    options.command_table = vec![msime_engine::CommandTableEntry {
         trigger: "sig".into(),
         title: "签名".into(),
         template: "张三".into(),
     }];
-    options.mention_entries = vec![msime_engine::host::MentionEntry {
+    options.mention_entries = vec![msime_engine::MentionEntry {
         phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
