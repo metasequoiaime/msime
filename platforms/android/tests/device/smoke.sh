@@ -13,6 +13,7 @@ feedback=false
 diagnostics=false
 text_edit_layout=false
 oobe=false
+crash_only=false
 for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
@@ -24,7 +25,8 @@ for option in "${@:2}"; do
     --diagnostics) diagnostics=true ;;
     --text-edit-layout) text_edit_layout=true ;;
     --oobe) oobe=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe]" >&2; exit 1 ;;
+    --crash-only) crash_only=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -255,6 +257,14 @@ run_instrumentation() {
 "$adb" -s "$serial" shell ime set "$ime_id" || stop "selecting $ime_id failed"
 confirm_ime || stop "$ime_id did not stay selected"
 "$adb" -s "$serial" shell am force-stop app.msime.android.test
+# 崩溃夹具必须和完整输入冒烟分开：完整套件可能因无关的 UI 竞态失败或耗尽时限，不能因此跳过真实崩溃闭环。
+if [[ "$crash_only" == true ]]; then
+  [[ "$sdk" == 35 ]] || stop "crash-only acceptance requires API 35"
+  python3 platforms/android/tests/device/telemetry-watch.py "$serial"
+  python3 platforms/android/tests/device/telemetry-consent.py "$serial"
+  python3 platforms/android/tests/device/telemetry-anr.py "$serial"
+  finish "Dedicated Android AVD: crash capture, system-exit attribution and ANR acceptance passed"
+fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
