@@ -1458,6 +1458,8 @@ impl NineKeySession {
 
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
+        // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
+        let mut covered_digits = CoveredDigits::new(&self.digits);
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
@@ -1557,7 +1559,7 @@ impl NineKeySession {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
-                candidate.pinyin = SharedString::from(&self.digits[..covered]);
+                candidate.pinyin = covered_digits.prefix(covered);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -2560,6 +2562,31 @@ fn place_keyboard_pick(
     }
     if !word_lattice {
         candidates.retain(|item| !is_lattice_sentence(item));
+    }
+}
+
+/// 一次刷新里按切分查出的候选行的 `pinyin`：输入数字的前缀，按长度各建一份共享字符串，行里存的是同一份的引用。
+struct CoveredDigits<'a> {
+    digits: &'a str,
+    prefixes: Vec<Option<SharedString>>,
+}
+
+impl<'a> CoveredDigits<'a> {
+    fn new(digits: &'a str) -> Self {
+        Self {
+            digits,
+            prefixes: Vec::new(),
+        }
+    }
+
+    /// 前 `len` 个数字。
+    fn prefix(&mut self, len: usize) -> SharedString {
+        if self.prefixes.len() <= len {
+            self.prefixes.resize(len + 1, None);
+        }
+        self.prefixes[len]
+            .get_or_insert_with(|| SharedString::from(&self.digits[..len]))
+            .clone()
     }
 }
 
@@ -5463,6 +5490,43 @@ mod tests {
     fn type_digits(session: &mut NineKeySession, digits: &str) {
         for digit in digits.bytes() {
             assert!(session.character(digit).handled, "digit {digit} unhandled");
+        }
+    }
+
+    /// 按切分查出的词库行的 `pinyin` 是它覆盖的那段数字；同样长度的行共用一份字符串，不各自申请。简拼行就地改写自己的缓冲区，不在此列。
+    #[test]
+    fn rows_with_the_same_covered_digits_share_one_pinyin_buffer() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);INSERT INTO tbl_1_n VALUES('ni','n','尼',90);INSERT INTO tbl_1_n VALUES('ni','n','泥',80);CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mi','m','米',50);INSERT INTO tbl_1_m VALUES('mi','m','秘',40);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);INSERT INTO tbl_2_n VALUES('ni''hui','nh','你会',900);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mi''hu','mh','迷糊',800);",
+        );
+        for digits in ["64426", "64", "644"] {
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, digits);
+            let rows: Vec<&WordItem> = session
+                .candidates
+                .iter()
+                .filter(|item| reads_pinyin(item.source) && !is_initials_row(item))
+                .collect();
+            assert!(rows.len() >= 3, "{digits}: {:?}", session.candidates);
+            for row in &rows {
+                assert!(digits.starts_with(row.pinyin.as_str()), "{digits}: {row:?}");
+            }
+            let mut compared = 0;
+            for (index, row) in rows.iter().enumerate() {
+                for other in &rows[index + 1..] {
+                    if row.pinyin == other.pinyin {
+                        assert!(
+                            row.pinyin.shares_storage_with(&other.pinyin),
+                            "{digits}: {} and {} hold separate copies of {}",
+                            row.word,
+                            other.word,
+                            row.pinyin
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+            assert!(compared > 0, "{digits}: no two rows cover the same digits");
         }
     }
 

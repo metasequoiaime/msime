@@ -419,9 +419,9 @@ fn assert_dominated_rows_are_rejected_before_field_copies() {
     let (_, new_count) = count(|| after.refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项、切分路径输出和搜索页缓冲。对照路径复制行字段现在是 `SharedString` 克隆，不再分配，差额从 1123 降到 777。
+    // 新路径同时复用首候选读音行、主读音列表、拼写匹配索引、左列选项、切分路径输出和搜索页缓冲。对照路径复制行字段现在是 `SharedString` 克隆，不再分配，差额从 1123 降到 777；按切分查出的行改为共用按覆盖长度建的 `pinyin` 之后，新路径不再每行申请一份数字串，差额是 846。
     assert_eq!(
-        new_count + 777,
+        new_count + 846,
         old_count,
         "重复前缀行和读音字符串不能先复制再丢弃"
     );
