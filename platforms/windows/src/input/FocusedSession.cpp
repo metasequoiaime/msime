@@ -167,7 +167,8 @@ bool FocusedSession::prepare(const FocusLease &lease) {
       // 先算好此刻的字段属性再获得焦点：activate 在 msime_client_focus(true) 之前把它原样再报一次，脚本运行时据此确认属性、把 focus_in 交给脚本。激活的会话随后成为背景音乐的所有者，放不放也看这时的属性，密码框和全屏前台都不放。
       refresh_field_traits();
       session_.activate(lease.epoch);
-      composer_.emplace(client_, lease.epoch);
+      composer_.emplace(client_, lease.epoch, true,
+                        (lease.transport.capabilities & FanyImeProtocol::QuickPhraseCursor) != 0);
       lease_ = lease;
       session_.set_active(true);
     });

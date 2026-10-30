@@ -90,7 +90,8 @@ struct PendingReply {
 // runtime_phrase=false 只兼容旧回复投影。
 class ReplyComposer final {
 public:
-  ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase = true);
+  ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase = true,
+                bool cursor_supported = false);
   const PendingReply &
   stage(const KeyResult &result, ReplyPath path, bool uiless = false,
         std::optional<std::string> local_text = std::nullopt,
@@ -203,6 +204,8 @@ private:
   std::string prefix_;
   // 生产会话由 Runtime 持有前缀；无宿主的旧回复测试仍可验证原来的投影协议。
   bool runtime_phrase_;
+  // 来自当前焦点租约的协商结果，不能从别的连接沿用。
+  bool cursor_supported_;
   std::optional<PendingReply> pending_;
   bool traditional_output_ = false;
   bool translation_page_active_ = false;
