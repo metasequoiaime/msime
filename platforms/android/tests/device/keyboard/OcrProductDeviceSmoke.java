@@ -331,6 +331,16 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         editor();
         camera();
         screenshot("resumed");
+        stage = "return from preview restores the tool panel";
+        tap(node -> equalsText("返回", node.getText()));
+        awaitAny(described("更多工具"));
+        tap(key("更多"));
+        camera();
+        stage = "open OCR settings from preview";
+        tap(node -> equalsText("拍照识字设置", node.getText()));
+        awaitAny(node -> equalsText("选择已下载的配套模块", node.getText()));
+        editor();
+        camera();
         // 识别后离开输入框不能把待选结果带入下一个编辑器。
         stage = "discard results after editor switch";
         tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
