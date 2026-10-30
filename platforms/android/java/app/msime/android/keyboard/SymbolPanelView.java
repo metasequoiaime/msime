@@ -11,8 +11,8 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.GridLayout;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -47,8 +47,7 @@ public final class SymbolPanelView extends LinearLayout {
     private final ButtonFactory buttons;
     private final Listener listener;
     private final LinearLayout categories;
-    private final ImageView headerMascotLeft = new ImageView(getContext());
-    private final ImageView headerMascotRight = new ImageView(getContext());
+    private final ImageView[] headerMascots = {new ImageView(getContext()), new ImageView(getContext())};
     private final GridLayout grid = new GridLayout(getContext()) {
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -149,15 +148,12 @@ public final class SymbolPanelView extends LinearLayout {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
-    /** 两端装饰不单独接收触摸，始终由铺满整行的返回按钮处理。 */
-    public void setHeaderMascots(Bitmap left, Bitmap right) {
-        setHeaderImage(headerMascotLeft, left);
-        setHeaderImage(headerMascotRight, right);
-    }
-
-    private static void setHeaderImage(ImageView view, Bitmap image) {
-        view.setImageBitmap(image);
-        view.setVisibility(image == null ? View.GONE : View.VISIBLE);
+    /** 复用表情包后台加载的缩略图，装饰不单独接收触摸，整行仍用于返回。 */
+    public void setHeaderMascot(Bitmap image) {
+        for (ImageView mascot : headerMascots) {
+            mascot.setImageBitmap(image);
+            mascot.setVisibility(image == null ? View.GONE : View.VISIBLE);
+        }
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
@@ -174,18 +170,25 @@ public final class SymbolPanelView extends LinearLayout {
         setClickable(true);
 
         FrameLayout title = new FrameLayout(context);
+        ViewPolicy.bindClick(title, listener::close);
         title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        // 关闭面板后返回打开它的字母、数字或手写层，装饰与空白都属于同一按钮。
+        // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
         Button back = buttons.create("返回上一界面", "关闭符号面板", listener::close, true);
         styleHeaderButton(back);
         back.setGravity(Gravity.CENTER);
-        int imageWidth = DimensionPolicy.pixels(context, 52);
-        back.setPadding(imageWidth, 0, imageWidth, 0);
-        back.setSingleLine(true);
-        title.addView(back, new FrameLayout.LayoutParams(-1, -1));
-        addHeaderImage(title, headerMascotLeft, Gravity.START);
-        addHeaderImage(title, headerMascotRight, Gravity.END);
-        addView(title, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(context, 44)));
+        int mascotEdge = DimensionPolicy.pixels(context, 44);
+        // 单个返回按钮覆盖整行；装饰叠在两侧且不消费事件，读屏也只遇到一个动作。
+        back.setPadding(mascotEdge, 0, mascotEdge, 0);
+        title.addView(back, LayoutPolicy.frameParamsPx(LayoutParams.MATCH_PARENT, mascotEdge));
+        for (int index = 0; index < headerMascots.length; index++) {
+            ImageView mascot = headerMascots[index];
+            mascot.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            mascot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mascot.setVisibility(View.GONE);
+            title.addView(mascot, LayoutPolicy.frameParamsPx(mascotEdge, mascotEdge,
+                (index == 0 ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL));
+        }
+        addView(title, LayoutPolicy.matchWidthWrapParams());
 
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
@@ -222,16 +225,6 @@ public final class SymbolPanelView extends LinearLayout {
         rebuildCategoryButtons();
         rebuildRadicalRail();
         select(SymbolPanelModel.initialCategory(recents, categoryOrder));
-    }
-
-    private void addHeaderImage(FrameLayout header, ImageView image, int side) {
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        image.setClickable(false);
-        image.setFocusable(false);
-        image.setVisibility(View.GONE);
-        header.addView(image, new FrameLayout.LayoutParams(
-            DimensionPolicy.pixels(getContext(), 52), -1, side | Gravity.CENTER_VERTICAL));
     }
 
     private List<SymbolPanelModel.Category> orderedCategories() {

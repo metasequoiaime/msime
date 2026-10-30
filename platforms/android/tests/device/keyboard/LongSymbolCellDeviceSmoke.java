@@ -83,6 +83,37 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> symbol(String value) { return described("按键 符号 " + value); }
 
+    /** 通过系统触摸点击两侧装饰位置，等待异步点击回到键盘后再重新打开。 */
+    private void checkReturnBar() throws Exception {
+        for (boolean left : new boolean[] {true, false}) {
+            stage = left ? "点击返回条左侧装饰" : "点击返回条右侧装饰";
+            Rect back = bounds(described("关闭符号面板"));
+            AccessibilityNodeInfo button = await(described("关闭符号面板"));
+            if (!equalsText("返回上一界面", button.getText()))
+                throw new AssertionError("返回条缺少明确文案");
+            int inset = Math.min(back.height() / 2, back.width() / 8);
+            int x = left ? back.left + inset : back.right - inset;
+            shellDiscard("input tap " + x + " " + back.centerY());
+            awaitGone(described("符号面板"));
+            assertEmptyEditor();
+            openPanel();
+            await(described("符号面板"));
+            assertEmptyEditor();
+        }
+    }
+
+    private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            boolean visible = false;
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
+                visible |= find(window.getRoot(), match) != null;
+            if (!visible) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("点击返回条后符号面板没有关闭");
+    }
+
     private void checkNavigation() throws Exception {
         stage = "symbol panel bottom geometry";
         tap(describedPrefix("符号分类 中文"));
