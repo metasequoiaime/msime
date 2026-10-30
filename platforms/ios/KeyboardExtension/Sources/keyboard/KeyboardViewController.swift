@@ -118,6 +118,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let schemeButton = KeyboardToolbarButton(icon: .toolbarScheme, accessibilityLabel: "选择输入方案")
   private let shortcutBar = UIStackView()
   private var candidateContent: UIStackView?
+  /// 工具栏的语音按钮。iOS 的语音入口是长按空格和功能菜单的「语音输入」，工具栏不放语音按钮；按钮仍排在栏里但保持隐藏，与下面的高情商回复一样，按标识符查找它的地方不会找到别的控件。
   private let scriptShortcut = UIButton()
   /// 高情商回复已移进功能菜单；按钮仍排在栏里但保持隐藏，按标识符查找它的地方不会找到别的控件。
   private let replyShortcut = UIButton()
@@ -2978,9 +2979,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.closeKeyboardPicker(); self?.resetCandidateCache()
       },
     ]
-    if !toolbarRowHidden && !scriptShortcut.isHidden {
-      tools.removeAll { $0.id == "voiceInput" }
-    }
     return tools
   }
 
@@ -9139,8 +9137,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let saved = session.persistTouchKeyboardGeometry(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
-      heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
-      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
+      heightAdjustment: KeyboardLayoutPreference.heightAdjustment)
     guard !saved else { return }
     // 共享文档没写成（多半是和设置 App 同时写、比较交换输了）。原先不声不响：App Group 和这个键盘用着新值，文档里还是旧值，下次键盘出现时被文档盖回去，看起来就是「调的高度自己变回去了」。现在记一笔日志，并按文档把 App Group 和键盘对齐，用户当场看到的就是实际留下的值。
     DiagnosticLog.shared.write("touch_geometry_not_persisted")

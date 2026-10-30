@@ -468,8 +468,8 @@ final class SpaceVoicePanelTests: XCTestCase {
     }
   }
 
-  /// 从工具栏的真实按钮进入听写，结束后经真实会话通知自动上屏，不经过结果面板。
-  func testToolbarStartsDictationAndFinalTextEntersTheOriginalEditor() throws {
+  /// 从功能菜单的真实「语音输入」图块进入听写（iOS 工具栏不放语音按钮），结束后经真实会话通知自动上屏，不经过结果面板。
+  func testMenuTileStartsDictationAndFinalTextEntersTheOriginalEditor() throws {
     let selector = #selector(getter: UIInputViewController.hasFullAccess)
     let method = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
     let original = method_getImplementation(method)
@@ -516,9 +516,10 @@ final class SpaceVoicePanelTests: XCTestCase {
     let document = CursorDocument()
     try attach(document)
     let controller = makeController()
-    let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "layoutVoiceShortcut" } as? UIButton)
-    XCTAssertEqual(toolbar.accessibilityLabel, "语音输入")
-    toolbar.sendActions(for: .primaryActionTriggered)
+    let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIControl)
+    more.sendActions(for: .primaryActionTriggered)
+    let tile = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-语音输入" } as? UIControl)
+    tile.sendActions(for: .primaryActionTriggered)
     let command = try XCTUnwrap(channel.readCommand())
     XCTAssertEqual(command.action, .start, "点语音入口应直接开始听写")
     let panel = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardVoicePanelView }.first)
