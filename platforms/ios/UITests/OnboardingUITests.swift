@@ -2533,6 +2533,41 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(app.buttons["inputLanguage_mandarin"].value as? String, "全拼")
   }
 
+  /// 键盘正用着全拼时，双拼行写着「小鹤」，打开双拼面板也要在小鹤上打勾；五笔行同理。以前面板只在键盘当前方案属于这个语言时才打勾。
+  @MainActor
+  func testLanguagePanelMarksTheRowSchemeWhileAnotherLanguageIsActive() throws {
+    let app = XCUIApplication()
+    // 没存过启用列表时双拼和五笔都默认启用，这样两行一定在。
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-input-schemes-for-ui-tests"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 10))
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+    XCTAssertTrue(wait(app.buttons["designOptionSheetCancel"], until: "exists == false"))
+
+    XCTAssertTrue(openSchemeSheet(.shuangpin, in: app))
+    let xiaohe = app.buttons["inputScheme_shuangpin"]
+    XCTAssertTrue(xiaohe.waitForExistence(timeout: 5))
+    XCTAssertTrue(xiaohe.isSelected, "双拼行显示小鹤，面板里的小鹤要打勾：\(xiaohe.debugDescription)")
+    let shuangpinPanel = XCTAttachment(screenshot: app.screenshot())
+    shuangpinPanel.name = "Shuangpin panel while quanpin is active"
+    shuangpinPanel.lifetime = .keepAlways
+    add(shuangpinPanel)
+    app.buttons["designOptionSheetCancel"].tap()
+
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
+    let wubi = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'inputScheme_wubi_'"))
+    XCTAssertTrue(wubi.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertEqual(wubi.allElementsBoundByIndex.filter(\.isSelected).count, 1, "五笔行显示的版本要在面板里打勾")
+    let wubiPanel = XCTAttachment(screenshot: app.screenshot())
+    wubiPanel.name = "Wubi panel while quanpin is active"
+    wubiPanel.lifetime = .keepAlways
+    add(wubiPanel)
+    app.buttons["designOptionSheetCancel"].tap()
+  }
+
   @MainActor
   func testSettingsPersistAndExposeGuideAndTryout() {
     let app = XCUIApplication()
