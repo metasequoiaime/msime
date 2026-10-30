@@ -7,8 +7,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.media.ExifInterface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.graphics.SurfaceTexture;
+import android.view.TextureView;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -31,6 +31,7 @@ final class ImeOcr {
     private InputConnection editor;
     private OcrCamera camera;
     private Button capture;
+    private int[] panelPadding;
     private final ArrayList<CheckBox> selectedLines = new ArrayList<>();
     private TextView resultText;
 
@@ -73,6 +74,7 @@ final class ImeOcr {
     }
 
     void close() {
+        restorePadding();
         if (active && s.moreToolsPanel != null) s.moreToolsPanel.removeAllViews();
         active = false;
         generation++;
@@ -89,7 +91,14 @@ final class ImeOcr {
         return active && expected == generation && editor != null && editor == s.connection && s.isInputViewShown();
     }
 
+    private void restorePadding() {
+        if (panelPadding == null) return;
+        s.moreToolsPanel.setPadding(panelPadding[0], panelPadding[1], panelPadding[2], panelPadding[3]);
+        panelPadding = null;
+    }
+
     private void base() {
+        restorePadding();
         s.moreToolsPanel.removeAllViews();
         s.moreToolsPanel.setContentDescription("拍照识字面板");
         LinearLayout header = LayoutPolicy.row(s);
@@ -115,16 +124,25 @@ final class ImeOcr {
     }
 
     private void preview(long expected) {
-        message("对准文字后拍照，图片不保存。");
-        SurfaceView surface = new SurfaceView(s);
-        surface.setContentDescription("拍照识字相机预览");
+        s.moreToolsPanel.removeAllViews();
+        panelPadding = new int[] {s.moreToolsPanel.getPaddingLeft(), s.moreToolsPanel.getPaddingTop(),
+            s.moreToolsPanel.getPaddingRight(), s.moreToolsPanel.getPaddingBottom()};
+        s.moreToolsPanel.setPadding(0, 0, 0, 0);
         FrameLayout viewport = new FrameLayout(s);
-        viewport.setClipChildren(true);
-        int height = Math.max(s.pixels(72), Math.min(s.pixels(180), s.moreToolsScroll.getHeight() - s.pixels(128)));
+        viewport.setBackgroundColor(android.graphics.Color.BLACK);
+        TextureView surface = new TextureView(s);
+        surface.setContentDescription("拍照识字相机预览");
         viewport.addView(surface, new FrameLayout.LayoutParams(-1, -1));
-        capture = action("拍照并识别", () -> {
+        LinearLayout header = LayoutPolicy.row(s);
+        s.button(header, "返回", () -> { close(); s.imeFunctionPanel.renderMoreTools(); });
+        s.button(header, "拍照识字设置", this::setup);
+        viewport.addView(header, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.TOP));
+        LinearLayout footer = LayoutPolicy.row(s);
+        capture = s.button(footer, "拍照并识别", () -> {
             if (!valid(expected) || camera == null || !capture.isEnabled()) return;
             capture.setEnabled(false);
+            // 冻结按下拍照时的取景框，异步结果不随之后的键区尺寸变化。
+            int cropWidth = surface.getWidth(), cropHeight = surface.getHeight();
             OcrCamera source = camera;
             source.capture(bytes -> s.main.post(() -> {
                 if (!valid(expected)) return;
@@ -132,33 +150,47 @@ final class ImeOcr {
                 camera = null;
                 base();
                 message("正在本机识别…");
-                recognize(expected, bytes);
+                recognize(expected, bytes, cropWidth, cropHeight);
             }), () -> cameraFailure(expected));
         });
         capture.setEnabled(false);
-        s.moreToolsPanel.addView(viewport, new LinearLayout.LayoutParams(-1, height));
+        viewport.addView(footer, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
+        s.moreToolsPanel.addView(viewport, new LinearLayout.LayoutParams(-1, -1));
         OcrCamera source = new OcrCamera();
         camera = source;
-        surface.getHolder().addCallback(new SurfaceHolder.Callback() {
-            private boolean started;
-            @Override public void surfaceCreated(SurfaceHolder holder) {
-                if (!valid(expected) || source != camera || started) return;
-                started = true;
+        surface.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            private int previewWidth, previewHeight;
+            private boolean handedToCamera;
+            private void transform() {
+                if (previewWidth <= 0 || previewHeight <= 0 || surface.getWidth() <= 0 || surface.getHeight() <= 0) return;
+                float scale = Math.max((float) surface.getWidth() / previewWidth,
+                    (float) surface.getHeight() / previewHeight);
+                Matrix matrix = new Matrix();
+                // TextureView 默认把纹理拉伸到控件大小；补偿后等比例中心裁剪，变换只作用于内容。
+                matrix.setScale(previewWidth * scale / surface.getWidth(), previewHeight * scale / surface.getHeight(),
+                    surface.getWidth() / 2f, surface.getHeight() / 2f);
+                surface.setTransform(matrix);
+            }
+            @Override public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
+                if (!valid(expected) || source != camera) return;
                 int rotation = s.getSystemService(android.view.WindowManager.class).getDefaultDisplay().getRotation();
-                source.start(holder, rotation, (width, previewHeight) -> s.main.post(() -> {
+                handedToCamera = true;
+                source.start(texture, rotation, (readyWidth, readyHeight) -> s.main.post(() -> {
                     if (!valid(expected) || source != camera) return;
-                    // SurfaceView 的独立 Surface 不能依赖父容器裁剪；完整放入预览框，避免覆盖编辑器和按钮。
-                    float scale = Math.min((float) viewport.getWidth() / width, (float) viewport.getHeight() / previewHeight);
-                    surface.setLayoutParams(new FrameLayout.LayoutParams(Math.round(width * scale),
-                        Math.round(previewHeight * scale), android.view.Gravity.CENTER));
+                    previewWidth = readyWidth;
+                    previewHeight = readyHeight;
+                    transform();
                     capture.setEnabled(true);
                 }), () -> cameraFailure(expected));
             }
-            @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { }
-            @Override public void surfaceDestroyed(SurfaceHolder holder) {
+            @Override public void onSurfaceTextureSizeChanged(SurfaceTexture texture, int width, int height) { transform(); }
+            @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
+                // 驱动在相机线程停止后再释放纹理，避免 UI 线程提前销毁正在使用的 Surface。
                 source.close();
                 if (valid(expected) && source == camera) cameraFailure(expected);
+                return !handedToCamera;
             }
+            @Override public void onSurfaceTextureUpdated(SurfaceTexture texture) { }
         });
     }
 
@@ -173,12 +205,12 @@ final class ImeOcr {
         });
     }
 
-    private void recognize(long expected, byte[] jpeg) {
+    private void recognize(long expected, byte[] jpeg, int width, int height) {
         try {
             worker.execute(() -> {
                 String[] lines = null;
                 try (OcrRuntime runtime = OcrRuntime.open(s)) {
-                    Bitmap bitmap = decode(jpeg);
+                    Bitmap bitmap = crop(decode(jpeg), width, height);
                     lines = runtime.recognize(bitmap);
                     // SDK 超时后可能仍持有图像，让其引用自然释放，避免提前 recycle。
                 } catch (Exception | LinkageError | OutOfMemoryError unavailable) { }
@@ -215,6 +247,19 @@ final class ImeOcr {
         Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
         if (rotated != bitmap) bitmap.recycle();
         return rotated;
+    }
+
+    /** 与中心裁剪预览使用同一取景比例，只把可见范围交给识别器。 */
+    static Bitmap crop(Bitmap bitmap, int width, int height) {
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException("ocr_viewport");
+        int croppedWidth = bitmap.getWidth(), croppedHeight = bitmap.getHeight();
+        if ((long) croppedWidth * height > (long) croppedHeight * width)
+            croppedWidth = Math.max(1, (int) ((long) croppedHeight * width / height));
+        else croppedHeight = Math.max(1, (int) ((long) croppedWidth * height / width));
+        Bitmap cropped = Bitmap.createBitmap(bitmap, (bitmap.getWidth() - croppedWidth) / 2,
+            (bitmap.getHeight() - croppedHeight) / 2, croppedWidth, croppedHeight);
+        if (cropped != bitmap) bitmap.recycle();
+        return cropped;
     }
 
     private void showResult(long expected, String[] lines) {

@@ -124,7 +124,7 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 
 这些是 `x86_64` 模拟器证据，不是物理真机或真实中文照片质量验收。OCR 前后只验证手写客户端创建，没有手写模型实际推理证据；正式模块、许可分发审计、文件选择器完整导入和真机兼容仍未完成。
 
-设备截图发现的两个产品缺陷已经修正：公用 `s.button` 使用横排零宽权重，OCR 的单项动作必须各自放入横排；SurfaceView 的独立 Surface 不能依赖父容器裁剪，预览必须保持比例完整容纳在框内。相机选择与照片比例匹配的预览尺寸，首帧到达后才启用拍照。[第五轮](https://github.com/metasequoiaime/msime/actions/runs/40086972668)同类相机 JPEG 已在 OCR 前截断测试图右侧，夹具因此把同一完整字符串放入已确认可见的源图区域，完整期望与精确断言不变，原图和失败照片仍保留。
+设备截图发现的两个产品缺陷已经修正：公用 `s.button` 使用横排零宽权重，OCR 的单项动作必须各自放入横排；SurfaceView 的独立 Surface 不能依赖父容器裁剪，预览必须保持比例完整容纳在框内。此预览选择由[全键区取景](2026-10-30-android-ocr-full-preview.md)改为可受控裁剪的 TextureView；旧 SurfaceView 的越界约束仍成立。相机选择与照片比例匹配的预览尺寸，首帧到达后才启用拍照。[第五轮](https://github.com/metasequoiaime/msime/actions/runs/40086972668)同类相机 JPEG 已在 OCR 前截断测试图右侧，夹具因此把同一完整字符串放入已确认可见的源图区域，完整期望与精确断言不变，原图和失败照片仍保留。
 
 本轮设备任务整体失败，不能把 OCR 专项通过报告成完整门禁通过。API 28 的基础冒烟在 `deferred composition length 1` 未观察到 IME 控件；API 35 在 OCR 专项前后的两次基础冒烟均停在拼写放大编辑的中间插入/删除断言。它们与[旧基点已复现的 `phrase composition` 失败](https://github.com/metasequoiaime/msime/actions/runs/40082820419)不同，尚无这两项具体失败的干净基点对照，不归为已证明的旧问题。修正提交 `335988b93d` 的常规 PR CI 为 25 项成功、6 项按范围跳过。完整 quick 的生成文档、符号表、语音目录与三个 Windows portable 链接失败均已在同版本干净基点复现；Rust workspace 编译和 providers Clippy 通过。
 

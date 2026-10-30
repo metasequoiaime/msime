@@ -287,6 +287,7 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     }
 
     private void productChecks() throws Exception {
+        cropChecks();
         moduleChecks();
         Context context = getTargetContext();
         stage = "native camera preview";
@@ -400,13 +401,16 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         android.app.Activity activity = startActivitySync(new Intent().setClassName(getTargetContext(),
             "app.msime.android.OcrSetupActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         java.util.concurrent.CountDownLatch surfaceReady = new java.util.concurrent.CountDownLatch(1);
-        android.view.SurfaceView[] surface = new android.view.SurfaceView[1];
+        android.view.TextureView[] surface = new android.view.TextureView[1];
         runOnMainSync(() -> {
-            surface[0] = new android.view.SurfaceView(activity);
-            surface[0].getHolder().addCallback(new android.view.SurfaceHolder.Callback() {
-                @Override public void surfaceCreated(android.view.SurfaceHolder holder) { surfaceReady.countDown(); }
-                @Override public void surfaceChanged(android.view.SurfaceHolder holder, int format, int width, int height) { }
-                @Override public void surfaceDestroyed(android.view.SurfaceHolder holder) { }
+            surface[0] = new android.view.TextureView(activity);
+            surface[0].setSurfaceTextureListener(new android.view.TextureView.SurfaceTextureListener() {
+                @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture texture, int width, int height) {
+                    surfaceReady.countDown();
+                }
+                @Override public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture texture, int width, int height) { }
+                @Override public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture texture) { return false; }
+                @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture texture) { }
             });
             activity.setContentView(surface[0]);
         });
@@ -421,11 +425,11 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
             check(surfaceReady.await(15, java.util.concurrent.TimeUnit.SECONDS), "diagnostic surface ready");
             java.util.concurrent.CountDownLatch preview = new java.util.concurrent.CountDownLatch(1);
             java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean();
-            Method start = type.getDeclaredMethod("start", android.view.SurfaceHolder.class, int.class,
+            Method start = type.getDeclaredMethod("start", android.graphics.SurfaceTexture.class, int.class,
                 java.util.function.BiConsumer.class, Runnable.class);
             start.setAccessible(true);
             int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
-            start.invoke(camera, surface[0].getHolder(), rotation,
+            start.invoke(camera, surface[0].getSurfaceTexture(), rotation,
                 (java.util.function.BiConsumer<Integer, Integer>) (width, height) -> preview.countDown(),
                 (Runnable) () -> { failed.set(true); preview.countDown(); });
             check(preview.await(15, java.util.concurrent.TimeUnit.SECONDS) && !failed.get(), "diagnostic preview ready");
@@ -594,15 +598,50 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         awaitAny(key("更多"));
     }
 
+    /** 合成像素同时验证横向、纵向裁剪和中心不偏移，不依赖识别模型的容错。 */
+    private void cropChecks() throws Exception {
+        Method crop = getTargetContext().getClassLoader().loadClass("app.msime.android.ImeOcr")
+            .getDeclaredMethod("crop", Bitmap.class, int.class, int.class);
+        crop.setAccessible(true);
+        for (int[] shape : new int[][] {{80, 120, 2, 1}, {120, 80, 1, 2}, {80, 120, 2, 3}}) {
+            Bitmap input = Bitmap.createBitmap(shape[0], shape[1], Bitmap.Config.ARGB_8888);
+            for (int y = 0; y < input.getHeight(); y++)
+                for (int x = 0; x < input.getWidth(); x++) input.setPixel(x, y, android.graphics.Color.rgb(x, y, 0));
+            Bitmap result = (Bitmap) crop.invoke(null, input, shape[2], shape[3]);
+            try {
+                check(result.getWidth() * shape[3] == result.getHeight() * shape[2], "crop keeps viewport aspect ratio");
+                int center = result.getPixel(result.getWidth() / 2, result.getHeight() / 2);
+                check(android.graphics.Color.red(center) == shape[0] / 2
+                    && android.graphics.Color.green(center) == shape[1] / 2, "crop keeps synthetic image center");
+            } finally { result.recycle(); }
+        }
+    }
+
     private void camera() throws Exception {
         dropStaleNodes();
         tap(key("更多"));
         showTool("拍照识字");
+        // 记录工具面板的实际键区，预览不能只占其中一小块或越界覆盖编辑器。
+        AccessibilityNodeInfo tools = awaitAny(described("更多工具"));
+        while (tools != null && !equalsText("android.widget.ScrollView", tools.getClassName())) tools = tools.getParent();
+        check(tools != null, "tool panel has a keyboard scroll viewport");
+        android.graphics.Rect keyboard = new android.graphics.Rect();
+        tools.getBoundsInScreen(keyboard);
         tap(tool("拍照识字"));
         AccessibilityNodeInfo capture = await(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
         android.graphics.Rect bounds = new android.graphics.Rect();
         capture.getBoundsInScreen(bounds);
         check(bounds.width() > 0 && bounds.height() > 0, "capture control has visible touch bounds");
+        android.graphics.Rect preview = new android.graphics.Rect();
+        awaitAny(described("拍照识字相机预览")).getBoundsInScreen(preview);
+        check(Math.abs(preview.left - keyboard.left) <= 1 && Math.abs(preview.right - keyboard.right) <= 1
+            && Math.abs(preview.top - keyboard.top) <= 1 && Math.abs(preview.bottom - keyboard.bottom) <= 1,
+            "camera preview fills the keyboard tool area exactly: " + preview + " / " + keyboard);
+        check(preview.contains(bounds), "capture control stays inside preview");
+        for (String label : new String[] {"返回", "拍照识字设置"}) {
+            awaitAny(node -> equalsText(label, node.getText())).getBoundsInScreen(bounds);
+            check(preview.contains(bounds), "preview navigation stays inside keyboard");
+        }
     }
 
     private void screenshot(String name) throws Exception {

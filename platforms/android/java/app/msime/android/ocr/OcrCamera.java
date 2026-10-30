@@ -4,7 +4,7 @@ import android.hardware.Camera;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.Surface;
-import android.view.SurfaceHolder;
+import android.graphics.SurfaceTexture;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Consumer;
@@ -17,13 +17,16 @@ final class OcrCamera implements AutoCloseable {
     private final Handler worker;
     private volatile boolean closed;
     private Camera camera;
+    private SurfaceTexture texture;
 
     OcrCamera() {
         thread.start();
         worker = new Handler(thread.getLooper());
     }
 
-    void start(SurfaceHolder surface, int rotation, BiConsumer<Integer, Integer> ready, Runnable failure) {
+    void start(SurfaceTexture surface, int rotation, BiConsumer<Integer, Integer> ready, Runnable failure) {
+        if (closed) { surface.release(); return; }
+        texture = surface;
         worker.post(() -> {
             if (closed) return;
             try {
@@ -64,7 +67,8 @@ final class OcrCamera implements AutoCloseable {
                 if (modes != null && modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE))
                     parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
                 camera.setParameters(parameters);
-                camera.setPreviewDisplay(surface);
+                surface.setDefaultBufferSize(previewSize.width, previewSize.height);
+                camera.setPreviewTexture(surface);
                 Camera.Size preview = camera.getParameters().getPreviewSize();
                 int width = orientation % 180 == 0 ? preview.width : preview.height;
                 int height = orientation % 180 == 0 ? preview.height : preview.width;
@@ -99,6 +103,10 @@ final class OcrCamera implements AutoCloseable {
     @Override public void close() {
         if (closed) return;
         closed = true;
-        worker.post(() -> { release(); thread.quitSafely(); });
+        worker.post(() -> {
+            release();
+            if (texture != null) { texture.release(); texture = null; }
+            thread.quitSafely();
+        });
     }
 }
