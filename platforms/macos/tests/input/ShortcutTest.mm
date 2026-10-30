@@ -606,10 +606,10 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @implementation ModeController
 - (void)applyCandidateFrame:(NSRect)frame {
     [super applyCandidateFrame:frame];
-    // 快捷键夹具检查目标布局；原窗口的中间帧由候选布局测试单独覆盖。
-    NSViewAnimation *animation = [self valueForKey:@"candidateFrameAnimation"];
-    [animation setCurrentProgress:1];
-    [self stopCandidateFrameAnimation];
+    // 快捷键处理完成时，窗口已经采用最终布局。
+    const NSRect actual = [[self valueForKey:@"panel"] frame];
+    assert(fabs(NSMinX(actual) - NSMinX(frame)) <= 1 && fabs(NSMinY(actual) - NSMinY(frame)) <= 1
+        && fabs(NSWidth(actual) - NSWidth(frame)) <= 1 && fabs(NSHeight(actual) - NSHeight(frame)) <= 1);
 }
 - (void)prepareSession {
     ++self.preparationCalls;

@@ -110,33 +110,18 @@ struct NativeCanvasAssets {
     CandidateSkinBackgroundFit fit = CandidateSkinBackgroundFit::cover;
     double opacity = 1;
   } background;
-  // 清单 `[animation]` 显式写了的进场、退场、选中预设（没写的是 none，与 macOS 只播放写了的预设相同），时长和错峰毫秒数。
+  // 保留旧皮肤的动效字段；宿主始终采用静态候选呈现。
   msime::candidate::MotionPreset enter = msime::candidate::MotionPreset::none;
   msime::candidate::MotionPreset exit = msime::candidate::MotionPreset::none;
   msime::candidate::MotionPreset selection = msime::candidate::MotionPreset::none;
   double duration_ms = 0, stagger_ms = 0;
 };
 
-// 清单的 `animation` 表（camelCase）：只取 declared 里写了的预设。
+// 旧皮肤仍可加载，候选显隐与选中不执行过渡；图片帧与装饰待机由各自的通道播放。
 inline void read_native_canvas_animation(NativeCanvasAssets &assets, const nlohmann::json &package) {
-  const auto animation = package.find("animation");
-  if (animation == package.end() || !animation->is_object()) return;
-  const auto declared = animation->value("declared", nlohmann::json::object());
-  const auto preset = [&](const char *key) {
-    const auto value = animation->find(key);
-    if (!declared.is_object() || !declared.value(key, false) || value == animation->end() || !value->is_string())
-      return msime::candidate::MotionPreset::none;
-    return msime::candidate::MotionPresetNamed(value->get<std::string>());
-  };
-  assets.enter = preset("enter");
-  assets.exit = preset("exit");
-  assets.selection = preset("selection");
-  const auto number = [&](const char *key) {
-    const auto value = animation->find(key);
-    return value != animation->end() && value->is_number() ? std::max(0.0, value->get<double>()) : 0.0;
-  };
-  assets.duration_ms = number("durationMs");
-  assets.stagger_ms = number("staggerMs");
+  (void)package;
+  assets.enter = assets.exit = assets.selection = msime::candidate::MotionPreset::none;
+  assets.duration_ms = assets.stagger_ms = 0;
 }
 
 inline NativeCanvasRect native_canvas_decoration_box(const NativeCanvasDecoration &decoration,

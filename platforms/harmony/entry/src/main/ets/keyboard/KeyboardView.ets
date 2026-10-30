@@ -298,7 +298,6 @@ const CHIP_WORD_LINE_HEIGHT: number = 1.2;
 const BAR_DIVIDER_HEIGHT_VP: number = 22;
 const BAR_BUTTON_VP: number = 40;
 const BAR_BUTTON_PRESSED_OPACITY: number = 0.55;
-const CHEVRON_TURN_MS: number = 200;
 // 触屏按键：字母 22fp，Shift 和删除键占 1.4 份并用 22vp 线性图标，功能键标签 15fp、字重 500，按下时在 60ms 内变暗到 .86 并缩到 .96。
 const TOUCH_LETTER_FONT_SIZE: number = 22;
 const KEY_ICON_VP: number = 22;
@@ -3589,12 +3588,6 @@ struct KeyboardView {
       ? GlobalTheme.withOpacity(colour, this.settings.candidateWindowOpacity) : colour;
   }
 
-  /** 皮肤动效只使用清单允许的时长；禁用动效或系统尚未提供清单时不改变候选布局。 */
-  private candidateMotionDuration(): number {
-    const duration: number = this.settings.candidateAnimation.durationMs;
-    return Number.isFinite(duration) && duration > 0 ? duration : 0;
-  }
-
   private candidateTextColor(): string {
     return this.candidateColors().text;
   }
@@ -4294,10 +4287,6 @@ struct KeyboardView {
         this.touchCandidateMenu = false;
         this.managing = index;
       })
-      .transition(this.candidateMotionDuration() > 0
-        ? TransitionEffect.OPACITY.animation({ duration: this.candidateMotionDuration() })
-        : TransitionEffect.IDENTITY)
-      .animation({ duration: this.candidateMotionDuration() })
   }
 
   /**
@@ -4828,7 +4817,6 @@ struct KeyboardView {
         })
       }
       .rotate({ angle: this.surface === SURFACE_EXPANDED ? 180 : 0 })
-      .animation({ duration: CHEVRON_TURN_MS })
     }
     .width(BAR_BUTTON_VP)
     .height(this.toolbarSized(BAR_BUTTON_VP))
@@ -9202,7 +9190,6 @@ struct KeyboardView {
             .fontColor(this.skin.keyLabelColor(false, true))
             .textAlign(TextAlign.Center)
             .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-            .animation({ duration: KEY_PRESS_MS })
             .accessibilityText(KeyAccessibilityPolicy.expandCandidates(true))
             .onClick(() => {
               this.show(SURFACE_NONE);
