@@ -5965,18 +5965,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 候选网格关闭时箭头朝下，打开时朝上，翻转用时 .2s。
-  private func updateExpandRotation(animated: Bool) {
+  /// 候选网格关闭时箭头朝下，打开时立即朝上。
+  private func updateExpandRotation() {
     let transform: CGAffineTransform = candidatePanel != nil ? CGAffineTransform(rotationAngle: .pi) : .identity
     expandCandidatesButton.accessibilityLabel = candidatePanel != nil ? "收起候选" : "展开全部候选"
     guard expandCandidatesButton.transform != transform else { return }
-    guard animated, expandCandidatesButton.window != nil, !UIAccessibility.isReduceMotionEnabled else {
-      expandCandidatesButton.transform = transform
-      return
-    }
-    UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-      self.expandCandidatesButton.transform = transform
-    }
+    expandCandidatesButton.transform = transform
   }
 
   private func showCandidatePanel() {
@@ -6017,7 +6011,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       nineKeyPanelColumns = columns
       // 九键三栏面板和普通候选网格一样装在键区：上面的候选栏和读音留着，用户看得到选拼音、筛选之后读音和首选怎么变。
       installPanel(panel)
-      updateExpandRotation(animated: true)
+      updateExpandRotation()
       updateNineKeyPanelColumns()
       // 收起时候选条只查了自己那一页的释义，网格里其余候选的释义在打开时补查，用的就是上面刚读出的这份完整列表。
       if visibleEmailSuffixes.isEmpty {
@@ -6166,7 +6160,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let wasNineKeyPanel = nineKeyPanelColumns != nil
     nineKeyPanelColumns = nil
     nineKeyPanelStrokeMode = false
-    updateExpandRotation(animated: true)
+    updateExpandRotation()
     UIAccessibility.post(notification: .layoutChanged, argument: expandCandidatesButton)
     if wasNineKeyPanel && clearingNineKeyFilter { clearNineKeyFilter() }
   }
@@ -8473,7 +8467,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self.playInputClick()
         self.selectCandidate(at: index)
       })
-    // 词块按住时变淡，而不是像按键那样缩小。
+    // 词块按住时立即变淡，松手立即恢复。
+    button.animatesPressFeedback = false
     button.pressFeedback = .opacity(0.6)
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
     let minimumWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.width)
