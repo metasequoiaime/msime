@@ -47,8 +47,40 @@ public final class EditorSmoke {
         public boolean select(int start, int end) { throw new AssertionError("select must not run"); }
         public void end() { throw new IllegalStateException("synthetic disconnected editor"); }
     }
+    static final class CursorSink extends Sink {
+        boolean batch;
+        boolean disconnect;
+        @Override public void begin() { super.begin(); batch = true; }
+        @Override public void end() { super.end(); batch = false; }
+        @Override public boolean verify() { check(!batch); calls.add("verify"); return true; }
+        @Override public void positionCommitCursor(String text, String suffix) {
+            check(!batch);
+            calls.add("position:" + text + ":" + suffix);
+            if (disconnect) throw new IllegalStateException("synthetic disconnect");
+        }
+    }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
     public static void main(String[] args) {
+        // 定位必须等提交已应用，再开始下一段组字；拒写与定位断连不能重复提交。
+        EditorBridge cursorBridge = new EditorBridge();
+        CursorSink cursor = new CursorSink();
+        check(cursorBridge.apply(cursor, "title:\"\"", "n", "\""));
+        check(cursor.calls.equals(List.of("begin", "commit:title:\"\"", "end", "verify",
+            "position:title:\"\":\"", "begin", "compose:n", "end", "verify")));
+        cursor.calls.clear();
+        cursor.disconnect = true;
+        check(cursorBridge.apply(cursor, "[]", "", "]"));
+        check(cursor.calls.equals(List.of("begin", "commit:[]", "end", "verify", "position:[]:]")));
+        cursor.calls.clear();
+        cursor.reject = true;
+        check(!cursorBridge.apply(cursor, "[]", "n", "]"));
+        check(cursor.calls.equals(List.of("begin", "commit:[]", "end")));
+        cursor.reject = false;
+        for (String suffix : new String[] {null, "", "different"}) {
+            cursor.calls.clear();
+            check(cursorBridge.apply(cursor, "[]", "n", suffix));
+            check(cursor.calls.equals(List.of("begin", "commit:[]", "compose:n", "end", "verify")));
+        }
         // 读回验证必须在编辑器应用整批命令之后运行，拒写和断开仍由调用方统一处理。
         EditorBridge deferredBridge = new EditorBridge();
         VerificationSink deferred = new VerificationSink();

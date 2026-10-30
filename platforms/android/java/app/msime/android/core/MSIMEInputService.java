@@ -1323,6 +1323,28 @@ public final class MSIMEInputService extends InputMethodService {
                 selectionEcho.invalidate();
                 return target.setSelection(start, end);
             }
+            public void positionCommitCursor(String text, String suffix) {
+                if (target != connection || suffix.isEmpty() || !text.endsWith(suffix)) return;
+                android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+                request.hintMaxChars = text.length();
+                android.view.inputmethod.ExtractedText actual = target.getExtractedText(request, 0);
+                if (actual == null || actual.text == null || actual.startOffset < 0 || actual.partialStartOffset != -1
+                        || actual.selectionStart != actual.selectionEnd
+                        || actual.selectionStart < text.length()
+                        || actual.selectionStart > actual.text.length()) return;
+                int end = actual.selectionStart;
+                if (!text.contentEquals(actual.text.subSequence(end - text.length(), end))) return;
+                int cursor = Math.addExact(actual.startOffset, end);
+                int destination = cursor - suffix.length();
+                // 读回与选区使用 UTF-16；不按方向键次数猜 emoji、组合字符或双向文本的位置。
+                editorReads.invalidate();
+                selectionEcho.positionAfterCommit(cursor);
+                selectionEcho.expect();
+                if (InputConnectionGuard.setSelection(target, destination, destination)) {
+                    selectionEcho.positionAfterCommit(destination);
+                    selectionEcho.expect();
+                }
+            }
             public void end() {
                 target.endBatchEdit();
                 // 编辑器在批量编辑结束后才回报一次选区，所以整批写完再记预期。
@@ -3941,15 +3963,17 @@ public final class MSIMEInputService extends InputMethodService {
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");
+        String cursorSuffix = result.opt("commit_cursor_suffix") instanceof String
+            ? result.getString("commit_cursor_suffix") : null;
         if (commit != null) {
-            // The runtime widened this already - it holds the character width now, and applies it
-            // to everything it finishes. Widening again here would be the second pass over text
-            // that is already fullwidth, and would put this host's own rule ahead of the shared one.
-            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // 宽度已由共享层处理；正文和后缀只做同一份宿主简繁转换，转换后失配时不定位。
+            JSONObject context = result.optJSONObject("commit_context");
+            commit = chineseOutput(commit, context);
+            if (cursorSuffix != null) cursorSuffix = chineseOutput(cursorSuffix, context);
         }
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, composing)) {
+                && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
