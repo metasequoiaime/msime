@@ -94,8 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(typed["value"]["commit"], "企鹅");
     read(msime_client_destroy(session));
 
-    // Removing it with the form that created it works, because both sides fold the same way.
-    let remove_shouted = json!({ "operation": "edit", "previous": shouted, "replacement": null, "request_id": "native-fold-remove" });
+    // Removing it by its code as typed works, because both sides fold the code the same way. The weight is matched as stored: a stored row can carry 0 (a derived wubi word does), so the previous row's weight is not lifted the way a new entry's is.
+    let stored_shouted =
+        json!({ "kind": "quick_phrase", "key": "QQ", "value": "企鹅", "weight": 1 });
+    let remove_shouted = json!({ "operation": "edit", "previous": stored_shouted, "replacement": null, "request_id": "native-fold-remove" });
     assert_eq!(request(&options, remove_shouted)["ok"], true);
     assert_eq!(
         request(&options, list.clone())["value"]["entries"],
