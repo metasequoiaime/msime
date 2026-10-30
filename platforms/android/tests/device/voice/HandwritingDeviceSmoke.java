@@ -260,14 +260,15 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         tap(key("更多"));
         showTool("拍照识字");
         tap(tool("拍照识字"));
-        awaitFor(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled(), 30_000);
-        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        awaitAnyFor(node -> equalsText("拍照", node.getText()) && node.isEnabled(), 30_000);
+        tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        awaitAnyFor(node -> equalsText("下一步", node.getText()), 15_000);
+        tap(node -> equalsText("下一步", node.getText()));
         stage = "same IME process recognizes synthetic camera text";
         awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && node.getText() != null
             && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468"), 60_000);
         shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-result.png");
-        tap(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("返回", node.getText()));
-        tap(tool("返回键盘"));
+        tap(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("返回键盘", node.getText()));
         stage = "handwriting UI restores without OCR insertion";
         awaitFor(imeTextContains("在此手写，停笔后选字"), 30_000);
         awaitFor(field("msime-test-plain").and(node -> equalsText(committed, node.getText())), 15_000);

@@ -135,7 +135,7 @@ for checkpoint in before result after failure; do
 done
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
-for frame in captured preview result editor selection hidden resumed switched permission failure \
+for frame in captured preview photo result rotated editor selection hidden resumed switched permission failure \
   failure-handwriting-model failure-handwriting-coexistence failure-picker-import \
   picker-documents picker-rejected picker-imported picker-preserved; do
   "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \
