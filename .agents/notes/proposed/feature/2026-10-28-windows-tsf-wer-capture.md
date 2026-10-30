@@ -24,7 +24,23 @@ WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不
 
 完整安装包的首次实际 ISCC 编译在 WER 注册项失败：`[Registry]` 不支持 `Flags: 32bit`，原契约检查却接受了这个写法。x86 helper 现在按 [Inno Setup 的注册表视图约定](https://jrsoftware.org/ishelp/topic_registrysection.htm)用 `Root: HKLM32` 明确选择 32 位视图，原生 helper 保持默认视图；两条记录仍只以 `uninsdeletevalue` 删除自己的完整路径值。修正后的契约检查在旧源码上实际失败，替换成正确注册项后通过；完整安装包随后实际编译成功，耗时 125.719 秒。空白 Windows 安装验收另行记录，不能以文本检查或编译代替。
 
-`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主的系统 WER 实际投递，以及同源 x64 产品在 Windows 11 Notepad 内的输入、自有故障、隔离后台与源码行已通过；完整安装包和其余架构、授权及非自有故障场景仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
+### Windows 11 完整安装包验收（2026-10-31）
+
+固定二进制源码 `ffc17be201` 已完成 x64、x86、ARM64 的同源 Rust、MSVC 产品与 WinUI 设置构建，原构建脚本 PE 架构门禁通过。官方插件复用 Ubuntu nightly `40966284976` 的 artifact `12937468491`，21 份固定输入和插件内容哈希一致，未改锁。第一次独立符号归档拒绝四份同 GUID、PE age 1 / PDB age 2 的 x64 产物；保留失败后只重新链接 TSF、Server、Watchdog、准备程序，再暂存签名和归档。最终独立 ZIP SHA-256 为 `6e3d50e9def86e7ac8865ad1897c4088bfa4d499c149f029cb4206b8afcb7410`，15 组 PE/PDB 的 GUID、age、逐文件哈希全通过，错 PDB 负例被拒绝。
+
+`231529bbac` 只修正安装器源码，完整包版本仍为 `0.3.0`；包 SHA-256 为 `c66c0a49a2f5146c6226b1934ebe832b889f88c6835d614b2034893ab38f86f5`，使用本机测试证书签名，`uiAccess=false`，未发布。专用空白 Windows 11 VM 106 全程保持默认出站阻断与显式外网阻断，只允许任务控制通道。传输后实际核对包、公钥证书哈希和 Authenticode。公钥证书首次导入失败发生在安装前，使用系统 `certutil` 正常导入后核对签名链，不跳过真实签名验证。
+
+完整包首次安装因缺少 x86 VC++ 运行库在 x86 `regsvr32` 阶段失败，原安装器回滚，三个产品目录均不存在。Microsoft 官方完整签名运行库补齐后，同一包的原 `install-smoke.ps1` 完成 x64/x86 COM/TIP 注册与 x64 TIP 激活、Server/MCP 启动、原地升级保留数据、数据目录迁移及卸载，最终 `JOB_EXIT=0`。安装日志 ZIP SHA-256 为 `d07285a2480994c4aa234c88c6c47be5e46d5ebf04aeb1611faa9bdb20e9880f`。运行库预检修复与 Pascal 正负例见[独立笔记](../../implemented/bug-fix/2026-10-31-windows-x86-runtime-prerequisite.md)。
+
+随后重新安装同一签名包，实际通过 .NET 的 Registry32/Registry64 视图读取自己的完整 helper 路径、值 `0` 和已安装文件。包内正式 Host API 的 `telemetry_begin`、`telemetry_flush` 均在创建队列前拒绝测试字段。再次经原卸载器移除产品与数据，两个视图中自己的 WER 值全部删除，最终 `JOB_EXIT=0`。首轮夹具因把无安装值的空注册表容器误认为安装残留而在安装前退出；独立盘点确认三个产品目录及安装值均无残留后，只修正夹具判定并保留失败原件。
+
+后续运行库预检修复提交 `2c2587184a` 复用同一已签名 payload，15 份自有映像哈希再核对不变，重新执行原完整 ISCC，113.047 秒编译成功。新包 SHA-256 为 `d22d65a22eb3f235394cb0ef6de306a94858d0d67422330d0dbc7f0931490841`；其安装器签名使用当前用户可用的另一张明确核对身份的本机测试证书，公钥 SHA-256 为 `3a6b137a6cf8a8938018ffd97e58a2250f3f7cddeecd3624aa8dc438e139e279`，产品 payload 仍保持原签名。首轮包装器错误地要求两次签名者相同而拒绝，保留失败；没有跳过 Authenticode Valid 或证书精确核对。内网传输首次经过代理得到 HTTP 502，改为本次调用的 `-NoProxy` 后通过，未修改机器代理或外网隔离。
+
+新包按实际大小和哈希完成传输，公钥经系统证书工具信任并实际验签，随后同一原烟测再次全程通过，最终 `JOB_EXIT=0`，单独使用新的合成数据目录及日志，未覆盖前一包证据。新日志 ZIP SHA-256 为 `ffcdc03e8c0923684759028ec040c8ca834f795f3dfaa9112dabae578680825e`。新包另一次实际重装也通过两个注册表视图的 WER 核对、正式 ABI 拒绝测试字段、原卸载及自有 WER 值移除，最终 `JOB_EXIT=0`。新预检的 Pascal 逻辑矩阵、源码门禁和新包安装结果分别记录；这是 `2c2587184a` 的安装器及 `ffc17be201` 的产品二进制组合，不声称全部二进制来自新提交重编。
+
+本轮是完整安装生命周期、实际 WER 允许项和正式上报隔离边界验证，不把注册项存在当作已安装包的真实编辑器故障或后台闭环；ARM64、Win7 与其余入口的产品运行缺口仍在。小证据保存在 `target/windows106-complete-install-evidence/`，独立符号明细在构建机 `target/windows-complete-package/exact-symbol-pairs.json`。两包收据和 15 组符号证明均已在本机独立复核，归档 ZIP SHA-256 为 `e80ab5c386325be7c22b1b3506f2b97925100f72cad3160e56c3d7d15c55c32d`。独立卸载审计确认产品目录、双视图安装值、自有 WER 值和产品进程均无残留，防火墙隔离仍有效。任务三项构建/打包/传输计划均退出 0 后移除，私有传输脚本和控制服务已清理；专用 VM 106 关机保留，供尚未完成的已安装包编辑器验收继续使用。构建缓存及冻结符号保留。
+
+`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主系统 WER 和固定候选 x64/x86 真实编辑器的故障、授权、符号证据已取得，后续完整包生命周期见上节；已安装包真实编辑器故障、ARM64 与 Win7 产品运行仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
 
 WER helper 的 x86 分支现在沿目标进程的 EBP 链最多读取 64 个返回帧，远程读取失败、回环、倒退或超过 1 MiB 的跳跃立即停止；只有 TSF 与当前 edition Host API 的帧写入记录，外部宿主帧不泄露。x64/ARM64 继续保留直接故障帧，因为 `RtlVirtualUnwind` 不能直接解引用 helper 地址空间之外的目标栈。x64 与 x86 生产 helper 均通过 MinGW `-Wall -Wextra -Werror` 语法检查；当前 macOS 无法执行 Windows x86 回调，真实 x86 运行回归仍由 Windows CI 验证。
 
