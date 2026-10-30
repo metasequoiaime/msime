@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -10,6 +11,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -25,6 +27,8 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
     private TextView status;
     private Button permission;
     private Button choose;
+    private Button remove;
+    private boolean removing;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -43,6 +47,8 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         status = text(panel, "正在读取模块状态…", 16);
         choose = button(panel, "选择已下载的配套模块", this::choose);
         choose.setEnabled(false);
+        remove = button(panel, "卸载配套模块", this::confirmRemove);
+        remove.setEnabled(false);
         permission = button(panel, "允许使用相机", () -> requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION));
         text(panel, "相机只在你打开拍照面板并已授权时使用。离开输入框或关闭面板就释放相机，待选文字同时清空。授权或导入完成后，请回到原输入框重新打开拍照识字。", 14);
         button(panel, "返回", this::finish);
@@ -77,12 +83,15 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
                 boolean supported = !AppVersionPolicy.playDistribution();
                 ResourcePackService.Status progress = ResourcePackService.status(ResourcePacks.OCR_MODULE);
                 String description = ResourcePackService.describe(progress);
-                status.setText(!supported ? "此分发渠道不提供外部可执行模块。"
+                status.setText(removing ? "正在卸载配套模块…"
+                    : !supported ? "此分发渠道不提供外部可执行模块。"
                     : description != null ? description
                     : found == null ? "配套模块尚未提供，当前版本暂不能导入。"
                     : found.installed() ? "配套模块已导入。"
                     : "尚未导入模块，请先从本项目下载与当前版本匹配的配套模块。");
-                choose.setEnabled(supported && found != null && (progress == null || !progress.running()));
+                boolean busy = removing || (progress != null && progress.running());
+                choose.setEnabled(supported && found != null && !busy);
+                remove.setEnabled(found != null && !"missing".equals(found.state()) && !busy);
             });
         });
     }
@@ -91,6 +100,43 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         if (pack == null) return;
         startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_MODULE);
+    }
+
+    private void confirmRemove() {
+        if (pack == null || removing) return;
+        ScreenCaptureProtection.show(new AlertDialog.Builder(this)
+            .setTitle("卸载配套模块？")
+            .setMessage("卸载后将无法拍照识字，可重新导入恢复。你下载的原始文件和其他输入法数据会保留。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("卸载", (dialog, which) -> removeModule())
+            .create());
+    }
+
+    private void removeModule() {
+        if (removing) return;
+        removing = true;
+        choose.setEnabled(false);
+        remove.setEnabled(false);
+        status.setText("正在卸载配套模块…");
+        worker.execute(() -> {
+            boolean success;
+            try {
+                ResourcePackService.Status progress = ResourcePackService.status(ResourcePacks.OCR_MODULE);
+                if (progress != null && progress.running()) throw new ResourcePacks.Failure("resource_pack_busy");
+                ResourcePacks.remove(getApplicationContext(), ResourcePacks.OCR_MODULE);
+                success = true;
+            } catch (ResourcePacks.Failure failure) {
+                success = false;
+            }
+            boolean removed = success;
+            runOnUiThread(() -> {
+                if (removed) ResourcePackService.clearFinishedStatus(ResourcePacks.OCR_MODULE);
+                if (isDestroyed()) return;
+                removing = false;
+                Toast.makeText(this, removed ? "配套模块已卸载" : "卸载失败，请稍后重试", Toast.LENGTH_LONG).show();
+                refresh();
+            });
+        });
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {

@@ -102,6 +102,12 @@ public final class ResourcePackService extends Service {
         return STATUS.get(pack);
     }
 
+    /** 卸载成功后清掉旧的失败提示，进行中的安装状态不能清除。主线程调用。 */
+    public static void clearFinishedStatus(String pack) {
+        STATUS.computeIfPresent(pack, (id, current) -> current.running() ? current : null);
+        notifyListeners(pack, true);
+    }
+
     public static void addListener(Listener listener) {
         LISTENERS.add(listener);
     }

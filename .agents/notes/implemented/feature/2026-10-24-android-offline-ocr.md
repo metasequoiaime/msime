@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+设置页提供「卸载配套模块」，确认后经共享的资源包删除接口只移除已发布的 OCR 包，下载的原始文件及其他输入法数据保留。导入／卸载中禁用冲突操作，失败可重试；卸载成功清掉之前的导入失败提示。JNI 只传有界请求，不另写目录删除。旧版模块也可卸载；用户再次导入同一固定模块后仍能识别。输入法下一次打开 OCR 时重新验证安装状态，即使类加载器有缓存也不能使用已经卸载的包（#10235）。
+
 可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）的识别引擎是 ONNX Runtime 1.31.0（`com.microsoft.onnxruntime:onnxruntime-android`，MIT）加 PaddlePaddle 的 PP-OCRv6 tiny 检测与识别模型（Apache-2.0）。ONNX Runtime 只是模块的依赖，基础 APK 不带它，也不带模型；选型的测量与放弃的方案见下文[引擎选型](#引擎选型)。最初的可行性试验用的是 Google ML Kit 的 `text-recognition-chinese:16.0.1`，下文「产品接入边界」「产品设备证据」里各轮设备运行都是那个试验模块，宿主一侧的导入、选择器、相机、撤权与手写共存路径与引擎无关，换引擎时没有改动。
 
 模块按上游 PP-OCR 管线自己实现前后处理，不依赖 OpenCV：检测输入长边限 960、两边取 32 的倍数、BGR 顺序按均值方差归一化成 NCHW；DB 后处理按 0.2 二值化，8 邻接连通域取凸包和最小外接矩形，框内均值低于 0.4 的丢弃，再按 `面积 × 1.4 / 周长` 外扩（三个阈值取自固定提交的 `inference.yml`）；用 `Matrix.setPolyToPoly` 透视裁出每行，边界外按边缘像素延伸，行高不小于宽 1.5 倍的竖排行逆时针转 90°；识别输入高 48、宽按比例（至少 320、至多 3200）补零，CTC 贪心解码。纯 Java 的部分在 `OcrPipeline`，由 `platforms/android/check-host.sh` 的 JVM 冒烟 `tests/ocr/OcrPipelineSmoke.java` 覆盖。
@@ -131,6 +133,14 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 先前 `29bbfc36ef` 的[两版设备运行](https://github.com/metasequoiaime/msime/actions/runs/40118436084)均已结束。两版共享设备套件、模型准备、选择器完整导入／取消／损坏替换拒绝、相机识别及撤权、主进程手写共存通过。API 35 的同一真实离线 `:ime` 手写专项也通过；API 28 已完成前后识别、上屏、退格与符号画布恢复，但最后恢复原书写模式时未观察到预期设置控件，`ime_handwriting=1`，不能计为专项通过。两版整体仍有相同十八键三排宽度断言失败。
 
 恢复设置失败的日志没有区分启动、打开选项或读取选项，本次细分这些固定阶段，并在失败时补收同一合成设备截图。设置页面跳转完成后先等待无障碍空闲、重新取得行节点，避免点击仍在转场的旧行；[后续产品 `b78178a731` 的 API 28/35 设备运行](https://github.com/metasequoiaime/msime/actions/runs/40121220880)已全部结束：两版共享设备套件、模型准备、选择器完整导入／取消／坏替换拒绝、相机识别／上屏／恢复／撤权、主进程手写推理，以及同一个真实离线 `:ime` 的前后识别、手动与硬件上屏、撤销、符号层和画布恢复均通过，原书写模式恢复也通过。验证提交 `4c9dd8837e` 与产品完整树仅专用 workflow 不同；六张前后／相机结果合成截图已逐张核对。两版结果都是 `core=0 baseline=1 coexistence=0 picker=0 ime_handwriting=0`，唯一失败仍是前述十八键三排 `69/66/69px` 宽度断言，整轮设备门禁仍未通过。这次运行消除了已观察到的恢复失败，不据单次通过声称已经证明唯一根因。恢复失败仍让专项失败，原模式回读和真实推理断言均保留。
+
+## 卸载验证（#10235）
+
+当前源码的原生瘦包已构建，quick 与 JNI／宿主导出、arm64 ELF 依赖和 16KB 对齐检查通过。API 28、35 的专用 arm64 AVD 均从系统文件选择器导入正式锁固定的 81,146,926 字节模块：取消卸载仍可识别；损坏替换失败后确认卸载，状态回到未导入且按钮禁用；旧类加载器缓存无法重新打开；再次通过系统选择器导入后合成中英文图识别成功。两版卸载后页面截图均已目测。
+
+两版 `build-core-test.sh arm64-v8a` 均通过：client-base 40 项、client-core 710 项、client-providers 285 项、client-services 主套件 1404 项，保留原有忽略与 runner 的硬链接排除；引擎维护租约 11 项通过。首次 quick 发现确认框未接统一截屏保护入口，以及纯 Java 资源包测试被前台服务依赖阻断，均已修正：确认框经 `ScreenCaptureProtection.show`，Java 安装队列的忙状态在 Activity 操作线程检查，共享资源包门面继续独立于 Service。
+
+标准原生 APK 的 API 28 `smoke.sh --core` 与 API 35 完整 `smoke.sh` 正在运行，最终结果随本轮验证更新；前述定向通过不代替完整系统输入验收。未操作日用设备或触发发布。
 
 ## Related notes audit
 

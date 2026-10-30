@@ -188,6 +188,19 @@ public final class ResourcePacks {
         if (id != null) NativeClient.resourcePackCancel(id);
     }
 
+    /** 主进程工作线程卸载已发布的资源包，安装中拒绝；不删除用户原来下载的文件。 */
+    public static void remove(Context context, String id) throws Failure {
+        requireInstallerThread(context);
+        try {
+            JSONObject request = new JSONObject()
+                .put("state_root", stateRoot(context.getFilesDir()).getAbsolutePath())
+                .put("pack", id);
+            value(NativeClient.resourcePackRemove(request.toString()));
+        } catch (JSONException error) {
+            throw new Failure("invalid resource pack response");
+        }
+    }
+
     /**
      * 把 {@code source} 里属于资源包 {@code id} 的文件收编为已安装的资源包，不重新下载：同一文件系统内改名移走（不复制），按编译进来的锁核对长度和 SHA-256 后发布。失败时文件原样放回 {@code source}。同一组字节已经装好时直接返回，{@code source} 不动。
      *
