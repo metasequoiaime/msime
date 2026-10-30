@@ -23,6 +23,91 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// 在系统扩展与独立编辑器之间核对粤语逐段选词，不能只检查引擎返回的提交字段。
+  func testCantoneseShuangpinPartialSelectionKeepsCommittedPrefixInSystemEditor() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let home = app.tabBars.buttons["首页"]
+    XCTAssertTrue(home.waitForExistence(timeout: 15))
+    home.tap()
+    home.tap()
+    let input = app.buttons["inputSettingsLink"]
+    for _ in 0..<8 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.isHittable)
+    input.tap()
+    if !app.buttons["inputLanguage_cantonese"].waitForExistence(timeout: 3) {
+      let add = app.buttons["addInputLanguageButton"]
+      for _ in 0..<8 where !add.isHittable { app.swipeUp() }
+      XCTAssertTrue(add.isHittable)
+      add.tap()
+      app.buttons["addInputLanguage_cantonese"].tap()
+    }
+    let cantonese = app.buttons["inputLanguage_cantonese"]
+    XCTAssertTrue(cantonese.waitForExistence(timeout: 5))
+    cantonese.tap()
+    let shuangpin = app.buttons["inputScheme_cantoneseShuangpin"]
+    XCTAssertTrue(shuangpin.waitForExistence(timeout: 5))
+    shuangpin.tap()
+    XCTAssertTrue(shuangpin.waitForNonExistence(timeout: 5), "选项退场动画完成后才写入方案，不能提前终止设置应用")
+    app.terminate()
+    addKeyboardInSettingsIfNeeded()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    editor.buttons["schemeButton"].tap()
+    let card = editor.buttons["schemeCard-cantoneseShuangpin"]
+    let grid = editor.descendants(matching: .any)["schemePickerScroll"].firstMatch
+    for _ in 0..<5 where !card.isHittable { grid.swipeRight() }
+    for _ in 0..<5 where !card.isHittable { grid.swipeLeft() }
+    XCTAssertTrue(card.isHittable, "粤语双拼入口必须可用")
+    card.tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    func type(_ code: String) {
+      for letter in code {
+        let key = editor.buttons.matching(NSPredicate(format: "label IN %@",
+          ["字母 \(String(letter).uppercased())", "字母 \(letter)"])).firstMatch
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+      }
+    }
+    func select(_ text: String) throws {
+      let pattern = "^候选词 [0-9]+：" + NSRegularExpression.escapedPattern(for: text) + "(?:，.*)?$"
+      let candidate = editor.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label MATCHES %@",
+        "candidate-", pattern)).firstMatch
+      XCTAssertTrue(candidate.waitForExistence(timeout: 10), "应能点选 \(text)")
+      keepScreenshot("粤语选词-\(text)-之前", in: editor)
+      candidate.tap()
+    }
+    func expectDocument(_ value: String, prefix: Bool = false) {
+      let received = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: prefix ? "value BEGINSWITH %@" : "value == %@", value), object: field)
+      XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: 5), .completed,
+                     "系统代理必须保留已选汉字：\(value)")
+    }
+    type("hxgsdzyb")
+    try select("香港地")
+    expectDocument("香港地yb")
+    // `有` 的粤拼是 jau，本仓双拼码为 yk；先保留报告中的无候选尾码，再改正它继续选词。
+    editor.buttons["letterDeleteKey"].tap()
+    type("k")
+    try select("有")
+    expectDocument("香港地有")
+    type("sxcr")
+    try select("上")
+    expectDocument("香港地有上", prefix: true)
+    let traditional = editor.buttons.matching(NSPredicate(format: "label MATCHES %@", "^候选词 [0-9]+：傳(?:，.*)?$")).firstMatch
+    let last = traditional.exists ? "傳" : "传"
+    try select(last)
+    expectDocument("香港地有上" + last)
+    keepScreenshot("粤语逐段选词-完成", in: editor)
+  }
+
   /// 失败时保留实际界面，区分入口、遮挡和产品行为，不能只看断言行号。
   private func keepScreenshot(_ name: String, in app: XCUIApplication) {
     let shot = XCTAttachment(screenshot: app.screenshot())
