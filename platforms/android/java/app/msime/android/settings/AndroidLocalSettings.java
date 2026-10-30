@@ -65,6 +65,12 @@ public final class AndroidLocalSettings {
     // ---- 只在本机的键 ----
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
+    /** 本地键盘语音的停顿计时与 VAD 灵敏度，只留在本机，默认保持原行为。 */
+    public static final String VOICE_PAUSE_MILLIS = "platform.android.voice_pause_millis";
+    public static final String VOICE_VAD_SENSITIVITY = "platform.android.voice_vad_sensitivity";
+    public static final int VOICE_PAUSE_DEFAULT_MILLIS = 1500;
+    public static final int VOICE_PAUSE_MIN_MILLIS = 500;
+    public static final int VOICE_PAUSE_MAX_MILLIS = 5000;
     /** 「防止截屏」（#10098，{@link ScreenCaptureProtection}），默认关。只在本机、不进备份：换一台设备或从备份恢复都不能替用户打开或关掉它，切换规则见 {@link ScreenCaptureProtectionPolicy}。 */
     public static final String SCREEN_CAPTURE_PROTECTION = "platform.android.screen_capture_protection";
     /** 「防止截屏」是否打开过：第一次打开时写入，之后关闭也不清除，此后再开或再关都要系统认证。清除应用数据（或经过认证的「重置所有设置」）才回到未打开过。 */
@@ -227,6 +233,9 @@ public final class AndroidLocalSettings {
 
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
+        integer(VOICE_PAUSE_MILLIS, VOICE_PAUSE_DEFAULT_MILLIS, false,
+            VOICE_PAUSE_MIN_MILLIS, VOICE_PAUSE_MAX_MILLIS, 100);
+        integer(VOICE_VAD_SENSITIVITY, 50, false, 10, 90, 1);
         bool(SCREEN_CAPTURE_PROTECTION, false, false);
         bool(SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE, false, false);
         bool(GLIDE_TYPING, false, false);

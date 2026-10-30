@@ -1453,8 +1453,8 @@ JNIEXPORT jlong JNICALL Java_app_msime_android_NativeClient_localSpeechCreateRaw
         return 0;
     }
 }
-// Loads the model (seconds on a phone the first time; cached afterwards) and opens the session. Hotwords arrive newline-separated. Returns null on success, else a message for logs.
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads) {
+// 加载模型并开始会话。热词用换行分隔；成功返回空，失败返回原因。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads, jint vad_sensitivity) {
     auto state = speech(handle);
     if (!state || state->session) return bytes_of(env, "invalid local speech session");
     std::string model_text;
@@ -1469,6 +1469,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStar
     options.model_dir = model_text;
     options.language = language_text;
     options.threads = threads < 0 ? 0 : threads;
+    options.vad_sensitivity_percent = vad_sensitivity;
     const std::string &words = hotwords_text;
     for (size_t start = 0; start < words.size();) {
         size_t end = words.find('\n', start);

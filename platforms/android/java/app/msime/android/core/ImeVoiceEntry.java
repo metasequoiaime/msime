@@ -38,8 +38,8 @@ final class ImeVoiceEntry {
     static final String PLATFORM_PROVIDER = "system";
     /** 「已识别：…」停留的时间。 */
     static final long DONE_NOTICE_MILLIS = 1200;
-    /** 听到内容之后这么久没有新的识别文字，就当说完了，结束录音并出结果（与系统识别器停顿后自动结束一致）。经过 VAD 的本机整段模型还判定在说话时推迟，长按空格按住说话时不自动结束，见 {@link VoiceHoldPolicy#silenceElapsed}。 */
-    static final long SILENCE_STOP_MILLIS = 1500;
+    /** 每次开始本地识别时读取的停顿时间；本次会话中保持固定，长按仍等松手。 */
+    private int silenceStopMillis = AndroidLocalSettings.VOICE_PAUSE_DEFAULT_MILLIS;
 
     /** 键盘里接手的识别方式。 */
     enum Engine { LOCAL, STREAMING, UPLOAD, PLATFORM }
@@ -175,6 +175,9 @@ final class ImeVoiceEntry {
         if (engine == Engine.LOCAL) {
             LocalAsrRecognizer.watchMemory(s);
             local = new LocalAsrRecognizer();
+            AndroidLocalSettings.Snapshot localPreferences = AndroidLocalSettings.load(s);
+            silenceStopMillis = localPreferences.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS);
+            local.vadSensitivity(localPreferences.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
             local.diagnostics(kind -> diagnostic(session, kind));
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
@@ -280,7 +283,7 @@ final class ImeVoiceEntry {
     }
 
     /**
-     * 识别中途的文字：聆听中显示在聆听面板的标题位；{@code pauseEnds} 为 true 时，从这一刻起停顿一个 {@link #SILENCE_STOP_MILLIS} 就自动结束录音。
+     * 识别中途的文字：聆听中显示在聆听面板的标题位；{@code pauseEnds} 为 true 时，从这一刻起按本次的 {@link #silenceStopMillis} 计停顿。
      *
      * <p>只有本机模型这样结束：它的 VAD 会报「还在说话」（{@link #spoke}），停顿计时据此推迟。系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。豆包流式也不按停顿结束：它不报是否在说话，整句流式（{@code bigmodel_nostream}）说话期间要到音频超过 15 秒才回第一段结果，按出字后停顿计时，口述到 16 秒多就会在用户还在说时被掐断（#9886）；豆包由用户点「说完了」或松开空格结束，和以前一样。
      */
@@ -308,13 +311,13 @@ final class ImeVoiceEntry {
                         silenceStop = null;
                         finishListening();
                     }
-                    case POSTPONE -> s.main.postDelayed(this, SILENCE_STOP_MILLIS);
+                    case POSTPONE -> s.main.postDelayed(this, silenceStopMillis);
                     case WAIT_FOR_RELEASE -> silenceStop = null;
                 }
             }
         };
         silenceStop = stop;
-        s.main.postDelayed(stop, SILENCE_STOP_MILLIS);
+        s.main.postDelayed(stop, silenceStopMillis);
     }
 
     /** 本机整段模型的 VAD 开始或停止判定在说话。一段说完时，已经在计的停顿改从这一刻重新计，而不是从上一次出字算起。 */
