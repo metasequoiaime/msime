@@ -8,8 +8,9 @@ struct KeyboardToolbarSettingsView: View {
   @State private var phrases = TouchToolbarLocalPreference.phrases
   @State private var scheme = TouchToolbarLocalPreference.scheme
   @State private var hidden = TouchToolbarLocalPreference.hidden
-  /// 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
   @State private var skin = KeyboardTheme.current
+  /// 预览画的字母层底行，同时决定工具栏上有没有 符：26 键「长空格」把 符 从底行挪到工具栏。
+  @State private var keyLayout = TouchKeyLayoutStyle.mirrored
   /// 「候选栏大小」：工具栏和候选栏共用一行，预览里的工具栏跟着它变矮或变高（#10137）。在「候选栏」页设置。
   @State private var barScale: CGFloat = 1
   @State private var saveFailed = false
@@ -76,32 +77,23 @@ struct KeyboardToolbarSettingsView: View {
     .reloadOnAppearAndActive(reload)
   }
 
-  /// 键盘空闲时不显示工具栏：显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键，与键盘的 `toolbarRowHidden` 一致。
-  private var rowHidden: Bool {
-    hidden || Self.previewItems(toolbar, phrases: phrases, scheme: scheme).isEmpty
+  /// 预览工具栏上品牌键和收起键之间的按钮；nil 是键盘空闲时不显示工具栏内容（显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键），26 键「长空格」时这一行总带着 符，与键盘的 `toolbarRowHidden` 一致（`KeyboardToolbarPreviewRow`）。
+  private var previewItems: [KeyboardPreviewToolbarItem]? {
+    KeyboardToolbarPreviewRow.items(toolbar, phrases: phrases, scheme: scheme, hidden: hidden, keyLayout: keyLayout)
   }
+
+  private var rowHidden: Bool { previewItems == nil }
 
   /// 当前皮肤下的键盘，带着这些开关组成的工具栏，工具栏不显示时只有按键；裁成设计稿的 14pt 圆角，外加一圈细线。
   private var preview: some View {
     let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-    let strip: KeyboardPreviewTopStrip = rowHidden
-      ? .reserved : .toolbar(Self.previewItems(toolbar, phrases: phrases, scheme: scheme))
-    return KeyboardSkinPreview(skin: skin, nineKey: false, topStrip: strip, stripScale: barScale)
+    let strip: KeyboardPreviewTopStrip = previewItems.map { .toolbar($0) } ?? .reserved
+    return KeyboardSkinPreview(skin: skin, nineKey: false, topStrip: strip, stripScale: barScale, keyLayout: keyLayout)
       .clipShape(shape)
       .overlay(shape.strokeBorder(MetasequoiaTheme.hair, lineWidth: 1))
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("工具栏预览")
       .accessibilityIdentifier("keyboardToolbarPreview")
-  }
-
-  /// 按键盘绘制顺序排列的按钮：表情、常用语、剪贴板、皮肤、输入方式，然后是已启用的 iOS 独有项。
-  static func previewItems(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool) -> [KeyboardPreviewToolbarItem] {
-    let ordered: [(enabled: Bool, item: KeyboardPreviewToolbarItem)] = [
-      (toolbar.emoji, .emoji), (phrases, .phrases), (toolbar.clipboard, .clipboard), (toolbar.skin, .skin),
-      (scheme, .scheme), (toolbar.ai, .ai), (toolbar.characterSet, .characterSet),
-      (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation),
-    ]
-    return ordered.filter(\.enabled).map(\.item)
   }
 
   private func binding(_ source: Source) -> Binding<Bool> {
@@ -136,6 +128,7 @@ struct KeyboardToolbarSettingsView: View {
     phrases = TouchToolbarLocalPreference.phrases
     scheme = TouchToolbarLocalPreference.scheme
     hidden = TouchToolbarLocalPreference.hidden
+    keyLayout = TouchKeyLayoutStyle.mirrored
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)
     barScale = CandidateFontPreference.barScale(in: preferences)

@@ -24,6 +24,8 @@ import { CandidateTextEdge } from '../keyboard/input/CandidateTextPolicy';
 import { FloatingToolbarLayout } from '../keyboard/FloatingToolbarLayout';
 import { InputModeHudPolicy, InputModeHudSize } from '../keyboard/InputModeHudPolicy';
 import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy';
+import { FloatingKeyboardPolicy } from '../keyboard/FloatingKeyboardPolicy';
+import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
@@ -113,6 +115,24 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private routingKeys: boolean = false;
   /** Set once the ability has torn down, so a late device enumeration cannot route keys again. */
   private tornDown: boolean = false;
+  // ---- 手机和平板的软键盘面板（2in1 不用） ----
+  /** 面板此刻的标志是不是 `FLG_FLOATING`（浮动键盘，#10225）。只在 `createPanel` 和 `changeFlag` 成功之后改。 */
+  private floating: boolean = false;
+  /** 停靠时面板的宽度（px）：创建面板时的屏幕宽度，停靠路径一直按它 resize，与加入浮动键盘之前相同。 */
+  private fixedWidth: number = 0;
+  /** 视图最近一次要的键盘高度（vp，不含浮动拖动条）。 */
+  private touchHeightVp: number = 0;
+  /** 浮动面板的位置：可移动范围里的千分比。从存着的设置读，拖动松手后更新；写盘失败时只在这个进程里有效。 */
+  private floatingFraction: [number, number] = [FloatingKeyboardPolicy.DEFAULT_X_FRACTION,
+    FloatingKeyboardPolicy.DEFAULT_Y_FRACTION];
+  /** 浮动面板左上角此刻在屏幕上的位置（px）。 */
+  private floatingPosition: [number, number] = [0, 0];
+  private floatingDragOrigin: [number, number] = [0, 0];
+  private floatingDragging: boolean = false;
+  /** 换标志要先隐藏、再换、再显示，几步都是异步的；连点两下磁贴时按顺序一次做完一个。 */
+  private floatingChange: Promise<void> = Promise.resolve();
+  /** 是否订阅了 `display.on('change')`：只有手机和平板订阅，转屏后浮动面板跟着重新定宽和位置。 */
+  private watchingDisplay: boolean = false;
 
   /** The editor moved its caret; the candidate window goes with it if it is up. */
   private readonly caretMoved: (x: number, y: number, height: number) => void =
@@ -358,6 +378,141 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardLog.error(`toolbar would not move: ${describeError(error)}`);
     });
   }
+
+  /** 存着的浮动键盘开关此刻是否生效（`FloatingKeyboardPolicy.active`）。 */
+  private floatingWanted(): boolean {
+    return FloatingKeyboardPolicy.active(KeyboardSession.shared.feedbackSettings().floating,
+      KeyboardFormFactor.isDesktop());
+  }
+
+  private storedFloatingFraction(): [number, number] {
+    const feedback: FeedbackSettings = KeyboardSession.shared.feedbackSettings();
+    return [feedback.floatingX, feedback.floatingY];
+  }
+
+  /** 浮动面板此刻的大小（px）：宽度按屏幕宽度（`FloatingKeyboardPolicy.widthVp`），高度是视图要的键盘高度加拖动条。 */
+  private floatingSize(): [number, number] {
+    return [
+      Math.round(FloatingKeyboardPolicy.widthVp(this.screenWidth / this.density) * this.density),
+      Math.round(FloatingKeyboardPolicy.panelHeightVp(this.touchHeightVp) * this.density)
+    ];
+  }
+
+  /**
+   * 按面板此刻的标志定大小。停靠时与加入浮动键盘之前一样，宽度是创建面板时的屏幕宽度；浮动时宽度按屏幕宽度取 80%，高度加上拖动条，再按存着的千分比摆进屏幕（拖动中不摆，免得和手指抢位置）。`moveTo` 对 `FLG_FIXED` 面板不可用，所以只在浮动时调用。
+   */
+  private async fitTouchPanel(panel: inputMethodEngine.Panel): Promise<void> {
+    if (!this.floating) {
+      await panel.resize(this.fixedWidth, Math.round(this.touchHeightVp * this.density));
+      return;
+    }
+    const size: [number, number] = this.floatingSize();
+    await panel.resize(size[0], size[1]);
+    if (this.floatingDragging) {
+      return;
+    }
+    this.floatingPosition = FloatingKeyboardPolicy.position(this.floatingFraction[0], this.floatingFraction[1],
+      this.screenWidth, this.screenHeight, size[0], size[1]);
+    await panel.moveTo(this.floatingPosition[0], this.floatingPosition[1]);
+  }
+
+  /** 功能面板的「浮动键盘」磁贴或拖动条的停靠键改了开关：按顺序排进 `floatingChange`，一次换完一个。 */
+  private followFloatingSetting(panel: inputMethodEngine.Panel): void {
+    this.floatingChange = this.floatingChange
+      .then((): Promise<void> => this.applyFloatingSetting(panel))
+      .catch((error: Object): void => {
+        KeyboardLog.error(`floating keyboard not applied: ${describeError(error)}`);
+      });
+  }
+
+  /**
+   * 换面板标志：`changeFlag` 要求先隐藏面板，换好之后按新标志定大小和位置，再显示回来。换不成功也要显示回来，编辑框还在等键盘；这时面板保持原来的标志，`floating` 不变。
+   */
+  private async applyFloatingSetting(panel: inputMethodEngine.Panel): Promise<void> {
+    const wanted: boolean = this.floatingWanted();
+    if (this.panel !== panel || this.tornDown || wanted === this.floating) {
+      return;
+    }
+    this.floatingDragging = false;
+    await panel.hide();
+    try {
+      panel.changeFlag(wanted ? inputMethodEngine.PanelFlag.FLG_FLOATING : inputMethodEngine.PanelFlag.FLG_FIXED);
+      this.floating = wanted;
+      if (wanted) {
+        this.floatingFraction = this.storedFloatingFraction();
+      }
+      await this.fitTouchPanel(panel);
+    } finally {
+      if (this.panel === panel && !this.tornDown) {
+        await panel.show();
+      }
+    }
+  }
+
+  /** 按下拖动条：记下面板此刻的位置，之后的位移都从这里算。 */
+  private beginFloatingDrag(): void {
+    if (!this.floating) {
+      return;
+    }
+    this.floatingDragging = true;
+    this.floatingDragOrigin = [this.floatingPosition[0], this.floatingPosition[1]];
+  }
+
+  /** 拖动中：位移是相对按下那一刻的屏幕位移（vp），换成像素加到起点上，钳进屏幕（`FloatingKeyboardPolicy.dragged`）再移动面板。 */
+  private dragFloating(offsetXVp: number, offsetYVp: number): void {
+    const panel: inputMethodEngine.Panel | undefined = this.panel;
+    if (!this.floatingDragging || panel === undefined) {
+      return;
+    }
+    const size: [number, number] = this.floatingSize();
+    this.floatingPosition = [
+      Math.round(FloatingKeyboardPolicy.dragged(this.floatingDragOrigin[0], offsetXVp * this.density,
+        this.screenWidth - size[0])),
+      Math.round(FloatingKeyboardPolicy.dragged(this.floatingDragOrigin[1], offsetYVp * this.density,
+        this.screenHeight - size[1]))
+    ];
+    panel.moveTo(this.floatingPosition[0], this.floatingPosition[1]).catch((error: Object): void => {
+      KeyboardLog.error(`floating keyboard would not move: ${describeError(error)}`);
+    });
+  }
+
+  /** 松手：位置换成千分比记下，并写进设备本地设置，下次显示、转屏或键盘变高时都按它摆。 */
+  private endFloatingDrag(): void {
+    if (!this.floatingDragging) {
+      return;
+    }
+    this.floatingDragging = false;
+    const size: [number, number] = this.floatingSize();
+    this.floatingFraction = [
+      FloatingKeyboardPolicy.fractionOf(this.floatingPosition[0], this.screenWidth - size[0]),
+      FloatingKeyboardPolicy.fractionOf(this.floatingPosition[1], this.screenHeight - size[1])
+    ];
+    KeyboardSession.shared.saveFloatingPosition(this.floatingFraction[0], this.floatingFraction[1]);
+  }
+
+  /** 转屏或折叠屏开合：记下新的屏幕尺寸，浮动面板按存着的千分比重新定宽、定位置。停靠面板照旧。 */
+  private readonly displayChanged: (displayId: number) => void = (_displayId: number): void => {
+    const panel: inputMethodEngine.Panel | undefined = this.panel;
+    if (panel === undefined) {
+      return;
+    }
+    let shown: display.Display;
+    try {
+      shown = display.getDefaultDisplaySync();
+    } catch (error) {
+      KeyboardLog.error(`display unavailable: ${describeError(error)}`);
+      return;
+    }
+    this.screenWidth = shown.width;
+    this.screenHeight = shown.height;
+    this.density = shown.densityPixels;
+    if (!this.floating) {
+      return;
+    }
+    this.fitTouchPanel(panel).catch((error: Object): void => {
+      KeyboardLog.error(`floating keyboard would not follow the display: ${describeError(error)}`);
+    });
+  };
 
   /**
    * Open, close or swap the surface the candidate window is carrying.
@@ -992,10 +1147,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.routeKeysWhenAttached();
       // 设备自带实体键盘时创建候选窗口；`FLAG_CANDIDATE` 面板由宿主在 `inputStart` 与 `inputStop` 中自行控制显隐。创建时确定标志，避免使用必须先隐藏面板的 `changeFlag`。
       const desktop: boolean = KeyboardFormFactor.isDesktop();
+      // 手机和平板上浮动键盘开着时直接建浮动面板（`FLG_FLOATING`，#10225），第一次显示就在存着的位置上。
+      const floating: boolean = !desktop && this.floatingWanted();
       const info: inputMethodEngine.PanelInfo = {
         type: inputMethodEngine.PanelType.SOFT_KEYBOARD,
         flag: desktop ? inputMethodEngine.PanelFlag.FLAG_CANDIDATE
-          : inputMethodEngine.PanelFlag.FLG_FIXED
+          : floating ? inputMethodEngine.PanelFlag.FLG_FLOATING : inputMethodEngine.PanelFlag.FLG_FIXED
       };
       try {
         const panel: inputMethodEngine.Panel = await engine.createPanel(this.context, info);
@@ -1005,6 +1162,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           return;
         }
         this.panel = panel;
+        this.floating = floating;
+        this.floatingFraction = this.storedFloatingFraction();
         // 挂上视图之前就设好隐私模式，面板第一次显示时已经截不到。
         ScreenCaptureProtection.protectPanel(panel, this.screenCaptureProtected(),
           desktop ? 'candidate window' : 'soft keyboard');
@@ -1042,14 +1201,18 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           : requested !== null ? requested : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
             settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);
-        // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
-        const widthPx: number = desktop
-          ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)
-          : screen.width;
+        // 软键盘占满屏幕宽度（浮动时按 `fitTouchPanel` 收窄），候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         this.density = screen.densityPixels;
         this.screenWidth = screen.width;
         this.screenHeight = screen.height;
-        await panel.resize(widthPx, Math.round(heightVp * screen.densityPixels));
+        if (desktop) {
+          await panel.resize(Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels),
+            Math.round(heightVp * screen.densityPixels));
+        } else {
+          this.fixedWidth = screen.width;
+          this.touchHeightVp = heightVp;
+          await this.fitTouchPanel(panel);
+        }
         if (this.tornDown) {
           if (this.panel === panel) {
             this.panel = undefined;
@@ -1099,11 +1262,25 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         } else {
           // 挂上回调时补发第一帧定高度之后、这里之前视图发来的请求（`TouchHeightRelay.attach`）。
           KeyboardSession.shared.touchHeight.attach((requestedHeightVp: number): void => {
-            panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
-              .catch((error: Object): void => {
-                KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
-              });
+            this.touchHeightVp = requestedHeightVp;
+            this.fitTouchPanel(panel).catch((error: Object): void => {
+              KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
+            });
           });
+          KeyboardSession.shared.onFloatingKeyboardChanged = (): void => {
+            this.followFloatingSetting(panel);
+          };
+          KeyboardSession.shared.onFloatingDragStart = (): void => {
+            this.beginFloatingDrag();
+          };
+          KeyboardSession.shared.onFloatingDrag = (offsetX: number, offsetY: number): void => {
+            this.dragFloating(offsetX, offsetY);
+          };
+          KeyboardSession.shared.onFloatingDragEnd = (): void => {
+            this.endFloatingDrag();
+          };
+          display.on('change', this.displayChanged);
+          this.watchingDisplay = true;
         }
         if (desktop) {
           await this.reconcileStatusPanels();
@@ -1165,6 +1342,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     // These close over the panel being released.
     KeyboardSession.shared.touchHeight.detach();
     KeyboardSession.shared.onDismiss = undefined;
+    KeyboardSession.shared.onFloatingKeyboardChanged = undefined;
+    KeyboardSession.shared.onFloatingDragStart = undefined;
+    KeyboardSession.shared.onFloatingDrag = undefined;
+    KeyboardSession.shared.onFloatingDragEnd = undefined;
+    if (this.watchingDisplay) {
+      display.off('change', this.displayChanged);
+      this.watchingDisplay = false;
+    }
     KeyboardSession.shared.onCandidateWidth = undefined;
     KeyboardSession.shared.onCandidateCount = undefined;
     KeyboardSession.shared.onComposition = undefined;

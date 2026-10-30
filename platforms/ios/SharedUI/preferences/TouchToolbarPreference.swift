@@ -89,3 +89,51 @@ enum TouchToolbarLocalPreference {
     set { defaults.set(newValue, forKey: hiddenKey) }
   }
 }
+
+/// 键盘预览里的一个工具栏按钮。图标与键盘自己的工具栏一致；字符类项目画单个字符而不是符号。放在 SharedUI 里，`KeyboardToolbarPreviewRow` 的规则才能在键盘测试里直接测。
+enum KeyboardPreviewToolbarItem: String, CaseIterable {
+  /// 26 键「长空格」从底行挪到工具栏的 符（键盘的 `symbolsShortcut`），排在品牌键后面。
+  case symbols
+  case emoji, phrases, clipboard, skin, scheme, ai, characterSet, fullwidth, punctuation
+
+  /// 该项目的 SF Symbol；画成字符的项目为 nil。
+  var symbol: String? {
+    switch self {
+    case .emoji: "face.smiling"
+    case .phrases: "text.bubble"
+    case .clipboard: "doc.on.clipboard"
+    case .skin: "paintpalette"
+    case .scheme: "keyboard"
+    case .ai: "sparkles"
+    case .symbols, .characterSet, .fullwidth, .punctuation: nil
+    }
+  }
+
+  /// 没有符号的项目所画的字符。
+  var character: String {
+    switch self {
+    case .symbols: "符"
+    case .characterSet: "简"
+    case .fullwidth: "全"
+    case .punctuation: "，"
+    default: ""
+    }
+  }
+}
+
+/// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`longSpaceToolbarRowKept` 相同。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
+enum KeyboardToolbarPreviewRow {
+  static func items(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool, hidden: Bool,
+                    keyLayout: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
+    let symbols = keyLayout.twentySixKey == .longSpace
+    // 按键盘绘制顺序：表情、常用语、剪贴板、皮肤、输入方式，然后是 iOS 独有项。
+    let ordered: [(enabled: Bool, item: KeyboardPreviewToolbarItem)] = [
+      (toolbar.emoji, .emoji), (phrases, .phrases), (toolbar.clipboard, .clipboard), (toolbar.skin, .skin),
+      (scheme, .scheme), (toolbar.ai, .ai), (toolbar.characterSet, .characterSet),
+      (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation),
+    ]
+    let tools = hidden ? [] : ordered.filter(\.enabled).map(\.item)
+    if !symbols && (hidden || tools.isEmpty) { return nil }
+    return (symbols ? [.symbols] : []) + tools
+  }
+}

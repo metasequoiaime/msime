@@ -1622,6 +1622,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   onReplyContextChanged: (() => void) | undefined = undefined;
   /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
   onDismiss: (() => void) | undefined = undefined;
+  /** 浮动键盘开关变了（`setFloatingKeyboard`）：持有面板的扩展能力换面板标志、大小和位置。 */
+  onFloatingKeyboardChanged: (() => void) | undefined = undefined;
+  /** 浮动键盘的拖动条：按下、移动（相对按下那一刻的屏幕位移，vp）和松手。面板归扩展能力，视图只报告手指。 */
+  onFloatingDragStart: (() => void) | undefined = undefined;
+  onFloatingDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
+  onFloatingDragEnd: (() => void) | undefined = undefined;
   /** 同一编辑框收起后可直接重新显示，不一定再次触发 `inputStart`；恢复空闲任务且不重建已有计时器。 */
   keyboardShown(): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
@@ -6107,13 +6113,55 @@ export class KeyboardSession implements HardwareKeyTarget {
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
       oneHanded: current.oneHanded,
-      incognito: on
+      incognito: on,
+      floating: current.floating,
+      floatingX: current.floatingX,
+      floatingY: current.floatingY
     };
     if (!this.saveFeedback(next)) {
       return current.incognito;
     }
     this.followPrivacyMode();
     return on;
+  }
+
+  /** 功能面板「浮动键盘」磁贴和拖动条的停靠键：存下开关（设备本地，不同步），再让扩展能力换面板。保存失败时保持原状，返回最终是否浮动。 */
+  setFloatingKeyboard(on: boolean): boolean {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    if (current.floating === on) {
+      return on;
+    }
+    if (!this.saveFeedback(KeyboardFeedback.withFloating(current, on, current.floatingX, current.floatingY))) {
+      return current.floating;
+    }
+    if (this.onFloatingKeyboardChanged !== undefined) {
+      this.onFloatingKeyboardChanged();
+    }
+    return on;
+  }
+
+  /** 拖动松手后存下浮动面板的位置（千分比）。写不进去时位置只在这次键盘进程里有效，不打扰用户，与 Android 相同。 */
+  saveFloatingPosition(xFraction: number, yFraction: number): void {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    this.saveFeedback(KeyboardFeedback.withFloating(current, current.floating, xFraction, yFraction));
+  }
+
+  beginFloatingDrag(): void {
+    if (this.onFloatingDragStart !== undefined) {
+      this.onFloatingDragStart();
+    }
+  }
+
+  dragFloating(offsetX: number, offsetY: number): void {
+    if (this.onFloatingDrag !== undefined) {
+      this.onFloatingDrag(offsetX, offsetY);
+    }
+  }
+
+  endFloatingDrag(): void {
+    if (this.onFloatingDragEnd !== undefined) {
+      this.onFloatingDragEnd();
+    }
   }
 
   /**

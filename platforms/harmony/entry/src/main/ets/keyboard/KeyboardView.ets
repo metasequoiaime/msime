@@ -138,6 +138,7 @@ import { PagedTiles } from './faces/PagedTiles';
 import { PanelTile } from './faces/PanelTile';
 import { OneHandRail } from './faces/OneHandRail';
 import { OneHandedMode, OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
+import { FloatingKeyboardPolicy } from './FloatingKeyboardPolicy';
 import { SplitKeyboardPolicy, SplitKeyboardSettings, SplitRow, SplitSpace } from './SplitKeyboardPolicy';
 import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
@@ -859,6 +860,8 @@ struct KeyboardView {
   @State nineKeySwipeDigit: string = '';
   private glideContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  /** 浮动键盘拖动条按下时手指在屏幕上的位置（vp）。 */
+  private floatingTouchOrigin: [number, number] = [0, 0];
 
   aboutToAppear(): void {
     // 扩展能力按上次记下的键面定了第一帧的高度（`TouchLayoutStylePolicy.firstPanel`）；从那个高度出发核对，键面与记下的不同时 `syncStripHeight` 再改高度。要在下面任何一个带 @Watch 的状态被赋值之前定下。
@@ -7706,7 +7709,10 @@ struct KeyboardView {
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
       oneHanded: current.oneHanded,
-      incognito: current.incognito
+      incognito: current.incognito,
+      floating: current.floating,
+      floatingX: current.floatingX,
+      floatingY: current.floatingY
     };
     return next;
   }
@@ -7727,7 +7733,10 @@ struct KeyboardView {
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
       oneHanded: mode,
-      incognito: current.incognito
+      incognito: current.incognito,
+      floating: current.floating,
+      floatingX: current.floatingX,
+      floatingY: current.floatingY
     };
     this.setFeedback(next);
   }
@@ -7740,8 +7749,19 @@ struct KeyboardView {
 
   /** 按键是否在单手侧栏旁收窄绘制。 */
   private oneHandActive(): boolean {
-    // 分离式键盘画着时单手模式让位，存着的值不变，回到不分离的方向或键面时单手自动回来，与 Android 的 `SplitKeyboardPolicy.effectiveOneHanded` 相同。
-    return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn();
+    // 分离式键盘画着或浮动键盘生效时单手模式让位，存着的值不变，回到不分离的方向或键面、停靠键盘时单手自动回来，与 Android 的 `ImeFrame.effectiveOneHanded` 相同。
+    return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn() && !this.floatingDrawn();
+  }
+
+  /** 浮动键盘此刻是否生效（`FloatingKeyboardPolicy.active`）：面板缩窄悬在应用上面，顶部画拖动条。 */
+  private floatingDrawn(): boolean {
+    return FloatingKeyboardPolicy.active(this.feedback.floating, KeyboardFormFactor.isDesktop());
+  }
+
+  /** 功能面板「浮动键盘」磁贴和拖动条的停靠键：经会话存下开关，会话再让扩展能力换面板。 */
+  private setFloating(on: boolean): void {
+    KeyboardSession.shared.setFloatingKeyboard(on);
+    this.feedback = KeyboardSession.shared.feedbackSettings();
   }
 
   /**
@@ -7754,10 +7774,10 @@ struct KeyboardView {
       && !this.zhuyinFace() && !this.strokeFace() && !this.drawsFourteenKey();
   }
 
-  /** 此刻是否画分离式键盘（`SplitKeyboardPolicy.drawn`）：开关、大屏、方向和启用宽度都满足，并且正在画的键面可以分离。 */
+  /** 此刻是否画分离式键盘（`SplitKeyboardPolicy.drawn`）：开关、大屏、方向和启用宽度都满足，正在画的键面可以分离，并且键盘没有浮动。 */
   private splitDrawn(): boolean {
     return SplitKeyboardPolicy.drawn(this.splitKeyboard, this.screenWidthVp, this.screenHeightVp,
-      KeyboardFormFactor.isDesktop(), this.splitsFace());
+      KeyboardFormFactor.isDesktop(), this.splitsFace(), this.floatingDrawn());
   }
 
   /** 按键这一行的宽度：屏幕宽减去键盘根的左右内边距，空隙比例按它算。 */
@@ -9474,6 +9494,8 @@ struct KeyboardView {
         return this.feedback.haptics;
       case FunctionPanelPolicy.ONE_HAND:
         return this.feedback.oneHanded !== OneHandedMode.OFF;
+      case FunctionPanelPolicy.FLOATING:
+        return this.feedback.floating;
       case FunctionPanelPolicy.PRIVACY:
         return this.feedback.incognito;
       case FunctionPanelPolicy.TRANSLATION:
@@ -9505,7 +9527,10 @@ struct KeyboardView {
       case FunctionPanelPolicy.VIBRATION_STRENGTH:
         return this.feedback.haptics;
       case FunctionPanelPolicy.ONE_HAND:
-        // 2in1 不绘制可收窄的触屏按键，所以该磁贴在那里不起作用；Android 在绘制分体键盘时也同样把它置灰。
+        // 2in1 不绘制可收窄的触屏按键，所以该磁贴在那里不起作用；分离式键盘画着或键盘浮动时单手模式也不生效，同样置灰，免得点了没有反应，与 Android 相同。
+        return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();
+      case FunctionPanelPolicy.FLOATING:
+        // 2in1 的面板是跟随光标的候选窗，不浮动。分离式键盘画着时照常可用：打开浮动后分离式键盘不再画（`splitDrawn`），与 Android 相同。
         return this.touchDesign();
       default:
         return true;
@@ -9554,6 +9579,9 @@ struct KeyboardView {
         break;
       case FunctionPanelPolicy.ONE_HAND:
         this.setOneHanded(OneHandedPolicy.toggled(this.feedback.oneHanded));
+        break;
+      case FunctionPanelPolicy.FLOATING:
+        this.setFloating(!this.feedback.floating);
         break;
       case FunctionPanelPolicy.PRIVACY:
         this.togglePrivacyMode();
@@ -10961,6 +10989,79 @@ struct KeyboardView {
   }
 
   build() {
+    Column() {
+      if (this.floatingDrawn()) {
+        this.floatingBar()
+      }
+      // 浮动时拖动条占去顶部 22vp，键盘这一层分到窗口剩下的高度；停靠时它就是整个窗口，与加拖动条之前相同。
+      Column() {
+        this.keyboardStack()
+      }
+      .width('100%')
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.floatingDrawn() ? this.skin.background : Color.Transparent)
+    .borderRadius(this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0)
+    .clip(this.floatingDrawn())
+  }
+
+  /**
+   * 浮动键盘顶部的拖动条（#10225），移植自 Android 的 `FloatingKeyboardBar`：中间是 36×4 的横条，按住整条拖动移动键盘；右端是「停靠」键（maximize-2 图标，与单手侧栏的退出键同一个），点它回到停靠在底部的完整键盘。
+   *
+   * 拖动报告的是手指在屏幕上的位移（`displayX` / `displayY`），不是条内坐标：面板跟着手指移动，条内坐标会跟着变。面板归扩展能力，位置由它换算、钳制并移动。
+   */
+  @Builder
+  floatingBar() {
+    Row() {
+      Stack() {
+        Column()
+          .width(FloatingKeyboardPolicy.GRIP_WIDTH_VP)
+          .height(FloatingKeyboardPolicy.GRIP_HEIGHT_VP)
+          .borderRadius(FloatingKeyboardPolicy.GRIP_HEIGHT_VP / 2)
+          .backgroundColor(this.skin.keyForeground)
+          .opacity(0.35)
+      }
+      .layoutWeight(1)
+      .height('100%')
+      .accessibilityText(FloatingKeyboardPolicy.DESCRIPTION)
+      .onTouch((event: TouchEvent): void => this.floatingBarTouch(event))
+
+      Stack() {
+        KeyboardLineIcon({
+          d: KeyboardIconPaths.EXIT_ONE_HAND,
+          iconSize: FloatingKeyboardPolicy.DOCK_ICON_VP,
+          stroke: OneHandedPolicy.ICON_STROKE,
+          color: this.skin.keyForeground
+        })
+      }
+      .width(FloatingKeyboardPolicy.DOCK_WIDTH_VP)
+      .height('100%')
+      .accessibilityText(FloatingKeyboardPolicy.DOCK_DESCRIPTION)
+      .onClick((): void => this.setFloating(false))
+    }
+    .width('100%')
+    .height(FloatingKeyboardPolicy.BAR_HEIGHT_VP)
+  }
+
+  /** 拖动条上的手指：按下记起点，移动时把相对起点的屏幕位移交给会话，抬起或取消时结束拖动。 */
+  private floatingBarTouch(event: TouchEvent): void {
+    const touch: TouchObject | undefined = event.touches.length > 0 ? event.touches[0] : undefined;
+    if (event.type === TouchType.Down && touch !== undefined) {
+      this.floatingTouchOrigin = [touch.displayX, touch.displayY];
+      KeyboardSession.shared.beginFloatingDrag();
+    } else if (event.type === TouchType.Move && touch !== undefined) {
+      KeyboardSession.shared.dragFloating(touch.displayX - this.floatingTouchOrigin[0],
+        touch.displayY - this.floatingTouchOrigin[1]);
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      KeyboardSession.shared.endFloatingDrag();
+    }
+    event.stopPropagation();
+  }
+
+  @Builder
+  keyboardStack() {
     Stack({ alignContent: Alignment.Top }) {
       // On a desktop candidate window with a mascot the backdrop starts at the card's top edge: the band above it is transparent, so the mascot stands on the card rather than on a slab of keyboard colour.
       Column() {

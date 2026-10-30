@@ -15,7 +15,7 @@ issue 留了两个待定问题：鸿蒙走 Android 的规则还是另定一套�
 `platforms/harmony/entry/src/main/ets/keyboard/SplitKeyboardPolicy.ts` 是 Android 同名类的 ArkTS 版，常数、断点和份额计算与 Android 相同：
 
 - 启用条件：主开关打开，屏幕最短边不小于启用宽度（480–1000vp、步进 20、默认 600，默认值就是 `KeyboardFormFactorPolicy.largeScreen` 的界线），横屏或「竖屏也分离」打开，不是 2in1。键面必须是 26 键一族或韩文的字母层，或它们的 123 / #+= 层；九键、14/18 键、笔画、注音、手写、假名九键和借来的数字九宫格不分。
-- 几何：空隙至少占整行的「分离中间空隙」（10–40%、步进 5、默认 25），两侧原始键区合计不超过 720vp。断点取最接近一半的键边界，奇数多出的归左。字母第二、三排在右半边内侧重复 G、V，重复键从空隙借一个键宽。底行空格拆成两个，左边那个的份额让空隙居中，每一半至少 15%。分离时单手模式让位，存着的值不变。
+- 几何：空隙至少占整行的「分离中间空隙」（10–40%、步进 5、默认 25），两侧原始键区合计不超过 720vp。断点取最接近一半的键边界，奇数多出的归左。字母第二、三排在右半边内侧重复 G、V，重复键从空隙借一个键宽。底行空格拆成两个，左边那个的份额让空隙居中，每一半至少 15%。分离时单手模式让位，存着的值不变，功能面板的单手磁贴置灰。浮动键盘（[鸿蒙浮动键盘](2026-10-30-harmony-floating-keyboard.md)，#10225）优先：浮动时不画分离式键盘（`SplitKeyboardPolicy.drawn` 的 `floating` 参数），停靠后按存着的设置回来；分离时浮动磁贴照常可用，与 Android `splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false 相同。
 
 设置的存放与 Android 不同。Android 的主开关、启用宽度、空隙在宿主自己的本机设置文件里（`platform.android.split_keyboard*`），只有「竖屏也分离」是共享偏好 `touch_keyboard_split_portrait`。鸿蒙的本机设置就是共享偏好，于是 client-core 新增三个共享偏好：
 

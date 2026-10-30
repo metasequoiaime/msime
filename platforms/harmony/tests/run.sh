@@ -589,7 +589,7 @@ if ! grep -qF 'splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_key
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'this.splitKeyboard = this.settings.splitKeyboard;' "$keyboard_view" \
   || ! grep -qF 'this.screenWidthVp = widthVp;' "$keyboard_view" \
-  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn();' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn() && !this.floatingDrawn();' "$keyboard_view" \
   || ! grep -qF '} else if (this.splitDrawn()) {' "$keyboard_view" \
   || ! grep -qF 'this.splitGap(this.splitLetterRow(row).gapShare)' <<< "$split_letter_body" \
   || ! grep -qF 'this.duplicateLetterKey(' <<< "$split_letter_body" \
@@ -625,6 +625,30 @@ if ! grep -qF '"name": "ohos.permission.PRIVACY_WINDOW"' "$repo_root/platforms/h
   || ! grep -qF 'return false;' <<< "$capture_available" \
   || [[ $(grep -cF 'return true;' <<< "$capture_available") -ne 1 ]]; then
   echo "Screen capture protection must declare PRIVACY_WINDOW, set privacy mode on all three keyboard panels and on the settings window, re-apply it after each focus import, skip panels whose mode has not changed, publish every change to the keyboard without reporting a saved change as failed when that publish fails, and refuse when no system authentication is set up" >&2
+  exit 1
+fi
+# 浮动键盘（#10225）：大小、位置钳制和转屏由 floating-keyboard.test.ts 覆盖。扩展能力和视图是 ArkTS，这里钉住接线：`changeFlag` 要求先隐藏面板，所以只在 `applyFloatingSetting` 里、`await panel.hide()` 之后调用，换完无论成败都显示回来；`moveTo` 对 `FLG_FIXED` 不可用，停靠路径只 resize；转屏经 `display.on('change')` 重新摆浮动面板，销毁时退订；浮动时单手模式不生效，分离式键盘也不画（`SplitKeyboardPolicy.drawn` 收到浮动状态，规则由 split-keyboard.test.ts 覆盖），单手磁贴在分离和浮动时都置灰。
+floating_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+floating_apply=$(sed -n '/^  private async applyFloatingSetting(panel: inputMethodEngine.Panel): Promise<void> {$/,/^  }$/p' "$floating_ability")
+floating_fit=$(sed -n '/^  private async fitTouchPanel(panel: inputMethodEngine.Panel): Promise<void> {$/,/^  }$/p' "$floating_ability")
+floating_fixed=$(sed -n '/^    if (!this.floating) {$/,/^    }$/p' <<< "$floating_fit")
+if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
+  || ! grep -qF 'await panel.hide();' <<< "$floating_apply" \
+  || ! grep -qF 'panel.changeFlag(wanted ? inputMethodEngine.PanelFlag.FLG_FLOATING : inputMethodEngine.PanelFlag.FLG_FIXED);' <<< "$floating_apply" \
+  || ! grep -qF '} finally {' <<< "$floating_apply" \
+  || ! grep -qF 'await panel.show();' <<< "$floating_apply" \
+  || grep -qF 'moveTo' <<< "$floating_fixed" \
+  || ! grep -qF 'FloatingKeyboardPolicy.position(this.floatingFraction[0], this.floatingFraction[1],' <<< "$floating_fit" \
+  || ! grep -qF "display.on('change', this.displayChanged);" "$floating_ability" \
+  || ! grep -qF "display.off('change', this.displayChanged);" "$floating_ability" \
+  || ! grep -qF 'KeyboardSession.shared.saveFloatingPosition(this.floatingFraction[0], this.floatingFraction[1]);' "$floating_ability" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn() && !this.floatingDrawn();' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'KeyboardFormFactor.isDesktop(), this.splitsFace(), this.floatingDrawn());' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
+  echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

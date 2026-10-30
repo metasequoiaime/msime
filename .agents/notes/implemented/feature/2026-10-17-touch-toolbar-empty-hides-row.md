@@ -12,7 +12,7 @@ Status: implemented
 
 这一行藏着时，打开的面板是否把它临时带出来，Android 由 `toolbarExitNeeded()` 决定：多数面板（表情等）的返回键就是工具栏上的收起键，必须带出来；只开着剪贴板面板、而底栏画着时不带，底栏的剪贴板键再点一次就关上面板。这条对「隐藏」和工具全关两种情况都生效。
 
-设置页预览跟着键盘：Android 的「键盘工具栏」预览在工具全关时写「没有打开的工具按钮，工具栏不显示，只显示候选条」；iOS `KeyboardToolbarSettingsView` 的预览和「已隐藏」提示改按同一个 `rowHidden` 判断，工具开关仍只在「隐藏」时置灰，全关之后还能逐个打开。
+设置页预览跟着键盘：Android 的「键盘工具栏」预览在工具全关时写「没有打开的工具按钮，工具栏不显示，只显示候选条」；iOS `KeyboardToolbarSettingsView` 的预览和「已隐藏」提示改按同一个 `rowHidden` 判断（现在由 `KeyboardToolbarPreviewRow.items` 算出，26 键长空格时这一行总带着 符，见[键盘预览跟随按键布局](../bug-fix/2026-10-29-keyboard-previews-follow-layout.md)），工具开关仍只在「隐藏」时置灰，全关之后还能逐个打开。
 
 iOS 长按：工具栏上全部按钮（含品牌键和收起键）各挂 0.5 秒的 `UILongPressGestureRecognizer`，`cancelsTouchesInView` 让长按不再触发点按，播放按键反馈后经 `KeyboardAppLauncher.toolbarSettingsURL`（`<scheme>://settings/toolbar`）打开 App 的「键盘工具栏」页，App 端 `SettingsRouter` 原本就能解析这条路由。每个按钮另有 VoiceOver 自定义操作「编辑工具栏」。
 

@@ -141,15 +141,22 @@ export class SplitKeyboardPolicy {
     return (landscape || settings.portrait) && Math.min(widthVp, heightVp) >= threshold;
   }
 
-  /** 当前是否真的画成分离式：前提满足且正在画的键面可以分离。单手模式和每一行的拆分都只看这一个结果。 */
+  /**
+   * 当前是否真的画成分离式：前提满足、正在画的键面可以分离，并且键盘没有浮动。单手模式和每一行的拆分都只看这一个结果。
+   *
+   * 浮动键盘（`FloatingKeyboardPolicy.active`）是一块最宽 480vp 的窄面板，不分成两半；存着的分离设置不变，停靠后按原样回来。与 Android `MSIMEInputService.splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false 相同。
+   */
   static drawn(
     settings: SplitKeyboardSettings,
     widthVp: number,
     heightVp: number,
     desktop: boolean,
     splitsFace: boolean,
+    floating: boolean,
   ): boolean {
-    return splitsFace && SplitKeyboardPolicy.active(settings, widthVp, heightVp, desktop);
+    return (
+      !floating && splitsFace && SplitKeyboardPolicy.active(settings, widthVp, heightVp, desktop)
+    );
   }
 
   /** 当前这行宽度下空隙占整行的比例：用户选的比例，且保证两侧原始键区合计不超过 720vp。宽度未知时只用用户选的比例。 */

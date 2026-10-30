@@ -8,6 +8,7 @@ import {
   SplitSpace,
 } from "../entry/src/main/ets/keyboard/SplitKeyboardPolicy";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
+import { FloatingKeyboardPolicy } from "../entry/src/main/ets/keyboard/FloatingKeyboardPolicy";
 import { SettingsFormFactorCapabilities } from "../entry/src/main/ets/keyboard/settings/SettingsFormFactorCapabilities";
 
 let failures = 0;
@@ -99,10 +100,38 @@ group("启用条件：开关、大屏横屏、启用宽度；竖屏要另开，�
   const wide: SplitKeyboardSettings = settings({ thresholdVp: 1000 });
   check(!P.active(wide, 1280, 800, false) && P.active(wide, 1600, 1000, false), "1000 的边界");
   check(
-    P.drawn(on, 1280, 800, false, true) && !P.drawn(on, 1280, 800, false, false),
+    P.drawn(on, 1280, 800, false, true, false) && !P.drawn(on, 1280, 800, false, false, false),
     "九键、14 键等不分离的键面不画",
   );
 });
+
+group(
+  "浮动键盘生效时不画分离式键盘，停靠后按存着的设置回来，与 Android splitKeyboardDrawn 相同",
+  () => {
+    const on: SplitKeyboardSettings = settings({ portrait: true });
+    // 平板横竖屏、可分离的键面，分离的前提都满足。
+    for (const [width, height] of [
+      [1280, 800],
+      [800, 1280],
+    ]) {
+      check(P.drawn(on, width, height, false, true, false), `${width}×${height} 停靠时分离`);
+      const floating: boolean = FloatingKeyboardPolicy.active(true, false);
+      check(floating, "触屏键盘上打开浮动即生效");
+      check(!P.drawn(on, width, height, false, true, floating), `${width}×${height} 浮动时不分离`);
+      check(P.active(on, width, height, false), "浮动不改分离的前提，存着的设置不变");
+      check(
+        P.drawn(on, width, height, false, true, FloatingKeyboardPolicy.active(false, false)),
+        `${width}×${height} 停靠后分离回来`,
+      );
+    }
+    // 2in1 上浮动开关不生效，分离本来也不画；两者都不会画出来。
+    check(!FloatingKeyboardPolicy.active(true, true), "2in1 不浮动");
+    check(
+      !P.drawn(on, 1280, 800, true, true, FloatingKeyboardPolicy.active(true, true)),
+      "2in1 不分离",
+    );
+  },
+);
 
 group("空隙比例：用户选的比例，宽屏上两侧键区合计不超过 720vp", () => {
   near(P.gapFraction(0, 25), 0.25, "宽度未知");
