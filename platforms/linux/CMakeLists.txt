@@ -59,8 +59,9 @@ find_package(nlohmann_json 3.11 REQUIRED)
 if(BUILD_TESTING)
   # 安装包验收在只有运行依赖的镜像中跑 CTest；夹具必须在构建阶段编译，不能要求用户环境装编译器和 JSON 头文件。
   set(MSIME_AUXILIARY_CONSENT_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-windows-auxiliary-crash-consent.py")
-  set(MSIME_AUXILIARY_CONSENT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/windows-auxiliary-crash-consent.cpp")
+  set(MSIME_AUXILIARY_CONSENT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/tests/windows-auxiliary-crash-consent.cpp")
   add_custom_command(OUTPUT "${MSIME_AUXILIARY_CONSENT_SOURCE}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/tests"
     COMMAND "${Python3_EXECUTABLE}" "${MSIME_AUXILIARY_CONSENT_SCRIPT}" --write-source "${MSIME_AUXILIARY_CONSENT_SOURCE}"
     DEPENDS "${MSIME_AUXILIARY_CONSENT_SCRIPT}" "${CMAKE_CURRENT_SOURCE_DIR}/../windows/common/AuxiliaryCrashCapture.h"
     VERBATIM)
