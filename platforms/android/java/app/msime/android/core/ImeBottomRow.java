@@ -633,8 +633,7 @@ final class ImeBottomRow {
             face.setSchemeLabel(numberPad ? "" : spaceLabel());
         }
         // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
-        if (numberPad) s.keyId(zeroButton(), layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
-            ? "Nine0" : KeyPressIds.forCharacter('0'));
+        if (numberPad) s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
         // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a

@@ -390,6 +390,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button emojiShortcutButton;
     Button symbolShortcutButton;
     Button voiceShortcutButton;
+    Button randomDigitsShortcutButton;
     Button aiPolishShortcutButton;
     Button replyShortcutButton;
     Button phraseShortcutButton;
@@ -3072,7 +3073,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || touchVoiceShortcutEnabled);
+            || imeLayoutRows.randomDigitsEntryVisible() || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
@@ -12026,6 +12027,14 @@ public final class MSIMEInputService extends InputMethodService {
                 : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
             // 候选条模式里收起键朝上，点它展开软键盘。
             if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
+        }
+        if (randomDigitsShortcutButton != null) {
+            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS))
+                imeLayoutRows.disableRandomDigits();
+            ViewPolicy.setVisible(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
+            ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());
+            if (Build.VERSION.SDK_INT >= 30) randomDigitsShortcutButton.setStateDescription(
+                imeLayoutRows.randomDigitsEnabled() ? "已开启" : "已关闭");
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.setVisible(voiceShortcutButton, touchVoiceShortcutEnabled);
