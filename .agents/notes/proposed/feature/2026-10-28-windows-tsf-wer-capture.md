@@ -135,6 +135,12 @@ PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and
 - **首次异常 VEH**：不需要进程外 helper，但无法判断异常后来是否被捕获，会把正常恢复算崩溃。
 - **仅在 COM 方法外套 SEH**：边界容易部署，却会漏掉后台任务，并把已被更外层宿主处理的异常误记为致命故障。
 
+### 完整安装包的已安装编辑器验收边界（2026-10-30）
+
+新预检包在专用 Windows 11 VM 106 按生产 `--production` 启动 Server，三条 TSF 管道握手通过；系统记事本由原产品 TIP 接管，真实虚拟键 `NIHAO` 显示候选并以空格提交合成「你好」，安装版 TSF worker 数为 1。已安装 `MetasequoiaImeTsf.dll` 的 `current_state` 读取到 `armed=true`，头部为版本 `0.3.0`、二进制 revision `ffc17be20180fbb8b9a43ea1498dfb6db86de1c0`、`component=tsf`、`arch=x86_64`；15 组归档精确符号中该 DLL/PDB GUID `C993DD62-22AA-4E1C-B400-9E29D23BF73F`、age 1 匹配，`llvm-symbolizer` 将 `+0x7bdcc` 还原到 `KeyEventSink.cpp:2415`，反汇编是 `mov dword ptr [r15], eax`。
+
+受控故障夹具将线程指令和寄存器改写后，目标记事本没有退出，Application 日志没有该 PID 的 1000/1001，独立诊断只看到无关的 `MoAppCrash`；没有生成或伪造产品故障记录。因此这轮只计真实编辑器输入和已安装采集状态通过，不计已安装包故障上报通过。失败的夹具输出、快照、无关系统事件和清理尝试全部保留在 `target/windows-installed-editor-ffc-evidence/`；后续需修正调试脱离/故障注入夹具后重跑，不能把合成宿主 WER 或旧暂存产品证据扩大为完整安装包闭环。
+
 ## Acceptance criteria
 
 - 实际 helper 回调拒绝非致命、外部地址、损坏/不一致/停采上下文，不改其余 WER 输出；自己的异常按原头落盘且不覆盖首份。
