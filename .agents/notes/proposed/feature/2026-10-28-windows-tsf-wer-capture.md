@@ -127,6 +127,18 @@ Server 正常停机后由原产品启动入口重启，把上述两条 `componen
 
 PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and run TSF system WER capture (x64 and x86)` 步骤已实际完成并报告 success。此前 runner 系统投递失败本轮未复现；该结果属于本轮同代次复用优化之前的候选，不替代新增读取计数与恢复屏障的运行验收，也不能单凭通过反推原失败根因。
 
+### 完整安装包真实编辑器闭环（2026-10-31）
+
+专用 Windows 11 VM 106 在真实安装的 `2c2587184a` 预检包上再次完成安装版验收。安装器重启后的路径审计确认 Server、合成数据目录和 WER 双视图值已清理；本轮真实使用后，卸载器在 TSF DLL 仍被系统输入法占用时留下 `System32\IME\metasequoiaime-full\msime_v0.3.0` 下两个 DLL；硬重启后仍存在，卸载器已不可重跑，最后只对本任务目录做了人工清理，因此不能把这轮记为安装器完整清理通过；重装后生产 Server 与系统记事本完成三条管道握手，真实 `NIHAO` 按键、候选窗口和空格提交「你好」通过。已安装 TSF 的 `current_state` 为 `armed=true`，x64 DLL SHA-256 为 `17b9b3950e824c09ca88d894b10def742321426d513f8a1bb12fc176a4c5f201`，PDB GUID/Age 和 `+0x7bdcc` → `KeyEventSink.cpp:2415` 精确匹配。
+
+在真实 `msime_client_telemetry_consent` 调用处短暂断点，恢复原始指令后执行安装版 TSF 的 `mov dword ptr [r15], eax`（`r15=0x11`）产生访问冲突。系统 Application 1000/1001 明确指向该 Notepad PID、`MetasequoiaImeTsf.dll+0x7bdcc` 和 `c0000005`；原 WER 记录以预备 UUID、版本、revision、`arch=x86_64`、`component=tsf` 写入，磁盘映像未改。打包 Notepad 的包装器退出值是 `0xff`，不把它放宽为 `0xc0000005`；独立脚本核对系统事件及原始记录后通过。
+
+原 Server 正常退出后重新启动，队列恰好出现一条原 UUID 的 `crash`，原始记录被确认删除；事件中的版本、revision、模块偏移和构建 envelope 保持不变，`consent_epoch` 没有泄露，且没有错误的 `session_crash`。随后重启后的记事本再次通过真实输入。
+
+同一编辑器上先活跃撤回再重开，`armed` 从 true 变 false 再变 true，记录路径和 `consent_epoch` 均更换；使用 `ntdll!RtlFillMemory` 的非自有故障对照产生系统 WER，但产品队列和原始目录均保持空。所有运行保持默认出站阻断，仅使用合成状态目录；证据任务为 `034`、`035`、`037`、`038`、`040`、`042`、`043`、`044`、`045`。
+
+这批证据只覆盖已安装包 x64/Windows 11；ARM64、Win7 和其他入口仍未完成。CI 旧 head 的 x86 `reopened` 超时仍保留：artifact 显示完整原始记录已写入但目标进程在 45 秒内未退出，不能据此宣布 CI 全绿。
+
 ## Alternatives considered
 
 - **超时后保存进程内存转储**：可提供线程调用栈，最利于定位 WER 等待；但即使合成目标也继承运行环境，转储可能扩大诊断内容范围。本轮仅保留本目标最多 128 条线程的 ID、状态与等待原因，以及匹配该 PID 的最多 16 个 WER worker 的 ID、名字与父 PID，不输出内存、环境或命令行。
