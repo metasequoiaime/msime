@@ -258,6 +258,7 @@ const
   WebView2DownloadUrl =
     'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2';
   VCRuntimeKey = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
+  VCRuntimeX86Key = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x86';
   VCRuntimeDownloadUrl =
     'https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist?view=msvc-170';
 
@@ -309,21 +310,21 @@ end;
 //
 // 要求 14.20 以上（VC++ 2019 起）而不是只看 Installed=1：只装了 2015/2017 版的
 // 机器同样有 Installed=1，却缺少从那一版才开始随 redist 分发的 vcruntime140_1.dll。
-// 32 位 TSF DLL 用的是静态 CRT（tsf/CMakeLists.txt 里的 MSVC_RUNTIME_LIBRARY），
-// 所以不必检查 x86 redist。
+// 32 位 TSF 自身使用静态 CRT，但旁边的动态依赖仍可能使用 x86 CRT，
+// 因此必须同时检查它们需要的 x86 redist，不能只检查主程序的 x64 redist。
 // 注意：Inno Setup 的花括号注释不能嵌套，上面提到的常量会提前闭合 { } 注释，
 // 所以这一段只能用行注释。
-function VCRuntimeInstalledInView(RootKey: Integer): Boolean;
+function VCRuntimeInstalledInView(RootKey: Integer; const RuntimeKey: String): Boolean;
 var
   Installed: Cardinal;
   Major: Cardinal;
   Minor: Cardinal;
 begin
   Result :=
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Installed', Installed) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Installed', Installed) and
     (Installed = 1) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Major', Major) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Minor', Minor) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Major', Major) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Minor', Minor) and
     ((Major > 14) or ((Major = 14) and (Minor >= 20)));
 end;
 
@@ -332,7 +333,13 @@ end;
 function VCRuntimeIsInstalled: Boolean;
 begin
   Result :=
-    VCRuntimeInstalledInView(HKLM32) or VCRuntimeInstalledInView(HKLM64);
+    VCRuntimeInstalledInView(HKLM32, VCRuntimeX86Key) or
+    VCRuntimeInstalledInView(HKLM64, VCRuntimeX86Key);
+#ifndef Windows7X86
+  Result := Result and
+    (VCRuntimeInstalledInView(HKLM32, VCRuntimeKey) or
+     VCRuntimeInstalledInView(HKLM64, VCRuntimeKey));
+#endif
 end;
 
 { 只用于写日志，不参与判定。}
@@ -376,7 +383,7 @@ begin
 
   NeedsVCRuntime := not VCRuntimeIsInstalled;
   if NeedsVCRuntime then
-    Log('Prerequisite missing: Visual C++ 2015-2022 Redistributable (x64).')
+    Log('Prerequisite missing: Visual C++ 2015-2022 Redistributable (x86 or required x64).')
   else
     Log('Visual C++ runtime found: ' + ReadVCRuntimeVersion);
 
@@ -386,10 +393,14 @@ begin
   Prompt := '这台电脑缺少输入法运行所需的系统组件：' + #13#10;
   if NeedsVCRuntime then
     Prompt := Prompt + #13#10 +
-      '● Visual C++ 2015-2022 可再发行组件包（x64）' + #13#10 +
-      '   缺少它输入法主程序根本无法启动（提示找不到 VCRUNTIME140.dll 之类）。' + #13#10 +
+      '● Visual C++ 2015-2022 可再发行组件包（x86；64 位 Windows 还需要 x64）' + #13#10 +
+      '   缺少对应组件会导致输入法注册失败或主程序无法启动。' + #13#10 +
       '   下载：' + VCRuntimeDownloadUrl + #13#10 +
-      '   直链：https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10;
+      '   x86：https://aka.ms/vs/17/release/vc_redist.x86.exe' + #13#10
+#ifndef Windows7X86
+      + '   x64：https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10
+#endif
+      ;
   if NeedsWebView2 then
     Prompt := Prompt + #13#10 +
       '● Microsoft Edge WebView2 Runtime' + #13#10 +
