@@ -143,6 +143,8 @@ PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and
 
 静态门禁通过后，用 Inno Setup 6.7.3 编译最小合成安装器时发现，`-Command "..."` 外层引号会剥掉 C# `DllImport` 的内部双引号；直接把引号写进命令会使 PowerShell 返回退出码 1。现改为由 PowerShell 用 `[char]34` 组合类型定义，避免嵌套命令行引号。Windows 构建机上的同源 PowerShell 组合脚本已编译 `Add-Type` 成功，直接执行 `MoveFileExW(..., [IntPtr]::Zero, MOVEFILE_DELAY_UNTIL_REBOOT)` 后在 `PendingFileRenameOperations` 看到合成版本目录和文件；完整新包及真实 TSF 锁定卸载仍待复验。
 
+本轮复用了完整暂存的 x64/x86/ARM64 载荷，重新编译并签名的新安装器哈希为 `e49fcb0e983fc9f2a01348cd1ccab6dfb0adf73d00a9baee2a8e2f6225386f83`，签名状态为 `Valid`。它已传入 PVE 106，但重启后的 Windows 桌面没有接收 QMP 键鼠事件，原控制任务也没有恢复；离线注入一次性计划任务后仍没有结果文件。该 VM 已停止并移除临时任务、脚本和控制服务，真实安装版锁定卸载仍未取得证据。
+
 ## Alternatives considered
 
 - **超时后保存进程内存转储**：可提供线程调用栈，最利于定位 WER 等待；但即使合成目标也继承运行环境，转储可能扩大诊断内容范围。本轮仅保留本目标最多 128 条线程的 ID、状态与等待原因，以及匹配该 PID 的最多 16 个 WER worker 的 ID、名字与父 PID，不输出内存、环境或命令行。
