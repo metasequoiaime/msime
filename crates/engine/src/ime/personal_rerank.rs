@@ -71,13 +71,21 @@ fn personal_probabilities(
     personal
 }
 
-/// 首组与第一行字数相同的连续字典候选，最多 16 行，按 Unicode 码点计数。
+/// 首组与第一行字数、匹配编码相同的连续字典候选，最多 16 行；完整读音首选不与其它读音混排。
 fn leading_group_len(candidates: &[WordItem]) -> usize {
-    let characters = candidates[0].word.chars().count();
+    let first = &candidates[0];
+    let characters = first.word.chars().count();
+    // 简拼与双拼的匹配编码可以指向多个读音；只有编码本身已拼满首行读音时才保护该读音组。
+    let exact_reading = !first.pinyin.is_empty() && first.pinyin == first.canonical_pinyin;
     candidates
         .iter()
         .take(MAX_GROUP)
-        .take_while(|item| item.source.is_dictionary() && item.word.chars().count() == characters)
+        .take_while(|item| {
+            item.source.is_dictionary()
+                && item.word.chars().count() == characters
+                && item.pinyin == first.pinyin
+                && (!exact_reading || item.canonical_pinyin == first.canonical_pinyin)
+        })
         .count()
 }
 
@@ -297,6 +305,37 @@ mod tests {
 
         let long: Vec<WordItem> = (0..20).map(|index| row("字", index)).collect();
         assert_eq!(leading_group_len(&long), MAX_GROUP);
+    }
+
+    #[test]
+    fn personal_context_does_not_cross_matched_code_or_reading_boundaries() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("子", "乙", 32);
+        for (matched, canonical) in [("ge", "ge"), ("gei", "ge"), ("ge", "gei")] {
+            let rows = [
+                WordItem::new("gei", "甲", 100, CandidateSource::Database, "gei"),
+                WordItem::new(matched, "乙", 1000, CandidateSource::Database, canonical),
+            ];
+            assert_eq!(leading_group_len(&rows), 1);
+            assert_eq!(
+                personal_context_rerank_order(&rows, &model, None, "子", &mut never_pinned()),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn an_abbreviated_key_keeps_personal_ranking_across_its_readings() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("子", "乙", 32);
+        let rows = [
+            WordItem::new("l", "甲", 100, CandidateSource::Database, "lai"),
+            WordItem::new("l", "乙", 90, CandidateSource::Database, "le"),
+        ];
+        let order =
+            personal_context_rerank_order(&rows, &model, None, "子", &mut never_pinned()).unwrap();
+        assert_eq!(order.group_len, 2);
+        assert_eq!(order.indices[0], 1);
     }
 }
 
