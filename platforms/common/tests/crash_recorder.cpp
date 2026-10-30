@@ -72,9 +72,15 @@ void blocked_handler(int) {
   if (::read(handled_proceed, &token, 1) != 1) _exit(46);
 }
 
-// 另一个收集进程已经打开记录：前任返回之前锁不可取，返回之后旧描述符也不能读到误报。
-void handled_file(const std::filesystem::path &root) {
-  const auto path = root / "blocked-handled.crash";
+void blocked_default_handler(int number) {
+  blocked_handler(number);
+  restoring_default_handler(number);
+  raise(number);
+}
+
+// 收件进程已打开原 inode：恢复执行时清空，默认致命信号待送达时保留到退出。
+void handled_file(const std::filesystem::path &root, bool pending_fatal) {
+  const auto path = root / (pending_fatal ? "blocked-pending-fatal.crash" : "blocked-handled.crash");
   int ready[2], proceed[2];
   assert(pipe(ready) == 0 && pipe(proceed) == 0);
   const pid_t writer = fork();
@@ -85,7 +91,7 @@ void handled_file(const std::filesystem::path &root) {
     handled_ready = ready[1];
     handled_proceed = proceed[0];
     struct sigaction previous{};
-    previous.sa_handler = blocked_handler;
+    previous.sa_handler = pending_fatal ? blocked_default_handler : blocked_handler;
     sigemptyset(&previous.sa_mask);
     sigaction(SIGSEGV, &previous, nullptr);
     msime_native_crash_install();
@@ -104,10 +110,13 @@ void handled_file(const std::filesystem::path &root) {
   assert(write(proceed[1], "p", 1) == 1);
   int status;
   assert(waitpid(writer, &status, 0) == writer);
-  assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  assert(pending_fatal ? WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV
+                       : WIFEXITED(status) && WEXITSTATUS(status) == 0);
   assert(flock(reader, LOCK_EX | LOCK_NB) == 0);
-  assert(::read(reader, &token, 1) == 0);
-  assert(!std::filesystem::exists(path));
+  // 默认致命信号仍待送达时，原 inode 必须保留，不能删掉后靠二次采集掩盖记录丢失。
+  assert(::read(reader, &token, 1) == (pending_fatal ? 1 : 0));
+  if (pending_fatal) assert(token == 'M');
+  assert(std::filesystem::exists(path) == pending_fatal);
   close(reader);
   close(ready[0]);
   close(proceed[1]);
@@ -356,6 +365,7 @@ int main() {
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
     std::fprintf(stderr, "recoverable signal child status: %d\n", status);
   assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-  handled_file(root);
+  handled_file(root, false);
+  handled_file(root, true);
   std::filesystem::remove_all(root);
 }

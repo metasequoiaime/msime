@@ -201,6 +201,15 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
     if (previous.sa_flags & SA_SIGINFO) previous.sa_sigaction(signal, info, context);
     else previous.sa_handler(signal);
   }
+  sigset_t pending;
+  struct sigaction actual = {0};
+  if (sigpending(&pending) == 0 && sigismember(&pending, signal) == 1 &&
+      sigaction(signal, NULL, &actual) == 0 && actual.sa_handler == SIG_DFL) {
+    // 前任重新排队默认致命信号后返回，原记录与文件锁仍须保留到进程结束。
+    if (owns) atomic_flag_clear(&msime_configuration);
+    errno = saved_errno;
+    return;
+  }
   if (fd >= 0) {
     // 已打开旧 inode 的收件进程也必须看不到恢复执行的误报，清空和删名均在持锁时完成。
     (void)!ftruncate(fd, 0);

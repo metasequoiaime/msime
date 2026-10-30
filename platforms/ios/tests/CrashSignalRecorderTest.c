@@ -62,6 +62,12 @@ static void blocked_handler(int signal) {
   if (read(handled_proceed, &token, 1) != 1) _exit(46);
 }
 
+static void blocked_default_handler(int signal) {
+  blocked_handler(signal);
+  restoring_default_handler(signal);
+  raise(signal);
+}
+
 static void previous_handler(void (*handler)(int)) {
   struct sigaction action = {0};
   action.sa_handler = handler;
@@ -178,34 +184,39 @@ static void handled_signals(const char *path) {
   status = child_status(pid);
   assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
-  // 收件进程已经打开 inode 时，恢复执行也必须撤销旧描述符中的内容。
-  int ready[2], proceed[2];
-  assert(pipe(ready) == 0 && pipe(proceed) == 0);
-  pid = fork();
-  assert(pid >= 0);
-  if (pid == 0) {
-    close(ready[0]); close(proceed[1]);
-    handled_ready = ready[1]; handled_proceed = proceed[0];
-    previous_handler(blocked_handler);
-    msime_ios_crash_handlers_install();
-    msime_ios_crash_record_set(path, "MSIME-CRASH/1 {}\n");
-    raise(SIGSEGV);
-    assert(access(path, F_OK) != 0 && errno == ENOENT);
-    _exit(0);
+  for (int pending_fatal = 0; pending_fatal < 2; ++pending_fatal) {
+    // 收件进程已经打开 inode 时，恢复执行也必须撤销旧描述符中的内容。
+    int ready[2], proceed[2];
+    assert(pipe(ready) == 0 && pipe(proceed) == 0);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+      close(ready[0]); close(proceed[1]);
+      handled_ready = ready[1]; handled_proceed = proceed[0];
+      previous_handler(pending_fatal ? blocked_default_handler : blocked_handler);
+      msime_ios_crash_handlers_install();
+      msime_ios_crash_record_set(path, "MSIME-CRASH/1 {}\n");
+      raise(SIGSEGV);
+      assert(access(path, F_OK) != 0 && errno == ENOENT);
+      _exit(0);
+    }
+    close(ready[1]); close(proceed[0]);
+    char token;
+    assert(read(ready[0], &token, 1) == 1);
+    const int reader = open(path, O_RDONLY | O_CLOEXEC);
+    assert(reader >= 0);
+    assert(flock(reader, LOCK_EX | LOCK_NB) == -1 && (errno == EWOULDBLOCK || errno == EAGAIN));
+    assert(write(proceed[1], "p", 1) == 1);
+    status = child_status(pid);
+    assert(pending_fatal ? WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV
+                         : WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    assert(flock(reader, LOCK_EX | LOCK_NB) == 0);
+    assert(read(reader, &token, 1) == (pending_fatal ? 1 : 0));
+    if (pending_fatal) assert(token == 'M');
+    if (pending_fatal) assert_record(path);
+    else assert(access(path, F_OK) != 0 && errno == ENOENT);
+    close(reader); close(ready[0]); close(proceed[1]);
   }
-  close(ready[1]); close(proceed[0]);
-  char token;
-  assert(read(ready[0], &token, 1) == 1);
-  const int reader = open(path, O_RDONLY | O_CLOEXEC);
-  assert(reader >= 0);
-  assert(flock(reader, LOCK_EX | LOCK_NB) == -1 && (errno == EWOULDBLOCK || errno == EAGAIN));
-  assert(write(proceed[1], "p", 1) == 1);
-  status = child_status(pid);
-  assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-  assert(flock(reader, LOCK_EX | LOCK_NB) == 0);
-  assert(read(reader, &token, 1) == 0);
-  assert(access(path, F_OK) != 0 && errno == ENOENT);
-  close(reader); close(ready[0]); close(proceed[1]);
 }
 
 int main(int argc, char **argv) {

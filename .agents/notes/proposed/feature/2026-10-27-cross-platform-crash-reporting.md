@@ -258,3 +258,11 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 正式 Host API 与原生缓存已去掉回环特性和目标重新构建；正式 begin/flush 均以 `invalid request document` 拒绝测试字段，且未创建测试队列。合成授权已关闭；独立审计确认本任务进程、任务计划、防火墙规则、helper 允许列表、TSF CLSID/TIP 及三个状态根注册值恢复空基线，专用账号合成遥测文件清空。系统组件仍加载的旧 DLL 没有强制卸载或结束系统进程。后台容器、内部网络、监听与精确 SSH 转发已清理。小证据为 `target/windows-e746-product-final-evidence/` 的 54 份文件及 `target/windows-e746-backend-attempt1-evidence/`。范围仍限暂存 x64 产品，不替代完整安装器、其他架构、授权负对照或捕获恢复。
 
 当前候选的 Native Platform CI `40998000611` attempt 2 已整作业成功，Windows job `123884843202` 完成 x64/x86 系统 WER、Win7 和原生设置门禁；Android API 35 完成四共享 crate 设备测试、APK、崩溃/系统退出/ANR 专项与完整输入冒烟。CI 通过不替代矩阵里的真机、系统延迟投递或其他产品入口验收。
+
+### Android 当前基础产品的待送达致命信号漏报
+
+`e746981d18` 的 API 28 arm64 正式原生 APK 已重建，剥离后的四模块与 Gradle 实际输出一致，自有库 build-id 与独立未剥离符号归档一致；正式 APK SHA-256 为 `1df42a255c48e44059d85b80f3545c11ce1c4e738bcf627be6f20ad661945e2f`。新建专用 AVD 在首次启动前按应用 UID 禁网，实际 App/IME 的动态授权与故障落盘专项通过。但原始 JNI 真实访问冲突没有记录，不能把之前的 CI 或 SIGABRT 用例算作这个路径通过。
+
+诊断确认前任返回时记录已存在，却仍有待送达的默认 SIGSEGV；修复与独立失败/通过回归见[待送达致命信号](../../implemented/bug-fix/2026-10-30-android-pending-fatal-signal.md)。仅更新经过固定哈希核对的共同 C++ 源后，实际 IME 和 App 两轮隔离后台分别收到五条与三条事件，JNI 帧通过精确独立 ZIP 还原到 `client_jni.cpp:108/117`。这是 e746 基础包加精确修补的产品复验，不是全新提交完整重编或真机验收；本轮夹具失败亦在该笔记保留。
+
+Android 正式缓存已逐字节恢复，合成授权关闭、任务包卸载、AVD 停止，四轮后台与转发清理完成；本机从独立 ZIP 还原八个后台帧一致，完整 quick 与笔记校验通过。原 App 夹具的清理布尔值曾与真实恢复值不符，已保留原件并以独立审计纠正，详见上述修复笔记。

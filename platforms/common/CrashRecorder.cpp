@@ -16,6 +16,9 @@
 #include <csignal>
 #include <fcntl.h>
 #include <unistd.h>
+#if defined(__ANDROID__)
+#include <dlfcn.h>
+#endif
 #if defined(__linux__)
 #include <ucontext.h>
 #include <link.h>
@@ -396,6 +399,11 @@ constexpr Signal crash_signals[] = {
 constexpr size_t crash_signal_count = sizeof(crash_signals) / sizeof(crash_signals[0]);
 struct sigaction previous_actions[crash_signal_count];
 bool actions_installed = false;
+#if defined(__ANDROID__)
+using SignalActionQuery = int (*)(int, const struct sigaction *, struct sigaction *);
+SignalActionQuery kernel_signal_action = nullptr;
+void *signal_libc = nullptr;
+#endif
 // 为安装线程上的栈溢出预留信号栈。
 alignas(16) char alternate_stack[64 * 1024];
 
@@ -479,6 +487,20 @@ bool same_signal_action(const struct sigaction &left, const struct sigaction &ri
       return false;
   }
   return true;
+}
+
+bool default_signal_pending(int number) {
+  sigset_t pending{};
+  if (sigpending(&pending) != 0 || sigismember(&pending, number) != 1)
+    return false;
+  struct sigaction action{};
+#if defined(__ANDROID__)
+  // ART 的逻辑回调可能仍在，debuggerd 却已把内核处置改成默认；只查询预先解析的 libc 入口。
+  return kernel_signal_action && kernel_signal_action(number, nullptr, &action) == 0
+      && action.sa_handler == SIG_DFL;
+#else
+  return sigaction(number, nullptr, &action) == 0 && action.sa_handler == SIG_DFL;
+#endif
 }
 
 // 先用信号安全的写入保存摘要，再尽力展开预热过的运行时栈；展开器仍可能受损坏栈影响。
@@ -593,7 +615,12 @@ void crash_signal(int number, siginfo_t *info, void *context) {
       errno = saved;
       return;
     }
-    // 既有处理器返回代表本次故障已被接管；持锁撤掉临时记录，不能抢先被另一进程补报。
+    if (default_signal_pending(number)) {
+      // 前任恢复默认并重新投递后也会返回；保留原 inode 和锁，由致命退出释放，不能先删记录。
+      errno = saved;
+      return;
+    }
+    // 没有待送达的默认致命动作才视为恢复；持锁撤掉临时记录，不能抢先被另一进程补报。
     if (fd >= 0) {
       // 扫描器可能已打开旧 inode、尚未尝试文件锁；清空后再删名，旧描述符也读不到误报。
       (void)!ftruncate(fd, 0);
@@ -739,6 +766,20 @@ void install_crash_handlers() {
 #else
   if (actions_installed)
     return;
+#if defined(__ANDROID__)
+  // 加载器调用只发生在正常安装路径，保留库引用直到进程结束，信号中不解析符号。
+  if (!signal_libc) {
+    signal_libc = dlopen("libc.so", RTLD_NOW | RTLD_LOCAL);
+    if (!signal_libc)
+      return;
+    kernel_signal_action = reinterpret_cast<SignalActionQuery>(dlsym(signal_libc, "sigaction"));
+    if (!kernel_signal_action) {
+      dlclose(signal_libc);
+      signal_libc = nullptr;
+      return;
+    }
+  }
+#endif
 #if defined(__linux__)
   UnwindFrames warm;
   _Unwind_Backtrace(collect_frame, &warm);
