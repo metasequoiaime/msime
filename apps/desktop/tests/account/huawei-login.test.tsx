@@ -72,7 +72,11 @@ function sheet(account: AccountClient, providers: AccountProviders = bothEnabled
 
 test("鸿蒙登录面板给出「华为账号登录」，不再给 Google 登录", () => {
   const { dialog } = sheet(harmonyClient());
-  expect(dialog.getByRole("button", { name: "华为账号登录" })).not.toBeNull();
+  const button = dialog.getByRole("button", { name: "华为账号登录" });
+  // 按华为账号登录按钮规范，按钮里带华为标志：浅色主题的红色版和深色主题的白色版各一张，都只是装饰，不改按钮的名字。
+  const logos = button.querySelectorAll("img");
+  expect(logos).toHaveLength(2);
+  logos.forEach((logo) => expect(logo.getAttribute("alt")).toBe(""));
   expect(dialog.queryByRole("button", { name: "使用 Google 登录" })).toBeNull();
   expect(dialog.queryByText("当前没有可用的登录方式，请稍后重试。")).toBeNull();
 });
@@ -129,6 +133,7 @@ test("桌面式账号页（鸿蒙 2in1）同样给出华为账号登录、要先
   const account = harmonyClient();
   render(<AccountPage client={account} />);
   const button = await screen.findByRole("button", { name: "华为账号登录" });
+  expect(button.querySelectorAll("img")).toHaveLength(2);
   expect(screen.queryByRole("button", { name: "使用 Google 登录" })).toBeNull();
 
   fireEvent.click(button);
