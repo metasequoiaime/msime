@@ -428,9 +428,19 @@ class DefinitionsPointAtLinuxSourcesTest(unittest.TestCase):
     def test_arch_artifacts_are_built_for_nightly_without_publishing_a_version(self):
         workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
         arch = workflow.split("\n  arch-bin:\n", 1)[1].split("\n  publish:\n", 1)[0]
-        self.assertIn("if: ${{ needs.source.outputs.packaging == 'true' }}", arch)
-        self.assertNotIn("inputs.publish", arch)
+        self.assertIn("\n    if: ${{ needs.source.outputs.packaging == 'true' }}\n", arch)
+        # nightly 里 Arch 失败不拖住 DEB 和 RPM；发布时 continue-on-error 为假，publish 仍要求它成功。
+        self.assertIn("\n    continue-on-error: ${{ !inputs.publish }}\n", arch)
         self.assertIn("msime-linux-arch-${{ steps.version.outputs.value }}", arch)
+
+    def test_arch_package_is_built_from_the_full_edition_rpm(self):
+        workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
+        arch = workflow.split("\n  arch-bin:\n", 1)[1].split("\n  publish:\n", 1)[0]
+        # artifact 里每个版本各有一个 RPM，通配会随目录顺序挑到别的版本。
+        self.assertIn("edition_linux.py field --edition full package", arch)
+        self.assertIn('rpm="target/arch-rpm/${package}-${VERSION}-1.x86_64.rpm"', arch)
+        self.assertNotIn("-print -quit", arch)
+        self.assertNotIn("msime-linux-*.x86_64.rpm", arch)
 
     def test_definitions_fetch_sources_from_linux_sources(self):
         base = re.escape("releases/download/linux-sources/")
