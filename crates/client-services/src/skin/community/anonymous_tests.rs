@@ -104,16 +104,23 @@ impl CommunitySkinApi for RecordingApi {
         _: &str,
         _: bool,
         _: Option<SkinCategory>,
+        _: bool,
         _: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError> {
         unreachable!("community_skins")
     }
-    fn community_skin(&self, _: Uuid, _: Option<&str>) -> Result<CommunitySkin, AccountError> {
+    fn community_skin(
+        &self,
+        _: Uuid,
+        _: bool,
+        _: Option<&str>,
+    ) -> Result<CommunitySkin, AccountError> {
         unreachable!("community_skin")
     }
     fn download_community_skin(
         &self,
         _: Uuid,
+        _: bool,
         bearer: &str,
     ) -> Result<TouchKeyboardSkinDesign, AccountError> {
         self.downloads
@@ -196,19 +203,26 @@ fn fixture(
 fn a_signed_out_download_uses_the_anonymous_account() {
     let (service, anonymous, api) = fixture(false, true);
     assert_eq!(
-        service.download_with_anonymous(&anonymous, item()).unwrap(),
+        service
+            .download_with_anonymous(&anonymous, item(), false)
+            .unwrap(),
         TouchKeyboardSkinDesign::default()
     );
     assert_eq!(*api.downloads.lock().unwrap(), ['1']);
     // 只用登录账号的 download 仍要求登录。
-    assert_eq!(service.download(item()), Err(AccountError::Unauthorized));
+    assert_eq!(
+        service.download(item(), false),
+        Err(AccountError::Unauthorized)
+    );
     assert_eq!(*api.downloads.lock().unwrap(), ['1']);
 }
 
 #[test]
 fn the_signed_in_account_comes_first() {
     let (service, anonymous, api) = fixture(true, true);
-    service.download_with_anonymous(&anonymous, item()).unwrap();
+    service
+        .download_with_anonymous(&anonymous, item(), false)
+        .unwrap();
     assert_eq!(*api.downloads.lock().unwrap(), ['a']);
 }
 
@@ -216,7 +230,9 @@ fn the_signed_in_account_comes_first() {
 fn a_rejected_anonymous_token_is_refreshed_within_the_anonymous_account() {
     let (service, anonymous, api) = fixture(false, true);
     api.stale.lock().unwrap().push(token('1'));
-    service.download_with_anonymous(&anonymous, item()).unwrap();
+    service
+        .download_with_anonymous(&anonymous, item(), false)
+        .unwrap();
     assert_eq!(*api.downloads.lock().unwrap(), ['1', '3']);
 }
 
@@ -224,11 +240,11 @@ fn a_rejected_anonymous_token_is_refreshed_within_the_anonymous_account() {
 fn without_either_session_it_is_unauthorized_before_the_network() {
     let (service, anonymous, api) = fixture(false, false);
     assert_eq!(
-        service.download_with_anonymous(&anonymous, item()),
+        service.download_with_anonymous(&anonymous, item(), false),
         Err(AccountError::Unauthorized)
     );
     assert_eq!(
-        service.download_with_anonymous(&anonymous, Uuid::nil()),
+        service.download_with_anonymous(&anonymous, Uuid::nil(), false),
         Err(AccountError::Invalid)
     );
     assert!(api.downloads.lock().unwrap().is_empty());

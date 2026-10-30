@@ -125,8 +125,7 @@ pub fn copy_snapshot_file(source: &Path, destination: &Path) -> io::Result<()> {
         ));
     }
     temporary.as_file().sync_all()?;
-    temporary
-        .persist(destination)
+    file_lock::persist_replacing(temporary, destination)
         .map(|_| ())
         .map_err(|error| error.error)
 }

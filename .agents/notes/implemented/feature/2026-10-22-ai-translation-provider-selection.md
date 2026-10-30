@@ -16,7 +16,7 @@ Windows v0.11.1 的翻译服务可选 `ai`，复用「AI 与云联想」页的�
 
 ## Existing notes
 
-[候选翻译复用 AI 配置](2026-10-17-ai-candidate-translation.md)是本次翻转的对象之一：那篇建立请求管线时用「AI 联想开着且有凭据」隐式选中 AI 翻译，本篇改为显式 `translation_ai`，管线本身不变，两篇互链。[翻译凭据偏好](../../implemented/simplification/2026-10-16-translation-credential-preferences.md)确立互斥开关推导服务的模型，`translation_ai` 沿用同一模型而非新增独立 `translation.provider` 字符串。
+[候选翻译复用 AI 配置](2026-10-17-ai-candidate-translation.md)是本次翻转的对象之一：那篇建立请求管线时用「AI 联想开着且有凭据」隐式选中 AI 翻译，本篇改为显式 `translation_ai`，管线本身不变，两篇互链。Android 和 iOS 的键盘自己镜像选路，当时没有跟上这条规则，由 [Android 和 iOS 的 AI 辅助翻译改为显式选择](../../implemented/bug-fix/2026-10-29-mobile-ai-translation-explicit.md) 补上，并为手机上的旧文档做了一次性迁移。[翻译凭据偏好](../../implemented/simplification/2026-10-16-translation-credential-preferences.md)确立互斥开关推导服务的模型，`translation_ai` 沿用同一模型而非新增独立 `translation.provider` 字符串。
 
 ## Alternatives considered
 

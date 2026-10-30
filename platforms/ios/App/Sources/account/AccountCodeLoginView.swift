@@ -248,7 +248,7 @@ struct CodeLoginView: View {
   @State private var pending: Task<Void, Never>?
 
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section {
           TextField(channel == .email ? "邮箱地址" : "手机号（含国家区号，如 +86）", text: $target)
@@ -292,6 +292,8 @@ struct CodeLoginView: View {
         if let message = model.message { Text(message).foregroundStyle(.secondary) }
       }
       .disabled(model.busy)
+      .designPage()
+      .fittedSheet()
       .navigationTitle(channel.title)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { ViewRequestTask.cancel(task: $pending); dismiss() } } }
     }

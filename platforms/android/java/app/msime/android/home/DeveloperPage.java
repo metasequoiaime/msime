@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -236,14 +237,20 @@ public final class DeveloperPage extends ReloadingDetailPage {
         }
 
         GroupCard debug = GroupCard.add(sectionColumn(target, "调试"), "调试");
-        debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频",
+        boolean loggingEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED);
+        debug.toggle("日志总开关", "关闭后不显示调试信息，也不记录输入日志", loggingEnabled,
+            on -> edit(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED, on));
+        GroupCard.Row overlay = debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频",
             settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY),
             on -> edit(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY, on));
-        debug.toggle("记录输入日志", "仅保存在本机，不会上传", settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
+        overlay.setEnabled(loggingEnabled);
+        GroupCard.Row inputLog = debug.toggle("记录输入日志", "仅保存在本机，不会上传", settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
             on -> edit(AndroidLocalSettings.DEVELOPER_INPUT_LOG, on));
+        inputLog.setEnabled(loggingEnabled);
         String level = settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL);
-        debug.nav("日志级别", "只影响系统日志（logcat），导出的诊断包不受它影响", levelLabel(level),
+        GroupCard.Row levelRow = debug.nav("日志级别", "只影响系统日志（logcat），导出的诊断包不受它影响", levelLabel(level),
             snapshot == null ? null : () -> showLevelSheet(level));
+        levelRow.setEnabled(loggingEnabled && snapshot != null);
 
         GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据");
         data.nav("默认导出文件夹", exportDirectoryName, null, () -> pickExportDirectory(false))
@@ -356,7 +363,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private void confirmDelete() {
         String expectedAccountId = cloudAccountId;
         String expectedSessionId = cloudSessionId;
-        new MaterialAlertDialogBuilder(requireContext())
+        ScreenCaptureProtection.show(new MaterialAlertDialogBuilder(requireContext())
             .setTitle("删除云端日志")
             .setMessage("云端快照和访问令牌会立即删除，开发者无法再读取。")
             .setNegativeButton("取消", (dialog, which) -> render())
@@ -390,7 +397,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
                     render();
                 });
             })
-            .show();
+            .create());
     }
 
     private void confirmRegenerate() {
@@ -648,6 +655,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
                         return;
                     }
                     snapshot = restored.has("preferences") ? restored : snapshot;
+                    // 重置经过了系统认证，「防止截屏」随其他本地设置回到关闭；本页所在的窗口当场跟上。
+                    ScreenCaptureProtection.apply(requireActivity());
                     render();
                     reload();
                     MsToast.show(requireContext(), "已恢复出厂设置");

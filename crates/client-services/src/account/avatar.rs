@@ -80,6 +80,7 @@ pub fn fetch_account_avatar(url: &str) -> Result<AccountAvatarImage, AccountErro
     }
     // 头像地址只可能是 https 公网主机（见 `account_avatar_url_allowed`）；按用户的网络代理设置走。
     let client = crate::proxy::configure_blocking(Client::builder())
+        .map_err(|_| AccountError::Unavailable)?
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()

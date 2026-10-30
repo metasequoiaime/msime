@@ -28,6 +28,8 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         int padding = Math.round(20 * getResources().getDisplayMetrics().density);

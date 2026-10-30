@@ -161,9 +161,7 @@ struct InputSettingsView: View {
 
   /// 语言行上显示的方案：键盘当前方案属于该语言时就是它，否则是该语言第一个已启用的方案。
   private func shownScheme(_ language: InputLanguage) -> ChineseInputScheme? {
-    let schemes = available(language)
-    if schemes.contains(inputScheme) && enabledSchemes.contains(inputScheme) { return inputScheme }
-    return schemes.first(where: enabledSchemes.contains)
+    ChineseInputScheme.represented(among: available(language), enabled: enabledSchemes, current: inputScheme)
   }
 
   @ViewBuilder private var languageCard: some View {
@@ -208,9 +206,10 @@ struct InputSettingsView: View {
     }
   }
 
+  /// 面板里打勾的选项就是行上显示的方案，键盘正用着别的语言时也一样。
   private func selectedChoice(in language: InputLanguage) -> LanguageChoice? {
-    guard language.schemes.contains(inputScheme), enabledSchemes.contains(inputScheme) else { return nil }
-    return inputScheme == .wubi ? .wubi(wubiProfile) : .scheme(inputScheme)
+    guard let scheme = shownScheme(language) else { return nil }
+    return scheme == .wubi ? .wubi(wubiProfile) : .scheme(scheme)
   }
 
   /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86 和 98，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。

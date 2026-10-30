@@ -3,7 +3,7 @@ import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.NineKeySwipePolicy.Gesture;
 import app.msime.android.SwipeHintPolicy;
 
-/** 拼音九键网格键的滑动（#5580）：独立的本地设置，默认关闭；选了方向后沿它出数字，反方向弹字母。判定距离是另一项本地设置（#6208），默认 24 dp，和 26 键的 14 dp 分开。 */
+/** 拼音九键网格键的滑动（#5580）：独立的共享偏好 `touch_nine_key_swipe_digits`（#10229，随账号同步），默认关闭；选了方向后沿它出数字，反方向弹字母。判定距离仍是 Android 本地设置（#6208），默认 24 dp，和 26 键的 14 dp 分开。 */
 public final class NineKeySwipePolicySmoke {
     public static void main(String[] args) {
         String up = SwipeHintPolicy.UP;
@@ -38,13 +38,24 @@ public final class NineKeySwipePolicySmoke {
             "the smallest nine-key distance equals the 26-key threshold");
         check(SwipeHintPolicy.swiped(up, 40, 20), "the 26-key threshold stays at 14 dp");
 
-        // 默认关闭、只在本机：升级后九键的点按不变，也不跟 26 键「滑动输入符号」的开关和方向走。
+        // #10229：设置在共享偏好里，字段名与 client-core 相同，写法与旧本机值逐字相同；缺键、不是字符串和不认识的写法都读成关闭，升级后九键的点按不变，也不跟 26 键「滑动输入符号」的开关和方向走。
+        check("touch_nine_key_swipe_digits".equals(NineKeySwipePolicy.PREFERENCE), "the shared field name matches client-core");
+        check(off.equals("off") && up.equals("up") && down.equals("down"), "the wire values are off, up and down");
+        check(off.equals(NineKeySwipePolicy.mode(null)), "a missing or non-string value reads as off");
+        check(up.equals(NineKeySwipePolicy.mode(up)) && down.equals(NineKeySwipePolicy.mode(down))
+            && off.equals(NineKeySwipePolicy.mode(off)), "off, up and down read back as written");
+        check(off.equals(NineKeySwipePolicy.mode("left")) && off.equals(NineKeySwipePolicy.mode("UP"))
+            && off.equals(NineKeySwipePolicy.mode("")), "unknown spellings read as off");
+        check(NineKeySwipePolicy.gesture(NineKeySwipePolicy.mode("sideways"), 40, 0, true, standard) == Gesture.NONE,
+            "an unknown shared value never swipes");
+
+        // 旧的本机键只留给迁移读：规格声明还在（否则读文件时会被丢掉），仍不经 android_local 同步，写法与共享偏好相同，迁移是原样拷贝。
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE);
-        check(off.equals(spec.defaultValue), "nine-key swipe is off by default");
-        check(!spec.synced, "nine-key swipe is a local setting");
+        check(off.equals(spec.defaultValue), "the legacy key defaulted to off");
+        check(!spec.synced, "the legacy key never travels through android_local");
         check(up.equals(spec.accept(up)) && down.equals(spec.accept(down)) && off.equals(spec.accept(off)),
-            "off, up and down are the accepted values");
-        check(spec.accept("left") == null, "other directions are rejected");
+            "the legacy key still accepts off, up and down so migration can read it");
+        check(spec.accept("left") == null, "other legacy directions are rejected");
 
         AndroidLocalSettings.Spec distance = AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE);
         check(distance.kind == AndroidLocalSettings.Spec.Kind.INTEGER, "nine-key swipe distance is an integer");
@@ -57,7 +68,7 @@ public final class NineKeySwipePolicySmoke {
             "off-step and out-of-range distances are rejected");
         check(AndroidLocalSettings.defaults().integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE)
             == NineKeySwipePolicy.DEFAULT_THRESHOLD_DP, "an untouched install reads the default distance");
-        System.out.println("Android nine-key swipe: off by default, digit along the chosen direction, letters against it, own distance passed");
+        System.out.println("Android nine-key swipe: shared preference off by default, digit along the chosen direction, letters against it, own local distance passed");
     }
 
     private static void check(boolean condition, String message) {

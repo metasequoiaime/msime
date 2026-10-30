@@ -6,13 +6,18 @@ import { HarmonyVoicePolisher } from './HarmonyVoicePolisher';
 import { DoubaoCredentialPolicy, VoiceInputConfiguration } from './VoiceInputConfiguration';
 import { HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
 import { HarmonyLocalAsrRecognizer, LocalAsrSpeechHandler } from './HarmonyLocalAsrRecognizer';
-import { HarmonyPcmCapture } from './HarmonyPcmCapture';
+import { HarmonyPcmCapture, PcmChunkHandler } from './HarmonyPcmCapture';
+import { VoiceLevelThrottle, VoiceListeningPolicy } from '../faces/VoiceListeningPolicy';
 import { LocalAsrPolicy, PcmFrameSlicer, SpeechSentenceAccumulator } from './LocalAsrPolicy';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceSessionPolicy } from './VoiceSessionPolicy';
+import { HarmonyPrivacyConsent } from '../../privacy/HarmonyPrivacyConsent';
+import { PrivacyConsentPolicy } from '../../privacy/PrivacyConsentPolicy';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
 export type VoiceErrorHandler = (message: string) => void;
+/** 麦克风电平 0–1，不超过 10 Hz。 */
+export type VoiceLevelHandler = (level: number) => void;
 
 /**
  * Harmony's native speech boundary. For the `system` provider the microphone is captured here and written to CoreSpeechKit in its write-audio mode (`recognitionMode: 0`); the `local` provider runs an installed sherpa-onnx model on the device. No raw microphone data is copied into the Engine, written to disk, or included in logs. The recognizer is recreated only after shutdown, and callbacks are accepted only for the active bounded session.
@@ -36,17 +41,22 @@ export class HarmonyVoiceRecognizer {
   private finalDelivered: boolean = false;
 
   /**
-   * `hotwordOptions` 是已准备好的宿主选项，`local` 提供方用它读取用户自己的词作热词，为 null 时跳过。`onSpeech` 只有 `local` 提供方中经过 VAD 的整段模型会调用，报告此刻是否听到说话。
+   * `hotwordOptions` 是已准备好的宿主选项，`local` 提供方用它读取用户自己的词作热词，为 null 时跳过。`onSpeech` 只有 `local` 提供方中经过 VAD 的整段模型会调用，报告此刻是否听到说话。`onLevel` 收到麦克风电平，四种提供方都由本键盘自己采集，都会报；它只在本次会话仍有效时调用。
    */
   async start(language: string, config: VoiceInputConfiguration, onResult: VoiceResultHandler,
     onError: VoiceErrorHandler, hotwordOptions: Object | null = null,
-    onSpeech: LocalAsrSpeechHandler | undefined = undefined): Promise<void> {
+    onSpeech: LocalAsrSpeechHandler | undefined = undefined,
+    onLevel: VoiceLevelHandler | undefined = undefined): Promise<void> {
     try {
       // 一项凭据都没填的豆包（出厂配置）照旧交给系统识别；填过的按豆包走，缺项直接报出来。
       const doubaoProvider: boolean = DoubaoCredentialPolicy.attempted(config);
       const doubaoMissing: string | null = DoubaoCredentialPolicy.missing(config);
       if (doubaoMissing !== null) throw new Error(doubaoMissing);
       const httpProvider: boolean = HttpAsrConfigurationPolicy.supported(config.asr_provider);
+      // 豆包和 HTTP 识别把录音发给云端服务，没有隐私政策的授权就不开始；系统识别和本地模型照常可用。
+      if ((doubaoProvider || httpProvider) && !HarmonyPrivacyConsent.networkAllowed()) {
+        throw new Error(PrivacyConsentPolicy.KEYBOARD_REFUSED);
+      }
       if (doubaoProvider && this.doubao.isActive()) throw new Error('豆包语音识别正在进行');
       if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
       const localProvider: boolean = config.asr_provider === 'local';
@@ -76,16 +86,17 @@ export class HarmonyVoiceRecognizer {
       const deliver: VoiceResultHandler = (text: string, final: boolean): void => {
         this.deliver(config, text, final);
       };
+      const meter: PcmChunkHandler | undefined = this.levelMeter(onLevel);
       if (doubaoProvider) {
-        await this.doubao.start(config, deliver, onError);
+        await this.doubao.start(config, deliver, onError, meter);
         return;
       }
       if (httpProvider) {
-        await this.httpAsr.start(config, deliver, onError);
+        await this.httpAsr.start(config, deliver, onError, meter);
         return;
       }
       if (localProvider) {
-        await this.local.start(config, hotwordOptions, deliver, onError, onSpeech);
+        await this.local.start(config, hotwordOptions, deliver, onError, onSpeech, meter);
         return;
       }
       this.generation = (this.generation + 1) % 1000000000;
@@ -164,6 +175,7 @@ export class HarmonyVoiceRecognizer {
       });
       try {
         await this.capture.start(config.capture_backend, config.capture_device, (data: ArrayBuffer): void => {
+          if (meter !== undefined && session === this.sessionId) meter(data);
           this.writeSystemAudio(session, data);
         });
       } catch (error) {
@@ -237,6 +249,18 @@ export class HarmonyVoiceRecognizer {
     }
     this.resultHandler = undefined;
     this.errorHandler = undefined;
+  }
+
+  /**
+   * 把各识别器转来的麦克风数据换成电平：每块算一次，按 `VoiceLevelThrottle` 收成不超过 10 Hz 再交给界面。每次会话新建一个，上一次的间隔不带进来；会话的结果回调撤掉后不再报。
+   */
+  private levelMeter(onLevel: VoiceLevelHandler | undefined): PcmChunkHandler | undefined {
+    if (onLevel === undefined) return undefined;
+    const throttle: VoiceLevelThrottle = new VoiceLevelThrottle();
+    return (data: ArrayBuffer): void => {
+      const level: number | null = throttle.offer(VoiceListeningPolicy.pcmLevel(data), Date.now());
+      if (level !== null && this.resultHandler !== undefined) onLevel(level);
+    };
   }
 
   private writeSystemAudio(session: string, data: ArrayBuffer): void {

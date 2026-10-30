@@ -21,7 +21,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.function.Predicate;
+import org.json.JSONObject;
 
 /** Device-only synthetic acceptance; reads both editor and IME accessibility windows. */
 public class DeviceSmoke extends Instrumentation {
@@ -114,6 +116,32 @@ public class DeviceSmoke extends Instrumentation {
             target.failWrite(output);
             throw error;
         }
+    }
+
+    /** 共享偏好文件：`runtime-options.json` 里 `preferences_directory` 下的 `preferences.json`，限定在被测应用的私有目录里。 */
+    protected final File sharedPreferencesFile() throws Exception {
+        File root = getTargetContext().getFilesDir().getCanonicalFile();
+        File directory = new File(runtimeOptions().getString("preferences_directory")).getCanonicalFile();
+        if (!directory.toPath().startsWith(root.toPath())) throw new AssertionError("Preferences escaped test sandbox");
+        return new File(directory, "preferences.json");
+    }
+
+    /** 在现有共享偏好上改一项、修订号加一后发布；文件还不存在时从 runtime-options 里的出厂偏好开始。键盘每秒重读偏好，restartIme 之后一定读到。 */
+    protected final void putSharedPreference(String key, Object value) throws Exception {
+        File file = sharedPreferencesFile();
+        JSONObject document = file.exists()
+            ? new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8))
+            : new JSONObject().put("revision", 0).put("preferences",
+                new JSONObject(runtimeOptions().getJSONObject("preferences").toString()));
+        document.getJSONObject("preferences").put(key, value);
+        document.put("format_version", 1).put("revision", document.getLong("revision") + 1);
+        publish(file, document.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private JSONObject runtimeOptions() throws Exception {
+        File root = getTargetContext().getFilesDir().getCanonicalFile();
+        return new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()),
+            StandardCharsets.UTF_8));
     }
 
     /** `uinput` 接上的键盘的标准输入，往里写注入命令就是在那块键盘上按键；没有接时为空。 */
@@ -630,6 +658,6 @@ public class DeviceSmoke extends Instrumentation {
         // 同时接受全角与半角键面，由调用方断言实际插入内容。
         String chinese = app.msime.android.ChineseSymbolFaces.face(symbol, true);
         tap(key(symbol).or(key(chinese)));
-        tap(described("切换到字母键盘"));
+        tap(described("返回原键盘"));
     }
 }

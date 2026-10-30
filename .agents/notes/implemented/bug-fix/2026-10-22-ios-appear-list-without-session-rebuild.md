@@ -21,11 +21,11 @@ App 只在用户动作时请求刷新：搜索、翻页、点刷新按钮、编�
 
 ## Decision
 
-强制同步保留，列表不再销毁会话。`MetasequoiaInputSessionBridge.personalEntries` 直接调 `msime_client_dictionary` 的 `list`，不再包在 `withDictionaryMaintenance` 里。键盘出现时只剩 `viewWillAppear` 那一次创建和聚焦；`viewDidAppear` 的同步变成在主线程上读写一次 `sync.json`、跑一条列表查询。
+列表不再销毁会话。键盘出现时的强制同步已由 [iOS 键盘在低端机上的耗电、发热和卡顿](2026-10-27-ios-keyboard-low-end-power.md) 取消，改为设置页打开时请求刷新加 15 分钟陈旧上限；本篇「列表不重建会话」的决定不受影响，下面关于强制同步的描述是本篇做决定时的情形。`MetasequoiaInputSessionBridge.personalEntries` 直接调 `msime_client_dictionary` 的 `list`，不再包在 `withDictionaryMaintenance` 里。键盘出现时只剩 `viewWillAppear` 那一次创建和聚焦；`viewDidAppear` 的同步变成在主线程上读写一次 `sync.json`、跑一条列表查询。
 
 可以这样做的依据：
 
-- 租约：host-api 的 `Operation::List` 取的是 `DictionaryAccess::try_session`（共享），从 2026-09-11 引入时就是这样；输入会话持有的也是共享租约，两者并存（`client-services` 的 `shared_access_excludes_maintenance_and_releases_cleanly` 守着）。只有维护者持有独占租约时列表才报 `dictionary maintenance busy`，`synchronize` 已把这种失败记进 `snapshotError` 并保留上一份列表和所有编辑回执。桌面设置页和 MCP 一直在输入法会话活着时列个人词库，iOS 是唯一为列表重建会话的宿主。
+- 租约：host-api 的 `Operation::List` 取的是 `DictionaryAccess::try_session`（共享），从 2026-09-11 引入时就是这样；输入会话持有的也是共享租约，两者并存（引擎 `access.rs` 的 `shared_access_excludes_maintenance_and_releases_cleanly` 守着）。只有维护者持有独占租约时列表才报 `dictionary maintenance busy`，`synchronize` 已把这种失败记进 `snapshotError` 并保留上一份列表和所有编辑回执。桌面设置页和 MCP 一直在输入法会话活着时列个人词库，iOS 是唯一为列表重建会话的宿主。
 - 数据：列表读日志里的 `user_dictionary_operations`（`user_inserted=1` 的行），这些行由 `record_user_insert` 在上屏时同步写入。会话延迟写的只有个人 n-gram 转移（`PersonalNgramStore`，约 2 秒后台写），销毁会话时 `Drop` 会把它们刷进日志，但列表不读这两张表。所以销毁会话不会让列表多出任何一行，留着会话列出来的结果和原来一样。
 - 线程：`msime_client_dictionary` 在调用线程（主线程）上执行，列表结束时 `release_thread_journal` 关的是主线程缓存的日志连接，输入会话在 `app.msime.ios.input` 线程上，它的连接不受影响。
 

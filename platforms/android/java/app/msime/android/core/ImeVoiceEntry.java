@@ -27,7 +27,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，圆盘外的光圈随麦克风音量涨落，边说边识别的引擎把中间文字显示在标题位），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -54,7 +54,9 @@ final class ImeVoiceEntry {
     private VoiceListeningView listening;
     private View listeningPanel;
     private Button finishButton;
-    /** 用户已经结束整句采集后，权限错误不能重新弹窗录音。 */
+    /** 「说完了」「取消」那一行；按住说话时整行收起，让出的高度给圆盘和两行中间文字。 */
+    private View actionsRow;
+    /** 用户已经结束这次采集（整句上传或豆包流式）后，权限错误不能重新弹窗录音。 */
     private boolean uploadStopped;
     private ViewGroup host;
     private final ArrayList<View> hidden = new ArrayList<>();
@@ -177,10 +179,12 @@ final class ImeVoiceEntry {
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
             upload = new HttpAsrRecognizer();
-            listening.setHint("说完点「说完了」，识别后自动上屏");
+            upload.levels(level -> s.main.post(() -> leveled(session, level)));
+            listening.setHint("说完后点「说完了」，识别后自动上屏");
         } else {
             streaming = new DoubaoRecognizer();
             streaming.retainAudio(contribute);
+            streaming.levels(level -> s.main.post(() -> leveled(session, level)));
         }
         LocalAsrRecognizer runningLocal = local;
         DoubaoRecognizer runningStream = streaming;
@@ -191,6 +195,8 @@ final class ImeVoiceEntry {
             worker.execute(() -> {
                 String text = null;
                 String failure = null;
+                // 文字照常上屏、另外要告诉用户的一句：录音到了上限，或者豆包识别到一半连接断了。
+                String notice = null;
                 byte[] pcm = null;
                 try {
                     if (runningLocal != null) {
@@ -200,46 +206,42 @@ final class ImeVoiceEntry {
                         text = runningLocal.recognize(model, files == null ? null : files.toPath(),
                             language, options, null, null, new LocalAsrRecognizer.Listener() {
                                 @Override public void onPartial(String partial) {
-                                    s.main.post(() -> heard(session, partial));
+                                    s.main.post(() -> heard(session, partial, true));
                                 }
 
                                 @Override public void onSpeech(boolean value) {
                                     s.main.post(() -> spoke(session, value));
+                                }
+
+                                @Override public void onVolume(float level) {
+                                    s.main.post(() -> leveled(session, level));
                                 }
                             });
                         pcm = runningLocal.retainedAudio();
                     } else if (runningUpload != null) {
                         text = runningUpload.recognize(requestId, language, configured.requestFormat(),
                             configured.endpoint(), configured.model(), configured.token());
+                        if (runningUpload.capped()) notice = VoiceFailurePolicy.capped(HttpAsrRecognizer.MAX_MILLIS);
                     } else if (runningStream != null && stream != null) {
                         text = runningStream.recognize(stream.endpoint(), stream.headers(), stream.itn(),
                             stream.punctuation(), stream.ddc(), stream.boostingTableId(),
-                            (update, last) -> s.main.post(() -> heard(session, update)));
+                            (update, last) -> s.main.post(() -> heard(session, update, false)));
                         pcm = runningStream.retainedAudio();
-                        if (text == null) {
-                            diagnostic(session, DiagnosticEventKind.VOICE_FAILURE_RESPONSE);
-                            failure = "语音识别服务未响应，请稍后重试";
+                        HttpAsrRecognizer.Failure interrupted = runningStream.interruption();
+                        if (interrupted != null) {
+                            diagnostic(session, VoiceFailurePolicy.diagnostic(interrupted));
+                            notice = VoiceFailurePolicy.interrupted(interrupted);
+                        } else if (runningStream.capped()) {
+                            notice = VoiceFailurePolicy.capped(DoubaoRecognizer.MAX_MILLIS);
                         }
                     }
                 } catch (HttpAsrRecognizer.Refused refused) {
-                    diagnostic(session, switch (refused.failure()) {
-                        case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
-                        case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
-                        case NETWORK -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
-                        case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
-                        case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
-                    });
+                    diagnostic(session, VoiceFailurePolicy.diagnostic(refused.failure()));
                     if (refused.failure() == HttpAsrRecognizer.Failure.PERMISSION) {
                         s.main.post(() -> uploadPermissionFailed(session));
                         return;
                     }
-                    failure = switch (refused.failure()) {
-                        case PERMISSION -> "语音识别需要麦克风权限";
-                        case UNAVAILABLE -> "麦克风被其他应用占用";
-                        case NETWORK -> "语音服务未响应，请检查网络与密钥";
-                        case EMPTY -> "没有听到内容";
-                        case CANCELLED -> null;
-                    };
+                    failure = VoiceFailurePolicy.message(refused.failure());
                 } catch (LocalAsrRecognizer.Refused refused) {
                     diagnostic(session, refused.diagnosticKind());
                     failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
@@ -261,9 +263,11 @@ final class ImeVoiceEntry {
                 }
                 String finalText = result;
                 String finalFailure = failure;
+                String finalNotice = notice;
                 byte[] audio = pcm;
                 long elapsed = SystemClock.uptimeMillis() - startedAt;
-                s.main.post(() -> delivered(session, finalText, finalFailure, audio, elapsed, language, provider));
+                s.main.post(() -> delivered(session, finalText, finalFailure, finalNotice, audio, elapsed,
+                    language, provider));
             });
         } catch (RejectedExecutionException error) {
             // The recognizer was created before the worker accepted the task. If the service is
@@ -275,13 +279,22 @@ final class ImeVoiceEntry {
         return true;
     }
 
-    /** 识别中途的文字：显示在提示行，并在停顿后自动结束录音。 */
-    private void heard(long session, String partial) {
+    /**
+     * 识别中途的文字：聆听中显示在聆听面板的标题位；{@code pauseEnds} 为 true 时，从这一刻起停顿一个 {@link #SILENCE_STOP_MILLIS} 就自动结束录音。
+     *
+     * <p>只有本机模型这样结束：它的 VAD 会报「还在说话」（{@link #spoke}），停顿计时据此推迟。系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。豆包流式也不按停顿结束：它不报是否在说话，整句流式（{@code bigmodel_nostream}）说话期间要到音频超过 15 秒才回第一段结果，按出字后停顿计时，口述到 16 秒多就会在用户还在说时被掐断（#9886）；豆包由用户点「说完了」或松开空格结束，和以前一样。
+     */
+    private void heard(long session, String partial, boolean pauseEnds) {
         if (session != generation || listening == null || partial == null || partial.isEmpty()) return;
-        listening.setHint(partial);
-        // 系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。
-        if (platform != null) return;
+        listening.setPartial(partial);
+        if (!pauseEnds) return;
         armSilenceStop(session);
+    }
+
+    /** 采集线程报来的麦克风音量（0–1）：聆听面板的光圈随它涨落。 */
+    private void leveled(long session, float level) {
+        if (session != generation || listening == null || !recognizing) return;
+        listening.setLevel(level);
     }
 
     /** 从现在起计一个停顿时长；到点时按 {@link VoiceHoldPolicy#silenceElapsed} 结束、推迟或等松手。 */
@@ -322,7 +335,8 @@ final class ImeVoiceEntry {
     boolean hold(long before) {
         if (generation == before || !recognizing || listening == null) return false;
         held = true;
-        if (finishButton != null) ViewPolicy.hide(finishButton);
+        // 按住说话由松手结束、上滑取消，两个按钮都用不上，整行收起。
+        if (actionsRow != null) ViewPolicy.hide(actionsRow);
         listening.setHint("松开结束，上滑取消");
         return true;
     }
@@ -350,7 +364,10 @@ final class ImeVoiceEntry {
             return;
         }
         if (local != null) local.stop();
-        if (streaming != null) streaming.stop();
+        if (streaming != null) {
+            uploadStopped = true;
+            streaming.stop();
+        }
         if (upload != null) {
             uploadStopped = true;
             upload.stop();
@@ -360,7 +377,7 @@ final class ImeVoiceEntry {
             platformStopped = true;
             platform.stopListening();
         }
-        if (listening != null) listening.setHint("正在识别…");
+        if (listening != null) listening.showRecognizing("正在识别…");
     }
 
     /** 键盘服务销毁：停掉识别，并让排队中的语音时长与贡献上传跑完后结束线程。 */
@@ -415,9 +432,9 @@ final class ImeVoiceEntry {
             @Override public void onBufferReceived(byte[] buffer) { }
             @Override public void onEndOfSpeech() {
                 if (session == generation && listening != null) {
-                    // 说完后多数识别服务不再报音量，光圈直接收回，不能停在半截。
+                    // 说完后多数识别服务不再报音量，光圈收回到安静时的样子，不能停在半截。
                     listening.resetLevel();
-                    listening.setHint("正在识别…");
+                    listening.showRecognizing("正在识别…");
                 }
             }
             @Override public void onError(int error) {
@@ -427,7 +444,7 @@ final class ImeVoiceEntry {
                 platformRecognized(session, startedAt, firstResult(results), language, polish);
             }
             @Override public void onPartialResults(Bundle partialResults) {
-                heard(session, firstResult(partialResults));
+                heard(session, firstResult(partialResults), false);
             }
             @Override public void onEvent(int eventType, Bundle params) { }
         });
@@ -467,15 +484,15 @@ final class ImeVoiceEntry {
         releasePlatform();
         String result = text == null ? null : TextPolicy.trimmed(text);
         if (result == null || result.isEmpty()) {
-            delivered(session, null, PlatformSpeechPolicy.emptyResult(), null, 0, language, PLATFORM_PROVIDER);
+            delivered(session, null, PlatformSpeechPolicy.emptyResult(), null, null, 0, language, PLATFORM_PROVIDER);
             return;
         }
         long elapsed = SystemClock.uptimeMillis() - startedAt;
         if (polish == null) {
-            delivered(session, result, null, null, elapsed, language, PLATFORM_PROVIDER);
+            delivered(session, result, null, null, null, elapsed, language, PLATFORM_PROVIDER);
             return;
         }
-        if (listening != null) listening.setHint("正在润色…");
+        if (listening != null) listening.showRecognizing("正在润色…");
         String transcript = result;
         VoicePolisher runningPolisher = polisher;
         try {
@@ -484,10 +501,10 @@ final class ImeVoiceEntry {
                     polish.prompt(), transcript);
                 String finalText = TextPolicy.hasText(polished)
                     ? TextPolicy.trimmed(polished) : transcript;
-                s.main.post(() -> delivered(session, finalText, null, null, elapsed, language, PLATFORM_PROVIDER));
+                s.main.post(() -> delivered(session, finalText, null, null, null, elapsed, language, PLATFORM_PROVIDER));
             });
         } catch (RejectedExecutionException error) {
-            delivered(session, transcript, null, null, elapsed, language, PLATFORM_PROVIDER);
+            delivered(session, transcript, null, null, null, elapsed, language, PLATFORM_PROVIDER);
         }
     }
 
@@ -522,8 +539,9 @@ final class ImeVoiceEntry {
         if (recognizer != null) recognizer.destroy();
     }
 
-    private void delivered(long session, String text, String failure, byte[] pcm, long elapsedMillis,
-                           String language, String provider) {
+    /** 识别结束：有文字就上屏，没有就提示 {@code failure}；{@code notice} 是文字上屏之后另外要说的一句（录音到了上限、识别途中断开）。 */
+    private void delivered(long session, String text, String failure, String notice, byte[] pcm,
+                           long elapsedMillis, String language, String provider) {
         if (session != generation) return;
         if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
@@ -538,11 +556,13 @@ final class ImeVoiceEntry {
             dismiss();
             return;
         }
-        // 聆听可能长达一分钟：这期间用户点到了别处、应用改写了输入框，或者开始了组字，结果就不能盲目插在现在的光标处。与识别窗口那条路一样，先存进语音结果，由用户在结果面板里显式插入。
+        // 聆听可能长达一分钟（豆包流式可到五分钟）：这期间用户点到了别处、应用改写了输入框，或者开始了组字，结果就不能盲目插在现在的光标处。与识别窗口那条路一样，先存进语音结果，由用户在结果面板里显式插入。
         if (!s.voiceInsertionReady() || !s.voiceTargetMatches()) {
             boolean kept = s.stashVoiceResult(text);
-            s.notice(kept ? "输入位置已变化，结果已保留，可在语音结果中插入"
-                : "输入位置已变化；结果已安全清除");
+            // 保留下来的文字可能不完整（到了上限或识别途中断开），这句说明不能丢；提示只显示最后一句，所以并成一句，语音结果面板随后打开。
+            s.notice(!kept ? "输入位置已变化；结果已安全清除"
+                : notice != null ? notice + "，已存入语音结果"
+                : "输入位置已变化，结果已保留，可在语音结果中插入");
             dismiss();
             if (kept) s.showVoiceResult();
             return;
@@ -558,11 +578,9 @@ final class ImeVoiceEntry {
                 && !EditorPolicy.password(s.editorInputType)) {
             contribute(pcm, text, language, provider);
         }
+        s.notice(notice);
         if (listening != null) {
-            listening.resetLevel();
-            listening.setText("识别完成");
-            listening.setHint("已识别：" + text);
-            listening.setContentDescription("已识别：" + text);
+            listening.showDone(text);
             s.main.postDelayed(() -> {
                 if (session == generation) dismiss();
             }, DONE_NOTICE_MILLIS);
@@ -643,24 +661,36 @@ final class ImeVoiceEntry {
             }
         }
         VoiceListeningView view = new VoiceListeningView(s);
-        view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
-            Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
+        // 跟随应用主题的皮肤要先按当季种子推导（样式通道画键帽用的也是这一份），否则圆盘取到的是基础色，和回车键等强调色对不上。
+        KeyboardSkin skin = s.imeStyler.themed(s.skin);
+        view.setColors(Color.parseColor(skin.accent()), Color.parseColor(skin.onAccent()),
+            Color.parseColor(skin.keyForeground()), Color.parseColor(skin.toolbarIcon()));
         view.setHint("停顿后自动上屏，也可点「说完了」");
         view.setContentDescription("正在聆听，识别结束后自动上屏");
         LinearLayout column = LayoutPolicy.column(s);
         column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；按住说话时整行收起（见 hold）。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
         LinearLayout actions = LayoutPolicy.row(s);
-        Button done = ViewPolicy.newPressButton(s);
+        KeyboardPressButton done = ViewPolicy.newPressButton(s);
         done.setText("说完了");
         done.setContentDescription("结束聆听并识别，文字自动上屏");
+        done.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeStyler.styleButton(done, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.bindClick(done, this::finishListening);
         finishButton = done;
-        actions.addView(done, LayoutPolicy.weightedWrapParams(1));
-        Button cancel = ViewPolicy.newPressButton(s);
+        LinearLayout.LayoutParams doneParams = LayoutPolicy.weightedWrapParams(1);
+        doneParams.rightMargin = s.pixels(12);
+        actions.addView(done, doneParams);
+        KeyboardPressButton cancel = ViewPolicy.newPressButton(s);
         cancel.setText("取消");
+        cancel.setKeyboardRole(KeyboardKeyRole.KEY);
+        s.imeStyler.styleButton(cancel, KeyboardKeyRole.KEY, s.skin);
         ViewPolicy.bindClick(cancel, this::cancel);
         actions.addView(cancel, LayoutPolicy.weightedWrapParams(1));
-        column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout.LayoutParams actionsParams = LayoutPolicy.matchWidthWrapParams();
+        actionsParams.setMargins(s.pixels(16), 0, s.pixels(16), s.pixels(10));
+        column.addView(actions, actionsParams);
+        actionsRow = actions;
         View panel = column;
         listeningPanel = panel;
         panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
@@ -696,6 +726,7 @@ final class ImeVoiceEntry {
         ViewGroup parent = host;
         listeningPanel = null;
         finishButton = null;
+        actionsRow = null;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);

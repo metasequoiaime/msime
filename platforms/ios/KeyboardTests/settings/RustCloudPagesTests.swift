@@ -148,6 +148,20 @@ final class RustCloudPagesTests: XCTestCase {
     XCTAssertEqual(FakeRust.calls("typing_upload_set").first?.action["enabled"] as? Bool, false)
   }
 
+  func testEnablingTypingUploadOnlyClaimsAnUploadThatHappened() async throws {
+    answer(Script("user-1"), ["account.typing_upload_set": { _ in
+      FakeRust.ok(["enabled": true, "last_upload_ms": NSNull(), "signed_in": true])
+    }])
+    let upload = TypingUpload(store: statistics, rust: { FakeRust.account })
+    let nothing = await upload.setEnabled(true)
+    XCTAssertEqual(nothing?.status.enabled, true)
+    XCTAssertNil(nothing?.status.lastUpload)
+    XCTAssertEqual(nothing?.message, "已打开上传。本机还没有可上传的打字计数，用水杉键盘打字以后再打开 App 会自动上传。")
+    answer(Script("user-1"), ["account.typing_upload_set": { _ in self.uploadStatus(true) }])
+    let uploaded = await upload.setEnabled(true)
+    XCTAssertEqual(uploaded?.message, "已打开上传，最近 7 天的每日计数已传到你的水杉账号。")
+  }
+
   func testTypingUploadFailuresKeepTheSwitchAndExplain() async throws {
     answer(Script(nil), ["account.typing_upload_set": { _ in FakeRust.failure("account_unauthorized") },
                          "account.typing_upload_status": { _ in self.uploadStatus(false) }])

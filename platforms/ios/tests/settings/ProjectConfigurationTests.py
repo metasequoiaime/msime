@@ -142,19 +142,45 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
-    def test_app_ships_the_licence_of_the_symbol_group_table(self):
-        # 链接进 App 和键盘扩展的 Engine 编入了符号模式的分组码表，它取自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），署名、固定提交和改动说明都在这份许可证文件里。
+    def test_app_ships_the_licences_of_the_dictionary_data(self):
+        # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据：msime-pinyin.db 的单字读音（pinyin-data）、msime-english.db 的中英释义（ECDICT）、msime-others.db 的颜文字（rime_kaomoji_dict）与关键词整词读音（python-pinyin）、msime-wubi.db 的 86 码表（rime-wubi86-jidian）；两种许可都要求随副本附上全文。msime-pinyin.db 与 msime-stroke.db 还有改编自 rime-wanxiang 的权重，CC BY 4.0 要求署名、改动说明与许可证随副本分发。关于页逐个列出。
         project = (IOS_ROOT / "project.yml").read_text()
         app = dict(target_blocks(project))["MSIMEApp"]
-        path = "../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        for licence, phrase in (
+            ("pinyin-data-MIT.txt", "Copyright (c) 2016 mozillazg"),
+            ("ECDICT-MIT.txt", "Copyright (c) 2025 Linwei"),
+            ("rime_kaomoji_dict-MIT.txt", "Copyright (c) 2023 aoguai"),
+            ("python-pinyin-MIT.txt", "Copyright (c) 2016 mozillazg, 闲耘"),
+            ("rime-wubi86-jidian-Apache-2.0.txt", "Version 2.0, January 2004"),
+            ("rime-wanxiang-CC-BY-4.0.txt", "7ab73ee0c7f80190004233e70f954833df64c80e"),
+        ):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1, licence)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(phrase, (IOS_ROOT / path).read_text())
+            self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
+            self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+
+    def test_app_ships_the_dictionary_sources_notice(self):
+        # 键盘扩展的 EngineResources 带着 msime-bigram.bin、msime-trigram.bin 和 msime-wubi.db 等桌面词库：n-gram 表统计自中文维基百科，CC BY-SA 4.0 要求再分发时署名，五笔码表混着几份不同许可的来源，这些都只写在词库来源说明里。说明是 Markdown，关于页按 md 扩展名找它。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        notice = "msime-engine-dictionary-NOTICE.md"
+        path = f"../../resources/licenses/{notice}"
         blocks = source_path_blocks(app, path)
         self.assertEqual(len(blocks), 1)
         self.assertIn("buildPhase: resources", blocks[0])
         text = (IOS_ROOT / path).read_text()
-        self.assertIn("rime-wanxiang", text)
-        self.assertIn("7ab73ee0c7f80190004233e70f954833df64c80e", text)
-        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
-        self.assertIn('LicenseNotice(file: "rime-wanxiang-CC-BY-4.0"', about)
+        for phrase in ("中文维基百科", "CC-BY-SA 4.0", "### 拼音权重与万象对齐"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count(f"{notice} in Resources"), 2)
+        self.assertIn('LicenseNotice(file: "msime-engine-dictionary-NOTICE"', about)
+        self.assertIn('fileExtension: "md")', about)
 
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
@@ -171,7 +197,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(generated.count("kfcd-chaizi-CC-BY-3.0.txt in Resources"), 2)
         about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
         self.assertIn('LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0"', about)
-        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明。
+        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，符号模式的分组表按 Unicode 字符数据库挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
         unicode = "../../resources/licenses/Unicode-License-V3.txt"
         blocks = source_path_blocks(app, unicode)
         self.assertEqual(len(blocks), 1)
@@ -179,6 +205,48 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("UNICODE LICENSE V3", (IOS_ROOT / unicode).read_text())
         self.assertEqual(generated.count("Unicode-License-V3.txt in Resources"), 2)
         self.assertIn('LicenseNotice(file: "Unicode-License-V3"', about)
+
+    def test_app_ships_the_licences_of_the_engine_code(self):
+        # 链接进 App 和键盘扩展的引擎本身（crates/engine、crates/path-trust）和它链接的 rink-core 是 MPL-2.0，cxx_sort.rs 逐步复现了 libc++ 的排序算法（Apache-2.0 WITH LLVM-exception），octagram.rs 移植自 librime-octagram 并按 darts-clone 的布局读双数组，符号模式的 LaTeX 表是本项目自写的 MIT 数据；二进制分发都要附上许可证全文，关于页逐个列出。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        for licence, phrase in (
+            ("MPL-2.0.txt", "Mozilla Public License Version 2.0"),
+            ("libcxx-Apache-2.0-WITH-LLVM-exception.txt", "LLVM Exceptions to the Apache 2.0 License"),
+            ("librime-octagram-BSD-3-Clause.txt", "Copyright (c) 2008-2014, Susumu Yata"),
+            ("latex-symbols-MIT.txt", "Copyright (c) 2026 Metasequoia IME contributors"),
+        ):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1, licence)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(phrase, (IOS_ROOT / path).read_text())
+            self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
+            self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+
+    def test_app_ships_the_gpl_text_of_the_app_and_the_pinyin_dictionary(self):
+        # 水杉输入法本身是 GPL-3.0-only，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，GPL-3.0 要求随目标代码附上许可证全文。键盘扩展只随 App 一起安装，所以全文作为 App 的资源分发：仓库根目录的 LICENSE 原样进 bundle，关于页按没有扩展名的 LICENSE 找它，排在第一项。
+        project = (IOS_ROOT / "project.yml").read_text()
+        targets = dict(target_blocks(project))
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        path = "../../LICENSE"
+        blocks = source_path_blocks(targets["MSIMEApp"], path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("GNU GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "END OF TERMS AND CONDITIONS"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count("/* LICENSE in Resources */"), 2)
+        self.assertIn("path = ../..;", generated)
+        notices = about[about.index("private static let all = ["):]
+        first = re.search(r"LicenseNotice\(file: \"([^\"]+)\"", notices)
+        self.assertEqual(first.group(1), "LICENSE")
+        self.assertIn('LicenseNotice(file: "LICENSE", title: "水杉输入法", detail: "本应用与拼音词库 · GPL-3.0", fileExtension: "")', about)
+        # 键盘扩展不带第二份：它没有许可页，和 App 一起安装。
+        self.assertEqual(source_path_blocks(targets["MSIMEKeyboardExtension"], path), [])
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
@@ -371,6 +439,22 @@ class ProjectConfigurationTests(unittest.TestCase):
         project = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn("path = HelpAndFeedbackViews.swift", project)
         self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
+
+    def test_host_library_links_before_the_system_sqlite(self):
+        # The host library carries rusqlite's bundled SQLite. Linked after $(inherited) (MLKit's -l"sqlite3") or -lsqlite3, the Xcode 27 SDK binds every sqlite3_* to /usr/lib/libsqlite3.dylib, and sqlite3_set_errmsg does not exist there before iOS 27.
+        project = (IOS_ROOT / "project.yml").read_text()
+        pbxproj = (IOS_ROOT / "MSIMEClient.xcodeproj" / "project.pbxproj").read_text()
+        linked = [name for name, body in target_blocks(project) if '"-lmsime_host_api"' in body]
+        self.assertIn("MSIMEApp", linked)
+        self.assertIn("MSIMEKeyboardExtension", linked)
+        for name, body in target_blocks(project):
+            if name not in linked:
+                continue
+            flags = re.findall(r'^ +- "?([^"\n]+)"?$', body.split("OTHER_LDFLAGS:", 1)[1].split("\n        L", 1)[0], re.M)
+            self.assertEqual(flags[0], "-lmsime_host_api", name)
+        for block in re.findall(r"OTHER_LDFLAGS = \(\n(.*?)\);", pbxproj, re.S):
+            if '"-lmsime_host_api"' in block:
+                self.assertEqual(block.split("\n", 1)[0].strip(), '"-lmsime_host_api",')
 
     def test_shipping_build_uses_the_native_ios_host(self):
         script = (IOS_ROOT / "build-app.sh").read_text()

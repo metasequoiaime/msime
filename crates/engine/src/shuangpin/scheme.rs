@@ -9,13 +9,21 @@ use super::query::{
     to_quanpin_segmentation_into,
 };
 use super::ShuangpinProfile;
+use crate::touch::{KeyGeometry, KeyTouch};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
+use std::sync::Arc;
 
 pub struct ShuangpinScheme {
     profile: &'static ShuangpinProfile,
     raw: String,
     /// 大写字母开哪种辅助码段（句中或末尾），由会话按触发方式开关设置；`'` 与 `|` 段不受它影响。
     helpcode_uppercase_triggers: UppercaseTriggers,
+    /// 与 `raw` 逐字节对齐的触点：小写字母和 `;` 带上按下时的触点，`'`、大写字母和辅助码标记是 `None`。一个触点都没有时保持为空，不为全 `None` 占位，所以桌面的每次按键不多一次分配。
+    touches: Vec<Option<KeyTouch>>,
+    /// 下一个入串的按键的触点，由会话在 `handle_key` 之前交来，`handle_key` 用掉或丢掉。
+    pending_touch: Option<KeyTouch>,
+    /// 触点所在的几何，没有注册几何时为 `None`，请求就不带触点。
+    key_geometry: Option<Arc<KeyGeometry>>,
 }
 
 impl ShuangpinScheme {
@@ -24,7 +32,36 @@ impl ShuangpinScheme {
             profile,
             raw: String::new(),
             helpcode_uppercase_triggers: UppercaseTriggers::default(),
+            touches: Vec::new(),
+            pending_touch: None,
+            key_geometry: None,
         }
+    }
+
+    /// 宿主注册或清除的键位几何（会话转交）；布局或代次变化后旧触点失效，原按键串保留。
+    pub fn set_key_geometry(&mut self, geometry: Option<Arc<KeyGeometry>>) {
+        if self.key_geometry != geometry {
+            self.touches.clear();
+            self.pending_touch = None;
+        }
+        self.key_geometry = geometry;
+    }
+
+    /// 下一个按键的触点，只对紧接着的那一次 `handle_key` 有效。
+    pub fn set_pending_touch(&mut self, touch: Option<KeyTouch>) {
+        self.pending_touch = touch;
+    }
+
+    /// 记下刚入串的那个字节的触点，保持与 `raw` 对齐。
+    fn push_touch(&mut self, touch: Option<KeyTouch>) {
+        if self.touches.is_empty() {
+            if touch.is_none() {
+                return;
+            }
+            self.touches.resize(self.raw.len() - 1, None);
+        }
+        self.touches.push(touch);
+        debug_assert_eq!(self.touches.len(), self.raw.len());
     }
 
     /// `ImeSession::configure_shuangpin_scheme` 的对应物：开关层算好归句中还是末尾后下发。
@@ -34,49 +71,62 @@ impl ShuangpinScheme {
 
     pub fn reset(&mut self) {
         self.raw.clear();
+        self.touches.clear();
+        self.pending_touch = None;
     }
 
     pub fn handle_key(&mut self, key: SchemeKey) -> bool {
-        match key {
-            SchemeKey::Backspace => self.raw.pop().is_some(),
+        // 待用触点只属于这一次按键：没入串（被拒的 `;`、第二个 `'`）也丢掉。
+        let touch = self.pending_touch.take();
+        let pushed = match key {
+            SchemeKey::Backspace => {
+                if self.raw.pop().is_none() {
+                    return false;
+                }
+                self.touches.truncate(self.raw.len());
+                return true;
+            }
             // A second consecutive `'` is refused, so `''` never forms from keys; a leading one is kept (:66-74).
             SchemeKey::Apostrophe => {
                 if !self.raw.ends_with('\'') {
                     self.raw.push('\'');
-                    true
+                    None
                 } else {
-                    false
+                    return false;
                 }
             }
             SchemeKey::Semicolon => {
                 if self.accepts_ing_key() {
                     self.raw.push(';');
-                    true
+                    touch
                 } else {
-                    false
+                    return false;
                 }
             }
             // 辅助码段标记：收不收由调用方按触发规则判断，这里只负责记下（scheme.cpp:72-92）。
             SchemeKey::Symbol(MID_SENTENCE_MARKER) => {
                 self.raw.push(MID_SENTENCE_MARKER as char);
-                true
+                None
             }
             SchemeKey::Symbol(END_HELPCODE_MARKER) => {
                 self.raw.push(END_HELPCODE_MARKER as char);
-                true
+                None
             }
             SchemeKey::Symbol(DIRECT_HELPCODE_SLASH) => {
                 self.raw.push(DIRECT_HELPCODE_SLASH as char);
-                true
+                None
             }
+            // 大写字母是辅助码，不是音节里的键，不带触点。
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
-                true
+                touch.filter(|_| letter.is_ascii_lowercase())
             }
             SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Symbol(_) | SchemeKey::Requery => {
-                false
+                return false;
             }
-        }
+        };
+        self.push_touch(pushed);
+        true
     }
 
     /// `;` 只能是一个音节的第二个键，即接在奇数长度的片段之后；大写段与末尾段不算这一节的键，
@@ -108,6 +158,21 @@ impl ShuangpinScheme {
             self.helpcode_uppercase_triggers,
             request,
         );
+        // 只有整串都能按位置对上时才带触点：手打的 `'` 让纠错整句不纠，句中辅助码把输入串改写成去段串。其余情况一律是空 Vec，桌面请求逐字节不变。
+        request.key_touches.clear();
+        request.key_geometry = None;
+        let Some(geometry) = &self.key_geometry else {
+            return;
+        };
+        if request.valid
+            && self.touches.iter().any(Option::is_some)
+            && request.raw_input_with_helpcode_marks.is_empty()
+            && request.raw_input.len() == self.touches.len()
+            && !self.raw.contains('\'')
+        {
+            request.key_touches.extend_from_slice(&self.touches);
+            request.key_geometry = Some(Arc::clone(geometry));
+        }
     }
 
     /// 从原文直接写入查询请求，光标前缀查询不必创建临时方案。`triggers` 与敲键时的设置一致，
@@ -201,9 +266,42 @@ impl ShuangpinScheme {
         } else {
             raw_with_cases
         };
+        realign_touches(&mut self.touches, self.raw.as_bytes(), source.as_bytes());
         self.raw.clear();
         self.raw.reserve(source.len());
         self.raw.push_str(source);
+    }
+
+    /// 与 `preedit` 逐字节对齐的触点；一个都没有时为空。
+    #[cfg(test)]
+    pub(crate) fn touches(&self) -> &[Option<KeyTouch>] {
+        &self.touches
+    }
+}
+
+/// 宿主改写了输入串（光标处插入或删除、部分选词吃掉前缀、交出光标前的部分、撤销时补回前缀）：新旧串的公共后缀和公共前缀保留原来的触点，中间新出现的字节没有触点。先认后缀再在剩下的部分里认前缀：吃掉或补回前缀是确定的改动，`xpxp`（谢谢）选走第一个字剩下的 `xp` 必须对上后两键的触点，先认前缀会错拿刚选走那两键的。`hh` 这类相同的相邻字母在光标处删改时分不清是哪一个，触点可能互换，影响很小。
+fn realign_touches(touches: &mut Vec<Option<KeyTouch>>, old: &[u8], new: &[u8]) {
+    if touches.is_empty() {
+        return;
+    }
+    debug_assert_eq!(touches.len(), old.len());
+    let suffix = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count();
+    let prefix = old[..old.len() - suffix]
+        .iter()
+        .zip(&new[..new.len() - suffix])
+        .take_while(|(left, right)| left == right)
+        .count();
+    touches.splice(
+        prefix..old.len() - suffix,
+        std::iter::repeat_n(None, new.len() - prefix - suffix),
+    );
+    if touches.iter().all(Option::is_none) {
+        touches.clear();
     }
 }
 
@@ -452,6 +550,218 @@ mod tests {
             typed.set_raw_input("ni", "");
             assert_eq!(typed.preedit(), "ni");
         }
+    }
+
+    fn touch(dx: i8) -> Option<KeyTouch> {
+        Some(KeyTouch { dx, dy: 0, copy: 0 })
+    }
+
+    fn geometry() -> Arc<KeyGeometry> {
+        let mut keys = [[0.0f32; 4]; 26];
+        for (index, key) in keys.iter_mut().enumerate() {
+            *key = [index as f32 * 10.0, 0.0, 10.0, 10.0];
+        }
+        Arc::new(KeyGeometry::new(5, &keys, None, &[]).unwrap())
+    }
+
+    /// 按 `text` 逐键打，第 i 个键带 `touches[i]`。
+    fn type_touched(scheme: &mut ShuangpinScheme, text: &str, touches: &[Option<KeyTouch>]) {
+        for (byte, touch) in text.bytes().zip(touches) {
+            scheme.set_pending_touch(*touch);
+            scheme.handle_key(match byte {
+                b'\'' => SchemeKey::Apostrophe,
+                b';' => SchemeKey::Semicolon,
+                letter => SchemeKey::Letter(letter),
+            });
+        }
+    }
+
+    #[test]
+    fn changed_geometry_discards_old_and_pending_touches() {
+        let original = geometry();
+        let mut keys = [[0.0f32; 4]; 26];
+        for (index, key) in keys.iter_mut().enumerate() {
+            *key = [index as f32 * 10.0, 0.0, 10.0, 10.0];
+        }
+        let next_generation = Arc::new(KeyGeometry::new(6, &keys, None, &[]).unwrap());
+        keys[0][0] += 5.0;
+        let changed_layout = Arc::new(KeyGeometry::new(5, &keys, None, &[]).unwrap());
+        for replacement in [Some(next_generation), Some(changed_layout), None] {
+            let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+            typed.set_key_geometry(Some(Arc::clone(&original)));
+            type_touched(
+                &mut typed,
+                "nihc",
+                &[touch(1), touch(2), touch(3), touch(4)],
+            );
+            typed.set_pending_touch(touch(5));
+            typed.set_key_geometry(replacement);
+            assert_eq!(typed.preedit(), "nihc");
+            assert!(typed.build_request().key_touches.is_empty());
+            assert!(typed.touches().is_empty());
+            typed.handle_key(SchemeKey::Letter(b'm'));
+            assert!(typed.touches().is_empty());
+            typed.set_key_geometry(Some(Arc::clone(&original)));
+            assert!(typed.build_request().key_touches.is_empty());
+            type_touched(&mut typed, "a", &[touch(6)]);
+            assert_eq!(
+                typed.build_request().key_touches,
+                [None, None, None, None, None, touch(6)]
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_geometry_preserves_recorded_and_pending_touches() {
+        let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+        typed.set_key_geometry(Some(geometry()));
+        type_touched(&mut typed, "ni", &[touch(1), touch(2)]);
+        typed.set_pending_touch(touch(3));
+        // 独立分配但值相同的几何也属于重复下发。
+        typed.set_key_geometry(Some(geometry()));
+        typed.handle_key(SchemeKey::Letter(b'h'));
+        assert_eq!(
+            typed.build_request().key_touches,
+            [touch(1), touch(2), touch(3)]
+        );
+    }
+
+    #[test]
+    fn touches_follow_the_raw_input_key_by_key() {
+        let mut typed = scheme(ShuangpinProfileKind::Microsoft);
+        typed.set_key_geometry(Some(geometry()));
+        // 没有触点的按键不占地方。
+        type_text(&mut typed, "ni");
+        assert!(typed.touches().is_empty());
+        // 第一个触点把前面补成 `None`；`;` 带触点，`'` 和大写字母（辅助码）不带。
+        type_touched(
+            &mut typed,
+            "h;'zA",
+            &[touch(1), touch(2), touch(3), touch(4), touch(5)],
+        );
+        assert_eq!(typed.preedit(), "nih;'zA");
+        assert_eq!(
+            typed.touches(),
+            [None, None, touch(1), touch(2), None, touch(4), None]
+        );
+        // 退格删掉末尾那个；被拒的键（第二个 `'`）不留下触点，也不把它带给下一键。
+        typed.handle_key(SchemeKey::Backspace);
+        assert_eq!(
+            typed.touches(),
+            [None, None, touch(1), touch(2), None, touch(4)]
+        );
+        typed.handle_key(SchemeKey::Backspace);
+        type_touched(&mut typed, "''", &[touch(6), touch(7)]);
+        type_text(&mut typed, "c");
+        assert_eq!(typed.preedit(), "nih;'c");
+        assert_eq!(
+            typed.touches(),
+            [None, None, touch(1), touch(2), None, None]
+        );
+        typed.reset();
+        assert!(typed.touches().is_empty());
+        type_text(&mut typed, "n");
+        assert!(typed.touches().is_empty());
+    }
+
+    #[test]
+    fn host_edits_keep_the_touches_outside_the_edited_span() {
+        let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+        type_touched(
+            &mut typed,
+            "nihcma",
+            &[touch(1), touch(2), touch(3), touch(4), touch(5), touch(6)],
+        );
+        // 光标处插入：插进来的键没有触点，两边的照旧。
+        typed.set_raw_input("nihxcma", "");
+        assert_eq!(
+            typed.touches(),
+            [
+                touch(1),
+                touch(2),
+                touch(3),
+                None,
+                touch(4),
+                touch(5),
+                touch(6)
+            ]
+        );
+        // 光标处删除。
+        typed.set_raw_input("nihcma", "");
+        assert_eq!(
+            typed.touches(),
+            [touch(1), touch(2), touch(3), touch(4), touch(5), touch(6)]
+        );
+        // 部分选词吃掉前缀，剩下的按后缀对上。
+        typed.set_raw_input("ma", "");
+        assert_eq!(typed.touches(), [touch(5), touch(6)]);
+        // 叠词：选走 `xpxp`（谢谢）的第一个字，剩下的是后两键；撤销补回前缀时，补回的两键没有触点。
+        let mut repeated = scheme(ShuangpinProfileKind::Xiaohe);
+        type_touched(
+            &mut repeated,
+            "xpxp",
+            &[touch(1), touch(2), touch(3), touch(4)],
+        );
+        repeated.set_raw_input("xp", "");
+        assert_eq!(repeated.touches(), [touch(3), touch(4)]);
+        repeated.set_raw_input("xpxp", "");
+        assert_eq!(repeated.touches(), [None, None, touch(3), touch(4)]);
+        // 换成完全不同的输入：一个触点都不剩，回到空。
+        typed.set_raw_input("ui", "");
+        assert!(typed.touches().is_empty());
+        // 相同的相邻字母分不清删的是哪一个，长度和其余位置仍对得上。
+        let mut doubled = scheme(ShuangpinProfileKind::Xiaohe);
+        type_touched(&mut doubled, "hhc", &[touch(1), touch(2), touch(3)]);
+        doubled.set_raw_input("hc", "");
+        assert_eq!(doubled.touches().len(), 2);
+        assert_eq!(doubled.touches()[1], touch(3));
+    }
+
+    #[test]
+    fn requests_carry_touches_only_when_every_position_lines_up() {
+        let geometry = geometry();
+        let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+        type_touched(&mut typed, "nihc", &[touch(1), None, touch(3), touch(4)]);
+        // 没有几何：不带触点。
+        let request = typed.build_request();
+        assert!(request.key_touches.is_empty());
+        assert!(request.key_geometry.is_none());
+        typed.set_key_geometry(Some(Arc::clone(&geometry)));
+        // 注册前记下的触点没有所属布局，不能配上新几何使用。
+        assert!(typed.build_request().key_touches.is_empty());
+        typed.reset();
+        type_touched(&mut typed, "nihc", &[touch(1), None, touch(3), touch(4)]);
+        let request = typed.build_request();
+        assert_eq!(request.key_touches, [touch(1), None, touch(3), touch(4)]);
+        assert_eq!(request.key_geometry.as_deref(), Some(&*geometry));
+        // 复用同一份请求时，退回没有触点也清干净。
+        let mut reused = request;
+        typed.set_key_geometry(None);
+        typed.build_request_into(&mut reused);
+        assert!(reused.key_touches.is_empty());
+        assert!(reused.key_geometry.is_none());
+        typed.set_key_geometry(Some(Arc::clone(&geometry)));
+        // 手打的 `'` 不纠，整串不带触点。
+        type_text(&mut typed, "'m");
+        assert!(typed.build_request().key_touches.is_empty());
+        // 一个触点都没有的输入不带。
+        let mut plain = scheme(ShuangpinProfileKind::Xiaohe);
+        plain.set_key_geometry(Some(Arc::clone(&geometry)));
+        type_text(&mut plain, "nihc");
+        assert!(plain.build_request().key_touches.is_empty());
+        // 句中辅助码把输入改写成去段串，位置对不上，也不带。
+        let mut marked = scheme(ShuangpinProfileKind::Xiaohe);
+        marked.set_key_geometry(Some(geometry));
+        type_touched(
+            &mut marked,
+            "nihc",
+            &[touch(1), touch(2), touch(3), touch(4)],
+        );
+        marked.handle_key(SchemeKey::Symbol(MID_SENTENCE_MARKER));
+        type_text(&mut marked, "ab");
+        let request = marked.build_request();
+        assert!(!request.raw_input_with_helpcode_marks.is_empty());
+        assert!(request.key_touches.is_empty());
     }
 
     #[test]

@@ -1059,6 +1059,8 @@ pub(crate) fn record_panel_typing_statistics(
         date.day()
     );
     let _ = store.record(text, source, &day, Some(now.hour()));
+    // 面板上屏一次一段、次数很少，设置应用退出时也没有收尾去写攒着的批次，所以记完就写，和攒批之前一样。
+    let _ = store.flush();
 }
 
 /// Windows 面板文字注入成功后计入打字统计，与 Linux 的 `deliver_panel_text` 一样在阻塞线程上写：统计文件要拿跨进程的文件锁，不能占着异步运行时的线程等。计数失败只丢这一次，不影响已经上屏的文字。

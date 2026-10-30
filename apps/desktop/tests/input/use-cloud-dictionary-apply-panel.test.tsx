@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useCloudDictionaryApplyPanel, type CloudDictionaryPanelClient } from "@msime/ui";
 
 type Response = Awaited<ReturnType<CloudDictionaryPanelClient["request"]>>;
@@ -20,6 +20,22 @@ const preview: Response = {
 };
 function host(request = vi.fn().mockResolvedValue(status)): CloudDictionaryPanelClient {
   return { request, close: vi.fn() };
+}
+function mount(client: CloudDictionaryPanelClient) {
+  let state!: ReturnType<typeof useCloudDictionaryApplyPanel>;
+  function Probe({ client }: { client: CloudDictionaryPanelClient }) {
+    state = useCloudDictionaryApplyPanel(client);
+    return state.confirmation;
+  }
+  const view = render(<Probe client={client} />);
+  return {
+    get current() {
+      return state;
+    },
+    replace(next: CloudDictionaryPanelClient) {
+      view.rerender(<Probe client={next} />);
+    },
+  };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -122,6 +138,29 @@ test.each(["resolve", "reject"] as const)(
     expect(client.request).toHaveBeenCalledTimes(2);
   },
 );
+
+test("替换客户端会关闭待处理的快照应用确认", async () => {
+  const request = vi.fn().mockImplementation(async ({ operation }) => {
+    if (operation === "snapshot_status") return status;
+    if (operation === "snapshot_preview") return preview;
+    return {};
+  });
+  const old = host(request);
+  const next = host();
+  const panel = mount(old);
+  await waitFor(() => expect(panel.current.localVersion).toBe(status.localVersion));
+  act(() => panel.current.download());
+  await waitFor(() => expect(panel.current.preview).toEqual(preview.snapshot));
+  act(() => {
+    void panel.current.enqueue();
+  });
+  await screen.findByRole("alertdialog");
+  panel.replace(next);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ operation: "snapshot_enqueue" }),
+  );
+});
 
 test.each(["resolve", "reject"] as const)(
   "客户端替换后旧状态的 %s 不发布，也不释放新读取",

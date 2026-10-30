@@ -11,11 +11,17 @@ import {
   clientAgentRequest,
   cloudClipboardDeviceName,
   cloudClipboardRequest,
+  cloudClipboardRoute,
   cloudDictionaryFileRequest,
   cloudDictionaryRequest,
   communityRequest,
+  dictionarySyncDirectory,
+  dictionarySyncRequest,
   hostAccountRequest,
   preferencesPutAction,
+  relayBinding,
+  relayBindingRevision,
+  relayCloudClipboardRequest,
   replyError,
   replyValueText,
   settingsApplyRequest,
@@ -23,6 +29,7 @@ import {
   statusUserId,
   typingUploadReply,
   typingUploadRequest,
+  webDavProbeRequest,
 } from "../entry/src/main/ets/account/HarmonyAccountRequests";
 import {
   ADOPTED_SESSIONS,
@@ -106,6 +113,9 @@ async function main(): Promise<void> {
         "delete",
         "google_login",
         "voice_contribution",
+        // 华为账号登录的两步只由宿主（HarmonyHuaweiSignIn）发，页面只能发 huawei_sign_in。
+        "huawei_challenge",
+        "huawei_login",
       ]) {
         const plan = accountRequest(
           DIRECTORY,
@@ -161,8 +171,15 @@ async function main(): Promise<void> {
     check(!("diagnostics" in bare), "null diagnostics are left out, Rust only takes an object");
   });
 
-  await group("session-changing operations include the host's Google loopback login", () => {
-    for (const operation of ["login", "logout", "account_delete", "forget", "google_sign_in"]) {
+  await group("session-changing operations include the host's Google and Huawei logins", () => {
+    for (const operation of [
+      "login",
+      "logout",
+      "account_delete",
+      "forget",
+      "google_sign_in",
+      "huawei_sign_in",
+    ]) {
       check(
         SESSION_CHANGING_OPERATIONS.includes(operation),
         `${operation} cancels the old account's queued snapshot`,
@@ -192,6 +209,7 @@ async function main(): Promise<void> {
       DIRECTORY,
       DIRECTORY,
       '{"operation":"keyboard_skin_install","id":"x","name":"秋"}',
+      false,
     );
     check(
       parsed(install.request).state_root === DIRECTORY,
@@ -202,31 +220,73 @@ async function main(): Promise<void> {
         DIRECTORY,
         DIRECTORY,
         '{"operation":"keyboard_skin_list","offset":0,"search":""}',
+        false,
       ).request,
     );
     check(!("state_root" in list), "listing needs no state root");
+    check(!("exclude_ai_generated" in list), "an open AI gate sends the request as before");
     for (const operation of ["finish_trial", "store_reply", "candidate_skin_install"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
+      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }), false);
       check(replyError(plan.refusal, "") === "community_invalid", `${operation} is not forwarded`);
     }
   });
 
-  await group("community plugins: the gallery's operations pass, pack work gets the state root", () => {
-    for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation, id: "x" }));
+  await group("community: a closed AI gate asks Rust to leave out AI-generated skins", () => {
+    for (const operation of [
+      "keyboard_skin_list",
+      "keyboard_skin_detail",
+      "keyboard_skin_install",
+      "resource_list",
+    ]) {
+      const plan = communityRequest(
+        DIRECTORY,
+        DIRECTORY,
+        JSON.stringify({ operation, id: "x" }),
+        true,
+      );
+      const request = parsed(plan.request);
       check(
-        plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
-        `${operation} reads or writes the plugins root`,
+        request.exclude_ai_generated === true &&
+          !("exclude_ai_generated" in (request.action as object)),
+        `${operation} carries the host's exclusion beside the page's action`,
       );
     }
-    for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
-      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }));
-      check(
-        plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
-        `${operation} is forwarded without the state root`,
-      );
-    }
+    // 页面自己写的同名字段留在动作里，Rust 的 deny_unknown_fields 会拒绝它；页面关不掉宿主的筛选。
+    const forged = parsed(
+      communityRequest(
+        DIRECTORY,
+        DIRECTORY,
+        '{"operation":"keyboard_skin_list","offset":0,"search":"","exclude_ai_generated":false}',
+        true,
+      ).request,
+    );
+    check(forged.exclude_ai_generated === true, "the page cannot turn the exclusion off");
   });
+
+  await group(
+    "community plugins: the gallery's operations pass, pack work gets the state root",
+    () => {
+      for (const operation of ["plugin_pack_preview", "plugin_publish", "plugin_install"]) {
+        const plan = communityRequest(
+          DIRECTORY,
+          DIRECTORY,
+          JSON.stringify({ operation, id: "x" }),
+          false,
+        );
+        check(
+          plan.refusal.length === 0 && parsed(plan.request).state_root === DIRECTORY,
+          `${operation} reads or writes the plugins root`,
+        );
+      }
+      for (const operation of ["plugin_list", "plugin_detail", "plugin_rate", "plugin_delete"]) {
+        const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }), false);
+        check(
+          plan.refusal.length === 0 && !("state_root" in parsed(plan.request)),
+          `${operation} is forwarded without the state root`,
+        );
+      }
+    },
+  );
 
   await group("cloud dictionary: short requests pass, file operations are the host's", () => {
     check(
@@ -277,15 +337,29 @@ async function main(): Promise<void> {
         DIRECTORY,
         "HUAWEI Mate 70",
         '{"operation":"list","search":""}',
+        DIRECTORY,
+        true,
       );
+      const request = parsed(plan.request);
       check(
-        parsed(plan.request).device_name === "HUAWEI Mate 70",
+        request.device_name === "HUAWEI Mate 70",
         "the device name is sent so other devices do not see Linux",
       );
+      check(
+        request.preferences_directory === DIRECTORY,
+        "the preferences travel so Rust refuses the account once a relay is configured",
+      );
+      check(!("create_identity" in request), "the settings app creates the device identity");
+      const keyboard = parsed(
+        cloudClipboardRequest(DIRECTORY, "x", '{"operation":"add","text":"合成"}', DIRECTORY, false)
+          .request,
+      );
+      check(keyboard.create_identity === false, "the keyboard only borrows the identity");
       for (const operation of ["pin", "set_retention", "clear"]) {
         check(
           replyError(
-            cloudClipboardRequest(DIRECTORY, "x", JSON.stringify({ operation })).refusal,
+            cloudClipboardRequest(DIRECTORY, "x", JSON.stringify({ operation }), DIRECTORY, true)
+              .refusal,
             "",
           ) === "invalid_cloud_clipboard",
           `${operation} has no entry on this host's page yet`,
@@ -299,6 +373,179 @@ async function main(): Promise<void> {
       check(cloudClipboardDeviceName(" ", "") === "HarmonyOS 设备", "then the old fallback");
     },
   );
+
+  await group(
+    "cloud clipboard: a relay or a WebDAV drive is the only route once configured",
+    () => {
+      const account = cloudClipboardRoute('{"ok":true,"value":{"source":"account","revision":3}}');
+      check(account.source === "account" && account.revision === 3, "the account route");
+      check(relayBinding(account) === "", "the account has no relay binding");
+      const drive = cloudClipboardRoute(
+        '{"ok":true,"value":{"source":"relay","backend":"webdav","revision":7}}',
+      );
+      check(drive.source === "relay" && drive.backend === "webdav", "a WebDAV drive is a relay");
+      const binding = relayBinding(drive);
+      check(binding === "relay:webdav:7", "the binding names the backend and the revision");
+      check(!binding.includes("dav.example"), "no address or credential is in the binding");
+      check(relayBindingRevision(binding) === 7, "the revision is read back from the binding");
+      check(
+        relayBindingRevision("synthetic-user-id") === -1,
+        "an account id is not a relay binding",
+      );
+      check(
+        relayBinding(
+          cloudClipboardRoute(
+            '{"ok":true,"value":{"source":"relay","backend":"relay","revision":7}}',
+          ),
+        ) !== binding,
+        "a relay and a drive at the same revision do not share a binding",
+      );
+      // 读不出来源时从不当成「走账号」。
+      for (const reply of [
+        '{"ok":false,"error":"relay_not_configured"}',
+        '{"ok":false,"error":"storage"}',
+        '{"ok":true,"value":{"source":"relay","backend":"s3","revision":1}}',
+        '{"ok":true,"value":{"source":"socket","revision":1}}',
+        '{"ok":true,"value":{"source":"account"}}',
+        "not json",
+        "",
+      ]) {
+        const route = cloudClipboardRoute(reply);
+        check(route.source === "failed" && route.error.length > 0, `${reply} is a failure`);
+      }
+      check(
+        cloudClipboardRoute('{"ok":false,"error":"relay_not_configured"}').error ===
+          "relay_not_configured",
+        "the page hears why",
+      );
+
+      const relay = relayCloudClipboardRequest(
+        DIRECTORY,
+        DIRECTORY,
+        "HUAWEI Mate 70",
+        '{"operation":"list","search":""}',
+        7,
+        true,
+      );
+      const request = parsed(relay.request);
+      check(
+        request.preferences_directory === DIRECTORY && request.directory === DIRECTORY,
+        "the keystore and the drive cache live with the account session",
+      );
+      check(request.expected_revision === 7, "Rust compares the revision the route was read at");
+      check(request.device_name === "HUAWEI Mate 70", "the device name travels to the relay too");
+      check(!("create_identity" in request), "settings may create the identity");
+      const borrowed = parsed(
+        relayCloudClipboardRequest(
+          DIRECTORY,
+          DIRECTORY,
+          "x",
+          '{"operation":"add","text":"合成"}',
+          7,
+          false,
+        ).request,
+      );
+      check(borrowed.create_identity === false, "the keyboard never creates its own identity");
+      for (const operation of ["pin", "set_retention", "clear", "unknown"]) {
+        check(
+          replyError(
+            relayCloudClipboardRequest(
+              DIRECTORY,
+              DIRECTORY,
+              "x",
+              JSON.stringify({ operation }),
+              1,
+              true,
+            ).refusal,
+            "",
+          ) === "invalid_cloud_clipboard",
+          `${operation} is refused on the relay as on the account`,
+        );
+      }
+
+      const probe = webDavProbeRequest(
+        '{"url":"https://dav.example.test/dav","username":"synthetic@example.test","password":"synthetic-app-password"}',
+        DIRECTORY,
+      );
+      check(probe.refusal === "", "a draft becomes a probe");
+      check(
+        parsed(probe.request).directory === DIRECTORY,
+        "a passing probe resets the local cache",
+      );
+      for (const draft of [
+        '{"url":"https://dav.example.test/dav","username":"a"}',
+        '{"url":1,"username":"a","password":"b"}',
+        '{"url":"https://dav.example.test/dav","username":"a","password":"b","directory":"/x"}',
+        "not json",
+      ]) {
+        check(
+          replyError(webDavProbeRequest(draft, DIRECTORY).refusal, "") === "relay_not_configured",
+          `${draft} is not probed`,
+        );
+      }
+    },
+  );
+
+  await group("dictionary sync runs in its own directory with the settings app's options", () => {
+    const options =
+      '{"api_version":1,"preferences_directory":"/data/storage/el2/base/haps/entry/files/state"}';
+    const plan = dictionarySyncRequest(
+      options,
+      DIRECTORY,
+      "HUAWEI Mate 70",
+      '{"operation":"run","trigger":"opened"}',
+    );
+    check(plan.refusal === "", "run is a page operation");
+    const request = parsed(plan.request);
+    // 不是 files/state 本身：那里有云剪贴板中继同名的密钥串和网盘缓存。
+    check(request.directory === `${DIRECTORY}/dictionary-sync`, "the state has its own directory");
+    check(dictionarySyncDirectory(DIRECTORY) === request.directory, "one rule for the directory");
+    check(
+      (request.options as Json).preferences_directory === DIRECTORY,
+      "the host options are the settings app's",
+    );
+    check(request.device_name === "HUAWEI Mate 70", "the device is named for the approving side");
+    check(
+      (request.action as Json).trigger === "opened",
+      "the action is forwarded for Rust to check",
+    );
+    check(!("create_identity" in request), "the entry has no borrowed-identity switch");
+    for (const operation of [
+      "status",
+      "devices",
+      "approve",
+      "reject",
+      "remove",
+      "reset",
+      "restart",
+      "probe",
+    ]) {
+      check(
+        dictionarySyncRequest(options, DIRECTORY, "", `{"operation":"${operation}"}`).refusal ===
+          "",
+        `${operation} is offered to the page`,
+      );
+    }
+    check(
+      !(
+        "device_name" in
+        parsed(dictionarySyncRequest(options, DIRECTORY, "", '{"operation":"status"}').request)
+      ),
+      "an empty name is left out",
+    );
+    for (const [action, hostOptions] of [
+      ['{"operation":"pull"}', options],
+      ['{"trigger":"manual"}', options],
+      ["not json", options],
+      ['{"operation":"status"}', "not json"],
+    ]) {
+      check(
+        replyError(dictionarySyncRequest(hostOptions, DIRECTORY, "", action).refusal, "") ===
+          "invalid_dictionary_sync",
+        `${action} with ${hostOptions} is refused before Rust`,
+      );
+    }
+  });
 
   await group("the client agent request names harmony and the device", () => {
     const request = parsed(clientAgentRequest("0.1.0", "", "ALN-AL00", "6.0.1.115", "full"));

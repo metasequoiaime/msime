@@ -34,6 +34,9 @@ final class ImeToolbar {
     private java.util.List<ToolbarOrderPolicy.Item> appliedOrder;
     /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
     private Button recentClipHistoryButton;
+    private Button recentClipDismissButton;
+    /** 「最近复制」预览右边的分词或分类快捷键（#10079），由设置「复制后自动显示快捷键」决定显示哪个。 */
+    private Button recentClipActionButton;
     private Button recentClipCollapseButton;
     private String styleCacheKey;
     private int iconColor;
@@ -49,23 +52,25 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、撤销、重做、语音、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         appliedOrder = null;
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton};
+            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
         s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
-        for (Button button : new Button[] {s.moreButton, dismissButton}) {
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, dismissButton}) {
             bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
-            s.shortcutToolbar.addView(button, button == s.moreButton ? 0 : s.shortcutToolbar.getChildCount(), params);
+            int position = button == s.moreButton ? 0
+                : button == s.symbolShortcutButton ? 1 : s.shortcutToolbar.getChildCount();
+            s.shortcutToolbar.addView(button, position, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
         // 数字键面的计算结果（#5688）放在中间滚动区最前面；没有结果时隐藏，不占宽度。
@@ -81,13 +86,72 @@ final class ImeToolbar {
             s.shortcutBar.addView(button, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
-        // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
+        // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「语音输入 → 启动方式」选「工具栏按钮」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
-                s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {
+                s.replyShortcutButton, s.layoutSettingsButton}) {
             if (retired == null) continue;
             if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
             ViewPolicy.hide(retired);
         }
+    }
+
+    /**
+     * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。
+     *
+     * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 和 100% 时的行高（{@code designRowPx}）时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
+     */
+    void applyShortcutSize(int percent, boolean custom, int rowHeightPx, int designRowPx) {
+        if (shortcutButtons == null) return;
+        int followedButton = s.pixels(44);
+        int height = custom ? s.pixels(ToolbarSizePolicy.buttonHeightDp(percent))
+            : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton, designRowPx);
+        int drawPercent = custom ? percent
+            : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton, designRowPx);
+        int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
+        int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
+        // 26 键长空格样式的「符」和品牌键、收起键一样是两端的固定按钮，一起缩放，否则矮行里只有它伸出去被裁掉。
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, s.dismissShortcutButton}) {
+            if (button == null) continue;
+            resizeButton(button, edgeWidth, height);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+            if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(drawPercent);
+        }
+        for (Button button : shortcutButtons) {
+            resizeButton(button, middleWidth, height);
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+        }
+        Button result = s.imeCalculator.chip();
+        if (result != null && result.getLayoutParams() != null
+                && result.getLayoutParams().height != height) {
+            result.getLayoutParams().height = height;
+            result.requestLayout();
+        }
+        if (s.recentClipRow != null) {
+            int verticalPadding = custom ? 0 : s.pixels(4);
+            if (s.recentClipRow.getPaddingTop() != verticalPadding)
+                s.recentClipRow.setPadding(s.pixels(2), verticalPadding, s.pixels(2), verticalPadding);
+            for (Button button : new Button[] {recentClipHistoryButton, recentClipDismissButton,
+                    recentClipCollapseButton}) {
+                if (button == null || button.getLayoutParams() == null) continue;
+                if (button.getLayoutParams().width != edgeWidth) {
+                    button.getLayoutParams().width = edgeWidth;
+                    button.requestLayout();
+                }
+                if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+            }
+            // 分词或分类快捷键（#10079）宽度随字，最小宽度跟两边按钮一起随工具栏大小缩放。
+            if (recentClipActionButton != null && recentClipActionButton.getMinWidth() != edgeWidth)
+                ViewPolicy.setMinimumWidth(recentClipActionButton, edgeWidth);
+        }
+    }
+
+    private static void resizeButton(Button button, int width, int height) {
+        if (button.getLayoutParams() == null) return;
+        if (button.getLayoutParams().width == width && button.getLayoutParams().height == height) return;
+        button.getLayoutParams().width = width;
+        button.getLayoutParams().height = height;
+        button.setMinimumWidth(width);
+        button.requestLayout();
     }
 
     /** 长按由框架消费，不再触发该按钮原来的短按动作。 */
@@ -122,6 +186,7 @@ final class ImeToolbar {
                 case TEXT_EDIT -> s.textEditShortcutButton;
                 case UNDO -> s.undoShortcutButton;
                 case REDO -> s.redoShortcutButton;
+                case VOICE -> s.voiceShortcutButton;
             };
             // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
             s.shortcutBar.addView(button, index + 1);
@@ -179,6 +244,9 @@ final class ImeToolbar {
         s.shortcutToolbar.addView(s.shortcutScroll, new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         s.scriptShortcutButton = s.button(s.shortcutBar, "简", s::toggleChineseOutput);
+        s.symbolShortcutButton = s.keyId(s.shortcutButton(s.shortcutBar, "符",
+            KeyboardShortcutIconPolicy.Icon.SYMBOL, s.imePanels::showSymbolPanel), "SoftSymbol");
+        s.symbolShortcutButton.setContentDescription("打开符号面板");
         s.scriptShortcutButton.setContentDescription("切换到繁体");
         s.emojiShortcutButton = s.shortcutButton(s.shortcutBar, "☺",
             KeyboardShortcutIconPolicy.Icon.EMOJI,
@@ -283,11 +351,18 @@ final class ImeToolbar {
     }
 
 
-    /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键。 */
+    /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键；上屏后联想按用户选的样式在展开键左边加关闭键（#10078，{@link PredictionButtonsPolicy}）。 */
     void addCandidateLine(LinearLayout candidateRegion, FrameLayout viewport, int height) {
         LinearLayout line = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(line);
         line.addView(viewport, LayoutPolicy.weightedMatchParentParams(1));
+        CandidateCloseButton close = new CandidateCloseButton(s);
+        s.closePrediction = close;
+        close.setContentDescription("关闭联想");
+        bindToolbarAction(close, s::dismissPrediction);
+        ViewPolicy.hide(close);
+        line.addView(close, LayoutPolicy.linearParamsPx(
+            s.pixels(CandidateCloseButton.WIDTH_DP), s.pixels(CandidateChevronButton.BUTTON_DP)));
         CandidateChevronButton expand = new CandidateChevronButton(s);
         s.expandCandidates = expand;
         expand.setContentDescription("展开候选");
@@ -342,6 +417,20 @@ final class ImeToolbar {
         ViewPolicy.clearStateListAnimator(paste);
         bindToolbarAction(paste, s::pasteRecentClip);
         row.addView(paste, LayoutPolicy.weightedMatchParentParams(1));
+        // 预览和 × 之间的分词或分类快捷键（#10079）：宽度随字，预览仍占剩下的全部宽度。
+        KeyboardPressButton action = ViewPolicy.newPressButton(s);
+        action.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        ViewPolicy.setAllCapsFalse(action);
+        KeyboardTypographyPolicy.setKeyTextSize(action, 15);
+        ViewPolicy.clearMinimumSize(action);
+        ViewPolicy.clearStateListAnimator(action);
+        LayoutPolicy.setSymmetricPaddingDp(action, s, 8, 0);
+        ViewPolicy.setMinimumWidth(action, s.pixels(44));
+        bindToolbarAction(action, s::runRecentClipQuickAction);
+        ViewPolicy.hide(action);
+        row.addView(action, LayoutPolicy.linearParamsPx(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipActionButton = action;
         KeyboardPressButton dismiss = ViewPolicy.newPressButton(s);
         dismiss.setKeyboardRole(KeyboardKeyRole.GLYPH);
         ViewPolicy.setAllCapsFalse(dismiss);
@@ -352,6 +441,7 @@ final class ImeToolbar {
         dismiss.setContentDescription("不再显示这条复制的内容");
         bindToolbarAction(dismiss, s::dismissRecentClip);
         row.addView(dismiss, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipDismissButton = dismiss;
         // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
         Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
             () -> {
@@ -380,6 +470,12 @@ final class ImeToolbar {
         String preview = image ? ClipboardImagePolicy.LABEL : RecentClipboardSuggestion.preview(text);
         if (!preview.contentEquals(s.recentClipButton.getText())) s.recentClipButton.setText(preview);
         s.recentClipButton.setContentDescription(image ? "发送最近复制的图片" : "粘贴最近复制的内容：" + preview);
+        String action = s.recentClipQuickAction(image);
+        ViewPolicy.setVisible(recentClipActionButton, action != null);
+        if (action == null) return;
+        String label = RecentClipboardSuggestion.quickActionLabel(action);
+        if (!label.contentEquals(recentClipActionButton.getText())) recentClipActionButton.setText(label);
+        recentClipActionButton.setContentDescription(RecentClipboardSuggestion.quickActionDescription(action));
     }
 
     /** 内联键盘高度条：调整时替换整行工具栏。 */
@@ -414,6 +510,12 @@ final class ImeToolbar {
                 shortcut.setIconColors(iconColor, activeIconColor);
             }
         }
+        if (shortcutButtons != null && s.toolbarHidden && s.longSpaceToolbarRowKept())
+            for (Button button : shortcutButtons) ViewPolicy.hide(button);
+        if (s.symbolShortcutButton instanceof KeyboardShortcutButton symbol) {
+            symbol.setActiveFill(activeBackgroundColor);
+            symbol.setIconColors(iconColor, activeIconColor);
+        }
         if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
             dismiss.setIconColors(foregroundColor, foregroundColor);
         if (recentClipHistoryButton instanceof KeyboardShortcutButton history) {
@@ -432,7 +534,12 @@ final class ImeToolbar {
             chevron.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
                 s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
             chevron.setExpanded(s.candidatePanelOpen, true);
+            // 关闭键在左边时分隔线由它画，展开键不再画第二条。
+            chevron.setDividerShown(!ViewPolicy.isVisible(s.closePrediction));
         }
+        if (s.closePrediction instanceof CandidateCloseButton close)
+            close.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
+                s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
         if (s.inlineHeightBar != null)
             s.inlineHeightBar.setColors(foregroundColor, hintColor,
                 returnBackgroundColor, returnForegroundColor);

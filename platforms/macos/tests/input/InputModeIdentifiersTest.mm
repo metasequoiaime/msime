@@ -154,28 +154,85 @@ int main() {
                 "Something other than this bundle's six modes was taken for one of them.");
 
         // 双, 五, 日 and 한 name their scheme and 英 leaves it alone, whatever scheme is behind them.
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Wubi, @"japanese", @"quanpin", Available) isEqualToString:@"wubi"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available) isEqualToString:@"shuangpin"] &&
-                    MSIMESchemeForReportedInputMode(MSIMEInputMode::English, @"wubi", nil, Available) == nil,
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Wubi, @"japanese", @"quanpin", Available, NO) isEqualToString:@"wubi"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available, NO) isEqualToString:@"shuangpin"] &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::English, @"wubi", nil, Available, NO) == nil,
                 "A mode other than 中 did not select its own scheme.");
         // 中 keeps quanpin, and returns from 日 or 한 to the Chinese scheme they were entered from.
-        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"quanpin", nil, Available) == nil &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"korean", @"quanpin", Available) isEqualToString:@"quanpin"],
+        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"quanpin", nil, Available, NO) == nil &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"korean", @"quanpin", Available, NO) isEqualToString:@"quanpin"],
                 "中 did not keep quanpin or return to it.");
         // With 双 and 五 offered, 中 was picked over them and means quanpin, even when 日 was entered from shuangpin.
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available) isEqualToString:@"quanpin"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available, NO) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available, NO) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available, NO) isEqualToString:@"quanpin"],
                 "中 picked over an offered 双 or 五 did not move to quanpin.");
         // Without them, 中 is what shuangpin and wubi show, so picking it keeps the scheme or returns to it.
         gShuangpinModeEnabled = NO;
         gWubiModeEnabled = NO;
-        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available) == nil &&
-                    MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available) == nil &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available) isEqualToString:@"shuangpin"],
+        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available, NO) == nil &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available, NO) == nil &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available, NO) isEqualToString:@"shuangpin"],
                 "中 standing in for a Shuangpin or Wubi mode the user removed moved the scheme.");
         gShuangpinModeEnabled = YES;
         gWubiModeEnabled = YES;
+
+        // #10199：从别的输入源切回水杉后的第一次报告是 中 时，用户没有在 中 和 双 之间挑过，即使 双、五 可用也保留中文方案，从 日 回来的照样回到进入前的中文方案；明确报告的 双、五、日 仍然选各自的方案。
+        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available, YES) == nil &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available, YES) == nil &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"quanpin", nil, Available, YES) == nil &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available, YES) isEqualToString:@"shuangpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available, YES) isEqualToString:@"shuangpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Japanese, @"shuangpin", nil, Available, YES) isEqualToString:@"japanese"],
+                "中 reported on switching back to the input method moved the scheme off the one in use.");
+        // 和控制器的顺序一致：采纳之前读 switchedIn，采纳之后清掉它。
+        auto report = [](MSIMESystemInputModeState &state, NSString *mode, NSString *scheme) -> NSString * {
+            const BOOL switchedIn = state.switchedIn;
+            if (!MSIMEAdoptReportedInputMode(state, mode)) return @"not adopted";
+            state.switchedIn = false;
+            return MSIMESchemeForReportedInputMode(MSIMEInputModeForID(mode), scheme, nil, Available, switchedIn) ?: @"kept";
+        };
+        {
+            // 进程刚启动和离开水杉清空记录之后都算刚切进；清空时把标记一起恢复。
+            MSIMESystemInputModeState state;
+            require(state.switchedIn, "A fresh record was not marked as just switched in.");
+            state.switchedIn = false;
+            MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
+            MSIMEResetSystemInputModeState(state);
+            require(state.switchedIn && state.current == nil, "Leaving the input method did not mark the record as just switched in.");
+        }
+        {
+            // 报告先于激活校准：切回后第一次报告 中，方案不动，同步把菜单栏重新选回 双；之后在水杉里从 双 切到 中，才改用全拼。
+            MSIMESystemInputModeState state;
+            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"kept"] && !state.switchedIn,
+                    "The first 中 after switching back moved shuangpin to quanpin.");
+            require(MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
+                        [client.selected isEqualToArray:@[MSIMEShuangpinInputModeID]] && [state.current isEqualToString:MSIMEShuangpinInputModeID],
+                    "Keeping shuangpin after switching back did not select 双 again.");
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
+                    "中 picked over 双 inside the input method did not move to quanpin.");
+        }
+        {
+            // 激活校准先于报告：校准记下系统落在的 中，随后的同步选回 双，滞后到达的 中 报告虽然和记录不同、会被采纳，仍按切回处理而不改全拼。
+            MSIMESystemInputModeState state;
+            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&
+                        MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) && state.switchedIn,
+                    "Calibration or the select after it cleared the switched-in mark.");
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"kept"],
+                    "A 中 arriving after calibration had selected 双 moved shuangpin to quanpin.");
+            require(MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
+                        [report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
+                    "中 picked after the switch back had been handled did not move to quanpin.");
+        }
+        {
+            // 校准记下的 中 被重复报告时不采纳，也不清掉标记：之后滞后的选择仍按切回处理，直到第一次采纳或按键。
+            MSIMESystemInputModeState state;
+            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&
+                        [report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"not adopted"] && state.switchedIn,
+                    "A 中 repeating the restored mode was adopted as a choice.");
+        }
 
         // 恢复到目标模式时先校准记录，通用同步不再重复请求；外部输入源和未知状态不触发自动选择。
         MSIMESystemInputModeState restored;
@@ -319,8 +376,10 @@ int main() {
         require(state.current == nil && !state.selecting, "Resetting left the record naming a mode.");
         require(MSIMEAdoptReportedInputMode(state, MSIMEEnglishInputModeID) && [state.current isEqualToString:MSIMEEnglishInputModeID],
                 "A report after leaving the input method was not adopted.");
+        MSIMESharedSystemInputModeState().switchedIn = false;
         MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
-        require(MSIMESharedSystemInputModeState().current == nil, "The shared record did not reset.");
+        require(MSIMESharedSystemInputModeState().current == nil && MSIMESharedSystemInputModeState().switchedIn,
+                "The shared record did not reset.");
         MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
 
         // 粤拼、注音、越南文、藏文和笔画各有自己的模式，每个模式都映射回自己的方案。
@@ -365,34 +424,34 @@ int main() {
         gJapaneseModeEnabled = NO;
         gEnglishModeEnabled = NO;
         for (NSString *scheme in @[@"japanese", @"vietnamese", @"tibetan"])
-            require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, scheme, scheme, Available) isEqualToString:scheme],
+            require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, scheme, scheme, Available, NO) isEqualToString:scheme],
                     "中 in a single-language edition left its only scheme.");
         gJapaneseModeEnabled = YES;
         gEnglishModeEnabled = YES;
 
         // 中 from Vietnamese goes back to the Chinese scheme it was entered from, like Japanese and Korean; 中 picked over 粤, 注 or 笔 means quanpin, like over 双 or 五.
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"quanpin", Available) isEqualToString:@"quanpin"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available, NO) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"quanpin", Available, NO) isEqualToString:@"quanpin"],
                 "中 from Vietnamese did not leave it.");
         gWubiModeEnabled = NO;
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available) isEqualToString:@"wubi"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available, NO) isEqualToString:@"wubi"],
                 "中 from Vietnamese did not return to the Chinese scheme it was entered from.");
         gWubiModeEnabled = YES;
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"cantonese", @"quanpin", Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"zhuyin", @"quanpin", Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"stroke", @"quanpin", Available) isEqualToString:@"quanpin"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"cantonese", @"quanpin", Available, NO) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"zhuyin", @"quanpin", Available, NO) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"stroke", @"quanpin", Available, NO) isEqualToString:@"quanpin"],
                 "中 picked over 粤, 注 or 笔 did not move to quanpin.");
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Stroke, @"quanpin", @"quanpin", Available) isEqualToString:@"stroke"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Stroke, @"quanpin", @"quanpin", Available, NO) isEqualToString:@"stroke"],
                 "The Stroke mode did not select its scheme.");
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Vietnamese, @"quanpin", @"quanpin", Available) isEqualToString:@"vietnamese"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Vietnamese, @"quanpin", @"quanpin", Available, NO) isEqualToString:@"vietnamese"],
                 "The Vietnamese mode did not select its scheme.");
         // 藏文和越南文一样不是中文方案：从藏文选 中 回到进入前的中文方案，选 藏 切到藏文。
         gWubiModeEnabled = NO;
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"tibetan", @"wubi", Available) isEqualToString:@"wubi"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"tibetan", @"quanpin", Available) isEqualToString:@"quanpin"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"tibetan", @"wubi", Available, NO) isEqualToString:@"wubi"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"tibetan", @"quanpin", Available, NO) isEqualToString:@"quanpin"],
                 "中 from Tibetan did not return to the Chinese scheme it was entered from.");
         gWubiModeEnabled = YES;
-        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Tibetan, @"quanpin", @"quanpin", Available) isEqualToString:@"tibetan"],
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Tibetan, @"quanpin", @"quanpin", Available, NO) isEqualToString:@"tibetan"],
                 "The Tibetan mode did not select its scheme.");
 
         // Cantonese, Zhuyin and Stroke are available only with their dictionary in the HostOptions language_dictionaries directory; everything else needs nothing more.

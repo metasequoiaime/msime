@@ -1,8 +1,13 @@
 #include "LocalAsr.h"
+#include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #if !defined(_WIN32)
 #include <sys/stat.h>
@@ -51,6 +56,48 @@ int main() {
         assert(unit == "bpe");
         transducer_hotword_lines({}, {"▁the"}, "cjkchar+bpe", unit);
         assert(unit == "cjkchar+bpe");
+    }
+
+    // 低电平说话时 VAD 的段首比起音晚：从 VAD 段首往前找回起音，再留 0.3 秒。录音是合成的：-70 dBFS 左右的确定性噪声本底，加上约 -50 dBFS、音节之间停 0.1 秒的「语音」。
+    {
+        constexpr std::int64_t second = 16000;
+        const auto quiet_speech = [&](std::int64_t length, std::vector<std::pair<double, double>> spans) {
+            std::vector<float> audio(static_cast<std::size_t>(length));
+            std::uint32_t state = 7;
+            for (std::size_t i = 0; i < audio.size(); ++i) {
+                state = state * 1664525u + 1013904223u;
+                audio[i] = (static_cast<float>(state >> 8) / 16777216.0f - 0.5f) * 1e-3f;
+                const double at = static_cast<double>(i) / second;
+                for (const auto &[from, to] : spans) {
+                    // 每 0.4 秒停 0.1 秒，像音节之间的间隙。
+                    if (at >= from && at < to && std::fmod(at - from, 0.4) < 0.3)
+                        audio[i] += 0.0045f * static_cast<float>(std::sin(at * 2 * 3.14159265 * 220));
+                }
+            }
+            return audio;
+        };
+        // 说话从 1.0 秒开始，VAD 到 2.0 秒才认出来：补回 1.0 秒并再往前留 0.3 秒。
+        auto audio = quiet_speech(6 * second, {{1.0, 4.0}});
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, 2 * second, 0) == second - second * 3 / 10);
+        // 不越过上一段的段尾，也不早于手里还留着的录音。
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, 2 * second, second * 3 / 2) == second * 3 / 2);
+        assert(local_vad_segment_start(audio.data() + second * 9 / 10, audio.size() - second * 9 / 10, second * 9 / 10, 2 * second, 0) == second * 9 / 10);
+        // 段首之前的录音已经丢掉，或者段首在录音之外：原样返回 VAD 的段首。
+        assert(local_vad_segment_start(audio.data() + 3 * second, audio.size() - 3 * second, 3 * second, 2 * second, 0) == 2 * second);
+        assert(local_vad_segment_start(audio.data(), 3 * second, 0, 4 * second, 0) == 4 * second);
+        // 最多往前 3 秒。
+        audio = quiet_speech(8 * second, {{0.5, 6.0}});
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, 5 * second, 0) == 2 * second);
+        // 段首前面隔着超过 0.25 秒静音的别的声音不算进来。
+        audio = quiet_speech(6 * second, {{0.2, 0.5}, {1.1, 4.0}});
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, 2 * second, 0) == second * 11 / 10 - second * 3 / 10);
+        // 段首前只有噪声本底：只留固定的 0.3 秒。
+        audio = quiet_speech(6 * second, {{2.0, 4.0}});
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, 2 * second, 0) == 2 * second - second * 3 / 10);
+        // 开头是数字静音（还没有任何本底）时同样找得到起音。
+        audio = quiet_speech(6 * second, {{1.0, 4.0}});
+        std::fill(audio.begin(), audio.begin() + second, 0.0f);
+        assert(local_vad_segment_start(audio.data(), audio.size(), 0, second * 3 / 2, 0) == second - second * 3 / 10);
     }
 
     const auto root = fs::temp_directory_path() / "msime-local-asr-test";

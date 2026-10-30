@@ -193,8 +193,9 @@ public final class CloudSync {
         Path queue = DictionarySnapshotQueue.directory(context);
         String localVersion = DictionarySnapshotQueue.localVersion(DictionarySnapshotQueue.read(queue));
         if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
+        // 本地备份恢复：备份自己带着输入记录，整份换成备份里的那份，不保留本机学习。
         DictionarySnapshotQueue.enqueue(queue, file.toAbsolutePath(), owner, revision, localVersion,
-            DigestPolicy.sha256Hex(file));
+            DigestPolicy.sha256Hex(file), false);
     }
 
     // ---- JSON 小工具 ----

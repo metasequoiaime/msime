@@ -37,6 +37,12 @@ export class TextPolicy {
     return TextPolicy.validAuthority(value, ["https://", "http://"]);
   }
 
+  /** 系统没能把网页交给浏览器时给用户看的提示，带上去掉协议头的地址，让用户可以自己在浏览器里打开。只写日志的话，点了《用户协议》这类链接看起来毫无反应，AppGallery 审核正是以「用户协议点击无响应」驳回过。 */
+  static unopenedLinkNotice(url: string): string {
+    const address: string = url.replace(/^https?:\/\//, "");
+    return `没能打开浏览器，请在浏览器中访问 ${address}`;
+  }
+
   /** Allows plaintext only for a loopback authority; credentials remain HTTPS-only. */
   static validSecureAuthority(value: string, allowHttp: boolean, maxBytes: number = 2048): boolean {
     if (

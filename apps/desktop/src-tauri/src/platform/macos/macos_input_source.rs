@@ -192,6 +192,28 @@ fn copy_tree_within(root: &Path, source: &Path, destination: &Path) -> Result<()
     output.sync_all().map_err(|_| InstallError::Io)
 }
 
+/// 把暂存副本的目录改成 0755、文件改成 0644（带执行位的改成 0755），符号链接不动。
+///
+/// 系统目录的副本由 Installer 以 root:wheel 写入，却由登录用户的进程读取：输入法自己、系统设置和 `codesign` 都以普通用户身份打开它。`copy_tree` 原样保留源 bundle 的权限，源里任何一个 0700 目录或 0600 文件（0.55.0 的包里音标和英文释义三个目录就是这样）装进系统目录后普通用户都读不了，签名校验报 the code cannot be read by the verifier（#10329）。权限不在签名封印里，改了不影响签名。
+fn make_readable_by_everyone(path: &Path) -> Result<(), InstallError> {
+    use std::os::unix::fs::PermissionsExt;
+    let metadata = fs::symlink_metadata(path).map_err(|_| InstallError::Io)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+    let mode = if metadata.is_dir() {
+        for entry in fs::read_dir(path).map_err(|_| InstallError::Io)? {
+            make_readable_by_everyone(&entry.map_err(|_| InstallError::Io)?.path())?;
+        }
+        0o755
+    } else if metadata.permissions().mode() & 0o111 != 0 {
+        0o755
+    } else {
+        0o644
+    };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(|_| InstallError::Io)
+}
+
 fn remove_staging(path: &Path) -> Result<(), InstallError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -447,6 +469,7 @@ fn build_system_package(source: &Path, work: &Path) -> Result<PathBuf, InstallEr
     fs::create_dir(&root).map_err(|_| InstallError::Io)?;
     let staged = root.join(input_source_bundle_name());
     copy_tree(source, &staged)?;
+    make_readable_by_everyone(&staged)?;
     validate_bundle(&staged)?;
     // 签名封印必须在保留框架相对链接的暂存副本上成立，再把它交给 Installer。
     if !command_succeeds(
@@ -1570,6 +1593,12 @@ mod tests {
         let info = source.join("Contents/Info.plist");
         let plist = fs::read_to_string(&info).unwrap().replace("</dict>", &format!("<key>CFBundleExecutable</key><string>{}</string><key>CFBundlePackageType</key><string>APPL</string></dict>", input_source_executable()));
         fs::write(info, plist).unwrap();
+        // 0.55.0 的包里音标和释义目录是 0700、文件是 0600，装进系统目录后普通用户读不了（#10329）。
+        let glosses = source.join("Contents/Resources/word-glosses");
+        fs::create_dir_all(&glosses).unwrap();
+        fs::write(glosses.join("zh-en.db"), b"synthetic").unwrap();
+        fs::set_permissions(glosses.join("zh-en.db"), fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(&glosses, fs::Permissions::from_mode(0o700)).unwrap();
         assert!(Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-", "--timestamp=none"])
             .arg(&source)
@@ -1581,6 +1610,8 @@ mod tests {
         let work = root.path().join("work");
         fs::create_dir(&work).unwrap();
         let package = build_system_package(&source, &work).unwrap();
+        let mode = |path: &Path| fs::symlink_metadata(path).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode(&source.join("Contents/Resources/word-glosses")), 0o700);
         let expanded = root.path().join("expanded");
         assert!(Command::new("/usr/sbin/pkgutil")
             .arg("--expand-full")
@@ -1604,6 +1635,23 @@ mod tests {
             .join("Contents/MacOS")
             .join(input_source_executable())
             .is_file());
+        let payload = expanded.join("Payload").join(input_source_bundle_name());
+        assert_eq!(
+            mode(&payload.join("Contents/Resources/word-glosses")),
+            0o755
+        );
+        assert_eq!(
+            mode(&payload.join("Contents/Resources/word-glosses/zh-en.db")),
+            0o644
+        );
+        assert_eq!(
+            mode(
+                &payload
+                    .join("Contents/MacOS")
+                    .join(input_source_executable())
+            ),
+            0o755
+        );
         let components = work.join("components.plist");
         assert_eq!(
             plist_string(&components, "0.BundleIsRelocatable")

@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.KeyLayoutStyleMigration;
 import app.msime.android.AppEdition;
 import app.msime.android.BackupDestinationWriter;
 import app.msime.android.BoundsPolicy;
@@ -14,6 +15,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.DictionarySnapshotWords;
 import app.msime.android.DigestPolicy;
+import app.msime.android.ExportDirectory;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.KeyboardFeedbackStore;
@@ -84,10 +86,37 @@ final class LocalBackup {
 
     // ---- 导出 ----
 
-    /** 导出到 `uri`，返回给用户看的结果。失败时保留提供方返回的文档。 */
+    private interface ArchiveDestination {
+        void write(Context context, Path archive) throws IOException;
+    }
+
+    /** 导出到文件选择器给的文档；失败时保留提供方返回的文档。 */
     static String export(Context context, Uri uri) {
+        return export(context, (owner, archive) -> BackupDestinationWriter.write(archive,
+            new BackupDestinationWriter.Destination() {
+                @Override public InputStream openForRead() throws FileNotFoundException {
+                    return owner.getContentResolver().openInputStream(uri);
+                }
+
+                @Override public OutputStream openForWrite() throws FileNotFoundException {
+                    return owner.getContentResolver().openOutputStream(uri, "wt");
+                }
+            }));
+    }
+
+    /** 写到已授权的目录；撤权或删除目录后由调用页提示重新选择。 */
+    static String exportToDirectory(Context context, String tree) {
+        try { ExportDirectory.inspect(context, tree); }
+        catch (IOException | RuntimeException unavailable) { return "备份文件夹不可用，请重新选择保存位置。"; }
+        return export(context, (owner, archive) ->
+            ExportDirectory.write(owner, tree, archive.toFile(), "application/zip"));
+    }
+
+    private static String export(Context context, ArchiveDestination destination) {
         String directory = HostStore.directory(context);
         if (directory.isEmpty()) return "还没有完成首次准备，暂时没有可以备份的数据。";
+        // 备份里的设置文档要带上迁移后的底行样式、数字行和九键滑动输入数字，旧的本机键迁完即删、不再进备份。
+        KeyLayoutStyleMigration.migrate(context, directory);
         Path dictionary = null;
         Path habitsFile = null;
         Path archive = null;
@@ -95,7 +124,7 @@ final class LocalBackup {
             Path work = workDirectory(context);
             dictionary = work.resolve("export-dictionary.ndjson");
             habitsFile = work.resolve("export-habits.ndjson");
-            archive = work.resolve("export.zip");
+            archive = work.resolve(defaultName(context));
             JSONObject settings = CloudSync.nativeValue(NativeClient.accountSettingsExport(
                 new JSONObject().put("preferences_directory", directory)
                     .put("feedback", CloudSync.hostFeedback(context)).toString()))
@@ -153,15 +182,7 @@ final class LocalBackup {
                 putFile(zip, LocalBackupPolicy.DICTIONARY, dictionary);
                 if (habits != null) putFile(zip, LocalBackupPolicy.HABITS, habitsFile);
             }
-            BackupDestinationWriter.write(archive, new BackupDestinationWriter.Destination() {
-                @Override public InputStream openForRead() throws FileNotFoundException {
-                    return context.getContentResolver().openInputStream(uri);
-                }
-
-                @Override public OutputStream openForWrite() throws FileNotFoundException {
-                    return context.getContentResolver().openOutputStream(uri, "wt");
-                }
-            });
+            destination.write(context, archive);
             int records = (learning == null ? 0 : learning) + (habits == null ? 0 : habits);
             if (learningMissing) {
                 return "已导出备份：" + phrases.size() + " 条常用语、" + (words == null ? 0 : words) + " 个词、"
@@ -468,6 +489,9 @@ final class LocalBackup {
         }
 
         static Undo capture(Context context, String directory) throws IOException, JSONException {
+            // 先完成旧键迁移，避免在共享设置导出和本地设置快照之间被另一进程迁移，撤销时丢掉旧选择。
+            if (!KeyLayoutStyleMigration.migrate(context, directory))
+                throw new IOException("key layout migration failed before undo capture");
             JSONObject settings = CloudSync.nativeValue(NativeClient.accountSettingsExport(
                 new JSONObject().put("preferences_directory", directory)
                     .put("feedback", CloudSync.hostFeedback(context)).toString()))
@@ -542,15 +566,24 @@ final class LocalBackup {
     /** 设置文档按备份里的值声明字段类型后交给 client-services 应用，再写回 Android 本地设置。改了任何设置时返回 true；写入失败时抛出，由调用方撤销。 */
     private static boolean restoreSettings(Context context, String directory, ZipFile zip)
             throws IOException, JSONException {
+        if (!KeyLayoutStyleMigration.migrate(context, directory))
+            throw new IOException("key layout migration failed before backup restore");
         boolean applied = false;
         JSONObject document = jsonEntry(zip, LocalBackupPolicy.SETTINGS, LocalBackupPolicy.MAX_SETTINGS_BYTES);
         JSONObject settings = document == null ? null : document.optJSONObject("settings");
+        JSONObject local = jsonEntry(zip, LocalBackupPolicy.ANDROID_LOCAL, LocalBackupPolicy.MAX_ANDROID_LOCAL_BYTES);
+        Map<String, Object> restoredStyles = KeyLayoutStyleMigration.restoredSharedEdits(
+            local == null ? Map.of() : CloudSync.map(local), settings == null ? Map.of() : CloudSync.map(settings));
+        if (!restoredStyles.isEmpty()) {
+            if (settings == null) settings = new JSONObject();
+            for (Map.Entry<String, Object> style : restoredStyles.entrySet())
+                settings.put(style.getKey(), style.getValue());
+        }
         if (settings != null && settings.length() > 0) {
             settings.remove(SKINS_KEY);
             applySettingsDocument(context, directory, settings);
             applied = true;
         }
-        JSONObject local = jsonEntry(zip, LocalBackupPolicy.ANDROID_LOCAL, LocalBackupPolicy.MAX_ANDROID_LOCAL_BYTES);
         if (local != null) {
             Map<String, Object> edits = new LinkedHashMap<>(local.length());
             Map<String, AndroidLocalSettings.Spec> specs = AndroidLocalSettings.specs();
@@ -559,7 +592,8 @@ final class LocalBackup {
                 AndroidLocalSettings.Spec spec = specs.get(key);
                 // 别的版本写下、本版本不认识或取值不合规的键跳过，不让整份本地设置因为一项失败；语音数据贡献和开发者选项即使在包里也不恢复。
                 Object value = spec == null || !LocalBackupPolicy.backsUpLocalSetting(key) ? null : spec.accept(local.opt(key));
-                if (value != null) edits.put(key, value);
+                // 旧键（长空格、数字行、九键滑动输入数字）已转换进上面的共享设置文档，恢复成功后只移除旧副本。
+                if (value != null) edits.put(key, KeyLayoutStyleMigration.legacyKey(key) ? null : value);
             }
             if (!edits.isEmpty()) {
                 // 本地设置里有一部分随设置同步（应用主题、按键细节等），写回后同样标记待上传（由调用方在全部成功后标记）。

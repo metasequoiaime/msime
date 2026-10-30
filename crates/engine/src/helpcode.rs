@@ -16,6 +16,7 @@ use crate::types::WordItem;
 /// allowing a user supplied file to make a session allocate without bound.
 const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
 
+/// A helpcode table: the code letters (one or two, lowercase) of each character, which the session uses to filter and order candidates and to annotate them. Read one from a resource directory with [`load_helpcode_keymap`], from a file's bytes with [`HelpcodeKeymap::from_table_bytes`], or build one with [`HelpcodeKeymap::from_codes`]; a session takes it through `SessionOptions::helpcode_table` or `Session::set_helpcode_table`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HelpcodeKeymap {
     codes: HashMap<String, String>,
@@ -25,6 +26,7 @@ pub struct HelpcodeKeymap {
 pub type SharedKeymap = Arc<HelpcodeKeymap>;
 
 impl HelpcodeKeymap {
+    /// A table from character to code letters as given; the caller has already applied the file rules of [`load_helpcode_keymap`].
     pub fn from_codes(codes: HashMap<String, String>) -> Self {
         Self { codes }
     }
@@ -373,6 +375,26 @@ pub fn reorder_candidates_with_single_helpcode(
     }
 
     candidates
+}
+
+/// 一码严格筛选：只保留至少一个汉字命中该码的候选；未命中的候选被排除。
+pub fn filter_candidates_with_single_helpcode(
+    candidates: Vec<WordItem>,
+    help_code: &str,
+    keymap: &HelpcodeKeymap,
+) -> Vec<WordItem> {
+    if help_code.len() != 1 {
+        return Vec::new();
+    }
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            !matches!(
+                match_single_helpcode(&candidate.word, help_code, keymap),
+                SingleHelpcodeMatch::None
+            )
+        })
+        .collect()
 }
 
 /// Only the double-helpcode matches; empty unless `help_codes` is two letters.
@@ -858,5 +880,7 @@ mod tests {
             filter_candidates_with_double_helpcodes(items(&["泥", "你", "拟"]), "ab", &map);
         assert_eq!(words(&filtered), ["你"]);
         assert!(filter_candidates_with_double_helpcodes(items(&["你"]), "a", &map).is_empty());
+        let strict = filter_candidates_with_single_helpcode(items(&["泥", "你", "拟"]), "a", &map);
+        assert_eq!(words(&strict), ["你", "拟"]);
     }
 }

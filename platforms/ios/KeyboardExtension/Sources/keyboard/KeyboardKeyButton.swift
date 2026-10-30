@@ -38,14 +38,23 @@ final class KeyboardKeyButton: UIButton {
       let smaller = font.withSize(size)
       if measure(text, smaller) <= width { return (text, smaller) }
     }
+    // 整段在最小字号下也放不下：留下最长的、接上「…」还放得下的前缀（0 到少一个字符），连「…」都放不下时为空。按长度二分，每次只量一次。原来从末尾一个字一个字地删、每删一个量一次，单字候选的 Unihan 释义常要删掉几十个字符，每次按键每个词块都要量几十次。只记量过确实放得下的结果，所以字宽偶尔不随长度单调增长时也不会画出超宽的一行。
     let floorFont = font.withSize(minimumGlossFontSize)
-    var characters = Array(text)
-    while !characters.isEmpty {
-      characters.removeLast()
-      let shortened = String(characters) + "…"
-      if measure(shortened, floorFont) <= width { return (shortened, floorFont) }
+    let characters = Array(text)
+    var fitted = ""
+    var low = 0
+    var high = characters.count - 1
+    while low <= high {
+      let length = (low + high) / 2
+      let shortened = String(characters[..<length]) + "…"
+      if measure(shortened, floorFont) <= width {
+        fitted = shortened
+        low = length + 1
+      } else {
+        high = length - 1
+      }
     }
-    return ("", floorFont)
+    return (fitted, floorFont)
   }
 
   /// 按住按钮时给手指的反馈，取自设计稿的 `style-active` 规则。
@@ -207,6 +216,9 @@ final class KeyboardKeyButton: UIButton {
       resetPressFeedback()
       removePressPreview()
       resetCornerHint()
+      _ = nineKeySwipe.finish()
+      restoreNineKeySwipeFace()
+      touchDownLocation = nil
     }
   }
 
@@ -246,20 +258,61 @@ final class KeyboardKeyButton: UIButton {
   /// 滑动是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
   var swipesCornerHint = true
   var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
+  /// 为真时上滑、下滑都输入角标，不看 `cornerHintSwipeDirection`，纵向位移还要大于横向，按满 `cornerHintHoldDelay` 还没滑出去就不再起滑动（`SwipeHintPolicy.swipedEitherWay`）。「长空格」的逗号用它，与 Android 的 `ImeBottomRow.bindCommaSwipe` 一致。
+  var cornerHintSwipesEitherWay = false
+  /// 按住是否输入角标。为假时角标只靠滑动输入，按住留给按键自己的长按菜单（`menu`），例如 14 键「长空格」的逗号：上滑或下滑输入句号，长按仍打开常用标点。
+  var holdsCornerHint = true
 
   /// UIKit 默认的长按时长，与九键长按用的半秒相同；Android 等的是系统的长按超时。
   static let cornerHintHoldDelay: TimeInterval = 0.5
 
+  /// 是否记下按下点（#10018）：26 键的字母键和微软双拼的 `;`。其余按钮不记，按下时不必去找键区。
+  var recordsTouchDown = false
+
+  /// 这一次触摸按下时手指在键区（`KeyAreaStackView`）坐标里的位置：落在键距里被 `KeyGapRouting` 归给这个键的触摸也是手指的真实位置，不受按下缩放影响。松手输入时由按键的动作取走（`takeTouchDownLocation`）；触摸取消、改输角标或结束后都清掉，不会留给之后没有触摸的激活（`sendActions`、读屏）。
+  var touchDownLocation: CGPoint?
+
+  /// 取走并清掉这一次的按下点。
+  func takeTouchDownLocation() -> CGPoint? {
+    defer { touchDownLocation = nil }
+    return touchDownLocation
+  }
+
+  /// 「九键滑动输入数字」（#10229）：九宫格 1–9 键的数字，为 nil 时这个键不接九键滑动。控制器建九宫格时设好；同一个键在数字层、九键双拼里也是它，那时 `nineKeySwipeMode` 返回关闭。
+  var nineKeySwipeDigit: Int?
+  /// 这个键有没有字母可弹：2–9 有，1 键是「@#」没有，反方向滑动什么也不做。
+  var nineKeySwipeHasLetters = false
+  /// 右上角的数字角标，输入数字时临时藏起来，松手或取消后还原。
+  weak var nineKeySwipeHint: UIView?
+  /// 此刻的设置，每次判定时现读：不在拼音九键字母层、长按菜单已经弹出、横滑移光标接管了触摸或读屏开着时由控制器返回关闭。
+  var nineKeySwipeMode: (() -> NineKeySwipeDigits)?
+  /// 判出反方向时立刻以 `.letters` 回调（弹出数字和字母）；沿设定方向的在松手时以 `.digit` 回调（输入数字）。触摸被取消时不回调。两种都不再执行按键自己的点按。
+  var onNineKeySwipe: ((NineKeySwipePolicy.Gesture) -> Void)?
+  private var nineKeySwipe = NineKeySwipeTracker()
+  /// 输入数字期间被换下的键面标题和角标的显隐，松手或取消时原样还原（1 键的键面可能随组字状态变过）。
+  private var nineKeySwipeRestingFace: (title: String?, hintHidden: Bool)?
+
+  /// 当前这次触摸已经判出九键滑动。
+  var nineKeySwipeGesture: NineKeySwipePolicy.Gesture { nineKeySwipe.gesture }
+
   /// 被跟踪的手指按下的位置，用窗口坐标，免得按下缩放扭曲滑动距离。
-  private var cornerHintDownY: CGFloat = 0
+  private var cornerHintDown: CGPoint = .zero
+  /// 按下时的触摸时间戳（`UITouch.timestamp`），`cornerHintSwipesEitherWay` 用它判断这次触摸是否已经归长按。
+  private var cornerHintDownTime: TimeInterval = 0
   private var cornerHintTriggered = false
   private var cornerHintHold: Timer?
 
   override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
     let began = super.beginTracking(touch, with: event)
     resetCornerHint()
+    touchDownLocation = began && recordsTouchDown ? keyArea.map { touch.location(in: $0) } : nil
+    restoreNineKeySwipeFace()
+    _ = nineKeySwipe.finish()
+    if began, nineKeySwipeDigit != nil { nineKeySwipe.begin(y: touch.location(in: nil).y) }
     guard began, cornerHint != nil else { return began }
-    cornerHintDownY = touch.location(in: nil).y
+    cornerHintDown = touch.location(in: nil)
+    cornerHintDownTime = touch.timestamp
+    guard holdsCornerHint else { return began }
     cornerHintHold = Timer.scheduledTimer(withTimeInterval: Self.cornerHintHoldDelay, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         // 滑出按键的手指不再算按住，对应 Android 检查 `isPressed()`。
@@ -271,32 +324,113 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-    if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint,
-       SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDownY, currentY: touch.location(in: nil).y) {
+    if let digit = nineKeySwipeDigit, nineKeySwipe.gesture == .none, let mode = nineKeySwipeMode?(),
+       let decided = nineKeySwipe.move(y: touch.location(in: nil).y, mode: mode, hasLetters: nineKeySwipeHasLetters) {
+      beginNineKeySwipe(decided, digit: digit)
+      return true
+    }
+    if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
       triggerCornerHint(hint)
     }
     return super.continueTracking(touch, with: event)
   }
 
+  private func cornerHintSwiped(_ touch: UITouch) -> Bool {
+    let current = touch.location(in: nil)
+    guard cornerHintSwipesEitherWay else {
+      return SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDown.y, currentY: current.y)
+    }
+    return SwipeHintPolicy.swipedEitherWay(down: cornerHintDown, current: current,
+                                           elapsed: touch.timestamp - cornerHintDownTime, holdDelay: Self.cornerHintHoldDelay)
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // 判出九键滑动之后这次触摸不再是点按：键停在判出时的样子（输入数字时保持按下，弹出字母时松开），不随手指进出按键变化。
+    guard nineKeySwipe.gesture == .none else { return }
+    super.touchesMoved(touches, with: event)
+    if nineKeySwipe.gesture != .none { isHighlighted = nineKeySwipe.gesture == .digit }
+  }
+
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    let swiped = nineKeySwipe.finish()
+    if swiped != .none {
+      // 和角标一样取消而不是结束这次触摸，按键自己的点按不会再触发；还原键面之后再上屏，上屏引起的重画看到的是原来的键面。
+      super.touchesCancelled(touches, with: event)
+      restoreNineKeySwipeFace()
+      resetCornerHint()
+      touchDownLocation = nil
+      if swiped == .digit { onNineKeySwipe?(.digit) }
+      return
+    }
     guard cornerHintTriggered, let hint = cornerHint else {
       resetCornerHint()
+      // 松手输入时按键的动作在这里面同步执行并取走按下点；手指滑出按键后松开不输入，按下点也不留下。
       super.touchesEnded(touches, with: event)
+      touchDownLocation = nil
       return
     }
     // 取消而不是结束这次触摸，与 Android 给按键发 `ACTION_CANCEL` 一样：按下反馈和预览消失，`touchUpInside` 不会触发。
     super.touchesCancelled(touches, with: event)
     resetCornerHint()
+    touchDownLocation = nil
     onCornerHint?(hint)
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-    // 触摸被滑行输入接管或被系统取消时，什么也不输入。
+    // 触摸被滑行输入、横滑移光标或长按接管，或被系统取消时，什么也不输入；已经换成数字的键面还原。
+    _ = nineKeySwipe.finish()
+    restoreNineKeySwipeFace()
     resetCornerHint()
+    touchDownLocation = nil
     super.touchesCancelled(touches, with: event)
   }
 
+  /// 判出九键滑动的那一刻：取消这个键的长按（之后不会再弹长按菜单），点按由 `touchesEnded` 改成取消。输入数字时键保持按下、键面换成数字、角标藏起；弹出字母时立刻回调。
+  private func beginNineKeySwipe(_ gesture: NineKeySwipePolicy.Gesture, digit: Int) {
+    touchDownLocation = nil
+    for hold in gestureRecognizers ?? [] where hold is UILongPressGestureRecognizer {
+      let enabled = hold.isEnabled
+      hold.isEnabled = false
+      hold.isEnabled = enabled
+    }
+    switch gesture {
+    case .digit:
+      if nineKeySwipeRestingFace == nil {
+        nineKeySwipeRestingFace = (configuration?.title, nineKeySwipeHint?.isHidden ?? true)
+      }
+      configuration?.title = String(digit)
+      nineKeySwipeHint?.isHidden = true
+      previewTitleOverride = String(digit)
+      isHighlighted = true
+    case .letters:
+      isHighlighted = false
+      onNineKeySwipe?(.letters)
+    case .none:
+      break
+    }
+  }
+
+  private func restoreNineKeySwipeFace() {
+    guard let face = nineKeySwipeRestingFace else { return }
+    nineKeySwipeRestingFace = nil
+    configuration?.title = face.title
+    nineKeySwipeHint?.isHidden = face.hintHidden
+    previewTitleOverride = nil
+  }
+
+  /// 这个键所在的键区。按键的祖先里最近的 `KeyAreaStackView`；不在键区里（面板、候选栏）时为 nil。
+  private var keyArea: KeyAreaStackView? {
+    var node = superview
+    while let current = node {
+      if let area = current as? KeyAreaStackView { return area }
+      node = current.superview
+    }
+    return nil
+  }
+
   private func triggerCornerHint(_ hint: String) {
+    // 这一下输入的是角标，不是字母，按下点不再有用。
+    touchDownLocation = nil
     cornerHintTriggered = true
     cornerHintHold?.invalidate()
     cornerHintHold = nil
@@ -562,6 +696,52 @@ final class KeyboardSpellingScrollView: UIScrollView {
       y += height + 6
     }
     let size = CGSize(width: bounds.width, height: max(0, y - 6))
+    if contentSize != size { contentSize = size }
+  }
+}
+
+/// 九键字母层用自定义符号表时的左列：每项等高，不超过一屏（`visibleRowLimit`，与九宫格三行对齐）时按实际项数均分左列高度，超过时一屏放满、其余上下滚动；每项会矮于 28pt（`NineKeySidebar.minRowHeight`）时少放几项。按帧排列，表变了不向整套键盘传播约束。
+final class NineKeySidebarScrollView: UIScrollView {
+  var buttons: [UIButton] = [] { didSet { setNeedsLayout() } }
+  var visibleRowLimit = NineKeySidebar.letterVisibleRows { didSet { setNeedsLayout() } }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    configure()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    configure()
+  }
+
+  private func configure() {
+    // 与 `CandidateScrollView` 一样：按下当场有反馈，手指一滑就交给滚动。
+    delaysContentTouches = false
+    showsVerticalScrollIndicator = true
+    showsHorizontalScrollIndicator = false
+    disableEdgeEffects()
+  }
+
+  override func touchesShouldCancel(in view: UIView) -> Bool {
+    if view is KeyboardKeyButton { return true }
+    return super.touchesShouldCancel(in: view)
+  }
+
+  /// 此刻一屏放几项。
+  var visibleRows: Int {
+    NineKeySidebar.visibleRows(count: buttons.count, limit: visibleRowLimit, height: bounds.height)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let rows = visibleRows
+    let height = rows > 0 ? bounds.height / CGFloat(rows) : 0
+    for (index, button) in buttons.enumerated() {
+      let frame = CGRect(x: 0, y: CGFloat(index) * height, width: bounds.width, height: height)
+      if button.frame != frame { button.frame = frame }
+    }
+    let size = CGSize(width: bounds.width, height: height * CGFloat(buttons.count))
     if contentSize != size { contentSize = size }
   }
 }

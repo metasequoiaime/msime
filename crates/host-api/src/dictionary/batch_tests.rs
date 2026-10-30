@@ -1,5 +1,8 @@
 use crate::tests::{call_android_data, host_options_with_main_dictionary};
-use crate::{msime_client_dictionary_collections, msime_client_personal_dictionary_sync};
+use crate::{
+    msime_client_dictionary, msime_client_dictionary_collections,
+    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
+};
 use msime_client_services::dictionary::personal::{
     PersonalDictionaryStore, PersonalWord, PersonalWordKind,
 };
@@ -608,6 +611,99 @@ fn an_outer_sql_rollback_keeps_the_whole_batch_pending() {
     assert_eq!(retried["value"]["failed_count"], 0, "{retried}");
 }
 
+/// 设置页一次导入请求的正文：`words` 按序一行一个，标准格式。
+fn settings_import_text(words: impl Iterator<Item = u32>) -> String {
+    words
+        .map(|index| format!("{}\tni'hao\t100\n", word(index).value))
+        .collect()
+}
+
+fn settings_import(options: &serde_json::Value, text: &str, request_id: &str) -> serde_json::Value {
+    call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "import", "kind": "pinyin", "format": "standard", "text": text, "request_id": request_id}}),
+    )
+}
+
+fn pinyin_rows(root: &std::path::Path) -> u32 {
+    rusqlite::Connection::open(root.join("dictionaries/msime-pinyin.db"))
+        .unwrap()
+        .query_row("SELECT count(*) FROM tbl_2_n", [], |row| row.get(0))
+        .unwrap()
+}
+
+#[test]
+fn a_settings_import_writes_across_bounded_batches_and_names_a_refused_line() {
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    prepare_journal(&options);
+    // 第 201 行落在第二块（第 129 到 256 行）中间；它撤销整个外层事务，这一块要退回逐行写入，只拒掉它自己。
+    let journal = rusqlite::Connection::open(root.path().join("user/msime_user.db")).unwrap();
+    journal.execute_batch(&format!("CREATE TRIGGER synthetic_rollback BEFORE INSERT ON user_dictionary_operations WHEN NEW.value='{}' BEGIN SELECT RAISE(ROLLBACK,'synthetic rollback'); END;", word(1200).value)).unwrap();
+    // 每写一行记下写它的连接到此为止的累计改动数（total_changes()）。同一个事务里连续写的一块共用一条连接，计数逐行增长；逐行写入每行新开连接，计数每行都一样。
+    journal.execute_batch("CREATE TABLE import_audit(value TEXT NOT NULL, changes INTEGER NOT NULL); CREATE TRIGGER import_audit AFTER INSERT ON user_dictionary_operations BEGIN INSERT INTO import_audit VALUES(NEW.value, total_changes()); END;").unwrap();
+    let text = settings_import_text(1000..1300);
+    let imported = settings_import(&options, &text, "ui-import-batch");
+    assert_eq!(imported["ok"], true, "{imported}");
+    let audit: std::collections::HashMap<String, i64> = journal
+        .prepare("SELECT value, changes FROM import_audit")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let distinct_changes = |words: std::ops::Range<u32>| {
+        words
+            .filter_map(|index| audit.get(&word(index).value).copied())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    // 第一块和第三块各在一个事务里写完；第二块整块被撤销后逐行重写，127 行（除被拒的第 201 行）每行一条新连接。
+    assert_eq!(distinct_changes(1000..1128), 128, "{audit:?}");
+    assert_eq!(distinct_changes(1256..1300), 44, "{audit:?}");
+    assert_eq!(distinct_changes(1128..1256), 1, "{audit:?}");
+    assert_eq!(audit.len(), 299, "{audit:?}");
+    assert_eq!(imported["value"]["applied"], 299, "{imported}");
+    assert_eq!(imported["value"]["failed"], 1, "{imported}");
+    assert_eq!(
+        imported["value"]["first_failures"][0]["line"], 201,
+        "{imported}"
+    );
+    // 种子词一行加上导入写入的 299 行。
+    assert_eq!(pinyin_rows(root.path()), 300);
+    // 同一个请求重放时每行都命中自己的回执，不再写一遍，报告不变。
+    let replayed = settings_import(&options, &text, "ui-import-batch");
+    assert_eq!(replayed["value"]["applied"], 299, "{replayed}");
+    assert_eq!(replayed["value"]["failed"], 1, "{replayed}");
+    assert_eq!(pinyin_rows(root.path()), 300);
+    // 去掉触发器后重放，被拒的那一行补上，其余行仍是空操作。
+    journal
+        .execute_batch("DROP TRIGGER synthetic_rollback")
+        .unwrap();
+    let retried = settings_import(&options, &text, "ui-import-batch");
+    assert_eq!(retried["value"]["applied"], 300, "{retried}");
+    assert_eq!(retried["value"]["failed"], 0, "{retried}");
+    assert_eq!(pinyin_rows(root.path()), 301);
+}
+
+#[test]
+fn a_settings_import_the_engine_refuses_entirely_is_a_failed_import() {
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    prepare_journal(&options);
+    let journal = rusqlite::Connection::open(root.path().join("user/msime_user.db")).unwrap();
+    journal
+        .execute_batch("CREATE TRIGGER synthetic_refusal BEFORE INSERT ON user_dictionary_operations BEGIN SELECT RAISE(ABORT,'synthetic refusal'); END;")
+        .unwrap();
+    let refused = settings_import(
+        &options,
+        &settings_import_text(1000..1130),
+        "ui-import-refused",
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(pinyin_rows(root.path()), 1);
+}
+
 #[test]
 fn a_commit_blocked_by_a_reader_keeps_the_whole_batch_pending() {
     let root = tempfile::tempdir().unwrap();
@@ -783,6 +879,45 @@ fn synthetic_dictionary_layers_throughput() {
     }
 }
 
+/// 显式运行的设置页导入测量：每个请求 1000 行（`import::MAX_ENTRIES`），记下总耗时和最长的一个请求。最长请求要远低于输入法让出词库的 30 秒租约。
+#[test]
+#[ignore]
+fn synthetic_settings_import_throughput() {
+    let count = std::env::var("MSIME_BATCH_BENCH_WORDS")
+        .ok()
+        .map(|value| value.parse::<u32>().unwrap())
+        .unwrap_or(2000);
+    assert!((1..=50_000).contains(&count));
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE INDEX fixture_pinyin ON tbl_2_n(key,value)")
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut longest = std::time::Duration::ZERO;
+    let mut requests = 0;
+    for offset in (0..count).step_by(1000) {
+        let end = (offset + 1000).min(count);
+        let request_started = std::time::Instant::now();
+        let imported = settings_import(
+            &options,
+            &settings_import_text(offset..end),
+            &format!("ui-import-bench-{offset}"),
+        );
+        assert_eq!(imported["ok"], true, "{imported}");
+        assert_eq!(imported["value"]["applied"], end - offset, "{imported}");
+        requests += 1;
+        longest = longest.max(request_started.elapsed());
+    }
+    assert_eq!(pinyin_rows(root.path()), count);
+    eprintln!(
+        "SYNTHETIC_SETTINGS_IMPORT words={count} requests={requests} elapsed_ms={} longest_request_ms={}",
+        started.elapsed().as_millis(),
+        longest.as_millis()
+    );
+}
+
 /// 显式运行的完整导入测量，包含集合持久化与有界同步。
 #[test]
 #[ignore]
@@ -878,4 +1013,55 @@ fn synthetic_rime_import_throughput() {
         flush_elapsed.as_millis(),
         longest.as_millis()
     );
+}
+
+/// 由拼音自造词派生的五笔词可以存成权重 0（engine `wubi_learning`），列表也原样返回 0。按列表这一行删除，无论是直接编辑（iOS 键盘应用它自己的队列）还是经 Rust 队列（Android 和桌面宿主），都要找得到它：旧行以存储的权重交给 Engine，不能被抬到新词的下限 1。
+#[test]
+fn a_listed_wubi_word_at_weight_zero_can_be_removed_directly_and_through_the_queue() {
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    for (index, (key, value)) in [("abef", "甲乙"), ("cdgh", "丙丁")].into_iter().enumerate() {
+        let added = call_android_data(
+            msime_client_dictionary,
+            json!({"options":options,"action":{"operation":"edit","previous":null,"replacement":{"kind":"wubi","key":key,"value":value,"weight":1},"request_id":format!("seed-{index}")}}),
+        );
+        assert_eq!(added["ok"], true, "{added}");
+    }
+    // 派生词排在同码已有词之后时就是这个状态：工作表和日志里的权重都是 0。
+    rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("UPDATE wubi86 SET weight=0")
+        .unwrap();
+    rusqlite::Connection::open(root.path().join("user/msime_user.db"))
+        .unwrap()
+        .execute_batch("UPDATE user_dictionary_operations SET weight=0 WHERE dictionary='wubi'")
+        .unwrap();
+    let list = || {
+        let listed = call_android_data(
+            msime_client_dictionary,
+            json!({"options":options,"action":{"operation":"list","offset":0,"limit":100}}),
+        );
+        assert_eq!(listed["ok"], true, "{listed}");
+        listed["value"]["entries"].as_array().unwrap().clone()
+    };
+    let rows = list();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows.iter().all(|row| row["weight"] == 0), "{rows:?}");
+
+    let removed = call_android_data(
+        msime_client_dictionary,
+        json!({"options":options,"action":{"operation":"edit","previous":rows[0],"replacement":null,"request_id":"remove-direct"}}),
+    );
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert_eq!(list(), vec![rows[1].clone()]);
+
+    let queued = call_android_data(
+        msime_client_personal_dictionary_request,
+        json!({"options":options,"action":{"operation":"queue_edit","previous":rows[1],"replacement":null,"request_id":"remove-queued"}}),
+    );
+    assert_eq!(queued["ok"], true, "{queued}");
+    let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["failed_count"], 0, "{synced}");
+    assert!(list().is_empty());
 }

@@ -105,6 +105,12 @@ pub fn query_date_time_with_limit(
         "sj" | "shijian" | "time" => time_candidates(now),
         "xq" | "xingqi" | "week" => week_candidates(now),
         "nl" | "nongli" | "yinli" => lunar_candidates(now),
+        "jidu" => quarter_candidates(now),
+        "tianshu" => day_count_candidates(now),
+        "daojishi" => countdown_candidates(now),
+        "zhou" => week_count_candidates(now),
+        "shengxiao" => zodiac_candidates(now),
+        "shu" => zodiac_candidates(now),
         _ => match inline_date_time_keyword(|candidate| candidate == keyword) {
             Some((_, _, InlineDateTime::RelativeDay { label, days })) => {
                 let Some(date) = relative_date(now, days) else {
@@ -511,6 +517,55 @@ fn week_candidates(now: &LocalDateTime) -> Vec<String> {
     results.push(ENGLISH_FULL_WEEKDAYS[weekday].to_owned());
     results.push(ENGLISH_WEEKDAYS[weekday].to_owned());
     results
+}
+
+fn quarter_candidates(now: &LocalDateTime) -> Vec<String> {
+    [format!("{}年第{}季度", now.year, now.month.div_ceil(3))].into()
+}
+
+fn days_in_year(year: i32) -> u32 {
+    Date::from_calendar_date(year, Month::December, 31)
+        .map(|date| u32::from(date.ordinal()))
+        .unwrap_or(365)
+}
+
+fn day_count_candidates(now: &LocalDateTime) -> Vec<String> {
+    let Some(date) = calendar_date(now.year, now.month, now.day) else {
+        return Vec::new();
+    };
+    let elapsed = u32::from(date.ordinal()).saturating_sub(1);
+    let remaining = days_in_year(now.year).saturating_sub(elapsed);
+    vec![format!("已过{elapsed}天/剩{remaining}天")]
+}
+
+fn countdown_candidates(now: &LocalDateTime) -> Vec<String> {
+    day_count_candidates(now)
+}
+
+fn iso_weeks_in_year(year: i32) -> u8 {
+    Date::from_calendar_date(year, Month::December, 28)
+        .map(|date| date.iso_week())
+        .unwrap_or(52)
+}
+
+fn week_count_candidates(now: &LocalDateTime) -> Vec<String> {
+    let Some(date) = calendar_date(now.year, now.month, now.day) else {
+        return Vec::new();
+    };
+    let elapsed = u32::from(date.iso_week()).saturating_sub(1);
+    let iso_year = date.to_iso_week_date().0;
+    let remaining = u32::from(iso_weeks_in_year(iso_year)).saturating_sub(elapsed);
+    vec![format!("已过{elapsed}周/剩{remaining}周")]
+}
+
+fn zodiac_candidates(now: &LocalDateTime) -> Vec<String> {
+    const ZODIAC: [&str; 12] = [
+        "鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪",
+    ];
+    vec![format!(
+        "{}年",
+        ZODIAC[(now.year - 4).rem_euclid(12) as usize]
+    )]
 }
 
 /// 农历日期，再加带星期的两种写法；日历换算不了的日期（超出 lunar-lite 覆盖范围或零时钟）没有任何行，和 `rq` 列表丢掉农历行的做法一致。
@@ -1351,5 +1406,26 @@ mod relative_date_tests {
             )
             .is_empty());
         }
+    }
+
+    #[test]
+    fn calendar_summary_triggers_report_the_current_year() {
+        let now = at(2026, 10, 26);
+        for (keyword, expected) in [
+            ("jidu", "2026年第4季度"),
+            ("tianshu", "已过298天/剩67天"),
+            ("daojishi", "已过298天/剩67天"),
+            ("zhou", "已过43周/剩10周"),
+            ("shengxiao", "马年"),
+            ("shu", "马年"),
+        ] {
+            let rows = query_date_time(keyword, &now);
+            assert_eq!(rows.len(), 1, "{keyword}");
+            assert_eq!(rows[0].word, expected, "{keyword}");
+        }
+        assert_eq!(
+            query_date_time("zhou", &at(2027, 1, 1))[0].word,
+            "已过52周/剩1周"
+        );
     }
 }

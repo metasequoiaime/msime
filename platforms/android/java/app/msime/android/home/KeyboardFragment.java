@@ -26,10 +26,10 @@ import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardScheme;
-import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
+import app.msime.android.TouchKeyStyle;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -49,6 +49,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     /** The current scheme's title for the status line, or null until the preferences are read. */
     @Nullable private String schemeTitle;
+    @Nullable private String selectedSkinTitle;
     private final android.view.ViewTreeObserver.OnWindowFocusChangeListener focusWatch = focused -> {
         if (focused && isAdded() && !isHidden()) renderStatus();
     };
@@ -192,12 +193,16 @@ public final class KeyboardFragment extends HomeTabFragment {
             JSONObject loadedSnapshot = ready ? HostStore.loadPreferences(context) : null;
             // 应用主题要读本地设置文件并调两次 Rust 解析，留在工作线程做；主线程只比较缓存的季节。
             if (loadedSnapshot != null) AppThemeController.follow(context, loadedSnapshot.optJSONObject("preferences"));
-            return new Object[] {ready, loadedSnapshot, AndroidLocalSettings.load(context)};
+            JSONObject preferences = loadedSnapshot == null ? null : loadedSnapshot.optJSONObject("preferences");
+            String skinTitle = preferences == null ? null : HostStore.keyboardSkin(context, preferences,
+                AppMode.dark(context), HostStore.seed(context)).title();
+            return new Object[] {ready, loadedSnapshot, AndroidLocalSettings.load(context), skinTitle};
         }, result -> {
             if (result != null) {
                 prepared = Boolean.TRUE.equals(result[0]);
                 snapshot = result[1] instanceof JSONObject value ? value : null;
                 if (result[2] instanceof AndroidLocalSettings.Snapshot settings) local = settings;
+                selectedSkinTitle = result[3] instanceof String title ? title : null;
                 if (result[1] instanceof JSONObject value) {
                     snapshot = value;
                     JSONObject preferences = value.optJSONObject("preferences");
@@ -258,11 +263,9 @@ public final class KeyboardFragment extends HomeTabFragment {
         String skin = pending;
         if (preferences != null) {
             // The page's own night mode stands in for the system's, as the keyboard's does: with `theme` on 跟随系统 the host follows the system, and with it forced the resolver never asks.
-            KeyboardSkin resolved = HostStore.keyboardSkin(preferences, AppMode.dark(requireContext()),
-                HostStore.seed(requireContext()));
             AppEdition edition = AppEdition.current();
             KeyboardScheme selected = SchemePreferences.storedScheme(preferences, edition);
-            skin = resolved.title();
+            skin = selectedSkinTitle == null ? "读取中…" : selectedSkinTitle;
             scheme = selected.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         }
         schemeTitle = preferences == null ? null : scheme;
@@ -323,8 +326,11 @@ public final class KeyboardFragment extends HomeTabFragment {
                 listed.add(page);
                 shown++;
             }
+            // 本版本一组底行样式都没有（日语、越南语、藏语版）时键盘页不列「按键布局」入口，搜索同样不列它，免得打开一页空白。
+            boolean keyLayoutOffered = TouchKeyStyle.Groups.offeredBy(AppEdition.current()).any();
             for (PageId page : PageId.values()) {
                 if (listed.contains(page) || !page.searchable() || !page.matches(query)) continue;
+                if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;
                 if (group == null) group = HomeNavGroup.add(results);
                 group.add(R.drawable.ic_search, page.title(), matchedKeyword(page, query, null),
                     () -> open(page));

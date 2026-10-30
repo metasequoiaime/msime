@@ -21,8 +21,11 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.AppVersionPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.KeyboardSkinModeChoice;
+import app.msime.android.LocalBackupPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.WindowInsetsPolicy;
 import app.msime.android.R;
@@ -30,6 +33,7 @@ import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
@@ -46,17 +50,19 @@ import java.io.OutputStream;
  *
  * <p>社区分类复用嵌入模式的 {@link CommunityFragment}，不再展示缓存预览和更多入口；皮肤页仍经 {@link CommunitySkinCatalogue} 刷新键盘皮肤面板用的缓存。
  *
- * <p>点一张卡立刻生效：全局主题写 `global_theme`；我的设计按键盘自己的皮肤面板那样写进 `custom_theme.keyboard` 并选中 `custom`，同时按 P23 写设计带的按键动画和音效。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
+ * <p>浅色和深色键盘各写自己的 `android_keyboard_skin_*` 短引用；缺槽时沿用旧的全局主题。我的设计引用本机设计库，候选窗仍用 `global_theme` 和它的候选皮肤包槽位。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
  */
 public final class SkinsPage extends ReloadingDetailPage {
     /** 本地皮肤卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */
     private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected) {}
 
-    private record Model(List<Card> themes, List<Card> designs, boolean nineKey) {}
+    private record Model(List<Card> themes, List<Card> designs, KeyLayoutStylesPolicy.Preview layout) {}
 
     private static final String COMMUNITY_TAG = "skin-community";
     private boolean catalogueChecked;
     private int section;
+    private boolean editingDark;
+    boolean editingDark() { return editingDark; }
     @Nullable private Model model;
     @Nullable private FrameLayout navigation;
     @Nullable private FrameLayout communityContent;
@@ -69,12 +75,16 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
-        if (state != null) section = Math.max(0, Math.min(2, state.getInt("skin-section", 0)));
+        if (state != null) {
+            section = Math.max(0, Math.min(2, state.getInt("skin-section", 0)));
+            editingDark = state.getBoolean("skin-editing-dark", false);
+        } else editingDark = AppMode.dark(requireContext());
     }
 
     @Override public void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putInt("skin-section", section);
+        state.putBoolean("skin-editing-dark", editingDark);
     }
 
     @Override protected View fixedNavigation() {
@@ -152,7 +162,8 @@ public final class SkinsPage extends ReloadingDetailPage {
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
         String season = KeyboardSheets.seasonTitle(AppThemeController.cachedSeason(requireContext()));
-        HostTask.run(this, context -> read(context, dark, season), this::render);
+        boolean selectedDark = editingDark;
+        HostTask.run(this, context -> read(context, dark, selectedDark, season), this::render);
         // 缓存只服务键盘皮肤面板；社区 Tab 的搜索和分页由完整列表处理。
         if (!catalogueChecked) {
             catalogueChecked = true;
@@ -160,16 +171,18 @@ public final class SkinsPage extends ReloadingDetailPage {
         }
     }
 
-    @Nullable private static Model read(Context context, boolean systemDark, String season) {
+    @Nullable private static Model read(Context context, boolean systemDark, boolean keyboardDark, String season) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
         JSONArray catalog = HostStore.themeCatalog();
-        // 键盘的明暗，与 HostStore.keyboardSkin 的算法相同。只列这一明暗下的主题；所选主题属于另一种明暗时键盘按跟随系统画，选中态也落在跟随系统上。
-        boolean keyboardDark = KeyboardSkin.resolveDark(
-            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
-            InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
-        String current = KeyboardSkin.effectiveTheme(catalog,
-            InputViewValuePolicy.textOr(preferences, "global_theme", "system"), keyboardDark);
+        String directory = HostStore.directory(context);
+        List<CustomSkinLibrary.Item> storedDesigns = List.of();
+        if (!directory.isEmpty()) try { storedDesigns = CustomSkinLibrary.read(Paths.get(directory)); }
+        catch (java.io.IOException error) {
+            android.util.Log.w("MSIMESettings", "Custom skin library unreadable", error);
+        }
+        KeyboardSkinModeChoice.Selected choice = KeyboardSkinModeChoice.selected(preferences, keyboardDark, storedDesigns);
+        String current = KeyboardSkin.effectiveTheme(catalog, choice.theme(), keyboardDark);
         List<Card> themes = new ArrayList<>(catalog.length());
         try {
             for (int index = 0; index < catalog.length(); index++) {
@@ -181,7 +194,9 @@ public final class SkinsPage extends ReloadingDetailPage {
                 if (!KeyboardSkin.fitsMode(KeyboardSkin.themeAppearance(catalog, id), keyboardDark)) continue;
                 String title = InputViewValuePolicy.textOr(entry, "title", id);
                 if (entry.optBoolean("seasonal", false)) title = title + " · " + season;
-                JSONObject probe = new JSONObject(preferences.toString()).put("global_theme", id);
+                JSONObject probe = new JSONObject(preferences.toString()).put("global_theme", id)
+                    .put("screen_keyboard_theme", keyboardDark ? "dark" : "light");
+                probe.remove(KeyboardSkinModeChoice.key(keyboardDark));
                 KeyboardSkin skin = HostStore.keyboardSkin(probe, systemDark, HostStore.seed(context));
                 themes.add(new Card(id, title, skin, null, id.equals(current)));
             }
@@ -190,27 +205,19 @@ public final class SkinsPage extends ReloadingDetailPage {
         }
 
         List<Card> designs = List.of();
-        JSONObject customTheme = preferences.optJSONObject("custom_theme");
-        JSONObject stored = customTheme == null ? null : customTheme.optJSONObject("keyboard");
+        JSONObject stored = choice.design();
         String storedKey = "custom".equals(current) && stored != null ? CustomKeyboardSkin.from(stored).key() : "";
-        String directory = HostStore.directory(context);
         if (!directory.isEmpty()) {
-            try {
-                List<CustomSkinLibrary.Item> storedDesigns = CustomSkinLibrary.read(Paths.get(directory));
-                designs = new ArrayList<>(storedDesigns.size());
-                for (CustomSkinLibrary.Item item : storedDesigns) {
-                    boolean selected = !storedKey.isEmpty()
-                        && storedKey.equals(CustomKeyboardSkin.from(item.design()).key());
-                    designs.add(new Card(item.id(), item.name(), KeyboardSkin.custom(item.design(), systemDark),
-                        item.design(), selected));
-                }
-            } catch (java.io.IOException error) {
-                // 皮肤库读不出来时只少了我的设计这一组，内置主题照常显示。
-                android.util.Log.w("MSIMESettings", "Custom skin library unreadable", error);
+            designs = new ArrayList<>(storedDesigns.size());
+            for (CustomSkinLibrary.Item item : storedDesigns) {
+                boolean selected = choice.libraryId() != null ? choice.libraryId().equals(item.id())
+                    : !storedKey.isEmpty() && storedKey.equals(CustomKeyboardSkin.from(item.design()).key());
+                designs.add(new Card(item.id(), item.name(), KeyboardSkin.custom(item.design(), keyboardDark),
+                    item.design(), selected));
             }
         }
-        return new Model(themes, designs, "nine_key".equals(
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")));
+        // 卡片上的预览按用户自己的键盘画：键盘类型、所选底行样式、数字行和两种互换。
+        return new Model(themes, designs, KeyboardPreview.layout(context, preferences));
     }
 
     private void render(@Nullable Model model) {
@@ -229,6 +236,12 @@ public final class SkinsPage extends ReloadingDetailPage {
             return;
         }
         Context context = requireContext();
+        if (section != 2) {
+            SegmentedControl modes = new SegmentedControl(context);
+            modes.setOptions(List.of("浅色键盘", "深色键盘"), editingDark ? 1 : 0);
+            modes.setOnSelect(index -> { editingDark = index == 1; reload(); });
+            target.addView(modes, LayoutPolicy.matchWidthWrapParams());
+        }
         if (section == 0) {
             List<View> cards = new ArrayList<>(model.themes().size());
             for (Card card : model.themes()) cards.add(card(context, card));
@@ -287,19 +300,26 @@ public final class SkinsPage extends ReloadingDetailPage {
         View cell = localCard(context);
         KeyboardPreview preview = cell.findViewById(R.id.community_item_preview);
         preview.setCornerRadiusDp(5f);
-        preview.setKeyboard(card.skin(), model != null && model.nineKey());
+        preview.setKeyboard(card.skin(), model != null ? model.layout() : KeyLayoutStylesPolicy.Preview.STANDARD);
         ViewPolicy.show(preview);
 
         TextView name = cell.findViewById(R.id.community_item_name);
         name.setText(card.selected() ? "✓ " + card.title() : card.title());
         ViewPolicy.setTextColor(name, card.selected() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.text(context));
-        cell.setContentDescription("皮肤 " + card.title());
+        String scope = card.design() != null ? "浅深均可选 · 外观固定"
+            : "system".equals(card.id()) ? "跟随明暗"
+            : "light".equals(KeyboardSkin.themeAppearance(HostStore.themeCatalog(), card.id()))
+                ? "仅适配浅色" : "仅适配深色";
+        cell.setContentDescription("皮肤 " + card.title() + "，" + scope);
+        TextView scopeLabel = cell.findViewById(R.id.community_item_category);
+        scopeLabel.setText(scope);
+        ViewPolicy.show(scopeLabel);
         ViewCompat.setStateDescription(cell, card.selected() ? "已选中" : "未选中");
         ViewPolicy.bindClick(cell, () -> {
             if (!card.selected()) select(card);
         });
         if (card.design() != null) {
-            cell.setContentDescription("皮肤 " + card.title() + "，点击使用");
+            cell.setContentDescription("皮肤 " + card.title() + "，" + scope + "，点击使用");
             LinearLayout root = (LinearLayout) ((ViewGroup) cell).getChildAt(0);
             LinearLayout actions = LayoutPolicy.row(context);
             ViewPolicy.setPaddingDp(context, actions, 0, 6, 0, 0);
@@ -310,7 +330,9 @@ public final class SkinsPage extends ReloadingDetailPage {
             ViewPolicy.bindClick(export, () -> {
                 pendingExport = CustomSkinLibrary.exportDesigns(
                     List.of(new CustomSkinLibrary.Item(card.id(), card.title(), card.design())), Long.MAX_VALUE);
-                createDocument.launch(card.title() + ".json");
+                createDocument.launch(LocalBackupPolicy.skinFileName(
+                    context.getString(R.string.app_name), card.title(),
+                    AppVersionPolicy.versionName(context, "0"), LocalDateTime.now()));
             });
             actions.addView(export, LayoutPolicy.weightedWrapParams(1));
             MaterialButton remove = new MaterialButton(context, null,
@@ -385,7 +407,8 @@ public final class SkinsPage extends ReloadingDetailPage {
     }
 
     private void select(Card card) {
-        HostTask.run(this, context -> apply(context, card), saved -> {
+        boolean dark = editingDark;
+        HostTask.run(this, context -> apply(context, card, dark), saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "切换失败，保留当前皮肤");
             }
@@ -395,7 +418,7 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     private void confirmDelete(Card card) {
         MessageDialog.confirm(requireContext(), "删除「" + card.title() + "」？",
-            "这款皮肤会从本机的“我的”皮肤中移除，正在使用的皮肤会保留。", "删除",
+            "这款皮肤会从本机的“我的”皮肤中移除。使用它的浅色或深色键盘会改用原来的主题。", "删除",
             () -> HostTask.run(this, context -> delete(context, card), removed -> {
                 if (!Boolean.TRUE.equals(removed)) {
                     MsToast.show(requireContext(), "删除失败，请重试");
@@ -412,7 +435,16 @@ public final class SkinsPage extends ReloadingDetailPage {
         if (directory.isEmpty() || card.design() == null) return false;
         try {
             boolean removed = CustomSkinLibrary.remove(Paths.get(directory), card.id());
-            if (removed) SyncSignals.markDirty(context, SyncSwitch.SKINS);
+            if (removed) {
+                String reference = KeyboardSkinModeChoice.design(card.id());
+                KeyboardSheets.write(context, preferences -> {
+                    for (boolean dark : new boolean[] {false, true}) {
+                        String key = KeyboardSkinModeChoice.key(dark);
+                        if (reference.equals(preferences.optString(key))) preferences.remove(key);
+                    }
+                });
+                SyncSignals.markDirty(context, SyncSwitch.SKINS);
+            }
             return removed;
         } catch (java.io.IOException | RuntimeException error) {
             android.util.Log.w("MSIMESettings", "Custom skin was not deleted", error);
@@ -420,11 +452,12 @@ public final class SkinsPage extends ReloadingDetailPage {
         }
     }
 
-    @Nullable private static JSONObject apply(Context context, Card card) {
+    @Nullable private static JSONObject apply(Context context, Card card, boolean dark) {
         JSONObject design = card.design();
         JSONObject saved = KeyboardSheets.write(context, preferences -> {
-            if (design == null) preferences.put("global_theme", card.id());
-            else KeyboardSheets.applyDesign(preferences, design);
+            preferences.put(KeyboardSkinModeChoice.key(dark), design == null
+                ? KeyboardSkinModeChoice.theme(card.id()) : KeyboardSkinModeChoice.design(card.id()));
+            if (design != null) KeyboardSheets.applyDesignFeedback(preferences, design);
         });
         if (saved == null) return null;
         if (design != null) KeyboardSheets.applyLocalFeedback(context, design);

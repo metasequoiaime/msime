@@ -1,4 +1,11 @@
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
+import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
+import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
+import {
+  ScreenCaptureProtectionDecision,
+  ScreenCaptureProtectionPolicy,
+  ScreenCaptureProtectionState
+} from '../keyboard/settings/ScreenCaptureProtectionPolicy';
 import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
@@ -10,6 +17,7 @@ import BuildProfile from 'BuildProfile';
 import { UIContext } from '@ohos.arkui.UIContext';
 import { InputMethodListDialog } from '@ohos.inputMethodList';
 import deviceInfo from '@ohos.deviceInfo';
+import display from '@ohos.display';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import webSocket from '@ohos.net.webSocket';
@@ -38,6 +46,7 @@ import {
   PickedEntryKind, PluginFolderScan, PluginImportPolicy, PluginImportRefusal
 } from '../keyboard/settings/PluginImportPolicy';
 import EntryAbility from '../entryability/EntryAbility';
+import { SettingsLinkRequest } from '../keyboard/SettingsPageLink';
 import { ImeEnabledState, OnboardingState, OnboardingStatePolicy, SetupState }
   from '../keyboard/input/OnboardingStatePolicy';
 import InputMethodSubtype from '@ohos.InputMethodSubtype';
@@ -68,6 +77,15 @@ import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
+import { UserWordsMirror } from '../keyboard/UserWordsMirror';
+import {
+  FileIdentity, SETTINGS_MAX_CHANGES, SETTINGS_QUEUE_ROUNDS, SETTINGS_RETRY_MS, UserWordsMirrorPolicy, UserWordsReply
+} from '../keyboard/UserWordsMirrorPolicy';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { ConsentState, PrivacyConsentPolicy } from '../privacy/PrivacyConsentPolicy';
+import { PrivacyConsentDialog } from '../privacy/PrivacyConsentDialog';
+import { AiGenerationGate } from '../keyboard/AiGenerationGate';
+import { CommunityContributionGate } from '../keyboard/CommunityContributionGate';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -206,9 +224,21 @@ interface FlagReply {
   value: boolean;
 }
 
+/** 页面经 `privacyConsent` 发来的动作：`status` 只读当前授权，`review` 另外打开授权弹窗。 */
+interface PrivacyConsentAction {
+  operation?: string;
+}
+
+interface PrivacyConsentReply {
+  ok: boolean;
+  value: ConsentState;
+}
+
+/** `value` 是页面 id，与只带页面的旧链接同一个形状；`target` 是那一页的子目标，没有时为 null。 */
 interface PendingPageReply {
   ok: boolean;
   value: string | null;
+  target: string | null;
 }
 
 /** 在这里补上日期的 `summary`，即 `msime_client_typing_statistics` 读取的形式。 */
@@ -356,6 +386,12 @@ interface TypingStatisticsAction {
   user_words?: number;
   /** `record_skin`：刚应用的皮肤，供「换装达人」徽章使用。 */
   id?: string;
+}
+
+/** 页面经 `screen_capture_protection_settings` 发来的动作：`load` 读当前值，`save` 按切换规则保存 `enabled`。 */
+interface ScreenCaptureProtectionAction {
+  operation?: string;
+  enabled?: boolean;
 }
 
 /** One 插件 page request; only the operation is read here, the rest travels to `msime_client_plugins` as the page wrote it. */
@@ -618,6 +654,24 @@ struct Settings {
       this.bridge.refreshSetupState();
     }
   });
+  // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
+  @State privacyGranted: boolean = false;
+  // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
+  private privacyRequired: boolean = false;
+  // 本进程是否已经自动弹过一次；回到前台时的 onPageShow 不再弹。
+  private privacyPrompted: boolean = false;
+  private privacyDialog: CustomDialogController = new CustomDialogController({
+    builder: PrivacyConsentDialog({
+      granted: $privacyGranted,
+      onDecide: (granted: boolean): void => this.decidePrivacy(granted),
+      onOpenDocument: (url: string): void => this.bridge.openExternalUrl(url)
+    }),
+    autoCancel: false,
+    alignment: DialogAlignment.Center,
+    onWillDismiss: (action: DismissDialogAction): void => {
+      if (!this.privacyRequired) action.dismiss();
+    }
+  });
   // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
   @State notices: NoticeItem[] = [];
   private noticeController: web_webview.WebviewController = new web_webview.WebviewController();
@@ -637,6 +691,7 @@ struct Settings {
     this.bridge.attach(this.context);
     this.bridge.uiContext = this.getUIContext();
     this.bridge.onInputMethodPicker = (): void => this.inputMethodDialog.open();
+    this.bridge.onPrivacyReview = (): void => this.openPrivacyDialog(false);
     this.bridge.useWebview(this.controller);
     this.bridge.onNoticeHold = (held: boolean): void => {
       this.noticeHeld = held;
@@ -670,9 +725,34 @@ struct Settings {
       this.bridge.lockStatistics();
       this.bridge.publishShared();
     };
-    EntryAbility.onOpenPage = (page: string): void => {
-      this.bridge.openPage(page);
+    EntryAbility.onOpenPage = (link: SettingsLinkRequest): void => {
+      this.bridge.openPage(link);
     };
+  }
+
+  /**
+   * 首次启动（或隐私政策更新后第一次打开）时弹出授权弹窗。放在页面显示时而不是 aboutToAppear：页面还没显示时弹窗打不开。弹窗盖在启动画面和网页上，网页照常加载，但在用户同意之前桥接拒绝所有联网请求（`PrivacyConsentPolicy`）。
+   */
+  onPageShow(): void {
+    if (this.privacyPrompted || !HarmonyPrivacyConsent.shouldPrompt()) {
+      return;
+    }
+    this.privacyPrompted = true;
+    this.openPrivacyDialog(true);
+  }
+
+  private openPrivacyDialog(required: boolean): void {
+    this.privacyRequired = required;
+    this.privacyGranted = HarmonyPrivacyConsent.networkAllowed();
+    this.privacyDialog.open();
+  }
+
+  /** 用户在弹窗里选了「同意」或「不同意」：记下来、告诉键盘和页面；同意后补上公告，拒绝后撤掉公告卡片。 */
+  private decidePrivacy(granted: boolean): void {
+    this.privacyRequired = false;
+    this.privacyGranted = granted;
+    this.bridge.decidePrivacy(granted);
+    this.loadNotices();
   }
 
   /**
@@ -698,6 +778,12 @@ struct Settings {
    */
   private loadNotices(): void {
     const generation: number = ++this.noticeRequest;
+    // 拉取公告要联网，没有隐私政策的授权就不拉，已显示的公告卡片也撤掉。
+    if (!HarmonyPrivacyConsent.networkAllowed()) {
+      this.notices = [];
+      this.renderNotice();
+      return;
+    }
     const request: NoticesRequest = {
       directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
     };
@@ -867,7 +953,7 @@ struct Settings {
                   'keyboardFeedback', 'onboardingStatus',
                   'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
                   'setupStatus', 'refreshSetupStatus', 'oobeStatus', 'retryOobeResources', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
-                  'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted'],
+                  'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted', 'privacyConsent'],
                 []);
             } catch (error) {
               KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
@@ -898,11 +984,18 @@ struct Settings {
 class SettingsBridge {
   uiContext: UIContext | undefined = undefined;
   onInputMethodPicker: (() => void) | undefined = undefined;
+  // 由页面组件设置：重新打开隐私政策的授权弹窗。
+  onPrivacyReview: (() => void) | undefined = undefined;
   private stateDirectory: string = '';
   private sharedSandboxAvailable: boolean = false;
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedPublishTimer: number = -1;
+  // 与键盘交换「我的词条」（`UserWordsMirrorPolicy`）：上次做完时本方日志和键盘发布的标记、是否正在做、正在做时又被叫了一次，以及没做完时的重试。
+  private userWordsMark: string | null = null;
+  private userWordsRunning: boolean = false;
+  private userWordsAgain: boolean = false;
+  private userWordsRetryTimer: number = -1;
   private dictionaryUpdateTimer: number = -1;
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
@@ -921,6 +1014,9 @@ class SettingsBridge {
   // 设置文档是否已加载完成，让宿主到页面的调用只发给能接收的页面。在此之前页面会在启动时自己读取所需的一切。
   private pageReady: boolean = false;
   private statisticsAuthentication: StatisticsAuthentication = new StatisticsAuthentication();
+  private screenCaptureAuthentication: ScreenCaptureAuthentication = new ScreenCaptureAuthentication();
+  // 「防止截屏」正在认证或写入时为真，第二次切换直接拒绝，不叠两个认证框。
+  private screenCaptureBusy: boolean = false;
 
   resumeStatistics(): void {
     this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-statistics-active'))").catch((): void => {});
@@ -964,6 +1060,10 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    // AI 生成类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.ai_generation`），鸿蒙版拿到资质之前为关；`startRequest` 据此拒绝 AI 对话、AI 皮肤和探 AI 服务的请求。
+    AiGenerationGate.adopt(client.hostCapabilities(PLATFORM));
+    // 社区投稿类功能的总闸取自 Rust 的宿主能力（`HostCapabilities.community_contribution`），鸿蒙版在实名认证到位之前为关；`startRequest` 据此拒绝社区的发布、改分类、评分和举报。
+    CommunityContributionGate.adopt(client.hostCapabilities(PLATFORM));
     const seen = this.readStateFile(ONBOARDING_SEEN_FILE, 64);
     this.onboardingDone = false;
     if (seen !== null) {
@@ -1000,6 +1100,7 @@ class SettingsBridge {
     }
     SharedStateSync.settingsSync(this.sharedMirror, this.stateDirectory);
     AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'keyboard');
+    this.syncUserWords();
   }
 
   /** 立即把设置应用管的条目发布给键盘：窗口退到后台时调用，用户接下来多半要去别的应用打字。 */
@@ -1012,6 +1113,87 @@ class SettingsBridge {
       return;
     }
     SharedStateSync.settingsPublish(this.sharedMirror, this.stateDirectory);
+    this.syncUserWords();
+  }
+
+  /**
+   * 与键盘交换「我的词条」（`msime_client_user_words_mirror` 的 sync），在工作线程上：先把设置应用自己排进个人词库队列的词写进它的词库，再把键盘发布的改动（打字学到的词、候选栏里删掉的词）写进来，并把设置应用这边的改动（设置页改的词、导入的词、网盘同步写进来的词）发布给键盘。窗口回到前台和每次改完设置之后调用；本方日志、队列和键盘的发布从上次做完以后都没变时不做。键盘的改动写进来以后，词库同步要记一次本机改动，网盘才收得到。
+   */
+  private syncUserWords(): void {
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    if (mirror === null || this.context === undefined) return;
+    if (this.userWordsRunning) {
+      this.userWordsAgain = true;
+      return;
+    }
+    const theirs: string = mirror.userWordsFile('keyboard');
+    // 标记在开始之前取：这一次进行当中页面又改了词，下次标记不同就再做一次。
+    const mark: string = [
+      UserWordsMirror.journalMark(this.stateDirectory),
+      UserWordsMirrorPolicy.mark(UserWordsMirrorPolicy.settingsQueueFiles(this.stateDirectory)
+        .map((path: string): FileIdentity | null => UserWordsMirror.identity(path))),
+      UserWordsMirror.fileMark(theirs),
+    ].join('#');
+    if (!UserWordsMirrorPolicy.settingsSyncDue(this.userWordsMark, mark)) return;
+    let options: string;
+    try {
+      const prepared: Record<string, Object> = JSON.parse(client.prepareHost(JSON.stringify(
+        KeyboardSession.prepareRequest(`${this.context.filesDir}/engine`, this.stateDirectory)))) as Record<string, Object>;
+      if (prepared['ok'] !== true) {
+        KeyboardLog.error(`user words not exchanged: host preparation refused: ${String(prepared['error'])}`);
+        return;
+      }
+      options = JSON.stringify(prepared['value']);
+    } catch (error) {
+      KeyboardLog.error(`user words not exchanged: ${describeError(error)}`);
+      return;
+    }
+    this.userWordsRunning = true;
+    const request: string = UserWordsMirrorPolicy.request('sync', 'settings', options, this.stateDirectory, theirs,
+      mirror.userWordsFile('settings'), SETTINGS_MAX_CHANGES);
+    this.drainDictionaryQueues(options).then(async (drained: boolean): Promise<void> => {
+      const reply: UserWordsReply = await UserWordsMirror.runAsync(request);
+      this.userWordsRunning = false;
+      if (drained && UserWordsMirrorPolicy.settled(reply)) {
+        this.userWordsMark = mark;
+      } else if (this.userWordsRetryTimer === -1) {
+        this.userWordsRetryTimer = setTimeout((): void => {
+          this.userWordsRetryTimer = -1;
+          this.syncUserWords();
+        }, SETTINGS_RETRY_MS);
+      }
+      if (UserWordsMirrorPolicy.dictionaryChanged(reply)) {
+        this.userWordsChanged();
+      }
+      if (this.userWordsAgain) {
+        this.userWordsAgain = false;
+        this.syncUserWords();
+      }
+    });
+  }
+
+  /**
+   * 设置应用自己排进个人词库队列的词（导入的个人词库文件、云词库下载、命名词库的增删），由设置应用自己写进它的词库，再经「我的词条」交换到键盘。API 12 起键盘排空的是它自己沙箱里的那个队列，这些词以前从来没进过任何一份词库。每轮写最多 4 条（队列的上限），再让命名词库送下一批；一次最多 `SETTINGS_QUEUE_ROUNDS` 轮，剩下的下次接着写。返回队列排空了没有。
+   */
+  private async drainDictionaryQueues(options: string): Promise<boolean> {
+    try {
+      for (let round = 0; round < SETTINGS_QUEUE_ROUNDS; round++) {
+        const personal: string = await client.personalDictionarySyncAsync(options);
+        const flushed: string = await client.dictionaryCollectionsAsync(
+          `{"options":${options},"action":{"operation":"flush"}}`);
+        if (UserWordsMirrorPolicy.queueDrained(personal, flushed)) return true;
+      }
+    } catch (error) {
+      KeyboardLog.error(`personal dictionary queue not drained: ${describeError(error)}`);
+    }
+    return false;
+  }
+
+  /**
+   * 设置应用的词库有了页面不知道的改动（键盘的词写了进来、排空队列写进了词）：告诉页面一声（`msime-user-words-changed`）。页面的词库同步（`use-dictionary-sync`）据此以 `local_change` 记一次本机改动，与经设置改了词走同一个队列；没有隐私政策的授权时页面拿不到词库同步、不听这个事件，同步下一次运行开头的核对照样会记下这些词。
+   */
+  private userWordsChanged(): void {
+    this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-user-words-changed'))").catch((): void => {});
   }
 
   /**
@@ -1187,10 +1369,22 @@ class SettingsBridge {
    */
   startRequest(kind: string, id: number, payload: string): string {
     const deliver: (reply: string) => void = (reply: string): void => this.deliverReply(id, reply);
+    // 账号、社区、云同步、检查更新、AI 和凭据测试这些请求要联网，没有隐私政策的授权一律拒绝；页面在没有授权时本来就不画这些入口，这里是第二道墙。
+    if (PrivacyConsentPolicy.refuses(kind, payload, HarmonyPrivacyConsent.networkAllowed())) {
+      KeyboardLog.info(`bridge request ${kind} refused: no privacy consent`);
+      deliver(PrivacyConsentPolicy.refusal());
+      return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+    }
     const failed: (error: Object) => void = (error: Object): void => {
       deliver(JSON.stringify({ ok: false, error: describeError(error) }));
     };
-    if (kind === 'account') {
+    if (!AiGenerationGate.allowsSettingsRequest(kind, payload)) {
+      // 页面在总闸关着时本来就不画这些入口；这里再拦一道，旧页面或手写的请求也发不出去。
+      deliver(AiGenerationGate.refusal());
+    } else if (!CommunityContributionGate.allowsSettingsRequest(kind, payload)) {
+      // 页面在总闸关着时本来就不画这些入口，`apps/harmony` 的社区客户端也先拒绝；这里再拦一道，旧页面或手写的请求也发不出去。
+      deliver(CommunityContributionGate.refusal());
+    } else if (kind === 'account') {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
       this.cloudDictionary(payload).then(deliver).catch(failed);
@@ -1198,6 +1392,10 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_clipboard') {
       this.cloudClipboard(payload).then(deliver).catch(failed);
+    } else if (kind === 'cloud_clipboard_webdav_probe') {
+      this.cloudClipboardWebDavProbe(payload).then(deliver).catch(failed);
+    } else if (kind === 'dictionary_sync') {
+      this.dictionarySync(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_skin') {
@@ -1239,6 +1437,8 @@ class SettingsBridge {
       });
     } else if (kind === 'statistics_auth_settings') {
       this.statisticsAuthenticationSettings(payload).then(deliver).catch(failed);
+    } else if (kind === 'screen_capture_protection_settings') {
+      this.screenCaptureProtectionSettings(payload).then(deliver).catch(failed);
     } else if (kind === 'statistics_auth') {
       if (this.context === undefined) {
         failed(new Error('认证宿主未就绪'));
@@ -1910,12 +2110,11 @@ class SettingsBridge {
   }
 
   /**
-   * The community skin gallery.
+   * 社区皮肤图库。
    *
-   * 浏览、评分、发布、下架和「获取」都交给 Rust（`msime_client_community`）。「获取」（`keyboard_skin_install`）下载设计、开始试用并导入皮肤库是一步，导入失败时结束刚开始的试用；它改写了偏好文档，所以之后把新文档交给页面。
+   * 浏览、评分、发布、下架和「获取」都交给 Rust（`msime_client_community`）；评分和发布在社区投稿类功能的总闸关着时已在 `startRequest` 被拒绝。「获取」（`keyboard_skin_install`）下载设计、开始试用并导入皮肤库是一步，导入失败时结束刚开始的试用；它改写了偏好文档，所以之后把新文档交给页面。
    *
-   * Finishing a trial never touches the network at all. It is the answer to 保留 or 还原 on a skin
-   * that is already applied, so it is answered from the device.
+   * 结束试用不会联网；它响应已应用皮肤的「保留」或「还原」，直接在设备上处理。
    */
   async communitySkin(actionDocument: string): Promise<string> {
     if (this.accountBridge === undefined) {
@@ -2069,6 +2268,16 @@ class SettingsBridge {
     }
   }
 
+  /** 设备能不能折叠：可折叠手机展开后是大屏，设置页才给出大屏单手的侧边数字键盘。显示服务查不到时按不能折叠，少列一项设置而不是让整份能力文档失败。 */
+  private foldable(): boolean {
+    try {
+      return display.isFoldable();
+    } catch (error) {
+      KeyboardLog.error(`foldable state unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
   hostCapabilities(): string {
     const document: string = client.hostCapabilities(PLATFORM);
     const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
@@ -2082,7 +2291,7 @@ class SettingsBridge {
       // 2-in-1 machines. Keep phone navigation on touch devices and give a 2-in-1 the large-screen
       // settings surface that matches its physical keyboard and candidate panel.
       const projection: SettingsFormFactorProjection =
-        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType);
+        SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType, this.foldable());
       value['mobile_settings'] = projection.mobileSettings;
       value['panel_windows'] = projection.panelWindows;
       value['floating_toolbar'] = projection.floatingToolbar;
@@ -2098,6 +2307,7 @@ class SettingsBridge {
         value['fixed_candidate_layout'] = projection.fixedCandidateLayout;
       }
       value['candidate_follow_cursor'] = projection.candidateFollowCursor;
+      value['candidate_window_scale'] = projection.candidateWindowScale;
       value['candidate_window_opacity'] = projection.candidateWindowOpacity;
       value['candidate_corner_radius'] = projection.candidateCornerRadius;
       value['input_mode_hud'] = projection.inputModeHud;
@@ -2109,7 +2319,10 @@ class SettingsBridge {
       value['symbol_set_packs'] = projection.symbolSetPacks;
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
       value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
+      value['touch_plugin_packs'] = projection.touchPluginPacks;
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
+      value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;
+      value['touch_keyboard_split'] = projection.splitKeyboard;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;
@@ -2132,6 +2345,10 @@ class SettingsBridge {
   dictionary(action: string): string {
     if (this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    // 词库更新的 `automatic` 和 `check` 会去下载，没有隐私政策的授权就不发。
+    if (!HarmonyPrivacyConsent.networkAllowed() && PrivacyConsentPolicy.dictionaryActionNeedsConsent(action)) {
+      return PrivacyConsentPolicy.refusal();
     }
     const response: string = KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
@@ -2177,12 +2394,28 @@ class SettingsBridge {
     return client.accountName(request);
   }
 
-  /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动。 */
+  /** 云剪贴板面板的动作，经 Rust 的端到端加密驱动；按偏好走水杉账号、自建中继或 WebDAV 网盘。 */
   cloudClipboard(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
     return this.accountBridge.cloudClipboard(action);
+  }
+
+  /** 「剪贴板」页 WebDAV 设置的「测试连接」，草稿是 `{url, username, password}`。 */
+  cloudClipboardWebDavProbe(draft: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'relay_unavailable' }));
+    }
+    return this.accountBridge.cloudClipboardWebDavProbe(draft);
+  }
+
+  /** 「词库」页的「词库同步」，页面交来的是 `msime_client_dictionary_sync` 的 `action`；除 `status` 外都要隐私政策的授权（`startRequest` 开头已经拦过）。 */
+  dictionarySync(action: string): Promise<string> {
+    if (this.context === undefined || this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'dictionary_sync_storage' }));
+    }
+    return this.accountBridge.dictionarySync(action, `${this.context.filesDir}/engine`, this.stateDirectory);
   }
 
   cloudDictionary(action: string): Promise<string> {
@@ -2270,7 +2503,8 @@ class SettingsBridge {
    * device's timezone, and the shared layer never derives a day from one.
    */
   private async vocabularyReview(actionDocument: string): Promise<string> {
-    if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
+    // 原始词表仍限 8 MiB；这里检查的是带 JSON 转义的动作，与原生桥和 C 入口的请求预算一致。
+    if (actionDocument.length === 0 || actionDocument.length > 17 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
     try {
@@ -2307,6 +2541,50 @@ class SettingsBridge {
       throw new Error('无效的认证设置');
     }
     return JSON.stringify({ ok: true, value: this.statisticsAuthentication.enabled(this.context) });
+  }
+
+  /**
+   * 「防止截屏」的读和写（#10194）。写入按 `ScreenCaptureProtectionPolicy.decide`：第一次打开直接保存，打开过以后先过系统认证，设备没有系统认证时拒绝。保存后当场更新本窗口的隐私模式，并立即发布给键盘（键盘下一次获得焦点时给面板设上）。拒绝时回答错误码，页面据此提示并让开关回到原值：`screen_capture_authentication_unavailable` 没有可用的系统认证，`screen_capture_authentication_failed` 认证取消或失败，`screen_capture_busy` 上一次切换还没完成。
+   */
+  private async screenCaptureProtectionSettings(payload: string): Promise<string> {
+    const context: common.UIAbilityContext | undefined = this.context;
+    if (context === undefined) throw new Error('认证宿主未就绪');
+    const action: ScreenCaptureProtectionAction = JSON.parse(payload) as ScreenCaptureProtectionAction;
+    const current: ScreenCaptureProtectionState = ScreenCaptureProtection.load(this.stateDirectory);
+    if (action.operation === 'load') {
+      return JSON.stringify({ ok: true, value: current.enabled } as FlagReply);
+    }
+    const next: boolean | undefined = action.enabled;
+    if (action.operation !== 'save' || typeof next !== 'boolean') throw new Error('无效的防止截屏设置');
+    if (this.screenCaptureBusy) return JSON.stringify({ ok: false, error: 'screen_capture_busy' });
+    const decision: ScreenCaptureProtectionDecision = ScreenCaptureProtectionPolicy.decide(current, next,
+      ScreenCaptureAuthentication.available());
+    if (decision === ScreenCaptureProtectionDecision.UNCHANGED) {
+      return JSON.stringify({ ok: true, value: current.enabled } as FlagReply);
+    }
+    if (decision === ScreenCaptureProtectionDecision.UNAVAILABLE) {
+      return JSON.stringify({ ok: false, error: 'screen_capture_authentication_unavailable' });
+    }
+    this.screenCaptureBusy = true;
+    try {
+      if (decision === ScreenCaptureProtectionDecision.AUTHENTICATE
+        && !(await this.screenCaptureAuthentication.authenticate(next))) {
+        return JSON.stringify({ ok: false, error: 'screen_capture_authentication_failed' });
+      }
+      const saved: ScreenCaptureProtectionState = ScreenCaptureProtectionPolicy.after(current, next);
+      if (!ScreenCaptureProtection.save(this.stateDirectory, saved)) throw new Error('防止截屏没有保存');
+      KeyboardLog.info(`screen capture protection ${saved.enabled ? 'on' : 'off'}`);
+      ScreenCaptureProtection.protectLastWindow(context, saved.enabled);
+      // 文件已经写好、窗口也已改过，发布失败不能让页面以为没保存而把开关退回旧值；只记日志，窗口退到后台时的 `publishShared` 会再发布一次。
+      try {
+        this.publishShared();
+      } catch (error) {
+        KeyboardLog.error(`screen capture protection not published to the keyboard: ${describeError(error)}`);
+      }
+      return JSON.stringify({ ok: true, value: saved.enabled } as FlagReply);
+    } finally {
+      this.screenCaptureBusy = false;
+    }
   }
 
   typingStatistics(actionDocument: string): string {
@@ -3036,6 +3314,42 @@ class SettingsBridge {
     return BuildProfile.RELEASE_DATE;
   }
 
+  /**
+   * 隐私政策的授权：`{operation:"status"}` 回复 `{ok,value:{granted,decided}}`；`{operation:"review"}` 另外打开授权弹窗（「隐私」页的「查看并同意」），选择的结果之后经 `msimeHarmonyPrivacyConsentChanged` 送达页面。
+   */
+  privacyConsent(request: string): string {
+    let operation: string = '';
+    try {
+      const action: PrivacyConsentAction = JSON.parse(request) as PrivacyConsentAction;
+      operation = typeof action.operation === 'string' ? action.operation : '';
+    } catch {
+      operation = '';
+    }
+    if (operation === 'review') {
+      this.onPrivacyReview?.();
+    } else if (operation !== 'status') {
+      return JSON.stringify({ ok: false, error: 'privacy_consent_invalid' });
+    }
+    const reply: PrivacyConsentReply = { ok: true, value: HarmonyPrivacyConsent.state() };
+    return JSON.stringify(reply);
+  }
+
+  /**
+   * 弹窗里的选择：记在当前版本上，立即发布给键盘（键盘下一次获得焦点就按它联网或不联网），再告诉页面重建联网的入口。不同意时清空本机排队待发的使用统计：用户没同意上传，就不该留着等下次。
+   */
+  decidePrivacy(granted: boolean): void {
+    HarmonyPrivacyConsent.decide(this.stateDirectory, granted, Date.now());
+    if (!granted) {
+      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
+    }
+    this.publishShared();
+    this.webview?.runJavaScript(
+      `globalThis.msimeHarmonyPrivacyConsentChanged && globalThis.msimeHarmonyPrivacyConsentChanged(${granted})`)
+      .catch((error: Object): void => {
+        KeyboardLog.error(`privacy consent change not delivered: ${describeError(error)}`);
+      });
+  }
+
   openExternalUrl(url: string): void {
     // Only the two schemes a settings page has any business opening; anything else is not a link the
     // page should be able to make this application follow.
@@ -3047,6 +3361,8 @@ class SettingsBridge {
     if (this.context !== undefined) {
       this.context.startAbility(want).catch((error: Object): void => {
         KeyboardLog.error(`link would not open: ${describeError(error)}`);
+        // 设备上没有能打开网页的应用时 startAbility 失败。页面和首次启动弹窗都把打开交给这里，同步拿不到结果，所以由这里把地址告诉用户，免得登录面板和隐私弹窗里的协议链接点了没反应。
+        this.uiContext?.getPromptAction().showToast({ message: TextPolicy.unopenedLinkNotice(url), duration: 4000 });
       });
     }
   }
@@ -3519,31 +3835,38 @@ class SettingsBridge {
     }
   }
 
-  /** 设置页面加载完成前键盘请求打开的页面，只交出一次：第二次读取返回 null。 */
+  /** 设置页面加载完成前键盘请求打开的页面和它的子目标，只交出一次：第二次读取返回 null。 */
   pendingPage(): string {
-    const page: string | null = EntryAbility.pendingPage;
+    const link: SettingsLinkRequest | null = EntryAbility.pendingPage;
     EntryAbility.pendingPage = null;
-    const reply: PendingPageReply = { ok: true, value: page };
+    const reply: PendingPageReply = {
+      ok: true,
+      value: link === null ? null : link.page,
+      target: link === null ? null : link.target,
+    };
     return JSON.stringify(reply);
   }
 
   /**
    * 在本窗口已显示时打开键盘请求的页面。
    *
-   * 页面还在加载、尚无监听函数时，请求保留为待处理，让页面启动时的读取能找到它，而不是丢失。
+   * 页面还在加载、尚无监听函数时，请求保留为待处理，让页面启动时的读取能找到它，而不是丢失。子目标作为第二个参数交给 `msimeHarmonyOpenPage`，没有时只传页面。
    */
-  openPage(page: string): void {
+  openPage(link: SettingsLinkRequest): void {
     if (this.webview === undefined || !this.pageReady) {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       return;
     }
-    const script: string = `globalThis.msimeHarmonyOpenPage ? (globalThis.msimeHarmonyOpenPage(${JSON.stringify(page)}), true) : false`;
+    const args: string = link.target === null
+      ? JSON.stringify(link.page)
+      : `${JSON.stringify(link.page)}, ${JSON.stringify(link.target)}`;
+    const script: string = `globalThis.msimeHarmonyOpenPage ? (globalThis.msimeHarmonyOpenPage(${args}), true) : false`;
     this.webview.runJavaScript(script).then((result: string): void => {
       if (result !== 'true') {
-        EntryAbility.pendingPage = page;
+        EntryAbility.pendingPage = link;
       }
     }).catch((error: Object): void => {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       KeyboardLog.error(`linked page not opened: ${describeError(error)}`);
     });
   }

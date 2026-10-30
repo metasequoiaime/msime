@@ -6,6 +6,8 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 ## 范围与基线
 
+本文对照的是功能有没有落地。其中的 AI 生成类功能（AI 对话、AI 润色、高情商回复、AI 联想、AI 候选翻译、语音识别后的 AI 润色、AI 皮肤）已经实现，但在鸿蒙版拿到华为应用市场要求的资质之前由总闸 `HostCapabilities.ai_generation` 关闭，用户看不到也触发不了，见 [platforms/harmony/README.md](../platforms/harmony/README.md#ai-生成类功能目前不提供)。社区的投稿类功能（发布、改分类、发布新版本、评分和举报）同样已经实现，在实名认证到位之前由 `HostCapabilities.community_contribution` 关闭，见 [platforms/harmony/README.md](../platforms/harmony/README.md#社区投稿目前不提供)。
+
 迁移的目标是 MSIME-Apple 的完整功能，而不是能编译的子集。公共业务放共享层、公共管理界面放共享 React 设置页（打成 rawfile 由 ArkWeb 加载）；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 HarmonyOS 自身的机制适配，不照搬来源的实现形态。
 
 比对在固定对象上进行，便于复核：
@@ -29,7 +31,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `loadMacosShuangpinKeymap` | macOS 升级前存在原生 defaults 域里的双拼键位提示开关，只在共享偏好 `shuangpin_keymap_hint` 还没有值时读来显示；开关本身已并入共享偏好，由 `shuangpin_keymap_hint` 能力门控（macOS、Windows、Linux） |
 | `openScreenKeyboard`、`openHandwriting`、`openVoice` | 桌面把这三个开成独立面板窗口；本宿主它们是键盘自己的面（`SURFACE_*`） |
 | `pickVoiceModelPath` | 按路径加载本地语音模型；本宿主用系统识别器或 HTTP provider |
-| `resetLearnedData` | 共享 C ABI 对移动端明确返回 `learned-data reset is unavailable on mobile` |
+| `resetLearnedData` | 共享设置页的入口（`personal_dictionary_request_json`）对移动端明确返回 `learned-data reset is unavailable on mobile`；Android 和 iOS 的「清除学习记录」走的是 `msime_client_dictionary` 的 `reset`。鸿蒙不接它，是因为设置应用的 `reset` 只清得到设置应用沙箱里那一份；键盘的调频、整句联想等学习记录在键盘自己的沙箱里，「我的词条」镜像只交换用户词，设置页说「已清除」会是假的。Android 和 iOS 的「清除学习记录」见 `.agents/notes/implemented/feature/2026-10-29-mobile-clear-learning.md`，鸿蒙要等键盘一侧能接清除请求 |
 | `clipboard` | 设置页里的剪贴板历史列表。iOS 与 Android 也都不提供——Apple 的剪贴板管理在键盘的 `KeyboardClipboardView` 里，对应本宿主的 `SURFACE_CLIPBOARD` |
 | `resolveFontFamilies` | 候选字体预览的字族解析。iOS 的 `candidate_font_controls` 为 false，根本不显示候选字体控件；本宿主与 Android 一致 |
 | `loadDefaultPreferences`、`openThirdPartyLicenses` | 「恢复默认设置」与第三方许可。MSIME-Apple 的 iOS 上都不存在（iOS 的「恢复默认」只作用于皮肤设计和键盘布局），属桌面功能 |

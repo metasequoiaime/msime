@@ -212,6 +212,31 @@ pub fn record_pinned_candidate(user_db: &Path, context: &str, value: &str) -> Re
     Ok(())
 }
 
+/// Drops `value`'s pin in `context` only; a pin of another word there stays.
+pub fn clear_pinned_candidate(user_db: &Path, context: &str, value: &str) -> Result<()> {
+    let journal = open_journal(user_db)?;
+    journal
+        .prepare_cached("DELETE FROM pinned_candidates WHERE context_key=?1 AND value=?2")?
+        .execute(params![context, value])?;
+    Ok(())
+}
+
+/// Like [`is_pinned_candidate`], but for any context starting with `context_prefix`; never creates the journal.
+pub fn is_pinned_candidate_under(user_db: &Path, context_prefix: &str, value: &str) -> bool {
+    if !user_db.try_exists().unwrap_or(false) {
+        return false;
+    }
+    let Ok(journal) = open_journal(user_db) else {
+        return false;
+    };
+    journal
+        .prepare_cached(
+            "SELECT 1 FROM pinned_candidates WHERE substr(context_key,1,length(?1))=?1 AND value=?2",
+        )
+        .and_then(|mut statement| statement.exists(params![context_prefix, value]))
+        .unwrap_or(false)
+}
+
 /// Never creates the journal (J:682-694).
 pub fn is_pinned_candidate(user_db: &Path, context: &str, value: &str) -> bool {
     // A lookup must not create the journal.

@@ -17,6 +17,7 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
+import app.msime.android.ClearLearningCopy;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
@@ -37,7 +38,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 词库页：已安装（内置拼音词库加各个命名词库，操作收在标题右侧的管理菜单），发现词库（社区里的前几个，末尾「浏览更多词库」进社区词库的完整列表），学习组「记忆新词」和「背单词」（原生页 {@link VocabularyReviewPage}），以及只在 Tauri 合包里出现的「更多」组（云词库，P21）。
+ * 词库页：已安装（内置拼音词库加各个命名词库，操作收在标题右侧的管理菜单），发现词库（社区里的前几个，末尾「浏览更多词库」进社区词库的完整列表），学习组「记忆新词」、「背单词」（原生页 {@link VocabularyReviewPage}）和「清除学习记录」，以及只在 Tauri 合包里出现的「更多」组（云词库，P21）。
  *
  * <p>新建、导入、导出和刷新是低频管理操作，放进「已安装」标题右侧的菜单，不在词库列表下面占四行高度；大标题和其他详情页一样只放标题。
  *
@@ -62,6 +63,8 @@ public final class LexiconPage extends ReloadingDetailPage {
     /** 正在进行的导入所选的格式；文件名推不出格式时用它。 */
     private String pendingFormat = "txt";
     private final Set<String> installing = new HashSet<>();
+    /** 正在清除学习记录：期间再点不再弹确认。 */
+    private boolean clearing;
 
     private final ActivityResultLauncher<String[]> openDocument =
         registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onImportPicked);
@@ -176,6 +179,10 @@ public final class LexiconPage extends ReloadingDetailPage {
             updates.nav("恢复上一版词库", "恢复后关闭自动更新，下次启动生效", null, () -> updateDictionary("rollback", null)).setEnabled(!updating);
         }
 
+        GroupCard sync = GroupCard.add(sectionColumn(target, "已安装"), "同步");
+        sync.nav(PageId.DICTIONARY_SYNC.title(), "「我的词条」经自己的 WebDAV 网盘在设备之间同步", null,
+            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null));
+
         GroupCard community = GroupCard.add(sectionColumn(target, "社区"), "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
         if (items == null) {
@@ -196,6 +203,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
         learning.nav(PageId.VOCABULARY_REVIEW.title(), "用内置词书或自己的词表复习英文单词", null,
             () -> SettingsNavigator.open(context, PageId.VOCABULARY_REVIEW, null));
+        learning.button(ClearLearningCopy.TITLE, ClearLearningCopy.SUBTITLE, ClearLearningCopy.ACTION, this::confirmClearLearning);
 
         if (ManagementUi.available()) {
             GroupCard more = GroupCard.add(sectionColumn(target, "已安装"), "更多");
@@ -428,6 +436,27 @@ public final class LexiconPage extends ReloadingDetailPage {
                 return;
             }
             MsToast.show(requireContext(), "已添加「" + item.name() + "」");
+            reload(false);
+        });
+    }
+
+    private void confirmClearLearning() {
+        if (clearing) return;
+        MessageDialog.confirm(requireContext(), ClearLearningCopy.CONFIRM_TITLE, ClearLearningCopy.CONFIRM_MESSAGE,
+            ClearLearningCopy.ACTION, this::clearLearning);
+    }
+
+    private void clearLearning() {
+        if (clearing) return;
+        clearing = true;
+        HostTask.run(this, DictionaryCollectionsStore::resetLearning, result -> {
+            clearing = false;
+            if (result == null || !result.ok()) {
+                MsToast.show(requireContext(), result == null ? DictionaryCollectionsStore.resetFailureMessage("") : result.failure());
+                return;
+            }
+            DictionaryCollectionsStore.ResetReport report = result.value();
+            MsToast.show(requireContext(), ClearLearningCopy.cleared(report.pending(), report.collectionsFailed(), report.unsynced()));
             reload(false);
         });
     }

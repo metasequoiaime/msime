@@ -51,7 +51,9 @@ std::shared_ptr<const HostConfiguration> LoadConfiguration(
     // The TIP creates its sessions from this document, as the Server does from the one it prepared; both name the built-in helpcode tables in DataDir the same way, in memory only.
     auto session = parsed;
     msime::windows::name_builtin_helpcodes(session, std::filesystem::u8path(next->directory));
-    next->hostOptions = session == parsed ? options : session.dump();
+    // TIP 的宿主会话跟着 Server 选同一个词（空格、数字键、点选），选词位置由 Server 的会话记；这里也记就会把每次选词算两遍。
+    session["selection_statistics"] = false;
+    next->hostOptions = session.dump();
     const auto user = parsed.find("user_data");
     next->userData = user != parsed.end() && user->is_string()
                          ? std::filesystem::u8path(user->get<std::string>())

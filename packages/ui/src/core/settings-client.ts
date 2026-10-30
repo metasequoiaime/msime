@@ -13,6 +13,8 @@ import type {
   FeedbackClient,
   HostChromeClient,
   OobeClient,
+  PrivacyConsentClient,
+  ScreenCaptureProtectionClient,
 } from "./host-contracts";
 import type { PickedApplication } from "../settings/app-input-mode-rules";
 import type { VoiceDeviceReader } from "../voice/voice-device-model";
@@ -43,6 +45,7 @@ import type { CustomHelpcodeSchema } from "../settings/helpcode-preferences";
 import type { ClipboardHistoryClient } from "../settings/clipboard-history-model";
 import type { CloudClipboardRequest } from "../settings/cloud-clipboard-send";
 import type { CloudClipboardWebDavPreferences } from "../settings/cloud-clipboard-relay-preferences";
+import type { DictionarySyncClient } from "../settings/dictionary-sync";
 import type { MobileKeyboardFeedbackClient } from "../settings/mobile-keyboard-feedback";
 import type { CommunitySkinClient } from "../community/community-skin-model";
 import type { CommunityResourceClient } from "../community/community-resource-model";
@@ -62,6 +65,10 @@ import type { CloudDictionaryPanelClient } from "../keyboard/panel-client";
 export interface SettingsClient {
   /** 宿主能力；未提供时按 user-agent 检测。 */
   host?: HostCapabilities;
+  /** 宿主征得的隐私政策授权（HarmonyOS）；提供时「隐私」页显示授权状态和重新打开弹窗的入口。 */
+  privacyConsent?: PrivacyConsentClient;
+  /** 宿主提供的「防止截屏」开关（HarmonyOS）；提供时「隐私」页显示这一项。 */
+  screenCaptureProtection?: ScreenCaptureProtectionClient;
   /** Android 适配平台的 Apple 风格键盘首页。 */
   home?: HomePageActions;
   /** 跨平台首次运行引导状态；系统无法可靠查询的事实以 null 表示。 */
@@ -172,6 +179,8 @@ export interface SettingsClient {
   cloudClipboardRelay?: boolean;
   /** WebDAV 设置的「测试连接」（Tauri 命令 `cloud_clipboard_webdav_probe`，见 `docs/cloud-clipboard-webdav.md`）：用还没保存的草稿试一遍网盘，通过时 resolve，失败时以带 `code` 的错误 reject。和 `cloudClipboardRelay` 一起提供时，同步方式里多出「WebDAV」。 */
   probeCloudClipboardWebDav?: (draft: CloudClipboardWebDavPreferences) => Promise<void>;
+  /** 「我的词条」经 WebDAV 网盘同步（`msime_client_dictionary_sync`，见 `docs/dictionary-webdav-sync.md`）。提供时词库页显示「词库同步」，设置打开期间按 Rust 给的时间自动同步，经设置改了词之后记录一次本机改动；没有它的宿主整组不显示。 */
+  dictionarySync?: DictionarySyncClient;
   openCloudDictionary?: () => Promise<void>;
   /** 桌面设置页内嵌的云词库客户端；提供时词库页显示「云词库」顶部标签。 */
   cloudDictionary?: CloudDictionaryPanelClient;

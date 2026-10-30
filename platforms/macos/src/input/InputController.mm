@@ -329,6 +329,16 @@ static BOOL MSIMECandidateIsAIPlaceholder(NSDictionary *candidate) {
     return source == 12 || source == 15;
 }
 
+// 云候选与 AI 的异步占位行只表示请求状态，不能占用候选序号、翻页或展开网格的位置。保留候选自身的 id，点击可见候选时仍按 Engine 身份映射。
+static NSArray<NSDictionary *> *MSIMEVisibleCandidates(NSArray *candidates) {
+    if (![candidates isKindOfClass:NSArray.class]) return @[];
+    NSMutableArray<NSDictionary *> *visible = [NSMutableArray arrayWithCapacity:candidates.count];
+    for (NSDictionary *candidate in candidates)
+        if ([candidate isKindOfClass:NSDictionary.class] && !MSIMECandidateIsAIPlaceholder(candidate))
+            [visible addObject:candidate];
+    return visible;
+}
+
 static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, NSDictionary *view,
                                                           NSDictionary *hostOptions, BOOL englishMode) {
     NSDictionary *effectiveContext = [context isKindOfClass:NSDictionary.class] ? context : view;
@@ -1314,12 +1324,12 @@ static BOOL MSIMEIsCornerQuoteMark(id mark) {
     const unichar c = [mark characterAtIndex:0];
     return c >= 0x300C && c <= 0x300F;
 }
-// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；契约第 3 版起引擎里 `{` `}` 也分别出这两组。普通中文方案的 `{` `}` 在到达引擎前被上面的宿主分支拦成「/」，仍按契约分组判：`{` 算出「」的键，`}` 不算——把它算进「」组会让 `}` 上的屏的」被改回「。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
+// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；`{` 固定出「（契约第 5 版，普通中文方案在到达引擎前由上面的宿主分支拦成同一个字），算出「」的键。`}` 固定出」，不算——把它算进「」组会让 `}` 上屏的」被改回「；它也不再出『』。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
 static BOOL MSIMEKeyProducesCornerQuote(unichar key, unichar mark, int scheme) {
     const BOOL zhuyin = scheme == msime::mac::scheme::Zhuyin;
     switch (mark) {
     case 0x300C: case 0x300D: return key == '\'' || (!zhuyin && key == '{'); // 「 」
-    case 0x300E: case 0x300F: return key == '"' || (!zhuyin && key == '}');  // 『 』
+    case 0x300E: case 0x300F: return key == '"';  // 『 』
     default: return NO;
     }
 }
@@ -1759,6 +1769,7 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _expandedGridMovesCursor;
     // 运行时手里有这一行的显示页（见 reportAdaptiveDisplayPage）；换回固定分页时要清掉。
     BOOL _displayPageReported;
+    BOOL _filteredFixedPages;
     NSUInteger _adaptivePage;
     NSViewAnimation *_candidateFrameAnimation;
     NSDictionary<NSDictionary *, NSValue *> *_candidateTransitionFrames;
@@ -2373,7 +2384,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 }
 
 - (NSDictionary *)highlightedCandidateForGloss {
-    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
     if (![candidates isKindOfClass:NSArray.class]) return nil;
     for (NSDictionary *candidate in candidates)
         if ([candidate isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(candidate[@"highlighted"])) return candidate;
@@ -2613,7 +2624,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 
 - (BOOL)expandedCandidatesOffered {
     if (![self expandedCandidatesAllowed]) return NO;
-    if (_appearance.adaptiveCandidateCount && _adaptiveCandidates.count)
+    if ([self usesPresentedCandidatePages] && _adaptiveCandidates.count)
         return _adaptivePages.knownPages() > 1;
     NSUInteger pageCount = 0;
     return MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount) && pageCount > 1;
@@ -2626,7 +2637,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
         ![snapshot[@"session"] isEqual:_view[@"session"]] || ![snapshot[@"generation"] isEqual:_view[@"generation"]]) return nil;
     NSMutableArray<NSDictionary *> *valid = [NSMutableArray array];
     for (id entry in (NSArray *)snapshot[@"candidates"])
-        if ([entry isKindOfClass:NSDictionary.class] && MSIMECurrentCandidateIdentity(entry[@"id"], _view)) [valid addObject:entry];
+        if ([entry isKindOfClass:NSDictionary.class] && !MSIMECandidateIsAIPlaceholder(entry) && MSIMECurrentCandidateIdentity(entry[@"id"], _view)) [valid addObject:entry];
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     NSString *code = MSIMECandidatePinCode(_view);
     NSMutableArray<NSDictionary *> *ordered = [NSMutableArray arrayWithCapacity:valid.count];
@@ -2694,7 +2705,7 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 - (BOOL)openExpandedCandidatesAfterSelection:(BOOL)afterSelection {
     if (_expandedCandidates || !(afterSelection ? [self expandedCandidatesAllowed] : [self expandedCandidatesOffered])) return NO;
     NSArray<NSDictionary *> *entries = [self expandedCandidatesFromSnapshot:[_session allCandidatesWithError:nil]];
-    NSArray *page = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
+    NSArray *page = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
         : ([_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[]);
     if (!entries.count || (!afterSelection && entries.count <= page.count)) return NO;
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
@@ -4449,8 +4460,14 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     }
 
 }
+static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, NSDictionary *view);
+
 - (BOOL)usesAdaptiveCandidates {
     return _appearance.adaptiveCandidateCount && ![self glossSensePageActive] && !MSIMECandidateListOpen(_view);
+}
+
+- (BOOL)usesPresentedCandidatePages {
+    return _filteredFixedPages || [self usesAdaptiveCandidates];
 }
 
 // 自动适应显示的一行未必等于引擎的固定页：把这一行的座位报给运行时，二三候选键、五笔自定义选词键和翻译查询都按看得见的这一行。
@@ -4477,7 +4494,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 
 // 释义和翻译按看得见的候选请求：自动适应时把服务看到的视图换成这一行，与运行时翻译查询用的显示页一致。
 - (NSDictionary *)serviceViewShowingAdaptiveRow:(NSDictionary *)view {
-    if (![view isKindOfClass:NSDictionary.class] || ![self usesAdaptiveCandidates] || !_adaptivePageCandidates.count) return view;
+    if (![view isKindOfClass:NSDictionary.class] || ![self usesPresentedCandidatePages] || !_adaptivePageCandidates.count) return view;
     NSDictionary *identity = _adaptivePageCandidates.firstObject[@"id"];
     if (![identity[@"session"] isEqual:view[@"session"]] || ![identity[@"generation"] isEqual:view[@"generation"]]) return view;
     NSMutableDictionary *shown = [view mutableCopy];
@@ -4495,7 +4512,14 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 // 只接管正在显示的这一行的翻页：候选窗收起后（上屏、取消）的翻页键照原样交给引擎，不能被上一行的分页吞掉；
 // 上屏后的联想翻页在 runtime 里会清掉联想，同样沿用原来的单次命令。
 - (NSDictionary *)candidateCommand:(uint32_t)command {
-    if (![self usesAdaptiveCandidates] || _expandedCandidates || !_adaptivePages.widths.size() || !_panel.isVisible ||
+    if (_filteredFixedPages && !_expandedCandidates && _panel.isVisible &&
+        !MSIMEStrictBoolean(_view[@"prediction"]) && (command == MSIME_NEXT_CANDIDATE || command == MSIME_PREVIOUS_CANDIDATE)) {
+        const NSUInteger highlighted = MSIMEAdaptiveHighlightIndex(_adaptiveCandidates, _view);
+        const NSUInteger target = command == MSIME_NEXT_CANDIDATE ? MIN(highlighted + 1, _adaptiveCandidates.count - 1)
+            : (highlighted ? highlighted - 1 : 0);
+        return [self moveEngineHighlightToIndex:[_adaptiveCandidates[target][@"id"][@"index"] unsignedIntegerValue]];
+    }
+    if (![self usesPresentedCandidatePages] || _expandedCandidates || !_adaptivePages.widths.size() || !_panel.isVisible ||
         MSIMEStrictBoolean(_view[@"prediction"]) || (command != MSIME_NEXT_PAGE && command != MSIME_PREVIOUS_PAGE))
         return [_session command:command error:nil];
     // 下一页从已排最后一行的结尾开始，按需分页总会多排出这一项的位置。
@@ -4509,7 +4533,9 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 - (NSDictionary *)moveEngineHighlightToIndex:(NSUInteger)target {
     NSUInteger current = [self highlightedEngineCandidateIndex];
     NSDictionary *transition = nil;
-    for (NSUInteger attempts = 0; current != target && attempts <= _adaptiveCandidates.count; ++attempts) {
+    // 隐藏行仍占引擎索引，导航步数按真实身份距离限定，不能按过滤后的可见项数截断。
+    const NSUInteger distance = current > target ? current - target : target - current;
+    for (NSUInteger attempts = 0; current != target && attempts <= distance; ++attempts) {
         transition = [_session command:current < target ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE error:nil];
         if (!transition) {
             msime_macos_diagnostic_write("adaptive_candidate_navigation_failed");
@@ -4528,7 +4554,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 }
 
 - (NSDictionary *)synchronizeAdaptiveCandidateIdentity:(NSDictionary *)identifier {
-    if (![self usesAdaptiveCandidates]) return identifier;
+    if (![self usesPresentedCandidatePages]) return identifier;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return nil;
     const NSUInteger target = [identifier[@"index"] unsignedIntegerValue];
     if (![self moveEngineHighlightToIndex:target]) return nil;
@@ -5255,10 +5281,12 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
         if (!optIn || [self enableOptInInputMode:optIn]) _appearance.lastSyncedInputScheme = scheme;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
-    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
 }
+// 系统输入菜单里某个模式是否可选。单独的入口让原生测试换上合成的可用性，不依赖开发者或 CI 机器上真实启用了哪些模式。
+- (MSIMEInputModeAvailability)inputModeAvailability { return MSIMEInputSourceIsEnabled; }
 // 单独读取入口让原生测试注入合成输入源，不切换开发者的真实输入源。
 - (NSString *)selectedSystemInputModeID {
     TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
@@ -5304,18 +5332,21 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     // 切换属于将收到下一个按键的会话，也就是持有焦点的控制器的会话，不论系统通知的是哪个控制器。
     MSIMEInputController *focused = MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
-    if (!MSIMEAdoptReportedInputMode(MSIMESharedSystemInputModeState(), value)) return;
+    MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+    // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
+    const BOOL switchedIn = state.switchedIn;
+    if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    state.switchedIn = false;
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
-    MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     state.selecting = true;
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
     NSString *target =
-        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled);
+        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     if (target && ![target isEqualToString:scheme]) {
@@ -7317,6 +7348,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (queueMs >= 8.0) msime_macos_diagnostic_writef("[key-latency] stage=queue type=%s elapsed_ms=%.3f", label, queueMs);
     }
     _smartPunctuationShadowWritten = NO;
+    // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) MSIMESharedSystemInputModeState().switchedIn = false;
     if (event.type == NSEventTypeKeyDown && sender) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)
@@ -7780,9 +7813,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 自动适应的一行和引擎的固定页各算各的：只要任一边用到第十格，`0` 就归选词，
     // 由下面的候选身份检查吞掉这一行没有的格子，不能落进引擎去选它固定页里看不见的第十个。
     const int physicalDigit = msime::mac::CandidateDigitSlotOnPage(msime::mac::PhysicalCandidateDigitSlot(event.keyCode),
-        [self usesAdaptiveCandidates] ? MAX((NSUInteger)_appearance.pageSize, _adaptivePageCandidates.count) : _appearance.pageSize);
-    NSArray *visibleCandidates = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
-        : ([_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[]);
+        [self usesPresentedCandidatePages] ? MAX((NSUInteger)_appearance.pageSize, _adaptivePageCandidates.count) : _appearance.pageSize);
+    NSArray *visibleCandidates = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
+        : MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
     const NSEventModifierFlags glossModifiers = event.modifierFlags &
         (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
     if (_panel.isVisible && physicalDigit >= 0 &&
@@ -7816,7 +7849,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
             uint64_t generation = 0; NSUInteger index = 0;
             if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
-            NSDictionary *selected = [self usesAdaptiveCandidates]
+            NSDictionary *selected = [self usesPresentedCandidatePages]
                 ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
                 : [_session selectGeneration:generation index:index error:nil];
             if (selected) [self apply:selected];
@@ -8041,7 +8074,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [self apply:[_session command:segment error:nil]];
             return YES;
         }
-        NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
         NSUInteger highlighted = NSNotFound;
         for (NSUInteger index = 0; index < candidates.count; ++index)
             if ([candidates[index] isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(candidates[index][@"highlighted"])) { highlighted = index; break; }
@@ -8382,7 +8415,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'' ||
         punctuationKey == '{' || punctuationKey == '}';
-    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`，以及契约第 3 版起非注音方案的 `{` `}`。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
+    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`；`{` 只出前半个「，`}` 固定出的」是用户要打的后半个，不改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
     const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
     if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
@@ -8883,7 +8916,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     CGFloat bodyRowGap = 0;
     BOOL headerPager = _appearance.showsCandidatePageNumber;
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
-    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
         NSScreen *screen = MSIMECandidateScreen(cursor);
@@ -9301,7 +9334,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                            skin:(const msime::mac::ResolvedSkin &)skin font:(NSFont *)font {
     NSString *word = @"";
     if (skin.decorationCandidate) {
-        NSArray *page = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        NSArray *page = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
         int highlight = -1;
         for (NSUInteger index = 0; index < page.count; ++index)
             if ([page[index] isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(page[index][@"highlighted"])) {
@@ -9841,8 +9874,44 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 普通候选页结束上一轮展开布局，不能把旧字号或皮肤的视口带到下一次展开。
     _expandedViewportHeight = 0;
     if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
-    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+    NSArray *rawCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+    NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(rawCandidates, MSIMECandidatePinCode(_view)));
+    // 固定页也按可见行装满：占位只在首屏出现，第一次发现后持续从当前代次的完整快照分页，直到占位被真实结果替换。
+    // 所有条目保留原始引擎身份；显示页上报和任意候选选择复用自动适应已有的协议。
+    const BOOL hadFilteredPages = _filteredFixedPages;
+    _filteredFixedPages = NO;
+    if (_session && ![self usesAdaptiveCandidates] && ![self glossSensePageActive] &&
+        !MSIMECandidateListOpen(_view) && (hadFilteredPages || candidates.count != rawCandidates.count)) {
+        NSDictionary *snapshot = [_session allCandidatesWithError:nil];
+        if (snapshot && ![snapshot[@"generation"] isEqual:_view[@"generation"]]) {
+            NSDictionary *updated = [_session viewWithError:nil];
+            if (updated) _view = updated;
+        }
+        NSArray *entries = [self expandedCandidatesFromSnapshot:snapshot];
+        NSArray *snapshotRows = [snapshot[@"candidates"] isKindOfClass:NSArray.class] ? snapshot[@"candidates"] : @[];
+        if (entries.count && entries.count < snapshotRows.count) {
+            _filteredFixedPages = YES;
+            _adaptiveCandidates = entries;
+            const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
+            _adaptivePage = MSIMEAdaptiveHighlightIndex(entries, _view) / columns;
+            _adaptivePages = {};
+            for (NSUInteger start = 0; start < entries.count; start += columns) {
+                const NSUInteger length = MIN(columns, entries.count - start);
+                _adaptivePages.widths.emplace_back(length, 0);
+                _adaptivePages.starts.push_back(start + length);
+            }
+            const NSUInteger start = _adaptivePages.starts[_adaptivePage];
+            _adaptivePageCandidates = candidates = [entries subarrayWithRange:NSMakeRange(start,
+                _adaptivePages.starts[_adaptivePage + 1] - start)];
+        } else if (snapshot && entries.count == snapshotRows.count) {
+            candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
+        }
+    }
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
+        _adaptiveCandidates = nil;
+        _adaptivePageCandidates = nil;
+        _adaptivePages = {};
+        [self clearAdaptiveDisplayPage];
         _armedGlossColumn = 0;
         _renderedCandidateView = nil;
         [self resetCandidateAnchor];
@@ -9936,7 +10005,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         _adaptiveCandidates = entries;
         adaptiveHighlight = MSIMEAdaptiveHighlightIndex(entries, _view);
         paginate(0);
-    } else {
+    } else if (!_filteredFixedPages) {
         _adaptiveCandidates = nil;
         _adaptivePageCandidates = nil;
         _adaptivePages = {};
@@ -9948,7 +10017,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page);
     MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     // 自动适应只知道到下一页为止的页数，够判断前后有没有页；总页数不显示。
-    if (adaptive) { page = _adaptivePage; pageCount = _adaptivePages.knownPages(); }
+    if (adaptive || _filteredFixedPages) { page = _adaptivePage; pageCount = _adaptivePages.knownPages(); }
     const BOOL paging = pageCount > 1;
     // 用户开关控制所有鼠标翻页按钮；共享版式把它们放进列表，显式关闭时也不回退到首行。
     const BOOL pageControls = paging && _appearance.showsCandidatePageNumber && !skin.pageArrows.has_value();
@@ -9975,7 +10044,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         page = _adaptivePage;
         pageCount = _adaptivePages.knownPages();
     }
-    if (adaptive) [self reportAdaptiveDisplayPage];
+    if (adaptive || _filteredFixedPages) [self reportAdaptiveDisplayPage];
     // 「1 / 3」只在知道总页数时显示；自动适应只留 ‹ ›。
     const BOOL pageIndicatorShown = pageControls && !adaptive;
     NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
@@ -9995,7 +10064,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSFont *numberFont = MSIMECandidateNumberFont(font, numberScale);
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
-    NSString *statusText = preedit.length ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
+    const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
+    NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
                                                                      _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
     NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
     const CGFloat statusGap = 8 * scale;
@@ -10016,7 +10086,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 预览最多占这么宽，再长的整句截断。
     const CGFloat previewNatural = previewText.length
         ? MIN(220 * scale, previewIconSide + 4 * scale + ceil([previewText sizeWithAttributes:@{NSFontAttributeName: previewFont}].width) + 4 * scale) : 0;
-    const CGFloat ornamentWidth = preedit.length ? 18 * scale : 0;
+    const CGFloat ornamentWidth = statusVisible ? 18 * scale : 0;
     const CGFloat ornamentGap = 8 * scale;
     // 这三样只占卡片已有的宽度，不计入最小宽度：云候选是异步到的，算进去的话回答一到卡片就突然变宽，中英切换也会让卡片跟着伸缩。
     const CGFloat headerWidth = preedit.length || pageControls || logo || caretEditActive
@@ -10552,7 +10622,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return;
     // 指针点选先开一轮；上屏音和上屏特效照常来自这次派发。
     [self reportPointerToLifecycle];
-    [self apply:[self usesAdaptiveCandidates] ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
+    [self apply:[self usesPresentedCandidatePages] ? [_session selectAnyCandidateGeneration:generation index:index error:nil]
                                               : [_session selectGeneration:generation index:index error:nil]];
 }
 
@@ -10619,8 +10689,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // Windows hides deletion for one Unicode scalar, including supplementary Han.
     if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1) {
         NSMenuItem *remove = item(@"删除", 1);
-        NSArray *candidates = [self usesAdaptiveCandidates] ? _adaptivePageCandidates
-            : MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
+        NSArray *candidates = [self usesPresentedCandidatePages] ? _adaptivePageCandidates
+            : MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view)));
         NSUInteger slot = [candidates isKindOfClass:NSArray.class] ? [candidates indexOfObjectIdenticalTo:candidate] : NSNotFound;
         if (slot < 8) {
             remove.keyEquivalent = [NSString stringWithFormat:@"%lu", (unsigned long)slot + 1];
@@ -10643,7 +10713,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if ((item.tag < 0 || item.tag > 2) && (item.tag < 11 || item.tag > 15)) return;
     // 候选右键菜单的这几项都是指针操作引起的派发，和点选候选一样先开一轮，见 msime_client.h 的顺序契约。
     [self reportPointerToLifecycle];
-    if ([self usesAdaptiveCandidates]) {
+    if ([self usesPresentedCandidatePages]) {
         identifier = [self synchronizeAdaptiveCandidateIdentity:identifier];
         if (!identifier) { NSBeep(); return; }
         generation = [identifier[@"generation"] unsignedLongLongValue];
@@ -10681,7 +10751,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (!MSIMEUnsignedCandidateIdentityValue(_view[@"page_count"])) return;
     NSUInteger page = 0; NSUInteger count = 0;
     if (!MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page) || !MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &count)) return;
-    if ([self usesAdaptiveCandidates]) { page = _adaptivePage; count = _adaptivePages.knownPages(); }
+    if ([self usesPresentedCandidatePages]) { page = _adaptivePage; count = _adaptivePages.knownPages(); }
     if (count == 0 || page >= count) return;
     // 先定下要派发的命令，报告和派发共用同一个条件，免得两边各写一份、日后改出分歧。
     uint32_t command = UINT32_MAX;

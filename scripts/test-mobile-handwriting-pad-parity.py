@@ -42,7 +42,7 @@ IOS_KEYS = {
 HARMONY_KEYS = (
     ("LAYER", "action: () => this.toggleSymbolLayer()"),
     ("COMMA", "action: () => this.typeComma()"),
-    ("SPACE", "this.spaceKey(true, HANDWRITING_SPACE_SHARE)"),
+    ("SPACE", "this.spaceKey(true, HANDWRITING_SPACE_SHARE, 0)"),
     ("PERIOD", "action: () => this.typePeriod()"),
     ("LANGUAGE", "share: HANDWRITING_LANGUAGE_SHARE"),
     ("REWRITE", "share: HANDWRITING_REWRITE_SHARE"),
@@ -104,16 +104,48 @@ def weights(errors: list[str]) -> dict[str, float]:
     return shares
 
 
+def comma_primary_order(arrange: str) -> str | None:
+    """`case .phone: order = commaSecondary ? … : [ … ]` 里假分支那份数组的内容（手写和 14 键用的那份）。
+
+    真分支可以再嵌套三元式（比如按 `symbolFirst` 选 符 与 123 的次序），所以不按固定排版匹配，而是从 `commaSecondary` 往后逐字扫描、记下圆括号和方括号的层数：第 0 层的第一个 `?` 之后、第 0 层的第一个 `:` 就是假分支，它后面必须直接是一个数组字面量。
+    """
+    start = re.search(r"case \.phone:\s*order = commaSecondary\b", arrange)
+    if start is None:
+        return None
+    depth = 0
+    seen_question = False
+    index = start.end()
+    while index < len(arrange):
+        char = arrange[index]
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0 and char == "?":
+            seen_question = True
+        elif depth == 0 and char == ":" and seen_question:
+            break
+        elif depth == 0 and re.match(r"\n\s*case \.", arrange[index:]):
+            return None
+        index += 1
+    else:
+        return None
+    rest = re.match(r":\s*\[([^\]]*)\]", arrange[index:])
+    return rest.group(1) if rest else None
+
+
 def rows(errors: list[str]) -> None:
     android = body(text(ANDROID_ROW), "    private static List<DesignEntry> handwritingEntries(", ANDROID_ROW, errors)
     android_row = [slot for slot in re.findall(r"DesignSlot\.([A-Z_]+)", android) if slot != "GLOBE"]
     arrange = body(text(IOS_CONTROLLER), "  private func arrangeActionRow(", IOS_CONTROLLER, errors)
-    phone = re.search(r"case \.phone:\n\s*order = commaSecondary\n\s*\? \[[^\]]*\]\n\s*: \[([^\]]*)\]", arrange)
+    phone = comma_primary_order(arrange)
     if phone is None:
         errors.append(f"{IOS_CONTROLLER.relative_to(ROOT)}: arrangeActionRow 找不到手机底行的键序")
         ios_row = []
     else:
-        names = [name.strip() for name in phone.group(1).split(",")]
+        names = [name.strip() for name in phone.split(",")]
         ios_row = [IOS_KEYS[name] for name in names if name in IOS_KEYS and IOS_KEYS[name] != "GLOBE"]
     harmony = body(text(HARMONY), "  handwritingActionRow() {", HARMONY, errors)
     positions = [(harmony.find(marker), slot) for slot, marker in HARMONY_KEYS]

@@ -3,22 +3,22 @@
     "3": {
       "cases": 103,
       "found": 1.0,
-      "mrr": 0.798,
-      "top1": 0.68,
-      "top1_char_prefix": 0.793,
-      "top5": 0.971,
-      "top9": 0.99
+      "mrr": 0.791,
+      "top1": 0.67,
+      "top1_char_prefix": 0.78,
+      "top5": 0.951,
+      "top9": 0.971
     }
   },
   "by_tag": {
     "particle": {
       "cases": 103,
       "found": 1.0,
-      "mrr": 0.798,
-      "top1": 0.68,
-      "top1_char_prefix": 0.793,
-      "top5": 0.971,
-      "top9": 0.99
+      "mrr": 0.791,
+      "top1": 0.67,
+      "top1_char_prefix": 0.78,
+      "top5": 0.951,
+      "top9": 0.971
     }
   },
   "cases": 103,
@@ -29,11 +29,11 @@
   "overall": {
     "cases": 103,
     "found": 1.0,
-    "mrr": 0.798,
-    "top1": 0.68,
-    "top1_char_prefix": 0.793,
-    "top5": 0.971,
-    "top9": 0.99
+    "mrr": 0.791,
+    "top1": 0.67,
+    "top1_char_prefix": 0.78,
+    "top5": 0.951,
+    "top9": 0.971
   },
   "sample_failures": [
     {
@@ -93,6 +93,13 @@
       "top1": "心下"
     },
     {
+      "gold": "轿车呀",
+      "id": "p013",
+      "input": "jiaocheya",
+      "rank": 2,
+      "top1": "叫车呀"
+    },
+    {
       "gold": "登录吗",
       "id": "p016",
       "input": "dengluma",
@@ -100,18 +107,11 @@
       "top1": "登录码"
     },
     {
-      "gold": "签约啦",
-      "id": "p017",
-      "input": "qianyuela",
-      "rank": 4,
-      "top1": "千余饿啦"
-    },
-    {
       "gold": "院长呀",
       "id": "p019",
       "input": "yuanzhangya",
       "rank": 4,
-      "top1": "预案长牙"
+      "top1": "预案长芽"
     },
     {
       "gold": "我国啦",
@@ -119,6 +119,13 @@
       "input": "woguola",
       "rank": 2,
       "top1": "我过来"
+    },
+    {
+      "gold": "形成呀",
+      "id": "p031",
+      "input": "xingchengya",
+      "rank": 2,
+      "top1": "行程呀"
     },
     {
       "gold": "关系啊",
@@ -215,7 +222,7 @@
       "gold": "戒指吧",
       "id": "p086",
       "input": "jiezhiba",
-      "rank": 4,
+      "rank": 1074,
       "top1": "接旨吧"
     },
     {
@@ -231,6 +238,13 @@
       "input": "shejia",
       "rank": 5,
       "top1": "佘家"
+    },
+    {
+      "gold": "协商啊",
+      "id": "p102",
+      "input": "xieshanga",
+      "rank": 997,
+      "top1": "写上啊"
     },
     {
       "gold": "所以呀",
@@ -259,13 +273,6 @@
       "input": "xiazaiba",
       "rank": 2,
       "top1": "下载版"
-    },
-    {
-      "gold": "当前吗",
-      "id": "p118",
-      "input": "dangqianma",
-      "rank": 4,
-      "top1": "当期暗骂"
     }
   ],
   "top1_source": {

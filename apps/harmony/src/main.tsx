@@ -1,4 +1,5 @@
 import { HarmonyLaunch } from "./launch";
+import { pendingSettingsLink, settingsLink, type SettingsLink } from "./settings-link";
 import { StrictMode } from "react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -101,6 +102,8 @@ import type {
   OobeClient,
   OobeState,
   MobileKeyboardFeedback,
+  PrivacyConsentClient,
+  ScreenCaptureProtectionClient,
   OnboardingChoices,
   OnboardingInputScheme,
   ResolvedAppTheme,
@@ -202,10 +205,14 @@ interface NativeBridge {
   onboardingStarted(): void;
   /** 欢迎流程已结束（走完或跳过），宿主可以重新显示它的通知卡片。 */
   onboardingFinished(): void;
-  /** `{"ok":true,"value":string|null}`：键盘要求本窗口打开的页面，只交出一次，第二次读取回复 null。 */
+  /** `{"ok":true,"value":string|null,"target":string|null}`：键盘要求本窗口打开的页面和页面里的子目标，只交出一次，第二次读取回复 null。旧宿主没有 `target`。 */
   pendingPage(): string;
   /** 页面的第一帧已经上屏：宿主撤掉页面加载期间盖在网页上的启动画面。 */
   launchPainted(): void;
+  /**
+   * 隐私政策的授权：`{operation:"status"}` 回复 `{ok,value:{granted,decided}}`；`{operation:"review"}` 另外打开宿主的授权弹窗，用户的选择之后经 `msimeHarmonyPrivacyConsentChanged` 送来。
+   */
+  privacyConsent(request: string): string;
 }
 
 declare global {
@@ -217,13 +224,16 @@ declare global {
   // eslint-disable-next-line no-var
   var msimeHarmonyAppThemeChanged: (() => void) | undefined;
   // eslint-disable-next-line no-var
-  var msimeHarmonyOpenPage: ((page: string) => void) | undefined;
+  var msimeHarmonyOpenPage: ((page: string, target?: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyVoiceModelProgress: ((document: string) => void) | undefined;
+  // 宿主在用户于授权弹窗里做出选择后调用，参数是现在是否已同意。
+  // eslint-disable-next-line no-var
+  var msimeHarmonyPrivacyConsentChanged: ((granted: boolean) => void) | undefined;
 }
 
 /**
@@ -634,26 +644,10 @@ function savedFlowTheme(native: NativeBridge): FlowTheme {
   return { themeMode, settingsTheme };
 }
 
-/**
- * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，「添加语言」打开的「输入」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
- */
-const LINKED_PAGES: readonly string[] = [
-  "input",
-  "dictionary",
-  "feedback",
-  "about",
-  "skin",
-  "screen-keyboard",
-];
-
-function linkedPage(value: unknown): string | undefined {
-  return typeof value === "string" && LINKED_PAGES.includes(value) ? value : undefined;
-}
-
-/** 本页加载完成前键盘请求的页面，宿主会一直保留到它被读取。 */
-function pendingLinkedPage(native: NativeBridge): string | undefined {
+/** 本页加载完成前键盘请求的页面（和子目标），宿主会一直保留到它被读取。哪些页面和子目标可以链接见 `settings-link.ts`。 */
+function pendingLinkedPage(native: NativeBridge): SettingsLink | undefined {
   if (typeof native.pendingPage !== "function") return undefined;
-  return linkedPage(bridgeValue(native.pendingPage()));
+  return pendingSettingsLink(native.pendingPage());
 }
 
 /**
@@ -661,18 +655,125 @@ function pendingLinkedPage(native: NativeBridge): string | undefined {
  *
  * 这个全局对象从本脚本运行起就存在，所以宿主不必保留在那之后发出的请求：启动屏还在时到达的请求会在这里等待，直到设置组件注册监听器后取走。
  */
-let linkedPageListener: ((page: string) => void) | undefined;
-let queuedLinkedPage: string | undefined;
+let linkedPageListener: ((link: SettingsLink) => void) | undefined;
+let queuedLinkedPage: SettingsLink | undefined;
 
-globalThis.msimeHarmonyOpenPage = (page: string) => {
-  const linked = linkedPage(page);
+globalThis.msimeHarmonyOpenPage = (page: string, target?: string) => {
+  const linked = settingsLink(page, target);
   if (!linked) return;
   if (linkedPageListener) linkedPageListener(linked);
   else queuedLinkedPage = linked;
 };
 
+/**
+ * 隐私政策的授权，宿主在首次启动时用原生弹窗征得。
+ *
+ * 没有授权时宿主拒绝一切联网请求（`PrivacyConsentPolicy`），所以页面也不画账号、社区、云同步、检查更新这些入口：`makeClient` 按授权决定给不给这些 client，授权一变就换一个新的 client，页面的加载和订阅随之重跑。弹窗的选择可能早于设置组件挂载，所以这里从脚本运行起就接住宿主的通知并记下最新值。
+ *
+ * 旧版宿主没有这个桥接方法，那时也没有这道门，按已同意处理，与升级前的行为一样。
+ */
+let privacyConsentGranted: boolean | undefined;
+const privacyConsentListeners = new Set<(granted: boolean) => void>();
+
+globalThis.msimeHarmonyPrivacyConsentChanged = (granted: boolean) => {
+  privacyConsentGranted = granted === true;
+  for (const listener of privacyConsentListeners) listener(privacyConsentGranted);
+};
+
+function readPrivacyConsent(native: NativeBridge): boolean {
+  if (privacyConsentGranted !== undefined) return privacyConsentGranted;
+  if (typeof native.privacyConsent !== "function") return true;
+  const value = bridgeValue(native.privacyConsent(JSON.stringify({ operation: "status" })));
+  const granted =
+    typeof value === "object" &&
+    value !== null &&
+    (value as { granted?: unknown }).granted === true;
+  privacyConsentGranted = granted;
+  return granted;
+}
+
+/** 当前的授权；宿主通知变化时重渲染。 */
+function usePrivacyConsent(native: NativeBridge): boolean {
+  const [granted, setGranted] = useState(() => readPrivacyConsent(native));
+  useEffect(() => {
+    privacyConsentListeners.add(setGranted);
+    // 挂载前宿主可能已经通知过。
+    setGranted(readPrivacyConsent(native));
+    return () => {
+      privacyConsentListeners.delete(setGranted);
+    };
+  }, [native]);
+  return granted;
+}
+
+function privacyConsentClient(
+  native: NativeBridge,
+  granted: boolean,
+): PrivacyConsentClient | undefined {
+  if (typeof native.privacyConsent !== "function") return undefined;
+  return {
+    granted,
+    review: async () => {
+      native.privacyConsent(JSON.stringify({ operation: "review" }));
+    },
+  };
+}
+
+/**
+ * 「防止截屏」（#10194）：宿主存在本机、经共享沙箱传给键盘，切换规则和系统认证都在原生 `screenCaptureProtectionSettings` 里。打开过以后的切换要等用户在系统认证框里操作，期限与统计页的认证相同。拒绝时 `unwrap` 抛出带错误码的 `{ code }`，页面据此提示。
+ */
+function screenCaptureProtectionClient(native: NativeBridge): ScreenCaptureProtectionClient {
+  return {
+    load: async () =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "screen_capture_protection_settings",
+          JSON.stringify({ operation: "load" }),
+        ),
+      ),
+    save: async (enabled: boolean) =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "screen_capture_protection_settings",
+          JSON.stringify({ operation: "save", enabled }),
+          120000,
+        ),
+      ),
+  };
+}
+
 /** Google 登录等浏览器跳回最多 300 秒（client-services 的 `GOOGLE_SIGN_IN_TIMEOUT`），之后还要用授权码换 token；默认的 30 秒会在用户还在浏览器里时就报超时。取消由页面的「取消」经 google_cancel 完成，不靠这个超时。 */
 const GOOGLE_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
+
+/**
+ * 鸿蒙设置应用是否给共享账号页提供 Google 登录。中国大陆连不上 Google，AppGallery 审核按「使用 Google 登录」点了没反应提过意见，并建议提供华为账号登录，所以默认关掉，改由 `huaweiLogin` 提供第三方登录（见 .agents/notes/implemented/feature/2026-10-27-harmony-huawei-id-sign-in.md）。宿主的回环实现（`HarmonyGoogleSignIn`）和下面的 `googleLogin`、`googleCancel` 都保留，改回 true 就恢复；别的平台的 Google 登录不经过这里。
+ */
+const HARMONY_GOOGLE_SIGN_IN = false;
+
+/** 华为账号登录的等待上限：Account Kit 的授权页由用户操作，未登录华为账号时还要先在系统页登录，用户可以在页面上停很久；默认的 30 秒会在用户还在授权页时就报超时。授权页由系统管理，用户关掉它时 Account Kit 立即以取消结束，不靠这个超时。 */
+const HUAWEI_SIGN_IN_TIMEOUT_MS = 6 * 60 * 1000;
+
+/** 鸿蒙宿主的 Google 回环登录：宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。 */
+function googleSignIn(native: NativeBridge): Pick<AccountClient, "googleLogin" | "googleCancel"> {
+  return {
+    googleLogin: async () =>
+      unwrap<{ user: AccountUser | null }>(
+        await bridgeRequest(
+          native,
+          "account",
+          JSON.stringify({ operation: "google_sign_in" }),
+          GOOGLE_SIGN_IN_TIMEOUT_MS,
+        ),
+      ),
+    googleCancel: async () => {
+      unwrap(
+        await bridgeRequest(native, "account", JSON.stringify({ operation: "google_cancel" })),
+      );
+    },
+  };
+}
 
 function accountClient(native: NativeBridge): AccountClient {
   // 操作名和回答都是 Rust `msime_client_account` 的（#8201 第 2 步），user 含原始 displayName 和共享 preferredName，直接透传共享账号页，不在这里重建显示名。
@@ -693,19 +794,17 @@ function accountClient(native: NativeBridge): AccountClient {
         challenge_id: challengeId,
         code,
       }),
-    // 宿主在 127.0.0.1 上监听、用系统浏览器打开 Google，等它跳回来再用授权码登录；页面只看到结果。
-    googleLogin: async () =>
+    // 宿主经 Account Kit 拉起华为账号授权页，challenge、nonce 和 ID token 都在原生层，页面只看到登录结果。
+    huaweiLogin: async () =>
       unwrap<{ user: AccountUser | null }>(
         await bridgeRequest(
           native,
           "account",
-          JSON.stringify({ operation: "google_sign_in" }),
-          GOOGLE_SIGN_IN_TIMEOUT_MS,
+          JSON.stringify({ operation: "huawei_sign_in" }),
+          HUAWEI_SIGN_IN_TIMEOUT_MS,
         ),
       ),
-    googleCancel: async () => {
-      await request({ operation: "google_cancel" });
-    },
+    ...(HARMONY_GOOGLE_SIGN_IN ? googleSignIn(native) : {}),
     profile: () => request<AccountProfile>({ operation: "profile" }),
     rename: (displayName) =>
       request<AccountProfile>({ operation: "rename", display_name: displayName }),
@@ -957,6 +1056,47 @@ function communityPluginClient(native: NativeBridge): CommunityPluginClient {
   };
 }
 
+/** 页面在投稿类功能关着时本来就不画这些入口；万一哪处漏了，请求在页面这一侧就被拒绝，不经桥接。错误码与宿主桥接的拒绝（`CommunityContributionGate.ts`）相同。 */
+function contributionRefused(): Promise<never> {
+  return Promise.reject({ code: "community_contribution_unavailable" });
+}
+
+/**
+ * 社区投稿类功能（`HostCapabilities.community_contribution`）关着时的三个社区客户端：发布、发布前的打包预检、改分类和评分一律拒绝，举报整个不给（页面据此不画举报）；浏览、详情、获取、安装、收藏、导入和下架自己的作品照旧。
+ */
+function withoutCommunityContribution(clients: {
+  skins: CommunitySkinClient;
+  resources: CommunityResourceClient;
+  plugins: CommunityPluginClient;
+}): {
+  skins: CommunitySkinClient;
+  resources: CommunityResourceClient;
+  plugins: CommunityPluginClient;
+} {
+  return {
+    skins: {
+      ...clients.skins,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      setCategory: contributionRefused,
+      report: undefined,
+    },
+    resources: {
+      ...clients.resources,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      report: undefined,
+    },
+    plugins: {
+      ...clients.plugins,
+      packPreview: contributionRefused,
+      publish: contributionRefused,
+      rate: contributionRefused,
+      report: undefined,
+    },
+  };
+}
+
 /**
  * AI skin generation, which is the one request that reports before it answers.
  *
@@ -1056,12 +1196,19 @@ function pluginClient(native: NativeBridge): PluginClient {
   };
 }
 
-function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
+function localVoiceModelClient(
+  native: NativeBridge,
+  networkAllowed: boolean,
+): LocalVoiceModelClient {
   const request = <T,>(action: Record<string, unknown>, timeoutMs?: number): Promise<T> =>
     bridgeRequest(native, "voice_local_model", JSON.stringify(action), timeoutMs).then(unwrap<T>);
   return {
     list: () => request<LocalVoiceModelList>({ operation: "list" }),
-    install: (id) => request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000),
+    // 下载模型要联网，没有隐私政策的授权时不发请求，页面提示去「隐私」页同意；从文件导入照常可用。
+    install: (id) =>
+      networkAllowed
+        ? request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000)
+        : Promise.reject({ code: "privacy_consent_required" }),
     // 等用户在系统选择器里选文件，再复制和解压几百 MB，期限和下载一样放宽。
     import: (id) => request<string | null>({ operation: "import", id }, 6 * 60 * 60 * 1000),
     cancel: (id) => request<boolean>({ operation: "cancel", id }),
@@ -1078,7 +1225,7 @@ function localVoiceModelClient(native: NativeBridge): LocalVoiceModelClient {
 }
 
 /**
- * 云剪贴板面板的动作原样交给宿主，名字和字段与 Rust `msime_client_account_cloud_clipboard` 相同。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在 Rust 里经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号入口给的（例如 `clipboard_device_pending`）。
+ * 云剪贴板面板的动作原样交给宿主，名字和字段与 Rust `msime_client_account_cloud_clipboard` 相同；宿主按偏好把它交给水杉账号，或者经 `msime_client_relay_cloud_clipboard` 交给自建中继、WebDAV 网盘，两条路接受同样的动作、答同样形状的结果。列表、上传和 `devices`、`approve`、`reject`、`remove`、`reset` 在 Rust 里经端到端加密驱动，结果是驱动给的形状；错误以 `{code}` 抛出，码是驱动或账号入口给的（例如 `clipboard_device_pending`）。
  */
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   type Response = Awaited<ReturnType<CloudClipboardPanelClient["request"]>>;
@@ -1099,6 +1246,8 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
 }
 
 const CLOUD_CLIPBOARD_TIMEOUT_MS = 2 * 60 * 1000;
+/** 一次词库同步最多几十个请求、每个 30 秒超时，前面还可能等另一次同步放开文件锁（最多 2 分钟）。 */
+const DICTIONARY_SYNC_TIMEOUT_MS = 5 * 60 * 1000;
 
 type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files" | "apply";
 
@@ -1151,16 +1300,21 @@ function makeClient(
   native: NativeBridge,
   openCloudClipboard: () => void,
   openCloudDictionary: () => void,
+  /** 是否已同意隐私政策。没有同意时不给联网的 client，页面就不画对应入口。 */
+  networkAllowed: boolean,
 ): SettingsClient {
   const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
     unwrap<T>(native.dictionary(JSON.stringify(action)));
   const dictionary: DictionaryClient = {
-    updates: async (command, enabled) =>
-      dictionaryReply({
-        operation: "updates",
-        command,
-        ...(enabled === undefined ? {} : { enabled }),
-      }),
+    // 词库更新要联网（`automatic` 还会在设置打开时自动检查），没有授权时不给，词库页不显示更新那一块。
+    updates: networkAllowed
+      ? async (command, enabled) =>
+          dictionaryReply({
+            operation: "updates",
+            command,
+            ...(enabled === undefined ? {} : { enabled }),
+          })
+      : undefined,
     list: async (offset: number, limit: number, kind?: LocalDictionaryKind, query?: string) =>
       dictionaryReply<{ entries: DictionaryEntry[]; has_more: boolean }>({
         operation: "list",
@@ -1313,7 +1467,7 @@ function makeClient(
         return () => window.removeEventListener("msime-statistics-active", listener);
       },
     },
-    cloudUpload: typingStatisticsUploadClient(native),
+    cloudUpload: networkAllowed ? typingStatisticsUploadClient(native) : undefined,
     load: async () =>
       unwrap<TypingStatisticsStatus>(
         native.typingStatistics(JSON.stringify({ operation: "load" })),
@@ -1355,12 +1509,12 @@ function makeClient(
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "load" })),
       ),
-    answer: async (word: string, known: boolean) =>
+    answer: async (wordbook: string, word: string, known: boolean) =>
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(
           native,
           "vocabulary_review",
-          JSON.stringify({ operation: "answer", word, known }),
+          JSON.stringify({ operation: "answer", wordbook, word, known }),
         ),
       ),
     setSettings: async (settings) =>
@@ -1405,6 +1559,21 @@ function makeClient(
   };
   // 只读一次：能力记录在应用运行期间不会变化，下面的反馈报告据此写明版本。
   const host = unwrap<HostCapabilities>(native.hostCapabilities());
+  // AI 生成类功能的总闸（`HostCapabilities.ai_generation`，鸿蒙版拿到资质之前为 false）：关着时不给页面 AI 对话、AI 皮肤和 AI 辅助的客户端，宿主的桥接也拒绝这些请求（`AiGenerationGate.ts`）。
+  const aiGeneration = host.ai_generation !== false;
+  // 社区投稿类功能的总闸（`HostCapabilities.community_contribution`，鸿蒙版在实名认证到位之前为 false）：关着时社区客户端的发布、评分、改分类和举报在页面一侧就拒绝，宿主的桥接也拒绝这些请求（`CommunityContributionGate.ts`）。
+  const communityContribution = host.community_contribution !== false;
+  const communityClients = networkAllowed
+    ? {
+        skins: communitySkinClient(native),
+        resources: communityResourceClient(native),
+        plugins: communityPluginClient(native),
+      }
+    : undefined;
+  const community =
+    communityClients && !communityContribution
+      ? withoutCommunityContribution(communityClients)
+      : communityClients;
   const setup = imeSetupClient(native);
   const oobe = oobeClient(native, setup);
   const chrome = hostChrome(native);
@@ -1440,6 +1609,8 @@ function makeClient(
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
     // shrinks to the few controls that have no capability behind them.
     host,
+    privacyConsent: privacyConsentClient(native, networkAllowed),
+    screenCaptureProtection: screenCaptureProtectionClient(native),
     load: async () => unwrap<Snapshot>(native.loadPreferences()),
     // The keyboard writes preferences from its toolbar and the two are separate processes, so the
     // host calls this when the settings window comes back to the front and the document has moved.
@@ -1486,19 +1657,21 @@ function makeClient(
     },
     readAppVersion: async () => native.appVersion(),
     readAppReleaseDate: async () => native.appReleaseDate(),
-    // GitHub 的发布列表由 Rust 在原生工作线程上读取和比较（`msime_client_update_check`），平台由 ArkTS 填入。
-    checkUpdate: async (request: UpdateCheckRequest) =>
-      unwrap<UpdateCheckResult>(
-        await bridgeRequest(
-          native,
-          "update_check",
-          JSON.stringify({
-            current_version: request.currentVersion,
-            ...(request.edition === undefined ? {} : { edition: request.edition }),
-            ...(request.arch === undefined ? {} : { arch: request.arch }),
-          }),
-        ),
-      ),
+    // GitHub 的发布列表由 Rust 在原生工作线程上读取和比较（`msime_client_update_check`），平台由 ArkTS 填入。没有隐私政策的授权时不给，「关于」页不显示检查更新。
+    checkUpdate: !networkAllowed
+      ? undefined
+      : async (request: UpdateCheckRequest) =>
+          unwrap<UpdateCheckResult>(
+            await bridgeRequest(
+              native,
+              "update_check",
+              JSON.stringify({
+                current_version: request.currentVersion,
+                ...(request.edition === undefined ? {} : { edition: request.edition }),
+                ...(request.arch === undefined ? {} : { arch: request.arch }),
+              }),
+            ),
+          ),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
     // 「制作皮肤」：宿主在工作线程上调用 `msime_client_candidate_skin_editor`，装进哪个目录由 ArkTS 一侧填，页面不指名路径。拒绝时带上清单没通过校验的原因。
     candidateSkinEditor: {
@@ -1589,8 +1762,9 @@ function makeClient(
     dictionaryCollections,
     typingStatistics,
     vocabularyReview,
-    aiAssistant,
-    testApiCredential,
+    // 拉模型列表、测试 AI 和凭据都要连用户配置的服务，没有授权时不给，配置本身照常可填。AI 测试另受 AI 生成门控（`aiGeneration`），两道门都开才给。
+    aiAssistant: networkAllowed && aiGeneration ? aiAssistant : undefined,
+    testApiCredential: networkAllowed ? testApiCredential : undefined,
     // Four surfaces the keyboard already honours. Each writes shared preferences and nothing else,
     // so opting in is all that was ever needed; without it the page saved nothing and the keyboard
     // went on reading defaults the user had no way to change.
@@ -1611,8 +1785,9 @@ function makeClient(
         ),
     },
     candidateEnglishGloss: true,
-    account: accountClient(native),
-    chat: chatClient(native),
+    // 账号和对话都要联网，没有隐私政策的授权时不给，「我的」页不画登录入口；对话另受 AI 生成门控，两道门都开才给。
+    account: networkAllowed ? accountClient(native) : undefined,
+    chat: networkAllowed && aiGeneration ? chatClient(native) : undefined,
     // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
     // three do not, and the page draws only what the host says it has.
     //
@@ -1643,17 +1818,53 @@ function makeClient(
     },
     appTheme: appThemeClient(native),
     chrome,
-    feedback,
-    communitySkins: communitySkinClient(native),
-    communityResources: communityResourceClient(native),
-    communityPlugins: communityPluginClient(native),
-    aiSkins: aiSkinClient(native),
-    localVoiceModels: localVoiceModelClient(native),
-    // The page is offered only on a 2in1, the form factor that plays packs and routes the / and @ modes; a phone hides it whatever the host supplies.
+    // 反馈、社区和 AI 皮肤都经水杉服务，没有授权时不给；AI 皮肤另受 AI 生成门控。
+    feedback: networkAllowed ? feedback : undefined,
+    communitySkins: community?.skins,
+    communityResources: community?.resources,
+    communityPlugins: community?.plugins,
+    aiSkins: networkAllowed && aiGeneration ? aiSkinClient(native) : undefined,
+    localVoiceModels: localVoiceModelClient(native, networkAllowed),
+    // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
     plugins: pluginClient(native),
-    openCloudClipboard: async () => openCloudClipboard(),
-    cloudClipboardRequest: cloudClipboardClient(native, () => undefined).request,
-    openCloudDictionary: async () => openCloudDictionary(),
+    openCloudClipboard: networkAllowed ? async () => openCloudClipboard() : undefined,
+    cloudClipboardRequest: networkAllowed
+      ? cloudClipboardClient(native, () => undefined).request
+      : undefined,
+    // 云剪贴板可以改走自建中继或 WebDAV 网盘：设置页、云剪贴板面板和键盘每个请求都先问 Rust 该走哪条路（`msime_client_cloud_clipboard_source`），配置了就只走它。都要联网，没有隐私政策的授权时「剪贴板」页不显示同步方式。
+    cloudClipboardRelay: networkAllowed,
+    // 保存 WebDAV 之前的「测试连接」由 Rust 跑（`msime_client_cloud_clipboard_webdav_probe`），大约二十个请求，每个都有自己 30 秒的读超时。
+    probeCloudClipboardWebDav: networkAllowed
+      ? async (draft) => {
+          unwrap<Record<string, never>>(
+            await bridgeRequest(
+              native,
+              "cloud_clipboard_webdav_probe",
+              JSON.stringify({
+                url: draft.url,
+                username: draft.username,
+                password: draft.password,
+              }),
+              CLOUD_CLIPBOARD_TIMEOUT_MS,
+            ),
+          );
+        }
+      : undefined,
+    // 「我的词条」经 WebDAV 网盘同步（`msime_client_dictionary_sync`）：动作原样交给设置应用的 ArkTS 桥，HostOptions 和本沙箱里的状态目录由宿主补上。除 `status` 外都可能联网，没有隐私政策的授权时词库页不显示「词库同步」，自动同步也不跑。
+    dictionarySync: networkAllowed
+      ? {
+          request: async (action) =>
+            unwrap<unknown>(
+              await bridgeRequest(
+                native,
+                "dictionary_sync",
+                JSON.stringify(action),
+                DICTIONARY_SYNC_TIMEOUT_MS,
+              ),
+            ),
+        }
+      : undefined,
+    openCloudDictionary: networkAllowed ? async () => openCloudDictionary() : undefined,
   };
 }
 
@@ -1748,7 +1959,8 @@ function HarmonyWelcomeFlow({
       wubiProfile={wubiProfile}
       savedEnglishGloss={savedEnglishGloss}
       setup={client.home?.setup}
-      signedIn={signedIn}
+      // 没有隐私政策的授权时没有账号入口，最后一步不提供「登录」。
+      signedIn={client.account ? signedIn : true}
       appTheme={appTheme}
       chrome={client.chrome}
       onComplete={onComplete}
@@ -1764,8 +1976,8 @@ function HarmonySettings({
 }: {
   native: NativeBridge;
   onboarding: boolean;
-  /** 键盘要求本窗口打开的页面，启动时从宿主读取。 */
-  linkedPage: string | undefined;
+  /** 键盘要求本窗口打开的页面（和页面里的子目标），启动时从宿主读取。 */
+  linkedPage: SettingsLink | undefined;
 }): ReactNode {
   // Setup is the one thing that has to happen before anything in the settings page can matter, so
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
@@ -1774,12 +1986,13 @@ function HarmonySettings({
   // 流程绘制所用的外观：首次启动用系统外观，重放时用用户自己的选择。
   const [flowTheme, setFlowTheme] = useState<FlowTheme>(SYSTEM_THEME);
   // 设置打开时所在的页面：键盘链接到的页面，或流程最后「登录」之后的「我的」，登录入口就在那里。
-  const [initialPage, setInitialPage] = useState<string | undefined>(linkedPage);
+  const [initialLink, setInitialLink] = useState<SettingsLink | undefined>(linkedPage);
   // 设置已打开时键盘请求的页面。新的 nonce 会导航过去并保留草稿；若改为按初始页面重新挂载，草稿就会丢失。
-  const [route, setRoute] = useState<{ page: string; nonce: number }>();
+  const [route, setRoute] = useState<{ page: string; target?: string; nonce: number }>();
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
+  const networkAllowed = usePrivacyConsent(native);
   // Each client is built once per bridge. SettingsPage and the cloud panels key their load and subscription effects on the client, so a fresh one on every render (opening a cloud panel re-renders this component) reloaded the page and threw away the unsaved draft. The callbacks only close over state setters, which React keeps stable.
   const client = useMemo(
     () =>
@@ -1790,8 +2003,9 @@ function HarmonySettings({
           setCloudDictionaryPage("main");
           setCloudDictionaryOpen(true);
         },
+        networkAllowed,
       ),
-    [native],
+    [native, networkAllowed],
   );
   // 设置应用打开和回到前台时各补传一次打字统计；没打开上传、没登录或十分钟内传过时宿主什么也不发，失败也不打扰用户。
   useEffect(() => {
@@ -1824,9 +2038,9 @@ function HarmonySettings({
   );
   // 欢迎流程显示期间，链接的页面等设置打开时再作为初始页；设置已打开时则直接导航过去。在这个监听器存在之前到达的请求现在取走。
   useEffect(() => {
-    const open = (page: string) => {
-      if (bootstrapRequired) setInitialPage(page);
-      else setRoute({ page, nonce: Date.now() });
+    const open = (link: SettingsLink) => {
+      if (bootstrapRequired) setInitialLink(link);
+      else setRoute({ ...link, nonce: Date.now() });
     };
     linkedPageListener = open;
     const queued = queuedLinkedPage;
@@ -1869,7 +2083,7 @@ function HarmonySettings({
         theme={flowTheme}
         onComplete={async (scheme, choices) => {
           await applyChoices(scheme, choices);
-          if (choices.openAccount) setInitialPage("account");
+          if (choices.openAccount) setInitialLink({ page: "account" });
           leaveFlow();
         }}
         onSkip={async (scheme, choices) => {
@@ -1885,12 +2099,13 @@ function HarmonySettings({
       <div className="contents" inert={cloudClipboardOpen || cloudDictionaryOpen}>
         <SettingsPage
           client={client}
-          initialPage={initialPage}
+          initialPage={initialLink?.page}
+          initialTarget={initialLink?.target}
           route={route}
           onReplayOnboarding={() => {
             setFlowTheme(savedFlowTheme(native));
             // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
-            setInitialPage(undefined);
+            setInitialLink(undefined);
             // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
             if (typeof native.onboardingStarted === "function") native.onboardingStarted();
             setBootstrapRequired(true);

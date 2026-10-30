@@ -27,10 +27,12 @@ getrandom = "0.4"
 time = { workspace = true, features = ["formatting"] }
 
 [dev-dependencies]
-# 端到端测试用真正的客户端驱动连这个中继。
-msime-client-services = { path = "../client-services" }
+# 端到端测试用真正的客户端驱动连这个中继。`test-support` 让 `tests/webdav_real_server.rs` 统计实际发出的 WebDAV 请求数，并在网盘上准备和清理测试目录。
+msime-client-services = { path = "../client-services", features = ["test-support"] }
+# 连接探测回归经真实 Host API 动作分发，不能绕过会改本机状态的入口。
+msime-host-api = { path = "../host-api" }
 tempfile.workspace = true
-# `tests/webdav_flow.rs` 让客户端的 WebDAV 后端对着一个真实的 WebDAV 服务端跑完整流程；只用内存文件系统。维护者同意作为测试依赖引入。放在这里而不是客户端的 crate，是因为这里已经有 axum 和 tokio 能把它跑起来。
+# `tests/webdav_flow.rs` 和 `tests/dictionary_webdav_flow.rs` 让客户端的云剪贴板和词库同步对着一个真实的 WebDAV 服务端跑完整流程；只用内存文件系统。维护者同意作为测试依赖引入。放在这里而不是客户端的 crate，是因为这里已经有 axum 和 tokio 能把它跑起来。
 dav-server = { version = "0.11", default-features = false, features = ["memfs"] }
 # 让 `dav-server` 一次只处理一个请求（它的 MOVE 是先查后改）。
 tokio = { workspace = true, features = ["sync"] }

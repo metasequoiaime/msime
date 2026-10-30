@@ -16,8 +16,6 @@ import android.widget.TextView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import androidx.annotation.Nullable;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
@@ -29,7 +27,6 @@ import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryRetentionPolicy;
 import app.msime.android.ClipboardHistoryStore;
-import app.msime.android.ClipboardModeStore;
 import app.msime.android.ClipboardSearchPolicy;
 import app.msime.android.ClipboardOperationAuthenticationPolicy;
 import app.msime.android.ScrollTopButtonPolicy;
@@ -64,6 +61,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     private boolean busy;
     @Nullable private GroupCard results;
     @Nullable private ImageView topButton;
+    @Nullable private SearchPill searchNavigation;
     private boolean authorized;
     @Nullable private BiometricPrompt authentication;
     private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
@@ -71,8 +69,33 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     /** 查询框里的文字放在 ViewModel 里：旋转、换深浅模式会重建 Activity，Fragment 换成新实例，字段会回到空串。 */
     public static final class Query extends ViewModel {
         String text = "";
-        /** 第一次显示时把焦点给查询框并拉起键盘；重建后不再拉。 */
-        boolean focused;
+    }
+
+    /** 搜索框和导出按钮固定在详情页滚动区之外，历史结果滚动时仍可直接操作。 */
+    @Override @Nullable protected View fixedNavigation() {
+        Context context = requireContext();
+        LinearLayout navigation = new LinearLayout(context);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        navigation.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        navigation.setMinimumHeight(DimensionPolicy.pixels(context, 56));
+        ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(context));
+        ViewPolicy.setSymmetricPaddingDp(context, navigation, 16, 4);
+        searchNavigation = new SearchPill(context);
+        searchNavigation.setHint("搜索剪贴板历史");
+        searchNavigation.field().setContentDescription("搜索剪贴板历史");
+        searchNavigation.field().setText(query == null ? "" : query.text);
+        searchNavigation.field().setSelection(searchNavigation.field().length());
+        searchNavigation.setOnQueryChange(text -> {
+            if (query != null) query.text = text;
+            renderResults();
+        });
+        navigation.addView(searchNavigation, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams exportParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        exportParams.setMarginStart(DimensionPolicy.pixels(context, 8));
+        navigation.addView(clipboardExport.button(), exportParams);
+        return navigation;
     }
 
     @Override public void onCreate(@Nullable Bundle saved) {
@@ -88,20 +111,9 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentReady() {
-        headerActions().addView(clipboardExport.button());
         LinearLayout target = contentColumn();
         if (target == null) return;
         Context context = target.getContext();
-        SearchPill search = new SearchPill(context);
-        search.setHint("搜索剪贴板历史");
-        search.field().setContentDescription("搜索剪贴板历史");
-        search.field().setText(query.text);
-        search.field().setSelection(search.field().length());
-        search.setOnQueryChange(text -> {
-            query.text = text;
-            renderResults();
-        });
-        target.addView(search, LayoutPolicy.matchWidthWrapParams());
 
         results = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         FrameLayout root = (FrameLayout) requireView();
@@ -118,14 +130,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         // 读取放在 onBecameVisible：每次显示都会调到它，这里再读一次就重复了。
         renderResults();
         requestAuthentication();
-
-        if (!query.focused) {
-            query.focused = true;
-            // 打开这一页就是要搜，不用再点一下搜索框。
-            search.field().requestFocus();
-            WindowCompat.getInsetsController(requireActivity().getWindow(), search.field())
-                .show(WindowInsetsCompat.Type.ime());
-        }
+        // 进页不把焦点给搜索框、也不弹键盘（#10074）：键盘会盖住下半屏的历史，多数时候用户是来翻列表找一条的。要搜时点搜索框，SearchPill 自己弹键盘。
     }
 
     @Override protected boolean shouldReloadOnContentReady() { return false; }
@@ -158,6 +163,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         authorized = false;
         pause.reset();
         results = null;
+        searchNavigation = null;
         topButton = null;
         clipboardExport.destroyed();
         // 视图没了，删除的回调就不会再交回来；不清掉的话这一页之后的操作全被挡住。
@@ -182,7 +188,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;
             boolean enabled = preferences.optBoolean("clipboard_history", false);
-            ClipboardHistoryStore store = new ClipboardHistoryStore(ClipboardModeStore.directory(context));
+            ClipboardHistoryStore store = ClipboardHistoryStore.forContext(context);
             if (ClipboardHistoryRetentionPolicy.clearsHistory(ClipboardHistoryRetentionPolicy.Source.LIVE, enabled)) {
                 store.clearQuietly();
                 return new Snapshot(false, List.of());
@@ -312,7 +318,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         String text = item.text();
         HostTask.run(this, context -> {
             ClipboardHistory.Item current = ClipboardSearchPolicy.currentEditItem(
-                new ClipboardHistoryStore(ClipboardModeStore.directory(context)).load(), text);
+                ClipboardHistoryStore.forContext(context).load(), text);
             return current == null ? null : ClipboardEditKey.editKey(context, current.timestamp(), current.text());
         }, (String key) -> {
             busy = false;
@@ -332,7 +338,7 @@ public final class ClipboardSearchPage extends ReloadingDetailPage {
         busy = true;
         String text = item.text();
         HostTask.run(this, context -> {
-            new ClipboardHistoryStore(ClipboardModeStore.directory(context)).remove(text);
+            ClipboardHistoryStore.forContext(context).remove(text);
             return Boolean.TRUE;
         }, done -> {
             busy = false;

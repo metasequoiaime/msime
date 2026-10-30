@@ -10,6 +10,7 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
@@ -35,6 +36,7 @@ import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.KeyHeatmapLayout;
+import app.msime.android.TouchKeyStyle;
 import app.msime.android.KeyPressIds;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.NumberPolicy;
@@ -75,7 +77,9 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     /** 一次读取的结果：统计文档（开关、保留期、逐日按键）和派生指标。两者都可能为 null。 */
-    private record Snapshot(@Nullable TypingStatisticsModel model, @Nullable TypingStatisticsSummary summary) {}
+    /** `layouts` 是按用户当前底行样式和数字行画的两套热力图布局（26 键、9 键）；偏好读不到时为 null，热力图画标准底行。 */
+    private record Snapshot(@Nullable TypingStatisticsModel model, @Nullable TypingStatisticsSummary summary,
+                            @Nullable List<List<List<KeyHeatmapLayout.Key>>> layouts) {}
 
     private Tab tab = Tab.OVERVIEW;
     @Nullable private TypingStatisticsModel statistics;
@@ -85,7 +89,11 @@ public final class StatisticsFragment extends HomeTabFragment {
     private boolean uploadBusy;
     /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
     @Nullable private Boolean nineKey;
+    /** 热力图的 26 键和 9 键布局，按用户当前的底行样式与数字行；还没读到偏好时是标准底行。 */
+    private List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts = List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE);
     private boolean authorized;
+    /** 最后一次处于已认证状态的时刻（{@link SystemClock#elapsedRealtime()}），跨页面实例共用，见 {@link StatisticsAuthenticationPolicy#withinCooldown}。 */
+    private static long lastAuthorizedMs;
     @Nullable private BiometricPrompt authentication;
     private final AuthenticationPauseTracker pause = new AuthenticationPauseTracker();
 
@@ -121,6 +129,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     @Override public void onDestroyView() {
         if (authentication != null) authentication.cancelAuthentication();
         authentication = null;
+        rememberAuthorized();
         authorized = false;
         pause.reset();
         super.onDestroyView();
@@ -136,6 +145,13 @@ public final class StatisticsFragment extends HomeTabFragment {
         KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
         if (keyguard == null) {
             MsToast.show(context, "无法读取系统认证状态，请稍后重试");
+            return;
+        }
+        // 刚认证过（含刚离开统计页或退到后台）时不再弹认证。
+        if (StatisticsAuthenticationPolicy.withinCooldown(lastAuthorizedMs, SystemClock.elapsedRealtime())) {
+            authorized = true;
+            rememberAuthorized();
+            reload();
             return;
         }
         // 未设置锁屏凭据时直接读统计；已配置认证的设备仍需认证成功，临时不可用不算未配置。
@@ -154,6 +170,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                 @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
                     authentication = null;
                     authorized = true;
+                    rememberAuthorized();
                     if (getView() != null) reload();
                     authenticationEnded(false);
                 }
@@ -200,7 +217,13 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     @Override public void onPause() {
         super.onPause();
+        rememberAuthorized();
         pause.paused(authentication != null);
+    }
+
+    /** 已认证时把冷却的起点挪到现在：看着统计离开或退到后台之后，冷却从离开时算起。 */
+    private void rememberAuthorized() {
+        if (authorized) lastAuthorizedMs = SystemClock.elapsedRealtime();
     }
 
     // 键盘在另一个进程里，这个页面不在眼前时它一直在记，所以每次重新可见都重新认证再读一次。例外是暂停时认证还开着：回来时是否重新认证由这次认证的结果决定，见 AuthenticationPauseTracker；认证成功的回调自己会读。
@@ -209,6 +232,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     private void reenter() {
+        rememberAuthorized();
         authorized = false;
         requestAuthentication();
     }
@@ -267,15 +291,32 @@ public final class StatisticsFragment extends HomeTabFragment {
     /** 工作线程上：读统计文档，取用户词条数，再取派生指标。 */
     private static Snapshot load(Context context) {
         TypingStatisticsModel model = HostStore.loadStatistics(context);
+        List<List<List<KeyHeatmapLayout.Key>>> layouts = heatmapLayouts(context);
         JSONObject action = new JSONObject();
         try {
             action.put("operation", "summary").put("day", LocalDate.now().toString());
             Long words = userWords(context);
             if (words != null) action.put("user_words", words.longValue());
         } catch (JSONException error) {
-            return new Snapshot(model, null);
+            return new Snapshot(model, null, layouts);
         }
-        return new Snapshot(model, TypingStatisticsSummary.from(HostStore.statisticsAction(context, action)));
+        return new Snapshot(model, TypingStatisticsSummary.from(HostStore.statisticsAction(context, action)), layouts);
+    }
+
+    /** 热力图跟着键盘画：读共享偏好里 26 键、九键的底行样式、顶部数字行、「符」与「123」互换和中/英在空格哪一边；读不到时返回 null。 */
+    @Nullable private static List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts(Context context) {
+        JSONObject snapshot = HostStore.loadPreferences(context);
+        JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+        if (preferences == null) return null;
+        TouchKeyStyle.Styles styles = TouchKeyStyle.Styles.parse(
+            JsonPolicy.strictString(preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)),
+            JsonPolicy.strictString(preferences.opt(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE)),
+            JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE)));
+        boolean languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
+        return List.of(KeyHeatmapLayout.soft(styles.twentySix(),
+                preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
+                preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false), languageLeft),
+            KeyHeatmapLayout.nine(styles.nine(), languageLeft));
     }
 
     /** 用户自己添加的词条数（徽章「造词者」）；词库读不到时返回 null，summary 按 0 计。 */
@@ -300,6 +341,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         if (snapshot != null) {
             if (snapshot.model() != null) statistics = snapshot.model();
             if (snapshot.summary() != null) summary = snapshot.summary();
+            if (snapshot.layouts() != null) heatmapLayouts = snapshot.layouts();
         }
         render();
     }
@@ -423,15 +465,17 @@ public final class StatisticsFragment extends HomeTabFragment {
             ViewGroup.LayoutParams.WRAP_CONTENT, DimensionPolicy.pixels(context, 32)));
         LinearLayout board = card(context, content, 12);
         KeyHeatmapView heatmap = new KeyHeatmapView(context);
+        List<List<List<KeyHeatmapLayout.Key>>> layouts = heatmapLayouts;
+        heatmap.setLayouts(layouts.get(0), layouts.get(1));
         heatmap.setNineKey(nine);
         heatmap.setKeys(presses);
         board.addView(heatmap, LayoutPolicy.matchWidthWrapParams());
         LinearLayout others = card(context, content, 16);
-        otherKeys(context, others, presses, nine);
+        otherKeys(context, others, presses, layouts.get(nine ? 1 : 0));
         layout.setOnSelect(index -> {
             nineKey = index == 1;
             heatmap.setNineKey(nineKey);
-            otherKeys(context, others, presses, nineKey);
+            otherKeys(context, others, presses, layouts.get(index == 1 ? 1 : 0));
         });
 
         Keys keys = value.keys();
@@ -476,9 +520,10 @@ public final class StatisticsFragment extends HomeTabFragment {
     /**
      * 热力图下的「其他键」卡：按过、但当前这套键盘图上没有位置的键（{@link KeyHeatmapLayout#others}），按次数从多到少，每行键名和次数，让每一次按键都能在页面上找到。没有这样的键时整张卡不显示；切换 26 键 / 9 键时重新列。
      */
-    private static void otherKeys(Context context, LinearLayout card, Map<String, Long> presses, boolean nine) {
+    private static void otherKeys(Context context, LinearLayout card, Map<String, Long> presses,
+            List<List<KeyHeatmapLayout.Key>> drawn) {
         card.removeAllViews();
-        List<String> ids = KeyHeatmapLayout.others(presses, nine);
+        List<String> ids = KeyHeatmapLayout.others(presses, drawn);
         ViewPolicy.setVisible(card, !ids.isEmpty());
         if (ids.isEmpty()) return;
         card.addView(ViewPolicy.label(context, "其他键", 15, ThemeColorPolicy.text(context)));

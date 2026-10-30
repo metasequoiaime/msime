@@ -2,52 +2,52 @@
   "by_syllables": {
     "3": {
       "cases": 103,
-      "found": 0.951,
-      "mrr": 0.369,
-      "top1": 0.194,
-      "top1_char_prefix": 0.369,
-      "top5": 0.728,
-      "top9": 0.874
+      "found": 0.99,
+      "mrr": 0.405,
+      "top1": 0.223,
+      "top1_char_prefix": 0.392,
+      "top5": 0.786,
+      "top9": 0.893
     }
   },
   "by_tag": {
     "particle": {
       "cases": 103,
-      "found": 0.951,
-      "mrr": 0.369,
-      "top1": 0.194,
-      "top1_char_prefix": 0.369,
-      "top5": 0.728,
-      "top9": 0.874
+      "found": 0.99,
+      "mrr": 0.405,
+      "top1": 0.223,
+      "top1_char_prefix": 0.392,
+      "top5": 0.786,
+      "top9": 0.893
     }
   },
   "cases": 103,
   "gold_source": {
     "database": 12,
-    "generated": 86
+    "generated": 90
   },
   "overall": {
     "cases": 103,
-    "found": 0.951,
-    "mrr": 0.369,
-    "top1": 0.194,
-    "top1_char_prefix": 0.369,
-    "top5": 0.728,
-    "top9": 0.874
+    "found": 0.99,
+    "mrr": 0.405,
+    "top1": 0.223,
+    "top1_char_prefix": 0.392,
+    "top5": 0.786,
+    "top9": 0.893
   },
   "sample_failures": [
     {
       "gold": "威望啊",
       "id": "p000",
       "input": "weiwanga",
-      "rank": 4,
-      "top1": "威亚米啊"
+      "rank": 5,
+      "top1": "威亚你啊"
     },
     {
       "gold": "标注呀",
       "id": "p001",
       "input": "biaozhuya",
-      "rank": 5,
+      "rank": 4,
       "top1": "此案蛀牙"
     },
     {
@@ -69,7 +69,7 @@
       "id": "p004",
       "input": "zhaiquanma",
       "rank": 4,
-      "top1": "一词全码"
+      "top1": "一次全马"
     },
     {
       "gold": "只会啦",
@@ -82,15 +82,15 @@
       "gold": "处理啊",
       "id": "p006",
       "input": "chulia",
-      "rank": 15,
-      "top1": "储量"
+      "rank": 14,
+      "top1": "出家"
     },
     {
       "gold": "新车呀",
       "id": "p007",
       "input": "xincheya",
-      "rank": 5,
-      "top1": "一马河崖"
+      "rank": 4,
+      "top1": "一马戈雅"
     },
     {
       "gold": "实现吗",
@@ -104,35 +104,42 @@
       "id": "p011",
       "input": "wenjianla",
       "rank": 4,
-      "top1": "文集安啦"
+      "top1": "文理安啦"
     },
     {
       "gold": "信息啊",
       "id": "p012",
       "input": "xinxia",
-      "rank": 28,
-      "top1": "印章"
+      "rank": 33,
+      "top1": "心下"
     },
     {
       "gold": "轿车呀",
       "id": "p013",
       "input": "jiaocheya",
-      "rank": 2,
-      "top1": "轿车哇"
+      "rank": 12,
+      "top1": "练车呀"
     },
     {
       "gold": "欺诈吧",
       "id": "p014",
       "input": "qizhaba",
-      "rank": 4,
+      "rank": 7,
       "top1": "妻子吧啊"
     },
     {
       "gold": "登录吗",
       "id": "p016",
       "input": "dengluma",
-      "rank": 2,
+      "rank": 5,
       "top1": "登录码"
+    },
+    {
+      "gold": "签约啦",
+      "id": "p017",
+      "input": "qianyuela",
+      "rank": 4,
+      "top1": "善于饿啦"
     },
     {
       "gold": "精华啊",
@@ -166,7 +173,7 @@
       "gold": "文章呀",
       "id": "p025",
       "input": "wenzhangya",
-      "rank": 6,
+      "rank": 12,
       "top1": "蚊香蛙"
     },
     {
@@ -174,49 +181,35 @@
       "id": "p026",
       "input": "yongyouba",
       "rank": 4,
-      "top1": "我你又把"
-    },
-    {
-      "gold": "金钱呢",
-      "id": "p027",
-      "input": "jinqianne",
-      "rank": 4,
-      "top1": "金沙抹额"
+      "top1": "我你有把"
     },
     {
       "gold": "应用吗",
       "id": "p028",
       "input": "yingyongma",
-      "rank": 4,
-      "top1": "以你用那"
+      "rank": 12,
+      "top1": "悉尼我你妈"
     },
     {
       "gold": "招标啦",
       "id": "p029",
       "input": "zhaobiaola",
-      "rank": null,
-      "top1": "下马好啦"
-    },
-    {
-      "gold": "一下啊",
-      "id": "p030",
-      "input": "yixiaa",
-      "rank": 3,
-      "top1": "以一般"
+      "rank": 8,
+      "top1": "瞎吗好啦"
     },
     {
       "gold": "形成呀",
       "id": "p031",
       "input": "xingchengya",
-      "rank": 5,
-      "top1": "以你承压"
+      "rank": 6,
+      "top1": "行车你咋"
     },
     {
       "gold": "披露呢",
       "id": "p033",
       "input": "pilune",
       "rank": null,
-      "top1": "齐鲁呢"
+      "top1": "思路呢"
     },
     {
       "gold": "公司啦",
@@ -229,22 +222,29 @@
       "gold": "关系啊",
       "id": "p036",
       "input": "guanxia",
-      "rank": 8,
-      "top1": "管辖"
+      "rank": 7,
+      "top1": "换下"
     },
     {
       "gold": "项目吧",
       "id": "p038",
       "input": "xiangmuba",
-      "rank": 3,
+      "rank": 2,
       "top1": "项模板"
     },
     {
       "gold": "点击呢",
       "id": "p039",
       "input": "dianjine",
-      "rank": 5,
+      "rank": 2,
       "top1": "电离能"
+    },
+    {
+      "gold": "面包吗",
+      "id": "p040",
+      "input": "mianbaoma",
+      "rank": 48,
+      "top1": "年宝马"
     },
     {
       "gold": "工程啦",
@@ -257,22 +257,22 @@
       "gold": "判决啊",
       "id": "p042",
       "input": "panjuea",
-      "rank": null,
+      "rank": 2,
       "top1": "三巨大"
     },
     {
       "gold": "一定呀",
       "id": "p043",
       "input": "yidingya",
-      "rank": 9,
+      "rank": 8,
       "top1": "一定要"
     },
     {
       "gold": "方式吧",
       "id": "p044",
       "input": "fangshiba",
-      "rank": 6,
-      "top1": "大米是吧"
+      "rank": 5,
+      "top1": "大米十八"
     },
     {
       "gold": "孩子呢",
@@ -300,21 +300,21 @@
       "id": "p048",
       "input": "ziyuana",
       "rank": 17,
-      "top1": "资源部"
+      "top1": "资源班"
     },
     {
       "gold": "基本吧",
       "id": "p050",
       "input": "jibenba",
-      "rank": 4,
-      "top1": "计策哪啊"
+      "rank": 2,
+      "top1": "基本把"
     },
     {
       "gold": "自己吗",
       "id": "p052",
       "input": "zijima",
-      "rank": 3,
-      "top1": "紫禁城"
+      "rank": 2,
+      "top1": "自己拿"
     }
   ],
   "top1_source": {

@@ -7,7 +7,8 @@ use crate::edition::{
 };
 use crate::preferences::{
     BracketStyle, FrequencyMode, InputScheme, NumberKeypadOrder, QuoteStyle, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardSkinDesign, TwentySixKeyNumberLayout, WubiProfile,
+    TouchFourteenKeyStyle, TouchKeyboardLayout, TouchKeyboardSkinDesign, TouchNineKeyStyle,
+    TouchTwentySixKeyStyle, TwentySixKeyNumberLayout, WubiProfile,
 };
 
 fn schema_for(fields: &[(&str, &str)]) -> AccountPreferenceSchema {
@@ -151,11 +152,17 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
         values[HARMONY_FEEDBACK_KEYS[0]],
         AccountPreferenceValue::Boolean(true)
     );
-    // 鸿蒙和 Android 是两台设备，各有键盘：从不写别的平台的键，也不写只有 Android 才有的那些。
+    // 鸿蒙和 Android 是两台设备，各有键盘：从不写别的平台的键，也不写只有 Android 才有的那些。不带平台前缀的只有共享设置页在鸿蒙上能改的共享偏好。
+    const SHARED: [&str; 4] = [
+        "local_modes.symbol",
+        "local_modes.date_time_menu",
+        "second_third_candidate.enabled",
+        "second_third_candidate.keys",
+    ];
     assert!(
-        values
-            .keys()
-            .all(|key| key.starts_with("input.") || key.starts_with("platform.harmony.")),
+        values.keys().all(|key| key.starts_with("input.")
+            || key.starts_with("platform.harmony.")
+            || SHARED.contains(&key.as_str())),
         "{values:?}"
     );
     let platform: Vec<&str> = values
@@ -169,19 +176,31 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "custom_candidate_skin_dark",
             "custom_keyboard_skin",
             "custom_theme_base",
+            "fourteen_key_style",
             "global_theme",
             "haptic_strength",
             "haptics_enabled",
             "keyboard_height_adjustment",
             "keyboard_layout",
+            "language_key_side",
+            "nine_key_digit_symbols",
+            "nine_key_style",
+            "nine_key_swipe",
+            "nine_key_symbols",
             "number_keypad_order",
+            "number_pad_space",
+            "number_row",
+            "one_handed_side_panel",
             "quanpin_shift",
             "shuangpin_key_hints",
             "sound_enabled",
+            "split_keyboard",
             "theme",
             "touch_key_spacing_tenths",
             "touch_row_spacing_tenths",
             "twenty_six_key_number_layout",
+            "twenty_six_key_style",
+            "twenty_six_symbol_first",
             "voice_shortcut",
         ]
     );
@@ -582,6 +601,18 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
             string("grid"),
         ),
         ("platform.harmony.theme", string("sepia")),
+        (
+            "platform.harmony.twenty_six_key_style",
+            string("split_space"),
+        ),
+        (
+            "platform.harmony.fourteen_key_style",
+            string("comma_period"),
+        ),
+        ("platform.harmony.nine_key_style", string("long_space")),
+        ("platform.harmony.number_pad_space", string("space_in_grid")),
+        ("platform.harmony.language_key_side", string("before_space")),
+        ("platform.harmony.nine_key_swipe", string("both_ways")),
         (HARMONY_KEYBOARD_LAYOUT, string("future_layout")),
         (HARMONY_FEEDBACK_KEYS[2], string("loud")),
         (
@@ -1042,6 +1073,17 @@ fn every_exported_key_round_trips() {
         touch_number_keypad_order: NumberKeypadOrder::Calculator,
         touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::NineKey,
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
+        touch_twenty_six_key_style: TouchTwentySixKeyStyle::Emoji,
+        touch_fourteen_key_style: TouchFourteenKeyStyle::LongSpace,
+        touch_nine_key_style: TouchNineKeyStyle::Emoji,
+        touch_number_row: !Preferences::default().touch_number_row,
+        touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
+        touch_number_pad_space: crate::preferences::TouchNumberPadSpace::AfterZero,
+        touch_nine_key_sidebar_symbols: vec!["，".into(), "……".into(), ":-)".into()],
+        touch_nine_key_digit_sidebar_symbols: vec!["+".into(), "（）".into()],
+        touch_one_handed_side_panel: crate::preferences::TouchOneHandedSidePanel::NumberPad,
+        touch_language_key_side: crate::preferences::TouchLanguageKeySide::Left,
+        touch_nine_key_swipe_digits: crate::preferences::TouchNineKeySwipeDigits::Down,
         global_theme: GlobalTheme::Custom,
         ..Preferences::default()
     };
@@ -1072,4 +1114,169 @@ fn every_exported_key_round_trips() {
     assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
     assert_eq!(applied.preferences, local);
     assert_eq!(applied.feedback, Some(host));
+}
+
+/// 分离式键盘的主开关与 Android 的 `platform.android.split_keyboard` 一样同步，放在鸿蒙自己的键下；启用宽度、中间空隙和竖屏选项只留本机，不导出也不应用。
+#[test]
+fn split_keyboard_switch_syncs_under_the_harmony_key_and_its_bounds_stay_local() {
+    let remote = Preferences {
+        touch_keyboard_split: true,
+        touch_keyboard_split_threshold: 720,
+        touch_keyboard_split_gap: 35,
+        touch_keyboard_split_portrait: true,
+        ..Preferences::default()
+    };
+    let settings = exported(&remote);
+    assert_eq!(
+        settings["platform.harmony.split_keyboard"],
+        AccountPreferenceValue::Boolean(true)
+    );
+    assert_eq!(
+        exported(&Preferences::default())["platform.harmony.split_keyboard"],
+        AccountPreferenceValue::Boolean(false)
+    );
+    assert!(!settings.contains_key("platform.android.split_keyboard"));
+    assert!(settings.keys().all(|key| !key.contains("threshold")
+        && !key.contains("gap")
+        && !key.contains("portrait")));
+
+    let local = Preferences::default();
+    let applied = apply(
+        &local,
+        &[(
+            "platform.harmony.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert!(applied.preferences.touch_keyboard_split);
+    assert_eq!(applied.preferences.touch_keyboard_split_threshold, 600);
+    assert_eq!(applied.preferences.touch_keyboard_split_gap, 25);
+
+    // Android 的同名开关是另一台设备的选择，鸿蒙不读它。
+    let mut schema = full_schema();
+    schema.fields.insert(
+        "platform.android.split_keyboard".into(),
+        AccountPreferenceField {
+            value_type: "boolean".into(),
+        },
+    );
+    let applied = apply(
+        &local,
+        &[(
+            "platform.android.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &schema,
+    );
+    assert!(!applied.preferences.touch_keyboard_split);
+
+    // 字段表还没收录这个键时，应用不读它。
+    let mut schema = full_schema();
+    schema.fields.remove("platform.harmony.split_keyboard");
+    let applied = apply(
+        &local,
+        &[(
+            "platform.harmony.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &schema,
+    );
+    assert!(!applied.preferences.touch_keyboard_split);
+}
+
+/// 鸿蒙只导出共享设置页在它上面能改的两组新增共享偏好：符号模式、日期菜单和第二三候选；快捷短语混输、语法模型、AI 候选翻译、思考强度和桌面快捷键都不导出，应用时也不改本机。
+#[test]
+fn only_the_shared_settings_this_host_can_change_sync() {
+    let mut remote = Preferences::default();
+    remote.local_modes.symbol = !remote.local_modes.symbol;
+    remote.local_modes.date_time_menu = !remote.local_modes.date_time_menu;
+    remote.second_third_candidate.enabled = !remote.second_third_candidate.enabled;
+    remote.mixed_input.quick_phrase = !remote.mixed_input.quick_phrase;
+    remote.translation_ai = !remote.translation_ai;
+    remote.ai_assistant.thinking = "high".into();
+    let settings = exported(&remote);
+    assert_eq!(
+        settings["local_modes.symbol"],
+        AccountPreferenceValue::Boolean(remote.local_modes.symbol)
+    );
+    assert_eq!(
+        settings["local_modes.date_time_menu"],
+        AccountPreferenceValue::Boolean(remote.local_modes.date_time_menu)
+    );
+    assert_eq!(
+        settings["second_third_candidate.enabled"],
+        AccountPreferenceValue::Boolean(remote.second_third_candidate.enabled)
+    );
+    assert_eq!(
+        settings["second_third_candidate.keys"],
+        string("semicolon_quote")
+    );
+    for key in [
+        "mixed_input.quick_phrase",
+        "mixed_input.quick_phrase_frequency",
+        "sentence_association.grammar_model",
+        "translation.ai",
+        "ai_assistant.thinking",
+        "voice_input.polish_thinking",
+        "keybindings.toggle_english_candidates",
+        "keybindings.toggle_full_width",
+        "keybindings.toggle_punctuation",
+    ] {
+        assert!(!settings.contains_key(key), "{key}");
+    }
+
+    let local = Preferences::default();
+    let mut schema = full_schema();
+    for key in ["mixed_input.quick_phrase", "translation.ai"] {
+        schema.fields.insert(
+            key.into(),
+            AccountPreferenceField {
+                value_type: "boolean".into(),
+            },
+        );
+    }
+    let applied = apply(
+        &local,
+        &[
+            ("local_modes.symbol", settings["local_modes.symbol"].clone()),
+            (
+                "local_modes.date_time_menu",
+                settings["local_modes.date_time_menu"].clone(),
+            ),
+            (
+                "second_third_candidate.enabled",
+                settings["second_third_candidate.enabled"].clone(),
+            ),
+            ("second_third_candidate.keys", string("semicolon_quote")),
+            (
+                "mixed_input.quick_phrase",
+                AccountPreferenceValue::Boolean(remote.mixed_input.quick_phrase),
+            ),
+            (
+                "translation.ai",
+                AccountPreferenceValue::Boolean(remote.translation_ai),
+            ),
+        ],
+        &schema,
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(
+        applied.preferences.local_modes.symbol,
+        remote.local_modes.symbol
+    );
+    assert_eq!(
+        applied.preferences.local_modes.date_time_menu,
+        remote.local_modes.date_time_menu
+    );
+    assert_eq!(
+        applied.preferences.second_third_candidate,
+        remote.second_third_candidate
+    );
+    assert_eq!(
+        applied.preferences.mixed_input.quick_phrase,
+        local.mixed_input.quick_phrase
+    );
+    assert_eq!(applied.preferences.translation_ai, local.translation_ai);
 }

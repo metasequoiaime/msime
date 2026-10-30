@@ -7,12 +7,14 @@ import window from '@ohos.window';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
 import { describeError } from '../keyboard/KeyboardLog';
-import { SettingsPageLink } from '../keyboard/SettingsPageLink';
+import { SettingsLinkRequest, SettingsPageLink } from '../keyboard/SettingsPageLink';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
+import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
 
 /**
  * The application the keyboard belongs to.
@@ -27,22 +29,22 @@ export default class EntryAbility extends UIAbility {
   static onActivated: (() => void) | undefined = undefined;
   /** 设置窗口退到后台时调用，设置页借它把改动立即发布给键盘。 */
   static onDeactivated: (() => void) | undefined = undefined;
-  /** 键盘请求过、设置页面还没取走的页面；设置页面加载完成后会取走它。 */
-  static pendingPage: string | null = null;
+  /** 键盘请求过、设置页面还没取走的页面（和它的子目标）；设置页面加载完成后会取走它。 */
+  static pendingPage: SettingsLinkRequest | null = null;
   /** 由设置页面在打开期间设置，让之后请求的页面能送达已经显示着的设置页面。 */
-  static onOpenPage: ((page: string) => void) | undefined = undefined;
+  static onOpenPage: ((link: SettingsLinkRequest) => void) | undefined = undefined;
 
   /**
    * 键盘请求的设置页面，没有则为 null。
    *
-   * 键盘通过在 want 里传 `page` 直接打开词库、反馈、关于、皮肤和屏幕键盘（长按工具栏按钮）。只接受 `SettingsPageLink.PAGES` 中的页面：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
+   * 键盘通过在 want 里传 `page` 直接打开词库、反馈、关于、皮肤和屏幕键盘（长按工具栏按钮），再带一个 `target` 直接打开那一页里的某一处（长按九键左侧符号栏：「按键布局」里那张表的编辑页）。只接受 `SettingsPageLink.PAGES` 中的页面和 `SettingsPageLink.targets(page)` 中的子目标：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
    */
-  private static linkedPage(want: Want): string | null {
+  private static linkedPage(want: Want): SettingsLinkRequest | null {
     const parameters: Record<string, Object> | undefined = want.parameters;
     if (parameters === undefined) {
       return null;
     }
-    return SettingsPageLink.fromParameter(parameters['page']);
+    return SettingsPageLink.fromParameters(parameters['page'], parameters['target']);
   }
 
   private microphoneRequested: boolean = false;
@@ -65,6 +67,8 @@ export default class EntryAbility extends UIAbility {
     KeyboardLog.info('app created');
     this.microphoneRequested = want.parameters?.['requestMicrophone'] === true;
     EntryAbility.pendingPage = EntryAbility.linkedPage(want);
+    // 先读隐私政策的授权：下面的使用统计发送和匿名账号注册都要联网，没同意之前它们各自等着，同意弹窗由设置页面在显示时打开。
+    HarmonyPrivacyConsent.load(`${this.context.filesDir}/state`);
     // Sends what usage reporting has queued (and today's active) when the switch is on; the keyboard owns the sessions.
     HarmonyTelemetry.applicationStarted(`${this.context.filesDir}/state`);
     // 键盘经共享沙箱发布的会话要在本进程第一个认证请求之前采用过来（迁移差异 M2），所以进程一创建就占住会话镜像的队列；设置页、反馈、匿名注册的请求都排在它后面。
@@ -75,7 +79,7 @@ export default class EntryAbility extends UIAbility {
         return status.available ? new SharedStateMirror(status.directory, files) : null;
       });
     AccountSessionAdoption.adoptOnStart(mirror, `${files}/state`, 'keyboard', (): boolean => true);
-    // 本机匿名账号在第一次启动时注册，而不是等到第一个要用它的功能；会话存下以后这里只读一次文件。失败时下一次启动或键盘启动再试。
+    // 本机匿名账号在同意隐私政策之后马上注册（首次启动时同意就是首次启动），而不是等到第一个要用它的功能；会话存下以后这里只读一次文件。没同意就不注册；失败时下一次启动或键盘启动再试。
     HarmonyAccountIdentity.ensureAnonymous(`${files}/state`);
   }
 
@@ -86,16 +90,16 @@ export default class EntryAbility extends UIAbility {
    */
   onNewWant(want: Want, launch: AbilityConstant.LaunchParam): void {
     if (want.parameters?.['requestMicrophone'] === true) this.requestMicrophone();
-    const page: string | null = EntryAbility.linkedPage(want);
-    if (page === null) {
+    const link: SettingsLinkRequest | null = EntryAbility.linkedPage(want);
+    if (link === null) {
       return;
     }
-    const open: ((page: string) => void) | undefined = EntryAbility.onOpenPage;
+    const open: ((link: SettingsLinkRequest) => void) | undefined = EntryAbility.onOpenPage;
     if (open === undefined) {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       return;
     }
-    open(page);
+    open(link);
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
@@ -114,6 +118,14 @@ export default class EntryAbility extends UIAbility {
       });
     } catch (error) {
       KeyboardLog.error(`window stage events unavailable: ${describeError(error)}`);
+    }
+    // 「防止截屏」开着时，在页面载入之前给主窗口设上隐私模式，第一帧就截不到；之后的切换由设置页写入时当场更新（`SettingsBridge.screenCaptureProtectionSettings`）。
+    try {
+      if (ScreenCaptureProtection.load(`${this.context.filesDir}/state`).enabled) {
+        ScreenCaptureProtection.protectWindow(stage.getMainWindowSync(), true);
+      }
+    } catch (error) {
+      KeyboardLog.error(`main window unavailable for privacy mode: ${describeError(error)}`);
     }
     // An AsyncCallback is handed a BusinessError whether it succeeded or not, and on success that
     // object carries code 0. Testing the object itself reported a failure on every successful load,

@@ -5,21 +5,32 @@ import app.msime.android.TranslationServiceSettingsPolicy.Choice;
 public final class TranslationServiceSettingsPolicySmoke {
     public static void main(String[] args) {
         // 共享偏好的默认值：腾讯启用但没有凭据，页面显示「不使用」，而不是一个用户没选过的腾讯。
-        check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "", "") == Choice.NONE,
+        check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "", "", false) == Choice.NONE,
             "default preferences show 不使用");
-        check(TranslationServiceSettingsPolicy.selected(true, false, false, true, "", "") == Choice.ACCOUNT,
+        check(TranslationServiceSettingsPolicy.selected(true, false, false, true, "", "", false) == Choice.ACCOUNT,
             "an explicit account choice shows 水杉账号");
-        check(TranslationServiceSettingsPolicy.selected(true, true, false, true, "", "") == Choice.NIUTRANS,
+        check(TranslationServiceSettingsPolicy.selected(true, true, false, true, "", "", false) == Choice.NIUTRANS,
             "an enabled NiuTrans shows even with incomplete credentials");
-        check(TranslationServiceSettingsPolicy.selected(false, false, true, false, "", "") == Choice.CUSTOM,
+        check(TranslationServiceSettingsPolicy.selected(false, false, true, false, "", "", false) == Choice.CUSTOM,
             "an enabled custom service shows even without an endpoint");
-        check(TranslationServiceSettingsPolicy.selected(true, false, false, true, "AKIDsynthetic", "synthetic")
+        check(TranslationServiceSettingsPolicy.selected(true, false, false, true, "AKIDsynthetic", "synthetic", false)
                 == Choice.TENCENT, "usable Tencent credentials show 腾讯云机器翻译");
-        check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "<SecretId>", "synthetic")
+        check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "<SecretId>", "synthetic", false)
                 == Choice.NONE, "a Tencent placeholder is not a choice");
 
-        check(Choice.NONE.testService() == null && Choice.ACCOUNT.testService() == null,
-            "neither 不使用 nor 水杉账号 has a connection test");
+        // AI 辅助（`translation_ai`）排在水杉账号之后；腾讯启用而没有凭据时共享层先选中腾讯、键盘什么都不发，页面显示「不使用」。
+        check(TranslationServiceSettingsPolicy.selected(false, false, false, false, "", "", true) == Choice.AI,
+            "an explicit AI choice shows AI 辅助");
+        check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "", "", true) == Choice.NONE,
+            "AI behind an enabled Tencent without credentials shows 不使用, as the keyboard sends nothing");
+        check(TranslationServiceSettingsPolicy.selected(true, false, false, false, "", "", true) == Choice.ACCOUNT,
+            "the account wins over AI");
+        check(TranslationServiceSettingsPolicy.selected(false, true, false, false, "", "", true) == Choice.NIUTRANS,
+            "an enabled NiuTrans wins over AI");
+
+        check(Choice.NONE.testService() == null && Choice.ACCOUNT.testService() == null
+                && Choice.AI.testService() == null && !Choice.AI.userService(),
+            "neither 不使用, 水杉账号 nor AI 辅助 has a connection test of its own");
         check("translation.custom".equals(Choice.CUSTOM.testService())
                 && "translation.niutrans".equals(Choice.NIUTRANS.testService())
                 && "translation.tencent".equals(Choice.TENCENT.testService()),

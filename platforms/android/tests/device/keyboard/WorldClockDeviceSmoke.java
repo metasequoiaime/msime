@@ -19,7 +19,7 @@ import org.json.JSONObject;
 /** 在原生输入法内离线管理世界时钟，验证真实编辑器上屏和重启持久化。 */
 public final class WorldClockDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "offline world clock, city persistence, live updates, multiple insertion formats and long-press deletion";
+        return "offline world clock, country search, city persistence, live updates, multiple insertion formats and long-press deletion";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -45,8 +45,11 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
             addCity("亚洲", "日本", "Asia/Tokyo");
             awaitAny(described("东京时钟"));
             checkpoint("add New York offline through real city controls");
-            addCity("美洲", "美国", "America/New_York");
+            addCityBySearch("美洲", "美国", "America/New_York");
             awaitAny(described("纽约时钟"));
+            checkpoint("country search leaves the original editor empty");
+            await(field("msime-test-plain").and(node -> node.refresh() && (node.isShowingHintText()
+                    || node.getText() == null || node.getText().length() == 0)));
             if (read(cities).getJSONArray("cities").length() != 2) throw new AssertionError("City selection was not saved");
             checkpoint("world clock pixels");
             Bitmap screenshot = automation.takeScreenshot();
@@ -198,9 +201,39 @@ public final class WorldClockDeviceSmoke extends DeviceSmoke {
 
     private void addCity(String region, String country, String zone) throws Exception {
         tap(node -> equalsText("添加城市", node.getText()));
+        checkpoint("city picker: choose region " + region);
         tap(node -> equalsText(region, node.getText()));
+        checkpoint("city picker: choose country " + country);
         tap(node -> equalsText(country, node.getText()));
+        checkpoint("city picker: choose zone " + zone);
         tap(node -> node.getText() != null && node.getText().toString().contains(" · " + zone));
+        checkpoint("city picker: return to original editor clock");
+        awaitAny(described("系统时间时钟"));
+    }
+
+    private void addCityBySearch(String region, String country, String zone) throws Exception {
+        tap(node -> equalsText("添加城市", node.getText()));
+        tap(node -> equalsText(region, node.getText()));
+        tap(described("按国家名称搜索"));
+        checkpoint("country search accepts the real soft keyboard");
+        awaitAny(keyboardLetter());
+        for (char letter : "meiguo".toCharArray()) {
+            checkpoint("country search: type " + letter);
+            tap(key(String.valueOf(letter)));
+        }
+        checkpoint("country search: commit candidate");
+        tap(key("空格"));
+        checkpoint("country search: query committed");
+        awaitAny(described("按国家名称搜索").and(node -> node.refresh() && node.isVisibleToUser()
+                && equalsText(country, node.getText())));
+        checkpoint("country search: apply query");
+        tap(node -> equalsText("搜索", node.getText()));
+        checkpoint("country search: choose matching country");
+        // 搜索框与结果按钮同为国家名称，只点击真实的国家结果，避免重新聚焦搜索框。
+        tap(node -> equalsText(country, node.getText()) && equalsText("android.widget.Button", node.getClassName()));
+        checkpoint("country search: choose city");
+        tap(node -> node.getText() != null && node.getText().toString().contains(" · " + zone));
+        checkpoint("country search: return to original editor clock");
         awaitAny(described("系统时间时钟"));
     }
 

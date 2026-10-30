@@ -33,6 +33,10 @@ final class VoiceSessionService: ObservableObject {
   /// `current` 上一次随通知发出的时刻；心跳只刷新时间，不算发出。
   private var publishedAt = Date.distantPast
   private var dictation: (id: UUID, task: Task<Void, Never>, limit: Task<Void, Never>)?
+  /// 听写中定时把麦克风电平报给键盘，听写结束就停。
+  private var levelTimer: Timer?
+  /// 上次报给键盘的电平；这次听写还没报过时为 nil。
+  private var publishedLevel: Float?
   private var doubaoGeneration: UInt64 = 0
 
   var isActive: Bool { engine != nil }
@@ -135,9 +139,11 @@ final class VoiceSessionService: ObservableObject {
     channel.write(state)
   }
 
+  /// `listening` 的状态带上最近报过的电平，实时文字的更新不会把键盘的光晕清零；其他阶段不带电平。
   private func publish(_ phase: VoiceSessionState.Phase, request: UUID?, text: String = "", message: String = "") {
     guard isActive, let expiresAt else { return }
     let state = VoiceSessionState(phase: phase, request: request, text: text, message: message,
+                                  level: phase == .listening ? publishedLevel : nil,
                                   heartbeat: Date(), expiresAt: expiresAt)
     current = state
     publishedAt = Date()
@@ -205,6 +211,7 @@ final class VoiceSessionService: ObservableObject {
     if settings.soundEnabled && settings.startSound { AudioServicesPlaySystemSound(1113) }
     extend()
     publish(.listening, request: id)
+    startLevelUpdates(id)
     let task = Task { [weak self] in
       guard let self else { return }
       await recognize(id: id, pcm: pcm, configuration: configuration, settings: settings)
@@ -224,6 +231,35 @@ final class VoiceSessionService: ObservableObject {
     dictation.limit.cancel()
     dictation.task.cancel()
     _ = tap.end()
+    stopLevelUpdates()
+  }
+
+  /// 每 `VoiceSessionChannel.levelInterval` 看一次 tap 记下的电平，变化够大才连同当前文字发给键盘。
+  private func startLevelUpdates(_ id: UUID) {
+    stopLevelUpdates()
+    levelTimer = Timer.scheduledTimer(withTimeInterval: VoiceSessionChannel.levelInterval, repeats: true) { [weak self] _ in
+      Task { @MainActor in self?.publishLevel(id) }
+    }
+  }
+
+  private func stopLevelUpdates() {
+    levelTimer?.invalidate()
+    levelTimer = nil
+    publishedLevel = nil
+  }
+
+  /// 只在这次听写还在录音（`listening`）时报；松开后进入识别，电平就不再写。
+  private func publishLevel(_ id: UUID) {
+    // 上一段听写的计时器在换成这一段之前排进来的回调，不能停掉这一段的。
+    guard dictation?.id == id else { return }
+    guard let current, current.phase == .listening, current.request == id else {
+      stopLevelUpdates()
+      return
+    }
+    let level = tap.level
+    guard VoiceSessionChannel.publishesLevel(level, after: publishedLevel) else { return }
+    publishedLevel = level
+    publish(.listening, request: id, text: current.text)
   }
 
   /// 识别一段听写，按语音设置里选的服务：本地模型（没有下载模型时退回系统语音识别）、系统语音识别、豆包边说边识别，其他服务在说完后上传整段录音。
@@ -295,6 +331,7 @@ final class VoiceSessionService: ObservableObject {
     dictation.limit.cancel()
     self.dictation = nil
     _ = tap.end()
+    stopLevelUpdates()
     extend()
   }
 
@@ -328,9 +365,9 @@ final class VoiceSessionService: ObservableObject {
   private nonisolated static func tapBlock(converter: AVAudioConverter, target: AVAudioFormat,
                                            tap: VoiceSessionTap) -> AVAudioNodeTapBlock {
     { buffer, _ in
-      // 没在听写时连转换都不做。
+      // 没在听写时连转换都不做；电平也在这里算，主线程只取最近的一个。
       guard tap.isListening, let pcm = VoiceRecorder.pcm16(buffer, converter: converter, target: target) else { return }
-      tap.append(pcm)
+      tap.append(pcm, level: VoiceLevel.normalized(decibels: VoiceLevel.decibels(pcm16: pcm)))
     }
   }
 }
@@ -342,11 +379,19 @@ private final class VoiceSessionTap: @unchecked Sendable {
   private let lock = NSLock()
   private var continuation: AsyncStream<Data>.Continuation?
   private var pcm = Data()
+  private var latestLevel: Float = 0
 
   var isListening: Bool {
     lock.lock()
     defer { lock.unlock() }
     return continuation != nil
+  }
+
+  /// 最近一块音频的麦克风电平（0…1）；没在听写时为 0。
+  var level: Float {
+    lock.lock()
+    defer { lock.unlock() }
+    return latestLevel
   }
 
   /// 这段听写到目前为止录到的音频；结束后保留到下一段开始。
@@ -362,14 +407,17 @@ private final class VoiceSessionTap: @unchecked Sendable {
     self.continuation?.finish()
     self.continuation = continuation
     pcm = Data()
+    latestLevel = 0
     lock.unlock()
     return stream
   }
 
-  func append(_ chunk: Data) {
+  func append(_ chunk: Data, level: Float) {
     lock.lock()
     defer { lock.unlock() }
-    guard let continuation, pcm.count + chunk.count <= Self.limit else { return }
+    guard let continuation else { return }
+    latestLevel = level
+    guard pcm.count + chunk.count <= Self.limit else { return }
     pcm.append(chunk)
     continuation.yield(chunk)
   }
@@ -380,6 +428,7 @@ private final class VoiceSessionTap: @unchecked Sendable {
     lock.lock()
     let continuation = continuation
     self.continuation = nil
+    latestLevel = 0
     lock.unlock()
     continuation?.finish()
     return continuation != nil

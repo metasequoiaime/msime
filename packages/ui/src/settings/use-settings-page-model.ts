@@ -7,13 +7,13 @@ import { useSettingsNavigation } from "./use-settings-navigation";
 import { useSettingsPageRouting } from "./use-settings-page-routing";
 import type { SettingsPageId } from "./settings-page-registry";
 import { settingsPageProjections } from "./settings-page-projections";
-import { mobileHiddenPageIds, settingsPageModelVisibility } from "./settings-page-model-visibility";
+import { mobileHiddenPages, settingsPageModelVisibility } from "./settings-page-model-visibility";
 import { settingsInputPreferences } from "./settings-input-preferences";
 import { aiSettingsPreferences } from "./ai-settings-preferences";
 import { diagnosticLogPreferences } from "./diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./clipboard-history-preferences";
 import { useSettingsThemePreviews } from "./use-settings-theme-previews";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { settingsPlatformPresentation } from "./settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings-page-environment";
 import { schemeTitle } from "./label-helpers";
@@ -58,18 +58,36 @@ import { describeInstallerTrust, updateChannelOf } from "./update-manifest";
 import { editionUsesHelpcode } from "./input-scheme-options";
 import { useSettingsIntroTabs } from "./use-settings-intro-tabs";
 import { useAutomaticDictionaryUpdates } from "./use-automatic-dictionary-updates";
+import {
+  createDictionaryLocalChanges,
+  useDictionarySync,
+  withDictionaryChangeNotices,
+} from "./use-dictionary-sync";
 
 export type SettingsPageProps = {
   client: SettingsClient;
   /** 页面首次挂载时读取的初始设置页。 */
   initialPage?: string;
-  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿。 */
-  route?: { page: string; nonce: number };
+  /** 和 `initialPage` 一起读取的、那一页里要直接打开的一处（见 `SettingsLinkTarget`）。 */
+  initialTarget?: string;
+  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿，`target` 是那一页里要直接打开的一处。 */
+  route?: { page: string; target?: string; nonce: number };
   onReplayOnboarding?: () => void;
 };
 
 /** 设置窗口的状态、副作用和处理器；外壳与各设置页面消费同一份模型。 */
-export function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
+export function useSettingsPageModel({
+  client: hostClient,
+  initialPage,
+  initialTarget,
+  route,
+}: SettingsPageProps) {
+  // 宿主提供词库同步时，经设置改了词就记一次本机改动；各页拿到的都是这一份客户端。
+  const dictionaryLocalChanges = useMemo(createDictionaryLocalChanges, []);
+  const client = useMemo(
+    () => withDictionaryChangeNotices(hostClient, dictionaryLocalChanges.notify),
+    [hostClient, dictionaryLocalChanges],
+  );
   const { introTabs, selectIntroTab } = useSettingsIntroTabs();
   useAutomaticDictionaryUpdates(client);
   const { confirm, confirmation } = useConfirm();
@@ -112,6 +130,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showShuangpinKeymapHint,
     showCharacterWidth,
     aiProviderCredentials,
+    showAiGeneration,
+    showCommunityContribution,
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
@@ -149,9 +169,11 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
     showUpdateChannel,
   } = capabilities;
+  const mobileHiddenPageIds = mobileHiddenPages(showTouchPluginPacks);
   const {
     fullwidthChord,
     releasesPageUrl: platformReleasesPageUrl,
@@ -270,6 +292,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     setDictionaryFormat,
     phraseListRef,
     loadPhrases,
+    reloadPhrases,
     turnPhrasePage,
     removePhrase,
     savePhrase,
@@ -411,6 +434,13 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
 
   // 保存失败才会长时间留下未保存修改，重新读取前需要确认是否丢弃。
   const dirty = !!draft && !!snapshot && !deepEqual(draft, snapshot.preferences);
+  // 「我的词条」经网盘同步：跟着已保存（不是草稿）的网盘配置走，设置打开期间按 Rust 给的时间自动同步。
+  const dictionarySync = useDictionarySync({
+    client,
+    saved: snapshot?.preferences.dictionary_sync_webdav,
+    localChanges: dictionaryLocalChanges,
+    onWordsApplied: reloadPhrases,
+  });
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,
     providerCredentials,
@@ -431,7 +461,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     fetchModels: fetchAiModels,
     test: testAi,
   } = useAiAssistant({
-    client: client.aiAssistant,
+    // 不提供 AI 生成类功能的宿主连模型列表和润色测试也不发。
+    client: showAiGeneration ? client.aiAssistant : undefined,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
     credentialGeneration: aiCredentialGeneration,
@@ -497,6 +528,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     linux: linuxPlatform,
     windows: windowsPlatform,
     harmony: harmonyPlatform,
+    aiGeneration: showAiGeneration,
     candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
     onDeviceDownloadable,
     onChange: onTranslationChange,
@@ -594,20 +626,25 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     hasHomePage,
     hasTypingStatistics: Boolean(client.typingStatistics),
     hasVocabularyReview: Boolean(client.vocabularyReview),
-    hasAccount: Boolean(client.account || client.appIcon),
-    hasChat: Boolean(client.chat),
+    // 鸿蒙手机拒绝隐私授权后不给账号客户端，但授权弹窗、键盘和联网失败的提示都让用户去「我的 › 隐私」重新同意，所以触屏宿主有授权客户端时「我的」照常存在。2in1 的授权在「关于 › 法律信息」里，不因此多出账号页。
+    hasAccount: Boolean(
+      client.account || client.appIcon || (mobilePlatform && client.privacyConsent),
+    ),
+    // AI 对话和「AI 辅助」页都归 AI 生成类功能的总闸（`showAiGeneration`）：HarmonyOS 在拿到资质之前两页都没有。
+    hasChat: Boolean(client.chat) && showAiGeneration,
+    hasAi: showAiGeneration,
     hasCommunity: Boolean(client.communitySkins || client.communityResources),
     showFloatingToolbar,
     showDeveloperPage,
-    // 宿主有资源包商店，或能播放、路由本页开关控制的功能。
-    hasPlugins:
-      !mobilePlatform &&
-      (Boolean(client.plugins) ||
+    // 宿主有资源包商店，或能播放、路由本页开关控制的功能。触屏设置只在宿主报告 `touch_plugin_packs` 且有插件目录时给出：那里的插件页只管包，没有声音与效果。
+    hasPlugins: mobilePlatform
+      ? showTouchPluginPacks && Boolean(client.plugins)
+      : Boolean(client.plugins) ||
         Boolean(client.communityPlugins) ||
         showKeySound ||
         showMusic ||
         showPluginTriggers ||
-        showTypingEffects),
+        showTypingEffects,
     // full 不带版本信息，手写一直都在。
     hasHandwriting: client.host?.edition?.handwriting ?? true,
     // 桌面上的手写页只有一个打开按钮（HarmonyOS 2-in-1 是一段说明），并进屏幕键盘页；Windows 的原生设置窗口也并成了一页（`SettingsNavigation.h`）。触屏宿主的手写页另有内容，投影本身就不并。
@@ -620,6 +657,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
   const {
     mobileActiveTab,
     navigationPage,
+    linkTarget,
+    clearLinkTarget,
     selectPage,
     selectMobileTab,
     openAccountLogin,
@@ -633,6 +672,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     setPage,
     mobileLastPageByTab,
     route,
+    initialTarget,
     hasHomePage,
     setCommunityDestination,
     setAccountLoginReturnPage,
@@ -674,6 +714,7 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     introTabs,
     selectIntroTab,
     client,
+    dictionarySync,
     confirmation,
     confirm,
     linuxPlatform,
@@ -756,9 +797,12 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     showTypingEffectPacks,
     showEffectIntensity,
     showAiCandidateLimit,
+    showAiGeneration,
+    showCommunityContribution,
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showTouchPluginPacks,
     showScriptPlugins,
     showUpdateChannel,
     snapshot,
@@ -786,6 +830,8 @@ export function useSettingsPageModel({ client, initialPage, route }: SettingsPag
     dismissInputSourceStartup,
     page,
     requestedSettingsPage,
+    linkTarget,
+    clearLinkTarget,
     dictionaryTab,
     setDictionaryTab,
     aboutTab,

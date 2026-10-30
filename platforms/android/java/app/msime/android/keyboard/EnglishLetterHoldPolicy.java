@@ -25,7 +25,7 @@ public final class EnglishLetterHoldPolicy {
         if (letter < 'a' || letter > 'z') return List.of();
         List<String> choices = new ArrayList<>();
         choices.add(String.valueOf(Character.toUpperCase(letter)));
-        String hint = LetterHintTable.hint(String.valueOf(letter));
+        String hint = LetterHintTable.hint(String.valueOf(letter), true);
         if (hint != null) choices.add(hint);
         if (hint != null && hint.length() == 1 && hint.charAt(0) >= '0' && hint.charAt(0) <= '9') {
             int digit = hint.charAt(0) - '0';

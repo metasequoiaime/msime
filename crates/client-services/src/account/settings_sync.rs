@@ -13,8 +13,11 @@
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
-    BracketStyle, FrequencyMode, FrequencyPreferences, InputScheme, NumberKeypadOrder, Preferences,
-    QuoteStyle, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TraditionalVariant,
+    format_nine_key_sidebar_symbols, parse_nine_key_sidebar_symbols, BracketStyle, FrequencyMode,
+    FrequencyPreferences, GrammarModel, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
+    SecondThirdCandidateKeys, ShuangpinProfile, ThemeMode, TouchFourteenKeyStyle,
+    TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle, TouchNineKeySwipeDigits,
+    TouchNumberPadSpace, TouchOneHandedSidePanel, TouchTwentySixKeyStyle, TraditionalVariant,
     TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
@@ -37,6 +40,28 @@ const TWENTY_SIX_KEY_NUMBER_LAYOUT: &str = "platform.android.twenty_six_key_numb
 const SHUANGPIN_KEY_HINTS: &str = "platform.android.shuangpin_key_hints";
 /// 共享偏好 `touch_quanpin_shift`；账号字段表收录它之前上传时会被滤掉。
 const QUANPIN_SHIFT: &str = "platform.android.quanpin_shift";
+/// 共享偏好 `touch_twenty_six_key_style`；账号字段表收录它之前上传时会被滤掉。
+const TWENTY_SIX_KEY_STYLE: &str = "platform.android.twenty_six_key_style";
+/// 共享偏好 `touch_fourteen_key_style`；账号字段表收录它之前上传时会被滤掉。
+const FOURTEEN_KEY_STYLE: &str = "platform.android.fourteen_key_style";
+/// 共享偏好 `touch_nine_key_style`；账号字段表收录它之前上传时会被滤掉。
+const NINE_KEY_STYLE: &str = "platform.android.nine_key_style";
+/// 共享偏好 `touch_number_row`；账号字段表收录它之前上传时会被滤掉。Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
+const NUMBER_ROW: &str = "platform.android.number_row";
+/// 共享偏好 `touch_twenty_six_symbol_first`；账号字段表收录它之前上传时会被滤掉。
+const TWENTY_SIX_SYMBOL_FIRST: &str = "platform.android.twenty_six_symbol_first";
+/// 共享偏好 `touch_number_pad_space`；账号字段表收录它之前上传时会被滤掉。
+const NUMBER_PAD_SPACE: &str = "platform.android.number_pad_space";
+/// 共享偏好 `touch_nine_key_sidebar_symbols`，值是符号用一个空格连起来的写法，空串表示用本端出厂表；账号字段表收录它之前上传时会被滤掉。Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
+const NINE_KEY_SIDEBAR_SYMBOLS: &str = "platform.android.nine_key_symbols";
+/// 共享偏好 `touch_nine_key_digit_sidebar_symbols`，写法与 [`NINE_KEY_SIDEBAR_SYMBOLS`] 相同，本机同样有一个同名的旧键。
+const NINE_KEY_DIGIT_SIDEBAR_SYMBOLS: &str = "platform.android.nine_key_digit_symbols";
+/// 共享偏好 `touch_one_handed_side_panel`；账号字段表收录它之前上传时会被滤掉。
+const ONE_HANDED_SIDE_PANEL: &str = "platform.android.one_handed_side_panel";
+/// 共享偏好 `touch_language_key_side`；账号字段表收录它之前上传时会被滤掉。
+const LANGUAGE_KEY_SIDE: &str = "platform.android.language_key_side";
+/// 共享偏好 `touch_nine_key_swipe_digits`；账号字段表收录它之前上传时会被滤掉。与 [`NUMBER_ROW`] 一样，Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
+const NINE_KEY_SWIPE: &str = "platform.android.nine_key_swipe";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -64,6 +89,17 @@ pub(super) struct TouchHostKeys {
     pub(super) twenty_six_key_number_layout: &'static str,
     pub(super) shuangpin_key_hints: &'static str,
     pub(super) quanpin_shift: &'static str,
+    pub(super) twenty_six_key_style: &'static str,
+    pub(super) fourteen_key_style: &'static str,
+    pub(super) nine_key_style: &'static str,
+    pub(super) number_row: &'static str,
+    pub(super) twenty_six_symbol_first: &'static str,
+    pub(super) number_pad_space: &'static str,
+    pub(super) nine_key_sidebar_symbols: &'static str,
+    pub(super) nine_key_digit_sidebar_symbols: &'static str,
+    pub(super) one_handed_side_panel: &'static str,
+    pub(super) language_key_side: &'static str,
+    pub(super) nine_key_swipe_digits: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -86,6 +122,17 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     twenty_six_key_number_layout: TWENTY_SIX_KEY_NUMBER_LAYOUT,
     shuangpin_key_hints: SHUANGPIN_KEY_HINTS,
     quanpin_shift: QUANPIN_SHIFT,
+    twenty_six_key_style: TWENTY_SIX_KEY_STYLE,
+    fourteen_key_style: FOURTEEN_KEY_STYLE,
+    nine_key_style: NINE_KEY_STYLE,
+    number_row: NUMBER_ROW,
+    twenty_six_symbol_first: TWENTY_SIX_SYMBOL_FIRST,
+    number_pad_space: NUMBER_PAD_SPACE,
+    nine_key_sidebar_symbols: NINE_KEY_SIDEBAR_SYMBOLS,
+    nine_key_digit_sidebar_symbols: NINE_KEY_DIGIT_SIDEBAR_SYMBOLS,
+    one_handed_side_panel: ONE_HANDED_SIDE_PANEL,
+    language_key_side: LANGUAGE_KEY_SIDE,
+    nine_key_swipe_digits: NINE_KEY_SWIPE,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -465,7 +512,7 @@ pub fn export_android_settings(
     Ok(settings)
 }
 
-/// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
+/// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示、组字 Shift、底行样式与数字行，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
 pub(super) fn insert_touch_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
@@ -522,6 +569,58 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.quanpin_shift,
         preferences.touch_quanpin_shift,
+    );
+    insert_string(
+        settings,
+        keys.twenty_six_key_style,
+        preferences.touch_twenty_six_key_style.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.fourteen_key_style,
+        preferences.touch_fourteen_key_style.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.nine_key_style,
+        preferences.touch_nine_key_style.as_str(),
+    );
+    insert_bool(settings, keys.number_row, preferences.touch_number_row);
+    insert_bool(
+        settings,
+        keys.twenty_six_symbol_first,
+        preferences.touch_twenty_six_symbol_first,
+    );
+    insert_string(
+        settings,
+        keys.number_pad_space,
+        preferences.touch_number_pad_space.as_str(),
+    );
+    // 用出厂表时也导出（空串），云端才能被改回默认。
+    insert_string(
+        settings,
+        keys.nine_key_sidebar_symbols,
+        &format_nine_key_sidebar_symbols(&preferences.touch_nine_key_sidebar_symbols),
+    );
+    insert_string(
+        settings,
+        keys.nine_key_digit_sidebar_symbols,
+        &format_nine_key_sidebar_symbols(&preferences.touch_nine_key_digit_sidebar_symbols),
+    );
+    insert_string(
+        settings,
+        keys.one_handed_side_panel,
+        preferences.touch_one_handed_side_panel.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.language_key_side,
+        preferences.touch_language_key_side.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.nine_key_swipe_digits,
+        preferences.touch_nine_key_swipe_digits.as_str(),
     );
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
@@ -642,13 +741,116 @@ pub(super) fn insert_input_settings(
     );
 }
 
-/// 桌面宿主（Windows、Linux）导出成账号文档的键值：只有各平台共有的 `input.*` 键。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
+/// 共用 [`export_desktop_settings`] 和 [`apply_desktop_settings`] 的两个桌面宿主。它们共用各平台的 `input.*` 键，但设置页能改的共享偏好不一样，只有本机能改、运行时也读的键才导出和应用：上传是合并进账号文档的，本机改不了的键上传的只是默认值，会盖掉别的设备上用户的选择；应用本机没有开关的键，用户既看不到也改不回来。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DesktopHost {
+    /// 原生设置窗口只提供语法模型；快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译都没有开关。
+    Windows,
+    /// 共享设置页：快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译都能改，运行时都读。思考强度的两个选项页面上有，但 Linux 的服务提供程序固定不思考，不导出。
+    Linux,
+}
+
+impl DesktopHost {
+    /// client-services 在宿主本机编译：Windows 的 Server 与原生设置、Linux 的 IBus 与 Fcitx5 各自链接自己的一份。macOS 不走桌面导出（它上传 `platform.macos.*`），这里读作 Linux 不会被用到。
+    const CURRENT: Self = if cfg!(target_os = "windows") {
+        Self::Windows
+    } else {
+        Self::Linux
+    };
+}
+
+/// 桌面宿主（Windows、Linux）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
 pub fn export_desktop_settings(
+    preferences: &Preferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    export_desktop_settings_for(DesktopHost::CURRENT, preferences)
+}
+
+pub(super) fn export_desktop_settings_for(
+    host: DesktopHost,
     preferences: &Preferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_grammar_model(&mut settings, preferences);
+    if host == DesktopHost::Linux {
+        insert_quick_phrase_mixing(&mut settings, preferences);
+        insert_local_mode_extras(&mut settings, preferences);
+        insert_second_third_candidate(&mut settings, preferences);
+        insert_bool(&mut settings, "translation.ai", preferences.translation_ai);
+    }
     settings
+}
+
+/// 快捷短语混进普通候选和它的调频：只有声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）提供。
+fn insert_quick_phrase_mixing(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "mixed_input.quick_phrase",
+        preferences.mixed_input.quick_phrase,
+    );
+    insert_bool(
+        settings,
+        "mixed_input.quick_phrase_frequency",
+        preferences.mixed_input.quick_phrase_frequency,
+    );
+}
+
+/// 语法模型的选择。模型是按需下载的资源包，收到另一台设备选的模型而本机没装时，运行时照常不用语法模型，设置页显示该模型待下载。
+fn insert_grammar_model(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        "sentence_association.grammar_model",
+        match preferences.sentence_association.grammar_model {
+            GrammarModel::None => "none",
+            GrammarModel::Wanxiang => "wanxiang",
+            GrammarModel::BaguwenWord => "baguwen_word",
+            GrammarModel::BaguwenCompact => "baguwen_compact",
+            GrammarModel::Baishuang => "baishuang",
+        },
+    );
+}
+
+/// 符号模式（`S`）和日期时间候选里的「📅日期」入口：共享设置页的快捷模式列表（Linux、鸿蒙）提供，原生的 Windows、Android、iOS 设置没有。
+pub(super) fn insert_local_mode_extras(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "local_modes.symbol",
+        preferences.local_modes.symbol,
+    );
+    insert_bool(
+        settings,
+        "local_modes.date_time_menu",
+        preferences.local_modes.date_time_menu,
+    );
+}
+
+/// 分号、单引号选第二、第三个候选：共享设置页（Linux、鸿蒙）提供，Windows 原生设置有意不放。键位目前只有一种，随开关一起导出。
+pub(super) fn insert_second_third_candidate(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        "second_third_candidate.enabled",
+        preferences.second_third_candidate.enabled,
+    );
+    insert_string(
+        settings,
+        "second_third_candidate.keys",
+        match preferences.second_third_candidate.keys {
+            SecondThirdCandidateKeys::SemicolonQuote => "semicolon_quote",
+        },
+    );
 }
 
 /// 设计改版新增、仍在共享偏好里的键：按键音包、工具栏按钮和语音识别语言。其余新增的 Android 设置在宿主的本地设置文件里，见 [`insert_android_local_settings`]。
@@ -656,6 +858,22 @@ fn insert_new_android_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
 ) {
+    insert_string(
+        settings,
+        "platform.android.keyboard_skin_light",
+        preferences
+            .android_keyboard_skin_light
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        "platform.android.keyboard_skin_dark",
+        preferences
+            .android_keyboard_skin_dark
+            .as_deref()
+            .unwrap_or_default(),
+    );
     let pack = &preferences.plugins.key_sound.pack;
     if pack.chars().count() <= MAX_KEY_SOUND_PACK_CHARS {
         insert_string(settings, "platform.android.key_sound_pack", pack);
@@ -989,6 +1207,81 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     Ok(())
 }
 
+/// [`insert_grammar_model`] 的反方向。
+fn apply_grammar_model(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(
+        "sentence_association.grammar_model",
+        |preferences, value| {
+            preferences.sentence_association.grammar_model = match value {
+                "none" => GrammarModel::None,
+                "wanxiang" => GrammarModel::Wanxiang,
+                "baguwen_word" => GrammarModel::BaguwenWord,
+                "baguwen_compact" => GrammarModel::BaguwenCompact,
+                "baishuang" => GrammarModel::Baishuang,
+                _ => return None,
+            };
+            Some(())
+        },
+    )
+}
+
+/// [`insert_quick_phrase_mixing`] 的反方向。
+fn apply_quick_phrase_mixing(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("mixed_input.quick_phrase", |preferences, value| {
+        preferences.mixed_input.quick_phrase = value
+    })?;
+    applier.set_bool(
+        "mixed_input.quick_phrase_frequency",
+        |preferences, value| preferences.mixed_input.quick_phrase_frequency = value,
+    )
+}
+
+/// [`insert_local_mode_extras`] 的反方向。
+pub(super) fn apply_local_mode_extras(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("local_modes.symbol", |preferences, value| {
+        preferences.local_modes.symbol = value
+    })?;
+    applier.set_bool("local_modes.date_time_menu", |preferences, value| {
+        preferences.local_modes.date_time_menu = value
+    })
+}
+
+/// 鸿蒙分离式键盘的主开关（共享偏好 `touch_keyboard_split`）在账号文档里的键。Android 的主开关在它自己的本机设置 `platform.android.split_keyboard` 里（[`ANDROID_LOCAL_SETTINGS`]），两台设备各自同步；启用宽度和中间空隙在两端都只留本机，不同步。
+pub(super) const HARMONY_SPLIT_KEYBOARD: &str = "platform.harmony.split_keyboard";
+
+/// 导出鸿蒙分离式键盘的主开关。
+pub(super) fn insert_harmony_split_keyboard(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        HARMONY_SPLIT_KEYBOARD,
+        preferences.touch_keyboard_split,
+    );
+}
+
+/// [`insert_harmony_split_keyboard`] 的反方向。
+pub(super) fn apply_harmony_split_keyboard(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool(HARMONY_SPLIT_KEYBOARD, |preferences, value| {
+        preferences.touch_keyboard_split = value
+    })
+}
+
+/// [`insert_second_third_candidate`] 的反方向。不认识的键位跳过这一个键，开关照常应用。
+pub(super) fn apply_second_third_candidate(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool("second_third_candidate.enabled", |preferences, value| {
+        preferences.second_third_candidate.enabled = value
+    })?;
+    applier.set_string("second_third_candidate.keys", |preferences, value| {
+        preferences.second_third_candidate.keys = match value {
+            "semicolon_quote" => SecondThirdCandidateKeys::SemicolonQuote,
+            _ => return None,
+        };
+        Some(())
+    })
+}
+
 /// 应用到桌面宿主的结果。
 #[derive(Clone, Debug, PartialEq)]
 pub struct DesktopSettingsApplied {
@@ -998,8 +1291,17 @@ pub struct DesktopSettingsApplied {
     pub skipped: Vec<String>,
 }
 
-/// 把云端文档里各平台共有的 `input.*` 键应用到桌面宿主的共享偏好，其余键（别的平台的设置）不动。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
+/// 把云端文档里各平台共有的 `input.*` 键和本机设置页能改的共享偏好（见 [`DesktopHost`]）应用到桌面宿主的共享偏好，其余键（别的平台的设置）不动。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
 pub fn apply_desktop_settings(
+    local: &Preferences,
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+) -> Result<DesktopSettingsApplied, AccountError> {
+    apply_desktop_settings_for(DesktopHost::CURRENT, local, cloud, schema)
+}
+
+pub(super) fn apply_desktop_settings_for(
+    host: DesktopHost,
     local: &Preferences,
     cloud: &AccountPreferences,
     schema: &AccountPreferenceSchema,
@@ -1013,6 +1315,16 @@ pub fn apply_desktop_settings(
         skipped: Vec::new(),
     };
     apply_input_settings(&mut applier)?;
+    apply_grammar_model(&mut applier)?;
+    if host == DesktopHost::Linux {
+        apply_quick_phrase_mixing(&mut applier)?;
+        apply_local_mode_extras(&mut applier)?;
+        apply_second_third_candidate(&mut applier)?;
+        // Windows 不应用：它的运行时读 `translation_ai`，原生设置却没有能关掉它的选项。
+        applier.set_bool("translation.ai", |preferences, value| {
+            preferences.translation_ai = value
+        })?;
+    }
     let Applier {
         preferences,
         mut skipped,
@@ -1087,6 +1399,12 @@ pub fn apply_android_settings(
         feedback,
         skipped,
     })
+}
+
+/// 云端的九键左侧符号栏写法读成本机的表：空串（或只有空白）是「用本端出厂表」，读成空表；其余按 [`parse_nine_key_sidebar_symbols`] 逐项规范化，一项都留不下时返回 `None`，只跳过这一个键、本机的表不变，不把别处写坏的值当成恢复默认。
+fn synced_nine_key_sidebar_symbols(value: &str) -> Option<Vec<String>> {
+    let symbols = parse_nine_key_sidebar_symbols(value);
+    (value.trim().is_empty() || !symbols.is_empty()).then_some(symbols)
 }
 
 /// 触屏宿主的应用：先整体校验文档，再应用 `input.*` 键、`keys` 里的平台键、`extra`（宿主自己才有的键）和按键反馈。返回应用后的偏好（已经通过 `Preferences::validate`）、按键反馈（文档里有按键反馈的键时）和按键名排序的 `skipped`。`feedback` 在 [`needs_feedback`] 为真时必须传入，否则返回 `Storage`。
@@ -1207,6 +1525,53 @@ pub(super) fn apply_touch_settings(
     applier.set_bool(keys.quanpin_shift, |preferences, value| {
         preferences.touch_quanpin_shift = value
     })?;
+    // 三种底行样式按严格写法应用：较新版本加的样式本机不认识时只跳过这一个键，本机的选择不变。
+    applier.set_string(keys.twenty_six_key_style, |preferences, value| {
+        preferences.touch_twenty_six_key_style = TouchTwentySixKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.fourteen_key_style, |preferences, value| {
+        preferences.touch_fourteen_key_style = TouchFourteenKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.nine_key_style, |preferences, value| {
+        preferences.touch_nine_key_style = TouchNineKeyStyle::parse(value)?;
+        Some(())
+    })?;
+    applier.set_bool(keys.number_row, |preferences, value| {
+        preferences.touch_number_row = value
+    })?;
+    applier.set_bool(keys.twenty_six_symbol_first, |preferences, value| {
+        preferences.touch_twenty_six_symbol_first = value
+    })?;
+    // 数字键盘空格位置按严格写法应用：较新版本加的排法本机不认识时只跳过这一个键。`platform_default` 是「各端照自己原来的排法」，在另一端应用时得到那一端的出厂排法。
+    applier.set_string(keys.number_pad_space, |preferences, value| {
+        preferences.touch_number_pad_space = TouchNumberPadSpace::parse(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.nine_key_sidebar_symbols, |preferences, value| {
+        preferences.touch_nine_key_sidebar_symbols = synced_nine_key_sidebar_symbols(value)?;
+        Some(())
+    })?;
+    applier.set_string(keys.nine_key_digit_sidebar_symbols, |preferences, value| {
+        preferences.touch_nine_key_digit_sidebar_symbols = synced_nine_key_sidebar_symbols(value)?;
+        Some(())
+    })?;
+    // 单手侧边面板连本机不认识的写法（较新版本加的面板，如文本编辑面板）也照原样收下：宿主按空着画，下一次导出写回同一个值，与这次记下的基线相同，不会被当成本机改动拿 `off` 覆盖云端。
+    applier.set_string(keys.one_handed_side_panel, |preferences, value| {
+        preferences.touch_one_handed_side_panel = TouchOneHandedSidePanel::from_wire(value);
+        Some(())
+    })?;
+    // 中/英键位置同样按严格写法应用，本机不认识的位置只跳过这一个键。
+    applier.set_string(keys.language_key_side, |preferences, value| {
+        preferences.touch_language_key_side = TouchLanguageKeySide::parse(value)?;
+        Some(())
+    })?;
+    // 九键滑动输入数字同样按严格写法应用，较新版本加的写法只跳过这一个键。
+    applier.set_string(keys.nine_key_swipe_digits, |preferences, value| {
+        preferences.touch_nine_key_swipe_digits = TouchNineKeySwipeDigits::parse(value)?;
+        Some(())
+    })?;
 
     extra(&mut applier)?;
 
@@ -1237,6 +1602,26 @@ pub(super) fn apply_touch_settings(
 
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
 fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(
+        "platform.android.keyboard_skin_light",
+        |preferences, value| {
+            if !value.is_empty() && !crate::preferences::valid_android_keyboard_skin_choice(value) {
+                return None;
+            }
+            preferences.android_keyboard_skin_light = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.android.keyboard_skin_dark",
+        |preferences, value| {
+            if !value.is_empty() && !crate::preferences::valid_android_keyboard_skin_choice(value) {
+                return None;
+            }
+            preferences.android_keyboard_skin_dark = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        },
+    )?;
     applier.set_string("platform.android.key_sound_pack", |preferences, value| {
         if value.chars().count() > MAX_KEY_SOUND_PACK_CHARS {
             return None;

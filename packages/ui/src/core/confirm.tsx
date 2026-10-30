@@ -34,6 +34,7 @@ type Pending = ConfirmRequest & { resolve: (confirmed: boolean) => void };
  */
 export function useConfirm(): {
   confirm: (request: string | ConfirmRequest) => Promise<boolean>;
+  dismiss: () => void;
   confirmation: ReactNode;
 } {
   const [pending, setPending] = useState<Pending>();
@@ -57,6 +58,8 @@ export function useConfirm(): {
     restoreFocus.current?.focus();
     restoreFocus.current = null;
   }, []);
+
+  const dismiss = useCallback(() => settle(false), [settle]);
 
   useEffect(
     () => () => {
@@ -157,5 +160,5 @@ export function useConfirm(): {
     </div>
   ) : null;
 
-  return { confirm, confirmation };
+  return { confirm, dismiss, confirmation };
 }

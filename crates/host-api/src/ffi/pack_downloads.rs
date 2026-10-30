@@ -436,6 +436,7 @@ mod tests {
             "grammar-model-baguwen",
             "grammar-model-baguwen-compact",
             "offline-glosses",
+            "pronunciations",
             "voice-runtime",
             "wubi",
         ];

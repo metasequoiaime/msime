@@ -81,7 +81,7 @@ jobs:
           python3 scripts/test-harmony-appgallery.py
           python3 platforms/harmony/appgallery-release.py --check-only --mode "$MODE" --version "$VERSION" \
             --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
-      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         with: {distribution: temurin, java-version: '21'}
       # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。

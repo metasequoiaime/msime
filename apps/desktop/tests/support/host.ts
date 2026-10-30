@@ -73,6 +73,10 @@ export function testHost(
     voice_capture_backends: !(macos || platform === "windows" || harmony),
     character_width: !mobile,
     ai_provider_credentials: linux,
+    // 与 client-core 一致：鸿蒙版拿到 AI 生成类资质之前不提供 AI 对话、润色、AI 翻译和 AI 皮肤。
+    ai_generation: !harmony,
+    // 与 client-core 一致：鸿蒙版在实名认证到位之前不提供社区发布、评分和举报。
+    community_contribution: !harmony,
     voice_commit_mode: !android && !linux,
     key_sound: false,
     plugin_triggers: false,

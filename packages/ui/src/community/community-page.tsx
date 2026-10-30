@@ -18,6 +18,10 @@ import type { Preferences } from "../core/preferences-model";
 export interface CommunityPageProps {
   skins?: CommunitySkinClient;
   resources?: CommunityResourceClient;
+  /** 见 `CommunityCategoryTabsProps.hasReplies`。 */
+  hasReplies?: boolean;
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`），转交给键盘皮肤和资源图库；候选窗皮肤图库只在桌面上有，不看它。缺省为提供。 */
+  contributions?: boolean;
   /** Desktop community commands for candidate-window skin packages. */
   candidateSkins?: CandidateSkinCommunityClient;
   /** The installed external skins, which the candidate gallery publishes from and checks before replacing one. */
@@ -58,6 +62,8 @@ export function CommunityPage(props: CommunityPageProps): ReactNode {
 function CommunityGallery({
   skins,
   resources,
+  hasReplies = true,
+  contributions = true,
   candidateSkins,
   localSkins,
   openSkinDirectory,
@@ -83,6 +89,8 @@ function CommunityGallery({
         key={destinationKey}
         skins={skins}
         resources={resources}
+        hasReplies={hasReplies}
+        contributions={contributions}
         theme={theme}
         initialMine={initialMine}
         initialCategory={initialCategory}
@@ -113,6 +121,7 @@ function CommunityGallery({
         preferences={preferences}
         onApplyPreferences={onApplyPreferences}
         onSkinApplied={onSkinApplied}
+        contributions={contributions}
       />
     );
   }
@@ -123,6 +132,8 @@ function CommunityGallery({
       <CommunityHomePage
         key={destinationKey}
         resources={resources}
+        hasReplies={hasReplies}
+        contributions={contributions}
         theme={theme}
         initialCategory={initialCategory}
         initialScope={initialScope}

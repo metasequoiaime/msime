@@ -239,11 +239,15 @@ void patch_preference_object(Json &preferences, const char *name,
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
 void pointer_turn(IBusEngine *engine);
-Json response(char *raw) {
+// 整份回复，失败时也原样返回，供需要分辨失败原因的调用方使用（见 open 里的建会话）。
+Json host_reply(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!raw)
     throw std::runtime_error("Missing host response");
-  auto document = Json::parse(raw);
+  return Json::parse(raw);
+}
+Json response(char *raw) {
+  auto document = host_reply(raw);
   if (!document.at("ok").get<bool>())
     throw std::runtime_error("Host operation failed");
   return document.at("value");
@@ -349,6 +353,8 @@ struct State {
   std::string focused_context;
   std::string focused_client;
   bool blocked = false;
+  // 这一段词库忙碌已经记过日志（open）；会话建起来后清掉。
+  bool dictionary_busy_noted = false;
   bool private_input = false;
   // 输入框最近一次报告的提示位（content_type）。private_input 把隐私和不做拼写检查并成一个判断，管学习和联网；生命周期核心要的字段属性按这里逐个标志换算，见 report_field_traits。
   guint content_hints = 0;
@@ -990,8 +996,17 @@ struct State {
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
     auto edge_binding = msime::linux_host::WordCharacterBinding::read(
         options.at("preferences"));
-    view = response(msime_client_create(
+    auto created = host_reply(msime_client_create(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样不开会话、按键交给应用，等维护做完再建，不当成宿主操作失败。日志每段忙碌只记一条（#9918）。
+    if (msime::linux_host::defer_session_for_dictionary_maintenance(
+            created, dictionary_busy_noted, [] {
+              msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+            }))
+      return;
+    if (!created.at("ok").get<bool>())
+      throw std::runtime_error("Host operation failed");
+    view = created.at("value");
     session = view.at("session").get<uint64_t>();
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session, MSIME_LIFECYCLE_FEEDBACK);
@@ -2138,7 +2153,8 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
     paired_modifiers |= static_cast<std::uint32_t>(
         msime::linux_host::PairedPunctuationModifier::Mod5);
   const auto closing = msime::linux_host::paired_closing_for_key(
-      static_cast<char>(key), s.fullwidth, s.paired_tracker);
+      static_cast<char>(key), s.fullwidth, s.paired_tracker,
+      view_punctuation_marks(s.view).corner_quotes);
   if (!closing) return false;
   const auto following = surrounding_following_character(s);
   const bool modifiers_allowed =
@@ -3936,7 +3952,7 @@ void clear(IBusEngine *engine) {
   s.rendered_session = 0;
   publish_candidate_properties(engine);
 }
-// Windows re-resolves the punctuation state on every Chinese/English switch: under the "follow" lock it tracks the mode (Chinese punctuation in Chinese mode, ASCII in English), and a pinned lock keeps its value. The switch supersedes a Ctrl+. choice, so the session override is dropped and the saved preference is the authority again on the next focus or refresh; the preference file itself is not written. Call after open(), because opening a session re-derives chinese_punctuation from the preferences.
+// 中英模式切换时，「跟随」让英文模式用英文标点，中文模式恢复已保存的起始标点；固定锁定值保持不变。切换会取消 Ctrl+. 的临时选择，但不改偏好文件。要在 open() 之后调用，因为新会话从偏好重建标点状态。
 void resync_punctuation_for_mode(IBusEngine *engine) {
   auto &s = state(engine);
   s.english_punctuation = {};
@@ -3944,7 +3960,8 @@ void resync_punctuation_for_mode(IBusEngine *engine) {
   if (s.punctuation_lock != "follow")
     return;
   s.punctuation_override.reset();
-  s.chinese_punctuation = s.input_enabled;
+  s.chinese_punctuation = s.input_enabled &&
+                          configured.at("preferences").value("chinese_punctuation", true);
   if (s.session && s.session_chinese_punctuation != s.chinese_punctuation) {
     s.view = response(
         msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
@@ -7961,16 +7978,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key == '(' || key == '[' || key == '<' || key == '{')) {
       const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
                                         : PunctuationPairMode::Bracket;
+      // `{` 和其他成对键一样交给引擎的中文标点表：中文标点下出「（契约第 5 版），由 Brace 模式补」。
       const bool engine_handled = apply(
-          engine,
-          key == '{'
-              ? msime_client_punctuation_ascii(s.session, static_cast<uint8_t>(key))
-              : msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
+          engine, msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
           pair_mode);
       handled = engine_handled;
       if (engine_handled && key == '<')
         (void)response(msime_client_balance_paired_punctuation_after_auto_close(
             s.session, static_cast<uint8_t>(key)));
+      // 引擎没有处理（专用英文空闲时写 ASCII 标点、交回宿主）时保留原来的花括号成对补全。
       if (!handled && key == '{') {
         auto text = std::string("{}");
         if (s.fullwidth)

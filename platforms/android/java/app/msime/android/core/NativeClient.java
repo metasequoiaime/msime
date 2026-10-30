@@ -19,14 +19,18 @@ public final class NativeClient {
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
+    /** 候选栏的合并展示上限：原文加至多十一个前缀补全。 */
+    private static final int ENGLISH_SUGGESTION_DISPLAY_LIMIT = 12;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     /** 与 `client_jni.cpp` 的 `kSmallJsonRequestLimit` 一致。 */
     private static final int NINE_KEY_SHUANGPIN_REQUEST_LIMIT = 16 * 1024;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
     private static final int GLIDE_REQUEST_LIMIT = 65_536;
-    /** An imported word list is the one request here that carries a whole file. */
-    private static final int VOCABULARY_REQUEST_LIMIT = 8 * 1024 * 1024;
+    /** 与 `msime_client_set_key_geometry` 的上限一致。 */
+    private static final int KEY_GEOMETRY_LIMIT = 16_384;
+    /** 与 JNI 和 C 入口一致，为 8 MiB 原始词表的 JSON 转义及元数据留出空间。 */
+    private static final int VOCABULARY_REQUEST_LIMIT = 17 * 1024 * 1024;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     public static String create(String options) { return TextPolicy.utf8(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
@@ -39,6 +43,8 @@ public final class NativeClient {
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return TextPolicy.utf8(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** 旧布局迁移在共享锁内检查原始字段，不把未知样式误当默认值。 */
+    public static String migrateKeyLayout(String request) { return TextPolicy.utf8(migrateKeyLayoutRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** The global theme picker entries: ids, titles, appearance and built-in palettes, in picker order. */
     public static String themeCatalog() { return TextPolicy.utf8(themeCatalogRaw()); }
     /** 解析当前主题的单种明暗配色；带 `skins_directory` 的请求会校验包资源，必须在工作线程调用。 */
@@ -168,6 +174,25 @@ public final class NativeClient {
             throw new IllegalStateException("Candidate gloss response is too large");
         return TextPolicy.utf8(result);
     }
+    /** 从同级的固定离线音标表读取读音，只在工作线程调用。 */
+    public static String candidatePronunciations(String request, String resources,
+            String supplementaryResources) {
+        if (supplementaryResources != null && !supplementaryResources.isEmpty()) {
+            try {
+                request = new JSONObject(request).put("supplementary_resources", supplementaryResources).toString();
+            } catch (JSONException error) {
+                throw new IllegalArgumentException("Invalid pronunciation request", error);
+            }
+        }
+        byte[] requestBytes = request.getBytes(StandardCharsets.UTF_8);
+        byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+        if (requestBytes.length > GLOSS_REQUEST_LIMIT || resourcesBytes.length > GLOSS_RESOURCES_LIMIT)
+            throw new IllegalArgumentException("Candidate pronunciation request is too large");
+        byte[] result = candidatePronunciationsRaw(requestBytes, resourcesBytes);
+        if (!HttpBodyPolicy.isWithinLimit(result, GLOSS_RESPONSE_LIMIT))
+            throw new IllegalStateException("Candidate pronunciation response is too large");
+        return TextPolicy.utf8(result);
+    }
     /**
      * 同 {@link #candidateGlosses(String, String)}，另把 {@code stateRoot}（{@code filesDir/bootstrap/state}）写进请求的 {@code state_root}：资源目录旁没有离线释义时，非英语的释义改从下载的 offline-glosses 资源包里读。{@code stateRoot} 为 null 时与原方法相同。Call on a worker.
      */
@@ -180,24 +205,24 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid candidate gloss request", error);
         }
     }
-    /** 在工作线程读取固定英文词库的有界补全。 */
-    public static String englishCompletions(String prefix, String resources) {
-        return englishCandidates(prefix, resources, false);
-    }
-
-    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话。 */
-    public static String englishCorrections(String prefix, String resources) {
+    /** 在工作线程读取候选栏的合并展示：有纠错时为原文与纠错，原文已是完整的词时只有原文，否则原文后接前缀补全。 */
+    public static String englishSuggestions(String prefix, String resources) {
         return englishCandidates(prefix, resources, true);
     }
 
-    private static String englishCandidates(String prefix, String resources, boolean correction) {
+    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话；空格和标点边界只用这一查询。 */
+    public static String englishCorrections(String prefix, String resources) {
+        return englishCandidates(prefix, resources, false);
+    }
+
+    private static String englishCandidates(String prefix, String resources, boolean completions) {
         if (prefix == null || prefix.isEmpty() || prefix.length() > 128
-                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value)
-                    || (correction && value == '\'')))
+                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value) || value == '\''))
             throw new IllegalArgumentException("Invalid English completion prefix");
         try {
-            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", correction ? 2 : 12)
-                .put("correction", correction);
+            JSONObject request = new JSONObject().put("prefix", prefix)
+                .put("limit", completions ? ENGLISH_SUGGESTION_DISPLAY_LIMIT : 2).put("correction", true);
+            if (completions) request.put("completions", true);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
             if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)
@@ -301,6 +326,21 @@ public final class NativeClient {
         if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
             throw new IllegalArgumentException("Cloud clipboard WebDAV probe request is too large");
         return TextPolicy.utf8(cloudClipboardWebDavProbeRaw(payload));
+    }
+
+    /** 共享 `msime_client_dictionary_sync` 的请求上限：HostOptions 文档里带着整份偏好。 */
+    public static final int DICTIONARY_SYNC_REQUEST_LIMIT = 2 * 1024 * 1024;
+
+    /**
+     * 「我的词条」经 WebDAV 网盘同步（`docs/dictionary-webdav-sync.md`）：请求是 `{options, directory, device_name, action}`，`options` 是 runtime-options.json 那份 HostOptions，`directory` 是两个进程共用的 `noBackupFilesDir/dictionary-sync`，`action` 与返回的 `{"ok":true,"value":…}` 见 `crates/host-api/include/msime_client.h`。网盘的地址、账号和应用密码由 Rust 从偏好的 `dictionary_sync_webdav` 读；「测试连接」（`probe`）的请求里带着设置页草稿里的应用密码，不要写日志。
+     *
+     * <p>除 `status` 外都会阻塞在网络上（每个请求最多 30 秒，整次同步持有本机的同步锁，另一个进程正在同步时最多再等两分钟），只在工作线程上调用，不要在主线程或输入线程上调用。封装见 {@link DictionaryWebDavSync}。
+     */
+    public static String dictionarySync(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > DICTIONARY_SYNC_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Dictionary sync request is too large");
+        return TextPolicy.utf8(dictionarySyncRaw(payload));
     }
 
     /**
@@ -812,6 +852,18 @@ public final class NativeClient {
         if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
         return TextPolicy.utf8(characterRaw(session, ascii, shift));
     }
+    /** 26 键双拼的字母键几何（`msime_client_set_key_geometry`）：`json` 由 {@link TouchPointPolicy#geometryJson} 生成，空串清除。只在布局变化时调用。返回 View。 */
+    public static String setKeyGeometry(long session, String json) {
+        if (json == null) throw new IllegalArgumentException("Missing key geometry");
+        byte[] payload = json.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > KEY_GEOMETRY_LIMIT) throw new IllegalArgumentException("Key geometry is too large");
+        return TextPolicy.utf8(setKeyGeometryRaw(session, payload));
+    }
+    /** 带按下点的一键（`msime_client_touch_character`）：`x`、`y` 与注册的几何同一个坐标系，`geometryId` 是那份几何的代次。代次不符、坐标不是有限数或不是 26 键双拼时，结果与 {@link #character} 逐字节相同。返回与 {@link #character} 相同的输入响应。 */
+    public static String touchCharacter(long session, int ascii, boolean shift, int geometryId, float x, float y) {
+        if (ascii < 0 || ascii > 127) throw new IllegalArgumentException("Engine character must be ASCII");
+        return TextPolicy.utf8(touchCharacterRaw(session, ascii, shift, geometryId, x, y));
+    }
     public static String punctuationWithContext(long session, int ascii, int precedingCodePoint) {
         if (ascii < 0 || ascii > 127 || !SmartPunctuationContext.isAsciiPunctuation((char) ascii))
             throw new IllegalArgumentException("Engine punctuation must be ASCII punctuation");
@@ -899,6 +951,11 @@ public final class NativeClient {
         return TextPolicy.utf8(setNineKeyFilterRaw(session, singleCharacter, payload));
     }
     public static String allCandidates(long session) { return TextPolicy.utf8(allCandidatesRaw(session)); }
+    /** 座位 {@code start} 起最多 {@code count} 行候选（{@code msime_client_candidate_range}）：横向候选条每键只取它建得出来的一批，不整代复制。 */
+    public static String candidateRange(long session, int start, int count) {
+        if (start < 0 || count < 0) throw new IllegalArgumentException("Invalid candidate range");
+        return TextPolicy.utf8(candidateRangeRaw(session, start, count));
+    }
     public static String applyTranslations(long session, long generation, String translations) {
         if (generation < 0) throw new IllegalArgumentException("Invalid candidate generation");
         byte[] payload = translations.getBytes(StandardCharsets.UTF_8);
@@ -981,6 +1038,7 @@ public final class NativeClient {
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);
+    private static native byte[] migrateKeyLayoutRaw(byte[] request);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] telemetryBeginRaw(byte[] request);
     private static native byte[] telemetryEndRaw(byte[] request);
@@ -1019,6 +1077,7 @@ public final class NativeClient {
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
+    private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] polishPromptRaw(byte[] id, byte[] custom1, byte[] custom2,
         byte[] custom3);
@@ -1028,6 +1087,7 @@ public final class NativeClient {
     private static native byte[] cloudClipboardRelayRaw(byte[] request);
     private static native byte[] cloudClipboardRelayExchangeRaw(byte[] request);
     private static native byte[] cloudClipboardWebDavProbeRaw(byte[] request);
+    private static native byte[] dictionarySyncRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);
@@ -1063,6 +1123,9 @@ public final class NativeClient {
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
+    private static native byte[] setKeyGeometryRaw(long session, byte[] json);
+    private static native byte[] touchCharacterRaw(long session, int ascii, boolean shift, int geometryId,
+        float x, float y);
     private static native byte[] balancePairedPunctuationAfterAutoCloseRaw(long session, int opening);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
@@ -1082,6 +1145,7 @@ public final class NativeClient {
     private static native byte[] setNineKeyFilterRaw(long session, boolean singleCharacter,
         byte[] strokes);
     private static native byte[] allCandidatesRaw(long session);
+    private static native byte[] candidateRangeRaw(long session, int start, int count);
     private static native byte[] applyTranslationsRaw(long session, long generation,
         byte[] translations);
     private static native byte[] onlineQueryRaw(long session);

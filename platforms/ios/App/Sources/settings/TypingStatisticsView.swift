@@ -22,6 +22,8 @@ private struct AuthenticatedTypingStatisticsView: View {
   @State private var tab = Tab.overview
   /// 读者选过之后按键热力图所用的键盘布局；nil 表示跟随当前输入方案。
   @State private var nineKeyChoice: Bool?
+  /// 用户的「按键布局」：热力图照它画底行和数字行，与键盘上看到的一致。
+  @State private var keyStyle = TouchKeyLayoutStyle.mirrored
   @State private var showsDailyDetail = false
   @State private var showsAbout = false
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
@@ -99,6 +101,8 @@ private struct AuthenticatedTypingStatisticsView: View {
     .navigationDestination(isPresented: $showsDailyDetail) { TypingDailyDetailView(statistics: statistics) }
     .sheet(isPresented: $showsAbout) { about }
     .reloadOnAppearAndActive(reload)
+    // 自造词徽标取自键盘上次列出的个人词库那一页；打开页面时请键盘下次出现时重新列一次。
+    .task { try? PersonalDictionaryStore.forSettingsPages().requestRefresh() }
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
       Button("清空", role: .destructive) { update { try $0.reset() } }
@@ -216,12 +220,12 @@ private struct AuthenticatedTypingStatisticsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
       }
       .designCanvasBackground()
+      .fittedSheet()
       .navigationTitle("关于统计").navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("完成") { showsAbout = false } }
       }
     }
-    .presentationDetents([.medium, .large])
   }
 
   private static let aboutParagraphs = [
@@ -316,9 +320,9 @@ private struct AuthenticatedTypingStatisticsView: View {
         StatisticsLayoutSwitch(nineKey: Binding(get: { nineKey }, set: { nineKeyChoice = $0 }))
       }) {
         VStack(alignment: .leading, spacing: 10) {
-          StatisticsKeyboardHeatmap(heatmap: heatmap, nineKey: nineKey)
+          StatisticsKeyboardHeatmap(heatmap: heatmap, nineKey: nineKey, style: keyStyle)
             .statisticsCard(top: 10, horizontal: 4, bottom: 10)
-          let others = heatmap.others(nineKey: nineKey)
+          let others = heatmap.others(nineKey: nineKey, style: keyStyle)
           if !others.isEmpty {
             DisclosureGroup {
               VStack(spacing: 0) {
@@ -445,6 +449,8 @@ private struct AuthenticatedTypingStatisticsView: View {
   // MARK: - 加载
 
   private func reload() {
+    TouchKeyLayoutStyle.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    keyStyle = TouchKeyLayoutStyle.mirrored
     update { _ in }
     syncUpload()
   }
@@ -588,10 +594,21 @@ struct TypingDailyDetailView: View {
     return date.formatted(style)
   }
 
-  /// 写到临时目录,文件名给分享面板和「存储到文件」用。写不了就不给导出按钮,而不是给一个点了没反应的按钮。
+  /// 每次生成独立快照，避免后一次导出覆盖分享服务仍在读取的文件；成功后由系统回收临时目录。
   static func writeExport(_ statistics: TypingStatistics) -> URL? {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("水杉IME-打字统计.csv")
-    guard (try? Data(statistics.dailyCSV().utf8).write(to: url, options: .atomic)) != nil else { return nil }
-    return url
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-typing-export-\(UUID().uuidString)", isDirectory: true)
+    do {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                              attributes: [.posixPermissions: 0o700])
+    } catch { return nil }
+    let url = directory.appendingPathComponent("水杉IME-打字统计.csv")
+    do {
+      try Data(statistics.dailyCSV().utf8).write(to: url, options: .atomic)
+      return url
+    } catch {
+      try? FileManager.default.removeItem(at: directory)
+      return nil
+    }
   }
 }

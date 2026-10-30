@@ -9,11 +9,11 @@
 偏好文档里的 `cloud_clipboard_webdav`：
 
 ```json
-{"cloud_clipboard_webdav": {"url": "https://dav.jianguoyun.com/dav/msime", "username": "<网盘账号>", "password": "<应用密码>"}}
+{"cloud_clipboard_webdav": {"url": "https://dav.jianguoyun.com/dav/", "username": "<网盘账号>", "password": "<应用密码>"}}
 ```
 
 - 三项要么都空（不用网盘），要么都合规；没配置时这个键不写进文档，旧版本照样能读。与 `cloud_clipboard_relay` 只能二选一，两者同时配置的偏好存不进去。配置了网盘就只走网盘，失败时不退回水杉账号。
-- `url` 是用户选的文件夹，规则与 [中继地址](cloud-clipboard-relay.md) 相同：`https://`（`http://` 只接受本机回环地址），不带查询串、片段和用户信息，不跟随重定向；TLS 用 rustls 和内置的 webpki-roots，不认自签证书和私有 CA。
+- `url` 是用户选的文件夹，可以就是网盘根目录（坚果云填 `https://dav.jianguoyun.com/dav/`），客户端在它下面自己建 `msime-clipboard/`，用户不用先建文件夹；规则与 [中继地址](cloud-clipboard-relay.md) 相同：`https://`（`http://` 只接受本机回环地址），不带查询串、片段和用户信息，不跟随重定向；TLS 用 rustls 和内置的 webpki-roots，不认自签证书和私有 CA。
 - `username` 是网盘账号（坚果云是登录邮箱），1 到 256 字节，不含控制字符和冒号；`password` 是应用密码（坚果云、Nextcloud 都要求第三方应用用应用密码而不是登录密码），1 到 256 字节，不含控制字符。应用密码列在凭据清单里，账号在诊断快照里也换成 `<redacted>`；整组不随设置文件导出、不进账号设置同步，MCP 的偏好白名单也不包括它。
 - 保存之前先「测试连接」（见下文），不通过不保存。
 - 本机密钥串仍是中继那份 `cloud-clipboard-relay-keystore`，只是它绑定的空间换成 `sha256("webdav\0" ‖ 基地址 ‖ "\0" ‖ 账号)` 的前 16 字节：换了地址或账号就生成新的设备身份，要重新批准；换应用密码不换，不用重新批准。
@@ -27,16 +27,18 @@
 | macOS、Linux | 共享设置页「剪贴板」→「设置」→「云剪贴板同步方式」（`packages/ui/src/settings/cloud-clipboard-relay-section.tsx`，「测试连接」经 Tauri 命令 `cloud_clipboard_webdav_probe`） |
 | Windows | 原生 WinUI 设置窗口「剪贴板」页；Windows 7 版的设置窗口不再显示云剪贴板页，配置在云剪贴板面板的表单里（单独一组「WebDAV」，「测试并保存」） |
 | Android | 「我的 → 云剪贴板」页顶部的卡片和对话框 |
-| iOS、HarmonyOS | 没有：原生宿主还没接中继 |
+| iOS | 「我的 → 云剪贴板」页顶部的「云剪贴板同步方式」卡片和填写页（`platforms/ios/App/Sources/keyboard/CloudClipboardSyncModeView.swift`，「测试连接」经 `msime_client_cloud_clipboard_webdav_probe`） |
+| HarmonyOS | 设置应用「剪贴板」页的「云剪贴板同步方式」，即上面那份共享设置页（`apps/harmony` 在 ArkWeb 里加载），「测试连接」经桥接请求 `cloud_clipboard_webdav_probe`；同意隐私政策之前不显示 |
 
-各处做法相同：填「服务器地址」（网盘里的一个文件夹）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
+各处做法相同：填「服务器地址」（网盘根目录或其中一个文件夹，说明里写明坚果云填 `https://dav.jianguoyun.com/dav/`）、「账号」和「应用密码」（遮罩输入；已经保存过时留空表示沿用，已存的密码不回显）；「测试连接」只测不存；「保存」先测，通过才写 `cloud_clipboard_webdav` 并删掉 `cloud_clipboard_relay`，不通过时说明原因、草稿留着。保存中继时删掉网盘配置，改回水杉账号时两者都删。WebDAV 那一组下面有一段说明：内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。
 
 ## 宿主怎么接入
 
 - `msime_client_cloud_clipboard_source` 对网盘也答 `{"source":"relay"}`，另带 `"backend":"webdav"`（中继是 `"relay"`）。已有的宿主把不认识的来源当作错误，所以不加新的来源值；`msime_client_relay_cloud_clipboard` 按偏好里的配置自己分派，Tauri 桌面端的设置页和云剪贴板面板、Windows 原生设置窗口、macOS 输入法进程、Linux Fcitx5 键盘栏这些已经接上中继的入口不用改就能走网盘。宿主只在给用户说明「现在经哪里同步」时看 `backend`。
-- 自己跑驱动、自己保存密钥串的宿主（Android）经 `msime_client_relay_cloud_clipboard_exchange` 发请求，网盘时传 `{"backend":"webdav", url, username, password, directory, method, path, body}`；`directory` 放日志的本机缓存和锁文件，要与 `msime_client_relay_cloud_clipboard` 用的那个目录相同（Android 是 `noBackupFilesDir/cloud-clipboard-relay`，里面只有密文和公开数据）。Android 的绑定（键盘用来认出「换过了」）是 `webdav:` 加地址和账号的摘要，同样不含应用密码。
-- 「测试连接」是 `msime_client_cloud_clipboard_webdav_probe`（Tauri 桌面端是命令 `cloud_clipboard_webdav_probe`，Android 是 `NativeClient.cloudClipboardWebDavProbe`），带设置页里还没保存的草稿；给了本机密钥串的目录时，通过后删掉那里的日志缓存。格式见 `crates/host-api/include/msime_client.h`。
-- Android 和 iOS 的 Tauri 外壳只经水杉账号答，配置了网盘时与配置了中继一样拒绝（`relay_unsupported`）。iOS 和 HarmonyOS 的原生宿主还没有接中继，也就没有网盘。
+- 自己跑驱动、自己保存密钥串的宿主（Android、iOS）经 `msime_client_relay_cloud_clipboard_exchange` 发请求，网盘时传 `{"backend":"webdav", url, username, password, directory, method, path, body}`；`directory` 放日志的本机缓存和锁文件，要与 `msime_client_relay_cloud_clipboard` 用的那个目录相同（Android 是 `noBackupFilesDir/cloud-clipboard-relay`，iOS 是 App Group 容器里的 `cloud-clipboard-relay/`，App 和键盘扩展共用、不进设备备份；里面只有密文和公开数据）。Android 和 iOS 的绑定（键盘用来认出「换过了」）是 `webdav:` 加地址和账号的摘要，同样不含应用密码。
+- 「测试连接」是 `msime_client_cloud_clipboard_webdav_probe`（Tauri 桌面端是命令 `cloud_clipboard_webdav_probe`，Android 是 `NativeClient.cloudClipboardWebDavProbe`，iOS 是 `IOSCloudClipboardRelay.probeWebDAV`），带设置页里还没保存的草稿；给了本机密钥串的目录时，通过后删掉那里的日志缓存。格式见 `crates/host-api/include/msime_client.h`。
+- HarmonyOS 的设置应用和键盘扩展都经 NAPI 调 `msime_client_cloud_clipboard_source` 和 `msime_client_relay_cloud_clipboard`，`directory` 是各自沙箱的 `files/state`（与账号会话同一目录）。设备身份只由设置应用生成：键盘的请求带 `create_identity: false`，用的是设置应用经共享沙箱镜像过来的 `cloud-clipboard-relay-keystore`，本机还没有时答 `clipboard_identity_missing`、不登记，一台手机只是一台设备；网盘缓存 `cloud-clipboard-webdav-state` 也随设置应用镜像，「测试连接」通过后的重新信任因此传到键盘。
+- Android 和 iOS 的 Tauri 外壳只经水杉账号答，配置了网盘时与配置了中继一样拒绝（`relay_unsupported`）。
 
 ## 实现在哪里
 
@@ -46,7 +48,7 @@
 
 ## 存储布局
 
-用户选一个文件夹作基地址（例如坚果云的 `https://dav.jianguoyun.com/dav/msime`），客户端只在它下面的 `msime-clipboard/` 里读写：
+用户选一个文件夹作基地址（通常就是网盘根目录，例如坚果云的 `https://dav.jianguoyun.com/dav/`；结尾的 `/` 有没有都一样，规范化时去掉），客户端只在它下面的 `msime-clipboard/` 里读写：
 
 ```text
 <基地址>/msime-clipboard/v1/format.json
@@ -131,7 +133,7 @@
 
 ## 本机缓存
 
-`cloud-clipboard-webdav-state` 放在中继密钥串的同一个目录里（桌面端与 `account-session.json` 同一目录），仅本人可读写、原子替换写入。里面是读到的位置、链头、算出的状态（只有密文和公开数据：设备公钥和名称、封装、条目密文）和待删的旧 epoch，绑定基地址和账号；换了地址或账号就当作没有。同一台设备上的几个进程经 `cloud-clipboard-relay.lock` 串行。
+`cloud-clipboard-webdav-state` 放在中继密钥串的同一个目录里（桌面端与 `account-session.json` 同一目录；iOS 的密钥串在钥匙串里，缓存放在 App Group 容器的 `cloud-clipboard-relay/`；HarmonyOS 是设置应用和键盘各自的 `files/state`，键盘那份由设置应用镜像过来），仅本人可读写、原子替换写入。里面是读到的位置、链头、算出的状态（只有密文和公开数据：设备公钥和名称、封装、条目密文）和待删的旧 epoch，绑定基地址和账号；换了地址或账号就当作没有。同一台设备上的几个进程经 `cloud-clipboard-relay.lock` 串行。
 
 驱动的一个操作要连着发两三个读请求，两秒内读过的缓存直接用，不再去网盘。写入不受这个影响：独占创建保证了写在最新的位置上，被拒绝或不改变状态的写入只在这一次刚读过网盘时才直接回答。
 
@@ -157,3 +159,21 @@
 条目内容、去重标签的明文、剪贴板密钥都在本机加密，网盘看不到。网盘上能看到的元数据与 [端到端加密](cloud-clipboard-e2e.md) 的威胁模型里列的相同：条目数量和写入时间、置顶状态、两条内容是否相同、每台设备的名称、公钥和登记时间、保留期，另外还有每个写入的时间（事件的 `at`）和次数。
 
 - 删除、清空、换钥之后，旧的密文在压缩后从网盘上删掉，但网盘的回收站和历史版本可能还留着它们（坚果云、Nextcloud 都有）。密文没有密钥解不开，介意的话可以去网盘清空回收站。
+
+## 对真实网盘跑端到端测试
+
+`crates/clipboard-relay/tests/webdav_real_server.rs` 把云剪贴板和 [词库同步](dictionary-webdav-sync.md) 的代表步骤对着一个真实的网盘（例如坚果云）跑一遍，由维护者手动开启。三个环境变量都设置了才联网：
+
+```sh
+export MSIME_TEST_WEBDAV_URL=https://dav.jianguoyun.com/dav/
+export MSIME_TEST_WEBDAV_USERNAME='你的坚果云账号'
+read -rs MSIME_TEST_WEBDAV_PASSWORD && export MSIME_TEST_WEBDAV_PASSWORD   # 应用密码，不进 shell 历史
+cargo test -p msime-clipboard-relay --locked --test webdav_real_server -- --nocapture
+```
+
+- 都没设置时这项测试打印「跳过」后照常通过，CI 就是这样；只设置了一部分时报错并列出缺哪个变量。CI 里跑的是同一套流程对本机 `dav-server` 的版本，它也守着请求数的上限（240）。
+- 云剪贴板覆盖：测试连接、第一台设备建钥、第二台登记并获准（两边核对码相同）、一台上传另一台读到、置顶、删除。词库同步覆盖的步骤见 [词库同步](dictionary-webdav-sync.md#对真实网盘跑端到端测试)。
+- 目录：在给定地址下建 `msime-e2e/`（已有就沿用），每次在里面新建一个 `run-<毫秒>-<随机数>/` 作为两个流程的基地址（里面是 `msime-clipboard/` 和 `msime-dictionary/`），跑完删掉本次的目录并再列一次确认。坚果云不许删根目录下建出来的文件夹，所以根目录下只建 `msime-e2e/` 这一个，它会一直留着，可以在坚果云网页上手动删。删除失败或确认不了时，输出会报出留下的 `msime-e2e/run-…/` 和里面的条目，需要手动删。
+- 额度：一次约 185 个请求（本机 `dav-server` 上是 183：准备 2、云剪贴板 68、词库同步 111、清理 2），两台设备同时抢序号和限流重试会多出几个；输出最后列出每一段和合计。坚果云免费账号每 30 分钟 600 个请求，与这个账号授权的其他应用共用，所以半小时内不要连跑三次，跑之前最好停掉同一账号上正在同步的水杉设备。
+- 限流：网盘答 429 或 503 时按产品的规则退避（`Retry-After` 不超过 8 秒，最多三次），仍不行就以「被限流」失败，后面的流程不再开始，照样清理；过半小时再跑。
+- 凭据：应用密码和 `Authorization` 头不出现在任何输出里，账号显示为 `***`（地址里百分号编码的形式也算），失败步骤的 panic 信息同样经过隐去。请用单独为测试开的应用密码，跑完可以在坚果云里删掉它。

@@ -760,6 +760,13 @@ build_windows_host_library() {
     return 1
   fi
   mkdir -p "$MSIME_NATIVE_BUILD/Debug" && cp -f "$runtime" "$MSIME_NATIVE_BUILD/Debug/"
+  # add_subdirectory 的子项目把自己的测试放在各自的输出目录里（tsf/Debug、shared-voice/Debug），那里同样要有这个运行时，否则它们一个都起不来：Windows 上缺 DLL 的进程会挂到 ctest 的超时，看起来像测试本身卡死，而 msime-tsf-class-factory 这种直接 LoadLibrary 的会静默返回 1。两者都不在 known-failures.txt 里，于是每次都被当成新失败。
+  # 这里在 cmake --build 之前运行，刚 configure 完的构建树里子项目还没有 Debug 目录，所以按 configure 就生成的 CTestTestfile.cmake 找出登记了测试的子项目，先建目录再复制，第一次运行也不漏。
+  for sub in "$MSIME_NATIVE_BUILD"/*/CTestTestfile.cmake; do
+    [ -f "$sub" ] || continue
+    sub=$(dirname "$sub")
+    mkdir -p "$sub/Debug" && cp -f "$runtime" "$sub/Debug/"
+  done
 }
 
 note "compile: native host"
@@ -1014,6 +1021,8 @@ fi
 
 note "rust tests"
 : > "$collected.rust"
+# 用户词库日志改用 WAL 之后，每个还开着的日志除了主文件还占着 `-wal`、`-shm`，WAL 连接持锁期间别的连接关掉的描述符也要等它们一起放；msime-engine 与 msime-host-api 的测试并行建几百个临时日志，进程里同时开着的文件从约 100 涨到近 400。macOS 上 launchd 给的软上限是 256（经 SSH 的 rbuild 也是），会让夹具随机报 `unable to open database file` / `Too many open files`。这里只抬软上限，硬上限更低时保持原样。
+ulimit -n 4096 2>/dev/null || true
 # The neural sentence model tests (msime-engine's lattice::neural and settling tests, msime-input-runtime's settle test) skip without the shipped models, and neither model is in the repository. Fetch the pinned pair so they run here; the path is absolute because cargo runs each test binary from its own crate directory. A failed fetch is not a test failure: the tests skip and say why.
 if python3 scripts/fetch_neural_model.py --out "$root/target/neural-model" > "$collected.neural-model" 2>&1; then
   export MSIME_NEURAL_MODEL_DIR="$root/target/neural-model"
@@ -1156,15 +1165,18 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   #
   # `fourteen-key` 和 `fourteen-key-sentences` 是同样两份集合在全拼 14 键上打：每个字母换成它所在键的组码（这一组的首字母），从 `GridKey` 送进去。14 键与九键共用一套解码，只换码表，所以两者的数字可以直接比。
   # `particles`、`particles-nine-key`、`particles-fourteen-key` 是常用词接句末语气词（债券吗、标注呀）在三种键盘上打：n-gram 表没有句尾，这类口语短句其余几份集合都量不到。
-  for set in sentences harvested neutral words nine-key nine-key-sentences fourteen-key fourteen-key-sentences particles particles-nine-key particles-fourteen-key; do
+  # `nine-key-prefix` 和 `fourteen-key-prefix` 是同一份词级集打到末音节的声母就停（吃饭 打 chif），金标准仍是整个词。其余集合每条都打全了读音，补全词往后排只会让它们变好；停在声母上的用户要的正是补全词，排序改动要在这两份上一起看。
+  for set in sentences harvested neutral words nine-key nine-key-prefix nine-key-sentences fourteen-key fourteen-key-prefix fourteen-key-sentences particles particles-nine-key particles-fourteen-key; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
       neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
       nine-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key" ;;
+      nine-key-prefix) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key --cut-last-syllable initial" ;;
       nine-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --nine-key" ;;
       fourteen-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen" ;;
+      fourteen-key-prefix) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --grid fourteen --cut-last-syllable initial" ;;
       fourteen-key-sentences) args="--set resources/eval/sentences-nine-key-v1.tsv --grid fourteen" ;;
       particles) args="--set resources/eval/sentences-particles-v1.tsv" ;;
       particles-nine-key) args="--set resources/eval/sentences-particles-v1.tsv --nine-key" ;;
@@ -1182,6 +1194,21 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   done
 else
   echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the eval"
+fi
+
+note "typing simulation eval"
+# 打字流模拟（`typing_sim`）：一个用户用手机出厂配置把手写聊天集从头打到尾，学习开着，量逐字首选率、每次上屏首选率和按键数，对照 `resources/eval/baseline-typing-chat-nine-key.json`。上面的集合都是冷启动，量不到学习、暂存部分选择、拼写列和简拼。默认不跑：除了 MSIME_EVAL_RESOURCES 还要 MSIME_TYPING_EVAL=1，单臂在 Studio 上负载 20 时约 1 分钟，负载 800 时约 3 分钟（README 的「耗时」）。整组运行见 `scripts/typing-eval-matrix.sh` 和 resources/eval/README.md「打字流评测」。
+if [ "${MSIME_TYPING_EVAL:-}" = 1 ] && [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
+  if cargo run --release -q -p msime-input-runtime --example typing_sim --locked -- \
+      --resources "$MSIME_EVAL_RESOURCES" --set resources/eval/typing-chat-v1.tsv --keyboard nine \
+      --baseline resources/eval/baseline-typing-chat-nine-key.json >/dev/null 2>&1; then
+    echo "typing simulation chat nine-key: at baseline"
+  else
+    fail "typing simulation differs from resources/eval/baseline-typing-chat-nine-key.json"
+    echo "  accept it with --update-baseline once you have read the diff"
+  fi
+else
+  echo "skipped: set MSIME_TYPING_EVAL=1 and MSIME_EVAL_RESOURCES to run the typing simulation"
 fi
 
 note "reranker keystroke latency"

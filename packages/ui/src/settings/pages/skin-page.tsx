@@ -40,7 +40,7 @@ import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { useAsyncGeneration } from "../use-async-generation";
-import { harmonyTouchRowsForPreferences } from "../../keyboard/keyboard-layouts";
+import { harmonyTouchRowsForPreferences } from "../touch-key-layout-settings";
 
 /** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题按顶部的「内置 / 我的 / 社区」分成键盘缩略图网格，点按即应用；标签栏和「社区」的完整图库由设置外壳画在表单之外，这里只画前两个分类的网格（`tabs`）。 */
 export function SkinSettingsPage({
@@ -95,6 +95,8 @@ export function SkinSettingsPage({
     openCommunity,
     openAccountLogin,
     communityGallery,
+    showAiGeneration,
+    showCommunityContribution,
   } = useSettingsForm();
   useLayoutEffect(() => {
     if (page === "skin" && !mobilePlatform && settingsContentRef.current) {
@@ -128,7 +130,11 @@ export function SkinSettingsPage({
   // 触屏外壳把这页的标题叫作「皮肤」，所以页面也这样称呼自己。
   const pageName = mobilePlatform ? mobilePageTitle("skin", "主题") : "主题";
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
-  const { aiSkins, customSkinLibrary } = client;
+  // 不提供 AI 生成类功能的宿主（HarmonyOS，`showAiGeneration`）不给 AI 皮肤：网格上没有 AI 图块，编辑器里也没有 AI 生成入口。
+  const aiSkins = showAiGeneration ? client.aiSkins : undefined;
+  // AI 皮肤的「发布到社区」只经这个客户端；不提供社区投稿类功能的宿主（HarmonyOS，`showCommunityContribution`）不给，AI 皮肤里就没有发布入口。
+  const publishSkins = showCommunityContribution ? client.communitySkins : undefined;
+  const { customSkinLibrary } = client;
   const {
     value: aiSubview,
     open: openAiSubview,
@@ -299,8 +305,8 @@ export function SkinSettingsPage({
             theme={keyboardPreviewTheme}
             disabled={busy}
             library={client.customSkinLibrary}
-            aiSkins={client.aiSkins}
-            communitySkins={client.communitySkins}
+            aiSkins={aiSkins}
+            communitySkins={publishSkins}
             phonePreview={mobilePlatform}
             onChange={(design) => onCustomThemeChange({ keyboard: design })}
             onUse={onUseCustomKeyboard}
@@ -470,8 +476,8 @@ export function SkinSettingsPage({
           theme={keyboardPreviewTheme}
           disabled={busy}
           library={client.customSkinLibrary}
-          aiSkins={client.aiSkins}
-          communitySkins={client.communitySkins}
+          aiSkins={aiSkins}
+          communitySkins={publishSkins}
           touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           onChange={(design) => onCustomThemeChange({ keyboard: design })}
           onUse={onUseCustomKeyboard}
@@ -482,7 +488,7 @@ export function SkinSettingsPage({
         <AiSkinGeneration
           client={aiSkins}
           library={customSkinLibrary}
-          communitySkins={client.communitySkins}
+          communitySkins={publishSkins}
           touchRows={phoneGrid ? harmonyTouchRowsForPreferences(draft) : undefined}
           fullScreen
           useLabel="使用这款皮肤"

@@ -2,11 +2,18 @@ package app.msime.android.test;
 
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.function.Predicate;
 
 /** 真机验收功能菜单的排列、状态、子页和返回键盘。 */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
+    /** 功能面板的固定尾部（#9945，见 `FunctionPanelModel`）：新增工具只能排在它们前面。 */
+    private static final List<String> FIXED_TAIL = List.of("设置", "反馈", "宣传", "打开官网", "关于");
+
     @Override protected String successDescription() {
         return "toolbar row, four-column function panel, local-input subpanel and keyboard return; hidden toolbar scheme entry opens the picker and switches layouts";
     }
@@ -32,8 +39,9 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         stage = "function panel first page";
         // 前一个套件可能在第二页复制设备信息，复用磁贴后页码会保留。
         showTool("全角");
-        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "设置",
-            "单手模式", "浮动键盘", "无痕输入", "键盘高度"};
+        // 默认工具栏已有输入方式、表情和剪贴板，菜单不重复它们；#9945 把设置移进固定尾部后，第一页末格由按键音补上。
+        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "单手模式",
+            "浮动键盘", "无痕输入", "键盘高度", "按键音"};
         // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
         awaitStableBounds(tool(firstPage[0]));
         panel = await(toolPanel());
@@ -60,23 +68,24 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         for (String toggle : new String[] {"全角", "中文标点", "模糊音", "繁体输出"})
             if (!validSettingState(await(tool(toggle))))
                 throw new AssertionError("Toggle state was not exposed: " + toggle);
-        stage = "function panel second page";
-        AccessibilityNodeInfo sound = showTool("按键音");
-        AccessibilityNodeInfo haptics = await(tool("按键振动"));
-        if (!validFeedbackState(sound) || !validFeedbackState(haptics))
+        stage = "function panel later pages";
+        // 按键音在第一页末格，按键振动和其余工具在后面几页；页码随工具栏显示哪些入口而变，所以逐个翻到所在页再读。
+        if (!validFeedbackState(showTool("按键音")) || !validFeedbackState(showTool("按键振动")))
             throw new AssertionError("Feedback state was not exposed");
         for (String title : new String[] {"反馈", "关于", "打开官网", "词库", "文本编辑", "设备信息"})
-            await(tool(title));
+            showTool(title);
         stage = "功能菜单辅助入口按截图顺序排列";
-        Rect previous = null;
-        for (String title : new String[] {"编辑工具栏", "设备信息", "反馈", "宣传", "打开官网", "关于"}) {
-            Rect bounds = new Rect();
-            await(tool(title)).getBoundsInScreen(bounds);
-            if (previous != null && (bounds.top < previous.top - 2
-                    || (Math.abs(bounds.top - previous.top) <= 2 && bounds.left <= previous.left)))
-                throw new AssertionError("功能菜单辅助入口顺序错误：" + title);
-            previous = bounds;
+        // #9945 起设置、反馈、宣传、打开官网、关于固定在全部工具之后，默认工具栏下跨两页，只能按翻页顺序比较，同屏坐标只比得了同一页。
+        List<String> order = functionPanelOrder();
+        int previous = -1;
+        for (String title : new String[] {"编辑工具栏", "设备信息", "设置", "反馈", "宣传", "打开官网", "关于"}) {
+            int index = order.indexOf(title);
+            if (index <= previous) throw new AssertionError("功能菜单辅助入口顺序错误：" + title + " " + order);
+            previous = index;
         }
+        if (!order.subList(order.size() - FIXED_TAIL.size(), order.size()).equals(FIXED_TAIL))
+            throw new AssertionError("功能菜单固定尾部之后还有条目：" + order);
+        AccessibilityNodeInfo sound = showTool("按键音");
         String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
         stage = "more tools sound update";
@@ -196,6 +205,52 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         for (var window : automation.getWindows())
             if (find(window.getRoot(), match.and(AccessibilityNodeInfo::isVisibleToUser)) != null) return true;
         return false;
+    }
+
+    /** 从第一页翻到最后一页，按页、行、列读出功能菜单条目的描述。 */
+    private List<String> functionPanelOrder() {
+        Predicate<AccessibilityNodeInfo> grid = node -> equalsText("app.msime.android", node.getPackageName())
+            && node.isScrollable() && node.getParent() != null
+            && equalsText("更多工具", node.getParent().getContentDescription());
+        while (awaitAny(grid).performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) settledPage(grid);
+        List<String> order = new ArrayList<>();
+        while (true) {
+            order.addAll(settledPage(grid));
+            if (!awaitAny(grid).performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return order;
+        }
+    }
+
+    /** 当前页看得见的条目描述，按行、列排；翻页有动画，连续两次读到同样的条目和位置才算停下。 */
+    private List<String> settledPage(Predicate<AccessibilityNodeInfo> grid) {
+        String previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            dropStaleNodes();
+            AccessibilityNodeInfo node = awaitAny(grid);
+            List<AccessibilityNodeInfo> tiles = new ArrayList<>();
+            for (int index = 0; index < node.getChildCount(); index++) {
+                AccessibilityNodeInfo child = node.getChild(index);
+                if (child != null && child.isVisibleToUser() && child.getContentDescription() != null) tiles.add(child);
+            }
+            tiles.sort(Comparator.comparingInt((AccessibilityNodeInfo tile) -> bounds(tile).top)
+                .thenComparingInt(tile -> bounds(tile).left));
+            List<String> labels = new ArrayList<>();
+            StringBuilder signature = new StringBuilder();
+            for (AccessibilityNodeInfo tile : tiles) {
+                labels.add(tile.getContentDescription().toString());
+                signature.append(tile.getContentDescription()).append(bounds(tile).toShortString());
+            }
+            if (!labels.isEmpty() && signature.toString().equals(previous)) return labels;
+            previous = signature.toString();
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Function panel page never settled; IME showed " + imeTexts());
+    }
+
+    private static Rect bounds(AccessibilityNodeInfo node) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        return bounds;
     }
 
     private void assertSameRow(AccessibilityNodeInfo first, AccessibilityNodeInfo second,

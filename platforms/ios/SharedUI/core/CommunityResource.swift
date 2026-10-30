@@ -181,4 +181,9 @@ enum CommunityDictionaryImports {
     stored.append(id)
     defaults.set(Array(stored.suffix(limit)), forKey: key)
   }
+
+  /// 清除学习记录以后：导入的社区词库的词是自造词，跟着清掉了，胶囊按钮回到「添加」。
+  static func forgetAll(in defaults: UserDefaults = .standard) {
+    defaults.removeObject(forKey: key)
+  }
 }

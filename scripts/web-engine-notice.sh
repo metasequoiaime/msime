@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 生成 resources/licenses/web-engine-NOTICE.md 里两段由脚本维护的内容，网页引擎（msime-engine-wasm）的 release 把这份文件改名为 NOTICE.md 一起发布。
 #
-# - `repo` 段：仓库里随 wasm 分发的许可证全文，逐字复制自 LICENSE 和 resources/licenses/（GPL-3.0、libhangul 汉字表、行政区划数据、Zinnia、日语模型的 Mozc 与 IPAdic 条款），以及 npm 包所带辅助码表的来源说明（resources/helpcodes/ 的两份 NOTICE）。
-# - `crates` 段：链接进 wasm 的每个 crate、它声明的许可证表达式，以及它随包附带的许可证文件全文（内容相同的文件只收一份）。crate 集合来自 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro`：过程宏及其依赖只在编译期运行，不进 wasm，所以不列；本 workspace 的成员是本项目自己的 GPL-3.0 代码，许可证全文在 `repo` 段。
+# - `repo` 段：仓库里随 wasm 分发的许可证全文，逐字复制自 LICENSE、crates/engine/LICENSE、plugins/phrase_table/LICENSE 和 resources/licenses/（GPL-3.0、引擎的 MPL-2.0、libhangul 汉字表、行政区划数据、Zinnia、librime-octagram 与 darts-clone、libc++、符号模式用到的 Unicode 数据与 LaTeX 表、拼音库单字读音的 pinyin-data、拼音库权重的 rime-wanxiang、五笔 86 库码表的 rime-wubi86-jidian、日语模型的 Mozc 与 IPAdic 条款），以及 npm 包所带辅助码表的来源说明（resources/helpcodes/ 的 NOTICE）。
+# - `crates` 段：链接进 wasm 的每个 crate、它声明的许可证表达式，以及它随包附带的许可证文件全文（内容相同的文件只收一份）。crate 集合来自 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro`：过程宏及其依赖只在编译期运行，不进 wasm，所以不列；本 workspace 的成员是本项目自己的代码，许可证全文在 `repo` 段：多数是 GPL-3.0-only（`LICENSE`），msime-engine 与 msime-path-trust 是 MPL-2.0（`crates/engine/LICENSE`），表里按各自 Cargo.toml 的 license 字段写出。
 #
 # 做法和 platforms/linux/collect-notices.py、Windows 的 Collect-Notices.ps1 相同：许可证文件原样复制，没有附带许可证文件的 crate 单独列出它声明的表达式，缺口看得见而不是被悄悄丢掉。两段以外的手写内容不动。
 #
@@ -53,10 +53,18 @@ repo_section="$work/repo.md"
   echo "<!-- web-engine-notice:repo:begin -->"
   echo "<!-- 本段由 scripts/web-engine-notice.sh 生成，不要手改。 -->"
   for entry in \
-    "LICENSE|GPL-3.0-only：引擎本身（msime-engine、msime-engine-wasm 等本项目 crate）" \
+    "LICENSE|GPL-3.0-only：网页引擎整体，以及 msime-engine-wasm 等 license 字段为 GPL-3.0-only 的本项目 crate" \
+    "crates/engine/LICENSE|MPL-2.0（不附 Exhibit B）：输入引擎 msime-engine；它依赖的 msime-path-trust 也是 MPL-2.0，crates/path-trust/LICENSE 是同一份许可证正文" \
     "resources/licenses/libhangul-hanja-BSD-3-Clause.txt|BSD-3-Clause：libhangul 汉字表（crates/engine/src/korean/hanja.tsv）" \
     "resources/licenses/Administrative-divisions-of-China-WTFPL.txt|WTFPL：中国行政区划数据（crates/engine/src/local/places.tsv）" \
     "resources/licenses/Zinnia-LICENSE.txt|BSD-3-Clause：Zinnia（手写识别模块的 Rust 移植）" \
+    "resources/licenses/librime-octagram-BSD-3-Clause.txt|BSD-3-Clause 与 BSD-2-Clause：librime-octagram 与 darts-clone（搭配模型查询 crates/engine/src/lattice/octagram.rs）" \
+    "resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt|Apache-2.0 WITH LLVM-exception：LLVM libc++ 排序算法的逐步复现（crates/engine/src/lattice/cxx_sort.rs）" \
+    "resources/licenses/Unicode-License-V3.txt|Unicode License V3：符号模式分组表的组员所依的 Unicode 字符数据库 17.0.0（crates/engine/src/local/symbol_groups.tsv）" \
+    "plugins/phrase_table/LICENSE|MIT：符号模式按它查命令名的 LaTeX 表（crates/engine/src/local/latex_symbols.tsv，本项目自写）" \
+    "resources/licenses/pinyin-data-MIT.txt|MIT：mozillazg/pinyin-data（拼音库 msime-pinyin.db 的单字读音按它校正）" \
+    "resources/licenses/rime-wanxiang-CC-BY-4.0.txt|CC BY 4.0：amzxyz/rime-wanxiang（拼音库 msime-pinyin.db 里与它共有的单字和词语的权重改编自它；署名、改动说明与许可证全文）" \
+    "resources/licenses/rime-wubi86-jidian-Apache-2.0.txt|Apache-2.0：KyleBing/rime-wubi86-jidian（五笔 86 库 msime-wubi86.db 的码表；上游提交 063377a0e3ae7d4084a45f03e4269f62f874f7dc 的 LICENSE，即取用这张表时适用的条款，上游 2026-10-29 起改为 MIT）" \
     "resources/licenses/mozc-BSD-3-Clause.txt|BSD-3-Clause：Mozc（日语模型 msime-japanese.dat 的来源，词库 release 的 msime-mozc_LICENSE.txt）" \
     "resources/licenses/mozc-dictionary_oss-README.txt|IPAdic、ICOT 与冲绳词典的条款（日语模型 msime-japanese.dat，词库 release 的 msime-mozc_dictionary_oss_README.txt）" \
     "resources/helpcodes/ENGINE-NOTICE.md|辅助码表 helpcode-lantian、helpcode-ziranma、helpcode-shouyou2_0、helpcode-shouyouplus、helpcode-xiaohe（只在 npm 包里）的来源与权利说明" \
@@ -113,7 +121,13 @@ while IFS="$(printf '\t')" read -r name version; do
   directory="$(printf '%s' "$line" | cut -f5)"
   kind="$(printf '%s' "$line" | cut -f6)"
   if [ "$kind" = member ]; then
-    printf '%s\t%s\t%s\t%s\n' "$name" "$version" "${license:-GPL-3.0-only}" "本项目，见上文 \`LICENSE\`" >> "$work/rows.tsv"
+    # license 字段不是工作区的 GPL-3.0-only 的成员（msime-engine、msime-path-trust）用 MPL-2.0。msime-path-trust 的 LICENSE 与引擎那份只差开头说明里的 crate 名，repo 段只收引擎那份。
+    case "$license" in
+      ""|GPL-3.0-only) license_text="LICENSE" ;;
+      MPL-2.0|"MPL-2.0 AND "*) license_text="crates/engine/LICENSE" ;;
+      *) echo "web-engine-notice: workspace member $name declares $license; add its LICENSE to the repo section" >&2; exit 1 ;;
+    esac
+    printf '%s\t%s\t%s\t%s\n' "$name" "$version" "${license:-GPL-3.0-only}" "本项目，见上文 \`$license_text\`" >> "$work/rows.tsv"
     continue
   fi
   [ -n "$license" ] || license="见 license-file"

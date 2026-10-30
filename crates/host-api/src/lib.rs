@@ -42,15 +42,16 @@ use msime_client_services::typing_statistics::{
 };
 use msime_engine::host::{
     check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
-    nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints,
-    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
-    shuangpin_builtin_table, validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile,
-    CandidateEdge, Command, EngineOptions, NineKeyShuangpinError, NineKeyShuangpinKeyHint,
-    NineKeyShuangpinKind, NineKeyShuangpinTable, Session, ShuangpinCustomProfileError,
-    ShuangpinCustomTable, ShuangpinCustomTablePart,
+    nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints, release_gloss_caches,
+    shuangpin_builtin_table, Command, EngineOptions, Session,
 };
 use msime_engine::{
-    release_japanese_dictionary_cache, SchemeSet, SchemeType, ShuangpinProfileKind,
+    release_idle_personal_models, release_japanese_dictionary_cache,
+    resolve_eighteen_key_shuangpin, resolve_fourteen_key_shuangpin, resolve_nine_key_shuangpin,
+    validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge,
+    NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
+    SchemeSet, SchemeType, ShuangpinCustomProfileError, ShuangpinCustomTable,
+    ShuangpinCustomTablePart, ShuangpinProfileKind,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -80,6 +81,10 @@ mod chinese_english_spacing;
 /// 多分类自动云同步的驱动；C 入口在 `ffi::cloud_sync`。与 `cloud_dictionary` 一样和 C 入口模块同名，所以公开，免得遮住 `ffi` 的同名模块。
 pub mod cloud_sync;
 mod dictionary;
+/// 「我的词条」经 WebDAV 网盘同步的宿主入口，见 `msime_client_dictionary_sync`。公开 [`dictionary_webdav::request_json`]，给直接链接这个 crate 的 Tauri 设置应用用，免得它绕一圈 C ABI。
+pub mod dictionary_webdav;
+/// 同一台设备上两个各有一份个人词库的进程之间交换「我的词条」，见 `msime_client_user_words_mirror`。
+mod user_words_mirror;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
 // examples, and anything linking the rlib - have always reached them at the
 // crate root. Re-exported so moving the file changes no caller.
@@ -280,6 +285,8 @@ struct HostSession {
     edition: &'static Edition,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
+    /// `requested` 的宿主状态（各个 setter、AI 配置缓存、音效设置）都已按它设好。上一次 `update` 在设到一半时出错，就还是 `false`，同一份快照再来时要完整重做，不能走「没变」的捷径。
+    requested_settled: bool,
     /// Whether the requested preferences still need an Engine replacement. This decision is made
     /// when the document arrives so every keystroke does not compare the full preference tree.
     preferences_pending: bool,
@@ -296,6 +303,8 @@ struct HostSession {
     statistics_private: bool,
     /// 只用来看候选的会话（`ffi::session::SessionUse::Preview`）：在任何平台上都不记选词位置和上屏效率。
     preview: bool,
+    /// 宿主在会话选项里写了 `selection_statistics: false`：选词由另一个会话记，这个会话不记选词位置和上屏效率。
+    statistics_recorded_elsewhere: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<SessionAiCredential>,
     /// Cached copy used by every online query until preferences change.
@@ -305,7 +314,7 @@ struct HostSession {
     pending_selections: [u64; RANKS + 1],
     /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
     pending_efficiency: Vec<EfficiencyCandidate>,
-    /// 打字统计的开关，第一次要计效率时从统计文件读一次，每次写入后作废重读；`None` 是还没读。统计关闭时效率一项都不查。
+    /// 本进程所知的打字统计开关（`TypingStatisticsStore::known_enabled`），每次交出选词时更新；`None` 是本进程还没读过统计文件，下次要计效率时再问。统计关闭时效率一项都不查。
     statistics_enabled: Option<bool>,
     /// Where this session's plugin packs, command tables and name list are read from.
     plugin_roots: key_sound::PluginRoots,
@@ -428,8 +437,16 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     if options.multilingual_languages.len() < 2 {
         options.multilingual_languages.clear();
     }
-    // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
+    // 引擎里的键盘模型读的是同一份随版本资源锁走的模型；宿主不打开它（见 `engine_sentence_association`），不带模型的版本更不交给 Engine。
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
+}
+
+/// 整句联想「增强」挂不挂 runtime 的逐键重排器（[`ffi::keyboard_reranker`]）：偏好打开、且本版本带键盘模型。它只管 runtime 这一层，引擎里的键盘模型不跟这个开关走，见 `engine_sentence_association`。
+fn keyboard_reranker_enabled(
+    preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
+    edition: &Edition,
+) -> bool {
+    preferences.neural_keyboard && edition.features.neural_keyboard
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -440,11 +457,11 @@ fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) 
     }
 }
 
-/// The Engine's sentence association switches. The desktop model switch is not among them: it gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs.
+/// The Engine's sentence association switches. Neither model switch reaches it: the desktop one gates the runtime's settled reranker (`Runtime::set_settled_rerank_enabled`), the only place that model runs, and the keyboard one (整句联想「增强」) mounts the runtime's per-keystroke reranker (`keyboard_reranker_enabled`), so the Engine's own keyboard-model rerank stays off.
 fn engine_sentence_association(
     preferences: &msime_client_core::preferences::SentenceAssociationPreferences,
     state_root: Option<&std::path::Path>,
-) -> msime_engine::host::SentenceAssociationOptions {
+) -> msime_engine::SentenceAssociationOptions {
     // 选中的语法模型装好后才有文件路径；选中但没装（或包装在别处的 state_root
     // 下没发布）时留空，引擎逐字节退回无模型基线。
     let pack = match preferences.grammar_model {
@@ -471,9 +488,10 @@ fn engine_sentence_association(
                 .and_then(|artifact| resource_packs::installed_file(root, pack, &artifact.name))
         })
         .unwrap_or_default();
-    msime_engine::host::SentenceAssociationOptions {
+    msime_engine::SentenceAssociationOptions {
         word_lattice: preferences.word_lattice,
-        neural_keyboard: preferences.neural_keyboard,
+        // 引擎自己那层键盘模型（九键跨切分重排、全拼和双拼词库内重排）不跟「增强」打开：在 runtime 的逐键重排之外它几乎不加分，却让按键延迟和内存再涨一截，取舍见 .agents/notes/implemented/feature/2026-10-29-enhanced-runtime-reranker-only.md。它留给直接构造 `EngineOptions` 的评测和实验（`convert_eval`）。
+        neural_keyboard: false,
         show_next_on_duplicate: preferences.show_next_on_duplicate,
         collocation_model,
         collocation_rerank: pack.is_some(),
@@ -646,9 +664,11 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）在任何平台上都不计。
+    /// Android、鸿蒙与 iOS 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。只看候选的会话（`preview`）和宿主声明由别的会话记统计的会话（`statistics_recorded_elsewhere`）在任何平台上都不计。
     fn private_session(&self) -> bool {
-        self.preview || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
+        self.preview
+            || self.statistics_recorded_elsewhere
+            || (PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private)
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
@@ -698,18 +718,22 @@ impl HostSession {
         })
     }
 
-    /// 统计开关；读不到统计目录或文件时当作关闭。
+    /// 打字统计目录，即 HostOptions 的 `preferences_directory`（`state_root`）：各宿主记字数和按键、统计页和上传读的都是这里的 `typing-statistics.json`，选词位置和上屏效率要写进同一份。`user_data` 是 Engine 的个人词库目录，没有宿主在那里读写统计。不是绝对路径时为 `None`，这时什么都不记。
+    fn statistics_directory(&self) -> Option<&Path> {
+        self.state_root.as_deref()
+    }
+
+    /// 统计开关，只看本进程所知的（上次读写统计文件时看到的），不在输入线程上读文件：这里在每次选词的路上，读一次就要取文件锁、先把本进程攒着的整批写出去再 fsync。本进程还没读过统计文件时当作打开，效率照攒，写入时统计文件自己的开关作数，关着就整批丢掉。没有统计目录时当作关闭。
     fn statistics_enabled(&mut self) -> Option<bool> {
         if let Some(enabled) = self.statistics_enabled {
             return Some(enabled);
         }
-        let directory = std::path::Path::new(&self.options.user_data);
-        let enabled = directory.is_absolute()
-            && TypingStatisticsStore::new(directory)
-                .load()
-                .is_ok_and(|statistics| statistics.enabled);
-        self.statistics_enabled = Some(enabled);
-        Some(enabled)
+        let enabled = match self.statistics_directory() {
+            Some(directory) => TypingStatisticsStore::new(directory).known_enabled(),
+            None => Some(false),
+        };
+        self.statistics_enabled = enabled;
+        Some(enabled.unwrap_or(true))
     }
 
     /// 记下一次上屏，等下一次写统计时一起算。上限 [`EFFICIENCY_BATCH_LIMIT`]，超出的不计。
@@ -719,15 +743,14 @@ impl HostSession {
         }
     }
 
-    /// Write the selections counted since the last flush, in the store the host already keeps.
+    /// Hand the selections counted since the last flush to the process's pending typing-statistics batch for the statistics directory.
     ///
-    /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
+    /// 只加内存里的计数，不取统计文件锁、不碰磁盘（`TypingStatisticsStore::queue_selections`）：这里在宿主的输入线程上跑（满一批、失焦和销毁会话时），macOS 的 IMK 主线程、Linux 的 GLib 主循环和移动宿主的 UI 线程都不能整份读写统计文件再 fsync，也不能等统计工作线程手里那次写。攒着的选词和宿主经 `record` 攒的上屏一起写出：失焦和销毁随后的 `flush_typing_statistics`（Windows 失焦和桌面销毁在当前线程上，其余在后台线程上）、满间隔的 `record`，以及读统计的任何操作。尽力而为：统计不能成为按键失败的原因，store 拒收的批次丢掉，不报出去。统计开关由 store 在写出时自己看，这里不另查，免得两处不一致。
     fn flush_selections(&mut self) {
         let pending = std::mem::take(&mut self.pending_selections);
-        let directory = std::path::Path::new(&self.options.user_data);
-        if !directory.is_absolute() {
+        let Some(directory) = self.statistics_directory().map(Path::to_path_buf) else {
             return;
-        }
+        };
         let mut batch = Vec::with_capacity(RANKS);
         batch.extend(
             pending
@@ -736,18 +759,20 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let store = TypingStatisticsStore::new(directory);
-        let enabled = store.record_selections(&batch).ok().flatten();
+        let enabled = TypingStatisticsStore::new(&directory)
+            .queue_selections(&batch)
+            .ok()
+            .flatten();
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
             if cfg!(test) {
-                record_efficiency(&self.options, &commits);
+                record_efficiency(&self.options, &directory, &commits);
             } else {
-                record_efficiency_in_background(self.options.clone(), commits);
+                record_efficiency_in_background(self.options.clone(), directory, commits);
             }
         }
-        // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
+        // 用户可能在设置里关掉或打开了统计：换成本进程此刻所知的开关，它随每次写统计更新。不在输入线程上为一个开关读文件。
         self.statistics_enabled = enabled;
     }
 
@@ -798,6 +823,9 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.force_cantonese_shuangpin = scheme == InputScheme::Cantonese
+            && preferences.touch_keyboard_schemes.selected
+                == Some(TouchKeyboardScheme::CantoneseShuangpin);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -851,6 +879,7 @@ impl HostSession {
         // 先定下辅助码设置：插件表的戳要看当前方案的辅助码是否打开、选了哪个辅助码表包。
         let helpcode = helpcode_for_scheme(&preferences, scheme);
         options.helpcode = helpcode.enabled;
+        options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -964,9 +993,11 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        if options.sentence_association.neural_keyboard != self.runtime.has_reranker() {
+        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        if keyboard != self.runtime.has_reranker() {
             self.runtime.set_reranker(ffi::keyboard_reranker(
-                &options,
+                keyboard,
+                &options.resources,
                 self.recorded_sentence_model.as_deref(),
             ));
         }
@@ -1151,6 +1182,14 @@ impl HostSession {
         if snapshot.format_version != 1 {
             return Err("unsupported preferences format".into());
         }
+        // Android 键盘显示期间每秒把读到的偏好原样交来一次，绝大多数时候和上一份逐字相同。上一份已经校验过、所有 setter 已经按它设过（这些宿主状态只有偏好会改，`msime_client_set_multilingual_output` 的临时投影除外），`preferences_pending` 也一直等于「它与 `applied` 不同」，所以这里只补上会被别处改动的那几样，不再校验、比较整棵偏好、克隆偏好和重建音效设置。
+        if self.requested_settled
+            && self.requested.as_ref().is_some_and(|previous| {
+                previous.revision == snapshot.revision && *previous == snapshot
+            })
+        {
+            return self.update_unchanged();
+        }
         snapshot.preferences.validate().map_err(|e| e.to_string())?;
         if let Some(previous) = &self.requested {
             if snapshot.revision < previous.revision
@@ -1206,6 +1245,7 @@ impl HostSession {
         }
         self.preferences_pending = snapshot.preferences != self.applied;
         self.requested = Some(snapshot);
+        self.requested_settled = false;
         let requested_preferences = self
             .requested
             .as_ref()
@@ -1259,14 +1299,36 @@ impl HostSession {
             &requested_preferences.plugins,
             &self.plugin_roots,
         ));
+        self.requested_settled = true;
         let fallback = self.apply_pending()?;
+        Ok(self.preferences_response(fallback))
+    }
+
+    /// `update` 收到与上一份逐字相同的快照：只做可能因别处改动而需要重做的事，回复与完整更新相同。
+    fn update_unchanged(&mut self) -> Result<Value, String> {
+        let snapshot = self.requested.as_ref().expect("requested snapshot exists");
+        // 宿主经 `msime_client_set_multilingual_output` 临时切过繁简时，再交一次偏好照旧把输出交还给偏好；Windows 宿主在每次更新偏好后也按偏好重置自己的繁简状态，两边要一致。
+        let (traditional, variant) = (
+            snapshot.preferences.traditional_chinese_output,
+            snapshot.preferences.traditional_chinese_variant,
+        );
+        self.runtime.set_multilingual_output(traditional, variant);
+        // 设置页可能重新导入或删掉了正在用的音效包、效果包：只给清单盖戳，戳变了才重读效果包，和完整更新里新建的设置结果相同。
+        self.sound.restamp();
+        // 组字结束后待应用的偏好、资源包和落定重排模型仍在这里换上。
+        let fallback = self.apply_pending()?;
+        Ok(self.preferences_response(fallback))
+    }
+
+    /// `update` 的回复：宿主都会读其中的 `view`。
+    fn preferences_response(&self, fallback: Option<String>) -> Value {
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
         let mut response = json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
         // Applied at once, so no transition will carry the reason the preferred scheme was replaced; a deferred change reports it from `complete_transition` instead.
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
         }
-        Ok(response)
+        response
     }
 }
 
@@ -1799,7 +1861,7 @@ fn japanese_dictionary(downloaded: Option<&DownloadedDictionaries>) -> Option<Pa
     })
 }
 
-/// 五笔码表 `msime-wubi.db` 的位置，资源目录 `resources` 里有它时为 `None`（Engine 读资源目录里的那份）。macOS 发布包不带它，这时是词库更新里的那份或已下载的 `wubi` 资源包里的那份，都没有时为 `None`。
+/// 五笔码表 `msime-wubi.db` 的位置，资源目录 `resources` 里有它时为 `None`（Engine 读资源目录里的那份）。macOS 发布包和 Android 的 full、拼音版瘦包不带它，这时是词库更新里的那份或已下载的 `wubi` 资源包里的那份，都没有时为 `None`。
 fn wubi_dictionary(
     downloaded: Option<&DownloadedDictionaries>,
     resources: &Path,
@@ -2011,6 +2073,9 @@ struct HostOptions {
     /// the field would otherwise show nothing for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     phrase_preedit: Option<bool>,
+    /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection_statistics: Option<bool>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2061,6 +2126,71 @@ struct HostOptions {
     edition: Option<&'static Edition>,
 }
 
+/// 宿主选项里的偏好副本用不了时，输入运行时改用的偏好：`preferences_directory` 下有实时的 preferences.json 就读它（读不了时在内存里救下认得的设置），没有就救副本自己的，默认值取文档记录的版本。文档里没有偏好副本、也没有实时文档时返回 `None`。读不了的偏好经诊断出口报告，盘上的文件不动。
+fn runtime_preferences_for(document: &Value) -> Option<Preferences> {
+    let directory = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .map(std::path::PathBuf::from)
+        // load_for_runtime() 会创建传入的目录；从没在那里写过偏好的宿主没有可替代的内容。
+        .filter(|directory| {
+            directory.is_absolute() && directory.join("preferences.json").is_file()
+        });
+    if let Some(directory) = directory {
+        if let Ok(runtime) = PreferencesStore::new(&directory).load_for_runtime() {
+            report_unreadable_preferences(&runtime);
+            return Some(runtime.snapshot.preferences);
+        }
+    }
+    let copy = document.get("preferences")?.clone();
+    // 副本本身没问题、是文档别处不对时照原样交回，不当成偏好读不了去报告。
+    if let Ok(preferences) = Preferences::deserialize(&copy) {
+        if preferences.validate().is_ok() {
+            return Some(preferences);
+        }
+    }
+    let edition = Edition::of_host_options(document)?;
+    let (preferences, not_kept) =
+        Preferences::salvaged_from(copy, edition_default_preferences(edition)).ok()?;
+    crate::diagnostics::report(
+        "runtime options preferences unusable",
+        &format!(
+            "the preferences copy in the runtime options does not validate and there is no live preferences.json; running on the settings that could be kept, settings not kept: {}",
+            not_kept.join(", ")
+        ),
+    );
+    Some(preferences)
+}
+
+/// `edition` 的默认偏好，与 [`PreferencesStore`] 修复损坏文件时垫底的相同。
+fn edition_default_preferences(edition: &'static Edition) -> Preferences {
+    if edition.is_full() {
+        Preferences::default()
+    } else {
+        Preferences::for_edition(edition)
+    }
+}
+
+/// 读得了时什么也不做；读不了时报告输入运行时改用了在内存里救下的设置。设置界面经严格读取看到同一个错误，修不修复由用户决定。
+///
+/// 只报告错误的种类和没能保留的设置键，不带 serde 的错误原文：类型不对时它会引出文档里的字符串取值，那可能是用户填的地址或密钥，而诊断日志会被打进诊断包发出去。
+fn report_unreadable_preferences(runtime: &msime_client_core::preferences::RuntimePreferences) {
+    use msime_client_core::preferences::PreferencesError;
+    let Some(error) = &runtime.load_error else {
+        return;
+    };
+    let kind = match error {
+        PreferencesError::Json(_) => {
+            "the document does not parse as this version's preferences".to_owned()
+        }
+        other => other.to_string(),
+    };
+    crate::diagnostics::report(
+        "preferences document unreadable",
+        &format!("{kind}; settings not kept: {}; typing continues on the settings that could be kept, the file is left untouched until it is repaired in settings or rewritten by a newer version", runtime.not_kept.join(", ")),
+    );
+}
+
 /// HostOptions 的 `edition` 键与版本表条目之间的转换。
 mod edition_id {
     use msime_client_core::edition::Edition;
@@ -2094,18 +2224,14 @@ impl HostOptions {
         self.edition.unwrap_or_else(Edition::full)
     }
 
-    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`）。#2830 退役 `autocorrect` 时，带着它的副本曾让会话、快照和词库请求全部被拒，macOS 每个按键都像在英文模式下一样直接交给应用；偏好结构现在不拒绝不认识的键，新增或退役一个键不会再让副本读不了，但取值的类型或格式变化仍会。副本被拒时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它。副本能解析时照原样使用。
+    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`）。#2830 退役 `autocorrect` 时，带着它的副本曾让会话、快照和词库请求全部被拒，macOS 每个按键都像在英文模式下一样直接交给应用；偏好结构现在不拒绝不认识的键，新增或退役一个键不会再让副本读不了，但取值的类型或格式变化、以及新版本校验更严（#9802 的文本编辑排列）仍会。副本解析不了或通不过校验时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它；实时文档也读不了时在内存里救下它认得的设置（[`PreferencesStore::load_for_runtime`]），没有实时文档时救副本自己的，都不改写任何文件。副本能用时照原样使用。
     pub(crate) fn from_document(mut document: Value) -> Option<Self> {
         if let Ok(options) = Self::deserialize(&document) {
-            return Some(options);
+            if options.preferences.validate().is_ok() {
+                return Some(options);
+            }
         }
-        let directory = std::path::PathBuf::from(document.get("preferences_directory")?.as_str()?);
-        // load() 会创建传入的目录；从没在那里写过偏好的宿主没有可替代的内容。
-        if !directory.is_absolute() || !directory.join("preferences.json").is_file() {
-            return None;
-        }
-        let snapshot = PreferencesStore::new(&directory).load().ok()?;
-        document["preferences"] = serde_json::to_value(snapshot.preferences).ok()?;
+        document["preferences"] = serde_json::to_value(runtime_preferences_for(&document)?).ok()?;
         Self::deserialize(&document).ok()
     }
 
@@ -2157,6 +2283,9 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            force_cantonese_shuangpin: scheme == InputScheme::Cantonese
+                && self.preferences.touch_keyboard_schemes.selected
+                    == Some(TouchKeyboardScheme::CantoneseShuangpin),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
@@ -2232,6 +2361,7 @@ impl HostOptions {
             japanese_dictionary: path_text(japanese),
             wubi_dictionary: wubi,
             helpcode: helpcode.enabled,
+            strict_quanpin_helpcode: helpcode.strict_filter,
             show_helpcode: helpcode.show_in_candidate_window,
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
@@ -2453,7 +2583,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS 是日文词典与它的两份 Mozc 许可文本、以及五笔码表，Android 和 iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS 和 Android 是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts(std::env::consts::OS);
 
@@ -2642,13 +2772,22 @@ fn prepare_host_with_updates(
 }
 
 /// 状态目录里 `edition` 的偏好。还没有偏好文件时，先把此刻读到的偏好写成第一份文件（[`PreferencesStore::write_first_document`]），理由见 [`prepare_host_configuration_for_edition`]。必须在建用户词库代次之前调用：没有偏好文件时，状态目录有没有被准备过决定触屏键盘按新装还是按升级前的默认方案。
+///
+/// 已有的偏好文件读不了（更新的版本写的取值、本版本校验更严、写坏的字节）时不让准备失败，否则用户完全打不了字（#9802 那次 iOS 键盘、HarmonyOS 和 Windows 的 Server 都是这样）：改用在内存里救下的设置（[`PreferencesStore::load_for_runtime`]），文件不动，原因经诊断出口报告。只有存储本身出错时准备才失败。
 fn edition_preferences(
     state_root: &Path,
     edition: &'static Edition,
 ) -> Result<Preferences, Box<dyn std::error::Error>> {
-    Ok(PreferencesStore::for_edition(state_root, edition)
-        .write_first_document()?
-        .preferences)
+    let store = PreferencesStore::for_edition(state_root, edition);
+    match store.write_first_document() {
+        Ok(snapshot) => Ok(snapshot.preferences),
+        Err(msime_client_core::preferences::PreferencesError::Io(error)) => Err(error.into()),
+        Err(_) => {
+            let runtime = store.load_for_runtime()?;
+            report_unreadable_preferences(&runtime);
+            Ok(runtime.snapshot.preferences)
+        }
+    }
 }
 
 /// [`prepare_host_configuration_for_edition`] 按给定的锁文件和按需下载清单准备；测试借它在各平台上检查 macOS 的发货规则。
@@ -2709,6 +2848,7 @@ fn prepare_shipped_host_configuration(
                 .to_owned(),
         ),
         phrase_preedit: None,
+        selection_statistics: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,
@@ -3498,7 +3638,8 @@ const EFFICIENCY_BATCH_LIMIT: usize = 256;
 
 /// 等后台写进统计的上屏批次，和是否已有一个线程在写。
 struct EfficiencyQueue {
-    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    /// 每一批：查读音用的 Engine 选项、写入的统计目录和这批上屏。
+    pending: Vec<(EngineOptions, PathBuf, Vec<EfficiencyCandidate>)>,
     running: bool,
 }
 
@@ -3514,10 +3655,14 @@ fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
 }
 
 /// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
-fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+fn record_efficiency_in_background(
+    options: EngineOptions,
+    directory: PathBuf,
+    commits: Vec<EfficiencyCandidate>,
+) {
     {
         let mut queue = efficiency_queue();
-        queue.pending.push((options, commits));
+        queue.pending.push((options, directory, commits));
         if queue.running {
             return;
         }
@@ -3543,8 +3688,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
                 }
                 std::mem::take(&mut queue.pending)
             };
-            for (options, commits) in batches {
-                record_efficiency(&options, &commits);
+            for (options, directory, commits) in batches {
+                record_efficiency(&options, &directory, &commits);
             }
         }
     };
@@ -3558,12 +3703,8 @@ fn record_efficiency_in_background(options: EngineOptions, commits: Vec<Efficien
     }
 }
 
-/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
-fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
-    let directory = std::path::Path::new(&options.user_data);
-    if !directory.is_absolute() {
-        return;
-    }
+/// 把一批上屏算成效率计数写进统计目录 `directory`（[`HostSession::statistics_directory`]）：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, directory: &Path, commits: &[EfficiencyCandidate]) {
     let mut efficiency = CommitEfficiency::default();
     for commit in commits {
         let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);
@@ -3603,9 +3744,9 @@ struct EfficiencyCandidate {
     prediction: bool,
 }
 
-/// How many committing selections a session holds in memory before writing them to typing statistics.
+/// How many committing selections a session holds in memory before handing them to the process's pending typing-statistics batch.
 ///
-/// Writing one means locking, reading and parsing the whole document, then an fsync (F_FULLFSYNC on Apple platforms) and a rename, all on the host's input thread, which cost a few milliseconds per tapped or clicked candidate. A session also writes what it holds on focus-out and on destroy, so this only bounds what a process killed mid-field loses - the iOS keyboard extension and the Android IME process can be killed without either. 32 selections is some tens of seconds of typing, a small loss for a statistic that only ever reports a rate, and it turns 32 writes into one.
+/// 交出去只是加内存里的计数（`flush_selections`），写文件跟着宿主经 `record` 攒的上屏走：满间隔的 `record`、失焦和销毁、读统计的操作。会话在失焦和销毁时也会交出手里的选词，所以这个数只限定输入框用着时有多少选词赶不上定期的写，也就是进程在输入框里被杀时丢多少：iOS 键盘扩展和 Android 输入法进程可能既不失焦也不销毁就被杀掉。32 次选词是几十秒的输入，对一个只报比例的统计丢得起，也免得每次选词都去取进程级的那把锁。
 const SELECTION_BATCH: u64 = 32;
 
 #[cfg(test)]

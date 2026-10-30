@@ -131,6 +131,21 @@ void notify_dictionary_outdated() {
                    const_cast<gchar *>("dictionary-outdated"), nullptr};
   g_spawn_async(nullptr, argv, nullptr, G_SPAWN_STDOUT_TO_DEV_NULL, nullptr, nullptr, nullptr, nullptr);
 }
+// 「我的词条」的网盘自动同步在 Rust 的后台线程里跑（msime_client.h 的 msime_client_dictionary_sync_start），这里只交出运行时配置文件和与设置应用共用的状态目录：设置应用用的是共享状态目录（runtime options 的 preferences_directory）下的 dictionary-sync（apps/desktop/src-tauri/src/platform/dictionary_sync.rs）。后台线程每一轮重读配置和偏好，没配置网盘、设置应用还没生成设备身份时什么也不做，从不自己生成身份。起它只是开一个线程，不在主循环上读写文件或联网。
+bool start_dictionary_sync(const char *options_path, const std::string &preferences_directory) {
+  if (preferences_directory.empty() || preferences_directory.front() != '/') return false;
+  const auto request = nlohmann::json{
+      {"options_path", options_path},
+      {"directory", (std::filesystem::path(preferences_directory) / "dictionary-sync").string()},
+  }.dump();
+  char *response = msime_client_dictionary_sync_start(reinterpret_cast<const uint8_t *>(request.data()), request.size());
+  if (!response) return false;
+  const auto envelope = nlohmann::json::parse(response, nullptr, false);
+  msime_client_string_free(response);
+  const bool started = envelope.is_object() && envelope.value("ok", false);
+  if (!started) std::cerr << "Cannot start dictionary sync\n";
+  return started;
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -241,6 +256,7 @@ int main(int argc, char **argv) {
     restore_global_engine(bus);
   // Delivery runs after registration on a thread that is never joined, so an unreachable endpoint cannot delay the engine and exiting mid-request only leaves the events queued.
   msime::telemetry::start_flushing();
+  const bool dictionary_sync = start_dictionary_sync(options_path, preferences_directory);
   auto config_file = g_file_new_for_path(options_path);
   OptionsWatch options_watch{options_path, config_file, 0, {}};
   auto config_directory = g_file_get_parent(config_file);
@@ -288,6 +304,8 @@ int main(int argc, char **argv) {
   g_object_unref(component);
   g_object_unref(factory);
   g_object_unref(bus);
+  // 正在跑的那一次同步最多等两秒；没等完也不要紧，每一步都已写盘，进程随后退出。
+  if (dictionary_sync) (void)msime_client_dictionary_sync_stop(2000);
   // Every way out of the main loop is a normal end of this session.
   msime::telemetry::end();
   // 因停止信号退出：收尾已经做完，按这个信号的默认动作结束，退出状态与没有处理函数时相同。

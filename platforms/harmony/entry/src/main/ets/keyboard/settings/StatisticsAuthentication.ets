@@ -2,9 +2,14 @@ import preferences from '@ohos.data.preferences';
 import common from '@ohos.app.ability.common';
 import userAuth from '@ohos.userIAM.userAuth';
 import cryptoFramework from '@ohos.security.cryptoFramework';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, systemDateTime } from '@kit.BasicServicesKit';
+import { StatisticsAuthenticationCooldown } from './StatisticsAuthenticationCooldown';
 
-/** 只接受系统验证成功或明确未设置锁屏密码，不记录认证令牌。 */
+// 冷却跨设置页实例共用：页面重建不应让刚认证过的用户再认证一次。
+const cooldown: StatisticsAuthenticationCooldown = new StatisticsAuthenticationCooldown(
+  (): number => systemDateTime.getUptime(systemDateTime.TimeType.STARTUP));
+
+/** 只接受系统验证成功或明确未设置锁屏密码，不记录认证令牌。默认关闭：每次看统计都要验证太打扰，需要的人在「我的」里打开。 */
 export class StatisticsAuthentication {
   private timer: number = -1;
   private instance: userAuth.UserAuthInstance | undefined = undefined;
@@ -12,12 +17,12 @@ export class StatisticsAuthentication {
 
   enabled(context: common.UIAbilityContext): boolean {
     return preferences.getPreferencesSync(context, { name: 'statistics-authentication' })
-      .getSync('enabled', true) as boolean;
+      .getSync('enabled', false) as boolean;
   }
 
   async setEnabled(context: common.UIAbilityContext, enabled: boolean): Promise<void> {
     const store = preferences.getPreferencesSync(context, { name: 'statistics-authentication' });
-    const previous = store.getSync('enabled', true);
+    const previous = store.getSync('enabled', false);
     store.putSync('enabled', enabled);
     try {
       await store.flush();
@@ -30,6 +35,11 @@ export class StatisticsAuthentication {
   authenticate(context: common.UIAbilityContext): Promise<boolean> {
     this.cancel();
     if (!this.enabled(context)) return Promise.resolve(true);
+    // 刚认证过（含刚离开统计页或退到后台）时不再弹认证。
+    if (cooldown.active()) {
+      cooldown.granted();
+      return Promise.resolve(true);
+    }
     try {
       userAuth.getAvailableStatus(userAuth.UserAuthType.PIN, userAuth.AuthTrustLevel.ATL1);
     } catch (error) {
@@ -63,7 +73,9 @@ export class StatisticsAuthentication {
             this.instance = undefined;
             this.finish = undefined;
             instance.off('result', callback);
-            resolve(result.result === userAuth.UserAuthResultCode.SUCCESS);
+            const success: boolean = result.result === userAuth.UserAuthResultCode.SUCCESS;
+            if (success) cooldown.granted();
+            resolve(success);
           }
         };
         this.instance = instance;
@@ -78,7 +90,9 @@ export class StatisticsAuthentication {
     });
   }
 
+  /** 统计页离开、退到后台或开始新的认证时都会走到这里：顺带让冷却从现在算起。 */
   cancel(): void {
+    cooldown.ended();
     if (this.timer !== -1) clearTimeout(this.timer);
     this.timer = -1;
     const instance = this.instance;

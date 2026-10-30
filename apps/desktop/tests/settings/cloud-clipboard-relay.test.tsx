@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_RELAY_UNSUPPORTED,
@@ -23,6 +23,7 @@ import {
   withCloudClipboardWebDav,
 } from "../../../../packages/ui/src/settings/cloud-clipboard-relay";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { testHost } from "../support/host";
 
 afterEach(() => {
   cleanup();
@@ -427,6 +428,68 @@ test("the clipboard page saves a webdav drive only after the connection test pas
   expect("cloud_clipboard_relay" in save.mock.calls[1][1]).toBe(false);
 });
 
+test.each(["水杉账号", "自建中继"])(
+  "WebDAV 保存测试期间切到%s后，旧结果不能写入配置",
+  async (mode) => {
+    let finishProbe!: () => void;
+    const probeCloudClipboardWebDav = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishProbe = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const save = vi.fn(async (revision: number, preferences: Preferences) =>
+      snapshot(preferences, revision + 1),
+    );
+    render(
+      <SettingsPage
+        initialPage="tools"
+        client={{
+          load: vi.fn().mockResolvedValue(snapshot({ ...base, cloud_clipboard_webdav: WEBDAV })),
+          save,
+          cloudClipboardRelay: true,
+          probeCloudClipboardWebDav,
+        }}
+      />,
+    );
+    await settingsFormReady();
+    const next = { ...WEBDAV, url: "https://dav.example.test/dav/other" };
+    const address = screen.getByRole("textbox", { name: "服务器地址" }) as HTMLInputElement;
+    // 表单出现时加载仍可能收尾，先等已保存配置回填且输入框可用。
+    await waitFor(() => {
+      expect(address.matches(":disabled")).toBe(false);
+      expect(address.value).toBe(WEBDAV.url);
+    });
+    fireEvent.change(address, { target: { value: next.url } });
+    const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" });
+    await waitFor(() => expect(saveButton.matches(":disabled")).toBe(false));
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledExactlyOnceWith(next));
+    fireEvent.click(screen.getByRole("radio", { name: mode }));
+    await act(async () => {
+      finishProbe();
+    });
+    saveSettingsNow();
+    expect(save).not.toHaveBeenCalled();
+    expect((screen.getByRole("radio", { name: mode }) as HTMLInputElement).checked).toBe(true);
+
+    // 切回后保留未提交的草稿，旧测试不能冒充当前草稿的测试结果。
+    fireEvent.click(screen.getByRole("radio", { name: "WebDAV" }));
+    expect((screen.getByRole("textbox", { name: "服务器地址" }) as HTMLInputElement).value).toBe(
+      next.url,
+    );
+    expect(screen.queryByText("连接正常，可以保存。")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 设置" }));
+    await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledTimes(2));
+    saveSettingsNow();
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual(next);
+  },
+);
+
 test("a saved app password is never echoed and is kept when only the folder changes", async () => {
   const save = vi.fn(async (revision: number, preferences: Preferences) =>
     snapshot(preferences, revision + 1),
@@ -494,4 +557,41 @@ test("the drive's own failures have their own words and are not read as signed o
     "网盘拒绝了这个账号或应用密码。",
   );
   expect(cloudClipboardWebDavProbeMessage({ code: "relay_unavailable" })).toContain("连不上网盘");
+});
+
+test("the HarmonyOS phone's clipboard page offers the relay and a tested WebDAV drive", async () => {
+  // 鸿蒙设置应用（apps/harmony）在同意隐私政策后提供这两项，「测试连接」经宿主的 `cloud_clipboard_webdav_probe` 请求由 Rust 跑。
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  const probeCloudClipboardWebDav = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        host: testHost({ platform: "harmony" }),
+        load: vi.fn().mockResolvedValue(snapshot(base)),
+        save,
+        cloudClipboardRelay: true,
+        probeCloudClipboardWebDav,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(await screen.findByRole("radio", { name: "自建中继" })).toBeDefined();
+  fireEvent.click(screen.getByRole("radio", { name: "WebDAV" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "服务器地址" }), {
+    target: { value: WEBDAV.url },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "账号" }), {
+    target: { value: WEBDAV.username },
+  });
+  fireEvent.change(screen.getByLabelText("应用密码"), { target: { value: WEBDAV.password } });
+  const saveButton = screen.getByRole("button", { name: "保存 WebDAV 设置" }) as HTMLButtonElement;
+  await waitFor(() => expect(saveButton.disabled).toBe(false));
+  fireEvent.click(saveButton);
+  await waitFor(() => expect(probeCloudClipboardWebDav).toHaveBeenCalledWith(WEBDAV));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][1].cloud_clipboard_webdav).toEqual(WEBDAV);
 });

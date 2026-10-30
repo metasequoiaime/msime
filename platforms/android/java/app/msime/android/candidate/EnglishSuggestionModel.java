@@ -3,25 +3,15 @@ package app.msime.android.candidate;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 不创建输入会话的英文候选响应解码与有界展示合并。 */
+/** 不创建输入会话的英文候选响应解码；展示列表的合并由共享引擎决定。 */
 public final class EnglishSuggestionModel {
     private static final int MAX_ITEMS = 32;
     private static final int MAX_WORD_LENGTH = 128;
 
     private EnglishSuggestionModel() {}
 
-    public record Result(String prefix, List<String> items) {}
-
-    /** 展示补全时仍把原文及唯一纠错放在前面；边界提交只使用独立的纠错查询。 */
-    public static Result withCompletions(Result corrections, Result completions) {
-        if (!corrections.prefix().equals(completions.prefix())) return corrections;
-        ArrayList<String> items = new ArrayList<>(corrections.items());
-        for (String word : completions.items()) {
-            if (items.size() >= MAX_ITEMS) break;
-            if (items.stream().noneMatch(item -> item.equalsIgnoreCase(word))) items.add(word);
-        }
-        return new Result(corrections.prefix(), List.copyOf(items));
-    }
+    /** corrected 只来自合并展示查询：为真时第二行是纠错，否则其后都是前缀补全。 */
+    public record Result(String prefix, List<String> items, boolean corrected) {}
 
     public static Result decode(String response) {
         if (response == null || response.length() > 262_144)
@@ -52,7 +42,11 @@ public final class EnglishSuggestionModel {
         }
         if (offset >= response.length() || response.charAt(offset) != ']')
             throw new IllegalArgumentException("Invalid English completion items");
-        return new Result(prefixValue.value(), List.copyOf(items));
+        int correctedStart = response.indexOf("\"corrected\":");
+        boolean corrected = correctedStart >= 0 && response.startsWith("true", correctedStart + 12);
+        if (corrected && items.size() != 2)
+            throw new IllegalArgumentException("Invalid English correction display");
+        return new Result(prefixValue.value(), List.copyOf(items), corrected);
     }
 
     private record ParsedString(String value, int nextOffset) {}

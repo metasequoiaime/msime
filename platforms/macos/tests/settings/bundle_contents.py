@@ -188,9 +188,19 @@ def main() -> int:
     # 百炼请求的 Base64 编码用的 cppcodec 编进了输入法，MIT 要求随副本附带它的许可声明。
     if not (contents / "Resources" / "Licenses" / "cppcodec-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/cppcodec-MIT.txt is missing; cppcodec, compiled into the input method, ships without its licence")
-    # The sound player links MPL-2.0 crates (symphonia, triple_buffer) into the input method, and the engine links rink-core.
+    # The input engine is MPL-2.0 itself, the sound player links MPL-2.0 crates (symphonia, triple_buffer) into the input method, and the engine links rink-core.
     if not (contents / "Resources" / "Licenses" / "MPL-2.0.txt").is_file():
-        failures.append("Contents/Resources/Licenses/MPL-2.0.txt is missing; the MPL-2.0 crates of the sound player and unit conversion ship without their licence")
+        failures.append("Contents/Resources/Licenses/MPL-2.0.txt is missing; the input engine and the MPL-2.0 crates of the sound player and unit conversion ship without their licence")
+    # 引擎的 cxx_sort.rs 逐步复现了 libc++ 的排序算法，Apache-2.0 第 4 条要求随附许可证。
+    if not (contents / "Resources" / "Licenses" / "libcxx-Apache-2.0-WITH-LLVM-exception.txt").is_file():
+        failures.append("Contents/Resources/Licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt is missing; the libc++ sorts the engine reproduces ship without their licence")
+    # 引擎编进了本项目自写的 MIT LaTeX 表，不带官方短语表包的构建也要附上 MIT 全文。
+    if not (contents / "Resources" / "Licenses" / "latex-symbols-MIT.txt").is_file():
+        failures.append("Contents/Resources/Licenses/latex-symbols-MIT.txt is missing; the LaTeX table compiled into the engine ships without its licence")
+    # 随包词库里有 MIT 与 Apache-2.0 的数据（msime-pinyin.db 的单字读音、msime-english.db 的中英释义、msime-others.db 的颜文字与关键词读音、msime-wubi.db 的 86 码表），两种许可都要求随副本附上全文；msime-pinyin.db 与 msime-stroke.db 还有改编自 rime-wanxiang 的权重（CC BY 4.0），署名、改动说明与许可证在 rime-wanxiang-CC-BY-4.0.txt。
+    for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt", "rime-wanxiang-CC-BY-4.0.txt"):
+        if not (contents / "Resources" / "Licenses" / notice).is_file():
+            failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled dictionary data it covers ships without its licence")
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.
     if not (contents / "Resources" / "Licenses" / "Administrative-divisions-of-China-WTFPL.txt").is_file():
         failures.append("Contents/Resources/Licenses/Administrative-divisions-of-China-WTFPL.txt is missing; the built-in place names ship without their licence")
@@ -200,12 +210,9 @@ def main() -> int:
     # 引擎编进了从 kfcd/chaizi 改编的拆字表，CC BY 3.0 要求随改编作品附上署名和改动说明。
     if not (contents / "Resources" / "Licenses" / "kfcd-chaizi-CC-BY-3.0.txt").is_file():
         failures.append("Contents/Resources/Licenses/kfcd-chaizi-CC-BY-3.0.txt is missing; the built-in component reverse lookup table ships without its attribution")
-    # 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml，CC BY 4.0 第 3(a) 条要求随改编数据附上署名、许可证地址和改动说明。
-    if not (contents / "Resources" / "Licenses" / "rime-wanxiang-CC-BY-4.0.txt").is_file():
-        failures.append("Contents/Resources/Licenses/rime-wanxiang-CC-BY-4.0.txt is missing; the built-in symbol mode table ships without its attribution")
-    # 拆字表里的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的声明。
+    # 拆字表里的读音、名次和繁体字形取自 Unihan，符号模式的分组表按 Unicode 字符数据库挑选组员，Unicode License V3 要求随数据附上它的声明。
     if not (contents / "Resources" / "Licenses" / "Unicode-License-V3.txt").is_file():
-        failures.append("Contents/Resources/Licenses/Unicode-License-V3.txt is missing; the Unihan readings in the built-in component reverse lookup table ship without their licence")
+        failures.append("Contents/Resources/Licenses/Unicode-License-V3.txt is missing; the Unihan readings in the built-in component reverse lookup table and the Unicode data behind the symbol mode table ship without their licence")
     if not (contents / "Resources" / "Licenses" / "OpenCC-Apache-2.0.txt").is_file():
         failures.append("缺少 OpenCC-Apache-2.0.txt，内嵌的简繁词表必须附带许可证")
     # Cantonese and Zhuyin read dictionaries built from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later). The notices ship unconditionally, so a build that later gains the dictionaries is never without them.

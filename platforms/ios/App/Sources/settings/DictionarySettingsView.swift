@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 词库页：已安装的词库、导入入口、可添加的社区词库和切到「社区」标签页「词库」分段的「浏览更多词库」、学习开关，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
+/// 词库页：已安装的词库、导入入口、进入「词库同步」的链接、可添加的社区词库和切到「社区」标签页「词库」分段的「浏览更多词库」、学习开关和「清除学习记录」，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
 struct DictionarySettingsView: View {
   /// 设计稿最多列出这么多社区词库；完整列表（搜索、详情、收藏、评分、举报和发布）在「社区」标签页的「词库」分段里。
   private static let discoverLimit = 8
@@ -13,6 +13,8 @@ struct DictionarySettingsView: View {
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   @State private var dictionary: PersonalDictionaryState?
+  /// 偏好里有没有配置词库同步的网盘。
+  @State private var syncConfigured = false
   @State private var importing = false
   @State private var discover: [CommunityResource]?
   @State private var discoverFailed = false
@@ -21,6 +23,8 @@ struct DictionarySettingsView: View {
   @State private var adding: Set<String> = []
   @State private var confirming: CommunityResource?
   @State private var message: String?
+  @State private var confirmsClearLearning = false
+  @State private var clearingLearning = false
   private let store = PersonalDictionaryStore.forSettingsPages()
 
   var body: some View {
@@ -39,6 +43,13 @@ struct DictionarySettingsView: View {
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("importDictionaryAction")
+        }
+        DesignGroup(title: "同步", footer: "把「我的词条」经你自己的 WebDAV 网盘（坚果云、Nextcloud 等）在设备之间同步，包括删除；不需要登录水杉账号，网盘只保存密文。") {
+          NavigationLink(destination: DictionarySyncView()) {
+            DesignNavRowLabel(title: "词库同步", value: syncConfigured ? "WebDAV" : "未开启")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("dictionarySyncLink")
         }
         updateSection
         DesignGroup(title: "发现词库") { discoverRows }
@@ -72,6 +83,8 @@ struct DictionarySettingsView: View {
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
     .reloadOnAppearAndActive(reload)
+    // 自造词数量取自键盘上次列出的那一页；打开页面时请键盘下次出现时重新列一次。
+    .task { try? store.requestRefresh() }
     .task { await loadDiscover() }
     .task {
       while !Task.isCancelled {
@@ -93,6 +106,10 @@ struct DictionarySettingsView: View {
     } message: { item in
       Text("「\(item.name)」的 \(item.content.entries?.count ?? 0) 条词条会加入本机个人词库，开启完全访问后由水杉键盘在空闲时导入。")
     }
+    .confirmationDialog(ClearLearningCopy.confirmTitle, isPresented: $confirmsClearLearning, titleVisibility: .visible) {
+      Button(ClearLearningCopy.action, role: .destructive) { Task { await clearLearning() } }
+      Button("取消", role: .cancel) {}
+    } message: { Text(ClearLearningCopy.confirmMessage) }
     .alert("词库", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
     } message: { Text(message ?? "") }
@@ -267,6 +284,13 @@ struct DictionarySettingsView: View {
                     sheetTitle: "线性调频步长", identifier: "frequencyAdjustmentLinearStepPicker")
       .disabled(!stepEnabled)
       .opacity(stepEnabled ? 1 : 0.45)
+    DesignDivider(leading: 20)
+    Button { confirmsClearLearning = true } label: {
+      DesignNavRowLabel(title: ClearLearningCopy.title, subtitle: ClearLearningCopy.subtitle)
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .disabled(clearingLearning)
+    .accessibilityIdentifier("clearLearningAction")
     if saveFailed {
       DesignDivider(leading: 20)
       Text(SettingsSaveFailure.message)
@@ -284,8 +308,30 @@ struct DictionarySettingsView: View {
     "开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。不调频保留词库原有顺序，只学习新词；一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。"
   }
 
+  /// 在主线程之外清除，结果用页面的「词库」提示框说。成功后社区词库的「已添加」作废（那些词是自造词，一起清掉了），并请键盘下次出现时重新列出个人词库，词数跟着更新。
+  @MainActor private func clearLearning() async {
+    guard !clearingLearning else { return }
+    clearingLearning = true
+    defer { clearingLearning = false }
+    let outcome: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+      Result { try MetasequoiaInputSessionBridge.resetLearnedData() }
+    }.value
+    switch outcome {
+    case .success:
+      CommunityDictionaryImports.forgetAll()
+      try? store.requestRefresh()
+      reload()
+      message = ClearLearningCopy.cleared
+    case .failure(let error):
+      message = (error as? MetasequoiaInputSessionBridge.LearnedDataResetFailure) == .busy
+        ? ClearLearningCopy.busy : ClearLearningCopy.failed
+    }
+  }
+
   private func reload() {
-    habits = InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    habits = InputHabitPreference.settings(in: preferences)
+    syncConfigured = IOSDictionarySyncPolicy.Configuration(preferences: preferences) != nil
     // 队列文件读不出来只是在这里不显示数量；错误由「拼音词库」页报告。
     dictionary = try? store.read()
     added = CommunityDictionaryImports.ids()

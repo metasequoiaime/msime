@@ -85,7 +85,7 @@ public:
       reviewing_ = true; revealed_ = false; show_card(); update();
     } else if (id == reveal) { revealed_ = true; show_card(); update(); }
     else if ((id == known || id == unknown) && current_card())
-      result.request = Json{{"operation", "answer"}, {"word", current_card()->at("word")}, {"known", id == known}};
+      result.request = Json{{"operation", "answer"}, {"wordbook", status_->at("settings").at("wordbook")}, {"word", current_card()->at("word")}, {"known", id == known}};
     return result;
   }
   void completed(const Json& response, std::string_view operation = "load") {

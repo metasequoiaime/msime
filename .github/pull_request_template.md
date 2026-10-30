@@ -26,5 +26,6 @@
 
 - [ ] 不包含真实输入、凭据、个人资料、私人路径、生成产物或签名材料。
 - [ ] 新引入的上游代码、资源、模型和依赖都附有来源与许可证/通知信息。
+- [ ] 改到 `crates/engine/` 或 `crates/path-trust/` 时：我同意这些改动按「GPL-3.0-only OR MPL-2.0」授权（见 CONTRIBUTING 的「许可证」一节），新加的第三方代码或数据不是 GPL、LGPL 许可的，并已写进 `crates/engine/README.md` 的许可证表。
 
 <!-- 安全漏洞请走私下的 security advisory 流程，不要开公开 PR。 -->

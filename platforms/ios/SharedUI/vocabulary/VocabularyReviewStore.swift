@@ -74,8 +74,8 @@ struct VocabularyReviewStore {
 
   func load() throws -> VocabularyReviewStatus { try call(["operation": "load"]) }
 
-  func answer(_ word: String, known: Bool) throws -> VocabularyReviewStatus {
-    try call(["operation": "answer", "word": word, "known": known])
+  func answer(wordbook: String, word: String, known: Bool) throws -> VocabularyReviewStatus {
+    try call(["operation": "answer", "wordbook": wordbook, "word": word, "known": known])
   }
 
   func setSettings(wordbook: String, newPerDay: Int, sessionLimit: Int)

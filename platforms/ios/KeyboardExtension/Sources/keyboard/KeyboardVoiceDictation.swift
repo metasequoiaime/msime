@@ -6,6 +6,8 @@ final class KeyboardVoiceDictation {
   enum Event: Equatable {
     /// 正在听，带实时识别的文字。
     case listening(String)
+    /// 正在听时 App 报来的麦克风电平（0…1）。App 只在电平有变化时报，状态里没有电平时不发这个事件。
+    case level(Float)
     /// 松开以后在识别或润色；`message` 为空时就是在识别。
     case recognizing(text: String, message: String)
     case finished(String)
@@ -73,6 +75,7 @@ final class KeyboardVoiceDictation {
         if stopRequested { sendStop(request) }
       }
       onEvent?(stopRequested ? .recognizing(text: state.text, message: "") : .listening(state.text))
+      if !stopRequested, let level = state.level { onEvent?(.level(level)) }
     case .recognizing:
       acknowledged = true
       onEvent?(.recognizing(text: state.text, message: state.message))

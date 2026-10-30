@@ -36,14 +36,14 @@ final class LanguageSchemesTests: XCTestCase {
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
     // 全拼 14 键和 18 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey].contains($0) })
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
-    let enabled: [ChineseInputScheme] = [.quanpin, .cantonese, .zhuyin, .vietnamese]
+    let enabled: [ChineseInputScheme] = [.quanpin, .cantonese, .cantoneseShuangpin, .zhuyin, .vietnamese]
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: nil), enabled,
                    "a process that cannot tell hides nothing")
-    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese, .zhuyin]), enabled)
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese, .cantoneseShuangpin, .zhuyin]), enabled)
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.zhuyin]), [.quanpin, .zhuyin, .vietnamese])
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: []), [.quanpin, .vietnamese],
                    "Vietnamese needs no data")
@@ -61,11 +61,11 @@ final class LanguageSchemesTests: XCTestCase {
     try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [])
     try Data().write(to: state.appendingPathComponent("msime-cantonese.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin])
     try Data().write(to: state.appendingPathComponent("msime-zhuyin.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin, .zhuyin])
     try Data().write(to: state.appendingPathComponent("msime-stroke.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin, .stroke])
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .cantoneseShuangpin, .zhuyin, .stroke])
     try FileManager.default.removeItem(at: state.appendingPathComponent("msime-cantonese.db"))
     try FileManager.default.removeItem(at: state.appendingPathComponent("msime-zhuyin.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.stroke], "msime-stroke.db alone offers Stroke")
@@ -82,7 +82,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testCantoneseZhuyinAndStrokeAreChineseSchemesAndVietnameseIsNot() {
     let enabled = ChineseInputScheme.allCases
-    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false), (.stroke, "stroke", true)] {
+    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.cantoneseShuangpin, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false), (.stroke, "stroke", true)] {
       var document: [String: Any] = ["last_chinese_scheme": "wubi"]
       MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: enabled)?(&document)
       XCTAssertEqual(document["scheme"] as? String, engine)
@@ -93,7 +93,150 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
     XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
     XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
-    XCTAssertEqual(ChineseInputScheme.allCases.suffix(2), [.nineKeyShuangpin, .eighteenKey], "the scheme order is persisted, so new schemes go last")
+    XCTAssertEqual(ChineseInputScheme.allCases.suffix(3), [.nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin], "the scheme order is persisted, so new schemes go last")
+  }
+
+  func testCantoneseShuangpinHasItsOwnSavedSelection() {
+    let scheme = ChineseInputScheme.cantoneseShuangpin
+    XCTAssertEqual(scheme.engineScheme, "cantonese")
+    XCTAssertEqual(scheme.sharedIdentifier, "cantonese_shuangpin")
+    XCTAssertEqual(scheme.title, "粤语双拼")
+    XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(scheme))
+    XCTAssertNil(scheme.cloudSchema)
+    XCTAssertEqual(KeyboardViewController.languageKeyValue(scheme), "粤语双拼输入")
+    var document: [String: Any] = [:]
+    MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: [.quanpin, .cantonese, scheme])?(&document)
+    XCTAssertEqual(document["scheme"] as? String, "cantonese")
+    XCTAssertEqual((document["touch_keyboard_schemes"] as? [String: Any])?["selected"] as? String, "cantonese_shuangpin")
+    XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), scheme)
+    MetasequoiaInputSessionBridge.schemeMapping(.cantonese, enabledSchemes: [.quanpin, .cantonese, scheme])?(&document)
+    XCTAssertEqual(InputSchemePreference.selectedScheme(in: document), .cantonese)
+  }
+
+  /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案不加这个键（普通粤拼把 ing、ik 完整拼出来，全拼、小鹤等方案的 `;` 不是编码键）。
+  func testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey() {
+    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .cantoneseShuangpin])
+    XCTAssertEqual(ChineseInputScheme.microsoft.semicolonFinalKeyAccessibilityLabel, "分号，微软双拼 ing")
+    XCTAssertEqual(ChineseInputScheme.cantoneseShuangpin.semicolonFinalKeyAccessibilityLabel, "分号，粤语双拼 ing 和 ik")
+    XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
+  }
+
+  /// 手机第二排的缩进跟着 `;` 键是否真的显示走，不只看方案：微软双拼的中文模式里 `;` 填上右侧空位、第二排不缩进；切到英文 `;` 藏起来，第二排回到两侧缩进，A 到 L 与第一排同宽，不被拉宽到整排。粤语双拼走同一个条件，但它的用例要暂存粤语词库，这里用 CI 上就能跑的微软双拼守住。
+  func testTheMiddleRowIndentsAgainWhenTheSemicolonKeyHides() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .microsoft
+    XCTAssertEqual(InputSchemePreference.scheme, .microsoft)
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    defer { controller.viewDidDisappear(false) }
+    func layout() {
+      controller.view.setNeedsLayout()
+      controller.view.layoutIfNeeded()
+      controller.view.layoutIfNeeded()
+    }
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    // 英文模式可能自动大写，按键面不分大小写找显示中的那个键。
+    func frame(of face: String) throws -> CGRect {
+      let key = try XCTUnwrap(nodes(controller.view).first { view in
+        guard let button = view as? UIButton, button.configuration?.title?.lowercased() == face else { return false }
+        return shown(button)
+      }, "no visible key \(face)")
+      return key.convert(key.bounds, to: controller.view)
+    }
+    let semicolon = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "microsoftFinalKey" })
+    layout()
+
+    XCTAssertTrue(shown(semicolon))
+    var q = try frame(of: "q"), a = try frame(of: "a")
+    XCTAssertEqual(a.minX, q.minX, accuracy: 0.5, "the semicolon key fills the row, so A lines up with Q")
+    XCTAssertEqual(a.width, q.width, accuracy: 0.5)
+
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "bottomLanguageKey" } as? UIButton)
+      .sendActions(for: .primaryActionTriggered)
+    layout()
+    XCTAssertFalse(shown(semicolon), "English mode has no semicolon final")
+    q = try frame(of: "q")
+    a = try frame(of: "a")
+    let l = try frame(of: "l"), p = try frame(of: "p")
+    XCTAssertEqual(a.width, q.width, accuracy: 0.5, "A..L keep the top row's key width")
+    XCTAssertGreaterThan(a.minX, q.minX + q.width / 4, "the middle row is indented again")
+    XCTAssertLessThan(l.maxX, p.maxX - p.width / 4)
+  }
+
+  /// 粤语双拼的 `;` 与微软双拼排在同一个位置、同样宽：第二排十个键，两侧不缩进；读屏说出粤语双拼的韵母；M 加 `;` 组成 ming 或 mik。普通粤拼不显示这个键。
+  func testCantoneseShuangpinKeyboardShowsTheSemicolonKeyRightOfL() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.cantoneseShuangpin) == true,
+                      "msime-cantonese.db is not staged into the test host")
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    func keyboard(_ scheme: ChineseInputScheme) throws -> KeyboardViewController {
+      InputSchemePreference.scheme = scheme
+      XCTAssertEqual(InputSchemePreference.scheme, scheme)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    func key(_ predicate: (UIView) -> Bool, in controller: KeyboardViewController) throws -> UIButton {
+      try XCTUnwrap(nodes(controller.view).first(where: predicate) as? UIButton)
+    }
+    func semicolon(in controller: KeyboardViewController) throws -> UIButton {
+      try key({ $0.accessibilityIdentifier == "microsoftFinalKey" }, in: controller)
+    }
+    func letter(_ face: String, in controller: KeyboardViewController) throws -> UIButton {
+      try key({ $0.accessibilityLabel == "字母 \(face)" && shown($0) }, in: controller)
+    }
+    func frame(_ view: UIView, in controller: KeyboardViewController) -> CGRect {
+      view.convert(view.bounds, to: controller.view)
+    }
+
+    let microsoft = try keyboard(.microsoft)
+    defer { microsoft.viewDidDisappear(false) }
+    let microsoftSemicolon = try semicolon(in: microsoft)
+    XCTAssertTrue(shown(microsoftSemicolon))
+    XCTAssertEqual(microsoftSemicolon.accessibilityLabel, "分号，微软双拼 ing")
+
+    let cantonese = try keyboard(.cantoneseShuangpin)
+    defer { cantonese.viewDidDisappear(false) }
+    let cantoneseSemicolon = try semicolon(in: cantonese)
+    XCTAssertTrue(shown(cantoneseSemicolon), "ing and ik live only on the semicolon key")
+    XCTAssertEqual(cantoneseSemicolon.accessibilityLabel, "分号，粤语双拼 ing 和 ik")
+    XCTAssertNil(cantoneseSemicolon.accessibilityValue)
+    let l = frame(try letter("L", in: cantonese), in: cantonese)
+    let semicolonFrame = frame(cantoneseSemicolon, in: cantonese)
+    XCTAssertGreaterThan(semicolonFrame.minX, l.maxX, "the key sits right of L")
+    XCTAssertEqual(semicolonFrame.midY, l.midY, accuracy: 0.5)
+    XCTAssertEqual(semicolonFrame.width, l.width, accuracy: 0.5)
+    // 与微软双拼同一个横向几何：第二排不缩进，A 和 `;` 的横向位置、宽度都一样（纵向随候选栏高度，不比）。
+    let microsoftFrame = frame(microsoftSemicolon, in: microsoft)
+    XCTAssertEqual(semicolonFrame.minX, microsoftFrame.minX, accuracy: 0.5)
+    XCTAssertEqual(semicolonFrame.width, microsoftFrame.width, accuracy: 0.5)
+    XCTAssertEqual(frame(try letter("A", in: cantonese), in: cantonese).minX,
+                   frame(try letter("A", in: microsoft), in: microsoft).minX, accuracy: 0.5)
+
+    // `;` 是韵母键：M 之后按它，组字变成 ming 或 mik 的候选，而不是上屏一个分号。排序由引擎和词库决定，这里只要求出现 ming（名、明）或 mik（覓、冪）里的任意一个字。
+    func candidates() -> [String] {
+      cantonese.view.layoutIfNeeded()
+      return nodes(cantonese.view).compactMap { $0 as? UIButton }
+        .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+        .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
+    }
+    try letter("M", in: cantonese).sendActions(for: .primaryActionTriggered)
+    let initialOnly = candidates()
+    cantoneseSemicolon.sendActions(for: .primaryActionTriggered)
+    let final = candidates()
+    XCTAssertNotEqual(final, initialOnly, "the semicolon joined the composition")
+    XCTAssertTrue(final.contains { ["名", "明", "覓", "冪"].contains($0) }, "m; is ming or mik: \(final.prefix(8))")
+
+    let plain = try keyboard(.cantonese)
+    defer { plain.viewDidDisappear(false) }
+    XCTAssertFalse(shown(try semicolon(in: plain)), "plain Jyutping has no semicolon final")
   }
 
   /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。
@@ -277,7 +420,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(ChineseInputScheme.stroke.drawsKeysAsGlyphs)
     XCTAssertNil(ChineseInputScheme.stroke.shuangpinProfile)
     XCTAssertFalse(ChineseInputScheme.stroke.editsBySyllable)
-    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke].contains(scheme) {
+    for scheme in ChineseInputScheme.allCases where ![.cantonese, .cantoneseShuangpin, .zhuyin, .vietnamese, .tibetan, .stroke].contains(scheme) {
       XCTAssertFalse(scheme.needsLanguageDictionary, scheme.rawValue)
       XCTAssertEqual(scheme.composesInPlace, scheme.isKorean, scheme.rawValue)
       XCTAssertEqual(scheme.hasSpellingCaret, scheme.writesChinese, scheme.rawValue)

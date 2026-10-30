@@ -24,7 +24,7 @@ use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// 本机缓存的文件名：读到的日志位置、由它算出的状态（只有密文和公开数据）和待清理的旧 epoch。仅本人可读写，原子替换写入。
@@ -167,6 +167,8 @@ pub(crate) struct HttpDav {
     username: String,
     password: String,
     client: Client,
+    /// 有成功响应的正文超过了请求给的上限。云剪贴板照旧把它当作连不上或读不懂；词库同步据此答「响应过大」（[`HttpDav::take_oversized`]）。
+    oversized: std::sync::atomic::AtomicBool,
 }
 
 impl HttpDav {
@@ -174,6 +176,7 @@ impl HttpDav {
         let (username, password) = config.webdav_credentials().ok_or(RelayError::Invalid)?;
         let base = Url::parse(&format!("{}/", config.url())).map_err(|_| RelayError::Invalid)?;
         let client = crate::proxy::configure_blocking_for(Client::builder(), config.base())
+            .map_err(|_| RelayError::Unavailable)?
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))
@@ -185,7 +188,14 @@ impl HttpDav {
             username: username.to_owned(),
             password: password.to_owned(),
             client,
+            oversized: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// 上一个请求以来，有没有成功响应的正文超过上限；读完清零。
+    pub(crate) fn take_oversized(&self) -> bool {
+        self.oversized
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 基地址拼上一个本模块生成的相对路径；只有小写字母、数字、`-`、`.`、`_` 和 `/`，拼完再确认没有跑出基地址。
@@ -234,6 +244,8 @@ impl DavHttp for HttpDav {
                 .header(reqwest::header::CONTENT_TYPE, content_type)
                 .body(body.to_vec());
         }
+        #[cfg(feature = "test-support")]
+        test_support::REQUESTS_SENT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let response = builder.send().map_err(|_| RelayError::Unavailable)?;
         let status = response.status().as_u16();
         let retry_after = response
@@ -250,9 +262,23 @@ impl DavHttp for HttpDav {
             .content_length()
             .is_some_and(|length| length > limit && (200..300).contains(&status))
         {
+            self.oversized
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             return Err(RelayError::Unavailable);
         }
-        let body = crate::bounded_io::read_bounded(response, limit).unwrap_or_default();
+        let body = match crate::bounded_io::read_bounded(response, limit) {
+            Ok(body) => body,
+            Err(error) => {
+                if (200..300).contains(&status) {
+                    if error.kind() == std::io::ErrorKind::InvalidData {
+                        self.oversized
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    return Err(RelayError::Unavailable);
+                }
+                Vec::new()
+            }
+        };
         Ok(DavResponse {
             status,
             retry_after,
@@ -500,6 +526,22 @@ impl VirtualRelay {
         })
     }
 
+    /// 请求经 `http` 发出（例如加上路径前缀，把同一套日志放进别的目录：词库同步的密钥串放在 `msime-dictionary/keyring/` 下，见 `crate::dictionary_webdav`）。
+    pub(crate) fn with_http(
+        config: RelayConfig,
+        directory: PathBuf,
+        http: Box<dyn DavHttp>,
+        locks: bool,
+    ) -> Self {
+        Self {
+            config,
+            http,
+            env: Box::new(SystemEnvironment),
+            directory,
+            locks,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn with_parts(
         config: RelayConfig,
@@ -526,20 +568,37 @@ impl VirtualRelay {
     }
 
     fn load(&self) -> Result<Option<StoredLog>, RelayError> {
-        let Some(bytes) = self
-            .storage()
-            .read_private(WEBDAV_STATE_FILE, MAX_STATE_FILE_BYTES)
-            .map_err(|_| RelayError::Storage)?
+        Self::load_from(&self.config, &self.directory)
+    }
+
+    /// 只读已缓存的登记结果；内部身份与空日志都不能当作已登记设备。
+    pub(crate) fn cached_device(
+        config: &RelayConfig,
+        directory: &Path,
+        device_id: &str,
+    ) -> Result<bool, RelayError> {
+        Ok(Self::load_from(config, directory)?.is_some_and(|stored| {
+            stored
+                .ledger
+                .state
+                .devices
+                .iter()
+                .any(|device| device.device_id == device_id)
+        }))
+    }
+
+    fn load_from(config: &RelayConfig, directory: &Path) -> Result<Option<StoredLog>, RelayError> {
+        let Some(bytes) =
+            FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native)
+                .read_private(WEBDAV_STATE_FILE, MAX_STATE_FILE_BYTES)
+                .map_err(|_| RelayError::Storage)?
         else {
             return Ok(None);
         };
         let Ok(stored) = serde_json::from_slice::<StoredLog>(&bytes) else {
             return Ok(None);
         };
-        Ok(
-            (stored.relay == self.config.url() && stored.space == self.config.space())
-                .then_some(stored),
-        )
+        Ok((stored.relay == config.url() && stored.space == config.space()).then_some(stored))
     }
 
     fn save(&self, stored: &StoredLog) -> Result<(), RelayError> {
@@ -1056,6 +1115,50 @@ fn probe_inside(dav: &Dav<'_>, dir: &str) -> Result<(), RelayError> {
         return Err(RelayError::Unsupported);
     }
     Ok(())
+}
+
+/// 测试用：对真实网盘跑端到端测试（`crates/clipboard-relay/tests/webdav_real_server.rs`）时，准备和清理测试目录、统计实际发出的请求数。走的是产品同一条通道（[`HttpDav`] 和 [`Dav`] 的鉴权、限流退避），只在 `test-support` 特性下编进来，正常产品构建不启用。
+#[cfg(feature = "test-support")]
+pub mod test_support {
+    use super::{Dav, HttpDav, SystemEnvironment};
+    use crate::clipboard_relay::{RelayConfig, RelayError};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// [`HttpDav`] 真正交给 reqwest 的请求数，整个进程共用一个。
+    pub(super) static REQUESTS_SENT: AtomicU64 = AtomicU64::new(0);
+
+    /// 本进程到现在经 WebDAV 实际发出的 HTTP 请求数，包括云剪贴板、词库同步、测试连接和下面 [`RawDav`] 的请求，限流后的重试各算一次。
+    pub fn requests_sent() -> u64 {
+        REQUESTS_SENT.load(Ordering::SeqCst)
+    }
+
+    /// 在配置的基地址下建目录、列目录、删除。路径规则与产品相同（相对路径，只有小写字母、数字和 `-._/`，集合以 `/` 结尾）。
+    pub struct RawDav {
+        http: HttpDav,
+    }
+
+    impl RawDav {
+        pub fn new(config: &RelayConfig) -> Result<Self, RelayError> {
+            Ok(Self {
+                http: HttpDav::new(config)?,
+            })
+        }
+
+        /// 建一个集合；已经存在也算成功，返回是不是这一次新建的。
+        pub fn mkcol(&self, dir: &str) -> Result<bool, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).mkcol(dir)
+        }
+
+        /// 集合里的条目名（含集合自己）；不存在时为 `None`。
+        pub fn list(&self, dir: &str) -> Result<Option<Vec<String>>, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).list(dir)
+        }
+
+        /// 删除一个文件或集合；不存在也算成功，网盘拒绝时为 `false`。
+        pub fn delete(&self, path: &str) -> Result<bool, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).delete(path)
+        }
+    }
 }
 
 #[cfg(test)]

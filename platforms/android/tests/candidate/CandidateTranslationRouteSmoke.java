@@ -104,6 +104,26 @@ public final class CandidateTranslationRouteSmoke {
             false, "", "", false, "", "", "", true, "openai",
             "https://api.openai.com/v1/chat/completions", "synthetic-model", "");
         check(aiFallback.provider() == Provider.NONE, "AI without a token does not send text");
+        // 「AI 辅助」要显式选择（`translation_ai`），与共享层 `selected_translation_services` 相同：AI 联想开没开不参与，别的服务被选中时轮不到它，选中的服务凭据不全时也不改用它。
+        String endpoint = "https://api.openai.com/v1/chat/completions";
+        check(CandidateTranslationPolicy.route(true, false, false, "", "", false, "", "", false, "", "", "",
+                false, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.NONE,
+            "a usable AI configuration is not used for translation unless AI-assisted translation is chosen");
+        check(CandidateTranslationPolicy.route(false, false, false, "", "", false, "", "", false, "", "", "",
+                true, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.NONE,
+            "translations off sends nothing to AI");
+        check(CandidateTranslationPolicy.route(true, false, false, "", "", false, "", "", true, "", "", "",
+                true, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.NONE,
+            "an enabled Tencent without credentials stays selected ahead of AI, as in the shared layer");
+        check(CandidateTranslationPolicy.route(true, false, true, "app", "", false, "", "", false, "", "", "",
+                true, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.NONE,
+            "NiuTrans without a key never falls back to AI");
+        check(CandidateTranslationPolicy.route(true, false, false, "", "", true, " ", "", false, "", "", "",
+                true, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.NONE,
+            "custom without an endpoint never falls back to AI");
+        check(CandidateTranslationPolicy.route(true, true, false, "", "", false, "", "", false, "", "", "",
+                true, "openai", endpoint, "synthetic-model", "synthetic-token").provider() == Provider.ACCOUNT,
+            "an explicit account choice wins over AI, as in the shared layer");
         System.out.println("Android candidate translation route mirrors the shared provider selection");
     }
 

@@ -6,6 +6,12 @@
  * 指纹只看内容：偏好按 `preferences` 本身（不含修订号），小文件按全文，目录按每个文件的路径、大小和修改时间。导入写回的内容与对方相同，指纹也相同，所以不会再被发布回去，两边不会来回打转。
  */
 
+import { PRIVACY_CONSENT_ENTRY, PRIVACY_CONSENT_FILE } from "../privacy/PrivacyConsentPolicy";
+import {
+  SCREEN_CAPTURE_PROTECTION_ENTRY,
+  SCREEN_CAPTURE_PROTECTION_FILE,
+} from "./settings/ScreenCaptureProtectionPolicy";
+
 export type MirrorPublisher = "settings" | "keyboard";
 
 /** `preferences` 经 `savePreferences` 写入，走存储的锁和修订号；`file` 是单个小文件；`directory` 是整棵目录。 */
@@ -87,6 +93,23 @@ const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 export const ANONYMOUS_IDENTITY_FILE: string = "anonymous-account.json";
 export const ANONYMOUS_IDENTITY_ENTRY: string = "anonymous-account";
 
+/** 云剪贴板经自建中继或 WebDAV 网盘时的设备身份（Rust 的 `RELAY_KEYSTORE_FILE`），与账号会话同在 `files/state`。 */
+export const CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY: string = "cloud-clipboard-relay-keystore";
+/** 云剪贴板经水杉账号时的设备身份（Rust 的 `CLOUD_CLIPBOARD_KEYSTORE_FILE`）。 */
+export const CLOUD_CLIPBOARD_KEYSTORE_ENTRY: string = "cloud-clipboard-keystore";
+/** WebDAV 网盘日志的本机缓存（Rust 的 `WEBDAV_STATE_FILE`），只有密文和公开数据。 */
+export const CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY: string = "cloud-clipboard-webdav-state";
+
+/**
+ * 云剪贴板的设备身份只由设置应用生成，键盘扩展只用镜像过来的这一份（请求带 `create_identity: false`，本机没有就停下、不登记），同一台设备在空间里只是一台、只批准一次。
+ *
+ * 设置应用那边没有这份（还没用过云剪贴板）时不删键盘的副本：账号路径的旧版本里键盘自己登记过一台设备，在设置应用生成身份之前它照旧能用；设置应用的身份一到就整份换成它。退出登录时键盘的副本随会话一起由 Rust 的 `session_adopt` 清掉，不靠这里。
+ */
+export const CLOUD_CLIPBOARD_IDENTITY_ENTRIES: readonly string[] = [
+  CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+  CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
+];
+
 /** 设置应用发布、键盘导入的条目。 */
 export const SETTINGS_ENTRIES: MirrorEntry[] = [
   {
@@ -127,6 +150,22 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
   { name: "skins", kind: "directory", base: "state", path: "skins", fullModeOnly: false },
   { name: "plugins", kind: "directory", base: "state", path: "plugins", fullModeOnly: false },
+  // 隐私政策的授权只由设置应用决定、只往键盘一个方向镜像；基础访问模式下键盘也要读到它，没读到就不联网。
+  {
+    name: PRIVACY_CONSENT_ENTRY,
+    kind: "file",
+    base: "state",
+    path: PRIVACY_CONSENT_FILE,
+    fullModeOnly: false,
+  },
+  // 「防止截屏」同样只由设置应用决定（切换要经系统认证）、只往键盘一个方向镜像；键盘在基础访问模式下也要读到它，给面板设隐私模式。不进 `KEYBOARD_ENTRIES`：键盘不能把它改回去。
+  {
+    name: SCREEN_CAPTURE_PROTECTION_ENTRY,
+    kind: "file",
+    base: "state",
+    path: SCREEN_CAPTURE_PROTECTION_FILE,
+    fullModeOnly: false,
+  },
   {
     name: "community-library",
     kind: "file",
@@ -153,6 +192,30 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
     kind: "file",
     base: "state",
     path: "anonymous-session.json",
+    fullModeOnly: true,
+  },
+  // 键盘从不改写中继的设备身份，只读得到就够了，所以基础访问模式下也导入。
+  {
+    name: CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_RELAY_KEYSTORE_ENTRY,
+    fullModeOnly: false,
+  },
+  // 网盘日志的缓存是同一台设备读到的同一份日志，键盘拿设置应用那份往后接着读就行。镜像它是为了「测试连接」通过后的重新信任能传到键盘：设置应用删掉自己的缓存，键盘的副本随之删掉，不会一直报 `webdav_rollback`。
+  {
+    name: CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_WEBDAV_STATE_ENTRY,
+    fullModeOnly: false,
+  },
+  // 账号路径的身份跟着账号会话走：基础访问模式下键盘不导入会话、没有登录，也用不到它。
+  {
+    name: CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLOUD_CLIPBOARD_KEYSTORE_ENTRY,
     fullModeOnly: true,
   },
 ];
@@ -214,6 +277,11 @@ export class SharedStateMirrorPolicy {
   /** 这个条目是不是交给 Rust 采用：导入时调用方返回 `handled`，不复制也不删除本地文件。 */
   static adoptedByRust(name: string): boolean {
     return RUST_ADOPTED_ENTRIES.includes(name);
+  }
+
+  /** 发布方没有这一条时是否保留导入方自己的副本，而不是跟着删掉：只有云剪贴板的设备身份如此，见 `CLOUD_CLIPBOARD_IDENTITY_ENTRIES`。 */
+  static keepsLocalWhenAbsent(name: string): boolean {
+    return CLOUD_CLIPBOARD_IDENTITY_ENTRIES.includes(name);
   }
 
   /** 导入一个普通文件前的决定：两份会话和匿名账号的身份交给 Rust（`handled`，不复制也不删除本地文件），其余条目照常复制。 */
@@ -512,4 +580,42 @@ export class SharedStateMirrorPolicy {
 
 interface PreferencesDocument {
   preferences?: Object;
+}
+
+interface CachedFingerprint {
+  stamp: string;
+  fingerprint: string;
+}
+
+/**
+ * 发布方每次发布都要算一遍本地条目的内容指纹：读整个文件、偏好还要解析后按键排序，再逐字符算 FNV。键盘在完整体验模式下每次失焦、获得焦点各发布一次，中间文件大多没动，打字统计开着时这份文件又会越攒越大，于是每次切换输入框都在 UI 线程上把同样的内容读两遍、算两遍。
+ *
+ * 这里按路径记住上次算出的指纹和当时文件的身份（inode、大小、纳秒修改时间），身份没变就直接用上次的指纹，不读文件。指纹本身仍是内容指纹，导入写回同样内容时指纹也相同，不会来回打转。写这些文件的一方（client-core 的存储、`writePrivateText`、镜像自己的 `copy`）都是先写暂存文件再改名换入，每次写 inode 都变；拿不到纳秒修改时间（`stamp` 为 null）时不缓存，照旧每次读。读不到文件（指纹是 `ABSENT_FINGERPRINT`）时也不记，下次再读。缓存只在本进程内，设置应用和键盘各有各的。
+ */
+export class FingerprintCache {
+  private readonly entries: Map<string, CachedFingerprint> = new Map<string, CachedFingerprint>();
+
+  /** `stamp` 与上次记下的相同时返回上次的指纹，否则调用 `compute` 重新算并记下。 */
+  fingerprint(key: string, stamp: string | null, compute: () => string): string {
+    if (stamp === null) {
+      this.entries.delete(key);
+      return compute();
+    }
+    const cached: CachedFingerprint | undefined = this.entries.get(key);
+    if (cached !== undefined && cached.stamp === stamp) {
+      return cached.fingerprint;
+    }
+    const fingerprint: string = compute();
+    if (fingerprint === ABSENT_FINGERPRINT) {
+      this.entries.delete(key);
+    } else {
+      this.entries.set(key, { stamp: stamp, fingerprint: fingerprint });
+    }
+    return fingerprint;
+  }
+
+  /** 一个文件的身份：inode、大小和纳秒修改时间。没有纳秒修改时间时为 null，秒级的修改时间分不清同一秒里的两次改写。 */
+  static stamp(ino: string, size: number, mtimeNs: string | undefined): string | null {
+    return mtimeNs === undefined ? null : `${ino}:${size}:${mtimeNs}`;
+  }
 }

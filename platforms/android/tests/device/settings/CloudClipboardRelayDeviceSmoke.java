@@ -42,13 +42,32 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
     private static final String SMOKE_KEY = "app.msime.android.test.cloud-clipboard-relay-smoke.key";
     private static Object sealer;
 
+    /** 带 `-e dictionary-sync true` 时改跑「我的词条」网盘同步的检查（{@link DictionarySyncDeviceChecks}）：测试包的 instrumentation 已满 100 个，借这一项的入口。 */
+    private boolean dictionarySync;
+
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        dictionarySync = arguments != null && "true".equals(arguments.getString("dictionary-sync"));
         start();
     }
 
     @Override public void onStart() {
         Bundle result = new Bundle();
+        if (dictionarySync) {
+            int code;
+            try {
+                DictionarySyncDeviceChecks.run(getTargetContext());
+                result.putString("stream",
+                    "MSIME_DEVICE_SMOKE_PASSED: dictionary sync over JNI: not configured, invalid requests, local_change offline, unreachable WebDAV in run and probe, private noBackupFilesDir directory and lock; through DictionaryWebDavSync: status, run, probe, keyboard gate and the shared directory\n");
+                code = Activity.RESULT_OK;
+            } catch (Exception | AssertionError | LinkageError error) {
+                result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: dictionary sync ("
+                    + error.getClass().getSimpleName() + ": " + error.getMessage() + ")\n");
+                code = Activity.RESULT_CANCELED;
+            }
+            finish(code, result);
+            return;
+        }
         File scratch = new File(getTargetContext().getCacheDir(), "cloud-clipboard-relay-smoke");
         File keysA = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-a");
         File keysB = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-b");

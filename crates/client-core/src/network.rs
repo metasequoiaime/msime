@@ -12,7 +12,7 @@ use std::sync::{OnceLock, RwLock};
 /// 代理地址（`proxy_server`）的最大字节数，与设置页一致。
 pub const MAX_PROXY_SERVER_BYTES: usize = 512;
 
-/// `network.proxy_mode` 的三个取值，与 Windows 正式版 `installer/default_config/config.default.toml` 相同。
+/// `network.proxy_mode` 的三个用户选项与 Windows 正式版相同；`CustomRequired` 仅表示运行时降级后仍需代理。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyMode {
@@ -23,7 +23,21 @@ pub enum ProxyMode {
     None,
     /// 使用 [`NetworkPreferences::proxy_server`]；它不可用时按 `system` 处理。
     Custom,
+    /// 运行时降级后仍必须使用代理；地址不可用时返回错误，不采用系统模式。
+    CustomRequired,
 }
+
+/// 运行时要求的代理当前不可用；不带地址或凭据。
+#[derive(Debug, Clone, Copy)]
+pub struct RequiredProxyUnavailable;
+
+impl std::fmt::Display for RequiredProxyUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("required proxy unavailable")
+    }
+}
+
+impl std::error::Error for RequiredProxyUnavailable {}
 
 /// 偏好文档里的 `network` 一节。默认值与 Windows 正式版一致：跟随系统代理，不填服务器。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

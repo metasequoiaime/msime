@@ -42,8 +42,49 @@ final class ImeStyler {
         }
     };
 
+    /**
+     * 为真时 {@link #applySkinToView} 不进 GONE 的子树，只记进 {@link #skippedHidden}。只在 {@link #applySkin} 自己的几遍里为真：render 每键都会换一次肤，键盘树里收着的剪贴板、方案、皮肤、更多工具、文本编辑、表情、符号等面板平时都是 GONE，打开过一次的表情和符号网格就有几百格，每键都把它们上一遍色是白花的主线程时间。单独给某个子树上色的调用（候选条追加、符号面板 restyle、回复面板）照旧整棵走。
+     */
+    private boolean skipHidden;
+    /** 手写时的键区：和表情面板一样，整树那一遍不进去，由 {@link #applySkin} 按它自己的皮肤单独走；不在手写时为空。 */
+    private View separateHandwritingRows;
+    /** 最近一次 applySkin 因为 GONE 没走的子树；按身份比较，视图被丢掉后自动消失。 */
+    private final java.util.Set<View> skippedHidden =
+        java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private View observedRoot;
+    /**
+     * 兜底：没走过的子树被直接显示出来、之后却没有 render 或 applySkin 时，在画下一帧之前补一遍换肤，不让它带着旧皮肤露面。平时打开面板的路径都会接着换肤，这里只在漏掉时生效；每帧只看这几十个记下的视图是否已显示。
+     */
+    private final android.view.ViewTreeObserver.OnPreDrawListener restyleShown = () -> {
+        for (View view : skippedHidden) {
+            if (!view.isShown()) continue;
+            applySkin();
+            // 换肤之后仍显示着的视图从记录里去掉，就算换肤本身又显示了某个没走过的视图，也不会每帧反复换肤。
+            skippedHidden.removeIf(View::isShown);
+            break;
+        }
+        return true;
+    };
+
     ImeStyler(MSIMEInputService s) {
         this.s = s;
+    }
+
+    /** 每个键盘根视图挂一次 {@link #restyleShown}；跟着根视图进出窗口增删，旧根视图留下的监听不会累积在输入法窗口上。 */
+    private void observeRoot() {
+        View root = s.keyboardRoot;
+        if (root == observedRoot) return;
+        observedRoot = root;
+        if (root.isAttachedToWindow()) root.getViewTreeObserver().addOnPreDrawListener(restyleShown);
+        root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) {
+                view.getViewTreeObserver().addOnPreDrawListener(restyleShown);
+            }
+
+            @Override public void onViewDetachedFromWindow(View view) {
+                view.getViewTreeObserver().removeOnPreDrawListener(restyleShown);
+            }
+        });
     }
 
     /** 读音行光标使用候选包的专用颜色，未指定时保留皮肤强调色。 */
@@ -169,11 +210,23 @@ final class ImeStyler {
         ViewPolicy.setHorizontalPaddingPreservingVertical(s.keyRows, edge);
         if (s.actionRow != null)
             ViewPolicy.setHorizontalPaddingPreservingVertical(s.actionRow, edge);
+        // 大屏单手的侧边数字键盘建过就跟着重排：键距、行距和高度调整与主键区相同（#10203）。
+        KeyboardKeyArea sidePad = s.imeFrame.sidePad.built();
+        if (sidePad != null) applySidePadGeometry(sidePad);
         s.keyRows.requestLayout();
         if (s.keyboardRoot != null) {
             s.keyboardRoot.requestLayout();
             s.keyboardRoot.getRootView().requestLayout();
         }
+    }
+
+    /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
+    void applySidePadGeometry(View pad) {
+        applyKeyboardGeometry(pad);
+        applyKeyboardHeight(pad);
+        ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
+            s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
+        pad.requestLayout();
     }
 
     void applyKeyboardHeight(View node) {
@@ -307,8 +360,10 @@ final class ImeStyler {
             hintButton.setHintColor(color(target.accent()));
             hintButton.setCornerHintColor(color(target.hint()));
         }
-        if (button instanceof SpaceKeyFace space)
+        if (button instanceof SpaceKeyFace space) {
             space.setFaceColor(color(target.toolbarIcon()));
+            space.setCornerHintColor(color(target.hint()));
+        }
         if (button instanceof NineKeyDigitButton digitButton)
             digitButton.setDigitColor(color(target.hint()));
         applySkinTypeface(button, target);
@@ -433,8 +488,17 @@ final class ImeStyler {
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
-            for (int index = 0; index < group.getChildCount(); index++)
-                applySkinToView(group.getChildAt(index), candidate, target);
+            for (int index = 0; index < group.getChildCount(); index++) {
+                View child = group.getChildAt(index);
+                if (skipHidden) {
+                    if (child.getVisibility() == View.GONE) {
+                        skippedHidden.add(child);
+                        continue;
+                    }
+                    if (child == s.emojiPanel || child == separateHandwritingRows) continue;
+                }
+                applySkinToView(child, candidate, target);
+            }
         }
     }
 
@@ -447,10 +511,14 @@ final class ImeStyler {
         // 浮动（以及候选栏跟随光标）时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
         boolean floating = s.overlayDrawn();
         int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
-        if (s.stableDockedWindow()) {
+        // 内联高度条打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
+        if (s.stableDockedWindow() || s.inlineHeightActive) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
             s.keyboardRoot.invalidate();
+        } else if (s.keyboardRoot.getBackground() == dockedBackground) {
+            // 高度调整结束：setBackgroundColor 遇到 ColorDrawable 只改颜色，会把只画底部横带的背景留下来，所以换一个普通底色。
+            ViewPolicy.setBackground(s.keyboardRoot, new ColorDrawable(rootColor));
         } else {
             ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
         }
@@ -505,16 +573,27 @@ final class ImeStyler {
         if (s.textEditPanel != null)
             applySkinBackground(s.textEditPanel);
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
-        applySkinToView(s.keyboardRoot);
-        // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their
-        // own light/dark setting so only their faces change.
-        if (s.emojiPanel != null) {
-            applySkinToView(s.emojiPanel, s.emojiSkin);
-            s.imePanels.styleEmojiChrome();
+        observeRoot();
+        skippedHidden.clear();
+        separateHandwritingRows = s.handwritingActive() ? s.keyRows : null;
+        skipHidden = true;
+        try {
+            applySkinToView(s.keyboardRoot);
+            // 表情面板和手写时的键区带着自己的明暗设置，整树那一遍不进去，只在这里按各自的皮肤走一遍；以前先按主皮肤画一遍再改回来，键帽缓存每次都对不上，自定义主题下每键都给这些键重建底图。表情面板收着时不走，打开时那次换肤再画。
+            if (s.emojiPanel != null && s.emojiPanel.getVisibility() != View.GONE) {
+                applySkinToView(s.emojiPanel, s.emojiSkin);
+                s.imePanels.styleEmojiChrome();
+            } else if (s.emojiPanel != null) {
+                skippedHidden.add(s.emojiPanel);
+            }
+            if (separateHandwritingRows != null) applySkinToView(separateHandwritingRows, s.handwritingSkin);
+        } finally {
+            skipHidden = false;
         }
-        if (s.handwritingActive() && s.keyRows != null) applySkinToView(s.keyRows, s.handwritingSkin);
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
+        // 剪贴板「更多」菜单的外框也不按角色上色；系统深浅色切换只走这里、不重画剪贴板面板，外框要在这里跟着换。
+        s.imePanels.styleClipboardMoreMenu();
         s.imeLayoutRows.applySidebarRail();
         s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {
@@ -559,7 +638,7 @@ final class ImeStyler {
         }
     };
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；浮动时是一块缩窄的圆角面板。 */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
@@ -575,12 +654,12 @@ final class ImeStyler {
         }
         s.keyboardSurface.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         s.keyboardSurface.setClipToOutline(false);
-        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
-            configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
+        int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(configuration.smallestScreenWidthDp,
+            configuration.screenWidthDp, s.splitKeyboardDrawn(), ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(s)));
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
             width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight
-                : s.stableDockedWindow() ? FrameLayout.LayoutParams.WRAP_CONTENT
+                : s.stableDockedWindow() || s.inlineHeightActive ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.keyboardSurface.setLayoutParams(params);

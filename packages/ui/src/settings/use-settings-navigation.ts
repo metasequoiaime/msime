@@ -1,5 +1,6 @@
 import { createMobileSettingsHistoryState } from "./mobile-history-state";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -26,7 +27,9 @@ export interface SettingsNavigationOptions {
   page: SettingsPageId;
   setPage: Dispatch<SetStateAction<SettingsPageId>>;
   mobileLastPageByTab: MutableRefObject<Record<MobilePrimaryPageId, SettingsPageId>>;
-  route?: { page: string; nonce: number };
+  route?: { page: string; target?: string; nonce: number };
+  /** 首次挂载时页面里要直接打开的那一处，与 `initialPage` 一起由宿主链接带来。 */
+  initialTarget?: string;
   hasHomePage: boolean;
   setCommunityDestination: Dispatch<SetStateAction<AccountCommunityDestination | "all">>;
   setAccountLoginReturnPage: Dispatch<SetStateAction<SettingsPageId | null>>;
@@ -34,6 +37,16 @@ export interface SettingsNavigationOptions {
 }
 
 const noPageAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {};
+
+/**
+ * 宿主链接带来的、页面里要直接打开的那一处（鸿蒙键盘长按九键左侧符号栏时是「屏幕键盘」页「按键布局」里那张表的共享偏好名）。`page` 是链接实际打开的页面；承载它的页面画出来以后照 `target` 打开那一处并取走它（`clearLinkTarget`），只打开一次。页面换成别的时一并丢掉，免得用户之后自己点进那一页时又被带进去。
+ */
+export interface SettingsLinkTarget {
+  page: SettingsPageId;
+  target: string;
+  /** 每次链接一个新值，同一次链接只处理一次。 */
+  serial: number;
+}
 
 /** 管理移动设置页的历史记录、标签记忆与外部路由。 */
 export function useSettingsNavigation({
@@ -45,6 +58,7 @@ export function useSettingsNavigation({
   setPage,
   mobileLastPageByTab,
   route,
+  initialTarget,
   hasHomePage,
   setCommunityDestination,
   setAccountLoginReturnPage,
@@ -55,6 +69,8 @@ export function useSettingsNavigation({
   );
   const loginReturnTab = useRef<MobilePrimaryPageId>(mobileActiveTab);
   const handledRoute = useRef(route?.nonce);
+  const [linkTarget, setLinkTarget] = useState<SettingsLinkTarget | null>(null);
+  const clearLinkTarget = useCallback(() => setLinkTarget(null), []);
 
   /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
   const selectPage = (
@@ -103,6 +119,8 @@ export function useSettingsNavigation({
       "input",
     );
     selectPage(next, false, mobileTabForPage(next));
+    // 子目标在选页之后才交出：承载它的页面要先压上自己的历史记录，子页的记录才能叠在上面。不带子目标的新链接也清掉上一次没用上的。
+    setLinkTarget(route.target ? { page: next, target: route.target, serial: route.nonce } : null);
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -122,6 +140,17 @@ export function useSettingsNavigation({
       );
     }
   }, [mobilePlatform]);
+
+  // 首次挂载时的子目标放在上面那条历史记录初始化之后交出，理由与路由相同。
+  useEffect(() => {
+    if (initialTarget) setLinkTarget({ page, target: initialTarget, serial: 0 });
+    // Read once on mount, like `initialPage`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (linkTarget && linkTarget.page !== page) setLinkTarget(null);
+  }, [linkTarget, page]);
 
   useMobilePopState(mobilePlatform, (event) => {
     const state = event.state;
@@ -208,6 +237,8 @@ export function useSettingsNavigation({
   return {
     mobileActiveTab,
     navigationPage,
+    linkTarget,
+    clearLinkTarget,
     selectPage,
     selectMobileTab,
     openAccountLogin,

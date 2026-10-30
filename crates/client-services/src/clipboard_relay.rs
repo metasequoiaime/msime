@@ -30,6 +30,9 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// 只用已有身份的请求在本机还没有设备身份时的错误码，中继和账号两个入口共用（见 `crates/host-api/include/msime_client.h`）。
+pub const IDENTITY_MISSING: &str = "clipboard_identity_missing";
+
 /// 本机密钥串的文件名，放在宿主给的目录里，仅本人可读写。
 pub const RELAY_KEYSTORE_FILE: &str = "cloud-clipboard-relay-keystore";
 /// 同一台设备上的几个进程（输入法、设置窗口、面板）同时用中继时串行，免得第一次使用时各自登记出一台设备。
@@ -72,6 +75,9 @@ pub enum RelayError {
     /// 网盘没通过「测试连接」：建不了目录，或者独占创建、列目录的行为不对。
     #[error("cloud clipboard webdav storage does not support what the log needs")]
     Unsupported,
+    /// 调用方要求只用已有的设备身份（[`RelayClipboard::existing_identity_only`]），而本机没有给这个中继和空间保存过可用的密钥串：没有生成新身份，也没有联网。
+    #[error("no cloud clipboard device identity has been set up on this device")]
+    IdentityMissing,
     /// 驱动或中继给出的结果，例如本机还在等待批准（`clipboard_device_pending`）。
     #[error("cloud clipboard relay operation failed: {}", .0.code)]
     Clipboard(DriverError),
@@ -89,6 +95,7 @@ impl RelayError {
             Self::RateLimited => "webdav_rate_limited",
             Self::Rollback => "webdav_rollback",
             Self::Unsupported => "webdav_unsupported",
+            Self::IdentityMissing => IDENTITY_MISSING,
             Self::Clipboard(error) => crate::account::cloud_clipboard_error_code(&error.code)
                 .unwrap_or(match error.status {
                     400 => "invalid_cloud_clipboard",
@@ -293,6 +300,7 @@ impl RelayTransport {
         }
         // 中继源站固定；系统代理模式也必须明确排除本机和明文目标。
         let client = crate::proxy::configure_blocking_for(Client::builder(), &config.base)
+            .map_err(|_| RelayError::Unavailable)?
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))
@@ -444,6 +452,8 @@ pub struct RelayClipboard {
     transport: RelayTransport,
     directory: PathBuf,
     device_name: String,
+    /// 本机没有可用的密钥串时，驱动是否可以生成新的设备身份并登记。
+    create_identity: bool,
 }
 
 impl RelayClipboard {
@@ -461,11 +471,17 @@ impl RelayClipboard {
             transport: RelayTransport::for_clipboard(config, &directory)?,
             directory,
             device_name: device_name.to_owned(),
+            create_identity: true,
         })
     }
 
-    /// WebDAV 后端换成测试里的假网盘。
-    #[cfg(test)]
+    /// 只用本机已经保存的设备身份：目录里没有给这个中继和空间保存过可用的密钥串时，每个驱动操作都是 [`RelayError::IdentityMissing`]，不生成新身份、不登记、不联网。给与另一个进程共用同一份身份、自己不该另登记一台设备的宿主用：鸿蒙的键盘扩展沿用设置应用经共享沙箱镜像过来的那份。开关、删除、置顶这些不经驱动的动作不受影响。
+    pub fn existing_identity_only(mut self) -> Self {
+        self.create_identity = false;
+        self
+    }
+
+    /// WebDAV 后端换成给定的虚拟中继：测试里的假网盘，或者词库同步那份放在别的目录下的密钥串。
     pub(crate) fn with_webdav(
         relay: VirtualRelay,
         directory: impl Into<PathBuf>,
@@ -477,6 +493,7 @@ impl RelayClipboard {
             },
             directory: directory.into(),
             device_name: device_name.to_owned(),
+            create_identity: true,
         }
     }
 
@@ -581,10 +598,19 @@ impl RelayClipboard {
         Ok(devices)
     }
 
-    /// 跑完一个驱动操作。整个操作持有本机的中继锁；驱动交回的密钥串在发出下一个请求之前保存。
+    /// 跑完一个驱动操作。整个操作持有本机的中继锁，同一台设备上别的进程在这期间不会读写密钥串，所以开始时读到的就是保存前存着的那份；驱动交回的密钥串在发出下一个请求之前保存。
     fn drive(&self, operation: Operation) -> Result<Value, RelayError> {
         let _lock = self.lock()?;
         let keystore = self.load_keystore()?;
+        // 在锁里检查：驱动遇到没有或解析不了的密钥串会生成新身份，那正是只用已有身份的调用方要避免的。
+        if !self.create_identity
+            && keystore
+                .as_deref()
+                .and_then(clipboard_e2e::Keystore::parse)
+                .is_none()
+        {
+            return Err(RelayError::IdentityMissing);
+        }
         let result = clipboard_e2e::run(
             operation,
             keystore.as_deref(),
@@ -593,7 +619,10 @@ impl RelayClipboard {
                 self.transport
                     .send(&request.method, &request.path, request.body.as_deref())
             },
-            |value| self.save_keystore(value),
+            |value| {
+                self.save_keystore(value)
+                    .map(|()| clipboard_e2e::Persisted::Saved)
+            },
             || RelayError::Unavailable,
         )?;
         result.map_err(RelayError::Clipboard)
@@ -624,7 +653,7 @@ impl RelayClipboard {
     }
 
     /// 本机给这个中继、这个令牌空间保存的密钥串。文件属于别的中继或别的空间、或者解析不了时当作没有。
-    fn load_keystore(&self) -> Result<Option<String>, RelayError> {
+    pub(crate) fn load_keystore(&self) -> Result<Option<String>, RelayError> {
         let Some(bytes) = self
             .storage()
             .read_private(RELAY_KEYSTORE_FILE, MAX_KEYSTORE_FILE_BYTES)

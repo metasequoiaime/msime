@@ -20,12 +20,24 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
     private static final String NAME = "合成分类";
     private File history;
     private File catalog;
+    private boolean capacityOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        capacityOnly = arguments != null && "true".equals(arguments.getString("capacity"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
-        return "clipboard category settings, move/filter, rename/delete, reload, sticky header and back to top";
+        return capacityOnly
+            ? "main and visitor clipboard histories retain sixty synthetic entries at the saved capacity"
+            : "clipboard category settings, move/filter, rename/delete, reload, sticky header and back to top";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (capacityOnly) {
+            ClipboardCapacityDeviceSmoke.runCapacity(getTargetContext(), this);
+            return;
+        }
         getTargetContext().getClassLoader().loadClass("app.msime.android.Bootstrap")
             .getMethod("prepare", android.content.Context.class).invoke(null, getTargetContext());
         File root = getTargetContext().getFilesDir();
@@ -82,6 +94,8 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
             capture("filter");
 
             stage = "keyboard classification management shortcut";
+            // 「分类」收进了顶行的「更多」菜单（#10037）。
+            tap(described("更多剪贴板操作"));
             tap(described("管理剪贴板分类"));
             await(hostText(NAME));
             tap(hostText(NAME));
@@ -96,6 +110,7 @@ public final class ClipboardCategoriesDeviceSmoke extends DeviceSmoke {
             assertAbsent(card(1), "Reload lost category filter");
 
             stage = "delete category retains body and returns unclassified";
+            tap(described("更多剪贴板操作"));
             tap(described("管理剪贴板分类"));
             tap(hostText("删除"));
             await(hostText("添加"));

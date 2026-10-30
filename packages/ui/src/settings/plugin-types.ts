@@ -177,8 +177,16 @@ export type ScriptGrantsResult = {
   commands: ScriptCommandState[];
 };
 
-/** 插件详情可以链接过去的设置页：辅助码和快捷模式都在「输入」页。 */
-export type PluginSettingsPage = "input" | "vocabulary";
+/** 插件详情可以链接过去的设置页：辅助码和快捷模式都在「输入」页，触屏的按键音开关在「屏幕键盘」页。 */
+export type PluginSettingsPage = "input" | "vocabulary" | "screen-keyboard";
+
+/** 触屏设置的插件页（`HostCapabilities.touch_plugin_packs`）：只列触屏键盘用得上的包，按键音效包按触屏规则选用，导入只收 .zip。触屏键盘的「按键音」开关不在共享偏好里，是宿主本机的按键反馈设置，由页面读到后交给这里。 */
+export type TouchPluginRules = {
+  /** 「按键音」开关；还没读到时为 undefined，按打开处理。 */
+  keySoundEnabled?: boolean;
+  /** 打开「按键音」；没有时详情只说明开关在哪里。 */
+  onEnableKeySound?: () => void;
+};
 
 /** A folder under the plugins directory that is not a loadable pack, and why. */
 export type PluginIssue = { kind: PluginKind; folder: string; reason: string };

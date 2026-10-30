@@ -49,6 +49,14 @@ enum KeyboardAIService {
     return token
   }
 
+  /// 键盘给 AI 辅助翻译签名用的令牌：已发布的 AI 配置指向的地址必须就是共享偏好里 `ai_assistant.endpoint`，令牌也要能从钥匙串取到，否则返回 nil，键盘发不出 AI 翻译请求。「翻译服务」设置页用同一个判断显示 AI 辅助是否就绪，两边不会一边说就绪、一边拿不到令牌。
+  static func translationToken(endpoint: String) -> String? {
+    guard let configuration = configuration(),
+          let url = try? configuration.validatedURL(allowsLocalHTTP: true),
+          url.absoluteString == endpoint else { return nil }
+    return try? token(for: configuration)
+  }
+
   static func disable() throws {
     defaults?.removeObject(forKey: preference)
     let status = SecItemDelete(query() as CFDictionary)

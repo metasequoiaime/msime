@@ -7,8 +7,10 @@
 //! 与 TS 版不同的地方都以 Rust 为准：云端某个键的取值本机不认识或超出范围时只跳过这一个键并在 `skipped` 里列出，不拒绝整份文档（与 Android 相同）；值的类型与字段表不符、字段表与本机期望的类型冲突、字段表本身不合规时仍然拒绝整份文档。
 
 use super::settings_sync::{
-    apply_touch_settings, insert_input_settings, insert_string, insert_touch_settings,
-    needs_feedback, valid_haptic_strength, HostKeyboardFeedback, TouchHostKeys,
+    apply_harmony_split_keyboard, apply_local_mode_extras, apply_second_third_candidate,
+    apply_touch_settings, insert_harmony_split_keyboard, insert_input_settings,
+    insert_local_mode_extras, insert_second_third_candidate, insert_string, insert_touch_settings,
+    needs_feedback, valid_haptic_strength, Applier, HostKeyboardFeedback, TouchHostKeys,
 };
 use super::{
     validate_preference_schema, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
@@ -52,6 +54,17 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     shuangpin_key_hints: "platform.harmony.shuangpin_key_hints",
     // 鸿蒙键盘的全拼分词键暂无设置入口，共享偏好原样同步。
     quanpin_shift: "platform.harmony.quanpin_shift",
+    twenty_six_key_style: "platform.harmony.twenty_six_key_style",
+    fourteen_key_style: "platform.harmony.fourteen_key_style",
+    nine_key_style: "platform.harmony.nine_key_style",
+    number_row: "platform.harmony.number_row",
+    twenty_six_symbol_first: "platform.harmony.twenty_six_symbol_first",
+    number_pad_space: "platform.harmony.number_pad_space",
+    nine_key_sidebar_symbols: "platform.harmony.nine_key_symbols",
+    nine_key_digit_sidebar_symbols: "platform.harmony.nine_key_digit_symbols",
+    one_handed_side_panel: "platform.harmony.one_handed_side_panel",
+    language_key_side: "platform.harmony.language_key_side",
+    nine_key_swipe_digits: "platform.harmony.nine_key_swipe",
     feedback: HARMONY_FEEDBACK_KEYS,
 };
 
@@ -73,6 +86,11 @@ pub fn export_harmony_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    // 共享设置页在鸿蒙上能改的两组共享偏好；其余新增的共享键（快捷短语混输、语法模型、AI 思考强度、桌面快捷键）鸿蒙没有开关或运行时不读，不导出，免得默认值盖掉别的设备的选择。
+    insert_local_mode_extras(&mut settings, preferences);
+    insert_second_third_candidate(&mut settings, preferences);
+    // 分离式键盘的主开关与 Android 的 `platform.android.split_keyboard` 一样随账号同步；启用宽度和中间空隙只留本机。
+    insert_harmony_split_keyboard(&mut settings, preferences);
     // 本机是 14 键时不导出触屏布局，见 `HARMONY_KEYS.uploads_fourteen_key`；18 键按共享布局映射导出。
     insert_touch_settings(&mut settings, preferences, feedback, &HARMONY_KEYS)?;
     // 鸿蒙不提供的全局主题（只在 iOS 的 `native`）在鸿蒙上按 `system` 绘制，也按 `system` 上传：已经发出去的鸿蒙版本只认七个主题 id，收到别的会拒收整份文档。
@@ -101,7 +119,7 @@ pub fn needs_harmony_feedback(
     needs_feedback(cloud, schema, &HARMONY_FEEDBACK_KEYS)
 }
 
-/// 把云端文档应用到本机偏好，只读各平台共有的 `input.*` 键和 `platform.harmony.*`，别的平台的键（包括同名的 `platform.android.*`）不动。`feedback` 是宿主当前的按键反馈，[`needs_harmony_feedback`] 为真时必须传入，否则返回 `Storage`。字段表不合规时是 `Unavailable`。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
+/// 把云端文档应用到本机偏好，只读各平台共有的 `input.*` 键、符号模式与日期菜单（`local_modes.symbol`、`local_modes.date_time_menu`）、第二三候选（`second_third_candidate.*`）和 `platform.harmony.*`，别的平台的键（包括同名的 `platform.android.*`）不动。`feedback` 是宿主当前的按键反馈，[`needs_harmony_feedback`] 为真时必须传入，否则返回 `Storage`。字段表不合规时是 `Unavailable`。调用方之前应当已经按版本过滤过文档（`edition::filter_downloaded_account_settings`）。
 pub fn apply_harmony_settings(
     local: &Preferences,
     cloud: &AccountPreferences,
@@ -109,13 +127,26 @@ pub fn apply_harmony_settings(
     feedback: Option<HostKeyboardFeedback>,
 ) -> Result<HarmonySettingsApplied, AccountError> {
     validate_preference_schema(schema)?;
-    let (preferences, feedback, skipped) =
-        apply_touch_settings(local, cloud, schema, feedback, &HARMONY_KEYS, |_| Ok(()))?;
+    let (preferences, feedback, skipped) = apply_touch_settings(
+        local,
+        cloud,
+        schema,
+        feedback,
+        &HARMONY_KEYS,
+        apply_harmony_extras,
+    )?;
     Ok(HarmonySettingsApplied {
         preferences,
         feedback,
         skipped,
     })
+}
+
+/// [`export_harmony_settings`] 多导出的几组共享偏好的反方向。
+fn apply_harmony_extras(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    apply_local_mode_extras(applier)?;
+    apply_second_third_candidate(applier)?;
+    apply_harmony_split_keyboard(applier)
 }
 
 #[cfg(test)]

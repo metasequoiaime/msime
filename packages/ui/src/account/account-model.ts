@@ -17,6 +17,8 @@ export type AccountProviders = {
   phone: boolean;
   apple?: boolean;
   google?: boolean;
+  /** 服务端是否开着华为账号登录；只有提供 `huaweiLogin` 的宿主（鸿蒙）才据此给出按钮。 */
+  huawei?: boolean;
 };
 
 export type AccountChallenge = {
@@ -109,6 +111,8 @@ export interface AccountClient {
   login(challengeId: string, code: string): Promise<{ user?: AccountUser | null }>;
   /** iOS 在原生层执行 nonce 与 AuthenticationServices 交换。 */
   appleLogin?: () => Promise<{ user?: AccountUser | null }>;
+  /** 鸿蒙宿主经 Account Kit 拉起系统的华为账号授权页，nonce 和 ID token 都只在原生层，页面只看到登录结果。 */
+  huaweiLogin?: () => Promise<{ user?: AccountUser | null }>;
   /** 桌面宿主在原生层打开 Google 浏览器并处理回环重定向，页面不接收授权码。 */
   googleLogin?: () => Promise<{ user?: AccountUser | null }>;
   /** 终止等待中的 `googleLogin`，该调用随后以取消拒绝。浏览器不能报告 Google 标签页关闭，用户可借此主动取消，无需等待超时。 */

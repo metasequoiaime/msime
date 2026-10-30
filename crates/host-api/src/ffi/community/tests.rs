@@ -283,6 +283,36 @@ fn signed_out_keyboard_skin_downloads_and_reports_read_the_anonymous_session() {
     );
 }
 
+/// 宿主的 `exclude_ai_generated`（HarmonyOS 在 AI 生成类资质到位之前总是带上）属于请求本身、不属于动作：给了布尔值照常走到账号检查，类型不对或塞进动作里都是 `community_invalid`。
+#[test]
+fn the_host_may_ask_to_exclude_ai_generated_skins() {
+    let root = Root::new();
+    let request = |exclude: Value, action: Value| {
+        call(json!({
+            "directory": root.account(),
+            "state_root": root.0.path(),
+            "exclude_ai_generated": exclude,
+            "action": action,
+        }))
+    };
+    let mine =
+        json!({ "operation": "keyboard_skin_list", "offset": 0, "search": "", "mine": true });
+    for exclude in [json!(true), json!(false)] {
+        assert_eq!(
+            request(exclude.clone(), mine.clone()),
+            failure("community_unauthorized"),
+            "{exclude}"
+        );
+    }
+    assert_eq!(
+        request(json!("yes"), mine.clone()),
+        failure("community_invalid")
+    );
+    let mut nested = mine;
+    nested["exclude_ai_generated"] = json!(true);
+    assert_eq!(root.call(nested), failure("community_invalid"));
+}
+
 /// 按会话文件的要求写一个只有属主可读写的文件，目录也收紧到 0700。
 fn write_private_file(directory: &Path, name: &str, bytes: &[u8]) {
     std::fs::create_dir_all(directory).unwrap();

@@ -439,6 +439,11 @@ final class CandidateCanvasTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(content.height, KeyboardViewController.candidateChipMinimumSize.height)
     XCTAssertLessThanOrEqual(frame.maxY, content.maxY + 0.5, "首选高亮不能伸出面板的内容区")
     XCTAssertGreaterThanOrEqual(frame.minY, content.minY - 0.5)
+    // 皮肤没变时键盘收起再出现，沿用已解码的快照：不先退回配色，也不在后台把整包图片重新解一遍。
+    let canvas = try XCTUnwrap(strip.canvas)
+    controller.viewWillDisappear(false)
+    controller.viewWillAppear(false)
+    XCTAssertTrue(strip.canvas === canvas, "再出现沿用已解码的皮肤")
     controller.viewWillDisappear(false)
   }
 

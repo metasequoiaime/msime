@@ -1,6 +1,6 @@
 # HarmonyOS 候选画布设备验收
 
-手写回归可直接检查已安装的产品包：在水杉应用内打开「试用键盘」的空白输入框并切到手写，保持设备解锁，执行 `python3 platforms/harmony/tests/device/check-handwriting.py --hdc /path/to/hdc --serial <设备>`。脚本注入合成「工」的三笔，检查候选、选字上屏、空画布删除与重写清空，不发送消息、不读取其他应用。它使用设备的 `uitest`，运行期间不要并行操作同一设备。
+手写回归可直接检查已安装的产品包：在水杉应用内打开「试用键盘」的空白输入框并切到手写，保持设备解锁，执行 `python3 platforms/harmony/tests/device/check-handwriting.py --hdc /path/to/hdc --serial <设备>`。脚本注入合成「工」的三笔，检查候选、选字上屏、空画布删除与重写清空，不发送消息、不读取其他应用。它使用设备的 `uitest`，运行期间不要并行操作同一设备。选字上屏会被「记忆新词」学进词库：在用户自己的设备上跑之前，按 [launch-platform-host](../../../../.agents/skills/launch-platform-host/SKILL.md#在别人的真机上自动打字) 记下并关掉学习、词库同步和在线翻译，跑完按原值恢复。
 
 需要 DevEco 的 `hvigorw` / `ohpm`、已经按平台 README 暂存的设置页、引擎资源、原生库及语音 HAR。在本工作区没有其他构建运行时执行：
 

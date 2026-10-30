@@ -4,6 +4,7 @@
 #include <napi/native_api.h>
 #include <zlib.h>
 #include <cerrno>
+#include <cmath>
 #include <cstring>
 #include <fcntl.h>
 #include <limits>
@@ -163,6 +164,24 @@ static bool argumentInt32(napi_env env, napi_value value, int32_t &out) {
     return napi_get_value_int32(env, value, &out) == napi_ok;
 }
 
+// 触点坐标：ArkTS 的 number 是双精度，C ABI 收 float。超出 float 范围的双精度转 float 是未定义行为，所以不是有限数或超界时交 NaN，Rust 那边把它当作没有触点（等同 msime_client_character）。
+static bool argumentCoordinate(napi_env env, napi_value value, float &out) {
+    double number = 0;
+    if (napi_get_value_double(env, value, &number) != napi_ok) return false;
+    out = std::isfinite(number) && std::fabs(number) <= static_cast<double>(std::numeric_limits<float>::max())
+        ? static_cast<float>(number) : std::numeric_limits<float>::quiet_NaN();
+    return true;
+}
+
+// 几何代次是 u32；napi_get_value_uint32 会把负数和超界的值悄悄折回范围内，所以按 int64 读再查范围。
+static bool argumentUint32(napi_env env, napi_value value, uint32_t &out) {
+    int64_t number = 0;
+    if (napi_get_value_int64(env, value, &number) != napi_ok) return false;
+    if (number < 0 || number > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) return false;
+    out = static_cast<uint32_t>(number);
+    return true;
+}
+
 static bool argumentArrayBuffer(napi_env env, napi_value value, std::vector<uint8_t> &out,
                                size_t maximum = std::numeric_limits<size_t>::max()) {
     bool is_array_buffer = false;
@@ -265,6 +284,8 @@ TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 // The keyboard's flush after each personal-dictionary drain: it moves at most one queue batch, so it stays synchronous on the keyboard's own thread like the drain it follows.
 TEXT_ENTRY(DictionaryCollections, msime_client_dictionary_collections)
+// 键盘建会话之前的「我的词条」交换：最多写一批（128 项），和前面的个人词库排空一样同步地在键盘自己的线程上做。
+TEXT_ENTRY(UserWordsMirror, msime_client_user_words_mirror)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
@@ -586,6 +607,16 @@ static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info in
 }
 
 // 搜狗细胞词库转成标准文本（`msime_client_dictionary_scel_text`）：纯函数，但请求是整个文件的 base64，解码和转换放在工作线程上，设置页等 promise。
+// 设置应用自己排空它的个人词库队列（导入的个人词库文件、云词库下载、命名词库）：每次取维护权写一小批，放在工作线程上。
+static napi_value PersonalDictionarySyncAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_personal_dictionary_sync, "MSIME personal dictionary sync");
+}
+
+// 设置应用的「我的词条」交换和键盘失去焦点时的发布：要读整份日志，设置应用那边还要写词库，放在工作线程上。
+static napi_value UserWordsMirrorAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_user_words_mirror, "MSIME user words mirror");
+}
+
 static napi_value DictionaryScelTextAsync(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_dictionary_scel_text, "MSIME dictionary scel text");
 }
@@ -616,6 +647,33 @@ static napi_value CloudDictionary(napi_env env, napi_callback_info info) {
 static napi_value AccountCloudClipboard(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_account_cloud_clipboard,
         "MSIME account cloud clipboard");
+}
+
+// 自建中继和 WebDAV 网盘（docs/cloud-clipboard-relay.md、docs/cloud-clipboard-webdav.md）：驱动、密钥串和网盘日志都在 Rust 里，会阻塞网络，与账号的云剪贴板一样在工作线程上调用。
+static napi_value RelayCloudClipboard(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_relay_cloud_clipboard,
+        "MSIME relay cloud clipboard");
+}
+
+static napi_value CloudClipboardWebDavProbe(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_cloud_clipboard_webdav_probe,
+        "MSIME cloud clipboard webdav probe");
+}
+
+// 「我的词条」经 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）：除 status 外都会阻塞网络，整次同步还持有一把文件锁，所以在工作线程上调用。只有设置应用调它：键盘扩展在自己的沙箱里调会登记成另一台设备（scripts/test-harmony-dictionary-sync.py 守着）。
+static napi_value DictionarySync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_sync, "MSIME dictionary sync");
+}
+
+// 云剪贴板该走哪条路：头文件规定它只读偏好、不联网，所以同步调用，键盘在主线程上核对列表的绑定时也读它。参数是偏好目录的绝对路径本身（不是 JSON），与 accountStatus 一样。
+static napi_value CloudClipboardSource(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string directory;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], directory)) {
+        return response(env, msime_client_cloud_clipboard_source(nullptr, 0));
+    }
+    return response(env, msime_client_cloud_clipboard_source(
+        reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
 }
 
 static napi_value EnsureAnonymousAccountWithAgent(napi_env env, napi_callback_info info) {
@@ -1314,6 +1372,42 @@ static napi_value Character(napi_env env, napi_callback_info info) {
         msime_client_character(handle, static_cast<uint8_t>(ascii), shift));
 }
 
+// 触屏 26 键双拼的键位几何（msime_client_set_key_geometry）。不是字符串或长到无法拷贝的请求按空缓冲交给 Rust，等同清除几何。
+static napi_value SetKeyGeometry(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string geometry;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)) {
+        return invalid(env, "Session handle must be a non-negative integer");
+    }
+    if (!argumentText(env, argv[1], geometry)) {
+        return response(env, msime_client_set_key_geometry(handle, nullptr, 0));
+    }
+    return response(env, msime_client_set_key_geometry(
+        handle, reinterpret_cast<const uint8_t *>(geometry.data()), geometry.size()));
+}
+
+// 带按下点的一键（msime_client_touch_character），参数同 Character 再加几何代次和按下点。
+static napi_value TouchCharacter(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    int32_t ascii = 0;
+    bool shift = false;
+    uint32_t geometry = 0;
+    float x = 0;
+    float y = 0;
+    if (!arguments(env, info, 6, argv) || !argumentHandle(env, argv[0], handle)
+            || napi_get_value_int32(env, argv[1], &ascii) != napi_ok
+            || !argumentFlag(env, argv[2], shift)
+            || !argumentUint32(env, argv[3], geometry)
+            || !argumentCoordinate(env, argv[4], x)
+            || !argumentCoordinate(env, argv[5], y)) {
+        return invalid(env, "Expected a session handle, an ASCII code, a boolean, a geometry id and a point");
+    }
+    if (ascii < 0 || ascii > 127) return invalid(env, "Engine character must be ASCII");
+    return response(env, msime_client_touch_character(handle, static_cast<uint8_t>(ascii), shift, geometry, x, y));
+}
+
 // One glide stroke (滑行输入) as the JSON request msime_client_glide reads. A request that is not a string, or is too long to copy, reaches the Rust side as an empty buffer and is refused there with the same structured error as a malformed one.
 static napi_value Glide(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
@@ -1457,6 +1551,12 @@ static napi_value AbiVersion(napi_env env, napi_callback_info) {
     napi_value output = nullptr;
     if (napi_create_uint32(env, msime_client_abi_version(), &output) != napi_ok) return nullptr;
     return output;
+}
+
+// 键盘收起时关掉 UI 线程缓存的候选释义词库连接和读好的自定义译文；释义只在 UI 线程上查，所以也只在 UI 线程上调。
+static napi_value ReleaseGlossCaches(napi_env, napi_callback_info) {
+    msime_client_release_gloss_caches();
+    return nullptr;
 }
 
 // The global theme picker takes no argument: the ids, titles and palettes all come from the shared catalog.
@@ -1688,6 +1788,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
         ENTRY("translationGlossSave", TranslationGlossSave),
@@ -1721,6 +1822,10 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("cloudDictionary", CloudDictionary),
         ENTRY("cloudDictionarySnapshot", CloudDictionarySnapshot),
         ENTRY("accountCloudClipboard", AccountCloudClipboard),
+        ENTRY("cloudClipboardSource", CloudClipboardSource),
+        ENTRY("relayCloudClipboard", RelayCloudClipboard),
+        ENTRY("cloudClipboardWebDavProbe", CloudClipboardWebDavProbe),
+        ENTRY("dictionarySync", DictionarySync),
         ENTRY("harmonySettingsExport", HarmonySettingsExport),
         ENTRY("harmonySettingsApply", HarmonySettingsApply),
         ENTRY("aiSkinGenerate", AiSkinGenerate),
@@ -1741,10 +1846,13 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("resolveOnlineCandidates", ResolveOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
+        ENTRY("personalDictionarySyncAsync", PersonalDictionarySyncAsync),
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("dictionaryCollections", DictionaryCollections),
         ENTRY("dictionaryCollectionsAsync", DictionaryCollectionsAsync),
         ENTRY("dictionaryScelTextAsync", DictionaryScelTextAsync),
+        ENTRY("userWordsMirror", UserWordsMirror),
+        ENTRY("userWordsMirrorAsync", UserWordsMirrorAsync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),
@@ -1762,6 +1870,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("setPrivateSession", SetPrivateSession),
         ENTRY("character", Character),
+        ENTRY("setKeyGeometry", SetKeyGeometry),
+        ENTRY("touchCharacter", TouchCharacter),
         ENTRY("gridKey", GridKey),
         ENTRY("glide", Glide),
         ENTRY("punctuationWithContext", PunctuationWithContext),

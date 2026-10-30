@@ -588,7 +588,7 @@ pub trait AccountSessionStorage: Send + Sync + 'static {
         Err(AccountError::Storage)
     }
 
-    /// 原子替换本机的云剪贴板密钥串。驱动每交回一个变化了的值就调用一次，在发出下一个请求之前。
+    /// 原子替换本机的云剪贴板密钥串。驱动每交回一个变化了的值就调用一次，在发出下一个请求之前。调用方先在 [`Self::with_refresh_lock`] 里读一次，存着另一个设备身份时不调用它（`clipboard_e2e::Keystore::other_identity`），这里只管整体替换。
     fn save_clipboard_keystore(&self, _value: &str) -> Result<(), AccountError> {
         Err(AccountError::Storage)
     }

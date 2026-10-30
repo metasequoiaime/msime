@@ -4,8 +4,9 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order, ParallelOrderRows, StaticEvidence,
+    runner_up_order_with, ParallelOrderRows, StaticEvidence,
 };
+use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
 pub(crate) use msime_engine::ordering::{
@@ -109,6 +110,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) character_width: CharacterWidth,
     pub(crate) punctuation_marks: PunctuationMarks,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// 触屏宿主注册的字母键几何（`msime_client_set_key_geometry`）。由 runtime 持有而不是只交给引擎：宿主空闲时会重建引擎（`replace_engine`），新引擎要重新拿到它，否则触点会悄悄失效。
+    pub(crate) key_geometry: Option<Arc<KeyGeometry>>,
     /// 整个候选列表只给出一个词的完整五笔码，是否在第四键提交。
     ///
     /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
@@ -712,6 +715,15 @@ impl<E: InputEngine> Runtime<E> {
             if snapshot.candidate_static_evidence.len() == order.len() {
                 snapshot.candidate_static_evidence.swap(left, right);
             }
+            if snapshot.candidate_contest.len() == order.len() {
+                snapshot.candidate_contest.swap(left, right);
+            }
+            if snapshot.candidate_touch_supported.len() == order.len() {
+                snapshot.candidate_touch_supported.swap(left, right);
+            }
+            if snapshot.candidate_confident_correction.len() == order.len() {
+                snapshot.candidate_confident_correction.swap(left, right);
+            }
             engine_order.swap(left, right);
         });
     }
@@ -1059,18 +1071,21 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// `page_size` 既是分页，也作为首屏门槛交给引擎（`InputEngine::set_first_page_rows`），见 [`Self::set_page_size`]。
     pub fn new(engine: E, page_size: u8) -> Result<Self, RuntimeError> {
         Self::new_with_touch_layout(engine, page_size, TouchKeyboardLayout::default())
     }
 
     pub fn new_with_touch_layout(
-        engine: E,
+        mut engine: E,
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<Self, RuntimeError> {
         if !(1..=MAX_CANDIDATE_PAGE_SIZE).contains(&page_size) {
             return Err(RuntimeError::InvalidPageSize);
         }
+        // 引擎的首屏门槛和分页同源，建立时就交给它，不靠调用方在引擎选项里另设一份：只在 `set_page_size` 下发时，直接 `Runtime::new` 的示例、测试和评测工具分页是 9，引擎却停在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入首页和任何宿主都不一样。
+        engine.set_first_page_rows(page_size.into());
         let session = NEXT_SESSION
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| RuntimeError::IdentityExhausted)?;
@@ -1104,6 +1119,7 @@ impl<E: InputEngine> Runtime<E> {
             character_width: CharacterWidth::Halfwidth,
             punctuation_marks: PunctuationMarks::default(),
             touch_keyboard_layout,
+            key_geometry: None,
             wubi_auto_commit_unique: true,
             wubi_fifth_code_top_commit: true,
             wubi_candidate_selection: Default::default(),
@@ -1194,8 +1210,8 @@ impl<E: InputEngine> Runtime<E> {
         self.snapshot_settled_seats();
         let marked = self.settled_highlight();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        // 使用快速重排相同的后处理，保留固定席位。
-        let moved = self.rerank();
+        // 使用快速重排相同的后处理，保留固定席位。九宫格的裁决标记不交给落定模型，见 `rerank`。
+        let moved = self.rerank(false);
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
         self.finish_settled_presentation(moved, marked)
     }
@@ -1393,6 +1409,31 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context("");
     }
 
+    /// 注册或清除触屏宿主的字母键几何（`None` 清除），见 [`msime_engine::touch::KeyGeometry`]。只在布局变化时调用；引擎被替换后由 runtime 重新下发。不刷新候选。
+    pub fn set_key_geometry(&mut self, geometry: Option<KeyGeometry>) {
+        self.key_geometry = geometry.map(Arc::new);
+        self.engine.set_key_geometry(self.key_geometry.clone());
+    }
+
+    /// 当前注册的几何代次，没有几何时为 `None`。只有测试用来核对注册和清除。
+    #[cfg(test)]
+    pub(crate) fn key_geometry_id(&self) -> Option<u32> {
+        self.key_geometry.as_ref().map(|geometry| geometry.id())
+    }
+
+    /// 宿主按下点 (x, y) 落在 `key` 上的触点。代次 `geometry_id` 与当前注册的不符、坐标不是有限数、`key` 不在几何里时为 `None`，这一键就按没有触点打，与 `msime_client_character` 逐字节相同。
+    pub fn key_touch(&self, key: u8, geometry_id: u32, x: f32, y: f32) -> Option<KeyTouch> {
+        self.key_geometry
+            .as_ref()
+            .filter(|geometry| geometry.id() == geometry_id)?
+            .touch(key, x, y)
+    }
+
+    /// 下一次派发的 `Action::Character` 的触点；派发完不论结果如何都要 `set_key_touch(None)`。引擎只把它交给 26 键双拼的小写字母和 `;`，其余入口一开头就丢掉它。
+    pub fn set_key_touch(&mut self, touch: Option<KeyTouch>) {
+        self.engine.set_key_touch(touch);
+    }
+
     /// 移动引擎前缀解码的光标；`None` 恢复到组字末尾。候选可能随前缀改变，旧候选 ID 必须失效。
     pub fn set_caret(&mut self, caret: Option<usize>) -> Result<(), RuntimeError> {
         self.advance()?;
@@ -1486,6 +1527,7 @@ impl<E: InputEngine> Runtime<E> {
             script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode),
             nine_key: self.cached.nine_key,
             key_grid: key_grid_name(self.cached.key_grid),
+            grid_composing: self.cached.grid_composing,
             nine_key_spellings: self.cached.nine_key_spellings.clone(),
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,
@@ -1598,13 +1640,47 @@ impl<E: InputEngine> Runtime<E> {
     /// quietly showing the first tranche. Release them here too: this call is the request for all of
     /// them. A refusal is not fatal; the caller still gets whatever the generation already holds.
     pub fn all_candidates(&mut self) -> CandidateSnapshot {
+        self.release_held_candidates();
+        self.all_candidates_cached()
+    }
+
+    /// 座位 `start` 起最多 `count` 行候选，给每键都要重画的横向候选条用：只序列化这一批，不像 [`Self::all_candidates`] 那样整代复制。
+    ///
+    /// 引擎暂扣的尾部只在 `start` 已经走到放出来的末尾（宿主把已有的都建完了还要更多）时才放，和翻页宿主翻到最后一页时一样；放出来会重排座位并换一代，宿主看到 `generation` 变了就要按新的一代从头取。首字母打下去时因此不必把整张声母表查出来。
+    pub fn candidate_range(&mut self, start: usize, count: usize) -> CandidateRange {
+        if count > 0 && start >= self.visible_len() {
+            self.release_held_candidates();
+        }
+        let total = self.visible_len();
+        let end = start.saturating_add(count).min(total);
+        let candidates = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .take(end)
+            .skip(start)
+            .map(|(index, text)| self.candidate(index, text))
+            .collect();
+        CandidateRange {
+            session: self.session,
+            generation: self.generation,
+            preedit: self.cached.preedit.clone(),
+            reading: self.cached.reading.clone(),
+            total,
+            candidates,
+        }
+    }
+
+    /// 让引擎放出暂扣的候选尾部；放出来了就换一代。
+    fn release_held_candidates(&mut self) {
         // Candidate IDs are tied to the generation.  Once that identity space is
         // exhausted we cannot publish a reordered snapshot safely: advancing would
         // fail and retaining the old generation would let an ID from the previous
         // seat select a different candidate.  Keep the currently published view
         // stable; callers can still inspect the candidates already released.
         if self.generation == u64::MAX {
-            return self.all_candidates_cached();
+            return;
         }
         // The released tail reorders the list, so the page's IDs must not keep selecting by seat.
         if self.expand_cached_candidates().unwrap_or(false) {
@@ -1612,7 +1688,6 @@ impl<E: InputEngine> Runtime<E> {
             let advanced = self.advance();
             debug_assert!(advanced.is_ok());
         }
-        self.all_candidates_cached()
     }
 
     /// The generation as it stands, without asking the engine for more.
@@ -1708,6 +1783,14 @@ impl<E: InputEngine> Runtime<E> {
                 .get(index)
                 .copied()
                 .unwrap_or(false),
+            // 只标真正坐在第一位的那一行：插件或固定位置把它挪开以后，它只是一条普通的纠错行。
+            confident_correction: index == 0
+                && self
+                    .cached
+                    .candidate_confident_correction
+                    .first()
+                    .copied()
+                    .unwrap_or(false),
             fixed_position: self
                 .cached
                 .candidate_positions
@@ -1956,21 +2039,22 @@ impl<E: InputEngine> Runtime<E> {
         }
         self.advance()?;
         self.page_size = page_size.into();
-        // 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。不在这里下发，它会一直停在重建引擎时那一份：
-        // 每页从 6 改成 9 时，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
+        // 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。建立和换引擎时都下发过，这里改了分页不跟着下发，它就停在旧的那一份：每页从 6 改成 9 时，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
         self.engine.set_first_page_rows(page_size.into());
         Ok(())
     }
 
     /// Preserve the host handle/focus while invalidating every old candidate ID.
     /// Validate the replacement before changing any live state.
+    ///
+    /// `page_size` 同 [`Self::new`]：既是分页，也是交给新引擎的首屏门槛。
     pub fn replace_engine(&mut self, engine: E, page_size: u8) -> Result<(), RuntimeError> {
         self.replace_engine_with_touch_layout(engine, page_size, self.touch_keyboard_layout)
     }
 
     pub fn replace_engine_with_touch_layout(
         &mut self,
-        engine: E,
+        mut engine: E,
         page_size: u8,
         touch_keyboard_layout: TouchKeyboardLayout,
     ) -> Result<(), RuntimeError> {
@@ -1980,11 +2064,15 @@ impl<E: InputEngine> Runtime<E> {
         if !self.is_idle() {
             return Err(RuntimeError::CompositionActive);
         }
+        // 新引擎的首屏门槛同样跟着这一次的分页，理由见 `new_with_touch_layout`。
+        engine.set_first_page_rows(page_size.into());
         let cached = engine.snapshot()?;
         self.advance()?;
         self.engine = engine;
         // The committed text belongs to the client, not the engine, so the replacement ranks against it as its predecessor did.
         self.engine.set_rescoring_context(&self.ai_context);
+        // 键位几何同样属于宿主：布局没变，宿主不会重发。
+        self.engine.set_key_geometry(self.key_geometry.clone());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -2708,13 +2796,14 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.prediction {
             return false;
         }
-        let mut moved = self.rerank();
+        let mut moved = self.rerank(true);
         moved |= self.demote_runner_up_readings();
         moved |= self.normalize_online_slots();
         moved
     }
 
-    fn rerank(&mut self) -> bool {
+    /// `contests` 为真时把九宫格标的窄裁决点（`EngineSnapshot::candidate_contest`）交给排序决策，只有逐键模型这样调：裁决点的 margin 是在随包的键盘模型上调出来的，落定模型（`rerank_settled`、`score_settled_rerank`）没有量过，照旧按 `trusted_leader` 不越过可信的词典首选。
+    fn rerank(&mut self, contests: bool) -> bool {
         // 整句改字的候选是光标处一段的替换，按读音长短排好，不参与整句的重排。光标后编辑的首选接着固定的那段，必须留在首位。
         if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
             return false;
@@ -2737,6 +2826,11 @@ impl<E: InputEngine> Runtime<E> {
             }
             // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
             let rows = order_rows(snapshot);
+            let rows = if contests {
+                rows.with_contests(&snapshot.candidate_contest)
+            } else {
+                rows
+            };
             rerank_pick(
                 reranker,
                 &self.ai_context,
@@ -2779,6 +2873,15 @@ impl<E: InputEngine> Runtime<E> {
         if snapshot.candidate_static_evidence.len() == count {
             rotate_to_front(&mut snapshot.candidate_static_evidence, promote);
         }
+        if snapshot.candidate_contest.len() == count {
+            rotate_to_front(&mut snapshot.candidate_contest, promote);
+        }
+        if snapshot.candidate_touch_supported.len() == count {
+            rotate_to_front(&mut snapshot.candidate_touch_supported, promote);
+        }
+        if snapshot.candidate_confident_correction.len() == count {
+            rotate_to_front(&mut snapshot.candidate_confident_correction, promote);
+        }
         rotate_to_front(&mut self.engine_order, promote);
         true
     }
@@ -2802,7 +2905,11 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(order) = runner_up_order(snapshot.scheme, &order_rows(snapshot)) else {
+        let Some(order) = runner_up_order_with(
+            snapshot.scheme,
+            &order_rows(snapshot),
+            &snapshot.candidate_touch_supported,
+        ) else {
             return false;
         };
         self.apply_candidate_order(&order);
@@ -2895,6 +3002,9 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_corrected: Vec::new(),
                     candidate_answers_key: Vec::new(),
                     candidate_static_evidence: Vec::new(),
+                    candidate_contest: Vec::new(),
+                    candidate_touch_supported: Vec::new(),
+                    candidate_confident_correction: Vec::new(),
                     candidate_list_open: false,
                     microsoft_shuangpin: false,
                     shuangpin_profile: String::new(),
@@ -2946,7 +3056,11 @@ impl<E: InputEngine> Runtime<E> {
                 && self.cached.candidate_positions == previous.candidate_positions
                 && self.cached.candidate_corrected == previous.candidate_corrected
                 && self.cached.candidate_answers_key == previous.candidate_answers_key
-                && self.cached.candidate_static_evidence == previous.candidate_static_evidence;
+                && self.cached.candidate_static_evidence == previous.candidate_static_evidence
+                && self.cached.candidate_contest == previous.candidate_contest
+                && self.cached.candidate_touch_supported == previous.candidate_touch_supported
+                && self.cached.candidate_confident_correction
+                    == previous.candidate_confident_correction;
             if candidates_held {
                 self.highlighted = previous_highlight.min(self.visible_len().saturating_sub(1));
             } else if previous_highlight > 0 {
@@ -2984,6 +3098,7 @@ impl<E: InputEngine> Runtime<E> {
             || cached.multilingual_conversion != previous.multilingual_conversion
             || cached.candidate_positions != previous.candidate_positions
             || cached.candidate_corrected != previous.candidate_corrected
+            || cached.candidate_confident_correction != previous.candidate_confident_correction
             || cached.candidate_list_open != previous.candidate_list_open
             || cached.prediction != previous.prediction
         {

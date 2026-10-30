@@ -249,9 +249,12 @@ fn card(id: &str, zone: &str, date: DateTime<FixedOffset>, reference: Option<&Ci
         ("时间", date.format("%H:%M").to_string()),
         ("时分秒", date.format("%H:%M:%S").to_string()),
         ("日期", date.format("%Y-%m-%d").to_string()),
+        ("年日数", date.format("%Y%m%d").to_string()),
         ("完整日期", full_date.clone()),
         ("星期", weekday.to_owned()),
         ("日期和时间", date.format("%Y-%m-%d %H:%M:%S").to_string()),
+        ("长时数", date.format("%Y%m%d%H%M%S").to_string()),
+        ("长时符", date.format("%Y-%m-%d-%H:%M:%S").to_string()),
         (
             "中文日期和时间",
             format!("{} {}", full_date, date.format("%H:%M:%S")),

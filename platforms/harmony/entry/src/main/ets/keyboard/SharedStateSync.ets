@@ -97,6 +97,10 @@ export class SharedStateSync {
         if (name === 'statistics-switch') {
           return SharedStateSync.applyStatisticsSwitch(stateDirectory, text) ? 'copy' : 'retry';
         }
+        // 设置应用还没有云剪贴板的设备身份时，键盘这份留着不删；有了就照常整份复制过来。
+        if (text === null && SharedStateMirrorPolicy.keepsLocalWhenAbsent(name)) {
+          return 'handled';
+        }
         return SharedStateSync.accountFileDecision(name);
       },
     };

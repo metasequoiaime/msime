@@ -1,7 +1,7 @@
 /**
  * 共享沙箱里的状态镜像：把这一侧的条目发布到 `<共享目录>/msime/<发布方>/`，或把对方发布的条目导入自己的 `files`。规则见 `SharedStateMirrorPolicy`。
  *
- * 只用同步文件操作，调用方都在主线程上的生命周期时刻（键盘获得焦点、设置窗口回到前台或改完设置之后）调用；没有变化时只读一份很小的清单。文件先写到旁边再改名换入，目录先整棵复制到旁边再整体替换，对方读到的要么是旧的、要么是新的。
+ * 只用同步文件操作，调用方都在主线程上的生命周期时刻（键盘获得焦点、设置窗口回到前台或改完设置之后）调用；没有变化时只对每个条目做一次 stat（指纹按文件身份缓存，见 `FingerprintCache`），再读一份很小的清单。文件先写到旁边再改名换入，目录先整棵复制到旁边再整体替换，对方读到的要么是旧的、要么是新的。
  */
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
@@ -10,6 +10,7 @@ import { KeyboardLog, describeError } from './KeyboardLog';
 import { StagedResources } from './StagedResources';
 import {
   ABSENT_FINGERPRINT,
+  FingerprintCache,
   FingerprintedEntry,
   ImportDecision,
   ImportedEntry,
@@ -23,6 +24,7 @@ import {
   PublishPlan,
   SharedStateMirrorPolicy,
 } from './SharedStateMirrorPolicy';
+import { UserWordsMirrorPolicy } from './UserWordsMirrorPolicy';
 
 /** AppGallery Connect 为「输入法应用内数据共享」签发的 data-group-id，签名 Profile 的 `data-group-ids` 和键盘扩展在 `module.json5` 里声明的 `dataGroupIds` 必须与它一致。 */
 export const DATA_GROUP_ID: string = 'group.1516753898738609107';
@@ -35,6 +37,8 @@ export interface MirrorImportHandlers {
 }
 
 export class SharedStateMirror {
+  /** 本进程里本地条目的内容指纹，按路径和文件身份缓存。用静态的：镜像对象可能重建，路径是绝对路径。 */
+  private static readonly localFingerprints: FingerprintCache = new FingerprintCache();
   private readonly groupRoot: string;
   private readonly filesDir: string;
 
@@ -149,6 +153,11 @@ export class SharedStateMirror {
     return this.publishedPath(publisher, entry);
   }
 
+  /** 「我的词条」某一方的发布文件，不管它此刻在不在。它不走上面的清单和指纹：两边的 Rust 直接读写它，见 `UserWordsMirrorPolicy`。 */
+  userWordsFile(publisher: MirrorPublisher): string {
+    return UserWordsMirrorPolicy.publication(this.groupRoot, publisher);
+  }
+
   localPath(entry: MirrorEntry): string {
     return entry.base === 'state' ? `${this.filesDir}/state/${entry.path}` : `${this.filesDir}/${entry.path}`;
   }
@@ -203,10 +212,16 @@ export class SharedStateMirror {
         return SharedStateMirrorPolicy.directoryFingerprint(files);
       }
       if (!stat.isFile()) return ABSENT_FINGERPRINT;
-      const text: string | null = SharedStateMirror.readText(path);
-      if (text === null) return ABSENT_FINGERPRINT;
-      return entry.kind === 'preferences' ? SharedStateMirrorPolicy.preferencesFingerprint(text)
-        : SharedStateMirrorPolicy.fingerprintText(text);
+      const nanoseconds: bigint | undefined = stat.mtimeNs;
+      const stamp: string | null = FingerprintCache.stamp(stat.ino.toString(), stat.size,
+        nanoseconds === undefined ? undefined : nanoseconds.toString());
+      // 文件身份与上次相同时不读文件、不再算指纹：失焦时刚发布过，紧接着获得焦点再发布一次时什么都没变。
+      return SharedStateMirror.localFingerprints.fingerprint(`${entry.kind}:${path}`, stamp, (): string => {
+        const text: string | null = SharedStateMirror.readText(path);
+        if (text === null) return ABSENT_FINGERPRINT;
+        return entry.kind === 'preferences' ? SharedStateMirrorPolicy.preferencesFingerprint(text)
+          : SharedStateMirrorPolicy.fingerprintText(text);
+      });
     } catch (error) {
       KeyboardLog.error('keyboard.SharedStateMirror.fingerprintOf failed');
       return ABSENT_FINGERPRINT;

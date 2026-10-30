@@ -5,10 +5,13 @@ import android.os.SystemClock;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -93,6 +96,7 @@ final class ImeDebugOverlay {
                 SafePaths.ensureDirectory(directory.toPath());
                 java.nio.file.Path file = new File(directory, name).toPath();
                 if (Files.isSymbolicLink(file)) Files.delete(file);
+                if (appendInPlace(file, line)) return;
                 byte[] existing = Files.exists(file, LinkOption.NOFOLLOW_LINKS)
                     ? read(file) : new byte[0];
                 byte[] kept = existing.length + (long) line.length <= MAX_BYTES
@@ -100,7 +104,7 @@ final class ImeDebugOverlay {
                 byte[] next = new byte[kept.length + line.length];
                 System.arraycopy(kept, 0, next, 0, kept.length);
                 System.arraycopy(line, 0, next, kept.length, line.length);
-                // 追加路径也必须先写新文件再替换；直接打开日志目标会跟随硬链接并改写目录外 inode。
+                // 认不准是单链接普通文件或要截掉旧行时，必须先写新文件再替换；直接打开日志目标会跟随硬链接并改写目录外 inode。
                 java.nio.file.Path staging = Files.createTempFile(directory.toPath(),
                     "." + name + ".", ".staging");
                 try {
@@ -113,6 +117,46 @@ final class ImeDebugOverlay {
                 }
             } catch (IOException | RuntimeException ignored) {
                 // 诊断记录写不进去时放弃这一行，不影响键盘。
+            }
+        }
+
+        /**
+         * 平常的一行只追加到文件末尾。每行都读一遍整个文件再整份重写，日志接近 1 MiB 时每次按键要读写约 2 MiB，打开「记录输入日志」后一直在写闪存、发热，也扭曲了要量的卡顿。
+         *
+         * <p>只有文件已存在、是普通文件、只有这一个链接、追加后不超上限时才走这里，否则返回 false，交给先写新文件再替换的路径：它负责丢掉最旧的行，也负责不跟随硬链接去改诊断目录之外的 inode。
+         */
+        private static boolean appendInPlace(java.nio.file.Path file, byte[] line) throws IOException {
+            Object identity = soleLink(file);
+            if (identity == null) return false;
+            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND, LinkOption.NOFOLLOW_LINKS)) {
+                // 打开后再认一次：打开的必须还是刚才那个只有一个链接的 inode。
+                if (!identity.equals(soleLink(file))) return false;
+                long start = channel.size();
+                if (start + line.length > MAX_BYTES) return false;
+                try {
+                    ByteBuffer buffer = ByteBuffer.wrap(line);
+                    while (buffer.hasRemaining()) channel.write(buffer);
+                } catch (IOException failure) {
+                    // 写了半行（比如盘满）就退回原长度，不留残行。
+                    channel.truncate(start);
+                    throw failure;
+                }
+                return true;
+            }
+        }
+
+        /** 普通文件且只有一个链接时返回它的 fileKey（设备号与 inode）；不存在、不是普通文件、另有硬链接或平台给不出链接数时返回 null。 */
+        private static Object soleLink(java.nio.file.Path file) {
+            try {
+                Map<String, Object> attributes = Files.readAttributes(file, "unix:nlink,fileKey,isRegularFile",
+                    LinkOption.NOFOLLOW_LINKS);
+                Object links = attributes.get("nlink");
+                Object key = attributes.get("fileKey");
+                return Boolean.TRUE.equals(attributes.get("isRegularFile")) && links instanceof Integer count
+                    && count == 1 && key != null ? key : null;
+            } catch (IOException | UnsupportedOperationException | IllegalArgumentException unavailable) {
+                return null;
             }
         }
 
@@ -132,6 +176,8 @@ final class ImeDebugOverlay {
     /** 最近一次按键的时刻（uptime 毫秒），下一次引擎结果到达时据此算按键到候选更新的耗时；没有待测的按键时为 -1。 */
     private long pendingKeyAt = -1;
     private long lastEngineMillis = -1;
+    /** `onCreate` 量到的服务创建耗时（毫秒），还没写进日志时为 -1。那时还没有输入框，`allowLearning` 是默认的 false，隐私判断按「不做个性化学习的输入框」挡掉一切记录，只能等进了允许记录的输入框再补写（#9916）。 */
+    private long pendingServiceCreateMillis = -1;
 
     ImeDebugOverlay(MSIMEInputService s) {
         this.s = s;
@@ -142,9 +188,16 @@ final class ImeDebugOverlay {
         AndroidLocalSettings.Snapshot settings = s.localSettings;
         if (settings == localSeen) return;
         localSeen = settings;
-        overlayEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY);
+        boolean loggingEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED);
+        overlayEnabled = loggingEnabled && settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY);
         ImeLog.applyLevel(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL));
-        mobileLogEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
+        mobileLogEnabled = loggingEnabled && settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
+    }
+
+    /** 开发者选项里的「显示调试信息」开着（日志总开关也开着）：双拼键位几何的调试导出（{@link ImeTouchPoints}）跟着它。 */
+    boolean overlay() {
+        refreshPreferences();
+        return overlayEnabled;
     }
 
     /** 本地输入日志是否在写：用户打开了「记录输入日志」，而且当前输入框与隐私模式允许。 */
@@ -180,6 +233,19 @@ final class ImeDebugOverlay {
         if (!logging()) return;
         EventLog target = log();
         if (target != null) target.perf(kind, durationMillis);
+    }
+
+    /** 记下 `onCreate` 的耗时，等 {@link #flushServiceCreate} 在允许记录的输入框里写出；同一个服务只写一次。 */
+    void holdServiceCreate(long durationMillis) {
+        pendingServiceCreateMillis = durationMillis;
+    }
+
+    /** 进了输入框、隐私判断有了依据之后调用：有待写的服务创建耗时且此刻允许记录时写出。不允许时继续留着，等下一个允许记录的输入框。 */
+    void flushServiceCreate() {
+        if (pendingServiceCreateMillis < 0 || !logging()) return;
+        long durationMillis = pendingServiceCreateMillis;
+        pendingServiceCreateMillis = -1;
+        recordPerf(DiagnosticEventKind.IME_SERVICE_CREATE, durationMillis);
     }
 
     /** 一次按键按下：开始计时，并记 key_down（删除键记 backspace）。 */

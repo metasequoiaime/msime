@@ -17,7 +17,9 @@ use crate::error::{EngineError, Result};
 use crate::ime::online_batch::{
     replace_cached_online_candidate_batch, replace_online_candidate_batch,
 };
-use crate::lattice::decode::{decode_pinned, BigramMemo, PinnedSpan, SentenceNgramTables};
+use crate::lattice::decode::{
+    decode_pinned, BeamPrefixCache, BeamResume, BigramMemo, PinnedSpan, SentenceNgramTables,
+};
 use crate::lattice::merge::{
     decode_lattice, decode_lattice_borrowed, merge_decoded, merge_decoded_borrowed,
     whole_sentence_insert_position, DecodedSentences,
@@ -50,11 +52,11 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
-    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
-    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
-    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
-    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    append_unique_words, fold_reading, has_corrected_cut, lead_literal_abbreviation_phrases,
+    mark_autocorrect_candidates, merge_alternative_rows, merge_alternative_segmentations,
+    merge_series_by_coverage, resolve_series_query, series_cache_key, SeriesResolution,
+    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
+    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -224,6 +226,8 @@ pub struct QuanpinDictionary {
     bigram_memo: RefCell<BigramMemo>,
     /// 整句解码结果，键见 `sentence_decode_key`。解码只取决于音节、词典行、n 元表、个人模型和整句选项：词典行变了随行缓存清空，个人模型按条目记的版本核对，整句选项和纠错资料变了在各自的 setter 里清空。
     sentence_decode_cache: FifoCache<String, CachedDecode>,
+    /// 最近几张整句图的非末列束状态，没命中 `sentence_decode_cache` 的解码从共用前缀的那张图接着解（`BeamPrefixCache`）。与 `sentence_decode_cache` 一起清空，个人模型版本另在每张存档里核对。
+    beam_prefixes: BeamPrefixCache,
     rerankers: Vec<NeuralReranker>,
     /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
     /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
@@ -276,6 +280,7 @@ impl QuanpinDictionary {
             row_cache_batch: None,
             bigram_memo: RefCell::default(),
             sentence_decode_cache: FifoCache::new(SENTENCE_DECODE_CACHE_CAPACITY),
+            beam_prefixes: BeamPrefixCache::default(),
             rerankers: Vec::new(),
             collocation_db: None,
             sentence_alternatives: false,
@@ -311,6 +316,14 @@ impl QuanpinDictionary {
             // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
             merge_series_by_coverage(&mut result, rows);
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
+            // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
+            if has_corrected_cut(
+                raw,
+                &self.pinyin_segmentation,
+                &self.alternative_segmentations,
+            ) {
+                lead_literal_abbreviation_phrases(&mut result, raw, self.abbreviation_kept_seat());
+            }
         }
         // Marking runs after every change, including the fuzzy merge, so every row the caller sees carries its mark.
         mark_autocorrect_candidates(
@@ -593,15 +606,6 @@ impl QuanpinDictionary {
             .collect()
     }
 
-    /// `keys`（以 `'` 连接的完整音节）各自权重最高的 `per_key` 行的权重之和；没有行的键不出现。九宫格用它给每个音节估频度：只看最常用那一个字时，词库发版改动一个字的权重就能让两个音节的先后翻转。
-    pub fn top_weight_sums(&self, keys: &[String], per_key: usize) -> HashMap<String, i64> {
-        self.database
-            .query_exact_keys_per_key(keys, per_key)
-            .into_iter()
-            .map(|(key, rows)| (key, rows.iter().map(|row| row.weight.max(0)).sum()))
-            .collect()
-    }
-
     /// 整句改字的候选：读音恰为 `span`（完整音节）的词条，按权重从高到低，至多 `limit` 条。
     pub fn conversion_rows(&mut self, span: &[String], limit: usize) -> Vec<DictRow> {
         self.validate_row_caches();
@@ -651,6 +655,7 @@ impl QuanpinDictionary {
         self.cache.clear();
         self.series_cache.clear();
         self.sentence_decode_cache.clear();
+        self.beam_prefixes.clear();
     }
 
     /// 首页行数只决定补全词是按权重并进来还是接在整组末尾；改了就清掉按旧门槛组装的整条答案（照 `set_sentence_alternatives`）。`cache` 存的是按切分查出来的词库行，补全词是查完它才并进来的，所以这里动不了它，清掉只会白白丢掉 128 行、再查一次 SQLite。
@@ -660,6 +665,11 @@ impl QuanpinDictionary {
         }
         self.first_page_rows = rows;
         self.series_cache.clear();
+    }
+
+    /// 全辅音输入里原来打头的纠错候选最多退到的座位：首页最后一个，最小为 1（`lead_literal_abbreviation_phrases`）。
+    fn abbreviation_kept_seat(&self) -> usize {
+        self.first_page_rows.get().saturating_sub(1).max(1)
     }
 
     /// Loads the keyboard sentence model from the resource bundle when its switch is on. The desktop model is not the engine's: only the runtime's settled reranker runs it. A change resets the caches (neural-association.patch:2667-2682), as shuangpin does, so a cached online row does not come back after the options are switched away and back.
@@ -718,6 +728,7 @@ impl QuanpinDictionary {
     fn clear_row_caches(&mut self) {
         // 整句是从这些行解出来的。
         self.sentence_decode_cache.clear();
+        self.beam_prefixes.clear();
         self.lattice_span_cache.clear();
         self.segment_row_cache.clear();
         self.longer_row_cache.clear();
@@ -781,6 +792,7 @@ impl QuanpinDictionary {
                 self.series_cache.clear();
                 // 纠错整句按纠错资料规划。
                 self.sentence_decode_cache.clear();
+                self.beam_prefixes.clear();
                 self.personal_scored_keys.clear();
             }
         }
@@ -878,6 +890,8 @@ impl QuanpinDictionary {
                 let rows = self.query_series(raw, &join_segments(costlier), costlier);
                 append_unique_words(&mut result, rows);
             }
+            // 全辅音输入是简拼：字面简拼读满全部按键的多字词条排到纠错读法前面，打头的纠错候选最多退到首页最后一个座位，首位永远不让给它（#9903）。
+            lead_literal_abbreviation_phrases(&mut result, raw, self.abbreviation_kept_seat());
         } else {
             result = self.query_series(raw, primary_segmentation, &segments);
             if !alternatives.is_empty() {
@@ -1261,13 +1275,35 @@ impl QuanpinDictionary {
                     cached_lattice_span_ref(lattice_spans, span, span_limit)
                         .expect("warmed lattice span cache entry")
                 };
-                decode_lattice_borrowed(segments, &mut lookup, &options, typo_source)
+                let mut resume = BeamResume {
+                    syllables: segments,
+                    cache: &mut self.beam_prefixes,
+                    personal_version,
+                };
+                decode_lattice_borrowed(
+                    segments,
+                    &mut lookup,
+                    &options,
+                    typo_source,
+                    Some(&mut resume),
+                )
             } else {
                 let lattice_spans = &mut self.lattice_span_cache;
                 let mut lookup = |span: &[String]| {
                     cached_lattice_span(database, lattice_spans, span, span_limit)
                 };
-                decode_lattice(segments, &mut lookup, &options, typo_source)
+                let mut resume = BeamResume {
+                    syllables: segments,
+                    cache: &mut self.beam_prefixes,
+                    personal_version,
+                };
+                decode_lattice(
+                    segments,
+                    &mut lookup,
+                    &options,
+                    typo_source,
+                    Some(&mut resume),
+                )
             };
             if let Some(decoded) = &decoded {
                 self.sentence_decode_cache.insert(

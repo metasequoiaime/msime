@@ -43,8 +43,8 @@ final class KeyboardMorePickerView: UIView {
   /// 用当前皮肤按 `tools` 重画面板，保持所在页不变。格子按 `KeyboardTool.id` 对应：工具还在的格子就地重设样式，新工具建新格子。
   func update(tools: [KeyboardTool]) {
     let skin = KeyboardTheme.current
-    // 面板盖住按键，所以用皮肤的背景；使用原生设计令牌的键盘保持透明，让按键背后的系统背景在这里也透出来。
-    backgroundColor = skin.drawsNativeBackground ? .clear : skin.background
+    // 面板盖住按键，所以用皮肤的背景；使用原生设计令牌的键盘只铺一层几乎透明的 `nativeBackgroundFill`，让按键背后的系统背景在这里也透出来，面板自己又带内容，触摸有落点（#10173）。
+    backgroundColor = skin.drawsNativeBackground ? skin.nativeBackgroundFill : skin.background
     grid.apply(skin: skin)
     if tools.map(\.id) == tiles.map(\.tool.id) {
       for (tile, tool) in zip(tiles, tools) { tile.configure(tool, skin: skin) }

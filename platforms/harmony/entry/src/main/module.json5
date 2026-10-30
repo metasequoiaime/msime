@@ -14,12 +14,15 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // 华为账号登录（Account Kit）认的是 AppGallery Connect「常规 > 应用」里应用的 Client ID。它与 APP ID 不同时，要在 module 这一级加 "metadata": [{ "name": "client_id", "value": "<应用 Client ID>" }]，value 直接写 AGC 给的数字，不能用 $string 引用，也不能填项目 Client ID（华为文档「配置Client ID」，harmonyos-guides/account-client-id）；两者相同时不用配。服务端 auth.huawei.client_ids 要列同一个值，否则 ID Token 的受众对不上。scripts/test-harmony-manifest.py 核对它的位置和形状。
     // Reading the system clipboard is a system_basic permission on OpenHarmony, so an ordinary
     // third-party input method is refused it however it asks: the request is granted only to a build
     // signed with a provisioning profile that carries the ACL for it. Declared so such a build works,
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
       { "name": "ohos.permission.ACCESS_BIOMETRIC" },
+      // 「防止截屏」打开后给设置应用的窗口（`setWindowPrivacyMode`）和键盘的面板（`Panel.setPrivacyMode`）设隐私模式要用它。normal 级、system_grant，声明即授予，不弹授权框，见 keyboard/settings/ScreenCaptureProtection.ets。
+      { "name": "ohos.permission.PRIVACY_WINDOW" },
       {
         // Account and cloud clipboard requests use the HTTPS account service only when the user
         // opens the account or cloud surface; ordinary offline typing never touches the network.
@@ -100,10 +103,9 @@
         "srcEntry": "./ets/inputmethodextability/KeyboardExtensionAbility.ets",
         "description": "$string:keyboard_ability_desc",
         "label": "$string:keyboard_ability_label",
-        // The mark the system input-method list draws next to the name, and the one the switcher
-        // shows. The module schema requires it of whichever element is mainElement, and this is it;
-        // without it the keyboard sat in that list with a name and no logo.
-        "icon": "$media:app_icon",
+        // The mark the system input-method list draws next to the name, and the one the switcher shows. The module schema requires it of whichever element is mainElement, and this is it; without it the keyboard sat in that list with a name and no logo.
+        // 上架审核要求包内配置的图标没有透明像素：这里用分层图标的背景层和前景层压成的不透明 app_icon_opaque.png，透明底的 app_icon 只留给键盘里当图片用。
+        "icon": "$media:app_icon_opaque",
         "type": "inputMethod",
         "exported": true,
         // 「输入法应用内数据共享」：与设置应用共用的共享沙箱（context.getGroupDir）。这个 ID 由 AppGallery Connect 签发，签名 Profile 的 data-group-ids 必须带着同一个值，否则 getGroupDir 拿不到目录，两边退回各自的 files/state。代码里的同一个值在 keyboard/SharedStateMirror.ets 的 DATA_GROUP_ID。

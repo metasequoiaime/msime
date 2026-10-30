@@ -146,10 +146,6 @@ export function InputSettingsPage() {
   const showAppInputModeRules = host?.app_input_mode_rules === true;
   // HarmonyOS 手机像 Android 的 `TypingPage` 一样画设计稿的 输入 页：语言与方案、中文、辅助码 和 翻译直接可见，输入通用设置也直接展开，不再额外套一个「更多」分组。翻页键在它的 外接键盘快捷键 页，整句联想 在它的 表达 页，所以这里不画。
   const harmonyPhone = harmonyPlatform && mobilePlatform;
-  // 拼音纠错 是两项全拼纠错共用的一个开关，只有两项都开启时才显示为开；打开或关闭会同时设置两项，和 Android 的 `TypingPage` 一样。
-  const autocorrect =
-    (draft.quanpin?.autocorrect_transposition ?? true) &&
-    (draft.quanpin?.autocorrect_neighbor ?? true);
   const fuzzyPinyinSection = (layout: "section" | "row") => (
     <FuzzyPinyinSection
       preferences={fuzzyPinyin}
@@ -310,14 +306,25 @@ export function InputSettingsPage() {
               <option value="traditional">繁体</option>
             </SelectRow>
             <SwitchRow
-              title="拼音纠错"
-              checked={autocorrect}
+              title="拼音邻键纠错"
+              checked={draft.quanpin?.autocorrect_neighbor ?? true}
+              onChange={(checked) =>
+                onPreferencesChange({
+                  quanpin: {
+                    ...draft.quanpin,
+                    autocorrect_neighbor: checked,
+                  },
+                })
+              }
+            />
+            <SwitchRow
+              title="拼音乱序纠错"
+              checked={draft.quanpin?.autocorrect_transposition ?? true}
               onChange={(checked) =>
                 onPreferencesChange({
                   quanpin: {
                     ...draft.quanpin,
                     autocorrect_transposition: checked,
-                    autocorrect_neighbor: checked,
                   },
                 })
               }
@@ -505,6 +512,39 @@ export function InputSettingsPage() {
             />
             {!harmonyPhone && client.fuzzyPinyin && (
               <GroupList title="模糊音">{fuzzyPinyinSection("section")}</GroupList>
+            )}
+            {/* 桌面共享设置页把这两个开关放在高级选项；鸿蒙手机的在「中文」组里，iOS、Android 的拼音纠错在各自的原生设置里，这里都不画。全拼和双拼都读 quanpin 下这两个字段（字段名带 quanpin 是历史原因，见 `shuangpin::engine::request_autocorrect_types`），所以两个方案下都列出，标题和说明按当前方案写。五笔的混输拼音和 z 键拼音反查也带着这两个字段查全拼（`ime::apply_request_options`），但两者都是五笔里的附属输入、混输默认关，这里不为它们单列一组：五笔用户切回全拼方案关掉后，回到五笔照样生效；其他方案不纠错，不列出。Windows 发布的设置窗口是原生的 `msime-client-settings.exe`，不用这个共享页，那里的「高级选项」同样在模糊音之后提供这一组，标题、说明与这里逐字相同（`build_autocorrect_group`，见 platforms/windows/settings/README.md），改文案时两边一起改，`scripts/test-windows-autocorrect-settings-copy.py` 逐句比较两边。全拼两个都关掉时漏字、多字的纠错一起关闭（`request_autocorrect_mask`），双拼没有这一类。 */}
+            {!mobilePlatform && (draft.scheme === "quanpin" || draft.scheme === "shuangpin") && (
+              <GroupList title={draft.scheme === "shuangpin" ? "双拼纠错" : "全拼纠错"}>
+                <SwitchRow
+                  title={draft.scheme === "shuangpin" ? "双拼邻键纠错" : "全拼邻键纠错"}
+                  description={
+                    draft.scheme === "shuangpin"
+                      ? "把按偏到相邻键的双拼编码纠回来，只用于三个音节以上的整句，纠错整句排在词条和整句后面。关闭后不再按邻键猜测编码。"
+                      : "把按偏到相邻键的字母纠回来，例如 shabg → shang、zhr → zhe。全是辅音的输入（qjn、zhr）先列简拼词，纠错候选排在后面。关闭后不再按邻键猜测拼写。"
+                  }
+                  checked={draft.quanpin?.autocorrect_neighbor ?? true}
+                  onChange={(checked) =>
+                    onPreferencesChange({
+                      quanpin: { ...draft.quanpin, autocorrect_neighbor: checked },
+                    })
+                  }
+                />
+                <SwitchRow
+                  title={draft.scheme === "shuangpin" ? "双拼乱序纠错" : "全拼乱序纠错"}
+                  description={
+                    draft.scheme === "shuangpin"
+                      ? "把两键编码前后颠倒的音节纠回来，同样只用于三个音节以上的整句。关闭后不再按乱序猜测编码。"
+                      : "把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。"
+                  }
+                  checked={draft.quanpin?.autocorrect_transposition ?? true}
+                  onChange={(checked) =>
+                    onPreferencesChange({
+                      quanpin: { ...draft.quanpin, autocorrect_transposition: checked },
+                    })
+                  }
+                />
+              </GroupList>
             )}
             {!harmonyPhone && helpcodeGroup}
           </>

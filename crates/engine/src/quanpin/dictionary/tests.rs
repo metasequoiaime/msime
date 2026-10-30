@@ -430,6 +430,205 @@ fn autocorrect_switch_matrix() {
     assert_ne!(dictionary.pinyin_segmentation, "sun'g");
 }
 
+/// `wiaini` 想打 `woaini`：`i` 不能开始音节，整串一个读法都没有，纠错前本地候选为空。两字母键 `wi` 把它读成 wo'ai'ni，同成本的 ai/ei/qi/si/wu 开头的读法按词频和它比。
+#[test]
+fn a_two_letter_typo_without_a_reading_is_corrected() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("wo", "我", 100_000)
+        .insert("wu", "无", 60_000)
+        .insert("si", "四", 50_000)
+        .insert("qi", "七", 50_000)
+        .insert("ai", "爱", 80_000)
+        .insert("ni", "你", 90_000)
+        .insert("ni", "逆", 20_000)
+        .insert("wo'ai'ni", "我爱你", 50_000)
+        .insert("ai'ni", "爱你", 40_000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+
+    let corrected = query(&mut dictionary, "wiaini", "wiaini", BOTH);
+    assert!(
+        position(&corrected, "我爱你") < 3,
+        "{:?}",
+        words(&corrected)
+    );
+    assert_eq!(
+        corrected[position(&corrected, "我爱你")].corrected_from,
+        "wiaini"
+    );
+
+    let off = query(&mut dictionary, "wiaini", "wiaini", NONE);
+    assert!(!contains(&off, "我爱你"), "{:?}", words(&off));
+    let transposition_only = query(&mut dictionary, "wiaini", "wiaini", TRANSPOSITION);
+    assert!(!contains(&transposition_only, "我爱你"));
+
+    // 单独的两字母键没有打对的音节作旁证，不纠。
+    let alone = query(&mut dictionary, "wi", "wi", BOTH);
+    assert!(!contains(&alone, "我"), "{:?}", words(&alone));
+}
+
+/// #9903：全辅音输入本身就是简拼。`qjn` 的 j 挨着 u、i，`zhr` 的 r 挨着 e，邻键纠错会把它们读成 qun/qin、zhe，以前字面简拼行只接在整张纠错列表后面，「前几年」「正如」排在一长串纠错单字之后。字面简拼读满全部按键的多字词条要排在纠错读法前面，纠错读法留在后面并照旧带标记。
+#[test]
+fn literal_abbreviation_phrases_lead_corrected_readings() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("qun", "群", 500_000)
+        .insert("qin", "亲", 400_000)
+        .insert("qi", "其", 900_000)
+        .insert("qian'ji'nian", "前几年", 58_030)
+        .insert("qi'jian'nei", "期间内", 37_920)
+        .insert("qu'jian'nei", "区间内", 8_695)
+        .insert("zhe", "这", 900_000)
+        .insert("zhe", "着", 800_000)
+        .insert("zhuan'rang", "转让", 500_380)
+        .insert("zheng'ru", "正如", 310_925)
+        .insert("ze'ren", "责任", 500_934);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    // 产品默认的掩码：两个开关都开，另带缺字多字边。
+    let product = crate::types::request_autocorrect_mask(true, true);
+
+    let qjn = query(&mut dictionary, "qjn", "", product);
+    assert_eq!(
+        words(&qjn[..3]),
+        ["前几年", "期间内", "区间内"],
+        "{:?}",
+        words(&qjn)
+    );
+    assert!(qjn[..3].iter().all(|item| item.corrected_from.is_empty()));
+    // 纠错读法仍在，紧跟字面简拼词，并带标记。
+    assert_eq!(qjn[3].corrected_from, "qjn", "{:?}", words(&qjn));
+    assert!(position(&qjn, "群") >= 3);
+    assert_eq!(qjn[position(&qjn, "群")].corrected_from, "qjn");
+
+    let zhr = query(&mut dictionary, "zhr", "", product);
+    assert_eq!(words(&zhr[..2]), ["转让", "正如"], "{:?}", words(&zhr));
+    assert!(!contains(&zhr, "责任"), "zh 严格匹配翘舌声母");
+    let zhe = position(&zhr, "这");
+    assert!(zhe >= 2, "{:?}", words(&zhr));
+    assert_eq!(zhr[zhe].corrected_from, "zhr");
+
+    // 纠错关掉时字面结果不变，也没有纠错标记。
+    let off = query(&mut dictionary, "zhr", "", NONE);
+    assert_eq!(words(&off[..2]), ["转让", "正如"], "{:?}", words(&off));
+    assert_eq!(count_marked(&off), 0);
+}
+
+/// 简拼表很密时（真实词库里 zh'r 的两字词上百条），打头的纠错候选退到首页最后一个座位，不会被挤出首页，也不会抢首位。
+#[test]
+fn the_leading_correction_keeps_a_first_page_seat_behind_many_phrases() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("zhe", "这", 900_000)
+        .insert("zhe", "着", 800_000);
+    for (key, word, weight) in [
+        ("zhuan'rang", "转让", 500_380),
+        ("zhu'ren", "主人", 500_256),
+        ("zhong'ren", "众人", 424_210),
+        ("zheng'ru", "正如", 310_925),
+        ("zheng'rong", "整容", 200_000),
+        ("zhao'ren", "招人", 100_000),
+        ("zhen'rong", "阵容", 90_000),
+    ] {
+        fixture.insert(key, word, weight);
+    }
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let product = crate::types::request_autocorrect_mask(true, true);
+
+    let zhr = query(&mut dictionary, "zhr", "", product);
+    let seat = DEFAULT_FIRST_PAGE_ROWS - 1;
+    assert_eq!(zhr[seat].word, "这", "{:?}", words(&zhr));
+    assert_eq!(zhr[seat].corrected_from, "zhr");
+    assert!(zhr[..seat]
+        .iter()
+        .all(|item| item.corrected_from.is_empty() && item.word.chars().count() == 2));
+}
+
+/// #9903 想要的「请教你」不在随包词库里。用户打一次 qingjiaoni 上屏，`store_user_phrase_from_canonical_pinyin` 经 `create_word_from_canonical_pinyin` 存下的词条带 jp `qjn`，两个纠错开关都开着时 `qjn` 照样查得到它，并排在 qun/qin 的纠错读法前面。
+#[test]
+fn a_learned_phrase_leads_the_corrections_of_its_abbreviation() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("qun", "群", 500_000)
+        .insert("qin", "亲", 400_000);
+    fixture.table("qing'jiao'ni");
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let product = crate::types::request_autocorrect_mask(true, true);
+    assert!(!contains(
+        &query(&mut dictionary, "qjn", "", product),
+        "请教你"
+    ));
+
+    dictionary
+        .create_word_from_canonical_pinyin("qing'jiao'ni", "请教你")
+        .unwrap();
+    let qjn = query(&mut dictionary, "qjn", "", product);
+    assert_eq!(qjn[0].word, "请教你", "{:?}", words(&qjn));
+    assert!(qjn[0].corrected_from.is_empty());
+    let corrected = position(&qjn, "群");
+    assert!(corrected > 0, "{:?}", words(&qjn));
+    assert_eq!(qjn[corrected].corrected_from, "qjn");
+}
+
+/// 开着模糊音时 `query` 还要按匹配字母数重排一次（`merge_series_by_coverage`），即使模糊音一行也没查到。删字纠错的匹配码比原文多一个字母（`shng` → shang），不能借这一步重新排到字面简拼整词前面，保座也照旧（#9903）。
+#[test]
+fn literal_abbreviation_phrases_still_lead_after_the_fuzzy_merge() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("shang", "上", 900_000)
+        .insert("shang", "商", 800_000);
+    for (key, word, weight) in [
+        ("shi'na'ge", "是那个", 50_000),
+        ("shao'nian'gong", "少年宫", 40_000),
+        ("sa'huang'na'ge", "撒谎那个", 1_000),
+        ("shi'nian'gong", "十年功", 900),
+        ("shen'nong'gu", "神农谷", 800),
+        ("shi'neng'gou", "使能够", 700),
+    ] {
+        fixture.insert(key, word, weight);
+    }
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let product = crate::types::request_autocorrect_mask(true, true);
+    let fuzzy = FuzzyPinyinOptions {
+        rules: fuzzy_rule::AN_ANG,
+    };
+
+    let plain = query(&mut dictionary, "shng", "", product);
+    let with_fuzzy = dictionary.query("shng", "", product, fuzzy);
+    let seat = DEFAULT_FIRST_PAGE_ROWS - 1;
+    assert_eq!(
+        words(&with_fuzzy[..=seat]),
+        words(&plain[..=seat]),
+        "{:?}",
+        words(&with_fuzzy)
+    );
+    assert_eq!(with_fuzzy[0].word, "是那个", "{:?}", words(&with_fuzzy));
+    assert!(with_fuzzy[0].corrected_from.is_empty());
+    assert_eq!(with_fuzzy[seat].word, "上", "{:?}", words(&with_fuzzy));
+    assert_eq!(with_fuzzy[seat].corrected_from, "shng");
+}
+
+/// 字面简拼一个吃满全部按键的多字词条都没有时，全辅音误触照旧由纠错读法打头（`shng` → 上）；带元音的输入不受这条规则影响，`sahng` 的「上」仍排在字面的「撒谎那个」前面。
+#[test]
+fn corrections_still_lead_without_a_literal_abbreviation_phrase() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("shang", "上", 100)
+        .insert("sa'huang", "撒谎", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let shng = query(&mut dictionary, "shng", "", WITH_DELETION);
+    assert_eq!(shng[0].word, "上", "{:?}", words(&shng));
+    assert_eq!(shng[0].corrected_from, "shng");
+
+    let fixture = Fixture::new();
+    fixture
+        .insert("shang", "上", 100)
+        .insert("sa'huang'na'ge", "撒谎那个", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let sahng = query(&mut dictionary, "sahng", "sa'h'n'g", BOTH);
+    assert_eq!(sahng[0].word, "上", "{:?}", words(&sahng));
+    assert!(contains(&sahng, "撒谎那个"));
+}
+
 #[test]
 fn autocorrect_marking() {
     let fixture = Fixture::new();
@@ -483,9 +682,11 @@ fn autocorrect_marking() {
         "the v spelling stays unmarked"
     );
 
+    // #9903：「撒谎那个」的简拼 s'h'n'g 读满了 shng，字面简拼整词排在纠错读法前面，删字纠错出的「上」紧跟其后并带标记。
     let deletion = query(&mut dictionary, "shng", "sh'n'g", WITH_DELETION);
-    assert_eq!(deletion[0].word, "上");
-    assert_eq!(deletion[0].corrected_from, "shng");
+    assert_eq!(words(&deletion[..2]), ["撒谎那个", "上"]);
+    assert!(deletion[0].corrected_from.is_empty());
+    assert_eq!(deletion[1].corrected_from, "shng");
     assert_eq!(
         count_marked(&query(&mut dictionary, "shng", "sh'n'g", BOTH)),
         0

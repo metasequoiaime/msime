@@ -49,6 +49,17 @@ fn fixture() -> Fixture {
     fixture
 }
 
+/// 日志连同 `-wal` 的字节：日志用 WAL 时新的提交先追加到 `-wal`，只比主文件看不出有没有写过。空的 `-wal` 没有任何帧，打开连接时就可能建出来，与没有 `-wal` 同等看待。
+fn journal_bytes(fixture: &Fixture) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    let journal = fixture.journal();
+    let mut wal = journal.as_os_str().to_owned();
+    wal.push("-wal");
+    (
+        std::fs::read(&journal).ok(),
+        std::fs::read(wal).ok().filter(|bytes| !bytes.is_empty()),
+    )
+}
+
 fn text(conversion: &Conversion) -> String {
     conversion
         .segments
@@ -85,12 +96,12 @@ fn session_multilingual_selection_finishes_without_writing_a_cross_language_phra
         .expect("连续混合路径应进入候选");
     assert_eq!(snapshot.candidates[seat].word, "hello你好おはよう");
     assert!(snapshot.candidate_answers_key[seat]);
-    let before = std::fs::read(fixture.journal()).ok();
+    let before = journal_bytes(&fixture);
     let selected = session.select(seat);
     assert_eq!(selected.commit.as_deref(), Some("hello你好おはよう"));
     assert!(session.snapshot().editing_text.is_empty());
     crate::user_dictionary::ngram_store::flush_all();
-    assert_eq!(std::fs::read(fixture.journal()).ok(), before);
+    assert_eq!(journal_bytes(&fixture), before);
     type_input(&mut session, "nihao");
     assert_eq!(session.snapshot().candidates[0].word, "你好");
 }
@@ -278,7 +289,8 @@ fn session_multilingual_selection_does_not_bypass_a_preceding_quick_phrase_group
         .position(|row| row.source == crate::CandidateSource::Multilingual)
         .unwrap();
     assert!(group < mixed, "回归必须覆盖越过短语组的选择");
-    let before = std::fs::read(fixture.journal()).unwrap();
+    let before = journal_bytes(&fixture);
+    assert!(before.0.is_some());
     assert_eq!(
         session.select(mixed).commit.as_deref(),
         Some("你好おはよう")
@@ -288,7 +300,7 @@ fn session_multilingual_selection_does_not_bypass_a_preceding_quick_phrase_group
         crate::user_dictionary::ranking::quick_phrase_slot(&fixture.journal(), raw),
         Some(0)
     );
-    assert_eq!(std::fs::read(fixture.journal()).unwrap(), before);
+    assert_eq!(journal_bytes(&fixture), before);
 }
 
 #[test]

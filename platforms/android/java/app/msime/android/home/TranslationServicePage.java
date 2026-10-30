@@ -5,9 +5,11 @@ import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
+import app.msime.android.AiProviderSettings;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.CandidateTranslationRoute;
 import app.msime.android.JsonPolicy;
+import app.msime.android.MSIMEInputService;
 import app.msime.android.NativeClient;
 import app.msime.android.TranslationServiceSettingsPolicy;
 import app.msime.android.TranslationServiceSettingsPolicy.Choice;
@@ -17,9 +19,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 翻译服务：候选词在离线释义之外，用哪个在线服务补译文。可选不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）。
+ * 翻译服务：候选词在离线释义之外，用哪个在线服务补译文。可选不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）、AI 辅助（复用「AI 润色与回复」页的配置）。
  *
- * <p>全部写在与桌面、iOS 相同的共享偏好里：`niutrans`、`custom_translation`、`tencent_tmt` 三段和 `translation_account`。选服务时三个 `enabled` 只开一个，腾讯没选时也显式写 false（它的默认值是开着），`translation_account` 只在选水杉账号时写 true，否则删掉，与共享设置页的 `setTranslationProvider` 和 iOS 的 `select` 相同；别的服务的凭据保留，切回来不用重填。凭据与 AI 辅助的令牌一样只存在本机的偏好里，不随设置同步上传；密钥行只显示「已填写」或「未填写」。
+ * <p>全部写在与桌面、iOS 相同的共享偏好里：`niutrans`、`custom_translation`、`tencent_tmt` 三段和 `translation_account`、`translation_ai`。选服务时三个 `enabled` 只开一个，腾讯没选时也显式写 false（它的默认值是开着），`translation_account` 只在选水杉账号时写 true、`translation_ai` 只在选 AI 辅助时写 true，否则删掉，与共享设置页的 `setTranslationProvider` 和 iOS 的 `select` 相同；别的服务的凭据保留，切回来不用重填。凭据与 AI 辅助的令牌一样只存在本机的偏好里，不随设置同步上传；密钥行只显示「已填写」或「未填写」。
  *
  * <p>每个字段点开是一个输入框，按共享偏好的校验规则（{@link TranslationServiceSettingsPolicy}）当场说明哪里不行，不合规的值不会写入。键盘怎么选路见 {@link CandidateTranslationPolicy#route}：所选服务凭据不全时不联网，也不改用别的服务。
  */
@@ -28,8 +30,9 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         return java.util.List.of("服务", "配置");
     }
 
-    /** 读一次页面要的东西：偏好、接口地址下的提示，以及自定义服务的共享描述器能不能构造（DeepL 地址没填密钥时不能）。 */
-    private record State(JSONObject preferences, String endpointIssue, boolean customBuildable) {}
+    /** 读一次页面要的东西：偏好、接口地址下的提示，自定义服务的共享描述器能不能构造（DeepL 地址没填密钥时不能），以及 AI 辅助的配置能不能用、用的是哪家服务商的哪个模型。 */
+    private record State(JSONObject preferences, String endpointIssue, boolean customBuildable, boolean aiReady,
+            String aiSummary) {}
 
     /** 测试连接的结果；message 是共享层给的一句话，不含凭据和服务的回复。 */
 
@@ -71,7 +74,32 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         } catch (JSONException | RuntimeException | LinkageError error) {
             // 共享库没加载上或回答读不懂：不显示提示，按凭据不完整处理。
         }
-        return new State(preferences, issue, buildable);
+        JSONObject ai = preferences.optJSONObject("ai_assistant");
+        return new State(preferences, issue, buildable, aiReady(ai), aiSummary(ai));
+    }
+
+    /** AI 辅助的配置能不能用：只拿 `ai_assistant` 一段、当作选了 AI 辅助交给键盘的同一个选路，避免页面和键盘各算一套。 */
+    private static boolean aiReady(@Nullable JSONObject ai) {
+        if (ai == null) return false;
+        try {
+            JSONObject probe = new JSONObject().put("translation_ai", true).put("ai_assistant", ai)
+                .put("tencent_tmt", new JSONObject().put("enabled", false));
+            return MSIMEInputService.candidateTranslationRouteFrom(probe).provider() == CandidateTranslationRoute.Provider.AI;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return false;
+        }
+    }
+
+    /** 「当前服务商与模型」一行的值，与共享设置页的写法相同；没有配置时为空。 */
+    private static String aiSummary(@Nullable JSONObject ai) {
+        String provider = InputViewValuePolicy.text(ai, "provider");
+        if (provider.isEmpty()) return "";
+        String title = provider;
+        for (AiProviderSettings.Provider entry : AiProviderSettings.catalog()) {
+            if (entry.id().equals(provider)) title = entry.title();
+        }
+        String model = InputViewValuePolicy.text(ai, "model");
+        return title + " · " + (model.isEmpty() ? "未配置" : model);
     }
 
     private void render(@Nullable State state) {
@@ -91,7 +119,8 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             JsonPolicy.strictBoolean(preferences.opt("translation_account"), false),
             JsonPolicy.strictBoolean(niutrans.opt("enabled"), false),
             JsonPolicy.strictBoolean(custom.opt("enabled"), false),
-            tencentEnabled, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"));
+            tencentEnabled, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"),
+            JsonPolicy.strictBoolean(preferences.opt("translation_ai"), false));
         Choice selected = chosen == Choice.TENCENT && stored == Choice.NONE && tencentEnabled ? Choice.TENCENT : stored;
         boolean translations = JsonPolicy.strictBoolean(preferences.opt("candidate_translations"), true);
 
@@ -114,6 +143,9 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 break;
             case CUSTOM:
                 renderCustom(target, custom, state.endpointIssue());
+                break;
+            case AI:
+                renderAi(target, state.aiReady(), state.aiSummary());
                 break;
         }
         if (selected.userService()) renderTest(target, selected, niutrans, custom, tencent, state.customBuildable());
@@ -142,6 +174,15 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
                 TranslationServiceSettingsPolicy::regionProblem, "tencent_tmt", "region"));
         group.footer("建议为输入法单独创建只授权机器翻译的子账号密钥。腾讯一次最多翻译 9 个候选词。");
+    }
+
+    /** AI 辅助没有自己的凭据：显示复用的是哪家服务商的哪个模型，配置不全时说明去哪里补；文案与共享设置页的「复用 AI 辅助配置」相同。 */
+    private void renderAi(LinearLayout target, boolean ready, String summary) {
+        GroupCard group = GroupCard.add(sectionColumn(target, "配置"), "复用 AI 辅助配置");
+        group.nav("当前服务商与模型", ready ? null : "请先在「AI 润色与回复」页面填写接口地址、Token 和模型",
+            summary.isEmpty() ? "未配置" : summary, () -> SettingsNavigator.open(requireContext(), PageId.AI_SETTINGS, null));
+        if (!ready) group.note("AI 配置不完整，键盘暂不联网翻译，也不会改用其他服务。");
+        group.footer("复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「启用 AI 入口」。");
     }
 
     private void renderCustom(LinearLayout target, JSONObject custom, String endpointIssue) {
@@ -213,7 +254,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         sheet.show();
     }
 
-    /** 只开一个服务：三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选水杉账号时写 true。 */
+    /** 只开一个服务：三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选水杉账号时写 true，`translation_ai` 只在选 AI 辅助时写 true。 */
     private void select(Choice choice) {
         chosen = choice;
         KeyboardSheets.save(this, preferences -> {
@@ -225,6 +266,8 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 tencent.put("region", CandidateTranslationRoute.DEFAULT_TENCENT_REGION);
             if (choice == Choice.ACCOUNT) preferences.put("translation_account", true);
             else preferences.remove("translation_account");
+            if (choice == Choice.AI) preferences.put("translation_ai", true);
+            else preferences.remove("translation_ai");
         }, this::reload, this::reload);
     }
 

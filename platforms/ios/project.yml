@@ -113,8 +113,17 @@ targets:
       # The input engine in libmsime_host_api, linked into this app and into the keyboard extension it embeds, carries the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions.
       - path: ../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt
         buildPhase: resources
-      # 语法模型查询逻辑的移植声明随引擎分发。
+      # 语法模型查询逻辑的移植声明随引擎分发，文件末尾附着双数组读取所依的 darts-clone（BSD-2-Clause）条款。
       - path: ../../resources/licenses/librime-octagram-BSD-3-Clause.txt
+        buildPhase: resources
+      # 引擎的 cxx_sort.rs 逐步复现了 libc++ 的排序算法，源码级翻译要按 Apache-2.0 第 4 条随附许可证（LLVM 例外不覆盖）。
+      - path: ../../resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt
+        buildPhase: resources
+      # 符号模式按它查命令名的 LaTeX 表是本项目自写的 MIT 数据，编进了引擎，MIT 全文随引擎分发。
+      - path: ../../resources/licenses/latex-symbols-MIT.txt
+        buildPhase: resources
+      # 输入引擎本身（crates/engine、crates/path-trust，源码在本仓库）和它链接的 rink-core（单位换算，源码在 crates.io）是 MPL-2.0，二进制分发要附上许可证全文。
+      - path: ../../resources/licenses/MPL-2.0.txt
         buildPhase: resources
       # The same engine's Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later); their notices travel with every engine build even where those schemes are not offered.
       - path: ../../resources/licenses/rime-cantonese-CC-BY-4.0.txt
@@ -132,10 +141,7 @@ targets:
       # 同一个 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名与改动说明随每个 Engine 构建分发。
       - path: ../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt
         buildPhase: resources
-      # 同一个 Engine 编入了符号模式（S 模式）的分组码表，它取自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0），署名、许可证地址和改动说明随每个 Engine 构建分发。
-      - path: ../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt
-        buildPhase: resources
-      # 这张表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+      # 这张表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），同一个 Engine 编入的符号模式（S 模式）分组表按 Unicode 字符数据库 17.0.0 挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
       - path: ../../resources/licenses/Unicode-License-V3.txt
         buildPhase: resources
       # 世界时钟的城市目录和时间计算依赖随 App 分发许可。
@@ -143,6 +149,26 @@ targets:
         buildPhase: resources
       # 简繁转换内嵌的 OpenCC 词表许可证随 App 分发。
       - path: ../../resources/licenses/OpenCC-Apache-2.0.txt
+        buildPhase: resources
+      # 随 App 分发的词库里有 MIT 与 Apache-2.0 的数据，两种许可都要求随副本附上全文：msime-pinyin.db 的单字读音（mozillazg/pinyin-data）、msime-english.db 的中英释义（skywind3000/ECDICT）、msime-others.db 的颜文字（aoguai/rime_kaomoji_dict）与关键词整词读音（mozillazg/python-pinyin）、msime-wubi.db 的 86 码表（KyleBing/rime-wubi86-jidian，Apache-2.0）。
+      - path: ../../resources/licenses/pinyin-data-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/ECDICT-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/rime_kaomoji_dict-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/python-pinyin-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt
+        buildPhase: resources
+      # msime-pinyin.db 与语言词库的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0），署名、改动说明与许可证全文随 App 分发。
+      - path: ../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt
+        buildPhase: resources
+      # 键盘扩展的 EngineResources 带着桌面词库（msime-pinyin.db、msime-wubi.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，日文词典按需下载），它们逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
+      - path: ../../resources/licenses/msime-engine-dictionary-NOTICE.md
+        buildPhase: resources
+      # 水杉输入法本身以 GPL-3.0-only 发布，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 原样作为 App 资源分发（键盘扩展只随 App 一起安装），关于页列在第一项。Android 以 client-LICENSE.txt、HarmonyOS 以 resfile/licenses/GPL-3.0.txt 分发同一份文件。
+      - path: ../../LICENSE
         buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -183,9 +209,10 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
+        # libmsime_host_api.a 必须排在 $(inherited) 和 -lsqlite3 前面：它带着 rusqlite 打包的 SQLite，而 $(inherited) 里有 MLKit pod 带进来的 -l"sqlite3"。排在后面时，用 Xcode 27 的 SDK 链接，62 个 sqlite3_* 全部绑到系统的 /usr/lib/libsqlite3.dylib；rusqlite 0.40 调用的 sqlite3_set_errmsg 在 iOS 27 之前的系统库里没有，App 和键盘扩展在 iOS 18 上一启动就被 dyld 杀掉。ProjectConfigurationTests 检查这个顺序，其余链接主机库的目标同理。
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
           - "-framework"
@@ -295,8 +322,8 @@ targets:
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]: HandwritingInputView.swift HandwritingDownloadSession.m
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -415,8 +442,8 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -476,8 +503,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ""
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"
@@ -498,6 +525,8 @@ targets:
           - build-native.sh
           - tools/**
       - path: KeyboardTests/input/InputSchemeTestSupport.swift
+      # 登录前的同意勾选规则，LoginConsentPolicyTests 直接测它。
+      - path: App/Sources/account/LoginConsentPolicy.swift
       - path: App/Services/BoundedFileReader.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/AIProviderCatalog.swift
@@ -528,8 +557,8 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MSIMEKeyboardTestHost.app/MSIMEKeyboardTestHost"
         BUNDLE_LOADER: "$(TEST_HOST)"
         OTHER_LDFLAGS:
-          - "$(inherited)"
           - "-lmsime_host_api"
+          - "$(inherited)"
           - "-lc++"
           - "-lsqlite3"
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/../../target/ios/device"

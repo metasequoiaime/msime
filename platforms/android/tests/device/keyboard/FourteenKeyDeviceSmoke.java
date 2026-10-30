@@ -230,7 +230,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(key("英标"));
             tap(key("英标"));
             await(key("中标"));
-            tap(described("切换到字母键盘"));
+            tap(described("返回原键盘"));
             await(described("按键 Q W"));
 
             // 密码框画 26 键。

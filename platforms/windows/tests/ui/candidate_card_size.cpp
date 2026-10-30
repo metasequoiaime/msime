@@ -982,32 +982,32 @@ int main() {
     paged.hint_width = 90.0;
     const auto with = candidate_card_size(paged);
     require(near(with.width - without.width, 4.0 + 90.0) && near(with.height, without.height));
-    const auto metrics = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0, true);
-    const auto pager = candidate_pager_layout(with.width, 30.0, metrics);
-    const auto hint = candidate_header_hint_bounds(with.width, 90.0, pager, metrics);
+    const auto hinted_metrics = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0, true);
+    const auto pager = candidate_pager_layout(with.width, 30.0, hinted_metrics);
+    const auto hint = candidate_header_hint_bounds(with.width, 90.0, pager, hinted_metrics);
     require(pager && hint);
-    require(near(hint->right, pager->left - metrics.pager_gap) &&
+    require(near(hint->right, pager->left - hinted_metrics.pager_gap) &&
             near(hint->left, hint->right - 90.0));
     require(near(hint->top, pager->indicator.top) && near(hint->bottom, pager->indicator.bottom));
     // 量出来的宽度让拼音、提示和翻页各占各的，拼音不压在提示下面。
-    require(near(candidate_preedit_right(with.width, pager, hint, metrics),
-                 hint->left - metrics.pager_gap));
-    require(candidate_preedit_left(metrics) + 120.0 <=
-            candidate_preedit_right(with.width, pager, hint, metrics) + 0.001);
+    require(near(candidate_preedit_right(with.width, pager, hint, hinted_metrics),
+                 hint->left - hinted_metrics.pager_gap));
+    require(candidate_preedit_left(hinted_metrics) + 120.0 <=
+            candidate_preedit_right(with.width, pager, hint, hinted_metrics) + 0.001);
     // 没有提示时拼音照旧画到翻页之前，和以前的算法一样。
-    require(near(candidate_preedit_right(with.width, pager, std::nullopt, metrics),
-                 pager->left - metrics.pager_gap));
-    require(near(candidate_preedit_right(200.0, std::nullopt, std::nullopt, metrics),
-                 200.0 - metrics.pad_x / 2.0 - metrics.preedit_margin.right));
+    require(near(candidate_preedit_right(with.width, pager, std::nullopt, hinted_metrics),
+                 pager->left - hinted_metrics.pager_gap));
+    require(near(candidate_preedit_right(200.0, std::nullopt, std::nullopt, hinted_metrics),
+                 200.0 - hinted_metrics.pad_x / 2.0 - hinted_metrics.preedit_margin.right));
 
     // 关掉页码（或皮肤把箭头画进列表）时首行没有翻页，提示右对齐到行的右缘。
-    const auto alone = candidate_header_hint_bounds(200.0, 90.0, std::nullopt, metrics);
-    require(alone && near(alone->right, 200.0 - metrics.pad_x / 2.0));
+    const auto alone = candidate_header_hint_bounds(200.0, 90.0, std::nullopt, hinted_metrics);
+    require(alone && near(alone->right, 200.0 - hinted_metrics.pad_x / 2.0));
     CandidatePagerLayout listed;
     listed.in_list = true;
     listed.left = 10.0;
-    const auto beside_list = candidate_header_hint_bounds(200.0, 90.0, listed, metrics);
-    require(beside_list && near(beside_list->right, 200.0 - metrics.pad_x / 2.0));
+    const auto beside_list = candidate_header_hint_bounds(200.0, 90.0, listed, hinted_metrics);
+    require(beside_list && near(beside_list->right, 200.0 - hinted_metrics.pad_x / 2.0));
     // 首行只有提示：拼音、logo、翻页都没有，卡片照样给首行留出高度和提示的宽度。
     CandidateCardInput bare;
     bare.preedit_visible = false;
@@ -1020,10 +1020,10 @@ int main() {
     require(near(bare_with.height, 4.0 + 4.0 + 26.0 + row16));
     require(near(bare_with.width, 4.0 + 200.0 + 8.0));
     // 没有提示、宽度不能用或首行不占高度时不画。
-    require(!candidate_header_hint_bounds(200.0, 0.0, pager, metrics));
+    require(!candidate_header_hint_bounds(200.0, 0.0, pager, hinted_metrics));
     require(!candidate_header_hint_bounds(200.0, 90.0, std::nullopt,
                                           candidate_card_metrics(16.0, 16.0, false, false, false)));
-    require(!candidate_header_hint_bounds(0.0, 90.0, std::nullopt, metrics));
+    require(!candidate_header_hint_bounds(0.0, 90.0, std::nullopt, hinted_metrics));
     paged.hint_width = std::numeric_limits<double>::quiet_NaN();
     require(rejected(paged));
   }
@@ -1085,24 +1085,24 @@ int main() {
     const double one = candidate_reserved_row_height(shape, 1);
     CandidateItemWidths plain{40.0}, held{40.0};
     held.translation_reserved = true;
-    CandidateCardInput vertical;
-    vertical.reserved_secondary_lines = 1;
-    vertical.items = {plain, plain, plain};
-    const auto bare = candidate_card_size(vertical);
+    CandidateCardInput vertical_reserved;
+    vertical_reserved.reserved_secondary_lines = 1;
+    vertical_reserved.items = {plain, plain, plain};
+    const auto bare = candidate_card_size(vertical_reserved);
     // 高亮在第一行，译文还没到：多出一行释义高。
-    vertical.items = {held, plain, plain};
-    const auto waiting = candidate_card_size(vertical);
+    vertical_reserved.items = {held, plain, plain};
+    const auto waiting = candidate_card_size(vertical_reserved);
     require(near(waiting.height - bare.height, one - shape.candidate_row));
     // 高亮移到第二行：高度不变。
-    vertical.items = {plain, held, plain};
-    require(near(candidate_card_size(vertical).height, waiting.height));
+    vertical_reserved.items = {plain, held, plain};
+    require(near(candidate_card_size(vertical_reserved).height, waiting.height));
     // 译文到了，短到放得下同一行：仍画在候选文字下面，卡片不变高。
     CandidateItemWidths arrived{40.0, 0.0, 30.0};
     arrived.translation_reserved = true;
-    vertical.items = {plain, arrived, plain};
-    require(near(candidate_card_size(vertical).height, waiting.height));
+    vertical_reserved.items = {plain, arrived, plain};
+    require(near(candidate_card_size(vertical_reserved).height, waiting.height));
     {
-      const auto rows = candidate_page_layout(vertical.items, 400.0, shape, false, {}, one);
+      const auto rows = candidate_page_layout(vertical_reserved.items, 400.0, shape, false, {}, one);
       require(rows[1].item.translation.below);
       require(near(rows[1].bounds.bottom - rows[1].bounds.top, one));
       require(near(rows[0].bounds.bottom - rows[0].bounds.top, shape.candidate_row));
@@ -1110,23 +1110,23 @@ int main() {
     }
     // 别的行带着离线释义：照旧画在候选文字的同一行，不占高度；卡片仍不变高。
     CandidateItemWidths glossed{40.0, 0.0, 30.0};
-    vertical.items = {glossed, arrived, glossed};
+    vertical_reserved.items = {glossed, arrived, glossed};
     {
-      const auto rows = candidate_page_layout(vertical.items, 400.0, shape, false, {}, one);
+      const auto rows = candidate_page_layout(vertical_reserved.items, 400.0, shape, false, {}, one);
       require(!rows[0].item.translation.below && !rows[2].item.translation.below);
       require(near(rows[0].bounds.bottom - rows[0].bounds.top, shape.candidate_row));
     }
-    require(near(candidate_card_size(vertical).height, waiting.height));
+    require(near(candidate_card_size(vertical_reserved).height, waiting.height));
     // 译文画在下面，这一行的宽度按候选文字和译文里较宽的一个算，不再是两段并排的宽度。
     {
       CandidateItemWidths wide{40.0, 0.0, 120.0};
       CandidateItemWidths wide_held = wide;
       wide_held.translation_reserved = true;
-      vertical.items = {wide_held};
-      const auto stacked = candidate_card_size(vertical);
-      vertical.items = {wide};
-      const auto side_by_side = candidate_card_size(vertical);
-      require(near(side_by_side.width - stacked.width, 40.0 + shape.translation_gap));
+      vertical_reserved.items = {wide_held};
+      const auto stacked_size = candidate_card_size(vertical_reserved);
+      vertical_reserved.items = {wide};
+      const auto side_by_side = candidate_card_size(vertical_reserved);
+      require(near(side_by_side.width - stacked_size.width, 40.0 + shape.translation_gap));
     }
     // 两种目标语言：留两行，按窗口量出的两行占位高度留，两行译文到了也不变高。
     {
@@ -1149,22 +1149,22 @@ int main() {
       require(near(candidate_card_size(lines).height, before.height));
     }
     // 没有释义来源、一行也不留时（reserved_secondary_lines 为 0），这个标记不起作用：不留高度，译文照旧按竖排的规则排。
-    vertical.reserved_secondary_lines = 0;
-    vertical.items = {held, plain, plain};
-    require(near(candidate_card_size(vertical).height, bare.height));
+    vertical_reserved.reserved_secondary_lines = 0;
+    vertical_reserved.items = {held, plain, plain};
+    require(near(candidate_card_size(vertical_reserved).height, bare.height));
     {
       const auto rows = candidate_page_layout({arrived}, 400.0, shape, false, {}, 0.0);
       require(!rows[0].item.translation.below);
     }
     // 横排每行本来就统一预留，标记不改变横排。
     {
-      CandidateCardInput horizontal;
-      horizontal.horizontal = true;
-      horizontal.reserved_secondary_lines = 1;
-      horizontal.items = {plain, plain};
-      const auto unmarked = candidate_card_size(horizontal);
-      horizontal.items = {held, plain};
-      const auto marked = candidate_card_size(horizontal);
+      CandidateCardInput row;
+      row.horizontal = true;
+      row.reserved_secondary_lines = 1;
+      row.items = {plain, plain};
+      const auto unmarked = candidate_card_size(row);
+      row.items = {held, plain};
+      const auto marked = candidate_card_size(row);
       require(near(marked.height, unmarked.height) && near(marked.width, unmarked.width));
     }
   }

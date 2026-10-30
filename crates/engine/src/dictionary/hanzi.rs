@@ -1,6 +1,6 @@
 //! `hanzi_to_pinyin`, the reading lookup the dictionary import uses (bridge.cpp:239-305, 735-776). Bridge-local logic in the C++; it reads the working `msime-pinyin.db` directly.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use lru::LruCache;
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params_from_iter, Connection, OpenFlags};
 
 use super::column_text;
 
@@ -39,6 +39,88 @@ pub fn hanzi_to_pinyin(main_db: &Path, text: &str) -> String {
         return String::new();
     };
     readings.join("'")
+}
+
+/// 联系人等整批姓名共用一次词库连接；同长度姓名按有界参数批量查整词，结果与逐条查询相同。
+pub fn hanzi_to_pinyin_batch(main_db: &Path, texts: &[&str]) -> Vec<String> {
+    const BATCH_SIZE: usize = 500;
+    let mut readings = vec![String::new(); texts.len()];
+    let mut by_length: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (index, text) in texts.iter().enumerate() {
+        let length = text.chars().count();
+        if (1..=MAXIMUM_CHARACTERS).contains(&length) && text.chars().all(is_bridge_han) {
+            by_length.entry(length).or_default().push(index);
+        }
+    }
+    if by_length.is_empty() {
+        return readings;
+    }
+    let valid_indexes: Vec<usize> = by_length.values().flatten().copied().collect();
+    let Some(connection) = open(main_db) else {
+        return readings;
+    };
+
+    for (length, indexes) in by_length {
+        for chunk in indexes.chunks(BATCH_SIZE) {
+            let mut unresolved: HashMap<&str, Vec<usize>> = HashMap::new();
+            for &index in chunk {
+                unresolved.entry(texts[index]).or_default().push(index);
+            }
+            for initial in b'a'..=b'z' {
+                if unresolved.is_empty() {
+                    break;
+                }
+                let names: Vec<&str> = unresolved.keys().copied().collect();
+                let placeholders = vec!["?"; names.len()].join(",");
+                let sql = format!(
+                    "SELECT \"value\", \"key\" FROM \"tbl_{length}_{}\" WHERE \"value\" IN ({placeholders}) ORDER BY \"weight\" DESC, \"key\" ASC",
+                    initial as char
+                );
+                let Ok(mut statement) = connection.prepare_cached(&sql) else {
+                    continue;
+                };
+                let Ok(mut rows) = statement.query(params_from_iter(names)) else {
+                    continue;
+                };
+                let mut seen = HashSet::new();
+                while let Ok(Some(row)) = rows.next() {
+                    let Ok(value) = column_text(row, 0) else {
+                        continue;
+                    };
+                    if !seen.insert(value.clone()) {
+                        continue;
+                    }
+                    if matches!(row.get_ref(1), Ok(ValueRef::Null)) {
+                        continue;
+                    }
+                    let Ok(key) = column_text(row, 1) else {
+                        continue;
+                    };
+                    if let Some(indices) = unresolved.remove(value.as_str()) {
+                        for index in indices {
+                            readings[index] = key.clone();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if valid_indexes
+        .iter()
+        .all(|&index| !readings[index].is_empty())
+    {
+        return readings;
+    }
+    let singles = cached_single_hanzi_map(&connection, main_db);
+    for index in valid_indexes {
+        if readings[index].is_empty() {
+            if let Some(parts) = collect_single_hanzi_readings(texts[index], &singles) {
+                readings[index] = parts.join("'");
+            }
+        }
+    }
+    readings
 }
 
 fn collect_single_hanzi_readings<'a>(
@@ -277,6 +359,34 @@ mod tests {
             "ni'ni'ni'ni'ni'ni'ni'ni"
         );
         assert_eq!(hanzi_to_pinyin(&path, "你猫"), "");
+    }
+
+    #[test]
+    fn batch_readings_match_scalar_lookup_across_large_contact_lists() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = fixture(directory.path());
+        let mut names = vec![
+            "你好".to_owned(),
+            "行行".to_owned(),
+            "行".to_owned(),
+            "好".to_owned(),
+            "你们".to_owned(),
+            "你猫".to_owned(),
+            "你a".to_owned(),
+            String::new(),
+            "〇".to_owned(),
+            "你".repeat(129),
+        ];
+        names.extend(
+            (0..1000).map(|index| format!("你{}", char::from_u32(0x4e00 + index).unwrap())),
+        );
+        names.push("你好".to_owned());
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let expected: Vec<String> = names
+            .iter()
+            .map(|name| hanzi_to_pinyin(&path, name))
+            .collect();
+        assert_eq!(hanzi_to_pinyin_batch(&path, &names), expected);
     }
 
     #[test]

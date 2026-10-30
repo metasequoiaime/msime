@@ -76,23 +76,39 @@ final class VocabularyReviewTests: XCTestCase {
 
   func testRecallLeavesTodaysQueueAndALapseStaysInIt() throws {
     let store = temporaryStore()
-    _ = try store.importWordbook(name: "合成词表", text: list)
+    let book = try store.importWordbook(name: "合成词表", text: list).wordbook
 
-    let answered = try store.answer("alpha", known: true)
+    let answered = try store.answer(wordbook: book, word: "alpha", known: true)
     XCTAssertEqual(answered.answeredToday, 1)
     XCTAssertEqual(answered.current?.word, "beta")
 
-    let failed = try store.answer("beta", known: false)
+    let failed = try store.answer(wordbook: book, word: "beta", known: false)
     XCTAssertEqual(failed.answeredToday, 2)
     XCTAssertTrue(
       failed.queue.contains { $0.word == "beta" },
       "a failed card stays in the session it was failed in")
   }
 
+  func testOldCardAnswersItsSourceBookAfterSelectingADifferentBook() throws {
+    let store = temporaryStore()
+    let first = try store.importWordbook(name: "合成词书甲", text: "alpha,合成释义甲\n")
+    let second = try store.importWordbook(name: "合成词书乙", text: "alpha,合成释义乙\n")
+    let answered = try store.answer(wordbook: first.wordbook, word: "alpha", known: true)
+    XCTAssertEqual(answered.wordbook, second.wordbook)
+    XCTAssertEqual(answered.current?.meaning, "合成释义乙")
+    XCTAssertEqual(answered.answeredToday, 1)
+    let original = try store.setSettings(wordbook: first.wordbook, newPerDay: 20, sessionLimit: 200)
+    XCTAssertTrue(original.queue.isEmpty)
+    _ = try store.removeWordbook(first.wordbook)
+    _ = try store.setSettings(wordbook: second.wordbook, newPerDay: 20, sessionLimit: 200)
+    XCTAssertThrowsError(try store.answer(wordbook: first.wordbook, word: "alpha", known: true))
+    XCTAssertEqual(try store.load().current?.word, "alpha")
+  }
+
   func testResetKeepsTheBooksAndRemoveTakesItsSchedule() throws {
     let store = temporaryStore()
     let book = try store.importWordbook(name: "合成词表", text: list).wordbook
-    _ = try store.answer("alpha", known: true)
+    _ = try store.answer(wordbook: book, word: "alpha", known: true)
 
     let reset = try store.reset()
     XCTAssertEqual(reset.answeredToday, 0)

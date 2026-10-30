@@ -182,8 +182,13 @@ public final class AiSkinPage extends ColumnDetailPage {
         }
     }
 
+    /** 工作线程上一并读出的当前皮肤和预览布局。 */
+    private record Current(KeyboardSkin skin, KeyLayoutStylesPolicy.Preview layout) {}
+
     @Nullable private State state;
     @Nullable private KeyboardSkin currentSkin;
+    /** 预览按用户自己的偏好画底行样式、数字行和两种互换（{@link KeyboardPreview#layout}）；26 键还是 9 键由本页的分段定。偏好读回来之前按标准样式画。 */
+    private KeyLayoutStylesPolicy.Preview previewLayout = KeyLayoutStylesPolicy.Preview.STANDARD;
     private boolean unavailable;
     /** 「使用此皮肤」正在保存；挡住连点存出两份。成功后页面就退出了，所以只在失败时清掉。 */
     private boolean saving;
@@ -241,10 +246,13 @@ public final class AiSkinPage extends ColumnDetailPage {
         boolean dark = AppMode.dark(requireContext());
         HostTask.run(this, context -> {
             JSONObject preferences = KeyboardSheets.preferences(context);
-            return preferences == null ? KeyboardSkin.system(dark, HostStore.seed(context))
-                : HostStore.keyboardSkin(preferences, dark, HostStore.seed(context));
-        }, skin -> {
-            currentSkin = skin;
+            KeyboardSkin skin = preferences == null ? KeyboardSkin.system(dark, HostStore.seed(context))
+                : HostStore.keyboardSkin(context, preferences, dark, HostStore.seed(context));
+            return new Current(skin, KeyboardPreview.layout(context, preferences));
+        }, loaded -> {
+            // 宿主不可用时 HostTask 交回 null：沿用页面自己的配色和标准样式。
+            currentSkin = loaded == null ? null : loaded.skin();
+            previewLayout = loaded == null ? KeyLayoutStylesPolicy.Preview.STANDARD : loaded.layout();
             refreshPreview();
         });
     }
@@ -473,7 +481,7 @@ public final class AiSkinPage extends ColumnDetailPage {
             : s.results.get(BoundsPolicy.atMost(s.chosen, s.results.size() - 1));
         KeyboardSkin skin = result == null ? currentSkin
             : KeyboardSkin.custom(result.design(), AppMode.dark(context));
-        view.setKeyboard(skin, s.nineKey);
+        view.setKeyboard(skin, previewLayout.with(s.nineKey ? KeyLayoutStylesPolicy.Kind.NINE : KeyLayoutStylesPolicy.Kind.TWENTY_SIX));
         ViewPolicy.setActiveAlpha(view, !s.busy, 0.45f);
         if (busyOverlay != null) ViewPolicy.setVisible(busyOverlay, s.busy);
         if (title != null) title.setText(result == null ? "未命名皮肤" : result.name());
@@ -585,7 +593,14 @@ public final class AiSkinPage extends ColumnDetailPage {
         } catch (java.io.IOException error) {
             return "保存皮肤失败，请重试";
         }
-        JSONObject saved = KeyboardSheets.write(context, preferences -> KeyboardSheets.applyDesign(preferences, design));
+        JSONObject saved = KeyboardSheets.write(context, preferences -> {
+            boolean dark = app.msime.android.KeyboardSkin.resolveDark(
+                preferences.optString("screen_keyboard_theme", "follow"),
+                preferences.optString("theme", "system"), AppMode.dark(context));
+            preferences.put(app.msime.android.KeyboardSkinModeChoice.key(dark),
+                app.msime.android.KeyboardSkinModeChoice.design(id));
+            KeyboardSheets.applyDesignFeedback(preferences, design);
+        });
         if (saved == null) return "皮肤已保存到我的设计，但切换失败，请在皮肤页里选它";
         KeyboardSheets.applyLocalFeedback(context, design);
         KeyboardSheets.recordSkin(context, id);

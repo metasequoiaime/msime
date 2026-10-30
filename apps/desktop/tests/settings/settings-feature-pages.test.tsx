@@ -34,7 +34,8 @@ function client(mobile = true): SettingsClient {
   return {
     load: vi.fn().mockResolvedValue(snapshot),
     save: vi.fn(),
-    host: testHost({ platform: mobile ? "harmony" : "macos" }),
+    // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，触屏聊天才挂得上。
+    host: testHost({ platform: mobile ? "harmony" : "macos", ai_generation: true }),
     chat: {
       models: vi.fn().mockResolvedValue({ data: [{ id: "fixture" }], defaultModel: "fixture" }),
       complete: vi.fn().mockResolvedValue("合成回复"),

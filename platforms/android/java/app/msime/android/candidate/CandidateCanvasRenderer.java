@@ -33,6 +33,10 @@ final class CandidateCanvasRenderer {
     private long elapsed;
     private boolean motion;
     private boolean observing;
+    // 这一遍画到的 APNG 里最早一次换帧还差多少毫秒；没有要动的图时为 Long.MAX_VALUE。
+    private long nextFrame = Long.MAX_VALUE;
+    // APNG 按自己的帧时长换帧，只在换帧那一刻重画一次；不能每次绘制都约下一个 vsync，那样候选在屏上时整列按屏幕刷新率空转重画。
+    private final Runnable tick;
     private final ContentObserver animationPolicy = new ContentObserver(new Handler(Looper.getMainLooper())) {
         @Override public void onChange(boolean selfChange) {
             anchor = SystemClock.uptimeMillis();
@@ -41,7 +45,10 @@ final class CandidateCanvasRenderer {
         }
     };
 
-    CandidateCanvasRenderer(View host) { this.host = host; }
+    CandidateCanvasRenderer(View host) {
+        this.host = host;
+        tick = host::invalidate;
+    }
 
     void set(CandidateCanvasAssets next, boolean enabled) {
         if (this.enabled == enabled && assets != null && next != null && assets.key.equals(next.key)) return;
@@ -80,9 +87,11 @@ final class CandidateCanvasRenderer {
     }
 
     void visible(boolean visible) {
-        if (assets == null) return;
         visible &= enabled && host.isAttachedToWindow() && host.isShown()
             && host.getWindowVisibility() == View.VISIBLE;
+        // 看不见时撤掉约好的换帧重画，重新显示后的那次绘制会再约。
+        if (!visible) host.removeCallbacks(tick);
+        if (assets == null) return;
         if (assets.panel != null) assets.panel.visible(host, visible);
         if (assets.banner != null) assets.banner.image().visible(host, visible);
         for (CandidateCanvasAssets.Widget widget : assets.widgets) widget.image().visible(host, visible);
@@ -91,6 +100,8 @@ final class CandidateCanvasRenderer {
     private boolean ready() { return enabled && assets != null; }
 
     void before(Canvas canvas, int surface) {
+        host.removeCallbacks(tick);
+        nextFrame = Long.MAX_VALUE;
         if (!ready()) return;
         visible(true);
         motion = ValueAnimator.areAnimatorsEnabled();
@@ -111,6 +122,8 @@ final class CandidateCanvasRenderer {
         float density = host.getResources().getDisplayMetrics().density;
         for (CandidateCanvasAssets.Widget widget : assets.widgets) if (widget.z() >= 1) widget(canvas, widget, density);
         if (assets.banner != null) banner(canvas, assets.banner, density);
+        // 约在 before() 量过 elapsed 之后，到点时最早那张图一定已换到下一帧。
+        if (nextFrame != Long.MAX_VALUE) host.postDelayed(tick, nextFrame);
     }
 
     private void banner(Canvas canvas, CandidateCanvasAssets.Banner banner, float density) {
@@ -181,9 +194,8 @@ final class CandidateCanvasRenderer {
 
     private Bitmap frame(CandidateCanvasAssets.Image image) {
         CandidateApngFrames animation = image.apng;
-        if (motion && animation != null && animation.size() > 1
-                && (animation.loops() == 0 || elapsed / animation.durationMillis() < animation.loops()))
-            host.postInvalidateOnAnimation();
+        long wait = animation == null ? -1 : animation.millisUntilNextFrame(elapsed, motion);
+        if (wait > 0) nextFrame = Math.min(nextFrame, wait);
         return image.bitmapAt(elapsed, motion);
     }
 

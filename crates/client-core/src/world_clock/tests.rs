@@ -68,6 +68,33 @@ fn local_dates_formats_and_system_offset() {
             .text,
         "星期五"
     );
+    assert_eq!(
+        tokyo
+            .formats
+            .iter()
+            .find(|f| f.label == "年日数")
+            .unwrap()
+            .text,
+        "20261023"
+    );
+    assert_eq!(
+        tokyo
+            .formats
+            .iter()
+            .find(|f| f.label == "长时数")
+            .unwrap()
+            .text,
+        "20261023012443"
+    );
+    assert_eq!(
+        tokyo
+            .formats
+            .iter()
+            .find(|f| f.label == "长时符")
+            .unwrap()
+            .text,
+        "2026-10-23-01:24:43"
+    );
     let system = snapshot(1792686283, "Unknown/Zone", 19800, vec![])
         .unwrap()
         .remove(0);

@@ -112,6 +112,29 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(persisted.contains("重新开始"))
   }
 
+  /// 共享层把上屏攒在本进程里，不再每次上屏都重写文件；键盘收起或失焦时调 flush 才写出，设置应用（另一个进程）读文件时才看得到。
+  func testCommitsAreHeldInMemoryUntilFlush() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TypingStatisticsStore(directory: directory)
+    try store.setEnabled(true)
+    // 直接读文件：`load` 会先把攒着的上屏写出去，这里要看的正是写出之前。
+    func persistedTotal() throws -> Int? {
+      let data = try Data(contentsOf: directory.appendingPathComponent("typing-statistics.json"))
+      return (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["total"] as? Int
+    }
+    try store.record("你好")
+    try store.record("abc")
+    XCTAssertEqual(try persistedTotal(), 0)
+    try store.flush()
+    XCTAssertEqual(try persistedTotal(), 5)
+    // 没有攒着的上屏时 flush 什么也不做。
+    try store.flush()
+    XCTAssertEqual(try persistedTotal(), 5)
+    XCTAssertEqual(try store.load().total, 5)
+  }
+
   func testUnicodeCategoriesAndLegacyMigration() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

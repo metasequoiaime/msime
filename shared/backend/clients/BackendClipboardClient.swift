@@ -41,10 +41,18 @@ struct BackendClipboardE2E: Sendable {
                                                         matchingSessionID: binding.sessionID) { try keystore.load() }
   }
 
-  func saveKeystore(_ value: String) async throws {
-    guard let binding else { return try keystore.save(value) }
-    try await binding.session.withSessionStorage(matchingUserID: binding.userID,
-                                                 matchingSessionID: binding.sessionID) { try keystore.save(value) }
+  /// 保存驱动交来的密钥串，但不覆盖另一个设备身份：存储里已经有另一个解析得了的身份时不写，交回存着的那份；写成时为 nil。同一台设备上的 App 和键盘扩展（或同时开始的两个操作）第一次使用时各自生成身份，覆盖的话两个都会登记，输掉的那个在其他设备上一直等着批准（`docs/cloud-clipboard-e2e.md` 的「宿主的职责」）。有登录绑定时读、比、写在会话存储的锁里做完；没有登录绑定的存放处（iOS 自建中继的 `IOSCloudClipboardRelayKeystore`）在自己的跨进程锁里再比一次，以 `BackendClipboardKeystoreConflict` 交回存着的那份。
+  func saveKeystore(_ value: String) async throws -> String? {
+    let store = keystore
+    let save: @Sendable () throws -> String? = {
+      if let stored = try store.load(), let identity = backendClipboardKeystoreIdentity(stored),
+         identity != backendClipboardKeystoreIdentity(value) { return stored }
+      do { try store.save(value) } catch let conflict as BackendClipboardKeystoreConflict { return conflict.stored }
+      return nil
+    }
+    guard let binding else { return try save() }
+    return try await binding.session.withSessionStorage(matchingUserID: binding.userID,
+                                                        matchingSessionID: binding.sessionID, save)
   }
 
   /// 把 C ABI 的驱动函数和释放函数包成 `drive`。回复按 `msime_client_string_free` 的约定释放且只释放一次。
@@ -59,6 +67,11 @@ struct BackendClipboardE2E: Sendable {
       return Data(bytes: raw, count: strlen(raw))
     }
   }
+}
+
+/// 密钥串里已经存着另一个设备身份，`save` 在自己的锁里比较后拒绝写入时抛出，带着存着的那份；`BackendClipboardE2E.saveKeystore` 把它当作冲突交回驱动循环。没有会话锁可借的存放处（iOS 自建中继的 `IOSCloudClipboardRelayKeystore`）抛它。
+struct BackendClipboardKeystoreConflict: Error, Sendable {
+  let stored: String
 }
 
 extension BackendAccountClient {
@@ -149,21 +162,43 @@ extension BackendAccountClient {
 
   /// 用驱动完成一次操作，返回驱动 `done` 的 JSON。驱动要求的每个请求都带 `token` 发出，不论状态码都把状态码和正文交回驱动；传输失败照常抛错，不交给驱动。驱动给出的密钥串一变就先保存，再发下一个请求。驱动的错误抛成 `Failure`，保留它的 `status` 和 `code`：401 因此会触发调用方原有的刷新令牌后重试整个操作。
   func clipboardE2E(_ operation: ClipboardE2EOperation, token: String, e2e: BackendClipboardE2E?) async throws -> Data {
+    try await Self.clipboardE2E(operation, e2e: e2e) { [self] method, path, body in
+      try await exchange(method, path, token: token, body: body, maximumResponseBytes: Self.clipboardResponseLimit)
+    }
+  }
+
+  /// 发一个驱动要求的请求，答状态码和正文；连不上时抛错。账号路径带着令牌发给水杉服务，自建中继和 WebDAV 网盘（iOS 的 `IOSCloudClipboardRelay`）经 Rust 的 `msime_client_relay_cloud_clipboard_exchange` 发。
+  typealias ClipboardTransport = @Sendable (_ method: String, _ path: String, _ body: Data?) async throws -> (status: Int, body: Data)
+
+  /// 同上，请求经 `send` 发出：驱动循环与账号路径是同一个，只换传输。
+  ///
+  /// 第一次使用时驱动生成新的设备身份，并在第一个请求之前交来；另一个进程（App 和键盘扩展）恰好也在这时生成并先存下了自己的身份时，`saveKeystore` 交回存着的那份，这里改用它从头再来一次——那时还没有发出任何请求，服务端只会看到一台设备。之后再被拒绝就按失败处理（`clipboard_keystore_conflict`），不会再换身份。
+  static func clipboardE2E(_ operation: ClipboardE2EOperation, e2e: BackendClipboardE2E?,
+                           send: ClipboardTransport) async throws -> Data {
     guard operation.isValid else {
       if case .add = operation { throw Failure(status: 400, code: "invalid_clipboard_text") }
       throw Failure(status: 400)
     }
     guard let e2e else { throw Failure(status: 0) }
     var saved = try await e2e.loadKeystore()
-    var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(),
-                                "device_name": await e2e.deviceName()]
+    let deviceName = await e2e.deviceName()
+    var input: [String: Any] = ["start": operation.json, "keystore": saved ?? NSNull(), "device_name": deviceName]
+    // 与 Android 的 `CloudClipboardE2e.run` 相同：新身份在第一个请求之前保存，这时被拒绝说明另一个进程先写进了它的身份，服务端还没见过本次的身份，改用存着的那份从头来一次；发过请求之后再被拒绝，是这次操作期间退出又登录过。
+    var sent = false
+    var restarted = false
     for _ in 0..<Self.clipboardDriverSteps {
       try await e2e.requireSession()
       let step = try Self.clipboardDriverStep(e2e, input)
       if let value = step["keystore"] {
         guard let keystore = value as? String else { throw Failure(status: 0) }
         if keystore != saved {
-          try await e2e.saveKeystore(keystore)
+          if let stored = try await e2e.saveKeystore(keystore) {
+            guard !sent, !restarted else { throw Failure(status: 0, code: "clipboard_keystore_conflict") }
+            restarted = true
+            saved = stored
+            input = ["start": operation.json, "keystore": stored, "device_name": deviceName]
+            continue
+          }
           saved = keystore
         }
       }
@@ -178,8 +213,9 @@ extension BackendAccountClient {
         default: throw Failure(status: 0)
         }
         try await e2e.requireSession()
-        let response = try await exchange(method, path, token: token, body: body,
-                                          maximumResponseBytes: Self.clipboardResponseLimit)
+        sent = true
+        let response = try await send(method, path, body)
+        guard response.body.count <= Self.clipboardResponseLimit else { throw Failure(status: 0) }
         let text: String
         if let decoded = String(data: response.body, encoding: .utf8) { text = decoded }
         else if (200..<300).contains(response.status) { throw Failure(status: 0) }
@@ -209,10 +245,17 @@ extension BackendAccountClient {
 
   /// 加密后上传一段文字。本机等待批准时失败，错误码 `clipboard_device_pending`。
   func addClipboard(_ text: String, token: String, e2e: BackendClipboardE2E?) async throws -> ClipboardItem {
-    let data = try await clipboardE2E(.add(text: text), token: token, e2e: e2e)
+    try Self.validatedClipboardItem(try await clipboardE2E(.add(text: text), token: token, e2e: e2e))
+  }
+
+  /// 驱动 `list` 的结果，与账号路径同样校验；不合格时是 `Failure(status: 0)`。
+  static func clipboardPage(_ data: Data) throws -> ClipboardPage { try validatedClipboardPage(data) }
+
+  /// 驱动 `add` 的结果，与账号路径同样校验。
+  static func validatedClipboardItem(_ data: Data) throws -> ClipboardItem {
     guard let item = try? JSONDecoder().decode(ClipboardItem.self, from: data),
-          Self.validClipboardItem(item) else { throw Failure(status: 0) }
-    return Self.normalized(item)
+          validClipboardItem(item) else { throw Failure(status: 0) }
+    return normalized(item)
   }
 
   private static func clipboardDriverStep(_ e2e: BackendClipboardE2E, _ input: [String: Any]) throws -> [String: Any] {

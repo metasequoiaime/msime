@@ -1,7 +1,7 @@
 use super::*;
 use crate::ime::personal_rerank::allocations::count;
 
-// 冻结 dd0b58ea16 的种子追加函数，只修改名称。
+// 冻结 dd0b58ea16 的种子追加函数，只修改名称；末音节锚定的那条尾段是之后有意新增的语义，按同样规则补上。
 fn frozen_seeded_paths(
     alternatives: &mut Vec<Path>,
     seeds: &[String],
@@ -15,12 +15,33 @@ fn frozen_seeded_paths(
             continue;
         }
         let tail = &remaining[covered..];
-        let tails = if tail.is_empty() {
+        let mut tails: Vec<Path> = if tail.is_empty() {
             vec![Vec::new()]
         } else {
-            table.split_paths_limited(tail, &[], prior, SEED_TAIL_LIMIT)
+            table
+                .split_paths_limited(tail, &[], prior, SEED_TAIL_LIMIT)
+                .into_iter()
+                .take(SEED_TAIL_LIMIT)
+                .collect()
         };
-        for tail_path in tails.into_iter().take(SEED_TAIL_LIMIT) {
+        let (_, full_covered, full_fits) = fitting_syllables(table.grid, seed, remaining);
+        if !tail.is_empty() && full_fits {
+            let rest = &remaining[full_covered..];
+            let rest_path = if rest.is_empty() {
+                Some(Vec::new())
+            } else {
+                table
+                    .split_paths_limited(rest, &[], prior, 1)
+                    .into_iter()
+                    .next()
+            };
+            if let Some(rest_path) = rest_path {
+                let mut anchored = vec![seed.rsplit('\'').next().unwrap().to_owned()];
+                anchored.extend(rest_path);
+                tails.push(anchored);
+            }
+        }
+        for tail_path in tails {
             let mut path: Path = Vec::with_capacity(kept + tail_path.len());
             path.extend(seed.split('\'').take(kept).map(str::to_owned));
             path.extend(tail_path);

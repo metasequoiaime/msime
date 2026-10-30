@@ -2040,11 +2040,17 @@ test("helpcode schemes save independently and retain disabled selections", async
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "xiaohe",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
     shuangpin_helpcode: {
       enabled: true,
       schema: "wubi86",
       show_in_candidate_window: true,
+      strict_filter: false,
       modes: defaultShuangpinHelpcodeModes,
     },
   });
@@ -2111,8 +2117,12 @@ test("clears helpcode packs when the active host has no plugin catalog", async (
   await waitFor(() => expect(within(quanpin).getByRole("option", { name: "部首码（插件）" })));
 
   view.rerender(<SettingsPage initialPage="input" client={withoutPlugins} />);
+  // 宿主切换会清空并重建表单，断言当前页面，不能继续检查已经卸载的旧节点。
+  await settingsReady();
+  selectSettingsTab("进阶");
+  const currentQuanpin = screen.getByRole("combobox", { name: "全拼辅助码方案" });
   await waitFor(() =>
-    expect(within(quanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
+    expect(within(currentQuanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
   );
 });
 
@@ -4312,7 +4322,7 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
   await waitFor(() => expect(screen.queryByLabelText("按键音")).not.toBeNull());
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
+  expect(screen.queryByLabelText("分离式键盘")).toBeNull();
   phone.unmount();
 
   const save = vi.fn().mockImplementation(async (settings) => settings);
@@ -4347,9 +4357,9 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   );
   // 横屏分离式键盘同样存进原生 App Group，不写共享文档。
   await waitFor(() =>
-    expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(false),
+    expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).disabled).toBe(false),
   );
-  const split = screen.getByLabelText("横屏分离式键盘") as HTMLInputElement;
+  const split = screen.getByLabelText("分离式键盘") as HTMLInputElement;
   expect(split.checked).toBe(false);
   fireEvent.click(split);
   await waitFor(() =>
@@ -8142,7 +8152,7 @@ test.each(optionHosts)(
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
     const input = await screen.findByRole("group", { name: "输入" });
-    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
+    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 全拼纠错 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
     const groups = [...input.querySelectorAll("[data-group-title]")].map(
       (node) => node.textContent ?? "",
     );
@@ -8154,6 +8164,7 @@ test.each(optionHosts)(
       "输出",
       "快捷模式",
       "模糊音",
+      "全拼纠错",
       "辅助码",
       "拼音方案调频",
     ]);
@@ -8717,6 +8728,54 @@ test("a Linux release without a chosen package points at SHA256SUMS instead of i
     screen.getByText(/该软件包未签名。.*sha256sum -c SHA256SUMS --ignore-missing/),
   ).toBeDefined();
 });
+
+test.each(["立即返回", "延后返回"])(
+  "关于页首次可点击时的更新检查保留结果（%s）",
+  async (completion) => {
+    const load = deferred<Snapshot>();
+    const response = deferred<UpdateCheckResult>();
+    const update: UpdateCheckResult = {
+      status: "available",
+      update: hostRelease("linux-v1.2.0"),
+    };
+    const checkUpdate = vi.fn(() =>
+      completion === "立即返回" ? Promise.resolve(update) : response.promise,
+    );
+    render(
+      <SettingsPage
+        client={{
+          load: () => load.promise,
+          save: vi.fn(),
+          checkUpdate,
+          host: testHost({ platform: "linux", arch: "x86_64" }),
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
+    let disabledAtClick: boolean | undefined;
+    // 在 DOM 提交后的第一个可点击时刻操作，不让测试框架先冲刷 passive effects。
+    const observer = new MutationObserver(() => {
+      const button = screen.queryByRole<HTMLButtonElement>("button", { name: "检查更新" });
+      if (!button) return;
+      observer.disconnect();
+      disabledAtClick = button.matches(":disabled");
+      act(() => button.click());
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      load.resolve(initial);
+      await waitFor(() => expect(checkUpdate).toHaveBeenCalledOnce());
+      expect(disabledAtClick).toBe(false);
+      if (completion === "延后返回") {
+        expect(await screen.findByRole("button", { name: "正在检查…" })).toBeDefined();
+        await act(async () => response.resolve(update));
+      }
+      expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
+    } finally {
+      observer.disconnect();
+    }
+  },
+);
 
 test("Linux update notice shows the .deb digest and the sha256sum command", async () => {
   const digest = "0123456789abcdef".repeat(4);
@@ -10290,7 +10349,12 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     candidate_page_size: 9,
-    quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
+    quanpin_helpcode: {
+      enabled: false,
+      schema: "ziranma",
+      show_in_candidate_window: false,
+      strict_filter: false,
+    },
   });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
@@ -10424,7 +10488,7 @@ test("a host that fixes the candidate page size and layout does not offer them",
   expect(screen.getByLabelText("候选项排列方式")).toBeTruthy();
 });
 
-test("an unreadable preferences document offers a repair that backs it up first", async () => {
+test("配置修复先备份原文档，修复后的修改仍会自动保存", async () => {
   const recovered: Snapshot = {
     ...initial,
     revision: 12,
@@ -10447,7 +10511,7 @@ test("an unreadable preferences document offers a repair that backs it up first"
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("配置文件无法读取");
 
-  // Cancelling asks nothing of the host.
+  // 取消确认不调用宿主修复。
   fireEvent.click(within(alert).getByRole("button", { name: "修复配置文件…" }));
   expect((await screen.findByRole("alertdialog")).textContent).toContain(
     "损坏的配置文件会先备份到同一目录",
@@ -10465,6 +10529,19 @@ test("an unreadable preferences document offers a repair that backs it up first"
 
   fireEvent.click(within(notice).getByRole("button", { name: "在 Finder 中显示" }));
   expect(openPreferencesDirectory).toHaveBeenCalledTimes(1);
+
+  vi.mocked(client.save).mockImplementation(async (revision, preferences) => ({
+    ...recovered,
+    revision: revision + 1,
+    preferences,
+  }));
+  fireEvent.click(screen.getByRole("radio", { name: "五笔" }));
+  saveSettingsNow();
+  await waitFor(() => expect(client.save).toHaveBeenCalledOnce());
+  expect(client.save).toHaveBeenCalledWith(
+    recovered.revision,
+    expect.objectContaining({ scheme: "wubi", candidate_page_size: 7 }),
+  );
 });
 
 test("a host without a repair keeps the unreadable-document message alone", async () => {
@@ -10659,7 +10736,8 @@ test.each(["macos", "windows", "linux", "harmony"])(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
-          host: testHost({ platform }),
+          // 鸿蒙按 AI 生成类资质到位、总闸打开时的样子报 `ai_generation`，测的是那时重新出现的 AI 页。
+          host: testHost({ platform, ai_generation: true }),
         }}
       />,
     );

@@ -1,4 +1,4 @@
-//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典、英文音标表和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。固定资源的文件名、URL、长度和 SHA-256 来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；会原地替换的万象 LTS 使用响应长度和 `.gram` 格式校验，语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
@@ -132,6 +132,7 @@ fn select_grammar_models(
 
 fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
     let client = crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
+        .map_err(|error| LocalModelError::Network(error.to_string()))?
         .https_only(true)
         .redirect(reqwest::redirect::Policy::limited(5))
         .connect_timeout(Duration::from_secs(15))
@@ -255,6 +256,7 @@ fn dynamic_grammar_manifest(pack: ResourcePack, artifact: &crate::resources::Art
     })
 }
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
+const PRONUNCIATIONS_LOCK: &str = include_str!("../../../resources/pronunciations.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
 /// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
@@ -294,9 +296,11 @@ pub enum ResourcePack {
     GrammarBaishuang,
     /// 候选的非英文离线释义：`zh-<语言>.db` 六份加上随它们一起分发的 `offline-glosses-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。
     OfflineGlosses,
+    /// Android 候选用的 ECDICT 英文音标表及 MIT 许可声明；桌面包仍可随包携带同一份表。
+    Pronunciations,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
-    /// macOS 发布包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
+    /// macOS 发布包和 Android 的 full、拼音版瘦包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
     Wubi,
     /// macOS 上本地语音识别加载的 `libsherpa-onnx-c-api.dylib`（universal），取自 `resources/voice-runtime-macos.lock.json` 固定的、用本项目 Developer ID 重签过的归档。锁文件还没固定归档时不存在，见 [`ResourcePack::pinned`]。
     MacosVoiceRuntime,
@@ -427,6 +431,12 @@ struct OfflineGlossesInput {
 }
 
 #[derive(Deserialize)]
+struct PronunciationsLock {
+    source_commit: String,
+    built: Vec<crate::resources::Artifact>,
+}
+
+#[derive(Deserialize)]
 struct VoiceRuntimeLock {
     source_commit: String,
     platforms: std::collections::BTreeMap<String, VoiceRuntimeArchive>,
@@ -485,7 +495,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 13] = [
+    pub const ALL: [ResourcePack; 14] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -495,6 +505,7 @@ impl ResourcePack {
         ResourcePack::GrammarBaguwenCompact,
         ResourcePack::GrammarBaishuang,
         ResourcePack::OfflineGlosses,
+        ResourcePack::Pronunciations,
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
@@ -527,6 +538,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaguwenCompact => "grammar-model-baguwen-compact",
             ResourcePack::GrammarBaishuang => "grammar-model-baishuang",
             ResourcePack::OfflineGlosses => "offline-glosses",
+            ResourcePack::Pronunciations => "pronunciations",
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
@@ -563,6 +575,7 @@ impl ResourcePack {
             | ResourcePack::GrammarBaguwenCompact
             | ResourcePack::GrammarBaishuang
             | ResourcePack::OfflineGlosses
+            | ResourcePack::Pronunciations
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
             | ResourcePack::AndroidOcrModule => &[],
@@ -607,7 +620,7 @@ impl ResourcePack {
         if self == ResourcePack::AndroidOcrModule {
             return android_ocr_module_set();
         }
-        static SETS: OnceLock<[ResourceSet; 11]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 12]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -632,6 +645,8 @@ impl ResourcePack {
                 serde_json::from_str(GRAMMAR_MODELS_LOCK).expect("grammar models lock is valid");
             let glosses: OfflineGlossesLock =
                 serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
+            let pronunciations: PronunciationsLock =
+                serde_json::from_str(PRONUNCIATIONS_LOCK).expect("pronunciations lock is valid");
             let (runtime_commit, archive, members) = voice_runtime_locks();
             [
                 desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
@@ -662,6 +677,10 @@ impl ResourcePack {
                         .collect(),
                 },
                 desktop.only(&ON_DEMAND_WUBI_ARTIFACTS),
+                ResourceSet {
+                    source_commit: pronunciations.source_commit,
+                    artifacts: pronunciations.built,
+                },
             ]
         });
         match self {
@@ -674,6 +693,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaguwenCompact => &sets[6],
             ResourcePack::GrammarBaishuang => &sets[7],
             ResourcePack::OfflineGlosses => &sets[8],
+            ResourcePack::Pronunciations => &sets[11],
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
@@ -1087,7 +1107,7 @@ pub fn download_prefixes<'a>(mirrors: &[&'a str]) -> Vec<&'a str> {
 
 /// 下载、校验并发布一个资源包到 `<state_root>/resource-packs/<id>`，替换旧安装。阻塞调用，不要放在 UI 线程；`cancel` 在每个数据块之间轮询。
 ///
-/// 每个固定文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。万象 LTS 每次下载整份当前响应，不复用旧摘要的断点文件。
+/// 每个固定文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。万象 LTS 每次下载整份当前响应，不复用旧摘要的断点文件。日文词典和五笔码表先在词库更新下载过的代次里找同样的字节，都找到时不联网（[`install_from_dictionary_updates`]）。
 pub fn install(
     state_root: &Path,
     pack: ResourcePack,
@@ -1188,7 +1208,11 @@ pub fn install_for_channel(
                 total: artifact.size,
             });
         });
-    } else if let Some(archive) = pack.archive() {
+    }
+    if let Some(result) = install_from_dictionary_updates(state_root, pack, progress, cancel) {
+        return result;
+    }
+    if let Some(archive) = pack.archive() {
         return local_models::install_archive_members(
             &root(state_root),
             pack.id(),
@@ -1210,6 +1234,49 @@ pub fn install_for_channel(
         progress,
         cancel,
     )
+}
+
+/// 发布包不带的日文词典和五笔码表（[`ResourcePack::Japanese`]、[`ResourcePack::Wubi`]）在词库更新下载过的代次里已有同样的字节时，从那里复制安装，不联网（见 [`crate::dictionary_updates::generation_copy`]）。安装包换了词库锁之后，已装的资源包过期、上一次自动更新的代次也失效，而那个代次里往往正是新锁要的码表，这样五笔用户不必再下载一遍近百 MB。
+///
+/// 这一组的每个文件都找到才这样装，返回安装的结果；缺任何一个或查找时读不了文件，返回 `None`，照常联网下载。取消照常报 [`LocalModelError::Cancelled`]。
+fn install_from_dictionary_updates(
+    state_root: &Path,
+    pack: ResourcePack,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Option<Result<PathBuf, LocalModelError>> {
+    if !matches!(pack, ResourcePack::Japanese | ResourcePack::Wubi) {
+        return None;
+    }
+    let artifacts = &pack.set().artifacts;
+    let mut files = Vec::with_capacity(artifacts.len());
+    for artifact in artifacts {
+        match crate::dictionary_updates::generation_copy(state_root, artifact, cancel) {
+            Ok(Some(path)) => files.push(path),
+            Ok(None) => return None,
+            Err(LocalModelError::Cancelled) => return Some(Err(LocalModelError::Cancelled)),
+            Err(_) => return None,
+        }
+    }
+    let fetcher = match local_models::LocalFileFetcher::matching_sources(
+        artifacts.iter().map(local_models::ImportSource::artifact),
+        &files,
+        cancel,
+    ) {
+        Ok(fetcher) => fetcher,
+        Err(LocalModelError::Cancelled) => return Some(Err(LocalModelError::Cancelled)),
+        Err(_) => return None,
+    };
+    Some(local_models::install_files_with(
+        &root(state_root),
+        pack.id(),
+        artifacts,
+        &pack.manifest(),
+        &[],
+        &fetcher,
+        progress,
+        cancel,
+    ))
 }
 
 /// 用用户自己下载好的文件安装一个资源包，不联网，替换旧安装。阻塞调用，不要放在 UI 线程。
@@ -1832,6 +1899,38 @@ mod tests {
         assert!(pack.schemes().is_empty());
     }
 
+    /// Android 音标包只能安装 ECDICT 锁定的数据库和许可声明，不能由调用者替换下载清单。
+    #[test]
+    fn the_pronunciations_pack_is_the_pinned_lock() {
+        let lock: Value = serde_json::from_str(PRONUNCIATIONS_LOCK).unwrap();
+        let pack = ResourcePack::Pronunciations;
+        assert_eq!(pack.id(), "pronunciations");
+        assert_eq!(ResourcePack::from_id(pack.id()), Some(pack));
+        assert_eq!(
+            pack.set().source_commit,
+            lock["source_commit"].as_str().unwrap()
+        );
+        let names: Vec<&str> = pack
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(names, ["en-phonetic.db", "pronunciations-NOTICE.txt"]);
+        for (artifact, locked) in pack
+            .set()
+            .artifacts
+            .iter()
+            .zip(lock["built"].as_array().unwrap())
+        {
+            assert_eq!(artifact.url, locked["url"].as_str().unwrap());
+            assert_eq!(artifact.sha256, locked["sha256"].as_str().unwrap());
+            assert_eq!(artifact.size, locked["size"].as_u64().unwrap());
+        }
+        assert!(pack.archive().is_none());
+        assert!(pack.schemes().is_empty());
+    }
+
     /// 语音运行库包从 `voice-runtime.lock.json` 固定的 Android `.aar` 里取 arm64-v8a 的两个库；下载大小是整个归档。
     #[test]
     fn the_voice_runtime_pack_comes_out_of_the_pinned_android_archive() {
@@ -2128,6 +2227,34 @@ mod tests {
             adopt(state.path(), pack, source.path()),
             Err(LocalModelError::MissingFile(name)) if name == "msime-stroke.db"
         ));
+    }
+
+    /// Android 升级到不带五笔码表的瘦包时，Bootstrap 把资源目录里上一个安装包解出的 `msime-wubi.db` 收编为 `wubi` 资源包。词库锁同时换了版本时那份是旧字节：不发布，文件原样留在资源目录里，由宿主删掉后改走下载；资源目录里本来就没有它时报缺文件。
+    #[test]
+    fn adopting_a_wubi_table_from_an_older_dictionary_publishes_nothing() {
+        let state = tempfile::tempdir().unwrap();
+        let resources = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::Wubi;
+        assert!(matches!(
+            adopt(state.path(), pack, resources.path()),
+            Err(LocalModelError::MissingFile(name)) if name == ON_DEMAND_WUBI_ARTIFACTS[0]
+        ));
+        let table = resources.path().join(ON_DEMAND_WUBI_ARTIFACTS[0]);
+        fs::write(&table, b"an older dictionary's wubi table").unwrap();
+        fs::write(resources.path().join("msime-pinyin.db"), b"core").unwrap();
+        let error = adopt(state.path(), pack, resources.path()).unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::SizeMismatch(_)),
+            "{error:?}"
+        );
+        assert_eq!(
+            fs::read(&table).unwrap(),
+            b"an older dictionary's wubi table"
+        );
+        assert!(resources.path().join("msime-pinyin.db").is_file());
+        assert!(list(state.path())
+            .iter()
+            .any(|status| status.id == "wubi" && status.state == PackState::Missing));
     }
 
     #[test]

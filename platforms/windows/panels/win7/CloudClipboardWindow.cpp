@@ -52,6 +52,8 @@ private:
       SYSTEMTIME now{}; GetLocalTime(&now); auto action = *result.job.request;
       action["day"] = shared::statistics_data::model::day_key(shared::statistics_data::local_day()); action["hour"] = now.wHour; action["source"] = "unknown";
       shared::theme_data::call(msime_client_typing_statistics, {{"directory", context.directory.u8string()}, {"action", action}});
+      // record 只把上屏攒在本进程里，面板进程退出时没有收尾去写，记完就 flush，和攒批之前一样当场落盘。
+      shared::theme_data::call(msime_client_typing_statistics, {{"directory", context.directory.u8string()}, {"action", {{"operation", "flush"}}}});
       return result;
     }
     const auto account = panel_account_directory();

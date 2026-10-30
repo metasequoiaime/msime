@@ -132,14 +132,15 @@ final class CompositionMagnifierChecks {
             node.getText() != null && node.getText().length() >= 35));
         select(text, 0);
         s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
-        Rect area = bounds(text);
         s.stage = "long spelling right edge reaches the end before release";
-        dragToEdge(s, area, true);
+        dragToEdge(s, true);
         s.stage = "long spelling left edge reaches the start before release";
-        dragToEdge(s, area, false);
+        dragToEdge(s, false);
     }
 
-    private static void dragToEdge(DeviceSmoke s, Rect area, boolean end) {
+    private static void dragToEdge(DeviceSmoke s, boolean end) {
+        AccessibilityNodeInfo text = s.await(s.described("放大拼写"));
+        Rect area = bounds(text);
         // 从拼写条中间按下，相对拖到边缘后按住，让边缘持续移动走完长拼写。
         int target = end ? area.right - 4 : area.left + 4;
         long start = SystemClock.uptimeMillis();
@@ -152,22 +153,20 @@ final class CompositionMagnifierChecks {
                 inject(s, start, MotionEvent.ACTION_MOVE,
                     area.centerX() + (target - area.centerX()) * step / 12f, area.centerY());
             }
-            awaitEdge(s, end, deadline);
+            awaitEdge(text, end, deadline);
         } finally {
             inject(s, start, MotionEvent.ACTION_UP, target, area.centerY());
         }
         // 松手后的断言共用同一个截止时间，不能重新取得一份等待预算。
-        awaitEdge(s, end, deadline);
+        awaitEdge(text, end, deadline);
     }
 
-    private static void awaitEdge(DeviceSmoke s, boolean end, long deadline) {
+    private static void awaitEdge(AccessibilityNodeInfo text, boolean end, long deadline) {
         do {
-            for (var window : s.automation.getWindows()) {
-                AccessibilityNodeInfo found = s.find(window.getRoot(), s.described("放大拼写").and(node ->
-                    node.refresh() && node.getText() != null
-                    && node.getTextSelectionStart() == (end ? node.getText().length() : 0)));
-                if (found != null) return;
-            }
+            // 拖动期间只刷新同一个拼写节点；旧系统逐个刷新整棵树会耗尽等待预算。
+            if (!text.refresh()) throw new AssertionError("Spelling editor disappeared during drag");
+            if (text.getText() != null
+                    && text.getTextSelectionStart() == (end ? text.getText().length() : 0)) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError(end ? "Long spelling did not reach the end" : "Long spelling did not reach the start");

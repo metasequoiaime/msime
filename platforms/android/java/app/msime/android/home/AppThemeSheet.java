@@ -48,7 +48,7 @@ final class AppThemeSheet {
      */
     static void show(Fragment host, @Nullable JSONObject preferences, Runnable refresh) {
         Context context = host.requireContext();
-        BottomSheetDialog dialog = new BottomSheetDialog(context);
+        BottomSheetDialog dialog = SheetDialog.create(context);
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
 

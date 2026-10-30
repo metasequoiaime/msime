@@ -58,6 +58,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let sentence_model_path = options.sentence_model.clone();
     let recorded_settled_model = options.settled_model.clone();
     let phrase_preedit = options.phrase_preedit.unwrap_or(false);
+    let statistics_recorded_elsewhere = options.selection_statistics == Some(false);
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
     let recorded_language_dictionaries = options
@@ -149,7 +150,11 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
+    runtime.set_reranker(keyboard_reranker(
+        keyboard_reranker_enabled(&applied.sentence_association, edition),
+        &options.resources,
+        sentence_model_path.as_deref(),
+    ));
 
     // The settled model is optional and independent: a resource set that ships only the small
     // one behaves exactly as before, and one that ships both gets the fast model per keystroke
@@ -183,6 +188,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 edition,
                 applied,
                 requested: None,
+                requested_settled: false,
                 preferences_pending: false,
                 punctuation_override: None,
                 paired_punctuation_override: None,
@@ -193,6 +199,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 key_grid_override: None,
                 statistics_private: false,
                 preview: usage == SessionUse::Preview,
+                statistics_recorded_elsewhere,
                 ai_credential: None,
                 ai_provider_cache,
                 voice: VoiceSessionState::default(),
@@ -222,14 +229,36 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
     response(|| focus_session(handle, focused))
 }
 
+/// 写出本进程攒着的打字统计上屏（`record` 的批次）和会话交出的选词位置（`flush_selections`）：`inline` 时在当前线程上写完再返回，否则交给后台线程。
+///
+/// 失焦和会话销毁都要写：移动宿主的键盘扩展和输入法进程可能在收起后被系统直接杀掉，桌面宿主停下不打字以后最后一批也要等到下一次上屏满间隔才写，设置页一直看不到。宿主另在统计工作线程上调 `flush` 时这里再写一次也只是空转。
+pub(crate) fn flush_typing_statistics(inline: bool) {
+    if inline {
+        msime_client_services::typing_statistics::flush_pending_commits();
+    } else {
+        msime_client_services::typing_statistics::flush_pending_commits_in_background();
+    }
+}
+
+/// 失焦时在当前线程上写统计。只有 Windows：它的失焦在服务进程的 IPC 线程上。macOS 的失焦在 IMK 主线程、Linux 的在 GLib 主循环、移动宿主的可能在 UI 线程上，而它们的 `record` 在别的线程上跑：在这里写会把整份读写和 fsync 放到主线程，还可能等统计线程手里那次写的 fsync，所以交给后台线程。
+const FLUSHES_TYPING_STATISTICS_INLINE_ON_FOCUS_OUT: bool = cfg!(target_os = "windows");
+
+/// 销毁会话时在当前线程上写统计。桌面宿主销毁会话不频繁，之后进程可能就退出了，后台线程来不及写完；移动宿主（Android 每换一个输入框就销毁重建一次会话，鸿蒙在 ArkTS 里同步销毁）的销毁在 UI 线程上，交给后台线程。
+pub(crate) const FLUSHES_TYPING_STATISTICS_INLINE_ON_DESTROY: bool = !cfg!(any(
+    target_os = "android",
+    target_env = "ohos",
+    target_os = "ios"
+));
+
 /// `msime_client_focus` 的本体。
 pub(crate) fn focus_session(handle: u64, focused: bool) -> Result<Value, String> {
     with_session(handle, |session| {
         // 在换插件表之前采样：换表会刷新打开着的 `/` 列表，这也算这次 focus 的变化。
         let pending = session.lifecycle_begin(lifecycle::Call::Focus(focused));
-        // Focus-out is where a host's field ends, so selections counted in it are written here rather than waiting for a batch to fill. The same goes for the engine's delayed context learning: the iOS keyboard extension and the Android IME process can be killed without ever destroying their sessions, and the engine no longer writes that queue at process exit.
+        // Focus-out is where a host's field ends, so selections counted in it are handed to the process's statistics batch here rather than waiting for a batch to fill, and `flush_typing_statistics` writes that batch right after. The same goes for the engine's delayed context learning: the iOS keyboard extension and the Android IME process can be killed without ever destroying their sessions, and the engine no longer writes that queue at process exit.
         if !focused {
             session.flush_selections();
+            flush_typing_statistics(FLUSHES_TYPING_STATISTICS_INLINE_ON_FOCUS_OUT);
             msime_engine::flush_personal_learning();
         } else {
             session.refresh_plugin_tables();
@@ -253,6 +282,7 @@ pub(crate) fn focus_session(handle: u64, focused: bool) -> Result<Value, String>
 
 #[no_mangle]
 pub extern "C" fn msime_client_reset_cache(handle: u64) -> *mut c_char {
+    crate::plugin_tables::release_cached_tables();
     dispatch(handle, Action::ResetCache)
 }
 
@@ -261,6 +291,15 @@ pub extern "C" fn msime_client_reset_cache(handle: u64) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn msime_client_release_process_cache() {
     release_japanese_dictionary_cache();
+    release_idle_personal_models();
+    crate::plugin_tables::release_cached_tables();
+    release_gloss_caches();
+}
+
+/// 关掉调用线程缓存的候选释义词库连接和读好的自定义译文，见 `msime_engine::host::release_gloss_caches`。日文词典这类重新加载很贵的模型不动，所以宿主可以在每次键盘收起时调用。
+#[no_mangle]
+pub extern "C" fn msime_client_release_gloss_caches() {
+    release_gloss_caches();
 }
 
 #[no_mangle]

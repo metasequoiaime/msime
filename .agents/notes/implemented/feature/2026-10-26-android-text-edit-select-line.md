@@ -10,7 +10,7 @@ Status: implemented
 
 新增可排序的 `SELECT_LINE` 侧键，扩展共享偏好为八个侧键。面板从编辑器请求完整文本和当前选区，以活动端计算当前行的起止位置，再调用 `InputConnection.setSelection`；换行符不包含在选区内，光标正位于换行符时选择前一行。网格增加一行承载第八个侧键，保留固定方向键、文档首尾和换行键的位置。
 
-共享偏好读入 `touch_text_edit_button_order` 时补上文档里没有的侧键（`deserialize_text_edit_button_order`）：选择行之前保存的偏好、设置导出和同步数据只列七个动作，缺的按默认排列接在末尾，用户排过的顺序不动。读盘时整份偏好要通过 `validate`，不补的话旧文档全部读不进来，Windows 的 Server 因此在 `host_prepare` 失败退出（Win7 正式包装在旧测试数据目录上实测复现）。重复或未知的动作仍然拒绝；直接提交的偏好结构体不经过这一步，缺项照旧按无效拒绝。
+共享偏好读入 `touch_text_edit_button_order` 时补上文档里没有的侧键（`deserialize_text_edit_button_order`）：选择行之前保存的偏好、设置导出和同步数据只列七个动作，缺的按默认排列接在末尾，用户排过的顺序不动。读盘时整份偏好要通过 `validate`，不补的话旧文档全部读不进来，Windows 的 Server 因此在 `host_prepare` 失败退出（Win7 正式包装在旧测试数据目录上实测复现）。读入时重复的动作只留第一次出现的位置，不认识的动作（更新的版本加的）丢掉，见 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)；直接提交的偏好结构体不经过这一步，缺项、重复照旧按无效拒绝；经 FFI 或 Tauri 提交保存的 JSON 由 `Preferences::from_submission` 严格解析，不认识、重复和缺的动作同样拒绝。排列等于默认排列时不写进 preferences.json，好让只认识七个动作的已发布版本读得了。
 
 ## Alternatives considered
 

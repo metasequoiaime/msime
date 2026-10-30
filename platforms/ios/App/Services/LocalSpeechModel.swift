@@ -195,6 +195,57 @@ enum LocalSpeechText {
     return kept.joined(separator: ",")
   }
 
+  /// 段首往前补（`vadSegmentStart`）的参数，与 shared/voice/LocalAsr.cpp 一致：10 ms 一帧，最多往前 3 秒，低能量间隙不超过 0.25 秒，找到的起音前再留 0.3 秒；帧能量高出噪声底 4 倍（12 dB）算作语音，噪声底不低于 -100 dBFS。
+  static let onsetFrame = 160
+  static let onsetLookback = 16_000 * 3
+  static let onsetGap = 16_000 / 4
+  static let onsetPreRoll = 16_000 * 3 / 10
+  static let onsetRise: Float = 4
+  static let onsetFloor: Float = 1e-5
+
+  /// 整段模型解码一段语音时实际的起点（会话里的采样序号），与 shared/voice/LocalAsr.cpp 的 `local_vad_segment_start` 一致。sherpa-onnx 的 Silero VAD 从概率越过阈值的那一窗往前只留约 26 ms，输入电平低时句首的字就落在段外；这里从 VAD 的段首往前找回起音。`audio` 是会话最近的录音，`audio[0]` 是第 `audioStart` 个采样，`earliest` 是上一段的段尾（第一段为 0）。
+  static func vadSegmentStart(_ audio: [Float], audioStart: Int, vadStart: Int, earliest: Int) -> Int {
+    let audioEnd = audioStart + audio.count
+    let lower = max(earliest, audioStart, vadStart - onsetLookback)
+    if lower >= vadStart || vadStart > audioEnd { return vadStart }
+    func frameRMS(_ at: Int) -> Float {
+      var energy: Double = 0
+      for index in (at - audioStart)..<(at - audioStart + onsetFrame) {
+        let sample = Double(audio[index])
+        energy += sample * sample
+      }
+      return Float((energy / Double(onsetFrame)).squareRoot())
+    }
+    // 噪声底取手里全部录音的帧能量第 10 百分位：说话之间的停顿、段尾那 0.5 秒静音都在里面，比只看段首之前稳。
+    var levels: [Float] = []
+    levels.reserveCapacity(audio.count / onsetFrame)
+    var at = audioStart
+    while at + onsetFrame <= audioEnd {
+      levels.append(frameRMS(at))
+      at += onsetFrame
+    }
+    var noiseFloor = onsetFloor
+    if !levels.isEmpty {
+      levels.sort()
+      noiseFloor = max(noiseFloor, levels[levels.count / 10])
+    }
+    let speech = noiseFloor * onsetRise
+    var onset = vadStart
+    var gap = 0
+    at = vadStart - onsetFrame
+    while at >= lower {
+      if frameRMS(at) > speech {
+        onset = at
+        gap = 0
+      } else {
+        gap += onsetFrame
+        if gap > onsetGap { break }
+      }
+      at -= onsetFrame
+    }
+    return max(lower, onset - onsetPreRoll)
+  }
+
   /// A space between two segments only where both touching ends are ASCII letters or digits.
   static func joinSegments(_ segments: [String]) -> String {
     var joined = ""

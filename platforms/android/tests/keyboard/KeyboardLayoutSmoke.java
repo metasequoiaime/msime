@@ -17,6 +17,10 @@ public final class KeyboardLayoutSmoke {
             check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, false, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, true, true));
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
+            KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, true));
+        check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
+            KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, false, true));
         // 日文罗马字同样画 26 键，但 123 保留自己的符号层，与 iOS、HarmonyOS 一致。
         check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.JAPANESE, false));
         check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.VIETNAMESE, false));
@@ -41,7 +45,7 @@ public final class KeyboardLayoutSmoke {
             }
         }
 
-        // #6022：数字行是 1–0，只画在 26 键和韩文键盘的字母层，设置关着时不画。
+        // #6022：数字行是 1–0，只画在 26 键、韩文键盘、14 键和 18 键的字母层（共享偏好 touch_number_row），设置关着时不画。
         check(KeyboardLayout.NUMBER_ROW.equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
         int portrait = 760;
         check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, portrait));
@@ -50,8 +54,9 @@ public final class KeyboardLayoutSmoke {
         check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, portrait));
         for (int grid : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT,
                 KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
-                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT})
+                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
             check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, grid, portrait));
+        check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.FOURTEEN_KEY_LAYOUT, portrait));
         // 横屏手机（360 / 411 / 440 dp 宽的手机横过来，窗口约 336–416 dp 高）不画，免得工具栏或底行被挤出窗口；平板横屏（约 552 dp 起）照画；窗口高度未知时不按高度拦。
         for (int landscapePhone : new int[] {336, 387, 416, KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP - 1})
             check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, landscapePhone));
@@ -95,6 +100,12 @@ public final class KeyboardLayoutSmoke {
 
         // 新设计的 123 层（中文）。
         List<List<KeyboardLayout.LayerKey>> number = KeyboardLayout.numberLayer(true);
+        List<KeyboardLayout.LayerKey> longNumber = KeyboardLayout.numberLayer(true, true, false, true, true).get(3);
+        check(longNumber.get(1).kind() == KeyboardLayout.LayerKeyKind.COMMA
+            && longNumber.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL));
+        List<KeyboardLayout.LayerKey> longMore = KeyboardLayout.moreSymbolLayer(true, true, true).get(3);
+        check(longMore.get(1).kind() == KeyboardLayout.LayerKeyKind.COMMA
+            && longMore.stream().noneMatch(key -> key.kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL));
         check(number.size() == 4);
         check(texts(number.get(0)).equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
         check(texts(number.get(1)).equals(List.of("-", "/", "：", "；", "（", "）", "¥", "@", "“", "”")));
@@ -102,8 +113,8 @@ public final class KeyboardLayoutSmoke {
         check(number.get(2).get(0).description().equals("更多符号"));
         check(number.get(2).get(6).description().equals("删除"));
         List<KeyboardLayout.LayerKey> bottom = number.get(3);
-        check(texts(bottom).equals(List.of("拼音", "😀", "中标", "空格", "换行")));
-        check(bottom.get(0).description().equals("切换到字母键盘")
+        check(texts(bottom).equals(List.of("返回", "😀", "中标", "空格", "换行")));
+        check(bottom.get(0).description().equals("返回原键盘")
             && bottom.get(0).kind() == KeyboardLayout.LayerKeyKind.LETTERS);
         check(bottom.get(1).kind() == KeyboardLayout.LayerKeyKind.EMOJI);
         check(bottom.get(2).description().equals("切换到英文标点")
@@ -117,22 +128,22 @@ public final class KeyboardLayoutSmoke {
         check(texts(corner.get(2)).equals(texts(number.get(2))));
         check(texts(KeyboardLayout.numberLayer(true, false, true).get(1))
             .equals(texts(KeyboardLayout.numberLayer(false).get(1))));
-        // 英文 123 层是 ASCII 版，底行返回键为 ABC。
+        // 英文 123 层是 ASCII 版，底行同样明确标示返回。
         List<List<KeyboardLayout.LayerKey>> english = KeyboardLayout.numberLayer(false);
         check(texts(english.get(1)).equals(List.of("-", "/", ":", ";", "(", ")", "$", "@", "\"", "'")));
         check(texts(english.get(2)).equals(List.of("#+=", ".", ",", "?", "!", "…", "⌫")));
-        check(english.get(3).get(0).text().equals("ABC")
-            && english.get(3).get(0).description().equals("切换到字母键盘"));
+        check(english.get(3).get(0).text().equals("返回")
+            && english.get(3).get(0).description().equals("返回原键盘"));
         check(english.get(3).get(2).text().equals("英标")
             && english.get(3).get(2).description().equals("切换到中文标点"));
-        // 中文模式关掉中文标点：标点和符号是半角英文，返回键仍是「拼音」。0.2.0 起这一层只看中英文模式，关掉中文标点照样上屏「，」。
+        // 中文模式关掉中文标点：标点和符号是半角英文，返回键仍标示返回。0.2.0 起这一层只看中英文模式，关掉中文标点照样上屏「，」。
         List<List<KeyboardLayout.LayerKey>> halfWidth = KeyboardLayout.numberLayer(true, false);
         check(texts(halfWidth.get(1)).equals(texts(english.get(1))));
         check(texts(halfWidth.get(2)).equals(texts(english.get(2))));
-        check(halfWidth.get(3).get(0).text().equals("拼音"));
+        check(halfWidth.get(3).get(0).text().equals("返回"));
         check(texts(KeyboardLayout.moreSymbolLayer(true, false).get(1))
             .equals(texts(KeyboardLayout.moreSymbolLayer(false).get(1))));
-        check(KeyboardLayout.moreSymbolLayer(true, false).get(3).get(0).text().equals("拼音"));
+        check(KeyboardLayout.moreSymbolLayer(true, false).get(3).get(0).text().equals("返回"));
         // 数字页根据顶部入口换键，符号和表情互斥，宽度与其余按键保持一致。
         for (boolean chinese : List.of(false, true)) {
             for (boolean punctuation : List.of(false, true)) {
@@ -157,7 +168,7 @@ public final class KeyboardLayoutSmoke {
             && more.get(3).get(1).kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL);
         check(more.get(3).get(2).text().equals("中标")
             && more.get(3).get(2).kind() == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE);
-        check(KeyboardLayout.moreSymbolLayer(false).get(3).get(0).text().equals("ABC"));
+        check(KeyboardLayout.moreSymbolLayer(false).get(3).get(0).text().equals("返回"));
 
         List<List<String>> symbols = KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS);
         check(symbols.size() == 3);

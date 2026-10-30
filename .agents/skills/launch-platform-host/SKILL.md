@@ -1,6 +1,6 @@
 ---
 name: launch-platform-host
-description: Build, launch and verify a 水杉输入法 platform host — macOS, iOS, Android, HarmonyOS, Linux or Windows. Use whenever the task is to run the product, see a change in the real app, screenshot a settings page, or close an "untested on device" gap. Records the commands that work and the traps that do not announce themselves.
+description: Build, launch and verify a 水杉输入法 platform host — macOS, iOS, Android, HarmonyOS, Linux or Windows. Use whenever the task is to run the product, see a change in the real app, screenshot a settings page, type on a real device with a script, or close an "untested on device" gap. Records the commands that work and the traps that do not announce themselves.
 ---
 
 # 启动平台宿主
@@ -153,6 +153,30 @@ bash platforms/windows/build-cross.sh x64    # MinGW 交叉编译，不需要 Wi
 ```
 
 跑过一次后 `verify-local.sh` 会在任何 worktree 里自动接管这条路径。
+
+## 在别人的真机上自动打字
+
+**脚本打出来的字会变成用户的个人数据。** 在用户自己的手机上跑测速或回归时，首选上屏的每个词都会被「记忆新词」记住，打字时自动造的词进了「我的词条」，云同步再把它们推到同一账号的其他设备，候选翻译把每页候选发给服务端。2026-10-29 在用户的 Pixel 上跑测速时这几项都开着：约一千次空格上屏全被学进了用户的词库，其中四到六成是错的首选。
+
+所以动手打字之前：
+
+- **先关掉三项、记下原值、结束后按原值恢复：** 记忆新词、云同步、用水杉账号翻译候选。记录要落到文件里（读界面就存 uiautomator dump 或截图），恢复放在 `trap … EXIT INT TERM` 里，脚本中途失败或被打断也要还原；恢复后冷启动设置应用再读一遍，确认真的回到原值。
+- **恢复之前先停掉设备端的输入注入，确认停了再动设置。** Android 的 `monkey`、HarmonyOS 的 `uitest` 跑在设备上，杀掉本机的 adb / hdc 不会结束它们（脚本没有终端时 adb 不分配 PTY）。不先停，剩下的点击会落到正在恢复的设置页上误切别的开关，键盘重新起来后打进去的字又会被学进词库。Android 用 `adb shell pidof com.android.commands.monkey` 找到进程逐个 `kill`，再查一次确认没有了；还在就别动设置，记录留着待恢复。
+- **记录写明是谁持有的。** 记录里写持有它的进程号；另一个脚本遇到持有者还活着的记录，不接管也不恢复，否则它结束时会把别人还在用的隔离提前撤掉。
+- **先关云同步，最后再开。** 记忆新词随账号同步（Android 的 `input.learning`，iOS 的 `platform.ios.dictionary_learning`），云同步开着时先关学习，会把「关」传到用户的其他设备上。用水杉账号翻译候选（`translation_account`）不在同步字段里，关它不受同步影响。重新打开云同步会把全部分类标成待上传并马上比对一次；如果弹出「合并 / 使用云端」，停下来交给用户选，不要替用户点。这个对话框可能晚几秒才出来：每次读屏后都查一遍，恢复期间冷启动设置应用之前也先看一眼，否则 force-stop 会把它关掉，用户看不到这个选择。
+- **同样会外发或学习输入的开关一并看一眼：** 云候选（`cloud_candidates`，把当前拼写发给所选的云候选服务；旧偏好文档缺这个键时按开启处理，用户手机上很可能开着）、AI 候选（`ai_assistant`，把拼音和前文发给用户配置的 AI 服务）、AI 辅助翻译（把候选交给 `ai_assistant` 里配置的服务翻译；各端的开关不同：桌面与 HarmonyOS 走 host-api 的 `selected_translation_services`，看的是 `translation_ai`、不看 `ai_assistant.enabled`，只关 AI 候选挡不住它；Android 的 `CandidateTranslationPolicy.route` 与 iOS 的 `TranslationProviderPreference` 在没选别的翻译服务时按 `ai_assistant.enabled` 走 AI 翻译、不看 `translation_ai`，只关 `translation_ai` 挡不住它。所以两项都关）、用小牛 / 腾讯 / 自定义服务的候选翻译（`candidate_translations` 加 `niutrans` / `tencent_tmt` / `custom_translation`）、「我的词条」的 WebDAV 词库同步。测试不是在测它们，就同样记录、关闭、恢复。匿名使用统计（`usage_reporting`）只发当天是否使用、会话是否正常结束和崩溃摘要，打字统计的「上传到云端」只传每日计数，都不含输入内容，不用为隔离去动。但测试打的字会计入用户本机的打字统计（字数、活跃时长、候选位次），开着「上传到云端」时还会合进账号的统计，显示在 QQ 群助手的 `/stats` 里：测试期间关掉上传并按原值恢复，或者在报告里说明哪几天的统计被测试污染了。
+- **能用测试账号就用测试账号**，最好是没登录账号的专用设备或模拟器；用户的手机只在必须真机时借用。
+- **不要把测试文本写进用户的个人数据。** 词库、常用语、剪贴板、皮肤都不往里加东西；已经学进去的，报告给用户并说明范围，不要自己去删用户的词。
+
+三端的位置与偏好键（键都在共享偏好里，`crates/client-core/src/preferences.rs`；云同步不是偏好，开关在 Rust 的 `cloud-sync/state.json`，经 `msime_client_cloud_sync` 的 `set_enabled` 改）：
+
+| | 记忆新词（`learning`，默认开） | 云同步 | 水杉账号翻译（`translation_account`，默认关） |
+| --- | --- | --- | --- |
+| Android | 词库 › 学习 › 记忆新词 | 我的 › 同步 › 云同步：词库、自造词和设置 | 我的 › 隐私 › 联网功能 › 用水杉账号翻译候选 |
+| iOS | 词库 › 学习 › 学习常用词 | 我的 › 同步 › 云同步：只同步设置和无编码常用语，个人词库不经它 | 输入 › 翻译 › 翻译服务 选「水杉账号」；关掉是改选「不使用在线翻译」 |
+| HarmonyOS | 词库 › 学习 › 记忆新词（共享设置页） | 没有自动云同步；账号页的「设置同步」是手动上传下载。自动外发「我的词条」的是词库页的 WebDAV「词库同步」，设置应用开着时按间隔运行 | 键盘不走水杉账号翻译（`TranslationPolicy.provider` 没有这一支）；在线翻译经小牛、腾讯、自定义服务，或者 AI 辅助（`ai_assistant` 开着且 AI 总闸 `AiGenerationGate` 开时），关输入 › 翻译 › 候选词翻译（`candidate_translations`） |
+
+Android 的发布 APK 不可调试，`run-as` 读不到偏好文件，只能经界面读写：开关行在 uiautomator dump 里是 `checkable="true"` 的 `Switch` 节点，`checked` 就是当前值，点行的中心切换。
 
 ## 证据分级
 

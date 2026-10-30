@@ -18,7 +18,45 @@ const COMPLETIONS: PairedPunctuationCompletion[] = [
   { opening: 0x5b, openingMark: "〖", closing: "〗" },
 ];
 
+/** 一整对符号的前后半个。 */
+export interface LiteralPair {
+  readonly opening: string;
+  readonly closing: string;
+}
+
+/**
+ * 一项正好是一整对时光标停在两半之间的符号对，照 Android `PairedPunctuationPolicy.SYMBOL_PAIRS` 逐项抄（那张表是权威，iOS 抄同一张，`scripts/test-nine-key-sidebar-parity.py` 核对三端相同）：ASCII 的 `"`、`'` 前后半个是同一个字，`<` 多作小于号，都不在里面。
+ */
+const LITERAL_PAIRS: LiteralPair[] = [
+  { opening: "（", closing: "）" },
+  { opening: "《", closing: "》" },
+  { opening: "〈", closing: "〉" },
+  { opening: "【", closing: "】" },
+  { opening: "「", closing: "」" },
+  { opening: "『", closing: "』" },
+  { opening: "〔", closing: "〕" },
+  { opening: "〖", closing: "〗" },
+  { opening: "＜", closing: "＞" },
+  { opening: "｛", closing: "｝" },
+  { opening: "［", closing: "］" },
+  { opening: "“", closing: "”" },
+  { opening: "‘", closing: "’" },
+  { opening: "(", closing: ")" },
+  { opening: "[", closing: "]" },
+  { opening: "{", closing: "}" },
+];
+
 export class PairedPunctuationPolicy {
+  /**
+   * 明确输入一整对符号（九键左侧符号栏里用户自己加的 `（）`、`()` 这类项，#10223）时的后半个：只认整串正好是表里一对的，带内容的短串和颜文字不算；不是时为 null。与 Android `PairedPunctuationPolicy.literalPairClosing` 相同。
+   */
+  static literalPairClosing(text: string): string | null {
+    for (const pair of LITERAL_PAIRS) {
+      if (text === pair.opening + pair.closing) return pair.closing;
+    }
+    return null;
+  }
+
   /**
    * With pairing on, every quote press opens a fresh pair, as the reference's `KeyHandler.cpp` does. The Engine alternates the quote keys (“ then ”) because a host without pairing needs that, but a host that supplies the closing half itself never sends the press that would have produced it, so the next quote would otherwise arrive as a lone ”. A closing quote at the end of the commit is therefore rewritten to the opening one before the pair is completed; with pairing off the commit is left to the Engine's alternation.
    */

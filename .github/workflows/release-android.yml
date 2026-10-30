@@ -19,7 +19,7 @@ concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
   # Resolves the dispatched commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
   source:
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,7 +38,7 @@ jobs:
       fail-fast: true
       matrix:
         edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
-    # full 和拼音版打瘦包（build-apk.sh 的 MSIME_ANDROID_OMIT_ON_DEMAND）：日文词典、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户需要时作为资源包下载。日文版的主词库就是日文词典，其余版本没有这些附加资源，照旧按自己的资源锁打包。
+    # full 和拼音版打瘦包（build-apk.sh 的 MSIME_ANDROID_OMIT_ON_DEMAND）：日文词典、五笔码表、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户需要时作为资源包下载。日文版的主词库就是日文词典，五笔版的默认方案离不开五笔码表，其余版本没有这些附加资源，照旧按自己的资源锁打包。
     env:
       MSIME_ANDROID_OMIT_ON_DEMAND: "${{ (matrix.edition == 'full' || matrix.edition == 'pinyin') && '1' || '0' }}"
     steps:
@@ -58,13 +58,13 @@ jobs:
       - name: Fetch the locked offline candidate glosses
         if: env.MSIME_ANDROID_OMIT_ON_DEMAND != '1'
         run: python3 scripts/fetch_offline_glosses.py
-      # 瘦包不带的资源包只能靠锁文件里的地址补齐：发布之前用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把这个版本会下载的资源包装一遍，地址失效或内容漂移就停在这里。拼音版不提供粤拼、注音和笔画，不用语言词库。
+      # 瘦包不带的资源包只能靠锁文件里的地址补齐：发布之前用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把这个版本会下载的资源包装一遍，地址失效或内容漂移就停在这里。拼音版不提供五笔、粤拼、注音和笔画，不用五笔码表和语言词库。
       - name: Install the on-demand resource packs the slim APK downloads
         if: env.MSIME_ANDROID_OMIT_ON_DEMAND == '1'
         run: |
           set -euo pipefail
-          packs=(japanese offline-glosses voice-runtime)
-          if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries); fi
+          packs=(japanese offline-glosses voice-runtime pronunciations)
+          if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries wubi); fi
           cargo run --quiet -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，build-apk.sh 打进 assets/wordbooks。词书不是按需资源包，每个版本（包括瘦包）都带；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 APK 打不出来。
       - name: Build the bundled wordbooks
@@ -84,6 +84,8 @@ jobs:
           MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
           MSIME_EDITION: "${{ matrix.edition }}"
           MSIME_REQUIRE_WORDBOOKS: '1'
+          # build-apk.sh 把 GitHub APK 的体积和预警线、上限写到这里，下面不论构建成败都上传，nightly 的 android-size 据此开关体积跟踪 issue。
+          MSIME_ANDROID_SIZE_REPORT: "${{ github.workspace }}/target/apk-size/${{ matrix.edition }}.json"
           PUBLISH: "${{ inputs.publish }}"
           BUNDLE: "${{ steps.version.outputs.bundle }}"
           RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
@@ -115,6 +117,14 @@ jobs:
         with:
           name: msime-android-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
+          if-no-files-found: error
+      # 超过上限而失败的构建也上传它的体积报告，所以条件是没被取消且报告存在。名字不以 msime-android- 开头，理由同下。
+      - name: Upload the APK size report
+        if: ${{ !cancelled() && hashFiles(format('target/apk-size/{0}.json', matrix.edition)) != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-apk-size-${{ matrix.edition }}
+          path: target/apk-size/${{ matrix.edition }}.json
           if-no-files-found: error
       # 名字故意不以 msime-android- 开头：publish 按 msime-android-*-<版本> 收集发布页上的 APK。
       - if: steps.version.outputs.bundle == 'true'

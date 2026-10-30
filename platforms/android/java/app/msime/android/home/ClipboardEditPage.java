@@ -13,6 +13,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -21,7 +23,6 @@ import app.msime.android.ClipboardHistory;
 import app.msime.android.ClipboardEditKey;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.ClipboardHistoryStore;
-import app.msime.android.ClipboardModeStore;
 import app.msime.android.HostDeepLink;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
@@ -99,7 +100,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
 
     /** 在共享存储里按键找那一条；找不到时为空串。读不出来时抛异常，由 {@link HostTask} 交回 null。 */
     private static String find(Context context, String key) {
-        for (ClipboardHistory.Item item : new ClipboardHistoryStore(ClipboardModeStore.directory(context)).load()) {
+        for (ClipboardHistory.Item item : ClipboardHistoryStore.forContext(context).load()) {
             String current = ClipboardEditKey.editKey(context, item.timestamp(), item.text());
             if (current != null && key.equals(current)) return item.text();
         }
@@ -134,8 +135,10 @@ public final class ClipboardEditPage extends ColumnDetailPage {
                     refresh();
                 });
                 card.footer("保存后替换原来那一条，位置和固定状态不变；改成已有的文字时两条合并成一条。");
+                // 只 requestFocus 不会弹键盘：从剪贴板历史页点「编辑」是在同一个窗口里压页，系统不会替新输入框弹键盘，SettingsNavigator.push 还会先收起历史页搜索框的键盘（#10074），所以这里自己弹，进页就能改。
                 input.requestFocus();
                 input.setSelection(input.length());
+                WindowCompat.getInsetsController(requireActivity().getWindow(), input).show(WindowInsetsCompat.Type.ime());
             }
         }
 
@@ -185,7 +188,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
         HostTask.run(this, context -> {
             ClipboardHistoryPolicy.EditResult result;
             try {
-                result = new ClipboardHistoryStore(ClipboardModeStore.directory(context)).replace(from, to);
+                result = ClipboardHistoryStore.forContext(context).replace(from, to);
             } catch (RuntimeException | LinkageError error) {
                 result = null;
             }

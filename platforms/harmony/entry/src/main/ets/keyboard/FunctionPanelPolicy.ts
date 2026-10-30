@@ -104,6 +104,7 @@ export class FunctionPanelPolicy {
   static readonly KEY_SOUND: string = "key_sound";
   static readonly VIBRATION: string = "vibration";
   static readonly ONE_HAND: string = "one_hand";
+  static readonly FLOATING: string = "floating";
   static readonly PRIVACY: string = "privacy";
   static readonly FEEDBACK: string = "feedback";
   static readonly ABOUT: string = "about";
@@ -162,6 +163,8 @@ export class FunctionPanelPolicy {
       "振动强度",
       KeyboardIconPaths.VIBRATION_STRENGTH,
     ),
+    // 浮动键盘（#10225），名称与 Android 的 `FunctionPanelModel.Id.FLOATING` 相同。设计稿的十四格之后是鸿蒙自己的额外项，新增的排在最后，不挪动用户熟悉的位置。
+    toggleIcon(FunctionPanelPolicy.FLOATING, "浮动键盘", KeyboardIconPaths.FLOATING, "浮动键盘"),
   ];
 
   /** 三行一页时满尺寸的行距（vp）。 */
@@ -183,22 +186,51 @@ export class FunctionPanelPolicy {
       const full3: number = 3 * rowHeightVp + 2 * FunctionPanelPolicy.THREE_ROW_GAP_VP;
       const scale3: number = Math.min(1, gridVp / full3);
       if (rowHeightVp * scale3 >= FunctionPanelPolicy.MIN_TILE_VP - 1e-6) {
-        return FunctionPanelPolicy.scaledGrid(3, scale3, rowHeightVp, FunctionPanelPolicy.THREE_ROW_GAP_VP);
+        return FunctionPanelPolicy.scaledGrid(
+          3,
+          scale3,
+          rowHeightVp,
+          FunctionPanelPolicy.THREE_ROW_GAP_VP,
+        );
       }
     }
     const full2: number = 2 * rowHeightVp + FunctionPanelPolicy.TWO_ROW_GAP_VP;
     const minScale: number = Math.min(1, FunctionPanelPolicy.MIN_TILE_VP / rowHeightVp);
     const scale2: number = Math.max(minScale, Math.min(1, gridVp / full2));
-    return FunctionPanelPolicy.scaledGrid(2, scale2, rowHeightVp, FunctionPanelPolicy.TWO_ROW_GAP_VP);
+    return FunctionPanelPolicy.scaledGrid(
+      2,
+      scale2,
+      rowHeightVp,
+      FunctionPanelPolicy.TWO_ROW_GAP_VP,
+    );
   }
 
-  private static scaledGrid(rows: number, scale: number, rowHeightVp: number, gapVp: number): PickerGrid {
+  private static scaledGrid(
+    rows: number,
+    scale: number,
+    rowHeightVp: number,
+    gapVp: number,
+  ): PickerGrid {
     return { rows: rows, scale: scale, rowHeight: rowHeightVp * scale, rowsGap: gapVp * scale };
   }
 
-  /** 所有格子，按页面顺序。 */
-  static items(): FunctionPanelItem[] {
-    return FunctionPanelPolicy.ITEMS;
+  /** 把用户文字发给大模型的两个格子（高情商回复、AI 润色），总闸 `AiGenerationGate` 关着时不列出。 */
+  static readonly AI_GENERATION_TILES: readonly string[] = [
+    FunctionPanelPolicy.SMART_REPLY,
+    FunctionPanelPolicy.AI_POLISH,
+  ];
+
+  // 静态常量：每次渲染拿到同一个数组，分页网格不会因此重建。
+  private static readonly ITEMS_WITHOUT_AI_GENERATION: FunctionPanelItem[] =
+    FunctionPanelPolicy.ITEMS.filter(
+      (item: FunctionPanelItem) => !FunctionPanelPolicy.AI_GENERATION_TILES.includes(item.id),
+    );
+
+  /** 所有格子，按页面顺序。`aiGeneration` 为 false（鸿蒙版拿到 AI 生成类资质之前）时去掉高情商回复和 AI 润色。 */
+  static items(aiGeneration: boolean = true): FunctionPanelItem[] {
+    return aiGeneration
+      ? FunctionPanelPolicy.ITEMS
+      : FunctionPanelPolicy.ITEMS_WITHOUT_AI_GENERATION;
   }
 
   /** 格子下方的文字：振动强度带上当前强度（振动强度 中），其他格子显示各自的标签。 */

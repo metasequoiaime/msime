@@ -59,6 +59,8 @@ function model(): Model {
     mobilePlatform: true,
     harmonyPlatform: true,
     openAccountLogin: vi.fn(),
+    showAiGeneration: true,
+    showCommunityContribution: true,
   };
 }
 

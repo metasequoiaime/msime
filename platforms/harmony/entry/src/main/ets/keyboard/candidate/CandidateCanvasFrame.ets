@@ -1,6 +1,7 @@
 import util from '@ohos.util';
 import { image } from '@kit.ImageKit';
 import { CandidateApng, CandidateApngCompositor } from './CandidateApng';
+import { CandidateCanvasLease, CandidateCanvasLeaseCache } from './CandidateCanvasLeaseCache';
 import { CandidateCanvasPolicy, CandidateCanvasScene,
   CandidateCanvasDecoration, CandidateCanvasRect, CandidateCanvasGeometry } from './CandidateCanvasPolicy';
 
@@ -32,7 +33,7 @@ export class DecodedCanvasScene {
   }
 }
 
-export class CanvasDecodeLease {
+export class CanvasDecodeLease implements CandidateCanvasLease {
   readers: number = 0;
   promise: Promise<DecodedCanvasScene>;
 
@@ -138,25 +139,24 @@ export class CanvasDecodeLease {
   }
 }
 
-/** 普通条与展开区共享解码；最后一个读者离开后释放位图和迟到的结果。 */
+/** 普通条与展开区共享解码；最后一个读者离开后停放最近一份，换 key 或键盘收起时才释放位图和迟到的结果（`CandidateCanvasLeaseCache`）。 */
 export class CandidateCanvasDecoder {
-  private static leases: Map<string, CanvasDecodeLease> = new Map<string, CanvasDecodeLease>();
+  private static leases: CandidateCanvasLeaseCache<CanvasDecodeLease> =
+    new CandidateCanvasLeaseCache<CanvasDecodeLease>((lease: CanvasDecodeLease): void => {
+      void lease.promise.then((value: DecodedCanvasScene): void => value.release());
+    });
 
   static retain(scene: CandidateCanvasScene): CanvasDecodeLease {
-    let lease: CanvasDecodeLease | undefined = CandidateCanvasDecoder.leases.get(scene.key);
-    if (lease === undefined) {
-      lease = new CanvasDecodeLease(scene);
-      CandidateCanvasDecoder.leases.set(scene.key, lease);
-    }
-    lease.readers++;
-    return lease;
+    return CandidateCanvasDecoder.leases.retain(scene.key, (): CanvasDecodeLease => new CanvasDecodeLease(scene));
   }
 
   static release(key: string, lease: CanvasDecodeLease): void {
-    lease.readers--;
-    if (lease.readers > 0) return;
-    CandidateCanvasDecoder.leases.delete(key);
-    void lease.promise.then((value: DecodedCanvasScene): void => value.release());
+    CandidateCanvasDecoder.leases.release(key, lease);
+  }
+
+  /** 键盘收起、停止输入或销毁时调用：释放停放的位图，此后到下次取用前离开的读者直接释放。 */
+  static trim(): void {
+    CandidateCanvasDecoder.leases.trim();
   }
 }
 

@@ -125,6 +125,14 @@ export const cloudDictionary: (request: string) => Promise<string>;
 export const cloudDictionarySnapshot: (request: string) => Promise<string>;
 /** `msime_client_account_cloud_clipboard` 在工作线程上：`{directory, device_name?, action}`。 */
 export const accountCloudClipboard: (request: string) => Promise<string>;
+/** `msime_client_cloud_clipboard_source`：参数是偏好目录的绝对路径本身（不是 JSON），回答 `{ok,value:{source:"account"|"relay",backend?,revision}}`。只读偏好、不联网，同步调用。 */
+export const cloudClipboardSource: (directory: string) => string;
+/** `msime_client_relay_cloud_clipboard` 在工作线程上：`{preferences_directory, expected_revision?, directory, device_name?, create_identity?, action}`，经偏好里配置的自建中继或 WebDAV 网盘答一个动作。 */
+export const relayCloudClipboard: (request: string) => Promise<string>;
+/** `msime_client_cloud_clipboard_webdav_probe` 在工作线程上：`{url, username, password, directory?}`，WebDAV 设置的「测试连接」，大约二十个请求。 */
+export const cloudClipboardWebDavProbe: (request: string) => Promise<string>;
+/** `msime_client_dictionary_sync` 在工作线程上：`{options, directory, device_name?, action}`，「我的词条」经 WebDAV 网盘同步的一个动作。只有设置应用调用，键盘扩展不调。 */
+export const dictionarySync: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_export` 在工作线程上：`{preferences_directory, feedback, schema, cloud?}`，不联网、不读会话。 */
 export const harmonySettingsExport: (request: string) => Promise<string>;
 /** `msime_client_account_harmony_settings_apply` 在工作线程上：`{preferences_directory, cloud, schema, feedback}`，按读到的修订号比较并交换写回偏好。 */
@@ -176,6 +184,8 @@ export const vocabularyReview: (request: string) => Promise<string>;
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;
+/** Close the calling thread's cached candidate-gloss databases and drop its parsed custom translations; the next query reopens them. Call on the thread that queries glosses (the UI thread). */
+export const releaseGlossCaches: () => void;
 /** `{prefix,limit}` against the packaged English dictionary; no session, safe off the UI thread. */
 export const englishCompletions: (request: string, resources: string) => string;
 /** Clear the session's Engine candidate cache and refresh its view. */
@@ -210,6 +220,8 @@ export const applyOnlineCandidates: (
 /** `msime_client_resolve_online_candidates`：AI 回答为空、失败或被拒时调用（source 只认 1）。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变。应答 `{ok, value: {applied, view}}`。 */
 export const resolveOnlineCandidates: (handle: number, query: string, source: number) => string;
 export const personalDictionarySync: (options: string) => string;
+/** 同一个排空放在工作线程上，给设置应用排空它自己的队列用：API 12 起键盘读的是自己沙箱里的队列，设置应用排进去的词只能由设置应用写进它的词库，再经「我的词条」交换到键盘。 */
+export const personalDictionarySyncAsync: (options: string) => Promise<string>;
 /**
  * `{options,action}` against the queued personal dictionary rather than the Engine.
  *
@@ -226,6 +238,10 @@ export const dictionaryCollections: (request: string) => string;
 export const dictionaryCollectionsAsync: (request: string) => Promise<string>;
 /** `{bytes_base64}` of a Sogou cell dictionary (`.scel`) answered as `{ok,value:{name,category,entries,text}}`, where `text` is the standard TSV the desktop form then imports, or `{ok:false,error}` with a `dictionary_scel_*` code. Pure, on a worker thread. */
 export const dictionaryScelTextAsync: (request: string) => Promise<string>;
+/** `msime_client_user_words_mirror`：设置应用和键盘之间交换「我的词条」，请求 `{operation:"sync"|"publish", side, options, directory, theirs?, publish?, max_changes?}`，应答 `{ok, value:{captured, applied, rejected, deferred, held_deletions, words, theirs, published}}` 或 `{ok:false, error}`（`user_words_*`）。同步版只给键盘在建会话之前用。 */
+export const userWordsMirror: (request: string) => string;
+/** 同一个请求放在工作线程上：设置应用的 `sync` 和键盘失去焦点时的 `publish`。 */
+export const userWordsMirrorAsync: (request: string) => Promise<string>;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;
@@ -250,6 +266,17 @@ export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 export const setPrivateSession: (handle: number, enabled: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
+/** `msime_client_set_key_geometry`：触屏 26 键双拼的键位几何，`geometry` 是 `{"id":u32,"keys":[[cx,cy,w,h] x 26，按 a..z],"semicolon":[cx,cy,w,h] 或 null,"duplicates":[["g",cx,cy,w,h],...]}`（不超过 16384 字节，拒绝未知键）。只在布局变了时调用；空串或 id 为 0 清除。答复的 value 是 View；`ok` 为假时整份被拒，原几何不变。 */
+export const setKeyGeometry: (handle: number, geometry: string) => string;
+/** `msime_client_touch_character`：带按下点的一键，只给 26 键双拼的字母键和微软双拼的 `;`。`geometry` 是已注册几何的 id，`x`、`y` 与几何同一坐标系。代次不符、坐标不是有限数或当前不是 26 键双拼时与 `character` 逐字节相同；答复同 `character`。 */
+export const touchCharacter: (
+  handle: number,
+  ascii: number,
+  shift: boolean,
+  geometry: number,
+  x: number,
+  y: number,
+) => string;
 /** `msime_client_grid_key`：14 键的一键，送这一组的首字母（ASCII 码）；答复同 `character`。不在 14 键下、26 键正在组字、专用英文或本地模式时 `handled` 为假，会话不变。 */
 export const gridKey: (handle: number, letter: number) => string;
 /**

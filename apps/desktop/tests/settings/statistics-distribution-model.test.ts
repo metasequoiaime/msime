@@ -99,6 +99,25 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
   ]);
 });
 
+// 鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）：分布里不列 AI 润色和高情商回复，计数还在数据里，其余扇区的颜色不变。
+test("without AI generation the AI polish and reply slices are not listed", () => {
+  const breakdown = { characters: {}, sources: { quanpin: 4, ai: 8, reply: 9, voice: 10 } };
+  const all = statisticsDistributionSlices(breakdown);
+  const gated = statisticsDistributionSlices(breakdown, { aiGeneration: false });
+  for (const slices of [gated.sourceSlices, gated.languageSlices]) {
+    expect(slices.some(({ id }) => id === "ai" || id === "reply")).toBe(false);
+    expect(slices.some(({ title }) => /AI|润色|高情商/.test(title))).toBe(false);
+  }
+  expect(gated.sourceSlices.map(({ id }) => id)).toEqual(
+    all.sourceSlices.map(({ id }) => id).filter((id) => id !== "ai" && id !== "reply"),
+  );
+  expect(gated.sourceSlices.find(({ id }) => id === "voice")).toEqual(
+    all.sourceSlices.find(({ id }) => id === "voice"),
+  );
+  expect(gated.languageSlices.find(({ id }) => id === "voice")?.count).toBe(10);
+  expect(all.languageSlices.find(({ id }) => id === "ai")?.count).toBe(8);
+});
+
 test("重新构造不保留上一次范围的计数或可变输出", () => {
   const first = statisticsDistributionSlices({ characters: { han: 5 }, sources: { quanpin: 5 } });
   first.characterSlices[0].count = 99;

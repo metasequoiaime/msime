@@ -12,11 +12,11 @@ Status: implemented
 
 共享设置页的请求调度由 `packages/ui/src/settings/use-automatic-dictionary-updates.ts` 的 `useAutomaticDictionaryUpdates` 持有，设置根模型只接入这个 Hook。它在首次挂载、窗口获得焦点和每小时调用 `dictionary.updates("automatic")`，复用[窗口焦点订阅](../simplification/2026-10-15-window-focus-resume-subscription.md)与[同步间隔订阅](../simplification/2026-10-15-shared-interval-hook.md)。更新入口函数变化时清理旧订阅、立即检查并从新时刻重新计时；普通重渲染和焦点检查不改变小时边界。请求继续以词库客户端为方法接收者，异步失败不会阻断后续调度。这里只安排请求，跨进程锁、每日节流、下载与回退仍由 Rust 持有。
 
-更新面板的状态、请求动作、运行状态与提示投影由内部 `useDictionaryUpdates` 持有，`DictionaryUpdates` 只连接展示组件。Hook 用 `useAsyncGeneration(request)` 在入口变化和卸载时使旧请求失效，每次操作继续推进同一代次，只接受最新请求的成功或失败；不增加互斥或串行队列。首次读取与两秒状态轮询仍在同一 effect 内启动，间隔复用 `subscribeToInterval`，入口替换时立即刷新并重算两秒边界；普通重渲染、成功与失败回包不改变轮询相位。入口替换和失败时保留已有状态，当前请求成功后清除错误，文案与操作可用性保持。
+更新面板的状态、请求动作、运行状态与提示投影由内部 `useDictionaryUpdates` 持有，`DictionaryUpdates` 只连接展示组件。Hook 用 `useAsyncGeneration(request)` 在入口变化和卸载时使旧请求失效，每次操作继续推进同一代次，只接受最新请求的成功或失败；不增加互斥或串行队列。该策略的轮询部分由[词库更新轮询等待当前请求](../bug-fix/2026-10-29-dictionary-update-poll-pending.md)修正：轮询等待当前请求结束，手动操作仍能接管旧查询。首次读取与两秒状态轮询仍在同一 effect 内启动，间隔复用 `subscribeToInterval`，入口替换时立即刷新并重算两秒边界；普通重渲染、成功与失败回包不改变轮询相位。入口替换和失败时保留已有状态，当前请求成功后清除错误，文案与操作可用性保持。
 
 每日节流使用持久化的 Unix 秒。系统校时回拨、当前时间早于上次检查时，旧间隔失效，允许自动检查；开始检查前记录修正后的时间，成功或失败都从这次尝试重新计一天。入口 `due` 和取跨进程锁后的后台检查复用同一个判断，关闭开关仍优先阻止自动检查。原来的两处 `saturating_sub` 都把回拨算成零间隔，导致重启后也必须等旧时间被追上再过一天。[Rust `SystemTime` 文档](https://doc.rust-lang.org/std/time/struct.SystemTime.html)明确墙上时钟不单调；仓库公告缓存的 `NoticeStore::current` 也会在回拨时让旧节流失效。
 
-不可变 Release 附件（含 manifest）复用 `resource_packs::PROJECT_MIRRORS`，优先从现有 `https://dl.msime.app/gh/` CDN 获取，网络、HTTP、长度或摘要失败时逐文件回退 GitHub 原地址；版本 API 不经过永久缓存 CDN。复用 `local_models::download_from_mirrors` 的换源与校验规则，摘要始终来自官方 HTTPS API，CDN 不提供信任依据。每个文件先流式写入更新目录中的匿名暂存文件，核对后再交给 ResourceStore；换源截断暂存字节并重算当前文件进度，选择记录与资源代次继续保留 GitHub 原地址，不因下载渠道变化而换代。
+不可变 Release 附件（含 manifest）复用 `resource_packs::PROJECT_MIRRORS`，优先从现有 `https://dl.msime.app/gh/` CDN 获取，网络、HTTP、长度或摘要失败时逐文件回退 GitHub 原地址；版本 API 不经过永久缓存 CDN。摘要始终来自官方 HTTPS API，CDN 不提供信任依据。manifest 复用 `local_models::download_from_mirrors`，写入更新目录中的匿名暂存文件；词库文件复用资源包的断点续传（`local_models::download_partial`），在用户镜像、CDN、原地址之间换源，停滞超时、续传和进度规则见[词库在线更新的停滞超时、断点续传与用户镜像](../bug-fix/2026-10-29-dictionary-update-stalled-download.md)。核对后再交给 ResourceStore；选择记录与资源代次继续保留 GitHub 原地址，不因下载渠道变化而换代。
 
 完整下载到独立不可变目录后原子发布选择记录，下一次宿主准备或启动刷新时采用；工作词库通过现有 prepare_options_for 从持久日志回放个人词条和学习。下载失败保留当前选择，格式不兼容时寻找更新的兼容版本，已安装资源损坏时使用随包基线。提供自动开关、状态、手动检查与回退，回退关闭自动检查防止马上升回去。
 
@@ -42,7 +42,7 @@ Status: implemented
 
 待重开状态也可以让各设置宿主传入输入宿主当前用的资源目录，但设置进程本来就不知道键盘加载了哪一代，iOS、Windows 的设置和输入法是不同进程；记录写在 `prepare_host` 里同样不行，iOS App 查五笔码时也会调用它而不建会话。所以由只有输入宿主才会走的建会话路径记录。
 
-附件直接走 GitHub 的代码最少，但绕过项目已有的国内 CDN，国内用户更新缓慢或失败；因此下载采用现有 CDN 优先与原站回退。只在建连失败时换源能直接流入 ResourceStore，却无法在 CDN 回了错误字节时重新取原站，改为逐文件校验后交给安装器。直接把文件装入内存也能重试，但大词库会明显提高移动端内存峰值，所以使用匿名暂存文件。
+附件直接走 GitHub 的代码最少，但绕过项目已有的国内 CDN，国内用户更新缓慢或失败；因此下载采用现有 CDN 优先与原站回退。只在建连失败时换源能直接流入 ResourceStore，却无法在 CDN 回了错误字节时重新取原站，改为逐文件校验后交给安装器。直接把文件装入内存也能重试，但大词库会明显提高移动端内存峰值，所以写到盘上暂存（词库文件后来改为可续传的部分文件，见上面链接的笔记）。
 
 ## Verification
 
@@ -68,7 +68,7 @@ CDN 补验的 Android API 28 四个共享 crate 整套通过；API 35 的 base�
 
 新代次需要额外磁盘空间。更新只在设置 App 有运行机会时检查，移动系统暂停进程期间不承诺后台调度；文件已准备好后重开键盘生效。保留旧代次以供回退，不在活跃输入会话里清理。
 
-CDN 暂存最多额外占一个附件的磁盘空间，文件句柄关闭即清理；ResourceStore 复制时再校验一次。CDN 不可用时保留原站路径，不要求修改 CDN Worker 或部署；GitHub 版本 API 的可用性仍是检查更新的前提。
+下载暂存最多额外占一个附件的磁盘空间，复制进代次后即删除；ResourceStore 复制时再校验一次。CDN 不可用时保留原站路径，不要求修改 CDN Worker 或部署；GitHub 版本 API 的可用性仍是检查更新的前提。
 
 ## Related notes
 

@@ -19,6 +19,8 @@ const MAX_PAGE_ENTRIES: usize = 100;
 /// The code prefix a page may be filtered by, as the Engine list accepts it.
 const MAX_QUERY_BYTES: usize = 256;
 const MAX_HISTORY: usize = 32;
+/// 用户词库来源戳的长度上限；它是宿主给的几段文件元数据，远小于此。
+const MAX_SOURCE_BYTES: usize = 512;
 /// How many "already in the dictionary" receipts the state holds until the host that asked for them reads them back. A full list drops its oldest receipt. Only additions from the dictionary collections produce one, at most `MAX_ACTIVE_REQUESTS` of them are in flight, and each collections flush acknowledges what it read, so the list stays far below this and the state file well inside `MAX_STATE_BYTES`.
 const MAX_ALREADY_PRESENT: usize = 1024;
 
@@ -175,6 +177,9 @@ pub struct PersonalDictionaryState {
     pub page_kind: Option<PersonalWordKind>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub page_query: String,
+    /// 键盘读出 `entries` 时用户词库的来源戳（宿主给的不透明字符串）。下次同步时戳没变、页参数也没变，就沿用这一页，不再查词库；为 `None` 时每次同步都重查。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_source: Option<String>,
     pub refresh_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_refresh_id: Option<String>,
@@ -198,6 +203,7 @@ impl Default for PersonalDictionaryState {
             requested_query: String::new(),
             page_kind: None,
             page_query: String::new(),
+            snapshot_source: None,
             refresh_id: Uuid::new_v4().to_string(),
             completed_refresh_id: None,
             already_present: Vec::new(),
@@ -468,6 +474,7 @@ impl PersonalDictionaryStore {
         self.synchronize_batch(
             4,
             |requests| Ok(requests.iter().map(|request| apply(request)).collect()),
+            || None,
             page,
         )
     }
@@ -485,22 +492,44 @@ impl PersonalDictionaryStore {
         ) -> Result<Vec<Result<PersonalWordApplied, String>>, String>,
         Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
-        self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, page)
+        self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, || None, page)
     }
 
-    fn synchronize_batch<Apply, Page>(
+    /// [`Self::synchronize_batch_reporting_present`]，另由 `source` 给出用户词库当前的来源戳（应用完本批之后才取）。没有请求要应用、宿主没要新页、页参数和戳都与已存的一页相同时，不查词库，状态没变也不重写 sync.json：键盘每次聚焦都会同步，队列空着时这一步原本每次都要扫一页日志再 fsync 一次。`source` 返回 `None` 时照常重查。
+    pub fn synchronize_batch_reporting_present_with_source<Apply, Source, Page>(
+        &self,
+        apply: Apply,
+        source: Source,
+        page: Page,
+    ) -> Result<(), PersonalDictionaryError>
+    where
+        Apply: FnMut(
+            &[&PersonalWordRequest],
+        ) -> Result<Vec<Result<PersonalWordApplied, String>>, String>,
+        Source: FnOnce() -> Option<String>,
+        Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
+    {
+        self.synchronize_batch(MAX_ACTIVE_REQUESTS, apply, source, page)
+    }
+
+    fn synchronize_batch<Apply, Source, Page>(
         &self,
         limit: usize,
         mut apply: Apply,
+        source: Source,
         mut page: Page,
     ) -> Result<(), PersonalDictionaryError>
     where
         Apply: FnMut(
             &[&PersonalWordRequest],
         ) -> Result<Vec<Result<PersonalWordApplied, String>>, String>,
+        Source: FnOnce() -> Option<String>,
         Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
         self.update(|state| {
+            // 宿主上次要的页（request_page 换了 refresh_id）还没确认过，这次必须重查。
+            let refresh_requested =
+                state.completed_refresh_id.as_deref() != Some(state.refresh_id.as_str());
             let pending: Vec<_> = state
                 .requests
                 .iter()
@@ -522,6 +551,7 @@ impl PersonalDictionaryStore {
             if outcomes.len() != pending.len() {
                 return Err(PersonalDictionaryError::InvalidState);
             }
+            let applied_any = !pending.is_empty();
             for (index, outcome) in pending.into_iter().zip(outcomes) {
                 match outcome {
                     Ok(applied) => {
@@ -553,6 +583,21 @@ impl PersonalDictionaryStore {
                 kind: state.requested_kind,
                 query: state.requested_query.clone(),
             };
+            // 超长或空的戳当作读不出，照常重查，不能让它把整个状态判成无效。
+            let source =
+                source().filter(|source| !source.is_empty() && source.len() <= MAX_SOURCE_BYTES);
+            let snapshot_current = !applied_any
+                && !refresh_requested
+                && source.is_some()
+                && state.snapshot_source == source
+                && state.snapshot_date.is_some()
+                && state.snapshot_error.is_none()
+                && state.page_offset == request.offset
+                && state.page_kind == request.kind
+                && state.page_query == request.query;
+            if snapshot_current {
+                return Ok(());
+            }
             match page(&request) {
                 Ok(snapshot) if snapshot.entries.len() <= MAX_PAGE_ENTRIES => {
                     state.entries = snapshot.entries;
@@ -562,11 +607,16 @@ impl PersonalDictionaryStore {
                     state.page_query = request.query;
                     state.snapshot_date = Some("updated".to_owned());
                     state.snapshot_error = None;
+                    state.snapshot_source = source;
                 }
                 Ok(_) => {
-                    state.snapshot_error = Some("personal dictionary page is too large".into())
+                    state.snapshot_error = Some("personal dictionary page is too large".into());
+                    state.snapshot_source = None;
                 }
-                Err(error) => state.snapshot_error = Some(error.chars().take(500).collect()),
+                Err(error) => {
+                    state.snapshot_error = Some(error.chars().take(500).collect());
+                    state.snapshot_source = None;
+                }
             }
             Ok(())
         })
@@ -594,8 +644,13 @@ impl PersonalDictionaryStore {
     {
         let guard = self.lock()?;
         let mut state = self.read_locked(&guard)?;
+        let before = state.clone();
         action(&mut state)?;
         validate_state(&state)?;
+        // 状态没变就不重写：原子替换要 fsync，键盘每次聚焦的空同步都会走到这里。
+        if state == before {
+            return Ok(());
+        }
         self.write_locked(&guard, &state)
     }
 
@@ -741,6 +796,10 @@ fn validate_state(state: &PersonalDictionaryState) -> Result<(), PersonalDiction
         || state.requested_page_offset > 1_000_000
         || state.requested_query.len() > MAX_QUERY_BYTES
         || state.page_query.len() > MAX_QUERY_BYTES
+        || state
+            .snapshot_source
+            .as_ref()
+            .is_some_and(|source| source.is_empty() || source.len() > MAX_SOURCE_BYTES)
         || state.refresh_id.is_empty()
         || state.already_present.len() > MAX_ALREADY_PRESENT
         || state.already_present.iter().any(String::is_empty)
@@ -820,6 +879,99 @@ mod tests {
         let state = store.read().unwrap();
         assert_eq!(state.entries, vec![entry]);
         assert!(state.snapshot_error.is_some());
+    }
+
+    /// 队列空、宿主没要新页、来源戳没变时，同步既不查页也不重写 sync.json；戳变了、宿主要了页、有请求要应用、上次读页失败时都照常重查。
+    #[test]
+    fn an_idle_sync_with_an_unchanged_source_neither_pages_nor_rewrites() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        let first = word("fixture", "第一");
+        let second = word("other", "第二");
+        let path = root.path().join("sync.json");
+        let pages = std::cell::Cell::new(0);
+        let sync = |source: Option<&str>, entries: Vec<PersonalWord>| {
+            store
+                .synchronize_batch_reporting_present_with_source(
+                    |requests| {
+                        Ok(requests
+                            .iter()
+                            .map(|_| Ok(PersonalWordApplied::Written))
+                            .collect())
+                    },
+                    || source.map(str::to_owned),
+                    |_| {
+                        pages.set(pages.get() + 1);
+                        Ok(PersonalWordPage {
+                            entries: entries.clone(),
+                            has_more: false,
+                        })
+                    },
+                )
+                .unwrap();
+        };
+        let identity = |path: &Path| {
+            let metadata = fs::metadata(path).unwrap();
+            #[cfg(unix)]
+            let inode = std::os::unix::fs::MetadataExt::ino(&metadata);
+            #[cfg(not(unix))]
+            let inode = 0;
+            (inode, metadata.modified().unwrap(), fs::read(path).unwrap())
+        };
+
+        sync(Some("a"), vec![first.clone()]);
+        assert_eq!(pages.get(), 1);
+        assert_eq!(store.read().unwrap().snapshot_source.as_deref(), Some("a"));
+        let written = identity(&path);
+
+        sync(Some("a"), vec![second.clone()]);
+        assert_eq!(pages.get(), 1, "an unchanged source must not page again");
+        assert_eq!(identity(&path), written, "an idle sync rewrote sync.json");
+        assert_eq!(store.read().unwrap().entries, vec![first.clone()]);
+
+        // 词库在队列之外变了（例如打字时学到的自造词）：戳不同就重查。
+        sync(Some("b"), vec![second.clone()]);
+        assert_eq!(pages.get(), 2);
+        assert_eq!(store.read().unwrap().entries, vec![second.clone()]);
+
+        // 宿主重新要同一页也要回答，哪怕戳没变。
+        store.request_page(0, None, "").unwrap();
+        sync(Some("b"), vec![second.clone()]);
+        assert_eq!(pages.get(), 3);
+        sync(Some("b"), vec![second.clone()]);
+        assert_eq!(pages.get(), 3);
+
+        // 应用了请求后重查。
+        store
+            .enqueue(None, Some(first.clone()), "request-1".into())
+            .unwrap();
+        sync(Some("b"), vec![first.clone(), second.clone()]);
+        assert_eq!(pages.get(), 4);
+        assert_eq!(store.read().unwrap().pending_count(), 0);
+
+        // 读不出戳时每次都重查，但内容没变就不重写文件。
+        sync(None, vec![first.clone(), second.clone()]);
+        assert_eq!(pages.get(), 5);
+        let unknown = identity(&path);
+        sync(None, vec![first.clone(), second.clone()]);
+        assert_eq!(pages.get(), 6);
+        assert_eq!(identity(&path), unknown);
+
+        // 读页失败之后，即使戳与失败前相同也要重查。
+        sync(Some("c"), vec![first.clone()]);
+        assert_eq!(pages.get(), 7);
+        store
+            .synchronize_batch_reporting_present_with_source(
+                |_| Ok(Vec::new()),
+                || Some("d".into()),
+                |_| Err("page unavailable".into()),
+            )
+            .unwrap();
+        assert!(store.read().unwrap().snapshot_source.is_none());
+        sync(Some("d"), vec![second.clone()]);
+        assert_eq!(pages.get(), 8);
+        assert_eq!(store.read().unwrap().entries, vec![second]);
+        assert!(store.read().unwrap().snapshot_error.is_none());
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { runAsyncAction } from "../core/async-action";
 import { randomRequestId } from "../core/random-id";
 import { utf8ByteLength } from "../core/text";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
+import { HOST_USER_WORDS_CHANGED_EVENT } from "./use-dictionary-sync";
 import {
   DICTIONARY_PAGE_SIZE,
   MAX_DICTIONARY_FILE_BYTES,
@@ -240,6 +241,22 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     void loadPhrases(dictionaryKind, offset);
   }
 
+  /** 词库在页面之外变了（词库同步写进了网盘来的词或删除，宿主自己写进了词）：按现在的类型、搜索和页码重读一次，不清掉页面上已有的操作提示。 */
+  function reloadPhrases() {
+    const current = currentPhraseQuery.current;
+    void current.load(undefined, current.offset, { preserveError: true });
+  }
+
+  // 宿主自己往「我的词条」里写了词（鸿蒙设置应用把键盘经共享沙箱发布的词写进来、排空了自己的个人词库队列）：列表跟着重读，不论有没有配置词库同步。
+  useEffect(() => {
+    if (!client.dictionary || typeof window === "undefined") return;
+    const reload = () => reloadPhrases();
+    window.addEventListener(HOST_USER_WORDS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(HOST_USER_WORDS_CHANGED_EVENT, reload);
+    // `reloadPhrases` 只经引用读最新的查询，不随每次渲染重新挂监听。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.dictionary]);
+
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary || !mounted.current) return;
     const generation = clientGeneration.current;
@@ -323,6 +340,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       async (isCurrent) => {
         const scelText = dictionary.scelText;
         const scel = format === "scel" || (scelText !== undefined && (await isScelFile(file)));
+        if (!isCurrent()) return;
         let text: string;
         let textFormat: LocalDictionaryFormat;
         let source = "";
@@ -331,15 +349,15 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           if (!scelText) throw new Error("这里不能导入搜狗细胞词库。");
           if (dictionaryKind !== "pinyin")
             throw new Error("搜狗细胞词库只能导入拼音词库，请先把「词库」切换到拼音。");
-          const converted = await scelText(
-            await readScelFile(
-              file,
-              Math.min(
-                MAX_SCEL_FILE_BYTES,
-                dictionary.maxImportFileBytes ?? MAX_DICTIONARY_FILE_BYTES,
-              ),
+          const encoded = await readScelFile(
+            file,
+            Math.min(
+              MAX_SCEL_FILE_BYTES,
+              dictionary.maxImportFileBytes ?? MAX_DICTIONARY_FILE_BYTES,
             ),
           );
+          if (!isCurrent()) return;
+          const converted = await scelText(encoded);
           text = converted.text;
           if (dictionary.maxImportFileBytes !== undefined)
             ({ text, cut } = leadingImportRows(converted.text));
@@ -349,6 +367,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           text = await readDictionaryFile(file, dictionary.maxImportFileBytes);
           textFormat = format;
         }
+        if (!isCurrent()) return;
         let imported: DictionaryImportResult | null = null;
         if (dictionary.import) {
           imported = await dictionary.import(
@@ -362,6 +381,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
           if (textFormat === "hans") throw new Error("hans format requires batch import");
           const lines = text.split(/\r?\n/).filter(Boolean);
           for (const line of lines) {
+            if (!isCurrent()) return;
             const [first, second, weight = "10000"] = line.split("\t");
             if (!first || !second) continue;
             const [value, key] = textFormat === "windows" ? [second, first] : [first, second];
@@ -560,6 +580,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       async (isCurrent) => {
         await reset();
         if (!isCurrent()) return;
+        // 清除前发出的查询不能重新显示旧词条或覆盖清除结果。
+        phraseRequestGeneration.current += 1;
+        setPhraseError("");
         setPhrases([]);
         setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
         setDictionaryPendingCount(0);
@@ -597,6 +620,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     setDictionaryFormat,
     phraseListRef,
     loadPhrases,
+    reloadPhrases,
     turnPhrasePage,
     removePhrase,
     savePhrase,

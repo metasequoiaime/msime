@@ -168,6 +168,11 @@ test("a cancel the user asked for is not reported as a failure", () => {
   expect(localModelErrorMessage(new Error("boom"))).toBe("操作失败，请重试。");
 });
 
+// HarmonyOS 没有隐私政策的授权时不下载模型，提示去「隐私」页同意，而不是笼统的「操作失败」。
+test("a download refused for want of privacy consent says where to agree", () => {
+  expect(localModelErrorMessage({ code: "privacy_consent_required" })).toContain("「我的 › 隐私」");
+});
+
 test("a mirror is empty or a complete https URL without credentials or query", () => {
   expect(validModelMirror("")).toBe(true);
   expect(validModelMirror("https://ghproxy.example.com")).toBe(true);

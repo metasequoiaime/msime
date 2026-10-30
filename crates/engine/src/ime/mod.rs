@@ -26,9 +26,11 @@ use crate::shuangpin::query::{
 };
 use crate::shuangpin::ShuangpinProfile;
 use crate::shuangpin::ShuangpinScheme;
+use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
-    SchemeSet, SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
+    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
+    WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -89,6 +91,7 @@ pub struct ImeSession {
     vietnamese_method: VietnameseInputMethod,
     vietnamese_style: VietnameseToneStyle,
     korean_layout: crate::KoreanLayout,
+    force_cantonese_shuangpin: bool,
     wubi_options: WubiInputOptions,
     /// Mixed wubi only: a pinyin candidate was picked out of this composition, so the rest decodes as quanpin until the composition ends (product decision 2026-09-30, the intent of test_wubi_mixed_input_session.cpp:194-212). Cleared by `reset`, `switch_scheme`, turning mixed input off, and an emptied composition.
     pinyin_tail: bool,
@@ -96,6 +99,7 @@ pub struct ImeSession {
     zhuyin_nine_key: bool,
     autocorrect_types: u32,
     quanpin_helpcode: bool,
+    strict_quanpin_helpcode: bool,
     shuangpin_helpcode: bool,
     shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
@@ -111,6 +115,10 @@ pub struct ImeSession {
     /// 日文混输把拼音组字当罗马字查日文时用的方案和请求缓冲，逐键复用。
     mixed_japanese_scheme: JapaneseRomajiScheme,
     mixed_japanese_request: QueryRequest,
+    /// 触屏宿主注册的键位几何，换方案后新建的双拼方案也拿到它；桌面永远是 `None`。
+    key_geometry: Option<Arc<KeyGeometry>>,
+    /// 按触点计价的参数，随每个请求带给双拼引擎。
+    touch_tuning: TouchTuning,
 }
 
 /// 日文混输对当前组字的判断：整段按罗马字转换出的最佳日文，以及决定要不要给、放在哪里的信号。
@@ -167,11 +175,13 @@ impl ImeSession {
             vietnamese_method: VietnameseInputMethod::default(),
             vietnamese_style: VietnameseToneStyle::default(),
             korean_layout: crate::KoreanLayout::default(),
+            force_cantonese_shuangpin: false,
             wubi_options: WubiInputOptions::default(),
             pinyin_tail: false,
             zhuyin_nine_key: false,
             autocorrect_types: 0,
             quanpin_helpcode: false,
+            strict_quanpin_helpcode: false,
             shuangpin_helpcode: false,
             shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
@@ -184,9 +194,19 @@ impl ImeSession {
             mixed_pinyin_request: QueryRequest::default(),
             mixed_japanese_scheme: JapaneseRomajiScheme::new(),
             mixed_japanese_request: QueryRequest::default(),
+            key_geometry: None,
+            touch_tuning: TouchTuning::default(),
         };
         session.bind_wubi_scheme();
         Ok(session)
+    }
+
+    /// 选中的触屏入口决定粤拼如何解释同形两键码；新建或切回粤拼时沿用。
+    pub fn set_force_cantonese_shuangpin(&mut self, enabled: bool) {
+        self.force_cantonese_shuangpin = enabled;
+        if let Scheme::Cantonese(scheme) = &mut self.scheme {
+            scheme.set_force_shuangpin(enabled);
+        }
     }
 
     pub fn candidates(&self) -> &[WordItem] {
@@ -356,6 +376,9 @@ impl ImeSession {
             let nine_key = self.zhuyin_nine_key;
             if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
                 zhuyin.set_nine_key(nine_key);
+            }
+            if let Scheme::Cantonese(cantonese) = &mut self.scheme {
+                cantonese.set_force_shuangpin(self.force_cantonese_shuangpin);
             }
         }
         self.bind_wubi_scheme();
@@ -789,6 +812,9 @@ impl ImeSession {
             *request = QueryRequest::default();
             return;
         };
+        if let Scheme::Cantonese(cantonese) = &mut scratch {
+            cantonese.set_force_shuangpin(self.force_cantonese_shuangpin);
+        }
         if let Some(wubi) = scratch.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(self.wubi_options.mixed_pinyin);
             wubi.set_extended_length_allowed(self.wubi_options.mixed_pinyin);
@@ -836,6 +862,10 @@ impl ImeSession {
         self.quanpin_helpcode = enabled;
     }
 
+    pub fn set_strict_quanpin_helpcode(&mut self, enabled: bool) {
+        self.strict_quanpin_helpcode = enabled;
+    }
+
     pub fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
         self.shuangpin_helpcode = enabled;
         // 末尾大写触发归谁同时看总开关，方案层要重算。
@@ -876,11 +906,30 @@ impl ImeSession {
         )
     }
 
-    /// 大写段按当时的触发方式解析，方案层要拿到和敲键时一致的设置（`configure_shuangpin_scheme`）。
+    /// 大写段按当时的触发方式解析，方案层要拿到和敲键时一致的设置（`configure_shuangpin_scheme`）。键位几何同样跟着方案走。
     fn bind_shuangpin_scheme(&mut self) {
         let triggers = self.helpcode_uppercase_triggers();
+        let geometry = self.key_geometry.clone();
         if let Some(shuangpin) = self.scheme.as_shuangpin_mut() {
             shuangpin.set_helpcode_uppercase_triggers(triggers);
+            shuangpin.set_key_geometry(geometry);
+        }
+    }
+
+    /// 宿主注册（或清除）的键位几何，见 [`crate::touch::KeyGeometry`]。不刷新候选：几何只影响之后的查询。
+    pub fn set_key_geometry(&mut self, geometry: Option<Arc<KeyGeometry>>) {
+        self.key_geometry = geometry;
+        self.bind_shuangpin_scheme();
+    }
+
+    pub fn set_touch_tuning(&mut self, tuning: TouchTuning) {
+        self.touch_tuning = tuning;
+    }
+
+    /// 紧接着的那一次 `handle_key` 的触点；只有双拼方案收，其余方案没有触点可用。
+    pub fn set_pending_touch(&mut self, touch: Option<KeyTouch>) {
+        if let Some(shuangpin) = self.scheme.as_shuangpin_mut() {
+            shuangpin.set_pending_touch(touch);
         }
     }
 
@@ -1089,6 +1138,7 @@ impl ImeSession {
             request.end_helpcodes.clear();
         }
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
+        request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
         request.enable_quanpin_autocorrect_transposition =
             self.autocorrect_types & autocorrect_type::TRANSPOSITION != 0;
@@ -1100,10 +1150,15 @@ impl ImeSession {
         request
             .rescoring_context
             .clone_from(&self.rescoring_context);
+        request.touch_tuning = self.touch_tuning;
     }
 
     /// An input the user committed raw while a correction was offered is answered as typed: both autocorrect switches off and a literal re-cut, because the correction aliases apply whatever the mask says (ime_session.cpp:285-297). Only consulted while some autocorrect type is on.
     fn apply_autocorrect_suppression(&self, request: &mut QueryRequest) {
+        if request.scheme == SchemeType::Shuangpin {
+            self.apply_shuangpin_autocorrect_suppression(request);
+            return;
+        }
         if request.scheme != SchemeType::Quanpin || self.autocorrect_types == 0 {
             return;
         }
@@ -1120,6 +1175,27 @@ impl ImeSession {
         request.enable_quanpin_autocorrect_transposition = false;
         request.enable_quanpin_autocorrect_neighbor = false;
         QuanpinScheme::apply_literal_segmentation(request);
+    }
+
+    /// 双拼：带触点的输入被用户按原样上屏、拒绝过触点纠错（`learn_rejected_correction`）之后，同一串输入按字面回答：两个纠错开关都关掉，触点也不再带，请求和没有触点、没开纠错时一样。只看带触点的请求，桌面和实体键盘的请求从不带触点，不受影响。自定义方案不学，也就没有可查的。
+    fn apply_shuangpin_autocorrect_suppression(&self, request: &mut QueryRequest) {
+        if self.autocorrect_types == 0
+            || request.key_touches.is_empty()
+            || self.profile.kind == ShuangpinProfileKind::Custom
+        {
+            return;
+        }
+        self.typo_profile.refresh_if_changed();
+        if !self
+            .typo_profile
+            .shuangpin_suppressed(self.profile.kind, &request.raw_input)
+        {
+            return;
+        }
+        request.enable_quanpin_autocorrect_transposition = false;
+        request.enable_quanpin_autocorrect_neighbor = false;
+        request.key_touches.clear();
+        request.key_geometry = None;
     }
 
     /// Query the request's provider and, for wubi with mixed pinyin, append the quanpin rows for the same letters (ime_session.cpp:333-368). The quanpin request gets the session switches and the autocorrect suppression, so a correction the user refused by committing raw stays refused when the same letters arrive through mixed Wubi. A pinyin tail skips the wubi table: those letters are the rest of a spelling, not a code.
@@ -1306,6 +1382,8 @@ fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) 
         target.corrected_from.clear();
         target.sentence_association = false;
         target.sentence_words.clear();
+        target.touch_supported = false;
+        target.confident_correction = false;
     }
     if destination.len() > source.len() {
         destination.truncate(source.len());

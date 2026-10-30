@@ -1,8 +1,11 @@
 //! Dictionary-state export and import (user-dictionary.md §14, api-contract §5.13): one consistent read of the journal's entries, fixed positions and selection counts, its SHA-256 revision, and staging a complete replacement generation from a record stream.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock, PoisonError};
+use std::time::{Duration, SystemTime};
 
 use rusqlite::{params, OpenFlags, TransactionBehavior};
 use sha2::{Digest, Sha256};
@@ -186,13 +189,151 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
 }
 
 /// SHA-256 hex over `text("msime-local-dictionary-state-v1")` and every streamed record, where `text(s)` is `integer(len)` then the bytes and `integer` is a big-endian u64 (dictionary_revision.rs). Apple computes the same digest; keep the framing byte for byte.
+///
+/// 每次都完整读一遍日志。算完顺带把结果记进 [`cached_dictionary_state_revision`](crate::host::cached_dictionary_state_revision) 的缓存，所以准备、激活快照这些必须拿精确值的地方算出来的新结果，之后的预览也直接用上。
 pub fn dictionary_state_revision(paths: &RuntimePaths) -> Result<String> {
+    state_revision(paths, false, SystemTime::now)
+}
+
+/// 与 [`dictionary_state_revision`] 结果相同，但日志主文件和 `-wal`、`-journal` 旁路文件自上次完整计算以来都没变时，直接返回上次的结果，不打开 SQLite。
+///
+/// 宿主在每次失焦、每隔几秒的空闲轮询里都要拿这个修订号发布本机词库版本，日志动辄几十万行，每次都排序全表扫描再做 SHA-256，低端机上就是持续的耗电和发热，而绝大多数时候日志根本没动。判断“没动”只看 stat：长度、修改时间，unix 上再加设备号、inode 和状态改变时间。SQLite 的每次提交都会改主文件（回滚日志模式）或追加、重写 `-wal`（WAL 模式），所以内容变了这几项必然有一项变；检查点、换文件这类内容不变的改动只会多算一次，不会少算。长度为零的旁路文件里没有任何页，与不存在等价，按不存在处理，免得会话开关连接时建了又删的空 `-wal` 让缓存每次都失效。
+///
+/// 修改时间的精度有限（Linux 按时钟节拍取粗粒度时间，部分文件系统只到秒），同一个时间粒度里先 stat、后又写入的话 stat 可能完全一样。所以只有文件的最后改动离现在已经超过 [`REVISION_SETTLE`] 时才记缓存，跟 git 处理 racy-clean 索引是同一个思路：之后的任何写入都会带上比记下的更晚的时间戳。刚写过的日志每次都完整计算。stat 失败也一律完整计算、不记缓存。
+pub fn cached_dictionary_state_revision(paths: &RuntimePaths) -> Result<String> {
+    state_revision(paths, true, SystemTime::now)
+}
+
+/// `now` 只在要记缓存时才取：wasm32-unknown-unknown 上取系统时间会 panic，而那里 stat 本来就失败，走不到这一步。
+fn state_revision(
+    paths: &RuntimePaths,
+    use_cache: bool,
+    now: impl FnOnce() -> SystemTime,
+) -> Result<String> {
+    paths.validate()?;
+    let journal = paths.user(assets::USER_JOURNAL);
+    // 开始读日志之前取：读的过程中又有写入的话，之后再 stat 必然与它不同，不会拿这次的结果去回答。
+    let stamp = JournalStamp::read(&journal);
+    if use_cache {
+        if let Some(stamp) = &stamp {
+            let cache = revision_cache()
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some((cached, revision)) = cache.get(&journal) {
+                if cached == stamp {
+                    return Ok(revision.clone());
+                }
+            }
+        }
+    }
     let mut revision = Revision::new();
     stream_dictionary_state(paths, &mut |record| {
         revision.record(record);
         true
     })?;
-    Ok(revision.finish())
+    let revision = revision.finish();
+    if let Some(stamp) = stamp.filter(|stamp| stamp.settled(now())) {
+        let mut cache = revision_cache()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if cache.len() >= REVISION_CACHE_LIMIT && !cache.contains_key(&journal) {
+            cache.clear();
+        }
+        cache.insert(journal, (stamp, revision.clone()));
+    }
+    Ok(revision)
+}
+
+/// 日志文件最后一次改动要早于现在多久，这次算出的修订号才记进缓存，见 [`cached_dictionary_state_revision`]。两秒盖过 FAT 这类最粗的两秒时间精度。
+pub(crate) const REVISION_SETTLE: Duration = Duration::from_secs(2);
+
+/// 宿主进程里通常只有一份日志；准备快照时会多出暂存代次的日志，测试里是各自的临时目录。满了就整个清掉重来。
+const REVISION_CACHE_LIMIT: usize = 16;
+
+/// 按日志路径记下的 stat 和修订号。
+fn revision_cache() -> &'static Mutex<HashMap<PathBuf, (JournalStamp, String)>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (JournalStamp, String)>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// 日志主文件、`-wal`、`-journal` 各自的 stat，`None` 是不存在（旁路文件长度为零也算）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct JournalStamp([Option<FileStamp>; 3]);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    length: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(unix)]
+    changed: (i64, i64),
+}
+
+impl JournalStamp {
+    /// 任何一个文件 stat 失败（不存在除外）时是 `None`，这次不查也不记缓存。
+    fn read(journal: &Path) -> Option<Self> {
+        let side = |suffix: &str| {
+            let mut name = journal.as_os_str().to_owned();
+            name.push(suffix);
+            PathBuf::from(name)
+        };
+        Some(Self([
+            FileStamp::read(journal, false)?,
+            FileStamp::read(&side("-wal"), true)?,
+            FileStamp::read(&side("-journal"), true)?,
+        ]))
+    }
+
+    fn settled(&self, now: SystemTime) -> bool {
+        let Some(horizon) = now.checked_sub(REVISION_SETTLE) else {
+            return false;
+        };
+        self.0
+            .iter()
+            .flatten()
+            .all(|file| file.last_change().is_some_and(|time| time < horizon))
+    }
+}
+
+impl FileStamp {
+    fn read(path: &Path, empty_is_absent: bool) -> Option<Option<Self>> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Some(None),
+            Err(_) => return None,
+        };
+        if empty_is_absent && metadata.len() == 0 {
+            return Some(None);
+        }
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Some(Some(Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok()?,
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+            #[cfg(unix)]
+            changed: (metadata.ctime(), metadata.ctime_nsec()),
+        }))
+    }
+
+    /// 修改时间与（unix 上）状态改变时间里较晚的一个；状态改变时间换算不了时是 `None`，不记缓存。
+    fn last_change(&self) -> Option<SystemTime> {
+        #[cfg(unix)]
+        {
+            let seconds = u64::try_from(self.changed.0).ok()?;
+            let nanos = u32::try_from(self.changed.1).ok()?;
+            let changed = SystemTime::UNIX_EPOCH.checked_add(Duration::new(seconds, nanos))?;
+            Some(self.modified.max(changed))
+        }
+        #[cfg(not(unix))]
+        Some(self.modified)
+    }
 }
 
 /// The framing of `dictionary_revision.rs` and `hash_dictionary_state` (bridge.cpp:441-466).
@@ -432,7 +573,7 @@ fn build_generation(
     )
 }
 
-/// [`merge_dictionary_state`] 的结果：各类记录写进本机的条数，以及没写的条数和原因。
+/// [`merge_dictionary_state`](crate::host::merge_dictionary_state) 的结果：各类记录写进本机的条数，以及没写的条数和原因。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DictionaryStateMerge {
     /// 写进来的学习调权（`user_inserted = 0` 的 upsert）和删除记录。
@@ -757,6 +898,91 @@ mod tests {
             fs::write(&journal, &original).unwrap();
             assert_eq!(dictionary_state_revision(&paths).unwrap(), revision);
         }
+    }
+
+    /// 缓存版修订号：日志没动时直接给上次的结果、不再读日志；主文件或 `-wal` 一有写入就重新计算；刚写过的日志不记缓存。`later` 当作已经过了 [`REVISION_SETTLE`]。
+    #[test]
+    fn the_cached_revision_is_reused_only_while_the_journal_is_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        let journal = paths.user(assets::USER_JOURNAL);
+        let later = || SystemTime::now() + REVISION_SETTLE * 30;
+        let cached = |paths: &RuntimePaths| state_revision(paths, true, later).unwrap();
+        let entry = |journal: &Path| {
+            revision_cache()
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(journal)
+                .cloned()
+        };
+
+        let empty = dictionary_state_revision(&paths).unwrap();
+        assert_eq!(cached(&paths), empty);
+        assert_eq!(
+            entry(&journal).map(|(_, revision)| revision),
+            Some(empty.clone())
+        );
+
+        sql(
+            &journal,
+            "CREATE TABLE user_dictionary_operations (
+                dictionary TEXT, key TEXT, value TEXT, weight INTEGER,
+                display TEXT, operation TEXT, user_inserted INTEGER);
+             CREATE TABLE fixed_candidate_positions (
+                context_key TEXT, entry_key TEXT, value TEXT, position INTEGER);
+             CREATE TABLE candidate_selection_state (
+                context_key TEXT, entry_key TEXT, value TEXT, selection_count INTEGER);
+             INSERT INTO user_dictionary_operations VALUES
+                ('pinyin', 'synthetic-key', '测试', 1, '', 'upsert', 1);",
+        );
+        let first = dictionary_state_revision(&paths).unwrap();
+        assert_ne!(first, empty);
+        // 刚写过的日志：照常算出新结果，但不记缓存。
+        assert_eq!(cached_dictionary_state_revision(&paths).unwrap(), first);
+        let stamp = JournalStamp::read(&journal).unwrap();
+        assert!(entry(&journal).is_none_or(|(cached, _)| cached != stamp));
+
+        assert_eq!(cached(&paths), first);
+        // 命中时不读日志：把记下的结果换掉，缓存版原样给回来。
+        revision_cache()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&journal)
+            .unwrap()
+            .1 = "synthetic".to_owned();
+        assert_eq!(cached(&paths), "synthetic");
+        // 不走缓存的版本照常读日志，并把记下的结果改回来。
+        assert_eq!(state_revision(&paths, false, later).unwrap(), first);
+        assert_eq!(cached(&paths), first);
+
+        // 回滚日志模式的提交改主文件：一行带溢出页的记录让它变长。
+        let long = "x".repeat(4_000);
+        sql(
+            &journal,
+            &format!(
+                "INSERT INTO user_dictionary_operations VALUES
+                    ('pinyin', 'long', '{long}', 1, '{long}', 'upsert', 1);"
+            ),
+        );
+        let second = cached(&paths);
+        assert_ne!(second, first);
+        assert_eq!(second, dictionary_state_revision(&paths).unwrap());
+
+        // WAL 模式的提交只追加到 `-wal`，主文件不动。
+        let writer = Connection::open(&journal).unwrap();
+        writer
+            .query_row("PRAGMA journal_mode=WAL", [], |_| Ok(()))
+            .unwrap();
+        assert_eq!(cached(&paths), second);
+        writer
+            .execute_batch("UPDATE user_dictionary_operations SET weight=7 WHERE key='long'")
+            .unwrap();
+        let mut wal = journal.as_os_str().to_owned();
+        wal.push("-wal");
+        assert!(fs::metadata(&wal).unwrap().len() > 0);
+        let third = cached(&paths);
+        assert_ne!(third, second);
+        assert_eq!(third, dictionary_state_revision(&paths).unwrap());
     }
 
     // engine-bridge tests.rs `dictionary_revision_uses_real_journal_and_rejects_corruption`.

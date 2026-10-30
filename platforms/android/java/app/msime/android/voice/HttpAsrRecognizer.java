@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,14 +27,20 @@ import org.json.JSONObject;
  * the one field read back out of the response.
  */
 public final class HttpAsrRecognizer {
-    /** Long enough for a sentence, short enough that a forgotten session cannot fill storage. */
-    private static final int MAX_MILLIS = 60_000;
+    /** 整句上传单次录音的上限：够说一段话，又不让忘了关的录音占满内存。整段音频一次上传，还受服务端请求体大小和读超时限制，所以不像豆包流式那样放宽；到点时提示用户（#9886）。 */
+    public static final int MAX_MILLIS = 60_000;
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
     private static final int READ_TIMEOUT_MILLIS = 60_000;
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
-    /** Why a recognition did not produce text. The caller maps these onto its own outcomes. */
-    public enum Failure { PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, EMPTY }
+    /**
+     * Why a recognition did not produce text. The caller maps these onto its own outcomes.
+     *
+     * <p>{@code BUSY} 和 {@code ENDED} 只由豆包流式给出：{@code BUSY} 是服务端自己的故障或过载（豆包错误码 550xxxxx、关闭帧 1011–1014），改配置没有用；{@code ENDED} 是服务端在最终结果之前没有报错就正常关闭了会话，多半是它那一侧的会话时长或空闲限制（#9886）。
+     */
+    public enum Failure {
+        PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, TIMEOUT, SERVICE_TIMEOUT, LIMIT, SERVICE, BUSY, ENDED, EMPTY
+    }
 
     /** Thrown rather than returning null so a caller cannot mistake a failure for silence. */
     public static final class Refused extends Exception {
@@ -54,6 +61,22 @@ public final class HttpAsrRecognizer {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     /** The in-flight upload, if recording has already finished. Cancel must unblock its read. */
     private volatile HttpURLConnection connection;
+    /** 这次录音是否到了 {@link #MAX_MILLIS} 由识别器自己结束。 */
+    private volatile boolean capped;
+
+    /** 约 100 ms 的 16 kHz 单声道 PCM：采集按这个粒度读，聆听面板的音量光圈才跟得上说话。 */
+    private static final int LEVEL_CHUNK_BYTES = 3200;
+    /** 每读到一块 PCM 在录音线程回传 0–1 音量（{@link VoiceAudioLevel#fromPcm16le}）；界面更新由调用方切回主线程。 */
+    private volatile java.util.function.Consumer<Float> levels = level -> { };
+
+    public void levels(java.util.function.Consumer<Float> sink) {
+        levels = sink == null ? level -> { } : sink;
+    }
+
+    /** 录音是否到了单次上限、由识别器自己结束；{@link #recognize} 返回后读取。 */
+    public boolean capped() {
+        return capped;
+    }
 
     /** Stop recording and transcribe what has been captured so far. */
     public void stop() {
@@ -118,12 +141,16 @@ public final class HttpAsrRecognizer {
             // Two bytes per sample: the byte budget is the time budget.
             int limit = WavAudio.SAMPLE_RATE * 2 / 1000 * MAX_MILLIS;
             while (!stopped.get() && captured.size() < limit) {
-                int requested = VoiceCapturePolicy.readLength(limit, captured.size(), chunk.length);
+                // 录音缓冲仍按系统最小值开，只是每次读得少一些。
+                int requested = VoiceCapturePolicy.readLength(limit, captured.size(),
+                    Math.min(chunk.length, LEVEL_CHUNK_BYTES));
                 if (requested == 0) break;
                 int read = recorder.read(chunk, 0, requested);
                 if (read < 0) throw new Refused(Failure.UNAVAILABLE);
+                if (read > 0) levels.accept(VoiceAudioLevel.fromPcm16le(chunk, read));
                 captured.write(chunk, 0, read);
             }
+            capped = captured.size() >= limit;
             return captured.toByteArray();
         } finally {
             VoicePcmRecorder.stopIfRecording(recorder);
@@ -153,7 +180,9 @@ public final class HttpAsrRecognizer {
             }
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
             int status = opened.getResponseCode();
-            if (!HttpConnectionPolicy.isSuccessful(status)) throw new Refused(Failure.NETWORK);
+            if (!HttpConnectionPolicy.isSuccessful(status)) {
+                throw new Refused(VoiceFailurePolicy.status(status));
+            }
             String text;
             try (InputStream input = opened.getInputStream()) {
                 String response = TextPolicy.utf8(
@@ -163,6 +192,8 @@ public final class HttpAsrRecognizer {
             }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
+        } catch (SocketTimeoutException error) {
+            throw new Refused(Failure.TIMEOUT);
         } catch (IOException error) {
             throw new Refused(Failure.NETWORK);
         } finally {

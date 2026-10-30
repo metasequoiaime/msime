@@ -122,20 +122,19 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   }
   func publishLocalVersion(_ version: String) throws {
     guard Self.validVersion(version) else { throw Failure.invalid }
-    let applied = try update { state -> DictionarySnapshotRequest? in
+    // 键盘空闲时反复发布同一个版本；版本没变、也没有请求因此完成时不重写状态文件。
+    let applied = try update(persist: { $0.changed }) { state -> (applied: DictionarySnapshotRequest?, changed: Bool) in
+      let changed = state.localVersion != version
       state.localVersion = version
-      // The Engine's durable generation UUID is the receipt if publication
-      // succeeded but queue acknowledgement failed. A terminal queue state
-      // wins if cancellation or another transition was recorded first.
+      // The Engine's durable generation UUID is the receipt if publication succeeded but queue acknowledgement failed. A terminal queue state wins if cancellation or another transition was recorded first.
       let generation = version.split(separator: ":")[1]
-      // A receipt can arrive after cancellation or another terminal transition.
-      // Do not resurrect that request merely because the Engine generation matches.
+      // A receipt can arrive after cancellation or another terminal transition. Do not resurrect that request merely because the Engine generation matches.
       guard var request = state.request, request.status.active,
-            request.id.uuidString == generation else { return nil }
+            request.id.uuidString == generation else { return (nil, changed) }
       request.status = .applied
       state.request = request
-      return request
-    }
+      return (request, true)
+    }.applied
     if let applied { try? FileManager.default.removeItem(at: fileURL(for: applied)) }
   }
   func acquireWorkerLease() throws -> WorkerLease {

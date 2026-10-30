@@ -12,6 +12,7 @@ public final class SplitKeyboardPolicySmoke {
     public static void main(String[] args) {
         whenSplitApplies();
         portraitOverride();
+        configurableBounds();
         whichLayoutsSplit();
         gapWidth();
         responsiveGapWidth();
@@ -40,6 +41,16 @@ public final class SplitKeyboardPolicySmoke {
         check(!SplitKeyboardPolicy.active(true, 411, true), "a phone in landscape never splits");
         check(!SplitKeyboardPolicy.active(true, 800, false), "a tablet in portrait does not split");
         check(!SplitKeyboardPolicy.active(false, 800, true), "the setting is off by default and then nothing splits");
+    }
+
+    private static void configurableBounds() {
+        check(SplitKeyboardPolicy.active(true, 480, true, false, 480), "minimum threshold is usable");
+        check(!SplitKeyboardPolicy.active(true, 479, true, false, 480), "below threshold stays whole");
+        check(SplitKeyboardPolicy.active(true, 1000, true, false, 1200), "threshold clamps to maximum");
+        check(SplitKeyboardPolicy.gapFraction(0, 10) == 0.10f, "minimum configured gap");
+        check(SplitKeyboardPolicy.gapFraction(0, 50) == 0.40f, "maximum configured gap");
+        close(SplitKeyboardPolicy.gapWeight(10f, 0f, 0, 10), 10f / 9f, "configured ten percent gap");
+        check(SplitKeyboardPolicy.gapFraction(1200, 10) >= 0.399f, "wide screen keeps key area usable");
     }
 
     private static void whichLayoutsSplit() {
@@ -205,16 +216,19 @@ public final class SplitKeyboardPolicySmoke {
     }
 
     private static void spaceSplit() {
+        // 中/英挪到空格左边（`touch_language_key_side` 为 `left`）后中缝仍在空格里、照样居中。
+        for (boolean languageLeft : new boolean[] {false, true})
         for (boolean globe : new boolean[] {false, true}) {
             for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
-                List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(layout, globe);
+                List<KeyboardActionRow.DesignEntry> entries = KeyboardActionRow.designEntries(layout, globe, false, false, false,
+                    TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, languageLeft);
                 float[] weights = new float[entries.size()];
                 int space = -1;
                 for (int index = 0; index < weights.length; index++) {
                     weights[index] = entries.get(index).weight();
                     if (entries.get(index).slot() == KeyboardActionRow.DesignSlot.SPACE) space = index;
                 }
-                checkCenteredSpace(weights, space, "action row globe=" + globe + " layout=" + layout);
+                checkCenteredSpace(weights, space, "action row globe=" + globe + " layout=" + layout + " languageLeft=" + languageLeft);
                 // 常用标点键隐藏时（记 0）空隙仍然居中。
                 float[] noComma = weights.clone();
                 for (int index = 0; index < noComma.length; index++)

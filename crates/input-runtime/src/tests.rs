@@ -38,6 +38,8 @@ struct Fixture {
     remaining_after_select: Option<String>,
     /// The seat each candidate is fixed to, parallel to `words`: 1-based, 0 for unfixed. Empty means nothing is fixed.
     positions: Vec<u8>,
+    /// 九宫格标的窄裁决点（`ordering::CONTEST_*`），与 `words` 同序；空的是一行都没标。
+    contests: Vec<u8>,
     /// What the Engine reports as the reading, which the Japanese scheme sets to the converted kana. Empty means no reading.
     reading: String,
     /// What the Engine reports it takes as characters rather than punctuation.
@@ -1082,6 +1084,11 @@ impl InputEngine for Fixture {
             },
             candidate_corrected: vec![false; self.words.len()],
             candidate_answers_key: vec![true; self.words.len()],
+            candidate_contest: if self.contests.len() == self.words.len() {
+                self.contests.clone()
+            } else {
+                Vec::new()
+            },
             candidate_list_open: false,
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: "xiaohe".into(),
@@ -1790,6 +1797,7 @@ fn runtime() -> Runtime<Fixture> {
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -1849,6 +1857,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 sources,
                 remaining_after_select: None,
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2099,6 +2108,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 sources,
                 remaining_after_select: None,
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2438,6 +2448,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 sources: Vec::new(),
                 remaining_after_select: remaining.map(str::to_owned),
                 positions: Vec::new(),
+                contests: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
                 microsoft_shuangpin: false,
@@ -2545,6 +2556,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             sources: Vec::new(),
             remaining_after_select: Some("p".into()),
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -3423,6 +3435,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -4546,7 +4559,7 @@ fn key_grid_checks_the_scheme_and_the_composition() {
 /// 九键双拼只给全拼；它的数字和九键一样是组码，引擎没有收下的数字（米旮旯 2 不用的 1 以外的键也一样）也不当选词键，而不用网格时同一个数字会选词。
 #[test]
 fn nine_key_shuangpin_grid_is_quanpin_only_and_its_digits_never_pick() {
-    use msime_engine::host::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
+    use msime_engine::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
     let table = resolve_nine_key_shuangpin(NineKeyShuangpinKind::Migala2, None).unwrap();
     let grid = Some(KeyGrid::NineKeyShuangpin(table));
     let digit = || Action::Character {
@@ -4707,6 +4720,210 @@ fn repeated_dedicated_english_preserves_real_grid_candidates() {
             .unwrap();
         assert_eq!(picked.commit.as_deref(), Some(expected.as_str()));
     }
+}
+
+/// 键位几何由 runtime 持有：宿主空闲时重建引擎（`replace_engine`）之后新引擎照样拿到它，带触点的按键照样按落点给纠错整句计价。代次不符、坐标不是有限数或清除几何之后，这一键不带触点。合成词库里小鹤 mw gr xi 是没关系，r 按成左下方的邻键 f 就成了 gen。
+#[test]
+fn key_geometry_survives_an_engine_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 1;
+    rusqlite::Connection::open(
+        std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY),
+    )
+    .unwrap()
+    .execute_batch(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_m VALUES('mei','m','没',1000);\
+         CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',500);\
+         CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_x VALUES('xi','x','系',1000);\
+         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);",
+    )
+    .unwrap();
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    // QWERTY 字母键，键宽 10、键高 14，每排比上一排右移半个键。
+    let mut keys = [[0.0f32; 4]; 26];
+    for (letters, left, y) in [
+        ("qwertyuiop", 5.0, 7.0),
+        ("asdfghjkl", 10.0, 21.0),
+        ("zxcvbnm", 20.0, 35.0),
+    ] {
+        for (column, letter) in letters.bytes().enumerate() {
+            keys[usize::from(letter - b'a')] = [left + 10.0 * column as f32, y, 10.0, 14.0];
+        }
+    }
+    let center = |key: u8| {
+        let [x, y, _, _] = keys[usize::from(key - b'a')];
+        (x, y)
+    };
+    runtime.set_key_geometry(Some(
+        msime_engine::touch::KeyGeometry::new(9, &keys, None, &[]).unwrap(),
+    ));
+    assert_eq!(runtime.key_geometry_id(), Some(9));
+    let (x, y) = center(b'f');
+    assert_eq!(runtime.key_touch(b'f', 8, x, y), None);
+    assert_eq!(runtime.key_touch(b'f', 9, f32::NAN, y), None);
+    // f 那一键落在 f 和左上方的 r 之间。
+    assert_eq!(
+        runtime.key_touch(b'f', 9, x - 2.5, y - 7.0),
+        Some(msime_engine::touch::KeyTouch {
+            dx: -5,
+            dy: -10,
+            copy: 0
+        })
+    );
+    let type_mwgfxi = |runtime: &mut Runtime<msime_engine::host::Session>| {
+        runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+        for byte in *b"mwgfxi" {
+            let (x, y) = center(byte);
+            let (x, y) = if byte == b'f' {
+                (x - 2.5, y - 7.0)
+            } else {
+                (x, y)
+            };
+            let touch = runtime.key_touch(byte, 9, x, y);
+            runtime.set_key_touch(touch);
+            runtime
+                .dispatch(Action::Character {
+                    value: byte,
+                    shift: false,
+                })
+                .unwrap();
+            runtime.set_key_touch(None);
+        }
+        // 落点支持的那一行在运行时重排之后仍然对得上自己的标记。
+        let cached = &runtime.cached;
+        let supported: Vec<&str> = cached
+            .candidate_touch_supported
+            .iter()
+            .zip(&cached.candidates)
+            .filter(|(supported, _)| **supported)
+            .map(|(_, text)| text.as_str())
+            .collect();
+        assert!(
+            cached.candidate_touch_supported.is_empty()
+                || cached.candidate_touch_supported.len() == cached.candidates.len()
+        );
+        supported == ["没关系"]
+    };
+
+    runtime
+        .replace_engine(msime_engine::host::Session::new(&options).unwrap(), 5)
+        .unwrap();
+    assert!(type_mwgfxi(&mut runtime));
+    assert!(texts(&runtime.view()).contains(&"没关系".to_owned()));
+
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    runtime.set_key_geometry(None);
+    assert_eq!(runtime.key_geometry_id(), None);
+    assert_eq!(runtime.key_touch(b'f', 9, x, y), None);
+    assert!(!type_mwgfxi(&mut runtime));
+}
+
+/// 首选规则（#10018 PR3）经 runtime 到视图：引擎把落点支持、明显更优的双拼纠错整句放在第一位时，重排器不把它换下去（模型偏爱字面整句也一样），字面整句留在前三，视图只给第一位那一行标 `confident_correction`，序列化成 JSON 时也只有它带这个字段。默认参数（m_sp 无穷大）下一行都不标，JSON 与没有这个字段时相同。
+#[test]
+fn a_confident_shuangpin_correction_leads_the_view_and_only_it_is_marked() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.scheme = 1;
+    options.autocorrect_transposition = true;
+    options.autocorrect_neighbor = true;
+    rusqlite::Connection::open(
+        std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY),
+    )
+    .unwrap()
+    .execute_batch(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_m VALUES('mei','m','没',1000);\
+         CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',500);\
+         CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_x VALUES('xi','x','系',1000);\
+         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);",
+    )
+    .unwrap();
+    let mut keys = [[0.0f32; 4]; 26];
+    for (letters, left, y) in [
+        ("qwertyuiop", 5.0, 7.0),
+        ("asdfghjkl", 10.0, 21.0),
+        ("zxcvbnm", 20.0, 35.0),
+    ] {
+        for (column, letter) in letters.bytes().enumerate() {
+            keys[usize::from(letter - b'a')] = [left + 10.0 * column as f32, y, 10.0, 14.0];
+        }
+    }
+    let typed = |tuning: Option<msime_engine::touch::TouchTuning>| {
+        let mut session = msime_engine::host::Session::new(&options).unwrap();
+        if let Some(tuning) = tuning {
+            session.set_touch_tuning(tuning);
+        }
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        // 模型偏爱字面整句「没跟系」的字：它若能重排，就会把字面整句提到第一位。
+        let model = favouring_model(&['没', '跟', '关', '系'], &['跟']);
+        runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+        runtime.focus(true).unwrap();
+        runtime.set_key_geometry(Some(
+            msime_engine::touch::KeyGeometry::new(9, &keys, None, &[]).unwrap(),
+        ));
+        for byte in *b"mwgfxi" {
+            let [x, y, _, _] = keys[usize::from(byte - b'a')];
+            // f 那一键落在 r 的键心上。
+            let (x, y) = if byte == b'f' {
+                (x - 5.0, y - 14.0)
+            } else {
+                (x, y)
+            };
+            let touch = runtime.key_touch(byte, 9, x, y);
+            assert!(touch.is_some());
+            runtime.set_key_touch(touch);
+            runtime
+                .dispatch(Action::Character {
+                    value: byte,
+                    shift: false,
+                })
+                .unwrap();
+            runtime.set_key_touch(None);
+        }
+        runtime.view()
+    };
+    let marks = |view: &View| {
+        view.candidates
+            .iter()
+            .map(|candidate| {
+                let json = serde_json::to_value(candidate).unwrap();
+                assert_eq!(
+                    json.get("confident_correction").is_some(),
+                    candidate.confident_correction
+                );
+                candidate.confident_correction
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let tuning = msime_engine::touch::TouchTuning {
+        lead_margin: 0.0,
+        lead_penalty: 10.0,
+        ..msime_engine::touch::TouchTuning::default()
+    };
+    let view = typed(Some(tuning));
+    let words = texts(&view);
+    assert_eq!(words[0], "没关系", "{words:?}");
+    assert!(view.candidates[0].corrected);
+    assert_eq!(view.candidates[0].annotation, "mwgfxi");
+    assert!(words[..3].contains(&"没跟系".to_owned()), "{words:?}");
+    let marked = marks(&view);
+    assert!(marked[0] && marked[1..].iter().all(|marked| !marked));
+
+    let view = typed(None);
+    let words = texts(&view);
+    assert_ne!(words[0], "没关系", "{words:?}");
+    assert!(marks(&view).iter().all(|marked| !marked));
 }
 
 #[test]
@@ -5247,6 +5464,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -5259,6 +5477,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         wubi_z_wildcard: false,
         wubi_profile: 0,
         helpcode: false,
+        strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
@@ -5307,7 +5526,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -5410,6 +5629,22 @@ fn next_word_prediction_passes_space_return_and_digits_to_the_editor() {
         assert!(!transition.handled && transition.commit.is_none());
         assert!(transition.view.candidates.is_empty());
     }
+}
+
+/// 联想候选栏上的关闭键（#10078）送 Cancel：建议清空、报已处理，宿主因此不往编辑器补任何字符，这和会多插一个空格的空格键不同。
+#[test]
+fn next_word_prediction_cancel_clears_suggestions_without_reaching_the_editor() {
+    let (_directory, mut runtime) = prediction_runtime();
+    let id = runtime.view().candidates[0].id;
+    let transition = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(transition.handled && transition.commit.is_none());
+    assert!(transition.view.candidates.is_empty());
+    assert!(!transition.view.prediction);
+    assert!(runtime.is_idle() && !runtime.has_composition());
+    assert!(matches!(
+        runtime.dispatch(Action::Select(id)),
+        Err(RuntimeError::StaleCandidate)
+    ));
 }
 
 #[test]
@@ -5642,13 +5877,31 @@ fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
     }
 }
 
+/// #10123：Shift 字母入口后只打了字母，模式不收的字母让整串留在 runtime 的组字里，驼峰英文不会中途上屏。
+#[test]
+fn camel_case_after_a_shortcut_entry_stays_in_the_runtime_composition() {
+    for text in ["TextBlock", "TxB", "UbU", "Ui", "Uq", "KaA"] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, text);
+        let view = runtime.view();
+        assert_eq!(view.local_mode, "none", "{text}");
+        assert_eq!(view.editing_text, text);
+        let committed = runtime
+            .dispatch(Action::Command(Command::CommitRaw))
+            .unwrap();
+        assert_eq!(committed.commit.as_deref(), Some(text));
+    }
+}
+
 #[test]
 fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
     for (entry, spelling, rejected) in [
-        (b'U', "", b'i'),
         (b'U', "0", b'I'),
-        (b'K', "a", b'A'),
-        (b'T', "r", b'A'),
+        (b'U', "0", b'g'),
         (b'E', "", b'1'),
         (b'U', "", b'!'),
     ] {
@@ -6441,17 +6694,35 @@ fn page_size_accepts_one_to_ten() {
     ));
 }
 
-/// 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。宿主在 fcitx5 的「9 个候选」这类菜单里改了每页候选数
-/// 时不会重建引擎，不在这里下发，门槛就一直是重建时那一份：每页从 6 改成 9，有 6 到 8 个精确同音词的输入
-/// 整组补全词都被丢掉，而窗口其实有 9 个座位。
+/// 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。宿主在 fcitx5 的「9 个候选」这类菜单里改了每页候选数时不会重建引擎，不在这里下发，门槛就一直是重建时那一份：每页从 6 改成 9，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
 #[test]
 fn resizing_the_page_tells_the_engine_its_first_page_gate() {
     let mut runtime = Runtime::new(Fixture::default(), 6).unwrap();
-    assert_eq!(runtime.engine.first_page_rows, 0, "the gate starts unset");
+    assert_eq!(runtime.engine.first_page_rows, 6);
     runtime.set_page_size(9).unwrap();
     assert_eq!(runtime.engine.first_page_rows, 9);
     runtime.set_page_size(3).unwrap();
     assert_eq!(runtime.engine.first_page_rows, 3);
+}
+
+/// 建立 runtime 和换引擎时同样要把分页交给引擎，不靠调用方在引擎选项里另设一份。原先只有 `set_page_size` 下发：直接 `Runtime::new(engine, 9)` 的示例、测试和评测工具（`convert_eval`、`parity.rs`）分页是 9，引擎的门槛却停在 `prepare_options` 的默认 6 行，有 6 到 8 个精确同音词的输入首页和任何宿主都不一样。
+#[test]
+fn constructing_or_replacing_the_engine_tells_it_the_first_page_gate() {
+    let runtime = Runtime::new(Fixture::default(), 9).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 9);
+    let mut runtime =
+        Runtime::new_with_touch_layout(Fixture::default(), 7, TouchKeyboardLayout::NineKey)
+            .unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 7);
+    runtime.replace_engine(Fixture::default(), 5).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 5);
+    runtime
+        .replace_engine_with_touch_layout(Fixture::default(), 8, TouchKeyboardLayout::TwentySixKey)
+        .unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 8);
+    // 页数和原来相同时 `set_page_size` 什么也不做，换上来的引擎照样不能留在 0。
+    runtime.replace_engine(Fixture::default(), 8).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 8);
 }
 
 /// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.
@@ -6530,7 +6801,7 @@ fn generated_mode_runtime(directory: &std::path::Path) -> Runtime {
     options.local_expression = true;
     options.local_command = true;
     options.local_mention = true;
-    options.mention_entries = vec![msime_engine::host::MentionEntry {
+    options.mention_entries = vec![msime_engine::MentionEntry {
         phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
@@ -6875,12 +7146,12 @@ fn wubi_literal_marks_do_not_open_table_modes() {
     options.scheme = 2;
     options.local_command = true;
     options.local_mention = true;
-    options.command_table = vec![msime_engine::host::CommandTableEntry {
+    options.command_table = vec![msime_engine::CommandTableEntry {
         trigger: "sig".into(),
         title: "签名".into(),
         template: "张三".into(),
     }];
-    options.mention_entries = vec![msime_engine::host::MentionEntry {
+    options.mention_entries = vec![msime_engine::MentionEntry {
         phone: String::new(),
         text: "张三".into(),
         key: "zhang'san".into(),
@@ -7446,6 +7717,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             sources: Vec::new(),
             remaining_after_select: None,
             positions: Vec::new(),
+            contests: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
             microsoft_shuangpin: false,
@@ -7723,6 +7995,63 @@ fn releasing_the_held_tail_publishes_a_new_generation() {
     assert_eq!(full.candidates.len(), 20);
     assert!(full.generation > before);
     assert_eq!(runtime.view().generation, full.generation);
+}
+
+#[test]
+fn candidate_range_copies_one_batch_without_releasing_the_held_tail() {
+    // 候选条每键只取一批：放出来的 12 行之内不向引擎要暂扣的 8 行，也不换代，首字母不必把整张声母表查出来。
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let view = runtime.view();
+    let first = runtime.candidate_range(0, 48);
+    assert_eq!(first.generation, view.generation);
+    assert_eq!(first.total, 12);
+    assert_eq!(first.candidates.len(), 12);
+    let middle = runtime.candidate_range(3, 4);
+    assert_eq!(middle.generation, view.generation);
+    assert_eq!(
+        middle
+            .candidates
+            .iter()
+            .map(|candidate| candidate.id.index)
+            .collect::<Vec<_>>(),
+        vec![3, 4, 5, 6]
+    );
+    assert_eq!(runtime.view().generation, view.generation);
+    assert!(runtime.candidate_range(5, 0).candidates.is_empty());
+    assert_eq!(runtime.view().generation, view.generation);
+
+    // 和视图里同一座位的那一行是同一个身份、同一个候选。
+    assert_eq!(view.candidates.len(), 5);
+    for (ranged, shown) in first.candidates.iter().zip(&view.candidates) {
+        assert_eq!(ranged.id, shown.id);
+        assert_eq!(ranged.text, shown.text);
+    }
+}
+
+#[test]
+fn candidate_range_past_the_released_rows_releases_the_tail_in_a_new_generation() {
+    // 宿主把放出来的都建完了还要更多，才放出暂扣的尾部；座位可能重排，所以换一代，宿主据此从头取。
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let before = runtime.view().generation;
+    let more = runtime.candidate_range(12, 48);
+    assert!(more.generation > before);
+    assert_eq!(more.total, 20);
+    assert_eq!(more.candidates.len(), 8);
+    assert_eq!(more.candidates[0].id.index, 12);
+    assert_eq!(runtime.view().generation, more.generation);
+    // 没有可放的了：同一代、一行不给，宿主据此停止追加。
+    let exhausted = runtime.candidate_range(20, 48);
+    assert_eq!(exhausted.generation, more.generation);
+    assert_eq!(exhausted.total, 20);
+    assert!(exhausted.candidates.is_empty());
+    assert_eq!(
+        runtime.candidate_range(0, 48).candidates.len(),
+        runtime.all_candidates().candidates.len()
+    );
 }
 
 #[test]
@@ -9052,6 +9381,58 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
     assert_eq!(database_rows(directory.path()), before);
 }
 
+/// #10085：粤语双拼打 `sxcr` 后点「上」，经宿主点选候选同一条 `Action::Select` 路线上屏的是「上」，不是编码 `sx`；剩下的 `cr` 继续组字并给出「傳」。「粤语」自动识别和独立「粤语双拼」两个入口都走一遍。
+#[test]
+fn cantonese_shuangpin_tap_commits_the_word_and_keeps_the_rest_composing() {
+    for force in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-cantonese.db");
+        {
+            use msime_engine::language_dictionary::{
+                FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA,
+            };
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.execute_batch(SCHEMA).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO metadata VALUES (?1, ?2)",
+                    (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+                )
+                .unwrap();
+            connection
+                .execute_batch(
+                    "INSERT INTO syllables VALUES ('soeng'),('soek'),('cyun'),('cyut'),('cuk');\
+                     INSERT INTO entries VALUES ('soeng cyun','相傳',978),('soeng','上',9000),('soeng','相',5000),('soek','削',200),('cyun','傳',3000),('cuk','速',2000);",
+                )
+                .unwrap();
+        }
+        let mut options = real_engine_options(directory.path());
+        options.scheme = CANTONESE_SCHEME;
+        options.cantonese_dictionary = path.to_str().unwrap().to_owned();
+        options.force_cantonese_shuangpin = force;
+        let session = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+
+        let typed = compose_cantonese(&mut runtime, "sxcr");
+        assert_eq!(typed.view.editing_text, "sx cr", "force={force}");
+        assert_eq!(
+            texts(&typed.view),
+            ["相傳", "上", "相", "削"],
+            "force={force}"
+        );
+        let id = typed.view.candidates[1].id;
+        let picked = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(picked.commit.as_deref(), Some("上"), "force={force}");
+        assert_eq!(picked.view.editing_text, "cr", "force={force}");
+        assert_eq!(texts(&picked.view), ["傳", "速"], "force={force}");
+        let id = picked.view.candidates[0].id;
+        let rest = runtime.dispatch(Action::Select(id)).unwrap();
+        assert_eq!(rest.commit.as_deref(), Some("傳"), "force={force}");
+        assert_eq!(rest.view.editing_text, "", "force={force}");
+    }
+}
+
 /// The sentence model and the runner-up demotion reorder Chinese lattice readings; a Cantonese or Stroke list comes from its own dictionary in its own order, so neither touches it.
 #[test]
 fn cantonese_lists_are_never_reranked_or_demoted() {
@@ -10336,6 +10717,8 @@ mod parallel_order_allocations;
 mod static_evidence;
 
 mod rerank_declined;
+
+mod model_contests;
 
 mod settled_async;
 

@@ -5,6 +5,7 @@ import { AppEdition } from '../keyboard/AppEdition';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
 import { AccountSessionAdoption } from './AccountSessionAdoption';
+import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import {
   anonymousAccountRequest, clientAgentRequest, cloudClipboardDeviceName, replyError, replyValueText
 } from './HarmonyAccountRequests';
@@ -44,8 +45,11 @@ export class HarmonyAccountIdentity {
 
   /**
    * 本机匿名账号还没有可用的会话时注册它；已有会话时只读一次文件、不联网。先等本进程的会话镜像做完：另一边已经注册过的匿名账号要先采用过来，不然这里会再注册一个，用掉每个出口地址每天 5 次的额度。失败只记日志，下一次启动再试。
+   *
+   * 注册要联网，所以先等隐私政策的授权（`HarmonyPrivacyConsent`）：没同意就一直不注册；在本进程里同意以后接着注册。
    */
   static async ensureAnonymous(directory: string): Promise<void> {
+    await HarmonyPrivacyConsent.whenNetworkAllowed();
     await AccountSessionAdoption.beforeRequest();
     try {
       const reply: string = await client.ensureAnonymousAccountWithAgent(

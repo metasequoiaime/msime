@@ -19,15 +19,58 @@ an ability carrying `entity.system.home`: it is what the launcher draws.
 The packaged manifest is where the answer really lives — a `$media:` reference that does not resolve
 is dropped rather than failing the build — so this also checks the built `module.json` when one is
 there, which is where `iconId` appears.
+
+An Account Kit `client_id` that cannot work. Huawei ID sign-in reads the app's Client ID from a module-level `metadata` entry named `client_id` in this (entry) module whenever AppGallery Connect gives the app a Client ID different from its APP ID; the documented example value is `xxxxx`, the value must be written literally (no `$string:` reference), and a project Client ID in its place makes every call fail. The entry is optional, since an app whose Client ID equals its APP ID needs none, but when it is there it must be one module-level entry whose value is the decimal number AGC issues.
+
+An icon with transparent pixels. AppGallery review rejects a package whose configured icons carry any transparency (the published rule covers rounded corners cut into the image and transparent padding alike), and it sent the keyboard back once for pointing `KeyboardExtensionAbility` at the transparent `app_icon.png` the keyboard draws as an image. Every icon the manifests name must be a PNG without an alpha channel or `tRNS` chunk, or a layered icon whose background layer is one; the foreground layer of a layered icon is meant to be transparent around the mark.
 """
 import json
 import pathlib
 import re
+import struct
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "platforms/harmony/entry/src/main/module.json5"
 PACKAGED = ROOT / "platforms/harmony/entry/build/default/outputs/default"
+APP = ROOT / "platforms/harmony/AppScope/app.json5"
+MEDIA = (
+    ROOT / "platforms/harmony/AppScope/resources/base/media",
+    ROOT / "platforms/harmony/entry/src/main/resources/base/media",
+)
+
+
+def png_transparency(path: pathlib.Path) -> str | None:
+    """Why the PNG at `path` can hold transparent pixels, or None when it cannot: colour types 4 and 6 carry alpha, and a `tRNS` chunk makes chosen colours transparent."""
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return "is not a PNG"
+    if data[25] in (4, 6):
+        return "has an alpha channel"
+    offset = 8
+    while offset + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[offset : offset + 8])
+        if kind == b"tRNS":
+            return "has a tRNS chunk"
+        if kind == b"IDAT":
+            return None
+        offset += 12 + length
+    return None
+
+
+def icon_transparency(reference: str) -> str | None:
+    """Check the image a `$media:` icon reference names; a layered icon is judged by its background layer."""
+    name = reference.removeprefix("$media:")
+    for directory in MEDIA:
+        layered = directory / f"{name}.json"
+        if layered.is_file():
+            background = json.loads(layered.read_text(encoding="utf-8"))["layered-image"]["background"]
+            problem = icon_transparency(background)
+            return None if problem is None else f"background layer {background} {problem}"
+        image = directory / f"{name}.png"
+        if image.is_file():
+            return png_transparency(image)
+    return "names no PNG or layered icon in the base media folders"
 
 
 def without_comments(text: str) -> str:
@@ -70,6 +113,35 @@ def main() -> int:
         if home and not element.get("icon"):
             failures.append(f"{element['name']} is a launcher entry and declares no icon")
 
+    # Account Kit's client_id: optional, but a placeholder or a misplaced copy fails at sign-in rather than at build time.
+    client_ids = [entry for entry in module.get("metadata", []) if entry.get("name") == "client_id"]
+    if len(client_ids) > 1:
+        failures.append(f"client_id is declared {len(client_ids)} times in the module metadata; Account Kit reads one")
+    for entry in client_ids:
+        value = entry.get("value")
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,32}", value):
+            failures.append(
+                f"the Account Kit client_id metadata is {value!r}; write the app's Client ID from AppGallery "
+                f"Connect (General > App) literally, as the digits AGC issues, or remove the entry when it equals the APP ID"
+            )
+    for element in elements:
+        if any(entry.get("name") == "client_id" for entry in element.get("metadata", [])):
+            failures.append(
+                f"{element['name']} declares client_id in its own metadata; Account Kit reads it only at module level"
+            )
+
+    icons = [(element["name"], element["icon"]) for element in elements if element.get("icon")]
+    if APP.is_file():
+        app_icon = json.loads(without_comments(APP.read_text(encoding="utf-8")))["app"].get("icon")
+        if app_icon:
+            icons.append(("app.json5", app_icon))
+    for owner, reference in icons:
+        problem = icon_transparency(reference)
+        if problem is not None:
+            failures.append(
+                f"{owner} uses {reference}, which {problem}; AppGallery review rejects icons with transparent pixels"
+            )
+
     # The build is where a $media: reference is resolved, and an unresolved one is simply dropped.
     built = PACKAGED / "module.json"
     if not built.is_file():
@@ -90,7 +162,8 @@ def main() -> int:
         return 1
 
     named = ", ".join(sorted(by_name))
-    print(f"harmony manifest: {len(by_name)} elements, all launcher-facing ones named ({named})")
+    client_id = "set" if client_ids else "not set, so Account Kit uses the APP ID"
+    print(f"harmony manifest: {len(by_name)} elements, all launcher-facing ones named ({named}); Account Kit client_id {client_id}")
     return 0
 
 

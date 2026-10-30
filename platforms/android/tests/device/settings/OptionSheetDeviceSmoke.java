@@ -25,7 +25,7 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        return keyFeedback == null ? "animation selection follows saved value and option sheet footer stays above system navigation"
+        return keyFeedback == null ? "animation selection follows saved value, option sheet footer stays above system navigation and settings sheets open at full height"
             : "sound-only".equals(keyFeedback) ? "default key sound pack plays from the app even with system sound effects unloaded"
             : "nine-key preview lifecycle and immediate feedback preferences";
     }
@@ -76,6 +76,56 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
                     throw new AssertionError("Cancel row is covered by system navigation");
                 row.performClick();
                 if (dialog[0].isShowing()) throw new AssertionError("Cancel did not close sheet");
+            });
+        } finally {
+            runOnMainSync(() -> { dialog[0].dismiss(); activity.finish(); });
+        }
+        checkSettingsSheetOpensFullHeight();
+    }
+
+    /** 比折叠高度高、但放得下一屏的设置面板打开就是整个内容的高度，末尾的操作行不用拖就在导航栏上方（按钮顺序面板的「保存」曾被折叠高度藏到屏幕下面）。 */
+    @SuppressWarnings("deprecation")
+    private void checkSettingsSheetOpensFullHeight() throws Exception {
+        Activity activity = startActivitySync(new Intent().setClassName(getTargetContext(),
+            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.home.SettingsSheet");
+        Dialog[] dialog = new Dialog[1];
+        TextView[] last = new TextView[1];
+        stage = "show synthetic settings sheet taller than the collapsed height";
+        runCheckedOnMain(() -> {
+            try {
+                Object sheet = type.getConstructor(Context.class, String.class, String.class)
+                    .newInstance(activity, "合成设置面板", null);
+                Point display = new Point();
+                activity.getWindowManager().getDefaultDisplay().getRealSize(display);
+                // 13 行各占屏高的 1/20：内容高过 Material 的折叠高度（屏高减去屏宽的 9/16），又和标题一起放得下一屏。
+                for (int index = 0; index < 13; index++) {
+                    TextView row = new TextView(activity);
+                    row.setText(index == 12 ? "合成末行" : "合成行 " + index);
+                    row.setMinHeight(display.y / 20);
+                    type.getMethod("add", View.class).invoke(sheet, row);
+                    last[0] = row;
+                }
+                Field field = type.getDeclaredField("dialog");
+                field.setAccessible(true);
+                dialog[0] = (Dialog) field.get(sheet);
+                type.getMethod("show").invoke(sheet);
+            } catch (ReflectiveOperationException error) { throw new AssertionError("Synthetic settings sheet setup failed"); }
+        });
+        try {
+            SystemClock.sleep(800);
+            stage = "settings sheet last row fully above navigation without dragging";
+            runCheckedOnMain(() -> {
+                View decor = dialog[0].getWindow().getDecorView();
+                Point display = new Point();
+                activity.getWindowManager().getDefaultDisplay().getRealSize(display);
+                WindowInsets insets = decor.getRootWindowInsets();
+                int bottom = Build.VERSION.SDK_INT >= 30
+                    ? insets.getInsets(WindowInsets.Type.navigationBars()).bottom : insets.getStableInsetBottom();
+                int[] position = new int[2];
+                last[0].getLocationOnScreen(position);
+                if (!last[0].isShown() || position[1] < 0 || position[1] + last[0].getHeight() > display.y - bottom)
+                    throw new AssertionError("Settings sheet opened at the collapsed height; its last row is below the navigation bar");
             });
         } finally {
             runOnMainSync(() -> { dialog[0].dismiss(); activity.finish(); });

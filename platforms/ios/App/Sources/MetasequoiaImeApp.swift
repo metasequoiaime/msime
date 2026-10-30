@@ -77,7 +77,11 @@ struct MetasequoiaImeApp: App {
       #endif
     }
     .onChange(of: scenePhase) { _, phase in
+      // 词库同步只在 App 在前台时按 Rust 给的间隔定时，进了后台就停。
+      if phase == .background { DictionarySyncCenter.shared.onBackground() }
       guard phase == .active else { return }
+      // 打开 App 就是「打开设置应用」：以 `opened` 同步一次，没有配置网盘时什么也不做。
+      DictionarySyncCenter.shared.onActive()
       OnboardingChoices.shared.sync()
       // 「水杉四季」跟随月份，所以启动或从后台返回时会重新解析季节；季节变化时发出 `AppThemePalette.didChange`。
       AppThemePalette.refresh()
@@ -323,7 +327,7 @@ private struct MainTabView: View {
         openVoiceSession()
         return
       }
-      // 链接指名了设置页时先把设置栈重建回根页面：切走标签页时那条栈原样保留，同一页面已经开着时写入相同的值不会触发导航，用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。
+      // 链接指名了设置页时先回到设置根页面：切走标签页时那条栈原样保留，不回根页面用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。手机上由设置根页面消费请求时自己弹栈（`SettingsView.consumeRequestedPage`），这里只收起 AI 对话、重建 iPad 的分栏。
       if SettingsRouter.settingsPage(in: url) != nil {
         navigation.settingsRoot = UUID()
         navigation.settingsChat = false
@@ -332,12 +336,12 @@ private struct MainTabView: View {
       if url.host == "voice" { navigation.recordsVoice = true }
     }
     .sheet(isPresented: $navigation.recordsVoice) {
-      NavigationView {
+      NavigationStack {
         ServiceSettingsView(kind: .voice, autoStartVoice: true)
           .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
           }
-      }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+      }.tint(MetasequoiaTheme.accent)
     }
     // 全屏而不是 sheet：左上角要留给指向系统「◀︎ 返回」的气泡，页面自己带「完成」。
     .fullScreenCover(isPresented: $navigation.opensVoiceSession) { VoiceSessionView() }
@@ -362,16 +366,16 @@ private struct MainTabView: View {
   // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
   @ViewBuilder private var settingsTab: some View {
     if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular {
-      TabletSettingsView().id(navigation.settingsRoot)
+      // 侧栏没有手机那条推入的栈可以按状态收起，重选时仍整体重建，与深链接一样。
+      TabletSettingsView().id(navigation.settingsRoot).id(navigation.settingsReselection)
     }
     else {
       NavigationStack {
-        SettingsView(navigationRoot: navigation.settingsRoot)
+        SettingsView()
           .navigationDestination(isPresented: $navigation.settingsChat) {
             KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
           }
       }
-      .id(navigation.settingsRoot)
     }
   }
 }

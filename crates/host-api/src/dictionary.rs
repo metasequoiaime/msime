@@ -89,17 +89,18 @@ impl Entry {
         self
     }
 
-    /// The entry as the Engine will store it: the code lowercased, and a weight inside the range
-    /// it accepts.
+    /// A new entry as the Engine will store it: the code lowercased, and a weight inside the range it accepts.
     ///
-    /// Both are the Engine's rules (`validate_personal_dictionary_entry`), applied here so a value
-    /// this layer would otherwise hand on and have refused - with an error naming neither the
-    /// field nor the reason - becomes the entry the user meant. A weight of zero is the one the
-    /// reference writes for an imported English row, and losing the row over a rank difference of
-    /// one would be the worse trade.
-    fn normalized_for_engine(mut self) -> Self {
+    /// Both are the Engine's rules (`validate_personal_dictionary_entry`), applied here so a value this layer would otherwise hand on and have refused - with an error naming neither the field nor the reason - becomes the entry the user meant. A weight of zero is the one the reference writes for an imported English row, and losing the row over a rank difference of one would be the worse trade.
+    fn normalized_for_engine(self) -> Self {
+        let mut entry = self.with_folded_code();
+        entry.weight = entry.weight.max(MINIMUM_WEIGHT);
+        entry
+    }
+
+    /// A stored row as the Engine looks it up: only the code is folded, as the Engine folds it. The weight is matched exactly, and 0 is one a stored row can carry (a wubi word derived from the user's pinyin word ranks below the rows already on its code), so lifting it to the new-entry floor would name a row that is not there.
+    fn with_folded_code(mut self) -> Self {
         self.key = self.key.to_ascii_lowercase();
-        self.weight = self.weight.max(MINIMUM_WEIGHT);
         self
     }
 
@@ -126,7 +127,7 @@ impl Entry {
     }
 }
 
-/// The smallest weight the Engine stores; anything below it is refused outright.
+/// The smallest weight a new entry is stored at; a new entry below it is refused outright. A stored row may still carry 0 (`validate_previous_entry`).
 const MINIMUM_WEIGHT: i64 = 1;
 
 impl From<Entry> for DictionaryEntry {
@@ -680,6 +681,37 @@ fn read_only_options(resources: &str) -> Result<HostOptions, String> {
 /// The personal dictionary queue takes at most this many words per import.
 const MAX_QUEUED_IMPORT: usize = 128;
 
+/// 设置页导入一次交给 Engine 的行数，与 `msime_engine::host::dictionary_edit_batch` 的上限（`MAX_EDIT_BATCH`）相同。
+const IMPORT_EDIT_BATCH: usize = 128;
+
+/// 在一个事务里写入一块导入行，逐行返回是否写入（重复导入命中回执也算写入）。单行被拒由保存点隔离，不影响同块其他行；整块没能提交时（例如触发器 `RAISE(ROLLBACK)` 撤销了外层事务）这一块退回逐行写入，让一行异常只拒掉它自己，和分批之前一样。
+fn import_chunk(
+    options: &msime_engine::host::EngineOptions,
+    entries: &[DictionaryEntry],
+    receipts: &[String],
+) -> Vec<bool> {
+    let edits: Vec<_> = entries
+        .iter()
+        .zip(receipts)
+        .map(|(entry, receipt)| msime_engine::host::DictionaryEdit {
+            previous: None,
+            replacement: Some(entry),
+            request_id: receipt,
+            preserve_existing: false,
+        })
+        .collect();
+    match msime_engine::host::dictionary_edit_batch(options, &edits) {
+        Ok(outcomes) => outcomes.iter().map(Result::is_ok).collect(),
+        Err(_) => entries
+            .iter()
+            .zip(receipts)
+            .map(|(entry, receipt)| {
+                msime_engine::host::dictionary_edit(options, None, Some(entry), receipt).is_ok()
+            })
+            .collect(),
+    }
+}
+
 /// A dictionary file as the words the mobile queue accepts, and the import report the settings page shows for it.
 ///
 /// The queue refuses a whole batch for one invalid or repeated word, or for more than 128, where the desktop import applies what it can and names the rest. So rows the Engine would refuse are counted with their line, a repeated word is queued once, and rows past the queue's capacity are reported as truncated: a real file imports on a phone the way it does on a desktop.
@@ -871,7 +903,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             // typed as `QQ` came back as "invalid dictionary entry" while the very same code
             // typed in lower case was fine - and an entry edited after being imported from a file
             // that had it in upper case could never be matched to the row it stored.
-            let previous = previous.map(Entry::normalized_for_engine);
+            let previous = previous.map(Entry::with_folded_code);
             if let Some(entry) = &previous {
                 validate_previous_entry(entry)?;
             }
@@ -928,18 +960,24 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                     lines
                 })
                 .unwrap_or_default();
-            for (index, entry) in entries.iter().enumerate() {
-                let receipt = format!("{request_id}-{index}");
-                // The batch already owns the maintenance lock; call the Engine directly.
-                let result =
-                    msime_engine::host::dictionary_edit(&options, None, Some(entry), &receipt);
-                if result.is_err() {
-                    // A hans import has no parsed report, so its rows have no
-                    // line to name; they are still counted.
-                    rejected_lines.push(source_lines.get(index).copied().unwrap_or(0));
-                    continue;
+            let receipts: Vec<String> = (0..entries.len())
+                .map(|index| format!("{request_id}-{index}"))
+                .collect();
+            // 已持有维护锁，直接调 Engine。按 Engine 的批量上限分块，每块只开一次库、提交一次事务；逐行开库提交时一个请求的 1000 行在慢盘上会超过输入法让出词库的 30 秒租约（#9918）。
+            for (chunk, (rows, ids)) in entries
+                .chunks(IMPORT_EDIT_BATCH)
+                .zip(receipts.chunks(IMPORT_EDIT_BATCH))
+                .enumerate()
+            {
+                let start = chunk * IMPORT_EDIT_BATCH;
+                for (offset, written) in import_chunk(&options, rows, ids).into_iter().enumerate() {
+                    if !written {
+                        // A hans import has no parsed report, so its rows have no line to name; they are still counted.
+                        rejected_lines.push(source_lines.get(start + offset).copied().unwrap_or(0));
+                        continue;
+                    }
+                    applied += 1;
                 }
-                applied += 1;
             }
             // Nothing landed and the Engine refused everything: that is a
             // failed import, not a partial one, and the caller should say so.
@@ -976,9 +1014,35 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             )
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
+            // 本地备份恢复排下、还没合并的输入记录和输入习惯先删掉，否则键盘空闲时会把清除前的学习并回来。放在重置之前：删不掉时什么也还没清，报错重试即可。
+            if let Some(directory) = preferences_directory.as_deref() {
+                crate::dictionary_snapshot::discard_pending_learning(Path::new(directory))
+                    .map_err(|_| "learned-data reset rejected")?;
+            }
             msime_engine::host::reset_learned_data(&options)
                 .map_err(|_| "learned-data reset rejected")?;
-            Ok(json!({ "reset": true }))
+            // 命名词库的词经个人词库队列写进用户词库，重置把它们一起清掉了，集合却还写着启用。还拿着维护租约时把已启用集合的词重新排进待发送队列，宿主随后照常送出（Android 设置页紧接着 `synchronize`）。没给偏好目录的宿主（桌面）没有命名词库，不排。重置已经做完，这一步失败时不报整个请求失败（宿主会以为什么都没清、不打云同步标记），而是照样回答 `reset:true`，`collections_requeued` 为 null 并带上 `collections_error`，由宿主告诉用户已添加词库的词没能写回。
+            let requeued = match preferences_directory.as_deref() {
+                Some(directory) => {
+                    msime_client_services::dictionary::collections::DictionaryCollectionsStore::new(
+                        directory,
+                        PersonalDictionaryStore::new(
+                            Path::new(directory).join("PersonalDictionary"),
+                        ),
+                    )
+                    .requeue_enabled_after_reset()
+                    .map(|view| view.queued.unwrap_or(0))
+                }
+                None => Ok(0),
+            };
+            Ok(match requeued {
+                Ok(requeued) => json!({ "reset": true, "collections_requeued": requeued }),
+                Err(_) => json!({
+                    "reset": true,
+                    "collections_requeued": null,
+                    "collections_error": "learned-data reset collections unavailable",
+                }),
+            })
         }
         Operation::Export {
             kind,
@@ -1282,7 +1346,7 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             replacement,
             request_id,
         } => {
-            let previous = previous.map(personal_from_entry).transpose()?;
+            let previous = previous.map(personal_from_stored_entry).transpose()?;
             let replacement = replacement.map(personal_from_entry).transpose()?;
             store
                 .enqueue(previous, replacement, request_id)
@@ -1500,7 +1564,7 @@ fn user_entries_page(
 
 /// 分批把队列应用到 Engine。整批先申请独占维护租约；词库忙碌时不修改队列，调用方稍后重试。
 ///
-/// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
+/// 请求直接使用宿主传给 `msime_client_create` 的 HostOptions，与 C 头文件及 Android、HarmonyOS 的调用一致。
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
@@ -1525,14 +1589,24 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
     // 整个有界同步期间都持有维护租约。活动会话时保留 Pending，让调用方在会话销毁后重试。
-    let _access = DictionaryAccess::try_maintenance(
+    let access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
     )
     .map_err(|_| "dictionary access unavailable")?
     .ok_or("dictionary maintenance busy")?;
+    personal_dictionary_sync_with_access(&options, &store, &access)
+}
+
+/// 调用方持有本批维护租约，个人队列与集合应用之间不能释放再争抢。
+fn personal_dictionary_sync_with_access(
+    options: &msime_engine::host::EngineOptions,
+    store: &PersonalDictionaryStore,
+    _access: &DictionaryAccess,
+) -> Result<serde_json::Value, String> {
+    let mut applied_count = 0usize;
     store
-        .synchronize_batch_reporting_present(
+        .synchronize_batch_reporting_present_with_source(
             |requests| {
                 let entries: Vec<_> = requests
                     .iter()
@@ -1548,7 +1622,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                 for (index, queued) in requests.iter().enumerate() {
                     let (previous, replacement) = &entries[index];
                     let result = crate::validate_personal_dictionary_edit(
-                        &options,
+                        options,
                         previous.as_ref(),
                         replacement.as_ref(),
                         &queued.id,
@@ -1571,13 +1645,14 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                             .starts_with(COLLECTION_REQUEST_PREFIX),
                     })
                     .collect();
-                let applied = msime_engine::host::dictionary_edit_batch(&options, &edits)
+                let applied = msime_engine::host::dictionary_edit_batch(options, &edits)
                     .map_err(|_| "dictionary batch was not committed".to_owned())?;
                 for (index, result) in edit_indexes.into_iter().zip(applied) {
                     outcomes[index] = Some(
                         result
                             .map(|outcome| match outcome {
                                 msime_engine::host::DictionaryApplied::Written => {
+                                    applied_count += 1;
                                     PersonalWordApplied::Written
                                 }
                                 msime_engine::host::DictionaryApplied::AlreadyPresent => {
@@ -1594,9 +1669,11 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                     })
                     .collect()
             },
+            // 队列空、宿主没要新页时，日志的戳没动就沿用上次那一页，聚焦时不必再扫日志、重写 sync.json。
+            || msime_engine::host::dictionary_entries_source(options),
             |request| {
                 let (entries, has_more) = user_entries_page(
-                    &options,
+                    options,
                     request.offset,
                     100,
                     request.kind.map(personal_to_kind),
@@ -1622,6 +1699,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     let state = store.read().map_err(personal_dictionary_error)?;
     Ok(json!({
         "synchronized": true,
+        "applied_count": applied_count,
         "pending_count": state.pending_count(),
         "failed_count": state.requests.iter().filter(|request| request.status == PersonalWordRequestStatus::Failed).count(),
         "snapshot_error": state.snapshot_error,
@@ -1631,10 +1709,25 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
 /// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
 
-/// 同一有界调用内复用集合状态；个人同步每批独立取得并释放维护租约。
+/// 同一有界调用内复用集合状态；每批以同一维护租约覆盖个人队列和集合，批间释放。
 pub(crate) fn synchronize_collections_with_budget(
     options: &HostOptions,
     budget: std::time::Duration,
+) -> Result<serde_json::Value, String> {
+    let engine_options = options.clone().into_engine_options();
+    synchronize_collections_with_access(options, budget, || {
+        DictionaryAccess::try_maintenance(
+            Path::new(&engine_options.user_data),
+            Path::new(&engine_options.dictionaries),
+        )
+        .map_err(|_| "dictionary access unavailable".to_owned())
+    })
+}
+
+fn synchronize_collections_with_access(
+    options: &HostOptions,
+    budget: std::time::Duration,
+    mut maintenance: impl FnMut() -> Result<Option<DictionaryAccess>, String>,
 ) -> Result<serde_json::Value, String> {
     let directory = options
         .preferences_directory
@@ -1651,18 +1744,19 @@ pub(crate) fn synchronize_collections_with_budget(
     let mut flushing = collections
         .begin_flush()
         .map_err(|error| error.code().to_owned())?;
-    let bytes = serde_json::to_vec(options).map_err(|_| "invalid dictionary request")?;
     let engine_options = options.clone().into_engine_options();
     let mut previous = usize::MAX;
+    let mut applied_count = 0u64;
+    let mut total_sent = 0usize;
+    let mut progress = None;
     loop {
-        // 先成功申请维护租约并应用个人队列，繁忙时不得提前推进集合待发项。
-        let mut synchronized = personal_dictionary_sync_json(&bytes)?;
-        let access = DictionaryAccess::try_maintenance(
-            Path::new(&engine_options.user_data),
-            Path::new(&engine_options.dictionaries),
-        )
-        .map_err(|_| "dictionary access unavailable")?
-        .ok_or("dictionary maintenance busy")?;
+        // 每批只申请一次租约；后批被会话抢先占用时，保留前批已确认的数量和待处理项。
+        let Some(access) = maintenance()? else {
+            return progress.ok_or_else(|| "dictionary maintenance busy".to_owned());
+        };
+        let mut synchronized =
+            personal_dictionary_sync_with_access(&engine_options, &personal, &access)?;
+        applied_count += synchronized["applied_count"].as_u64().unwrap_or(0);
         let view = if budget.is_zero() {
             flushing.flush()
         } else {
@@ -1674,17 +1768,20 @@ pub(crate) fn synchronize_collections_with_budget(
         let state = personal.read().map_err(personal_dictionary_error)?;
         let pending = state.pending_count().saturating_add(view.outbox_pending);
         let sent = view.sent.unwrap_or(0);
+        total_sent = total_sent.saturating_add(sent);
+        synchronized["applied_count"] = json!(applied_count);
         synchronized["pending_count"] = json!(pending);
         synchronized["failed_count"] = json!(state
             .requests
             .iter()
             .filter(|request| request.status == PersonalWordRequestStatus::Failed)
             .count());
-        synchronized["sent"] = json!(sent);
+        synchronized["sent"] = json!(total_sent);
         if pending == 0 || started.elapsed() >= budget || (sent == 0 && pending >= previous) {
             return Ok(synchronized);
         }
         previous = pending;
+        progress = Some(synchronized);
     }
 }
 
@@ -1785,6 +1882,27 @@ fn personal_from_entry(entry: Entry) -> Result<PersonalWord, String> {
     }
     normalize_personal_word(PersonalWord {
         kind: personal_kind(entry.kind.into()),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    })
+}
+
+/// The row a queued edit or removal starts from. It is one the list returned, so it is normalized by the Engine's rules for a stored row (`dictionary_validate_previous`): its weight may be 0 or past the new-entry ceiling, and refusing it here left such a row impossible to remove through the queue.
+fn personal_from_stored_entry(entry: Entry) -> Result<PersonalWord, String> {
+    if entry.is_bundled() {
+        return Err(BUNDLED_READ_ONLY.into());
+    }
+    let word = PersonalWord {
+        kind: personal_kind(entry.kind.into()),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    };
+    let entry = msime_engine::host::dictionary_validate_previous(&personal_engine_entry(&word))
+        .map_err(|_| "invalid personal dictionary entry".to_owned())?;
+    Ok(PersonalWord {
+        kind: personal_kind(entry.kind),
         key: entry.key,
         value: entry.value,
         weight: entry.weight,
@@ -1911,15 +2029,18 @@ fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
 
 /// The host's bounds on an entry, each refusal naming the rule it broke. The reasons are fixed text and never repeat the entry.
 fn validate_entry(entry: &Entry) -> Result<(), String> {
-    validate_entry_up_to(entry, 100_000_000)
+    validate_entry_within(entry, MINIMUM_WEIGHT..=100_000_000)
 }
 
-/// The row an edit or removal starts from. It is one the list returned and has to reach the Engine exactly as stored, and English frequency learning lifts a user's own word past 100000000 without a ceiling, so only the floor applies to its weight; otherwise that word could never be edited or removed.
+/// The row an edit or removal starts from. It is one the list returned and has to reach the Engine exactly as stored, so its weight is held only to what the store can hold: English frequency learning lifts a user's own word past 100000000 without a ceiling, and a derived wubi word can sit at 0. Holding it to the new-entry range left those rows impossible to edit or remove.
 fn validate_previous_entry(entry: &Entry) -> Result<(), String> {
-    validate_entry_up_to(entry, i64::MAX)
+    validate_entry_within(entry, 0..=i64::MAX)
 }
 
-fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
+fn validate_entry_within(
+    entry: &Entry,
+    weights: std::ops::RangeInclusive<i64>,
+) -> Result<(), String> {
     let key_limit = match entry.kind {
         Kind::Pinyin => 512,
         Kind::Wubi | Kind::Wubi98 => 4,
@@ -1955,7 +2076,7 @@ fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
         "word is empty or too long"
     } else if value_has_invalid_control {
         "word contains a control character"
-    } else if !(1..=max_weight).contains(&entry.weight) {
+    } else if !weights.contains(&entry.weight) {
         "weight is outside 1 to 100000000"
     } else {
         return Ok(());
@@ -2689,8 +2810,11 @@ pub fn lookup_candidates(
     .ok_or("dictionary maintenance busy")?;
     let session =
         msime_engine::host::Session::new(&options).map_err(|_| "cannot open the dictionaries")?;
+    // 每页候选数用会话选项里那一份（用户偏好的每页候选数，`into_engine_options` 已经交给引擎作首屏门槛）：runtime 建立时会把自己的每页候选数交给引擎，两边要是同一个数，查到的才是用户打这串键时看到的那张表。
+    let page_size =
+        u8::try_from(options.first_page_rows).map_err(|_| "invalid candidate page size")?;
     let mut runtime =
-        msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
+        msime_input_runtime::Runtime::new(session, page_size).map_err(|error| error.to_string())?;
     // An unfocused runtime drops every keystroke.
     runtime.focus(true).map_err(|error| error.to_string())?;
     // 五笔四码唯一时，第四键直接上屏（`input-runtime` 的自动上屏），之后候选列表是空的。这时上屏的那个词就是这串编码给出的唯一候选，要照样报告。`committed` 只留最后一键的上屏，连同它的编码从哪一键开始。

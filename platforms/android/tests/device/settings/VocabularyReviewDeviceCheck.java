@@ -51,10 +51,36 @@ final class VocabularyReviewDeviceCheck {
             test.stage = "answer a card";
             String word = queue.getJSONObject(0).getString("word");
             JSONObject answered = call(state, resources, new JSONObject().put("operation", "answer")
-                .put("word", word).put("known", true));
+                .put("wordbook", "cet4").put("word", word).put("known", true));
             require(answered.getInt("answeredToday") == 1, "作答后「已完成」不是 1");
             // 答「认识」的新词排到以后的某一天，今天的队列少一张。
             require(answered.getJSONArray("queue").length() == queue.length() - 1, "作答后队列没有少一张");
+
+            test.stage = "old card answers its source book";
+            JSONObject first = call(state, resources, new JSONObject().put("operation", "import")
+                .put("name", "合成词书甲").put("text", "alpha,合成释义甲\n"));
+            String firstId = first.getJSONObject("settings").getString("wordbook");
+            JSONObject second = call(state, resources, new JSONObject().put("operation", "import")
+                .put("name", "合成词书乙").put("text", "alpha,合成释义乙\n"));
+            String secondId = second.getJSONObject("settings").getString("wordbook");
+            require(!rawCall(state, resources, new JSONObject().put("operation", "answer")
+                .put("word", "alpha").put("known", true)).optBoolean("ok", true), "缺来源的作答被接受");
+            JSONObject oldAnswer = call(state, resources, new JSONObject().put("operation", "answer")
+                .put("wordbook", firstId).put("word", "alpha").put("known", true));
+            require(secondId.equals(oldAnswer.getJSONObject("settings").getString("wordbook")), "旧卡作答改了全局选择");
+            require(oldAnswer.getJSONArray("queue").getJSONObject(0).getString("meaning").equals("合成释义乙"), "乙书进度被旧卡消耗");
+            require(oldAnswer.getInt("answeredToday") == 2, "旧卡作答没有只计一次");
+            JSONObject original = call(state, resources, new JSONObject().put("operation", "set_settings")
+                .put("wordbook", firstId).put("new_per_day", 20).put("session_limit", 200));
+            require(original.getJSONArray("queue").length() == 0, "旧卡没有记回甲书");
+            call(state, resources, new JSONObject().put("operation", "remove").put("wordbook", firstId));
+            call(state, resources, new JSONObject().put("operation", "set_settings")
+                .put("wordbook", secondId).put("new_per_day", 20).put("session_limit", 200));
+            require(!rawCall(state, resources, new JSONObject().put("operation", "answer")
+                .put("wordbook", firstId).put("word", "alpha").put("known", true)).optBoolean("ok", true), "已删书的旧卡被接受");
+            JSONObject unchanged = call(state, resources, new JSONObject().put("operation", "load"));
+            require(unchanged.getInt("answeredToday") == 2 && unchanged.getJSONArray("queue").length() == 1,
+                "拒绝旧卡后乙书或每日计数改变");
 
             test.stage = "bundled book is not removable";
             require(!rawCall(state, resources, new JSONObject().put("operation", "remove").put("wordbook", "cet4"))

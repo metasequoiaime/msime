@@ -1,12 +1,16 @@
 //! Journal connections, schema and the row primitives every writer builds on (user-dictionary.md §2-§4).
 //!
-//! Connections are kept per thread and per path, because `apply_fixed_positions` reads the journal while every candidate list is built and an open plus schema pass per keystroke dominated that build in the reference (J:402-412). A connection has one transaction state, so it is never shared across threads. A thread keeps one journal open at a time: switching to another path releases the previous connection first, so a thread never holds two journal files open (J:459-461). `close_cached_journals` drops them all (by generation) before a directory is replaced.
+//! Connections are kept per thread and per path, because `apply_fixed_positions` reads the journal while every candidate list is built and an open plus schema pass per keystroke dominated that build in the reference (J:402-412). A connection has one transaction state, so it is never shared across threads. A thread keeps one journal open at a time: switching to another path releases the previous connection first, so a thread never holds two journal files open (J:459-461).
+//!
+//! While no operation of its thread uses it, a thread's connection is parked in a list every thread can reach, so `close_cached_journals` (before a directory is replaced) and the end of the last session on a journal close it from whichever thread runs them, not only the caller's own. A connection an operation still holds closes when that operation ends.
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -59,6 +63,17 @@ CREATE TABLE IF NOT EXISTS pinyin_autocorrect_suppressions(\
 input TEXT PRIMARY KEY,\
 commits INTEGER NOT NULL CHECK(commits >= 1),\
 updated_at INTEGER NOT NULL DEFAULT(unixepoch()));\
+CREATE TABLE IF NOT EXISTS shuangpin_typo_counts(\
+profile TEXT NOT NULL,typed TEXT NOT NULL,intended TEXT NOT NULL,\
+accepted INTEGER NOT NULL DEFAULT 0 CHECK(accepted BETWEEN 0 AND 1000),\
+rejected INTEGER NOT NULL DEFAULT 0 CHECK(rejected BETWEEN 0 AND 1000),\
+updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
+PRIMARY KEY(profile,typed,intended));\
+CREATE TABLE IF NOT EXISTS shuangpin_autocorrect_suppressions(\
+profile TEXT NOT NULL,input TEXT NOT NULL,\
+commits INTEGER NOT NULL CHECK(commits >= 1),\
+updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
+PRIMARY KEY(profile,input));\
 CREATE TABLE IF NOT EXISTS pinned_candidates(\
 context_key TEXT PRIMARY KEY,\
 value TEXT NOT NULL,\
@@ -86,40 +101,154 @@ pub(crate) fn tombstone_sql(schema: &str) -> String {
     format!("INSERT INTO {schema}.user_dictionary_operations(dictionary,key,value,operation) VALUES(?1,?2,?3,'delete') ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='', updated_at=unixepoch()")
 }
 
-/// Bumped by `close_cached_journals`; every thread drops its cached connection the next time it sees a newer value.
+/// Bumped by `close_cached_journals`; a connection opened under an older value closes when its operation ends instead of being kept.
 static CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-struct CachedJournal {
+/// The idle connections, at most one per thread, each tagged with its thread's `ThreadJournal::id`. A thread's entry goes when the thread exits. A plain list rather than a slot per thread: parking and taking back then allocate nothing once the list has grown to the number of threads.
+static PARKED_JOURNALS: Mutex<Vec<ParkedJournal>> = Mutex::new(Vec::new());
+
+/// Held by whoever takes connections out of `PARKED_JOURNALS` to close them, from taking them out until they have closed (`close_parked`). The list's lock is released before closing, and closing the last connection to a WAL journal checkpoints; without this a close that found a connection already taken out by another close, a thread exiting or a thread releasing its own would return while that connection is still open, and a reset or quarantine would rename or replace a journal that is still open. Never taken where a thread parks a connection or takes it back for use.
+static CLOSING_JOURNALS: Mutex<()> = Mutex::new(());
+
+/// Free entries `JournalUse::new` keeps in `PARKED_JOURNALS`: a session is normally used from one or two threads.
+const PARKING_HEADROOM: usize = 4;
+
+/// Source of `ThreadJournal::id`.
+static NEXT_THREAD: AtomicU64 = AtomicU64::new(0);
+
+/// How many live sessions use each journal (`JournalUse`); the last one to end closes every thread's idle connection to it.
+static JOURNAL_USERS: LazyLock<Mutex<HashMap<PathBuf, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// A thread's connection while no operation of that thread holds it. `Connection` is `Send`, so another thread may take it out and close it.
+struct ParkedJournal {
+    thread: u64,
     path: PathBuf,
     generation: u64,
-    connection: Rc<Connection>,
+    connection: Connection,
+}
+
+/// This thread's journal state.
+struct ThreadJournal {
+    id: u64,
+    /// The connection while operations of this thread hold it, empty while it is parked. Allocated once per thread: moving the connection between here and `PARKED_JOURNALS` costs no allocation on the keystroke path.
+    active: Rc<OnceCell<Connection>>,
+    active_path: PathBuf,
+    /// The generation `active` was opened or taken back under; `None` once `release_thread_journal` asked for it to close when its operation ends.
+    active_generation: Option<u64>,
+}
+
+impl ThreadJournal {
+    fn new() -> ThreadJournal {
+        ThreadJournal {
+            id: NEXT_THREAD.fetch_add(1, Ordering::Relaxed),
+            active: Rc::new(OnceCell::new()),
+            active_path: PathBuf::new(),
+            active_generation: None,
+        }
+    }
+
+    /// Takes this thread's parked connection back for an operation when it is to `path` and was parked under `generation`. A parked connection that is not closes here, before the caller opens another, so a thread never holds two journal files open.
+    fn take_back(&self, path: &Path, generation: u64) -> Option<ParkedJournal> {
+        {
+            let mut parked = lock(&PARKED_JOURNALS);
+            let index = parked.iter().position(|entry| entry.thread == self.id)?;
+            let entry = &parked[index];
+            if entry.generation == generation && entry.path == path {
+                return Some(parked.swap_remove(index));
+            }
+        }
+        self.close_parked();
+        None
+    }
+
+    /// Closes this thread's parked connection, if it has one.
+    fn close_parked(&self) {
+        close_parked(|entry| entry.thread == self.id);
+    }
+}
+
+impl Drop for ThreadJournal {
+    /// The thread is exiting: its idle connection closes with it.
+    fn drop(&mut self) {
+        self.close_parked();
+    }
 }
 
 thread_local! {
-    static CACHED_JOURNAL: RefCell<Option<CachedJournal>> = const { RefCell::new(None) };
+    static THREAD_JOURNAL: RefCell<Option<ThreadJournal>> = const { RefCell::new(None) };
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    // A panic while the list was locked leaves each entry whole: a push or removal either happened or did not.
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A journal connection with the v4 schema applied. Dropping it inside an open transaction rolls the transaction back, so an early return can never leave the cached connection holding the write lock (J:478-486).
 ///
 /// The connection is shared with every other `JournalConnection` of this thread and path, so a caller must not open the journal again while it has a transaction open: the inner handle's drop would end the outer transaction.
 pub struct JournalConnection {
-    connection: Rc<Connection>,
+    /// Always `Some` until `drop` takes it; the cell is never emptied while a handle exists, because emptying it needs the only reference.
+    connection: Option<Rc<OnceCell<Connection>>>,
+}
+
+impl JournalConnection {
+    fn shared(connection: &Rc<OnceCell<Connection>>) -> JournalConnection {
+        JournalConnection {
+            connection: Some(Rc::clone(connection)),
+        }
+    }
 }
 
 impl Deref for JournalConnection {
     type Target = Connection;
 
     fn deref(&self) -> &Connection {
-        &self.connection
+        self.connection
+            .as_deref()
+            .and_then(OnceCell::get)
+            .expect("a journal handle keeps its connection until it drops")
     }
 }
 
 impl Drop for JournalConnection {
     fn drop(&mut self) {
-        if !self.connection.is_autocommit() {
-            // A cached connection outlives the call, so an abandoned transaction would keep its write lock and fail every later operation. A failed ROLLBACK leaves nothing further to undo here: the connection is either already out of the transaction or unusable.
-            let _ = self.connection.execute_batch("ROLLBACK");
+        let Some(connection) = self.connection.take() else {
+            return;
+        };
+        if let Some(open) = connection.get() {
+            if !open.is_autocommit() {
+                // A cached connection outlives the call, so an abandoned transaction would keep its write lock and fail every later operation. A failed ROLLBACK leaves nothing further to undo here: the connection is either already out of the transaction or unusable.
+                let _ = open.execute_batch("ROLLBACK");
+            }
         }
+        // The last handle of this thread's connection parks it. At thread exit the state may already be gone, and the handle's own reference closes the connection.
+        let _ = THREAD_JOURNAL.try_with(move |journal| {
+            let mut journal = journal.borrow_mut();
+            let Some(journal) = journal.as_mut() else {
+                return;
+            };
+            if !Rc::ptr_eq(&connection, &journal.active) {
+                // A connection of its own, opened while one to another journal was in use: it closes here.
+                return;
+            }
+            drop(connection);
+            // Another handle of this thread still uses it.
+            let Some(open) = Rc::get_mut(&mut journal.active).and_then(OnceCell::take) else {
+                return;
+            };
+            // Read under the list's lock: `close_cached_journals` bumps the generation before it empties the list, so a connection parked here is either seen as stale now or taken out by that close.
+            let mut parked = lock(&PARKED_JOURNALS);
+            let generation = CACHE_GENERATION.load(Ordering::Acquire);
+            if journal.active_generation == Some(generation) {
+                parked.push(ParkedJournal {
+                    thread: journal.id,
+                    path: std::mem::take(&mut journal.active_path),
+                    generation,
+                    connection: open,
+                });
+            }
+        });
     }
 }
 
@@ -141,6 +270,51 @@ pub(crate) fn open_database(path: &Path, flags: OpenFlags) -> Result<Connection>
     )?;
     connection.busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))?;
     Ok(connection)
+}
+
+/// 检查点以后 `-wal` 截回的大小（4 MiB），与 SQLite 默认的自动检查点（1000 页）在 4 KiB 页上的大小相同。写成字面量而不是 `format!` 拼出来：首次打开日志常发生在选词提交的路径上，那里有分配次数预算。
+#[cfg(not(target_os = "ios"))]
+const WAL_SIZE_LIMIT_PRAGMA: &str = "PRAGMA journal_size_limit=4194304";
+
+/// 让日志连接用 WAL、`synchronous=NORMAL` 提交。默认的回滚日志加 `synchronous=FULL` 每次提交都要建 `-journal`、fsync 两三次再删掉它；选词计数、调频、选词转移和整句联想都在输入线程上同步提交，低端机的 eMMC 上一次 fsync 就是几到几十毫秒，选非首位候选时整个键盘随之卡顿。WAL 下一次提交只是往 `-wal` 末尾追加，NORMAL 只在检查点时 fsync；断电最多丢掉最后几次学习，不会损坏数据库，学习数据可以接受。
+///
+/// WAL 写进文件头、对之后所有连接生效，`synchronous` 却按连接算，所以长期持有的写连接（每线程缓存的日志连接、整句联想的写线程）各自调一次。切换要短暂独占数据库：别的进程正占着回滚日志的锁、或文件系统不支持 WAL 的共享内存（网络盘）时 SQLite 留在原来的模式，这里照常使用；只有真的进了 WAL 才降到 NORMAL，回滚日志配 NORMAL 断电时可能损坏数据库。
+///
+/// iOS 不切换。键盘扩展和 App 在 App Group 容器里共用日志，WAL 的连接在整个生命周期里都对 `-shm` 持有一把共享锁；挂起时还持有 App Group 里的文件锁会被系统按 `0xdead10cc` 杀掉。会话收起时会释放本线程的日志连接，但整句联想的写线程和其他线程缓存的连接要等下一次访问或 `close_cached_journals` 才关，回滚日志在两次事务之间不持锁，换成 WAL 就会在挂起时一直拿着锁。
+///
+/// 主词库（`msime-pinyin.db`、`msime-english.db` 的工作副本）也不切换：重置学习数据把它们挪作备份时不带旁路文件，旧的 `-wal` 会套到新复制的词库上。
+///
+/// 跨文件事务因此不再是整体原子的。删词、个人词库编辑、五笔造词这些操作把日志 ATTACH 到词库连接上，在一个事务里同时改词库和日志；只要有一个库是 WAL，SQLite 就不用超级日志把它们绑在一起，只保证每个文件各自原子。提交顺序是固定的：WAL 的日志在提交第一阶段就写下带提交标记的帧，回滚日志的词库要到第二阶段删掉 `-journal`（或超级日志）才算提交，所以进程被杀或断电只会留下「日志已经记下、词库工作副本回滚了」，不会反过来。日志是学习数据的权威来源，工作副本在下一次回放（安装、升级、换代次）时按日志补齐；在那之前这一次删词或编辑在候选里看不到，这是接受的代价。改动这些事务时不要依赖「两边要么都在、要么都不在」。
+///
+/// 进了 WAL 还设 `journal_size_limit`：默认 -1 时检查点以后 `-wal` 不截短，一次大事务（导入词库、合并快照、减半）把它撑到多大就一直多大；整句联想的写连接在输入法进程里一直开着，最后一个连接关闭时才删 `-wal` 的机会也就没有了。设了上限，检查点重置日志时把 `-wal` 截回这个大小，不影响持久性。
+pub(crate) fn prefer_write_ahead_log(connection: &Connection) {
+    #[cfg(not(target_os = "ios"))]
+    {
+        // 就地比较结果，不另外分配一个 `String`：首次打开日志常发生在选词提交的路径上。
+        let wal = connection
+            .query_row("PRAGMA journal_mode=WAL", [], |row| {
+                Ok(row
+                    .get_ref(0)?
+                    .as_str()
+                    .is_ok_and(|mode| mode.eq_ignore_ascii_case("wal")))
+            })
+            .unwrap_or(false);
+        if wal {
+            // 设置失败只是保持默认的 FULL：更慢，但不影响正确性。
+            let _ = connection.execute_batch("PRAGMA synchronous=NORMAL");
+            // 这条 PRAGMA 回一行新值；设置失败只是 `-wal` 不截短。
+            let _ = connection.query_row(WAL_SIZE_LIMIT_PRAGMA, [], |_| Ok(()));
+        }
+    }
+    #[cfg(target_os = "ios")]
+    let _ = connection;
+}
+
+/// 把日志 `-wal` 里已提交的内容并回主文件并把 `-wal` 截成空文件，供要整体挪动日志文件的操作（重置学习数据）先调用：挪走的主文件本身就是完整的日志，留在原名旁边的空 `-wal` 也不会被套到新日志上。不是 WAL 的日志上这是空操作；打不开或别的连接正占着时尽力而为，调用方仍按原来的方式处理旁路文件。
+pub(crate) fn checkpoint_journal(path: &Path) {
+    if let Ok(connection) = open_database(path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+        let _ = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    }
 }
 
 /// A dictionary (`msime-pinyin.db`, `msime-english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
@@ -224,44 +398,56 @@ pub fn quarantine_corrupt_journal(path: &Path) -> std::io::Result<Option<PathBuf
 /// Open (creating) the journal, reusing this thread's connection for the path.
 pub fn open_journal(path: &Path) -> Result<JournalConnection> {
     let generation = CACHE_GENERATION.load(Ordering::Acquire);
-    let cached = CACHED_JOURNAL.try_with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(cached) = cache.as_ref() {
-            if cached.path == path && cached.generation == generation {
-                return Ok(JournalConnection {
-                    connection: Rc::clone(&cached.connection),
-                });
+    let cached = THREAD_JOURNAL.try_with(|journal| {
+        let mut journal = journal.borrow_mut();
+        let journal = journal.get_or_insert_with(ThreadJournal::new);
+        if journal.active.get().is_some() {
+            // An operation of this thread holds the connection and this open is part of it. It shares the connection even when a close came in between (it closes when the operation ends): a second connection to the same file would wait on the first one's transaction.
+            if journal.active_path == path {
+                return Ok(JournalConnection::shared(&journal.active));
             }
+            // A connection to another journal is in use: this one gets a connection of its own.
+            return open_uncached(path);
         }
-        // Released before opening, so a thread never holds two journal files open.
-        *cache = None;
-        let connection = open_database(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-        )?;
-        ensure_schema(&connection)?;
-        let connection = Rc::new(connection);
-        *cache = Some(CachedJournal {
-            path: path.to_path_buf(),
-            generation,
-            connection: Rc::clone(&connection),
-        });
-        Ok(JournalConnection { connection })
+        let connection = match journal.take_back(path, generation) {
+            Some(parked) => {
+                journal.active_path = parked.path;
+                parked.connection
+            }
+            None => {
+                let connection = open_configured(path)?;
+                journal.active_path = path.to_path_buf();
+                connection
+            }
+        };
+        journal.active_generation = Some(generation);
+        // Empty: checked above, and nothing of this thread filled it since.
+        let _ = journal.active.set(connection);
+        Ok(JournalConnection::shared(&journal.active))
     });
     match cached {
         Ok(opened) => opened,
         // A session a host drops while its thread exits (sessions kept in a thread-local map) can outlive this thread's cache, which thread-local destruction order does not fix. Its last flush gets a connection of its own, closed when that flush ends.
-        Err(_) => {
-            let connection = open_database(
-                path,
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-            )?;
-            ensure_schema(&connection)?;
-            Ok(JournalConnection {
-                connection: Rc::new(connection),
-            })
-        }
+        Err(_) => open_uncached(path),
     }
+}
+
+fn open_configured(path: &Path) -> Result<Connection> {
+    let connection = open_database(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+    )?;
+    prefer_write_ahead_log(&connection);
+    ensure_schema(&connection)?;
+    Ok(connection)
+}
+
+/// A connection no thread caches, closed when the handle drops.
+fn open_uncached(path: &Path) -> Result<JournalConnection> {
+    let connection = open_configured(path)?;
+    Ok(JournalConnection {
+        connection: Some(Rc::new(OnceCell::from(connection))),
+    })
 }
 
 /// Every `CREATE ... IF NOT EXISTS` of J:114-154 and NS:156-167, the `user_inserted` column check, then `PRAGMA user_version = 4` (informational only).
@@ -304,26 +490,104 @@ pub(crate) fn drop_stale_pinyin_upserts(connection: &Connection) {
     );
 }
 
-/// Invalidate every thread's cached journal connection, release the personal n-gram stores and the local-mode connections. Call before deleting or replacing a data directory.
+/// Close every thread's cached journal connection, release the personal n-gram stores and the local-mode connections. Call before deleting or replacing a data directory.
 pub fn close_cached_journals() {
     // First, because writing the stores' queues opens the journal through this thread's cache; the slot is cleared after it.
     super::ngram_store::release_all();
     CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    // The calling thread's connection closes now (once no operation still holds it); other threads' connections close on their next journal access.
-    CACHED_JOURNAL.with(|cache| *cache.borrow_mut() = None);
+    // Idle connections of every thread are closed when this returns, including those another close took out first; one an operation still holds closes when that operation ends, since its generation is gone.
+    close_parked(|_| true);
     crate::local::database::close_cached_local_databases();
+}
+
+/// Takes the parked connections `closes` selects out of the list and closes them, all under `CLOSING_JOURNALS`: when this returns, every parked connection it selects is closed, whether this call or another closer took it out. The connections are dropped after the list's lock is released, so threads parking or taking back theirs do not wait on the closing.
+fn close_parked(mut closes: impl FnMut(&ParkedJournal) -> bool) {
+    let _closing = lock(&CLOSING_JOURNALS);
+    let closing: Vec<ParkedJournal> = lock(&PARKED_JOURNALS)
+        .extract_if(.., |parked| closes(parked))
+        .collect();
+    drop(closing);
 }
 
 /// Closes this thread's cached journal connection now. The reference cached only its default journal path and opened msime's journal per call (user_dictionary_journal.cpp:445-452), so a thread that is done with the journal must not keep a handle that blocks the reset's rename or a generation delete on Windows. A connection an operation still holds closes when that operation ends.
 pub(crate) fn release_thread_journal() {
-    // At thread exit the cache may already be destroyed, which closed its connection; there is nothing left to release then.
-    let _ = CACHED_JOURNAL.try_with(|cache| *cache.borrow_mut() = None);
+    // At thread exit the state may already be destroyed, which closed its connection; there is nothing left to release then.
+    let _ = THREAD_JOURNAL.try_with(|journal| {
+        if let Some(journal) = journal.borrow_mut().as_mut() {
+            journal.close_parked();
+            journal.active_generation = None;
+        }
+    });
 }
 
-/// Whether this thread still caches a journal connection.
+/// A live session's claim on its journal, counted per path. `end` (or dropping it) after the session's last journal write gives the claim up; the last claim on a path closes every thread's idle connection to that journal, wherever the session was created or used.
+pub(crate) struct JournalUse {
+    path: Option<PathBuf>,
+}
+
+impl JournalUse {
+    pub(crate) fn new(path: PathBuf) -> JournalUse {
+        *lock(&JOURNAL_USERS).entry(path.clone()).or_default() += 1;
+        // Room for the threads that will use this session to park their connections, made here on the cold path so that parking on a keystroke never grows the list.
+        lock(&PARKED_JOURNALS).reserve(PARKING_HEADROOM);
+        JournalUse { path: Some(path) }
+    }
+
+    pub(crate) fn end(&mut self) {
+        let Some(path) = self.path.take() else {
+            return;
+        };
+        let last = {
+            let mut users = lock(&JOURNAL_USERS);
+            match users.get_mut(&path) {
+                Some(count) if *count > 1 => {
+                    *count -= 1;
+                    false
+                }
+                _ => {
+                    users.remove(&path);
+                    true
+                }
+            }
+        };
+        if last {
+            close_parked(|parked| parked.path == path);
+        }
+    }
+}
+
+impl Drop for JournalUse {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
+/// Whether this thread still caches a journal connection, in use or parked.
 #[cfg(test)]
 pub(crate) fn thread_holds_journal() -> bool {
-    CACHED_JOURNAL.with(|cache| cache.borrow().is_some())
+    THREAD_JOURNAL.with(|journal| {
+        journal.borrow().as_ref().is_some_and(|journal| {
+            journal.active.get().is_some()
+                || lock(&PARKED_JOURNALS)
+                    .iter()
+                    .any(|parked| parked.thread == journal.id)
+        })
+    })
+}
+
+/// The close count `close_cached_journals` bumps before it closes every thread's idle connection. A test that expects this thread to keep a connection reads it before and after: another test may close every journal in between, which only a moved count reveals.
+#[cfg(test)]
+pub(crate) fn cache_generation() -> u64 {
+    CACHE_GENERATION.load(Ordering::Acquire)
+}
+
+/// How many threads keep an idle connection to `path`.
+#[cfg(test)]
+pub(crate) fn parked_journals(path: &Path) -> usize {
+    lock(&PARKED_JOURNALS)
+        .iter()
+        .filter(|parked| parked.path == path)
+        .count()
 }
 
 /// The syllables of a journal key; empty when the key or any segment is empty, which means the key cannot be stored (J:182-199).
@@ -671,6 +935,8 @@ mod tests {
             "pick_transitions",
             "pinyin_typo_counts",
             "pinyin_autocorrect_suppressions",
+            "shuangpin_typo_counts",
+            "shuangpin_autocorrect_suppressions",
             "pinned_candidates",
             "personal_bigram",
             "personal_trigram",
@@ -815,6 +1081,67 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "ios"))]
+    fn wal_length(path: &Path) -> u64 {
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        std::fs::metadata(PathBuf::from(wal)).map_or(0, |metadata| metadata.len())
+    }
+
+    /// 日志按 WAL、`synchronous=NORMAL` 提交：写入追加到 `-wal`，另开的只读连接照样读到刚提交的学习。
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn the_journal_commits_through_a_write_ahead_log() {
+        let dir = Dir::new();
+        let path = dir.journal();
+        let journal = open_journal(&path).unwrap();
+        let mode: String = journal
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(mode, "wal");
+        let synchronous: i64 = journal
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(synchronous, 1, "synchronous=NORMAL");
+        let size_limit: i64 = journal
+            .query_row("PRAGMA journal_size_limit", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(size_limit, 4 * 1024 * 1024);
+        write_upsert(&journal, PersonalDictionaryKind::Pinyin, "ni", "你", 1, "").unwrap();
+        assert!(wal_length(&path) > 0);
+        let reader = open_existing_read_only(&path).unwrap().unwrap();
+        assert_eq!(
+            reader
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    /// 整体挪走日志主文件之前先检查点：别的连接还开着、提交还在 `-wal` 里时，单独拷走的主文件也带着它，`-wal` 只剩空文件。
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn a_checkpoint_folds_the_wal_into_the_journal_file() {
+        let dir = Dir::new();
+        let path = dir.journal();
+        let journal = open_journal(&path).unwrap();
+        write_upsert(&journal, PersonalDictionaryKind::Pinyin, "ni", "你", 1, "").unwrap();
+        assert!(wal_length(&path) > 0);
+        checkpoint_journal(&path);
+        assert_eq!(wal_length(&path), 0);
+        let copy = dir.root.path().join("copy.db");
+        std::fs::copy(&path, &copy).unwrap();
+        assert_eq!(
+            count(&copy, "SELECT count(*) FROM user_dictionary_operations"),
+            1
+        );
+        drop(journal);
+    }
+
     /// Two opens of `path` that saw the same cache generation. The generation is process-global and other tests call `close_cached_journals` concurrently, so a pair split by a bump is retried rather than read as the cache failing to reuse.
     fn open_twice_in_one_generation(path: &Path) -> (JournalConnection, JournalConnection) {
         loop {
@@ -827,22 +1154,52 @@ mod tests {
         }
     }
 
+    /// Marks the connection behind `journal` so a later handle can tell whether it got the same one: temporary tables belong to one connection.
+    fn mark(journal: &Connection) {
+        journal
+            .execute_batch("CREATE TEMP TABLE IF NOT EXISTS reuse_marker(x)")
+            .unwrap();
+    }
+
+    fn marked(journal: &Connection) -> bool {
+        journal
+            .query_row(
+                "SELECT count(*) FROM temp.sqlite_master WHERE name='reuse_marker'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            == 1
+    }
+
     #[test]
     fn the_cache_reuses_one_connection_per_thread_until_closed() {
         let dir = Dir::new();
         let path = dir.journal();
         let (first, second) = open_twice_in_one_generation(&path);
-        assert!(Rc::ptr_eq(&first.connection, &second.connection));
+        mark(&first);
+        assert!(marked(&second));
         drop((first, second));
         let other = Dir::new();
         let switched = open_journal(&other.journal()).unwrap();
+        assert!(!marked(&switched));
         drop(switched);
-        let (reopened, again) = open_twice_in_one_generation(&path);
-        assert!(Rc::ptr_eq(&reopened.connection, &again.connection));
-        drop(again);
+        // Parked when the last handle drops and taken back by the next open, unless another test closed every journal in between.
+        loop {
+            let generation = CACHE_GENERATION.load(Ordering::Acquire);
+            let (reopened, again) = open_twice_in_one_generation(&path);
+            mark(&reopened);
+            drop((reopened, again));
+            let taken_back = open_journal(&path).unwrap();
+            if CACHE_GENERATION.load(Ordering::Acquire) != generation {
+                continue;
+            }
+            assert!(marked(&taken_back));
+            break;
+        }
         CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
         let fresh = open_journal(&path).unwrap();
-        assert!(!Rc::ptr_eq(&reopened.connection, &fresh.connection));
+        assert!(!marked(&fresh));
     }
 
     #[test]
@@ -859,8 +1216,155 @@ mod tests {
             }])
             .unwrap();
         close_cached_journals();
-        assert!(CACHED_JOURNAL.with(|cache| cache.borrow().is_none()));
+        assert!(!thread_holds_journal());
         assert_eq!(count(&journal, "SELECT count(*) FROM personal_bigram"), 1);
+    }
+
+    /// A thread that used the journal and went idle, still alive, as a host's input thread is between keystrokes. Other tests close every journal at any moment, so the thread is started again until its connection is seen parked.
+    fn idle_thread_with_journal(
+        path: &Path,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<bool>) {
+        loop {
+            let (opened_tx, opened_rx) = std::sync::mpsc::channel();
+            let (finish_tx, finish_rx) = std::sync::mpsc::channel::<()>();
+            let owned = path.to_path_buf();
+            let thread = std::thread::spawn(move || {
+                drop(open_journal(&owned).unwrap());
+                opened_tx.send(()).unwrap();
+                finish_rx.recv().unwrap();
+                thread_holds_journal()
+            });
+            opened_rx.recv().unwrap();
+            if parked_journals(path) == 1 {
+                return (finish_tx, thread);
+            }
+            finish_tx.send(()).unwrap();
+            thread.join().unwrap();
+        }
+    }
+
+    /// The Windows hazard of a reset: an idle thread's journal handle blocks the rename. Closing reaches it from the calling thread instead of waiting for that thread's next journal access.
+    #[test]
+    fn closing_closes_the_idle_connections_of_other_threads() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let (finish, thread) = idle_thread_with_journal(&journal);
+        close_cached_journals();
+        assert_eq!(parked_journals(&journal), 0);
+        finish.send(()).unwrap();
+        assert!(
+            !thread.join().unwrap(),
+            "the idle thread kept its connection"
+        );
+    }
+
+    #[test]
+    fn a_connection_in_use_while_closing_closes_when_its_operation_ends() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (closed_tx, closed_rx) = std::sync::mpsc::channel::<()>();
+        let path = journal.clone();
+        let thread = std::thread::spawn(move || {
+            let held = open_journal(&path).unwrap();
+            held_tx.send(()).unwrap();
+            closed_rx.recv().unwrap();
+            // The operation still works on the connection it holds.
+            let one: i64 = held.query_row("SELECT 1", [], |row| row.get(0)).unwrap();
+            assert_eq!(one, 1);
+            drop(held);
+            thread_holds_journal()
+        });
+        held_rx.recv().unwrap();
+        close_cached_journals();
+        closed_tx.send(()).unwrap();
+        assert!(
+            !thread.join().unwrap(),
+            "the connection was parked after the close"
+        );
+        assert_eq!(parked_journals(&journal), 0);
+    }
+
+    /// Whether a connection other than a new one has `path` open: leaving WAL needs every other connection to the file closed, and with no busy wait a new connection fails to leave it while one is open (or still closing). Leaves the journal in rollback mode; the next `open_journal` switches it back.
+    #[cfg(not(target_os = "ios"))]
+    fn open_elsewhere(path: &Path) -> bool {
+        let probe = Connection::open(path).unwrap();
+        probe.busy_timeout(Duration::ZERO).unwrap();
+        let mode = probe.query_row("PRAGMA journal_mode=DELETE", [], |row| {
+            row.get::<_, String>(0)
+        });
+        !matches!(mode.as_deref(), Ok("delete"))
+    }
+
+    /// Two threads idle on one journal close its connections at once, as a reset on one thread and the end of the journal's last session on another do: whichever takes both connections out may still be closing them when the other finds the list empty. Neither may return before both have closed, or a reset renames a journal that is still open (Windows refuses) and a quarantine reads a zeroed journal's first page from the old `-wal`. Closes by path, as `JournalUse::end` does, so the other tests' journals and stores are left alone.
+    ///
+    /// Whether a connection is still open is asked of SQLite rather than read from a leftover `-wal`: when another test's close makes both threads close their connections as their writes end, the two closes run at once, neither is the last, and the `-wal` stays behind with no connection open.
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn concurrent_closes_return_only_once_every_idle_connection_has_closed() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let barrier = std::sync::Barrier::new(2);
+        // One probe at a time: a probe is itself a connection the other would see.
+        let probing = Mutex::new(());
+        let left_open = std::thread::scope(|scope| {
+            let closer = || {
+                (0..200)
+                    .filter(|_| {
+                        upsert(&journal, PersonalDictionaryKind::Pinyin, "ni", "你", 1, "")
+                            .unwrap();
+                        // Both connections are parked (or already closed by another test's close).
+                        barrier.wait();
+                        close_parked(|parked| parked.path == journal);
+                        let open = {
+                            let _probing = lock(&probing);
+                            open_elsewhere(&journal)
+                        };
+                        // Neither thread opens the journal again before the other has looked.
+                        barrier.wait();
+                        open
+                    })
+                    .count()
+            };
+            let other = scope.spawn(closer);
+            closer() + other.join().unwrap()
+        });
+        assert_eq!(
+            left_open, 0,
+            "a close returned while a connection it was to close was still open"
+        );
+    }
+
+    /// Sessions on one journal: ending one keeps the other threads' connections for the sessions still open; ending the last closes them.
+    #[test]
+    fn the_last_use_of_a_journal_closes_every_threads_idle_connection() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        loop {
+            let mut first = JournalUse::new(journal.clone());
+            let mut second = JournalUse::new(journal.clone());
+            let (finish, thread) = idle_thread_with_journal(&journal);
+            let generation = CACHE_GENERATION.load(Ordering::Acquire);
+            first.end();
+            // Ending twice gives up one claim, not two.
+            first.end();
+            let kept = parked_journals(&journal);
+            second.end();
+            let closed = parked_journals(&journal);
+            finish.send(()).unwrap();
+            let held = thread.join().unwrap();
+            if CACHE_GENERATION.load(Ordering::Acquire) != generation {
+                // Another test closed every journal meanwhile; what was kept says nothing.
+                continue;
+            }
+            assert_eq!(
+                kept, 1,
+                "ending one of two sessions closed the other thread's connection"
+            );
+            assert_eq!(closed, 0);
+            assert!(!held);
+            break;
+        }
     }
 
     /// 模拟用户机器上发现的形状：除最后两页仍是有效索引页外，其余页面全部为零。

@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AccountPage } from "../../../../packages/ui/src/account/account-page";
+import { SettingsSyncCard } from "../../../../packages/ui/src/account/settings-sync-card";
 import type {
   AccountClient,
   AccountPreferences,
@@ -170,4 +171,55 @@ test.each(["success", "failure"])("旧上传迟到的 %s 不结束新客户端�
   await act(async () => nextUpload.resolve({ ...next, revision: 11 }));
   expect(screen.getByText("云端版本：11")).not.toBeNull();
   expect(screen.getByText("本机设置已上传。")).not.toBeNull();
+});
+
+test.each([
+  { owner: "client", operation: "upload" },
+  { owner: "client", operation: "apply" },
+  { owner: "userId", operation: "upload" },
+  { owner: "userId", operation: "apply" },
+])("切换 $owner 清除旧 $operation 确认，新归属必须重新确认", async ({ owner, operation }) => {
+  const pending = deferred<AccountPreferences>();
+  const next = { revision: 10, settings: { "input.schema": "shuangpin" } };
+  const oldSync = syncClient();
+  const nextSync = owner === "client" ? syncClient({ load: () => pending.promise }) : oldSync;
+  const nextUserId = owner === "userId" ? "synthetic-next-user" : user.id;
+  const openLabel = operation === "upload" ? "上传本机设置" : "下载并应用云端设置";
+  const confirmLabel = operation === "upload" ? "确认上传" : "确认应用";
+  const view = render(<SettingsSyncCard client={oldSync} userId={user.id} />);
+  expect(await screen.findByText("云端版本：7")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: openLabel }));
+  expect(screen.getByRole("alertdialog")).not.toBeNull();
+  if (owner === "userId") vi.mocked(oldSync.load).mockImplementation(() => pending.promise);
+
+  view.rerender(<SettingsSyncCard client={nextSync} userId={nextUserId} />);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(nextSync.upload).not.toHaveBeenCalled();
+  expect(nextSync.apply).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(next));
+  expect(await screen.findByText("云端版本：10")).not.toBeNull();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(nextSync.upload).not.toHaveBeenCalled();
+  expect(nextSync.apply).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: openLabel }));
+  fireEvent.click(screen.getByRole("button", { name: confirmLabel }));
+  if (operation === "upload") {
+    await waitFor(() => expect(nextSync.upload).toHaveBeenCalledTimes(1));
+    expect(nextSync.apply).not.toHaveBeenCalled();
+  } else {
+    await waitFor(() => expect(nextSync.apply).toHaveBeenCalledWith(nextUserId, next));
+    expect(nextSync.upload).not.toHaveBeenCalled();
+  }
+});
+
+test("相同客户端与账号重绘保留同步确认", async () => {
+  const sync = syncClient();
+  const view = render(<SettingsSyncCard client={sync} userId={user.id} />);
+  expect(await screen.findByText("云端版本：7")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下载并应用云端设置" }));
+  view.rerender(<SettingsSyncCard client={sync} userId={user.id} />);
+  expect(screen.getByRole("alertdialog", { name: "确认应用云端设置" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "确认应用" }));
+  await waitFor(() => expect(sync.apply).toHaveBeenCalledWith(user.id, cloud));
 });

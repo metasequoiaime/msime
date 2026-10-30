@@ -555,9 +555,9 @@ pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(
     Ok(())
 }
 
-/// `POST /v1/auth/challenges` 的传输检查：在 [`validate_provider_target`] 之外还放行不带回跳地址的 Google，那是 ID token 流程（iOS 的 GoogleSignIn、安卓的 Credential Manager），服务端为它生成 nonce。账号页的 `request_code` 仍按 [`validate_provider_target`] 检查，这一种只能经 [`BackendAccountSession::google_id_token_challenge`] 申请。
+/// `POST /v1/auth/challenges` 的传输检查：在 [`validate_provider_target`] 之外还放行不带回跳地址的 Google 和华为账号，那是 ID token 流程（iOS 的 GoogleSignIn、安卓的 Credential Manager、鸿蒙的 Account Kit），服务端为它生成 nonce。账号页的 `request_code` 仍按 [`validate_provider_target`] 检查，这两种只能经 [`BackendAccountSession::google_id_token_challenge`]、[`BackendAccountSession::huawei_challenge`] 申请。
 pub(super) fn validate_challenge_request(provider: &str, target: &str) -> Result<(), AccountError> {
-    if provider == "google" && target.is_empty() {
+    if matches!(provider, "google" | "huawei") && target.is_empty() {
         return Ok(());
     }
     validate_provider_target(provider, target)
@@ -639,6 +639,14 @@ pub(super) fn validate_google_id_token_login(
         return Err(AccountError::Invalid);
     }
     Ok(())
+}
+
+/// 华为账号 Account Kit 给的 ID token 与 Google 的形状相同（三段 base64url 的 JWT，带着 challenge 的 nonce），检查也相同，服务端验签。
+pub(super) fn validate_huawei_id_token_login(
+    challenge: &str,
+    credential: &str,
+) -> Result<(), AccountError> {
+    validate_google_id_token_login(challenge, credential)
 }
 
 /// `/v1/auth/login` 的传输检查：会话层已按各登录方式自己的规则检查过凭据（六位数字、Apple identity token、Google 授权码或 Google ID token），这里只要凭据满足其中任意一种就放行。

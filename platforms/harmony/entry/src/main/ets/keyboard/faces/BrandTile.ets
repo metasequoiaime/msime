@@ -21,6 +21,8 @@ export struct BrandTile {
   @Require @Prop logoBg: string;
   @Require @Prop framePath: string;
   @Require @Prop strokePath: string;
+  /** 跟着工具条缩小的倍数（`KeyboardMetrics.toolbarScale`）：「候选栏大小」调小、工具条矮于 50vp 时图块、圆盘和标志等比缩小，不伸出这一行。 */
+  @Prop sizeScale: number = 1;
   @Require @Prop spokenLabel: string;
   @Require onTap: () => void;
   /** 长按：工具栏用它打开设置里的工具栏开关。长按被识别后不再触发 `onTap`。 */
@@ -49,17 +51,17 @@ export struct BrandTile {
         }
         .viewPort({ x: 0, y: 0, width: `${KeyboardIconPaths.BRAND_VIEW_WIDTH}px`, height: `${KeyboardIconPaths.BRAND_VIEW_HEIGHT}px` })
         // 用 viewBox 自身的宽高比，使标志按工具图标的尺寸等比居中，也不依赖 viewport 变换如何居中另一种比例的框。
-        .width(MARK_HEIGHT_VP * KeyboardIconPaths.BRAND_VIEW_WIDTH / KeyboardIconPaths.BRAND_VIEW_HEIGHT)
-        .height(MARK_HEIGHT_VP)
+        .width(MARK_HEIGHT_VP * this.sizeScale * KeyboardIconPaths.BRAND_VIEW_WIDTH / KeyboardIconPaths.BRAND_VIEW_HEIGHT)
+        .height(MARK_HEIGHT_VP * this.sizeScale)
       }
-      .width(DISC_VP)
-      .height(DISC_VP)
-      .borderRadius(DISC_VP / 2)
+      .width(DISC_VP * this.sizeScale)
+      .height(DISC_VP * this.sizeScale)
+      .borderRadius(DISC_VP * this.sizeScale / 2)
       .backgroundColor(this.logoCirc)
     }
-    .width(TILE_SIDE_VP)
-    .height(TILE_SIDE_VP)
-    .borderRadius(TILE_RADIUS_VP)
+    .width(TILE_SIDE_VP * this.sizeScale)
+    .height(TILE_SIDE_VP * this.sizeScale)
+    .borderRadius(TILE_RADIUS_VP * this.sizeScale)
     .backgroundColor(this.active ? this.toggleBackground : Color.Transparent)
     .stateStyles({
       normal: {

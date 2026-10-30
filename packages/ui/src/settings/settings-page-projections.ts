@@ -14,6 +14,8 @@ export interface SettingsPageProjectionOptions {
   hasVocabularyReview: boolean;
   hasAccount: boolean;
   hasChat: boolean;
+  /** 「AI 辅助」页：宿主报 `ai_generation` 为 false（HarmonyOS）时没有这一页。 */
+  hasAi: boolean;
   hasCommunity: boolean;
   showFloatingToolbar: boolean;
   showDeveloperPage: boolean;
@@ -69,6 +71,7 @@ export function settingsPageProjections({
   hasVocabularyReview,
   hasAccount,
   hasChat,
+  hasAi,
   hasCommunity,
   showFloatingToolbar,
   showDeveloperPage,
@@ -88,6 +91,7 @@ export function settingsPageProjections({
         (item.id !== "vocabulary" || hasVocabularyReview) &&
         (item.id !== "account" || hasAccount) &&
         (item.id !== "chat" || hasChat) &&
+        (item.id !== "ai" || hasAi) &&
         // 有社区服务的宿主才有「社区」页。触屏宿主上它是底部「社区」标签的根页（皮肤与词库两类图库）；桌面上它不在侧栏里，只从「我的内容」各行进入。
         (item.id !== "community" || hasCommunity) &&
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&

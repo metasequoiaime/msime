@@ -427,6 +427,7 @@ struct CommunityPluginPublishView: View {
         }
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("发布插件")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

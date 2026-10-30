@@ -30,7 +30,9 @@ Status: implemented
 - **收益**：用户看见哪个候选，上屏就是哪个，空格、数字键、点选三条路同时修好；宿主会话仍随之前进，2026-10-16 那次改动的收益不受影响。
 - **代价**：同一页上出现两个同形候选时这条路会拒绝，落回兜底，那种情形下分段选词剩余的拼音不保留——与候选窗和宿主会话对不上时的既有行为相同。每次选择多一次列表线性扫描，页内候选个位数，可忽略。
 - **重访信号**：如果以后候选需要按身份（而不是文字）区分同形项——例如同一个词来自不同来源要分别计数——这条唯一匹配会开始拒绝合法选择，那时需要的是让两个会话共享候选身份，而不是放宽匹配。
+- **后续**：这条规则当时只用在 `Normal` 回复和宿主会话的当前页上。只选一段的回复（`NeedToCreateWord`）、选过一段后的整段上屏、以及滚轮只翻了 Server 那一页的情形仍会选错，[翻页后的键盘选词照 Server 的回复](2026-10-27-windows-paged-selection-follows-server.md)把它扩到所有选词回复，并在当前页找不到时到完整候选列表里找；选词规则现在在 `tsf/HostServerSelection.h`。
 - **未处理**：`runtime-options.json` 里 `preferences.cloud_candidates = false` 与 `config.toml` 的 `true` 相反。文档里的 preferences 是准备那一刻的副本（`lib.rs` 的 `HostOptions::from_document`），`refresh_host_options` 只刷新词库代次。本次不动它。
+- **统计**：两个会话都选同一个词，打字统计的选词位置只由 Server 的会话记，TIP 的会话选项写 `selection_statistics: false`，见 [选词位置写进宿主的统计目录](2026-10-29-typing-statistics-selection-directory.md)。
 
 ## Verification
 

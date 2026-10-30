@@ -18,7 +18,6 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.R;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
-import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 /** 主屏图标选择面板：用图标网格展示每种配色，文字只留给无障碍。 */
@@ -35,7 +34,7 @@ public final class AppIconSheet {
 
     public AppIconSheet(Context context) {
         this.context = context;
-        dialog = new BottomSheetDialog(context);
+        dialog = SheetDialog.create(context);
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
         root.addView(SheetHeaderView.create(context, "App 图标",
@@ -68,7 +67,6 @@ public final class AppIconSheet {
     }
 
     public void show() {
-        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         dialog.show();
     }
 

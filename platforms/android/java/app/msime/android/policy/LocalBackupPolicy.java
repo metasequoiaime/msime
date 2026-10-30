@@ -64,16 +64,23 @@ public final class LocalBackupPolicy {
 
     private LocalBackupPolicy() {}
 
-    /** 「水杉输入法-0.2.2-20261008-0915」：应用名加版本号，再加导出时间；文件名里不能用的字符换成「_」。 */
+    /** 导出共用的基名：应用名、版本号和时间；文件名里不能用的字符换成「_」。 */
     public static String baseName(String appName, String versionName, LocalDateTime now) {
         String app = safeNamePart(appName, "msime");
         String version = safeNamePart(versionName, "0");
         return app + "-" + version + "-" + STAMP.format(now);
     }
 
-    /** 配置备份使用 zip 扩展名；其他导出文件共用 {@link #baseName}。 */
+    /** 配置备份文件名明确标示内容；其他导出文件仍共用 {@link #baseName}。 */
     public static String fileName(String appName, String versionName, LocalDateTime now) {
-        return baseName(appName, versionName, now) + ".zip";
+        return safeNamePart(appName, "msime") + "-配置备份-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".zip";
+    }
+
+    /** 剪贴板历史文本的文件名明确标示内容，仍使用相同的应用名、版本号和分钟时间。 */
+    public static String clipboardFileName(String appName, String versionName, LocalDateTime now) {
+        return safeNamePart(appName, "msime") + "-剪贴板备份-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".txt";
     }
 
     static String safeNamePart(String value, String fallback) {
@@ -87,12 +94,21 @@ public final class LocalBackupPolicy {
         return name.toString();
     }
 
+    /** 单款皮肤的导出名保留设计名，并与其他 Android 导出使用相同的版本和分钟时间格式。 */
+    public static String skinFileName(String appName, String skinName, String versionName, LocalDateTime now) {
+        return safeNamePart(appName, "msime") + "-" + safeNamePart(skinName, "皮肤") + "-"
+            + safeNamePart(versionName, "0") + "-" + STAMP.format(now) + ".json";
+    }
+
     /**
-     * Android 本地设置里哪些键进备份、从备份恢复。语音数据贡献（{@code AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO}）是用户在本机看过说明、点了确认才开的上传授权，开发者选项（`platform.android.developer.*`：输入日志、调试信息、日志级别和 MCP 可访问的日志）是排查一次问题时临时打开的开关；从备份恢复它们会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志。剪贴板导出目录也是本机文档授权，不能在其他设备复用。所以这些设置既不导出，也不从（旧版或别人改过的）备份里恢复；其余的本地设置照常带走。
+     * Android 本地设置里哪些键进备份、从备份恢复。语音数据贡献（{@code AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO}）是用户在本机看过说明、点了确认才开的上传授权，开发者选项（`platform.android.developer.*`：输入日志、调试信息、日志级别和 MCP 可访问的日志）是排查一次问题时临时打开的开关；从备份恢复它们会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志。剪贴板和备份导出目录都是本机文档授权，不能在其他设备复用。「防止截屏」和它的「打开过」标记（#10098）打开过以后切换都要系统认证，从备份恢复等于不经认证改写它们：一份关着的旧备份会悄悄关掉保护，一份改过的备份能把「打开过」抹掉。所以这些设置既不导出，也不从（旧版或别人改过的）备份里恢复；其余的本地设置照常带走。
      */
     public static boolean backsUpLocalSetting(String key) {
         return key != null && !key.equals(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)
+            && !key.equals(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION)
+            && !key.equals(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE)
             && !key.equals(AndroidLocalSettings.CLIPBOARD_EXPORT_TREE)
+            && !key.equals(AndroidLocalSettings.BACKUP_EXPORT_TREE)
             && !key.startsWith(DEVELOPER_PREFIX);
     }
 

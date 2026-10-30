@@ -100,6 +100,14 @@ cat > "$build_root/ExportOptions.plist" <<EOF
 </dict>
 </plist>
 EOF
+# 归档里的 dSYM（App 与键盘扩展）打成 zip，release-ios.yml 作为 workflow artifact 保留，用来符号化遥测崩溃里的「二进制 + 偏移」。同一版本号会有多次 TestFlight 构建，文件名带构建号。缺了只告警：诊断用的文件不挡发版。
+dsyms="$archive_path/dSYMs"
+if compgen -G "$dsyms/*.dSYM" >/dev/null; then
+  ditto -c -k --keepParent "$dsyms" "$build_root/msime-ios-$MSIME_IOS_VERSION-$MSIME_IOS_BUILD_NUMBER-dsym.zip"
+else
+  echo "::warning::The archive has no dSYMs; crashes of build $MSIME_IOS_BUILD_NUMBER cannot be symbolicated from our telemetry"
+fi
+
 xcodebuild -exportArchive \
   -archivePath "$archive_path" \
   -exportPath "$export_path" \

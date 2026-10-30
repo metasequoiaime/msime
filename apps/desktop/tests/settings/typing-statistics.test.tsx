@@ -650,6 +650,37 @@ test("Korean input has its own scheme and language slices", async () => {
   expect(screen.getByLabelText(/^韩语模式 5 字符/)).not.toBeNull();
 });
 
+// 鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）：方案和模式分布不列 AI 润色、高情商回复，说明文字也不提 AI；其他宿主照旧。
+test.each([true, false])(
+  "the AI polish and reply slices follow the AI generation gate (offered: %s)",
+  async (aiGeneration) => {
+    const statistics: TypingStatistics = {
+      enabled: true,
+      total: 12,
+      days: { [key(0)]: 12 },
+      detail: { characters: { han: 12 }, sources: { quanpin: 6, ai: 4, reply: 2 } },
+      dailyDetails: {
+        [key(0)]: { characters: { han: 12 }, sources: { quanpin: 6, ai: 4, reply: 2 } },
+      },
+    };
+    const typingStatistics = {
+      load: vi.fn().mockResolvedValue(status(statistics)),
+      setEnabled: vi.fn(),
+      reset: vi.fn(),
+    };
+    render(<TypingStatisticsPage client={typingStatistics} aiGeneration={aiGeneration} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+    expect(screen.getByLabelText(/^全拼 26 键 6 字符/)).not.toBeNull();
+    expect(screen.queryByLabelText(/^AI 润色 4 字符/) !== null).toBe(aiGeneration);
+    expect(screen.queryByLabelText(/^高情商回复 2 字符/) !== null).toBe(aiGeneration);
+    fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+    expect(screen.queryByLabelText(/^AI 润色 4 字符/) !== null).toBe(aiGeneration);
+    expect(screen.queryByText(/AI 润色和语音输入单独按来源统计/) !== null).toBe(aiGeneration);
+    expect(screen.getByText(/语音输入单独按来源统计/)).not.toBeNull();
+    if (!aiGeneration) expect(document.body.textContent).not.toMatch(/AI|润色|高情商/);
+  },
+);
+
 test("Cantonese, Zhuyin and Stroke count as Chinese mode and Vietnamese has its own slice", async () => {
   const sources = { cantonese: 3, zhuyin: 2, quanpin: 1, vietnamese: 4, stroke: 7 };
   const statistics: TypingStatistics = {

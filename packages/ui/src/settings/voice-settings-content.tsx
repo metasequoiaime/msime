@@ -137,6 +137,8 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   /** 宿主有不止一种录音后端（`voice_capture_backends`）。 */
   showVoiceCaptureBackends: boolean;
   captureBackendOptions: readonly VoiceCaptureBackendOption[];
+  /** 语音识别后的 AI 润色（大模型改写识别结果）。不提供 AI 生成类功能的宿主（HarmonyOS）传 false，整组不画；缺省为给出。 */
+  showVoicePolish?: boolean;
 }
 
 /** 共用语音设置页，宿主状态与副作用由设置表单持有。 */
@@ -186,6 +188,7 @@ export function VoiceSettingsContent({
   showVoiceCueSwitches,
   showVoiceCaptureBackends,
   captureBackendOptions,
+  showVoicePolish = true,
 }: VoiceSettingsContentProps) {
   // 「服务配置」子视图开着没有。HarmonyOS 手机上和「浏览更多」图库一样压一条历史记录，系统返回手势先关它；桌面在页面里换成子视图，点返回关上。离开语音页时它随之关上。
   const {
@@ -420,7 +423,7 @@ export function VoiceSettingsContent({
     localVoice ||
     asrCredentialVisible ||
     Boolean(asrCredentialTest);
-  const polish = showVoiceProviderSettings && (
+  const polish = showVoiceProviderSettings && showVoicePolish && (
     <VoicePolishSettingsSection
       voiceInput={voiceInput}
       linux={linuxPlatform}

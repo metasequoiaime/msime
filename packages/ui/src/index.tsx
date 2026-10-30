@@ -649,6 +649,27 @@ export {
   type CloudClipboardWebDavPreferences,
 } from "./settings/cloud-clipboard-relay";
 export {
+  dictionarySyncBudgetWaitMessage,
+  dictionarySyncConfigured,
+  dictionarySyncDeviceGroups,
+  dictionarySyncDevices,
+  dictionarySyncErrorMessage,
+  dictionarySyncRun,
+  dictionarySyncStatus,
+  withDictionarySyncWebDav,
+  type DictionarySyncAction,
+  type DictionarySyncClient,
+  type DictionarySyncRun,
+  type DictionarySyncStatus,
+  type DictionarySyncTrigger,
+  type DictionarySyncWebDavPreferences,
+} from "./settings/dictionary-sync";
+export {
+  DictionarySyncSection,
+  DICTIONARY_SYNC_NOTE,
+  DICTIONARY_SYNC_QUOTA_NOTE,
+} from "./settings/dictionary-sync-section";
+export {
   CloudClipboardRelaySection,
   CLOUD_CLIPBOARD_WEBDAV_NOTE,
   type CloudClipboardRelaySectionProps,

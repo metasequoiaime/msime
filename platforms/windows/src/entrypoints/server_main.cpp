@@ -58,6 +58,9 @@
 #include "TrayMenuWindow.h"
 #include "UpdateNotifier.h"
 #include "../../common/UpdateRecordDirectory.h"
+#include "DictionarySyncSchedule.h"
+#include "DictionarySyncWorker.h"
+#include "../../common/DictionarySyncDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
@@ -1090,6 +1093,9 @@ int wmain(int argc, wchar_t **argv) {
     // 更新通道（共享偏好 `update_channel`，归一成 stable、beta、nightly），后台更新检查的线程每次调用前读它，同样随偏好发布更新。
     auto update_channel = std::make_shared<std::pair<std::mutex, std::string>>();
     update_channel->second = update_channel_preference(prepared.at("value").at("preferences"));
+    // 「我的词条」经 WebDAV 网盘的自动同步（DictionarySyncWorker.h）：先建出来接住偏好里网盘配置的变化和候选窗口删词的通知，受管理的 Server 进入消息循环之前才起工作线程。
+    auto dictionary_sync = std::make_shared<DictionarySyncWorker>(
+        dictionary_sync_configured(prepared.at("value").at("preferences")));
     // The TSF Ctrl+Shift+F route is delivered through the same bounded worker
     // as the toolbar button. It must exist before WindowsServer construction:
     // a newly connected client may dispatch its first key immediately.
@@ -1213,7 +1219,7 @@ int wmain(int argc, wchar_t **argv) {
          input_mode_hud_enabled, input_mode_hud_logo, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
          tsf_config_revision, candidate_theme, toolbar_settings,
-         language_dictionaries, update_channel](const PreferenceSnapshot &snapshot) {
+         language_dictionaries, update_channel, dictionary_sync](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
@@ -1252,6 +1258,8 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(update_channel->first);
             update_channel->second = std::move(channel);
           }
+          // 设置窗口测试连接通过并保存了网盘、或者清掉了它：自动同步跟着开始或停下。
+          dictionary_sync->configure(dictionary_sync_configured(preferences));
           // 工具栏、托盘菜单和语音浮层跟随颜色模式，只看全局的 `theme`（见上面三个原子量的说明）。语音浮层在后面才建，所以经原子量交给循环去套用。
           const auto surface_mode =
               surface_theme_mode("follow", preferences.value("theme", std::string("dark")));
@@ -1501,11 +1509,14 @@ int wmain(int argc, wchar_t **argv) {
           throw std::runtime_error("Candidate selection failed");
         return;
       }
-      if (server.request_candidate_action(
-              click.lease, click.session, click.generation, click.index,
-              click.translation_page, click.action, click.position) ==
-          CandidateActionRequestResult::Failed)
+      const auto acted = server.request_candidate_action(
+          click.lease, click.session, click.generation, click.index,
+          click.translation_page, click.action, click.position);
+      if (acted == CandidateActionRequestResult::Failed)
           throw std::runtime_error("Candidate action failed");
+      // 删掉的可能是「我的词条」里的词：让自动同步记一次本机改动（只记录、不联网），不在这个线程上等它。
+      if (acted == CandidateActionRequestResult::Sent && click.action == CandidateAction::Remove)
+        dictionary_sync->note_local_change();
     });
     CandidatePageWorker pages([&](const CandidatePage &page) {
       if (server.request_page(page) == CandidatePageRequestResult::Failed)
@@ -2218,11 +2229,15 @@ int wmain(int argc, wchar_t **argv) {
         if (!view || !view->visible || hotkey.slot >= view->candidates.size())
           return false;
         const auto &candidate = view->candidates[hotkey.slot];
-        return server.request_candidate_action(
-                   view->lease, candidate.session, candidate.generation,
-                   candidate.index, view->translation_page,
-                   CandidateAction::Remove) ==
-               CandidateActionRequestResult::Sent;
+        const bool removed = server.request_candidate_action(
+                                 view->lease, candidate.session, candidate.generation,
+                                 candidate.index, view->translation_page,
+                                 CandidateAction::Remove) ==
+                             CandidateActionRequestResult::Sent;
+        // 与候选菜单的删除相同，记一次「我的词条」的本机改动。
+        if (removed)
+          dictionary_sync->note_local_change();
+        return removed;
       }
       }
       return false;
@@ -2285,6 +2300,24 @@ int wmain(int argc, wchar_t **argv) {
       } catch (const std::exception &) {
         update_notifier.reset();
         notice("Update notifier unavailable; continuing without background update checks");
+      }
+    }
+    // 「我的词条」的自动同步同样只在受管理的 Server 里做（预览实例不替用户联网）。同步目录是本用户的 %LOCALAPPDATA%\<本版本的用户目录>\dictionary-sync（DictionarySyncDirectory.h），与设置窗口同一个，一个安装只有一份设备身份；不放状态根，那里整台机器共用、每个用户都能改。偏好里没配网盘时线程只是等着，不调用共享层。拿不到目录或起不了线程时只记一条诊断，不影响输入。
+    startup_stage = "dictionary_sync";
+    if (production) {
+      try {
+        const auto sync_directory = msime::windows::dictionary_sync_directory();
+        if (sync_directory.empty())
+          throw std::runtime_error("Dictionary sync directory unavailable");
+        DictionarySyncWorker::Options sync_options;
+        sync_options.host_options = prepared.at("value");
+        const auto sync_directory_utf8 = sync_directory.u8string();
+        sync_options.directory.assign(sync_directory_utf8.begin(), sync_directory_utf8.end());
+        // 诊断日志有意不析构（见上面登记诊断出口处），工作线程在 Server 退出途中晚回来时写它也安全。
+        sync_options.log = [log = &diagnostic_log](const std::string &line) { log->server(line); };
+        dictionary_sync->start(std::move(sync_options));
+      } catch (const std::exception &) {
+        notice("Dictionary sync unavailable; continuing without automatic dictionary sync");
       }
     }
     startup_stage = "message_loop";
@@ -2652,6 +2685,8 @@ int wmain(int argc, wchar_t **argv) {
     // 先停后台更新检查：它最多等两秒，正在联网时放手让线程自己结束，不拖住下面的停机。
     if (update_notifier)
       update_notifier->stop();
+    // 自动同步同理：正在联网时最多等两秒，之后放手。
+    dictionary_sync->stop();
     candidates.stop();
     for (auto &line : candidates.take_diagnostics())
       notice(std::move(line));
@@ -2710,8 +2745,18 @@ int wmain(int argc, wchar_t **argv) {
     diagnostic_log.server(server_stop_line(failures));
     return failures.empty() ? 0 : 1;
   } catch (...) {
-    std::cerr << "Server failed at stage=" << startup_stage
-              << "; verify configuration, resources, state ownership and pipe availability.\n";
+    const std::string line =
+        std::string("Server failed at stage=") + startup_stage +
+        "; verify configuration, resources, state ownership and pipe availability.";
+    std::cerr << line << "\n";
+    // 受管启动没有控制台，标准错误会被丢弃；而在读到偏好之前失败时服务端开关还没打开，
+    // 两条出口同时哑掉，启动失败就完全不可见——资源目录被增删一个文件后 host_prepare
+    // 抛出异常，server.log 里连一行都没有，看起来就是 Watchdog 反复拉不起 Server。
+    // 致命失败只此一行，临时打开开关把它写进日志，随后进程就退出。
+    if (auto *log = host_api_diagnostic_log.load(std::memory_order_acquire)) {
+      log->set_enabled(true, log->tsf_enabled());
+      log->server(line);
+    }
     return 1;
   }
 }

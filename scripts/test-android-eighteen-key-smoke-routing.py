@@ -2,7 +2,6 @@
 """防止十八键全拼与双拼的设备验收被合并成同一次调用。"""
 
 from pathlib import Path
-import re
 import shlex
 
 
@@ -11,15 +10,17 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> None:
     smoke = (ROOT / "platforms/android/tests/device/smoke.sh").read_text(encoding="utf-8")
-    invocations = re.findall(
-        r"^result=\$\(run_instrumentation "
-        r"app\.msime\.android\.test/app\.msime\.android\.test\.FourteenKeyDeviceSmoke (.*?)\)$",
-        smoke,
-        re.M,
-    )
+    # smoke.sh 的每项验收是一行 `check <失败说明> <通过标记> run_instrumentation <组件> <参数…>`。
+    component = "app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke"
+    invocations = []
+    for line in smoke.splitlines():
+        if not line.startswith("check "):
+            continue
+        words = shlex.split(line)
+        if words[3:5] == ["run_instrumentation", component] and len(words) > 5:
+            invocations.append(words[5:])
     eighteen_options = []
-    for invocation in invocations:
-        args = shlex.split(invocation)
+    for args in invocations:
         options = {}
         for index in range(0, len(args), 3):
             assert args[index] == "-e" and len(args[index:index + 3]) == 3, \

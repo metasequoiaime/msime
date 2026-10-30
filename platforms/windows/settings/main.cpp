@@ -9,6 +9,7 @@
 #include <wincodec.h>
 #include "../common/StateDirectory.h"
 #include "../common/UpdateRecordDirectory.h"
+#include "../common/DictionarySyncDirectory.h"
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
 #undef GetCurrentTime
@@ -53,6 +54,8 @@
 #include "ClientAgent.h"
 #include "CloudClipboardRoute.h"
 #include "CommunityPageModel.h"
+#include "DictionarySyncModel.h"
+#include "../common/DictionarySyncRetry.h"
 #include "FeedbackReport.h"
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
@@ -60,9 +63,11 @@
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "McpConnect.h"
+#include "ModelErrorMessages.h"
 #include "PluginEditorModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
+#include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
@@ -133,11 +138,13 @@ using A11y = Microsoft::UI::Xaml::Automation::AutomationProperties;
 namespace nav = msime::settings;
 namespace pg = msime::settings::plugins;
 namespace vs = msime::settings::voice;
+namespace model_errors = msime::settings::models;
 namespace ps = msime::settings::punctuation;
 namespace ism = msime::settings::input;
 namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
 namespace mc = msime::settings::mcp;
+namespace ds = msime::settings::dictionary_sync;
 
 struct Response {
   std::string text;
@@ -345,11 +352,18 @@ std::optional<std::string> runtime_options_document() {
   return content;
 }
 
+bool dictionary_write(std::string const &action);
+fire_and_forget note_dictionary_sync_change(std::string options);
+
 // One request of the 词库 page through msime_client_settings_dictionary, the same code the Tauri settings page runs: a write first has the Server let go of its sessions, and a refusal comes back as the page's code. Blocks, so only off the UI thread.
 Response settings_dictionary_call(std::string const &options, std::string const &action) {
   const auto body = "{\"options\":" + options + ",\"action\":" + action + "}";
-  return take_response(msime_client_settings_dictionary(
+  auto response = take_response(msime_client_settings_dictionary(
       reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+  // 改了「我的词条」（编辑、导入、清除学习数据）：让词库同步马上记一次本机改动，与共享页的 withDictionaryChangeNotices 相同。
+  if (response.ok && dictionary_write(action))
+    note_dictionary_sync_change(options);
+  return response;
 }
 
 // 提示里说的词库名字（共享页的 `dictionaryKindLabel`）；种类和下拉框里的名字在 LexiconImportModel.h。
@@ -489,6 +503,30 @@ std::wstring local_date_time(uint64_t milliseconds) {
   return std::wstring(date) + L" " + time;
 }
 
+// 词库同步概况里「额度用完，将于某时继续自动同步」那一句：把 Unix 毫秒换成本机时区的年月日时分交给 ds::budget_wait_text；没在等、已经过了或时间读不出来时为空。
+std::wstring dictionary_sync_budget_wait(uint64_t until_ms) {
+  constexpr uint64_t unix_epoch = 116444736000000000ULL;
+  const auto local_minute = [](uint64_t milliseconds) -> std::optional<ds::LocalMinute> {
+    if (milliseconds > 900000000000000ULL)
+      return std::nullopt;
+    ULARGE_INTEGER ticks{};
+    ticks.QuadPart = milliseconds * 10000ULL + unix_epoch;
+    const FILETIME utc{ticks.LowPart, ticks.HighPart};
+    SYSTEMTIME universal{}, local{};
+    if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &local))
+      return std::nullopt;
+    return ds::LocalMinute{local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute};
+  };
+  if (!until_ms)
+    return {};
+  const auto now = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count());
+  const auto until = local_minute(until_ms);
+  const auto today = local_minute(now);
+  return until && today ? ds::budget_wait_text(until_ms, now, *until, *today) : std::wstring();
+}
+
 // An entry's text on one line, as the shared row shows it (`white-space: nowrap`): every run of white space, line breaks included, becomes one space.
 std::wstring single_line(std::wstring const &value) {
   std::wstring line;
@@ -522,6 +560,52 @@ std::wstring response_error(Response const &response) {
   } catch (...) {
     return {};
   }
+}
+
+// ---- 词库同步 ----
+
+// 回答是不是密钥串身份冲突（#10032 的约定，common/DictionarySyncRetry.h）：调用本身失败，或者 run 的同步结果里报 clipboard_keystore_conflict。
+bool dictionary_sync_conflicted(Response const &response) {
+  const auto &code = msime::windows::dictionary_sync::keystore_conflict;
+  const std::wstring conflict(code.begin(), code.end());
+  if (!response.ok)
+    return response_error(response) == conflict;
+  try {
+    const auto value = JsonObject::Parse(text(response.text)).GetNamedValue(L"value");
+    return value.ValueType() == JsonValueType::Object && named_string(value.GetObject(), L"error") == conflict;
+  } catch (...) {
+    return false;
+  }
+}
+
+// msime_client_dictionary_sync 的一次请求，`action` 是动作的 JSON 文本。`options` 是输入法跑的 HostOptions 文档（偏好目录和 Engine 词库路径都从它来），设置向导还没准备好时为空，只有「测试连接」不读它。目录是本用户的 dictionary-sync（common/DictionarySyncDirectory.h），与 Server 的自动同步同一个，所以设置窗口和 Server 是同一台设备；身份冲突时重试（DictionarySyncRetry.h）。除 status 外都阻塞联网，只在工作线程上调用。
+Response dictionary_sync_call(std::optional<std::string> const &options, std::string const &action) {
+  const auto directory = msime::windows::dictionary_sync_directory();
+  if (directory.empty())
+    return {"{\"ok\":false,\"error\":\"dictionary_sync_storage\"}", false};
+  const auto body = "{\"options\":" + (options ? *options : std::string("null")) + ",\"directory\":" +
+                    utf8(JsonValue::CreateStringValue(hstring(directory.wstring())).Stringify()) +
+                    ",\"action\":" + action + "}";
+  return msime::windows::dictionary_sync::with_keystore_retry(
+      [&] {
+        return take_response(msime_client_dictionary_sync(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+      },
+      dictionary_sync_conflicted);
+}
+
+// 改「我的词条」的三种词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
+bool dictionary_write(std::string const &action) {
+  JsonObject parsed{nullptr};
+  if (!JsonObject::TryParse(text(action), parsed))
+    return false;
+  const auto operation = named_string(parsed, L"operation");
+  return operation == L"edit" || operation == L"import" || operation == L"reset";
+}
+
+// 以 local_change 记一次本机改动：只记录、不联网，Rust 按防抖稍后发送；没配网盘时 Rust 只答 dictionary_sync_not_configured。另放到线程池上跑，词库页不等它：Server 的自动同步正在联网时它要等那把文件锁。
+fire_and_forget note_dictionary_sync_change(std::string options) {
+  co_await resume_background();
+  (void)dictionary_sync_call(options, R"({"operation":"run","trigger":"local_change"})");
 }
 
 // 本版本在 AI 助手配置里登记的服务器名，与 client-core 的 `Edition::mcp_server_name` 相同：full 是 msime，其他版本是 msime-<id>。
@@ -659,7 +743,8 @@ public:
     }
   }
 
-  bool Save(std::wstring &error) {
+  // 成功时返回空。失败时文档保持调用前的样子（包括没存下的修改），返回失败属于哪一类（见 PreferencesSaveFailure.h），由调用方决定重读还是保留修改稍后重试。
+  std::optional<msime::settings::PreferencesSaveFailure> Save() {
     const auto directory = state_directory();
     const auto path = path_utf8(directory);
     document_.SetNamedValue(L"preferences", preferences_);
@@ -668,18 +753,22 @@ public:
         reinterpret_cast<const uint8_t *>(path.data()), path.size(), revision_,
         reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size()));
     if (!response.ok) {
-      error = L"保存失败：设置可能已在其他窗口中更新，请重新读取后再保存。";
-      return false;
+      std::string error;
+      try {
+        error = utf8(JsonObject::Parse(text(response.text)).GetNamedString(L"error", L""));
+      } catch (...) {
+      }
+      return msime::settings::classify_preferences_save_failure(error);
     }
     try {
       document_ =
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
-      return true;
+      return std::nullopt;
     } catch (...) {
-      error = L"设置已写入，但返回内容无法读取。";
-      return false;
+      // 设置已写入，但返回内容读不了：调用方重读已存的设置。
+      return msime::settings::PreferencesSaveFailure::rejected;
     }
   }
 
@@ -3413,6 +3502,9 @@ struct MainWindow : WindowT<MainWindow> {
       closed_ = true;
       if (dictionary_update_timer_) dictionary_update_timer_.Stop();
       flush_pending();
+      // 写盘失败后保留着的修改在关闭前最后再存一次；仍失败就只能留在磁盘上的旧值。
+      retry_unsaved_edit();
+      if (save_retry_timer_) save_retry_timer_.Stop();
       // 本地模型的下载随窗口一起停下，下次安装时清掉没装完的临时文件。
       take_response(msime_client_voice_local_model_cancel(nullptr, 0));
       // 等待中的 Google 登录也随窗口结束，回环端口不再等一个没人看的浏览器。
@@ -3448,11 +3540,13 @@ private:
     std::wstring error;
     if (fresh.Load(error)) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
       load_error_.clear();
     } else if (!loaded_) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       load_error_ = error;
     }
   }
@@ -3618,17 +3712,26 @@ private:
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
       flush_pending();
+      retry_unsaved_edit();
       return;
     }
     // 与共享页一样，窗口获得焦点时重读打字统计并按日节流检查词库。
     poll_statistics();
     dictionary_update_request(L"automatic");
+    reread_dictionary_sync_status();
     // Another window (the tray, the shared app, another device through sync) may have changed the settings or Windows may have switched between light and dark while this window was in the background.
     bool changed = false;
     PreferencesDocument fresh;
     std::wstring error;
     if (fresh.Load(error) &&
         (!loaded_ || fresh.revision() != document_.revision())) {
+      // 写盘失败后保留着的修改还没存下，别处却已经存了新的修订号：与保存时遇到的冲突一样，以别处的设置为准并说明。
+      if (pending_save_failures_ > 0) {
+        discard_unsaved_edit();
+        notice_ = msime::settings::preferences_reload_failure_message(
+            msime::settings::PreferencesSaveFailure::conflict);
+        notice_severity_ = InfoBarSeverity::Error;
+      }
       document_ = std::move(fresh);
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
@@ -3708,15 +3811,20 @@ private:
 
   // ---- Saving ----
 
-  // Every control writes through at once. A refused write (a newer revision elsewhere, or a combination the store rejects) reloads the stored settings and says so.
+  // 每个控件改动后立即保存，返回是否已经存下。被拒绝的保存（别处先存了新修订号，或这组设置不被接受）重读已存的设置并在页首说明。写盘失败（设置文件被别的程序占用等）不重读：修改留在文档里、页面照它显示，按 PreferencesSaveFailure.h 的间隔自动重试，见 keep_unsaved_edit。
   bool commit() {
-    std::wstring error;
-    if (document_.Save(error)) {
+    const auto failure = document_.Save();
+    if (!failure) {
       synchronize_cloud_clipboard_configuration();
+      settle_unsaved_edit();
       return true;
     }
-    notice_ = L"无法保存这项设置：设置可能已在其他窗口中更新，或与其他设置冲突。"
-              L"已重新读取当前设置。";
+    if (*failure == msime::settings::PreferencesSaveFailure::storage) {
+      keep_unsaved_edit();
+      return false;
+    }
+    discard_unsaved_edit();
+    notice_ = msime::settings::preferences_reload_failure_message(*failure);
     notice_severity_ = InfoBarSeverity::Error;
     // The refused edit is still in memory; the stored settings replace it, and if they cannot be read the controls are disabled rather than showing a value that was never saved.
     PreferencesDocument fresh;
@@ -3730,11 +3838,57 @@ private:
     return false;
   }
 
+  // 写盘失败后保留修改：文档不动，说明还会自动重试，并排好下一次。自动重试用完后不再排，pending_save_failures_ 仍大于零，切到别的窗口、关闭窗口或下一次修改时再存。
+  void keep_unsaved_edit() {
+    ++pending_save_failures_;
+    if (closed_)
+      return;
+    const auto delay = msime::settings::preferences_save_retry_delay(pending_save_failures_);
+    auto message = msime::settings::preferences_storage_failure_message(delay.has_value());
+    // 同一句说明已经显示着时不重画整页，免得每次重试都打断正在操作的控件。
+    if (message != notice_)
+      show_notice(std::move(message), delay ? InfoBarSeverity::Warning : InfoBarSeverity::Error);
+    if (!delay)
+      return;
+    if (!save_retry_timer_) {
+      save_retry_timer_ = DispatcherQueue().CreateTimer();
+      save_retry_timer_.IsRepeating(false);
+      save_retry_timer_.Tick([this](Microsoft::UI::Dispatching::DispatcherQueueTimer const &,
+                                    Inspectable const &) { retry_unsaved_edit(); });
+    }
+    save_retry_timer_.Stop();
+    save_retry_timer_.Interval(*delay);
+    save_retry_timer_.Start();
+  }
+
+  // 有写盘失败后保留着的修改时再存一次。
+  void retry_unsaved_edit() {
+    if (pending_save_failures_ > 0)
+      commit();
+  }
+
+  // 保存成功：之前保留着的修改也一并存下了，换掉写盘失败的说明。
+  void settle_unsaved_edit() {
+    if (pending_save_failures_ == 0)
+      return;
+    discard_unsaved_edit();
+    show_notice(std::wstring(msime::settings::preferences_saved_after_retry_message),
+                InfoBarSeverity::Success);
+  }
+
+  // 文档被已存的设置换掉（重读、别处改过）时，保留着的修改随之作废，不再重试。
+  void discard_unsaved_edit() {
+    pending_save_failures_ = 0;
+    if (save_retry_timer_)
+      save_retry_timer_.Stop();
+  }
+
   void change(std::function<void(PreferencesDocument &)> const &edit,
               bool redraw) {
     flush_pending();
     edit(document_);
-    if (commit()) {
+    // 写盘失败时修改仍留在文档里，预览照样跟着它走。
+    if (commit() || pending_save_failures_ > 0) {
       forget_stale_card_previews();
       update_preview();
       update_toolbar_preview();
@@ -4178,8 +4332,12 @@ private:
     if (id == "stats" && id != current_page_)
       reset_statistics_page();
     // 「词库」页每次进入都重新列出词条；背单词子页随离开本页收起。
-    if (id == "lexicon" && id != current_page_)
+    if (id == "lexicon" && id != current_page_) {
       lexicon_listed_ = false;
+      // 与共享页挂上「词库同步」时一样，每次进入都以 opened 同步一次；离开时没保存的网盘草稿丢掉。
+      reset_dictionary_sync_draft();
+      reset_dictionary_sync_state();
+    }
     if (current_page_ == "lexicon" && id != current_page_) {
       vocabulary_view_ = false;
       vocabulary_pending_focus_ = false;
@@ -13888,7 +14046,8 @@ private:
       if (commit()) {
         cloud_provider_draft_.reset();
         queue_refresh();
-      } else
+      } else if (pending_save_failures_ == 0)
+        // 写盘失败时配置本身没问题，页首已经说明会自动重试，不改成检查配置的提示。
         show_notice(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
     }, loaded_);
     A11y::SetAutomationId(save, L"cloud-candidate-save");
@@ -14114,10 +14273,13 @@ private:
         },
         [this, id](Response const &response) {
           sentence_pack_installing_.erase(id);
-          if (!response.ok)
-            show_notice(L"模型下载失败，请检查网络或稍后重试。", InfoBarSeverity::Error);
-          else
+          if (!response.ok) {
+            if (const auto message = model_errors::error_message(
+                    model_errors::error_code(response_error(response))))
+              show_notice(*message, InfoBarSeverity::Error);
+          } else {
             grammar_updates_available_.erase(id);
+          }
           refresh_sentence_packs();
           redraw_input();
         });
@@ -14319,6 +14481,7 @@ private:
     fold_index_.clear();
 
     build_fuzzy_group(page);
+    build_autocorrect_group(page);
     build_helpcode_group(page);
 
     // 与共享页的 FrequencySection 相同，只按条件显示，不改存着的值（这几项会上云）：学习选词习惯关闭时整组不画；调频方式为「关闭」时不画触发频次；步长只有线性调频读。
@@ -15108,6 +15271,25 @@ private:
       doc.SetBoolean(L"fuzzy_pinyin.enabled", false);
       doc.SetStrings(L"fuzzy_pinyin.rules", std::vector<std::wstring>{});
     }, true);
+  }
+
+  // 「全拼纠错」/「双拼纠错」组，照共享页 input-page.tsx 高级选项里模糊音之后的那一组：只在当前方案是全拼或双拼时画，标题和说明按当前方案写，文案与共享页逐字相同。全拼和双拼都读 quanpin 下的 autocorrect_neighbor、autocorrect_transposition（字段名带 quanpin 是历史原因，见 shuangpin::engine::request_autocorrect_types），默认都开。全拼两个都关掉时漏打、多打字母的纠错也一起关闭（request_autocorrect_mask），双拼没有这一类纠错，所以只有全拼的说明写这一句。五笔的混输拼音和 z 键拼音反查也带着这两个字段，但与共享页一样不为它们单列，其他方案不纠错，不画。
+  void build_autocorrect_group(StackPanel const &page) {
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+    if ((scheme != L"quanpin" && scheme != L"shuangpin") || !edition_offers_scheme(scheme))
+      return;
+    const bool shuangpin = scheme == L"shuangpin";
+    auto group = add_group(page, shuangpin ? L"双拼纠错" : L"全拼纠错");
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼邻键纠错" : L"全拼邻键纠错",
+             shuangpin
+                 ? L"把按偏到相邻键的双拼编码纠回来，只用于三个音节以上的整句，纠错整句排在词条和整句后面。关闭后不再按邻键猜测编码。"
+                 : L"把按偏到相邻键的字母纠回来，例如 shabg → shang、zhr → zhe。全是辅音的输入（qjn、zhr）先列简拼词，纠错候选排在后面。关闭后不再按邻键猜测拼写。",
+             L"quanpin.autocorrect_neighbor", true);
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼乱序纠错" : L"全拼乱序纠错",
+             shuangpin
+                 ? L"把两键编码前后颠倒的音节纠回来，同样只用于三个音节以上的整句。关闭后不再按乱序猜测编码。"
+                 : L"把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。",
+             L"quanpin.autocorrect_transposition", true);
   }
 
   // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
@@ -16263,6 +16445,7 @@ private:
       auto cloud = add_group(page, L"云词库");
       shell_row(cloud, 0xE753, L"云词库", L"管理同步到账号的词条和备份", L"打开云词库",
                 nav::shell_links::cloud_dictionary);
+      build_dictionary_sync(page);
     }
   }
 
@@ -16926,6 +17109,727 @@ private:
           redraw_lexicon();
         });
     redraw_lexicon();
+  }
+
+  // ---- 词库同步 ----
+
+  // 共享页的「词库同步」（packages/ui/src/settings/dictionary-sync.ts 和 use-dictionary-sync.ts）在 Windows 上画在词库页「云端词库」标签里、云词库那一组下面：「我的词条」经用户自己的 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）。网盘配置照「剪贴板」页云剪贴板的 WebDAV 那一套：地址、账号和应用密码先进草稿，应用密码遮罩、不回填已存的那个（留空沿用），「测试连接」只测不存，「保存」先测、通过才写偏好 dictionary_sync_webdav，不通过时草稿留着；规则由共享 Rust 偏好库和测试连接判断。存着网盘时，每次进入词库页以 opened 同步一次并取设备，之后按「立即同步」（manual）、设备的允许、拒绝、移除和重置再调；自动的 periodic 和候选窗口删词后的 local_change 由 Server 做（src/system/DictionarySyncWorker.h），本窗口改了词以后的 local_change 在 settings_dictionary_call 里；窗口重新获得焦点时重读一次不联网的 status，跟上 Server 在后台做的同步。所有调用都在工作线程上（dictionary_sync_call），同一时间只有一件（焦点回来时那次 status 不占这一件，Rust 读同步状态不必等锁）；配置换过之后回来的结果丢掉。展示规则和文字在 DictionarySyncModel.h。
+
+  struct DictionarySyncConfiguration {
+    std::wstring url;
+    std::wstring username;
+    std::wstring password;
+    bool operator==(DictionarySyncConfiguration const &other) const {
+      return url == other.url && username == other.username && password == other.password;
+    }
+  };
+
+  // 网盘配置的草稿，点「保存」之前不写盘。应用密码框不回填已存的密码：留空表示沿用已存的那个，「显示」也就看不到它。
+  struct DictionarySyncDraft {
+    std::wstring url;
+    std::wstring username;
+    std::wstring password;
+    bool reveal_password = false;
+  };
+
+  // 一次用户操作在工作线程上的回答：动作本身，以及之后需要时再取的设备和概况。
+  struct DictionarySyncOutcome {
+    Response action;
+    std::optional<Response> devices;
+    std::optional<Response> status;
+  };
+
+  bool dictionary_sync_saved() const { return !dsync_configuration_.url.empty(); }
+
+  // 存着的网盘配置变了（本窗口保存或清掉、别的窗口改了偏好）：草稿、测试结果和读到的状态都不再属于眼前的配置。
+  void synchronize_dictionary_sync_configuration() {
+    const DictionarySyncConfiguration configuration{document_.String(L"dictionary_sync_webdav.url", L""),
+                                                    document_.String(L"dictionary_sync_webdav.username", L""),
+                                                    document_.String(L"dictionary_sync_webdav.password", L"")};
+    if (configuration == dsync_configuration_)
+      return;
+    dsync_configuration_ = configuration;
+    reset_dictionary_sync_draft();
+    reset_dictionary_sync_state();
+  }
+
+  // 丢掉草稿和「测试连接」的结果；还在跑的测试回来时按 dsync_probe_generation_ 作废，不会把旧草稿写进偏好。
+  void reset_dictionary_sync_draft() {
+    dsync_draft_.reset();
+    ++dsync_probe_generation_;
+    dsync_probe_busy_ = false;
+    dsync_probe_message_.clear();
+  }
+
+  // 丢掉读到的概况、设备和上一次操作的结果，下一次画页面时重新以 opened 同步；在途的回答按 dsync_generation_ 作废。
+  void reset_dictionary_sync_state() {
+    ++dsync_generation_;
+    dsync_checked_ = false;
+    dsync_busy_ = false;
+    dsync_status_.reset();
+    dsync_devices_.reset();
+    dsync_error_.clear();
+    dsync_notice_.clear();
+  }
+
+  // 只在「云端词库」标签画着的时候重画：别的标签（例如正在打字的查找框）不因为词库同步的回答被整页重建。
+  void redraw_dictionary_sync() {
+    if (!closed_ && current_page_ == "lexicon" && !vocabulary_view_ && page_tab("lexicon") == L"cloud")
+      queue_refresh();
+  }
+
+  static bool named_flag(JsonObject const &object, wchar_t const *key) {
+    const auto value = object.GetNamedValue(key, JsonValue::CreateNullValue());
+    return value.ValueType() == JsonValueType::Boolean && value.GetBoolean();
+  }
+
+  // 非负的整数；超过 2^53 的不是真实的数，按 0 算。
+  static uint64_t named_size(JsonObject const &object, wchar_t const *key) {
+    const auto value = object.GetNamedValue(key, JsonValue::CreateNullValue());
+    if (value.ValueType() != JsonValueType::Number)
+      return 0;
+    const auto number = value.GetNumber();
+    return number > 0 && number < 9007199254740992.0 ? static_cast<uint64_t>(number) : 0;
+  }
+
+  static JsonObject dictionary_sync_action(wchar_t const *operation) {
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(operation));
+    return action;
+  }
+
+  static JsonObject dictionary_sync_run_action(wchar_t const *trigger) {
+    auto action = dictionary_sync_action(L"run");
+    action.SetNamedValue(L"trigger", JsonValue::CreateStringValue(trigger));
+    return action;
+  }
+
+  // 成功回答里的 value；失败或形状不对时为空。
+  static std::optional<JsonObject> dictionary_sync_value(Response const &response) {
+    if (!response.ok)
+      return std::nullopt;
+    try {
+      const auto value = JsonObject::Parse(text(response.text)).GetNamedValue(L"value");
+      if (value.ValueType() == JsonValueType::Object)
+        return value.GetObject();
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
+  // `status` 的结果（也是 run 结果里的 status），与共享页的 dictionarySyncStatus 一样：approved 和 joined 不是布尔值时整个不认。
+  static std::optional<ds::Status> dictionary_sync_status(IJsonValue const &value) {
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    const auto object = value.GetObject();
+    const auto approved = object.GetNamedValue(L"approved", JsonValue::CreateNullValue());
+    const auto joined = object.GetNamedValue(L"joined", JsonValue::CreateNullValue());
+    if (approved.ValueType() != JsonValueType::Boolean || joined.ValueType() != JsonValueType::Boolean)
+      return std::nullopt;
+    ds::Status status;
+    status.device_id = named_string(object, L"device_id");
+    status.code = named_string(object, L"code");
+    status.approved = approved.GetBoolean();
+    status.joined = joined.GetBoolean();
+    status.words = named_size(object, L"words");
+    status.pending_upload = named_size(object, L"pending_upload");
+    status.pending_apply = named_size(object, L"pending_apply");
+    status.held_deletions = named_size(object, L"held_deletions");
+    status.clock_skew = named_flag(object, L"clock_skew");
+    status.last_success_ms = named_size(object, L"last_success_ms");
+    status.last_error = named_string(object, L"last_error");
+    status.budget_wait_until = named_size(object, L"budget_wait_until");
+    return status;
+  }
+
+  // 设备管理的结果，形状与云剪贴板的 devices 相同；同一台设备的几条登记合成一条（ds::group_devices）。
+  static std::optional<ds::DeviceGroups> dictionary_sync_devices(IJsonValue const &value) {
+    if (value.ValueType() != JsonValueType::Object)
+      return std::nullopt;
+    const auto list = value.GetObject().GetNamedValue(L"devices", JsonValue::CreateNullValue());
+    if (list.ValueType() != JsonValueType::Array)
+      return std::nullopt;
+    std::vector<ds::Device> devices;
+    for (auto const &item : list.GetArray()) {
+      if (item.ValueType() != JsonValueType::Object)
+        continue;
+      const auto object = item.GetObject();
+      ds::Device device;
+      device.id = named_string(object, L"device_id");
+      device.name = named_string(object, L"name");
+      device.created_at = named_string(object, L"created_at");
+      device.code = named_string(object, L"code");
+      device.approved = named_flag(object, L"approved");
+      device.current = named_flag(object, L"current");
+      if (!device.id.empty())
+        devices.push_back(std::move(device));
+    }
+    return ds::group_devices(devices);
+  }
+
+  // 一次 run 的结果（也是 remove、reset 回答里的 run）：换上概况；同步失败时记下错误码，成功时清掉，`manual` 时写一句结果。读不出来时当作连不上网盘。
+  void apply_dictionary_sync_run(IJsonValue const &value, bool manual) {
+    std::optional<ds::Status> status;
+    if (value.ValueType() == JsonValueType::Object)
+      status = dictionary_sync_status(value.GetObject().GetNamedValue(L"status", JsonValue::CreateNullValue()));
+    if (!status) {
+      dsync_error_ = L"dictionary_sync_unavailable";
+      return;
+    }
+    dsync_status_ = std::move(*status);
+    const auto run = value.GetObject();
+    const auto report = run.GetNamedValue(L"report", JsonValue::CreateNullValue());
+    if (report.ValueType() == JsonValueType::Object) {
+      dsync_error_.clear();
+      if (manual)
+        dsync_notice_ = ds::run_notice(dsync_status_->approved, named_flag(report.GetObject(), L"deferred"));
+      return;
+    }
+    dsync_error_ = named_string(run, L"error");
+    if (dsync_error_.empty())
+      dsync_error_ = L"dictionary_sync_unavailable";
+  }
+
+  // 调用本身失败时记下错误码（没有码时当作连不上网盘）。
+  void record_dictionary_sync_failure(Response const &response) {
+    dsync_error_ = response_error(response);
+    if (dsync_error_.empty())
+      dsync_error_ = L"dictionary_sync_unavailable";
+  }
+
+  void apply_dictionary_sync_devices(Response const &response) {
+    if (auto value = dictionary_sync_value(response)) {
+      if (auto groups = dictionary_sync_devices(*value))
+        dsync_devices_ = std::move(*groups);
+      return;
+    }
+    record_dictionary_sync_failure(response);
+  }
+
+  void apply_dictionary_sync_status(Response const &response) {
+    if (auto value = dictionary_sync_value(response))
+      if (auto status = dictionary_sync_status(*value))
+        dsync_status_ = std::move(*status);
+  }
+
+  // 在工作线程上依次跑 `action`，`devices` 为真时再取设备，`status` 为真时再读不联网的概况（第一次取设备会登记本机，核对码在那之后才有）；回到 UI 线程交给 `done`。设置向导还没准备好 HostOptions 时说明原因、什么都不调。
+  void dictionary_sync_job(JsonObject const &action, bool devices, bool status,
+                           std::function<void(DictionarySyncOutcome &)> done) {
+    if (dsync_busy_)
+      return;
+    const auto options = runtime_options_document();
+    if (!options) {
+      dsync_error_.clear();
+      dsync_notice_ = L"输入法尚未完成初始化，完成设置向导后即可同步词库。";
+      redraw_dictionary_sync();
+      return;
+    }
+    dsync_status_reads_.invalidate();
+    dsync_busy_ = true;
+    dsync_notice_.clear();
+    const auto generation = dsync_generation_;
+    run_worker<DictionarySyncOutcome>(
+        [options, body = utf8(action.Stringify()), devices, status] {
+          DictionarySyncOutcome outcome;
+          outcome.action = dictionary_sync_call(options, body);
+          if (devices)
+            outcome.devices = dictionary_sync_call(options, R"({"operation":"devices"})");
+          if (status)
+            outcome.status = dictionary_sync_call(options, R"({"operation":"status"})");
+          return outcome;
+        },
+        [this, generation, done = std::move(done)](DictionarySyncOutcome &outcome) {
+          if (generation != dsync_generation_)
+            return;
+          dsync_busy_ = false;
+          done(outcome);
+          redraw_dictionary_sync();
+        });
+    redraw_dictionary_sync();
+  }
+
+  // 进入词库页（或者刚保存了新的网盘配置）时以 opened 同步一次，再取设备和概况。
+  void open_dictionary_sync() {
+    dsync_checked_ = true;
+    dictionary_sync_job(dictionary_sync_run_action(L"opened"), true, true, [this](DictionarySyncOutcome &outcome) {
+      apply_dictionary_sync_run_response(outcome.action, false);
+      if (outcome.devices)
+        apply_dictionary_sync_devices(*outcome.devices);
+      if (outcome.status)
+        apply_dictionary_sync_status(*outcome.status);
+    });
+  }
+
+  // 窗口重新获得焦点、「云端词库」标签开着时重读一次不联网的概况，与共享页相同：periodic 和候选窗口删词后的 local_change 由 Server 在后台做，结果不经本窗口，不重读的话「待发送」「上次同步」要离开词库页再进来才变。有操作在跑时不读，它的回答会带回概况；读到的与画着的相同时不重画，画也等按下的指针松开，免得激活窗口的那一下点击落在重建的控件上。错误和结果说明不动，它们记的是本窗口最近一次操作。
+  void reread_dictionary_sync_status() {
+    if (closed_ || dsync_busy_ || !dsync_checked_ || !dictionary_sync_saved() || current_page_ != "lexicon" ||
+        vocabulary_view_ || page_tab("lexicon") != L"cloud")
+      return;
+    const auto options = runtime_options_document();
+    if (!options)
+      return;
+    const auto generation = dsync_generation_;
+    const auto sequence = dsync_status_reads_.begin_read();
+    run_worker<Response>([options] { return dictionary_sync_call(options, R"({"operation":"status"})"); },
+                         [this, generation, sequence](Response &response) {
+                           if (generation != dsync_generation_ || dsync_busy_ || !dsync_status_reads_.accepts(sequence))
+                             return;
+                           const auto value = dictionary_sync_value(response);
+                           if (!value)
+                             return;
+                           auto status = dictionary_sync_status(*value);
+                           if (!status || (dsync_status_ && *status == *dsync_status_))
+                             return;
+                           dsync_status_ = std::move(*status);
+                           if (pointer_down_)
+                             defer_refresh_until_pointer_up();
+                           else
+                             redraw_dictionary_sync();
+                         });
+  }
+
+  // 一次 run 的回答（不是 remove、reset 那种带 devices 的）。
+  void apply_dictionary_sync_run_response(Response const &response, bool manual) {
+    if (auto value = dictionary_sync_value(response)) {
+      apply_dictionary_sync_run(*value, manual);
+      return;
+    }
+    record_dictionary_sync_failure(response);
+  }
+
+  // 「立即同步」，以及对被挡下的大批删除的两个选择（同步删除、从网盘恢复）：manual 不受防抖和间隔限制，桌面端会请输入法让出词库。做完再取一次设备，新登记、新允许的设备随之出现。
+  void sync_dictionary_now(wchar_t const *choice = nullptr) {
+    auto action = dictionary_sync_run_action(L"manual");
+    if (choice)
+      action.SetNamedValue(choice, JsonValue::CreateBooleanValue(true));
+    dictionary_sync_job(action, true, false, [this](DictionarySyncOutcome &outcome) {
+      apply_dictionary_sync_run_response(outcome.action, true);
+      if (outcome.devices && outcome.action.ok)
+        apply_dictionary_sync_devices(*outcome.devices);
+    });
+  }
+
+  fire_and_forget confirm_dictionary_deletions() {
+    auto strong = get_strong();
+    if (dsync_busy_)
+      co_return;
+    if (!co_await confirm(L"同步删除", std::wstring(ds::confirm_deletions_question), L"同步删除"))
+      co_return;
+    sync_dictionary_now(L"confirm_deletions");
+  }
+
+  // 允许、拒绝一台等待中的设备：先确认（允许时对照核对码），回答是新的设备列表。
+  fire_and_forget decide_dictionary_device(ds::Device device, bool approve) {
+    auto strong = get_strong();
+    if (dsync_busy_)
+      co_return;
+    bool accepted = false;
+    if (approve)
+      accepted = co_await confirm(L"允许设备", ds::approve_question(device), L"允许");
+    else
+      accepted = co_await confirm(L"拒绝设备", ds::reject_question(device), L"拒绝");
+    if (!accepted || dsync_busy_)
+      co_return;
+    auto action = dictionary_sync_action(approve ? L"approve" : L"reject");
+    action.SetNamedValue(L"device_id", JsonValue::CreateStringValue(hstring(device.id)));
+    dictionary_sync_job(action, false, true, [this](DictionarySyncOutcome &outcome) {
+      apply_dictionary_sync_devices(outcome.action);
+      if (outcome.action.ok)
+        dsync_error_.clear();
+      if (outcome.status)
+        apply_dictionary_sync_status(*outcome.status);
+    });
+  }
+
+  // 移除设备和重置密钥：都换钥，回答是 {devices, run}。
+  fire_and_forget rekey_dictionary_sync(std::optional<ds::Device> device) {
+    auto strong = get_strong();
+    if (dsync_busy_)
+      co_return;
+    bool accepted = false;
+    if (device)
+      accepted = co_await confirm(L"移除设备", ds::remove_question(*device), L"移除");
+    else
+      accepted = co_await confirm(L"重置密钥", std::wstring(ds::reset_question), L"重置");
+    if (!accepted || dsync_busy_)
+      co_return;
+    auto action = dictionary_sync_action(device ? L"remove" : L"reset");
+    if (device)
+      action.SetNamedValue(L"device_id", JsonValue::CreateStringValue(hstring(device->id)));
+    dictionary_sync_job(action, false, false, [this](DictionarySyncOutcome &outcome) {
+      const auto value = dictionary_sync_value(outcome.action);
+      if (!value) {
+        record_dictionary_sync_failure(outcome.action);
+        return;
+      }
+      if (auto groups = dictionary_sync_devices(value->GetNamedValue(L"devices", JsonValue::CreateNullValue())))
+        dsync_devices_ = std::move(*groups);
+      apply_dictionary_sync_run(value->GetNamedValue(L"run", JsonValue::CreateNullValue()), false);
+    });
+  }
+
+  // 恢复只使用打开确认框时的已保存配置，期间换代则取消。
+  fire_and_forget trust_dictionary_sync_remote() {
+    auto strong = get_strong();
+    if (dsync_busy_ || !dictionary_sync_saved()) co_return;
+    const auto generation = dsync_generation_;
+    const auto saved = dsync_configuration_;
+    if (!co_await confirm(L"确认网盘现状并恢复同步", std::wstring(ds::trust_remote_question), L"恢复同步")) co_return;
+    if (generation != dsync_generation_ || dsync_busy_) co_return;
+    auto action = dictionary_sync_action(L"probe");
+    action.SetNamedValue(L"url", JsonValue::CreateStringValue(hstring(saved.url)));
+    action.SetNamedValue(L"username", JsonValue::CreateStringValue(hstring(saved.username)));
+    action.SetNamedValue(L"password", JsonValue::CreateStringValue(hstring(saved.password)));
+    action.SetNamedValue(L"trust_remote", JsonValue::CreateBooleanValue(true));
+    dictionary_sync_job(action, false, true, [this](DictionarySyncOutcome &outcome) {
+      if (!outcome.action.ok) { record_dictionary_sync_failure(outcome.action); return; }
+      if (outcome.status) apply_dictionary_sync_status(*outcome.status);
+      dsync_error_.clear();
+      dsync_notice_ = L"已确认网盘现状，请点「立即同步」恢复。";
+    });
+  }
+
+  // 以本机为准重新开始：回答是概况。
+  fire_and_forget restart_dictionary_sync() {
+    auto strong = get_strong();
+    if (dsync_busy_)
+      co_return;
+    if (!co_await confirm(L"以本机为准重新开始", std::wstring(ds::restart_question), L"重新开始"))
+      co_return;
+    dictionary_sync_job(dictionary_sync_action(L"restart"), false, false, [this](DictionarySyncOutcome &outcome) {
+      const auto value = dictionary_sync_value(outcome.action);
+      if (!value) {
+        record_dictionary_sync_failure(outcome.action);
+        return;
+      }
+      if (auto status = dictionary_sync_status(*value))
+        dsync_status_ = std::move(*status);
+      dsync_error_.clear();
+      dsync_notice_ = ds::restarted;
+    });
+  }
+
+  // 「停止同步」：确认后从偏好里删掉 dictionary_sync_webdav（与 Rust 没配置时不写这个键的形状一致）。网盘上的内容和本机的同步状态都不删。
+  fire_and_forget clear_dictionary_sync() {
+    auto strong = get_strong();
+    if (dsync_probe_busy_)
+      co_return;
+    if (!co_await confirm(L"停止词库同步", std::wstring(ds::clear_question), L"停止同步"))
+      co_return;
+    flush_pending();
+    document_.Remove(L"dictionary_sync_webdav");
+    if (commit()) {
+      synchronize_dictionary_sync_configuration();
+      show_notice(L"已停止词库同步", InfoBarSeverity::Success);
+    }
+    redraw_dictionary_sync();
+  }
+
+  bool dictionary_sync_draft_complete() const {
+    if (!dsync_draft_)
+      return false;
+    return !dsync_draft_->url.empty() && !dsync_draft_->username.empty() &&
+           (!dsync_draft_->password.empty() || !dsync_configuration_.password.empty());
+  }
+
+  // 「测试连接」：在工作线程上用草稿跑 probe（只测、不读偏好），不改同步位置、待发改动或防回退记录。`save` 为真时通过后才把三项成对写进偏好（仍由共享 Rust 偏好库校验），不通过就只说明原因、草稿留着。
+  void probe_dictionary_sync(bool save) {
+    if (!dsync_draft_ || dsync_probe_busy_)
+      return;
+    auto draft = *dsync_draft_;
+    // 应用密码框留空表示沿用已存的那一个。
+    if (draft.password.empty())
+      draft.password = dsync_configuration_.password;
+    auto action = dictionary_sync_action(L"probe");
+    action.SetNamedValue(L"url", JsonValue::CreateStringValue(hstring(draft.url)));
+    action.SetNamedValue(L"username", JsonValue::CreateStringValue(hstring(draft.username)));
+    action.SetNamedValue(L"password", JsonValue::CreateStringValue(hstring(draft.password)));
+    const auto generation = ++dsync_probe_generation_;
+    dsync_probe_busy_ = true;
+    dsync_probe_message_ = save ? L"正在测试连接，通过后保存…" : L"正在测试连接…";
+    run_host(
+        [options = runtime_options_document(), body = utf8(action.Stringify())] {
+          return dictionary_sync_call(options, body);
+        },
+        [this, generation, save, draft](Response const &response) {
+          // 草稿在测试期间作废了（离开页面、偏好被别处改了）：结果不再属于眼前的设置。
+          if (generation != dsync_probe_generation_)
+            return;
+          dsync_probe_busy_ = false;
+          if (!response.ok) {
+            dsync_probe_message_ = ds::error_message(response_error(response), true);
+            redraw_dictionary_sync();
+            return;
+          }
+          if (!save) {
+            dsync_probe_message_ = ds::probe_passed;
+            // 已经在同步时重新读取状态，普通探测不解除防回退。
+            if (dictionary_sync_saved()) {
+              ++dsync_generation_;
+              dsync_checked_ = false;
+              dsync_busy_ = false;
+            }
+            redraw_dictionary_sync();
+            return;
+          }
+          flush_pending();
+          document_.SetString(L"dictionary_sync_webdav.url", draft.url);
+          document_.SetString(L"dictionary_sync_webdav.username", draft.username);
+          document_.SetString(L"dictionary_sync_webdav.password", draft.password);
+          if (commit()) {
+            // 和已存的完全一样时配置没变，也要丢掉草稿、从网盘现在的样子重新读一次。
+            synchronize_dictionary_sync_configuration();
+            reset_dictionary_sync_draft();
+            reset_dictionary_sync_state();
+            show_notice(L"已保存词库同步的网盘配置", InfoBarSeverity::Success);
+          } else {
+            // commit 已经重读设置并在页面顶部说明；草稿还在时留着输入，测试结果不再代表要保存的内容。
+            dsync_probe_message_.clear();
+          }
+          redraw_dictionary_sync();
+        });
+    redraw_dictionary_sync();
+  }
+
+  // 「词库同步」的全部组：网盘配置，存着网盘时再加同步状态、设备和密钥。
+  void build_dictionary_sync(StackPanel const &page) {
+    synchronize_dictionary_sync_configuration();
+    if (!indexing_ && dictionary_sync_saved() && !dsync_checked_ && !dsync_busy_)
+      open_dictionary_sync();
+    build_dictionary_sync_settings(page);
+    if (dictionary_sync_saved()) {
+      build_dictionary_sync_status(page);
+      build_dictionary_sync_devices(page);
+    }
+  }
+
+  // 网盘配置：说明、三项输入、「测试连接」和它的结果、「保存」，存着网盘时再加一句现状和「停止同步」。输入改动只进草稿，并让上一次的测试结果失效；测试期间输入框和按钮都不可用，保存的正是测试过的那一份。
+  void build_dictionary_sync_settings(StackPanel const &page) {
+    auto group = add_group(page, L"词库同步");
+    if (!dsync_draft_) {
+      DictionarySyncDraft draft;
+      draft.url = dsync_configuration_.url;
+      draft.username = dsync_configuration_.username;
+      dsync_draft_ = std::move(draft);
+    }
+    const bool busy = dsync_probe_busy_;
+    group.Children().Append(group_note(ds::explanation));
+
+    Button save;
+    save.Content(box_value(L"保存"));
+    save.IsEnabled(loaded_ && !busy && dictionary_sync_draft_complete());
+    A11y::SetName(save, L"保存词库同步的网盘配置");
+    A11y::SetAutomationId(save, L"dictionary-sync-save");
+    save.Click([this](Inspectable const &, RoutedEventArgs const &) { probe_dictionary_sync(true); });
+    Button test;
+    test.Content(box_value(L"测试连接"));
+    test.IsEnabled(loaded_ && !busy && dictionary_sync_draft_complete());
+    A11y::SetName(test, L"测试词库同步的网盘连接");
+    A11y::SetAutomationId(test, L"dictionary-sync-test");
+    test.Click([this](Inspectable const &, RoutedEventArgs const &) { probe_dictionary_sync(false); });
+    // 上一次测试的结果，排在「测试连接」那一行下面；没有结果时收起。
+    auto result = group_note(dsync_probe_message_);
+    A11y::SetAutomationId(result, L"dictionary-sync-result");
+    A11y::SetLiveSetting(result, Automation::Peers::AutomationLiveSetting::Polite);
+    result.Visibility(dsync_probe_message_.empty() ? Visibility::Collapsed : Visibility::Visible);
+    // 改了任何一项：按钮跟着必填项是否齐全变，旧的测试结果不再说明眼前这份草稿，收起它。
+    const auto edited = [this, weak_save = make_weak(save), weak_test = make_weak(test),
+                         weak_result = make_weak(result)] {
+      const bool complete = loaded_ && dictionary_sync_draft_complete();
+      if (auto button = weak_save.get())
+        button.IsEnabled(complete);
+      if (auto button = weak_test.get())
+        button.IsEnabled(complete);
+      dsync_probe_message_.clear();
+      if (auto note = weak_result.get())
+        note.Visibility(Visibility::Collapsed);
+    };
+
+    TextBox url;
+    url.Width(240);
+    url.Text(hstring(dsync_draft_->url));
+    url.PlaceholderText(hstring(nav::webdav_url_placeholder));
+    url.IsSpellCheckEnabled(false);
+    url.IsTextPredictionEnabled(false);
+    url.IsEnabled(loaded_ && !busy);
+    A11y::SetName(url, L"词库同步服务器地址");
+    A11y::SetAutomationId(url, L"dictionary-sync-url");
+    url.TextChanged([this, edited](Inspectable const &sender, TextChangedEventArgs const &) {
+      if (!dsync_draft_)
+        return;
+      dsync_draft_->url = sender.as<TextBox>().Text().c_str();
+      edited();
+    });
+    add_row(group, 0xE774, L"词库同步服务器地址", std::wstring(ds::url_note), url);
+
+    TextBox username;
+    username.Width(240);
+    username.Text(hstring(dsync_draft_->username));
+    username.IsSpellCheckEnabled(false);
+    username.IsTextPredictionEnabled(false);
+    username.IsEnabled(loaded_ && !busy);
+    A11y::SetName(username, L"词库同步网盘账号");
+    A11y::SetAutomationId(username, L"dictionary-sync-username");
+    username.TextChanged([this, edited](Inspectable const &sender, TextChangedEventArgs const &) {
+      if (!dsync_draft_)
+        return;
+      dsync_draft_->username = sender.as<TextBox>().Text().c_str();
+      edited();
+    });
+    add_row(group, 0xE77B, L"词库同步网盘账号", L"网盘的登录账号，坚果云是登录邮箱。可以和云剪贴板用同一个网盘账号。", username);
+
+    StackPanel secret;
+    secret.Orientation(Orientation::Horizontal);
+    secret.Spacing(8);
+    PasswordBox password;
+    password.Width(180);
+    password.Password(hstring(dsync_draft_->password));
+    if (!dsync_configuration_.password.empty())
+      password.PlaceholderText(L"留空以保留已保存的应用密码");
+    password.PasswordRevealMode(dsync_draft_->reveal_password ? PasswordRevealMode::Visible : PasswordRevealMode::Hidden);
+    password.IsEnabled(loaded_ && !busy);
+    A11y::SetName(password, L"词库同步应用密码");
+    A11y::SetAutomationId(password, L"dictionary-sync-password");
+    password.PasswordChanged([this, edited](Inspectable const &sender, RoutedEventArgs const &) {
+      if (!dsync_draft_)
+        return;
+      dsync_draft_->password = sender.as<PasswordBox>().Password().c_str();
+      edited();
+    });
+    secret.Children().Append(password);
+    // 「显示」只切换框里这份草稿的明暗，已存的应用密码从不回填，所以看不到它。
+    const std::wstring reveal_action = dsync_draft_->reveal_password ? L"隐藏" : L"显示";
+    Button reveal;
+    reveal.Content(box_value(hstring(reveal_action)));
+    reveal.Height(32);
+    reveal.IsEnabled(loaded_ && !busy);
+    A11y::SetName(reveal, hstring(reveal_action + L"词库同步应用密码"));
+    A11y::SetAutomationId(reveal, L"dictionary-sync-reveal");
+    ToolTipService::SetToolTip(reveal, box_value(hstring(reveal_action)));
+    reveal.Click([this, weak_password = make_weak(password)](Inspectable const &sender, RoutedEventArgs const &) {
+      if (!dsync_draft_)
+        return;
+      const bool revealed = !dsync_draft_->reveal_password;
+      dsync_draft_->reveal_password = revealed;
+      if (auto field = weak_password.get())
+        field.PasswordRevealMode(revealed ? PasswordRevealMode::Visible : PasswordRevealMode::Hidden);
+      const std::wstring action = revealed ? L"隐藏" : L"显示";
+      auto button = sender.as<Button>();
+      button.Content(box_value(hstring(action)));
+      A11y::SetName(button, hstring(action + L"词库同步应用密码"));
+      ToolTipService::SetToolTip(button, box_value(hstring(action)));
+    });
+    secret.Children().Append(reveal);
+    add_row(group, 0xE72E, L"词库同步应用密码", L"在网盘的安全设置里为第三方应用生成的密码，不是登录密码。", secret);
+
+    add_row(group, 0xE703, L"测试词库同步连接", L"只测试，不保存。", test);
+    group.Children().Append(result);
+    add_row(group, 0xE74E, L"保存词库同步配置",
+            L"保存时先测试一次，不通过不保存。地址、账号和应用密码只保存在本机，不随设置导出或账号同步。", save);
+    if (dictionary_sync_saved()) {
+      auto status = group_note(ds::saved_note(dsync_configuration_.url));
+      A11y::SetAutomationId(status, L"dictionary-sync-saved");
+      group.Children().Append(status);
+      auto clear = button_control(L"停止同步", [this] { clear_dictionary_sync(); }, loaded_ && !busy);
+      A11y::SetAutomationId(clear, L"dictionary-sync-clear");
+      add_row(group, 0xE711, L"停止词库同步", L"本机不再连接这个网盘；网盘上的内容和设备登记不会被删除。", clear);
+    }
+  }
+
+  // 同步状态：本设备是否获准、核对码、词条和待处理的数量、上次同步的时间、自动同步在等额度时什么时候继续和错误，「立即同步」和它的结果，被挡下的大批删除，以及很少用到的重置密钥和重新开始。
+  void build_dictionary_sync_status(StackPanel const &page) {
+    auto group = add_group(page, L"词库同步状态");
+    const bool busy = dsync_busy_;
+    std::wstring summary;
+    if (dsync_status_) {
+      summary = ds::approval_text(*dsync_status_) + L"\n" + ds::counts_text(*dsync_status_);
+      if (dsync_status_->last_success_ms)
+        if (const auto when = local_date_time(dsync_status_->last_success_ms); !when.empty())
+          summary += L"\n上次同步：" + when;
+      if (const auto wait = dictionary_sync_budget_wait(dsync_status_->budget_wait_until); !wait.empty())
+        summary += L"\n" + wait;
+      if (!dsync_status_->last_error.empty() && dsync_error_.empty())
+        summary += L"\n上次出错：" + ds::error_message(dsync_status_->last_error);
+      if (dsync_status_->clock_skew)
+        summary += L"\n" + std::wstring(ds::clock_skew_note);
+    } else {
+      summary = busy ? L"正在读取同步状态…" : L"还没有读到同步状态，点「立即同步」重试。";
+    }
+    auto overview = group_note(summary);
+    A11y::SetAutomationId(overview, L"dictionary-sync-status");
+    A11y::SetLiveSetting(overview, Automation::Peers::AutomationLiveSetting::Polite);
+    group.Children().Append(overview);
+    if (dsync_status_ && !dsync_status_->code.empty()) {
+      plugin_summary_row(group, 0xE8D7, L"本设备核对码",
+                         L"在其他设备上允许本设备时，核对那里显示的核对码与这里完全一致。", dsync_status_->code);
+    }
+
+    auto now = button_control(busy ? L"同步中…" : L"立即同步", [this] { sync_dictionary_now(); }, loaded_ && !busy);
+    A11y::SetAutomationId(now, L"dictionary-sync-now");
+    add_row(group, 0xE895, L"立即同步词库", L"马上拉取并发送，不等自动同步的间隔；网盘的请求额度用完时会提示稍后再试。", now);
+    const auto message = !dsync_error_.empty() ? ds::error_message(dsync_error_) : dsync_notice_;
+    auto notice = group_note(message);
+    A11y::SetAutomationId(notice, L"dictionary-sync-notice");
+    A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Polite);
+    notice.Visibility(message.empty() ? Visibility::Collapsed : Visibility::Visible);
+    group.Children().Append(notice);
+
+    if (dsync_status_ && dsync_status_->held_deletions) {
+      StackPanel choices;
+      choices.Orientation(Orientation::Horizontal);
+      choices.Spacing(8);
+      auto restore = button_control(L"从网盘恢复", [this] { sync_dictionary_now(L"restore_deletions"); }, loaded_ && !busy);
+      A11y::SetAutomationId(restore, L"dictionary-sync-restore-deletions");
+      auto remove = button_control(L"同步删除", [this] { confirm_dictionary_deletions(); }, loaded_ && !busy);
+      A11y::SetAutomationId(remove, L"dictionary-sync-confirm-deletions");
+      choices.Children().Append(restore);
+      choices.Children().Append(remove);
+      add_row(group, 0xE7BA, L"被挡下的删除", ds::held_deletions_text(dsync_status_->held_deletions), choices);
+    }
+
+    auto recover = button_control(L"恢复同步…", [this] { trust_dictionary_sync_remote(); }, loaded_ && !busy);
+    A11y::SetAutomationId(recover, L"dictionary-sync-trust-remote");
+    add_row(group, 0xE777, L"确认网盘现状并恢复同步", L"仅在自己清理过网盘文件夹、同步报历史被删改时使用。", recover);
+    auto reset = button_control(L"重置…", [this] { rekey_dictionary_sync(std::nullopt); }, loaded_ && !busy);
+    A11y::SetAutomationId(reset, L"dictionary-sync-reset");
+    add_row(group, 0xE72C, L"重置词库同步密钥", L"换一把只给本设备的新密钥，其他设备都要重新允许。找不到能允许本设备的设备时使用。", reset);
+    auto restart = button_control(L"重新开始…", [this] { restart_dictionary_sync(); }, loaded_ && !busy);
+    A11y::SetAutomationId(restart, L"dictionary-sync-restart");
+    add_row(group, 0xE777, L"以本机为准重新开始", L"持有旧密钥的设备都不在了时使用：共享词库换成本机的词条，其他设备获准后把它们的词合并进来，不删词。", restart);
+  }
+
+  // 设备：等待本设备允许的其他设备（允许、拒绝），以及已获准的设备（本设备之外的可以移除）。同一台设备只有一条（ds::group_devices）。还没取到设备时不画。
+  void build_dictionary_sync_devices(StackPanel const &page) {
+    if (!dsync_devices_)
+      return;
+    auto group = add_group(page, L"词库同步设备");
+    const bool enabled = loaded_ && !dsync_busy_;
+    if (!dsync_devices_->waiting.empty()) {
+      group.Children().Append(group_note(ds::waiting_note));
+      for (auto const &device : dsync_devices_->waiting) {
+        StackPanel actions;
+        actions.Orientation(Orientation::Horizontal);
+        actions.Spacing(8);
+        auto approve = button_control(L"允许", [this, device] { decide_dictionary_device(device, true); }, enabled);
+        A11y::SetName(approve, hstring(L"允许" + ds::device_label(device)));
+        A11y::SetAutomationId(approve, hstring(L"dictionary-sync-approve-" + device.id));
+        auto reject = button_control(L"拒绝", [this, device] { decide_dictionary_device(device, false); }, enabled);
+        A11y::SetName(reject, hstring(L"拒绝" + ds::device_label(device)));
+        A11y::SetAutomationId(reject, hstring(L"dictionary-sync-reject-" + device.id));
+        actions.Children().Append(approve);
+        actions.Children().Append(reject);
+        add_row(group, 0xE7F8, ds::device_label(device) + L" · 等待允许", ds::device_detail(device), actions);
+      }
+    }
+    for (auto const &device : dsync_devices_->approved) {
+      FrameworkElement control{nullptr};
+      if (!device.current) {
+        control = button_control(L"移除…", [this, device] { rekey_dictionary_sync(device); }, enabled);
+        A11y::SetName(control, hstring(L"移除" + ds::device_label(device)));
+        A11y::SetAutomationId(control, hstring(L"dictionary-sync-remove-" + device.id));
+      }
+      add_row(group, 0xE7F8, ds::device_label(device), ds::device_detail(device), control);
+    }
   }
 
   // ---- 剪贴板 ----
@@ -17803,7 +18707,7 @@ private:
       edited();
     });
     add_row(group, 0xE774, L"服务器地址",
-            L"网盘里存放云剪贴板的文件夹。使用 HTTPS 地址，证书要由公网信任的机构签发；仅本机回环地址允许 HTTP。", url);
+            L"坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。使用 HTTPS 地址，证书要由公网信任的机构签发；仅本机回环地址允许 HTTP。", url);
 
     TextBox username;
     username.Width(240);
@@ -17891,6 +18795,7 @@ private:
     stats_error_.clear();
     stats_busy_ = true;
     stats_request_ = 0;
+    stats_write_request_ = 0;
     stats_last_request_ = {};
     stats_day_.reset();
     stats_selected_.reset();
@@ -17981,7 +18886,7 @@ private:
       stats_upload_busy_ = false;
       if (auto status = typing_upload_status(response)) {
         stats_upload_ = status;
-        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled));
+        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled, *status));
       } else {
         stats_upload_message_ = typing::upload_error_message(account_failure(response), enabled);
         read_typing_upload();
@@ -18026,6 +18931,7 @@ private:
     const auto generation = stats_generation_;
     const auto request = ++stats_request_counter_;
     stats_request_ = request;
+    stats_write_request_ = overview ? 0 : request;
     stats_busy_ = true;
     stats_error_.clear();
     stats_request_started_ = std::chrono::steady_clock::now();
@@ -18035,6 +18941,7 @@ private:
       if (generation != stats_generation_ || stats_request_ != request)
         return;
       stats_request_ = 0;
+      stats_write_request_ = 0;
       stats_busy_ = false;
       if (status)
         stats_ = *status;
@@ -18052,7 +18959,7 @@ private:
     return false;
   }
 
-  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、上一次请求在途且不到 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
+  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、写操作未完成、读取在途且不超过 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
   void poll_statistics() {
     if (closed_ || current_page_ != "stats" || window_minimized())
       return;
@@ -18064,7 +18971,9 @@ private:
         redraw_stats();
     }
     const auto now = std::chrono::steady_clock::now();
-    if ((stats_request_ != 0 && now - stats_request_started_ <= std::chrono::seconds(15)) ||
+    if ((stats_request_ != 0 &&
+         (stats_write_request_ == stats_request_ ||
+          now - stats_request_started_ <= std::chrono::seconds(15))) ||
         now - stats_last_request_ < std::chrono::seconds(1))
       return;
     stats_last_request_ = now;
@@ -24126,7 +25035,7 @@ private:
     local_models_stale_ = false;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       return;
     }
     JsonObject request;
@@ -24142,14 +25051,14 @@ private:
             return;
           if (!response.ok) {
             local_models_notice_ =
-                vs::local_model_error_message(vs::local_model_error_code(response_error(response)))
+                model_errors::error_message(model_errors::error_code(response_error(response)))
                     .value_or(L"");
           } else {
             try {
               local_models_ = parse_local_models(
                   JsonObject::Parse(text(response.text)).GetNamedObject(L"value"));
             } catch (...) {
-              local_models_notice_ = *vs::local_model_error_message(L"");
+              local_models_notice_ = *model_errors::error_message(L"");
             }
           }
           redraw_voice();
@@ -24241,7 +25150,7 @@ private:
     }
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       redraw_voice();
       return;
     }
@@ -24292,9 +25201,9 @@ private:
                 doc.SetString(L"voice_input.asr_model_path", path);
               }, false);
           } else {
-            const auto code = vs::local_model_error_code(response_error(response));
+            const auto code = model_errors::error_code(response_error(response));
             const auto message = import ? vs::local_model_import_error_message(code)
-                                        : vs::local_model_error_message(code);
+                                        : model_errors::error_message(code);
             local_models_notice_ =
                 message ? *message
                         : (import ? L"已取消导入「" : L"已取消下载「") + title + L"」。";
@@ -24321,7 +25230,7 @@ private:
       co_return;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *vs::local_model_error_message(L"local_model_invalid_root");
+      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
       redraw_voice();
       co_return;
     }
@@ -24348,7 +25257,7 @@ private:
               }, false);
           } else {
             local_models_notice_ =
-                vs::local_model_error_message(vs::local_model_error_code(response_error(response)))
+                model_errors::error_message(model_errors::error_code(response_error(response)))
                     .value_or(L"");
           }
           local_model_removing_.erase(model.id);
@@ -26036,6 +26945,8 @@ private:
   bool refresh_queued_ = false;
   bool closed_ = false;
   bool pending_save_ = false;
+  // 写盘连续失败的次数；大于零时文档里有没存下的修改，见 keep_unsaved_edit。
+  std::size_t pending_save_failures_ = 0;
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
@@ -26333,6 +27244,21 @@ private:
   std::wstring cloud_probe_message_;
   uint64_t cloud_probe_generation_ = 0;
 
+  // 词库页的「词库同步」：存着的网盘配置和草稿，「测试连接」是否在跑、结果和代次（作废还没回来的测试）；读到的概况和设备、上一次操作的错误码和结果说明，以及是否在做一件操作、这次进入页面是否已经以 opened 同步过。dsync_generation_ 在配置变化或重新进入页面时递增，作废在途的回答。
+  DictionarySyncConfiguration dsync_configuration_;
+  std::optional<DictionarySyncDraft> dsync_draft_;
+  bool dsync_probe_busy_ = false;
+  std::wstring dsync_probe_message_;
+  uint64_t dsync_probe_generation_ = 0;
+  std::optional<ds::Status> dsync_status_;
+  std::optional<ds::DeviceGroups> dsync_devices_;
+  std::wstring dsync_error_;
+  std::wstring dsync_notice_;
+  bool dsync_busy_ = false;
+  bool dsync_checked_ = false;
+  uint64_t dsync_generation_ = 0;
+  ds::StatusReadOrder dsync_status_reads_;
+
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;
   std::wstring stats_error_;
@@ -26345,6 +27271,7 @@ private:
   double stats_details_offset_ = 0;
   uint64_t stats_generation_ = 0;
   uint64_t stats_request_ = 0;
+  uint64_t stats_write_request_ = 0;
   uint64_t stats_request_counter_ = 0;
   std::chrono::steady_clock::time_point stats_request_started_{};
   std::chrono::steady_clock::time_point stats_last_request_{};
@@ -26503,6 +27430,7 @@ private:
   TextBlock dictionary_update_note_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer dictionary_update_timer_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer save_timer_{nullptr};
+  Microsoft::UI::Dispatching::DispatcherQueueTimer save_retry_timer_{nullptr};
   // A redraw held back until the click that activated the window has been delivered.
   bool pointer_down_ = false;
   bool refresh_after_pointer_ = false;

@@ -62,7 +62,10 @@ public final class ArithmeticResultPolicy {
             // 不从一个数的中间开始：`123+4` 里的 `23+4` 不是用户写的算式。
             if (candidate > 0 && (isDigit(text.charAt(candidate - 1)) || text.charAt(candidate - 1) == '.')) continue;
             String expression = text.substring(candidate, end);
-            BigDecimal value = new Parser(expression).parse();
+            Parser parser = new Parser(expression);
+            BigDecimal value = parser.parse();
+            // 除零或中间值超限后不能丢掉出错部分再算后缀，否则 `1/0+2` 会被当成 `0+2`。
+            if (parser.failed) return null;
             if (value == null) continue;
             // 最长的完整算式像日期、电话号码时整体不算，也不退到它更短的后缀（`1234-5678` 同样不是算式）。
             if (looksLikeNumberSequence(expression)) return null;

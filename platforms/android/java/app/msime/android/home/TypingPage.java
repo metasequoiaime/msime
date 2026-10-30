@@ -302,8 +302,9 @@ public final class TypingPage extends ReloadingDetailPage {
         languages.nav("联系人", "导入姓名和手机号，输入姓名时优先显示", null,
             () -> SettingsNavigator.open(context, PageId.CONTACTS, null));
 
-        // 五笔查码（#6789）：本版本的方案列表里启用了五笔才列出，与共享设置页「五笔查码」一组出现的条件一致。
-        if (enabled.contains(KeyboardScheme.WUBI)) {
+        // 五笔查码（#6789）：本版本的方案列表里启用了五笔、五笔码表也在本机时才列出，与共享设置页「五笔查码」一组出现的条件一致。瘦包还没下载码表时查不出任何编码，五笔那一行给出下载入口。
+        if (enabled.contains(KeyboardScheme.WUBI)
+                && KeyboardScheme.WUBI.installed(state.languageDictionaries(), state.packs())) {
             GroupCard wubi = GroupCard.add(sectionColumn(target, "中文"), "五笔");
             wubi.nav(PageId.WUBI_LOOKUP.title(), "查汉字的 86、98 五笔编码", null,
                 () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null));
@@ -324,6 +325,8 @@ public final class TypingPage extends ReloadingDetailPage {
         JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
         chinese.toggle("模糊音", "如 z/zh、an/ang 不分", fuzzy != null && fuzzy.optBoolean("enabled", false),
             checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
+        chinese.nav("模糊音规则", "逐项选择需要的声母和韵母", null,
+            () -> SettingsNavigator.open(context, PageId.FUZZY_PINYIN, null));
         InputFeatureToggle single = InputFeatureToggle.SINGLE_CHARACTER_ONLY;
         chinese.toggle(single.title(), single.description(),
             preferences.optBoolean(single.key(), single.enabledByDefault()),
@@ -360,6 +363,10 @@ public final class TypingPage extends ReloadingDetailPage {
             aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
                 "关掉后候选旁不再标注辅助码，Shift 筛选照常可用", shownInCandidates,
                 checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
+            boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
+            aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选",
+                "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选",
+                strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked));
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
@@ -380,6 +387,18 @@ public final class TypingPage extends ReloadingDetailPage {
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));
+        InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;
+        boolean pronunciationOn = preferences.optBoolean(pronunciation.key(), pronunciation.enabledByDefault());
+        java.io.File phonetics = new java.io.File(requireContext().getFilesDir(),
+            "bootstrap/pronunciations/en-phonetic.db");
+        boolean phoneticsReady = phonetics.isFile() || state.packs().contains(ResourcePacks.PRONUNCIATIONS);
+        String pronunciationDescription = phoneticsReady
+            ? pronunciation.description() : "离线音标词典未安装；打开后点下方「下载」，安装完成再进入输入框";
+        translation.toggle(pronunciation.title(), pronunciationDescription, pronunciationOn,
+            checked -> savePreferences(values -> values.put(pronunciation.key(), checked)));
+        if (pronunciationOn && !phoneticsReady)
+            packRow(translation, state, "离线英文音标词典", "仅供本机候选显示英文音标",
+                ResourcePacks.PRONUNCIATIONS);
         translation.nav("翻译目标语言", null, labelOf(List.of(TARGET_LANGUAGES), targetLanguage),
             () -> pickTargetLanguage(targetLanguage, glossOn, state));
         if (glossOn && needsGlosses(targetLanguage, state)) {
@@ -711,7 +730,9 @@ public final class TypingPage extends ReloadingDetailPage {
                 JSONObject schemes = KeyboardSheets.child(preferences, "touch_keyboard_schemes");
                 schemes.put("enabled", new JSONArray(ids));
                 JSONObject pending = snapshot;
-                if (language.schemes.contains(current)) {
+                // 词典还没到的方案（例如瘦包里码表没下载的五笔）不在可用列表里，`current` 已经解析成了别的方案，但偏好里存的 `scheme` 仍是它：也要切走，否则移除之后偏好还指着一个不在列表里的方案。
+                if (language.schemes.contains(current)
+                        || language.schemes.contains(SchemePreferences.storedScheme(preferences, edition))) {
                     schemes.remove("selected");
                     pending = SchemePreferences.withScheme(snapshot, remaining.get(0), null);
                     if (pending == null) return null;
@@ -873,7 +894,8 @@ public final class TypingPage extends ReloadingDetailPage {
             helpcode = new JSONObject()
                 .put("enabled", true)
                 .put("schema", shuangpin ? "lantian" : "ziranma")
-                .put("show_in_candidate_window", shuangpin);
+                .put("show_in_candidate_window", shuangpin)
+                .put("strict_filter", false);
             values.put(family, helpcode);
         }
         return helpcode;

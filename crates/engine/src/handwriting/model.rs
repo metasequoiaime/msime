@@ -1,6 +1,6 @@
-//! The zinnia binary model (`recognizer.cpp` `open` / `classify`): one linear one-vs-rest SVM per character. The layout is `.migration/spec/data-formats.md` §14; the shipped `handwriting-zh_CN.model` (Tegaki zh_CN 0.3) loads unchanged.
+//! Zinnia 二进制模型（`recognizer.cpp` 的 `open` / `classify`）：每个字一个线性一对多 SVM。布局见 `docs/data-formats.md` §14；随包的 `handwriting-zh_CN.model`（Tegaki zh_CN 0.3）原样可读。
 //!
-//! Ported from zinnia (https://github.com/taku910/zinnia at 581faa8f), Copyright (c) 2005-2007 Taku Kudo, under its 3-clause BSD license, whose text ships with the product notices as `Zinnia-LICENSE.txt`.
+//! Ported from zinnia (<https://github.com/taku910/zinnia> at 581faa8f), Copyright (c) 2005-2007 Taku Kudo, under its 3-clause BSD license, whose text ships with the product notices as `Zinnia-LICENSE.txt`.
 //!
 //! The model stays in the read-only mapping `recognizer::load` makes, as zinnia's `Mmap` did (recognizer.cpp:94,104): only the labels and each class's weight range are decoded at load, and the weights are read from the mapped bytes while scoring, so the 26.8 MB of weights are clean, file-backed pages the system can evict rather than heap held for the life of the process.
 

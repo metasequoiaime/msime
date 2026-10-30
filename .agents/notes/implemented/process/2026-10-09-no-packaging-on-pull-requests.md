@@ -22,6 +22,8 @@ Status: implemented
 
 本篇取代 [Android 模拟器上的 PR 门禁和发版门禁](../testing/2026-10-08-android-device-gates.md) 里「在 PR 上调用 `android-device.yml`」这一条，那篇其余决定（模拟器脚本、发版门禁、跳过名单规矩）仍然成立。
 
+其中 `android-device` 一条又被 [改键盘或设置界面的 PR 在 API 35 上跑一遍设备验收](2026-10-28-android-device-on-ui-prs.md) 部分取代：PR 改了 Android 的 Java、资源、清单、版本资源或设备套件时，在 API 35 上跑一遍，不是必需检查。
+
 ## Alternatives considered
 
 - **维持现状，设备门禁留在 PR 上**：那篇笔记的理由是 0.3.0 的两个回归都是发版当天合入的，在 PR 上失败时责任和上下文都还在。没有采用，因为这个理由的代价被低估了：它让每一个碰到共享 crate 的 PR（包括 iOS、macOS 功能）都背上两台模拟器各几十分钟的打包和间歇失败，而合进 develop 后的 push 仍然在发版前很久就报出来，出问题的提交范围也只是一次推送。
@@ -33,7 +35,7 @@ Status: implemented
 
 - **收益**：功能分支的 PR 不再打 APK、不起模拟器、不打 macOS 包、不上传 web 产物；模拟器的间歇失败不再让无关 PR 变红。
 - **代价**：Android 设备上才出现的运行时问题（权限、SELinux、旧系统缺陷、首次启动崩溃）和打包脚本问题，要等合进 develop 后才报出，修的人得回头定位是哪次推送带进来的。动了文件读写、权限或安卓资源的改动，合并前仍要按 `AGENTS.md` 在本机模拟器上跑过。
-- **仍然没有覆盖**：develop 上 `android-device` 或 macOS 打包失败时没有自动回滚或通知，靠看 develop 的 Actions 页面。
+- **仍然没有覆盖**：develop 上 `android-device` 或 macOS 打包失败时没有自动回滚。`android-device` 随 `Native Platform CI` 失败时会进 `ci-red` 跟踪单（见[develop 红灯自动开单](2026-10-28-ci-red-tracking.md)）；macOS 打包（`ci-macos-package.yml`）失败同样进入该跟踪单。
 
 ## Verification
 

@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../Edition.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../ProductVersion.cmake")
 
 # TSF 及其独立测试都含 UTF-8 字面量，不能依赖本机代码页解释源码。
 if(MSVC)
@@ -330,6 +331,7 @@ find_package(fmt CONFIG REQUIRED)
 find_path(UTF8CPP_INCLUDE_DIR NAMES utf8cpp/utf8.h REQUIRED)
 
 target_include_directories(msime-tsf PRIVATE
+  "${MSIME_TSF_VERSION_INCLUDE_DIR}"
   . Candidate Compartment Composition DisplayAttribute Edit FanyLog Global
   Header IME IPC Key LanguageBar Register Tf Thread UI Utils
   ../../../shared/contracts

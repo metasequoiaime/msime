@@ -17,10 +17,10 @@ pub const MAX_DOCUMENT_BYTES: usize = 1 << 20;
 /// macOS 原生设置窗口「导出设置…」写出的格式名，内容是 Apple 云同步的键值，不是共享偏好。
 const MACOS_NATIVE_FORMAT: &str = "app.msime.client.settings";
 
-/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关、英文在线候选授权，以及云剪贴板中继、云剪贴板 WebDAV 网盘、云候选的整组配置（地址、请求头和模板可能含凭据，用户保存的设置文件里不该出现它）、网络代理设置（代理地址常写内网主机和端口，只对这台机器的网络成立）和更新通道（加入测试版或每日构建是对这一台电脑的选择，换电脑导入设置文件不该顺带把新电脑换到预发布）。导出时不写，导入时保留本机的值。
+/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关、英文在线候选授权，以及云剪贴板中继、云剪贴板 WebDAV 网盘、词库同步的 WebDAV 网盘、云候选的整组配置（地址、请求头和模板可能含凭据，用户保存的设置文件里不该出现它）、网络代理设置（代理地址常写内网主机和端口，只对这台机器的网络成立）和更新通道（加入测试版或每日构建是对这一台电脑的选择，换电脑导入设置文件不该顺带把新电脑换到预发布）。导出时不写，导入时保留本机的值。
 ///
 /// 剪贴板历史开关跟着本机走有两层原因：记不记录这台电脑复制过的内容是本机的隐私选择；它默认关闭，大多数文件里都是关的，如果跟着文件走，导入时会把本机开着的历史关掉，而关掉就会清空已存的历史，这些记录找不回来。
-pub const LOCAL_SECTIONS: [&str; 15] = [
+pub const LOCAL_SECTIONS: [&str; 16] = [
     "voice_input",
     "ai_assistant",
     "custom_translation",
@@ -32,6 +32,8 @@ pub const LOCAL_SECTIONS: [&str; 15] = [
     "clipboard_history_limit",
     "cloud_clipboard_relay",
     "cloud_clipboard_webdav",
+    // 词库同步的网盘地址、账号和应用密码，与云剪贴板的网盘同理。
+    "dictionary_sync_webdav",
     "cloud_candidate_provider",
     "english_online_candidates",
     // 代理地址常写内网主机和端口，只对这台机器的网络成立。
@@ -76,7 +78,7 @@ pub fn export_document(preferences: &Preferences) -> Result<String, serde_json::
     serde_json::to_string_pretty(&Value::Object(document))
 }
 
-/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
+/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated` 和 `translation_ai_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
 pub fn import_document(
     bytes: &[u8],
     current: &Preferences,
@@ -110,14 +112,12 @@ pub fn import_document(
             imported.insert(section.to_owned(), value.clone());
         }
     }
-    // 偏好结构本身容忍未知键（旧版本要读得了新版本的偏好文档），导入不同：文件里有本版本不认识的设置，说明它出自更新的版本，只导入认识的那部分会悄悄丢掉其余的，所以整份拒绝。
+    // 偏好结构本身容忍未知键和启用列表里更新的版本加的取值（旧版本要读得了新版本的偏好文档），导入不同：文件里有本版本不认识的设置，说明它出自更新的版本，只导入认识的那部分会悄悄丢掉其余的，所以整份拒绝。文本编辑面板排列里不认识的动作不算：它只决定按钮先后，丢掉的动作由更新的版本读回时补在末尾。
+    let imported = Value::Object(imported);
     let (mut preferences, unknown) =
-        crate::preferences::deserialize_keeping_unknown::<Preferences>(
-            &Value::Object(imported),
-            &[],
-        )
-        .map_err(|_| SettingsDocumentError::Unsupported)?;
-    if !unknown.is_empty() {
+        crate::preferences::deserialize_keeping_unknown::<Preferences>(&imported, &[])
+            .map_err(|_| SettingsDocumentError::Unsupported)?;
+    if !unknown.is_empty() || !crate::preferences::newer_list_values(&imported).is_empty() {
         return Err(SettingsDocumentError::Unsupported);
     }
     // 记录一次性种子已经做过；文件里的值不能让本机重新种下用户关掉的规则。文件里标着种过（导出时随文件写出），或者模糊音开着，规则就是用户在另一台电脑上定下的（包括有意清空），标成已种过，本机以后第一次打开模糊音时不再被盖成全部规则（PreferencesStore::save、Windows 设置窗口和共享设置页的首次打开种子都看这个标记）。
@@ -127,6 +127,9 @@ pub fn import_document(
     // 智能标点的一次性迁移标记只从假变真。文件里的智能标点照文件的值导入，不再迁移：那是用户自己选来覆盖本机的设置，旧文件里的 `false` 也可能是在 Linux 或手机上有意关掉的，分不出来。
     preferences.smart_punctuation_migrated =
         current.smart_punctuation_migrated || preferences.smart_punctuation_migrated;
+    // AI 辅助翻译的迁移标记同理：文件里的翻译服务选择照文件的值导入，不再迁移。
+    preferences.translation_ai_migrated =
+        current.translation_ai_migrated || preferences.translation_ai_migrated;
     narrow_to_edition(&mut preferences, current, edition);
     preferences
         .validate()
@@ -237,6 +240,24 @@ mod tests {
             import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
         assert!(!imported.smart_punctuation);
         assert!(imported.smart_punctuation_migrated);
+    }
+
+    // 统一成显式选择之前导出的文件没有 AI 辅助翻译的迁移标记。导入照文件的值来，本机的标记保留，之后读文档不会再按旧规则改写导入的翻译服务。
+    #[test]
+    fn an_old_file_keeps_its_translation_service_and_this_machine_s_marker() {
+        let mut document: Value =
+            serde_json::from_str(&export_document(&Preferences::default()).unwrap()).unwrap();
+        let preferences = document["preferences"].as_object_mut().unwrap();
+        assert_eq!(
+            preferences.remove("translation_ai_migrated"),
+            Some(Value::Bool(true))
+        );
+        let text = serde_json::to_string(&document).unwrap();
+
+        let imported =
+            import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
+        assert!(!imported.translation_ai);
+        assert!(imported.translation_ai_migrated);
     }
 
     #[test]
@@ -353,6 +374,34 @@ mod tests {
     }
 
     #[test]
+    fn the_dictionary_sync_webdav_stays_on_this_machine() {
+        let mut exported = Preferences::default();
+        exported.dictionary_sync_webdav.url = "https://dav.example.test/msime".into();
+        exported.dictionary_sync_webdav.username = "synthetic-exported@example.test".into();
+        exported.dictionary_sync_webdav.password = "synthetic-exported-password".into();
+        let text = export_document(&exported).unwrap();
+        assert!(!text.contains("dav.example.test"), "{text}");
+        assert!(!text.contains("synthetic-exported"), "{text}");
+
+        let mut document: Value = serde_json::from_str(&text).unwrap();
+        document["preferences"]["dictionary_sync_webdav"] = serde_json::json!({
+            "url": "https://planted.example.test",
+            "username": "planted@example.test",
+            "password": "synthetic-planted-password",
+        });
+        let mut current = Preferences::default();
+        current.dictionary_sync_webdav.url = "https://own.example.test".into();
+        current.dictionary_sync_webdav.username = "own@example.test".into();
+        current.dictionary_sync_webdav.password = "synthetic-own-password".into();
+        let imported =
+            import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
+        assert_eq!(
+            imported.dictionary_sync_webdav,
+            current.dictionary_sync_webdav
+        );
+    }
+
+    #[test]
     fn files_that_are_not_ours_are_told_apart() {
         let current = Preferences::default();
         let full = Edition::full();
@@ -414,6 +463,52 @@ mod tests {
         assert_eq!(
             import_document(document.to_string().as_bytes(), &current, full),
             Err(SettingsDocumentError::Unsupported)
+        );
+        document["preferences"]["candidate_page_size"] = Value::from(5);
+        // 更新的版本启用的触屏方案、模糊音规则：只导入认识的会悄悄丢掉它们，整份拒绝。
+        for (pointer, newer) in [
+            (
+                "/preferences/touch_keyboard_schemes/enabled",
+                serde_json::json!(["quanpin", "future_scheme"]),
+            ),
+            (
+                "/preferences/fuzzy_pinyin/rules",
+                serde_json::json!(["z-zh", "future-rule"]),
+            ),
+        ] {
+            let mut newer_document = document.clone();
+            *newer_document.pointer_mut(pointer).unwrap() = newer;
+            assert_eq!(
+                import_document(newer_document.to_string().as_bytes(), &current, full),
+                Err(SettingsDocumentError::Unsupported),
+                "{pointer}"
+            );
+        }
+    }
+
+    // 文本编辑面板排列里更新的版本加的动作只决定按钮先后，导入时丢掉它、其余照常导入；重复和缺的动作同样整理成完整排列。
+    #[test]
+    fn a_text_edit_order_from_a_newer_version_is_imported_without_its_unknown_action() {
+        use crate::preferences::{default_text_edit_button_order, TextEditButton::*};
+        let current = Preferences::default();
+        let exported = Preferences {
+            candidate_page_size: 7,
+            ..Preferences::default()
+        };
+        let mut document: Value =
+            serde_json::from_str(&export_document(&exported).unwrap()).unwrap();
+        document["preferences"]["touch_text_edit_button_order"] =
+            serde_json::json!(["delete", "select_word", "copy", "copy"]);
+        let imported =
+            import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
+        assert_eq!(imported.candidate_page_size, 7);
+        assert_eq!(
+            imported.touch_text_edit_button_order,
+            vec![Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine]
+        );
+        assert_eq!(
+            imported.touch_text_edit_button_order.len(),
+            default_text_edit_button_order().len()
         );
     }
 

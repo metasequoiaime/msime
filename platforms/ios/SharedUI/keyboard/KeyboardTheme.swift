@@ -137,8 +137,14 @@ struct KeyboardTheme: Equatable {
   var isNative: Bool { id == GlobalThemeCatalog.nativeId }
   /// 原生皮肤在 iOS 26 起画的扁平按键：字母键和功能键同色、没有底边阴影、圆角更大。
   private var drawsLiquidGlassKeys: Bool { isNative && SystemKeyboardTokens.drawsLiquidGlassKeyboard }
-  /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
+  /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景几乎透明（只铺一层 `nativeBackgroundFill`），同一块底板就能透出来，那一条看上去就成了键盘的一部分。
   var drawsNativeBackground: Bool { palette == nil && design == nil }
+
+  /// `nativeBackgroundFill` 的透明度。系统按什么判定「这里有扩展的内容」没有定论：#7682 的真机观察更像是按带内容的图层边界（整格图像透明的边缘也能点），而不是按像素透明度；1% 是在两种判定下都保险的取值，按像素判定时 8 位合成后约 2.55/255，量化后仍不为 0。真机验收之前不要往下调。
+  static let nativeBackgroundFillAlpha: CGFloat = 0.01
+
+  /// 把背景交给系统底板时，键盘根视图、底板和每一块要收触摸的透明界面（功能面板、分页网格、功能格子、候选栏、符号面板）各自铺的一层：键盘自己的底色，透明度只有 `nativeBackgroundFillAlpha`，叠在系统底板（iOS 26 起是 Liquid Glass）上看不出来。这是对 #10173 的推断性修复：键盘扩展的触摸先经系统跨进程命中，#7682 在真机上看到只挂 `CAShapeLayer` 的按钮收不到触摸、给按钮本身补上整格内容后才收得到，而当时它背后的根视图和底板都是不透明的，所以不能只在最底下铺一层，要让收触摸的视图自己带内容。原生皮肤下这些视图原本都是 `.clear`，从格子、格子之间、候选之间起手的点按和滑动就可能被丢掉。尚未在真机上验证。只在 `drawsNativeBackground` 时使用，其他皮肤本来就画不透明的背景。
+  var nativeBackgroundFill: UIColor { background.withAlphaComponent(Self.nativeBackgroundFillAlpha) }
 
   /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。返回季节或所选应用主题是否变了：变了时跟随系统配色换了一组新实例（见 `SeasonKeyboardTokens`），调用方要重新解析 `current`，按键才会重新解析颜色。
   @discardableResult
