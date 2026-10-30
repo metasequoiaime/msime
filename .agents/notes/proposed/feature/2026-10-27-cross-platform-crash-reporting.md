@@ -30,7 +30,7 @@ Status: proposed
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行；同源实际 Notepad 的活跃撤回重开、测试处理器恢复后继续真实输入及 ntdll 非自有故障对照已完成到共享队列；同源 x86 Notepad++ 实际输入、活跃授权换代、真实自有访问冲突经 32 位 WER、x64 Server 重启到隔离后台及独立 PDB 源码行通过，正确 helper 下撤回故障不采集；完整安装包已完成实际安装、带占用升级、保留数据及删除数据卸载，最终候选经真实重启清理全部自有文件与数据，详见 TSF 笔记 | 已安装包隔离后台的完整接收；ARM64 实际产品故障；完整 Win7 同源符号包与后台；最新集成候选与其余产品入口复验 |
-| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照 | Tauri 设置及其余辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
+| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照；`c3ecd62994` 的共享 Tauri 设置真实原生路由、实际访问冲突、重启补报、撤回/重开和 SIGKILL 对照，后台收到 1 条 crash，`refresh_capture` 还原到 `desktop_crash_reporting.rs:127` | MCP/其余辅助入口后台与源码行；硬件访问冲突、完整 universal 安装包和完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；正式在线服务入口的 systemd 自动重启与授权队列专项，`e746981d18` 的在线、语音与剪贴板三服务已补齐相同验收；`e746981d18` 的 Ubuntu x64 暂存完整产品已复验 IBus/X11、原生 Wayland/Fcitx5 与设置启动器，七条 crash 到后台、独立符号源码行和授权对照通过，真实按键内存访问还原到 `FcitxEngine.cpp:7705`；Ubuntu 原系统安装包已补齐 Wayland/Fcitx5、X11/IBus 与设置三入口的真实访问冲突、恢复及独立源码行 | 其他架构与部分发行版符号；已安装系统包的隔离后台收件；其他发行版的系统安装与 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟；固定 9bab 整包重建，正式 API 28 活跃授权专项与同源回环 IME/App 到隔离后台、独立符号复核通过 | 真机与其他 ABI；API 35 当前候选系统退出/ANR 后台复验；旧语音润色失败根因 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份；固定 `6bea262fd0` 的原生 Release App 模拟器信号、真实内存故障、重启补报、隔离后台、动态授权、SIGKILL 对照，独立符号 ZIP 还原到 `consent.rs:105` 与 `UsageReporting.swift:346/299`，正式产物恢复；同源 iOS 27 模拟器由系统在合成 UIKit 文本框拉起真实键盘，外部信号和真实内存故障到后台及独立 dSYM 源码行、活跃撤回、新代次、SIGKILL 对照和恢复输入通过 | 系统 MetricKit 回调；真机 dSYM 与后台链路；iOS 26.5 扩展框架异常独立复核 |
@@ -373,6 +373,16 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 
 独立审计确认三个入口的 crash 身份与构建头、模块 build-id、偏移一致，`addr2line -i` 得到自有源码位置；159 个安装文件验收前后字节不变，授权关闭、队列清空后实际 `dpkg --purge` 移除全部产品文件。独立证据归档 SHA-256 为 `a3634d19aba1913e3af3ec17857fbd6407030c3b7fd61196e7ab3aeada78dcc1`。后台收件仍未在本轮系统包中启动；系统包的三入口证据不扩大为其他发行版、架构或完整发布后台。
 
+
+### macOS 共享 Tauri 设置真实故障闭环
+
+固定 `c3ecd6299437ea1aeda21cd4efe010bb9048366b` 的 arm64 回环产品在 macmini 副盘构建，正式源与回环源分离。原生输入法产品实际执行 `showAISettings:`，经隔离的 NSTask 启动同源 `app.msime.macos --route=settings:ai`，共享设置窗口完成启动并通过 bundle、窗口和生命周期检查；不把该传输替代冒充 LaunchServices 菜单验收。
+
+回环后台使用固定官方镜像 `sha256:5c1e305b5be5586ce4c749369f35344a5afb94103d8a0178c6da8b57d8304994`、revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`，仅经任务专属 SSH 回环。预加载夹具读取真实记录器武装状态，并从产品同源 `refresh_capture` 入口以无效 `self` 触发实际 `SIGSEGV`；原记录保留 `c3ecd62994`、运行号、arm64 与 desktop 身份。真实产品重启后后台逐字段收到 1 条 crash，独立 dSYM ZIP 以 UUID `0345AC6A-6C34-361E-83B8-C80F45C24131` 将 `0x86b4f0` 还原到 `desktop_crash_reporting.rs:127`，错误 UUID 被拒绝。
+
+同一设置进程撤回后采集器实际解除武装，重开后恢复武装；SIGKILL 不生成第二条 crash，后台没有 `session` 或 `session_crash`。正式配置关闭上报的原生路由对照也通过，独立合成目录、正式产品和用户安装输入法均未覆盖或注册。
+
+这项结果只覆盖 arm64 共享 Tauri 设置入口的隔离后台与符号链路；MCP、其他面板/辅助入口、硬件访问冲突、完整 universal 安装包和完整 IMK 编辑器范围仍待验收。第一轮 LLDB 夹具文件名、非交互附加权限、错误镜像 slide、SIGBUS 与撤回观察延迟失败均保留在任务证据中，不放宽产品断言。
 
 ### macOS 共享设置与 MCP 的系统目录修复
 
