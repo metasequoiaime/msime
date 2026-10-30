@@ -1857,9 +1857,24 @@ pub struct Preferences {
     pub wubi_profile: WubiProfile,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
-    /// Android 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。其他宿主原样保留。
+    /// 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。Android 与鸿蒙读它，其他宿主原样保留。
     #[serde(default)]
     pub touch_keyboard_split_portrait: bool,
+    /// 鸿蒙大屏（平板、折叠屏内屏）横屏时把 26 键一族和韩文键盘分成左右两半，规则与 Android 的 `SplitKeyboardPolicy` 相同。Android 的主开关在它自己的本机设置 `platform.android.split_keyboard` 里，不读这个字段；iOS 用 App Group 里的开关。默认关且不写进文档，其他宿主原样保留。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_keyboard_split: bool,
+    /// 鸿蒙分离键盘开始启用的最短屏幕边（vp），480–1000、步进 20，默认 600，与 Android 本机设置 `platform.android.split_keyboard_threshold` 同一范围。默认值不写进文档。
+    #[serde(
+        default = "default_touch_keyboard_split_threshold",
+        skip_serializing_if = "is_default_touch_keyboard_split_threshold"
+    )]
+    pub touch_keyboard_split_threshold: u16,
+    /// 鸿蒙分离键盘中间空隙至少占整行的百分比，10–40、步进 5，默认 25，与 Android 本机设置 `platform.android.split_keyboard_gap` 同一范围。默认值不写进文档。
+    #[serde(
+        default = "default_touch_keyboard_split_gap",
+        skip_serializing_if = "is_default_touch_keyboard_split_gap"
+    )]
+    pub touch_keyboard_split_gap: u8,
     /// Android 和 iOS 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
     #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
     pub touch_shuangpin_layout: TouchShuangpinLayout,
@@ -4116,6 +4131,31 @@ fn default_touch_key_spacing_tenths() -> u8 {
     60
 }
 
+/// 分离键盘阈值的取值范围、步进和默认值，与 Android `SplitKeyboardPolicy` 的本机设置相同。
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE: std::ops::RangeInclusive<u16> = 480..=1000;
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP: u16 = 20;
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT: u16 = 600;
+/// 分离键盘中间空隙百分比的取值范围、步进和默认值，与 Android `SplitKeyboardPolicy` 的本机设置相同。
+pub const TOUCH_KEYBOARD_SPLIT_GAP_RANGE: std::ops::RangeInclusive<u8> = 10..=40;
+pub const TOUCH_KEYBOARD_SPLIT_GAP_STEP: u8 = 5;
+pub const TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT: u8 = 25;
+
+fn default_touch_keyboard_split_threshold() -> u16 {
+    TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT
+}
+
+fn is_default_touch_keyboard_split_threshold(value: &u16) -> bool {
+    *value == TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT
+}
+
+fn default_touch_keyboard_split_gap() -> u8 {
+    TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
+}
+
+fn is_default_touch_keyboard_split_gap(value: &u8) -> bool {
+    *value == TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
+}
+
 fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
@@ -4193,6 +4233,9 @@ impl Default for Preferences {
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
+            touch_keyboard_split: false,
+            touch_keyboard_split_threshold: TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT,
+            touch_keyboard_split_gap: TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT,
             touch_shuangpin_layout: TouchShuangpinLayout::default(),
             touch_wubi_layout: TouchWubiLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
@@ -5137,6 +5180,15 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
+        if !TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.contains(&self.touch_keyboard_split_threshold)
+            || !(self.touch_keyboard_split_threshold - TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP)
+            || !TOUCH_KEYBOARD_SPLIT_GAP_RANGE.contains(&self.touch_keyboard_split_gap)
+            || !(self.touch_keyboard_split_gap - TOUCH_KEYBOARD_SPLIT_GAP_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_GAP_STEP)
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSplit);
+        }
         if self.touch_quick_punctuation_symbols
             != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
         {
@@ -5319,6 +5371,8 @@ pub enum PreferencesError {
     InvalidAdaptiveCandidateLayout,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error("分离键盘启用宽度须为 480–1000、步进 20，中间空隙须为 10–40%、步进 5")]
+    InvalidTouchKeyboardSplit,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]

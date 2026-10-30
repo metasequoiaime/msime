@@ -68,8 +68,10 @@ export type SettingsPageProps = {
   client: SettingsClient;
   /** 页面首次挂载时读取的初始设置页。 */
   initialPage?: string;
-  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿。 */
-  route?: { page: string; nonce: number };
+  /** 和 `initialPage` 一起读取的、那一页里要直接打开的一处（见 `SettingsLinkTarget`）。 */
+  initialTarget?: string;
+  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿，`target` 是那一页里要直接打开的一处。 */
+  route?: { page: string; target?: string; nonce: number };
   onReplayOnboarding?: () => void;
 };
 
@@ -77,6 +79,7 @@ export type SettingsPageProps = {
 export function useSettingsPageModel({
   client: hostClient,
   initialPage,
+  initialTarget,
   route,
 }: SettingsPageProps) {
   // 宿主提供词库同步时，经设置改了词就记一次本机改动；各页拿到的都是这一份客户端。
@@ -654,6 +657,8 @@ export function useSettingsPageModel({
   const {
     mobileActiveTab,
     navigationPage,
+    linkTarget,
+    clearLinkTarget,
     selectPage,
     selectMobileTab,
     openAccountLogin,
@@ -667,6 +672,7 @@ export function useSettingsPageModel({
     setPage,
     mobileLastPageByTab,
     route,
+    initialTarget,
     hasHomePage,
     setCommunityDestination,
     setAccountLoginReturnPage,
@@ -824,6 +830,8 @@ export function useSettingsPageModel({
     dismissInputSourceStartup,
     page,
     requestedSettingsPage,
+    linkTarget,
+    clearLinkTarget,
     dictionaryTab,
     setDictionaryTab,
     aboutTab,

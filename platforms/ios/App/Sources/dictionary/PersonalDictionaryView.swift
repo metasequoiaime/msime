@@ -346,7 +346,18 @@ struct PersonalDictionaryView: View {
 
   /// 队列中一条编辑的当前状态，措辞与同步行和进度列表一致。
   fileprivate static func requestStatus(_ request: PersonalWordRequest) -> String {
-    request.status == .pending ? "等待同步 · \(request.replacement == nil ? "删除" : "保存")" : (request.error ?? "同步失败")
+    request.status == .pending ? "等待同步 · \(request.replacement == nil ? "删除" : "保存")"
+      : request.error.map { failureText($0, removal: request.replacement == nil) } ?? "同步失败"
+  }
+
+  /// 键盘应用失败时记下的是 host-api 的英文原因。认得的几条换成与共享设置页 `dictionaryErrorMessage`（packages/ui/src/dictionary/dictionary-errors.ts）相同的措辞，其余原样显示。
+  private static func failureText(_ reason: String, removal: Bool) -> String {
+    switch reason {
+    case "dictionary edit rejected": return removal ? "删除失败，请稍后重试。" : "保存失败，请稍后重试。"
+    case "bundled dictionary entry is read-only": return "内置词条只能调整权重或删除，不能修改编码和词。"
+    case _ where reason.hasPrefix("invalid dictionary entry"): return "词条不符合词库规则，请检查编码与词条后再保存。"
+    default: return reason
+    }
   }
 }
 

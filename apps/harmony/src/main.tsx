@@ -1,4 +1,5 @@
 import { HarmonyLaunch } from "./launch";
+import { pendingSettingsLink, settingsLink, type SettingsLink } from "./settings-link";
 import { StrictMode } from "react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -204,7 +205,7 @@ interface NativeBridge {
   onboardingStarted(): void;
   /** 欢迎流程已结束（走完或跳过），宿主可以重新显示它的通知卡片。 */
   onboardingFinished(): void;
-  /** `{"ok":true,"value":string|null}`：键盘要求本窗口打开的页面，只交出一次，第二次读取回复 null。 */
+  /** `{"ok":true,"value":string|null,"target":string|null}`：键盘要求本窗口打开的页面和页面里的子目标，只交出一次，第二次读取回复 null。旧宿主没有 `target`。 */
   pendingPage(): string;
   /** 页面的第一帧已经上屏：宿主撤掉页面加载期间盖在网页上的启动画面。 */
   launchPainted(): void;
@@ -223,7 +224,7 @@ declare global {
   // eslint-disable-next-line no-var
   var msimeHarmonyAppThemeChanged: (() => void) | undefined;
   // eslint-disable-next-line no-var
-  var msimeHarmonyOpenPage: ((page: string) => void) | undefined;
+  var msimeHarmonyOpenPage: ((page: string, target?: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
@@ -643,26 +644,10 @@ function savedFlowTheme(native: NativeBridge): FlowTheme {
   return { themeMode, settingsTheme };
 }
 
-/**
- * 键盘直接打开的页面：功能面板的「词库」「反馈」「关于」、皮肤选择器的「更多皮肤」，「添加语言」打开的「输入」，以及长按工具栏按钮打开的「屏幕键盘」（工具栏的显示方式和工具开关在这一页）。与 `EntryAbility` 从 Want 中接受的列表（`SettingsPageLink.PAGES`）相同，scripts/test-harmony-settings-links.py 核对两份一致；其他值都不是本页承诺过的链接，而改为打开「输入」（未知页面 id 就会解析到它）比停在原处更让人摸不着头脑。
- */
-const LINKED_PAGES: readonly string[] = [
-  "input",
-  "dictionary",
-  "feedback",
-  "about",
-  "skin",
-  "screen-keyboard",
-];
-
-function linkedPage(value: unknown): string | undefined {
-  return typeof value === "string" && LINKED_PAGES.includes(value) ? value : undefined;
-}
-
-/** 本页加载完成前键盘请求的页面，宿主会一直保留到它被读取。 */
-function pendingLinkedPage(native: NativeBridge): string | undefined {
+/** 本页加载完成前键盘请求的页面（和子目标），宿主会一直保留到它被读取。哪些页面和子目标可以链接见 `settings-link.ts`。 */
+function pendingLinkedPage(native: NativeBridge): SettingsLink | undefined {
   if (typeof native.pendingPage !== "function") return undefined;
-  return linkedPage(bridgeValue(native.pendingPage()));
+  return pendingSettingsLink(native.pendingPage());
 }
 
 /**
@@ -670,11 +655,11 @@ function pendingLinkedPage(native: NativeBridge): string | undefined {
  *
  * 这个全局对象从本脚本运行起就存在，所以宿主不必保留在那之后发出的请求：启动屏还在时到达的请求会在这里等待，直到设置组件注册监听器后取走。
  */
-let linkedPageListener: ((page: string) => void) | undefined;
-let queuedLinkedPage: string | undefined;
+let linkedPageListener: ((link: SettingsLink) => void) | undefined;
+let queuedLinkedPage: SettingsLink | undefined;
 
-globalThis.msimeHarmonyOpenPage = (page: string) => {
-  const linked = linkedPage(page);
+globalThis.msimeHarmonyOpenPage = (page: string, target?: string) => {
+  const linked = settingsLink(page, target);
   if (!linked) return;
   if (linkedPageListener) linkedPageListener(linked);
   else queuedLinkedPage = linked;
@@ -1991,8 +1976,8 @@ function HarmonySettings({
 }: {
   native: NativeBridge;
   onboarding: boolean;
-  /** 键盘要求本窗口打开的页面，启动时从宿主读取。 */
-  linkedPage: string | undefined;
+  /** 键盘要求本窗口打开的页面（和页面里的子目标），启动时从宿主读取。 */
+  linkedPage: SettingsLink | undefined;
 }): ReactNode {
   // Setup is the one thing that has to happen before anything in the settings page can matter, so
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
@@ -2001,9 +1986,9 @@ function HarmonySettings({
   // 流程绘制所用的外观：首次启动用系统外观，重放时用用户自己的选择。
   const [flowTheme, setFlowTheme] = useState<FlowTheme>(SYSTEM_THEME);
   // 设置打开时所在的页面：键盘链接到的页面，或流程最后「登录」之后的「我的」，登录入口就在那里。
-  const [initialPage, setInitialPage] = useState<string | undefined>(linkedPage);
+  const [initialLink, setInitialLink] = useState<SettingsLink | undefined>(linkedPage);
   // 设置已打开时键盘请求的页面。新的 nonce 会导航过去并保留草稿；若改为按初始页面重新挂载，草稿就会丢失。
-  const [route, setRoute] = useState<{ page: string; nonce: number }>();
+  const [route, setRoute] = useState<{ page: string; target?: string; nonce: number }>();
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
@@ -2053,9 +2038,9 @@ function HarmonySettings({
   );
   // 欢迎流程显示期间，链接的页面等设置打开时再作为初始页；设置已打开时则直接导航过去。在这个监听器存在之前到达的请求现在取走。
   useEffect(() => {
-    const open = (page: string) => {
-      if (bootstrapRequired) setInitialPage(page);
-      else setRoute({ page, nonce: Date.now() });
+    const open = (link: SettingsLink) => {
+      if (bootstrapRequired) setInitialLink(link);
+      else setRoute({ ...link, nonce: Date.now() });
     };
     linkedPageListener = open;
     const queued = queuedLinkedPage;
@@ -2098,7 +2083,7 @@ function HarmonySettings({
         theme={flowTheme}
         onComplete={async (scheme, choices) => {
           await applyChoices(scheme, choices);
-          if (choices.openAccount) setInitialPage("account");
+          if (choices.openAccount) setInitialLink({ page: "account" });
           leaveFlow();
         }}
         onSkip={async (scheme, choices) => {
@@ -2114,12 +2099,13 @@ function HarmonySettings({
       <div className="contents" inert={cloudClipboardOpen || cloudDictionaryOpen}>
         <SettingsPage
           client={client}
-          initialPage={initialPage}
+          initialPage={initialLink?.page}
+          initialTarget={initialLink?.target}
           route={route}
           onReplayOnboarding={() => {
             setFlowTheme(savedFlowTheme(native));
             // 重放与首次运行在同一处结束，而不是停在之前链接的页面上。
-            setInitialPage(undefined);
+            setInitialLink(undefined);
             // 重放的流程同样不应被宿主的通知卡片压在下面；离开流程时 leaveFlow 会让它恢复。
             if (typeof native.onboardingStarted === "function") native.onboardingStarted();
             setBootstrapRequired(true);

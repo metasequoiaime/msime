@@ -58,6 +58,69 @@ group("a Want's page parameter is honoured only for a linked page", () => {
   check(SettingsPageLink.fromParameter("developer") === null, "an unlinked id is refused");
 });
 
+// 长按九键左侧符号栏带上那张表的共享偏好名（与 Android `edit_sidebar_key` 相同），设置页打开「按键布局」里那张表的编辑页。
+group(
+  "a Want's target parameter is honoured only for its own page, and old links keep working",
+  () => {
+    check(
+      SettingsPageLink.NINE_KEY_SIDEBAR_TARGET === "touch_nine_key_sidebar_symbols" &&
+        SettingsPageLink.NINE_KEY_DIGIT_SIDEBAR_TARGET === "touch_nine_key_digit_sidebar_symbols",
+      "the targets are the shared preference names",
+    );
+    check(
+      SettingsPageLink.targets("screen-keyboard").join("|") ===
+        "touch_nine_key_sidebar_symbols|touch_nine_key_digit_sidebar_symbols",
+      "屏幕键盘 accepts the two sidebar tables",
+    );
+    check(SettingsPageLink.targets("about").length === 0, "other pages take no target");
+    check(
+      SettingsPageLink.acceptsTarget("screen-keyboard", "touch_nine_key_digit_sidebar_symbols"),
+      "the digit table is a target of 屏幕键盘",
+    );
+    check(
+      !SettingsPageLink.acceptsTarget("input", "touch_nine_key_sidebar_symbols"),
+      "but not of another page",
+    );
+    const letter = SettingsPageLink.fromParameters(
+      "screen-keyboard",
+      "touch_nine_key_sidebar_symbols",
+    );
+    check(
+      letter !== null &&
+        letter.page === "screen-keyboard" &&
+        letter.target === "touch_nine_key_sidebar_symbols",
+      "page and target pass through together",
+    );
+    const old = SettingsPageLink.fromParameters("screen-keyboard", undefined);
+    check(
+      old !== null && old.page === "screen-keyboard" && old.target === null,
+      "a link with only a page is the old link",
+    );
+    const unknown = SettingsPageLink.fromParameters("screen-keyboard", "touch_number_row");
+    check(
+      unknown !== null && unknown.target === null,
+      "an unknown target is dropped, the page still opens",
+    );
+    const misplaced = SettingsPageLink.fromParameters("about", "touch_nine_key_sidebar_symbols");
+    check(
+      misplaced !== null && misplaced.page === "about" && misplaced.target === null,
+      "a target of another page is dropped",
+    );
+    const typed = SettingsPageLink.fromParameters("screen-keyboard", [
+      "touch_nine_key_sidebar_symbols",
+    ]);
+    check(typed !== null && typed.target === null, "a target that is not a string is dropped");
+    check(
+      SettingsPageLink.fromParameters("developer", "touch_nine_key_sidebar_symbols") === null,
+      "a target never opens an unlinked page",
+    );
+    check(
+      SettingsPageLink.fromParameters(undefined, undefined) === null,
+      "no parameters are no link",
+    );
+  },
+);
+
 group("the starters are Android's, in its order", () => {
   check(CommonPhraseStarters.TEXTS.length === 8, "eight starters");
   check(

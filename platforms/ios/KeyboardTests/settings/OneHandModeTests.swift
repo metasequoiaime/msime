@@ -65,6 +65,7 @@ final class OneHandModeTests: XCTestCase {
     XCTAssertEqual(KeyboardOneHandLayout.effective(.right, formFactor: .phone), .right)
     XCTAssertEqual(KeyboardOneHandLayout.effective(.left, formFactor: .tablet), .left)
     XCTAssertEqual(KeyboardOneHandLayout.effective(.left, formFactor: .tablet, split: true), .off, "the split keyboard takes precedence")
+    XCTAssertEqual(KeyboardOneHandLayout.effective(.right, formFactor: .phone, split: true), .off, "so does the iPhone landscape split")
     XCTAssertTrue(KeyboardOneHandLayout.gutterLeads(.right))
     XCTAssertFalse(KeyboardOneHandLayout.gutterLeads(.left))
   }

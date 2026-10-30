@@ -58,7 +58,7 @@ if ! grep -qF 'const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(
   echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
   exit 1
 fi
-# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按打开设置。
+# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按带上那张表的共享偏好名打开「按键布局」里的编辑页，数字层两处（出厂与自定义）传数字表，字母层和笔画四处传字母表。
 session_file="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
   || ! grep -qF 'TouchLayoutStylePolicy.NINE_KEY_SIDEBAR_DEFAULTS' "$session_file" \
@@ -76,8 +76,9 @@ if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
   || ! grep -qF 'return this.english ? [] : this.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
   || [[ $(grep -cF 'KeyboardSession.shared.insertSidebarSymbol(' "$keyboard_view") -ne 2 ]] \
   || [[ $(grep -cF '(item: NineKeySidebarItem) => item.key)' "$keyboard_view") -ne 3 ]] \
-  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))' "$keyboard_view") -ne 6 ]] \
-  || ! grep -qF "KeyboardSession.shared.openSettings('screen-keyboard');" <<< "$(sed -n '/^  private openSidebarSettings(): void {$/,/^  }$/p' "$keyboard_view")"; then
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings(true)))' "$keyboard_view") -ne 2 ]] \
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))' "$keyboard_view") -ne 4 ]] \
+  || ! grep -qF 'digits ? SettingsPageLink.NINE_KEY_DIGIT_SIDEBAR_TARGET : SettingsPageLink.NINE_KEY_SIDEBAR_TARGET' <<< "$(sed -n '/^  private openSidebarSettings(digits: boolean): void {$/,/^  }$/p' "$keyboard_view")"; then
   echo "Harmony must draw the nine-key sidebars from touch_nine_key_sidebar_symbols and touch_nine_key_digit_sidebar_symbols" >&2
   exit 1
 fi
@@ -579,6 +580,25 @@ if ! grep -qF 'oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_o
   || ! grep -qF 'SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType, this.foldable());' \
     "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
   echo "Harmony must draw the one-handed side number pad from touch_one_handed_side_panel only when OneHandedPolicy.sidePadShown allows, type its digits literally, and report the capability by form factor" >&2
+  exit 1
+fi
+# 大屏分离式键盘（#10224）：启用条件和几何由 split-keyboard.test.ts 的 `SplitKeyboardPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 SplitKeyboardPolicy.settings 读四项共享偏好，视图随设置重读、转屏时记下屏幕宽高，分离时单手让位，字母三排、数字行、补充行、123 / #+= 层和两种底行都插入空隙，重复的 G、V 不记滑行键位，设置桥按设备形态报告能力位。
+split_letter_body=$(awk '/^  splitLetterFace\(\) \{/,/^  \}$/' "$keyboard_view")
+split_action_body=$(awk '/^  designActionRow\(\) \{/,/^  \}$/' "$keyboard_view")
+if ! grep -qF 'splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_keyboard_split,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.splitKeyboard = this.settings.splitKeyboard;' "$keyboard_view" \
+  || ! grep -qF 'this.screenWidthVp = widthVp;' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn();' "$keyboard_view" \
+  || ! grep -qF '} else if (this.splitDrawn()) {' "$keyboard_view" \
+  || ! grep -qF 'this.splitGap(this.splitLetterRow(row).gapShare)' <<< "$split_letter_body" \
+  || ! grep -qF 'this.duplicateLetterKey(' <<< "$split_letter_body" \
+  || ! grep -qF 'this.splitGap(this.designRowSplitSpace().gap)' <<< "$split_action_body" \
+  || [[ $(grep -cF 'this.splitGap(' "$keyboard_view") -ne 8 ]] \
+  || ! grep -qF 'if ($$.duplicate !== true) {' "$keyboard_view" \
+  || ! grep -qF "value['touch_keyboard_split'] = projection.splitKeyboard;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony must draw the split keyboard from the touch_keyboard_split preferences only when SplitKeyboardPolicy.drawn allows, put a dead gap into every split row, give way to one-handed mode, and report the capability by form factor" >&2
   exit 1
 fi
 # 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。

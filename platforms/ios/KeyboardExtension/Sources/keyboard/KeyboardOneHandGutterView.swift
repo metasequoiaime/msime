@@ -15,9 +15,9 @@ enum KeyboardOneHandLayout {
   /// 侧边数字键盘的宽度下限：三列键每列约 50，再窄就不显示。
   static let sidePadMinWidth: CGFloat = 150
 
-  /// 键盘实际画出的模式：手机键盘用存下的值；全宽的 iPad 键盘也用存下的值，只在画横屏分离式键盘（`split`）时关闭。
+  /// 键盘实际画出的模式：用存下的值，只在画横屏分离式键盘（`split`，iPad 或 iPhone）时关闭，存下的值不变。
   static func effective(_ stored: KeyboardOneHandedMode, formFactor: KeyboardFormFactor, split: Bool = false) -> KeyboardOneHandedMode {
-    formFactor == .tablet && split ? .off : stored
+    split ? .off : stored
   }
 
   /// 「侧栏加按键」这一块的宽度：手机上是整行 `available`；iPad 上是手机大小的一块，按键 `tabletKeysWidth` 加间距再除以按键占的比例，窗口比它还窄时取整行。

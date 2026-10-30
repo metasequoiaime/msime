@@ -51,30 +51,34 @@ function snapshot(preferences: Record<string, unknown> = {}): Snapshot {
   } as Snapshot;
 }
 
-function renderSettings(preferences: Record<string, unknown> = {}) {
+type SettingsPageProps = Parameters<typeof SettingsPage>[0];
+
+/** `link` 是宿主链接带来的那几项：初始页、它的子目标，或打开着时送来的路由。 */
+function renderSettings(
+  preferences: Record<string, unknown> = {},
+  link: Omit<SettingsPageProps, "client"> = { initialPage: "screen-keyboard" },
+) {
   const save = vi.fn().mockImplementation(async (_revision: number, next: unknown) => ({
     ...snapshot(),
     revision: 4,
     preferences: next,
   }));
-  render(
-    <SettingsPage
-      initialPage="screen-keyboard"
-      client={{
-        load: vi.fn().mockResolvedValue(snapshot(preferences)),
-        save,
-        host: testHost({
-          platform: "harmony",
-          mobile_settings: true,
-          panel_windows: false,
-          touch_toolbar_tools: true,
-        }),
-        openSystemKeyboardSettings: vi.fn(),
-        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-      }}
-    />,
-  );
-  return { save };
+  const client: SettingsPageProps["client"] = {
+    load: vi.fn().mockResolvedValue(snapshot(preferences)),
+    save,
+    host: testHost({
+      platform: "harmony",
+      mobile_settings: true,
+      panel_windows: false,
+      touch_toolbar_tools: true,
+    }),
+    openSystemKeyboardSettings: vi.fn(),
+    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+  };
+  const view = render(<SettingsPage client={client} {...link} />);
+  const route = (next: Omit<SettingsPageProps, "client">) =>
+    view.rerender(<SettingsPage client={client} {...next} />);
+  return { save, route };
 }
 
 async function openKeyLayout() {
@@ -494,4 +498,120 @@ test("the system back gesture closes the editor first and leaves 按键布局 op
     expect(screen.queryByRole("dialog", { name: "数字键盘左侧符号" })).toBeNull(),
   );
   expect(screen.getByRole("dialog", { name: "按键布局" })).toBeTruthy();
+});
+
+// 鸿蒙键盘长按九键左侧符号栏（#10223）：链接带上那张表的共享偏好名，与 Android `edit_sidebar_key` 相同。
+test("a link to the letter table opens 按键布局 at the 9 key card with the letter editor open", async () => {
+  // 用户在用 26 键，字母表的编辑页仍从 9 键分段进。
+  renderSettings(
+    { touch_nine_key_sidebar_symbols: ["，", "。", "！"] },
+    { initialPage: "screen-keyboard", initialTarget: "touch_nine_key_sidebar_symbols" },
+  );
+  await settingsFormReady();
+  const letters = await waitFor(() => editor("九键左侧符号"));
+  expect(currentOrder(letters)).toEqual(["，", "。", "！"]);
+  expect(window.history.state?.keyLayout).toBe(true);
+  expect(window.history.state?.nineKeySidebar).toBe("letter");
+  // 返回关掉编辑页，停在 9 键分段的「按键布局」上，什么也没写。
+  window.history.back();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "九键左侧符号" })).toBeNull());
+  const dialog = screen.getByRole("dialog", { name: "按键布局" });
+  expect(visible(letterRow(dialog))).toBe(true);
+});
+
+test("a link that arrives while settings are open opens the digit editor over 按键布局", async () => {
+  const { save, route } = renderSettings({}, { initialPage: "input" });
+  await settingsFormReady();
+  expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
+  route({
+    initialPage: "input",
+    route: { page: "screen-keyboard", target: "touch_nine_key_digit_sidebar_symbols", nonce: 1 },
+  });
+  const digits = await waitFor(() => editor("数字键盘左侧符号"));
+  expect(currentOrder(digits)).toEqual([...nineKeySidebarDefaults.digit]);
+  expect(window.history.state?.page).toBe("screen-keyboard");
+  expect(window.history.state?.keyLayout).toBe(true);
+  expect(window.history.state?.nineKeySidebar).toBe("digit");
+  // 返回一步关编辑页，再一步关「按键布局」，回到屏幕键盘页本身。
+  window.history.back();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "数字键盘左侧符号" })).toBeNull(),
+  );
+  expect(screen.getByRole("dialog", { name: "按键布局" })).toBeTruthy();
+  window.history.back();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
+  // 只导航，不写偏好。
+  saveSettingsNow();
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("the link opens the editor once: reopening 按键布局 by hand does not bring it back", async () => {
+  renderSettings(
+    {},
+    { initialPage: "screen-keyboard", initialTarget: "touch_nine_key_digit_sidebar_symbols" },
+  );
+  await settingsFormReady();
+  await waitFor(() => editor("数字键盘左侧符号"));
+  window.history.back();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "数字键盘左侧符号" })).toBeNull(),
+  );
+  window.history.back();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull());
+  const dialog = await openKeyLayout();
+  expect(dialog).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "数字键盘左侧符号" })).toBeNull();
+});
+
+test("a target the page does not know only opens 屏幕键盘", async () => {
+  const { route } = renderSettings({}, { initialPage: "input" });
+  await settingsFormReady();
+  route({
+    initialPage: "input",
+    route: { page: "screen-keyboard", target: "touch_number_row", nonce: 2 },
+  });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "按键布局" })).toBeTruthy());
+  expect(window.history.state?.page).toBe("screen-keyboard");
+  expect(window.history.state?.keyLayout).toBeUndefined();
+  expect(screen.queryByRole("dialog", { name: "按键布局" })).toBeNull();
+});
+
+test("an edit request switches to the 9 key card for the letter table and needs a 9 key group", () => {
+  const view = render(
+    <TouchKeyLayoutSettings
+      preferences={{} as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: true }}
+      open
+      editRequest={{ kind: "letter", serial: 1 }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(editor("九键左侧符号")).toBeTruthy();
+  const card = document.querySelector('[data-key-layout-panel="nine"]');
+  expect(visible(card)).toBe(true);
+  view.unmount();
+  // 版本没有 9 键时字母表无处可改，只停在「按键布局」；数字表照样打开。
+  const without = render(
+    <TouchKeyLayoutSettings
+      preferences={{} as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: false }}
+      open
+      editRequest={{ kind: "letter", serial: 1 }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("dialog", { name: "九键左侧符号" })).toBeNull();
+  without.rerender(
+    <TouchKeyLayoutSettings
+      preferences={{} as Preferences}
+      scheme="quanpin"
+      groups={{ twentySix: true, fourteen: true, nine: false }}
+      open
+      editRequest={{ kind: "digit", serial: 2 }}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(editor("数字键盘左侧符号")).toBeTruthy();
 });

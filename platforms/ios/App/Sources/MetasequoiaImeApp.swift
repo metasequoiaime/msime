@@ -327,7 +327,7 @@ private struct MainTabView: View {
         openVoiceSession()
         return
       }
-      // 链接指名了设置页时先把设置栈重建回根页面：切走标签页时那条栈原样保留，同一页面已经开着时写入相同的值不会触发导航，用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。
+      // 链接指名了设置页时先回到设置根页面：切走标签页时那条栈原样保留，不回根页面用户会停在上次在那里打开的更深一层页面，而不是链接要的页面。手机上由设置根页面消费请求时自己弹栈（`SettingsView.consumeRequestedPage`），这里只收起 AI 对话、重建 iPad 的分栏。
       if SettingsRouter.settingsPage(in: url) != nil {
         navigation.settingsRoot = UUID()
         navigation.settingsChat = false
@@ -366,16 +366,16 @@ private struct MainTabView: View {
   // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
   @ViewBuilder private var settingsTab: some View {
     if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular {
-      TabletSettingsView().id(navigation.settingsRoot)
+      // 侧栏没有手机那条推入的栈可以按状态收起，重选时仍整体重建，与深链接一样。
+      TabletSettingsView().id(navigation.settingsRoot).id(navigation.settingsReselection)
     }
     else {
       NavigationStack {
-        SettingsView(navigationRoot: navigation.settingsRoot)
+        SettingsView()
           .navigationDestination(isPresented: $navigation.settingsChat) {
             KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
           }
       }
-      .id(navigation.settingsRoot)
     }
   }
 }

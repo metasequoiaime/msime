@@ -7250,6 +7250,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeSymbolPanel() {
+        if (imePanels != null) imePanels.invalidatePluginSymbolGroupReads();
         if (symbolPanel != null) ViewPolicy.hide(symbolPanel);
         synchronizeReplyKeyboard();
     }

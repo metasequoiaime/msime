@@ -7,7 +7,7 @@ import window from '@ohos.window';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
 import { describeError } from '../keyboard/KeyboardLog';
-import { SettingsPageLink } from '../keyboard/SettingsPageLink';
+import { SettingsLinkRequest, SettingsPageLink } from '../keyboard/SettingsPageLink';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
@@ -29,22 +29,22 @@ export default class EntryAbility extends UIAbility {
   static onActivated: (() => void) | undefined = undefined;
   /** 设置窗口退到后台时调用，设置页借它把改动立即发布给键盘。 */
   static onDeactivated: (() => void) | undefined = undefined;
-  /** 键盘请求过、设置页面还没取走的页面；设置页面加载完成后会取走它。 */
-  static pendingPage: string | null = null;
+  /** 键盘请求过、设置页面还没取走的页面（和它的子目标）；设置页面加载完成后会取走它。 */
+  static pendingPage: SettingsLinkRequest | null = null;
   /** 由设置页面在打开期间设置，让之后请求的页面能送达已经显示着的设置页面。 */
-  static onOpenPage: ((page: string) => void) | undefined = undefined;
+  static onOpenPage: ((link: SettingsLinkRequest) => void) | undefined = undefined;
 
   /**
    * 键盘请求的设置页面，没有则为 null。
    *
-   * 键盘通过在 want 里传 `page` 直接打开词库、反馈、关于、皮肤和屏幕键盘（长按工具栏按钮）。只接受 `SettingsPageLink.PAGES` 中的页面：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
+   * 键盘通过在 want 里传 `page` 直接打开词库、反馈、关于、皮肤和屏幕键盘（长按工具栏按钮），再带一个 `target` 直接打开那一页里的某一处（长按九键左侧符号栏：「按键布局」里那张表的编辑页）。只接受 `SettingsPageLink.PAGES` 中的页面和 `SettingsPageLink.targets(page)` 中的子目标：want 里的其他内容可能是别的应用发来的，不应让页面被引到一个没人打算开放的路由。
    */
-  private static linkedPage(want: Want): string | null {
+  private static linkedPage(want: Want): SettingsLinkRequest | null {
     const parameters: Record<string, Object> | undefined = want.parameters;
     if (parameters === undefined) {
       return null;
     }
-    return SettingsPageLink.fromParameter(parameters['page']);
+    return SettingsPageLink.fromParameters(parameters['page'], parameters['target']);
   }
 
   private microphoneRequested: boolean = false;
@@ -90,16 +90,16 @@ export default class EntryAbility extends UIAbility {
    */
   onNewWant(want: Want, launch: AbilityConstant.LaunchParam): void {
     if (want.parameters?.['requestMicrophone'] === true) this.requestMicrophone();
-    const page: string | null = EntryAbility.linkedPage(want);
-    if (page === null) {
+    const link: SettingsLinkRequest | null = EntryAbility.linkedPage(want);
+    if (link === null) {
       return;
     }
-    const open: ((page: string) => void) | undefined = EntryAbility.onOpenPage;
+    const open: ((link: SettingsLinkRequest) => void) | undefined = EntryAbility.onOpenPage;
     if (open === undefined) {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       return;
     }
-    open(page);
+    open(link);
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {

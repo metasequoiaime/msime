@@ -14,8 +14,10 @@ final class AppNavigation: ObservableObject {
   /// 设置状态卡上的「试用键盘」每点一次加一。对话页出现时发现它变了就把焦点放进输入框，从 AI 设置页进入时不弹键盘。
   @Published var chatFocusRequest = 0
   @Published var settingsChat = false
-  /// 替换它即可把设置导航栈重建回根页面。
+  /// 替换它即可把 iPad 的设置分栏重建回初始状态，深链接指名设置页时用。手机上的设置栈不换（见 `settingsReselection`）。
   @Published var settingsRoot = UUID()
+  /// 设置正显示时再点「首页」就加一：手机上的设置根页面看到它变了就清掉推入的页面，iPad 的分栏整体重建。手机不靠换栈（`.id`）回根页面：iOS 18 上换掉一条推入过页面的 NavigationStack 后，新栈的 `navigationDestination` 不再推入任何页面，根页面的行点了没有反应，直到重启 App。
+  @Published var settingsReselection = 0
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.
   @Published var recordsVoice = false
   /// 键盘长按空格时还没有语音会话，发来 msime://voice-session：在这里打开按住说话的后台会话（`VoiceSessionService`），用户再回到原应用说话。
@@ -41,7 +43,7 @@ final class AppNavigation: ObservableObject {
   func select(_ next: Tab, router: SettingsRouter) {
     if next == tab && next == .settings {
       router.settingsPage = nil
-      settingsRoot = UUID()
+      settingsReselection += 1
       settingsChat = false
     }
     tab = next
