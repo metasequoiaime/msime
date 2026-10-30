@@ -20,6 +20,7 @@ fn main() {
         "MSIME_BUILD_RUN",
         "GITHUB_RUN_ID",
         "GITHUB_RUN_ATTEMPT",
+        "MSIME_TEST_TELEMETRY_ORIGIN",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }

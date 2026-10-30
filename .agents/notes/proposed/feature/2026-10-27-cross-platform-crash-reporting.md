@@ -29,7 +29,7 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；设备到后台链路 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致 | 完整 TSF 产品与真实编辑器验收；ARM64 实际故障；完整 Win7 同源符号包；真实 TSF 事件的后台符号行还原 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原 | 回退设置、Tauri 设置及其他辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；Wayland 真实内存访问还原到 `FcitxEngine.cpp:7678`；正式在线服务入口的 systemd 自动重启与授权队列专项 | 最新整合候选的完整产品复验；其他架构与部分发行版符号；系统级安装及其他服务的 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
@@ -43,6 +43,8 @@ Status: proposed
 ## 隔离发送与共享后台验收
 
 `client-services::telemetry::backend_sender` 统一 Host API 两条发送分支与桌面独立发送器。显式 `telemetry-loopback` 特性和编译时 `MSIME_TEST_TELEMETRY_ORIGIN` 共同限定验收目标；未启用特性时保持正式发送器。工具与边界见 `tools/crash/README.md`。当前 C ABI 的测试握手在访问队列前校验，错误库或错误目标不能先建目录再失败。工具还先用两个不联网的 `begin` 核对字段确实被解析；忽略未知字段的合成旧 ABI 已验证会在任何 `flush` 前被拒绝，不能用可能联网的 `flush` 探测旧库能力。
+
+`client-services/build.rs` 现在也声明监听 `MSIME_TEST_TELEMETRY_ORIGIN`；改变隔离回环端口会触发重新编译，避免复用嵌入旧端口的 Host API 产物而把本地队列误判为后台未收。
 
 同源验证已覆盖无配置与有效配置：共享传输专项各三项，Host API 在测试和正式配置下各十三项通过；两个配置下 `client-services` 与 `host-api` 全 target 严格 Clippy 通过。正式库与缺配置测试库均拒绝工具的开始及发送请求；有效配置的真实 C ABI→HTTP、故障原版本补报、503 后同一崩溃事件重试、不带凭据、关闭后不发送通过。HTTP 专项在系统代理环境变量指向不可用回环代理、`NO_PROXY` 为空时仍能直连；不跟随重定向由传输专项核对。
 

@@ -77,6 +77,8 @@ Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本
 
 真实 Windows 11 Notepad 的顶层窗口和嵌套 `RichEditD2DPT` 已定位；当前测试 helper 的跨进程 TSF 激活仍未产生 `MetasequoiaIMEWorkerWnd.full` 或候选窗，因此真实编辑器按键、外部宿主内 TSF worker 和对应后台补报仍未验收。该缺口不能用 Server 的自然 consent 故障证据替代。取证使用专用用户和专用状态目录，未向产品后台发送合成故障。
 
+随后发现前一轮产品包中的 `msime_host_api.dll` 仍嵌入旧的隔离端口 `http://127.0.0.1:48153`，而当前专用回环转发为 `48729`；队列与持续授权均正常，故此前后台为空只是发送目标不一致。强制让同源 Windows 工作区重新编译 `msime-client-services`/Host API，并替换暂存 DLL 后重启 Server，回环后台固定 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a` 收到并确认了两条 `active`、两条 `session_crash` 和两条 `crash`，每条的 `platform=windows`、版本、匿名安装身份、构建头、`x86_64`、`input` 组件与模块偏移栈均与本地队列一致，`received` 与 `rows` 完全对应。这个真实 Server WER→本地队列→隔离后台链路已通过；仍未完成真实编辑器 TSF worker、ARM64/Win7 产品运行和后台符号行还原。
+
 ## Related notes
 
 检索活跃笔记的 WER、RuntimeException、TSF 故障和外部宿主崩溃后，[全平台提案](2026-10-27-cross-platform-crash-reporting.md)部分重叠，仍持有完整平台及后台验收；[独立捕获与符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)仍持有记录头与符号格式；[采集与队列代次](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)仍持有授权和旧记录拒绝。不完全吸收旧笔记，其余按键与焦点记录无关。
