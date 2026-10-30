@@ -36,7 +36,7 @@ iOS 的单手模式原来只在 iPhone 上画（`KeyboardOneHandLayout.effective
 全部满足时才显示侧边数字键盘，任何一条不满足时那一侧照旧空着：
 
 1. `touch_one_handed_side_panel` 是 `number_pad`。
-2. 单手模式此刻实际生效：存着的模式是 `left` / `right`，没有画分离式键盘，没有浮动（Android `ImeFrame.effectiveOneHanded`；鸿蒙 `OneHandedPolicy.active`；iOS `KeyboardOneHandLayout.effective`）。
+2. 单手模式此刻实际生效：存着的模式是 `left` / `right`，没有画分离式键盘，没有浮动（Android `ImeFrame.effectiveOneHanded`；鸿蒙 `KeyboardView.oneHandActive`，即 `OneHandedPolicy.active` 再加上没有浮动；iOS `KeyboardOneHandLayout.effective`）。
 3. 大屏，并且空出来的宽度放得下（见下一节的侧边宽度大于 0）。手机上 #10204 的块宽是 0，这一条自然不成立。
 4. 主键区此刻画的是九键一族的字母层：拼音九键、九键双拼、笔画，与设置页「按键布局 › 9 键」那一组是同一族（iOS `TouchKeyLayoutOffering.nineKeySchemes`）。英文、本地模式（这时画 26 键）、123 数字层（主键区已经是数字九宫格）、#+= 层、注音、日文假名九键、手写、14/18 键和 26 键都不显示。
 5. 按键没有被面板盖住：符号、表情、剪贴板、展开候选等面板打开时侧边面板和按键一起隐藏。Android 和鸿蒙靠结构保证（面板与按键在同一行，整行收起或不画），所以 Android `OneHandSidePadPolicy.shown` 与鸿蒙 `OneHandedPolicy.sidePadShown` 只汇总前四条；iOS 的面板只遮住按键列，侧边面板另外加进 `setKeyRowsCovered`。九键长按选项（鸿蒙 `SURFACE_NINE_KEY_HOLD`）和键盘高度预览（`SURFACE_GEOMETRY`）画在同一行里，侧边面板照常显示。

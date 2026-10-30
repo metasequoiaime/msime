@@ -33,6 +33,7 @@ import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
 import { OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
+import { SplitKeyboardPolicy, SplitKeyboardSettings } from './SplitKeyboardPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
@@ -1004,6 +1005,14 @@ interface PreparedPreferences {
   touch_nine_key_digit_sidebar_symbols?: string[];
   /** 大屏单手模式空出来的一侧放什么（off / number_pad）；默认值不写进文档。 */
   touch_one_handed_side_panel?: string;
+  /** 大屏分离式键盘的主开关；默认关，不写进文档。 */
+  touch_keyboard_split?: boolean;
+  /** 分离式键盘开着时竖放也分离；默认关。 */
+  touch_keyboard_split_portrait?: boolean;
+  /** 分离式键盘的启用宽度（vp），480–1000、步进 20；默认 600，不写进文档。 */
+  touch_keyboard_split_threshold?: number;
+  /** 分离式键盘中间空隙的百分比，10–40、步进 5；默认 25，不写进文档。 */
+  touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
   /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
@@ -1187,6 +1196,8 @@ export interface KeyboardPreferences {
   readonly nineKeyDigitSidebarSymbols: string[];
   /** `touch_one_handed_side_panel`：大屏单手模式空出来的一侧放什么，不认识的值按空着（`OneHandedPolicy.sidePanel`）。 */
   readonly oneHandedSidePanel: OneHandedSidePanel;
+  /** `touch_keyboard_split`、`touch_keyboard_split_portrait`、`touch_keyboard_split_threshold` 和 `touch_keyboard_split_gap`：大屏分离式键盘，不合规的值按默认值（`SplitKeyboardPolicy.settings`）。 */
+  readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
   /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
@@ -1528,6 +1539,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     nineKeySidebarSymbols: [],
     nineKeyDigitSidebarSymbols: [],
     oneHandedSidePanel: OneHandedSidePanel.OFF,
+    splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
     nineKeySwipeDigits: NineKeySwipePolicy.OFF
   };
@@ -1590,8 +1602,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
-  /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。 */
-  onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean) => void) | undefined = undefined;
+  /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。`target` 是这一页的子目标（`SettingsPageLink.targets(page)` 之一），没有时为 `undefined`。 */
+  onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean, target?: string) => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -1610,6 +1622,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   onReplyContextChanged: (() => void) | undefined = undefined;
   /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
   onDismiss: (() => void) | undefined = undefined;
+  /** 浮动键盘开关变了（`setFloatingKeyboard`）：持有面板的扩展能力换面板标志、大小和位置。 */
+  onFloatingKeyboardChanged: (() => void) | undefined = undefined;
+  /** 浮动键盘的拖动条：按下、移动（相对按下那一刻的屏幕位移，vp）和松手。面板归扩展能力，视图只报告手指。 */
+  onFloatingDragStart: (() => void) | undefined = undefined;
+  onFloatingDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
+  onFloatingDragEnd: (() => void) | undefined = undefined;
   /** 同一编辑框收起后可直接重新显示，不一定再次触发 `inputStart`；恢复空闲任务且不重建已有计时器。 */
   keyboardShown(): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
@@ -1978,6 +1996,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS
       ),
       oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_one_handed_side_panel),
+      splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_keyboard_split,
+        preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
+        preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
       nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
     };
@@ -6092,13 +6113,55 @@ export class KeyboardSession implements HardwareKeyTarget {
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
       oneHanded: current.oneHanded,
-      incognito: on
+      incognito: on,
+      floating: current.floating,
+      floatingX: current.floatingX,
+      floatingY: current.floatingY
     };
     if (!this.saveFeedback(next)) {
       return current.incognito;
     }
     this.followPrivacyMode();
     return on;
+  }
+
+  /** 功能面板「浮动键盘」磁贴和拖动条的停靠键：存下开关（设备本地，不同步），再让扩展能力换面板。保存失败时保持原状，返回最终是否浮动。 */
+  setFloatingKeyboard(on: boolean): boolean {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    if (current.floating === on) {
+      return on;
+    }
+    if (!this.saveFeedback(KeyboardFeedback.withFloating(current, on, current.floatingX, current.floatingY))) {
+      return current.floating;
+    }
+    if (this.onFloatingKeyboardChanged !== undefined) {
+      this.onFloatingKeyboardChanged();
+    }
+    return on;
+  }
+
+  /** 拖动松手后存下浮动面板的位置（千分比）。写不进去时位置只在这次键盘进程里有效，不打扰用户，与 Android 相同。 */
+  saveFloatingPosition(xFraction: number, yFraction: number): void {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    this.saveFeedback(KeyboardFeedback.withFloating(current, current.floating, xFraction, yFraction));
+  }
+
+  beginFloatingDrag(): void {
+    if (this.onFloatingDragStart !== undefined) {
+      this.onFloatingDragStart();
+    }
+  }
+
+  dragFloating(offsetX: number, offsetY: number): void {
+    if (this.onFloatingDrag !== undefined) {
+      this.onFloatingDrag(offsetX, offsetY);
+    }
+  }
+
+  endFloatingDrag(): void {
+    if (this.onFloatingDragEnd !== undefined) {
+      this.onFloatingDragEnd();
+    }
   }
 
   /**
@@ -7487,8 +7550,10 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 打开设置应用：词库、快捷短语、云端和语音服务都在那里，而不在键盘上。
    *
    * `page` 用于直接打开某一页（功能面板的「词库」「反馈」「关于」功能块）：`'dictionary'`、`'feedback'` 或 `'about'`。其他值或不传时打开设置首页，这样设置应用不能路由的页面 id 永远不会发给它。
+   *
+   * `target` 是那一页里要直接打开的一处（长按九键左侧符号栏带上那张表的共享偏好名），只在它属于 `page` 时随请求发出（`SettingsPageLink.acceptsTarget`）；不属于时照旧只打开页面。
    */
-  openSettings(page?: string): void {
+  openSettings(page?: string, target?: string): void {
     if (this.onOpenSettings === undefined) {
       return;
     }
@@ -7497,7 +7562,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (page !== undefined && requested === undefined) {
       KeyboardLog.error(`settings page ${page} is not routed; opening the settings root`);
     }
-    this.onOpenSettings(requested);
+    const requestedTarget: string | undefined =
+      requested !== undefined && target !== undefined && SettingsPageLink.acceptsTarget(requested, target)
+        ? target : undefined;
+    if (target !== undefined && requestedTarget === undefined) {
+      KeyboardLog.error(`settings target ${target} is not routed on ${page ?? 'the settings root'}; opening the page`);
+    }
+    this.onOpenSettings(requested, false, requestedTarget);
   }
 
   routeVoiceHotkey(key: VoiceKey): boolean {

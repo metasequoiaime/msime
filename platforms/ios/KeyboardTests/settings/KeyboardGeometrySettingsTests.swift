@@ -23,7 +23,7 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
   }
 
   private var state: URL!
-  private var previous: (Double, Double, Double, Bool) = (0, 0, 0, false)
+  private var previous: (Double, Double, Double) = (0, 0, 0)
   private var previousShuangpinKeyHints = true
   private var previousHideLanguageKey = false
 
@@ -32,7 +32,7 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-geometry-settings-\(UUID().uuidString)", isDirectory: true)
     previous = (KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.rowSpacing,
-                KeyboardLayoutPreference.heightAdjustment, KeyboardLayoutPreference.voiceShortcutEnabled)
+                KeyboardLayoutPreference.heightAdjustment)
     previousShuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
     previousHideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   }
@@ -41,7 +41,6 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     KeyboardLayoutPreference.keySpacing = previous.0
     KeyboardLayoutPreference.rowSpacing = previous.1
     KeyboardLayoutPreference.heightAdjustment = previous.2
-    KeyboardLayoutPreference.voiceShortcutEnabled = previous.3
     KeyboardLayoutPreference.shuangpinKeyHints = previousShuangpinKeyHints
     KeyboardLayoutPreference.hideLanguageKey = previousHideLanguageKey
     try? FileManager.default.removeItem(at: state)
@@ -52,13 +51,12 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
 
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(
-      keySpacing: 4.5, rowSpacing: 7, heightAdjustment: 20, voiceShortcut: true, stateRoot: state))
+      keySpacing: 4.5, rowSpacing: 7, heightAdjustment: 20, stateRoot: state))
 
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertEqual(document["touch_key_spacing_tenths"] as? Int, 45)
     XCTAssertEqual(document["touch_row_spacing_tenths"] as? Int, 70)
     XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 20)
-    XCTAssertEqual(document["touch_voice_shortcut"] as? Bool, true)
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 4.5)
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 20)
   }
@@ -66,7 +64,7 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
   func testResetClearsTheDocumentOverrides() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(
-      keySpacing: 5, rowSpacing: 9, heightAdjustment: -8, voiceShortcut: false, stateRoot: state))
+      keySpacing: 5, rowSpacing: 9, heightAdjustment: -8, stateRoot: state))
     let fresh = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-geometry-defaults-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: fresh) }
@@ -76,28 +74,45 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     XCTAssertTrue(KeyboardLayoutPreference.resetGeometry(stateRoot: state))
 
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
-    for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-                "touch_voice_shortcut"] {
+    for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment"] {
       XCTAssertEqual(document[key] as? NSObject, defaults[key] as? NSObject, key)
     }
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
+  }
+
+  /// `touch_voice_shortcut` 是 Android 的工具栏语音按钮，从别的设备同步过来。iOS 工具栏不放语音按钮，App 和键盘保存、恢复几何时都不碰它，免得盖掉或删掉 Android 上的选择。
+  func testGeometryNeverTouchesTheAndroidToolbarVoiceButton() throws {
+    let keyboard = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["touch_voice_shortcut"] = true
+    })
+    func voiceShortcut() throws -> Bool? {
+      try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))["touch_voice_shortcut"] as? Bool
+    }
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 5, rowSpacing: 8, heightAdjustment: 6, stateRoot: state))
+    XCTAssertEqual(try voiceShortcut(), true)
+    XCTAssertTrue(keyboard.persistTouchKeyboardGeometry(keySpacing: 5, rowSpacing: 8, heightAdjustment: 10))
+    XCTAssertEqual(try voiceShortcut(), true)
+    XCTAssertTrue(KeyboardLayoutPreference.resetGeometry(stateRoot: state))
+    XCTAssertEqual(try voiceShortcut(), true)
+    XCTAssertTrue(keyboard.resetTouchKeyboardGeometry())
+    XCTAssertEqual(try voiceShortcut(), true)
   }
 
   /// 用户报告：在键盘里调的高度会变回设置页的值。设置页一直停在后台，页面上留着旧高度；回来动一下别的控件，旧高度就随着四项一起写回了文档。现在设置页只写动过的那一项。
   func testKeyboardHeightSurvivesALaterSettingsSaveOfAnotherField() throws {
     var keyboard: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(
-      keySpacing: 6, rowSpacing: 7, heightAdjustment: 0, voiceShortcut: false, stateRoot: state))
+      keySpacing: 6, rowSpacing: 7, heightAdjustment: 0, stateRoot: state))
 
     XCTAssertTrue(try XCTUnwrap(keyboard).persistTouchKeyboardGeometry(
-      keySpacing: 6, rowSpacing: 7, heightAdjustment: 24, voiceEnabled: false))
+      keySpacing: 6, rowSpacing: 7, heightAdjustment: 24))
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(keySpacing: 4.5, stateRoot: state))
-    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(voiceShortcut: true, stateRoot: state))
 
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 24)
     XCTAssertEqual(document["touch_key_spacing_tenths"] as? Int, 45)
-    XCTAssertEqual(document["touch_voice_shortcut"] as? Bool, true)
 
     // 重新创建的会话（键盘下次出现）也从文档里读到这个高度。
     keyboard = nil
@@ -112,10 +127,10 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     XCTAssertTrue(keyboard.handleCharacter("n").isHandled)
     XCTAssertFalse(keyboard.handleCharacter("i").preedit.isEmpty, "the session is composing")
     XCTAssertFalse(keyboard.setTouchKeyboardGeometry(
-      keySpacing: 6, rowSpacing: 7, heightAdjustment: 18, voiceEnabled: false), "the live session defers while composing")
+      keySpacing: 6, rowSpacing: 7, heightAdjustment: 18), "the live session defers while composing")
 
     XCTAssertTrue(keyboard.persistTouchKeyboardGeometry(
-      keySpacing: 6, rowSpacing: 7, heightAdjustment: 18, voiceEnabled: false))
+      keySpacing: 6, rowSpacing: 7, heightAdjustment: 18))
 
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 18)

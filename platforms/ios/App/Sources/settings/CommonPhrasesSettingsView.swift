@@ -157,7 +157,10 @@ private struct CommonPhraseEditor: View {
         } footer: {
           Text(text.utf16.count > Self.limit ? "最多 1000 字，已超出 \(text.utf16.count - Self.limit) 字。" : "可以换行，最多 1000 字。")
         }
+        .designRow()
       }
+      .designPage()
+      .fittedSheet()
       .navigationTitle("添加常用语")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

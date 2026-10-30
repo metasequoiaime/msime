@@ -58,7 +58,7 @@ if ! grep -qF 'const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(
   echo "Harmony must lay the 26-key row by touch_twenty_six_symbol_first and the number pad by touch_number_pad_space" >&2
   exit 1
 fi
-# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按打开设置。
+# 九键左侧符号栏自定义（#10223）：空表回出厂表、右侧大回车只给出厂表接 !、一屏几项、ForEach 键和整对符号的光标由 nine-key-sidebar.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：两张表从会话偏好读、随 applySettings 换；拼音九键左列、数字层左列和笔画标点栏在自定义时走各自的滚动栈，英文九键不读；自定义项经 insertSidebarSymbol 字面上屏，数字层与出厂运算符一样原样结束组字；两张表与本端出厂表相同时按出厂表读；ForEach 用带下标和高度的 item.key；长按带上那张表的共享偏好名打开「按键布局」里的编辑页，数字层两处（出厂与自定义）传数字表，字母层和笔画四处传字母表。
 session_file="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
   || ! grep -qF 'TouchLayoutStylePolicy.NINE_KEY_SIDEBAR_DEFAULTS' "$session_file" \
@@ -76,8 +76,9 @@ if ! grep -qF 'preferences.touch_nine_key_sidebar_symbols,' "$session_file" \
   || ! grep -qF 'return this.english ? [] : this.nineKeyDigitSidebarSymbols;' "$keyboard_view" \
   || [[ $(grep -cF 'KeyboardSession.shared.insertSidebarSymbol(' "$keyboard_view") -ne 2 ]] \
   || [[ $(grep -cF '(item: NineKeySidebarItem) => item.key)' "$keyboard_view") -ne 3 ]] \
-  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))' "$keyboard_view") -ne 6 ]] \
-  || ! grep -qF "KeyboardSession.shared.openSettings('screen-keyboard');" <<< "$(sed -n '/^  private openSidebarSettings(): void {$/,/^  }$/p' "$keyboard_view")"; then
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings(true)))' "$keyboard_view") -ne 2 ]] \
+  || [[ $(grep -cF '.gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))' "$keyboard_view") -ne 4 ]] \
+  || ! grep -qF 'digits ? SettingsPageLink.NINE_KEY_DIGIT_SIDEBAR_TARGET : SettingsPageLink.NINE_KEY_SIDEBAR_TARGET' <<< "$(sed -n '/^  private openSidebarSettings(digits: boolean): void {$/,/^  }$/p' "$keyboard_view")"; then
   echo "Harmony must draw the nine-key sidebars from touch_nine_key_sidebar_symbols and touch_nine_key_digit_sidebar_symbols" >&2
   exit 1
 fi
@@ -581,6 +582,25 @@ if ! grep -qF 'oneHandedSidePanel: OneHandedPolicy.sidePanel(preferences.touch_o
   echo "Harmony must draw the one-handed side number pad from touch_one_handed_side_panel only when OneHandedPolicy.sidePadShown allows, type its digits literally, and report the capability by form factor" >&2
   exit 1
 fi
+# 大屏分离式键盘（#10224）：启用条件和几何由 split-keyboard.test.ts 的 `SplitKeyboardPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 SplitKeyboardPolicy.settings 读四项共享偏好，视图随设置重读、转屏时记下屏幕宽高，分离时单手让位，字母三排、数字行、补充行、123 / #+= 层和两种底行都插入空隙，重复的 G、V 不记滑行键位，设置桥按设备形态报告能力位。
+split_letter_body=$(awk '/^  splitLetterFace\(\) \{/,/^  \}$/' "$keyboard_view")
+split_action_body=$(awk '/^  designActionRow\(\) \{/,/^  \}$/' "$keyboard_view")
+if ! grep -qF 'splitKeyboard: SplitKeyboardPolicy.settings(preferences.touch_keyboard_split,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets" \
+  || ! grep -qF 'this.splitKeyboard = this.settings.splitKeyboard;' "$keyboard_view" \
+  || ! grep -qF 'this.screenWidthVp = widthVp;' "$keyboard_view" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn() && !this.floatingDrawn();' "$keyboard_view" \
+  || ! grep -qF '} else if (this.splitDrawn()) {' "$keyboard_view" \
+  || ! grep -qF 'this.splitGap(this.splitLetterRow(row).gapShare)' <<< "$split_letter_body" \
+  || ! grep -qF 'this.duplicateLetterKey(' <<< "$split_letter_body" \
+  || ! grep -qF 'this.splitGap(this.designRowSplitSpace().gap)' <<< "$split_action_body" \
+  || [[ $(grep -cF 'this.splitGap(' "$keyboard_view") -ne 8 ]] \
+  || ! grep -qF 'if ($$.duplicate !== true) {' "$keyboard_view" \
+  || ! grep -qF "value['touch_keyboard_split'] = projection.splitKeyboard;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony must draw the split keyboard from the touch_keyboard_split preferences only when SplitKeyboardPolicy.drawn allows, put a dead gap into every split row, give way to one-handed mode, and report the capability by form factor" >&2
+  exit 1
+fi
 # 「防止截屏」（#10194）：切换规则和镜像条目由 screen-capture-protection.test.ts 覆盖；窗口、面板和认证是 ArkTS，node 下编不了，这里钉住接线：声明 PRIVACY_WINDOW；软键盘（或候选窗）、浮动工具条、输入模式提示三块面板新建时各设一次隐私模式，编辑框获得焦点导入镜像后（含面板建好前就来的那一个）再按开关重设，值没变的面板不再调用 `setPrivacyMode`；设置应用主窗口在载入页面前设上，设置页写入后当场改窗口并立即发布给键盘（发布失败只记日志，仍回答已保存），写入前先过切换规则；没有锁屏密码时认证不可用，不能放行。
 capture_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 capture_settings="$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"
@@ -605,6 +625,30 @@ if ! grep -qF '"name": "ohos.permission.PRIVACY_WINDOW"' "$repo_root/platforms/h
   || ! grep -qF 'return false;' <<< "$capture_available" \
   || [[ $(grep -cF 'return true;' <<< "$capture_available") -ne 1 ]]; then
   echo "Screen capture protection must declare PRIVACY_WINDOW, set privacy mode on all three keyboard panels and on the settings window, re-apply it after each focus import, skip panels whose mode has not changed, publish every change to the keyboard without reporting a saved change as failed when that publish fails, and refuse when no system authentication is set up" >&2
+  exit 1
+fi
+# 浮动键盘（#10225）：大小、位置钳制和转屏由 floating-keyboard.test.ts 覆盖。扩展能力和视图是 ArkTS，这里钉住接线：`changeFlag` 要求先隐藏面板，所以只在 `applyFloatingSetting` 里、`await panel.hide()` 之后调用，换完无论成败都显示回来；`moveTo` 对 `FLG_FIXED` 不可用，停靠路径只 resize；转屏经 `display.on('change')` 重新摆浮动面板，销毁时退订；浮动时单手模式不生效，分离式键盘也不画（`SplitKeyboardPolicy.drawn` 收到浮动状态，规则由 split-keyboard.test.ts 覆盖），单手磁贴在分离和浮动时都置灰。
+floating_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+floating_apply=$(sed -n '/^  private async applyFloatingSetting(panel: inputMethodEngine.Panel): Promise<void> {$/,/^  }$/p' "$floating_ability")
+floating_fit=$(sed -n '/^  private async fitTouchPanel(panel: inputMethodEngine.Panel): Promise<void> {$/,/^  }$/p' "$floating_ability")
+floating_fixed=$(sed -n '/^    if (!this.floating) {$/,/^    }$/p' <<< "$floating_fit")
+if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
+  || ! grep -qF 'await panel.hide();' <<< "$floating_apply" \
+  || ! grep -qF 'panel.changeFlag(wanted ? inputMethodEngine.PanelFlag.FLG_FLOATING : inputMethodEngine.PanelFlag.FLG_FIXED);' <<< "$floating_apply" \
+  || ! grep -qF '} finally {' <<< "$floating_apply" \
+  || ! grep -qF 'await panel.show();' <<< "$floating_apply" \
+  || grep -qF 'moveTo' <<< "$floating_fixed" \
+  || ! grep -qF 'FloatingKeyboardPolicy.position(this.floatingFraction[0], this.floatingFraction[1],' <<< "$floating_fit" \
+  || ! grep -qF "display.on('change', this.displayChanged);" "$floating_ability" \
+  || ! grep -qF "display.off('change', this.displayChanged);" "$floating_ability" \
+  || ! grep -qF 'KeyboardSession.shared.saveFloatingPosition(this.floatingFraction[0], this.floatingFraction[1]);' "$floating_ability" \
+  || ! grep -qF 'return OneHandedPolicy.active(this.feedback.oneHanded, KeyboardFormFactor.isDesktop()) && !this.splitDrawn() && !this.floatingDrawn();' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'KeyboardFormFactor.isDesktop(), this.splitsFace(), this.floatingDrawn());' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
+  echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

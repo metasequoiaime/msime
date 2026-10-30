@@ -168,6 +168,14 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_symbol_first?: boolean;
     /** 手机触屏九宫格数字键盘里空格的位置：`right_column` 在右列（0 占底行中间），`after_zero` 在底行 0 的右边，`before_zero` 在底行 0 的左边；`platform_default` 是各端原来的排法（Android 右列、iOS 0 右边、鸿蒙 0 左边）。右侧大回车的数字层不受影响。缺省为 `platform_default`，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_number_pad_space?: "platform_default" | "right_column" | "after_zero" | "before_zero";
+    /** 大屏（平板、折叠屏内屏）横屏时把 26 键一族和韩文键盘分成左右两半，规则与 Android 的分离式键盘相同；目前只有 HarmonyOS 读它（Android 的主开关在本机设置里，iOS 在 App Group 里）。缺省为关，client-core 不写进文档；桌面宿主保留、不读。 */
+    touch_keyboard_split?: boolean;
+    /** 分离式键盘开着时，大屏竖放也分离。Android 与 HarmonyOS 读它。缺省为关。 */
+    touch_keyboard_split_portrait?: boolean;
+    /** 分离式键盘开始启用的最短屏幕边（dp），480–1000、步进 20，缺省 600，默认值不写进文档。 */
+    touch_keyboard_split_threshold?: number;
+    /** 分离式键盘中间空隙至少占整行的百分比，10–40、步进 5，缺省 25，默认值不写进文档。 */
+    touch_keyboard_split_gap?: number;
     /** 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时空出来的一侧放什么：`off` 空着，`number_pad` 数字键盘；只在主键区是九键字母层时显示，分离式和浮动键盘不受影响。缺省为 `off`，client-core 不写进文档，不认识的值读作 `off`；桌面宿主保留、不读。 */
     touch_one_handed_side_panel?: "off" | "number_pad";
     /** 手机触屏底行的中/英键在空格哪一边：`right` 在空格右边、紧挨回车；`left` 在空格左边，空格左边有逗号或句号时排在标点左边，标点仍紧挨空格。iPad 全尺寸键盘和鸿蒙 2in1 不受影响。缺省为 `right`，client-core 不写进文档；桌面宿主保留、不读。 */

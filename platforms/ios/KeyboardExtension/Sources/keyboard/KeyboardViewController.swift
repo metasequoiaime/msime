@@ -118,6 +118,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let schemeButton = KeyboardToolbarButton(icon: .toolbarScheme, accessibilityLabel: "选择输入方案")
   private let shortcutBar = UIStackView()
   private var candidateContent: UIStackView?
+  /// 工具栏的语音按钮。iOS 的语音入口是长按空格和功能菜单的「语音输入」，工具栏不放语音按钮；按钮仍排在栏里但保持隐藏，与下面的高情商回复一样，按标识符查找它的地方不会找到别的控件。
   private let scriptShortcut = UIButton()
   /// 高情商回复已移进功能菜单；按钮仍排在栏里但保持隐藏，按标识符查找它的地方不会找到别的控件。
   private let replyShortcut = UIButton()
@@ -276,6 +277,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 横屏分离式键盘每一排中间的中缝（见 `KeyboardSplitLayout`）。不分离时隐藏，stack view 不给它宽度也不给它两侧的键距；分离时它是一块普通视图，落在上面的触摸由它接住后丢掉，不会被 `KeyAreaStackView` 当成键距交给旁边的键。
   private var splitGaps: [UIView] = []
   private var splitGapWidths: [NSLayoutConstraint] = []
+  /// 第三排字母的中缝只给一种键面用：iPad 键面这一排末尾有 ，。，九个字符键从 b 后面分（zxcvb | nm，。）；手机键面 ，。 隐藏，七个字母从 v 后面分（zxcv | bnm）。两段中缝都插好，按键面只显示其中一段。
+  private var tabletOnlySplitGap: UIView?
+  private var phoneOnlySplitGap: UIView?
   /// 分离时右半最里面的第二个空格键，和 `spaceButton` 做同样的事。
   private weak var splitSpaceButton: UIButton?
   /// 上一次 `updateKeyboardLayout` 画的是不是分离式键盘；旋转或改设置后与 `wantsSplitKeyboard` 不同就重新布局。
@@ -1843,6 +1847,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
       }
       insertSplitGap(into: row, after: characterKeys[KeyboardSplitLayout.leftKeyCount(characterKeys.count) - 1], root: root)
+      // 第三排字母：手机键面没有 ，。，按看得见的七个字母另插一段中缝（见 `tabletOnlySplitGap`）。
+      if let comma = letterRowPunctuationKeys.first, characterKeys.contains(where: { $0 === comma }) {
+        tabletOnlySplitGap = splitGaps.last
+        let letters = characterKeys.filter { key in !letterRowPunctuationKeys.contains { $0 === key } }
+        insertSplitGap(into: row, after: letters[KeyboardSplitLayout.leftKeyCount(letters.count) - 1], root: root)
+        phoneOnlySplitGap = splitGaps.last
+      }
     }
     if let space = spaceButton {
       insertSplitGap(into: actionRow, after: space, root: root)
@@ -2740,11 +2751,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     moreShortcut.apply(skin: skin)
     moreShortcut.accessibilityLabel = "功能"
-    // 语音入口只在「顶部语音入口」打开时显示；简繁是设一次就很少再动的开关，和其他开关一起放在功能菜单里。
+    // iOS 的语音入口是长按空格，工具栏不放语音按钮：共享文档里的 `touch_voice_shortcut` 是 Android 的「启动方式」，iOS 设置里没有对应的开关，按它显示就成了关不掉的按钮。关掉长按空格时从功能菜单的「语音输入」开始说话。简繁是设一次就很少再动的开关，和其他开关一起放在功能菜单里。
     configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音输入", id: "layoutVoiceShortcut")
     scriptShortcut.isEnabled = true
     scriptShortcut.accessibilityValue = nil
-    scriptShortcut.isHidden = !KeyboardLayoutPreference.voiceShortcutEnabled
+    scriptShortcut.isHidden = true
     configure(replyShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
       label: "高情商回复", id: "replyShortcut")
     replyShortcut.accessibilityValue = replyPanel != nil ? "已打开" : nil
@@ -2978,9 +2989,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.closeKeyboardPicker(); self?.resetCandidateCache()
       },
     ]
-    if !toolbarRowHidden && !scriptShortcut.isHidden {
-      tools.removeAll { $0.id == "voiceInput" }
-    }
     return tools
   }
 
@@ -6481,12 +6489,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     view.window?.windowScene?.interfaceOrientation.isLandscape ?? (traitCollection.verticalSizeClass == .compact)
   }
 
-  /// 此刻该不该画横屏分离式键盘：平板形态、横屏、开关打开，而且当前显示的是会分开的字母布局。开关放在最后读，手机和竖屏不读 App Group。
+  /// 此刻该不该画横屏分离式键盘：iPad（平板形态、横屏、iPad 的开关打开）或 iPhone（横屏、屏幕够宽、iPhone 的开关打开，`KeyboardSplitLayout.phoneIsActive`），而且当前显示的是会分开的字母布局。开关放在最后读，竖屏不读 App Group。
   private var wantsSplitKeyboard: Bool {
-    guard !numberPadShown, !typesLetterGrid,
-          KeyboardSplitLayout.isActive(
-            formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
-    else { return false }
+    guard !numberPadShown, !typesLetterGrid else { return false }
+    let formFactor = formFactor
+    let landscape = isLandscape
+    let active = KeyboardSplitLayout.isActive(
+      formFactor: formFactor, landscape: landscape, enabled: KeyboardLayoutPreference.tabletSplit)
+      || KeyboardSplitLayout.phoneIsActive(
+        idiom: traitCollection.userInterfaceIdiom, formFactor: formFactor, landscape: landscape,
+        rowWidth: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing,
+        keySpacing: CGFloat(KeyboardLayoutPreference.keySpacing), enabled: KeyboardLayoutPreference.phoneLandscapeSplit)
+    guard active else { return false }
     return KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
   }
 
@@ -6668,7 +6682,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // 横屏分离式键盘：每排的中缝和右半的第二个空格一起显示或隐藏。九键、笔画、假名、大千和手写不分（wantsSplitKeyboard），它们的符号页也跟着不分。
     let split = splitKeyboardShown
-    for gap in splitGaps where gap.isHidden == split { gap.isHidden = !split }
+    let tabletFace = keyFaceFormFactor == .tablet
+    for gap in splitGaps {
+      let shown = split && !(gap === tabletOnlySplitGap && !tabletFace) && !(gap === phoneOnlySplitGap && tabletFace)
+      if gap.isHidden == shown { gap.isHidden = !shown }
+    }
     if splitSpaceButton?.isHidden == split { splitSpaceButton?.isHidden = !split }
     // 数字页复用三列网格，原方案与 Engine 的组码布局不变。
     let nineKeyDigits = numberPad
@@ -9112,8 +9130,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 26 键收紧键帽后，键区面板也要停在实际按键的底边，不能盖住补偿留白。留白按此刻的排数算（`KeyboardFormFactor.phoneLetterVerticalPadding(rows:)`），顶部数字行打开时多一排。
+  ///
+  /// 九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）切到英文或本地模式时不留白：字母行和底行一样由按键列均分，默认行距下键帽从 44pt 长到 49pt，排距仍是紧凑的 11pt，字母区上下边界与九宫格重合，切换时按键区不缩一截。其他方案的 26 键保持 44pt 键帽和上下留白。
   private var phoneLetterVerticalInset: CGFloat {
-    guard showsPhoneLetterRows && !isLandscape else { return 0 }
+    guard showsPhoneLetterRows && !isLandscape,
+          !TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme) else { return 0 }
     return KeyboardFormFactor.phoneLetterVerticalPadding(
       rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
   }
@@ -9134,8 +9155,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let saved = session.persistTouchKeyboardGeometry(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
-      heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
-      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
+      heightAdjustment: KeyboardLayoutPreference.heightAdjustment)
     guard !saved else { return }
     // 共享文档没写成（多半是和设置 App 同时写、比较交换输了）。原先不声不响：App Group 和这个键盘用着新值，文档里还是旧值，下次键盘出现时被文档盖回去，看起来就是「调的高度自己变回去了」。现在记一笔日志，并按文档把 App Group 和键盘对齐，用户当场看到的就是实际留下的值。
     DiagnosticLog.shared.write("touch_geometry_not_persisted")

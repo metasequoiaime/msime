@@ -328,7 +328,7 @@ final class OnboardingUITests: XCTestCase {
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
-    // 语音入口已移到 语音输入 → 启动方式，所以这一页上无论标识符是什么，都没有与它相关的开关。
+    // 语音入口已移到 语音输入 → 长按空格说话，所以这一页上无论标识符是什么，都没有与它相关的开关。
     XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "语音入口")).firstMatch.exists)
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)
@@ -839,6 +839,37 @@ final class OnboardingUITests: XCTestCase {
     attachment.name = "Independent bottom tabs"
     attachment.lifetime = .deleteOnSuccess
     add(attachment)
+  }
+
+  /// 再点一次「首页」回到根页面以后，根页面上的各行照样能推入页面，再点一次也一样；深链接把栈带回根页面再推入指名的页面以后也一样。iOS 18 上换掉推入过页面的导航栈会让新栈再也推不进页面，这条用例在 iOS 18 真机上守住它。
+  @MainActor
+  func testSettingsRowsStillPushAfterReselectingHome() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let settingsTab = app.tabBars.buttons["首页"]
+    XCTAssertTrue(settingsTab.waitForExistence(timeout: 10))
+    tapRevealed("keyboardLayoutLink", in: app)
+    XCTAssertTrue(app.navigationBars["键盘"].waitForExistence(timeout: 5))
+    for round in 1...2 {
+      settingsTab.tap()
+      XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5), "第 \(round) 次重选没有回到根页面: \(visible(app))")
+      tapRevealed("dictionarySettingsLink", in: app)
+      XCTAssertTrue(app.navigationBars["词库"].waitForExistence(timeout: 5), "第 \(round) 次重选后 词库 行没有推入页面: \(visible(app))")
+    }
+    app.navigationBars["词库"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    tapRevealed("keyboardLayoutLink", in: app)
+    XCTAssertTrue(app.navigationBars["键盘"].waitForExistence(timeout: 5), "返回根页面后 键盘 行没有推入页面: \(visible(app))")
+
+    XCUIDevice.shared.system.open(URL(string: "msime://settings/ai")!)
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 10), "深链接没有落到 表达 页: \(visible(app))")
+    XCTAssertFalse(app.navigationBars["键盘"].exists)
+    app.navigationBars["表达"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    tapRevealed("dictionarySettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["词库"].waitForExistence(timeout: 5), "深链接以后 词库 行没有推入页面: \(visible(app))")
   }
 
   /// 切到别的标签页再切回来，设置标签页的栈原样还在，包括页面里更深一层的页面；社区标签页各自保留所选分段。
@@ -2531,6 +2562,41 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["addInputLanguage_japanese"].tap()
     XCTAssertTrue(japanese.waitForExistence(timeout: 5))
     XCTAssertEqual(app.buttons["inputLanguage_mandarin"].value as? String, "全拼")
+  }
+
+  /// 键盘正用着全拼时，双拼行写着「小鹤」，打开双拼面板也要在小鹤上打勾；五笔行同理。以前面板只在键盘当前方案属于这个语言时才打勾。
+  @MainActor
+  func testLanguagePanelMarksTheRowSchemeWhileAnotherLanguageIsActive() throws {
+    let app = XCUIApplication()
+    // 没存过启用列表时双拼和五笔都默认启用，这样两行一定在。
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-input-schemes-for-ui-tests"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    XCTAssertTrue(app.buttons["inputSettingsLink"].waitForExistence(timeout: 10))
+    app.buttons["inputSettingsLink"].tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+    XCTAssertTrue(wait(app.buttons["designOptionSheetCancel"], until: "exists == false"))
+
+    XCTAssertTrue(openSchemeSheet(.shuangpin, in: app))
+    let xiaohe = app.buttons["inputScheme_shuangpin"]
+    XCTAssertTrue(xiaohe.waitForExistence(timeout: 5))
+    XCTAssertTrue(xiaohe.isSelected, "双拼行显示小鹤，面板里的小鹤要打勾：\(xiaohe.debugDescription)")
+    let shuangpinPanel = XCTAttachment(screenshot: app.screenshot())
+    shuangpinPanel.name = "Shuangpin panel while quanpin is active"
+    shuangpinPanel.lifetime = .keepAlways
+    add(shuangpinPanel)
+    app.buttons["designOptionSheetCancel"].tap()
+
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
+    let wubi = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'inputScheme_wubi_'"))
+    XCTAssertTrue(wubi.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertEqual(wubi.allElementsBoundByIndex.filter(\.isSelected).count, 1, "五笔行显示的版本要在面板里打勾")
+    let wubiPanel = XCTAttachment(screenshot: app.screenshot())
+    wubiPanel.name = "Wubi panel while quanpin is active"
+    wubiPanel.lifetime = .keepAlways
+    add(wubiPanel)
+    app.buttons["designOptionSheetCancel"].tap()
   }
 
   @MainActor

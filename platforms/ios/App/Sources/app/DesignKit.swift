@@ -582,6 +582,19 @@ private struct DesignOptionSheetModifier<Value: Hashable>: ViewModifier {
   }
 }
 
+/// 紧凑宽度下选项面板的尺寸。选项行的字号固定（不随动态字体变化）、只排一行，行高因此是定值，列表高度可以直接按行数算出来，不用量。
+enum DesignOptionSheetMetrics {
+  static let rowHeight: CGFloat = 56
+  static let hairline: CGFloat = 0.5
+
+  /// `rows` 行选项连同行间分隔线的高度，不超过 `limit`；超过时列表在这个高度里滚动。向上取整到整点，免得 3x 屏把 0.5pt 的分隔线对齐到像素后内容比框高出零点几、可以拖动一下。
+  static func listHeight(rows: Int, limit: CGFloat) -> CGFloat {
+    guard rows > 0 else { return 0 }
+    let content = CGFloat(rows) * rowHeight + CGFloat(rows - 1) * hairline
+    return min(content.rounded(.up), max(limit, 0))
+  }
+}
+
 /// 紧凑宽度下的面板。出现时自己做入场动画，调用 `finish` 前先做完退场动画，再由 `finish` 无动画地移除覆盖层。
 private struct DesignOptionSheetView<Value: Hashable>: View {
   let title: String?
@@ -657,11 +670,10 @@ private struct DesignOptionSheetView<Value: Hashable>: View {
         .accessibilityAddTraits(.isHeader)
         Rectangle().fill(MetasequoiaTheme.hair).frame(height: 0.5).accessibilityHidden(true)
       }
-      ViewThatFits(in: .vertical) {
-        optionList(level.options)
-        ScrollView { optionList(level.options) }
-      }
-      .frame(maxHeight: maxListHeight)
+      // 列表的高度按选项行数算出来，卡片贴着选项；超过上限才滚动。原来用 `ViewThatFits` 加 `maxHeight`，卡片总是撑满上限，四个选项也画成六成屏高、选项居中、标题下空一大段。
+      ScrollView { optionList(level.options) }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: DesignOptionSheetMetrics.listHeight(rows: level.options.count, limit: maxListHeight))
     }
     .background(Self.cardFill)
     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -670,7 +682,9 @@ private struct DesignOptionSheetView<Value: Hashable>: View {
   private func optionList(_ options: [DesignOption<Value>]) -> some View {
     VStack(spacing: 0) {
       ForEach(options.indices, id: \.self) { index in
-        if index > 0 { Rectangle().fill(MetasequoiaTheme.hair).frame(height: 0.5).accessibilityHidden(true) }
+        if index > 0 {
+          Rectangle().fill(MetasequoiaTheme.hair).frame(height: DesignOptionSheetMetrics.hairline).accessibilityHidden(true)
+        }
         optionRow(options[index])
       }
     }
@@ -684,7 +698,8 @@ private struct DesignOptionSheetView<Value: Hashable>: View {
         .foregroundStyle(option.isDestructive ? MetasequoiaTheme.danger : MetasequoiaTheme.accent)
         .lineLimit(1).minimumScaleFactor(0.7)
         .padding(.horizontal, 48)
-        .frame(maxWidth: .infinity, minHeight: 56)
+        .frame(maxWidth: .infinity)
+        .frame(height: DesignOptionSheetMetrics.rowHeight)
         .overlay(alignment: .trailing) {
           if isSelected {
             Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold))
@@ -730,13 +745,17 @@ private struct DesignOptionPopover<Value: Hashable>: View {
   let options: [DesignOption<Value>]
   let selected: Value?
   let pick: (Value) -> Void
+  /// 正在显示的那一层列表量出的高度（含推入第二层后的导航栏）。量到之前，以及 iOS 17 量不到时，按行数估一个。
+  @State private var fitted: CGFloat?
+
+  private var estimated: CGFloat { CGFloat(options.count) * 52 + (title == nil ? 40 : 96) }
 
   var body: some View {
     NavigationStack {
-      DesignOptionPopoverList(title: title, message: message, options: options, selected: selected, pick: pick)
+      DesignOptionPopoverList(title: title, message: message, options: options, selected: selected, pick: pick) { fitted = $0 }
         .toolbar(.hidden, for: .navigationBar)
     }
-    .frame(width: 340, height: min(CGFloat(options.count) * 52 + (title == nil ? 40 : 96), 480))
+    .frame(width: 340, height: min(fitted ?? estimated, 480))
     .accessibilityAddTraits(.isModal)
   }
 }
@@ -747,8 +766,32 @@ private struct DesignOptionPopoverList<Value: Hashable>: View {
   let options: [DesignOption<Value>]
   let selected: Value?
   let pick: (Value) -> Void
+  /// 报告这一层需要的高度。弹出框按正在显示的那一层定高：第二层（双拼 ›、五笔 ›）的选项数和第一层不同，还多一条导航栏，沿用第一层的高度会空一截或要滚动。
+  let fit: (CGFloat) -> Void
+  @State private var measured: CGFloat?
 
   var body: some View {
+    measuring(list)
+      // 从第二层退回来时第一层的内容没变，量高度的回调不会再来，用上次量到的值。
+      .onAppear { if let measured { fit(measured) } }
+  }
+
+  @ViewBuilder private func measuring(_ list: some View) -> some View {
+    if #available(iOS 18, *) {
+      list.onScrollGeometryChange(for: CGFloat.self) { geometry in
+        geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+      } action: { _, height in
+        let height = height.rounded(.up)
+        guard height > 0 else { return }
+        measured = height
+        fit(height)
+      }
+    } else {
+      list
+    }
+  }
+
+  private var list: some View {
     List {
       Section {
         ForEach(options.indices, id: \.self) { index in row(options[index]) }
@@ -770,7 +813,7 @@ private struct DesignOptionPopoverList<Value: Hashable>: View {
     let isSelected = option.contains(selected)
     if let children = option.children {
       NavigationLink {
-        DesignOptionPopoverList(title: nil, message: nil, options: children, selected: selected, pick: pick)
+        DesignOptionPopoverList(title: nil, message: nil, options: children, selected: selected, pick: pick, fit: fit)
           .navigationTitle(option.title)
           .navigationBarTitleDisplayMode(.inline)
           .toolbar(.visible, for: .navigationBar)

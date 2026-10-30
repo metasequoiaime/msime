@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.LayoutPolicy;
 
@@ -12,7 +11,6 @@ import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.KeyboardGeometry;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import java.util.function.Supplier;
 
 /**
@@ -30,7 +28,7 @@ public final class OptionSheet {
 
     public OptionSheet(Context context, CharSequence title, @Nullable CharSequence subtitle) {
         this.context = context;
-        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(context));
+        dialog = SheetDialog.create(context);
         LinearLayout root = LayoutPolicy.column(context);
         root.addView(LayoutPolicy.sheetDragHandle(context));
 
@@ -73,8 +71,6 @@ public final class OptionSheet {
     }
 
     public void show() {
-        // 长列表直接展开，让列表滚动，避免初始折叠位置把固定取消行推到导航栏下方。
-        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         dialog.show();
     }
 

@@ -5,7 +5,7 @@
  *
  * 这里做的都是两种记录之间的转换。两个进程都读取的文件归键盘所有；设置页面只是它的第二个写入方。
  *
- * 单手模式 和 隐私模式 也存在这个文件里，但根本不属于共享结构：只有键盘的功能面板会设置它们。其他所有写入方都经过 `fromShared`，它从作为回退值传入的已存设置里沿用这两项，所以页面或账号同步的保存永远不会背着用户关掉隐私模式。
+ * 单手模式、隐私模式和浮动键盘（开关与位置）也存在这个文件里，但根本不属于共享结构：只有键盘自己会设置它们。其他所有写入方都经过 `fromShared`，它从作为回退值传入的已存设置里沿用这几项，所以页面或账号同步的保存永远不会背着用户关掉隐私模式，也不会把浮动键盘挪回原处。
  */
 import { FeedbackSettings, HapticStrength, KeyboardFeedback } from "./KeyboardFeedback";
 import { SwipeHintPolicy } from "./input/SwipeHintPolicy";
@@ -87,6 +87,9 @@ export class KeyboardFeedbackBridge {
       ),
       oneHanded: fallback.oneHanded,
       incognito: fallback.incognito,
+      floating: fallback.floating,
+      floatingX: fallback.floatingX,
+      floatingY: fallback.floatingY,
     };
   }
 

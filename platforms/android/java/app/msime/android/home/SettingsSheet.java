@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -28,7 +27,7 @@ public final class SettingsSheet {
 
     public SettingsSheet(Context context, String title, @Nullable String subtitle) {
         this.context = context;
-        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(context));
+        dialog = SheetDialog.create(context);
         LinearLayout root = LayoutPolicy.column(context);
         ViewPolicy.setPaddingDp(context, root, 24, 0, 24, 24);
 

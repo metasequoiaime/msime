@@ -426,6 +426,8 @@ for table in character-glosses word-glosses pronunciations; do
     ditto "$source" "$staged_bundle/Contents/Resources/$table"
   fi
 done
+# stage-resources.sh 在 umask 077 下暂存，目录是 0700、文件是 0600，ditto 原样带进来。装进 /Library/Input Methods 的副本归 root:wheel，而输入法、系统设置和 codesign 都以登录用户身份读它，读不了的目录让签名校验失败（#10329）。权限不在签名封印里，签名前统一放开读权限。
+chmod -R u+rwX,go+rX,go-w "$staged_bundle"
 # --deep, as scripts/install.sh does: Sparkle arrives signed by its publisher, and under the hardened runtime a process cannot load a library whose Team ID differs from its own. The entitlements carry microphone access for voice input.
 if [ -n "$identity" ]; then
   codesign_timestamped --force --deep --options runtime --entitlements "$entitlements" --sign "$identity" "$staged_bundle"
@@ -506,6 +508,8 @@ wordbooks="$repo_root/target/macos/wordbooks"
 if [ -d "$wordbooks" ]; then
   ditto "$wordbooks" "$app/Contents/Resources/wordbooks"
 fi
+# 上面 ditto 进来的释义、音标和词书目录同样带着暂存时的 0700/0600；设置应用可能由另一个管理员账户装进 /Applications，其他用户也要能读。
+chmod -R u+rwX,go+rX,go-w "$app"
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -622,6 +626,14 @@ check_app() {
   fi
   grep -q 'com.apple.security.device.audio-input' <<< "$(codesign -d --entitlements - --xml "$nested" 2>/dev/null)" || {
     echo "the embedded input method lost its entitlements: $nested" >&2
+    exit 1
+  }
+  # 包里每个目录和文件都必须其他用户可读：系统目录安装归 root:wheel，以登录用户身份读不了的目录让输入法的签名校验失败（#10329）。
+  local unreadable
+  unreadable="$(find "$root" \( -type d ! -perm -0555 \) -o \( -type f ! -perm -0444 \))"
+  [ -z "$unreadable" ] || {
+    echo "not readable by other users:" >&2
+    printf '%s\n' "$unreadable" >&2
     exit 1
   }
   codesign --verify --deep --strict "$nested"

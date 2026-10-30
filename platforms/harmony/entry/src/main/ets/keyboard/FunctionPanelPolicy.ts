@@ -104,6 +104,7 @@ export class FunctionPanelPolicy {
   static readonly KEY_SOUND: string = "key_sound";
   static readonly VIBRATION: string = "vibration";
   static readonly ONE_HAND: string = "one_hand";
+  static readonly FLOATING: string = "floating";
   static readonly PRIVACY: string = "privacy";
   static readonly FEEDBACK: string = "feedback";
   static readonly ABOUT: string = "about";
@@ -162,6 +163,8 @@ export class FunctionPanelPolicy {
       "振动强度",
       KeyboardIconPaths.VIBRATION_STRENGTH,
     ),
+    // 浮动键盘（#10225），名称与 Android 的 `FunctionPanelModel.Id.FLOATING` 相同。设计稿的十四格之后是鸿蒙自己的额外项，新增的排在最后，不挪动用户熟悉的位置。
+    toggleIcon(FunctionPanelPolicy.FLOATING, "浮动键盘", KeyboardIconPaths.FLOATING, "浮动键盘"),
   ];
 
   /** 三行一页时满尺寸的行距（vp）。 */
