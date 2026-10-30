@@ -4662,6 +4662,28 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.recordTypingStatistics(text, this.typingSource());
   }
 
+  /**
+   * 触屏键盘的空格，与 iOS 的 `handleSpace` 相同：刚上屏的中文标点先由智能标点改回半角；其余交给运行时的「选高亮候选」（`SELECT_HIGHLIGHTED`，注音这类用空格拼写的方案由运行时转成空格字符），组字中就是上屏高亮的候选；运行时不处理（没有组字）时由键盘自己输入空格。引擎的 `character(0x20)` 从不选词，空格以前走 `press` 时，中文模式下组字中按空格什么也不上屏，没有组字时也打不出空格。
+   */
+  pressSpace(): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(0x20, false);
+      return;
+    }
+    if (this.commitEnglishBoundary(' ')) {
+      this.tapFeedback();
+      return;
+    }
+    if (this.convertPunctuationSpace(0x20)) {
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    if (this.command(InputCommand.SELECT_HIGHLIGHTED) || this.inputClient === undefined) return;
+    this.insertEditorText(' ');
+    this.recordTypingStatistics(' ', this.typingSource());
+  }
+
   /** `commitThenType` for text the keyboard chose rather than a key's own character: a Zhuyin symbol-layer mark whose ASCII key the Dachen editor would take as a phonetic or tone key. */
   commitThenInsert(text: string): void {
     this.finishComposition();

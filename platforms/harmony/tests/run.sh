@@ -28,6 +28,14 @@ if ! grep -qF "await KeyboardSession.commonPhrasesCall(directory, { operation: '
   echo "Harmony common phrases must reload after starter seeding" >&2
   exit 1
 fi
+# 引擎的 character(0x20) 从不选词：触屏空格必须走 pressSpace（选高亮候选，运行时不处理时键盘自己输入空格），回到 press(0x20) 时中文模式下空格既不上屏候选也打不出空格。
+if ! grep -qF 'KeyboardSession.shared.pressSpace();' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'this.command(InputCommand.SELECT_HIGHLIGHTED) || this.inputClient === undefined' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"; then
+  echo "Harmony touch Space must select the highlighted candidate and type a space when the runtime declines it" >&2
+  exit 1
+fi
 # 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
 face_key_body=$(sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")

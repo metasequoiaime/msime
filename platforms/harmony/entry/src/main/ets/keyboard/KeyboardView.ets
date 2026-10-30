@@ -3119,7 +3119,7 @@ struct KeyboardView {
         && KeyboardSession.shared.convertJapanese()) {
       return;
     }
-    KeyboardSession.shared.press(0x20, false);
+    KeyboardSession.shared.pressSpace();
   }
 
   /** Which of the two English cards is current is the grid, English itself being common to both. */
