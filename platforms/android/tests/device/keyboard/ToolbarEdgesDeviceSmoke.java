@@ -108,6 +108,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
                 check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
                     "single visible tool did not fill available width");
+                checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
@@ -303,6 +304,25 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
      *
      * <p>顶行原来套在 HorizontalScrollView 里按 UNSPECIFIED 宽度量，整行约 270dp；240dp 宽时「清空」被挤到右侧屏外，要横滑才点得到。
      */
+    /** 用真实面板渲染覆盖按钮开启和工具栏隐藏的四种组合，不因快捷入口而删除语音磁贴。 */
+    private static void checkVoiceTileRetained(Class<?> type, Object service) throws Exception {
+        Object panel = field(type, "imeFunctionPanel").get(service);
+        Field hiddenField = field(type, "toolbarHidden"), voiceField = field(type, "touchVoiceShortcutEnabled");
+        boolean hiddenBefore = hiddenField.getBoolean(service), voiceBefore = voiceField.getBoolean(service);
+        try {
+            for (boolean hidden : new boolean[] {false, true}) for (boolean voice : new boolean[] {false, true}) {
+                hiddenField.setBoolean(service, hidden);
+                voiceField.setBoolean(service, voice);
+                method(panel.getClass(), "renderMoreTools").invoke(panel);
+                java.util.List<?> ids = (java.util.List<?>) field(panel.getClass(), "renderedItemIds").get(panel);
+                check(ids.stream().anyMatch(id -> "VOICE_INPUT".equals(id.toString())), "语音磁贴不能随工具栏入口隐藏");
+            }
+        } finally {
+            hiddenField.setBoolean(service, hiddenBefore);
+            voiceField.setBoolean(service, voiceBefore);
+        }
+    }
+
     private static void checkClipboardClearConfirm(Object panels, ViewGroup header, ViewGroup surface,
             float density) throws Exception {
         Field pending = field(panels.getClass(), "clipboardClearPending");

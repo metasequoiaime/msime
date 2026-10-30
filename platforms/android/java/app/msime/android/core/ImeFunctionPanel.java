@@ -88,8 +88,7 @@ final class ImeFunctionPanel {
             if (s.toolbarClipboard) hiddenItems.add(FunctionPanelModel.Id.CLIPBOARD);
             if (s.toolbarFloating) hiddenItems.add(FunctionPanelModel.Id.FLOATING);
             if (s.toolbarTextEdit) hiddenItems.add(FunctionPanelModel.Id.TEXT_EDIT);
-            // 和上面几项一样看开关，不看按钮视图：按钮曾经从工具栏上拆下来却仍被设成可见，面板据此藏掉磁贴，用户选「工具栏按钮」后两处语音入口都没了（#10142）。
-            if (s.touchVoiceShortcutEnabled) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);
+            // 语音输入始终保留，工具栏关闭或隐藏时也可从这里直接进入（#10309）。
         }
         if (!s.hasPendingVoiceResult()) hiddenItems.add(FunctionPanelModel.Id.VOICE_RESULT);
         List<FunctionPanelModel.Item> visibleItems = FunctionPanelModel.itemsExcept(hiddenItems);

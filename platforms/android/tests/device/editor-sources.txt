@@ -66,6 +66,7 @@ platforms/android/tests/device/settings/CommonPhraseNotesDeviceCheck.java
 platforms/android/tests/device/settings/CommonPhraseCategoriesDeviceCheck.java
 platforms/android/tests/device/settings/NoticeQueueDeviceCheck.java
 platforms/android/tests/device/settings/ScreenCaptureProtectionDeviceCheck.java
+platforms/android/tests/device/settings/VoiceTriggersDeviceCheck.java
 platforms/android/tests/device/settings/SkinDeleteDeviceCheck.java
 platforms/android/tests/device/settings/SettingsLifecycleSmoke.java
 platforms/android/tests/device/voice/TypingStatisticsDeviceSmoke.java
