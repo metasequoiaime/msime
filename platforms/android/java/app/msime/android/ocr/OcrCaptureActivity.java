@@ -334,6 +334,7 @@ public final class OcrCaptureActivity extends Activity {
         LinearLayout top = row();
         button(top, "返回键盘", this::finish);
         selectAll = button(top, "☑", () -> {
+            if (selected.length == 0) return;
             boolean all = true;
             for (boolean value : selected) all &= value;
             java.util.Arrays.fill(selected, !all);
@@ -341,6 +342,7 @@ public final class OcrCaptureActivity extends Activity {
         });
         selectAll.setContentDescription("全选文字");
         selectAll.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
+        selectAll.setEnabled(selected.length > 0);
         button(top, "重新拍照", this::cameraPage);
         root.addView(top);
         ScrollView scroll = new ScrollView(this);
