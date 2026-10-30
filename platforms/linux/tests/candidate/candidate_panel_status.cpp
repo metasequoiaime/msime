@@ -36,6 +36,12 @@ int main() {
 
   assert(candidate_desktop_is_gnome_shell("GNOME"));
   assert(candidate_desktop_is_gnome_shell("ubuntu:GNOME"));
+  // Classic 仍由 GNOME Shell 扩展绘制面板；正式会话同时给出这两个桌面标识。
+  assert(candidate_desktop_is_gnome_shell("GNOME-Classic:GNOME"));
+  assert(candidate_desktop_is_gnome_shell("GNOME:GNOME-Classic"));
+  assert(candidate_desktop_is_gnome_shell("GNOME-Classic"));
+  assert(!candidate_desktop_is_gnome_shell("GNOME-Classic:GNOME-Flashback:GNOME"));
+  assert(!candidate_desktop_is_gnome_shell("Budgie:GNOME-Classic"));
   assert(!candidate_desktop_is_gnome_shell("GNOME-Flashback:GNOME"));
   assert(!candidate_desktop_is_gnome_shell("Budgie:GNOME"));
   assert(!candidate_desktop_is_gnome_shell("Unity"));
