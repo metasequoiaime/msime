@@ -352,3 +352,13 @@ Windows 小证据为 `target/windows-x86-e746-small-evidence/`，94 份文件 ZI
 Android 正式缓存已逐字节恢复，合成授权关闭、任务包卸载、AVD 停止，四轮后台与转发清理完成；本机从独立 ZIP 还原八个后台帧一致，完整 quick 与笔记校验通过。原 App 夹具的清理布尔值曾与真实恢复值不符，已保留原件并以独立审计纠正，详见上述修复笔记。
 
 本轮 Windows x86 验收记录的完整 `scripts/verify-local.sh --quick` 首轮退出 1，仅 Linux 原生 119 项中的两项画布精确颜色断言失败。使用本次命令专属 `FONTCONFIG_FILE` 关闭字体抗锯齿后，两项原断言与整轮 quick 复跑均通过，Linux 原生 119/119；没有修改系统字体设置、产品或测试源码。笔记校验退出 0，12,666 个 tracked 条目的实际字节和模式在远端验证前后相同，并与本机 `78c7eb1f7a` 全部字节及执行位逐项一致。证据为 `target/windows-x86-quick-evidence/`。此 Linux 环境未配置的 Windows 完整原生/pipe-only、Android/wasm SDK、鸿蒙 SDK、macOS 原生与 Apple bridge 阶段明确跳过，不算对应平台通过；首轮失败日志保留。
+
+### Ubuntu x64 系统安装包的原生 Wayland、IBus 与设置访问冲突
+
+同一固定候选 `1ba6b6ee05` 的正式 DEB 在新建空白 Ubuntu 24.04 x64 LXC 中再次安装。产品运行期移除网络接口；所有测试使用实际安装路径、空白用户原 HOME 与合成输入。
+
+Fcitx5 原生 Wayland 场景关闭 Xwayland、没有 `DISPLAY`，Sway headless 的真实 `xdg_shell` Mousepad 窗口经 Fcitx5 GTK 前端与固定 evdev/Wayland 键盘输入。初次输入、实际 `SEGV_MAPERR` 访问冲突、daemon 重启后的补报与中文恢复，以及 SIGABRT/SIGKILL/撤回/重开授权对照均通过；原始故障地址为 `0x11`，独立符号还原到 `FcitxEngine.cpp:7705`。
+
+IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X11 输入后在 IBus `process_key` 入口制造未修改产品指令的无效访问，故障地址为 `0x59`；原启动器恢复进程并继续中文输入，独立符号还原到 `ClientEngine.cpp:7029`。设置入口经原 `/usr/bin/msime-linux-settings --route=settings`，窗口实际出现；在 `PreferencesStore::usage_reporting_consent` 入口制造无效访问，故障地址为 `0x19`，重启后队列补报，独立符号还原到 `preferences.rs:5675`，没有产生输入会话。
+
+独立审计确认三个入口的 crash 身份与构建头、模块 build-id、偏移一致，`addr2line -i` 得到自有源码位置；159 个安装文件验收前后字节不变，授权关闭、队列清空后实际 `dpkg --purge` 移除全部产品文件。独立证据归档 SHA-256 为 `a3634d19aba1913e3af3ec17857fbd6407030c3b7fd61196e7ab3aeada78dcc1`。后台收件仍未在本轮系统包中启动；系统包的三入口证据不扩大为其他发行版、架构或完整发布后台。
