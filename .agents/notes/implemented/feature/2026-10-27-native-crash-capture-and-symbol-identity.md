@@ -206,3 +206,7 @@ Android debuggerd 重新排队默认致命信号后返回的例外、绕过 ART 
 ### Linux 三服务 systemd 补充验收
 
 固定 `e746981d18` 的 Ubuntu x64 暂存产品已逐项通过在线、语音与剪贴板三个实际服务的自动重启、SIGKILL 不误报、活跃撤回重开、原捕获身份、主动停止不重启及参数错误退出码 `2` 不重启。仅 XDG 隔离，禁网临时 unit 复用产品重启策略；共享控制器代收入队，无输入会话，不声称后台或系统级安装通过。第三轮完整通过；前两轮 socket 路径过长、停止后才撤回导致清理断言失败的夹具记录保留。独立审计确认授权、队列、unit 和进程已清理，151 份产品文件及源码不变。详情与边界见[三服务复验](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#linux-三个产品服务的-systemd-生命周期复验)，证据为 `target/linux-systemd-service-matrix-e746-small-evidence/`。
+
+### Windows x64 真实编辑器的授权与故障归属补充验收
+
+固定 `e746981d18` 的实际 Notepad 已完成同一进程活跃开启、撤回、重开换 epoch，自有 TSF 真实访问冲突经 WER 落盘并由实际 Server 重启代收到共享队列，保留原 ID 和构建头，epoch 不外发。另两项通过：测试处理器恢复一次精确 TSF 访问冲突后，同一编辑器继续真实按键、候选及第二次中文上屏；已武装时实际 `ntdll` 访问冲突不新增产品故障。正确注册 WER helper 的独立撤回负对照也通过。前期正斜杠允许项不能证明撤回有效，已用正确注册及正对照重新验证；输入模式与残留测试进程、代收时序等夹具失败保留，不宣称其唯一根因已定位。独立审计确认九份自有产品哈希、源码、授权、队列、注册、进程、任务和防火墙恢复；233 份证据在本机逐项哈希回读并复核四场景。范围与完整失败记录由[Windows 编辑器对照](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#windows-真实编辑器的授权与故障归属对照)持有，证据为 `target/windows-editor-negative-e746-small-evidence/`；本轮只到共享队列，不冒充后台、其他架构或完整安装包通过。

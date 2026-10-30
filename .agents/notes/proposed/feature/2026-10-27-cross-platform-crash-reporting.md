@@ -29,7 +29,7 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行 | 完整安装包；真实编辑器的授权、宿主捕获异常后继续运行及非自有故障对照；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；当前候选的其余产品入口复验 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行；同源实际 Notepad 的活跃撤回重开、测试处理器恢复后继续真实输入及 ntdll 非自有故障对照已完成到共享队列 | 完整安装包；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；当前候选的其余产品入口复验 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照 | Tauri 设置及其余辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；正式在线服务入口的 systemd 自动重启与授权队列专项，`e746981d18` 的在线、语音与剪贴板三服务已补齐相同验收；`e746981d18` 的 Ubuntu x64 暂存完整产品已复验 IBus/X11、原生 Wayland/Fcitx5 与设置启动器，七条 crash 到后台、独立符号源码行和授权对照通过，真实按键内存访问还原到 `FcitxEngine.cpp:7705` | 其他架构与部分发行版符号；系统级安装；其他发行版的 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
@@ -268,6 +268,20 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 正式 Host API 与原生缓存已去掉回环特性和目标重新构建；正式 begin/flush 均以 `invalid request document` 拒绝测试字段，且未创建测试队列。合成授权已关闭；独立审计确认本任务进程、任务计划、防火墙规则、helper 允许列表、TSF CLSID/TIP 及三个状态根注册值恢复空基线，专用账号合成遥测文件清空。系统组件仍加载的旧 DLL 没有强制卸载或结束系统进程。后台容器、内部网络、监听与精确 SSH 转发已清理。小证据为 `target/windows-e746-product-final-evidence/` 的 54 份文件及 `target/windows-e746-backend-attempt1-evidence/`。范围仍限暂存 x64 产品，不替代完整安装器、其他架构、授权负对照或捕获恢复。
 
 当前候选的 Native Platform CI `40998000611` attempt 2 已整作业成功，Windows job `123884843202` 完成 x64/x86 系统 WER、Win7 和原生设置门禁；Android API 35 完成四共享 crate 设备测试、APK、崩溃/系统退出/ANR 专项与完整输入冒烟。CI 通过不替代矩阵里的真机、系统延迟投递或其他产品入口验收。
+
+### Windows 真实编辑器的授权与故障归属对照
+
+固定 `e746981d18261e39cf6f0530934985fad6afcf9b` 的同一份 x64 暂存产品，在专用交互账号实际运行打包版 Notepad。所有通过轮均先经真实虚拟键、候选窗与空格提交合成「你好」，不以直接写入编辑框或 Unicode 注入代替输入。测试偏好显式选择中文初始模式，只改合成配置；产品默认值不变。TSF/PDB 按前述精确哈希核对，采集武装状态直接读取精确 PDB 定位的实际租约快照。
+
+第五轮通过三个场景。其一，同一编辑器在关闭状态启动，依次实际开启、撤回、重开；逐步确认 `armed`，重开取得新 epoch。自然授权回调处制造真实 TSF 写地址 `1` 的访问冲突，恢复断点并脱离调试器后，由系统事件 `1000` 与关联 WER `1001` 确认为 `c0000005`、`MetasequoiaImeTsf.dll+0x7bdcc`。先保存原 `.crash`，再停止本任务 Watchdog/Server 并经原 Server 任务启动，代收恰好一条 crash；原 UUID、构建头与新授权代次一致，公开消息没有 epoch，也没有输入 `session` 或 `session_crash`。该轮验证到共享队列，没有连接后台。
+
+其二，只在本轮拥有的 Notepad 内加载测试处理器，精确匹配同一 TSF 指令、访问地址 `1` 与单次命令，恢复原调用上下文。处理器恰好命中一次、原进程存活；同一编辑器随后再次完成实际按键、候选与空格提交，严格内容为「你好你好」，没有新增原记录、队列 crash 或系统故障事件。此项验证的是测试处理器恢复后的宿主语义，不声称 Notepad 自带该恢复能力。其三，在实际 TSF 已武装的 Notepad 中让 `ntdll!RtlFillMemory` 访问地址 `1`；系统事件与 WER 确认为 `ntdll.dll` 的真实 `c0000005`，没有新增产品原记录或队列 crash。
+
+第六轮独立复验撤回负对照：正确注册同一 WER helper，先确认真实编辑器已武装，活跃撤回后确认同一进程解除武装，再制造同一自有 TSF 访问冲突。系统故障与关联 WER 完成后，没有原始记录或队列 crash。此前使用正斜杠 helper 允许项的撤回轮次不能单独证明撤回有效，以本轮正确注册与第五轮正对照为准。
+
+失败与夹具修正保留：PowerShell 5 对无 BOM 中文脚本解析失败、准备程序拒绝已预建的空状态目录、两轮候选前置失败、中文异常写入遇默认代码页限制。独立诊断显示英文初始模式、IMM 打开状态与实际 TSF 输入不能混同；仅修改合成初始模式也曾失败，不把它认定为唯一根因。按专用账号、进程创建时间、`RestartByRestartManager` 命令及同期自有模块 WER 核实早先故障自动重启的 Notepad 后，只清理该任务进程，独立输入复验通过；不把该结果扩大为原 Server 下的恢复原因已完整定位。后续夹具曾等待三十五秒内代收，而产品刷新间隔为三十分钟，修订为先验原记录、再由实际 Server 重启代收。第四轮还确认 WER 允许列表中的 `/` 路径不匹配实际反斜杠 helper 注册，导致系统故障发生而没有原记录；仅修测试注册与对应清理路径，第五轮正对照才完成。测试没有修改产品二进制、放宽系统故障断言或补造崩溃记录。
+
+独立收尾审计确认九个自有产品文件哈希不变、远端源码仍是干净固定提交；合成授权关闭，产品与本任务记事本进程、计划任务、防火墙规则、遥测文件、TIP/CLSID、状态根注册项及 helper 允许项均恢复空基线。收回的 233 份小证据与夹具逐项核对大小、SHA-256，并在本机复核四场景、系统事件关联、原记录到队列身份、epoch 不外发和清理收据。证据为 `target/windows-editor-negative-e746-small-evidence/`，ZIP SHA-256 为 `30e3f39cc0a7302f4560da29f8c735a9ea3836aee5f49e78e369b7af2178ec96`，独立复核为 `target/windows-editor-negative-e746-local-verification.json`。范围限固定版本 x64 暂存产品及共享队列，不扩展为新候选完整重编、安装包、其他架构、Win7、其余入口或全平台验收。
 
 ### Android 当前基础产品的待送达致命信号漏报
 
