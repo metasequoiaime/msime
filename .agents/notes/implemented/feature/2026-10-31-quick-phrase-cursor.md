@@ -46,6 +46,16 @@ iOS 产品维持原有 K 模式入口，没有新增普通混输能力声明或�
 
 API 范围语义以 Xcode SDK 的 `HIToolbox.framework/Headers/IMKInputSession.h` 中 `IMKTextInput` 为准：`replacementRange` 相对文档开头，不支持 TSMDocumentAccess 的客户端可以忽略它。初次真实 AppKit 探针中，直接以空 `insertText` 指定范围的 16 组均没有移动光标；空标记加空提交的 16 组全部通过，包括 Unicode、选区、旧组字与下一次输入。这一实验只证明 AppKit 控件语义，不能证明跨进程 IMK 是否转发空标记。
 
+## HarmonyOS 的异步布局与绝对选区
+
+宿主消费 `commit_cursor_suffix`，正文与尾段同步简繁，转换前后均核对匹配。非空有效尾段走同步完整提交；空尾段、缺字段和失配沿用普通提交。`QuickPhraseCursor` 先保存光标前后各不超过 4096 个 UTF-16 单元的完整上下文，旧预编辑能从左文核对时扣除其替换范围，再交付一次完整正文。读回必须等于原左文加正文、原右文，且绝对光标等于完整左文长度，才能按 `selectByRangeSync({ start, end })` 发出折叠选区。完整前后文的代价是较长文档或限制上下文的编辑器只上屏、不定位；不猜截短快照的文档偏移。
+
+同步 API 返回不等于布局完成。OpenHarmony 的 `InsertText` 把任务交给 UI 线程，`TextFieldPattern::AddInsertCommand` 还把写入排到布局队列；同步 `GetLeftTextOfCursor` 只读当下文字，并不排空布局命令。因此立即读回仍是旧文档时保留当前请求，等待自有写入的 `textChange`／折叠 `selectionChange` 回声后再核对和定位；定位也要读回前后文与目标绝对位置才能完成。`syncPreview` 在请求结束前不写下一段组字，候选视图仍更新，后续没有新提交的按键所产生的最新预编辑会在确认位置后写入。
+
+所有写入与定位仍经 `editEditorSync` 记回声；不另开一套猜测选区的账本。失焦、会话重建、外部修改、其他编辑器写入或一秒超时立即清除请求，迟到回声不再跳回旧位置。超时或拒绝不重试正文，不删除已提交的文字。同步调用重入时较新的转换和客户端持有预编辑，旧调用不能清掉新标记、结束新请求或覆盖新视图。任意短语后缀不进入成对标点生命周期，产品混输声明与默认值保持。
+
+API 与队列依据为 [IME Kit](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/reference/apis-ime-kit/js-apis-inputmethodengine.md)、[UI 线程适配](https://raw.githubusercontent.com/openharmony/arkui_ace_engine/master/frameworks/core/components_ng/pattern/text_field/on_text_changed_listener_impl.cpp) 与 [TextFieldPattern](https://raw.githubusercontent.com/openharmony/arkui_ace_engine/OpenHarmony-6.0-Release/frameworks/core/components_ng/pattern/text_field/text_field_pattern.cpp)。纯逻辑回归分别覆盖「读回排空 UI 任务」和「读回仍看不到布局写入」两种编辑器；设备验收另记实际结果，不能把同步 API 名称或 Node 模型当作系统保证。
+
 ## 既有笔记审计
 
 - [快捷短语混输](../../implemented/feature/2026-10-17-macos-quick-phrase-candidates.md)、[快捷短语偏好](../../implemented/feature/2026-10-22-quick-phrase-preferences.md)、[首页默认席位](../../implemented/feature/2026-10-25-quick-phrase-first-page-default.md)：部分重叠，保留能力、默认值、排名和学习决定，本篇只扩展选中后的文本交付。
@@ -62,17 +72,22 @@ API 范围语义以 Xcode SDK 的 `HIToolbox.framework/Headers/IMKInputSession.h
 - **iOS 完整插入后调用 `adjustTextPosition(byCharacterOffset:)`**：可直接复用普通提交，不需要临时标记。但该 API 只以 character 描述移动量，没有给出将任意后缀的 UTF-16、Unicode 标量或字素数映射成跨编辑器步数的保证；双向文字还使方向移动更难核对。临时标记的相对选区直接指定正文内部边界，无需猜测移动次数。
 - **macOS 长期持有任意模板尾段**：可以复用成对标点的 marked text 尾巴，不依赖绝对范围。但是任意尾段会跨越直接英文、语音、剪贴板、维护会话与失焦等所有上屏路径，任何遗漏都可能覆盖或丢失文字；不能把它冒充闭合标点。空标记方式在可靠文档范围内定位，全文已落地后无需额外尾段所有权。
 
+- **HarmonyOS 同步插入后立即设置选区**：调用少、没有额外等待状态。但同步插入只把操作送进 UI／布局队列，选区可能早于文字落地，立即读回也可能还是旧文档；真实模拟器中的快速输入已观察到该时序。采用有界回声恢复，并阻止下一段预编辑抢先写入。
+
 ## 共享层验证边界
 
 - 共享回归覆盖普通短语、单标记、首尾位置、转义、重复标记、未知变量、中文／扩展字符／组合字素后缀，以及非快捷短语来源不解释标记。
 - K 模式、普通混输、各种选择路径与带标点结束在真实运行时产生正确文本和尾段；原样提交、以词定字、失效候选不产生定位。
 - 全角、空格、脚本改写后目标有效；AI 上文只接收光标前已展开文本。原样提交与后续字面标记不属于待删除的模板语法。
-- Windows、Linux 与 HarmonyOS 宿主仍未完成；Android 完整系统入口与各平台真机验收仍有缺口；共享层与已接入平台分片完成不能标记整个 issue 完成。
+- Windows、Linux 宿主仍未完成；HarmonyOS 已接线，实际系统验收另列；Android 完整系统入口与各平台真机验收仍有缺口；共享层与已接入平台分片完成不能标记整个 issue 完成。
 - 本地回归：Engine 快捷短语 25 项、runtime 全部 424 项、host-api 光标定位 3 项与自动空格 8 项通过；相关三个 crate 的全目标 clippy 无警告。笔记与差异门禁通过，quick 门禁及 PR 检查单独记录在 PR 验证段。
 - Android 的 `check-host.sh` 通过 316 项 JVM 冒烟与 256 份设备源码编译；本分支同源 Rust／JNI 与原生 APK 构建、ELF ABI／16 KB 对齐检查通过。API 28、35 的 `CompositionBatchDeviceSmoke` 均通过：批次外读回、非零提取偏移、emoji／组合字符／双向文字、选区与组字替换、原生 LengthFilter、未知／增量／改写快照、拒绝／断连定位、迟到回声均有回归。隔离短语表经安装包真实 Engine、JNI、正式 `MSIMEInputService.apply` 到原生 EditText 的 K 模式及普通混输均定位成功，后续宿主提交写在目标位置。该项属于模拟器内宿主与真实控件验收，未声称覆盖其他应用、系统输入法完整入口或真机。
 - iOS 同源模拟器静态库与原生 App／扩展构建通过。iOS 26.5 的 `InputBridgeResponseTests` 14 项、`QuickPhraseCursorKeyboardTests` 5 项、既有 `PairedPunctuationTests`／`InlineCompositionTests` 13 项全部通过，包括字段解码、正文改写清定位、规范等价但实际编码不同的边界、同事件旧组字替换、同快照的新组字、简繁转换与日语／已转换正文边界；隔离短语表经真实 Engine、Swift 桥、正式控制器到原生 UITextView 后，下一段组字仍写在后缀前。系统 UI 测试 1 项实际通过、未跳过：从正式设置页创建并启用模板，Settings 添加扩展与完全访问后，在独立测试应用的普通 UITextField 选词上屏，下一键 x 得到 `title:"x🌲é"`。该项覆盖模拟器的系统扩展入口与独立原生编辑器，未声称覆盖真机或第三方应用。简繁用例同时设置并恢复权威共享文档和 App Group 镜像，避免镜像被加载时的文档覆盖而误判产品转换。
 - macOS 控制器到真实 `NSTextView` 和 `NSTextField` field editor 的 64 组回归通过，覆盖 UTF-16 后缀、选区、旧组字、同快照下一段组字和后续提交；另含简繁、跨提交空格、模板与已有成对尾巴组合、首尾位置和失配降级。隔离短语表经真实 Rust Engine、Apple 桥、正式控制器到原生编辑器，K 模式与显式启用的普通混输均定位成功，下一键仍在模板尾段前。共享文本客户端覆盖四个同步阶段的重入与未知／拒绝／忽略／改写上下文等五类降级。该层是进程内真实 AppKit 控件验收，尚未覆盖跨进程 IMK、第三方编辑器或安装验收。
 
+- HarmonyOS 的 `tests/run.sh` 全套通过，新增 28 组 Unicode／选区矩阵及预编辑替换、简繁、拒绝／忽略／改写、异常、超长上下文、重入和分阶段布局回归。同源 `build-native.sh arm64-v8a`、共享设置页构建、`ohpm install` 与实际 `hvigorw assembleHap --no-daemon` 通过。
+- HarmonyOS 6.0.2（API 22）独立 2in1 模拟器：隔离测试包只播种合成短语表、驱动按键和提供原生 TextArea；真实 Engine／NAPI／正式 `KeyboardSession.apply` 经系统输入客户端定位成功，`前正文${cursor}😀后` 的下一段 `n` 在尾段之前组字。普通等待与选词后同事件立即输入 `n` 两种场景均通过；后者实测提交后仍在等待布局，证明恢复路径实际执行。没有改普通混输声明；未覆盖手机、真机、第三方编辑器或物理硬件键路由。
+
 ## Consequences
 
-跨进程 IMK 的空标记和 Linux 定位接口需要独立验收，不能以编译成功代替真实光标位置。主卷与编译机都不足 50 GB，只复用既有产物目录，不创建新的完整构建树。接口落地分片提交，所有宿主接入前保持草稿并明确未完成项。数据结构不增加数据库列，但旧宿主会忽略可选后缀字段，因此这份共享切片不能单独作为用户可用能力合并。
+跨进程 IMK 的空标记和 Linux 定位接口需要独立验收，不能以编译成功代替真实光标位置。本机与编译机主卷都不足 50 GB，Apple 与 quick 验证只复用既有产物目录；HarmonyOS 的同源冷构建放在空间充足的外置卷独立检出中，仍使用平台规定的产物目录。接口落地分片提交，所有宿主接入前保持草稿并明确未完成项。数据结构不增加数据库列，但旧宿主会忽略可选后缀字段，因此这份共享切片不能单独作为用户可用能力合并。

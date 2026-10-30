@@ -46,6 +46,7 @@ import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { CaretContextEcho } from './input/CaretContextEcho';
+import { QuickPhraseCursor, QuickPhraseEditor } from './input/QuickPhraseCursor';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
@@ -688,6 +689,8 @@ interface EngineValue {
   commit: string | null | undefined;
   /** What the commit came from; present with a commit. */
   commit_context?: CommitContext | null;
+  /** 第一个模板光标位置之后的字面尾段，空串表示正文末尾。 */
+  commit_cursor_suffix?: string | null;
   /** Something the Engine wants the user told, such as a dictionary that could not be opened. */
   diagnostic: string | null | undefined;
   view: EngineView;
@@ -1372,6 +1375,14 @@ export class KeyboardSession implements HardwareKeyTarget {
   // 最近一次排入的 flush。收起键盘紧接着失去焦点时，第二次 flush 没有新提交可写，但发布统计文件仍要等第一次写完。
   private typingStatisticsFlushed: Promise<void> = Promise.resolve();
   private editorGeneration: number = 0;
+  /** 同步编辑器调用重入时，较新的转换持有后续预编辑。 */
+  private applyGeneration: number = 0;
+  /** 正文可能要等宿主布局才落地；只保留当前请求，回声完成后再写最新预编辑。 */
+  private phraseCursor: QuickPhraseCursor | null = null;
+  private phraseCursorTimer: number = -1;
+  private phraseCursorEditing: boolean = false;
+  private phraseCursorOwnEcho: boolean = false;
+  private phraseCursorCurrent: () => boolean = (): boolean => false;
   // Bumped only by attach/detach: an idle Engine restart (which bumps editorGeneration) must not
   // drop the focused editor's attribute.
   private attributeGeneration: number = 0;
@@ -3794,6 +3805,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.idleDictionaryVisible = true;
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
+    this.cancelPhraseCursor();
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -3920,6 +3932,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    this.cancelPhraseCursor();
     this.editorGeneration++;
     this.attributeGeneration++;
     this.manualLanguageGeneration = -1;
@@ -3961,6 +3974,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.cancelPhraseCursor();
     this.editorGeneration++;
     this.ownEdits.clear();
     this.caretContextEcho.reset();
@@ -4056,13 +4070,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   editorTextChanged(textLength: number): void {
     this.invalidateReplyContext();
     const now: number = Date.now();
-    if (this.ownEdits.acknowledge(now)) {
+    this.phraseCursorOwnEcho = this.ownEdits.acknowledge(now);
+    if (this.phraseCursorOwnEcho) {
       this.caretContextEcho.textChanged(true, this.ownEdits.pending(now) === 0, textLength);
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
       return;
     }
+    this.cancelPhraseCursor();
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
@@ -4077,6 +4093,15 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** A selection move changes contextual UI but does not itself discard an active composition. */
   editorSelectionChanged(collapsed: boolean = true): void {
+    if (this.phraseCursor !== null) {
+      if (collapsed && this.phraseCursorOwnEcho) {
+        this.resumePhraseCursor();
+      } else {
+        this.cancelPhraseCursor();
+        this.syncPreview();
+      }
+    }
+    this.phraseCursorOwnEcho = false;
     this.invalidateReplyContext();
     // 编辑器在每次 insertTextSync 之后也回报一次选区变化，这里只按光标前的当前词重新核对：词没变就保留建议，光标移开或词变了才重新查询或收起。直接清空会让手机纠错模式下每一键刚出的建议马上消失，用户看不到候选，也无法点原文拒绝纠错。选中了一段文字时没有可替换的当前词，照旧收起。
     if (collapsed) {
@@ -4097,6 +4122,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Insert through the editor while reserving the asynchronous text-change echo it produces. */
   private insertEditorText(text: string): void {
+    if (!this.phraseCursorEditing) this.cancelPhraseCursor();
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
     if (this.previewText.length > 0 || this.commitSynchronously || this.englishCorrectionEnabled()) {
@@ -4119,17 +4145,22 @@ export class KeyboardSession implements HardwareKeyTarget {
     });
   }
 
-  /** Synchronous insert variant for an atomic read/replace editor operation. */
+  /** 同步交付完整正文；读回和替换编辑器时沿用同一条入口。 */
   private insertEditorTextSync(text: string): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
+    const editor: number = this.editorGeneration;
+    const applied: number = this.applyGeneration;
     this.editEditorSync((): void => inputClient.insertTextSync(text));
-    // An insertion replaces preview text and ends the preview.
-    this.previewText = '';
+    // 较新的转换或编辑器持有自己的预编辑，旧调用返回时不得清掉它。
+    if (editor === this.editorGeneration && applied === this.applyGeneration && this.inputClient === inputClient) {
+      this.previewText = '';
+    }
   }
 
   /** 同步改动一次编辑器，并为它的 `textChange` 回声记一笔；调用抛错说明编辑器没有改动，那一笔随即撤回。 */
   private editEditorSync(edit: () => void): void {
+    if (!this.phraseCursorEditing) this.cancelPhraseCursor();
     this.ownEdits.reserve(Date.now());
     this.caretContextEcho.edited(false);
     try {
@@ -4137,6 +4168,35 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       this.ownEdits.release();
       throw new Error(describeError(error));
+    }
+  }
+
+  /** 不保留跨焦点或跨其他写入的模板位置，也不让迟到回声再移动新文档。 */
+  private cancelPhraseCursor(): void {
+    this.phraseCursor = null;
+    this.phraseCursorOwnEcho = false;
+    this.phraseCursorCurrent = (): boolean => false;
+    if (this.phraseCursorTimer >= 0) clearTimeout(this.phraseCursorTimer);
+    this.phraseCursorTimer = -1;
+  }
+
+  private resumePhraseCursor(): void {
+    const request: QuickPhraseCursor | null = this.phraseCursor;
+    if (request === null) return;
+    const current: boolean = this.phraseCursorCurrent();
+    if (current) {
+      const wasEditing: boolean = this.phraseCursorEditing;
+      this.phraseCursorEditing = true;
+      try {
+        request.resume(this.phraseCursorCurrent);
+      } finally {
+        this.phraseCursorEditing = wasEditing;
+      }
+    }
+    if (this.phraseCursor !== request) return;
+    if (!current || !request.pending() || !this.phraseCursorCurrent()) {
+      this.cancelPhraseCursor();
+      if (current) this.syncPreview();
     }
   }
 
@@ -4154,6 +4214,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * Every change is a document edit the editor echoes back like an insertion, so it is reserved the same way; otherwise the echo would read as the user editing the field and end the composition it came from. 设置预上屏文字和结束预上屏是两次调用，各记一笔：结束时文字没变就不会有回声，多记的那一笔到时作废。
    */
   private syncPreview(): void {
+    if (this.phraseCursor !== null) return;
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     const view: EngineView | undefined = this.lastView;
     // 拼写一栏传的是候选条画出来的那一串：多数方案就是 editing_text，笔画方案是笔画字形，文档里不出现键入的字母。分词一栏是拼音分词形式，全拼九键是读音而不是按下的数字。
@@ -4984,6 +5045,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private apply(raw: string): boolean {
+    const applyGeneration: number = ++this.applyGeneration;
+    const editorGeneration: number = this.editorGeneration;
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    const current: () => boolean = (): boolean => applyGeneration === this.applyGeneration
+      && editorGeneration === this.editorGeneration && inputClient === this.inputClient;
     // Every key the translation page does not answer itself ends up here, and on Windows every such key first puts the candidates back and then does what it would have done without the page (`ExitTranslationCandidateMode`). Left up, the page swallowed every later render, so a letter lengthened a composition the strip no longer showed and Enter committed under translations that stayed on screen.
     this.exitTranslationPage();
     let response: Response;
@@ -5019,7 +5085,51 @@ export class KeyboardSession implements HardwareKeyTarget {
         && this.inputClient !== undefined) {
       // 来源 18 的中文片段已由运行时转换，按提交上下文保留日文和英文。
       const output: string = value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit);
-      this.insertEditorText(output);
+      const requestedSuffix: string | null | undefined = value.commit_cursor_suffix;
+      const convertedSuffix: string | null = typeof requestedSuffix === 'string'
+        ? (value.commit_context?.script_conversion === false ? requestedSuffix : this.asTraditional(requestedSuffix))
+        : null;
+      const suffix: string | null = QuickPhraseCursor.suffix(commit, requestedSuffix, output, convertedSuffix);
+      if (suffix !== null && suffix.length > 0 && inputClient !== undefined) {
+        const editor: QuickPhraseEditor = {
+          insert: (text: string): void => this.insertEditorTextSync(text),
+          forward: (length: number): string => inputClient.getForwardSync(length),
+          backward: (length: number): string => inputClient.getBackwardSync(length),
+          cursor: (): number => inputClient.getTextIndexAtCursorSync(),
+          select: (position: number): void => this.editEditorSync((): void =>
+            inputClient.selectByRangeSync({ start: position, end: position }))
+        };
+        this.cancelPhraseCursor();
+        const request: QuickPhraseCursor = new QuickPhraseCursor(editor, output, suffix);
+        const wasEditing: boolean = this.phraseCursorEditing;
+        try {
+          this.phraseCursor = request;
+          this.phraseCursorCurrent = (): boolean => this.phraseCursor === request
+            && editorGeneration === this.editorGeneration && inputClient === this.inputClient;
+          this.phraseCursorEditing = true;
+          request.submit(this.phraseCursorCurrent, this.previewText);
+          if (this.phraseCursor !== request) return value.handled === true;
+          if (!request.pending() || !this.phraseCursorCurrent()) {
+            this.cancelPhraseCursor();
+          } else {
+            this.phraseCursorTimer = setTimeout((): void => {
+              if (this.phraseCursor !== request) return;
+              const stillCurrent: boolean = this.phraseCursorCurrent();
+              this.cancelPhraseCursor();
+              if (stillCurrent) this.syncPreview();
+            }, EditEchoLedger.ECHO_TIMEOUT_MS);
+          }
+        } catch (error) {
+          if (this.phraseCursor === request) this.cancelPhraseCursor();
+          KeyboardLog.error(`editor insertion unavailable: ${describeError(error)}`);
+        } finally {
+          this.phraseCursorEditing = wasEditing;
+        }
+      } else {
+        this.cancelPhraseCursor();
+        this.insertEditorText(output);
+      }
+      if (!current()) return value.handled === true;
       // What the V, / and @ modes generated is not the user's typing: an evaluated sum or an expanded command template would count characters nobody typed.
       if (value.commit_context?.typing_statistics !== false) {
         this.recordTypingStatistics(output, this.typingSource());
@@ -5029,12 +5139,13 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.typingEffect(TYPING_EFFECT_COMMIT);
       }
     }
-    this.render(value.view);
+    if (current()) this.render(value.view);
     return value.handled === true;
   }
 
   /** For the entry points whose reply is a bare view. */
   private applyView(raw: string): void {
+    this.applyGeneration++;
     this.exitTranslationPage();
     let response: ViewResponse;
     try {
