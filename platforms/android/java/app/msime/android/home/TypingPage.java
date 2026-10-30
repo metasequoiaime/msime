@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
+import app.msime.android.FirstRunPreparation;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.HttpBodyPolicy;
@@ -118,6 +119,10 @@ public final class TypingPage extends ReloadingDetailPage {
     };
     /** 正在进行的码表导入是为双拼（true）还是全拼那一份发起的：导入成功后选中到这一份。 */
     private boolean importShuangpin;
+    /** 随包按需组在后台补齐后，已打开的输入页也要显示刚恢复的方案与查码入口。 */
+    private final FirstRunPreparation.Listener preparationListener = state -> {
+        if (state == FirstRunPreparation.State.READY && contentColumn() != null) reload();
+    };
     private final ActivityResultLauncher<String[]> openTable =
         registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onTablePicked);
 
@@ -135,10 +140,12 @@ public final class TypingPage extends ReloadingDetailPage {
         Bundle args = getArguments();
         if (args != null && args.getBoolean(ARG_ADD_LANGUAGE, false)) adding = true;
         ResourcePackService.addListener(packListener);
+        FirstRunPreparation.observe(preparationListener);
     }
 
     @Override protected void onContentDestroyed() {
         ResourcePackService.removeListener(packListener);
+        FirstRunPreparation.stopObserving(preparationListener);
         lastState = null;
         editingCloudCustom = false;
     }

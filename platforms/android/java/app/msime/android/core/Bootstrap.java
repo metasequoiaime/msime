@@ -458,15 +458,45 @@ public final class Bootstrap {
      */
     private static void refreshExistingConfiguration(Context context, File configuration, File resources) {
         try {
-            String recorded = readConfiguredResources(configuration);
+            JSONObject options = readConfiguredOptions(configuration);
+            String recorded = options == null ? null : JsonPolicy.strictStringOrEmpty(options.opt("resources"));
             boolean bundledDirectory = recorded != null
                 && new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath());
-            if (bundledDirectory) restorePackagedOnDemandGroups(context, resources);
+            File state = ResourcePacks.stateRoot(context.getFilesDir());
+            boolean ownedState = options != null && state.getCanonicalFile().equals(
+                new File(JsonPolicy.strictStringOrEmpty(options.opt("preferences_directory"))).getCanonicalFile());
+            File updates = new File(state, "dictionary-updates/generations").getCanonicalFile();
+            boolean updatedDirectory = ownedState && recorded != null
+                && new File(recorded).getCanonicalFile().toPath().startsWith(updates.toPath());
+            if (bundledDirectory || updatedDirectory) {
+                restorePackagedOnDemandGroups(context, resources);
+                if (updatedDirectory) {
+                    // 更新代次保持只读；随包文件收编为资源包，由共享解析选择它，不改下载的资源目录。
+                    java.util.Set<String> packaged = packagedArtifacts(context);
+                    for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+                        if (packaged.containsAll(group.artifacts())
+                                && !ResourcePacks.installed(context.getFilesDir(), group.pack()))
+                            ResourcePacks.adopt(context.getFilesDir(), group.pack(), resources);
+                    }
+                }
+            }
             String error = refreshHost(configuration);
-            if (error == null || !error.startsWith("dictionary_outdated")) return;
-            if (!bundledDirectory) return;
-            extractDictionary(context, resources);
-            refreshHost(configuration);
+            if (error != null && error.startsWith("dictionary_outdated") && bundledDirectory) {
+                extractDictionary(context, resources);
+                error = refreshHost(configuration);
+            }
+            if (error == null && bundledDirectory && ownedState
+                    && packagedArtifacts(context).containsAll(WUBI_GROUP.artifacts())) {
+                // 同锁代次不会触发 refresh 的重建；重新准备已有代次，合并五笔表并回放日志，也覆盖补文件后被杀的启动。
+                JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
+                    .put("state_root", state.getAbsolutePath());
+                if (!AppEdition.current().isFull()) request.put("edition", AppEdition.current().id());
+                JSONObject prepared = new JSONObject(NativeClient.prepareHost(request.toString()));
+                if (!JsonPolicy.strictTrue(prepared.opt("ok")))
+                    throw new IllegalStateException("Bundled dictionary preparation failed: "
+                        + PreparationFailure.describe(new IllegalStateException(
+                            JsonPolicy.strictStringOrEmpty(prepared.opt("error")))));
+            }
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed", error);
@@ -476,6 +506,17 @@ public final class Bootstrap {
     /** 已有配置也要接收新安装包随带的按需组；共享层允许整组缺席，不能只靠过期错误触发解包。 */
     private static void restorePackagedOnDemandGroups(Context context, File resources) throws Exception {
         java.util.Set<String> packaged = packagedArtifacts(context);
+        // 持有 bootstrap.lock，上一进程被杀后留下的原子复制暂存文件已没有写者；共享目录校验不接受它们。
+        ensureSafeDirectory(resources.toPath());
+        File[] entries = resources.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            for (String name : packaged) {
+                if (entry.getName().matches("\\." + java.util.regex.Pattern.quote(name) + "\\.[0-9]+\\.staging")) {
+                    Files.delete(entry.toPath());
+                    break;
+                }
+            }
+        }
         for (OnDemandGroup group : ON_DEMAND_GROUPS) {
             if (!packaged.containsAll(group.artifacts())) continue;
             boolean complete = true;
@@ -505,16 +546,14 @@ public final class Bootstrap {
         return error;
     }
 
-    /** 配置里记录的 `resources`；超过 1 MiB 或读不出来时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
-    private static String readConfiguredResources(File configuration) throws Exception {
+    /** 已有配置；超过 1 MiB 时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
+    private static JSONObject readConfiguredOptions(File configuration) throws Exception {
         if (!privateConfiguration(configuration.toPath()))
             throw new java.io.IOException("Runtime options are not a private regular file");
         try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 1024 * 1024);
             if (bytes == null) return null;
-            String resources = JsonPolicy.strictStringOrEmpty(
-                new JSONObject(new String(bytes, StandardCharsets.UTF_8)).opt("resources"));
-            return resources.isEmpty() ? null : resources;
+            return new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
     }
 
