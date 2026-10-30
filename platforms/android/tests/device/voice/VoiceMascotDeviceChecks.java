@@ -45,8 +45,12 @@ final class VoiceMascotDeviceChecks {
                 check(red(render(view)) == red(silent), "结束采集必须立即收起红线");
                 type.getMethod("setLevel", float.class).invoke(view, 1f);
                 check(red(render(view)) == red(silent), "识别阶段的迟到音量不能恢复红线");
+                // 同一识别中文字状态下对比，差异只能来自指示区。
+                Bitmap withMascot = render(view);
                 type.getMethod("setMascotEnabled", boolean.class).invoke(view, false);
-                check(!render(view).sameAs(silent), "长按入口保留原麦克风，不显示人物");
+                Bitmap fallback = render(view);
+                check(!fallback.sameAs(withMascot), "长按入口保留原麦克风，不显示人物");
+                check(accent(fallback) > accent(withMascot), "长按入口必须画出原强调色圆盘");
                 // 同一素材、同一视口下外部入口与共用绘制器必须逐像素相同。
                 Class<?> externalType = context.getClassLoader().loadClass("app.msime.android.OfflineVoiceListeningView");
                 View external = (View) externalType.getConstructor(android.content.Context.class).newInstance(context);
@@ -96,6 +100,17 @@ final class VoiceMascotDeviceChecks {
                 int color = bitmap.getPixel(x, y);
                 if (android.graphics.Color.alpha(color) > 80 && android.graphics.Color.red(color) > 150
                         && android.graphics.Color.green(color) < 90 && android.graphics.Color.blue(color) < 90) count++;
+            }
+        }
+        return count;
+    }
+
+    /** 原麦克风圆盘是 setColors 设定的强调色实心填充，内部像素恰好等于该色。 */
+    private static int accent(Bitmap bitmap) {
+        int count = 0;
+        for (int y = 0; y < bitmap.getHeight(); y++) {
+            for (int x = 0; x < bitmap.getWidth(); x++) {
+                if (bitmap.getPixel(x, y) == 0xff94d9aa) count++;
             }
         }
         return count;

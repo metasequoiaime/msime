@@ -335,6 +335,12 @@ final class ImeVoiceEntry {
         return generation;
     }
 
+    /** 空格键在 {@code before} 之后开始的这次聆听（含松手时才补判出的长按）保留原麦克风光圈，不显示人物。按压只是结束了已有的聆听或转交了识别窗口时什么也不做。 */
+    void plainIndicator(long before) {
+        if (generation == before || listening == null) return;
+        listening.setMascotEnabled(false);
+    }
+
     /**
      * 把 {@code before} 之后刚在键区里开始的这次聆听改成按住说话：松手（{@link #releaseHold}）才结束，按住期间停顿不自动结束。按压只是结束了已有的聆听、转交了识别窗口或者没能开始时返回 false。
      */
