@@ -24,11 +24,12 @@ pub const LATIN_NAME_MINIMUM: usize = 3;
 /// 至少这么多字母的拉丁名称不再检查能否拆成拼音，`beta`、`zeta` 这类表里原有的名称照收。
 #[cfg(test)]
 pub const LATIN_SPELLING_FREE_LENGTH: usize = 4;
-/// 单音节名称只收有依据的派、度、点（间隔号 ·）、一至十和希腊字母的单字读音（缪 μ、纽 ν、柔 ρ、套 τ、斐 φ、凯 χ）：常用音节必须有名称锚定词，且最早排第 4 位（`SymbolRow::ambiguous`），避免序号和字母挤动前三个普通词。
+/// 单音节名称只收有依据的派、度、点（间隔号 ·）、一至十、希腊字母的单字读音（缪 μ、纽 ν、柔 ρ、套 τ、斐 φ、凯 χ），以及 MSIME-Windows#928 列出的运算、方位与图形单字（加 +、乘 ×、角 ∠、分 ′、左 ←、圆 ○ 等）：常用音节必须有名称锚定词，且最早排第 4 位（`SymbolRow::ambiguous`），避免序号和字母挤动前三个普通词。
 #[cfg(test)]
-pub const SINGLE_SYLLABLE_NAMES: [&str; 19] = [
+pub const SINGLE_SYLLABLE_NAMES: [&str; 33] = [
     "派", "度", "点", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "缪", "纽", "柔",
-    "套", "斐", "凯",
+    "套", "斐", "凯", "加", "正", "乘", "叉", "错", "角", "分", "秒", "左", "右", "上", "下", "圆",
+    "圈",
 ];
 
 /// 混排的一行符号，带着决定它位置的信息，规则见 `queries::place_symbol_rows`。
@@ -389,7 +390,7 @@ mod tests {
         assert_eq!(texts(&quanpin("zhengfu")), vec!["±"]);
         assert_eq!(quanpin("zhengfu")[0].anchors, ["正负"]);
         assert!(quanpin("zhengf").is_empty());
-        assert!(quanpin("zheng").is_empty());
+        assert!(quanpin("ping").is_empty());
         assert_eq!(texts(&quanpin("ZhengFu")), vec!["±"]);
         assert_eq!(texts(&quanpin("zheng'fu")), vec!["±"]);
         assert_eq!(texts(&quanpin("pingfangmi")), vec!["㎡", "m²"]);
@@ -587,7 +588,7 @@ mod tests {
         let readings = vec!["zhengfu".to_owned(), "zhengbi".to_owned()];
         let rows = query_symbol_readings(&readings, &|_| true);
         assert_eq!(texts(&rows), vec!["±", "∝"]);
-        assert!(query_symbol_readings(&["zheng".to_owned()], &|_| true).is_empty());
+        assert!(query_symbol_readings(&["ping".to_owned()], &|_| true).is_empty());
         // 首字母和拉丁名称都不认。
         assert!(query_symbol_readings(&["ssd".to_owned()], &|_| true).is_empty());
         assert!(query_symbol_readings(&["gamma".to_owned()], &|_| true).is_empty());
