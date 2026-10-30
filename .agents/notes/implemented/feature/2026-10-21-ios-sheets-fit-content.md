@@ -57,6 +57,8 @@ iOS App 里的底部弹窗大多按系统默认弹成整屏。添加常用语、
 
 紧凑宽度的选项面板（`DesignOptionSheetView`）里，选项行是固定 56pt 高、字号不随动态字体变化的单行文字，行间是 0.5pt 分隔线，所以列表高度可以直接算出来，不用量。`DesignOptionSheetMetrics.listHeight(rows:limit:)` 给出 `rows × 56 + (rows − 1) × 0.5`，向上取整到整点，上限是屏高的六成。列表放进 `ScrollView` 并加 `.scrollBounceBehavior(.basedOnSize)`，框就是这个高度：选项少时卡片贴着选项，超过上限才滚动。行的 `minHeight: 56` 改成固定 `height`，让算式和布局用同一个数。链式面板的第二层按自己那一层的行数算。
 
+「输入」页语言行的选项面板，打勾的选项和行上显示的方案一致，都由 `ChineseInputScheme.represented(among:enabled:current:)` 决定：键盘当前方案属于该语言时用它，否则用该语言第一个已启用的方案。以前面板只在键盘当前方案属于该语言时才打勾。真机上键盘在全拼时，双拼行写着「小鹤」，打开面板却一个勾都没有；五笔也一样。原因不在面板组件（`DesignOption.contains`、链式第二层都没问题），而在设置页传给面板的 `selected`。
+
 常规宽度的弹出列表（`DesignOptionPopover`）用的是 `List`，行高跟着动态字体变，算不准。iOS 18 起每一层列表用 `onScrollGeometryChange` 量出「内容高度 + 上下留白」（推入第二层时留白里含导航栏），弹出框按正在显示的那一层定高，上限 480；从第二层退回时用第一层上次量到的值。量到之前，以及 iOS 17 上，沿用原来的估算 `行数 × 52 + (有标题 ? 96 : 40)`。
 
 ## 第一次修复为什么丢了
