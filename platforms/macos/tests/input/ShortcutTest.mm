@@ -8405,6 +8405,12 @@ static void TestEnglishModePunctuationAndWidthOutput() {
     assert([type(quote) isEqual:@"『"] && [type(quote) isEqual:@"』"]);
     assert([type(EnglishKey(@"[", 33, 0)) isEqual:@"〖"] && [type(EnglishKey(@"]", 30, 0)) isEqual:@"〗"]);
     assert([type(comma) isEqual:@"，"]);
+    // 顿号键与引擎的 View 一致，关闭反斜杠后不能在英文模式仍然写出顿号。
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[],
+                           @"punctuation_marks":@{@"enumeration_comma_backslash":@NO,
+                                                  @"enumeration_comma_slash":@YES}} forKey:@"view"];
+    assert(type(EnglishKey(@"\\", 42, 0)) == nil);
+    assert([type(EnglishKey(@"/", 44, 0)) isEqual:@"、"]);
     [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
     [controller setEnglishInputMode:NO];
 
