@@ -672,6 +672,7 @@
 		9A60439DAB41572C7FBA168A /* AppThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E4A4E6D498517749D67839 /* AppThemePalette.swift */; };
 		9A6A645C852AFCF2C401FC56 /* WAVPCMExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D5C080EC1AAF97F3A2693A /* WAVPCMExtractorTests.swift */; };
 		9ABC2673F7D3F6C436AE9987 /* FrequencyAdjustmentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AB2A5BF965499D6D662031 /* FrequencyAdjustmentPreference.swift */; };
+		9ACE0DC36EDD7CCE4AF24E0C /* DesignOptionSheetMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11B59005D14976A2EDA1777 /* DesignOptionSheetMetricsTests.swift */; };
 		9B729E1F857AF2846DADF491 /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
 		9BACEE61639CE8ED2D9D4451 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 460A90066E261D34294ABDB8 /* DesignKit.swift */; };
 		9BD7CBD509ED5034E8CD7389 /* TouchPointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175E188ABD5A2A7946B49B67 /* TouchPointTests.swift */; };
@@ -1558,6 +1559,7 @@
 		BF5A0CF6186B471D74FA1DA1 /* KeyboardStickerCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardStickerCatalog.swift; sourceTree = "<group>"; };
 		BFADAD721CAEAF58A6D87659 /* AICandidatePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICandidatePreferenceTests.swift; sourceTree = "<group>"; };
 		C0DC8199813CDBAA3590BDFF /* AccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettingsView.swift; sourceTree = "<group>"; };
+		C11B59005D14976A2EDA1777 /* DesignOptionSheetMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignOptionSheetMetricsTests.swift; sourceTree = "<group>"; };
 		C134242D7F10017B55CF992C /* SettingsOptionLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsOptionLabel.swift; sourceTree = "<group>"; };
 		C1593CCC6DC8C3DCBC7B8476 /* LocalSpeechModelDownloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechModelDownloadTests.swift; sourceTree = "<group>"; };
 		C186E95B0AA530AEE976FBFC /* CandidateSkinPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateSkinPreview.swift; sourceTree = "<group>"; };
@@ -2752,6 +2754,7 @@
 				5239BC019AA1A3BD5DF291D4 /* AppIconSettingsTests.swift */,
 				BDA6F08A3BB18BD9F6143D60 /* BoundedFileReaderTests.swift */,
 				C8689978BDC5F40537C38D95 /* CommunityUnseenItemsTests.swift */,
+				C11B59005D14976A2EDA1777 /* DesignOptionSheetMetricsTests.swift */,
 				24188A2D1D403F8F04AED31E /* RustSessionStoreTests.swift */,
 				EF89633F65684DF20D58CF81 /* SettingsAutosaveTests.swift */,
 				19551104ADF98FBAE38A0C8F /* ViewRequestGenerationTests.swift */,
@@ -3974,6 +3977,7 @@
 				ACDA842288E46271AF049C1B /* CustomService.swift in Sources */,
 				1CF97A317013428B09C5D1E9 /* CustomServiceTests.swift in Sources */,
 				3C617F8903071B7DBF604DB6 /* DesignKit.swift in Sources */,
+				9ACE0DC36EDD7CCE4AF24E0C /* DesignOptionSheetMetricsTests.swift in Sources */,
 				879694CEE726D8D6507DF076 /* DoubaoHostFrameCodec.swift in Sources */,
 				F25B46E301948DF865571C7C /* DoubaoVoiceCoordinator.swift in Sources */,
 				99B542DFDEFCE3EF1E3EF403 /* DoubaoWebSocketTransport.swift in Sources */,
