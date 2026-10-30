@@ -885,6 +885,8 @@ impl LifecycleState {
         }
         rewritten.push_str(tail);
         transition.commit = Some(rewritten);
+        // 插件改了正文，原先的光标目标不再属于这份文本。
+        transition.commit_cursor_suffix = None;
         true
     }
 

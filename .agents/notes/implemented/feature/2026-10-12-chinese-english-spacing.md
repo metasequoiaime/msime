@@ -93,3 +93,5 @@ Status: implemented
 - 没有在任何平台的真实输入法里装机验证；iOS 的 SwiftUI 只做了语法解析，Windows 设置窗口没有在本机交叉编译。
 
 提交时序的修正见[提交后校验方案](2026-10-24-cross-commit-spacing-post-commit.md)。
+
+快捷短语的 `${cursor}` 展开与上屏后缀契约见[光标定位笔记](../../implemented/feature/2026-10-31-quick-phrase-cursor.md)；不改变本文原有决定。
