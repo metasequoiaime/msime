@@ -269,3 +269,4 @@ platforms/android/gradle-app/ocr-fixture/app/msime/ocr/fixture/SyntheticOcrFixtu
 platforms/android/tests/device/keyboard/TextEditLineDeviceChecks.java
 platforms/android/tests/device/settings/OnboardingDeviceSmoke.java
 platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
+platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java

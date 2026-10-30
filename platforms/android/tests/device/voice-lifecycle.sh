@@ -6,6 +6,7 @@ cd "$repo_root"
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 adb="$android_sdk/platform-tools/adb"
 serial=${1:-emulator-5580}
+mode=${2:-lifecycle}
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
 avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test || "$avd_name" == msime-client-test-api* ]] || exit 1
@@ -47,7 +48,7 @@ trap restore EXIT
 bash platforms/android/tests/device/build-editor.sh
 "$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
 fixture_ready=true
-setup=$("$adb" -s "$serial" shell am instrument -w -e enabled true \
+setup=$("$adb" -s "$serial" shell am instrument -w -e enabled true -e hold "$([[ "$mode" == hold ]] && echo true || echo false)" \
   app.msime.android.test/app.msime.android.test.SyntheticSpeechSetup)
 [[ "$setup" == *MSIME_SPEECH_SETUP_PASSED* ]]
 "$adb" -s "$serial" shell pm grant app.msime.android android.permission.RECORD_AUDIO
@@ -64,6 +65,13 @@ run_case() {
   printf '%s\n' "$result"
   [[ "$result" == *"MSIME_VOICE_LIFECYCLE_PASSED: $scenario"* ]]
 }
+if [[ "$mode" == hold ]]; then
+  result=$("$adb" -s "$serial" shell am instrument -w -e voice-hold true \
+    app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
+  exit
+fi
 run_case result
 run_case ready-error
 run_case stop-before-resume

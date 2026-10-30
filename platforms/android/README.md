@@ -476,6 +476,9 @@ runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_AN
 
 语音窗口生命周期回归：先构建当前工作树的原生宿主 APK，再运行 `bash platforms/android/tests/device/voice-lifecycle.sh emulator-5580`（API 28 用 `emulator-5566`）。合成识别服务先发 ready 再报错误码 9，不访问麦克风或网络；用例验证真实 Activity 在恢复后才创建识别器、错误结束请求，以及恢复前停止不会再次录音；API 28 另验证绑定权限被同步拒绝时正常结束。退出时禁用测试服务，恢复默认识别服务和宿主、测试包原有的麦克风授权状态。
 
+长按语音锁定回归使用 `bash platforms/android/tests/device/voice-lifecycle.sh <serial> hold`，已接入常规 `smoke.sh`。专项通过真实空格的按下、滑动和松手，检查按钮范围与高亮、取消、锁定、标点上滑、编辑弹层、符号返回，以及发送前后编辑位置的保护。识别服务只生成固定文字与音量，不访问麦克风或网络；退出时恢复原系统服务与授权。此专项不代替真实麦克风和第三方识别服务的质量验收。
+
+
 离线语音权限阶段的实际显示旋转回归：先构建并安装当前工作树的 `target/android/msime-android.apk` 与 `target/android/editor-test.apk`，再运行 `bash platforms/android/tests/device/offline-voice-rotation.sh <serial>`（仅限 `msime-client-test` 专用 AVD）。runner 固定到横屏后执行 `offline-rotation`，在 `am instrument` 返回后再读取 `accelerometer_rotation` 与 `user_rotation`；这样能覆盖 `UiAutomation` 断开时恢复初始冻结方向的阶段，方向不一致直接失败，退出时再恢复设备原值。
 
 联系人专项验收（#9000）只在专用 API 28/35 AVD 上执行。先构建并安装当前分支的原生 APK（必须包含当前 Rust 库），再运行：

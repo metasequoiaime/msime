@@ -343,6 +343,8 @@ check "Password number pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_inst
 check "Native chat navigation acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke
 # 工具栏编辑入口在最低 API 上也支持，核心验收覆盖真实长按和原生设置跳转。
 check "Toolbar editor entry acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ToolbarEditorDeviceSmoke
+# 使用同一系统输入法和合成服务检查长按锁定，不新增 instrumentation 入口。
+check_script "长按语音锁定验收失败" platforms/android/tests/device/voice-lifecycle.sh "$serial" hold
 # 本地语音句柄经过真实 JNI；不加载模型或录音，最低 API 的核心验收也执行。
 check "Local speech handle acceptance failed" MSIME_LOCAL_SPEECH_HANDLES_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LocalSpeechHandleDeviceSmoke
 # 真实 Android JSON 的润色回复回归不录音、不联网，最低 API 的核心验收也执行。
