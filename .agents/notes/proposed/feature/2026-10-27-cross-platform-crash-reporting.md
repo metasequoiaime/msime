@@ -389,3 +389,9 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 2026-10-31 继续共享设置隔离准备时，确认设置与 MCP 都按 `HOME` 拼接队列，而原生输入法和语音 helper 按 Foundation 查询系统 Application Support。两者现通过 `host-macos` 同一原生桥查询，保留既有 edition 后缀和安装身份，不把队列迁到偏好目录。两份旧目录函数均被独立子进程负对照拒绝，修复后系统路径、授权生命周期和 MCP stdio 通过，严格 Clippy 及完整 Linux quick 通过。副盘独立 worktree 避免在只剩约 12 GiB 的原构建盘建立新构建树；复制缓存导致的首次链接失败保留，定向清理两个包后重建通过。
 
 详细数量、源码核对和证据见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md#macos-设置与-mcp-进程的系统目录)。本轮没有启动共享设置产品、制造产品故障或发送后台事件；原先的 macOS 共享设置后台与独立符号缺口仍保留。
+
+### 当前 head 的 PVE Linux 构建与安装包核对
+
+当前分支 head `b6a4549fa0b4e8b947ae8b80e4a5a55b650f6ea2` 已在 `pve9` 的 `linux-runner` LXC 中重新检出，没有复用旧候选的 Linux 产物。按仓库规定的 `platforms/linux/build-container.sh` 完成 IBus/Fcitx5、辅助入口和 Python 崩溃采集门禁：119 项中 118 项通过，`linux-ibus-demand-activation` 仅按测试定义跳过，未出现失败。之后按 `platforms/linux/package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 编出当前 head 的 Ubuntu 24.04 amd64 DEB；正式 Release 原生构建和 120 项 ctest 通过（同一按需测试跳过），DEB SHA-256 为 `3fcdc9e63f3040930e38dae501e073e8ef9759b859b79a91c557376d8978a53c`，旁边的 x86_64 tarball 为 `dbfc6e95ac5ff4b2520d674869bcf241caebf6347b54d862c3b728282da9a705`。
+
+该 DEB 已实际安装到任务专用 Ubuntu 24.04 amd64 LXC `108`，`dpkg` 状态为 `install ok installed 0.14.0`，安装的 IBus、Fcitx5、辅助服务和 MCP 入口均能解析自有动态库。由于本轮打包没有把锁定词库缓存放进 `target/`，安装后的 `msime-linux-prepare --installed` 按产品约定拒绝创建运行状态；这记录为资源准备前置条件缺失，不冒充当前 head 的完整编辑器或后台故障闭环。证据文件在 `target/linux-head-current-evidence/`，LXC `108` 会在证据回读后销毁。
