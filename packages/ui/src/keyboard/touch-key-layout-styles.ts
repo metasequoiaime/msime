@@ -174,6 +174,13 @@ export const nineKeySidebarPreference: Readonly<
   digit: "touch_nine_key_digit_sidebar_symbols",
 };
 
+/** 共享偏好名是哪张表的；不是这两个名字时为 undefined。键盘长按符号栏打开「按键布局」时带的就是偏好名（鸿蒙链接的 `target`，Android 的 `edit_sidebar_key`），设置页按它决定打开哪张表的编辑页。 */
+export function nineKeySidebarKindForPreference(name: string): NineKeySidebarKind | undefined {
+  return (Object.keys(nineKeySidebarPreference) as NineKeySidebarKind[]).find(
+    (kind) => nineKeySidebarPreference[kind] === name,
+  );
+}
+
 /** 设置页 9 键预览的左列一屏画几项，与鸿蒙键盘 `NineKeyLayout.LETTER_SIDEBAR_VISIBLE_ROWS` 相同。 */
 export const nineKeySidebarVisibleRows = 3;
 

@@ -7,6 +7,7 @@ import {
 } from './KeyboardSession';
 import { KeyboardScheme, KeyGrid, SchemeDefinition } from './KeyboardScheme';
 import { KeyIdPolicy } from './KeyIdPolicy';
+import { SettingsPageLink } from './SettingsPageLink';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
 import { BusinessErrorPolicy } from './BusinessErrorPolicy';
 import { VoiceRecordingBehaviourPolicy } from './input/VoiceRecordingBehaviourPolicy';
@@ -5017,7 +5018,7 @@ struct KeyboardView {
         }
         .layoutWeight(1)
         .width('100%')
-        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(true)))
       }, (symbol: string) => symbol + this.faceKey())
       Column() {
         this.fixedKey(this.moreSymbolsOptions());
@@ -5054,7 +5055,7 @@ struct KeyboardView {
         }
         .layoutWeight(1)
         .width('100%')
-        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))
       }, (symbol: string) => symbol + this.faceKey())
     }
   }
@@ -5070,7 +5071,7 @@ struct KeyboardView {
           }
           .width('100%')
           .height(item.height)
-          .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+          .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))
         }, (item: NineKeySidebarItem) => item.key)
       }
       .width('100%')
@@ -5091,7 +5092,7 @@ struct KeyboardView {
           }
           .width('100%')
           .height(item.height)
-          .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+          .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(true)))
         }, (item: NineKeySidebarItem) => item.key)
       }
       .width('100%')
@@ -5273,13 +5274,14 @@ struct KeyboardView {
     };
   }
 
-  /** 长按九键左侧符号栏任一项（#10223）：给一下按键反馈，再打开设置应用的「屏幕键盘」页，两张表在那一页的「按键布局」里改。键盘只能按页打开设置（`SettingsPageLink`），开不到「按键布局」子页里的编辑页；英文九键不读这两张表，长按不做事。 */
-  private openSidebarSettings(): void {
+  /** 长按九键左侧符号栏任一项（#10223）：给一下按键反馈，再打开设置应用「屏幕键盘」页的「按键布局」，直接进入这一张表的编辑页（`digits` 为真时是数字表，否则是字母表），与 Android 带 `edit_sidebar_key` 打开「按键布局」相同。子目标是那张表的共享偏好名（`SettingsPageLink.NINE_KEY_SIDEBAR_TARGET` / `NINE_KEY_DIGIT_SIDEBAR_TARGET`），设置页认不得时停在「屏幕键盘」页；英文九键不读这两张表，长按不做事。 */
+  private openSidebarSettings(digits: boolean): void {
     if (this.english) {
       return;
     }
     KeyboardSession.shared.holdFeedback();
-    KeyboardSession.shared.openSettings('screen-keyboard');
+    KeyboardSession.shared.openSettings('screen-keyboard',
+      digits ? SettingsPageLink.NINE_KEY_DIGIT_SIDEBAR_TARGET : SettingsPageLink.NINE_KEY_SIDEBAR_TARGET);
   }
 
   private numberPadMarkOptions(symbol: string): KeyOptions {
@@ -11638,7 +11640,7 @@ struct KeyboardView {
               KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
               KeyboardSession.shared.insertSidebarSymbol(item.symbol);
             })
-            .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+            .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))
           }, (item: NineKeySidebarItem) => item.key)
         }
         .width('100%')
@@ -11664,7 +11666,7 @@ struct KeyboardView {
           KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
           KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
         })
-        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings()))
+        .gesture(LongPressGesture().onAction(() => this.openSidebarSettings(false)))
       }, (symbol: string) => symbol + this.faceKey())
     }
   }

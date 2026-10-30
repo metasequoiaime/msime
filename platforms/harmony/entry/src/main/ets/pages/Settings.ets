@@ -46,6 +46,7 @@ import {
   PickedEntryKind, PluginFolderScan, PluginImportPolicy, PluginImportRefusal
 } from '../keyboard/settings/PluginImportPolicy';
 import EntryAbility from '../entryability/EntryAbility';
+import { SettingsLinkRequest } from '../keyboard/SettingsPageLink';
 import { ImeEnabledState, OnboardingState, OnboardingStatePolicy, SetupState }
   from '../keyboard/input/OnboardingStatePolicy';
 import InputMethodSubtype from '@ohos.InputMethodSubtype';
@@ -233,9 +234,11 @@ interface PrivacyConsentReply {
   value: ConsentState;
 }
 
+/** `value` 是页面 id，与只带页面的旧链接同一个形状；`target` 是那一页的子目标，没有时为 null。 */
 interface PendingPageReply {
   ok: boolean;
   value: string | null;
+  target: string | null;
 }
 
 /** 在这里补上日期的 `summary`，即 `msime_client_typing_statistics` 读取的形式。 */
@@ -722,8 +725,8 @@ struct Settings {
       this.bridge.lockStatistics();
       this.bridge.publishShared();
     };
-    EntryAbility.onOpenPage = (page: string): void => {
-      this.bridge.openPage(page);
+    EntryAbility.onOpenPage = (link: SettingsLinkRequest): void => {
+      this.bridge.openPage(link);
     };
   }
 
@@ -3831,31 +3834,38 @@ class SettingsBridge {
     }
   }
 
-  /** 设置页面加载完成前键盘请求打开的页面，只交出一次：第二次读取返回 null。 */
+  /** 设置页面加载完成前键盘请求打开的页面和它的子目标，只交出一次：第二次读取返回 null。 */
   pendingPage(): string {
-    const page: string | null = EntryAbility.pendingPage;
+    const link: SettingsLinkRequest | null = EntryAbility.pendingPage;
     EntryAbility.pendingPage = null;
-    const reply: PendingPageReply = { ok: true, value: page };
+    const reply: PendingPageReply = {
+      ok: true,
+      value: link === null ? null : link.page,
+      target: link === null ? null : link.target,
+    };
     return JSON.stringify(reply);
   }
 
   /**
    * 在本窗口已显示时打开键盘请求的页面。
    *
-   * 页面还在加载、尚无监听函数时，请求保留为待处理，让页面启动时的读取能找到它，而不是丢失。
+   * 页面还在加载、尚无监听函数时，请求保留为待处理，让页面启动时的读取能找到它，而不是丢失。子目标作为第二个参数交给 `msimeHarmonyOpenPage`，没有时只传页面。
    */
-  openPage(page: string): void {
+  openPage(link: SettingsLinkRequest): void {
     if (this.webview === undefined || !this.pageReady) {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       return;
     }
-    const script: string = `globalThis.msimeHarmonyOpenPage ? (globalThis.msimeHarmonyOpenPage(${JSON.stringify(page)}), true) : false`;
+    const args: string = link.target === null
+      ? JSON.stringify(link.page)
+      : `${JSON.stringify(link.page)}, ${JSON.stringify(link.target)}`;
+    const script: string = `globalThis.msimeHarmonyOpenPage ? (globalThis.msimeHarmonyOpenPage(${args}), true) : false`;
     this.webview.runJavaScript(script).then((result: string): void => {
       if (result !== 'true') {
-        EntryAbility.pendingPage = page;
+        EntryAbility.pendingPage = link;
       }
     }).catch((error: Object): void => {
-      EntryAbility.pendingPage = page;
+      EntryAbility.pendingPage = link;
       KeyboardLog.error(`linked page not opened: ${describeError(error)}`);
     });
   }

@@ -1590,8 +1590,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
-  /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。 */
-  onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean) => void) | undefined = undefined;
+  /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。`target` 是这一页的子目标（`SettingsPageLink.targets(page)` 之一），没有时为 `undefined`。 */
+  onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean, target?: string) => void) | undefined = undefined;
   /**
    * A surface the toolbar asked for, which two readers need and for different reasons: the host
    * sizes and shows the window, the view draws what goes in it. Two slots rather than one, the way
@@ -7487,8 +7487,10 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 打开设置应用：词库、快捷短语、云端和语音服务都在那里，而不在键盘上。
    *
    * `page` 用于直接打开某一页（功能面板的「词库」「反馈」「关于」功能块）：`'dictionary'`、`'feedback'` 或 `'about'`。其他值或不传时打开设置首页，这样设置应用不能路由的页面 id 永远不会发给它。
+   *
+   * `target` 是那一页里要直接打开的一处（长按九键左侧符号栏带上那张表的共享偏好名），只在它属于 `page` 时随请求发出（`SettingsPageLink.acceptsTarget`）；不属于时照旧只打开页面。
    */
-  openSettings(page?: string): void {
+  openSettings(page?: string, target?: string): void {
     if (this.onOpenSettings === undefined) {
       return;
     }
@@ -7497,7 +7499,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (page !== undefined && requested === undefined) {
       KeyboardLog.error(`settings page ${page} is not routed; opening the settings root`);
     }
-    this.onOpenSettings(requested);
+    const requestedTarget: string | undefined =
+      requested !== undefined && target !== undefined && SettingsPageLink.acceptsTarget(requested, target)
+        ? target : undefined;
+    if (target !== undefined && requestedTarget === undefined) {
+      KeyboardLog.error(`settings target ${target} is not routed on ${page ?? 'the settings root'}; opening the page`);
+    }
+    this.onOpenSettings(requested, false, requestedTarget);
   }
 
   routeVoiceHotkey(key: VoiceKey): boolean {
