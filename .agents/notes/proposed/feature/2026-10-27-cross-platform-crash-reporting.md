@@ -29,7 +29,7 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行；同源实际 Notepad 的活跃撤回重开、测试处理器恢复后继续真实输入及 ntdll 非自有故障对照已完成到共享队列 | 完整安装包；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；当前候选的其余产品入口复验 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行；同源实际 Notepad 的活跃撤回重开、测试处理器恢复后继续真实输入及 ntdll 非自有故障对照已完成到共享队列；同源 x86 Notepad++ 实际输入、活跃授权换代、真实自有访问冲突经 32 位 WER、x64 Server 重启到隔离后台及独立 PDB 源码行通过，正确 helper 下撤回故障不采集 | 完整安装包；ARM64 实际产品故障；完整 Win7 同源符号包与后台；最新集成候选与其余产品入口复验 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照 | Tauri 设置及其余辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；正式在线服务入口的 systemd 自动重启与授权队列专项，`e746981d18` 的在线、语音与剪贴板三服务已补齐相同验收；`e746981d18` 的 Ubuntu x64 暂存完整产品已复验 IBus/X11、原生 Wayland/Fcitx5 与设置启动器，七条 crash 到后台、独立符号源码行和授权对照通过，真实按键内存访问还原到 `FcitxEngine.cpp:7705` | 其他架构与部分发行版符号；系统级安装；其他发行版的 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
@@ -294,6 +294,24 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 失败与夹具修正保留：PowerShell 5 对无 BOM 中文脚本解析失败、准备程序拒绝已预建的空状态目录、两轮候选前置失败、中文异常写入遇默认代码页限制。独立诊断显示英文初始模式、IMM 打开状态与实际 TSF 输入不能混同；仅修改合成初始模式也曾失败，不把它认定为唯一根因。按专用账号、进程创建时间、`RestartByRestartManager` 命令及同期自有模块 WER 核实早先故障自动重启的 Notepad 后，只清理该任务进程，独立输入复验通过；不把该结果扩大为原 Server 下的恢复原因已完整定位。后续夹具曾等待三十五秒内代收，而产品刷新间隔为三十分钟，修订为先验原记录、再由实际 Server 重启代收。第四轮还确认 WER 允许列表中的 `/` 路径不匹配实际反斜杠 helper 注册，导致系统故障发生而没有原记录；仅修测试注册与对应清理路径，第五轮正对照才完成。测试没有修改产品二进制、放宽系统故障断言或补造崩溃记录。
 
 独立收尾审计确认九个自有产品文件哈希不变、远端源码仍是干净固定提交；合成授权关闭，产品与本任务记事本进程、计划任务、防火墙规则、遥测文件、TIP/CLSID、状态根注册项及 helper 允许项均恢复空基线。收回的 233 份小证据与夹具逐项核对大小、SHA-256，并在本机复核四场景、系统事件关联、原记录到队列身份、epoch 不外发和清理收据。证据为 `target/windows-editor-negative-e746-small-evidence/`，ZIP SHA-256 为 `30e3f39cc0a7302f4560da29f8c735a9ea3836aee5f49e78e369b7af2178ec96`，独立复核为 `target/windows-editor-negative-e746-local-verification.json`。范围限固定版本 x64 暂存产品及共享队列，不扩展为新候选完整重编、安装包、其他架构、Win7、其余入口或全平台验收。
+
+### Windows x86 实际编辑器与跨架构代收
+
+固定干净 `e746981d18261e39cf6f0530934985fad6afcf9b`，在有 90 GiB 空间的 macmini 复用任务 worktree，以 Rust 1.97.1、`cargo-xwin` 0.23.1、Clang 23.1.1 和官方 Microsoft x86 SDK/CRT 编出真正的 i686 Host API、TSF 及 WER helper。Windows 构建机仅余约 24 GB，没有新建完整 Rust 构建树；x64 Server 复用同一提交已冻结的产品，两个架构使用相同隔离目标。原 TSF CMake 源与既有固定依赖头文件保持原样。正式与测试 Host API、TSF、WER 四组 PE32/PDB 的 GUID、age 与逐文件哈希分别冻结，交叉编译本身不记作运行通过。
+
+在 Windows 专用账号实际运行官方哈希校验的 Notepad++ 8.9.8.1 x86 便携版，两个成功场景均通过真实虚拟键 `NIHAO`、产品候选窗和空格提交合成「你好」，从实际 Scintilla 文档读回严格结果。只读进程模块表确认加载本轮 `bin32` 下的 TSF 和 Host API；SDK 夹具实际回读指针宽度 4、`CONTEXT` 大小 716 与寄存器偏移，没有复用 x64 上下文。学习、云候选、翻译和 AI 等仅在合成偏好中关闭，产品出厂值不变；产品、编辑器及控制器路径均实际验证出站阻断，遥测只走固定回环。
+
+正对照在同一编辑器依次验证武装、活跃撤回解除武装、重开取得新 epoch。调试夹具只在自然授权 ABI 入口短暂设断点，核对实际请求后恢复原指令；随后设置寄存器和指令地址并脱离调试器，执行精确 PDB/反汇编核对的 TSF `mov [eax], ecx`，不可写地址为 `1`。系统事件 `1000` 与关联 WER `1001` 确认 `c0000005`、`MetasequoiaImeTsf.dll+0x11c6`。保留原 `.crash` 后停止本任务 Server/Watchdog，再经实际 Server 任务重启代收，原 UUID `eb9ab07f-33fb-45f2-8409-06fbfa87b49a` 进入共享队列并确认删除原件。这是受控硬件访问冲突，不冒充自然缺陷复现或看门狗恢复。
+
+隔离官方后台固定镜像与 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`，最终恰有一条 `crash`、一条 `active`。原 HTTP 请求与数据库七字段逐项一致，保留捕获时的 `0.3.0`、e746、运行 `windows-x86-e746-20261030`、attempt 1、`x86` 与 `tsf`，没有被 x64 代收者改写，epoch 不外发，无 `session`/`session_crash` 推断。独立 TSF 符号 ZIP 重新解包核对哈希，PE/PDB GUID `{4739BCEF-9BED-1EB0-4C4C-44205044422E}`、age 1 匹配；显式使用归档 PDB 还原首帧到 `Candidate/EnumTfCandidates.cpp:11`，换用 WER 的 PDB 被身份检查拒绝。
+
+独立撤回负对照使用同一正确的 32 位注册视图和反斜杠 helper 允许项：新的实际编辑器先完成中文输入并武装，活跃撤回后确认同一进程解除武装，再制造同一自有指令访问冲突。系统故障和 WER 完成后，没有产品原记录或队列 crash，后台两行保持完全一致。两个编辑器控制器均恢复原会话输入源并退出 `0`。
+
+失败记录保留：PowerShell 5 的无 BOM 中文解析、生成依赖配置重复导入、CMake/Ninja 的源码依赖别名重复、缺少 `FMT_HEADER_ONLY` 的夹具配置、原生夹具遗漏 COM 头及链接器选择，均在产品运行前失败。冻结源码显式关闭自动重配置后正常构建，没有修改产品源码或忽略链接错误。注册夹具使用正斜杠绝对路径仍得到错误 `126`，仅改夹具依赖搜索及反斜杠路径后实际注册成功；首轮后台验证误把逐事件请求当批量 `events`，在 HTTP 已收件后失败，保留原脚本并以只读核对完成验证，没有重发故障。
+
+初次清理检测到 COM 注销残留的本任务 TIP 根、合成 `telemetry-state.json` 和锁文件，没有将其记为清理成功。按原空基线精确删除自有 GUID，确认队列锁可独占后清理合成状态，独立审计确认双视图状态根、CLSID/TIP、helper、进程、计划任务、防火墙、队列、后台容器和精确 SSH 转发均清理，Windows 源码仍为干净 e746，产品及编辑器二进制哈希不变。macmini 已重建不含回环特性的正式缓存，并在 Windows 实际 PE32 ABI 中验证 `begin`/`flush` 拒绝测试字段且未建队列；重建的 DLL/PDB 与初次正式快照哈希不同，两套均保留，不声称字节可复现，import library 相同。原 worktree HEAD 与任务 lease 已恢复。
+
+Windows 小证据为 `target/windows-x86-e746-small-evidence/`，94 份文件 ZIP SHA-256 `eff078d345b31c159f07d4dedf195dbb5dfc708162a1ce8ec0db71328b2227be`；交叉构建小证据为 `target/windows-x86-native-small-evidence/`，81 份文件 ZIP SHA-256 `508c2b4c755c2f3d76b1cee66ca11285990f3f7b3ddc427180f7e1011a2c4dd2`。该结果仅覆盖固定 e746 的 Windows 11 x86 暂存产品与同源 x64 代收，不扩展为完整安装包、ARM64、Win7、全部入口或全平台验收。
 
 ### Android 当前基础产品的待送达致命信号漏报
 
