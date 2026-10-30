@@ -13,7 +13,7 @@ function Harness({
   onAnswer?: (confirmed: boolean) => void;
   danger?: boolean;
 }) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [answer, setAnswer] = useState("未问");
   return (
     <div>
@@ -27,6 +27,9 @@ function Harness({
         }
       >
         删除
+      </button>
+      <button type="button" onClick={dismiss}>
+        关闭确认
       </button>
       <span data-testid="answer">{answer}</span>
       {confirmation}
@@ -64,6 +67,14 @@ test("escape and the backdrop both cancel", async () => {
   expect(screen.getByRole("alertdialog")).toBeTruthy();
   fireEvent.mouseDown(backdrop);
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+});
+
+test("dismiss resolves an open confirmation as cancelled", async () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭确认" }));
+  await waitFor(() => expect(screen.getByTestId("answer").textContent).toBe("已取消"));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 test("a destructive request focuses cancel and focus returns where it came from", async () => {

@@ -8189,6 +8189,101 @@ fn android_portrait_split_defaults_and_validates_without_changing_legacy_documen
     }
 }
 
+#[test]
+fn harmony_split_keyboard_defaults_off_and_is_not_written() {
+    let defaults = Preferences::default();
+    assert!(!defaults.touch_keyboard_split);
+    assert_eq!(defaults.touch_keyboard_split_threshold, 600);
+    assert_eq!(defaults.touch_keyboard_split_gap, 25);
+    let written = serde_json::to_value(&defaults).unwrap();
+    for key in [
+        "touch_keyboard_split",
+        "touch_keyboard_split_threshold",
+        "touch_keyboard_split_gap",
+    ] {
+        assert!(written.get(key).is_none(), "{key}");
+    }
+
+    // 没有这三个键的旧文档读出默认值，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    assert_eq!(store.load().unwrap().preferences, Preferences::default());
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 打开并调过阈值和空隙后照原值存取；改回默认值时三个键都从文档里去掉。
+    let revision = store.load().unwrap().revision;
+    let configured = Preferences {
+        touch_keyboard_split: true,
+        touch_keyboard_split_threshold: 720,
+        touch_keyboard_split_gap: 35,
+        ..Preferences::default()
+    };
+    let revision = store.save(revision, configured.clone()).unwrap().revision;
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, configured);
+    let written = serde_json::to_value(&loaded).unwrap();
+    assert_eq!(written["touch_keyboard_split"], true);
+    assert_eq!(written["touch_keyboard_split_threshold"], 720);
+    assert_eq!(written["touch_keyboard_split_gap"], 35);
+    store.save(revision, Preferences::default()).unwrap();
+    let written = serde_json::to_value(store.load().unwrap().preferences).unwrap();
+    assert!(written.get("touch_keyboard_split").is_none());
+    assert!(written.get("touch_keyboard_split_threshold").is_none());
+    assert!(written.get("touch_keyboard_split_gap").is_none());
+
+    // 类型不对的值整份拒绝，与其他触屏键相同。
+    let mut wrong = serde_json::to_value(Preferences::default()).unwrap();
+    wrong["touch_keyboard_split"] = serde_json::json!("true");
+    assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
+fn harmony_split_keyboard_threshold_and_gap_follow_the_android_bounds() {
+    for threshold in [480, 600, 620, 1000] {
+        let valid = Preferences {
+            touch_keyboard_split_threshold: threshold,
+            ..Preferences::default()
+        };
+        assert!(valid.validate().is_ok(), "{threshold}");
+    }
+    for gap in [10, 25, 40] {
+        let valid = Preferences {
+            touch_keyboard_split_gap: gap,
+            ..Preferences::default()
+        };
+        assert!(valid.validate().is_ok(), "{gap}");
+    }
+    // 范围外和不在步进上的值都不收。
+    for threshold in [0, 460, 490, 1020] {
+        let invalid = Preferences {
+            touch_keyboard_split_threshold: threshold,
+            ..Preferences::default()
+        };
+        assert!(
+            matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSplit)
+            ),
+            "{threshold}"
+        );
+    }
+    for gap in [0, 5, 12, 45] {
+        let invalid = Preferences {
+            touch_keyboard_split_gap: gap,
+            ..Preferences::default()
+        };
+        assert!(
+            matches!(
+                invalid.validate(),
+                Err(PreferencesError::InvalidTouchKeyboardSplit)
+            ),
+            "{gap}"
+        );
+    }
+}
+
 /// 偏好里键名像凭据、但确实不是凭据的字段。新字段名含 token|key|secret|password 时，要么进 `Preferences::credential_slots`，要么在这里说明它不是凭据。
 const NOT_CREDENTIALS: &[&str] = &[
     "custom_theme.keyboard",
@@ -8209,7 +8304,10 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_height_adjustment",
     "touch_keyboard_layout",
     "touch_keyboard_schemes",
+    "touch_keyboard_split",
+    "touch_keyboard_split_gap",
     "touch_keyboard_split_portrait",
+    "touch_keyboard_split_threshold",
     "touch_number_keypad_order",
     "touch_shuangpin_key_hints",
     "touch_twenty_six_key_number_layout",

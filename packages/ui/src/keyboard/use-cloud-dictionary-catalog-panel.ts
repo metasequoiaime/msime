@@ -12,7 +12,7 @@ import type {
 
 /** 管理完整云词库目录的查询、分页、编辑与带代次保护的删除确认。 */
 export function useCloudDictionaryCatalogPanel(client: CloudDictionaryPanelClient) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [code, setCode] = useState("");
   const [scheme, setScheme] = useState("pinyin");
@@ -42,6 +42,7 @@ export function useCloudDictionaryCatalogPanel(client: CloudDictionaryPanelClien
 
   useEffect(() => {
     invalidate();
+    dismiss();
     setEntries([]);
     setForm(null);
     setConfirmed(null);
@@ -52,7 +53,7 @@ export function useCloudDictionaryCatalogPanel(client: CloudDictionaryPanelClien
     return () => {
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, dismiss, invalidate]);
 
   async function load(
     current: number,

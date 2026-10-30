@@ -16,7 +16,7 @@ import type {
 
 /** 管理云词库文件传输、完整快照预览和恢复，并隔离失效宿主的异步结果。 */
 export function useCloudDictionaryFilesPanel(client: CloudDictionaryPanelClient) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
@@ -39,13 +39,14 @@ export function useCloudDictionaryFilesPanel(client: CloudDictionaryPanelClient)
 
   useEffect(() => {
     invalidate();
+    dismiss();
     setSnapshotBusy(false);
     setRestorePreview(null);
     return () => {
       invalidate();
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
-  }, [client, invalidate]);
+  }, [client, dismiss, invalidate]);
 
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;

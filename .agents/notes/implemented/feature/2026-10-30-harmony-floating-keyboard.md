@@ -35,7 +35,7 @@ Status: implemented
 - 拖动：拖动条中间 36×4 的横条接触摸，视图报告手指在屏幕上的位移（`TouchObject.displayX` / `displayY`，面板跟着移动，条内坐标会变，屏幕坐标不会），扩展能力换成像素加到按下时的位置上，钳在屏幕里，`moveTo`。松手时换成千分比，经 `KeyboardSession.saveFloatingPosition` 写盘；写不进去时只在这个进程里有效，与 Android 相同。
 - 转屏和折叠屏开合：扩展能力在手机和平板上订阅 `display.on('change')`，记下新的屏幕尺寸和密度；浮动时按存着的千分比重新定宽、定位置，所以同一个位置在横屏上仍落在屏幕里。销毁时退订。
 - 视图：浮动时根节点顶部多一条拖动条，背景是皮肤底色，整块切 12vp 圆角；键盘这一层分到剩下的高度，停靠时就是整个窗口，与以前相同。
-- 与单手模式、分离式键盘的关系：浮动时单手模式不生效（`KeyboardView.oneHandActive`），存着的值不变，磁贴显示为不可用，与 Android 相同；大屏单手的侧边数字键盘随之不画。2in1 的面板是跟随光标的候选窗（`FLAG_CANDIDATE`），浮动磁贴在那里不可用。鸿蒙的分离式键盘（#10224）在本文落地时还没合进 develop；合进来之后浮动时要不画分离式键盘，与 Android 的 `splitKeyboardDrawn` 在浮动时返回 false 相同。
+- 与单手模式、分离式键盘的关系：浮动时单手模式不生效（`KeyboardView.oneHandActive`），存着的值不变，磁贴显示为不可用，与 Android 相同；大屏单手的侧边数字键盘随之不画。2in1 的面板是跟随光标的候选窗（`FLAG_CANDIDATE`），浮动磁贴在那里不可用。鸿蒙的分离式键盘（#10224，见[分离式键盘](2026-10-30-split-keyboard-iphone-harmony.md)）合进来之后，浮动优先：浮动时不画分离式键盘（`SplitKeyboardPolicy.drawn` 多收一个浮动状态，浮动时返回 false），分离设置不变，停靠后按原样回来；分离画着时浮动磁贴照常可用，打开即停止分离；单手磁贴在分离和浮动时都置灰。三条都与 Android 相同：`MSIMEInputService.splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false，`ImeFunctionPanel` 的 FLOATING 磁贴只看 `panelPreferenceSaving` 和外接键盘模式，ONE_HAND 磁贴要求 `!splitKeyboardDrawn() && !floatingDrawn()`。
 
 ## Alternatives considered
 
@@ -49,4 +49,4 @@ Status: implemented
 
 - 收益：键盘挡住输入框时可以把键盘缩小挪开；转屏后面板留在屏幕里、相对位置不变；停靠路径的代码和行为与以前相同。
 - 代价与已知上限：面板钳在整块屏幕里，不避开状态栏和导航条（Android 钳在系统栏之间）；扩展能力拿不到系统栏的避让区，拖到最上面时拖动条可能压在状态栏下。拖动只能用手指，读屏用户只能用「停靠」键回到停靠键盘。切换开关时面板要隐藏再显示一次，会触发一次系统的 `keyboardHide`（视图借此停掉语音、写盘打字统计）。开关和位置不随账号同步，设置页里没有这一项。扩展能力在 `display.on('change')` 里更新密度，停靠面板之后的 resize 也按新密度换算（以前一直用建面板时的密度）。
-- 验证：`platforms/harmony/tests/floating-keyboard.test.ts` 钉住常数、生效条件、宽度、高度、千分比互换、拖动钳制、任意千分比都落在屏幕里、竖屏转横屏后仍贴右边且在屏幕里、三项设置的读写与回退、不进共享结构、磁贴的名称与位置；`keyboard-logic.test.ts` 的功能面板顺序和开关列表跟着加了一格；`tests/run.sh` 用文本检查钉住扩展能力只在隐藏之后 `changeFlag`、换完显示回来、停靠路径不 `moveTo`、订阅和退订 `display.on('change')`、松手存位置，以及视图在浮动时关掉单手模式。HAP 在 Mac Studio 上构建通过；没有在设备或模拟器上验证（本机手机模拟器因磁盘剩余空间不足起不来，2in1 模拟器不浮动），面板外观、拖动、切换时的隐藏再显示、转屏重摆、应用是否避让、窗口是否透明都还要在手机或平板上看。
+- 验证：`platforms/harmony/tests/floating-keyboard.test.ts` 钉住常数、生效条件、宽度、高度、千分比互换、拖动钳制、任意千分比都落在屏幕里、竖屏转横屏后仍贴右边且在屏幕里、三项设置的读写与回退、不进共享结构、磁贴的名称与位置；`keyboard-logic.test.ts` 的功能面板顺序和开关列表跟着加了一格；`tests/run.sh` 用文本检查钉住扩展能力只在隐藏之后 `changeFlag`、换完显示回来、停靠路径不 `moveTo`、订阅和退订 `display.on('change')`、松手存位置，以及视图在浮动时关掉单手模式；合入分离式键盘后，`split-keyboard.test.ts` 加了浮动时不分离、停靠后分离回来、2in1 两者都不画的用例，`run.sh` 钉住视图把浮动状态传给 `SplitKeyboardPolicy.drawn`、单手在分离或浮动时都让位、单手磁贴在两种情况下都置灰。HAP 在 Mac Studio 上构建通过；没有在设备或模拟器上验证（本机手机模拟器因磁盘剩余空间不足起不来，2in1 模拟器不浮动），面板外观、拖动、切换时的隐藏再显示、转屏重摆、应用是否避让、窗口是否透明都还要在手机或平板上看。

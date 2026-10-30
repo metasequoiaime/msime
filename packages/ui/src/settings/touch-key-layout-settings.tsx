@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import type { Preferences } from "../core/preferences-model";
 import type { InputScheme } from "../core/input-scheme";
 import {
@@ -456,6 +456,7 @@ export function TouchKeyLayoutSettings({
   groups,
   open,
   mobile = false,
+  editRequest = null,
   onChange,
 }: {
   preferences: Preferences;
@@ -465,6 +466,8 @@ export function TouchKeyLayoutSettings({
   open: boolean;
   /** HarmonyOS 手机：两张左侧符号表的编辑页压一条历史记录，系统返回手势先关它。 */
   mobile?: boolean;
+  /** 要直接打开哪张表的编辑页（键盘长按左侧符号栏经链接带来）；子页打开着时按 `serial` 只处理一次，字母表同时切到 9 键分段。 */
+  editRequest?: { kind: NineKeySidebarKind; serial: number } | null;
   onChange: (patch: Partial<Preferences>) => void;
 }) {
   const offered = touchKeyLayoutKinds.filter((kind) => groups[kind]);
@@ -495,6 +498,17 @@ export function TouchKeyLayoutSettings({
     setChosen(null);
     resetEditor();
   }, [open, resetEditor]);
+  // 照 Android `KeyLayoutStylesPage` 的 `pendingSidebarEdit`：字母表的编辑页从 9 键分段进，先切过去，返回时停在那张卡片上。已经开着同一张表时不再压一条记录，草稿照留。
+  const handledEdit = useRef<number | null>(null);
+  useEffect(() => {
+    if (!open || !editRequest || handledEdit.current === editRequest.serial) return;
+    handledEdit.current = editRequest.serial;
+    if (editRequest.kind === "letter") {
+      if (!groups.nine) return;
+      setChosen("nine");
+    }
+    if (editing !== editRequest.kind) openEditor(editRequest.kind);
+  }, [open, editRequest, groups.nine, editing, openEditor]);
   const saveSidebar = (which: NineKeySidebarKind, symbols: readonly string[]) => {
     const value = nineKeySidebarStoredValue(which, symbols);
     onChange(

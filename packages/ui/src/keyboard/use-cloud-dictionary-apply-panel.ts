@@ -33,7 +33,7 @@ function panelSnapshotNotice(status: CloudDictionarySnapshotRequest["status"] | 
 
 /** 管理完整云词库快照的预览、确认、队列与状态轮询。 */
 export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [localVersion, setLocalVersion] = useState<string | null>(null);
   const [request, setRequest] = useState<CloudDictionarySnapshotRequest | null>(null);
   const [preview, setPreview] = useState<CloudDictionarySnapshotMetadata | null>(null);
@@ -144,6 +144,7 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
 
   useEffect(() => {
     invalidate();
+    dismiss();
     statusRead.current = null;
     setPreview(null);
     setPreviewToken(null);
@@ -156,7 +157,7 @@ export function useCloudDictionaryApplyPanel(client: CloudDictionaryPanelClient)
       statusRead.current = null;
       stopPoll();
     };
-  }, [client, invalidate]);
+  }, [client, dismiss, invalidate]);
 
   function discardPreview() {
     setPreview(null);

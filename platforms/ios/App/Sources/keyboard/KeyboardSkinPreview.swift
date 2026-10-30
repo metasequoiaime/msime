@@ -150,7 +150,6 @@ struct KeyboardSkinPreview: View {
       Text("你好").font(.subheadline.weight(.medium))
       Text("你号").font(.subheadline)
       Spacer(minLength: 0)
-      if KeyboardLayoutPreference.voiceShortcutEnabled { Image(systemName: "waveform").font(.caption) }
       Text(nineKey ? "九键" : letterGrid?.title ?? "全拼").font(.caption)
 
     }.padding(.horizontal, 6).frame(height: Self.candidateStripHeight * stripScale)

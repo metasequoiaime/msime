@@ -15,13 +15,14 @@ import { SettingsPreviewBlock } from "../settings-preview-block";
 import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
 import { supportedInputSchemes } from "../input-scheme-options";
+import { touchSplitKeyboardLimits } from "../touch-split-keyboard-rows";
 import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-defaults";
 import { HandwritingSettingsContent } from "./handwriting-page";
 import { screenKeyboardAndHandwritingTitle } from "../settings-page-projections";
 import { useSettingsTabs } from "../use-settings-tabs";
 import { pluginPreferences } from "../plugin-preferences";
 import { useTouchKeySoundPacks } from "../use-touch-key-sound-packs";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMobileSettingsSubview } from "../use-mobile-settings-subview";
 import { fullScreenColumn, fullScreenSurface } from "../../core/full-screen-style";
 import { SettingsPageHeader } from "../settings-page-header";
@@ -30,7 +31,11 @@ import {
   harmonyTouchRowsForPreferences,
   touchKeyLayoutGroups,
 } from "../touch-key-layout-settings";
-import { keyLayoutEntryDescription } from "../../keyboard/touch-key-layout-styles";
+import {
+  keyLayoutEntryDescription,
+  nineKeySidebarKindForPreference,
+  type NineKeySidebarKind,
+} from "../../keyboard/touch-key-layout-styles";
 import { SettingsSearchReveal } from "../settings-search-reveal";
 
 /** 同一方案在 HarmonyOS 键盘上画出的几种键盘：全拼有 26/14/18/9 键，双拼有独立的 26/14/18 键，五笔有独立的 26/14 键，日语有 26/9 键。 */
@@ -155,6 +160,8 @@ export function ScreenKeyboardSettingsPage() {
     busy,
     page,
     selectPage,
+    linkTarget,
+    clearLinkTarget,
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
@@ -199,6 +206,19 @@ export function ScreenKeyboardSettingsPage() {
   const keyLayoutGroups = touchKeyLayoutGroups(supportedInputSchemes(host));
   const keyLayoutOffered =
     harmonyPhone && (keyLayoutGroups.twentySix || keyLayoutGroups.fourteen || keyLayoutGroups.nine);
+  // 键盘长按九键左侧符号栏带来的那张表（链接的子目标是它的共享偏好名，与 Android `edit_sidebar_key` 相同）：打开「按键布局」，再由子页打开那张表的编辑页。字母表只在 9 键分段里，版本没有 9 键时停在「按键布局」。子目标认不得或这一页没有「按键布局」时只是取走它，停在「屏幕键盘」页。
+  const [sidebarEdit, setSidebarEdit] = useState<{
+    kind: NineKeySidebarKind;
+    serial: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!linkTarget || linkTarget.page !== "screen-keyboard" || page !== "screen-keyboard") return;
+    clearLinkTarget();
+    const kind = nineKeySidebarKindForPreference(linkTarget.target);
+    if (!kind || !keyLayoutOffered) return;
+    if (keyLayoutSubview !== true) openKeyLayoutSubview(true);
+    setSidebarEdit({ kind, serial: linkTarget.serial });
+  }, [linkTarget, page, keyLayoutOffered, keyLayoutSubview, openKeyLayoutSubview, clearLinkTarget]);
   // 只有触屏键盘按所选包发按键音的宿主（HarmonyOS 手机和平板）才读目录、给「音效」行；2in1 和其他宿主在插件页或原生设置里选包，这里不变。
   const keySoundPacks = useTouchKeySoundPacks(
     host?.touch_key_sound_packs ? client.plugins?.catalog : undefined,
@@ -364,6 +384,19 @@ export function ScreenKeyboardSettingsPage() {
                 ? draft.touch_one_handed_side_panel === "number_pad"
                 : undefined
             }
+            // 分离式键盘：只有报告 `touch_keyboard_split` 的宿主（HarmonyOS 平板和可折叠手机）在这里给出，Android 和 iOS 在原生设置页里给。缺键按 client-core 的默认值读。
+            splitKeyboard={
+              host?.touch_keyboard_split
+                ? {
+                    enabled: draft.touch_keyboard_split ?? false,
+                    portrait: draft.touch_keyboard_split_portrait ?? false,
+                    threshold:
+                      draft.touch_keyboard_split_threshold ??
+                      touchSplitKeyboardLimits.threshold.fallback,
+                    gap: draft.touch_keyboard_split_gap ?? touchSplitKeyboardLimits.gap.fallback,
+                  }
+                : undefined
+            }
             // 「九键滑动输入数字」：触屏宿主、且版本提供全拼九键（`nine_key` 背后是全拼）时列出，桌面和没有拼音九键的版本不画；写共享偏好，不经本机的按键反馈设置。
             nineKeySwipeDigits={
               mobilePlatform && supportedInputSchemes(host).includes("quanpin")
@@ -391,6 +424,18 @@ export function ScreenKeyboardSettingsPage() {
             }
             onOneHandedSidePanelChange={(enabled) =>
               onPreferencesChange({ touch_one_handed_side_panel: enabled ? "number_pad" : "off" })
+            }
+            onSplitKeyboardChange={(change) =>
+              onPreferencesChange({
+                ...(change.enabled === undefined ? {} : { touch_keyboard_split: change.enabled }),
+                ...(change.portrait === undefined
+                  ? {}
+                  : { touch_keyboard_split_portrait: change.portrait }),
+                ...(change.threshold === undefined
+                  ? {}
+                  : { touch_keyboard_split_threshold: change.threshold }),
+                ...(change.gap === undefined ? {} : { touch_keyboard_split_gap: change.gap }),
+              })
             }
             onNineKeySwipeDigitsChange={(touch_nine_key_swipe_digits) =>
               onPreferencesChange({ touch_nine_key_swipe_digits })
@@ -492,6 +537,7 @@ export function ScreenKeyboardSettingsPage() {
                   groups={keyLayoutGroups}
                   open={keyLayoutSubview === true}
                   mobile={harmonyPhone}
+                  editRequest={sidebarEdit}
                   onChange={onPreferencesChange}
                 />
               </section>

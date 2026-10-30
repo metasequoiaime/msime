@@ -9,7 +9,6 @@ struct KeyboardToolbarSettingsView: View {
   @State private var scheme = TouchToolbarLocalPreference.scheme
   @State private var hidden = TouchToolbarLocalPreference.hidden
   /// 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
-  @State private var voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var skin = KeyboardTheme.current
   /// 「候选栏大小」：工具栏和候选栏共用一行，预览里的工具栏跟着它变矮或变高（#10137）。在「候选栏」页设置。
   @State private var barScale: CGFloat = 1
@@ -79,7 +78,7 @@ struct KeyboardToolbarSettingsView: View {
 
   /// 键盘空闲时不显示工具栏：显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键，与键盘的 `toolbarRowHidden` 一致。
   private var rowHidden: Bool {
-    hidden || (Self.previewItems(toolbar, phrases: phrases, scheme: scheme).isEmpty && !voiceShortcut)
+    hidden || Self.previewItems(toolbar, phrases: phrases, scheme: scheme).isEmpty
   }
 
   /// 当前皮肤下的键盘，带着这些开关组成的工具栏，工具栏不显示时只有按键；裁成设计稿的 14pt 圆角，外加一圈细线。
@@ -137,7 +136,6 @@ struct KeyboardToolbarSettingsView: View {
     phrases = TouchToolbarLocalPreference.phrases
     scheme = TouchToolbarLocalPreference.scheme
     hidden = TouchToolbarLocalPreference.hidden
-    voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)
     barScale = CandidateFontPreference.barScale(in: preferences)

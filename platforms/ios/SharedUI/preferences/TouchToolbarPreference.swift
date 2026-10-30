@@ -2,7 +2,7 @@ import Foundation
 
 /// 工具栏按钮: the optional buttons on the keyboard's shortcut bar, from the shared `touch_toolbar`, the touch counterpart of the Windows floating toolbar's component switches.
 ///
-/// A missing document or a missing switch reads as its default, which is the bar the keyboard always had: settings, emoji and skin on, the rest off. The voice entry keeps its own `touch_voice_shortcut`, and the brand, scheme and dismiss buttons are not optional.
+/// A missing document or a missing switch reads as its default, which is the bar the keyboard always had: settings, emoji and skin on, the rest off. There is no voice button: iOS starts voice from a long press on space or the 语音输入 tile, and `touch_voice_shortcut` is Android's toolbar voice button, which iOS neither reads nor writes. The brand, scheme and dismiss buttons are not optional.
 struct TouchToolbarPreference: Equatable {
   static let key = "touch_toolbar"
 

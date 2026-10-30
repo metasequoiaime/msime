@@ -18,7 +18,7 @@ HELPER = source[start:end]
 
 @unittest.skipUnless(BASH, "需要 Bash 执行原生库构建夹具")
 class NativeHostLibraryTests(unittest.TestCase):
-    def run_fixture(self, target="x86_64-pc-windows-msvc", profile="debug", *, cargo_exit=0, runtime=True, external=False, fake_msvc=False, missing_linker=False):
+    def run_fixture(self, target="x86_64-pc-windows-msvc", profile="debug", *, cargo_exit=0, runtime=True, external=False, fake_msvc=False, missing_linker=False, subprojects=()):
         with tempfile.TemporaryDirectory(prefix="msime-native-host-") as directory:
             root = Path(directory)
             cargo_root = root / ("other-checkout/target" if external else "target")
@@ -32,6 +32,10 @@ class NativeHostLibraryTests(unittest.TestCase):
             staged = build / "Debug/msime_host_api.dll"
             staged.parent.mkdir(parents=True)
             staged.write_bytes(b"synthetic-old-runtime")
+            for name in subprojects:
+                (build / name).mkdir()
+                (build / name / "CTestTestfile.cmake").write_text("# synthetic\n", encoding="utf-8")
+            (build / "no-tests").mkdir()
             cached_linker = root / "configured MSVC/link.exe"
             if not missing_linker:
                 cached_linker.parent.mkdir()
@@ -55,6 +59,9 @@ class NativeHostLibraryTests(unittest.TestCase):
             result = subprocess.run([BASH, "-s"], input=script, text=True, encoding="utf-8", cwd=root,
                 env=env, capture_output=True, timeout=60 if os.name == "nt" else 20)
             arguments = (root / "cargo-args.txt").read_text().splitlines() if (root / "cargo-args.txt").exists() else None
+            self.subproject_runtimes = {name: (build / name / "Debug/msime_host_api.dll").read_bytes()
+                for name in subprojects if (build / name / "Debug/msime_host_api.dll").exists()}
+            self.assertFalse((build / "no-tests/Debug").exists(), "a subdirectory without tests gets no runtime")
             return result.returncode, arguments, staged.read_bytes(), result.stdout + result.stderr
 
     def test_explicit_msvc_target_and_debug_profile_match_the_import_library(self):
@@ -74,6 +81,13 @@ class NativeHostLibraryTests(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertEqual(arguments[arguments.index("--profile") + 1], "release")
         self.assertEqual(arguments[arguments.index("--target") + 1], "x86_64-pc-windows-gnu")
+
+    def test_subprojects_with_tests_get_the_runtime_before_their_first_build(self):
+        # tsf 与 shared-voice 的测试在各自的 Debug 目录里运行；刚 configure 完还没有这个目录，也要先建好再放运行时，函数照样成功。
+        code, _, staged, log = self.run_fixture(subprojects=("tsf", "shared-voice"))
+        self.assertEqual(code, 0, log)
+        self.assertEqual(staged, b"synthetic-current-runtime")
+        self.assertEqual(self.subproject_runtimes, {"tsf": b"synthetic-current-runtime", "shared-voice": b"synthetic-current-runtime"})
 
     def test_failed_cargo_does_not_stage_a_stale_runtime(self):
         code, _, staged, log = self.run_fixture(cargo_exit=7)

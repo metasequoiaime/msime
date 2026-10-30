@@ -44,6 +44,11 @@ final class ImeKeyFeedback {
     /** 当前声音包加载出的样本；没有（加载中或失败）时为 null，此时用系统按键音。 */
     private volatile PackSounds sounds;
     private String loadingPack = "";
+    private String loadingSource = "";
+    /** 每次加载用独立身份，避免同一包先后两次请求互相冒认。 */
+    private Object loadingRequest;
+    /** 当前请求解析音效包时使用的状态目录；同一包 ID 换目录也必须重新加载。 */
+    private String soundSource = "";
     /** 原按钮 → 键面替身，见 {@link #stageFace}。 */
     private final Map<View, WeakReference<View>> faces = new WeakHashMap<>();
 
@@ -52,7 +57,8 @@ final class ImeKeyFeedback {
     }
 
     /** 一个声音包在 SoundPool 里的四个样本 id；0 表示该类没有样本，回落到普通键的样本。 */
-    private record PackSounds(String id, SoundPool pool, int standard, int space, int enter, int backspace) {
+    private record PackSounds(String id, String source, SoundPool pool,
+                              int standard, int space, int enter, int backspace) {
         int sample(int keyClass) {
             int value = switch (keyClass) {
                 case KEY_SPACE -> space;
@@ -132,17 +138,26 @@ final class ImeKeyFeedback {
     private void refreshPreferences() {
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
-        if (preferences == preferencesSeen && s.localSettings == localSeen) return;
+        String source = sourceKey();
+        if (preferences == preferencesSeen && s.localSettings == localSeen
+                && source.equals(soundSource)) return;
         preferencesSeen = preferences;
         localSeen = s.localSettings;
-        packId = packFor(preferences);
+        String nextPack = packFor(preferences);
+        if (!nextPack.equals(packId) || !source.equals(soundSource)) clearLoading();
+        packId = nextPack;
+        soundSource = source;
         JSONObject plugins = preferences == null ? null : preferences.optJSONObject("plugins");
         JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
         volume = volumeFor(volumePreference(keySound == null ? null : keySound.opt("volume")));
         animation = KeyPressAnimator.Style.fromPreference(
             s.localSettings.choice(AndroidLocalSettings.KEY_ANIMATION));
         PackSounds loaded = sounds;
-        if ((loaded == null || !loaded.id().equals(packId)) && !packId.equals(loadingPack)) load(packId);
+        if (KeySoundLifecyclePolicy.needsReload(
+                loaded == null ? null : loaded.id(), loaded == null ? null : loaded.source(),
+                packId, soundSource)
+                && KeySoundLifecyclePolicy.needsReload(loadingPack, loadingSource, packId, soundSource))
+            load(packId, soundSource);
     }
 
     /** 键盘开始显示时调用：让声音包在第一下按键前就开始加载。 */
@@ -168,7 +183,8 @@ final class ImeKeyFeedback {
 
     private void playSound(int keyClass) {
         PackSounds loaded = sounds;
-        if (loaded != null && loaded.id().equals(packId)) {
+        if (KeySoundLifecyclePolicy.acceptsLoaded(loaded == null ? null : loaded.id(),
+                loaded == null ? null : loaded.source(), packId, soundSource)) {
             // 密码框里不同键的不同声音会泄露按了哪些键：默认包统一播普通键的声音，其他包不播。
             boolean password = EditorPolicy.password(s.editorInputType);
             if (password && !"default".equals(packId)) return;
@@ -195,26 +211,33 @@ final class ImeKeyFeedback {
     }
 
     /** 声音包所在的两个根：APK 里解出的内置包 `<filesDir>/sound-packs`，与用户安装的包所在的状态目录。 */
-    private String request(String pack) throws JSONException {
+    private String sourceKey() {
         File files = s.getFilesDir();
-        String state = s.preferencesDirectory != null && new File(s.preferencesDirectory).isAbsolute()
-            ? s.preferencesDirectory
-            : files == null ? null : HostOptionsPolicy.bootstrapStateDirectory(files);
+        if (s.preferencesDirectory != null && new File(s.preferencesDirectory).isAbsolute())
+            return s.preferencesDirectory;
+        return files == null ? "" : HostOptionsPolicy.bootstrapStateDirectory(files);
+    }
+
+    private String request(String pack, String source) throws JSONException {
+        File files = s.getFilesDir();
         JSONObject request = new JSONObject();
-        request.put("state_root", state == null ? JSONObject.NULL : state);
+        request.put("state_root", source.isEmpty() ? JSONObject.NULL : source);
         File soundPacks = HostOptionsPolicy.soundPacksDirectory(files);
         request.put("sound_packs", soundPacks == null ? JSONObject.NULL : soundPacks.getAbsolutePath());
         request.put("pack", pack);
         return request.toString();
     }
 
-    private void load(String pack) {
+    private void load(String pack, String source) {
+        Object requestIdentity = new Object();
+        loadingRequest = requestIdentity;
         loadingPack = pack;
+        loadingSource = source;
         final String body;
         try {
-            body = request(pack);
+            body = request(pack, source);
         } catch (JSONException error) {
-            loadingPack = "";
+            clearLoading();
             return;
         }
         try {
@@ -231,7 +254,7 @@ final class ImeKeyFeedback {
                                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
                             .build();
-                        next = new PackSounds(pack, pool, sample(pool, files, "default"),
+                        next = new PackSounds(pack, source, pool, sample(pool, files, "default"),
                             sample(pool, files, "space"), sample(pool, files, "enter"),
                             sample(pool, files, "backspace"));
                         if (next.standard() == 0) {
@@ -245,25 +268,31 @@ final class ImeKeyFeedback {
                 }
                 PackSounds loaded = next;
                 s.main.post(() -> {
-                    if (!pack.equals(loadingPack)) {
+                    if (loadingRequest != requestIdentity) {
                         if (loaded != null) release(loaded);
                         return;
                     }
-                    loadingPack = "";
+                    clearLoading();
                     PackSounds previous = sounds;
                     sounds = loaded;
                     if (previous != null && previous != loaded) release(previous);
                 });
             });
         } catch (RejectedExecutionException error) {
-            loadingPack = "";
+            clearLoading();
         }
     }
 
-    /** 服务销毁时调用：停掉加载线程并释放已加载的 SoundPool。还在路上的加载结果回到主线程时因 loadingPack 已清空而自行释放。 */
+    private void clearLoading() {
+        loadingRequest = null;
+        loadingPack = "";
+        loadingSource = "";
+    }
+
+    /** 服务销毁时调用：停掉加载线程并释放已加载的 SoundPool。还在路上的加载结果回到主线程时因请求身份失效而自行释放。 */
     void shutdown() {
         loader.shutdownNow();
-        loadingPack = "";
+        clearLoading();
         PackSounds loaded = sounds;
         sounds = null;
         if (loaded != null) release(loaded);

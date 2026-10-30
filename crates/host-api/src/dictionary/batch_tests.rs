@@ -1,7 +1,7 @@
 use crate::tests::{call_android_data, host_options_with_main_dictionary};
 use crate::{
     msime_client_dictionary, msime_client_dictionary_collections,
-    msime_client_personal_dictionary_sync,
+    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
 };
 use msime_client_services::dictionary::personal::{
     PersonalDictionaryStore, PersonalWord, PersonalWordKind,
@@ -1013,4 +1013,55 @@ fn synthetic_rime_import_throughput() {
         flush_elapsed.as_millis(),
         longest.as_millis()
     );
+}
+
+/// 由拼音自造词派生的五笔词可以存成权重 0（engine `wubi_learning`），列表也原样返回 0。按列表这一行删除，无论是直接编辑（iOS 键盘应用它自己的队列）还是经 Rust 队列（Android 和桌面宿主），都要找得到它：旧行以存储的权重交给 Engine，不能被抬到新词的下限 1。
+#[test]
+fn a_listed_wubi_word_at_weight_zero_can_be_removed_directly_and_through_the_queue() {
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    for (index, (key, value)) in [("abef", "甲乙"), ("cdgh", "丙丁")].into_iter().enumerate() {
+        let added = call_android_data(
+            msime_client_dictionary,
+            json!({"options":options,"action":{"operation":"edit","previous":null,"replacement":{"kind":"wubi","key":key,"value":value,"weight":1},"request_id":format!("seed-{index}")}}),
+        );
+        assert_eq!(added["ok"], true, "{added}");
+    }
+    // 派生词排在同码已有词之后时就是这个状态：工作表和日志里的权重都是 0。
+    rusqlite::Connection::open(root.path().join("dictionaries/msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("UPDATE wubi86 SET weight=0")
+        .unwrap();
+    rusqlite::Connection::open(root.path().join("user/msime_user.db"))
+        .unwrap()
+        .execute_batch("UPDATE user_dictionary_operations SET weight=0 WHERE dictionary='wubi'")
+        .unwrap();
+    let list = || {
+        let listed = call_android_data(
+            msime_client_dictionary,
+            json!({"options":options,"action":{"operation":"list","offset":0,"limit":100}}),
+        );
+        assert_eq!(listed["ok"], true, "{listed}");
+        listed["value"]["entries"].as_array().unwrap().clone()
+    };
+    let rows = list();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows.iter().all(|row| row["weight"] == 0), "{rows:?}");
+
+    let removed = call_android_data(
+        msime_client_dictionary,
+        json!({"options":options,"action":{"operation":"edit","previous":rows[0],"replacement":null,"request_id":"remove-direct"}}),
+    );
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert_eq!(list(), vec![rows[1].clone()]);
+
+    let queued = call_android_data(
+        msime_client_personal_dictionary_request,
+        json!({"options":options,"action":{"operation":"queue_edit","previous":rows[1],"replacement":null,"request_id":"remove-queued"}}),
+    );
+    assert_eq!(queued["ok"], true, "{queued}");
+    let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["failed_count"], 0, "{synced}");
+    assert!(list().is_empty());
 }
