@@ -82,10 +82,13 @@ struct PairedPunctuationStack {
 }
 
 extension MetasequoiaInputSnapshot {
-  /// The same snapshot committing `text` instead.
+  /// 替换上屏正文；实际改写时丢弃旧定位，同一份 UTF-8 正文保留位置请求。
   func replacingCommit(_ text: String?) -> MetasequoiaInputSnapshot {
-    MetasequoiaInputSnapshot(
-      isHandled: isHandled, commitText: text, scriptConversion: scriptConversion,
+    let unchanged = text.flatMap { replacement in commitText.map { replacement.utf8.elementsEqual($0.utf8) } } ?? false
+    return MetasequoiaInputSnapshot(
+      isHandled: isHandled, commitText: text,
+      commitCursorSuffix: unchanged ? commitCursorSuffix : nil,
+      scriptConversion: scriptConversion,
       preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
       candidates: candidates, candidateCodes: candidateCodes, candidateGlosses: candidateGlosses,
       candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,

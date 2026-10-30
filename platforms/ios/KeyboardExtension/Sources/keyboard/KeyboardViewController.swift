@@ -7574,12 +7574,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// `replacingComposition` is the runtime's commit, which takes the place of the letters 行内预编辑 marked; anything else inserted mid-composition goes in beside them, and the next render marks the composition again.
-  private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false) {
-    if replacingComposition && !inlineMarkedText.isEmpty {
-      // Turning the marked letters into the committed text and unmarking it is one change to the document, where removing them and then inserting would be two.
+  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
+                             cursorSuffix: String? = nil) {
+    let cursor = cursorSuffix.flatMap { suffix -> Int? in
+      guard !suffix.isEmpty, text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16) else { return nil }
+      return text.utf16.count - suffix.utf16.count
+    }
+    if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
+      // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
       inlineMarkedText = ""
-      textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
+      if cursor != nil { pairedPunctuation.clear() }
+      textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor ?? text.utf16.count, length: 0))
       textDocumentProxy.unmarkText()
       noteOwnEdit()
     } else {
@@ -7799,9 +7805,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLetterCaseControls()
     if snapshot.commitText != nil || appendingLiteral != nil {
       let commit = snapshot.commitText.map { source == .japanese || !snapshot.scriptConversion ? $0 : chineseOutput($0) } ?? ""
+      let suffix = snapshot.commitCursorSuffix.map {
+        (source == .japanese || !snapshot.scriptConversion ? $0 : chineseOutput($0)) + (appendingLiteral ?? "")
+      }
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
-                    replacingComposition: snapshot.commitText != nil)
+                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix)
     }
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
