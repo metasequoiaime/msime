@@ -25,7 +25,7 @@ golden 基准按参照实现录制，`tests/golden_support/replay.rs` 的 `refer
 
 `ErrorCode`（`#[repr(u32)]`）是 `EngineError` 的稳定数字码，经 `EngineError::code()` 取得，说明文字照旧是 `Display`：`InvalidArgument = 1`、`Failed = 2`、`Storage = 3`（`Sqlite` 与 `Io`）、`Busy = 6`。编号与 C ABI 草案的返回码共用一个空间，0 是成功，4（不支持）、5（revision 不符）、7（会话已毒化）、8（空指针）留给 C ABI 自己的情形，引擎不产生它们。新增变体 `EngineError::Busy`，现在只有维护租约冲突用它（`DICTIONARY_MAINTENANCE_BUSY`，"Dictionary maintenance busy"）。
 
-`diagnostics::DiagnosticCode`（`#[repr(u16)]`）给 `diagnostics.rs` 里「KeyResult diagnostics」「Local mode query diagnostics」两段的 24 个常量各一个号（1 到 24，按文件里的顺序），九键笔画筛选拿不到笔画词库时放进诊断的 `LANGUAGE_DICTIONARY_UNAVAILABLE` 是 25（它定义在宿主门面错误那段，因为同时是查语言词库接口的错误文字），映射表是 `DIAGNOSTIC_CODES`，`KeyResult::diagnostic_code()` 按文字查表。表外的文字是 `Other = 0xFFFF`：注音的选字和按键会把底层错误原文放进诊断。`KeyResult` 不加字段，免得改动所有构造处和快照；编号只追加、不改、不复用。测试有两条：两段里的常量逐条要有码；引擎源码里每个 `with_diagnostic(...)` 实参引用的常量也要有码，不管定义在哪一段，按分段数常量的写法就漏掉过 25 号。
+`diagnostics::DiagnosticCode`（`#[repr(u16)]`）给 `diagnostics.rs` 里「KeyResult diagnostics」「Local mode query diagnostics」两段既有的 24 个常量各一个号（1 到 24，按原文件里的顺序），九键笔画筛选拿不到笔画词库时放进诊断的 `LANGUAGE_DICTIONARY_UNAVAILABLE` 是 25（它定义在宿主门面错误那段，因为同时是查语言词库接口的错误文字），网格辅筛满两槽拒绝追加第三码的 `GRID_HELPCODE_LIMIT` 是 26，映射表是 `DIAGNOSTIC_CODES`，`KeyResult::diagnostic_code()` 按文字查表。表外的文字是 `Other = 0xFFFF`：注音的选字和按键会把底层错误原文放进诊断。`KeyResult` 不加字段，免得改动所有构造处和快照；编号只追加、不改、不复用。测试有两条：两段里的常量逐条要有码；引擎源码里每个 `with_diagnostic(...)` 实参引用的常量也要有码，不管定义在哪一段，按分段数常量的写法就漏掉过 25 号。
 
 ### 日志出口
 

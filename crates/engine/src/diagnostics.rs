@@ -142,12 +142,14 @@ pub enum DiagnosticCode {
     SuperJianpinQueryFailed = 24,
     /// 九键笔画筛选拿不到笔画词库（`LANGUAGE_DICTIONARY_UNAVAILABLE`）。这条常量放在宿主门面错误那段，因为它同时是查语言词库接口的错误文字。
     LanguageDictionaryUnavailable = 25,
+    /// 网格辅助码已经占满两槽，拒绝追加第三码。
+    GridHelpcodeLimit = 26,
     /// 不在映射表里的说明文字：注音的选字与按键把底层错误原文（`EngineError` 的 `Display`）放进诊断，这类文字没有自己的码。
     Other = 0xFFFF,
 }
 
 /// 诊断码与说明文字的映射表，KeyResult 诊断常量各占一行，按编号排。
-pub const DIAGNOSTIC_CODES: [(DiagnosticCode, &str); 25] = [
+pub const DIAGNOSTIC_CODES: [(DiagnosticCode, &str); 26] = [
     (
         DiagnosticCode::EnglishWordNotLearned,
         ENGLISH_WORD_NOT_LEARNED,
@@ -215,6 +217,7 @@ pub const DIAGNOSTIC_CODES: [(DiagnosticCode, &str); 25] = [
         DiagnosticCode::LanguageDictionaryUnavailable,
         LANGUAGE_DICTIONARY_UNAVAILABLE,
     ),
+    (DiagnosticCode::GridHelpcodeLimit, GRID_HELPCODE_LIMIT),
 ];
 
 impl DiagnosticCode {
@@ -269,6 +272,10 @@ mod tests {
             DiagnosticCode::from_message(LANGUAGE_DICTIONARY_UNAVAILABLE).value(),
             25
         );
+        assert_eq!(
+            DiagnosticCode::from_message(GRID_HELPCODE_LIMIT).value(),
+            26
+        );
     }
 
     /// 本文件里 `pub const` 字符串常量的名字和值，值可能换到下一行。
@@ -304,7 +311,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 24);
+        assert_eq!(checked, 25);
     }
 
     /// 直接交给 `KeyResult::with_diagnostic` 的固定常量也都有码，不管它定义在本文件哪一段：九键笔画筛选给的 `LANGUAGE_DICTIONARY_UNAVAILABLE` 在宿主门面错误那段，按分段数漏掉过它。扫的是引擎源码里每个 `with_diagnostic(...)` 的实参（测试模块除外）。

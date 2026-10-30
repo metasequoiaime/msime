@@ -131,11 +131,11 @@ fn grid_helpcode_whole_combination_stale_choice_limit_and_backspace() {
     );
     assert!(!action(&mut session, A::Choose("qe".into())).handled);
     assert_eq!(session.grid_helpcode_snapshot(), before);
+    let limited = action(&mut session, A::AppendExact(b'a'));
+    assert_eq!(limited.diagnostic.as_deref(), Some("辅助码最多输入两位"));
     assert_eq!(
-        action(&mut session, A::AppendExact(b'a'))
-            .diagnostic
-            .as_deref(),
-        Some("辅助码最多输入两位")
+        limited.diagnostic_code(),
+        Some(crate::diagnostics::DiagnosticCode::GridHelpcodeLimit)
     );
     assert_eq!(session.grid_helpcode_snapshot(), before);
     action(&mut session, A::Choose("qR".into()));
