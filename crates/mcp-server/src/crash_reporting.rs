@@ -305,6 +305,7 @@ impl Capture {
 
 /// 与原生宿主按版本共用匿名安装身份和队列，不跟随可搬迁的词库目录。
 fn directory(edition: &Edition, env: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
     let absolute = |name| {
         env(name)
             .map(PathBuf::from)
@@ -312,7 +313,8 @@ fn directory(edition: &Edition, env: &impl Fn(&str) -> Option<OsString>) -> Opti
     };
     #[cfg(target_os = "macos")]
     {
-        let root = absolute("HOME")?.join("Library/Application Support/MSIME");
+        let _ = env;
+        let root = msime_host_macos::telemetry_support_directory()?.join("MSIME");
         Some(
             if edition.id == "full" {
                 root
@@ -355,6 +357,7 @@ mod tests {
         store.save(snapshot.revision, snapshot.preferences).unwrap();
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn test_environment(root: &Path, name: &str) -> Option<OsString> {
         match name {
             "HOME" | "LOCALAPPDATA" | "XDG_STATE_HOME" => Some(root.as_os_str().to_owned()),
@@ -362,10 +365,51 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn absent_or_relative_environment_does_not_select_a_directory() {
         assert!(directory(Edition::full(), &|_| None).is_none());
         assert!(directory(Edition::full(), &|_| Some("relative".into())).is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "由 macos_directory_uses_the_native_system_home 在独立进程中运行"]
+    fn macos_directory_child() {
+        let root = PathBuf::from(std::env::var_os("CFFIXED_USER_HOME").unwrap());
+        for edition in [Edition::full(), Edition::by_id("pinyin").unwrap()] {
+            let mut expected = root.join("Library/Application Support/MSIME");
+            if edition.id != "full" {
+                expected = expected.join(&edition.id);
+            }
+            assert!(
+                directory(edition, &|name| std::env::var_os(name))
+                    == Some(expected.join("telemetry")),
+                "MCP 与原生宿主必须使用同一个系统 Application Support 目录"
+            );
+        }
+        assert!(!root.join("Library").exists(), "解析目录不应创建队列");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_directory_uses_the_native_system_home() {
+        let root = tempfile::tempdir().unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "crash_reporting::tests::macos_directory_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("CFFIXED_USER_HOME", root.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     /// 手动推进实际采集器，使中间撤回必定发生在两次观察之间；最后仍由真实进程 panic 落盘。
@@ -559,12 +603,15 @@ mod tests {
                 ])
                 .env("MSIME_TEST_CRASH_ROOT", root)
                 .env("MSIME_TEST_CRASH_MODE", mode)
-                .env("HOME", root)
+                .env("CFFIXED_USER_HOME", root)
                 .env("LOCALAPPDATA", root)
                 .env("XDG_STATE_HOME", root)
                 .output()
                 .unwrap();
             assert_eq!(output.status.success(), mode == "recovered", "{mode}");
+            #[cfg(target_os = "macos")]
+            let directory = root.join("Library/Application Support/MSIME/telemetry");
+            #[cfg(not(target_os = "macos"))]
             let directory =
                 directory(Edition::full(), &|name| test_environment(root, name)).unwrap();
             assert!(!directory.join(SESSION_FILE).exists(), "{mode}");

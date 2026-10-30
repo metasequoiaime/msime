@@ -372,3 +372,10 @@ Fcitx5 原生 Wayland 场景关闭 Xwayland、没有 `DISPLAY`，Sway headless �
 IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X11 输入后在 IBus `process_key` 入口制造未修改产品指令的无效访问，故障地址为 `0x59`；原启动器恢复进程并继续中文输入，独立符号还原到 `ClientEngine.cpp:7029`。设置入口经原 `/usr/bin/msime-linux-settings --route=settings`，窗口实际出现；在 `PreferencesStore::usage_reporting_consent` 入口制造无效访问，故障地址为 `0x19`，重启后队列补报，独立符号还原到 `preferences.rs:5675`，没有产生输入会话。
 
 独立审计确认三个入口的 crash 身份与构建头、模块 build-id、偏移一致，`addr2line -i` 得到自有源码位置；159 个安装文件验收前后字节不变，授权关闭、队列清空后实际 `dpkg --purge` 移除全部产品文件。独立证据归档 SHA-256 为 `a3634d19aba1913e3af3ec17857fbd6407030c3b7fd61196e7ab3aeada78dcc1`。后台收件仍未在本轮系统包中启动；系统包的三入口证据不扩大为其他发行版、架构或完整发布后台。
+
+
+### macOS 共享设置与 MCP 的系统目录修复
+
+2026-10-31 继续共享设置隔离准备时，确认设置与 MCP 都按 `HOME` 拼接队列，而原生输入法和语音 helper 按 Foundation 查询系统 Application Support。两者现通过 `host-macos` 同一原生桥查询，保留既有 edition 后缀和安装身份，不把队列迁到偏好目录。两份旧目录函数均被独立子进程负对照拒绝，修复后系统路径、授权生命周期和 MCP stdio 通过，严格 Clippy 及完整 Linux quick 通过。副盘独立 worktree 避免在只剩约 12 GiB 的原构建盘建立新构建树；复制缓存导致的首次链接失败保留，定向清理两个包后重建通过。
+
+详细数量、源码核对和证据见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md#macos-设置与-mcp-进程的系统目录)。本轮没有启动共享设置产品、制造产品故障或发送后台事件；原先的 macOS 共享设置后台与独立符号缺口仍保留。

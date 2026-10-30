@@ -29,6 +29,9 @@ tempfile.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 tokio = { workspace = true, features = ["rt", "macros", "io-std"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+msime-host-macos = { path = "../host-macos" }
+
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 

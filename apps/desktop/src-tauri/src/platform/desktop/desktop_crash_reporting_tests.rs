@@ -8,6 +8,44 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Barrier};
 
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "由 macos_directory_uses_the_native_system_home 在独立进程中运行"]
+fn macos_directory_child() {
+    let root = PathBuf::from(std::env::var_os("CFFIXED_USER_HOME").unwrap());
+    let mut expected = root.join("Library/Application Support/MSIME");
+    let edition = crate::package_edition();
+    if edition.id != "full" {
+        expected = expected.join(&edition.id);
+    }
+    assert!(
+        directory() == Some(expected.join("telemetry")),
+        "设置与原生宿主必须使用同一个系统 Application Support 目录"
+    );
+    assert!(!root.join("Library").exists(), "解析目录不应创建队列");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_directory_uses_the_native_system_home() {
+    let root = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "platform::desktop::desktop_crash_reporting::tests::macos_directory_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("CFFIXED_USER_HOME", root.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn reporter(root: &Path) -> Reporter {
     Reporter {
         preferences: Arc::new(PreferencesStore::new(root.join("preferences"))),

@@ -37,8 +37,8 @@ fn directory() -> Option<PathBuf> {
     let edition = crate::package_edition();
     #[cfg(target_os = "macos")]
     {
-        let root =
-            PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support/MSIME");
+        let support = msime_host_macos::telemetry_support_directory()?;
+        let root = support.join("MSIME");
         Some(
             if edition.id == "full" {
                 root

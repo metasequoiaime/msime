@@ -49,7 +49,7 @@ async fn start(options: &Path, flags: &[&str]) -> (RunningService<RoleClient, ()
     let mut command = Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
     command.arg("--options").arg(options).args(flags);
     // 崩溃采集与宿主共用按版本目录，测试不能碰开发机的真实遥测状态。
-    for name in ["HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
+    for name in ["CFFIXED_USER_HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
         command.env(name, options.parent().unwrap().join("synthetic-home"));
     }
     // The test machine's own input method must not leak in.
@@ -598,7 +598,7 @@ fn run_cli_text(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Str
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
     command.arg("--options").arg(options).args(args);
     // 命令行和长驻服务器都使用合成遥测根目录。
-    for name in ["HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
+    for name in ["CFFIXED_USER_HOME", "LOCALAPPDATA", "XDG_STATE_HOME"] {
         command.env(name, options.parent().unwrap().join("synthetic-home"));
     }
     for name in [

@@ -3341,6 +3341,7 @@ dependencies = [
  "msime-client-core",
  "msime-client-services",
  "msime-host-api",
+ "msime-host-macos",
  "msime-host-windows",
  "msime-path-trust",
  "rmcp",
