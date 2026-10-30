@@ -73,6 +73,8 @@ Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本
 
 随后对真实运行中的 `MetasequoiaImeServer.exe` 的自然 `msime_client_telemetry_consent` 调用设置断点，读取真实请求后恢复原始首字节，将请求指针改为 `1` 并继续执行。目标进程退出码为 `0xc0000005`，看门狗自动重新拉起 Server；`C:\ProgramData\Microsoft\Windows\WER\ReportArchive` 生成 `APPCRASH` 报告，签名模块为暂存的 `msime_host_api.dll`，异常码为 `c0000005`，同时留下两个 `MetasequoiaImeServer.exe.*.dmp`。这证明完整产品 Server 的原生 WER 处置与重启链路已经实际运行，仍未证明 WER helper 将该真实产品事件写入后台队列或完成符号还原。
 
+该报告的 `msime_host_api.dll` PE CodeView GUID/Age 与冻结的 `msime_host_api.pdb` 精确一致（`{22A9F508-7A04-4D9B-8155-DC44AF05FAA4}`, age `3`）；用镜像基址加 WER 偏移交给 `llvm-symbolizer` 可还原到 `<serde_json::read::SliceRead as serde_json::read::Read>::peek`。行号仍为 `??:0`，因为故障是人为把真实 consent 请求指针改成 `1` 后在 JSON 读取路径触发的访问冲突，不能把该位置当作自然业务缺陷。
+
 真实 Windows 11 Notepad 的顶层窗口和嵌套 `RichEditD2DPT` 已定位；当前测试 helper 的跨进程 TSF 激活仍未产生 `MetasequoiaIMEWorkerWnd.full` 或候选窗，因此真实编辑器按键、外部宿主内 TSF worker 和对应后台补报仍未验收。该缺口不能用 Server 的自然 consent 故障证据替代。取证使用专用用户和专用状态目录，未向产品后台发送合成故障。
 
 ## Related notes
