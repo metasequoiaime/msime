@@ -169,7 +169,10 @@ export function TouchKeyboardGeometrySection({
   );
   // 分离式键盘的四行与 Android 原生设置页逐字相同；手机排法里也带说明，理由同上：只在平板和可折叠手机上出现。
   const splitKeyboardRows = splitKeyboard !== undefined && (
-    <TouchSplitKeyboardRows value={splitKeyboard} onChange={(change) => onSplitKeyboardChange?.(change)} />
+    <TouchSplitKeyboardRows
+      value={splitKeyboard}
+      onChange={(change) => onSplitKeyboardChange?.(change)}
+    />
   );
   // 只列这一页上看得到的几项：工具栏按钮只在触屏宿主的「工具栏」组里出现，以前桌面上也写着它。
   const resetSubjects = touchKeyboardResetSubjects({
