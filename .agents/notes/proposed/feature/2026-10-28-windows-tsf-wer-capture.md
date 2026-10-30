@@ -139,6 +139,8 @@ PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and
 
 这批证据只覆盖已安装包 x64/Windows 11；ARM64、Win7 和其他入口仍未完成。CI 旧 head 的 x86 `reopened` 超时仍保留：artifact 显示完整原始记录已写入但目标进程在 45 秒内未退出，不能据此宣布 CI 全绿。
 
+本轮真实使用后的第二个安装器边界是卸载：卸载器移除了 Program Files、合成数据和 WER 双视图值，但 TSF 仍被系统输入法占用时，`System32\IME\metasequoiaime-full\msime_v0.3.0` 下两个 DLL 在硬重启后仍残留。现有 `uninsrestartdelete` 只覆盖 Inno 文件清单，无法保证卸载后自定义清理路径也登记待重启删除。安装脚本现由原生 64 位 PowerShell 通过 `MoveFileExW` 的 `MOVEFILE_DELAY_UNTIL_REBOOT` 对递归残留文件和目录逐项登记，目标为空指针而不是空字符串；生命周期门禁同时锁定原生 PowerShell、延迟删除常量和调用。完整新包重编与真实锁定卸载复验仍待执行，不能把静态门禁当作修复已发布。
+
 ## Alternatives considered
 
 - **超时后保存进程内存转储**：可提供线程调用栈，最利于定位 WER 等待；但即使合成目标也继承运行环境，转储可能扩大诊断内容范围。本轮仅保留本目标最多 128 条线程的 ID、状态与等待原因，以及匹配该 PID 的最多 16 个 WER worker 的 ID、名字与父 PID，不输出内存、环境或命令行。

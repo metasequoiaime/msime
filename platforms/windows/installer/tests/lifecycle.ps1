@@ -45,6 +45,9 @@ $nativePowerShell = "\{#ExecNativeSys\}\(\s*ExpandConstant\('\{sys\}\\WindowsPow
 if ($systemCleanup -notmatch $nativePowerShell -or
     -not $systemCleanup.Contains('[IntPtr]::Size -ne 8') -or
     -not $systemCleanup.Contains('if not IsWin64 then') -or
+    -not $systemCleanup.Contains('MoveFileEx') -or
+    -not $systemCleanup.Contains('MOVEFILE_DELAY_UNTIL_REBOOT') -or
+    -not $systemCleanup.Contains('[IntPtr]::Zero') -or
     $systemCleanup.Contains('-Directory') -or
     $systemCleanup.Contains('DelTree(')) {
     throw 'System32 TIP cleanup does not run in a 64-bit PowerShell'

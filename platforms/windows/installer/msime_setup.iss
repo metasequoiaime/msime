@@ -1209,10 +1209,20 @@ begin
     'if ([IntPtr]::Size -ne 8) { exit 3 }; ' +
     '$root = ''' + ExpandConstant('{#MySystemTipDir}') + '''; ' +
     '$keep = ''' + Keep + '''; ' +
+    'Add-Type -TypeDefinition ''using System;using System.Runtime.InteropServices;public static class MsimeDelayedDelete { public const uint MOVEFILE_DELAY_UNTIL_REBOOT=4; [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode, SetLastError=true)] public static extern bool MoveFileEx(string existing, IntPtr replacement, uint flags); }''; ' +
     'if (-not (Test-Path -LiteralPath $root)) { exit 0 }; ' +
     'Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
     'Where-Object { $_.Name -ine $keep } | ' +
     'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; ' +
+    '$remaining = @(Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
+    'Where-Object { $_.Name -ine $keep }); ' +
+    'foreach ($directory in $remaining) { ' +
+    '  @(Get-ChildItem -LiteralPath $directory.FullName -Recurse -Force -File | Sort-Object FullName -Descending) | ' +
+    '    ForEach-Object { [MsimeDelayedDelete]::MoveFileEx($_.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null }; ' +
+    '  @(Get-ChildItem -LiteralPath $directory.FullName -Recurse -Force | Where-Object { $_.PSIsContainer } | Sort-Object FullName -Descending) | ' +
+    '    ForEach-Object { [MsimeDelayedDelete]::MoveFileEx($_.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null }; ' +
+    '  [MsimeDelayedDelete]::MoveFileEx($directory.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null ' +
+    '}; ' +
     'if (($keep -eq '''') -and -not (Get-ChildItem -LiteralPath $root -Force)) { ' +
     'Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue }"',
     '',
