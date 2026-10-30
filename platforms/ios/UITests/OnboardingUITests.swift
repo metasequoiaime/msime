@@ -328,7 +328,7 @@ final class OnboardingUITests: XCTestCase {
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
-    // 语音入口已移到 语音输入 → 启动方式，所以这一页上无论标识符是什么，都没有与它相关的开关。
+    // 语音入口已移到 语音输入 → 长按空格说话，所以这一页上无论标识符是什么，都没有与它相关的开关。
     XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "语音入口")).firstMatch.exists)
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)

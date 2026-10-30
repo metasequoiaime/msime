@@ -36,5 +36,5 @@ Android 皮肤页预览的 26 键第二排铺满整行、字母大写，九键�
 - Android：`check-host.sh` 311 项冒烟通过（新增 `KeyboardPreviewLayoutSmoke`），`build-editor.sh` 和 Gradle `compileFullDebugJavaWithJavac` 通过。
 - 共享页：`npx vitest run tests/settings tests/community tests/keyboard` 593 个文件 3719 项通过（新增 `harmony-keyboard-preview-layout.test.tsx`，含九键双拼、笔画画九宫格），`tsc`、`vp fmt --check`、`vp lint` 通过。
 - iOS 跟进（笔画画九宫格、皮肤页按当前键盘类型画）：新增 `KeyLayoutStyleTests.testPreviewFaceFollowsTheCurrentKeyboardKind` 和 `testPreviewFaceReadsTheSharedDocument`，结果见跟进 PR 的验证一节和它的 iOS Simulator CI。
-- iOS 工具栏设置页补 符：`TouchToolbarPreferenceTests` 新增两项钉住预览规则（只有 26 键长空格带 符、排在最前；隐藏或全关时长空格仍画 符，其他样式不画；语音入口让全关的工具栏不算空），`KeyLayoutStyleTests.testToolbarPreviewMatchesTheKeyboardToolbarForEveryTwentySixKeyStyle` 对每种 26 键样式、两种显示方式，拿真键盘空闲时工具栏的可见按钮逐个比预览。结果见 PR 的验证一节和它的 iOS Simulator CI。
+- iOS 工具栏设置页补 符：`TouchToolbarPreferenceTests` 新增两项钉住预览规则（只有 26 键长空格带 符、排在最前；隐藏或全关时长空格仍画 符，其他样式不画），`KeyLayoutStyleTests.testToolbarPreviewMatchesTheKeyboardToolbarForEveryTwentySixKeyStyle` 对每种 26 键样式、两种显示方式，拿真键盘空闲时工具栏的可见按钮逐个比预览。结果见 PR 的验证一节和它的 iOS Simulator CI。
 - 三端都没在模拟器或真机上看过修好后的预览。

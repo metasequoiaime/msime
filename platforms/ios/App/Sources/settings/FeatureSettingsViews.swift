@@ -349,12 +349,13 @@ struct ServiceSettingsView: View {
   var body: some View {
     Form {
       if !autoStartVoice {
-        providerSection
+        providerSection.designRow()
         if kind == .ai || !configuration.voiceProvider.isOnDevice {
-          configurationSection
+          configurationSection.designRow()
         }
         if kind == .voice && configuration.voiceProvider == .local {
           LocalSpeechModelsSection(manager: localModels, disabled: busy || recorder.isRecording || recorder.isPreparing)
+            .designRow()
         }
       }
 
@@ -371,6 +372,7 @@ struct ServiceSettingsView: View {
         } footer: {
           Text("开启后点击“保存配置”，即可在键盘功能菜单的“AI 润色”和“高情商回复”中使用。需要允许完全访问；每次发送前会预览文字。")
         }
+        .designRow()
         if keyboardAIEnabled {
           Section {
             Toggle("候选栏 AI 候选", isOn: $aiCandidatesEnabled)
@@ -386,6 +388,7 @@ struct ServiceSettingsView: View {
           } footer: {
             Text("打全拼时把已输入的拼音和前文发给上面保存的服务，把联想结果补在候选栏里，与云候选相同。密钥只留在本机钥匙串，不写入可同步的设置。")
           }
+          .designRow()
         }
         Section("AI 润色") {
           TextEditor(text: $input).frame(minHeight: 100)
@@ -393,13 +396,15 @@ struct ServiceSettingsView: View {
           Button(busy ? "正在处理…" : "发送并润色") { send() }
             .disabled(busy || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        .designRow()
         Section {
           NavigationLink("AI 对话") { KeyboardTryoutView(title: "AI 对话") }
             .accessibilityIdentifier("aiChatLink")
         } footer: {
           Text("在独立页面里对话，同时可以试用键盘。")
         }
-        CommunityReplyTemplatesSection()
+        .designRow()
+        CommunityReplyTemplatesSection().designRow()
       } else {
         Section {
           Button(recorder.isRecording ? "停止录音" : "开始录音") { toggleVoiceRecording() }
@@ -419,22 +424,22 @@ struct ServiceSettingsView: View {
             Button("删除录音", role: .destructive) { recorder.discard() }.disabled(busy)
           }
         } header: {
-          Text("语音转文字")
+          Text("试一下")
         } footer: {
-          Text(recognizesOnDevice
-            ? "在水杉 App 中录音，由本机识别，边说边显示文字，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。"
-            : "在水杉 App 中录音识别，再将结果发送到键盘或复制。iOS 键盘扩展不能直接录音。")
+          // 平时在键盘上按住空格说话（VoiceSessionService）；这里录一段检查当前服务的识别效果，也可以复制结果或交给键盘。
+          Text("录一段话，看看当前服务的识别效果。平时在键盘上按住空格说话，松开就上屏。")
         }
+        .designRow()
         if !autoStartVoice {
-          voiceOptionsSection
-          voicePolishSection
+          voiceOptionsSection.designRow()
+          voicePolishSection.designRow()
         }
       }
       if busy {
-        Button("取消请求") { cancelRequest(); status = "已取消" }
+        Section { Button("取消请求") { cancelRequest(); status = "已取消" } }.designRow()
       }
       if !status.isEmpty {
-        Section { Text(status).accessibilityIdentifier("serviceStatus") }
+        Section { Text(status).accessibilityIdentifier("serviceStatus") }.designRow()
       }
       if !output.isEmpty {
         Section("结果") {
@@ -453,6 +458,7 @@ struct ServiceSettingsView: View {
             }.accessibilityIdentifier("sendVoiceToKeyboard")
           }
         }
+        .designRow()
       }
       if kind == .voice, let voiceTransfer {
         Section {
@@ -469,8 +475,10 @@ struct ServiceSettingsView: View {
         } header: { Text("等待键盘插入") } footer: {
           Text("需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。")
         }
+        .designRow()
       }
-      Section {
+      // 隐私说明是整页的脚注，不占一张卡片。
+      Section {} footer: {
         Text(kind == .ai
           ? "仅在点击发送时，将上方文字发送到你配置的服务。键盘日常输入不会自动上传。"
           : configuration.voiceProvider == .local
@@ -478,9 +486,9 @@ struct ServiceSettingsView: View {
           : configuration.voiceProvider == .system
           ? "录音交给 iOS 的语音识别；设备支持当前语言的本机识别时不离开设备，否则按系统设置由 Apple 处理。离开页面会清除本地录音。"
           : "仅在点击发送时，将本次录音发送到你配置的服务。离开页面会清除本地录音。")
-          .font(.footnote).foregroundStyle(.secondary)
       }
     }
+    .designPage()
     .navigationTitle(autoStartVoice ? "语音输入" : kind.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -581,15 +589,19 @@ struct ServiceSettingsView: View {
           .padding(.leading, 16).accessibilityIdentifier("voiceEndSound")
       }
     } footer: {
-      Text(configuration.voiceProvider == .local
-        ? "本地模型边说边显示文字；“普通话 + 英语”时由模型判断中文、英文、粤语等语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
-        : configuration.voiceProvider == .system
-        ? "系统语音识别按这里的语言识别；选“普通话 + 英语”时使用 iPhone 的首选语言。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
-        : configuration.voiceProvider == .doubao
-        ? "豆包自动判断语言，不使用这里的选择。边说边识别时录音同步发给豆包，结果随说随显示，停止录音即得到结果；关掉则录完再发送。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
-        : configuration.voiceProvider == .siliconFlow || configuration.voiceProvider.usesChatAudio
-        ? "当前服务自动判断语言，不使用这里的选择。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。"
-        : "识别语言随录音一起发送；选“普通话 + 英语”时由服务判断。开始和结束录音时各有一声系统提示音，可以分别关掉。打开“录音时暂停其他声音”会让正在播放的音乐和视频在录音期间停下；关着时它们继续播放，但声音可能被一起录进去。")
+      Text(languageFooter + "打开“录音时暂停其他声音”时，音乐和视频在录音期间停下；关着时它们可能被一起录进去。")
+    }
+  }
+
+  /// 「识别语言」一节脚注的第一句：各服务怎么用这里选的语言。
+  private var languageFooter: String {
+    switch configuration.voiceProvider {
+    case .local: "本地模型边说边显示文字；选“普通话 + 英语”时由模型判断语言。"
+    case .system: "系统语音识别按这里的语言识别；选“普通话 + 英语”时用 iPhone 的首选语言。"
+    case .doubao: "豆包自动判断语言。边说边识别时结果随说随显示，关掉则说完再上传。"
+    case .siliconFlow: "当前服务自动判断语言。"
+    case let provider where provider.usesChatAudio: "当前服务自动判断语言。"
+    default: "识别语言随录音一起发送；选“普通话 + 英语”时由服务判断。"
     }
   }
 

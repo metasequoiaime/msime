@@ -31,6 +31,8 @@ Status: implemented
 
 代价：Android 的 `SpaceKeyFace` 是 View，JVM 冒烟画不出来，`SpaceKeyMicSmoke` 按源码（先压空白）钉住两处 `setShowsMic` 和设置页说明；说明里提到的磁贴由同一个冒烟经 `FunctionPanelModel` 和 `ImeFunctionPanel` 的接线核对，以后选「无」若也藏掉磁贴，冒烟会提醒改说明。真实键面要在设备上看。
 
+iOS 的「启动方式」后来换回维护者 10-21 定下的「长按空格说话」开关，「无」的说明随之改为开关关着时的说明，空格键麦克风仍跟随这个开关，见[恢复 iOS 语音入口](2026-10-30-ios-voice-entry-restore.md)。
+
 ## Testing
 
 - Android：`platforms/android/check-host.sh` 跑全部 JVM 冒烟，其中 `SpaceKeyMicSmoke` 覆盖本次改动；Gradle `compileFullReleaseJavaWithJavac` 编译 `home/VoicePage.java`。

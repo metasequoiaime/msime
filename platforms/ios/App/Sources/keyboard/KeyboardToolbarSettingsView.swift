@@ -8,8 +8,6 @@ struct KeyboardToolbarSettingsView: View {
   @State private var phrases = TouchToolbarLocalPreference.phrases
   @State private var scheme = TouchToolbarLocalPreference.scheme
   @State private var hidden = TouchToolbarLocalPreference.hidden
-  /// 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
-  @State private var voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var skin = KeyboardTheme.current
   /// 预览画的字母层底行，同时决定工具栏上有没有 符：26 键「长空格」把 符 从底行挪到工具栏。
   @State private var keyLayout = TouchKeyLayoutStyle.mirrored
@@ -81,8 +79,7 @@ struct KeyboardToolbarSettingsView: View {
 
   /// 预览工具栏上品牌键和收起键之间的按钮；nil 是键盘空闲时不显示工具栏内容（显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键），26 键「长空格」时这一行总带着 符，与键盘的 `toolbarRowHidden` 一致（`KeyboardToolbarPreviewRow`）。
   private var previewItems: [KeyboardPreviewToolbarItem]? {
-    KeyboardToolbarPreviewRow.items(toolbar, phrases: phrases, scheme: scheme, hidden: hidden,
-                                    voiceShortcut: voiceShortcut, keyLayout: keyLayout)
+    KeyboardToolbarPreviewRow.items(toolbar, phrases: phrases, scheme: scheme, hidden: hidden, keyLayout: keyLayout)
   }
 
   private var rowHidden: Bool { previewItems == nil }
@@ -131,7 +128,6 @@ struct KeyboardToolbarSettingsView: View {
     phrases = TouchToolbarLocalPreference.phrases
     scheme = TouchToolbarLocalPreference.scheme
     hidden = TouchToolbarLocalPreference.hidden
-    voiceShortcut = KeyboardLayoutPreference.voiceShortcutEnabled
     keyLayout = TouchKeyLayoutStyle.mirrored
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)

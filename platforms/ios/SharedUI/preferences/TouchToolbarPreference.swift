@@ -2,7 +2,7 @@ import Foundation
 
 /// 工具栏按钮: the optional buttons on the keyboard's shortcut bar, from the shared `touch_toolbar`, the touch counterpart of the Windows floating toolbar's component switches.
 ///
-/// A missing document or a missing switch reads as its default, which is the bar the keyboard always had: settings, emoji and skin on, the rest off. The voice entry keeps its own `touch_voice_shortcut`, and the brand, scheme and dismiss buttons are not optional.
+/// A missing document or a missing switch reads as its default, which is the bar the keyboard always had: settings, emoji and skin on, the rest off. There is no voice button: iOS starts voice from a long press on space or the 语音输入 tile, and `touch_voice_shortcut` is Android's toolbar voice button, which iOS neither reads nor writes. The brand, scheme and dismiss buttons are not optional.
 struct TouchToolbarPreference: Equatable {
   static let key = "touch_toolbar"
 
@@ -124,7 +124,7 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
 /// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`longSpaceToolbarRowKept` 相同。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
 enum KeyboardToolbarPreviewRow {
   static func items(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool, hidden: Bool,
-                    voiceShortcut: Bool, keyLayout: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
+                    keyLayout: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
     let symbols = keyLayout.twentySixKey == .longSpace
     // 按键盘绘制顺序：表情、常用语、剪贴板、皮肤、输入方式，然后是 iOS 独有项。
     let ordered: [(enabled: Bool, item: KeyboardPreviewToolbarItem)] = [
@@ -133,8 +133,7 @@ enum KeyboardToolbarPreviewRow {
       (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation),
     ]
     let tools = hidden ? [] : ordered.filter(\.enabled).map(\.item)
-    // 「顶部语音入口」也画在工具栏上，它打开时工具栏就不算空。
-    if !symbols && (hidden || (tools.isEmpty && !voiceShortcut)) { return nil }
+    if !symbols && (hidden || tools.isEmpty) { return nil }
     return (symbols ? [.symbols] : []) + tools
   }
 }

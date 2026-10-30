@@ -350,8 +350,7 @@ final class KeyLayoutStyleTests: XCTestCase {
         let label = "\(style.rawValue), hidden \(hidden)"
         let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
         let preview = KeyboardToolbarPreviewRow.items(TouchToolbarPreference.load(), phrases: TouchToolbarLocalPreference.phrases,
-                                                      scheme: TouchToolbarLocalPreference.scheme, hidden: hidden,
-                                                      voiceShortcut: KeyboardLayoutPreference.voiceShortcutEnabled, keyLayout: layout)
+                                                      scheme: TouchToolbarLocalPreference.scheme, hidden: hidden, keyLayout: layout)
         XCTAssertEqual(bar.isHidden, preview == nil, label)
         if let preview {
           // 品牌键、收起键以及预览不画的回复和语音入口不比。
