@@ -178,6 +178,8 @@ struct CloudDictionaryFilesView: View {
     .sheet(item: $exported) { item in
       CloudDictionaryShareView(url: item.url)
         .onDisappear { try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent()) }
+        // 系统分享面板本来就从半屏弹起；包在 sheet 里时不设高度就被撑成整屏，上半截空着。
+        .presentationDetents([.medium, .large])
     }
   }
   private struct InvalidTextFile: LocalizedError, Sendable {

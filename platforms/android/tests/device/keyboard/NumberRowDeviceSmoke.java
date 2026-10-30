@@ -13,11 +13,12 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 数字行（#6022）的设备验收：打开本地设置后 26 键字母上方出现 1–0；空闲时点数字上屏数字；组字中点 Engine 不收的 0 先按首选结束组合再上屏，不顶掉组字区里的拼音；手机横屏时不画数字行。 */
+/** 数字行（#6022）的设备验收：打开共享偏好 `touch_number_row` 后 26 键字母上方出现 1–0；空闲时点数字上屏数字；组字中点 Engine 不收的 0 先按首选结束组合再上屏，不顶掉组字区里的拼音；手机横屏时不画数字行。 */
 public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
-    /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code NUMBER_ROW}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
+    /** {@code AndroidLocalSettings.FILE_NAME}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
-    private static final String NUMBER_ROW_SETTING = "platform.android.number_row";
+    /** 顶部数字行的共享偏好（{@code TouchKeyStyle.NUMBER_ROW_PREFERENCE}）。 */
+    private static final String NUMBER_ROW_SETTING = "touch_number_row";
 
     @Override protected String successDescription() {
         return "automatic context activation and IME reset, number row above the letters, idle digit commit, declined digit after the composition, five-row number/symbol pages and no extra row when disabled or in a landscape phone window";
@@ -66,9 +67,9 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
             if (!localSettings.getParentFile().isDirectory() && !localSettings.getParentFile().mkdirs())
                 throw new AssertionError("Local settings directory unavailable");
             publish(localSettings, new JSONObject().put("version", 1)
-                .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, true)
-                    .put("platform.android.keyboard_height_adjustment", 55))
+                .put("settings", new JSONObject().put("platform.android.keyboard_height_adjustment", 55))
                 .toString().getBytes(StandardCharsets.UTF_8));
+            putSharedPreference(NUMBER_ROW_SETTING, true);
             restartIme();
             openEditor();
             if (findVisible(key("英")) != null) tap(key("英"));
@@ -126,7 +127,8 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
                 throw new AssertionError("English number page lost its fifth row");
             tap(key("["));
             await(field("msime-test-plain").and(node -> equalsText("5你好0‰7[", node.getText())));
-            tap(key("ABC"));
+            // #9925 起英文数字页左下的返回键也印「返回」（描述「返回原键盘」），不再是 ABC。
+            tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
             tap(key("英"));
             await(key("中"));
 
@@ -150,9 +152,7 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
                 await(digit("1"));
             }
             stage = "disabled number row also removes the symbol extra row";
-            publish(localSettings, new JSONObject().put("version", 1)
-                .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, false))
-                .toString().getBytes(StandardCharsets.UTF_8));
+            putSharedPreference(NUMBER_ROW_SETTING, false);
             restartIme();
             openEditor();
             awaitStableBounds(key("q"));

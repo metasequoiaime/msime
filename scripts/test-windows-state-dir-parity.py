@@ -94,8 +94,9 @@ def main() -> int:
         failures.append(f"{HEADER.relative_to(ROOT)}: state_directory_registry_value is no longer {REGISTRY_VALUE}")
     if f'"{REGISTRY_VALUE}\\0"' not in registry:
         failures.append(f"installed_data_directory does not read {REGISTRY_VALUE}")
-    for flag in ("HKEY_LOCAL_MACHINE", "RRF_RT_REG_SZ", "RRF_SUBKEY_WOW6464KEY"):
-        if header.count(flag) < 1:
+    native_registry = (ROOT / "platforms/windows/common/RegistryString.h").read_text(encoding="utf-8")
+    for flag in ("HKEY_LOCAL_MACHINE", "RegOpenKeyExW", "RRF_RT_REG_SZ", "KEY_WOW64_64KEY"):
+        if flag not in header + native_registry:
             failures.append(f"{HEADER.relative_to(ROOT)} no longer uses {flag}")
         if flag not in registry:
             failures.append(f"installed_data_directory no longer uses {flag}")

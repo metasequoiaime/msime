@@ -27,7 +27,7 @@ import {
 import { useCommunitySkinLibrary } from "./use-community-skin-library";
 import { useCommunitySkinGallery } from "./use-community-skin-gallery";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
-import { harmonyTouchRowsForPreferences } from "../keyboard/keyboard-layouts";
+import { harmonyTouchRowsForPreferences } from "../settings/touch-key-layout-settings";
 
 import { type CommunitySkinClient } from "./community-skin-model";
 export {
@@ -50,6 +50,7 @@ export function CommunitySkinsPage({
   onApplyPreferences,
   onSkinApplied,
   historyPage = "community",
+  contributions = true,
 }: {
   client: CommunitySkinClient;
   theme: "light" | "dark";
@@ -68,6 +69,8 @@ export function CommunitySkinsPage({
   onSkinApplied?: (id: string) => void;
   /** 手机上打开详情时压入的历史记录所属的设置页。触屏宿主在「皮肤」页里打开这个图库，记录要留在那一页，返回手势才会先关详情、再关图库；缺省是桌面的「社区」页。 */
   historyPage?: string;
+  /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。为 false 时（HarmonyOS 在实名认证到位之前）没有「发布设计」，详情里也没有评分、改分类和举报；浏览、获取、试用和下架自己的作品照常。缺省为提供。 */
+  contributions?: boolean;
 }) {
   const {
     categoryFilter,
@@ -110,6 +113,7 @@ export function CommunitySkinsPage({
   });
 
   const harmony = look === "harmony";
+  // 鸿蒙手机上卡片、详情和发布对话框的键盘预览按读卡人自己的偏好画（中文键盘、底行样式、数字行，`harmonyTouchRowsForPreferences`）：社区皮肤只带配色不带键位，作者用什么排法无从得知，读卡人想看的是这款皮肤装到自己键盘上的样子。拿不到偏好时画标准的全拼 26 键。
   const toast = useToast();
   const { pillState, take, apply } = useCommunitySkinLibrary({
     client,
@@ -128,7 +132,7 @@ export function CommunitySkinsPage({
         skin={selected}
         theme={theme}
         phonePreview={mobile}
-        touchRows={harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
+        touchRows={harmony ? harmonyTouchRowsForPreferences(preferences) : undefined}
         actionBusy={actionBusy}
         detailBusy={detailBusy}
         actionNotice={actionNotice}
@@ -140,21 +144,23 @@ export function CommunitySkinsPage({
         onBack={() => void closeDetail()}
         onDownload={() => void download()}
         onFinishTrial={(keep) => void finishTrial(keep)}
-        onChangeCategory={(next) => void changeOwnCategory(next)}
-        onRate={(stars) => void rateSelected(stars)}
+        onChangeCategory={contributions ? (next) => void changeOwnCategory(next) : undefined}
+        onRate={contributions ? (stars) => void rateSelected(stars) : undefined}
         onRequestUnpublish={() => setConfirmUnpublish(true)}
         onUnpublish={() => void unpublish()}
         onCancelUnpublish={() => setConfirmUnpublish(false)}
-        onReport={client.report ? reportSelected : undefined}
+        onReport={contributions && client.report ? reportSelected : undefined}
       />
     );
 
-  const publishDialog = publishOpen && localSkinLibrary && (
+  // 能发布的前提：宿主提供投稿类功能，并且有已保存的设计可选。
+  const publishable = contributions && Boolean(localSkinLibrary);
+  const publishDialog = publishOpen && publishable && localSkinLibrary && (
     <CommunitySkinPublishDialog
       client={client}
       library={localSkinLibrary}
       phonePreview={mobile}
-      touchRows={harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
+      touchRows={harmony ? harmonyTouchRowsForPreferences(preferences) : undefined}
       onClose={() => setPublishOpen(false)}
       onPublished={publishDone}
       onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
@@ -206,7 +212,7 @@ export function CommunitySkinsPage({
           >
             我的作品
           </button>
-          {localSkinLibrary && (
+          {publishable && (
             <button
               type="button"
               className={style.harmonyChipAction}
@@ -241,7 +247,7 @@ export function CommunitySkinsPage({
                   key={skin.id}
                   skin={skin}
                   theme={theme}
-                  touchRows={preferences ? harmonyTouchRowsForPreferences(preferences) : undefined}
+                  touchRows={harmonyTouchRowsForPreferences(preferences)}
                   pill={pill}
                   open={() => open(skin)}
                   act={() => void (pill === "use" ? apply(skin) : take(skin))}
@@ -279,7 +285,7 @@ export function CommunitySkinsPage({
           mineLabel="我的作品"
           onMineOnlyChange={changeMineOnly}
         />
-        {localSkinLibrary && (
+        {publishable && (
           <ActionButton
             action={() => setPublishOpen(true)}
             className="primary"
@@ -317,9 +323,7 @@ export function CommunitySkinsPage({
               skin={skin}
               theme={theme}
               phonePreview={mobile}
-              touchRows={
-                harmony && preferences ? harmonyTouchRowsForPreferences(preferences) : undefined
-              }
+              touchRows={harmony ? harmonyTouchRowsForPreferences(preferences) : undefined}
               open={() => open(skin)}
             />
           ))}

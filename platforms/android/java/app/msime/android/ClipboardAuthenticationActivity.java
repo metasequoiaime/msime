@@ -29,6 +29,8 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
 
     @Override protected void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         result = getIntent().getParcelableExtra(EXTRA_RESULT);
         if (BiometricManager.from(this).canAuthenticate(AUTHENTICATORS)
                 != BiometricManager.BIOMETRIC_SUCCESS) {

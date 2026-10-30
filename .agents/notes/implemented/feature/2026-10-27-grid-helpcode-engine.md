@@ -12,6 +12,8 @@ Status: implemented
 
 本切片在原搜索预算内、候选截断前匹配；模型及固定位置处理后再守住排序边界。不把辅筛列表写回普通历史种子。阶段 3 继续接通 runtime、C ABI、共享偏好和 Android UI；只在网格辅筛启用且有条件时接管呈现排序。
 
+与当前 develop 的首页补全降权合并时，保留普通候选的折算，再由显式辅筛守住最终排序。辅筛开关和专用动作同时推进核心 `Session::candidate_revision`，动作清除上一键遗留的触点，避免门面沿用旧修订号下缓存的候选。
+
 ## Historical audit
 
 - [普通网格基线](../testing/2026-10-27-grid-helpcode-baseline.md)部分重叠，保留原行为测试决定。
@@ -55,3 +57,5 @@ Windows 本机验证：新增十项通过；现有 nine_key 268 通过、15 原�
 原有 Android 专项回归：API35 十八键全拼的设置、组码、消歧、实体字母、布局回落与几何通过；九键候选面板的锁定、退格、笔画／单字筛选和最近读音通过。
 
 API28 原有十四键双拼设置、组码、消歧、分号、自定义表与布局回落专项也通过。首次安装说明弹窗造成的首轮测试阻塞在弹窗结束后复跑解决；未改产品逻辑。
+
+同步 develop 的本轮 macOS 远端验证：`scripts/verify-local.sh --quick` 通过，engine 的 `grid_helpcode` 十项、host-api 两项、engine 的 `grid_` 回归 31 项（真实词库性能用例按原配置忽略一项）、input-runtime 全量 422 项通过；engine/input-runtime 的 `clippy --all-targets -- -D warnings`、格式、笔记校验通过。Android `:app:compileFullDebugJavaWithJavac` 通过。quick 中未提供工具链或环境的 Docker Linux、WinUI 与 Harmony 等阶段仍按脚本跳过；本轮没有重做上述 Android 设备交互验收。原投稿环境的门禁结果保留在前文，本轮通过不代表完整发布或真机验收。

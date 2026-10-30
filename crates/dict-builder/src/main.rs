@@ -14,6 +14,7 @@
 //! msime-dict-build hanja --dictionary <msime-dictionary checkout> --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
 //! msime-dict-build languages --dictionary <msime-dictionary checkout> --cache <dir> [--out <dir>] [--offline]
+//! msime-dict-build syllable-frequency --pinyin <msime-pinyin.db> [--out <syllable_frequency.tsv>]
 //! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
@@ -41,6 +42,7 @@ mod rime_ice_supplement;
 mod sources;
 mod sqlite;
 mod stroke;
+mod syllable_frequency;
 mod text;
 mod web;
 mod wubi86_helpcode;
@@ -179,6 +181,30 @@ enum Command {
     Languages(Languages),
     /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），给了 --japanese 时再从 msime-japanese.dat 裁出成本最低的 N 条词，都逐字节可复现。
     Web(WebArgs),
+    /// 从词库 release 的 msime-pinyin.db 写出九宫格切分用的音节频度表（crates/engine/src/nine_key/syllable_frequency.tsv）：单字行的权重，加上音节在多字词里每出现一次计一次的词的权重。
+    SyllableFrequency(SyllableFrequency),
+}
+
+#[derive(Args)]
+struct SyllableFrequency {
+    /// 词库 release 的 msime-pinyin.db，只读打开。
+    #[arg(long)]
+    pinyin: PathBuf,
+    /// 写出的表；默认是引擎内嵌的那份。
+    #[arg(long, default_value_os_t = repository_root().join("crates/engine/src/nine_key/syllable_frequency.tsv"))]
+    out: PathBuf,
+}
+
+fn build_syllable_frequency(arguments: &SyllableFrequency) -> Result<()> {
+    let table = syllable_frequency::build(&arguments.pinyin)?;
+    std::fs::write(&arguments.out, &table)
+        .with_context(|| format!("write {}", arguments.out.display()))?;
+    eprintln!(
+        "[done] {} syllables -> {}",
+        table.lines().filter(|line| !line.starts_with('#')).count(),
+        arguments.out.display()
+    );
+    Ok(())
 }
 
 #[derive(Args)]
@@ -1396,6 +1422,9 @@ fn main() -> Result<()> {
     if let Some(Command::Web(web)) = &arguments.command {
         return build_web(web);
     }
+    if let Some(Command::SyllableFrequency(frequency)) = &arguments.command {
+        return build_syllable_frequency(frequency);
+    }
     if let Some(Command::CheckWords(check)) = &arguments.command {
         match check_words(check) {
             Ok(true) => return Ok(()),
@@ -1475,6 +1504,7 @@ fn main() -> Result<()> {
     }
 
     product::split_wubi_database(&build.out)?;
+    product::stamp_format_versions(&build.out)?;
 
     for name in product::SHIPPING_ARTIFACTS
         .iter()

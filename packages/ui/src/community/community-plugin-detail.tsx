@@ -25,7 +25,8 @@ export interface CommunityPluginDetailProps {
   onBack: () => void;
   onInstall: (replace: boolean) => void;
   onCancelReplace: () => void;
-  onRate: (stars: number) => void;
+  /** 给他人作品评分；不给时不画评分按钮（宿主不提供社区投稿类功能时）。 */
+  onRate?: (stars: number) => void;
   onRequestUnpublish: () => void;
   onUnpublish: () => void;
   onCancelUnpublish: () => void;

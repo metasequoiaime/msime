@@ -79,6 +79,10 @@ struct DictionarySyncView: View {
       generation += 1
       busy = false
     }
+    // 不经本页发起的同步（App 回到前台的 `opened`、按时的 `periodic`）只更新 `center.lastRun`：页面开着时照它换上状态，否则「待发送」「上次同步」要离开再进来才变。键盘扩展记下的改动在 App 回到前台的那一次 `opened` 里反映出来。
+    .onReceive(center.$lastRun) { run in
+      if let run { adopt(run.status) }
+    }
     .sheet(isPresented: $editing) {
       DictionarySyncWebDAVEditor(saved: configuration) { saved() }
     }
@@ -138,6 +142,15 @@ struct DictionarySyncView: View {
         valueRow("待发送", status.map { "\($0.pending_upload)" } ?? "—", identifier: "dictionarySyncPendingUpload")
         DesignDivider()
         valueRow("待写入本机", status.map { "\($0.pending_apply)" } ?? "—", identifier: "dictionarySyncPendingApply")
+        if let budgetWait = IOSDictionarySyncPolicy.budgetWait(status?.budget_wait_until) {
+          DesignDivider()
+          Text(budgetWait)
+            .designSubtext()
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("dictionarySyncBudgetWait")
+        }
         if let lastError {
           DesignDivider()
           Text(IOSDictionarySyncPolicy.failureMessage(lastError))
@@ -436,6 +449,17 @@ struct DictionarySyncView: View {
     }
   }
 
+  /// 换上一次同步带回的状态，不论是谁发起的。本机的批准状态因此变了而设备列表还是旧的（例如在另一台设备上允许之后，定时的那一次同步先取到了密钥），就再读一次设备，免得「本机正在等待批准」一直留着；本页自己的请求在途时不读，它跑完会自己读。
+  @MainActor private func adopt(_ next: IOSDictionarySync.Status) {
+    status = next
+    guard !busy, let devices, next.device_id != nil, devices.isPending != next.isPending else { return }
+    let current = generation
+    Task { @MainActor in
+      guard let list = try? await center.perform({ sync in try await sync.devices() }), current == generation else { return }
+      self.devices = list
+    }
+  }
+
   @MainActor private func approve(_ device: BackendAccountClient.ClipboardDevice) {
     deviceAction { sync in try await sync.approve(device.device_id) }
   }
@@ -616,6 +640,7 @@ struct DictionarySyncWebDAVEditor: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("词库同步网盘")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

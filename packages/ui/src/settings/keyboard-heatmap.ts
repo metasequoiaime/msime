@@ -5,6 +5,14 @@ import {
   type PreviewKey,
 } from "../keyboard/keyboard-layouts";
 import { clamp } from "../core/number";
+import {
+  nineKeyBottomRows,
+  numberRowKeys,
+  twentySixKeyBottomRows,
+  withLanguageKeyLeft,
+  withSymbolFirst,
+  type TouchKeyLayoutStyle,
+} from "../keyboard/touch-key-layout-styles";
 
 /** Per-key press counts per local day, as the statistics store keeps them: `{ "YYYY-MM-DD": { keyId: count } }`. */
 export type DailyKeyCounts = Record<string, Record<string, number>>;
@@ -249,9 +257,13 @@ export function keyHeatLevel(count: number, maximum: number): number {
 export type PhoneHeatmapLayout = "full" | "nine";
 
 /**
- * 统计概览热力图上的一个键：`label` 印在键帽上，`name` 是读屏念的名字，省略时取 `keyLabel(code)`。`also` 是同一个键位在别的模式下记的 id，与 `code` 的次数相加。没有 `code` 的是占位，只占宽度、不画键帽（26 键第二行两端的半键缩进）。
+ * 统计概览热力图上的一个键：`label` 印在键帽上，`name` 是读屏念的名字，省略时取 `keyLabel(code)`。`also` 是同一个键位在别的模式下记的 id，与 `code` 的次数相加。没有 `code` 的是占位，只占宽度、不画键帽（26 键第二行两端的半键缩进，「右侧大回车」底行里回车下伸占着的位置）。`rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车）。
  */
-export type PhoneHeatmapKey = PreviewKey & { name?: string; also?: readonly string[] };
+export type PhoneHeatmapKey = PreviewKey & {
+  name?: string;
+  also?: readonly string[];
+  rowSpan?: number;
+};
 
 const phoneKey = (label: string, code: string, weight = 1, name?: string): PhoneHeatmapKey =>
   name === undefined ? { label, weight, code } : { label, weight, code, name };
@@ -320,6 +332,52 @@ export const phoneHeatmapRows: Record<PhoneHeatmapLayout, PhoneHeatmapKey[][]> =
   ],
 };
 
+/**
+ * 九键「右侧大回车」的热力图，照 HarmonyOS `KeyboardView.tallReturnNineKeyFrame` 画：网格两行与默认相同（右列 ⌫、分词）；第三行左列印「？！」（！ 让到了符号栏末尾，四个标点仍记同一个 `SoftPunctuation`），右列是跨第三行和底行的回车；底行 符 | 123 | 空格 | 中 与左列、网格对齐（`nineKeyBottomRows.tall_return`），打开「中/英键放在空格左边」时是 符 | 123 | 中 | 空格，回车下伸的位置是占位。统计 id 与其他样式相同。
+ */
+function nineTallReturnFrame(languageLeft: boolean): PhoneHeatmapKey[][] {
+  const [first, second, third] = phoneHeatmapRows.nine;
+  const bottom = withLanguageKeyLeft(nineKeyBottomRows.tall_return, languageLeft);
+  const returnKey = bottom[bottom.length - 1];
+  return [
+    first,
+    second,
+    [
+      sidePunctuation("？！"),
+      ...third.slice(1, -1),
+      { label: returnKey.label, weight: returnKey.weight, code: "Enter", rowSpan: 2 },
+    ],
+    [...bottom.slice(0, -1), { label: "", weight: returnKey.weight }],
+  ];
+}
+const nineTallReturnRows = nineTallReturnFrame(false);
+const nineTallReturnLanguageLeftRows = nineTallReturnFrame(true);
+
+/**
+ * 用户当前按键布局下的热力图键盘：在 `phoneHeatmapRows` 的基础上换上所选样式的底行（`touch_twenty_six_key_style`、`touch_nine_key_style`，键序、份额与 id 和键盘相同，见 `touch-key-layout-styles.ts`；打开 `touch_twenty_six_symbol_first` 时 26 键底行的 符 排在 123 左边，`touch_language_key_side` 为 `left` 时两种键盘底行的 中/英 排到空格左边，见 `withLanguageKeyLeft`），九键「右侧大回车」换成它的外框（`nineTallReturnRows`），26 键打开数字行时在字母上方加 1 到 0（记 `Digit1`…`Digit0`）。不给样式时就是 `phoneHeatmapRows` 本身。
+ */
+export function phoneHeatmapLayoutRows(
+  layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
+): PhoneHeatmapKey[][] {
+  const rows = phoneHeatmapRows[layout];
+  if (!style) return rows;
+  const languageLeft = style.languageKeyLeft === true;
+  if (layout === "nine" && style.nineKeyStyle === "tall_return")
+    return languageLeft ? nineTallReturnLanguageLeftRows : nineTallReturnRows;
+  const bottom = withLanguageKeyLeft(
+    layout === "full"
+      ? withSymbolFirst(
+          twentySixKeyBottomRows[style.twentySixKeyStyle],
+          style.twentySixSymbolFirst === true,
+        )
+      : nineKeyBottomRows[style.nineKeyStyle],
+    languageLeft,
+  );
+  const numberRow = layout === "full" && style.numberRow ? [numberRowKeys] : [];
+  return [...numberRow, ...rows.slice(0, -1), bottom];
+}
+
 /** 一个画出的键的次数：`code` 加上 `also` 里各 id 的次数；占位为 0。 */
 export function phoneHeatmapCount(counts: Record<string, number>, key: PhoneHeatmapKey): number {
   if (!key.code) return 0;
@@ -329,9 +387,9 @@ export function phoneHeatmapCount(counts: Record<string, number>, key: PhoneHeat
 }
 
 /** `layout` 画出的键所用的 id（含 `also`），每个只出现一次。 */
-function phoneHeatmapCodes(layout: PhoneHeatmapLayout): Set<string> {
+function phoneHeatmapCodes(layout: PhoneHeatmapLayout, style?: TouchKeyLayoutStyle): Set<string> {
   const codes = new Set<string>();
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       if (key.code) codes.add(key.code);
       for (const code of key.also ?? []) codes.add(code);
@@ -340,10 +398,13 @@ function phoneHeatmapCodes(layout: PhoneHeatmapLayout): Set<string> {
 }
 
 /** `layout` 中由不止一个键帽共用的 id：这些键帽画的是合计，所以不单独标占比。 */
-export function phoneHeatmapSharedCodes(layout: PhoneHeatmapLayout): Set<string> {
+export function phoneHeatmapSharedCodes(
+  layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
+): Set<string> {
   const seen = new Set<string>();
   const shared = new Set<string>();
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       if (!key.code) continue;
       if (seen.has(key.code)) shared.add(key.code);
@@ -356,8 +417,9 @@ export function phoneHeatmapSharedCodes(layout: PhoneHeatmapLayout): Set<string>
 export function phoneHeatmapOthers(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): KeyCount[] {
-  const drawn = phoneHeatmapCodes(layout);
+  const drawn = phoneHeatmapCodes(layout, style);
   return Object.entries(counts)
     .filter(([code, count]) => count > 0 && !drawn.has(code))
     .map(([code, count]) => ({ code, label: keyLabel(code), count }))
@@ -391,9 +453,10 @@ export function summaryHeatLevel(count: number, peak: number): number {
 export function phoneHeatmapPeak(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): number {
   let peak = 0;
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) peak = Math.max(peak, phoneHeatmapCount(counts, key));
   return peak;
 }
@@ -404,9 +467,10 @@ export function phoneHeatmapPeak(
 export function phoneHeatmapLeader(
   counts: Record<string, number>,
   layout: PhoneHeatmapLayout,
+  style?: TouchKeyLayoutStyle,
 ): { label: string; count: number } | null {
   let best: { label: string; count: number } | null = null;
-  for (const row of phoneHeatmapRows[layout])
+  for (const row of phoneHeatmapLayoutRows(layout, style))
     for (const key of row) {
       const code = key.code ?? "";
       const spelling = layout === "nine" ? /^Nine[2-9]$/.test(code) : /^Key[A-Z]$/.test(code);

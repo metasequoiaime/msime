@@ -44,7 +44,7 @@ public final class KeyboardLayout {
         List.of("(", ")", "[", "]", "<", ">", "\\", "-", "_", "=")
     );
 
-    /** 数字行（#6022）：本地设置「数字行」打开时画在字母上方的 1–0。 */
+    /** 数字行（#6022）：共享偏好 `touch_number_row` 打开时画在字母上方的 1–0。 */
     public static final List<String> NUMBER_ROW = List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
     /** 窗口可用高度（`Configuration.screenHeightDp`）低于它时不画数字行：横屏手机的窗口只有 330–430 dp，默认高度的键盘（约 300 dp）再加一行 63 dp 就把工具栏或底行挤出窗口、应用也没有可见区域了。竖屏手机、平板横屏和折叠屏内屏都在 480 dp 以上。 */
     public static final int NUMBER_ROW_MIN_WINDOW_HEIGHT_DP = 480;
@@ -74,20 +74,40 @@ public final class KeyboardLayout {
     }
 
     /**
-     * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族或韩文两套式，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层由补充符号行保留同一排高度；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
+     * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族、韩文两套式、14 键或 18 键，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层由补充符号行保留同一排高度；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
      *
-     * @param enabled 本地设置 `platform.android.number_row`
+     * @param enabled 共享偏好 `touch_number_row`
      * @param windowHeightDp 键盘所在窗口的可用高度（`Configuration.screenHeightDp`）；未知（0 或负数）时不按高度拦
      */
     public static boolean drawsNumberRow(boolean enabled, Layer layer, int touchLayout, int windowHeightDp) {
         return enabled && layer == Layer.LETTERS
-            && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT)
+            && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT
+                || touchLayout == FOURTEEN_KEY_LAYOUT || touchLayout == EIGHTEEN_KEY_LAYOUT)
             && (windowHeightDp <= 0 || windowHeightDp >= NUMBER_ROW_MIN_WINDOW_HEIGHT_DP);
+    }
+
+    /**
+     * 同上，两条来源分开算：共享偏好 `touch_number_row` 照上面的范围画（含 14 键和 18 键）；密码框和终端里的自动数字行（{@link AutomaticNumberRow}）保持它原来的范围，只画在标准 26 键一族和韩文两套式上，14/18 键在这些编辑框里不多出一行。
+     *
+     * @param preference 共享偏好 `touch_number_row`
+     * @param automatic 密码框或具名终端触发的自动数字行
+     */
+    public static boolean drawsNumberRow(boolean preference, boolean automatic, Layer layer, int touchLayout,
+            int windowHeightDp) {
+        return drawsNumberRow(preference, layer, touchLayout, windowHeightDp)
+            || (automatic && (touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT)
+                && drawsNumberRow(true, layer, touchLayout, windowHeightDp));
     }
 
     /** 符号层沿用源字母页的第五排资格；借用数字九宫格也不缩高。 */
     public static boolean drawsSymbolExtraRow(boolean enabled, Layer layer, int layout, int heightDp) {
         return layer == Layer.SYMBOLS && drawsNumberRow(enabled, Layer.LETTERS, layout, heightDp);
+    }
+
+    /** 同上，偏好与自动数字行分开算（{@link #drawsNumberRow(boolean, boolean, Layer, int, int)}）。 */
+    public static boolean drawsSymbolExtraRow(boolean preference, boolean automatic, Layer layer, int layout,
+            int heightDp) {
+        return layer == Layer.SYMBOLS && drawsNumberRow(preference, automatic, Layer.LETTERS, layout, heightDp);
     }
 
     /** 数字页补原来没有的符号，扩展符号页补数字；网格页的括号随标点设置。 */
@@ -186,7 +206,7 @@ public final class KeyboardLayout {
         PUNCTUATION_TOGGLE,
         /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
         SYMBOL_PANEL,
-        /** 长空格模式数字层的逗号键，下滑输入句号。 */
+        /** 长空格模式数字层的逗号键，上滑或下滑输入句号。 */
         COMMA,
         SPACE,
         /** 回车：文字与描述由视图按 {@link ReturnKeyAction} 替换，这里给的是空闲时的「换行」。 */
@@ -258,6 +278,12 @@ public final class KeyboardLayout {
     /** 长空格模式把底行符号或表情入口换成逗号，符号面板从工具栏打开。 */
     public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
             boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace) {
+        return numberLayer(chinese, chinesePunctuation, cornerQuotes, toolbarEmojiAvailable, longSpace, false);
+    }
+
+    /** 同上；{@code symbolFirst} 为真时底行的 😀 或 符号 排在返回键前面（{@link #layer}），返回键落在互换后字母层 123 那一格。 */
+    public static List<List<LayerKey>> numberLayer(boolean chinese, boolean chinesePunctuation,
+            boolean cornerQuotes, boolean toolbarEmojiAvailable, boolean longSpace, boolean symbolFirst) {
         return layer(NUMBER_DIGITS,
             chinesePunctuation ? (cornerQuotes ? CHINESE_CORNER_NUMBER_SYMBOLS : CHINESE_NUMBER_SYMBOLS)
                 : ENGLISH_NUMBER_SYMBOLS,
@@ -266,7 +292,7 @@ public final class KeyboardLayout {
             longSpace ? commaLayerKey(chinesePunctuation) : toolbarEmojiAvailable
                 ? new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL, LAYER_EMOJI_WEIGHT)
                 : new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
-            punctuationToggle(chinesePunctuation));
+            punctuationToggle(chinesePunctuation), symbolFirst);
     }
 
     /**
@@ -284,16 +310,22 @@ public final class KeyboardLayout {
     /** 长空格模式的更多符号层沿用数字层的逗号与下滑句号。 */
     public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
             boolean longSpace) {
+        return moreSymbolLayer(chinese, chinesePunctuation, longSpace, false);
+    }
+
+    /** 同上；{@code symbolFirst} 的含义同 {@link #numberLayer(boolean, boolean, boolean, boolean, boolean, boolean)}。 */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese, boolean chinesePunctuation,
+            boolean longSpace, boolean symbolFirst) {
         return layer(MORE_SYMBOLS_FIRST,
             chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation, longSpace ? commaLayerKey(chinesePunctuation)
                 : new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
-                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+                    LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation), symbolFirst);
     }
 
     private static LayerKey commaLayerKey(boolean chinesePunctuation) {
-        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；下滑输入句号",
+        return new LayerKey(chinesePunctuation ? "，" : ",", "逗号；上滑或下滑输入句号",
             LayerKeyKind.COMMA, LAYER_EMOJI_WEIGHT);
     }
 
@@ -310,17 +342,19 @@ public final class KeyboardLayout {
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
             LayerKey toggle, boolean chinese, boolean chinesePunctuation, LayerKey panelKey,
-            LayerKey punctuationToggle) {
+            LayerKey punctuationToggle, boolean symbolFirst) {
         List<String> punctuation = chinesePunctuation ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
         List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
         for (String key : punctuation)
             third.add(character(key));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
+        LayerKey back = new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
+            LAYER_BACK_WEIGHT);
+        // 「符」与「123」互换后字母层是 符 1.05 | 123 1.25：这一层换成 😀/符号 1.05 | 返回 1.25，返回键与 123 同一格、同宽。
         List<LayerKey> bottom = List.of(
-            new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
-                LAYER_BACK_WEIGHT),
-            panelKey,
+            symbolFirst ? panelKey : back,
+            symbolFirst ? back : panelKey,
             punctuationToggle,
             new LayerKey("空格", "空格", LayerKeyKind.SPACE, LAYER_SPACE_WEIGHT),
             new LayerKey("换行", "换行", LayerKeyKind.RETURN, LAYER_RETURN_WEIGHT));

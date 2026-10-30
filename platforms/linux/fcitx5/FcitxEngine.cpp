@@ -236,10 +236,15 @@ struct PendingPreferenceSave {
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
-Json response(char *raw) {
+// 整份回复，失败时也原样返回，供需要分辨失败原因的调用方使用（见 ensure 里的建会话）。
+Json hostReply(char *raw) {
   auto owned = msime::host_api::own_string(raw);
   if (!owned) throw std::runtime_error("MSIME request failed");
-  auto value = Json::parse(owned.get());
+  return Json::parse(owned.get());
+}
+
+Json response(char *raw) {
+  auto value = hostReply(raw);
   if (!value.value("ok", false)) throw std::runtime_error("MSIME request failed");
   return value.at("value");
 }
@@ -587,8 +592,19 @@ public:
           return true;
         });
   }
-  // 离开输入框时不论会话关不关都要做的：写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
+  void cancelModifierTaps() {
+    // 旧手势的松开可能落在别的窗口；清除按住状态，但迟到的松开仍算取消的手势。
+    shift_in_combination_ = shift_in_combination_ || shift_down_;
+    ctrl_in_combination_ = ctrl_in_combination_ || ctrl_down_;
+    shift_down_ = false;
+    ctrl_down_ = false;
+    pure_shift_candidate_ = false;
+    pure_ctrl_candidate_ = false;
+    modifier_toggle_deadline_ = {};
+  }
+  // 离开输入框时不论会话关不关都要做的：结束修饰键手势，写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
   void releaseFocusResources() {
+    cancelModifierTaps();
     candidate_theme_refresh_at_.reset();
     flushKeyPresses(key_presses_.take());
     key_presses_.forget_held();
@@ -1240,7 +1256,9 @@ public:
     syncSessionChinesePunctuation();
   }
   bool toggleInputMode() {
-    if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
+    // 不检查拼写的地址栏允许本地模式切换，学习和联网仍由 privateInput() 限制。
+    if (!session_ || restricted() || ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) ||
+        !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
     // 用户手动切换：这个程序的应用例外在这次停留里让位。
@@ -2009,7 +2027,14 @@ public:
     // On-device recognition reads the user's dictionary words as hotwords with the same options; see requestVoice.
     voice_host_options_ = options;
     const auto document = options.dump();
-    view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+    auto created = hostReply(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+    // 设置页持着独占词库锁（导入、清除学习数据），而租约还没挂上或已经过期：与上面看到租约时一样把按键交给应用，等维护做完再建会话，不报“请检查运行配置”。日志每段忙碌只记一条，不再每个按键一条（#9918）。
+    if (msime::linux_host::defer_session_for_dictionary_maintenance(created, dictionary_busy_noted_, [] {
+          msime_linux_diagnostic_write("dictionary_busy operation=session_create");
+        }))
+      return false;
+    if (!created.value("ok", false)) throw std::runtime_error("MSIME request failed");
+    view_ = created.at("value");
     session_ = msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("session"));
     // 按键音、上屏音、打字特效和背景音乐都交给生命周期核心（msime_client.h 的 MSIME_LIFECYCLE_FEEDBACK）；字段属性在第一个键之前就报告。
     msime_client_set_lifecycle(session_, MSIME_LIFECYCLE_FEEDBACK);
@@ -3720,7 +3745,8 @@ public:
     const auto typed = fcitx::Key::keySymToUTF8(sym);
     if (typed.size() != 1) return false;
     const auto closing =
-        msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_);
+        msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_,
+                                                  viewPunctuationMarks().corner_quotes);
     if (!closing) return false;
     using Modifier = msime::linux_host::PairedPunctuationModifier;
     std::uint32_t modifiers = 0;
@@ -3738,7 +3764,7 @@ public:
     forwardCaret(FcitxKey_Right);
     return true;
   }
-  // Brackets, the book title, braces and quotes are completed with their closing mark and the caret is stepped back between the two, following the Windows host. `{` goes out as the literal brace, as it does in the IBus host.
+  // 方括号、圆括号、书名号、`{` 和引号都补上后半个，再把光标退回两半之间，与 Windows 宿主一致。`{` 和 IBus 宿主一样走引擎的中文标点表：中文标点下出「、补」（契约第 5 版）；引擎没有处理时（专用英文空闲）仍补花括号。
   // std::nullopt: not a paired key here, route it as ordinary punctuation.
   std::optional<bool> pairedPunctuation(char ascii, bool composing) {
     using Mode = msime::linux_host::PunctuationPairMode;
@@ -3749,9 +3775,7 @@ public:
     else if (ascii == '{') mode = Mode::Brace;
     if (mode == Mode::Unpaired || !pairedPunctuationEnabled()) return std::nullopt;
     const auto value = static_cast<uint8_t>(ascii);
-    bool handled = mode == Mode::Brace
-                       ? apply(msime_client_punctuation_ascii(session_, value), std::nullopt, mode)
-                       : punctuation(value, mode);
+    bool handled = punctuation(value, mode);
     if (handled && pair_inserted_ && ascii == '<')
       (void)response(msime_client_balance_paired_punctuation_after_auto_close(session_, value));
     if (!handled && mode == Mode::Brace) {
@@ -4132,6 +4156,8 @@ public:
   // Per-key press counts for the key heatmap, written in batches; see KeyPressCounter.
   msime::linux_host::KeyPressCounter key_presses_;
   std::string dictionary_user_data_;
+  // 这一段词库忙碌已经记过日志（ensure）；会话建起来后清掉。
+  bool dictionary_busy_noted_ = false;
   std::string resources_;
   std::optional<std::string> scheme_override_;
   // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese, Zhuyin and Stroke can run (noteSchemeOptions).
@@ -7645,6 +7671,7 @@ public:
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    state->cancelModifierTaps();
     state->backspace_hold_.reset();
     state->caps_lock_tap_.reset();
     state->caps_lock_down_ = false;
@@ -8923,9 +8950,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       const bool within_window =
           !armed || std::chrono::steady_clock::now() <= modifier_toggle_deadline_;
       if (candidate && enabled && within_window && ic_.hasFocus() && !restricted() &&
-          !privateInput() &&
+          !ic_.capabilityFlags().test(fcitx::CapabilityFlag::Sensitive) &&
           !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
                                           fcitx::KeyState::Hyper}) &&
+          !event.rawKey().states().test(shiftRelease ? fcitx::KeyState::Ctrl : fcitx::KeyState::Shift) &&
           !(shiftRelease ? ctrl_down_ : shift_down_)) {
         try {
           // Same follow-up as the existing Ctrl+Shift+E and Ctrl+Shift+Space

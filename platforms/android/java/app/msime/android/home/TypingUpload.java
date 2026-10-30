@@ -77,7 +77,7 @@ final class TypingUpload {
             if (enabled) {
                 try {
                     upload(context, true);
-                    message = "已打开上传，最近 7 天的每日计数已传到你的水杉账号。";
+                    message = TypingUploadApi.enabledMessage(status(context).lastUploadMs());
                 } catch (CloudApi.Failure failure) {
                     message = TypingUploadApi.uploadMessage(failure, true);
                 }

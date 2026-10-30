@@ -2,37 +2,37 @@
   "by_syllables": {
     "10": {
       "cases": 9,
-      "found": 0.778,
-      "mrr": 0.537,
-      "top1": 0.333,
-      "top1_char_prefix": 0.411,
-      "top5": 0.778,
-      "top9": 0.778
+      "found": 0.889,
+      "mrr": 0.833,
+      "top1": 0.778,
+      "top1_char_prefix": 0.844,
+      "top5": 0.889,
+      "top9": 0.889
     },
     "11": {
       "cases": 13,
-      "found": 0.923,
-      "mrr": 0.621,
+      "found": 0.769,
+      "mrr": 0.531,
       "top1": 0.462,
-      "top1_char_prefix": 0.671,
-      "top5": 0.769,
-      "top9": 0.769
+      "top1_char_prefix": 0.615,
+      "top5": 0.615,
+      "top9": 0.615
     },
     "12": {
       "cases": 6,
-      "found": 0.833,
-      "mrr": 0.556,
-      "top1": 0.333,
-      "top1_char_prefix": 0.597,
-      "top5": 0.833,
-      "top9": 0.833
+      "found": 1.0,
+      "mrr": 0.806,
+      "top1": 0.667,
+      "top1_char_prefix": 0.681,
+      "top5": 1.0,
+      "top9": 1.0
     },
     "13": {
       "cases": 11,
-      "found": 0.818,
-      "mrr": 0.591,
-      "top1": 0.455,
-      "top1_char_prefix": 0.762,
+      "found": 0.909,
+      "mrr": 0.61,
+      "top1": 0.545,
+      "top1_char_prefix": 0.755,
       "top5": 0.727,
       "top9": 0.727
     },
@@ -50,70 +50,70 @@
       "found": 0.75,
       "mrr": 0.5,
       "top1": 0.25,
-      "top1_char_prefix": 0.733,
+      "top1_char_prefix": 0.783,
       "top5": 0.75,
       "top9": 0.75
     },
     "16": {
       "cases": 2,
       "found": 1.0,
-      "mrr": 0.75,
+      "mrr": 0.503,
       "top1": 0.5,
-      "top1_char_prefix": 0.625,
-      "top5": 1.0,
-      "top9": 1.0
+      "top1_char_prefix": 0.781,
+      "top5": 0.5,
+      "top9": 0.5
     },
     "4": {
       "cases": 92,
-      "found": 0.967,
-      "mrr": 0.477,
-      "top1": 0.217,
-      "top1_char_prefix": 0.476,
-      "top5": 0.772,
-      "top9": 0.772
+      "found": 0.935,
+      "mrr": 0.561,
+      "top1": 0.38,
+      "top1_char_prefix": 0.603,
+      "top5": 0.804,
+      "top9": 0.815
     },
     "5": {
       "cases": 35,
-      "found": 0.971,
-      "mrr": 0.616,
-      "top1": 0.4,
-      "top1_char_prefix": 0.657,
-      "top5": 0.829,
-      "top9": 0.829
+      "found": 0.886,
+      "mrr": 0.68,
+      "top1": 0.6,
+      "top1_char_prefix": 0.754,
+      "top5": 0.771,
+      "top9": 0.8
     },
     "6": {
       "cases": 50,
-      "found": 1.0,
-      "mrr": 0.574,
-      "top1": 0.3,
-      "top1_char_prefix": 0.53,
-      "top5": 0.88,
-      "top9": 0.88
+      "found": 0.92,
+      "mrr": 0.664,
+      "top1": 0.52,
+      "top1_char_prefix": 0.653,
+      "top5": 0.82,
+      "top9": 0.82
     },
     "7": {
       "cases": 41,
-      "found": 0.927,
-      "mrr": 0.578,
-      "top1": 0.341,
-      "top1_char_prefix": 0.693,
-      "top5": 0.829,
-      "top9": 0.829
+      "found": 0.78,
+      "mrr": 0.546,
+      "top1": 0.439,
+      "top1_char_prefix": 0.704,
+      "top5": 0.659,
+      "top9": 0.659
     },
     "8": {
       "cases": 27,
-      "found": 1.0,
-      "mrr": 0.656,
-      "top1": 0.407,
-      "top1_char_prefix": 0.634,
-      "top5": 0.963,
-      "top9": 0.963
+      "found": 0.815,
+      "mrr": 0.722,
+      "top1": 0.63,
+      "top1_char_prefix": 0.75,
+      "top5": 0.815,
+      "top9": 0.815
     },
     "9": {
       "cases": 21,
-      "found": 0.762,
-      "mrr": 0.556,
-      "top1": 0.429,
-      "top1_char_prefix": 0.683,
+      "found": 0.905,
+      "mrr": 0.638,
+      "top1": 0.571,
+      "top1_char_prefix": 0.72,
       "top5": 0.714,
       "top9": 0.714
     }
@@ -121,12 +121,12 @@
   "by_tag": {
     "harvested": {
       "cases": 310,
-      "found": 0.939,
-      "mrr": 0.555,
-      "top1": 0.319,
-      "top1_char_prefix": 0.582,
-      "top5": 0.816,
-      "top9": 0.816
+      "found": 0.884,
+      "mrr": 0.617,
+      "top1": 0.49,
+      "top1_char_prefix": 0.678,
+      "top5": 0.771,
+      "top9": 0.777
     },
     "reported": {
       "cases": 2,
@@ -141,16 +141,16 @@
   "cases": 312,
   "gold_source": {
     "database": 3,
-    "generated": 290
+    "generated": 273
   },
   "overall": {
     "cases": 312,
-    "found": 0.939,
-    "mrr": 0.557,
-    "top1": 0.324,
-    "top1_char_prefix": 0.585,
-    "top5": 0.817,
-    "top9": 0.817
+    "found": 0.885,
+    "mrr": 0.62,
+    "top1": 0.494,
+    "top1_char_prefix": 0.681,
+    "top5": 0.772,
+    "top9": 0.779
   },
   "sample_failures": [
     {
@@ -158,48 +158,34 @@
       "id": "p-0004",
       "input": "jianzhuleizizhizhidetuofu",
       "rank": null,
-      "top1": "建筑雷子直直的托付"
+      "top1": "建筑雷子纸质的托福"
     },
     {
       "gold": "专业建筑总承包资质申请值得托付",
       "id": "p-0005",
       "input": "zhuanyejianzhuzongchengbaozizhishenqingzhidetuofu",
       "rank": 2,
-      "top1": "专业建筑总承包资质申请指的托付"
-    },
-    {
-      "gold": "矩阵相机模组",
-      "id": "p-0006",
-      "input": "juzhenxiangjimozu",
-      "rank": 2,
-      "top1": "矩阵相继模组"
-    },
-    {
-      "gold": "安倍当天回应称",
-      "id": "p-0008",
-      "input": "anbeidangtianhuiyingcheng",
-      "rank": 2,
-      "top1": "安倍当天回应成"
+      "top1": "专业建筑总承包资质申请值得托福"
     },
     {
       "gold": "我们只能等风来",
       "id": "p-0009",
       "input": "womenzhinengdengfenglai",
       "rank": null,
-      "top1": "我们只能登峰来"
+      "top1": "我们只能等凤来"
     },
     {
-      "gold": "到处郁郁葱葱",
-      "id": "p-0010",
-      "input": "daochuyuyucongcong",
-      "rank": 2,
-      "top1": "到处郁郁匆匆"
+      "gold": "阡陌之上",
+      "id": "p-0011",
+      "input": "qianmozhishang",
+      "rank": 3,
+      "top1": "前膜之上"
     },
     {
       "gold": "踏春行人如织",
       "id": "p-0012",
       "input": "tachunhangrenruzhi",
-      "rank": 174,
+      "rank": null,
       "top1": "踏春行人入职"
     },
     {
@@ -213,8 +199,8 @@
       "gold": "国际社会解除对伊朗实施的制裁措施",
       "id": "p-0015",
       "input": "guojishehuijiechuduiyilangshishidezhicaicuoshi",
-      "rank": 2,
-      "top1": "国际社会接触对伊朗实施的制裁措施"
+      "rank": 161,
+      "top1": "国际社会解除对伊朗事实的制裁措施"
     },
     {
       "gold": "并力来攻",
@@ -227,43 +213,22 @@
       "gold": "夺得马匹逃回",
       "id": "p-0017",
       "input": "duodemapitaohui",
-      "rank": 187,
+      "rank": null,
       "top1": "多的马屁逃回"
     },
     {
       "gold": "命战车满道路",
       "id": "p-0018",
       "input": "mingzhanchemandaolu",
-      "rank": 63,
-      "top1": "明战车慢道路"
+      "rank": null,
+      "top1": "名战车慢道路"
     },
     {
       "gold": "将士疲劳",
       "id": "p-0019",
       "input": "jiangshipilao",
-      "rank": 131,
+      "rank": 867,
       "top1": "将是疲劳"
-    },
-    {
-      "gold": "会议亲自部署",
-      "id": "p-0020",
-      "input": "huiyiqinzibushu",
-      "rank": 2,
-      "top1": "会议亲子部署"
-    },
-    {
-      "gold": "个别酝酿",
-      "id": "p-0022",
-      "input": "gebieyunniang",
-      "rank": 2,
-      "top1": "各别酝酿"
-    },
-    {
-      "gold": "舍弃一切",
-      "id": "p-0023",
-      "input": "sheqiyiqie",
-      "rank": 2,
-      "top1": "射器一切"
     },
     {
       "gold": "没能挺住",
@@ -273,53 +238,32 @@
       "top1": "没能停住"
     },
     {
-      "gold": "来回揉捏",
-      "id": "p-0026",
-      "input": "laihuirounie",
-      "rank": 2,
-      "top1": "来挥揉捏"
+      "gold": "一生只为一人",
+      "id": "p-0027",
+      "input": "yishengzhiweiyiren",
+      "rank": null,
+      "top1": "医生之为一人"
     },
     {
       "gold": "不再言语",
       "id": "p-0028",
       "input": "buzaiyanyu",
       "rank": 2,
-      "top1": "不再艳遇"
-    },
-    {
-      "gold": "二人对坐",
-      "id": "p-0029",
-      "input": "errenduizuo",
-      "rank": 2,
-      "top1": "二人对做"
+      "top1": "不在言语"
     },
     {
       "gold": "说破英雄惊杀人",
       "id": "p-0030",
       "input": "shuopoyingxiongjingsharen",
-      "rank": 3,
-      "top1": "说破英雄竟杀人"
+      "rank": null,
+      "top1": "说破英雄经啥人"
     },
     {
       "gold": "顿开金锁走蛟龙",
       "id": "p-0031",
       "input": "dunkaijinsuozoujiaolong",
-      "rank": 81,
-      "top1": "顿开进所走蛟龙"
-    },
-    {
-      "gold": "败军奔走",
-      "id": "p-0032",
-      "input": "baijunbenzou",
-      "rank": 2,
-      "top1": "百军奔走"
-    },
-    {
-      "gold": "不能下咽",
-      "id": "p-0033",
-      "input": "bunengxiayan",
-      "rank": 3,
-      "top1": "不能下眼"
+      "rank": null,
+      "top1": "顿开紧锁走角龙"
     },
     {
       "gold": "张飞听得",
@@ -329,60 +273,60 @@
       "top1": "张飞听的"
     },
     {
-      "gold": "云长赶来",
-      "id": "p-0035",
-      "input": "yunchangganlai",
-      "rank": 2,
-      "top1": "晕场赶来"
-    },
-    {
       "gold": "如何肯休",
       "id": "p-0036",
       "input": "ruhekenxiu",
-      "rank": 3,
+      "rank": null,
       "top1": "如何肯修"
     },
     {
-      "gold": "发货慢了点",
-      "id": "p-0039",
-      "input": "fahuomanledian",
+      "gold": "他仍然希望能够加大训练量",
+      "id": "p-0037",
+      "input": "tarengranxiwangnenggoujiadaxunlianliang",
       "rank": 2,
-      "top1": "发货满了点"
+      "top1": "它仍然希望能够加大训练量"
     },
     {
       "gold": "确保及时施救",
       "id": "p-0040",
       "input": "quebaojishishijiu",
-      "rank": 108,
-      "top1": "确保几十十九"
+      "rank": 2,
+      "top1": "确保及时十九"
+    },
+    {
+      "gold": "当初在洛阳之时",
+      "id": "p-0041",
+      "input": "dangchuzailuoyangzhishi",
+      "rank": null,
+      "top1": "当初在洛阳只是"
     },
     {
       "gold": "我们纪念五四运动",
       "id": "p-0045",
       "input": "womenjinianwusiyundong",
-      "rank": 3,
-      "top1": "我们几年无私运动"
-    },
-    {
-      "gold": "开罗航线不安全",
-      "id": "p-0047",
-      "input": "kailuohangxianbuanquan",
       "rank": 2,
-      "top1": "开罗航线部安全"
+      "top1": "我们几年五四运动"
     },
     {
       "gold": "实时视频回传",
       "id": "p-0048",
       "input": "shishishipinhuichuan",
-      "rank": 2,
+      "rank": 437,
       "top1": "逝世视频回传"
+    },
+    {
+      "gold": "救灾装备",
+      "id": "p-0049",
+      "input": "jiuzaizhuangbei",
+      "rank": 2,
+      "top1": "就在装备"
     },
     {
       "gold": "约束较少",
       "id": "p-0050",
       "input": "yueshujiaoshao",
       "rank": 2,
-      "top1": "约数较少"
+      "top1": "月数较少"
     },
     {
       "gold": "不搞一个模式",
@@ -396,13 +340,13 @@
       "id": "p-0054",
       "input": "guomeidianqidagudonghuangguangyuyinkeguanyuanyin",
       "rank": null,
-      "top1": "国美电器大股东黄光预印客观原因"
+      "top1": "国美电器大股东黄光语音客观原因"
     },
     {
       "gold": "跟着姜维屡次北伐",
       "id": "p-0055",
       "input": "genzhejiangweilvcibeifa",
-      "rank": 28,
+      "rank": null,
       "top1": "跟着将为屡次被罚"
     },
     {
@@ -416,7 +360,7 @@
       "gold": "部分衣物均属此类",
       "id": "p-0057",
       "input": "bufenyiwujunshucilei",
-      "rank": 3,
+      "rank": null,
       "top1": "部分义务均属此类"
     },
     {
@@ -427,11 +371,67 @@
       "top1": "分期基因"
     },
     {
-      "gold": "惨烈的烧钱大战肯定会带来更",
-      "id": "p-0059",
-      "input": "canliedeshaoqiandazhankendinghuidailaigeng",
+      "gold": "他们想过很多办法去避免脚病",
+      "id": "p-0063",
+      "input": "tamenxiangguohenduobanfaqubimianjiaobing",
+      "rank": 3,
+      "top1": "他们想过很多办法去避免交并"
+    },
+    {
+      "gold": "经理们也算过了",
+      "id": "p-0064",
+      "input": "jinglimenyesuanguole",
+      "rank": 207,
+      "top1": "经历们也算过了"
+    },
+    {
+      "gold": "主业定义的是你的发展方向",
+      "id": "p-0066",
+      "input": "zhuyedingyideshinidefazhanfangxiang",
+      "rank": 3,
+      "top1": "主页定义的是你的发展方向"
+    },
+    {
+      "gold": "照顾得暖暖的",
+      "id": "p-0068",
+      "input": "zhaogudenuannuande",
       "rank": 2,
-      "top1": "惨烈的少钱大战肯定会带来更"
+      "top1": "照顾的暖暖的"
+    },
+    {
+      "gold": "江西疫情响应等级",
+      "id": "p-0070",
+      "input": "jiangxiyiqingxiangyingdengji",
+      "rank": null,
+      "top1": "江西疫情相应登记"
+    },
+    {
+      "gold": "热血兵王",
+      "id": "p-0072",
+      "input": "rexiebingwang",
+      "rank": 3,
+      "top1": "热血病亡"
+    },
+    {
+      "gold": "休想逃全文阅读",
+      "id": "p-0074",
+      "input": "xiuxiangtaoquanwenyuedu",
+      "rank": 108,
+      "top1": "修想逃全文阅读"
+    },
+    {
+      "gold": "我本港岛电影人",
+      "id": "p-0076",
+      "input": "wobengangdaodianyingren",
+      "rank": 3,
+      "top1": "我本刚到电影人"
+    },
+    {
+      "gold": "高举中国特色社会主义伟大旗帜",
+      "id": "p-0077",
+      "input": "gaojuzhongguoteseshehuizhuyiweidaqizhi",
+      "rank": 2,
+      "top1": "高举中国特色社会主义伟大气质"
     }
   ],
   "top1_source": {

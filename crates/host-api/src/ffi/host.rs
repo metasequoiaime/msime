@@ -39,8 +39,8 @@ pub unsafe extern "C" fn msime_client_touch_quick_symbols(
 
 fn clipboard_history_limit(directory: &std::path::Path) -> usize {
     msime_client_core::preferences::PreferencesStore::new(directory)
-        .load()
-        .map(|snapshot| snapshot.preferences.clipboard_history_limit)
+        .load_for_runtime()
+        .map(|runtime| runtime.snapshot.preferences.clipboard_history_limit)
         .unwrap_or(msime_client_core::clipboard::DEFAULT_CLIPBOARD_HISTORY_LIMIT)
 }
 
@@ -839,6 +839,11 @@ pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
     })
 }
 
+/// 进程里 `msime_client_load_preferences` 最近读到的一份偏好，连同它所在的目录：Android 键盘显示期间每秒在工作线程上读一次，偏好文件没变时不再解析和校验，见 [`PreferencesStore::load_reusing`]。
+static LOADED_PREFERENCES: Mutex<
+    Option<(String, msime_client_core::preferences::LoadedPreferences)>,
+> = Mutex::new(None);
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
@@ -858,10 +863,79 @@ pub unsafe extern "C" fn msime_client_load_preferences(
             "invalid preferences directory encoding",
             "preferences directory must be absolute",
         )?;
-        let snapshot = PreferencesStore::new(directory)
-            .load()
+        // 读文件时不持这把锁：同时来的另一次读拿不到上一份，照常整读一遍。
+        let previous = LOADED_PREFERENCES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .filter(|(cached, _)| cached == directory)
+            .map(|(_, loaded)| loaded);
+        let loaded = PreferencesStore::new(directory)
+            .load_reusing(previous)
             .map_err(|e| e.to_string())?;
-        serde_json::to_value(snapshot).map_err(|e| e.to_string())
+        let value = serde_json::to_value(&loaded.snapshot).map_err(|e| e.to_string())?;
+        *LOADED_PREFERENCES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((directory.to_owned(), loaded));
+        Ok(value)
+    })
+}
+
+/// Android 旧布局迁移：在偏好锁内核对原始字段与修订号。
+/// # Safety
+/// `request` 指向最多 64 KiB 的可读 JSON；返回值通过 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        revision: u64,
+        long_space: bool,
+        number_row: bool,
+        /// 本机旧键里用户自定义的九键左侧符号表；缺省或空表表示不迁。
+        #[serde(default)]
+        nine_key_symbols: Vec<String>,
+        /// 本机旧键里用户自定义的九键数字键盘左侧符号表；缺省或空表表示不迁。
+        #[serde(default)]
+        nine_key_digit_symbols: Vec<String>,
+        /// 本机旧设置 `platform.android.nine_key_swipe` 的原值；本机没有这个键时不带。
+        #[serde(default)]
+        nine_key_swipe: Option<String>,
+    }
+    response(|| {
+        if request.is_null() || length > 65536 {
+            return Err("invalid layout migration request".into());
+        }
+        // SAFETY: 调用方保证缓冲区可读，上方已经检查长度。
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "invalid layout migration request")?;
+        let directory = super::parse_absolute_path(
+            request.directory.as_bytes(),
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
+        let saved = PreferencesStore::new(directory)
+            .migrate_android_key_layout(
+                request.revision,
+                request.long_space,
+                request.number_row,
+                &request.nine_key_symbols,
+                &request.nine_key_digit_symbols,
+                // 不认识的旧值（不会出现，旧设置只存过 off、up、down）当作没有旧值，不迁。
+                request
+                    .nine_key_swipe
+                    .as_deref()
+                    .and_then(msime_client_core::preferences::TouchNineKeySwipeDigits::parse)
+                    .unwrap_or_default(),
+            )
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(saved).map_err(|error| error.to_string())
     })
 }
 
@@ -996,6 +1070,8 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             #[serde(default)]
             quiet: bool,
         },
+        /// 把本进程为 `directory` 攒着的上屏写进统计文件，答 null。`record` 不再每次上屏都写文件，宿主在键盘收起、输入框失焦和进程或服务退出前，在它平时调统计的那个线程上调用这一项。
+        Flush,
         SetEnabled {
             enabled: bool,
         },
@@ -1095,23 +1171,26 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 hour,
                 quiet,
             } => {
-                // The count is read first only when a session asked for achievement sounds, so recording stays one read and one write for everyone else.
-                let before = key_sound::achievements_armed()
-                    .then(|| store.load().ok().map(|statistics| statistics.total))
-                    .flatten();
-                let recorded = store
-                    .record(&text, source, &day, hour)
+                // 累计字数是文件里的加上本进程攒着的，由 record 一并答出：不能再先 load 一遍，load 会把攒着的上屏写出去，成就音效开着时就又变回每次上屏写一次文件。
+                let (recorded, total) = store
+                    .record_with_total(&text, source, &day, hour)
                     .map_err(|error| error.to_string())?;
-                let milestone = before.and_then(|before| {
-                    msime_client_services::plugins::achievement_milestone(
-                        before,
-                        before.saturating_add(recorded),
-                    )
-                });
+                let milestone = key_sound::achievements_armed()
+                    .then(|| {
+                        msime_client_services::plugins::achievement_milestone(
+                            total.saturating_sub(recorded),
+                            total,
+                        )
+                    })
+                    .flatten();
                 if milestone.is_some() && !quiet {
                     key_sound::achievement();
                 }
                 Ok(json!({"recorded": recorded, "milestone": milestone}))
+            }
+            StatisticsAction::Flush => {
+                store.flush().map_err(|error| error.to_string())?;
+                Ok(Value::Null)
             }
             StatisticsAction::RecordKeys { day, keys } => {
                 let recorded = store
@@ -2119,9 +2198,11 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
         if !path.is_absolute() {
             return Err("history directory must be absolute".into());
         }
+        // 键盘的剪贴板面板和输入一样按运行时读法读偏好：文档里别的设置读不了时，面板照常可用；同意与否仍取文档里写的值，整份读不了时取默认的关闭。
         let preferences = PreferencesStore::new(path)
-            .load()
+            .load_for_runtime()
             .map_err(|_| "history preferences unavailable")?
+            .snapshot
             .preferences;
         let enabled = preferences.clipboard_history;
         if !enabled {
@@ -2461,8 +2542,9 @@ pub unsafe extern "C" fn msime_client_remove_clipboard_history(
             return Err("invalid history entry".into());
         }
         if !PreferencesStore::new(path)
-            .load()
+            .load_for_runtime()
             .map_err(|_| "history preferences unavailable")?
+            .snapshot
             .preferences
             .clipboard_history
         {
@@ -3025,14 +3107,30 @@ pub unsafe extern "C" fn msime_client_save_preferences(
             "preferences directory must be absolute",
         )?;
         let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
-        let snapshot: PreferencesSnapshot =
+        // 提交来的偏好严格解析（Preferences::from_submission），不走读盘时的宽松读法：宿主送来本版本不认识的名字是宿主的毛病，要报出来，而不是悄悄整理掉再存下。
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Submitted {
+            format_version: u32,
+            #[allow(dead_code)]
+            revision: u64,
+            preferences: Value,
+        }
+        let snapshot: Submitted =
             serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;
         if snapshot.format_version != 1 {
             return Err("unsupported preferences format".into());
         }
+        let preferences =
+            Preferences::from_submission(snapshot.preferences).map_err(|error| match error {
+                msime_client_core::preferences::PreferencesError::Json(_) => {
+                    "invalid preferences snapshot".to_owned()
+                }
+                other => other.to_string(),
+            })?;
         let store = PreferencesStore::new(directory);
         let saved = store
-            .save(expected_revision, snapshot.preferences)
+            .save(expected_revision, preferences)
             .map_err(|e| e.to_string())?;
         if !saved.preferences.clipboard_history {
             store
@@ -3072,11 +3170,9 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
     }
 
     response(|| {
-        // Deliberately not the 65_536 the other entry points use. Those carry a setting or one
-        // clipboard row; this one carries an imported word list, and a five-thousand-word CET book
-        // is a few hundred kilobytes of text. Copying the smaller cap here would have made the
-        // import path reject every real file while looking like it was merely being careful.
-        if request.is_null() || length > session::MAX_IMPORT_BYTES {
+        // 文件本身仍由共享解析器限制为 8 MiB；请求另给常规 JSON 转义的两倍空间及目录等元数据余量。
+        const MAX_REQUEST_BYTES: usize = 17 * 1024 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
             return Err("invalid vocabulary review buffer".into());
         }
         // SAFETY: guaranteed by the documented caller contract.

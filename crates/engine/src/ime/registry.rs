@@ -522,6 +522,8 @@ impl ProviderRegistry {
             target.corrected_from.clear();
             target.sentence_association = false;
             target.sentence_words.clear();
+            target.touch_supported = false;
+            target.confident_correction = false;
         }
         if destination.len() > candidates.len() {
             destination.truncate(candidates.len());
@@ -573,6 +575,8 @@ fn fill_cantonese_candidates(
         target.corrected_from.clear();
         target.sentence_association = false;
         target.sentence_words.clear();
+        target.touch_supported = false;
+        target.confident_correction = false;
     }
     if destination.len() > source.len() {
         destination.truncate(source.len());

@@ -4,6 +4,7 @@
 #include <napi/native_api.h>
 #include <zlib.h>
 #include <cerrno>
+#include <cmath>
 #include <cstring>
 #include <fcntl.h>
 #include <limits>
@@ -161,6 +162,24 @@ static bool argumentIndex(napi_env env, napi_value value, size_t &out) {
 
 static bool argumentInt32(napi_env env, napi_value value, int32_t &out) {
     return napi_get_value_int32(env, value, &out) == napi_ok;
+}
+
+// 触点坐标：ArkTS 的 number 是双精度，C ABI 收 float。超出 float 范围的双精度转 float 是未定义行为，所以不是有限数或超界时交 NaN，Rust 那边把它当作没有触点（等同 msime_client_character）。
+static bool argumentCoordinate(napi_env env, napi_value value, float &out) {
+    double number = 0;
+    if (napi_get_value_double(env, value, &number) != napi_ok) return false;
+    out = std::isfinite(number) && std::fabs(number) <= static_cast<double>(std::numeric_limits<float>::max())
+        ? static_cast<float>(number) : std::numeric_limits<float>::quiet_NaN();
+    return true;
+}
+
+// 几何代次是 u32；napi_get_value_uint32 会把负数和超界的值悄悄折回范围内，所以按 int64 读再查范围。
+static bool argumentUint32(napi_env env, napi_value value, uint32_t &out) {
+    int64_t number = 0;
+    if (napi_get_value_int64(env, value, &number) != napi_ok) return false;
+    if (number < 0 || number > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) return false;
+    out = static_cast<uint32_t>(number);
+    return true;
 }
 
 static bool argumentArrayBuffer(napi_env env, napi_value value, std::vector<uint8_t> &out,
@@ -1353,6 +1372,42 @@ static napi_value Character(napi_env env, napi_callback_info info) {
         msime_client_character(handle, static_cast<uint8_t>(ascii), shift));
 }
 
+// 触屏 26 键双拼的键位几何（msime_client_set_key_geometry）。不是字符串或长到无法拷贝的请求按空缓冲交给 Rust，等同清除几何。
+static napi_value SetKeyGeometry(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string geometry;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)) {
+        return invalid(env, "Session handle must be a non-negative integer");
+    }
+    if (!argumentText(env, argv[1], geometry)) {
+        return response(env, msime_client_set_key_geometry(handle, nullptr, 0));
+    }
+    return response(env, msime_client_set_key_geometry(
+        handle, reinterpret_cast<const uint8_t *>(geometry.data()), geometry.size()));
+}
+
+// 带按下点的一键（msime_client_touch_character），参数同 Character 再加几何代次和按下点。
+static napi_value TouchCharacter(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    int32_t ascii = 0;
+    bool shift = false;
+    uint32_t geometry = 0;
+    float x = 0;
+    float y = 0;
+    if (!arguments(env, info, 6, argv) || !argumentHandle(env, argv[0], handle)
+            || napi_get_value_int32(env, argv[1], &ascii) != napi_ok
+            || !argumentFlag(env, argv[2], shift)
+            || !argumentUint32(env, argv[3], geometry)
+            || !argumentCoordinate(env, argv[4], x)
+            || !argumentCoordinate(env, argv[5], y)) {
+        return invalid(env, "Expected a session handle, an ASCII code, a boolean, a geometry id and a point");
+    }
+    if (ascii < 0 || ascii > 127) return invalid(env, "Engine character must be ASCII");
+    return response(env, msime_client_touch_character(handle, static_cast<uint8_t>(ascii), shift, geometry, x, y));
+}
+
 // One glide stroke (滑行输入) as the JSON request msime_client_glide reads. A request that is not a string, or is too long to copy, reaches the Rust side as an empty buffer and is refused there with the same structured error as a malformed one.
 static napi_value Glide(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
@@ -1496,6 +1551,12 @@ static napi_value AbiVersion(napi_env env, napi_callback_info) {
     napi_value output = nullptr;
     if (napi_create_uint32(env, msime_client_abi_version(), &output) != napi_ok) return nullptr;
     return output;
+}
+
+// 键盘收起时关掉 UI 线程缓存的候选释义词库连接和读好的自定义译文；释义只在 UI 线程上查，所以也只在 UI 线程上调。
+static napi_value ReleaseGlossCaches(napi_env, napi_callback_info) {
+    msime_client_release_gloss_caches();
+    return nullptr;
 }
 
 // The global theme picker takes no argument: the ids, titles and palettes all come from the shared catalog.
@@ -1727,6 +1788,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
         ENTRY("translationGlossSave", TranslationGlossSave),
@@ -1808,6 +1870,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("setPrivateSession", SetPrivateSession),
         ENTRY("character", Character),
+        ENTRY("setKeyGeometry", SetKeyGeometry),
+        ENTRY("touchCharacter", TouchCharacter),
         ENTRY("gridKey", GridKey),
         ENTRY("glide", Glide),
         ENTRY("punctuationWithContext", PunctuationWithContext),

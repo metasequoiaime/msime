@@ -10,6 +10,7 @@ import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { DoubaoCredentialPolicy, VoiceInputConfiguration } from './VoiceInputConfiguration';
 import { TextPolicy } from '../TextPolicy';
 import { DoubaoHeaderPolicy } from './DoubaoHeaderPolicy';
+import { PcmChunkHandler } from './HarmonyPcmCapture';
 
 const PCM_CHUNK_BYTES: number = 6400;
 const MAX_PCM_QUEUE_BYTES: number = 16000 * 2 * 10;
@@ -85,6 +86,8 @@ export class HarmonyDoubaoRecognizer {
   private timeoutHandle: number | undefined = undefined;
   private resultHandler: DoubaoResultHandler | undefined = undefined;
   private errorHandler: DoubaoErrorHandler | undefined = undefined;
+  /** 麦克风数据的旁听者，只用来算电平；不保存也不改动数据。 */
+  private chunkObserver: PcmChunkHandler | undefined = undefined;
   private sessionToken: number = 0;
 
   isActive(): boolean {
@@ -92,7 +95,7 @@ export class HarmonyDoubaoRecognizer {
   }
 
   async start(config: VoiceInputConfiguration, onResult: DoubaoResultHandler,
-    onError: DoubaoErrorHandler): Promise<void> {
+    onError: DoubaoErrorHandler, onChunk: PcmChunkHandler | undefined = undefined): Promise<void> {
     if (this.socket !== undefined || this.capturer !== undefined) {
       throw new Error('豆包语音识别正在进行');
     }
@@ -101,6 +104,7 @@ export class HarmonyDoubaoRecognizer {
     }
     this.resultHandler = onResult;
     this.errorHandler = onError;
+    this.chunkObserver = onChunk;
     const token: number = this.sessionToken + 1;
     this.sessionToken = token;
     this.sessionId = util.generateRandomUUID(false);
@@ -196,6 +200,7 @@ export class HarmonyDoubaoRecognizer {
     if (socket !== undefined) socket.close().catch((): void => undefined);
     this.resultHandler = undefined;
     this.errorHandler = undefined;
+    this.chunkObserver = undefined;
     this.pending = new Uint8Array(0);
   }
 
@@ -265,6 +270,7 @@ export class HarmonyDoubaoRecognizer {
 
   private onAudio(data: ArrayBuffer, token: number): void {
     if (token !== this.sessionToken || this.settled || this.stopping || data.byteLength === 0) return;
+    if (this.chunkObserver !== undefined) this.chunkObserver(data);
     const bytes: Uint8Array = new Uint8Array(data);
     if (this.queuedBytes + this.pending.length + bytes.length > MAX_PCM_QUEUE_BYTES) {
       void this.fail('豆包语音音频队列已满。', this.sessionToken);

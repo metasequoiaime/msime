@@ -292,7 +292,7 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
         if (card == null || inFlight > 0) return;
         revealed = false;
         try {
-            act(new JSONObject().put("operation", "answer").put("word", card.word()).put("known", known));
+            act(new JSONObject().put("operation", "answer").put("wordbook", current.selected()).put("word", card.word()).put("known", known));
         } catch (JSONException error) {
             MsToast.show(requireContext(), VocabularyReviewText.UNAVAILABLE);
         }

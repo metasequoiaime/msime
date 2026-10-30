@@ -23,8 +23,8 @@ use crate::clipboard_webdav::{
 };
 use crate::cloud::clipboard_e2e::Keystore;
 use crate::cloud::dictionary_sync::{
-    self as core, DataKey, KeyRing, LocalDictionary, Options, Parts, Plan, RemoteStore, Report,
-    StateSink, SyncError, SyncState, Trigger,
+    self as core, Charge, DataKey, KeyRing, LocalDictionary, Options, Parts, Plan, RemoteStore,
+    Report, StateSink, SyncError, SyncState, Trigger,
 };
 use crate::preferences::DictionarySyncWebDavPreferences;
 use serde::{Deserialize, Serialize};
@@ -472,6 +472,8 @@ pub struct SyncView {
     /// 最后一次联网同步成功的时间（Unix 毫秒）和最后一次失败的错误码。
     pub last_success_ms: Option<u64>,
     pub last_error: Option<String>,
+    /// 自动同步因为请求额度在等：到这个时间（Unix 毫秒）才会再联网，期间改词照常记下、到时一起发出；没在等时为空。本机的额度不够一轮，或者被限流之后的等待都算（`docs/dictionary-webdav-sync.md` 的「请求量」）。宿主据此显示「额度用完，将于某时继续同步」，「立即同步」不受它限制（总额度也用完时照样报 `dictionary_sync_rate_limited`）。
+    pub budget_wait_until: Option<u64>,
 }
 
 /// 一次同步的结果。
@@ -628,7 +630,7 @@ impl DictionarySync {
             network: false,
             report: Err(identity_missing()),
             next_check_ms: core::schedule::PULL_INTERVAL_MS,
-            view: Self::view(state, None),
+            view: Self::view(state, None, now_ms()),
         }
     }
 
@@ -645,7 +647,7 @@ impl DictionarySync {
         Ok(registered.then_some(keystore))
     }
 
-    fn view(state: Option<&SyncState>, keystore: Option<&Keystore>) -> SyncView {
+    fn view(state: Option<&SyncState>, keystore: Option<&Keystore>, now_ms: u64) -> SyncView {
         let status = state.map(SyncState::status);
         SyncView {
             device_id: keystore.map(Keystore::device_id),
@@ -664,6 +666,8 @@ impl DictionarySync {
                 .map(|state| state.schedule.last_success_ms())
                 .filter(|at| *at > 0),
             last_error: state.and_then(|state| state.schedule.last_error().map(str::to_owned)),
+            budget_wait_until: state
+                .and_then(|state| state.schedule.budget_wait_until(now_ms, state.joined())),
         }
     }
 
@@ -674,6 +678,7 @@ impl DictionarySync {
         Ok(Self::view(
             state.as_ref(),
             self.registered_keystore(keystore.as_ref())?,
+            now_ms(),
         ))
     }
 
@@ -700,15 +705,21 @@ impl DictionarySync {
     ) -> Result<RunResult, DictionarySyncError> {
         let now = now_ms();
         let mut stored = self.load_state()?;
-        let manual = trigger == Trigger::Manual;
-        let limit = stored.as_ref().map_or(
-            if manual {
-                core::schedule::MANUAL_REQUESTS
-            } else {
-                core::schedule::AUTOMATIC_REQUESTS
+        // 密钥串的读写和词库共用这一轮的额度，所以先决定这一轮做什么、记在哪一边，再按那一边剩下的额度发请求。
+        let decided = match stored.as_mut() {
+            Some(state) => core::plan(state, trigger, now),
+            // 还没用过网盘：除了「刚改了词」以外都先去登记，不然什么也做不了。这是第一次配置，请求记在用户一边。
+            None => Plan {
+                network: trigger != Trigger::LocalChange,
+                push: true,
+                charge: Charge::User,
             },
-            |state| state.schedule.remaining(now, manual),
-        );
+        };
+        let limit = stored
+            .as_ref()
+            .map_or(core::schedule::MANUAL_REQUESTS, |state| {
+                state.schedule.remaining(now, decided.charge)
+            });
         let budget = Arc::new(RequestBudget::new(limit));
         let keyring = KeyRingAccess::with_budget(
             &self.config,
@@ -721,14 +732,6 @@ impl DictionarySync {
         if !self.create_identity && keystore.is_none() {
             return Ok(Self::without_identity(stored.as_ref()));
         }
-        let decided = match stored.as_mut() {
-            Some(state) => core::plan(state, trigger, now),
-            // 还没用过网盘：除了「刚改了词」以外都先去登记，不然什么也做不了。
-            None => Plan {
-                network: trigger != Trigger::LocalChange,
-                push: true,
-            },
-        };
         let mut keyring_error = None;
         if decided.network {
             if let Err(error) = keyring.status() {
@@ -742,7 +745,7 @@ impl DictionarySync {
                 network: decided.network,
                 report: keyring_error.map_or(Ok(Report::default()), Err),
                 next_check_ms: core::schedule::PULL_INTERVAL_MS,
-                view: Self::view(None, None),
+                view: Self::view(None, None, now),
             });
         };
         let device = keystore.device_id();
@@ -757,7 +760,7 @@ impl DictionarySync {
             }
             _ => SyncState::new(&device).ok_or(DictionarySyncError::Invalid)?,
         };
-        core::record_requests(&mut state, keyring.requests(), now);
+        core::record_requests(&mut state, decided.charge, keyring.requests(), now);
         let mut sink = self.sink();
         if let Some(error) = keyring_error {
             // 读写密钥串失败（凭据不对、连不上、限流……）：照同样的规则退避，结果的形状与词库日志的失败相同。
@@ -769,7 +772,11 @@ impl DictionarySync {
                 network: true,
                 report: Err(error),
                 next_check_ms: core::schedule::RATE_LIMIT_BACKOFF_MS.min(60_000),
-                view: Self::view(Some(&state), self.registered_keystore(Some(&keystore))?),
+                view: Self::view(
+                    Some(&state),
+                    self.registered_keystore(Some(&keystore))?,
+                    now,
+                ),
             });
         }
         let ring = KeyRing {
@@ -793,7 +800,11 @@ impl DictionarySync {
             network: outcome.network,
             report: outcome.result.map_err(DictionarySyncError::from),
             next_check_ms: outcome.next_check_ms,
-            view: Self::view(Some(&state), self.registered_keystore(Some(&keystore))?),
+            view: Self::view(
+                Some(&state),
+                self.registered_keystore(Some(&keystore))?,
+                now_ms(),
+            ),
         })
     }
 
@@ -877,6 +888,7 @@ impl DictionarySync {
         Ok(Self::view(
             Some(&state),
             self.registered_keystore(Some(&keystore))?,
+            now_ms(),
         ))
     }
 }

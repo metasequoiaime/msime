@@ -233,6 +233,97 @@ fn plan_keys_with<'t>(
     planned
 }
 
+/// 按触点计过价的一个变体：第 i 个音节可能想打的音节，以及这次改动的罚分。
+pub(crate) struct PricedTypo<'a> {
+    pub syllable: &'a str,
+    pub penalty: f64,
+}
+
+/// 双拼带触点时的规划与查词。`variants_at(i)` 给出第 i 个音节已经按纠错开关筛过、按罚分计过价的变体。与 [`collect_span_typo_edges`] 不同，所有位置的所有变体按罚分全局升序排，罚分相同时弱位置优先，所以 96 个键的预算不会被前一两个位置的便宜类型吃光；跨度、去重、查词和缓存相同。
+pub(crate) fn collect_priced_span_typo_edges<'t>(
+    database: &PinyinDatabase,
+    span_cache: &mut FifoCache<String, Vec<DictRow>>,
+    segments: &[String],
+    literal_best: &SentencePath,
+    variants_at: impl Fn(usize) -> &'t [PricedTypo<'t>],
+) -> Vec<TypoEdge> {
+    let planned = plan_priced_keys(segments, literal_best, variants_at);
+    lookup_planned_edges(database, span_cache, &planned)
+}
+
+fn plan_priced_keys<'t>(
+    segments: &[String],
+    literal_best: &SentencePath,
+    variants_at: impl Fn(usize) -> &'t [PricedTypo<'t>],
+) -> Vec<PlannedKey> {
+    let n = segments.len();
+    // 弱位置的判定与 `plan_keys_with` 相同：最优字面路径里单独成字的音节最可能是按错打断了词。
+    let mut weak = WeakPositions::new(n);
+    let mut covered = 0;
+    for word in &literal_best.words {
+        let width = count_utf8_chars(word);
+        if width == 0 || covered + width > n {
+            covered = n + 1;
+            break;
+        }
+        if width == 1 {
+            weak.set(covered);
+        }
+        covered += width;
+    }
+    if covered != n {
+        weak.clear();
+    }
+    let mut order: Vec<(f64, bool, usize, &PricedTypo<'t>)> = Vec::new();
+    for position in 0..n {
+        for typo in variants_at(position) {
+            order.push((typo.penalty, !weak.get(position), position, typo));
+        }
+    }
+    // 稳定排序：同价同强弱时按位置，同一位置内保持给出的次序。
+    order.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then(left.1.cmp(&right.1))
+            .then(left.2.cmp(&right.2))
+    });
+
+    let mut planned = Vec::new();
+    'variants: for (penalty, _, position, typo) in order {
+        for length in MIN_TYPO_SPAN_SYLLABLES..=MAX_TYPO_SPAN_SYLLABLES.min(n) {
+            let first = (position + 1).saturating_sub(length);
+            for start in first..=position {
+                if start + length > n {
+                    break;
+                }
+                let key = typo_span_key(
+                    segments,
+                    start,
+                    start + length,
+                    position - start,
+                    typo.syllable,
+                );
+                if planned_key_seen(&planned, &key) {
+                    continue;
+                }
+                if planned.is_empty() {
+                    planned = Vec::with_capacity(TYPO_KEY_BUDGET);
+                }
+                planned.push(PlannedKey {
+                    start,
+                    end: start + length,
+                    key,
+                    penalty,
+                });
+                if planned.len() >= TYPO_KEY_BUDGET {
+                    break 'variants;
+                }
+            }
+        }
+    }
+    planned
+}
+
 fn planned_key_seen(planned: &[PlannedKey], key: &str) -> bool {
     planned.iter().any(|entry| entry.key == key)
 }
@@ -303,6 +394,81 @@ mod tests {
 
         assert_eq!(planned.len(), 20);
         assert!(allocations <= 91, "{allocations}");
+    }
+
+    fn path(words: &[&str]) -> SentencePath {
+        SentencePath {
+            sentence: words.concat(),
+            key: String::new(),
+            log_prob: 0.0,
+            words: words.iter().map(|word| (*word).to_owned()).collect(),
+            typo_edges: 0,
+        }
+    }
+
+    #[test]
+    fn priced_planning_orders_every_variant_by_penalty_then_weak_positions() {
+        let segments: Vec<String> = ["ni", "hao", "ma", "ba"].map(str::to_owned).to_vec();
+        let variants = [
+            vec![PricedTypo {
+                syllable: "li",
+                penalty: 20.0,
+            }],
+            vec![PricedTypo {
+                syllable: "hai",
+                penalty: 12.0,
+            }],
+            vec![PricedTypo {
+                syllable: "na",
+                penalty: 12.0,
+            }],
+            vec![PricedTypo {
+                syllable: "pa",
+                penalty: 4.0,
+            }],
+        ];
+        // 你好 是词，吗 和 吧 单独成字，是弱位置。
+        let planned = plan_priced_keys(&segments, &path(&["你好", "吗", "吧"]), |position| {
+            variants[position].as_slice()
+        });
+        let replaced: Vec<(usize, usize, &str, f64)> = planned
+            .iter()
+            .map(|entry| (entry.start, entry.end, entry.key.as_str(), entry.penalty))
+            .collect();
+        // 最便宜的 pa 先排（位置 3 在末尾，只有两种跨度）；同价 12 的弱位置 2（na）排在强位置 1（hai）前面；最贵的 li 最后。
+        assert_eq!(
+            replaced.iter().map(|entry| entry.2).collect::<Vec<_>>(),
+            [
+                "ma'pa",
+                "hao'ma'pa",
+                "hao'na",
+                "na'ba",
+                "ni'hao'na",
+                "hao'na'ba",
+                "ni'hai",
+                "hai'ma",
+                "ni'hai'ma",
+                "hai'ma'ba",
+                "li'hao",
+                "li'hao'ma",
+            ]
+        );
+        assert!(replaced.windows(2).all(|pair| pair[0].3 <= pair[1].3));
+    }
+
+    #[test]
+    fn priced_planning_stops_at_the_key_budget() {
+        // 各音节互不相同，换掉不同位置得到的跨度键也互不相同，只有预算能让规划停下。
+        let segments: Vec<String> = (0..40).map(|index| format!("s{index}")).collect();
+        let variants: Vec<PricedTypo<'static>> = ["chuang", "shuang", "zhang"]
+            .into_iter()
+            .map(|syllable| PricedTypo {
+                syllable,
+                penalty: 20.0,
+            })
+            .collect();
+        let planned = plan_priced_keys(&segments, &path(&[]), |_| variants.as_slice());
+        assert_eq!(planned.len(), TYPO_KEY_BUDGET);
     }
 
     #[test]

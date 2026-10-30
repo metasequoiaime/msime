@@ -56,7 +56,8 @@ constexpr jsize kCloudClipboardSourceDirectoryLimit = 16384;
 constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 // 与 msime_client_dictionary_sync 头文件里的请求上限（2 MiB，HostOptions 文档里带着整份偏好）一致；「测试连接」的请求带着应用密码，请求和响应都不记录。
 constexpr jsize kDictionarySyncRequestLimit = 2 * 1024 * 1024;
-constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;
+// 与 C 入口一致：为 8 MiB 原始词表的 JSON 转义和元数据留出空间。
+constexpr jsize kVocabularyReviewRequestLimit = 17 * 1024 * 1024;
 constexpr jsize kPrepareHostRequestLimit = 16384;
 constexpr jsize kSavePreferencesDirectoryLimit = 16384;
 constexpr jsize kSavePreferencesSnapshotLimit = 1 * 1024 * 1024;
@@ -77,6 +78,8 @@ constexpr jsize kShuangpinProfileLimit = 64;
 constexpr jsize kSmartPunctuationRequestLimit = 4096;
 // 更长的请求 msime_client_glide 自己也会拒绝；这里先查，免得复制一个超大的数组。
 constexpr jsize kGlideRequestLimit = 65536;
+// 与 msime_client_set_key_geometry 的上限一致；更长的几何它自己也会拒绝，这里先查，免得复制一个超大的数组。
+constexpr jsize kKeyGeometryLimit = 16384;
 // 与 msime_client_set_nine_key_filter 的笔画上限一致。
 constexpr jsize kNineKeyStrokesLimit = 64;
 constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
@@ -108,6 +111,9 @@ static jbyteArray json_call(JNIEnv *env, jbyteArray request, char *(*call)(const
     char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_migrateKeyLayoutRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 65536, msime_client_migrate_android_key_layout);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryBeginRaw(JNIEnv *env, jclass, jbyteArray request) {
     return json_call(env, request, msime_client_telemetry_begin);
@@ -564,6 +570,28 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_characterRaw(JN
     }
     return response(env, msime_client_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE));
 }
+// 26 键双拼的键位几何；空数组清除。空引用和超长的几何不复制，交给引擎按「长度非零却是空指针」拒绝（长度 0 是清除，不能用它）。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setKeyGeometryRaw(JNIEnv *env, jclass, jlong handle, jbyteArray json) {
+    if (!json) return response(env, msime_client_set_key_geometry(static_cast<uint64_t>(handle), nullptr, 1));
+    jsize length = env->GetArrayLength(json);
+    if (length > kKeyGeometryLimit) return response(env, msime_client_set_key_geometry(static_cast<uint64_t>(handle), nullptr, 1));
+    if (length == 0) return response(env, msime_client_set_key_geometry(static_cast<uint64_t>(handle), nullptr, 0));
+    jbyte *bytes = env->GetByteArrayElements(json, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_set_key_geometry(static_cast<uint64_t>(handle),
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(json, bytes, JNI_ABORT);
+    return response(env, result);
+}
+// 带按下点的一键，紧挨着 characterRaw：代次和坐标原样交给引擎，不符或不是有限数时引擎按 msime_client_character 处理。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_touchCharacterRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jboolean shift, jint geometryId, jfloat x, jfloat y) {
+    if (ascii < 0 || ascii > 127) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Engine character must be ASCII");
+        return nullptr;
+    }
+    return response(env, msime_client_touch_character(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), shift == JNI_TRUE,
+        static_cast<uint32_t>(geometryId), static_cast<float>(x), static_cast<float>(y)));
+}
 // 字母网格小写送整组，十八键双拼的大写送精确字母；有效性由引擎判定。先拦非 ASCII，避免截断成另一字母。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridHelpcodeRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     return bounded_request(env, request, 1024, [handle](const uint8_t *bytes, size_t length) {
@@ -717,6 +745,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_viewRaw(JNIEnv 
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_allCandidatesRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_all_candidates(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateRangeRaw(JNIEnv *env, jclass, jlong handle, jint start, jint count) {
+    if (start < 0 || count < 0) return nullptr;
+    return response(env, msime_client_candidate_range(static_cast<uint64_t>(handle),
+        static_cast<size_t>(start), static_cast<size_t>(count)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyTranslationsRaw(JNIEnv *env, jclass, jlong handle, jlong generation, jbyteArray translations) {
     if (!translations || generation < 0) {

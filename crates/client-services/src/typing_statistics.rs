@@ -34,6 +34,12 @@ pub const MAX_VOICE_MS_PER_CALL: u64 = 600_000;
 pub const MAX_SKINS_TRIED: usize = 64;
 /// 连续输入（`current_run`、`longest_run`）只在 Android 上记：只有 Android 的统计页显示它，其他宿主写出的统计文件保持原样。测试里也打开，好覆盖计法。
 const TRACKS_TYPING_RUNS: bool = cfg!(any(target_os = "android", test));
+/// `record` 攒下的上屏，距上次读写这个目录的统计文件满这么久后，由下一次上屏一起写出。
+///
+/// 每次上屏都整份读、解析、重写并 fsync 统计文件（Apple 上是 F_FULLFSYNC），在低端手机上英文模式每个字母一次，耗电发热；30 秒写一次是维护者定下的跨平台约定，宿主另在键盘收起、输入框失焦和进程退出前调 `flush`。进程被杀时最多丢这么久的计数，与按键热力图的批次相同。
+pub const COMMIT_FLUSH_INTERVAL_MS: u64 = 30_000;
+/// 一个目录最多攒这么多次上屏，到了就写，不再等 [`COMMIT_FLUSH_INTERVAL_MS`]：只为给内存设个上限，正常打字 30 秒到不了。
+const MAX_PENDING_COMMITS: usize = 1024;
 
 mod metrics;
 /// 每日计数上传到云端（用户打开「上传到云端」后）。
@@ -256,6 +262,19 @@ impl SelectionCounts {
             .checked_add(count)
             .filter(|count| *count <= MAX_COUNT)
             .ok_or(TypingStatisticsError::CountExhausted)?;
+        Ok(())
+    }
+
+    /// 把 `other` 的每个位置加进来：整批加上或报错，报错时 `self` 可能已加了一部分，调用方丢掉它。
+    fn merge(&mut self, other: &Self) -> Result<(), TypingStatisticsError> {
+        for (slot, count) in other.ranks.iter().enumerate() {
+            if *count > 0 {
+                self.add(slot + 1, *count)?;
+            }
+        }
+        if other.beyond > 0 {
+            self.add(RANKS + 1, other.beyond)?;
+        }
         Ok(())
     }
 
@@ -658,6 +677,11 @@ pub struct TypingStatistics {
     /// 已解锁的徽章 ID 和解锁那天。只增不减：保留期删掉旧数据以后徽章也不会重新锁上；只有 reset 会清空。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub achievements: BTreeMap<String, String>,
+    /// 清空代号：每次 [`TypingStatisticsStore::reset`] 换一个随机值，旧文件和从没清空过的文件读成 0（不序列化）。
+    ///
+    /// 只给攒批用：进程攒着的上屏记下开始攒时文件的代号，写出时代号变了，说明这期间别的进程清空过统计，这批上屏是清空之前打的，丢掉，不写回清空后的文件。用随机值而不是计数，是因为清空次数也是在说用户，清空要清得什么都不剩。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub generation: u64,
 }
 
 impl Default for TypingStatistics {
@@ -683,6 +707,7 @@ impl Default for TypingStatistics {
             daily_voice_ms: BTreeMap::new(),
             skins_tried: BTreeSet::new(),
             achievements: BTreeMap::new(),
+            generation: 0,
         }
     }
 }
@@ -867,6 +892,89 @@ impl TypingStatistics {
     pub fn hours(&self, day: &str) -> Option<&[u64]> {
         self.daily_hours.get(day).map(Vec::as_slice)
     }
+
+    /// 记一次上屏：字数、分类、到这次的间隔算出的活跃时长、连续输入、小时分布，每天第一次写入时执行保留期。攒批写出时按到达顺序逐条调用，结果与逐条写入相同。
+    fn apply_commit(&mut self, commit: &PendingCommit) -> Result<(), TypingStatisticsError> {
+        let (addition, count, day, now_ms) = (
+            &commit.addition,
+            commit.count,
+            commit.day.as_str(),
+            commit.now_ms,
+        );
+        self.total = self
+            .total
+            .checked_add(count)
+            .filter(|total| *total <= MAX_COUNT)
+            .ok_or(TypingStatisticsError::CountExhausted)?;
+        checked_increment(&mut self.days, day, count)?;
+        self.detail.merge(addition)?;
+        self.daily_details
+            .entry(day.to_owned())
+            .or_default()
+            .merge(addition)?;
+
+        // Attribute the gap to the day and hour of *this* commit, the way the Windows baseline
+        // does: the pause belongs to the typing it precedes, and a session that crosses midnight
+        // therefore leaves its last pause on the new day rather than extending the old one.
+        let active_ms = active_gap_ms(self.last_commit_ms, now_ms);
+        if active_ms > 0 {
+            let day_active = self.daily_active_ms.entry(day.to_owned()).or_default();
+            *day_active = day_active
+                .saturating_add(active_ms)
+                .min(MAX_ACTIVE_MS_PER_DAY);
+        }
+        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。只有 Android 的统计页显示它。
+        if TRACKS_TYPING_RUNS {
+            if active_ms > 0 && self.current_run.characters > 0 {
+                self.current_run.characters = self
+                    .current_run
+                    .characters
+                    .saturating_add(count)
+                    .min(MAX_COUNT);
+            } else {
+                self.current_run = TypingRun {
+                    characters: count,
+                    day: day.to_owned(),
+                };
+            }
+            if self.current_run.characters > self.longest_run.characters {
+                self.longest_run = self.current_run.clone();
+            }
+        }
+        // Never moves backwards. A clock set back would otherwise make every later commit look
+        // like it followed a huge pause, and the first one after the correction would be counted
+        // as a fresh session instead of the continuation it is.
+        if now_ms > self.last_commit_ms {
+            self.last_commit_ms = now_ms;
+        }
+
+        if let Some(hour) = commit.hour.filter(|hour| usize::from(*hour) < HOURS) {
+            let buckets = self
+                .daily_hours
+                .entry(day.to_owned())
+                .or_insert_with(|| vec![0; HOURS]);
+            // A file edited by hand could carry a short vector; resize rather than panic on the
+            // index, because a malformed bucket list must not cost the user the count itself.
+            if buckets.len() != HOURS {
+                buckets.resize(HOURS, 0);
+            }
+            let bucket = &mut buckets[usize::from(hour)];
+            *bucket = bucket
+                .checked_add(count)
+                .filter(|count| *count <= MAX_COUNT)
+                .ok_or(TypingStatisticsError::CountExhausted)?;
+        }
+
+        // The retention setting is the only thing that deletes days, matching the baseline's
+        // RetentionCutoff/ClearThrough: `Forever` keeps every one, and `MAX_DOCUMENT_BYTES` is what
+        // bounds the file. It runs on the first write of each day; doing it on every write would
+        // read the whole history on every commit.
+        if self.last_pruned_day != day {
+            self.apply_retention(day);
+            self.last_pruned_day = day.to_owned();
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -912,6 +1020,123 @@ pub struct TypingStatisticsStore {
     upload_operation: Arc<Mutex<()>>,
 }
 
+/// 一次攒着还没写进文件的上屏：只有分类计数、日期、小时和时刻，不留原文。
+struct PendingCommit {
+    addition: TypingBreakdown,
+    count: u64,
+    day: String,
+    hour: Option<u8>,
+    now_ms: u64,
+}
+
+/// 本进程为一个统计目录攒着的上屏，和上次读写那个文件时看到的状态。
+struct PendingCommits {
+    /// 上次读写文件时的统计开关。关着时 `record` 不攒，直接答 0；满一个间隔后重读一次文件。
+    enabled: bool,
+    /// 上次读写文件的时刻（`record_at` 的时钟），间隔从这里算。
+    since_ms: u64,
+    /// 文件里的累计字数加上 `commits` 的字数，成就里程碑据此判断，不必为此另读一遍文件。
+    total: u64,
+    /// 上次读写文件时它的清空代号（[`TypingStatistics::generation`]）。写出时文件的代号不同，就是别的进程在这期间清空过，`commits` 整批丢掉。
+    generation: u64,
+    commits: Vec<PendingCommit>,
+}
+
+impl PendingCommits {
+    /// 该写了：攒满上限，或距上次读写满一个间隔。时钟往回拨也算满，免得拨回去以后一直不写。
+    fn due(&self, now_ms: u64) -> bool {
+        self.commits.len() >= MAX_PENDING_COMMITS
+            || now_ms.abs_diff(self.since_ms) >= COMMIT_FLUSH_INTERVAL_MS
+    }
+}
+
+/// 按目录攒着的上屏，整个进程一份：同一进程里不同的 store 实例（每次 FFI 调用都新建一个）看到同一批，读这个目录的任何操作都先把它写进去。
+///
+/// 锁的顺序固定为先这把互斥锁、再统计文件锁，持有文件锁时不再取这把锁，所以不会互相等死。`record` 写文件时一直拿着它，同一进程里的上屏因此按到达的顺序写进文件，活跃时长和连续输入的间隔不会被打乱。
+static PENDING_COMMITS: Mutex<BTreeMap<PathBuf, PendingCommits>> = Mutex::new(BTreeMap::new());
+
+fn pending_commits() -> MutexGuard<'static, BTreeMap<PathBuf, PendingCommits>> {
+    PENDING_COMMITS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 本进程为一个统计目录攒着的选词位置，和本进程上次读写那个文件时看到的统计开关与清空代号。
+#[derive(Default)]
+struct PendingSelections {
+    /// 本进程上次读到或写下统计文件时它的 `(开关, 清空代号)`；读时文件还不存在，记的是默认值（关着，代号 0）。本进程还没读过这个文件时为 `None`。
+    file: Option<(bool, u64)>,
+    /// 攒着还没写进文件的选词位置。`file` 为 `None` 时攒下的，由下一次读到的开关和代号决定去留。
+    counts: SelectionCounts,
+}
+
+impl PendingSelections {
+    /// 记下本进程刚读到或刚写下的文件状态。文件里的统计关着，或代号变了（别的进程或本进程清空过，攒着的选词是清空之前计的），攒着的选词整批丢掉，和攒着的上屏一样。
+    fn observe(&mut self, value: &TypingStatistics) {
+        if !value.enabled
+            || self
+                .file
+                .is_some_and(|(_, generation)| generation != value.generation)
+        {
+            self.counts = SelectionCounts::default();
+        }
+        self.file = Some((value.enabled, value.generation));
+    }
+}
+
+/// 按目录攒着的选词位置，整个进程一份，和 [`PENDING_COMMITS`] 一起写出（见 `write_pending_locked`）。
+///
+/// 选词位置在宿主的输入线程上交过来（host-api 的 `flush_selections`），所以单独一把锁：它只在加计数、取计数和记文件状态的一瞬间拿着，拿着它时不取别的锁、不读写文件。[`PENDING_COMMITS`] 在写文件时一直拿着，输入线程取它就可能等别的线程的 fsync。锁的顺序是先 [`PENDING_COMMITS`]、再文件锁、最后这把，不会互相等死。
+static PENDING_SELECTIONS: Mutex<BTreeMap<PathBuf, PendingSelections>> =
+    Mutex::new(BTreeMap::new());
+
+fn pending_selections() -> MutexGuard<'static, BTreeMap<PathBuf, PendingSelections>> {
+    PENDING_SELECTIONS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 本进程攒着选词位置的目录。
+fn directories_holding_selections() -> Vec<PathBuf> {
+    pending_selections()
+        .iter()
+        .filter(|(_, entry)| entry.counts.total() > 0)
+        .map(|(directory, _)| directory.clone())
+        .collect()
+}
+
+/// 把本进程为所有目录攒着的上屏和选词位置都写出去。尽力而为：写不进的那批丢掉，统计不能成为别的操作失败的原因。
+///
+/// 给不知道具体目录、又能在当前线程上等磁盘的收尾点用（Windows 的失焦、桌面宿主的会话销毁、`msime_client_flush_all`）；在 UI 线程上的收尾点用 [`flush_pending_commits_in_background`]。知道目录的宿主调 [`TypingStatisticsStore::flush`]。
+pub fn flush_pending_commits() {
+    let mut directories: BTreeSet<PathBuf> = pending_commits().keys().cloned().collect();
+    directories.extend(directories_holding_selections());
+    for directory in directories {
+        let _ = TypingStatisticsStore::new(directory).flush();
+    }
+}
+
+/// [`flush_pending_commits`]，但在新开的后台线程上写，调用方不等磁盘，也不等别的线程手里的 [`PENDING_COMMITS`]。
+///
+/// 给可能在 UI 线程或主线程上的收尾点用（移动宿主的失焦和会话销毁、macOS 和 Linux 的失焦）：那里不能整份读写统计文件再 fsync，也不能等统计工作线程正在做的那次写。本进程没有攒着任何目录的上屏或选词时什么都不做，不开线程；锁正被别的线程拿着时照样开线程，由它去等。开不了线程时退回到在当前线程上写：丢计数比卡一下更糟。
+pub fn flush_pending_commits_in_background() {
+    let no_commits_held = match PENDING_COMMITS.try_lock() {
+        Ok(pending) => pending.is_empty(),
+        Err(std::sync::TryLockError::Poisoned(pending)) => pending.into_inner().is_empty(),
+        Err(std::sync::TryLockError::WouldBlock) => false,
+    };
+    if no_commits_held && directories_holding_selections().is_empty() {
+        return;
+    }
+    if std::thread::Builder::new()
+        .name("msime-statistics-flush".into())
+        .spawn(flush_pending_commits)
+        .is_err()
+    {
+        flush_pending_commits();
+    }
+}
+
 struct StatisticsLock {
     directory: crate::file_lock::PrivateDirectory,
     _lock: crate::file_lock::ScopedFileLock,
@@ -945,7 +1170,38 @@ impl TypingStatisticsStore {
         self.directory.join(STATISTICS_FILE)
     }
 
+    /// 取统计文件锁，并先把本进程为这个目录攒着的上屏和选词位置写进文件：读这个目录的任何操作都看得到它们，改开关、改保留期和清空都排在它们之后。
+    ///
+    /// 攒着的那批写不进时丢掉，不让这次操作跟着失败：文件本身坏了，操作自己的读照样会报出来。写过以后状态也一并丢掉，下一次 `record` 重新读文件里的开关。
     fn lock(&self) -> Result<StatisticsLock, TypingStatisticsError> {
+        let mut pending = pending_commits();
+        let lock = self.lock_file()?;
+        let (commits, generation) = pending
+            .remove(&self.directory)
+            .map_or((Vec::new(), 0), |entry| (entry.commits, entry.generation));
+        if !commits.is_empty() || self.holds_selections() {
+            let _ = self.write_pending_locked(&lock, &commits, generation);
+        }
+        Ok(lock)
+    }
+
+    /// 本进程为这个目录攒着选词位置。
+    fn holds_selections(&self) -> bool {
+        pending_selections()
+            .get(&self.directory)
+            .is_some_and(|entry| entry.counts.total() > 0)
+    }
+
+    /// 记下本进程刚读到或刚写下的文件状态，见 [`PendingSelections::observe`]。
+    fn observe_file(&self, value: &TypingStatistics) {
+        pending_selections()
+            .entry(self.directory.clone())
+            .or_default()
+            .observe(value);
+    }
+
+    /// 只取统计文件锁，不碰攒着的上屏。调用方必须已经拿着 [`PENDING_COMMITS`]，见那里的锁顺序。
+    fn lock_file(&self) -> Result<StatisticsLock, TypingStatisticsError> {
         if let Some(parent) = self.directory.parent() {
             crate::storage::reject_symlink(parent)?;
         }
@@ -977,7 +1233,10 @@ impl TypingStatisticsStore {
         ) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(TypingStatistics::default());
+                // 文件还不存在也是读到了一个状态：默认值，统计关着。记下它，攒着的选词随之丢掉，不会建出一份关着却带着选词的新文件。
+                let value = TypingStatistics::default();
+                self.observe_file(&value);
+                return Ok(value);
             }
             Err(_) => return Err(TypingStatisticsError::InvalidDocument),
         };
@@ -986,6 +1245,7 @@ impl TypingStatisticsStore {
         })?;
         let value: TypingStatistics = serde_json::from_slice(&bytes)?;
         value.validate()?;
+        self.observe_file(&value);
         Ok(value)
     }
 
@@ -1001,7 +1261,60 @@ impl TypingStatisticsStore {
             std::ffi::OsStr::new(STATISTICS_FILE),
             &bytes,
         )?;
+        self.observe_file(value);
         Ok(())
+    }
+
+    /// 在文件锁内重读统计，按到达的顺序把攒着的上屏逐条记进去，连同本进程攒着的选词位置，再写一次。
+    ///
+    /// 重读是因为别的进程（设置页）可能在这期间清空了统计、改了保留期或关掉了统计：改了保留期就合并进它写下的文件；统计关着，或文件的清空代号已经不是 `generation`（这批上屏是清空之前打的，攒批之前它们早已在文件里、随清空一起删掉），整批丢掉不写。每条上屏带着自己的时刻、日期和小时，记法与当初逐条写入完全相同。选词位置在重读之后取走，重读已按同样的规矩丢掉了不该写的那些（[`PendingSelections::observe`]，文件还不存在时按默认的关着算）；读不出文件时它们留在内存里，等下一次写。上屏和选词都没有要写的就不写。整批成功或文件不变。返回重读（并在有要写的时合并）后的统计。
+    fn write_pending_locked(
+        &self,
+        lock: &StatisticsLock,
+        commits: &[PendingCommit],
+        generation: u64,
+    ) -> Result<TypingStatistics, TypingStatisticsError> {
+        let mut value = self.read_locked(lock)?;
+        let selections = pending_selections()
+            .get_mut(&self.directory)
+            .map(|entry| std::mem::take(&mut entry.counts))
+            .unwrap_or_default();
+        let commits = if value.enabled && value.generation == generation {
+            commits
+        } else {
+            &[]
+        };
+        // 重读时已丢掉不该写的选词；统计关着时这里再挡一次，关着就什么都不写，也不会因为选词建出文件。
+        let selections = if value.enabled {
+            selections
+        } else {
+            SelectionCounts::default()
+        };
+        if commits.is_empty() && selections.total() == 0 {
+            return Ok(value);
+        }
+        for commit in commits {
+            value.apply_commit(commit)?;
+        }
+        value.selections.merge(&selections)?;
+        self.write_locked(lock, &value)?;
+        Ok(value)
+    }
+
+    /// 把本进程为这个目录攒着的上屏和选词位置写进统计文件。两样都没有攒着时不碰磁盘。
+    ///
+    /// 宿主在键盘收起、输入框失焦和进程或服务退出前，在它平时调统计的那个工作线程上调用。之后的 `record` 重新读文件里的开关。写不进时这一批丢掉，不留着下次重试。
+    pub fn flush(&self) -> Result<(), TypingStatisticsError> {
+        let mut pending = pending_commits();
+        let (commits, generation) = pending
+            .remove(&self.directory)
+            .map_or((Vec::new(), 0), |entry| (entry.commits, entry.generation));
+        if commits.is_empty() && !self.holds_selections() {
+            return Ok(());
+        }
+        let lock = self.lock_file()?;
+        self.write_pending_locked(&lock, &commits, generation)
+            .map(|_| ())
     }
 
     pub fn load(&self) -> Result<TypingStatistics, TypingStatisticsError> {
@@ -1046,6 +1359,8 @@ impl TypingStatisticsStore {
     /// `hour` is the local hour the commit happened in. `None` records the characters without an
     /// hourly breakdown, which is what a host that cannot resolve a local hour should send rather
     /// than guessing one.
+    ///
+    /// 不是每次都写文件：计数先攒在本进程里，距上次读写这个目录满 [`COMMIT_FLUSH_INTERVAL_MS`] 后的下一次上屏、[`Self::flush`] 或这个目录上的任何其他操作才把它们写进去，见 [`Self::record_with_total_at`]。
     pub fn record(
         &self,
         text: &str,
@@ -1066,14 +1381,35 @@ impl TypingStatisticsStore {
         hour: Option<u8>,
         now_ms: u64,
     ) -> Result<u64, TypingStatisticsError> {
+        self.record_with_total_at(text, source, day, hour, now_ms)
+            .map(|(count, _)| count)
+    }
+
+    /// `record`，另外答记完这次以后的累计字数（文件里的加上本进程攒着的），宿主据此判断这次上屏是否越过成就里程碑。
+    pub fn record_with_total(
+        &self,
+        text: &str,
+        source: TypingSource,
+        day: &str,
+        hour: Option<u8>,
+    ) -> Result<(u64, u64), TypingStatisticsError> {
+        self.record_with_total_at(text, source, day, hour, epoch_millis(SystemTime::now()))
+    }
+
+    /// 给这次上屏分类计数，攒进本进程这个目录的批次，答 `(这次记下的字数, 累计字数)`。
+    ///
+    /// 这个目录在本进程里还没有状态时（第一次上屏，或刚 flush、刚有别的操作写过文件）读一次文件，只为知道统计开关和累计字数，不写；统计关着时答 0、不攒，满一个间隔后再读一次开关。距上次读写满 [`COMMIT_FLUSH_INTERVAL_MS`] 或攒满上限时，连同这次和本进程攒着的选词位置一起在文件锁内合并写出，见 `write_pending_locked`；那时文件里的统计已被关掉，这次答 0。
+    pub fn record_with_total_at(
+        &self,
+        text: &str,
+        source: TypingSource,
+        day: &str,
+        hour: Option<u8>,
+        now_ms: u64,
+    ) -> Result<(u64, u64), TypingStatisticsError> {
         validate_day(day)?;
         if text.len() > MAX_COMMIT_BYTES || text.chars().count() > MAX_COMMIT_SCALARS {
             return Err(TypingStatisticsError::CommitTooLarge);
-        }
-        let lock = self.lock()?;
-        let mut value = self.read_locked(&lock)?;
-        if !value.enabled {
-            return Ok(0);
         }
         let mut addition = TypingBreakdown::default();
         let mut count = 0_u64;
@@ -1084,84 +1420,64 @@ impl TypingStatisticsStore {
             addition.add(classify(grapheme), source)?;
             count += 1;
         }
-        if count == 0 {
-            return Ok(0);
+        let mut pending = pending_commits();
+        // 统计关着时每个间隔重读一次开关：设置页打开统计以后，不必等到失焦才开始计。
+        if pending
+            .get(&self.directory)
+            .is_some_and(|entry| !entry.enabled && entry.due(now_ms))
+        {
+            pending.remove(&self.directory);
         }
-        value.total = value
+        let entry = match pending.entry(self.directory.clone()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let lock = self.lock_file()?;
+                let value = self.read_locked(&lock)?;
+                entry.insert(PendingCommits {
+                    enabled: value.enabled,
+                    since_ms: now_ms,
+                    total: value.total,
+                    generation: value.generation,
+                    commits: Vec::new(),
+                })
+            }
+        };
+        if !entry.enabled || count == 0 {
+            return Ok((0, entry.total));
+        }
+        entry.total = entry
             .total
             .checked_add(count)
             .filter(|total| *total <= MAX_COUNT)
             .ok_or(TypingStatisticsError::CountExhausted)?;
-        checked_increment(&mut value.days, day, count)?;
-        value.detail.merge(&addition)?;
-        value
-            .daily_details
-            .entry(day.to_owned())
-            .or_default()
-            .merge(&addition)?;
-
-        // Attribute the gap to the day and hour of *this* commit, the way the Windows baseline
-        // does: the pause belongs to the typing it precedes, and a session that crosses midnight
-        // therefore leaves its last pause on the new day rather than extending the old one.
-        let active_ms = active_gap_ms(value.last_commit_ms, now_ms);
-        if active_ms > 0 {
-            let day_active = value.daily_active_ms.entry(day.to_owned()).or_default();
-            *day_active = day_active
-                .saturating_add(active_ms)
-                .min(MAX_ACTIVE_MS_PER_DAY);
+        entry.commits.push(PendingCommit {
+            addition,
+            count,
+            day: day.to_owned(),
+            hour,
+            now_ms,
+        });
+        if !entry.due(now_ms) {
+            return Ok((count, entry.total));
         }
-        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。只有 Android 的统计页显示它。
-        if TRACKS_TYPING_RUNS {
-            if active_ms > 0 && value.current_run.characters > 0 {
-                value.current_run.characters = value
-                    .current_run
-                    .characters
-                    .saturating_add(count)
-                    .min(MAX_COUNT);
-            } else {
-                value.current_run = TypingRun {
-                    characters: count,
-                    day: day.to_owned(),
-                };
+        let commits = std::mem::take(&mut entry.commits);
+        match self
+            .lock_file()
+            .and_then(|lock| self.write_pending_locked(&lock, &commits, entry.generation))
+        {
+            Ok(value) => {
+                entry.enabled = value.enabled;
+                entry.since_ms = now_ms;
+                entry.total = value.total;
+                entry.generation = value.generation;
+                Ok((if value.enabled { count } else { 0 }, value.total))
             }
-            if value.current_run.characters > value.longest_run.characters {
-                value.longest_run = value.current_run.clone();
+            Err(error) => {
+                // 这一批丢掉；下一次上屏重新读文件，文件还坏着就照旧逐次报错。
+                pending.remove(&self.directory);
+                Err(error)
             }
         }
-        // Never moves backwards. A clock set back would otherwise make every later commit look
-        // like it followed a huge pause, and the first one after the correction would be counted
-        // as a fresh session instead of the continuation it is.
-        if now_ms > value.last_commit_ms {
-            value.last_commit_ms = now_ms;
-        }
-
-        if let Some(hour) = hour.filter(|hour| usize::from(*hour) < HOURS) {
-            let buckets = value
-                .daily_hours
-                .entry(day.to_owned())
-                .or_insert_with(|| vec![0; HOURS]);
-            // A file edited by hand could carry a short vector; resize rather than panic on the
-            // index, because a malformed bucket list must not cost the user the count itself.
-            if buckets.len() != HOURS {
-                buckets.resize(HOURS, 0);
-            }
-            let bucket = &mut buckets[usize::from(hour)];
-            *bucket = bucket
-                .checked_add(count)
-                .filter(|count| *count <= MAX_COUNT)
-                .ok_or(TypingStatisticsError::CountExhausted)?;
-        }
-
-        // The retention setting is the only thing that deletes days, matching the baseline's
-        // RetentionCutoff/ClearThrough: `Forever` keeps every one, and `MAX_DOCUMENT_BYTES` is what
-        // bounds the file. It runs on the first write of each day; doing it on every write would
-        // read the whole history on every commit.
-        if value.last_pruned_day != day {
-            value.apply_retention(day);
-            value.last_pruned_day = day.to_owned();
-        }
-        self.write_locked(&lock, &value)?;
-        Ok(count)
     }
 
     /// Count one commit by the one-based position it was chosen from.
@@ -1176,9 +1492,9 @@ impl TypingStatisticsStore {
 
     /// Count several commits at once, each `(position, count)` pair adding `count` commits from that one-based position, under one lock, one read and at most one write.
     ///
-    /// This is what lets a host keep selections in memory and hand them over in batches instead of paying a full read, fsync and rename per selection. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
+    /// This writes on the calling thread: a full read, fsync and rename. A host handing selections over from its input thread uses [`Self::queue_selections`] instead. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
     ///
-    /// 返回这次读到的统计开关，宿主拿它当下一批的开关缓存，不必在输入线程上再读一遍文件；批次全是零、没有读文件时为 `None`。
+    /// 返回这次读到的统计开关；批次全是零、没有读文件时为 `None`。
     pub fn record_selections(
         &self,
         selections: &[(usize, u64)],
@@ -1196,6 +1512,39 @@ impl TypingStatisticsStore {
         }
         self.write_locked(&lock, &value)?;
         Ok(Some(true))
+    }
+
+    /// 把一批选词位置攒进本进程这个目录的批次，和攒着的上屏一起写出；不取统计文件锁，也不碰磁盘。返回本进程所知的统计开关（[`Self::known_enabled`]）。
+    ///
+    /// 给在输入线程上交出选词的宿主用（host-api 每满一批、失焦和销毁会话时）：那里不能整份读写统计文件再 fsync，也不能等别的线程手里那次写。攒着的选词由写上屏批次的地方一并写出：[`Self::flush`]、[`flush_pending_commits`] 和它的后台版本、满间隔的 `record`，以及这个目录上的任何其他操作（统计页读取、上传），所以读统计的地方总看得到它们。所知的开关关着时整批丢掉不攒；写出时文件里的统计关着（文件还不存在时按默认的关着算），或文件已被清空过（攒下时所知的清空代号与文件的不同），也整批丢掉，和攒着的上屏一样。本进程还没读过这个文件时照攒，由第一次读到的开关和代号决定去留。整批攒下或都不攒：位置是 0 或计数用尽时报错，之前攒着的不受影响。
+    pub fn queue_selections(
+        &self,
+        selections: &[(usize, u64)],
+    ) -> Result<Option<bool>, TypingStatisticsError> {
+        let mut pending = pending_selections();
+        let entry = pending.entry(self.directory.clone()).or_default();
+        let known = entry.file.map(|(enabled, _)| enabled);
+        if known == Some(false) {
+            return Ok(known);
+        }
+        let mut counts = entry.counts.clone();
+        for &(position, count) in selections {
+            if count > 0 {
+                counts.add(position, count)?;
+            }
+        }
+        entry.counts = counts;
+        Ok(known)
+    }
+
+    /// 本进程上次读到或写下这个目录的统计文件时看到的统计开关，不碰磁盘；本进程还没读过这个文件时为 `None`。
+    ///
+    /// 给不能在当前线程上读文件、又想在统计关着时少做点事的调用方（host-api 在输入线程上决定要不要攒上屏效率）。它可能落后于别的进程刚做的改动：写入时统计文件自己的开关作数。
+    pub fn known_enabled(&self) -> Option<bool> {
+        pending_selections()
+            .get(&self.directory)
+            .and_then(|entry| entry.file)
+            .map(|(enabled, _)| enabled)
     }
 
     /// Count key presses for `day`, each entry adding `count` presses of one [`KEY_IDS`] key, under one lock, one read and at most one write. Returns how many presses were added.
@@ -1388,8 +1737,29 @@ impl TypingStatisticsStore {
         value.skins_tried.clear();
         // 徽章只增不减的唯一例外：用户要求清空统计时，解锁记录也一并清空。
         value.achievements.clear();
+        // 别的进程攒着的清空前的上屏据此认出清空，不写回来。
+        value.generation = next_generation(value.generation);
         self.write_locked(&lock, &value)?;
         Ok(value)
+    }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+/// 清空后的代号：随机、非零、与清空前不同。系统随机数不可用时退回到在旧值上加一，只要不同就够用。
+fn next_generation(previous: u64) -> u64 {
+    let mut bytes = [0_u8; 8];
+    let random = if getrandom::fill(&mut bytes).is_ok() {
+        u64::from_le_bytes(bytes)
+    } else {
+        previous.wrapping_add(1)
+    };
+    if random == 0 || random == previous {
+        previous.wrapping_add(1).max(1)
+    } else {
+        random
     }
 }
 
@@ -1545,3 +1915,6 @@ mod tests;
 
 #[cfg(test)]
 mod extension_tests;
+
+#[cfg(test)]
+mod batch_tests;

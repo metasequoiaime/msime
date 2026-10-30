@@ -970,3 +970,38 @@ fn validate_snapshot_accepts_wubi98_entries() {
         json!({"valid": true})
     );
 }
+
+/// 后端不经过建会话，自己在每次请求前查主库、五笔库和 `msime-others.db` 的文件内版本：带当前版本的词库照常回答，比引擎新的任何一个都让请求报 `resources_unavailable`。
+#[test]
+fn a_newer_dictionary_format_makes_resources_unavailable() {
+    let stamp = |path: &Path, version: i32| {
+        Connection::open(path)
+            .unwrap()
+            .execute_batch(&format!(
+                "{} INSERT OR REPLACE INTO metadata VALUES('format_version', '{version}');",
+                crate::format::METADATA_SCHEMA
+            ))
+            .unwrap();
+    };
+    let request = json!({"operation": "listed_pinyin_batch", "entries": [{"code": "ce'shi", "word": "测试"}]});
+    for name in [
+        assets::MAIN_DICTIONARY,
+        assets::WUBI_DICTIONARY,
+        assets::OTHER_DICTIONARY,
+    ] {
+        let resources = resources();
+        let path = resources.path().join(name);
+        stamp(&path, crate::format::FORMAT_VERSION);
+        assert_eq!(
+            run(request.clone(), resources.path()),
+            json!({"listed": [true]}),
+            "{name}"
+        );
+        stamp(&path, crate::format::FORMAT_VERSION + 1);
+        assert_eq!(
+            run(request.clone(), resources.path()),
+            json!({"error": "resources_unavailable"}),
+            "{name}"
+        );
+    }
+}

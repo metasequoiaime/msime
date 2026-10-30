@@ -13,6 +13,7 @@ import {
 import {
   DICTIONARY_SYNC_NOTE,
   SettingsPage,
+  dictionarySyncBudgetWaitMessage,
   dictionarySyncDeviceGroups,
   dictionarySyncErrorMessage,
   dictionarySyncRun,
@@ -74,6 +75,7 @@ const STATUS: {
   clock_skew: boolean;
   last_success_ms: number | null;
   last_error: string | null;
+  budget_wait_until: number | null;
 } = {
   device_id: LOCAL_ID,
   code: LOCAL_CODE,
@@ -86,6 +88,7 @@ const STATUS: {
   clock_skew: false,
   last_success_ms: Date.UTC(2026, 9, 27, 8, 0),
   last_error: null,
+  budget_wait_until: null,
 };
 
 const REPORT = {
@@ -238,6 +241,37 @@ test("sync results are read strictly and errors have their own words", () => {
   expect(dictionarySyncDelay(10)).toBe(1_000);
   expect(dictionarySyncDelay(5_000)).toBe(5_000);
   expect(dictionarySyncDelay(10 * 60 * 60 * 1000)).toBe(30 * 60 * 1000);
+});
+
+test("the automatic budget wait is read and said in local time", () => {
+  // 旧版本的 Rust 不给这个字段；给了不合法的值也当作没在等。
+  expect(dictionarySyncStatus(STATUS)?.budget_wait_until).toBeNull();
+  const { budget_wait_until: _, ...older } = STATUS;
+  expect(dictionarySyncStatus(older)?.budget_wait_until).toBeNull();
+  expect(dictionarySyncStatus({ ...STATUS, budget_wait_until: -1 })?.budget_wait_until).toBeNull();
+  expect(
+    dictionarySyncStatus({ ...STATUS, budget_wait_until: "soon" })?.budget_wait_until,
+  ).toBeNull();
+  const until = new Date(2026, 9, 28, 9, 5).getTime();
+  expect(dictionarySyncStatus({ ...STATUS, budget_wait_until: until })?.budget_wait_until).toBe(
+    until,
+  );
+  expect(dictionarySyncRun(runValue({ budget_wait_until: until }))?.status.budget_wait_until).toBe(
+    until,
+  );
+
+  // 按本机时间说；今天之内只写时分，跨了天写上月日；已经过了或没在等时不说。
+  const morning = new Date(2026, 9, 28, 8, 40).getTime();
+  expect(dictionarySyncBudgetWaitMessage(until, morning)).toBe(
+    "额度用完，将于 09:05 继续自动同步；可点「立即同步」。",
+  );
+  const lateNight = new Date(2026, 9, 27, 23, 50).getTime();
+  expect(dictionarySyncBudgetWaitMessage(until, lateNight)).toBe(
+    "额度用完，将于 10月28日 09:05 继续自动同步；可点「立即同步」。",
+  );
+  expect(dictionarySyncBudgetWaitMessage(until, until)).toBeNull();
+  expect(dictionarySyncBudgetWaitMessage(until, until + 60_000)).toBeNull();
+  expect(dictionarySyncBudgetWaitMessage(null, morning)).toBeNull();
 });
 
 test("saving or stopping sync only touches its own key", () => {
@@ -398,6 +432,36 @@ test("a failed sync says why in Chinese", async () => {
   expect(await screen.findByText("网盘拒绝了这个账号或应用密码。")).toBeDefined();
 });
 
+test("a sync waiting for its request budget says when it resumes and keeps the error", async () => {
+  const until = Date.now() + 20 * 60 * 1000;
+  const host = syncHost({
+    run: () => ({
+      network: false,
+      next_check_ms: 1_200_000,
+      status: { ...STATUS, last_error: "dictionary_sync_rate_limited", budget_wait_until: until },
+      error: "dictionary_sync_rate_limited",
+    }),
+  });
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
+  const status = await screen.findByLabelText("词库同步状态");
+  const message = dictionarySyncBudgetWaitMessage(until);
+  expect(message).not.toBeNull();
+  expect(await within(status).findByText(message!)).toBeDefined();
+  // 不顶掉错误，也不顶掉「上次同步」。
+  expect(within(status).getByText(/网盘暂时限制了请求次数/)).toBeDefined();
+  expect(within(status).getByText(/上次同步：/)).toBeDefined();
+});
+
+test("a budget wait that has already passed is not shown", async () => {
+  const host = syncHost({ run: () => runValue({ budget_wait_until: Date.now() - 1_000 }) });
+  renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
+  await settingsFormReady();
+  const status = await screen.findByLabelText("词库同步状态");
+  await within(status).findByText(/上次同步：/);
+  expect(within(status).queryByText(/额度用完/)).toBeNull();
+});
+
 test("words changed through settings are recorded as a local change", async () => {
   const notify = vi.fn();
   const edit = vi.fn().mockResolvedValue(undefined);
@@ -473,6 +537,91 @@ test("words the host wrote itself are recorded as a local change only while sync
   });
   listener();
   expect(unconsented).not.toHaveBeenCalled();
+});
+
+test("a sync run that wrote remote words into this device's dictionary reloads the word list", async () => {
+  expect(dictionarySyncRun({ ...runValue(), report: { ...REPORT, applied: 3 } })?.applied).toBe(3);
+  expect(
+    dictionarySyncRun({ network: true, next_check_ms: 60_000, status: STATUS, error: "x" })
+      ?.applied,
+  ).toBe(0);
+
+  // 网盘来的词写进了本机词库之后，词库页重读「我的词条」；什么也没写进来时不重读。
+  const localChanges = createDictionaryLocalChanges();
+  const onWordsApplied = vi.fn();
+  let applied = 0;
+  const host = syncHost({
+    run: () => ({ ...runValue(), report: { ...REPORT, applied } }),
+    remove: () => ({
+      devices: DEVICES,
+      run: { ...runValue(), report: { ...REPORT, applied: 1 } },
+    }),
+  });
+  const { result } = renderHook(() =>
+    useDictionarySync({
+      client: { dictionarySync: host },
+      saved: WEBDAV,
+      localChanges,
+      onWordsApplied,
+    }),
+  );
+  await waitFor(() => expect(result.current?.status).not.toBeNull());
+  expect(onWordsApplied).not.toHaveBeenCalled();
+  applied = 2;
+  await act(async () => result.current!.syncNow());
+  expect(onWordsApplied).toHaveBeenCalledTimes(1);
+  // 移除设备带回的那一次同步也算。
+  await act(async () => result.current!.remove(OTHER_ID));
+  expect(onWordsApplied).toHaveBeenCalledTimes(2);
+
+  // 整个设置页：在「管理词库」里「立即同步」写进了一个词，回到「查找词库」不用换类型或搜索就看得到它。
+  cleanup();
+  const word = { kind: "quick_phrase" as const, key: "wpzc", value: "网盘来的合成词", weight: 1 };
+  let synced = false;
+  const list = vi.fn(async () => ({ entries: synced ? [word] : [], has_more: false }));
+  const page = syncHost({
+    run: (action) => {
+      if (action.operation === "run" && action.trigger === "manual") synced = true;
+      return { ...runValue(), report: { ...REPORT, applied: synced ? 1 : 0 } };
+    },
+  });
+  renderDictionaryPage(
+    { dictionarySync: page, dictionary: { list, edit: vi.fn() } as unknown as DictionaryClient },
+    { ...base, dictionary_sync_webdav: WEBDAV },
+  );
+  await settingsFormReady();
+  await waitFor(() => expect(list).toHaveBeenCalled());
+  await waitFor(() => expect(operations(page.request)).toContain("run:opened"));
+  expect(screen.queryByText("网盘来的合成词")).toBeNull();
+  const calls = list.mock.calls.length;
+  fireEvent.click(screen.getByRole("tab", { name: "管理词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "立即同步" }));
+  await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(calls));
+  fireEvent.click(screen.getByRole("tab", { name: "查找词库" }));
+  expect(await screen.findByText("网盘来的合成词")).toBeDefined();
+});
+
+test("returning to the window reads the status the input method's background sync left", async () => {
+  const localChanges = createDictionaryLocalChanges();
+  // 输入法进程在后台把待发送的那一个词发了出去：本页读到的概况随之变了。
+  let background = STATUS;
+  const host = syncHost({ status: () => background });
+  const { result, unmount } = renderHook(() =>
+    useDictionarySync({ client: { dictionarySync: host }, saved: WEBDAV, localChanges }),
+  );
+  await waitFor(() => expect(result.current?.status?.pending_upload).toBe(1));
+  background = { ...STATUS, pending_upload: 0, last_success_ms: Date.UTC(2026, 9, 27, 8, 30) };
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(result.current?.status?.pending_upload).toBe(0));
+  expect(result.current?.status?.last_success_ms).toBe(Date.UTC(2026, 9, 27, 8, 30));
+  expect(operations(host.request)).toEqual(["run:opened", "status"]);
+  // 卸载以后不再读。
+  unmount();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(operations(host.request)).toEqual(["run:opened", "status"]);
 });
 
 test("changing the saved connection releases a previous manual action's busy state", async () => {

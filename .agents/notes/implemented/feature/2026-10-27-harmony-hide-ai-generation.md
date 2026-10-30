@@ -30,7 +30,7 @@ Status: implemented
 
 ## 重新打开
 
-资质（实名认证流程、《安全评估报告》、生成内容标识材料）到位后，把 `host_surface.rs` 里 `ai_generation: platform != HostPlatform::Harmony` 改成 `true`，同步改 `only_harmony_withholds_ai_generation` 测试和 `apps/desktop/tests/support/host.ts` 的 `ai_generation: !harmony`，再按审核要求补上 AI 对话前的实名认证与生成内容标识。其他代码不用动：页面、宿主客户端、键盘格子和请求点全部跟着这一个值回来。测试里带 `ai_generation: true` 的用例覆盖的就是那时重新出现的界面。
+资质（实名认证流程、《安全评估报告》、生成内容标识材料）到位后，把 `host_surface.rs` 里 `ai_generation: platform != HostPlatform::Harmony` 改成 `true`，同步改 `only_harmony_withholds_ai_generation` 测试和 `apps/desktop/tests/support/host.ts` 的 `ai_generation: !harmony`，再按审核要求补上 AI 对话前的实名认证与生成内容标识。其他代码不用动：页面、宿主客户端、键盘格子和请求点全部跟着这一个值回来。测试里带 `ai_generation: true` 的用例覆盖的就是那时重新出现的界面。这道闸也决定鸿蒙的社区列不列 AI 生成的皮肤（`exclude_ai_generated`，见[鸿蒙版关闭社区投稿](2026-10-28-harmony-withhold-community-contribution.md)）：打开之前要先让社区画出「AI 生成」标识。
 
 ## Alternatives considered
 

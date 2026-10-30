@@ -16,8 +16,10 @@ final class VoiceSessionTests: XCTestCase {
   }
 
   private func state(_ phase: VoiceSessionState.Phase, request: UUID?, text: String = "", message: String = "",
-                     heartbeat: Date = Date(), expiresAt: Date = Date().addingTimeInterval(300)) -> VoiceSessionState {
-    VoiceSessionState(phase: phase, request: request, text: text, message: message, heartbeat: heartbeat, expiresAt: expiresAt)
+                     level: Float? = nil, heartbeat: Date = Date(),
+                     expiresAt: Date = Date().addingTimeInterval(300)) -> VoiceSessionState {
+    VoiceSessionState(phase: phase, request: request, text: text, message: message, level: level, heartbeat: heartbeat,
+                      expiresAt: expiresAt)
   }
 
   func testTheChannelCarriesStateAndCommands() {
@@ -37,6 +39,67 @@ final class VoiceSessionTests: XCTestCase {
     XCTAssertNil(channel.readState())
   }
 
+  /// 电平是后加的可选字段：旧版本 App 写的状态没有它也能读，有它时原样带过来。
+  func testTheStateDecodesWithAndWithoutALevel() throws {
+    let channel = VoiceSessionChannel(directory: directory)
+    let request = UUID()
+    let now = Int(Date().timeIntervalSince1970 * 1000)
+    let legacy = """
+      {"version":1,"phase":"listening","request":"\(request.uuidString)","text":"合成","message":"",\
+      "heartbeat":\(now),"expiresAt":\(now + 300_000)}
+      """
+    let folder = directory.appendingPathComponent("VoiceSession", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try Data(legacy.utf8).write(to: folder.appendingPathComponent("state.json"))
+    let decoded = try XCTUnwrap(channel.readState())
+    XCTAssertEqual(decoded.phase, .listening)
+    XCTAssertEqual(decoded.request, request)
+    XCTAssertEqual(decoded.text, "合成")
+    XCTAssertNil(decoded.level)
+    XCTAssertTrue(decoded.isAvailable())
+
+    channel.publish(state(.listening, request: request, text: "合成", level: 0.5))
+    XCTAssertEqual(channel.readState()?.level, 0.5)
+    channel.publish(state(.recognizing, request: request, text: "合成"))
+    XCTAssertNil(channel.readState()?.level)
+    let written = try String(contentsOf: folder.appendingPathComponent("state.json"), encoding: .utf8)
+    XCTAssertFalse(written.contains("level"), "没有电平时不写这个键，旧版本键盘照常读")
+  }
+
+  /// App 只在电平变了至少 0.02 时才再报，安静时不反复写文件。
+  func testTheAppReportsALevelOnlyWhenItMoves() {
+    XCTAssertEqual(VoiceSessionChannel.levelInterval, 0.1)
+    XCTAssertFalse(VoiceSessionChannel.publishesLevel(0, after: nil))
+    XCTAssertFalse(VoiceSessionChannel.publishesLevel(0.01, after: nil))
+    XCTAssertTrue(VoiceSessionChannel.publishesLevel(0.3, after: nil))
+    XCTAssertFalse(VoiceSessionChannel.publishesLevel(0.5, after: 0.49))
+    XCTAssertTrue(VoiceSessionChannel.publishesLevel(0.5, after: 0.45))
+    XCTAssertTrue(VoiceSessionChannel.publishesLevel(0.1, after: 0.6), "回落同样要报")
+  }
+
+  /// 正在听时状态里的电平交给面板；松开以后的电平不再报。
+  func testTheDictationForwardsTheLevelWhileListening() throws {
+    let channel = VoiceSessionChannel(directory: directory)
+    channel.publish(state(.ready, request: nil))
+    let dictation = KeyboardVoiceDictation(channel: channel)
+    var events: [KeyboardVoiceDictation.Event] = []
+    dictation.onEvent = { events.append($0) }
+    dictation.start()
+    let request = try XCTUnwrap(dictation.request)
+    channel.publish(state(.listening, request: request, text: "合成"))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(events, [.listening("合成")], "没有电平就不报电平")
+    channel.publish(state(.listening, request: request, text: "合成", level: 0.6))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(events.suffix(2), [.listening("合成"), .level(0.6)])
+    dictation.finish()
+    channel.publish(state(.listening, request: request, text: "合成文字", level: 0.9))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(events.last, .recognizing(text: "合成文字", message: ""))
+    XCTAssertFalse(events.contains(.level(0.9)))
+    dictation.cancel()
+  }
+
   func testASessionIsOnlyAvailableWhileItsHeartbeatIsFreshAndItHasNotExpired() {
     let now = Date()
     XCTAssertTrue(state(.ready, request: nil, heartbeat: now).isAvailable(now: now))
@@ -44,6 +107,13 @@ final class VoiceSessionTests: XCTestCase {
                    "an app the system ended stops beating")
     XCTAssertFalse(state(.ready, request: nil, heartbeat: now, expiresAt: now.addingTimeInterval(-1)).isAvailable(now: now))
     XCTAssertFalse(state(.ready, request: nil, heartbeat: now.addingTimeInterval(60)).isAvailable(now: now))
+  }
+
+  /// 会话空闲时麦克风和音频引擎仍在后台运行，耗电发热，所以说完不久就要交还麦克风；心跳间隔要比判定 App 不在的时限短，否则开着的会话会被键盘当成已经不在。
+  func testAnIdleSessionReleasesTheMicrophoneWithinAMinute() {
+    XCTAssertLessThanOrEqual(VoiceSessionChannel.idleLifetime, 60)
+    XCTAssertLessThan(VoiceSessionChannel.heartbeatInterval, VoiceSessionState.staleAfter)
+    XCTAssertGreaterThan(VoiceSessionChannel.idleLifetime, VoiceSessionState.staleAfter)
   }
 
   func testWithoutASessionTheKeyboardMustOpenTheApp() {
@@ -165,22 +235,31 @@ final class VoiceSessionTests: XCTestCase {
 
   func testTheListeningPanelReadsLikeAndroids() {
     let panel = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 227)
+    panel.layoutIfNeeded()
     XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
     XCTAssertEqual(panel.captionLabel.text, "松开结束，上滑取消")
     panel.showListening("今天天气不错")
-    XCTAssertEqual(panel.captionLabel.text, "今天天气不错")
-    XCTAssertEqual(panel.captionLabel.lineBreakMode, .byTruncatingHead, "the newest words stay in view")
+    XCTAssertEqual(panel.statusLabel.text, "今天天气不错", "the partial takes the title")
+    XCTAssertEqual(panel.captionLabel.text, "松开结束，上滑取消", "the instruction stays below it")
+    XCTAssertEqual(panel.statusLabel.accessibilityLabel, "今天天气不错")
+    panel.showListening(" 今天\n天气  不错 ")
+    XCTAssertEqual(panel.statusLabel.text, "今天 天气 不错", "whitespace collapses to single spaces")
     panel.setCancelling(true)
     XCTAssertEqual(panel.statusLabel.text, "松开取消")
     XCTAssertTrue(panel.orb.isCancelling)
     panel.showListening("今天天气不错啊")
     XCTAssertEqual(panel.statusLabel.text, "松开取消", "a partial result does not leave the cancel zone")
     panel.setCancelling(false)
+    XCTAssertEqual(panel.statusLabel.text, "今天天气不错啊", "back from the cancel zone the newest partial shows")
+    panel.showListening("")
     XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
     panel.showRecognizing(text: "今天天气不错啊", message: "")
     XCTAssertEqual(panel.statusLabel.text, "正在识别…")
-    panel.showRecognizing(text: "今天天气不错啊", message: "正在润色…")
+    XCTAssertEqual(panel.captionLabel.text, "今天天气不错啊")
+    panel.showRecognizing(text: "", message: "正在润色…")
     XCTAssertEqual(panel.statusLabel.text, "正在润色…")
+    XCTAssertEqual(panel.captionLabel.text, "识别完成后自动上屏")
     let tapped = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
     XCTAssertEqual(tapped.captionLabel.text, "说完后点「说完了」，识别后自动上屏")
   }

@@ -649,6 +649,7 @@ export {
   type CloudClipboardWebDavPreferences,
 } from "./settings/cloud-clipboard-relay";
 export {
+  dictionarySyncBudgetWaitMessage,
   dictionarySyncConfigured,
   dictionarySyncDeviceGroups,
   dictionarySyncDevices,

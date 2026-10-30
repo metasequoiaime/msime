@@ -37,6 +37,7 @@ export function useSettingsSync(client: SettingsSyncClient, userId: string) {
     setSchema(null);
     setCloud(null);
     setMessage("");
+    setConfirmation(null);
     void perform(read, { allowBusy: true });
   }, [client, userId]);
 

@@ -461,7 +461,7 @@ struct CloudClipboardView: View {
     if item.pinned == true { parts.append("已置顶") }
     if let device = item.device { parts.append(device) }
     if let date = CloudClipboardTimePolicy.date(item.updated_at) {
-      parts.append(Self.relative.localizedString(for: min(date, Date()), relativeTo: Date()))
+      parts.append(CloudClipboardTimePolicy.relative(date, formatter: Self.relative))
     }
     return parts.joined(separator: " · ")
   }
@@ -483,6 +483,7 @@ struct CloudClipboardView: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("添加内容")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -506,7 +507,6 @@ struct CloudClipboardView: View {
       }
     }
     .tint(MetasequoiaTheme.accent)
-    .presentationDetents([.medium, .large])
   }
 
   /// 批准、拒绝、移除一台设备或重置云剪贴板，结果就是设备状态。

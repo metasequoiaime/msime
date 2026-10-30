@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""编译真实 iOS 方案与语言分组，验证双拼入口和下载词典能力。"""
+"""编译真实 iOS 方案与语言分组，验证双拼入口、下载词典能力，以及语言行与选项面板标出的方案一致。"""
 from pathlib import Path
 import platform
 import shutil
@@ -67,8 +67,14 @@ for scheme in [ChineseInputScheme.cantonese, .cantoneseShuangpin] {
   expect(scheme.needsLanguageDictionary && scheme.hasSpellingCaret && !scheme.writesChinese, "两种粤拼保留字典与拼写光标能力")
 }
 expect(ChineseInputScheme.optInSchemes.contains(.cantoneseShuangpin), "粤语双拼仍由用户选择启用")
+// 语言行和它的选项面板代表同一个方案：键盘正用着别的语言时，双拼行显示「小鹤」，面板里也要给小鹤打勾，五笔同理。
+let shuangpinSchemes = InputLanguage.shuangpin.schemes
+expect(ChineseInputScheme.represented(among: shuangpinSchemes, enabled: [.quanpin, .shuangpin], current: .quanpin) == .shuangpin, "键盘在全拼时，双拼面板仍要标出已启用的小鹤")
+expect(ChineseInputScheme.represented(among: shuangpinSchemes, enabled: [.quanpin, .shuangpin, .ziranma], current: .ziranma) == .ziranma, "键盘正用着双拼方案时，标出的就是它")
+expect(ChineseInputScheme.represented(among: InputLanguage.wubi.schemes, enabled: [.quanpin, .wubi], current: .quanpin) == .wubi, "键盘在全拼时，五笔面板仍要标出五笔")
+expect(ChineseInputScheme.represented(among: shuangpinSchemes, enabled: [.quanpin], current: .quanpin) == nil, "双拼一个方案都没启用时不标任何选项")
 if failures != 0 { exit(1) }
-print("iOS input language: 7 checks passed")
+print("iOS input language: 11 checks passed")
 ''')
         executable = directory / "input-language"
         sources = [

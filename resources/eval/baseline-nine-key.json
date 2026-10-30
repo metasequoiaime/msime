@@ -3,83 +3,83 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.593,
-      "top1": 0.423,
-      "top1_char_prefix": 0.456,
-      "top5": 0.823,
-      "top9": 0.904
+      "mrr": 0.567,
+      "top1": 0.394,
+      "top1_char_prefix": 0.432,
+      "top5": 0.797,
+      "top9": 0.883
     },
     "3": {
       "cases": 365,
-      "found": 0.989,
-      "mrr": 0.95,
-      "top1": 0.918,
-      "top1_char_prefix": 0.937,
+      "found": 0.995,
+      "mrr": 0.943,
+      "top1": 0.907,
+      "top1_char_prefix": 0.926,
       "top5": 0.984,
-      "top9": 0.989
+      "top9": 0.986
     },
     "4": {
       "cases": 556,
-      "found": 0.856,
-      "mrr": 0.853,
-      "top1": 0.851,
-      "top1_char_prefix": 0.88,
-      "top5": 0.854,
-      "top9": 0.854
+      "found": 0.876,
+      "mrr": 0.869,
+      "top1": 0.862,
+      "top1_char_prefix": 0.886,
+      "top5": 0.876,
+      "top9": 0.876
     },
     "5": {
       "cases": 10,
-      "found": 0.0,
-      "mrr": 0.0,
-      "top1": 0.0,
-      "top1_char_prefix": 0.44,
-      "top5": 0.0,
-      "top9": 0.0
+      "found": 0.1,
+      "mrr": 0.1,
+      "top1": 0.1,
+      "top1_char_prefix": 0.54,
+      "top5": 0.1,
+      "top9": 0.1
     }
   },
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2685,
-    "generated": 3
+    "database": 2698,
+    "generated": 4
   },
   "overall": {
     "cases": 2791,
-    "found": 0.963,
-    "mrr": 0.689,
-    "top1": 0.571,
-    "top1_char_prefix": 0.604,
-    "top5": 0.847,
-    "top9": 0.902
+    "found": 0.968,
+    "mrr": 0.675,
+    "top1": 0.553,
+    "top1_char_prefix": 0.588,
+    "top5": 0.835,
+    "top9": 0.892
   },
   "sample_failures": [
     {
       "gold": "阿爸",
       "id": "w-00001",
       "input": "aba",
-      "rank": 44,
+      "rank": 42,
       "top1": "爸爸"
     },
     {
       "gold": "挨个",
       "id": "w-00010",
       "input": "aige",
-      "rank": 22,
-      "top1": "吃饭"
+      "rank": 8,
+      "top1": "逼格"
     },
     {
       "gold": "爱慕",
       "id": "w-00028",
       "input": "aimu",
-      "rank": 9,
+      "rank": 6,
       "top1": "抽"
     },
     {
       "gold": "爱惜",
       "id": "w-00037",
       "input": "aixi",
-      "rank": 20,
-      "top1": "笔者"
+      "rank": 31,
+      "top1": "鼻子"
     },
     {
       "gold": "暗地里",
@@ -87,13 +87,6 @@
       "input": "andili",
       "rank": 2,
       "top1": "奥地利"
-    },
-    {
-      "gold": "安抚",
-      "id": "w-00073",
-      "input": "anfu",
-      "rank": 2,
-      "top1": "剥夺"
     },
     {
       "gold": "昂扬",
@@ -106,28 +99,35 @@
       "gold": "按理",
       "id": "w-00100",
       "input": "anli",
-      "rank": 11,
-      "top1": "玻璃"
+      "rank": 9,
+      "top1": "案例"
+    },
+    {
+      "gold": "岸上",
+      "id": "w-00145",
+      "input": "anshang",
+      "rank": 3,
+      "top1": "按上"
     },
     {
       "gold": "安息",
       "id": "w-00154",
       "input": "anxi",
-      "rank": 18,
+      "rank": 17,
       "top1": "按照"
     },
     {
       "gold": "奥秘",
       "id": "w-00181",
       "input": "aomi",
-      "rank": 5,
+      "rank": 8,
       "top1": "从"
     },
     {
       "gold": "百倍",
       "id": "w-00208",
       "input": "baibei",
-      "rank": 2,
+      "rank": 3,
       "top1": "才被"
     },
     {
@@ -135,14 +135,21 @@
       "id": "w-00217",
       "input": "baidu",
       "rank": 4,
-      "top1": "财富"
+      "top1": "百度"
     },
     {
       "gold": "败露",
       "id": "w-00244",
       "input": "bailu",
-      "rank": 4,
+      "rank": 7,
       "top1": "才具"
+    },
+    {
+      "gold": "摆脱",
+      "id": "w-00262",
+      "input": "baituo",
+      "rank": 2,
+      "top1": "拜托"
     },
     {
       "gold": "摆正",
@@ -155,15 +162,15 @@
       "gold": "办案",
       "id": "w-00289",
       "input": "banan",
-      "rank": 3,
+      "rank": 5,
       "top1": "保安"
     },
     {
       "gold": "办好",
       "id": "w-00334",
       "input": "banhao",
-      "rank": 4,
-      "top1": "报告"
+      "rank": 5,
+      "top1": "包含"
     },
     {
       "gold": "半径",
@@ -173,38 +180,52 @@
       "top1": "报警"
     },
     {
+      "gold": "伴侣",
+      "id": "w-00352",
+      "input": "banlv",
+      "rank": 5,
+      "top1": "暴露"
+    },
+    {
       "gold": "半圆",
       "id": "w-00379",
       "input": "banyuan",
       "rank": 4,
-      "top1": "草原"
+      "top1": "抱怨"
     },
     {
       "gold": "搬走",
       "id": "w-00388",
       "input": "banzou",
-      "rank": 4,
-      "top1": "伴有"
+      "rank": 7,
+      "top1": "包邮"
     },
     {
       "gold": "包产",
       "id": "w-00406",
       "input": "baochan",
-      "rank": 6,
-      "top1": "操场"
+      "rank": 21,
+      "top1": "报表"
     },
     {
       "gold": "胞弟",
       "id": "w-00424",
       "input": "baodi",
-      "rank": 6,
-      "top1": "草地"
+      "rank": 9,
+      "top1": "保底"
+    },
+    {
+      "gold": "报告",
+      "id": "w-00442",
+      "input": "baogao",
+      "rank": 2,
+      "top1": "包含"
     },
     {
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baojiang",
-      "rank": 2,
+      "rank": 5,
       "top1": "颁奖"
     },
     {
@@ -213,13 +234,6 @@
       "input": "baokao",
       "rank": 2,
       "top1": "参考"
-    },
-    {
-      "gold": "抱歉",
-      "id": "w-00505",
-      "input": "baoqian",
-      "rank": 2,
-      "top1": "搬迁"
     },
     {
       "gold": "保卫科",
@@ -232,22 +246,22 @@
       "gold": "褒义",
       "id": "w-00550",
       "input": "baoyi",
-      "rank": 84,
-      "top1": "版主"
+      "rank": 35,
+      "top1": "保证"
     },
     {
       "gold": "保质",
       "id": "w-00568",
       "input": "baozhi",
-      "rank": 3,
+      "rank": 9,
       "top1": "报纸"
     },
     {
       "gold": "包子",
       "id": "w-00577",
       "input": "baozi",
-      "rank": 9,
-      "top1": "版主"
+      "rank": 13,
+      "top1": "保证"
     },
     {
       "gold": "把守",
@@ -260,8 +274,8 @@
       "gold": "备查",
       "id": "w-00613",
       "input": "beicha",
-      "rank": 9,
-      "top1": "北边"
+      "rank": 4,
+      "top1": "被查"
     },
     {
       "gold": "备荒",
@@ -271,17 +285,10 @@
       "top1": "背光"
     },
     {
-      "gold": "崩塌",
-      "id": "w-00712",
-      "input": "bengta",
-      "rank": 2,
-      "top1": "本馆"
-    },
-    {
       "gold": "本钱",
       "id": "w-00730",
       "input": "benqian",
-      "rank": 2,
+      "rank": 3,
       "top1": "本片"
     },
     {
@@ -296,46 +303,39 @@
       "id": "w-00748",
       "input": "benxian",
       "rank": 7,
-      "top1": "本站"
+      "top1": "本校"
+    },
+    {
+      "gold": "本着",
+      "id": "w-00757",
+      "input": "benzhe",
+      "rank": 2,
+      "top1": "奔着"
     },
     {
       "gold": "彼岸",
       "id": "w-00766",
       "input": "bian",
       "rank": 21,
-      "top1": "边"
+      "top1": "变"
+    },
+    {
+      "gold": "编号",
+      "id": "w-00793",
+      "input": "bianhao",
+      "rank": 2,
+      "top1": "长按"
     },
     {
       "gold": "贬义",
       "id": "w-00847",
       "input": "bianyi",
-      "rank": 45,
-      "top1": "标注"
-    },
-    {
-      "gold": "编著",
-      "id": "w-00865",
-      "input": "bianzhu",
-      "rank": 2,
-      "top1": "标注"
-    },
-    {
-      "gold": "标语",
-      "id": "w-00910",
-      "input": "biaoyu",
-      "rank": 5,
-      "top1": "超越"
-    },
-    {
-      "gold": "壁画",
-      "id": "w-00964",
-      "input": "bihua",
-      "rank": 6,
-      "top1": "此话"
+      "rank": 10,
+      "top1": "抄袭"
     }
   ],
   "top1_source": {
-    "database": 2720,
-    "generated": 71
+    "database": 2734,
+    "generated": 57
   }
 }

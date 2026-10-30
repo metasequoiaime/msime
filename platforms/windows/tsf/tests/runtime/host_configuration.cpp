@@ -80,6 +80,8 @@ int main() {
   const auto sessionOptions = nlohmann::json::parse(first->hostOptions);
   assert(sessionOptions.at("format_version") == 1);
   assert(sessionOptions.at("helpcode_fallback_resources") == state_root().u8string());
+  // 选词位置由 Server 的会话记；TIP 跟着它选同一个词，不能再记一遍。
+  assert(sessionOptions.at("selection_statistics") == false);
   // 首次激活已经发布了同一份配置，游戏策略读取不得再次打开偏好文件。
   const auto firstActivation = load_activation_preferences();
   assert(firstActivation && (*firstActivation)["scheme"] == "quanpin");

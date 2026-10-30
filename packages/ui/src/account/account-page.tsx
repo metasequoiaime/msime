@@ -49,6 +49,7 @@ import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import { useMobileSettingsSubview } from "../settings/use-mobile-settings-subview";
 import { AccountMeGroup, AccountMeRow, AccountMeSupportGroup } from "./account-me-components";
+import { HuaweiIdLabel } from "./huawei-id-label";
 
 export type {
   AccountUser,
@@ -122,6 +123,11 @@ export function AccountPage({
 } & HarmonyMeProps) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
+    // 鸿蒙手机拒绝隐私授权后没有账号客户端，授权弹窗和键盘都让用户去「我的 › 隐私」重新同意，所以这一行在这里也要有；其他宿主的隐私入口不在这个分支里。
+    const onOpenPrivacy =
+      platform === "harmony" && (mobile ?? true) && meProps.onOpenPage
+        ? () => meProps.onOpenPage?.("privacy")
+        : undefined;
     return (
       <div className={account.page}>
         {resolvedAppIcon && (
@@ -129,6 +135,17 @@ export function AccountPage({
             client={resolvedAppIcon}
             platform={platform === "harmony" ? undefined : platform}
           />
+        )}
+        {onOpenPrivacy && (
+          <AccountMeGroup title="通用">
+            <NavRow
+              variant="me"
+              icon={<FluentIcon name="shield_lock" size={18} />}
+              title="隐私"
+              value="本地优先"
+              onClick={onOpenPrivacy}
+            />
+          </AccountMeGroup>
         )}
         <AccountMeSupportGroup
           onReplayOnboarding={onReplayOnboarding}
@@ -806,7 +823,7 @@ function AccountDetailsPage({
                     action={signInWithHuawei}
                     className={account.provider}
                     disabled={busy}
-                    label="华为账号登录"
+                    label={<HuaweiIdLabel />}
                   />
                 )}
                 {appleAvailable && (

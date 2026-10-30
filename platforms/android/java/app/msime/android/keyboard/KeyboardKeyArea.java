@@ -15,6 +15,8 @@ import java.util.function.Predicate;
  *
  * <p>装了 {@link GlideTracker} 时，每个事件先交给它：它接管一次触摸（滑行输入）后，这里给子视图补一个 CANCEL，之后这一次触摸的事件都不再往下分发，直到最后一根手指抬起。
  *
+ * <p>装了 {@link TouchPointPolicy} 时，每根手指按下（`ACTION_DOWN` / `ACTION_POINTER_DOWN`）落在一个键或它的空隙里、而那个键是调用方要记的（点击时会取走按下点的键），就按那个键记下按下点：坐标是按键区自己的、挪进键边缘之前的那一个，和量键位几何（{@link LetterKeyMeasure}）用的是同一个坐标系。整次触摸被取消或被滑行接管时全部丢掉。
+ *
  * <p>这里不改布局也不改绘制，画面和以前逐像素相同：只在 `ACTION_DOWN` / `ACTION_POINTER_DOWN` 落在某个键的外边距里、又没有落在任何键或其它可点击视图上时，把这一个指针的按下坐标挪进那个键的边缘（挪动距离就是空隙宽度），再交给 `LinearLayout` 照常分发。这个挪动量按指针 id 记下，之后同一个指针的 MOVE、POINTER_UP、UP、CANCEL（连同其中的历史采样）都挪同样的距离，直到它抬起。键看到的是从键内起点出发的真实位移：删除键按出界就取消的判断没有容差，空格的光标拖动和日文九键的滑动都从按下点量位移，坐标不能在按下之后跳回空隙里。
  */
 public final class KeyboardKeyArea extends LinearLayout {
@@ -29,6 +31,9 @@ public final class KeyboardKeyArea extends LinearLayout {
 
     private final Predicate<View> spacedKey;
     private GlideTracker glideTracker;
+    private TouchPointPolicy touchPoints;
+    /** 哪些键记按下点：只记点击时会取走它的键，数字行、Shift、退格的按下不占槽位。 */
+    private Predicate<View> touchKey;
     /** 接管开始时已经给子视图发过 CANCEL。 */
     private boolean glideOwned;
     /** 按下时被挪进键里的指针（按 id 的位掩码）和各自的挪动量。 */
@@ -63,6 +68,12 @@ public final class KeyboardKeyArea extends LinearLayout {
         glideTracker = tracker;
     }
 
+    /** 按键记下每根手指的按下点，见类说明；只记 `keys` 认可的键，`points` 传 null 不记。 */
+    public void setTouchPoints(TouchPointPolicy points, Predicate<View> keys) {
+        touchPoints = points;
+        touchKey = keys;
+    }
+
     /**
      * 让 `yielding` 把键帽左侧 `widthPx` 像素让给紧挨在它左边的 `receiver`：按下落在那一段里时，像落在空隙里一样挪进 `receiver` 的右边缘。底行的回车用它把与中/英之间拿不准的按下让给中/英（{@link KeyboardActionRow#RETURN_YIELD_DP}）。传 null 取消。
      */
@@ -78,6 +89,8 @@ public final class KeyboardKeyArea extends LinearLayout {
         if (glideTracker != null && glideTracker.track(this, event)) {
             if (!glideOwned) {
                 glideOwned = true;
+                // 滑行接管了这次触摸，按下的键收到 CANCEL、不会点击，它的按下点也不再有用。
+                if (touchPoints != null) touchPoints.clear();
                 MotionEvent cancel = MotionEvent.obtain(event);
                 cancel.setAction(MotionEvent.ACTION_CANCEL);
                 super.dispatchTouchEvent(cancel);
@@ -100,6 +113,7 @@ public final class KeyboardKeyArea extends LinearLayout {
             handled = super.dispatchTouchEvent(shifted);
             shifted.recycle();
         }
+        if (action == MotionEvent.ACTION_CANCEL && touchPoints != null) touchPoints.clear();
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             routedPointers = 0;
         } else if (action == MotionEvent.ACTION_POINTER_UP) {
@@ -130,6 +144,10 @@ public final class KeyboardKeyArea extends LinearLayout {
             targetX = KeyboardGapPolicy.inside(yieldReceiver.getWidth(), yieldReceiver.getWidth());
             targetY = KeyboardGapPolicy.inside(hit ? hitY : targetY, yieldReceiver.getHeight());
         }
+        // 落在键上记给那个键，落在空隙里记给拥有空隙的键；坐标都是挪动之前的。
+        View pressed = owner != null ? owner : hitKey;
+        if (touchPoints != null && pressed != null && touchKey.test(pressed))
+            touchPoints.record(pressed, x, y, event.getEventTime());
         hitKey = null;
         target = null;
         if (owner == null) return;

@@ -574,7 +574,7 @@ struct CommunityResourceEditor: View {
   @State private var request = ViewRequestGeneration()
   @Environment(\.dismiss) private var dismiss
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section("作品信息") {
           TextField("名称（最多 32 字）", text: $name)
@@ -616,6 +616,8 @@ struct CommunityResourceEditor: View {
             .font(.caption).foregroundStyle(.secondary)
         }
       }.disabled(busy)
+        .designPage()
+        .fittedSheet()
         .navigationTitle(existing == nil ? "发布\(kind.title)" : "更新作品")
         .toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
@@ -659,7 +661,6 @@ struct CommunityResourceEditor: View {
           Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
     }
-    .navigationViewStyle(.stack)
     .trackViewRequest(request: $request, pending: $pending, onDisappear: {
       busy = false
     })

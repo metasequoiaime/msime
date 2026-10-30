@@ -186,6 +186,16 @@ public:
     show();
   }
 
+  // 窗口重新获得焦点时那次不联网的 status（{action: 回答}）：只换概况，结果说明和设备列表（连同选中的那台）都不动；与画着的相同或读不出来时什么也不做。
+  void reread(const Json& completion) {
+    const auto value = theme_data::value(completion.value("action", Json()));
+    const auto parsed = value ? status_from(*value) : std::nullopt;
+    if (!parsed || (status_ && *parsed == *status_)) return;
+    status_ = *parsed;
+    show_status();
+    update();
+  }
+
   // 本机还没有 HostOptions（设置向导没跑完）时。
   void unprepared() { SetWindowTextW(get(notice), L"输入法尚未完成初始化，完成设置向导后即可同步词库。"); update(); }
 
@@ -216,7 +226,7 @@ private:
     result.words = count(value, "words"); result.pending_upload = count(value, "pending_upload");
     result.pending_apply = count(value, "pending_apply"); result.held_deletions = count(value, "held_deletions");
     result.clock_skew = flag(value, "clock_skew"); result.last_success_ms = count(value, "last_success_ms");
-    result.last_error = text(value, "last_error");
+    result.last_error = text(value, "last_error"); result.budget_wait_until = count(value, "budget_wait_until");
     return result;
   }
   // 设备列表按编号每台只留一条（dictionary_sync::group_devices），等待允许的排在前面。
@@ -251,16 +261,7 @@ private:
   void forget() { status_.reset(); devices_.clear(); waiting_ = 0; show(); }
   // 把读到的概况和设备画出来。
   void show() {
-    std::wstring summary;
-    if (status_) {
-      summary = dictionary_sync::approval_text(*status_);
-      if (!status_->code.empty()) summary += L"\r\n本设备核对码：" + status_->code;
-      summary += L"\r\n" + dictionary_sync::counts_text(*status_);
-      if (!status_->last_error.empty()) summary += L"\r\n上次出错：" + dictionary_sync::error_message(status_->last_error);
-      if (status_->clock_skew) summary += L"\r\n" + std::wstring(dictionary_sync::clock_skew_note);
-    } else summary = configured() ? L"点「立即同步」读取同步状态。" : L"";
-    SetWindowTextW(get(status), summary.c_str());
-    SetWindowTextW(get(held), status_ && status_->held_deletions ? dictionary_sync::held_deletions_text(status_->held_deletions).c_str() : L"");
+    show_status();
     SendMessageW(get(devices), LB_RESETCONTENT, 0, 0);
     for (size_t index = 0; index < devices_.size(); ++index) {
       const auto label = dictionary_sync::device_label(devices_[index]) + (index < waiting_ ? L" [等待允许]" : L" [已获准]");
@@ -268,6 +269,37 @@ private:
     }
     SetWindowTextW(get(device_detail), L"");
     update();
+  }
+  // 自动同步在等额度时的一句：Unix 毫秒换成本机时区的年月日时分交给 dictionary_sync::budget_wait_text；没在等、已经过了或时间读不出来时为空。
+  static std::wstring budget_wait(uint64_t until_ms) {
+    const auto local_minute = [](uint64_t milliseconds) -> std::optional<dictionary_sync::LocalMinute> {
+      if (milliseconds > 900000000000000ULL) return std::nullopt;
+      ULARGE_INTEGER ticks{}; ticks.QuadPart = milliseconds * 10000ULL + 116444736000000000ULL;
+      const FILETIME utc{ticks.LowPart, ticks.HighPart};
+      SYSTEMTIME universal{}, local{};
+      if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &local)) return std::nullopt;
+      return dictionary_sync::LocalMinute{local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute};
+    };
+    if (!until_ms) return {};
+    FILETIME current{}; GetSystemTimeAsFileTime(&current);
+    ULARGE_INTEGER ticks{}; ticks.LowPart = current.dwLowDateTime; ticks.HighPart = current.dwHighDateTime;
+    const uint64_t now = (ticks.QuadPart - 116444736000000000ULL) / 10000ULL;
+    const auto until = local_minute(until_ms), today = local_minute(now);
+    return until && today ? dictionary_sync::budget_wait_text(until_ms, now, *until, *today) : std::wstring();
+  }
+  // 概况的几行和被挡下的删除。
+  void show_status() {
+    std::wstring summary;
+    if (status_) {
+      summary = dictionary_sync::approval_text(*status_);
+      if (!status_->code.empty()) summary += L"\r\n本设备核对码：" + status_->code;
+      summary += L"\r\n" + dictionary_sync::counts_text(*status_);
+      if (const auto wait = budget_wait(status_->budget_wait_until); !wait.empty()) summary += L"\r\n" + wait;
+      if (!status_->last_error.empty()) summary += L"\r\n上次出错：" + dictionary_sync::error_message(status_->last_error);
+      if (status_->clock_skew) summary += L"\r\n" + std::wstring(dictionary_sync::clock_skew_note);
+    } else summary = configured() ? L"点「立即同步」读取同步状态。" : L"";
+    SetWindowTextW(get(status), summary.c_str());
+    SetWindowTextW(get(held), status_ && status_->held_deletions ? dictionary_sync::held_deletions_text(status_->held_deletions).c_str() : L"");
   }
   const dictionary_sync::Device* selected() const {
     const auto index = SendMessageW(get(devices), LB_GETCURSEL, 0, 0);

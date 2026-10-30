@@ -281,43 +281,76 @@ final class ImeLayoutRows {
     private java.util.List<String> builtSidebarSymbols;
     private boolean builtSidebarDigits;
     private boolean builtSidebarCapped;
+    /** 符号栏是按右侧大回车外框建的：字母键面的出厂表末尾多一个 ！（{@link NineKeySidebarPolicy#letterSymbols(java.util.List, boolean)}）。 */
+    private boolean builtSidebarTallReturn;
 
-    /** 本地设置里的左侧符号（不合规时是默认的那张表）：字母键面一张，拼音九键的数字键面另一张。 */
+    /** 共享偏好里的左侧符号（空表时是出厂的那张表）：字母键面一张，九宫格数字键盘另一张（`touch_nine_key_sidebar_symbols`、`touch_nine_key_digit_sidebar_symbols`，键盘每次读偏好时更新）。 */
     java.util.List<String> sidebarSymbols(boolean digits) {
-        return NineKeySidebarPolicy.sidebarSymbols(digits, s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
-            s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+        return sidebarSymbols(digits, false);
+    }
+
+    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。 */
+    java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {
+        return NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,
+            tallReturn);
     }
 
     /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行。 */
     boolean sidebarStale() {
         return s.nineKeySidebar != null && builtSidebarSymbols != null
-            && !builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits));
+            && !builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits, builtSidebarTallReturn));
     }
 
     /**
      * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
+        return symbolSidebar(digits, capped, false, false);
+    }
+
+    /**
+     * 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，上滑输入 0，长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
+     */
+    private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn, boolean zeroShortcut) {
         return symbolSidebar(digits, capped,
-            digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS);
+            digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS, tallReturn, zeroShortcut);
     }
 
     private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows) {
-        java.util.List<String> symbols = sidebarSymbols(digits);
+        return symbolSidebar(digits, capped, visibleRows, false, false);
+    }
+
+    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn,
+            boolean zeroShortcut) {
+        java.util.List<String> symbols = sidebarSymbols(digits, tallReturn);
+        int zeroIndex = zeroShortcut ? NineKeySidebarPolicy.appendedExclamationIndex(digits,
+            s.nineKeySidebarSymbols, tallReturn) : -1;
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
         rail.setContentDescription("符号栏，可上下滑动");
-        for (String symbol : symbols) {
-            // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
-                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            key.setOnLongClickListener(ignored -> {
-                Bundle args = new Bundle();
-                args.putString("edit_sidebar_key", digits
-                    ? AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS
-                    : AndroidLocalSettings.NINE_KEY_SYMBOLS);
-                s.openHostPage("KEYBOARD_OPTIONS", args);
-                return true;
-            });
+        for (int index = 0; index < symbols.size(); index++) {
+            String symbol = symbols.get(index);
+            Button key;
+            if (index == zeroIndex) {
+                // 与标准外框右列的 ！ 同一种键：bindSuperscriptShortcut 接管长按，这一格不再长按修改符号栏。
+                NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(symbol, "符号 " + symbol,
+                    () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                exclamation.setDigitText(SuperscriptShortcutPolicy.ZERO);
+                s.imeLetterRows.bindSuperscriptShortcut(exclamation, symbol);
+                key = exclamation;
+            } else {
+                // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
+                key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
+                    () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                // 长按打开「按键布局」并直接进入这一张表的编辑页（#10223），参数是这张表的共享偏好名。
+                key.setOnLongClickListener(ignored -> {
+                    Bundle args = new Bundle();
+                    args.putString(NineKeySidebarPolicy.EDIT_ARGUMENT, digits
+                        ? NineKeySidebarPolicy.DIGIT_PREFERENCE
+                        : NineKeySidebarPolicy.LETTER_PREFERENCE);
+                    s.openHostPage("KEY_LAYOUT_STYLES", args);
+                    return true;
+                });
+            }
             // 「……」这类两个字宽的符号在窄栏里不折行。
             ViewPolicy.setSingleLine(key);
             if (capped)
@@ -334,6 +367,7 @@ final class ImeLayoutRows {
         builtSidebarSymbols = symbols;
         builtSidebarDigits = digits;
         builtSidebarCapped = capped;
+        builtSidebarTallReturn = tallReturn;
         applySidebarRail();
         sidebar.addView(rail, LayoutPolicy.frameMatchParentParams());
         // 拼音九键的拼音列挂进同一个侧栏时盖住整条符号栏，renderNineKeySpellings 据此让出符号栏；笔画键盘不挂拼音列，父容器对不上，不受影响。
@@ -350,10 +384,126 @@ final class ImeLayoutRows {
     /** 按实际绘制的网格选择高度分摊，包含其他中文布局借用的数字页。 */
     boolean nineKeyGridDrawn() { return builtNineKeyGrid; }
 
+    /** 当前键行是九键外框（{@link #rebuildNineKeyRows} 或 {@link #rebuildStrokeRows} 建的），以及建的时候是否画了右侧大回车、带没带地球键。 */
+    private boolean builtNineFrame;
+    private boolean builtTallReturn;
+    private boolean builtTallReturnGlobe;
+    /** 右侧大回车外框建的时候九宫格下方那一行的中/英是否排在空格左边（`touch_language_key_side`）。 */
+    private boolean builtTallReturnLanguageLeft;
+    /** 建九键数字层（不是右侧大回车）时右列最下面一格放的是不是空格（{@link TouchKeyStyle.NumberPadSpace#inRightColumn}）；没建数字层时为 null。 */
+    private Boolean builtSpaceInColumn;
+
     /** 键行换成别的布局时调用。 */
     void forgetNineKeyGrid() {
         builtNineKeyGrid = false;
         builtShuangpinFaces = null;
+        builtNineFrame = false;
+        builtTallReturn = false;
+        builtSpaceInColumn = null;
+    }
+
+    /** 当前键面该画右侧大回车外框（{@link KeyboardActionRow#drawsTallReturn}）：拼音九键、笔画和它们的数字九宫格，选了右侧大回车且不是密码框、数字框。26 键等借用的数字九宫格按借出键面的样式算，永远不画。 */
+    boolean tallReturnDrawn() {
+        int layout = s.displayedTouchLayout(s.view);
+        return KeyboardActionRow.drawsTallReturn(layout, s.bottomRowStyle(layout));
+    }
+
+    /** 九键外框建出来时的右侧大回车与现在该画的不一致（换了样式、进出密码框），或者大回车外框九宫格下方那一行的地球键、中/英在空格哪一边变了：下一次渲染重建键行。 */
+    boolean tallReturnStale() {
+        if (!builtNineFrame) return false;
+        boolean tall = tallReturnDrawn();
+        return tall != builtTallReturn
+            || tall && (builtTallReturnGlobe != s.offersGlobeKey() || builtTallReturnLanguageLeft != s.languageKeyLeft);
+    }
+
+    /** 九键数字层建出来时右列最下面一格（空格还是 ！）与现在的数字键盘空格位置不一致（设置页换了 `touch_number_pad_space`）：下一次渲染重建键行。 */
+    boolean numberPadSpaceStale() {
+        return builtSpaceInColumn != null && builtSpaceInColumn != s.numberPadSpace.inRightColumn();
+    }
+
+    /** 笔画外框左右两列与中间笔画网格的宽度份额。 */
+    private static final float STROKE_SIDE_WEIGHT = StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT;
+    private static final float STROKE_GRID_WEIGHT = StrokeKeyboardLayout.GRID_WEIGHT;
+
+    /**
+     * 右侧大回车外框底行的一格：一个带底行高度角色的容器（{@link MSIMEInputService.KeyboardHeightRole#bottomRow}），与标准外框下方的功能行同高。外框整块按「三行加底行」定高，上面的部分按权重分到剩下的高度，所以符号栏、九宫格和右列上两格与标准外框里的三行一样高。
+     */
+    private LinearLayout tallReturnBottomCell(boolean horizontal) {
+        LinearLayout cell = horizontal ? LayoutPolicy.row(s) : LayoutPolicy.column(s);
+        cell.setTag(MSIMEInputService.KeyboardHeightRole.bottomRow());
+        return cell;
+    }
+
+    /** 底行一格的布局参数：整列宽、先按一行键高给高度，{@link ImeStyler#applyKeyboardGeometry} 再按高度角色改成实际高度。 */
+    private LinearLayout.LayoutParams tallReturnBottomParams(float weight) {
+        LinearLayout.LayoutParams params = LayoutPolicy.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP));
+        params.weight = weight;
+        return params;
+    }
+
+    /**
+     * 右侧大回车外框的左列：符号栏（数字层下面照旧接 #+=）占三行，底行那一格是与左列同宽的 符。
+     */
+    private LinearLayout tallReturnLeftColumn(FrameLayout sidebar, Button more) {
+        LinearLayout left = LayoutPolicy.column(s);
+        left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
+        if (more != null) left.addView(more, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
+        LinearLayout cell = tallReturnBottomCell(true);
+        s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.SYMBOL_PANEL, s.symbolPanelButton,
+            LayoutPolicy.weightedMatchParentParams(1));
+        left.addView(cell, tallReturnBottomParams(0));
+        return left;
+    }
+
+    /**
+     * 右侧大回车外框的中列：九宫格（或笔画网格）占三行，正下方是与它同宽的 123 |（地球）| 空格 | 中/英（{@link KeyboardActionRow#tallReturnEntries}；中/英放在空格左边时是 123 |（地球）| 中/英 | 空格）。数字层是切换键 |（地球）| 0 | 空格 | 中/英（左边时 切换键 |（地球）| 中/英 | 0 | 空格），空格就是常驻的空格键，长按语音和拖动光标的手势跟着它走。
+     */
+    private LinearLayout tallReturnMiddleColumn(LinearLayout grid, float gridShare, boolean digits) {
+        LinearLayout middle = LayoutPolicy.column(s);
+        middle.addView(grid, LayoutPolicy.weightedWidthParams(1));
+        LinearLayout cell = tallReturnBottomCell(true);
+        boolean globe = s.offersGlobeKey();
+        builtTallReturnGlobe = globe;
+        boolean languageLeft = s.languageKeyLeft;
+        builtTallReturnLanguageLeft = languageLeft;
+        for (KeyboardActionRow.DesignEntry entry : KeyboardActionRow.tallReturnEntries(gridShare, globe,
+                s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {
+            Button key = s.imeBottomRow.actionRowKey(entry.slot());
+            if (key == null) continue;
+            s.imeBottomRow.placeKey(cell, entry.slot(), key, LayoutPolicy.weightedMatchParentParams(entry.weight()));
+        }
+        middle.addView(cell, tallReturnBottomParams(0));
+        return middle;
+    }
+
+    /**
+     * 右侧大回车外框右列最下面的回车：一格底行高度的容器再按权重分到与上面每格同样的一份，回车铺满它，于是从第三行的顶边一直画到底行的底边，中间没有缝。中/英不在它左边，不让出点击区。
+     *
+     * <p>右列上面已经放好的键（⌫、重输或数字层的小数点）带着键距外边距；它们和回车格直接按权重分高度时，LinearLayout 先把外边距从剩余高度里扣掉，这几个键就比九宫格的行矮、和网格错开。所以先把它们挪进一个没有外边距的格子，这个格子按它们的权重和与回车格分高度，里面再按各自的权重分，和九宫格的行一样高。
+     */
+    private void addTallReturnKey(LinearLayout actions) {
+        LinearLayout upper = LayoutPolicy.column(s);
+        float weight = 0;
+        while (actions.getChildCount() > 0) {
+            android.view.View key = actions.getChildAt(0);
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
+            weight += params.weight;
+            actions.removeViewAt(0);
+            upper.addView(key, params);
+        }
+        actions.addView(upper, LayoutPolicy.weightedWidthParams(weight));
+        LinearLayout cell = tallReturnBottomCell(false);
+        s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.RETURN, s.enterButton,
+            LayoutPolicy.weightedCrossAxisFillParams(false, 1));
+        actions.addView(cell, tallReturnBottomParams(1));
+    }
+
+    /**
+     * 外框接管了底行的键，功能行当场按空排布重排（隐藏自己），和 123 / #+= 设计层一样不等下一次渲染：偏好重读时换了键面（{@link MSIMEInputService} 的 applyPreferencesSnapshot）只重建键行、不一定接着渲染，功能行就会留着上一个键面剩下的键（例如 26 键的逗号）。
+     */
+    private void hideActionRowForTallReturn() {
+        s.actionRowSignature = "";
+        s.imeBottomRow.updateActionRow();
     }
 
     /** 九宫格的键面过期了：拼音九键和九键双拼之间换了（布局编号相同，`apply` 不会重建），或者九键双拼换了表。 */
@@ -367,17 +517,33 @@ final class ImeLayoutRows {
 
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
+        // 右侧大回车：外框连同底行是一整块（像注音九键一样没有单独的功能行），回车从右列第三行跨到底行。
+        boolean tallReturn = tallReturnDrawn();
+        builtNineFrame = true;
+        builtTallReturn = tallReturn;
+        builtSpaceInColumn = null;
         LinearLayout container = LayoutPolicy.row(s);
-        container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
+        if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
+        else container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * (tallReturn ? KeyboardHeightPolicy.KEYBOARD_ROW_COUNT : 3))));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         boolean borrowed = s.displayedTouchLayout(s.view) != MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
-        // 左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和带语音手势的空格，0 移到底行中间（借用数字页同样如此）。
-        FrameLayout sidebar = symbolSidebar(digits, true);
+        // 右侧大回车外框的列宽按画着的键面取：笔画的数字层借的是这块九宫格，沿用笔画外框的份额，和它的字母层是同一个外框，切层时 符、切换键和回车不横移。
+        int frameLayout = s.displayedTouchLayout(s.view);
+        float tallSide = KeyboardActionRow.tallReturnSideWeight(frameLayout);
+        // 左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和最下面一格：空格在右列时（Android 原来的排法）是带语音手势的空格、0 移到底行中间，空格在底行时是 ！（借用数字页同样如此，见 `touch_number_pad_space`）。
+        FrameLayout sidebar = symbolSidebar(digits, true, tallReturn, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
-        if (digits) {
+        if (tallReturn) {
+            Button more = null;
+            if (digits) {
+                more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
+                KeyboardTypographyPolicy.setKeyTextSize(more, 14);
+            }
+            container.addView(tallReturnLeftColumn(sidebar, more), LayoutPolicy.weightedMatchParentParams(tallSide));
+        } else if (digits) {
             LinearLayout left = LayoutPolicy.column(s);
             left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
             Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
@@ -430,7 +596,9 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
+        if (tallReturn) container.addView(tallReturnMiddleColumn(grid, KeyboardActionRow.tallReturnGridShare(frameLayout), digits),
+            LayoutPolicy.weightedMatchParentParams(KeyboardActionRow.tallReturnGridWeight(frameLayout)));
+        else container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         LinearLayout actions = LayoutPolicy.column(s);
         Runnable deleteAction = borrowed ? s::deleteFromHandwriting : () -> {
@@ -442,25 +610,29 @@ final class ImeLayoutRows {
         // 九键双拼的网格有四行，⌫ 占两格，右列仍与网格逐行对齐。
         if (shuangpin) actions.addView(delete, LayoutPolicy.weightedCrossAxisFillParams(false, 2));
         else addNineKey(actions, delete);
+        if (tallReturn) {
+            // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行；九键双拼的 ⌫ 照旧占网格的两行，回车接在网格第四行上。
+            if (digits) addNineKey(actions, nineKeyDecimalKey());
+            else addNineKey(actions, nineKeyRewriteKey());
+            addTallReturnKey(actions);
+            container.addView(actions, LayoutPolicy.weightedMatchParentParams(tallSide));
+            hideActionRowForTallReturn();
+            return;
+        }
         if (digits) {
-            // 小数点按字面上屏；移动原空格键保留点按、长按语音与光标手势，0 由底行提供。
-            Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            KeyboardTypographyPolicy.setKeyTextSize(period, 22);
-            if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
-            addNineKey(actions, period);
-            adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
+            // 小数点按字面上屏；0 由底行提供。
+            addNineKey(actions, nineKeyDecimalKey());
+            boolean spaceInColumn = s.numberPadSpace.inRightColumn();
+            builtSpaceInColumn = spaceInColumn;
+            // 空格在右列：移动原空格键，保留点按、长按语音与光标手势。空格在底行（0 的左边或右边）：这一格放 ！，与 iOS、鸿蒙数字层右列相同。
+            if (spaceInColumn) adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
+            else addNineKey(actions, nineKeyDigitExclamationKey());
             // 重建数字网格时空格换了父容器，即使底行签名相同也要重新确认归属。
             s.actionRowSignature = "";
             container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
             return;
         }
-        // 重输：组字时丢掉整串数字和选过的拼音，和搜狗、讯飞九键右列的「重输」在同一个位置。这一格曾经改成「拆分」、重输挪到长按 ⌫，用户照习惯按这里清空却得到一个音节分界，长按 ⌫ 也没人知道；拆分现在是组字时的 1 键「分词」（symbolKey）。长按 ⌫ 清空照旧保留。没在组字时什么也不发生。
-        Button rewrite = s.keyboardKey("重输", "重新输入拼音", () -> {
-            if (s.hasEngineComposition()) s.discardComposition();
-        });
-        KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
-        if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(actions, rewrite);
+        addNineKey(actions, nineKeyRewriteKey());
         java.util.List<String> punctuation = NineKeyLayout.punctuation();
         String last = punctuation.get(punctuation.size() - 1);
         NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
@@ -472,6 +644,35 @@ final class ImeLayoutRows {
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
+    }
+
+    /** 空格在底行时数字层右列最下面一格的 ！：按字面上屏，记 `SoftPunctuation`，与字母层右列的 ！ 同一个字，不带字母层那个键上滑出 0 的手势（0 就在底行）。 */
+    private Button nineKeyDigitExclamationKey() {
+        java.util.List<String> punctuation = NineKeyLayout.punctuation();
+        String last = punctuation.get(punctuation.size() - 1);
+        NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
+            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
+        exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        return exclamation;
+    }
+
+    /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
+    Button nineKeyDecimalKey() {
+        Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
+        KeyboardTypographyPolicy.setKeyTextSize(period, 22);
+        if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        return period;
+    }
+
+    /** 重输：组字时丢掉整串数字和选过的拼音，和搜狗、讯飞九键右列的「重输」在同一个位置。这一格曾经改成「拆分」、重输挪到长按 ⌫，用户照习惯按这里清空却得到一个音节分界，长按 ⌫ 也没人知道；拆分现在是组字时的 1 键「分词」（symbolKey）。长按 ⌫ 清空照旧保留。没在组字时什么也不发生。 */
+    private Button nineKeyRewriteKey() {
+        Button rewrite = s.keyboardKey("重输", "重新输入拼音", () -> {
+            if (s.hasEngineComposition()) s.discardComposition();
+        });
+        KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
+        if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        return rewrite;
     }
 
     /**
@@ -541,15 +742,22 @@ final class ImeLayoutRows {
      */
     void rebuildStrokeRows() {
         dismissNineKeyHoldOptions();
+        // 右侧大回车与拼音九键共用九键样式，外框画法相同（{@link #rebuildNineKeyRows}）。
+        boolean tallReturn = tallReturnDrawn();
+        builtNineFrame = true;
+        builtTallReturn = tallReturn;
+        builtSpaceInColumn = null;
         LinearLayout container = LayoutPolicy.row(s);
-        s.imeStyler.adjustThreeRowBlockHeight(container);
+        if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
+        else s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * (tallReturn ? KeyboardHeightPolicy.KEYBOARD_ROW_COUNT : 3))));
 
-        // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
+        // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。右侧大回车没有右列的 ！，它接在符号表末尾，符号栏和拼音九键一样一屏最多五项，四个符号均分整栏。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = symbolSidebar(false, true, 3);
-        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
+        FrameLayout sidebar = tallReturn ? symbolSidebar(false, true, true, false) : symbolSidebar(false, true, 3);
+        container.addView(tallReturn ? tallReturnLeftColumn(sidebar, null) : sidebar,
+            LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         for (java.util.List<StrokeKeyboardLayout.Key> keys : StrokeKeyboardLayout.rows()) {
@@ -579,7 +787,9 @@ final class ImeLayoutRows {
             addNineKey(lastRow, key);
         }
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(3));
+        container.addView(tallReturn ? tallReturnMiddleColumn(grid,
+                KeyboardActionRow.tallReturnGridShare(KeyboardLayout.STROKE_LAYOUT), false) : grid,
+            LayoutPolicy.weightedMatchParentParams(STROKE_GRID_WEIGHT));
 
         LinearLayout actions = LayoutPolicy.column(s);
         Runnable deleteAction = () -> {
@@ -596,12 +806,20 @@ final class ImeLayoutRows {
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, rewrite);
+        if (tallReturn) {
+            // 右侧大回车：！ 去掉，回车占第三行和底行。
+            addTallReturnKey(actions);
+            container.addView(actions, LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
+            updateStrokeWildcardKey();
+            hideActionRowForTallReturn();
+            return;
+        }
         String last = symbols.get(symbols.size() - 1);
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
         updateStrokeWildcardKey();
     }
 
@@ -802,7 +1020,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」选的方向滑过「九键滑动距离」，键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
+     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，每次判定读当前值）选的方向滑过「九键滑动距离」（本机设置），键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
      */
     private void bindNineKeySwipe(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
         final float[] downY = new float[1];
@@ -828,7 +1046,7 @@ final class ImeLayoutRows {
                     if (gesture[0] != NineKeySwipePolicy.Gesture.NONE) return true;
                     if (s.nineKeyHoldPopup != null) return false;
                     NineKeySwipePolicy.Gesture next = NineKeySwipePolicy.gesture(
-                        s.localSettings.choice(AndroidLocalSettings.NINE_KEY_SWIPE), downY[0],
+                        s.nineKeySwipeDigits, downY[0],
                         DimensionPolicy.fromPixels(s, event.getY()), hasLetters,
                         s.localSettings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE));
                     if (next == NineKeySwipePolicy.Gesture.NONE) return false;
@@ -1063,6 +1281,8 @@ final class ImeLayoutRows {
         // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
         popup.showAsDropDown(anchor, x - anchorPosition[0],
             y - anchorPosition[1] - anchor.getHeight());
+        // 弹窗是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
+        ScreenCaptureProtection.apply(popup);
         return options;
     }
 

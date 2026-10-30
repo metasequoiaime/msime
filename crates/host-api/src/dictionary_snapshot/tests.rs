@@ -121,7 +121,7 @@ fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
     let queue_root = tempfile::tempdir_in(root.path()).unwrap();
     let queue = super::snapshot_queue(queue_root.path().to_str().unwrap()).unwrap();
 
-    let state = super::snapshot_queue_state(&queue, options, false).unwrap();
+    let state = super::snapshot_queue_state(&queue, options, false, false).unwrap();
 
     assert!(state["request"].is_null());
     assert!(state["localVersion"].as_str().is_some());
@@ -498,7 +498,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -647,7 +647,7 @@ fn activation_case(
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -963,7 +963,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -1307,6 +1307,23 @@ fn a_learning_export_carries_the_journal_and_restages_to_the_same_revision() {
             .unwrap()["count"],
         4
     );
+}
+
+/// 键盘空闲时反复问的预览版本（`msime_client_snapshot_version`、队列的 `state`）与不缓存的 `version` 一致，日志改过之后也跟着变。命中缓存时不重读日志由引擎的 `cached_dictionary_state_revision` 用例覆盖。
+#[test]
+fn the_preview_version_matches_the_exact_version_before_and_after_a_write() {
+    let device = LearningDevice::with_learning();
+    let first = super::preview_version(&device.options).unwrap();
+    assert_eq!(first, super::version(&device.options).unwrap());
+    assert_eq!(super::preview_version(&device.options).unwrap(), first);
+
+    device.sql(&format!(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('pinyin','hao','{}','upsert',100,'',1);",
+        "好".repeat(1000)
+    ));
+    let changed = super::preview_version(&device.options).unwrap();
+    assert_ne!(changed, first);
+    assert_eq!(changed, super::version(&device.options).unwrap());
 }
 
 /// 快照格式装不下的输入记录跳过，选词计数截到 10，导出照样通过自检。
@@ -1796,7 +1813,10 @@ const LOCAL_BACKUP_STATE_BIN: &str = "4d535131000000010100506c6f63616c2d76313a6c
 const LOCAL_BACKUP_ID: &str = "80247853-8ffb-4db6-a49c-509d2c2a4c8e";
 
 /// 一台空词库的设备上，队列目录里是 Java 留下的本地备份恢复请求，带着 `process` 的 `account_id`（不给是不知道当前账号是谁）处理一次。本机版本与请求期望的不同，所以请求被认领以后以 `conflict` 结束；没被认领时还是 `queued`，按别的账号取消时是 `cancelled`。
-fn process_a_local_backup_request(account_id: Option<&str>) -> serde_json::Value {
+fn process_a_local_backup_request(
+    account_id: Option<&str>,
+    skip_when_idle: bool,
+) -> serde_json::Value {
     use msime_client_core::preferences::Preferences;
     use std::fs;
 
@@ -1836,6 +1856,9 @@ fn process_a_local_backup_request(account_id: Option<&str>) -> serde_json::Value
     if let Some(account_id) = account_id {
         request["account_id"] = serde_json::json!(account_id);
     }
+    if skip_when_idle {
+        request["skip_when_idle"] = serde_json::json!(true);
+    }
     let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
     assert_eq!(state["request"]["id"], LOCAL_BACKUP_ID);
     assert_eq!(state["request"]["accountId"], "local-backup");
@@ -1847,7 +1870,7 @@ fn process_a_local_backup_request(account_id: Option<&str>) -> serde_json::Value
 #[test]
 fn a_local_backup_request_is_processed_without_an_account() {
     assert_eq!(
-        process_a_local_backup_request(None)["request"]["status"],
+        process_a_local_backup_request(None, false)["request"]["status"],
         "conflict"
     );
 }
@@ -1855,9 +1878,89 @@ fn a_local_backup_request_is_processed_without_an_account() {
 #[test]
 fn a_local_backup_request_is_not_cancelled_for_the_signed_in_account() {
     assert_eq!(
-        process_a_local_backup_request(Some("someone"))["request"]["status"],
+        process_a_local_backup_request(Some("someone"), false)["request"]["status"],
         "conflict"
     );
+}
+
+/// `skip_when_idle` 只跳过空闲的队列：排着的请求照样认领、处理。
+#[test]
+fn a_queued_request_is_processed_when_idle_queues_are_skipped() {
+    assert_eq!(
+        process_a_local_backup_request(None, true)["request"]["status"],
+        "conflict"
+    );
+}
+
+/// 鸿蒙键盘每次构建会话都处理一次队列；带 `skip_when_idle` 时空队列直接返回状态，不算本机词库版本、不写 `state.json`，也不建队列目录。
+#[test]
+fn an_idle_queue_is_left_untouched_when_idle_queues_are_skipped() {
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let queue = root.path().join("dictionary-snapshots");
+    let request = serde_json::json!({
+        "operation": "process",
+        "directory": queue,
+        "staging_root": root.path().join("staging"),
+        "options": {
+            "api_version": 1,
+            "resources": root.path().join("resources"),
+            "user_data": root.path().join("user"),
+            "cache": root.path().join("cache"),
+            "dictionaries": root.path().join("dictionaries"),
+            "preferences": Preferences::default(),
+        },
+        "skip_when_idle": true,
+    });
+    let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert!(state["request"].is_null(), "{state}");
+    assert!(state["localVersion"].is_null(), "{state}");
+    assert!(!queue.exists());
+}
+
+/// 鸿蒙键盘每次显示后查一次队列；带 `skip_when_idle` 时空队列只读状态，不算本机词库版本、不写 `state.json`，也不建队列目录。不带时照旧发布本机版本。
+#[test]
+fn an_idle_queue_state_query_is_read_only_when_idle_queues_are_skipped() {
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let queue = root.path().join("dictionary-snapshots");
+    let mut request = serde_json::json!({
+        "operation": "state",
+        "directory": queue,
+        "options": {
+            "api_version": 1,
+            "resources": root.path().join("resources"),
+            "user_data": root.path().join("user"),
+            "cache": root.path().join("cache"),
+            "dictionaries": root.path().join("dictionaries"),
+            "preferences": Preferences::default(),
+        },
+        "skip_when_idle": true,
+    });
+    let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert!(state["request"].is_null(), "{state}");
+    assert!(state["localVersion"].is_null(), "{state}");
+    assert!(!queue.exists());
+
+    request["skip_when_idle"] = serde_json::json!(false);
+    let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert!(state["localVersion"].as_str().is_some(), "{state}");
+    let published = fs::read(queue.join("state.json")).unwrap();
+
+    request["skip_when_idle"] = serde_json::json!(true);
+    let state = super::snapshot_queue_json(&serde_json::to_vec(&request).unwrap()).unwrap();
+    assert!(state["localVersion"].as_str().is_some(), "{state}");
+    assert_eq!(fs::read(queue.join("state.json")).unwrap(), published);
 }
 
 /// 云同步「下载」（#10043 第 0 期）用的一台设备：随包词库里有拟好和妮好，本机学过拟好的调权、删过妮好，固定、置顶了拟好，整句联想记着拟好之后打你；用户自己的词是你好，删过自己的词泥好（[`LearningDevice::with_learning`]）。
@@ -1913,7 +2016,7 @@ fn try_download_into(
     let specification = crate::tests::synthetic_desktop_lock(&device.root.path().join("resources"));
     let options = || -> crate::HostOptions { serde_json::from_value(device.host.clone()).unwrap() };
     let queue = super::snapshot_queue(device.root.path().join("queue").to_str().unwrap()).unwrap();
-    super::snapshot_queue_state(&queue, options(), false).unwrap();
+    super::snapshot_queue_state(&queue, options(), false, false).unwrap();
     if from_cloud_sync {
         use crate::cloud_sync::SyncLocal;
         let local = crate::cloud_sync::HostLocal {
@@ -1941,6 +2044,7 @@ fn try_download_into(
         staging.to_str().unwrap().into(),
         options(),
         Some("account".into()),
+        false,
         |_| Ok(specification),
         &[],
     )

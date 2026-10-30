@@ -9,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Router;
 use base64::Engine as _;
 use dav_server::{fakels::FakeLs, memfs::MemFs, DavHandler};
+use msime_client_core::cloud::dictionary_sync::schedule::{MIN_PUSH_INTERVAL_MS, OPEN_PULL_MIN_MS};
 use msime_client_core::cloud::dictionary_sync::{
     LocalChange, LocalDictionary, LocalError, LocalOutcome, Options, Trigger, WordKey, WordKind,
 };
@@ -33,6 +34,8 @@ struct Dav {
     /// 服务端暂时不可用：每个请求答 503，不带 `Retry-After`。
     down: Arc<AtomicBool>,
     requests: Arc<AtomicUsize>,
+    /// 每个请求的方法和路径，按到达顺序。
+    log: Arc<Mutex<Vec<String>>>,
     rate_limited: Arc<AtomicBool>,
     dictionary_retries: Arc<AtomicUsize>,
     registration_blocked: Arc<AtomicBool>,
@@ -40,6 +43,10 @@ struct Dav {
 
 async fn handle(State(dav): State<Dav>, request: Request) -> Response {
     dav.requests.fetch_add(1, Ordering::SeqCst);
+    dav.log
+        .lock()
+        .unwrap()
+        .push(format!("{} {}", request.method(), request.uri().path()));
     if dav.registration_blocked.load(Ordering::SeqCst)
         && request.method() == "MOVE"
         && request
@@ -127,6 +134,7 @@ fn start() -> Server {
         ),
         down: Arc::default(),
         requests: Arc::default(),
+        log: Arc::default(),
         rate_limited: Arc::default(),
         dictionary_retries: Arc::default(),
         registration_blocked: Arc::default(),
@@ -151,6 +159,11 @@ impl Server {
     /// 客户端发来过多少个请求。
     fn requests(&self) -> usize {
         self.dav.requests.load(Ordering::SeqCst)
+    }
+
+    /// 到现在为止的请求，一行一个，断言失败时打印出来。
+    fn log(&self) -> String {
+        self.dav.log.lock().unwrap().join("\n")
     }
 
     /// 绕过鉴权直接对文件系统发一个请求，测试用来种文件、删文件、列目录。
@@ -326,11 +339,12 @@ fn expire_request_window(directory: &Path) {
     let mut stored: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     // 多轮收敛与回退恢复用例模拟阶段之间额度窗口已过期；硬限额由专门回归覆盖。
-    for request in stored["state"]["schedule"]["requests"]
-        .as_array_mut()
-        .unwrap()
-    {
-        *request = serde_json::json!(0);
+    for list in ["requests", "automatic_requests"] {
+        if let Some(requests) = stored["state"]["schedule"][list].as_array_mut() {
+            for request in requests {
+                *request = serde_json::json!(0);
+            }
+        }
     }
     std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
 }
@@ -438,6 +452,11 @@ fn http_retries_cannot_exceed_the_remaining_automatic_or_manual_budget() {
             .unwrap()
             .as_millis() as u64;
         stored["state"]["schedule"]["requests"] = serde_json::json!(vec![now; limit - 3]);
+        if trigger != Trigger::Manual {
+            // 自动同步的硬限额看的是自动同步自己发过的请求。
+            stored["state"]["schedule"]["automatic_requests"] =
+                serde_json::json!(vec![now; limit - 3]);
+        }
         stored["state"]["schedule"]["last_pull_ms"] = serde_json::json!(0);
         std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
         settle();
@@ -478,6 +497,7 @@ fn http_compaction_cleanup_is_charged_before_the_final_state_save() {
     // 只把本机压缩计数置到阈值，远端事件和摘要仍由真实同步生成。
     stored["state"]["ledger"]["events"] = serde_json::json!(64);
     stored["state"]["schedule"]["requests"] = serde_json::json!([]);
+    stored["state"]["schedule"]["automatic_requests"] = serde_json::json!([]);
     std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
     let stale = "msime-dictionary/v1/tmp/1-00000000000000000000000000000000.json";
     assert_eq!(server.raw("PUT", stale, None, b"synthetic".to_vec()).0, 201);
@@ -522,6 +542,194 @@ fn http_requests_are_all_charged_to_the_sync_budget() {
         );
         assert_eq!(server.dav.dictionary_retries.load(Ordering::SeqCst), 0);
     }
+}
+
+/// 调度记着的时间都往前挪 `by` 毫秒，相当于过了这么久；请求记录不动，配置时的请求仍在同一个额度窗口里。
+fn elapse_schedule(directory: &Path, by: u64) {
+    let path = directory.join(STATE_FILE);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let schedule = &mut stored["state"]["schedule"];
+    for field in [
+        "last_change_ms",
+        "dirty_since_ms",
+        "last_push_ms",
+        "last_pull_ms",
+        "last_success_ms",
+        "retry_at_ms",
+    ] {
+        if let Some(at) = schedule[field].as_u64().filter(|at| *at > 0) {
+            schedule[field] = serde_json::json!(at.saturating_sub(by));
+        }
+    }
+    std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+}
+
+/// 加了一个词之后：`local_change` 马上记下、不联网；过了五分钟的发送间隔，定时到点时发出去；再过一分钟，回到 App 时的 `opened` 照常拉取。全程仍在配置的那个额度窗口里。
+fn next_change_goes_out_automatically(
+    server: &Server,
+    directory: &Path,
+    sync: &DictionarySync,
+    words: &mut Words,
+    what: &str,
+) {
+    words.0.insert(word("he'cheng", "合成新词"));
+    let recorded = sync
+        .run(words, Trigger::LocalChange, Options::default())
+        .unwrap();
+    assert!(!recorded.network, "{what}");
+    assert_eq!(recorded.view.pending_upload, 1, "{what}");
+    assert_eq!(recorded.view.budget_wait_until, None, "{what}");
+    elapse_schedule(directory, MIN_PUSH_INTERVAL_MS);
+    let before = server.requests();
+    let sent = sync
+        .run(words, Trigger::Periodic, Options::default())
+        .unwrap();
+    assert!(
+        sent.network,
+        "{what}: automatic sync held back for {} ms",
+        sent.next_check_ms
+    );
+    assert_eq!(sent.report.unwrap().published_ops, 1, "{what}");
+    assert_eq!(sent.view.pending_upload, 0, "{what}");
+    eprintln!(
+        "{what}: the automatic send took {} requests",
+        server.requests() - before
+    );
+    elapse_schedule(directory, OPEN_PULL_MIN_MS);
+    let opened = sync
+        .run(words, Trigger::Opened, Options::default())
+        .unwrap();
+    assert!(opened.network, "{what}: opened held back");
+    opened.report.unwrap();
+}
+
+/// 第一台设备配置时最多这么多个请求：密钥串 23 个（建布局、登记、生成密钥），词库 12 个（建布局、写格式文件和第一份检查点、发出本机的词）。
+const FIRST_DEVICE_SETUP_REQUESTS: usize = 35;
+
+/// 坚果云真机（2026-10-28，iOS）：第一台设备保存配置后的第一次同步用掉了全部 40 个自动额度，之后半小时里改词、定时和回到 App 都不联网，「上次同步」停在配置时。配置时的请求属于用户的操作，不能挤掉之后的自动同步。iOS 保存后以 `manual` 跑第一次，共享设置页和 Win7 以 `opened`，两种都要覆盖。
+#[test]
+fn first_device_setup_leaves_the_automatic_budget_for_the_next_change() {
+    for setup in [Trigger::Manual, Trigger::Opened] {
+        let server = start();
+        let directory = tempfile::tempdir().unwrap();
+        let sync = device(&server, directory.path(), "Synthetic phone");
+        let mut words = Words(BTreeSet::from([word("ni'hao", "合成词条")]));
+        let first = sync.run(&mut words, setup, Options::default()).unwrap();
+        assert!(first.network, "{setup:?}");
+        first.report.unwrap();
+        assert!(first.view.approved && first.view.joined, "{:?}", first.view);
+        assert_eq!(first.view.pending_upload, 0, "{:?}", first.view);
+        assert_eq!(first.view.budget_wait_until, None);
+        assert!(
+            server.requests() <= FIRST_DEVICE_SETUP_REQUESTS,
+            "{setup:?}: first-device setup sent {} requests:\n{}",
+            server.requests(),
+            server.log()
+        );
+        eprintln!(
+            "{setup:?}: first-device setup sent {} requests",
+            server.requests()
+        );
+        next_change_goes_out_automatically(
+            &server,
+            directory.path(),
+            &sync,
+            &mut words,
+            &format!("first device, setup by {setup:?}"),
+        );
+    }
+}
+
+/// 第二台设备登记、获准之后加入：加入时读检查点、日志并发出本机的词，这些同样不占之后的自动额度。
+#[test]
+fn second_device_join_leaves_the_automatic_budget_for_the_next_change() {
+    let server = start();
+    let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut a = Words(BTreeSet::from([
+        word("shui'shan", "水杉"),
+        word("ni'hao", "你好"),
+    ]));
+    let mut b = Words(BTreeSet::from([word("zai'jian", "再见")]));
+    let first = device(&server, a_dir.path(), "MacBook");
+    let second = device(&server, b_dir.path(), "Pixel");
+    manual(&first, &mut a).report.unwrap();
+    let before = server.requests();
+    let registered = second
+        .run(&mut b, Trigger::Opened, Options::default())
+        .unwrap();
+    assert!(!registered.view.approved);
+    let registration = server.requests() - before;
+    settle();
+    let pending = first
+        .devices()
+        .unwrap()
+        .devices
+        .into_iter()
+        .find(|device| !device.approved)
+        .unwrap();
+    first.approve(&pending.device_id).unwrap();
+    settle();
+    elapse_schedule(b_dir.path(), OPEN_PULL_MIN_MS);
+    let before = server.requests();
+    let joined = second
+        .run(&mut b, Trigger::Opened, Options::default())
+        .unwrap();
+    assert!(joined.network);
+    joined.report.unwrap();
+    assert!(
+        joined.view.approved && joined.view.joined,
+        "{:?}",
+        joined.view
+    );
+    assert_eq!(b.0.len(), 3);
+    // 加入的那一次就把本机的词发了出去，不等下一轮。
+    assert_eq!(joined.view.pending_upload, 0, "{:?}", joined.view);
+    eprintln!(
+        "second device: registration {registration} requests, join {} requests",
+        server.requests() - before
+    );
+    next_change_goes_out_automatically(&server, b_dir.path(), &second, &mut b, "second device");
+}
+
+/// 自动额度用完时，自动同步不联网，状态里说什么时候继续（`budget_wait_until`），而不是看上去卡住了；「立即同步」照常。
+#[test]
+fn an_exhausted_automatic_budget_is_reported_with_the_time_sync_resumes() {
+    let server = start();
+    let directory = tempfile::tempdir().unwrap();
+    let sync = device(&server, directory.path(), "Synthetic phone");
+    let mut words = Words(BTreeSet::from([word("ni'hao", "合成词条")]));
+    manual(&sync, &mut words).report.unwrap();
+    let path = directory.path().join(STATE_FILE);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let schedule = &mut stored["state"]["schedule"];
+    // 这个窗口里自动同步已经发了 40 个请求，总额度还剩 20 个给「立即同步」。
+    schedule["automatic_requests"] = serde_json::json!(vec![now; 40]);
+    schedule["requests"] = serde_json::json!(vec![now; 40]);
+    std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+    elapse_schedule(directory.path(), OPEN_PULL_MIN_MS);
+    let before = server.requests();
+    let held = sync
+        .run(&mut words, Trigger::Opened, Options::default())
+        .unwrap();
+    assert!(!held.network);
+    assert_eq!(server.requests(), before);
+    let resumes = held.view.budget_wait_until.expect("the wait is reported");
+    let window = 30 * 60 * 1000;
+    assert!(
+        (now + window..now + window + 60_000).contains(&resumes),
+        "{resumes} vs {now}"
+    );
+    assert_eq!(sync.status().unwrap().budget_wait_until, Some(resumes));
+    let sent = manual(&sync, &mut words);
+    assert!(sent.network);
+    sent.report.unwrap();
+    assert_eq!(sent.view.budget_wait_until, Some(resumes));
 }
 
 #[test]

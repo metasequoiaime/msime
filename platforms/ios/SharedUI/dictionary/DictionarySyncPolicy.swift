@@ -100,11 +100,23 @@ enum IOSDictionarySyncPolicy {
     "本机一次少了 \(count) 个词，可能是词库被重置或损坏了。为了不把其他设备上的词也删掉，这些删除还没有同步。"
   }
 
-  /// 「上次同步」那一行：成功过就是相对时间，否则说还没有同步过。
+  /// 「上次同步」那一行：成功过就是相对时间（刚同步完是「刚刚」），否则说还没有同步过。
   static func lastSuccess(_ milliseconds: UInt64?, now: Date = Date()) -> String {
     guard let milliseconds, milliseconds > 0 else { return "尚未同步" }
-    let date = min(Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000), now)
-    return relative.localizedString(for: date, relativeTo: now)
+    let date = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    return CloudClipboardTimePolicy.relative(date, now: now, formatter: relative)
+  }
+
+  /// 自动同步在等额度时状态卡里的一句：本机时间的「HH:MM」，不是今天时写成「M月D日 HH:MM」；已经过了或者没在等时为 nil。与共享设置页的 `dictionarySyncBudgetWaitMessage`、Android 和 Windows 逐字相同。
+  static func budgetWait(_ milliseconds: UInt64?, now: Date = Date(), calendar: Calendar = .current) -> String? {
+    guard let milliseconds else { return nil }
+    let until = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+    guard until > now else { return nil }
+    let parts = calendar.dateComponents([.month, .day, .hour, .minute], from: until)
+    guard let month = parts.month, let day = parts.day, let hour = parts.hour, let minute = parts.minute else { return nil }
+    let time = String(format: "%02d:%02d", hour, minute)
+    let when = calendar.isDate(until, inSameDayAs: now) ? time : "\(month)月\(day)日 \(time)"
+    return "额度用完，将于 \(when) 继续自动同步；可点「立即同步」。"
   }
 
   private static let relative: RelativeDateTimeFormatter = {

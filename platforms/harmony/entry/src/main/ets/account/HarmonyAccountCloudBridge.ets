@@ -7,6 +7,7 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
 import { TypingStatisticsPolicy } from '../keyboard/TypingStatisticsPolicy';
+import { AiGenerationGate } from '../keyboard/AiGenerationGate';
 import { AccountSessionAdoption } from './AccountSessionAdoption';
 import { HarmonyAccountIdentity } from './HarmonyAccountIdentity';
 import { HarmonyGoogleSignIn } from './HarmonyGoogleSignIn';
@@ -220,9 +221,9 @@ export class HarmonyAccountCloudBridge {
     return await client.account(request);
   }
 
-  /** 社区的皮肤、词包与回复模板。`finish_trial`、`store_reply`、`remove_reply` 不联网，由 `Settings` 在这之前处理。 */
+  /** 社区的皮肤、词包与回复模板。`finish_trial`、`store_reply`、`remove_reply` 不联网，由 `Settings` 在这之前处理。AI 生成类功能的总闸关着时（鸿蒙版拿到资质之前）键盘皮肤不要 AI 生成的作品。 */
   async community(action: string): Promise<string> {
-    const plan: RequestPlan = communityRequest(this.directory, this.directory, action);
+    const plan: RequestPlan = communityRequest(this.directory, this.directory, action, !AiGenerationGate.enabled());
     if (plan.refusal.length > 0) return plan.refusal;
     await AccountSessionAdoption.beforeRequest();
     return await client.community(plan.request);

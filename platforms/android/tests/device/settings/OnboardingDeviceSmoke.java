@@ -1,8 +1,12 @@
 package app.msime.android.test;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.os.SystemClock;
 import android.system.Os;
 import java.io.File;
 import java.lang.reflect.Method;
@@ -14,11 +18,23 @@ import org.json.JSONObject;
 
 /** 在真实应用沙箱中验证引导队列；失败由目录权限触发，不替换产品存储实现。 */
 public final class OnboardingDeviceSmoke extends DeviceSmoke {
+    private boolean installNoticeOnly;
+
+    @Override public void onCreate(Bundle arguments) {
+        installNoticeOnly = arguments != null && "true".equals(arguments.getString("install-notice"));
+        super.onCreate(arguments);
+    }
+
     @Override protected String successDescription() {
+        if (installNoticeOnly) return "安装说明在 Activity 销毁后不再关闭已移除窗口或回调旧页面";
         return "原生引导选择在保存失败、离开后保留，恢复权限后写入共享偏好";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (installNoticeOnly) {
+            installNoticeLifecycle();
+            return;
+        }
         Context target = getTargetContext();
         Path root = Files.createTempDirectory(target.getCacheDir().toPath(), "synthetic-oobe-");
         Path preferences = Files.createDirectory(root.resolve("preferences"));
@@ -81,6 +97,43 @@ public final class OnboardingDeviceSmoke extends DeviceSmoke {
             try (var paths = Files.walk(root)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toArray(Path[]::new)) Files.delete(path);
             }
+        }
+    }
+
+    private void installNoticeLifecycle() throws Exception {
+        Context target = getTargetContext();
+        SharedPreferences store = target.getSharedPreferences("msime_install_notice_v1", Context.MODE_PRIVATE);
+        String original = store.getString("shown_install_stamp", null);
+        Activity activity = startActivitySync(new Intent().setClassName(target.getPackageName(),
+            "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        java.util.concurrent.atomic.AtomicBoolean callback = new java.util.concurrent.atomic.AtomicBoolean();
+        try {
+            stage = "显示安装说明后销毁真实主界面";
+            store.edit().remove("shown_install_stamp").commit();
+            Class<?> notice = target.getClassLoader().loadClass("app.msime.android.home.InstallNotice");
+            Method show = notice.getDeclaredMethod("showIfNeeded", activity.getClass().getSuperclass(), Runnable.class);
+            show.setAccessible(true);
+            runOnMainSync(() -> {
+                try {
+                    check((boolean) show.invoke(null, activity, (Runnable) () -> callback.set(true)),
+                        "合成安装说明未显示");
+                    activity.finish();
+                } catch (ReflectiveOperationException error) {
+                    throw new AssertionError("无法调用安装说明入口", error);
+                }
+            });
+            waitForIdleSync();
+            long deadline = SystemClock.uptimeMillis() + 15000;
+            while (!activity.isDestroyed() && SystemClock.uptimeMillis() < deadline)
+                SystemClock.sleep(50);
+            check(activity.isDestroyed(), "主界面尚未销毁");
+            stage = "销毁后经过完整自动关闭期限仍保持进程正常";
+            SystemClock.sleep(31000);
+            check(!callback.get(), "安装说明回调了已经结束的页面");
+        } finally {
+            if (original == null) store.edit().remove("shown_install_stamp").commit();
+            else store.edit().putString("shown_install_stamp", original).commit();
         }
     }
 

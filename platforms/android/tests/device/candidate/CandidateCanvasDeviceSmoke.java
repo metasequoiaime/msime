@@ -25,12 +25,25 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
     private ClassLoader loader;
     private Class<?> assetsType;
     private float density;
+    /** 带 `-e capacity true` 时只跑剪贴板容量专项。默认清单已满 100 项 instrumentation，容量专项借这个始终声明、同样指向产品包的入口；原先借的 ClipboardCategoriesDeviceSmoke 只在 MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE=1 的清单里才有，完整套件一跑到它就报 Unknown instrumentation target。 */
+    private boolean capacityOnly;
+
+    @Override public void onCreate(android.os.Bundle arguments) {
+        capacityOnly = arguments != null && "true".equals(arguments.getString("capacity"));
+        super.onCreate(arguments);
+    }
 
     @Override protected String successDescription() {
-        return "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
+        return capacityOnly
+            ? "main and visitor clipboard histories retain sixty synthetic entries at the saved capacity"
+            : "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (capacityOnly) {
+            ClipboardCapacityDeviceSmoke.runCapacity(getTargetContext(), this);
+            return;
+        }
         loader = getTargetContext().getClassLoader();
         assetsType = loader.loadClass("app.msime.android.CandidateCanvasAssets");
         density = getTargetContext().getResources().getDisplayMetrics().density;
@@ -290,6 +303,14 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         check(frozen.getPixel(0, 0) == 0xffff0000, "reduced-motion first frame");
         Bitmap finalFrame = (Bitmap) call(animation, "frameAt", new Class<?>[] {long.class, boolean.class}, 2000L, true);
         check(finalFrame.getPixel(1, 0) == 0 && finalFrame.getPixel(0, 0) == 0xffffffff, "finite animation final frame");
+        // 画布只在换帧那一刻约下一次重画：剩余时长要落在帧边界上，停住的动画不再约。
+        long[][] waits = {{0, 100}, {150, 50}, {299, 1}, {300, -1}, {350, -1}, {2000, -1}};
+        for (long[] wait : waits) {
+            Object left = call(animation, "millisUntilNextFrame", new Class<?>[] {long.class, boolean.class}, wait[0], true);
+            check(left.equals(wait[1]), "APNG next frame at " + wait[0] + " was " + left);
+        }
+        check(call(animation, "millisUntilNextFrame", new Class<?>[] {long.class, boolean.class}, 0L, false).equals(-1L),
+            "reduced-motion APNG must not schedule frames");
         bytes[bytes.length - 1] ^= 1;
         try {
             type.getMethod("decode", byte[].class).invoke(null, (Object) bytes);

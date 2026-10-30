@@ -229,6 +229,9 @@ private:
             const auto bytes = Json{{"directory", host.directory.u8string()}, {"action", std::move(record)}}.dump();
             const auto answer = msime::host_api::own_string(msime_client_typing_statistics(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size()));
             (void)answer;
+            // record 只把上屏攒在本进程里，面板进程退出时没有收尾去写，记完就 flush，和攒批之前一样当场落盘。
+            const auto flush = Json{{"directory", host.directory.u8string()}, {"action", {{"operation", "flush"}}}}.dump();
+            (void)msime::host_api::own_string(msime_client_typing_statistics(reinterpret_cast<const uint8_t*>(flush.data()), flush.size()));
           }
         } catch (...) {
           // 统计失败不重复上屏，也不把候选正文写入日志。

@@ -22,10 +22,13 @@ final class DictionarySnapshotWorker {
   private let queue: DictionarySnapshotQueue
   private let currentAccountID: () throws -> String?
   private let readVersion: @Sendable (Data) throws -> String
+  private let now: () -> Date
   private var task: Task<Void, Never>?
   private var prepared: Prepared?
   private var lease: DictionarySnapshotQueue.WorkerLease?
   private var lastVersionCheck = Date.distantPast
+  /// 没有待处理的请求、状态文件里也已经有版本时，两次读版本之间至少隔这么久。读版本要把学习日志里的操作、固定位置和选词状态整份读一遍做摘要；用户在打字时个人上下文模型每两秒左右写一次同一个日志，选词也会落进去，按文件身份的缓存每次都对不上，原来的 10 秒就等于打字期间每 10 秒整份重读一次。这个版本只给 App 下载云词库时记下预期版本用，晚一些的代价只是那次应用报本地词库已变化、请用户重新确认（完成时会写出当时的版本），所以放宽到一分钟。有活动请求或还没有版本时仍立即读。
+  static let idleVersionPollInterval: TimeInterval = 60
   /// 本进程改动队列状态文件的代次：每次 tick 读状态之前、每个准备任务结束时推进（任务只在 tick 里开始）。后台预读的状态带着读取前的代次，交回 tick 时代次变了就作废。
   private var stateRevision: UInt64 = 0
   var isPreparing: Bool { task != nil }
@@ -42,9 +45,10 @@ final class DictionarySnapshotWorker {
        currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id },
        readVersion: @escaping @Sendable (Data) throws -> String = {
          try MetasequoiaInputSessionBridge.localDictionaryStateVersion(preparedOptions: $0)
-       }) {
+       },
+       now: @escaping () -> Date = Date.init) {
     self.session = session; self.queue = queue; self.currentAccountID = currentAccountID
-    self.readVersion = readVersion
+    self.readVersion = readVersion; self.now = now
   }
   func stop() {
     task?.cancel()
@@ -93,9 +97,12 @@ final class DictionarySnapshotWorker {
         else { report?("本地词库已变化，本次快照未应用。请重新确认。") }
         return
       }
-      guard force || state.request?.status.active == true || state.localVersion == nil || Date().timeIntervalSince(lastVersionCheck) >= 10 else { return }
+      guard force || state.request?.status.active == true || state.localVersion == nil
+              || now().timeIntervalSince(lastVersionCheck) >= Self.idleVersionPollInterval else { return }
       let options = try session.dictionaryStateVersionOptions()
       let readVersion = self.readVersion
+      // 没有待处理的请求时，这一轮只是为了让状态文件里的版本跟上词库。读出的版本和刚读到的状态一样，就没有什么要写、要认领的，不再回主线程取锁读写状态文件；读取期间才排进来的请求留给下一轮空闲 tick。
+      let unchanged = state.request?.status.active == true ? nil : state.localVersion
       task = Task { [weak self] in
         defer {
           self?.task = nil
@@ -107,8 +114,12 @@ final class DictionarySnapshotWorker {
           let current = try await withTaskCancellationHandler(operation: { try await poll.value }, onCancel: { poll.cancel() })
           try Task.checkCancellation()
           guard let self else { return }
+          if current == unchanged {
+            lastVersionCheck = now()
+            return
+          }
           try queue.publishLocalVersion(current)
-          lastVersionCheck = Date()
+          lastVersionCheck = now()
           // 读取期间账号可能改变；认领之前重新确认归属。实际激活留给下一次空闲 tick。
           guard let pending = try queue.read().request, pending.status.active,
                 let owner = try? currentAccountID() else { return }
@@ -155,6 +166,8 @@ final class DictionarySnapshotWorker {
           owner.lease = nil
           if MetasequoiaInputSessionBridge.isSnapshotBusy(error) { return }
           if case DictionarySnapshotQueue.Failure.busy = error { return }
+          // 一直读不出版本时也照样节流（`idleVersionPollInterval`），不要每两秒就整份重读词库、再弹一次同样的提示。
+          owner.lastVersionCheck = owner.now()
           if let claimedRequest, let state = try? owner.queue.read(),
              state.request?.id == claimedRequest, state.request?.status.active == true {
             try? owner.queue.fail(id: claimedRequest)

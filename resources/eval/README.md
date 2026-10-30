@@ -15,7 +15,7 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 `--keyboard-neural` 额外启用引擎内的键盘神经联想，用随资源提供的键盘模型混合评分词网格路径，验证全拼、双拼、九键与十四键共用的混合评分。默认关闭，保持现有质量基线的测量方式；runtime 挂载的重排器仍按资源里有没有模型决定。这两层排序不同，修引擎内的模型评分时必须显式加这个开关。
 
-**基线是带重排的数字。** `sentence-model.safetensors` 已经在 `desktop-dictionary.lock.json` 里，所以按锁文件取到的资源目录一定带它，而 `convert_eval` 见到模型就会挂上重排器。想量引擎单独的表现，把模型从资源目录里拿掉再跑——它会打印 `no model at ...`，那一行是判断当前测的是哪个臂的唯一依据。
+**基线是带重排的数字。** `sentence-model.safetensors` 已经在 `desktop-dictionary.lock.json` 里，所以按锁文件取到的资源目录一定带它，而 `convert_eval` 见到模型就会挂上重排器。想量引擎单独的表现（移动端默认不挂模型，`neural_keyboard` 关闭），把模型从资源目录的副本里拿掉，再用 `--resource-lock` 指向去掉 `sentence-model.safetensors` 那一项的锁副本——资源校验要求目录与锁一一对应，只删文件会报缺失。它会打印 `no model at ...`，那一行是判断当前测的是哪个臂的唯一依据。
 
 ## 延迟基准
 
@@ -49,11 +49,11 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
 
-`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份锁定词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。
+`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，2026-10-06 在当时锁定的 dict-v2.0.13 上量到九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。换到 dict-v2.0.39 后全拼是 0.756 / 0.945，完整九键是 0.530 / 0.805（词级集挂不挂模型结果相同），补全折算之后九键 top-1 是 0.550，再加上内嵌音节频度表与种子保住末音节之后是 0.563 / 0.826。
 
 ### `sentences-nine-key-v1.tsv` — 81 条九键长句
 
-手写的合成短句，4 到 12 个字每档 9 条，`verify-local.sh` 以 `--nine-key` 跑它，对照 `baseline-nine-key-sentences.json`。九键一次最多 32 个数字（`DIGIT_LIMIT`），超出的键被丢掉，而 `sentences-v1.tsv` 11 个音节以上的 7 条里有 6 条超过 32 个字母，`sentences-neutral-v1.tsv` 1105 条里也有 279 条超过，在九键上金标准根本打不出来；这份每条都在 32 个字母以内，12 个字的句子也能整串打完。金标准的取舍与 `sentences-v1.tsv` 相同，另外不收 ta 开头或句中带 他/她 的句子（#6059）。
+手写的合成短句，4 到 12 个字每档 9 条，`verify-local.sh` 以 `--nine-key` 跑它，对照 `baseline-nine-key-sentences.json`。这份集合建于九键一次最多 32 个数字的时候，每条都在 32 个字母以内，12 个字的句子也能整串打完；当时 `sentences-v1.tsv` 11 个音节以上的 7 条里有 6 条超过 32 个字母，`sentences-neutral-v1.tsv` 1105 条里也有 279 条超过，在九键上金标准打不出来。上限现在是 48 个数字（`crates/engine/src/nine_key.rs` 的 `DIGIT_LIMIT`，#9392），到上限时先选首选再接着打；按 48 算，超过的只剩 `sentences-v1.tsv` 的 1 条和 `sentences-neutral-v1.tsv` 的 30 条。金标准的取舍与 `sentences-v1.tsv` 相同，另外不收 ta 开头或句中带 他/她 的句子（#6059）。
 
 同一份集合在全键盘上打（不带 `--nine-key`）是九键要追的参照：按切分路径各自解码时（#6377），九键 top-1 0.457、found 0.556；按键之间沿用前几次的好切分、跨切分比较时每个词组多扣一份奖励之后（#6059），0.506 / 0.617；全键盘 0.691 / 0.716。九键按键延迟用 `rerank_latency --nine-key` 在这份集合上量，见上文的「延迟基准」。
 
@@ -67,22 +67,44 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 `convert_eval --grid fourteen` 打开 Runtime 的 14 键网格，把每个字母换成它所在键的组码（QW 键是 q，BN 键是 b，即每组的首字母），用宿主触屏键面用的 `GridKey` 逐键送进去，金标准不变。14 键与九键是同一套解码（`KeyGrid`），只换码表：421 个全拼音节在九键上是 218 种码，在 14 键上是 314 种，重码少了，所以同一份集合上 14 键应当不低于九键。`verify-local.sh` 以 `fourteen-key`（`quanpin-words-v1.tsv --limit 3000`）和 `fourteen-key-sentences`（`sentences-nine-key-v1.tsv`）跑它们，对照 `baseline-fourteen-key.json` 和 `baseline-fourteen-key-sentences.json`。
 
-锁定资源 dict-v2.0.24 加 `sentence-model.safetensors`，共享词网格扣除每词插入代价后的同一次 release 构建：
+同一次 release 构建、同一份代码，挂 `sentence-model.safetensors`，分别在换锁前的 dict-v2.0.24 和当时换上的 dict-v2.0.39 上跑（[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)）：
 
-| 集合 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
-|---|---|---|---|---|
-| `quanpin-words-v1` 3000 条（实取 2791） | 0.574 | 0.851 | 0.660 | 0.906 |
-| `sentences-nine-key-v1` 81 条 | 0.617 | 0.654 | 0.667 | 0.691 |
+| 集合 | 词库 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
+|---|---|---|---|---|---|
+| `quanpin-words-v1` 3000 条（实取 2791） | dict-v2.0.24 | 0.571 | 0.847 | 0.658 | 0.903 |
+| | dict-v2.0.39 | 0.518 | 0.815 | 0.619 | 0.888 |
+| `sentences-nine-key-v1` 81 条 | dict-v2.0.24 | 0.642 | 0.667 | 0.667 | 0.691 |
+| | dict-v2.0.39 | 0.519 | 0.605 | 0.580 | 0.654 |
+
+这张表是换锁时、九键补全折算之前的代码。折算之后 dict-v2.0.39 上提交的 `quanpin-words-v1` 基线是九键 0.539 / 0.821、14 键 0.628 / 0.891（top-1 / top-5），两份长句不变，见下文 `--cut-last-syllable` 一节。再换上内嵌的音节频度表、种子保住末音节之后，`quanpin-words-v1` 是九键 0.553 / 0.834、14 键 0.630 / 0.894，`sentences-nine-key-v1` 是九键 0.556 / 0.630、14 键 0.630 / 0.679，见[音节频度表笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-nine-key-syllable-frequency-table.md)。
+
+两行用的是同一个二进制，差别全部来自词库数据：dict-v2.0.30 起词库仓库把与万象共有的单字和词语的权重改成按万象词频换算的值（[msime-dictionary#84](https://github.com/metasequoiaime/msime-dictionary/pull/84)），单字和多字词的权重都大幅变动（摆脱 199375→80850、拜托 53420→171736；散步 101880→64915、跑步 66055→335220，两者在九键上同码），同码、同音词的先后因此被改写，九键和 14 键的重码最多，掉得也最多。共享词网格扣除每词插入代价那次改动的前后对照在 dict-v2.0.24 上量，见文末的评分决策笔记。
 
 `rerank_latency` 在同一锁定资源上交替测量修复前后三轮，挂着重排模型的 p95 中位数九键 21.65→21.22 ms、14 键 20.57→19.37 ms；全拼 8.12→7.56 ms。九键、14 键前后都超出 16 ms 的帧预算，现有长串延迟缺口仍在；本次未观察到新增退化。详细对照条件见文末的评分决策笔记。
 
-14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在锁定词库里首选是「不好」（权重 500381），「你好」（332885）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
+14 键的重码集中在少数几组上：bi/bu/ni/nu、xi/xu/zi/zu 这样的四重码，shi/shu，以及 sha 对 a'ga 这类跨音节的歧义。同一串组码下谁排第一只看词库权重，harness 又关掉了学习，所以这里量到的是新用户的第一次输入。BN UI GH AS OP（`bugao`）在 dict-v2.0.39 里首选是「不好」（权重 1294182），「你好」（705916）第二；九键上两者是 28426 和 64426，不相遇。三端的手工验收以「你好」出现在候选里、点读音行的 ni 后成为首选为准。
+
+### `--cut-last-syllable`：打到末音节的声母就停
+
+`convert_eval --cut-last-syllable initial` 把每条用例的最后一个音节截到只剩声母再打，金标准仍是整个词：吃饭 打 `chif`，进一步 打 `jinyib`。九键上常有人这样打，打到最后一个音节的声母，看见要的词就选。音节用引擎自己的 `normalize_full_pinyin` 切成金标准那么多个（`build_eval_set` 收用例时用的也是它）；zh、ch、sh 算一个声母，没有辅音声母的音节（an、e）留第一个字母。截了跟没截一样的用例（末音节只有一个字母，如 a、e）不计入，`--limit 3000` 的 2791 条剩 2775 条。九键双拼一个音节两键，按打全的读法切音节，再少打最后一键。`--cut-last-syllable letter` 截到第一个字母，只收末音节以 zh、ch、sh 开头的用例（办公室 打 `bangongs`），其余用例两种截法打出来一样，不重复计入；2791 条里有 444 条。
+
+**为什么要有它。** 其余集合每条都打全了读音，所以只要把补全词往后排，它们就只会变好，量不到这样做的代价。停在声母上的用户要的恰恰是补全词：`2443` 打全了是 挨个（ai'ge），停在声母上是 吃饭（chi'f）。排序改动要两边一起看。`verify-local.sh` 以 `nine-key-prefix`、`fourteen-key-prefix`（`quanpin-words-v1.tsv --limit 3000 --cut-last-syllable initial`，分别在九键和 14 键上打）跑它，对照同名基线。
+
+锁定资源 dict-v2.0.39 加 `sentence-model.safetensors` 上的提交基线（top-1 / top-5 / found），首页里的补全按权重折算之前：停在声母上九键 0.179 / 0.318 / 0.793，14 键 0.326 / 0.550 / 0.957；打全的同一批用例是九键 0.518 / 0.815 / 0.954，14 键 0.619 / 0.888 / 0.972。折算之后停在声母上是九键 0.172 / 0.315 / 0.793、14 键 0.324 / 0.549 / 0.957，打全的是九键 0.539 / 0.821 / 0.954、14 键 0.628 / 0.891 / 0.972，取舍见[补全折算笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md)。再换上内嵌的音节频度表、种子保住末音节之后，停在声母上是九键 0.193 / 0.342 / 0.821、14 键 0.328 / 0.552 / 0.960，打全的是九键 0.553 / 0.834 / 0.968、14 键 0.630 / 0.894 / 0.975，见[音节频度表笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-nine-key-syllable-frequency-table.md)。换锁前的 dict-v2.0.24 上，停在声母上折算前后是九键 0.212 / 0.359 / 0.834 → 0.203 / 0.356 / 0.834、14 键 0.361 / 0.590 / 0.963 → 0.359 / 0.590 / 0.963，打全的是九键 0.571 / 0.847 / 0.963 → 0.594 / 0.853 / 0.963、14 键 0.658 / 0.903 / 0.973 → 0.670 / 0.906 / 0.973。九键停在声母上的 found 低，主要因为候选表只有 128 行（`CANDIDATE_LIMIT`）：三四个数字能拼出几百个单字，要的词排不进去。挂不挂重排模型，这两份的 top-1、top-5、found 都一样。
+
+这几份集合每个词只算一次，常用词和生僻词分量相同。停在声母上丢掉首选的，往往正是最常用的词，所以笔记里另按金标准的词库权重给每条用例加权（近似用户实际打它的次数），再按「有多少次停在声母上」的比例把打全和停在声母上的 top-1 合起来比较。
+
+### `--first-page-rows`：宿主的每页候选数
+
+宿主把同一个每页候选数既交给 runtime 分页，也交给引擎作首屏门槛（`first_page_rows`，首页放得下几行）：全拼据此决定整组补全词并不并进来，九键的补全折算只在首页里调序。偏好默认每页 6 个，桌面三端、Android 和鸿蒙都用它；iOS 和网页引擎每页 9 个。`convert_eval` 照宿主的做法把一个数同时交给两边（`Runtime::new` 会把页大小交给引擎）：不给这个参数时取共享偏好的出厂值（`Preferences::default().candidate_page_size`），给了就用给的值，范围 1 到 10；iOS 的数用 `--first-page-rows 9` 量。首页行数不同，top-5、top-6 会跟着变，比较时两边要用同一个值。
+
+**口径变化（2026-10-29，#10283）。** 在此之前不给这个参数时 runtime 分页是 9、引擎门槛停在默认的 6（`Runtime::new` 当时不把页大小交给引擎），行内日期时间和「📅日期」菜单也开着；现在两边都是出厂值 6，本地模式全关。分页不进 `convert_eval` 的任何指标（`all_candidates` 不分页，也没有云和 AI 行），引擎门槛也仍是 6，所以前后差别全部来自日期时间候选，原先这几份基线随运行的日期、星期几和钟点变化。`verify-local.sh` 的 13 份基线里只有四份变了，都是千分之一：`words` top9 0.981 → 0.982，`nine-key` top5 0.834 → 0.835、mrr 0.674 → 0.675，`fourteen-key` top9 0.937 → 0.938，`nine-key-prefix` 只有两音节分桶的 top5 0.200 → 0.201；其余逐字节不变。上文引用的九键词级 top-5 0.834（`--nine-key` 和 `--grid fourteen` 两节）按新口径是 0.835。逐例对照见[评测口径笔记](../../.agents/notes/implemented/testing/2026-10-29-eval-page-size-and-local-modes.md)。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
 从 C4 中文部分（ODC-BY，保留标点的原文，不是 `corpus/fetch.py` 剥过标点的训练语料）收割：把句子用 Engine 的拼音表转成拼音再打回去，首选与原句不同的收下来，上文取同一篇的前一句。`harvest_eval_set` 做这件事，`scripts/review-harvested-cases.py` 用 Jev 过一道评审（选中原文且无强歧义否决），再按拼音+原文去重。500 条收割 → 345 条通过 → 310 条。
 
-**它不是准确率基准，用错了会得出荒谬结论。** 用例是按「产品当前打错」筛出来的，所以 `top1` 天生偏低（0.308），拿它和 v1 相减没有任何意义。它回答的是另一个问题：**已经打错的那些里，有多少是排序够得着的**——`top5` 是 0.776，即近八成的正确答案就在前五名，剩下两成多要解码器出力。收割时要求金标准必须出现在候选列表里（`hanzi_to_pinyin` 对多音字不总是对，键错了原句永远解不出来，那种用例是废的），所以对着 C++ Engine 加 Google 整句解码器收割时 `found` 是 1.000；Google 解码器删掉后，只有它给得出的答案没了，`found` 现在是 0.901（v2）和 0.899（neutral）。
+**它不是准确率基准，用错了会得出荒谬结论。** 用例是按「产品当前打错」筛出来的，所以 `top1` 天生偏低（收割时是 0.308，锁定的 dict-v2.0.39 上是 0.494），拿它和 v1 相减没有任何意义。它回答的是另一个问题：**已经打错的那些里，有多少是排序够得着的**——收割时 `top5` 是 0.776，dict-v2.0.39 上是 0.772，即近八成的正确答案就在前五名，剩下两成多要解码器出力。收割时要求金标准必须出现在候选列表里（`hanzi_to_pinyin` 对多音字不总是对，键错了原句永远解不出来，那种用例是废的），所以对着 C++ Engine 加 Google 整句解码器收割时 `found` 是 1.000；Google 解码器删掉后，只有它给得出的答案没了，`found` 在锁定的 dict-v2.0.39 上是 0.885（v2）和 0.878（neutral），dict-v2.0.24 上是 0.939 和 0.928。
 
 想要有代表性的准确率集，得不筛成败地随机抽样，那是 `harvest_eval_set` 换一个判断条件的事，不是换一份语料。
 
@@ -122,6 +144,142 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 语料署名（C4 为 ODC-BY）写在文件头里，随文本传播。
 
+## 双拼与触屏误触
+
+`--scheme shuangpin` 把同样的全拼用例编成 26 键双拼的按键再打，`--touch-mode` 在参考键位几何上合成误触和落点，量双拼纠错（纠错整句）能把按错的键纠回多少、会不会碰坏打对的输入。触点模式像触屏宿主那样先注册几何（`Runtime::set_key_geometry`），每键带上按下点（`Runtime::set_key_touch`，即 `msime_client_touch_character` 走的那条路）再派发，量的是按落点计价的纠错；加 `--no-touch-points` 只送按到的键、不送落点，量的是引擎收不到触点时按方案键位生成邻键和对调变体的「平面表」。评测的设计见[评测笔记](../../.agents/notes/implemented/testing/2026-10-27-shuangpin-touch-eval.md)，触点计价和调参见[触点纠错笔记](../../.agents/notes/implemented/feature/2026-10-27-shuangpin-touch-correction.md)。
+
+```sh
+cargo run --release -p msime-input-runtime --example convert_eval -- \
+  --resources <已校验的词库目录> \
+  --set resources/eval/sentences-v1.tsv --set resources/eval/sentences-neutral-v1.tsv \
+  --set resources/eval/sentences-v2.tsv --set resources/eval/sentences-particles-v1.tsv \
+  --scheme shuangpin --shuangpin-profile xiaohe,ziranma,shoudao,microsoft,smart_abc --autocorrect \
+  --key-geometry resources/eval/key-geometry/android-portrait.json \
+  --key-geometry resources/eval/key-geometry/android-portrait-microsoft.json \
+  --touch-mode none,clean,noisy,realistic --touch-sigma 0,0.15,0.25,0.35 --touch-bias-y 0,0.1 \
+  --seed 20261027 --jobs 5 --assert-top1-unchanged \
+  --baseline resources/eval/baseline-shuangpin-touch-sentences.json
+```
+
+词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），送落点、用引擎默认的计价参数。送落点时每条用例的触点各不相同，记忆表帮不上忙，所以加 `--jobs 5` 让五个方案各开一个线程同时跑（输出与一个一个跑逐字节相同），再加 `--assert-top1-unchanged`。在同时跑着 CI 的 Mac Studio 上整句那份要几个小时（看负载）、词级那份十分钟上下，没有放进 `verify-local.sh`。引擎收到触点之前的平面表数字用同样的命令加 `--no-touch-points` 复现。
+
+`--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。纠错整句按首选规则坐首选（[首选规则笔记](../../.agents/notes/implemented/feature/2026-10-29-shuangpin-touch-first-seat.md)）的参数下，clean 集的首选按设计可能变，这时改用 `--assert-first-seat-gate`：σ=0 的 clean 组有一条首选变了、所有 clean 组合起来变了超过 0.1%、或某个方案超过 0.2%，就以非零退出。引擎默认的 m_sp 是无穷大，首选规则不起作用，基线照旧用 `--assert-top1-unchanged`。
+
+**基线只用 `desktop-dictionary.lock.json` 那一组文件加 `sentence-model.safetensors` 生成，资源目录里不放 settled 模型 `sentence-model-desktop.safetensors`。** 那个文件由另一份锁 `settled-model.lock.json` 发布，`convert_eval` 见到它就挂上 settled 重排，排序会变，两份双拼基线就对不上了，并不是产品改了。跑的时候 stderr 必须打出 `no settled model at ...`；打出 `settling with ...` 时先把那个文件挪出资源目录。
+
+**编码。** 用例的输入是不带分隔的全拼，先按 TSV 里的音节数切成音节，只认只有一种切法的（`fangan` 两个音节可以是 fang'an 也可以是 fan'gan，金标准是哪一个说不清，不打）。切音节按与方案无关的音节表（`host::is_shuangpin_syllable`），不按某个方案编不编得出来，所以有没有歧义在五个方案上判断得一样。再用引擎自己的表（`host::encode_shuangpin`）逐音节编成两键码。切不开、有歧义或有音节在这个方案里编不出来的用例丢掉，每个方案编出来的条数写在报告的 `encoding` 里。纠错整句不接受手打的 `'`，所以按键里不带它。
+
+**几何。** `key-geometry/` 下是宿主下发给引擎的同一种 JSON：`id` 是非零代次，`keys` 是 a 到 z 的 `[cx, cy, w, h]`，`semicolon` 是微软双拼显示的 `;` 键（没有为 `null`），`duplicates` 是分离键盘里重复的字母键 `["g", cx, cy, w, h]`。坐标是各平台自己的单位（Android 像素、iOS pt、HarmonyOS vp），y 向下，引擎和评测都按键宽、键高的中位数归一。宿主只在微软双拼下显示 `;`，第二行因此多一个键、键宽也不同，所以每个平台有一份不带 `;` 的和一份 `-microsoft`：给多份 `--key-geometry` 时，用 `;` 键的方案（按引擎的判据，内置方案里只有微软双拼）取带 `;` 的那份，其余方案取不带的。带 `;` 和不带 `;` 的各最多给一份，同一种给了两份会报错，不管这次跑的方案用不用得上它、也不管是不是只跑 `none`；报告的 `geometry` 只列实际用上的几何。除 `harmony-portrait-microsoft` 外，这几份都是三端宿主在模拟器上原样导出的几何（只把 `id` 统一成 1），坐标是宿主注册给引擎的那一套：Android 是 API 35 模拟器（1080×2400、420 dpi）上输入法真正注册的那份，单位是像素，经开发者选项「显示调试信息」写到 `<filesDir>/debug/key-geometry.json`，`smoke.sh` 的双拼按下点验收把它存到 `target/android/device-test/key-geometry/`；HarmonyOS 竖屏小鹤是 HarmonyOS 6.0.2 模拟器上键盘注册几何时打的 hilog（`key geometry {…}`），单位 vp，原点是键盘根区域（含工具栏），所以 y 从 90 起；iOS 两份 iPhone 和 `ipad-split` 是 iPhone 17 模拟器（iOS 27.0）上跑 `TouchPointTests` 时由 `KeyboardViewController` 按 402 pt 屏宽排出的，`ipad-split` 是用 trait 覆盖模拟的 iPad 横屏（1194 pt）分离式键盘，iOS 的分离键盘只加中缝、不重复字母键，所以 `duplicates` 为空；这三份是测试宿主排出的，不是键盘扩展在系统里真正注册的那份（那份要从 App Group 的 `MSIME/debug/key-geometry.json` 取，见 `platforms/ios/README.md`）。`harmony-portrait-microsoft` 没有导出（模拟器上未签名包的设置和键盘进程不同步偏好，键盘切不到微软双拼），仍是按常量构造的：360 vp 宽、`KeyboardMetrics` 的键距 6、键高 44（`ROW_HEIGHT_VP`）和行距 7，第二行多一个 `;`。宿主改了键盘布局就重新导出、替换这里的文件并重跑基线。
+
+**落点。** 落点服从 N(键心 + (0, b), σ²)，σ 和 b 以键为单位（σ 不小于 0；b 为正表示落点普遍偏下，可以为负）：横向按键宽的中位数、纵向按键高的中位数归一。落在键的矩形里就是按到了它，落在键距或字母区外归最近的键，模拟宿主把键距让给相邻键。大小写、删除、候选栏这些功能键不建模，落在那里的点也归最近的字母键，所以按错率偏低。用户想按的键换成按到的键送进去，落点（积分方格的格心，σ/8 一格）作为按下点一起送。抽一键只用一个均匀随机数，先定按到哪个键、再在这个键的格里定落点，所以同一个种子按到的键与 `--no-touch-points` 逐个相同，`--no-touch-points` 的报告与引擎收到触点之前的平面表基线逐字节相同。
+
+四种模式：
+
+- `none`：按想按的键原样打，不带触点，即桌面和实体键盘的基线；不分 σ 和偏置，每个方案只有一组。
+- `clean`：每键都按在本键上（手抖了但打对了），是触点纠错的精度闸：送进去的键和 `none` 相同，只多了落点。落点在按对的那部分格里抽。`--assert-top1-unchanged` 在 clean 集里只要有一条用例的首选和 `none` 不同就以非零退出。加 `--no-touch-points` 时它和 `none` 完全相同。
+- `noisy`：至少一键按到了别的键，量召回。按「至少一键按错」的条件分布精确抽样，不反复重抽；σ 为 0 时没有一键会按错，这些用例记在 `skipped` 里。
+- `realistic`：不加条件的落点分布，看净收益。
+
+**报告。** 每组配置一项，按音节档（1、2、3–5、6+）和错键数档（0、1、2、3+）分桶。`top1`、`top3`、`top9`（第一页）、`found`、`mrr` 是金标准在整张候选表里的名次；`top1_changed` 和 `gold_demoted` 是计数，拿同一条用例按想按的键原样打出的名次作对照：前者是对照首选是金标准、这次不是，后者是这次名次更靠后或找不到了。种子固定时同一份二进制两次运行的输出逐字节相同：每条用例的随机数流只由种子、方案、模式、σ、偏置和用例序号决定。同一条用例的同一串按键、带同样（量化后）的触点只打一次。送了触点的模式每组多一行 `first_seat`：`first_changed` 是实际首选文字与原样输入不同的条数（clean 集里就是 `--assert-top1-unchanged` 数的那个数），`confident` 是首选为按首选规则坐上去的纠错行（视图的 `confident_correction`）的条数，`confident_gold` 是其中正好是金标准的条数；clean 集首选变了的用例另在 `changed` 里逐条列出（`id`、送进去的 `keys`、`gold`、原样输入的首选 `was`、这次的首选 `now`、是不是纠错行坐上去的 `confident`），供人工复核。none 模式是对照，没有这一行。`--dump` 的行在首选是这种纠错行时多一项 `"confident": true`。
+
+**调参。** `--touch-tuning base=12,scale=8,...` 覆盖引擎的触点计价参数（`base`、`scale`、`sigma_x`、`sigma_y`、`bias_y`、`min`、`max`、`cut`、`show`、`show_pen`，以及首选规则的 `lead`（m_sp）和 `lead_pen`（P_LEAD），意思见 `msime_engine::touch::TouchTuning`），只覆盖给出的几项，报告头里多一行 `touch_tuning`。它经 `host::Session::set_touch_tuning` 设进引擎，只有 Rust 示例能设，宿主经 FFI 设不了。
+
+**学习回放。** `--learn-replay <n>` 量双拼纠错按两键码学习（[纠错学习笔记](../../.agents/notes/implemented/feature/2026-10-28-shuangpin-typo-learning.md)）的作用：正式那一遍跑完后，每组（σ、偏置）把这组 noisy 集里按错的每一对两键码（只错一键或两键对调的音节）在评测自己的日志里记成接受过 n 次，把各个触点模式重跑一遍，量完清掉再换下一组。重跑的行多 `learned`（n）和 `learned_pairs`（记了多少对）两项，正式那一遍的行和不加这个参数时逐字节相同。计数直接写进日志，等于用户在别处接受过这么多次同一对：选中纠错行时记哪一对由引擎的会话测试钉住，这里不经选词，免得选中整句顺带记下的整句词条和上下文混进来。偏置 b 不为 0 时落点整体往下偏，同一对两键码反复出现，就是「固定偏置的用户」。要求送落点、至少一个触点模式。
+
+```sh
+cargo run --release -p msime-input-runtime --example convert_eval -- \
+  --resources <已校验的词库目录> \
+  --set resources/eval/sentences-v1.tsv --set resources/eval/sentences-particles-v1.tsv \
+  --set resources/eval/sentences-v2.tsv \
+  --scheme shuangpin --shuangpin-profile xiaohe,microsoft --autocorrect \
+  --key-geometry resources/eval/key-geometry/android-portrait.json \
+  --key-geometry resources/eval/key-geometry/android-portrait-microsoft.json \
+  --touch-mode clean,noisy,realistic --touch-sigma 0.25 --touch-bias-y 0,0.1 \
+  --seed 20261027 --jobs 2 --learn-replay 3
+```
+
+`rerank_latency` 接受同样的 `--scheme shuangpin --shuangpin-profile <方案> --autocorrect`，再给 `--key-geometry` 和 `--touch-sigma` 时按 `realistic`（或 `--touch-mode` 指定的模式）合成误触和落点，像宿主一样每键带上按下点，量带着按错的键时每次按键的开销；`--no-touch-points` 只送按到的键。`--touch-arms` 把两臂换成都挂模型、一臂送落点一臂不送，配对量出触点计价本身每键多花多少；再加 `--no-touch-points` 两臂都不送（A/A），量的是同一台机器上配对增量本身的噪声。配对增量的 p95 在 A/A 下也不是 0（两次相同的按键各自抖动），所以触点的代价看「with touches 与 flat table 两臂 p95 之差」，并且同一条命令重复至少 5 轮、取中位数并报出各轮的范围，单轮的数字不作数。几何的挑法和 σ、偏置的校验与 `convert_eval` 相同。在这个方案里编不出来的用例不计时，noisy 下没有一键可能按错的用例也不计时（不退回想按的键），两者的条数都打在 stderr；一条不剩时以非零退出。
+
+## 打字流评测：真实打字模拟（`typing_sim`）
+
+上面的集合都是冷启动：`convert_eval` 关掉学习，每条用例前清空上文，一串键只问一次金标准排第几。真实打字不是这样。用户在同一个会话里一直打，选过的词会往前排；整句没出来时先点前面的词再接着选，选好的那段暂存在组字区（`phrase_preedit`）；九键和 14 键还能在拼写列里锁定音节；不少块只打到末音节的声母就去看候选。`typing_sim` 让一个模拟用户把一整段文字流从头打到尾，量他实际点了第几个、点了几次。
+
+```sh
+cargo run --release -p msime-input-runtime --example typing_sim -- \
+  --resources <已校验的词库目录（绝对路径）> --resource-lock resources/desktop-dictionary.lock.json \
+  --set resources/eval/typing-tatoeba-v1.tsv --keyboard nine
+```
+
+不加别的参数就是主配置（见下）。`--keyboard full|nine|fourteen`，`--learning on|off`，`--model off|keyboard`（把随资源的键盘模型挂成 runtime 逐键重排器，引擎内的键盘模型层不开，等于 #10197 之后手机上整句联想选「增强」；要量引擎那一层用 `convert_eval --keyboard-neural`），`--abbreviate 0–1` 和 `--abbreviate-mode last|all`，`--chunk sampled|clause|word` 和 `--chunk-mean`，`--first-page-rows 9`（iOS 每页 9 个），`--order-seed N` 换一种文档顺序，`--slip 0.02` 让用户有 2% 的块先点错一次，`--timing key=350,select=700,chunk=1000,literal=500,turn=20000` 是虚拟时钟每个动作走的毫秒数。`--report`、`--dump`、`--baseline`/`--update-baseline` 同 `convert_eval`；`--lint-readings` 列出评测集读音和引擎自己的读音（`hanzi_to_pinyin`）不一致的词，用来人工核对。整组运行用 `scripts/typing-eval-matrix.sh`。
+
+### 模拟的是什么
+
+- **配置是手机出厂配置。** 每个值都从 `Preferences::default()` 读，再照 host-api 建会话时的映射换成引擎选项：学习开，调频 promote 1/1，混输英文、行内日期时间开，纠错按偏好默认，每页 6 个（引擎的 `first_page_rows` 也是 6），不挂模型，runtime 暂存部分选择。映射是照抄的，报告的 `config.engine` 原样列出每一项，host-api 加了新开关而这里没跟上时一眼能看出来。`--profile convert-eval` 换成 `convert_eval` 那一套，好和冷启动的数字接上；它仍是 `convert_eval` 改口径之前的样子（每页 9 个、引擎门槛也是 9，行内日期时间开着、钉在虚拟时钟上），和现在 `convert_eval` 的默认（每页 6 个、本地模式全关）不完全相同。
+- **一个用户，一个会话，按顺序打。** 每行是一条消息；发出一条后失焦再聚焦，上文和上屏词链清掉，学到的东西留着。标点、数字、字母不经拼音打，原样写进上文，不计入分母。学习开着时先打预热部分（不计分），学习关着时预热什么也留不下，不打。
+- **按块打。** 一条消息切成用户一口气打完再去选词的块：每块的目标字数是 1 加一个几何分布，平均 3.5 字，最长 8 字，按词往里放，词不拆开（`--chunk sampled`）。实测平均每块约 2.7 字，因为放不下下一个词就收口。`clause`（标点之间整段）和 `word`（一词一块）用来看结论有多依赖这个假设。
+- **简拼。** 三成的块只打到末音节的声母（`--abbreviate 0.3`，zh、ch、sh 算一个声母）；哪几块简拼只由种子和块的位置决定，0.3 选中的块一定也在 0.6 里。简拼的块用户只看候选栏，没有要的词就把这个音节打全，补的键计入按键。
+- **怎么选。** 每一步取整张候选表（触屏宿主的候选栏就是 `all_candidates` 的顺序），只认文字是剩余金标准开头的候选。在候选栏露出的前 6 个里挑盖住最多字的，一样长挑靠前的；所以引擎把整块拆成单字放在前面换不来首选，整块就在候选栏里时用户直接点整块。候选栏里没有就打开面板，每页 24 个，最多翻两页；还没有就在拼写列里锁定下一个音节（九键、14 键），再从头看。锁完还找不到、或者点了之后剩下的键对不上剩余金标准，走失败路径：丢掉组字，把这块该有的文字当作用别的办法打出来写进上文，剩下的字记为没打出来，留在分母里。
+- **用户总是上屏金标准**（`--slip` 之外），所以学习只会被正确的词喂；这一点偏乐观。
+
+时间：会话的单调时钟和本地墙钟换成虚拟时钟（`host::Session::set_clock`，只给评测和测试用），按上面的节奏推进，个人学习的 3 s / 8 s / 10 s 窗口不随机器快慢和负载变化，行内日期时间行钉在 2026-01-05 10:00。同一份二进制、同一组参数跑两次，报告逐字节相同（Studio 上在不同负载下各跑过一次，`cmp` 相同）。
+
+### 两份集合
+
+- `typing-tatoeba-v1.tsv`：Tatoeba 普通话句子（CC BY 2.0 FR），简体、4 到 40 个汉字、去重后固定种子随机抽 1500 句，人工去掉 37 句（病句、错字、性、暴力、政治话题、个人信息），没有一句是按引擎的输出去掉的。389 句预热，1074 句计入（dev 324 句 3109 字，test 750 句 7438 字）。每句一条消息，作者很多，学习在这里量到的是「同一领域的别人的话」，不是个人习惯。
+- `typing-chat-v1.tsv`：手写的单人聊天记录，32 天、92 段会话、331 条消息，反复出现同一批人名、地名、项目和口头禅，量的是一个人自己的用词能不能学起来。前 8 天预热（959 字），之后 dev 862 字、test 1690 字。是为这份集合写的，写完、跑引擎之前就定稿了，没有按引擎的输出改过；但它是合成文字，常用说法偏多，数字偏乐观。
+
+两份都用 jieba 切词、pypinyin 按整句标读音（`scripts/build-typing-set.py`），再用 `--lint-readings` 拿引擎的读音对一遍：11319 个词里 423 个不一致，逐条读过原句，改了 39 处 pypinyin 的错（弹窗 tan、长跑 chang、地 作助词读 de 这类，`typing-readings-reviewed.tsv`），其余是引擎读错的。读音冻结在文件里，换词库不会改题目。来源、许可和与训练语料的重合检查见 `UPSTREAM.md`。
+
+没有用 LCCC（「仅限科研用途」），也没有用 C4：C4 中文校验集随机抽出的前 7 篇里有 4 篇是 SEO 页、博彩站和团购导航，把它清成能打的文字等于按评审者的口味重新选材。
+
+`dev` 和 `test` 按文档分开：日常改排序只看 dev，test 只在里程碑和发版前看。`--dump` 只给 dev 和预热写候选文字，test 只记座位，报告的 `sample_failures` 也只列 dev，免得逐条对着 test 调参。
+
+### 口径
+
+- `cfa` 逐字首选率（主指标）：点选时座位是 0、而且这一块里在它之前没有做过纠正的那些选择上屏的汉字 ÷ 全部汉字。部分选择也算，只要被点时它在第一位。「纠正」是改变了引擎手里输入的动作：把停在声母上的音节补完，或者在拼写列里锁定音节。用户在候选栏（简拼时）或面板里都找不到才会做这两件事，之后再点第一位，是多按了键、替引擎说清读音才换来的，不算首选。点第一位之外的候选、开面板、翻页不算纠正：它们不改输入，那次点选本身已经记为不是首选，之后剩下的键上排第一的仍是引擎对同一串输入的判断；`--slip` 点错后整块重打也不算，重打的是同一串键。
+- `cfa_lenient` 宽口径逐字首选率：只看被点时座位是不是 0，不管之前有没有纠正。第一轮（2026-10-28）报告里的 `cfa` 是这个数，留作对照；两者之差就是「纠正之后再点第一位」的字，九键上约十个点。
+- `cca` 整块首选率：打完一块、第一次看候选时，第一个候选正好就是整块，这些块的字数 ÷ 全部汉字。最严的那个数。
+- `cpr` 每次上屏首选率：只数让文字上屏的那次选择，暂存的部分选择不算，座位是 0 的比例。和设备上打字统计的 `ranks[0]` ÷ 总数同口径（host-api 只在 `commit` 非空时记位次）。
+- `zcr` 零修正块率：只点过第一位、没开面板、没锁拼写、没补键、没点错就打完的块 ÷ 全部块。
+- `kspc` 每字按键：输入键（含补键）加上点选、开面板、翻页、锁拼写的次数 ÷ 汉字数。`key_saving` 是 1 − 实际输入键 ÷ 打全拼要按的键，`chars_per_commit` 是每次上屏的字数，这两个和 `cpr` 都能直接和设备上的统计对照，拿到现场数据之后用来校准简拼比例和块长。
+- 区间是按文档做 cluster bootstrap 的 95% 区间（1000 次，种子固定）。学习开着时整条流共用一份学习状态，文档之间并不独立，这个区间偏窄；`--order-seed` 换几种顺序看结果跟着动多少。
+- 分桶：块长、是否简拼、这串键是否第一次出现、是否在预热里出现过、这串键在整份集合里是否对应不止一种金标准、块的文字是否排在最常见的前 200、每 2000 字一桶的学习曲线。
+
+主配置事先定下，不看结果再挑：九键，手机出厂配置（学习开、不挂模型），抽样切块平均 3.5 字，三成简拼（末音节），候选栏 6 个，面板最多两页，`dict-v2.0.39`。90% 指的是这一配置在 test 上的 `cfa`，同时要看 `cca`。
+
+### 现在的数（2026-10-29，`dict-v2.0.39`，develop 50bab97f3a，已含 #10110 和 #10111）
+
+test 部分，三成简拼，单元格是 `cfa`（括号里是宽口径 `cfa_lenient`）/ `cca`。「挂模型」两列是在 #10197 之前量的，当时 `--model keyboard` 同时打开 runtime 重排器和引擎内的键盘模型层；#10197 之后「增强」只挂 runtime 那层，`typing_sim` 也跟着改了。九键和 14 键上引擎层的贡献是 0，全键盘只开 runtime 层时比两层同开约低 0.6 个点。
+
+| 集合 | 键盘 | 学习关、不挂模型 | 学习关、挂模型 | 学习开、不挂模型（出厂） | 学习开、挂模型 |
+|---|---|---|---|---|---|
+| tatoeba | 全键盘 | 0.739 (0.767) / 0.628 | 0.773 (0.804) / 0.655 | 0.733 (0.761) / 0.624 | 0.766 (0.797) / 0.651 |
+| tatoeba | 九键 | 0.494 (0.591) / 0.466 | 0.514 (0.628) / 0.486 | **0.499** (0.601) / 0.469 | 0.516 (0.634) / 0.486 |
+| tatoeba | 14 键 | 0.600 (0.635) / 0.531 | 0.622 (0.665) / 0.554 | 0.601 (0.641) / 0.533 | 0.620 (0.665) / 0.554 |
+| chat | 全键盘 | 0.767 (0.796) / 0.639 | 0.792 (0.820) / 0.663 | 0.779 (0.807) / 0.649 | 0.794 (0.821) / 0.666 |
+| chat | 九键 | 0.481 (0.578) / 0.447 | 0.492 (0.611) / 0.458 | **0.515** (0.608) / 0.483 | 0.520 (0.630) / 0.488 |
+| chat | 14 键 | 0.613 (0.671) / 0.534 | 0.641 (0.697) / 0.560 | 0.637 (0.696) / 0.559 | 0.655 (0.714) / 0.577 |
+
+- **九键主配置离九成很远**：Tatoeba 0.499（95% 区间 0.476–0.520），聊天 0.515（0.470–0.558）；宽口径 0.601 / 0.608。整块首选 0.469 / 0.483，`cpr` 0.645 / 0.662，每 100 字锁 7.9 / 6.5 次拼写、开 5.1 / 4.3 次面板、补 9.2 / 9.4 个简拼的键。同一个模拟用户在全键盘上也只有 0.73–0.78，所以这个口径下的九成不是调排序能到的。
+- **纠正之后才点到的第一位**（宽口径减严口径）：九键主配置 10.2 / 9.3 个点，全键盘 2.8 个点，一词一块不简拼时在 0.5 个点以内。九键这部分大多是补完简拼之后，其次是锁拼写之后。
+- **简拼的影响最大**：九键主配置 0 / 0.3 / 0.6 简拼时 Tatoeba 是 0.587 / 0.499 / 0.413，聊天 0.592 / 0.515 / 0.425；每个音节都只打声母（`--abbreviate-mode all`）0.418，宽口径是 0.604。简拼的块要么第一眼就对，要么补完了才对，后者在严口径下不算，所以简拼比例对严口径的影响比宽口径大得多。
+- **块长的假设影响同样大**：一词一块 0.667，平均 2.5 字 0.549，3.5 字 0.499，5 字 0.444，整句一块 0.238；同样平均 3.5 字换一个切块种子是 0.497。在拿到设备上的 `chars_per_commit` 之前，任何一个数都要和它的块长一起报。
+- **一词一块、不简拼**（`--chunk word --abbreviate 0`，学习开）：九键 Tatoeba 0.787、聊天 0.824（宽口径 0.792 / 0.826），全键盘 0.898 / 0.926。这个打法下几乎没有纠正，两种口径只差半个点以内，九成只在这个打法下说得通。Tatoeba 九键学习关是 0.795。全键盘按抽样切块但不简拼是 0.790 / 0.823。
+- **学习**：聊天（一个人自己的话）九键 0.481 → 0.515，Tatoeba（很多作者）0.494 → 0.499，全键盘 Tatoeba 反而 0.739 → 0.733。原因是「最近选过的放第一位」：Tatoeba 九键主配置里同一串键对应不止一种金标准的块（他/她、那/哪、的/得），学习开着时 0.443，关着时 0.531（dev 加 test）；一词一块不简拼时这类块是 0.623 对 0.681。点错 2% 的块（`--slip 0.02`）再降 0.9 个点。
+- **键盘模型**（整句联想「增强」）在严口径下帮得比宽口径少：九键加 0.5 到 2.0 个点（宽口径 2.2 到 3.7），全键盘加 1.5 到 3.4 个点。模型改对的有不少是补完简拼或锁完拼写之后的那一步。
+- **时间节奏不影响九键**：按键 250、350、500 ms 三种节奏报告的数相同，九键的学习不读时钟。
+- **换文档顺序**（`--order-seed 1/2`）是 0.492 / 0.495，比 bootstrap 区间的半宽小。
+- **iOS 每页 9 个**：0.497，和 6 个只差 0.2 个点。
+- 和冷启动接上：`--profile convert-eval --chunk word --abbreviate 0` 在 Tatoeba 上九键 0.796、全键盘 0.900；手机出厂配置一词一块不简拼是 0.787。
+
+**耗时**：Studio 上 61 臂（上表 24 格、九键另两档简拼 16 臂、一词一块等参考臂 9 臂、敏感性 12 臂）4 个进程并行，墙钟合计约 94 分钟，期间负载 15 到 880，中途编译机重启过一次，只重跑了当时没跑完的 4 臂。单臂：聊天九键主配置负载 20 时 63 s、负载 800 时 183 s，Tatoeba 九键主配置负载 76 时 543 s，挂模型的臂约翻倍；全键盘一臂 15 s 到 5 分钟。
+
+**第一轮**（2026-10-28，develop 5d1f841971，没有 #10110 和 #10111）报告的是宽口径：九键主配置 Tatoeba 0.605、聊天 0.603。下面两段是那一轮的结论，数字也是宽口径。
+
+九键缺口的构成（dev，全键盘第一位就是整块而九键不是的那些块，按字数占全部 dev 字数）：同一串数字的另一个同长的词排第一 5.5%，整块不在候选栏里（整句解码出错，`西班牙语` 成了 `一般杂物`）4.7%，简拼 4.0%，整块排在更短或更长的整句行后面 2.3%，单字同码 0.8%。
+
+#10110 加 #10111（`origin/feat/nine-key-completion-discount` 6804e76535）上同样 32 臂九键和 14 键：每一臂的 `cfa` 变化都在 ±1.2 个点以内，方向不一（九键主配置 Tatoeba 0.605 → 0.601，聊天 0.603 → 0.608），`cca` 在 32 臂里 27 臂变高、4 臂变低，九键最多高 1.5 个点；全键盘逐字节不变。单臂的区间半宽有两个点左右，这些变化都在区间里。
+
 ## 往整句集里加用例
 
 手写不是唯一来源。真实行文自己就是金标准：把句子用 Engine 自己的拼音表转成拼音，再把拼音打回去，首选不是原句的就是一个带已知正确答案、并且带着真实上文的失败用例。三步，最后一步是人。
@@ -138,7 +296,7 @@ cargo run --release -p msime-input-runtime --example harvest_eval_set -- \
   --attribution "语料来源与授权"
 ```
 
-`--limit N` 限收录条数，`--min-chars` / `--max-chars` 限句长。署名写进输出文件头：C4 中文部分是 ODC-BY，LCCC 是 MIT，两者都要求署名跟着文本走，而一份收割出来的句子就是那些文本。
+`--limit N` 限收录条数，`--min-chars` / `--max-chars` 限句长。署名写进输出文件头：C4 中文部分是 ODC-BY，要求署名跟着文本走，而一份收割出来的句子就是那些文本。LCCC 不能这样用：CDial-GPT 的 README 写明「LCCC 数据集……仅限科研用途」，仓库的 MIT 许可只管代码，所以 LCCC 的句子不进本仓库的任何文件。
 
 **想要上文列，语料就必须一行一篇、保留标点、句序不变。** 上文取自前一句，所以标点被剥掉或句子被打乱的语料只能永远产出空上文。`chinese-ime-lm` 的 `corpus/fetch.py` 输出就是这样：它的 `segment()` 只保留汉字串并按固定宽度切断，那对训练字模型是对的，对上文列是错的。不要上文的话它照样能用——每行当作一句，上文留空，用例本身仍然成立，`sentences-v1.tsv` 的手写行也没有上文。解压与 JSON 拆包在这个 example 之外做，它只读纯文本，这是它不依赖任何语料格式的原因。
 
@@ -197,6 +355,6 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 ## 已知测不到的东西
 
-词表覆盖（词级集的金标准 99.94% 本来就在词典里）、用户学习与调频（harness 强制关闭，否则前一条会污染后一条）、双拼路径、语言模型困惑度（没有语料）。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，见上文。
+词表覆盖（词级集的金标准 99.94% 本来就在词典里）、语言模型困惑度（没有语料）。用户学习与调频在 `convert_eval` 里强制关闭（否则前一条会污染后一条），由 `typing_sim` 的打字流量。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖（只支持全拼及其网格），26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
-共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。此轮基线覆盖 `dict-v2.0.24`，没有修改评测用例。
+共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.0.41`：从 `dict-v2.0.39` 换过来时十三份集合的报告与原基线逐字节相同，打字流基线只换了记录资源来源的 `generation` 与 `source_commit`。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。

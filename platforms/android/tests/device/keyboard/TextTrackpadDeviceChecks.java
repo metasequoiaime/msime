@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -18,6 +19,7 @@ final class TextTrackpadDeviceChecks {
     private final DeviceSmoke t;
     private final float density;
     private String kind;
+    private long lastTapUp;
 
     TextTrackpadDeviceChecks(DeviceSmoke test) {
         t = test;
@@ -131,14 +133,18 @@ final class TextTrackpadDeviceChecks {
             t.tap(t.described("返回原键盘"));
             open("edit");
             stage("trackpad mode persistence");
+            modeLabel("切换为方向键");
             t.tap(t.described("切换为方向键"));
             waitMode(preferences, false);
+            modeLabel("切换为触控板");
             t.restartIme();
             launch("edit");
             t.tap(t.described("文本编辑"));
             t.await(t.described("光标左移"));
+            modeLabel("切换为触控板");
             t.tap(t.described("切换为触控板"));
             waitMode(preferences, true);
+            modeLabel("切换为方向键");
             pad();
             stage("temporary trackpad restores prior panel");
             t.tap(t.described("返回键盘"));
@@ -405,14 +411,14 @@ final class TextTrackpadDeviceChecks {
 
     private void taps(int count) {
         Rect rect = pad();
-        // Binder 注入自身可耗时数百毫秒；把整组事件排到当前时刻之后，用事件时间表达快速连点。
-        // 旧写法把事件时间放在当前时刻之前，慢的 API 35 模拟器会在三击事件送达前丢掉过期的第三下。
-        long first = SystemClock.uptimeMillis() + 100;
+        // 用事件时间表达快速连点，整组排在当前时刻之后：Binder 注入本身可耗时数百毫秒，不能算进连点间隔。每组第一下与上一组最后一下的事件时间相隔超过系统双击时限，否则产品按设计把两组当成同一串连点，双击之后紧接着的三击第一下就会被算成第三下。
+        long first = Math.max(SystemClock.uptimeMillis() + 100, lastTapUp + ViewConfiguration.getDoubleTapTimeout() + 1);
         for (int at = 0; at < count; at++) {
             long down = first + at * 40;
             touch(down, down, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY());
             touch(down, down + 10, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY());
         }
+        lastTapUp = first + (count - 1) * 40L + 10;
     }
 
     private void secondPointer(long down, int action, float x, float y) {
@@ -451,7 +457,16 @@ final class TextTrackpadDeviceChecks {
     private void selection(int start, int end) {
         if ("web".equals(kind)) {
             t.await(t.field("trackpad-status").and(node -> DeviceSmoke.equalsText("start=" + start + ";end=" + end, node.getText())));
-        } else t.await(t.field("trackpad-editor").and(node -> node.getTextSelectionStart() == start && node.getTextSelectionEnd() == end));
+        } else {
+            try {
+                t.await(t.field("trackpad-editor").and(node -> node.getTextSelectionStart() == start && node.getTextSelectionEnd() == end));
+            } catch (AssertionError error) {
+                // 超时信息只列输入法节点，看不出编辑器最后停在哪段选区；合成编辑器的偏移不含用户文字，附上它才能区分「没选」「只选了词」和别的结果。
+                AccessibilityNodeInfo editor = t.await(t.field("trackpad-editor"));
+                throw new AssertionError("Trackpad editor selection was " + editor.getTextSelectionStart() + "-"
+                    + editor.getTextSelectionEnd() + ", expected " + start + "-" + end + "; " + error.getMessage(), error);
+            }
+        }
     }
 
     private void setSelection(int start, int end) {
@@ -463,6 +478,11 @@ final class TextTrackpadDeviceChecks {
         if (!t.await(t.field("trackpad-editor")).performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, arguments))
             throw new AssertionError("Synthetic editor selection rejected");
         selection(start, end);
+    }
+
+    /** 模式切换键的可见文字与读屏描述同为动作（#10058）；只按描述找键时，键面退回「触控板 / 方向键」也查不出来。 */
+    private void modeLabel(String action) {
+        t.await(t.described(action).and(node -> DeviceSmoke.equalsText(action, node.getText())));
     }
 
     private void waitMode(File file, boolean enabled) throws Exception {

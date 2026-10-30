@@ -28,6 +28,10 @@ Status: implemented
 - 查询由单独的 `registry_probe` 锁串行：设置页挂载时的 `refresh()` 和窗口 `focus` 几乎同时发请求，不串行的话两个请求都看到缓存为空，各拉起最多 3 次输入法。后到的请求等前一个查完，直接用它存下的结论。查询期间不拿着 `registered` 本身，否则 `finish` 要等一次最长十几秒的查询。
 - 缓存带一个代数，`finish` 每次加一。查询开始前记下代数，写回时不一致就丢掉结论：查询期间安装窗口换了启动结果，旧结论不能挂到新结果上。
 
+### 共享页轮询等待当前探测
+
+输入源状态的三秒轮询不接管尚未完成的读取：原生查询有五秒子进程探测和注册表检查，慢回包不应因每个 tick 推进请求代次而一直无法显示。`useMacosSettings` 用 `inputSourcePending` 记录当前请求代次，轮询等待它结束，成功和失败都只释放自己的占位。焦点与显式重查仍立即发起新请求；旧完成不覆盖新状态，也不能释放新请求的占位。用户添加完成后停止轮询，关闭提示、切换客户端与卸载仍按原代次规则隔离。入口列表的同类调度见[macOS 输入法入口状态](../../implemented/simplification/2026-10-17-macos-input-modes-state.md)。
+
 ### 同一次登录里的更新也报 `login_required`
 
 首次安装报了 `login_required`、用户没注销，又打开了更新版 DMG 里的设置应用：启动检查判定 Update，`--register-input-source` 仍因标识符不在这次登录的注册表里返回 fnfErr。原来的逻辑因为有旧版本就回滚、报 `failed`，设置页叫用户点「安装 / 更新」重试，重试同样失败，这一整次登录里每次启动都这样，用户始终看不到「重新登录」这个真正的解法。
@@ -52,6 +56,7 @@ Status: implemented
 - **更新登记失败后再查注册表**：评审建议「替换前后都查不到」才算这种情况。替换后的查询正落在登记后的空窗里，查不到不说明什么；替换前那一次已经足够说明旧版本这次登录列不出来，所以只查替换前。
 - **整个查询期间拿着 `registered` 一把锁**：最简单，但 `finish` 会被一次最长十几秒的查询卡住，安装窗口的「立即安装」要跟着等。改用单独的查询锁加代数。
 - **只缓存「在注册表里」，「不在」每次重查**：不在注册表里的情况在本登录会话内不会自己变好（新 identifier 要等下次登录），每次重查只是每次多拉起 3 次进程、多等 2 秒。两种结论都缓存。
+- **所有前端刷新都等待已有读取**：能限制并发探测，但用户在系统设置改动后主动重查会继续等待旧时刻的结果。仅后台轮询等待，焦点和主动重查保留接管权；原生注册表缓存与锁继续承担宿主侧去重。
 
 ## Consequences
 
@@ -68,6 +73,7 @@ Status: implemented
 - 端到端（Studio 上，经 SSH）：构建出的 `水杉输入法.app` 带 `--input-source-registered` 运行，在已登记该 identifier 的账户上退 0。把副本的 `CFBundleIdentifier` 改成合成值并 ad-hoc 重签后运行，退 3。
 - Rust：`cargo test -p msime-desktop --lib`。`macos_input_source` 的测试覆盖 `after_install_refreshes`、退出码映射、重试、探针传参和超时杀进程，以及更新时替换前查到不在注册表里就留下新版本报 `RegistrationPending`、查到在或无从判断时照旧回滚、首次安装不查。`tests.rs` 覆盖 `up_to_date` 加 `enabled == Some(false)` 时的 `login_required`、只查一次、`None` 不缓存、`installed` / `updated` 不查、`finish` 后重查、并发请求只查一次、查询期间 `finish` 时旧结论不进缓存。
 - 前端：`apps/desktop/tests/settings/macos-install-page.test.tsx` 断言 `login_required` 时标题是「还差一步：注销并重新登录」，页面上没有「安装完成」。
+- 慢轮询：`macos-input-source-slow-poll.test.tsx` 使用可控回包和假时钟，验证跨多个 tick 的慢读取仍生效、添加成功后停查，以及主动重查接管后旧成功和旧失败都不能释放新请求占位；原有设置页测试继续覆盖焦点刷新、关闭提示与正常三秒轮询。
 - 还没在真机上走过完整流程：用一个本次登录从未见过该 identifier 的新账户安装 DMG、重开设置应用、注销再登录。
 
 ## 系统安装范围扩展

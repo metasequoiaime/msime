@@ -17,42 +17,32 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.AndroidLocalSettings;
+import app.msime.android.AppEdition;
+import app.msime.android.JsonPolicy;
+import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.SchemePreferences;
+import app.msime.android.TouchKeyStyle;
+import app.msime.android.core.InputViewValuePolicy;
+import java.util.List;
+import org.json.JSONObject;
 
 /**
  * A still picture of the keyboard the user actually has.
  *
  * It is a picture and not the input view: the real one belongs to the InputMethodService, bound to an
- * editor and owning an Engine session, and a second instance of it here would be a second owner. The
- * rows are the faces the host actually ships, so the two do not drift apart silently -- the labels
- * come from arrays that mirror `KeyboardLayout`'s two layers.
+ * editor and owning an Engine session, and a second instance of it here would be a second owner.
  *
- * The skin and the grid come from the shared preferences the card above already reads. Drawing a
- * fixed nine-key grid in fixed colours under a caption that named the user's own 26-key layout and
- * their own skin was a card that contradicted itself.
+ * <p>行取自 {@link KeyLayoutStylesPolicy.Preview}：「按键布局」页和键盘本身用的同一张表，按用户自己的共享偏好画所选样式的底行、顶部数字行、「符」与「123」互换和右侧大回车，再按本机的「交换语言键与数字键」对调 123 与中/英。以前这里写死了 `123 | ， | 空格 | 。 | 中 | ↵` 一种底行，用户换了样式后皮肤页画的和自己的键盘对不上。偏好由调用方在工作线程上读好（{@link #layout}）再传进来；拿不到偏好时画 {@link KeyLayoutStylesPolicy.Preview#STANDARD}。
+ *
+ * The skin comes from the shared preferences the card above already reads. Drawing fixed colours
+ * under a caption that named the user's own layout and their own skin was a card that contradicted
+ * itself.
  */
 public final class KeyboardPreview extends View {
-    /** 九键：左列符号，右列退格 / 重输 / 0 / 回车；底行与设计一致。 */
-    private static final String[][] NINE_KEY_ROWS = {
-        {"，", "@#", "ABC", "DEF", "⌫"},
-        {"。", "GHI", "JKL", "MNO", "重输"},
-        {"？", "PQRS", "TUV", "WXYZ", "0"},
-        {"123", "，", "空格", "。", "中", "↵"},
-    };
-    /** 设计的全键盘：中文模式小写字母，底行 `123 | ， | 空格 | 。 | 中 | ↵`。 */
-    private static final String[][] FULL_ROWS = {
-        {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
-        {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
-        {"⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"},
-        {"123", "，", "空格", "。", "中", "↵"},
-    };
-    /** 画成功能键底色的键面。 */
-    private static final java.util.Set<String> FUNCTION_KEYS = java.util.Set.of(
-        "⇧", "⌫", "123", "中", "重输", "@#", "，", "。", "？", "0");
-
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF key = new RectF();
-    private final float[] rowWeights = new float[10];
-    private String[][] rows = FULL_ROWS;
+    private List<List<KeyLayoutStylesPolicy.Key>> rows = KeyLayoutStylesPolicy.Preview.STANDARD.rows();
     private String caption = "";
     @Nullable private KeyboardSkin skin;
     private float cornerRadiusDp = 16f;
@@ -80,28 +70,48 @@ public final class KeyboardPreview extends View {
      * Draw the user's own keyboard.
      *
      * @param skin the resolved skin, or null to keep the page's own palette
-     * @param nineKey whether the grid is three columns rather than 26 keys
-     * @param caption the short label on the space bar (the scheme), may be empty
+     * @param layout which keyboard and which rows to draw, read from the user's preferences ({@link #layout})
+     * @param caption the short label on the space bar, may be empty
      */
-    public void setKeyboard(@Nullable KeyboardSkin skin, boolean nineKey, String caption) {
+    public void setKeyboard(@Nullable KeyboardSkin skin, KeyLayoutStylesPolicy.Preview layout, String caption) {
         this.skin = skin;
-        String[][] source = nineKey ? NINE_KEY_ROWS : FULL_ROWS;
-        this.rows = java.util.Arrays.stream(source).map(String[]::clone).toArray(String[][]::new);
-        if (app.msime.android.AndroidLocalSettings.load(getContext()).bool(
-                app.msime.android.AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS)) {
-            String[] bottom = this.rows[this.rows.length - 1];
-            bottom[0] = "中";
-            bottom[bottom.length - 2] = "123";
-        }
+        this.rows = layout.rows();
         this.caption = caption == null ? "" : caption;
         colorsValid = false;
         applyBackground();
         invalidate();
     }
 
-    /** {@link #setKeyboard(KeyboardSkin, boolean, String)} without a space-bar label. */
-    public void setKeyboard(@Nullable KeyboardSkin skin, boolean nineKey) {
-        setKeyboard(skin, nineKey, "");
+    /** {@link #setKeyboard(KeyboardSkin, KeyLayoutStylesPolicy.Preview, String)} without a space-bar label. */
+    public void setKeyboard(@Nullable KeyboardSkin skin, KeyLayoutStylesPolicy.Preview layout) {
+        setKeyboard(skin, layout, "");
+    }
+
+    /**
+     * 从共享偏好读出预览要画的那一副（{@link KeyLayoutStylesPolicy#preview}）：画哪一类键盘与「按键布局」页默认停的那一类同一条规则，各类所选样式、顶部数字行、「符」与「123」互换、九键左侧符号和「中/英键放在空格左边」读的是键盘读的同几项，另加本机的「交换语言键与数字键」。会读本机设置文件，要在工作线程上调用。
+     *
+     * @param preferences 共享偏好（{@code KeyboardSheets.preferences}）；null 时按标准样式画，只保留本机的互换设置
+     */
+    static KeyLayoutStylesPolicy.Preview layout(Context context, @Nullable JSONObject preferences) {
+        boolean swap = AndroidLocalSettings.load(context).bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
+        if (preferences == null) {
+            KeyLayoutStylesPolicy.Preview standard = KeyLayoutStylesPolicy.Preview.STANDARD;
+            return new KeyLayoutStylesPolicy.Preview(standard.kind(), standard.styles(), false, false, false, swap);
+        }
+        AppEdition edition = AppEdition.current();
+        return KeyLayoutStylesPolicy.preview(TouchKeyStyle.Groups.offeredBy(edition),
+            SchemePreferences.storedScheme(preferences, edition),
+            InputViewValuePolicy.textOr(preferences, "touch_shuangpin_layout", "twenty_six_key"),
+            InputViewValuePolicy.textOr(preferences, "touch_wubi_layout", "twenty_six_key"),
+            TouchKeyStyle.Styles.parse(
+                JsonPolicy.strictString(preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE)),
+                JsonPolicy.strictString(preferences.opt(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE)),
+                JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NINE_KEY_PREFERENCE))),
+            preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false),
+            preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false),
+            swap,
+            NineKeySidebarPolicy.fromPreference(preferences.opt(NineKeySidebarPolicy.LETTER_PREFERENCE)),
+            TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE)));
     }
 
     /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
@@ -258,43 +268,50 @@ public final class KeyboardPreview extends View {
 
         float top = pad + stripHeight;
         float available = h - top - pad;
-        float rowHeight = (available - gap * (rows.length - 1)) / rows.length;
-        float unit = (w - pad * 2 - gap * 9) / 10f;
+        float rowHeight = (available - gap * (rows.size() - 1)) / rows.size();
         paint.setTextAlign(Paint.Align.CENTER);
-        for (int r = 0; r < rows.length; r++) {
-            String[] row = rows[r];
+        for (int r = 0; r < rows.size(); r++) {
+            List<KeyLayoutStylesPolicy.Key> row = rows.get(r);
             float y = top + r * (rowHeight + gap);
-            boolean bottom = r == rows.length - 1;
-            float[] widths = rowWeights;
             float total = 0;
-            for (int c = 0; c < row.length; c++) {
-                float weight = bottom ? ("空格".equals(row[c]) ? 4f : "↵".equals(row[c]) || "123".equals(row[c]) ? 1.5f : 1f)
-                    : rows == FULL_ROWS && r == 2 && ("⇧".equals(row[c]) || "⌫".equals(row[c])) ? 1.5f : 1f;
-                widths[c] = weight;
-                total += weight;
-            }
-            float rowWidth = w - pad * 2 - gap * (row.length - 1);
-            // 全键盘第二行比第一行少一键，按设计居中缩进半个键位。
+            for (KeyLayoutStylesPolicy.Key cell : row) total += cell.weight();
+            // 和键盘的 LinearLayout 一样按份额铺满整行；跨两行的回车画成一整块，被它盖住的格和 18 键的缩进只占宽度。
+            float unit = (w - pad * 2 - gap * (row.size() - 1)) / total;
             float x = pad;
-            if (rows == FULL_ROWS && r == 1) x = (w - (unit * 9 + gap * 8)) / 2f;
-            for (int c = 0; c < row.length; c++) {
-                float width = rows == FULL_ROWS && r == 1 ? unit : rowWidth * widths[c] / total;
-                key.set(x, y, x + width, y + rowHeight);
-                String face = row[c];
-                boolean action = "↵".equals(face);
-                boolean function = !action && FUNCTION_KEYS.contains(face);
-                paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
-                canvas.drawRoundRect(key, radius, radius, paint);
-                String label = "空格".equals(face) ? caption : face;
-                if (!label.isEmpty()) {
-                    paint.setColor(action ? returnLabel() : "空格".equals(face) ? secondary() : ink());
-                    fitText(label, DimensionPolicy.floatPixels(getContext(), label.length() > 2 ? 10 : 13) * s, key);
-                    Paint.FontMetrics metrics = paint.getFontMetrics();
-                    canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
+            for (KeyLayoutStylesPolicy.Key cell : row) {
+                float width = unit * cell.weight();
+                if (cell.rows() > 0) {
+                    float height = cell.rows() * rowHeight + (cell.rows() - 1) * gap;
+                    boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
+                    List<String> stack = cell.stack();
+                    if (stack.isEmpty()) {
+                        drawKey(canvas, cell, space ? caption : cell.face(), x, y, width, height, radius, s);
+                    } else {
+                        // 9 键的左侧符号栏：整条栏的高度等分给栏里的每一项，与「按键布局」页的 KeyLayoutPreview 画法相同。
+                        float item = (height - gap * (stack.size() - 1)) / stack.size();
+                        for (int index = 0; index < stack.size(); index++)
+                            drawKey(canvas, cell, stack.get(index), x, y + index * (item + gap), width, item, radius, s);
+                    }
                 }
                 x += width + gap;
             }
         }
         canvas.restoreToCount(saved);
+    }
+
+    /** 一个键帽：按底色画圆角块，再把键面居中画上（空格键面是皮肤说明，用次要色）。 */
+    private void drawKey(Canvas canvas, KeyLayoutStylesPolicy.Key cell, String label, float left, float top, float width,
+            float height, float radius, float s) {
+        key.set(left, top, left + width, top + height);
+        boolean action = cell.tone() == KeyLayoutStylesPolicy.Tone.RETURN;
+        boolean function = cell.tone() == KeyLayoutStylesPolicy.Tone.FUNCTION;
+        paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
+        canvas.drawRoundRect(key, radius, radius, paint);
+        if (label.isEmpty()) return;
+        boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
+        paint.setColor(action ? returnLabel() : space ? secondary() : ink());
+        fitText(label, DimensionPolicy.floatPixels(getContext(), label.length() > 2 ? 10 : 13) * s, key);
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
     }
 }

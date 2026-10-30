@@ -7,6 +7,10 @@ use rusqlite::Connection;
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
 use crate::types::{CandidateSource, SchemeType, WordItem};
+use crate::{
+    CommandTableEntry, DictionaryStateRecord, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
+    SentenceAssociationOptions,
+};
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -385,6 +389,141 @@ fn hand_written_glosses_apply_without_a_learned_store() {
             .to_string(),
         crate::diagnostics::CANDIDATE_GLOSS_UNAVAILABLE
     );
+}
+
+/// 释义来源在查询线程里按路径加文件身份缓存，省掉每个按键重新打开词库；同一线程上改写自定义译文、删掉学到的释义库、换掉发布词库，下一次查询都要看到新文件，结果与每次重新打开相同。替换的文件都比原来长，免得粗粒度的修改时间和复用的 inode 让新旧文件看起来一样。
+#[test]
+fn cached_glosses_follow_replaced_and_removed_files() {
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let packaged = resources.path().join("msime-english.db");
+    Connection::open(&packaged)
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
+        ))
+        .unwrap();
+    let resources_path = resources.path().to_str().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let candidates = vec![("测试".into(), 0)];
+    let glosses = || candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    let custom = user.path().join("custom_translations.txt");
+    std::fs::write(&custom, "测试\thand written gloss\n").unwrap();
+    assert_eq!(glosses(), vec!["hand written gloss"]);
+    std::fs::write(
+        &custom,
+        "# edited in Settings\n测试\tedited hand written gloss\n",
+    )
+    .unwrap();
+    assert_eq!(glosses(), vec!["edited hand written gloss"]);
+    std::fs::remove_file(&custom).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    assert!(save_candidate_gloss(
+        user_path,
+        true,
+        "测试",
+        "learned gloss"
+    ));
+    assert_eq!(glosses(), vec!["learned gloss"]);
+    assert!(save_candidate_gloss(
+        user_path,
+        true,
+        "测试",
+        "relearned gloss"
+    ));
+    assert_eq!(glosses(), vec!["relearned gloss"]);
+    std::fs::remove_file(user.path().join("translation-glosses.db")).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss"]);
+
+    std::fs::remove_file(&packaged).unwrap();
+    Connection::open(&packaged)
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','replaced gloss');
+             CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(65536));"
+        ))
+        .unwrap();
+    assert_eq!(glosses(), vec!["replaced gloss"]);
+    assert_eq!(
+        candidate_glosses(resources_path, &candidates).unwrap(),
+        vec!["replaced gloss"]
+    );
+    std::fs::remove_file(&packaged).unwrap();
+    assert!(candidate_glosses(resources_path, &candidates).is_err());
+}
+
+/// 离线释义库的连接同样按文件身份缓存：换成另一种语言的文件、再删掉，下一次查询给出和重新打开一样的结果。
+#[test]
+fn cached_offline_target_glosses_follow_replaced_and_removed_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zh-fr.db");
+    offline_gloss_database(&path, "fr", 1);
+    let candidates = vec![("猫".into(), 0)];
+    let glosses = || candidate_target_glosses(path.to_str().unwrap(), "fr", &candidates);
+    assert_eq!(glosses().unwrap(), vec!["chat, chatte; félin"]);
+    assert_eq!(glosses().unwrap(), vec!["chat, chatte; félin"]);
+
+    std::fs::remove_file(&path).unwrap();
+    offline_gloss_database(&path, "ja", 1);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(65536));",
+        )
+        .unwrap();
+    assert_eq!(
+        glosses().unwrap_err().to_string(),
+        "Offline gloss dictionary language mismatch"
+    );
+    assert_eq!(
+        candidate_target_glosses(path.to_str().unwrap(), "ja", &candidates).unwrap(),
+        vec!["chat, chatte; félin"]
+    );
+
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        glosses().unwrap_err().to_string(),
+        "Offline gloss dictionary unavailable"
+    );
+    assert!(!path.exists(), "a read-only open must not create the file");
+}
+
+/// 键盘收起、内存吃紧时宿主释放调用线程的释义缓存；之后的查询重新打开词库、重新读自定义译文，结果与释放前相同，没打开过任何缓存时释放也不出错。
+#[test]
+fn released_gloss_caches_reopen_on_the_next_query() {
+    release_gloss_caches();
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    Connection::open(resources.path().join("msime-english.db"))
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
+        ))
+        .unwrap();
+    std::fs::write(
+        user.path().join("custom_translations.txt"),
+        "你好\thand written gloss\n",
+    )
+    .unwrap();
+    let target = resources.path().join("zh-fr.db");
+    offline_gloss_database(&target, "fr", 1);
+    let resources_path = resources.path().to_str().unwrap();
+    let user_path = user.path().to_str().unwrap();
+    let candidates = vec![("测试".into(), 0), ("你好".into(), 0)];
+    let glosses = || candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap();
+    let target_candidates = vec![("猫".into(), 0)];
+    let target_glosses =
+        || candidate_target_glosses(target.to_str().unwrap(), "fr", &target_candidates).unwrap();
+    assert_eq!(glosses(), vec!["packaged gloss", "hand written gloss"]);
+    assert_eq!(target_glosses(), vec!["chat, chatte; félin"]);
+
+    release_gloss_caches();
+    assert_eq!(glosses(), vec!["packaged gloss", "hand written gloss"]);
+    assert_eq!(target_glosses(), vec!["chat, chatte; félin"]);
 }
 
 #[cfg(unix)]
@@ -1175,6 +1314,57 @@ fn shuangpin_key_hints_reject_an_unknown_profile() {
     assert!(shuangpin_key_hints("quanpin").is_empty());
 }
 
+/// 评测工具靠它把全拼用例编成双拼按键：按名字取内置方案，`custom` 和不认识的名字没有表可编。
+#[test]
+fn encode_shuangpin_uses_the_named_builtin_profile() {
+    assert_eq!(
+        encode_shuangpin("ni'hao", "xiaohe").as_deref(),
+        Some("ni'hc")
+    );
+    assert_eq!(
+        encode_shuangpin("a'ming", "microsoft").as_deref(),
+        Some("oa'm;")
+    );
+    for profile in ["custom", "", "quanpin", "xiaohe-v2"] {
+        assert_eq!(encode_shuangpin("ni'hao", profile), None, "{profile}");
+    }
+    assert_eq!(encode_shuangpin("ni'bad", "xiaohe"), None);
+}
+
+/// 音节表与方案无关：首道双拼编不出 `den`（`en` 和 `ia` 同在 `k` 上，解回 `dia`），`den` 仍是音节。
+#[test]
+fn shuangpin_syllables_do_not_depend_on_the_profile() {
+    for syllable in ["de", "den", "a", "na", "zhuang", "yo"] {
+        assert!(is_shuangpin_syllable(syllable), "{syllable}");
+    }
+    for piece in ["", "d", "zhei", "ni'hao", "xyz"] {
+        assert!(!is_shuangpin_syllable(piece), "{piece}");
+    }
+    assert_eq!(encode_shuangpin("den", "shoudao"), None);
+    assert_eq!(encode_shuangpin("den", "xiaohe").as_deref(), Some("df"));
+}
+
+/// 内置方案里只有微软双拼用 `;` 键；`custom` 和不认识的名字没有表，答不了。
+#[test]
+fn shuangpin_uses_semicolon_follows_the_builtin_table() {
+    for (profile, expected) in [
+        ("xiaohe", false),
+        ("ziranma", false),
+        ("shoudao", false),
+        ("microsoft", true),
+        ("smart_abc", false),
+    ] {
+        assert_eq!(
+            shuangpin_uses_semicolon(profile),
+            Some(expected),
+            "{profile}"
+        );
+    }
+    for profile in ["custom", "", "quanpin"] {
+        assert_eq!(shuangpin_uses_semicolon(profile), None, "{profile}");
+    }
+}
+
 #[test]
 fn all_shuangpin_profiles_accept_yo_as_one_syllable() {
     let dir = tempfile::tempdir().unwrap();
@@ -1244,6 +1434,36 @@ fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
     assert_eq!(session.snapshot().unwrap().local_mode, "none");
 }
 
+/// 换上的本地墙钟就是日期时间模式读的那一个：评测靠它钉住行内日期时间行，同一份输入在哪天跑都打出同样的候选。
+#[test]
+fn a_replaced_clock_is_what_the_date_time_mode_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = Session::new(&options(dir.path())).unwrap();
+    session.set_clock(crate::Clock {
+        steady: Box::new(std::time::Instant::now),
+        local: std::sync::Arc::new(|| crate::LocalDateTime {
+            year: 2026,
+            month: 1,
+            day: 5,
+            weekday: 1,
+            hour: 10,
+            minute: 0,
+            second: 0,
+        }),
+    });
+    assert!(session.character(b'T', true).unwrap().handled);
+    type_text(&mut session, b"sj");
+    let snapshot = session.snapshot().unwrap();
+    assert!(
+        snapshot
+            .candidates
+            .iter()
+            .any(|candidate| candidate == "2026-01-05 10:00:00"),
+        "{:?}",
+        snapshot.candidates
+    );
+}
+
 #[test]
 fn real_engine_exposes_nine_key_mode_and_spelling_choices() {
     let dir = tempfile::tempdir().unwrap();
@@ -1298,6 +1518,26 @@ fn real_engine_reports_the_fourteen_key_grid_apart_from_nine_key() {
     let snapshot = session.snapshot().unwrap();
     assert!(!snapshot.nine_key);
     assert_eq!(snapshot.key_grid, None);
+}
+
+/// 宿主拿 `shuangpin_profile` 画键面、算键盘外观的缓存键，九宫格组字途中它也得是会话跑的方案名；核心快照这时留空，门面不能照抄。
+#[test]
+fn snapshot_names_the_shuangpin_profile_while_a_grid_composes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = 1;
+    options.shuangpin_profile = crate::ShuangpinProfileKind::Ziranma as u8;
+    let mut session = Session::new(&options).unwrap();
+    let table =
+        crate::resolve_fourteen_key_shuangpin(crate::ShuangpinProfileKind::Ziranma, None).unwrap();
+    session
+        .set_key_grid(Some(crate::KeyGrid::FourteenKeyShuangpin(table)))
+        .unwrap();
+    assert_eq!(session.snapshot().unwrap().shuangpin_profile, "ziranma");
+    assert!(session.grid_key(b'n').unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert!(snapshot.grid_composing);
+    assert_eq!(snapshot.shuangpin_profile, "ziranma");
 }
 
 #[test]
@@ -2113,6 +2353,26 @@ fn session_options_map_every_host_field() {
     assert!(!mapped.sentence_alternatives);
     assert!(mapped.personal_context);
     assert_eq!(mapped.enabled_schemes, crate::SchemeSet::ALL);
+}
+
+/// 引擎库只有一套默认值（`SessionOptions::new`：辅助码关、表名 `wubi86`、学习开），门面不从它继承：宿主给的辅助码、学习开关原样交给会话，个人上下文按产品一直的取值打开。
+#[test]
+fn session_options_do_not_inherit_the_library_defaults() {
+    let library = crate::SessionOptions::new(crate::RuntimePaths::default());
+    assert!(!library.helpcode);
+    assert_eq!(library.helpcode_schema, "wubi86");
+    assert!(library.learning && library.personal_context);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.helpcode = true;
+    value.helpcode_schema = "ziranma".into();
+    value.learning = false;
+    let mapped = super::options::session_options(&value).unwrap();
+    assert!(mapped.helpcode);
+    assert_eq!(mapped.helpcode_schema, "ziranma");
+    assert!(!mapped.learning);
+    assert!(mapped.personal_context);
 }
 
 /// `enabled_schemes` 原样交给会话。双拼不在其中时双拼键位不校验，不合法的值按小鹤处理；双拼在其中时照旧报错。
@@ -2999,7 +3259,7 @@ fn local_mode_reads_follow_a_dictionary_replaced_after_the_sessions_are_gone() {
 /// user_dictionary_journal.cpp:445-452: the reference opened msime's journal per call, so no thread kept it open. A one-shot call releases its thread's cached journal on return, a dropped session releases it too, and a live session keeps it for the keystroke path.
 #[test]
 fn journal_handles_are_released_when_a_thread_is_done_with_them() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.learning = true;
@@ -3031,6 +3291,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
     .unwrap();
 
     let mut session = Session::new(&value).unwrap();
+    let generation = cache_generation();
     type_text(&mut session, b"nihao");
     let snapshot = session.snapshot().unwrap();
     let index = snapshot
@@ -3039,7 +3300,8 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
         .position(|word| word == "拟好")
         .unwrap();
     session.select(index).unwrap();
-    assert!(thread_holds_journal());
+    // Another test closing every journal meanwhile takes the parked connection away.
+    assert!(thread_holds_journal() || cache_generation() != generation);
     drop(session);
     assert!(!thread_holds_journal());
 }
@@ -3047,7 +3309,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
 /// Hosts keep their sessions in a thread-local map, so a session can be dropped while its thread exits, after that thread's cached journal is already destroyed. Its drop still flushes and releases without touching the destroyed cache; it used to abort the process (`cannot access a Thread Local Storage value during or after destruction`).
 #[test]
 fn a_session_dropped_while_its_thread_exits_does_not_abort() {
-    use crate::user_dictionary::journal::thread_holds_journal;
+    use crate::user_dictionary::journal::{cache_generation, thread_holds_journal};
     thread_local! {
         static HELD: std::cell::RefCell<Option<Session>> = const { std::cell::RefCell::new(None) };
     }
@@ -3065,6 +3327,7 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
     }
     let journal = Path::new(&value.user_data).join("msime_user.db");
     std::thread::spawn(move || {
+        let generation = cache_generation();
         // The map is registered before the journal cache, so thread exit destroys the cache first.
         HELD.with(|held| {
             *held.borrow_mut() = Some(Session::new(&value).unwrap());
@@ -3080,7 +3343,8 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
                 .unwrap();
             session.select(index).unwrap();
         });
-        assert!(thread_holds_journal());
+        // Another test closing every journal meanwhile takes the parked connection away.
+        assert!(thread_holds_journal() || cache_generation() != generation);
     })
     .join()
     .unwrap();
@@ -3892,4 +4156,22 @@ fn host_multilingual_snapshot_keeps_the_raw_identity_and_language_ranges() {
         .unwrap()
         .multilingual_conversion
         .is_none());
+}
+
+/// The iOS keyboard destroys its session whenever it goes away and builds one on the next appearance; the personal context model survives that only if the session records the journal as it lets go. Not on Windows, where a store that only read the journal records nothing rather than keep a probe connection open.
+#[cfg(not(windows))]
+#[test]
+fn dropping_a_session_records_its_journal_for_the_next_one() {
+    let root = tempfile::tempdir().unwrap();
+    let options = helpcode_fixture(root.path(), "", "");
+    let journal = super::options::runtime_paths(&options).user(crate::assets::USER_JOURNAL);
+    let connection = Connection::open(&journal).unwrap();
+    crate::user_dictionary::journal::ensure_schema(&connection).unwrap();
+    connection
+        .execute_batch("INSERT INTO personal_bigram(previous,word,count) VALUES('你','好',2);")
+        .unwrap();
+    drop(connection);
+    let store = crate::user_dictionary::ngram_store::PersonalNgramStore::for_journal(&journal);
+    drop(Session::new(&options).unwrap());
+    assert!(store.settled_for_tests());
 }

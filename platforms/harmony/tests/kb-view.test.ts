@@ -50,6 +50,7 @@ function drawnTouchHeight(
   adjustment: number,
   strip: boolean = true,
   extraRows: number = 0,
+  stripScalePercent: number = 100,
 ): number {
   let keys: number = 0;
   for (let row: number = 0; row < KeyboardMetrics.KEY_ROWS; row++) {
@@ -63,7 +64,8 @@ function drawnTouchHeight(
   const gaps: number = (rowSpacingTenths / 10) * (KeyboardMetrics.KEY_ROWS - 1);
   return (
     KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
-    (strip ? KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.STRIP_GAP_VP : 0) +
+    // KeyboardView.stripHeight：工具条按「候选栏大小」缩放（#10137）。
+    (strip ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP : 0) +
     keys +
     gaps +
     // KeyboardView.surfaceHeight：竖屏手写多出的行不分摊高度调整，每行一个 ROW_HEIGHT_VP 加一道行距。
@@ -148,10 +150,37 @@ group("the touch frame the view draws is the panel height the ability asks for",
       for (const strip of [true, false]) {
         const tall: number = drawnTouchHeight(spacing, adjustment, strip, 1);
         const tallSized: number = KeyboardMetrics.totalHeightVp(
-          spacing, adjustment, 0, 18, 15, false, strip, 1);
+          spacing,
+          adjustment,
+          0,
+          18,
+          15,
+          false,
+          strip,
+          1,
+        );
         check(
           Math.abs(tall - tallSized) < 1e-9,
           `handwriting, strip ${strip}, row spacing ${spacing}, adjustment ${adjustment}: drawn ${tall}, panel ${tallSized}`,
+        );
+      }
+      // 「候选栏大小」改变的只是工具条：画出的框架与面板高度在各个倍数下仍然一致。
+      for (const scale of [50, 75, 125, 200]) {
+        const scaled: number = drawnTouchHeight(spacing, adjustment, true, 0, scale);
+        const scaledSized: number = KeyboardMetrics.totalHeightVp(
+          spacing,
+          adjustment,
+          0,
+          18,
+          15,
+          false,
+          true,
+          0,
+          scale,
+        );
+        check(
+          Math.abs(scaled - scaledSized) < 1e-9,
+          `candidate bar ${scale}%, row spacing ${spacing}, adjustment ${adjustment}: drawn ${scaled}, panel ${scaledSized}`,
         );
       }
     }
@@ -160,7 +189,10 @@ group("the touch frame the view draws is the panel height the ability asks for",
 
 group("portrait handwriting is one key row taller, landscape keeps the old height", () => {
   check(KeyboardMetrics.handwritingExtraRows(true, false) === 1, "portrait handwriting adds a row");
-  check(KeyboardMetrics.handwritingExtraRows(true, true) === 0, "landscape handwriting keeps three rows");
+  check(
+    KeyboardMetrics.handwritingExtraRows(true, true) === 0,
+    "landscape handwriting keeps three rows",
+  );
   check(
     KeyboardMetrics.handwritingExtraRows(false, false) === 0,
     "every other face keeps the standard height",
@@ -172,7 +204,8 @@ group("portrait handwriting is one key row taller, landscape keeps the old heigh
   );
   check(
     KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false, true, 1) -
-      KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false) === 44 + 7,
+      KeyboardMetrics.totalHeightVp(70, 30, 0, 18, 15, false) ===
+      44 + 7,
     "the user's height adjustment is applied once, not again for the extra row",
   );
   check(
@@ -329,6 +362,19 @@ group("触屏离开语音界面时放弃正在进行的录音", () => {
   check(!VoiceRecognitionPolicy.cancelsOnLeave(true, false, true), "没有在录音");
   check(!VoiceRecognitionPolicy.cancelsOnLeave(true, true, false), "并不是从语音界面离开");
   check(!VoiceRecognitionPolicy.cancelsOnLeave(false, true, true), "2in1 的语音面板另有规则");
+});
+
+group("触屏键盘收起时放弃正在进行的录音", () => {
+  check(
+    VoiceRecognitionPolicy.cancelsOnHide(true, true, false),
+    "键盘收起后麦克风和识别不能继续跑到上限",
+  );
+  check(!VoiceRecognitionPolicy.cancelsOnHide(true, false, false), "没有在录音");
+  check(
+    !VoiceRecognitionPolicy.cancelsOnHide(true, true, true),
+    "已经说完、正在等结果，不丢掉用户说完的话",
+  );
+  check(!VoiceRecognitionPolicy.cancelsOnHide(false, true, false), "2in1 的语音面板另有规则");
 });
 
 group("the 2in1 candidate window is sized for the card's 8vp padding", () => {

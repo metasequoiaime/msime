@@ -1,0 +1,102 @@
+name: Release msime-engine crates
+
+# 把输入引擎库（crates/engine，crates.io 上的 msime-engine）、它的依赖 msime-path-trust（crates/path-trust）和它的 C 接口 msime-engine-capi（crates/engine-capi）发到 crates.io。三个 crate 各有自己的版本号，取各自的 Cargo.toml：先经普通 PR 改好版本号合进 develop，再在 develop 或 main 上手动运行。不勾 publish 时只做 cargo publish --dry-run（打包并在打包后的源码上编译一遍），勾了才上传；这次发了引擎时，上传后建 msime-engine-vX.Y.Z release 记下源码提交。C 接口的预编译库与数据包另由 release-engine-capi.yml 发到 GitHub Releases。
+#
+# 每个 crate 的这个版本还不在 crates.io 上就发；已经在了就不再上传它，但要把本提交的这个 crate 打包，和 crates.io 上同一版本的包逐文件比较（源码、README、LICENSE、包里的其他文件和未规范化的 Cargo.toml.orig），有任何不同就失败：发出去的版本不能替换，只能 yank，改了代码却没改版本号时，依赖它的 crate 会按 crates.io 上的旧代码发出去而 dry-run 照样通过（比如只改行为、不改 API 的符号链接检查修正）。所以改了哪个 crate 就改哪个的版本号；只改了 C 接口时只发 msime-engine-capi，引擎和 path-trust 都已发布且一致，跳过。三个都已发布且一致时没什么可发，直接失败。要发的不止一个时用 cargo 的多包形式（cargo publish -p … -p …），cargo 按依赖顺序先发被依赖的、等索引里出现后再发下一个；还没上 crates.io 的依赖，单独打包依赖它的 crate 会解析不到。
+#
+# 上传用 crates.io 的 Trusted Publishing：crates.io 上三个 crate 都只信任这个仓库的这个 workflow 在 crates-io environment 里运行，上传前用 GitHub 的 OIDC 换一个临时令牌，只交给上传那一步，仓库和组织里不存任何 crates.io 令牌；dry-run 不换令牌。Trusted Publishing 只能给已经存在的 crate 配置，所以三个 crate 的第一个版本（0.1.0）由维护者在本机用自己的令牌手动发布（与 msime-script-sdk 相同），之后在 crates.io 上为三个 crate 登记这个 workflow 和 environment，以后的版本才走这里。release 从不标为 latest，仓库的「最新发布」留给应用；tag 以 msime-engine-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本。
+on:
+  workflow_dispatch:
+    inputs:
+      publish: {description: "Upload the crates whose version is not on crates.io yet, and create the msime-engine-vX.Y.Z release when the engine is one of them (otherwise only cargo publish --dry-run)", required: false, default: false, type: boolean}
+permissions: {contents: read}
+concurrency: {group: release-engine-crates, cancel-in-progress: false}
+jobs:
+  publish:
+    # 留在 GitHub 托管的 runner：上传经 crates.io 的 Trusted Publishing 用 GitHub 的 OIDC 换令牌（.agents/notes/implemented/process/2026-10-27-depot-runners-by-default.md）。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # crates.io 的 Trusted Publishing 按 environment 认人，这里的名字要和 crates.io 上登记的一致。
+    environment: crates-io
+    permissions: {contents: write, id-token: write}
+    steps:
+      - name: Refuse other branches
+        env: {BRANCH: "${{ github.ref_name }}"}
+        run: |
+          case "$BRANCH" in develop|main) ;; *) echo "msime-engine is published from develop or main only, not '$BRANCH'" >&2; exit 1 ;; esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - id: version
+        name: Read the versions and check crates.io
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/metadata.json"
+          cargo metadata --no-deps --format-version 1 > "$metadata"
+          # crates.io 要求带联系方式的 User-Agent。404 表示这个版本（或整个 crate）还不在 crates.io 上。
+          status() {
+            curl -sS -o /dev/null -w '%{http_code}' -A "msime release-engine-crates (https://github.com/${GITHUB_REPOSITORY})" "https://crates.io/api/v1/crates/$1/$2"
+          }
+          packages=()
+          for crate in msime-path-trust msime-engine msime-engine-capi; do
+            version=$(jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .version' "$metadata")
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected $crate version '$version'" >&2; exit 1; }
+            code=$(status "$crate" "$version")
+            case "$code" in
+              404)
+                packages+=(-p "$crate")
+                if [[ "$crate" == msime-engine ]]; then echo "version=$version" >> "$GITHUB_OUTPUT"; fi ;;
+              200)
+                # 不比较 .cargo_vcs_info.json（记的是提交号，每次都不同）、规范化后的 Cargo.toml（随 cargo 版本和工作区的 edition、rust-version 变）和 Cargo.lock（库的锁文件不影响下游）；包里文件的增删也算不同。被它依赖的 crate 这时都已在 crates.io 上，单独打包解析得到。
+                cargo package -p "$crate" --locked --no-verify
+                published="$RUNNER_TEMP/published-$crate"
+                packaged="$RUNNER_TEMP/packaged-$crate"
+                mkdir -p "$published" "$packaged"
+                curl -sSfL -A "msime release-engine-crates (https://github.com/${GITHUB_REPOSITORY})" -o "$RUNNER_TEMP/published-$crate.crate" "https://crates.io/api/v1/crates/$crate/$version/download"
+                tar -xzf "$RUNNER_TEMP/published-$crate.crate" -C "$published"
+                tar -xzf "target/package/$crate-$version.crate" -C "$packaged"
+                if ! diff -r --exclude=.cargo_vcs_info.json --exclude=Cargo.toml --exclude=Cargo.lock "$published/$crate-$version" "$packaged/$crate-$version"; then
+                  echo "$crate changed since $crate $version was published; bump its version in its Cargo.toml (and the requirement of the crates that depend on it)" >&2
+                  exit 1
+                fi
+                echo "$crate $version is already on crates.io and matches this commit; not published again" ;;
+              *) echo "crates.io answered $code for $crate $version" >&2; exit 1 ;;
+            esac
+          done
+          (( ${#packages[@]} > 0 )) || { echo "every crate's version is already on crates.io and unchanged; bump the version of the crate to release" >&2; exit 1; }
+          echo "packages=${packages[*]}" >> "$GITHUB_OUTPUT"
+      - name: Dry run
+        env: {PACKAGES: "${{ steps.version.outputs.packages }}"}
+        # PACKAGES 是上一步写的 -p 列表，按空格拆回数组。
+        run: |
+          read -ra packages <<< "$PACKAGES"
+          cargo publish "${packages[@]}" --locked --dry-run
+      - id: auth
+        name: Get a temporary crates.io token
+        if: ${{ inputs.publish }}
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Upload to crates.io
+        if: ${{ inputs.publish }}
+        env: {CARGO_REGISTRY_TOKEN: "${{ steps.auth.outputs.token }}", PACKAGES: "${{ steps.version.outputs.packages }}"}
+        run: |
+          read -ra packages <<< "$PACKAGES"
+          cargo publish "${packages[@]}" --locked
+      - name: Create the release
+        # 只在这次发了引擎时建：只发 C 接口或 path-trust 时没有新的引擎版本可记。
+        if: ${{ inputs.publish && steps.version.outputs.version != '' }}
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          VERSION: "${{ steps.version.outputs.version }}"
+          SHA: "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          path_trust=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "msime-path-trust") | .version')
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "msime-engine $VERSION 已发到 crates.io：https://crates.io/crates/msime-engine/$VERSION（依赖 msime-path-trust $path_trust：https://crates.io/crates/msime-path-trust/$path_trust）"
+            echo
+            echo "水杉输入法的输入引擎库，代码是 MPL-2.0，编进引擎的数据表保留各自的许可证；词库不随包发布，按各自的许可证另行获取。用法、下游构建要注意的事项和逐文件的许可证见 [crates/engine/README.md](https://github.com/metasequoiaime/msime/blob/$SHA/crates/engine/README.md)。源码是提交 $SHA。"
+          } > "$notes"
+          gh release create "msime-engine-v$VERSION" --target "$SHA" --title "msime-engine $VERSION" --notes-file "$notes" --latest=false

@@ -26,6 +26,15 @@ public final class VoiceAudioLevelSmoke {
             "失败读取不显示信号");
         check(VoiceAudioLevel.fromPcm(new short[] {Short.MIN_VALUE}, 2000) == 1,
             "长度越界仍只读取可用采样");
+        // 豆包与整句上传读的是 16 位小端字节，换算要和 short 采样完全一致。
+        check(VoiceAudioLevel.fromPcm16le(new byte[] {(byte) 0xcb, 0x0c, 0x35, (byte) 0xf3}, 4)
+            == VoiceAudioLevel.fromPcm(new short[] {3275, -3275}, 2), "字节采样与 short 采样同一换算");
+        check(VoiceAudioLevel.fromPcm16le(new byte[] {0x00, (byte) 0x80}, 2) == 1, "字节里的最大负采样不溢出");
+        check(VoiceAudioLevel.fromPcm16le(new byte[] {0x00, 0x40, 0x00}, 3)
+            == VoiceAudioLevel.fromPcm(new short[] {16384}, 1), "末尾不成对的字节不计");
+        check(VoiceAudioLevel.fromPcm16le(new byte[3200], 3200) == 0, "字节静音不显示信号");
+        check(VoiceAudioLevel.fromPcm16le(null, 2) == 0 && VoiceAudioLevel.fromPcm16le(new byte[] {1, 1}, 1) == 0
+            && VoiceAudioLevel.fromPcm16le(new byte[] {1, 1}, -1) == 0, "空、半个或失败的字节读取不显示信号");
         System.out.println("VoiceAudioLevelSmoke passed");
     }
 }

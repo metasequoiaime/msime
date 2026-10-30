@@ -373,8 +373,10 @@ pub struct HostCapabilities {
     /// the service - through that provider - so the model listing and the polish
     /// test are offered; what it cannot do is hold the secret.
     pub ai_provider_credentials: bool,
-    /// 宿主提供 AI 生成类功能：把用户的文字发给大模型、再把生成的内容展示或上屏，包括 AI 对话、AI 润色与高情商回复、AI 联想候选、AI 翻译、语音识别后的 AI 润色和 AI 皮肤生成。为假时设置页不给 AI 辅助页、AI 对话和其余这些入口，宿主的键盘也不发这些请求，存下的偏好打开了也一样。只有 HarmonyOS 为假：华为应用市场（中国大陆）要求 AI 生成类功能先做实名认证、提交《安全评估报告》和生成内容标识材料，这些资质到位之前鸿蒙版不提供，到位后把这里改回真即可，见 `.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md`。系统语音识别、云候选和机器翻译服务不是大模型生成，不归这一项管。
+    /// 宿主提供 AI 生成类功能：把用户的文字发给大模型、再把生成的内容展示或上屏，包括 AI 对话、AI 润色与高情商回复、AI 联想候选、AI 翻译、语音识别后的 AI 润色和 AI 皮肤生成。为假时设置页不给 AI 辅助页、AI 对话和其余这些入口，宿主的键盘也不发这些请求，存下的偏好打开了也一样。只有 HarmonyOS 为假：华为应用市场（中国大陆）要求 AI 生成类功能先做实名认证、提交《安全评估报告》和生成内容标识材料，这些资质到位之前鸿蒙版不提供，到位后把这里改回真，见 `.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md`。鸿蒙的社区皮肤也跟着这一项：为假时设置桥（`HarmonyAccountCloudBridge.ets`）让 Rust 带 `exclude=ai`，不列 AI 生成和来源不明的作品；改回真会同时停止排除，而现在没有一端读 `origin` 画「AI 生成」标识，所以改之前先在各端画出标识，否则 AI 皮肤会不带标识地出现在鸿蒙上，见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。系统语音识别、云候选和机器翻译服务不是大模型生成，不归这一项管。
     pub ai_generation: bool,
+    /// 宿主提供社区投稿类功能：发布键盘皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，以及给他人作品评分和举报。为假时设置页不画这些入口，宿主的设置桥也拒绝这些请求；浏览、搜索、详情、下载、安装、收藏、导入和下架自己的作品照常。只有 HarmonyOS 为假：华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，实名认证到位之前不提供，到位后把这里改回真即可，见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。
+    pub community_contribution: bool,
     /// The host draws a short, non-activating badge near the caret after the
     /// Chinese/English mode changes. A host with no way to put a window beside
     /// the caret, or one whose keyboard already shows the mode on its own key
@@ -707,13 +709,14 @@ impl HostCapabilities {
             candidate_border_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 桌面宿主的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；只有 Android 和 iOS 照旧读。
             candidate_number_color: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
-            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的 Fcitx5 经典界面主题同样按它缩放圆角、内边距、行边距、阴影、翻页按钮和 logo。Android 候选条按它缩放字号和候选行高度；鸿蒙只随字号调整，iOS 仍不提供此控件。
+            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的 Fcitx5 经典界面主题同样按它缩放圆角、内边距、行边距、阴影、翻页按钮和 logo。Android 和 iOS 的候选条按它缩放字号和候选行高度，跟随候选栏的空闲工具栏一起变矮或变高（#10137）。鸿蒙在平台层面不声明：2in1 的候选卡片只随字号调整，手机和平板的键盘按它缩放候选栏，由设置桥按设备形态打开（`SettingsFormFactorCapabilities`）。
             candidate_window_scale: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Macos
                     | HostPlatform::Linux
                     | HostPlatform::Android
+                    | HostPlatform::Ios
             ),
             // Linux 的 Fcitx5 经典界面主题把不透明度写进卡片图片的 alpha（需要合成器，KWin 下还会模糊卡片后面的内容）；IBus 面板做不到，运行中的 IBus 宿主经 `candidate_panel_limit` 让设置页说明这一点。
             candidate_window_opacity: matches!(
@@ -845,6 +848,8 @@ impl HostCapabilities {
             ai_provider_credentials: platform == HostPlatform::Linux,
             // 鸿蒙版在拿到 AI 生成类资质之前不提供这些功能，键盘一侧的同一道闸是 `AiGenerationGate.ts`。
             ai_generation: platform != HostPlatform::Harmony,
+            // 鸿蒙版在实名认证到位之前不提供社区发布、评分和举报，设置桥一侧的同一道闸是 `CommunityContributionGate.ts`。
+            community_contribution: platform != HostPlatform::Harmony,
             // Windows draws Latin from its own family, macOS and Android name it ahead of the primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the same result the same way. Both Linux hosts write one Pango font description for the desktop panel, and Pango resolves its family list per glyph too, so they name it first there.
             candidate_english_font: true,
             // Every host reaches the same shared store through the same entry point, so there is no platform here that can and one that cannot.

@@ -35,7 +35,7 @@ struct PersonalDictionaryImportView: View {
   @State private var notice = ""
 
   var body: some View {
-    NavigationView {
+    NavigationStack {
       List {
         Section {
           Picker("导入来源", selection: $source) {
@@ -137,6 +137,7 @@ struct PersonalDictionaryImportView: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("导入个人词库")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

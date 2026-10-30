@@ -78,7 +78,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
-        sentence_association: msime_engine::host::SentenceAssociationOptions {
+        sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
             show_next_on_duplicate: false,
@@ -807,8 +807,10 @@ fn a_listed_english_word_above_the_ceiling_can_be_edited() {
         source: None,
     };
     assert!(validate_previous_entry(&english(20_000_001_000)).is_ok());
+    // A stored row may carry 0 (a derived wubi word does); no writer stores a negative weight.
+    assert!(validate_previous_entry(&english(0)).is_ok());
     assert_eq!(
-        validate_previous_entry(&english(0)).unwrap_err(),
+        validate_previous_entry(&english(-1)).unwrap_err(),
         "invalid dictionary entry: weight is outside 1 to 100000000"
     );
     assert_eq!(

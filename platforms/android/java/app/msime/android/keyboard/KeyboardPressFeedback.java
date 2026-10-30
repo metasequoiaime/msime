@@ -30,6 +30,11 @@ public final class KeyboardPressFeedback {
 
     /** Animate `view` into or out of its pressed state, or settle it when it cannot animate. */
     public static void update(View view, boolean pressed) {
+        update(view, pressed, true);
+    }
+
+    /** 候选按钮直接应用按压终态，其他调用方保留原有过渡。 */
+    public static void update(View view, boolean pressed, boolean animate) {
         if (pressed) KeyPressAnimator.cancel(view);
         // A bounce / lift started by the click already settles the key at rest; a release spring on
         // top of it would fight over the same scale and translation.
@@ -37,6 +42,12 @@ public final class KeyboardPressFeedback {
         view.animate().cancel();
         if (!view.isAttachedToWindow() || !view.isEnabled() || !animationsEnabled(view)) {
             reset(view);
+            return;
+        }
+        if (!animate) {
+            view.setTranslationY(pressed ? DimensionPolicy.floatPixels(view.getContext(), PRESSED_TRANSLATION_DP) : 0f);
+            view.setScaleX(pressed ? PRESSED_SCALE : 1f);
+            view.setScaleY(pressed ? PRESSED_SCALE : 1f);
             return;
         }
         if (pressed) {

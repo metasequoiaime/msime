@@ -41,7 +41,7 @@ public final class ImeDictionarySyncSmoke {
         public DictionaryWebDavSync.Status status() {
             statusReads++;
             return new DictionaryWebDavSync.Status("0123456789abcdef0123456789abcdef", null,
-                true, true, 1, 0, pending, null, false, null, null);
+                true, true, 1, 0, pending, null, false, null, null, null);
         }
         public DictionaryWebDavSync.Run run(String trigger, boolean confirm, boolean restore) {
             runs.add(trigger);

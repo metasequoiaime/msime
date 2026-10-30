@@ -395,6 +395,25 @@ impl DictionarySnapshotQueue {
         Ok(result)
     }
 
+    /// 与 [`Self::update`] 相同，但 `action` 改完后的状态与读到的完全一样时不重写 `state.json`。只给改动后状态必然不同于“还没有 `state.json`”时默认空状态的操作用（比如总会填上 `local_version` 的 [`Self::publish_local_version`]），否则状态文件不存在时也不会被建出来。
+    fn update_if_changed<T>(
+        &self,
+        action: impl FnOnce(
+            &SnapshotQueueLock,
+            &mut SnapshotQueueState,
+        ) -> Result<T, SnapshotQueueError>,
+    ) -> Result<T, SnapshotQueueError> {
+        let lock = self.lock(STATE_LOCK_NAME)?;
+        Self::import_android_v1_at(&lock.directory)?;
+        let mut state = Self::read_from(&lock.directory)?;
+        let before = state.clone();
+        let result = action(&lock, &mut state)?;
+        if state != before {
+            Self::write_to(&lock.directory, &state)?;
+        }
+        Ok(result)
+    }
+
     /// 等着拿到 `state.lock`，不像 [`Self::lock`] 那样在别人持锁时报 `Busy`。
     fn lock_wait(&self) -> Result<SnapshotQueueLock, SnapshotQueueError> {
         let root = self.root()?;
@@ -448,7 +467,8 @@ impl DictionarySnapshotQueue {
         if !valid_local_version(version) {
             return Err(SnapshotQueueError::Invalid);
         }
-        let applied = self.update(|_, state| {
+        // 键盘每次失焦、每隔几秒的空闲轮询都会来发布一次，版本几乎总是没变：没变时不再走临时文件、fsync、改名重写一遍 `state.json`。版本变了、或者请求因此转成 `Applied` 时照常写。
+        let applied = self.update_if_changed(|_, state| {
             state.local_version = Some(version.to_owned());
             let owner = version
                 .split(':')
@@ -945,6 +965,62 @@ mod tests {
             Err(SnapshotQueueError::Invalid)
         ));
         assert_eq!(other.read().unwrap(), before);
+    }
+
+    /// 键盘反复发布同一个版本时不重写 `state.json`；版本变了照常写。
+    #[test]
+    fn publishing_an_unchanged_version_leaves_the_state_file_alone() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+        let first = version("legacy", 'a');
+        queue.publish_local_version(&first).unwrap();
+        // 换一种等价的写法：内容一样、字节不同，被重写过就看得出来。
+        let state = queue.read().unwrap();
+        let equivalent = serde_json::to_vec_pretty(&state).unwrap();
+        assert_ne!(fs::read(root.join(STATE_NAME)).unwrap(), equivalent);
+        fs::write(root.join(STATE_NAME), &equivalent).unwrap();
+
+        queue.publish_local_version(&first).unwrap();
+        assert_eq!(fs::read(root.join(STATE_NAME)).unwrap(), equivalent);
+        assert_eq!(queue.read().unwrap(), state);
+
+        let second = version("legacy", 'b');
+        queue.publish_local_version(&second).unwrap();
+        assert_ne!(fs::read(root.join(STATE_NAME)).unwrap(), equivalent);
+        assert_eq!(
+            queue.read().unwrap().local_version.as_deref(),
+            Some(second.as_str())
+        );
+    }
+
+    /// 发布的版本与上次相同，但它正是排着的那个请求激活出来的一代时，请求照样标成已应用并写盘。
+    #[test]
+    fn an_unchanged_local_version_still_marks_its_activation_applied() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
+        let initial = version("legacy", 'a');
+        let queue = DictionarySnapshotQueue::new(root).unwrap();
+        queue.publish_local_version(&initial).unwrap();
+        let id = queue
+            .enqueue(&source, "fixture", 1, &initial, &digest, false)
+            .unwrap();
+        let activated = version(&id.to_string(), 'b');
+        queue
+            .update(|_, state| {
+                state.local_version = Some(activated.clone());
+                Ok(())
+            })
+            .unwrap();
+
+        queue.publish_local_version(&activated).unwrap();
+        assert_eq!(
+            queue.read().unwrap().request.unwrap().status,
+            SnapshotRequestStatus::Applied
+        );
     }
 
     #[cfg(unix)]

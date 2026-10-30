@@ -104,6 +104,92 @@ final class DictionarySnapshotWorkerTests: XCTestCase {
     XCTAssertEqual(polls.value, 1)
   }
 
+  func testUnchangedVersionPollLeavesTheStateFileAlone() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queueDirectory = root.appendingPathComponent("Queue")
+    let queue = DictionarySnapshotQueue(directory: queueDirectory)
+    let version = "local-v1:legacy:" + String(repeating: "c", count: 64)
+    let polls = LockedCounter()
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in
+      polls.increment()
+      return version
+    })
+    var messages: [String] = []
+    worker.report = { messages.append($0) }
+    worker.tick(idle: true, fullAccess: true)
+    var deadline = Date().addingTimeInterval(5)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertEqual(try queue.read().localVersion, version)
+
+    // 目录只读时任何写入都会失败并报出来：版本没变的那一轮既不写状态文件，也不报错。
+    let directory = queueDirectory.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+    worker.tick(idle: true, fullAccess: true, force: true)
+    deadline = Date().addingTimeInterval(5)
+    while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    XCTAssertFalse(worker.isPreparing)
+    XCTAssertEqual(polls.value, 2)
+    XCTAssertEqual(messages, [])
+    XCTAssertEqual(try queue.read().localVersion, version)
+  }
+
+  func testFailedVersionPollWaitsBeforeTryingAgain() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queue = DictionarySnapshotQueue(directory: root.appendingPathComponent("Queue"))
+    let version = "local-v1:legacy:" + String(repeating: "d", count: 64)
+    try queue.publishLocalVersion(version)
+    let polls = LockedCounter()
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in
+      polls.increment()
+      throw DictionarySnapshotQueue.Failure.invalid
+    })
+    var messages: [String] = []
+    worker.report = { messages.append($0) }
+    for _ in 0..<2 {
+      worker.tick(idle: true, fullAccess: true)
+      let deadline = Date().addingTimeInterval(5)
+      while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    }
+    // 读不出版本的那一轮同样节流：两秒后的下一轮不再重读整份词库、再报一次同样的错。
+    XCTAssertEqual(polls.value, 1)
+    XCTAssertEqual(messages, [DictionarySnapshotQueue.Failure.invalid.localizedDescription])
+  }
+
+  /// 没有请求、已有版本时，打字期间的空闲轮询不再每 10 秒整份重读一次学习日志，而是至少隔 `idleVersionPollInterval`。
+  func testIdleVersionPollWaitsAMinuteOnceAVersionIsKnown() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let session = MetasequoiaInputSessionBridge(stateRoot: root.appendingPathComponent("State"))
+    let queue = DictionarySnapshotQueue(directory: root.appendingPathComponent("Queue"))
+    let polls = LockedCounter()
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    let worker = DictionarySnapshotWorker(session: session, queue: queue, readVersion: { _ in
+      polls.increment()
+      return "local-v1:legacy:" + String(repeating: "e", count: 64)
+    }, now: { clock })
+    func tick() async throws {
+      worker.tick(idle: true, fullAccess: true)
+      let deadline = Date().addingTimeInterval(5)
+      while worker.isPreparing, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+      XCTAssertFalse(worker.isPreparing)
+    }
+    // 还没有版本：立即读。
+    try await tick()
+    XCTAssertEqual(polls.value, 1)
+    // 以前 10 秒就会再读一次。
+    clock += 30
+    try await tick()
+    XCTAssertEqual(polls.value, 1)
+    clock += DictionarySnapshotWorker.idleVersionPollInterval - 30
+    try await tick()
+    XCTAssertEqual(polls.value, 2)
+  }
+
   func testQueuedSnapshotForAnotherAccountIsCancelledBeforePreparation() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

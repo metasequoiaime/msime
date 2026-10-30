@@ -783,6 +783,64 @@ pub fn open_private_file_in(path: &Path) -> io::Result<File> {
     }
 }
 
+/// 把写好的临时文件发布为 `path`，替换已有的文件。和 `NamedTempFile::persist` 一样，但在 Windows 上替换失败于「目标正被别的进程打开」这类会自己消失的错误时，短暂等待后再试几次。
+///
+/// Windows 的 `persist` 是 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`：只要有进程打开着目标文件（杀毒软件、备份与同步工具、搜索索引常常为了读一下就打开它几毫秒），替换就返回访问拒绝 5 或共享冲突 32，共享标志里有没有 `FILE_SHARE_DELETE` 都一样。这次保存本来什么问题都没有，却直接报错，设置页随即重读旧值，用户刚做的修改就丢了。只对访问拒绝、共享冲突和锁冲突（33）重试，总等待约 1 秒（见 `REPLACE_RETRY_DELAYS_MS`）；别的错误照旧立刻返回。
+///
+/// 重试期间临时文件一直留在原处，目标要么还是旧内容、要么已经整份换成新内容，不会出现写了一半的文件；最后仍失败时临时文件随 `PersistError` 交回调用方，丢弃它就删掉了。调用方在存储锁里调用时，等待也发生在锁里，同一把锁的读者最多多等这一秒，不会读到别的写入方插进来的内容。Unix 上的 `rename(2)` 不受打开的句柄影响，直接调用 `persist`，行为不变。
+pub fn persist_replacing<F>(
+    temporary: tempfile::NamedTempFile<F>,
+    path: impl AsRef<Path>,
+) -> Result<F, tempfile::PersistError<F>> {
+    #[cfg(windows)]
+    {
+        let path = path.as_ref();
+        retry_transient_replace(
+            temporary,
+            |temporary| {
+                temporary
+                    .persist(path)
+                    .map_err(|error| (error.error, error.file))
+            },
+            std::thread::sleep,
+        )
+        .map_err(|(error, file)| tempfile::PersistError { error, file })
+    }
+    #[cfg(not(windows))]
+    {
+        temporary.persist(path)
+    }
+}
+
+/// Windows 替换目标失败后每次重试前等待的毫秒数，合计 950ms。一般的占用只有几毫秒，前几次就能过；第一次失败后最多再试七次。
+#[cfg(any(windows, test))]
+const REPLACE_RETRY_DELAYS_MS: [u64; 7] = [10, 20, 40, 80, 160, 320, 320];
+
+/// 替换失败是不是目标暂时被别人占着：Windows 的 `ERROR_ACCESS_DENIED`（5）、`ERROR_SHARING_VIOLATION`（32）和 `ERROR_LOCK_VIOLATION`（33）。访问拒绝也可能是真的没有权限，那样重试只是晚约 1 秒报出同一个错误。这些是 Windows 的错误码，只在 Windows 上调用；测试在各平台上用同样的数字构造错误来驱动重试循环。
+#[cfg(any(windows, test))]
+fn is_transient_replace_error(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
+/// 按 `REPLACE_RETRY_DELAYS_MS` 重试替换。`replace` 失败时把错误和要重试的状态（临时文件）一起交回来，下一次接着用；遇到不是暂时占用的错误或次数用完，原样返回最后一次的错误和状态。等待经 `sleep` 进行，测试据此不必真的睡。
+#[cfg(any(windows, test))]
+fn retry_transient_replace<S, T>(
+    mut state: S,
+    mut replace: impl FnMut(S) -> Result<T, (io::Error, S)>,
+    mut sleep: impl FnMut(std::time::Duration),
+) -> Result<T, (io::Error, S)> {
+    for delay in REPLACE_RETRY_DELAYS_MS {
+        match replace(state) {
+            Err((error, returned)) if is_transient_replace_error(&error) => {
+                sleep(std::time::Duration::from_millis(delay));
+                state = returned;
+            }
+            result => return result,
+        }
+    }
+    replace(state)
+}
+
 /// 替换私有文件，并让 Unix 的读取和发布都绑定到已打开的父目录句柄。
 pub fn replace_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
     replace_private_file_with_permissions(path, contents, None)
@@ -812,8 +870,7 @@ pub fn replace_private_file_with_permissions(
             temporary.as_file().set_permissions(permissions.clone())?;
         }
         temporary.as_file().sync_all()?;
-        temporary
-            .persist(path)
+        persist_replacing(temporary, path)
             .map(|_| ())
             .map_err(|error| error.error)
     }
@@ -958,6 +1015,166 @@ pub fn create_directory_and_check(path: &Path) -> io::Result<bool> {
 mod tests {
     #[cfg(unix)]
     use super::*;
+
+    // 重试循环在各平台上都能测：用 Windows 的错误码构造失败，等待记下来而不真的睡。
+    #[test]
+    fn transient_replace_failures_are_retried_until_the_replace_succeeds() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let result = super::retry_transient_replace(
+            (),
+            |()| {
+                attempts += 1;
+                match attempts {
+                    1 => Err((std::io::Error::from_raw_os_error(32), ())),
+                    2 => Err((std::io::Error::from_raw_os_error(5), ())),
+                    3 => Err((std::io::Error::from_raw_os_error(33), ())),
+                    _ => Ok("published"),
+                }
+            },
+            |delay| waits.push(delay.as_millis()),
+        );
+        assert_eq!(result.unwrap(), "published");
+        assert_eq!(attempts, 4);
+        assert_eq!(waits, [10, 20, 40]);
+    }
+
+    #[test]
+    fn replace_failures_that_do_not_go_away_fail_at_once() {
+        for error in [
+            // ERROR_FILE_NOT_FOUND、ERROR_DISK_FULL，以及不带系统错误码的错误。
+            std::io::Error::from_raw_os_error(2),
+            std::io::Error::from_raw_os_error(112),
+            std::io::Error::other("synthetic failure"),
+        ] {
+            let expected = error.raw_os_error();
+            let mut error = Some(error);
+            let mut attempts = 0;
+            let mut waits = 0;
+            let result: Result<(), _> = super::retry_transient_replace(
+                (),
+                |()| {
+                    attempts += 1;
+                    Err((error.take().unwrap(), ()))
+                },
+                |_| waits += 1,
+            );
+            assert_eq!(result.unwrap_err().0.raw_os_error(), expected);
+            assert_eq!(attempts, 1);
+            assert_eq!(waits, 0);
+        }
+    }
+
+    #[test]
+    fn replace_gives_up_after_its_budget_and_hands_back_the_staged_file() {
+        let root = tempfile::tempdir().unwrap();
+        let staged = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+        let staged_path = staged.path().to_path_buf();
+        let mut attempts = 0;
+        let mut waited = 0;
+        let result: Result<(), _> = super::retry_transient_replace(
+            staged,
+            |staged| {
+                attempts += 1;
+                // 每次尝试时临时文件都还在，下一次替换才有东西可发布。
+                assert!(staged_path.exists());
+                Err((std::io::Error::from_raw_os_error(32), staged))
+            },
+            |delay| waited += delay.as_millis(),
+        );
+        let (error, staged) = result.unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(32));
+        assert_eq!(attempts, 8);
+        assert_eq!(waited, 950);
+        assert!(staged_path.exists());
+        drop(staged);
+        assert!(!staged_path.exists());
+    }
+
+    #[test]
+    fn persist_replacing_publishes_the_staged_contents() {
+        use std::io::Write as _;
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("synthetic.json");
+        std::fs::write(&target, b"{\"revision\":1}").unwrap();
+        let mut staged = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+        staged.write_all(b"{\"revision\":2}").unwrap();
+        super::persist_replacing(staged, &target).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"{\"revision\":2}");
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    /// 照杀毒软件、备份工具的方式打开目标：允许读写共享，不允许删除共享。
+    #[cfg(windows)]
+    fn hold_open_without_delete_sharing(path: &std::path::Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(path)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    fn staged_with(directory: &std::path::Path, contents: &[u8]) -> tempfile::NamedTempFile {
+        use std::io::Write as _;
+        let mut staged = tempfile::NamedTempFile::new_in(directory).unwrap();
+        staged.write_all(contents).unwrap();
+        staged.as_file().sync_all().unwrap();
+        staged
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persist_replacing_waits_for_a_reader_that_briefly_holds_the_target_open() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("preferences.json");
+        std::fs::write(&target, b"old").unwrap();
+
+        // 对照：目标被打开着时，不重试的 `persist` 确实失败，原内容不变。下面的成功因此只能归功于重试。
+        let reader = hold_open_without_delete_sharing(&target);
+        let refused = staged_with(root.path(), b"new")
+            .persist(&target)
+            .unwrap_err();
+        assert!(
+            matches!(refused.error.raw_os_error(), Some(5 | 32)),
+            "{:?}",
+            refused.error
+        );
+        drop(refused);
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+
+        let releasing = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            drop(reader);
+        });
+        super::persist_replacing(staged_with(root.path(), b"new"), &target).unwrap();
+        releasing.join().unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        // 没有遗留的临时文件。
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persist_replacing_gives_up_on_a_target_held_open_past_its_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("preferences.json");
+        std::fs::write(&target, b"old").unwrap();
+        let reader = hold_open_without_delete_sharing(&target);
+        let started = std::time::Instant::now();
+        let refused =
+            super::persist_replacing(staged_with(root.path(), b"new"), &target).unwrap_err();
+        assert!(started.elapsed() >= std::time::Duration::from_millis(900));
+        assert!(matches!(refused.error.raw_os_error(), Some(5 | 32)));
+        drop(refused);
+        drop(reader);
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+        // 放弃后丢弃交回的临时文件，目录里只剩原来的目标。
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn failed_staging_create_preserves_existing_directory() {

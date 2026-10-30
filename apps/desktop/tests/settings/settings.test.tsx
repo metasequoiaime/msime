@@ -4322,7 +4322,7 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
   await waitFor(() => expect(screen.queryByLabelText("按键音")).not.toBeNull());
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
+  expect(screen.queryByLabelText("分离式键盘")).toBeNull();
   phone.unmount();
 
   const save = vi.fn().mockImplementation(async (settings) => settings);
@@ -4357,9 +4357,9 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   );
   // 横屏分离式键盘同样存进原生 App Group，不写共享文档。
   await waitFor(() =>
-    expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(false),
+    expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).disabled).toBe(false),
   );
-  const split = screen.getByLabelText("横屏分离式键盘") as HTMLInputElement;
+  const split = screen.getByLabelText("分离式键盘") as HTMLInputElement;
   expect(split.checked).toBe(false);
   fireEvent.click(split);
   await waitFor(() =>
@@ -8152,7 +8152,7 @@ test.each(optionHosts)(
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: /^(输入|输入设置)$/ }));
     const input = await screen.findByRole("group", { name: "输入" });
-    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
+    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 全拼纠错 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
     const groups = [...input.querySelectorAll("[data-group-title]")].map(
       (node) => node.textContent ?? "",
     );
@@ -8164,6 +8164,7 @@ test.each(optionHosts)(
       "输出",
       "快捷模式",
       "模糊音",
+      "全拼纠错",
       "辅助码",
       "拼音方案调频",
     ]);

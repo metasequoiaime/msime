@@ -49,11 +49,12 @@ int main() {
   std::vector<std::string> operations;
   Json probe_answer = Json{{"ok", false}, {"error", "dictionary_sync_unavailable"}}, last_probe, last_run;
   std::string last_device;
-  uint64_t held = 0;
+  uint64_t held = 0, pending = 0, budget_wait = 0;
   unsigned conflicts = 0;
   const auto status = [&] {
     return Json{{"device_id", own}, {"code", "0123 4567 8901 2345"}, {"approved", true}, {"joined", true}, {"words", 12u},
-        {"pending_upload", 0u}, {"pending_apply", 0u}, {"held_deletions", held}, {"clock_skew", false}, {"last_success_ms", nullptr}, {"last_error", nullptr}};
+        {"pending_upload", pending}, {"pending_apply", 0u}, {"held_deletions", held}, {"clock_skew", false}, {"last_success_ms", nullptr}, {"last_error", nullptr},
+        {"budget_wait_until", budget_wait ? Json(budget_wait) : Json(nullptr)}};
   };
   // 同一台等待中的设备登记了两条（#10032 之前留下的旧登记），列表里只能有一条。
   const auto devices = [&] {
@@ -157,6 +158,19 @@ int main() {
   conflicts = 1; operations.clear(); click(Form::sync_now);
   assert((operations == std::vector<std::string>{"run", "run", "devices"}) && last_run.at("trigger") == "manual");
   assert(read(Form::notice) == message(model::run_notice(true, false)));
+  // Server 在后台记下了一个待发送的词：窗口重新获得焦点时只读一次不联网的概况，换上新的数量，结果说明和选中的设备都不动。
+  select(2); pending = 1; operations.clear();
+  SendMessageW(host, WM_ACTIVATE, WA_ACTIVE, 0);
+  pump([&] { return read(Form::status).find(message(L"待发送 1 个")) != std::string::npos; });
+  assert((operations == std::vector<std::string>{"status"}) && read(Form::notice) == message(model::run_notice(true, false)));
+  assert(SendMessageW(control(Form::devices), LB_GETCURSEL, 0, 0) == 2 && IsWindowEnabled(control(Form::remove)));
+  pending = 0;
+  // 自动同步在等额度：重新获得焦点时读到的概况里说什么时候继续自动同步。
+  budget_wait = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count()) + 20 * 60 * 1000;
+  SendMessageW(host, WM_ACTIVATE, WA_ACTIVE, 0);
+  pump([&] { return read(Form::status).find(message(L"继续自动同步；可点「立即同步」。")) != std::string::npos; });
+  budget_wait = 0;
   // 被挡下的大批删除：两个选择都可用，「从网盘恢复」带 restore_deletions。
   held = 60; click(Form::sync_now);
   assert(IsWindowEnabled(control(Form::confirm_deletions)) && IsWindowEnabled(control(Form::restore_deletions)));
@@ -206,5 +220,5 @@ int main() {
   unblock.join();
   pump([&] { return finished->load(); });
   assert(close_duration < 1000);
-  std::puts("Windows 7 dictionary sync panel: probe-gated saving, blank password keeps the saved one, opened sync with devices and status, one entry per device, confirmed approvals, keystore conflict retry, held deletions and stopping sync passed");
+  std::puts("Windows 7 dictionary sync panel: probe-gated saving, blank password keeps the saved one, opened sync with devices and status, status reread on activation, one entry per device, confirmed approvals, keystore conflict retry, held deletions and stopping sync passed");
 }

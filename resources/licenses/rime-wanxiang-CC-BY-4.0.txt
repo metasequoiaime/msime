@@ -1,19 +1,24 @@
 rime-wanxiang (https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit 7ab73ee0c7f80190004233e70f954833df64c80e
 
-Copyright amzxyz and contributors, as stated in the rime-wanxiang README.
+Creator: amzxyz (万象拼音 / rime-wanxiang). The README at that commit credits the dictionary data to the same author's 万象词库 (https://github.com/amzxyz/RIME-LMDG). Neither the README nor the LICENSE at that commit supplies a copyright notice.
 
-Used by MSIME: the `symbols:` section of wanxiang_symbols.yaml. MSIME reads it into crates/engine/src/local/symbol_groups.tsv, a table of group code, Chinese group name and Unicode code points that the input engine compiles in for the symbol mode (Shift+S). Only the group code, the code points of each group and their order come from the file. The changes made to the original work:
+Work: the dictionaries under dicts/ at the commit above that wanxiang.dict.yaml imports: zi, jichu, lianxiang, duoyin, shici, diming, yixue, huaxue, yaopin, mingren, yiren, wuzhong, renming, taifeng and fangyan. Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), as stated in the README and as committed in LICENSE at that commit.
 
-- Only 87 of the file's symbol groups are kept: the ones an alphabetical code can reach and the symbol panel shows. The emoji, periodic-table and XCompose sections of the same file are not read at all, so no emoji, element text or compose sequence is shipped.
-- Groups whose code is not purely alphabetical (`/0`–`/10`, `/hx…`) are left out, because the symbol mode only accepts letters; the same symbols remain reachable by symbol name through the engine's own symbol_candidates.tsv.
-- The Chinese group names in the table (`xl` → 希腊字母小写) and the order of the groups are this project's own wording, written for the candidate window; they are not taken from the file's comments.
-- Each group's symbols are kept in the order the file lists them and are joined by single spaces in the table. Nothing else is added, renamed or reordered.
+Used by MSIME: ranking weights only. MSIME's dictionary source repository, msime-dictionary (https://github.com/metasequoiaime/msime-dictionary), adapted the weights of the entries it shares with those dictionaries into its sources/pinyin/single-chars.txt, sources/pinyin/rime-ice.txt and sources/pinyin/rime-ice-supplement.txt (commit 060c102515f176ca3dfaf2a2cba1f320901ef414, msime-dictionary#84, first released in dict-v2.0.30). The dictionaries MSIME ships are built from those files, at present from release dict-v2.0.41 (source data commit 8e8b7817c91600913625edb7995a7397fbb6899a), and carry the adapted weights here:
 
-The file's own header says its symbol groups are copied from Rime's symbols.yaml (the Squirrel app's SharedSupport/symbols.yaml, "version: LTS"), which belongs to the Rime projects and is distributed under the same CC BY 4.0 terms; this notice covers the file as rime-wanxiang distributes it.
+- msime-pinyin.db, the pinyin dictionary of every platform, of the web engine (trimmed to all single characters and the highest-weighted words) and of the engine's data pack: the weight of every entry whose word and toneless reading rime-wanxiang also lists.
+- msime-stroke.db, the dictionary of the Stroke scheme: a character's weight is the sum of the weights of its readings in single-chars.txt, so for every character rime-wanxiang lists it is derived from the adapted character frequencies.
 
-amzxyz and contributors do not endorse MSIME or the way MSIME uses the work.
+No character, word, reading or other text is taken from rime-wanxiang. The changes made to the original work:
 
-The licence is Creative Commons Attribution 4.0 International (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), as stated in rime-wanxiang's README and as committed in its LICENSE at the commit above. The full text of that licence, as committed there, follows.
+- The cuoyin dictionary (wrong readings) is not used; the other fifteen are.
+- rime-wanxiang's toned pinyin is reduced to MSIME's full pinyin spelling: tone marks removed (NFD decomposition, combining marks dropped), ü written as v, syllables joined by an apostrophe. Where the same word and toneless reading occurs more than once (different tones, or in several dictionaries), the highest weight is kept.
+- An entry of the three files that rime-wanxiang also lists gets the weight round(rime-wanxiang weight × factor); entries rime-wanxiang does not list keep their rime-ice weight, and no entry rime-wanxiang lists is added. One factor per file brings the adapted weights to the scale of the unchanged ones: the sum of the file's own weights divided by the sum of rime-wanxiang's weights over the entries both list with a weight above 10, rounded to two decimals, which is 9.42 for single-chars.txt (45175 shared entries), 9.2 for rime-ice.txt (521669) and 9.28 for rime-ice-supplement.txt (30499).
+- The builder (crates/dict-builder in the MSIME repository) then merges the files into the dictionaries above; where a reading of a character is listed twice the higher weight is kept, and msime-stroke.db adds up a character's readings.
+
+The dictionaries that carry these weights are otherwise built from rime-ice (GPL-3.0) and the other sources listed in msime-engine-dictionary-NOTICE.md; this notice covers only the weights taken from rime-wanxiang. amzxyz does not endorse MSIME or the way MSIME uses the work.
+
+The licence is Creative Commons Attribution 4.0 International (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/). The full text of that licence, as committed in rime-wanxiang's LICENSE at the commit above, follows; its Section 5 is the disclaimer of warranties and limitation of liability.
 
 -----------------------------------------------------------------------
 
@@ -412,4 +417,3 @@ the avoidance of doubt, this paragraph does not form part of the
 public licenses.
 
 Creative Commons may be contacted at creativecommons.org.
-

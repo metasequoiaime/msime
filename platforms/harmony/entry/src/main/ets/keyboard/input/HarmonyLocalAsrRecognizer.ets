@@ -1,7 +1,7 @@
 import { MessageEvents, worker } from '@kit.ArkTS';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../KeyboardLog';
-import { HarmonyPcmCapture } from './HarmonyPcmCapture';
+import { HarmonyPcmCapture, PcmChunkHandler } from './HarmonyPcmCapture';
 import { LocalAsrPolicy, LocalAsrReply, LocalAsrRequest, LocalHotword } from './LocalAsrPolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
@@ -79,7 +79,8 @@ export class HarmonyLocalAsrRecognizer {
    * 开始一次听写。`hotwordOptions` 是词库调用要用的已准备好的宿主选项，为 null 时跳过热词而不是让会话失败。`onSpeech` 收到 VAD 说话状态的变化，只有经过 VAD 的整段模型会报。
    */
   async start(config: VoiceInputConfiguration, hotwordOptions: Object | null, onResult: LocalAsrResultHandler,
-    onError: LocalAsrErrorHandler, onSpeech: LocalAsrSpeechHandler | undefined = undefined): Promise<void> {
+    onError: LocalAsrErrorHandler, onSpeech: LocalAsrSpeechHandler | undefined = undefined,
+    onChunk: PcmChunkHandler | undefined = undefined): Promise<void> {
     try {
       if (this.active) throw new Error('语音识别正在进行');
       const directory: string = LocalAsrPolicy.modelUnderRoot(
@@ -116,6 +117,8 @@ export class HarmonyLocalAsrRecognizer {
       }, MAX_DURATION_MS);
       try {
         await this.capture.start(config.capture_backend, config.capture_device, (data: ArrayBuffer): void => {
+          // 电平只在本次会话还在录音时报，与 `sendAudio` 的判断一致；旁听者不保存也不改动数据。
+          if (onChunk !== undefined && id === this.sessionId && !this.finishing) onChunk(data);
           this.sendAudio(id, data);
         });
       } catch (error) {

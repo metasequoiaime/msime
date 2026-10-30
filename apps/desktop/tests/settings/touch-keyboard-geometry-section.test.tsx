@@ -83,7 +83,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   fireEvent.click(screen.getByLabelText("顶部语音入口"));
   fireEvent.click(screen.getByLabelText("工具栏：表情"));
   fireEvent.click(screen.getByLabelText("数字行与 Tab 键"));
-  fireEvent.click(screen.getByLabelText("横屏分离式键盘"));
+  fireEvent.click(screen.getByLabelText("分离式键盘"));
   fireEvent.click(screen.getByLabelText("滑行输入"));
   fireEvent.click(screen.getByLabelText("滑动输入符号"));
   fireEvent.change(screen.getByLabelText("滑动方向"), { target: { value: "up" } });
@@ -116,7 +116,7 @@ test("hides host-specific options when unavailable", () => {
 
   expect(screen.queryByLabelText("工具栏：表情")).toBeNull();
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
+  expect(screen.queryByLabelText("分离式键盘")).toBeNull();
   expect(screen.queryByText("布局")).toBeNull();
   expect(screen.queryByLabelText("滑行输入")).toBeNull();
   expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
@@ -148,7 +148,7 @@ test("shows the split keyboard switch on its own when only it is reported", () =
   );
 
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).checked).toBe(true);
 });
 
 test("describes the voice button by what the host's button does", () => {
@@ -242,7 +242,7 @@ test("disables the tablet switch while saving", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} tabletFullKeysBusy />);
 
   expect((screen.getByLabelText("数字行与 Tab 键") as HTMLInputElement).disabled).toBe(true);
-  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑行输入") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑动输入符号") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
@@ -291,4 +291,128 @@ test("puts the shuangpin key hint switch in the size group when that group is al
   expect(
     hints.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+});
+
+test("offers the one-handed side number pad switch only where the host draws the pad", () => {
+  const onOneHandedSidePanelChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByRole("switch", { name: "大屏单手时侧边显示数字键盘" })).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      oneHandedSidePanel={false}
+      onOneHandedSidePanelChange={onOneHandedSidePanelChange}
+    />,
+  );
+  // 只有这一行时也要有「布局」分组来放它；标题和说明与 Android、iOS 原生设置页逐字相同。
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const pad = screen.getByRole("switch", {
+    name: "大屏单手时侧边显示数字键盘",
+  }) as HTMLInputElement;
+  expect(pad.checked).toBe(false);
+  expect(
+    screen.getByText(
+      "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+    ),
+  ).toBeTruthy();
+  fireEvent.click(pad);
+  expect(onOneHandedSidePanelChange).toHaveBeenCalledWith(true);
+});
+
+test("puts the one-handed side number pad switch in the phone 布局 group with its description", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      oneHandedSidePanel
+      onOneHandedSidePanelChange={vi.fn()}
+      layoutRows={<div>中文键盘</div>}
+    />,
+  );
+  expect(screen.getAllByText("布局")).toHaveLength(1);
+  const pad = screen.getByRole("switch", {
+    name: "大屏单手时侧边显示数字键盘",
+  }) as HTMLInputElement;
+  expect(pad.checked).toBe(true);
+  expect(
+    screen.getByText("中文键盘").compareDocumentPosition(pad) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    pad.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // 手机排法的其他行不带说明，这一行带：它只在平板和可折叠手机上出现，三端文字逐字相同。
+  expect(
+    screen.getByText(
+      "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+    ),
+  ).toBeTruthy();
+});
+
+// 九键滑动输入数字（#10229）：三端同一行文字、同一组选项，紧跟 26 键的「滑动方向」。
+test("lists 九键滑动输入数字 right after 滑动方向 and hands each choice's own spelling back", () => {
+  const onNineKeySwipeDigitsChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByLabelText("九键滑动输入数字")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      nineKeySwipeDigits="off"
+      onNineKeySwipeDigitsChange={onNineKeySwipeDigitsChange}
+    />,
+  );
+  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  expect(row.value).toBe("off");
+  expect([...row.options].map((option) => [option.value, option.textContent])).toEqual([
+    ["off", "关闭"],
+    ["up", "上滑"],
+    ["down", "下滑"],
+  ]);
+  expect(screen.getByText("沿所选方向滑动输入数字，反方向弹出字母。")).toBeTruthy();
+  expect(
+    screen.getByLabelText("滑动方向").compareDocumentPosition(row) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    row.compareDocumentPosition(screen.getByLabelText("滑行输入")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  for (const value of ["up", "down", "off"] as const) {
+    fireEvent.change(row, { target: { value } });
+    expect(onNineKeySwipeDigitsChange).toHaveBeenLastCalledWith(value);
+  }
+});
+
+test("九键滑动输入数字 does not follow the 26 key switch or the local save", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      swipeSymbols={false}
+      tabletFullKeysBusy
+      nineKeySwipeDigits="up"
+      onNineKeySwipeDigitsChange={vi.fn()}
+    />,
+  );
+  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  expect(row.value).toBe("up");
+  expect(row.disabled).toBe(false);
+});
+
+test("draws the gestures group for 九键滑动输入数字 alone", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      glideTyping={undefined}
+      swipeSymbols={undefined}
+      nineKeySwipeDigits="down"
+      onNineKeySwipeDigitsChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("手势")).toBeTruthy();
+  expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
+  expect((screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement).value).toBe("down");
 });

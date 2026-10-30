@@ -3,6 +3,9 @@ package app.msime.android.test;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.os.CancellationSignal;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsProvider;
@@ -10,10 +13,32 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** 专用模拟器的合成文档树，经系统选择器跨 UID 授权给产品，不接触外部存储。 */
 public final class DiagnosticDocumentsProvider extends DocumentsProvider {
     static final String AUTHORITY = "app.msime.android.test.diagnostic-documents";
+    private volatile CountDownLatch textWriteGate;
+    private final AtomicInteger completedTextWrites = new AtomicInteger();
+    private final AtomicInteger failedTextWrites = new AtomicInteger();
+
+    /** 仅合成提供方的同步探针：暂停一次写入，区分文档出现和写入流关闭。 */
+    @Override public Bundle call(String method, String arg, Bundle extras) {
+        Bundle standard = super.call(method, arg, extras);
+        if (standard != null) return standard;
+        if (method.equals("hold-text-write")) textWriteGate = new CountDownLatch(1);
+        else if (method.equals("release-text-write")) {
+            CountDownLatch gate = textWriteGate;
+            textWriteGate = null;
+            if (gate != null) gate.countDown();
+        } else if (!method.equals("text-write-status")) return null;
+        Bundle result = new Bundle();
+        result.putInt("completed", completedTextWrites.get());
+        result.putInt("failed", failedTextWrites.get());
+        return result;
+    }
     private static final String[] ROOT_COLUMNS = {DocumentsContract.Root.COLUMN_ROOT_ID,
         DocumentsContract.Root.COLUMN_DOCUMENT_ID, DocumentsContract.Root.COLUMN_TITLE,
         DocumentsContract.Root.COLUMN_FLAGS, DocumentsContract.Root.COLUMN_MIME_TYPES};
@@ -79,6 +104,23 @@ public final class DiagnosticDocumentsProvider extends DocumentsProvider {
             throws FileNotFoundException {
         if (documentId.startsWith("root/failed-write/")) {
             if (!mode.equals("r")) throw new FileNotFoundException("synthetic write failure");
+        }
+        if (documentId.endsWith(".txt") && mode.contains("w")) {
+            CountDownLatch gate = textWriteGate;
+            try {
+                if (gate != null && !gate.await(15, TimeUnit.SECONDS))
+                    throw new FileNotFoundException("synthetic text write gate timed out");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new FileNotFoundException("synthetic text write interrupted");
+            }
+            try {
+                return ParcelFileDescriptor.open(file(documentId), ParcelFileDescriptor.parseMode(mode),
+                    new Handler(Looper.getMainLooper()), error -> {
+                        if (error == null) completedTextWrites.incrementAndGet();
+                        else failedTextWrites.incrementAndGet();
+                    });
+            } catch (IOException failure) { throw new FileNotFoundException("synthetic text descriptor failed"); }
         }
         return ParcelFileDescriptor.open(file(documentId), ParcelFileDescriptor.parseMode(mode));
     }

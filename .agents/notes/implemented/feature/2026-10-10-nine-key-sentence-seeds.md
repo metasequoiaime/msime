@@ -50,3 +50,5 @@ Status: implemented
 每词代价的实施位置由[共享词网格插入代价](../bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)部分取代：代价前移到共享解码，`comparable_weight` 只再扣音节奖励。种子、搜索预算及其约束继续成立；本篇验证保留当时的实施对照，新对照见该笔记。
 
 后续[种子尾段按采用上限选择与物化](../../implemented/testing/2026-10-17-nine-key-seed-tail-materialization.md)只在根页选择前3条并物化；非根页仍保留完整48条搜索宽度，种子数量与采用条数不变。
+
+后续：种子的全部音节都拼得出当前数字的开头时，再多接一条保住末音节的尾段，见 [九键音节频度改用内嵌的音节出现总权重，种子保住整个拼出的末音节](../bug-fix/2026-10-27-nine-key-syllable-frequency-table.md)；种子个数、留存上限和尾段条数不变。

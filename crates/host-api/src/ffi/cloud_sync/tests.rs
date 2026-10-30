@@ -208,6 +208,33 @@ fn marking_needs_no_session_and_only_counts_while_sync_is_on() {
     assert!(paths.state.join("cloud-sync/state.json").is_file());
 }
 
+/// 清除学习记录以后的 `dictionary_reset` 和 `mark_dirty` 一样不要会话：开关关着时不记，开着时给词库记一次改动；带上快照队列目录时一并取消排着的快照（这里队列是空的）。
+#[test]
+fn a_dictionary_reset_needs_no_session_and_marks_the_dictionary() {
+    let paths = paths();
+    let reset = json!({
+        "state_directory": paths.state,
+        "snapshot_queue_directory": paths.preferences.join("dictionary-snapshots"),
+        "action": { "operation": "dictionary_reset" },
+    });
+    assert_eq!(
+        call(reset.clone()),
+        json!({ "ok": true, "value": { "marked": false } })
+    );
+    save_session(&paths.account, "synthetic-user");
+    let enabled = call(request(
+        &paths,
+        json!({ "operation": "set_enabled", "enabled": true }),
+    ));
+    assert_eq!(enabled["value"]["enabled"], true, "{enabled}");
+    assert_eq!(
+        call(reset),
+        json!({ "ok": true, "value": { "marked": true } })
+    );
+    let status = call(request(&paths, json!({ "operation": "status" })));
+    assert_eq!(status["value"]["sections"]["dictionary"]["dirty"], true);
+}
+
 #[test]
 fn enabling_needs_an_account_and_sign_out_turns_sync_off() {
     let paths = paths();

@@ -21,7 +21,7 @@ Status: implemented
   - Android 云同步（`settings_sync`）：`platform.android.global_theme` 先按 `GlobalTheme::is_offered_on(Android)` 过滤，`native` 和不认识的 id 一样只跳过这一个键、记进 `skipped`，本机主题不变；`custom_theme_base` 本来就按 `is_base()` 过滤，`native` 同样被跳过。加 `Native` 之前 `from_id("native")` 是 `None`，过滤后的行为与那时一致。
   - 鸿蒙云同步（`AccountPreferencePlan.ts`，#8201 以后是 client-services 的 `account::harmony_settings`）：`GLOBAL_THEMES` 不含 `native`，收到它会以 `account_invalid` 拒收整份文档，这是鸿蒙对所有不认识主题 id 的既有处理，本次没有改 ArkTS。
   - 这些情况正常使用时都碰不到：同步键按平台分开，`platform.ios.global_theme` 只有 iOS 读写，iOS 也不写 Android、鸿蒙的键。只有别的客户端写错，或有人直接改云端文档时才会出现。
-- **iOS 渲染**（`KeyboardTheme`、`SystemKeyboardTokens`）：`native` 不填季节配色，`drawsNativeBackground` 为真，背景透明，露出 `KeyboardInputView`（`UIInputView` 的 `.keyboard` 样式）自带的系统键盘底板——iOS 26 起这块底板就是系统的 Liquid Glass，更早的系统是系统模糊材质。按键：
+- **iOS 渲染**（`KeyboardTheme`、`SystemKeyboardTokens`）：`native` 不填季节配色，`drawsNativeBackground` 为真，背景几乎透明（根视图、面板、格子和候选栏等收触摸的视图各自只铺一层 1% 的键盘底色，让触摸有落点，见 [原生皮肤触摸填充](../bug-fix/2026-10-29-ios-native-skin-touch-fill.md)），露出 `KeyboardInputView`（`UIInputView` 的 `.keyboard` 样式）自带的系统键盘底板——iOS 26 起这块底板就是系统的 Liquid Glass，更早的系统是系统模糊材质。按键：
   - iOS 26 起照系统键盘画：字母键和功能键同色（浅色 `#FFFFFF`、深色 `#464646`），没有底边阴影，iPhone 圆角 6pt。这些值是在 iOS 27 模拟器上对系统键盘截图量出来的；同一张图上浅色底板 `#E2E3E8`、深色 `#222223`，只给没有系统底板的预览用。iPad 没有量，圆角按经典取值的比例取 8pt。
   - iOS 17–25 沿用 `NativeKeyboardTokens` 的经典 UIKit 取值，底边阴影换成中性黑色（透明度不变），不用品牌绿。
   - 回车、选中候选和激活状态使用低饱和水杉绿：浅色 `#32664B`，深色 `#8AC4A2`。回车浅色用白字，深色用黑字，保留操作键辨识度。

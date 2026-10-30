@@ -161,6 +161,8 @@ struct Planner {
     due: u64,
     /// 配置好了、有设备身份：这时才看个人词库文件。
     active: bool,
+    /// 本机失败后暂停文件与指纹检查，到 `due` 时再跑一轮同步。
+    retrying: bool,
     next_poll: u64,
     /// 上一次看到的文件戳。
     stamp: Option<u64>,
@@ -181,6 +183,7 @@ impl Planner {
             retry: millis(timing.retry).max(1),
             due: now,
             active: false,
+            retrying: false,
             next_poll: now,
             stamp: None,
             changed_since: None,
@@ -193,7 +196,7 @@ impl Planner {
         if now >= self.due {
             return Step::Run(Trigger::Periodic);
         }
-        if !self.active {
+        if !self.active || self.retrying {
             return Step::Wait(self.due - now);
         }
         if self.fingerprint_due(now) {
@@ -250,6 +253,7 @@ impl Planner {
     }
 
     fn finished(&mut self, now: u64, ran: Ran) {
+        self.retrying = matches!(ran, Ran::Failed);
         match ran {
             Ran::Inactive => {
                 self.active = false;

@@ -4,7 +4,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
 
 use super::active_helpcode::strip_active_helpcodes;
-use super::syllables::{intact_piece, intact_pinyin_list, is_intact, MAX_SYLLABLE_LENGTH};
+use super::syllables::{
+    intact_piece, intact_pinyin_list, is_intact, is_prefix_piece, MAX_SYLLABLE_LENGTH,
+};
 use crate::types::autocorrect_type;
 
 /// Tie-break weights; the corrected-edge count is always the primary key (QUH:73-84).
@@ -162,7 +164,9 @@ fn rule_variants(syllable: &[u8], correction_type: u32) -> Vec<Vec<u8>> {
     variants
 }
 
-/// One table as the generator emits it (GEN:141-171, 270-285): every `(wrong, correct)` pair, sorted. A wrong key keeps every syllable it can come from, for the runtime to settle by word frequency. Two-letter strings are jianpin space and never keys.
+/// One table as the generator emits it (GEN:141-171, 270-285): every `(wrong, correct)` pair, sorted. A wrong key keeps every syllable it can come from, for the runtime to settle by word frequency. Two-letter strings are jianpin space and never keys here.
+///
+/// 读不出来的两字母串另有一张表，见 `two_letter_table`。
 fn generate_table(correction_type: u32) -> Vec<(String, String)> {
     let mut pairs = BTreeSet::new();
     for &syllable in intact_pinyin_list() {
@@ -201,6 +205,42 @@ pub fn correction_table(correction_type: u32) -> &'static [(String, String)] {
         other => panic!("not a single autocorrect type bit: {other}"),
     };
     table.get_or_init(|| generate_table(correction_type))
+}
+
+/// 两个字母的串能否按简拼或音节前缀读出来：整串是某个音节的前缀（`zh`、`ba`），或两个字母各自是音节的开头（`nh` 读作 n'h）。
+fn two_letters_readable(letters: &[u8]) -> bool {
+    is_prefix_piece(letters) || (is_prefix_piece(&letters[..1]) && is_prefix_piece(&letters[1..]))
+}
+
+/// 两字母纠错键（#10124）：两字母音节换一个邻键或调换两个字母，得到的串既不是音节、又按简拼和音节前缀都读不出来时，记一行 `(错键, 音节)`。只覆盖邻键和乱序两类，按行序排好。
+///
+/// 参考生成器只收三到六个字母的错键，因为两字母串属于简拼（`nh`、`zh`、`wd`），把它们当错键会抢走简拼。但 `wi`、`hi`、`ia` 这类串里有 `i`/`u`/`v` 这种不能开始音节的字母，既不是简拼也不是任何音节的前缀，整段输入因此一个读法都没有：`wiaini` 想打 `woaini`，本地候选是空的。这里只收这种读不出来的串，所以不会和简拼争读法；固定参考表的那四张表和它们的行数不变。
+fn two_letter_table(correction_type: u32) -> &'static [(String, String)] {
+    static TRANSPOSITION: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    static NEIGHBOR: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    let table = match correction_type {
+        autocorrect_type::TRANSPOSITION => &TRANSPOSITION,
+        autocorrect_type::NEIGHBOR => &NEIGHBOR,
+        _ => return &[],
+    };
+    table.get_or_init(|| {
+        let mut pairs = BTreeSet::new();
+        for &syllable in intact_pinyin_list() {
+            if syllable.len() != 2 {
+                continue;
+            }
+            for variant in rule_variants(syllable.as_bytes(), correction_type) {
+                if variant.len() != 2 || two_letters_readable(&variant) {
+                    continue;
+                }
+                let Ok(variant) = String::from_utf8(variant) else {
+                    continue;
+                };
+                pairs.insert((variant, syllable.to_owned()));
+            }
+        }
+        pairs.into_iter().collect()
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -259,7 +299,11 @@ fn correction_index() -> &'static HashMap<&'static str, Vec<CorrectionTarget>> {
             autocorrect_type::INSERTION,
             autocorrect_type::NEIGHBOR,
         ] {
-            for (wrong, correct) in correction_table(type_bit) {
+            // 两字母键和三字母以上的键互不重叠，跟在同类表后面并入，每个键的目标仍按权重排好。
+            for (wrong, correct) in correction_table(type_bit)
+                .iter()
+                .chain(two_letter_table(type_bit))
+            {
                 let targets = index.entry(wrong.as_str()).or_default();
                 match targets.iter_mut().find(|target| target.syllable == correct) {
                     Some(target) => target.type_bits |= type_bit,
@@ -356,6 +400,27 @@ impl Search {
         list.truncate(write);
     }
 
+    /// 整条读法用到了两字母纠错键，却没有一个照原样打对的音节时为真。两个字母本身的证据太少：单独的 `hi`、`wi` 和 `wifi` 这类整串都要改的输入多半是英文或别的意思，只有旁边有打对的音节（`wiaini` 的 `ai`、`ni`）才说明这一段是拼音打错了。只在到达末尾时沿前驱链查一次，前面各位置的列表定稿后不再变化。
+    fn short_keys_unsupported(
+        &self,
+        start: usize,
+        parent_index: usize,
+        raw_length: usize,
+        corrected: bool,
+    ) -> bool {
+        let mut short_key = corrected && raw_length == 2;
+        let mut literal = !corrected;
+        let mut position = start;
+        let mut current = self.best[position][parent_index];
+        while current.prev_index != NO_PREDECESSOR {
+            short_key |= current.corrected && current.raw_length == 2;
+            literal |= !current.corrected;
+            position -= current.raw_length;
+            current = self.best[position][current.prev_index];
+        }
+        short_key && !literal
+    }
+
     fn extend(
         &mut self,
         length: usize,
@@ -374,6 +439,11 @@ impl Search {
             }
             // A legal-only reading of the whole input is the caller's plain segmentation; dropping it on arrival also keeps k = 1 consistent with larger k.
             if end == length && edge_count == 0 {
+                continue;
+            }
+            if end == length
+                && self.short_keys_unsupported(start, parent_index, raw_length, corrected)
+            {
                 continue;
             }
             if self.sequences.is_empty() {
@@ -447,6 +517,10 @@ pub fn autocorrect_cut_kbest(
             let Some(piece_text) = std::str::from_utf8(piece).ok() else {
                 continue;
             };
+            // 两字母错键落在输入末尾时，第二个字母若能开始音节（`hauz` 的 `uz`），它更像下一个音节的简拼开头，交给「纠错头 + 简拼尾」去读（hua'z），不读成 ha'zu。
+            if raw_length == 2 && start + 2 == length && is_prefix_piece(&piece[1..]) {
+                continue;
+            }
             let Some(targets) = index.get(piece_text) else {
                 continue;
             };
@@ -520,7 +594,7 @@ pub fn looks_like_syllable_with_jianpin_tail(pinyin: &str) -> bool {
         };
         position += matched;
     }
-    // All-consonant strings match nothing and stay correctable on purpose: there is no multi-letter jianpin, so `bqng` can only mean `bang`.
+    // 全辅音串一个音节也匹配不上，这里有意让它保持可纠错：它可能是 `bqng`（bang）这种按偏了韵母的误触，也可能是 `qjn`、`zhr` 这种多字母简拼（含 zh/ch/sh 简拼单位）。两种读法都留着，先后由词典定：字面简拼读满全部按键的多字词条排在纠错读法前面，见 `quanpin::series::lead_literal_abbreviation_phrases`。
     if position == 0 || bytes.len() - position > 1 {
         return false;
     }
@@ -835,6 +909,66 @@ mod tests {
         assert_eq!(cut("sjhang", INSERTION), "shang");
         assert_eq!(cut("sjhang", NEIGHBOR), "");
         assert_eq!(cut("shanggzhi", ALL_FOUR), "shang'zhi");
+    }
+
+    #[test]
+    fn two_letter_keys_cover_only_strings_without_a_reading() {
+        for (type_bit, expected) in [(NEIGHBOR, ("wi", "wo")), (TRANSPOSITION, ("ia", "ai"))] {
+            let table = two_letter_table(type_bit);
+            assert!(
+                table.contains(&(expected.0.to_owned(), expected.1.to_owned())),
+                "{expected:?}"
+            );
+            for (wrong, correct) in table {
+                assert_eq!(wrong.len(), 2, "{wrong} -> {correct}");
+                assert_eq!(correct.len(), 2, "{wrong} -> {correct}");
+                assert!(is_intact(correct), "{wrong} -> {correct}");
+                assert!(
+                    !is_intact(wrong) && !two_letters_readable(wrong.as_bytes()),
+                    "a two-letter key must not shadow a syllable or jianpin: {wrong}"
+                );
+            }
+        }
+        // 简拼和音节前缀照旧不是错键。
+        for jianpin in ["nh", "zh", "wd", "sh", "ba", "ne"] {
+            assert!(!correction_index().contains_key(jianpin), "{jianpin}");
+        }
+        assert!(two_letter_table(DELETION).is_empty());
+        assert!(two_letter_table(INSERTION).is_empty());
+    }
+
+    #[test]
+    fn a_two_letter_typo_reads_with_the_syllables_typed_right() {
+        for types in [BOTH, ALL_FOUR, NEIGHBOR] {
+            let wiaini = readings("wiaini", types);
+            assert!(
+                wiaini.contains(&"wo'ai'ni".to_owned()),
+                "{types}: {wiaini:?}"
+            );
+            let wiai = readings("wiai", types);
+            assert!(wiai.contains(&"wo'ai".to_owned()), "{types}: {wiai:?}");
+        }
+        assert_eq!(
+            segments_of("wiaini", NEIGHBOR)[1..],
+            [segment("ai", "ai", 2, false), segment("ni", "ni", 4, false)]
+        );
+        assert!(readings("iahao", TRANSPOSITION).contains(&"ai'hao".to_owned()));
+        // 邻键开关关掉时 `wi` 不改。
+        assert!(readings("wiaini", TRANSPOSITION).is_empty());
+        // 只有两字母键、没有打对的音节时不纠：单独的 `wi`、`hi` 和整串都要改的 `wifi` 保持原样。
+        for input in ["wi", "hi", "wifi", "hihi"] {
+            assert!(readings(input, ALL_FOUR).is_empty(), "{input}");
+            assert!(autocorrect_cut_detail(input, ALL_FOUR).is_none(), "{input}");
+        }
+        // 末尾的两字母键第二个字母能开始音节时让给简拼尾：`hauz` 不读成 ha'zu；`niwi` 的 `i` 开始不了音节，照纠。
+        assert!(readings("hauz", ALL_FOUR).is_empty());
+        assert!(readings("iahauz", ALL_FOUR).is_empty());
+        assert!(readings("niwi", NEIGHBOR).contains(&"ni'wo".to_owned()));
+        for input in ["wiaini", "wiai", "iahao", "niwi"] {
+            let best = autocorrect_cut_kbest(input, ALL_FOUR, 1);
+            let wider = autocorrect_cut_kbest(input, ALL_FOUR, 9);
+            assert_eq!(best.first(), wider.first(), "k = 1 must agree for {input}");
+        }
     }
 
     #[test]

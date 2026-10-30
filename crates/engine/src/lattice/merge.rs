@@ -6,8 +6,8 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::decode::{
-    build_graph, build_graph_borrowed, decode_graph, decode_typo_on_graph,
-    decode_typo_on_graph_with_policy, LatticeOptions, SentencePath, TypoSentence,
+    build_graph, build_graph_borrowed, decode_graph, decode_graph_resuming, decode_typo_on_graph,
+    decode_typo_on_graph_with_policy, BeamResume, LatticeOptions, SentencePath, TypoSentence,
 };
 use super::neural::{NeuralReranker, MAX_RERANK_PATHS};
 use super::{LatticeLookup, TypoEdgeSource};
@@ -63,6 +63,7 @@ pub(crate) fn merge_lattice_candidates_with_typo_policy(
         options,
         typo_source,
         allow_nonleading_typo,
+        None,
     )?;
     merge_decoded(
         candidates,
@@ -82,14 +83,15 @@ pub(crate) struct DecodedSentences {
     pub(crate) typo: Option<TypoSentence>,
 }
 
-/// `merge_lattice_candidates` 的解码一半：少于两个音节或含不完整音节时为 `None`，与合并时不插入任何行一致。
+/// `merge_lattice_candidates` 的解码一半：少于两个音节或含不完整音节时为 `None`，与合并时不插入任何行一致。带 `resume` 时字面整句的束搜索从共用前缀的旧图接着解（`decode::BeamPrefixCache`），结果不变。
 pub(crate) fn decode_lattice(
     syllables: &[String],
     lookup: &mut LatticeLookup<'_>,
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
+    resume: Option<&mut BeamResume<'_>>,
 ) -> Option<DecodedSentences> {
-    decode_lattice_with_typo_policy(syllables, lookup, options, typo_source, false)
+    decode_lattice_with_typo_policy(syllables, lookup, options, typo_source, false, resume)
 }
 
 fn decode_lattice_with_typo_policy(
@@ -98,6 +100,7 @@ fn decode_lattice_with_typo_policy(
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
     allow_nonleading_typo: bool,
+    resume: Option<&mut BeamResume<'_>>,
 ) -> Option<DecodedSentences> {
     if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
         return None;
@@ -109,6 +112,7 @@ fn decode_lattice_with_typo_policy(
         typo_source,
         &graph,
         allow_nonleading_typo,
+        resume,
     ))
 }
 
@@ -118,6 +122,7 @@ pub(crate) fn decode_lattice_borrowed<'rows>(
     lookup: &mut impl FnMut(&[String]) -> &'rows [super::decode::LatticeLexeme],
     options: &LatticeOptions<'_>,
     typo_source: Option<&mut TypoEdgeSource<'_>>,
+    resume: Option<&mut BeamResume<'_>>,
 ) -> Option<DecodedSentences> {
     if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
         return None;
@@ -129,6 +134,7 @@ pub(crate) fn decode_lattice_borrowed<'rows>(
         typo_source,
         &graph,
         false,
+        resume,
     ))
 }
 
@@ -139,7 +145,7 @@ fn decode_graph_sentences(
     typo_source: Option<&mut TypoEdgeSource<'_>>,
     graph: &super::decode::Graph,
 ) -> DecodedSentences {
-    decode_graph_sentences_with_policy(syllables, options, typo_source, graph, false)
+    decode_graph_sentences_with_policy(syllables, options, typo_source, graph, false, None)
 }
 
 fn decode_graph_sentences_with_policy(
@@ -148,8 +154,12 @@ fn decode_graph_sentences_with_policy(
     typo_source: Option<&mut TypoEdgeSource<'_>>,
     graph: &super::decode::Graph,
     allow_nonleading_typo: bool,
+    resume: Option<&mut BeamResume<'_>>,
 ) -> DecodedSentences {
-    let paths = decode_graph(graph, options, None);
+    let paths = match resume {
+        Some(resume) => decode_graph_resuming(graph, options, resume),
+        None => decode_graph(graph, options, None),
+    };
     if paths.is_empty() {
         return DecodedSentences { paths, typo: None };
     }

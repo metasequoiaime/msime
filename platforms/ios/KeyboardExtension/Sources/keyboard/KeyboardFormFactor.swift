@@ -13,6 +13,11 @@ enum KeyboardFormFactor: Equatable {
   /// 26 键手机竖屏为补回键盘总高而在键区上下增加的留白。
   static let phoneLetterVerticalPadding: CGFloat = 10
 
+  /// 26 键手机竖屏有 `rows` 排键（含底行）时上下各留的白：每排键帽从 52pt 收到 44pt 省下 8pt，排间距多出 `phoneLetterRowPadding`，两者之差平分到上下。四排时为 `phoneLetterVerticalPadding`；顶部数字行打开时五排，为 12pt，字母键仍是 44pt。
+  static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
+    (CGFloat(rows) * 8 - CGFloat(max(rows - 1, 0)) * phoneLetterRowPadding) / 2
+  }
+
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass
   ) -> KeyboardFormFactor {
@@ -51,9 +56,10 @@ enum KeyboardFormFactor: Equatable {
     }
   }
 
-  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。竖屏手写也多一排（`handwritingAddsRow`），书写区因此有四排键高。
-  func keyRows(numberRow: Bool, handwriting: Bool = false, landscape: Bool = false) -> Int {
-    (self == .tablet && numberRow ? 5 : 4) + (Self.handwritingAddsRow(handwriting: handwriting, landscape: landscape) ? 1 : 0)
+  /// 键盘按几排按键来排布：四排；iPad 显示数字行时为五排，因为那是整整多出的一排，而不是从字母行里挤出来的。手机只在画「按键布局」的顶部数字行（或它在数字和符号页上的补充行）时为五排（`phoneNumberRow`），大千的第五排在手机上仍挤在四排里。竖屏手写也多一排（`handwritingAddsRow`），书写区因此有四排键高。
+  func keyRows(numberRow: Bool, handwriting: Bool = false, landscape: Bool = false, phoneNumberRow: Bool = false) -> Int {
+    ((self == .tablet ? numberRow : phoneNumberRow) ? 5 : 4)
+      + (Self.handwritingAddsRow(handwriting: handwriting, landscape: landscape) ? 1 : 0)
   }
 
   /// 手写模式是否比其他布局多一排键高：竖屏的手机和 iPad 都多，书写区占四排键高、铺满键盘宽度；横屏屏幕本来就矮，保留原来的三排书写区。Android 与 HarmonyOS 按同一条规则（见 .agents/notes/implemented/feature/2026-10-25-mobile-handwriting-full-width-pad.md）。
@@ -61,8 +67,8 @@ enum KeyboardFormFactor: Equatable {
 
   /// 用户调整之前的键盘高度，按设计稿的结构逐项相加：上边距、顶部那一行、它下面的间隔、各排按键连同排间距，以及下边距。顶部那一行收起（`topRow` 为 0，「显示方式」为隐藏时）时间隔也一起去掉，与 `applyKeyboardMetrics` 把那段间隔设为 0 一致，否则多出的高度会被分给按键，组字开始和结束时按键高度跟着跳。
   func keyboardHeight(topRow: CGFloat, rowSpacing: CGFloat, landscape: Bool, handwriting: Bool,
-                      numberRow: Bool = false, letterKeys: Bool = false) -> CGFloat {
-    let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape)
+                      numberRow: Bool = false, letterKeys: Bool = false, phoneNumberRow: Bool = false) -> CGFloat {
+    let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape, phoneNumberRow: phoneNumberRow)
     let keyBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys),
       rows: rows, rowSpacing: rowSpacing)
@@ -112,9 +118,9 @@ enum TabletLetterLayout {
   static let dismissFace = "⌄"
 }
 
-/// 横屏分离式键盘（`KeyboardLayoutPreference.tabletSplit`）的规则：什么时候分、哪些布局分、从哪里分、中缝多宽。
+/// 横屏分离式键盘（iPad 的 `KeyboardLayoutPreference.tabletSplit`、iPhone 的 `phoneLandscapeSplit`）的规则：什么时候分、哪些布局分、从哪里分、中缝多宽。
 ///
-/// 只有平板形态（regular 宽度的 iPad）横屏且开关打开时才分。iPad 的浮动键盘、Slide Over 和台前调度里的窄窗口已经是手机形态，竖屏的平板键盘也不分，它们都保持原样。
+/// 平板形态（regular 宽度的 iPad）横屏且 iPad 的开关打开时分；iPhone 横屏、iPhone 的开关打开、而且屏幕够宽（`phoneIsActive`）时也分，几何与 iPad 相同，只是键面是手机的。iPad 的浮动键盘、Slide Over 和台前调度里的窄窗口已经是手机形态，但不是 iPhone，不分；竖屏也不分，它们都保持原样。
 ///
 /// 分的是 26 键字母布局（全拼、各种双拼含微软双拼的 `;` 键、五笔、英文、日文罗马字、韩文和其他字母方案）、它们的 123 符号页，以及 iPad 的数字行和 Tab 那一排；九键、全拼 14 键、笔画、手写、注音大千和日文假名九键不分，符号、表情、剪贴板等面板也不分。每一排（包括底部功能键那一排）在中间插入一段不接触摸的中缝，键盘高度不变。
 enum KeyboardSplitLayout {
@@ -124,6 +130,22 @@ enum KeyboardSplitLayout {
   /// 分离式键盘此刻是否生效。`enabled` 只在平板横屏时才读，手机和竖屏不必去读 App Group。
   static func isActive(formFactor: KeyboardFormFactor, landscape: Bool, enabled: @autoclosure () -> Bool) -> Bool {
     formFactor == .tablet && landscape && enabled()
+  }
+
+  /// iPhone 横屏分开后字母键至少要有多宽（pt）才分（#10224）。键区宽是键盘视图的宽度，不是屏幕宽度：全面屏 iPhone 横屏时系统在键盘两侧各留一栏放地球键和听写键，XR（896pt 宽的屏幕）真机上键盘只有约 662pt，分开后字母键约 44pt。36pt 不窄于 iPhone 竖屏时的字母键（SE 约 31.5pt，XR 约 35.4pt），所以默认 6pt 键距下所有 iPhone 横屏都分；它只挡住窄得不正常的键盘视图。早先的 50pt 是按屏幕宽度算的，真机上没有一台 iPhone 够得着。
+  static let phoneMinimumLetterKeyWidth: CGFloat = 36
+
+  /// iPhone 横屏分开后第一排字母键的宽度：一排十个字母加一段中缝，共十个键距；中缝视图宽 `gapViewWidth`，于是十个键分到 `(1 - gapRatio) * rowWidth - 8 * keySpacing`。第一排是手机键盘最窄的一排（第二排九个字母两侧缩进，第三排七个字母两侧是 44pt 的 ⇧ 和 ⌫，按同样的中缝算都更宽）。
+  static func phoneLetterKeyWidth(rowWidth: CGFloat, keySpacing: CGFloat) -> CGFloat {
+    ((1 - gapRatio) * rowWidth - 8 * keySpacing) / 10
+  }
+
+  /// iPhone 横屏分离式键盘此刻是否生效：真的是 iPhone（iPad 的浮动键盘和窄窗口也是手机形态，但不分）、横屏、分开后的字母键不窄于 `phoneMinimumLetterKeyWidth`，开关打开。开关放在最后读，竖屏和窄屏不读 App Group。
+  static func phoneIsActive(idiom: UIUserInterfaceIdiom, formFactor: KeyboardFormFactor, landscape: Bool,
+                            rowWidth: CGFloat, keySpacing: CGFloat, enabled: @autoclosure () -> Bool) -> Bool {
+    idiom == .phone && formFactor == .phone && landscape
+      && phoneLetterKeyWidth(rowWidth: rowWidth, keySpacing: keySpacing) >= phoneMinimumLetterKeyWidth
+      && enabled()
   }
 
   /// 当前显示的键区是不是会分开的字母布局。英文和本地输入模式总是画 26 键字母；九键、全拼 14 键和 18 键、笔画、假名九键、注音大千和手写画的是各自的键区，不分。

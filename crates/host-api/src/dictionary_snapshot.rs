@@ -13,7 +13,8 @@ use msime_client_services::account::{
     AccountDictionarySnapshotRestore, AccountError, BackendAccountClient,
 };
 use msime_engine::host::{
-    dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
+    cached_dictionary_state_revision, dictionary_state_revision, stage_dictionary_state,
+    EngineOptions, Session, SnapshotReadError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -87,6 +88,9 @@ enum SnapshotQueueAction {
         options: HostOptions,
         #[serde(default)]
         acknowledge: bool,
+        /// 队列里没有排队或准备中的请求时只读状态返回：不扫用户词库算本机版本，也不发布它（不重写、不 fsync `state.json`）。鸿蒙键盘每次显示后在 UI 线程上查一次队列，而那里没有任何东西往键盘的队列里排请求，发布出去的本机版本没人读；真有请求时，重建会话的 `process` 会在认领前先发布。不给时与原来相同，每次都发布。
+        #[serde(default)]
+        skip_when_idle: bool,
     },
     Enqueue {
         directory: String,
@@ -108,6 +112,9 @@ enum SnapshotQueueAction {
         staging_root: String,
         options: HostOptions,
         account_id: Option<String>,
+        /// 队列里没有排队或准备中的请求时什么也不做，直接返回状态：不扫用户词库算本机版本，也不发布它。鸿蒙键盘每次构建会话都处理一次队列，而队列几乎总是空的；它随后的队列查询（`state`）也带这个开关，所以空队列上本机版本不发布，真有请求时这里在认领前发布。不给时与原来相同，先发布本机版本再认领。
+        #[serde(default)]
+        skip_when_idle: bool,
     },
     /// Android 旧版 Java 队列的 `state.bin` 就地转成 `state.json`（迁移计划 P13）。
     ImportAndroidV1 { directory: String },
@@ -688,7 +695,8 @@ fn learning_records(
     updated_at: &str,
     budget: usize,
 ) -> Result<LearningRecords, &'static str> {
-    use msime_engine::host::{DictionaryKind, DictionaryStateRecord};
+    use msime_engine::host::DictionaryKind;
+    use msime_engine::DictionaryStateRecord;
     // 与 `inspect_snapshot_record` 对编码、词和上下文的要求相同，写出去的记录不会让自检失败。
     let fits = |text: &str, maximum: usize| {
         !text.is_empty() && text.len() <= maximum && snapshot_safe(text)
@@ -1017,6 +1025,16 @@ fn merge_pending(
     }
 }
 
+/// 清除学习记录（`msime_client_dictionary` 的 `reset`）时调用，调用方已经拿着独占维护权：删掉还没合并的输入记录和输入习惯（本地备份恢复排下的、键盘认领了还没合并完的，以及记失败次数的文件）。不删的话键盘下次空闲时会把清除前的调频、置顶、整句联想和拼写纠错并回来。
+pub(crate) fn discard_pending_learning(preferences: &Path) -> Result<(), &'static str> {
+    for files in [&LEARNING_FILES, &habits::HABITS_FILES] {
+        for name in [files.pending, files.claimed, files.attempts] {
+            remove_if_present(&preferences.join(name))?;
+        }
+    }
+    Ok(())
+}
+
 fn remove_if_present(path: &Path) -> Result<(), &'static str> {
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err("snapshot file unavailable"),
@@ -1026,7 +1044,7 @@ fn remove_if_present(path: &Path) -> Result<(), &'static str> {
 
 /// 本机日志里输入记录的条数（学习调权、删除记录、固定位置和选词计数，不含用户自己的词）`count`，以及输入习惯的行数 `habits`（[`habits`]），只读。本地备份恢复时用它判断本机是不是还什么都没学过。
 pub(crate) fn learning_count(options: &EngineOptions) -> Result<Value, &'static str> {
-    use msime_engine::host::DictionaryStateRecord;
+    use msime_engine::DictionaryStateRecord;
     let mut count = 0usize;
     msime_engine::host::stream_dictionary_state(options, &mut |record| {
         if !matches!(
@@ -1086,6 +1104,18 @@ fn validate_options(options: HostOptions) -> Result<EngineOptions, &'static str>
 }
 
 fn version(options: &EngineOptions) -> Result<String, &'static str> {
+    version_with(options, dictionary_state_revision)
+}
+
+/// 与 [`version`] 相同，但日志自上次算过以来没变时直接用上次的修订号，不重新扫描全表（见 `cached_dictionary_state_revision`）。只用于宿主空闲时轮询、发布本机版本这类预览；准备快照前后的比对仍用 [`version`]。
+fn preview_version(options: &EngineOptions) -> Result<String, &'static str> {
+    version_with(options, cached_dictionary_state_revision)
+}
+
+fn version_with<E>(
+    options: &EngineOptions,
+    revision: impl FnOnce(&EngineOptions) -> Result<String, E>,
+) -> Result<String, &'static str> {
     let _access = DictionaryAccess::try_session(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -1110,7 +1140,7 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
         hash.update((text.len() as u64).to_be_bytes());
         hash.update(text.as_bytes());
     }
-    hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
+    hash.update(revision(options).map_err(|_| "snapshot revision unavailable")?);
     Ok(hex::encode(hash.finalize()))
 }
 
@@ -1154,7 +1184,7 @@ fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
     on_demand: &[&[&str]],
-    stream: impl Iterator<Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>>
+    stream: impl Iterator<Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>>
         + 'static,
 ) -> Result<Prepared, &'static str> {
     if request.records > 500_000 || request.expected_version.len() != 64 {
@@ -1717,7 +1747,15 @@ fn snapshot_queue(directory: &str) -> Result<DictionarySnapshotQueue, String> {
 }
 
 fn durable_local_version(options: &EngineOptions) -> Result<String, &'static str> {
-    let digest = version(options)?;
+    local_version_from(options, version(options)?)
+}
+
+/// 用 [`preview_version`] 的 [`durable_local_version`]：空闲时发布给队列的本机版本，日志没动就不重扫。
+fn preview_local_version(options: &EngineOptions) -> Result<String, &'static str> {
+    local_version_from(options, preview_version(options)?)
+}
+
+fn local_version_from(options: &EngineOptions, digest: String) -> Result<String, &'static str> {
     let generation = activation_receipt(options)?;
     local_version(generation.as_deref(), &digest).map_err(|_| "invalid snapshot local version")
 }
@@ -1767,7 +1805,7 @@ impl SnapshotFileRecords {
 }
 
 impl Iterator for SnapshotFileRecords {
-    type Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>;
+    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.failed {
@@ -1810,12 +1848,15 @@ fn snapshot_queue_state(
     queue: &DictionarySnapshotQueue,
     options: HostOptions,
     acknowledge: bool,
+    skip_when_idle: bool,
 ) -> Result<Value, String> {
     let options = validate_options(options).map_err(str::to_owned)?;
-    let current = durable_local_version(&options).map_err(str::to_owned)?;
-    queue
-        .publish_local_version(&current)
-        .map_err(snapshot_queue_error)?;
+    if !(skip_when_idle && queue_is_idle(queue)?) {
+        let current = preview_local_version(&options).map_err(str::to_owned)?;
+        queue
+            .publish_local_version(&current)
+            .map_err(snapshot_queue_error)?;
+    }
     let state = if acknowledge {
         queue.take_state()
     } else {
@@ -1825,11 +1866,22 @@ fn snapshot_queue_state(
     serde_json::to_value(state).map_err(|_| "snapshot_unavailable".to_owned())
 }
 
+/// 队列里没有排队或准备中的请求。`skip_when_idle` 的 `state` 和 `process` 在这时只读状态返回，不算本机版本、不发布、不建队列目录。
+fn queue_is_idle(queue: &DictionarySnapshotQueue) -> Result<bool, String> {
+    Ok(!queue
+        .read()
+        .map_err(snapshot_queue_error)?
+        .request
+        .as_ref()
+        .is_some_and(|request| request.status.active()))
+}
+
 fn snapshot_queue_process(
     queue: &DictionarySnapshotQueue,
     staging_root: String,
     options: HostOptions,
     account_id: Option<String>,
+    skip_when_idle: bool,
 ) -> Result<Value, String> {
     // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
     snapshot_queue_process_with(
@@ -1837,6 +1889,7 @@ fn snapshot_queue_process(
         staging_root,
         options,
         account_id,
+        skip_when_idle,
         |options| {
             crate::dictionary_updates::specification_for_options(options)
                 .map_err(|_| "snapshot resources rejected".to_owned())
@@ -1851,13 +1904,19 @@ fn snapshot_queue_process_with(
     staging_root: String,
     options: HostOptions,
     account_id: Option<String>,
+    skip_when_idle: bool,
     specification: impl FnOnce(&HostOptions) -> Result<ResourceSet, String>,
     on_demand: &[&[&str]],
 ) -> Result<Value, String> {
     let engine_options = validate_options(options.clone()).map_err(str::to_owned)?;
-    let current = durable_local_version(&engine_options).map_err(str::to_owned)?;
+    if skip_when_idle && queue_is_idle(queue)? {
+        return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+            .map_err(|_| "snapshot_unavailable".to_owned());
+    }
+    // 每次失焦都走这里，绝大多数时候队列里什么也没有：先用不重扫日志的预览版本发布，真认领到请求后再精确算一遍，后面的比对、冲突判定都用精确值。
+    let published = preview_local_version(&engine_options).map_err(str::to_owned)?;
     queue
-        .publish_local_version(&current)
+        .publish_local_version(&published)
         .map_err(snapshot_queue_error)?;
     // 键盘这次读不到共享的会话文件（读取失败或未登录）时不知道当前账号是谁：属于账号的请求 claim 原样留着，下一次空闲时再处理，不在未知账号下应用；本地备份恢复的请求（`LOCAL_RESTORE_OWNER`）不属于任何账号，照样处理，与 Android 原来的 Java 队列相同。
     let account_id = account_id.as_deref();
@@ -1876,6 +1935,7 @@ fn snapshot_queue_process_with(
         return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
             .map_err(|_| "snapshot_unavailable".to_owned());
     };
+    let current = durable_local_version(&engine_options).map_err(str::to_owned)?;
     if request.expected_local_version != current {
         let _ = queue
             .complete(request.id, &lease, &current, false, account_id, || {
@@ -1958,7 +2018,13 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
             directory,
             options,
             acknowledge,
-        } => snapshot_queue_state(&snapshot_queue(&directory)?, options, acknowledge),
+            skip_when_idle,
+        } => snapshot_queue_state(
+            &snapshot_queue(&directory)?,
+            options,
+            acknowledge,
+            skip_when_idle,
+        ),
         SnapshotQueueAction::Enqueue {
             directory,
             source,
@@ -1996,11 +2062,13 @@ fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
             staging_root,
             options,
             account_id,
+            skip_when_idle,
         } => snapshot_queue_process(
             &snapshot_queue(&directory)?,
             staging_root,
             options,
             account_id,
+            skip_when_idle,
         ),
         SnapshotQueueAction::ImportAndroidV1 { directory } => {
             let queue = snapshot_queue(&directory)?;
@@ -2117,7 +2185,7 @@ pub unsafe extern "C" fn msime_client_snapshot_version(
             return Err("invalid snapshot buffer".into());
         }
         let options = parse_options(unsafe { std::slice::from_raw_parts(options, length) })?;
-        let version = version(&options)?;
+        let version = preview_version(&options)?;
         let generation = activation_receipt(&options)?.unwrap_or_else(|| "legacy".to_owned());
         Ok(json!({"version": version, "generation": generation}))
     })

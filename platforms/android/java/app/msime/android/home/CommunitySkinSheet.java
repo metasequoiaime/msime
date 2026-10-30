@@ -35,13 +35,13 @@ public final class CommunitySkinSheet {
     /**
      * Show one entry.
      *
-     * @param nineKey draw the preview as the layout this user types on
+     * @param layout 预览画读者自己的键盘（{@link KeyboardPreview#layout}）：作品不带作者的键位，读者想看的是这款皮肤装到自己键盘上的样子；没有偏好时传 {@link KeyLayoutStylesPolicy.Preview#STANDARD}
      * @param actionLabel what the sheet's own button says, the same words as the card's pill (获取 / 使用 / 添加 / 已添加); empty for kinds that cannot be taken on this device
      * @param onAction runs when the sheet's own button is pressed; null when there is nothing to do (a reply template, or a pack already added), which gets a disabled button rather than a dead one
      * @param onReport runs when 举报 is pressed, after the sheet closes
      * @param onChangeCategory 作者选了另一个分类时调用；不是作者（或不是皮肤）时为 null，详情里只显示分类、不给修改入口
      */
-    public static void show(Context context, CommunityCatalog.Item item, boolean nineKey,
+    public static void show(Context context, CommunityCatalog.Item item, KeyLayoutStylesPolicy.Preview layout,
             String actionLabel, Runnable onAction, Runnable onReport,
             Consumer<CommunityRequest.Category> onChangeCategory) {
         KeyboardSkin skin = CommunityAdapter.preview(item);
@@ -49,9 +49,8 @@ public final class CommunitySkinSheet {
 
         if (skin != null) {
             KeyboardPreview preview = new KeyboardPreview(context);
-            // 用当前的布局画：用九键的人要看的是九键，不是一张跟自己键盘对不上的图。角标说的是画的
-            // 哪种布局，不是皮肤名——名字就在上面那行标题里。
-            preview.setKeyboard(skin, nineKey, nineKey ? "九键" : "26 键");
+            // 用当前的布局画：用九键的人要看的是九键，底行也是自己选的样式，不是一张跟自己键盘对不上的图。角标说的是画的哪种布局，不是皮肤名——名字就在上面那行标题里。
+            preview.setKeyboard(skin, layout, layout.caption());
             LinearLayout.LayoutParams params = LayoutPolicy.matchWidthHeightDp(context, 196);
             params.topMargin = DimensionPolicy.pixels(context, 4);
             // add() fixes every row at WRAP_CONTENT, and this view measures to nothing under it.

@@ -50,15 +50,15 @@ final class ImeCompositionEditor {
         if (container != null) ViewPolicy.hide(container);
     }
 
-    void render(String display, String editing, int caret) {
+    void render(String display, String editing, int caret, boolean keyGrid) {
         if (!s.compositionEditable()) close();
         if (container == null) return;
         ViewPolicy.setVisible(container, open);
         if (!open) return;
         container.setBackgroundColor(Color.parseColor(s.skin.background()));
         // 读音无法与原始按键对齐时，显示可编辑的按键，不猜测位置。
-        if (CompositionCaretPolicy.displayOffset(display, editing, caret) < 0) display = editing;
-        spelling.update(display, editing, caret, Color.parseColor(s.skin.keyForeground()),
+        if (CompositionCaretPolicy.displayOffset(display, editing, caret, keyGrid) < 0) display = editing;
+        spelling.update(display, editing, caret, keyGrid, Color.parseColor(s.skin.keyForeground()),
             Color.parseColor(s.skin.accent()));
     }
 }

@@ -30,6 +30,16 @@ public final class TextTrackpadHoldSmoke {
         hold.activate(editor, 600);
         check(!hold.move(editor, 2, 10, 10), "多指取消临时触摸");
         check(hold.cancel() == TextTrackpadHold.End.RESTORE, "多指后恢复原面板");
+        // 同一输入框重启连接（#10141）：按住中的临时触控板改认新连接，不因重启结束。
+        hold.down(editor, 10, 10, 100);
+        hold.activate(editor, 600);
+        hold.retarget(editor, other);
+        check(hold.move(other, 1, 400, 800), "改认新连接后按住继续");
+        check(hold.up(other) == TextTrackpadHold.End.RESTORE, "改认后松手照常恢复");
+        hold.down(editor, 10, 10, 100);
+        hold.retarget(editor, other);
+        check(hold.activate(other, 600), "等待长按时改认新连接仍可打开");
+        hold.cancel();
         hold.down(editor, 10, 10, 100);
         check(hold.cancel() == TextTrackpadHold.End.NONE && !hold.pending(), "隐藏时清除计时");
         check(!hold.down(null, 0, 0, 0) && !hold.down(editor, Float.NaN, 0, 0),

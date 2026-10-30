@@ -52,8 +52,8 @@ public final class EighteenKeyLayoutSmoke {
         check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false),
             "数字层沿用中文数字页");
         check(!KeyboardLayout.carriesLetterCase(layout), "多义字母键不提供 Shift");
-        check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, layout, 760),
-            "组码键面不叠加实体数字行");
+        check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, layout, 760),
+            "十八键与 14 键一样可在字母上方加顶部数字行");
         check(KeyboardActionRow.layerTitle(layout, true).equals("18键"), "数字层可返回十八键");
         System.out.println("eighteen-key quanpin scheme: passed");
     }

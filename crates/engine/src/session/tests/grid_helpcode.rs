@@ -34,7 +34,9 @@ fn grid_helpcode_six_layouts_ranking_case_reading_and_restore() {
             revision
         );
         assert_eq!(session.snapshot(), ordinary, "空编辑不改普通快照 {grid:?}");
+        let engine_revision = session.candidate_revision();
         action(&mut session, A::AppendExact(b'b'));
+        assert!(session.candidate_revision() > engine_revision);
         let revision = session.grid_helpcode_snapshot().candidate_generation;
         // 全覆盖仍优先；首码 b 优先拟好，未匹配或次优仍保留。
         assert_eq!(words(&session), ["拟好", "你好", "拟", "你"], "{grid:?}");

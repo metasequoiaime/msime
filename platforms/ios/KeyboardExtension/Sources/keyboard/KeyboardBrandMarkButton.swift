@@ -61,7 +61,8 @@ final class KeyboardBrandMarkButton: UIButton {
   /// 图像覆盖整个按钮，圆底和官方标志在中央绘制，透明部分保留整格点击范围。
   private func renderMark(size: CGSize) {
     func glyph(scale: CGFloat) -> UIImage {
-      let disc = min(Self.discSide, size.width, size.height) * scale
+      // 和工具栏其他按钮一样随行高缩小（`KeyboardToolbarButton.contentScale`），「候选栏大小」调小时标志不伸出这一行。
+      let disc = min(Self.discSide * KeyboardToolbarButton.contentScale(rowHeight: size.height), size.width, size.height) * scale
       let discRect = CGRect(x: (size.width - disc) / 2, y: (size.height - disc) / 2, width: disc, height: disc)
       let mark = disc * Self.markSide / Self.discSide
       let markRect = CGRect(x: (size.width - mark) / 2, y: (size.height - mark) / 2, width: mark, height: mark)

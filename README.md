@@ -14,6 +14,7 @@
 [![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](platforms/windows/README.md)
 [![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
+[![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![Rust 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?logo=rust)](Cargo.toml)
@@ -100,6 +101,18 @@ Linux 本地构建、隔离 D-Bus / IBus 测试和安装后的首次配置见 [L
 
 功能对齐以 MSIME-Windows 的完整功能为行为基线：公共业务逐项接入共享层，界面按平台归属接入共享 React 页或该平台的原生设置，Windows 沿用 TSF DLL 与 Server 分进程的结构，但两者之间的协议只服务本仓库同版本构建，不再兼容 MSIME-Windows 的旧配置、共享内存、无版本握手和旧语音管道，Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配。`scripts/test-reference-*.py` 把这条基线固化成可复跑的门禁——参考实现的出厂配置键、四个界面的机器可读能力清单、changelog 的每条特性、以及 `windows/`、`server/`、`ui/src` 下的每个源文件，都必须对应到本仓库的实现或一条写明理由的缺席记录。
 
+## 在你的输入法里使用水杉引擎
+
+水杉的输入引擎可以单独嵌进别的输入法：词格整句加神经重排、拼写纠错、按用户选择学习，方案有全拼、双拼、五笔、日文、韩文、粤拼、注音、越南文、藏文和笔画。它是开箱即用的引擎库，不是 Rime 那样靠方案配置驱动的框架。
+
+- **Rust**：`cargo add msime-engine`（[crates.io](https://crates.io/crates/msime-engine) · [docs.rs](https://docs.rs/msime-engine)），上手见 [crates/engine/README.md](crates/engine/README.md) 的「快速上手」。
+- **C 和其他能调用 C 的语言**（fcitx5、ibus、Windows TSF 等 C/C++ 前端，Swift、Kotlin/JNI、Go、Python、C#）：[GitHub Releases](https://github.com/metasequoiaime/msime/releases?q=msime-engine-capi&expanded=true) 上有 Linux、macOS、Windows 的预编译库，附头文件 `msime_engine.h` 和 `msime-engine.pc`；上手见 [crates/engine-capi/README.md](crates/engine-capi/README.md)。
+- **词库**：引擎本身不带词库。同一个 Release 里有全拼、双拼用的最小数据包。
+
+引擎代码是 MPL-2.0，可以嵌进闭源或上架 App Store 的应用；词库数据保留各自的许可证，不是 MPL：默认中文词库含 GPL-3.0 的 rime-ice 数据，n-gram 计数是 CC-BY-SA-4.0，按需另选数据。
+
+完整的介绍、各语言的接入示例和常见问题见官网的[引擎库页面](https://msime.app/engine/)。
+
 ## 输入引擎
 
 ```sh
@@ -118,7 +131,7 @@ cargo test -p msime-engine --locked
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.0.24` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` 是日文词库的许可证全文（前者是 IPAdic 与 ICOT 的条款，后者是 Mozc 的三条款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 里 SCOWL 词表的版权与许可声明，它们的条款都要求随数据一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 189 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.0.41` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` 是日文词库的许可证全文（前者是 IPAdic 与 ICOT 的条款，后者是 Mozc 的三条款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 里 SCOWL 词表的版权与许可声明，它们的条款都要求随数据一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 270 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources
@@ -157,5 +170,7 @@ Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msi
 ## 许可证
 
 源码为 **GPL-3.0-only**，全文见 [LICENSE](LICENSE)。例外是脚本插件的 SDK（[crates/script-sdk](crates/script-sdk/)）、模板（[docs/script-plugin-template](docs/script-plugin-template/)）和脚本插件合集（[plugins/script](plugins/script/)）的代码，用 MIT，全文分别在这三个目录的 `LICENSE`：SDK 要编进每个插件，作者用它写的插件不必因此变成 GPL。插件包里编进的第三方数据按各自的许可证。
+
+输入引擎 [crates/engine](crates/engine/)（`msime-engine`）和它依赖的 [crates/path-trust](crates/path-trust/)（`msime-path-trust`）是另一个例外，用 MPL-2.0（不附 Exhibit B），全文在这两个目录各自的 `LICENSE`：其他输入法可以嵌入这个引擎，而它仍能和仓库其余的 GPL 代码组合。引擎里内嵌的几张数据表和改编的第三方代码保留各自的许可证，逐个文件见 [crates/engine/README.md](crates/engine/README.md#许可证)；引擎运行时读的词库和模型按各自的许可证分发，不随引擎改变。向这两个目录提交的贡献按「GPL-3.0-only OR MPL-2.0」授权。整个输入法产品仍按 GPL-3.0-only 发布。
 
 上游代码、词库、模型和各平台 SDK 以各自许可证和通知为准，其中 Android 与 iOS 的手写识别使用 Google ML Kit，按其服务条款授权而非开源许可证。完整对照见[第三方组件清单](docs/third-party.md)。

@@ -19,6 +19,18 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, with nothing learned.
   var isCantonese: Bool { self == .cantonese || self == .cantoneseShuangpin }
 
+  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案不加这个键：全拼、小鹤等方案的 `;` 不是编码键；普通粤拼在一个声母后按 `;` 引擎也会当双拼韵母（`CantoneseScheme::accepts_semicolon`），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键。
+  var showsSemicolonFinalKey: Bool { self == .microsoft || self == .cantoneseShuangpin }
+
+  /// `;` 键的读屏标签：先说它是分号，再说它在当前方案里是哪个韵母。不显示这个键的方案只说「分号」。
+  var semicolonFinalKeyAccessibilityLabel: String {
+    switch self {
+    case .microsoft: "分号，微软双拼 ing"
+    case .cantoneseShuangpin: "分号，粤语双拼 ing 和 ik"
+    default: "分号"
+    }
+  }
+
   /// Zhuyin on the Dachen layout: the keys send the ASCII under each bopomofo, and the Engine converts the syllables in place into Traditional Chinese.
   var isZhuyin: Bool { self == .zhuyin }
 
@@ -166,6 +178,15 @@ enum ChineseInputScheme: String, CaseIterable {
     case .nineKeyShuangpin: "九键双拼"
     case .eighteenKey: "全拼 18 键"
     }
+  }
+}
+
+extension ChineseInputScheme {
+  /// 设置「输入」页一个语言行代表的方案：键盘当前方案在 `offered`（本版本提供的该语言方案）里且已启用时就是它，否则是 `offered` 里第一个已启用的方案；一个都没启用时为 nil。行上显示的方案名和该语言选项面板里打勾的选项都按它定。以前面板只在键盘当前方案属于该语言时才打勾：键盘在全拼时，双拼行写着「小鹤」，打开面板却一个勾都没有，五笔也一样。
+  static func represented(among offered: [ChineseInputScheme], enabled: [ChineseInputScheme],
+                          current: ChineseInputScheme) -> ChineseInputScheme? {
+    if offered.contains(current) && enabled.contains(current) { return current }
+    return offered.first(where: enabled.contains)
   }
 }
 
@@ -531,7 +552,7 @@ enum InputSchemePreference {
   static let appGroupIdentifier = MSIMEAppEdition.appGroupIdentifier
 
   /// The shared App Group defaults used by preferences mirrored between the app and keyboard.
-  static var appGroupDefaults: UserDefaults {
-    UserDefaults(suiteName: appGroupIdentifier) ?? .standard
-  }
+  ///
+  /// Built once: every preference getter reads through this, and the keyboard reads dozens of them per keystroke (several per candidate chip). CFPreferences caches values per process and per suite, not per instance, so one shared instance sees the same values and the same writes from the app as a fresh instance would.
+  static let appGroupDefaults: UserDefaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
 }

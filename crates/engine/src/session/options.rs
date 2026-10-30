@@ -63,8 +63,10 @@ pub struct SessionOptions {
     /// 中文标点下引号键和方头括号键出哪一组字，缺省是弯引号、实心括号。
     pub punctuation_marks: PunctuationMarks,
     pub learning: bool,
-    /// 回车上屏英文拼写时是否把它学进英文词库（Windows `input.enter_learns_english_word`，出厂为开）。
+    /// 回车（`Command::CommitRaw`）原样上屏时学英文词的总开关，缺省开。只开它时只学专用英文里打的词（参照实现的会话行为）；还要学别的原样上屏，再开 `learn_typed_spellings_on_enter`。方案集合不要求 `msime-english.db`（`SchemeSet::requires_english_dictionary`）、代次里也没有它时什么也不学。
     pub learn_english_on_enter: bool,
+    /// 回车原样上屏时，专用英文之外也把上屏的字母学成英文词（msime 产品的策略，Windows `input.enter_learns_english_word`）：临时模式里原样上屏的字母（去掉入口字母；临时日文的词前面加 `R`），以及全拼、双拼里拼不成完整音节的拼音。九宫格组字（九键是数字，14 键是首选）、整句改字、生成文本的本地模式（计算、指令、名单）和网址都不学。要 `learn_english_on_enter` 也开着才生效。学不进去时上屏照旧，结果带 `ENGLISH_WORD_NOT_LEARNED` 诊断。缺省关：引擎库的回车只在专用英文里学词，msime 自己的宿主打开它。`Command::CommitRawWithoutLearning` 不受它影响。
+    pub learn_typed_spellings_on_enter: bool,
     /// Hand back every whole-sentence reading instead of only the best. A host that sets this must reorder and crop them itself.
     pub sentence_alternatives: bool,
     /// 宿主的每页候选数（`candidate_page_size`）：全长组的精确同音词够这么多行就不再并入更长的补全词。0 到请求里会归一成 1。
@@ -109,7 +111,9 @@ pub struct SessionOptions {
 }
 
 impl SessionOptions {
-    /// The reference defaults (session.h:12-54) on the given paths.
+    /// 引擎库唯一的一套默认值，建在给定路径上。大部分沿用参照实现（session.h:12-54）：全拼、小鹤、学习开、个人上下文开、中文标点和成对标点开、频率按 `FrequencyAdjustmentOptions::default()`，回车只在专用英文里学英文词（`learn_typed_spellings_on_enter` 关）。与参照实现不同的只有辅助码：默认关，表名默认 `wubi86`。随仓库的七张辅助码表里只有 `wubi86` 写明了来源与许可（`resources/helpcodes/NOTICE-wubi86.md`），参照实现默认的 `lantian` 和产品默认的 `ziranma` 都没有再分发授权（`resources/helpcodes/NOTICE.md`），引擎库默认不读它们；要辅助码的嵌入方自己打开并选表。
+    ///
+    /// 产品不靠这套默认值：host 门面（`host::options::session_options`）逐字段给出产品取值，golden 基准在 `tests/golden_support` 里按参照实现补回辅助码。
     pub fn new(paths: RuntimePaths) -> Self {
         Self {
             paths,
@@ -126,12 +130,12 @@ impl SessionOptions {
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
-            helpcode_schema: "lantian".to_owned(),
+            helpcode_schema: "wubi86".to_owned(),
             helpcode_trigger_key: None,
             helpcode_table: None,
             helpcode_fallback_resources: None,
             autocorrect_types: 0,
-            helpcode: true,
+            helpcode: false,
             strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             chinese_punctuation: true,
@@ -140,6 +144,7 @@ impl SessionOptions {
             punctuation_marks: PunctuationMarks::default(),
             learning: true,
             learn_english_on_enter: true,
+            learn_typed_spellings_on_enter: false,
             sentence_alternatives: false,
             first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             single_character_only: false,
@@ -203,6 +208,8 @@ pub struct SessionSnapshot {
     pub candidate_annotations: Vec<String>,
     /// Whether each candidate answers the whole key rather than a prefix of it or a completion past it.
     pub candidate_answers_key: Vec<bool>,
+    /// 与 `candidates` 同序：九宫格标出的窄裁决点（`ordering::CONTEST_*`），runtime 的键盘模型只在首行带标记时于同种标记的行之间改首选。一行都没有标记时为空。
+    pub candidate_contest: Vec<u8>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list). Hosts read this instead of inferring it from the scheme and a non-empty list.
     pub candidate_list_open: bool,
     /// 整句改字时改好的整句，否则为空。宿主在它非空时把它画在行内代替拼音。

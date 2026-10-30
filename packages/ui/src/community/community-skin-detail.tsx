@@ -29,8 +29,10 @@ export interface CommunitySkinDetailProps {
   onBack: () => void;
   onDownload: () => void;
   onFinishTrial: (keep: boolean) => void;
-  onChangeCategory: (category: NonNullable<CommunitySkin["category"]>) => void;
-  onRate: (stars: number) => void;
+  /** 修改自己作品的分类；不给时不画分类选择（宿主不提供社区投稿类功能时）。 */
+  onChangeCategory?: (category: NonNullable<CommunitySkin["category"]>) => void;
+  /** 给他人作品评分；不给时不画评分按钮（宿主不提供社区投稿类功能时）。 */
+  onRate?: (stars: number) => void;
   onRequestUnpublish: () => void;
   onUnpublish: () => void;
   onCancelUnpublish: () => void;
@@ -120,7 +122,7 @@ export function CommunitySkinDetail({
           />
         </div>
       )}
-      {skin.owned && (
+      {skin.owned && onChangeCategory && (
         <CommunitySkinCategorySelect
           ariaLabel="修改分类"
           value={skin.category ?? "other"}

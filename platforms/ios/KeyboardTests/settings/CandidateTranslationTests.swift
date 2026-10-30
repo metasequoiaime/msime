@@ -217,6 +217,45 @@ final class CandidateTranslationTests: XCTestCase {
     _ = bridge.cancel()
   }
 
+  /// 候选网格没开时键盘只为候选条这一页请求离线释义，代次和文字直接取自渲染出来的视图，不先读完整列表（读完整列表会放出暂扣的尾部、推进代次）。按这一代组的回答会话照样收下，画在这一页上，代次也不变。
+  func testStripPageGlossesApplyAtTheRenderedGenerationWithoutReadingTheWholeList() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-page-gloss-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["candidate_english_gloss"] = true
+    })
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.cancel()
+    var typed = bridge.currentSnapshot()
+    for letter in "nihao" { typed = bridge.handleCharacter(String(letter)) }
+    let generation = try XCTUnwrap(typed.generation)
+
+    // 和键盘一样：候选条上的候选和来源一一对应，组成请求时不碰 `allCandidates`。
+    let page = CandidateMarker.visibleIndices(sources: typed.candidateSources).map { index -> [String: Any] in
+      ["text": typed.candidates[index], "source": NSNumber(value: typed.candidateSources[index])]
+    }
+    XCTAssertNoThrow(try CandidateGlossModel.request(generation: generation, candidates: page))
+    let texts = page.compactMap { $0["text"] as? String }.filter(CandidateTranslationStore.translatable)
+    XCTAssertGreaterThanOrEqual(texts.count, 2)
+    let decoded = try CandidateGlossModel.decode([
+      "generation": NSNumber(value: generation),
+      "translations": [
+        ["text": texts[0], "translation": "first gloss"],
+        ["text": texts[1], "translation": "second gloss"],
+      ],
+    ])
+    let applied = try bridge.applyTranslations(generation: decoded.generation, translations: decoded.translations)
+    XCTAssertEqual(applied["applied"] as? Bool, true, "视图的代次就是会话当前的代次，回答不能被当成过期的丢掉")
+    let shown = try bridge.snapshot(from: applied)
+    XCTAssertEqual(shown.generation, generation, "释义只改画法，不换代；否则回答引起的重绘会再发一次请求")
+    let glosses = Dictionary(zip(shown.candidates, shown.candidateGlosses), uniquingKeysWith: { first, _ in first })
+    XCTAssertEqual(glosses[texts[0]], "first gloss")
+    XCTAssertEqual(glosses[texts[1]], "second gloss")
+    _ = bridge.cancel()
+  }
+
   /// 范围是「全部」时行为不变：换一页不取消上一页还在路上的请求。
   func testWithoutTheScopeANewPageDoesNotCancelTheOldRequest() async throws {
     let blocking = CancellableTranslationService()
@@ -630,6 +669,48 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(KeyboardKeyButton.chipContentWidth(titleLine: 40, glossLine: 300, glossLines: 1, column: 110), 110)
     XCTAssertEqual(KeyboardKeyButton.chipContentWidth(titleLine: 140, glossLine: 300, glossLines: 1, column: 110), 140)
     XCTAssertEqual(KeyboardKeyButton.chipContentWidth(titleLine: 40, glossLine: 300, glossLines: 0, column: 110), 40)
+  }
+
+  /// 释义截断按长度二分查找，结果必须和逐字删到放得下为止完全一样：先缩字号，最小字号仍放不下时留最长的、接上「…」还放得下的前缀。
+  func testFittedGlossMatchesCharacterByCharacterTruncation() {
+    let font = UIFont.systemFont(ofSize: 10)
+    func measure(_ value: String, _ candidateFont: UIFont) -> CGFloat {
+      (value as NSString).size(withAttributes: [.font: candidateFont]).width
+    }
+    func reference(_ text: String, width: CGFloat) -> (text: String, size: CGFloat) {
+      guard width > 0, !text.isEmpty else { return (text, font.pointSize) }
+      if measure(text, font) <= width { return (text, font.pointSize) }
+      var size = font.pointSize
+      while size > KeyboardKeyButton.minimumGlossFontSize {
+        size = max(size - 0.5, KeyboardKeyButton.minimumGlossFontSize)
+        if measure(text, font.withSize(size)) <= width { return (text, size) }
+      }
+      let floorFont = font.withSize(KeyboardKeyButton.minimumGlossFontSize)
+      var characters = Array(text)
+      while !characters.isEmpty {
+        characters.removeLast()
+        let shortened = String(characters) + "…"
+        if measure(shortened, floorFont) <= width { return (shortened, KeyboardKeyButton.minimumGlossFontSize) }
+      }
+      return ("", KeyboardKeyButton.minimumGlossFontSize)
+    }
+    let glosses = [
+      "", "cat", "hello, hi",
+      "sky, heaven; god, celestial; day; nature; season; weather",
+      "one; a, an; alone; whole, entire, all; once, as soon as",
+      "こんにちは、お元気ですか", "안녕하세요 반갑습니다",
+    ]
+    for gloss in glosses {
+      for width in stride(from: CGFloat(0), through: 220, by: 3.5) {
+        let fitted = KeyboardKeyButton.fittedGloss(gloss, font: font, width: width)
+        let expected = reference(gloss, width: width)
+        XCTAssertEqual(fitted.text, expected.text, "\(gloss) @ \(width)")
+        XCTAssertEqual(fitted.font.pointSize, expected.size, "\(gloss) @ \(width)")
+        if !fitted.text.isEmpty, width > 0 {
+          XCTAssertLessThanOrEqual(measure(fitted.text, fitted.font), width, "\(gloss) @ \(width)")
+        }
+      }
+    }
   }
 
   /// The gloss sits on its own line under the candidate rather than beside it, and a candidate

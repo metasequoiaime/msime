@@ -70,6 +70,44 @@ describe("dictionary pagination status", () => {
 });
 
 describe("personal dictionary JSON", () => {
+  it.each(["pinyin", "wubi", "wubi98", "quickPhrase", "english"])(
+    "%s 词条在预览前拒绝共享层不允许的全部控制字符",
+    (kind) => {
+      const controlPoints = [
+        ...Array.from({ length: 32 }, (_, index) => index),
+        ...Array.from({ length: 33 }, (_, index) => 0x7f + index),
+      ];
+      for (const point of controlPoints) {
+        const value = `合成${String.fromCodePoint(point)}词条`;
+        const text = JSON.stringify({
+          format: "msime-personal-dictionary",
+          version: 1,
+          entries: [
+            { kind, key: "ni", value: "合成词条", weight: 1 },
+            { kind, key: "ni", value, weight: 1 },
+          ],
+        });
+        if (kind === "quickPhrase" && (point === 9 || point === 10)) {
+          expect(parsePersonalDictionaryImport(text)[1].value).toBe(value);
+        } else {
+          expect(() => parsePersonalDictionaryImport(text), `U+${point.toString(16)}`).toThrow(
+            "第 2 条：词条内容不符合输入引擎规则。",
+          );
+        }
+      }
+    },
+  );
+
+  it("保留不属于控制字符的空格、格式字符和组合文字", () => {
+    const value = "合成\u00a0\u00ad\u200d词条 e\u0301 🧑‍💻";
+    const text = JSON.stringify({
+      format: "msime-personal-dictionary",
+      version: 1,
+      entries: [{ kind: "quickPhrase", key: "ni", value, weight: 1 }],
+    });
+    expect(parsePersonalDictionaryImport(text)[0].value).toBe(value);
+  });
+
   it("normalizes Engine codes and accepts the multiline example", () => {
     const entries = parsePersonalDictionaryImport(personalDictionaryExample);
     expect(entries[0].key).toBe("ni'hao");

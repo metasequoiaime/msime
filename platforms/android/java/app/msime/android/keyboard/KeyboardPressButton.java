@@ -11,6 +11,7 @@ public class KeyboardPressButton extends Button {
     private boolean dispatchingTouch;
     private boolean staleRelease;
     private Runnable pressReleaseListener;
+    private boolean animatesPressFeedback = true;
     private KeyboardSkin faceSkin;
     private KeyboardKeyRole faceRole;
     private boolean faceSelected;
@@ -19,6 +20,12 @@ public class KeyboardPressButton extends Button {
 
     public KeyboardPressButton(android.content.Context context) {
         super(context);
+    }
+
+    /** 候选词块可关闭过渡，按压样式与输入时机保持不变。 */
+    public void setAnimatesPressFeedback(boolean value) {
+        animatesPressFeedback = value;
+        updatePressFeedback();
     }
 
     /**
@@ -112,6 +119,6 @@ public class KeyboardPressButton extends Button {
     }
 
     private void updatePressFeedback() {
-        KeyboardPressFeedback.update(this, isPressed());
+        KeyboardPressFeedback.update(this, isPressed(), animatesPressFeedback);
     }
 }

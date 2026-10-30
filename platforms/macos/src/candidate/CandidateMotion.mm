@@ -535,7 +535,9 @@ bool StaggersRows(SkinAnimationPreset preset)
 
 - (BOOL)allowsMotion:(const SkinAnimation &)animation
 {
-    return !_reduceMotion && animation.durationMs > 0.0;
+    // 候选显隐与高亮立即呈现；装饰图待机和图片帧走独立的播放通道。
+    (void)animation;
+    return NO;
 }
 
 - (void)showPanel:(NSWindow *)panel animation:(const SkinAnimation &)animation rows:(NSArray<NSView *> *)rows
@@ -551,7 +553,7 @@ bool StaggersRows(SkinAnimationPreset preset)
                        now - _lastHide >= kTypingBurstInterval && content.layer != nil;
     // 按上面的条件逐条给出没播的原因，顺序与判断一致。
     const char *reason = wasVisible                                  ? "visible"
-                         : _reduceMotion                             ? "reduce_motion"
+                         : ![self allowsMotion:animation]             ? "instant"
                          : animation.durationMs <= 0.0               ? "no_duration"
                          : animation.enter == SkinAnimationPreset::none ? "enter_none"
                          : _exiting                                  ? "exiting"
@@ -729,7 +731,8 @@ bool StaggersRows(SkinAnimationPreset preset)
     if (!allowExit || ![self allowsMotion:animation] || animation.exit == SkinAnimationPreset::none || content == nil ||
         content.layer == nil)
     {
-        _lastDecision = !allowExit                                 ? @"hide=immediate"
+        _lastDecision = ![self allowsMotion:animation]              ? @"hide=instant"
+                        : !allowExit                                 ? @"hide=immediate"
                         : _reduceMotion                            ? @"hide=reduce_motion"
                         : animation.durationMs <= 0.0              ? @"hide=no_duration"
                         : animation.exit == SkinAnimationPreset::none ? @"hide=exit_none"

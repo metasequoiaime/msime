@@ -35,7 +35,7 @@ impl SharedString {
         }
     }
 
-    fn shares_storage_with(&self, other: &Self) -> bool {
+    pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
             (Some(left), Some(right)) => Arc::ptr_eq(left, right),
             _ => false,

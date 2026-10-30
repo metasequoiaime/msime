@@ -182,6 +182,8 @@ void caret_edit_suffix() {
   // 提示算进卡片的最小宽度：候选再短，提示也能整段画在内边距以内。
   assert(hinted.panel.width >= plain.panel.width && hinted.auxiliary_hint.x >= hinted.panel.x + 4 + hinted.text_left - 1);
   assert(hinted.auxiliary_hint.y >= hinted.items.back().y + hinted.items.back().height);
+  // 这一行至少有释义字体本身那么高：提示整段落在更矮的回退字体里（没有中文字体的 Fedora 上缺字方框只有 15px，Noto Sans 一行 17px）时也不例外，下面加上连击后卡片才不会长高。
+  assert(hinted.auxiliary_hint.height >= host::native_canvas_text_size(cr, hinted.gloss_font, "X").second);
   // 贴右边距：提示的右缘就是行内文字的右缘（卡片右缘减内边距和右边距）。
   assert(near(hinted.auxiliary_hint.x + hinted.auxiliary_hint.width,
               hinted.panel.x + hinted.panel.width - 4 - hinted.text_right, 1));
@@ -458,6 +460,14 @@ void placement() {
 
 // 动效采样：进场从 0 到完整，退场回到 0；只有 fade_scale、slide_up 错峰，延迟有上限；待机动效位移不超过余量；减弱动态效果的来源。
 void motion() {
+  host::NativeCanvasAssets static_assets;
+  const Json declared_animation = {
+      {"enter", "fade_scale"}, {"exit", "fade"}, {"selection", "spring"},
+      {"durationMs", 180}, {"staggerMs", 14},
+      {"declared", {{"enter", true}, {"exit", true}, {"selection", true}}}};
+  host::read_native_canvas_animation(static_assets, Json{{"animation", declared_animation}});
+  assert(static_assets.enter == shared::MotionPreset::none && static_assets.exit == shared::MotionPreset::none
+      && static_assets.selection == shared::MotionPreset::none && static_assets.duration_ms == 0 && static_assets.stagger_ms == 0);
   for (const auto preset : {shared::MotionPreset::fade, shared::MotionPreset::fade_scale, shared::MotionPreset::slide_up,
                             shared::MotionPreset::spring}) {
     const auto start = shared::EnterFrame(preset, 0), end = shared::EnterFrame(preset, 1);

@@ -17,6 +17,15 @@
 
 新增或修改 `mod`／`pub mod` 声明时，按模块名的字母顺序插入所属声明组，不因可见性不同而放到末尾。新增 `use`／`pub use` 时，保留文件现有的语义分组，在组内按导入路径的字母顺序插入；花括号内的名称、大小写及通配导入顺序以 `rustfmt` 为准。属性和注释随对应声明一起移动；宏作用域等确实依赖顺序的声明保留必要顺序并说明原因。只整理本次新增或修改的部分，不顺带重排无关代码。
 
+## 许可证
+
+仓库整体是 GPL-3.0-only，贡献默认按它授权。例外目录各有自己的 `LICENSE`，见 [README](../README.md#许可证)：
+
+- `crates/engine`（`msime-engine`）和 `crates/path-trust`（`msime-path-trust`）用 MPL-2.0。向这两个目录提交的贡献按「GPL-3.0-only OR MPL-2.0」授权：提交 PR 即表示你同意这些改动既可按 GPL-3.0-only、也可按 MPL-2.0 使用。PR 模板里有一条对应的确认项，改到这两个目录时必须勾上；不同意的话请不要改这两个目录。
+- `crates/script-sdk`、`docs/script-plugin-template`、`plugins/script` 的代码和 `plugins/phrase_table` 的数据用 MIT，贡献按 MIT 授权。
+
+往引擎里加第三方代码或数据之前，先确认它的许可证允许以 MPL-2.0 的 crate 分发（GPL、LGPL 许可的代码和数据不能编进引擎），在 [crates/engine/README.md](../crates/engine/README.md#许可证) 的表里加一行，许可证全文放进 `resources/licenses/` 并接到各平台的声明渠道（[第三方组件清单](../docs/third-party.md#通知文件在哪)）。
+
 ## Pull request
 
 描述问题、行为变化和验证结果：在哪个平台上跑了哪些命令，得到什么。CI 会在 Pull Request 上运行，本地 quick 门禁仍是提交前的快速检查。

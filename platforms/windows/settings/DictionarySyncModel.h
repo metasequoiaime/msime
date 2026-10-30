@@ -73,6 +73,30 @@ struct Status {
   bool clock_skew = false;
   uint64_t last_success_ms = 0;
   std::wstring last_error;
+  // 自动同步因请求额度在等时什么时候继续（Unix 毫秒）：本机额度不够一轮，或者被网盘限流之后；没在等时（以及旧版本的 Rust 不给这个字段时）为 0。「立即同步」不受它限制。
+  uint64_t budget_wait_until = 0;
+};
+
+// 两次读到的概况是否完全相同：窗口重新获得焦点时重读一次，相同就不重画。
+inline bool operator==(const Status &a, const Status &b) {
+  return a.device_id == b.device_id && a.code == b.code && a.approved == b.approved && a.joined == b.joined &&
+         a.words == b.words && a.pending_upload == b.pending_upload && a.pending_apply == b.pending_apply &&
+         a.held_deletions == b.held_deletions && a.clock_skew == b.clock_skew &&
+         a.last_success_ms == b.last_success_ms && a.last_error == b.last_error &&
+         a.budget_wait_until == b.budget_wait_until;
+}
+
+inline bool operator!=(const Status &a, const Status &b) { return !(a == b); }
+
+// 焦点读取不占普通操作的忙状态：每次读取只接纳最新一次，普通操作开始就作废此前的读取。只在 UI 线程使用，页面和配置的生命周期仍由宿主原有的代次管理。
+class StatusReadOrder {
+public:
+  uint64_t begin_read() { return ++sequence_; }
+  void invalidate() { ++sequence_; }
+  bool accepts(uint64_t sequence) const { return sequence == sequence_; }
+
+private:
+  uint64_t sequence_ = 0;
 };
 
 // 本机是否获准的一句。
@@ -92,6 +116,26 @@ inline std::wstring counts_text(const Status &status) {
   if (status.pending_apply)
     text += L"；待写入本机 " + std::to_wstring(status.pending_apply) + L" 个";
   return text + L"。";
+}
+
+// 本机时区里的年月日时分。宿主把 Unix 毫秒换成本地时间后交给 budget_wait_text，这里不碰时区。
+struct LocalMinute {
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  int hour = 0;
+  int minute = 0;
+};
+
+// 自动同步在等额度时概况里的一句：`until` 的「HH:MM」，与 `now` 不在同一天时写成「M月D日 HH:MM」；没在等（`until_ms` 为 0）或已经过了（不晚于 `now_ms`）时为空。与共享设置页的 dictionarySyncBudgetWaitMessage、iOS 和 Android 逐字相同。
+inline std::wstring budget_wait_text(uint64_t until_ms, uint64_t now_ms, const LocalMinute &until, const LocalMinute &now) {
+  if (!until_ms || until_ms <= now_ms)
+    return {};
+  const auto two_digits = [](int value) { return (value < 10 ? L"0" : L"") + std::to_wstring(value); };
+  std::wstring when = two_digits(until.hour) + L":" + two_digits(until.minute);
+  if (until.year != now.year || until.month != now.month || until.day != now.day)
+    when = std::to_wstring(until.month) + L"月" + std::to_wstring(until.day) + L"日 " + when;
+  return L"额度用完，将于 " + when + L" 继续自动同步；可点「立即同步」。";
 }
 
 // 本机时钟落后其他设备一天以上时的提示（合并照常）。

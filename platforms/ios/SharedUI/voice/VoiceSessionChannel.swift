@@ -20,6 +20,8 @@ struct VoiceSessionState: Codable, Equatable, Sendable {
   var text = ""
   /// `failed` 时的原因，`recognizing` 时可以是「正在润色…」之类的进度。
   var message = ""
+  /// 听写中最近的麦克风电平（0…1），只在 `listening` 时有；键盘拿它驱动聆听面板的光晕。可选字段，旧版本写的状态里没有它也照常解码。
+  var level: Float?
   /// App 定时刷新；App 被系统结束后它不再更新，键盘据此判断会话已经不在。
   var heartbeat: Date
   /// 会话空闲到这个时刻就由 App 自己关掉。
@@ -48,8 +50,12 @@ struct VoiceSessionCommand: Codable, Equatable, Sendable {
 final class VoiceSessionChannel: @unchecked Sendable {
   /// App 刷新心跳的间隔。
   static let heartbeatInterval: TimeInterval = 4
-  /// 会话空闲多久后 App 关掉录音会话，状态栏的麦克风标记随之消失。
-  static let idleLifetime: TimeInterval = 300
+  /// 听写中 App 最多隔这么久报一次麦克风电平。
+  static let levelInterval: TimeInterval = 0.1
+  /// 电平变化不到这么多就不报，安静时不反复写文件、发通知。
+  static let levelStep: Float = 0.02
+  /// 会话空闲多久后 App 关掉录音会话，状态栏的麦克风标记随之消失。会话开着时麦克风和音频引擎一直在跑（App 在后台不能重新开始录音，所以听写之间停不得），音频线程每秒醒几十次，CPU 进不了深度空闲，低端机上明显耗电发热，而且不管键盘还在不在屏幕上都一样。原来取 5 分钟，偶尔说一句的用户等于麦克风几乎一直开着；时限从每次听写开始和出结果时重新算，接连几句话不会中断，所以取 1 分钟：说完一分钟内不再说就交还麦克风，代价是隔得更久再说时要多跳一次 App。
+  static let idleLifetime: TimeInterval = 60
   private static let maximumBytes = 64 * 1024
 
   /// 按版本区分，装了多个版本时不会串到另一个版本的 App。
@@ -60,6 +66,11 @@ final class VoiceSessionChannel: @unchecked Sendable {
 
   init(directory: URL? = VoiceTextHandoffStore.defaultDirectory) {
     self.directory = directory?.appendingPathComponent("VoiceSession", isDirectory: true)
+  }
+
+  /// 这次采到的电平和上次报给键盘的（还没报过当作 0）相差够不够 `levelStep`，够才再报。
+  static func publishesLevel(_ level: Float, after published: Float?) -> Bool {
+    abs(level - (published ?? 0)) >= levelStep
   }
 
   func readState() -> VoiceSessionState? { read("state.json") }

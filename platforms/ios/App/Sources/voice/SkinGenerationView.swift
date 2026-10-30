@@ -10,11 +10,13 @@ struct SavedSkinPublishFlow: View {
       if loading { ProgressView("正在准备发布…") }
       else if signedIn { CommunityPublishView(onPublished: {}, selectedSkinID: skinID) }
       else {
-        NavigationView {
+        NavigationStack {
           Form { AppleAccountSection(signedIn: $signedIn) }
+            .designPage()
+            .fittedSheet()
             .navigationTitle("登录后发布").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-        }.navigationViewStyle(.stack)
+        }
       }
     }.task {
       #if DEBUG && targetEnvironment(simulator)

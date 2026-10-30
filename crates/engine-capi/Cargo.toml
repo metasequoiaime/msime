@@ -1,0 +1,66 @@
+[package]
+name = "msime-engine-capi"
+# 自己的版本号，不继承工作区的 0.1.0：C 库按自己的节奏发布，crate 经 .github/workflows/release-engine-crates.yml 发到 crates.io，预编译库经 release-engine-capi.yml 发到 GitHub Releases；SONAME 另按 ABI 主版本取（见下面的 `package.metadata.capi.library`）。
+version = "0.1.2"
+edition.workspace = true
+rust-version.workspace = true
+# 这个 crate 自己的文件只有维护者的代码，用 MPL-2.0（README 的「许可证」一节）。字段不从工作区继承：工作区的 license 是 GPL-3.0-only。它链接的 msime-engine 与 msime-path-trust 也是 MPL-2.0，二进制整体按 MPL-2.0 发布。
+license = "MPL-2.0"
+description = "C ABI of the 水杉输入法 (Metasequoia IME) input engine: sessions, keys, candidates, selection and learning, as a C library with a header and pkg-config file."
+repository.workspace = true
+homepage = "https://msime.app/engine/"
+documentation = "https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md"
+readme = "README.md"
+keywords = ["ime", "input-method", "pinyin", "chinese", "ffi"]
+categories = ["text-processing", "internationalization", "external-ffi-bindings"]
+# 发布到 crates.io 的包只带构建 C 库要用的东西：源码、提交的头文件、cbindgen 配置、说明和许可证。白名单而不是 exclude：tests/ 下的 SQL 夹具与脚本、examples/ 的 C 示例只在仓库里用，src/tests.rs 读的夹具只在 #[cfg(test)] 下引用，包里的源码只能编译，跑不了 cargo test。
+include = ["src/**/*.rs", "include/msime_engine.h", "cbindgen.toml", "README.md", "LICENSE", "Cargo.toml"]
+
+[lib]
+# cdylib 与 staticlib 是交给 C 的两种库；rlib 留着是为了工作区里的 Rust 代码（以后的 msime 宿主自用、ABI 测试）能直接链接同一份实现。
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+# cargo-c 在工作区里按这个特性认出要按 C 库构建的包（`cargo cbuild`、`cargo cinstall`），它本身不开任何代码。
+capi = []
+
+[dependencies]
+# 发布时 path 被去掉，留下 version：crates.io 上的 C 库依赖同一版本线的 msime-engine。
+msime-engine = { version = "0.2.0", path = "../engine" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+tempfile.workspace = true
+
+# cargo-c 的配置，见 README 的「构建」一节。
+[package.metadata.capi]
+min_version = "0.10.26"
+
+[package.metadata.capi.header]
+name = "msime_engine"
+# 头文件直接装进 includedir，C 里写 `#include <msime_engine.h>`。
+subdirectory = false
+# 版本号宏会是 crate 版本，与 ABI 版本（`MSIME_ENGINE_ABI_MAJOR`/`MINOR`）不是一回事，不生成，免得采用方拿错。
+emit_version_constants = false
+
+[package.metadata.capi.pkg_config]
+name = "msime-engine"
+filename = "msime-engine"
+description = "水杉输入法 (Metasequoia IME) input engine, C ABI"
+# `.pc` 的 Version 是 ABI 版本，与下面的库版本相同，不是 crate 版本：前端写 `msime-engine >= 1.0` 按 ABI 做编译期开关。`tests::library_version_follows_the_abi` 核对两处都跟着 `MSIME_ENGINE_ABI_MAJOR`/`MINOR`。cargo-c 不能往 `.pc` 里加自定义变量，所以没有默认数据目录变量；库也没有默认数据目录，四个根目录总由前端传入。
+version = "1.1.0"
+
+[package.metadata.capi.library]
+name = "msime_engine"
+# 库文件的版本取 ABI 版本 `<major>.<minor>.0`，SONAME 只带主版本（`libmsime_engine.so.1`，macOS 的 install name 是 `libmsime_engine.1.dylib`）：同一个 ABI 主版本内只追加，旧的二进制换上新库照样能用。改 `MSIME_ENGINE_ABI_MAJOR`/`MINOR` 时同时改这里和上面 `.pc` 的 Version，`tests::library_version_follows_the_abi` 核对三者一致。
+version = "1.1.0"
+version_suffix_components = 1
+
+# 苹果平台上不让 rustc 剥调试信息：Xcode 27 的 `strip` 剥过的 dylib，链接器拒绝链接（`mis-aligned LINKEDIT string pool`），工作区 dev 配置的 `debug = 0` 默认就会剥。静态库不剥，不受影响。
+[package.metadata.capi.library.target.'cfg(target_vendor = "apple")']
+rustflags = "-Cstrip=none"
+
+[lints]
+workspace = true

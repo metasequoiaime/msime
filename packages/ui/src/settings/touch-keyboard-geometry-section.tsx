@@ -6,6 +6,13 @@ import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback";
 import { SelectRow } from "./select-row";
+import {
+  TouchSplitKeyboardRows,
+  touchSplitKeyboardText,
+  type TouchSplitKeyboardChange,
+  type TouchSplitKeyboardSettings,
+} from "./touch-split-keyboard-rows";
+import type { Preferences } from "../core/preferences-model";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import { touchKeyboardResetSubjects } from "./use-touch-keyboard-settings-reset";
 import * as settings from "./settings-style";
@@ -30,15 +37,21 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   tabletFullKeys?: boolean;
   /** 仅 iPad 宿主给出：横屏分离式键盘。没有时不画这个开关。 */
   tabletSplitKeyboard?: boolean;
+  /** 宿主的触屏键盘在大屏上画分离式键盘（`HostCapabilities.touch_keyboard_split`）时给出四项共享偏好的当前值；没有时不画这几行。 */
+  splitKeyboard?: TouchSplitKeyboardSettings;
   /** 宿主的键盘实现了滑行输入时给出当前开关；没有时不画这个开关。 */
   glideTyping?: boolean;
   /** 「滑动输入符号」开关及其方向，在宿主键盘实现了它们时传入；不传则两行都不绘制。 */
   swipeSymbols?: boolean;
   swipeSymbolsDirection?: SwipeSymbolsDirection;
+  /** 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`），宿主的触屏键盘提供拼音九键时给出当前值（缺键和不认识的值由调用方读成 `off`）；不传则不画这一行。 */
+  nineKeySwipeDigits?: NineKeySwipeDigits;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
   /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
   quanpinShift?: boolean;
+  /** 宿主的触屏键盘在大屏单手模式空出来的一侧画数字键盘（`HostCapabilities.touch_one_handed_side_panel`）时给出：`touch_one_handed_side_panel` 是不是 `number_pad`。没有时不画这一行。 */
+  oneHandedSidePanel?: boolean;
   /** 键盘本机设置正在保存时为 true，「数字行与 Tab 键」「横屏分离式键盘」和「滑行输入」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
@@ -49,8 +62,11 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onGlideTypingChange: (enabled: boolean) => void;
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
+  onNineKeySwipeDigitsChange?: (value: NineKeySwipeDigits) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
+  onOneHandedSidePanelChange?: (enabled: boolean) => void;
+  onSplitKeyboardChange?: (change: TouchSplitKeyboardChange) => void;
   /** 「恢复默认」：参数是这一页实际给出、会被恢复的几项，如「高度、间距和工具栏按钮」，确认框照它措辞。 */
   onReset: (subjects: string) => void;
   /** HarmonyOS 手机：「布局」组开头的行。给出时按手机的排法：「布局」只放键盘的选择，「尺寸」把预览、三个滑块和「恢复默认」放进同一张卡片，各行不带长说明。 */
@@ -58,6 +74,14 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   /** HarmonyOS 手机：「尺寸」卡片顶部的键盘预览（不带分组），在它上面拖动调的就是下面的间距。 */
   preview?: ReactNode;
 }
+
+/** 「大屏单手时侧边显示数字键盘」的标题和说明，三端逐字相同（Android `KeyboardOptionsPage`、iOS `KeyboardLayoutSettingsView`）。 */
+const oneHandedSidePanelTitle = "大屏单手时侧边显示数字键盘";
+const oneHandedSidePanelDescription =
+  "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。";
+
+/** 共享偏好 `touch_nine_key_swipe_digits` 的取值：关闭、上滑输入数字（下滑弹出字母）、下滑输入数字（上滑弹出字母）。 */
+export type NineKeySwipeDigits = NonNullable<Preferences["touch_nine_key_swipe_digits"]>;
 
 /** 间距以十分之一 dp 存，手机上显示成不带单位的数：6、6.5。 */
 const spacingText = (tenths: number) => String(tenths / 10);
@@ -81,8 +105,11 @@ export function TouchKeyboardGeometrySection({
   glideTyping,
   swipeSymbols,
   swipeSymbolsDirection = "up",
+  nineKeySwipeDigits,
   shuangpinKeyHints,
   quanpinShift,
+  oneHandedSidePanel,
+  splitKeyboard,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -95,8 +122,11 @@ export function TouchKeyboardGeometrySection({
   onGlideTypingChange,
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
+  onNineKeySwipeDigitsChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
+  onOneHandedSidePanelChange,
+  onSplitKeyboardChange,
   onReset,
   layoutRows,
   preview,
@@ -128,6 +158,22 @@ export function TouchKeyboardGeometrySection({
       onChange={(enabled) => onQuanpinShiftChange?.(enabled)}
     />
   );
+  // 标题和说明与 Android、iOS 原生设置页逐字相同。手机排法里也带说明：这一行只在平板和可折叠手机上出现，不在窄屏上挤；没有说明时，打开后在 26 键或双手模式下看不到任何变化，也不知道为什么。
+  const oneHandedSidePanelRow = oneHandedSidePanel !== undefined && (
+    <SwitchRow
+      title={oneHandedSidePanelTitle}
+      description={oneHandedSidePanelDescription}
+      checked={oneHandedSidePanel}
+      onChange={(enabled) => onOneHandedSidePanelChange?.(enabled)}
+    />
+  );
+  // 分离式键盘的四行与 Android 原生设置页逐字相同；手机排法里也带说明，理由同上：只在平板和可折叠手机上出现。
+  const splitKeyboardRows = splitKeyboard !== undefined && (
+    <TouchSplitKeyboardRows
+      value={splitKeyboard}
+      onChange={(change) => onSplitKeyboardChange?.(change)}
+    />
+  );
   // 只列这一页上看得到的几项：工具栏按钮只在触屏宿主的「工具栏」组里出现，以前桌面上也写着它。
   const resetSubjects = touchKeyboardResetSubjects({
     height: showHeight,
@@ -146,6 +192,8 @@ export function TouchKeyboardGeometrySection({
             {layoutRows}
             {shuangpinKeyHintsRow}
             {quanpinShiftRow}
+            {splitKeyboardRows}
+            {oneHandedSidePanelRow}
           </GroupList>
           {/* 预览和它调的三个滑块在同一张卡片里；「恢复默认」是卡片末尾的一行文字按钮，它也照旧重置工具栏按钮。 */}
           <GroupList title="尺寸">
@@ -253,7 +301,9 @@ export function TouchKeyboardGeometrySection({
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
         (shuangpinKeyHints !== undefined && !phone) ||
-        (quanpinShift !== undefined && !phone)) && (
+        (quanpinShift !== undefined && !phone) ||
+        (splitKeyboard !== undefined && !phone) ||
+        (oneHandedSidePanel !== undefined && !phone)) && (
         <GroupList title="布局">
           {!phone && shuangpinKeyHintsRow}
           {!phone && quanpinShiftRow}
@@ -268,16 +318,20 @@ export function TouchKeyboardGeometrySection({
           )}
           {tabletSplitKeyboard !== undefined && (
             <SwitchRow
-              title="横屏分离式键盘"
+              title={touchSplitKeyboardText.title}
               description="只在 iPad 横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，方便双手握持时用拇指打字；九键、笔画、手写和注音不分，竖屏、浮动键盘和窄窗口照常显示整块键盘。"
               disabled={tabletFullKeysBusy}
               checked={tabletSplitKeyboard}
               onChange={onTabletSplitKeyboardChange}
             />
           )}
+          {!phone && splitKeyboardRows}
+          {!phone && oneHandedSidePanelRow}
         </GroupList>
       )}
-      {(glideTyping !== undefined || swipeSymbols !== undefined) && (
+      {(glideTyping !== undefined ||
+        swipeSymbols !== undefined ||
+        nineKeySwipeDigits !== undefined) && (
         <GroupList title="手势">
           {swipeSymbols !== undefined && (
             <>
@@ -304,6 +358,21 @@ export function TouchKeyboardGeometrySection({
                 <option value="up">上滑</option>
               </SelectRow>
             </>
+          )}
+          {/* 紧跟 26 键的「滑动方向」，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
+          {nineKeySwipeDigits !== undefined && (
+            <SelectRow
+              title="九键滑动输入数字"
+              description="沿所选方向滑动输入数字，反方向弹出字母。"
+              value={nineKeySwipeDigits}
+              onChange={(event) =>
+                onNineKeySwipeDigitsChange?.(event.target.value as NineKeySwipeDigits)
+              }
+            >
+              <option value="off">关闭</option>
+              <option value="up">上滑</option>
+              <option value="down">下滑</option>
+            </SelectRow>
           )}
           {glideTyping !== undefined && (
             <SwitchRow

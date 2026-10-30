@@ -80,7 +80,7 @@ test.each(["调频", "删除", "固定", "取消固定"])(
     fireEvent.click(screen.getByRole("button", { name: action }));
     await screen.findByRole("alertdialog");
     panel.rerender(<CloudCandidatesPanel client={next} />);
-    await answerConfirm("confirm");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(old.request).toHaveBeenCalledTimes(2);
     expect(next.request).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "调频" })).toBeNull();

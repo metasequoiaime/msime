@@ -60,6 +60,7 @@ function model(): Model {
     harmonyPlatform: true,
     openAccountLogin: vi.fn(),
     showAiGeneration: true,
+    showCommunityContribution: true,
   };
 }
 

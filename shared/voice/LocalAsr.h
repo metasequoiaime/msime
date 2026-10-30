@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -77,6 +78,10 @@ std::size_t release_local_models();
 
 // Joins what the models print into what a person would type: no space before or after CJK punctuation, and runs of single capital letters that a BPE model spells out ("P R", "C I") closed up. Exposed for tests.
 std::string tidy_local_transcript(std::string_view text);
+
+// 整段模型解码一段语音时实际的起点（会话里的采样序号）。sherpa-onnx 的 Silero VAD 从概率越过阈值的那一窗往前只留约 26 ms，输入电平低时概率越过阈值比真正起音晚零点几秒到几秒，句首的字就落在段外。这里从 VAD 的段首往前找：10 ms 一帧，比本段录音的噪声底（帧能量的第 10 百分位）高 12 dB 的帧算作语音，中间允许不超过 0.25 秒的低能量间隙，找到的起音再往前留 0.3 秒；整体最多往前 3 秒，不早于 `earliest`（上一段的段尾，第一段为 0），也不早于手里还留着的录音。`audio` 是会话最近的录音，`audio[0]` 是第 `audio_start` 个采样。Exposed for tests.
+std::int64_t local_vad_segment_start(const float *audio, std::size_t count, std::int64_t audio_start,
+                                     std::int64_t vad_start, std::int64_t earliest);
 
 // 按模型的 token 表整理 transducer 的原生热词（每行一个，交给 sherpa-onnx），并在 `modeling_unit` 里给出编码它们实际要用的建模单位：token 表里的汉字都写成独立的词（`▁写`）时为 `bpe`，热词的汉字之间隔空格；否则沿用清单的 `manifest_unit`。编码不了的词整个丢掉，不连累其他词。Exposed for tests.
 std::string transducer_hotword_lines(const std::vector<std::string> &words, const std::vector<std::string> &tokens,

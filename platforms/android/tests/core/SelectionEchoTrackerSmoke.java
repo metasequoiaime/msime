@@ -231,6 +231,28 @@ public final class SelectionEchoTrackerSmoke {
         check(unsure.acknowledge(15, 15, -1, -1));
         check(unsure.acknowledge(14, 14, -1, -1));
         check(!unsure.acknowledge(13, 13, -1, -1));
+
+        // 记下过的预期数只在真的记下一条预期时增加：回声、作废和没记下的写入都不改变它。输入法拿它判断「回声对应的写入之后已经重画过」，数错了要么多画一次，要么漏画。
+        SelectionEchoTracker counted = new SelectionEchoTracker();
+        check(counted.expectations() == 0);
+        counted.reset(0, 0);
+        counted.expect();
+        check(counted.expectations() == 0);
+        counted.commit(1);
+        counted.expect();
+        check(counted.expectations() == 1);
+        long rendered = counted.expectations();
+        check(counted.acknowledge(1, 1, -1, -1));
+        check(counted.expectations() == rendered);
+        counted.commit(1);
+        counted.expect();
+        check(counted.expectations() == rendered + 1);
+        counted.invalidate();
+        counted.commit(1);
+        counted.expect();
+        check(counted.expectations() == rendered + 1);
+        counted.reset(5, 5);
+        check(counted.expectations() == rendered + 1);
         System.out.println("SelectionEchoTracker smoke passed");
     }
 }

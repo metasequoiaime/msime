@@ -166,16 +166,19 @@ public final class CandidateTranslationPolicy {
         return CandidateTranslationRoute.NONE;
     }
 
-    /** 在已有翻译服务都未选中时，才使用复用的 AI 助手配置；旧路由优先级保持不变。 */
+    /**
+     * 加上「AI 辅助」（复用 `ai_assistant` 的服务商、接口地址、模型和令牌）的选路，同样照共享层的 `selected_translation_services`：只有用户在「翻译服务」里显式选了它（`translation_ai`）才用，AI 联想的总开关（`ai_assistant.enabled`）不参与，只想用翻译、不开 AI 联想也能生效。水杉账号、小牛、自定义和腾讯排在它前面：其中一个被选中时轮不到 AI，选中的服务凭据不全时也不改用 AI。腾讯的 `enabled` 默认开着，没有凭据时共享层照样把它当作选中，所以选「AI 辅助」时设置页把它写成 false，读旧偏好时的一次性迁移也是（`Preferences::settle_translation_ai_selection`）。AI 配置不可用时不联网。
+     */
     public static CandidateTranslationRoute route(boolean candidateTranslations, boolean translationAccount,
             boolean niutransEnabled, String niutransAppId, String niutransApiKey,
             boolean customEnabled, String customEndpoint, String customApiKey,
             boolean tencentEnabled, String tencentSecretId, String tencentSecretKey, String tencentRegion,
-            boolean aiEnabled, String aiProvider, String aiEndpoint, String aiModel, String aiToken) {
+            boolean translationAi, String aiProvider, String aiEndpoint, String aiModel, String aiToken) {
         CandidateTranslationRoute existing = route(candidateTranslations, translationAccount,
             niutransEnabled, niutransAppId, niutransApiKey, customEnabled, customEndpoint, customApiKey,
             tencentEnabled, tencentSecretId, tencentSecretKey, tencentRegion);
-        if (existing.provider() != CandidateTranslationRoute.Provider.NONE || !aiEnabled)
+        if (existing.provider() != CandidateTranslationRoute.Provider.NONE || !candidateTranslations
+                || !translationAi || niutransEnabled || customEnabled || tencentEnabled)
             return existing;
         String provider = credentialTrimmed(aiProvider);
         String endpoint = credentialTrimmed(aiEndpoint);

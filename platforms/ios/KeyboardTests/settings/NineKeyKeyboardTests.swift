@@ -69,7 +69,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.hideLanguageKeyKey,
+    KeyboardLayoutPreference.hideLanguageKeyKey,
     ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
   override func tearDown() {
     for key in preferenceKeys {
@@ -302,7 +302,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let zero = try button("nineKeyZero", in: controller)
     XCTAssertFalse(zero.isHidden)
     XCTAssertEqual(zero.configuration?.title, "0")
-    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
+    // 符 留在底行最左，与字母层同一格（#10061）；符号栏里不再放第二个。
+    XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
+    XCTAssertTrue(try button("numberPadSymbolPanelKey", in: controller).isHidden)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
@@ -773,14 +775,11 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testLayoutSettingsDefaultIndependently() {
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
-    XCTAssertFalse(KeyboardLayoutPreference.voiceShortcutEnabled)
     XCTAssertEqual(KeyboardLayoutPreference.geometry.sidebarRatio, 0.14)
     XCTAssertFalse(KeyboardLayoutPreference.geometry.showsFullKeyboardSymbols)
     KeyboardLayoutPreference.keySpacing = 5
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
-    XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
     KeyboardLayoutPreference.keySpacing = 99
     KeyboardLayoutPreference.rowSpacing = -99
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
@@ -1007,12 +1006,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     for face in ["1", "-", "/", "@"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: false), Input.symbol(face), face)
     }
-    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号：这些按键面所画直接插入。
-    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "\\", "^", "_"] {
+    // 引号要交替、《》要嵌套、￥ 在 Engine 里不是 ¥，而且 Engine 会把 [ \ ^ _ 转成中文符号、把 { } 转成「」：这些按键面所画直接插入。
+    for face in ["“", "”", "《", "》", "¥", "…", "·", "€", "[", "]", "{", "}", "\\", "^", "_"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.literal(face), face)
     }
     // Engine 原样透传的 ASCII 走符号键路径，所以网址和拼写用的符号仍能进入组字。
-    for face in ["-", "/", "@", "{", "}", "#", "%", "*", "+", "=", "|", "~", "&"] {
+    for face in ["-", "/", "@", "#", "%", "*", "+", "=", "|", "~", "&"] {
       XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, chinesePunctuation: true), Input.symbol(face), face)
     }
     // 英文层发送所有 ASCII 符号，其余的直接插入。
@@ -1101,19 +1100,23 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 语音入口只由它自己的偏好决定露不露面，键距和行距不牵连它。
-  func testVoiceShortcutFollowsOnlyItsOwnPreference() throws {
+  /// iOS 的语音入口是长按空格和功能菜单的「语音输入」：同步来的 Android 工具栏语音按钮设置（`touch_voice_shortcut`）开着，iOS 工具栏也不放语音按钮，功能菜单照样有「语音输入」；键距和行距不受它牵连。
+  func testTheToolbarNeverCarriesAVoiceButton() throws {
+    let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    defer { _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument } }
     KeyboardLayoutPreference.keySpacing = 5
     KeyboardLayoutPreference.rowSpacing = 8
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
-    controller.viewWillAppear(false)
-    XCTAssertFalse(try button("layoutVoiceShortcut", in: controller).isHidden)
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
-    controller.viewWillAppear(false)
-    XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
+    for synced in [true, false] {
+      XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_voice_shortcut"] = synced })
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden, "touch_voice_shortcut = \(synced)")
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertNoThrow(try tile("moreCard-语音输入", in: controller), "touch_voice_shortcut = \(synced)")
+    }
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
   }
@@ -1124,20 +1127,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: state) }
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
 
-    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
-      keySpacing: 99, rowSpacing: -1, heightAdjustment: 99, voiceEnabled: true))
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(keySpacing: 99, rowSpacing: -1, heightAdjustment: 99))
     let preferences = try XCTUnwrap(bridge.sharedPreferences)
     XCTAssertEqual((preferences["touch_key_spacing_tenths"] as? NSNumber)?.intValue, 60)
     XCTAssertEqual((preferences["touch_row_spacing_tenths"] as? NSNumber)?.intValue, 40)
     XCTAssertEqual((preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.intValue, 48)
-    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
 
     XCTAssertTrue(bridge.resetTouchKeyboardGeometry())
     let reset = try XCTUnwrap(bridge.sharedPreferences)
     XCTAssertNil(reset["touch_key_spacing_tenths"])
     XCTAssertNil(reset["touch_row_spacing_tenths"])
     XCTAssertNil(reset["touch_keyboard_height_adjustment"])
-    XCTAssertNil(reset["touch_voice_shortcut"])
   }
 
   func testToolbarCentersRemainHittableThroughPanelSwitches() throws {
@@ -1219,7 +1219,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       if pinned.characterSet { expected.append("characterSetShortcut") }
       if pinned.fullwidth { expected.append("fullwidthShortcut") }
       if pinned.punctuation { expected.append("punctuationShortcut") }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { expected.append("layoutVoiceShortcut") }
       expected.append("dismissShortcut")
       let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
       XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), expected)
@@ -1518,23 +1517,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
   }
 
-  /// 九键切到英文会复用 26 键字母行，但键盘外框高度保持不变。
+  /// 九键一族切到英文会复用 26 键字母行：键盘外框高度不变，字母区的上下边界也与九宫格重合，不在上下留白。
   func testNineKeyAndEnglishKeepTheSameKeyboardHeight() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
-    InputSchemePreference.scheme = .nineKey
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
-    controller.view.layoutIfNeeded()
-    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    let language = try button("bottomLanguageKey", in: controller)
-    language.sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
-    let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    XCTAssertEqual(englishHeight, height, accuracy: 0.5)
-    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
-    XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5)
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin] {
+      InputSchemePreference.scheme = scheme
+      XCTAssertEqual(InputSchemePreference.scheme, scheme)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
+      try layoutAtRequestedHeight(controller)
+      let frame = { (view: UIView) in view.convert(view.bounds, to: controller.view) }
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      let gridTop = frame(try button("nineKey1", in: controller)).minY
+      let nineKeyBottom = frame(try button("returnKey", in: controller)).maxY
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      XCTAssertEqual(englishHeight, height, accuracy: 0.5, "\(scheme)")
+      let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
+      XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
+      XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
+      // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
+      XCTAssertEqual(letter.bounds.height, 49, accuracy: 0.5, "\(scheme)")
+    }
   }
 
   func testVisibleInputViewReflectsSoundPreference() throws {
@@ -2714,11 +2726,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let keys = TouchToolbarLocalPreference.keys
     let saved = keys.map { defaults.object(forKey: $0) }
     let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
-    let previousVoice = KeyboardLayoutPreference.voiceShortcutEnabled
     let previousScheme = InputSchemePreference.scheme
     defer {
       _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
-      KeyboardLayoutPreference.voiceShortcutEnabled = previousVoice
       InputSchemePreference.scheme = previousScheme
       for (key, value) in zip(keys, saved) {
         if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
@@ -2728,10 +2738,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     keys.forEach(defaults.removeObject(forKey:))
     TouchToolbarLocalPreference.phrases = false
     TouchToolbarLocalPreference.scheme = false
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
       $0["touch_toolbar"] = Dictionary(uniqueKeysWithValues: TouchToolbarPreference.options.map { ($0.name, false) })
-      $0["touch_voice_shortcut"] = false
     })
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -2777,7 +2785,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
-    XCTAssertEqual(toolbar.arrangedSubviews.count, 13)
+    // 第 14 个是 26 键「长空格」时才显示的符号入口（`symbolsShortcut`），长按同样打开工具栏设置。
+    XCTAssertEqual(toolbar.arrangedSubviews.count, 14)
     for item in toolbar.arrangedSubviews {
       let id = item.accessibilityIdentifier ?? "\(item)"
       let hold = try XCTUnwrap(item.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
@@ -2904,12 +2913,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     let bridge = try XCTUnwrap(first)
     XCTAssertTrue(bridge.updateTheme(GlobalThemePreference.selecting("night")))
     XCTAssertTrue(bridge.setTraditionalChineseOutput(true))
-    XCTAssertTrue(bridge.persistTouchKeyboardGeometry(
-      keySpacing: 5, rowSpacing: 9, heightAdjustment: 12, voiceEnabled: true))
+    XCTAssertTrue(bridge.persistTouchKeyboardGeometry(keySpacing: 5, rowSpacing: 9, heightAdjustment: 12))
     // A drag reports on every gesture frame and only previews on the live session; taking a file
     // lock that often is what the separate commit above is for.
-    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
-      keySpacing: 3, rowSpacing: 4, heightAdjustment: -5, voiceEnabled: false))
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(keySpacing: 3, rowSpacing: 4, heightAdjustment: -5))
     first = nil
 
     let next = MetasequoiaInputSessionBridge(stateRoot: state)
@@ -2919,7 +2926,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(preferences["touch_key_spacing_tenths"] as? Int, 50)
     XCTAssertEqual(preferences["touch_row_spacing_tenths"] as? Int, 90)
     XCTAssertEqual(preferences["touch_keyboard_height_adjustment"] as? Int, 12)
-    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
   }
 
   // Reloading the settings app's document replaced the session's preferences wholesale, dropping
@@ -3150,7 +3156,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     for boundary in ["space", "delete", "dismiss", "hostChange", "mode"] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
-      controller.asynchronousNineKeyInputEnabled = true
+      controller.asynchronousInputEnabled = true
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
       controller.viewWillAppear(false)
@@ -3641,7 +3647,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(comma.onCornerHint)
   }
 
-  /// 九键字母层保留大空格；数字层的底行对齐上方五列，需要额外地球键时保留比例布局。
+  /// 九键字母层保留大空格；数字层的 符 和切换键留在字母层那一格，0 和空格分掉字母层空格的宽度。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
     let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey
@@ -3671,33 +3677,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIButton)
       .sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    // 数字层：九键、0、空格、中/英、换行分别对齐左栏和四列按键。
+    // 数字层：符 | 九键 | 0 | 空格 | 中/英 | 换行（#10061，与 Android #9113 相同）。符 和切换键与字母层同一格、同宽，只因数字层多一个键、多一道键距而差不到一个键距；符号栏里不再有第二个 符。
+    func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
+    let letterSymbols = frame(try button("symbolPanelKey", in: controller))
+    let letterLayer = frame(try button("layoutToggleButton", in: controller))
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
-                   ["layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
+                   ["symbolPanelKey", "layoutToggleButton"] + globe + ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertTrue(try button("numberPadSymbolPanelKey", in: controller).isHidden)
+    for (letters, digits) in [(letterSymbols, frame(try button("symbolPanelKey", in: controller))),
+                              (letterLayer, frame(try button("layoutToggleButton", in: controller)))] {
+      XCTAssertEqual(digits.minX, letters.minX, accuracy: row.spacing + 0.5)
+      XCTAssertEqual(digits.maxX, letters.maxX, accuracy: row.spacing + 0.5)
+      XCTAssertTrue(digits.contains(CGPoint(x: letters.midX, y: digits.midY)))
+    }
     let zero = try button("nineKeyZero", in: controller)
     let space = try button("spaceKey", in: controller)
-    if controller.needsInputModeSwitchKey {
-      XCTAssertGreaterThan(zero.bounds.width, space.bounds.width * 3)
-    } else {
-      let bottom = [try button("layoutToggleButton", in: controller), zero, space,
-                    try button("bottomLanguageKey", in: controller), try button("returnKey", in: controller)]
-      let top = [try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeySidebar" }),
-                 try button("nineKey7", in: controller), try button("nineKey8", in: controller),
-                 try button("nineKey9", in: controller), try button("nineKeyDelete", in: controller)]
-      for (lower, upper) in zip(bottom, top) {
-        let lowerFrame = lower.convert(lower.bounds, to: controller.view)
-        let upperFrame = upper.convert(upper.bounds, to: controller.view)
-        XCTAssertEqual(lowerFrame.minX, upperFrame.minX, accuracy: 0.5)
-        XCTAssertEqual(lowerFrame.maxX, upperFrame.maxX, accuracy: 0.5)
-      }
-    }
+    let language = try button("bottomLanguageKey", in: controller)
+    let enter = try button("returnKey", in: controller)
+    // The unit comes from the four keys right of the layer key, not from the narrow space key alone: each width is snapped to a pixel, and a 1/3 pt error on space grows past the tolerance once multiplied by the 0 key's 3.15 share.
+    let zeroWeight = KeyboardViewController.nineKeySpaceWeight - 1.05
+    let digitUnit = (zero.bounds.width + space.bounds.width + language.bounds.width + enter.bounds.width) / (zeroWeight + 1.05 + 1.05 + 1.6)
+    XCTAssertEqual(zero.bounds.width, digitUnit * zeroWeight, accuracy: 0.75)
+    XCTAssertEqual(space.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(language.bounds.width, digitUnit * 1.05, accuracy: 0.75)
+    XCTAssertEqual(enter.bounds.width, digitUnit * 1.6, accuracy: 0.75)
     XCTAssertGreaterThanOrEqual(zero.bounds.width, try button("nineKey8", in: controller).bounds.width)
     XCTAssertLessThan(zero.frame.maxX, space.frame.minX)
     XCTAssertNil(space.configuration?.image)
     let zeroWidth = zero.bounds.width
     let spaceWidth = space.bounds.width
+    // 隐藏中/英时它的份额并进 0，空格宽度不变。
     KeyboardLayoutPreference.hideLanguageKey = true
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -3705,17 +3716,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
     XCTAssertGreaterThan(zero.bounds.width, zeroWidth)
     XCTAssertEqual(space.bounds.width, spaceWidth, accuracy: 1)
-    if !controller.needsInputModeSwitchKey {
-      let seven = try button("nineKey7", in: controller)
-      let eight = try button("nineKey8", in: controller)
-      let nine = try button("nineKey9", in: controller)
-      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).minX,
-                     seven.convert(seven.bounds, to: controller.view).minX, accuracy: 0.5)
-      XCTAssertEqual(zero.convert(zero.bounds, to: controller.view).maxX,
-                     eight.convert(eight.bounds, to: controller.view).maxX, accuracy: 0.5)
-      XCTAssertEqual(space.convert(space.bounds, to: controller.view).minX,
-                     nine.convert(nine.bounds, to: controller.view).minX, accuracy: 0.5)
-    }
     KeyboardLayoutPreference.hideLanguageKey = false
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
@@ -3758,21 +3758,28 @@ final class NineKeyKeyboardTests: XCTestCase {
     assertAccent("composing")
   }
 
-  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；VoiceOver 仍读作 空格。
+  /// 空格键带麦克风图标和方案简称，英文下为 `space`，符号层上为 空格；关掉长按空格语音后不带麦克风；VoiceOver 仍读作 空格。
   func testSpaceFaceNamesTheScheme() throws {
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "全拼", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false).label,
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .shuangpin, chinese: true, symbols: false, composing: false, voice: true).label,
                    ChineseInputScheme.shuangpin.shortLabel)
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: true),
                    .init(label: "space", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: true),
                    .init(label: "空格", mic: true))
     // 手写板的空格键同样显示方案名，与 Android 的 SpaceKeyFace.schemeLabel 给 HANDWRITING 的 手写 一致。
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .handwriting, chinese: true, symbols: false, composing: false, voice: true),
                    .init(label: "手写", mic: true))
-    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true),
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .japanese, chinese: true, symbols: false, composing: true, voice: true),
                    .init(label: "変換", mic: false))
+    // 关掉「长按空格语音输入」后长按空格不进语音，键面只留文字（#10143）。
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: false, composing: false, voice: false),
+                   .init(label: "全拼", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: false, symbols: false, composing: false, voice: false),
+                   .init(label: "space", mic: false))
+    XCTAssertEqual(KeyboardViewController.spaceKeyFace(scheme: .quanpin, chinese: true, symbols: true, composing: false, voice: false),
+                   .init(label: "空格", mic: false))
 
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -4301,7 +4308,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
   }
 
-  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。
+  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。符号栏里的 符 只在借来的数字九宫格上（拼音九键一族的 符 在底行），所以这里从全拼进数字页。
   func testNumberPadSidebarKeepsLargeKeysAndAFixedSymbolEntry() throws {
     let previous = InputSchemePreference.scheme
     let previousSpacing = KeyboardLayoutPreference.rowSpacing
@@ -4311,7 +4318,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     for tablet in [false, true] {
       KeyboardLayoutPreference.rowSpacing = tablet ? 10 : 4
-      InputSchemePreference.scheme = .nineKey
+      InputSchemePreference.scheme = .quanpin
       let controller = KeyboardViewController()
       if tablet {
         controller.traitOverrides.userInterfaceIdiom = .pad
@@ -4391,4 +4398,308 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+}
+
+/// 「九键滑动输入数字」（`touch_nine_key_swipe_digits`，#10229）：共享偏好的读写、判定（方向、24pt 阈值、1 键、锁定）、按键的键面和回调，以及键盘里只在拼音九键字母层生效、两种结果走长按菜单的路径。三端同一套规则，见 Android `NineKeySwipePolicy` 与鸿蒙 `NineKeySwipePolicy.ts`。
+@MainActor
+final class NineKeySwipeDigitsTests: XCTestCase {
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+    // 用例改的是模拟器共用的那份文档和 App Group，结束后这一项和方案放回原样。
+    let saved = MetasequoiaInputSessionBridge.loadSharedPreferences()?[NineKeySwipeDigits.documentKey]
+    let mirror = NineKeySwipeDigits.mirrored
+    let scheme = InputSchemePreference.scheme
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0[NineKeySwipeDigits.documentKey] = saved }
+      NineKeySwipeDigits.mirrored = mirror
+      InputSchemePreference.scheme = scheme
+    }
+  }
+
+  // MARK: - 偏好
+
+  /// 缺键、不是字符串和不认识的写法（较新版本加的方向）都按关读；线上写法和设置页文字三端相同。
+  func testDocumentParsingFallsBackToOff() {
+    XCTAssertEqual(NineKeySwipeDigits(in: nil), .off)
+    XCTAssertEqual(NineKeySwipeDigits(in: [:]), .off)
+    XCTAssertEqual(NineKeySwipeDigits(in: ["touch_nine_key_swipe_digits": "sideways"]), .off)
+    XCTAssertEqual(NineKeySwipeDigits(in: ["touch_nine_key_swipe_digits": true]), .off)
+    XCTAssertEqual(NineKeySwipeDigits(in: ["touch_nine_key_swipe_digits": "up"]), .up)
+    XCTAssertEqual(NineKeySwipeDigits(in: ["touch_nine_key_swipe_digits": "down"]), .down)
+    XCTAssertEqual(NineKeySwipeDigits.documentKey, "touch_nine_key_swipe_digits")
+    XCTAssertEqual(NineKeySwipeDigits.allCases.map(\.rawValue), ["off", "up", "down"])
+    XCTAssertEqual(NineKeySwipeDigits.allCases.map(\.optionTitle), ["关闭", "上滑", "下滑"])
+    XCTAssertEqual(NineKeySwipeDigits.title, "九键滑动输入数字")
+    XCTAssertEqual(NineKeySwipeDigits.subtitle, "沿所选方向滑动输入数字，反方向弹出字母。")
+  }
+
+  /// 保存写共享文档里的这一项并更新镜像；关闭是默认值，client-core 把它从文档里省掉，读出来仍是关。
+  func testSavingWritesTheDocumentAndTheMirror() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertEqual(NineKeySwipeDigits(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)), .off,
+                   "a document written before the setting existed reads as off")
+    XCTAssertTrue(NineKeySwipeDigits.save(.down, stateRoot: state))
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)?["touch_nine_key_swipe_digits"] as? String,
+                   "down")
+    XCTAssertEqual(NineKeySwipeDigits.mirrored, .down)
+    XCTAssertTrue(NineKeySwipeDigits.save(.off, stateRoot: state))
+    XCTAssertEqual(NineKeySwipeDigits(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)), .off)
+    XCTAssertEqual(NineKeySwipeDigits.mirrored, .off)
+    NineKeySwipeDigits.mirror(["touch_nine_key_swipe_digits": "up"])
+    XCTAssertEqual(NineKeySwipeDigits.mirrored, .up)
+    NineKeySwipeDigits.mirror(nil)
+    XCTAssertEqual(NineKeySwipeDigits.mirrored, .up, "an unreadable document leaves the mirror alone")
+  }
+
+  // MARK: - 判定
+
+  /// 只看纵向位移，严格大于 24pt：沿设定方向是数字，反方向且有字母是弹出字母，1 键反方向什么也不是；关闭时什么也不判。
+  func testGestureFollowsTheChosenDirectionAndTheThreshold() {
+    typealias Policy = NineKeySwipePolicy
+    XCTAssertEqual(Policy.threshold, 24)
+    XCTAssertGreaterThan(Policy.threshold, SwipeHintPolicy.threshold, "九键比 26 键要求滑得更远")
+    let down: CGFloat = 100
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down - 24, hasLetters: true), .none, "24pt 不触发")
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down - 24.5, hasLetters: true), .digit)
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down + 24, hasLetters: true), .none)
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down + 24.5, hasLetters: true), .letters)
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down + 60, hasLetters: false), .none, "1 键没有字母可弹")
+    XCTAssertEqual(Policy.gesture(.up, downY: down, currentY: down - 60, hasLetters: false), .digit, "1 键沿设定方向输入 1")
+    XCTAssertEqual(Policy.gesture(.down, downY: down, currentY: down + 24.5, hasLetters: true), .digit)
+    XCTAssertEqual(Policy.gesture(.down, downY: down, currentY: down - 24.5, hasLetters: true), .letters)
+    XCTAssertEqual(Policy.gesture(.down, downY: down, currentY: down + 24, hasLetters: true), .none)
+    XCTAssertEqual(Policy.gesture(.down, downY: down, currentY: down - 60, hasLetters: false), .none)
+    for current in [down - 80, down, down + 80] {
+      XCTAssertEqual(Policy.gesture(.off, downY: down, currentY: current, hasLetters: true), .none)
+    }
+  }
+
+  /// 一次触摸只判定一次：判出来就锁住，滑回原处或再往反方向滑都不改；1 键反方向滑过阈值仍是没判出，之后沿设定方向还能输入 1。
+  func testTrackerLocksTheFirstDecision() {
+    var tracker = NineKeySwipeTracker()
+    XCTAssertNil(tracker.move(y: 0, mode: .up, hasLetters: true), "没有按下过")
+    tracker.begin(y: 100)
+    XCTAssertNil(tracker.move(y: 90, mode: .up, hasLetters: true))
+    XCTAssertEqual(tracker.move(y: 75, mode: .up, hasLetters: true), .digit)
+    XCTAssertNil(tracker.move(y: 100, mode: .up, hasLetters: true))
+    XCTAssertNil(tracker.move(y: 140, mode: .up, hasLetters: true))
+    XCTAssertEqual(tracker.gesture, .digit)
+    XCTAssertEqual(tracker.finish(), .digit)
+    XCTAssertEqual(tracker.gesture, .none)
+    XCTAssertNil(tracker.move(y: 0, mode: .up, hasLetters: true), "结束之后不再判定")
+
+    tracker.begin(y: 100)
+    XCTAssertNil(tracker.move(y: 140, mode: .up, hasLetters: false))
+    XCTAssertEqual(tracker.gesture, .none)
+    XCTAssertEqual(tracker.move(y: 70, mode: .up, hasLetters: false), .digit)
+
+    tracker.begin(y: 100)
+    XCTAssertNil(tracker.move(y: 50, mode: .off, hasLetters: true), "设置每次判定时现读")
+    XCTAssertEqual(tracker.move(y: 50, mode: .down, hasLetters: true), .letters)
+    XCTAssertEqual(tracker.finish(), .letters)
+  }
+
+  // MARK: - 按键
+
+  /// 手指位置固定的触摸，用来驱动按键的跟踪：`location(in:)` 不论问哪个视图都回答同一个点。
+  private final class PinnedTouch: UITouch {
+    var point: CGPoint
+    init(_ point: CGPoint) {
+      self.point = point
+      super.init()
+    }
+    override func location(in view: UIView?) -> CGPoint { point }
+  }
+
+  /// 一个独立的九宫格键：记下滑动回调和按键自己的点按，设置由用例随时改。
+  @MainActor private final class SwipeKey {
+    let button: KeyboardKeyButton
+    let hint = UILabel()
+    var mode: NineKeySwipeDigits = .up
+    var swipes: [NineKeySwipePolicy.Gesture] = []
+    var taps = 0
+    let hold = UILongPressGestureRecognizer()
+
+    init(digit: Int, title: String, letters: Bool) {
+      var configuration = UIButton.Configuration.plain()
+      configuration.title = title
+      button = KeyboardKeyButton(configuration: configuration, primaryAction: nil)
+      button.addAction(UIAction { [unowned self] _ in self.taps += 1 }, for: .primaryActionTriggered)
+      hint.text = String(digit)
+      button.addSubview(hint)
+      button.addGestureRecognizer(hold)
+      button.nineKeySwipeDigit = digit
+      button.nineKeySwipeHasLetters = letters
+      button.nineKeySwipeHint = hint
+      button.nineKeySwipeMode = { [unowned self] in self.mode }
+      button.onNineKeySwipe = { [unowned self] in self.swipes.append($0) }
+    }
+  }
+
+  /// 沿设定方向滑过阈值：键面换成数字、角标藏起，长按不被关掉；松手时还原键面，回调一次数字，按键自己的点按不触发。
+  func testDigitSwipeSwapsTheFaceAndTypesOnRelease() {
+    let key = SwipeKey(digit: 2, title: "ABC", letters: true)
+    let touch = PinnedTouch(CGPoint(x: 20, y: 100))
+    XCTAssertTrue(key.button.beginTracking(touch, with: nil))
+    touch.point.y = 100 - NineKeySwipePolicy.threshold
+    _ = key.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(key.button.nineKeySwipeGesture, .none)
+    XCTAssertEqual(key.button.configuration?.title, "ABC")
+    touch.point.y = 100 - NineKeySwipePolicy.threshold - 0.5
+    _ = key.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(key.button.nineKeySwipeGesture, .digit)
+    XCTAssertEqual(key.button.configuration?.title, "2")
+    XCTAssertTrue(key.hint.isHidden)
+    XCTAssertEqual(key.button.previewTitleOverride, "2")
+    XCTAssertTrue(key.hold.isEnabled, "取消这次长按之后识别器照旧可用")
+    XCTAssertTrue(key.swipes.isEmpty, "数字等松手再输入")
+    touch.point.y = 100
+    _ = key.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(key.button.configuration?.title, "2", "锁住，滑回原处也不变")
+    key.button.touchesEnded([touch], with: nil)
+    XCTAssertEqual(key.swipes, [.digit])
+    XCTAssertEqual(key.taps, 0)
+    XCTAssertEqual(key.button.configuration?.title, "ABC")
+    XCTAssertFalse(key.hint.isHidden)
+    XCTAssertNil(key.button.previewTitleOverride)
+    XCTAssertEqual(key.button.nineKeySwipeGesture, .none)
+  }
+
+  /// 反方向滑过阈值立刻回调弹出字母，松手不再做别的；输入数字的触摸被取消（横滑移光标、长按、系统接管）时还原键面，不输入。
+  func testLettersSwipeOpensAtOnceAndACancelledDigitTypesNothing() {
+    let key = SwipeKey(digit: 7, title: "PQRS", letters: true)
+    let touch = PinnedTouch(CGPoint(x: 20, y: 100))
+    XCTAssertTrue(key.button.beginTracking(touch, with: nil))
+    touch.point.y = 130
+    _ = key.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(key.swipes, [.letters])
+    XCTAssertEqual(key.button.configuration?.title, "PQRS", "弹出字母不换键面")
+    key.button.touchesEnded([touch], with: nil)
+    XCTAssertEqual(key.swipes, [.letters])
+    XCTAssertEqual(key.taps, 0)
+
+    touch.point.y = 100
+    XCTAssertTrue(key.button.beginTracking(touch, with: nil))
+    touch.point.y = 60
+    _ = key.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(key.button.configuration?.title, "7")
+    key.button.touchesCancelled([touch], with: nil)
+    XCTAssertEqual(key.swipes, [.letters], "取消的触摸不输入数字")
+    XCTAssertEqual(key.button.configuration?.title, "PQRS")
+    XCTAssertFalse(key.hint.isHidden)
+  }
+
+  /// 1 键：沿设定方向输入 1，键面「@#」松手后还原；反方向什么也不判。设置关着或没有设置来源时这个键只是普通按键。
+  func testTheOneKeyAndAnOffSettingLeaveTheKeyAlone() {
+    let one = SwipeKey(digit: 1, title: "@#", letters: false)
+    let touch = PinnedTouch(CGPoint(x: 20, y: 100))
+    XCTAssertTrue(one.button.beginTracking(touch, with: nil))
+    touch.point.y = 160
+    _ = one.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(one.button.nineKeySwipeGesture, .none)
+    XCTAssertTrue(one.swipes.isEmpty)
+    touch.point.y = 40
+    _ = one.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(one.button.configuration?.title, "1")
+    one.button.touchesEnded([touch], with: nil)
+    XCTAssertEqual(one.swipes, [.digit])
+    XCTAssertEqual(one.button.configuration?.title, "@#")
+
+    let off = SwipeKey(digit: 5, title: "JKL", letters: true)
+    off.mode = .off
+    touch.point.y = 100
+    XCTAssertTrue(off.button.beginTracking(touch, with: nil))
+    touch.point.y = 20
+    _ = off.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(off.button.nineKeySwipeGesture, .none)
+    off.mode = .down
+    touch.point.y = 20
+    _ = off.button.continueTracking(touch, with: nil)
+    XCTAssertEqual(off.swipes, [.letters], "设置在每次判定时现读")
+
+    let plain = KeyboardKeyButton(configuration: .plain(), primaryAction: nil)
+    touch.point.y = 100
+    XCTAssertTrue(plain.beginTracking(touch, with: nil))
+    touch.point.y = 20
+    _ = plain.continueTracking(touch, with: nil)
+    XCTAssertEqual(plain.nineKeySwipeGesture, .none, "不是九宫格的键不接九键滑动")
+  }
+
+  // MARK: - 键盘
+
+  private func keyboard(_ scheme: ChineseInputScheme, swipe: NineKeySwipeDigits) throws -> KeyboardViewController {
+    XCTAssertTrue(NineKeySwipeDigits.save(swipe))
+    InputSchemePreference.scheme = scheme
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.layoutIfNeeded()
+    return controller
+  }
+
+  private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+
+  private func control(_ identifier: String, in controller: KeyboardViewController) throws -> UIButton {
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == identifier } as? UIButton,
+                  "No button with accessibility identifier \(identifier).")
+  }
+
+  private func key(_ identifier: String, in controller: KeyboardViewController) throws -> KeyboardKeyButton {
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == identifier } as? KeyboardKeyButton,
+                  "No key with accessibility identifier \(identifier).")
+  }
+
+  /// 九宫格 1–9 键都接九键滑动（1 键没有字母），角标就是右上角的数字提示；只在拼音九键字母层按设置判定，数字层、九键双拼、长按菜单开着、读屏开着和设置关着时按关。
+  func testOnlyThePinyinLetterLayerSwipes() throws {
+    let controller = try keyboard(.nineKey, swipe: .up)
+    for digit in 1...9 {
+      let button = try key("nineKey\(digit)", in: controller)
+      XCTAssertEqual(button.nineKeySwipeDigit, digit)
+      XCTAssertEqual(button.nineKeySwipeHasLetters, digit != 1, "\(digit)")
+      XCTAssertEqual(button.nineKeySwipeHint?.accessibilityIdentifier, "keyNumberHint")
+      XCTAssertFalse(try XCTUnwrap(button.nineKeySwipeHint).isHidden, "开关不改角标的显隐")
+      XCTAssertEqual(button.nineKeySwipeMode?(), .up)
+    }
+    XCTAssertEqual(controller.activeNineKeySwipeDigits, .up)
+    try control("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(controller.activeNineKeySwipeDigits, .off, "数字层本来就是数字")
+    try control("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(controller.activeNineKeySwipeDigits, .up)
+    controller.isVoiceOverRunning = { true }
+    XCTAssertEqual(controller.activeNineKeySwipeDigits, .off, "读屏下不加滑动手势")
+    controller.isVoiceOverRunning = { false }
+    try XCTUnwrap(try key("nineKey4", in: controller).onNineKeySwipe)(.letters)
+    XCTAssertEqual(controller.activeNineKeySwipeDigits, .off, "长按菜单开着时不再判定")
+    controller.viewDidDisappear(false)
+
+    XCTAssertEqual(try keyboard(.nineKeyShuangpin, swipe: .down).activeNineKeySwipeDigits, .off, "九键双拼不接")
+    XCTAssertEqual(try keyboard(.nineKey, swipe: .off).activeNineKeySwipeDigits, .off)
+    XCTAssertEqual(try keyboard(.nineKey, swipe: .down).activeNineKeySwipeDigits, .down)
+  }
+
+  /// 两种结果走长按菜单的路径：反方向弹出与长按相同的数字和字母，从菜单里选照旧上屏；沿设定方向先结束组字再原样上屏数字。
+  func testSwipeResultsReuseTheHoldMenuPaths() throws {
+    let controller = try keyboard(.nineKey, swipe: .up)
+    try XCTUnwrap(try key("nineKey3", in: controller).onNineKeySwipe)(.letters)
+    for option in KeyboardViewController.nineKeyHoldOptions(3) {
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOption-\(option)" },
+                      option)
+    }
+    XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(3), ["3", "d", "e", "f"])
+    try control("nineKeyHoldOption-e", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
+
+    for digit in "64" { try key("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
+    let preedit = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
+    XCTAssertNotEqual(preedit.configuration?.title, "水杉输入法", "正在组字")
+    try XCTUnwrap(try key("nineKey2", in: controller).onNineKeySwipe)(.digit)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(preedit.configuration?.title, "水杉输入法", "数字先结束组字再上屏，不进拼音引擎")
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
+    controller.viewDidDisappear(false)
+  }
 }

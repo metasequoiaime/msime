@@ -57,6 +57,8 @@ export function settingsCapabilities({
   const aiProviderCredentials = host ? host.ai_provider_credentials : false;
   // AI 生成类功能的总闸（`HostCapabilities.ai_generation`）：宿主明确报 false（HarmonyOS）时不给 AI 辅助页、AI 对话、语音润色、AI 翻译、AI 皮肤和回复模板；没有宿主或宿主没报时照旧给出。
   const showAiGeneration = host?.ai_generation !== false;
+  // 社区投稿类功能的总闸（`HostCapabilities.community_contribution`）：宿主明确报 false（HarmonyOS）时社区页不画发布、改分类、发布新版本、评分和举报；没有宿主或宿主没报时照旧给出。
+  const showCommunityContribution = host?.community_contribution !== false;
   const showVoiceCommitMode = host ? host.voice_commit_mode : true;
   const showVoiceProviderSettings = host ? host.voice_provider_settings : true;
   const showVoiceStreamPreedit = host ? host.voice_stream_preedit : true;
@@ -141,6 +143,7 @@ export function settingsCapabilities({
     showCharacterWidth,
     aiProviderCredentials,
     showAiGeneration,
+    showCommunityContribution,
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,

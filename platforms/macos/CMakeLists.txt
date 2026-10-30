@@ -265,17 +265,27 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOT
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-jiajia-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-wubi86-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt" "${MSIME_LEGAL_DIRECTORY}/Zinnia-LICENSE.txt" COPYONLY)
+# 随包词库里的 MIT 与 Apache-2.0 数据，两者都要求随副本附上许可证全文：msime-pinyin.db 的单字读音按 mozillazg/pinyin-data 校正，msime-english.db 的中英释义取自 skywind3000/ECDICT，msime-others.db 的颜文字取自 aoguai/rime_kaomoji_dict、表情与颜文字关键词的整词读音取自 mozillazg/python-pinyin，msime-wubi.db 的 86 码表取自 KyleBing/rime-wubi86-jidian（Apache-2.0）。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/pinyin-data-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/pinyin-data-MIT.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/ECDICT-MIT.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/rime_kaomoji_dict-MIT.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/python-pinyin-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/python-pinyin-MIT.txt" COPYONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wubi86-jidian-Apache-2.0.txt" COPYONLY)
+# msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0）；CC BY 4.0 第 3(a) 条要求署名、改动说明和许可证随副本分发，这份文件三者都有。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # The place names `@` mode offers, compiled into the engine from modood/Administrative-divisions-of-China (WTFPL).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt" "${MSIME_LEGAL_DIRECTORY}/Administrative-divisions-of-China-WTFPL.txt" COPYONLY)
 # The Korean Hanja table, compiled into the engine from libhangul's data/hanja/hanja.txt (BSD-3-Clause, whose clause 2 requires the notice in binary distributions).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/libhangul-hanja-BSD-3-Clause.txt" COPYONLY)
-# 语法模型查询逻辑的移植声明随引擎分发。
+# 语法模型查询逻辑的移植声明随引擎分发，文件末尾附着双数组读取所依的 darts-clone（BSD-2-Clause）条款。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/librime-octagram-BSD-3-Clause.txt" "${MSIME_LEGAL_DIRECTORY}/librime-octagram-BSD-3-Clause.txt" COPYONLY)
+# 引擎的 cxx_sort.rs 逐步复现了 libc++ 的排序算法，源码级翻译要按 Apache-2.0 第 4 条随附许可证（LLVM 例外不覆盖）。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt" "${MSIME_LEGAL_DIRECTORY}/libcxx-Apache-2.0-WITH-LLVM-exception.txt" COPYONLY)
+# 符号模式按它查命令名的 LaTeX 表是本项目自写的 MIT 数据，编进了引擎；官方短语表包只在构建时带上才有自己的 LICENSE.txt，所以 MIT 全文随引擎单独放一份。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/latex-symbols-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/latex-symbols-MIT.txt" COPYONLY)
 # 拆字反查（C 模式）的部件拼音表，从 kfcd/chaizi（開放詞典《漢語拆字字典》，CC BY 3.0）改编后编进引擎；CC BY 3.0 第 4(b) 条要求分发改编作品时附上署名和改动说明，这份文件就是。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/kfcd-chaizi-CC-BY-3.0.txt" COPYONLY)
-# 符号模式（S 模式）的分组码表来自 rime-wanxiang 的 wanxiang_symbols.yaml（CC BY 4.0）；第 3(a) 条要求分发改编数据时附上署名、许可证地址和改动说明，这份文件就是。
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
-# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），符号模式（S 模式）的分组表按 Unicode 字符数据库 17.0.0 挑选组员，Unicode License V3 要求随数据附上它的版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Unicode-License-V3.txt" "${MSIME_LEGAL_DIRECTORY}/Unicode-License-V3.txt" COPYONLY)
 # 简繁转换内嵌 OpenCC 词表，Apache-2.0 原文随宿主分发。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/OpenCC-Apache-2.0.txt" COPYONLY)
@@ -289,7 +299,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/vi-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/vi-MIT.txt" COPYONLY)
 # 引擎为藏文方案链接的 ewts crate（EWTS 威利转写转藏文）；它以 MIT OR Apache-2.0 双许可发布，这里选 MIT，MIT 要求每份副本都带上版权和许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/ewts-MIT.txt" COPYONLY)
-# symphonia and triple_buffer, which host-api links in for key sounds and music, and rink-core, which the engine links in for V-mode unit conversion, are MPL-2.0: the licence text ships with the binary, and THIRD_PARTY_NOTICES.txt says where their source is.
+# The input engine itself (crates/engine, crates/path-trust) is MPL-2.0, and so are symphonia and triple_buffer, which host-api links in for key sounds and music, and rink-core, which the engine links in for V-mode unit conversion: the licence text ships with the binary, and THIRD_PARTY_NOTICES.txt says where their source is.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/MPL-2.0.txt" COPYONLY)
 # The on-device speech runtime staged into Contents/Frameworks below. The upstream archive carries no license file, so the texts come from the copies the other desktops ship: sherpa-onnx's beside its vendored C header, ONNX Runtime's pinned under platforms/linux.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)

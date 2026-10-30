@@ -36,6 +36,25 @@ enum CandidateFontPreference {
     CGFloat(preeditSize(in: preferences, tablet: tablet)) / CGFloat(defaultPreeditSize)
   }
 
+  /// 「候选栏大小」：共享偏好 `candidate_scale_percent`，键盘的候选栏连同字号按它缩放，跟随候选栏的空闲工具栏一起变矮或变高，按键不动（#10137）。范围、步长和说法与 Android、鸿蒙相同。
+  static let scaleKey = "candidate_scale_percent"
+  static let defaultScalePercent = 100
+  static let scaleRange = 50...200
+  static let scaleStep = 5
+
+  /// 存着的候选栏大小；50–200 以外、缺省或不是整数时按 100，与 client-core 的校验和 Android 的 `CandidateScalePolicy` 一致。不像字号那样夹到边界：越界的值不是用户选的。
+  static func scalePercent(in preferences: [String: Any]?) -> Int {
+    guard let value = SharedNumber.strictInt(preferences?[scaleKey]), scaleRange.contains(value) else {
+      return defaultScalePercent
+    }
+    return value
+  }
+
+  /// 候选栏整体的倍数：候选和编码字号、候选行、读音行、释义行和顶栏的最小高度都乘以它。
+  static func barScale(in preferences: [String: Any]?) -> CGFloat {
+    CGFloat(scalePercent(in: preferences)) / 100
+  }
+
   /// The text style scaled at the default text size, then handed to `UIFontMetrics` so the system text size still scales it and a label that adjusts for content size keeps doing so.
   static func font(_ style: UIFont.TextStyle, scale: CGFloat) -> UIFont {
     guard scale != 1 else { return .preferredFont(forTextStyle: style) }

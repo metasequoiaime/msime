@@ -198,6 +198,402 @@ impl TouchWubiLayout {
     }
 }
 
+/// 中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的排法；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 的整排键盘不受它影响。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchTwentySixKeyStyle {
+    /// 现有底行：123 | 符 | 空格 | ，（长按出。）| 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 空格两侧各一个标点：123 | 符 | ， | 空格 | 。 | 中/英 | 回车。
+    CommaPeriod,
+    /// 长空格：123 | ， | 长空格 | 中/英 | 回车，符号入口移到工具栏；接替 Android 本机设置 `platform.android.long_space_layout`。
+    LongSpace,
+    /// 表情键：123 | 😀 | 空格 | ， | 中/英 | 回车，符号经长按 123 进入。
+    Emoji,
+}
+
+impl TouchTwentySixKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::CommaPeriod => "comma_period",
+            Self::LongSpace => "long_space",
+            Self::Emoji => "emoji",
+        }
+    }
+
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "comma_period" => Some(Self::CommaPeriod),
+            "long_space" => Some(Self::LongSpace),
+            "emoji" => Some(Self::Emoji),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchTwentySixKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的样式）按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 14 键与 18 键字母层（全拼、双拼、五笔 14 键共用）底行的排法。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchFourteenKeyStyle {
+    /// 现有底行：123 | ， | 空格 | 。 | 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 长空格：123 | ， | 长空格 | 中/英 | 回车。
+    LongSpace,
+    /// 表情键：123 | 😀 | 空格 | ， | 中/英 | 回车。
+    Emoji,
+}
+
+impl TouchFourteenKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::LongSpace => "long_space",
+            Self::Emoji => "emoji",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "long_space" => Some(Self::LongSpace),
+            "emoji" => Some(Self::Emoji),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchFourteenKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；除 [`Self::TallReturn`] 外，左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNineKeyStyle {
+    /// 现有底行：符 | 123 | 空格 | 中/英 | 回车。
+    #[default]
+    Standard,
+    /// 空格两侧各一个标点：符 | 123 | ， | 空格 | 。 | 中/英 | 回车。
+    CommaPeriod,
+    /// 表情键：符 | 123 | 😀 | 空格 | 中/英 | 回车。
+    Emoji,
+    /// 右侧大回车：左列是跨三行的符号栏，栏下方底行放 符（与符号栏同宽）；中间是 3×3 九宫格，格下方底行 123 | 🌐 | 空格 | 中/英 恰好与九宫格同宽，空格占剩余宽度；右列（与现有右列同宽）自上而下是 ⌫、重输，回车跨第三行和底行（两倍高、中间无缝）。现有右列的 ！ 键去掉，只在这个样式里把 ！ 接在符号栏默认字母符号表的末尾，自定义的符号栏列表原样使用。九键数字层照同一框架：符 留在符号栏下方，123 的位置放切换键，空格的位置放 0（空格放哪按各端现有数字层规则），回车仍是两倍高。中/英 与回车不在同一行，不让出回车的点击区。较旧的版本不认识这个值，按现有底行读。
+    TallReturn,
+}
+
+impl TouchNineKeyStyle {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::CommaPeriod => "comma_period",
+            Self::Emoji => "emoji",
+            Self::TallReturn => "tall_return",
+        }
+    }
+
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "standard" => Some(Self::Standard),
+            "comma_period" => Some(Self::CommaPeriod),
+            "emoji" => Some(Self::Emoji),
+            "tall_return" => Some(Self::TallReturn),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNineKeyStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串按现有底行读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画自己的数字层，以及 26 键、14/18 键、手写借来的数字九宫格）里空格放在哪；0 总在底行。右侧大回车的数字层有自己的排法，不受它影响。桌面宿主原样保留、不使用。
+///
+/// 三端出厂的排法各不相同，所以默认值是 [`Self::PlatformDefault`]：各端照自己原来的排法画（Android 空格在右列，iOS 空格在 0 右边，鸿蒙空格在 0 左边），三种排法三端都能选。读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNumberPadSpace {
+    /// 各端原来的排法，不写进文档。
+    #[default]
+    PlatformDefault,
+    /// 空格在右列最下面一格（⌫ | . | 空格），0 占底行中间原来空格的整份宽度；Android 的出厂排法。
+    RightColumn,
+    /// 0 和空格都在底行，0 在左、占大份，空格在它右边、与中/英同宽；iOS 的出厂排法。
+    AfterZero,
+    /// 0 和空格都在底行，空格在左、占大份，0 在它右边、与中/英同宽；鸿蒙的出厂排法。
+    BeforeZero,
+}
+
+impl TouchNumberPadSpace {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PlatformDefault => "platform_default",
+            Self::RightColumn => "right_column",
+            Self::AfterZero => "after_zero",
+            Self::BeforeZero => "before_zero",
+        }
+    }
+
+    /// 严格解析：只认四种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "platform_default" => Some(Self::PlatformDefault),
+            "right_column" => Some(Self::RightColumn),
+            "after_zero" => Some(Self::AfterZero),
+            "before_zero" => Some(Self::BeforeZero),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNumberPadSpace {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的排法）按各端原来的排法读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 大屏（平板、折叠屏内屏、iPad 全宽键盘）单手模式时，按键贴到一侧后空出来的另一侧放什么（#10203）。只在单手模式生效、主键区画着九键字母层时才放；手机、分离式键盘和浮动键盘不受影响。桌面宿主原样保留、不使用。
+///
+/// 做成取值而不是开关，是因为以后还要加「文本编辑面板」这一种：开关改成字符串时，还没升级的版本读到字符串会把整份偏好文档判成类型错误。不认识的字符串（较新版本加的面板）读成 [`Self::Unknown`]，原样留着写法：宿主按空着画，存文档、账号同步导出时照原样写回，这样旧版本既不会在下一次保存时把它删掉，也不会把它当成本机改动、拿 `off` 覆盖云端较新设备的选择。不是字符串照样报错，和其他字段的类型错误一致。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TouchOneHandedSidePanel {
+    /// 空着，露出键盘底色，即 #10204 之后的样子。默认值，不写进文档。
+    #[default]
+    Off,
+    /// 数字键盘：3 × 4 拨号盘，1–9、0、小数点和退格。
+    NumberPad,
+    /// 较新版本加的面板，本版本不认识，里面是原样的写法。宿主按 [`Self::Off`] 画。
+    Unknown(String),
+}
+
+impl TouchOneHandedSidePanel {
+    /// 文档和同步键里的写法；不认识的取值原样返回。
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Off => "off",
+            Self::NumberPad => "number_pad",
+            Self::Unknown(value) => value,
+        }
+    }
+
+    /// 按写法取值：认识的两种之外一律是 [`Self::Unknown`]，写法原样留着。偏好文档和账号同步都走它。
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "off" => Self::Off,
+            "number_pad" => Self::NumberPad,
+            other => Self::Unknown(other.to_owned()),
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl Serialize for TouchOneHandedSidePanel {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchOneHandedSidePanel {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的面板）原样留着；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::from_wire(&value))
+    }
+}
+
+/// 手机触屏底行的中/英键放在空格哪一边（#10228）。默认 [`Self::Right`] 是原来的排法：中/英在空格右边、紧挨回车。[`Self::Left`] 把中/英挪到空格左边：它左边紧挨着的那一串空格、0、逗号、句号整体右移一格，中/英排到这一串的最左边，所以空格左边有标点时标点仍贴着空格、中/英在标点左边；各键宽度不变。作用于 26 键一族（含英文、韩文等同一条底行）、14/18 键、九键外框（含右侧大回车）、九宫格数字键盘和手写的底行，iPad 全尺寸键盘和鸿蒙 2in1 的底行不受影响；底行没有中/英（iOS 隐藏了中/英键）时不起作用。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchLanguageKeySide {
+    /// 中/英在空格右边、紧挨回车，不写进文档。
+    #[default]
+    Right,
+    /// 中/英在空格左边，排在 123、地球键、符、😀 这些左侧功能键之后。
+    Left,
+}
+
+impl TouchLanguageKeySide {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Left => "left",
+        }
+    }
+
+    /// 严格解析：只认两种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "right" => Some(Self::Right),
+            "left" => Some(Self::Left),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchLanguageKeySide {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的位置）按原来的右边读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 手机触屏拼音九键字母层 1–9 键上的纵向滑动（#10229，接替 Android 本机设置 `platform.android.nine_key_swipe`，写法与它逐字相同）：沿所选方向滑过判定距离，松手输入键上印的数字；往反方向滑，弹出与长按相同的数字和字母选项（1 键没有字母，不弹）。九键双拼、笔画、数字层和别的键面不受影响。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认（关闭）读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchNineKeySwipeDigits {
+    /// 没有滑动手势，点按和长按照旧；不写进文档。
+    #[default]
+    Off,
+    /// 上滑输入数字，下滑弹出数字和字母。
+    Up,
+    /// 下滑输入数字，上滑弹出数字和字母。
+    Down,
+}
+
+impl TouchNineKeySwipeDigits {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Up => "up",
+            Self::Down => "down",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "up" => Some(Self::Up),
+            "down" => Some(Self::Down),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的写法）按关闭读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NextWordPredictionButtons {
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    #[default]
+    ExpandOnly,
+    /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。
+    CloseAndExpand,
+    /// 只有关闭键 ×，不显示展开键，联想只能在候选栏里左右滑动选择。
+    CloseOnly,
+}
+
+impl NextWordPredictionButtons {
+    /// 文档里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExpandOnly => "expand_only",
+            Self::CloseAndExpand => "close_and_expand",
+            Self::CloseOnly => "close_only",
+        }
+    }
+
+    /// 严格解析：只认三种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "expand_only" => Some(Self::ExpandOnly),
+            "close_and_expand" => Some(Self::CloseAndExpand),
+            "close_only" => Some(Self::CloseOnly),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for NextWordPredictionButtons {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的样式）按现有样式读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -231,12 +627,21 @@ pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     ]
 }
 
-/// 读进来的排列补上它不认识的侧边动作：新版本加了动作（例如选择行）之后，旧文档、旧的设置导出和同步来的偏好只列着当时那几个，不补的话整份偏好通不过 [`Preferences::validate`]，Windows 的 Server 因此起不来。缺的动作按默认排列的先后接在末尾，用户排好的顺序不动；重复和未知的动作照旧由校验和枚举拒绝。
+/// 读进来的排列总能变成一份完整的排列：本版本认识的动作按第一次出现的位置保留，不认识的名字（更新的版本加的动作）、重复的动作和不是字符串的元素丢掉，缺的动作按默认排列的先后接在末尾，用户排好的顺序不动。
+///
+/// 这只是面板上按钮的先后，却在偏好文档里和输入方案放在一起：#9802 加了「选择行」以后，旧文档只列着七个动作，整份偏好通不过 [`Preferences::validate`]，iOS 键盘、HarmonyOS 和 Windows 的 Server 都准备不了运行时，用户打不了字（#9975 先补上了缺的动作）。反过来，旧版本读到新版本写的排列，会因为不认识新动作同样整份读不了。所以读的时候一律放宽：丢掉一个本版本画不出来的按钮，更新的版本读回去时会把它接在末尾补上。不是数组时照旧报错。直接交给 [`Preferences::validate`] 的结构体仍按完整、不重复的排列严格校验。
 fn deserialize_text_edit_button_order<'de, D>(d: D) -> Result<Vec<TextEditButton>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let mut order = Vec::<TextEditButton>::deserialize(d)?;
+    let mut order = Vec::new();
+    for value in Vec::<serde_json::Value>::deserialize(d)? {
+        if let Ok(button) = serde_json::from_value::<TextEditButton>(value) {
+            if !order.contains(&button) {
+                order.push(button);
+            }
+        }
+    }
     for button in default_text_edit_button_order() {
         if !order.contains(&button) {
             order.push(button);
@@ -725,21 +1130,30 @@ pub struct TouchKeyboardSchemePreferences {
     pub selected: Option<TouchKeyboardScheme>,
 }
 
-/// 文档里可能出现的方案取值：现行方案，加上已经退役的 `thoughtful_reply`。高情商回复曾是一个触屏方案，现在改为键盘工具栏上的工具，旧文档里留下的这个取值在读入时迁移掉，而不是让整份偏好读取失败。其它不认识的取值（比如更新版本写入的方案）仍然报错，保持文档原样不动。
+/// 文档里可能出现的方案取值：现行方案，已经退役的 `thoughtful_reply`，以及本版本不认识的名字。
+///
+/// 高情商回复曾是一个触屏方案，现在改为键盘工具栏上的工具，旧文档里留下的这个取值在读入时迁移掉。不认识的名字是更新的版本加的方案（这个枚举几天里就加过十八键、粤语双拼几个值），降级、从每日构建退回正式版、macOS 输入法比设置应用新时都会读到：读入时同样丢掉，而不是让整份偏好读不了、连带输入运行时起不来。丢掉的名字在读盘时记下、保存时接回列表末尾（[`newer_list_values`]），更新的版本读回去时用户启用的方案还在；退役的取值不接回。
 #[derive(Deserialize)]
 enum StoredTouchKeyboardScheme {
     #[serde(rename = "thoughtful_reply")]
     RetiredThoughtfulReply,
     #[serde(untagged)]
     Current(TouchKeyboardScheme),
+    #[serde(untagged)]
+    Newer(#[allow(dead_code)] String),
 }
 
 impl StoredTouchKeyboardScheme {
     fn current(self) -> Option<TouchKeyboardScheme> {
         match self {
-            Self::RetiredThoughtfulReply => None,
+            Self::RetiredThoughtfulReply | Self::Newer(_) => None,
             Self::Current(scheme) => Some(scheme),
         }
+    }
+
+    /// 文档里的这个取值是更新的版本写下的方案名：读盘时要记下、保存时接回。
+    fn is_newer(value: &serde_json::Value) -> bool {
+        matches!(Self::deserialize(value), Ok(Self::Newer(_)))
     }
 }
 
@@ -764,7 +1178,7 @@ impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferenc
                     .into_iter()
                     .filter_map(StoredTouchKeyboardScheme::current)
                     .collect();
-                // 列表里只剩退役方案时，按各平台对空列表的约定回到全拼 26 键；原本就存成空列表的文档不在这里补，仍由 `validate` 拒绝。
+                // 列表里只剩退役方案或本版本不认识的方案时，按各平台对空列表的约定回到全拼 26 键；原本就存成空列表的文档不在这里补，仍由 `validate` 拒绝。
                 if enabled.is_empty() && stored_count > 0 {
                     enabled.insert(TouchKeyboardScheme::Quanpin);
                 }
@@ -775,11 +1189,15 @@ impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferenc
             enabled,
             selected: None,
         };
-        preferences.selected = stored.selected.map(|selected| {
-            selected
-                .current()
-                .unwrap_or_else(|| preferences.first_enabled())
-        });
+        preferences.selected = match stored.selected {
+            None => None,
+            Some(StoredTouchKeyboardScheme::Current(scheme)) => Some(scheme),
+            Some(StoredTouchKeyboardScheme::RetiredThoughtfulReply) => {
+                Some(preferences.first_enabled())
+            }
+            // 更新的版本选中的方案本版本画不出来，当作没选；原值在读盘时记下，本版本没选别的方案就在保存时放回（见 [`newer_list_values`]）。
+            Some(StoredTouchKeyboardScheme::Newer(_)) => None,
+        };
         preferences
     }
 }
@@ -1119,6 +1537,7 @@ pub struct SentenceAssociationPreferences {
     /// Runs the desktop sentence model as the input runtime's settled reranker once typing pauses, when a host has installed it; the Engine never loads that model.
     #[serde(default)]
     pub neural_desktop: bool,
+    /// 整句联想「增强」: mounts the keyboard sentence model as the input runtime's per-keystroke reranker when the edition ships the model. The Engine's own keyboard-model rerank does not follow it.
     #[serde(default)]
     pub neural_keyboard: bool,
     #[serde(default)]
@@ -1328,6 +1747,9 @@ pub struct Preferences {
     /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
+    /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。
+    #[serde(default, skip_serializing_if = "NextWordPredictionButtons::is_default")]
+    pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -1435,9 +1857,24 @@ pub struct Preferences {
     pub wubi_profile: WubiProfile,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
-    /// Android 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。其他宿主原样保留。
+    /// 大屏竖屏也使用分离键盘；还需宿主的分离主开关开启，默认关闭。Android 与鸿蒙读它，其他宿主原样保留。
     #[serde(default)]
     pub touch_keyboard_split_portrait: bool,
+    /// 鸿蒙大屏（平板、折叠屏内屏）横屏时把 26 键一族和韩文键盘分成左右两半，规则与 Android 的 `SplitKeyboardPolicy` 相同。Android 的主开关在它自己的本机设置 `platform.android.split_keyboard` 里，不读这个字段；iOS 用 App Group 里的开关。默认关且不写进文档，其他宿主原样保留。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_keyboard_split: bool,
+    /// 鸿蒙分离键盘开始启用的最短屏幕边（vp），480–1000、步进 20，默认 600，与 Android 本机设置 `platform.android.split_keyboard_threshold` 同一范围。默认值不写进文档。
+    #[serde(
+        default = "default_touch_keyboard_split_threshold",
+        skip_serializing_if = "is_default_touch_keyboard_split_threshold"
+    )]
+    pub touch_keyboard_split_threshold: u16,
+    /// 鸿蒙分离键盘中间空隙至少占整行的百分比，10–40、步进 5，默认 25，与 Android 本机设置 `platform.android.split_keyboard_gap` 同一范围。默认值不写进文档。
+    #[serde(
+        default = "default_touch_keyboard_split_gap",
+        skip_serializing_if = "is_default_touch_keyboard_split_gap"
+    )]
+    pub touch_keyboard_split_gap: u8,
     /// Android 和 iOS 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
     #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
     pub touch_shuangpin_layout: TouchShuangpinLayout,
@@ -1464,7 +1901,7 @@ pub struct Preferences {
     /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
     #[serde(default)]
     pub touch_number_keypad_order: NumberKeypadOrder,
-    /// Android 文本编辑面板全部侧边动作的完整排列；其他宿主保留但不使用。读入时补上旧文档缺的动作（见 `deserialize_text_edit_button_order`）。
+    /// Android 文本编辑面板全部侧边动作的完整排列；其他宿主保留但不使用。读入时丢掉不认识和重复的动作、补上缺的动作（见 `deserialize_text_edit_button_order`）。
     #[serde(
         default = "default_text_edit_button_order",
         deserialize_with = "deserialize_text_edit_button_order"
@@ -1485,6 +1922,47 @@ pub struct Preferences {
     /// 全拼 26 键组字时第三排左端的 ⇧ 默认画「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。九键、14 键和 18 键有自己的分词键，不受它影响。默认关，即原有分词行为。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_quanpin_shift: bool,
+    /// 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式，见 [`TouchTwentySixKeyStyle`]；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchTwentySixKeyStyle::is_default")]
+    pub touch_twenty_six_key_style: TouchTwentySixKeyStyle,
+    /// 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式，见 [`TouchFourteenKeyStyle`]。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchFourteenKeyStyle::is_default")]
+    pub touch_fourteen_key_style: TouchFourteenKeyStyle,
+    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；除右侧大回车样式外，左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
+    pub touch_nine_key_style: TouchNineKeyStyle,
+    /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序排列，规则见 [`normalize_nine_key_sidebar_symbols`]。空表表示用各端自己的出厂表（三端都是 ， 。 ？；右侧大回车样式时各端在出厂表末尾接 ！，自定义表原样使用），所以等于出厂表时宿主写空表。Android 的 14 键左侧底轨也读这张表。接替 Android 本机设置 `platform.android.nine_key_symbols`。读入时逐项丢掉不合规的元素（见 `deserialize_nine_key_sidebar_symbols`），不是数组时照样报错。空表不写进文档。桌面宿主原样保留、不使用。
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_nine_key_sidebar_symbols"
+    )]
+    pub touch_nine_key_sidebar_symbols: Vec<String>,
+    /// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画的数字层，以及 26 键、14/18 键、手写等借来的数字九宫格）左侧符号栏的符号，规则与 [`Self::touch_nine_key_sidebar_symbols`] 相同。空表表示用各端自己的出厂表，三端的出厂表本来就不同（Android 14 项，iOS 和鸿蒙是 + - * /）；`#+=` 不属于这张表，各端留在原来的位置。接替 Android 本机设置 `platform.android.nine_key_digit_symbols`。空表不写进文档。桌面宿主原样保留、不使用。
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_nine_key_sidebar_symbols"
+    )]
+    pub touch_nine_key_digit_sidebar_symbols: Vec<String>,
+    /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_number_row: bool,
+    /// 手机触屏 26 键字母层底行把 符 排到 123 左边（符 | 123 |（🌐）| …），原来是 123 |（🌐）| 符 | …；只作用于底行里有 符 的样式（标准、逗号句号在空格两侧），长空格和表情键样式没有 符、不受影响，英文和其他语言的 26 键底行同样以 123 | 符 打头，一并互换。从这块键面借来的数字九宫格跟着把返回键排在 符 后面。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_twenty_six_symbol_first: bool,
+    /// 手机触屏九宫格数字键盘里空格的位置，见 [`TouchNumberPadSpace`]。默认是各端原来的排法且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNumberPadSpace::is_default")]
+    pub touch_number_pad_space: TouchNumberPadSpace,
+    /// 大屏单手模式时空出来的一侧放什么，见 [`TouchOneHandedSidePanel`]。默认空着且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchOneHandedSidePanel::is_default")]
+    pub touch_one_handed_side_panel: TouchOneHandedSidePanel,
+    /// 手机触屏底行的中/英键在空格哪一边，见 [`TouchLanguageKeySide`]。默认在右边且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchLanguageKeySide::is_default")]
+    pub touch_language_key_side: TouchLanguageKeySide,
+    /// 手机触屏拼音九键 1–9 键滑动输入数字的方向，见 [`TouchNineKeySwipeDigits`]。接替 Android 本机设置 `platform.android.nine_key_swipe`，由 Android 宿主一次性迁入（[`PreferencesStore::migrate_android_key_layout`]）；判定距离仍是 Android 本机设置。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
+    pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -1502,13 +1980,13 @@ pub struct Preferences {
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
-    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
+    /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub shuangpin_custom_profile: ShuangpinCustomProfile,
     /// 九键双拼（`touch_keyboard_layout` 为 `nine_key_shuangpin`）用哪张表。等于默认值时不写进文件，没用过九键双拼的文档与以前的版本相同。
     #[serde(default, skip_serializing_if = "NineKeyShuangpinProfile::is_default")]
     pub nine_key_shuangpin_profile: NineKeyShuangpinProfile,
-    /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
+    /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
@@ -1794,6 +2272,9 @@ pub struct Preferences {
     /// 候选翻译服务选的是 AI 辅助时为真，复用 `ai_assistant` 的服务商、接口地址、Token 与模型做候选词翻译；不要求 `ai_assistant.enabled`，只想用翻译、不开 AI 联想也能生效。与 `translation_account` 一样必须由用户显式选择。
     #[serde(default)]
     pub translation_ai: bool,
+    /// 内部标记，不是设置：这份文档已经按「AI 辅助翻译要显式选择」定过一次。Android 和 iOS 以前不读 `translation_ai`，AI 联想开着、又没选别的翻译服务时就用 AI 翻译候选；现在各端都只认 `translation_ai`，所以读到没有这个标记的文档时，在这两个平台上把当时实际在用 AI 翻译的情形一次性写成显式选择，再标上它（`Preferences::settle_translation_ai_selection`）；之后用户改选别的服务也不会再被改回来。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub translation_ai_migrated: bool,
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
@@ -3459,6 +3940,38 @@ impl Preferences {
     }
 }
 
+/// Android 和 iOS 以前不读 `translation_ai`：AI 联想（`ai_assistant.enabled`）开着、又没选别的翻译服务时，键盘就用 AI 配置翻译候选。读入没有 `translation_ai_migrated` 标记的旧文档时，要把这种情形一次性写成显式选择；其余平台一直只认 `translation_ai`，不动。
+const TRANSLATION_AI_WAS_IMPLICIT: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+impl Preferences {
+    /// 读入偏好文档时调用一次：文档还没有 `translation_ai_migrated` 标记，就是各端统一成「AI 辅助翻译要显式选择」之前写下的。`was_implicit` 为真（Android、iOS，见 [`TRANSLATION_AI_WAS_IMPLICIT`]）、AI 联想开着且服务商、接口地址、模型都已填写、没有选 AI 翻译、没有选水杉账号、小牛和自定义都没启用、腾讯仍是默认的开着但两项凭据不全时，那台设备当时就在用 AI 翻译候选：把 `translation_ai` 打开，同时关掉没有凭据的腾讯（不关的话共享层的选路会先选中它），与设置页选「AI 辅助」写下的样子相同。腾讯关着说明用户在旧版「翻译服务」页存过「不使用在线翻译」之类的非腾讯选择（旧版两端的那一页都没有 AI 选项，选非腾讯项时会把腾讯显式写成关），那是明确不要在线翻译，不能改成 AI；三项 AI 配置不全时旧版键盘也不发 AI 请求，同样不选。令牌不在这里查：iOS 的令牌在钥匙串里，共享层看不到。不论平台都标上标记，之后再读不会重来。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
+    fn settle_translation_ai_selection(&mut self, was_implicit: bool) {
+        if self.translation_ai_migrated {
+            return;
+        }
+        let tencent_unconfigured = self.tencent_tmt.enabled
+            && !(crate::translation::usable_credential(&self.tencent_tmt.secret_id)
+                && crate::translation::usable_credential(&self.tencent_tmt.secret_key));
+        let ai = &self.ai_assistant;
+        let ai_configured = !ai.provider.trim().is_empty()
+            && !ai.endpoint.trim().is_empty()
+            && !ai.model.trim().is_empty();
+        if was_implicit
+            && ai.enabled
+            && ai_configured
+            && !self.translation_ai
+            && !self.translation_account
+            && !self.niutrans.enabled
+            && !self.custom_translation.enabled
+            && tencent_unconfigured
+        {
+            self.translation_ai = true;
+            self.tencent_tmt.enabled = false;
+        }
+        self.translation_ai_migrated = true;
+    }
+}
+
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
 ///
 /// `platforms/windows/installer/config.default.toml` has all three `true`, matching the source's factory configuration, but like smart punctuation that file is only the installed template - the running host reads this document - so the effective first-run value on Windows was `false`. macOS is the port of that desktop product and follows it. None of the three depends on the platform: muting uses CoreAudio on macOS, DDC is a Doubao request flag, and polishing still needs a polish token before anything is sent.
@@ -3553,8 +4066,94 @@ pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
     }
 }
 
+/// 九键左侧符号栏一张表最多几项，与 Android `NineKeySidebarPolicy.MAX_SYMBOLS` 相同。
+pub const NINE_KEY_SIDEBAR_MAX_SYMBOLS: usize = 30;
+/// 九键左侧符号栏一项最多几个码位（「……」「:-)」这类短串也允许），与 Android `NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS` 相同。
+pub const NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS: usize = 4;
+/// 九键左侧符号栏用一个空格连起来（同步值和 Android 本机存储的写法，见 [`format_nine_key_sidebar_symbols`]）最长几个 UTF-16 单元，与 Android `NineKeySidebarPolicy.MAX_TEXT_LENGTH` 相同；账号字段表收录同步键时按这个长度定上限。
+pub const NINE_KEY_SIDEBAR_MAX_TEXT_UTF16: usize = 200;
+
+/// 九键左侧符号栏（`touch_nine_key_sidebar_symbols` 与 `touch_nine_key_digit_sidebar_symbols`）的规范形式：每项去掉首尾空白；丢掉空串、中间含空白或控制字符的、超过 [`NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS`] 个码位的项，以及重复项（保留第一次出现的位置）；保留下来的项到 [`NINE_KEY_SIDEBAR_MAX_SYMBOLS`] 项，或者再加一项会让空格连起来的写法超过 [`NINE_KEY_SIDEBAR_MAX_TEXT_UTF16`] 个 UTF-16 单元时，后面的全部截掉。
+///
+/// 结果为空就是「用本端出厂表」，不像快捷符号那样换成某一端的默认列表：三端的出厂表不同。Android 编辑器对整张表另有更严的校验（任何一项不合规整张表都不收），交给共享偏好的总是已经合规的表；这里按项丢弃，是为了读别处写的文档时不让一项坏值连累整张表。
+pub fn normalize_nine_key_sidebar_symbols(symbols: &[String]) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::new();
+    let mut text_units = 0;
+    for symbol in symbols {
+        let value = symbol.trim();
+        if value.is_empty()
+            || value.chars().count() > NINE_KEY_SIDEBAR_MAX_SYMBOL_CODE_POINTS
+            || value.chars().any(|c| c.is_whitespace() || c.is_control())
+            || normalized.iter().any(|stored| stored == value)
+        {
+            continue;
+        }
+        // 第一项前面没有分隔的空格。
+        let units = value.encode_utf16().count() + usize::from(!normalized.is_empty());
+        if normalized.len() == NINE_KEY_SIDEBAR_MAX_SYMBOLS
+            || text_units + units > NINE_KEY_SIDEBAR_MAX_TEXT_UTF16
+        {
+            break;
+        }
+        text_units += units;
+        normalized.push(value.to_owned());
+    }
+    normalized
+}
+
+/// 把空白分隔的写法（同步值、Android 本机存储的旧值）读成规范化的符号表：按任意空白（含全角空格）切开，再走 [`normalize_nine_key_sidebar_symbols`]。空串读成空表。
+pub fn parse_nine_key_sidebar_symbols(text: &str) -> Vec<String> {
+    let symbols: Vec<String> = text.split_whitespace().map(str::to_owned).collect();
+    normalize_nine_key_sidebar_symbols(&symbols)
+}
+
+/// 符号表的空格分隔写法，[`parse_nine_key_sidebar_symbols`] 的反向；空表写成空串。
+pub fn format_nine_key_sidebar_symbols(symbols: &[String]) -> String {
+    symbols.join(" ")
+}
+
+/// 九键左侧符号栏的宽松读法：先按任意 JSON 值的数组读，不是字符串的元素丢掉，再走 [`normalize_nine_key_sidebar_symbols`]，不合规的项逐项丢掉，全被丢掉时就是空表（用本端出厂表）。一张符号表里的一项坏值不该让整份偏好读不了（#9975 的教训）。不是数组时照旧报错，与其他字段的类型错误一致。
+fn deserialize_nine_key_sidebar_symbols<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let symbols: Vec<String> = Vec::<serde_json::Value>::deserialize(d)?
+        .into_iter()
+        .filter_map(|value| match value {
+            serde_json::Value::String(symbol) => Some(symbol),
+            _ => None,
+        })
+        .collect();
+    Ok(normalize_nine_key_sidebar_symbols(&symbols))
+}
+
 fn default_touch_key_spacing_tenths() -> u8 {
     60
+}
+
+/// 分离键盘阈值的取值范围、步进和默认值，与 Android `SplitKeyboardPolicy` 的本机设置相同。
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE: std::ops::RangeInclusive<u16> = 480..=1000;
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP: u16 = 20;
+pub const TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT: u16 = 600;
+/// 分离键盘中间空隙百分比的取值范围、步进和默认值，与 Android `SplitKeyboardPolicy` 的本机设置相同。
+pub const TOUCH_KEYBOARD_SPLIT_GAP_RANGE: std::ops::RangeInclusive<u8> = 10..=40;
+pub const TOUCH_KEYBOARD_SPLIT_GAP_STEP: u8 = 5;
+pub const TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT: u8 = 25;
+
+fn default_touch_keyboard_split_threshold() -> u16 {
+    TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT
+}
+
+fn is_default_touch_keyboard_split_threshold(value: &u16) -> bool {
+    *value == TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT
+}
+
+fn default_touch_keyboard_split_gap() -> u8 {
+    TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
+}
+
+fn is_default_touch_keyboard_split_gap(value: &u8) -> bool {
+    *value == TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
 }
 
 fn default_touch_row_spacing_tenths() -> u8 {
@@ -3590,6 +4189,7 @@ impl Default for Preferences {
             ai_assistant: AiAssistantPreferences::default(),
             sentence_association: SentenceAssociationPreferences::default(),
             next_word_prediction: false,
+            next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
@@ -3633,6 +4233,9 @@ impl Default for Preferences {
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
+            touch_keyboard_split: false,
+            touch_keyboard_split_threshold: TOUCH_KEYBOARD_SPLIT_THRESHOLD_DEFAULT,
+            touch_keyboard_split_gap: TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT,
             touch_shuangpin_layout: TouchShuangpinLayout::default(),
             touch_wubi_layout: TouchWubiLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
@@ -3648,6 +4251,17 @@ impl Default for Preferences {
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
             touch_quanpin_shift: false,
+            touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
+            touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
+            touch_nine_key_style: TouchNineKeyStyle::default(),
+            touch_nine_key_sidebar_symbols: Vec::new(),
+            touch_nine_key_digit_sidebar_symbols: Vec::new(),
+            touch_number_row: false,
+            touch_twenty_six_symbol_first: false,
+            touch_number_pad_space: TouchNumberPadSpace::default(),
+            touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
+            touch_language_key_side: TouchLanguageKeySide::default(),
+            touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -3743,6 +4357,7 @@ impl Default for Preferences {
             translation_secondary_language: None,
             translation_account: false,
             translation_ai: false,
+            translation_ai_migrated: true,
             usage_reporting: true,
             update_channel: UpdateChannel::Stable,
         }
@@ -3810,7 +4425,8 @@ fn is_true(value: &bool) -> bool {
 pub struct FuzzyPinyinPreferences {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    /// 读入时丢掉更新的版本加的规则，而不是让整份偏好读不了；丢掉的规则在读盘时记下、保存时接回（见 [`newer_list_values`]）。
+    #[serde(default, deserialize_with = "deserialize_known_elements")]
     pub rules: BTreeSet<FuzzyPinyinRule>,
     /// Internal marker used to distinguish first enable from an intentionally
     /// empty rule selection. It is persisted but never rendered by the UI.
@@ -4570,10 +5186,28 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
+        if !TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.contains(&self.touch_keyboard_split_threshold)
+            || !(self.touch_keyboard_split_threshold - TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP)
+            || !TOUCH_KEYBOARD_SPLIT_GAP_RANGE.contains(&self.touch_keyboard_split_gap)
+            || !(self.touch_keyboard_split_gap - TOUCH_KEYBOARD_SPLIT_GAP_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_GAP_STEP)
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSplit);
+        }
         if self.touch_quick_punctuation_symbols
             != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
         {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
+        }
+        if [
+            &self.touch_nine_key_sidebar_symbols,
+            &self.touch_nine_key_digit_sidebar_symbols,
+        ]
+        .into_iter()
+        .any(|symbols| *symbols != normalize_nine_key_sidebar_symbols(symbols))
+        {
+            return Err(PreferencesError::InvalidTouchNineKeySidebarSymbols);
         }
         self.custom_theme.validate()?;
         if [
@@ -4743,10 +5377,14 @@ pub enum PreferencesError {
     InvalidAdaptiveCandidateLayout,
     #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
     InvalidTouchKeyboardSpacing,
+    #[error("分离键盘启用宽度须为 480–1000、步进 20，中间空隙须为 10–40%、步进 5")]
+    InvalidTouchKeyboardSplit,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
+    #[error("九键左侧符号栏必须是去重的列表，最多三十项、用空格连起来不超过 200 个 UTF-16 单元，每项最多四个码位且不含空白或控制字符")]
+    InvalidTouchNineKeySidebarSymbols,
     #[error(
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
@@ -4847,6 +5485,16 @@ pub enum PreferencesError {
     Json(#[from] serde_json::Error),
 }
 
+/// [`PreferencesStore::load_for_runtime`] 读到的偏好。
+#[derive(Debug)]
+pub struct RuntimePreferences {
+    pub snapshot: PreferencesSnapshot,
+    /// 严格读取失败的原因。`Some` 时 `snapshot` 是在内存里从文档救下来的偏好，盘上的文件原样未动，宿主应当经诊断出口报告它。
+    pub load_error: Option<PreferencesError>,
+    /// 文档里写着、却没能整段保留下来的顶层设置键（整段取了默认值，或只留下了部分字段），按键名排序；`load_error` 为 `None` 时为空。整份文档都用不了（不是 JSON、更新的文档格式）时是 `["*"]`。只有键名，不带取值：诊断日志里不该出现用户填的内容。
+    pub not_kept: Vec<String>,
+}
+
 /// What `PreferencesStore::recover` did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryOutcome {
@@ -4867,6 +5515,13 @@ enum RecoveryScope {
     Unreadable,
     /// Only bytes that are not well-formed JSON at all. A well-formed document the schema rejects may come from a newer build and is left alone.
     Malformed,
+}
+
+/// [`PreferencesStore::load_reusing`] 读到的一份偏好：快照和读出它的文档原始字节。偏好文件不存在时没有字节。
+#[derive(Debug, Clone)]
+pub struct LoadedPreferences {
+    bytes: Option<Vec<u8>>,
+    pub snapshot: PreferencesSnapshot,
 }
 
 pub struct PreferencesStore {
@@ -4982,14 +5637,16 @@ impl PreferencesStore {
     fn read_locked_keeping_unknown(
         &self,
     ) -> Result<(PreferencesSnapshot, Vec<UnknownPreferenceField>), PreferencesError> {
+        let bytes = self.read_document_bytes()?;
+        self.decode_document(bytes.as_deref())
+    }
+
+    /// 偏好文件的原始字节，文件不存在时为 `None`。调用方持有锁。
+    fn read_document_bytes(&self) -> Result<Option<Vec<u8>>, PreferencesError> {
         let path = self.path();
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let snapshot = self.missing_document();
-                crate::network::install(&snapshot.preferences.network);
-                return Ok((snapshot, Vec::new()));
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         if !metadata.file_type().is_file() {
@@ -5003,18 +5660,26 @@ impl PreferencesStore {
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;
-        let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
-        // 只在读磁盘时回退新版本的未知布局；设置提交仍由枚举反序列化严格校验。
-        if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
-            if layout
-                .as_str()
-                .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
-            {
-                *layout = "dubeolsik".into();
-            }
-        }
-        let (mut snapshot, unknown) =
+        Ok(Some(bytes))
+    }
+
+    /// 从 `read_document_bytes` 读到的字节读出快照和未知键；没有文件时是 [`Self::missing_document`]。
+    fn decode_document(
+        &self,
+        bytes: Option<&[u8]>,
+    ) -> Result<(PreferencesSnapshot, Vec<UnknownPreferenceField>), PreferencesError> {
+        let Some(bytes) = bytes else {
+            let snapshot = self.missing_document();
+            crate::network::install(&snapshot.preferences.network);
+            return Ok((snapshot, Vec::new()));
+        };
+        let mut document: serde_json::Value = serde_json::from_slice(bytes)?;
+        settle_newer_values_on_read(&mut document);
+        let (mut snapshot, mut unknown) =
             deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
+        if let Some(preferences) = document.get("preferences") {
+            unknown.extend(newer_list_values(preferences));
+        }
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
         }
@@ -5026,6 +5691,9 @@ impl PreferencesStore {
         snapshot
             .preferences
             .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
+        snapshot
+            .preferences
+            .settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
         // 读到哪份文档就按哪份文档的代理设置发请求：设置窗口和输入宿主都可能建 HTTP 客户端，
         // 每个进程自己那份 `network::current` 由它读到的最近一版偏好决定（见 `crate::network`）。
         crate::network::install(&snapshot.preferences.network);
@@ -5035,6 +5703,78 @@ impl PreferencesStore {
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         self.read_locked()
+    }
+
+    /// 同 [`Self::load`]，但偏好文件与 `previous` 读到的逐字节相同时沿用它的快照，不再解析和校验：读出的快照只取决于这些字节。代理设置照样按读到的文档装进 [`crate::network`]。交回的结果供下一次传入。Android 键盘显示期间每秒在工作线程上读一次偏好，文件绝大多数时候没变。偏好文件不存在时每次照常取默认快照：那份快照还取决于目录里的版本记录。
+    pub fn load_reusing(
+        &self,
+        previous: Option<LoadedPreferences>,
+    ) -> Result<LoadedPreferences, PreferencesError> {
+        let _lock = self.lock()?;
+        let bytes = self.read_document_bytes()?;
+        if let Some(previous) =
+            previous.filter(|previous| bytes.is_some() && previous.bytes == bytes)
+        {
+            crate::network::install(&previous.snapshot.preferences.network);
+            return Ok(previous);
+        }
+        let (snapshot, _unknown) = self.decode_document(bytes.as_deref())?;
+        Ok(LoadedPreferences { bytes, snapshot })
+    }
+
+    /// 输入运行时（准备宿主、建会话）读偏好：[`Self::load`] 读得了就是它的结果；读不了而且不是存储故障时，不让用户因此打不了字，在内存里从文档救下本版本认得的设置，其余取本存储所属版本的默认值，连同读不了的原因一起交出。
+    ///
+    /// 一份偏好文档里只要有一个键通不过（更新的版本写的取值、旧版本写下而本版本校验更严的值、写坏的字节），整份就读不了；以前宿主把这当成准备失败，iOS 键盘、HarmonyOS 和 Windows 的 Server 因此完全打不了字（#9802）。读不了的文件仍然不改写、不拿默认值盖掉，理由与 [`Self::recover_malformed`] 相同：它多半出自更新的版本，悄悄改写会丢掉那个版本的设置。降级只发生在内存里：之后任何保存都会在锁里重新严格读一遍（[`Self::save`]），文档读不了就写不进去，设置界面照旧经 [`Self::load`] 读到错误、由用户决定是否修复（[`Self::recover`]）。
+    ///
+    /// 救下的快照沿用文档里的修订号（读不出时为 0）：修复或更新的版本改写文件后修订号前进，宿主照常重新读取。
+    ///
+    /// `format_version` 不是 1 的文档整份取默认值、不逐键救：更新的文档格式可能改了同名键的含义，按 v1 的含义应用它会悄悄做错事。
+    pub fn load_for_runtime(&self) -> Result<RuntimePreferences, PreferencesError> {
+        let _lock = self.lock()?;
+        let failure = match self.read_locked() {
+            Ok(snapshot) => {
+                return Ok(RuntimePreferences {
+                    snapshot,
+                    load_error: None,
+                    not_kept: Vec::new(),
+                })
+            }
+            Err(PreferencesError::Io(error)) => return Err(PreferencesError::Io(error)),
+            Err(failure) => failure,
+        };
+        let document = match crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file_in(&self.path())?,
+            MAX_DOCUMENT_BYTES,
+            || PreferencesError::DocumentTooLarge,
+        ) {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+            Err(PreferencesError::DocumentTooLarge) => None,
+            Err(error) => return Err(error),
+        };
+        let revision = document
+            .as_ref()
+            .and_then(|document| document.get("revision"))
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let document = document.filter(|document| {
+            document
+                .get("format_version")
+                .is_none_or(|version| version.as_u64() == Some(1))
+        });
+        let (preferences, not_kept) = match document {
+            Some(document) => Preferences::salvaged_from(document, self.default_preferences())?,
+            None => (self.default_preferences(), vec!["*".to_owned()]),
+        };
+        crate::network::install(&preferences.network);
+        Ok(RuntimePreferences {
+            snapshot: PreferencesSnapshot {
+                format_version: 1,
+                revision,
+                preferences,
+            },
+            load_error: Some(failure),
+            not_kept,
+        })
     }
 
     /// None means the writer lock is busy; retry later without using defaults.
@@ -5084,6 +5824,115 @@ impl PreferencesStore {
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, unknown) = self.read_locked_keeping_unknown()?;
+        self.save_locked(current, &unknown, expected_revision, preferences)
+    }
+
+    /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
+    ///
+    /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
+    ///
+    /// `nine_key_swipe_digits` 是本机旧设置 `platform.android.nine_key_swipe` 严格解析后的值，没有旧值或旧值不认识时传 [`TouchNineKeySwipeDigits::Off`]：上滑或下滑只在共享字段缺键或明写 `off` 时写入，别的设备选的方向和较新版本的写法都原样留着。
+    pub fn migrate_android_key_layout(
+        &self,
+        expected_revision: u64,
+        long_space: bool,
+        number_row: bool,
+        nine_key_symbols: &[String],
+        nine_key_digit_symbols: &[String],
+        nine_key_swipe_digits: TouchNineKeySwipeDigits,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
+        let _lock = self.lock()?;
+        let (current, mut unknown) = self.read_locked_keeping_unknown()?;
+        if current.revision != expected_revision {
+            return Err(PreferencesError::Conflict);
+        }
+        let document: serde_json::Value = match crate::storage::open_private_file_in(&self.path()) {
+            Ok(file) => {
+                let bytes = crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                    PreferencesError::DocumentTooLarge
+                })?;
+                serde_json::from_slice(&bytes)?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(error) => return Err(error.into()),
+        };
+        let mut preferences = current.preferences.clone();
+        let style = document.pointer("/preferences/touch_twenty_six_key_style");
+        if long_space && style.is_none_or(|value| value.as_str() == Some("standard")) {
+            preferences.touch_twenty_six_key_style = TouchTwentySixKeyStyle::LongSpace;
+        }
+        if number_row
+            && document
+                .pointer("/preferences/touch_number_row")
+                .is_none_or(|value| value.as_bool() == Some(false))
+        {
+            preferences.touch_number_row = true;
+        }
+        for (key, legacy, field) in [
+            (
+                "touch_nine_key_sidebar_symbols",
+                nine_key_symbols,
+                &mut preferences.touch_nine_key_sidebar_symbols,
+            ),
+            (
+                "touch_nine_key_digit_sidebar_symbols",
+                nine_key_digit_symbols,
+                &mut preferences.touch_nine_key_digit_sidebar_symbols,
+            ),
+        ] {
+            let absent = document
+                .pointer(&format!("/preferences/{key}"))
+                .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty));
+            if absent {
+                *field = normalize_nine_key_sidebar_symbols(legacy);
+            }
+        }
+        let swipe = document.pointer("/preferences/touch_nine_key_swipe_digits");
+        if nine_key_swipe_digits != TouchNineKeySwipeDigits::Off
+            && swipe.is_none_or(|value| value.as_str() == Some("off"))
+        {
+            preferences.touch_nine_key_swipe_digits = nine_key_swipe_digits;
+        }
+        // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
+        for (key, is_known) in [
+            (
+                "touch_twenty_six_key_style",
+                TouchTwentySixKeyStyle::parse(
+                    style
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("standard"),
+                )
+                .is_some(),
+            ),
+            (
+                "touch_fourteen_key_style",
+                document
+                    .pointer("/preferences/touch_fourteen_key_style")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchFourteenKeyStyle::parse(value).is_some()),
+            ),
+            (
+                "touch_nine_key_style",
+                document
+                    .pointer("/preferences/touch_nine_key_style")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchNineKeyStyle::parse(value).is_some()),
+            ),
+            (
+                "touch_nine_key_swipe_digits",
+                swipe
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| TouchNineKeySwipeDigits::parse(value).is_some()),
+            ),
+        ] {
+            if !is_known {
+                unknown.push(UnknownPreferenceField {
+                    path: vec![key.into()],
+                    value: document["preferences"][key].clone(),
+                    elements: false,
+                });
+            }
+        }
         self.save_locked(current, &unknown, expected_revision, preferences)
     }
 
@@ -5144,6 +5993,10 @@ impl PreferencesStore {
         if current.preferences.smart_punctuation_migrated {
             preferences.smart_punctuation_migrated = true;
         }
+        // AI 辅助翻译的迁移标记同理：不带上它，下一次读会把用户刚改选的服务又改回 AI 辅助。
+        if current.preferences.translation_ai_migrated {
+            preferences.translation_ai_migrated = true;
+        }
         // 切换热键在文档里只有规范形一种写法：别名写法在写入处归一，与出厂值等价的写法按出厂值不落盘。
         preferences.keybindings.normalize_toggle_hotkeys();
         // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
@@ -5161,14 +6014,10 @@ impl PreferencesStore {
                 .ok_or(PreferencesError::RevisionExhausted)?,
             preferences,
         };
-        let mut document = serde_json::to_value(&snapshot)?;
-        if let Some(preferences) = document.get_mut("preferences") {
-            restore_unknown_fields(preferences, unknown);
-        }
         atomic_write(
             &self.directory,
             &self.path(),
-            &serde_json::to_vec_pretty(&document)?,
+            &serde_json::to_vec_pretty(&document_for_disk(&snapshot, unknown)?)?,
         )?;
         // 保存后立刻生效：设置页保存完不用等下一次读取，本进程接着发出的请求就用新代理。
         crate::network::install(&snapshot.preferences.network);
@@ -5206,9 +6055,13 @@ impl PreferencesStore {
             return Err(failure);
         }
         let backup_path = self.write_backup(&bytes, time::OffsetDateTime::now_utc())?;
-        let (preferences, salvaged) = match &document {
-            Some(document) => salvage_preferences(document, self.default_preferences())?,
-            None => (self.default_preferences(), false),
+        // 本版本不认识的键和列表元素（多半出自更新的版本）照保存时那样放回去：修复只换掉读不了的取值，不顺手抹掉更新的版本的设置。
+        let (preferences, salvaged, unknown) = match &document {
+            Some(document) => {
+                let salvage = salvage_preferences(document, self.default_preferences())?;
+                (salvage.preferences, salvage.kept, salvage.unknown)
+            }
+            None => (self.default_preferences(), false, Vec::new()),
         };
         let revision = match document
             .as_ref()
@@ -5233,7 +6086,7 @@ impl PreferencesStore {
         atomic_write(
             &self.directory,
             &self.path(),
-            &serde_json::to_vec_pretty(&snapshot)?,
+            &serde_json::to_vec_pretty(&document_for_disk(&snapshot, &unknown)?)?,
         )?;
         Ok(RecoveryOutcome::Recovered {
             snapshot,
@@ -5318,6 +6171,82 @@ impl PreferencesStore {
     }
 }
 
+/// 枚举列表里的一个元素：本版本认识的取值，或者别的字符串（更新的版本加的取值）。不是字符串的元素仍然报错。
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum KnownOrNewer<T> {
+    Known(T),
+    Newer(#[allow(dead_code)] String),
+}
+
+/// 枚举集合的宽松读法：只留本版本认识的取值，更新的版本加的名字丢掉，见 [`newer_list_values`]。
+fn deserialize_known_elements<'de, D, T>(d: D) -> Result<BTreeSet<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Ord,
+{
+    Ok(Vec::<KnownOrNewer<T>>::deserialize(d)?
+        .into_iter()
+        .filter_map(|element| match element {
+            KnownOrNewer::Known(value) => Some(value),
+            KnownOrNewer::Newer(_) => None,
+        })
+        .collect())
+}
+
+/// 判断列表里的一个元素是不是更新的版本写下的取值。
+type IsNewerValue = fn(&serde_json::Value) -> bool;
+
+/// 读入时丢掉更新版本取值、保存时要接回的枚举列表：从 `preferences` 对象起的路径，和判断一个元素是不是更新的版本写下的名字的办法。只收两种文档总会写出这个列表的字段，接回时列表一定在；只决定先后的列表（文本编辑面板的排列）不在这里，丢掉的动作由更新的版本自己补回。
+const NEWER_VALUE_LISTS: [(&[&str], IsNewerValue); 2] = [
+    (
+        &["touch_keyboard_schemes", "enabled"],
+        StoredTouchKeyboardScheme::is_newer,
+    ),
+    (&["fuzzy_pinyin", "rules"], is_newer_fuzzy_pinyin_rule),
+];
+
+fn is_newer_fuzzy_pinyin_rule(value: &serde_json::Value) -> bool {
+    value.is_string() && FuzzyPinyinRule::deserialize(value).is_err()
+}
+
+/// `preferences`（偏好文档里的 `preferences` 对象）里更新的版本写下、本版本读入时丢掉的取值，作为 [`UnknownPreferenceField`] 交出，保存时原样接回：[`NEWER_VALUE_LISTS`] 里各列表不认识的元素，以及选中的触屏方案是本版本不认识的方案时它的原值。
+///
+/// 偏好结构的宽松读法只保证读得进来；不接回的话，本版本一保存，用户在更新的版本里启用的方案、模糊音规则就没了。
+pub(crate) fn newer_list_values(preferences: &serde_json::Value) -> Vec<UnknownPreferenceField> {
+    let mut newer = Vec::new();
+    for (path, is_newer) in NEWER_VALUE_LISTS {
+        let Some(serde_json::Value::Array(elements)) = path
+            .iter()
+            .try_fold(preferences, |node, key| node.get(*key))
+        else {
+            continue;
+        };
+        let values: Vec<_> = elements
+            .iter()
+            .filter(|value| is_newer(value))
+            .cloned()
+            .collect();
+        if !values.is_empty() {
+            newer.push(UnknownPreferenceField {
+                path: path.iter().map(|key| key.to_string()).collect(),
+                value: serde_json::Value::Array(values),
+                elements: true,
+            });
+        }
+    }
+    if let Some(selected) = preferences.pointer("/touch_keyboard_schemes/selected") {
+        if StoredTouchKeyboardScheme::is_newer(selected) {
+            newer.push(UnknownPreferenceField {
+                path: vec!["touch_keyboard_schemes".into(), "selected".into()],
+                value: selected.clone(),
+                elements: false,
+            });
+        }
+    }
+    newer
+}
+
 /// 偏好文档里本版本不认识的一个键：从 `preferences` 对象起的键路径和它的原值。
 ///
 /// 偏好文档由好几个程序各自按自己的版本读写：macOS 的输入法由 Sparkle 单独更新，设置应用和 `msime-mcp` 不跟着变，Windows、Linux 的宿主也会写设置页不认识的键。偏好结构因此不拒绝未知键，读取时记下它们，保存时放回原处，旧版本读得了新版本的文档，也不会把新版本的设置抹掉。
@@ -5325,6 +6254,8 @@ impl PreferencesStore {
 pub(crate) struct UnknownPreferenceField {
     path: Vec<String>,
     value: serde_json::Value,
+    /// `value` 是数组 `path` 里本版本不认识、读入时丢掉的那些元素（[`newer_list_values`]），保存时接回本版本写出的同一个数组末尾；否则 `value` 是这个键的原值。
+    elements: bool,
 }
 
 /// 把 `document` 反序列化成 `T`，同时收集 `prefix`（逐级的对象键）之下本版本不认识的键。路径经过数组元素的键不收集：数组整个属于一个已知字段，元素位置在新旧版本之间没有对应关系。
@@ -5355,6 +6286,7 @@ pub(crate) fn deserialize_keeping_unknown<T: serde::de::DeserializeOwned>(
             Some(UnknownPreferenceField {
                 path: rest.to_vec(),
                 value,
+                elements: false,
             })
         })
         .collect();
@@ -5377,7 +6309,26 @@ fn object_key_path(path: &serde_ignored::Path<'_>) -> Option<Vec<String>> {
     }
 }
 
-/// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。
+/// 写进 preferences.json 的文档：快照本身，加上读盘时记下的未知键和列表元素（[`restore_unknown_fields`]）。
+///
+/// 文本编辑面板的排列等于默认排列时不写出。已经发出去的 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0 和 Linux 0.14.0 只认识七个动作，读到带「选择行」的排列会整份读不了、打不了字（`tests/fixtures/released-preferences` 里是它们写下的文档）；那些版本给这个键配了默认值，缺这个键时用自己的七个动作。从每日构建退回正式版、在设置同步或导入之外拿新文档给旧版本读，只要用户没在 Android 上排过顺序就都读得了。只省在盘上：经 FFI 交给宿主的快照照旧带着完整排列，Android 的面板和排序页直接读它。
+fn document_for_disk(
+    snapshot: &PreferencesSnapshot,
+    unknown: &[UnknownPreferenceField],
+) -> Result<serde_json::Value, PreferencesError> {
+    let mut document = serde_json::to_value(snapshot)?;
+    if let Some(serde_json::Value::Object(preferences)) = document.get_mut("preferences") {
+        if snapshot.preferences.touch_text_edit_button_order == default_text_edit_button_order() {
+            preferences.remove("touch_text_edit_button_order");
+        }
+    }
+    if let Some(preferences) = document.get_mut("preferences") {
+        restore_unknown_fields(preferences, unknown);
+    }
+    Ok(document)
+}
+
+/// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。列表里不认识的元素接在本版本写出的同一个列表末尾，列表里已经有的不重复接。
 fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[UnknownPreferenceField]) {
     for field in unknown {
         let Some((key, parents)) = field.path.split_last() else {
@@ -5389,6 +6340,19 @@ fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[Unknow
         else {
             continue;
         };
+        if field.elements {
+            let (Some(serde_json::Value::Array(list)), serde_json::Value::Array(values)) =
+                (parent.get_mut(key.as_str()), &field.value)
+            else {
+                continue;
+            };
+            for value in values {
+                if !list.contains(value) {
+                    list.push(value.clone());
+                }
+            }
+            continue;
+        }
         parent
             .entry(key.clone())
             .or_insert_with(|| field.value.clone());
@@ -5401,22 +6365,177 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前只有韩文布局：更新的版本的未知布局回退到两套式。
+fn settle_newer_values_on_read(document: &mut serde_json::Value) {
+    if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
+        if layout
+            .as_str()
+            .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
+        {
+            *layout = "dubeolsik".into();
+        }
+    }
+}
+
+impl Preferences {
+    /// 从一份读不了的偏好文档（`{"preferences": {...}}`，或者偏好对象本身）里救下本版本认得的设置，其余取 `default`，只在内存里，不碰任何文件；同时交出没能整段保留的顶层键（见 [`RuntimePreferences::not_kept`]）。逐键的取舍与 [`PreferencesStore::recover`] 相同，另外按 [`Self::close_destinations_not_kept`] 关掉去向没能保留的联网功能；结果总能通过 [`Self::validate`]。输入运行时拿它在偏好读不了时照常运行（[`PreferencesStore::load_for_runtime`]，以及宿主选项里的偏好副本读不了、又没有实时文档可读的时候）。
+    pub fn salvaged_from(
+        mut document: serde_json::Value,
+        default: Preferences,
+    ) -> Result<(Preferences, Vec<String>), PreferencesError> {
+        if document.get("preferences").is_none() {
+            document = serde_json::json!({ "preferences": document });
+        }
+        settle_newer_values_on_read(&mut document);
+        let Salvage {
+            mut preferences,
+            not_kept,
+            ..
+        } = salvage_preferences(&document, default)?;
+        preferences.voice_input.retire_unavailable_asr_model();
+        if let Some(source) = document.get("preferences") {
+            preferences.close_destinations_not_kept(source);
+        }
+        Ok((preferences, not_kept.into_iter().collect()))
+    }
+
+    /// 逐键救下的偏好里，决定把内容发到哪里的设置（云候选的来源和地址、AI 服务商和地址、语音识别和润色的服务商和地址、自定义翻译的地址、代理）文档里写着、却换成了默认值时，关掉用它的联网功能，而不是让这个功能拿着默认的去向照常发请求：用户选的是自己的云候选服务，救下的开关却把组字发给默认的 Google；用户填了自定义代理，救下的却是跟随系统、绕开了代理。代理无法完整保留时使用运行时的必须代理状态（[`ProxyMode::CustomRequired`](crate::network::ProxyMode::CustomRequired)），并关闭发送用户内容的功能；地址不可用时远程客户端构造失败。
+    ///
+    /// 只用于输入运行时在内存里救下的偏好：用户在设置页点的修复（[`PreferencesStore::recover`]）写下的结果用户看得见、改得了，不在这里替他关。`source` 是文档里的偏好对象。
+    fn close_destinations_not_kept(&mut self, source: &serde_json::Value) {
+        fn replaced<T: Serialize>(source: &serde_json::Value, pointer: &str, kept: &T) -> bool {
+            if let Some(written) = source.pointer(pointer) {
+                return serde_json::to_value(kept).ok().as_ref() != Some(written);
+            }
+            // 叶子缺失可能是真正缺省，也可能是父段损坏；只有前者沿用默认去向。
+            let mut ancestor = pointer;
+            while let Some((parent, _)) = ancestor.rsplit_once('/') {
+                if let Some(written) = source.pointer(parent) {
+                    return !written.is_object();
+                }
+                ancestor = parent;
+            }
+            false
+        }
+        let cloud = &self.cloud_candidate_provider;
+        if replaced(source, "/cloud_candidate_provider/source", &cloud.source)
+            || replaced(
+                source,
+                "/cloud_candidate_provider/endpoint",
+                &cloud.endpoint,
+            )
+        {
+            self.cloud_candidates = false;
+        }
+        let ai = &self.ai_assistant;
+        if replaced(source, "/ai_assistant/provider", &ai.provider)
+            || replaced(source, "/ai_assistant/endpoint", &ai.endpoint)
+            || replaced(source, "/ai_assistant/endpoints", &ai.endpoints)
+        {
+            self.ai_assistant.enabled = false;
+            self.translation_ai = false;
+        }
+        let voice = &self.voice_input;
+        if replaced(source, "/voice_input/asr_provider", &voice.asr_provider)
+            || replaced(source, "/voice_input/asr_endpoint", &voice.asr_endpoint)
+        {
+            self.voice_input.enabled = false;
+        }
+        let voice = &self.voice_input;
+        if replaced(
+            source,
+            "/voice_input/polish_provider",
+            &voice.polish_provider,
+        ) || replaced(
+            source,
+            "/voice_input/polish_endpoint",
+            &voice.polish_endpoint,
+        ) {
+            self.voice_input.polish_enabled = false;
+        }
+        if replaced(
+            source,
+            "/custom_translation/endpoint",
+            &self.custom_translation.endpoint,
+        ) {
+            self.custom_translation.enabled = false;
+        }
+        let written_mode = source
+            .pointer("/network/proxy_mode")
+            .and_then(serde_json::Value::as_str);
+        let selected_unreadable_mode =
+            replaced(source, "/network/proxy_mode", &self.network.proxy_mode);
+        let selected_unreadable_server = written_mode == Some("custom")
+            && replaced(source, "/network/proxy_server", &self.network.proxy_server);
+        if selected_unreadable_mode || selected_unreadable_server {
+            self.network.proxy_mode = crate::network::ProxyMode::CustomRequired;
+            // 原生宿主也可能执行联网请求；不能只依赖 Rust HTTP 客户端拒绝构造。
+            self.cloud_candidates = false;
+            self.ai_assistant.enabled = false;
+            self.translation_ai = false;
+            self.translation_account = false;
+            self.voice_input.enabled = false;
+            self.voice_input.polish_enabled = false;
+            self.custom_translation.enabled = false;
+            self.tencent_tmt.enabled = false;
+            self.niutrans.enabled = false;
+        }
+    }
+
+    /// 宿主或设置页提交来保存的偏好（保存接口收到的 JSON）。
+    ///
+    /// 读盘时的宽松读法（排列里丢掉不认识和重复的动作、启用列表和模糊音规则里丢掉不认识的取值）是为了读得了别的版本写下的文档，提交来的偏好却出自本版本的设置页或宿主：那里的名字和 Rust 对不上是宿主的毛病，照样整理成合法的值再存下，只会从「保存失败」变成「改了却不生效」。所以这里照旧严格：排列必须是本版本动作的完整、不重复排列，启用列表、选中项和模糊音规则里不能有本版本不认识的名字。
+    pub fn from_submission(value: serde_json::Value) -> Result<Preferences, PreferencesError> {
+        if let Some(newer) = newer_list_values(&value).first() {
+            return Err(PreferencesError::Json(serde::de::Error::custom(
+                format_args!("unknown value {} in {}", newer.value, newer.path.join(".")),
+            )));
+        }
+        let order = value
+            .get("touch_text_edit_button_order")
+            .map(Vec::<TextEditButton>::deserialize)
+            .transpose()?;
+        let preferences: Preferences = serde_json::from_value(value)?;
+        if order.is_some_and(|order| order != preferences.touch_text_edit_button_order) {
+            return Err(PreferencesError::InvalidTextEditButtonOrder);
+        }
+        Ok(preferences)
+    }
+}
+
+/// [`salvage_preferences`] 的结果。
+struct Salvage {
+    preferences: Preferences,
+    /// 至少保留下了文档里的一个设置。
+    kept: bool,
+    /// 文档里有、却没能整段保留的顶层键：整段取了默认值，或者只留下了部分字段。
+    not_kept: BTreeSet<String>,
+    /// 文档里本版本不认识的键和列表元素，修复写回时原样放回（与 [`PreferencesStore::save`] 相同）。
+    unknown: Vec<UnknownPreferenceField>,
+}
+
+/// 以默认偏好垫底，逐个顶层键保留本版本能接受的设置，整段被拒时再逐字段尝试；同时交出保留状态、未完整保留的段落及未知键和列表元素。
 ///
 /// `default` 是垫底的默认偏好，即存储所属版本的默认值。
 fn salvage_preferences(
     document: &serde_json::Value,
     default: Preferences,
-) -> Result<(Preferences, bool), PreferencesError> {
+) -> Result<Salvage, PreferencesError> {
+    let nothing_kept = |preferences| Salvage {
+        preferences,
+        kept: false,
+        not_kept: BTreeSet::from(["*".to_owned()]),
+        unknown: Vec::new(),
+    };
     let serde_json::Value::Object(mut salvaged) = serde_json::to_value(&default)? else {
-        return Ok((default, false));
+        return Ok(nothing_kept(default));
     };
     // A snapshot keeps its settings under `preferences`; a bare settings object at the root is accepted too.
     let source = match document.get("preferences") {
         Some(serde_json::Value::Object(source)) => source.clone(),
         _ => match document {
             serde_json::Value::Object(source) => source.clone(),
-            _ => return Ok((default, false)),
+            _ => return Ok(nothing_kept(default)),
         },
     };
     // 损坏的文档里没有触屏方案列表时，它出自以前的版本（现在的版本总是写出列表），垫底值里也去掉这个键，读回来按以前的默认列表，与这份文档还能正常读取时相同。
@@ -5427,7 +6546,12 @@ fn salvage_preferences(
     if !source.contains_key("smart_punctuation_migrated") {
         salvaged.remove("smart_punctuation_migrated");
     }
+    // AI 辅助翻译的迁移标记也一样：没有它的损坏文档出自统一成显式选择之前，读回来照旧文档那样迁移一次。
+    if !source.contains_key("translation_ai_migrated") {
+        salvaged.remove("translation_ai_migrated");
+    }
     let mut kept = false;
+    let mut not_kept = BTreeSet::new();
     for (key, value) in &source {
         let mut candidate = salvaged.clone();
         candidate.insert(key.clone(), value.clone());
@@ -5436,6 +6560,7 @@ fn salvage_preferences(
             kept = true;
             continue;
         }
+        not_kept.insert(key.clone());
         let serde_json::Value::Object(fields) = value else {
             continue;
         };
@@ -5459,10 +6584,18 @@ fn salvage_preferences(
             kept = true;
         }
     }
-    // Every step above was accepted by the same check, so this cannot fail on the salvaged map.
-    let mut preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
+    // 每一步均经过相同校验，最终映射可反序列化；同时收集随映射保留的未知键，让显式修复能够放回。
+    let (mut preferences, mut unknown) =
+        deserialize_keeping_unknown::<Preferences>(&serde_json::Value::Object(salvaged), &[])?;
+    unknown.extend(newer_list_values(&serde_json::Value::Object(source)));
     preferences.settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
-    Ok((preferences, kept))
+    preferences.settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
+    Ok(Salvage {
+        preferences,
+        kept,
+        not_kept,
+        unknown,
+    })
 }
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {
@@ -5485,7 +6618,7 @@ fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), Pr
         let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
         temporary.write_all(contents)?;
         temporary.as_file().sync_all()?;
-        temporary.persist(path).map_err(|error| error.error)?;
+        crate::storage::persist_replacing(temporary, path).map_err(|error| error.error)?;
         Ok(())
     }
 }

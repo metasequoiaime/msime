@@ -26,8 +26,8 @@ SRC_URI="
 "
 S="${WORKDIR}/msime-linux-v${PV}"
 
-# 本项目 GPL-3；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表（BSD）、行政区划（WTFPL-2）。crate 的许可证在下面由 pycargoebuild 填入；它认不出只给了 license-file 的 vi（MIT 原文），已含在上面的 MIT 里。
-LICENSE="GPL-3 Apache-2.0 BSD CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT WTFPL-2"
+# 本项目 GPL-3，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、引擎复现的 libc++ 排序（Apache-2.0-with-LLVM-exceptions）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、拆字表（CC-BY-3.0）、拆字读音与符号分组的 Unicode 数据（Unicode-3.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表与 Zinnia、librime-octagram（BSD）、darts-clone（BSD-2）、行政区划（WTFPL-2）。crate 的许可证在下面由 pycargoebuild 填入；它认不出只给了 license-file 的 vi（MIT 原文），已含在上面的 MIT 里。
+LICENSE="GPL-3 Apache-2.0 Apache-2.0-with-LLVM-exceptions BSD BSD-2 CC-BY-3.0 CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT MPL-2.0 Unicode-3.0 WTFPL-2"
 # Dependent crate licenses
 LICENSE+=""
 SLOT="0"
@@ -238,7 +238,7 @@ pkg_postinst() {
 	fi
 
 	if [[ -z ${REPLACING_VERSIONS} ]]; then
-		elog "每个用户首次使用前运行一次 msime-linux-setup --download 取回词库（约 170 MB），"
+		elog "每个用户首次使用前运行一次 msime-linux-setup --download 取回词库（约 270 MB），"
 		elog "再在 Fcitx5 或 IBus 的输入法列表里添加水杉输入法。"
 	fi
 	optfeature "Doubao streaming speech recognition" dev-python/websockets

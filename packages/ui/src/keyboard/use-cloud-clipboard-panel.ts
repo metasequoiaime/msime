@@ -137,6 +137,7 @@ export function useCloudClipboardPanel(client: CloudClipboardPanelClient) {
     setLoaded(false);
     setE2e(null);
     setDevices(null);
+    setConfirmation(null);
     setInputAvailable(Boolean(client.sendText && !client.canSendText));
     if (client.canSendText)
       void client

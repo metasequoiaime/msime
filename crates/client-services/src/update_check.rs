@@ -206,6 +206,7 @@ fn parse_release_list(bytes: &[u8]) -> Result<Vec<Value>, UpdateCheckError> {
 fn http_client() -> Result<reqwest::blocking::Client, UpdateCheckError> {
     // 版本列表在 GitHub（https 公网）；按用户的网络代理设置走。
     crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
+        .map_err(|_| UpdateCheckError::Unavailable)?
         .timeout(TIMEOUT)
         .user_agent(USER_AGENT)
         .build()

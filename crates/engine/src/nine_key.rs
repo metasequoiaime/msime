@@ -60,8 +60,8 @@ const SEEDED_TRUNCATE_DIGITS: usize = 12;
 const SEEDED_PATH_LIMIT: usize = 24;
 /// 每次刷新真正拿去查词库的切分条数。切分搜索本身每个位置仍留 `PATH_LIMIT` 条，这里只截最后物化的路径：每条路径都要查一遍候选、合并整句，一次刷新的耗时大致随条数增长。从 48 降到 24，`ninekey_latency` 整轮执行的指令数少约 31%；`convert_eval` 九键常用词首选 57.5% → 57.1%、前五 85.2% → 84.7%，九键长句首选不变、前五 65.4% → 64.2%，14 键常用词首选 66.0% → 65.8%、长句不变；先锁定首音节再打余下数字时，1500 个多音节词里正确词进前九的从 1448 个变为 1446 个。搜索宽度一起降到 24 时这几组数字完全相同，指令数也一样，所以只截查询这一步。有种子的长串原本截到的 `SEEDED_PATH_LIMIT` 与它相等，那一步现在不再多截。
 const QUERY_PATH_LIMIT: usize = 24;
-/// 音节频度取这个音节权重最高的几个单字之和，见 `SyllablePrior`。
-const PRIOR_CHAR_LIMIT: usize = 3;
+/// 音节频度表：每个音节在词库里出现的总权重，由 `msime-dict-build syllable-frequency` 从 msime-pinyin.db 生成，见 `SyllablePrior`。
+const SYLLABLE_FREQUENCY: &str = include_str!("nine_key/syllable_frequency.tsv");
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
@@ -119,6 +119,8 @@ pub(crate) const PERSONAL_PICK_TIMES: u32 = 2;
 const RERANK_CACHE_ENTRIES: usize = 16;
 /// 没打切分时，同样覆盖的词典行里最前面留给音节行（最常用的单字）的位置数；其后的音节行和简拼行按权重归并，见 `interleave_initials`。
 const SYLLABLE_ROWS_BEFORE_INITIALS: usize = 3;
+/// 不打切分、首页里有拼满的多音节词时，完整读法的权重乘这个倍数再和补全比，见 `discount_completions_on_first_page`。
+const COMPLETION_WEIGHT_RATIO: i64 = 6;
 /// 混入 emoji、颜文字时最多按几种读法查。一串数字能拼出几十种读法，每种读法要各查一次 emoji 和颜文字；按候选列表排好先后之后只查前面这几种，最可能的读法总在里面。
 const EXPRESSIVE_READING_LIMIT: usize = 8;
 /// 选中整句时最多存多少个音节，与全拼键盘的 `session::learning::MAX_LEARNED_SENTENCE_SYLLABLES` 相同（`session/tests.rs` 核对两者一致）：更长的整句只用于这一次上屏。
@@ -383,6 +385,8 @@ pub struct NineKeySession {
     personal_context: bool,
     /// `finish` 逐段代选时不把默认选择写成最近候选位置。
     remember_recent: bool,
+    /// 最近一次刷新是否按 `discount_completions_on_first_page` 折算过首页里的补全；置顶要知道调频写进去的权重会不会被折算挡住。
+    completions_discounted: bool,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -393,6 +397,8 @@ pub struct NineKeySession {
     /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
+    /// 与 `candidates` 同序的窄裁决标记（`ordering::CONTEST_*`），随候选一起重建；一行都没有标记时为空。
+    contests: Vec<u8>,
     /// 前几次刷新排在前面、覆盖全部数字的几行的全拼（`'` 连接）。下一次刷新把它们去掉最后一个音节，接上余下数字的切分一起查，见 `seeded_paths`。
     sentence_seeds: Vec<String>,
     /// 算下一批种子用的空缓冲，和 `sentence_seeds` 轮换，刷新时不再分配。
@@ -414,7 +420,7 @@ pub struct NineKeySession {
     single_character_only: bool,
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
-    /// 每个音节及其前缀的单字频度，`SyllablePrior::from_dictionary` 在第一次查词前建好，给切分路径排序用。
+    /// 每个音节及其前缀的频度，`SyllablePrior::shipped` 在第一次查词前按内嵌的音节频度表建好，给切分路径排序用。
     prior: Option<SyllablePrior<'static>>,
     english: Option<EnglishDictionary>,
     /// 完整分组码的 SQLite GLOB 模式；热刷新复用容量。
@@ -506,6 +512,7 @@ impl NineKeySession {
             rerank_cache: Vec::new(),
             personal_context: true,
             remember_recent: true,
+            completions_discounted: false,
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -513,6 +520,7 @@ impl NineKeySession {
             spelling_match_indices: Vec::new(),
             reading: String::new(),
             candidates: Vec::new(),
+            contests: Vec::new(),
             // 两个缓冲一开始就留够容量，按键时轮换着用，不再分配。
             sentence_seeds: Vec::with_capacity(SEED_RETAIN_LIMIT),
             seed_buffer: Vec::with_capacity(SEED_RETAIN_LIMIT),
@@ -552,6 +560,11 @@ impl NineKeySession {
     /// 和 26 键共用的 emoji、颜文字混排开关；与英文选项一样只在建会话时设置。
     pub fn set_mixed_expressive(&mut self, options: MixedExpressiveOptions) {
         self.expressive = options;
+    }
+
+    /// 调频方式，`Session::set_frequency_adjustment` 换掉 26 键的同时换这里；从下一次选择起生效。
+    pub fn set_frequency(&mut self, frequency: FrequencyAdjustmentOptions) {
+        self.frequency = frequency;
     }
 
     /// 候选混输总开关（`SessionOptions::mixed_candidates`）；与英文选项一样只在建会话时设置。
@@ -1217,12 +1230,27 @@ impl NineKeySession {
             return KeyResult::unhandled();
         }
         let selected = self.candidates[index].clone();
-        let replaces_recent = selected.fixed_position == 0
-            && self
-                .candidates
-                .iter()
-                .any(|candidate| candidate.fixed_position == 1);
-        let diagnostic = self.adjust_frequency(index, true);
+        // 已经坐在第 1 槽的行（多半是自动记下的最近选择）是固定行，调频会拒绝它；先放开这一槽，同别的置顶一样把权重抬到最高，再固定回第 1 位。这样它以后被别的选择挤下第 1 槽时，也和别的置顶一样按权重排在前面，不会掉回词典原位。
+        let holds_first = selected.fixed_position == 1;
+        let released = holds_first
+            .then(|| {
+                positions::clear_fixed_position(
+                    &self.paths.user(assets::USER_JOURNAL),
+                    &self.ranking_context(),
+                    &selected.canonical_pinyin,
+                    &selected.word,
+                )
+                .err()
+                .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+            })
+            .flatten();
+        let replaces_recent = holds_first
+            || (selected.fixed_position == 0
+                && self
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.fixed_position == 1));
+        let diagnostic = released.or_else(|| self.adjust_frequency(index, true));
         let position_diagnostic = replaces_recent.then(|| {
             positions::set_fixed_position(
                 &self.paths.user(assets::USER_JOURNAL),
@@ -1234,8 +1262,35 @@ impl NineKeySession {
             .err()
             .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
         });
+        let mut diagnostic = diagnostic.or(position_diagnostic.flatten());
+        if diagnostic.is_none() {
+            diagnostic = self.remember_manual_pin(&selected.word);
+        }
         self.refresh();
-        KeyResult::handled().with_diagnostic(diagnostic.or(position_diagnostic.flatten()))
+        // 首页里的补全按权重的几分之一和完整读法比，置顶写进去的权重（最重的权重再加一点）越不过完整读法；这时同 `replaces_recent` 一样固定到第 1 位。
+        if diagnostic.is_none()
+            && self.completions_discounted
+            && self
+                .candidates
+                .first()
+                .is_some_and(|first| first.word != selected.word)
+            && self
+                .candidates
+                .iter()
+                .any(|candidate| candidate.word == selected.word)
+        {
+            diagnostic = positions::set_fixed_position(
+                &self.paths.user(assets::USER_JOURNAL),
+                &self.ranking_context(),
+                &selected.canonical_pinyin,
+                &selected.word,
+                1,
+            )
+            .err()
+            .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string());
+            self.refresh();
+        }
+        KeyResult::handled().with_diagnostic(diagnostic)
     }
 
     pub fn remove(&mut self, index: usize) -> KeyResult {
@@ -1288,8 +1343,17 @@ impl NineKeySession {
                 diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string(),
             ));
         }
+        // 手动固定到第 1 位和置顶一样是用户明说的首选，同样记下来，不交给「增强」裁决；取消固定或挪到别的槽位时，这个词在这个上下文里的手动置顶记录随之解除，以后它再被自动记成最近选择时照旧裁决。
+        let word = self.candidates[index].word.clone();
+        let diagnostic = if position == 1 {
+            self.remember_manual_pin(&word)
+        } else {
+            positions::clear_pinned_candidate(&journal, &context, &word)
+                .err()
+                .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+        };
         self.refresh();
-        KeyResult::handled()
+        KeyResult::handled().with_diagnostic(diagnostic)
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -1366,6 +1430,11 @@ impl NineKeySession {
                 .iter()
                 .map(|item| item.pinyin.len() >= self.digits.len())
                 .collect(),
+            candidate_contest: if self.contests.len() == self.candidates.len() {
+                self.contests.clone()
+            } else {
+                Vec::new()
+            },
             ..SessionSnapshot::default()
         }
     }
@@ -1377,7 +1446,9 @@ impl NineKeySession {
         self.grid_helpcode.candidate_generation =
             self.grid_helpcode.candidate_generation.wrapping_add(1);
         self.candidates.clear();
+        self.contests.clear();
         self.reading.clear();
+        self.completions_discounted = false;
         if !self.active() {
             self.path_scratch.pages.clear();
             self.spellings.clear();
@@ -1419,12 +1490,9 @@ impl NineKeySession {
             alternatives.push(Vec::new());
             alternatives
         } else {
-            let dictionary = self
-                .dictionary
-                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()));
             let prior = self
                 .prior
-                .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
+                .get_or_insert_with(|| SyllablePrior::shipped(table));
             table.spellings_for_into(
                 remaining,
                 locked_length,
@@ -1468,6 +1536,8 @@ impl NineKeySession {
 
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
+        // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
+        let mut covered_digits = CoveredDigits::new(&self.digits);
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options.clone()))
@@ -1567,7 +1637,7 @@ impl NineKeySession {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
-                candidate.pinyin = SharedString::from(&self.digits[..covered]);
+                candidate.pinyin = covered_digits.prefix(covered);
                 candidate.canonical_pinyin = canonical;
                 push_ranked(
                     &mut candidates,
@@ -1766,15 +1836,25 @@ impl NineKeySession {
                 insert_inline_date_time(&mut candidates, anchor, kind, digits, || clock(), None);
             }
         }
+        let journal = self.paths.user(assets::USER_JOURNAL);
+        let position_context = format!("nine-key:{}:{locked_key}", self.digits);
         positions::apply_fixed_positions(
-            &self.paths.user(assets::USER_JOURNAL),
-            &format!("nine-key:{}:{locked_key}", self.digits),
+            &journal,
+            &position_context,
             &mut candidates,
             false,
             None,
             false,
         );
         keep_expressive_rows_off_the_lead(&mut candidates);
+        // 混入行、固定位置都排好之后才折算，只在首页的拼音词典行之间调序：英文、固定位置这些行坐着原来的位置，首页由哪些行组成与不折算时相同。句子种子和 emoji 查读法用的也是折算前的顺序。
+        self.completions_discounted = !prefer_exact
+            && discount_completions_on_first_page(
+                &mut candidates,
+                self.first_page_rows.get(),
+                locked_syllables(&locked_key),
+                grid,
+            );
         if helpcode_active {
             self.rank_grid_helpcode(&mut candidates);
         }
@@ -1799,6 +1879,14 @@ impl NineKeySession {
         let mut reading = std::mem::take(&mut self.reading);
         self.write_reading(candidates.first(), &mut reading);
         self.reading = reading;
+        mark_contests(
+            &candidates,
+            self.digits.len(),
+            self.first_page_rows.get(),
+            grid,
+            |word, kind| manually_pinned(&journal, &position_context, locked_key.len(), word, kind),
+            &mut self.contests,
+        );
         self.candidates = candidates;
         self.path_buffer = alternatives;
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -2480,6 +2568,17 @@ impl NineKeySession {
         .err()
         .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
     }
+
+    /// 把 `word` 记成当前九键上下文里用户手动置顶的词（`pinned_candidates`，每个上下文一条，后一次手动置顶替换它）。固定位置表分不清手动和自动写进第 1 槽的行，`mark_contests` 靠这一条把手动置顶的首行排除在裁决之外。自动记下的最近选择不写也不清它：同一个词以后又因为最近选择回到第 1 位时，仍按用户置顶过它对待。
+    fn remember_manual_pin(&self, word: &str) -> Option<String> {
+        positions::record_pinned_candidate(
+            &self.paths.user(assets::USER_JOURNAL),
+            &self.ranking_context(),
+            word,
+        )
+        .err()
+        .map(|_| diagnostics::NINE_KEY_POSITION_NOT_PERSISTED.to_string())
+    }
 }
 
 /// 键盘模型的一次重排：上屏上下文、交给模型的整句和词网格分（`comparable_weight`），以及模型给出的顺序（没有重排时为空）。
@@ -2589,6 +2688,31 @@ fn place_keyboard_pick(
     }
 }
 
+/// 一次刷新里按切分查出的候选行的 `pinyin`：输入数字的前缀，按长度各建一份共享字符串，行里存的是同一份的引用。
+struct CoveredDigits<'a> {
+    digits: &'a str,
+    prefixes: Vec<Option<SharedString>>,
+}
+
+impl<'a> CoveredDigits<'a> {
+    fn new(digits: &'a str) -> Self {
+        Self {
+            digits,
+            prefixes: Vec::new(),
+        }
+    }
+
+    /// 前 `len` 个数字。
+    fn prefix(&mut self, len: usize) -> SharedString {
+        if self.prefixes.len() <= len {
+            self.prefixes.resize(len + 1, None);
+        }
+        self.prefixes[len]
+            .get_or_insert_with(|| SharedString::from(&self.digits[..len]))
+            .clone()
+    }
+}
+
 /// 种子真正用到的部分：去掉最后一个音节，它可能被后面的数字续长，或者本来只拼了一半。
 fn seed_prefix(seed: &str) -> &str {
     seed.rfind('\'').map_or("", |end| &seed[..end])
@@ -2677,7 +2801,7 @@ fn next_seeds(
     }
 }
 
-/// 按数字切分路径只看音节频度，长串里正确的切分常常排不进每个位置的 `PATH_LIMIT` 条（#6059）；而词网格看得懂词，前几次刷新排在前面的整句的切分多半就是这一次的前半截。所以取每条种子的 `seed_prefix` 里仍拼得出 `remaining` 开头的那几个音节，接上余下数字的前 `SEED_TAIL_LIMIT` 条切分，补进 `alternatives`。等于在按键之间做一次宽度为 `SEED_RETAIN_LIMIT` 的束搜索，每次按键只把束里的切分往后接一两个音节。
+/// 按数字切分路径只看音节频度，长串里正确的切分常常排不进每个位置的 `PATH_LIMIT` 条（#6059）；而词网格看得懂词，前几次刷新排在前面的整句的切分多半就是这一次的前半截。所以取每条种子的 `seed_prefix` 里仍拼得出 `remaining` 开头的那几个音节，接上余下数字的前 `SEED_TAIL_LIMIT` 条切分，补进 `alternatives`。等于在按键之间做一次宽度为 `SEED_RETAIN_LIMIT` 的束搜索，每次按键只把束里的切分往后接一两个音节。种子的末音节整个拼得出时，再多接一条保住这个末音节的尾段。
 fn seeded_paths(
     alternatives: &mut Vec<Path>,
     seeds: &[String],
@@ -2719,6 +2843,26 @@ fn seeded_paths(
                 .take(SEED_TAIL_LIMIT)
             {
                 append(tail_path);
+            }
+            // 种子的末音节整个拼得出、后面又按了数字时，再接一条以这个末音节开头、余下数字取频度最高那一条切分的尾段。末音节是词网格已经认过的，不该再交给音节频度重排：`32622` 的尾段按频度是 dao'ba、dan'ba、dao'ca，「吃饭」之后的 fan'ba 排第四被丢掉。
+            let (_, full_covered, full_fits) = fitting_syllables(table.grid, seed, remaining);
+            if full_fits {
+                let last = &seed[seed_prefix(seed).len() + 1..];
+                let rest = &remaining[full_covered..];
+                let rest_path = if rest.is_empty() {
+                    Some(Vec::new())
+                } else {
+                    table
+                        .split_paths_limited(rest, &[], prior, 1)
+                        .into_iter()
+                        .next()
+                };
+                if let Some(rest_path) = rest_path {
+                    let mut anchored = Vec::with_capacity(1 + rest_path.len());
+                    anchored.push(last.to_owned());
+                    anchored.extend(rest_path);
+                    append(anchored);
+                }
             }
         }
     }
@@ -2954,6 +3098,128 @@ fn rank_key_for_reading(
     )
 }
 
+/// 不打切分时，数字拼满一个多音节词典词（`2443` 的 挨个 ai'ge），而同一段里还有要补全的词典行（吃饭 chi'fan，要把 f 补成 fan），`rank_key` 只按词库权重比，常用的补全总排在完整读法前面。打全读音的人要的是完整读法，停在声母上的人要的是补全，这里只在首页（`rows`，即 `first_page_rows`）之内调序：完整读法的权重乘 `COMPLETION_WEIGHT_RATIO` 倍再和补全比，比完整读法常用得多的补全仍在前面。首页由哪些行组成、候选表截到哪里都不变，所以停在声母上的用户要的词仍在首页；放到整张表里比时，三四个数字的输入有几百个单字，补全会被挤出 `CANDIDATE_LIMIT` 行，见 `.agents/notes/implemented/bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md`。返回是否折算过。
+/// 首页里没有拼满的多音节词时不折算：`3` 的 的 de 照旧凭权重排在 额 e 前面，`536` 的 可能 ke'neng 照旧排在 肯 ken 前面。锁定的音节（`locked_syllables` 个）不算，锁定 wo 之后再打 `3` 与单独打 `3` 一样。所有补全按原权重彼此比较，单音节的 冷（len 补成 leng）不会越过多音节的 可能。
+/// 在拼音列表排好、混入行和固定位置都放好之后调用，只动首页里覆盖全部数字的拼音词典行，其余行坐在原位：英文、快捷短语、日文、固定位置的行跳过；简拼行由 `interleave_initials` 和 `boost_used_initials` 排好，留在原位，音节行也不越过它；遇到覆盖不同的词典行、整句行、日期时间行和 emoji、颜文字、符号行就停下，emoji 这些行接在它们的词后面，不能把词换走。权重相同时完整读法在前，模糊行照旧排在精确行之后；负权重的补全再乘一次倍数，折算后不会反而变大。
+fn discount_completions_on_first_page(
+    candidates: &mut [WordItem],
+    rows: usize,
+    locked_syllables: usize,
+    grid: KeyGrid,
+) -> bool {
+    let rows = rows.min(candidates.len());
+    let completion =
+        |item: &WordItem| grid.reading_code_len(&item.canonical_pinyin) > item.pinyin.len();
+    let mut coverage = None;
+    let mut end = rows;
+    let mut spelled_phrase = false;
+    for (seat, item) in candidates[..rows].iter().enumerate() {
+        match discount_seat(item, &mut coverage) {
+            DiscountSeat::Stop => {
+                end = seat;
+                break;
+            }
+            DiscountSeat::Row => {
+                spelled_phrase |= !item.fuzzy
+                    && !completion(item)
+                    && item
+                        .canonical_pinyin
+                        .split('\'')
+                        .nth(locked_syllables + 1)
+                        .is_some();
+            }
+            DiscountSeat::Skip | DiscountSeat::Boundary => {}
+        }
+    }
+    if !spelled_phrase {
+        return false;
+    }
+    let ratio = COMPLETION_WEIGHT_RATIO;
+    let key = |item: &WordItem| {
+        let discounted = !item.fuzzy && completion(item);
+        let scaled = match (discounted, item.weight >= 0) {
+            (false, _) => item.weight.saturating_mul(ratio),
+            (true, true) => item.weight,
+            (true, false) => item.weight.saturating_mul(ratio).saturating_mul(ratio),
+        };
+        (item.fuzzy, Reverse(scaled), discounted)
+    };
+    // 插入排序，只在 `Row` 的位置之间交换：其余行不动，简拼行把各段隔开。首页只有几行，不为这几行申请内存。
+    for seat in 0..end {
+        if discount_seat(&candidates[seat], &mut coverage) != DiscountSeat::Row {
+            continue;
+        }
+        let mut current = seat;
+        loop {
+            let mut previous = None;
+            for earlier in (0..current).rev() {
+                match discount_seat(&candidates[earlier], &mut coverage) {
+                    DiscountSeat::Row => {
+                        previous = Some(earlier);
+                        break;
+                    }
+                    DiscountSeat::Skip => {}
+                    DiscountSeat::Boundary | DiscountSeat::Stop => break,
+                }
+            }
+            match previous {
+                Some(earlier) if key(&candidates[earlier]) > key(&candidates[current]) => {
+                    candidates.swap(earlier, current);
+                    current = earlier;
+                }
+                _ => break,
+            }
+        }
+    }
+    true
+}
+
+/// `discount_completions_on_first_page` 怎么对待首页里的一行。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DiscountSeat {
+    /// 覆盖全部数字的拼音词典行，参与调序。
+    Row,
+    /// 简拼行：坐在原位，两边的行不越过它。
+    Boundary,
+    /// 英文、快捷短语、固定位置这些插进来的行：坐在原位，两边的行可以越过它。
+    Skip,
+    /// 覆盖不同的词典行、整句行、日期时间行，以及接在词后面的 emoji、颜文字、符号行：从这里起不再调序。
+    Stop,
+}
+
+fn discount_seat(item: &WordItem, coverage: &mut Option<usize>) -> DiscountSeat {
+    if item.fixed_position != 0 {
+        return DiscountSeat::Skip;
+    }
+    if !item.source.is_dictionary() {
+        return match item.source {
+            CandidateSource::Generated
+            | CandidateSource::Fallback
+            | CandidateSource::Collocation
+            | CandidateSource::NeuralKeyboard
+            | CandidateSource::Emoji
+            | CandidateSource::Kaomoji => DiscountSeat::Stop,
+            _ => DiscountSeat::Skip,
+        };
+    }
+    if *coverage.get_or_insert(item.pinyin.len()) != item.pinyin.len() {
+        DiscountSeat::Stop
+    } else if is_initials_row(item) {
+        DiscountSeat::Boundary
+    } else {
+        DiscountSeat::Row
+    }
+}
+
+/// 锁定的拼写有几个音节；`locked_key` 是 `append_path_key` 拼出来的、以 `'` 分隔的锁定拼写。
+fn locked_syllables(locked_key: &str) -> usize {
+    if locked_key.is_empty() {
+        0
+    } else {
+        locked_key.split('\'').count()
+    }
+}
+
 /// 整句行的分是 `log_prob * 1000`，词组边每覆盖一个音节就带一份 `PHRASE_LENGTH_BONUS`。同一串音节里比较时这无关紧要，九宫格却要比较不同音节串各自解出的整句：音节越多、越能拼成词组的读法分越高，`9436364782662` 的 xi'e'meng'suan'ma（洗噩梦算吗）就会压过 zhe'neng'suan'ma（这能算吗）。这里按路径的音节数每个扣一份奖励：同一条路径内的先后不变，多切出来的音节要靠词本身的分量才能赢。只扣词组实际拿到的那部分反而更差（整句集 top-1 降了一截），见 `.agents/notes/implemented/bug-fix/2026-10-08-nine-key-path-ranking.md`。
 fn comparable_weight(item: &WordItem) -> i64 {
     comparable_weight_for_reading(item, &item.canonical_pinyin)
@@ -2984,6 +3250,100 @@ fn reads_pinyin(source: CandidateSource) -> bool {
         || source.is_generated_or_fallback()
         || source == CandidateSource::NeuralKeyboard
 }
+
+/// 九宫格里让 runtime 键盘模型参与的窄裁决点，标在 `out` 里（与候选同序，没有标记时清空）。首行是可信的词典命中时 runtime 一向不重排；这里只在下面的位置上把首行和它的对手标出来，模型凭上文在它们之间挑，其余情况 `trusted_leader` 照旧。没有挂模型（「增强」关着）时标记不起作用。
+///
+/// - 最近选择（`CONTEST_RECENCY`）：首行是固定在第 1 位、拼满读法（不是补全）的词典行，对手是首页里其后第一条没有固定、同样覆盖全部数字的词典行，也就是没有置顶时会领先的那一行；它也得拼满读法、字数和首行相同，否则不裁决。置顶记录本身不动，模型只决定这一次谁坐首位。
+/// - 拼满读法的前两名（`CONTEST_RUNNER_UP`）：首行是没有固定、拼满读法（不是补全）的词典行，对手是首页里其后第一条同样条件、字数相同的词典行，读音可以不同（监狱/教育）也可以相同（他/她），权重不低于首行的 `RUNNER_UP_WEIGHT_RATIO`。
+///
+/// 首行是用户手动置顶的词（`manually_pinned` 按词面和裁决种类查 `pinned_candidates`，`pin` 和固定到第 1 位时写，见 [`manually_pinned`]）时两种都不标：手动置顶是用户明说的首选，模型只裁决自动记下的最近选择和词频排出来的首选。这一查只在真要标的时候做，没有裁决点的按键不碰日志。
+fn mark_contests(
+    candidates: &[WordItem],
+    digits: usize,
+    first_page_rows: usize,
+    grid: KeyGrid,
+    manually_pinned: impl FnOnce(&str, u8) -> bool,
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    let Some(leader) = candidates.first() else {
+        return;
+    };
+    let rows = first_page_rows.min(candidates.len());
+    let plain = |item: &WordItem| {
+        item.source.is_dictionary()
+            && item.pinyin.len() == digits
+            && !item.fuzzy
+            && !is_initials_row(item)
+    };
+    if !plain(leader) {
+        return;
+    }
+    let full_reading = |item: &WordItem| grid.reading_code_len(&item.canonical_pinyin) <= digits;
+    let chars = count_utf8_chars(&leader.word);
+    let contest = if leader.fixed_position == 1 {
+        if !full_reading(leader) {
+            return;
+        }
+        // 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（您 对 你们）时不裁决：逐字平均分偏向第二个字好猜的多字补全，两边不能放在一起比。
+        (1..rows)
+            .find(|&seat| {
+                let item = &candidates[seat];
+                item.fixed_position == 0 && plain(item) && item.word != leader.word
+            })
+            .filter(|&seat| {
+                let item = &candidates[seat];
+                full_reading(item) && count_utf8_chars(&item.word) == chars
+            })
+            .map(|rival| (rival, crate::ordering::CONTEST_RECENCY))
+    } else {
+        let spelled =
+            |item: &WordItem| item.fixed_position == 0 && plain(item) && full_reading(item);
+        if !spelled(leader) || leader.weight <= 0 {
+            return;
+        }
+        (1..rows)
+            .find(|&seat| {
+                let item = &candidates[seat];
+                spelled(item) && count_utf8_chars(&item.word) == chars
+            })
+            .filter(|&rival| {
+                let weight = candidates[rival].weight;
+                weight > 0 && weight as f64 >= leader.weight as f64 * RUNNER_UP_WEIGHT_RATIO
+            })
+            .map(|rival| (rival, crate::ordering::CONTEST_RUNNER_UP))
+    };
+    let Some((rival, kind)) = contest else {
+        return;
+    };
+    if manually_pinned(&leader.word, kind) {
+        return;
+    }
+    out.resize(candidates.len(), crate::ordering::CONTEST_NONE);
+    out[0] = kind;
+    out[rival] = kind;
+}
+
+/// `word` 是不是 `mark_contests` 这一种裁决里用户手动置顶的首行。`context` 是这次刷新的上下文 `nine-key:<数字>:<锁定>`，`locked_len` 是末尾锁定部分的长度。
+///
+/// - 最近选择：首行坐的是这个上下文的固定第 1 槽，只认同一个上下文里的记录。
+/// - 前两名：首行没有固定，是靠置顶写进的全局权重领先的，而权重不分锁定读法；所以同一串数字下任何锁定读法（包括不锁定）里置顶过它都算，不锁定时置顶、锁定读法后再看（或者反过来）仍然不裁决。
+fn manually_pinned(
+    user_db: &std::path::Path,
+    context: &str,
+    locked_len: usize,
+    word: &str,
+    kind: u8,
+) -> bool {
+    if kind == crate::ordering::CONTEST_RECENCY {
+        positions::is_pinned_candidate(user_db, context, word)
+    } else {
+        positions::is_pinned_candidate_under(user_db, &context[..context.len() - locked_len], word)
+    }
+}
+
+/// 拼满读法的第二名至少要有首选权重的这一份，才交给模型裁决；差得更远时首选的词频已经说明了问题。dev 上按事先写下的规则在 0.1 和 0.3 里选了 0.1。
+const RUNNER_UP_WEIGHT_RATIO: f64 = 0.1;
 
 /// 一个数字一个音节、全拼比数字长的词典行：按简拼查出来的行（`68` 的 明天 mei'tian）。只有两个及以上数字时才算，一个数字本来就按首字母补全。
 fn is_initials_row(item: &WordItem) -> bool {
@@ -3847,9 +4207,9 @@ impl SpellingTable {
     }
 }
 
-/// 音节和音节前缀的单字频度：音节取词库里它权重最高的 `PRIOR_CHAR_LIMIT` 个字的权重之和取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径、种子接哪几条尾段和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
+/// 音节和音节前缀的频度：音节取内嵌的音节频度表（`SYLLABLE_FREQUENCY`，单字行的权重加上音节在多字词里每出现一次计一次的词的权重）取对数，前缀取以它开头的音节里最高的那个。九宫格用它决定每个位置留哪 48 条切分路径、种子接哪几条尾段和左列音节的先后，候选本身的先后仍由词库和整句解码决定。
 ///
-/// 原先只取最常用的那一个字。dict-v2.0.30 只调了单字权重，na 最常用的「那」从 9929703 降到 5580163，ma 的「吗」从 9028487 降到 5664547，两个音节的先后就翻了过来；种子 wo'men'jin'tian'qu'na 接 6254 的三条尾段变成 ma'ji、na'ji、ma'li，na'li 排第四被丢掉，`966365468426786254` 的首选从「我们今天去哪里」变成「我们今天去马力」，「哪里」不在 128 行里。取前三个字之和时 na 有 那、哪、拿 三个常用字，比只有一个常用字「吗」的 ma 稳。
+/// 原先只从词库的单字行估：先是最常用的那一个字，dict-v2.0.30 调单字权重后 na 和 ma 的先后翻了过来，改成前三个字之和。dict-v2.0.39 起单字行记的是这个字单用的次数，「饭、午、物」这类多半出现在词里的字权重掉到原来的一成上下（fan 前三个字合计 3234183 → 374521，wu 6572932 → 1131635），而 he、hao 涨了七倍；种子接尾段时 `94298` 的 xia'wu 排在 xia'yu、xia'zu、zha'yu 之后被丢掉，「我们几个人下午一起去吃饭」成了「下雨」。单字行到底记的是什么，随词库怎么分单字和词的权重而变；音节在全部词条里出现的总权重不随它变，两版词库按它排的音节先后几乎一致（421 个音节的秩相关 0.977，只看前三个单字时 0.780）。表是内嵌的，不从运行时的词库现算：现算要扫一遍全部多字词，第一次按键等不起。
 #[derive(Default)]
 struct SyllablePrior<'a> {
     scores: HashMap<&'a str, f64>,
@@ -3858,17 +4218,9 @@ struct SyllablePrior<'a> {
 }
 
 impl<'a> SyllablePrior<'a> {
-    fn from_dictionary(
-        dictionary: &QuanpinDictionary,
-        table: &'a SpellingTable,
-    ) -> SyllablePrior<'a> {
-        let keys: Vec<String> = table
-            .syllables
-            .iter()
-            .map(|(syllable, _)| syllable.clone())
-            .collect();
-        let weights = dictionary.top_weight_sums(&keys, PRIOR_CHAR_LIMIT);
-        Self::from_weights(&table.syllables, &weights)
+    /// 按内嵌的音节频度表给 `table` 的音节估频度。
+    fn shipped(table: &'a SpellingTable) -> SyllablePrior<'a> {
+        Self::from_weights(&table.syllables, shipped_syllable_frequency())
     }
 
     fn from_weights(syllables: &'a [(String, String)], weights: &HashMap<String, i64>) -> Self {
@@ -3907,6 +4259,26 @@ impl<'a> SyllablePrior<'a> {
     fn syllable_score(&self, syllable: &str) -> f64 {
         self.syllables.get(syllable).copied().unwrap_or(0.0)
     }
+}
+
+/// 解析内嵌的音节频度表，进程里只解析一次。`#` 开头的是来源说明；其余每行都必须是 `音节<TAB>权重`，表是编进二进制的，生成坏了要在测试里就炸，不能悄悄退化成全部按 1 算的均匀频度。
+fn shipped_syllable_frequency() -> &'static HashMap<String, i64> {
+    static TABLE: OnceLock<HashMap<String, i64>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        SYLLABLE_FREQUENCY
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let (syllable, weight) = line
+                    .split_once('\t')
+                    .expect("syllable_frequency.tsv: syllable<TAB>weight");
+                let weight = weight
+                    .parse()
+                    .expect("syllable_frequency.tsv: integer weight");
+                (syllable.to_owned(), weight)
+            })
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -3954,7 +4326,7 @@ mod spelling_buffer_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{CandidateSource, NineKeyShuangpinKind};
+    use crate::types::{CandidateSource, NineKeyShuangpinKind, DEFAULT_FIRST_PAGE_ROWS};
     use rusqlite::Connection;
 
     // 九键的单测按电话键盘写，这几个函数固定取九键。
@@ -4336,50 +4708,105 @@ mod tests {
         assert_eq!(whole, [path(&["wo", "men", "yi", "qi"])]);
     }
 
-    /// 种子接尾段时只取频度最高的 `SEED_TAIL_LIMIT` 条，两个音节各有一对读法（ma/na、ji/li）时四种组合留三种；只按最常用的一个字估频度，na 和 ma 的单字权重差几个百分点就决定 na'li 在不在。权重取自 dict-v2.0.32。
+    /// 「吃饭」之后再按 `22`，种子 chi'fan 去掉末音节接 `32622` 的三条尾段按频度是 dao'ba、dan'ba、dao'ca，fan'ba 排第四；种子的末音节 fan 整个拼得出，再接一条以它开头的尾段，「吃饭吧」的切分就不丢。
+    #[test]
+    fn seed_tails_keep_the_seed_last_syllable_when_it_is_spelled_in_full() {
+        let table = KeyGrid::NineKey.spelling_table();
+        let prior = SyllablePrior::shipped(table);
+        let remaining = encode("chi'fan'ba");
+        let seeds = ["chi'fan".to_owned()];
+        let tail = &remaining[encode("chi").len()..];
+        assert!(!table
+            .split_paths_limited(tail, &[], &prior, SEED_TAIL_LIMIT)
+            .contains(&path(&["fan", "ba"])));
+        let mut alternatives = Vec::new();
+        seeded_paths(&mut alternatives, &seeds, &remaining, table, &prior);
+        assert!(alternatives.contains(&path(&["chi", "fan", "ba"])));
+        assert_eq!(alternatives.len(), SEED_TAIL_LIMIT + 1);
+    }
+
+    /// 种子接尾段时只取频度最高的 `SEED_TAIL_LIMIT` 条，两个音节各有一对读法（ma/na、ji/li）时四种组合留三种。只按最常用的一个字估频度时（dict-v2.0.32 的单字权重），吗 比 那 高 1.5%，尾段取 ma'ji、na'ji、ma'li，na'li 排第四；内嵌的音节频度表里 na 远比 ma 常见，na'li 留在尾段里。
     #[test]
     fn seed_tails_keep_a_reading_whose_best_character_barely_loses() {
-        let table = SpellingTable::new(&[
-            "wo", "men", "jin", "tian", "qu", "na", "ma", "li", "ji", "jiu",
-        ]);
+        let table = KeyGrid::NineKey.spelling_table();
         let remaining = encode("wo'men'jin'tian'qu'na'li");
         let seeds = ["wo'men'jin'tian'qu'na".to_owned()];
         let wanted = path(&["wo", "men", "jin", "tian", "qu", "na", "li"]);
-        // 每个音节权重最高的三个字；末尾的 ji 按前缀取以它开头的 jiu 的频度，jiu 的权重是编的。
-        let characters: [(&str, [i64; 3]); 10] = [
-            ("wo", [3_000_000, 50_000, 40_000]),
-            ("men", [1_788_123, 544_382, 24_690]),
-            ("jin", [2_000_000, 900_000, 500_000]),
-            ("tian", [2_000_000, 400_000, 100_000]),
-            ("qu", [3_000_000, 800_000, 300_000]),
-            ("na", [5_580_163, 1_372_701, 1_345_242]),
-            ("ma", [5_664_547, 279_925, 112_776]),
-            ("li", [7_995_093, 999_387, 380_201]),
-            ("ji", [2_726_986, 1_102_969, 159_650]),
-            ("jiu", [8_500_000, 600_000, 200_000]),
-        ];
-        let tails = |weights: HashMap<String, i64>| {
-            let prior = SyllablePrior::from_weights(&table.syllables, &weights);
+        let tails = |prior: &SyllablePrior| {
             let mut alternatives = Vec::new();
-            seeded_paths(&mut alternatives, &seeds, &remaining, &table, &prior);
+            seeded_paths(&mut alternatives, &seeds, &remaining, table, prior);
             alternatives
         };
-        let best: HashMap<String, i64> = characters
+        // dict-v2.0.32 各音节最常用的那个字的权重；末尾的 ji 按前缀取以它开头的 jiu 的频度，jiu 的权重是编的。
+        let best: HashMap<String, i64> = [
+            ("na", 5_580_163),
+            ("ma", 5_664_547),
+            ("li", 7_995_093),
+            ("ji", 2_726_986),
+            ("jiu", 8_500_000),
+        ]
+        .into_iter()
+        .map(|(syllable, weight)| (syllable.to_owned(), weight))
+        .collect();
+        assert!(!tails(&SyllablePrior::from_weights(&table.syllables, &best)).contains(&wanted));
+        assert!(tails(&SyllablePrior::shipped(table)).contains(&wanted));
+    }
+
+    #[test]
+    fn shipped_syllable_frequency_covers_every_spelling_and_names_its_source() {
+        // 第一行记着取自哪份 msime-pinyin.db，和那一版词库发布锁里的 sha256 对得上；换词库重新生成时一起换。
+        let source = SYLLABLE_FREQUENCY
+            .lines()
+            .next()
+            .and_then(|line| line.strip_prefix("# msime-pinyin.db sha256="))
+            .expect("source line");
+        assert!(source.len() == 64 && source.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        // 只缺 jv、lue 这类别写：词库行记在 ju、lve 这些正写下，原先现查单字时别写同样查不到、按 1 算。
+        let weights = shipped_syllable_frequency();
+        let mut missing: Vec<&str> = KeyGrid::NineKey
+            .spelling_table()
+            .syllables
             .iter()
-            .map(|(syllable, weights)| (syllable.to_string(), weights[0]))
+            .map(|(syllable, _)| syllable.as_str())
+            .filter(|syllable| weights.get(*syllable).is_none_or(|weight| *weight <= 0))
             .collect();
-        let summed: HashMap<String, i64> = characters
-            .iter()
-            .map(|(syllable, weights)| {
-                (
-                    syllable.to_string(),
-                    weights[..PRIOR_CHAR_LIMIT].iter().sum(),
-                )
-            })
-            .collect();
-        // 只看最常用的字：吗 比 那 高 1.5%，尾段取 ma'ji、na'ji、ma'li，na'li 排第四。
-        assert!(!tails(best).contains(&wanted));
-        assert!(tails(summed).contains(&wanted));
+        missing.sort_unstable();
+        assert_eq!(
+            missing,
+            ["jv", "jve", "lue", "nue", "qv", "qve", "xv", "xve", "yv", "yve"]
+        );
+    }
+
+    /// dict-v2.0.39 的单字行记的是字单用的次数：wu 前三个字（无 五 伍）合计 1131635，yu（与 于 雨）18021628，「午」根本不在前三。种子 wo'men'ji'ge'ren 接 `94298` 的三条尾段只按单字估时是 xia'yu、xia'zu、zha'yu，「我们几个人下午一起去吃饭」的 xia'wu 排第五被丢掉，之后每一键都接不回来，首选成了「下雨」。音节频度表把 下午、午饭 里的 wu 也算上，xia'wu 留在前三。
+    #[test]
+    fn seed_tails_keep_a_syllable_that_mostly_occurs_inside_words() {
+        // 完整音节也按前缀取以它开头的音节里最高的频度，所以 xu 沾 xue、zu 沾 zuo、yu 沾 yue 的光。
+        let table =
+            SpellingTable::new(&["xia", "zha", "wu", "yu", "yue", "xu", "xue", "zu", "zuo"]);
+        let tail = encode("xia'wu");
+        let wanted = path(&["xia", "wu"]);
+        // dict-v2.0.39 各音节权重最高的三个单字之和，即原先的音节频度口径。
+        let characters: HashMap<String, i64> = [
+            ("xia", 4_490_788),
+            ("zha", 175_682),
+            ("wu", 1_131_635),
+            ("yu", 18_021_628),
+            ("yue", 6_441_425),
+            ("xu", 271_070),
+            ("xue", 1_673_519),
+            ("zu", 685_682),
+            ("zuo", 7_592_605),
+        ]
+        .into_iter()
+        .map(|(syllable, weight)| (syllable.to_owned(), weight))
+        .collect();
+        let tails = |weights: &HashMap<String, i64>| {
+            let prior = SyllablePrior::from_weights(&table.syllables, weights);
+            table.split_paths_limited(&tail, &[], &prior, SEED_TAIL_LIMIT)
+        };
+        // 只按单字：xia'yu、xia'zu、xia'xu，xia'wu 排第四。
+        assert!(!tails(&characters).contains(&wanted));
+        assert!(tails(shipped_syllable_frequency()).contains(&wanted));
     }
 
     /// 末尾只按了一个音节开头的数字、没有覆盖全部数字的行时，种子留着；组字结束时清空。
@@ -4723,6 +5150,332 @@ mod tests {
         assert_eq!(ranked(rows, false), ["自从", "西安"]);
     }
 
+    /// `rank_candidates` 之后再按首页调序，与 `refresh` 的顺序相同（打了切分时不折算），首页按默认的行数。
+    fn ranked_on_page(mut candidates: Vec<WordItem>, prefer_exact: bool) -> Vec<String> {
+        rank_candidates(&mut candidates, prefer_exact, false, None, KeyGrid::NineKey);
+        if !prefer_exact {
+            discount_completions_on_first_page(
+                &mut candidates,
+                DEFAULT_FIRST_PAGE_ROWS,
+                0,
+                KeyGrid::NineKey,
+            );
+        }
+        candidates
+            .into_iter()
+            .map(|item| item.word.into_string())
+            .collect()
+    }
+
+    #[test]
+    fn without_a_split_a_completion_competes_with_a_spelled_phrase_at_a_fraction_of_its_weight() {
+        // `2443`：挨个 拼满 ai'ge，吃饭 要把 f 补成 fan。没打切分时，首页里 吃饭 按权重的 `COMPLETION_WEIGHT_RATIO` 分之一和 挨个 比；打了切分时 `rank_key` 已经把它整个排在后面。
+        let ratio = COMPLETION_WEIGHT_RATIO;
+        let rows = |chifan: i64| {
+            vec![
+                spelled("吃饭", "2443", "chi'fan", chifan, CandidateSource::Database),
+                spelled("挨个", "2443", "ai'ge", 1000, CandidateSource::Database),
+            ]
+        };
+        assert_eq!(
+            ranked_on_page(rows(1000 * ratio - 1), false),
+            ["挨个", "吃饭"]
+        );
+        assert_eq!(ranked_on_page(rows(1000 * ratio), false), ["挨个", "吃饭"]);
+        assert_eq!(
+            ranked_on_page(rows(1000 * ratio + 1), false),
+            ["吃饭", "挨个"]
+        );
+        assert_eq!(
+            ranked_on_page(rows(1000 * ratio * 1000), true),
+            ["挨个", "吃饭"]
+        );
+    }
+
+    #[test]
+    fn without_a_spelled_phrase_on_the_first_page_nothing_is_discounted() {
+        // `3`：的 de 是补全，额 e 拼满了，但数字拼不出多音节词，照旧按权重。`536`：可能 ke'neng 和 冷（len 补成 leng）都是补全，拼满的只有单字 肯，也照旧按权重。
+        let rows = vec![
+            spelled("额", "3", "e", 99, CandidateSource::Database),
+            spelled("的", "3", "de", 100, CandidateSource::Database),
+        ];
+        assert_eq!(ranked_on_page(rows, false), ["的", "额"]);
+        let rows = vec![
+            spelled("肯", "536", "ken", 40_000, CandidateSource::Database),
+            spelled("冷", "536", "leng", 113_000, CandidateSource::Database),
+            spelled(
+                "可能",
+                "536",
+                "ke'neng",
+                5_500_000,
+                CandidateSource::Database,
+            ),
+        ];
+        assert_eq!(ranked_on_page(rows, false), ["可能", "冷", "肯"]);
+    }
+
+    #[test]
+    fn completions_compare_with_each_other_at_their_own_weights() {
+        // `9482`：猪啊 zhu'a 拼满了，折算生效。主编 zhu'bian 和 装（zhua 补成 zhuang）都是补全，彼此仍按原权重比，单音节的 装 不会越过更常用的 主编；拼满的单字 抓 按倍数排到前面。
+        let rows = vec![
+            spelled(
+                "主编",
+                "9482",
+                "zhu'bian",
+                10_000_000,
+                CandidateSource::Database,
+            ),
+            spelled("装", "9482", "zhuang", 3_000_000, CandidateSource::Database),
+            spelled(
+                "抓",
+                "9482",
+                "zhua",
+                10_000_000 / COMPLETION_WEIGHT_RATIO + 1,
+                CandidateSource::Database,
+            ),
+            spelled("猪啊", "9482", "zhu'a", 500, CandidateSource::Database),
+        ];
+        assert_eq!(ranked_on_page(rows, false), ["抓", "主编", "装", "猪啊"]);
+    }
+
+    #[test]
+    fn the_discount_keeps_the_first_page_and_the_rest_of_the_list() {
+        // `266`：覆盖三个数字的单字有几百个，大半权重为 0。从、聪（con 补成 cong）和 按钮、澳门 都是补全，彼此按原权重比；阿莫 a'mo 拼满了，乘倍数之后排到 从 之后、按钮 之前。折算只在首页里调序，首页以外一行不动。
+        let mut rows = vec![
+            spelled("从", "266", "cong", 30_000_000, CandidateSource::Database),
+            spelled("聪", "266", "cong", 130_000, CandidateSource::Database),
+            spelled(
+                "阿莫",
+                "266",
+                "a'mo",
+                30_000_000 / COMPLETION_WEIGHT_RATIO - 1,
+                CandidateSource::Database,
+            ),
+            spelled("匆", "266", "cong", 60_000, CandidateSource::Database),
+            spelled("丛", "266", "cong", 40_000, CandidateSource::Database),
+            spelled("按钮", "266", "an'niu", 500_000, CandidateSource::Database),
+            spelled("澳门", "266", "ao'men", 300_000, CandidateSource::Database),
+            spelled(
+                "不那么",
+                "266",
+                "bu'na'me",
+                20_000,
+                CandidateSource::Database,
+            ),
+        ];
+        for offset in 0..200 {
+            let word = char::from_u32(0x3400 + offset).unwrap().to_string();
+            rows.push(spelled(&word, "266", "cong", 0, CandidateSource::Database));
+        }
+        let before = ranked(rows.clone(), false);
+        let shown = ranked_on_page(rows, false);
+        let page = DEFAULT_FIRST_PAGE_ROWS;
+        assert_eq!(shown[..page], ["从", "阿莫", "按钮", "澳门", "聪", "匆"]);
+        let mut sorted_shown = shown[..page].to_vec();
+        let mut sorted_before = before[..page].to_vec();
+        sorted_shown.sort();
+        sorted_before.sort();
+        assert_eq!(sorted_shown, sorted_before);
+        assert_eq!(shown[page..], before[page..]);
+    }
+
+    #[test]
+    fn initials_rows_keep_their_seats_and_no_row_passes_them() {
+        // 吃饭 按原权重领先；首页调序把它挪到完整读法之后，但只在简拼行之前的那几行里挪，简拼行 不会过的 留在原位，也就不会越到折算前比它重的 吃饭 前面。
+        let rows = vec![
+            spelled(
+                "吃饭",
+                "2443",
+                "chi'fan",
+                1_100_000,
+                CandidateSource::Database,
+            ),
+            spelled(
+                "挨个",
+                "2443",
+                "ai'ge",
+                1_000_000,
+                CandidateSource::Database,
+            ),
+            spelled("爱", "2443", "ai", 800_000, CandidateSource::Database),
+            spelled("碧荷", "2443", "bi'he", 700_000, CandidateSource::Database),
+            spelled(
+                "不会过的",
+                "2443",
+                "bu'hui'guo'de",
+                500_000,
+                CandidateSource::Database,
+            ),
+            spelled(
+                "吃过",
+                "2443",
+                "chi'guo",
+                400_000,
+                CandidateSource::Database,
+            ),
+        ];
+        assert_eq!(
+            ranked(rows.clone(), false),
+            ["吃饭", "挨个", "爱", "碧荷", "不会过的", "吃过"]
+        );
+        assert_eq!(
+            ranked_on_page(rows, false),
+            ["挨个", "爱", "碧荷", "吃饭", "不会过的", "吃过"]
+        );
+    }
+
+    #[test]
+    fn rows_mixed_in_after_ranking_keep_their_seats() {
+        // 英文、固定位置的行坐在原位，折算只在它们周围的拼音行之间调序；emoji 接在它的词后面，折算到它就停。
+        let mut rows = vec![
+            spelled("吃饭", "2443", "chi'fan", 1100, CandidateSource::Database),
+            spelled(
+                "chief",
+                "2443",
+                "",
+                1000,
+                CandidateSource::EnglishDictionary,
+            ),
+            spelled("挨个", "2443", "ai'ge", 1000, CandidateSource::Database),
+            spelled("爱河", "2443", "ai'he", 900, CandidateSource::Database),
+            spelled("碧荷", "2443", "bi'he", 800, CandidateSource::Database),
+            spelled("次格", "2443", "ci'ge", 700, CandidateSource::Database),
+            spelled("笔格", "2443", "bi'ge", 600, CandidateSource::Database),
+        ];
+        let mut shown = rows.clone();
+        assert!(discount_completions_on_first_page(
+            &mut shown,
+            6,
+            0,
+            KeyGrid::NineKey
+        ));
+        let words = |rows: &[WordItem]| {
+            rows.iter()
+                .map(|row| row.word.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            words(&shown),
+            ["挨个", "chief", "爱河", "碧荷", "次格", "吃饭", "笔格"]
+        );
+        rows[3].fixed_position = 4;
+        rows.insert(1, spelled("🍚", "2443", "", 0, CandidateSource::Emoji));
+        let mut shown = rows.clone();
+        discount_completions_on_first_page(&mut shown, 6, 0, KeyGrid::NineKey);
+        assert_eq!(shown, rows);
+        rows.remove(1);
+        let mut shown = rows.clone();
+        discount_completions_on_first_page(&mut shown, 6, 0, KeyGrid::NineKey);
+        assert_eq!(
+            words(&shown),
+            ["挨个", "chief", "碧荷", "爱河", "次格", "吃饭", "笔格"]
+        );
+    }
+
+    #[test]
+    fn locked_syllables_do_not_count_toward_a_spelled_phrase() {
+        // 锁定 wo 之后再打 `3`：我饿 wo'e 剩下的只有一个音节，与单独打 `3` 一样不折算，我的 照旧凭权重领先。
+        let rows = || {
+            vec![
+                spelled("我的", "963", "wo'de", 150, CandidateSource::Database),
+                spelled("我饿", "963", "wo'e", 100, CandidateSource::Database),
+            ]
+        };
+        let mut shown = rows();
+        assert!(!discount_completions_on_first_page(
+            &mut shown,
+            6,
+            1,
+            KeyGrid::NineKey
+        ));
+        assert_eq!(shown, rows());
+        let mut shown = rows();
+        assert!(discount_completions_on_first_page(
+            &mut shown,
+            6,
+            0,
+            KeyGrid::NineKey
+        ));
+        assert_eq!(shown[0].word, "我饿");
+    }
+
+    #[test]
+    fn the_discount_only_permutes_pinyin_rows_inside_the_first_page() {
+        let readings = [
+            "ai'ge",
+            "bi'he",
+            "chi'fan",
+            "ai'hao",
+            "bu'hui'guo'de",
+            "chang",
+            "ci",
+        ];
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut next = |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        for round in 0..300 {
+            let mut rows = Vec::new();
+            for index in 0..(1 + next(40)) {
+                let reading = readings[next(readings.len() as u64) as usize];
+                let weight = [0, 1, 7, 100, 999, 1000, 64_000, 1_000_000][next(8) as usize];
+                let mut row = spelled(
+                    &format!("w{round}-{index}"),
+                    "2443",
+                    reading,
+                    weight,
+                    CandidateSource::Database,
+                );
+                row.fuzzy = next(6) == 0;
+                rows.push(row);
+            }
+            let page = 1 + next(9) as usize;
+            let mut before = rows;
+            rank_candidates(&mut before, false, false, None, KeyGrid::NineKey);
+            // 混入行在排好之后插进来：英文、固定位置的行留在原位，整句行之后不再调序。
+            for extra in 0..next(3) {
+                let seat = next(before.len() as u64 + 1) as usize;
+                let source = [
+                    CandidateSource::EnglishDictionary,
+                    CandidateSource::Generated,
+                    CandidateSource::Database,
+                ][next(3) as usize];
+                let mut row = spelled(&format!("x{round}-{extra}"), "2443", "ai'ge", 5, source);
+                row.fixed_position = i32::from(source == CandidateSource::Database);
+                before.insert(seat, row);
+            }
+            let mut after = before.clone();
+            discount_completions_on_first_page(&mut after, page, 0, KeyGrid::NineKey);
+            let cut = page.min(before.len());
+            assert_eq!(after[cut..], before[cut..], "round {round}");
+            let stop = before[..cut]
+                .iter()
+                .position(|row| row.source == CandidateSource::Generated)
+                .unwrap_or(cut);
+            assert_eq!(after[stop..], before[stop..], "round {round}");
+            for index in 0..stop {
+                let fixed = !before[index].source.is_dictionary()
+                    || before[index].fixed_position != 0
+                    || is_initials_row(&before[index]);
+                if fixed {
+                    assert_eq!(after[index], before[index], "round {round}");
+                } else {
+                    assert!(after[index].source.is_dictionary(), "round {round}");
+                    assert_eq!(after[index].fixed_position, 0, "round {round}");
+                    assert!(!is_initials_row(&after[index]), "round {round}");
+                }
+            }
+            let mut words_before: Vec<_> = before[..cut].iter().map(|row| &row.word).collect();
+            let mut words_after: Vec<_> = after[..cut].iter().map(|row| &row.word).collect();
+            words_before.sort();
+            words_after.sort();
+            assert_eq!(words_after, words_before, "round {round}");
+        }
+    }
+
     #[test]
     fn skipping_outranked_rows_ranks_like_pushing_everything() {
         let sources = [
@@ -4967,6 +5720,43 @@ mod tests {
         }
     }
 
+    /// 按切分查出的词库行的 `pinyin` 是它覆盖的那段数字；同样长度的行共用一份字符串，不各自申请。简拼行就地改写自己的缓冲区，不在此列。
+    #[test]
+    fn rows_with_the_same_covered_digits_share_one_pinyin_buffer() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);INSERT INTO tbl_1_n VALUES('ni','n','尼',90);INSERT INTO tbl_1_n VALUES('ni','n','泥',80);CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mi','m','米',50);INSERT INTO tbl_1_m VALUES('mi','m','秘',40);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);INSERT INTO tbl_2_n VALUES('ni''hui','nh','你会',900);CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_m VALUES('mi''hu','mh','迷糊',800);",
+        );
+        for digits in ["64426", "64", "644"] {
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, digits);
+            let rows: Vec<&WordItem> = session
+                .candidates
+                .iter()
+                .filter(|item| reads_pinyin(item.source) && !is_initials_row(item))
+                .collect();
+            assert!(rows.len() >= 3, "{digits}: {:?}", session.candidates);
+            for row in &rows {
+                assert!(digits.starts_with(row.pinyin.as_str()), "{digits}: {row:?}");
+            }
+            let mut compared = 0;
+            for (index, row) in rows.iter().enumerate() {
+                for other in &rows[index + 1..] {
+                    if row.pinyin == other.pinyin {
+                        assert!(
+                            row.pinyin.shares_storage_with(&other.pinyin),
+                            "{digits}: {} and {} hold separate copies of {}",
+                            row.word,
+                            other.word,
+                            row.pinyin
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+            assert!(compared > 0, "{digits}: no two rows cover the same digits");
+        }
+    }
+
     fn index_of(session: &NineKeySession, word: &str) -> usize {
         session
             .snapshot()
@@ -5045,7 +5835,8 @@ mod tests {
                 .map(|candidate| candidate.word.as_str()),
             Some("是")
         );
-        assert_eq!(&view.nine_key_spellings[..4], ["pi", "qi", "ri", "si"]);
+        // 同样两键的音节按内嵌的音节频度表排，不看夹具词库的单字。
+        assert_eq!(&view.nine_key_spellings[..4], ["qi", "si", "ri", "pi"]);
     }
 
     #[test]
@@ -5673,8 +6464,8 @@ mod tests {
         assert_eq!(
             before.nine_key_spellings,
             [
-                "ni", "mi", "mie", "min", "miu", "nie", "nin", "niu", "mian", "miao", "ming",
-                "nian", "niao", "ning", "niang", "o", "M", "N", "O", "6"
+                "ni", "mi", "min", "niu", "nin", "mie", "nie", "miu", "nian", "mian", "ming",
+                "miao", "ning", "niao", "niang", "o", "M", "N", "O", "6"
             ],
             "the preferred spelling leads, the key's letters and digit follow"
         );
@@ -5686,7 +6477,7 @@ mod tests {
         assert_eq!(view.preedit, "ni'426");
         assert_eq!(
             view.nine_key_spellings,
-            ["hao", "gan", "gao", "han", "gang", "hang", "ga", "ha", "G", "H"],
+            ["hao", "gao", "gan", "han", "hang", "gang", "ha", "ga", "G", "H"],
             "no i, which starts no syllable, and no digit behind a lock"
         );
         let result = session.select(index_of(&session, "你好"));
@@ -6048,6 +6839,10 @@ mod tests {
         assert_eq!(
             result.diagnostic.as_deref(),
             Some(diagnostics::NINE_KEY_DIGIT_LIMIT)
+        );
+        assert_eq!(
+            result.diagnostic_code(),
+            Some(diagnostics::DiagnosticCode::NineKeyDigitLimit)
         );
         assert_eq!(session.snapshot().editing_text.len(), DIGIT_LIMIT);
         assert!(session.snapshot().candidates.is_empty());
@@ -6560,6 +7355,106 @@ mod tests {
         assert!(sentence_words(&fresh).is_empty(), "{:?}", words(&fresh));
     }
 
+    /// 九键打 我们走路去（966369685878）首选曾是「我们有巨乳」：zou/you、lu/ju、qu/ru 同码，粗俗词 巨乳 靠多字词奖励被拼进整句。粗俗词不进词网格之后，整串打出来的候选里没有它；整串就是它的读音时它照样是候选。权重取自 dict-v2.0.39。
+    #[test]
+    fn sentences_are_not_assembled_from_offensive_words() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_w VALUES('wo','w','我',30000000);
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_m VALUES('men','m','们',3000000);
+CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_w VALUES('wo''men','wm','我们',13696325);
+CREATE TABLE tbl_3_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_3_w VALUES('wo''men''you','wmy','我们有',83600);
+INSERT INTO tbl_3_w VALUES('wo''men''zou','wmz','我们走',4361);
+CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_y VALUES('you','y','有',15615006);
+INSERT INTO tbl_1_y VALUES('you','y','又',2794198);
+CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_z VALUES('zou','z','走',1052468);
+CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_j VALUES('ju','j','据',323831);
+CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_l VALUES('lu','l','路',476190);
+CREATE TABLE tbl_1_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_q VALUES('qu','q','去',9884736);
+CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_r VALUES('ru','r','如',2514076);
+INSERT INTO tbl_1_r VALUES('ru','r','乳',26706);
+CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_j VALUES('ju''ru','jr','巨乳',3174);
+CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_z VALUES('zou''lu','zl','走路',163972);
+CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_y VALUES('you''ju','yj','邮局',22016);",
+        );
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "966369685878");
+        let sentences = sentence_words(&session);
+        assert!(!sentences.is_empty(), "{:?}", words(&session));
+        assert!(
+            words(&session).iter().all(|word| !word.contains("巨乳")),
+            "{:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+
+        type_digits(&mut session, "5878");
+        assert!(words(&session).contains(&"巨乳".to_owned()));
+    }
+
+    /// 含粗俗词的长词条也不拼进整句：九键打 我们要发展经济吧，发展 与 发现 同码（9426），词库里的 净鸡巴（jing'ji'ba，100）靠两个音节的奖励压过 经济|吧，首选曾是「我们要发现净鸡巴」。权重取自 dict-v2.0.39。
+    #[test]
+    fn sentences_are_not_assembled_from_words_containing_offensive_words() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_w VALUES('wo','w','我',26297004);
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_m VALUES('men','m','们',544382);
+CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_w VALUES('wo''men','wm','我们',13696325);
+CREATE TABLE tbl_3_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_3_w VALUES('wo''men''yao','wmy','我们要',330188);
+CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_y VALUES('yao','y','要',7812383);
+CREATE TABLE tbl_1_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_f VALUES('fa','f','发',666088);
+CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_z VALUES('zhan','z','展',973557);
+CREATE TABLE tbl_1_x(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_x VALUES('xian','x','现',299876);
+CREATE TABLE tbl_2_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_f VALUES('fa''xian','fx','发现',3492384);
+INSERT INTO tbl_2_f VALUES('fa''zhan','fz','发展',2158053);
+CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_j VALUES('jing','j','经',289401);
+INSERT INTO tbl_1_j VALUES('jing','j','净',14695);
+INSERT INTO tbl_1_j VALUES('ji','j','济',7885);
+INSERT INTO tbl_1_j VALUES('ji','j','鸡',7677);
+CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_j VALUES('jing''ji','jj','经济',849252);
+INSERT INTO tbl_2_j VALUES('ji''ba','jb','鸡巴',2190);
+CREATE TABLE tbl_3_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_3_j VALUES('jing''ji''ba','jjb','净鸡巴',100);
+CREATE TABLE tbl_1_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_b VALUES('ba','b','吧',8469475);
+INSERT INTO tbl_1_b VALUES('ba','b','巴',16099);",
+        );
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "9663692632942654645422");
+        assert!(
+            !sentence_words(&session).is_empty(),
+            "{:?}",
+            words(&session)
+        );
+        assert!(
+            words(&session).iter().all(|word| !word.contains("鸡巴")),
+            "{:?}",
+            words(&session)
+        );
+    }
+
     /// 键盘模型读不到时（测试目录里没有模型文件）没有模型行；词网格开关关着时，为重排解出的整句照样去掉，与 26 键里模型重排失败时一样。
     #[test]
     fn a_missing_keyboard_model_leaves_the_lattice_rows_to_their_switch() {
@@ -6771,6 +7666,99 @@ mod tests {
         }
     }
 
+    const COMPLETION_FIXTURE: &str = "CREATE TABLE tbl_1_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_d VALUES('de','d','的',1000);CREATE TABLE tbl_1_e(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_e VALUES('e','e','额',900);CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_c VALUES('chi','c','吃',500);CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_a VALUES('ai','a','爱',800);CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_g VALUES('ge','g','个',900);CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_w VALUES('wo','w','我',700);CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_c VALUES('chi''fan','cf','吃饭',1500);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ge','ag','挨个',1000);CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_w VALUES('wo''de','wd','我的',150);INSERT INTO tbl_2_w VALUES('wo''e','we','我饿',100);";
+
+    /// 不打切分、首页里有拼满的多音节词时，补全按权重的 `COMPLETION_WEIGHT_RATIO` 分之一与完整读法比；拼不出多音节词时照旧按原权重比，锁定的音节不算。
+    #[test]
+    fn without_a_split_a_completion_is_discounted_beside_a_spelled_phrase() {
+        let fixture = fixture_with(COMPLETION_FIXTURE);
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+
+        type_digits(&mut session, "3");
+        assert_eq!(words(&session)[..2], ["的", "额"]);
+        session.command(Command::Cancel);
+
+        // 2443：挨个 拼满 ai'ge；吃饭 要把 f 补成 fan，权重只比 挨个 高一点，排在后面但仍在首页。
+        const { assert!(1500 < 1000 * COMPLETION_WEIGHT_RATIO) };
+        type_digits(&mut session, "2443");
+        let shown = words(&session);
+        assert_eq!(shown[0], "挨个");
+        assert!(
+            shown
+                .iter()
+                .take(DEFAULT_FIRST_PAGE_ROWS)
+                .any(|word| word == "吃饭"),
+            "{shown:?}"
+        );
+        assert_eq!(session.snapshot().nine_key_reading, "ai'ge");
+        session.command(Command::Cancel);
+
+        // 锁定 chi 之后剩下的数字只拼得出一个音节，与单独打 `3` 一样不折算，吃饭 凭权重排第一。
+        type_digits(&mut session, "2443");
+        let chi = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|spelling| spelling == "chi")
+            .expect("chi offered");
+        session.choose_spelling(chi);
+        assert_eq!(words(&session)[0], "吃饭");
+        session.command(Command::Cancel);
+
+        // 963：我饿 拼满 wo'e，没锁定时 我的 按折算排在后面；锁定 wo 之后同上，我的 凭权重领先。
+        const { assert!(150 < 100 * COMPLETION_WEIGHT_RATIO) };
+        type_digits(&mut session, "963");
+        assert_eq!(words(&session)[..2], ["我饿", "我的"]);
+        let wo = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|spelling| spelling == "wo")
+            .expect("wo offered");
+        session.choose_spelling(wo);
+        assert_eq!(words(&session)[..2], ["我的", "我饿"]);
+    }
+
+    /// 置顶一个被折算的补全：调频写进去的权重越不过折算，固定到第 1 位，下次打同样的数字它在首位。补全原本最重（调频不改权重）和原本较轻两种都要成立。
+    #[test]
+    fn pinning_a_discounted_completion_puts_it_first() {
+        for chifan in [1500, 500] {
+            let fixture = fixture_with(
+                &COMPLETION_FIXTURE.replace("'吃饭',1500", &format!("'吃饭',{chifan}")),
+            );
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, "2443");
+            assert_eq!(words(&session)[0], "挨个");
+            let pinned = session.pin(index_of(&session, "吃饭"));
+            assert!(pinned.handled);
+            assert_eq!(pinned.diagnostic, None);
+            assert_eq!(words(&session)[0], "吃饭", "weight {chifan}");
+            session.command(Command::Cancel);
+            let mut fresh = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut fresh, "2443");
+            assert_eq!(words(&fresh)[0], "吃饭", "weight {chifan}");
+        }
+    }
+
+    /// 有权重的英文坐第二位，折算只在它周围的拼音行之间调序：被折算的补全仍在首页，首页里的行与不折算时相同。
+    #[test]
+    fn a_mixed_english_row_does_not_push_a_discounted_completion_off_the_first_page() {
+        let fixture = fixture_with("CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_c VALUES('chi''fan','cf','吃饭',1100);INSERT INTO tbl_2_c VALUES('ci''ge','cg','次格',700);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ge','ag','挨个',1000);INSERT INTO tbl_2_a VALUES('ai''he','ah','爱河',900);CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_b VALUES('bi''he','bh','碧荷',800);INSERT INTO tbl_2_b VALUES('bi''ge','bg','笔格',600);");
+        Connection::open(fixture.directory.path().join(assets::ENGLISH_DICTIONARY))
+            .and_then(|db| {
+                db.execute_batch("INSERT INTO english_words VALUES('chief','chief',1000);")
+            })
+            .expect("english row");
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "2443");
+        let shown = words(&session);
+        assert_eq!(
+            shown[..DEFAULT_FIRST_PAGE_ROWS],
+            ["挨个", "chief", "爱河", "碧荷", "次格", "吃饭"],
+            "{shown:?}"
+        );
+    }
+
     /// #5640：每个数字当一个音节的首字母也能出词，词库里的词和用户自己存的词都算。
     #[test]
     fn digits_spell_words_by_their_initials() {
@@ -6838,6 +7826,284 @@ INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n
         type_digits(&mut repeated, "6364");
         assert_eq!(words(&repeated)[0], "能");
         assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+    }
+
+    /// 置顶的最近选择和没有它时会领先的词典行被标成一次裁决，交给 runtime 的键盘模型；没有置顶时不标。
+    #[test]
+    fn a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+        );
+        let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut first, "6364");
+        assert_eq!(words(&first)[0], "恁");
+        assert!(contest_seats(&first, crate::ordering::CONTEST_RECENCY).is_empty());
+        let selected = index_of(&first, "能");
+        assert_eq!(first.select(selected).commit.as_deref(), Some("能"));
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        let snapshot = repeated.snapshot();
+        assert_eq!(words(&repeated)[..2], ["能", "恁"]);
+        assert_eq!(
+            contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+            [0, 1]
+        );
+        assert_eq!(snapshot.candidate_contest.len(), snapshot.candidates.len());
+    }
+
+    /// 没有置顶时会领先的那一行是补全（让 对 然后）或字数不同（让 对 萨米）时不标：逐字平均分不能在这两种行之间比。
+    #[test]
+    fn a_recent_pin_is_not_contested_by_a_completion_or_a_longer_word() {
+        for rival in [
+            "CREATE TABLE tbl_2_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_r VALUES('ran''hou','rh','然后',1000);",
+            "CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('sa''mi','sm','萨米',1000);",
+        ] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_1_r(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_r VALUES('rang','r','让',1);{rival}"
+            ));
+            let mut first = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut first, "7264");
+            let leader = words(&first)[0].clone();
+            assert_ne!(leader, "让", "{rival}");
+            let selected = index_of(&first, "让");
+            assert_eq!(first.select(selected).commit.as_deref(), Some("让"));
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "7264");
+            assert_eq!(words(&repeated)[..2], ["让", leader.as_str()]);
+            assert!(
+                contest_seats(&repeated, crate::ordering::CONTEST_RECENCY).is_empty(),
+                "{leader}"
+            );
+        }
+    }
+
+    fn contest_seats(session: &NineKeySession, kind: u8) -> Vec<usize> {
+        session
+            .snapshot()
+            .candidate_contest
+            .iter()
+            .enumerate()
+            .filter(|(_, marked)| **marked == kind)
+            .map(|(seat, _)| seat)
+            .collect()
+    }
+
+    /// 拼满读法、字数相同的前两名词典行，权重相近时标成一次裁决：读音不同（监狱/教育）和同音（他/她）都算；第二名差得太远时不标。
+    #[test]
+    fn close_spelled_runners_up_are_marked_as_a_contest() {
+        let runner_up = crate::ordering::CONTEST_RUNNER_UP;
+        for (weight, marked) in [(500, vec![0, 1]), (50, vec![])] {
+            let fixture = fixture_with(&format!(
+                "CREATE TABLE tbl_2_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_j VALUES('jiao''yu','jy','教育',1000),('jian''yu','jy','监狱',{weight});"
+            ));
+            let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+            type_digits(&mut session, "542698");
+            assert_eq!(words(&session)[..2], ["教育", "监狱"]);
+            assert_eq!(
+                contest_seats(&session, runner_up),
+                marked,
+                "weight {weight}"
+            );
+        }
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_t VALUES('ta','t','他',1000),('ta','t','她',600);",
+        );
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "82");
+        assert_eq!(words(&session)[..2], ["他", "她"]);
+        assert_eq!(contest_seats(&session, runner_up), [0, 1]);
+    }
+
+    /// 用户手动置顶的首行不标任何裁决：置顶靠调频领先（没有最近选择时）、置顶接管自动记下的第 1 槽、固定到第 1 位、置顶已经坐在第 1 槽的最近选择，四种都算。自动记下的最近选择照旧标，见 `a_recent_pin_and_the_dictionary_leader_are_marked_as_a_contest`。三种置顶都把权重抬到最高：之后选了别的词、它被挤下第 1 槽时排在第 2；固定到第 1 位不改权重，挤下去后回到词典原位。
+    #[test]
+    fn a_manual_pin_is_never_marked_as_a_contest() {
+        const FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);";
+        let marked = |session: &NineKeySession| -> Vec<usize> {
+            [
+                crate::ordering::CONTEST_RECENCY,
+                crate::ordering::CONTEST_RUNNER_UP,
+            ]
+            .into_iter()
+            .flat_map(|kind| contest_seats(session, kind))
+            .collect()
+        };
+        type Manage = fn(&mut NineKeySession) -> KeyResult;
+        let cases: [(&str, Manage, usize); 4] = [
+            (
+                "pin by weight",
+                |session| session.pin(index_of(session, "能")),
+                1,
+            ),
+            (
+                "pin over a recent pick",
+                |session| {
+                    assert!(session.select(index_of(session, "嫩")).commit.is_some());
+                    type_digits(session, "6364");
+                    assert_eq!(words(session)[0], "嫩");
+                    session.pin(index_of(session, "能"))
+                },
+                1,
+            ),
+            (
+                "fix at 1",
+                |session| session.set_position(index_of(session, "能"), 1),
+                2,
+            ),
+            (
+                "pin the recent pick",
+                |session| {
+                    assert!(session.select(index_of(session, "能")).commit.is_some());
+                    type_digits(session, "6364");
+                    assert_eq!(words(session)[0], "能");
+                    assert_eq!(
+                        contest_seats(session, crate::ordering::CONTEST_RECENCY),
+                        [0, 1]
+                    );
+                    session.pin(0)
+                },
+                1,
+            ),
+        ];
+        for (case, manage, after_another_pick) in cases {
+            let fixture = fixture_with(FIXTURE);
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut session, "6364");
+            assert_eq!(words(&session)[..2], ["恁", "嫩"], "{case}");
+            assert_eq!(marked(&session), [0, 1], "{case}: runner-up before");
+            assert_eq!(manage(&mut session), KeyResult::handled(), "{case}");
+            assert_eq!(words(&session)[0], "能", "{case}");
+            assert!(marked(&session).is_empty(), "{case}");
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "能", "{case}");
+            assert!(marked(&repeated).is_empty(), "{case}: after reopening");
+
+            assert!(repeated.select(index_of(&repeated, "嫩")).commit.is_some());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "嫩", "{case}");
+            assert_eq!(index_of(&repeated, "能"), after_another_pick, "{case}");
+        }
+    }
+
+    /// 取消固定或者把手动固定在第 1 位的词挪到别的槽位，就解除了它的手动置顶：以后它再被自动记成最近选择时，照旧交给模型裁决。固定在别的槽位的词选了也不会记成最近选择，所以挪到第 2 位之后先让别的词占掉第 2 位、再取消那个词的固定，它才重新是普通的行。
+    #[test]
+    fn unfixing_a_manual_pin_lets_its_recent_pick_be_contested() {
+        for position in [0, 2] {
+            let fixture = fixture_with(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+            );
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut session, "6364");
+            assert_eq!(
+                session.set_position(index_of(&session, "能"), 1),
+                KeyResult::handled()
+            );
+            assert_eq!(
+                session.set_position(index_of(&session, "能"), position),
+                KeyResult::handled(),
+                "{position}"
+            );
+            if position == 2 {
+                for slot in [2, 0] {
+                    assert_eq!(
+                        session.set_position(index_of(&session, "嫩"), slot),
+                        KeyResult::handled()
+                    );
+                }
+                assert_eq!(
+                    session.snapshot().candidates[index_of(&session, "能")].fixed_position,
+                    0
+                );
+            }
+            assert!(session.select(index_of(&session, "能")).commit.is_some());
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_digits(&mut repeated, "6364");
+            assert_eq!(words(&repeated)[0], "能", "{position}");
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+            assert_eq!(
+                contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+                [0, 1],
+                "{position}"
+            );
+        }
+    }
+
+    /// 靠调频坐上首位的置顶不分锁定读法：不锁定时置顶、锁定读法后再看，或者锁定读法时置顶、不锁定再看，首行都不交给「前两名」裁决。
+    #[test]
+    fn a_weight_pin_stays_uncontested_under_another_lock() {
+        for pin_locked in [false, true] {
+            let fixture = fixture_with(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+            );
+            let type_neng = |session: &mut NineKeySession, locked: bool| {
+                type_digits(session, "6364");
+                if locked {
+                    assert!(
+                        session
+                            .choose_spelling(spelling_index(session, "neng"))
+                            .handled
+                    );
+                    assert_eq!(session.snapshot().preedit, "neng");
+                }
+            };
+            let runner_up = crate::ordering::CONTEST_RUNNER_UP;
+            for locked in [false, true] {
+                let mut fresh = open(&fixture.paths, true, EnglishInputOptions::default());
+                type_neng(&mut fresh, locked);
+                assert_eq!(words(&fresh)[..2], ["恁", "嫩"], "{locked}");
+                assert_eq!(contest_seats(&fresh, runner_up), [0, 1], "{locked}");
+            }
+            let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_neng(&mut session, pin_locked);
+            assert_eq!(session.pin(index_of(&session, "能")), KeyResult::handled());
+
+            let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+            type_neng(&mut repeated, !pin_locked);
+            assert_eq!(words(&repeated)[0], "能", "pinned locked: {pin_locked}");
+            assert_eq!(repeated.snapshot().candidates[0].fixed_position, 0);
+            assert!(
+                contest_seats(&repeated, runner_up).is_empty(),
+                "pinned locked: {pin_locked}"
+            );
+        }
+    }
+
+    /// 手动置顶记的是那一个词：之后选了别的词，自动记下的最近选择接管第 1 槽，它照旧交给模型裁决。
+    #[test]
+    fn a_recent_pick_after_a_manual_pin_is_still_contested() {
+        let fixture = fixture_with(
+            "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_n VALUES('neng','n','能',1),('neng','n','恁',100),('neng','n','嫩',90);",
+        );
+        let mut session = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut session, "6364");
+        assert_eq!(
+            session.set_position(index_of(&session, "能"), 1),
+            KeyResult::handled()
+        );
+        assert!(session.select(index_of(&session, "嫩")).commit.is_some());
+
+        let mut repeated = open(&fixture.paths, true, EnglishInputOptions::default());
+        type_digits(&mut repeated, "6364");
+        assert_eq!(words(&repeated)[0], "嫩");
+        assert_eq!(repeated.snapshot().candidates[0].fixed_position, 1);
+        assert_eq!(
+            contest_seats(&repeated, crate::ordering::CONTEST_RECENCY),
+            [0, 1]
+        );
     }
 
     const SPELLING_RECENT_FIXTURE: &str =

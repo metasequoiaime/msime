@@ -67,6 +67,7 @@
 #include "PluginEditorModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
+#include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
@@ -502,6 +503,30 @@ std::wstring local_date_time(uint64_t milliseconds) {
   return std::wstring(date) + L" " + time;
 }
 
+// 词库同步概况里「额度用完，将于某时继续自动同步」那一句：把 Unix 毫秒换成本机时区的年月日时分交给 ds::budget_wait_text；没在等、已经过了或时间读不出来时为空。
+std::wstring dictionary_sync_budget_wait(uint64_t until_ms) {
+  constexpr uint64_t unix_epoch = 116444736000000000ULL;
+  const auto local_minute = [](uint64_t milliseconds) -> std::optional<ds::LocalMinute> {
+    if (milliseconds > 900000000000000ULL)
+      return std::nullopt;
+    ULARGE_INTEGER ticks{};
+    ticks.QuadPart = milliseconds * 10000ULL + unix_epoch;
+    const FILETIME utc{ticks.LowPart, ticks.HighPart};
+    SYSTEMTIME universal{}, local{};
+    if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &local))
+      return std::nullopt;
+    return ds::LocalMinute{local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute};
+  };
+  if (!until_ms)
+    return {};
+  const auto now = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count());
+  const auto until = local_minute(until_ms);
+  const auto today = local_minute(now);
+  return until && today ? ds::budget_wait_text(until_ms, now, *until, *today) : std::wstring();
+}
+
 // An entry's text on one line, as the shared row shows it (`white-space: nowrap`): every run of white space, line breaks included, becomes one space.
 std::wstring single_line(std::wstring const &value) {
   std::wstring line;
@@ -718,7 +743,8 @@ public:
     }
   }
 
-  bool Save(std::wstring &error) {
+  // 成功时返回空。失败时文档保持调用前的样子（包括没存下的修改），返回失败属于哪一类（见 PreferencesSaveFailure.h），由调用方决定重读还是保留修改稍后重试。
+  std::optional<msime::settings::PreferencesSaveFailure> Save() {
     const auto directory = state_directory();
     const auto path = path_utf8(directory);
     document_.SetNamedValue(L"preferences", preferences_);
@@ -727,18 +753,22 @@ public:
         reinterpret_cast<const uint8_t *>(path.data()), path.size(), revision_,
         reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size()));
     if (!response.ok) {
-      error = L"保存失败：设置可能已在其他窗口中更新，请重新读取后再保存。";
-      return false;
+      std::string error;
+      try {
+        error = utf8(JsonObject::Parse(text(response.text)).GetNamedString(L"error", L""));
+      } catch (...) {
+      }
+      return msime::settings::classify_preferences_save_failure(error);
     }
     try {
       document_ =
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
-      return true;
+      return std::nullopt;
     } catch (...) {
-      error = L"设置已写入，但返回内容无法读取。";
-      return false;
+      // 设置已写入，但返回内容读不了：调用方重读已存的设置。
+      return msime::settings::PreferencesSaveFailure::rejected;
     }
   }
 
@@ -3472,6 +3502,9 @@ struct MainWindow : WindowT<MainWindow> {
       closed_ = true;
       if (dictionary_update_timer_) dictionary_update_timer_.Stop();
       flush_pending();
+      // 写盘失败后保留着的修改在关闭前最后再存一次；仍失败就只能留在磁盘上的旧值。
+      retry_unsaved_edit();
+      if (save_retry_timer_) save_retry_timer_.Stop();
       // 本地模型的下载随窗口一起停下，下次安装时清掉没装完的临时文件。
       take_response(msime_client_voice_local_model_cancel(nullptr, 0));
       // 等待中的 Google 登录也随窗口结束，回环端口不再等一个没人看的浏览器。
@@ -3507,11 +3540,13 @@ private:
     std::wstring error;
     if (fresh.Load(error)) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
       load_error_.clear();
     } else if (!loaded_) {
       document_ = std::move(fresh);
+      discard_unsaved_edit();
       load_error_ = error;
     }
   }
@@ -3677,17 +3712,26 @@ private:
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
       flush_pending();
+      retry_unsaved_edit();
       return;
     }
     // 与共享页一样，窗口获得焦点时重读打字统计并按日节流检查词库。
     poll_statistics();
     dictionary_update_request(L"automatic");
+    reread_dictionary_sync_status();
     // Another window (the tray, the shared app, another device through sync) may have changed the settings or Windows may have switched between light and dark while this window was in the background.
     bool changed = false;
     PreferencesDocument fresh;
     std::wstring error;
     if (fresh.Load(error) &&
         (!loaded_ || fresh.revision() != document_.revision())) {
+      // 写盘失败后保留着的修改还没存下，别处却已经存了新的修订号：与保存时遇到的冲突一样，以别处的设置为准并说明。
+      if (pending_save_failures_ > 0) {
+        discard_unsaved_edit();
+        notice_ = msime::settings::preferences_reload_failure_message(
+            msime::settings::PreferencesSaveFailure::conflict);
+        notice_severity_ = InfoBarSeverity::Error;
+      }
       document_ = std::move(fresh);
       synchronize_cloud_clipboard_configuration();
       loaded_ = true;
@@ -3767,15 +3811,20 @@ private:
 
   // ---- Saving ----
 
-  // Every control writes through at once. A refused write (a newer revision elsewhere, or a combination the store rejects) reloads the stored settings and says so.
+  // 每个控件改动后立即保存，返回是否已经存下。被拒绝的保存（别处先存了新修订号，或这组设置不被接受）重读已存的设置并在页首说明。写盘失败（设置文件被别的程序占用等）不重读：修改留在文档里、页面照它显示，按 PreferencesSaveFailure.h 的间隔自动重试，见 keep_unsaved_edit。
   bool commit() {
-    std::wstring error;
-    if (document_.Save(error)) {
+    const auto failure = document_.Save();
+    if (!failure) {
       synchronize_cloud_clipboard_configuration();
+      settle_unsaved_edit();
       return true;
     }
-    notice_ = L"无法保存这项设置：设置可能已在其他窗口中更新，或与其他设置冲突。"
-              L"已重新读取当前设置。";
+    if (*failure == msime::settings::PreferencesSaveFailure::storage) {
+      keep_unsaved_edit();
+      return false;
+    }
+    discard_unsaved_edit();
+    notice_ = msime::settings::preferences_reload_failure_message(*failure);
     notice_severity_ = InfoBarSeverity::Error;
     // The refused edit is still in memory; the stored settings replace it, and if they cannot be read the controls are disabled rather than showing a value that was never saved.
     PreferencesDocument fresh;
@@ -3789,11 +3838,57 @@ private:
     return false;
   }
 
+  // 写盘失败后保留修改：文档不动，说明还会自动重试，并排好下一次。自动重试用完后不再排，pending_save_failures_ 仍大于零，切到别的窗口、关闭窗口或下一次修改时再存。
+  void keep_unsaved_edit() {
+    ++pending_save_failures_;
+    if (closed_)
+      return;
+    const auto delay = msime::settings::preferences_save_retry_delay(pending_save_failures_);
+    auto message = msime::settings::preferences_storage_failure_message(delay.has_value());
+    // 同一句说明已经显示着时不重画整页，免得每次重试都打断正在操作的控件。
+    if (message != notice_)
+      show_notice(std::move(message), delay ? InfoBarSeverity::Warning : InfoBarSeverity::Error);
+    if (!delay)
+      return;
+    if (!save_retry_timer_) {
+      save_retry_timer_ = DispatcherQueue().CreateTimer();
+      save_retry_timer_.IsRepeating(false);
+      save_retry_timer_.Tick([this](Microsoft::UI::Dispatching::DispatcherQueueTimer const &,
+                                    Inspectable const &) { retry_unsaved_edit(); });
+    }
+    save_retry_timer_.Stop();
+    save_retry_timer_.Interval(*delay);
+    save_retry_timer_.Start();
+  }
+
+  // 有写盘失败后保留着的修改时再存一次。
+  void retry_unsaved_edit() {
+    if (pending_save_failures_ > 0)
+      commit();
+  }
+
+  // 保存成功：之前保留着的修改也一并存下了，换掉写盘失败的说明。
+  void settle_unsaved_edit() {
+    if (pending_save_failures_ == 0)
+      return;
+    discard_unsaved_edit();
+    show_notice(std::wstring(msime::settings::preferences_saved_after_retry_message),
+                InfoBarSeverity::Success);
+  }
+
+  // 文档被已存的设置换掉（重读、别处改过）时，保留着的修改随之作废，不再重试。
+  void discard_unsaved_edit() {
+    pending_save_failures_ = 0;
+    if (save_retry_timer_)
+      save_retry_timer_.Stop();
+  }
+
   void change(std::function<void(PreferencesDocument &)> const &edit,
               bool redraw) {
     flush_pending();
     edit(document_);
-    if (commit()) {
+    // 写盘失败时修改仍留在文档里，预览照样跟着它走。
+    if (commit() || pending_save_failures_ > 0) {
       forget_stale_card_previews();
       update_preview();
       update_toolbar_preview();
@@ -13951,7 +14046,8 @@ private:
       if (commit()) {
         cloud_provider_draft_.reset();
         queue_refresh();
-      } else
+      } else if (pending_save_failures_ == 0)
+        // 写盘失败时配置本身没问题，页首已经说明会自动重试，不改成检查配置的提示。
         show_notice(L"保存失败，请检查地址、请求头 JSON、请求体模板、响应路径和超时。");
     }, loaded_);
     A11y::SetAutomationId(save, L"cloud-candidate-save");
@@ -14385,6 +14481,7 @@ private:
     fold_index_.clear();
 
     build_fuzzy_group(page);
+    build_autocorrect_group(page);
     build_helpcode_group(page);
 
     // 与共享页的 FrequencySection 相同，只按条件显示，不改存着的值（这几项会上云）：学习选词习惯关闭时整组不画；调频方式为「关闭」时不画触发频次；步长只有线性调频读。
@@ -15174,6 +15271,25 @@ private:
       doc.SetBoolean(L"fuzzy_pinyin.enabled", false);
       doc.SetStrings(L"fuzzy_pinyin.rules", std::vector<std::wstring>{});
     }, true);
+  }
+
+  // 「全拼纠错」/「双拼纠错」组，照共享页 input-page.tsx 高级选项里模糊音之后的那一组：只在当前方案是全拼或双拼时画，标题和说明按当前方案写，文案与共享页逐字相同。全拼和双拼都读 quanpin 下的 autocorrect_neighbor、autocorrect_transposition（字段名带 quanpin 是历史原因，见 shuangpin::engine::request_autocorrect_types），默认都开。全拼两个都关掉时漏打、多打字母的纠错也一起关闭（request_autocorrect_mask），双拼没有这一类纠错，所以只有全拼的说明写这一句。五笔的混输拼音和 z 键拼音反查也带着这两个字段，但与共享页一样不为它们单列，其他方案不纠错，不画。
+  void build_autocorrect_group(StackPanel const &page) {
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+    if ((scheme != L"quanpin" && scheme != L"shuangpin") || !edition_offers_scheme(scheme))
+      return;
+    const bool shuangpin = scheme == L"shuangpin";
+    auto group = add_group(page, shuangpin ? L"双拼纠错" : L"全拼纠错");
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼邻键纠错" : L"全拼邻键纠错",
+             shuangpin
+                 ? L"把按偏到相邻键的双拼编码纠回来，只用于三个音节以上的整句，纠错整句排在词条和整句后面。关闭后不再按邻键猜测编码。"
+                 : L"把按偏到相邻键的字母纠回来，例如 shabg → shang、zhr → zhe。全是辅音的输入（qjn、zhr）先列简拼词，纠错候选排在后面。关闭后不再按邻键猜测拼写。",
+             L"quanpin.autocorrect_neighbor", true);
+    bool_row(group, 0xE8D2, shuangpin ? L"双拼乱序纠错" : L"全拼乱序纠错",
+             shuangpin
+                 ? L"把两键编码前后颠倒的音节纠回来，同样只用于三个音节以上的整句。关闭后不再按乱序猜测编码。"
+                 : L"把前后颠倒的两个字母纠回来，例如 hsang → shang、gau → gua。关闭后不再按乱序猜测拼写。两个开关都关闭时，漏打、多打字母的纠错（shng → shang）也一起关闭。",
+             L"quanpin.autocorrect_transposition", true);
   }
 
   // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
@@ -16997,7 +17113,7 @@ private:
 
   // ---- 词库同步 ----
 
-  // 共享页的「词库同步」（packages/ui/src/settings/dictionary-sync.ts 和 use-dictionary-sync.ts）在 Windows 上画在词库页「云端词库」标签里、云词库那一组下面：「我的词条」经用户自己的 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）。网盘配置照「剪贴板」页云剪贴板的 WebDAV 那一套：地址、账号和应用密码先进草稿，应用密码遮罩、不回填已存的那个（留空沿用），「测试连接」只测不存，「保存」先测、通过才写偏好 dictionary_sync_webdav，不通过时草稿留着；规则由共享 Rust 偏好库和测试连接判断。存着网盘时，每次进入词库页以 opened 同步一次并取设备，之后按「立即同步」（manual）、设备的允许、拒绝、移除和重置再调；自动的 periodic 和候选窗口删词后的 local_change 由 Server 做（src/system/DictionarySyncWorker.h），本窗口改了词以后的 local_change 在 settings_dictionary_call 里。所有调用都在工作线程上（dictionary_sync_call），同一时间只有一件；配置换过之后回来的结果丢掉。展示规则和文字在 DictionarySyncModel.h。
+  // 共享页的「词库同步」（packages/ui/src/settings/dictionary-sync.ts 和 use-dictionary-sync.ts）在 Windows 上画在词库页「云端词库」标签里、云词库那一组下面：「我的词条」经用户自己的 WebDAV 网盘同步（docs/dictionary-webdav-sync.md）。网盘配置照「剪贴板」页云剪贴板的 WebDAV 那一套：地址、账号和应用密码先进草稿，应用密码遮罩、不回填已存的那个（留空沿用），「测试连接」只测不存，「保存」先测、通过才写偏好 dictionary_sync_webdav，不通过时草稿留着；规则由共享 Rust 偏好库和测试连接判断。存着网盘时，每次进入词库页以 opened 同步一次并取设备，之后按「立即同步」（manual）、设备的允许、拒绝、移除和重置再调；自动的 periodic 和候选窗口删词后的 local_change 由 Server 做（src/system/DictionarySyncWorker.h），本窗口改了词以后的 local_change 在 settings_dictionary_call 里；窗口重新获得焦点时重读一次不联网的 status，跟上 Server 在后台做的同步。所有调用都在工作线程上（dictionary_sync_call），同一时间只有一件（焦点回来时那次 status 不占这一件，Rust 读同步状态不必等锁）；配置换过之后回来的结果丢掉。展示规则和文字在 DictionarySyncModel.h。
 
   struct DictionarySyncConfiguration {
     std::wstring url;
@@ -17122,6 +17238,7 @@ private:
     status.clock_skew = named_flag(object, L"clock_skew");
     status.last_success_ms = named_size(object, L"last_success_ms");
     status.last_error = named_string(object, L"last_error");
+    status.budget_wait_until = named_size(object, L"budget_wait_until");
     return status;
   }
 
@@ -17207,6 +17324,7 @@ private:
       redraw_dictionary_sync();
       return;
     }
+    dsync_status_reads_.invalidate();
     dsync_busy_ = true;
     dsync_notice_.clear();
     const auto generation = dsync_generation_;
@@ -17240,6 +17358,34 @@ private:
       if (outcome.status)
         apply_dictionary_sync_status(*outcome.status);
     });
+  }
+
+  // 窗口重新获得焦点、「云端词库」标签开着时重读一次不联网的概况，与共享页相同：periodic 和候选窗口删词后的 local_change 由 Server 在后台做，结果不经本窗口，不重读的话「待发送」「上次同步」要离开词库页再进来才变。有操作在跑时不读，它的回答会带回概况；读到的与画着的相同时不重画，画也等按下的指针松开，免得激活窗口的那一下点击落在重建的控件上。错误和结果说明不动，它们记的是本窗口最近一次操作。
+  void reread_dictionary_sync_status() {
+    if (closed_ || dsync_busy_ || !dsync_checked_ || !dictionary_sync_saved() || current_page_ != "lexicon" ||
+        vocabulary_view_ || page_tab("lexicon") != L"cloud")
+      return;
+    const auto options = runtime_options_document();
+    if (!options)
+      return;
+    const auto generation = dsync_generation_;
+    const auto sequence = dsync_status_reads_.begin_read();
+    run_worker<Response>([options] { return dictionary_sync_call(options, R"({"operation":"status"})"); },
+                         [this, generation, sequence](Response &response) {
+                           if (generation != dsync_generation_ || dsync_busy_ || !dsync_status_reads_.accepts(sequence))
+                             return;
+                           const auto value = dictionary_sync_value(response);
+                           if (!value)
+                             return;
+                           auto status = dictionary_sync_status(*value);
+                           if (!status || (dsync_status_ && *status == *dsync_status_))
+                             return;
+                           dsync_status_ = std::move(*status);
+                           if (pointer_down_)
+                             defer_refresh_until_pointer_up();
+                           else
+                             redraw_dictionary_sync();
+                         });
   }
 
   // 一次 run 的回答（不是 remove、reset 那种带 devices 的）。
@@ -17590,7 +17736,7 @@ private:
     }
   }
 
-  // 同步状态：本设备是否获准、核对码、词条和待处理的数量、上次同步的时间和错误，「立即同步」和它的结果，被挡下的大批删除，以及很少用到的重置密钥和重新开始。
+  // 同步状态：本设备是否获准、核对码、词条和待处理的数量、上次同步的时间、自动同步在等额度时什么时候继续和错误，「立即同步」和它的结果，被挡下的大批删除，以及很少用到的重置密钥和重新开始。
   void build_dictionary_sync_status(StackPanel const &page) {
     auto group = add_group(page, L"词库同步状态");
     const bool busy = dsync_busy_;
@@ -17600,6 +17746,8 @@ private:
       if (dsync_status_->last_success_ms)
         if (const auto when = local_date_time(dsync_status_->last_success_ms); !when.empty())
           summary += L"\n上次同步：" + when;
+      if (const auto wait = dictionary_sync_budget_wait(dsync_status_->budget_wait_until); !wait.empty())
+        summary += L"\n" + wait;
       if (!dsync_status_->last_error.empty() && dsync_error_.empty())
         summary += L"\n上次出错：" + ds::error_message(dsync_status_->last_error);
       if (dsync_status_->clock_skew)
@@ -18647,6 +18795,7 @@ private:
     stats_error_.clear();
     stats_busy_ = true;
     stats_request_ = 0;
+    stats_write_request_ = 0;
     stats_last_request_ = {};
     stats_day_.reset();
     stats_selected_.reset();
@@ -18737,7 +18886,7 @@ private:
       stats_upload_busy_ = false;
       if (auto status = typing_upload_status(response)) {
         stats_upload_ = status;
-        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled));
+        stats_upload_message_ = std::wstring(typing::upload_done_message(enabled, *status));
       } else {
         stats_upload_message_ = typing::upload_error_message(account_failure(response), enabled);
         read_typing_upload();
@@ -18782,6 +18931,7 @@ private:
     const auto generation = stats_generation_;
     const auto request = ++stats_request_counter_;
     stats_request_ = request;
+    stats_write_request_ = overview ? 0 : request;
     stats_busy_ = true;
     stats_error_.clear();
     stats_request_started_ = std::chrono::steady_clock::now();
@@ -18791,6 +18941,7 @@ private:
       if (generation != stats_generation_ || stats_request_ != request)
         return;
       stats_request_ = 0;
+      stats_write_request_ = 0;
       stats_busy_ = false;
       if (status)
         stats_ = *status;
@@ -18808,7 +18959,7 @@ private:
     return false;
   }
 
-  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、上一次请求在途且不到 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
+  // 共享页的 refreshWhenVisible：进入页面、窗口重新激活时和每 5 秒读一次；窗口最小化、写操作未完成、读取在途且不超过 15 秒，或离上一次不到 1 秒时跳过。读到的与上次相同就不重画。
   void poll_statistics() {
     if (closed_ || current_page_ != "stats" || window_minimized())
       return;
@@ -18820,7 +18971,9 @@ private:
         redraw_stats();
     }
     const auto now = std::chrono::steady_clock::now();
-    if ((stats_request_ != 0 && now - stats_request_started_ <= std::chrono::seconds(15)) ||
+    if ((stats_request_ != 0 &&
+         (stats_write_request_ == stats_request_ ||
+          now - stats_request_started_ <= std::chrono::seconds(15))) ||
         now - stats_last_request_ < std::chrono::seconds(1))
       return;
     stats_last_request_ = now;
@@ -26792,6 +26945,8 @@ private:
   bool refresh_queued_ = false;
   bool closed_ = false;
   bool pending_save_ = false;
+  // 写盘连续失败的次数；大于零时文档里有没存下的修改，见 keep_unsaved_edit。
+  std::size_t pending_save_failures_ = 0;
   bool preview_visible_ = true;
   std::wstring preview_sample_;
   std::optional<bool> preview_dark_;
@@ -27102,6 +27257,7 @@ private:
   bool dsync_busy_ = false;
   bool dsync_checked_ = false;
   uint64_t dsync_generation_ = 0;
+  ds::StatusReadOrder dsync_status_reads_;
 
   // 「打字统计」页：读到的状态、出错说明、选中的日子和标签，跨页面重建保留，每次进入页面时重置（共享页的组件状态）。stats_generation_ 在进入页面时递增，作废上一次留下的请求；stats_request_ 是在途请求的序号，0 表示没有；两个时间点是共享页轮询用的 requestStartedAt 和 lastRequestAt。
   std::optional<StatisticsStatus> stats_;
@@ -27115,6 +27271,7 @@ private:
   double stats_details_offset_ = 0;
   uint64_t stats_generation_ = 0;
   uint64_t stats_request_ = 0;
+  uint64_t stats_write_request_ = 0;
   uint64_t stats_request_counter_ = 0;
   std::chrono::steady_clock::time_point stats_request_started_{};
   std::chrono::steady_clock::time_point stats_last_request_{};
@@ -27273,6 +27430,7 @@ private:
   TextBlock dictionary_update_note_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer dictionary_update_timer_{nullptr};
   Microsoft::UI::Dispatching::DispatcherQueueTimer save_timer_{nullptr};
+  Microsoft::UI::Dispatching::DispatcherQueueTimer save_retry_timer_{nullptr};
   // A redraw held back until the click that activated the window has been delivered.
   bool pointer_down_ = false;
   bool refresh_after_pointer_ = false;

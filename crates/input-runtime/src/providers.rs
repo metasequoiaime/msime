@@ -646,7 +646,9 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        msime_engine::host::handwriting_order_candidates(&reply.candidates).ok()
+        Some(msime_engine::order_handwriting_candidates(
+            &reply.candidates,
+        ))
     }
 
     /// Search the user-owned emoji catalog. Results stay outside the IBus

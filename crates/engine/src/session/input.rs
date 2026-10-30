@@ -31,6 +31,7 @@ use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
 use crate::time::Instant;
+use crate::touch::KeyTouch;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
     FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
@@ -44,7 +45,7 @@ use crate::zhuyin;
 use crate::zhuyin::scheme::ZhuyinKey;
 
 /// The weight an English word typed out and committed raw enters `msime-english.db` with (user_dictionary_journal.h:137).
-const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
+pub(super) const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
 
 /// A phrase being composed from consecutive partial selections.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -138,6 +139,8 @@ pub(super) struct InputSession {
     pub conversion: Option<ConversionEdit>,
     /// 「📅日期」页：选中混输里的入口后，候选窗换成这一组的全部格式（`EnterDateTimeCandidatePage`）。组字和 `mixed_candidates` 原样留着，任何非选词键把 `candidates()` 视图还回去。
     pub date_time_menu_page: Option<Vec<WordItem>>,
+    /// 触屏宿主为下一次 `character` 送来的按下点（`Session::set_key_touch`），只在 `dispatch_character` 把这一键交给方案之前用掉；其余路径一律丢掉。
+    pub pending_touch: Option<KeyTouch>,
 }
 
 impl InputSession {
@@ -250,6 +253,7 @@ impl InputSession {
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
             conversion: None,
+            pending_touch: None,
             journal_path: journal,
             paths,
         };
@@ -332,9 +336,15 @@ impl InputSession {
         // 任何实际字符输入都会使“退格撤销最近引号”失效；否则引号后输入一段拼音再退格，可能误撤销更早的引号。
         self.punctuation.clear_quote_undo();
         self.exit_date_time_menu();
-        let result = self
-            .helpcode_character(value)
-            .unwrap_or_else(|| self.dispatch_character(value, shift_only));
+        // 辅助码前导键接走的按键不是音节里的键，触点作废。
+        let touch = self.pending_touch.take();
+        let result = match self.helpcode_character(value) {
+            Some(result) => result,
+            None => {
+                self.pending_touch = touch;
+                self.dispatch_character(value, shift_only)
+            }
+        };
         // #7616：交还给宿主的大写字母让这一串开了头，直到下一枚不是大写字母的键为止。
         self.uppercase_passthrough = value.is_ascii_uppercase() && !result.handled;
         result
@@ -346,6 +356,8 @@ impl InputSession {
     }
 
     pub(super) fn dispatch_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        // 触点只交给下面写进 26 键组字的那一次 `handle_key`；在那之前返回的路径（改字、光标处插入、本地模式、网址）都用不到它。
+        let touch = self.pending_touch.take();
         // 改字时能写进组字的键先退出改字再照常键入；数字和空格等留给候选选择，宿主或 runtime 再按选择处理。
         if self.conversion.is_some() {
             if !(value.is_ascii_alphabetic() || value == b'\'' || value == b';') {
@@ -468,6 +480,12 @@ impl InputSession {
             // Only a key the scheme claims gets past the filter above; none of the current schemes claims one here.
             SchemeKey::Symbol(value)
         };
+        // 必须在 `handle_key` 之前交出：它会同步刷新候选。只有双拼方案收，大写字母（辅助码）和标记不带触点。
+        if matches!(key, SchemeKey::Letter(letter) if letter.is_ascii_lowercase())
+            || key == SchemeKey::Semicolon
+        {
+            self.engine.set_pending_touch(touch);
+        }
         let changed = self.engine.handle_key(key);
         self.update_mixed_candidates();
         // A key the scheme ignores (a fifth wubi letter, a second apostrophe) leaves the preedit alone and goes back to the host.
@@ -590,12 +608,8 @@ impl InputSession {
             LocalInputMode::None => return KeyResult::unhandled(),
         };
         if !accepted {
-            // 空入口还没有模式内容，拒绝的第二枚大写留在同一组字，避免把 UV 拆开上屏。
-            if value.is_ascii_uppercase()
-                && self.local_preedit.len() == 1
-                && self.local_preedit.as_bytes()[0].is_ascii_uppercase()
-                && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
-            {
+            // 大写字母入口后只有字母时，模式不收的字母说明用户在打英文（UV、Ui、TextBlock），整串连同这个键留在同一组字，不提前上屏。含数字、符号的模式内容、符号入口和长度上限仍走下面的提交并透传。
+            if self.rejected_letter_continues_composition(value) {
                 let mut raw = self.local_preedit.clone();
                 raw.push(value as char);
                 self.reset_composition();
@@ -611,6 +625,16 @@ impl InputSession {
         self.invalidate_online_requests();
         self.local_preedit.push(value as char);
         KeyResult::handled().with_diagnostic(self.update_local_candidates())
+    }
+
+    /// 本地模式拒绝 `value` 时，是否把模式原文连同它转回普通组字：全拼、双拼，模式由 Shift 大写字母进入，预编辑只有 ASCII 字母且没到长度上限，被拒的键也是字母。
+    fn rejected_letter_continues_composition(&self, value: u8) -> bool {
+        let preedit = self.local_preedit.as_bytes();
+        value.is_ascii_alphabetic()
+            && matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
+            && preedit.first().is_some_and(u8::is_ascii_uppercase)
+            && preedit.iter().all(u8::is_ascii_alphabetic)
+            && preedit.len() < GENERATED_MODE_INPUT_LIMIT
     }
 
     /// Korean keys: every letter is a jamo and always handled, carrying the syllables it finished as a commit; a letter typed into an open Hanja list closes it and keeps composing. Any other key leaves the scheme alone. Punctuation stays unhandled without touching the composition, because the punctuation route commits the open syllable ahead of the mark; a digit 1-9 with the Hanja list open stays unhandled with nothing committed, so the runtime's page selection picks the Hanja; any other digit, a space or another symbol commits the open syllable and stays unhandled, so the host inserts the key after the commit.
@@ -905,7 +929,8 @@ impl InputSession {
             Command::ConvertHanja => ZhuyinKey::OpenList,
             Command::Cancel => ZhuyinKey::Escape,
             Command::Backspace => ZhuyinKey::Backspace,
-            Command::CommitRaw => ZhuyinKey::Enter,
+            // `CommitRawWithoutLearning` 到不了组字（`Session::command` 已经换掉），与 `CommitRaw` 同列只为穷尽。
+            Command::CommitRaw | Command::CommitRawWithoutLearning => ZhuyinKey::Enter,
             Command::CommitCandidate if self.engine.zhuyin_list_open() => {
                 return Some(self.select_candidate(0));
             }
@@ -1054,7 +1079,8 @@ impl InputSession {
             }
             Command::Backspace => self.backspace(),
             Command::CommitCandidate => self.commit(0),
-            Command::CommitRaw => self.commit_raw(),
+            // `CommitRawWithoutLearning` 到不了组字（`Session::command` 已经换掉），与 `CommitRaw` 同列只为穷尽。
+            Command::CommitRaw | Command::CommitRawWithoutLearning => self.commit_raw(),
             Command::CommitReading => {
                 // Only Japanese has a reading to commit; the other schemes' normalized segmentation is pinyin, not text.
                 if self.scheme() != SchemeType::JapaneseRomaji {
@@ -1791,6 +1817,12 @@ impl InputSession {
         &self.journal_path
     }
 
+    /// 回车能不能学英文词。不要求 `msime-english.db` 的方案集合（[`crate::SchemeSet::requires_english_dictionary`]）在资源目录没带它时准备出的代次里没有它：这时英文行查不到，回车也不学词，免得学词时的建表把一个空库建进代次里（下一个代次不会有它，学到的词只剩日志里那一行）。要求它的集合照旧：准备代次保证它在，没经过准备的目录里缺了它就由学词时建出来。
+    pub(super) fn can_learn_english_words(&self) -> bool {
+        self.engine.enabled_schemes().requires_english_dictionary()
+            || self.paths.dictionary(assets::ENGLISH_DICTIONARY).is_file()
+    }
+
     /// The live scheme, which is Japanese during temporary Japanese.
     pub(super) fn is_wubi(&self) -> bool {
         self.engine.current_scheme_type() == SchemeType::Wubi
@@ -2035,7 +2067,7 @@ impl InputSession {
 
     fn set_local_mode_options(&mut self, options: LocalModeOptions) {
         self.local_mode_options = options;
-        // Unit conversion loads rink's definitions once per process; doing it now, off this thread, keeps that load off the first key that needs it.
+        // Unit conversion builds its rink context from the definitions in local/units.rs once per process; doing it now, off this thread, keeps that load off the first key that needs it.
         if options.expression {
             crate::local::units::warm_up_in_background();
         }
@@ -2331,6 +2363,7 @@ impl InputSession {
         let mut diagnostic = None;
         if self.learn_english_on_enter
             && self.dedicated_english
+            && self.can_learn_english_words()
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
                 self.journal_path(),
@@ -2369,7 +2402,7 @@ impl InputSession {
     }
 }
 
-fn frequency_options_valid(options: FrequencyAdjustmentOptions) -> bool {
+pub(super) fn frequency_options_valid(options: FrequencyAdjustmentOptions) -> bool {
     (1..=10).contains(&options.trigger_count) && (1..=10).contains(&options.linear_step)
 }
 

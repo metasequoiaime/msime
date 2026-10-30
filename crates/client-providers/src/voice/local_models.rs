@@ -531,7 +531,7 @@ impl Fetcher for LocalFileFetcher {
 }
 
 /// 一个用户所选文件的小写十六进制 SHA-256，每块之间看一次取消。打不开或读出错报 [`LocalModelError::UnreadableImportFile`]。
-fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
+pub(crate) fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String, LocalModelError> {
     let unreadable = |error: io::Error| LocalModelError::UnreadableImportFile(error.to_string());
     let mut file = File::open(path).map_err(unreadable)?;
     let mut hasher = Sha256::new();
@@ -1000,12 +1000,12 @@ pub(crate) trait Fetcher {
     fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError>;
 }
 
-struct HttpFetcher {
+pub(crate) struct HttpFetcher {
     client: reqwest::blocking::Client,
 }
 
 impl HttpFetcher {
-    fn new() -> Result<Self, LocalModelError> {
+    pub(crate) fn new() -> Result<Self, LocalModelError> {
         Self::build(true)
     }
 
@@ -1016,6 +1016,7 @@ impl HttpFetcher {
         let builder = reqwest::blocking::Client::builder();
         let builder = if https_only {
             crate::proxy::configure_blocking(builder)
+                .map_err(|error| LocalModelError::Network(error.to_string()))?
         } else {
             builder.no_proxy()
         };
@@ -2301,7 +2302,6 @@ impl PartialDirectory {
 }
 
 /// `<root>/.partial-<id>`：没下完的文件跨安装保留在这里，供下次续传。不以 `.staging-` 或 `.old-` 开头，所以 [`remove_leftovers`] 不会清掉它；不是真实目录（比如被换成符号链接）时先删掉再建。
-#[cfg(any(not(unix), test))]
 fn partial_directory(root: &Path, id: &str) -> Result<PartialDirectory, LocalModelError> {
     #[cfg(unix)]
     {
@@ -2368,6 +2368,8 @@ fn partial_path(
 }
 
 /// 按顺序从每个源下载 `file` 到 `partial`：先是 `mirrors` 里每个非空前缀加原地址，最后是原地址本身。一个源失败（网络、HTTP 状态、长度或摘要不符）就换下一个，取消和本地读写错误直接返回。
+///
+/// 已有部分时，不支持 Range、整份返回的源（不是最后一个）先跳过，不清空已有的字节：用户镜像排在最前面，它若不支持续传、又在半路停滞，每次检查都会把别的源已经下好的部分清掉，续传永远没有进展。所有源都失败后，再按原来的顺序让跳过的源从头下载一次，只有这一个源能连通时照样下得完。
 fn download_from_sources(
     fetcher: &dyn Fetcher,
     mirrors: &[&str],
@@ -2385,10 +2387,40 @@ fn download_from_sources(
             .map(|mirror| mirrored(mirror, &file.url)),
     );
     sources.push(file.url.clone());
+    let last = sources.len() - 1;
     let mut failure = None;
-    for url in &sources {
-        match download_resumable(fetcher, url, file, partials, partial_name, cancel, progress) {
-            Ok(()) => return Ok(()),
+    let mut skipped = Vec::new();
+    for (index, url) in sources.iter().enumerate() {
+        match download_resumable(
+            fetcher,
+            url,
+            file,
+            partials,
+            partial_name,
+            index == last,
+            cancel,
+            progress,
+        ) {
+            Ok(Attempt::Complete) => return Ok(()),
+            Ok(Attempt::RangeIgnored) => skipped.push(url),
+            Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
+                return Err(error)
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    for url in skipped {
+        match download_resumable(
+            fetcher,
+            url,
+            file,
+            partials,
+            partial_name,
+            true,
+            cancel,
+            progress,
+        ) {
+            Ok(_) => return Ok(()),
             Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
                 return Err(error)
             }
@@ -2398,16 +2430,26 @@ fn download_from_sources(
     Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(file.name.clone())))
 }
 
-/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时从头下载。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+/// [`download_resumable`] 一次尝试的结果。
+enum Attempt {
+    /// 文件已完整，长度和摘要都对。
+    Complete,
+    /// 已有部分时源不支持 Range、整份返回，而调用方不让这次从头下：没有读正文，已有的字节原样留着。
+    RangeIgnored,
+}
+
+/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时，`restart` 为真就从头下载，为假就不动已有的部分、报 [`Attempt::RangeIgnored`]。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+#[allow(clippy::too_many_arguments)]
 fn download_resumable(
     fetcher: &dyn Fetcher,
     url: &str,
     file: &crate::resources::Artifact,
     partials: &PartialDirectory,
     partial_name: &OsStr,
+    restart: bool,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64),
-) -> Result<(), LocalModelError> {
+) -> Result<Attempt, LocalModelError> {
     if !url.starts_with("https://") {
         return Err(LocalModelError::Network(
             "only https downloads are allowed".into(),
@@ -2455,6 +2497,9 @@ fn download_resumable(
         if fetched.offset != downloaded {
             if fetched.offset != 0 {
                 return Err(LocalModelError::Network("unexpected content range".into()));
+            }
+            if !restart {
+                return Ok(Attempt::RangeIgnored);
             }
             // 源不支持续传，从头再来。
             output.set_len(0)?;
@@ -2504,12 +2549,102 @@ fn download_resumable(
                 file,
                 partials,
                 partial_name,
+                restart,
                 cancel,
                 progress,
             );
         }
         return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
     }
+    Ok(Attempt::Complete)
+}
+
+/// [`download_partial`] 交出的已校验文件。读完丢掉时删掉 `.partial-<id>` 里的这份文件（目录空了也一并删掉）：字节已经被调用方复制走，留着只占盘。
+pub(crate) struct PartialFile {
+    file: Option<File>,
+    partials: PartialDirectory,
+    name: std::ffi::OsString,
+}
+
+impl Read for PartialFile {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match &mut self.file {
+            Some(file) => file.read(buffer),
+            None => Ok(0),
+        }
+    }
+}
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        // 先关句柄再删：Windows 不允许删除仍打开着的文件。
+        drop(self.file.take());
+        self.partials.remove(&self.name);
+        self.partials.remove_if_empty();
+    }
+}
+
+/// 把一个固定文件（名称、URL、长度、SHA-256 来自调用方已校验的清单）下载进 `<root>/.partial-<id>/`，按 `mirrors` 的顺序换源，已有的部分用 HTTP Range 接着下，规则与 [`install_files`] 逐文件下载相同。成功时交出这份已按长度和摘要校验过的文件，由调用方复制到自己的位置；失败（含取消）时没下完的部分留在原处，下次调用同一个文件时续传。
+///
+/// 给不经过模型目录发布的下载用（词库在线更新），所以不取模型目录锁，调用方自己保证同一个 `<root>/.partial-<id>` 同时只有一个下载。
+pub(crate) fn download_partial(
+    root: &Path,
+    id: &str,
+    file: &crate::resources::Artifact,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<PartialFile, LocalModelError> {
+    check_install(root, id, mirrors)?;
+    if single_component(&file.name).is_none_or(|single| single != file.name) {
+        return Err(LocalModelError::UnsafeArchive(file.name.clone()));
+    }
+    let partials = partial_directory(root, id)?;
+    let partial = partial_path(partials.path(), file)?;
+    let name = partial
+        .file_name()
+        .ok_or(LocalModelError::InvalidRoot)?
+        .to_owned();
+    if let Err(error) =
+        download_from_sources(fetcher, mirrors, file, &partials, &name, cancel, progress)
+    {
+        partials.remove_if_empty();
+        return Err(error);
+    }
+    let opened = partials.open_read(&name)?;
+    Ok(PartialFile {
+        file: Some(opened),
+        partials,
+        name,
+    })
+}
+
+/// 删掉 `<root>/.partial-<id>/` 里不属于 `keep` 的没下完的文件，目录空了就删掉目录；目录不存在时什么也不做。`keep` 为空时清空整个目录。用来清理清单换了版本之后再也续不上的旧部分。
+pub(crate) fn retain_partials(
+    root: &Path,
+    id: &str,
+    keep: &[crate::resources::Artifact],
+) -> Result<(), LocalModelError> {
+    check_install(root, id, &[])?;
+    let directory = root.join(format!(".partial-{id}"));
+    if fs::symlink_metadata(&directory).is_err() {
+        return Ok(());
+    }
+    let partials = partial_directory(root, id)?;
+    let mut kept = Vec::with_capacity(keep.len());
+    for file in keep {
+        if let Some(name) = partial_path(partials.path(), file)?.file_name() {
+            kept.push(name.to_owned());
+        }
+    }
+    for entry in fs::read_dir(partials.path())? {
+        let name = entry?.file_name();
+        if !kept.contains(&name) {
+            partials.remove(&name);
+        }
+    }
+    partials.remove_if_empty();
     Ok(())
 }
 

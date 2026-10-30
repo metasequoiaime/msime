@@ -6,7 +6,7 @@ import UIKit
 ///
 /// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
-/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
+/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开；紧跟 26 键滑动方向的「九键滑动输入数字」写共享偏好 `touch_nine_key_swipe_digits`（`NineKeySwipeDigits`），默认关，三端同一行文字。长按空格语音另在语音输入页有同一个开关；iOS 工具栏不放语音按钮，不读写 `touch_voice_shortcut`。这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
@@ -18,15 +18,23 @@ struct KeyboardLayoutSettingsView: View {
   @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
+  /// iPhone 的「分离式键盘」（#10224），App Group `keyboard.phone.landscapeSplit`。
+  @State private var phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
+  /// 「大屏单手时侧边显示数字键盘」（共享偏好 `touch_one_handed_side_panel`），取自共享文档。
+  @State private var oneHandSidePad = TouchOneHandedSidePanelPreference.load() == .numberPad
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+  /// 「九键滑动输入数字」，共享偏好 `touch_nine_key_swipe_digits`。
+  @State private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var quanpinShift = KeyboardLayoutPreference.quanpinShift
+  /// 「按键布局」里的顶部数字行决定手机键盘有几排，高度百分比按它算（`heightPercent`）。
+  @State private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
@@ -83,14 +91,30 @@ struct KeyboardLayoutSettingsView: View {
   }
   /// 键盘上有没有 iPad 的数字行：九键、14 键和 18 键都不画它。
   private var drawsNumberRow: Bool { !nineKey && letterGrid == nil }
+  /// 手机键盘上有没有「按键布局」的顶部数字行：26 键、14 键和 18 键画，九键、笔画、手写、假名和大千不画。
+  private var drawsPhoneNumberRow: Bool {
+    keyLayoutStyle.numberRow && !nineKey && scheme != .japaneseNineKey && scheme != .handwriting
+      && !scheme.isStroke && !scheme.isZhuyin
+  }
+  /// 预览画的键面：用户当前的中文键盘属于哪一类（`KeyboardPreviewFace`），九键一族连同笔画都画九宫格外框，与键盘和 Android、鸿蒙的「键盘」页一致。
+  private var previewFace: KeyboardPreviewFace {
+    KeyboardPreviewFace(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
+  }
+  /// 预览按的「按键布局」：当前方案读样式时（`KeyboardPreviewFace.styled`）用用户在这一类里选的样式，笔画因此和拼音九键一样画九键样式（含右侧大回车）；日文罗马字、韩文等不读这几项样式的方案画标准底行，「符」与「123」互换照旧，与键盘一致；顶部数字行只在键盘上真会画时画（`drawsPhoneNumberRow`）。
+  private var previewKeyLayout: TouchKeyLayoutStyle {
+    var style = previewFace.styled ? keyLayoutStyle : TouchKeyLayoutStyle(symbolFirst: keyLayoutStyle.symbolFirst)
+    style.numberRow = drawsPhoneNumberRow
+    return style
+  }
 
   private var preview: some View {
-    VStack(spacing: 6) {
+    let face = previewFace
+    return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: nineKey, letterGrid: letterGrid, gridSplitsSyllables: scheme != .wubi,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
-        heightAdjustment: height
+        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )
       .gesture(spacingDrag)
       .accessibilityIdentifier("keyboardLayoutPreview")
@@ -197,6 +221,15 @@ struct KeyboardLayoutSettingsView: View {
           sheetTitle: "五笔键盘", identifier: "wubiKeyboardPicker",
           onSelect: selectWubiLayout)
       }
+      // 本版本一组都不提供时（`TouchKeyLayoutOffering.offersAnyGroup`）不列这一行，免得点进去是空页。
+      if TouchKeyLayoutOffering.edition.offersAnyGroup {
+        DesignDivider()
+        NavigationLink(destination: KeyboardKeyLayoutSettingsView()) {
+          DesignNavRowLabel(title: "按键布局", subtitle: TouchKeyLayoutOffering.entrySubtitle)
+        }
+        .buttonStyle(PressFillButtonStyle())
+        .accessibilityIdentifier("keyLayoutSettingsLink")
+      }
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
@@ -215,6 +248,15 @@ struct KeyboardLayoutSettingsView: View {
                         KeyboardLayoutPreference.hideLanguageKey = enabled
                       }))
         .accessibilityIdentifier("appHideLanguageKeySwitch")
+      // iPhone 横屏的分离式键盘只在 iPhone 上列出；iPad 的开关在「iPad」一组。
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        DesignToggleRow(title: Self.splitKeyboardTitle, subtitle: Self.phoneSplitKeyboardSubtitle,
+                        isOn: Binding(get: { phoneSplit }, set: { enabled in
+                          phoneSplit = enabled
+                          KeyboardLayoutPreference.phoneLandscapeSplit = enabled
+                        }))
+          .accessibilityIdentifier("appPhoneSplitSwitch")
+      }
       DesignDivider()
       sliderRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
                 field: .height, format: heightPercent)
@@ -336,6 +378,16 @@ struct KeyboardLayoutSettingsView: View {
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
         .disabled(!swipeSymbols)
       DesignDivider()
+      // 九键的滑动与 26 键的开关、方向各管各的，不跟着 26 键置灰；没有拼音九键的版本不列这一行。
+      if Self.offersNineKeySwipeDigits {
+        DesignSelectRow(title: NineKeySwipeDigits.title, subtitle: NineKeySwipeDigits.subtitle,
+                        options: NineKeySwipeDigits.allCases.map {
+                          DesignOption(title: $0.optionTitle, value: $0, identifier: Self.nineKeySwipeDigitsIdentifier($0))
+                        },
+                        selection: Binding(get: { nineKeySwipeDigits }, set: { saveNineKeySwipeDigits($0) }),
+                        sheetTitle: NineKeySwipeDigits.title, identifier: "appNineKeySwipeDigits")
+        DesignDivider()
+      }
       DesignToggleRow(title: "滑行输入", subtitle: "在字母键上连续滑动输入拼音，停留可确认经过的键",
                       isOn: Binding(get: { glideTyping }, set: { enabled in
                         glideTyping = enabled
@@ -361,7 +413,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var tabletGroup: some View {
-    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n横屏分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
+    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
       DesignToggleRow(title: "数字行与 Tab 键", isOn: Binding(get: { tabletFullKeys }, set: { enabled in
         tabletFullKeys = enabled
         KeyboardLayoutPreference.tabletFullKeys = enabled
@@ -373,17 +425,31 @@ struct KeyboardLayoutSettingsView: View {
           .accessibilityIdentifier("appTabletTabCandidatesSwitch")
       }
       DesignDivider()
-      DesignToggleRow(title: "横屏分离式键盘", isOn: Binding(get: { tabletSplit }, set: { enabled in
+      DesignToggleRow(title: Self.splitKeyboardTitle, isOn: Binding(get: { tabletSplit }, set: { enabled in
         tabletSplit = enabled
         KeyboardLayoutPreference.tabletSplit = enabled
       }))
       .accessibilityIdentifier("appTabletSplitSwitch")
+      DesignDivider()
+      DesignToggleRow(title: TouchOneHandedSidePanelPreference.title, subtitle: TouchOneHandedSidePanelPreference.subtitle,
+                      isOn: Binding(get: { oneHandSidePad }, set: { saveOneHandSidePad($0) }))
+        .accessibilityIdentifier("appOneHandSidePadSwitch")
     }
   }
 
+  /// 「分离式键盘」的标题，与 Android 和鸿蒙的设置页相同（`touch-split-keyboard-rows.tsx`）。
+  static let splitKeyboardTitle = "分离式键盘"
+  /// iPhone 那一行的说明：后一句与 Android、鸿蒙的说明相同，前面写 iPhone 自己的生效条件。
+  static let phoneSplitKeyboardSubtitle = "仅在 iPhone 横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入"
+
+  /// 打开写 `number_pad`，关掉写 `off`（client-core 存成缺键）；文档没接受时页面回到文档里的值，并在「布局」一组下面提示没保存上。「恢复默认」不动它：它不是这一页的间距或高度。
+  private func saveOneHandSidePad(_ enabled: Bool) {
+    saveFailed = !TouchOneHandedSidePanelPreference.save(enabled ? .numberPad : .off)
+    oneHandSidePad = saveFailed ? TouchOneHandedSidePanelPreference.load() == .numberPad : enabled
+  }
+
   private var resetGroup: some View {
-    DesignGroup(footer: UIDevice.current.userInterfaceIdiom == .pad
-      ? "把这一页的间距、高度、中/英键和横屏分离式键盘恢复成默认值。" : "把这一页的间距、高度和中/英键恢复成默认值。") {
+    DesignGroup(footer: "把这一页的间距、高度、中/英键和分离式键盘恢复成默认值。") {
       Button {
         saveFailed = !KeyboardLayoutPreference.resetGeometry()
         readPreferences()
@@ -457,7 +523,8 @@ struct KeyboardLayoutSettingsView: View {
   private func heightPercent(_ adjustment: Double) -> String {
     let tablet = UIDevice.current.userInterfaceIdiom == .pad
     let keyBlock = KeyboardHeightPercent.portraitKeyBlockHeight(
-      tablet: tablet, numberRow: tablet && tabletFullKeys && drawsNumberRow, rowSpacing: CGFloat(rowSpacing))
+      tablet: tablet, numberRow: tablet && tabletFullKeys && drawsNumberRow, rowSpacing: CGFloat(rowSpacing),
+      phoneNumberRow: !tablet && drawsPhoneNumberRow)
     return "\(KeyboardHeightPercent.percent(adjustment: CGFloat(adjustment), keyBlock: keyBlock))%"
   }
 
@@ -545,6 +612,24 @@ struct KeyboardLayoutSettingsView: View {
       : enabled
   }
 
+  /// 「九键滑动输入数字」只在本版本提供拼音九键（触屏方案 `nine_key`）时列出。
+  static var offersNineKeySwipeDigits: Bool { ChineseInputScheme.nineKey.isOfferedByEdition }
+
+  /// 选项单里各项的无障碍标识。
+  static func nineKeySwipeDigitsIdentifier(_ value: NineKeySwipeDigits) -> String {
+    switch value {
+    case .off: "appNineKeySwipeDigitsOff"
+    case .up: "appNineKeySwipeDigitsUp"
+    case .down: "appNineKeySwipeDigitsDown"
+    }
+  }
+
+  /// 写用户点的那一项（包括关闭），写进共享偏好；写不进去时退回文档里的值。
+  private func saveNineKeySwipeDigits(_ value: NineKeySwipeDigits) {
+    saveFailed = !NineKeySwipeDigits.save(value)
+    nineKeySwipeDigits = saveFailed ? NineKeySwipeDigits(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) : value
+  }
+
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -570,6 +655,7 @@ struct KeyboardLayoutSettingsView: View {
     hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     tabletSplit = KeyboardLayoutPreference.tabletSplit
+    phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
     glideTyping = KeyboardLayoutPreference.glideTyping
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
@@ -580,6 +666,7 @@ struct KeyboardLayoutSettingsView: View {
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
+    oneHandSidePad = TouchOneHandedSidePanel(in: preferences) == .numberPad
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
@@ -590,6 +677,10 @@ struct KeyboardLayoutSettingsView: View {
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
     quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
     KeyboardLayoutPreference.quanpinShift = quanpinShift
+    NineKeySwipeDigits.mirror(preferences)
+    nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
+    TouchKeyLayoutStyle.mirror(preferences)
+    keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   }
 }
 

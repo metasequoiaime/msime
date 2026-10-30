@@ -20,7 +20,7 @@ use crate::RuntimeOptionsState;
 fn setup_program_name() -> String {
     msime_client_core::edition::Edition::linux_package_identity_or_full().setup_program()
 }
-/// The first download is about 170 MB; a stalled mirror must still end the run rather than leave the page busy forever.
+/// The first download is about 270 MB; a stalled mirror must still end the run rather than leave the page busy forever.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
 const MAX_LINES: usize = 2000;

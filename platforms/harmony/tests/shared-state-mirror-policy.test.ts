@@ -1,5 +1,6 @@
 import {
   ABSENT_FINGERPRINT,
+  FingerprintCache,
   KEYBOARD_ENTRIES,
   MirrorManifest,
   SETTINGS_ENTRIES,
@@ -463,6 +464,64 @@ group("manifests and records from another format are ignored", () => {
     parsed !== null && parsed.entries.length === 1 && parsed.applied.length === 0,
     "malformed entries are dropped and a missing applied list reads as empty",
   );
+});
+
+group("local fingerprints are reused while the file identity is unchanged", () => {
+  const cache = new FingerprintCache();
+  let reads = 0;
+  const read = (text: string) => (): string => {
+    reads++;
+    return fp(text);
+  };
+  const stamp = FingerprintCache.stamp("12", 40, "1700000000123456789");
+  check(stamp === "12:40:1700000000123456789", "the stamp joins inode, size and nanosecond mtime");
+  check(
+    cache.fingerprint("file:/a", stamp, read("one")) === fp("one"),
+    "the first lookup reads the file",
+  );
+  check(
+    cache.fingerprint("file:/a", stamp, read("two")) === fp("one"),
+    "an unchanged identity reuses the fingerprint",
+  );
+  check(reads === 1, "an unchanged identity does not read the file again");
+  // 暂存加改名换入：inode 变了，哪怕大小和修改时间碰巧相同。
+  const renamed = FingerprintCache.stamp("13", 40, "1700000000123456789");
+  check(
+    cache.fingerprint("file:/a", renamed, read("two")) === fp("two"),
+    "a replaced file is read again",
+  );
+  check(reads === 2, "a replaced file costs one read");
+  check(
+    cache.fingerprint("file:/b", renamed, read("three")) === fp("three"),
+    "paths are cached separately",
+  );
+  check(reads === 3, "another path is read on its own");
+});
+
+group("local fingerprints are not cached without a nanosecond mtime or when unreadable", () => {
+  const cache = new FingerprintCache();
+  let reads = 0;
+  const read = (fingerprint: string) => (): string => {
+    reads++;
+    return fingerprint;
+  };
+  check(
+    FingerprintCache.stamp("12", 40, undefined) === null,
+    "second-resolution mtimes give no stamp",
+  );
+  cache.fingerprint("file:/a", null, read("f1"));
+  cache.fingerprint("file:/a", null, read("f1"));
+  check(reads === 2, "without a stamp every lookup reads the file");
+  const stamp = FingerprintCache.stamp("12", 40, "5");
+  check(
+    cache.fingerprint("file:/a", stamp, read(ABSENT_FINGERPRINT)) === ABSENT_FINGERPRINT,
+    "a failed read reports the file as absent",
+  );
+  check(
+    cache.fingerprint("file:/a", stamp, read("f2")) === "f2",
+    "a failed read is retried next time",
+  );
+  check(reads === 4, "a failed read is not cached");
 });
 
 console.log(`${checks - failures} checks passed; ${failures} failed`);

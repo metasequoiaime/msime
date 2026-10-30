@@ -8,6 +8,8 @@ Status: implemented
 
 用户拍板的取舍：恢复时与本机已有记录合并，选词计数取大、位置冲突保留本机；备份仍是明文 zip，导出页明确提示文件含打字习惯、请妥善保管；输入记录不进云同步；输入统计不算在内。
 
+[输入习惯跨设备同步](../../proposed/feature/2026-10-27-learning-sync-e2e.md)（proposed）计划把其中「输入记录不进云同步」收窄为「输入记录不进明文云同步；用户自己打开后，可以端到端加密同步」。那个功能放出之前，这里说的输入记录（学习调权、删除记录、固定位置、选词计数）仍不进任何云同步。
+
 ## Decision
 
 - **导出**：`export_snapshot` 加 `include_learning`（serde 缺省 false）。为假时代码路径不变，输出与以前逐字节相同，云同步上传的快照因此不受影响（`CloudSync` 的云同步调用不带这个字段）。为真时在用户的词之后，按快照格式第 1 版已有的记录追加输入记录：学习调权写成 `user_inserted:false` 的 `overlay`，删除记录写成 `deleted:true` 的 `overlay`，固定位置写成 `position`，选词计数写成 `selection`（截到 0..=10）。编码、词或上下文含换行/制表符、位置不在 1..=5、或总记录数超过 500,000 的跳过并计入 `learning_skipped`。写完照常用 `inspect_snapshot` 自检。数据来自新露出的 `msime_engine::host::stream_dictionary_state`。它对日志是整体读取的，一行不是 UTF-8、未知的词库种类、超长的行或超过 500,000 行都会让整次读取失败；这时导出不失败，照样写出词，`learning` 为 0，原因放在 `learning_error`，导出结果告诉用户这份备份里没有输入记录。否则一台日志有坏行的设备连原本能导出的词、设置和皮肤都备份不了，比加这个功能之前还差。备份包格式 `LocalBackupPolicy.VERSION` 仍是 1，manifest 的 `contents` 多一个 `learning` 计数；旧版本读到这些记录也是合法的 v1 快照。

@@ -68,8 +68,10 @@ export type SettingsPageProps = {
   client: SettingsClient;
   /** 页面首次挂载时读取的初始设置页。 */
   initialPage?: string;
-  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿。 */
-  route?: { page: string; nonce: number };
+  /** 和 `initialPage` 一起读取的、那一页里要直接打开的一处（见 `SettingsLinkTarget`）。 */
+  initialTarget?: string;
+  /** 挂载后的页面请求；新的 `nonce` 触发导航并保留当前草稿，`target` 是那一页里要直接打开的一处。 */
+  route?: { page: string; target?: string; nonce: number };
   onReplayOnboarding?: () => void;
 };
 
@@ -77,6 +79,7 @@ export type SettingsPageProps = {
 export function useSettingsPageModel({
   client: hostClient,
   initialPage,
+  initialTarget,
   route,
 }: SettingsPageProps) {
   // 宿主提供词库同步时，经设置改了词就记一次本机改动；各页拿到的都是这一份客户端。
@@ -128,6 +131,7 @@ export function useSettingsPageModel({
     showCharacterWidth,
     aiProviderCredentials,
     showAiGeneration,
+    showCommunityContribution,
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
@@ -288,6 +292,7 @@ export function useSettingsPageModel({
     setDictionaryFormat,
     phraseListRef,
     loadPhrases,
+    reloadPhrases,
     turnPhrasePage,
     removePhrase,
     savePhrase,
@@ -434,6 +439,7 @@ export function useSettingsPageModel({
     client,
     saved: snapshot?.preferences.dictionary_sync_webdav,
     localChanges: dictionaryLocalChanges,
+    onWordsApplied: reloadPhrases,
   });
   const { ai, storedAiCredential } = aiSettingsPreferences(
     draft?.ai_assistant,
@@ -620,7 +626,10 @@ export function useSettingsPageModel({
     hasHomePage,
     hasTypingStatistics: Boolean(client.typingStatistics),
     hasVocabularyReview: Boolean(client.vocabularyReview),
-    hasAccount: Boolean(client.account || client.appIcon),
+    // 鸿蒙手机拒绝隐私授权后不给账号客户端，但授权弹窗、键盘和联网失败的提示都让用户去「我的 › 隐私」重新同意，所以触屏宿主有授权客户端时「我的」照常存在。2in1 的授权在「关于 › 法律信息」里，不因此多出账号页。
+    hasAccount: Boolean(
+      client.account || client.appIcon || (mobilePlatform && client.privacyConsent),
+    ),
     // AI 对话和「AI 辅助」页都归 AI 生成类功能的总闸（`showAiGeneration`）：HarmonyOS 在拿到资质之前两页都没有。
     hasChat: Boolean(client.chat) && showAiGeneration,
     hasAi: showAiGeneration,
@@ -648,6 +657,8 @@ export function useSettingsPageModel({
   const {
     mobileActiveTab,
     navigationPage,
+    linkTarget,
+    clearLinkTarget,
     selectPage,
     selectMobileTab,
     openAccountLogin,
@@ -661,6 +672,7 @@ export function useSettingsPageModel({
     setPage,
     mobileLastPageByTab,
     route,
+    initialTarget,
     hasHomePage,
     setCommunityDestination,
     setAccountLoginReturnPage,
@@ -786,6 +798,7 @@ export function useSettingsPageModel({
     showEffectIntensity,
     showAiCandidateLimit,
     showAiGeneration,
+    showCommunityContribution,
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
@@ -817,6 +830,8 @@ export function useSettingsPageModel({
     dismissInputSourceStartup,
     page,
     requestedSettingsPage,
+    linkTarget,
+    clearLinkTarget,
     dictionaryTab,
     setDictionaryTab,
     aboutTab,

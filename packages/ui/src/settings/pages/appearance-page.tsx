@@ -379,7 +379,7 @@ export function AppearanceSettingsPage() {
 }
 
 /**
- * HarmonyOS 手机的「候选栏」页，按设计布局：没有预览（键盘本身就是预览），没有通往主题页的链接；「候选栏」组以「候选字号」滑块开头。外接键盘的翻页键不在这里，在「外接键盘快捷键」页：它们只对接了实体键盘的人有用，放在候选栏页像是把电脑的设置搬上了手机。字体、预设、预编辑字号和预编辑这几行仍可在「更多选项」里找到。不提供每页候选数这一行：手机候选栏按宽度翻页，从不读取 `candidate_page_size`。
+ * HarmonyOS 手机的「候选栏」页，按设计布局：没有预览（键盘本身就是预览），没有通往主题页的链接；「候选栏」组以「候选字号」滑块开头，手机和平板的键盘按 `candidate_scale_percent` 缩放候选栏时紧跟着「候选栏大小」。外接键盘的翻页键不在这里，在「外接键盘快捷键」页：它们只对接了实体键盘的人有用，放在候选栏页像是把电脑的设置搬上了手机。字体、预设、预编辑字号和预编辑这几行仍可在「更多选项」里找到。不提供每页候选数这一行：手机候选栏按宽度翻页，从不读取 `candidate_page_size`。
  */
 function HarmonyPhoneCandidateGroups() {
   const {
@@ -421,6 +421,15 @@ function HarmonyPhoneCandidateGroups() {
         ) : (
           <CandidateFontUnsupportedNotice />
         )}
+        {/* 紧跟候选字号，与 Android、iOS 原生设置页一样直接给出（#10137）：候选栏和工具栏一起缩放，按键不动。 */}
+        {showCandidateWindowScale && (
+          <CandidateScaleRow
+            preferences={draft}
+            platform={host?.platform}
+            touch
+            onChange={appearanceActions.onPreferencesChange}
+          />
+        )}
         <CandidateLayoutSection
           value={draft.candidate_layout}
           fixed={host?.fixed_candidate_layout !== undefined}
@@ -458,13 +467,6 @@ function HarmonyPhoneCandidateGroups() {
                 onChange={appearanceActions.onPreferencesChange}
               />
             </>
-          )}
-          {showCandidateWindowScale && (
-            <CandidateScaleRow
-              preferences={draft}
-              platform={host?.platform}
-              onChange={appearanceActions.onPreferencesChange}
-            />
           )}
           <PreeditSettingsSection
             preferences={draft}

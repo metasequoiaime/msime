@@ -24,7 +24,6 @@ test.each(["delete", "download"])("更换宿主后不执行旧确认的 %s 动�
       name: action === "delete" ? "删除" : `下载到本机 ${entry.word}`,
     }),
   );
-  const dialog = screen.getByRole("alertdialog");
   const nextRequest = vi.fn().mockResolvedValue({
     entries: [{ ...entry, id: "synthetic-new-entry", word: "合成新词条" }],
     offset: 0,
@@ -37,11 +36,7 @@ test.each(["delete", "download"])("更换宿主后不执行旧确认的 %s 动�
     />,
   );
   await screen.findByText("合成新词条");
-  await act(async () => {
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: action === "delete" ? "删除" : "加入" }),
-    );
-  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "delete" }));
   expect(nextRequest).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "delete" }));
   expect(downloadToLocal).not.toHaveBeenCalled();

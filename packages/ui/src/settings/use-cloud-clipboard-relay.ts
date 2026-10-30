@@ -122,7 +122,7 @@ export function useCloudClipboardRelay({
   const [webdavProbe, setWebDavProbe] = useState<CloudClipboardWebDavProbeState>({
     kind: "idle",
   });
-  // 草稿每改一次加一，旧的「测试连接」结果回来时据此丢弃，不让它说中新的草稿。
+  // 草稿或同步方式每改一次加一，旧的「测试连接」结果回来时据此丢弃。
   const draftGeneration = useRef(0);
 
   useEffect(() => {
@@ -208,7 +208,7 @@ export function useCloudClipboardRelay({
     tokenIssue,
     canSave,
     canSwitchToAccount,
-    setMode,
+    setMode: edit(setMode),
     editUrl,
     editToken,
     save: () => {

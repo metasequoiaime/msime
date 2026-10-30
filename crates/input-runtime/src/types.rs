@@ -31,6 +31,9 @@ pub struct Candidate {
     /// True when Engine corrected the typed spelling for this candidate.
     /// Presentation layers may mark it without changing committed text.
     pub corrected: bool,
+    /// 这一行是 26 键双拼按首选规则坐上第一位的触点纠错（#10018）：宿主给它画平台已有的强调色，读屏标签后面接「，已纠正」；`annotation` 里的原始按键照旧显示。只会出现在第一位，为假时不出现在 JSON 里，没有触点的宿主（桌面、实体键盘）永远看不到它。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub confident_correction: bool,
     /// Engine fixed-position slot, or zero when dynamically ranked.
     pub fixed_position: u8,
     pub highlighted: bool,
@@ -84,6 +87,22 @@ pub struct CandidateSnapshot {
     pub candidates: Vec<Candidate>,
 }
 
+/// 一代候选里按需取的一段（[`Runtime::candidate_range`]），身份与 [`CandidateSnapshot`] 里同一座位的那一行相同。
+///
+/// 触屏宿主的横向候选条每键都要重画，只取它这次建得出来的那一批，不必每键把整代候选（单个声母可有几千行）序列化一遍再在宿主主线程上解析。
+#[derive(Clone, Debug, Serialize)]
+pub struct CandidateRange {
+    pub session: u64,
+    pub generation: u64,
+    pub preedit: String,
+    /// Engine-owned kana reading for Japanese, the composing Hangul for Korean; empty for other schemes.
+    pub reading: String,
+    /// 这一代已经放出来的候选总数。引擎可能还扣着一段尾部（首字母只先给 24 行），从这个位置往后再取时才放出来。
+    pub total: usize,
+    /// 座位 `start` 起的候选，最多 `count` 行，到 `total` 为止。
+    pub candidates: Vec<Candidate>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum CharacterWidth {
     Fullwidth,
@@ -104,6 +123,8 @@ pub struct View {
     pub nine_key: bool,
     /// 引擎当前的组码网格：`"none"`、`"nine_key"`、`"fourteen_key"`、`"nine_key_shuangpin"` 或 `"eighteen_key"`。宿主据此决定是否显示拼音条、读音行和三栏面板：几种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。九键双拼的数字和九键一样不当选词键，但 `nine_key` 为假（它没有英文九键，也不开注音九键）。
     pub key_grid: &'static str,
+    /// 这次组字是在组码网格里打的（九宫格会话在组字，或五笔 14 键在组字），转述引擎 `Session::grid_composing`。`key_grid` 开着时硬件键盘的字母照样走 26 键的全拼、双拼，这时它为假：宿主要分清当前组字走的是网格还是 26 键（例如光标隔着显示分隔画在哪一侧，两者的退格删的不是同一格）时看它，不看 `key_grid`。没有组字时为假。
+    pub grid_composing: bool,
     pub nine_key_spellings: Vec<String>,
     /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
     pub nine_key_reading: String,

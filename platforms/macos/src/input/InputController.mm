@@ -1324,12 +1324,12 @@ static BOOL MSIMEIsCornerQuoteMark(id mark) {
     const unichar c = [mark characterAtIndex:0];
     return c >= 0x300C && c <= 0x300F;
 }
-// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；契约第 3 版起引擎里 `{` `}` 也分别出这两组。普通中文方案的 `{` `}` 在到达引擎前被上面的宿主分支拦成「/」，仍按契约分组判：`{` 算出「」的键，`}` 不算——把它算进「」组会让 `}` 上的屏的」被改回「。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
+// 这个字所属的一组由哪个键出：corner 样式下 `'` 出「」、`"` 出『』；`{` 固定出「（契约第 5 版，普通中文方案在到达引擎前由上面的宿主分支拦成同一个字），算出「」的键。`}` 固定出」，不算——把它算进「」组会让 `}` 上屏的」被改回「；它也不再出『』。注音的大千键位 `{` `}` 由引擎 `SHIFT_PUNCTUATION` 固定出『』，也不算出这两组的键。
 static BOOL MSIMEKeyProducesCornerQuote(unichar key, unichar mark, int scheme) {
     const BOOL zhuyin = scheme == msime::mac::scheme::Zhuyin;
     switch (mark) {
     case 0x300C: case 0x300D: return key == '\'' || (!zhuyin && key == '{'); // 「 」
-    case 0x300E: case 0x300F: return key == '"' || (!zhuyin && key == '}');  // 『 』
+    case 0x300E: case 0x300F: return key == '"';  // 『 』
     default: return NO;
     }
 }
@@ -1649,7 +1649,7 @@ static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC
 - (void)later:(id)sender { [self.recoveryDelegate dismissSessionRecoveryNotice:sender]; }
 @end
 
-@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate, NSAnimationDelegate>
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
@@ -1771,17 +1771,14 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _displayPageReported;
     BOOL _filteredFixedPages;
     NSUInteger _adaptivePage;
-    NSViewAnimation *_candidateFrameAnimation;
-    NSDictionary<NSDictionary *, NSValue *> *_candidateTransitionFrames;
     NSSize _candidateLayoutSize;
-    BOOL _candidatePreviousExpanded;
     BOOL _candidatePreviousVisible;
     BOOL _skinShowsSelectedBar;
     std::optional<msime::mac::SkinLayoutGeometry> _candidateLayoutGeometry;
     BOOL _candidateLayoutFitContent;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
-    // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
+    // 保留皮肤包动效元数据用于兼容与诊断，候选呈现不执行过渡。
     msime::mac::SkinAnimation _renderedCandidateAnimation;
     // The rendered skin's accent, which the glow selection preset shines in.
     NSColor *_renderedCandidateAccent;
@@ -5281,10 +5278,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!optIn || [self enableOptInInputMode:optIn]) _appearance.lastSyncedInputScheme = scheme;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
-    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
 }
+// 系统输入菜单里某个模式是否可选。单独的入口让原生测试换上合成的可用性，不依赖开发者或 CI 机器上真实启用了哪些模式。
+- (MSIMEInputModeAvailability)inputModeAvailability { return MSIMEInputSourceIsEnabled; }
 // 单独读取入口让原生测试注入合成输入源，不切换开发者的真实输入源。
 - (NSString *)selectedSystemInputModeID {
     TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
@@ -5330,18 +5329,21 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // 切换属于将收到下一个按键的会话，也就是持有焦点的控制器的会话，不论系统通知的是哪个控制器。
     MSIMEInputController *focused = MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
-    if (!MSIMEAdoptReportedInputMode(MSIMESharedSystemInputModeState(), value)) return;
+    MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+    // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
+    const BOOL switchedIn = state.switchedIn;
+    if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    state.switchedIn = false;
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
-    MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     state.selecting = true;
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
     NSString *target =
-        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled);
+        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     if (target && ![target isEqualToString:scheme]) {
@@ -5438,7 +5440,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
-    [self stopCandidateFrameAnimation];
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     [self stopEditableShiftMouseMonitoring];
     [self stopSettledScoring];
@@ -7343,6 +7344,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (queueMs >= 8.0) msime_macos_diagnostic_writef("[key-latency] stage=queue type=%s elapsed_ms=%.3f", label, queueMs);
     }
     _smartPunctuationShadowWritten = NO;
+    // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) MSIMESharedSystemInputModeState().switchedIn = false;
     if (event.type == NSEventTypeKeyDown && sender) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)
@@ -8408,7 +8411,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     const BOOL quoteKey = !markEndsLongerCommit || punctuationKey == '"' || punctuationKey == '\'' ||
         punctuationKey == '{' || punctuationKey == '}';
-    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`，以及契约第 3 版起非注音方案的 `{` `}`。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
+    // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`；`{` 只出前半个「，`}` 固定出的」是用户要打的后半个，不改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
     const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
     if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
@@ -8995,10 +8998,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         animation.durationMs);
 }
 
-// 候选窗同步显隐：_panel.isVisible 立即是新状态，键盘和指针路由从不等动画。皮肤包写了的动效只加在图层上，见 MSIMECandidateMotion。
+// 候选窗同步显隐，键盘与指针路由直接采用新状态。
 - (void)hideCandidatePanel:(const char *)reason {
-    _candidateTransitionFrames = nil;
-    [self stopCandidateFrameAnimation];
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
     _animatedHighlightSlot = 0;
     _animatedHighlightContext = nil;
@@ -9042,75 +9043,10 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return [_panel frameRectForContentRect:NSMakeRect(0, 0, _candidateLayoutSize.width, _candidateLayoutSize.height)].size;
 }
 
-- (void)stopCandidateFrameAnimation {
-    NSViewAnimation *animation = _candidateFrameAnimation;
-    _candidateFrameAnimation = nil;
-    animation.delegate = nil;
-    [animation stopAnimation];
-    if ([_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) {
-        MSIMECandidateChromeView *content = (id)_panel.contentView;
-        content.resizingCandidateContentHeight = 0;
-        [content setNeedsLayout:YES];
-        [content layoutSubtreeIfNeeded];
-    }
-}
-
-- (void)animationDidEnd:(NSAnimation *)animation {
-    if (animation == _candidateFrameAnimation) [self stopCandidateFrameAnimation];
-}
-
 - (void)applyCandidateFrame:(NSRect)frame {
-    const BOOL animate = _candidatePreviousVisible && !_appearance.vertical &&
-        _candidatePreviousExpanded != (_expandedCandidates != nil) && !_candidateMotion.reduceMotion &&
-        !NSEqualRects(_panel.frame, frame);
-    MSIMECandidateChromeView *content = (id)_panel.contentView;
-    if (!animate) {
-        _candidateTransitionFrames = nil;
-        [_panel setFrame:frame display:YES];
-        [content layoutSubtreeIfNeeded];
-        return;
-    }
-    // NSViewAnimation 按整点更新窗口，目标也对齐整点，避免完成时再跳半点。
-    frame.origin.x = floor(frame.origin.x);
-    frame.origin.y = floor(frame.origin.y);
-    frame.size.width = ceil(frame.size.width);
-    frame.size.height = ceil(frame.size.height);
-    // 先完成目标布局，但不提前改变窗口。动画直接改变原窗口的 frame，背景、边框和阴影一起收放。
-    [content layoutSubtreeIfNeeded];
-    content.resizingCandidateContentHeight = NSHeight(content.candidateContentView.bounds);
-    content.frame = [_panel contentRectForFrameRect:_panel.frame];
-    [content setFrameOrigin:NSZeroPoint];
-    [content layoutSubtreeIfNeeded];
-    NSMutableArray<NSDictionary *> *animations = [NSMutableArray arrayWithObject:@{
-        NSViewAnimationTargetKey:_panel,
-        NSViewAnimationStartFrameKey:[NSValue valueWithRect:_panel.frame],
-        NSViewAnimationEndFrameKey:[NSValue valueWithRect:frame]}];
-    // 同一身份的候选从展开前的位置移到新位置；新出现的候选直接在目标位置。
-    for (NSView *view in MSIMECandidateControlSubviews(content)) {
-        if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
-        MSIMECandidateButton *button = (id)view;
-        NSValue *previous = button.candidateID ? _candidateTransitionFrames[button.candidateID] : nil;
-        if (!previous) continue;
-        const NSRect current = [_panel convertRectToScreen:[button convertRect:button.bounds toView:nil]];
-        const NSRect old = previous.rectValue;
-        // 内容随窗口顶部移动；只补偿格子相对窗口顶部的位置，不能再次叠加整窗移动。
-        const CGFloat dx = NSMinX(old) - (NSMinX(current) - NSMinX(_panel.frame));
-        const CGFloat dy = NSMinY(old) - (NSMinY(current) - NSMaxY(_panel.frame));
-        if (fabs(dx) < 0.5 && fabs(dy) < 0.5) continue;
-        const NSPoint origin = [button.superview convertPoint:button.frame.origin toView:nil];
-        NSRect start = button.frame;
-        start.origin = [button.superview convertPoint:NSMakePoint(origin.x + dx, origin.y + dy) fromView:nil];
-        [animations addObject:@{NSViewAnimationTargetKey:button,
-            NSViewAnimationStartFrameKey:[NSValue valueWithRect:start],
-            NSViewAnimationEndFrameKey:[NSValue valueWithRect:button.frame]}];
-    }
-    _candidateTransitionFrames = nil;
-    _candidateFrameAnimation = [[NSViewAnimation alloc] initWithViewAnimations:animations];
-    _candidateFrameAnimation.duration = 0.2;
-    _candidateFrameAnimation.animationCurve = NSAnimationEaseOut;
-    _candidateFrameAnimation.animationBlockingMode = NSAnimationNonblocking;
-    _candidateFrameAnimation.delegate = self;
-    [_candidateFrameAnimation startAnimation];
+    // 展开与收起同步设置窗口和内容尺寸，命中区域立即与画面一致。
+    [_panel setFrame:frame display:YES];
+    [_panel.contentView layoutSubtreeIfNeeded];
 }
 
 - (MSIMEDecorationFrames *)decorationFramesForImage:(NSImage *)image path:(const std::string &)path {
@@ -9697,8 +9633,6 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     viewport.manualScrollBegan = ^{
         MSIMEInputController *controller = weakSelf;
         if (controller) {
-            [controller->_candidateFrameAnimation setCurrentProgress:1];
-            [controller stopCandidateFrameAnimation];
             controller->_expandedScrollsViewport = YES;
         }
     };
@@ -9837,25 +9771,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _candidatePreviousVisible = _panel.isVisible;
     _candidateLayoutSize = [_panel contentRectForFrameRect:_panel.frame].size;
-    _candidatePreviousExpanded = NO;
-    for (NSView *subview in MSIMECandidateControlsView(_panel.contentView).subviews)
-        if ([subview isKindOfClass:MSIMEExpandedCandidateScrollView.class]) _candidatePreviousExpanded = YES;
-    _candidateTransitionFrames = nil;
-    if (_candidatePreviousVisible && _candidatePreviousExpanded != (_expandedCandidates != nil) && !_appearance.vertical) {
-        NSMutableDictionary<NSDictionary *, NSValue *> *frames = [NSMutableDictionary dictionary];
-        for (NSView *view in MSIMECandidateControlSubviews(_panel.contentView)) {
-            if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
-            NSDictionary *identifier = ((MSIMECandidateButton *)view).candidateID;
-            if (!identifier) continue;
-            NSRect rect = [_panel convertRectToScreen:[view convertRect:view.bounds toView:nil]];
-            rect.origin.x -= NSMinX(_panel.frame);
-            rect.origin.y -= NSMaxY(_panel.frame);
-            frames[identifier] = [NSValue valueWithRect:rect];
-        }
-        _candidateTransitionFrames = frames;
-    }
-    // 先记下看到的位置再停动画：停下会取消顶部对齐，窗口还在半途时旧内容会整体上下错开。
-    [self stopCandidateFrameAnimation];
     NSDictionary *previousRenderedView = _renderedCandidateView;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];

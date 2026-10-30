@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.ImageViewPolicy;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.LayoutPolicy;
@@ -103,6 +104,8 @@ public final class OnboardingActivity extends AppCompatActivity {
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
         super.onCreate(state);
+        // 「防止截屏」（#10098）：窗口显示前按本地设置加上 FLAG_SECURE。
+        ScreenCaptureProtection.apply(this);
         setContentView(R.layout.activity_onboarding);
         // The layout's max is the four-step flow; an edition with a single scheme skips the scheme step, and the bar must still fill on its last page.
         LinearProgressIndicator progress = findViewById(R.id.onboarding_progress);

@@ -361,10 +361,14 @@ struct ResolvedTheme: Equatable {
     var request: [String: Any] = ["global_theme": globalTheme, "dark": dark, "layout": "horizontal", "canvas_panel_drawn": canvasPanelDrawn]
     if let customTheme, !customTheme.isEmpty { request["custom_theme"] = customTheme }
     if let skinsRoot { request["skins_directory"] = skinsRoot.path }
-    guard JSONSerialization.isValidJSONObject(request),
-          let body = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]) else { return nil }
+    guard JSONSerialization.isValidJSONObject(request) else { return nil }
+    // 键盘设计的照片按 base64 内联在 `custom_theme` 里，最大约 680 KB，而每次键盘出现都要解析好几次主题（浅色、深色、候选配色）。缓存键里用照片的长度和哈希代替照片本身，整份请求只在没命中、真要交给 Rust 时才编码；缓存也不必为每个键留着一份照片。
+    var keyed = request
+    let fingerprinted = photoFingerprinted(customTheme)
+    if let fingerprinted { keyed["custom_theme"] = fingerprinted }
+    guard let keyBody = try? JSONSerialization.data(withJSONObject: keyed, options: [.sortedKeys]) else { return nil }
     // 磁盘上的皮肤包也是答案的一部分，所以两个槽位指名的包，其清单的修改时间和大小都进缓存键：只看 `candidate_skin` 的话，替换了深色槽位的包，深色模式还会拿到旧答案。
-    var key = body
+    var key = keyBody
     if let skinsRoot {
       for package in GlobalThemePreference.candidateSkins(in: customTheme ?? [:]) {
         let manifest = skinsRoot.appendingPathComponent(package, isDirectory: true).appendingPathComponent("skin.toml")
@@ -376,6 +380,13 @@ struct ResolvedTheme: Equatable {
     let cached = cache[key]
     lock.unlock()
     if let cached { return cached }
+    let body: Data
+    if fingerprinted == nil {
+      body = keyBody
+    } else {
+      guard let full = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]) else { return nil }
+      body = full
+    }
     let raw = body.withUnsafeBytes { bytes in
       msimeResolveTheme(bytes.bindMemory(to: UInt8.self).baseAddress, UInt(bytes.count))
     }
@@ -393,6 +404,21 @@ struct ResolvedTheme: Equatable {
     cache[key] = resolved
     lock.unlock()
     return resolved
+  }
+
+  /// `custom` with `keyboard.photo` replaced by its length and a hash of its bytes, or nil when the design has no photo. The fingerprint carries a NUL and a colon, which base64 never does, so it cannot equal a real photo. Hasher is seeded per process, which is all an in-memory cache needs.
+  private static func photoFingerprinted(_ custom: [String: Any]?) -> [String: Any]? {
+    guard var custom = custom, var keyboard = custom["keyboard"] as? [String: Any],
+          var photo = keyboard["photo"] as? String else { return nil }
+    // A photo read back from the document is a bridged NSString; make it native UTF-8 once so its bytes hash in one pass rather than character by character.
+    photo.makeContiguousUTF8()
+    var hasher = Hasher()
+    if photo.utf8.withContiguousStorageIfAvailable({ hasher.combine(bytes: UnsafeRawBufferPointer($0)) }) == nil {
+      hasher.combine(photo)
+    }
+    keyboard["photo"] = "\u{0}photo:\(photo.utf8.count):\(hasher.finalize())"
+    custom["keyboard"] = keyboard
+    return custom
   }
 }
 

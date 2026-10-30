@@ -273,11 +273,11 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         JSONArray defaults = response.getJSONObject("value").getJSONArray("touch_text_edit_button_order");
         values.put("touch_text_edit_button_order", defaults);
         save(preferences, ++revision, values);
+        byte[] beforeCancel = Files.readAllBytes(preferences.toPath());
         openOrderSettings();
         click("下移 复制");
         tap(node -> equalsText("取消", node.getText()) && node.isClickable());
-        if (!defaults.toString().equals(read(preferences).getJSONObject("preferences")
-                .getJSONArray("touch_text_edit_button_order").toString()))
+        if (!java.util.Arrays.equals(beforeCancel, Files.readAllBytes(preferences.toPath())))
             throw new AssertionError("Cancelling order draft wrote preferences");
         openOrderSettings();
         click("下移 复制");
@@ -320,11 +320,20 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private void awaitOrder(File preferences, JSONArray expected) throws Exception {
         long until = SystemClock.uptimeMillis() + 5000;
         do {
-            if (expected.toString().equals(read(preferences).getJSONObject("preferences")
+            if (expected.toString().equals(loadPreferences(preferences).getJSONObject("preferences")
                     .getJSONArray("touch_text_edit_button_order").toString())) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < until);
         throw new AssertionError("Text edit order did not reach persisted value");
+    }
+
+    /** 磁盘可以省略默认排列；由共享层补齐后再比较，不在测试中复制默认值规则。 */
+    private JSONObject loadPreferences(File preferences) throws Exception {
+        Class<?> nativeClient = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
+        JSONObject response = new JSONObject((String) nativeClient.getMethod("loadPreferences", String.class)
+            .invoke(null, preferences.getParentFile().getAbsolutePath()));
+        if (!response.optBoolean("ok")) throw new AssertionError("Shared text edit preferences unavailable");
+        return response.getJSONObject("value");
     }
 
     private void openPanel() throws Exception {

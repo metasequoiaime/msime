@@ -126,6 +126,10 @@ export class VoiceInputConfigurationPolicy {
     if (config.asr_provider === "local" && (config.asr_model_path ?? "").trim().length > 0) {
       return "使用本机模型识别；原始音频不会离开设备。";
     }
+    if (config.asr_provider === "local") {
+      // 出厂识别服务就是本地模型，新装还没有模型时录音会被 `HarmonyVoiceRecognizer.start` 以同一句话拒绝；这里先告诉用户去哪下载，不落到下面的「不可用，请检查设置」。
+      return "使用本机模型识别，请先在设置中下载并选择本地语音模型；原始音频不会离开设备。";
+    }
     if (DoubaoCredentialPolicy.attempted(config)) {
       return "使用豆包实时语音识别；原始音频会发送到豆包。";
     }

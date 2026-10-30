@@ -8,6 +8,14 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 总闸只有一个：Rust 的 `HostCapabilities.ai_generation`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showAiGeneration`；`apps/harmony` 按它不给页面 `chat`、`aiSkins`、`aiAssistant` 客户端；键盘进程和设置进程启动时把它交给 `keyboard/AiGenerationGate.ts`，功能面板据此去掉两个 AI 格子，`HarmonyVoicePolisher.polish`、`KeyboardSession.thoughtfulReplies`、AI 联想分支、`TranslationPolicy.provider` 和设置桥的 `startRequest` 发请求前都问它，所以从别的设备同步来、打开了 AI 的偏好也不会触发请求。系统语音识别和各识别服务、云候选、腾讯云 / 小牛 / DeepL 机器翻译不是大模型生成，照常提供。资质到位后把那一行改回 true 即可恢复，下文描述的各 AI 功能就是那时的样子。决定与备选见[决策笔记](../../.agents/notes/implemented/feature/2026-10-27-harmony-hide-ai-generation.md)。
 
+## 社区投稿目前不提供
+
+华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。
+
+总闸是 Rust 的 `HostCapabilities.community_contribution`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showCommunityContribution`，社区页据此不画这些入口；`apps/harmony` 的社区客户端对这些操作直接拒绝、不给举报；设置进程启动时把它交给 `keyboard/CommunityContributionGate.ts`，设置桥的 `startRequest` 在分发社区请求之前问它。
+
+AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设置桥的社区请求带 `exclude_ai_generated`，Rust 向服务端发 `exclude=ai`，服务端只留下来源为 `user` 的皮肤；服务端没有回 `X-MSIME-Skin-Origin: v1`、或者是还不认 `fields=origin` 的旧版本答了 400 时，皮肤图库按「社区暂不可用」处理。服务端契约和恢复方法见 `.agents/notes/implemented/feature/2026-10-28-harmony-withhold-community-contribution.md`。
+
 ## 输入法扩展的独立沙箱与共享沙箱镜像
 
 **从 API 12（OpenHarmony 5.0.0.38）起，输入法扩展进程使用独立沙箱，与设置应用（UIAbility）互相看不到对方的 `files/`。** 华为「输入法安全模式介绍」原文：「输入法扩展使用独立沙箱，与应用主入口不可互相访问对方的独立沙箱。」ExtensionAbility 类型表里，「是否有独立 Extension 沙箱」一栏对 `inputMethod` 是「是」。两个进程拿到的路径字符串相同（`/data/storage/el2/base/haps/entry/files`），背后是两个不同的目录。
@@ -20,10 +28,11 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 - 键盘看不到设置应用里的登录会话：键盘里的云剪贴板等账号功能按未登录处理。
 - 打字统计：设置页打开统计只改了设置应用那份文件，键盘那份仍是默认的关闭状态，每次上屏计 0 个字。
 - 插件：插件页（2in1 和手机、平板都有）把包和 `mentions.json` 装进设置应用自己的 `files/state/plugins`，键盘读的是它自己沙箱里的 `plugins/`，所以从设置页导入的符号集、音效、音乐、指令表、短语表、辅助码和特效包在键盘里都看不到；选用哪个包写在共享偏好里，同样传不到键盘。背单词在设置进程里运行，读的就是设置应用那份目录，单词本插件不受影响。
+- 防止截屏：开关只写在设置应用那份 `files/state` 里，键盘读不到，三块面板不设隐私模式；设置应用自己的窗口照样受保护。
 
 官方提供的共享方式是「共享沙箱」：签名 Profile 和键盘扩展 `module.json5` 的 `dataGroupIds` 登记同一个 data-group-id，两个进程用 `context.getGroupDir(id)` 拿到同一个目录；基础访问模式下键盘对它只读，完整体验模式下可读写。本宿主的 ID 是 AppGallery Connect 签发的 `group.1516753898738609107`（代码里在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`）。签名 Profile 必须在 AGC 网页端「证书、APP ID和Profile › Profile › 新增」手动新建，DevEco 自动签名不会写入这项授权；新建后用 `strings <profile>.p7b | grep data-group-ids` 确认带着这个 ID。模拟器不做这项授权校验，只能在真机上验证。
 
-两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
+两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权、「防止截屏」开关（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
 ### 「我的词条」只有一份
 
@@ -221,9 +230,17 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 
 设置应用首次启动时在启动画面上弹出原生授权弹窗（`privacy/PrivacyConsentDialog.ets`，在 `pages/Settings.ets` 的 `onPageShow` 打开）：几句话说明处理什么、为什么，可以点开的《用户协议》和《隐私政策》（`https://msime.app/terms/`、`https://msime.app/privacy/`，经 `openExternalUrl` 交给系统浏览器），「不同意」「同意」两个按钮。首次弹窗不能用返回手势关掉。协议列表是 `PrivacyConsentPolicy.DOCUMENTS`，只列已经上线、点得开的页面。
 
-选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
+选择记在设置应用的 `files/state/privacy-consent.json`（`{format, version, decision, decided_at_ms}`），经共享沙箱的 `privacy-consent` 条目镜像给键盘；键盘在扩展创建和每次获得焦点导入镜像后重读。只有同意了当前版本（`PRIVACY_POLICY_VERSION`）才联网：隐私政策或用户协议有实质变化时把它加一，已同意旧版本的用户下次打开应用重新弹窗。弹窗一次征得两份文档的同意，常量虽然名叫隐私政策版本，用户协议的重要变更（msime.app/terms/「协议的接受与变更」里要再次征得同意的那一类）也靠它重新弹窗。拒绝之后不再自动弹窗，用户在「我的 › 隐私」（2in1 上在「关于 › 法律信息」）的「隐私政策授权」一行重新打开弹窗同意或撤回。升级上来的老用户没有记录，按首次启动处理，打开应用时弹一次。
 
 没有授权时两个进程都不发受政策约束的请求：使用统计与崩溃记录、匿名账号注册、公告、账号登录（华为账号、邮箱、手机号）、反馈、对话、设置同步、云词库、云剪贴板、词库同步（`dictionary_sync`，只有 `status` 不要授权）、统计上传、社区、AI 皮肤、AI 与凭据测试、检查更新、词库更新、本地语音模型下载（设置桥接 `startRequest` 与 `dictionary` 回 `privacy_consent_required`，页面不画这些入口），以及键盘里的云联想、AI 联想、在线翻译、高情商回复、豆包与 HTTP 云端语音、语音润色和云剪贴板。本机打字、词库、皮肤、插件、统计、手写、系统语音识别和本地语音模型照常可用。规则在 `privacy/PrivacyConsentPolicy.ts`（`tests/privacy-consent.test.ts`），调用点由 `scripts/test-harmony-privacy-consent-gates.py` 守着。模拟器上没有共享沙箱，键盘读不到授权，键盘一侧的云端功能在模拟器上始终关着。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-privacy-first-launch.md`。
+
+## 防止截屏（#10194）
+
+「我的 › 隐私」和「关于 › 许可与隐私」里的「截屏与录屏 / 防止截屏」，默认关闭，规则与 Android（#10159）相同：第一次打开不需要验证；打开过以后，再开、再关都要通过锁屏密码或生物识别（`keyboard/settings/ScreenCaptureAuthentication.ets`，ATL1，不带冷却）；没设锁屏密码时一律打不开，否则打开后再也关不掉。规则在 `keyboard/settings/ScreenCaptureProtectionPolicy.ts`（`tests/screen-capture-protection.test.ts`）。
+
+开关写在设置应用的 `files/state/screen-capture-protection.json`，不在共享偏好里，不随账号同步；经共享沙箱的 `screen-capture-protection` 条目单向镜像给键盘，键盘不发布它。打开后设置应用的主窗口设 `setWindowPrivacyMode`（启动时在载入页面之前，切换时当场），键盘的软键盘（2in1 上是候选窗）、浮动工具条和输入模式提示三块面板设 `Panel.setPrivacyMode`：面板新建时各设一次，每次编辑框获得焦点、导入镜像之后再按开关重设，所以在设置应用里切换后，下一次弹出键盘生效。两者都要 `ohos.permission.PRIVACY_WINDOW`（normal 级、system_grant，`module.json5` 里声明即授予）；设置失败只记日志。共享页的「恢复默认设置」只恢复共享偏好，不碰这个开关。决定与和 Android 的不同见 `.agents/notes/implemented/feature/2026-10-29-harmony-screen-capture-protection.md`。
+
+尚未在真机上验证截屏、录屏是否变黑和认证弹窗的行为。
 
 ## 华为账号登录：Account Kit 的 ID Token
 
@@ -279,11 +296,42 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 九键外框的底行和 1 键
 
-触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，所以那一层底行是 `九键 | 空格 | 0 | 中/英 | 回车`，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
+触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，0 补在底行：拼音九键、九键双拼和笔画的数字层是 `符 1.05 | 九键 1.25 | 空格 3.15 | 0 1.05 | 中/英 | 回车`，符 和切换键与字母层同一格（#10061，与 Android #9113、iOS 相同），0 的一份从空格里让出；从 26 键、14 键、18 键、手写借来的数字九宫格是 `返回 | 空格 | 0 | 中/英 | 回车`，返回键在它们 123 那一格，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
 
 触屏 26 键一族（全拼、双拼、五笔、英文、韩文、越南语等）的字母层设计底行（`designActionRow`）为 `123 1.25 | 符 1.05 | 空格 4 | ， 1 | 中/英 1.05 | 回车 1.9`，逗号长按直接输入句号，不再放独立句号键，中英文模式相同（`KeyboardScheme.designRowUsesCommaSecondaryPeriod`）。符 同样打开符号面板、记作 `SoftSymbol`。14 键（第三行左端已有 符）、大千注音和它沿用的共享符号行仍是 `123 | ， | 空格 | 。 | 中/英 | 回车`，123 / #+= 层自带底行。
 
+「按键布局」页（共享 React 设置页）还有两项（#10056，共享偏好、随账号同步，同步键 `platform.harmony.twenty_six_symbol_first` / `platform.harmony.number_pad_space`）：26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`，默认关）把 26 键一族设计底行的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格带上 符、按九键一族的次序排（`KeyboardView.letterRowSymbolLeads`）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，缺键或 `platform_default` 是鸿蒙原来的「空格在 0 左边」（`NineKeyLayout.actionRow` 的 `space`）。空格在右列时网格右列最下面一格从 ！ 换成空格（`touchNineKeyGrid`），右侧大回车不受影响。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
+
+九键左侧符号栏可以自定义（#10223，共享偏好、随账号同步，同步键 `platform.harmony.nine_key_symbols` / `platform.harmony.nine_key_digit_symbols`，值是空格分隔的写法，空串是出厂表）：「按键布局」9 键分段卡片里的「九键左侧符号」改字母层那张表（`touch_nine_key_sidebar_symbols`，拼音九键、九键双拼和笔画共用），「数字键盘」一组里的「数字键盘左侧符号」改所有九宫格数字键盘 #+= 上面那张表（`touch_nine_key_digit_sidebar_symbols`，九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读）。空表是鸿蒙出厂表，键盘照原来的画法：字母层 `, . ?`（显示与编辑器里写作 ，。？，点按交给 Engine 的标点处理），右侧大回车接 !，笔画的标点栏四格，数字层四则运算加 #+= 五格等高。用户的表画成可滚动的等高栈（`NineKeyLayout.sidebarItems`）：字母层一屏最多 3 项（右侧大回车也不再接 !），数字层是四格高的滚动区加最下面一格 #+=、一屏最多 4 项，每项不矮于 28 vp。自定义项点按先按首选结束组字再字面上屏，不做全半角转换，`（）`、`()` 这类整对符号光标停在中间（`KeyboardSession.insertSidebarSymbol`、`PairedPunctuationPolicy.literalPairClosing`，配对表照 Android）；统计仍记 `SoftPunctuation`。长按左列任一项打开设置「屏幕键盘」页的「按键布局」，直接进入这一张表的编辑页（字母层和笔画进字母表并切到 9 键分段，数字层进数字表）：键盘打开设置的 Want 除 `page` 外带一个可选的 `target`，值是那张表的共享偏好名，与 Android 的 `edit_sidebar_key` 相同（`SettingsPageLink.SCREEN_KEYBOARD_TARGETS`）；只带 `page` 的链接照旧只打开页面，`target` 不属于这一页或认不得时丢掉。英文九键、2in1 屏幕键盘不读这两张表。
+
+每个分段的样式卡片里还有「中/英键放在空格左边」（#10228，共享偏好 `touch_language_key_side`，`right` 默认、`left` 时打开，同步键 `platform.harmony.language_key_side`，26 键分段里排在互换开关之后）：样式和互换排完之后把 中/英 左边紧挨着的那一串空格、0、逗号和句号整串右移一格，中/英 挪到这一串最左边，份额不变（`TouchLayoutStylePolicy.languageBeforeSpace`、`NineKeyLayout.actionRow` 的 `languageLeft`）。空格左边没有标点的行 中/英 紧挨空格（`123 | 符 | 中/英 | 空格 | ， | 回车`、`符 | 123 | 中/英 | 空格 | 回车`），有标点的行标点仍紧挨空格（`123 | 符 | 中/英 | ， | 空格 | 。 | 回车`）。设计底行（26 键一族、14/18 键、大千注音）、九键外框和它的数字层、借来的数字九宫格、右侧大回车网格下方那一段和手写底行都算，2in1 底行和假名网格不动；中/英 离开回车后回车不再让出键帽，密码框和数字框不退回。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
+
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
+
+「九键滑动输入数字」（#10229，共享偏好 `touch_nine_key_swipe_digits`，`off` / `up` / `down`，默认 `off`，同步键 `platform.harmony.nine_key_swipe`）在设置页「屏幕键盘 › 手势」里、紧跟 26 键的「滑动方向」，只在触屏宿主且版本提供全拼九键时列出。选了方向后，拼音九键字母层 1–9 键（`nineKeyHoldKey`，两处网格都经它）沿这个方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏），按键音、振动和键位统计与点按这一格相同；反方向滑过 24 vp 弹出和长按相同的数字和字母（1 键没有字母，反方向什么也不做）。判定在 `input/NineKeySwipePolicy.ts`，与 Android `NineKeySwipePolicy.gesture` 逐条相同：只看纵向位移、严格大于阈值、一次触摸只判定一次，滑出去之后点击和长按都不再做事，长按先弹出时不再判定，系统取消时什么也不输入。阈值固定 24 vp；Android 的阈值是本机「九键滑动距离」（14–48 dp，默认 24），鸿蒙和 iOS 没有这个滑块，这是三端唯一的差异。数字层、九键双拼、笔画和借来的数字九宫格不受影响；2in1 没有这项设置，同步过来的值也不在 2in1 上判定。
+
+## 大屏单手侧边数字键盘
+
+平板和折叠屏内屏上单手模式把「侧栏 + 间距 + 按键」缩成手机大小的一块（按键 360vp，块宽 `round((360 + 6) / 0.85) = 431`，`OneHandedPolicy.blockWidthVp`，#10204），贴到按键那一侧；空出来的那一侧可以放一块数字键盘（#10203）。开关在共享 React 设置页「屏幕键盘 › 布局」的「大屏单手时侧边显示数字键盘」，写共享偏好 `touch_one_handed_side_panel`（`off` 默认 / `number_pad`，随账号同步，同步键 `platform.harmony.one_handed_side_panel`）；`KeyboardSession` 在读 `touch_number_pad_space` 的同一处读它，不认识的值（以后的 `text_edit`）按空着画（`OneHandedPolicy.sidePanel`），client-core 把写法原样留着。见 `.agents/notes/implemented/feature/2026-10-29-tablet-one-hand-side-number-pad.md`。
+
+- 什么时候画（`OneHandedPolicy.sidePadShown`）：偏好是 `number_pad`；单手模式此刻生效（`OneHandedPolicy.active`，2in1 不生效）；大屏且空出来的宽度放得下；主键区画的是拼音九键、九键双拼或笔画的字母层（`KeyboardView.nineKeyFamilyLettersShowing`：123 层、英文、本地模式、注音、假名九键、手写、14/18 键和 26 键都不画）。符号、表情、剪贴板这些面板盖住按键时，面板和按键在同一行（`KeyboardView.handedKeys`），整行不画，侧边数字键盘跟着不见。
+- 宽度（`OneHandedPolicy.sidePadWidthVp`）：`side = (屏幕宽 - 2 × 4) - 431 - 6`，8 是键盘根的左右内边距 `KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP`，6 是面板与块之间 `Blank(RAIL_GAP_VP)` 的最小宽度；不到 150 不画，最宽 300。600vp 的设备上是 155。`readOrientation` 在显示变化（转屏、折叠屏展开和折叠）时重算。
+- 摆放：面板贴屏幕边，键在右时这一行是 [面板, 空白, 块]，键在左时是 [块, 空白, 面板]，中间的 `Blank` 是不接触摸的键盘底色。面板显示时这一行按底边对齐。
+- 键面（`KeyboardView.oneHandSidePad`）：3 × 4 拨号盘 `1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`，前三行高 `gridHeight()`、第四行高 `rowHeight(3)`，数字和 `.` 用 `fixedKey`，⌫ 用 `deleteKey`（带连删）。拼音九键和九键双拼的网格是三行，逐行对齐；笔画网格只有两行，面板的前三行平分网格高度，没法逐行对齐。数字和 `.` 走数字层的 `insertNumberPadLiteral`（组字中先把拼音原样上屏），读屏是「数字 N」「小数点」，统计记普通数字键、`Period` 和 `Backspace`。面板 `.id('oneHandSidePad')`。
+- 设置桥的能力位（`SettingsFormFactorCapabilities.resolve(deviceType, foldable)` 的 `oneHandedSidePanel`，报给共享设置页的 `touch_one_handed_side_panel`）：平板为真，手机在 `display.isFoldable()` 为真时为真（折叠状态下也列出，展开后生效），直板手机和 2in1 为假；`isFoldable` 出错时按不可折叠并记日志。鸿蒙平板走设置页的手机排法，这一行照样带说明，标题和说明与 Android、iOS 逐字相同。
+- 测试：`tests/keyboard-logic.test.ts` 覆盖宽度、取值、显示条件、键序、读屏名称和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-one-handed-side-panel.test.tsx`。
+
+## 大屏分离式键盘
+
+平板和折叠屏内屏横屏时，26 键一族（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文的键盘可以分成左右两半（#10224），规则逐条移植自 Android 的 `SplitKeyboardPolicy`（`keyboard/SplitKeyboardPolicy.ts`）。开关在共享 React 设置页「屏幕键盘 › 布局」，四行与 Android 原生设置页逐字相同：「分离式键盘」（共享偏好 `touch_keyboard_split`，默认关，随账号同步，同步键 `platform.harmony.split_keyboard`，与 Android 的 `platform.android.split_keyboard` 各管各的设备）、「竖屏也分离」（`touch_keyboard_split_portrait`，与 Android 共用这个共享偏好）、「分离启用宽度」（`touch_keyboard_split_threshold`，480–1000vp、步进 20、默认 600）、「分离中间空隙」（`touch_keyboard_split_gap`，10–40%、步进 5、默认 25）。后三项只留本机，主开关关着时不可调。
+
+- 什么时候分（`SplitKeyboardPolicy.drawn`）：主开关打开，屏幕最短边不小于启用宽度，横屏或竖屏选项打开，不是 2in1，键盘没有浮动，正在画的键面能分（`KeyboardView.splitsFace`）。九键、14/18 键、笔画、注音、手写、假名九键不分，它们的符号页和借来的数字九宫格也不分。`readOrientation` 在转屏、折叠屏展开和折叠时记下屏幕宽高，分离与否随之重算，偏好不动。
+- 怎么分：字母三排、数字行、补充行、123 / #+= 层和两种底行都在键边界上断开，中间插一段不接触摸、读屏跳过的空隙（`splitGap`）。空隙至少占整行的「分离中间空隙」，两侧原始键区合计不超过 720vp，更宽的屏幕把多出来的宽度留在中间。字母第二、三排在右半边内侧重复 G、V（asdfg | ghjkl、⇧zxcv | vbnm⌫），重复的键从空隙借一个键宽，三排键宽不变；重复的键输入与左边那个相同，但不记滑行键位。底行的空格拆成两个，左边那个的份额让空隙落在整行中间，每一半至少保留原宽度的 15%。键盘高度不变。
+- 单手模式在分离时让位（`oneHandActive`），存着的值不变，功能面板的单手磁贴置灰。
+- 浮动键盘优先：浮动时不分离，分离设置不变，停靠后按原样回来；分离画着时浮动磁贴照常可用。与 Android `splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false 相同。
+- 两个空格共用同一套空格手势状态（光标拖动、长按语音）：两根拇指同时按住两个空格时后按下的会接管，与 Android 每个空格各自一份状态不同。
+- 设置桥的能力位（`SettingsFormFactorCapabilities` 的 `splitKeyboard`，报给共享设置页的 `touch_keyboard_split`）与侧边数字键盘相同：平板和可折叠手机为真，直板手机和 2in1 为假。
+- 测试：`tests/split-keyboard.test.ts` 覆盖读法、启用条件、几何和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-split-keyboard.test.tsx`。见 `.agents/notes/implemented/feature/2026-10-30-split-keyboard-iphone-harmony.md`。
 
 ## 全拼九键的三栏展开面板
 
@@ -625,7 +673,7 @@ hvigorw assembleHap --no-daemon
 
 `stage-resources.sh` 还把仓库自带的七套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 
-引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。拆字反查（工具面板「本地输入」的最后一项「拆字」，实体键盘上是 Shift+C）的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0，© 2015 開放詞典）改编后编进引擎，署名、固定提交和改动说明在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`；表里的读音、名次和繁体字形取自 Unihan，它的 Unicode License V3（`resources/licenses/Unicode-License-V3.txt`）一起暂存到 `resfile/licenses/`。
+引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。拆字反查（工具面板「本地输入」的最后一项「拆字」，实体键盘上是 Shift+C）的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0，© 2015 開放詞典）改编后编进引擎，署名、固定提交和改动说明在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`；表里的读音、名次和繁体字形取自 Unihan，它的 Unicode License V3（`resources/licenses/Unicode-License-V3.txt`）一起暂存到 `resfile/licenses/`。同一目录里还有引擎本身和它链接的 rink-core 的 `MPL-2.0.txt`、`octagram.rs` 所移植的 librime-octagram 声明 `librime-octagram-BSD-3-Clause.txt`（末尾附 darts-clone 的 BSD-2-Clause 条款）、`cxx_sort.rs` 逐步复现的 libc++ 的 `libcxx-Apache-2.0-WITH-LLVM-exception.txt`、符号模式 LaTeX 表的 `latex-symbols-MIT.txt`，以及随包词库里 MIT 与 Apache-2.0 数据的许可证全文 `pinyin-data-MIT.txt`（`msime-pinyin.db` 的单字读音）、`ECDICT-MIT.txt`（`msime-english.db` 的中英释义）、`rime_kaomoji_dict-MIT.txt` 与 `python-pinyin-MIT.txt`（`msime-others.db` 的颜文字与关键词整词读音）、`rime-wubi86-jidian-Apache-2.0.txt`（`msime-wubi.db` 的 86 码表），`msime-pinyin.db` 与 `msime-stroke.db` 里改编自 rime-wanxiang 的权重的署名、改动说明与 CC BY 4.0 全文 `rime-wanxiang-CC-BY-4.0.txt`，以及逐个列出 `resfile/engine` 里词库来源与条款的 `msime-engine-dictionary-NOTICE.md`（含 `msime-bigram.bin`、`msime-trigram.bin` 要求的中文维基百科 CC BY-SA 4.0 署名）。水杉输入法本身和 `msime-pinyin.db` 里 rime-ice 的数据都是 GPL-3.0，仓库根目录的 `LICENSE` 以 `GPL-3.0.txt` 暂存在同一目录，与 macOS 包里的名字相同。这些文件只随 HAP 分发，设置页「关于 › 法律信息 › 开源许可」打开的是 GitHub 上的 `LICENSE`，不在应用里逐个列出 `resfile/licenses/`。
 
 `stage-resources.sh` 的第二个参数（默认 `target/offline-glosses`）是可选的非英文离线释义，由 `scripts/build_offline_glosses.py` 生成。数据库和 `offline-glosses-NOTICE.txt` 都在时暂存到 `resfile/offline-glosses`，键盘启动时用同一个 `StagedResources` 复制到 `files/offline-glosses`，与 `files/engine` 相邻，引擎就在那里找 `zh-<lang>.db`；新包不带它们时会删掉旧副本。已安装词典的目标语言在翻译查询里以 `offline_gloss_languages` 出现：用户自己配置的在线翻译先答，离线词典只补在线没答上的候选，同一行按目标顺序合并。
 

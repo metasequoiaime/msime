@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidateScalePolicy;
 import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -28,20 +29,24 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
-import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
+import app.msime.android.RecentClipboardSuggestion;
 import app.msime.android.SchemePreferences;
 import app.msime.android.ShuangpinKeyHintPolicy;
 import app.msime.android.SplitKeyboardPolicy;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TouchKeyStyle;
+import app.msime.android.KeyLayoutStyleMigration;
 import app.msime.android.TextTrackpadSettings;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -50,20 +55,16 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、九键字母与数字键盘的左侧符号、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift 和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
-    @Nullable private String initialSidebarKey;
-    private boolean initialSidebarOpened;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
         clipboardExport.restore(saved);
-        android.os.Bundle args = getArguments();
-        initialSidebarKey = args == null ? null : args.getString("edit_sidebar_key");
     }
 
     @Override public void onSaveInstanceState(android.os.Bundle saved) {
@@ -85,6 +86,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
         HostTask.run(this, context -> {
+            // 先把本机旧的长空格设置迁进共享偏好，工具栏预览按迁移后的底行样式画顶部符号入口。
+            KeyLayoutStyleMigration.migrate(context, HostStore.directory(context));
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;
             return new State(preferences, AndroidLocalSettings.load(context), KeyboardFeedbackStore.load(context),
@@ -132,6 +135,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             layout.nav("中文键盘", note, layoutLabel(current),
                 pairOffered ? () -> pickLayout(current, pair) : null);
         }
+        // 底行样式与顶部数字行在共享偏好里，三端相同；子页按本版本提供的键面列出几组，一组都没有（例如日语版）时不列这个入口，与鸿蒙同一条规则。副标题三端相同。
+        if (TouchKeyStyle.Groups.offeredBy(edition).any())
+            layout.nav("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,
+                () -> SettingsNavigator.open(requireContext(), PageId.KEY_LAYOUT_STYLES, null));
         String spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
         layout.nav("拼音显示位置", "全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏",
@@ -144,29 +151,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
                 checked -> saveLocalSetting(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
         }
-        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行只看拼音九键。
-        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
-        if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
-            java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
-                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
-            layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
-                NineKeySidebarPolicy.summary(sidebar, 4),
-                () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
-        }
-        if (quanpinNineKey) {
-            java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
-                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
-                NineKeySidebarPolicy.summary(digitSidebar, 4),
-                () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
-        }
         layout.nav("文本编辑按键顺序", "调整文本编辑面板两侧的七个功能键，方向键与换行位置固定",
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show());
         layout.nav("符号分类顺序", "调整符号面板底部分类的排列顺序",
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show());
-        layout.toggle("长空格布局", "26 键底行把符号入口移到顶部工具栏，逗号移到空格左边；逗号下滑输入句号，数字和更多符号层沿用同一手势。隐藏工具栏时仍保留顶部符号入口",
-            settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT),
-            checked -> saveLocalSetting(AndroidLocalSettings.LONG_SPACE_LAYOUT, checked));
         // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
         if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
@@ -190,9 +178,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.slider("行间距", KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_ROW_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.rowSpacing(NumberPolicy.strictInt(preferences, "touch_row_spacing_tenths", -1)),
             KeyboardSpacingPolicy::display, value -> savePreference("touch_row_spacing_tenths", value));
-        layout.toggle("数字行", "26 键和韩文键盘的字母上方多一行 1–0，键盘整体高出一行；手机横屏时放不下，不显示",
-            settings.bool(AndroidLocalSettings.NUMBER_ROW),
-            checked -> saveLocalSetting(AndroidLocalSettings.NUMBER_ROW, checked));
         boolean showLargeScreenOptions = KeyboardFormFactorPolicy.showLargeScreenOptions(
             requireContext().getResources().getConfiguration().smallestScreenWidthDp);
         if (showLargeScreenOptions) {
@@ -212,6 +197,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 SplitKeyboardPolicy.GAP_PERCENT_STEP, settings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP),
                 value -> value + "%", value -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_GAP, value))
                 .setEnabled(splitEnabled);
+            // #10203：大屏单手模式空出来的一侧放数字键盘。写共享偏好（随账号同步），三端标题和说明逐字相同；不认识的取值（以后的文本编辑面板）按关显示。
+            boolean sidePad = OneHandSidePadPolicy.parse(JsonPolicy.strictString(
+                preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY))) == OneHandSidePadPolicy.Panel.NUMBER_PAD;
+            layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
+                sidePad, checked -> savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,
+                    (checked ? OneHandSidePadPolicy.Panel.NUMBER_PAD : OneHandSidePadPolicy.Panel.OFF).wire));
         }
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
@@ -259,13 +250,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         directionRow[0] = gestures.nav("滑动方向", "该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效",
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection, directionRow[0]));
         directionRow[0].setEnabled(swipeSymbols);
-        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
+        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。它在共享偏好 `touch_nine_key_swipe_digits` 里、随账号同步，三端同一行、同一套文字（#10229）；本机旧值在 reload 里先迁过来。本版本没有拼音九键时不列。
+        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {
-            String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
+            String nineKeySwipe = NineKeySwipePolicy.mode(
+                JsonPolicy.strictString(preferences.opt(NineKeySwipePolicy.PREFERENCE)));
             GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
-            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
+            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "沿所选方向滑动输入数字，反方向弹出字母。",
                 nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
-            // 九键单独的判定距离（#6208）：键高，快速连打时手指往上带一下就会被当成上滑；26 键的「滑动输入符号」阈值不受影响。
+            // 九键单独的判定距离（#6208）：键高，快速连打时手指往上带一下就会被当成上滑；26 键的「滑动输入符号」阈值不受影响。距离仍是 Android 本机设置，iOS 和鸿蒙固定 24，不随账号同步。
             GroupCard.Row distanceRow = gestures.slider("九键滑动距离",
                 "手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动",
                 NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP,
@@ -288,15 +281,21 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         gestures.note("空格键上滑后松手可复制当前输入框的全文，滑回可取消；复制预览遵守下方剪贴板设置。长按语音开始后，上滑仍用于取消语音。");
         renderTrackpad(sectionColumn(target, "手势"), preferences, state.trackpadOptions());
 
-        JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
-        if (toolbar == null) toolbar = new JSONObject();
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
-        bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
+        int candidateScale = CandidateScalePolicy.percent(
+            NumberPolicy.strictInt(preferences, "candidate_scale_percent", CandidateScalePolicy.DEFAULT_PERCENT));
+        bar.addView(toolbarPreview(requireContext(), preferences, settings, state.skin(),
+            TouchKeyStyle.Row.LONG_SPACE.wire.equals(JsonPolicy.strictString(
+                preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE))), candidateScale));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
+        // 共享偏好 `candidate_scale_percent`，与 iOS、鸿蒙同一范围和说法（#10137）：候选栏和跟随它的空闲工具栏一起变矮或变高，按键不动。工具栏隐藏时候选栏照样缩放，所以这一行不跟着置灰。
+        bar.slider("候选栏大小", "候选字和工具栏一起缩放，按键大小不变",
+            CandidateScalePolicy.MIN_PERCENT, CandidateScalePolicy.MAX_PERCENT, CandidateScalePolicy.STEP_PERCENT,
+            candidateScale, value -> value + "%", this::saveCandidateScale);
         boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
-        bar.nav("工具栏尺寸", "独立调整空闲工具栏、图标和按钮；候选栏及键盘高度不变",
+        bar.nav("工具栏尺寸", "跟随候选栏时随「候选栏大小」缩放；单独设定后只调整工具栏的图标和按钮，较矮的一侧在上方留白，按键不跳动",
             customToolbarSize ? toolbarSize + "%" : "跟随候选栏",
             hidden ? null : () -> pickToolbarSize(customToolbarSize, toolbarSize));
         bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
@@ -304,8 +303,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
             String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
-                ? "由当前应用处理；部分输入框不支持，密码框不可用" : null;
-            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(toolbar, settings, member),
+                ? "由当前应用处理；部分输入框不支持，密码框不可用"
+                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION : null;
+            GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(preferences, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -316,45 +316,71 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("导出文件夹", "全文保存为 TXT；自选目录只在本机生效", state.exportDirectory(), clipboardExport::choose);
         // 剪贴板历史关着时键盘不显示最近复制，也不为它读剪贴板（RecentClipboardSuggestion.enabled），这一项跟着置灰。
         boolean clipboardHistory = preferences.optBoolean("clipboard_history", false);
+        // 复制后快捷键（#10079）挂在最近复制那一行上：最近复制关着时置灰，快捷键总开关关着时功能单选也置灰。开关切换后保存成功不重画页面，所以由这里直接更新两行的置灰状态。
+        boolean[] quickActionState = {settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
+            settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION)};
+        GroupCard.Row[] quickActionRows = new GroupCard.Row[2];
+        Runnable syncQuickActionRows = () -> {
+            if (quickActionRows[0] != null) quickActionRows[0].setEnabled(clipboardHistory && quickActionState[0]);
+            if (quickActionRows[1] != null)
+                quickActionRows[1].setEnabled(clipboardHistory && quickActionState[0] && quickActionState[1]);
+        };
         GroupCard.Row recentClipRow = clipboard.toggle("工具栏显示最近复制",
             "复制文字或图片后一分钟内，键盘顶部显示这条内容：文字点按即可粘贴，图片在支持收图片的输入框里点按即可发送；需先在「隐私」里打开剪贴板历史。隐私模式、密码框和系统标为敏感的内容不显示",
-            settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
-            checked -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
+            quickActionState[0],
+            checked -> {
+                quickActionState[0] = checked;
+                syncQuickActionRows.run();
+                saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked);
+            });
         recentClipRow.setEnabled(clipboardHistory);
+        quickActionRows[0] = clipboard.toggle("复制后自动显示快捷键",
+            "最近复制那一行的预览右边多一个快捷键，点按直接进入这条内容的分词或移动分类；复制的是图片时不显示",
+            quickActionState[1],
+            checked -> {
+                quickActionState[1] = checked;
+                syncQuickActionRows.run();
+                saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION, checked);
+            });
+        String quickActionKind = settings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
+        quickActionRows[1] = clipboard.nav("快捷键功能", "点按快捷键时进入分词点选，还是移动到分类",
+            RecentClipboardSuggestion.quickActionLabel(quickActionKind),
+            () -> pickClipboardQuickAction(quickActionKind, quickActionRows[1]));
+        syncQuickActionRows.run();
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
+        // 删除剪贴板记录（单条或多选）后可撤销的秒数（#10073、#10080），只影响之后的删除；键盘每次删除时读这一项。
+        int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboard.nav("撤销时长", "删除记录后，剪贴板面板右下角的「撤销」按钮保留几秒",
+            ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
 
-        if (!initialSidebarOpened && initialSidebarKey != null) {
-            initialSidebarOpened = true;
-            boolean digits = AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS.equals(initialSidebarKey);
-            java.util.List<String> sidebarCurrent = NineKeySidebarPolicy.sidebarSymbols(digits,
-                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS),
-                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-            editSidebarSymbols(digits ? "九键数字键盘左侧符号" : "九键左侧符号",
-                initialSidebarKey, sidebarCurrent);
-        }
-
     }
+
+    /** 工具栏设置里「语音」开关的说明：打开它等于语音设置的启动方式选「工具栏按钮」，长按空格语音会一起关掉（`saveToolbar`）。 */
+    static final String VOICE_TOGGLE_DESCRIPTION = "点按开始语音输入；打开时关闭长按空格语音，等同「语音输入 → 启动方式」选「工具栏按钮」";
 
     private static java.util.List<ToolbarOrderPolicy.Item> toolbarOrder(AndroidLocalSettings.Snapshot settings) {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
-    /** 工具栏按钮是否开启：本地项读取本地设置，其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
-    private static boolean toolbarButton(JSONObject toolbar, AndroidLocalSettings.Snapshot settings, String member) {
+    /** 工具栏按钮是否开启：本地项读取本地设置，语音读共享偏好顶层的 `touch_voice_shortcut`（缺键为关），其余读取 `touch_toolbar`；撤销、重做缺键为关。 */
+    private static boolean toolbarButton(JSONObject preferences, AndroidLocalSettings.Snapshot settings, String member) {
         if (AndroidLocalSettings.specs().containsKey(member)) return settings.bool(member);
+        if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) return preferences.optBoolean(member, false);
+        JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
+        if (toolbar == null) return !member.equals("undo") && !member.equals("redo");
         return toolbar.optBoolean(member, !member.equals("undo") && !member.equals("redo"));
     }
 
-    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
-    private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
-                                       KeyboardSkin skin) {
+    /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。26 键选了长空格样式时符号入口在工具栏上，预览也画出来。跟随候选栏时预览高度和字号随「候选栏大小」变化，与键盘一样不高于 44 dp 的按钮高。 */
+    private static View toolbarPreview(Context context, JSONObject preferences, AndroidLocalSettings.Snapshot settings,
+                                       KeyboardSkin skin, boolean longSpace, int candidateScale) {
         LinearLayout strip = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(strip);
         int pad = DimensionPolicy.pixels(context, 12);
@@ -366,13 +392,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         ViewPolicy.setImportantForAccessibility(plate,
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = ColorPolicy.parse(skin.toolbarIcon(), ThemeColorPolicy.subText(context));
-        int sizePercent = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT)
-            ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        boolean customSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
+        int sizePercent = customSize ? settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
+        int buttonDp = ToolbarSizePolicy.buttonHeightDp(sizePercent);
+        int rowDp = ToolbarSizePolicy.followedHeightDp(candidateScale);
+        int designRowDp = ToolbarSizePolicy.followedHeightDp(CandidateScalePolicy.DEFAULT_PERCENT);
+        int previewDp = customSize ? buttonDp : ToolbarSizePolicy.followedButtonHeight(rowDp, buttonDp, designRowDp);
+        int chipPercent = customSize ? sizePercent : ToolbarSizePolicy.followedPercent(rowDp, buttonDp, designRowDp);
         boolean anyButton = false;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
-            anyButton |= toolbarButton(toolbar, settings, button.preferenceKey);
+            anyButton |= toolbarButton(preferences, settings, button.preferenceKey);
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
-        boolean longSpace = settings.bool(AndroidLocalSettings.LONG_SPACE_LAYOUT);
         if (hidden && !longSpace) {
             TextView note = ViewPolicy.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
@@ -381,12 +411,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             TextView note = ViewPolicy.styledLabel(context, "没有打开的工具按钮，工具栏不显示，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), sizePercent);
-            if (longSpace) addChip(context, plate, "符", icon, sizePercent);
+            addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
+            if (longSpace) addChip(context, plate, "符", icon, chipPercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, sizePercent);
+                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, chipPercent);
         }
-        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, ToolbarSizePolicy.buttonHeightDp(sizePercent)));
+        strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, previewDp));
         strip.setContentDescription("工具栏预览");
         return strip;
     }
@@ -496,13 +526,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         });
     }
 
-    /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
-    private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
-        java.util.List<String> defaults = key.equals(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
-            ? NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS : NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
-        new NineKeySidebarSheet(this, title, key, current, defaults, this::reload).show();
-    }
-
     private void pickAnimation(GroupCard.Row row) {
         HostTask.run(this, context -> AndroidLocalSettings.load(context).choice(AndroidLocalSettings.KEY_ANIMATION), selected -> {
             if (selected == null) {
@@ -589,6 +612,31 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         sheet.show();
     }
 
+    private void pickClipboardUndoSeconds(int selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "撤销时长", null);
+        for (int seconds = ClipboardUndoPolicy.MIN_SECONDS; seconds <= ClipboardUndoPolicy.MAX_SECONDS; seconds++) {
+            int value = seconds;
+            sheet.option(ClipboardUndoPolicy.settingLabel(value), value == selected,
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS, value,
+                    this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardQuickAction(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "快捷键功能", null);
+        for (String value : new String[] {RecentClipboardSuggestion.ACTION_SEGMENT,
+                RecentClipboardSuggestion.ACTION_CATEGORY}) {
+            String label = RecentClipboardSuggestion.quickActionLabel(value);
+            sheet.option(label, value.equals(selected), () -> {
+                row.setValue(label);
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND, value,
+                    this::reload, this::reload);
+            });
+        }
+        sheet.show();
+    }
+
     private void pickClipboardLimit(int selected) {
         OptionSheet sheet = new OptionSheet(requireContext(), "历史记录上限", null);
         for (int limit : ClipboardHistoryPolicy.LIMITS) {
@@ -605,23 +653,18 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     private void pickNineKeySwipe(String selected, GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "九键滑动输入数字", null);
         for (String value : new String[] {NineKeySwipePolicy.OFF, SwipeHintPolicy.UP, SwipeHintPolicy.DOWN}) {
-            String label = nineKeySwipeOption(value);
-            sheet.option(label, value.equals(selected), () -> {
+            sheet.option(nineKeySwipeLabel(value), value.equals(selected), () -> {
                 row.setValue(nineKeySwipeLabel(value));
-                // 存好后重画，下次打开选项单时勾选的是新值。
-                KeyboardSheets.saveLocal(this, AndroidLocalSettings.NINE_KEY_SWIPE, value, this::reload, this::reload);
+                // 选哪项写哪项的写法（关闭也写 `off`），写进共享偏好、不写本机键；存好后重画，下次打开选项单时勾选的是新值，距离滑块跟着置灰或恢复。
+                savePreference(NineKeySwipePolicy.PREFERENCE, value);
             });
         }
         sheet.show();
     }
 
+    /** 行值和选项单三项共用，三端逐字相同。 */
     private static String nineKeySwipeLabel(String value) {
         return SwipeHintPolicy.UP.equals(value) ? "上滑" : SwipeHintPolicy.DOWN.equals(value) ? "下滑" : "关闭";
-    }
-
-    private static String nineKeySwipeOption(String value) {
-        return SwipeHintPolicy.UP.equals(value) ? "上滑输入数字，下滑弹出字母"
-            : SwipeHintPolicy.DOWN.equals(value) ? "下滑输入数字，上滑弹出字母" : "关闭";
     }
 
     private static String swipeDirectionLabel(String value) {
@@ -646,6 +689,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
         }
         sheet.show();
+    }
+
+    /** 回到 100% 时从文档里删掉这一项，与共享设置页 `candidateScalePatch` 写缺省值的方式相同。 */
+    private void saveCandidateScale(int value) {
+        int percent = CandidateScalePolicy.percent(value);
+        savePreferences(preferences -> {
+            if (percent == CandidateScalePolicy.DEFAULT_PERCENT) preferences.remove("candidate_scale_percent");
+            else preferences.put("candidate_scale_percent", percent);
+        });
     }
 
     private static String animationLabel(String value) {
@@ -691,10 +743,20 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         savePreferences(preferences -> KeyboardSheets.child(preferences, "android_text_trackpad").put(key, value));
     }
 
-    /** 改一个工具栏开关（`touch_toolbar` 的成员或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
+    /** 改一个工具栏开关（`touch_toolbar` 的成员、语音的 `touch_voice_shortcut` 或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
     private void saveToolbar(String member, boolean value) {
         if (AndroidLocalSettings.specs().containsKey(member)) {
             KeyboardSheets.saveLocal(this, member, value, this::reload, this::reload);
+            return;
+        }
+        // 打开语音按钮和语音页选「工具栏按钮」一样，一起关掉本地的长按空格语音，空格键上的麦克风随之消失（#10142 要两处入口不并存，#10143）；否则两个都开时语音页「启动方式」只能显示「长按空格」，再点一次它就会把这里刚打开的按钮关掉。关掉按钮只改这一项，不替用户打开长按空格。先写本地再写共享，与 VoicePage.saveTrigger 同序。
+        if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) {
+            HostTask.run(this, context -> !value || KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE, false)
+                ? KeyboardSheets.write(context, preferences -> preferences.put(member, value))
+                : null, saved -> {
+                    if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
+                    reload();
+                });
             return;
         }
         KeyboardSheets.save(this, preferences -> KeyboardSheets.child(preferences, "touch_toolbar").put(member, value),

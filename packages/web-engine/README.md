@@ -200,7 +200,7 @@ Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：
 
 ### 自定义皮肤对象
 
-`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px。`schemaVersion: 2` 还可以带 `animation`，对任何 base 都生效，没写 `animation` 时采用安全的默认动画：`enter`、`exit`、`selection` 使用 `none`、`fade`、`fade_scale`、`slide_up`、`spring` 或 `glow`，`durationMs` 为 40–600，`staggerMs` 为 0–80。动画由候选栏使用固定的安全关键帧绘制，系统的 reduced-motion 设置会关闭它；不支持这些字段的宿主仍按静态皮肤绘制。`base: "canvas"`（桌面 `SkinSummary` 报成 `base: "system"` 加 `canvas: true`）必须配 `schemaVersion: 2`，否则抛出 `TypeError`；它只额外表示九宫格边框、自由挂件、insets 这些 canvas 专属字段，其他 base 的 v2 清单忽略这些字段但照常播放动画。网页绘制这些贴图原语。九宫格按源像素切片、按 CSS px 设置边宽，挂件相对候选卡片定位，外留白参与视口夹紧；面板未加载或加载失败时保留可读卡片，成功后才使用面板配色。系统的 reduced-motion 会把面板和挂件的动画图冻结为首帧：
+`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px。`schemaVersion: 2` 继续接受 `animation`，保持旧皮肤数据的解析与同步兼容性；候选栏的进场、退场、逐行浮现和高亮立即呈现，不播放这些过渡。`base: "canvas"`（桌面 `SkinSummary` 报成 `base: "system"` 加 `canvas: true`）必须配 `schemaVersion: 2`，否则抛出 `TypeError`；它只额外表示九宫格边框、自由挂件、insets 这些 canvas 专属字段，其他 base 的 v2 清单忽略这些 canvas 专属字段。网页绘制这些贴图原语。九宫格按源像素切片、按 CSS px 设置边宽，挂件相对候选卡片定位，外留白参与视口夹紧；面板未加载或加载失败时保留可读卡片，成功后才使用面板配色。系统的 reduced-motion 会把面板和挂件的动画图冻结为首帧：
 
 ```js
 attachInput(textarea, engine, {

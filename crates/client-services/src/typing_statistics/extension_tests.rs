@@ -38,6 +38,7 @@ fn the_new_fields_round_trip_in_camel_case() {
     store
         .record_at("你好", TypingSource::Quanpin, "2026-09-20", Some(9), 1_000)
         .unwrap();
+    store.flush().unwrap();
     let text = std::fs::read_to_string(directory.path().join("typing-statistics.json")).unwrap();
     for key in [
         "\"efficiency\":{\"commits\":1,\"typedKeys\":4,\"spelledKeys\":8,\"sentenceCommits\":1,\"predictionCommits\":0}",

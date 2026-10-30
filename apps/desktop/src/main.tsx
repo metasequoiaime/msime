@@ -258,7 +258,7 @@ function isDesktopAccountHost(platform: string): boolean {
 // is the process that knows the machine's timezone.
 const vocabularyReview: VocabularyReviewClient = {
   load: () => invoke("load_vocabulary_review"),
-  answer: (word, known) => invoke("answer_vocabulary_card", { word, known }),
+  answer: (wordbook, word, known) => invoke("answer_vocabulary_card", { wordbook, word, known }),
   setSettings: (settings) =>
     invoke("set_vocabulary_settings", {
       wordbook: settings.wordbook,

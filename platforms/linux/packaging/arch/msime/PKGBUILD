@@ -1,6 +1,6 @@
 # Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
 #
-# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 170 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
+# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 270 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
 #
 # 本文件在仓库 platforms/linux/packaging/arch/msime/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布改写，AUR 上的副本只是它的拷贝。构建步骤与 platforms/linux/package-container.sh 一致，改那边时这里一起改。
 
@@ -12,15 +12,18 @@ _releasedate=
 pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
 arch=('x86_64' 'aarch64')
 url='https://github.com/metasequoiaime/msime'
-# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
+# 本项目代码为 GPL-3.0-only，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
 license=(
   'GPL-3.0-only'
   'Apache-2.0'
+  'Apache-2.0 WITH LLVM-exception'
   'MIT'
   'BSD-3-Clause'
+  'BSD-2-Clause'
   'HPND'
   'LGPL-2.1-or-later'
   'LGPL-3.0-only'
+  'CC-BY-3.0'
   'CC-BY-4.0'
   'CC-BY-SA-4.0'
   'MPL-2.0'

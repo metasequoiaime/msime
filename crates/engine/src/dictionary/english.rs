@@ -366,6 +366,8 @@ fn read_prefix_rows_at(
                         candidate.corrected_from.clear();
                         candidate.sentence_association = false;
                         candidate.sentence_words.clear();
+                        candidate.touch_supported = false;
+                        candidate.confident_correction = false;
                     } else {
                         if index == candidates.capacity() {
                             candidates.reserve_exact(capacity - index);

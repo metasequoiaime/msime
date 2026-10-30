@@ -94,6 +94,17 @@ public final class KeyboardHeightPolicy {
         return total / rowCount + (rowIndex < total % rowCount ? 1 : 0);
     }
 
+    /** 内联高度条还没记下键区上沿（刚转屏、窗口重建）；这时应用的避让边界退回键区此刻的上沿。 */
+    public static final int UNRECORDED_KEYBOARD_TOP = Integer.MIN_VALUE;
+
+    /**
+     * 内联高度条打开期间应用的避让边界（输入法窗口坐标）。拖动时输入法窗口铺满屏幕、只在窗口里伸缩键区，边界固定在进入调整时记下的键区屏幕上沿，应用不随每次拖动重排；换算到窗口坐标后不小于 0。没记下时用键区此刻在窗口里的上沿 {@code liveTop}。
+     */
+    public static int adjustingInsetTop(int recordedScreenTop, int windowScreenTop, int liveTop) {
+        if (recordedScreenTop == UNRECORDED_KEYBOARD_TOP) return liveTop;
+        return Math.max(0, recordedScreenTop - windowScreenTop);
+    }
+
     public static String displayHeight(int adjustment) {
         int value = heightAdjustment(adjustment);
         return (value > 0 ? "+" : "") + value;

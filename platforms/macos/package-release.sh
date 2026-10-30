@@ -426,6 +426,8 @@ for table in character-glosses word-glosses pronunciations; do
     ditto "$source" "$staged_bundle/Contents/Resources/$table"
   fi
 done
+# stage-resources.sh 在 umask 077 下暂存，目录是 0700、文件是 0600，ditto 原样带进来。装进 /Library/Input Methods 的副本归 root:wheel，而输入法、系统设置和 codesign 都以登录用户身份读它，读不了的目录让签名校验失败（#10329）。权限不在签名封印里，签名前统一放开读权限。
+chmod -R u+rwX,go+rX,go-w "$staged_bundle"
 # --deep, as scripts/install.sh does: Sparkle arrives signed by its publisher, and under the hardened runtime a process cannot load a library whose Team ID differs from its own. The entitlements carry microphone access for voice input.
 if [ -n "$identity" ]; then
   codesign_timestamped --force --deep --options runtime --entitlements "$entitlements" --sign "$identity" "$staged_bundle"
@@ -506,9 +508,32 @@ wordbooks="$repo_root/target/macos/wordbooks"
 if [ -d "$wordbooks" ]; then
   ditto "$wordbooks" "$app/Contents/Resources/wordbooks"
 fi
+# 上面 ditto 进来的释义、音标和词书目录同样带着暂存时的 0700/0600；设置应用可能由另一个管理员账户装进 /Applications，其他用户也要能读。
+chmod -R u+rwX,go+rX,go-w "$app"
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
+
+# 资源完整性由 verify_resources 逐项校验；预算跟随本版本实际随包的锁定资源，再为目录、辅助码和其他小文件留固定 4 MiB 余量。
+core_dictionary_budget_kib() {
+  python3 - "$repo_root" "$edition" "$1" <<'PYBUDGET'
+import json
+import sys
+from pathlib import Path
+
+root, edition, staged = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+lock = root / ("resources/desktop-dictionary.lock.json" if edition == "full" else f"resources/editions/{edition}.lock.json")
+artifacts = json.loads(lock.read_text())["artifacts"]
+# 按 4 KiB 文件分配粒度向上取整；按需省略的锁条目不占本版本预算。
+locked_kib = sum((artifact["size"] + 4095) // 4096 * 4
+                 for artifact in artifacts if (staged / artifact["name"]).is_file())
+helpcodes = root / "resources/helpcodes"
+names = ("helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt", "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt", "wubi86_helpcode.txt", "ENGINE-NOTICE.md", "NOTICE.md", "NOTICE-wubi86.md")
+helpcodes_kib = sum((path.stat().st_size + 4095) // 4096 * 4
+                    for name in names if (path := helpcodes / name).is_file())
+print(locked_kib + helpcodes_kib + 4096)
+PYBUDGET
+}
 
 # The package is only worth shipping if it holds what the install button and first run read. Checked on the built app and again on the copy inside the mounted DMG.
 check_app() {
@@ -541,11 +566,12 @@ check_app() {
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。dict-v2.0.5 把五笔码表拆进单独的 msime-wubi.db，它与 msime-pinyin.db 合计比 dict-v2.0.2 的 msime.db 大约 5.7 MB，当时核心文件加 helpcodes/ 约 116900 KiB，预算 121000 KiB。dict-v2.0.7 的 msime-english.db 并入 SCOWL 英文词表，从 1626112 字节涨到 4521984 字节（约 +2.8 MB），另加 4 KiB 的 msime-scowl_Copyright.txt；核心文件按锁文件大小逐个向上取整到 4 KiB 合计 119224 KiB，加上 helpcodes/ 的 528 KiB 约 119752 KiB，原预算只剩约 1.2 MB 余量，所以抬到 124000 KiB，保持与此前相同的约 4 MB 余量。dict-v2.0.10 的 msime-wubi.db 并入 86 五笔词组补充表，从 13688832 字节涨到 15720448 字节（约 +2.0 MB），拼音库与二元、三元模型也略有变化，核心文件合计 121208 KiB，加上 helpcodes/ 约 121736 KiB，余量只剩约 2.2 MB，所以再抬到 126000 KiB，仍保持约 4 MB 余量。
-  local engine_kib
+  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。
+  local engine_kib engine_budget_kib
   engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  test "$engine_kib" -le 126000 || {
-    echo "EngineResources is ${engine_kib} KiB, over the 126000 KiB core-dictionary budget: $resources_dir/EngineResources" >&2
+  engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"
+  test "$engine_kib" -le "$engine_budget_kib" || {
+    echo "EngineResources is ${engine_kib} KiB, over the ${engine_budget_kib} KiB locked core-dictionary budget: $resources_dir/EngineResources" >&2
     exit 1
   }
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
@@ -600,6 +626,14 @@ check_app() {
   fi
   grep -q 'com.apple.security.device.audio-input' <<< "$(codesign -d --entitlements - --xml "$nested" 2>/dev/null)" || {
     echo "the embedded input method lost its entitlements: $nested" >&2
+    exit 1
+  }
+  # 包里每个目录和文件都必须其他用户可读：系统目录安装归 root:wheel，以登录用户身份读不了的目录让输入法的签名校验失败（#10329）。
+  local unreadable
+  unreadable="$(find "$root" \( -type d ! -perm -0555 \) -o \( -type f ! -perm -0444 \))"
+  [ -z "$unreadable" ] || {
+    echo "not readable by other users:" >&2
+    printf '%s\n' "$unreadable" >&2
     exit 1
   }
   codesign --verify --deep --strict "$nested"

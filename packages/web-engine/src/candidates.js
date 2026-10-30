@@ -126,63 +126,6 @@ ${platformVariables(PLATFORM_PALETTE.light)}
   --cand-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
 ${platformVariables(PLATFORM_PALETTE.dark)}
 }
-.candidate[data-animation-enter="fade"] .container {
-  animation: msime-candidate-fade var(--msime-skin-animation-duration) ease-out both;
-}
-.candidate[data-animation-enter="fade_scale"] .container {
-  animation: msime-candidate-fade-scale var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
-}
-.candidate[data-animation-enter="slide_up"] .container {
-  animation: msime-candidate-slide-up var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
-}
-.candidate[data-animation-enter="spring"] .container {
-  animation: msime-candidate-spring var(--msime-skin-animation-duration) cubic-bezier(.22, 1.35, .36, 1) both;
-}
-.candidate[data-animation-enter="glow"] .container {
-  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
-}
-.candidate[data-animation-enter="fade_scale"][data-entering] .row-wrapper,
-.candidate[data-animation-enter="slide_up"][data-entering] .row-wrapper {
-  animation: msime-candidate-row-reveal var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
-  animation-delay: calc(var(--msime-candidate-row-index, 0) * var(--msime-skin-animation-stagger));
-}
-.candidate[data-animation-selection="spring"] .cand.first[data-selecting] {
-  animation: msime-candidate-spring var(--msime-skin-animation-duration) cubic-bezier(.22, 1.35, .36, 1) both;
-}
-.candidate[data-animation-selection="glow"] .cand.first[data-selecting] {
-  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
-}
-.candidate[data-animation-selection="fade"] .cand.first[data-selecting],
-.candidate[data-animation-selection="fade_scale"] .cand.first[data-selecting],
-.candidate[data-animation-selection="slide_up"] .cand.first[data-selecting] {
-  animation: msime-candidate-select-fade var(--msime-skin-animation-duration) ease-out both;
-}
-.candidate[data-exiting="fade"] .container {
-  animation: msime-candidate-fade var(--msime-skin-animation-duration) ease-in reverse both;
-}
-.candidate[data-exiting="fade_scale"] .container,
-.candidate[data-exiting="spring"] .container {
-  animation: msime-candidate-fade-scale var(--msime-skin-animation-duration) ease-in reverse both;
-}
-.candidate[data-exiting="slide_up"] .container {
-  animation: msime-candidate-slide-up var(--msime-skin-animation-duration) ease-in reverse both;
-}
-.candidate[data-exiting="glow"] .container {
-  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-in reverse both;
-}
-@keyframes msime-candidate-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes msime-candidate-fade-scale { from { opacity: 0; transform: translateY(5px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes msime-candidate-slide-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes msime-candidate-spring { from { transform: scale(.94); } 65% { transform: scale(1.025); } to { transform: scale(1); } }
-@keyframes msime-candidate-glow { from { filter: brightness(1.22); } to { filter: brightness(1); } }
-@keyframes msime-candidate-select-fade { from { opacity: .45; } to { opacity: 1; } }
-@keyframes msime-candidate-row-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
-@media (prefers-reduced-motion: reduce) {
-  .candidate[data-animation-enter] .container,
-  .candidate[data-animation-enter] .row-wrapper,
-  .candidate[data-animation-selection] .cand.first,
-  .candidate[data-exiting] .container { animation: none !important; }
-}
 .candidate[hidden] {
   display: none !important;
 }
@@ -644,9 +587,6 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   let panelPicture = null;
   // 这次组字里画过的最高高度，隐藏时清零。
   let tallest = 0;
-  let hideTimer = null;
-  // 上一帧高亮的格位，隐藏时清空：每帧都重建候选行，只有高亮换了格才给新高亮那一行挂选中动效，打字不会重放。
-  let shownHighlight = null;
   let gridIdentity = null;
   let gridLimit = 300;
   let gridNodes = [];
@@ -858,8 +798,6 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     if (resolved.geometry.layout) root.style.setProperty("--msime-skin-number-column", "9px");
     else root.style.removeProperty("--msime-skin-number-column");
     root.dataset.theme = resolved.dark ? "dark" : "light";
-    root.dataset.animationEnter = resolved.animation.enter;
-    root.dataset.animationSelection = resolved.animation.selection;
     for (const [name, value] of Object.entries(resolved.variables)) {
       if (!PROPERTY.test(name) || (typeof value !== "string" && typeof value !== "number")) continue;
       root.style.setProperty(name, String(value));
@@ -888,10 +826,6 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   };
 
   const draw = () => {
-    // 只有从隐藏到显示的这一帧错峰揭开候选行；之后的帧重建的行不再动。
-    const entering = root.hidden;
-    if (entering) root.dataset.entering = "";
-    else delete root.dataset.entering;
     const rows = [];
     if (resolved.geometry.canvas?.borderImage) rows.push(panel);
     if (card.dataset.background !== undefined) rows.push(background);
@@ -937,13 +871,11 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     page.forEach((item, index) => {
       const highlighted = index === frame.highlight;
       const wrapper = element(doc, "div", index === 0 && !vertical ? "row-wrapper first-row-wrapper" : "row-wrapper");
-      wrapper.style.setProperty("--msime-candidate-row-index", String(index));
       const cand = element(doc, "div", highlighted ? "row cand first" : "row cand", highlighted ? `${PARTS.candidate} ${PARTS.highlight}` : PARTS.candidate);
       cand.dataset.index = String(index);
       if (typeof frame.candidateRevision === "string") cand.dataset.revision = frame.candidateRevision;
       cand.dataset.text = String(item?.text ?? "");
       cand.dataset.pageStart = String(frame.pageStart ?? 0);
-      if (highlighted && shownHighlight !== null && shownHighlight !== index) cand.dataset.selecting = "";
       cand.setAttribute("role", "option");
       cand.setAttribute("aria-selected", String(highlighted));
       const text = element(doc, "div", "text");
@@ -1016,7 +948,6 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       rows.push(viewport);
     }
     card.replaceChildren(...rows);
-    shownHighlight = Number.isInteger(frame.highlight) && frame.highlight >= 0 && frame.highlight < page.length ? frame.highlight : null;
     root.hidden = false;
     place();
     const viewport = card.querySelector(".expanded-viewport");
@@ -1161,23 +1092,16 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   container.append(host);
 
   const hide = () => {
-    if (hideTimer !== null) {
-      view.clearTimeout?.(hideTimer);
-      hideTimer = null;
-    }
     tallest = 0;
     frame = null;
     decorationWord.textContent = "";
     decorationWord.hidden = true;
     anchor = null;
-    shownHighlight = null;
     gridIdentity = null;
     gridNodes = [];
     expansionRequest = null;
     delete root.dataset.expanded;
     root.hidden = true;
-    delete root.dataset.exiting;
-    delete root.dataset.entering;
     delete root.dataset.hover;
   };
 
@@ -1186,19 +1110,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     /** 画一帧；frame.composing 为 false 时隐藏。anchorRect 是光标或文本框的矩形（视口坐标），候选栏画在它下方（下方放不下时画在上方）。 */
     render(nextFrame, anchorRect) {
       if (destroyed) return;
-      if (hideTimer !== null) {
-        view.clearTimeout?.(hideTimer);
-        hideTimer = null;
-      }
       if (!nextFrame?.composing) {
-        if (resolved.animation.exit !== "none" && resolved.animation.durationMs > 0 && !motionMedia?.matches &&
-            typeof view.setTimeout === "function") {
-          root.dataset.exiting = resolved.animation.exit;
-          hideTimer = view.setTimeout(() => hide(), resolved.animation.durationMs);
-        } else hide();
+        hide();
         return;
       }
-      delete root.dataset.exiting;
       frame = nextFrame;
       anchor = anchorRect;
       draw();
@@ -1216,10 +1131,6 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      if (hideTimer !== null) {
-        view.clearTimeout?.(hideTimer);
-        hideTimer = null;
-      }
       frame = null;
       clearCanvas();
       view.removeEventListener?.("resize", onResize);

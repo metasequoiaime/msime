@@ -20,7 +20,7 @@ Status: implemented
 3. `LONGER_PHRASE_EXTRA_SYLLABLES = 3`（最多多三个音节）不变，[首选规则](2026-10-12-exact-reading-keeps-first-seat-over-longer-phrase.md) 不变：首位仍是读音与键入逐字相等的行里最重的那条。
 
 4. 门槛在两个键盘上按同一份值归一：`FirstPageRows::new` 是唯一把 0 当 1 的地方（`QueryRequest` 派生 `Default`，裸 `usize` 会默认成 0，而 0 会让 `exact_rows < 首页行数` 永远不成立），`QuanpinDictionary` 与两个会话的字段都用这个新类型，0 没有别的入口。
-5. 宿主在 fcitx5 的「9 个候选」这类菜单里改每页候选数时不重建引擎，所以 `Runtime::set_page_size` 把新值一并交给引擎（`InputEngine::set_first_page_rows`），门槛与分页始终同源。
+5. 宿主在 fcitx5 的「9 个候选」这类菜单里改每页候选数时不重建引擎，所以 `Runtime::set_page_size` 把新值一并交给引擎（`InputEngine::set_first_page_rows`），门槛与分页始终同源。`Runtime::new` 和 `replace_engine` 同样把自己的页大小交给引擎，直接建 runtime 的示例、测试和评测工具不必再在引擎选项里另设一份（见[评测按宿主的每页候选数和本地模式配置](../testing/2026-10-29-eval-page-size-and-local-modes.md)）。
 
 ## Alternatives considered
 

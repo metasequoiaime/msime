@@ -8,10 +8,10 @@ enum KeyboardLayoutPreference {
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
   static let keySpacingKey = "keyboard.spacing.keys"
   static let rowSpacingKey = "keyboard.spacing.rows"
-  static let voiceShortcutKey = "keyboard.shortcut.voice"
   static let heightAdjustmentKey = "keyboard.height.adjustment"
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   static let tabletSplitKey = "keyboard.tablet.split"
+  static let phoneLandscapeSplitKey = "keyboard.phone.landscapeSplit"
   static let glideTypingKey = "keyboard.gesture.glide"
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
@@ -26,6 +26,8 @@ enum KeyboardLayoutPreference {
     set { defaults.set(newValue, forKey: hideLanguageKeyKey) }
   }
   static let oneHandedKey = "keyboard.oneHanded"
+  /// 单手模式以前只在手机形态的键盘上画（iPhone、iPad 浮动键盘和窄窗口），全宽的 iPad 键盘一律不画；全宽键盘补上单手模式（#10203）之后，升级前存下的值不能直接带过去，否则在浮动键盘上开过单手的人一升级，停靠的全宽键盘就缩成单手块。用户之后每次切换单手模式都会打上这个标记；没有标记时，全宽键盘第一次画单手之前把存下的值改成关闭（`adoptOneHandedOnDockedTablet`）。
+  static let oneHandedDockedTabletKey = "keyboard.oneHandedDockedTablet"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
     set { defaults.set(SharedNumber.clamped(newValue, to: 3...6), forKey: keySpacingKey) }
@@ -57,7 +59,7 @@ enum KeyboardLayoutPreference {
   }
 
   static func resetToDefaults() {
-    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey, voiceShortcutKey] {
+    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey] {
       defaults.removeObject(forKey: stored)
     }
   }
@@ -66,18 +68,17 @@ enum KeyboardLayoutPreference {
   /// 只写传了值的那几项，其余保持文档里的样子。设置页原先每次都把四项一起写：键盘里调过高度之后，设置页上停留的还是旧高度，这时动一下任何别的控件，旧高度就被写回文档，键盘下次出现又变回设置页的值。
   @discardableResult
   static func saveGeometry(keySpacing: Double? = nil, rowSpacing: Double? = nil, heightAdjustment: Double? = nil,
-                           voiceShortcut: Bool? = nil, stateRoot: URL? = nil) -> Bool {
+                           stateRoot: URL? = nil) -> Bool {
     guard let mapping = MetasequoiaInputSessionBridge.geometryMapping(
-      keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: heightAdjustment, voiceEnabled: voiceShortcut),
+      keySpacing: keySpacing, rowSpacing: rowSpacing, heightAdjustment: heightAdjustment),
       MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping) else { return false }
     if let keySpacing { self.keySpacing = keySpacing }
     if let rowSpacing { self.rowSpacing = rowSpacing }
     if let heightAdjustment { self.heightAdjustment = heightAdjustment }
-    if let voiceShortcut { voiceShortcutEnabled = voiceShortcut }
     return true
   }
 
-  /// 把共享文档里的几何、语音与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；键盘和设置页每次出现都按文档对齐。
+  /// 把共享文档里的几何与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
   static func mirrorGeometry(_ preferences: [String: Any]) {
     defaults.set(normalizeQuickPunctuationSymbols(preferences["touch_quick_punctuation_symbols"] as? [String] ?? []),
                  forKey: quickPunctuationSymbolsKey)
@@ -86,7 +87,6 @@ enum KeyboardLayoutPreference {
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
       heightAdjustment = adjustment
     }
-    if let voice = preferences["touch_voice_shortcut"] as? Bool { voiceShortcutEnabled = voice }
   }
 
   /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为关；键盘从 App Group 镜像读。
@@ -142,7 +142,7 @@ enum KeyboardLayoutPreference {
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { preferences in
       for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-                  "touch_voice_shortcut", "touch_quick_punctuation_symbols"] {
+                  "touch_quick_punctuation_symbols"] {
         preferences.removeValue(forKey: key)
       }
     }
@@ -151,12 +151,9 @@ enum KeyboardLayoutPreference {
     // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
     defaults.removeObject(forKey: quickPunctuationSymbolsKey)
     defaults.removeObject(forKey: tabletSplitKey)
+    defaults.removeObject(forKey: phoneLandscapeSplitKey)
     defaults.removeObject(forKey: hideLanguageKeyKey)
     return true
-  }
-  static var voiceShortcutEnabled: Bool {
-    get { defaults.bool(forKey: voiceShortcutKey) }
-    set { defaults.set(newValue, forKey: voiceShortcutKey) }
   }
   /// 「数字行与 Tab 键」: the full-size iPad keyboard carries a digit row above the letters and a Tab key before Q, as a desktop keyboard does. On by default; phones and the compact iPad keyboards never show them.
   static var tabletFullKeys: Bool {
@@ -168,6 +165,11 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: tabletSplitKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: tabletSplitKey) }
   }
+  /// 「分离式键盘」的 iPhone 版（#10224）：iPhone 横屏时把 26 键字母布局从中间分成左右两半，几何与 iPad 的横屏分离式键盘相同。默认关，现有用户的横屏键盘不变；键盘视图窄得分开后字母键不到 `KeyboardSplitLayout.phoneMinimumLetterKeyWidth` 时不分，真机上的 iPhone 横屏键盘都够宽。只存在本机 App Group，不随设置同步，与 iPad 的开关一样。和 iPad 的开关分开存，免得同一个值在两种设备上意思不同。
+  static var phoneLandscapeSplit: Bool {
+    get { defaults.object(forKey: phoneLandscapeSplitKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: phoneLandscapeSplitKey) }
+  }
   /// 「滑行输入」：在全拼 26 键的字母键上连续滑动输入拼音（#5347），由 Engine 把一笔滑行解码成拼音字母。默认关；只存在本机 App Group，不进共享文档，也不随设置同步。
   static var glideTyping: Bool {
     get { defaults.object(forKey: glideTypingKey) as? Bool ?? false }
@@ -178,7 +180,7 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: cursorSwipeKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: cursorSwipeKey) }
   }
-  /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的启动方式由它和 `touch_voice_shortcut` 一起派生。
+  /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的「长按空格说话」开关直接读写它；iOS 没有工具栏语音按钮。
   static var spaceVoice: Bool {
     get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: spaceVoiceKey) }
@@ -220,7 +222,15 @@ enum KeyboardLayoutPreference {
   /// 「单手模式」：手机键盘的按键收窄到 85% 并靠向一侧，另一侧是「换到另一侧」和「退出单手」组成的一列。默认关闭；它只存在本设备的 App Group 里，不进共享文档，iOS 的设置同步也不携带它；Android 的 `platform.android.one_handed` 会同步。无法识别的存储值按关闭处理。
   static var oneHanded: KeyboardOneHandedMode {
     get { defaults.string(forKey: oneHandedKey).flatMap(KeyboardOneHandedMode.init(rawValue:)) ?? .off }
-    set { defaults.set(newValue.rawValue, forKey: oneHandedKey) }
+    set {
+      defaults.set(newValue.rawValue, forKey: oneHandedKey)
+      defaults.set(true, forKey: oneHandedDockedTabletKey)
+    }
+  }
+  /// 全宽 iPad 键盘画单手模式之前调用：存下的值是升级前留下的（没有 `oneHandedDockedTabletKey` 标记）就改成关闭并打上标记，只做一次。返回此后该画的存储值。
+  static func adoptOneHandedOnDockedTablet() -> KeyboardOneHandedMode {
+    if !defaults.bool(forKey: oneHandedDockedTabletKey) { oneHanded = .off }
+    return oneHanded
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
 
@@ -243,6 +253,56 @@ enum KeyboardLayoutPreference {
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
     return SharedNumber.clamped(value.doubleValue, to: range)
+  }
+}
+
+/// 「九键滑动输入数字」（#10229）：拼音九键字母层 1–9 键沿所选方向滑动输入键上的数字，反方向滑动弹出数字和字母（与长按相同）。共享文档里是 `touch_nine_key_swipe_digits`（client-core `TouchNineKeySwipeDigits`），写法 `off` / `up` / `down` 与 Android、鸿蒙相同，缺省为关；键盘从 App Group 镜像读。iOS 以前没有这项设置，没有旧值要迁移，也和其他触屏按键布局偏好一样暂不进 iOS 的设置同步。
+enum NineKeySwipeDigits: String, CaseIterable, Hashable {
+  case off, up, down
+
+  static let documentKey = "touch_nine_key_swipe_digits"
+  static let mirrorKey = "keyboard.nineKeySwipeDigits"
+
+  /// 设置页这一行的标题、说明和选项单标题，三端逐字相同。
+  static let title = "九键滑动输入数字"
+  static let subtitle = "沿所选方向滑动输入数字，反方向弹出字母。"
+
+  /// 选项单里的文字，按 `allCases` 的次序：关闭、上滑、下滑。
+  var optionTitle: String {
+    switch self {
+    case .off: "关闭"
+    case .up: "上滑"
+    case .down: "下滑"
+    }
+  }
+
+  /// 文档里的值：缺键、不是字符串或不认识的写法（较新版本加的方向）一律按关，与 client-core 的宽松读取一致。
+  init(in document: [String: Any]?) {
+    self = (document?[Self.documentKey] as? String).flatMap(Self.init(rawValue:)) ?? .off
+  }
+
+  private static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
+
+  /// App Group 里的镜像，键盘读它，不读文档。
+  static var mirrored: NineKeySwipeDigits {
+    get { defaults.string(forKey: mirrorKey).flatMap(Self.init(rawValue:)) ?? .off }
+    set { defaults.set(newValue.rawValue, forKey: mirrorKey) }
+  }
+
+  /// 把文档里的值抄进镜像；读不到文档时保留镜像。
+  static func mirror(_ document: [String: Any]?) {
+    guard document != nil else { return }
+    let value = NineKeySwipeDigits(in: document)
+    if value != mirrored { mirrored = value }
+  }
+
+  /// 写用户点的那一项（包括 `off`，client-core 会把默认值从文档里省掉）；文档接受了才更新镜像。
+  @discardableResult
+  static func save(_ value: NineKeySwipeDigits, stateRoot: URL? = nil) -> Bool {
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { $0[documentKey] = value.rawValue })
+    else { return false }
+    mirrored = value
+    return true
   }
 }
 
@@ -310,9 +370,10 @@ enum KeyboardHeightPercent {
     max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
   }
 
-  /// 手机键盘或全宽 iPad 键盘的竖屏按键区，后者的数字行多出第五行。
-  static func portraitKeyBlockHeight(tablet: Bool, numberRow: Bool, rowSpacing: CGFloat) -> CGFloat {
-    keyBlockHeight(keyHeight: portraitKeyHeight(tablet: tablet), rows: tablet && numberRow ? 5 : 4, rowSpacing: rowSpacing)
+  /// 手机键盘或全宽 iPad 键盘的竖屏按键区，后者的数字行多出第五行。手机画「按键布局」的顶部数字行时（`phoneNumberRow`）同样多一排。
+  static func portraitKeyBlockHeight(tablet: Bool, numberRow: Bool, rowSpacing: CGFloat, phoneNumberRow: Bool = false) -> CGFloat {
+    keyBlockHeight(keyHeight: portraitKeyHeight(tablet: tablet), rows: (tablet ? numberRow : phoneNumberRow) ? 5 : 4,
+                   rowSpacing: rowSpacing)
   }
 
   /// 把以点为单位的存储调整量换算成它在 `keyBlock` 上画出的百分比。

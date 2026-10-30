@@ -96,6 +96,34 @@ test("更换宿主隔离迟到列表、能力与输入目标错误，保留原�
   expect(next.sendText).not.toHaveBeenCalled();
 });
 
+test.each([
+  { kind: "disable" as const },
+  { kind: "reset" as const },
+  { kind: "remove" as const, device: otherDevice },
+])("更换宿主清除旧的 $kind 确认，不得把旧操作带到新客户端", async (confirmation) => {
+  const previous: CloudClipboardPanelClient = {
+    close: vi.fn(),
+    request: vi.fn().mockResolvedValue(page("合成旧条目")),
+  };
+  const nextRequest = vi.fn().mockResolvedValue(page("合成新条目"));
+  const next: CloudClipboardPanelClient = { close: vi.fn(), request: nextRequest };
+  const hook = renderHook(({ client }) => useCloudClipboardPanel(client), {
+    initialProps: { client: previous },
+  });
+  await waitFor(() => expect(hook.result.current.busy).toBe(false));
+  act(() => hook.result.current.setConfirmation(confirmation));
+  expect(hook.result.current.confirmation).toEqual(confirmation);
+  hook.rerender({ client: next });
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  expect(hook.result.current.confirmation).toBeNull();
+  expect(nextRequest).not.toHaveBeenCalledWith({ operation: "set_enabled", enabled: false });
+  expect(nextRequest).not.toHaveBeenCalledWith({ operation: "reset" });
+  expect(nextRequest).not.toHaveBeenCalledWith({
+    operation: "remove",
+    device_id: otherDevice.device_id,
+  });
+});
+
 test("StrictMode 重放后只采纳当前列表，旧完成不解除当前忙状态", async () => {
   const pending: ReturnType<typeof deferred<CloudClipboardResponse>>[] = [];
   const client: CloudClipboardPanelClient = {

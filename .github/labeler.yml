@@ -60,6 +60,7 @@ area/engine:
   - changed-files:
       - any-glob-to-any-file:
           - crates/engine/**
+          - crates/engine-capi/**
           - tools/engine-golden/**
 
 area/ci:

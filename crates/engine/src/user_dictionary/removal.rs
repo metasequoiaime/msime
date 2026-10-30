@@ -18,6 +18,8 @@ const JOURNAL_ALIAS: &str = "candidate_journal";
 const MAX_LEARNED_ENGLISH_WORD_LENGTH: usize = 64;
 
 /// The dictionary connection with the journal attached as `candidate_journal`, the journal's schema already applied by `ensure_user_database`.
+///
+/// 日志是 WAL 时（iOS 以外）同一个事务只在每个文件内原子：崩溃可能留下日志里有墓碑、词库里的行还在，下一次回放才删掉，不会反过来，见 `journal::prefer_write_ahead_log`。
 fn open_with_journal(dictionary: &Path, user_db: &Path) -> Result<Connection> {
     let connection = open_dictionary_for_writing(dictionary)?;
     if user_db.to_str().is_none() {

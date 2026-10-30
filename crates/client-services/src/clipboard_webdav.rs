@@ -176,6 +176,7 @@ impl HttpDav {
         let (username, password) = config.webdav_credentials().ok_or(RelayError::Invalid)?;
         let base = Url::parse(&format!("{}/", config.url())).map_err(|_| RelayError::Invalid)?;
         let client = crate::proxy::configure_blocking_for(Client::builder(), config.base())
+            .map_err(|_| RelayError::Unavailable)?
             .redirect(reqwest::redirect::Policy::none())
             .timeout(REQUEST_TIMEOUT)
             .user_agent(format!("MSIME/{}", std::env::consts::OS))
@@ -243,6 +244,8 @@ impl DavHttp for HttpDav {
                 .header(reqwest::header::CONTENT_TYPE, content_type)
                 .body(body.to_vec());
         }
+        #[cfg(feature = "test-support")]
+        test_support::REQUESTS_SENT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let response = builder.send().map_err(|_| RelayError::Unavailable)?;
         let status = response.status().as_u16();
         let retry_after = response
@@ -1112,6 +1115,50 @@ fn probe_inside(dav: &Dav<'_>, dir: &str) -> Result<(), RelayError> {
         return Err(RelayError::Unsupported);
     }
     Ok(())
+}
+
+/// 测试用：对真实网盘跑端到端测试（`crates/clipboard-relay/tests/webdav_real_server.rs`）时，准备和清理测试目录、统计实际发出的请求数。走的是产品同一条通道（[`HttpDav`] 和 [`Dav`] 的鉴权、限流退避），只在 `test-support` 特性下编进来，正常产品构建不启用。
+#[cfg(feature = "test-support")]
+pub mod test_support {
+    use super::{Dav, HttpDav, SystemEnvironment};
+    use crate::clipboard_relay::{RelayConfig, RelayError};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// [`HttpDav`] 真正交给 reqwest 的请求数，整个进程共用一个。
+    pub(super) static REQUESTS_SENT: AtomicU64 = AtomicU64::new(0);
+
+    /// 本进程到现在经 WebDAV 实际发出的 HTTP 请求数，包括云剪贴板、词库同步、测试连接和下面 [`RawDav`] 的请求，限流后的重试各算一次。
+    pub fn requests_sent() -> u64 {
+        REQUESTS_SENT.load(Ordering::SeqCst)
+    }
+
+    /// 在配置的基地址下建目录、列目录、删除。路径规则与产品相同（相对路径，只有小写字母、数字和 `-._/`，集合以 `/` 结尾）。
+    pub struct RawDav {
+        http: HttpDav,
+    }
+
+    impl RawDav {
+        pub fn new(config: &RelayConfig) -> Result<Self, RelayError> {
+            Ok(Self {
+                http: HttpDav::new(config)?,
+            })
+        }
+
+        /// 建一个集合；已经存在也算成功，返回是不是这一次新建的。
+        pub fn mkcol(&self, dir: &str) -> Result<bool, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).mkcol(dir)
+        }
+
+        /// 集合里的条目名（含集合自己）；不存在时为 `None`。
+        pub fn list(&self, dir: &str) -> Result<Option<Vec<String>>, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).list(dir)
+        }
+
+        /// 删除一个文件或集合；不存在也算成功，网盘拒绝时为 `false`。
+        pub fn delete(&self, path: &str) -> Result<bool, RelayError> {
+            Dav::new(&self.http, &SystemEnvironment).delete(path)
+        }
+    }
 }
 
 #[cfg(test)]
