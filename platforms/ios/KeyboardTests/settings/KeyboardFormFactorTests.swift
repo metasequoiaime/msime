@@ -450,7 +450,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: state) }
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     let geometry = [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
-                    KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey]
+                    KeyboardLayoutPreference.heightAdjustmentKey]
     let storedGeometry = geometry.map { defaults.object(forKey: $0) }
     defer { for (key, value) in zip(geometry, storedGeometry) { defaults.set(value, forKey: key) } }
     XCTAssertTrue(KeyboardLayoutPreference.resetGeometry(stateRoot: state))
