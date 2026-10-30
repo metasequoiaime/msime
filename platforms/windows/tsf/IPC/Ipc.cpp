@@ -1,5 +1,6 @@
 #include "Ipc.h"
 #include "ReplyWaitPolicy.h"
+#include "quick_phrase_cursor_pipe.h"
 #include "AuxNamedpipeSender.h"
 #include "../../../../shared/contracts/ipc_negotiation.h"
 #include "../../common/PipeMetadata.h"
@@ -24,6 +25,7 @@
 
 static thread_local HANDLE hPipe = nullptr;
 static thread_local uint32_t negotiatedServerCapabilities = 0;
+static thread_local std::atomic<uint32_t> *boundWorkerServerCapabilities = nullptr;
 // 本线程当前字段的属性（FanyImeFieldTraits），由 NoteFieldTraitsForServer 记下；还没观察过时不报。
 static thread_local bool fieldTraitsObserved = false;
 static thread_local uint32_t observedFieldTraits = 0;
@@ -341,7 +343,10 @@ void RequestNamedpipeReconnect()
 
 bool IsValidServerReply(const FanyImeNamedpipeDataToTsf &reply)
 {
-    if (reply.msg_type > Global::DataFromServerMsgType::ProtocolMismatch)
+    const auto metadata = FanyImeQuickPhraseCursorPipe::Decode(reply.msg_type, reply.candidate_string,
+        std::size(reply.candidate_string), false,
+        (negotiatedServerCapabilities & FanyImeProtocol::QuickPhraseCursor) != 0);
+    if (!metadata || metadata->messageType > Global::DataFromServerMsgType::ProtocolMismatch)
     {
         return false;
     }
@@ -504,6 +509,7 @@ bool WaitForWorkerPipeReady(HANDLE hPipeHandle)
 bool WaitForProtocolReady(uint64_t requestId)
 {
     negotiatedServerCapabilities = 0;
+    if (boundWorkerServerCapabilities) boundWorkerServerCapabilities->store(0, std::memory_order_release);
     const ULONGLONG deadline = GetTickCount64() + 250;
     while (GetTickCount64() < deadline)
     {
@@ -522,6 +528,8 @@ bool WaitForProtocolReady(uint64_t requestId)
             if (accepted)
             {
                 negotiatedServerCapabilities = FanyImeProtocol::ReplyCapabilities(reply);
+                if (boundWorkerServerCapabilities)
+                    boundWorkerServerCapabilities->store(negotiatedServerCapabilities, std::memory_order_release);
                 fieldTraitsDelivered = false;
             }
             return accepted;
@@ -545,7 +553,7 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
                       FanyImeProtocol::OrderedPreferences |
                                        FanyImeProtocol::KeyboardCompositionCancel |
                                        FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits |
-                                       FanyImeProtocol::JapaneseToggleShortcut);
+                                       FanyImeProtocol::QuickPhraseCursor | FanyImeProtocol::JapaneseToggleShortcut);
         BOOL ret = WriteFile(hPipeHandle, &hello, sizeof(hello), &bytesWritten, NULL);
         // Never authorize keys from merely writing a hello. An old Server
         // without negotiation times out into the existing raw-input fallback.
@@ -678,7 +686,8 @@ void BindNamedpipeFocusState(const void *owner, bool *focusResetPending, bool *a
                              std::atomic<uint64_t> *expectedWorkerFocusToken,
                              std::atomic<bool> *localSessionResetPending, std::atomic<UINT> *localSessionResetToken,
                              std::atomic<bool> *workerCommitReady, std::atomic<uint64_t> *acknowledgedWorkerFocusToken,
-                             std::atomic<HANDLE> *workerPipeHandle, std::atomic<UINT> *workerPipeGeneration)
+                             std::atomic<HANDLE> *workerPipeHandle, std::atomic<UINT> *workerPipeGeneration,
+                             std::atomic<uint32_t> *workerServerCapabilities)
 {
     boundFocusStateOwner = owner;
     boundFocusResetPending = focusResetPending;
@@ -690,6 +699,9 @@ void BindNamedpipeFocusState(const void *owner, bool *focusResetPending, bool *a
     boundAcknowledgedWorkerFocusToken = acknowledgedWorkerFocusToken;
     boundWorkerPipeHandle = workerPipeHandle;
     boundWorkerPipeGeneration = workerPipeGeneration;
+    boundWorkerServerCapabilities = workerServerCapabilities;
+    if (boundWorkerServerCapabilities)
+        boundWorkerServerCapabilities->store(negotiatedServerCapabilities, std::memory_order_release);
 }
 
 uint64_t GetNamedpipeClientId()
@@ -708,6 +720,8 @@ void UnbindNamedpipeFocusState(const void *owner)
     {
         return;
     }
+    if (boundWorkerServerCapabilities) boundWorkerServerCapabilities->store(0, std::memory_order_release);
+    boundWorkerServerCapabilities = nullptr;
     boundFocusStateOwner = nullptr;
     boundFocusResetPending = nullptr;
     boundActivationRequired = nullptr;
@@ -906,6 +920,7 @@ int CloseIpc()
 int CloseNamedpipe()
 {
     negotiatedServerCapabilities = 0;
+    if (boundWorkerServerCapabilities) boundWorkerServerCapabilities->store(0, std::memory_order_release);
     ClosePipeHandleIfValid(hPipe);
     ClosePipeHandleIfValid(hFromServerPipe);
     ClosePipeHandleIfValid(hToTsfWorkerThreadPipe);
@@ -917,6 +932,12 @@ void ResetNamedpipeReplyState()
 {
     pendingReplies.clear();
     unsolicitedReplies.clear();
+}
+
+bool SupportsQuickPhraseCursor()
+{
+    return hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::QuickPhraseCursor) != 0;
 }
 
 bool SupportsCharacterSetShortcut()

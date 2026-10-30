@@ -6,6 +6,9 @@
 #include <debugapi.h>
 #include <fmt/xchar.h>
 #include <string>
+#include <limits>
+#include <memory>
+#include "../QuickPhraseCursorEdit.h"
 #include "FanyDefines.h"
 #include "Ipc.h"
 #include "SmartPunctuationFingerprint.h"
@@ -1277,6 +1280,138 @@ HRESULT CMetasequoiaIME::_AddComposingAndChar(TfEditCookie ec, _In_ ITfContext *
 // _AddCharAndFinalize
 //
 //----------------------------------------------------------------------------
+
+HRESULT CMetasequoiaIME::_CommitTextWithCursor(TfEditCookie ec, ITfContext *context,
+                                                const std::wstring &text, std::size_t suffixUnits,
+                                                bool *canRefresh)
+{
+    if (canRefresh) *canRefresh = false;
+    if (!context || text.size() >= static_cast<std::size_t>((std::numeric_limits<LONG>::max)()) ||
+        !msime::tsf::ValidCursorCommit(std::wstring_view(text), suffixUnits)) return E_INVALIDARG;
+    struct ReleaseRange { void operator()(ITfRange *value) const { if (value) value->Release(); } };
+    struct Editor
+    {
+        using Range = std::unique_ptr<ITfRange, ReleaseRange>;
+        CMetasequoiaIME *ime;
+        ITfContext *context;
+        TfEditCookie cookie;
+        ITfComposition *composition;
+        uint64_t epoch, focus, focusGeneration, serial;
+        bool fallback;
+        HRESULT error = E_FAIL;
+        Editor(CMetasequoiaIME *service, ITfContext *owner, TfEditCookie ec)
+            : ime(service), context(owner), cookie(ec), composition(service->_pComposition),
+              epoch(service->_CaptureCompositionEpoch()), focus(service->_CaptureFocusSessionToken()),
+              focusGeneration(service->_deferredKeyFocusGeneration), serial(++service->_editorOperationSerial),
+              fallback(service->_IsServerUnavailableFallbackActive())
+        {
+            context->AddRef();
+            if (composition) composition->AddRef();
+        }
+        ~Editor() { if (composition) composition->Release(); context->Release(); }
+        bool current() const
+        {
+            bool focused = false;
+            if (fallback) {
+                // 离线路径可能仍留有未获确认的旧 token，文档归属以实际 TSF 焦点为准。
+                ITfDocumentMgr *document = nullptr;
+                ITfContext *top = nullptr;
+                if (ime->_pThreadMgr && SUCCEEDED(ime->_pThreadMgr->GetFocus(&document)) && document) {
+                    if (SUCCEEDED(document->GetTop(&top)) && top) focused = top == context;
+                    if (top) top->Release();
+                    document->Release();
+                }
+            } else {
+                focused = ime->_IsFocusSessionCurrent(focus, context);
+            }
+            // 上面的焦点查询也跨 COM，返回后重新核对所有权与在线／离线通道。
+            return focused && ime->_editorOperationSerial == serial &&
+                   ime->_deferredKeyFocusGeneration == focusGeneration &&
+                   ime->_IsCompositionEpochCurrent(epoch) && ime->_pComposition == composition &&
+                   (!composition || ime->_pContext == context) &&
+                   ime->_IsServerUnavailableFallbackActive() == fallback &&
+                   (fallback ? ime->_CaptureFocusSessionToken() == focus : ime->_IsFocusSessionCurrent(focus));
+        }
+        std::optional<Range> replacement_range()
+        {
+            ITfRange *range = nullptr;
+            if (composition) error = composition->GetRange(&range);
+            else {
+                TF_SELECTION selection = {};
+                ULONG fetched = 0;
+                error = context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &fetched);
+                range = selection.range;
+                if (error == S_OK && fetched != 1) error = E_FAIL;
+            }
+            Range owned(range);
+            if (error != S_OK || !owned) return std::nullopt;
+            return std::optional<Range>(std::move(owned));
+        }
+        bool write(Range &range, std::wstring_view value)
+        {
+            ime->_ClearPairedPunctuationStack();
+            ime->_CancelPairedPunctuationCaretMove();
+            ime->_ResetSmartPunctuationHistory();
+            GlobalIme::word_for_creating_word.clear();
+            GlobalIme::pending_create_word_preedit.clear();
+            ime->_creatingWordRestoreHistory.clear();
+            error = SafeRangeSetText(range.get(), cookie, 0, value.data(), static_cast<LONG>(value.size()));
+            return error == S_OK;
+        }
+        std::optional<Range> clone(Range &range)
+        {
+            ITfRange *copy = nullptr;
+            const HRESULT hr = range->Clone(&copy);
+            Range owned(copy);
+            if (hr != S_OK || !owned) return std::nullopt;
+            return std::optional<Range>(std::move(owned));
+        }
+        bool collapse_end(Range &range) { return range->Collapse(cookie, TF_ANCHOR_END) == S_OK; }
+        bool collapse_start(Range &range) { return range->Collapse(cookie, TF_ANCHOR_START) == S_OK; }
+        bool select(Range &range)
+        {
+            TF_SELECTION selection = {};
+            selection.range = range.get();
+            selection.style.ase = TF_AE_NONE;
+            selection.style.fInterimChar = FALSE;
+            return context->SetSelection(cookie, 1, &selection) == S_OK;
+        }
+        bool finish()
+        {
+            ime->_DeleteCandidateList(FALSE, context);
+            if (!current()) return false;
+            if (composition) {
+                const HRESULT hr = ime->_TerminateComposition(cookie, context);
+                // 自己结束旧组字只推进一次代次；重入创建的新组字不能被纳入本次所有权。
+                composition->Release();
+                composition = nullptr;
+                if (++epoch == 0) ++epoch;
+                if (hr != S_OK) return false;
+            }
+            return current();
+        }
+        std::optional<std::wstring> read(Range &range, std::size_t capacity)
+        {
+            std::wstring value(capacity, L'\0');
+            ULONG fetched = 0;
+            if (SafeRangeGetText(range.get(), cookie, 0, value.data(), static_cast<ULONG>(capacity), &fetched) != S_OK ||
+                fetched > capacity) return std::nullopt;
+            value.resize(fetched);
+            return value;
+        }
+        std::optional<std::size_t> shift_start(Range &range, std::size_t units)
+        {
+            LONG shifted = 0;
+            if (SafeRangeShiftStart(range.get(), cookie, -static_cast<LONG>(units), &shifted) != S_OK ||
+                shifted > 0 || shifted < -static_cast<LONG>(units)) return std::nullopt;
+            return static_cast<std::size_t>(-shifted);
+        }
+    } editor(this, context, ec);
+    const auto status = msime::tsf::CommitQuickPhraseCursor(editor, std::wstring_view(text), suffixUnits);
+    if (canRefresh) *canRefresh = status == msime::tsf::CursorCommitStatus::CommittedCurrent;
+    return status == msime::tsf::CursorCommitStatus::NotWritten
+               ? (FAILED(editor.error) ? editor.error : E_FAIL) : S_OK;
+}
 
 HRESULT CMetasequoiaIME::_AddCharAndFinalize(TfEditCookie ec, _In_ ITfContext *pContext,
                                              _In_ CStringRange *pstrAddString)

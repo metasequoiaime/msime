@@ -50,7 +50,7 @@ public:
     label(L"介绍（可不填）");
     add(description, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN, 72);
     SendMessageW(get(description), EM_SETLIMITTEXT, description_limit, 0);
-    add(format, L"STATIC", L"", SS_LEFT, 62);
+    add(format, L"STATIC", L"", SS_LEFT, 120);
     add(content, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN, 240);
     SendMessageW(get(content), EM_SETLIMITTEXT, content_limit, 0);
     add(save_pack, L"BUTTON", L"保存并安装", WS_TABSTOP | BS_PUSHBUTTON, 32);
@@ -157,7 +157,9 @@ private:
   void show_kind(std::wstring_view chosen) {
     for (const auto& entry : plugin_editor::authored_kinds)
       if (entry.kind == chosen) SetWindowTextW(get(kind_note), std::wstring(entry.description).c_str());
-    SetWindowTextW(get(format), std::wstring(plugin_editor::authored_text_format(chosen)).c_str());
+    auto instructions = std::wstring(plugin_editor::authored_text_format(chosen));
+    if (chosen == L"phrase_table") instructions += L"\r\n" + std::wstring(plugin_editor::phrase_cursor_note);
+    SetWindowTextW(get(format), instructions.c_str());
   }
   // 表单读成草稿：类型和 id 是当前这一份的，内容留给 `read_authored_content`。介绍的换行写成 LF，与共享页的 textarea 相同。
   std::optional<plugin_editor::AuthoringDraft> read() const {
