@@ -27,7 +27,8 @@ Android 语音设置的「识别」提供「本地停顿时间」和「本地识
 
 - `shared/voice/tests/local_asr.cpp` 与实际 `LocalAsr.cpp` 用 Clang C++17、`-Wall -Wextra -Werror` 编译并运行通过，含灵敏度方向、边界、默认与非法值回退。
 - 远端 `scripts/verify-local.sh --quick` 通过（`20261030-232849`），包含 316 项 JVM 冒烟、设备测试源码编译及 177 项可移植 Windows 测试。无完整宿主工程或工具的阶段按脚本跳过；笔记校验在本机补跑。先前两轮分别发现设备源码清单遗漏及异常声明遗漏，均修正后整轮重跑。
-- JVM 检查覆盖本地设置的默认值、区间、步长、快照读取和不进入同步字段；设备专项经真实原生页的滑块无障碍回调保存、读回并重建页面，结束时恢复原值和缺键状态。API 28／35 的实际执行结果随 PR 验证记录，尚未执行的检查不计为通过。
+- JVM 检查覆盖本地设置的默认值、区间、步长、快照读取和不进入同步字段。API 28／35 arm64 专用模拟器的原生页专项通过：实际滑块无障碍回调保存 2500 毫秒与 70，读回并重建页面，结束时恢复原值和缺键状态。
+- 新 JNI 与 `LocalAsr.cpp` 以 NDK 28.2.13676358 重编并通过 ABI 检查，Java 原生宿主以 Gradle 打包、开发签名、安装通过；API 35 的 `LocalSpeechHandleDeviceSmoke` 经真实新 JNI 验证旧五参数包装调用、无模型拒绝及句柄生命周期通过。Rust 和资源未改，复用固定 `587b0f9304` 的已验证产物。模拟器日志为 `target/android/voice-pause-device28.log`、`voice-pause-device35.log`、`voice-pause-handles35.log`，不以模拟器代替真机。
 - 没有用真实录音或用户模型评估识别质量；设置、JNI 接线与纯策略检查不替代这一层验收。
 
 ## Consequences
