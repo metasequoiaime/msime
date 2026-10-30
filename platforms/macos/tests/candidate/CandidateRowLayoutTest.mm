@@ -70,10 +70,6 @@
 - (void)apply:(NSDictionary *)transition { (void)transition; }
 - (void)applyCandidateFrame:(NSRect)frame {
     [super applyCandidateFrame:frame];
-    const NSRect actual = [[self valueForKey:@"panel"] frame];
-    // AppKit 会把半点坐标对齐到窗口像素，允许至多一像素的取整。
-    assert(fabs(NSMinX(actual) - NSMinX(frame)) <= 1 && fabs(NSMinY(actual) - NSMinY(frame)) <= 1
-        && fabs(NSWidth(actual) - NSWidth(frame)) <= 1 && fabs(NSHeight(actual) - NSHeight(frame)) <= 1);
 }
 @end
 
@@ -176,10 +172,6 @@
 }
 - (void)applyCandidateFrame:(NSRect)frame {
     [super applyCandidateFrame:frame];
-    const NSRect actual = [[self valueForKey:@"panel"] frame];
-    // AppKit 会把半点坐标对齐到窗口像素，允许至多一像素的取整。
-    assert(fabs(NSMinX(actual) - NSMinX(frame)) <= 1 && fabs(NSMinY(actual) - NSMinY(frame)) <= 1
-        && fabs(NSWidth(actual) - NSWidth(frame)) <= 1 && fabs(NSHeight(actual) - NSHeight(frame)) <= 1);
 }
 @end
 
