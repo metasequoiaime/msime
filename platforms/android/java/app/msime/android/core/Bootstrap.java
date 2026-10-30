@@ -458,15 +458,40 @@ public final class Bootstrap {
      */
     private static void refreshExistingConfiguration(Context context, File configuration, File resources) {
         try {
+            String recorded = readConfiguredResources(configuration);
+            boolean bundledDirectory = recorded != null
+                && new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath());
+            if (bundledDirectory) restorePackagedOnDemandGroups(context, resources);
             String error = refreshHost(configuration);
             if (error == null || !error.startsWith("dictionary_outdated")) return;
-            String recorded = readConfiguredResources(configuration);
-            if (recorded == null || !new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath())) return;
+            if (!bundledDirectory) return;
             extractDictionary(context, resources);
             refreshHost(configuration);
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed", error);
+        }
+    }
+
+    /** 已有配置也要接收新安装包随带的按需组；共享层允许整组缺席，不能只靠过期错误触发解包。 */
+    private static void restorePackagedOnDemandGroups(Context context, File resources) throws Exception {
+        java.util.Set<String> packaged = packagedArtifacts(context);
+        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+            if (!packaged.containsAll(group.artifacts())) continue;
+            boolean complete = true;
+            boolean present = false;
+            for (String name : group.artifacts()) {
+                java.nio.file.Path file = new File(resources, name).toPath();
+                present |= Files.exists(file, LinkOption.NOFOLLOW_LINKS);
+                complete &= Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) && SafePaths.isSingleLink(file);
+            }
+            if (complete || (!present && ResourcePacks.installed(context.getFilesDir(), group.pack()))) continue;
+            ensureSafeDirectory(resources.toPath());
+            for (String name : group.artifacts()) {
+                try (InputStream input = context.getAssets().open("dictionary/" + name)) {
+                    copyAsset(input, new File(resources, name).toPath());
+                }
+            }
         }
     }
 
