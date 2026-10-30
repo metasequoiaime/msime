@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-拍照识字设置页提供「下载地址」（#10242）：从共享资源包的 `importFiles` 读取当前宿主锁定的模块地址，以系统 `ACTION_VIEW` 选择器交给浏览器或第三方下载工具。下载完成后用户仍经原有文件选择器导入，模块身份与完整摘要校验由共享层持有。Google Play 渠道、模块目录不可用或没有下载地址时禁用按钮；设备没有可处理地址的应用时提示重试。地址不在 Java 里另存一份，避免宿主升级模块锁后还引导下载旧模块。
+拍照识字设置页提供「下载地址」（#10242）：从共享资源包的 `importFiles` 读取当前宿主锁定的模块地址，以系统 `ACTION_VIEW` 选择器交给浏览器或第三方下载工具。下载完成后用户仍经原有文件选择器导入，模块身份与完整摘要校验由共享层持有。Google Play 渠道、模块目录不可用或没有下载地址时禁用按钮；设备没有可处理地址的应用时提示重试：系统选择器在没有匹配应用时只显示系统自己的空列表、不会抛异常，所以先用 `queryIntentActivities` 判断，清单 `<queries>` 为此声明了 https 的 `VIEW`，否则 Android 11 起该查询恒为空。地址不在 Java 里另存一份，避免宿主升级模块锁后还引导下载旧模块。
 
 下载入口的验证：Mac Studio 上 `bash scripts/verify-local.sh --quick` 通过，设置 `ANDROID_HOME` 后 Gradle `:app:compileFullDebugJavaWithJavac` 成功；本机 `pnpm run verify-notes` 通过。GitHub 发布附件的文件名、大小和地址与模块锁一致。没有在设备上点选第三方下载工具，具体工具对该 HTTPS 附件地址的接管仍需设备复验。
 

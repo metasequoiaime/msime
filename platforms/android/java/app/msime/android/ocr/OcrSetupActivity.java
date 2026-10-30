@@ -100,8 +100,14 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         if (AppVersionPolicy.playDistribution() || pack == null || pack.importFiles().isEmpty()) return;
         String url = pack.importFiles().get(0).url();
         if (url.isEmpty()) return;
+        Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        // The system chooser never throws when nothing matches; check first so the guidance toast can show.
+        if (getPackageManager().queryIntentActivities(view, 0).isEmpty()) {
+            Toast.makeText(this, "没有可以打开下载地址的应用，请安装浏览器或下载工具后重试", Toast.LENGTH_LONG).show();
+            return;
+        }
         try {
-            startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW, Uri.parse(url)), "选择浏览器或下载工具"));
+            startActivity(Intent.createChooser(view, "选择浏览器或下载工具"));
         } catch (ActivityNotFoundException | SecurityException unavailable) {
             Toast.makeText(this, "没有可以打开下载地址的应用，请安装浏览器或下载工具后重试", Toast.LENGTH_LONG).show();
         }
