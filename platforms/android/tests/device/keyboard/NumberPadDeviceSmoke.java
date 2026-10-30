@@ -14,18 +14,25 @@ import org.json.JSONObject;
 /** 中文数字入口的真实网格、连续字面输入、符号往返和键位统计。 */
 public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private boolean passwordNumberPad;
+    private boolean randomDigits;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        randomDigits = arguments != null && "true".equals(arguments.getString("random-digits"));
         passwordNumberPad = arguments != null && "true".equals(arguments.getString("password-number-pad"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (randomDigits) return "随机数字入口默认关闭、真实开关、逐次字面上屏与重排、离页保持及英文隔离";
         if (passwordNumberPad) return "文字密码框可在字母与数字九宫格间往返，数字密码直接显示九宫格";
         return "Chinese number-pad geometry, continuous arithmetic input, symbols, return and key statistics";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (randomDigits) {
+            new RandomDigitsDeviceChecks(this).run();
+            return;
+        }
         if (passwordNumberPad) {
             verifyPasswordNumberPad();
             return;

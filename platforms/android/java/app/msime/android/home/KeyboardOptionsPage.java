@@ -304,7 +304,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             String member = button.preferenceKey;
             String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
                 ? "由当前应用处理；部分输入框不支持，密码框不可用"
-                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION : null;
+                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION
+                : button == ToolbarOrderPolicy.Item.RANDOM_DIGITS
+                    ? "在中文工具栏显示“随”开关；点按后打乱数字九宫格，每输入一个数字重新排列" : null;
             GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(preferences, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
@@ -414,7 +416,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
             if (longSpace) addChip(context, plate, "符", icon, chipPercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, chipPercent);
+                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button == ToolbarOrderPolicy.Item.RANDOM_DIGITS ? "随" : button.label, icon, chipPercent);
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, previewDp));
         strip.setContentDescription("工具栏预览");

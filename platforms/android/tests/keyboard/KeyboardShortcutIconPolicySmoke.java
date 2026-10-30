@@ -33,6 +33,8 @@ public final class KeyboardShortcutIconPolicySmoke {
             "text edit glyph mapping (#6351)");
         check(KeyboardShortcutIconPolicy.forLabel("符") == Icon.SYMBOL,
             "长空格布局的顶栏符号入口");
+        check(KeyboardShortcutIconPolicy.forLabel("随") == Icon.RANDOM_DIGITS
+            && !KeyboardShortcutIconPolicy.materialGlyph(Icon.RANDOM_DIGITS), "随机数字使用汉字图标");
         for (Icon icon : new Icon[] {Icon.EMOJI, Icon.PHRASE, Icon.CLIPBOARD, Icon.SKIN,
                 Icon.SCHEME, Icon.FLOATING, Icon.TEXT_EDIT, Icon.DISMISS}) {
             check(KeyboardShortcutIconPolicy.materialGlyph(icon), "material toolbar glyph " + icon);

@@ -59,7 +59,7 @@ final class ImeToolbar {
         s.dismissShortcutButton = dismissButton;
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton};
+            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton, s.randomDigitsShortcutButton};
         for (Button button : shortcutButtons) bindEditor(button);
         s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
         for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, dismissButton}) {
@@ -187,6 +187,7 @@ final class ImeToolbar {
                 case UNDO -> s.undoShortcutButton;
                 case REDO -> s.redoShortcutButton;
                 case VOICE -> s.voiceShortcutButton;
+                case RANDOM_DIGITS -> s.randomDigitsShortcutButton;
             };
             // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
             s.shortcutBar.addView(button, index + 1);
@@ -280,6 +281,9 @@ final class ImeToolbar {
             KeyboardShortcutIconPolicy.Icon.VOICE, s::startVoiceRecognition);
         s.voiceShortcutButton.setContentDescription("语音输入");
         s.keyId(s.voiceShortcutButton, "SoftVoice");
+        s.randomDigitsShortcutButton = s.shortcutButton(s.shortcutBar, "随",
+            KeyboardShortcutIconPolicy.Icon.RANDOM_DIGITS, s.imeLayoutRows::toggleRandomDigits);
+        s.randomDigitsShortcutButton.setContentDescription("随机数字");
         s.aiPolishShortcutButton = s.button(s.shortcutBar, "AI", s.imePanels::showAiPolish);
         s.aiPolishShortcutButton.setContentDescription("打开 AI 润色");
         s.replyShortcutButton = s.shortcutButton(s.shortcutBar, "回复",
