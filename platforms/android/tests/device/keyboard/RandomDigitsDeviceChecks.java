@@ -54,6 +54,8 @@ final class RandomDigitsDeviceChecks {
                 t.stage = "原生设置只打开入口 " + layout;
                 setEntry(true);
                 openEditor();
+                chineseEditor();
+                t.stage = "中文键盘显示未开启的随机数字入口 " + layout;
                 t.await(t.described("随机数字").and(node -> !node.isSelected()));
                 physical(t.key("123"));
                 check(Arrays.equals(order(), STANDARD), "设置打开不能开启重排");
@@ -100,7 +102,8 @@ final class RandomDigitsDeviceChecks {
                 t.stage = "关闭入口同时关闭运行时状态 " + layout;
                 setEntry(false);
                 openEditor();
-                if (visible(t.key("英"))) physical(t.key("英"));
+                chineseEditor();
+                t.stage = "中文键盘关闭随机数字入口 " + layout;
                 if (visible(t.described("随机数字"))) throw new AssertionError("已关闭入口仍可见");
                 physical(t.key("123"));
                 check(Arrays.equals(order(), STANDARD), "关闭入口后中文数字恢复标准排列");
@@ -116,10 +119,17 @@ final class RandomDigitsDeviceChecks {
 
     private void setEntry(boolean enabled) throws Exception {
         t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TOOLBAR_EDITOR");
-        Predicate<AccessibilityNodeInfo> toggle = node -> node.isCheckable() && containsLabel(node, "随机数字");
+        Predicate<AccessibilityNodeInfo> toggle = node -> "android.widget.Switch".contentEquals(node.getClassName())
+            && node.isCheckable() && containsLabel(node, "随机数字");
+        // 覆盖安装后会先显示一次临时说明；只确认这张已知提示，不绕过其他弹窗。
+        AccessibilityNodeInfo ready = t.await(t.key("编辑工具栏").or(t.key("临时说明（首次运行）")));
+        if (DeviceSmoke.equalsText("临时说明（首次运行）", ready.getText())) t.tap(t.key("知道了"));
+        t.await(t.key("编辑工具栏"));
+        t.stage = "工具栏设置滚动到随机数字";
         AccessibilityNodeInfo node = t.awaitAny(toggle);
         node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
         node = t.await(toggle);
+        t.stage = "工具栏设置保存随机数字入口";
         if (node.isChecked() != enabled) t.tap(toggle);
         t.await(toggle.and(item -> item.isChecked() == enabled));
         File local = new File(t.getTargetContext().getFilesDir(), "bootstrap/state/android-settings.json");
@@ -131,6 +141,13 @@ final class RandomDigitsDeviceChecks {
         t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         t.tap(t.field("msime-test-plain"));
         t.await(t.key("123"));
+    }
+
+    /** 设置窗口与编辑器是两个焦点会话，验收中文数字前明确选回中文，不依赖上一焦点的模式。 */
+    private void chineseEditor() throws Exception {
+        AccessibilityNodeInfo language = t.await(t.key("中").or(t.key("英")).and(AccessibilityNodeInfo::isEnabled));
+        if (DeviceSmoke.equalsText("英", language.getText())) physical(t.key("英"));
+        t.await(t.key("中"));
     }
 
     private int[] order() {
