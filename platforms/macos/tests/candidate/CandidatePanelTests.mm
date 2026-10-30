@@ -23,14 +23,6 @@ static void Spin(NSTimeInterval seconds)
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
-// 按完成状态等待主队列回调；单次 runUntilDate 返回不保证到期回调已经执行。
-static bool SpinUntil(BOOL (^finished)(void))
-{
-    const CFTimeInterval deadline = CACurrentMediaTime() + 2.0;
-    while (!finished() && CACurrentMediaTime() < deadline) Spin(0.01);
-    return finished();
-}
-
 static NSButton *CandidateButton(MetasequoiaCandidatePanel *panel, NSInteger tag)
 {
     for (NSView *view in panel.window.contentView.subviews)
@@ -44,7 +36,7 @@ static bool CardEntering(MetasequoiaCandidatePanel *panel)
     return [panel.window.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] != nil;
 }
 
-// 皮肤没写的动效一律不播：显示不透明、无进场，换选中无装饰，收起没有退场窗。
+// 候选界面动效一律不播：显示不透明、无进场，换选中无装饰，收起没有退场窗。
 static void RequireInstant(MetasequoiaCandidatePanel *panel, MSIMECandidateMotion *motion, const char *message)
 {
     [panel hide];
@@ -317,73 +309,29 @@ min_width_dip = 240
         // 不依赖这台机器的系统设置。
         motion.reduceMotion = NO;
         NSPanel *window = panel.window;
-        // 距上次收起已经很久：候选窗重新出现时播放皮肤写了的进场，窗口本身照样立即以完整透明度显示。
-        Spin(0.5);
+        // 显式声明的动效也不执行，候选与高亮直接呈现最终状态。
         [panel show:kIMKLocateCandidatesBelowHint];
         Require(panel.isVisible && window.alphaValue == 1.0 && window.animationBehavior == NSWindowAnimationBehaviorNone,
                 "候选窗应立即以不透明状态显示。");
-        Require(CardEntering(panel) &&
-                    [window.contentView.layer animationForKey:@"msime-candidate-enter-transform"] != nil &&
-                    window.contentView.layer.opacity == 1.0f,
-                "写了 fade_scale 进场的皮肤没有在卡片图层上播放进场。");
-        Require([CandidateButton(panel, 1).layer animationForKey:@"msime-candidate-row-reveal"] != nil,
-                "fade_scale 进场没有逐行错峰。");
-        // 进场途中再排一次：CandidatePanel 在同一张卡片里重建候选行，新行接着同一条时间线错峰，与 InputController 换新内容视图时一样。
-        NSButton *revealedBefore = CandidateButton(panel, 1);
+        Require(!CardEntering(panel) && window.hasShadow, "显式皮肤不应播放进场或延迟显示阴影。");
+        Require([CandidateButton(panel, 1).layer animationForKey:@"msime-candidate-row-reveal"] == nil,
+                "候选行不应逐行浮现。");
         [panel show:kIMKLocateCandidatesBelowHint];
-        Require(CandidateButton(panel, 1) != revealedBefore && CardEntering(panel) &&
-                    [CandidateButton(panel, 1).layer animationForKey:@"msime-candidate-row-reveal"] != nil,
-                "进场途中重建的候选行没有接着错峰。");
-        Require(!window.hasShadow, "进场期间窗口阴影应先关掉。");
-        Spin(0.35);
-        Require(!CardEntering(panel) && window.hasShadow, "进场结束后没有撤掉动画、还原阴影。");
-        // 选中：高亮和选中状态同步移动，动效只装饰新高亮行的底色。
-        Require([panel selectCandidateWithIdentifier:1] && panel.selectedCandidate == 1, "Selection did not move.");
+        Require(!CardEntering(panel), "重建候选时不应播放过渡。");
+        Require([panel selectCandidateWithIdentifier:1] && panel.selectedCandidate == 1, "高亮应立即移动。");
         NSButton *selectedWideButton = CandidateButton(panel, 1);
-        Require(selectedWideButton != nil, "The second wide-card candidate was not rendered.");
-        Require([[selectedWideButton valueForKey:@"candidateHighlighted"] boolValue] &&
-                    ![[CandidateButton(panel, 0) valueForKey:@"candidateHighlighted"] boolValue],
-                "选中动效不应推迟高亮。");
-        Require(motion.selectionLayer != nil && motion.selectionLayer.superlayer == selectedWideButton.layer.superlayer &&
-                    [motion.selectionLayer animationForKey:@"msime-candidate-selection"] != nil &&
-                    [[selectedWideButton valueForKey:@"selectionFillDetached"] boolValue],
-                "写了 spring 选中的皮肤没有装饰新高亮行的底色。");
-        Require([selectedWideButton.layer animationForKey:@"msime-candidate-selection"] == nil,
-                "选中动效不应缩放或淡化行里的文字。");
-        Spin(0.3);
+        Require([[selectedWideButton valueForKey:@"candidateHighlighted"] boolValue]
+                    && ![[CandidateButton(panel, 0) valueForKey:@"candidateHighlighted"] boolValue], "高亮状态未更新。");
         Require(motion.selectionLayer == nil && ![[selectedWideButton valueForKey:@"selectionFillDetached"] boolValue],
-                "选中装饰结束后行没有重新自己画底色。");
-        // 退场：面板立即不可见，旧卡片在不接收鼠标的退场窗里淡出。
+                "显式选中预设不应创建动画图层或分离静态高亮。");
         [panel hide];
-        Require(!panel.isVisible && !window.isVisible, "隐藏候选窗不应等待退出动画。");
-        Require(motion.exiting && motion.exitWindow.isVisible && motion.exitWindow.ignoresMouseEvents &&
-                    [motion.exitWindow.contentView.layer animationForKey:@"msime-candidate-exit-opacity"] != nil &&
-                    window.contentView != motion.exitWindow.contentView,
-                "写了 fade 退场的皮肤没有播放退场。");
-        // 退场中重新显示：立即撤掉退场，以完整不透明度显示，不播进场；迟到的完成回调不能收起它。
+        Require(!panel.isVisible && !window.isVisible && !motion.exiting && !motion.exitWindow.isVisible,
+                "收起候选不应保留退场窗口。");
         [panel show:kIMKLocateCandidatesBelowHint];
-        Require(panel.isVisible && window.alphaValue == 1.0 && !motion.exiting && !motion.exitWindow.isVisible && !CardEntering(panel),
-                "退场中重新显示没有立即以不透明状态出现。");
-        Spin(0.4);
-        Require(panel.isVisible && window.isVisible, "迟到的退场完成回调收起了重新显示的候选窗。");
-        // 没有被打断的退场在动画结束后才撤掉退场窗。
-        [panel hide];
-        Require(!panel.isVisible && motion.exiting, "退场没有开始。");
-        Require(SpinUntil(^BOOL { return !motion.exiting && !motion.exitWindow.isVisible; }), "退场结束后退场窗没有收起。");
-        // 连续输入的时间夹具独立于退场回调耗时；忙碌的 CI 可能等完退场就超过 400ms。
-        [motion setValue:@(CACurrentMediaTime()) forKey:@"lastHide"];
-        // 同一段连续输入（收起后不到 400ms 又出现）不播进场。
-        [panel show:kIMKLocateCandidatesBelowHint];
-        Require(panel.isVisible && !CardEntering(panel) && [motion.lastDecision hasPrefix:@"show=burst "],
-                "连续输入中重新出现的候选窗不应播放进场。");
-        // 进场途中打开「减弱动态效果」：动画立即撤掉，之后什么都不播。
-        [panel hide];
-        Spin(0.5);
-        [panel show:kIMKLocateCandidatesBelowHint];
-        Require(CardEntering(panel), "长时间收起后重新出现应播放进场。");
+        Require(panel.isVisible && !CardEntering(panel), "再次显示候选应立即完成。");
+        RequireInstant(panel, motion, "显式声明动效的皮肤也应即时显隐。");
         motion.reduceMotion = YES;
-        Require(!CardEntering(panel) && window.hasShadow, "打开减弱动态效果后进场没有立即结束。");
-        RequireInstant(panel, motion, "减弱动态效果时仍然播放了皮肤动画。");
+        RequireInstant(panel, motion, "减弱动态效果时也应即时显隐。");
         motion.reduceMotion = NO;
         Require(MetasequoiaResolveStoredTheme(NO, YES).candidateSkin == "wide-card" &&
                     MetasequoiaResolveStoredTheme(NO, NO).candidateSkin.empty(),

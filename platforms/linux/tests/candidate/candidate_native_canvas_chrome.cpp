@@ -460,6 +460,14 @@ void placement() {
 
 // 动效采样：进场从 0 到完整，退场回到 0；只有 fade_scale、slide_up 错峰，延迟有上限；待机动效位移不超过余量；减弱动态效果的来源。
 void motion() {
+  host::NativeCanvasAssets static_assets;
+  const Json declared_animation = {
+      {"enter", "fade_scale"}, {"exit", "fade"}, {"selection", "spring"},
+      {"durationMs", 180}, {"staggerMs", 14},
+      {"declared", {{"enter", true}, {"exit", true}, {"selection", true}}}};
+  host::read_native_canvas_animation(static_assets, Json{{"animation", declared_animation}});
+  assert(static_assets.enter == shared::MotionPreset::none && static_assets.exit == shared::MotionPreset::none
+      && static_assets.selection == shared::MotionPreset::none && static_assets.duration_ms == 0 && static_assets.stagger_ms == 0);
   for (const auto preset : {shared::MotionPreset::fade, shared::MotionPreset::fade_scale, shared::MotionPreset::slide_up,
                             shared::MotionPreset::spring}) {
     const auto start = shared::EnterFrame(preset, 0), end = shared::EnterFrame(preset, 1);

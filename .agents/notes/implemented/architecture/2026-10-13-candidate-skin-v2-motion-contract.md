@@ -2,6 +2,8 @@
 
 Status: implemented
 
+候选界面的进场、退场、逐行揭示与高亮呈现由[所有平台的候选立即呈现](../simplification/2026-10-30-candidate-immediate-presentation.md)取代；本篇的清单格式、旧包兼容性与装饰图独立契约继续成立。
+
 ## Problem
 
 候选窗皮肤原有 `schema_version = 1` 只描述颜色和几何。方案文档要求候选展示继续由各平台宿主拥有，同时希望候选窗有漂亮的动画；直接把 CSS 或 WebView 动画放进共享皮肤包会破坏 Linux 面板、原生宿主和社区同步的边界，也无法在 reduced-motion 或不支持动画的平台上安全降级。

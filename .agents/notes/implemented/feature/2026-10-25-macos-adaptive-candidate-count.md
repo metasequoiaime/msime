@@ -2,6 +2,8 @@
 
 Status: implemented
 
+候选展开与收起过渡的决定由[全平台即时候选呈现](../simplification/2026-10-30-candidate-immediate-presentation.md)部分取代；自适应分页、尺寸和滚动规则继续成立。
+
 ## Problem
 
 固定数量的横向候选随词长伸缩；历史最大宽度又会留下无用空白。需要按宽度选择一行可见候选，同时让展开后的长词占多列。

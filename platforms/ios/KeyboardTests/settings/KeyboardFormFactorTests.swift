@@ -389,30 +389,26 @@ final class KeyboardFormFactorTests: XCTestCase {
 
   // MARK: - iPhone 横屏分离式键盘（#10224）
 
-  /// 分开后第一排字母键的宽度按中缝四分之一、十个键距算；iPhone 只在它不窄于 50pt 时分。键盘根两侧各留 3pt，键距默认 6。
-  func testPhoneSplitNeedsFiftyPointLetterKeys() {
-    XCTAssertEqual(KeyboardSplitLayout.phoneMinimumLetterKeyWidth, 50)
+  /// 分开后第一排字母键的宽度按中缝四分之一、十个键距算；iPhone 只在它不窄于 36pt 时分。键盘根两侧各留 3pt，键距默认 6。宽度是键盘视图的宽度：全面屏 iPhone 横屏时系统在两侧留出地球键和听写键的栏，XR 真机上键盘视图约 662pt，不是屏幕的 896pt。
+  func testPhoneSplitNeedsThirtySixPointLetterKeys() {
+    XCTAssertEqual(KeyboardSplitLayout.phoneMinimumLetterKeyWidth, 36)
     let inset = KeyboardFormFactor.phone.padding.leading + KeyboardFormFactor.phone.padding.trailing
     XCTAssertEqual(inset, 6)
-    // 边界两侧：730pt 的一排是 49.95pt，731pt 是 50.025pt。
-    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 730, keySpacing: 6), 49.95, accuracy: 0.001)
-    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 731, keySpacing: 6), 50.025, accuracy: 0.001)
+    // 边界两侧：543pt 的一排是 35.925pt，544pt 是 36pt。
+    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 543, keySpacing: 6), 35.925, accuracy: 0.001)
+    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 544, keySpacing: 6), 36, accuracy: 0.001)
     func active(_ width: CGFloat, spacing: CGFloat = 6) -> Bool {
       KeyboardSplitLayout.phoneIsActive(idiom: .phone, formFactor: .phone, landscape: true,
                                         rowWidth: width - inset, keySpacing: spacing, enabled: true)
     }
-    XCTAssertFalse(active(736), "730pt row, 49.95pt keys")
-    XCTAssertTrue(active(737), "731pt row, 50.025pt keys")
-    // 各机型横屏宽度，默认键距：SE 和 6/7/8 Plus 不分，全面屏机型都分。
-    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 667 - inset, keySpacing: 6), 44.775, accuracy: 0.001)
-    XCTAssertFalse(active(667), "iPhone SE")
-    XCTAssertFalse(active(736), "iPhone 8 Plus")
-    for width: CGFloat in [812, 844, 852, 874, 896, 926, 932, 956] {
-      XCTAssertTrue(active(width), "\(width)")
-    }
-    // 键距调到最小 3pt 时 8 Plus 的键宽到 52.35pt，也分；SE 仍是 47.175pt，不分。
-    XCTAssertTrue(active(736, spacing: 3))
-    XCTAssertFalse(active(667, spacing: 3))
+    XCTAssertFalse(active(549), "543pt row, 35.925pt keys")
+    XCTAssertTrue(active(550), "544pt row, 36pt keys")
+    // XR 真机横屏的键盘视图约 662pt，分开后字母键 44.4pt：以前的 50pt 门槛让它永远不分。
+    XCTAssertEqual(KeyboardSplitLayout.phoneLetterKeyWidth(rowWidth: 662 - inset, keySpacing: 6), 44.4, accuracy: 0.001)
+    XCTAssertTrue(active(662), "iPhone XR keyboard view")
+    // 没有刘海的 SE 横屏键盘占满 667pt，同样分；键距调到最小 3pt 时键更宽，照样分。
+    XCTAssertTrue(active(667), "iPhone SE")
+    XCTAssertTrue(active(662, spacing: 3))
   }
 
   /// 只有 iPhone 横屏、开关打开时分：iPad 的浮动键盘和窄窗口虽是手机形态也不分，竖屏不分；不分的时候不去读开关。
@@ -428,7 +424,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertFalse(KeyboardSplitLayout.phoneIsActive(
       idiom: .pad, formFactor: .tablet, landscape: true, rowWidth: 1188, keySpacing: 6, enabled: { XCTFail("read"); return true }()))
     XCTAssertFalse(KeyboardSplitLayout.phoneIsActive(
-      idiom: .phone, formFactor: .phone, landscape: true, rowWidth: 661, keySpacing: 6, enabled: { XCTFail("read"); return true }()))
+      idiom: .phone, formFactor: .phone, landscape: true, rowWidth: 543, keySpacing: 6, enabled: { XCTFail("read"); return true }()))
   }
 
   /// iPhone 的开关单独存，默认关；App 那一页的「恢复默认」把它和 iPad 的开关一起还原。
@@ -505,18 +501,18 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
   }
 
-  /// 开关开着，屏幕太窄的 iPhone 横屏仍是整块键盘：SE 和 6/7/8 Plus 在默认键距下分开后的字母键不到 50pt。iPad 的浮动键盘（手机形态但不是 iPhone）也不分。
+  /// 开关开着，键盘视图窄得分开后字母键不到 36pt 时 iPhone 横屏仍是整块键盘；真机上的键盘视图（XR 约 662pt、SE 667pt）都够宽，照样分。iPad 的浮动键盘（手机形态但不是 iPhone）也不分。
   @MainActor
   func testNarrowIPhonesAndTheIPadFloatingKeyboardStayWhole() throws {
     try withSplitPreferences(scheme: .quanpin) {
       KeyboardLayoutPreference.phoneLandscapeSplit = true
-      for width: CGFloat in [667, 736] {
+      let narrow = splitTestController(idiom: .phone, horizontalSizeClass: .compact, landscape: true, width: 540)
+      XCTAssertTrue(visibleGaps(in: narrow).isEmpty)
+      XCTAssertTrue(try key("splitSpaceKey", in: narrow).isHidden)
+      for width: CGFloat in [662, 667] {
         let controller = splitTestController(idiom: .phone, horizontalSizeClass: .compact, landscape: true, width: width)
-        XCTAssertTrue(visibleGaps(in: controller).isEmpty, "\(width)")
-        XCTAssertTrue(try key("splitSpaceKey", in: controller).isHidden, "\(width)")
+        XCTAssertEqual(visibleGaps(in: controller).count, 4, "\(width)")
       }
-      let wide = splitTestController(idiom: .phone, horizontalSizeClass: .compact, landscape: true, width: 812)
-      XCTAssertEqual(visibleGaps(in: wide).count, 4, "the narrowest Face ID iPhone splits")
       let floating = splitTestController(idiom: .pad, horizontalSizeClass: .compact, landscape: true, width: 852)
       XCTAssertTrue(visibleGaps(in: floating).isEmpty)
     }

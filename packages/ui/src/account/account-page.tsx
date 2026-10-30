@@ -49,6 +49,7 @@ import { useAccountGoogleLogin } from "./use-account-google-login";
 import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import { useMobileSettingsSubview } from "../settings/use-mobile-settings-subview";
 import { AccountMeGroup, AccountMeRow, AccountMeSupportGroup } from "./account-me-components";
+import { HuaweiIdLabel } from "./huawei-id-label";
 
 export type {
   AccountUser,
@@ -822,7 +823,7 @@ function AccountDetailsPage({
                     action={signInWithHuawei}
                     className={account.provider}
                     disabled={busy}
-                    label="华为账号登录"
+                    label={<HuaweiIdLabel />}
                   />
                 )}
                 {appleAvailable && (

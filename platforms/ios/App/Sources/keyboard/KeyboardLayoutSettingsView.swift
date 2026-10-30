@@ -439,8 +439,8 @@ struct KeyboardLayoutSettingsView: View {
 
   /// 「分离式键盘」的标题，与 Android 和鸿蒙的设置页相同（`touch-split-keyboard-rows.tsx`）。
   static let splitKeyboardTitle = "分离式键盘"
-  /// iPhone 那一行的说明：中间一句与 Android、鸿蒙的说明相同，前后写 iPhone 自己的生效条件。
-  static let phoneSplitKeyboardSubtitle = "仅在 iPhone 横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；屏幕较窄的 iPhone（如 iPhone SE）保持完整键盘"
+  /// iPhone 那一行的说明：后一句与 Android、鸿蒙的说明相同，前面写 iPhone 自己的生效条件。
+  static let phoneSplitKeyboardSubtitle = "仅在 iPhone 横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入"
 
   /// 打开写 `number_pad`，关掉写 `off`（client-core 存成缺键）；文档没接受时页面回到文档里的值，并在「布局」一组下面提示没保存上。「恢复默认」不动它：它不是这一页的间距或高度。
   private func saveOneHandSidePad(_ enabled: Bool) {

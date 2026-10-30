@@ -132,8 +132,8 @@ enum KeyboardSplitLayout {
     formFactor == .tablet && landscape && enabled()
   }
 
-  /// iPhone 横屏分开后字母键至少要有多宽（pt）才分（#10224）。iPad 的分离式键盘从没低于约 69pt（iPad mini 横屏），任何 iPhone 横屏都达不到，所以不拿它作下限；50pt 留出比 44pt 触控下限更宽的余量，底行跟着变窄的功能键也还按得到。默认 6pt 键距下 iPhone SE（667pt 宽，约 44.8pt）和 6/7/8 Plus（736pt，约 50.0pt 以下）不分，全面屏 iPhone（812pt 起，约 55.7pt 以上）都分。
-  static let phoneMinimumLetterKeyWidth: CGFloat = 50
+  /// iPhone 横屏分开后字母键至少要有多宽（pt）才分（#10224）。键区宽是键盘视图的宽度，不是屏幕宽度：全面屏 iPhone 横屏时系统在键盘两侧各留一栏放地球键和听写键，XR（896pt 宽的屏幕）真机上键盘只有约 662pt，分开后字母键约 44pt。36pt 不窄于 iPhone 竖屏时的字母键（SE 约 31.5pt，XR 约 35.4pt），所以默认 6pt 键距下所有 iPhone 横屏都分；它只挡住窄得不正常的键盘视图。早先的 50pt 是按屏幕宽度算的，真机上没有一台 iPhone 够得着。
+  static let phoneMinimumLetterKeyWidth: CGFloat = 36
 
   /// iPhone 横屏分开后第一排字母键的宽度：一排十个字母加一段中缝，共十个键距；中缝视图宽 `gapViewWidth`，于是十个键分到 `(1 - gapRatio) * rowWidth - 8 * keySpacing`。第一排是手机键盘最窄的一排（第二排九个字母两侧缩进，第三排七个字母两侧是 44pt 的 ⇧ 和 ⌫，按同样的中缝算都更宽）。
   static func phoneLetterKeyWidth(rowWidth: CGFloat, keySpacing: CGFloat) -> CGFloat {

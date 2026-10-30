@@ -165,7 +165,7 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: tabletSplitKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: tabletSplitKey) }
   }
-  /// 「分离式键盘」的 iPhone 版（#10224）：iPhone 横屏时把 26 键字母布局从中间分成左右两半，几何与 iPad 的横屏分离式键盘相同。默认关，现有用户的横屏键盘不变；屏幕太窄、分开后字母键不到 `KeyboardSplitLayout.phoneMinimumLetterKeyWidth` 时不分（iPhone SE、Plus 等）。只存在本机 App Group，不随设置同步，与 iPad 的开关一样。和 iPad 的开关分开存，免得同一个值在两种设备上意思不同。
+  /// 「分离式键盘」的 iPhone 版（#10224）：iPhone 横屏时把 26 键字母布局从中间分成左右两半，几何与 iPad 的横屏分离式键盘相同。默认关，现有用户的横屏键盘不变；键盘视图窄得分开后字母键不到 `KeyboardSplitLayout.phoneMinimumLetterKeyWidth` 时不分，真机上的 iPhone 横屏键盘都够宽。只存在本机 App Group，不随设置同步，与 iPad 的开关一样。和 iPad 的开关分开存，免得同一个值在两种设备上意思不同。
   static var phoneLandscapeSplit: Bool {
     get { defaults.object(forKey: phoneLandscapeSplitKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: phoneLandscapeSplitKey) }

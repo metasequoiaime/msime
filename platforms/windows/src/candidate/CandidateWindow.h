@@ -121,10 +121,10 @@ public:
   void set_lease_check(LeaseCheck check) { lease_current_ = std::move(check); }
   // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
   bool open_expansion();
-  // The package's bounded native motion model. Reduced motion in Windows
-  // disables it at paint time without changing the candidate semantics.
+  // 兼容旧皮肤的动效数据，候选显隐与高亮始终立即呈现；图片帧与装饰动效独立播放。
   void set_skin_animation(CandidateSkinAnimation animation) {
-    animation_ = animation;
+    (void)animation;
+    animation_ = {};
   }
   // 光标处的打字特效浮层：每取到一个特效就交给它画火花、光标行闪光和连击徽标。返回 true 表示浮层在负责连击数，卡片就不在拼音行里再画一份；没有设置或返回 false 时，卡片照旧自己画计数、各样式都闪。
   using TypingEffectPresenter = std::function<bool(const TypingEffectPresentation &)>;
