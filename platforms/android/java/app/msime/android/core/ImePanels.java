@@ -44,6 +44,8 @@ final class ImePanels {
     private final Paint symbolRecentsGlyphPaint = new Paint();
     private int replyReadGeneration;
     private int replyMenuReadGeneration;
+    /** 符号集插件目录读取的代次；换输入框或关闭面板时作废旧结果。 */
+    private long pluginSymbolReadGeneration;
 
     ImePanels(MSIMEInputService s) {
         this.s = s;
@@ -52,6 +54,10 @@ final class ImePanels {
 
     void dismissClipboardPreview() {
         clipboardPreview.dismiss();
+    }
+
+    void invalidatePluginSymbolGroupReads() {
+        pluginSymbolReadGeneration = PluginSymbolLifecyclePolicy.advance(pluginSymbolReadGeneration);
     }
 
     void invalidateReplyTemplateReads() {
@@ -332,6 +338,8 @@ final class ImePanels {
     private void loadPluginSymbolGroups() {
         String directory = s.preferencesDirectory;
         if (directory.isEmpty()) return;
+        long generation = pluginSymbolReadGeneration =
+            PluginSymbolLifecyclePolicy.advance(pluginSymbolReadGeneration);
         // 接口要求 resources 是绝对路径，列插件组时并不读它；内置目录还没准备好时随便给一个应用自己的绝对目录。
         String resources = s.emojiResources.isEmpty() ? s.getFilesDir().getAbsolutePath() : s.emojiResources;
         String query;
@@ -351,7 +359,10 @@ final class ImePanels {
             }
             List<SymbolPanelModel.Category> loaded = categories;
             s.main.post(() -> {
-                if (s.symbolPanel != null) s.symbolPanel.setPluginCategories(loaded);
+                if (s.symbolPanel != null && PluginSymbolLifecyclePolicy.accepts(
+                        generation, pluginSymbolReadGeneration,
+                        ViewPolicy.isVisible(s.symbolPanel), directory, s.preferencesDirectory))
+                    s.symbolPanel.setPluginCategories(loaded);
             });
         });
     }
