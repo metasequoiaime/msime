@@ -604,9 +604,6 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 @end
 
 @implementation ModeController
-- (void)applyCandidateFrame:(NSRect)frame {
-    [super applyCandidateFrame:frame];
-}
 - (void)prepareSession {
     ++self.preparationCalls;
     if ([self valueForKey:@"session"]) [super prepareSession];

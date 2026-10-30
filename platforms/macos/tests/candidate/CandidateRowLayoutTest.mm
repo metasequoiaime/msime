@@ -68,9 +68,6 @@
 @implementation PagerTestController
 - (void)reportPointerToLifecycle { ++self.pointerReports; }
 - (void)apply:(NSDictionary *)transition { (void)transition; }
-- (void)applyCandidateFrame:(NSRect)frame {
-    [super applyCandidateFrame:frame];
-}
 @end
 
 // 专门模拟正在显示的窗口，检查同次组字的历史宽度不会覆盖收紧开关。
@@ -169,9 +166,6 @@
     if (reservesGloss) self.largestMeasurement = MAX(self.largestMeasurement, candidates.count);
     return [super candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:showSelectedBar inset:inset
         paging:paging visible:visible preeditWidth:preeditWidth minimumWidth:minimumWidth reservesGloss:reservesGloss];
-}
-- (void)applyCandidateFrame:(NSRect)frame {
-    [super applyCandidateFrame:frame];
 }
 @end
 
