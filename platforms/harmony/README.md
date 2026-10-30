@@ -325,9 +325,10 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 平板和折叠屏内屏横屏时，26 键一族（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文的键盘可以分成左右两半（#10224），规则逐条移植自 Android 的 `SplitKeyboardPolicy`（`keyboard/SplitKeyboardPolicy.ts`）。开关在共享 React 设置页「屏幕键盘 › 布局」，四行与 Android 原生设置页逐字相同：「分离式键盘」（共享偏好 `touch_keyboard_split`，默认关，随账号同步，同步键 `platform.harmony.split_keyboard`，与 Android 的 `platform.android.split_keyboard` 各管各的设备）、「竖屏也分离」（`touch_keyboard_split_portrait`，与 Android 共用这个共享偏好）、「分离启用宽度」（`touch_keyboard_split_threshold`，480–1000vp、步进 20、默认 600）、「分离中间空隙」（`touch_keyboard_split_gap`，10–40%、步进 5、默认 25）。后三项只留本机，主开关关着时不可调。
 
-- 什么时候分（`SplitKeyboardPolicy.drawn`）：主开关打开，屏幕最短边不小于启用宽度，横屏或竖屏选项打开，不是 2in1，正在画的键面能分（`KeyboardView.splitsFace`）。九键、14/18 键、笔画、注音、手写、假名九键不分，它们的符号页和借来的数字九宫格也不分。`readOrientation` 在转屏、折叠屏展开和折叠时记下屏幕宽高，分离与否随之重算，偏好不动。
+- 什么时候分（`SplitKeyboardPolicy.drawn`）：主开关打开，屏幕最短边不小于启用宽度，横屏或竖屏选项打开，不是 2in1，键盘没有浮动，正在画的键面能分（`KeyboardView.splitsFace`）。九键、14/18 键、笔画、注音、手写、假名九键不分，它们的符号页和借来的数字九宫格也不分。`readOrientation` 在转屏、折叠屏展开和折叠时记下屏幕宽高，分离与否随之重算，偏好不动。
 - 怎么分：字母三排、数字行、补充行、123 / #+= 层和两种底行都在键边界上断开，中间插一段不接触摸、读屏跳过的空隙（`splitGap`）。空隙至少占整行的「分离中间空隙」，两侧原始键区合计不超过 720vp，更宽的屏幕把多出来的宽度留在中间。字母第二、三排在右半边内侧重复 G、V（asdfg | ghjkl、⇧zxcv | vbnm⌫），重复的键从空隙借一个键宽，三排键宽不变；重复的键输入与左边那个相同，但不记滑行键位。底行的空格拆成两个，左边那个的份额让空隙落在整行中间，每一半至少保留原宽度的 15%。键盘高度不变。
-- 单手模式在分离时让位（`oneHandActive`），存着的值不变。
+- 单手模式在分离时让位（`oneHandActive`），存着的值不变，功能面板的单手磁贴置灰。
+- 浮动键盘优先：浮动时不分离，分离设置不变，停靠后按原样回来；分离画着时浮动磁贴照常可用。与 Android `splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false 相同。
 - 两个空格共用同一套空格手势状态（光标拖动、长按语音）：两根拇指同时按住两个空格时后按下的会接管，与 Android 每个空格各自一份状态不同。
 - 设置桥的能力位（`SettingsFormFactorCapabilities` 的 `splitKeyboard`，报给共享设置页的 `touch_keyboard_split`）与侧边数字键盘相同：平板和可折叠手机为真，直板手机和 2in1 为假。
 - 测试：`tests/split-keyboard.test.ts` 覆盖读法、启用条件、几何和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-split-keyboard.test.tsx`。见 `.agents/notes/implemented/feature/2026-10-30-split-keyboard-iphone-harmony.md`。
