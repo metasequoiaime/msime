@@ -202,3 +202,7 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 `e746981d18` 的实际 Notepad 输入、Host API/TSF 受控访问冲突、共享队列和隔离后台已经复验；TSF 的独立精确归档还原到 `KeyEventSink.cpp:2415`。首次增量链接遗留同 GUID、不同 age 的 PE/PDB，被身份门禁拒绝，保留失败后仅重链接该产物再取得匹配归档；不放宽 PDB age。Host API 的真实故障可还原函数而仍没有源码行。完整证据、夹具失败与清理边界由[全平台复验记录](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#e746-的-windows-x64-暂存产品复验)持有，不将本轮结果扩大为所有架构或全平台完成。
 
 Android debuggerd 重新排队默认致命信号后返回的例外、绕过 ART 逻辑查询的 libc 入口、共同与 iOS 独立记录器的旧 inode 回归，以及实际 Android 产品后台证据由[待送达致命信号修复](../bug-fix/2026-10-30-android-pending-fatal-signal.md)持有。
+
+### Linux 三服务 systemd 补充验收
+
+固定 `e746981d18` 的 Ubuntu x64 暂存产品已逐项通过在线、语音与剪贴板三个实际服务的自动重启、SIGKILL 不误报、活跃撤回重开、原捕获身份、主动停止不重启及参数错误退出码 `2` 不重启。仅 XDG 隔离，禁网临时 unit 复用产品重启策略；共享控制器代收入队，无输入会话，不声称后台或系统级安装通过。第三轮完整通过；前两轮 socket 路径过长、停止后才撤回导致清理断言失败的夹具记录保留。独立审计确认授权、队列、unit 和进程已清理，151 份产品文件及源码不变。详情与边界见[三服务复验](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#linux-三个产品服务的-systemd-生命周期复验)，证据为 `target/linux-systemd-service-matrix-e746-small-evidence/`。
