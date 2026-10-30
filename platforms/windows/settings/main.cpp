@@ -22346,6 +22346,7 @@ private:
       body.Children().Append(make_text(L"编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 " +
                                            std::to_wstring(pg::max_text_utf16) + L" 个字符，不能换行。",
                                        12, palette_.sub));
+      body.Children().Append(make_text(pg::phrase_cursor_note, 12, palette_.sub));
       for (std::size_t i = 0; i < std::min(draft.phrases.size(), plugin_editor_shown_); ++i) {
         const auto at = L"第 " + std::to_wstring(i + 1) + L" 条短语";
         auto key = plugin_editor_field(
