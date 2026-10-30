@@ -8,6 +8,7 @@
 #include <iterator>
 #include <memory>
 #include <sstream>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -96,14 +97,12 @@ struct Module {
   char name[128]{};
   char build_id[129]{};
 };
-Module modules[512];
-size_t module_count = 0;
+// 鸿蒙应用的系统依赖可能超过 600 个；只在持配置锁的正常路径扩容，信号路径只读快照。
+std::vector<Module> modules;
 
 #if defined(__linux__)
 int snapshot_module(dl_phdr_info *info, size_t, void *) {
-  if (module_count == std::size(modules)) return 1;
-  auto &module = modules[module_count];
-  module = {};
+  Module module;
   module.base = static_cast<uintptr_t>(info->dlpi_addr);
   const char *name = info->dlpi_name;
   if (!name || !*name) name = "<executable>";
@@ -148,18 +147,20 @@ int snapshot_module(dl_phdr_info *info, size_t, void *) {
       remaining -= name_size + data_size;
     }
   }
-  if (module.begin < module.end) ++module_count;
+  if (module.begin < module.end) {
+    // 不能让分配异常穿过动态加载器的 C 回调；枚举不完整时让 arm 保持停用。
+    try { modules.push_back(module); } catch (...) { return 1; }
+  }
   return 0;
 }
 
 #else
 void snapshot_mach_modules() {
-  for (uint32_t index = 0; index < _dyld_image_count() && module_count < std::size(modules); ++index) {
+  for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
     const auto *image = _dyld_get_image_header(index);
     if (!image || image->magic != MH_MAGIC_64) continue;
     const auto *header = reinterpret_cast<const mach_header_64 *>(image);
-    auto &module = modules[module_count];
-    module = {};
+    Module module;
     module.base = reinterpret_cast<uintptr_t>(image);
     const char *name = _dyld_get_image_name(index);
     if (!name) name = "<executable>";
@@ -189,14 +190,13 @@ void snapshot_mach_modules() {
       cursor += load->cmdsize;
       remaining -= load->cmdsize;
     }
-    if (module.begin < module.end) ++module_count;
+    if (module.begin < module.end) modules.push_back(module);
   }
 }
 #endif
 
 void posix_frame(Buffer &out, uintptr_t address) {
-  for (size_t index = 0; index < module_count; ++index) {
-    const auto &module = modules[index];
+  for (const auto &module : modules) {
     if (address < module.begin || address >= module.end) continue;
     out.text(module.name);
     out.text("+");
@@ -629,10 +629,10 @@ void arm(const std::string &path, const std::string &header) {
   std::memcpy(record_header, header.data(), header.size());
   record_header_size = header.size();
 #if defined(__linux__)
-  module_count = 0;
-  dl_iterate_phdr(snapshot_module, nullptr);
+  modules.clear();
+  if (dl_iterate_phdr(snapshot_module, nullptr) != 0) return;
 #elif defined(__APPLE__)
-  module_count = 0;
+  modules.clear();
   snapshot_mach_modules();
 #endif
 #ifdef _WIN32
