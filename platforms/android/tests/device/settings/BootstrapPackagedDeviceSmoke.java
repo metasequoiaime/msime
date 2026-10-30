@@ -73,6 +73,8 @@ public final class BootstrapPackagedDeviceSmoke extends Instrumentation {
                     "正常瘦包启动不能安装或下载五笔资源包");
             } else {
                 checkLookup(nativeClient, configuration);
+                check(!Files.exists(root.toPath().resolve("bootstrap/wubi-merge-pending")),
+                    "重新准备成功后必须清掉五笔合表标记，稳定启动不再重放日志");
                 List<Long> inodes = new ArrayList<>();
                 for (Path file : optional) {
                     check(Files.isRegularFile(file), "完整 APK 的按需文件必须补解包");

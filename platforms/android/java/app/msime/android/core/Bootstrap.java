@@ -468,16 +468,30 @@ public final class Bootstrap {
             File updates = new File(state, "dictionary-updates/generations").getCanonicalFile();
             boolean updatedDirectory = ownedState && recorded != null
                 && new File(recorded).getCanonicalFile().toPath().startsWith(updates.toPath());
+            // 补齐失败（如空间不足）不能挡住刷新：`language_dictionaries` 同步与换代次照旧进行，补齐下次启动重试。
+            boolean restored = true;
             if (bundledDirectory || updatedDirectory) {
-                restorePackagedOnDemandGroups(context, resources);
-                if (updatedDirectory) {
-                    // 更新代次保持只读；随包文件收编为资源包，由共享解析选择它，不改下载的资源目录。
-                    java.util.Set<String> packaged = packagedArtifacts(context);
-                    for (OnDemandGroup group : ON_DEMAND_GROUPS) {
-                        if (packaged.containsAll(group.artifacts())
-                                && !ResourcePacks.installed(context.getFilesDir(), group.pack()))
-                            ResourcePacks.adopt(context.getFilesDir(), group.pack(), resources);
+                try {
+                    restorePackagedOnDemandGroups(context, resources);
+                    if (updatedDirectory) {
+                        // 更新代次保持只读；随包文件收编为资源包，由共享解析选择它，不改下载的资源目录。
+                        java.util.Set<String> packaged = packagedArtifacts(context);
+                        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+                            if (packaged.containsAll(group.artifacts())
+                                    && !ResourcePacks.installed(context.getFilesDir(), group.pack())) {
+                                try {
+                                    ResourcePacks.adopt(context.getFilesDir(), group.pack(), resources);
+                                } catch (ResourcePacks.Failure failure) {
+                                    android.util.Log.w("MSIMEBootstrap", "Bundled on-demand adoption failed: "
+                                        + group.pack() + " " + failure.code());
+                                }
+                            }
+                        }
                     }
+                } catch (Exception | LinkageError error) {
+                    restored = false;
+                    // Bootstrap has no editor or session input; never use this logging for keystrokes.
+                    android.util.Log.w("MSIMEBootstrap", "Bundled on-demand restoration failed", error);
                 }
             }
             String error = refreshHost(configuration);
@@ -485,9 +499,11 @@ public final class Bootstrap {
                 extractDictionary(context, resources);
                 error = refreshHost(configuration);
             }
-            if (error == null && bundledDirectory && ownedState
+            java.nio.file.Path mergePending = wubiMergePending(resources);
+            if (error == null && restored && bundledDirectory && ownedState
+                    && Files.exists(mergePending, LinkOption.NOFOLLOW_LINKS)
                     && packagedArtifacts(context).containsAll(WUBI_GROUP.artifacts())) {
-                // 同锁代次不会触发 refresh 的重建；重新准备已有代次，合并五笔表并回放日志，也覆盖补文件后被杀的启动。
+                // 同锁代次不会触发 refresh 的重建；只在补过五笔码表之后重新准备已有代次，合并五笔表并回放日志。标记成功后才删，覆盖补文件后被杀的启动；平时不在键盘可能持有会话时重放日志。
                 JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                     .put("state_root", state.getAbsolutePath());
                 if (!AppEdition.current().isFull()) request.put("edition", AppEdition.current().id());
@@ -496,6 +512,7 @@ public final class Bootstrap {
                     throw new IllegalStateException("Bundled dictionary preparation failed: "
                         + PreparationFailure.describe(new IllegalStateException(
                             JsonPolicy.strictStringOrEmpty(prepared.opt("error")))));
+                Files.delete(mergePending);
             }
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
@@ -528,12 +545,22 @@ public final class Bootstrap {
             }
             if (complete || (!present && ResourcePacks.installed(context.getFilesDir(), group.pack()))) continue;
             ensureSafeDirectory(resources.toPath());
+            if (group == WUBI_GROUP) {
+                // 先落标记再复制：复制途中被杀，下次启动仍会补齐并重新准备代次。
+                java.nio.file.Path marker = wubiMergePending(resources);
+                if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) Files.createFile(marker);
+            }
             for (String name : group.artifacts()) {
                 try (InputStream input = context.getAssets().open("dictionary/" + name)) {
                     copyAsset(input, new File(resources, name).toPath());
                 }
             }
         }
+    }
+
+    /** 补过随包五笔码表、工作代次还没重新准备时存在的标记（`bootstrap/wubi-merge-pending`），只在持有 `bootstrap.lock` 时读写。 */
+    private static java.nio.file.Path wubiMergePending(File resources) {
+        return new File(resources.getParentFile(), "wubi-merge-pending").toPath();
     }
 
     /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
