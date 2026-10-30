@@ -34,7 +34,7 @@ private struct CommunityReportSheet: View {
   @State private var message: String?
   @State private var sent = false
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section("举报原因") {
           Picker("原因", selection: $reason) {

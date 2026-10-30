@@ -42,7 +42,7 @@ struct ProviderPickerView: View {
   @State private var search = ""
 
   var body: some View {
-    NavigationView {
+    NavigationStack {
       List {
         ForEach(options.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)
           || $0.subtitle.localizedCaseInsensitiveContains(search) }) { option in
@@ -73,7 +73,7 @@ struct ProviderPickerView: View {
       .navigationTitle("选择服务商")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-    }.navigationViewStyle(.stack)
+    }
       .tint(MetasequoiaTheme.accent)
   }
 }

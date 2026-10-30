@@ -431,7 +431,7 @@ private struct PersonalWordEditor: View {
     _word = State(initialValue: previous ?? PersonalWord(key: "", value: ""))
   }
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         if word.isBundled {
           Section {

@@ -336,12 +336,12 @@ private struct MainTabView: View {
       if url.host == "voice" { navigation.recordsVoice = true }
     }
     .sheet(isPresented: $navigation.recordsVoice) {
-      NavigationView {
+      NavigationStack {
         ServiceSettingsView(kind: .voice, autoStartVoice: true)
           .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { navigation.recordsVoice = false } }
           }
-      }.navigationViewStyle(.stack).tint(MetasequoiaTheme.accent)
+      }.tint(MetasequoiaTheme.accent)
     }
     // 全屏而不是 sheet：左上角要留给指向系统「◀︎ 返回」的气泡，页面自己带「完成」。
     .fullScreenCover(isPresented: $navigation.opensVoiceSession) { VoiceSessionView() }

@@ -248,7 +248,7 @@ struct CodeLoginView: View {
   @State private var pending: Task<Void, Never>?
 
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section {
           TextField(channel == .email ? "邮箱地址" : "手机号（含国家区号，如 +86）", text: $target)

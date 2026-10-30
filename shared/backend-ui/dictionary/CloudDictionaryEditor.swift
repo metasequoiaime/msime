@@ -53,7 +53,7 @@ struct CloudDictionaryEditor: View {
         HStack { cancelButton; Spacer(); uploadButton }
       }.padding(20).frame(width: 440, height: 320)
       #else
-      NavigationView {
+      NavigationStack {
         fields.fittedSheet().navigationTitle(title).toolbar {
           ToolbarItem(placement: .cancellationAction) { cancelButton }
           ToolbarItem(placement: .confirmationAction) { uploadButton }

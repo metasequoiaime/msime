@@ -35,7 +35,7 @@ struct PersonalDictionaryImportView: View {
   @State private var notice = ""
 
   var body: some View {
-    NavigationView {
+    NavigationStack {
       List {
         Section {
           Picker("导入来源", selection: $source) {

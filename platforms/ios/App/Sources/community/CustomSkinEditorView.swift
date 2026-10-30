@@ -409,7 +409,7 @@ if section == "我的" {
       }
     }
     .sheet(isPresented: $showSave) {
-      NavigationView {
+      NavigationStack {
         Form {
           TextField("皮肤名称", text: $name).accessibilityIdentifier("customSkinName")
             .onChange(of: name) { _, value in if value.count > 32 { name = String(value.prefix(32)) } }

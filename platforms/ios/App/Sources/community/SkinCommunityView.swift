@@ -465,7 +465,7 @@ struct CommunityPublishView: View {
     }
   }
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section {
           if library.isEmpty {
