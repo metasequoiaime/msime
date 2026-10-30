@@ -68,9 +68,22 @@ final class VoiceHoldDeviceChecks {
             setText("");
 
             begin();
-            t.stage = "lock keeps recognition active after release";
+            t.stage = "horizontal right slide from the space releases on send";
+            Rect hold = bounds(t.described("长按模式，松开发送"));
+            if (!hold.contains((int) x, (int) y)) throw new AssertionError("Held space is not over 松开发送: " + hold);
+            Rect send = bounds(t.described("发送本次语音"));
+            if (y < send.top || y >= send.bottom) throw new AssertionError("Send is not in the held row: " + send);
+            move(send.centerX(), y);
+            end(MotionEvent.ACTION_UP);
+            text("合成语音");
+            t.await(t.key("空格"));
+            setText("");
+
+            begin();
+            t.stage = "lock keeps recognition active after a horizontal left slide";
             Rect lock = bounds(t.described("滑到此处松手锁定录音"));
-            move(lock.centerX(), lock.centerY());
+            if (y < lock.top || y >= lock.bottom) throw new AssertionError("Lock is not in the held row: " + lock);
+            move(lock.centerX(), y);
             end(MotionEvent.ACTION_UP);
             t.await(t.described("录音已锁定，点击发送或取消结束").and(node -> !node.isEnabled()));
             t.await(t.described("正在聆听：合成语音"));

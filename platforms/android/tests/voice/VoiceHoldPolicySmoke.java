@@ -29,6 +29,14 @@ public final class VoiceHoldPolicySmoke {
             "无穷坐标不能发送");
         check(VoiceHoldPolicy.release(30, 130, null, null, false) == VoiceHoldPolicy.Action.SEND,
             "尚未排版的按钮没有命中范围");
+        // 面板最下一行与原功能行重合：🔓 | 松开发送 | 发送 同处手指所在的那一行，水平滑动不换行。
+        VoiceHoldPolicy.Region rowLock = new VoiceHoldPolicy.Region(0, 300, 80, 352);
+        check(VoiceHoldPolicy.release(200, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.SEND,
+            "原空格位置松手发送");
+        check(VoiceHoldPolicy.release(40, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.LOCK,
+            "同一行水平左滑到锁定");
+        check(VoiceHoldPolicy.release(360, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.SEND,
+            "同一行水平右滑到发送");
         check(!new VoiceHoldPolicy.Region(10, 10, 10, 20).contains(10, 15), "零宽范围不能命中");
         check(!new VoiceHoldPolicy.Region(10, 10, 20, Float.NaN).contains(15, 15), "坏范围不能命中");
 

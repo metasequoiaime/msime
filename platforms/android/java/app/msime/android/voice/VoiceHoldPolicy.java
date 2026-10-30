@@ -29,7 +29,7 @@ public final class VoiceHoldPolicy {
 
     private VoiceHoldPolicy() {}
 
-    /** 非数坐标或系统取消一律取消；没有命中按钮的有效坐标松开发送。 */
+    /** 非数坐标或系统取消一律取消；没有命中取消或锁定的有效坐标松开发送。「发送」按钮和「松开发送」都落在这条兜底里，所以不单独传入发送按钮的范围：它与其他未命中的位置结果相同。 */
     public static Action release(float x, float y, Region cancel, Region lock, boolean interrupted) {
         if (interrupted || !Float.isFinite(x) || !Float.isFinite(y)) return Action.CANCEL;
         if (cancel != null && cancel.contains(x, y)) return Action.CANCEL;

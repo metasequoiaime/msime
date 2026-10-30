@@ -438,6 +438,7 @@ final class ImeVoiceEntry {
         return button;
     }
 
+    /** 控制行（🔓 | 松开发送 | 发送）排在最下面、与原功能行同高，压着原空格的手指落在「松开发送」上，水平左滑到锁定、右滑到发送（#10327）。 */
     private void buildHoldActions() {
         if (!(listeningPanel instanceof LinearLayout column)) return;
         if (actionsRow != null) column.removeView(actionsRow);
@@ -448,15 +449,6 @@ final class ImeVoiceEntry {
         cancelRow.addView(holdCancelButton, new LinearLayout.LayoutParams(0, s.pixels(44), 2));
         cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
         actions.addView(cancelRow, LayoutPolicy.matchWidthWrapParams());
-        LinearLayout controls = LayoutPolicy.row(s);
-        holdLockButton = holdButton("🔓", "滑到此处松手锁定录音", () -> {});
-        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, s.pixels(44), 1));
-        holdSpaceButton = holdButton("松开发送", "长按模式，松开发送", () -> {});
-        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, s.pixels(44), 3));
-        holdSendButton = holdButton("发送", "发送本次语音", this::finishListening);
-        finishButton = holdSendButton;
-        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, s.pixels(44), 1));
-        actions.addView(controls, LayoutPolicy.matchWidthWrapParams());
         LinearLayout utilities = LayoutPolicy.row(s);
         utilities.addView(holdButton("符", "锁定语音中打开符号", () -> {
             if (locked) s.imePanels.showSymbolPanel();
@@ -469,6 +461,17 @@ final class ImeVoiceEntry {
         holdUtilities = utilities;
         enableHoldUtilities(false);
         actions.addView(utilities, LayoutPolicy.matchWidthWrapParams());
+        int rowHeight = coveredActionRow != null && coveredActionRow.getHeight() > 0
+            ? coveredActionRow.getHeight() : s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP);
+        LinearLayout controls = LayoutPolicy.row(s);
+        holdLockButton = holdButton("🔓", "滑到此处松手锁定录音", () -> {});
+        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        holdSpaceButton = holdButton("松开发送", "长按模式，松开发送", () -> {});
+        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, rowHeight, 3));
+        holdSendButton = holdButton("发送", "发送本次语音", this::finishListening);
+        finishButton = holdSendButton;
+        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        actions.addView(controls, LayoutPolicy.matchWidthWrapParams());
         column.addView(actions, LayoutPolicy.matchWidthWrapParams());
         actionsRow = actions;
     }
