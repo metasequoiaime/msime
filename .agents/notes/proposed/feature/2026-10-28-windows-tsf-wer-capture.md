@@ -141,6 +141,8 @@ PR head `6bc13ef19d` 对应的 Native Platform CI `40834862691` 中，`Build and
 
 本轮真实使用后的第二个安装器边界是卸载：卸载器移除了 Program Files、合成数据和 WER 双视图值，但 TSF 仍被系统输入法占用时，`System32\IME\metasequoiaime-full\msime_v0.3.0` 下两个 DLL 在硬重启后仍残留。现有 `uninsrestartdelete` 只覆盖 Inno 文件清单，无法保证卸载后自定义清理路径也登记待重启删除。安装脚本现由原生 64 位 PowerShell 通过 `MoveFileExW` 的 `MOVEFILE_DELAY_UNTIL_REBOOT` 对递归残留文件和目录逐项登记，目标为空指针而不是空字符串；生命周期门禁同时锁定原生 PowerShell、延迟删除常量和调用。完整新包重编与真实锁定卸载复验仍待执行，不能把静态门禁当作修复已发布。
 
+静态门禁通过后，用 Inno Setup 6.7.3 编译最小合成安装器时发现，`-Command "..."` 外层引号会剥掉 C# `DllImport` 的内部双引号；直接把引号写进命令会使 PowerShell 返回退出码 1。现改为由 PowerShell 用 `[char]34` 组合类型定义，避免嵌套命令行引号。Windows 构建机上的同源 PowerShell 组合脚本已编译 `Add-Type` 成功，直接执行 `MoveFileExW(..., [IntPtr]::Zero, MOVEFILE_DELAY_UNTIL_REBOOT)` 后在 `PendingFileRenameOperations` 看到合成版本目录和文件；完整新包及真实 TSF 锁定卸载仍待复验。
+
 ## Alternatives considered
 
 - **超时后保存进程内存转储**：可提供线程调用栈，最利于定位 WER 等待；但即使合成目标也继承运行环境，转储可能扩大诊断内容范围。本轮仅保留本目标最多 128 条线程的 ID、状态与等待原因，以及匹配该 PID 的最多 16 个 WER worker 的 ID、名字与父 PID，不输出内存、环境或命令行。
