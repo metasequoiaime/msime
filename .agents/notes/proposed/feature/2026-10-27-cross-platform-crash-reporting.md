@@ -227,6 +227,8 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 当前 head `cdb4fe7021` 的 Native Platform CI `40926324997` 已通过 Android API 35 完整设备门禁（job `123634080314`）和 Windows native settings 全部 x64/x86 WER 门禁（job `123634080235`），并通过 Linux/Fedora/HarmonyOS host、Android host、Rust、Web、Windows GNU 及 Apple 相关 job。Android 设备作业实际完成 KVM、共享 crate 设备单测、APK、崩溃/系统退出/ANR 专项和完整输入冒烟；Windows 作业实际完成 MCP、共享存储替换、跨线程学习重置、x64/x86 TSF WER、Win7、设置页和 recorder。此次结果只证明该候选的 CI 路径，不能扩大到真机、完整产品编辑器、ARM64 实际故障或各平台发布后台链路。
 
 
+2026-10-30 后续准备 macOS 共享设置产品验收时，源码检查确认 `desktop_crash_reporting::directory` 直接按 `HOME` 解析队列，不能沿用原生入口的 `CFFIXED_USER_HOME` 隔离方式。为避免写入真实用户队列，在启动产品之前主动停止本任务编译（退出 143），没有执行故障或发送；原生正式缓存随后重建并重新通过拒绝测试目标的检查。该准备结果不计共享设置验收通过，证据为远端 `target/macos-e746-settings-acceptance/isolation-review.json`，不改写 `HOME` 来绕过隔离要求。
+
 ### e746 的 Ubuntu x64 完整暂存产品复验
 
 固定 `e746981d18261e39cf6f0530934985fad6afcf9b`，在 PVE Ubuntu x64 的干净检出复用 `target/release` 与 `target/linux-ibus`；没有替换系统安装或旧正式前缀。完整前端、Host API、Linux 0.14.0 设置组件与原生产品构建后安装到独立暂存前缀。设置组件使用正式打包的 `TAURI_CONFIG` 和 `tauri/custom-protocol`，从产品的 `msime-linux-settings --route=settings` 启动；不以开发 URL 或单独 Tauri 工程验收。十二份资源按当前锁逐份校验大小与 SHA-256，固定 generation 为 `641a853a12de31e99579e3370742c08b182033f35a19cf62e0722df81367975d`。原下载超时保留，后从 macmini 的同锁缓存校验归档传入并再次由真实 ResourceStore 校验，没有修改锁或生成替代词库。
