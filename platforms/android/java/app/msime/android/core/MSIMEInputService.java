@@ -333,7 +333,7 @@ public final class MSIMEInputService extends InputMethodService {
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
     int touchRowSpacingTenths = KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS;
     int touchKeyboardHeightAdjustment = KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP;
-    /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；「语音输入 → 启动方式」选「工具栏按钮」或工具栏设置里打开「语音」时为真（#10142）。 */
+    /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；在「键盘 → 工具栏」打开「语音」或键盘内打开「顶部语音入口」时为真（#10142）；「语音输入 → 启动方式」选「无」会关掉它，选「工具栏/长按空格」不改它（#10309）。 */
     boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
