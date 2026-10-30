@@ -4,6 +4,7 @@ package app.msime.android;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.SystemClock;
@@ -14,7 +15,7 @@ import android.text.TextUtils;
 import android.widget.TextView;
 
 /**
- * 键盘内的语音聆听面板：accent 圆盘托着麦克风，外面两圈随麦克风音量涨落的光圈，下面是标题和如何结束录音的提示。排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}，iOS 与 HarmonyOS 用同一组数值。
+ * 键盘内的语音聆听面板：工具栏显示水杉娘和随音量变化的耳边红线；长按空格保留麦克风与光圈。下面是标题和结束录音的提示，排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}。
  *
  * <p>节点 text 是标题（「正在聆听…」「正在识别…」「识别完成」），提示由调用方更新；结束采集与取消由面板下方的显式按钮处理。颜色由调用方从皮肤传入。
  *
@@ -31,6 +32,10 @@ public final class VoiceListeningView extends TextView {
     public static final float HINT_SP = 13f;
     /** 识别中没有中间文字时提示行的文案，与 iOS 一致。 */
     static final String RECOGNIZING_HINT = "识别完成后自动上屏";
+
+    private final VoiceMascotDrawing mascotDrawing = new VoiceMascotDrawing();
+    private Bitmap mascot;
+    private boolean mascotEnabled;
 
     private final Paint orb = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -71,6 +76,17 @@ public final class VoiceListeningView extends TextView {
         ViewPolicy.clearBackground(this);
         title.setTextAlign(Paint.Align.CENTER);
         hint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    /** 工具栏会话显示人物；长按空格保留原面板，素材迟到也不改变入口选择。 */
+    public void setMascotEnabled(boolean value) {
+        mascotEnabled = value;
+        invalidate();
+    }
+
+    public void setMascot(Bitmap value) {
+        mascot = value;
+        invalidate();
     }
 
     /** accent 圆盘、圆盘上的麦克风色、标题色（kbFg）、提示色（kbSub）。 */
@@ -172,21 +188,31 @@ public final class VoiceListeningView extends TextView {
         float cx = getWidth() / 2f;
         float cy = plan.indicatorCenterY(scale);
         float radius = plan.orb() / 2f;
-        int orbColor = releaseToCancel ? secondary : accent;
-        float spread = VoiceListeningPolicy.spread(levelShown, plan.halo());
-        if (spread > 0f) {
-            halo.setColor(orbColor);
-            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.OUTER_ALPHA));
-            canvas.drawCircle(cx, cy, radius + spread, halo);
-            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.INNER_ALPHA));
-            canvas.drawCircle(cx, cy, radius + spread / 2f, halo);
-        }
-        orb.setColor(orbColor);
-        canvas.drawCircle(cx, cy, radius, orb);
-        float mic = plan.orb() * MIC_RATIO;
-        if (mic > 0f) {
-            KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
-                cy - mic / 2f, mic, onAccent);
+        if (mascotEnabled) {
+            float box = plan.orb() + 2f * plan.halo();
+            float width = Math.min(getWidth(), box * 320f / 250f);
+            int saved = canvas.save();
+            canvas.translate(cx - width / 2f, cy - box / 2f);
+            // 静音和识别阶段不画红线；人物只占已预留的指示区，不挤占文字或按钮。
+            mascotDrawing.draw(canvas, mascot, width, box, recognizing ? 0f : levelShown);
+            canvas.restoreToCount(saved);
+        } else {
+            int orbColor = releaseToCancel ? secondary : accent;
+            float spread = VoiceListeningPolicy.spread(levelShown, plan.halo());
+            if (spread > 0f) {
+                halo.setColor(orbColor);
+                halo.setAlpha(Math.round(255 * VoiceListeningPolicy.OUTER_ALPHA));
+                canvas.drawCircle(cx, cy, radius + spread, halo);
+                halo.setAlpha(Math.round(255 * VoiceListeningPolicy.INNER_ALPHA));
+                canvas.drawCircle(cx, cy, radius + spread / 2f, halo);
+            }
+            orb.setColor(orbColor);
+            canvas.drawCircle(cx, cy, radius, orb);
+            float mic = plan.orb() * MIC_RATIO;
+            if (mic > 0f) {
+                KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
+                    cy - mic / 2f, mic, onAccent);
+            }
         }
         // 文字居中绘制，左右各留 16 dp。标题位预留 plan 的行数，实际只占一行时提示紧跟其后。
         float available = BoundsPolicy.nonNegative(getWidth() - getPaddingLeft() - getPaddingRight()
