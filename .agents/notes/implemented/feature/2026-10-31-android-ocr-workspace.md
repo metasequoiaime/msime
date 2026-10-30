@@ -29,7 +29,8 @@ Activity 不含文本编辑器，以 `FLAG_ALT_FOCUSABLE_IM` 遮盖键盘而不�
 - API 28／35 独立焦点探针：专用测试输入法从第三方合成编辑器打开带 `FLAG_ALT_FOCUSABLE_IM` 的 Activity，核对原连接身份、可读性与实际 `commitText`；窗口打开到插入之间没有新增 `onStartInput`／`onFinishInput`，原编辑器收到固定合成文字。探针不是产品验收替代品；临时 APK 已卸载，原输入法已恢复。
 - 产品专项从真实输入法“更多工具”进入，实际相机 JPEG → EXIF 解码 → 独立图片页 → 可选模块推理 → 单字点击／全选 → 复制／插入原 `EditText`。另检查裁剪四边的实际像素、笔刷白色遮罩、空笔刷、背景释放相机、返回不插入和旧结果在新输入会话中失效。字素覆盖组合附加符、ZWJ emoji 和旗帜序列。
 - 复用固定提交 `abab458037f6f35f6bd32c0d49878a167470f3d4` 的 Rust 动态库和与其临时测试锁配对的合成模块；已核对其 Rust 源码与本分支基点相同。JNI 按本分支源码重新编译、Java 按本分支完整构建与签名。合成锁和模块不提交，不把验收 APK 当正式产品发布。
-- `check-host.sh` 通过 Java／JNI、316 项 JVM 冒烟与设备套件编译；Gradle `assembleFullRelease lintFullRelease` 通过。最终 `verify-local.sh --quick` 与 API 35 产品专项通过，API 35 同时覆盖前文保留、照片旋转后推理和重拍。API 28 的对应最终专项及更新后的手写共存仍在本次改动中收取结果；结果未收齐前 PR 保持草稿。
+- `check-host.sh` 通过 Java／JNI、316 项 JVM 冒烟与设备套件编译；Gradle `assembleFullRelease lintFullRelease` 通过，`verify-local.sh --quick` 和笔记校验通过。API 28／35 最终产品专项均通过，同时覆盖前文保留、照片旋转后推理和重拍；两版系统撤回相机权限专项通过。
+- API 28／35 在同一个真实 `:ime` 进程中完成离线手写 → 相机 OCR → 离线手写，覆盖真实笔迹、候选、空格／回车上屏、撤销和符号层返回。API 28 曾在进入手写前失败：专用 AVD 只启用了全拼，方案面板没有手写卡片。手写专项经原生设置页临时添加手写，结束后移除，仅在本次添加时还原；原书写模式和原输入方案同样恢复。前置失败截图与识别阶段失败截图分开，避免恢复操作覆盖原始现场。
 
 ## Consequences
 

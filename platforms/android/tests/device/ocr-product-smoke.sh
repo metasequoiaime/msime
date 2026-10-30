@@ -129,7 +129,7 @@ fi
 ime_handwriting_status=0
 bash platforms/android/tests/device/handwriting-smoke.sh "$serial" --ocr-coexistence \
   2>&1 | tee target/android/ocr-product-ime-handwriting.log || ime_handwriting_status=$?
-for checkpoint in before result after failure; do
+for checkpoint in before result after failure prerequisite-failure; do
   "$adb" -s "$serial" pull "/data/local/tmp/msime-ocr-ime-handwriting-$checkpoint.png" \
     "target/android/ocr-product-ime-handwriting-$checkpoint.png" >/dev/null 2>&1 || true
 done
