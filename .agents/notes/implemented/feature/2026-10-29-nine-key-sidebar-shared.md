@@ -45,7 +45,7 @@ Status: implemented
 - 一屏最多几项：Android 字母层 5（笔画 3），数字层 5，`#+=` 在滚动区外；iOS 字母层 3，数字层照原来的 `operatorScroll`；鸿蒙字母层 3，数字层是 4 格高的滚动区加最下面一格 `#+=`。每项等高，不少于 28 dp/pt/vp，键盘调到最矮时少放几项，多的上下滚动。
 - 出厂表时 iOS 与鸿蒙走原来的代码路径，画面不变；只有自定义表才走新的滚动栈（iOS `NineKeySidebarScrollView`，鸿蒙 `customLetterSidebar` / `customDigitSidebar` / 笔画 `strokeRailMarks`，`ForEach` 键带符号、下标、高度和 `faceKey`）。
 - 点按自定义项：先结束组字，处理与点同一层的出厂项相同（字母层按首选上屏；数字层与出厂运算符一样原样上屏），再按字面上屏。Android 照旧走 `commitNineKeyLiteral`（全角模式下转全角）；iOS 与鸿蒙不做全半角转换。表项正好是一整对符号（`（）`、`()` 等）时光标停在两者中间，三端用同一张 16 对的表，以 Android `PairedPunctuationPolicy.SYMBOL_PAIRS` 为准（iOS `NineKeySidebar.pairedSymbols`，鸿蒙 `PairedPunctuationPolicy.LITERAL_PAIRS`）。左列统计 id 不变，热力图仍画 ，。？。组字时左列被拼音读音盖住，自定义表同样被盖住。
-- 长按：Android 打开「按键布局」并直接进入那张表的编辑页（`edit_sidebar_key` 传共享偏好名）；鸿蒙键盘只能按页打开设置（`SettingsPageLink`），打开「屏幕键盘」页；iOS 长按不做事（键盘扩展打不开宿主 App 的某一页）。
+- 长按：Android 打开「按键布局」并直接进入那张表的编辑页（`edit_sidebar_key` 传共享偏好名）；鸿蒙同样直达编辑页，键盘打开设置的链接在页面之外带一个子目标，值也是共享偏好名（见[鸿蒙设置链接的子目标](2026-10-30-harmony-settings-link-target.md)）；iOS 长按不做事（键盘扩展打不开宿主 App 的某一页）。
 - 密码框和只收数字的框里底行样式退回标准时，两张表照用户的画。
 
 ### 设置页（三端同一结构）
@@ -81,7 +81,7 @@ Status: implemented
 ## Consequences
 
 - 收益：三端都能改两张表，Android 与鸿蒙随账号同步；默认文档、出厂画面逐键不变，Android 老用户的自定义表在升级时迁进共享偏好。
-- 有意保留的差异：数字层出厂表三端不同；iOS、鸿蒙自定义项不做全半角转换；iOS 长按不做事；鸿蒙长按只能打开「屏幕键盘」页，到不了「按键布局」里的编辑页；iOS 搜索命中只打开「键盘」页。
+- 有意保留的差异：数字层出厂表三端不同；iOS、鸿蒙自定义项不做全半角转换；iOS 长按不做事；iOS 搜索命中只打开「键盘」页。鸿蒙长按原来只能打开「屏幕键盘」页，2026-10-30 补上了直达编辑页。
 - 代价：Android 降级到旧版本后符号栏回到出厂表（旧键已删，与 `number_row` 接受的代价相同）。入口挪位置，Android 老用户一时可能找不到，靠搜索别名和长按直达兜住。
 - 发布顺序：服务端账号字段表等带迁移的 Android 版本发布后再收录四个同步键（字符串，最长 200 个 UTF-16 单元）；收录之前上传会被字段表过滤掉，同步往返要等收录后才能验证。
 - [按键布局样式](2026-10-27-touch-key-layout-styles.md)里「iOS 没有自定义符号栏列表」那句已不成立，那篇已改指向本篇。[长按快速编辑](2026-10-26-android-nine-key-sidebar-quick-edit.md)的深链目标从 `KEYBOARD_OPTIONS` 改成 `KEY_LAYOUT_STYLES`，那篇已同步。[可视化编辑](2026-10-18-android-nine-key-sidebar-editor.md)的交互沿用，存储换成共享偏好、多了手动输入。[默认符号回到三项](2026-10-13-android-nine-key-default-symbols.md)和[Android 成对标点](2026-10-08-android-paired-punctuation.md)沿用，后者的配对表是三端的权威。

@@ -89,17 +89,18 @@ impl Entry {
         self
     }
 
-    /// The entry as the Engine will store it: the code lowercased, and a weight inside the range
-    /// it accepts.
+    /// A new entry as the Engine will store it: the code lowercased, and a weight inside the range it accepts.
     ///
-    /// Both are the Engine's rules (`validate_personal_dictionary_entry`), applied here so a value
-    /// this layer would otherwise hand on and have refused - with an error naming neither the
-    /// field nor the reason - becomes the entry the user meant. A weight of zero is the one the
-    /// reference writes for an imported English row, and losing the row over a rank difference of
-    /// one would be the worse trade.
-    fn normalized_for_engine(mut self) -> Self {
+    /// Both are the Engine's rules (`validate_personal_dictionary_entry`), applied here so a value this layer would otherwise hand on and have refused - with an error naming neither the field nor the reason - becomes the entry the user meant. A weight of zero is the one the reference writes for an imported English row, and losing the row over a rank difference of one would be the worse trade.
+    fn normalized_for_engine(self) -> Self {
+        let mut entry = self.with_folded_code();
+        entry.weight = entry.weight.max(MINIMUM_WEIGHT);
+        entry
+    }
+
+    /// A stored row as the Engine looks it up: only the code is folded, as the Engine folds it. The weight is matched exactly, and 0 is one a stored row can carry (a wubi word derived from the user's pinyin word ranks below the rows already on its code), so lifting it to the new-entry floor would name a row that is not there.
+    fn with_folded_code(mut self) -> Self {
         self.key = self.key.to_ascii_lowercase();
-        self.weight = self.weight.max(MINIMUM_WEIGHT);
         self
     }
 
@@ -126,7 +127,7 @@ impl Entry {
     }
 }
 
-/// The smallest weight the Engine stores; anything below it is refused outright.
+/// The smallest weight a new entry is stored at; a new entry below it is refused outright. A stored row may still carry 0 (`validate_previous_entry`).
 const MINIMUM_WEIGHT: i64 = 1;
 
 impl From<Entry> for DictionaryEntry {
@@ -902,7 +903,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             // typed as `QQ` came back as "invalid dictionary entry" while the very same code
             // typed in lower case was fine - and an entry edited after being imported from a file
             // that had it in upper case could never be matched to the row it stored.
-            let previous = previous.map(Entry::normalized_for_engine);
+            let previous = previous.map(Entry::with_folded_code);
             if let Some(entry) = &previous {
                 validate_previous_entry(entry)?;
             }
@@ -1345,7 +1346,7 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             replacement,
             request_id,
         } => {
-            let previous = previous.map(personal_from_entry).transpose()?;
+            let previous = previous.map(personal_from_stored_entry).transpose()?;
             let replacement = replacement.map(personal_from_entry).transpose()?;
             store
                 .enqueue(previous, replacement, request_id)
@@ -1887,6 +1888,27 @@ fn personal_from_entry(entry: Entry) -> Result<PersonalWord, String> {
     })
 }
 
+/// The row a queued edit or removal starts from. It is one the list returned, so it is normalized by the Engine's rules for a stored row (`dictionary_validate_previous`): its weight may be 0 or past the new-entry ceiling, and refusing it here left such a row impossible to remove through the queue.
+fn personal_from_stored_entry(entry: Entry) -> Result<PersonalWord, String> {
+    if entry.is_bundled() {
+        return Err(BUNDLED_READ_ONLY.into());
+    }
+    let word = PersonalWord {
+        kind: personal_kind(entry.kind.into()),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    };
+    let entry = msime_engine::host::dictionary_validate_previous(&personal_engine_entry(&word))
+        .map_err(|_| "invalid personal dictionary entry".to_owned())?;
+    Ok(PersonalWord {
+        kind: personal_kind(entry.kind),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    })
+}
+
 fn normalize_personal_word(word: PersonalWord) -> Result<PersonalWord, String> {
     let entry = msime_engine::host::dictionary_validate(&personal_engine_entry(&word))
         .map_err(|_| "invalid personal dictionary entry".to_owned())?;
@@ -2007,15 +2029,18 @@ fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
 
 /// The host's bounds on an entry, each refusal naming the rule it broke. The reasons are fixed text and never repeat the entry.
 fn validate_entry(entry: &Entry) -> Result<(), String> {
-    validate_entry_up_to(entry, 100_000_000)
+    validate_entry_within(entry, MINIMUM_WEIGHT..=100_000_000)
 }
 
-/// The row an edit or removal starts from. It is one the list returned and has to reach the Engine exactly as stored, and English frequency learning lifts a user's own word past 100000000 without a ceiling, so only the floor applies to its weight; otherwise that word could never be edited or removed.
+/// The row an edit or removal starts from. It is one the list returned and has to reach the Engine exactly as stored, so its weight is held only to what the store can hold: English frequency learning lifts a user's own word past 100000000 without a ceiling, and a derived wubi word can sit at 0. Holding it to the new-entry range left those rows impossible to edit or remove.
 fn validate_previous_entry(entry: &Entry) -> Result<(), String> {
-    validate_entry_up_to(entry, i64::MAX)
+    validate_entry_within(entry, 0..=i64::MAX)
 }
 
-fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
+fn validate_entry_within(
+    entry: &Entry,
+    weights: std::ops::RangeInclusive<i64>,
+) -> Result<(), String> {
     let key_limit = match entry.kind {
         Kind::Pinyin => 512,
         Kind::Wubi | Kind::Wubi98 => 4,
@@ -2051,7 +2076,7 @@ fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
         "word is empty or too long"
     } else if value_has_invalid_control {
         "word contains a control character"
-    } else if !(1..=max_weight).contains(&entry.weight) {
+    } else if !weights.contains(&entry.weight) {
         "weight is outside 1 to 100000000"
     } else {
         return Ok(());

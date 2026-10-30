@@ -805,11 +805,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// Show touch keyboard geometry on the live session while it is being dragged. The shared snapshot is the source that is reloaded when the extension appears.
   @discardableResult
-  func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
-                                heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
+  func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double, heightAdjustment: Double) -> Bool {
     guard let mapping = Self.geometryMapping(keySpacing: keySpacing, rowSpacing: rowSpacing,
-                                             heightAdjustment: heightAdjustment,
-                                             voiceEnabled: voiceEnabled) else { return false }
+                                             heightAdjustment: heightAdjustment) else { return false }
     return updatePreferences(mapping)
   }
 
@@ -820,19 +818,16 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   ///
   /// 返回值是共享文档有没有写成。组字中会话会把偏好推迟到空闲时再应用（`deferred`），这不是失败：键距、行距、高度只由宿主自己读，文档照样要写。原先推迟了就不写文档，下次唤出键盘时文档里的旧高度又把这次调整盖了回去。
   @discardableResult
-  func persistTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
-                                    heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
+  func persistTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double, heightAdjustment: Double) -> Bool {
     guard let mapping = Self.geometryMapping(keySpacing: keySpacing, rowSpacing: rowSpacing,
-                                             heightAdjustment: heightAdjustment,
-                                             voiceEnabled: voiceEnabled) else { return false }
+                                             heightAdjustment: heightAdjustment) else { return false }
     _ = updatePreferences(mapping)
     return persistSharedPreferences(mapping)
   }
 
-  /// 只写传了值的那几项。设置 App 一次只改一项，只写这一项，就不会把它页面上停留着的旧值（比如键盘里刚调过的高度）写回文档。
+  /// 只写传了值的那几项。设置 App 一次只改一项，只写这一项，就不会把它页面上停留着的旧值（比如键盘里刚调过的高度）写回文档。`touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 不写它，免得键盘里调一下高度就把别的设备同步来的值盖掉。
   static func geometryMapping(keySpacing: Double? = nil, rowSpacing: Double? = nil,
-                              heightAdjustment: Double? = nil,
-                              voiceEnabled: Bool? = nil) -> ((inout [String: Any]) -> Void)? {
+                              heightAdjustment: Double? = nil) -> ((inout [String: Any]) -> Void)? {
     guard [keySpacing, rowSpacing, heightAdjustment].allSatisfy({ $0?.isFinite ?? true }) else { return nil }
     let keySpacingTenths = keySpacing.map { Int((SharedNumber.clamped($0, to: 3...6) * 10).rounded()) }
     let rowSpacingTenths = rowSpacing.map { Int((SharedNumber.clamped($0, to: 4...10) * 10).rounded()) }
@@ -841,7 +836,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       if let keySpacingTenths { preferences["touch_key_spacing_tenths"] = keySpacingTenths }
       if let rowSpacingTenths { preferences["touch_row_spacing_tenths"] = rowSpacingTenths }
       if let clampedHeight { preferences["touch_keyboard_height_adjustment"] = clampedHeight }
-      if let voiceEnabled { preferences["touch_voice_shortcut"] = voiceEnabled }
     }
   }
 
@@ -852,7 +846,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       preferences.removeValue(forKey: "touch_key_spacing_tenths")
       preferences.removeValue(forKey: "touch_row_spacing_tenths")
       preferences.removeValue(forKey: "touch_keyboard_height_adjustment")
-      preferences.removeValue(forKey: "touch_voice_shortcut")
     }
   }
 

@@ -332,6 +332,40 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 「键盘工具栏」设置页的预览（`KeyboardToolbarPreviewRow`）与真键盘空闲时的工具栏逐个按钮对得上：每种 26 键样式、显示方式为「输入时显示」和「隐藏」各量一遍。只有长空格把 符 放在品牌键后面；表情键样式底行也没有 符，入口是长按 123，工具栏上没有；隐藏时长空格这一行只剩品牌、符 和收起，其他样式不画工具栏内容。
+  func testToolbarPreviewMatchesTheKeyboardToolbarForEveryTwentySixKeyStyle() throws {
+    select(.quanpin)
+    let ids: [KeyboardPreviewToolbarItem: String] = [
+      .symbols: "symbolsShortcut", .emoji: "emojiShortcut", .phrases: "phrasesShortcut", .clipboard: "clipboardShortcut",
+      .skin: "skinShortcut", .scheme: "schemeButton", .ai: "aiShortcut", .characterSet: "characterSetShortcut",
+      .fullwidth: "fullwidthShortcut", .punctuation: "punctuationShortcut",
+    ]
+    XCTAssertEqual(Set(ids.keys), Set(KeyboardPreviewToolbarItem.allCases))
+    for hidden in [false, true] {
+      TouchToolbarLocalPreference.hidden = hidden
+      for style in TouchTwentySixKeyStyle.allCases {
+        let layout = TouchKeyLayoutStyle(twentySixKey: style)
+        XCTAssertTrue(write(layout))
+        let controller = keyboard()
+        let label = "\(style.rawValue), hidden \(hidden)"
+        let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
+        let preview = KeyboardToolbarPreviewRow.items(TouchToolbarPreference.load(), phrases: TouchToolbarLocalPreference.phrases,
+                                                      scheme: TouchToolbarLocalPreference.scheme, hidden: hidden, keyLayout: layout)
+        XCTAssertEqual(bar.isHidden, preview == nil, label)
+        if let preview {
+          // 品牌键、收起键以及预览不画的回复和语音入口不比。
+          let drawn = Set(ids.values)
+          let visible = bar.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier).filter(drawn.contains)
+          XCTAssertEqual(visible, preview.compactMap { ids[$0] }, label)
+          XCTAssertEqual(bar.arrangedSubviews.filter { !$0.isHidden }.first?.accessibilityIdentifier, "moreShortcut", label)
+        }
+        XCTAssertEqual(preview?.contains(.symbols) ?? false, style == .longSpace, label)
+        XCTAssertEqual(shown(try button("symbolsShortcut", in: controller)), style == .longSpace, label)
+        controller.viewDidDisappear(false)
+      }
+    }
+  }
+
   /// 工具栏设成隐藏、26 键选了长空格时来回切中/英，键盘高度和按键位置都不变：英文 26 键画标准底行，工具栏上的 符 跟着消失，但这一行按键盘留着，只剩品牌和收起，与 Android、鸿蒙相同；iOS 的顶栏本来就一直占着它的高度。Android 和鸿蒙曾在这里随中/英把整行工具栏收起又放出，键盘跟着跳；iOS 曾在英文时把整条工具栏连同品牌和收起一起藏掉。
   func testLongSpaceToolbarRowKeepsTheHeightAcrossLanguageToggles() throws {
     select(.quanpin)

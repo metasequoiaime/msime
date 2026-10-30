@@ -46,6 +46,8 @@ export interface SettingsFormFactorProjection {
   candidateSkinEditor: boolean;
   /** 屏幕键盘页「大屏单手时侧边显示数字键盘」（`touch_one_handed_side_panel`，#10203）：只在有大屏触屏键盘的设备上声明，即平板和可折叠手机（展开后是大屏）；直板手机的单手模式铺满整行，空不出一侧，2in1 不画触摸按键。 */
   oneHandedSidePanel: boolean;
+  /** 屏幕键盘页「分离式键盘」四行（`touch_keyboard_split` 等，#10224）：与 `oneHandedSidePanel` 一样只在有大屏触屏键盘的设备上声明，即平板和可折叠手机；直板手机的最短边不到最低的 480vp 启用宽度，从不分离，2in1 不画触摸按键。 */
+  splitKeyboard: boolean;
 }
 
 /** Keep the shared settings page aligned with the keyboard's actual device form factor. */
@@ -85,6 +87,7 @@ export class SettingsFormFactorCapabilities {
       touchPluginPacks: !desktop,
       candidateSkinEditor: desktop,
       oneHandedSidePanel: deviceType === "tablet" || (deviceType === "phone" && foldable),
+      splitKeyboard: deviceType === "tablet" || (deviceType === "phone" && foldable),
     };
   }
 }

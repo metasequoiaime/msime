@@ -86,22 +86,22 @@ pub struct PersonalDictionaryPage {
 pub fn validate_personal_dictionary_entry(
     entry: &PersonalDictionaryEntry,
 ) -> Result<PersonalDictionaryEntry> {
-    validate_entry(entry, MAX_ENTRY_WEIGHT)
+    validate_entry(entry, 1..=MAX_ENTRY_WEIGHT)
 }
 
-/// The same checks for a row being edited or removed. It is one the list returned and is matched exactly against the journal, and English frequency learning lifts a user's own word past `MAX_ENTRY_WEIGHT` without a ceiling (J:1027-1031), so only the floor applies to its weight. The reference refused such a row (personal_dictionary.cpp:11-12), which left it impossible to edit or remove.
+/// The same checks for a row being edited or removed. It is one the list returned and is matched exactly against the journal, so its weight is held only to what the store can hold, not to the range a new entry must fall in. English frequency learning lifts a user's own word past `MAX_ENTRY_WEIGHT` without a ceiling (J:1027-1031), and a wubi word derived from the user's pinyin word ranks below the rows already on its code and can be stored at weight 0 (`wubi_learning::learn`); no writer stores a negative weight. The reference refused such rows (personal_dictionary.cpp:11-12), which left them impossible to edit or remove.
 pub(crate) fn validate_existing_entry(
     entry: &PersonalDictionaryEntry,
 ) -> Result<PersonalDictionaryEntry> {
-    validate_entry(entry, i64::MAX)
+    validate_entry(entry, 0..=i64::MAX)
 }
 
 fn validate_entry(
     entry: &PersonalDictionaryEntry,
-    max_weight: i64,
+    weights: std::ops::RangeInclusive<i64>,
 ) -> Result<PersonalDictionaryEntry> {
     let invalid = |message: &str| Err(EngineError::invalid(message));
-    if !(1..=max_weight).contains(&entry.weight) {
+    if !weights.contains(&entry.weight) {
         return invalid(WEIGHT_OUT_OF_RANGE);
     }
     if entry.key.is_empty()
@@ -1512,6 +1512,50 @@ mod tests {
         // The replacement keeps the ceiling.
         let too_heavy = entry(English, "bar", "bar", MAX_ENTRY_WEIGHT + 1);
         assert!(edit_personal_dictionary(&paths, None, Some(&too_heavy), "").is_err());
+    }
+
+    /// 由拼音自造词派生的五笔词排在同码已有词之后（`wubi_learning::learn` 取同码最小权重减一，最低到 0），所以列表会返回权重为 0 的用户词。这一行必须能删除、能调权重；新写入的词仍不得低于 1。
+    #[test]
+    fn a_derived_wubi_word_with_weight_zero_stays_editable() {
+        use PersonalDictionaryKind::Wubi;
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        sql(
+            &paths.dictionary(assets::MAIN_DICTIONARY),
+            "INSERT INTO wubi86 VALUES('abcd','甲',100),('efgh','乙',100),('abef','占位',1);",
+        );
+        assert!(crate::user_dictionary::wubi_learning::learn(&paths, "甲乙").unwrap());
+        let listed = || {
+            personal_dictionary_entries(&paths, 0, 10, false)
+                .unwrap()
+                .entries
+        };
+        let derived = entry(Wubi, "abef", "甲乙", 0);
+        assert_eq!(listed(), vec![derived.clone()]);
+
+        let reweighted = entry(Wubi, "abef", "甲乙", 5);
+        edit_personal_dictionary(&paths, Some(&derived), Some(&reweighted), "reweight").unwrap();
+        assert_eq!(listed(), vec![reweighted.clone()]);
+        edit_personal_dictionary(&paths, Some(&reweighted), Some(&derived), "")
+            .expect_err("a new weight stays at 1 or above");
+
+        // 回到权重 0 的状态，再按列表原样删除。
+        sql(
+            &paths.dictionary(assets::MAIN_DICTIONARY),
+            "DELETE FROM wubi86 WHERE value='甲乙'",
+        );
+        sql(
+            &paths.user(assets::USER_JOURNAL),
+            "DELETE FROM user_dictionary_operations",
+        );
+        assert!(crate::user_dictionary::wubi_learning::learn(&paths, "甲乙").unwrap());
+        assert_eq!(listed(), vec![derived.clone()]);
+        edit_personal_dictionary(&paths, Some(&derived), None, "remove").unwrap();
+        assert!(listed().is_empty());
+        assert!(!has(&paths, &derived));
+
+        // 存储里没有负权重；这样的“已有行”仍按越界拒绝。
+        assert!(validate_existing_entry(&entry(Wubi, "abef", "甲乙", -1)).is_err());
     }
 
     #[test]

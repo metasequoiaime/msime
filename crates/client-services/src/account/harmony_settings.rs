@@ -7,10 +7,10 @@
 //! 与 TS 版不同的地方都以 Rust 为准：云端某个键的取值本机不认识或超出范围时只跳过这一个键并在 `skipped` 里列出，不拒绝整份文档（与 Android 相同）；值的类型与字段表不符、字段表与本机期望的类型冲突、字段表本身不合规时仍然拒绝整份文档。
 
 use super::settings_sync::{
-    apply_local_mode_extras, apply_second_third_candidate, apply_touch_settings,
-    insert_input_settings, insert_local_mode_extras, insert_second_third_candidate, insert_string,
-    insert_touch_settings, needs_feedback, valid_haptic_strength, Applier, HostKeyboardFeedback,
-    TouchHostKeys,
+    apply_harmony_split_keyboard, apply_local_mode_extras, apply_second_third_candidate,
+    apply_touch_settings, insert_harmony_split_keyboard, insert_input_settings,
+    insert_local_mode_extras, insert_second_third_candidate, insert_string, insert_touch_settings,
+    needs_feedback, valid_haptic_strength, Applier, HostKeyboardFeedback, TouchHostKeys,
 };
 use super::{
     validate_preference_schema, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
@@ -89,6 +89,8 @@ pub fn export_harmony_settings(
     // 共享设置页在鸿蒙上能改的两组共享偏好；其余新增的共享键（快捷短语混输、语法模型、AI 思考强度、桌面快捷键）鸿蒙没有开关或运行时不读，不导出，免得默认值盖掉别的设备的选择。
     insert_local_mode_extras(&mut settings, preferences);
     insert_second_third_candidate(&mut settings, preferences);
+    // 分离式键盘的主开关与 Android 的 `platform.android.split_keyboard` 一样随账号同步；启用宽度和中间空隙只留本机。
+    insert_harmony_split_keyboard(&mut settings, preferences);
     // 本机是 14 键时不导出触屏布局，见 `HARMONY_KEYS.uploads_fourteen_key`；18 键按共享布局映射导出。
     insert_touch_settings(&mut settings, preferences, feedback, &HARMONY_KEYS)?;
     // 鸿蒙不提供的全局主题（只在 iOS 的 `native`）在鸿蒙上按 `system` 绘制，也按 `system` 上传：已经发出去的鸿蒙版本只认七个主题 id，收到别的会拒收整份文档。
@@ -140,10 +142,11 @@ pub fn apply_harmony_settings(
     })
 }
 
-/// [`export_harmony_settings`] 多导出的两组共享偏好的反方向。
+/// [`export_harmony_settings`] 多导出的几组共享偏好的反方向。
 fn apply_harmony_extras(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     apply_local_mode_extras(applier)?;
-    apply_second_third_candidate(applier)
+    apply_second_third_candidate(applier)?;
+    apply_harmony_split_keyboard(applier)
 }
 
 #[cfg(test)]

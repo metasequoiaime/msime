@@ -67,6 +67,8 @@ struct DeveloperOptionsView: View {
         if completed { ToastCenter.shared.show("诊断包已导出") }
       }
       .onDisappear { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+      // 系统分享面板本来就从半屏弹起；包在 sheet 里时不设高度就被撑成整屏，上半截空着。
+      .presentationDetents([.medium, .large])
     }
     .reloadOnAppearAndActive(reload)
     .onDisappear {

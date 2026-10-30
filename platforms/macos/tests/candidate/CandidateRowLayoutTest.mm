@@ -62,11 +62,6 @@
     (void)error; ++self.commands; self.lastCommand = command; return @{};
 }
 @end
-static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
-    NSViewAnimation *animation = [controller valueForKey:@"candidateFrameAnimation"];
-    [animation setCurrentProgress:1];
-    [controller stopCandidateFrameAnimation];
-}
 @interface PagerTestController : MSIMEInputController
 @property(nonatomic) NSUInteger pointerReports;
 @end
@@ -75,7 +70,6 @@ static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
 - (void)apply:(NSDictionary *)transition { (void)transition; }
 - (void)applyCandidateFrame:(NSRect)frame {
     [super applyCandidateFrame:frame];
-    FinishCandidateFrameAnimation(self);
 }
 @end
 
@@ -150,7 +144,6 @@ static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
 @end
 
 @interface AdaptiveLayoutController : MSIMEInputController
-@property(nonatomic) BOOL animatesWindowFrame;
 // 普通候选窗一次测量里最多的项数，用来确认按需分页没有量全部候选。
 @property(nonatomic) NSUInteger largestMeasurement;
 // 展开网格累计测量的项数（网格测量不为释义预留，普通候选窗预留），用来确认移动光标不重排。
@@ -179,7 +172,6 @@ static void FinishCandidateFrameAnimation(MSIMEInputController *controller) {
 }
 - (void)applyCandidateFrame:(NSRect)frame {
     [super applyCandidateFrame:frame];
-    if (!self.animatesWindowFrame) FinishCandidateFrameAnimation(self);
 }
 @end
 
@@ -197,71 +189,11 @@ static NSRect CandidateFrame(NSView *view) {
 }
 
 // 候选相对窗口左上角的位置；按候选身份找，不按按钮序号。
-static NSRect CandidateFrameFromPanelTop(NSWindow *panel, NSUInteger index) {
-    for (NSView *view in MSIMECandidateControlSubviews(panel.contentView)) {
-        if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0 ||
-            [((MSIMECandidateButton *)view).candidateID[@"index"] unsignedIntegerValue] != index) continue;
-        NSRect rect = [panel convertRectToScreen:[view convertRect:view.bounds toView:nil]];
-        rect.origin.x -= NSMinX(panel.frame);
-        rect.origin.y -= NSMaxY(panel.frame);
-        return rect;
-    }
-    assert(false);
-    return NSZeroRect;
-}
-
 static void AssertNoCandidateLayoutAnimation(NSView *content) {
     assert(![content.layer.mask animationForKey:@"candidate-expand-size"]);
     for (NSView *view in MSIMECandidateControlSubviews(content))
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0)
             assert(![view.layer animationForKey:@"candidate-layout-move"]);
-}
-
-static void AssertNativeCandidateFrameAnimation(AdaptiveLayoutController *controller, NSWindow *panel,
-                                                NSRect start, BOOL expanding) {
-    NSViewAnimation *animation = [controller valueForKey:@"candidateFrameAnimation"];
-    assert(animation);
-    NSDictionary *transition = animation.viewAnimations.firstObject;
-    assert(transition[NSViewAnimationTargetKey] == panel);
-    assert(NSEqualRects([transition[NSViewAnimationStartFrameKey] rectValue], start));
-    const NSRect target = [transition[NSViewAnimationEndFrameKey] rectValue];
-    const NSInteger windowNumber = panel.windowNumber;
-    MSIMECandidateMotion *motion = [controller valueForKey:@"candidateMotion"];
-    CGFloat previousHeight = NSHeight(start);
-    for (NSNumber *progress in @[@0.25, @0.75]) {
-        [animation setCurrentProgress:progress.doubleValue];
-        assert(panel.windowNumber == windowNumber && panel.alphaValue == 1);
-        assert(!motion.exiting && !motion.exitWindow.isVisible);
-        if (expanding)
-            assert(NSHeight(panel.frame) > previousHeight && NSHeight(panel.frame) < NSHeight(target));
-        else
-            assert(NSHeight(panel.frame) < previousHeight && NSHeight(panel.frame) > NSHeight(target));
-        [panel.contentView layoutSubtreeIfNeeded];
-        MSIMECandidateChromeView *content = (id)panel.contentView;
-        assert(fabs(NSMaxY(content.candidateContentView.bounds) - content.resizingCandidateContentHeight) < 0.1);
-        for (NSDictionary *item in animation.viewAnimations) {
-            if (item[NSViewAnimationTargetKey] == panel) continue;
-            MSIMECandidateButton *button = item[NSViewAnimationTargetKey];
-            assert([button isKindOfClass:MSIMECandidateButton.class] && button.candidateID);
-            const NSRect from = [item[NSViewAnimationStartFrameKey] rectValue];
-            const NSRect to = [item[NSViewAnimationEndFrameKey] rectValue];
-            assert(NSMinX(button.frame) >= MIN(NSMinX(from), NSMinX(to)) - 1);
-            assert(NSMinX(button.frame) <= MAX(NSMinX(from), NSMinX(to)) + 1);
-            assert(NSMinY(button.frame) >= MIN(NSMinY(from), NSMinY(to)) - 1);
-            assert(NSMinY(button.frame) <= MAX(NSMinY(from), NSMinY(to)) + 1);
-            assert(!NSEqualPoints(button.frame.origin, to.origin));
-        }
-        previousHeight = NSHeight(panel.frame);
-    }
-    [animation setCurrentProgress:1];
-    for (NSDictionary *item in animation.viewAnimations) {
-        if (item[NSViewAnimationTargetKey] == panel) continue;
-        NSView *view = item[NSViewAnimationTargetKey];
-        const NSRect end = [item[NSViewAnimationEndFrameKey] rectValue];
-        assert(fabs(NSMinX(view.frame) - NSMinX(end)) <= 1 && fabs(NSMinY(view.frame) - NSMinY(end)) <= 1);
-    }
-    [controller stopCandidateFrameAnimation];
-    assert(NSEqualRects(panel.frame, target));
 }
 
 // 走完整按键入口用的替身：没实现的会话方法按真实会话的签名回零值并记下来；字符与标点记进 typed，
@@ -811,35 +743,10 @@ static void TestAdaptiveCandidateLayout(RowLayoutClient *client) {
     [controller candidateCommand:MSIME_PREVIOUS_PAGE];
     [controller renderCandidates];
     assert(session.cursor == 0);
-    const NSRect collapsedFrame = panel.frame;
-    NSMutableDictionary<NSDictionary *, NSValue *> *collapsedCandidates = [NSMutableDictionary dictionary];
-    for (NSView *view in MSIMECandidateControlSubviews(panel.contentView))
-        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0) {
-            MSIMECandidateButton *button = (id)view;
-            NSRect old = [panel convertRectToScreen:[view convertRect:view.bounds toView:nil]];
-            old.origin.x -= NSMinX(panel.frame);
-            old.origin.y -= NSMaxY(panel.frame);
-            collapsedCandidates[button.candidateID] = [NSValue valueWithRect:old];
-        }
-    controller.animatesWindowFrame = YES;
+    const CGFloat collapsedHeight = NSHeight(panel.frame);
+    const NSInteger windowNumber = panel.windowNumber;
     assert([controller openExpandedCandidates]);
-    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
-        NSViewAnimation *expansion = [controller valueForKey:@"candidateFrameAnimation"];
-        assert(expansion.viewAnimations.count > 1);
-        [expansion setCurrentProgress:0];
-        [panel.contentView layoutSubtreeIfNeeded];
-        for (NSDictionary *item in expansion.viewAnimations) {
-            if (item[NSViewAnimationTargetKey] == panel) continue;
-            MSIMECandidateButton *button = item[NSViewAnimationTargetKey];
-            const NSRect old = [collapsedCandidates[button.candidateID] rectValue];
-            NSRect current = [panel convertRectToScreen:[button convertRect:button.bounds toView:nil]];
-            current.origin.x -= NSMinX(panel.frame);
-            current.origin.y -= NSMaxY(panel.frame);
-            assert(fabs(NSMinX(old) - NSMinX(current)) <= 1 && fabs(NSMinY(old) - NSMinY(current)) <= 1);
-        }
-        AssertNativeCandidateFrameAnimation(controller, panel, collapsedFrame, YES);
-    }
-    controller.animatesWindowFrame = NO;
+    assert(NSHeight(panel.frame) > collapsedHeight && panel.windowNumber == windowNumber);
     assert(fabs(width() - 400) < 1);
     MSIMEExpandedCandidateScrollView *viewport = [controller valueForKey:@"expandedScrollView"];
     assert(viewport);
@@ -854,46 +761,16 @@ static void TestAdaptiveCandidateLayout(RowLayoutClient *client) {
     [controller renderCandidates];
     assert(fabs(width() - 500) < 1);
     AssertNoCandidateLayoutAnimation(panel.contentView);
-    assert(![controller valueForKey:@"candidateFrameAnimation"]);
     [controller setValue:@20 forKey:@"expandedCursor"];
     [controller renderCandidates];
     AssertNoCandidateLayoutAnimation(panel.contentView);
-    assert(![controller valueForKey:@"candidateFrameAnimation"]);
     [controller setValue:@0 forKey:@"expandedCursor"];
     [controller renderCandidates];
     AssertNoCandidateLayoutAnimation(panel.contentView);
-    assert(![controller valueForKey:@"candidateFrameAnimation"]);
-    const NSRect expandedFrame = panel.frame;
-    NSMutableDictionary<NSDictionary *, NSValue *> *expandedCandidateFrames = [NSMutableDictionary dictionary];
-    for (NSView *view in MSIMECandidateControlSubviews(panel.contentView))
-        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0) {
-            MSIMECandidateButton *button = (id)view;
-            NSRect rect = [panel convertRectToScreen:[view convertRect:view.bounds toView:nil]];
-            rect.origin.x -= NSMinX(panel.frame);
-            rect.origin.y -= NSMaxY(panel.frame);
-            expandedCandidateFrames[button.candidateID] = [NSValue valueWithRect:rect];
-        }
+    const CGFloat expandedHeight = NSHeight(panel.frame);
     MSIMECandidateMotion *layoutMotion = [controller valueForKey:@"candidateMotion"];
-    controller.animatesWindowFrame = YES;
     [controller closeExpandedCandidates];
-    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
-        NSViewAnimation *closing = [controller valueForKey:@"candidateFrameAnimation"];
-        assert(closing.viewAnimations.count > 1);
-        [closing setCurrentProgress:0];
-        [panel.contentView layoutSubtreeIfNeeded];
-        for (NSDictionary *item in closing.viewAnimations) {
-            if (item[NSViewAnimationTargetKey] == panel) continue;
-            MSIMECandidateButton *button = item[NSViewAnimationTargetKey];
-            assert(expandedCandidateFrames[button.candidateID]);
-            const NSRect old = [expandedCandidateFrames[button.candidateID] rectValue];
-            NSRect current = [panel convertRectToScreen:[button convertRect:button.bounds toView:nil]];
-            current.origin.x -= NSMinX(panel.frame);
-            current.origin.y -= NSMaxY(panel.frame);
-            assert(fabs(NSMinX(old) - NSMinX(current)) <= 1 && fabs(NSMinY(old) - NSMinY(current)) <= 1);
-        }
-        AssertNativeCandidateFrameAnimation(controller, panel, expandedFrame, NO);
-    }
-    controller.animatesWindowFrame = NO;
+    assert(NSHeight(panel.frame) < expandedHeight && panel.windowNumber == windowNumber);
     [texts exchangeObjectAtIndex:0 withObjectAtIndex:2];
     session.texts = texts;
     NSMutableDictionary *typingView = [[session viewWithError:nil] mutableCopy];
@@ -902,55 +779,24 @@ static void TestAdaptiveCandidateLayout(RowLayoutClient *client) {
     [controller renderCandidates];
     AssertNoCandidateLayoutAnimation(panel.contentView);
     assert(!layoutMotion.exiting && !layoutMotion.exitWindow.isVisible);
-    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
-        assert([controller openExpandedCandidates]);
-        controller.animatesWindowFrame = YES;
-        [controller closeExpandedCandidates];
-        // 锁屏或熄屏时 NSAnimation 不前进，不等真实时间，直接走完成回调。
-        NSViewAnimation *finishing = [controller valueForKey:@"candidateFrameAnimation"];
-        assert(finishing);
-        [finishing setCurrentProgress:1];
-        [controller animationDidEnd:finishing];
-        assert(![controller valueForKey:@"candidateFrameAnimation"]);
-        controller.animatesWindowFrame = NO;
-        assert([controller openExpandedCandidates]);
-        controller.animatesWindowFrame = YES;
-        [controller closeExpandedCandidates];
-        NSViewAnimation *closing = [controller valueForKey:@"candidateFrameAnimation"];
-        [closing setCurrentProgress:0.4];
-        const NSRect interrupted = panel.frame;
-        // 快速连按：收起到一半再展开，左上角的第一项从看到的位置出发，不能上下跳。
-        [panel.contentView layoutSubtreeIfNeeded];
-        const NSRect firstInterrupted = CandidateFrameFromPanelTop(panel, 0);
-        assert([controller openExpandedCandidates]);
-        NSViewAnimation *reopening = [controller valueForKey:@"candidateFrameAnimation"];
-        for (NSNumber *progress in @[@0, @0.5]) {
-            [reopening setCurrentProgress:progress.doubleValue];
-            [panel.contentView layoutSubtreeIfNeeded];
-            const NSRect first = CandidateFrameFromPanelTop(panel, 0);
-            assert(fabs(NSMinX(first) - NSMinX(firstInterrupted)) <= 1 &&
-                   fabs(NSMaxY(first) - NSMaxY(firstInterrupted)) <= 1);
+    // 快速切换与两种系统动态效果设置都直接到最终尺寸，不创建中间窗口。
+    for (BOOL reduced : {NO, YES}) {
+        layoutMotion.reduceMotion = reduced;
+        for (NSUInteger repeat = 0; repeat < 3; ++repeat) {
+            const NSRect collapsed = panel.frame;
+            assert([controller openExpandedCandidates]);
+            assert(NSHeight(panel.frame) > NSHeight(collapsed) && panel.windowNumber == windowNumber);
+            AssertNoCandidateLayoutAnimation(panel.contentView);
+            [controller closeExpandedCandidates];
+            assert(NSEqualRects(panel.frame, collapsed) && panel.windowNumber == windowNumber);
+            AssertNoCandidateLayoutAnimation(panel.contentView);
         }
-        AssertNativeCandidateFrameAnimation(controller, panel, interrupted, YES);
-        [controller closeExpandedCandidates];
-        [controller renderCandidates];
-        assert(![controller valueForKey:@"candidateFrameAnimation"]);
-        controller.animatesWindowFrame = NO;
-        assert([controller openExpandedCandidates]);
-        controller.animatesWindowFrame = YES;
-        layoutMotion.reduceMotion = YES;
-        [controller closeExpandedCandidates];
-        assert(![controller valueForKey:@"candidateFrameAnimation"]);
-        layoutMotion.reduceMotion = NO;
-        controller.animatesWindowFrame = NO;
-        assert([controller openExpandedCandidates]);
-        controller.animatesWindowFrame = YES;
-        [controller closeExpandedCandidates];
         [controller hideCandidatePanel:"deactivate"];
-        assert(![controller valueForKey:@"candidateFrameAnimation"]);
-        controller.animatesWindowFrame = NO;
+        // 此夹具固定报告可见；实际窗口显隐由 candidate-panel 和声明皮肤用例验证。
+        assert(!layoutMotion.exiting && !layoutMotion.exitWindow.isVisible);
         [controller renderCandidates];
     }
+    layoutMotion.reduceMotion = NO;
     for (NSNumber *maximum in @[@160, @400, @600]) {
         for (NSNumber *scale in @[@50, @100, @200]) {
             for (NSNumber *columns in @[@3, @6, @10]) {
@@ -1030,36 +876,6 @@ static void Spin(NSTimeInterval seconds)
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
-// 按完成状态等待主队列回调；单次 runUntilDate 返回不保证到期回调已经执行。
-static bool SpinUntil(BOOL (^finished)(void))
-{
-    const CFTimeInterval deadline = CACurrentMediaTime() + 2.0;
-    while (!finished() && CACurrentMediaTime() < deadline) Spin(0.01);
-    return finished();
-}
-
-// 图层在窗口根图层坐标系里的纵坐标，带上它此刻的模型变换。
-static CGFloat RootY(CALayer *layer)
-{
-    CALayer *root = layer;
-    while (root.superlayer) root = root.superlayer;
-    return [layer convertRect:layer.bounds toLayer:root].origin.y;
-}
-
-// 把 transform 临时设成图层的模型变换，返回图层在屏幕方向上被抬起多少点（负数是向下）。up 是根图层坐标系里屏幕向上的方向（+1 或 -1）。
-static CGFloat ScreenLift(CALayer *layer, CATransform3D transform, CGFloat up)
-{
-    const CGFloat rest = RootY(layer);
-    const CATransform3D saved = layer.transform;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    layer.transform = transform;
-    const CGFloat moved = RootY(layer);
-    layer.transform = saved;
-    [CATransaction commit];
-    return (moved - rest) * up;
-}
-
 static NSDictionary *MotionView(NSString *editing, NSUInteger count, NSUInteger highlighted)
 {
     NSMutableArray *candidates = [NSMutableArray array];
@@ -1071,9 +887,6 @@ static NSDictionary *MotionView(NSString *editing, NSUInteger count, NSUInteger 
 // 产品路径（InputController）在皮肤包写了动效时的行为：每次排版都换一个新的内容视图，显示和装饰在同一轮事件里发生，候选行这时还没有自己的图层。
 static void TestDeclaredMotion(RowLayoutClient *client)
 {
-    // 合成面板可能完全被遮挡；只在计时验收期间避免 App Nap 延迟主队列定时回调，保留原来的两秒门限。
-    id activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
-        reason:@"验证候选动画的主队列完成回调"];
     char temporary[] = "/tmp/msime-candidate-motion-XXXXXX";
     assert(mkdtemp(temporary));
     const std::filesystem::path root(temporary);
@@ -1152,97 +965,36 @@ stagger_ms = 10
     motion.reduceMotion = NO;
     [controller setValue:motion forKey:@"candidateMotion"];
 
-    // 进场：卡片和每一行都在动，错峰总延迟封顶 80ms，行从下方 3 点升起。
-    [controller setValue:MotionView(@"ce", 9, 0) forKey:@"view"];
-    [controller renderCandidates];
-    NSPanel *panel = [controller valueForKey:@"panel"];
-    NSView *content = panel.contentView;
-    assert(panel.isVisible && panel.alphaValue == 1.0);
-    assert([content.layer animationForKey:@"msime-candidate-enter-opacity"] != nil);
-    CFTimeInterval firstBegin = 0, lastBegin = 0;
-    for (NSInteger tag = 0; tag < 9; ++tag) {
-        CALayer *rowLayer = CandidateButton(content, tag).layer;
-        CAAnimationGroup *reveal = (id)[rowLayer animationForKey:@"msime-candidate-row-reveal"];
-        assert(rowLayer.superlayer == CandidateButton(content, tag).superview.layer && reveal != nil);
-        const CFTimeInterval begin = [rowLayer convertTime:reveal.beginTime toLayer:nil];
-        if (tag == 0) firstBegin = begin;
-        lastBegin = begin;
+    // 两种系统动态效果设置下，显式皮肤预设都不能延迟候选和高亮。
+    for (BOOL reduced : {NO, YES}) {
+        motion.reduceMotion = reduced;
+        [controller setValue:MotionView(@"ce", 9, 0) forKey:@"view"];
+        [controller renderCandidates];
+        NSPanel *panel = [controller valueForKey:@"panel"];
+        assert(panel.isVisible && panel.alphaValue == 1.0);
+        assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
+        assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-transform"] == nil);
+        for (NSInteger tag = 0; tag < 9; ++tag)
+            assert([CandidateButton(panel.contentView, tag).layer animationForKey:@"msime-candidate-row-reveal"] == nil);
+        for (NSUInteger highlighted : {2u, 0u, 1u}) {
+            [controller setValue:MotionView(@"ce", 9, highlighted) forKey:@"view"];
+            [controller renderCandidates];
+            MSIMECandidateButton *selected = CandidateButton(panel.contentView, highlighted);
+            assert(selected.candidateHighlighted && !selected.selectionFillDetached);
+            assert(motion.selectionLayer == nil);
+        }
+        [controller hideCandidatePanel:"empty"];
+        assert(!panel.isVisible && !motion.exiting && !motion.exitWindow.isVisible);
+        [controller setValue:MotionView(@"ceshi", 1, 0) forKey:@"view"];
+        [controller renderCandidates];
+        assert(panel.isVisible && panel.alphaValue == 1.0);
+        assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
+        [controller hideCandidatePanel:"focus_out"];
+        assert(!panel.isVisible && !motion.exiting);
     }
-    assert(lastBegin - firstBegin > 0.0 && lastBegin - firstBegin <= 0.08 + 1e-6);
-    CALayer *row0 = CandidateButton(content, 0).layer;
-    CALayer *row1 = CandidateButton(content, 1).layer;
-    assert(NSMinY(CandidateButton(content, 0).frame) > NSMinY(CandidateButton(content, 1).frame));
-    const CGFloat up = RootY(row0) > RootY(row1) ? 1.0 : -1.0;
-    CAAnimationGroup *reveal = (id)[row1 animationForKey:@"msime-candidate-row-reveal"];
-    CABasicAnimation *lift = (id)reveal.animations[1];
-    assert(std::abs(ScreenLift(row1, [lift.fromValue CATransform3DValue], up) + 3.0) < 0.01);
-
-    // 进场途中换高亮（整页重建）：高亮同步换好，新高亮行的底色交给选中装饰，新内容视图接着同一条进场时间线。
-    [controller setValue:MotionView(@"ce", 9, 2) forKey:@"view"];
-    [controller renderCandidates];
-    content = panel.contentView;
-    MSIMECandidateButton *selected = CandidateButton(content, 2);
-    assert(selected.candidateHighlighted && !CandidateButton(content, 0).candidateHighlighted);
-    assert(motion.selectionLayer != nil && motion.selectionLayer.superlayer == selected.superview.layer && selected.selectionFillDetached);
-    assert(CGRectEqualToRect(motion.selectionLayer.frame, selected.layer.frame));
-    assert([motion.selectionLayer animationForKey:@"msime-candidate-selection"] != nil);
-    assert([selected.layer animationForKey:@"msime-candidate-selection"] == nil);
-    assert([CandidateButton(content, 8).layer animationForKey:@"msime-candidate-row-reveal"] != nil);
-    assert(SpinUntil(^BOOL {
-        return motion.selectionLayer == nil && !CandidateButton(panel.contentView, 2).selectionFillDetached;
-    }));
-
-    // 打字让 Engine 把高亮放回第一格：那不是选中，不装饰。
-    [controller setValue:MotionView(@"ces", 9, 0) forKey:@"view"];
-    [controller renderCandidates];
-    assert(motion.selectionLayer == nil);
-    // 同一个输入串里再移一格才装饰。
-    [controller setValue:MotionView(@"ces", 9, 1) forKey:@"view"];
-    [controller renderCandidates];
-    assert(motion.selectionLayer != nil && CandidateButton(panel.contentView, 1).selectionFillDetached);
-
-    // 进场途中换成行数更多的一页：后来的行也播完错峰，不被只按第一页算的结束时间提前撤掉。第一页一行时进场 400ms 结束，九行的页要到 480ms。
-    [controller hideCandidatePanel:"empty"];
-    assert(!panel.isVisible);
-    Spin(0.6);
-    const CFTimeInterval shown = CACurrentMediaTime();
-    [controller setValue:MotionView(@"ce", 1, 0) forKey:@"view"];
-    [controller renderCandidates];
-    assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] != nil);
-    [controller setValue:MotionView(@"ceshi", 9, 0) forKey:@"view"];
-    [controller renderCandidates];
-    Spin(0.44 - (CACurrentMediaTime() - shown));
-    if (CACurrentMediaTime() - shown < 0.475)
-        assert([CandidateButton(panel.contentView, 8).layer animationForKey:@"msime-candidate-row-reveal"] != nil);
-    Spin(0.2);
-    assert([panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
-
-    // 卡片的 slide_up 从下方升起，退场向下沉。
-    [controller hideCandidatePanel:"focus_out"];
-    Spin(0.6);
-    msime::mac::SkinAnimation slideUp = declared;
-    slideUp.enter = msime::mac::SkinAnimationPreset::slide_up;
-    [motion showPanel:panel animation:slideUp rows:@[]];
-    CABasicAnimation *rise = (id)[panel.contentView.layer animationForKey:@"msime-candidate-enter-transform"];
-    assert(rise != nil && ScreenLift(panel.contentView.layer, [rise.fromValue CATransform3DValue], up) < -1.0);
-
-    // 减弱动态效果打开时什么都不播。
-    motion.reduceMotion = YES;
-    [motion stop];
-    [panel orderOut:nil];
-    Spin(0.6);
-    [controller setValue:MotionView(@"ce", 9, 0) forKey:@"view"];
-    [controller renderCandidates];
-    assert(panel.isVisible && [panel.contentView.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
-    [controller setValue:MotionView(@"ce", 9, 1) forKey:@"view"];
-    [controller renderCandidates];
-    assert(motion.selectionLayer == nil);
-    [controller hideCandidatePanel:"empty"];
-    assert(!panel.isVisible && !motion.exiting);
     [motion stop];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     std::filesystem::remove_all(root);
-    [NSProcessInfo.processInfo endActivity:activity];
 }
 
 // 写一张 width×height、frames 帧、每帧 delay 秒、无限循环的 APNG，各帧颜色不同。
@@ -1766,20 +1518,14 @@ static void TestFactoryCornerRadii(RowLayoutClient *client)
                 assert(NSMaxX(CandidateFrame(last)) + scale < NSMaxX(chrome.candidateRowsRect));
                 assert(fabs(last.cornerRadii[2] - last.cornerRadius) < 0.01);
             }
-            // 动效必须拿到同一路径，glow 也沿路径描边，不能退回统一 CALayer 圆角。
+            // 显式高亮动效也不接管静态四角高亮。
             MSIMECandidateMotion *motion = [MSIMECandidateMotion new];
             motion.reduceMotion = NO;
             msime::mac::SkinAnimation animation;
             animation.selection = msime::mac::SkinAnimationPreset::glow;
             animation.durationMs = 100;
             [motion decorateSelectionOfRow:first fill:NSColor.redColor cornerRadius:first.cornerRadius accent:NSColor.blueColor animation:animation];
-            assert([motion.selectionLayer isKindOfClass:CAShapeLayer.class]);
-            CAShapeLayer *shape = (id)motion.selectionLayer;
-            assert(CGPathEqualToPath(shape.path, path));
-            assert(CGRectEqualToRect(shape.frame, first.layer.frame));
-            CABasicAnimation *glow = (id)[shape animationForKey:@"msime-candidate-selection"];
-            assert([glow.keyPath isEqual:@"strokeColor"] && shape.lineWidth == 2);
-            assert(first.selectionFillDetached);
+            assert(motion.selectionLayer == nil && !first.selectionFillDetached);
             [motion endSelection];
             assert(!first.selectionFillDetached);
             CGPathRelease(path);
@@ -2801,7 +2547,7 @@ static void TestFactoryShadows(RowLayoutClient *client)
     }
     for (const auto &mode : strengths) assert(mode[0] == 0 && mode[1] > 5 && mode[2] > mode[1] && mode[3] > mode[2]);
     assert(strengths[1][2] > strengths[0][2]);
-    // 原生阴影在进场中被暂时关闭，期间换成皮肤阴影后，旧回调不得再打开它。
+    // 显式进场预设不关闭原生阴影，换成皮肤阴影后也不留异步恢复回调。
     NSPanel *motionPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 200, 100)
         styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     MSIMECandidateChromeView *native = [[MSIMECandidateChromeView alloc] initWithFrame:motionPanel.contentView.bounds];
@@ -2813,12 +2559,13 @@ static void TestFactoryShadows(RowLayoutClient *client)
     animation.enter = msime::mac::SkinAnimationPreset::fade;
     animation.durationMs = 100;
     [motion showPanel:motionPanel animation:animation rows:@[]];
-    assert(!motionPanel.hasShadow && [native.layer animationForKey:@"msime-candidate-enter-opacity"]);
+    assert(motionPanel.hasShadow && [native.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
     MSIMECandidateChromeView *replacement = [[MSIMECandidateChromeView alloc] initWithFrame:native.bounds];
     replacement.candidateShadow = msime::mac::ResolveCandidateShadow("none", false, false, false, 1);
     motionPanel.contentView = replacement;
+    motionPanel.hasShadow = replacement.nativeWindowShadowEnabled;
     [motion showPanel:motionPanel animation:animation rows:@[]];
-    assert(SpinUntil(^BOOL { return [replacement.layer animationForKey:@"msime-candidate-enter-opacity"] == nil; }));
+    assert([replacement.layer animationForKey:@"msime-candidate-enter-opacity"] == nil);
     assert(!motionPanel.hasShadow);
     [motion stop];
     [motionPanel orderOut:nil];

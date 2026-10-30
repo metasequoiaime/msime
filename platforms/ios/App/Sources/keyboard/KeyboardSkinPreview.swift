@@ -12,34 +12,6 @@ enum KeyboardPreviewTopStrip: Equatable {
   case reserved
 }
 
-/// 键盘预览里的一个工具栏按钮。图标与键盘自己的工具栏一致；字符类项目画单个字符而不是符号。
-enum KeyboardPreviewToolbarItem: String, CaseIterable {
-  case emoji, phrases, clipboard, skin, scheme, ai, characterSet, fullwidth, punctuation
-
-  /// 该项目的 SF Symbol；画成字符的项目为 nil。
-  var symbol: String? {
-    switch self {
-    case .emoji: "face.smiling"
-    case .phrases: "text.bubble"
-    case .clipboard: "doc.on.clipboard"
-    case .skin: "paintpalette"
-    case .scheme: "keyboard"
-    case .ai: "sparkles"
-    case .characterSet, .fullwidth, .punctuation: nil
-    }
-  }
-
-  /// 没有符号的项目所画的字符。
-  var character: String {
-    switch self {
-    case .characterSet: "简"
-    case .fullwidth: "全"
-    case .punctuation: "，"
-    default: ""
-    }
-  }
-}
-
 /// 仅用于展示的键盘，不创建引擎会话，也不访问输入文档。字母层底行（26 键、14/18 键、9 键含右侧大回车）和顶部数字行按用户的「按键布局」画（`keyLayout`、`KeyboardPreviewLetterLayer`），与键盘对得上；不做高亮。
 struct KeyboardSkinPreview: View {
   let skin: KeyboardTheme
@@ -150,7 +122,6 @@ struct KeyboardSkinPreview: View {
       Text("你好").font(.subheadline.weight(.medium))
       Text("你号").font(.subheadline)
       Spacer(minLength: 0)
-      if KeyboardLayoutPreference.voiceShortcutEnabled { Image(systemName: "waveform").font(.caption) }
       Text(nineKey ? "九键" : letterGrid?.title ?? "全拼").font(.caption)
 
     }.padding(.horizontal, 6).frame(height: Self.candidateStripHeight * stripScale)

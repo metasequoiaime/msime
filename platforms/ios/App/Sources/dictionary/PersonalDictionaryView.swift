@@ -346,7 +346,18 @@ struct PersonalDictionaryView: View {
 
   /// 队列中一条编辑的当前状态，措辞与同步行和进度列表一致。
   fileprivate static func requestStatus(_ request: PersonalWordRequest) -> String {
-    request.status == .pending ? "等待同步 · \(request.replacement == nil ? "删除" : "保存")" : (request.error ?? "同步失败")
+    request.status == .pending ? "等待同步 · \(request.replacement == nil ? "删除" : "保存")"
+      : request.error.map { failureText($0, removal: request.replacement == nil) } ?? "同步失败"
+  }
+
+  /// 键盘应用失败时记下的是 host-api 的英文原因。认得的几条换成与共享设置页 `dictionaryErrorMessage`（packages/ui/src/dictionary/dictionary-errors.ts）相同的措辞，其余原样显示。
+  private static func failureText(_ reason: String, removal: Bool) -> String {
+    switch reason {
+    case "dictionary edit rejected": return removal ? "删除失败，请稍后重试。" : "保存失败，请稍后重试。"
+    case "bundled dictionary entry is read-only": return "内置词条只能调整权重或删除，不能修改编码和词。"
+    case _ where reason.hasPrefix("invalid dictionary entry"): return "词条不符合词库规则，请检查编码与词条后再保存。"
+    default: return reason
+    }
   }
 }
 
@@ -431,7 +442,7 @@ private struct PersonalWordEditor: View {
     _word = State(initialValue: previous ?? PersonalWord(key: "", value: ""))
   }
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         if word.isBundled {
           Section {
@@ -469,8 +480,10 @@ private struct PersonalWordEditor: View {
           Text("同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。")
         }
         if let error { Section { Text(error).foregroundStyle(.red) } }
-        Section { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。").font(.footnote).foregroundStyle(.secondary) }
+        Section {} footer: { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。") }
       }
+      .designPage()
+      .fittedSheet()
       .navigationTitle(previous == nil ? "添加词条" : word.isBundled ? "调整权重" : "编辑词条")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

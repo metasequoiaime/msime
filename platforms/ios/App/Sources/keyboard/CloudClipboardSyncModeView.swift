@@ -186,6 +186,7 @@ struct CloudClipboardRelayEditor: View {
         }
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("自建中继")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -322,6 +323,7 @@ struct CloudClipboardWebDAVEditor: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("WebDAV 网盘")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

@@ -10,8 +10,11 @@
  * 按键弹出预览和滑动输入符号及其方向同样如此，Android 把它们存在自己的本地设置文件里（`platform.android.key_popup`、`platform.android.swipe_down_symbols`、`platform.android.swipe_symbols_direction`），默认值相同：都开启，向上滑动。
  *
  * 功能面板的单手模式和隐私模式也是如此，对应 Android 的 `platform.android.one_handed`（关）和 `platform.android.incognito`（关）。隐私模式尤其只属于这台设备：Android 从不同步它，这里的账号同步也只携带三个反馈字段。
+ *
+ * 浮动键盘的开关和位置同样只在本机，对应 Android 的 `platform.android.floating_keyboard`（关）与 `_x` / `_y`（可移动范围里的千分比，默认居中贴底，见 `FloatingKeyboardPolicy`）：位置与这块屏幕的尺寸有关，带到别的设备上没有意义。
  */
 import { SwipeHintPolicy, SwipeSymbolsDirection } from "./input/SwipeHintPolicy";
+import { FloatingKeyboardPolicy } from "./FloatingKeyboardPolicy";
 import { OneHandedMode, OneHandedPolicy } from "./OneHandedPolicy";
 import { PrivacyGate } from "./PrivacyGate";
 
@@ -52,6 +55,11 @@ export interface FeedbackSettings {
   readonly oneHanded: OneHandedMode;
   /** 隐私模式：开启期间，这里输入的内容都不会被学习、统计或保存（PrivacyGate）。 */
   readonly incognito: boolean;
+  /** 浮动键盘：键盘缩成一块可拖动的小面板（`FloatingKeyboardPolicy`）。 */
+  readonly floating: boolean;
+  /** 浮动面板的位置：水平、竖直方向可移动范围里的千分比（0–1000）。 */
+  readonly floatingX: number;
+  readonly floatingY: number;
 }
 
 /**
@@ -144,6 +152,9 @@ export class KeyboardFeedback {
     swipeSymbolsDirection: SwipeSymbolsDirection.UP,
     oneHanded: OneHandedPolicy.DEFAULT,
     incognito: PrivacyGate.DEFAULT,
+    floating: false,
+    floatingX: FloatingKeyboardPolicy.DEFAULT_X_FRACTION,
+    floatingY: FloatingKeyboardPolicy.DEFAULT_Y_FRACTION,
   };
 
   static title(strength: HapticStrength): string {
@@ -248,6 +259,16 @@ export class KeyboardFeedback {
         oneHanded: OneHandedPolicy.parse(raw.oneHanded),
         incognito:
           typeof raw.incognito === "boolean" ? raw.incognito : KeyboardFeedback.DEFAULTS.incognito,
+        floating:
+          typeof raw.floating === "boolean" ? raw.floating : KeyboardFeedback.DEFAULTS.floating,
+        floatingX: FloatingKeyboardPolicy.fraction(
+          raw.floatingX,
+          KeyboardFeedback.DEFAULTS.floatingX,
+        ),
+        floatingY: FloatingKeyboardPolicy.fraction(
+          raw.floatingY,
+          KeyboardFeedback.DEFAULTS.floatingY,
+        ),
       };
     } catch (error) {
       return KeyboardFeedback.DEFAULTS;
@@ -262,6 +283,32 @@ export class KeyboardFeedback {
       return KeyboardFeedback.DEFAULTS;
     }
     return document === null ? null : KeyboardFeedback.parse(document);
+  }
+
+  /** `settings` 换上浮动键盘的开关和位置，其余原样保留。功能面板磁贴、拖动条的停靠键和拖动松手都经它写回。 */
+  static withFloating(
+    settings: FeedbackSettings,
+    floating: boolean,
+    floatingX: number,
+    floatingY: number,
+  ): FeedbackSettings {
+    return {
+      sound: settings.sound,
+      haptics: settings.haptics,
+      strength: settings.strength,
+      glideTyping: settings.glideTyping,
+      handwritingDelayMs: settings.handwritingDelayMs,
+      handwritingStrokeColor: settings.handwritingStrokeColor,
+      handwritingStrokeWidth: settings.handwritingStrokeWidth,
+      keyPopup: settings.keyPopup,
+      swipeSymbols: settings.swipeSymbols,
+      swipeSymbolsDirection: settings.swipeSymbolsDirection,
+      oneHanded: settings.oneHanded,
+      incognito: settings.incognito,
+      floating: floating,
+      floatingX: FloatingKeyboardPolicy.fraction(floatingX, settings.floatingX),
+      floatingY: FloatingKeyboardPolicy.fraction(floatingY, settings.floatingY),
+    };
   }
 
   static serialize(settings: FeedbackSettings): string {

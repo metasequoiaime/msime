@@ -3,7 +3,6 @@ import UIKit
 
 /// 手机上的 设置 标签页：搜索框、键盘状态卡片，然后是按移动端设计稿分组卡片排列的各设置页。各行来自 SettingsPage，iPad 侧边栏也读同一份。
 struct SettingsView: View {
-  let navigationRoot: UUID
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
@@ -20,9 +19,13 @@ struct SettingsView: View {
     return CustomSkinLibrary.designs.first { $0.design == design }?.name ?? skin.title
   }
 
-  /// 深链接是待消费的请求；导航绑定属于当前栈，旧栈或新栈初始化的回写均不修改请求。
+  /// 深链接是待消费的请求。栈上已经推入了页面时先弹回根页面，等根页面重新出现（`onAppear`）再推入要的页面：同一页面已经开着时写入相同的值不会触发导航，用户会停在上次在那里打开的更深一层页面。不靠换栈（`.id`）回到根页面，因为 iOS 18 上换掉一条推入过页面的 NavigationStack 后，新栈的 `navigationDestination` 不再推入任何页面。
   private func consumeRequestedPage() {
-    guard navigation.settingsRoot == navigationRoot, let page = router.settingsPage else { return }
+    guard let page = router.settingsPage else { return }
+    if selectedPage != nil {
+      selectedPage = nil
+      return
+    }
     router.settingsPage = nil
     selectedPage = page
   }
@@ -64,6 +67,8 @@ struct SettingsView: View {
     .navigationDestination(item: $selectedPage) { $0.destination }
     .onAppear { refresh(); consumeRequestedPage() }
     .onChange(of: router.settingsPage) { _, _ in consumeRequestedPage() }
+    // 重选「首页」：收起根页面推入的页面，它上面更深的页面随之一起弹出。
+    .onChange(of: navigation.settingsReselection) { _, _ in selectedPage = nil }
     .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)

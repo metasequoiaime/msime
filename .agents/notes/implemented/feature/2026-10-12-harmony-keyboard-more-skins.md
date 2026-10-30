@@ -14,7 +14,7 @@ Status: implemented
 ## Decision
 
 - 选择器最后多一格「更多皮肤」（`MoreSkinsTile`，和皮肤缩略图同样大小的虚线框，中间「+」）。点了收起面板，调用 `KeyboardSession.openSettings('skin')`，设置应用打开「皮肤」页。分页按皮肤数加一算。
-- 键盘能打开哪些设置页由两份名单决定：键盘和 `EntryAbility` 共用的 `SettingsPageLink.PAGES`，以及网页 `apps/harmony/src/main.tsx` 的 `LINKED_PAGES`。两份都加上 `skin`。
+- 键盘能打开哪些设置页由两份名单决定：键盘和 `EntryAbility` 共用的 `SettingsPageLink.PAGES`，以及网页 `apps/harmony/src/settings-link.ts` 的 `LINKED_PAGES`（原在 `main.tsx`，2026-10-30 随[链接子目标](2026-10-30-harmony-settings-link-target.md)挪出）。两份都加上 `skin`。
 - 第一次只改了 `SettingsPageLink.PAGES`：键盘发出请求、`onNewWant` 也收到了，网页按自己的名单把 `skin` 丢掉，面板收起后什么也没发生。新增 `scripts/test-harmony-settings-links.py`，核对两份名单一致、而且都是设置注册表里的页面。
 
 ## Alternatives considered

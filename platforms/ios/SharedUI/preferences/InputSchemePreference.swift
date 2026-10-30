@@ -181,6 +181,15 @@ enum ChineseInputScheme: String, CaseIterable {
   }
 }
 
+extension ChineseInputScheme {
+  /// 设置「输入」页一个语言行代表的方案：键盘当前方案在 `offered`（本版本提供的该语言方案）里且已启用时就是它，否则是 `offered` 里第一个已启用的方案；一个都没启用时为 nil。行上显示的方案名和该语言选项面板里打勾的选项都按它定。以前面板只在键盘当前方案属于该语言时才打勾：键盘在全拼时，双拼行写着「小鹤」，打开面板却一个勾都没有，五笔也一样。
+  static func represented(among offered: [ChineseInputScheme], enabled: [ChineseInputScheme],
+                          current: ChineseInputScheme) -> ChineseInputScheme? {
+    if offered.contains(current) && enabled.contains(current) { return current }
+    return offered.first(where: enabled.contains)
+  }
+}
+
 /// 中文触屏的字母组网格：全拼 14 键、18 键入口，双拼的 14 键、18 键布局，或五笔的 14 键布局。几种网格共用组码入口和读音行；拼音的网格还共用拼音选择条和三栏候选面板，五笔 14 键没有拼音可选，候选照五笔展开。键面和统计 id 各自独立。
 enum LetterKeyGrid: Equatable {
   case fourteenKey, eighteenKey

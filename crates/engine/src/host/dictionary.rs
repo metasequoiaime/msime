@@ -212,7 +212,7 @@ pub fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry> {
     personal::validate_personal_dictionary_entry(entry)
 }
 
-/// `dictionary_validate` for the row an edit or removal starts from: a listed row keeps whatever weight learning gave it, so only the floor applies to its weight.
+/// `dictionary_validate` for the row an edit or removal starts from: a listed row keeps whatever weight learning gave it, from 0 for a derived wubi word to past the ceiling for a learned English word, so its weight is only held to what the store can hold.
 pub fn dictionary_validate_previous(entry: &DictionaryEntry) -> Result<DictionaryEntry> {
     personal::validate_existing_entry(entry)
 }

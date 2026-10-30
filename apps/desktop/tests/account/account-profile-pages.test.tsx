@@ -127,6 +127,21 @@ test.each(variants)("%s 资料页保留注销确认和对应退出回调参数",
   expect(accountClient.deleteAccount).toHaveBeenCalledOnce();
 });
 
+test("鸿蒙资料页的退出登录用居中的模态确认弹窗，不再把确认卡片接在页面最底下", async () => {
+  const accountClient = client();
+  const onSignedOut = vi.fn();
+  render(page("harmony", accountClient, vi.fn(), onSignedOut));
+  fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+  const dialog = screen.getByRole("alertdialog", { name: "退出登录" });
+  expect(dialog.getAttribute("aria-modal")).toBe("true");
+  expect(
+    within(dialog).getByText("退出登录后，云端功能和社区发布都需要重新登录才能使用。"),
+  ).not.toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认退出登录" }));
+  await waitFor(() => expect(onSignedOut).toHaveBeenCalledWith("已退出登录"));
+  expect(accountClient.logout).toHaveBeenCalledWith(false);
+});
+
 test.each(variants)("%s 独立资料页忽略被替换客户端的迟到昵称结果", async (variant) => {
   let finish!: (value: AccountProfile) => void;
   const old = client({

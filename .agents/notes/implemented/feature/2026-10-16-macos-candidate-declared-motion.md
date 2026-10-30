@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇的候选界面动效决定由[所有平台的候选立即呈现](../simplification/2026-10-30-candidate-immediate-presentation.md)取代，macOS 也忽略显式预设。共享清单声明标记、同步状态和装饰图自身的播放规则继续成立。
+
 ## Problem
 
 #7760（外部用户）报告：从 0.53.0 起，候选窗每次出现都要淡入，打字快的人来不及看清，而 macOS 自带输入法和搜狗都没有这种动画。[即时显隐决定](../bug-fix/2026-10-14-macos-candidate-instant-display.md)因此让 macOS 完全不执行皮肤动画，但这样一来，明确要求动效的皮肤在 macOS 上也什么都不播。共享的[动效契约](../architecture/2026-10-13-candidate-skin-v2-motion-contract.md)在 Windows 和 Web 上仍然有效。

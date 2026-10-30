@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import app.msime.android.ScreenCaptureProtection;
 import app.msime.android.LayoutPolicy;
 
 import app.msime.android.ImageViewPolicy;
@@ -119,7 +118,7 @@ final class LoginSheet {
         this.activity = activity;
         this.purpose = purpose;
         this.finished = finished;
-        dialog = ScreenCaptureProtection.protect(new BottomSheetDialog(activity));
+        dialog = SheetDialog.create(activity);
         appleResult = this::finishWith;
 
         LinearLayout root = LayoutPolicy.column(activity);
@@ -180,9 +179,6 @@ final class LoginSheet {
         scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT));
         dialog.setContentView(scroll);
-        // 直接展开，并且不留折叠高度：内容比折叠高度长时（小屏、大字号），底部的同意勾选不能停在屏幕外；往下拖就是关掉面板，不会停在一半让勾选和提示落到屏幕下面。
-        dialog.getBehavior().setSkipCollapsed(true);
-        dialog.getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         dialog.setOnDismissListener(ignored -> {
             SignIn.stopWaitingForApple(appleResult);
             if (!done) {

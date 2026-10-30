@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { ActionButton } from "../core/action-button";
+import { useConfirm } from "../core/confirm";
 import { useToast } from "../core/toast";
 import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { AccountAvatar } from "./account-avatar";
-import { AccountConfirmation } from "./account-confirmation";
+import { AccountConfirmation, accountConfirmationDetails } from "./account-confirmation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { AccountIdentityDetails, AccountIdentityRows } from "./account-identity-details";
 import type { AccountClient, AccountProfile, AccountUser } from "./account-model";
@@ -171,6 +172,13 @@ export function MobileAccountProfilePage({
   );
 }
 
+/** 鸿蒙「个人资料」页确认弹窗的标题，与触发它的那一行同名。 */
+const harmonyActionTitles: Record<HarmonyProfileAction, string> = {
+  logout: "退出登录",
+  "logout-all": "退出所有设备",
+  delete: "注销账号",
+};
+
 /**
  * 鸿蒙手机上的「个人资料」，从「我的」卡片推入：头像、名字、邮箱和账号登录用的提供方，然后是「账号」和「登录方式」两组，会话操作是居中的红色行。「昵称」打开一个面板，校验与其他地方相同；「水杉 ID」点按即复制自身。结果按设计用 toast 报告；失败则作为错误留在页面上。
  *
@@ -187,7 +195,8 @@ export function HarmonyProfilePage({
   const [name, setName] = useState(user.displayName);
   const [renaming, setRenaming] = useState(false);
   const [error, setError] = useState("");
-  const [confirmation, setConfirmation] = useState<HarmonyProfileAction | null>(null);
+  // 退出、注销的确认用居中弹窗：页内确认卡片排在这页最底下，手机上落在可视区域以外，点了「退出登录」看起来什么都没发生。
+  const { confirm, confirmation } = useConfirm();
   const showToast = useToast();
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
@@ -220,10 +229,15 @@ export function HarmonyProfilePage({
   });
   const shownName = user.preferredName;
   const provider = profile?.providers[0];
-  const confirmAction = () => {
-    const action = confirmation;
-    setConfirmation(null);
-    if (action) runAccountSessionAction(action, { signOut, deleteAccount });
+  const confirmAction = async (action: HarmonyProfileAction) => {
+    const detail = accountConfirmationDetails[action];
+    const confirmed = await confirm({
+      title: harmonyActionTitles[action],
+      message: detail.message,
+      confirmLabel: detail.label,
+      danger: true,
+    });
+    if (confirmed) runAccountSessionAction(action, { signOut, deleteAccount });
   };
   const copyId = () =>
     copyAccountIdToClipboard({
@@ -259,17 +273,12 @@ export function HarmonyProfilePage({
         }}
         onCopyId={copyId}
       />
-      <AccountProfileActions variant="harmony" busy={busy} onSelect={setConfirmation} />
-      {confirmation && (
-        <div className={account.profileConfirmation}>
-          <AccountConfirmation
-            action={confirmation}
-            busy={busy}
-            onConfirm={confirmAction}
-            onCancel={() => setConfirmation(null)}
-          />
-        </div>
-      )}
+      <AccountProfileActions
+        variant="harmony"
+        busy={busy}
+        onSelect={(action) => void confirmAction(action)}
+      />
+      {confirmation}
       {renaming && (
         <BottomSheet
           title="昵称"
