@@ -25,8 +25,8 @@ struct EncodedReply {
 // These are wire encoders, not decisions about which reply a TSF key path
 // reads. The sender must revalidate client/activation ownership before writing
 // a frame.
-EncodedReply candidate_commit(uint64_t request, std::string_view complete_text);
-EncodedReply exact_commit(uint64_t request, std::string_view complete_text);
+EncodedReply candidate_commit(uint64_t request, std::string_view complete_text, std::optional<std::string_view> cursor_suffix = std::nullopt);
+EncodedReply exact_commit(uint64_t request, std::string_view complete_text, std::optional<std::string_view> cursor_suffix = std::nullopt);
 EncodedReply preedit_reply(uint64_t request, std::string_view display_text);
 EncodedReply ignored_reply(uint64_t request);
 enum class NavigationReply {
@@ -64,7 +64,7 @@ std::optional<std::vector<uint8_t>> worker_mode_bytes(WorkerMode mode);
 // Commit text through the worker endpoint and trim only the named count from
 // the TSF-local key buffer, preserving any keys typed ahead of delivery.
 std::optional<std::vector<uint8_t>>
-commit_candidate_and_continue_bytes(size_t consumed, std::string_view text);
+commit_candidate_and_continue_bytes(size_t consumed, std::string_view text, std::optional<std::string_view> cursor_suffix = std::nullopt);
 
 // The TSF-local settings the TIP keeps in its own globals.
 //
@@ -132,7 +132,7 @@ struct UiSelectionFrames {
   std::vector<std::vector<uint8_t>> worker_prefix{};
 };
 std::optional<UiSelectionFrames> ui_continued_selection(std::string_view payload, uint16_t transaction);
-std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text);
+std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text, std::optional<std::string_view> cursor_suffix = std::nullopt);
 std::optional<UiSelectionFrames>
 ui_partial_selection(std::string_view raw, std::string_view selected_prefix,
                      std::string_view display);

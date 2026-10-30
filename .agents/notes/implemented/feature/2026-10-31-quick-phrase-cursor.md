@@ -56,6 +56,20 @@ API 范围语义以 Xcode SDK 的 `HIToolbox.framework/Headers/IMKInputSession.h
 
 API 与队列依据为 [IME Kit](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/reference/apis-ime-kit/js-apis-inputmethodengine.md)、[UI 线程适配](https://raw.githubusercontent.com/openharmony/arkui_ace_engine/master/frameworks/core/components_ng/pattern/text_field/on_text_changed_listener_impl.cpp) 与 [TextFieldPattern](https://raw.githubusercontent.com/openharmony/arkui_ace_engine/OpenHarmony-6.0-Release/frameworks/core/components_ng/pattern/text_field/text_field_pattern.cpp)。纯逻辑回归分别覆盖「读回排空 UI 任务」和「读回仍看不到布局写入」两种编辑器；设备验收另记实际结果，不能把同步 API 名称或 Node 模型当作系统保证。
 
+## Windows 的固定包长定位协议
+
+协议预备层在 `quick_phrase_cursor_pipe.h` 定义可选的 `QuickPhraseCursor` 能力，保留 Main 的 416 字节、Worker 的 404 字节和正文 199 个 UTF-16 单元容量。`msg_type` 的最高位表示定位扩展，低 8 位保存原提交类型，8..23 位存尾段 UTF-16 单元数，24..30 位保留为零。只允许 Main 的 `Normal`／`CommitExactText` 和 Worker 的 `CommitCurCandidate`／`CommitCandidateAndContinue` 携带。零单元是显式末尾定位，不能当成缺字段，否则模板正文可能再次触发自动补成对标点。
+
+解包必须同时验证双方已协商、提交类型、保留位、终止符、正文长度及代理项边界；损坏扩展不能去掉标志后当作普通提交。编码先核对真实正文后缀，错误元数据只丢定位。空 Worker 正文沿旧协议表示消费另一条回复，只有有效显式定位帧才能表示空提交；错误定位不能退回这个触发语义。`EngineResult` 仅在存在实际字符串提交且后缀匹配时保存可选字段，每次解码不沿用前一次结果。
+
+该切片尚未在 Server 或 TIP 宣告能力，也没有接通 TSF 编辑会话。生产端不发送扩展，Windows 能力仍未完成；后续必须同时覆盖键盘回复、候选窗 Worker 与 TIP 本地提交，并在同一次编辑会话核对实际全文后用 `ITfRange` 定位，不能靠方向键次数或在定位失败后重投正文。
+
+纯 codec 套件加入跨宿主 runner。既有语音用例的非 BMP 字符改用显式 UTF-16 代理项作输入和预期，保持 Windows 的原始字节断言，并让 32 位 `wchar_t` 宿主也检查同一份线格式；不以平台排除隐藏失败。
+
+协议与 JSON 解码回归分别用 macOS clang 和 MinGW x64／i686 编译；两套同源 Windows EXE 已在 Windows 11 原生 runner 执行，显式传播退出码，均返回 0。codec 覆盖固定线长、完整正文容量、Unicode、空尾段、能力交集、损坏元数据、无终止符与代理项边界，以及空正文的坏定位不能变成旧触发帧、Worker 计数前缀不能冒充正文后缀。JSON 覆盖缺失、空、错误类型、失配与无提交时的清理。该结果只证明协议和解码，不代表 TSF 编辑器位置或完整 Windows 宿主验收。
+
+最终 `verify-local.sh --quick` 退出 0，包含 Windows 跨宿主 204 项、Linux 原生 113 项、HarmonyOS 设置页与 HAP、Rust／Android／Wasm 检查、macOS 原生宿主与 Apple bridge、x86_64／i686 管道协议编译。完整 Windows 原生项目依赖未配置，该阶段跳过，不计作产品构建。首轮 SSH 缺少 Node 和 DevEco SDK 环境而失败；补齐机器已有的 Node／pnpm、`NODE_HOME`、`DEVECO_SDK_HOME` 和 Java 21 后完整重跑通过，没有改测试断言或失败基线。
+
 ## 既有笔记审计
 
 - [快捷短语混输](../../implemented/feature/2026-10-17-macos-quick-phrase-candidates.md)、[快捷短语偏好](../../implemented/feature/2026-10-22-quick-phrase-preferences.md)、[首页默认席位](../../implemented/feature/2026-10-25-quick-phrase-first-page-default.md)：部分重叠，保留能力、默认值、排名和学习决定，本篇只扩展选中后的文本交付。
@@ -73,6 +87,8 @@ API 与队列依据为 [IME Kit](https://raw.githubusercontent.com/openharmony/d
 - **macOS 长期持有任意模板尾段**：可以复用成对标点的 marked text 尾巴，不依赖绝对范围。但是任意尾段会跨越直接英文、语音、剪贴板、维护会话与失焦等所有上屏路径，任何遗漏都可能覆盖或丢失文字；不能把它冒充闭合标点。空标记方式在可靠文档范围内定位，全文已落地后无需额外尾段所有权。
 
 - **HarmonyOS 同步插入后立即设置选区**：调用少、没有额外等待状态。但同步插入只把操作送进 UI／布局队列，选区可能早于文字落地，立即读回也可能还是旧文档；真实模拟器中的快速输入已观察到该时序。采用有界回声恢复，并阻止下一段预编辑抢先写入。
+- **Windows 扩大回复结构或把定位写在正文前缀**：扩大结构能直接表示字段，正文前缀也不用占用消息类型位。但前者破坏固定管道 ABI，后者减少现有正文容量；消息类型的有界可选扩展保留两者，并由协商阻止旧端收到。
+- **Windows 新增分帧定位消息**：定位能使用独立消息类型，也便于以后扩展更多元数据。但任意提交需要新增跨帧重组、焦点归属与失败回收状态；当前尾段上限已由正文容量界定，放在同一帧足够，不增加另一份待提交所有权。
 
 ## 共享层验证边界
 
