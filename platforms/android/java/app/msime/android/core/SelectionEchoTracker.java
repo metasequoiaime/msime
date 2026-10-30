@@ -89,6 +89,18 @@ public final class SelectionEchoTracker {
         written = true;
     }
 
+    /** 本轮上屏后同步核对过的绝对光标：保留先前批次的待确认回声，再为新位置记预期。 */
+    public void positionAfterCommit(int position) {
+        if (position < 0) { invalidate(); return; }
+        known = true;
+        selectionStart = position;
+        selectionEnd = position;
+        composingStart = -1;
+        composingEnd = -1;
+        slack = 0;
+        written = true;
+    }
+
     /** `deleteSurroundingText(length, 0)` 成功：光标折叠且没有组字区时光标左移 `length` 个 UTF-16 单元，否则算不出来。 */
     public void deleteBefore(int length) {
         shiftLeft(length, length);
