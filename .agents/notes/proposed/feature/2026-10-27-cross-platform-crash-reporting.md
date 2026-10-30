@@ -29,7 +29,7 @@ Status: proposed
 
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
-| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过 | 完整安装包；真实编辑器的授权、宿主捕获异常后继续运行及非自有故障对照；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；最新整合候选复验 |
+| Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过；`e746981d18` 的 x64 实际 Notepad 输入、Host/TSF WER→共享队列→隔离后台复验通过，TSF 以重新链接后的独立精确 PDB 还原到同一源码行 | 完整安装包；真实编辑器的授权、宿主捕获异常后继续运行及非自有故障对照；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；当前候选的其余产品入口复验 |
 | macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照 | Tauri 设置及其余辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；正式在线服务入口的 systemd 自动重启与授权队列专项；`e746981d18` 的 Ubuntu x64 暂存完整产品已复验 IBus/X11、原生 Wayland/Fcitx5 与设置启动器，七条 crash 到后台、独立符号源码行和授权对照通过，真实按键内存访问还原到 `FcitxEngine.cpp:7705` | 其他架构与部分发行版符号；系统级安装及其他服务的 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
@@ -242,3 +242,19 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 固定官方后台镜像与临时 PostgreSQL 在 Docker 内部网络共接收二十一次请求，按事件 ID 幂等后为七条 crash、五条 session_crash、四条 active；数据库与实际 HTTP 的七个字段按缺省空串逐项一致，没有合成输入、目录或授权 epoch。七条 crash 分别来自 Wayland 信号两条、真实内存故障一条、IBus 两条、设置两条。首轮 Wayland 合成目录过长导致 UNIX socket 超限、IBus 夹具误改 `/home/` 路径、设置夹具过早读取 relay 均保留失败记录；缩短 XDG 目录、修正夹具路径和增加有界就绪等待后另建目录完整复跑，没有修改产品或放宽输入断言。最初未带正式设置打包配置的编译结果也没有用于通过轮。EGL 与私有 D-Bus portal 告警保留，不改变渲染后端。
 
 正式缓存已去掉回环特性与测试 origin 重编，CMake 的原 Fcitx5/资源选项恢复；正式 ABI 的 begin/flush 在创建目录前拒绝测试目标，正式两个 Rust 二进制均不含完整测试 origin。合成授权关闭并读回，独立 `/proc` 审计无测试进程残留；后台容器、内部网络、监听与专用 SSH 转发均已清理，没有停止共享 Docker 引擎。小证据为 `target/linux-e746-product-evidence/` 的 126 份文件及 `target/linux-e746-backend-attempt2-evidence/`。范围仍限 Ubuntu x64 的独立暂存前缀，不扩大到其他架构、发行版、系统级安装或其他 systemd 服务。
+
+### e746 的 Windows x64 暂存产品复验
+
+固定 `e746981d18261e39cf6f0530934985fad6afcf9b` 的干净 Windows 检出复用 `target/debug` 与 `target/windows-full/x64`，只为最终 Host API crate 增加调试信息。Server、Watchdog、准备程序、TSF 与 WER helper 从同源构建暂存至专用测试目录，在专用交互账号运行；三个自有 EXE 路径的外网阻断和回环可用性经实际探针确认。真实打包版 Notepad 通过原 TSF 注册、候选显示和合成「你好」提交。非管理员交互注册失败后，同一注册器在具备机器级权限的上下文成功，失败原件保留。
+
+两次 Host API 故障均由系统事件确认 `c0000005`、`msime_host_api.dll+0x3811897`；首次允许列表夹具采用 `/` 路径，修正为系统实际使用的反斜杠后再起新编辑器。第二次故障在 Server 重启时补报为独立 `tsf` 事件。此前瞬时看到 `.crash` 目录为空，不能据此认定 helper 没有写盘：TSF 的 `capture_only` 准备会收集共享原件，实际共享队列及收据随后包含该记录。用独立精确 PDB 可还原 Host API 的 `serde_json::read::SliceRead::peek`，行号仍为 `??:0`，不把它算作产品源码行通过。
+
+首次 TSF 符号门禁发现同 GUID 的 PE age 为 1、PDB age 为 2，拒绝该配对；保留原快照后仅删除本任务 TSF 的链接产物并重新链接。新 GUID `{4EE83849-515C-4DC7-A3E8-AFE66200044D}`、age 1 在 PE/PDB 中一致，四模块独立 ZIP 逐份哈希回读通过，ZIP SHA-256 为 `11bb017058d59d106ce158c26cb8c56f2bd5a8184f747b97194e0dc88e0299ae`。真实 Notepad 的只读进程检查确认 `sequence=2`、`armed=1`、持续同意代次、原构建头和两个自有模块范围。随后受控改变寄存器并转到经反汇编核对的 TSF 写指令，系统 WER 确认为 `MetasequoiaImeTsf.dll+0x7bdcc`，共享队列和后台均取得原 UUID `28579f18-ff03-4f36-8e8a-167f2df9ebd1`，独立归档还原到 `KeyEventSink.cpp:2415`。故障夹具的严格退出码断言仍失败：打包 Notepad 的最终退出码为 `0xff`；实际访问冲突与归属使用独立系统事件、产品收据和后台证明，不将夹具退出码改写为通过。
+
+后续排查曾错误地把 x64 `CONTEXT` 的 `R15` 偏移 240 判断为错误，并改到 200；240 才是正确偏移。该后续尝试产生系统 `unknown` 地址故障，不计自有故障验收，也没有新增产品后台事件。未改产品源码或放宽门禁，原成功 TSF 事件来自使用正确偏移的前一次尝试。
+
+固定后台 `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a` 最终恰有两条 `crash` 和一条 `active`，无 `session_crash`；HTTP 请求与数据库七字段逐项一致，保留原版本、revision、运行 `windows-editor-e746-20261030`、attempt 1、`x86_64` 与组件 `tsf`，授权代次没有外发。Server 停止再经原任务入口启动后发送队列；这是强制测试收尾后的启动，不冒充正常退出或看门狗恢复验收。
+
+正式 Host API 与原生缓存已去掉回环特性和目标重新构建；正式 begin/flush 均以 `invalid request document` 拒绝测试字段，且未创建测试队列。合成授权已关闭；独立审计确认本任务进程、任务计划、防火墙规则、helper 允许列表、TSF CLSID/TIP 及三个状态根注册值恢复空基线，专用账号合成遥测文件清空。系统组件仍加载的旧 DLL 没有强制卸载或结束系统进程。后台容器、内部网络、监听与精确 SSH 转发已清理。小证据为 `target/windows-e746-product-final-evidence/` 的 54 份文件及 `target/windows-e746-backend-attempt1-evidence/`。范围仍限暂存 x64 产品，不替代完整安装器、其他架构、授权负对照或捕获恢复。
+
+当前候选的 Native Platform CI `40998000611` attempt 2 已整作业成功，Windows job `123884843202` 完成 x64/x86 系统 WER、Win7 和原生设置门禁；Android API 35 完成四共享 crate 设备测试、APK、崩溃/系统退出/ANR 专项与完整输入冒烟。CI 通过不替代矩阵里的真机、系统延迟投递或其他产品入口验收。

@@ -196,3 +196,7 @@ PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出�
 
 
 固定 `e746981d18` 的 Ubuntu x64 完整暂存产品已复验：真实 Mousepad 经 IBus/X11、原生 Wayland/Fcitx5 连续输入，实际产品设置启动器承载共享设置窗口；三入口均完成外部致命信号、原入口重启补报、SIGKILL 负对照与活跃撤回重开。另在真实 GTK 按键进入插件时制造实际 `SEGV_MAPERR`、地址 `0x11`，重启后继续原编辑器输入。隔离后台共七条 crash、五条 session_crash、四条 active，字段与真实请求一致；独立十八模块符号 ZIP 将实际后台帧还原到 `FcitxEngine.cpp:7705`、`ibus_main.cpp:296` 与桌面 `lib.rs:6499`，错误 build-id 拒绝。仅用 XDG 合成目录隔离，没有改写 `HOME`。正式缓存、合成授权、进程及后台/转发已恢复清理，暂存文件哈希保持不变；三轮夹具启动失败与资源下载超时保留。构建配置、独立归档身份和范围见全平台提案的 e746 小节，不扩大为其他架构、发行版或系统安装通过。
+
+### 当前 Windows x64 产品复验边界
+
+`e746981d18` 的实际 Notepad 输入、Host API/TSF 受控访问冲突、共享队列和隔离后台已经复验；TSF 的独立精确归档还原到 `KeyEventSink.cpp:2415`。首次增量链接遗留同 GUID、不同 age 的 PE/PDB，被身份门禁拒绝，保留失败后仅重链接该产物再取得匹配归档；不放宽 PDB age。Host API 的真实故障可还原函数而仍没有源码行。完整证据、夹具失败与清理边界由[全平台复验记录](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#e746-的-windows-x64-暂存产品复验)持有，不将本轮结果扩大为所有架构或全平台完成。
