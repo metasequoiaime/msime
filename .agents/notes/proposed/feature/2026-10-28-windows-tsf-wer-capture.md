@@ -22,6 +22,8 @@ WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不
 
 ## 当前基础切片与验证
 
+完整安装包的首次实际 ISCC 编译在 WER 注册项失败：`[Registry]` 不支持 `Flags: 32bit`，原契约检查却接受了这个写法。x86 helper 现在按 [Inno Setup 的注册表视图约定](https://jrsoftware.org/ishelp/topic_registrysection.htm)用 `Root: HKLM32` 明确选择 32 位视图，原生 helper 保持默认视图；两条记录仍只以 `uninsdeletevalue` 删除自己的完整路径值。修正后的契约检查在旧源码上实际失败，替换成正确注册项后通过；完整安装包随后实际编译成功，耗时 125.719 秒。空白 Windows 安装验收另行记录，不能以文本检查或编译代替。
+
 `CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主的系统 WER 实际投递，以及同源 x64 产品在 Windows 11 Notepad 内的输入、自有故障、隔离后台与源码行已通过；完整安装包和其余架构、授权及非自有故障场景仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
 
 WER helper 的 x86 分支现在沿目标进程的 EBP 链最多读取 64 个返回帧，远程读取失败、回环、倒退或超过 1 MiB 的跳跃立即停止；只有 TSF 与当前 edition Host API 的帧写入记录，外部宿主帧不泄露。x64/ARM64 继续保留直接故障帧，因为 `RtlVirtualUnwind` 不能直接解引用 helper 地址空间之外的目标栈。x64 与 x86 生产 helper 均通过 MinGW `-Wall -Wextra -Werror` 语法检查；当前 macOS 无法执行 Windows x86 回调，真实 x86 运行回归仍由 Windows CI 验证。

@@ -47,10 +47,11 @@ if ($wer.Count -ne 2) { throw 'Expected only x86 and native WER helper allowlist
 foreach ($entry in @(@('{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}', $true), @('{#MySystemTipDir}\{code:GetVersionDir}', $false))) {
     $destination, $x86 = $entry
     $matched = @($wer | Where-Object { $_.Value.Contains("ValueName: `"$destination\MetasequoiaImeCrashWer.dll`"") })
-    if ($matched.Count -ne 1 -or -not $matched[0].Value.Contains('Root: HKLM;') -or
+    $root = if ($x86) { 'HKLM32' } else { 'HKLM' }
+    if ($matched.Count -ne 1 -or -not $matched[0].Value.Contains("Root: $root;") -or
         -not $matched[0].Value.Contains('ValueType: dword;') -or -not $matched[0].Value.Contains('ValueData: "0";') -or
         $matched[0].Value -notmatch '\buninsdeletevalue\b' -or $matched[0].Value -match '\buninsdeletekey\b' -or
-        $x86 -ne ($matched[0].Value -match '\b32bit\b')) {
+        $matched[0].Value -match '\b32bit\b') {
         throw "WER helper allowlist ownership mismatch: $destination"
     }
 }
