@@ -30,7 +30,7 @@ Status: proposed
 | 平台 | 分支已有入口 | 必须继续补的覆盖或验收 |
 | --- | --- | --- |
 | Windows | Server、现代/Win7 设置与面板、MCP、看门狗、准备程序；TSF 租约与进程外 helper 接线、x86/x64 实际 DLL 生命周期及合成宿主七组真实系统 WER 投递；Arm64X helper 链接；callback/lifecycle 门禁通过；候选 `1ae2cf6c67` 已经 PVE 跳转完成 MSVC x64/x86 新计数与最终授权屏障、反复装卸及各七组系统 WER；目录变化通知与三十秒兜底，x64/x86 专项及旧轮询负对照通过；2026-10-30 同源 Server 的 WER→本地队列→隔离后台已收到两组 `crash`/`session_crash` 与两条 `active`，字段和匿名安装身份逐项一致；固定 `b8356db26b` 的 x64 Notepad 真实输入、TSF/Host 自有访问冲突、两条独立 `tsf` 后台收件、TSF 精确 PDB/独立 ZIP 还原到 `KeyEventSink.cpp:2415` 与重启后输入恢复通过 | 完整安装包；真实编辑器的授权、宿主捕获异常后继续运行及非自有故障对照；x86/ARM64 实际产品故障；完整 Win7 同源符号包与后台；最新整合候选复验 |
-| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原 | 回退设置、Tauri 设置及其他辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
+| macOS | 输入法、Tauri 设置/面板、MCP、本地语音 helper；原生故障；实际 universal DMG 五模块双架构符号、UUID、哈希、源码行表和签名核对；当前分支 Intel 登录会话的真实 IMK 编辑器验收（workflow run `40760896167`，双布局通过）；候选 `1ae2cf6c67` 的 arm64 输入进程实际故障、原产品重启、后台入库及 `input_method_main.mm:214` 还原；`e746981d18` 的原生回退设置及包内语音 helper 外部信号、设置入口补报、独立 dSYM 源码行和活跃授权对照 | Tauri 设置及其余辅助入口后台与源码行；硬件访问冲突与完整编辑器验收 |
 | Linux | IBus/Fcitx5、设置/面板、MCP、准备程序、12 个原生辅助程序、八个 Python 入口；aarch64 输入框架真实故障及后台/源码行；6bea x64 设置启动器代收、真实内存故障与源码行；Mousepad 经 IBus/X11、Fcitx5/X11 和原生 Wayland 的输入、故障恢复、撤回重开及后台；Wayland 真实内存访问还原到 `FcitxEngine.cpp:7678`；正式在线服务入口的 systemd 自动重启与授权队列专项 | 最新整合候选的完整产品复验；其他架构与部分发行版符号；系统级安装及其他服务的 systemd 生命周期 |
 | Android | App Java、IME Java/JNI 原生信号、API 30+ 系统退出及持久同意 epoch；API 28/35 专项故障/补报、API 35 实际系统退出和撤回重开；API 28/35 活跃 IME/App 动态同意；API 35 App 真实 ANR、补录、去重和撤回抑制；同源 arm64 Release 包身份核对，API 28 App/IME Java/JNI 真实故障到隔离后台及精确源码行还原；API 35 两个日语原用例和原样触控板专项单独通过；API 35 device workflow 先用 `smoke.sh --crash-only` 独立运行 `telemetry-watch.py`、`telemetry-consent.py` 和 `telemetry-anr.py`，再跑完整输入冒烟 | 截至 `ab3a30ecd1` 整作业通过但旧语音润色失败根因未确认；6bea API 35 整作业成功，含共享设备单测、APK、崩溃专项及完整输入套件；真机与其他架构、最新候选后台传输仍缺 |
 | iOS | App/键盘异常与 C 信号记录、独立活跃同意观察、当前捕获身份、MetricKit 持久授权与队列代次认领、UUID 帧；同源模拟器回归；iOS CI 现用 `iphonesimulator` SDK 做 arm64 目标编译，并运行真实 C 信号故障夹具和完整 MetricKit 栈解析器，核对故障首帧、Mach-O UUID 与历史模块身份；固定 `6bea262fd0` 的原生 Release App 模拟器信号、真实内存故障、重启补报、隔离后台、动态授权、SIGKILL 对照，独立符号 ZIP 还原到 `consent.rs:105` 与 `UsageReporting.swift:346/299`，正式产物恢复；同源 iOS 27 模拟器由系统在合成 UIKit 文本框拉起真实键盘，外部信号和真实内存故障到后台及独立 dSYM 源码行、活跃撤回、新代次、SIGKILL 对照和恢复输入通过 | 系统 MetricKit 回调；真机 dSYM 与后台链路；iOS 26.5 扩展框架异常独立复核 |
@@ -65,6 +65,18 @@ Linux aarch64 的 IBus 入口已另行完成真实故障闭环：以 `e275758170
 固定候选 `1ae2cf6c67207114fa19a388d44a797082193397` 的 12,444 个源码条目，在既有构建缓存重建启用回环验收能力的静态 Host API 与真实原生输入法。arm64 `0.55.0` 产品在合成 HOME 与运行时偏好中启动，沙箱只允许专用回环端口；外部 `SIGSEGV` 后由原产品重启并发送，固定官方后台与临时 PostgreSQL 共收到四条事件，恰好一条 `crash` 和一条 `session_crash`。逐字段核对数据库与 HTTP 请求一致，原捕获身份保持原版本、提交、运行编号、架构与 `input`。实际后台帧的 UUID `efc384f710873096a1df3a7c36637bc3`、偏移 `0x9bbc` 经本轮独立符号归档还原到 `input_method_main.mm:214`。再次以 `SIGKILL` 终止并重启不增加崩溃。证据为 `target/macos-consent-input-evidence/`，远端完整记录与符号位于 `target/macos-runtime-acceptance/capture-final-consent-input-attempt1/`。
 
 这只验收原生输入进程启动路径及外部致命信号，不代表硬件访问冲突、IMK 真实编辑器、Tauri 设置及其他辅助入口通过。原生回退设置入口也实际故障并入库，但捕获的前 64 帧没有可匹配的自有模块，源码行断言拒绝通过；失败证据单独保留。LLDB 另因非交互调试权限被拒绝，未改变系统调试授权；改用向实际产品发送 POSIX 信号，不用测试桩伪造记录。前序动态库 `LINKEDIT`、沙箱地址语法、LLDB 模块命名和测试后台中继准备失败均保留，静态准备工具只操作合成偏好及离线握手，实际补报仍由原生产品执行。结束时已停止产品、临时后台、数据库、内部网络与 SSH 回环转发；重建不带回环特性的正式静态库和原生宿主，实际握手拒绝测试来源且未创建队列目录。运行前后的 12,444 个源码条目一致，没有安装或发布产品。
+
+### macOS 原生回退设置与语音 helper 的补报及授权对照
+
+固定 `e746981d18261e39cf6f0530934985fad6afcf9b` 的干净 worktree，复用规定的 `target/macos-cargo` 与 `target/macos-isolated`，重建实际 arm64 `0.55.0` 原生输入法及包内 `msime-voice-local`。仅设置任务专属 `CFFIXED_USER_HOME`，Foundation 实际查询确认 Application Support 位于合成目录；不改写 `HOME`，不安装或注册输入源。共享偏好 ABI 只准备合成授权，故障与补报均运行实际产品；网络沙箱仅允许专用回环端口。
+
+原生输入法的 `--preferences` 回退设置入口和包内 helper 各通过开启时外部 SIGSEGV、原设置入口重启补报、SIGKILL 无伪报、活跃撤回后 SIGSEGV 无记录、重开后新 epoch 及重新补报。helper 保持实际 stdio 协议并返回 hello，故障后直到设置入口启动前后台没有新增请求，未冒充 helper 自己联网。新代次保持匿名安装 ID，实际记录的 epoch 不同；没有输入会话。通过轮新增四条 crash，数据库与 HTTP 七字段按缺省空串逐项一致，active 按原 ID 幂等。
+
+两模块 dSYM 均从实际产物收集，校验 UUID 与非空源码行后打包，再仅用独立解压目录还原后台事件；ZIP SHA-256 为 `910e64906ad2cf432c28c3b9d07d4bf8d8ef3754451d7776b7226a89e5ecb9b8`。设置帧 UUID `25b7f5039d133d4fb19d13ce4cfc1df1`、偏移 `0x8d28` 还原到 `input_method_main.mm:139`；helper UUID `66176351ec2d3f63ada74904768f1d26`、偏移 `0x4fbc` 还原到 `LocalAsrHelper.cpp:591`。每条实际自有帧均验证错误 UUID 被拒绝；不把系统帧当作产品源码证据。
+
+保留两类夹具失败：LLDB 首次因模块文件名含连字符拒绝导入，改名后系统明确拒绝非交互调试权限，未改系统权限；信号首轮误要求重开后匿名安装 ID 下只有一条 crash，实际协议保留安装 ID，已正确收到两条，等待断言失败。原两条后台记录保留，独立新合成目录完整复跑通过四条，不改后台记录、产品、断言超时或授权协议。实际内存故障仍待调试权限，外部信号成功不能代替。
+
+正式 Cargo、两个产品入口均已重建恢复，产品二进制无完整测试 origin；新链接的正式 ABI 在建目录前拒绝 `test_origin`。五份合成用户的授权逐项关闭并读回，产品进程无残留；临时后台、数据库、内部网络和专用转发全部停止清理。证据为 `target/macos-e746-product-evidence/`。范围限 macOS arm64 原生回退设置和语音 helper；Tauri 设置、其余辅助入口、硬件访问冲突及完整 IMK 编辑器范围继续保留。
 
 ### Android API 28 的真实故障到后台与符号还原
 

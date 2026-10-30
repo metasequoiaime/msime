@@ -166,6 +166,8 @@ macOS PR CI `40823292562` 的 `common-capture-only` 在首次 `enable` 后等待
 
 本轮完整 `scripts/verify-local.sh --quick` 的首次结果为退出 1，唯一失败阶段是新增符号开关尚未列为官方容器与发行版的有意差异。修正后整轮复跑输出 `quick check passed`：203 项 Windows 可移植用例、仓库契约、工作区/Android/wasm 编译、Android 宿主、鸿蒙 HAP、macOS 原生与共享 Apple bridge 均通过。Linux 原生/桌面及 Windows 原生/pipe-only/x86 语法因构建机缺 Docker/MinGW 跳过，不算通过。冻结前核对全部 12,444 个条目；结束包装器因期间两次正常提交把 HEAD 从 `6bc13ef19d` 改为 `0d22599d44` 而在基线断言退出 1，独立结束审计确认该 HEAD 仍为原基线后代，12,444 个源码条目与原清单逐一完全一致，保留原退出与独立审计，不将包装器写成退出 0。相对该冻结清单，本机 10,221 个非 Markdown 条目一致，此后只更新验证笔记。证据为 `target/fcitx-tsf-final-quick-evidence/` 与 `target/fcitx-tsf-recheck-quick-evidence/`。
 
+固定 `e746981d18` 的实际 macOS arm64 原生回退设置与包内语音 helper 已完成外部 SIGSEGV、真实设置入口补报、SIGKILL 负对照、活跃撤回和重开新代次。通过轮四条 crash 的后台字段与真实请求一致，没有输入会话；helper 本身只采集，由设置入口代发。实际两模块帧经独立 dSYM ZIP 还原到 `input_method_main.mm:139` 与 `LocalAsrHelper.cpp:591`，错误 UUID 拒绝。仅用 `CFFIXED_USER_HOME` 隔离合成目录，没有改写 `HOME`；正式构建、合成授权、进程与后台/转发已恢复清理。非交互调试权限拒绝和首轮误判稳定安装身份的夹具失败均保留，实际内存故障仍未验收，详见全平台提案的同名小节。
+
 ## Consequences
 
 Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源码树没有生成的安装身份时安静停用；安装门禁必须确认桥、Python 模块和生成路径齐全。Linux 原来仅依赖 JSON/X11 的剪贴板工具与本地语音 helper 因此新增 Host API 共享库依赖，安装 RPATH 随接入一并设置；每个独立工具也承担一条同意观察线程。新增入口让独立进程和原生故障进入既有队列，构建身份能指导选择精确符号。队列容量不再允许普通统计挤掉崩溃；全为崩溃时保留后续原文件。共享层异常写入完整落盘后原子发布，损坏的新格式身份不回退为当前版本。
