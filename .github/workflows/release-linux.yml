@@ -248,7 +248,7 @@ jobs:
   # Arch 官方镜像提供 x86_64；沿用已经验证过的 RPM 重新打包，发布页直接附带可安装的 msime-bin。
   arch-bin:
     needs: [source, rpm]
-    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' }}
+    if: ${{ needs.source.outputs.packaging == 'true' }}
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 30
     steps:
@@ -276,7 +276,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: [source, deb, rpm, distro-sources, legacy, arch-bin]
-    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包仅在有 packaging 脚本且 publish 时运行。
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包在有 packaging 脚本时构建，nightly 同样取它的 artifact。
     if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') && (needs.arch-bin.result == 'success' || needs.arch-bin.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
