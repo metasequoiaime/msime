@@ -32,6 +32,18 @@ Android [9.0.0_r55 的 debuggerd](https://android.googlesource.com/platform/syst
 
 本机再次从独立传回的 ZIP 还原全部八个后台帧，与设备侧逐条一致。小证据为 `target/android-e746-product-evidence/` 的 108 份文件，首轮漏报、四轮诊断与符号夹具失败均在内；后台各轮证据为 `target/android-e746-backend-attempt{1,2,3,4}-evidence/`。本轮完整 `verify-local.sh --quick`、笔记校验及差异检查通过，Linux 原生 119/119；本机未配置的 macOS 原生 CMake 和 Windows 完整原生阶段明确跳过，不转记设备通过。
 
+### 固定 9bab 候选的完整重建与独立后台复验
+
+固定 `9bab02959fc5ce4c4917e1f1ed3518d8727ef026` 全源码，复用本任务原 arm64 缓存重建原生 Release 配置正式 APK（开发证书）。正式 APK SHA-256 为 `863da2b02c80ace47e7f6b6d23769bc0be72796e4ec1dfa258efbaf737da5599`；四份包内库与 Gradle 实际剥离输出逐字节相等，自有库 build-id、未剥离哈希与独立符号归档一致。正式库不包含专用回环目标。此次替代先前“e746 基础包加单文件修补”的验证边界，仍不扩大为其他 ABI 或真机。
+
+自有 API 28 AVD 复用既有目录，改用独立 `emulator-5600` 避开其他任务；忽略目录中的原专项副本仅更换端口白名单，仍核对真实 AVD 名、API 和实际进程，产品及原测试断言不改。正式包 `telemetry-watch` 退出 0，覆盖活跃撤回不采集、不可读暂停/恢复同一会话、重开换代、Java/原生故障入队与真实 HomeActivity 独立采集。首次预检因将“未安装包”的 `pm path` 退出 1 当作命令错误而停止，发生在安装前；原失败日志保留。
+
+同源隔离测试特性另建 APK，SHA-256 为 `0abffd4252be205311804525b3eb196e5f9fa9ae87a6479efeb2172fbd2d0ca8`。固定官方后台镜像与 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`，分别为真实 IME 和 App 开启空白数据库；实际 Java 致命异常及在原 JNI 调用入口注入空 JNIEnv 的真实 SIGSEGV，经产品重启后分别收到五条、三条事件，恰有四条 crash、两条 session_crash、两条 active，App 不产生输入会话事件。每条原 HTTP 与数据库七字段一致；SIGKILL 不增加崩溃。实际身份保持 9bab、原运行、attempt 1、aarch64 和对应组件。
+
+测试 JNI build-id 为 `5911f547714d4b5eda11abef3f5088086c66c960`，独立 ZIP SHA-256 为 `0dedfcd59f0b723f22d90d4638f0c9e59d07b43ef77edd68c11d07ddbae3c770`。四条自有源码帧为 `client_jni.cpp:108/117`，另保留 `jni.h:852` 的两组帧；本机仅用传回 ZIP 再还原八个后台帧，与设备侧完全相等，错误 build-id 拒绝。
+
+重新构建默认特性，Cargo/JNI 正式库与最初冻结正式库、Gradle 包内库全部逐字节一致，专用回环目标消失；完整原源码恢复到干净 `4d179327a4`。独立审计确认回收前关闭合成同意、卸载两个本任务包、清除精确 UID 规则/转发/调试文件并停止自有 AVD，其他两台共享 AVD 保持运行。两轮临时后台、数据库、内部网络和专用 SSH 隧道均清理。小证据 ZIP 共 60 份，SHA-256 为 `6ffe703a66077e13146c60ddbd8bea1cca77dd0ba513294a8541a7d02510c5b1`，位于 `target/android-9bab-small-evidence.zip`；本机独立复核另见 `target/android-9bab-evidence/independent-verification.json`。API 35 系统退出/ANR、本轮未跑的完整输入套件和真机仍为独立缺口。
+
 ## Consequences
 
 这次只以同号待送达信号与默认处置确认致命动作，不从故障地址猜测是否可恢复。Android 的 libc 查询必须在安装前准备，解析失败不安装新的处理器；实际系统投递与其他平台的设备边界仍由全平台矩阵记录。

@@ -24,7 +24,7 @@ Status: implemented
 
 ## Verification
 
-隔离、断网的官方 `python:3.7-slim-buster` 容器中，新回归叠加原 HEAD 的三个产品文件时，语音和在线两个子用例均在原十秒期限超时。修补后相同注入和四个既有降级用例全部通过，五项合计约一秒。原失败栈与独立探针第一次配置前提失败均保留在 `target/legacy-stop-race/`，没有通过放宽期限或跳过注入改写失败结果。同一源码快照的完整 `scripts/verify-local.sh --quick` 与笔记门禁均退出 0，验证前后全部 12,665 条源码的字节与执行位一致；Linux 原生 119/119 和设置壳、203 项可移植 Windows、仓库契约、Rust workspace 编译通过，原测试未放宽。缺少 SDK/原生工具的 Android、wasm、鸿蒙、Apple 与完整 Windows 阶段明确跳过。远端恢复原干净 e746 源码并移除租约；证据为 `target/provider-stop-quick-evidence/`，Python 3.7 定向结果与 quick 分开记录。
+隔离、断网的官方 `python:3.7-slim-buster` 容器中，新回归叠加原 HEAD 的三个产品文件时，语音和在线两个子用例均在原十秒期限超时。修补后相同注入和四个既有降级用例全部通过，五项合计约一秒。原失败栈与独立探针第一次配置前提失败均保留在 `target/legacy-stop-race/`，没有通过放宽期限或跳过注入改写失败结果。同一源码快照的完整 `scripts/verify-local.sh --quick` 与笔记门禁均退出 0，验证前后全部 12,665 条源码的字节与执行位一致；Linux 原生 119/119 和设置壳、仓库契约、Rust workspace 编译通过，原测试未放宽。缺少 SDK/原生工具的 Android、wasm、鸿蒙、Apple、Windows x86 语法、可移植 Windows 与完整 Windows 阶段明确跳过。远端恢复原干净 e746 源码并移除租约；证据为 `target/provider-stop-quick-evidence/`，Python 3.7 定向结果与 quick 分开记录。
 
 ## Consequences
 
