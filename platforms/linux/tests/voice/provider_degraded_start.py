@@ -53,14 +53,21 @@ import threading
 provider, marker = sys.argv[1:3]
 sys.argv = [provider] + sys.argv[3:]
 sys.path.insert(0, str(Path(provider).parent))
+sent = False
 
 def trace(frame, event, unused):
-    if (event == "line" and frame.f_code.co_name == "start" and
+    global sent
+    if (not sent and event == "line" and frame.f_code.co_name == "start" and
             frame.f_code.co_filename == threading.__file__ and
             "_limbo[self] = self" in linecache.getline(threading.__file__, frame.f_lineno) and
             signal.getsignal(signal.SIGTERM) != signal.SIG_DFL):
-        sys.settrace(None)
+        sent = True
         Path(marker).write_text("SIGTERM during Thread.start")
+        os.kill(os.getpid(), signal.SIGTERM)
+    elif (sent and event == "line" and frame.f_code.co_name == "main" and
+          linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip() == "server.server_close()"):
+        sys.settrace(None)
+        Path(marker).write_text("SIGTERM during Thread.start; SIGTERM during cleanup")
         os.kill(os.getpid(), signal.SIGTERM)
     return trace
 
@@ -249,7 +256,7 @@ class DegradedStart(unittest.TestCase):
                                 break
                         self.assertIsNone(self.process.poll(), "服务在连接前退出")
                     self.assertEqual(self.process.wait(timeout=10), 0)
-                    self.assertEqual(marker.read_text(), "SIGTERM during Thread.start")
+                    self.assertEqual(marker.read_text(), "SIGTERM during Thread.start; SIGTERM during cleanup")
                     self.assertFalse(path.exists(), "正常停止必须清理自有 socket")
                 finally:
                     if self.process.poll() is None:

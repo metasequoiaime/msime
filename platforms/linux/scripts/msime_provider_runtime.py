@@ -21,19 +21,18 @@ class StoppableUnixStreamServer(socketserver.ThreadingMixIn, socketserver.UnixSt
             raise _StopServing()
 
     def serve_until_stopped(self):
+        """供独立进程主入口调用；停止处理器持续保护随后执行的资源清理。"""
         self.stop_requested = False
 
         def stop(signum, frame):
             # 主线程可能正持有 Python 的线程注册锁；信号中不能再建线程或获取锁。
             self.stop_requested = True
 
-        previous = signal.signal(signal.SIGTERM, stop)
+        signal.signal(signal.SIGTERM, stop)
         try:
             self.serve_forever()
         except (_StopServing, KeyboardInterrupt):
             pass
-        finally:
-            signal.signal(signal.SIGTERM, previous)
 
 
 def claim_socket(path):
