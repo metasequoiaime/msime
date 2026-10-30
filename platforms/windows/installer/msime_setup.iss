@@ -1155,10 +1155,55 @@ begin
       IntToStr(ResultCode) + '）。');
 end;
 
+{ 只在卸载已决定删除的路径里登记残留，升级不能把仍要复用的数据排进重启删除队列。
+  不跟随重解析点：目录链接本身可以删除，链接指向的树不归本安装器遍历。 }
+procedure QueueUninstallTreeRemoval(const Path: String);
+var
+  FindRec: TFindRec;
+  ItemPath: String;
+  IsReparsePoint: Boolean;
+begin
+  if FindFirst(Path, FindRec) then
+  begin
+    IsReparsePoint := (FindRec.Attributes and $400) <> 0;
+    FindClose(FindRec);
+    if IsReparsePoint then
+    begin
+      RestartReplace(Path, '');
+      exit;
+    end;
+  end;
+  if FindFirst(AddBackslash(Path) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          ItemPath := AddBackslash(Path) + FindRec.Name;
+          if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+            ((FindRec.Attributes and $400) = 0) then
+            QueueUninstallTreeRemoval(ItemPath)
+          else
+            RestartReplace(ItemPath, '');
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  { 已加载的 TSF 读取授权时可能在枚举后重建偏好锁；只为完整删除的数据根补登记，
+    且必须放在父目录之前。保留数据或保护内部其他版本时不会走到这个数据根。 }
+  if CompareText(Path, ResolvePreviousDataDir) = 0 then
+    RestartReplace(AddBackslash(Path) + 'preferences.lock', '');
+  RestartReplace(Path, '');
+end;
+
 procedure TryDeleteTree(const Path: String);
 begin
-  { 忽略返回值：被占用文件保留，其他能删除的文件仍继续清理。}
-  DelTree(Path, True, True, True);
+  { 先清理能删除的条目，卸载时才把被外部编辑器占用的词库和目录排到重启后删除。 }
+  if not DelTree(Path, True, True, True) then
+    if IsUninstaller and DirExists(Path) then
+      QueueUninstallTreeRemoval(Path);
 end;
 
 procedure CleanAppDataExceptUserFiles;
@@ -1289,7 +1334,9 @@ begin
             if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
               TryDeleteTree(ItemPath)
             else
-              DeleteFile(ItemPath);
+              if not DeleteFile(ItemPath) then
+                if IsUninstaller then
+                  RestartReplace(ItemPath, '');
           end
           else
             Log('Keeping ' + ItemPath + '.');
