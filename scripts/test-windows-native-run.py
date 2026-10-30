@@ -101,6 +101,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # 账号释义的请求和解析经共享 C ABI，策略用例需要链接真实宿主库。
     "candidate/account_gloss_policy.cpp": ([], True),
     "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
+    # 提交定位协议不依赖 Win32，固定包长与 UTF-16 边界在各宿主都执行断言。
+    "core/reply_codec.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 候选投影、五笔提示与编辑光标经过繁简转换，需要同一实现及其宿主库依赖。
     "candidate/caret_edit_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "candidate/candidate_pointer_input.cpp": (["src/input/ChineseTextConversion.cpp"], True),
