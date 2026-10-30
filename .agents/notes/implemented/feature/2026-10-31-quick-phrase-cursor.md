@@ -62,13 +62,19 @@ API 与队列依据为 [IME Kit](https://raw.githubusercontent.com/openharmony/d
 
 解包必须同时验证双方已协商、提交类型、保留位、终止符、正文长度及代理项边界；损坏扩展不能去掉标志后当作普通提交。编码先核对真实正文后缀，错误元数据只丢定位。空 Worker 正文沿旧协议表示消费另一条回复，只有有效显式定位帧才能表示空提交；错误定位不能退回这个触发语义。`EngineResult` 仅在存在实际字符串提交且后缀匹配时保存可选字段，每次解码不沿用前一次结果。
 
-该切片尚未在 Server 或 TIP 宣告能力，也没有接通 TSF 编辑会话。生产端不发送扩展，Windows 能力仍未完成；后续必须同时覆盖键盘回复、候选窗 Worker 与 TIP 本地提交，并在同一次编辑会话核对实际全文后用 `ITfRange` 定位，不能靠方向键次数或在定位失败后重投正文。
+`ReplyComposer` 从当前焦点租约接收定位能力，只向已协商的连接编码位置。键盘完整选词、标点提交、候选窗完整点选及五笔继续提交都保留尾段；TIP 已经上屏的本地字符／音节路径仍只回后续组字，不另投正文。部分选词和释义替换不继承旧位置。完整提交中有效的空尾段与空正文都保留显式定位，避免仅含 `${cursor}` 的模板被当作没有提交；旧连接维持原回复。候选窗选择在移动 `transition` 所有权前先读取 `next_view`，不依赖移动后的引用。
 
-纯 codec 套件加入跨宿主 runner。既有语音用例的非 BMP 字符改用显式 UTF-16 代理项作输入和预期，保持 Windows 的原始字节断言，并让 32 位 `wchar_t` 宿主也检查同一份线格式；不以平台排除隐藏失败。
+正文与尾段使用同一份 `commit_conversion` 简繁规则，转换前后都必须匹配。比如「發」正文配「发」后缀，即使转换后都成为「發」仍不能恢复原本失效的位置；「头${cursor}发」转换后正文是「頭髮」、单独尾段是「發」，后缀不再匹配时只提交文字。代价是这类上下文转换不定位，避免按错误尾段跳转。
+
+Server 与 TIP 均尚未宣告该能力，因此生产连接不会收到扩展，Windows 能力仍未完成。后续必须接通 TSF 编辑会话、Worker 与 TIP 本地提交，并在同一次编辑会话核对实际全文后用 `ITfRange` 定位，不能靠方向键次数或在定位失败后重投正文。
+
+回复合成器与纯 codec 套件加入跨宿主 runner。回复合成器使用真实共享宿主库，不能因缺少伴随链接单元而悄悄跳过。既有语音用例的非 BMP 字符改用显式 UTF-16 代理项作输入和预期，保持 Windows 的原始字节断言，并让 32 位 `wchar_t` 宿主也检查同一份线格式；不以平台排除隐藏失败。
 
 协议与 JSON 解码回归分别用 macOS clang 和 MinGW x64／i686 编译；两套同源 Windows EXE 已在 Windows 11 原生 runner 执行，显式传播退出码，均返回 0。codec 覆盖固定线长、完整正文容量、Unicode、空尾段、能力交集、损坏元数据、无终止符与代理项边界，以及空正文的坏定位不能变成旧触发帧、Worker 计数前缀不能冒充正文后缀。JSON 覆盖缺失、空、错误类型、失配与无提交时的清理。该结果只证明协议和解码，不代表 TSF 编辑器位置或完整 Windows 宿主验收。
 
-最终 `verify-local.sh --quick` 退出 0，包含 Windows 跨宿主 204 项、Linux 原生 113 项、HarmonyOS 设置页与 HAP、Rust／Android／Wasm 检查、macOS 原生宿主与 Apple bridge、x86_64／i686 管道协议编译。完整 Windows 原生项目依赖未配置，该阶段跳过，不计作产品构建。首轮 SSH 缺少 Node 和 DevEco SDK 环境而失败；补齐机器已有的 Node／pnpm、`NODE_HOME`、`DEVECO_SDK_HOME` 和 Java 21 后完整重跑通过，没有改测试断言或失败基线。
+回复合成器的新增回归在 macOS 上以 `-Wall -Wextra -Werror` 编译并运行通过，最终夹具没有运行时配置回退警告。隔离插件表经真实 Engine／Host API／`ReplyComposer` 的 70 组入口矩阵覆盖空格、数字、回车、标点、点选、展开网格和旧连接，含 Unicode、显式空模板、末尾位置、上下文敏感简繁转换及已转换正文的 `script_conversion=false` 边界。纯回复回归另覆盖错误／缺失／失配位置、部分选词不传播、Worker 继续提交与 TIP 已上屏路径不重复交付。
+
+此前协议切片的 `verify-local.sh --quick` 退出 0，包含 Windows 跨宿主 204 项、Linux 原生 113 项、HarmonyOS 设置页与 HAP、Rust／Android／Wasm 检查、macOS 原生宿主与 Apple bridge、x86_64／i686 管道协议编译。完整 Windows 原生项目依赖未配置，该阶段跳过，不计作产品构建。首轮 SSH 缺少 Node 和 DevEco SDK 环境而失败；补齐机器已有的 Node／pnpm、`NODE_HOME`、`DEVECO_SDK_HOME` 和 Java 21 后完整重跑通过，没有改测试断言或失败基线。
 
 ## 既有笔记审计
 

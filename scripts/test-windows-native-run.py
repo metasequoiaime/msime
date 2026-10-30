@@ -72,6 +72,11 @@ BUILD_DRIVEN = {
 # 不自动链接任意源文件，避免把整个 Windows 构建引进来；缺少宿主库产物时仍跳过相关测试。
 # 值为（相对 platforms/windows 的源文件列表，是否需要共享宿主库）。
 COMPANIONS: dict[str, tuple[list[str], bool]] = {
+    # 回复合成器使用真实宿主库，提交正文与定位尾段必须经过同一份简繁投影。
+    "input/reply_composer.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp"], True,
+    ),
     # 两份真实会话共同验证五笔自动上屏的文档写入归属。
     "input/wubi_auto_commit.cpp": (
         ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
