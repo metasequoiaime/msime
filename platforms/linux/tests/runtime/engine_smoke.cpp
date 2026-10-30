@@ -87,6 +87,8 @@ struct Observation {
   bool input_enabled = false;
   bool english_mode = false;
   bool emoji_candidates = false;
+  // 菜单回包标志只在偏好已应用并重新发布后更新，不能以保存文件代替此屏障。
+  bool chaizi_enabled = false;
   std::string global_theme;
   bool traditional_output = false;
   // The CharacterMode menu item, which shows the host's width flag.
@@ -183,6 +185,8 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       const auto slot = std::strtoul(label.c_str(), nullptr, 10);
       if (slot > 0) seen.dictionary_slots.push_back(static_cast<guint>(slot - 1));
     }
+    if (key == "LocalModes/chaizi")
+      seen.chaizi_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "ClipboardHistory") {
       seen.clipboard_clear_name.clear();
       seen.clipboard_clear_sensitive = false;
@@ -731,6 +735,8 @@ int main(int argc, char **argv) {
       translated["preferences"]["cloud_candidates"] = false;
       translated["preferences"]["ai_assistant"]["enabled"] = false;
       translated["preferences"].erase("candidate_translation_scope");
+      // 本项比较两个可翻译的词典候选；Emoji 来源另有不送往翻译服务的约束。
+      translated["preferences"]["mixed_input"]["emoji"] = false;
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       msime_ibus_configure(translated.dump());
@@ -1277,7 +1283,7 @@ int main(int argc, char **argv) {
       std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
       return 0;
     }
-    // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，跟在部件后面的 ' 由 Engine 列进 spelling_symbols，IBus 把它当字符交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。
+    // 拆字反查在桌面默认关：缺键和关闭时 Shift+C 走普通大写组字；菜单打开后才按部件找字。撇号由 Engine 列进 spelling_symbols，IBus 将其交给 Engine 作部件分隔符。
     if (argc == 3 && std::string(argv[2]) == "--chaizi") {
       msime_ibus_configure(options.dump());
       invoke("FocusIn");
@@ -1293,36 +1299,39 @@ int main(int argc, char **argv) {
           }
         });
       };
-      require(!key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
-              "Shift+C was taken while the chaizi switch was absent");
+      const auto ordinary_capital = [&] {
+        require(key('c', IBUS_SHIFT_MASK) && seen.preedit_visible &&
+                    seen.preedit == "C" && seen.committed.empty(),
+                "拆字关闭时 Shift+C 没有开始普通大写组字");
+        for (const char letter : std::string("huo'huohuo"))
+          require(key(static_cast<guint>(letter)), "普通大写组字没有接收后续字符");
+        require(seen.preedit == "Chuo'huohuo" &&
+                    std::none_of(seen.candidates.begin(), seen.candidates.end(),
+                                 [](const auto &text) { return text.find("焱") != std::string::npos; }),
+                "拆字关闭时仍按部件给出了拆字候选");
+        require(key(IBUS_Return) && seen.committed == "Chuo'huohuo",
+                "普通大写组字没有保留原文上屏");
+        seen.committed.clear();
+      };
+      ordinary_capital();
       invoke("PropertyActivate", g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_CHECKED));
       require(stored_chaizi(true), "Chaizi enable was not persisted");
-      // 菜单开关先保存，保存回调再应用新快照，所以等到 Shift+C 被接住为止。
-      bool entered = false;
-      require(wait_until([&] {
-                if (!entered) entered = key('c', IBUS_SHIFT_MASK) && seen.preedit_visible;
-                return entered;
-              }),
-              "Shift+C did not enter the chaizi mode once it was on");
-      for (const guint keyval : {guint('h'), guint('u'), guint('o'), guint(IBUS_apostrophe), guint('h'),
-                                 guint('u'), guint('o'), guint('h'), guint('u'), guint('o')})
-        require(key(keyval), "The chaizi mode did not take a component letter or the separator");
+      // 文件保存先于会话应用；等菜单发布已应用的开关，再发送完整部件串。
+      require(wait_until([&] { return seen.chaizi_enabled; }), "拆字开关没有应用到菜单");
+      require(key('c', IBUS_SHIFT_MASK) && seen.preedit_visible,
+              "打开拆字后 Shift+C 没有进入模式");
+      for (const char letter : std::string("huo'huohuo"))
+        require(key(static_cast<guint>(letter)), "拆字模式没有接收部件或分隔符");
       require(seen.lookup_visible && !seen.candidates.empty() &&
                   seen.candidates.front().find("焱") != std::string::npos,
-              "The chaizi mode did not find 焱 from huo'huohuo");
+              "打开拆字后没有从 huo'huohuo 找到焱");
       require(key(IBUS_space) && seen.committed == "焱" && !seen.preedit_visible,
               "Space did not commit the chaizi row");
       invoke("PropertyActivate", g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_UNCHECKED));
       require(stored_chaizi(false), "Chaizi disable was not persisted");
       seen.committed.clear();
-      bool released = false;
-      require(wait_until([&] {
-                if (!released) released = !key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible;
-                if (!released) invoke("Reset");
-                return released;
-              }),
-              "Turning chaizi off did not hand Shift+C back");
-      require(seen.committed.empty(), "a disabled Shift+C committed text");
+      require(wait_until([&] { return !seen.chaizi_enabled; }), "关闭拆字没有应用到菜单");
+      ordinary_capital();
       invoke("Disable");
       finish();
       std::cout << "IBus chaizi switch, Shift+C entry, apostrophe separator and commit passed\n";

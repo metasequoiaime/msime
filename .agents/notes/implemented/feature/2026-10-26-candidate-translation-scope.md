@@ -73,3 +73,5 @@ Status: implemented
 - Windows：`translation_gloss_query.cpp`、`candidate_card_size.cpp` 用本机 clang++ 改前失败、改后通过；`translation_reserved_presentation.cpp`、`windows7_settings.cpp` 和改过的宿主源文件只做了 MinGW 语法检查，完整交叉构建、WinUI 设置编译和 Win7 设置测试由 PR CI 承担。
 - Linux：范围规则与两种画布的单测在本机用 clang++ 加桩库改前失败、改后通过，`fcitx5_contract.py` 通过；容器构建、ctest 和需要词库的端到端用例由 PR CI 承担。
 - 没有任何平台在安装好的系统输入法里验收过，Windows 与 Linux 的候选窗、各原生设置页都没有截图验收，Android 没在模拟器上跑设置套件（没改资源文件）。
+
+Linux 的 `ibus-translation-scope` 锁定词库夹具显式关闭本例的 Emoji 混输，以两个可翻译的词典候选验证高亮移动和缓存复用。公共夹具为了其他混输用例开启 Emoji，会让 `nihao` 的第二行成为「👋」；该来源本就禁止送给翻译服务，不能断言高亮这一行后必须得到合成译文。此处只限定专项输入，不改变产品默认值或来源过滤规则。
