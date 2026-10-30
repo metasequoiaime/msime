@@ -27,7 +27,7 @@ from types import SimpleNamespace
 import urllib.parse
 import urllib.request
 
-from msime_provider_runtime import open_server
+from msime_provider_runtime import StoppableUnixStreamServer, open_server
 import msime_crash_capture
 
 
@@ -1249,7 +1249,7 @@ class Handler(socketserver.StreamRequestHandler):
             pass
 
 
-class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class Server(StoppableUnixStreamServer):
     daemon_threads = True
     slots = threading.BoundedSemaphore(4)
 
@@ -1423,14 +1423,8 @@ def main():
     server.ai_candidate_cache = {}
     server.ai_candidate_cache_lock = threading.Lock()
     identity = args.socket.stat() if service_lock is not None else None
-    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
-    def stop(signum, frame):
-        threading.Thread(target=server.shutdown, daemon=True).start()
-    signal.signal(signal.SIGTERM, stop)
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        server.serve_until_stopped()
     finally:
         stop_http_requests()
         server.server_close()
