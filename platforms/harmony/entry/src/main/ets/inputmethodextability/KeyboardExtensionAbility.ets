@@ -439,13 +439,16 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   /**
    * 齿轮按钮打开应用，按键以外的一切都在应用里。
    *
-   * `page` 是键盘按名称请求的设置页（功能面板的「词库」「反馈」和「关于」磁贴）；`EntryAbility` 从 want 的 `page` 参数读取它，并打开该页而不是根页面，冷启动和应用已在运行时都是如此。
+   * `page` 是键盘按名称请求的设置页（功能面板的「词库」「反馈」和「关于」磁贴）；`EntryAbility` 从 want 的 `page` 参数读取它，并打开该页而不是根页面，冷启动和应用已在运行时都是如此。`target` 是那一页里的子目标（长按九键左侧符号栏时是那张表的共享偏好名），放在 want 的 `target` 参数里，只随 `page` 一起发。
    */
-  private openSettings(page: string | undefined, requestMicrophone: boolean = false): void {
+  private openSettings(page: string | undefined, requestMicrophone: boolean = false, target?: string): void {
     // 直接写明名称而不是从 context 读取：扩展的 context 不带 ability 信息，而 bundle 按构造就是本应用——面板和设置窗口属于同一个应用。
     const want: Want = { bundleName: BUNDLE_NAME, abilityName: 'EntryAbility' };
     if (page !== undefined) {
       const parameters: Record<string, Object> = { 'page': page };
+      if (target !== undefined) {
+        parameters['target'] = target;
+      }
       want.parameters = parameters;
     }
     if (requestMicrophone) {
@@ -975,8 +978,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // 手势绑定取自偏好文档，保证键盘与设置页一致；每种设备都在接收按键前完成绑定，兼容之后插入的实体键盘。
       this.modeKeys.use(KeyboardSession.shared.modeBindings());
       // 所有设备都绑定设置入口，手机也可以从工具面板打开设置应用。
-      KeyboardSession.shared.onOpenSettings = (page: string | undefined, requestMicrophone?: boolean): void => {
-        this.openSettings(page, requestMicrophone === true);
+      KeyboardSession.shared.onOpenSettings = (page: string | undefined, requestMicrophone?: boolean, target?: string): void => {
+        this.openSettings(page, requestMicrophone === true, target);
       };
       KeyboardSession.shared.onPreferencesReloaded = (): void => {
         this.preferencesReloaded();

@@ -194,6 +194,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "quanpin_shift",
             "shuangpin_key_hints",
             "sound_enabled",
+            "split_keyboard",
             "theme",
             "touch_key_spacing_tenths",
             "touch_row_spacing_tenths",
@@ -1113,6 +1114,76 @@ fn every_exported_key_round_trips() {
     assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
     assert_eq!(applied.preferences, local);
     assert_eq!(applied.feedback, Some(host));
+}
+
+/// 分离式键盘的主开关与 Android 的 `platform.android.split_keyboard` 一样同步，放在鸿蒙自己的键下；启用宽度、中间空隙和竖屏选项只留本机，不导出也不应用。
+#[test]
+fn split_keyboard_switch_syncs_under_the_harmony_key_and_its_bounds_stay_local() {
+    let remote = Preferences {
+        touch_keyboard_split: true,
+        touch_keyboard_split_threshold: 720,
+        touch_keyboard_split_gap: 35,
+        touch_keyboard_split_portrait: true,
+        ..Preferences::default()
+    };
+    let settings = exported(&remote);
+    assert_eq!(
+        settings["platform.harmony.split_keyboard"],
+        AccountPreferenceValue::Boolean(true)
+    );
+    assert_eq!(
+        exported(&Preferences::default())["platform.harmony.split_keyboard"],
+        AccountPreferenceValue::Boolean(false)
+    );
+    assert!(!settings.contains_key("platform.android.split_keyboard"));
+    assert!(settings.keys().all(|key| !key.contains("threshold")
+        && !key.contains("gap")
+        && !key.contains("portrait")));
+
+    let local = Preferences::default();
+    let applied = apply(
+        &local,
+        &[(
+            "platform.harmony.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert!(applied.preferences.touch_keyboard_split);
+    assert_eq!(applied.preferences.touch_keyboard_split_threshold, 600);
+    assert_eq!(applied.preferences.touch_keyboard_split_gap, 25);
+
+    // Android 的同名开关是另一台设备的选择，鸿蒙不读它。
+    let mut schema = full_schema();
+    schema.fields.insert(
+        "platform.android.split_keyboard".into(),
+        AccountPreferenceField {
+            value_type: "boolean".into(),
+        },
+    );
+    let applied = apply(
+        &local,
+        &[(
+            "platform.android.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &schema,
+    );
+    assert!(!applied.preferences.touch_keyboard_split);
+
+    // 字段表还没收录这个键时，应用不读它。
+    let mut schema = full_schema();
+    schema.fields.remove("platform.harmony.split_keyboard");
+    let applied = apply(
+        &local,
+        &[(
+            "platform.harmony.split_keyboard",
+            AccountPreferenceValue::Boolean(true),
+        )],
+        &schema,
+    );
+    assert!(!applied.preferences.touch_keyboard_split);
 }
 
 /// 鸿蒙只导出共享设置页在它上面能改的两组新增共享偏好：符号模式、日期菜单和第二三候选；快捷短语混输、语法模型、AI 候选翻译、思考强度和桌面快捷键都不导出，应用时也不改本机。

@@ -11,6 +11,7 @@ enum KeyboardLayoutPreference {
   static let heightAdjustmentKey = "keyboard.height.adjustment"
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
   static let tabletSplitKey = "keyboard.tablet.split"
+  static let phoneLandscapeSplitKey = "keyboard.phone.landscapeSplit"
   static let glideTypingKey = "keyboard.gesture.glide"
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
@@ -150,6 +151,7 @@ enum KeyboardLayoutPreference {
     // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
     defaults.removeObject(forKey: quickPunctuationSymbolsKey)
     defaults.removeObject(forKey: tabletSplitKey)
+    defaults.removeObject(forKey: phoneLandscapeSplitKey)
     defaults.removeObject(forKey: hideLanguageKeyKey)
     return true
   }
@@ -162,6 +164,11 @@ enum KeyboardLayoutPreference {
   static var tabletSplit: Bool {
     get { defaults.object(forKey: tabletSplitKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: tabletSplitKey) }
+  }
+  /// 「分离式键盘」的 iPhone 版（#10224）：iPhone 横屏时把 26 键字母布局从中间分成左右两半，几何与 iPad 的横屏分离式键盘相同。默认关，现有用户的横屏键盘不变；屏幕太窄、分开后字母键不到 `KeyboardSplitLayout.phoneMinimumLetterKeyWidth` 时不分（iPhone SE、Plus 等）。只存在本机 App Group，不随设置同步，与 iPad 的开关一样。和 iPad 的开关分开存，免得同一个值在两种设备上意思不同。
+  static var phoneLandscapeSplit: Bool {
+    get { defaults.object(forKey: phoneLandscapeSplitKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: phoneLandscapeSplitKey) }
   }
   /// 「滑行输入」：在全拼 26 键的字母键上连续滑动输入拼音（#5347），由 Engine 把一笔滑行解码成拼音字母。默认关；只存在本机 App Group，不进共享文档，也不随设置同步。
   static var glideTyping: Bool {

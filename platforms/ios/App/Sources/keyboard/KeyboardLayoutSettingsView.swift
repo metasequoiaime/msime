@@ -18,6 +18,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
+  /// iPhone 的「分离式键盘」（#10224），App Group `keyboard.phone.landscapeSplit`。
+  @State private var phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
   /// 「大屏单手时侧边显示数字键盘」（共享偏好 `touch_one_handed_side_panel`），取自共享文档。
   @State private var oneHandSidePad = TouchOneHandedSidePanelPreference.load() == .numberPad
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
@@ -246,6 +248,15 @@ struct KeyboardLayoutSettingsView: View {
                         KeyboardLayoutPreference.hideLanguageKey = enabled
                       }))
         .accessibilityIdentifier("appHideLanguageKeySwitch")
+      // iPhone 横屏的分离式键盘只在 iPhone 上列出；iPad 的开关在「iPad」一组。
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        DesignToggleRow(title: Self.splitKeyboardTitle, subtitle: Self.phoneSplitKeyboardSubtitle,
+                        isOn: Binding(get: { phoneSplit }, set: { enabled in
+                          phoneSplit = enabled
+                          KeyboardLayoutPreference.phoneLandscapeSplit = enabled
+                        }))
+          .accessibilityIdentifier("appPhoneSplitSwitch")
+      }
       DesignDivider()
       sliderRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
                 field: .height, format: heightPercent)
@@ -402,7 +413,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var tabletGroup: some View {
-    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n横屏分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；横屏分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
+    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
       DesignToggleRow(title: "数字行与 Tab 键", isOn: Binding(get: { tabletFullKeys }, set: { enabled in
         tabletFullKeys = enabled
         KeyboardLayoutPreference.tabletFullKeys = enabled
@@ -414,7 +425,7 @@ struct KeyboardLayoutSettingsView: View {
           .accessibilityIdentifier("appTabletTabCandidatesSwitch")
       }
       DesignDivider()
-      DesignToggleRow(title: "横屏分离式键盘", isOn: Binding(get: { tabletSplit }, set: { enabled in
+      DesignToggleRow(title: Self.splitKeyboardTitle, isOn: Binding(get: { tabletSplit }, set: { enabled in
         tabletSplit = enabled
         KeyboardLayoutPreference.tabletSplit = enabled
       }))
@@ -426,6 +437,11 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  /// 「分离式键盘」的标题，与 Android 和鸿蒙的设置页相同（`touch-split-keyboard-rows.tsx`）。
+  static let splitKeyboardTitle = "分离式键盘"
+  /// iPhone 那一行的说明：中间一句与 Android、鸿蒙的说明相同，前后写 iPhone 自己的生效条件。
+  static let phoneSplitKeyboardSubtitle = "仅在 iPhone 横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；屏幕较窄的 iPhone（如 iPhone SE）保持完整键盘"
+
   /// 打开写 `number_pad`，关掉写 `off`（client-core 存成缺键）；文档没接受时页面回到文档里的值，并在「布局」一组下面提示没保存上。「恢复默认」不动它：它不是这一页的间距或高度。
   private func saveOneHandSidePad(_ enabled: Bool) {
     saveFailed = !TouchOneHandedSidePanelPreference.save(enabled ? .numberPad : .off)
@@ -433,8 +449,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var resetGroup: some View {
-    DesignGroup(footer: UIDevice.current.userInterfaceIdiom == .pad
-      ? "把这一页的间距、高度、中/英键和横屏分离式键盘恢复成默认值。" : "把这一页的间距、高度和中/英键恢复成默认值。") {
+    DesignGroup(footer: "把这一页的间距、高度、中/英键和分离式键盘恢复成默认值。") {
       Button {
         saveFailed = !KeyboardLayoutPreference.resetGeometry()
         readPreferences()
@@ -640,6 +655,7 @@ struct KeyboardLayoutSettingsView: View {
     hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     tabletSplit = KeyboardLayoutPreference.tabletSplit
+    phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
     glideTyping = KeyboardLayoutPreference.glideTyping
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols

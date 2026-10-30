@@ -83,7 +83,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   fireEvent.click(screen.getByLabelText("顶部语音入口"));
   fireEvent.click(screen.getByLabelText("工具栏：表情"));
   fireEvent.click(screen.getByLabelText("数字行与 Tab 键"));
-  fireEvent.click(screen.getByLabelText("横屏分离式键盘"));
+  fireEvent.click(screen.getByLabelText("分离式键盘"));
   fireEvent.click(screen.getByLabelText("滑行输入"));
   fireEvent.click(screen.getByLabelText("滑动输入符号"));
   fireEvent.change(screen.getByLabelText("滑动方向"), { target: { value: "up" } });
@@ -116,7 +116,7 @@ test("hides host-specific options when unavailable", () => {
 
   expect(screen.queryByLabelText("工具栏：表情")).toBeNull();
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
+  expect(screen.queryByLabelText("分离式键盘")).toBeNull();
   expect(screen.queryByText("布局")).toBeNull();
   expect(screen.queryByLabelText("滑行输入")).toBeNull();
   expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
@@ -148,7 +148,7 @@ test("shows the split keyboard switch on its own when only it is reported", () =
   );
 
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
-  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).checked).toBe(true);
 });
 
 test("describes the voice button by what the host's button does", () => {
@@ -242,7 +242,7 @@ test("disables the tablet switch while saving", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} tabletFullKeysBusy />);
 
   expect((screen.getByLabelText("数字行与 Tab 键") as HTMLInputElement).disabled).toBe(true);
-  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("分离式键盘") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑行输入") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑动输入符号") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);

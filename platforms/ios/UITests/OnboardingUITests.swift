@@ -841,6 +841,37 @@ final class OnboardingUITests: XCTestCase {
     add(attachment)
   }
 
+  /// 再点一次「首页」回到根页面以后，根页面上的各行照样能推入页面，再点一次也一样；深链接把栈带回根页面再推入指名的页面以后也一样。iOS 18 上换掉推入过页面的导航栈会让新栈再也推不进页面，这条用例在 iOS 18 真机上守住它。
+  @MainActor
+  func testSettingsRowsStillPushAfterReselectingHome() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let settingsTab = app.tabBars.buttons["首页"]
+    XCTAssertTrue(settingsTab.waitForExistence(timeout: 10))
+    tapRevealed("keyboardLayoutLink", in: app)
+    XCTAssertTrue(app.navigationBars["键盘"].waitForExistence(timeout: 5))
+    for round in 1...2 {
+      settingsTab.tap()
+      XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5), "第 \(round) 次重选没有回到根页面: \(visible(app))")
+      tapRevealed("dictionarySettingsLink", in: app)
+      XCTAssertTrue(app.navigationBars["词库"].waitForExistence(timeout: 5), "第 \(round) 次重选后 词库 行没有推入页面: \(visible(app))")
+    }
+    app.navigationBars["词库"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    tapRevealed("keyboardLayoutLink", in: app)
+    XCTAssertTrue(app.navigationBars["键盘"].waitForExistence(timeout: 5), "返回根页面后 键盘 行没有推入页面: \(visible(app))")
+
+    XCUIDevice.shared.system.open(URL(string: "msime://settings/ai")!)
+    XCTAssertTrue(app.navigationBars["表达"].waitForExistence(timeout: 10), "深链接没有落到 表达 页: \(visible(app))")
+    XCTAssertFalse(app.navigationBars["键盘"].exists)
+    app.navigationBars["表达"].buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    tapRevealed("dictionarySettingsLink", in: app)
+    XCTAssertTrue(app.navigationBars["词库"].waitForExistence(timeout: 5), "深链接以后 词库 行没有推入页面: \(visible(app))")
+  }
+
   /// 切到别的标签页再切回来，设置标签页的栈原样还在，包括页面里更深一层的页面；社区标签页各自保留所选分段。
   @MainActor
   func testSettingsStackSurvivesSwitchingTabs() {

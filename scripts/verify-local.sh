@@ -760,6 +760,13 @@ build_windows_host_library() {
     return 1
   fi
   mkdir -p "$MSIME_NATIVE_BUILD/Debug" && cp -f "$runtime" "$MSIME_NATIVE_BUILD/Debug/"
+  # add_subdirectory 的子项目把自己的测试放在各自的输出目录里（tsf/Debug、shared-voice/Debug），那里同样要有这个运行时，否则它们一个都起不来：Windows 上缺 DLL 的进程会挂到 ctest 的超时，看起来像测试本身卡死，而 msime-tsf-class-factory 这种直接 LoadLibrary 的会静默返回 1。两者都不在 known-failures.txt 里，于是每次都被当成新失败。
+  # 这里在 cmake --build 之前运行，刚 configure 完的构建树里子项目还没有 Debug 目录，所以按 configure 就生成的 CTestTestfile.cmake 找出登记了测试的子项目，先建目录再复制，第一次运行也不漏。
+  for sub in "$MSIME_NATIVE_BUILD"/*/CTestTestfile.cmake; do
+    [ -f "$sub" ] || continue
+    sub=$(dirname "$sub")
+    mkdir -p "$sub/Debug" && cp -f "$runtime" "$sub/Debug/"
+  done
 }
 
 note "compile: native host"

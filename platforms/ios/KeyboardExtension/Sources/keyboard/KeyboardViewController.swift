@@ -277,6 +277,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 横屏分离式键盘每一排中间的中缝（见 `KeyboardSplitLayout`）。不分离时隐藏，stack view 不给它宽度也不给它两侧的键距；分离时它是一块普通视图，落在上面的触摸由它接住后丢掉，不会被 `KeyAreaStackView` 当成键距交给旁边的键。
   private var splitGaps: [UIView] = []
   private var splitGapWidths: [NSLayoutConstraint] = []
+  /// 第三排字母的中缝只给一种键面用：iPad 键面这一排末尾有 ，。，九个字符键从 b 后面分（zxcvb | nm，。）；手机键面 ，。 隐藏，七个字母从 v 后面分（zxcv | bnm）。两段中缝都插好，按键面只显示其中一段。
+  private var tabletOnlySplitGap: UIView?
+  private var phoneOnlySplitGap: UIView?
   /// 分离时右半最里面的第二个空格键，和 `spaceButton` 做同样的事。
   private weak var splitSpaceButton: UIButton?
   /// 上一次 `updateKeyboardLayout` 画的是不是分离式键盘；旋转或改设置后与 `wantsSplitKeyboard` 不同就重新布局。
@@ -1844,6 +1847,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
       }
       insertSplitGap(into: row, after: characterKeys[KeyboardSplitLayout.leftKeyCount(characterKeys.count) - 1], root: root)
+      // 第三排字母：手机键面没有 ，。，按看得见的七个字母另插一段中缝（见 `tabletOnlySplitGap`）。
+      if let comma = letterRowPunctuationKeys.first, characterKeys.contains(where: { $0 === comma }) {
+        tabletOnlySplitGap = splitGaps.last
+        let letters = characterKeys.filter { key in !letterRowPunctuationKeys.contains { $0 === key } }
+        insertSplitGap(into: row, after: letters[KeyboardSplitLayout.leftKeyCount(letters.count) - 1], root: root)
+        phoneOnlySplitGap = splitGaps.last
+      }
     }
     if let space = spaceButton {
       insertSplitGap(into: actionRow, after: space, root: root)
@@ -6485,12 +6495,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     view.window?.windowScene?.interfaceOrientation.isLandscape ?? (traitCollection.verticalSizeClass == .compact)
   }
 
-  /// 此刻该不该画横屏分离式键盘：平板形态、横屏、开关打开，而且当前显示的是会分开的字母布局。开关放在最后读，手机和竖屏不读 App Group。
+  /// 此刻该不该画横屏分离式键盘：iPad（平板形态、横屏、iPad 的开关打开）或 iPhone（横屏、屏幕够宽、iPhone 的开关打开，`KeyboardSplitLayout.phoneIsActive`），而且当前显示的是会分开的字母布局。开关放在最后读，竖屏不读 App Group。
   private var wantsSplitKeyboard: Bool {
-    guard !numberPadShown, !typesLetterGrid,
-          KeyboardSplitLayout.isActive(
-            formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
-    else { return false }
+    guard !numberPadShown, !typesLetterGrid else { return false }
+    let formFactor = formFactor
+    let landscape = isLandscape
+    let active = KeyboardSplitLayout.isActive(
+      formFactor: formFactor, landscape: landscape, enabled: KeyboardLayoutPreference.tabletSplit)
+      || KeyboardSplitLayout.phoneIsActive(
+        idiom: traitCollection.userInterfaceIdiom, formFactor: formFactor, landscape: landscape,
+        rowWidth: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing,
+        keySpacing: CGFloat(KeyboardLayoutPreference.keySpacing), enabled: KeyboardLayoutPreference.phoneLandscapeSplit)
+    guard active else { return false }
     return KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
   }
 
@@ -6672,7 +6688,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // 横屏分离式键盘：每排的中缝和右半的第二个空格一起显示或隐藏。九键、笔画、假名、大千和手写不分（wantsSplitKeyboard），它们的符号页也跟着不分。
     let split = splitKeyboardShown
-    for gap in splitGaps where gap.isHidden == split { gap.isHidden = !split }
+    let tabletFace = keyFaceFormFactor == .tablet
+    for gap in splitGaps {
+      let shown = split && !(gap === tabletOnlySplitGap && !tabletFace) && !(gap === phoneOnlySplitGap && tabletFace)
+      if gap.isHidden == shown { gap.isHidden = !shown }
+    }
     if splitSpaceButton?.isHidden == split { splitSpaceButton?.isHidden = !split }
     // 数字页复用三列网格，原方案与 Engine 的组码布局不变。
     let nineKeyDigits = numberPad
