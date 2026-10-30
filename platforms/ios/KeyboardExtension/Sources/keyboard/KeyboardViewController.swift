@@ -9135,8 +9135,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 26 键收紧键帽后，键区面板也要停在实际按键的底边，不能盖住补偿留白。留白按此刻的排数算（`KeyboardFormFactor.phoneLetterVerticalPadding(rows:)`），顶部数字行打开时多一排。
+  ///
+  /// 九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）切到英文或本地模式时不留白：字母行和底行一样由按键列均分，默认行距下键帽从 44pt 长到 49pt，排距仍是紧凑的 11pt，字母区上下边界与九宫格重合，切换时按键区不缩一截。其他方案的 26 键保持 44pt 键帽和上下留白。
   private var phoneLetterVerticalInset: CGFloat {
-    guard showsPhoneLetterRows && !isLandscape else { return 0 }
+    guard showsPhoneLetterRows && !isLandscape,
+          !TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme) else { return 0 }
     return KeyboardFormFactor.phoneLetterVerticalPadding(
       rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
   }

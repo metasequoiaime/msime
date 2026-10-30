@@ -1517,23 +1517,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
   }
 
-  /// 九键切到英文会复用 26 键字母行，但键盘外框高度保持不变。
+  /// 九键一族切到英文会复用 26 键字母行：键盘外框高度不变，字母区的上下边界也与九宫格重合，不在上下留白。
   func testNineKeyAndEnglishKeepTheSameKeyboardHeight() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
-    InputSchemePreference.scheme = .nineKey
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
-    controller.view.layoutIfNeeded()
-    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    let language = try button("bottomLanguageKey", in: controller)
-    language.sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
-    let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    XCTAssertEqual(englishHeight, height, accuracy: 0.5)
-    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
-    XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5)
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin] {
+      InputSchemePreference.scheme = scheme
+      XCTAssertEqual(InputSchemePreference.scheme, scheme)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
+      try layoutAtRequestedHeight(controller)
+      let frame = { (view: UIView) in view.convert(view.bounds, to: controller.view) }
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      let gridTop = frame(try button("nineKey1", in: controller)).minY
+      let nineKeyBottom = frame(try button("returnKey", in: controller)).maxY
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      XCTAssertEqual(englishHeight, height, accuracy: 0.5, "\(scheme)")
+      let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
+      XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
+      XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
+      // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
+      XCTAssertEqual(letter.bounds.height, 49, accuracy: 0.5, "\(scheme)")
+    }
   }
 
   func testVisibleInputViewReflectsSoundPreference() throws {
