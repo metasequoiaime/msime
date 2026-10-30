@@ -320,3 +320,5 @@ Windows 小证据为 `target/windows-x86-e746-small-evidence/`，94 份文件 ZI
 诊断确认前任返回时记录已存在，却仍有待送达的默认 SIGSEGV；修复与独立失败/通过回归见[待送达致命信号](../../implemented/bug-fix/2026-10-30-android-pending-fatal-signal.md)。仅更新经过固定哈希核对的共同 C++ 源后，实际 IME 和 App 两轮隔离后台分别收到五条与三条事件，JNI 帧通过精确独立 ZIP 还原到 `client_jni.cpp:108/117`。这是 e746 基础包加精确修补的产品复验，不是全新提交完整重编或真机验收；本轮夹具失败亦在该笔记保留。
 
 Android 正式缓存已逐字节恢复，合成授权关闭、任务包卸载、AVD 停止，四轮后台与转发清理完成；本机从独立 ZIP 还原八个后台帧一致，完整 quick 与笔记校验通过。原 App 夹具的清理布尔值曾与真实恢复值不符，已保留原件并以独立审计纠正，详见上述修复笔记。
+
+本轮 Windows x86 验收记录的完整 `scripts/verify-local.sh --quick` 首轮退出 1，仅 Linux 原生 119 项中的两项画布精确颜色断言失败。使用本次命令专属 `FONTCONFIG_FILE` 关闭字体抗锯齿后，两项原断言与整轮 quick 复跑均通过，Linux 原生 119/119；没有修改系统字体设置、产品或测试源码。笔记校验退出 0，12,666 个 tracked 条目的实际字节和模式在远端验证前后相同，并与本机 `78c7eb1f7a` 全部字节及执行位逐项一致。证据为 `target/windows-x86-quick-evidence/`。此 Linux 环境未配置的 Windows 完整原生/pipe-only、Android/wasm SDK、鸿蒙 SDK、macOS 原生与 Apple bridge 阶段明确跳过，不算对应平台通过；首轮失败日志保留。
