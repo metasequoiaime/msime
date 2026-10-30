@@ -13215,6 +13215,190 @@ static void TestCrossCommitSpacingReentrancy() {
 }
 @end
 
+// 适配真实多行编辑器与 NSTextField 的共享 field editor，不模拟光标移动语义。
+@interface CursorEditorClient : NSObject <MSIMETextClient>
+@property(nonatomic, strong) NSTextView *editor;
+@property(nonatomic, copy) void (^onRead)(void);
+@end
+@implementation CursorEditorClient
+- (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
+    *rect = [self.editor firstRectForCharacterRange:NSMakeRange(index, 0) actualRange:NULL];
+    return @{};
+}
+- (void)insertText:(id)text replacementRange:(NSRange)range { [self.editor insertText:text replacementRange:range]; }
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
+    [self.editor setMarkedText:text selectedRange:selection replacementRange:range];
+}
+- (NSRange)selectedRange {
+    const NSRange result = self.editor.selectedRange;
+    void (^callback)(void) = self.onRead;
+    self.onRead = nil;
+    if (callback) callback();
+    return result;
+}
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    return [self.editor attributedSubstringForProposedRange:range actualRange:NULL];
+}
+- (NSString *)bundleIdentifier { return @"com.example.Writer"; }
+@end
+
+static void TestQuickPhraseCursorInEditors() {
+    NSString *suite = [@"msime.phrase-cursor." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [prefs activateInputModeForApplication:@"com.example.Writer"];
+    [prefs applySharedInputPreferences:@{@"cross_commit_spacing":@YES, @"cross_commit_spacing_excluded_apps":@[]}];
+    prefs.pairedPunctuation = YES;
+    prefs.traditionalOutput = NO;
+    NSDictionary *idle = @{@"scheme":@0, @"editing_text":@"", @"candidates":@[]};
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    for (NSNumber *field in @[@NO, @YES]) {
+        NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 100)
+            styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+        NSTextField *input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 390, 30)];
+        [window.contentView addSubview:input];
+        assert([window makeFirstResponder:input]);
+        CursorEditorClient *client = [CursorEditorClient new];
+        client.editor = field.boolValue ? (NSTextView *)input.currentEditor : [[NSTextView alloc] initWithFrame:window.contentView.bounds];
+        assert(client.editor);
+        [controller setValue:client forKey:@"activeClient"];
+        for (NSString *suffix in @[@"\"", @"🌲é\"", @"שלום\"", @"👨‍👩‍👧‍👦\""])
+        for (NSNumber *selection in @[@NO, @YES])
+        for (NSNumber *oldMark in @[@NO, @YES])
+        for (NSNumber *next in @[@NO, @YES]) {
+            client.editor.string = @"甲乙丙";
+            client.editor.selectedRange = NSMakeRange(1, selection.boolValue ? 1 : 0);
+            if (oldMark.boolValue)
+                [client.editor setMarkedText:@"ktt" selectedRange:NSMakeRange(3, 0) replacementRange:NSMakeRange(NSNotFound, 0)];
+            [controller setValue:oldMark forKey:@"clientHasMarkedText"];
+            NSString *text = [@"title:\"" stringByAppendingString:suffix];
+            NSDictionary *view = next.boolValue ? @{@"scheme":@0, @"editing_text":@"n", @"candidates":@[]} : idle;
+            [controller apply:@{@"commit":text, @"commit_cursor_suffix":suffix, @"view":view}];
+            NSString *expected = [NSString stringWithFormat:@"甲title:\"%@%@%@", next.boolValue ? @"n" : @"", suffix,
+                selection.boolValue ? @"丙" : @"乙丙"];
+            assert([client.editor.string isEqual:expected]);
+            assert(NSEqualRanges(client.editor.selectedRange, NSMakeRange(next.boolValue ? 9 : 8, 0)));
+            assert(client.editor.hasMarkedText == next.boolValue);
+            [controller apply:@{@"commit":@"你", @"view":idle}];
+            expected = [NSString stringWithFormat:@"甲title:\"你%@%@", suffix, selection.boolValue ? @"丙" : @"乙丙"];
+            assert([client.editor.string isEqual:expected] && !client.editor.hasMarkedText);
+        }
+        // 简繁只依照提交上下文转换，尾段与正文同步；跨提交加的空格留在目标左边。
+        prefs.traditionalOutput = YES;
+        for (NSNumber *convert in @[@NO, @YES]) {
+            client.editor.string = @"Rust右";
+            client.editor.selectedRange = NSMakeRange(4, 0);
+            [controller apply:@{@"commit":@"汉字", @"commit_cursor_suffix":@"字",
+                @"commit_context":@{@"scheme":@0, @"local_mode":@"quick_phrase", @"script_conversion":convert}, @"view":idle}];
+            assert([client.editor.string isEqual:convert.boolValue ? @"Rust 漢字右" : @"Rust 汉字右"]);
+            assert(client.editor.selectedRange.location == 6 && !client.editor.hasMarkedText);
+        }
+        prefs.traditionalOutput = NO;
+        // 缺失、空、失配与全文尾段分别表示普通上屏、末尾、降级和开头。
+        for (id suffix in @[NSNull.null, @"", @"wrong", @"AB"]) {
+            client.editor.string = @"";
+            client.editor.selectedRange = NSMakeRange(0, 0);
+            [controller apply:@{@"commit":@"AB", @"commit_cursor_suffix":suffix, @"view":idle}];
+            assert([client.editor.string isEqual:@"AB"] && !client.editor.hasMarkedText);
+            assert(client.editor.selectedRange.location == ([suffix isEqual:@"AB"] ? 0 : 2));
+        }
+        prefs.traditionalOutput = YES;
+        client.editor.string = @"";
+        client.editor.selectedRange = NSMakeRange(0, 0);
+        [controller apply:@{@"commit":@"汉字", @"commit_cursor_suffix":@"漢字",
+            @"commit_context":@{@"script_conversion":@YES}, @"view":idle}];
+        assert([client.editor.string isEqual:@"漢字"] && client.editor.selectedRange.location == 2);
+        prefs.traditionalOutput = NO;
+        // 查询中透传导航键没有新转换，也不能把用户的新选区拉回旧位置。
+        client.editor.string = @"";
+        client.editor.selectedRange = NSMakeRange(0, 0);
+        prefs.englishMode = YES;
+        __weak CursorEditorClient *weakClient = client;
+        client.onRead = ^{
+            CursorEditorClient *current = weakClient;
+            assert(![controller handleEvent:LayoutKey(123, @"\uf702", 0) client:current]);
+            current.editor.selectedRange = NSMakeRange(0, 0);
+        };
+        [controller apply:@{@"commit":@"AB", @"commit_cursor_suffix":@"B", @"view":idle}];
+        assert([client.editor.string isEqual:@"AB"] && client.editor.selectedRange.location == 0);
+        prefs.englishMode = NO;
+        // 显式模板不触发自动补另一半标点；已有成对尾巴完整落地，仍在模板指定处继续输入。
+        client.editor.string = @"";
+        client.editor.selectedRange = NSMakeRange(0, 0);
+        [controller apply:@{@"commit":@"（", @"commit_cursor_suffix":@"（", @"view":idle}];
+        assert([client.editor.string isEqual:@"（"] && client.editor.selectedRange.location == 0);
+        assert(![controller valueForKey:@"pendingPairedClosing"]);
+        [controller setValue:@"）" forKey:@"pendingPairedClosing"];
+        [client.editor setMarkedText:@"n）" selectedRange:NSMakeRange(1, 0) replacementRange:NSMakeRange(NSNotFound, 0)];
+        [controller setValue:@YES forKey:@"clientHasMarkedText"];
+        [controller apply:@{@"commit":@"AB", @"commit_cursor_suffix":@"B", @"view":idle}];
+        assert([client.editor.string isEqual:@"AB）（"] && client.editor.selectedRange.location == 1);
+        assert(!client.editor.hasMarkedText && ![controller valueForKey:@"pendingPairedClosing"]);
+        [window endEditingFor:nil];
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestQuickPhraseCursorThroughRealSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSString *suite = [@"msime.phrase-cursor-engine." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSMutableDictionary *preferences = [[MSIMEClientSession loadPreferencesInDirectory:
+        [root stringByAppendingPathComponent:@"preferences_directory"] error:nil][@"preferences"] mutableCopy];
+    assert(preferences);
+    [preferences addEntriesFromDictionary:@{@"scheme":@"quanpin", @"default_ime_mode":@"chinese", @"learning":@NO,
+        @"cloud_candidates":@NO, @"plugins":@{@"phrase_tables":@[@"cursor"]}}];
+    NSMutableDictionary *mixedPreferences = [preferences[@"mixed_input"] mutableCopy];
+    mixedPreferences[@"quick_phrase"] = @YES;
+    preferences[@"mixed_input"] = mixedPreferences;
+    NSMutableDictionary *options = [@{@"api_version":@1, @"preferences":preferences, @"quick_phrase_candidates":@YES} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries", @"preferences_directory"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSString *pack = [options[@"preferences_directory"] stringByAppendingPathComponent:@"plugins/phrase_table/cursor"];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:pack withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *manifest = @"schema_version = 1\nkind = \"phrase_table\"\nid = \"cursor\"\nname = \"合成光标短语\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[[phrases]]\nkey = \"tt\"\ntext = 'title:\"${cursor}🌲é\"'\n";
+    assert([manifest writeToFile:[pack stringByAppendingPathComponent:@"plugin.toml"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    for (NSNumber *mixed in @[@NO, @YES]) {
+        NSError *error = nil;
+        MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(session && !error);
+        NSDictionary *focused = [session setFocused:YES error:&error];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [prefs applySharedInputPreferences:preferences];
+        CursorEditorClient *client = [CursorEditorClient new];
+        client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 100)];
+        client.editor.string = @"甲乙丙";
+        client.editor.selectedRange = NSMakeRange(1, 1);
+        ModeController *controller = [ModeController alloc];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:focused[@"view"] forKey:@"view"];
+        for (char character : std::string(mixed.boolValue ? "tt" : "Ktt"))
+            [controller apply:[session typeASCII:character shift:character == 'K' error:&error]];
+        NSDictionary *view = [session viewWithError:&error];
+        NSDictionary *chosen = nil;
+        for (NSDictionary *candidate in view[@"candidates"])
+            if ([candidate[@"text"] isEqual:@"title:\"🌲é\""]) chosen = candidate;
+        assert(chosen && [chosen[@"source"] integerValue] == 5);
+        NSDictionary *transition = [session selectGeneration:[view[@"generation"] unsignedLongLongValue]
+            index:[chosen[@"id"][@"index"] unsignedIntegerValue] error:&error];
+        assert(!error && [transition[@"commit_cursor_suffix"] isEqual:@"🌲é\""]);
+        [controller apply:transition];
+        assert([client.editor.string isEqual:@"甲title:\"🌲é\"丙"] && client.editor.selectedRange.location == 8);
+        assert(!client.editor.hasMarkedText);
+        [controller apply:[session typeASCII:'n' shift:NO error:&error]];
+        assert(!error && [client.editor.string isEqual:@"甲title:\"n🌲é\"丙"]);
+        assert([session closeWithError:&error] && !error);
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
 static void TestCrossCommitSpacingInTextView() {
     NSString *suite = [@"msime.cross-commit-spacing-appkit." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -13319,6 +13503,11 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
+            TestQuickPhraseCursorInEditors();
+            TestQuickPhraseCursorThroughRealSession();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--cross-commit-spacing") {
             TestCrossCommitSpacing();
             TestCrossCommitSpacingReentrancy();
