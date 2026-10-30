@@ -523,6 +523,12 @@ final class ImeLayoutRows {
             && "none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
     }
 
+    /** 随入口占工具栏一行的依据：只看设置和当前中文方案，不看此刻的中/英和临时模式，切换时键盘高度不跳。 */
+    boolean randomDigitsKeepsToolbarRow() {
+        return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+            && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1));
+    }
+
     boolean randomDigitsEnabled() { return randomDigits.enabled(); }
 
     void toggleRandomDigits() {
@@ -562,7 +568,7 @@ final class ImeLayoutRows {
             int digit = randomDigits.digit(slot, eligible);
             String face = Integer.toString(digit);
             if (!face.contentEquals(key.getText())) key.setText(face);
-            String description = "数字 " + digit;
+            String description = "按键 数字 " + digit;
             if (!description.contentEquals(key.getContentDescription())) key.setContentDescription(description);
             s.keyId(key, nineKey ? KeyPressIds.forNineKeyDigit(digit)
                 : KeyPressIds.forCharacter((char) ('0' + digit)));

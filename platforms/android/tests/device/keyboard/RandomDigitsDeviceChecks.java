@@ -154,7 +154,7 @@ final class RandomDigitsDeviceChecks {
         Rect[] cells = new Rect[10];
         for (int digit = 0; digit < 10; digit++) {
             AccessibilityNodeInfo node = t.awaitStableBounds(t.key(Integer.toString(digit)));
-            check(DeviceSmoke.equalsText("数字 " + digit, node.getContentDescription()), "无障碍数字必须匹配键面");
+            check(DeviceSmoke.equalsText("按键 数字 " + digit, node.getContentDescription()), "无障碍数字必须匹配键面");
             cells[digit] = bounds(node);
         }
         Integer[] digits = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
