@@ -5181,13 +5181,11 @@ impl Preferences {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
         if !TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.contains(&self.touch_keyboard_split_threshold)
-            || (self.touch_keyboard_split_threshold - TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.start())
-                % TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP
-                != 0
+            || !(self.touch_keyboard_split_threshold - TOUCH_KEYBOARD_SPLIT_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_THRESHOLD_STEP)
             || !TOUCH_KEYBOARD_SPLIT_GAP_RANGE.contains(&self.touch_keyboard_split_gap)
-            || (self.touch_keyboard_split_gap - TOUCH_KEYBOARD_SPLIT_GAP_RANGE.start())
-                % TOUCH_KEYBOARD_SPLIT_GAP_STEP
-                != 0
+            || !(self.touch_keyboard_split_gap - TOUCH_KEYBOARD_SPLIT_GAP_RANGE.start())
+                .is_multiple_of(TOUCH_KEYBOARD_SPLIT_GAP_STEP)
         {
             return Err(PreferencesError::InvalidTouchKeyboardSplit);
         }
