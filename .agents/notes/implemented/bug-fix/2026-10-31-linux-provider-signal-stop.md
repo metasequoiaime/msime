@@ -28,6 +28,8 @@ Status: implemented
 
 连续停止回归在真实请求线程临界区送达第一条 SIGTERM，又在实际主入口 `server_close` 前送达第二条。首个安全点方案过早恢复默认处理，两个服务都以 `-15` 退出；去掉这次恢复后，两条信号均被正常处理，五项降级用例通过。原处理器也是持续保留到进程退出，本次保持此生命周期；失败/通过分别保存在 `cleanup-handler-regression-before.log` 与 `cleanup-handler-regression-after.log`，最终同一源码快照再次通过完整 quick 和笔记门禁，Linux 原生 119/119，12,665 条输入字节及执行位前后相同；工具缺失跳过范围与首轮一致，原远端源码与租约均已恢复。最终证据为 `target/provider-stop-cleanup-quick-evidence/`。
 
+固定 `f1114c3230a9d0dd368bd5862bd61f6df7572722` 的后续 CI `41129115832` 已整体成功，Debian 10 amd64、arm64 两条真实打包作业均通过；Native Platform CI `41129115804` 的 Debian/Fedora 原生宿主和 Linux 设置应用也全部通过。这些结果包含最终连续停止保护，不沿用先前候选的成功。
+
 ## Consequences
 
 两个服务的停止处理器只设置标志，避免旧 Python 线程锁重入；异常在公开服务循环安全点被明确捕获，随后继续原有会话、子进程、socket 与锁清理，不进入崩溃采集。没有新增轮询线程或依赖。
