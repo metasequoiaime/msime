@@ -22,7 +22,7 @@ WER 回调使用目标进程地址，必须通过 ReadProcessMemory 读取，不
 
 ## 当前基础切片与验证
 
-`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主的系统 WER 实际投递已通过，完整产品包与真实编辑器验收仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
+`CrashCaptureContext.h`、`TelemetryWer.cpp`、`.def` 和共用 `TelemetryWer.cmake` 已实现有界远端快照读取与三个回调。`TsfCrashCapture` 已接入产品 TSF 的激活、失败回滚、停用与析构；独立后台观察任务持有 DLL 加载引用，持续检查共享授权、发布有代次的快照。现代与 Win7 的构建、暂存、符号采集和安装器已接入 helper，Arm64X 沿用 TIP 的两阶段链接。**合成宿主的系统 WER 实际投递，以及同源 x64 产品在 Windows 11 Notepad 内的输入、自有故障、隔离后台与源码行已通过；完整安装包和其余架构、授权及非自有故障场景仍未完成。** 本篇保留 `proposed`，不把源码接线和专项测试当作产品闭环。
 
 WER helper 的 x86 分支现在沿目标进程的 EBP 链最多读取 64 个返回帧，远程读取失败、回环、倒退或超过 1 MiB 的跳跃立即停止；只有 TSF 与当前 edition Host API 的帧写入记录，外部宿主帧不泄露。x64/ARM64 继续保留直接故障帧，因为 `RtlVirtualUnwind` 不能直接解引用 helper 地址空间之外的目标栈。x64 与 x86 生产 helper 均通过 MinGW `-Wall -Wextra -Werror` 语法检查；当前 macOS 无法执行 Windows x86 回调，真实 x86 运行回归仍由 Windows CI 验证。
 
@@ -75,9 +75,23 @@ Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本
 
 该报告的 `msime_host_api.dll` PE CodeView GUID/Age 与冻结的 `msime_host_api.pdb` 精确一致（`{22A9F508-7A04-4D9B-8155-DC44AF05FAA4}`, age `3`）；用镜像基址加 WER 偏移交给 `llvm-symbolizer` 可还原到 `<serde_json::read::SliceRead as serde_json::read::Read>::peek`。行号仍为 `??:0`，因为故障是人为把真实 consent 请求指针改成 `1` 后在 JSON 读取路径触发的访问冲突，不能把该位置当作自然业务缺陷。
 
-真实 Windows 11 Notepad 的顶层窗口和嵌套 `RichEditD2DPT` 已定位；当前测试 helper 的跨进程 TSF 激活仍未产生 `MetasequoiaIMEWorkerWnd.full` 或候选窗，因此真实编辑器按键、外部宿主内 TSF worker 和对应后台补报仍未验收。该缺口不能用 Server 的自然 consent 故障证据替代。取证使用专用用户和专用状态目录，未向产品后台发送合成故障。
+此前跨进程启动或激活 Notepad 未产生 TSF worker 的尝试不算输入通过；2026-10-30 的实际编辑器验收见下节。Server 的故障证据仍不能替代 TSF，全部取证使用专用用户、专用状态目录与隔离后台。
 
-随后发现前一轮产品包中的 `msime_host_api.dll` 仍嵌入旧的隔离端口 `http://127.0.0.1:48153`，而当前专用回环转发为 `48729`；队列与持续授权均正常，故此前后台为空只是发送目标不一致。强制让同源 Windows 工作区重新编译 `msime-client-services`/Host API，并替换暂存 DLL 后重启 Server，回环后台固定 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a` 收到并确认了两条 `active`、两条 `session_crash` 和两条 `crash`，每条的 `platform=windows`、版本、匿名安装身份、构建头、`x86_64`、`input` 组件与模块偏移栈均与本地队列一致，`received` 与 `rows` 完全对应。这个真实 Server WER→本地队列→隔离后台链路已通过；仍未完成真实编辑器 TSF worker、ARM64/Win7 产品运行和后台符号行还原。
+随后发现前一轮产品包中的 `msime_host_api.dll` 仍嵌入旧的隔离端口 `http://127.0.0.1:48153`，而当前专用回环转发为 `48729`；队列与持续授权均正常，故此前后台为空只是发送目标不一致。强制让同源 Windows 工作区重新编译 `msime-client-services`/Host API，并替换暂存 DLL 后重启 Server，回环后台固定 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a` 收到并确认了两条 `active`、两条 `session_crash` 和两条 `crash`，每条的 `platform=windows`、版本、匿名安装身份、构建头、`x86_64`、`input` 组件与模块偏移栈均与本地队列一致，`received` 与 `rows` 完全对应。这个真实 Server WER→本地队列→隔离后台链路已通过；x64 Notepad 的独立 TSF 证据见下节，ARM64/Win7 产品运行仍未完成。
+
+## Windows 11 Notepad 的 x64 产品链路
+
+固定产品源码 `b8356db26bca126193edbc5d5246ef51795eab8d` 的暂存 Server、TIP、WER helper 与 Host API 在 PVE Windows 11 专用交互用户下运行。测试 helper 通过 `IApplicationActivationManager::ActivateApplication` 和稳定 AUMID `Microsoft.WindowsNotepad_8wekyb3d8bbwe!App` 启动真实打包版 Notepad；带版本号的 package full name 不是 AUMID。只选择返回 PID 所属的编辑器窗口，连接编辑器线程输入队列后确认 `RichEditD2DPT` 真正持有焦点。产品 worker 数量为一，真实虚拟键 `NIHAO` 显示 Server 候选，空格提交合成的「你好」。不以自定义编辑器、直接写文本或仅激活返回 `S_OK` 代替验收。微软[激活接口](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-iapplicationactivationmanager-activateapplication)返回实际履行启动契约的 PID。
+
+第一次有效故障在 Notepad 的自然授权调用断点恢复原始指令后，将请求指针改为 `1` 并在继续前脱离调试器。进程以 `0xc0000005` 结束，系统 WER 记录 `msime_host_api.dll+0x35b3d97`，生产 helper 写出 UUID `629971d3-0a9c-40d2-9a71-c63dfc6136f8`。该 Host DLL 的 PDB 已被后续缓存重编覆盖，旧 PDB GUID 不匹配，不把这一帧算作精确符号通过。
+
+第二次在另一轮真实 Notepad 进程中，恢复断点原指令后，把执行位置改到已加载 TSF 的真实写指令、目的寄存器改为无效地址，再脱离调试器。没有改磁盘产品或添加产品故障入口。这是受控故障注入，不能称为自然触发 `OnTestKeyDown` 或该业务位置的已确认缺陷。系统事件 1000/1001 和 `MoAppCrash` 报告均为 `0xc0000005`、`MetasequoiaImeTsf.dll+0x7bdcc`，helper 写出 UUID `0ad1c46f-66fd-4721-bed2-39b32a766563`。打包宿主最终退出码为 `0xff`，要求退出码必须等于异常码的首次包装器断言因此失败；保留该失败，不将退出码改写为通过，真实异常证据来自原系统 WER 与独立 helper。此前等待自然按键断点的两次尝试均超时，也不计通过。
+
+Server 正常停机后由原产品启动入口重启，把上述两条 `component=tsf`、`x86_64`、原版本、原 revision、运行 `windows-editor-20261030`、attempt `1` 的记录发往固定隔离后台 `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`。各 UUID 恰好一条 `crash`，请求与数据库的七个事件字段逐项相等，均无 `session_crash`。授权代次只用于本地，不外发。第二条的后台帧由独立 x64 验收符号 ZIP 解压后还原到 `CMetasequoiaIME::OnTestKeyDown`、`platforms/windows/tsf/Key/KeyEventSink.cpp:2415`；PE/PDB GUID `{22A46558-51D6-429D-A5AF-84B3E41D9C7A}`、age `1` 精确相等，DLL/PDB SHA-256 与归档回读一致，另一份 Debug 构建的 PDB 身份被拒绝。该 ZIP 只覆盖这次 x64 TSF 验收，不冒充完整发布符号包。
+
+原 Server 重启后，再次由真实 Notepad 完成按键、候选与「你好」提交，证明输入恢复。最终关闭本任务的编辑器、Server、Watchdog，移除任务计划、两种分隔符的任务 helper 允许列表项，并按原始不存在的基线恢复 TIP/CLSID 和任务写入的状态根注册值。验收脚本曾把 helper 路径以 `/` 登记；本轮改为模块实际使用反斜杠的路径后才取得有效 WER 投递，这属于测试环境修正。Session 0 向交互 Server 投递退出消息失败，改由同用户交互任务正常关闭；非提权用户的机器级注销失败，最终以具备机器权限的同一注销 helper 清理并核对基线。这些失败不作为产品修复或系统卸载验收。
+
+小证据在 `target/windows-tsf-notepad-acceptance-evidence/`，冻结符号 ZIP 在远端暂存目录的 `evidence/tsf-exact-symbols.zip`。真实编辑器的撤回重开、宿主捕获异常后继续运行与非自有故障对照，完整安装器、Win7、x86、ARM64 和最新整合候选复验仍未完成，不因这条 x64 自有故障链路通过而关闭本提案。
 
 ## Related notes
 
