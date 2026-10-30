@@ -3073,7 +3073,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || imeLayoutRows.randomDigitsEntryVisible() || touchVoiceShortcutEnabled);
+            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
