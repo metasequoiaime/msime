@@ -77,6 +77,10 @@ test("鸿蒙登录面板给出「华为账号登录」，不再给 Google 登录
   const logos = button.querySelectorAll("img");
   expect(logos).toHaveLength(2);
   logos.forEach((logo) => expect(logo.getAttribute("alt")).toBe(""));
+  // 邮箱登录同样是图标加文字，与华为账号那一行对齐。
+  expect(
+    dialog.getByRole("button", { name: "使用邮箱登录" }).querySelector("svg[aria-hidden='true']"),
+  ).not.toBeNull();
   expect(dialog.queryByRole("button", { name: "使用 Google 登录" })).toBeNull();
   expect(dialog.queryByText("当前没有可用的登录方式，请稍后重试。")).toBeNull();
 });

@@ -11,6 +11,7 @@ import { useAccountVerification, type AccountChannel } from "./use-account-verif
 import * as account from "./account-style";
 import type { AccountClient, AccountProviders, AccountUser } from "./account-model";
 import { HuaweiIdLabel } from "./huawei-id-label";
+import { FluentIcon } from "../core/fluent-icons";
 
 /**
  * HarmonyOS 手机的底部面板：页面上覆盖一层 .35 的遮罩，再从底边升起一张卡片，带拖动条、22px 标题、可选副标题和 30px 关闭按钮。遮罩、关闭按钮和 Escape 都能关闭它，除非 `closeDisabled` 在其操作进行期间让它保持打开。
@@ -293,7 +294,10 @@ export function LoginSheet({
             disabled={busy}
             onClick={() => chooseChannel("email")}
           >
-            使用邮箱登录
+            <span className={account.choiceLabel}>
+              <FluentIcon name="mail" size={24} />
+              使用邮箱登录
+            </span>
           </button>
         )}
         {providers.phone && (
@@ -304,7 +308,10 @@ export function LoginSheet({
             disabled={busy}
             onClick={() => chooseChannel("phone")}
           >
-            使用手机号登录
+            <span className={account.choiceLabel}>
+              <FluentIcon name="phone" size={24} />
+              使用手机号登录
+            </span>
           </button>
         )}
         {!providers.email && !providers.phone && !huaweiAvailable && !googleAvailable && (

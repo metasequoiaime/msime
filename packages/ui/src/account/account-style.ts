@@ -189,7 +189,6 @@ export const profileRowChevron = meCardChevron;
 /** 设计稿里的破坏性操作：一整行居中的红色文字。 */
 export const profileDangerRow =
   "m-0 flex min-h-[50px] w-full cursor-pointer items-center justify-center border-0 bg-transparent px-4 text-[16px] [font-family:inherit] [color:#FF3B30] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50";
-export const profileConfirmation = "[&>div]:m-0";
 
 // ---- 底部弹窗（登录水杉、昵称） ----
 
@@ -208,6 +207,8 @@ export const sheetBody = standardStack;
 /** 登录选项：用强调色浅色填充的 50px 色调按钮。 */
 export const sheetChoice =
   "m-0 h-[50px] w-full cursor-pointer rounded-xl border-0 bg-[var(--accent-soft)] px-4 text-[17px] font-semibold [font-family:inherit] [color:var(--p-accent-text)] active:opacity-80 disabled:cursor-default disabled:opacity-60 aria-pressed:shadow-[inset_0_0_0_1.5px_var(--accent-color)]";
+/** 登录选项按钮里的「图标加文字」：图标在文字左边，整体居中。 */
+export const choiceLabel = "inline-flex items-center justify-center gap-2";
 /** 这一步的主操作：可以执行时用强调色，在那之前是分段控件的灰底配灰色文字。 */
 export const sheetPrimary =
   "m-0 h-[50px] w-full cursor-pointer rounded-xl border-0 px-4 text-[17px] font-semibold [font-family:inherit] bg-[var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80 disabled:cursor-default disabled:bg-[var(--p-seg-bg)] disabled:[color:var(--p-sub)]";

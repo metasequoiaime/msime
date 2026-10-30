@@ -11,7 +11,11 @@ export interface AccountConfirmationProps {
   onCancel: () => void;
 }
 
-const details: Record<AccountConfirmationAction, { label: string; message: string }> = {
+/** 每种账号操作的确认文案：页内确认卡片和鸿蒙「个人资料」页的居中确认弹窗共用。 */
+export const accountConfirmationDetails: Record<
+  AccountConfirmationAction,
+  { label: string; message: string }
+> = {
   logout: {
     label: "确认退出登录",
     message: "退出登录后，云端功能和社区发布都需要重新登录才能使用。",
@@ -37,7 +41,7 @@ export function AccountConfirmation({
   onConfirm,
   onCancel,
 }: AccountConfirmationProps) {
-  const detail = details[action];
+  const detail = accountConfirmationDetails[action];
   return (
     <div className={account.confirmation} role="alertdialog" aria-label={detail.label}>
       <p className={account.note}>{detail.message}</p>
