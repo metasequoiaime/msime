@@ -67,6 +67,14 @@ SignPath 的 Stage 与 Restore 将三个架构的 helper 列为必需自有二�
 
 Windows 11 上，冻结源码的四组构建工具探针和七组安装器脚本测试共十一组全部通过，1236 个输入文件的 SHA-256 与本机逐项一致。未构建、签名、安装产品，也未向产品后台上传。首次命令在文件传输完成前执行，未找到脚本，不能算验证；完成传输后整套重新执行并退出 0。最新整合快照的完整 quick 仍待执行，不把这些脚本测试当作真实签名服务或完整产品安装验收。
 
+### 本轮真实产品 Server 验收（2026-10-30）
+
+在 PVE 的 Windows 11 runner 上，使用当前分支同源构建的 `MetasequoiaImeServer.exe`、`msime_host_api.dll`、`MetasequoiaImeCrashWer.dll` 和锁定资源目录，先通过 `msime-client-prepare.exe` 准备全新状态目录，再以专用注册器调用真实 `DllRegisterServer` 完成 TSF profile 与 WER helper 注册。注册器必须先 `CoInitializeEx`，并为 DLL 搜索路径加入暂存的 `bin` 目录；直接从非 COM 上下文运行 `regsvr32` 返回 `E_FAIL`，不能把它记作注册成功。
+
+随后对真实运行中的 `MetasequoiaImeServer.exe` 的自然 `msime_client_telemetry_consent` 调用设置断点，读取真实请求后恢复原始首字节，将请求指针改为 `1` 并继续执行。目标进程退出码为 `0xc0000005`，看门狗自动重新拉起 Server；`C:\ProgramData\Microsoft\Windows\WER\ReportArchive` 生成 `APPCRASH` 报告，签名模块为暂存的 `msime_host_api.dll`，异常码为 `c0000005`，同时留下两个 `MetasequoiaImeServer.exe.*.dmp`。这证明完整产品 Server 的原生 WER 处置与重启链路已经实际运行，仍未证明 WER helper 将该真实产品事件写入后台队列或完成符号还原。
+
+真实 Windows 11 Notepad 的顶层窗口和嵌套 `RichEditD2DPT` 已定位；当前测试 helper 的跨进程 TSF 激活仍未产生 `MetasequoiaIMEWorkerWnd.full` 或候选窗，因此真实编辑器按键、外部宿主内 TSF worker 和对应后台补报仍未验收。该缺口不能用 Server 的自然 consent 故障证据替代。取证使用专用用户和专用状态目录，未向产品后台发送合成故障。
+
 ## Related notes
 
 检索活跃笔记的 WER、RuntimeException、TSF 故障和外部宿主崩溃后，[全平台提案](2026-10-27-cross-platform-crash-reporting.md)部分重叠，仍持有完整平台及后台验收；[独立捕获与符号身份](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md)仍持有记录头与符号格式；[采集与队列代次](../../implemented/bug-fix/2026-10-28-epoch-bound-crash-collection.md)仍持有授权和旧记录拒绝。不完全吸收旧笔记，其余按键与焦点记录无关。
