@@ -14,7 +14,7 @@ Status: implemented
 
 host-api 对上屏做全角、空格处理时同步转换尾段；格式化前后都核对正文后缀，失配时丢弃位置请求。光标边界新增的中英文空格留在光标前，使光标仍紧邻原后缀首字符。脚本实际改写了提交正文时清掉旧定位，不对改写后的文本沿用过时目标。K 模式仍遵守现有的不可改写限制，普通混输短语按普通上屏的授权边界处理。AI 上文只记光标前的实际提交文字。
 
-Android 原生宿主消费 `commit_cursor_suffix`，短语表编辑器提供语法说明；其他五个宿主及其设置说明尚未完成，#10260 仍未完成，PR 必须保持草稿。macOS 的 IMK 没有直接设置插入点的接口，其尾段所有权与失焦收尾仍需验证；Linux 的框架版本与转发方向键顺序也尚未验收。共享解析测试不构成任何平台的编辑器光标验收。
+Android 与 iOS 原生宿主消费 `commit_cursor_suffix`，短语表编辑器提供语法说明；其他四个平台的宿主及其设置说明尚未完成，#10260 仍未完成，PR 必须保持草稿。macOS 的 IMK 没有直接设置插入点的接口，其尾段所有权与失焦收尾仍需验证；Linux 的框架版本与转发方向键顺序也尚未验收。共享解析测试不构成任何平台的编辑器光标验收。
 
 K 模式的真实引擎收到数字时，现有字符接口先结束原文，而不是选择候选；这一行为保持不变。数字选词只在引擎明确交还数字且没有产生提交时展开所选短语，不能覆盖引擎已经交出的原文。
 
@@ -28,11 +28,22 @@ K 模式的真实引擎收到数字时，现有字符接口先结束原文，而
 
 Android 的 `commitText` 参数不能表示正文内部的位置，而编辑器可以在 `endBatchEdit` 才应用写入。API 语义依据 [InputConnection](https://developer.android.com/reference/android/view/inputmethod/InputConnection#commitText(java.lang.CharSequence,int)) 和 [ExtractedText](https://developer.android.com/reference/android/view/inputmethod/ExtractedText)；后者的选区相对提取文字，`partialStartOffset != -1` 表示增量更新，不能当作完整快照。代价是多一次同步读回与跨进程定位，编辑器不支持读回时能力降级。
 
+## iOS 的临时标记与提交选区
+
+有效非空后缀使用 `setMarkedText` 一次交付完整正文和相对正文的 UTF-16 折叠选区，紧接 `unmarkText`，沿用原有行内组字替换通道。取消旧标记后另行插入正文会多出一次文档变更，刚结束组字时的选区回声可能还没更新；完整正文和选区一起交付可以避免拆开写入。既有选区、旧组字和同次下一段组字都由 UIKit 维护，新组字必须在临时标记已提交的位置开始。位置请求清掉成对标点栈，不把任意短语后缀误记成标点尾巴。
+
+正文和后缀经过相同的宿主简繁转换，遵守 `script_conversion` 和日语来源的转换边界；转换后按 UTF-16 单元核对后缀。Swift 的规范等价字符串比较会把不同长度的预组合与分解形式视作相等，不能用于这个位置边界。缺字段、空后缀或失配沿用原有提交路径。`replacingCommit` 仅对相同 UTF-8 正文保留位置，真正改写正文就清除后缀。
+
+公开 API 依据 [UITextDocumentProxy.setMarkedText](https://developer.apple.com/documentation/uikit/uitextdocumentproxy/setmarkedtext(_:selectedrange:))。初次 UIKit 探针在同一事件中既设置基础文档选区又立刻替换标记，观察到位置错误；把基础选区建立与待测提交隔开后，48 组探针包含同事件建立旧组字、一次／两次完整标记、Unicode 后缀和下一段组字，全部得到正确位置。产品路径没有新增延迟、重试或第二次标记；正式控制器回归分别覆盖同事件和已定稳的旧组字。进程内原生控件测试之外，跨进程系统扩展用例另行验证独立 UITextField 中的真实插入点。
+
+iOS 产品维持原有 K 模式入口，没有新增普通混输能力声明或修改默认值。
+
 ## 既有笔记审计
 
 - [快捷短语混输](../../implemented/feature/2026-10-17-macos-quick-phrase-candidates.md)、[快捷短语偏好](../../implemented/feature/2026-10-22-quick-phrase-preferences.md)、[首页默认席位](../../implemented/feature/2026-10-25-quick-phrase-first-page-default.md)：部分重叠，保留能力、默认值、排名和学习决定，本篇只扩展选中后的文本交付。
 - [光标后编辑](../../implemented/feature/2026-10-26-caret-suffix-candidate-edit.md)：无关，那里移动的是组字中的原文光标，不是短语上屏后的编辑器光标。
 - [中英文间空格](../../implemented/feature/2026-10-12-chinese-english-spacing.md)、[脚本修改候选与上屏](../../implemented/architecture/2026-10-12-script-plugins-modify-commit-and-candidates.md)：部分重叠，本篇需保证格式化或插件改写不沿用过时位置，原有转换规则不变。
+- [移动端默认数字页](../../implemented/feature/2026-10-15-mobile-default-number-pad.md)：部分重叠，保留 iOS 旧组字和字面正文一次替换的时序，本篇增加显式相对选区，不拆成删除旧组字与另行插入两步。
 
 ## Alternatives considered
 
@@ -40,15 +51,17 @@ Android 的 `commitText` 参数不能表示正文内部的位置，而编辑器�
 - **Engine 的每个 `KeyResult` 增加光标整数**：所有引擎嵌入方都能直接消费，但多段提交、标点尾巴和宿主格式化都要逐处调整偏移，整数还容易混淆字节、标量、UTF-16 与字素。选择事实已经能确认短语来源，runtime 仅把共享解析结果交给宿主，后缀文本可在最终变换后再次核对。
 - **每个平台各自解析正文**：不改共享提交结构，但转义、来源边界和候选预览会产生多份规则，K 模式和混输也容易遗漏。不采用。
 - **Android 在原批次里设置光标，或用方向键左移后缀长度**：调用更少，且方向键能覆盖不支持选区接口的编辑器。但批次内读回可能是旧快照，方向键按字素、双向文字和换行移动，不能从 UTF-16 或码位长度推出步数。不采用；无法验证目标的编辑器保留文字和默认位置。
+- **iOS 完整插入后调用 `adjustTextPosition(byCharacterOffset:)`**：可直接复用普通提交，不需要临时标记。但该 API 只以 character 描述移动量，没有给出将任意后缀的 UTF-16、Unicode 标量或字素数映射成跨编辑器步数的保证；双向文字还使方向移动更难核对。临时标记的相对选区直接指定正文内部边界，无需猜测移动次数。
 
 ## 共享层验证边界
 
 - 共享回归覆盖普通短语、单标记、首尾位置、转义、重复标记、未知变量、中文／扩展字符／组合字素后缀，以及非快捷短语来源不解释标记。
 - K 模式、普通混输、各种选择路径与带标点结束在真实运行时产生正确文本和尾段；原样提交、以词定字、失效候选不产生定位。
 - 全角、空格、脚本改写后目标有效；AI 上文只接收光标前已展开文本。原样提交与后续字面标记不属于待删除的模板语法。
-- 其他五个平台宿主、设置说明和系统编辑器验收仍未完成；共享层和 Android 分片完成不能标记整个 issue 完成。
+- 其他四个平台宿主及设置说明仍未完成；Android 完整系统入口与各平台真机验收仍有缺口；共享层、Android 和 iOS 分片完成不能标记整个 issue 完成。
 - 本地回归：Engine 快捷短语 25 项、runtime 全部 424 项、host-api 光标定位 3 项与自动空格 8 项通过；相关三个 crate 的全目标 clippy 无警告。笔记与差异门禁通过，quick 门禁及 PR 检查单独记录在 PR 验证段。
 - Android 的 `check-host.sh` 通过 316 项 JVM 冒烟与 256 份设备源码编译；本分支同源 Rust／JNI 与原生 APK 构建、ELF ABI／16 KB 对齐检查通过。API 28、35 的 `CompositionBatchDeviceSmoke` 均通过：批次外读回、非零提取偏移、emoji／组合字符／双向文字、选区与组字替换、原生 LengthFilter、未知／增量／改写快照、拒绝／断连定位、迟到回声均有回归。隔离短语表经安装包真实 Engine、JNI、正式 `MSIMEInputService.apply` 到原生 EditText 的 K 模式及普通混输均定位成功，后续宿主提交写在目标位置。该项属于模拟器内宿主与真实控件验收，未声称覆盖其他应用、系统输入法完整入口或真机。
+- iOS 同源模拟器静态库与原生 App／扩展构建通过。iOS 26.5 的 `InputBridgeResponseTests` 14 项、`QuickPhraseCursorKeyboardTests` 5 项、既有 `PairedPunctuationTests`／`InlineCompositionTests` 13 项全部通过，包括字段解码、正文改写清定位、规范等价但实际编码不同的边界、同事件旧组字替换、同快照的新组字、简繁转换与日语／已转换正文边界；隔离短语表经真实 Engine、Swift 桥、正式控制器到原生 UITextView 后，下一段组字仍写在后缀前。系统 UI 测试 1 项实际通过、未跳过：从正式设置页创建并启用模板，Settings 添加扩展与完全访问后，在独立测试应用的普通 UITextField 选词上屏，下一键 x 得到 `title:"x🌲é"`。该项覆盖模拟器的系统扩展入口与独立原生编辑器，未声称覆盖真机或第三方应用。简繁用例同时设置并恢复权威共享文档和 App Group 镜像，避免镜像被加载时的文档覆盖而误判产品转换。
 
 ## Consequences
 
