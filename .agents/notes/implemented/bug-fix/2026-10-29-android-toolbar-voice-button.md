@@ -39,6 +39,8 @@ iOS 的工具栏语音按钮一直按 `KeyboardLayoutPreference.voiceShortcutEna
 
 代价：中间区多了一个可能出现的工具，窄屏上更容易需要横划；语音按钮默认排在最后，想放前面要去「按钮顺序」里调。
 
+上面「iOS 一直在用」这条理由已不成立：iOS 工具栏不放语音按钮，也不读写 `touch_voice_shortcut`（[恢复 iOS 语音入口](2026-10-30-ios-voice-entry-restore.md)）。本篇的 Android 决定另有 #10142 的用户要求和其他平台的读取支撑，不变。
+
 ## Testing
 
 - `ToolbarOrderPolicySmoke`：默认顺序以语音结尾、身份和偏好键、旧九项顺序原样保留并在末尾补上语音、重复项去重。
