@@ -37,8 +37,6 @@ add_custom_target(uninstall
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
-  add_test(NAME windows-auxiliary-crash-consent
-           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-windows-auxiliary-crash-consent.py" --require-tools)
   add_test(NAME linux-fcitx5-contract
            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/fcitx5_contract.py")
   add_test(NAME linux-ibus-component-contract
@@ -58,6 +56,21 @@ set(MSIME_PYTHON_MIN_VERSION "3.9" CACHE STRING "Oldest Python 3 the packages de
 pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=${MSIME_IBUS_MIN_VERSION})
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
+if(BUILD_TESTING)
+  # 安装包验收在只有运行依赖的镜像中跑 CTest；夹具必须在构建阶段编译，不能要求用户环境装编译器和 JSON 头文件。
+  set(MSIME_AUXILIARY_CONSENT_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-windows-auxiliary-crash-consent.py")
+  set(MSIME_AUXILIARY_CONSENT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/windows-auxiliary-crash-consent.cpp")
+  add_custom_command(OUTPUT "${MSIME_AUXILIARY_CONSENT_SOURCE}"
+    COMMAND "${Python3_EXECUTABLE}" "${MSIME_AUXILIARY_CONSENT_SCRIPT}" --write-source "${MSIME_AUXILIARY_CONSENT_SOURCE}"
+    DEPENDS "${MSIME_AUXILIARY_CONSENT_SCRIPT}" "${CMAKE_CURRENT_SOURCE_DIR}/../windows/common/AuxiliaryCrashCapture.h"
+    VERBATIM)
+  add_executable(windows-auxiliary-crash-consent-test "${MSIME_AUXILIARY_CONSENT_SOURCE}")
+  target_include_directories(windows-auxiliary-crash-consent-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+  target_link_libraries(windows-auxiliary-crash-consent-test PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(windows-auxiliary-crash-consent-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  add_test(NAME windows-auxiliary-crash-consent
+    COMMAND "${Python3_EXECUTABLE}" "${MSIME_AUXILIARY_CONSENT_SCRIPT}" --binary "$<TARGET_FILE:windows-auxiliary-crash-consent-test>")
+endif()
 # Optional on Wayland-only systems; the monitor retains bounded polling.
 pkg_check_modules(X11_CLIPBOARD QUIET IMPORTED_TARGET x11 xfixes)
 # 语音浮层用 RandR 1.5 枚举显示器，以跟随获得焦点的窗口；凡是带 libXfixes 的 X 桌面都带 libXrandr。只有 Xlib 也能构建 X11 的 Caps Lock 释放（`src/system/CapsLockRelease.cpp`，`MSIME_LINUX_HAS_X11_SURFACE`）。

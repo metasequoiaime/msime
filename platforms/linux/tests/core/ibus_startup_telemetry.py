@@ -219,7 +219,7 @@ def main():
             [record] = crash_records(scratch)
             header = record.read_text().split("\n", 1)[0]
             assert header.startswith("MSIME-CRASH/1 "), header
-            identity = json.loads(header.removeprefix("MSIME-CRASH/1 "))
+            identity = json.loads(header[len("MSIME-CRASH/1 "):])
             assert identity["consent_epoch"] == consent["epoch"], identity
             # 保留真实采集头，只用合成摘要和路径验证补报时的正文处理。
             record.write_text(header + "\nSIGSEGV: segmentation fault\n"
@@ -280,7 +280,8 @@ def main():
             assert crash["id"] == f"crash-{previous}" and crash["version"] == "0.0.1", crash
             summary, metadata = crash["message"].split("\n", 1)
             assert summary == "SIGSEGV: segmentation fault", crash
-            identity = json.loads(metadata.removeprefix("[msime-crash-v1] "))
+            assert metadata.startswith("[msime-crash-v1] "), metadata
+            identity = json.loads(metadata[len("[msime-crash-v1] "):])
             assert identity["version"] == "0.0.1" and identity["revision"] == "synthetic", crash
             assert identity == {key: value for key, value in context.items() if key != "consent_epoch"}, crash
             assert "consent_epoch" not in json.dumps(queued) and CONSENT_EPOCH not in json.dumps(queued), queued
@@ -348,7 +349,7 @@ def main():
             raw = record.read_text()
             header, summary, stack = raw.split("\n", 2)
             assert header.startswith("MSIME-CRASH/1 "), raw
-            identity = json.loads(header.removeprefix("MSIME-CRASH/1 "))
+            identity = json.loads(header[len("MSIME-CRASH/1 "):])
             assert identity["platform"] == "linux" and identity["version"] == version, identity
             assert identity["component"] == "input" and identity["arch"], identity
             assert summary == f"SIGSEGV: segmentation fault (sent by {sender})", raw
