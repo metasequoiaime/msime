@@ -42,7 +42,7 @@ Status: implemented
 
 ## Consequences
 
-- 收益：报告者打开诊断日志、切换一次输入框，就能给出「没装 / 没有状态目录 / 读不了 / 已接上」之一，不必再靠 atime（APFS 上普通读取不一定更新它）。Windows、Linux 宿主无需改动即获得同样的行。
+- 收益：报告者打开诊断日志后重新启动输入法、在任意输入框里打几个字，就能给出「没装 / 没有状态目录 / 读不了 / 已接上」之一，不必再靠 atime（APFS 上普通读取不一定更新它）。Windows、Linux 宿主无需改动即获得同样的行。只切换输入框不够：macOS 失活时不关会话、闲置会话留着，Windows 同一个客户端沿用同一个 Server 会话，回到已有会话只走 `focus`，不在上述三个时机里；所以文档让报告者重启输入法，而不是在 `focus` 上也报告，以免每次聚焦都写一行。
 - 代价：诊断模块原先只报失败，现在多了一类成功状态行，约定稍有放宽；开着开关时每个会话建立都会写一行 `attached`，IMK 一个文本客户端一个会话，日志开着时行数随打开的输入框增加，但日志是用户主动打开的。
 - 本改动不修任何已复现的缺陷，#10341 在拿到报告者带这些行的日志前保持打开。
 - 相关：[Windows host-api 诊断出口](../feature/2026-10-10-windows-clipboard-privacy-panel-statistics-host-diagnostics.md)、[macOS 诊断日志启动顺序](2026-10-10-macos-diagnostic-startup.md)。

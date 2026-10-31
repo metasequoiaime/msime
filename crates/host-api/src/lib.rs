@@ -2478,7 +2478,7 @@ pub(crate) fn settled_model_file(
 
 /// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
 ///
-/// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的诊断日志只记冒号前的类别，路径只出现在 Windows 的 `server.log` 和 Linux 的 stderr 里：
+/// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
 /// - `settled model attached`：模型已加载并挂在会话上；
 /// - `settled model not loaded`：找到了模型文件却没能用上，原因在同一次加载报的 `sentence model unreadable` 或 `sentence model ignored` 里（同一个文件在本进程只加载一次，后来的会话只有这一行）；
 /// - `settled model missing`：随包的和状态目录下的 `settled-model` 资源包都没有；
