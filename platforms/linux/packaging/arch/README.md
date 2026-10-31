@@ -9,6 +9,8 @@
 
 两个包内容一致，互相冲突，`msime-bin` 提供 `msime`。安装、升级与卸载时的用户单元处理在 `msime.install`，对应 `.deb` 的 postinst/prerm，两份逐字相同。主词库不随包，装好后每个用户运行一次 `msime-linux-setup --download`。
 
+Linux 版本发布和 nightly 都从同一轮构建的 x86_64 RPM 生成 `msime-bin-<版本>-1-x86_64.pkg.tar.zst`，可从对应 GitHub Release 页面下载后用 `sudo pacman -U <文件名>` 安装。nightly 文件名另带构建标识，包内版本号不变；aarch64 继续使用 AUR 定义。`ibus` 和 `fcitx5` 是可选依赖，只需安装自己使用的框架；`libibus` 是链接库，不会启动 IBus。
+
 ## 每次发布后更新
 
 在 `develop` 的检出里（Arch 上，以普通用户运行，生成 `.SRCINFO` 要 `makepkg`），改完经普通 PR 合入 `develop`：

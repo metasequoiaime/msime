@@ -1,0 +1,220 @@
+{
+  "measurement": {
+    "sqlite_version": "3.54.1",
+    "baseline_page_size": 4096
+  },
+  "baseline": {
+    "bytes": 7237632,
+    "entry_rows": 139400,
+    "character_rows": 31948,
+    "word_rows": 107452,
+    "unique_texts": 133934
+  },
+  "inputs": {
+    "characters": 27007,
+    "words_file_word_types": 101811,
+    "essay_han_word_types": 246295,
+    "corpus_word_types": 5102,
+    "corpus_tokens_in_word_counts": 36979
+  },
+  "same_source_consistency_not_error_rate": {
+    "single_reading": {
+      "eligible_word_types": 41992,
+      "mismatched_word_types": 382,
+      "mismatch_percent": 0.9097
+    },
+    "most_common_reading": {
+      "eligible_word_types": 101088,
+      "mismatched_word_types": 8202,
+      "mismatch_percent": 8.1137
+    }
+  },
+  "single_reading_scenarios": [
+    {
+      "minimum_essay_score": 1000,
+      "missing_word_types": 5407,
+      "single_reading_additions": 0,
+      "sqlite_bytes": 7249920,
+      "growth_against_control_bytes": 0
+    },
+    {
+      "minimum_essay_score": 100,
+      "missing_word_types": 160086,
+      "single_reading_additions": 68136,
+      "sqlite_bytes": 10883072,
+      "growth_against_control_bytes": 3633152
+    },
+    {
+      "minimum_essay_score": 1,
+      "missing_word_types": 179787,
+      "single_reading_additions": 76039,
+      "sqlite_bytes": 11300864,
+      "growth_against_control_bytes": 4050944
+    }
+  ],
+  "probes": [
+    {
+      "text": "上傳",
+      "baseline": [],
+      "essay_score": 444,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "soeng",
+        "cyun"
+      ]
+    },
+    {
+      "text": "我打你",
+      "baseline": [],
+      "essay_score": 0,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "ngo",
+        "daa",
+        "nei"
+      ]
+    },
+    {
+      "text": "我打",
+      "baseline": [],
+      "essay_score": 1173,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "ngo",
+        "daa"
+      ]
+    },
+    {
+      "text": "打你",
+      "baseline": [],
+      "essay_score": 1,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "daa",
+        "nei"
+      ]
+    },
+    {
+      "text": "你好",
+      "baseline": [
+        [
+          "nei hou",
+          21493
+        ]
+      ],
+      "essay_score": 21493,
+      "corpus_count": 0,
+      "single_reading_key": [
+        "nei",
+        "hou"
+      ],
+      "most_common_key": [
+        "nei",
+        "hou"
+      ]
+    },
+    {
+      "text": "我哋",
+      "baseline": [
+        [
+          "ngo dei",
+          376870
+        ]
+      ],
+      "essay_score": 0,
+      "corpus_count": 446,
+      "single_reading_key": [
+        "ngo",
+        "dei"
+      ],
+      "most_common_key": [
+        "ngo",
+        "dei"
+      ]
+    },
+    {
+      "text": "食咗",
+      "baseline": [
+        [
+          "sik zo",
+          20
+        ]
+      ],
+      "essay_score": 0,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "sik",
+        "zo"
+      ]
+    },
+    {
+      "text": "銀行",
+      "baseline": [
+        [
+          "ngan hong",
+          5072
+        ]
+      ],
+      "essay_score": 5072,
+      "corpus_count": 9,
+      "single_reading_key": null,
+      "most_common_key": [
+        "ngan",
+        "haang"
+      ]
+    },
+    {
+      "text": "行路",
+      "baseline": [
+        [
+          "haang lou",
+          4627
+        ]
+      ],
+      "essay_score": 4627,
+      "corpus_count": 1,
+      "single_reading_key": null,
+      "most_common_key": [
+        "haang",
+        "lou"
+      ]
+    },
+    {
+      "text": "長大",
+      "baseline": [
+        [
+          "zoeng daai",
+          7830
+        ]
+      ],
+      "essay_score": 7830,
+      "corpus_count": 1,
+      "single_reading_key": null,
+      "most_common_key": [
+        "coeng",
+        "daai"
+      ]
+    },
+    {
+      "text": "長度",
+      "baseline": [
+        [
+          "coeng dou",
+          1423
+        ]
+      ],
+      "essay_score": 1423,
+      "corpus_count": 0,
+      "single_reading_key": null,
+      "most_common_key": [
+        "coeng",
+        "dou"
+      ]
+    }
+  ]
+}
