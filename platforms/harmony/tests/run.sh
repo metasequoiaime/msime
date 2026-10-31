@@ -753,6 +753,23 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
+# 触屏剪贴板多选按序号插入（#10411）：上限、序号和拼接由 clipboard-selection.test.ts 的 `ClipboardSelectionPolicy` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：多选时点卡片经 toggleClipSelection 选中，角标经 ordinalLabel 画出、读屏前缀经 selectedDescription，「插入」按 canInsert 标成禁用（读屏读得出它点不了）并守住条数、经 insertionText 拼好后走和单条插入同一个 `KeyboardSession.shared.insert` 一次上屏。
+clip_insert=$(sed -n '/^  private insertClipSelection(): void {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF '.onClick(() => this.toggleClipSelection(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.ordinalLabel(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.selectedDescription(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF '.enabled(ClipboardSelectionPolicy.canInsert(this.clipSelection.length))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.canInsert(this.clipSelection.length)' <<< "$clip_insert" \
+  || ! grep -qF 'ClipboardSelectionPolicy.insertionText(this.clipSelection)' <<< "$clip_insert" \
+  || ! grep -qF 'KeyboardSession.shared.insert(text);' <<< "$clip_insert"; then
+  echo "Harmony clipboard multi-selection must badge entries in tap order and insert 1 to 4 of them in one commit (#10411)" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
