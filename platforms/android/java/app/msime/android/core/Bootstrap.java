@@ -490,16 +490,109 @@ public final class Bootstrap {
      */
     private static void refreshExistingConfiguration(Context context, File configuration, File resources) {
         try {
+            JSONObject options = readConfiguredOptions(configuration);
+            String recorded = options == null ? null : JsonPolicy.strictStringOrEmpty(options.opt("resources"));
+            boolean bundledDirectory = recorded != null
+                && new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath());
+            File state = ResourcePacks.stateRoot(context.getFilesDir());
+            boolean ownedState = options != null && state.getCanonicalFile().equals(
+                new File(JsonPolicy.strictStringOrEmpty(options.opt("preferences_directory"))).getCanonicalFile());
+            File updates = new File(state, "dictionary-updates/generations").getCanonicalFile();
+            boolean updatedDirectory = ownedState && recorded != null
+                && new File(recorded).getCanonicalFile().toPath().startsWith(updates.toPath());
+            // 补齐失败（如空间不足）不能挡住刷新：`language_dictionaries` 同步与换代次照旧进行，补齐下次启动重试。
+            boolean restored = true;
+            if (bundledDirectory || updatedDirectory) {
+                try {
+                    restorePackagedOnDemandGroups(context, resources);
+                    if (updatedDirectory) {
+                        // 更新代次保持只读；随包文件收编为资源包，由共享解析选择它，不改下载的资源目录。
+                        java.util.Set<String> packaged = packagedArtifacts(context);
+                        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+                            if (packaged.containsAll(group.artifacts())
+                                    && !ResourcePacks.installed(context.getFilesDir(), group.pack())) {
+                                try {
+                                    ResourcePacks.adopt(context.getFilesDir(), group.pack(), resources);
+                                } catch (ResourcePacks.Failure failure) {
+                                    android.util.Log.w("MSIMEBootstrap", "Bundled on-demand adoption failed: "
+                                        + group.pack() + " " + failure.code());
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception | LinkageError error) {
+                    restored = false;
+                    // Bootstrap has no editor or session input; never use this logging for keystrokes.
+                    android.util.Log.w("MSIMEBootstrap", "Bundled on-demand restoration failed", error);
+                }
+            }
             String error = refreshHost(configuration);
-            if (error == null || !error.startsWith("dictionary_outdated")) return;
-            String recorded = readConfiguredResources(configuration);
-            if (recorded == null || !new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath())) return;
-            extractDictionary(context, resources);
-            refreshHost(configuration);
+            if (error != null && error.startsWith("dictionary_outdated") && bundledDirectory) {
+                extractDictionary(context, resources);
+                error = refreshHost(configuration);
+            }
+            java.nio.file.Path mergePending = wubiMergePending(resources);
+            if (error == null && restored && bundledDirectory && ownedState
+                    && Files.exists(mergePending, LinkOption.NOFOLLOW_LINKS)
+                    && packagedArtifacts(context).containsAll(WUBI_GROUP.artifacts())) {
+                // 同锁代次不会触发 refresh 的重建；只在补过五笔码表之后重新准备已有代次，合并五笔表并回放日志。标记成功后才删，覆盖补文件后被杀的启动；平时不在键盘可能持有会话时重放日志。
+                JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
+                    .put("state_root", state.getAbsolutePath());
+                if (!AppEdition.current().isFull()) request.put("edition", AppEdition.current().id());
+                JSONObject prepared = new JSONObject(NativeClient.prepareHost(request.toString()));
+                if (!JsonPolicy.strictTrue(prepared.opt("ok")))
+                    throw new IllegalStateException("Bundled dictionary preparation failed: "
+                        + PreparationFailure.describe(new IllegalStateException(
+                            JsonPolicy.strictStringOrEmpty(prepared.opt("error")))));
+                Files.delete(mergePending);
+            }
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed", error);
         }
+    }
+
+    /** 已有配置也要接收新安装包随带的按需组；共享层允许整组缺席，不能只靠过期错误触发解包。 */
+    private static void restorePackagedOnDemandGroups(Context context, File resources) throws Exception {
+        java.util.Set<String> packaged = packagedArtifacts(context);
+        // 持有 bootstrap.lock，上一进程被杀后留下的原子复制暂存文件已没有写者；共享目录校验不接受它们。
+        ensureSafeDirectory(resources.toPath());
+        File[] entries = resources.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            for (String name : packaged) {
+                if (entry.getName().matches("\\." + java.util.regex.Pattern.quote(name) + "\\.[0-9]+\\.staging")) {
+                    Files.delete(entry.toPath());
+                    break;
+                }
+            }
+        }
+        for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+            if (!packaged.containsAll(group.artifacts())) continue;
+            boolean complete = true;
+            boolean present = false;
+            for (String name : group.artifacts()) {
+                java.nio.file.Path file = new File(resources, name).toPath();
+                present |= Files.exists(file, LinkOption.NOFOLLOW_LINKS);
+                complete &= Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) && SafePaths.isSingleLink(file);
+            }
+            if (complete || (!present && ResourcePacks.installed(context.getFilesDir(), group.pack()))) continue;
+            ensureSafeDirectory(resources.toPath());
+            if (group == WUBI_GROUP) {
+                // 先落标记再复制：复制途中被杀，下次启动仍会补齐并重新准备代次。
+                java.nio.file.Path marker = wubiMergePending(resources);
+                if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) Files.createFile(marker);
+            }
+            for (String name : group.artifacts()) {
+                try (InputStream input = context.getAssets().open("dictionary/" + name)) {
+                    copyAsset(input, new File(resources, name).toPath());
+                }
+            }
+        }
+    }
+
+    /** 补过随包五笔码表、工作代次还没重新准备时存在的标记（`bootstrap/wubi-merge-pending`），只在持有 `bootstrap.lock` 时读写。 */
+    private static java.nio.file.Path wubiMergePending(File resources) {
+        return new File(resources.getParentFile(), "wubi-merge-pending").toPath();
     }
 
     /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
@@ -512,16 +605,14 @@ public final class Bootstrap {
         return error;
     }
 
-    /** 配置里记录的 `resources`；超过 1 MiB 或读不出来时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
-    private static String readConfiguredResources(File configuration) throws Exception {
+    /** 已有配置；超过 1 MiB 时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
+    private static JSONObject readConfiguredOptions(File configuration) throws Exception {
         if (!privateConfiguration(configuration.toPath()))
             throw new java.io.IOException("Runtime options are not a private regular file");
         try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 1024 * 1024);
             if (bytes == null) return null;
-            String resources = JsonPolicy.strictStringOrEmpty(
-                new JSONObject(new String(bytes, StandardCharsets.UTF_8)).opt("resources"));
-            return resources.isEmpty() ? null : resources;
+            return new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
     }
 

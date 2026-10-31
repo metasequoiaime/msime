@@ -89,6 +89,12 @@ if [[ "${MSIME_ANDROID_OOBE_SMOKE:-0}" == 1 ]]; then
     "$editor_manifest" > "$build_dir/oobe-manifest.xml"
   editor_manifest="$build_dir/oobe-manifest.xml"
 fi
+# 随包词库补齐专项复用已有入口，不增加系统清单项数。
+if [[ "${MSIME_ANDROID_BOOTSTRAP_PACKAGED:-0}" == 1 ]]; then
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.BootstrapPackagedDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/bootstrap-packaged-manifest.xml"
+  editor_manifest="$build_dir/bootstrap-packaged-manifest.xml"
+fi
 "$tools_dir/aapt2" compile --dir platforms/android/tests/device/res -o "$build_dir/resources.zip"
 "$tools_dir/aapt2" link -I "$android_jar" --manifest "$editor_manifest" -A "$build_dir/assets" \
   -R "$build_dir/resources.zip" -o "$build_dir/unsigned.apk"
