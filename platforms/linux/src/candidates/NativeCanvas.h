@@ -231,8 +231,6 @@ struct NativeCanvasItem {
   std::string label, text;
   std::string translation = {}, suffix = {};
   nlohmann::json translation_runs = nlohmann::json::array();
-  // 释义各行的读音，"\n" 分行、与 translation 逐行对应（CandidatePronunciation.h）；两种画法都把它画在它那一行释义下面单独一行，按释义色减淡。没有打开「显示读音」或没有音标时为空。
-  std::string pronunciation = {};
   // 固定了排位的候选：未选中时正文画 macOS 的固定色 #379AD3（kCandidateFixedPositionColor），选中时照旧用选中文字色。
   bool fixed = false;
   // 以下只有 chrome 用：韩文汉字的训音画在释义行的第一行（macOS 的 glossReading），插件注释是释义行的最后一行、斜体；AI 占位行用次要色画。canvas 包仍把它们拼在 text 和 suffix 里。
@@ -246,6 +244,8 @@ struct NativeCanvasItem {
   std::size_t dim_prefix_bytes = 0;
   // 「仅当前高亮」的候选词翻译生效时，高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，行数与横排为未到释义预留的相同；移动高亮时卡片高度不跳。chrome 的横排由 NativeCanvasContent::reserved_gloss_lines 统一预留，不看这个；chrome 的竖排和 canvas 包按有没有释义变高，都按它留。
   int reserved_gloss_lines = 0;
+  // 释义各行的读音，"\n" 分行、与 translation 逐行对应（CandidatePronunciation.h）；两种画法都把它画在它那一行释义下面单独一行，按释义色减淡。没有打开「显示读音」或没有音标时为空。
+  std::string pronunciation = {};
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
