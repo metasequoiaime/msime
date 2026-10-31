@@ -368,6 +368,13 @@ public final class KeyboardActionRowSmoke {
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, false))
                 && "笔".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, true)),
             "the stroke digit page returns to the stroke keypad");
+        // 每种键面都借数字九宫格：不是中文键面借来的，返回键印进来之前那块键面的名字（英文和其他语言的 26 键「ABC」、韩文「한」、假名「あいう」、大千「注」），不印中文的「返回」。
+        check("あいう".equals(KeyboardActionRow.layerTitle(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true, false))
+                && "あいう".equals(KeyboardActionRow.layerTitle(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true)),
+            "the kana number pad returns to the kana grid");
+        check("한".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, true, false))
+                && "注".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, true, true)),
+            "the Korean and Dachen number pads return by their own names");
         check("切换到数字和符号".equals(KeyboardActionRow.layerDescription(false))
             && "返回原键盘".equals(KeyboardActionRow.layerDescription(true)),
             "layer key descriptions");

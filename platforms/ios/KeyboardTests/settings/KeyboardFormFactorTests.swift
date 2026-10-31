@@ -141,11 +141,16 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(try layout(), height, accuracy: 0.5)
     try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    // 英文的 123 同样打开数字九宫格，补充行补的是 ASCII 的括号、货币和上标；#+= 页补 1–0。
     try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try layout(), height, accuracy: 0.5)
-    XCTAssertEqual(try key("symbolExtraKey0", in: controller).configuration?.title, "[")
-    XCTAssertEqual(try key("symbolExtraKey9", in: controller).configuration?.title, "=")
+    XCTAssertFalse(try key("nineKey1", in: controller).isHidden)
+    XCTAssertEqual(try key("symbolExtraKey0", in: controller).configuration?.title, "(")
+    XCTAssertEqual(try key("symbolExtraKey9", in: controller).configuration?.title, "³")
+    try key("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try layout(), height, accuracy: 0.5)
+    XCTAssertEqual(try key("symbolExtraKey0", in: controller).configuration?.title, "1")
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
   }
 
@@ -716,7 +721,7 @@ final class KeyboardFormFactorTests: XCTestCase {
       relayout(controller)
       XCTAssertEqual(visibleGaps(in: controller).count, 5)
 
-      // 中文 123 默认九宫格，保持完整网格；英文 123 的数字行仍按 12345 | 67890 分开。
+      // 中文和英文的 123 都打开数字九宫格，保持完整网格不分；英文 #+= 页仍分开，补充行按 12345 | 67890 分。
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       XCTAssertTrue(visibleGaps(in: controller).isEmpty)
@@ -724,6 +729,10 @@ final class KeyboardFormFactorTests: XCTestCase {
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(visibleGaps(in: controller).isEmpty, "the English number pad is not split either")
+      XCTAssertFalse(try key("nineKey1", in: controller).isHidden)
+      try key("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       XCTAssertEqual(visibleGaps(in: controller).count, 5, "补充行、三行英文符号与底行均保留中缝")
       let five = try frame(titled("5", in: controller), in: controller)

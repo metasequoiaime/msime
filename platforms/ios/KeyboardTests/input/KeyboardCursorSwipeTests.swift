@@ -101,17 +101,26 @@ final class KeyboardCursorSwipeTests: XCTestCase {
     XCTAssertFalse(controller.gestureRecognizerShouldBegin(pan))
   }
 
-  func testJapaneseDigitFlickAndItsFunctionKeysKeepTheirGestures() throws {
+  /// 假名九键的 123 与别的键面一样打开数字九宫格，假名网格自己的数字层不再出现：网格藏起来，横滑光标与其他键面的数字九宫格一样可用；回到假名层后假名键仍不接横滑光标。
+  func testJapaneseNumberEntryOpensTheNumberPadAndTheKanaGridKeepsItsGestures() throws {
     KeyboardLayoutPreference.defaults.set(true, forKey: preferenceKey)
     InputSchemePreference.scheme = .japaneseNineKey
     let controller = keyboard()
-    let toggle = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "layoutToggleButton" } as? UIButton)
-    toggle.sendActions(for: .primaryActionTriggered)
     let kana = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "japaneseNineKey" })
-    let one = try XCTUnwrap(nodes(kana).first { $0.accessibilityIdentifier == "japaneseKana0" })
-    XCTAssertTrue(one.accessibilityLabel?.contains("☆") == true)
+    let entry = try XCTUnwrap(nodes(kana).first { $0.accessibilityIdentifier == "japaneseSymbols" } as? UIButton)
+    entry.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(kana.isHidden)
+    let pad = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "nineKey1" } as? UIButton)
+    XCTAssertEqual(pad.configuration?.title, "1")
     let pan = DirectionalPan()
     pan.name = "keyboardCursorPan"
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(pan))
+    let toggle = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "layoutToggleButton" } as? UIButton)
+    XCTAssertEqual(toggle.configuration?.title, "あいう")
+    toggle.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(kana.isHidden)
     XCTAssertFalse(controller.gestureRecognizerShouldBegin(pan))
     for key in nodes(kana).compactMap({ $0 as? KeyboardKeyButton }) {
       XCTAssertFalse(receivesSwipe(on: key, controller: controller), key.accessibilityLabel ?? "假名键")

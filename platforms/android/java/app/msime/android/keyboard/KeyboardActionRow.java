@@ -86,7 +86,11 @@ public final class KeyboardActionRow {
         return touchLayout == KeyboardLayout.ZHUYIN_LAYOUT ? 1f : 1.6f;
     }
 
-    /** 借用数字九宫格时返回键标示「返回」（与 123 层的 {@link KeyboardLayout#lettersKeyTitle} 一致），专属键面仍印各自的短名。 */
+    /**
+     * 数字九宫格上返回键的键面：每种键面都借这块九宫格（{@link KeyboardLayout#drawsNumberPad}），返回键印进来之前那块键面的名字（{@link #layerTitle(int, boolean)}）——英文和其他语言的 26 键印「ABC」，韩文「한」，日文假名网格「あいう」，大千注音和注音九键「注」，14/18 键、笔画、拼音九键各印短名。中文的 26 键一族和手写借来时印「返回」，与 123 层的 {@link KeyboardLayout#lettersKeyTitle} 一致。
+     *
+     * @param chineseNumberPad 数字九宫格是从中文键面（{@link KeyboardLayout#chineseFace}）借来的
+     */
     public static String layerTitle(int touchLayout, boolean symbols, boolean chineseNumberPad) {
         String title = layerTitle(touchLayout, symbols);
         return chineseNumberPad && (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
@@ -102,6 +106,7 @@ public final class KeyboardActionRow {
         if (touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return ZhuyinNineKeyLayout.LAYER_TITLE;
         if (touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT) return FourteenKeyLayout.LAYER_TITLE;
         if (touchLayout == KeyboardLayout.EIGHTEEN_KEY_LAYOUT) return EighteenKeyLayout.LAYER_TITLE;
+        if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT) return JapaneseNineKeyLayout.LAYER_TITLE;
         return touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT ? "九键" : "ABC";
     }
 
