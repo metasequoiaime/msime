@@ -547,6 +547,7 @@ final class ImeLayoutRows {
 
     boolean randomDigitsEntryVisible() {
         return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+            && !s.toolbarHidden
             && !s.dedicatedEnglish
             && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1))
             && "none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));

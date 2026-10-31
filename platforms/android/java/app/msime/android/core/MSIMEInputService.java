@@ -12029,7 +12029,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
         }
         if (randomDigitsShortcutButton != null) {
-            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS))
+            // A hidden toolbar leaves 随 unreachable, so it clears the runtime state just like turning the entry off.
+            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS) || toolbarHidden)
                 imeLayoutRows.disableRandomDigits();
             ViewPolicy.setVisible(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
             ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());

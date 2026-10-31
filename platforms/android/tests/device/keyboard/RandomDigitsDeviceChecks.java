@@ -16,6 +16,7 @@ import org.json.JSONObject;
 final class RandomDigitsDeviceChecks {
     private final DeviceSmoke t;
     private static final String SETTING = "platform.android.toolbar_random_digits";
+    private static final String TOOLBAR_HIDDEN = "platform.android.toolbar_hidden";
     private static final int[] STANDARD = {1, 2, 3, 4, 5, 6, 7, 8, 9, 0};
 
     RandomDigitsDeviceChecks(DeviceSmoke test) { t = test; }
@@ -89,6 +90,26 @@ final class RandomDigitsDeviceChecks {
                 physical(t.described("随机数字"));
                 t.await(t.described("随机数字").and(node -> !node.isSelected()));
                 check(Arrays.equals(order(), STANDARD), "关闭恢复标准键序");
+                t.stage = "隐藏整条工具栏同时关闭运行时状态 " + layout;
+                physical(t.described("返回原键盘"));
+                physical(t.described("随机数字"));
+                t.await(t.described("随机数字").and(AccessibilityNodeInfo::isSelected));
+                setToolbarHidden(local, true);
+                openEditor();
+                chineseEditor();
+                if (visible(t.described("随机数字"))) throw new AssertionError("隐藏工具栏后随入口仍可见");
+                physical(t.key("123"));
+                check(Arrays.equals(order(), STANDARD), "隐藏工具栏后中文数字恢复标准排列");
+                physical(t.key("1"));
+                t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("1", node.getText())));
+                check(Arrays.equals(order(), STANDARD), "隐藏工具栏后输入数字不能再换序");
+                t.stage = "取消隐藏后随保持未开启 " + layout;
+                setToolbarHidden(local, false);
+                openEditor();
+                chineseEditor();
+                t.await(t.described("随机数字").and(node -> !node.isSelected()));
+                physical(t.key("123"));
+                check(Arrays.equals(order(), STANDARD), "取消隐藏不能恢复随机排列");
                 t.stage = "英文键盘隔离 " + layout;
                 physical(t.described("返回原键盘"));
                 physical(t.described("随机数字"));
@@ -134,6 +155,13 @@ final class RandomDigitsDeviceChecks {
         t.await(toggle.and(item -> item.isChecked() == enabled));
         File local = new File(t.getTargetContext().getFilesDir(), "bootstrap/state/android-settings.json");
         check(read(local).getJSONObject("settings").getBoolean(SETTING) == enabled, "原生设置必须持久化入口开关");
+    }
+
+    /** The toolbar display mode is a synced setting that may arrive from another device, so write the local settings file directly; the IME rereads it on the next onStartInput. */
+    private void setToolbarHidden(File local, boolean hidden) throws Exception {
+        JSONObject document = read(local);
+        document.getJSONObject("settings").put(TOOLBAR_HIDDEN, hidden);
+        t.publish(local, bytes(document));
     }
 
     private void openEditor() throws Exception {
