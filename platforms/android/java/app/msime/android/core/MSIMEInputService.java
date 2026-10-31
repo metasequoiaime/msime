@@ -5588,10 +5588,17 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     int displayedTouchLayout(JSONObject value) {
-        if (dedicatedEnglish) return STANDARD_TOUCH_LAYOUT;
-        if (value == null) return touchLayoutHint();
-        int layout = touchLayout(value);
-        rememberTouchLayout(layout);
+        int runtimeLayout = value == null ? STANDARD_TOUCH_LAYOUT : touchLayout(value);
+        int scheme = value == null ? -1 : InputViewValuePolicy.scheme(value, -1);
+        boolean localMode = value != null
+            && !"none".equals(InputViewValuePolicy.textOr(value, "local_mode", "none"));
+        int layout = TouchLayoutHintPolicy.choose(touchLayoutHint(), runtimeLayout, value != null,
+            preferencesSnapshot != null, dedicatedEnglish, localMode, scheme);
+        if (value == null) return layout;
+        if (preferencesSnapshot != null || runtimeLayout != STANDARD_TOUCH_LAYOUT
+                || localMode || (InputSchemeTraits.known(scheme)
+                    && !InputSchemeTraits.opensLocalModes(scheme)))
+            rememberTouchLayout(runtimeLayout);
         return layout;
     }
 
