@@ -331,7 +331,7 @@ const LAYER_FONT_SIZE: number = 18;
 const NINE_KEY_FONT_SIZE: number = 17;
 const NINE_KEY_LETTER_WEIGHT: number = 500;
 // 展开的候选网格：列宽至少 64vp、列间距 6vp，格高 44vp、圆角 8、词 17fp，最多 40 格，下方是 40vp 高、放「返回」和删除键的底栏。
-// The 44vp height and 17fp text are the design sizes at the default candidate font and 100%; the grid scales them with the candidate font size and 候选栏大小 through `CandidateScalePolicy.expandedFontSize` / `expandedCellHeight` (#10400).
+// 44vp 高度和 17fp 文字是默认候选字号 100% 时的设计尺寸；网格通过 `CandidateScalePolicy.expandedFontSize` / `expandedCellHeight` 随候选字号和候选栏大小缩放（#10400）。
 const EXPANDED_MIN_COLUMN_VP: number = 64;
 const EXPANDED_GAP_VP: number = 6;
 const EXPANDED_PADDING_VP: number = 2;
@@ -9335,12 +9335,12 @@ struct KeyboardView {
     return Math.max(0, (this.expandedInnerWidth() - EXPANDED_GAP_VP * (columns - 1)) / columns);
   }
 
-  /** Text size of an expanded cell: the 17fp design size scaled by the strip's candidate font size, which already includes 候选栏大小 (#10400). */
+  /** 展开单元格文字大小：17fp 设计尺寸按候选栏实际字号缩放，该字号已经包含候选栏大小（#10400）。 */
   private expandedFontSize(): number {
     return CandidateScalePolicy.expandedFontSize(EXPANDED_FONT_SIZE, this.settings.candidateFontSize);
   }
 
-  /** Height of an expanded cell: the 44vp design height grown with 候选栏大小 and the font ratio, never below 44vp (#10400). */
+  /** 展开单元格高度：44vp 设计高度随候选栏大小和字号比例增长，最低保持 44vp（#10400）。 */
   private expandedCellHeight(): number {
     return CandidateScalePolicy.expandedCellHeight(EXPANDED_CELL_HEIGHT_VP, this.settings.candidateFontSize,
       this.settings.candidateScalePercent);

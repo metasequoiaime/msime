@@ -146,7 +146,7 @@ final class ImeCandidates {
     private final java.util.Set<Button> expandedCells =
         java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
-    /** An expanded-grid cell: radius 8, background and selection colors from the candidate palette. Its height and text size follow the candidate font size and candidate bar size, see {@link CandidateScalePolicy#expandedCellHeight}. */
+    /** 展开网格单元格：圆角 8，底色和选中色取候选栏配色；高度和文字大小跟随候选字号与候选栏大小，见 {@link CandidateScalePolicy#expandedCellHeight}。 */
     private void styleExpandedCell(Button button) {
         if (!keepsChipFace(button)) {
             android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(

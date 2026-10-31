@@ -18,24 +18,24 @@ public final class CandidateScalePolicy {
         return Math.max(1, Math.round(valueDp * percent / 100f));
     }
 
-    /** client-core's default candidate font size (`default_candidate_font_size`). The expanded panel scales its design sizes by the strip's actual font size relative to this value, so the default font at 100% keeps the original 17 sp text and 44 dp cells exactly. */
+    /** client-core 的默认候选字号（`default_candidate_font_size`）。展开面板按候选栏实际字号相对这个值的比例缩放设计尺寸，因此默认字号 100% 时仍精确保持原来的 17 sp 文字和 44 dp 单元格。 */
     public static final int DEFAULT_CANDIDATE_FONT_SIZE = 18;
-    /** Text size of an expanded-panel ("more candidates") cell at the default font size and 100%. */
+    /** 默认字号 100% 时展开面板“更多候选”单元格的文字大小。 */
     public static final int EXPANDED_TEXT_SP = 17;
-    /** Height of an expanded-panel cell at the default font size and 100%. */
+    /** 默认字号 100% 时展开面板单元格的高度。 */
     public static final int EXPANDED_CELL_HEIGHT_DP = 44;
-    /** Height of an expanded-panel cell that also draws the pronunciation row, at the default font size and 100%. */
+    /** 默认字号 100% 时同时绘制读音行的展开面板单元格高度。 */
     public static final int EXPANDED_READING_CELL_HEIGHT_DP = 60;
 
     /**
-     * Expanded-panel text size for the strip's actual candidate font size {@code candidateFontSize}, which already includes the candidate bar scale. The panel therefore follows both the candidate font size preference and the candidate bar size, the same way the strip does.
+     * 按候选栏实际字号 {@code candidateFontSize} 计算展开面板文字大小；该字号已经包含候选栏大小，因此面板会和候选栏一样同时跟随字号偏好与候选栏大小。
      */
     public static int expandedTextSize(int candidateFontSize) {
         return fontRatio(EXPANDED_TEXT_SP, candidateFontSize);
     }
 
     /**
-     * Expanded-panel cell height for a design height {@code baseDp}: grown by the candidate bar size like the strip row, and by the same ratio as the text when the font size makes the text taller, so a larger font is not clipped vertically. It never drops below {@code baseDp}: the panel takes the keys' place, which do not shrink with the candidate bar, so a smaller bar or font keeps the original touch target, the same floor iOS keeps on its 44 pt cells.
+     * 按设计高度 {@code baseDp} 计算展开面板单元格高度：像候选栏一样随候选栏大小增长，字号变大使文字变高时再按文字比例增长，避免大字号被垂直裁切。高度不会低于 {@code baseDp}：面板占据键区位置，键区不会随候选栏缩小，因此小候选栏或小字号仍保留原触摸目标，和 iOS 44 pt 单元格的下限一致。
      */
     public static int expandedCellHeight(int baseDp, int candidateFontSize, int percent) {
         return Math.max(baseDp, Math.max(dimension(baseDp, percent), fontRatio(baseDp, candidateFontSize)));
