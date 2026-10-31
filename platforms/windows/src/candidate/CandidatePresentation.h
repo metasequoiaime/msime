@@ -254,7 +254,7 @@ inline std::string candidate_tooltip_text(const PresentationCandidate &candidate
     text += "\n" + secondary;
   return text;
 }
-// candidate_secondary_text 在折行之前有几行：훈음、每种目标语言一行、每条读音一行，以及插件注释那一行。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。候选窗按它排多行释义（CandidateItemWidths::translation_lines）：横排同一行的格子取最高一格的高度，所以一页里只要有一个候选有读音，每格都多出一行；竖排多行释义放在候选文字下面。
+// candidate_secondary_text 在折行之前有几行：훈음、每种目标语言一行、每条读音一行，以及插件注释那一行。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。候选窗按它排多行释义（CandidateItemWidths::translation_lines）：横排同一行的格子取最高一格的高度，所以一页里只要有一个候选有读音，每格都多出一行；竖排只有一行释义加它的读音时和 macOS 一样两行都留在候选右边（CandidateItemWidths::reading_lines，candidate_translation_beside），其他多行释义放在候选文字下面。
 inline size_t candidate_secondary_lines(const PresentationCandidate &candidate) {
   const auto text = candidate_secondary_text(candidate);
   return 1 + static_cast<size_t>(std::count(text.begin(), text.end(), '\n'));
