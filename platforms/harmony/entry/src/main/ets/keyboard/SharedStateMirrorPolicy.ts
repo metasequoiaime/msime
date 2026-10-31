@@ -8,6 +8,10 @@
 
 import { PRIVACY_CONSENT_ENTRY, PRIVACY_CONSENT_FILE } from "../privacy/PrivacyConsentPolicy";
 import {
+  KEYBOARD_PERSONAL_WORDBOOK_DRAINED_PATH,
+  KEYBOARD_PERSONAL_WORDBOOK_PATH,
+} from "./PersonalWordbookPolicy";
+import {
   SCREEN_CAPTURE_PROTECTION_ENTRY,
   SCREEN_CAPTURE_PROTECTION_FILE,
 } from "./settings/ScreenCaptureProtectionPolicy";
@@ -87,6 +91,10 @@ export const ABSENT_FINGERPRINT: string = "absent";
 export const MANIFEST_FILE: string = "manifest.json";
 /** 设置应用写给键盘的统计开关，见 `StatisticsSwitch`。 */
 export const STATISTICS_SWITCH_FILE: string = "typing-statistics-switch.json";
+/** 键盘那本生词本的镜像条目名。 */
+export const KEYBOARD_PERSONAL_WORDBOOK_ENTRY: string = "personal-wordbook";
+/** 键盘记的「清走过哪一版」的镜像条目名，见 `PersonalWordbookPolicy`。 */
+export const KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY: string = "personal-wordbook-drained";
 const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 
 /** 本机匿名账号的身份文件（`{subject, secret}`），会话过期或被拒以后靠它重新登录同一个匿名账号。 */
@@ -220,7 +228,7 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
 ];
 
-/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（随匿名会话由 Rust 采用），以及打字统计。 */
+/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（随匿名会话由 Rust 采用）、打字统计，以及键盘长按菜单「加入生词本」写进的那本生词本和它清走过哪一版（设置应用并进自己的生词本，见 `PersonalWordbookPolicy`）。 */
 export const KEYBOARD_ENTRIES: MirrorEntry[] = [
   {
     name: "preferences",
@@ -262,6 +270,21 @@ export const KEYBOARD_ENTRIES: MirrorEntry[] = [
     kind: "file",
     base: "state",
     path: "typing-statistics.json",
+    fullModeOnly: true,
+  },
+  {
+    name: KEYBOARD_PERSONAL_WORDBOOK_ENTRY,
+    kind: "file",
+    base: "state",
+    path: KEYBOARD_PERSONAL_WORDBOOK_PATH,
+    fullModeOnly: true,
+  },
+  // 排在生词本后面：发布时按这里的顺序复制，设置应用先读这条再读生词本，读到新的记录时生词本一定也已经是新的。
+  {
+    name: KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY,
+    kind: "file",
+    base: "state",
+    path: KEYBOARD_PERSONAL_WORDBOOK_DRAINED_PATH,
     fullModeOnly: true,
   },
 ];
@@ -418,6 +441,48 @@ export class SharedStateMirrorPolicy {
         : record.entries.filter((item: ImportedEntry): boolean => item.name !== name);
     entries.push({ name: name, fingerprint: fingerprint });
     return { format: MIRROR_FORMAT, entries: entries };
+  }
+
+  /** 设置应用发布时附上的 `applied`：只有键盘那本生词本和它的清走记录导入到了哪一版，键盘据此决定能不能清走交过的词。 */
+  static personalWordbookApplied(record: ImportRecord | null): ImportedEntry[] {
+    if (record === null) return [];
+    return record.entries.filter(
+      (item: ImportedEntry): boolean =>
+        item.name === KEYBOARD_PERSONAL_WORDBOOK_ENTRY ||
+        item.name === KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY,
+    );
+  }
+
+  /**
+   * 键盘能不能清走交过的词：设置应用并过的生词本正是键盘现在发布着的那一版，而且设置应用已经看到了键盘最近一次的清走记录。能时返回那一版的指纹，否则为 null。
+   *
+   * 要求看到最近一次清走记录，是因为指纹只看内容：键盘清走以后又加回同样的词，生词本的指纹会和上一轮一模一样，只看生词本就会在设置应用还没并进来之前又把它清走。
+   */
+  static personalWordbookDrainable(
+    keyboard: MirrorManifest | null,
+    settings: MirrorManifest | null,
+  ): string | null {
+    if (keyboard === null || settings === null) return null;
+    const published = (name: string): string | undefined => {
+      const entry: ManifestEntry | undefined = keyboard.entries.find(
+        (item: ManifestEntry): boolean => item.name === name,
+      );
+      return entry === undefined ? undefined : entry.fingerprint;
+    };
+    const applied = (name: string): string | undefined => {
+      const entry: ImportedEntry | undefined = settings.applied.find(
+        (item: ImportedEntry): boolean => item.name === name,
+      );
+      return entry === undefined ? undefined : entry.fingerprint;
+    };
+    const book: string | undefined = published(KEYBOARD_PERSONAL_WORDBOOK_ENTRY);
+    if (book === undefined || book === ABSENT_FINGERPRINT) return null;
+    if (applied(KEYBOARD_PERSONAL_WORDBOOK_ENTRY) !== book) return null;
+    const marker: string | undefined = published(KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY);
+    if (marker !== undefined && applied(KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY) !== marker) {
+      return null;
+    }
+    return book;
   }
 
   /**
