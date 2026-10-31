@@ -10,7 +10,7 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 ## 社区投稿目前不提供
 
-华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。
+华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。屏蔽作者不是投稿（不公开任何内容，只让本账号看不到那位作者的作品），照常提供，见下文「社区页仍是共享界面」一段。
 
 总闸是 Rust 的 `HostCapabilities.community_contribution`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showCommunityContribution`，社区页据此不画这些入口；`apps/harmony` 的社区客户端对这些操作直接拒绝、不给举报；设置进程启动时把它交给 `keyboard/CommunityContributionGate.ts`，设置桥的 `startRequest` 在分发社区请求之前问它。
 
@@ -135,6 +135,8 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 公告在设置窗口打开或回到前台时取（client-services 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-services 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 
 社区页仍是共享界面，请求都是 Rust `msime_client_community` 的：「我的作品」带作品自身的 `moderation` 字段，由页面只对 removed 显示「已下架」；`report`（皮肤 `skins`、词库 `dictionaries`、回复 `replies`）按固定的六个理由举报，没有登录时用本机匿名账号；422 `blocked_content`、503 `screening_unavailable`、403 `account_banned` 分别报成 `community_blocked_content`、`community_screening_unavailable`、`community_account_banned`，与桌面端同名。
+
+屏蔽作者也是 `msime_client_community` 的操作：`block`（`{kind,id}`，kind 与举报相同，id 是作品的）、`block_list` 和 `unblock`（`{id}`，屏蔽记录的 id）。页面经设置桥自己的 `community_block` 请求发它们，名单在 `HarmonyAccountRequests.ts` 的 `communityBlockRequest`，与三条图库通道的名单不相交；它要隐私政策的授权（`PrivacyConsentPolicy`），社区投稿类功能的总闸不拦它（`CommunityContributionGate` 只管三条图库通道）。三项只认登录的水杉账号，Rust 不退回本机匿名账号，没有登录时答 `community_unauthorized`：社区目录按列表请求带的令牌过滤，用匿名账号屏蔽的作者重装后就没了，也不会跟到别的设备上。列表请求有登录会话时本来就带登录账号的令牌，屏蔽之后刷新列表，服务端就不再列出那位作者的作品，客户端不另做过滤。
 
 `registerJavaScriptProxy` 的名单现在由 `scripts/test-harmony-bridge-parity.py` 守着。ArkTS 对注入对象暴露什么有两处决定——类上的方法，和交给 `registerJavaScriptProxy` 的名字——而页面看得见的只有后者。一个名字只加了一处仍然能通过类型检查、能编译、能打包，然后在真机上以 `msimeHarmony.<name> is not a function` 的形式失败，表现是某一块功能就是不工作，而那恰好在这里谁也跑不了的那个平台上。具名皮肤库那一片就是这么漏的：方法写了，名字没注册，三道绿灯什么都没说。
 
@@ -337,6 +339,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 候选条末尾的 ∨ 此前在手机和平板上打不开任何东西：surface 改成单值（#2503）之后，它只取了完整候选列表，却没有切到展开面板。现在它打开面板，再点一次收起；面板开着时每次 `onChanged` 都重取候选，不再是打开那一刻的一份拷贝。
 
+网格分批建格子（`ExpandedCandidateBatchPolicy`，与 Android 的 `CandidateGridBatchPolicy` 规则相同）：一个字母常有几百个候选，一次全建成 ArkUI 格子会让打开面板和面板里每次换候选都明显卡顿。打开时先建 48 格，滚到离已建内容底边不到一屏、或第一批没填够一屏多时再追加一批。重取到同一代候选（`KeyboardSession.candidateListIdentity` 相同，比如释义晚到）建回已建的数量；换了一代从第一批建起并滚回顶部。完整候选仍由 `allCandidates()` 一次取回，只有格子是分批建的。
+
 全拼九键组字时面板画成三栏，占满键区（`nineKeyExpandedFace`，判断在 `NineKeyPanelPolicy.threeColumn`）：左栏是引擎给的 `nine_key_spellings`（完整拼音、下一个数字键上的大写字母、未锁定时的数字本身，读屏分别说「选择拼音」「选择字母」「输入数字」），可切成横竖撇点折五个笔画键；中栏是可滚动的全部候选；右栏是返回、⌫、重输、拼音/笔画、全部/单字。选拼音、⌫、改筛选都不关面板；选了只覆盖前面一段的候选时也不关，换上剩余组字的全部候选（#9193，与 Android、iOS 相同，判断在 `CandidatePanelSelectionPolicy`），单字筛选留着、笔画筛选清空；点返回或组字结束（含选词后整句上屏）才收起。普通候选网格在部分选词后同样留着。筛选把候选滤空时面板仍开着，好让用户撤掉那一笔。
 
 筛选走 `msime_client_set_nine_key_filter`（NAPI `setNineKeyFilter`），状态以引擎的 `nine_key_single_character`、`nine_key_strokes` 为准，界面不另存。笔画模式下 ⌫ 先撤一笔，没有笔画才是普通退格；切回拼音或关闭面板时清掉筛选。写进输入框的是 `nine_key_reading`（`ning'bai`），不是按下的数字，引擎算不出读音时才退回 `preedit`；编辑框不接受预上屏文字时读音行照旧画它（见下文「拼写写进输入框，候选栏不画读音」）。其他布局保持原来的整块面板。
@@ -353,7 +357,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏方案 `QUANPIN_EIGHTEEN_KEY` 使用 `Q WE RT Y U IO P` / `A SD FG H JK L` / `Z XC V BN M` 三排组码键，编号为共享 C ABI 的 `KeyGrid::EighteenKey`（4）。它与 14 键共用候选、读音选择、拼音条、三栏展开面板和长按字母行为；键表与引擎分组、`Eighteen*` 统计键位由 `scripts/test-harmony-eighteen-key-table.py` 核对。18 键同样只在手机和平板提供，2in1、英文、密码框、网址框和本地模式回落到 26 键。
 
-18 键的布局偏好是 `eighteen_key`，默认不启用；鸿蒙新版本可正常同步，旧版遇到未知值时只跳过该键。打字统计来源为 `eighteenKey`，键面第三排左端保留分词/符号键，右端为删除。
+18 键的布局偏好是 `eighteen_key`，默认不启用；鸿蒙新版本可正常同步，旧版遇到未知值时只跳过该键。打字统计来源为 `eighteenKey`，键面第三排左端保留分词/符号键，右端为删除。三排从同一左右边界铺开：第二排六个键平分整行，`A`、`L` 分别与首排 `Q`、`P` 对齐，与 Android、iOS 相同。
 
 ## 双拼 14/18 键
 
@@ -393,7 +397,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。
 
-共享偏好 `touch_quanpin_shift`（设置页「屏幕键盘 › 布局」的「组字时保留 Shift」）打开后，全拼 26 键组字时第三排左端保留 ⇧，点一下臂辅助码（Shift+字母），不再换成「分词」键；缺省和旧文档都按关（分词），九键、14 键和 18 键自带的分词键不受它影响。键盘在 `KeyboardSession` 准备偏好时以 `=== true` 读它（缺键、类型错都按关），`KeyboardView` 的 `usesQuanpinSeparator()` 和键面 `faceKey()` 都按它分支，开关变化即重画。账号同步键是 `platform.harmony.quanpin_shift`。
+共享偏好 `touch_quanpin_shift`（设置页「屏幕键盘 › 布局」的「组字时保留 Shift」）默认开启，全拼 26 键组字时第三排左端保留 ⇧，点一下臂辅助码（Shift+字母），不再换成「分词」键；明确写 `false` 后改为分词，九键、14 键和 18 键自带的分词键不受它影响。键盘在 `KeyboardSession` 准备偏好时按 `!== false` 读它（缺键、类型错都按开），`KeyboardView` 的 `usesQuanpinSeparator()` 和键面 `faceKey()` 都按它分支，开关变化即重画。账号同步键是 `platform.harmony.quanpin_shift`。
 
 振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
 

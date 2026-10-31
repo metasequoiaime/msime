@@ -6,6 +6,7 @@ import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityMetrics } from "./community-metrics";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityReportSection } from "./community-report";
+import { CommunityBlockAuthorSection } from "./community-block";
 import type { CommunityReportReason } from "./community-report-model";
 import { kindLabels } from "../settings/plugin-catalog-helpers";
 import { communityPluginUnderReview, type CommunityPlugin } from "./community-plugin-model";
@@ -31,6 +32,8 @@ export interface CommunityPluginDetailProps {
   onUnpublish: () => void;
   onCancelUnpublish: () => void;
   onReport?: (reason: CommunityReportReason, detail: string) => Promise<boolean>;
+  /** 屏蔽这件作品的作者之后以提示语调用，由图库关掉详情并重读列表；不给时，或宿主不提供屏蔽（见 `CommunityBlocksContext`）时，不画「屏蔽作者」。 */
+  onBlocked?: (notice: string) => void;
 }
 
 /** 插件详情的摘要、安装、评分、下架和举报展示；请求与确认状态由图库页面持有。 */
@@ -53,6 +56,7 @@ export function CommunityPluginDetail({
   onUnpublish,
   onCancelUnpublish,
   onReport,
+  onBlocked,
 }: CommunityPluginDetailProps) {
   return (
     <CommunityDetailFrame
@@ -132,6 +136,15 @@ export function CommunityPluginDetail({
       />
       {!plugin.owned && onReport && (
         <CommunityReportSection actionBusy={actionBusy} onReport={onReport} />
+      )}
+      {!plugin.owned && onBlocked && (
+        <CommunityBlockAuthorSection
+          kind="plugins"
+          id={plugin.id}
+          author={plugin.author}
+          actionBusy={actionBusy || detailBusy}
+          onBlocked={onBlocked}
+        />
       )}
     </CommunityDetailFrame>
   );

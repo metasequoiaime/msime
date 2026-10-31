@@ -67,6 +67,7 @@ import {
 } from "../entry/src/main/ets/keyboard/emoji/MascotStickerPolicy";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
+import { ExpandedCandidateBatchPolicy } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateBatchPolicy";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
 import {
   CandidateGlossLayoutPolicy,
@@ -94,6 +95,8 @@ import {
   NineKeyActionKind,
   NineKeyLayout,
   NineKey,
+  NumberPadOrigin,
+  NumberPadPunctuation,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
@@ -101,6 +104,7 @@ import {
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
 import { CandidatePanelSelectionPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePanelSelectionPolicy";
+import { TouchLayoutStylePolicy } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   LayerCharacterRoute,
   LayerKey,
@@ -2866,41 +2870,300 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
     NineKeyLayout.digitPunctuation().join(" ") === "+ - * /",
     "the number pad exposes all four arithmetic operators",
   );
+  // 维护者的产品决定：触屏键盘每一种方案、每一种键面的 123 都打开数字九宫格，英文、本地模式、长空格、日语、韩文、越南语、藏文、注音不再保留各自的数字符号层。opensNumberPad 不再收方案和语言参数，视图也不再按它们排除。
   check(
-    NineKeyLayout.opensNumberPad(true, false, false, "none", false),
-    "the ordinary Chinese numeric entry opens a number grid",
+    NineKeyLayout.opensNumberPad(true, false, true),
+    "the touch 123 entry opens the number grid whatever the scheme, language or local mode",
   );
-  for (const state of [
-    [false, false, false, "none", false],
-    [true, true, false, "none", false],
-    [true, false, true, "none", false],
-    [true, false, false, "unicode", false],
-    [true, false, false, "none", true],
-  ] as [boolean, boolean, boolean, string, boolean][]) {
+  check(
+    !NineKeyLayout.opensNumberPad(false, false, true),
+    "the letter layer is not the number grid",
+  );
+  check(
+    !NineKeyLayout.opensNumberPad(true, true, true),
+    "#+= stays the full extended symbol page, and leaving it (more off) lands back on the grid",
+  );
+  check(
+    !NineKeyLayout.opensNumberPad(true, false, false),
+    "the 2in1 screen keyboard keeps its shared symbol page, which has no #+= layer to fall back to",
+  );
+  // 与 Android KeyboardActionRow.layerTitle、iOS numberPadReturnTitle 同一套名字。
+  const titles: [NumberPadOrigin, boolean, string, string][] = [
+    [
+      NumberPadOrigin.LETTERS,
+      true,
+      "拼音",
+      "a pad borrowed by the Chinese 26-key family, handwriting or a local mode returns to 拼音",
+    ],
+    [
+      NumberPadOrigin.LETTERS,
+      false,
+      "ABC",
+      "a pad borrowed by English, Japanese romaji, Vietnamese or Tibetan returns to ABC",
+    ],
+    [
+      NumberPadOrigin.FOURTEEN_KEY,
+      true,
+      "14键",
+      "a pad borrowed by the 14-key face returns to 14键",
+    ],
+    [
+      NumberPadOrigin.EIGHTEEN_KEY,
+      true,
+      "18键",
+      "a pad borrowed by the 18-key face returns to 18键, not 14键",
+    ],
+    [NumberPadOrigin.STROKE, true, "笔", "a pad borrowed by the stroke keypad returns to 笔"],
+    [
+      NumberPadOrigin.KANA,
+      true,
+      "あいう",
+      "a pad borrowed by the kana grid returns to あいう, as on iOS",
+    ],
+    [
+      NumberPadOrigin.KOREAN,
+      false,
+      "한",
+      "a pad borrowed by Dubeolsik returns to 한, as on Android",
+    ],
+    [
+      NumberPadOrigin.ZHUYIN,
+      true,
+      "注",
+      "a pad borrowed by the Dachen keys returns to 注, as on Android",
+    ],
+  ];
+  for (const [origin, chinese, title, message] of titles) {
+    check(NineKeyLayout.numberPadReturnTitle(origin, chinese) === title, message);
+  }
+  for (const origin of [
+    NumberPadOrigin.FOURTEEN_KEY,
+    NumberPadOrigin.EIGHTEEN_KEY,
+    NumberPadOrigin.STROKE,
+    NumberPadOrigin.KANA,
+    NumberPadOrigin.KOREAN,
+    NumberPadOrigin.ZHUYIN,
+  ]) {
     check(
-      !NineKeyLayout.opensNumberPad(...state),
-      "letters, extended symbols, English, local modes and independent languages keep their layouts",
+      NineKeyLayout.numberPadReturnTitle(origin, true) ===
+        NineKeyLayout.numberPadReturnTitle(origin, false),
+      "only the 26-key family reads 拼音 or ABC from the language; a named face keeps its own title",
     );
   }
-  // Android KeyboardActionRow.layerTitle(layout, true, true) and iOS numberPadReturnTitle print the same faces.
   check(
-    NineKeyLayout.numberPadReturnTitle(false, false) === "拼音",
-    "a borrowed pad from the 26-key family or handwriting returns to 拼音",
+    NineKeyLayout.digitPunctuation().every((symbol: string) => symbol.charCodeAt(0) < 0x80),
+    "the factory operator column is ASCII, so no language gets full-width marks from it",
+  );
+  // 用户自定义的数字左列是所有数字九宫格共用的，按当前语言换写法，与 Android NumberPadPunctuation 同一张表。
+  const custom: string[] = ["，", "。", "“", "”", "（）", "…", "+"];
+  check(
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.CHINESE).join(" ") ===
+      custom.join(" "),
+    "Chinese keeps the user's table as it is",
   );
   check(
-    NineKeyLayout.numberPadReturnTitle(false, true) === "14键",
-    "a borrowed pad from the 14-key face returns to 14键",
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.ASCII).join(" ") ===
+      ', . " " () … +',
+    "an ASCII context never gets Chinese full-width marks, and marks without an ASCII form stay",
   );
   check(
-    NineKeyLayout.numberPadReturnTitle(true, false) === "笔" &&
-      NineKeyLayout.numberPadReturnTitle(true, true) === "笔",
-    "a borrowed pad from the stroke keypad returns to 笔, which wins as it does in typingFace",
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.JAPANESE).join(" ") ===
+      "、 。 「 」 （） … +",
+    "Japanese writes the comma as 、 and curly quotes as corner brackets",
   );
   check(
     NineKeyLayout.digitPunctuation().every(
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
     ),
     "and offers marks the letter layer does not already carry",
+  );
+});
+
+// 维护者的产品决定，三端（Android、iOS、鸿蒙）相同：半角语境的数字九宫格左列在出厂项后面接 @ : ; ( ) ' " $，已有的跳过；读用户自定义表的语境自定义过就照用户的表，不补；藏文的 ' 交给会话作拼写符号；注音 #+= 保留共享符号行，用 123 回到数字九宫格。
+group("the ASCII number pad column, its extras and the Zhuyin #+= page", () => {
+  const extras: string = "@ : ; ( ) ' \" $";
+  check(
+    NineKeyLayout.digitSidebar([], NumberPadPunctuation.ASCII).join(" ") === `+ - * / ${extras}`,
+    "an ASCII context shows the factory operators followed by @ : ; ( ) ' \" $ in exactly that order",
+  );
+  check(
+    NineKeyLayout.digitSidebar([], NumberPadPunctuation.CHINESE).join(" ") === "+ - * /" &&
+      NineKeyLayout.digitSidebar([], NumberPadPunctuation.JAPANESE).join(" ") === "+ - * /" &&
+      NineKeyLayout.digitSidebar().join(" ") === "+ - * /",
+    "the Chinese and Japanese styles keep the four operators unchanged",
+  );
+  check(
+    NineKeyLayout.digitSidebar([], NumberPadPunctuation.ASCII).every(
+      (symbol: string) => symbol.length === 1 && symbol.charCodeAt(0) < 0x80,
+    ),
+    "every factory item in an ASCII context is a single half-width character",
+  );
+  check(
+    NineKeyLayout.withAsciiExtras(["+", "(", "@", "-"]).join(" ") === "+ ( @ - : ; ) ' \" $",
+    "extras already among the default items are skipped, and the rest keep their order",
+  );
+  check(
+    NineKeyLayout.withAsciiExtras(["$", '"', "'", ")", "(", ";", ":", "@"]).length === 8,
+    "a default list holding every extra gains nothing",
+  );
+  const base: string[] = ["+", "-"];
+  NineKeyLayout.withAsciiExtras(base);
+  check(base.join(" ") === "+ -", "appending returns a new list and leaves its input alone");
+  // 本地模式、韩文、越南语、藏文和关掉中文标点的中文读用户的表：自定义过就原样用，不再接半角符号；英文不读这张表（视图传空表），总是出厂项加半角符号。
+  const custom: string[] = NineKeyLayout.numberPadSymbols(["，", "%"], NumberPadPunctuation.ASCII);
+  check(
+    NineKeyLayout.digitSidebar(custom, NumberPadPunctuation.ASCII).join(" ") === ", %",
+    "a customized table is used as stored in an ASCII context, with no extras appended",
+  );
+  check(
+    NineKeyLayout.digitSidebarScrolls(custom, NumberPadPunctuation.ASCII) &&
+      NineKeyLayout.digitSidebarScrolls(custom, NumberPadPunctuation.CHINESE),
+    "a customized table draws in the scrolling column",
+  );
+  check(
+    NineKeyLayout.digitSidebarScrolls([], NumberPadPunctuation.ASCII),
+    "the ASCII factory column with its extras does not fit five equal cells and scrolls too",
+  );
+  check(
+    !NineKeyLayout.digitSidebarScrolls([], NumberPadPunctuation.CHINESE) &&
+      !NineKeyLayout.digitSidebarScrolls([], NumberPadPunctuation.JAPANESE),
+    "the Chinese and Japanese factory columns keep the five equal cells",
+  );
+  // 与出厂四则运算相同的表，会话按空表读（`sidebarSymbols`），所以照样接半角符号。
+  const stored: string[] = TouchLayoutStylePolicy.sidebarSymbols(
+    ["+", "-", "*", "/"],
+    TouchLayoutStylePolicy.DIGIT_SIDEBAR_DEFAULTS,
+  );
+  check(
+    NineKeyLayout.digitSidebar(stored, NumberPadPunctuation.ASCII).join(" ") ===
+      `+ - * / ${extras}`,
+    "a stored table equal to the factory operators reads as the factory column and gains the extras",
+  );
+  // 注音 #+=：鸿蒙的注音只有大千一种键面，触屏布局固定是 26 键，没有注音九键。
+  check(
+    KeyboardScheme.letterLayout(KeyboardScheme.ZHUYIN, "nine_key", "fourteen_key") ===
+      "twenty_six_key" &&
+      !KeyboardScheme.isNineKeyLayout(
+        KeyboardScheme.letterLayout(KeyboardScheme.ZHUYIN, "nine_key", "fourteen_key"),
+      ),
+    "Dachen is the only Zhuyin face on HarmonyOS, whatever the other layout preferences say",
+  );
+  check(
+    !NumberSymbolLayout.drawsDesignLayer(true, true, true),
+    "the Zhuyin #+= page keeps the shared symbol rows, where Dachen types , . / ; -",
+  );
+  check(
+    NumberSymbolLayout.drawsDesignLayer(true, true, false),
+    "every other face draws the design #+= layer",
+  );
+  check(
+    !NumberSymbolLayout.drawsDesignLayer(false, true, false) &&
+      !NumberSymbolLayout.drawsDesignLayer(true, false, false),
+    "the 2in1 keyboard keeps its shared rows, and the letter layer is not a symbol layer",
+  );
+  check(
+    NumberSymbolLayout.layerKeyFace(true, true) === "123",
+    "the #+= page's layer key reads 123 and leads back to the number pad",
+  );
+  check(
+    NumberSymbolLayout.layerKeyFace(false, false) === "123" &&
+      NumberSymbolLayout.layerKeyFace(true, false) === "返回",
+    "the letter layer reads 123, and only a symbol layer that is not the pad reads 返回",
+  );
+});
+
+// 三端同一条规则（维护者的决定）：数字九宫格上的键（数字 1–9、0、小数点、左列出厂项和半角符号、顶部补充行）只在本地模式、越南语和藏文里、并且引擎此刻把这个字符列为拼写符号时（View 的 spelling_symbols，组字中或在本地模式里）交给会话；藏文的 ' 总是交给会话；其余一律按字面上屏（先把组合按原样结束再插入），中文、英文、日语、韩文和大千注音都是。用户自定义的左列项不走这条规则，一律按字面上屏（藏文里也是，接线由 run.sh 钉住）。
+group("number pad keys reach the session only as spelling", () => {
+  const toSession = (
+    text: string,
+    face: { local?: boolean; vietnamese?: boolean; tibetan?: boolean },
+    spelling: Partial<HardwareSpelling>,
+  ): boolean =>
+    NineKeyLayout.numberPadToSession(
+      text,
+      face.local === true,
+      face.vietnamese === true,
+      face.tibetan === true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  // U 模式（Unicode 码点）在本地模式里，引擎把数字列为拼写符号（crates/engine 的 LocalInputMode::spelling_symbols）。
+  const uMode: Partial<HardwareSpelling> = {
+    localMode: "unicode",
+    editing: "u",
+    caret: 1,
+    spellingSymbols: "0123456789abcdef",
+  };
+  check(toSession("7", { local: true }, uMode), "a U-mode digit goes to the session");
+  check(
+    !toSession("@", { local: true }, uMode),
+    "a local-mode character the Engine does not list is typed literally",
+  );
+  // 越南语 VNI 组字中引擎把数字列为拼写符号（crates/engine/src/vietnamese/scheme.rs 的 VNI_DIGITS），空闲时不列。
+  check(
+    toSession(
+      "6",
+      { vietnamese: true },
+      { editing: "viet", caret: 4, spellingSymbols: "0123456789" },
+    ),
+    "a VNI tone digit while a word is composing goes to the session",
+  );
+  check(
+    !toSession("6", { vietnamese: true }, {}),
+    "a Vietnamese digit with nothing composing is typed literally",
+  );
+  check(
+    !toSession("6", { vietnamese: true }, { editing: "viet", caret: 4 }),
+    "a Telex word lists no digits, so the digit ends it and is typed literally",
+  );
+  // 藏文组字中引擎列出 '+-./（crates/engine/src/tibetan/scheme.rs 的 SPELLING_SYMBOLS_COMPOSING），空闲时列出 '/。
+  const tibetanComposing: Partial<HardwareSpelling> = {
+    editing: "bsk",
+    caret: 3,
+    spellingSymbols: "'+-./",
+  };
+  check(
+    toSession("+", { tibetan: true }, tibetanComposing),
+    "a Tibetan + while composing goes to the session as a stacking mark",
+  );
+  check(
+    toSession("'", { tibetan: true }, tibetanComposing),
+    "a Tibetan ' while composing goes into the composition instead of committing it first",
+  );
+  check(
+    toSession("'", { tibetan: true }, { spellingSymbols: "'/" }) &&
+      toSession("'", { tibetan: true }, {}),
+    "a Tibetan ' always goes to the session, also while idle, so 'od can start with the achung",
+  );
+  check(
+    !toSession("+", { tibetan: true }, { spellingSymbols: "'/" }),
+    "a Tibetan + with nothing composing is typed literally",
+  );
+  check(
+    !toSession("5", { tibetan: true }, tibetanComposing),
+    "a Tibetan digit is not spelling, so it ends the syllables and is typed literally",
+  );
+  // 日语、韩文、大千注音和英文不是交给会话的方案：引擎即使列出了这个字符也按字面上屏。
+  const listsEverything: Partial<HardwareSpelling> = {
+    editing: "abc",
+    caret: 3,
+    spellingSymbols: "0123456789'+-./",
+  };
+  for (const [text, name] of [
+    ["1", "Japanese"],
+    ["2", "Korean"],
+    ["3", "Dachen Zhuyin"],
+    ["4", "English"],
+    ["5", "Chinese"],
+  ]) {
+    check(!toSession(text, {}, listsEverything), `a ${name} number pad digit is typed literally`);
+  }
+  check(
+    !toSession("'", {}, listsEverything) && !toSession(",", {}, listsEverything),
+    "Dachen punctuation on the pad is typed literally, never handed to the Zhuyin editor",
+  );
+  check(
+    !toSession("12", { tibetan: true }, tibetanComposing),
+    "only a single character can be a key the session takes",
   );
 });
 
@@ -5661,6 +5924,69 @@ group("expanded candidates stay on one line and inside their row", () => {
   check(ExpandedCandidateLayout.rows([], [], 5).length === 0, "an empty list has no rows");
 });
 
+group("the expanded grid builds its cells in batches", () => {
+  // A single initial lists hundreds of candidates (606 for shuangpin J). Building every cell at once
+  // stalled the panel on open and on every change while it was open; Android's
+  // CandidateGridBatchPolicy builds the first batch and appends as the user scrolls.
+  const batch = ExpandedCandidateBatchPolicy.BATCH;
+  check(batch === 48, "the batch matches Android's CandidateGridBatchPolicy.BATCH");
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 0, false) === batch,
+    "opening builds one batch",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(10, 0, false) === 10,
+    "a short list is built whole",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 144, true) === 144,
+    "a redraw of the same generation keeps what was already built",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 144, false) === batch,
+    "a new generation starts again from the first batch",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 10, true) === batch,
+    "a redraw never builds less than a batch",
+  );
+  check(ExpandedCandidateBatchPolicy.nextCount(48, 606) === 96, "an append adds one batch");
+  check(
+    ExpandedCandidateBatchPolicy.nextCount(600, 606) === 606,
+    "and stops at the end of the list",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 200, 400),
+    "a grid that ends within a screen below the viewport grows",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 200, 401),
+    "one that reaches further does not yet",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 300, 200, 700),
+    "scrolling down brings the append closer",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(606, 606, 0, 200, 100),
+    "a complete grid never grows",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 0, 0),
+    "nor one that has not been laid out",
+  );
+  assertThrows(
+    () => ExpandedCandidateBatchPolicy.nextCount(700, 606),
+    /Invalid candidate grid counts/,
+    "built beyond the list is a bug",
+  );
+  assertThrows(
+    () => ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, -1, 0),
+    /Invalid candidate grid geometry/,
+    "a negative viewport is a bug",
+  );
+});
+
 group("a candidate with a gloss offers the gloss as something to type", () => {
   // MSIME-Apple's TheCandidateMenuOffersToInsertTheGlossItself: macOS hands the translation over
   // with Option and a digit, a touch keyboard has no modifiers, so it goes on the long press. Until
@@ -6644,12 +6970,20 @@ group("local modes are addressable by trigger and by preference key", () => {
     LocalInputMode.touchModes(false) === LocalInputMode.MODES,
     "with / 指令 off the touch panel lists the nine tiles and no 指令",
   );
+  check(
+    LocalInputMode.touchColumns(LocalInputMode.MODES.length) === 3,
+    "nine touch modes use three columns so 拆字 does not hang alone below the grid",
+  );
   const withCommand = LocalInputMode.touchModes(true);
   check(
     withCommand.length === LocalInputMode.MODES.length + 1 &&
       withCommand[withCommand.length - 1] === LocalInputMode.fromPreferenceKey("command") &&
       withCommand[withCommand.length - 1].title === "指令",
     "with / 指令 on the touch panel adds 指令 after 拆字",
+  );
+  check(
+    LocalInputMode.touchColumns(withCommand.length) === 4,
+    "the optional 指令 keeps the touch grid at three rows",
   );
   check(
     withCommand.every(
@@ -10913,14 +11247,14 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     light.toggleBackground === "#22B5562B" && light.toggleForeground === "#B5562B",
     "a switched-on tile is the season accent_soft with the accent glyph",
   );
-  check(light.logoBg === "#944723" && light.logoCirc === "#F5E4DA", "the logo follows the season");
+  check(light.logoBg === "#944723" && light.logoCirc === "#E6C5B1", "品牌键使用当前键盘的季节色");
   check(light.hair === "#1F000000", "the light hairline");
   const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK);
   check(
     dark.background === "#2C241D" && dark.actionForeground === "#3C2618",
     "dark season keyboard and return text",
   );
-  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#593925", "the dark logo");
+  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#573D2C", "深色品牌键使用键盘底色");
   check(dark.hair === "#24FFFFFF", "the dark hairline");
   const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
   check(
@@ -10939,13 +11273,14 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     "without a seed the base tokens and the platform accent stay",
   );
   check(
-    plain.logoBg === "#24643D" && plain.logoCirc === "#E1ECE6",
-    "and the logo is the platform accent over the white card",
+    plain.logoBg === "#24643D" && plain.logoCirc === "#C1D3C3",
+    "品牌键使用兜底键盘的强调色和底色",
   );
   const plainDark = KeyboardSkin.fromTheme("system", "跟随系统", null, true);
   check(
-    plainDark.logoBg === "#4E9D6C" && plainDark.logoCirc === "#2D4235",
-    "over the #1F1F1F card in dark mode",
+    plainDark.logoBg === AppThemePalette.logoBackground(plainDark.accent) &&
+      plainDark.logoCirc === AppThemePalette.logoDisc(plainDark.accent, plainDark.background, true),
+    "深色兜底品牌键也取当前键盘配色",
   );
   check(plainDark.toggleBackground === "#405FBF84", "the base dark tint");
   check(
@@ -10959,45 +11294,56 @@ group("the season seed tints the system keyboard, the return key and the logo", 
   );
 });
 
-group(
-  "a named theme keeps its colours and only the return key and the logo follow the season",
-  () => {
-    const palette: KeyboardThemePalette = {
-      background: "#0F1B22",
-      key: "#1D3340",
-      function_key: "#15252E",
-      text: "#E6F1F4",
-      secondary: "#86A6B0",
-      accent: "#4FD1C5",
-      on_accent: "#000000",
-    };
-    const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
-    check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
-    check(night.actionBackground === "#B5562B", "the return key is the season accent");
-    check(
-      night.toggleForeground === "#4FD1C5" && night.toggleBackground === "#214FD1C5",
-      "its switched-on tiles use its own accent at 13%, not a fixed green",
-    );
-    check(
-      night.hair === "#24FFFFFF",
-      "夜青 is dark whatever the mode, so its hairline is the light one",
-    );
-    check(
-      KeyboardSkin.fromTheme("ink", "墨", palette, false).hair === "#24FFFFFF" &&
-        KeyboardSkin.fromTheme("shuishan", "水杉", palette, false).hair === "#24FFFFFF",
-      "as are 墨 and 水杉",
-    );
-    check(
-      KeyboardSkin.fromTheme("paper", "纸白", palette, false).hair === "#1F000000",
-      "a light theme keeps the dark hairline",
-    );
-  },
-);
+group("具名皮肤的品牌键保留自身配色，回车键沿用季节色", () => {
+  const palette: KeyboardThemePalette = {
+    background: "#0F1B22",
+    key: "#1D3340",
+    function_key: "#15252E",
+    text: "#E6F1F4",
+    secondary: "#86A6B0",
+    accent: "#4FD1C5",
+    on_accent: "#000000",
+  };
+  const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
+  check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
+  check(night.actionBackground === "#B5562B", "the return key is the season accent");
+  check(night.logoBg === "#41ABA2" && night.logoCirc === "#183439", "品牌键使用夜青配色");
+  const winter = KeyboardSkin.fromTheme("night", "夜青", palette, false, {
+    ...AUTUMN_LIGHT,
+    accent: "#3A6A8A",
+  });
+  check(
+    night.logoBg === winter.logoBg && night.logoCirc === winter.logoCirc,
+    "换应用主题不改变具名皮肤的品牌键",
+  );
+  check(
+    night.toggleForeground === "#4FD1C5" && night.toggleBackground === "#214FD1C5",
+    "its switched-on tiles use its own accent at 13%, not a fixed green",
+  );
+  check(
+    night.hair === "#24FFFFFF",
+    "夜青 is dark whatever the mode, so its hairline is the light one",
+  );
+  check(
+    KeyboardSkin.fromTheme("ink", "墨", palette, false).hair === "#24FFFFFF" &&
+      KeyboardSkin.fromTheme("shuishan", "水杉", palette, false).hair === "#24FFFFFF",
+    "as are 墨 and 水杉",
+  );
+  check(
+    KeyboardSkin.fromTheme("paper", "纸白", palette, false).hair === "#1F000000",
+    "a light theme keeps the dark hairline",
+  );
+});
 
 group("the season tints a custom design's tiles but not its keys", () => {
   const design = CustomKeyboardSkin.from({ accent: 0x80c0ff, actionBackground: 0x245a43 });
   const seeded = KeyboardSkin.fromDesign("自定义", design, false, AUTUMN_LIGHT);
   check(seeded.accent === "#80C0FF", "the design keeps its own accent for candidates");
+  const unseeded = KeyboardSkin.fromDesign("自定义", design, false);
+  check(
+    seeded.logoBg === unseeded.logoBg && seeded.logoCirc === unseeded.logoCirc,
+    "自定义皮肤品牌键不受应用主题影响",
+  );
   check(seeded.toggleBackground === "#22B5562B", "the switched-on tiles take the season");
   check(
     seeded.actionBackground === "#245A43" &&
@@ -11095,6 +11441,28 @@ group("the function panel follows the design's order, then the Harmony extras", 
   );
   const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
   check(new Set(ids).size === ids.length, "every id is unique");
+});
+
+group("phones and tablets hide the local input entry", () => {
+  const touchIds: string[] = FunctionPanelPolicy.items(true, false).map(
+    (item: FunctionPanelItem) => item.id,
+  );
+  check(
+    !touchIds.includes(FunctionPanelPolicy.LOCAL_INPUT),
+    "the phone and tablet function panel has no 本地输入 tile",
+  );
+  check(
+    FunctionPanelPolicy.items(true).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "the 2in1 panel keeps the local input tile",
+  );
+  check(
+    !FunctionPanelPolicy.items(false, false).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "hiding local input also works when AI tiles are unavailable",
+  );
 });
 
 group(
@@ -18644,7 +19012,7 @@ group("quote and bracket styles change only the faces and pairs of their own key
     );
   }
   check(KeyIdPolicy.character("'") === "Quote", "分词统计属于 Quote");
-  // `touch_quanpin_shift` 打开后 ⇧ 保留，点一下臂辅助码；缺省（无参）仍按分词。
+  // 纯策略函数按已解析的开关分支；宿主缺字段默认值由 KeyboardSession 的偏好准备逻辑覆盖。
   check(
     !KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none", true),
     "保留 Shift 时不显示分词",

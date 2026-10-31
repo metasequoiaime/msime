@@ -549,7 +549,7 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
-| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor） |
+| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor，以及 msime-dictionary 的人工词表 `custom/cantonese.txt`，本项目以 CC BY 4.0 提供） |
 | `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-2.1-or-later`） |
 | `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |

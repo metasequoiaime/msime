@@ -17,7 +17,7 @@ public final class EighteenKeyLayout {
         return new FourteenKeyLayout.Key(letters);
     }
 
-    /** 三排依次为七、六、五个字母键；第二排居中，第三排两端留给分词和删除。 */
+    /** 三排依次为七、六、五个字母键；三排从同一左右边界铺开，第三排两端留给分词和删除。 */
     public static List<List<FourteenKeyLayout.Key>> rows() { return ROWS; }
 
     /** 独立的十八键热力图键位，不混入十四键或二十六键。 */

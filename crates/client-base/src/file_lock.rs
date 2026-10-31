@@ -50,6 +50,15 @@ impl ScopedFileLock {
             Ok(None)
         }
     }
+
+    /// 不等待地取共享锁，并在守卫结束时释放；`None` 表示有人持着独占锁。
+    pub fn try_shared(file: File) -> io::Result<Option<Self>> {
+        if try_shared(&file)? {
+            Ok(Some(Self { _file: file }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(unix)]

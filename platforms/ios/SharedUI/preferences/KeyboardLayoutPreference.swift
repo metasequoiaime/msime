@@ -113,17 +113,17 @@ enum KeyboardLayoutPreference {
     return true
   }
 
-  /// 「组字时保留 Shift」：全拼 26 键组字时第三排左端的 ⇧ 默认换成「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。共享文档里是 `touch_quanpin_shift`，缺省为关；键盘从 App Group 镜像读。九键、14 键和 18 键的分词键不受它影响。
+  /// 「组字时保留 Shift」：全拼 26 键组字时第三排左端默认保留 ⇧，点一下臂辅助码（Shift+字母）；关闭后换成「分词」（送 `'` 断音节）。共享文档里是 `touch_quanpin_shift`，缺省为开；键盘从 App Group 镜像读。九键、14 键和 18 键的分词键不受它影响。
   static let quanpinShiftDocumentKey = "touch_quanpin_shift"
   static let quanpinShiftKey = "keyboard.quanpin.shift"
 
-  /// 文档里缺这一项或不是布尔值时按关，与 client-core 的默认值一致。
+  /// 文档里缺这一项或不是布尔值时按开，与 client-core 的默认值一致。
   static func sharedQuanpinShift(in preferences: [String: Any]?) -> Bool {
-    preferences?[quanpinShiftDocumentKey] as? Bool ?? false
+    preferences?[quanpinShiftDocumentKey] as? Bool ?? true
   }
 
   static var quanpinShift: Bool {
-    get { defaults.object(forKey: quanpinShiftKey) as? Bool ?? false }
+    get { defaults.object(forKey: quanpinShiftKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: quanpinShiftKey) }
   }
 

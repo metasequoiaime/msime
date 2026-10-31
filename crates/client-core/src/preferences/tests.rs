@@ -5,6 +5,21 @@
 use super::*;
 
 #[test]
+fn quanpin_touch_shift_defaults_on_and_legacy_false_remains_off() {
+    let defaults = Preferences::default();
+    assert!(defaults.touch_quanpin_shift);
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("touch_quanpin_shift").is_none());
+    let restored: Preferences = serde_json::from_value(document).unwrap();
+    assert!(restored.touch_quanpin_shift);
+
+    let mut explicitly_off = serde_json::to_value(&defaults).unwrap();
+    explicitly_off["touch_quanpin_shift"] = serde_json::Value::Bool(false);
+    let restored_off: Preferences = serde_json::from_value(explicitly_off).unwrap();
+    assert!(!restored_off.touch_quanpin_shift);
+}
+
+#[test]
 fn adaptive_candidate_settings_defaults_round_trip_and_validate() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     for key in [

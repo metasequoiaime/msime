@@ -79,6 +79,10 @@ export type LocalVoiceModelClient = {
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
 };
 
+/** 许可来源和不联网安装文件的下载地址：行内的文字链接，不画成按钮；长网址和文件名随卡片 `overflow-wrap:anywhere` 断行，不把卡片撑出屏幕。 */
+const inlineLink =
+  "m-0 inline cursor-pointer border-0 bg-transparent p-0 text-left text-xs [font-family:inherit] [color:var(--p-accent-text,var(--accent-color))] underline-offset-2 hover:underline active:underline";
+
 const localModelNote = "模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。";
 
 /**
@@ -253,7 +257,7 @@ export function LocalModelManager({
         <SettingsManagerNote>{localModelNote}</SettingsManagerNote>
       </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
-      <ul className="grid gap-3" aria-label="可用的本地模型">
+      <ul className="m-0 grid list-none gap-3 p-0" aria-label="可用的本地模型">
         {models.map((model) => {
           const inUse = localModelInUse(model, modelPath);
           const running = installing[model.id] === true;
@@ -264,7 +268,7 @@ export function LocalModelManager({
             <li
               key={model.id}
               aria-label={model.title}
-              className="grid gap-1 rounded-lg border border-[var(--border,#d0d0d0)] p-3"
+              className="grid min-w-0 gap-1 rounded-lg border border-[var(--border,#d0d0d0)] p-3 [overflow-wrap:anywhere]"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <strong>{model.title}</strong>
@@ -285,7 +289,7 @@ export function LocalModelManager({
                 {openExternalUrl ? (
                   <ActionButton
                     action={() => void openExternalUrl(model.license_source).catch(() => undefined)}
-                    className="link"
+                    className={inlineLink}
                     label={model.license_source}
                   />
                 ) : (
@@ -302,7 +306,7 @@ export function LocalModelManager({
                       {openExternalUrl ? (
                         <ActionButton
                           action={() => void openExternalUrl(file.url).catch(() => undefined)}
-                          className="link"
+                          className={inlineLink}
                           label={`${file.name}（${formatModelBytes(file.size)}）`}
                         />
                       ) : (
@@ -328,24 +332,24 @@ export function LocalModelManager({
                   </span>
                 </div>
               )}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {running || importRunning ? (
                   <ActionButton
                     action={() => void client.cancel(model.id).catch(() => undefined)}
-                    className="secondary"
+                    className="secondary m-0"
                     label={importRunning ? "取消导入" : "取消下载"}
                   />
                 ) : model.installed ? (
                   <>
                     <ActionButton
                       action={() => onUse(model.path)}
-                      className=""
+                      className="primary"
                       disabled={inUse || removing[model.id] === true}
                       label={inUse ? "使用中" : "使用"}
                     />
                     <ActionButton
                       action={() => void remove(model)}
-                      className="secondary"
+                      className="secondary m-0"
                       disabled={removing[model.id] === true}
                       label="删除"
                     />
@@ -354,13 +358,13 @@ export function LocalModelManager({
                   <>
                     <ActionButton
                       action={() => void install(model)}
-                      className=""
+                      className="primary"
                       label={`下载（${formatModelBytes(model.archive_size)}）`}
                     />
                     {client.import && (
                       <ActionButton
                         action={() => void importFiles(model)}
-                        className="secondary"
+                        className="secondary m-0"
                         label="从文件导入"
                       />
                     )}
