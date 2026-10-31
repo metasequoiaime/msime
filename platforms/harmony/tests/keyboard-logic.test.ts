@@ -94,6 +94,8 @@ import {
   NineKeyActionKind,
   NineKeyLayout,
   NineKey,
+  NumberPadOrigin,
+  NumberPadPunctuation,
 } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
@@ -2866,35 +2868,106 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
     NineKeyLayout.digitPunctuation().join(" ") === "+ - * /",
     "the number pad exposes all four arithmetic operators",
   );
+  // 维护者的产品决定：触屏键盘每一种方案、每一种键面的 123 都打开数字九宫格，英文、本地模式、长空格、日语、韩文、越南语、藏文、注音不再保留各自的数字符号层。opensNumberPad 不再收方案和语言参数，视图也不再按它们排除。
   check(
-    NineKeyLayout.opensNumberPad(true, false, false, "none", false),
-    "the ordinary Chinese numeric entry opens a number grid",
+    NineKeyLayout.opensNumberPad(true, false, true),
+    "the touch 123 entry opens the number grid whatever the scheme, language or local mode",
   );
-  for (const state of [
-    [false, false, false, "none", false],
-    [true, true, false, "none", false],
-    [true, false, true, "none", false],
-    [true, false, false, "unicode", false],
-    [true, false, false, "none", true],
-  ] as [boolean, boolean, boolean, string, boolean][]) {
+  check(
+    !NineKeyLayout.opensNumberPad(false, false, true),
+    "the letter layer is not the number grid",
+  );
+  check(
+    !NineKeyLayout.opensNumberPad(true, true, true),
+    "#+= stays the full extended symbol page, and leaving it (more off) lands back on the grid",
+  );
+  check(
+    !NineKeyLayout.opensNumberPad(true, false, false),
+    "the 2in1 screen keyboard keeps its shared symbol page, which has no #+= layer to fall back to",
+  );
+  // 与 Android KeyboardActionRow.layerTitle、iOS numberPadReturnTitle 同一套名字。
+  const titles: [NumberPadOrigin, boolean, string, string][] = [
+    [
+      NumberPadOrigin.LETTERS,
+      true,
+      "拼音",
+      "a pad borrowed by the Chinese 26-key family, handwriting or a local mode returns to 拼音",
+    ],
+    [
+      NumberPadOrigin.LETTERS,
+      false,
+      "ABC",
+      "a pad borrowed by English, Japanese romaji, Vietnamese or Tibetan returns to ABC",
+    ],
+    [
+      NumberPadOrigin.FOURTEEN_KEY,
+      true,
+      "14键",
+      "a pad borrowed by the 14-key face returns to 14键",
+    ],
+    [
+      NumberPadOrigin.EIGHTEEN_KEY,
+      true,
+      "18键",
+      "a pad borrowed by the 18-key face returns to 18键, not 14键",
+    ],
+    [NumberPadOrigin.STROKE, true, "笔", "a pad borrowed by the stroke keypad returns to 笔"],
+    [
+      NumberPadOrigin.KANA,
+      true,
+      "あいう",
+      "a pad borrowed by the kana grid returns to あいう, as on iOS",
+    ],
+    [
+      NumberPadOrigin.KOREAN,
+      false,
+      "한",
+      "a pad borrowed by Dubeolsik returns to 한, as on Android",
+    ],
+    [
+      NumberPadOrigin.ZHUYIN,
+      true,
+      "注",
+      "a pad borrowed by the Dachen keys returns to 注, as on Android",
+    ],
+  ];
+  for (const [origin, chinese, title, message] of titles) {
+    check(NineKeyLayout.numberPadReturnTitle(origin, chinese) === title, message);
+  }
+  for (const origin of [
+    NumberPadOrigin.FOURTEEN_KEY,
+    NumberPadOrigin.EIGHTEEN_KEY,
+    NumberPadOrigin.STROKE,
+    NumberPadOrigin.KANA,
+    NumberPadOrigin.KOREAN,
+    NumberPadOrigin.ZHUYIN,
+  ]) {
     check(
-      !NineKeyLayout.opensNumberPad(...state),
-      "letters, extended symbols, English, local modes and independent languages keep their layouts",
+      NineKeyLayout.numberPadReturnTitle(origin, true) ===
+        NineKeyLayout.numberPadReturnTitle(origin, false),
+      "only the 26-key family reads 拼音 or ABC from the language; a named face keeps its own title",
     );
   }
-  // Android KeyboardActionRow.layerTitle(layout, true, true) and iOS numberPadReturnTitle print the same faces.
   check(
-    NineKeyLayout.numberPadReturnTitle(false, false) === "拼音",
-    "a borrowed pad from the 26-key family or handwriting returns to 拼音",
+    NineKeyLayout.digitPunctuation().every((symbol: string) => symbol.charCodeAt(0) < 0x80),
+    "the factory operator column is ASCII, so no language gets full-width marks from it",
+  );
+  // 用户自定义的数字左列是所有数字九宫格共用的，按当前语言换写法，与 Android NumberPadPunctuation 同一张表。
+  const custom: string[] = ["，", "。", "“", "”", "（）", "…", "+"];
+  check(
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.CHINESE).join(" ") ===
+      custom.join(" "),
+    "Chinese keeps the user's table as it is",
   );
   check(
-    NineKeyLayout.numberPadReturnTitle(false, true) === "14键",
-    "a borrowed pad from the 14-key face returns to 14键",
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.ASCII).join(" ") ===
+      ', . " " () … +',
+    "an ASCII context never gets Chinese full-width marks, and marks without an ASCII form stay",
   );
   check(
-    NineKeyLayout.numberPadReturnTitle(true, false) === "笔" &&
-      NineKeyLayout.numberPadReturnTitle(true, true) === "笔",
-    "a borrowed pad from the stroke keypad returns to 笔, which wins as it does in typingFace",
+    NineKeyLayout.numberPadSymbols(custom, NumberPadPunctuation.JAPANESE).join(" ") ===
+      "、 。 「 」 （） … +",
+    "Japanese writes the comma as 、 and curly quotes as corner brackets",
   );
   check(
     NineKeyLayout.digitPunctuation().every(

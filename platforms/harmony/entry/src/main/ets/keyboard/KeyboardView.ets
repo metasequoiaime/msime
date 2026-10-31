@@ -62,7 +62,8 @@ import {
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
 import {
-  NineKeyAction, NineKeyActionItem, NineKeyActionKind, NineKeyLayout, NineKey, NineKeySidebarItem
+  NineKeyAction, NineKeyActionItem, NineKeyActionKind, NineKeyLayout, NineKey, NineKeySidebarItem, NumberPadOrigin,
+  NumberPadPunctuation
 } from './input/NineKeyLayout';
 import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipe, NineKeySwipeGesture, NineKeySwipePolicy } from './input/NineKeySwipePolicy';
@@ -1390,11 +1391,48 @@ struct KeyboardView {
       || (this.strokeFace() && !this.symbols);
   }
 
-  /** 中文数字入口复用现有九宫格，扩展符号页和独立语言仍走各自的键面。日文按键盘自己的方案判定，26 键罗马字也算独立语言；`this.japanese` 只指假名网格。中文 26 键的长空格样式与 Android 长空格布局一样进带空格的数字符号层，不借用九宫格。 */
+  /** 触屏键盘的 123 一律打开数字九宫格（`NineKeyLayout.opensNumberPad`）：英文、本地模式、中文 26 键的长空格样式、日语（罗马字和假名网格）、韩文、越南语、藏文、注音、笔画、手写、14/18 键都在内；#+= 仍是完整的扩展符号页。数字九宫格底行有空格，长空格样式的用户在这一页照样有空格。2in1 的屏幕键盘不打开，理由见 `opensNumberPad`。 */
   private numberPadShowing(): boolean {
-    return this.touchDesign() && !this.longSpaceActive() && NineKeyLayout.opensNumberPad(this.symbols, this.moreSymbols,
-      this.english, this.localMode, this.scheme.engineScheme === 'japanese' || this.koreanFace() || this.vietnameseFace()
-        || this.tibetanFace() || this.zhuyinFace());
+    return NineKeyLayout.opensNumberPad(this.symbols, this.moreSymbols, this.touchDesign());
+  }
+
+  /** 九宫格是这块键盘自己的字母层：拼音九键、九键双拼和英文九键，123 只是把网格重新标注成数字，返回键印「九键」，底行留着 符。假名网格虽然也是九键布局，数字九宫格对它是借来的。 */
+  private ownsNineKeyGrid(): boolean {
+    return KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) && !this.japanese;
+  }
+
+  /** 此刻画的是假名网格：字母层，以及 2in1 上假名网格自己的数字层。触屏上 123 打开借来的数字九宫格、#+= 是扩展符号页，都不是假名网格。 */
+  private kanaGridShowing(): boolean {
+    return this.japanese && (!this.symbols || !this.touchDesign());
+  }
+
+  /** 借出数字九宫格的字母层（`NumberPadOrigin`），按 `typingFace` 的分支次序判断：假名网格最先，笔画先于 14/18 键。 */
+  private numberPadOrigin(): NumberPadOrigin {
+    if (this.japanese) {
+      return NumberPadOrigin.KANA;
+    }
+    if (this.zhuyinFace()) {
+      return NumberPadOrigin.ZHUYIN;
+    }
+    if (this.strokeFace()) {
+      return NumberPadOrigin.STROKE;
+    }
+    if (this.drawsEighteenKey()) {
+      return NumberPadOrigin.EIGHTEEN_KEY;
+    }
+    if (this.drawsFourteenKey()) {
+      return NumberPadOrigin.FOURTEEN_KEY;
+    }
+    return this.koreanFace() ? NumberPadOrigin.KOREAN : NumberPadOrigin.LETTERS;
+  }
+
+  /** 数字九宫格底行返回键的键面：自己的九键网格印「九键」，借来的按借出它的字母层印（`NineKeyLayout.numberPadReturnTitle`）。26 键一族按 123 层的字母页读法印「拼音」或「ABC」（`designLayerChinese`），日语罗马字的字母是拉丁字母，印「ABC」。 */
+  private numberPadReturnTitle(): string {
+    if (this.ownsNineKeyGrid()) {
+      return '九键';
+    }
+    return NineKeyLayout.numberPadReturnTitle(this.numberPadOrigin(),
+      this.designLayerChinese() && this.scheme.engineScheme !== 'japanese');
   }
 
   /** `touch` 是这一键的按下点（键盘根区域坐标），没有时为 null：无障碍点击、没有被记下的触摸。 */
@@ -3228,6 +3266,11 @@ struct KeyboardView {
    */
   private tapSymbol(symbol: string): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(symbol));
+    this.typeSymbol(symbol);
+  }
+
+  /** `tapSymbol` 的输入部分，不记键位：数字九宫格按自己的键位记过之后借这条路输入（`typeNumberPadText`）。 */
+  private typeSymbol(symbol: string): void {
     const character: number = symbol.charCodeAt(0);
     if (this.koreanFace() && KoreanCompositionPolicy.typesAfterCommit(character)) {
       KeyboardSession.shared.commitThenType(character);
@@ -5149,7 +5192,7 @@ struct KeyboardView {
       action: () => {
         if (this.symbols) {
           KeyboardSession.shared.softKeyPress(KeyIdPolicy.character('.'));
-          this.insertNumberPadLiteral('.');
+          this.typeNumberPadText('.');
           return;
         }
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(NineKeyLayout.separator().input));
@@ -5243,9 +5286,21 @@ struct KeyboardView {
     return this.english ? [] : this.nineKeySidebarSymbols;
   }
 
-  /** 九宫格数字键盘左列读的表：九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读，英文九键的数字层不读。 */
+  /** 九宫格数字键盘左列读的表：九键一族的数字层和其余键面借来的数字九宫格都读，表里的标点按当前语言换写法（`NineKeyLayout.numberPadSymbols`）；英文下的数字九宫格（英文九键和英文 26 键借来的）不读，照出厂的 ASCII 运算符。 */
   private digitSidebarTable(): string[] {
-    return this.english ? [] : this.nineKeyDigitSidebarSymbols;
+    return this.english ? [] : NineKeyLayout.numberPadSymbols(this.nineKeyDigitSidebarSymbols,
+      this.numberPadPunctuation());
+  }
+
+  /** 数字九宫格上的标点此刻按哪种写法出现（`NumberPadPunctuation`）：本地模式和英文是半角；日语方案（罗马字和假名网格）是日语写法；其余跟着中文标点的键面写法（`chinesePunctuationFaces`），韩文、越南语、藏文和关掉中文标点时是半角。 */
+  private numberPadPunctuation(): NumberPadPunctuation {
+    if (this.localMode !== 'none' || this.english) {
+      return NumberPadPunctuation.ASCII;
+    }
+    if (this.scheme.engineScheme === 'japanese') {
+      return NumberPadPunctuation.JAPANESE;
+    }
+    return this.chinesePunctuationFaces() ? NumberPadPunctuation.CHINESE : NumberPadPunctuation.ASCII;
   }
 
   /** 字母层自定义左列逐项的高度和 ForEach 键：左列与网格同高（`gridHeight`）。 */
@@ -5303,7 +5358,7 @@ struct KeyboardView {
       width: '100%',
       action: () => {
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_PUNCTUATION);
-        this.insertNumberPadLiteral(symbol);
+        this.typeNumberPadText(symbol);
       }
     };
   }
@@ -5314,9 +5369,24 @@ struct KeyboardView {
     KeyboardSession.shared.insert(text);
   }
 
-  /** 到这里结束的键面是否用触屏九键外框的底行（`nineKeyActionRow`）：拼音九键网格，或不在符号层的笔画键盘。假名网格也是九键布局，但保留共享底行。 */
+  /** 数字九宫格上的数字、0、小数点和出厂运算符怎么输入（键位已由调用方记过）：按字面上屏时走 `insertNumberPadLiteral`，否则走原来 123 层字符键的同一条路（`typeLayerCharacter`）。 */
+  private typeNumberPadText(text: string): void {
+    if (this.numberPadTypesLiterally()) {
+      this.insertNumberPadLiteral(text);
+    } else {
+      this.typeLayerCharacter(text);
+    }
+  }
+
+  /** 数字九宫格是否按字面上屏：中文方案和英文是，与原来九键一族和中文借用的数字页相同。本地模式和自己处理数字的方案（日语、韩文、越南语、藏文、注音）不是，照原来 123 层的路由输入：Unicode 码点等本地模式和越南语 VNI 组字中的声调数字仍交给引擎，韩文、藏文先结束组字再输入数字，注音先结束转换。 */
+  private numberPadTypesLiterally(): boolean {
+    return this.localMode === 'none' && (this.english || (this.scheme.engineScheme !== 'japanese'
+      && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace() && !this.zhuyinFace()));
+  }
+
+  /** 到这里结束的键面是否用触屏九键外框的底行（`nineKeyActionRow`）：拼音九键网格、数字九宫格，或不在符号层的笔画键盘。假名网格的字母层也是九键布局，但保留共享底行；它借来的数字九宫格用九键外框的底行。 */
   private touchNineKeyRow(): boolean {
-    return this.touchDesign() && !this.japanese && this.gridActionRow();
+    return this.touchDesign() && !this.kanaGridShowing() && this.gridActionRow();
   }
 
   /**
@@ -5337,10 +5407,10 @@ struct KeyboardView {
     KeyboardSession.shared.insert('0');
   }
 
-  /** 数字按字面上屏；常规键面借用网格时记普通数字键，原九键记 Nine。 */
+  /** 数字九宫格上的一个数字（`typeNumberPadText`）；借来的数字九宫格记普通数字键，自己的九键网格（`ownsNineKeyGrid`）记 Nine。 */
   private typeNineKeyDigit(digit: string): void {
-    KeyboardSession.shared.softKeyPress(this.nineKey ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
-    this.insertNumberPadLiteral(digit);
+    KeyboardSession.shared.softKeyPress(this.ownsNineKeyGrid() ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
+    this.typeNumberPadText(digit);
   }
 
   /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
@@ -5355,19 +5425,19 @@ struct KeyboardView {
     KeyboardSession.shared.punctuation(mark.input.charCodeAt(0));
   }
 
-  /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号，中文九键的字母层按 `touch_nine_key_style` 排（`NineKeyLayout.actionRow`），「右侧大回车」时是网格下方那一段。拼音九键、九键双拼和笔画的数字层带着 符，符 和切换键与字母层同一格（#10061）；借来的数字九宫格不带。「中/英键放在空格左边」时每一种排法（含右侧大回车和数字层）的 中/英 都挪到空格左边（`NineKeyLayout.actionRow` 的 `languageLeft`）。 */
+  /** 触屏九键外框的底行：英文九键的字母层在空格两侧多出句点和逗号，中文九键的字母层按 `touch_nine_key_style` 排（`NineKeyLayout.actionRow`），「右侧大回车」时是网格下方那一段。拼音九键、九键双拼、英文九键和笔画的数字层带着 符，符 和切换键与字母层同一格（#10061）；其余键面（含假名网格）借来的数字九宫格不带。「中/英键放在空格左边」时每一种排法（含右侧大回车和数字层）的 中/英 都挪到空格左边（`NineKeyLayout.actionRow` 的 `languageLeft`）。 */
   private nineKeyActions(): NineKeyAction[] {
     // 「符」与「123」互换后 26 键字母层以 符 打头，从它借来的数字九宫格也按九键一族的次序排（符 | 返回），返回键仍在字母层 123 那一格（#10056）。
     const nineKeyDigits: boolean = this.symbols
-      && (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) || this.strokeFace()
+      && (this.ownsNineKeyGrid() || this.strokeFace()
         || this.letterRowSymbolLeads());
     return NineKeyLayout.actionRow(this.symbols, this.english, this.nineKeyFrameStyle(), nineKeyDigits,
       this.numberPadSpace, this.languageKeyLeft);
   }
 
-  /** 这块键面字母层的设计底行是否以 符 打头：只有打开「符」与「123」互换、字母层是 26 键一族、底行样式里有 符（标准、逗号句号在空格两侧）时才是。不看此刻在不在数字层，借来的数字九宫格按它排前两键。手写、14/18 键、大千注音的字母层底行没有 符。 */
+  /** 这块键面字母层的设计底行是否以 符 打头：只有打开「符」与「123」互换、字母层是 26 键一族、底行样式里有 符（标准、逗号句号在空格两侧）时才是。不看此刻在不在数字层，借来的数字九宫格按它排前两键。手写、14/18 键、大千注音的字母层底行没有 符，假名网格用共享底行、不跟这一项互换。 */
   private letterRowSymbolLeads(): boolean {
-    if (!this.twentySixSymbolFirst
+    if (!this.twentySixSymbolFirst || this.japanese
       || KeyboardScheme.usesHandwritingFace(this.scheme, this.english, false, this.localMode)) {
       return false;
     }
@@ -5381,12 +5451,12 @@ struct KeyboardView {
   }
 
   /**
-   * 九键外框此刻按哪种样式排：密码框和只收数字的编辑框里是标准（`TouchLayoutStylePolicy.fieldRowStyle`）；「右侧大回车」只给中文九键一族的键面（拼音九键、九键双拼的网格，笔画键盘，以及它们的数字层），其他中文键面借用数字九宫格时仍是原来的数字层。
+   * 九键外框此刻按哪种样式排：密码框和只收数字的编辑框里是标准（`TouchLayoutStylePolicy.fieldRowStyle`）；「右侧大回车」只给中文九键一族的键面（拼音九键、九键双拼的网格，笔画键盘，以及它们的数字层），其他键面（含假名网格）借用数字九宫格时仍是原来的数字层。
    */
   private nineKeyFrameStyle(): string {
     const style: string = TouchLayoutStylePolicy.fieldRowStyle(this.nineKeyStyle, this.standardRowsField);
     if (style === TouchLayoutStylePolicy.TALL_RETURN
-      && !KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode) && !this.strokeFace()) {
+      && !this.ownsNineKeyGrid() && !this.strokeFace()) {
       return TouchLayoutStylePolicy.STANDARD;
     }
     return style;
@@ -5473,7 +5543,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。中文时标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；英文九键的字母层在空格左边加句点、右边加逗号，与三端英文 26 键底行一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他中文键面借用这个数字页时，该键按原键面印「拼音」、「14键」或「笔」（`NineKeyLayout.numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，0 排在底行空格右边：拼音九键、九键双拼和笔画的数字层保留 符，符 和切换键与字母层同一格，0 的一份从空格让出（#10061）；借来的数字九宫格没有 符，0 占 符 让出的那一份。
+   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。中文时标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；英文九键的字母层在空格左边加句点、右边加逗号，与三端英文 26 键底行一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；其他键面借用这个数字页时，该键按原键面印「拼音」「ABC」「14键」「18键」「笔」「注」「한」或「あいう」（`numberPadReturnTitle`），与 Android 和 iOS 相同。数字层的网格只有 1-9，0 排在底行空格右边：拼音九键、九键双拼、英文九键和笔画的数字层保留 符，符 和切换键与字母层同一格，0 的一份从空格让出（#10061）；借来的数字九宫格没有 符，0 占 符 让出的那一份。
    */
   @Builder
   nineKeyActionRow() {
@@ -5496,7 +5566,7 @@ struct KeyboardView {
       Column() {
         this.fixedKey({
           face: this.symbols
-            ? (this.nineKey ? '九键' : NineKeyLayout.numberPadReturnTitle(this.strokeFace(), this.drawsFourteenKey()))
+            ? this.numberPadReturnTitle()
             : '123',
           label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
@@ -6288,7 +6358,7 @@ struct KeyboardView {
       this.standardRowsField);
   }
 
-  /** 中文 26 键处在长空格样式（`TouchLayoutStylePolicy.longSpaceActive`）：符号入口在工具栏，123 进带空格的数字符号层；密码框和只收数字的编辑框里不算，与 Android 一致。 */
+  /** 中文 26 键处在长空格样式（`TouchLayoutStylePolicy.longSpaceActive`）：符号入口在工具栏，123 与其他键面一样打开底行带空格的数字九宫格；密码框和只收数字的编辑框里不算，与 Android 一致。 */
   private longSpaceActive(): boolean {
     return TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixFace(), this.twentySixKeyStyle,
       this.standardRowsField);
@@ -6453,17 +6523,23 @@ struct KeyboardView {
   @Builder
   designRowKey(item: DesignRowItem) {
     if (item.slot === DesignRowSlot.LAYER) {
-      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。大千注音的 #+= 是共享符号行（`designLayerShowing`），这一页的切换键印 123、回到数字九宫格，与设计稿 #+= 层的 123 相同。
       Column() {
         this.fixedKey({
-          face: this.symbols ? '返回' : '123',
-          label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+          face: this.moreSymbols ? '123' : (this.symbols ? '返回' : '123'),
+          label: KeyAccessibilityPolicy.layoutToggle(this.symbols && !this.moreSymbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           fontWeight: FUNCTION_LABEL_WEIGHT,
           emphasized: false,
           special: true,
           width: '100%',
-          action: () => this.toggleSymbolLayer()
+          action: () => {
+            if (this.moreSymbols) {
+              this.toggleMoreSymbols();
+              return;
+            }
+            this.toggleSymbolLayer();
+          }
         });
       }
       .layoutWeight(item.share)
@@ -7753,7 +7829,7 @@ struct KeyboardView {
   }
 
   /**
-   * 正在画的键面能不能分离：26 键一族（含英文、日文罗马字、粤拼、越南语、藏文）和韩文的字母层，以及它们的 123 / #+= 层。日文假名、手写、九键、注音、笔画、14/18 键不分，它们的符号页和借来的数字九宫格也不分，免得同一个方案在两页之间来回变形；2in1 不画触摸按键。
+   * 正在画的键面能不能分离：26 键一族（含英文、日文罗马字、粤拼、越南语、藏文）和韩文的字母层，以及它们的 #+= 层。123 打开的数字九宫格不分，不管是从哪个键面借来的；日文假名、手写、九键、注音、笔画、14/18 键也不分，它们的 #+= 页同样不分，免得同一个方案在两页之间来回变形；2in1 不画触摸按键。
    */
   private splitsFace(): boolean {
     return this.touchDesign() && !this.japanese && !this.numberPadShowing()
@@ -11458,7 +11534,7 @@ struct KeyboardView {
 
   private symbolExtraKeys(): string[] {
     return TouchLayoutStylePolicy.symbolExtraRow(this.moreSymbols, this.numberPadShowing(),
-      this.chinesePunctuationFaces());
+      this.numberPadPunctuation() !== NumberPadPunctuation.ASCII);
   }
 
   /** 补充行的一个键。 */
@@ -11486,8 +11562,8 @@ struct KeyboardView {
           this.numberKeysRow()
         }
       }
-      if (this.japanese) {
-        // Including the digit layer: a grid face draws its own digits so the three columns survive.
+      if (this.kanaGridShowing()) {
+        // 假名网格的字母层，以及 2in1 上它自己的数字层；触屏上 123 打开下面的数字九宫格，#+= 是设计稿的扩展符号页。
         this.japaneseFace()
       } else if (KeyboardScheme.usesHandwritingFace(
         this.scheme, this.english, this.symbols, this.localMode)) {
@@ -11665,7 +11741,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏键盘的符号层是否为设计稿的 123 / #+= 双层（`NumberSymbolLayout`）而不是共享符号行：所有把符号层交给字母行的键面，即 Android 的 `ImeLetterRows.drawsDesignLayer` 列出的那些，也就是 26 键、韩文、越南语、藏文、手写和笔画键盘。大千行保留共享符号行，注音在那里输入原本会被其注音键占用的标点，与 Android 一致；2in1 屏幕键盘也保留。
+   * 触屏键盘的符号层是否为设计稿的 #+= 层（`NumberSymbolLayout`）而不是共享符号行。触屏的 123 一律是数字九宫格（`numberPadShowing`，`typingFace` 里先于这里判断），所以走到这里的只有 #+=：除大千注音外的每一种键面都用设计稿的 #+= 层。大千注音的 #+= 保留共享符号行，注音在那里输入原本会被其注音键占用的标点（， . / ; -），与 Android 一致，那一页底行的切换键印 123、回到数字九宫格（`designRowKey`）；2in1 屏幕键盘也保留共享符号行。
    */
   private designLayerShowing(): boolean {
     return this.touchDesign() && this.symbols && !this.zhuyinFace();
@@ -11717,11 +11793,16 @@ struct KeyboardView {
 
   /** 字符键输入它显示的内容；哪些键仍走符号行路径见 `NumberSymbolLayout.route`。 */
   private tapLayerCharacter(text: string): void {
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
+    this.typeLayerCharacter(text);
+  }
+
+  /** `tapLayerCharacter` 的输入部分，不记键位：数字九宫格按自己的键位记过之后借这条路输入（`typeNumberPadText`）。 */
+  private typeLayerCharacter(text: string): void {
     if (NumberSymbolLayout.route(text, this.designLayerChinese()) === LayerCharacterRoute.SYMBOL_KEY) {
-      this.tapSymbol(text);
+      this.typeSymbol(text);
       return;
     }
-    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
     // 已有组合按原样上屏，与 Android 的 `commitNineKeyLiteral` 一致。
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(text);
