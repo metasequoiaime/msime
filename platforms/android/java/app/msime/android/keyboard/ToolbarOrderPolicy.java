@@ -20,7 +20,7 @@ public final class ToolbarOrderPolicy {
         TEXT_EDIT("text_edit", "文本编辑", AndroidLocalSettings.TOOLBAR_TEXT_EDIT),
         UNDO("undo", "撤销", "undo"),
         REDO("redo", "重做", "redo"),
-        /** 语音按钮的开关不在 `touch_toolbar` 里，是共享偏好顶层的 `touch_voice_shortcut`（与「语音输入 → 启动方式」选「工具栏按钮」写的是同一项），默认关。排在最后：旧版本存下的顺序里没有它，`parse` 把它补在末尾（#10142）。 */
+        /** 语音按钮的开关不在 `touch_toolbar` 里，是共享偏好顶层的 `touch_voice_shortcut`（「键盘 → 工具栏 → 语音」和键盘内「顶部语音入口」写这一项，语音页选「无」时关掉它，#10309），默认关。排在最后：旧版本存下的顺序里没有它，`parse` 把它补在末尾（#10142）。 */
         VOICE("voice", "语音", VOICE_SHORTCUT_PREFERENCE);
 
         public final String id;

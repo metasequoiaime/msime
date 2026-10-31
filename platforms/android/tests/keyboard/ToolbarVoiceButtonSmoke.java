@@ -7,11 +7,7 @@ import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 「语音输入 → 启动方式」选「工具栏按钮」后，键盘工具栏上要真的有语音按钮（#10142）。
- *
- * <p>这个按钮在 #3782 改版时被拆下了工具栏，却一直被设成可见：设置页能选「工具栏按钮」，键盘上没有，「按钮顺序」里也没有，「更多工具」面板还因为它「可见」把「语音输入」磁贴藏掉，用户一个语音入口都找不到。工具栏是 View，JVM 冒烟画不出来，这里按源码（先压空白）钉住几处接线：按钮回到中间区、参与排序、整行显隐算上它、设置页的「语音」开关和语音页写的是同一个共享偏好 `touch_voice_shortcut`、打开它时和语音页一样关掉长按空格语音、语音页重新点已选的启动方式不写回、工具栏隐藏时语音页选着「工具栏按钮」会说明按钮不显示，磁贴去重只在工具栏未隐藏时生效。磁贴只在开关打开时藏的规则由 {@link SpaceKeyMicSmoke} 钉住。
- */
+/** 工具栏语音按钮保留排序接线，设置写顶层共享偏好；组合入口的状态与保存由设备专项验证。 */
 public final class ToolbarVoiceButtonSmoke {
     public static void main(String[] args) throws Exception {
         String key = ToolbarOrderPolicy.Item.VOICE.preferenceKey;
@@ -39,29 +35,22 @@ public final class ToolbarVoiceButtonSmoke {
                 .contains("if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) return preferences.optBoolean(member, false);"),
             "the toolbar settings read the voice switch from the top-level preference, off by default");
         String saveToolbar = body(options, "private void saveToolbar(String member, boolean value) {");
-        check(saveToolbar.contains("KeyboardSheets.write(context, preferences -> preferences.put(member, value))"),
+        check(saveToolbar.contains("preferences -> preferences.put(member, value)"),
             "the toolbar settings write the voice switch at the top level, not into touch_toolbar");
-        // 和语音页选「工具栏按钮」同一条规则：打开按钮时一起关掉长按空格语音，关掉按钮时不碰它（#10142 要两处入口不并存）。
-        check(saveToolbar.contains("!value || KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE, false)"),
-            "turning the toolbar voice button on turns long-press space voice off, turning it off leaves it alone");
+        check(!saveToolbar.contains("AndroidLocalSettings.SPACE_VOICE"),
+            "the toolbar switch does not change long-press space voice");
 
         String voicePage = read("home/VoicePage.java");
-        // 点已选中的启动方式不能写回：两个开关都开时这里显示「长按空格」，写回会悄悄关掉工具栏按钮。
-        check(body(voicePage, "private void pickTrigger(int selected, GroupCard.Row row) {").contains("if (choice == selected) return;"),
-            "re-tapping the selected trigger leaves both switches unchanged");
-        check(voicePage.contains("preferences.put(\"" + key + "\", trigger == TRIGGER_TOOLBAR)"),
-            "the voice page's 工具栏按钮 writes the same switch the toolbar uses");
-        // 工具栏「显示方式：隐藏」时按钮不会出现，语音页选着「工具栏按钮」要说出来，并指向还留着的磁贴。
-        check(voicePage.contains("trigger == TRIGGER_TOOLBAR && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN) ? TRIGGER_TOOLBAR_HIDDEN_HINT"),
-            "the voice page explains a hidden toolbar when 工具栏按钮 is chosen");
+        check(voicePage.contains("工具栏/长按空格"), "the voice page combines both entry labels");
+        check(voicePage.contains("local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)"),
+            "the voice page explains an enabled button on a hidden toolbar");
         Matcher hiddenHint = Pattern.compile("static final String TRIGGER_TOOLBAR_HIDDEN_HINT = \"([^\"]*)\";").matcher(voicePage);
         check(hiddenHint.find(), "missing TRIGGER_TOOLBAR_HIDDEN_HINT");
         String voiceTile = FunctionPanelModel.item(FunctionPanelModel.Id.VOICE_INPUT).label();
         check(hiddenHint.group(1).contains("工具栏已隐藏") && hiddenHint.group(1).contains("「" + voiceTile + "」"),
             "the hidden-toolbar hint names the voice tile that stays in 更多工具");
-        check(body(read("core/ImeFunctionPanel.java"), "if (!s.toolbarHidden) {")
-                .contains("if (s.touchVoiceShortcutEnabled) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);"),
-            "the voice tile is de-duplicated only while the toolbar shows");
+        check(!read("core/ImeFunctionPanel.java").contains("hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT)"),
+            "more tools keeps the voice entry independently of the toolbar");
         System.out.println("ToolbarVoiceButtonSmoke passed");
     }
 

@@ -65,6 +65,7 @@ final class TallReturnDeviceChecks {
             t.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
                 + " --ez msime_test_multiline true");
             t.tap(t.field("msime-test-plain"));
+            t.selectChineseKeyboard();
             t.await(t.described("打开符号面板").and(AccessibilityNodeInfo::isEnabled));
             letterFrame();
             numberFrame();

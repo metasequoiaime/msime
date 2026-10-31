@@ -762,6 +762,8 @@ final class ImeLetterRows {
 
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
+        // 长按语音覆盖共同父容器，键行重建也必须结束旧面板与录音。
+        if (s.imeVoiceEntry != null && s.imeVoiceEntry.coversActionRow()) s.imeVoiceEntry.cancel();
         builtKeyRows = s.keyRows;
         drawnTouchLayout = s.displayedTouchLayout(s.view);
         builtLanguageNumberSwap = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);

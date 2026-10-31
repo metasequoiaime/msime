@@ -63,3 +63,5 @@ API28 原有十四键双拼设置、组码、消歧、分号、自定义表与�
 同步 develop 的本轮 macOS 远端验证：`scripts/verify-local.sh --quick` 通过，engine 的 `grid_helpcode` 十项、host-api 两项、engine 的 `grid_` 回归 31 项（真实词库性能用例按原配置忽略一项）、input-runtime 全量 422 项通过；engine/input-runtime 的 `clippy --all-targets -- -D warnings`、格式、笔记校验通过。Android `:app:compileFullDebugJavaWithJavac` 通过。quick 中未提供工具链或环境的 Docker Linux、WinUI 与 Harmony 等阶段仍按脚本跳过；本轮没有重做上述 Android 设备交互验收。原投稿环境的门禁结果保留在前文，本轮通过不代表完整发布或真机验收。
 
 合并后的 Native Platform CI 暴露两项诊断码完整性失败：`GRID_HELPCODE_LIMIT` 没有对应稳定编号。补齐编号 26 后，远端 `cargo test -p msime-engine` 的库测试 2906 项、golden 31 项、数据集 3 项和线程 3 项全部通过，库测试按既有配置忽略 57 项；clippy 与 quick 再次通过。全量测试需要先将该 SSH 环境的文件句柄上限从 256 调整到 4096；低上限引发的 SQLite `CannotOpen` 与上述两项真实缺陷分别记录，不改测试或失败基线绕过。
+
+同步固定 `ccc237197b` 的本轮合并结果：设备源码登记保留网格辅码与长按语音专项，未调整实验交互或默认值。engine `grid_` 31 项通过、1 项按原配置忽略，input-runtime 422 项、Host API grid 两项以及 engine／runtime 严格 clippy 通过。Android 宿主 316 项 JVM、259 份设备源码与 JNI／资源契约通过。完整 quick 退出 0，包含 Windows x64 原生链接与 GNU 设置、Linux 设置壳及原生 ctest、macOS 原生、共享 Apple bridge 和 x64／i686 pipe-only。Windows i686 宿主语法阶段因当时没有 x64 compile database 跳过；HarmonyOS 原生 HAP 缺 staged 环境跳过，不能当作通过。本轮未重做原投稿的 API 28／35 交互或 HyperOS 真机验收；保持实验草稿，CI 需在新 head 重跑。

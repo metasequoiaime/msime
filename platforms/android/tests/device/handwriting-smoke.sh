@@ -72,7 +72,7 @@ raw_stroke() {
 }
 "$adb" -s "$serial" shell rm -f "$touch_request" "$touch_ack"
 if [[ "$coexistence" == true ]]; then
-  for checkpoint in before result after failure; do
+  for checkpoint in before result after failure prerequisite-failure; do
     "$adb" -s "$serial" shell rm -f "/data/local/tmp/msime-ocr-ime-handwriting-$checkpoint.png"
   done
 fi
