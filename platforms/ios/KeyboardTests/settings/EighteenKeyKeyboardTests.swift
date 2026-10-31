@@ -377,9 +377,15 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(shown(try view("numberRow", in: controller)))
     XCTAssertFalse(shown(try button("tabletLayerKey", in: controller)), "the 18 keys use the phone bottom row")
     XCTAssertTrue(shown(try button("returnKey", in: controller)))
-    for id in ["eighteenKeyA", "eighteenKeyBN", "eighteenKeyDelete"] {
+    for id in ["eighteenKeyBN", "eighteenKeyDelete"] {
       XCTAssertEqual(try frame(id, in: controller).width, q.width, accuracy: 0.5, id)
     }
+    // 第二排与手机相同（`testTheThreeRowsShareTheSameLeftAndRightEdges`）：六个键平分整行，A 比 Q 宽、与 Q 左对齐，L 与 P 右对齐。
+    let a = try frame("eighteenKeyA", in: controller), l = try frame("eighteenKeyL", in: controller)
+    XCTAssertGreaterThan(a.width, q.width + 0.5)
+    XCTAssertEqual(l.width, a.width, accuracy: 0.5)
+    XCTAssertEqual(a.minX, q.minX, accuracy: 0.5)
+    XCTAssertEqual(l.maxX, try frame("eighteenKeyP", in: controller).maxX, accuracy: 0.5)
     XCTAssertFalse(KeyboardSplitLayout.splitsLayout(scheme: .eighteenKey, chinese: true, localMode: false))
     attachScreenshot(of: controller, named: "Eighteen-key iPad keyboard")
   }
