@@ -42,7 +42,7 @@ export function touchToolbarPreferences(
   return { ...defaultTouchToolbar, ...toolbar };
 }
 
-/** HarmonyOS 手机键盘空闲工具栏的五个工具和显示方式（共享偏好 `harmony_toolbar`）。标志键和收起键固定在两端，不在这里。 */
+/** HarmonyOS 手机键盘空闲工具栏的工具、显示方式和「随」入口（共享偏好 `harmony_toolbar`）。标志键和收起键固定在两端，不在这里。 */
 export type HarmonyToolbarPreferences = {
   emoji: boolean;
   phrase: boolean;
@@ -51,9 +51,11 @@ export type HarmonyToolbarPreferences = {
   scheme: boolean;
   /** 显示方式选了「隐藏」：空闲时整行不显示，组字时候选栏照常显示。 */
   hidden: boolean;
+  /** 中文键盘工具栏上的「随」入口（#10254）：只决定入口在不在，点「随」才打乱数字九宫格，那个开关不存进偏好。 */
+  random_digits: boolean;
 };
 
-/** 与 client-core 的缺省相同：五个工具全在、不隐藏，就是没有这组设置时的鸿蒙键盘。 */
+/** 与 client-core 的缺省相同：五个工具全在、不隐藏、没有「随」，就是没有这组设置时的鸿蒙键盘。 */
 const defaultHarmonyToolbar: HarmonyToolbarPreferences = {
   emoji: true,
   phrase: true,
@@ -61,6 +63,7 @@ const defaultHarmonyToolbar: HarmonyToolbarPreferences = {
   skin: true,
   scheme: true,
   hidden: false,
+  random_digits: false,
 };
 
 /** 按鸿蒙工具栏上从左到右的顺序排列，夹在标志键和收起键之间。 */
@@ -73,7 +76,12 @@ export const harmonyToolbarOptions: readonly [
   ["clipboard", "剪贴板"],
   ["skin", "皮肤"],
   ["scheme", "输入方式"],
+  ["random_digits", "随机数字"],
 ];
+
+/** 「随机数字」开关下的说明，与 Android「键盘工具栏」页同一句。 */
+export const harmonyRandomDigitsDescription =
+  "在中文工具栏显示“随”开关；点按后打乱数字九宫格，每输入一个数字重新排列";
 
 /** 只合并显示所需的缺省值，不修改原偏好。 */
 export function harmonyToolbarPreferences(

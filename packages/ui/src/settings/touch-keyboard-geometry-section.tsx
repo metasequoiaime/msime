@@ -100,6 +100,7 @@ export function TouchKeyboardGeometrySection({
   toolbarComponents,
   toolbar,
   harmonyToolbar,
+  harmonyChineseScheme,
   tabletFullKeys,
   tabletSplitKeyboard,
   glideTyping,
@@ -296,6 +297,7 @@ export function TouchKeyboardGeometrySection({
         onTouchVoiceShortcutChange={onTouchVoiceShortcutChange}
         onToolbarChange={onToolbarChange}
         harmonyToolbar={harmonyToolbar}
+        harmonyChineseScheme={harmonyChineseScheme}
         onHarmonyToolbarChange={onHarmonyToolbarChange}
       />
       {(tabletFullKeys !== undefined ||

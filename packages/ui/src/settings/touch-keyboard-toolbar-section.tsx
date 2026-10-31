@@ -4,6 +4,7 @@ import { SettingsGroupNote } from "./settings-group-note";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 import {
+  harmonyRandomDigitsDescription,
   harmonyToolbarOptions,
   harmonyToolbarPreferences,
   type HarmonyToolbarPreferences,
@@ -22,6 +23,8 @@ export interface TouchKeyboardToolbarSectionProps {
   onToolbarChange: (value: TouchToolbarPreferences) => void;
   /** 宿主报告 `touch_toolbar_tools` 时（HarmonyOS 手机）给出 `harmony_toolbar` 的当前值，没存过时给空对象；不给时不画显示方式和工具开关。 */
   harmonyToolbar?: Partial<HarmonyToolbarPreferences>;
+  /** 偏好里的方案是不是中文（`isChineseScheme(scheme)`），和 `harmonyToolbar` 一起给出。鸿蒙键盘只在中文方案上画「随」，所以只有这时「随机数字」能让空闲工具栏那一行留着；不给时按中文方案算。 */
+  harmonyChineseScheme?: boolean;
   onHarmonyToolbarChange?: (value: HarmonyToolbarPreferences) => void;
 }
 
@@ -34,16 +37,20 @@ export function TouchKeyboardToolbarSection({
   onTouchVoiceShortcutChange,
   onToolbarChange,
   harmonyToolbar,
+  harmonyChineseScheme = true,
   onHarmonyToolbarChange,
 }: TouchKeyboardToolbarSectionProps) {
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
   if (!showVoiceShortcut && !toolbarComponents && !harmonyToolbar) return null;
   const toolbarValues = touchToolbarPreferences(toolbar);
   const harmonyValues = harmonyToolbar && harmonyToolbarPreferences(harmonyToolbar);
-  // 与鸿蒙键盘的 `TouchToolbarPolicy.rowHidden` 同一条规则：选了「隐藏」或五个工具全关时，空闲时整行不显示。
+  // 与鸿蒙键盘的 `TouchToolbarPolicy.rowHidden` 同一条规则：选了「隐藏」或工具全关时，空闲时整行不显示；「随」入口只在中文方案上算一个工具，只开着它时中文键盘的这一行照常显示，日文、韩文、越南文和藏文照旧不显示。
   const harmonyRowHidden =
     harmonyValues !== undefined &&
-    (harmonyValues.hidden || harmonyToolbarOptions.every(([key]) => !harmonyValues[key]));
+    (harmonyValues.hidden ||
+      harmonyToolbarOptions.every(
+        ([key]) => !harmonyValues[key] || (key === "random_digits" && !harmonyChineseScheme),
+      ));
   return (
     <GroupList title="工具栏">
       {showVoiceShortcut && (
@@ -99,6 +106,7 @@ export function TouchKeyboardToolbarSection({
               key={key}
               title={label}
               aria-label={`工具栏：${label}`}
+              description={key === "random_digits" ? harmonyRandomDigitsDescription : undefined}
               checked={harmonyValues[key]}
               disabled={harmonyValues.hidden}
               onChange={(checked) => onHarmonyToolbarChange?.({ ...harmonyValues, [key]: checked })}

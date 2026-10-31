@@ -54,7 +54,7 @@ test("每次解析返回新对象，不把显示缺省值写回输入", () => {
   expect(source).toEqual({ emoji: false });
 });
 
-test("鸿蒙工具栏缺省五个工具全在、不隐藏，缺键按缺省补齐且不改输入", () => {
+test("鸿蒙工具栏缺省五个工具全在、不隐藏、没有「随」入口，缺键按缺省补齐且不改输入", () => {
   expect(harmonyToolbarPreferences()).toEqual({
     emoji: true,
     phrase: true,
@@ -62,13 +62,15 @@ test("鸿蒙工具栏缺省五个工具全在、不隐藏，缺键按缺省补�
     skin: true,
     scheme: true,
     hidden: false,
+    random_digits: false,
   });
-  expect(harmonyToolbarOptions.map(([key]) => key)).toEqual([
-    "emoji",
-    "phrase",
-    "clipboard",
-    "skin",
-    "scheme",
+  expect(harmonyToolbarOptions).toEqual([
+    ["emoji", "表情"],
+    ["phrase", "常用语"],
+    ["clipboard", "剪贴板"],
+    ["skin", "皮肤"],
+    ["scheme", "输入方式"],
+    ["random_digits", "随机数字"],
   ]);
   const source = Object.freeze({ skin: false, hidden: true });
   expect(harmonyToolbarPreferences(source)).toEqual({
@@ -78,6 +80,7 @@ test("鸿蒙工具栏缺省五个工具全在、不隐藏，缺键按缺省补�
     skin: false,
     scheme: true,
     hidden: true,
+    random_digits: false,
   });
   expect(source).toEqual({ skin: false, hidden: true });
 });

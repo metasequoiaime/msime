@@ -759,6 +759,7 @@ test("the phone keyboard page edits which toolbar tools are shown and whether th
     skin: true,
     scheme: true,
     hidden: true,
+    random_digits: false,
   });
 });
 

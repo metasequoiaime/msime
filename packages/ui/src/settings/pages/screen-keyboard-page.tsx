@@ -14,7 +14,7 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsPreviewBlock } from "../settings-preview-block";
 import { SelectRow } from "../select-row";
 import type { TouchKeyboardScheme } from "../touch-keyboard-scheme-helpers";
-import { supportedInputSchemes } from "../input-scheme-options";
+import { isChineseScheme, supportedInputSchemes } from "../input-scheme-options";
 import { touchSplitKeyboardLimits } from "../touch-split-keyboard-rows";
 import { defaultTouchKeyboardGeometry } from "../touch-keyboard-geometry-defaults";
 import { HandwritingSettingsContent } from "./handwriting-page";
@@ -365,6 +365,7 @@ export function ScreenKeyboardSettingsPage() {
             toolbar={draft.touch_toolbar}
             // 只有报告 `touch_toolbar_tools` 的宿主（HarmonyOS 手机）给出这组开关，其他宿主的页面不变。
             harmonyToolbar={host?.touch_toolbar_tools ? (draft.harmony_toolbar ?? {}) : undefined}
+            harmonyChineseScheme={isChineseScheme(draft.scheme)}
             tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
             tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
             glideTyping={mobileKeyboardFeedback?.glideTyping}
