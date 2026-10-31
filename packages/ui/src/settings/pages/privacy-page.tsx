@@ -6,17 +6,20 @@ import { useSettingsForm } from "../settings-form-context";
 import { TelemetryRow } from "../telemetry-section";
 import { PrivacyConsentRow } from "../privacy-consent-row";
 import { ScreenCaptureProtectionGroup } from "../screen-capture-protection-row";
+import { CommunityBlockedAuthorsRow } from "../community-blocked-authors-row";
+import { useCommunityBlocks } from "../../community/community-block";
 
 /**
  * 「我的 › 隐私」打开的页面：用几句话说清楚哪些数据留在手机上、什么时候才会发出去，下面是匿名使用统计的开关，最后才是去网页看完整隐私政策的链接。原来这一行直接打开隐私政策网页，点进去是一整篇法律文本，还离开了应用。
  *
- * 宿主提供「防止截屏」时（HarmonyOS），匿名使用统计下面多一组「截屏与录屏」；Android 的同一个开关在它自己的原生隐私页里。
+ * 宿主提供「防止截屏」时（HarmonyOS），匿名使用统计下面多一组「截屏与录屏」；Android 的同一个开关在它自己的原生隐私页里。宿主提供屏蔽社区作者时，再多一组「社区」，里面是「已屏蔽的作者」。
  *
  * 这几句与仓库根目录的 PRIVACY.md（逐项的网络请求说明）一致：云联想默认关闭；语音、AI 对话只在使用时发出那一次的内容；皮肤、词库、统计不会自动上传；匿名使用统计默认开启、不含输入内容。
  */
 export function PrivacySettingsPage() {
   const { busy, page, draft, setDraft, selectPage, openExternalUrl, showAiGeneration, client } =
     useSettingsForm();
+  const blocks = useCommunityBlocks();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "privacy"} ariaLabel="隐私">
@@ -47,6 +50,11 @@ export function PrivacySettingsPage() {
         />
       </GroupList>
       <ScreenCaptureProtectionGroup client={client.screenCaptureProtection} />
+      {blocks && (
+        <GroupList title="社区">
+          <CommunityBlockedAuthorsRow />
+        </GroupList>
+      )}
       <GroupList>
         {/* HarmonyOS 首次启动时由原生弹窗征得授权，这里显示授权状态并可重新打开弹窗。 */}
         <PrivacyConsentRow consent={client.privacyConsent} />

@@ -169,6 +169,13 @@ export function useCommunityCandidateSkinGallery({
     );
   };
 
+  /** 屏蔽了详情里这件作品的作者之后：关掉详情，留下提示，再重读列表，服务端不再列出这位作者的作品。 */
+  const blocked = async (notice: string) => {
+    closeDetail();
+    setActionNotice(notice);
+    await requestList(activeSearch, false);
+  };
+
   const publishDone = async (published: CommunityCandidateSkin) => {
     setPublishOpen(false);
     setActionNotice(
@@ -198,6 +205,7 @@ export function useCommunityCandidateSkinGallery({
     closeDetail,
     rateSelected,
     reportSelected,
+    blocked,
     search,
     setSearch,
     publishOpen,

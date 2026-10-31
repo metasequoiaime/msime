@@ -4,6 +4,7 @@
 
 use crate::platform::account_helpers::{call_session, call_session_detailed};
 use crate::platform::desktop::desktop_candidate_skin_community::CandidateSkinCommunityState;
+use crate::platform::desktop::desktop_community_block::CommunityBlockState;
 use crate::platform::desktop::desktop_community_report::CommunityReportState;
 use crate::platform::desktop::desktop_plugin_community::PluginCommunityState;
 use crate::shared::account_dto::{
@@ -13,6 +14,7 @@ use msime_client_services::account::{
     client_agent, AccountError, AccountFailure, BackendAccountClient, BackendAccountSession,
     FileAccountSessionStorage,
 };
+use msime_client_services::community::block::BackendCommunityBlockService;
 use msime_client_services::community::report::BackendCommunityReportService;
 use msime_client_services::plugins::community::BackendCommunityPluginService;
 use msime_client_services::skin::candidate_community::BackendCandidateSkinCommunityService;
@@ -56,7 +58,7 @@ fn desktop_client_agent(app: &tauri::AppHandle) -> Option<String> {
     .ok()
 }
 
-/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin, plugin and report community services that authenticate through the same session.
+/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin, plugin, report and author-block community services that authenticate through the same session.
 pub(crate) fn manage(
     app: &tauri::AppHandle,
     storage: Storage,
@@ -75,6 +77,13 @@ pub(crate) fn manage(
     });
     app.manage(CommunityReportState {
         service: Arc::new(BackendCommunityReportService::new(
+            client.clone(),
+            Arc::clone(&session),
+        )),
+    });
+    // 屏蔽作者只用登录账号，服务自己拒绝匿名会话。
+    app.manage(CommunityBlockState {
+        service: Arc::new(BackendCommunityBlockService::new(
             client.clone(),
             Arc::clone(&session),
         )),

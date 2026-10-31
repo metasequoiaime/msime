@@ -14,6 +14,7 @@ import { MobileSettingsTabs } from "./mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings-page-header";
 import { settingsShellPlatformPresentation } from "./settings-shell-platform-presentation";
 import { SettingsShellToasts } from "./settings-shell-toasts";
+import { CommunityBlocksContext, useCommunityBlocksValue } from "../community/community-block";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings-page-visibility";
 import { useLayoutEffect } from "react";
 import { SettingsPageStatus } from "./settings-page-status";
@@ -109,6 +110,12 @@ function SettingsShell(props: SettingsPageProps) {
     pageColumnRef,
     launchPage,
   } = useSettingsShellState(page);
+  // 社区作品详情里的「屏蔽作者」和隐私设置里的「已屏蔽的作者」都从这里取屏蔽客户端，图库各自挂在哪一页都不用一层层传。
+  const communityBlocks = useCommunityBlocksValue(
+    client.communityBlocks,
+    client.account,
+    model.openAccountLogin,
+  );
   const shellPresentation = settingsShellPlatformPresentation({
     settingsPlatform,
     mobilePlatform,
@@ -244,203 +251,213 @@ function SettingsShell(props: SettingsPageProps) {
       data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={onWindowPointerDownCapture}
     >
-      <SettingsShellToasts enabled={harmonyLook}>
-        {confirmation}
-        <KeyboardSwitchGuideHost setup={client.home?.setup} />
-        {titlebarShown && (
-          <WindowTitlebar
-            linux={linuxShell}
-            logo={logo}
-            pageTitle={pageTitle}
-            search={searchInTitlebar ? navSearchField : undefined}
-            maximized={windowMaximized}
-            windowControl={client.windowControl}
-            dragHandlers={windowDragHandlers}
-            keepPointer={keepPointer}
-          />
-        )}
-        <div className={settings.body} data-settings-body="">
-          {/* 底部标签栏通过 `order-2` 排在内容下方，DOM 中仍放在内容之前，让辅助技术和键盘焦点先到导航；底部留白避开手势区。超过手机宽度后隐藏，由侧栏承担导航。 */}
-          {mobilePlatform && !contentFills && (
-            <MobileSettingsTabs
-              tabs={mobilePrimaryPages}
-              activeTab={mobileActiveTab}
-              onSelect={selectMobileTab}
-              platform={settingsPlatform}
+      <CommunityBlocksContext.Provider value={communityBlocks}>
+        <SettingsShellToasts enabled={harmonyLook}>
+          {confirmation}
+          <KeyboardSwitchGuideHost setup={client.home?.setup} />
+          {titlebarShown && (
+            <WindowTitlebar
+              linux={linuxShell}
+              logo={logo}
+              pageTitle={pageTitle}
+              search={searchInTitlebar ? navSearchField : undefined}
+              maximized={windowMaximized}
+              windowControl={client.windowControl}
+              dragHandlers={windowDragHandlers}
+              keepPointer={keepPointer}
             />
           )}
-          <SettingsSidebar
-            presentation={shellPresentation}
-            preview={!client.host}
-            shownSidebarGroups={shownSidebarGroups}
-            navigationPage={navigationPage}
-            navSearchField={navSearchField}
-            navSearchResults={navSearchResults}
-            windowDragHandlers={windowDragHandlers}
-            selectPage={selectPage}
-          />
-          <main
-            ref={settingsContentRef}
-            id="settings-content"
-            className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"} ${contentFills ? "flex flex-col" : ""}`}
-            aria-labelledby="page-title"
-            onScroll={
-              collapsingTitle
-                ? (event) => setTitleCollapsedOn(event.currentTarget.scrollTop > 28 ? page : null)
-                : undefined
-            }
-          >
-            {collapsingTitle && (
-              // 大标题滚出视野后显示紧凑标题。标题文字只作装饰，页面名称仍由下方的 `h1` 提供；返回按钮则承担实际导航，因为原按钮会随大标题滚走，推入页滚动后仍需保留系统手势以外的返回出口。
-              <div className={settings.collapsedTitle(titleCollapsedOn === page)}>
-                {pushedPage && titleCollapsedOn === page && (
-                  <button
-                    type="button"
-                    className={settings.collapsedBackButton}
-                    aria-label="返回"
-                    onClick={goBack}
-                  >
-                    <FluentIcon name="arrow_left" size={22} />
-                  </button>
-                )}
-                <span aria-hidden="true">{pageTitle}</span>
-              </div>
+          <div className={settings.body} data-settings-body="">
+            {/* 底部标签栏通过 `order-2` 排在内容下方，DOM 中仍放在内容之前，让辅助技术和键盘焦点先到导航；底部留白避开手势区。超过手机宽度后隐藏，由侧栏承担导航。 */}
+            {mobilePlatform && !contentFills && (
+              <MobileSettingsTabs
+                tabs={mobilePrimaryPages}
+                activeTab={mobileActiveTab}
+                onSelect={selectMobileTab}
+                platform={settingsPlatform}
+              />
             )}
-            {macShell && (
-              <header className={settings.macosToolbar} data-window-drag="" {...windowDragHandlers}>
-                <h1 id="page-title">{pageTitle}</h1>
-              </header>
-            )}
-            <div
-              ref={pageColumnRef}
-              className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""} ${contentFills ? "flex min-h-0 flex-1 flex-col" : ""}`}
-              // 统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。社区虽是标签页的根页，内容是和皮肤页「社区」分类同样的图库而不是设置列表，保持图库原来的版式。
-              data-tab-page={
-                harmonyPhone && tabRootPage && page !== "home" && page !== "community"
-                  ? ""
+            <SettingsSidebar
+              presentation={shellPresentation}
+              preview={!client.host}
+              shownSidebarGroups={shownSidebarGroups}
+              navigationPage={navigationPage}
+              navSearchField={navSearchField}
+              navSearchResults={navSearchResults}
+              windowDragHandlers={windowDragHandlers}
+              selectPage={selectPage}
+            />
+            <main
+              ref={settingsContentRef}
+              id="settings-content"
+              className={`${settings.content} ${ipadSidebarShown ? "" : "ipad:col-span-2"} ${contentFills ? "flex flex-col" : ""}`}
+              aria-labelledby="page-title"
+              onScroll={
+                collapsingTitle
+                  ? (event) => setTitleCollapsedOn(event.currentTarget.scrollTop > 28 ? page : null)
                   : undefined
               }
             >
-              {/* 三个标签页一打开都是已经表明自身的内容（标题行、资料卡、一排数字），源应用不在它们上面印页面标题。标题是隐藏而不是去掉：它为 `main` 提供名称。 */}
-              {parentPage && !harmonyPhone && (
-                <button
-                  type="button"
-                  className={settings.backLink}
-                  // 名称指明返回目标，避免与侧栏出现两个同名的「反馈」按钮。
-                  aria-label={`返回${parentPage.title}`}
-                  onClick={() => selectPage(parentPage.id)}
-                >
-                  <span aria-hidden="true">‹ </span>
-                  {parentPage.title}
-                </button>
+              {collapsingTitle && (
+                // 大标题滚出视野后显示紧凑标题。标题文字只作装饰，页面名称仍由下方的 `h1` 提供；返回按钮则承担实际导航，因为原按钮会随大标题滚走，推入页滚动后仍需保留系统手势以外的返回出口。
+                <div className={settings.collapsedTitle(titleCollapsedOn === page)}>
+                  {pushedPage && titleCollapsedOn === page && (
+                    <button
+                      type="button"
+                      className={settings.collapsedBackButton}
+                      aria-label="返回"
+                      onClick={goBack}
+                    >
+                      <FluentIcon name="arrow_left" size={22} />
+                    </button>
+                  )}
+                  <span aria-hidden="true">{pageTitle}</span>
+                </div>
               )}
-              {mascotIntro ? (
-                <SettingsMascotIntro {...mascotIntro}>
-                  {!macShell && (
+              {macShell && (
+                <header
+                  className={settings.macosToolbar}
+                  data-window-drag=""
+                  {...windowDragHandlers}
+                >
+                  <h1 id="page-title">{pageTitle}</h1>
+                </header>
+              )}
+              <div
+                ref={pageColumnRef}
+                className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""} ${contentFills ? "flex min-h-0 flex-1 flex-col" : ""}`}
+                // 统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。社区虽是标签页的根页，内容是和皮肤页「社区」分类同样的图库而不是设置列表，保持图库原来的版式。
+                data-tab-page={
+                  harmonyPhone && tabRootPage && page !== "home" && page !== "community"
+                    ? ""
+                    : undefined
+                }
+              >
+                {/* 三个标签页一打开都是已经表明自身的内容（标题行、资料卡、一排数字），源应用不在它们上面印页面标题。标题是隐藏而不是去掉：它为 `main` 提供名称。 */}
+                {parentPage && !harmonyPhone && (
+                  <button
+                    type="button"
+                    className={settings.backLink}
+                    // 名称指明返回目标，避免与侧栏出现两个同名的「反馈」按钮。
+                    aria-label={`返回${parentPage.title}`}
+                    onClick={() => selectPage(parentPage.id)}
+                  >
+                    <span aria-hidden="true">‹ </span>
+                    {parentPage.title}
+                  </button>
+                )}
+                {mascotIntro ? (
+                  <SettingsMascotIntro {...mascotIntro}>
+                    {!macShell && (
+                      <SettingsPageHeader
+                        title={pageTitle}
+                        onBack={pushedPage ? goBack : undefined}
+                      />
+                    )}
+                  </SettingsMascotIntro>
+                ) : (
+                  !macShell && (
                     <SettingsPageHeader
                       title={pageTitle}
+                      hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
                       onBack={pushedPage ? goBack : undefined}
+                      home={page === "home"}
                     />
-                  )}
-                </SettingsMascotIntro>
-              ) : (
-                !macShell && (
-                  <SettingsPageHeader
-                    title={pageTitle}
-                    hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
-                    onBack={pushedPage ? goBack : undefined}
-                    home={page === "home"}
-                  />
-                )
-              )}
-              {/* 2-in-1 的根页面上没有设置引导卡片，所以输入法还需要添加或设为默认时，由 输入 和 关于 提示。 */}
-              {settingsPlatform === "hm2" &&
-                client.home &&
-                (page === "input" || page === "about") && (
-                  <SetupWarningStrip actions={client.home} />
+                  )
                 )}
-              {(macosPlatform || linuxShell) && <OobeStatusNotice client={client.oobe} />}
-              <SettingsPageStatus
-                error={error}
-                notice={notice}
-                onDismissNotice={dismissNotice}
-                busy={busy}
-                recoveredBackup={recoveredBackup}
-                canRecover={Boolean(client.recoverPreferences)}
-                onRecover={statusActions.onRecover}
-                openPreferencesDirectory={client.openPreferencesDirectory}
-                macos={macosPlatform}
-                onError={setError}
-                draft={draft}
-                inputSourceStartup={inputSourceStartup}
-                onOpenSettings={statusActions.onOpenSettings}
-                onDismiss={statusActions.onDismiss}
-                saveError={
-                  saveState === "failed" && draft && isSettingsFormPage(page) ? saveError : ""
-                }
-                onRetrySave={() => void retrySave()}
-              />
-              {client.notices && (
-                <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
-              )}
-              <SettingsFeaturePages
-                model={model}
-                chatState={{ chatMounted, chatFocusRequest, setChatFocusRequest }}
-                onOpenPage={onOpenPage}
-                onOpenChat={onOpenChat}
-                onReplayOnboarding={onReplayOnboarding}
-                localDictionary={communityLocalDictionary}
-                onSkinApplied={recordCommunitySkin}
-              />
-              <SettingsSkinCommunitySection
-                model={model}
-                views={communityViews}
-                onSkinViewChange={setSkinView}
-                onSkinApplied={recordCommunitySkin}
-              />
-              <SettingsSkinEditorSection
-                model={model}
-                views={communityViews}
-                onSkinViewChange={setSkinView}
-              />
-              <SettingsPluginCommunitySection
-                model={model}
-                views={communityViews}
-                pluginView={pluginView}
-                onPluginViewChange={setPluginView}
-                onOpenPlugin={(installed) => {
-                  setPluginOpenRequest((previous) => ({
-                    kind: installed.kind,
-                    id: installed.id,
-                    serial: (previous?.serial ?? 0) + 1,
-                  }));
-                  setPluginView("mine");
-                }}
-              />
-              {draft && isSettingsFormPage(page) && (
-                <SettingsPreferencesForm
-                  model={{ ...model, draft }}
-                  skinTabs={skinTabs}
-                  desktopSkinTabs={desktopSkinTabs}
-                  // 社区图库和「制作皮肤」都画在表单之外，选中其一时表单里的皮肤页隐藏。
-                  skinCommunityShown={skinCommunityShown || skinEditorShown}
-                  pluginCommunityShown={pluginCommunityShown}
-                  pluginOpenRequest={pluginOpenRequest}
-                  externalActions={externalActions}
-                  onRestoreDefaults={onRestoreDefaults}
-                  reloadSettings={reloadSettings}
+                {/* 2-in-1 的根页面上没有设置引导卡片，所以输入法还需要添加或设为默认时，由 输入 和 关于 提示。 */}
+                {settingsPlatform === "hm2" &&
+                  client.home &&
+                  (page === "input" || page === "about") && (
+                    <SetupWarningStrip actions={client.home} />
+                  )}
+                {(macosPlatform || linuxShell) && <OobeStatusNotice client={client.oobe} />}
+                <SettingsPageStatus
+                  error={error}
+                  notice={notice}
+                  onDismissNotice={dismissNotice}
+                  busy={busy}
+                  recoveredBackup={recoveredBackup}
+                  canRecover={Boolean(client.recoverPreferences)}
+                  onRecover={statusActions.onRecover}
+                  openPreferencesDirectory={client.openPreferencesDirectory}
+                  macos={macosPlatform}
+                  onError={setError}
+                  draft={draft}
+                  inputSourceStartup={inputSourceStartup}
+                  onOpenSettings={statusActions.onOpenSettings}
+                  onDismiss={statusActions.onDismiss}
+                  saveError={
+                    saveState === "failed" && draft && isSettingsFormPage(page) ? saveError : ""
+                  }
+                  onRetrySave={() => void retrySave()}
                 />
-              )}
-              {/* 表单可见时，加载或保存失败后的「重新读取」位于表单操作行；没有表单或设置加载失败时，这里是唯一的恢复入口。 */}
-              {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (
-                <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
-                  重新读取
-                </button>
-              )}
-            </div>
-          </main>
-        </div>
-      </SettingsShellToasts>
+                {client.notices && (
+                  <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
+                )}
+                <SettingsFeaturePages
+                  model={model}
+                  chatState={{ chatMounted, chatFocusRequest, setChatFocusRequest }}
+                  onOpenPage={onOpenPage}
+                  onOpenChat={onOpenChat}
+                  onReplayOnboarding={onReplayOnboarding}
+                  localDictionary={communityLocalDictionary}
+                  onSkinApplied={recordCommunitySkin}
+                />
+                <SettingsSkinCommunitySection
+                  model={model}
+                  views={communityViews}
+                  onSkinViewChange={setSkinView}
+                  onSkinApplied={recordCommunitySkin}
+                />
+                <SettingsSkinEditorSection
+                  model={model}
+                  views={communityViews}
+                  onSkinViewChange={setSkinView}
+                />
+                <SettingsPluginCommunitySection
+                  model={model}
+                  views={communityViews}
+                  pluginView={pluginView}
+                  onPluginViewChange={setPluginView}
+                  onOpenPlugin={(installed) => {
+                    setPluginOpenRequest((previous) => ({
+                      kind: installed.kind,
+                      id: installed.id,
+                      serial: (previous?.serial ?? 0) + 1,
+                    }));
+                    setPluginView("mine");
+                  }}
+                />
+                {draft && isSettingsFormPage(page) && (
+                  <SettingsPreferencesForm
+                    model={{ ...model, draft }}
+                    skinTabs={skinTabs}
+                    desktopSkinTabs={desktopSkinTabs}
+                    // 社区图库和「制作皮肤」都画在表单之外，选中其一时表单里的皮肤页隐藏。
+                    skinCommunityShown={skinCommunityShown || skinEditorShown}
+                    pluginCommunityShown={pluginCommunityShown}
+                    pluginOpenRequest={pluginOpenRequest}
+                    externalActions={externalActions}
+                    onRestoreDefaults={onRestoreDefaults}
+                    reloadSettings={reloadSettings}
+                  />
+                )}
+                {/* 表单可见时，加载或保存失败后的「重新读取」位于表单操作行；没有表单或设置加载失败时，这里是唯一的恢复入口。 */}
+                {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => void reloadSettings()}
+                  >
+                    重新读取
+                  </button>
+                )}
+              </div>
+            </main>
+          </div>
+        </SettingsShellToasts>
+      </CommunityBlocksContext.Provider>
     </div>
   );
 }

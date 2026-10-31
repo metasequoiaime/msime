@@ -7,6 +7,8 @@ import { LicenseRows } from "../license-rows";
 import { TelemetryRow, TelemetrySection } from "../telemetry-section";
 import { PrivacyConsentRow } from "../privacy-consent-row";
 import { ScreenCaptureProtectionGroup } from "../screen-capture-protection-row";
+import { CommunityBlockedAuthorsRow } from "../community-blocked-authors-row";
+import { useCommunityBlocks } from "../../community/community-block";
 import { AboutHeroSection, HarmonyAboutHero } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
@@ -112,6 +114,9 @@ export function AboutSettingsPage() {
   const openPrivacy = () =>
     void openExternalUrl(clientHostedPlatform && !linuxPlatform ? androidPrivacyUrl : privacyUrl);
   const harmony = settingsPlatform === "harmony" || settingsPlatform === "hm2";
+  // 「已屏蔽的作者」在触屏宿主上从「我的 › 隐私」进入；桌面和 2in1 没有那一页，放在「许可与隐私」里。
+  const blocks = useCommunityBlocks();
+  const blockedAuthorsRow = blocks && !mobilePlatform;
   const { tabList, panel } = useSettingsTabs(
     aboutTabs.filter((tab) => tab.id !== "system" || !harmony),
     "关于设置分类",
@@ -232,6 +237,11 @@ export function AboutSettingsPage() {
             />
             {/* 2in1 没有「我的 › 隐私」，「防止截屏」只能在这里；这一页常驻，设置搜索也靠它找到这一项。 */}
             <ScreenCaptureProtectionGroup client={client.screenCaptureProtection} />
+            {blockedAuthorsRow && (
+              <GroupList title="社区">
+                <CommunityBlockedAuthorsRow />
+              </GroupList>
+            )}
           </>
         ) : (
           <GroupList title="许可与隐私">
@@ -250,6 +260,7 @@ export function AboutSettingsPage() {
               onChange={onTelemetryChange}
               onOpenDetails={() => selectPage("usage-reporting")}
             />
+            {blockedAuthorsRow && <CommunityBlockedAuthorsRow />}
           </GroupList>
         ),
       )}

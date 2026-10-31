@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import {
   createDesktopCandidateSkinCommunity,
+  createDesktopCommunityBlocks,
   createDesktopCommunityResources,
   createDesktopPluginCommunity,
   createDesktopSettingsSync,
@@ -71,6 +72,25 @@ test("the desktop plugin community lists the user's own packs and reports with t
   expect(invoke.mock.calls).toEqual([
     ["plugin_community_list", { offset: 0, search: "", kind: "sound", mine: true }],
     ["community_report", { kind: "plugins", id, reason: "恶意插件", detail: "" }],
+  ]);
+});
+
+test("the desktop author blocks invoke the three block commands", async () => {
+  const invoke = vi.fn(async () => undefined);
+  const blocks = createDesktopCommunityBlocks(
+    invoke as unknown as Parameters<typeof createDesktopCommunityBlocks>[0],
+  );
+  const item = "10000000-0000-4000-8000-000000000004";
+  const block = "20000000-0000-4000-8000-000000000002";
+
+  await blocks.block("candidate-skins", item);
+  await blocks.list();
+  await blocks.unblock(block);
+
+  expect(invoke.mock.calls).toEqual([
+    ["community_block", { kind: "candidate-skins", id: item }],
+    ["community_block_list"],
+    ["community_unblock", { id: block }],
   ]);
 });
 
