@@ -489,8 +489,16 @@ export function InputSettingsPage() {
         }
         beforeFrequency={
           <>
-            {/* 鸿蒙手机和平板不提供快捷模式入口；2in1 仍保留实体键盘对应的设置。 */}
-            {!harmonyPhone && (
+            {/* 鸿蒙手机和平板不提供快捷模式入口；2in1 仍保留实体键盘对应的设置。日期时间混入候选和它的格式入口作用于普通打字的候选，不是快捷模式，手机和平板上照样给出这两个开关。 */}
+            {harmonyPhone ? (
+              <LocalModesSection
+                preferences={localModes}
+                ios={false}
+                only={["date_time_inline", "date_time_menu"]}
+                title="日期时间候选"
+                onChange={onLocalModesChange}
+              />
+            ) : (
               <LocalModesSection
                 preferences={localModes}
                 ios={iosPlatform}

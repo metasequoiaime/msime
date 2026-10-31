@@ -361,7 +361,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - iPad
 
-  /// iPad 与 14 键一样画完整的 18 键：不分体，不画数字行，底行是手机 26 键底行，七个键等宽。
+  /// iPad 与 14 键一样画完整的 18 键：不分体，不画数字行，底行是手机 26 键底行；第一、三排七个键等宽，第二排六个键等宽铺满整行，A 与 Q 左对齐、L 与 P 右对齐。
   func testTheTabletDrawsTheEighteenKeysWhole() throws {
     let controller = KeyboardViewController()
     controller.traitOverrides.userInterfaceIdiom = .pad
@@ -377,9 +377,16 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(shown(try view("numberRow", in: controller)))
     XCTAssertFalse(shown(try button("tabletLayerKey", in: controller)), "the 18 keys use the phone bottom row")
     XCTAssertTrue(shown(try button("returnKey", in: controller)))
-    for id in ["eighteenKeyA", "eighteenKeyBN", "eighteenKeyDelete"] {
+    for id in ["eighteenKeyBN", "eighteenKeyDelete"] {
       XCTAssertEqual(try frame(id, in: controller).width, q.width, accuracy: 0.5, id)
     }
+    let a = try frame("eighteenKeyA", in: controller)
+    for key in EighteenKeyLayout.rows[1] {
+      XCTAssertEqual(try frame("eighteenKey\(key.face)", in: controller).width, a.width, accuracy: 0.5, key.face)
+    }
+    XCTAssertGreaterThan(a.width, q.width)
+    XCTAssertEqual(a.minX, q.minX, accuracy: 0.5)
+    XCTAssertEqual(try frame("eighteenKeyL", in: controller).maxX, try frame("eighteenKeyP", in: controller).maxX, accuracy: 0.5)
     XCTAssertFalse(KeyboardSplitLayout.splitsLayout(scheme: .eighteenKey, chinese: true, localMode: false))
     attachScreenshot(of: controller, named: "Eighteen-key iPad keyboard")
   }

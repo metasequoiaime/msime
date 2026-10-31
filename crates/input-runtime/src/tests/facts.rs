@@ -355,20 +355,14 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
             pinyin_continues,
         }
     };
-    // 开关开：四码完整、没有暂存词段时顶字，混输开不开、拼音是否续写都一样。
+    // 开关开：四码完整、没有暂存词段、拼音不再续输时顶字，混输开不开都一样。
     for mixed in [false, true] {
-        for continues in [false, true] {
-            assert!(wubi_top_commit_on_next_key(&request(
-                true, mixed, true, true, continues
-            )));
-        }
+        assert!(wubi_top_commit_on_next_key(&request(
+            true, mixed, true, true, false
+        )));
     }
-    // 开关关 + 混输开 + 拼音能续写：字母并进混输串，不顶字。
+    // 开关关 + 混输开：字母并进混输串，不顶字。
     assert!(!wubi_top_commit_on_next_key(&request(
-        false, true, true, true, true
-    )));
-    // 开关关 + 混输开但拼音不能续写：仍顶字，不能丢掉按键。
-    assert!(wubi_top_commit_on_next_key(&request(
         false, true, true, true, false
     )));
     // 开关关 + 混输关：字母无处容纳，仍按顶字上屏，一个键都不丢。
@@ -379,6 +373,8 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
     for request in [
         request(false, false, false, true, false),
         request(false, false, true, false, false),
+        request(true, false, true, true, true),
+        request(true, true, true, true, true),
         request(false, true, false, true, false),
     ] {
         assert!(!wubi_top_commit_on_next_key(&request));
@@ -386,13 +382,12 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
 }
 
 #[test]
-fn enabling_wubi_top_commit_wins_over_mixed_pinyin_continuation() {
-    // 五笔版默认打开混输时，顶字开关仍应让第五个字母开始下一组编码。
+fn the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading() {
+    // 五笔版默认开着混输与顶字：第五个字母续不上任何拼音读音时，首选上屏，字母开始下一组编码。
     let mut mixed = focused(FactEngine {
         scheme: 2,
         words: vec!["合成甲".into(), "合成乙".into()],
         mixed_pinyin: true,
-        pinyin_continues: true,
         ..FactEngine::default()
     });
     type_keys(&mut mixed, b"wqab");
@@ -408,6 +403,19 @@ fn enabling_wubi_top_commit_wins_over_mixed_pinyin_continuation() {
             SelectionOutcome::Committed
         ))
     );
+    // 同样的默认设置下，字母能续写拼音读音时保留组字（#8619）。
+    let mut continued = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        pinyin_continues: true,
+        ..FactEngine::default()
+    });
+    type_keys(&mut continued, b"wqab");
+    let grown = type_keys(&mut continued, b"x");
+    assert!(grown.commit.is_none());
+    assert_eq!(grown.view.editing_text, "wqabx");
+    assert_eq!(selection(&continued), None);
 }
 
 #[test]
@@ -453,7 +461,6 @@ fn turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow() {
         scheme: 2,
         words: vec!["合成甲".into(), "合成乙".into()],
         mixed_pinyin: true,
-        pinyin_continues: true,
         ..FactEngine::default()
     });
     mixed.set_wubi_fifth_code_top_commit(false);
