@@ -38,4 +38,6 @@ Status: implemented
 
 同一边界还可能出现在两个完整音节之后，例如 `qigu` 既是五笔整码也是 `qi'gu` 的拼音输入；候选保存的规范读音带有音节分隔符，边界判断必须在比较时忽略 `'`，否则输入 `qiguai` 的第五个字母仍会被截掉。回归测试 `mixed_wubi_starts_a_new_pinyin_syllable_after_a_four_letter_code` 固定这一条续输路径。
 
+续输判断不再把已放开的延长状态当作续写证据。四码时这个状态是从前三码“有任何全拼行”继承来的（见[`xuqiu` 截断](2026-10-18-wubi-mixed-pinyin-xuqiu.md)），`wqi` 的简拼或纠错行就足以让 `wqiy` 之后的任意小写字母被判为续写，默认开着混输与顶字时首选不上屏。现在只认真实读音前缀：完整首音节加未完成尾音节、整段四码加下一字母仍在一个音节内（`chan` 接 `g`）、或当前拼音行的读音（忽略 `'`）正好由这个字母延续；引擎接受第五码的长度规则不变。运行时判定仍保留 `!pinyin_continues`，顶字开着时可续写的拼音照样延长。回归测试 `wubi_pinyin_continues_only_for_a_real_reading_after_a_four_code` 固定 `wqiy` 接 `a` 不算续写，`guiy` 接 `i`、`bian` 接 `y`、`qigu` 接 `a`、`chan` 接 `g` 仍算；`the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading` 在运行时两侧各断言一次。
+
 `bash scripts/verify-local.sh --quick` 通过：Rust 工作区、Android 目标与宿主 Java、WASM、Linux 设置壳、Linux 原生宿主（90 项测试）、macOS 原生宿主、共享 Apple 桥与 Windows IPC 两种架构均通过；Windows 完整交叉编译因其他构建占用共享锁而跳过，HarmonyOS 原生编译因缺少 staged 输入而跳过。未进行系统输入法替换或发布。

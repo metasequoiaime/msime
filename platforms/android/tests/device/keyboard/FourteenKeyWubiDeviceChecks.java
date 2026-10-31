@@ -36,6 +36,8 @@ final class FourteenKeyWubiDeviceChecks {
             .put("touch_keyboard_layout", "twenty_six_key").put("touch_wubi_layout", "twenty_six_key")
             .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
             .put("traditional_chinese_output", false).put("candidate_english_gloss", false)
+            .put("wubi_mixed_pinyin", true).put("wubi_fifth_code_top_commit", true)
+            .put("wubi_auto_commit_unique", false)
             .put("mixed_input", new JSONObject().put("english", false).put("minimum_prefix", 2)
                 .put("emoji", false).put("kaomoji", false))
             .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray()
@@ -44,6 +46,13 @@ final class FourteenKeyWubiDeviceChecks {
             t.stage = "fourteen wubi baseline";
             save();
             t.restartIme();
+            editor(false);
+            t.stage = "26-key wubi fifth-code top commit with mixed pinyin";
+            t.shellDiscard("input text wqiy");
+            t.await(candidate("你"));
+            t.shellDiscard("input text a");
+            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
+            t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText("a", node.getText())));
             layoutSetting("26 键", "14 键");
             assertStored("wubi86", "fourteen_key");
             editor(false);

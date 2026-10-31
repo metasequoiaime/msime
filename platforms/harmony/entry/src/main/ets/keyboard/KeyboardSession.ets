@@ -2906,6 +2906,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.scheme, this.localMode);
   }
 
+  /** The helpcode trigger a touch 123-layer key types in this state, or null; see `ChineseHelpcodePolicy.layerTrigger`. */
+  helpcodeTrigger(face: string): string | null {
+    return ChineseHelpcodePolicy.layerTrigger(face, this.lastView?.spelling_symbols ?? '',
+      ChineseHelpcodePolicy.eligible(this.englishMode, this.editing, this.scheme, this.localMode));
+  }
+
   /**
    * Whether a gloss is expected under the candidates, which is a setting rather than an arrival.
    *
@@ -7978,6 +7984,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`candidate list unreadable: ${describeError(error)}`);
       return [];
     }
+  }
+
+  /** 上一次 `allCandidates` 取到的是哪个会话的哪一代候选；展开网格据此分辨重取的是同一份列表（释义晚到）还是换了候选。 */
+  candidateListIdentity(): string {
+    return `${this.handle}:${this.generation}`;
   }
 
   /**

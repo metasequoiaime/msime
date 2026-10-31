@@ -36,6 +36,8 @@ struct FactEngine {
     withheld: Vec<String>,
     /// 五笔拼音混输；顶字关掉时字母只有混输打开才有地方容纳。
     mixed_pinyin: bool,
+    /// 当前第五键可继续当前混输拼音读音。
+    pinyin_continues: bool,
 }
 
 impl FactEngine {
@@ -52,6 +54,9 @@ impl FactEngine {
 impl InputEngine for FactEngine {
     fn wubi_mixed_pinyin(&self) -> bool {
         self.mixed_pinyin
+    }
+    fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
+        self.pinyin_continues
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
@@ -374,6 +379,43 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
     ] {
         assert!(!wubi_top_commit_on_next_key(&request));
     }
+}
+
+#[test]
+fn the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading() {
+    // 五笔版默认开着混输与顶字：第五个字母续不上任何拼音读音时，首选上屏，字母开始下一组编码。
+    let mut mixed = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        ..FactEngine::default()
+    });
+    type_keys(&mut mixed, b"wqab");
+    let topped = type_keys(&mut mixed, b"x");
+    assert_eq!(topped.commit.as_deref(), Some("合成甲"));
+    assert_eq!(topped.view.editing_text, "x");
+    assert_eq!(
+        selection(&mixed),
+        Some(fact(
+            0,
+            0,
+            SelectionHow::WubiTop,
+            SelectionOutcome::Committed
+        ))
+    );
+    // 同样的默认设置下，字母能续写拼音读音时保留组字（#8619）。
+    let mut continued = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        pinyin_continues: true,
+        ..FactEngine::default()
+    });
+    type_keys(&mut continued, b"wqab");
+    let grown = type_keys(&mut continued, b"x");
+    assert!(grown.commit.is_none());
+    assert_eq!(grown.view.editing_text, "wqabx");
+    assert_eq!(selection(&continued), None);
 }
 
 #[test]

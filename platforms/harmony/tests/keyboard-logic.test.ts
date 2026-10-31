@@ -67,6 +67,7 @@ import {
 } from "../entry/src/main/ets/keyboard/emoji/MascotStickerPolicy";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
+import { ExpandedCandidateBatchPolicy } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateBatchPolicy";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
 import {
   CandidateGlossLayoutPolicy,
@@ -1569,8 +1570,8 @@ group("projects the same form factor into every settings capability", () => {
     "every form factor's emoji panel reads the mirrored symbol set packs",
   );
   check(
-    phone.pluginTriggers && tablet.pluginTriggers,
-    "phones and tablets offer the / and @ switches: the touch keyboard enters / from 本地输入 and an attached keyboard routes all three",
+    !phone.pluginTriggers && !tablet.pluginTriggers,
+    "phones and tablets offer no / and @ switches, command tables or phrase tables: they have no 快捷模式 group or 本地输入 tile to enter those modes from",
   );
   check(
     phone.touchPluginPacks && tablet.touchPluginPacks && !desktop.touchPluginPacks,
@@ -4487,6 +4488,35 @@ group("helpcode needs a composition, a pinyin scheme and no local mode", () => {
     "a local mode owns the keystroke instead",
   );
   check(ChineseHelpcodePolicy.eligible(false, "ni", 1, "none"), "shuangpin is eligible too");
+  // The Engine takes helpcode from the letter's case, never from the shift flag: a lowercase letter sent as shifted was typed as plain pinyin.
+  check(
+    ChineseHelpcodePolicy.letterInput("x", true) === "X",
+    "a shifted letter is sent as a capital",
+  );
+  check(
+    ChineseHelpcodePolicy.letterInput("x", false) === "x",
+    "an unshifted letter stays lowercase",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", "';", true) === ";",
+    "the Chinese layer's semicolon key is the trigger the Engine publishes",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("/", "/", true) === "/",
+    "a key drawn as itself counts too",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", "'", true) === null,
+    "a trigger that is off leaves the key to insert its face",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", ";", false) === null,
+    "without a pinyin composition the key is punctuation",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("@", "@", true) === null,
+    "a published key that is no helpcode trigger keeps its own route",
+  );
 });
 
 group("the wubi hint shows only the untyped suffix", () => {
@@ -5941,6 +5971,69 @@ group("expanded candidates stay on one line and inside their row", () => {
   check(ExpandedCandidateLayout.rows([], [], 5).length === 0, "an empty list has no rows");
 });
 
+group("the expanded grid builds its cells in batches", () => {
+  // A single initial lists hundreds of candidates (606 for shuangpin J). Building every cell at once
+  // stalled the panel on open and on every change while it was open; Android's
+  // CandidateGridBatchPolicy builds the first batch and appends as the user scrolls.
+  const batch = ExpandedCandidateBatchPolicy.BATCH;
+  check(batch === 48, "the batch matches Android's CandidateGridBatchPolicy.BATCH");
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 0, false) === batch,
+    "opening builds one batch",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(10, 0, false) === 10,
+    "a short list is built whole",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 144, true) === 144,
+    "a redraw of the same generation keeps what was already built",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 144, false) === batch,
+    "a new generation starts again from the first batch",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.initialCount(606, 10, true) === batch,
+    "a redraw never builds less than a batch",
+  );
+  check(ExpandedCandidateBatchPolicy.nextCount(48, 606) === 96, "an append adds one batch");
+  check(
+    ExpandedCandidateBatchPolicy.nextCount(600, 606) === 606,
+    "and stops at the end of the list",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 200, 400),
+    "a grid that ends within a screen below the viewport grows",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 200, 401),
+    "one that reaches further does not yet",
+  );
+  check(
+    ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 300, 200, 700),
+    "scrolling down brings the append closer",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(606, 606, 0, 200, 100),
+    "a complete grid never grows",
+  );
+  check(
+    !ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, 0, 0),
+    "nor one that has not been laid out",
+  );
+  assertThrows(
+    () => ExpandedCandidateBatchPolicy.nextCount(700, 606),
+    /Invalid candidate grid counts/,
+    "built beyond the list is a bug",
+  );
+  assertThrows(
+    () => ExpandedCandidateBatchPolicy.shouldAppend(48, 606, 0, -1, 0),
+    /Invalid candidate grid geometry/,
+    "a negative viewport is a bug",
+  );
+});
+
 group("a candidate with a gloss offers the gloss as something to type", () => {
   // MSIME-Apple's TheCandidateMenuOffersToInsertTheGlossItself: macOS hands the translation over
   // with Option and a digit, a touch keyboard has no modifiers, so it goes on the long press. Until
@@ -6924,12 +7017,20 @@ group("local modes are addressable by trigger and by preference key", () => {
     LocalInputMode.touchModes(false) === LocalInputMode.MODES,
     "with / 指令 off the touch panel lists the nine tiles and no 指令",
   );
+  check(
+    LocalInputMode.touchColumns(LocalInputMode.MODES.length) === 3,
+    "nine touch modes use three columns so 拆字 does not hang alone below the grid",
+  );
   const withCommand = LocalInputMode.touchModes(true);
   check(
     withCommand.length === LocalInputMode.MODES.length + 1 &&
       withCommand[withCommand.length - 1] === LocalInputMode.fromPreferenceKey("command") &&
       withCommand[withCommand.length - 1].title === "指令",
     "with / 指令 on the touch panel adds 指令 after 拆字",
+  );
+  check(
+    LocalInputMode.touchColumns(withCommand.length) === 4,
+    "the optional 指令 keeps the touch grid at three rows",
   );
   check(
     withCommand.every(
@@ -11387,6 +11488,28 @@ group("the function panel follows the design's order, then the Harmony extras", 
   );
   const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
   check(new Set(ids).size === ids.length, "every id is unique");
+});
+
+group("phones and tablets hide the local input entry", () => {
+  const touchIds: string[] = FunctionPanelPolicy.items(true, false).map(
+    (item: FunctionPanelItem) => item.id,
+  );
+  check(
+    !touchIds.includes(FunctionPanelPolicy.LOCAL_INPUT),
+    "the phone and tablet function panel has no 本地输入 tile",
+  );
+  check(
+    FunctionPanelPolicy.items(true).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "the 2in1 panel keeps the local input tile",
+  );
+  check(
+    !FunctionPanelPolicy.items(false, false).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "hiding local input also works when AI tiles are unavailable",
+  );
 });
 
 group(

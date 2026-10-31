@@ -179,6 +179,13 @@ export function useCommunitySkinGallery({
     void unpublishSelected("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
   };
 
+  /** 屏蔽了详情里这款皮肤的作者之后：关掉详情（正在试用就先恢复原皮肤），留下提示，再重读列表，服务端不再列出这位作者的作品。 */
+  const blocked = async (notice: string) => {
+    await closeDetail();
+    setActionNotice(notice);
+    await requestList(activeSearch, false);
+  };
+
   const publishDone = async () => {
     setPublishOpen(false);
     setActionNotice("已发布到社区。");
@@ -215,6 +222,7 @@ export function useCommunitySkinGallery({
     unpublish,
     unpublishSelected,
     reportSelected,
+    blocked,
     runAction,
     download,
     finishTrial,

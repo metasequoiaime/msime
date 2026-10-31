@@ -8,6 +8,7 @@ export { CommunityHarmonySearch } from "./community-search-form";
 export { CommunityHarmonyLoadMore } from "./community-gallery-load-more";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityNotice } from "./community-notice";
+import { CommunityActionNotice } from "./community-action-notice";
 import { CommunitySkinPublishDialog } from "./community-skin-publish-dialog";
 import { CommunitySkinCard } from "./community-skin-card";
 import { CommunityHarmonySkinCard } from "./community-harmony-skin-card";
@@ -99,6 +100,7 @@ export function CommunitySkinsPage({
     rateSelected,
     unpublish,
     reportSelected,
+    blocked,
     download,
     finishTrial,
     changeCategory,
@@ -150,6 +152,7 @@ export function CommunitySkinsPage({
         onUnpublish={() => void unpublish()}
         onCancelUnpublish={() => setConfirmUnpublish(false)}
         onReport={contributions && client.report ? reportSelected : undefined}
+        onBlocked={(notice) => void blocked(notice)}
       />
     );
 
@@ -302,6 +305,7 @@ export function CommunitySkinsPage({
         error={error}
         signInRequired={signInRequired}
         onLogin={onLogin}
+        notice={actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
         empty={
           !listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 ? (
             <CommunityNotice>

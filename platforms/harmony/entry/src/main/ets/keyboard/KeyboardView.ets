@@ -22,6 +22,7 @@ import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/Corre
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
+import { ExpandedCandidateBatchPolicy } from './candidate/ExpandedCandidateBatchPolicy';
 import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
@@ -645,6 +646,13 @@ struct KeyboardView {
   /** The local history entry a long press offered to send to the cloud clipboard, or empty. */
   @State clipSendTarget: string = '';
   @State expanded: ExpandedCandidate[] = [];
+  /** 展开网格已经建了 `expanded` 开头的多少格，规则在 `ExpandedCandidateBatchPolicy`。 */
+  @State expandedBuilt: number = 0;
+  /** `expanded` 来自哪个会话的哪一代候选（`KeyboardSession.candidateListIdentity`）；面板关着时为空。 */
+  private expandedListIdentity: string = '';
+  private expandedScroller: Scroller = new Scroller();
+  private expandedViewportHeight: number = 0;
+  private expandedContentHeight: number = 0;
   /** Which row of the expanded panel is showing its gloss, or -1. Its own index space. */
   @State expandedGloss: number = -1;
   /** 全拼九键展开面板的左栏放拼音还是笔画；关闭面板时回到拼音。 */
@@ -1477,8 +1485,7 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
-    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    const input: string = ChineseHelpcodePolicy.letterInput(letter, shifted);
     const touchKey: TouchKey | null = this.touchKey(touch, shifted);
     if (touchKey !== null) {
       KeyboardSession.shared.pressTouch(input.charCodeAt(0), shifted, touchKey);
@@ -2859,6 +2866,8 @@ struct KeyboardView {
     }
     if (surface !== SURFACE_EXPANDED) {
       this.expanded = [];
+      this.expandedBuilt = 0;
+      this.expandedListIdentity = '';
       this.expandedGloss = -1;
     }
     if (surface === SURFACE_TOOLS) {
@@ -2882,12 +2891,31 @@ struct KeyboardView {
     this.refreshExpanded();
   }
 
-  /** 重新取完整候选列表；长按释义指的那一行没了就收起释义条。 */
+  /** 重新取完整候选列表；长按释义指的那一行没了就收起释义条。同一代候选的重取建回已建的格子，换了一代从第一批建起并回到顶部。 */
   private refreshExpanded(): void {
+    const previous: string = this.expandedListIdentity;
     this.expanded = KeyboardSession.shared.allCandidates();
+    this.expandedListIdentity = KeyboardSession.shared.candidateListIdentity();
+    const sameGeneration: boolean = previous.length > 0 && previous === this.expandedListIdentity;
+    this.expandedBuilt = ExpandedCandidateBatchPolicy.initialCount(this.expanded.length, this.expandedBuilt,
+      sameGeneration);
+    if (previous.length > 0 && !sameGeneration) {
+      // 面板开着时换了候选（选掉前一段、选拼音、退格、改筛选）：新列表从头建，留着旧的滚动位置会落在第一批之外。刚打开的面板本来就在顶部。
+      this.expandedScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    }
     if (this.expandedGloss >= this.expanded.length) {
       this.expandedGloss = -1;
     }
+  }
+
+  /** 滚到离已建格子底边不到一屏，或第一批没填够一屏多时，追加下一批。 */
+  private appendExpandedIfNeeded(): void {
+    if (this.surface !== SURFACE_EXPANDED || !ExpandedCandidateBatchPolicy.shouldAppend(this.expandedBuilt,
+      this.expanded.length, this.expandedScroller.currentOffset().yOffset, this.expandedViewportHeight,
+      this.expandedContentHeight)) {
+      return;
+    }
+    this.expandedBuilt = ExpandedCandidateBatchPolicy.nextCount(this.expandedBuilt, this.expanded.length);
   }
 
   /**
@@ -5375,6 +5403,9 @@ struct KeyboardView {
 
   /** 数字九宫格上的数字、0、小数点、左列出厂项和半角符号、顶部补充行怎么输入（键位已由调用方记过），规则与 Android、iOS 相同（`NineKeyLayout.numberPadToSession`）：本地模式、越南语和藏文里引擎此刻列为拼写符号的字符，以及藏文的 `'`，交给会话（`press`）；其余一律按字面上屏（`insertNumberPadLiteral`），日语、韩文和大千注音的数字和标点也是。 */
   private typeNumberPadText(text: string): void {
+    if (this.typeHelpcodeTrigger(text)) {
+      return;
+    }
     if (NineKeyLayout.numberPadToSession(text, this.localMode !== 'none', this.vietnameseFace(), this.tibetanFace(),
       KeyboardSession.shared.hardwareSpelling())) {
       KeyboardSession.shared.press(text.charCodeAt(0), false);
@@ -5938,7 +5969,7 @@ struct KeyboardView {
     this.actionRow()
   }
 
-  /** 全拼 18 键的三排组码键面；第二排居中半个键距，第三排两端留给分词和删除。 */
+  /** 全拼 18 键的三排组码键面；三排从同一左右边界铺开，第二排六个键平分整行（A 与 Q 左对齐、L 与 P 右对齐，与 Android、iOS 相同），第三排两端留给分词和删除。 */
   @Builder
   eighteenKeyFace() {
     Row({ space: this.keySpacing() }) {
@@ -5949,11 +5980,9 @@ struct KeyboardView {
     .width('100%').height(this.rowHeight(0))
 
     Row({ space: this.keySpacing() }) {
-      Column().layoutWeight(0.5).height('100%')
       ForEach(EighteenKeyLayout.rows()[1], (key: FourteenKey) => {
         this.eighteenKeyButton(key)
       }, (key: FourteenKey) => key.letters + this.faceKey())
-      Column().layoutWeight(0.5).height('100%')
     }
     .width('100%').height(this.rowHeight(1))
 
@@ -9278,10 +9307,11 @@ struct KeyboardView {
     .borderColor(this.menuColors.border)
   }
 
-  /** 绘制哪些展开格：引擎列出的每个候选，按索引。触屏工具条只滚动当前页，所以网格是触屏键盘查看列表其余部分的唯一途径，从不截断。 */
+  /** 绘制哪些展开格：引擎列出的候选按索引，已建到 `expandedBuilt`。触屏工具条只滚动当前页，所以网格是触屏键盘查看列表其余部分的唯一途径，往下滚会接着建，从不截断。 */
   private expandedIndices(): number[] {
     const indices: number[] = [];
-    for (let index: number = 0; index < this.expanded.length; index++) {
+    const built: number = Math.min(this.expandedBuilt, this.expanded.length);
+    for (let index: number = 0; index < built; index++) {
       indices.push(index);
     }
     return indices;
@@ -9394,7 +9424,7 @@ struct KeyboardView {
     CandidateCanvasFrame({ scene: this.settings.candidateCanvas, fixedContent: true,
       fallbackColor: this.settings.candidateColors.surface,
       onPanelReady: (key: string, ready: boolean): void => this.canvasReady('expanded', key, ready) }) {
-    Scroll() {
+    Scroll(this.expandedScroller) {
       Column({ space: EXPANDED_GAP_VP }) {
         ForEach(this.expandedRows(), (row: ExpandedCandidateCell[]) => {
           Row({ space: EXPANDED_GAP_VP }) {
@@ -9441,13 +9471,22 @@ struct KeyboardView {
       }
       .width('100%')
       .padding(EXPANDED_PADDING_VP)
+      .onAreaChange((_old: Area, now: Area): void => {
+        this.expandedContentHeight = Number(now.height);
+        this.appendExpandedIfNeeded();
+      })
     }
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.None)
     .align(Alignment.Top)
     .width('100%')
     .height('100%')
-    .onAreaChange((_old: Area, now: Area): void => { this.canvasExpandedWidth = Number(now.width); })
+    .onDidScroll((): void => this.appendExpandedIfNeeded())
+    .onAreaChange((_old: Area, now: Area): void => {
+      this.canvasExpandedWidth = Number(now.width);
+      this.expandedViewportHeight = Number(now.height);
+      this.appendExpandedIfNeeded();
+    })
     }
     }
     .layoutWeight(1)
@@ -9762,7 +9801,8 @@ struct KeyboardView {
                 }
               }, (mode: LocalInputModeDefinition) => mode.id)
             }
-            .columnsTemplate('1fr 1fr')
+            .columnsTemplate(LocalInputMode.touchColumns(this.localInputModes.length) === 4
+              ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr')
             .width('100%')
           }
           .width('100%')
@@ -9772,22 +9812,30 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         PagedTiles({
-          count: FunctionPanelPolicy.items(AiGenerationGate.enabled()).length,
+          count: this.functionPanelItems().length,
           pageSize: this.tilePageSize(),
-          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items(AiGenerationGate.enabled()).length),
+          rowHeight: this.tileRowHeight(this.functionPanelItems().length),
           rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
           tile: (index: number): void => {
-            this.functionTile(FunctionPanelPolicy.items(AiGenerationGate.enabled())[index])
+            this.functionTile(this.functionPanelItems()[index])
           }
         })
       }
     }
     .width('100%')
     .height(this.surfaceHeight())
+  }
+
+  /** 手机和平板不显示本地输入入口；2in1 保留完整的功能面板。 */
+  private functionPanelItems(): FunctionPanelItem[] {
+    const allItems: FunctionPanelItem[] = FunctionPanelPolicy.items(AiGenerationGate.enabled());
+    return KeyboardFormFactor.isDesktop()
+      ? allItems
+      : FunctionPanelPolicy.items(AiGenerationGate.enabled(), false);
   }
 
   /** 「常用语」面板：用户的常用语，点一下即插入。 */
@@ -11800,6 +11848,19 @@ struct KeyboardView {
       NumberSymbolLayout.SPACE_WEIGHT, NumberSymbolLayout.RETURN_WEIGHT], 2);
   }
 
+  /**
+   * 组字中按到的辅助码触发键（123 层画成「；」的分号键、`/` 等，`ChineseHelpcodePolicy.layerTrigger`）交给 Engine 开一段辅助码，而不是按原样上屏再插入键面。Engine 收下时回到字母层，接下来要打的是辅助码字母；不收时返回 false，调用方照常输入键面。
+   */
+  private typeHelpcodeTrigger(text: string): boolean {
+    const trigger: string | null = KeyboardSession.shared.helpcodeTrigger(text);
+    if (trigger === null || !KeyboardSession.shared.press(trigger.charCodeAt(0), false)) {
+      return false;
+    }
+    this.symbols = false;
+    this.moreSymbols = false;
+    return true;
+  }
+
   /** 字符键输入它显示的内容；哪些键仍走符号行路径见 `NumberSymbolLayout.route`。 */
   private tapLayerCharacter(text: string): void {
     if (NumberSymbolLayout.route(text, this.designLayerChinese()) === LayerCharacterRoute.SYMBOL_KEY) {
@@ -11807,6 +11868,9 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
+    if (this.typeHelpcodeTrigger(text)) {
+      return;
+    }
     // 已有组合按原样上屏，与 Android 的 `commitNineKeyLiteral` 一致。
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(text);
