@@ -5,8 +5,6 @@ export const VOICE_MAX_TEXT: number = 4096;
 export const VOICE_MAX_LANGUAGE: number = 32;
 /** 结果直接进入编辑器后，聆听界面显示「已识别：…」的时长，即 Android 的 `ImeVoiceEntry.DONE_NOTICE_MILLIS`。 */
 export const VOICE_DONE_NOTICE_MS: number = 1200;
-/** 最后一次听到话语后多久触屏录音自行结束，取 Android 默认停顿 `AndroidLocalSettings.VOICE_PAUSE_DEFAULT_MILLIS`（Android 上用户可在本地语音设置里调整，鸿蒙固定）。 */
-export const VOICE_SILENCE_STOP_MS: number = 1500;
 /** 点按开始的本地识别出字后停顿多久结束录音（`voice_input.pause_millis`）的范围、步进和缺省值，与 client-core 的 `VOICE_PAUSE_MILLIS_*` 和 Android 本机设置 `AndroidLocalSettings.VOICE_PAUSE_*` 相同；缺省值就是改成可调之前写死的 1500。 */
 export const VOICE_PAUSE_DEFAULT_MS: number = 1500;
 export const VOICE_PAUSE_MIN_MS: number = 500;

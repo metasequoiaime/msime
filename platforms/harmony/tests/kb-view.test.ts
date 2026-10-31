@@ -17,7 +17,6 @@ import { CandidateWidthPolicy } from "../entry/src/main/ets/keyboard/candidate/C
 import {
   VoiceRecognitionPolicy,
   VOICE_DONE_NOTICE_MS,
-  VOICE_SILENCE_STOP_MS,
   VOICE_PAUSE_DEFAULT_MS,
 } from "../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy";
 
@@ -349,9 +348,8 @@ group("a voice result goes straight in only where listening began", () => {
   );
   check(
     VOICE_DONE_NOTICE_MS === 1200 &&
-      VOICE_SILENCE_STOP_MS === 1500 &&
       VOICE_PAUSE_DEFAULT_MS === 1500,
-    "Android's notice time and default pauses",
+    "Android's notice time and default pause",
   );
 });
 
