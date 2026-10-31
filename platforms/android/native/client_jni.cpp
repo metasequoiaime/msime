@@ -58,6 +58,8 @@ constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 constexpr jsize kDictionarySyncRequestLimit = 2 * 1024 * 1024;
 // 与 C 入口一致：为 8 MiB 原始词表的 JSON 转义和元数据留出空间。
 constexpr jsize kVocabularyReviewRequestLimit = 17 * 1024 * 1024;
+// 「加入生词本」：候选原文、释义和读音，与 C 入口的 64 KiB 上限一致。
+constexpr jsize kPersonalWordbookRequestLimit = 65536;
 constexpr jsize kPrepareHostRequestLimit = 16384;
 constexpr jsize kSavePreferencesDirectoryLimit = 16384;
 constexpr jsize kSavePreferencesSnapshotLimit = 1 * 1024 * 1024;
@@ -214,6 +216,10 @@ JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_typingStatisticsEnabl
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_vocabularyReviewRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVocabularyReviewRequestLimit,
         msime_client_vocabulary_review);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_personalWordbookAddRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kPersonalWordbookRequestLimit,
+        msime_client_personal_wordbook_add);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
     if (!query || !resources) {
