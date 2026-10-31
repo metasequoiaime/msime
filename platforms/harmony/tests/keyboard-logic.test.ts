@@ -6068,8 +6068,15 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   );
 
   const touch = CandidateManagementAction.touchActions("hello", true);
-  check(touch.length === 1, "a touch long press offers one action, not desktop management");
+  check(
+    touch.length === 2,
+    "a touch long press offers the gloss and 加入生词本, not desktop management",
+  );
   check(touch[0].title === "hello", "the touch action is the bare gloss, as the source draws it");
+  check(
+    touch[1].id === "ADD_TO_PERSONAL_WORDBOOK" && touch[1].title === "加入生词本",
+    "加入生词本 comes last, where the other hosts put it",
+  );
   check(
     CandidateManagementAction.touchActions("hello", false).length === 0,
     "an Engine annotation is not offered as translated text",
@@ -6086,8 +6093,9 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
     full
       .slice(1)
       .map((action: ManagementAction) => action.id)
-      .join(",") === "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE",
-    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order",
+      .join(",") ===
+      "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE,ADD_TO_PERSONAL_WORDBOOK",
+    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order, and 加入生词本 last",
   );
   check(
     full.find((action: ManagementAction) => action.id === "FIX_2")?.checked === true,
@@ -6095,6 +6103,46 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   );
   const noGloss = CandidateManagementAction.managementActions("", false, 0, true, false);
   check(noGloss[0].id === "PROMOTE", "a candidate without a translation still gets management");
+  check(
+    !noGloss.some((action: ManagementAction) => action.id === "ADD_TO_PERSONAL_WORDBOOK") &&
+      !CandidateManagementAction.managementActions("wbcd", false, 0, true, true).some(
+        (action: ManagementAction) => action.id === "ADD_TO_PERSONAL_WORDBOOK",
+      ),
+    "without a translation there is nothing to put in the personal wordbook",
+  );
+  // 菜单开着时候选栏可能重建：点下去时那一格的候选原文和释义都要还是打开菜单时的那一个。
+  const opened = CandidateManagementAction.touchActions(" hello ", true, "你好")[1];
+  check(
+    opened.candidate === "你好" && opened.gloss === "hello",
+    "加入生词本 remembers the candidate and the trimmed gloss it was opened for",
+  );
+  check(
+    CandidateManagementAction.samePersonalWordbookSubject(
+      opened,
+      CandidateManagementAction.personalWordbookAction("hello", true, "你好"),
+    ),
+    "the same candidate is still there",
+  );
+  check(
+    !CandidateManagementAction.samePersonalWordbookSubject(
+      opened,
+      CandidateManagementAction.personalWordbookAction("hello", true, "哈喽"),
+    ) &&
+      !CandidateManagementAction.samePersonalWordbookSubject(
+        opened,
+        CandidateManagementAction.personalWordbookAction("hi", true, "你好"),
+      ) &&
+      !CandidateManagementAction.samePersonalWordbookSubject(
+        opened,
+        CandidateManagementAction.personalWordbookAction("hello", false, "你好"),
+      ),
+    "a rebuilt strip with another candidate or gloss in that cell is not added",
+  );
+  check(
+    CandidateManagementAction.managementActions("hello", true, 0, true, true, "你好").slice(-1)[0]
+      .candidate === "你好",
+    "the full menu carries the candidate too",
+  );
   check(
     !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
     "a single character cannot be deleted",
