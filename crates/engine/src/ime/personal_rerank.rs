@@ -8,13 +8,15 @@ pub const MAX_GROUP: usize = 16;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PersonalContextRerankOrder {
     group_len: usize,
+    /// 组内各行在候选列表中的位置；首位之后的落点支持纠错行不在组内，重排时留在引擎给的位置。
+    seats: [usize; MAX_GROUP],
     indices: [usize; MAX_GROUP],
 }
 
 impl PersonalContextRerankOrder {
-    /// 按排序索引原地重排候选行，不复制行内字符串。
+    /// 按排序索引原地重排组内各行，不复制行内字符串；组外的行不动。
     pub(crate) fn reorder<T>(&self, rows: &mut [T]) {
-        debug_assert!(rows.len() >= self.group_len);
+        debug_assert!(self.group_len == 0 || rows.len() > self.seats[self.group_len - 1]);
         let mut positions = [0; MAX_GROUP];
         for (index, position) in positions.iter_mut().take(self.group_len).enumerate() {
             *position = index;
@@ -26,7 +28,7 @@ impl PersonalContextRerankOrder {
                 .position(|&index| index == source)
                 .expect("排序索引必须对应组内行");
             if current != seat {
-                rows.swap(seat, current);
+                rows.swap(self.seats[seat], self.seats[current]);
                 positions.swap(seat, current);
             }
         }
@@ -52,16 +54,26 @@ pub(crate) fn personal_context_rerank_order(
         return None;
     }
 
-    let group = leading_group_len(candidates, scheme);
-    if group < 2 {
+    let (seats, group_len) = leading_group(candidates, scheme);
+    if group_len < 2 {
         return None;
     }
-    let personal = personal_probabilities(&candidates[..group], model, &context);
-    blended_order_indices(&candidates[..group], &personal[..group], mu, is_pinned)
+    let mut rows = [first; MAX_GROUP];
+    for (row, &seat) in rows.iter_mut().zip(&seats[..group_len]) {
+        *row = &candidates[seat];
+    }
+    let group = &rows[..group_len];
+    let personal = personal_probabilities(group, model, &context);
+    let indices = blended_order_indices(group, &personal[..group_len], mu, is_pinned)?;
+    Some(PersonalContextRerankOrder {
+        group_len,
+        seats,
+        indices,
+    })
 }
 
 fn personal_probabilities(
-    group: &[WordItem],
+    group: &[&WordItem],
     model: &PersonalNgram,
     context: &PersonalContext,
 ) -> [f64; MAX_GROUP] {
@@ -77,8 +89,10 @@ fn consumed_letters(pinyin: &str) -> usize {
     pinyin.bytes().filter(|&byte| byte != b'\'').count()
 }
 
-/// 首组与第一行字数、消耗字母数相同的连续字典候选，最多 16 行；完整读音首选不与其它读音混排。
-fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
+/// 首组与第一行字数、消耗字母数相同的连续字典候选（跳过首位之后的落点支持纠错行），最多 16 行；完整读音首选不与其它读音混排。返回各行在候选列表中的位置和组内行数。
+///
+/// A touch-supported correction row after the leader stays out of the group but does not end it: it keeps its raw dictionary weight while the engine seated it by the touch-penalized rank, so blending that weight here could lift a word the user did not type over the literal leader. Skipping it keeps the literal homophones seated behind it in the group, and `reorder` leaves the correction row where the engine put it.
+fn leading_group(candidates: &[WordItem], scheme: SchemeType) -> ([usize; MAX_GROUP], usize) {
     let first = &candidates[0];
     let characters = first.word.chars().count();
     let letters = consumed_letters(&first.pinyin);
@@ -86,19 +100,34 @@ fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
     let exact_reading = scheme == SchemeType::Quanpin
         && !first.pinyin.is_empty()
         && first.pinyin == first.canonical_pinyin;
-    candidates
-        .iter()
-        .take(MAX_GROUP)
-        .take_while(|item| {
-            item.source.is_dictionary()
-                && item.word.chars().count() == characters
-                && consumed_letters(&item.pinyin) == letters
-                && (!exact_reading
-                    || item.canonical_pinyin == first.canonical_pinyin
-                    // 同一串字母的另一种完整切分（fan'gan 与 fang'an）。
-                    || (!item.pinyin.is_empty() && item.pinyin == item.canonical_pinyin))
-        })
-        .count()
+    let mut seats = [0; MAX_GROUP];
+    let mut len = 0;
+    for (index, item) in candidates.iter().enumerate() {
+        if len == MAX_GROUP {
+            break;
+        }
+        if index > 0 && item.touch_supported && !item.corrected_from.is_empty() {
+            continue;
+        }
+        let joins = item.source.is_dictionary()
+            && item.word.chars().count() == characters
+            && consumed_letters(&item.pinyin) == letters
+            && (!exact_reading
+                || item.canonical_pinyin == first.canonical_pinyin
+                // 同一串字母的另一种完整切分（fan'gan 与 fang'an）。
+                || (!item.pinyin.is_empty() && item.pinyin == item.canonical_pinyin));
+        if !joins {
+            break;
+        }
+        seats[len] = index;
+        len += 1;
+    }
+    (seats, len)
+}
+
+#[cfg(test)]
+fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
+    leading_group(candidates, scheme).1
 }
 
 #[cfg(test)]
@@ -108,26 +137,27 @@ fn blended_order(
     mu: f64,
     is_pinned: &mut dyn FnMut(&str) -> bool,
 ) -> Option<Vec<usize>> {
-    let order = blended_order_indices(group, personal, mu, is_pinned)?;
-    Some(order.indices[..order.group_len].to_vec())
+    let rows: Vec<&WordItem> = group.iter().collect();
+    let indices = blended_order_indices(&rows, personal, mu, is_pinned)?;
+    Some(indices[..group.len()].to_vec())
 }
 
-/// 按混合概率对首组评分；模型未知或排序未变时不返回索引。
+/// 按混合概率对首组评分，返回组内各位置该放的组内行号；模型未知或排序未变时不返回索引。
 fn blended_order_indices(
-    group: &[WordItem],
+    group: &[&WordItem],
     personal: &[f64],
     mu: f64,
     is_pinned: &mut dyn FnMut(&str) -> bool,
-) -> Option<PersonalContextRerankOrder> {
+) -> Option<[usize; MAX_GROUP]> {
     let personal_sum: f64 = personal.iter().sum();
     if personal_sum <= 0.0 {
         return None;
     }
     let weight = |item: &WordItem| item.weight.max(1) as f64;
-    let weight_sum: f64 = group.iter().map(weight).sum();
+    let weight_sum: f64 = group.iter().copied().map(weight).sum();
 
     let mut scored = [(0.0, 0usize); MAX_GROUP];
-    for (index, (item, probability)) in group.iter().zip(personal).enumerate() {
+    for (index, (item, probability)) in group.iter().copied().zip(personal).enumerate() {
         let share = weight(item) / weight_sum;
         scored[index] = (
             ((1.0 - mu) * share + mu * probability / personal_sum).ln(),
@@ -158,10 +188,7 @@ fn blended_order_indices(
     for (seat, &(_, index)) in scored.iter().enumerate() {
         indices[seat] = index;
     }
-    Some(PersonalContextRerankOrder {
-        group_len: group.len(),
-        indices,
-    })
+    Some(indices)
 }
 
 #[cfg(test)]
@@ -446,6 +473,56 @@ mod tests {
         .unwrap();
         assert_eq!(order.group_len, 2);
         assert_eq!(order.indices[0], 1);
+    }
+
+    #[test]
+    fn a_touch_correction_row_keeps_its_seat_outside_the_group() {
+        // Shuangpin short-word corrections carry their raw dictionary weight; inside the group that weight alone would outrank the literal leader the touch penalty kept first. The literal homophones seated behind the correction row still join the group.
+        let mut corrected = row("关", 2_000_000);
+        corrected.corrected_from = "gf".into();
+        corrected.touch_supported = true;
+        let mut list = vec![row("跟", 1000), corrected, row("根", 500)];
+        let (seats, len) = leading_group(&list, SchemeType::Shuangpin);
+        assert_eq!(&seats[..len], &[0, 2]);
+
+        let mut model = PersonalNgram::default();
+        model.add_pair("没", "关", 32);
+        assert_eq!(
+            personal_context_rerank_order(
+                &list,
+                &model,
+                None,
+                "没",
+                SchemeType::Shuangpin,
+                &mut never_pinned()
+            ),
+            None
+        );
+
+        let mut model = PersonalNgram::default();
+        model.add_pair("没", "根", 32);
+        let order = personal_context_rerank_order(
+            &list,
+            &model,
+            None,
+            "没",
+            SchemeType::Shuangpin,
+            &mut never_pinned(),
+        )
+        .expect("个人上下文应把纠错行之后的字面同音字提到首位");
+        let mut reordered = list.clone();
+        order.reorder(&mut reordered);
+        let words: Vec<&str> = reordered.iter().map(|row| row.word.as_str()).collect();
+        assert_eq!(words, ["根", "关", "跟"]);
+
+        // Other autocorrected rows (Quanpin corrected cuts) keep their place in the group, and a corrected leader still opens it.
+        list[1].touch_supported = false;
+        assert_eq!(leading_group_len(&list, SchemeType::Shuangpin), 3);
+        list[0].corrected_from = "gf".into();
+        list[0].touch_supported = true;
+        list[1].touch_supported = true;
+        let (seats, len) = leading_group(&list, SchemeType::Shuangpin);
+        assert_eq!(&seats[..len], &[0, 2]);
     }
 }
 
