@@ -52,10 +52,20 @@ public final class KeyboardLayout {
     private KeyboardLayout() {}
 
     /**
-     * 数字层画不画数字九宫格：按 123 进的数字层在每种方案、每种触屏键面上都是同一块数字九宫格——英文、本地模式、中文 26 键的长空格样式、日文（罗马字和假名网格）、韩文、越南语、藏文、注音（九键和大千）、笔画、手写、14/18 键和 26 键一族，手机和平板一样（2026-10-31 维护者决定，取代「独立语言、本地模式和长空格样式保留各自符号层」的旧契约）。九宫格只换显示，不改 Engine 里的方案和组码布局，数字按字面上屏、不经组字。#+= 扩展符号页仍是完整的符号页，由宿主另记（`ImeLetterRows` 的 `moreSymbols`），从那里按 123 回到数字九宫格。
+     * 数字层画不画数字九宫格：按 123 进的数字层在每种方案、每种触屏键面上都是同一块数字九宫格——英文、本地模式、中文 26 键的长空格样式、日文（罗马字和假名网格）、韩文、越南语、藏文、注音（九键和大千）、笔画、手写、14/18 键和 26 键一族，手机和平板一样（2026-10-31 维护者决定，取代「独立语言、本地模式和长空格样式保留各自符号层」的旧契约）。九宫格只换显示，不改 Engine 里的方案和组码布局，数字按字面上屏、不经组字。#+= 扩展符号页仍是完整的符号页，由宿主另记（`ImeLetterRows` 的 `moreSymbols`），从那里按 123 回到数字九宫格；注音的 #+= 是共享符号行（{@link #drawsSharedSymbolRows}）。
      */
     public static boolean drawsNumberPad(Layer layer) {
         return layer == Layer.SYMBOLS;
+    }
+
+    /**
+     * #+= 页画不画共享符号行（{@link #rows(Layer)} 的三行十键：1–0、`, . ? ! ; : ' " @ /`、`( ) [ ] < > \ - _ =`，中文标点时键面是 ； ： （ ） 这样的全角）而不是设计稿的 #+= 层：只有注音，大千注音和注音九键都是。这是注音在 123 改成数字九宫格之前用的那一页，注音在这里输入被大千音键占用的数字和标点（{@link ZhuyinKeyboardLayout#claimsSymbol} 的那些按字面上屏，不会被读成注音），其余标点照旧经 Engine。这一页用共享底行（123 |（地球）| ， | 空格 | 。 | 中/英 | 回车），底行的 123 回到数字九宫格，与 HarmonyOS 的大千注音相同（鸿蒙没有注音九键）。
+     *
+     * @param moreSymbols 符号层里正在显示 #+= 页（`ImeLetterRows` 的 `moreSymbols`）
+     */
+    public static boolean drawsSharedSymbolRows(Layer layer, boolean moreSymbols, int touchLayout) {
+        return layer == Layer.SYMBOLS && moreSymbols
+            && (touchLayout == ZHUYIN_LAYOUT || touchLayout == ZHUYIN_NINE_KEY_LAYOUT);
     }
 
     /** 这块键盘此刻画的是不是中文键面：英文模式不是，日文罗马字、越南语、藏文、韩文这类独立语言也不是；视图还没给出方案时沿用中文默认。中文 26 键的底行样式（{@link TouchKeyStyle.Styles#forLayout}）和借用数字九宫格时返回键的写法（{@link KeyboardActionRow#layerTitle(int, boolean, boolean)}）按它分。 */

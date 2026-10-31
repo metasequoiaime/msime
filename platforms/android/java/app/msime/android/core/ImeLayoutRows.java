@@ -291,11 +291,12 @@ final class ImeLayoutRows {
         return sidebarSymbols(digits, false);
     }
 
-    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。数字九宫格的表按当前语言换写法（{@link NumberPadPunctuation}）：英文和写半角标点的方案里是半角，日文里逗号是「、」。 */
+    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。数字九宫格的表按当前语言换写法（{@link NumberPadPunctuation}）：英文和写半角标点的方案里是半角，日文里逗号是「、」；半角写法下出厂表末尾再接 `; ' " $` 这些半角符号，自定义的表不接。 */
     java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {
         java.util.List<String> symbols = NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,
             tallReturn);
-        return digits ? NumberPadPunctuation.symbols(symbols, s.numberPadPunctuation()) : symbols;
+        return digits ? NumberPadPunctuation.symbols(symbols, s.numberPadPunctuation(),
+            NineKeySidebarPolicy.custom(s.nineKeyDigitSidebarSymbols, NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS)) : symbols;
     }
 
     /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行；数字九宫格上切了中/英、换了方案或开关了中文标点，左列和右列 ！ 的写法变了，同样重建。 */
@@ -327,6 +328,9 @@ final class ImeLayoutRows {
     private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn,
             boolean zeroShortcut) {
         java.util.List<String> symbols = sidebarSymbols(digits, tallReturn);
+        // 数字九宫格左列的出厂项（含半角写法接上的符号）和数字键同一条上屏路径；用户自定义的表项按字面上屏，与 iOS 相同。
+        boolean factoryDigits = digits
+            && !NineKeySidebarPolicy.custom(s.nineKeyDigitSidebarSymbols, NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS);
         int zeroIndex = zeroShortcut ? NineKeySidebarPolicy.appendedExclamationIndex(digits,
             s.nineKeySidebarSymbols, tallReturn) : -1;
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
@@ -344,7 +348,7 @@ final class ImeLayoutRows {
             } else {
                 // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
                 key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol + "；长按快速修改符号栏",
-                    () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+                    factoryDigits ? () -> commitNumberPadText(symbol) : () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
                 // 长按打开「按键布局」并直接进入这一张表的编辑页（#10223），参数是这张表的共享偏好名。
                 key.setOnLongClickListener(ignored -> {
                     Bundle args = new Bundle();
@@ -570,7 +574,7 @@ final class ImeLayoutRows {
                 // 数字层按字面上屏，不把数字交给拼音组码或选词。
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
                     NineKeyLayout.face(key, digits, composing), description,
-                    digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
+                    digits ? () -> commitNumberPadText(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.offersPunctuation(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
                 KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
@@ -661,7 +665,7 @@ final class ImeLayoutRows {
 
     /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
     Button nineKeyDecimalKey() {
-        Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
+        Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNumberPadText(".")), "Period");
         KeyboardTypographyPolicy.setKeyTextSize(period, 22);
         if (period instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         return period;
@@ -1675,6 +1679,18 @@ final class ImeLayoutRows {
         }
         s.command(2);
         s.commitLiteralText(s.fullWidthOutput(text));
+    }
+
+    /**
+     * 数字九宫格上的数字、0、小数点、左列出厂项和第五排补充行的一个键：本地模式、越南语和藏文里 Engine 此刻把它当拼写时（{@link NumberPadPunctuation#typesThroughSession}）先作为字符交给会话（{@link MSIMEInputService#character(int, boolean)}，与硬件数字行的拼写路径相同），会话收下就留在组字里；不收时和其余所有情况一样按字面上屏（{@link #commitNineKeyLiteral}）。大屏单手的侧边数字键盘只挂在九键一族的中文字母层旁边（`OneHandSidePadPolicy.shown`，本地模式画的是 26 键），仍按字面。
+     */
+    void commitNumberPadText(String text) {
+        if (s.view != null && NumberPadPunctuation.typesThroughSession(text,
+                InputViewValuePolicy.textOr(s.view, "local_mode", "none"), s.letterCaseSchemeActive(),
+                s.tibetanSchemeActive(), InputViewValuePolicy.editingText(s.view),
+                InputViewValuePolicy.textOr(s.view, "spelling_symbols", ""))
+                && s.character(text.charAt(0), false)) return;
+        commitNineKeyLiteral(text);
     }
 
     void commitNineKeyPeriod() {

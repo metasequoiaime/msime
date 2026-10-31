@@ -10626,6 +10626,12 @@ public final class MSIMEInputService extends InputMethodService {
         });
         bindInputMethodPicker(languageButton);
         layerButton = button(controls, "123", () -> {
+            // 注音的 #+= 是共享符号行，底行用的就是这个键：那一页上它印 123，回到数字九宫格，不回字母层（KeyboardLayout.drawsSharedSymbolRows）。
+            if (imeLetterRows.sharedSymbolRowsDrawn()) {
+                imeLetterRows.showNumberPad();
+                imeCalculator.refresh();
+                return;
+            }
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             imeLetterRows.rebuildKeyRows();
@@ -11992,11 +11998,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
             int layerLayout = displayedTouchLayout(view);
-            // 数字九宫格上的返回键印进来之前那块键面的名字；中文键面借来时印「返回」。
-            layerButton.setText(KeyboardActionRow.layerTitle(layerLayout, symbols,
-                symbols && imeLetterRows.numberPadDrawn() && KeyboardLayout.chineseFace(
-                    view == null ? -1 : InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)));
-            layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
+            // 数字九宫格上的返回键印进来之前那块键面的名字；中文键面借来时印「返回」。注音的共享符号行（#+= 页）上它回到数字九宫格，印 123、描述与设计稿 #+= 层的 123 相同。
+            boolean sharedSymbolRows = imeLetterRows.sharedSymbolRowsDrawn();
+            layerButton.setText(sharedSymbolRows ? KeyboardActionRow.layerTitle(layerLayout, false)
+                : KeyboardActionRow.layerTitle(layerLayout, symbols,
+                    symbols && imeLetterRows.numberPadDrawn() && KeyboardLayout.chineseFace(
+                        view == null ? -1 : InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)));
+            layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols && !sharedSymbolRows));
         }
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。

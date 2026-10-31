@@ -55,6 +55,18 @@ final class ImeLetterRows {
         rebuildKeyRows();
         s.render();
     }
+
+    /** 当前的 #+= 页是注音的共享符号行（{@link KeyboardLayout#drawsSharedSymbolRows}）：用共享底行，底行的 123 回到数字九宫格。 */
+    boolean sharedSymbolRowsDrawn() {
+        return KeyboardLayout.drawsSharedSymbolRows(s.keyboardLayer, moreSymbols, drawnTouchLayout);
+    }
+
+    /** 从注音的共享符号行回到数字九宫格：仍在数字层，只是不再显示 #+= 页。 */
+    void showNumberPad() {
+        moreSymbols = false;
+        rebuildKeyRows();
+        s.render();
+    }
     /** 标准 26 键第二行的半键缩进；微软双拼第十个键出现时收起。 */
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
@@ -834,8 +846,8 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
-        // 数字层不是数字九宫格时就是 #+= 扩展符号页：每种键面都画同一张完整的符号页，字符原样上屏、不经 Engine，所以大千注音的数字和标点键、日文假名网格也用它。
-        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+        // 数字层不是数字九宫格时就是 #+= 扩展符号页：除注音外每种键面都画同一张设计稿的符号页，字符原样上屏、不经 Engine，日文假名网格也用它。注音（大千和注音九键）的 #+= 是共享符号行，落到下面的通用分支（KeyboardLayout.drawsSharedSymbolRows）。
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS && !sharedSymbolRowsDrawn()) {
             rebuildDesignLayer();
             s.imeBottomRow.updateActionRow();
             s.imeStyler.applyKeyboardGeometry();
@@ -851,6 +863,8 @@ final class ImeLetterRows {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.KOREAN_LAYOUT;
         boolean zhuyinLayout = s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_LAYOUT;
         boolean zhuyinKeycaps = zhuyinLayout && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
+        // 注音的 #+= 页（大千和注音九键共用的共享符号行）：大千会读成音键的数字和标点按字面上屏。
+        boolean zhuyinSymbols = sharedSymbolRowsDrawn();
         // 新设计的字母键：22 sp 键面，26 键（不含韩文与注音键面）右上角画提示符。长按总能输入它，所以关掉「滑动输入符号」也照画。
         boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && !koreanKeycaps && !zhuyinKeycaps;
@@ -887,8 +901,8 @@ final class ImeLetterRows {
                 if (ZhuyinKeyboardLayout.toneKey(key)) CenteredGlyphSpan.apply(keyButton, face, 1.8f);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
-            } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {
-                // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine.
+            } else if (zhuyinSymbols && ZhuyinKeyboardLayout.claimsSymbol(key)) {
+                // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine. Zhuyin nine-key shares the same Engine scheme, so its #+= page does the same.
                 keyButton = s.keyboardKey(face, face, () -> s.imeLayoutRows.commitNineKeyLiteral(
                     ChineseSymbolFaces.face(input, s.sendsChinesePunctuation(), s.punctuationMarks())));
             } else if (koreanKeycaps) {
@@ -1210,11 +1224,12 @@ final class ImeLetterRows {
         row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         // 数字九宫格那一页的括号随九宫格的标点写法：日文没有中文标点开关，也写全角括号。
-        for (String face : KeyboardLayout.symbolExtraRow(moreSymbols, numberPadDrawn(),
+        boolean numberPad = numberPadDrawn();
+        for (String face : KeyboardLayout.symbolExtraRow(moreSymbols, numberPad,
                 NumberPadPunctuation.fullWidthBrackets(s.numberPadPunctuation()))) {
             KeyboardLayout.LayerKey spec = new KeyboardLayout.LayerKey(face, face,
                 KeyboardLayout.LayerKeyKind.CHARACTER, 1f);
-            row.addView(designLayerKey(spec, false), LayoutPolicy.weightedMatchParentParams(1));
+            row.addView(designLayerKey(spec, false, numberPad), LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
     }
@@ -1270,11 +1285,17 @@ final class ImeLetterRows {
     }
 
     private Button designLayerKey(KeyboardLayout.LayerKey layerKey, boolean firstRow) {
+        return designLayerKey(layerKey, firstRow, false);
+    }
+
+    /** 同上；{@code numberPad} 为真（数字九宫格那一页的第五排补充行）时字符键走数字九宫格的上屏路径（{@link ImeLayoutRows#commitNumberPadText}），否则按字面上屏。 */
+    private Button designLayerKey(KeyboardLayout.LayerKey layerKey, boolean firstRow, boolean numberPad) {
         String text = layerKey.text();
         Button key;
         switch (layerKey.kind()) {
             case CHARACTER -> {
-                key = s.keyboardKey(text, text, () -> s.imeLayoutRows.commitNineKeyLiteral(text));
+                key = s.keyboardKey(text, text, numberPad ? () -> s.imeLayoutRows.commitNumberPadText(text)
+                    : () -> s.imeLayoutRows.commitNineKeyLiteral(text));
                 KeyboardTypographyPolicy.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));

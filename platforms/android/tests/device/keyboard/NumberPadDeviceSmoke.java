@@ -11,7 +11,7 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 数字九宫格：中文各键面的真实网格、连续字面输入、符号往返和键位统计，以及英文、长空格样式、日文罗马字和假名、韩文、大千注音借来的数字九宫格。 */
+/** 数字九宫格：中文各键面的真实网格、连续字面输入、符号往返和键位统计，以及英文、长空格样式、日文罗马字和假名、韩文、藏文、大千注音借来的数字九宫格（半角写法的左列多出的半角符号、藏文 ' 交给会话、注音 #+= 的共享符号行）。 */
 public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private boolean passwordNumberPad;
 
@@ -168,7 +168,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
                 awaitKeyStatistics(statistics, digitOnes, nineOnes, digitZeros, nineZeros);
             }
-            // 2026-10-31 起每种方案和触屏键面的 123 都进数字九宫格。这一段只验网格、标点写法、返回键的名字、空格、字面输入和 #+= 往返，不计统计，上面的精确增量不受影响。
+            // 2026-10-31 起每种方案和触屏键面的 123 都进数字九宫格。这一段只验网格、标点写法、返回键的名字、空格、字面输入和 #+= 往返，不计统计，上面的精确增量不受影响。半角写法（英文、韩文、藏文）的左列在出厂表后面接 ; ' " $（排在 NumberPadPunctuationSmoke 里钉住），这里只验它们在、能上屏；藏文的 ' 交给会话打 achung；大千注音的 #+= 是原来的共享符号行。
             publish(statistics, "{\"enabled\":false,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
             for (String[] face : new String[][] {
                     // 用例、Engine 方案、触屏布局、键盘方案、返回键键面、数字九宫格左列的逗号
@@ -177,8 +177,10 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                     {"japanese", "japanese", "twenty_six_key", "japanese", "ABC", "、"},
                     {"japanese_nine_key", "japanese", "nine_key", "japanese_nine_key", "あいう", "、"},
                     {"korean", "korean", "twenty_six_key", "korean", "한", ","},
+                    {"tibetan", "tibetan", "twenty_six_key", "tibetan", "ABC", ","},
                     {"zhuyin", "zhuyin", "twenty_six_key", "zhuyin", "注", "，"}}) {
                 boolean english = face[0].equals("english");
+                boolean ascii = face[5].equals(",");
                 stage = face[0] + " prepare";
                 android.os.Bundle progress = new android.os.Bundle();
                 progress.putString("stream", "Number pad case: " + face[0] + "\n");
@@ -188,6 +190,8 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                     .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
                     .put("character_width", "halfwidth").put("chinese_punctuation", true)
                     .put("touch_twenty_six_key_style", face[0].equals("long_space") ? "long_space" : "standard")
+                    // 出厂的数字表：半角写法只给出厂表接半角符号，自定义的表不接。
+                    .put("touch_nine_key_digit_sidebar_symbols", new JSONArray())
                     .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put(face[3]))
                         .put("selected", face[3]));
                 if (!face[1].equals("quanpin")) values.put("last_chinese_scheme", "quanpin");
@@ -217,21 +221,47 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                         : face[5].equals("、") ? new String[] {"，"} : new String[] {"，", "。", "、", "！"})
                     if (hasKey(key(foreign)))
                         throw new AssertionError(face[0] + " number pad shows " + foreign + ": " + imeTexts());
+                // 半角写法的左列在出厂表后面接上 ; ' " $（滚出可见区也算），中文和日文写法不接。
+                for (String extra : new String[] {";", "'", "\"", "$"})
+                    if (hasAnyKey(sidebarKey(extra)) != ascii)
+                        throw new AssertionError(face[0] + " number pad sidebar " + (ascii ? "lacks " : "adds ") + extra);
                 // 逗号先上屏（输入框还是空的，英文不会按单词边界纠错），再连续输入算式：数字和运算符都按字面上屏，大千注音也不把数字读成注音。
                 tap(key(face[5]));
                 String expression = "12.3+4-5*6/70";
                 typeLiteral(expression);
-                assertField(face[5] + expression);
+                String typed = face[5] + expression;
+                assertField(typed);
+                if (ascii) {
+                    stage = face[0] + " half-width extras commit literally";
+                    tap(sidebarKey("$"));
+                    typed += "$";
+                    assertField(typed);
+                }
                 assertGrid();
                 if (face[0].equals("long_space")) {
                     stage = "long space number pad keeps a space key";
                     tap(key("空格"));
-                    assertField(face[5] + expression + " ");
+                    typed += " ";
+                    assertField(typed);
                 }
                 stage = face[0] + " extended symbols return to the number pad";
                 tap(key("#+="));
                 await(key("123"));
-                await(key("["));
+                if (face[0].equals("zhuyin")) {
+                    // 大千注音的 #+= 是原来那一页三行十键的共享符号行（中文标点下是 ； ：），不是设计稿的 #+= 层；大千读成音键的数字和 - 按字面上屏，不变成注音。
+                    stage = "zhuyin #+= is the shared symbol rows";
+                    await(key("；"));
+                    await(key("："));
+                    await(key("@"));
+                    if (hasKey(key("#")) || hasKey(key("{")))
+                        throw new AssertionError("Zhuyin #+= drew the design page: " + imeTexts());
+                    tap(key("1"));
+                    tap(key("-"));
+                    typed += "1-";
+                    assertField(typed);
+                } else {
+                    await(key("["));
+                }
                 tap(key("123"));
                 assertGrid();
                 await(back);
@@ -243,6 +273,20 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 JSONObject stored = new JSONObject(read(preferences)).getJSONObject("preferences");
                 if (!face[2].equals(stored.getString("touch_keyboard_layout")) || !face[1].equals(stored.getString("scheme")))
                     throw new AssertionError("Number pad rewrote the scheme or layout of " + face[0]);
+                if (face[0].equals("tibetan")) {
+                    // 藏文左列的 ' 是 achung：交给会话起头一个音节，回到字母层接着打 od，空格上屏藏文加音节点（'od 是 U+0F60 U+0F7C U+0F51，音节点 U+0F0B）。按字面上屏的话这里会是 'od 加空格。
+                    stage = "tibetan achung from the number pad";
+                    tap(entry);
+                    assertGrid();
+                    tap(sidebarKey("'"));
+                    tap(back);
+                    await(entry);
+                    tap(key("o"));
+                    tap(key("d"));
+                    tap(key("空格"));
+                    typed += "\u0F60\u0F7C\u0F51\u0F0B";
+                    assertField(typed);
+                }
                 if (english) {
                     // 数字九宫格上的中/英与字母层同一个动作：切回所选方案并回到字母层。
                     stage = "language key on the English number pad";
@@ -410,6 +454,18 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> languageTarget(String target) {
         return node -> equalsText("app.msime.android", node.getPackageName()) && node.isClickable()
             && node.getContentDescription() != null && node.getContentDescription().toString().endsWith(target);
+    }
+
+    /** 数字九宫格左列的一个符号键（描述带长按修改符号栏的提示）。 */
+    private Predicate<AccessibilityNodeInfo> sidebarKey(String symbol) {
+        return described("按键 符号 " + symbol + "；长按快速修改符号栏");
+    }
+
+    /** 同 {@link #hasKey}，也算滚出可见区的节点（左列符号栏可以上下滚动）。 */
+    private boolean hasAnyKey(Predicate<AccessibilityNodeInfo> predicate) {
+        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
+            if (findAny(window.getRoot(), predicate) != null) return true;
+        return false;
     }
 
     private boolean hasKey(Predicate<AccessibilityNodeInfo> predicate) {
