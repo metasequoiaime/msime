@@ -759,10 +759,20 @@ impl InputSession {
                 .map(|item| crate::korean::hanja::gloss(syllable, &item.word).to_owned())
                 .collect();
         }
+        self.candidate_helpcode_annotations(self.candidates(), hide_helpcode, self.scheme())
+    }
+
+    /// 普通拼音和 grid 使用同一注释规则，不改变候选顺序或纠错回退。
+    pub(super) fn candidate_helpcode_annotations(
+        &self,
+        candidates: &[WordItem],
+        hide_helpcode: bool,
+        scheme: SchemeType,
+    ) -> Vec<String> {
         let enabled = self.helpcode_enabled();
-        let uppercase_all = self.scheme() == SchemeType::Quanpin;
+        let uppercase_all = scheme == SchemeType::Quanpin;
         let keymap = self.helpcode_keymap.as_deref();
-        self.candidates()
+        candidates
             .iter()
             .map(|item| {
                 let helpcode = match keymap {

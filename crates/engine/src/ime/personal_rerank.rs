@@ -1,7 +1,7 @@
 //! 首组同音候选的个人上下文重排（core-session.md §7.2，`R/core/personal_context_rerank.cpp`）。
 
 use crate::lattice::personal::{PersonalContext, PersonalNgram};
-use crate::types::WordItem;
+use crate::types::{SchemeType, WordItem};
 
 pub const MAX_GROUP: usize = 16;
 
@@ -39,6 +39,7 @@ pub(crate) fn personal_context_rerank_order(
     model: &PersonalNgram,
     earlier: Option<&str>,
     previous: &str,
+    scheme: SchemeType,
     is_pinned: &mut dyn FnMut(&str) -> bool,
 ) -> Option<PersonalContextRerankOrder> {
     let first = candidates.first()?;
@@ -51,7 +52,7 @@ pub(crate) fn personal_context_rerank_order(
         return None;
     }
 
-    let group = leading_group_len(candidates);
+    let group = leading_group_len(candidates, scheme);
     if group < 2 {
         return None;
     }
@@ -71,13 +72,32 @@ fn personal_probabilities(
     personal
 }
 
-/// 首组与第一行字数相同的连续字典候选，最多 16 行，按 Unicode 码点计数。
-fn leading_group_len(candidates: &[WordItem]) -> usize {
-    let characters = candidates[0].word.chars().count();
+/// 匹配编码消耗的输入字母数，音节分隔符不计。
+fn consumed_letters(pinyin: &str) -> usize {
+    pinyin.bytes().filter(|&byte| byte != b'\'').count()
+}
+
+/// 首组与第一行字数、消耗字母数相同的连续字典候选，最多 16 行；完整读音首选不与其它读音混排。
+fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
+    let first = &candidates[0];
+    let characters = first.word.chars().count();
+    let letters = consumed_letters(&first.pinyin);
+    // 只有全拼的匹配编码是拼写出的读音；简拼与双拼的编码可以指向多个读音，双拼编码与读音字面相同（如单键 `a`）也只是巧合，都不收紧到某一个读音。
+    let exact_reading = scheme == SchemeType::Quanpin
+        && !first.pinyin.is_empty()
+        && first.pinyin == first.canonical_pinyin;
     candidates
         .iter()
         .take(MAX_GROUP)
-        .take_while(|item| item.source.is_dictionary() && item.word.chars().count() == characters)
+        .take_while(|item| {
+            item.source.is_dictionary()
+                && item.word.chars().count() == characters
+                && consumed_letters(&item.pinyin) == letters
+                && (!exact_reading
+                    || item.canonical_pinyin == first.canonical_pinyin
+                    // 同一串字母的另一种完整切分（fan'gan 与 fang'an）。
+                    || (!item.pinyin.is_empty() && item.pinyin == item.canonical_pinyin))
+        })
         .count()
 }
 
@@ -172,7 +192,14 @@ mod tests {
         candidates[0] = row("乙", 100);
 
         let (ordered, allocations) = allocations::count(|| {
-            personal_context_rerank_order(&candidates, &model, None, "甲", &mut never_pinned())
+            personal_context_rerank_order(
+                &candidates,
+                &model,
+                None,
+                "甲",
+                SchemeType::Quanpin,
+                &mut never_pinned(),
+            )
         });
 
         assert_eq!(ordered, None);
@@ -189,7 +216,14 @@ mod tests {
         let mut reordered = candidates.clone();
 
         let (ordered, allocations) = allocations::count(|| {
-            personal_context_rerank_order(&candidates, &model, None, "甲", &mut never_pinned())
+            personal_context_rerank_order(
+                &candidates,
+                &model,
+                None,
+                "甲",
+                SchemeType::Quanpin,
+                &mut never_pinned(),
+            )
         });
 
         let order = ordered.expect("个人上下文应把最后一个组内候选提到首位");
@@ -209,7 +243,14 @@ mod tests {
         candidates[MAX_GROUP - 1] = row("乙", 1);
 
         let (order, allocations) = allocations::count(|| {
-            personal_context_rerank_order(&candidates, &model, None, "甲", &mut never_pinned())
+            personal_context_rerank_order(
+                &candidates,
+                &model,
+                None,
+                "甲",
+                SchemeType::Quanpin,
+                &mut never_pinned(),
+            )
         });
 
         let order = order.expect("个人上下文应返回组内排序");
@@ -288,15 +329,123 @@ mod tests {
     #[test]
     fn the_group_is_the_leading_same_length_dictionary_run() {
         let mut list = vec![row("甲", 3), row("乙", 2), row("丙丁", 1), row("戊", 1)];
-        assert_eq!(leading_group_len(&list), 2);
+        assert_eq!(leading_group_len(&list, SchemeType::Quanpin), 2);
         list[1].source = CandidateSource::CloudSuggestion;
-        assert_eq!(leading_group_len(&list), 1);
+        assert_eq!(leading_group_len(&list, SchemeType::Quanpin), 1);
         list[1].source = CandidateSource::UserDatabase;
         list[2] = row("丙", 1);
-        assert_eq!(leading_group_len(&list), 4);
+        assert_eq!(leading_group_len(&list, SchemeType::Quanpin), 4);
 
         let long: Vec<WordItem> = (0..20).map(|index| row("字", index)).collect();
-        assert_eq!(leading_group_len(&long), MAX_GROUP);
+        assert_eq!(leading_group_len(&long, SchemeType::Quanpin), MAX_GROUP);
+    }
+
+    #[test]
+    fn personal_context_does_not_cross_matched_code_or_reading_boundaries() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("子", "乙", 32);
+        for (matched, canonical) in [("ge", "ge"), ("gei", "ge"), ("ge", "gei")] {
+            let rows = [
+                WordItem::new("gei", "甲", 100, CandidateSource::Database, "gei"),
+                WordItem::new(matched, "乙", 1000, CandidateSource::Database, canonical),
+            ];
+            assert_eq!(leading_group_len(&rows, SchemeType::Quanpin), 1);
+            assert_eq!(
+                personal_context_rerank_order(
+                    &rows,
+                    &model,
+                    None,
+                    "子",
+                    SchemeType::Quanpin,
+                    &mut never_pinned(),
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn an_abbreviated_key_keeps_personal_ranking_across_its_readings() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("子", "乙", 32);
+        let rows = [
+            WordItem::new("l", "甲", 100, CandidateSource::Database, "lai"),
+            WordItem::new("l", "乙", 90, CandidateSource::Database, "le"),
+        ];
+        let order = personal_context_rerank_order(
+            &rows,
+            &model,
+            None,
+            "子",
+            SchemeType::Shuangpin,
+            &mut never_pinned(),
+        )
+        .unwrap();
+        assert_eq!(order.group_len, 2);
+        assert_eq!(order.indices[0], 1);
+    }
+
+    #[test]
+    fn a_shuangpin_key_that_spells_a_reading_keeps_personal_ranking_across_readings() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("子", "乙", 32);
+        let rows = [
+            WordItem::new("a", "甲", 100, CandidateSource::Database, "a"),
+            WordItem::new("a", "乙", 90, CandidateSource::Database, "ai"),
+        ];
+        let order = personal_context_rerank_order(
+            &rows,
+            &model,
+            None,
+            "子",
+            SchemeType::Shuangpin,
+            &mut never_pinned(),
+        )
+        .unwrap();
+        assert_eq!(order.group_len, 2);
+        assert_eq!(order.indices[0], 1);
+
+        // 全拼输入 `a` 已拼满组首读音，`ai` 的候选不进同组。
+        assert_eq!(leading_group_len(&rows, SchemeType::Quanpin), 1);
+        assert_eq!(
+            personal_context_rerank_order(
+                &rows,
+                &model,
+                None,
+                "子",
+                SchemeType::Quanpin,
+                &mut never_pinned(),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn complete_alternative_segmentations_share_one_personal_group() {
+        let mut model = PersonalNgram::default();
+        model.add_pair("很", "反感", 32);
+        let rows = [
+            WordItem::new(
+                "fang'an",
+                "方案",
+                1000,
+                CandidateSource::Database,
+                "fang'an",
+            ),
+            WordItem::new("fan'gan", "反感", 100, CandidateSource::Database, "fan'gan"),
+        ];
+        assert_eq!(leading_group_len(&rows, SchemeType::Quanpin), 2);
+        let order = personal_context_rerank_order(
+            &rows,
+            &model,
+            None,
+            "很",
+            SchemeType::Quanpin,
+            &mut never_pinned(),
+        )
+        .unwrap();
+        assert_eq!(order.group_len, 2);
+        assert_eq!(order.indices[0], 1);
     }
 }
 

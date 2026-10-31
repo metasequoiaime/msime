@@ -406,7 +406,7 @@ public final class KeyboardSkin {
     /**
      * 这张皮肤在应用主题种子 `seed` 下实际画出来的样子的键，用来判断偏好重读后键盘要不要重画。
      *
-     * <p>不能直接比 {@link #key()}：服务每次按偏好重建的跟随系统皮肤是 classic 基础色，渲染时才被 `ImeStyler.themed` 换成当季配色并写回，于是重读前后两个 `key()` 一个是当季色、一个是 classic 色，永远不相等，偏好每秒轮询一次就整页重画一次。跟随系统皮肤的颜色只由明暗和种子决定，这里只取这两样；种子的 id 和季节对所有皮肤都算进去，因为工具栏品牌键的 logo 色不论哪张皮肤都取应用主题的季节色（`ImeToolbar.styleTopRow`）。
+     * <p>不能直接比 {@link #key()}：服务每次按偏好重建的跟随系统皮肤是 classic 基础色，渲染时才被 `ImeStyler.themed` 换成当季配色并写回，于是重读前后两个 `key()` 一个是当季色、一个是 classic 色，永远不相等，偏好每秒轮询一次就整页重画一次。跟随系统皮肤的颜色只由明暗和种子决定，这里只取这两样；种子的 id 和季节仍计入身份，供宿主刷新依赖应用主题的回车键和开启态底色；品牌键由当前皮肤配色推导。
      */
     public String displayKey(AppThemePalette.Seed seed) {
         String surface = followsAppTheme() ? id + ":" + dark : key();

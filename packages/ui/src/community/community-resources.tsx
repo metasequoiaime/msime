@@ -12,6 +12,7 @@ import { CommunityHarmonyResourceRow } from "./community-harmony-resource-row";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
 import { CommunityNotice } from "./community-notice";
+import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { ActionButton } from "../core/action-button";
@@ -60,6 +61,7 @@ export function CommunityResourcesPage({
     more,
     busy,
     error,
+    notice,
     selected,
     editing,
     added,
@@ -73,6 +75,7 @@ export function CommunityResourcesPage({
     openEditor,
     closeEditor,
     onPublished,
+    blocked,
   } = useCommunityResourceGallery({
     client,
     kind,
@@ -89,6 +92,7 @@ export function CommunityResourcesPage({
         onClose={closeDetail}
         localDictionary={localDictionary}
         contributions={contributions}
+        onBlocked={(message) => void blocked(message)}
       />
     );
   if (look === "harmony") {
@@ -203,6 +207,7 @@ export function CommunityResourcesPage({
       </CommunityGalleryHeader>
       <CommunityGalleryFeedback
         error={error}
+        notice={notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
         empty={
           !busy && items.length === 0 ? (
             <CommunityNotice>这里还没有{resourceKindTitle(kind)}作品。</CommunityNotice>

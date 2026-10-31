@@ -74,6 +74,7 @@ export function CommunityCandidateSkinsPage({
     closeDetail,
     rateSelected,
     reportSelected,
+    blocked,
     search,
     setSearch,
     publishOpen,
@@ -116,6 +117,7 @@ export function CommunityCandidateSkinsPage({
         onUnpublish={() => void unpublish()}
         onCancelUnpublish={() => setConfirmUnpublish(false)}
         onReport={client.report ? reportSelected : undefined}
+        onBlocked={(notice) => void blocked(notice)}
       />
     );
   }

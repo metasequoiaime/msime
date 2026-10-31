@@ -58,11 +58,20 @@ export interface PluginEditorViewProps {
   /** 保存并安装；失败时抛出宿主的 `{code, detail}`，由这里就地说明。 */
   onSave: (pack: AuthoredPack, replace: boolean) => Promise<void>;
   confirm: (request: ConfirmRequest) => Promise<boolean>;
+  /** 新建时列出短语表和指令表；宿主不路由 K 和 / 模式时（`HostCapabilities.plugin_triggers` 为假的触屏插件页）为 false，那里做出来的表既不列出也用不上。缺省为 true。 */
+  tables?: boolean;
   onBack: () => void;
 }
 
 /** 设置页的插件编辑器：选类型、填基本信息和内容，保存后由宿主按导入同样的规则校验并安装。草稿只在这个视图里，离开前有未保存的修改时先确认。 */
-export function PluginEditorView({ target, load, onSave, confirm, onBack }: PluginEditorViewProps) {
+export function PluginEditorView({
+  target,
+  load,
+  onSave,
+  confirm,
+  tables = true,
+  onBack,
+}: PluginEditorViewProps) {
   const mounted = useMountedRef();
   const [draft, setDraft] = useState<AuthoringDraft | null>(null);
   const [baseline, setBaseline] = useState<AuthoringDraft | null>(null);
@@ -154,7 +163,10 @@ export function PluginEditorView({ target, load, onSave, confirm, onBack }: Plug
           )
         ) : (
           <GroupList title="想做哪一种插件？">
-            {AUTHORED_KINDS.map((entry) => (
+            {AUTHORED_KINDS.filter(
+              (entry) =>
+                tables || (entry.kind !== "phrase_table" && entry.kind !== "command_table"),
+            ).map((entry) => (
               <PluginNavRow
                 key={entry.kind}
                 title={entry.title}

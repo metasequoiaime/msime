@@ -5,6 +5,8 @@ import type {
   CandidateSkinCommunityClient,
   CandidateSkinPackPreview,
   CandidateSkinSyncReport,
+  CommunityBlock,
+  CommunityBlockClient,
   CommunityCandidateSkin,
   CommunityCandidateSkinPage,
   CommunityPlugin,
@@ -108,6 +110,19 @@ export function createDesktopPluginCommunity(invoke: Invoke): CommunityPluginCli
     delete: (id) => invoke<{ deleted: boolean }>("plugin_community_delete", { id }),
     report: (id, reason, detail) =>
       invoke<void>("community_report", { kind: "plugins", id, reason, detail }),
+  };
+}
+
+/**
+ * 屏蔽社区作者，接在 Windows、macOS 和 Linux 设置应用的账号会话上（`desktop_community_block`）。只认登录的水杉账号，没有登录时 Rust 以 `community_unauthorized` 拒绝。
+ */
+export function createDesktopCommunityBlocks(invoke: Invoke): CommunityBlockClient {
+  return {
+    block: (kind, id) => invoke<CommunityBlock>("community_block", { kind, id }),
+    list: () => invoke<CommunityBlock[]>("community_block_list"),
+    unblock: async (id) => {
+      await invoke<void>("community_unblock", { id });
+    },
   };
 }
 

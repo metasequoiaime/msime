@@ -118,17 +118,20 @@ public final class NumberRowDeviceSmoke extends AutomaticNumberRowDeviceSmoke {
             tap(described("返回原键盘"));
             await(key("q"));
 
-            stage = "English number page adds useful symbols";
+            stage = "English number pad keeps the fifth row with ASCII brackets";
             tap(key("中"));
             await(key("英"));
             tap(key("123"));
-            Rect bracket = bounds(key("["));
+            // 英文也借数字九宫格：第五排的括号是半角，左列没有中文全角标点。
+            Rect bracket = bounds(key("("));
             if (Math.abs(bracket.top - letterTop.top) > 2)
-                throw new AssertionError("English number page lost its fifth row");
-            tap(key("["));
-            await(field("msime-test-plain").and(node -> equalsText("5你好0‰7[", node.getText())));
-            // #9925 起英文数字页左下的返回键也印「返回」（描述「返回原键盘」），不再是 ABC。
-            tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
+                throw new AssertionError("English number pad lost its fifth row");
+            if (findVisible(key("（")) != null || findVisible(key("，")) != null)
+                throw new AssertionError("English number pad shows Chinese punctuation: " + imeTexts());
+            tap(key("("));
+            await(field("msime-test-plain").and(node -> equalsText("5你好0‰7(", node.getText())));
+            // 英文借来的数字九宫格，返回键印英文字母页的名字 ABC（描述仍是「返回原键盘」）。
+            tap(described("返回原键盘").and(node -> equalsText("ABC", node.getText())));
             tap(key("英"));
             await(key("中"));
 

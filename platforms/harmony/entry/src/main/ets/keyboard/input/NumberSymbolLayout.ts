@@ -135,6 +135,30 @@ export class NumberSymbolLayout {
       : NumberSymbolLayout.numberLayer(chinese, cornerQuotes, toolbarEmojiAvailable);
   }
 
+  /**
+   * 触屏键盘的 #+= 是否画设计稿的 #+= 层（本类的 `moreSymbolLayer`）而不是共享符号行。触屏的 123 一律打开数字九宫格，走到符号行的只有 #+=：除注音外每一种键面都画设计稿的 #+= 层；注音保留共享符号行，在那里输入原本被注音键占用的标点（， . / ; -），与 Android 一致。鸿蒙的注音只有大千一种键面（大千注音方案的触屏布局固定是 26 键，没有注音九键），所以这里只看在不在注音；2in1 屏幕键盘也保留共享符号行。
+   *
+   * @param touch 触屏键盘（手机和平板），不是 2in1
+   * @param symbols 在符号层上
+   * @param zhuyin 字母交给注音组字（大千注音方案、中文、不在本地模式）
+   */
+  static drawsDesignLayer(touch: boolean, symbols: boolean, zhuyin: boolean): boolean {
+    return touch && symbols && !zhuyin;
+  }
+
+  /**
+   * 设计稿底行 123 那一格此刻的键面：字母层印 123（打开数字九宫格）；#+= 页也印 123，点按关掉 #+= 回到数字九宫格，注音 #+= 的共享符号行没有自己的切换键，就靠这一格回去；只有不开数字九宫格的数字符号层印「返回」。
+   *
+   * @param symbols 在符号层上
+   * @param more 在 #+= 页上
+   */
+  static layerKeyFace(symbols: boolean, more: boolean): string {
+    if (more) {
+      return "123";
+    }
+    return symbols ? "返回" : "123";
+  }
+
   /** 底行返回字母键的键面：中文为「拼音」，英文为「ABC」。 */
   static lettersKeyTitle(chinese: boolean): string {
     return chinese ? "拼音" : "ABC";

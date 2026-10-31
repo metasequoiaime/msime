@@ -985,7 +985,7 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
-  /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按关。 */
+  /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」；旧文档没有这个键，按开。 */
   touch_quanpin_shift?: boolean;
   /** 中文 26 键底行样式（standard / comma_period / long_space / emoji）；等于默认值时 client-core 不写进文档。 */
   touch_twenty_six_key_style?: string;
@@ -1174,7 +1174,7 @@ export interface KeyboardPreferences {
   readonly heightAdjustment: number;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
-  /** `touch_quanpin_shift`：打开时全拼 26 键组字保留 ⇧，点一下臂辅助码；缺省为关（分词）。 */
+  /** `touch_quanpin_shift`：打开时全拼 26 键组字保留 ⇧，点一下臂辅助码；缺省为开。 */
   readonly quanpinShift: boolean;
   /** `harmony_toolbar`：手机工具栏上显示哪些工具，整行是否隐藏。 */
   readonly toolbarTools: ToolbarTools;
@@ -1528,7 +1528,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     shuangpinKeyHints: false,
-    quanpinShift: false,
+    quanpinShift: true,
     toolbarTools: TouchToolbarPolicy.DEFAULT,
     twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
     fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
@@ -1979,7 +1979,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true,
-      quanpinShift: preferences.touch_quanpin_shift === true,
+      // 新文档默认保留 Shift；明确写 false 才切回分词，兼容缺字段的旧文档。
+      quanpinShift: preferences.touch_quanpin_shift !== false,
       toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar),
       twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
       fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
@@ -2903,6 +2904,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   entersHelpcode(shifted: boolean): boolean {
     return ChineseHelpcodePolicy.entersHelpcode(this.englishMode, shifted, this.editing,
       this.scheme, this.localMode);
+  }
+
+  /** The helpcode trigger a touch 123-layer key types in this state, or null; see `ChineseHelpcodePolicy.layerTrigger`. */
+  helpcodeTrigger(face: string): string | null {
+    return ChineseHelpcodePolicy.layerTrigger(face, this.lastView?.spelling_symbols ?? '',
+      ChineseHelpcodePolicy.eligible(this.englishMode, this.editing, this.scheme, this.localMode));
   }
 
   /**
@@ -4660,6 +4667,28 @@ export class KeyboardSession implements HardwareKeyTarget {
     const text: string = String.fromCharCode(ascii);
     this.insertEditorText(text);
     this.recordTypingStatistics(text, this.typingSource());
+  }
+
+  /**
+   * 触屏键盘的空格，与 iOS 的 `handleSpace` 相同：刚上屏的中文标点先由智能标点改回半角；其余交给运行时的「选高亮候选」（`SELECT_HIGHLIGHTED`，注音这类用空格拼写的方案由运行时转成空格字符），组字中就是上屏高亮的候选；运行时不处理（没有组字）时由键盘自己输入空格。引擎的 `character(0x20)` 从不选词，空格以前走 `press` 时，中文模式下组字中按空格什么也不上屏，没有组字时也打不出空格。
+   */
+  pressSpace(): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(0x20, false);
+      return;
+    }
+    if (this.commitEnglishBoundary(' ')) {
+      this.tapFeedback();
+      return;
+    }
+    if (this.convertPunctuationSpace(0x20)) {
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    if (this.command(InputCommand.SELECT_HIGHLIGHTED) || this.inputClient === undefined) return;
+    this.insertEditorText(' ');
+    this.recordTypingStatistics(' ', this.typingSource());
   }
 
   /** `commitThenType` for text the keyboard chose rather than a key's own character: a Zhuyin symbol-layer mark whose ASCII key the Dachen editor would take as a phonetic or tone key. */
@@ -7955,6 +7984,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`candidate list unreadable: ${describeError(error)}`);
       return [];
     }
+  }
+
+  /** 上一次 `allCandidates` 取到的是哪个会话的哪一代候选；展开网格据此分辨重取的是同一份列表（释义晚到）还是换了候选。 */
+  candidateListIdentity(): string {
+    return `${this.handle}:${this.generation}`;
   }
 
   /**

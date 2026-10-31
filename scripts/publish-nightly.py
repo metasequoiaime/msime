@@ -189,7 +189,7 @@ def render(state, results, updated, repository, source_sha, run_url, ios_group):
         lines += [f"[SHA-256 校验清单](https://github.com/{repository}/releases/download/nightly/{name})；"
                   f"下载后运行 `sha256sum --ignore-missing -c {name}`。", ""]
     lines += ["Android 安装 APK 后在系统设置中启用输入法；Windows 运行 Setup EXE。",
-              "macOS 按 DMG 内的说明安装；Linux 按发行版与架构选择 DEB 或 RPM。",
+              "macOS 按 DMG 内的说明安装；Linux 按发行版与架构选择 DEB、RPM 或 Arch 的 .pkg.tar.zst。",
               "iOS 通过现有外部 TestFlight 组安装，须等 Apple 审核；模拟器包只在 Actions 中保留。",
               "HarmonyOS 的 unsigned HAP 供模拟器或开发签名使用，不能直接安装到零售设备。"]
     return "\n".join(lines) + "\n\n" + MARKER + json.dumps(state, ensure_ascii=False) + "\n-->\n"
@@ -221,7 +221,10 @@ def publish(client, source, output, results, downloads, source_sha, build_id, ru
                 for path in paths:
                     if not ASSET_NAME.fullmatch(path.name):
                         raise ValueError("安装文件名无效")
-                    target = output / f"{path.stem}-nightly.{build_id}{path.suffix}"
+                    # 保留完整扩展名，Arch 包仍须以 .pkg.tar.zst 结尾，才能被 pacman 和下一轮发布识别。
+                    suffix = next(suffix for suffix in PACKAGING.PLATFORM_SUFFIXES[platform]
+                                  if path.name.endswith(suffix))
+                    target = output / f"{path.name.removesuffix(suffix)}-nightly.{build_id}{suffix}"
                     shutil.copyfile(path, target)
                     files.append({"name": target.name, "sha256": PACKAGING.checksum(target)})
                     staged.append(target)

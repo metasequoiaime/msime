@@ -1447,10 +1447,10 @@ if ! rg_q_stdin 'NineKeySidebarPolicy\.appendedExclamationIndex\(digits,' <<< "$
   echo "Android tall-return sidebar ！ must carry the right-column ！ zero gestures on nine-key and not on stroke" >&2
   exit 1
 fi
-# 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
+# 拼音九键格子上的长按数字画在右上角，字号和上边距与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP，基线按 ascent 算），右边单独向内收至 12 dp，给圆角和胶囊键帽的顶部曲线让出空间；iOS 的 keyNumberHint 仍是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它使用专用常量，而不是让数字贴到圆角外。
 nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
 for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
-    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), KeyHintButton\.CORNER_HINT_RIGHT_DP\)'; do
+    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), DIGIT_HINT_RIGHT_DP\)'; do
   if ! rg -q "$pattern" <<< "$nine_key_digit_draw"; then
     echo "The Android nine-key digit hint must sit in the top-right corner exactly like the letter-key corner hint (KeyHintButton): missing $pattern" >&2
     exit 1
