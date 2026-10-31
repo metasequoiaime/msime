@@ -69,10 +69,6 @@ special_checks="windows-32bit-compile=scripts/verify-local.sh
 windows-native-run=scripts/verify-local.sh
 harmony-settings-bundle=scripts/verify-local.sh
 android-json-null-reads=platforms/android/check-host.sh
-android-crash-symbols=platforms/android/build-native.sh
-harmony-crash-symbols=platforms/harmony/build-native.sh
-macos-crash-symbols=platforms/macos/CMakeLists.txt
-windows-auxiliary-crash-consent=platforms/linux/CMakeLists.txt
 appearance-preview=packages/ui/UPSTREAM.md
 skin-palette-csp=packages/ui/UPSTREAM.md"
 
