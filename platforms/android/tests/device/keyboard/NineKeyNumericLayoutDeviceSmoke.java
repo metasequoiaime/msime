@@ -47,6 +47,7 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
             restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
+            selectChineseKeyboard();
             await(described("打开符号面板").and(AccessibilityNodeInfo::isEnabled));
             String expected = "";
             for (int cycle = 0; cycle < 2; cycle++) {
@@ -116,6 +117,14 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
             restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
+            if (adjustment == 0) {
+                // 确定性前提对照：先真正进入英文，防止用空白设备的默认中文掩盖跨套件模式残留。
+                AccessibilityNodeInfo language = await(key("中").or(key("英"))
+                    .and(AccessibilityNodeInfo::isEnabled).and(AccessibilityNodeInfo::isClickable));
+                if (equalsText("中", language.getText())) tap(key("中"));
+                await(key("英"));
+            }
+            selectChineseKeyboard();
             for (boolean digits : new boolean[] {false, true}) {
                 if (digits) tap(key("123"));
                 Rect first = bounds(key(digits ? "1" : "@#"));

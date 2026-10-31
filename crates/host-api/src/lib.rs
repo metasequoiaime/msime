@@ -334,12 +334,16 @@ struct HostSession {
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
     settled_model: Option<PathBuf>,
+    /// runtime 上是否真挂着落定重排模型：`settled_model` 有路径而文件读不了或不是可用的模型时为 `false`。只用于诊断，不看 runtime 自己的槽，因为后台评分进行中模型被评分任务借走，槽是空的。
+    settled_model_attached: bool,
     /// 聚焦时发现落定重排模型的文件变了（资源包刚装好或被移除），`settled_model` 已经更新，新模型在后台线程加载到这个槽里；槽有值后，下一次输入空闲的 `apply_pending` 把它换上并清掉这一项。为 `None` 时没有待换的模型。
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
+    /// 资源是下载的词库代次时占用它，设置宿主回收旧版本时不会删掉会话还在读的目录；同样放在 runtime 之后，Engine 先关掉文件再放手。
+    _generation_lease: Option<msime_client_providers::dictionary_updates::GenerationLease>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -793,7 +797,9 @@ impl HostSession {
                 .and_then(|slot| slot.get().cloned())
             {
                 self.settled_model_loading = None;
+                self.settled_model_attached = model.is_some();
                 self.runtime.set_settled_reranker(model.map(Reranker::new));
+                self.report_settled_model();
             }
         }
         if !(self.preferences_pending || self.resources_pending) || !self.runtime.is_idle() {
@@ -986,6 +992,8 @@ impl HostSession {
         self.runtime
             .replace_engine_with_touch_layout(engine, page_size, preferences.touch_keyboard_layout)
             .map_err(|e| e.to_string())?;
+        let desktop_turned_on = preferences.sentence_association.neural_desktop
+            && !self.applied.sentence_association.neural_desktop;
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
         self.runtime
@@ -1007,7 +1015,24 @@ impl HostSession {
         self.preferences_pending = false;
         self.resources_pending = false;
         self.key_grid_override = next_key_grid_override;
+        // 会话建立时用的是运行时选项里嵌的偏好快照，开关可能要等宿主随后送来的偏好才打开（#10341 里报告者的 `runtime-options.json` 就写着关），所以打开的这一刻再报告一次模型接上没有。新模型还在后台加载时不报告，加载完换上时会报告。
+        if desktop_turned_on && self.settled_model_loading.is_none() {
+            self.report_settled_model();
+        }
         Ok(fallback)
+    }
+
+    /// 开着「桌面神经联想」的输入会话把落定重排模型接上了没有，写一行诊断（见 [`report_settled_model`]）。只看候选的会话和开关关着的会话不写。
+    fn report_settled_model(&self) {
+        if self.preview || !self.runtime.settled_rerank_enabled() {
+            return;
+        }
+        report_settled_model(
+            &self.options.resources,
+            self.state_root.as_deref(),
+            self.settled_model.as_deref(),
+            self.settled_model_attached,
+        );
     }
 
     /// 输入框获得焦点时，让 `/` 指令表、K 模式短语表、辅助码表、`@` 名单和脚本插件的 `/` 指令跟上插件目录：设置页可能刚导入了表、改了名单或改了授权。没有文件变动时什么都不读。换表失败只报告，不让聚焦失败。
@@ -2477,6 +2502,40 @@ pub(crate) fn settled_model_file(
     bundled_settled_model(resources, recorded).or_else(|| {
         resource_packs::installed_file(state_root?, ResourcePack::SettledModel, SETTLED_MODEL_FILE)
     })
+}
+
+/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
+///
+/// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
+/// - `settled model attached`：模型已加载并挂在会话上；
+/// - `settled model not loaded`：找到了模型文件却没能用上，原因在同一次加载报的 `sentence model unreadable` 或 `sentence model ignored` 里（同一个文件在本进程只加载一次，后来的会话只有这一行）；
+/// - `settled model missing`：随包的和状态目录下的 `settled-model` 资源包都没有；
+/// - `settled model missing without state directory`：没有随包的模型，而宿主没给绝对路径的 `preferences_directory`，所以根本没去找下载的资源包。
+pub(crate) fn report_settled_model(
+    resources: &str,
+    state_root: Option<&Path>,
+    model: Option<&Path>,
+    attached: bool,
+) {
+    match (model, state_root) {
+        (Some(model), _) if attached => {
+            diagnostics::report("settled model attached", &model.display().to_string())
+        }
+        (Some(model), _) => {
+            diagnostics::report("settled model not loaded", &model.display().to_string())
+        }
+        (None, Some(state_root)) => diagnostics::report(
+            "settled model missing",
+            &format!(
+                "no settled-model pack under {}",
+                resource_packs::root(state_root).display()
+            ),
+        ),
+        (None, None) => diagnostics::report(
+            "settled model missing without state directory",
+            &format!("no absolute preferences_directory; resources {resources}"),
+        ),
+    }
 }
 
 /// HostOptions 文档（`host_options`）所描述的安装布局里随包的落定重排模型。设置应用据此决定要不要提供 `settled-model` 资源包的下载：有随包的模型时会话不会用下载的那份。

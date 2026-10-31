@@ -988,41 +988,30 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
   }
 
-  /// 用系统键盘在真实编辑器中验收全拼分词和英文大写，覆盖跨进程上屏。
-  func testQuanpinSeparatorCommitsXianAndRestoresEnglishShift() throws {
+  /// 用系统键盘在真实编辑器中验收全拼 26 键默认显示 Shift、第二行两侧缩进和英文大写，覆盖跨进程上屏。
+  func testQuanpin26KeyShowsDefaultShiftAndIndentedSecondRow() throws {
     let app = XCUIApplication()
     let field = try focusedTryoutKeyboard(app)
     app.buttons["schemeButton"].tap()
     let card = app.buttons["schemeCard-quanpin"]
     XCTAssertTrue(card.waitForExistence(timeout: 5))
     card.tap()
-    let separator = app.buttons["shiftButton"]
-    XCTAssertTrue(separator.waitForExistence(timeout: 5))
-    XCTAssertEqual(separator.label, "拼音分词")
-    let idle = field.value as? String
-    separator.tap()
-    XCTAssertEqual(field.value as? String, idle)
-    func letter(_ label: String) throws {
-      let key = app.descendants(matching: .any)[label].firstMatch
-      XCTAssertTrue(key.waitForExistence(timeout: 5), label)
-      key.tap()
-    }
-    try letter("字母 X")
-    try letter("字母 I")
-    separator.tap()
-    try letter("字母 A")
-    try letter("字母 N")
-    let candidate = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'candidate-' AND label CONTAINS %@", "西安")).firstMatch
-    XCTAssertTrue(candidate.waitForExistence(timeout: 8))
-    candidate.tap()
-    XCTAssertEqual(field.value as? String, "西安")
-    app.buttons["bottomLanguageKey"].tap()
-    XCTAssertNotEqual(separator.label, "拼音分词")
-    separator.tap()
-    try letter("大写 A")
-    XCTAssertEqual(field.value as? String, "西安A")
-    app.buttons["bottomLanguageKey"].tap()
-    XCTAssertEqual(separator.label, "拼音分词")
+    let shift = app.buttons["shiftButton"]
+    XCTAssertTrue(shift.waitForExistence(timeout: 5))
+    XCTAssertNotEqual(shift.label, "拼音分词")
+    XCTAssertTrue(shift.label.contains("英文大写"), shift.label)
+    let q = app.descendants(matching: .any)["字母 Q"].firstMatch
+    let p = app.descendants(matching: .any)["字母 P"].firstMatch
+    let a = app.descendants(matching: .any)["字母 A"].firstMatch
+    let l = app.descendants(matching: .any)["字母 L"].firstMatch
+    for key in [q, p, a, l] { XCTAssertTrue(key.waitForExistence(timeout: 5)) }
+    XCTAssertGreaterThan(a.frame.minX, q.frame.minX)
+    XCTAssertLessThan(l.frame.maxX, p.frame.maxX)
+    shift.tap()
+    let capitalA = app.descendants(matching: .any)["大写 A"].firstMatch
+    XCTAssertTrue(capitalA.waitForExistence(timeout: 5))
+    capitalA.tap()
+    XCTAssertEqual(field.value as? String, "A")
   }
 
   /// Pinyin typed on the real keyboard reaches a text field the extension does not own.

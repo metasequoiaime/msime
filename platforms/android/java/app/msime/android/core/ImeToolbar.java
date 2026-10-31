@@ -86,7 +86,7 @@ final class ImeToolbar {
             s.shortcutBar.addView(button, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
-        // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「语音输入 → 启动方式」选「工具栏按钮」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
+        // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「键盘 → 工具栏 → 语音」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
                 s.replyShortcutButton, s.layoutSettingsButton}) {
             if (retired == null) continue;
@@ -525,9 +525,11 @@ final class ImeToolbar {
         if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
             collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
-            // 设计的 logoCirc / logoBg 是应用主题的季节色（与开屏、设置页的 logo 同一套），不是从键盘皮肤的强调色混出来的。
-            AppThemePalette palette = AppThemePalette.of(s.imeStyler.appThemeSeed(), skin.dark());
-            brand.setLogoColors(palette.logoDisc, palette.logoBackground);
+            // 品牌键与键盘共用皮肤强调色，圆盘混入键盘底色，换肤时一起更新。
+            int accent = Color.parseColor(skin.accent());
+            int background = Color.parseColor(skin.background());
+            brand.setLogoColors(AppThemePalette.mix(accent, skin.dark() ? 22 : 14, background),
+                AppThemePalette.mix(accent, 82, Color.BLACK));
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {

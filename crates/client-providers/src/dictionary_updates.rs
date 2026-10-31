@@ -5,7 +5,7 @@ use crate::{file_lock, resources, storage};
 use resources::{Artifact, ResourceSet, ResourceStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -95,6 +95,113 @@ pub fn record_loaded(state: &Path, resources: &Path) -> Result<(), UpdateError> 
         return Ok(());
     }
     write(&path, &Loaded { resources })
+}
+
+/// 会话占用一个下载代次的凭证：持有期间这个版本的 `generations/<代次>.lock` 上有一把共享锁，[`check`] 回收旧版本时取不到独占锁就不删它。锁文件只建不换：清单 `<代次>.json` 重装同一版本时会被整份替换，锁在它上面会落到旧文件上。
+#[must_use]
+pub struct GenerationLease {
+    _lock: file_lock::ScopedFileLock,
+}
+
+/// 输入宿主建会话时调用，凭证跟着会话一起结束。会话的资源不是下载代次（随包资源、鸿蒙键盘自己的镜像）或者锁文件建不了时为 `None`，不影响建会话。
+pub fn lease(state: &Path, resources: &Path) -> Option<GenerationLease> {
+    let generations = std::fs::canonicalize(root(state).join("generations")).ok()?;
+    let resources = std::fs::canonicalize(resources).ok()?;
+    let name = resources.file_name()?.to_str()?;
+    if resources.parent()? != generations || !is_generation(name) {
+        return None;
+    }
+    let file = file_lock::open_private_lock_file(generations.join(format!("{name}.lock"))).ok()?;
+    Some(GenerationLease {
+        _lock: file_lock::ScopedFileLock::try_shared(file).ok()??,
+    })
+}
+
+fn is_generation(name: &str) -> bool {
+    name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// 删掉再也用不上的旧版本，持着 `update.lock` 调用。每个版本是 `generations/` 下的清单 `<桌面代次>.json`，加上它指向的桌面代次和语言代次目录。留下：当前选择和可回退的上一个（`installed.json`）、输入法最近一次加载的（`loaded.json`，也照顾还没有占用凭证的旧版输入法进程）、以及有会话持着 [`GenerationLease`] 的。其余版本先逐个取独占锁，取到之后不会再有会话开始用它，再删目录、校验标记、清单和锁文件；同一个语言代次被留下的版本引用时不删。目录删不掉（Windows 上有文件正被打开）时清单留着，下次再试。没有清单指向的代次目录（例如下载完却因关掉开关没有发布的那一代）不在这里删，留着下次发布时直接用。失败都只是少删，不影响检查结果。
+fn remove_old_versions(state: &Path) {
+    let folder = root(state);
+    let generations = folder.join("generations");
+    if msime_path_trust::reject_symlinked_components(&generations).is_err() {
+        return;
+    }
+    let manifest = |name: &str| read::<Selection>(&generations.join(format!("{name}.json"))).ok();
+    let mut keep = HashSet::new();
+    let referenced = |keep: &mut HashSet<String>, selection: &Selection| {
+        for set in std::iter::once(&selection.desktop).chain(selection.languages.iter()) {
+            if let Ok(generation) = set.generation() {
+                keep.insert(generation);
+            }
+        }
+    };
+    let installed: Installed = read(&folder.join("installed.json")).unwrap_or_default();
+    for selection in installed.active.iter().chain(installed.previous.iter()) {
+        referenced(&mut keep, selection);
+    }
+    if let Some(name) = read::<Loaded>(&folder.join(LOADED))
+        .ok()
+        .and_then(|loaded| Some(loaded.resources.file_name()?.to_str()?.to_owned()))
+    {
+        if let Some(selection) = manifest(&name) {
+            referenced(&mut keep, &selection);
+        }
+        keep.insert(name);
+    }
+    let Ok(entries) = std::fs::read_dir(&generations) else {
+        return;
+    };
+    let mut versions: Vec<String> = entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|name| Some(name.strip_suffix(".json")?.to_owned()))
+        .filter(|name| is_generation(name) && !keep.contains(name))
+        .collect();
+    versions.sort();
+    // 先把要删的版本都锁住，再算哪些语言代次还被留下的版本用着，最后才删。
+    let mut removable = Vec::new();
+    for name in versions {
+        let Some(selection) = manifest(&name) else {
+            continue;
+        };
+        if selection.desktop.generation().ok().as_deref() != Some(name.as_str()) {
+            continue;
+        }
+        let lock = file_lock::open_private_lock_file(generations.join(format!("{name}.lock")))
+            .ok()
+            .and_then(|file| {
+                file_lock::ScopedFileLock::try_exclusive(file)
+                    .ok()
+                    .flatten()
+            });
+        match lock {
+            Some(lock) => removable.push((name, selection, lock)),
+            None => referenced(&mut keep, &selection),
+        }
+    }
+    let store = store(state);
+    for (name, selection, lock) in removable {
+        let mut removed = true;
+        for set in std::iter::once(&selection.desktop).chain(selection.languages.iter()) {
+            let Ok(generation) = set.generation() else {
+                continue;
+            };
+            if keep.contains(&generation) {
+                continue;
+            }
+            if store.remove(&generation).is_err() {
+                removed = false;
+                continue;
+            }
+            let _ = std::fs::remove_dir_all(folder.join("verification").join(&generation));
+        }
+        if removed {
+            let _ = std::fs::remove_file(generations.join(format!("{name}.json")));
+            drop(lock);
+            let _ = std::fs::remove_file(generations.join(format!("{name}.lock")));
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -990,6 +1097,10 @@ fn check_with(
         }
         other => other,
     };
+    // 装好了新版本或确认已是最新时回收旧版本；仍持着 update.lock，不会和另一次安装交错。
+    if result.is_ok() && matches!(status.phase.as_str(), "ready" | "current") {
+        remove_old_versions(&context.state_root);
+    }
     if let Err(error) = &result {
         status.phase = "failed".into();
         status.error = Some(error.to_string());

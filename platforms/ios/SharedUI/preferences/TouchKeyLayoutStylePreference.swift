@@ -255,6 +255,12 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
     return symbols.isEmpty ? table.defaults : symbols
   }
 
+  /// 数字九宫格左列画的项（#+= 不在内，固定在最后）：出厂表在半角语境（`ascii`）下末尾按 `NineKeySidebar.asciiDigitExtras` 的顺序接上表里还没有的半角符号，中文和日文语境就是出厂表。用户自定义过这张表时原样使用，什么语境都不追加：表是用户自己排的，要 `@` 这类符号就自己加进表里。
+  func numberPadSidebarSymbols(ascii: Bool) -> [String] {
+    guard digitSidebar.isEmpty else { return digitSidebar }
+    return ascii ? NineKeySidebar.appendingAsciiDigitExtras(to: NineKeySidebar.defaultDigitSymbols) : NineKeySidebar.defaultDigitSymbols
+  }
+
   /// 九键字母层左列画的项：出厂表在右侧大回车时末尾接 ！（右列的 ！ 让给了回车），自定义表原样使用、不接。
   func letterSidebarSymbols(tallReturn: Bool) -> [String] {
     guard nineKeySidebar.isEmpty else { return nineKeySidebar }
@@ -652,7 +658,7 @@ enum TouchBottomRowLayout {
     return [Key(.symbols, side)] + middle + [Key(.returnKey, side)]
   }
 
-  /// 拼音九键、九键双拼和笔画的数字层（不是右侧大回车时）：符 | 九键 |（🌐）| 0 | 空格 | 中/英 | 回车。与 Android #9113 的规则相同，往返字母层和数字层时 符 和切换键不换位置、宽度也不变：符 和切换键沿用字母层的份额，0 和它右边的空格合起来占字母层空格（九键双拼还有它的 0）那一份，整行总份额与字母层相同。空格与 中/英 同宽，跟数字层原来的规则一样在 0 的右边；隐藏中/英时它的份额并进 0。从 26 键、14 键、18 键、手写借来的数字九宫格不用这张表，返回键本来就在它们 123 那一格。
+  /// 拼音九键、九键双拼和笔画的数字层（不是右侧大回车时）：符 | 九键 |（🌐）| 0 | 空格 | 中/英 | 回车。与 Android #9113 的规则相同，往返字母层和数字层时 符 和切换键不换位置、宽度也不变：符 和切换键沿用字母层的份额，0 和它右边的空格合起来占字母层空格（九键双拼还有它的 0）那一份，整行总份额与字母层相同。空格与 中/英 同宽，跟数字层原来的规则一样在 0 的右边；隐藏中/英时它的份额并进 0。从其他键面（26 键一族、14/18 键、手写、假名九键、大千，以及英文和本地模式）借来的数字九宫格不用这张表，返回键本来就在它们 123 那一格；只有「符」与「123」互换过的 26 键借来时用它，返回键同样落在 123 那一格。
   ///
   /// `space`（`touch_number_pad_space`）决定 0 和空格的排法：`afterZero`（iOS 原来的排法）如上；`beforeZero` 两键对调，空格占大份、0 与中/英同宽；`rightColumn` 底行没有空格，0 占两键合起来的份额，空格在右列最下面一格（键盘的 `numberPadColumnSpace`）。
   static func nineKeyDigits(globe: Bool, zero: Bool = false, language: Bool = true,
@@ -670,7 +676,7 @@ enum TouchBottomRowLayout {
     return keys
   }
 
-  /// 从 26 键、14 键、18 键、手写借来的数字九宫格（返回 |（🌐）| 0 | 空格 | 中/英 | 回车）在空格位置不是 iOS 原来的 `afterZero` 时的份额：返回 1.25、地球键 1、中/英 1.05、回车 1.6 与原来的数字页相同，0 和空格合起来的 5.25 份（隐藏中/英时再加 1.05）按 `space` 分：`beforeZero` 空格在左占大份、0 是 1.05，`rightColumn` 底行只有 0。`afterZero` 仍走原来的约束（不带地球键时与上方五列对齐），不用这张表。
+  /// 从九键一族和笔画以外的键面（26 键一族、14/18 键、手写、假名九键、大千，以及英文和本地模式）借来的数字九宫格（返回 |（🌐）| 0 | 空格 | 中/英 | 回车）在空格位置不是 iOS 原来的 `afterZero` 时的份额：返回 1.25、地球键 1、中/英 1.05、回车 1.6 与原来的数字页相同，0 和空格合起来的 5.25 份（隐藏中/英时再加 1.05）按 `space` 分：`beforeZero` 空格在左占大份、0 是 1.05，`rightColumn` 底行只有 0。`afterZero` 仍走原来的约束（不带地球键时与上方五列对齐），不用这张表。
   static func borrowedNumberPad(globe: Bool, language: Bool = true, space: TouchNumberPadSpace) -> [Key] {
     var keys = [Key(.layer, layerWeight)]
     if globe { keys.append(Key(.globe, globeWeight)) }

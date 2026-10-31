@@ -10,6 +10,8 @@ import android.os.Bundle;
 public final class SyntheticSpeechSetup extends Instrumentation {
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        getTargetContext().getSharedPreferences("synthetic-speech", 0).edit()
+            .putBoolean("hold", "true".equals(arguments.getString("hold"))).commit();
         Bundle result = new Bundle();
         int state = "true".equals(arguments.getString("enabled"))
             ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;

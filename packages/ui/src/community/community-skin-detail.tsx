@@ -5,6 +5,7 @@ import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityReportSection } from "./community-report";
+import { CommunityBlockAuthorSection } from "./community-block";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { communitySkinCategoryLabel } from "./community-skin-category-model";
 import type { CommunityReportReason } from "./community-report-model";
@@ -37,6 +38,8 @@ export interface CommunitySkinDetailProps {
   onUnpublish: () => void;
   onCancelUnpublish: () => void;
   onReport?: (reason: CommunityReportReason, detail: string) => Promise<boolean>;
+  /** 屏蔽这件作品的作者之后以提示语调用，由图库关掉详情并重读列表；不给时，或宿主不提供屏蔽（见 `CommunityBlocksContext`）时，不画「屏蔽作者」。 */
+  onBlocked?: (notice: string) => void;
 }
 
 /** 社区皮肤详情的预览、试用、评分、分类和管理操作。 */
@@ -62,6 +65,7 @@ export function CommunitySkinDetail({
   onUnpublish,
   onCancelUnpublish,
   onReport,
+  onBlocked,
 }: CommunitySkinDetailProps) {
   return (
     <CommunityDetailFrame
@@ -144,6 +148,15 @@ export function CommunitySkinDetail({
       />
       {!skin.owned && onReport && (
         <CommunityReportSection actionBusy={actionBusy} onReport={onReport} />
+      )}
+      {!skin.owned && onBlocked && (
+        <CommunityBlockAuthorSection
+          kind="skins"
+          id={skin.id}
+          author={skin.author}
+          actionBusy={actionBusy || detailBusy}
+          onBlocked={onBlocked}
+        />
       )}
     </CommunityDetailFrame>
   );
