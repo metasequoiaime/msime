@@ -763,6 +763,7 @@ void install_crash_handlers() {
     return;
   previous_filter = SetUnhandledExceptionFilter(unhandled_exception);
   filter_installed = true;
+  SetEnvironmentVariableW(in_process_recorder_variable, std::to_wstring(GetCurrentProcessId()).c_str());
 #else
   if (actions_installed)
     return;
@@ -814,6 +815,7 @@ void remove_crash_handlers() {
     return;
   SetUnhandledExceptionFilter(previous_filter);
   filter_installed = false;
+  SetEnvironmentVariableW(in_process_recorder_variable, nullptr);
 #else
   if (!actions_installed)
     return;

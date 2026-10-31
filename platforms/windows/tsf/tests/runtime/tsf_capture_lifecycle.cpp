@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <werapi.h>
 #include "../../CrashCaptureContext.h"
+#include "../../../../common/CrashRecorder.h"
 #include "../../WerApiCompatibility.h"
 #include "../../../../../shared/contracts/msime_edition.h"
 #include <chrono>
@@ -250,6 +251,36 @@ void tests() {
     require(!tip.snapshot(&waiting) || !waiting.armed, "failed unregister rearmed context");
     tip.unload();
     until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "failed unregister did not retry safely");
+  }
+  {
+    // 同一进程已有进程内记录器（水杉自己的设置与面板）时由它记录：TIP 不准备身份、不注册助手也不武装。
+    Tip tip(directory);
+    const auto prepared = preparations();
+    require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable,
+                                    std::to_wstring(GetCurrentProcessId()).c_str()) != FALSE, "in-process marker failed");
+    tip.block_refresh();
+    auto *lease = tip.acquire();
+    require(tip.wait_refresh(6000), "in-process recorder refresh checkpoint not reached");
+    Context skipped{};
+    require(tip.snapshot(&skipped) && skipped.armed == 0 && tip.registered() == 0 && preparations() == prepared,
+            "TIP armed WER capture beside the in-process recorder");
+    tip.resume_refresh();
+    tip.release(lease);
+    tip.unload();
+    until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "in-process skip leaked observer");
+  }
+  {
+    // 从父进程继承到的标记带的是父进程号，外部宿主照常采集。
+    require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable,
+                                    std::to_wstring(GetCurrentProcessId() + 1).c_str()) != FALSE, "inherited marker failed");
+    Tip tip(directory);
+    auto *lease = tip.acquire();
+    tip.armed();
+    require(tip.registered() == 1, "inherited marker suppressed TSF capture");
+    tip.release(lease);
+    tip.unload();
+    until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "inherited marker leaked observer");
+    require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable, nullptr) != FALSE, "marker cleanup failed");
   }
   for (unsigned index = 0; index < 20; ++index) {
     Tip tip(directory);

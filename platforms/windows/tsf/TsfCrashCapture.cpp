@@ -6,6 +6,7 @@
 #include "HostPathEncoding.h"
 #include "msime_tsf_version.h"
 #include "../../../shared/contracts/msime_edition.h"
+#include "../../common/CrashRecorder.h"
 #include "../../common/HostApiString.h"
 #include <windows.h>
 #include <werapi.h>
@@ -185,7 +186,18 @@ void forget(State &state) {
   state.path.clear();
   state.header.clear();
 }
+// 水杉自己的设置、面板等进程装了进程内记录器，它照样把故障交给 WER；助手在这里再记就是同一故障的第二份，还会记成 TSF 的。
+bool in_process_recorder() {
+  wchar_t value[16]{};
+  const DWORD length = GetEnvironmentVariableW(msime::crash::in_process_recorder_variable, value, 16);
+  return length && length < 16 && std::wstring(value, length) == std::to_wstring(GetCurrentProcessId());
+}
 bool refresh(State &state, std::uint64_t generation, const std::string &preferences) {
+  // 不准备身份也不注册助手；记录器在 TIP 之后才装时，下一轮在这里撤下已发布的快照。
+  if (in_process_recorder()) {
+    disarm(state);
+    return true;
+  }
   const auto directory = telemetry_directory();
   if (preferences.empty() || !std::filesystem::u8path(preferences).is_absolute() || directory.empty()) {
     disarm(state); return false;
