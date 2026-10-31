@@ -46,6 +46,7 @@ final class FourteenKeyWubiDeviceChecks {
             t.stage = "fourteen wubi baseline";
             save();
             t.restartIme();
+            editor(false);
             t.stage = "26-key wubi fifth-code top commit with mixed pinyin";
             t.shellDiscard("input text wqiy");
             t.await(candidate("你"));

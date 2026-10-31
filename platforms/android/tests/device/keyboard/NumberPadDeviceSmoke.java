@@ -519,6 +519,8 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         shellDiscard("am force-stop app.msime.android.test");
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
+        // 前一个设备套件可能把输入法留在符号面板；重新打开合成编辑器时先回到字母面，避免语言键等待读到旧面板。
+        if (hasKey(described("关闭符号面板"))) tap(described("关闭符号面板"));
     }
 
     // 稳定性检查必须读取当前节点；连续命中同一份过渡坐标缓存不能证明布局已经稳定。

@@ -18,4 +18,5 @@ Status: implemented
 
 - 新增 `xuqiu_continues_after_a_four_letter_wubi_code` 和 `mixed_wubi_keeps_a_pinyin_prefix_when_the_fourth_code_is_a_complete_syllable` 回归测试，覆盖 `xuqiu`、`hanguo` 两种四码冲突形态。
 - 使用锁定的 `dict-v2.0.24` 资源真实运行查询，`xuqiu` 的第五个 `u` 已被接受，首候选为“需求”。
+- 继承的延长状态只决定引擎接不接受第五码，不再让 `wubi_pinyin_continues` 直接回答续写；`xuqi` 接 `u`、`hang` 接 `u` 由音节切分判断覆盖，运行时顶字仍按真实读音前缀放行，见[四码碰撞续输](2026-10-18-wubi-mixed-pinyin-continuation.md)。
 - 混拼查询在五笔码表只有更长编码前缀、没有当前完整码命中时，把拼音精确候选放在这些前缀补全之前。正式词库的 `edu` 会同时返回 `edui` 的“膫”和 `eduq` 的“须将”，但首选保持为拼音“额度”；这条规则适用于同类前缀碰撞，不为单个词增加特判。

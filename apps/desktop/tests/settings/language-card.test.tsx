@@ -340,6 +340,7 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
     "选词与翻页",
     "候选与联想",
     "输出",
+    "日期时间候选",
     "拼音方案调频",
   ]);
   expect(within(page).getByRole("group", { name: "输入方案" })).toBeTruthy();
