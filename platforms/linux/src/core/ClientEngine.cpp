@@ -60,6 +60,7 @@
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
 #include "../candidates/CandidateRowText.h"
+#include "../candidates/CandidatePronunciation.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
@@ -704,6 +705,10 @@ struct State {
   bool cloud_candidates = true;
   bool candidate_translations = true;
   bool candidate_english_gloss = false;
+  // 「显示读音」（偏好 candidate_pronunciation，默认关闭）：释义后面标英文音标（CandidatePronunciation.h）。
+  bool candidate_pronunciation = false;
+  // 翻译工作线程查到的读音，按发给读音表的文本存；换焦点、换偏好时随 invalidate_providers 一起清掉。
+  msime::linux_host::CandidatePronunciations pronunciations;
   // 候选词翻译开着且范围是「仅当前高亮」（CandidateTranslationScope.h）。
   bool translation_scope_highlighted = true;
   // 「仅当前高亮」时主查询的回答：高亮移开再移回来时直接交给 Rust，不再问 provider。
@@ -741,6 +746,7 @@ struct State {
     sentence_translation_generation = 0;
     translation_dispatched_query.clear();
     translation_answers.clear();
+    pronunciations.clear();
     for (auto &query : online_dispatched_query) query.clear();
   }
   std::string surrounding_text;
@@ -958,6 +964,7 @@ struct State {
     candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
     candidate_english_gloss = preferences.value("candidate_english_gloss", false);
+    candidate_pronunciation = preferences.value("candidate_pronunciation", false);
     translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
     if (english_override || emoji_override || kaomoji_override || symbol_override) {
@@ -1157,6 +1164,7 @@ struct State {
     }
     candidate_translations = next_candidate_translations;
     candidate_english_gloss = next_candidate_english_gloss;
+    candidate_pronunciation = preferences.value("candidate_pronunciation", false);
     translation_scope_highlighted = next_translation_scope_highlighted;
     const auto next_translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
@@ -2198,6 +2206,11 @@ struct TranslationTask {
   std::string answer_key = {};
   // gloss_query 查完之后接着发的主查询。
   std::shared_ptr<TranslationTask> then = {};
+  // 打开「显示读音」时，工作线程为这一份的回答查读音（CandidatePronunciation.h）：目标语言、补充目录（偏好目录下的 resource-packs），查到的 {文本: 读音} 写进 pronunciations，translation_complete 在主线程收下。
+  bool pronounce = false;
+  std::string target_language = {};
+  std::string pronunciation_root = {};
+  Json pronunciations = Json::object();
 };
 // prefer_online_glosses over the JSON translation lists the host API exchanges.
 Json prefer_online_translations(const Json &glosses, const Json &online) {
@@ -2299,6 +2312,24 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
         }
       } catch (...) {}
     }
+    // 读音表也是本机文件，同样在这个线程上读；只问这一段的回答，前一段的已经问过了。
+    if (request.pronounce && raw) {
+      try {
+        const auto document = Json::parse(raw);
+        if (document.value("ok", false) && document.at("value").is_object()) {
+          const auto generation = Json::parse(request.query).at("generation").get<uint64_t>();
+          request.pronunciations = msime::linux_host::lookup_translation_pronunciations(
+              document.at("value").value("translations", Json::array()), {request.target_language}, generation,
+              request.pronunciation_root, [&](const std::string &lookup) {
+                try {
+                  return response(msime_client_pronunciation_request(
+                      reinterpret_cast<const uint8_t *>(lookup.data()), lookup.size(),
+                      reinterpret_cast<const uint8_t *>(request.resources.data()), request.resources.size()));
+                } catch (...) { return Json(); }
+              });
+        }
+      } catch (...) {}
+    }
     g_task_return_pointer(task, raw, [](gpointer value) { msime::host_api::discard_string(static_cast<char *>(value)); });
   });
   g_object_unref(task);
@@ -2327,6 +2358,10 @@ std::optional<TranslationTask> translation_task(IBusEngine *engine, Json query, 
                        configured.value("resources", std::string{}), lookup.dump(), offline_gloss,
                        Json::array(), dictionary};
   task.gloss = gloss;
+  task.pronounce = s.candidate_pronunciation;
+  task.target_language = target;
+  task.pronunciation_root = msime::linux_host::pronunciation_supplementary_root(
+      configured.value("preferences_directory", std::string{}));
   if (!gloss) task.answer_key = msime::linux_host::translation_answer_key(std::move(query));
   return task;
 }
@@ -2722,6 +2757,7 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
         s.translation_dispatched_query == request->query)
       s.translation_dispatched_query.clear();
     const auto generation = query.at("generation").get<uint64_t>();
+    if (s.candidate_pronunciation) s.pronunciations.store(request->pronunciations);
     if (!translations.empty()) {
       // gloss_query 的回答是整页的离线释义，标上 "gloss": true，「仅当前高亮」时 Rust 照旧画在每一行。
       const auto encoded =
@@ -4318,9 +4354,15 @@ void render(IBusEngine *engine, const Json &view) {
         candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose the optional gloss without allowing an oversized provider result to destabilize the panel.
+      // 打开「显示读音」时，音标接在它那一行释义后面（IBus 的候选行没有第二行，CandidatePronunciation.h）。
+      const auto pronunciation = engine_state.pronunciations.candidate(
+          candidate.at("text").get<std::string>(), translation,
+          engine_state.candidate_pronunciation
+              ? std::vector<std::string>{engine_state.translation_target_language}
+              : std::vector<std::string>{});
       if (!translation.empty() && translation.size() <= 4096 &&
           value.size() <= 4096)
-        gloss += " · " + translation;
+        gloss += " · " + msime::linux_host::candidate_gloss_inline_readings(translation, pronunciation);
     }
     std::string tail;
     // Engine 候选来源 12 是 AI 占位行，来源 15 是云候选占位行，下面都画成次要色。
