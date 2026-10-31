@@ -4988,6 +4988,24 @@ public final class MSIMEInputService extends InputMethodService {
             label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
     }
 
+    private SpellingEditIcon spellingEditIcon;
+
+    /**
+     * 读音行左端的笔：边长约等于读音的字号（不超过一行字高，读音行的高度不变），点按区放宽到 40 dp，小图标也点得中。
+     */
+    private void showSpellingEditIcon(boolean shown) {
+        if (!shown) {
+            preedit.setCompoundDrawablesRelative(null, null, null, null);
+            preedit.setMinWidth(0);
+            return;
+        }
+        if (spellingEditIcon == null) spellingEditIcon = new SpellingEditIcon(preedit);
+        int size = Math.round(preedit.getTextSize() * 1.15f);
+        spellingEditIcon.setBounds(0, 0, size, size);
+        preedit.setCompoundDrawablesRelative(spellingEditIcon, null, null, null);
+        preedit.setMinWidth(pixels(40));
+    }
+
     void fail(Throwable error) {
         // 不把异常交给 Log：解析异常可能包含输入原文，固定类别足以区分下一步排查方向。
         ImeLog.e(InputFailurePolicy.logMessage(error), null);
@@ -11865,9 +11883,12 @@ public final class MSIMEInputService extends InputMethodService {
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
-            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty()) displayText = "编辑拼写";
+            // 拼写已写在输入框里时读音行只画一支笔（SpellingEditIcon），点它打开放大编辑条；不再放「编辑拼写」四个字，描述仍是「编辑拼写」。
+            boolean spellingEditIcon = caretEditable && !spellingDrawn && phrasePrefix.isEmpty();
+            if (spellingEditIcon) displayText = "";
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
+            showSpellingEditIcon(spellingEditIcon);
             preedit.setContentDescription(caretEditable ? "编辑拼写"
                 : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
