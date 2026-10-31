@@ -23,6 +23,7 @@
 pub mod builtin;
 pub mod import;
 pub mod library;
+pub mod personal;
 pub mod progress;
 pub mod schedule;
 pub mod session;

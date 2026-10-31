@@ -268,6 +268,8 @@ const vocabularyReview: VocabularyReviewClient = {
     }),
   importWordbook: (name, text) => invoke("import_vocabulary_wordbook", { name, text }),
   removeWordbook: (wordbook) => invoke("remove_vocabulary_wordbook", { wordbook }),
+  removePersonalWord: (word) => invoke("remove_personal_vocabulary_word", { word }),
+  exportPersonalWordbook: () => invoke<string | null>("export_personal_vocabulary"),
   reset: () => invoke("reset_vocabulary_review"),
 };
 const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
