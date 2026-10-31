@@ -1487,8 +1487,7 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
-    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    const input: string = ChineseHelpcodePolicy.letterInput(letter, shifted);
     const touchKey: TouchKey | null = this.touchKey(touch, shifted);
     if (touchKey !== null) {
       KeyboardSession.shared.pressTouch(input.charCodeAt(0), shifted, touchKey);
@@ -5406,6 +5405,9 @@ struct KeyboardView {
 
   /** 数字九宫格上的数字、0、小数点、左列出厂项和半角符号、顶部补充行怎么输入（键位已由调用方记过），规则与 Android、iOS 相同（`NineKeyLayout.numberPadToSession`）：本地模式、越南语和藏文里引擎此刻列为拼写符号的字符，以及藏文的 `'`，交给会话（`press`）；其余一律按字面上屏（`insertNumberPadLiteral`），日语、韩文和大千注音的数字和标点也是。 */
   private typeNumberPadText(text: string): void {
+    if (this.typeHelpcodeTrigger(text)) {
+      return;
+    }
     if (NineKeyLayout.numberPadToSession(text, this.localMode !== 'none', this.vietnameseFace(), this.tibetanFace(),
       KeyboardSession.shared.hardwareSpelling())) {
       KeyboardSession.shared.press(text.charCodeAt(0), false);
@@ -11856,6 +11858,19 @@ struct KeyboardView {
       NumberSymbolLayout.SPACE_WEIGHT, NumberSymbolLayout.RETURN_WEIGHT], 2);
   }
 
+  /**
+   * 组字中按到的辅助码触发键（123 层画成「；」的分号键、`/` 等，`ChineseHelpcodePolicy.layerTrigger`）交给 Engine 开一段辅助码，而不是按原样上屏再插入键面。Engine 收下时回到字母层，接下来要打的是辅助码字母；不收时返回 false，调用方照常输入键面。
+   */
+  private typeHelpcodeTrigger(text: string): boolean {
+    const trigger: string | null = KeyboardSession.shared.helpcodeTrigger(text);
+    if (trigger === null || !KeyboardSession.shared.press(trigger.charCodeAt(0), false)) {
+      return false;
+    }
+    this.symbols = false;
+    this.moreSymbols = false;
+    return true;
+  }
+
   /** 字符键输入它显示的内容；哪些键仍走符号行路径见 `NumberSymbolLayout.route`。 */
   private tapLayerCharacter(text: string): void {
     if (NumberSymbolLayout.route(text, this.designLayerChinese()) === LayerCharacterRoute.SYMBOL_KEY) {
@@ -11863,6 +11878,9 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
+    if (this.typeHelpcodeTrigger(text)) {
+      return;
+    }
     // 已有组合按原样上屏，与 Android 的 `commitNineKeyLiteral` 一致。
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(text);
