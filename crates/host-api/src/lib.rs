@@ -340,6 +340,8 @@ struct HostSession {
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
+    /// 资源是下载的词库代次时占用它，设置宿主回收旧版本时不会删掉会话还在读的目录；同样放在 runtime 之后，Engine 先关掉文件再放手。
+    _generation_lease: Option<msime_client_providers::dictionary_updates::GenerationLease>,
 }
 
 #[derive(PartialEq, Eq)]
