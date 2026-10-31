@@ -148,8 +148,7 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
             try {
                 ResourcePackService.Status progress = ResourcePackService.status(ResourcePacks.OCR_MODULE);
                 if (progress != null && progress.running()) throw new ResourcePacks.Failure("resource_pack_busy");
-                ResourcePacks.remove(getApplicationContext(), ResourcePacks.OCR_MODULE);
-                success = true;
+                success = ResourcePacks.remove(getApplicationContext(), ResourcePacks.OCR_MODULE);
             } catch (ResourcePacks.Failure failure) {
                 success = false;
             }

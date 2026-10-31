@@ -150,6 +150,8 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 
 ## Related notes audit
 
+卸载入口随后补上了结果语义：共享层返回 `removed: false` 时表示目标目录本来不存在，Android 设置页必须显示失败而不能清理“已完成”状态或提示卸载成功；Java 门面现在保留并返回这个布尔值。
+
 [手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口；Android 的 sherpa-onnx 语音运行库也带一份 ONNX Runtime，与 OCR 模块那份在同一进程里共存的验证见下文。[Google Play 分发](../../implemented/process/2026-10-23-android-google-play-distribution.md)部分相关：Play 渠道不提供外部可执行模块，OCR 入口在该渠道拒绝。现有活跃笔记没有相机 OCR 的决定。
 
 ## Probe invocation
