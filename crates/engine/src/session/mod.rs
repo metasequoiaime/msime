@@ -804,12 +804,18 @@ impl Session {
                 ..SessionSnapshot::default()
             };
         }
-        if self.nine_key.active() {
-            return self.nine_key.snapshot();
-        }
         let hide_helpcode = !show_helpcode
             && self.input.helpcode_enabled()
             && !self.input.local_mode.annotates_rows();
+        if self.nine_key.active() {
+            let mut snapshot = self.nine_key.snapshot();
+            snapshot.candidate_annotations = self.input.candidate_helpcode_annotations(
+                &snapshot.candidates,
+                hide_helpcode,
+                snapshot.scheme,
+            );
+            return snapshot;
+        }
         let input = &self.input;
         let mut candidates = input.candidates().to_vec();
         for item in &mut candidates {
