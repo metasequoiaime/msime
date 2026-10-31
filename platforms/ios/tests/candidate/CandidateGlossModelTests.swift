@@ -98,6 +98,8 @@ final class CandidateGlossModelTests: XCTestCase {
     XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: CandidatePronunciationModelTestsPlaceholder.pending),
                  "the pending placeholder is not a gloss")
     XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "AI助手", englishGloss: nil))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "爱", englishGloss: "to love\taffection"),
+                 "the shared request rejects a whole batch over one control character, so such a gloss is not looked up")
   }
 
   func testPronunciationRequestDeduplicatesAndCarriesThePackRoot() throws {
@@ -111,6 +113,9 @@ final class CandidateGlossModelTests: XCTestCase {
     let many = try CandidatePronunciationModel.request(texts: (0..<400).map { "word\($0)" }, supplementaryResources: nil)
     let manyItems = try XCTUnwrap((JSONSerialization.jsonObject(with: many) as? [String: Any])?["items"] as? [Any])
     XCTAssertEqual(manyItems.count, CandidatePronunciationModel.maxItems)
+    let clean = try CandidatePronunciationModel.request(texts: ["love\taffection", "hello"], supplementaryResources: nil)
+    let cleanItems = try XCTUnwrap((JSONSerialization.jsonObject(with: clean) as? [String: Any])?["items"] as? [[String: String]])
+    XCTAssertEqual(cleanItems, [["text": "hello", "language": "en"]], "a text with a control character is left out of the batch")
     XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: [""], supplementaryResources: nil))
     XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: ["hello"], supplementaryResources: "relative"))
   }

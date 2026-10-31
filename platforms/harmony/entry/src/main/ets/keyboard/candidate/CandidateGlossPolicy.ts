@@ -126,7 +126,7 @@ export class CandidateGlossPolicy {
   }
 }
 
-/** One text sent to `msime_client_pronunciation_request`; the shared table only pronounces English. */
+/** 交给 `msime_client_pronunciation_request` 的一段文字；共享表只给英文标音。 */
 export interface PronunciationItem {
   text: string;
   language: string;
@@ -175,14 +175,23 @@ export class CandidatePronunciationPolicy {
       return "";
     }
     const first: string = translation.split(/\r\n|\r|\n/)[0].trim();
-    return first.length > 0 && utf8Length(first) <= MAX_ENTRY_BYTES ? first : "";
+    return first.length > 0 &&
+      utf8Length(first) <= MAX_ENTRY_BYTES &&
+      !CandidatePronunciationPolicy.hasControl(first)
+      ? first
+      : "";
   }
 
   /** 去重后的有界请求文档；同一段文字只查一次。 */
   static request(texts: string[]): string {
     const unique: string[] = [];
     for (const text of texts) {
-      if (text.length === 0 || unique.includes(text)) continue;
+      if (
+        text.length === 0 ||
+        CandidatePronunciationPolicy.hasControl(text) ||
+        unique.includes(text)
+      )
+        continue;
       unique.push(text);
       if (unique.length >= CandidatePronunciationPolicy.MAX_ITEMS) break;
     }
@@ -229,6 +238,11 @@ export class CandidatePronunciationPolicy {
   /** 读屏在释义之后念的音标。 */
   static accessibilitySuffix(reading: string): string {
     return reading.length === 0 ? "" : "，音标：" + reading;
+  }
+
+  /** 共享层的请求只要有一段带控制字符（Rust 的 `char::is_control`，即 Cc 类）就整批拒绝，这样的文字（比如在线或 AI 译文里的制表符）不查，免得一条释义让整页都没有音标。 */
+  private static hasControl(text: string): boolean {
+    return /[\u0000-\u001f\u007f-\u009f]/.test(text);
   }
 
   private static plainEnglish(text: string): boolean {

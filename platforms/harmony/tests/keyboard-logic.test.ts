@@ -19221,4 +19221,39 @@ group("candidate pronunciations read English candidates and English glosses only
       CandidateWidthPolicy.chipContentVp(word, 0, 18, 0),
     "2in1 格子放得下比词宽的音标",
   );
+  // 竖排把音标接在词和释义后面，窗口宽度要加上它，不是和释义取较宽的那个。
+  const glossed = {
+    text: "国际",
+    badge: "",
+    hint: "",
+    annotation: "an international organization of nations",
+  };
+  const longReading = "/ˌɪntəˈnæʃənəlˌɪntəˈnæʃənəl/";
+  check(
+    CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: longReading }], "guoji", 18, 15) >
+      CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+    "竖排窗口按音标加宽",
+  );
+  check(
+    CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: "/x/" }], "guoji", 18, 15) >
+      CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+    "比释义短的音标也加上去，因为竖排接在释义后面",
+  );
+  check(
+    CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: "" }], "guoji", 18, 15) ===
+      CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+    "没有音标时宽度不变",
+  );
+  // 一段带控制字符的文字会让共享层整批拒绝，所以这样的释义不查，也不进请求。
+  check(
+    CandidatePronunciationPolicy.lookupText("爱", "to love\taffection", true) === "" &&
+      CandidatePronunciationPolicy.lookupText("爱", "love\u0085", true) === "",
+    "带控制字符的释义不查",
+  );
+  check(
+    JSON.stringify(
+      JSON.parse(CandidatePronunciationPolicy.request(["love\taffection", "hello"])).items,
+    ) === JSON.stringify([{ text: "hello", language: "en" }]),
+    "带控制字符的文字不进请求，同一页的其他文字照常查",
+  );
 });

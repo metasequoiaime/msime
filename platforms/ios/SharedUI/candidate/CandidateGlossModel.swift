@@ -75,14 +75,15 @@ enum CandidatePronunciationModel {
     guard let englishGloss else { return nil }
     let first = englishGloss.split(whereSeparator: \.isNewline).first.map(String.init)?
       .trimmingCharacters(in: .whitespaces) ?? ""
-    return !first.isEmpty && CandidateGlossModel.isBounded(first) ? first : nil
+    return !first.isEmpty && CandidateGlossModel.isBounded(first) && !hasControl(first) ? first : nil
   }
 
   /// 去重后的有界请求，最多 `maxItems` 段。
   static func request(texts: [String], supplementaryResources: String?) throws -> Data {
     var seen = Set<String>()
     var items: [[String: Any]] = []
-    for text in texts where !text.isEmpty && CandidateGlossModel.isBounded(text) && seen.insert(text).inserted {
+    for text in texts where !text.isEmpty && CandidateGlossModel.isBounded(text) && !hasControl(text)
+      && seen.insert(text).inserted {
       items.append(["text": text, "language": "en"])
       if items.count >= maxItems { break }
     }
@@ -114,6 +115,11 @@ enum CandidatePronunciationModel {
       readings[text] = reading
     }
     return readings
+  }
+
+  /// 共享层的请求只要有一段带控制字符（Rust 的 `char::is_control`，即 Cc 类）就整批拒绝；这样的释义（比如在线或 AI 译文里的制表符）不查，免得一条释义让整页都没有音标。
+  private static func hasControl(_ text: String) -> Bool {
+    text.unicodeScalars.contains { $0.properties.generalCategory == .control }
   }
 
   private static func plainEnglish(_ text: String) -> Bool {

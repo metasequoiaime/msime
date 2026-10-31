@@ -4248,7 +4248,9 @@ struct KeyboardView {
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
-      if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
+      // 只为音标预留了一行（`translationRows()` 为 0）时下面没有释义行，译文和竖排一样接在词旁边，和触屏胶囊的 `chipAnnotationBeside` 同一条规则。
+      if (candidate.annotation.length > 0
+        && (!this.candidateUsesGlossLine() || KeyboardSession.shared.translationRows() === 0)) {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))

@@ -626,6 +626,56 @@ test("HarmonyOS phones offer English pronunciations under the gloss switch, with
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_pronunciation: true }));
 });
 
+test("HarmonyOS keeps the English pronunciation switch with every gloss source off", async () => {
+  // 鸿蒙键盘给英文候选标音标不看释义开关，关掉释义以后这一行仍在，用户还能把音标关掉。
+  const glossless = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      candidate_translations: false,
+      candidate_english_gloss: false,
+      candidate_pronunciation: true,
+    },
+  };
+  const phone = render(
+    <SettingsPage
+      client={{
+        load: async () => glossless,
+        save: vi.fn(),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "harmony", mobile_settings: true }),
+      }}
+    />,
+  );
+  await openInputSettings();
+  const phoneToggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  expect(phoneToggle.checked).toBe(true);
+  expect(screen.getByText(/英文候选不用打开释义也会标出/)).toBeDefined();
+  expect(screen.queryByText(/需要先打开释义/)).toBeNull();
+  phone.unmount();
+
+  // 2in1 的设置页走表达页的「候选释义」分类，同样只写英文音标，不提日文罗马音。
+  render(
+    <SettingsPage
+      client={{
+        load: async () => glossless,
+        save: vi.fn(),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "harmony", mobile_settings: false }),
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
+  selectSettingsTab("候选释义");
+  const tabletToggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  expect(tabletToggle.checked).toBe(true);
+  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
+  expect(screen.getByText(/在英文候选和英文释义下面标出音标/)).toBeDefined();
+  expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
+});
+
 test("Android English suggestions default on and persist independently", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,

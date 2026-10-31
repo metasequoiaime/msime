@@ -1,3 +1,5 @@
+import { CandidateTranslationStyle } from "./CandidateTranslationStyle";
+
 /**
  * Estimates the width a desktop candidate panel needs before ArkUI has laid out its Text nodes.
  *
@@ -64,9 +66,18 @@ export class CandidateWidthPolicy {
     let contentWidth: number = CandidateWidthPolicy.textWidthVp(editing, preeditFontSize);
     for (const entry of entries) {
       const suffix = entry.badge + entry.hint + (entry.hunEum ?? "") + entry.annotation;
+      const pronunciation: string = entry.pronunciation ?? "";
+      // 竖排把音标接在词和释义后面，所以加上它的宽度，而不是和释义取较宽的那个。
       const candidateWidth =
         CandidateWidthPolicy.textWidthVp(entry.text, candidateFontSize) +
-        CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8));
+        CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8)) +
+        (pronunciation.length > 0
+          ? CandidateTranslationStyle.gap(candidateFontSize) +
+            CandidateWidthPolicy.textWidthVp(
+              pronunciation,
+              CandidateTranslationStyle.fontSize(candidateFontSize),
+            )
+          : 0);
       contentWidth = Math.max(contentWidth, candidateWidth);
     }
     return CandidateWidthPolicy.clampWidth(contentWidth, minWidthVp, maxWidthVp);

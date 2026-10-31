@@ -2941,7 +2941,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.translationRows() + this.pronunciationRows();
   }
 
-  /** The rows of glossRows() that carry the translation and 훈음 line, without the pronunciation line under it. */
+  /** `glossRows()` 里放释义和 훈음 的那几行，不含下面单独的音标行。 */
   translationRows(): number {
     return CandidateGlossLayoutPolicy.schemeRows(this.candidateGlossRows, this.schemeName === 'korean');
   }
