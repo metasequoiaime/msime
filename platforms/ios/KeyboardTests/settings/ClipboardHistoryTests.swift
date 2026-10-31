@@ -182,6 +182,93 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertEqual(table.frame.maxY, panel.bounds.maxY, accuracy: 0.5)
   }
 
+  /// #10411：多选的上限、序号和拼接与 Android 的 `ClipboardSelectionPolicy` 相同。
+  func testSelectionPolicyMirrorsAndroid() {
+    XCTAssertEqual(ClipboardSelectionPolicy.maxSelections, 20)
+    XCTAssertEqual(ClipboardSelectionPolicy.maxInsertions, 4)
+    XCTAssertTrue(ClipboardSelectionPolicy.canSelect(19))
+    XCTAssertFalse(ClipboardSelectionPolicy.canSelect(20))
+    XCTAssertFalse(ClipboardSelectionPolicy.canInsert(0))
+    XCTAssertTrue(ClipboardSelectionPolicy.canInsert(1))
+    XCTAssertTrue(ClipboardSelectionPolicy.canInsert(4))
+    XCTAssertFalse(ClipboardSelectionPolicy.canInsert(5))
+    XCTAssertEqual(ClipboardSelectionPolicy.ordinalLabel(0), "①")
+    XCTAssertEqual(ClipboardSelectionPolicy.ordinalLabel(3), "④")
+    XCTAssertEqual(ClipboardSelectionPolicy.ordinalLabel(19), "⑳")
+    XCTAssertNil(ClipboardSelectionPolicy.ordinalLabel(-1))
+    XCTAssertNil(ClipboardSelectionPolicy.ordinalLabel(20))
+
+    var selected: [String] = []
+    for text in ["合成甲", "合成乙", "合成丙", "合成丁"] { selected = ClipboardSelectionPolicy.toggled(text, in: selected) }
+    XCTAssertEqual(ClipboardSelectionPolicy.ordinal(of: "合成丁", in: selected), 3)
+    XCTAssertNil(ClipboardSelectionPolicy.ordinal(of: "未选", in: selected))
+    selected = ClipboardSelectionPolicy.toggled("合成甲", in: selected)
+    XCTAssertEqual(selected, ["合成乙", "合成丙", "合成丁"], "deselecting one moves the rest forward")
+    selected = ClipboardSelectionPolicy.toggled("合成甲", in: selected)
+    XCTAssertEqual(ClipboardSelectionPolicy.ordinal(of: "合成甲", in: selected), 3, "reselecting appends at the end")
+    XCTAssertEqual(ClipboardSelectionPolicy.insertionText(selected), "合成乙合成丙合成丁合成甲")
+
+    let full = (0..<20).map { "合成 \($0)" }
+    XCTAssertEqual(ClipboardSelectionPolicy.toggled("第二十一", in: full), full, "the selection cap holds")
+    XCTAssertEqual(ClipboardSelectionPolicy.selectedDescription(1), "已选择第 2 项；")
+    XCTAssertEqual(ClipboardSelectionPolicy.selectedDescription(nil), "")
+  }
+
+  /// #10411：本机历史的多选按点选先后标序号，「插入」只在 1 到 4 项时可用，按序号一次插入、中间不加分隔符，插入后退出多选。
+  @MainActor func testPanelMultiSelectInsertsInOrdinalOrder() throws {
+    let store = try temporaryStore()
+    for number in 0..<5 { try store.add("合成记录\(number)") }
+    let texts = try store.load().map(\.text)
+    var insertions: [String] = []
+    let panel = KeyboardClipboardView(hasFullAccess: true, store: store, showsHeader: false,
+                                      onInsert: { insertions.append($0) }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 375, height: 220)
+    panel.layoutIfNeeded()
+    let table = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "clipboardHistoryList" } as? UITableView)
+    let select = try view("clipboardSelect", in: panel)
+    let insert = try view("clipboardInsertSelected", in: panel)
+    XCTAssertTrue(select.isEnabled)
+    XCTAssertTrue(insert.isHidden)
+
+    select.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(panel.selecting)
+    XCTAssertTrue(select.isHidden)
+    XCTAssertFalse(insert.isHidden)
+    XCTAssertFalse(insert.isEnabled, "nothing selected yet")
+    for row in [2, 0, 3] { panel.tableView(table, didSelectRowAt: IndexPath(row: row, section: 0)) }
+    XCTAssertTrue(insertions.isEmpty, "a tap while selecting selects instead of inserting")
+    XCTAssertEqual(panel.selectedTexts, [texts[2], texts[0], texts[3]])
+    let third = panel.tableView(table, cellForRowAt: IndexPath(row: 3, section: 0))
+    XCTAssertEqual(third.accessibilityLabel, "已选择第 3 项；" + texts[3])
+
+    // 取消 ① 后，② ③ 依次前移。
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 2, section: 0))
+    XCTAssertEqual(panel.selectedTexts, [texts[0], texts[3]])
+    XCTAssertEqual(panel.tableView(table, cellForRowAt: IndexPath(row: 3, section: 0)).accessibilityLabel, "已选择第 2 项；" + texts[3])
+    XCTAssertEqual(panel.tableView(table, cellForRowAt: IndexPath(row: 2, section: 0)).accessibilityLabel, texts[2])
+
+    for row in [1, 2, 4] { panel.tableView(table, didSelectRowAt: IndexPath(row: row, section: 0)) }
+    XCTAssertEqual(panel.selectedTexts.count, 5)
+    XCTAssertFalse(insert.isEnabled, "five selected is past the insertion cap")
+    insert.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(insertions.isEmpty)
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 4, section: 0))
+    XCTAssertTrue(insert.isEnabled)
+
+    insert.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(insertions, [texts[0] + texts[3] + texts[1] + texts[2]], "one insertion in ordinal order without separators")
+    XCTAssertFalse(panel.selecting)
+    XCTAssertTrue(panel.selectedTexts.isEmpty)
+    XCTAssertFalse(select.isHidden)
+
+    select.sendActions(for: .primaryActionTriggered)
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
+    try view("clipboardCancelSelection", in: panel).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(panel.selecting)
+    panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
+    XCTAssertEqual(insertions.last, texts[0], "a tap after leaving the mode inserts one record as before")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
 
   private func view(_ identifier: String, in root: UIView) throws -> UIControl {
