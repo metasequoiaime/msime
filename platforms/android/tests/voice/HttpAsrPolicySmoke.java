@@ -26,7 +26,7 @@ public final class HttpAsrPolicySmoke {
                 "other HTTP failures stay distinguishable from a transport error");
         }
 
-        // 读超时按请求体放宽（#9886）：60 秒底线，按 16 KiB/s 的最慢上行速率加余量，3 分钟封顶。
+        // 读超时按请求体放宽（#9886）：60 秒底线，按 16 KiB/s 的最慢上行速率加余量，4 分钟封顶。
         check(HttpAsrPolicy.readTimeoutMillis(0) == 60_000
                 && HttpAsrPolicy.readTimeoutMillis(-1) == 60_000,
             "an empty body keeps the 60 s floor");
@@ -45,10 +45,10 @@ public final class HttpAsrPolicySmoke {
             "a full 60 s multipart upload waits almost three minutes, still below the ceiling");
         int fullChat = HttpAsrPolicy.readTimeoutMillis(
             HttpAsrPolicy.chatAudioBody("qwen3-asr-flash", fullClip).length);
-        check(fullChat >= fullMultipart && fullChat == 180_000,
-            "the larger base64 chat body reaches the ceiling rather than going past it");
-        check(HttpAsrPolicy.readTimeoutMillis(HttpAsrPolicy.MAX_AUDIO_BYTES) == 180_000
-                && HttpAsrPolicy.readTimeoutMillis(Integer.MAX_VALUE) == 180_000,
+        check(fullChat > fullMultipart && fullChat > 210_000 && fullChat < 240_000,
+            "the larger base64 chat body keeps the full floor plus its drain time, below the ceiling");
+        check(HttpAsrPolicy.readTimeoutMillis(HttpAsrPolicy.MAX_AUDIO_BYTES) == 240_000
+                && HttpAsrPolicy.readTimeoutMillis(Integer.MAX_VALUE) == 240_000,
             "the ceiling holds without overflow for the largest bodies");
         int previous = 0;
         for (int bytes = 0; bytes <= 4 * 1024 * 1024; bytes += 64 * 1024) {

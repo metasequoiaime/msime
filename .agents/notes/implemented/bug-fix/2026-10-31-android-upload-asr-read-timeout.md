@@ -19,7 +19,7 @@ Status: implemented
 
 - 底线 60 秒，与改动前的固定值相同。
 - 余量按最慢上行 16 KiB/s（约 128 kbit/s，约为 PCM 码率的一半）估：请求体每 16 KiB 加 1 秒。
-- 上限 3 分钟。
+- 上限 4 分钟。上限要盖住录音器能产生的最大请求体：录满 60 秒的 `chat_audio` 约 2.6 MB，按 16 KiB/s 传完约 156 秒，加 60 秒底线约 216 秒。最初定的 3 分钟会把它截在 180 秒，弱网下只给服务端留约 24 秒识别，而其他请求体都保有完整的 60 秒，review 时改成 4 分钟。
 
 几个代表值：
 
@@ -28,7 +28,8 @@ Status: implemented
 | 空 | 60 秒 |
 | 5 秒短句的 `multipart`（约 160 KB） | 约 70 秒 |
 | 60 秒录音的 `multipart`（约 1.9 MB） | 约 177 秒 |
-| 60 秒录音的 `chat_audio`（约 2.6 MB） | 180 秒（封顶） |
+| 60 秒录音的 `chat_audio`（约 2.6 MB） | 约 216 秒 |
+| `MAX_AUDIO_BYTES` 及更大 | 240 秒（封顶） |
 
 连接超时仍是固定 15 秒：建立连接与请求体大小无关。失败分类不变，本机读超时仍是 `TIMEOUT`，服务端回 408/504 仍是 `SERVICE_TIMEOUT`。等待期间用户点取消照样立即断开连接（`HttpAsrRecognizer.cancel`）。
 
@@ -41,13 +42,13 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：接近一分钟的整句上传在弱网下有约三分钟拿回结果，不再因为本机等得不够久被判为超时；几秒的短句只多等几秒。
-- **代价**：连接在上传后真的卡住时，长录音最多要等 3 分钟才提示超时（之前是 1 分钟），用户可以随时取消。
-- **已知上限**：「慢速上行加服务端识别超过 60 秒」是按 TCP 发送缓冲和读超时的语义推出来的，没有在真机上用真实服务和限速网络复现过；16 KiB/s 和 3 分钟是工程取值，不是测出来的。服务端或中间代理自己的超时（会回 408/504，即 `SERVICE_TIMEOUT`）不受本机放宽影响。HarmonyOS 的 `HarmonyHttpAsrRecognizer.ets` 同样是固定的 `readTimeout: 60000`，不在这次范围内。因为没有真机验证，PR 只写 `Refs #9886`。
+- **收益**：接近一分钟的整句上传在弱网下，`multipart` 有约 177 秒、`chat_audio` 有约 216 秒拿回结果，两种格式在假定上行下都保有完整的 60 秒识别时间，不再因为本机等得不够久被判为超时；几秒的短句只多等几秒。
+- **代价**：连接在上传后真的卡住时，长录音最多要等约 3 到 3.6 分钟才提示超时（之前是 1 分钟），用户可以随时取消。
+- **已知上限**：「慢速上行加服务端识别超过 60 秒」是按 TCP 发送缓冲和读超时的语义推出来的，没有在真机上用真实服务和限速网络复现过；16 KiB/s 和 4 分钟是工程取值，不是测出来的。服务端或中间代理自己的超时（会回 408/504，即 `SERVICE_TIMEOUT`）不受本机放宽影响。HarmonyOS 的 `HarmonyHttpAsrRecognizer.ets` 同样是固定的 `readTimeout: 60000`，不在这次范围内。因为没有真机验证，PR 只写 `Refs #9886`。
 
 ## Verification
 
-- `platforms/android/tests/voice/HttpAsrPolicySmoke.java`：空请求体取 60 秒底线，每 16 KiB 加 1 秒，5 秒短句在 60 到 70 秒之间，60 秒 `multipart` 在 170 到 180 秒之间，60 秒 `chat_audio`、`MAX_AUDIO_BYTES` 和 `Integer.MAX_VALUE` 都封顶在 180 秒且不溢出，请求体越大读超时不会越短。
+- `platforms/android/tests/voice/HttpAsrPolicySmoke.java`：空请求体取 60 秒底线，每 16 KiB 加 1 秒，5 秒短句在 60 到 70 秒之间，60 秒 `multipart` 在 170 到 180 秒之间，60 秒 `chat_audio` 大于 `multipart` 且在 210 到 240 秒之间，`MAX_AUDIO_BYTES` 和 `Integer.MAX_VALUE` 都封顶在 240 秒且不溢出，请求体越大读超时不会越短。
 - `platforms/android/check-host.sh` 编译并运行全部 Android JVM 冒烟。
 
 ### 既有笔记审计

@@ -23,8 +23,8 @@ public final class HttpAsrPolicy {
     private static final int READ_TIMEOUT_FLOOR_MILLIS = 60_000;
     /** 按请求体估算余量时假定的最慢上行速率：16 KiB/s（约 128 kbit/s），约为 16 kHz 单声道 PCM 码率的一半。 */
     private static final int ASSUMED_UPLINK_BYTES_PER_SECOND = 16 * 1024;
-    /** 读超时的上限：连接真的卡死时，也不让用户对着「识别中」等过 3 分钟。 */
-    private static final int READ_TIMEOUT_CEILING_MILLIS = 180_000;
+    /** 读超时的上限：要盖住录音器能产生的最大请求体，即录满 60 秒的 `chat_audio`（约 2.6 MB，按假定上行约 156 秒传完，加 60 秒底线约 216 秒），否则这一种格式留给服务端识别的时间会被上限挤掉；同时连接真的卡死时，也不让用户对着「识别中」等过 4 分钟。 */
+    private static final int READ_TIMEOUT_CEILING_MILLIS = 240_000;
 
     /** 已收到 HTTP 拒绝状态时的失败原因；传输异常和空正文由调用方另行处理。 */
     public enum StatusFailure { TOO_LARGE, TIMED_OUT, REJECTED }
