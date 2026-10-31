@@ -1570,8 +1570,8 @@ group("projects the same form factor into every settings capability", () => {
     "every form factor's emoji panel reads the mirrored symbol set packs",
   );
   check(
-    phone.pluginTriggers && tablet.pluginTriggers,
-    "phones and tablets offer the / and @ switches: the touch keyboard enters / from 本地输入 and an attached keyboard routes all three",
+    !phone.pluginTriggers && !tablet.pluginTriggers,
+    "phones and tablets offer no / and @ switches, command tables or phrase tables: they have no 快捷模式 group or 本地输入 tile to enter those modes from",
   );
   check(
     phone.touchPluginPacks && tablet.touchPluginPacks && !desktop.touchPluginPacks,
