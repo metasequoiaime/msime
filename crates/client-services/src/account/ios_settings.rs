@@ -1458,4 +1458,16 @@ mod tests {
             Err(AccountError::Invalid)
         );
     }
+
+    /// 本地识别的停顿时间和判停灵敏度（#10310）只留在本机：共享文档里改了它们，iOS 上传的账号键值一个也不变。
+    #[test]
+    fn voice_pause_settings_never_reach_the_account() {
+        let mut shared = Preferences::default();
+        shared.voice_input.pause_millis = 4000;
+        shared.voice_input.stop_sensitivity = 20;
+        assert_eq!(
+            local_account_preferences(&native(), &shared, None).unwrap(),
+            local_account_preferences(&native(), &Preferences::default(), None).unwrap()
+        );
+    }
 }

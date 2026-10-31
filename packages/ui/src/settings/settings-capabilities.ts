@@ -66,6 +66,8 @@ export function settingsCapabilities({
   const showVoiceSpaceLockSwitch = host?.voice_space_lock_switch !== false;
   const showVoiceCueSwitches = host?.voice_cue_switches !== false;
   const showVoiceCaptureBackends = host?.voice_capture_backends !== false;
+  // 本地识别的停顿时间和判停灵敏度：只有明确报告 `voice_pause_settings` 的宿主（HarmonyOS 手机和平板）给出。
+  const showVoicePauseSettings = host?.voice_pause_settings === true;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateBorderColor = host ? host.candidate_border_color : true;
@@ -150,6 +152,7 @@ export function settingsCapabilities({
     showVoiceSpaceLockSwitch,
     showVoiceCueSwitches,
     showVoiceCaptureBackends,
+    showVoicePauseSettings,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,

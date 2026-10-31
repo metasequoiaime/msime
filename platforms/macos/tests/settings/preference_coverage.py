@@ -92,6 +92,8 @@ NOT_APPLICABLE = {
     "keybindings.toggle_japanese_ctrl_shift_j": "由 `HostCapabilities::japanese_toggle_shortcut` 门控，macOS 为 false（`crates/client-core/src/host_surface.rs`：macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要这个组合键），设置页不显示这一项",
     "wubi_candidate_selection.second_key": "由共享运行时经 `WubiCandidateSelectionPreferences::slot` 消费（`crates/input-runtime/src/runtime.rs` 的 `set_wubi_candidate_selection` / `candidate_for_slot`）；宿主不直接拼字段名，所以按名匹配看不见它",
     "wubi_candidate_selection.third_key": "同上：与 `second_key` 一起交给 `slot()` 决定第二、第三候选的取词键",
+    "voice_input.pause_millis": "只有触屏键盘点按开始的本地识别按停顿结束录音（鸿蒙读共享文档，iOS 主 App 读共享文档，Android 在本机设置里）；macOS 的语音由按住或再按快捷键结束，没有停顿自动结束，共享设置页只在报告 `voice_pause_settings` 的鸿蒙手机和平板上给出此滑块",
+    "voice_input.stop_sensitivity": "判停灵敏度只配合按停顿结束的本地识别调整 VAD 阈值；macOS 没有停顿自动结束，共享设置页只在报告 `voice_pause_settings` 的鸿蒙手机和平板上给出此滑块",
     "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "translation_ai_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document; only Android and iOS turn their old implicit AI translation into an explicit translation_ai choice before setting it, macOS just sets it",
     "diagnostic_log.command_line_candidates": "不是输入法读的偏好：只由终端里的 `msime candidates`（`crates/mcp-server` 的 msime-mcp）在查询前检查，关着就提示并以错误码退出；输入法宿主打字时不看它。共享设置页在 macOS 的「维护与诊断」里显示这个开关",

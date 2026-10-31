@@ -21,6 +21,7 @@ export function VoiceSettingsPage() {
     showVoiceSpaceLockSwitch,
     showVoiceCueSwitches,
     showVoiceCaptureBackends,
+    showVoicePauseSettings,
     captureBackendOptions,
     showVoiceHotkeys,
     showAiGeneration,
@@ -97,6 +98,7 @@ export function VoiceSettingsPage() {
       showVoiceSpaceLockSwitch={showVoiceSpaceLockSwitch}
       showVoiceCueSwitches={showVoiceCueSwitches}
       showVoiceCaptureBackends={showVoiceCaptureBackends}
+      showVoicePauseSettings={showVoicePauseSettings}
       captureBackendOptions={captureBackendOptions}
       showVoicePolish={showAiGeneration}
     />
