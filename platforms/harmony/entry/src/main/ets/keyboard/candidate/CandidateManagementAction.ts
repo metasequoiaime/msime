@@ -22,6 +22,9 @@ export interface ManagementAction {
   readonly position?: number;
   readonly checked?: boolean;
   readonly available?: boolean;
+  /** 「加入生词本」打开菜单时那一格的候选原文和释义。菜单开着时候选栏可能重建，点下去时拿它们和那一格现在的候选比，不一样就不收。 */
+  readonly candidate?: string;
+  readonly gloss?: string;
 }
 
 function action(
@@ -166,12 +169,57 @@ export class CandidateManagementAction {
     return { ...action, title: title };
   }
 
-  static touchActions(gloss: string, isTranslation: boolean): ManagementAction[] {
+  /**
+   * 「加入生词本」：把候选和它显示着的释义收进背单词的生词本，排在菜单最后，和 Android、iOS 的长按菜单、桌面的候选右键菜单同一个位置。只在候选带着真正的译文时有；Engine 的注释（例如五笔编码）不是释义。提示由共享层给出，所以 `announcement` 是空的；打开菜单时的候选原文和释义记在 `candidate`、`gloss` 里。
+   */
+  static personalWordbookAction(
+    gloss: string,
+    isTranslation: boolean,
+    candidate: string = "",
+  ): ManagementAction | null {
+    if (!isTranslation || gloss.trim().length === 0) {
+      return null;
+    }
+    return {
+      id: "ADD_TO_PERSONAL_WORDBOOK",
+      title: "加入生词本",
+      announcement: "",
+      confirmationRequired: false,
+      menuItemId: MENU_ITEM_BASE + 9,
+      candidate: candidate,
+      gloss: gloss.trim(),
+    };
+  }
+
+  /** 点下「加入生词本」时那一格的候选是否还是打开菜单时的那一个：原文和释义都相同才算。 */
+  static samePersonalWordbookSubject(
+    opened: ManagementAction,
+    current: ManagementAction | null,
+  ): boolean {
+    return (
+      current !== null &&
+      opened.id === "ADD_TO_PERSONAL_WORDBOOK" &&
+      current.id === "ADD_TO_PERSONAL_WORDBOOK" &&
+      opened.candidate === current.candidate &&
+      opened.gloss === current.gloss
+    );
+  }
+
+  static touchActions(
+    gloss: string,
+    isTranslation: boolean,
+    candidate: string = "",
+  ): ManagementAction[] {
     if (!isTranslation) {
       return [];
     }
     const action: ManagementAction | null = CandidateManagementAction.touchGlossAction(gloss);
-    return action === null ? [] : [action];
+    const personal: ManagementAction | null = CandidateManagementAction.personalWordbookAction(
+      gloss,
+      isTranslation,
+      candidate,
+    );
+    return action === null ? [] : personal === null ? [action] : [action, personal];
   }
 
   /**
@@ -183,6 +231,7 @@ export class CandidateManagementAction {
     fixedPosition: number,
     available: boolean,
     includeRemove: boolean,
+    candidate: string = "",
   ): ManagementAction[] {
     const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
       fixedPosition,
@@ -192,7 +241,14 @@ export class CandidateManagementAction {
     const glossAction: ManagementAction | null = isTranslation
       ? CandidateManagementAction.glossAction(gloss)
       : null;
-    return glossAction === null ? actions : [glossAction].concat(actions);
+    const personal: ManagementAction | null = CandidateManagementAction.personalWordbookAction(
+      gloss,
+      isTranslation,
+      candidate,
+    );
+    const listed: ManagementAction[] =
+      glossAction === null ? actions : [glossAction].concat(actions);
+    return personal === null ? listed : listed.concat([personal]);
   }
 
   static validatePosition(position: number): number {
