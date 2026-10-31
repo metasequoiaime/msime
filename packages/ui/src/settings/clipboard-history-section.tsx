@@ -21,6 +21,8 @@ import { SelectRow } from "./select-row";
 import { DictionaryPagination } from "./dictionary-pagination";
 import { useSettingsTabs } from "./use-settings-tabs";
 import type { SettingsIntroTabs } from "./use-settings-intro-tabs";
+import type { ClipboardDeleteAuthenticationClient } from "../core/host-contracts";
+import { ClipboardDeleteAuthenticationRow } from "./clipboard-delete-authentication-row";
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -47,6 +49,8 @@ export interface ClipboardHistorySectionProps {
   cloudRoute?: string;
   /** 「剪贴板」组里一直显示的一句说明，例如 macOS 上云剪贴板要从输入法菜单打开。 */
   note?: ReactNode;
+  /** 宿主提供「剪贴板删除数据验证」（HarmonyOS）时，「剪贴板」组末尾多这一个开关。 */
+  deleteAuthentication?: ClipboardDeleteAuthenticationClient;
   children?: ReactNode;
 }
 
@@ -68,6 +72,7 @@ export function ClipboardHistorySection({
   cloudRequest,
   cloudRoute,
   note,
+  deleteAuthentication,
   children,
 }: ClipboardHistorySectionProps) {
   const { entries, clearArmed, historyBusy, historyShown, toggle, clear, copy, remove, setPinned } =
@@ -147,6 +152,9 @@ export function ClipboardHistorySection({
                 </option>
               ))}
             </SelectRow>
+            {deleteAuthentication && (
+              <ClipboardDeleteAuthenticationRow client={deleteAuthentication} />
+            )}
           </GroupList>
           {tabsEnabled && children}
         </>,

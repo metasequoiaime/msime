@@ -711,6 +711,29 @@ if ! grep -qF '"name": "ohos.permission.PRIVACY_WINDOW"' "$repo_root/platforms/h
   echo "Screen capture protection must declare PRIVACY_WINDOW, set privacy mode on all three keyboard panels and on the settings window, re-apply it after each focus import, skip panels whose mode has not changed, publish every change to the keyboard without reporting a saved change as failed when that publish fails, and refuse when no system authentication is set up" >&2
   exit 1
 fi
+# 「剪贴板删除数据验证」（#10408）：切换规则、删除前的判断和镜像条目由 clipboard-delete-authentication.test.ts 覆盖；设置桥、键盘和认证是 ArkTS，node 下编不了，这里钉住接线：设置页经 `clipboard_delete_authentication_settings` 读写，写入前过切换规则、每次切换都先认证（没有直接保存的分支），认证没过时回答 failed 不写文件，写成后立即发布给键盘；键盘里删除本机记录的三处（管理行「删除」、2in1 行尾「删除」、确认后的「清空」）都只经 `deleteClipboardAfterAuthentication` 交出真正的删除，它每次现读镜像过来的开关、按规则决定直接删、认证或拒绝，认证没过不删；键盘视图消失时取消进行中的认证。
+delete_auth_settings="$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"
+delete_auth_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+delete_auth_bridge=$(sed -n '/^  private async clipboardDeleteAuthenticationSettings(payload: string): Promise<string> {$/,/^  }$/p' "$delete_auth_settings")
+delete_auth_gate=$(sed -n '/^  private deleteClipboardAfterAuthentication(remove: () => ClipboardHistoryMutation): void {$/,/^  }$/p' "$delete_auth_view")
+if ! grep -qF "kind === 'clipboard_delete_authentication_settings'" "$delete_auth_settings" \
+  || ! grep -qF 'ClipboardDeleteAuthenticationPolicy.decide(current, next,' <<< "$delete_auth_bridge" \
+  || ! grep -qF 'if (!(await this.clipboardDeleteAuthentication.authenticate(next,' <<< "$delete_auth_bridge" \
+  || ! grep -qF "return JSON.stringify({ ok: false, error: 'clipboard_delete_authentication_failed' });" <<< "$delete_auth_bridge" \
+  || ! grep -qF "return JSON.stringify({ ok: false, error: 'clipboard_delete_authentication_unavailable' });" <<< "$delete_auth_bridge" \
+  || [[ $(grep -cF 'ClipboardDeleteAuthentication.save(' <<< "$delete_auth_bridge") -ne 1 ]] \
+  || ! grep -qF 'this.publishShared();' <<< "$delete_auth_bridge" \
+  || [[ $(grep -cF 'this.deleteClipboardAfterAuthentication((): ClipboardHistoryMutation =>' "$delete_auth_view") -ne 3 ]] \
+  || [[ $(grep -cF 'KeyboardSession.shared.removeClipboardHistory(' "$delete_auth_view") -ne 2 ]] \
+  || [[ $(grep -cF 'KeyboardSession.shared.clearClipboardHistory(' "$delete_auth_view") -ne 1 ]] \
+  || grep -qE 'applyClipboardMutation\(KeyboardSession\.shared\.(removeClipboardHistory|clearClipboardHistory)' "$delete_auth_view" \
+  || ! grep -qF 'ClipboardDeleteAuthenticationPolicy.gate(' <<< "$delete_auth_gate" \
+  || ! grep -qF 'KeyboardSession.shared.clipboardDeleteAuthenticationEnabled(), ScreenCaptureAuthentication.available());' <<< "$delete_auth_gate" \
+  || ! grep -qF 'if (!authenticated) {' <<< "$delete_auth_gate" \
+  || ! grep -qF 'this.clipboardDeleteAuthentication.cancel();' "$delete_auth_view"; then
+  echo "Clipboard delete authentication must authenticate every switch change before saving and publishing it, and every keyboard clipboard deletion must go through deleteClipboardAfterAuthentication (#10408)" >&2
+  exit 1
+fi
 # 浮动键盘（#10225）：大小、位置钳制和转屏由 floating-keyboard.test.ts 覆盖。扩展能力和视图是 ArkTS，这里钉住接线：`changeFlag` 要求先隐藏面板，所以只在 `applyFloatingSetting` 里、`await panel.hide()` 之后调用，换完无论成败都显示回来；`moveTo` 对 `FLG_FIXED` 不可用，停靠路径只 resize；转屏经 `display.on('change')` 重新摆浮动面板，销毁时退订；浮动时单手模式不生效，分离式键盘也不画（`SplitKeyboardPolicy.drawn` 收到浮动状态，规则由 split-keyboard.test.ts 覆盖），单手磁贴在分离和浮动时都置灰。
 floating_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 floating_apply=$(sed -n '/^  private async applyFloatingSetting(panel: inputMethodEngine.Panel): Promise<void> {$/,/^  }$/p' "$floating_ability")

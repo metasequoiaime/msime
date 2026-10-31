@@ -6,6 +6,11 @@ import {
   ScreenCaptureProtectionPolicy,
   ScreenCaptureProtectionState
 } from '../keyboard/settings/ScreenCaptureProtectionPolicy';
+import { ClipboardDeleteAuthentication } from '../keyboard/settings/ClipboardDeleteAuthentication';
+import {
+  ClipboardDeleteAuthenticationDecision,
+  ClipboardDeleteAuthenticationPolicy
+} from '../keyboard/settings/ClipboardDeleteAuthenticationPolicy';
 import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
@@ -390,6 +395,12 @@ interface TypingStatisticsAction {
 
 /** 页面经 `screen_capture_protection_settings` 发来的动作：`load` 读当前值，`save` 按切换规则保存 `enabled`。 */
 interface ScreenCaptureProtectionAction {
+  operation?: string;
+  enabled?: boolean;
+}
+
+/** 页面经 `clipboard_delete_authentication_settings` 发来的动作：`load` 读当前值，`save` 认证后保存 `enabled`。 */
+interface ClipboardDeleteAuthenticationAction {
   operation?: string;
   enabled?: boolean;
 }
@@ -1017,6 +1028,10 @@ class SettingsBridge {
   private screenCaptureAuthentication: ScreenCaptureAuthentication = new ScreenCaptureAuthentication();
   // 「防止截屏」正在认证或写入时为真，第二次切换直接拒绝，不叠两个认证框。
   private screenCaptureBusy: boolean = false;
+  // 「剪贴板删除数据验证」的认证：规则与防止截屏相同（不带冷却、没有锁屏密码不放行），只换标题。
+  private clipboardDeleteAuthentication: ScreenCaptureAuthentication = new ScreenCaptureAuthentication();
+  // 「剪贴板删除数据验证」正在认证或写入时为真，第二次切换直接拒绝。
+  private clipboardDeleteBusy: boolean = false;
 
   resumeStatistics(): void {
     this.webview?.runJavaScript("window.dispatchEvent(new Event('msime-statistics-active'))").catch((): void => {});
@@ -1444,6 +1459,8 @@ class SettingsBridge {
       this.statisticsAuthenticationSettings(payload).then(deliver).catch(failed);
     } else if (kind === 'screen_capture_protection_settings') {
       this.screenCaptureProtectionSettings(payload).then(deliver).catch(failed);
+    } else if (kind === 'clipboard_delete_authentication_settings') {
+      this.clipboardDeleteAuthenticationSettings(payload).then(deliver).catch(failed);
     } else if (kind === 'statistics_auth') {
       if (this.context === undefined) {
         failed(new Error('认证宿主未就绪'));
@@ -2599,6 +2616,46 @@ class SettingsBridge {
       return JSON.stringify({ ok: true, value: saved.enabled } as FlagReply);
     } finally {
       this.screenCaptureBusy = false;
+    }
+  }
+
+  /**
+   * 「剪贴板删除数据验证」的读和写（#10408）。写入按 `ClipboardDeleteAuthenticationPolicy.decide`：打开和关闭都先过系统认证，第一次打开也一样；设备没有系统认证时拒绝。保存后立即发布给键盘，键盘下一次删除时读到新值。拒绝时回答错误码，页面据此提示并让开关保持原值：`clipboard_delete_authentication_unavailable` 没有可用的系统认证，`clipboard_delete_authentication_failed` 认证取消或失败，`clipboard_delete_authentication_busy` 上一次切换还没完成。
+   */
+  private async clipboardDeleteAuthenticationSettings(payload: string): Promise<string> {
+    const action: ClipboardDeleteAuthenticationAction = JSON.parse(payload) as ClipboardDeleteAuthenticationAction;
+    const current: boolean = ClipboardDeleteAuthentication.load(this.stateDirectory);
+    if (action.operation === 'load') {
+      return JSON.stringify({ ok: true, value: current } as FlagReply);
+    }
+    const next: boolean | undefined = action.enabled;
+    if (action.operation !== 'save' || typeof next !== 'boolean') throw new Error('无效的剪贴板删除数据验证设置');
+    if (this.clipboardDeleteBusy) return JSON.stringify({ ok: false, error: 'clipboard_delete_authentication_busy' });
+    const decision: ClipboardDeleteAuthenticationDecision = ClipboardDeleteAuthenticationPolicy.decide(current, next,
+      ScreenCaptureAuthentication.available());
+    if (decision === ClipboardDeleteAuthenticationDecision.UNCHANGED) {
+      return JSON.stringify({ ok: true, value: current } as FlagReply);
+    }
+    if (decision === ClipboardDeleteAuthenticationDecision.UNAVAILABLE) {
+      return JSON.stringify({ ok: false, error: 'clipboard_delete_authentication_unavailable' });
+    }
+    this.clipboardDeleteBusy = true;
+    try {
+      if (!(await this.clipboardDeleteAuthentication.authenticate(next,
+        next ? '打开剪贴板删除数据验证' : '关闭剪贴板删除数据验证'))) {
+        return JSON.stringify({ ok: false, error: 'clipboard_delete_authentication_failed' });
+      }
+      if (!ClipboardDeleteAuthentication.save(this.stateDirectory, next)) throw new Error('剪贴板删除数据验证没有保存');
+      KeyboardLog.info(`clipboard delete authentication ${next ? 'on' : 'off'}`);
+      // 文件已经写好，发布失败不能让页面以为没保存而把开关退回旧值；只记日志，窗口退到后台时的 `publishShared` 会再发布一次。
+      try {
+        this.publishShared();
+      } catch (error) {
+        KeyboardLog.error(`clipboard delete authentication not published to the keyboard: ${describeError(error)}`);
+      }
+      return JSON.stringify({ ok: true, value: next } as FlagReply);
+    } finally {
+      this.clipboardDeleteBusy = false;
     }
   }
 

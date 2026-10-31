@@ -142,6 +142,7 @@ import {
 import { VoiceRecognitionPolicy, VoiceTarget } from './input/VoiceRecognitionPolicy';
 import { HarmonyVoicePolisher } from './input/HarmonyVoicePolisher';
 import { AiEndpoint } from './settings/AiEndpoint';
+import { ClipboardDeleteAuthentication } from './settings/ClipboardDeleteAuthentication';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
@@ -6484,6 +6485,11 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   clearClipboardHistory(): ClipboardHistoryMutation {
     return this.mutateClipboard({ operation: 'clear' }, 'cleared');
+  }
+
+  /** 「剪贴板删除数据验证」（#10408）是否开着：读设置应用经共享沙箱镜像到 `files/state` 的那份文件，每次删除前现读。镜像在编辑框获得焦点时导入，所以设置应用里切换后，下一次弹出键盘才跟上。 */
+  clipboardDeleteAuthenticationEnabled(): boolean {
+    return this.stateDirectory.length > 0 && ClipboardDeleteAuthentication.load(this.stateDirectory);
   }
 
   /**

@@ -10,6 +10,7 @@ import type {
 } from "../settings/shuangpin-custom-profile";
 import type {
   AppThemeClient,
+  ClipboardDeleteAuthenticationClient,
   FeedbackClient,
   HostChromeClient,
   OobeClient,
@@ -70,6 +71,8 @@ export interface SettingsClient {
   privacyConsent?: PrivacyConsentClient;
   /** 宿主提供的「防止截屏」开关（HarmonyOS）；提供时「隐私」页显示这一项。 */
   screenCaptureProtection?: ScreenCaptureProtectionClient;
+  /** 宿主提供的「剪贴板删除数据验证」开关（HarmonyOS）；提供时「剪贴板」页的「剪贴板」组显示这一项。 */
+  clipboardDeleteAuthentication?: ClipboardDeleteAuthenticationClient;
   /** Android 适配平台的 Apple 风格键盘首页。 */
   home?: HomePageActions;
   /** 跨平台首次运行引导状态；系统无法可靠查询的事实以 null 表示。 */

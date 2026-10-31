@@ -6,6 +6,8 @@ import { KeyboardLog, describeError } from '../KeyboardLog';
  * 切换「防止截屏」前的系统认证：锁屏密码，加上可用的指纹、人脸，ATL1，与打字统计的认证相同；不带冷却，每次切换都要验证。不记录认证令牌。
  *
  * 与 `StatisticsAuthentication` 不同，没有锁屏密码时不放行：调用方先问 `available()`，不可用就拒绝切换（见 `ScreenCaptureProtectionPolicy.decide`）。
+ *
+ * 「剪贴板删除数据验证」（#10408）的切换和键盘里的删除用的是同一条规则（不带冷却、没有锁屏密码不放行），也用这个类，经 `title` 换掉认证框的标题。
  */
 export class ScreenCaptureAuthentication {
   private timer: number = -1;
@@ -22,8 +24,8 @@ export class ScreenCaptureAuthentication {
     }
   }
 
-  /** 弹出系统认证，`enabling` 决定标题；成功时回答真，取消、失败、超时都回答假。 */
-  authenticate(enabling: boolean): Promise<boolean> {
+  /** 弹出系统认证，标题是 `title`，没给时按 `enabling` 用防止截屏的标题；成功时回答真，取消、失败、超时都回答假。 */
+  authenticate(enabling: boolean, title?: string): Promise<boolean> {
     this.cancel();
     return new Promise<boolean>((resolve: (success: boolean) => void): void => {
       let instance: userAuth.UserAuthInstance;
@@ -43,7 +45,7 @@ export class ScreenCaptureAuthentication {
           challenge: cryptoFramework.createRandom().generateRandomSync(16).data,
           authType: types, authTrustLevel: userAuth.AuthTrustLevel.ATL1
         };
-        const widget: userAuth.WidgetParam = { title: enabling ? '打开防止截屏' : '关闭防止截屏' };
+        const widget: userAuth.WidgetParam = { title: title ?? (enabling ? '打开防止截屏' : '关闭防止截屏') };
         instance = userAuth.getUserAuthInstance(parameters, widget);
         const callback: userAuth.IAuthCallback = {
           onResult: (result: userAuth.UserAuthResult): void => {

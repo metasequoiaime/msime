@@ -11,6 +11,10 @@ import {
   SCREEN_CAPTURE_PROTECTION_ENTRY,
   SCREEN_CAPTURE_PROTECTION_FILE,
 } from "./settings/ScreenCaptureProtectionPolicy";
+import {
+  CLIPBOARD_DELETE_AUTHENTICATION_ENTRY,
+  CLIPBOARD_DELETE_AUTHENTICATION_FILE,
+} from "./settings/ClipboardDeleteAuthenticationPolicy";
 
 export type MirrorPublisher = "settings" | "keyboard";
 
@@ -164,6 +168,14 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
     kind: "file",
     base: "state",
     path: SCREEN_CAPTURE_PROTECTION_FILE,
+    fullModeOnly: false,
+  },
+  // 「剪贴板删除数据验证」（#10408）同理：只由设置应用决定（切换要经系统认证），只往键盘一个方向镜像，键盘删除前读它。不进 `KEYBOARD_ENTRIES`：键盘不能把它改回去。基础访问模式下键盘没有剪贴板历史，但条目照样导入，免得切回完全访问时读到旧值。
+  {
+    name: CLIPBOARD_DELETE_AUTHENTICATION_ENTRY,
+    kind: "file",
+    base: "state",
+    path: CLIPBOARD_DELETE_AUTHENTICATION_FILE,
     fullModeOnly: false,
   },
   {

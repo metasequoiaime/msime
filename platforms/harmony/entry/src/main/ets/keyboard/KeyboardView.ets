@@ -103,6 +103,12 @@ import {
 } from './emoji/MascotStickerPolicy';
 import { MascotStickerSource } from './emoji/MascotStickerStore';
 import { KeyboardLog, describeError } from './KeyboardLog';
+import { ScreenCaptureAuthentication } from './settings/ScreenCaptureAuthentication';
+import {
+  CLIPBOARD_DELETE_AUTHENTICATION_UNAVAILABLE_MESSAGE,
+  ClipboardDeleteAuthenticationPolicy,
+  ClipboardDeleteGate
+} from './settings/ClipboardDeleteAuthenticationPolicy';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
 import { SurfaceRoutingPolicy } from './SurfaceRoutingPolicy';
@@ -633,6 +639,10 @@ struct KeyboardView {
   @State clips: ClipboardHistoryItem[] = [];
   @State clipboardNotice: string = '';
   @State confirmingClear: boolean = false;
+  // 「剪贴板删除数据验证」（#10408）的系统认证：规则与防止截屏相同（不带冷却、没有锁屏密码不放行），只换标题。
+  private clipboardDeleteAuthentication: ScreenCaptureAuthentication = new ScreenCaptureAuthentication();
+  // 删除前的认证框开着时为真：再点删除不叠第二个认证框。
+  private clipboardDeleteAuthenticating: boolean = false;
   /** Which section of the clipboard surface is showing; the cloud one is never offered in a password field. */
   @State clipboardTab: string = CLIPBOARD_TAB_LOCAL;
   /** Whether the focused editor may see cloud items, mirrored from the session so the builders redraw when the field changes. */
@@ -1121,6 +1131,7 @@ struct KeyboardView {
 
   aboutToDisappear(): void {
     display.off('change', this.displayChanged);
+    this.clipboardDeleteAuthentication.cancel();
     KeyboardSession.shared.onChanged = undefined;
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
@@ -7150,8 +7161,37 @@ struct KeyboardView {
       this.clipboardNotice = '再次点按将删除全部历史，包括已固定的。';
       return;
     }
-    this.applyClipboardMutation(KeyboardSession.shared.clearClipboardHistory());
+    this.deleteClipboardAfterAuthentication((): ClipboardHistoryMutation =>
+      KeyboardSession.shared.clearClipboardHistory());
     this.confirmingClear = false;
+  }
+
+  /**
+   * 「剪贴板删除数据验证」（#10408）：开着时，删除本机记录（管理行的「删除」、2in1 行尾的「删除」、确认后的「清空」）先过系统认证，通过后才执行 `remove`；关着时直接删。开关开着而设备没有可用的系统认证时不删，提示先去系统设置开启锁屏。鸿蒙键盘没有访客剪贴板和删除撤销，所以只看开关。
+   *
+   * 认证框由输入法扩展直接拉起（`userAuth` 的系统弹窗）。拉不起来或被系统拒绝时 `authenticate` 回答假，按未通过处理、不删，绝不放行。
+   */
+  private deleteClipboardAfterAuthentication(remove: () => ClipboardHistoryMutation): void {
+    if (this.clipboardDeleteAuthenticating) return;
+    const gate: ClipboardDeleteGate = ClipboardDeleteAuthenticationPolicy.gate(
+      KeyboardSession.shared.clipboardDeleteAuthenticationEnabled(), ScreenCaptureAuthentication.available());
+    if (gate === ClipboardDeleteGate.DELETE) {
+      this.applyClipboardMutation(remove());
+      return;
+    }
+    if (gate === ClipboardDeleteGate.UNAVAILABLE) {
+      this.clipboardNotice = CLIPBOARD_DELETE_AUTHENTICATION_UNAVAILABLE_MESSAGE;
+      return;
+    }
+    this.clipboardDeleteAuthenticating = true;
+    this.clipboardDeleteAuthentication.authenticate(false, '删除剪贴板历史').then((authenticated: boolean): void => {
+      this.clipboardDeleteAuthenticating = false;
+      if (!authenticated) {
+        this.clipboardNotice = '未通过系统认证，剪贴板记录没有删除';
+        return;
+      }
+      this.applyClipboardMutation(remove());
+    });
   }
 
   /** 2in1 上候选管理条就是 Windows 画的那种候选右键菜单，明暗跟随颜色模式；其他条，以及手机上的每一条，都属于键盘。 */
@@ -10002,7 +10042,9 @@ struct KeyboardView {
     const entry: ClipboardHistoryItem | undefined = this.managedClip();
     this.clipSendTarget = '';
     if (entry !== undefined) {
-      this.applyClipboardMutation(KeyboardSession.shared.removeClipboardHistory(entry.text));
+      const text: string = entry.text;
+      this.deleteClipboardAfterAuthentication((): ClipboardHistoryMutation =>
+        KeyboardSession.shared.removeClipboardHistory(text));
     }
   }
 
@@ -10263,7 +10305,7 @@ struct KeyboardView {
                   .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                   .fontColor(this.clipboardSkin().keyForeground)
                   .opacity(0.55)
-                  .onClick(() => this.applyClipboardMutation(
+                  .onClick(() => this.deleteClipboardAfterAuthentication((): ClipboardHistoryMutation =>
                     KeyboardSession.shared.removeClipboardHistory(entry.text)))
               }
               .width('100%')

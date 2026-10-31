@@ -106,6 +106,7 @@ import type {
   MobileKeyboardFeedback,
   PrivacyConsentClient,
   ScreenCaptureProtectionClient,
+  ClipboardDeleteAuthenticationClient,
   OnboardingChoices,
   OnboardingInputScheme,
   ResolvedAppTheme,
@@ -739,6 +740,33 @@ function screenCaptureProtectionClient(native: NativeBridge): ScreenCaptureProte
         await bridgeRequest(
           native,
           "screen_capture_protection_settings",
+          JSON.stringify({ operation: "save", enabled }),
+          120000,
+        ),
+      ),
+  };
+}
+
+/**
+ * 「剪贴板删除数据验证」（#10408）：宿主存在本机、经共享沙箱传给键盘，切换规则和系统认证都在原生 `clipboardDeleteAuthenticationSettings` 里。每次切换都要等用户在系统认证框里操作，期限与防止截屏相同。拒绝时 `unwrap` 抛出带错误码的 `{ code }`，页面据此提示。
+ */
+function clipboardDeleteAuthenticationClient(
+  native: NativeBridge,
+): ClipboardDeleteAuthenticationClient {
+  return {
+    load: async () =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "clipboard_delete_authentication_settings",
+          JSON.stringify({ operation: "load" }),
+        ),
+      ),
+    save: async (enabled: boolean) =>
+      unwrap<boolean>(
+        await bridgeRequest(
+          native,
+          "clipboard_delete_authentication_settings",
           JSON.stringify({ operation: "save", enabled }),
           120000,
         ),
@@ -1630,6 +1658,7 @@ function makeClient(
     host,
     privacyConsent: privacyConsentClient(native, networkAllowed),
     screenCaptureProtection: screenCaptureProtectionClient(native),
+    clipboardDeleteAuthentication: clipboardDeleteAuthenticationClient(native),
     load: async () => unwrap<Snapshot>(native.loadPreferences()),
     // The keyboard writes preferences from its toolbar and the two are separate processes, so the
     // host calls this when the settings window comes back to the front and the document has moved.

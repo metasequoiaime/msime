@@ -29,10 +29,11 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 - 打字统计：设置页打开统计只改了设置应用那份文件，键盘那份仍是默认的关闭状态，每次上屏计 0 个字。
 - 插件：插件页（2in1 和手机、平板都有）把包和 `mentions.json` 装进设置应用自己的 `files/state/plugins`，键盘读的是它自己沙箱里的 `plugins/`，所以从设置页导入的符号集、音效、音乐、指令表、短语表、辅助码和特效包在键盘里都看不到；选用哪个包写在共享偏好里，同样传不到键盘。背单词在设置进程里运行，读的就是设置应用那份目录，单词本插件不受影响。
 - 防止截屏：开关只写在设置应用那份 `files/state` 里，键盘读不到，三块面板不设隐私模式；设置应用自己的窗口照样受保护。
+- 剪贴板删除数据验证：开关同样只写在设置应用那份 `files/state` 里，键盘读不到，按关闭处理，在设置里打开后键盘里删除和清空剪贴板记录照样不经认证。这是放行方向的缺口，签名不带 data-group-id 的包不能把这个开关当作保护。
 
 官方提供的共享方式是「共享沙箱」：签名 Profile 和键盘扩展 `module.json5` 的 `dataGroupIds` 登记同一个 data-group-id，两个进程用 `context.getGroupDir(id)` 拿到同一个目录；基础访问模式下键盘对它只读，完整体验模式下可读写。本宿主的 ID 是 AppGallery Connect 签发的 `group.1516753898738609107`（代码里在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`）。签名 Profile 必须在 AGC 网页端「证书、APP ID和Profile › Profile › 新增」手动新建，DevEco 自动签名不会写入这项授权；新建后用 `strings <profile>.p7b | grep data-group-ids` 确认带着这个 ID。模拟器不做这项授权校验，只能在真机上验证。
 
-两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权、「防止截屏」开关（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
+两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权、「防止截屏」开关、「剪贴板删除数据验证」开关（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
 ### 「我的词条」只有一份
 
@@ -243,6 +244,14 @@ Engine 换成纯 Rust crate 之后（2026-09-30），同一脚本在三个 ABI �
 开关写在设置应用的 `files/state/screen-capture-protection.json`，不在共享偏好里，不随账号同步；经共享沙箱的 `screen-capture-protection` 条目单向镜像给键盘，键盘不发布它。打开后设置应用的主窗口设 `setWindowPrivacyMode`（启动时在载入页面之前，切换时当场），键盘的软键盘（2in1 上是候选窗）、浮动工具条和输入模式提示三块面板设 `Panel.setPrivacyMode`：面板新建时各设一次，每次编辑框获得焦点、导入镜像之后再按开关重设，所以在设置应用里切换后，下一次弹出键盘生效。两者都要 `ohos.permission.PRIVACY_WINDOW`（normal 级、system_grant，`module.json5` 里声明即授予）；设置失败只记日志。共享页的「恢复默认设置」只恢复共享偏好，不碰这个开关。决定与和 Android 的不同见 `.agents/notes/implemented/feature/2026-10-29-harmony-screen-capture-protection.md`。
 
 尚未在真机上验证截屏、录屏是否变黑和认证弹窗的行为。
+
+## 剪贴板删除数据验证（#10408）
+
+共享设置页「剪贴板」组末尾的「剪贴板删除数据验证」，默认关闭，只在宿主提供 `SettingsClient.clipboardDeleteAuthentication` 时显示。打开和关闭都要通过锁屏密码或生物识别，第一次打开也一样；没设锁屏密码时两个方向都拒绝，提示先去系统设置开启。认证取消或失败时不写文件。规则在 `keyboard/settings/ClipboardDeleteAuthenticationPolicy.ts`（`tests/clipboard-delete-authentication.test.ts`），认证复用 `ScreenCaptureAuthentication.ets`，只换认证框标题。
+
+开关写在设置应用的 `files/state/clipboard-delete-authentication.json`，不在共享偏好里，不随账号同步；经共享沙箱的 `clipboard-delete-authentication` 条目单向镜像给键盘，键盘不发布它。打开后键盘剪贴板里管理行的「删除」、2in1 行尾的「删除」和确认后的「清空」都先认证，认证失败或拉不起认证框时一律不删。在设置应用里切换后，键盘在下一次编辑框获得焦点、导入镜像之后才跟上。没有共享沙箱时键盘读不到开关，删除不认证，见上文。决定与和 Android、iOS 的不同见 `.agents/notes/implemented/feature/2026-10-31-clipboard-delete-authentication.md`。
+
+尚未在真机上验证输入法扩展里能否直接拉起认证框。
 
 ## 华为账号登录：Account Kit 的 ID Token
 

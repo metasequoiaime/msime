@@ -59,6 +59,7 @@ export function ToolsSettingsPage() {
         cloudRoute={cloudRoute}
         // macOS 的云剪贴板入口说明放在「剪贴板」设置内；关闭历史记录后仍能查看。
         note={macosPlatform ? CLOUD_PANEL_SESSION_NOTE : undefined}
+        deleteAuthentication={client.clipboardDeleteAuthentication}
       >
         {!macosPlatform && client.openCloudClipboard && (
           <GroupList title="云剪贴板">
