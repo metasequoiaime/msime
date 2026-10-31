@@ -152,6 +152,7 @@ impl InputSession {
                     &model,
                     self.chain.earlier.as_deref(),
                     previous,
+                    self.scheme(),
                     &mut |leader: &str| {
                         is_pinned_candidate(journal, &context, leader)
                             || (self.frequency.mode != FrequencyAdjustmentMode::Disabled

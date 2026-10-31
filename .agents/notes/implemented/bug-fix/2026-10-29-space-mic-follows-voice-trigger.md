@@ -38,3 +38,7 @@ iOS 的「启动方式」后来换回维护者 10-21 定下的「长按空格说
 - Android：`platforms/android/check-host.sh` 跑全部 JVM 冒烟，其中 `SpaceKeyMicSmoke` 覆盖本次改动；Gradle `compileFullReleaseJavaWithJavac` 编译 `home/VoicePage.java`。
 - iOS：`NineKeyKeyboardTests.testSpaceFaceNamesTheScheme` 补了关掉开关时三种键面都不带麦克风；`SpaceVoicePanelTests.testTheSpaceVoiceSwitchReachesTheSpaceBar` 断言关掉时空格键没有图标、打开后 `viewWillAppear` 一次麦克风就回来。
 - 未在真机或模拟器上看过键面；Android 工具栏语音按钮的恢复在 #10142 处理，不在这里。
+
+## 后续入口组合（#10309）
+
+[语音工具栏和长按空格入口可并用](../feature/2026-10-30-android-combined-voice-trigger.md)按新需求替代本篇的互斥写入与语音磁贴去重决定；按钮接线、排序、空格键麦克风跟随本地长按开关及出厂默认值继续保留。
