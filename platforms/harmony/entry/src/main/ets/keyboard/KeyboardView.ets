@@ -9810,22 +9810,30 @@ struct KeyboardView {
         .layoutWeight(1)
       } else {
         PagedTiles({
-          count: FunctionPanelPolicy.items(AiGenerationGate.enabled()).length,
+          count: this.functionPanelItems().length,
           pageSize: this.tilePageSize(),
-          rowHeight: this.tileRowHeight(FunctionPanelPolicy.items(AiGenerationGate.enabled()).length),
+          rowHeight: this.tileRowHeight(this.functionPanelItems().length),
           rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
           tile: (index: number): void => {
-            this.functionTile(FunctionPanelPolicy.items(AiGenerationGate.enabled())[index])
+            this.functionTile(this.functionPanelItems()[index])
           }
         })
       }
     }
     .width('100%')
     .height(this.surfaceHeight())
+  }
+
+  /** 手机和平板不显示本地输入入口；2in1 保留完整的功能面板。 */
+  private functionPanelItems(): FunctionPanelItem[] {
+    const allItems: FunctionPanelItem[] = FunctionPanelPolicy.items(AiGenerationGate.enabled());
+    return KeyboardFormFactor.isDesktop()
+      ? allItems
+      : FunctionPanelPolicy.items(AiGenerationGate.enabled(), false);
   }
 
   /** 「常用语」面板：用户的常用语，点一下即插入。 */

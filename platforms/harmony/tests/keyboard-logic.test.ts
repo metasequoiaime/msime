@@ -11443,6 +11443,28 @@ group("the function panel follows the design's order, then the Harmony extras", 
   check(new Set(ids).size === ids.length, "every id is unique");
 });
 
+group("phones and tablets hide the local input entry", () => {
+  const touchIds: string[] = FunctionPanelPolicy.items(true, false).map(
+    (item: FunctionPanelItem) => item.id,
+  );
+  check(
+    !touchIds.includes(FunctionPanelPolicy.LOCAL_INPUT),
+    "the phone and tablet function panel has no 本地输入 tile",
+  );
+  check(
+    FunctionPanelPolicy.items(true).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "the 2in1 panel keeps the local input tile",
+  );
+  check(
+    !FunctionPanelPolicy.items(false, false).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "hiding local input also works when AI tiles are unavailable",
+  );
+});
+
 group(
   "the function panel and the scheme picker page three rows in portrait and two in phone landscape",
   () => {
