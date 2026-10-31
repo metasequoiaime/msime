@@ -1943,6 +1943,8 @@ public final class MSIMEInputService extends InputMethodService {
         updateAutomaticCapitalization();
         imeLetterRows.refreshKeyRowsForEditor();
         render();
+        // 保留会话的重启也可能只复用已有键行；会话切换后仍要重新把当前布局注册给引擎。
+        imeTouchPoints.registerAfterLayout();
         synchronizeReplyKeyboard();
         imeWorldClock.resumePicker(getCurrentInputEditorInfo());
     }
@@ -2831,6 +2833,8 @@ public final class MSIMEInputService extends InputMethodService {
             recordEngineSessionTiming(createMillis, SystemClock.uptimeMillis() - startedAt);
             // 会话在建时点下的皮肤、输入方式或要轮换语言的「中」键，此刻会话和（多数时候）偏好都有了；偏好还没读到时由 reloadPreferences 第一次读到后再执行。排到这次建会话之后再做：打开面板出的错不能落进下面的 catch 把刚建好的会话停掉。
             main.post(this::runDeferredToolbarTaps);
+            // 键行通常在会话建立前已经完成布局；此时外层布局监听不会再次触发，必须在会话就绪后补量一次双拼几何。
+            imeTouchPoints.registerAfterLayout();
             // 窗口没显示时（会话在 onStartInput 里先于窗口建好，或在收起后为隐私模式重建）不起轮询，等 onWindowShown 再起。
             // 刚应用的就是几毫秒前读到的实时偏好，不必立刻再整套读一遍，按平常的节奏一秒后再查；没应用上时照旧马上读。
             if (hasPreferencesDirectory && imeWindowVisible) {
@@ -10649,10 +10653,16 @@ public final class MSIMEInputService extends InputMethodService {
                 imeCalculator.refresh();
                 return;
             }
-            keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
+            boolean enteringSymbols = keyboardLayer == KeyboardLayout.Layer.LETTERS;
+            keyboardLayer = enteringSymbols
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
-            imeLetterRows.rebuildKeyRows();
-            render();
+            if (enteringSymbols) {
+                // 从字母层进入数字九宫格时清掉上一轮停留的 #+= 页，123 的入口必须始终是 123。
+                imeLetterRows.showNumberPad();
+            } else {
+                imeLetterRows.rebuildKeyRows();
+                render();
+            }
             imeCalculator.refresh();
         });
         layerButton.setContentDescription("切换到数字和符号");

@@ -737,6 +737,7 @@ final class ImeLetterRows {
             return;
         }
         s.imeStyler.applyKeyboardGeometry();
+        s.imeTouchPoints.registerAfterLayout();
     }
 
     private boolean letterRowsReusable() {
@@ -807,18 +808,21 @@ final class ImeLetterRows {
                 && s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT)) {
             s.imeLayoutRows.rebuildNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
                 && s.displayedTouchLayout(s.view) == MSIMEInputService.JAPANESE_NINE_KEY_LAYOUT) {
             s.imeLayoutRows.rebuildJapaneseNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == MSIMEInputService.HANDWRITING_LAYOUT) {
             s.imeLayoutRows.rebuildHandwritingRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         // 笔画字母层画笔画网格，数字层已由前面的数字九宫格接管。
@@ -826,6 +830,7 @@ final class ImeLetterRows {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.STROKE_LAYOUT) {
             s.imeLayoutRows.rebuildStrokeRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         // 注音 9 键只在字母层画音键，数字层直接上屏数字，不交给引擎组音。
@@ -833,6 +838,7 @@ final class ImeLetterRows {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) {
             s.imeLayoutRows.rebuildZhuyinNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         // 字母组网格只在字母层画三行，数字层与二十六键复用同一个九宫格。
@@ -840,6 +846,7 @@ final class ImeLetterRows {
             && KeyboardLayout.drawsLetterGrid(s.displayedTouchLayout(s.view))) {
             rebuildFourteenKeyRows();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         // 数字层不是数字九宫格时就是 #+= 扩展符号页：除注音外每种键面都画同一张设计稿的符号页，字符原样上屏、不经 Engine，日文假名网格也用它。注音（大千和注音九键）的 #+= 是共享符号行，落到下面的通用分支（KeyboardLayout.drawsSharedSymbolRows）。
@@ -847,6 +854,7 @@ final class ImeLetterRows {
             rebuildDesignLayer();
             s.imeBottomRow.updateActionRow();
             s.imeStyler.applyKeyboardGeometry();
+            s.imeTouchPoints.registerAfterLayout();
             return;
         }
         // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面；日语罗马字也不画大写键面，见 LetterKeyFacePolicy.displaysUppercase。
@@ -1008,6 +1016,7 @@ final class ImeLetterRows {
             builtMicrosoftTenKeys = microsoftTenKeys();
         }
         s.imeStyler.applyKeyboardGeometry();
+        s.imeTouchPoints.registerAfterLayout();
     }
 
     /**
