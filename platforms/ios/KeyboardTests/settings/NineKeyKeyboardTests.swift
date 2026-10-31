@@ -2796,8 +2796,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
-    // 第 14 个是 26 键「长空格」时才显示的符号入口（`symbolsShortcut`），长按同样打开工具栏设置。
-    XCTAssertEqual(toolbar.arrangedSubviews.count, 14)
+    // 第 14 个是 26 键「长空格」时才显示的符号入口（`symbolsShortcut`），第 15 个是打开「随机数字」后才显示的「随」（`randomDigitsShortcut`），长按同样打开工具栏设置。
+    XCTAssertEqual(toolbar.arrangedSubviews.count, 15)
     for item in toolbar.arrangedSubviews {
       let id = item.accessibilityIdentifier ?? "\(item)"
       let hold = try XCTUnwrap(item.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }

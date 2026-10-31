@@ -2,12 +2,13 @@ import SwiftUI
 
 /// 键盘工具栏：键盘顶部工具栏如何显示、上面放哪些功能，这些设置位于它们组成的工具栏预览下方。可从 键盘 → 更多 和搜索进入。
 ///
-/// 与 Android 一样，显示方式以及常用语 / 输入方式两个开关属于本设备自己（`TouchToolbarLocalPreference`）；其他开关是共享的 `touch_toolbar`。
+/// 与 Android 一样，显示方式以及常用语 / 输入方式 / 随机数字三个开关属于本设备自己（`TouchToolbarLocalPreference`）；其他开关是共享的 `touch_toolbar`。
 struct KeyboardToolbarSettingsView: View {
   @State private var toolbar = TouchToolbarPreference()
   @State private var phrases = TouchToolbarLocalPreference.phrases
   @State private var scheme = TouchToolbarLocalPreference.scheme
   @State private var hidden = TouchToolbarLocalPreference.hidden
+  @State private var randomDigits = TouchToolbarLocalPreference.randomDigits
   @State private var skin = KeyboardTheme.current
   /// 预览画的字母层底行，同时决定工具栏上有没有 符：26 键「长空格」把 符 从底行挪到工具栏。
   @State private var keyLayout = TouchKeyLayoutStyle.mirrored
@@ -20,20 +21,25 @@ struct KeyboardToolbarSettingsView: View {
     case shared(WritableKeyPath<TouchToolbarPreference, Bool>)
     case phrases
     case scheme
+    case randomDigits
   }
 
-  /// 按设计稿顺序和措辞排列的开关：表情 / 常用语 / 剪贴板 / 皮肤 / 输入方式，之后是 iOS 独有的项。标题是本页自己的；共享的 `TouchToolbarPreference.options` 保留共享设置页的措辞。
+  /// 按设计稿顺序和措辞排列的开关：表情 / 常用语 / 剪贴板 / 皮肤 / 输入方式，之后是 iOS 独有的项，最后是与 Android 同名的「随机数字」。标题是本页自己的；共享的 `TouchToolbarPreference.options` 保留共享设置页的措辞。
   private static let buttons: [(name: String, title: String)] = [
     ("emoji", "表情"), ("phrases", "常用语"), ("clipboard", "剪贴板"), ("skin", "皮肤"), ("scheme", "输入方式"),
     ("ai", "AI 润色"), ("character_set", "简繁切换"), ("fullwidth", "全角 / 半角"),
-    ("punctuation", "中英文标点"),
+    ("punctuation", "中英文标点"), ("random_digits", "随机数字"),
   ]
+
+  /// 「随机数字」下的说明，与 Android「键盘工具栏」页同一句：打开它只放出入口，点「随」才打乱。
+  static let randomDigitsSubtitle = "在中文工具栏显示“随”开关；点按后打乱数字九宫格，每输入一个数字重新排列"
 
   private static let rows: [(name: String, title: String, source: Source)] =
     buttons.compactMap { button in
       switch button.name {
       case "phrases": return (button.name, button.title, .phrases)
       case "scheme": return (button.name, button.title, .scheme)
+      case "random_digits": return (button.name, button.title, .randomDigits)
       default:
         return TouchToolbarPreference.options.first { $0.name == button.name }.map { (button.name, button.title, .shared($0.keyPath)) }
       }
@@ -60,7 +66,8 @@ struct KeyboardToolbarSettingsView: View {
         DesignGroup(title: "按钮", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           ForEach(Array(Self.rows.enumerated()), id: \.element.name) { index, row in
             if index > 0 { DesignDivider() }
-            DesignToggleRow(title: row.title, isOn: binding(row.source))
+            DesignToggleRow(title: row.title, subtitle: row.name == "random_digits" ? Self.randomDigitsSubtitle : nil,
+                            isOn: binding(row.source))
               .accessibilityIdentifier("appToolbar_\(row.name)")
           }
         }
@@ -79,7 +86,8 @@ struct KeyboardToolbarSettingsView: View {
 
   /// 预览工具栏上品牌键和收起键之间的按钮；nil 是键盘空闲时不显示工具栏内容（显示方式为「隐藏」，或者按钮全部关掉、只剩品牌键和收起键），26 键「长空格」时这一行总带着 符，与键盘的 `toolbarRowHidden` 一致（`KeyboardToolbarPreviewRow`）。
   private var previewItems: [KeyboardPreviewToolbarItem]? {
-    KeyboardToolbarPreviewRow.items(toolbar, phrases: phrases, scheme: scheme, hidden: hidden, keyLayout: keyLayout)
+    KeyboardToolbarPreviewRow.items(toolbar, phrases: phrases, scheme: scheme, hidden: hidden, randomDigits: randomDigits,
+                                    keyLayout: keyLayout)
   }
 
   private var rowHidden: Bool { previewItems == nil }
@@ -114,6 +122,11 @@ struct KeyboardToolbarSettingsView: View {
         TouchToolbarLocalPreference.scheme = enabled
         scheme = enabled
       })
+    case .randomDigits:
+      return Binding(get: { randomDigits }, set: { enabled in
+        TouchToolbarLocalPreference.randomDigits = enabled
+        randomDigits = enabled
+      })
     }
   }
 
@@ -128,6 +141,7 @@ struct KeyboardToolbarSettingsView: View {
     phrases = TouchToolbarLocalPreference.phrases
     scheme = TouchToolbarLocalPreference.scheme
     hidden = TouchToolbarLocalPreference.hidden
+    randomDigits = TouchToolbarLocalPreference.randomDigits
     keyLayout = TouchKeyLayoutStyle.mirrored
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     skin = KeyboardTheme.reload(preferences)

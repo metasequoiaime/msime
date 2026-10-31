@@ -342,7 +342,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     let ids: [KeyboardPreviewToolbarItem: String] = [
       .symbols: "symbolsShortcut", .emoji: "emojiShortcut", .phrases: "phrasesShortcut", .clipboard: "clipboardShortcut",
       .skin: "skinShortcut", .scheme: "schemeButton", .ai: "aiShortcut", .characterSet: "characterSetShortcut",
-      .fullwidth: "fullwidthShortcut", .punctuation: "punctuationShortcut",
+      .fullwidth: "fullwidthShortcut", .punctuation: "punctuationShortcut", .randomDigits: "randomDigitsShortcut",
     ]
     XCTAssertEqual(Set(ids.keys), Set(KeyboardPreviewToolbarItem.allCases))
     for hidden in [false, true] {
@@ -354,7 +354,8 @@ final class KeyLayoutStyleTests: XCTestCase {
         let label = "\(style.rawValue), hidden \(hidden)"
         let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
         let preview = KeyboardToolbarPreviewRow.items(TouchToolbarPreference.load(), phrases: TouchToolbarLocalPreference.phrases,
-                                                      scheme: TouchToolbarLocalPreference.scheme, hidden: hidden, keyLayout: layout)
+                                                      scheme: TouchToolbarLocalPreference.scheme, hidden: hidden,
+                                                      randomDigits: TouchToolbarLocalPreference.randomDigits, keyLayout: layout)
         XCTAssertEqual(bar.isHidden, preview == nil, label)
         if let preview {
           // 品牌键、收起键以及预览不画的回复和语音入口不比。

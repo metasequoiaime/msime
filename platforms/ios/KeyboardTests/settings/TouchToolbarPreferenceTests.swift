@@ -40,7 +40,7 @@ final class TouchToolbarPreferenceTests: XCTestCase {
     XCTAssertEqual(Set(stored.keys), Set(TouchToolbarPreference.options.map(\.name)))
   }
 
-  /// 常用语、输入方式 和 显示方式 属于本设备自己的设置，默认值与 Android 的本地设置一致：两个按钮都打开，输入时显示工具栏。
+  /// 常用语、输入方式、显示方式和随机数字属于本设备自己的设置，默认值与 Android 的本地设置一致：两个按钮都打开，输入时显示工具栏，没有「随」入口。
   func testTheLocalSwitchesKeepAndroidsDefaults() {
     let defaults = TouchToolbarLocalPreference.defaults
     let keys = TouchToolbarLocalPreference.keys
@@ -54,6 +54,10 @@ final class TouchToolbarPreferenceTests: XCTestCase {
     XCTAssertTrue(TouchToolbarLocalPreference.phrases)
     XCTAssertTrue(TouchToolbarLocalPreference.scheme)
     XCTAssertFalse(TouchToolbarLocalPreference.hidden)
+    XCTAssertFalse(TouchToolbarLocalPreference.randomDigits)
+    TouchToolbarLocalPreference.randomDigits = true
+    XCTAssertEqual(defaults.object(forKey: "keyboard.toolbar.random_digits") as? Bool, true)
+    XCTAssertTrue(TouchToolbarLocalPreference.randomDigits)
     TouchToolbarLocalPreference.hidden = true
     TouchToolbarLocalPreference.scheme = false
     XCTAssertEqual(defaults.object(forKey: "keyboard.toolbar.hidden") as? Bool, true)
@@ -70,14 +74,14 @@ final class TouchToolbarPreferenceTests: XCTestCase {
   func testThePreviewPutsTheSymbolEntryAfterTheLogoOnlyForLongSpace() {
     let toolbar = TouchToolbarPreference()
     for style in TouchTwentySixKeyStyle.allCases {
-      let items = KeyboardToolbarPreviewRow.items(toolbar, phrases: true, scheme: false, hidden: false,
+      let items = KeyboardToolbarPreviewRow.items(toolbar, phrases: true, scheme: false, hidden: false, randomDigits: false,
                                                   keyLayout: TouchKeyLayoutStyle(twentySixKey: style))
       let tools: [KeyboardPreviewToolbarItem] = [.emoji, .phrases, .skin]
       XCTAssertEqual(items, style == .longSpace ? [.symbols] + tools : tools, style.rawValue)
     }
     // 只看 26 键样式：14/18 键的长空格和九键样式不动工具栏。
     let others = TouchKeyLayoutStyle(fourteenKey: .longSpace, nineKey: .tallReturn)
-    XCTAssertFalse(KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: false,
+    XCTAssertFalse(KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: false, randomDigits: false,
                                                    keyLayout: others)?.contains(.symbols) ?? false)
     XCTAssertEqual(KeyboardPreviewToolbarItem.symbols.character, "符")
     XCTAssertNil(KeyboardPreviewToolbarItem.symbols.symbol)
@@ -91,7 +95,7 @@ final class TouchToolbarPreferenceTests: XCTestCase {
     let longSpace = TouchKeyLayoutStyle(twentySixKey: .longSpace)
     func items(_ toolbar: TouchToolbarPreference, hidden: Bool,
                _ style: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
-      KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: hidden, keyLayout: style)
+      KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: hidden, randomDigits: false, keyLayout: style)
     }
     XCTAssertNil(items(TouchToolbarPreference(), hidden: true, standard), "a hidden toolbar draws no content")
     XCTAssertNil(items(none, hidden: false, standard), "nothing but the logo and the collapse button")
@@ -99,7 +103,23 @@ final class TouchToolbarPreferenceTests: XCTestCase {
                    "hidden keeps only the logo, 符 and the collapse button")
     XCTAssertEqual(items(none, hidden: false, longSpace), [.symbols])
     XCTAssertEqual(KeyboardToolbarPreviewRow.items(TouchToolbarPreference(), phrases: true, scheme: true, hidden: true,
-                                                   keyLayout: longSpace), [.symbols],
+                                                   randomDigits: true, keyLayout: longSpace), [.symbols],
                    "hiding drops every optional button, local ones included")
+  }
+
+  /// 随机数字的「随」排在工具最后，画成一个字；只开着它时预览这一行照常画，与键盘的 `randomDigitsKeepsToolbarRow` 相同；显示方式为「隐藏」时它和其他工具一起不画。
+  func testThePreviewDrawsTheRandomDigitsEntryLast() {
+    var none = TouchToolbarPreference()
+    for option in TouchToolbarPreference.options { none[keyPath: option.keyPath] = false }
+    let standard = TouchKeyLayoutStyle()
+    XCTAssertEqual(KeyboardToolbarPreviewRow.items(TouchToolbarPreference(), phrases: true, scheme: true, hidden: false,
+                                                   randomDigits: true, keyLayout: standard),
+                   [.emoji, .phrases, .skin, .scheme, .randomDigits])
+    XCTAssertEqual(KeyboardToolbarPreviewRow.items(none, phrases: false, scheme: false, hidden: false,
+                                                   randomDigits: true, keyLayout: standard), [.randomDigits])
+    XCTAssertNil(KeyboardToolbarPreviewRow.items(none, phrases: false, scheme: false, hidden: true,
+                                                 randomDigits: true, keyLayout: standard))
+    XCTAssertEqual(KeyboardPreviewToolbarItem.randomDigits.character, "随")
+    XCTAssertNil(KeyboardPreviewToolbarItem.randomDigits.symbol)
   }
 }

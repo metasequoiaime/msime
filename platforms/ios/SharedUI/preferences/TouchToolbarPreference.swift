@@ -71,7 +71,8 @@ enum TouchToolbarLocalPreference {
   static let phrasesKey = "keyboard.toolbar.phrases"
   static let schemeKey = "keyboard.toolbar.scheme"
   static let hiddenKey = "keyboard.toolbar.hidden"
-  static var keys: [String] { [phrasesKey, schemeKey, hiddenKey] }
+  static let randomDigitsKey = "keyboard.toolbar.random_digits"
+  static var keys: [String] { [phrasesKey, schemeKey, hiddenKey, randomDigitsKey] }
 
   static var phrases: Bool {
     get { defaults.object(forKey: phrasesKey) as? Bool ?? true }
@@ -88,6 +89,12 @@ enum TouchToolbarLocalPreference {
     get { defaults.object(forKey: hiddenKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: hiddenKey) }
   }
+
+  /// 中文工具栏上的「随」入口（#10254），默认不显示，与 Android 的 `platform.android.toolbar_random_digits` 相同。这里只保存入口在不在；点「随」打乱数字九宫格的开关只属于键盘这次运行，不保存。
+  static var randomDigits: Bool {
+    get { defaults.object(forKey: randomDigitsKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: randomDigitsKey) }
+  }
 }
 
 /// 键盘预览里的一个工具栏按钮。图标与键盘自己的工具栏一致；字符类项目画单个字符而不是符号。放在 SharedUI 里，`KeyboardToolbarPreviewRow` 的规则才能在键盘测试里直接测。
@@ -95,6 +102,8 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
   /// 26 键「长空格」从底行挪到工具栏的 符（键盘的 `symbolsShortcut`），排在品牌键后面。
   case symbols
   case emoji, phrases, clipboard, skin, scheme, ai, characterSet, fullwidth, punctuation
+  /// 随机数字的「随」，排在工具最后，与 Android 补在工具栏排序末尾一致。
+  case randomDigits
 
   /// 该项目的 SF Symbol；画成字符的项目为 nil。
   var symbol: String? {
@@ -105,7 +114,7 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
     case .skin: "paintpalette"
     case .scheme: "keyboard"
     case .ai: "sparkles"
-    case .symbols, .characterSet, .fullwidth, .punctuation: nil
+    case .symbols, .characterSet, .fullwidth, .punctuation, .randomDigits: nil
     }
   }
 
@@ -116,21 +125,22 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
     case .characterSet: "简"
     case .fullwidth: "全"
     case .punctuation: "，"
+    case .randomDigits: "随"
     default: ""
     }
   }
 }
 
-/// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`longSpaceToolbarRowKept` 相同。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
+/// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`longSpaceToolbarRowKept` 相同。预览画的是中文键盘，所以打开了「随机数字」时 随 算一个工具。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
 enum KeyboardToolbarPreviewRow {
-  static func items(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool, hidden: Bool,
+  static func items(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool, hidden: Bool, randomDigits: Bool,
                     keyLayout: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
     let symbols = keyLayout.twentySixKey == .longSpace
-    // 按键盘绘制顺序：表情、常用语、剪贴板、皮肤、输入方式，然后是 iOS 独有项。
+    // 按键盘绘制顺序：表情、常用语、剪贴板、皮肤、输入方式，然后是 iOS 独有项，最后是 随。
     let ordered: [(enabled: Bool, item: KeyboardPreviewToolbarItem)] = [
       (toolbar.emoji, .emoji), (phrases, .phrases), (toolbar.clipboard, .clipboard), (toolbar.skin, .skin),
       (scheme, .scheme), (toolbar.ai, .ai), (toolbar.characterSet, .characterSet),
-      (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation),
+      (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation), (randomDigits, .randomDigits),
     ]
     let tools = hidden ? [] : ordered.filter(\.enabled).map(\.item)
     if !symbols && (hidden || tools.isEmpty) { return nil }

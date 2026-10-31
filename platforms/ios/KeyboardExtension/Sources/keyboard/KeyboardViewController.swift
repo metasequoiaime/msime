@@ -132,6 +132,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let characterSetShortcut = UIButton()
   private let fullwidthShortcut = UIButton()
   private let punctuationShortcut = UIButton()
+  /// 随机数字的「随」（#10254）：设置里打开入口后只在中文、没有临时模式时出现，点一下打乱数字九宫格、再点一下恢复，与 Android 的 `randomDigitsShortcutButton` 相同。
+  private let randomDigitsShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
@@ -166,6 +168,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var toolbarPhrases = true
   private var toolbarScheme = true
   private var toolbarHidden = false
+  /// 「随机数字」入口（`TouchToolbarLocalPreference.randomDigits`），与上面三项一起在键盘出现时读取。
+  private var toolbarRandomDigits = false
+  /// 「随」打乱中文数字九宫格的开关和键序，只属于这次运行，不保存，与 Android 的 `ImeLayoutRows.randomDigits` 相同。
+  private var randomDigits = RandomDigitOrderPolicy()
   /// 工具栏上除品牌键和收起键之外还有没有显示的按钮，由 `updateShortcutButtons` 算出；一个都没有时空闲工具栏内容按显示方式「隐藏」处理（`toolbarRowHidden`）。
   private var toolbarHasTools = true
   /// 按键行当前按哪种单手模式布局（`applyOneHanded`）；第一次布局之前为 nil。
@@ -1999,11 +2005,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           accessibilityLabel: letters.map { "\(digit) \($0)" } ?? "1 符号"
         ) { [weak self] in
           guard let self else { return }
-          self.countKeyPress(self.numberPadKeyID(digit))
+          // 数字页上这一格画的数字不一定是 `digit`：「随」开着时按键位取（`typeNumberPadDigit`）。
           if self.showsSymbols {
-            self.typeNumberPadText(String(digit))
+            self.typeNumberPadDigit(slot: digit - 1)
+            return
           }
-          else if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
+          self.countKeyPress(self.numberPadKeyID(digit))
+          if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
         }
         // 连续输入时，按压状态直接跟随手指，不在抬指后继续缩放。
@@ -2158,24 +2166,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func applyNineKeyDigitLayer(_ digits: Bool) {
     let shuangpin = inputScheme == .nineKeyShuangpin
+    // 数字页上各键位此刻画的数字：「随」开着时是打乱后的键序，否则就是 1–9 和 0。
+    let faces = digits ? randomDigits.faces(eligible: randomDigitsEligible) : RandomDigitOrderPolicy.standard
     for key in nineKeyGridKeys {
+      let shown = faces[key.digit - 1]
       if shuangpin {
         let face = nineKeyShuangpinLayout?.keys.first { $0.key == String(key.digit) }
-        key.button.configuration?.title = String(key.digit)
+        key.button.configuration?.title = String(digits ? shown : key.digit)
         key.button.configuration?.subtitle = digits ? nil : face?.compactHint
         key.button.configuration?.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
           var attributes = attributes
           attributes.font = .systemFont(ofSize: 11)
           return attributes
         }
-        key.button.accessibilityLabel = digits ? "数字 \(key.digit)" : (face?.accessibilityLabel ?? "数字 \(key.digit)")
+        key.button.accessibilityLabel = digits ? "数字 \(shown)" : (face?.accessibilityLabel ?? "数字 \(key.digit)")
         key.button.accessibilityHint = nil
         key.numberHint?.isHidden = true
       } else {
         key.button.configuration?.subtitle = nil
-        key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
+        key.button.configuration?.title = digits ? String(shown) : (key.letters ?? Self.nineKeySymbolsFace)
         key.button.accessibilityLabel = digits
-          ? "数字 \(key.digit)"
+          ? "数字 \(shown)"
           : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
         key.numberHint?.isHidden = digits
         key.button.accessibilityHint = digits ? nil
@@ -2184,8 +2195,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       key.button.gestureRecognizers?.filter { $0.name == "nineKeyDigitHold" }.forEach { $0.isEnabled = !shuangpin && !digits }
     }
     let zero = nineKeyShuangpinLayout?.keys.first { $0.key == "0" }
+    nineKeyZeroButton?.configuration?.title = String(faces[9])
     nineKeyZeroButton?.configuration?.titleTextAttributesTransformer = digits ? Self.keyLabelTransformer : Self.functionLabelTransformer
-    nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 0"
+    nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 \(faces[9])"
   }
 
   /// 九键「右侧大回车」的回车：从右列第三格（`nineKeyClosingButton` 让出的位置）一直伸到底行，两倍高、中间无缝。它不在任何一行里，而是叠在按键列上，按右列的左右边、第三格的上边和底行的下边约束；底行在它下面留出同宽的一格（`tallReturnSlot`）。外观和行为与底行的回车相同（`returnKeys`），按下记 `Return`。只在这个样式的九键外框上显示。
@@ -2651,7 +2663,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolsShortcut.isHidden = true
     let shortcuts: [UIButton] = [
       moreShortcut, symbolsShortcut, emojiShortcut, phrasesShortcut, clipboardShortcut, skinShortcut, schemeButton,
-      aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut,
+      aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, randomDigitsShortcut,
       replyShortcut, scriptShortcut, dismissShortcut,
     ]
     for button in shortcuts {
@@ -2724,6 +2736,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       setChinesePunctuation(!chinesePunctuation)
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
+    randomDigitsShortcut.addAction(UIAction { [weak self] _ in self?.toggleRandomDigits() }, for: .primaryActionTriggered)
     moreShortcut.addAction(UIAction { [weak self] _ in self?.toggleMorePicker() }, for: .primaryActionTriggered)
     symbolsShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
@@ -2784,6 +2797,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
               label: "中英文标点", id: "punctuationShortcut")
     punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
     punctuationShortcut.isEnabled = chinesePunctuationSwitchApplies
+    // 「随」亮着时与面板已打开的工具栏图标一样画切换色底和强调色字。
+    configure(randomDigitsShortcut, title: "随", symbol: nil, label: "随机数字", id: "randomDigitsShortcut")
+    if randomDigits.enabled {
+      randomDigitsShortcut.configuration?.baseForegroundColor = skin.accent
+      randomDigitsShortcut.configuration?.background.backgroundColor = skin.toolbarActiveBackground
+      randomDigitsShortcut.configuration?.background.cornerRadius = KeyboardToolbarButton.padRadius
+    }
+    randomDigitsShortcut.accessibilityValue = randomDigits.enabled ? "已开启" : "已关闭"
+    randomDigitsShortcut.accessibilityTraits = randomDigits.enabled ? [.button, .selected] : .button
     emojiShortcut.isHidden = !pinned.emoji
     phrasesShortcut.isHidden = !toolbarPhrases
     schemeButton.isHidden = !toolbarScheme
@@ -2793,7 +2815,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     characterSetShortcut.isHidden = !pinned.characterSet
     fullwidthShortcut.isHidden = !pinned.fullwidth
     punctuationShortcut.isHidden = !pinned.punctuation
-    let hasTools = optionalShortcuts.contains { !$0.isHidden }
+    randomDigitsShortcut.isHidden = !randomDigitsEntryShown
+    // 「随」的入口看此刻的中/英和临时模式，这一行留不留只看设置和方案（`randomDigitsKeepsToolbarRow`），切中/英时工具栏不会出没。
+    let hasTools = optionalShortcuts.contains { !$0.isHidden } || randomDigitsKeepsToolbarRow
     if hasTools != toolbarHasTools {
       toolbarHasTools = hasTools
       // 顶栏建好之后，最后一个可选按钮被关掉或重新打开一个时，空闲工具栏行跟着消失或出现；建顶栏时由之后的 `renderCandidateStrip` 读它。
@@ -2819,7 +2843,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 工具栏上可以在「键盘工具栏」设置里打开或关掉的按钮，即品牌键和收起键之外的全部按钮。
   private var optionalShortcuts: [UIButton] {
     [emojiShortcut, phrasesShortcut, clipboardShortcut, skinShortcut, schemeButton,
-     aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, replyShortcut, scriptShortcut]
+     aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, randomDigitsShortcut, replyShortcut, scriptShortcut]
   }
 
   /// 空闲时不显示工具栏内容：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。iOS 保留顶栏高度，组字时候选行在同一位置出现。26 键「长空格」把 符 挪到工具栏后，这一行总要显示（`toolbarRowKept`），同一块键盘切到英文 26 键时也显示品牌和收起，与 Android、鸿蒙相同。
@@ -3709,6 +3733,71 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ? TypingKeyID.nineKey(digit) : TypingKeyID.character(String(digit))
   }
 
+  /// 用户选的方案写中文（版本表里的中文方案），不看此刻的中/英和临时模式，与 Android `InputSchemeTraits.isChinese` 同一组：全拼、双拼、五笔、粤拼、注音和笔画，九键、14/18 键和手写都归在它们下面。
+  private var randomDigitsChineseScheme: Bool {
+    ChineseInputScheme.chineseEngineSchemes.contains(inputScheme.engineScheme)
+  }
+
+  /// 工具栏上画「随」：设置里打开了入口、工具栏没设成隐藏、中文方案正处在中文且没有临时模式，与 Android 的 `randomDigitsEntryVisible` 相同；英文键盘不给入口。
+  private var randomDigitsEntryShown: Bool {
+    toolbarRandomDigits && !toolbarHidden && isChineseMode && randomDigitsChineseScheme && !isInLocalMode
+  }
+
+  /// 「随」入口让空闲工具栏那一行留着：只看设置和方案，与 Android 的 `randomDigitsKeepsToolbarRow` 相同。
+  private var randomDigitsKeepsToolbarRow: Bool {
+    toolbarRandomDigits && randomDigitsChineseScheme
+  }
+
+  /// 数字九宫格此刻按随机键序画：入口在，而且画着的就是数字九宫格。
+  private var randomDigitsEligible: Bool {
+    randomDigitsEntryShown && numberPadShown
+  }
+
+  /// 点「随」：只切换开关和高亮，不跳到数字页；正画着数字九宫格时当场换键面。
+  private func toggleRandomDigits() {
+    randomDigits.setEnabled(!randomDigits.enabled)
+    updateShortcutButtons()
+    syncNumberDigitFaces()
+  }
+
+  /// 入口被关掉或工具栏被隐藏：关掉随机，数字九宫格回到标准键序。
+  private func disableRandomDigits() {
+    guard randomDigits.enabled else { return }
+    randomDigits.setEnabled(false)
+    if randomDigitsShortcut.superview != nil { updateShortcutButtons() }
+    syncNumberDigitFaces()
+  }
+
+  /// 数字九宫格第 `slot` 个键位（0–8 是网格的 1–9，9 是底行的 0）上屏：按它此刻画的数字走数字页同一条上屏路径、按这个数字记统计，「随」开着时上屏后重新打乱，与 Android 的 `bindNumberDigit` 相同。
+  private func typeNumberPadDigit(slot: Int) {
+    let digit = randomDigits.digit(slot: slot, eligible: randomDigitsEligible)
+    countKeyPress(numberPadKeyID(digit))
+    typeNumberPadText(String(digit))
+    randomDigits.afterDigit(eligible: randomDigitsEligible)
+    syncNumberDigitFaces()
+  }
+
+  /// 不重建键区时随机资格也会变（在数字页上进出临时模式等）：「随」的显隐和数字键面跟着当场核对，与 Android 在 `render` 里调 `syncNumberDigitFaces` 相同。
+  private func syncRandomDigits() {
+    if randomDigitsShortcut.superview != nil && randomDigitsShortcut.isHidden == randomDigitsEntryShown {
+      updateShortcutButtons()
+    }
+    syncNumberDigitFaces()
+  }
+
+  /// 数字九宫格的十个键面和读屏名称按此刻的随机资格对一次。不在数字页时什么也不做，所以离开数字页不取随机数，回来时沿用上次排列。
+  private func syncNumberDigitFaces() {
+    guard numberPadShown else { return }
+    let faces = randomDigits.faces(eligible: randomDigitsEligible)
+    func show(_ digit: Int, on button: UIButton) {
+      let face = String(digit)
+      if button.configuration?.title != face { button.configuration?.title = face }
+      button.accessibilityLabel = "数字 \(digit)"
+    }
+    for key in nineKeyGridKeys { show(faces[key.digit - 1], on: key.button) }
+    if let zero = nineKeyZeroButton { show(faces[9], on: zero) }
+  }
+
   private func typeSymbolLayerKey(row: Int, column: Int) {
     let chinese = symbolLayerIsChinese
     let face = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: chinese,
@@ -3983,9 +4072,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 九键网格数字层底行的 0：网格放 1-9，这个键补上 0。拼音网格和笔画键上它的位置让给最左边的 符。
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       guard let self else { return }
-      countKeyPress(numberPadKeyID(0))
-      if inputScheme == .nineKeyShuangpin && !showsSymbols { handleCharacter("0") }
-      else { typeNumberPadText("0") }
+      if inputScheme == .nineKeyShuangpin && !showsSymbols {
+        countKeyPress(numberPadKeyID(0))
+        handleCharacter("0")
+      } else {
+        // 数字页的 0 是第十个键位，「随」开着时和网格一起打乱。
+        typeNumberPadDigit(slot: 9)
+      }
     }
     zero.configuration?.contentInsets = .zero
     zero.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -5313,6 +5406,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     toolbarPhrases = TouchToolbarLocalPreference.phrases
     toolbarScheme = TouchToolbarLocalPreference.scheme
     toolbarHidden = TouchToolbarLocalPreference.hidden
+    toolbarRandomDigits = TouchToolbarLocalPreference.randomDigits
+    // 关掉入口或把工具栏设成隐藏时「随」够不到，清掉运行时的随机状态，与 Android 相同；取消隐藏后「随」仍是关着的。
+    if !toolbarRandomDigits || toolbarHidden { disableRandomDigits() }
   }
 
   /// 释义行数、候选和编码字号以及「候选栏大小」都决定顶栏有多高，所以在这里一起应用。
@@ -7835,6 +7931,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       showsSymbols = false
     }
     currentLocalMode = snapshot.localMode
+    syncRandomDigits()
     // 样式在偏好改动后空闲重建时才变；变了就重画受影响的键面。
     if currentCornerQuotes != snapshot.cornerQuotes || currentHollowBrackets != snapshot.hollowBrackets
       || currentEnumerationCommaBackslash != snapshot.enumerationCommaBackslash
