@@ -10,6 +10,8 @@ struct CommunityPluginsView: View {
   @State private var paging = CommunityPluginPaging()
   @State private var busy = false
   @State private var loaded = false
+  /// 详情页压在列表上面时屏蔽或在别处解除屏蔽，列表已不可见、读取会被跳过，回到列表时再补读。
+  @State private var blocksChanged = false
   @State private var message: String?
   @State private var notice: String?
   @State private var signedIn = false
@@ -75,9 +77,14 @@ struct CommunityPluginsView: View {
       }
     }) { AccountLoginSheet() }
     .refreshable { await load() }
-    .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
+    .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in
+      if request.isVisible { startLoad() } else { blocksChanged = true }
+    }
     .trackViewRequest(request: $request, pending: $pending, onAppear: {
-      if !loaded { startLoad() }
+      if !loaded || blocksChanged {
+        blocksChanged = false
+        startLoad()
+      }
       Task {
         let state = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
         if request.isVisible { signedIn = state }

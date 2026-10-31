@@ -36,6 +36,8 @@ export interface CommunityBlocksValue {
   /** 有没有登录的水杉账号；屏蔽只认登录账号，本机匿名账号不算。 */
   signedIn(): Promise<boolean>;
   onLogin?: () => void;
+  /** 触屏宿主：「已屏蔽的作者」在「我的 › 隐私」里；否则在「关于 › 许可与隐私」里。确认屏蔽的说明据此指路。 */
+  mobile: boolean;
 }
 
 export const CommunityBlocksContext = createContext<CommunityBlocksValue | null>(null);
@@ -45,12 +47,13 @@ export function useCommunityBlocks(): CommunityBlocksValue | null {
 }
 
 /**
- * 设置外壳用宿主的屏蔽客户端和账号客户端拼出 `CommunityBlocksContext` 的值；两者缺一就没有值。登录状态问账号客户端的 `status`：有 `user` 就是登录了，本机匿名账号不在那里。值只随两个客户端变化，`onLogin` 每次渲染换一个也不会让名单重读。
+ * 设置外壳用宿主的屏蔽客户端和账号客户端拼出 `CommunityBlocksContext` 的值；两者缺一就没有值。登录状态问账号客户端的 `status`：有 `user` 就是登录了，本机匿名账号不在那里。值只随两个客户端和宿主是不是触屏（宿主不会中途改变）变化，`onLogin` 每次渲染换一个也不会让名单重读。
  */
 export function useCommunityBlocksValue(
   client: CommunityBlockClient | undefined,
   account: { status(): Promise<{ user?: unknown }> } | undefined,
   onLogin: () => void,
+  mobile: boolean,
 ): CommunityBlocksValue | null {
   const login = useRef(onLogin);
   useLayoutEffect(() => {
@@ -63,9 +66,10 @@ export function useCommunityBlocksValue(
             client,
             signedIn: async () => Boolean((await account.status()).user),
             onLogin: () => login.current(),
+            mobile,
           }
         : null,
-    [client, account],
+    [client, account, mobile],
   );
 }
 
@@ -152,7 +156,7 @@ export function CommunityBlockAuthorSection({
       {confirming ? (
         <div className={style.confirmation} role="alertdialog" aria-label={title}>
           <p className="font-semibold">{title}</p>
-          <p>{communityBlockConfirmMessage}</p>
+          <p>{communityBlockConfirmMessage(blocks.mobile)}</p>
           <CommunityConfirmationActions>
             <ActionButton
               action={block}

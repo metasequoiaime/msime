@@ -115,6 +115,7 @@ function SettingsShell(props: SettingsPageProps) {
     client.communityBlocks,
     client.account,
     model.openAccountLogin,
+    mobilePlatform,
   );
   const shellPresentation = settingsShellPlatformPresentation({
     settingsPlatform,

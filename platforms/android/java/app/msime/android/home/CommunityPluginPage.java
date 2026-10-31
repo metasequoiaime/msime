@@ -143,8 +143,9 @@ public final class CommunityPluginPage extends ReloadingDetailPage {
         }
     }
 
-    /** 屏蔽了这个插件的作者：关掉详情，回到的插件页重读社区列表，服务端已不再列出这位作者的插件。 */
+    /** 屏蔽了这个插件的作者：关掉详情，回到的插件页重读社区列表，服务端已不再列出这位作者的插件；这位作者的皮肤也不再列出，所以先刷新键盘皮肤面板用的目录缓存（页面关掉后联网和写缓存照样做完）。 */
     private void blocked() {
+        CommunitySkinCatalogue.refresh(this, true, ignored -> { });
         PluginsPage.communityChanged();
         requireActivity().getOnBackPressedDispatcher().onBackPressed();
     }

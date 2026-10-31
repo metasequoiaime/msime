@@ -81,8 +81,9 @@ function blocks(
   client: CommunityBlockClient,
   signedIn = true,
   onLogin = vi.fn(),
+  mobile = true,
 ): CommunityBlocksValue {
-  return { client, signedIn: vi.fn().mockResolvedValue(signedIn), onLogin };
+  return { client, signedIn: vi.fn().mockResolvedValue(signedIn), onLogin, mobile };
 }
 
 function withBlocks(value: CommunityBlocksValue | null, children: ReactNode) {
@@ -160,6 +161,23 @@ test("cancelling the confirmation blocks nothing", async () => {
   expect(screen.queryByRole("alertdialog", { name: "屏蔽作者「示例作者」？" })).toBeNull();
   expect(client.block).not.toHaveBeenCalled();
   expect(screen.getByRole("heading", { name: "别人的雨声" })).toBeDefined();
+});
+
+test("desktop and 2in1 hosts point the confirmation at 关于, where their blocked-authors row lives", async () => {
+  render(
+    withBlocks(
+      blocks(blockClient(), true, vi.fn(), false),
+      <CommunityPluginsPage client={pluginClient()} />,
+    ),
+  );
+  await openOther();
+  fireEvent.click(screen.getByRole("button", { name: "屏蔽作者" }));
+  const dialog = await screen.findByRole("alertdialog", { name: "屏蔽作者「示例作者」？" });
+  expect(
+    within(dialog).getByText(
+      "屏蔽后，社区里不再显示这位作者发布的皮肤、插件、词库和模板。可以在「关于 › 许可与隐私 › 已屏蔽的作者」里取消屏蔽。",
+    ),
+  ).toBeDefined();
 });
 
 test("a signed-out user is asked to sign in before anything is confirmed", async () => {

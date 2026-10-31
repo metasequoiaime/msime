@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * 已屏蔽的作者：登录账号在社区里屏蔽的作者，每位一行（作者名、屏蔽日期 yyyy-MM-dd），行尾「取消屏蔽」。从「我的 › 隐私」的「社区」组进来。
  *
- * <p>名单和取消屏蔽经 Rust 的 block_list、unblock（{@link CommunityCatalog#blocks}、{@link CommunityCatalog#unblock}），只用登录的水杉账号；没有登录时这一页只说「登录水杉账号后才能屏蔽作者。」并给登录入口，登录后重读。屏蔽本身在社区作品的详情里（{@link CommunityBlockDialog}）。取消屏蔽后服务端在下一次列表请求里重新列出这位作者的作品，这里不碰本机的任何列表。
+ * <p>名单和取消屏蔽经 Rust 的 block_list、unblock（{@link CommunityCatalog#blocks}、{@link CommunityCatalog#unblock}），只用登录的水杉账号；没有登录时这一页只说「登录水杉账号后才能屏蔽作者。」并给登录入口，登录后重读。屏蔽本身在社区作品的详情里（{@link CommunityBlockDialog}）。取消屏蔽后服务端在下一次列表请求里重新列出这位作者的作品；本机只刷新键盘皮肤面板用的目录缓存，让这位作者的皮肤回到键盘里，其余列表下次打开时自然重读。
  */
 public final class BlockedAuthorsPage extends ReloadingDetailPage {
     private long generation;
@@ -106,6 +106,7 @@ public final class BlockedAuthorsPage extends ReloadingDetailPage {
             // 成功时重读名单，这一行就不在了；登录失效或换了号时也重读，按现在的账号显示登录入口或它的名单。
             if (code != null && (code.isEmpty() || CommunityRequest.blockNeedsSignIn(code)
                     || "community_cancelled".equals(code))) {
+                if (code.isEmpty()) CommunitySkinCatalogue.refresh(this, true, ignored -> { });
                 reload();
                 return;
             }

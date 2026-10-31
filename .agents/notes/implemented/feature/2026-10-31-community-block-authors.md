@@ -26,4 +26,4 @@ App Store 审核（Guideline 1.2）要求有用户生成内容的应用让用户
 - 详情接口不过滤：从旧链接或缓存仍能打开被屏蔽作者的单个作品，客户端屏蔽成功后关掉详情并刷新列表。
 - `community_invalid` 在 `block` 上才表示「不能屏蔽自己」，`community_conflict` 表示超过 500 条；Rust 的错误码是归并过的粗码，各宿主只在 `block` 操作上把它们换成这两句话。
 - 入口：iOS 与 Android 是原生页面；HarmonyOS、macOS 和 Linux 用 `packages/ui` 的共享社区页（`community-block.tsx`），HarmonyOS 经设置桥的 `community_block` 请求、桌面经 Tauri 的 `community_block`、`community_block_list`、`community_unblock` 命令。宿主没有提供屏蔽客户端时，共享页不显示「屏蔽作者」和「已屏蔽的作者」，不会出现点了无效的按钮。
-- Windows 原生设置不使用共享社区页，目前没有屏蔽入口；它的社区页如果以后要提供，接同一组 `msime_client_community` 操作即可。
+- Windows 原生设置不使用共享社区页，目前没有屏蔽入口，也没有「已屏蔽的作者」名单；它的社区页如果以后要提供，接同一组 `msime_client_community` 操作即可。过滤在服务端按账号做，所以在别的设备上屏蔽的作者在 Windows 的社区图库里同样不出现，但要取消屏蔽只能回到 iOS、Android、HarmonyOS、macOS 或 Linux 上。

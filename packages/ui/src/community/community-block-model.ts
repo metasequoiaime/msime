@@ -33,8 +33,11 @@ export function communityBlockConfirmTitle(author: string): string {
   return `屏蔽作者「${author}」？`;
 }
 
-export const communityBlockConfirmMessage =
-  "屏蔽后，社区里不再显示这位作者发布的皮肤、插件、词库和模板。可以在「我的 › 隐私 › 已屏蔽的作者」里取消屏蔽。";
+/** 确认屏蔽时的说明。取消屏蔽的位置分宿主：触屏宿主在「我的 › 隐私」，这句与 iOS、Android 相同；桌面和 2in1 没有那一页，「已屏蔽的作者」在「关于 › 许可与隐私」里。 */
+export function communityBlockConfirmMessage(mobile: boolean): string {
+  const place = mobile ? "我的 › 隐私 › 已屏蔽的作者" : "关于 › 许可与隐私 › 已屏蔽的作者";
+  return `屏蔽后，社区里不再显示这位作者发布的皮肤、插件、词库和模板。可以在「${place}」里取消屏蔽。`;
+}
 
 export function communityBlockedNotice(author: string): string {
   return `已屏蔽「${author}」`;

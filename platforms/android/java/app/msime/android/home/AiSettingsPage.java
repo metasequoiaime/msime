@@ -184,8 +184,9 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             null);
     }
 
-    /** 屏蔽作者之后重读社区回复模板：服务端已不再列出这位作者的模板。 */
+    /** 屏蔽作者之后重读社区回复模板：服务端已不再列出这位作者的模板；这位作者的皮肤也不再列出，所以一并刷新键盘皮肤面板用的目录缓存。 */
     private void reloadReplies() {
+        CommunitySkinCatalogue.refresh(this, true, ignored -> { });
         repliesRequested = false;
         replies = null;
         repliesFailure = null;

@@ -466,11 +466,11 @@ public final class CommunityFragment extends Fragment {
         CommunityReportDialog.show(this, item);
     }
 
-    /** 屏蔽作者：成功后从第一页重新载入，服务端已不再列出这位作者的作品；皮肤另刷新键盘皮肤面板用的目录缓存。 */
+    /** 屏蔽作者：成功后从第一页重新载入，服务端已不再列出这位作者的作品；屏蔽作者对这位作者的全部作品生效，所以总要刷新键盘皮肤面板用的目录缓存。 */
     private void block(CommunityCatalog.Item item) {
         CommunityBlockDialog.show(this, item.author(), CommunityRequest.reportKind(item.kind()), item.id(), () -> {
             load(true);
-            if (item.kind() == CommunityRequest.Kind.SKIN) CommunitySkinCatalogue.refresh(this, true, ignored -> { });
+            CommunitySkinCatalogue.refresh(this, true, ignored -> { });
         });
     }
 

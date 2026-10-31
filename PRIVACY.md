@@ -215,7 +215,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 社区里看别人发布的皮肤、候选窗口皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-services/src/community/report.rs`。
 
-iOS、Android 与 HarmonyOS 的作品详情里另有「屏蔽作者」，要先登录水杉账号（不用本机匿名账号）。确认屏蔽时才向 `POST https://api.msime.app/v1/community/blocks` 发送 `{kind, item_id}`，服务端据此找到作品的作者并记在你的账号下，之后你的账号浏览社区目录时不再列出这位作者的作品；服务端不把作者的账号编号返回给客户端，只返回这条屏蔽的编号、作者的显示名和屏蔽时间。「我的 › 隐私 › 已屏蔽的作者」打开时读取 `GET /v1/community/blocks`，取消屏蔽发 `DELETE /v1/community/blocks/{id}`。注销账号时屏蔽记录一并删除。共享实现在 `crates/client-services/src/community/block.rs`。
+iOS、Android、HarmonyOS 以及 macOS 与 Linux 设置应用的作品详情里另有「屏蔽作者」，要先登录水杉账号（不用本机匿名账号）。确认屏蔽时才向 `POST https://api.msime.app/v1/community/blocks` 发送 `{kind, item_id}`，服务端据此找到作品的作者并记在你的账号下，之后你的账号浏览社区目录时不再列出这位作者的作品；服务端不把作者的账号编号返回给客户端，只返回这条屏蔽的编号、作者的显示名和屏蔽时间。「我的 › 隐私 › 已屏蔽的作者」（macOS、Linux 与 HarmonyOS 2in1 在「关于 › 许可与隐私」里）打开时读取 `GET /v1/community/blocks`，取消屏蔽发 `DELETE /v1/community/blocks/{id}`。注销账号时屏蔽记录一并删除。共享实现在 `crates/client-services/src/community/block.rs`。
 
 社区采用先发布后审核：发布的内容立即公开，管理员可以下架。查看「我的作品」或自己作品详情时，请求带 `fields=moderation`，只用来在被下架的作品上显示「已下架」；不会显示下架理由，也没有待审核状态。
 
