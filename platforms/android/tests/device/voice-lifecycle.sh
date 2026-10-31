@@ -66,6 +66,11 @@ run_case() {
   [[ "$result" == *"MSIME_VOICE_LIFECYCLE_PASSED: $scenario"* ]]
 }
 if [[ "$mode" == hold ]]; then
+  # smoke.sh 只走 hold 模式；人物检查不需要合成语音或麦克风，放在这里才会真的执行。
+  result=$("$adb" -s "$serial" shell am instrument -w -e scenario voice-mascot \
+    app.msime.android.test/app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
   result=$("$adb" -s "$serial" shell am instrument -w -e voice-hold true \
     app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
   printf '%s\n' "$result"

@@ -46,6 +46,8 @@ enum class TrayMenuCommand {
   OpenCloudClipboard,
   // 托盘卡片的「云词库…」：共享应用的云词库面板，与 macOS 输入菜单的同名一行打开同一个面板（cloud-dictionary 路由）。
   OpenCloudDictionary,
+  // 托盘卡片的「背单词（今日待复习 N）…」：共享应用的背单词面板（vocabulary 路由），只在今天有卡在等时列出。
+  OpenVocabulary,
   // 主题页的一行，写存储的 global_theme；行的 value 是主题 id。
   SelectTheme,
   // 托盘卡片自己的翻页：输入方案页、主题页和返回主页。只在卡片里处理，从不交给 Server。

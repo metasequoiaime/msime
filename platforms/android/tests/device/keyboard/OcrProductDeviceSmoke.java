@@ -115,6 +115,27 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
             importFailed();
             recognizeFixture();
             screenshot("picker-preserved");
+
+            stage = "cancel module uninstall";
+            tap(node -> equalsText("卸载配套模块", node.getText()) && node.isEnabled());
+            awaitAny(node -> equalsText("卸载配套模块？", node.getText()));
+            tap(node -> equalsText("取消", node.getText()) && node.isClickable());
+            recognizeFixture();
+
+            stage = "uninstall imported module after failed replacement";
+            tap(node -> equalsText("卸载配套模块", node.getText()) && node.isEnabled());
+            awaitAny(node -> equalsText("卸载配套模块？", node.getText()));
+            tap(node -> equalsText("卸载", node.getText()) && node.isClickable());
+            awaitAny(node -> node.getText() != null && node.getText().toString().startsWith("尚未导入模块"));
+            awaitAny(node -> equalsText("卸载配套模块", node.getText()) && !node.isEnabled());
+            rejectOpen("uninstalled module cannot reopen through the cached loader");
+            screenshot("picker-uninstalled");
+
+            stage = "reimport module after uninstall";
+            pickModule("valid");
+            awaitAny(node -> equalsText("配套模块已导入。", node.getText()));
+            recognizeFixture();
+            screenshot("picker-reimported");
         } finally { runOnMainSync(activity::finish); }
     }
 

@@ -1379,6 +1379,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackVer
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackAdoptRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_adopt);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackRemoveRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_remove);
+}
 // listener 可以为 null；不为 null 时在本线程上收到 onProgress(phase, done, total)。listener 抛出的异常在安装结束后原样抛给调用方，此时不返回结果。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackInstallRaw(JNIEnv *env, jclass, jbyteArray request, jobject listener) {
     ResourcePackProgress progress{env, listener, nullptr};

@@ -309,7 +309,25 @@ void every_opening_acts_on_its_own_candidate() {
 }
 } // namespace
 
+// 候选旁有释义时，菜单最后隔一条线加「加入生词本」：云候选、AI 候选这些词库操作不可用的行也能点，选中它不映射到任何 Engine 动作。
+void personal_wordbook_row_follows_the_dictionary_rows() {
+  const CandidateMenuMetrics metrics;
+  for (bool actionable : {true, false}) {
+    const auto items = candidate_menu_items(2, actionable, 0, true);
+    assert(items.size() == 5);
+    assert(items[3].separator && items[3].command == CandidateMenuCommand::AddToPersonalWordbook);
+    assert(items[4].command == CandidateMenuCommand::AddToPersonalWordbook &&
+           items[4].label == "加入生词本" && items[4].available && !items[4].submenu);
+    const auto row = candidate_menu_row(4, items, metrics);
+    assert(candidate_menu_hit(4.0, row.top + 1.0, items, metrics) == std::optional<size_t>(4));
+  }
+  assert(candidate_menu_items(1, true, std::nullopt, true).size() == 4);
+  assert(candidate_menu_items(2).size() == 3);
+  assert(!candidate_menu_action(CandidateMenuCommand::AddToPersonalWordbook, 0));
+}
+
 int main() {
+  personal_wordbook_row_follows_the_dictionary_rows();
   chosen_rows_map_to_engine_actions();
   delete_row_shows_its_shortcut();
   every_opening_acts_on_its_own_candidate();

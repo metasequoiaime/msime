@@ -16275,12 +16275,64 @@ fn vocabulary_due_count_boundary_matches_the_review_status() {
         -1
     );
 
+    // HostOptions 文档代替 resources：资源根是 `resources` 的上一级，和设置应用找内置词书的地方相同。
+    let bundle = directory.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("resources")).unwrap();
+    let by_options = |options: Value| {
+        count(json!({"directory": state, "host_options": options, "day": "2026-09-23"}))
+    };
+    assert_eq!(
+        by_options(json!({"resources": bundle.join("resources")})),
+        2
+    );
+    assert_eq!(by_options(json!({"resources": "relative/resources"})), -1);
+    assert_eq!(
+        count(
+            json!({"directory": state, "resources": state, "host_options": {"resources": bundle.join("resources")}, "day": "2026-09-23"})
+        ),
+        -1,
+        "exactly one of resources and host_options"
+    );
+    assert_eq!(count(json!({"directory": state, "day": "2026-09-23"})), -1);
+
     std::fs::write(
         state.join("vocabulary-progress.json"),
         b"corrupt synthetic progress",
     )
     .unwrap();
     assert_eq!(count(request("2026-09-23")), -1);
+}
+
+/// 从 HostOptions 求出的资源根能找到随包的内置词书：Linux 宿主就是这样读到选中的内置书的。
+#[test]
+fn vocabulary_due_count_finds_bundled_books_through_host_options() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let bundle = directory.path().join("share");
+    std::fs::create_dir_all(bundle.join("resources")).unwrap();
+    std::fs::create_dir_all(bundle.join("wordbooks")).unwrap();
+    std::fs::write(
+        bundle.join("wordbooks/cet4.json"),
+        serde_json::to_vec(&json!({"id": "cet4", "name": "CET-4", "entries": [
+            {"word": "alpha", "meaning": "adj. 合成释义"},
+            {"word": "beta", "meaning": "adj. 合成释义"},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    msime_client_services::vocabulary::progress::VocabularyProgressStore::new(&state)
+        .select_wordbook("cet4")
+        .unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": state,
+        "host_options": {"resources": bundle.join("resources")},
+        "day": "2026-09-23",
+    }))
+    .unwrap();
+    assert_eq!(
+        unsafe { msime_client_vocabulary_due_count(request.as_ptr(), request.len()) },
+        2
+    );
 }
 
 #[test]
@@ -23581,4 +23633,57 @@ fn telemetry_authority_abi_shares_one_epoch_across_private_sandboxes() {
         true
     );
     assert!(store.queued().unwrap().is_empty());
+}
+
+#[test]
+fn personal_wordbook_boundary_adds_a_gloss_and_lists_it_for_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let add = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe { msime_client_personal_wordbook_add(request.as_ptr(), request.len()) })
+    };
+    let added = add(json!({
+        "directory": directory.path(), "candidate": "面试",
+        "gloss": "interview; audition\u{2028}mensetsu", "pronunciation": "/ˈɪntəvjuː/\n",
+    }));
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["outcome"], "added");
+    assert_eq!(added["value"]["notice"], "已加入生词本");
+    let again =
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "interview"}));
+    assert_eq!(again["value"]["outcome"], "already_present");
+    let invalid = add(json!({"directory": directory.path(), "candidate": "面试", "gloss": ""}));
+    assert_eq!(invalid["ok"], true);
+    assert_eq!(invalid["value"]["outcome"], "invalid");
+    assert_eq!(
+        add(json!({"directory": "relative", "candidate": "面试", "gloss": "interview"}))["ok"],
+        false
+    );
+    assert_eq!(
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "x", "extra": 1}))
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_personal_wordbook_add(std::ptr::null(), 0) })["ok"],
+        false
+    );
+
+    let review = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(), "resources": directory.path(),
+            "day": "2026-11-01", "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+    let listed = review(json!({"operation": "load"}));
+    let books = listed["value"]["wordbooks"].as_array().unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!(books[0]["id"], "personal");
+    assert_eq!(books[0]["name"], "生词本");
+    assert_eq!(books[0]["personal"], true);
+    let removed = review(json!({"operation": "remove_personal_word", "word": "interview"}));
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(removed["value"]["wordbooks"].as_array().unwrap().is_empty());
 }

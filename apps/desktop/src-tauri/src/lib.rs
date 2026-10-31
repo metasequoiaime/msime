@@ -6065,6 +6065,8 @@ pub fn run() {
             vocabulary::set_vocabulary_settings,
             vocabulary::import_vocabulary_wordbook,
             vocabulary::remove_vocabulary_wordbook,
+            vocabulary::remove_personal_vocabulary_word,
+            vocabulary::export_personal_vocabulary,
             vocabulary::reset_vocabulary_review,
             save_export,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]

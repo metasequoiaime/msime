@@ -3,6 +3,7 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { CandidatePronunciationSection } from "../candidate-pronunciation-section";
+import { ResourcePackRow, useResourcePacks } from "../resource-packs";
 import { candidateTranslationScope } from "../candidate-translation-options-section";
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PhonePunctuationSection, PunctuationSection } from "../punctuation-section";
@@ -63,8 +64,19 @@ export function ExpressionSettingsPage() {
     selectPage,
     host,
     showAiGeneration,
+    retrySave,
   } = useSettingsForm();
-  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
+  // 只有安装包不带音标表的宿主（Linux）列出「离线英文音标词典」；打开「显示英文音标」时在开关下面给出下载行，不自动下载。其他平台这一行不会出现，不读资源包列表。
+  const pronunciationDownloadable = linuxPlatform && Boolean(client.candidatePronunciation);
+  const resourcePacks = useResourcePacks(
+    pronunciationDownloadable ? client.resourcePacks : undefined,
+    {
+      value: draft.voice_input?.asr_model_mirror ?? "",
+      onChange: (asr_model_mirror) => onVoiceChange({ asr_model_mirror }),
+      flush: retrySave,
+    },
+  );
   const translation = createTranslationSettingsBindings({
     grouped: true,
     client,
@@ -115,10 +127,17 @@ export function ExpressionSettingsPage() {
   const glossCandidate = {
     ...translation.candidate,
     beforeMore: client.candidatePronunciation && candidateGlossLanguagesEnabled && (
-      <CandidatePronunciationSection
-        value={draft.candidate_pronunciation ?? false}
-        onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
-      />
+      <>
+        <CandidatePronunciationSection
+          value={draft.candidate_pronunciation ?? false}
+          japaneseRomaji={!linuxPlatform}
+          downloadable={pronunciationDownloadable}
+          onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
+        />
+        {pronunciationDownloadable && draft.candidate_pronunciation && (
+          <ResourcePackRow packs={resourcePacks} id="pronunciations" note="显示英文音标需要它" />
+        )}
+      </>
     ),
   };
   const harmonyPhone = harmonyPlatform && mobilePlatform;

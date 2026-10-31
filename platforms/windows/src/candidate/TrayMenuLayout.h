@@ -1,6 +1,7 @@
 #pragma once
 #include "../../common/InputSchemeTraits.h"
 #include "TrayMenuCommand.h"
+#include "../../../common/VocabularyDueMenu.h"
 #include <algorithm>
 #include <cstddef>
 #include <optional>
@@ -67,6 +68,8 @@ struct TrayMenuCapabilities {
   // 共享应用 MSIME.exe 在场时「云剪贴板…」「云词库…」才打得开，否则这两行显示为不可用。
   bool cloud_clipboard = false;
   bool cloud_dictionary = false;
+  // 背单词面板同样在共享应用里，它不在时「背单词」一行不列出。
+  bool vocabulary_panel = false;
 };
 // 主题目录里的一项：写进 global_theme 的 id 和主题页上显示的标题。
 struct TrayMenuTheme {
@@ -99,6 +102,10 @@ struct TrayMenuState {
   // 当前的全局主题 id 和本平台的主题目录（按选择器顺序），主题页按它们列出各行。目录为空时主题页没有可选的行。
   std::string theme = "system";
   std::vector<TrayMenuTheme> themes;
+  // 今日待复习的张数（msime_client_vocabulary_due_count），卡片每次打开时现读；读不出来是 -1。
+  int32_t vocabulary_due = 0;
+  // 卡片打开时候选窗正开着（正在组字）：这时不列「背单词」一行。
+  bool composing = false;
 };
 // 卡片的页。和 macOS 输入菜单的「输入方案」「主题」两个子菜单对应：主页上各占一行，点开后整张卡片换成那一页，第一行返回主页。卡片不抢焦点，没有子菜单那样的悬停展开，翻页是最不容易误触的做法；十个方案收进一页后，加上英文候选模式、繁体输出和云剪贴板，卡片仍放得进 150% 缩放的 1080p 屏幕。
 enum class TrayMenuPage { Main, Schemes, Themes };
@@ -400,6 +407,10 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       capabilities.cloud_clipboard, false);
   row(TrayMenuCommand::OpenCloudDictionary, "云词库…",
       capabilities.cloud_dictionary, false);
+  // 今天有卡在等、没在组字、共享应用在场时才列出，没有就不占一行：这是被动的提醒，不是一个总在那里的入口。文案和条件与 macOS 输入菜单、Linux 菜单相同（common/VocabularyDueMenu.h）。
+  if (capabilities.vocabulary_panel)
+    if (auto label = vocabulary_due::menu_label(state.vocabulary_due, state.composing))
+      row(TrayMenuCommand::OpenVocabulary, std::move(*label), true, false);
   // 设置应用的页面，与云剪贴板、云词库之间不另加分隔线：macOS 输入菜单这一组只在设置之前有一条分隔线，这里工具条之后已经有一条，再加一条只会让卡片在矮工作区里放不下。「水杉输入法设置…」「关于水杉输入法…」与 macOS 输入菜单的末两行相同，产品名按版本取。
   row(TrayMenuCommand::OpenDictionary, "词库…", capabilities.settings, false);
   row(TrayMenuCommand::OpenSettings, capabilities.product_name + "设置…",
@@ -514,8 +525,8 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   geometry.size.height = top + metrics.padding;
   return geometry;
 }
-// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 26 DIP 让主页压缩后约 499 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）。
-inline constexpr double tray_menu_compact_row_height = 26.0;
+// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 24 DIP 让多了「背单词」一行的主页压缩后约 495 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）；没有那一行时只压到约 26 DIP。14 DIP 的字在 24 DIP 的行里上下仍各留约 2 DIP。
+inline constexpr double tray_menu_compact_row_height = 24.0;
 inline TrayMenuMetrics tray_menu_fitted_metrics(
     const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
     double available_height) {
