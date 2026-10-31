@@ -120,9 +120,19 @@ pub(crate) fn sentence_model(
         Arc::clone(cache.get_or_insert(path.clone(), || Arc::new(OnceLock::new())))
     };
     slot.get_or_init(|| {
+        // 文件在却读不了（符号链接、FIFO、不可信的硬链接、超过上限、没有权限）也要说出来，否则在诊断日志里和「没装模型」分不开（#10341）。文件不存在仍是常态，不报告：键盘模型只有带它的版本才有，落定重排模型在调用前已经查过文件在不在。
+        let unreadable = |error: std::io::Error| {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                crate::diagnostics::report(
+                    "sentence model unreadable",
+                    &format!("{}: {error}", path.display()),
+                );
+            }
+        };
         crate::bounded_file::open_private(&path)
+            .and_then(|file| crate::bounded_file::read(file, MAX_SENTENCE_MODEL_BYTES))
+            .map_err(unreadable)
             .ok()
-            .and_then(|file| crate::bounded_file::read(file, MAX_SENTENCE_MODEL_BYTES).ok())
             .and_then(|bytes| match SentenceModel::load(&bytes) {
                 Ok(model) => Some(Arc::new(model)),
                 Err(error) => {
