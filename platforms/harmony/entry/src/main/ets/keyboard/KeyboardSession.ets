@@ -2917,6 +2917,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.scheme, this.localMode);
   }
 
+  /** The helpcode trigger a touch 123-layer key types in this state, or null; see `ChineseHelpcodePolicy.layerTrigger`. */
+  helpcodeTrigger(face: string): string | null {
+    return ChineseHelpcodePolicy.layerTrigger(face, this.lastView?.spelling_symbols ?? '',
+      ChineseHelpcodePolicy.eligible(this.englishMode, this.editing, this.scheme, this.localMode));
+  }
+
   /**
    * Whether a gloss is expected under the candidates, which is a setting rather than an arrival.
    *

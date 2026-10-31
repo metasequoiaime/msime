@@ -816,3 +816,7 @@ fn online_request(
 #[cfg(test)]
 #[path = "session/annotation_move_tests.rs"]
 mod annotation_move_tests;
+
+#[cfg(test)]
+#[path = "session/grid_annotation_tests.rs"]
+mod grid_annotation_tests;
