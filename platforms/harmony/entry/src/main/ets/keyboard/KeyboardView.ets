@@ -4792,7 +4792,7 @@ struct KeyboardView {
   /** 胶囊在词旁绘制的内容：Engine 的注解，或在没有注释行承载时的翻译。 */
   private chipAnnotationBeside(candidate: CandidateEntry): boolean {
     return candidate.annotation.length > 0
-      && (!candidate.annotationIsTranslation || !KeyboardSession.shared.glossesExpected());
+      && (!candidate.annotationIsTranslation || KeyboardSession.shared.translationRows() === 0);
   }
 
   /** 一个候选：词在上、注释在下，底色为按键色；为高亮项时用强调色、字重 600。 */
