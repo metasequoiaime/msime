@@ -46,6 +46,14 @@ final class VocabularyReviewTests: XCTestCase {
     XCTAssertFalse(book.builtin)
   }
 
+  /// 长按菜单只在有可用的释义时才列「加入生词本」，交给共享层的是显示着的几行释义、去掉空行。
+  func testPersonalWordbookMenuNeedsAGloss() {
+    XCTAssertEqual(PersonalWordbookStore.menuTitle, "加入生词本")
+    XCTAssertEqual(PersonalWordbookStore.menuGloss([" interview ", "", "mensetsu\n"]), "interview\nmensetsu")
+    XCTAssertNil(PersonalWordbookStore.menuGloss([]))
+    XCTAssertNil(PersonalWordbookStore.menuGloss([" ", "\n"]))
+  }
+
   /// 单词本插件装在共享状态目录的 `plugins/` 里（插件页和键盘读的是同一份），背单词把它列在导入的词表之前、标成插件；选它就能复习，在背单词里删不掉。
   func testWordbookPluginsAreListedFromTheSharedPluginsFolder() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

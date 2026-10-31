@@ -8998,12 +8998,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 长按菜单最后一组的「加入生词本」，和 Android、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置：把候选和它显示着的释义（几种语言各一行）收进背单词的生词本。没有释义时没有这一项。不经过 Engine，组字不变；写文件放在后台，提示回到主线程显示在诊断行并播报。
   private func personalWordbookElements(candidate: String, glosses: [String]) -> [UIMenuElement] {
-    let gloss = glosses
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-      .joined(separator: "\n")
-    guard !gloss.isEmpty else { return [] }
-    let action = UIAction(title: "加入生词本", image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
+    guard let gloss = PersonalWordbookStore.menuGloss(glosses) else { return [] }
+    let action = UIAction(title: PersonalWordbookStore.menuTitle, image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
       guard let self else { return }
       playInputClick()
       // 没有完全访问时键盘写不进 App Group，背单词也就读不到。

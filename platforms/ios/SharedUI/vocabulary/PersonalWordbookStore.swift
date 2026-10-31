@@ -13,6 +13,17 @@ private func msimeClientPersonalWordbookStringFree(_ value: UnsafeMutablePointer
 enum PersonalWordbookStore {
   /// 交不出去或存储出错时的提示；其余提示都由共享层给出。
   static let failureNotice = "无法加入生词本"
+  /// 长按菜单里这一项的标题。
+  static let menuTitle = "加入生词本"
+
+  /// 菜单要交给共享层的那段释义：显示着的几种语言各一行，去掉空行。一行可用的释义都没有时为 `nil`，菜单里就没有「加入生词本」。
+  static func menuGloss(_ glosses: [String]) -> String? {
+    let gloss = glosses
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
+    return gloss.isEmpty ? nil : gloss
+  }
 
   /// 写进 `directory`（默认与背单词同一个目录）下的生词本，返回给用户看的提示。取词书目录的文件锁、读写生词本，不要在主线程调用。
   static func add(

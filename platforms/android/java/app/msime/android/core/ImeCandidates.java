@@ -162,10 +162,6 @@ final class ImeCandidates {
         ViewPolicy.clearElevation(button);
     }
 
-    /** 长按菜单「加入生词本」的条目 id 和排序：id 避开释义（2000 起）和词库操作的 id，排序比所有词库操作都大，排在最后。 */
-    private static final int PERSONAL_WORDBOOK_ITEM = 3000;
-    private static final int PERSONAL_WORDBOOK_ORDER = 1000;
-
     boolean showCandidateMenu(Button button, int slot, JSONObject id, String text) {
         if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
         return showCandidateMenu(button, slot, id, text, s.visibleCandidate(slot), false);
@@ -203,12 +199,13 @@ final class ImeCandidates {
             }
         }
         // 「加入生词本」排在最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置；只在这一行显示着可上屏的释义时出现。
-        boolean personalWordbook = !glosses.isEmpty();
+        boolean personalWordbook = CandidateManagementAction.offersPersonalWordbook(glosses);
         if (personalWordbook)
-            popup.getMenu().add(Menu.NONE, PERSONAL_WORDBOOK_ITEM, PERSONAL_WORDBOOK_ORDER, "加入生词本");
+            popup.getMenu().add(Menu.NONE, CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM,
+                CandidateManagementAction.PERSONAL_WORDBOOK_ORDER, CandidateManagementAction.PERSONAL_WORDBOOK_TITLE);
         popup.setOnMenuItemClickListener(item -> {
             s.imeKeyFeedback.playFeedback(button);
-            if (personalWordbook && item.getItemId() == PERSONAL_WORDBOOK_ITEM) {
+            if (personalWordbook && item.getItemId() == CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM) {
                 s.addCandidateToPersonalWordbook(text, translation,
                     candidate == null ? "" : s.candidateDisplayedReading(candidate));
                 return true;
