@@ -9,6 +9,7 @@
 #include "Ipc.h"
 #include "JapaneseConversionPolicy.h"
 #include "../../../../shared/input/CapsLockTap.h"
+#include "../TsfCrashCapture.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -864,6 +865,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     uint64_t _deferredKeyFocusGeneration;
     bool _deferredKeyDrainPosted;
     bool _serverUnavailableFallbackActive;
+    std::unique_ptr<msime::tsf::TsfCrashCapture> _crashCapture;
 
     // True while the current Backspace hold began inside a composition.
     bool _backspaceHoldArmed;

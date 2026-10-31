@@ -226,6 +226,11 @@ Name: "{group}\{#MyAppName}"; \
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Registry]
+; WER helper 由系统服务按完整路径加载；只登记本安装包自己的架构副本，卸载时删除该值。
+Root: HKLM32; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#ifndef Windows7X86
+Root: HKLM; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{#MySystemTipDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#endif
 Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "VersionDir"; ValueData: "{code:GetVersionDir}"; \
     Flags: uninsdeletevalue

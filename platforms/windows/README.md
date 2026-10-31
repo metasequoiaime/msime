@@ -284,6 +284,27 @@ target/windows-boundary/windows-session-smoke /absolute/verified-resources
 
 Windows 构建时 MSIME_HOST_LIBRARY 应指定同架构 Rust DLL 的导入库，运行时需可找到对应 DLL；Linux 本机边界测试使用 .so。Windows MSVC 的完整构建入口是 `Build-Client.ps1`（见 `Build-Client.md`），MinGW 交叉构建不替代它；两者产出同一组目标。
 
+WER 进程外回调有不依赖 Rust 的专项工程，复用 TSF 工程中的 helper 构建定义。在 Windows 上运行：
+
+```powershell
+cmake -S platforms/windows/tsf/tests/telemetry_wer -B target/windows-full/x64/wer-callback -A x64
+cmake --build target/windows-full/x64/wer-callback --config RelWithDebInfo
+ctest --test-dir target/windows-full/x64/wer-callback -C RelWithDebInfo -V
+```
+
+x86 使用独立的 `target/windows-full/x86/wer-callback` 目录并将 `-A` 改为 `Win32`。专项创建合成子进程并读取其真实远端上下文，验证停采、模块归属、文件发布及宿主 WER 输出；目录重解析点夹具缺少符号链接权限时明确跳过。微软 SDK 的回调是 `cdecl`，不能沿用 MinGW 的 x86 `WINAPI` 声明。
+
+TSF 生命周期专项运行生产控制器、真实线程池与 DLL 装卸，默认 CTest 不制造致命故障。实际系统投递另由显式脚本验证：
+
+```powershell
+cmake -S platforms/windows/tsf/tests/capture_lifecycle -B target/windows-full/x64/wer-lifecycle -A x64
+cmake --build target/windows-full/x64/wer-lifecycle --config RelWithDebInfo
+ctest --test-dir target/windows-full/x64/wer-lifecycle -C RelWithDebInfo --output-on-failure
+platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory target/windows-full/x64/wer-lifecycle -OutputDirectory C:/msime-tests/wer-system-new-run
+```
+
+`OutputDirectory` 必须是尚不存在的合成目录。系统专项临时将本次 helper 的完整路径加入当前用户的 WER 允许列表，结束时只删除自己的值；不改通用 WER 策略、不调用产品上传入口。它验证 TIP/Host API 自有故障、外部故障、授权撤回重开、最后租约释放和被宿主捕获的异常，分别核对系统退出码与落盘。x86 将构建目录改为 `target/windows-full/x86/wer-lifecycle`、架构改为 `Win32`，使用不同输出目录。脚本带 UTF-8 BOM，可直接由 Windows PowerShell 5 执行。生产安装器和 Arm64X 已接线；合成控制器与系统回调通过仍不等于完整 TIP 产品、真实编辑器、ARM64 或后台验收，范围见[TSF 采集提案](../../.agents/notes/proposed/feature/2026-10-28-windows-tsf-wer-capture.md)。
+
 `bash tests/tools/check-cross.sh /absolute/nlohmann-include-root` 使用 x86_64/i686 MinGW 分别编译适配器、测试源和 `shared/contracts` 中的 IPC 契约，验证 32/64 位 COFF 和 Windows SDK 键码断言；另将不依赖 Rust 的编码测试链接为 Windows PE。不会链接 Windows Rust 库，也不执行 Windows 二进制。会话测试覆盖真实 Unicode 输入、锁定词库第二页数字选词、配置延迟、客户端/焦点/线程拒绝及本地取消不回复。
 
 ## 旧协议回复编码
