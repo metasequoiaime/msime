@@ -268,6 +268,8 @@ const vocabularyReview: VocabularyReviewClient = {
     }),
   importWordbook: (name, text) => invoke("import_vocabulary_wordbook", { name, text }),
   removeWordbook: (wordbook) => invoke("remove_vocabulary_wordbook", { wordbook }),
+  removePersonalWord: (word) => invoke("remove_personal_vocabulary_word", { word }),
+  exportPersonalWordbook: () => invoke<string | null>("export_personal_vocabulary"),
   reset: () => invoke("reset_vocabulary_review"),
 };
 const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
@@ -722,8 +724,9 @@ function DesktopSettings() {
                   },
                 }
               : {}),
-            // Windows 和 macOS 在各自的原生候选控制器里查离线释义，所以释义设置在两边都生效。读音也是这两个宿主画在释义后面（日文罗马音在 macOS 来自系统分词器，在 Windows 来自系统的微软日语输入法）；其他宿主不动这个值。
-            candidatePronunciation: host.platform === "macos" || host.platform === "windows",
+            // Windows 和 macOS 在各自的原生候选控制器里查离线释义，所以释义设置在两边都生效。读音也是这两个宿主画在释义后面（日文罗马音在 macOS 来自系统分词器，在 Windows 来自系统的微软日语输入法）；Linux 的 IBus 和 Fcitx5 宿主只标英文音标，音标表要在设置页下载一次。其他宿主不动这个值。
+            candidatePronunciation:
+              host.platform === "macos" || host.platform === "windows" || host.platform === "linux",
             candidateEnglishGloss:
               host.platform === "linux" ||
               host.platform === "android" ||

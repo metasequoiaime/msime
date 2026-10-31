@@ -659,6 +659,40 @@ msime::windows::InputStateHudText scheme_hud(const TrayMenuPreferences &preferen
   }
   return {};
 }
+// 候选右键菜单「加入生词本」：在工作线程上把候选原文、显示着的释义和读音交给共享层，返回它答的那句提示（UTF-8 转成宽字符），交不出去或存储出错时返回「无法加入生词本」。释义怎么变成卡片、提示怎么说都在 `msime_client_personal_wordbook_add`。
+std::wstring add_to_personal_wordbook(const std::filesystem::path &state_root,
+                                      const msime::windows::CandidateWindow::PersonalWordbookRequest &request) {
+  const std::wstring failed = L"无法加入生词本";
+  std::string body;
+  try {
+    body = nlohmann::json{{"directory", state_root.u8string()},
+                          {"candidate", request.candidate},
+                          {"gloss", request.gloss},
+                          {"pronunciation", request.pronunciation}}
+               .dump();
+  } catch (const nlohmann::json::exception &) {
+    return failed; // 候选或释义不是有效的 UTF-8。
+  }
+  auto reply = msime::host_api::own_string(msime_client_personal_wordbook_add(
+      reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+  if (!reply)
+    return failed;
+  const auto envelope = nlohmann::json::parse(reply.get(), nullptr, false);
+  if (!envelope.is_object() || envelope.value("ok", false) != true || !envelope.contains("value") ||
+      !envelope.at("value").is_object() || !envelope.at("value").contains("notice") ||
+      !envelope.at("value").at("notice").is_string())
+    return failed;
+  const auto notice = envelope.at("value").at("notice").get<std::string>();
+  const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, notice.data(),
+                                        static_cast<int>(notice.size()), nullptr, 0);
+  if (count <= 0)
+    return failed;
+  std::wstring text(static_cast<size_t>(count), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, notice.data(),
+                          static_cast<int>(notice.size()), text.data(), count) != count)
+    return failed;
+  return text;
+}
 // Map the shared preferences onto the settings the TIP keeps in its own
 // globals. The TIP consumes every one of these, but nothing ever sent them, so
 // they sat at their compiled defaults: turning smart or paired punctuation off
@@ -1573,6 +1607,12 @@ int wmain(int argc, wchar_t **argv) {
               hud_feedback.publish(dedicated_english_hud(request.enabled), request.lease);
           }
         });
+    // 候选右键菜单「加入生词本」：要取词书目录的文件锁、读写生词本，所以不在候选窗的 UI 线程上做。一次只做一个，用户连点时多出来的那几下丢掉。提示回到主循环，和输入状态的提示走同一个 HUD。声明在 candidates 之前，后于它析构：候选窗停下以后不会再交东西过来。
+    SingleClickWorker<CandidateWindow::PersonalWordbookRequest> personal_wordbook(
+        [&hud_feedback, directory = config.state_root](const CandidateWindow::PersonalWordbookRequest &request) {
+          const auto notice = add_to_personal_wordbook(directory, request);
+          hud_feedback.publish({notice, notice, true});
+        });
     startup_stage = "candidate_window";
     DesktopCandidateSettings candidate_settings;
     candidate_settings.fonts = {config.candidate_font, config.candidate_fallback_fonts,
@@ -1586,7 +1626,8 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidatePage &page) { (void)pages.submit(page); },
         [&](const CandidatePresentation &value) { server.candidate_rendered(value.lease, value.render_serial); },
         [&](const FocusLease &lease, bool open) { server.set_candidate_expansion(lease, open); },
-        [&](const FocusLease &lease) { return server.candidate_lease_current(lease); }});
+        [&](const FocusLease &lease) { return server.candidate_lease_current(lease); },
+        [&](const CandidateWindow::PersonalWordbookRequest &request) { (void)personal_wordbook.submit(request); }});
     // 空格、数字键和点选的渲染屏障要等回执时叫醒候选窗立即绘制，屏障的 30 毫秒只花在真正的绘制上，不花在两级 16 毫秒的轮询上（#9519）。守卫声明在 candidates 之后、先于它析构：撤掉之后 Server 不会再调用这个回调。
     server.set_candidate_render_request([&candidates] { candidates.wake(); });
     struct CandidateRenderRequestGuard {
@@ -2525,7 +2566,9 @@ int wmain(int argc, wchar_t **argv) {
           feedback = input_language_hud(*view->chinese, tray_preferences->scheme);
         }
         if (mode_hud && should_show_input_mode_hud(
-                input_mode_hud_enabled->load(std::memory_order_acquire), feedback.has_value(),
+                input_mode_hud_enabled->load(std::memory_order_acquire) ||
+                    (feedback && feedback->answers_action),
+                feedback.has_value(),
                 presentation != ForegroundPresentation::Windowed)) {
           auto caret = InputModeHudWindow::system_caret(foreground);
           if (!caret)

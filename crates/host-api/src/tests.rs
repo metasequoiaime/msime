@@ -16218,6 +16218,55 @@ fn vocabulary_boundary_lists_wordbook_packs_from_the_plugins_directory() {
     );
 }
 
+/// 待复习计数与 `msime_client_vocabulary_review` 的 `due` 相同；从没开过背单词时是 0 且不建文件，坏请求和损坏的进度都是 -1。
+#[test]
+fn vocabulary_due_count_boundary_matches_the_review_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let count = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        unsafe { msime_client_vocabulary_due_count(request.as_ptr(), request.len()) }
+    };
+    let request = |day: &str| json!({"directory": state, "resources": state, "day": day});
+
+    assert_eq!(count(request("2026-09-23")), 0);
+    assert!(
+        !state.exists(),
+        "counting must not create the state directory"
+    );
+
+    let review = serde_json::to_vec(&json!({
+        "directory": state, "resources": state, "day": "2026-09-23",
+        "action": {"operation": "import", "name": "合成词表", "text": "alpha,adj. 甲\nbeta,adj. 乙\n"},
+    }))
+    .unwrap();
+    let imported = read(unsafe { msime_client_vocabulary_review(review.as_ptr(), review.len()) });
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["due"], 2);
+    assert_eq!(count(request("2026-09-23")), 2);
+
+    assert_eq!(
+        count(json!({"directory": "state", "resources": state, "day": "2026-09-23"})),
+        -1
+    );
+    assert_eq!(count(request("2026-13-01")), -1);
+    assert_eq!(
+        count(json!({"directory": state, "resources": state, "day": "2026-09-23", "extra": 1})),
+        -1
+    );
+    assert_eq!(
+        unsafe { msime_client_vocabulary_due_count(std::ptr::null(), 0) },
+        -1
+    );
+
+    std::fs::write(
+        state.join("vocabulary-progress.json"),
+        b"corrupt synthetic progress",
+    )
+    .unwrap();
+    assert_eq!(count(request("2026-09-23")), -1);
+}
+
 #[test]
 fn vocabulary_boundary_answers_the_source_book_and_refuses_missing_ownership() {
     let directory = tempfile::tempdir().unwrap();
@@ -22913,4 +22962,57 @@ fn world_clock_validates_and_forwards_offline_requests() {
         )["ok"],
         false
     );
+}
+
+#[test]
+fn personal_wordbook_boundary_adds_a_gloss_and_lists_it_for_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let add = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe { msime_client_personal_wordbook_add(request.as_ptr(), request.len()) })
+    };
+    let added = add(json!({
+        "directory": directory.path(), "candidate": "面试",
+        "gloss": "interview; audition\u{2028}mensetsu", "pronunciation": "/ˈɪntəvjuː/\n",
+    }));
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["outcome"], "added");
+    assert_eq!(added["value"]["notice"], "已加入生词本");
+    let again =
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "interview"}));
+    assert_eq!(again["value"]["outcome"], "already_present");
+    let invalid = add(json!({"directory": directory.path(), "candidate": "面试", "gloss": ""}));
+    assert_eq!(invalid["ok"], true);
+    assert_eq!(invalid["value"]["outcome"], "invalid");
+    assert_eq!(
+        add(json!({"directory": "relative", "candidate": "面试", "gloss": "interview"}))["ok"],
+        false
+    );
+    assert_eq!(
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "x", "extra": 1}))
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_personal_wordbook_add(std::ptr::null(), 0) })["ok"],
+        false
+    );
+
+    let review = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(), "resources": directory.path(),
+            "day": "2026-11-01", "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+    let listed = review(json!({"operation": "load"}));
+    let books = listed["value"]["wordbooks"].as_array().unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!(books[0]["id"], "personal");
+    assert_eq!(books[0]["name"], "生词本");
+    assert_eq!(books[0]["personal"], true);
+    let removed = review(json!({"operation": "remove_personal_word", "word": "interview"}));
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(removed["value"]["wordbooks"].as_array().unwrap().is_empty());
 }

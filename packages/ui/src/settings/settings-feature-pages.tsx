@@ -172,6 +172,7 @@ export function SettingsFeaturePages({
           client={client.vocabularyReview}
           mobile={mobilePlatform}
           openPanel={client.openVocabulary}
+          saveExport={client.saveExport}
         />
       )}
     </>
