@@ -526,10 +526,7 @@ final class ImeToolbar {
             collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
             // 品牌键与键盘共用皮肤强调色，圆盘混入键盘底色，换肤时一起更新。
-            int accent = Color.parseColor(skin.accent());
-            int background = Color.parseColor(skin.background());
-            brand.setLogoColors(AppThemePalette.mix(accent, skin.dark() ? 22 : 14, background),
-                AppThemePalette.mix(accent, 82, Color.BLACK));
+            brand.setLogoColors(skin.logoDisc(), skin.logoMark());
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {

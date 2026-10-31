@@ -38,7 +38,7 @@ public final class KeyboardSkinDisplayKeySmoke {
         check(KeyboardSkin.system(false, winter).displayKey(winter).equals(reloaded.displayKey(winter)),
             "after the season change re-renders, the next unchanged reload must be quiet again");
 
-        // 命名皮肤原样画，不跟应用主题换底色，但键仍带上种子：工具栏品牌键的 logo 色取应用主题的季节色。
+        // 命名皮肤原样画，不跟应用主题换底色，但键仍带上种子：回车键和开启态底色取应用主题的季节色（`withAppTheme`）；品牌键取皮肤自己的配色，不靠种子。
         KeyboardSkin ink = KeyboardSkin.palette("ink", "水墨", false, "#F4F1EA", "#FFFFFF",
             "#E5E0D5", "#1F1F1F", "#6B6B6B", "#3A3A3A", "#FFFFFF");
         KeyboardSkin inkAgain = KeyboardSkin.palette("ink", "水墨", false, "#F4F1EA", "#FFFFFF",
@@ -47,7 +47,7 @@ public final class KeyboardSkinDisplayKeySmoke {
         check(ink.displayKey(autumn).equals(inkAgain.displayKey(autumn)),
             "reloading an unchanged named skin must not request a render");
         check(!ink.displayKey(autumn).equals(ink.displayKey(winter)),
-            "a season change must re-render a named skin too, for the toolbar brand colours");
+            "a season change must re-render a named skin too, for the return key and switched-on tiles");
         // 换皮肤：跟随系统换成命名皮肤，或命名皮肤之间换配色，都要重画一次。
         check(!drawn.displayKey(autumn).equals(ink.displayKey(autumn)),
             "switching from the system skin to a named skin must request a render");

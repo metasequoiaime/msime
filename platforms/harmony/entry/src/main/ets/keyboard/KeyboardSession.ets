@@ -2524,7 +2524,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * 全局主题在某一模式下的键盘配色：自定义主题带有自定义设计时用该设计，否则用解析出的配色，再否则用季节配色，最后用原生令牌。
    *
-   * 该模式下应用主题的季节种子在每种情况下都会带上：它是 `system` 键盘的配色，也是其他键盘回车键、已开启功能块和 logo 的配色（`KeyboardSkin.fromTheme`）。键盘开着超过一分钟时会在这里拿到更替后的季节，因为视图每次重绘皮肤时都会来取。
+   * 该模式下应用主题的季节种子在每种情况下都会带上：它是 `system` 键盘的配色，也是其他键盘回车键和已开启功能块的配色（`KeyboardSkin.fromTheme`）；logo 取当前皮肤自己的强调色和底色。键盘开着超过一分钟时会在这里拿到更替后的季节，因为视图每次重绘皮肤时都会来取。
    */
   keyboardSkin(dark: boolean): KeyboardSkin {
     this.refreshAppTheme(false);
