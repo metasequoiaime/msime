@@ -39,23 +39,12 @@ final class ImeLetterRows {
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
     private boolean moreSymbols;
 
-    /** 数字页显示九宫格，不改变 Engine 里的中文方案和组码布局。 */
+    /** 数字层画数字九宫格（{@link KeyboardLayout#drawsNumberPad}）：每种方案和触屏键面都一样，数字和电话框直接进入，文字密码框从字母首页点 123 进入；#+= 扩展符号页不算。不改变 Engine 里的方案和组码布局。 */
     boolean numberPadDrawn() {
-        return numberPadDrawn(s.displayedTouchLayout(s.view));
+        return !moreSymbols && KeyboardLayout.drawsNumberPad(s.keyboardLayer);
     }
 
-    boolean numberPadDrawn(int layout) {
-        if (moreSymbols) return false;
-        // 数字和电话框直接进入九宫格；文字密码框保留字母首页，点 123 时也使用九宫格。
-        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                && (s.directNumberPad() || EditorPolicy.password(s.editorInputType))) return true;
-        boolean local = !"none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
-        return KeyboardLayout.drawsNumberPad(s.keyboardLayer, layout,
-            KeyboardLayout.numberPadLanguage(InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish),
-            local, s.longSpaceLayoutActive(layout));
-    }
-
-    /** 键行是否按另一种数字页状态建成：在借用的数字页上切中/英、退出本地模式等不改变触屏布局，也要换回原键面。 */
+    /** 键行是否按另一种数字页状态建成：编辑器换了初始键层等不改变触屏布局的变化，也要按当前状态换键面。 */
     boolean numberPadStale() {
         return s.keyRows != null && builtNumberPad != numberPadDrawn();
     }
@@ -92,17 +81,6 @@ final class ImeLetterRows {
     /** 通用分支建的韩文键帽和它们的 QWERTY 字母，Shift 换的是双辅音键面，就地改它们（{@link #refreshLetterCase}）。 */
     private final java.util.List<Button> koreanKeyButtons = new java.util.ArrayList<>();
     private final java.util.List<String> koreanKeyInputs = new java.util.ArrayList<>();
-
-    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）、底行与 26 键相同的 14 键，以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
-    static boolean drawsDesignLayer(int touchLayout) {
-        return touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
-            || touchLayout == KeyboardLayout.KOREAN_LAYOUT
-            || touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT
-            || touchLayout == KeyboardLayout.EIGHTEEN_KEY_LAYOUT
-            || touchLayout == KeyboardLayout.HANDWRITING_LAYOUT
-            || touchLayout == KeyboardLayout.STROKE_LAYOUT
-            || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
-    }
 
     /** 14 键第 3 行左端的分词键；键面随组字状态在「符」和「分词」之间换（{@link #updateFourteenKeySeparator}）。不在 14 键字母层时为 null。 */
     private Button fourteenSeparatorKey;
@@ -816,15 +794,16 @@ final class ImeLetterRows {
         fourteenLKey = null;
         s.keyRows.removeAllViews();
         if (builtSymbolExtraRow) addSymbolExtraRow();
-        if (s.displayedTouchLayout(s.view) == MSIMEInputService.JAPANESE_NINE_KEY_LAYOUT) {
-            s.imeLayoutRows.rebuildJapaneseNineKeyRows();
-            s.imeStyler.applyKeyboardGeometry();
-            return;
-        }
-        // 中文数字入口复用九宫格；字母层仍按原方案构建，扩展符号页另走通用符号行。
+        // 每种键面的数字层都借数字九宫格（日文假名网格也一样），所以排在各键面自己的分支之前；拼音九键的字母层也由这里建。
         if (numberPadDrawn() || (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
                 && s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT)) {
             s.imeLayoutRows.rebuildNineKeyRows();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
+        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+                && s.displayedTouchLayout(s.view) == MSIMEInputService.JAPANESE_NINE_KEY_LAYOUT) {
+            s.imeLayoutRows.rebuildJapaneseNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
@@ -855,9 +834,8 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
-        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                && (drawsDesignLayer(s.displayedTouchLayout(s.view))
-                    || s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT)) {
+        // 数字层不是数字九宫格时就是 #+= 扩展符号页：每种键面都画同一张完整的符号页，字符原样上屏、不经 Engine，所以大千注音的数字和标点键、日文假名网格也用它。
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
             rebuildDesignLayer();
             s.imeBottomRow.updateActionRow();
             s.imeStyler.applyKeyboardGeometry();
@@ -1231,7 +1209,9 @@ final class ImeLetterRows {
         LinearLayout row = LayoutPolicy.row(s);
         row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
-        for (String face : KeyboardLayout.symbolExtraRow(moreSymbols, numberPadDrawn(), builtLayerPunctuation)) {
+        // 数字九宫格那一页的括号随九宫格的标点写法：日文没有中文标点开关，也写全角括号。
+        for (String face : KeyboardLayout.symbolExtraRow(moreSymbols, numberPadDrawn(),
+                NumberPadPunctuation.fullWidthBrackets(s.numberPadPunctuation()))) {
             KeyboardLayout.LayerKey spec = new KeyboardLayout.LayerKey(face, face,
                 KeyboardLayout.LayerKeyKind.CHARACTER, 1f);
             row.addView(designLayerKey(spec, false), LayoutPolicy.weightedMatchParentParams(1));

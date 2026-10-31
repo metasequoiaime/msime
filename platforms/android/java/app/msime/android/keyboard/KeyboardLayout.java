@@ -51,25 +51,15 @@ public final class KeyboardLayout {
 
     private KeyboardLayout() {}
 
-    /** 数字网格只换显示：中文的常规入口复用九宫格，本地模式与独立语言布局保留原符号行。 */
-    public static boolean drawsNumberPad(Layer layer, int layout, boolean chinese, boolean localMode) {
-        if (layer != Layer.SYMBOLS) return false;
-        if (layout == QUANPIN_NINE_KEY_LAYOUT) return true;
-        return chinese && !localMode && (layout == STANDARD_TOUCH_LAYOUT
-            || layout == FOURTEEN_KEY_LAYOUT || layout == EIGHTEEN_KEY_LAYOUT || layout == HANDWRITING_LAYOUT
-            || layout == STROKE_LAYOUT || layout == ZHUYIN_NINE_KEY_LAYOUT);
+    /**
+     * 数字层画不画数字九宫格：按 123 进的数字层在每种方案、每种触屏键面上都是同一块数字九宫格——英文、本地模式、中文 26 键的长空格样式、日文（罗马字和假名网格）、韩文、越南语、藏文、注音（九键和大千）、笔画、手写、14/18 键和 26 键一族，手机和平板一样（2026-10-31 维护者决定，取代「独立语言、本地模式和长空格样式保留各自符号层」的旧契约）。九宫格只换显示，不改 Engine 里的方案和组码布局，数字按字面上屏、不经组字。#+= 扩展符号页仍是完整的符号页，由宿主另记（`ImeLetterRows` 的 `moreSymbols`），从那里按 123 回到数字九宫格。
+     */
+    public static boolean drawsNumberPad(Layer layer) {
+        return layer == Layer.SYMBOLS;
     }
 
-    /** 长空格模式的 26 键保留含空格的数字符号层；原生九键仍使用数字网格。 */
-    public static boolean drawsNumberPad(Layer layer, int layout, boolean chinese,
-            boolean localMode, boolean longSpace) {
-        return !(longSpace && layer == Layer.SYMBOLS
-            && (layout == STANDARD_TOUCH_LAYOUT || layout == KOREAN_LAYOUT))
-            && drawsNumberPad(layer, layout, chinese, localMode);
-    }
-
-    /** 数字九宫格只属于中文方案：日文罗马字、越南语、藏文等独立语言与 iOS、HarmonyOS 一样保留各自的符号层；视图还没给出方案时沿用中文默认。 */
-    public static boolean numberPadLanguage(int scheme, boolean english) {
+    /** 这块键盘此刻画的是不是中文键面：英文模式不是，日文罗马字、越南语、藏文、韩文这类独立语言也不是；视图还没给出方案时沿用中文默认。中文 26 键的底行样式（{@link TouchKeyStyle.Styles#forLayout}）和借用数字九宫格时返回键的写法（{@link KeyboardActionRow#layerTitle(int, boolean, boolean)}）按它分。 */
+    public static boolean chineseFace(int scheme, boolean english) {
         return !english && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.isChinese(scheme));
     }
 
@@ -110,11 +100,11 @@ public final class KeyboardLayout {
         return layer == Layer.SYMBOLS && drawsNumberRow(preference, automatic, Layer.LETTERS, layout, heightDp);
     }
 
-    /** 数字页补原来没有的符号，扩展符号页补数字；网格页的括号随标点设置。 */
-    public static List<String> symbolExtraRow(boolean more, boolean numberPad, boolean chinesePunctuation) {
+    /** 数字页补原来没有的符号，扩展符号页补数字；数字九宫格那一页的括号随九宫格的标点写法（{@link NumberPadPunctuation}）：中文、日文是全角，其余半角。 */
+    public static List<String> symbolExtraRow(boolean more, boolean numberPad, boolean fullWidthBrackets) {
         if (more) return NUMBER_ROW;
         if (!numberPad) return MORE_SYMBOLS_FIRST;
-        return List.of(chinesePunctuation ? "（" : "(", chinesePunctuation ? "）" : ")",
+        return List.of(fullWidthBrackets ? "（" : "(", fullWidthBrackets ? "）" : ")",
             "%", "¥", "$", "€", "£", "‰", "²", "³");
     }
 

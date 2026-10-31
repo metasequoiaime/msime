@@ -5818,6 +5818,13 @@ public final class MSIMEInputService extends InputMethodService {
             InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
     }
 
+    /** 数字九宫格左列符号和右列 ！ 此刻的写法（{@link NumberPadPunctuation#style}）：中文标点生效时是中文，日文方案是日文，其余半角 ASCII。 */
+    NumberPadPunctuation.Style numberPadPunctuation() {
+        return NumberPadPunctuation.style(chinesePunctuation, dedicatedEnglish,
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+    }
+
     /** 当前 View 报告的引号与方头括号样式；画键面、提示和 123 层时用它，不自己解析偏好。 */
     ChineseSymbolFaces.Marks punctuationMarks() {
         return InputViewValuePolicy.punctuationMarks(view);
@@ -11676,7 +11683,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 中文标点开关在 123 / #+= 层上切换了（工具面板、设置页、Ctrl + .）：这一层的标点按新状态重画。
         // 设置页开关了「数字行」：按新状态重建。
         // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
-        // 借用的数字九宫格上切了中/英：触屏布局没变，也要换回对应的键面。
+        // 数字页状态和键行建成时不一致（例如编辑器换了初始键层）：触屏布局没变，也要按当前状态换键面。数字九宫格上切了中/英或换了方案，左列和右列 ！ 的标点写法变了，由 sidebarStale 发现。
         // 九键外框换了是否画右侧大回车（设置页换了九键样式、进出密码框），或大回车外框的地球键变了：外框连同底行整块重建。
         // 设置页换了数字键盘的空格位置：数字层右列最下面一格在空格和 ！ 之间换，按新状态重建。
         if (imeLetterRows.drawnTouchLayout() != displayedTouchLayout(view)
@@ -11985,8 +11992,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
             int layerLayout = displayedTouchLayout(view);
+            // 数字九宫格上的返回键印进来之前那块键面的名字；中文键面借来时印「返回」。
             layerButton.setText(KeyboardActionRow.layerTitle(layerLayout, symbols,
-                symbols && imeLetterRows.numberPadDrawn(layerLayout)));
+                symbols && imeLetterRows.numberPadDrawn() && KeyboardLayout.chineseFace(
+                    view == null ? -1 : InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)));
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {

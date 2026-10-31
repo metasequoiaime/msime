@@ -280,6 +280,8 @@ final class ImeLayoutRows {
     /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
     private java.util.List<String> builtSidebarSymbols;
     private boolean builtSidebarDigits;
+    /** 数字九宫格建出来时的标点写法；字母键面为 null。 */
+    private NumberPadPunctuation.Style builtPadPunctuation;
     private boolean builtSidebarCapped;
     /** 符号栏是按右侧大回车外框建的：字母键面的出厂表末尾多一个 ！（{@link NineKeySidebarPolicy#letterSymbols(java.util.List, boolean)}）。 */
     private boolean builtSidebarTallReturn;
@@ -289,16 +291,18 @@ final class ImeLayoutRows {
         return sidebarSymbols(digits, false);
     }
 
-    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。 */
+    /** 同上；{@code tallReturn} 为真（右侧大回车外框）时字母键面的出厂表末尾多一个 ！，自定义的表原样使用。数字九宫格的表按当前语言换写法（{@link NumberPadPunctuation}）：英文和写半角标点的方案里是半角，日文里逗号是「、」。 */
     java.util.List<String> sidebarSymbols(boolean digits, boolean tallReturn) {
-        return NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,
+        java.util.List<String> symbols = NineKeySidebarPolicy.sidebarSymbols(digits, s.nineKeySidebarSymbols, s.nineKeyDigitSidebarSymbols,
             tallReturn);
+        return digits ? NumberPadPunctuation.symbols(symbols, s.numberPadPunctuation()) : symbols;
     }
 
-    /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行。 */
+    /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行；数字九宫格上切了中/英、换了方案或开关了中文标点，左列和右列 ！ 的写法变了，同样重建。 */
     boolean sidebarStale() {
         return s.nineKeySidebar != null && builtSidebarSymbols != null
-            && !builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits, builtSidebarTallReturn));
+            && (!builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits, builtSidebarTallReturn))
+                || builtSidebarDigits && builtPadPunctuation != s.numberPadPunctuation());
     }
 
     /**
@@ -355,8 +359,9 @@ final class ImeLayoutRows {
             ViewPolicy.setSingleLine(key);
             if (capped)
                 KeyboardTypographyPolicy.setKeyTextSize(key, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP);
-            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
+            // 全角「，」「。」「、」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(symbol) || "。".equals(symbol) || "、".equals(symbol))
+                CenteredGlyphSpan.apply(key, symbol, 1.3f);
             // 独立键帽与无键帽底轨按布局区分，避免按钮和整列背景叠加。
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(capped ? KeyboardKeyRole.KEY : KeyboardKeyRole.PLAIN);
@@ -366,6 +371,7 @@ final class ImeLayoutRows {
         s.nineKeySidebar = sidebar;
         builtSidebarSymbols = symbols;
         builtSidebarDigits = digits;
+        builtPadPunctuation = digits ? s.numberPadPunctuation() : null;
         builtSidebarCapped = capped;
         builtSidebarTallReturn = tallReturn;
         applySidebarRail();
@@ -380,7 +386,7 @@ final class ImeLayoutRows {
     /** 当前键行是 {@link #rebuildNineKeyRows} 建的。 */
     private boolean builtNineKeyGrid;
 
-    /** 按实际绘制的网格选择高度分摊，包含其他中文布局借用的数字页。 */
+    /** 按实际绘制的网格选择高度分摊，包含其他键面借用的数字页。 */
     boolean nineKeyGridDrawn() { return builtNineKeyGrid; }
 
     /** 当前键行是九键外框（{@link #rebuildNineKeyRows} 或 {@link #rebuildStrokeRows} 建的），以及建的时候是否画了右侧大回车、带没带地球键。 */
@@ -642,10 +648,10 @@ final class ImeLayoutRows {
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
 
-    /** 空格在底行时数字层右列最下面一格的 ！：按字面上屏，记 `SoftPunctuation`，与字母层右列的 ！ 同一个字，不带字母层那个键上滑出 0 的手势（0 就在底行）。 */
+    /** 空格在底行时数字层右列最下面一格的 ！：按字面上屏，记 `SoftPunctuation`，写法随数字九宫格的标点（{@link NumberPadPunctuation}，英文里是 `!`），不带字母层那个键上滑出 0 的手势（0 就在底行）。 */
     private Button nineKeyDigitExclamationKey() {
         java.util.List<String> punctuation = NineKeyLayout.punctuation();
-        String last = punctuation.get(punctuation.size() - 1);
+        String last = NumberPadPunctuation.face(punctuation.get(punctuation.size() - 1), s.numberPadPunctuation());
         NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);

@@ -590,12 +590,9 @@ final class ImeBottomRow {
         parent.addView(key, params);
     }
 
-    /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
+    /** #+= 扩展符号页自带底行，这时功能行整行不显示；数字层的另一页是数字九宫格，用功能行排它的底行。 */
     boolean layerOwnsBottomRow() {
-        int layout = s.imeLetterRows.drawnTouchLayout();
-        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && !s.imeLetterRows.numberPadDrawn(layout)
-            && (ImeLetterRows.drawsDesignLayer(layout) || layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
+        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS && !s.imeLetterRows.numberPadDrawn();
     }
 
     /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
@@ -621,7 +618,7 @@ final class ImeBottomRow {
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
         int layout = s.imeLetterRows.drawnTouchLayout();
-        boolean numberPad = s.imeLetterRows.numberPadDrawn(layout);
+        boolean numberPad = s.imeLetterRows.numberPadDrawn();
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         refreshPeriodFace();

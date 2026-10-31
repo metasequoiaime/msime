@@ -2,7 +2,7 @@ package app.msime.android;
 
 import java.util.List;
 
-/** 空格键方案短名、新设计 123 层的适用界面与底行组成。 */
+/** 空格键方案短名、数字层的适用界面与底行组成。 */
 public final class ms_w3_kcb_KeyboardFacesSmoke {
     public static void main(String[] args) {
         check("全拼".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.QUANPIN, KeyboardScheme.WUBI_86, false)),
@@ -24,14 +24,9 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
         for (KeyboardScheme scheme : KeyboardScheme.values())
             check(!SpaceKeyFace.schemeLabel(scheme, null, false).isEmpty(), "label for " + scheme);
 
-        check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.STANDARD_TOUCH_LAYOUT), "26 keys draw the 123 layer");
-        check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.HANDWRITING_LAYOUT), "handwriting hands over");
-        check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.STROKE_LAYOUT), "stroke hands over");
-        check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.ZHUYIN_LAYOUT), "dachen keeps its symbol rows");
-        check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT),
-            "zhuyin nine-key hands over, its digit page writes literally");
-        check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT), "nine-key keeps its grid");
-        check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT), "kana keeps its grid");
+        // 123 在每种键面上都进数字九宫格，自带底行的设计层只剩 #+= 扩展符号页，每种键面共用。
+        check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS), "every face borrows the number pad");
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.LETTERS), "letters stay letters");
 
         List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(
             KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);

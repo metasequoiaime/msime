@@ -11,7 +11,7 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 中文数字入口的真实网格、连续字面输入、符号往返和键位统计。 */
+/** 数字九宫格：中文各键面的真实网格、连续字面输入、符号往返和键位统计，以及英文、长空格样式、日文罗马字和假名、韩文、大千注音借来的数字九宫格。 */
 public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private boolean passwordNumberPad;
 
@@ -22,7 +22,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
 
     @Override protected String successDescription() {
         if (passwordNumberPad) return "文字密码框可在字母与数字九宫格间往返，数字密码直接显示九宫格";
-        return "Chinese number-pad geometry, continuous arithmetic input, symbols, return and key statistics";
+        return "Number-pad geometry, continuous arithmetic input, symbols, return and key statistics in every scheme";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -167,6 +167,92 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 stage = layout[0] + " ordinary versus nine-key statistics";
                 shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
                 awaitKeyStatistics(statistics, digitOnes, nineOnes, digitZeros, nineZeros);
+            }
+            // 2026-10-31 起每种方案和触屏键面的 123 都进数字九宫格。这一段只验网格、标点写法、返回键的名字、空格、字面输入和 #+= 往返，不计统计，上面的精确增量不受影响。
+            publish(statistics, "{\"enabled\":false,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
+            for (String[] face : new String[][] {
+                    // 用例、Engine 方案、触屏布局、键盘方案、返回键键面、数字九宫格左列的逗号
+                    {"english", "quanpin", "twenty_six_key", "quanpin", "ABC", ","},
+                    {"long_space", "quanpin", "twenty_six_key", "quanpin", "返回", "，"},
+                    {"japanese", "japanese", "twenty_six_key", "japanese", "ABC", "、"},
+                    {"japanese_nine_key", "japanese", "nine_key", "japanese_nine_key", "あいう", "、"},
+                    {"korean", "korean", "twenty_six_key", "korean", "한", ","},
+                    {"zhuyin", "zhuyin", "twenty_six_key", "zhuyin", "注", "，"}}) {
+                boolean english = face[0].equals("english");
+                stage = face[0] + " prepare";
+                android.os.Bundle progress = new android.os.Bundle();
+                progress.putString("stream", "Number pad case: " + face[0] + "\n");
+                sendStatus(0, progress);
+                JSONObject values = new JSONObject(options.getJSONObject("preferences").toString())
+                    .put("scheme", face[1]).put("touch_keyboard_layout", face[2])
+                    .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
+                    .put("character_width", "halfwidth").put("chinese_punctuation", true)
+                    .put("touch_twenty_six_key_style", face[0].equals("long_space") ? "long_space" : "standard")
+                    .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put(face[3]))
+                        .put("selected", face[3]));
+                if (!face[1].equals("quanpin")) values.put("last_chinese_scheme", "quanpin");
+                publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
+                    .put("preferences", values).toString().getBytes(StandardCharsets.UTF_8));
+                restartIme();
+                openEditor();
+                stage = face[0] + " letter face";
+                // 语言键的描述写「这一下切到哪里」：在所选方案里是「切换到英文输入」，在英文里是「切换到所选输入方案」。全局输入模式可能沿用上一套用例的英文。
+                Predicate<AccessibilityNodeInfo> toEnglish = languageTarget("切换到英文输入");
+                Predicate<AccessibilityNodeInfo> toScheme = languageTarget("切换到所选输入方案");
+                await(toEnglish.or(toScheme));
+                if (english ? hasKey(toEnglish) : hasKey(toScheme)) tap(english ? toEnglish : toScheme);
+                await(english ? toScheme : toEnglish);
+                Predicate<AccessibilityNodeInfo> entry = node -> equalsText("app.msime.android", node.getPackageName())
+                    && node.isClickable() && node.getContentDescription() != null
+                    && node.getContentDescription().toString().endsWith("切换到数字和符号");
+                if (face[0].equals("japanese_nine_key")) await(key("あ"));
+                tap(entry);
+                stage = face[0] + " number grid";
+                assertGrid();
+                Predicate<AccessibilityNodeInfo> back = described("返回原键盘").and(node -> equalsText(face[4], node.getText()));
+                await(back);
+                stage = face[0] + " punctuation follows the language";
+                await(key(face[5]));
+                for (String foreign : face[5].equals("，") ? new String[] {"、", ","}
+                        : face[5].equals("、") ? new String[] {"，"} : new String[] {"，", "。", "、", "！"})
+                    if (hasKey(key(foreign)))
+                        throw new AssertionError(face[0] + " number pad shows " + foreign + ": " + imeTexts());
+                // 逗号先上屏（输入框还是空的，英文不会按单词边界纠错），再连续输入算式：数字和运算符都按字面上屏，大千注音也不把数字读成注音。
+                tap(key(face[5]));
+                String expression = "12.3+4-5*6/70";
+                typeLiteral(expression);
+                assertField(face[5] + expression);
+                assertGrid();
+                if (face[0].equals("long_space")) {
+                    stage = "long space number pad keeps a space key";
+                    tap(key("空格"));
+                    assertField(face[5] + expression + " ");
+                }
+                stage = face[0] + " extended symbols return to the number pad";
+                tap(key("#+="));
+                await(key("123"));
+                await(key("["));
+                tap(key("123"));
+                assertGrid();
+                await(back);
+                stage = face[0] + " return to original face";
+                tap(back);
+                await(entry);
+                if (face[0].equals("japanese_nine_key")) await(key("あ"));
+                if (hasKey(key("#+="))) throw new AssertionError(face[0] + " stayed on the number pad");
+                JSONObject stored = new JSONObject(read(preferences)).getJSONObject("preferences");
+                if (!face[2].equals(stored.getString("touch_keyboard_layout")) || !face[1].equals(stored.getString("scheme")))
+                    throw new AssertionError("Number pad rewrote the scheme or layout of " + face[0]);
+                if (english) {
+                    // 数字九宫格上的中/英与字母层同一个动作：切回所选方案并回到字母层。
+                    stage = "language key on the English number pad";
+                    tap(entry);
+                    assertGrid();
+                    tap(toScheme);
+                    await(toEnglish);
+                    await(entry);
+                    if (hasKey(key("#+="))) throw new AssertionError("Language key left the number pad drawn");
+                }
             }
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
@@ -318,6 +404,12 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             case "zhuyin_nine_key" -> described("注音 1 ㄅㄆㄇㄈ");
             default -> key("q");
         };
+    }
+
+    /** 语言键：可点，描述以这一下要切到的目标结尾（共用底行的键和日文假名网格自己的键前缀不同）。 */
+    private Predicate<AccessibilityNodeInfo> languageTarget(String target) {
+        return node -> equalsText("app.msime.android", node.getPackageName()) && node.isClickable()
+            && node.getContentDescription() != null && node.getContentDescription().toString().endsWith(target);
     }
 
     private boolean hasKey(Predicate<AccessibilityNodeInfo> predicate) {
