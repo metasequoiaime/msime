@@ -308,6 +308,7 @@ final class ImeBottomRow {
             s.imeKeyFeedback.playFeedback(button);
             voiceBefore[0] = s.imeVoiceEntry.generation();
             s.startVoiceRecognition();
+            s.imeVoiceEntry.plainIndicator(voiceBefore[0]);
         };
         // 手指还按着时开始的语音改成按住说话；松手那一刻才补判出的长按仍按点按开始，否则刚开始就被这次松手结束。
         final Runnable holdVoice = () -> {
