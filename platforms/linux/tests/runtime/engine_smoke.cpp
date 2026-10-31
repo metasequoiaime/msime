@@ -77,6 +77,8 @@ struct Observation {
   // 「背单词（今日待复习 N）…」最近一次注册或更新时可不可见、写的是什么。
   bool vocabulary_visible = false;
   std::string vocabulary_label;
+  // 是否在某次注册里见过它（任何一层）。
+  bool vocabulary_registered = false;
   // Keys of the last RegisterProperties, top level only, in menu order.
   std::vector<std::string> registered_keys;
   // The 输入方案 menu's entries as it was last sent, each with whether it is checked. An update sends the entries before the menu, so the list is whole once the menu itself arrives.
@@ -234,6 +236,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "DesktopTools/Vocabulary") {
+      if (std::string(name) == "RegisterProperties") seen.vocabulary_registered = true;
       seen.vocabulary_visible = ibus_property_get_visible(property);
       seen.vocabulary_label = ibus_text_get_text(ibus_property_get_label(property));
     }
@@ -2630,17 +2633,21 @@ int main(int argc, char **argv) {
     seen = Observation{};
     invoke("FocusIn");
     {
-      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音、背单词（没有待复习时注册成不可见）；设置、关于；之后才是 Linux 独有的词库…。
+      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。背单词不在顶层（kimpanel 会把顶层属性画成常驻按钮），在「桌面工具」子菜单里，没有待复习时注册成不可见。
       const std::vector<std::string> design{
           "InputMode", "EnglishMode", "Separator/Mode", "TraditionalOutput", "CharacterMode", "Punctuation",
           "CandidateTranslations", "Separator/Switches", "Scheme", "GlobalTheme", "Separator/Scheme",
           "DesktopTools/ToolbarEnabled", "LinuxToolbar", "DesktopTools/Emoji", "DesktopTools/CloudClipboard",
           "DesktopTools/CloudDictionary", "DesktopTools/Keyboard", "DesktopTools/Handwriting", "VoiceInput",
-          "VoiceCancel", "DesktopTools/Vocabulary", "Separator/Tools", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design",
+          "VoiceCancel", "Separator/Tools", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design",
           "DesktopTools/Dictionary"};
       require(seen.registered_keys.size() > design.size() &&
                   std::equal(design.begin(), design.end(), seen.registered_keys.begin()),
               "IBus properties were not registered in the macOS menu order");
+      require(std::find(seen.registered_keys.begin(), seen.registered_keys.end(), "DesktopTools/Vocabulary") ==
+                      seen.registered_keys.end() &&
+                  seen.vocabulary_registered,
+              "The vocabulary row was not registered inside 桌面工具");
       require(!seen.vocabulary_visible,
               "The vocabulary row was shown for a profile that never opened 背单词");
     }
@@ -2745,6 +2752,12 @@ int main(int argc, char **argv) {
         invoke("FocusIn");
         require(seen.vocabulary_visible && seen.vocabulary_label == "背单词（今日待复习 2）…",
                 "The vocabulary row did not show today's due count after focus");
+        // 组字一开始这一行就收起，取消组字后又回来，不等下一次获得焦点。
+        require(key('n') && wait_until([&] { return !seen.vocabulary_visible; }),
+                "The vocabulary row stayed visible while composing");
+        require(key(IBUS_Escape) && wait_until([&] { return seen.vocabulary_visible; }) &&
+                    seen.vocabulary_label == "背单词（今日待复习 2）…",
+                "The vocabulary row did not come back after the composition ended");
         const auto launches = panel_routes().size();
         invoke("PropertyActivate",
                g_variant_new("(su)", "DesktopTools/Vocabulary", PROP_STATE_UNCHECKED));

@@ -390,6 +390,8 @@ struct State {
   bool properties_registered = false;
   // 获得焦点时读到的「背单词（今日待复习 N）…」文字，没有待复习时为空。
   std::optional<std::string> vocabulary_due;
+  // 「背单词」一行最近一次发布时是否可见：render 据此只在开始或结束组字的那一下更新它（sync_vocabulary_row）。
+  bool vocabulary_row_shown = false;
   std::optional<bool> english_override;
   std::optional<bool> dedicated_english_override;
   std::optional<bool> cloud_candidates_override;
@@ -1726,6 +1728,32 @@ IBusProperty *desktop_panel_property(IBusEngine *engine, const DesktopPanelActio
       TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
 
+// 「背单词（今日待复习 N）…」，在「桌面工具」子菜单里（GNOME Shell 的精简菜单里在顶层）。不放属性菜单顶层：kimpanel 的 IBus 后端把顶层属性画成面板上一直在的按钮，那就成了常驻的角标，而这一行只该在用户点开菜单时看得到。张数在获得焦点时读一次（focus_in 写进 State::vocabulary_due），这里只按记下的文字和当前状态决定显示与否，不读盘：publish_mode 在模式和开关变化时都会走到这里，不能每次都去读进度文档。属性总是注册，没有待复习、正在组字、失焦或被挡时设成不可见，属性树的形状因此不随计数变化。组字的开始和结束由 render 经 sync_vocabulary_row 跟上。点下去打开共享应用的背单词面板。
+bool vocabulary_row_wanted(const State &s) {
+  // 还没有会话时 view 是 null，不能对它取值。
+  const bool composing = s.view.is_object() &&
+                         msime::linux_host::view_has_composition(
+                             s.view.value("editing_text", std::string{}),
+                             !s.view.value("candidates", Json::array()).empty(),
+                             s.view.value("phrase_prefix", std::string{}));
+  return s.vocabulary_due && !composing && s.focused && !s.blocked;
+}
+IBusProperty *vocabulary_due_property(IBusEngine *engine) {
+  auto &s = state(engine);
+  const bool shown = vocabulary_row_wanted(s);
+  s.vocabulary_row_shown = shown;
+  return ibus_property_new(
+      "DesktopTools/Vocabulary", PROP_TYPE_NORMAL,
+      ibus_text_new_from_string(shown ? s.vocabulary_due->c_str() : "背单词…"), "",
+      ibus_text_new_from_static_string("打开背单词面板"), shown, shown, PROP_STATE_UNCHECKED, nullptr);
+}
+// 每次绘制都会走到这里，但只在可见与否真的变了（开始或结束组字）时才发一次属性更新：属性菜单正开着时组字，这一行随即收起。
+void sync_vocabulary_row(IBusEngine *engine) {
+  const auto &s = state(engine);
+  if (!s.properties_registered || vocabulary_row_wanted(s) == s.vocabulary_row_shown) return;
+  ibus_engine_update_property(engine, vocabulary_due_property(engine));
+}
+
 IBusProperty *desktop_tools_property(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
@@ -1739,6 +1767,7 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("重新读取最新设置并重试上次菜单修改"),
       can_retry && !menu_save_pending && s.focused && !s.blocked,
       menu_save_pending || can_retry, PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(items, vocabulary_due_property(engine));
   for (const auto &action : desktop_panel_actions)
     if (action.slot == DesktopPanelSlot::Tools && desktop_panel_offered(action))
       ibus_prop_list_append(items, desktop_panel_property(engine, action));
@@ -3182,19 +3211,6 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("打开" MSIME_EDITION_DISPLAY_NAME "设置"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
-// 「背单词（今日待复习 N）…」。张数在获得焦点时读一次（focus_in 写进 State::vocabulary_due），这里只按记下的文字和当前状态决定显示与否，不读盘：publish_mode 在模式和开关变化时都会走到这里，不能每次都去读进度文档。属性总是注册，没有待复习、正在组字、失焦或被挡时设成不可见，属性树的形状因此不随计数变化（GNOME Shell 那一支同样如此，见下）。点下去打开共享应用的背单词面板。
-IBusProperty *vocabulary_due_property(IBusEngine *engine) {
-  const auto &s = state(engine);
-  // 还没有会话时 view 是 null，不能对它取值。
-  const bool composing = s.view.is_object() &&
-                         (!s.view.value("editing_text", std::string{}).empty() ||
-                          !s.view.value("candidates", Json::array()).empty());
-  const bool shown = s.vocabulary_due && !composing && s.focused && !s.blocked;
-  return ibus_property_new(
-      "DesktopTools/Vocabulary", PROP_TYPE_NORMAL,
-      ibus_text_new_from_string(shown ? s.vocabulary_due->c_str() : "背单词…"), "",
-      ibus_text_new_from_static_string("打开背单词面板"), shown, shown, PROP_STATE_UNCHECKED, nullptr);
-}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   // 模式、开关或偏好变了的地方都会走到这里；悬浮工具栏跟着刷新（只有属主的状态会画出来）。
@@ -3887,8 +3903,6 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, toolbar);
     for (auto *action : top_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, voice);
-    // 和 macOS 输入菜单一样排在语音之后、设置之前。
-    ibus_prop_list_append(properties, vocabulary_due_property(engine));
     ibus_prop_list_append(properties, voice_cancel_property);
     ibus_prop_list_append(properties, menu_separator("Separator/Tools"));
     for (auto *action : footer_panel_actions) ibus_prop_list_append(properties, action);
@@ -4244,6 +4258,7 @@ void hide_wave_overlay(IBusEngine *engine) {
 }
 void render(IBusEngine *engine, const Json &view) {
   sync_shuangpin_keymap(engine, view);
+  sync_vocabulary_row(engine);
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display

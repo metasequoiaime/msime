@@ -31,7 +31,7 @@ Status: implemented
 
 - **macOS**：输入菜单（IMK 的 `menu`，即菜单栏里输入法图标下的菜单），排在「开始/结束语音输入」之后。菜单在用户点开时现建，张数这时现读；组字时（`editing_text` 或候选不为空）连读都不读。资源根是设置应用的 `Contents/Resources`（经 LaunchServices 找 `MSIMEClientApplicationIdentifier`），找不到时退回输入法自己的资源目录。菜单栏状态项（`InputModeStatusItem`）只是一个模式图标、默认不显示，也没有菜单，不在它上面加数字：那会变成一直挂在菜单栏上的角标，不再是被动的。
 - **Windows**：托盘卡片（`TrayMenuLayout.h`），排在「云词库…」之后，只在共享应用在场（`TrayMenuCapabilities::vocabulary_panel`）时列出。Server 在卡片每次打开时现读，候选窗开着（正在组字）时不读不列；悬浮工具栏的方案菜单不读。目录与设置窗口相同：状态目录、Server 所在目录、状态目录下的 `plugins`。
-- **Linux**：IBus 属性菜单与 Fcitx5 状态区，排在语音之后、设置之前。张数只在获得焦点时（Fcitx5 还有失焦留给托盘时）读一次并记在会话状态上，之后的属性更新、状态区重排都用这份，不在按键路径上读盘。资源根经 `host_options` 按 HostOptions 求，词库在线更新后仍和设置应用找的是同一处。IBus 始终注册这个属性（包括 GNOME Shell 的精简菜单），没有待复习、正在组字、失焦或受限时设成不可见，属性树的形状不随计数变化；Fcitx5 的动作没有可见性，不显示时从状态区拿掉。
+- **Linux**：IBus 与 Fcitx5 都放在「桌面工具」子菜单的第一项，不放顶层（macOS 排在语音之后、设置之前）。原因是 kimpanel：它把 Fcitx5 状态区的顶层动作、IBus 后端的顶层属性都画成面板上一直在的按钮，没有图标的动作直接画出文字，放在顶层就是一个一直挂着的「背单词（今日待复习 N）…」，正是下文否掉的常驻角标。GNOME Shell 的精简菜单只是一个用户点开的菜单，仍在顶层。张数只在获得焦点时（Fcitx5 还有失焦留给托盘时，Hyprland 这类桌面上点托盘本身就让应用失焦）读一次并记在会话状态上，之后的属性更新、状态区重排都用这份，不重读。组字开始和结束时，两个宿主在绘制里比对「该不该显示」与上次发布的结果，只在变了的那一下更新：IBus 改这个属性的可见性，Fcitx5 从子菜单里增删这个动作（子菜单对象各上下文共用，跟着最近绘制或获得焦点的上下文走）。资源根经 `host_options` 按 HostOptions 求，词库在线更新后仍和设置应用找的是同一处。IBus 始终注册这个属性，没有待复习、正在组字、失焦或受限时设成不可见，属性树的形状不随计数变化。
 
 ## 相关笔记
 
@@ -51,7 +51,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：宿主不用自己算待复习，菜单上的数和页面上的数由同一段排程算出；没用过背单词的用户什么文件也不会多。
-- **代价与已知上限**：每次调用仍要取进度锁并解析一本书，宿主只应在打开菜单时或工作线程上调，不能每个按键都调。宿主要自己给出本地日期，跨过午夜后下一次打开菜单才会变。选过词书却不再背的用户，菜单里会一直有一个数；如果有用户反馈这一项本身是打扰，要重新考虑是否需要一个单独的开关。
+- **代价与已知上限**：每次调用仍要取进度锁并解析一本书，宿主只应在打开菜单时或工作线程上调，不能每个按键都调。Linux 是个例外：IBus 属性和 Fcitx5 动作都是事先发布的，没有「菜单打开」这个时刻，所以在获得焦点时（Fcitx5 还有失焦时）于 IBus 引擎、Fcitx5 守护进程的主线程上同步读。从没开过背单词的用户不取锁也不读书；选过词书的用户每次切换窗口都要解析一次选中的书（内置书最大约 1 MB），会推迟紧接着的那次按键，和设置应用写进度时抢锁时更久。有卡顿反馈时改成工作线程读、读完再更新属性或子菜单。宿主要自己给出本地日期，跨过午夜后下一次打开菜单才会变。选过词书却不再背的用户，菜单里会一直有一个数；如果有用户反馈这一项本身是打扰，要重新考虑是否需要一个单独的开关。
 
 ## Verification
 
@@ -59,5 +59,7 @@ Status: implemented
 - `cargo test -p msime-host-api vocabulary_due_count`：C ABI 的 0、与 `review` 应答一致、-1 的各种情形，以及经 `host_options` 找到随包的内置书；`the_c_header_and_the_rust_exports_agree` 确认头文件声明了新入口。
 - `common-vocabulary-due-menu`（macOS、Linux 的 CTest）：文案、0 和 -1 隐藏、组字时隐藏、本地日期格式。
 - macOS `shortcut` CTest 的 `TestVocabularyDueMenuRow`：没开过背单词时没有这一行、也不建进度文件；导入两个词后菜单写「背单词（今日待复习 2）…」，组字时不列出。
-- Windows `windows-tray-menu-layout`、`windows-shell-surfaces`、`windows-toolbar-mode-command`：这一行的位置、文案、各种隐藏情形和 `vocabulary` 路由。
-- Linux `engine_smoke`：IBus 注册顺序里有这一行且起初不可见；导入两个词、重新获得焦点后可见并写出张数，点它启动 `vocabulary` 路由，删掉词书后又不可见。
+- Windows `windows-tray-menu-layout`（本机 clang 运行）：这一行的位置、文案和各种隐藏情形；多了这一行的卡片按设计尺寸放得进 150% 缩放的 1080p 工作区，在 200% 缩放（约 500 DIP）下压缩后也放得下。最后这条起初是不成立的：多一行后主页压到原来的最小行高 26 DIP 仍有约 525 DIP，最后一行会被裁掉，所以最小行高降到 24 DIP（只在放不下时才会压到这么矮，没有这一行的主页仍约 26 DIP）。
+- `windows-toolbar-mode-command`（本机 clang 运行，不依赖 Win32）：托盘的这一行不是模式命令。`windows-shell-surfaces` 的 `vocabulary` 路由断言只经 CI 的 Windows GNU 交叉构建编译过，没有执行：这个测试里有 Windows 路径的断言，在 macOS 上跑不过，本机没有 Windows 或 Wine。
+- Linux `engine_smoke`（IBus）：这一行不在顶层、在「桌面工具」里注册且起初不可见；导入两个词、重新获得焦点后可见并写出张数，打一个字母后收起、按 Esc 取消组字后回来，点它启动 `vocabulary` 路由，删掉词书后又不可见。这个默认模式的用例只由 `platforms/linux/tests/tools/check-container.sh` 跑，PR 上的 CI 只编译它；本 PR 没有跑（本机和编译机的盘都不够起这个容器）。
+- Linux `linux-fcitx5-contract`（Fcitx5，源码约定检查）：动作不在 `arrangeStatusArea` 的状态区顺序里，只由 `syncVocabularyEntry` 按「有待复习且没在组字」插进或拿出「桌面工具」子菜单，`render` 会调它，受限的上下文先返回不读；IBus 的 `desktop_tools_property` 列出这一行、`render` 调 `sync_vocabulary_row`。
