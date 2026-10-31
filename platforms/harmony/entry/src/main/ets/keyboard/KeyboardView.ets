@@ -22,6 +22,7 @@ import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/Corre
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
+import { ExpandedCandidateBatchPolicy } from './candidate/ExpandedCandidateBatchPolicy';
 import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
@@ -645,6 +646,13 @@ struct KeyboardView {
   /** The local history entry a long press offered to send to the cloud clipboard, or empty. */
   @State clipSendTarget: string = '';
   @State expanded: ExpandedCandidate[] = [];
+  /** 展开网格已经建了 `expanded` 开头的多少格，规则在 `ExpandedCandidateBatchPolicy`。 */
+  @State expandedBuilt: number = 0;
+  /** `expanded` 来自哪个会话的哪一代候选（`KeyboardSession.candidateListIdentity`）；面板关着时为空。 */
+  private expandedListIdentity: string = '';
+  private expandedScroller: Scroller = new Scroller();
+  private expandedViewportHeight: number = 0;
+  private expandedContentHeight: number = 0;
   /** Which row of the expanded panel is showing its gloss, or -1. Its own index space. */
   @State expandedGloss: number = -1;
   /** 全拼九键展开面板的左栏放拼音还是笔画；关闭面板时回到拼音。 */
@@ -2859,6 +2867,8 @@ struct KeyboardView {
     }
     if (surface !== SURFACE_EXPANDED) {
       this.expanded = [];
+      this.expandedBuilt = 0;
+      this.expandedListIdentity = '';
       this.expandedGloss = -1;
     }
     if (surface === SURFACE_TOOLS) {
@@ -2882,12 +2892,31 @@ struct KeyboardView {
     this.refreshExpanded();
   }
 
-  /** 重新取完整候选列表；长按释义指的那一行没了就收起释义条。 */
+  /** 重新取完整候选列表；长按释义指的那一行没了就收起释义条。同一代候选的重取建回已建的格子，换了一代从第一批建起并回到顶部。 */
   private refreshExpanded(): void {
+    const previous: string = this.expandedListIdentity;
     this.expanded = KeyboardSession.shared.allCandidates();
+    this.expandedListIdentity = KeyboardSession.shared.candidateListIdentity();
+    const sameGeneration: boolean = previous.length > 0 && previous === this.expandedListIdentity;
+    this.expandedBuilt = ExpandedCandidateBatchPolicy.initialCount(this.expanded.length, this.expandedBuilt,
+      sameGeneration);
+    if (previous.length > 0 && !sameGeneration) {
+      // 面板开着时换了候选（选掉前一段、选拼音、退格、改筛选）：新列表从头建，留着旧的滚动位置会落在第一批之外。刚打开的面板本来就在顶部。
+      this.expandedScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    }
     if (this.expandedGloss >= this.expanded.length) {
       this.expandedGloss = -1;
     }
+  }
+
+  /** 滚到离已建格子底边不到一屏，或第一批没填够一屏多时，追加下一批。 */
+  private appendExpandedIfNeeded(): void {
+    if (this.surface !== SURFACE_EXPANDED || !ExpandedCandidateBatchPolicy.shouldAppend(this.expandedBuilt,
+      this.expanded.length, this.expandedScroller.currentOffset().yOffset, this.expandedViewportHeight,
+      this.expandedContentHeight)) {
+      return;
+    }
+    this.expandedBuilt = ExpandedCandidateBatchPolicy.nextCount(this.expandedBuilt, this.expanded.length);
   }
 
   /**
@@ -9278,10 +9307,11 @@ struct KeyboardView {
     .borderColor(this.menuColors.border)
   }
 
-  /** 绘制哪些展开格：引擎列出的每个候选，按索引。触屏工具条只滚动当前页，所以网格是触屏键盘查看列表其余部分的唯一途径，从不截断。 */
+  /** 绘制哪些展开格：引擎列出的候选按索引，已建到 `expandedBuilt`。触屏工具条只滚动当前页，所以网格是触屏键盘查看列表其余部分的唯一途径，往下滚会接着建，从不截断。 */
   private expandedIndices(): number[] {
     const indices: number[] = [];
-    for (let index: number = 0; index < this.expanded.length; index++) {
+    const built: number = Math.min(this.expandedBuilt, this.expanded.length);
+    for (let index: number = 0; index < built; index++) {
       indices.push(index);
     }
     return indices;
@@ -9394,7 +9424,7 @@ struct KeyboardView {
     CandidateCanvasFrame({ scene: this.settings.candidateCanvas, fixedContent: true,
       fallbackColor: this.settings.candidateColors.surface,
       onPanelReady: (key: string, ready: boolean): void => this.canvasReady('expanded', key, ready) }) {
-    Scroll() {
+    Scroll(this.expandedScroller) {
       Column({ space: EXPANDED_GAP_VP }) {
         ForEach(this.expandedRows(), (row: ExpandedCandidateCell[]) => {
           Row({ space: EXPANDED_GAP_VP }) {
@@ -9441,13 +9471,22 @@ struct KeyboardView {
       }
       .width('100%')
       .padding(EXPANDED_PADDING_VP)
+      .onAreaChange((_old: Area, now: Area): void => {
+        this.expandedContentHeight = Number(now.height);
+        this.appendExpandedIfNeeded();
+      })
     }
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.None)
     .align(Alignment.Top)
     .width('100%')
     .height('100%')
-    .onAreaChange((_old: Area, now: Area): void => { this.canvasExpandedWidth = Number(now.width); })
+    .onDidScroll((): void => this.appendExpandedIfNeeded())
+    .onAreaChange((_old: Area, now: Area): void => {
+      this.canvasExpandedWidth = Number(now.width);
+      this.expandedViewportHeight = Number(now.height);
+      this.appendExpandedIfNeeded();
+    })
     }
     }
     .layoutWeight(1)
