@@ -227,24 +227,25 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 Predicate<AccessibilityNodeInfo> back = described("返回原键盘").and(node -> equalsText(face[4], node.getText()));
                 await(back);
                 stage = face[0] + " punctuation follows the language";
-                await(onScreen(key(face[5])));
+                // 逗号在出厂表第 11 项，左列一屏最多五项（`NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS`），停在顶部时总在可见区外，只能按整棵树找；别的写法的标点也可能排在可见区外，左列一并按整棵树查。
+                awaitAny(key(face[5]));
                 for (String foreign : face[5].equals("，") ? new String[] {"、", ","}
                         : face[5].equals("、") ? new String[] {"，"} : new String[] {"，", "。", "、", "！"})
-                    if (hasKey(key(foreign)))
+                    if (hasKey(key(foreign)) || hasAnyKey(sidebarKey(foreign)))
                         throw new AssertionError(face[0] + " number pad shows " + foreign + ": " + imeTexts());
                 // 半角写法的左列在出厂表后面接上 ; ' " $（滚出可见区也算），中文和日文写法不接。
                 for (String extra : new String[] {";", "'", "\"", "$"})
                     if (hasAnyKey(sidebarKey(extra)) != ascii)
                         throw new AssertionError(face[0] + " number pad sidebar " + (ascii ? "lacks " : "adds ") + extra);
                 // 逗号先上屏（输入框还是空的，英文不会按单词边界纠错），再连续输入算式：数字和运算符都按字面上屏，大千注音也不把数字读成注音。
-                tap(onScreen(key(face[5])));
+                tap(key(face[5]));
                 String expression = "12.3+4-5*6/70";
                 typeLiteral(expression);
                 String typed = face[5] + expression;
                 assertField(typed);
                 if (ascii) {
                     stage = face[0] + " half-width extras commit literally";
-                    tap(onScreen(sidebarKey("$")));
+                    tap(sidebarKey("$"));
                     typed += "$";
                     assertField(typed);
                 }
@@ -289,7 +290,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                     stage = "tibetan achung from the number pad";
                     tap(entry);
                     assertGrid();
-                    tap(onScreen(sidebarKey("'")));
+                    tap(sidebarKey("'"));
                     tap(back);
                     await(entry);
                     tap(key("o"));
@@ -470,18 +471,6 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     /** 数字九宫格左列的一个符号键（描述带长按修改符号栏的提示）。 */
     private Predicate<AccessibilityNodeInfo> sidebarKey(String symbol) {
         return described("按键 符号 " + symbol + "；长按快速修改符号栏");
-    }
-
-    /**
-     * 左列符号栏能上下滚动，排在后面的符号在矮屏上滚出可见区（API 28 的模拟器上英文逗号排第 11 个就看不到了），而 {@link #find} 只认看得见的节点。先在整棵树里找到它，看不见就让它所在的滚动区把它滚进来，再按看得见的条件返回，供 await 和 tap 使用。
-     */
-    private Predicate<AccessibilityNodeInfo> onScreen(Predicate<AccessibilityNodeInfo> match) throws Exception {
-        AccessibilityNodeInfo node = awaitAny(match);
-        if (!node.isVisibleToUser()
-                && !node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId()))
-            throw new AssertionError("Number pad key could not be scrolled into view: " + imeTexts());
-        await(match);
-        return match;
     }
 
     /** 同 {@link #hasKey}，也算滚出可见区的节点（左列符号栏可以上下滚动）。 */
