@@ -3146,6 +3146,43 @@ static void TestOptInSchemeModes() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 输入菜单里的「背单词（今日待复习 N）…」：没开过背单词时没有这一行；导入一本词书后按今天待复习的张数列出，点它打开背单词面板；组字时不列出。
+static void TestVocabularyDueMenuRow(MSIMEAppearancePreferences *appearance) {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    [controller setValue:idle forKey:@"view"];
+    NSMenuItem *(^vocabularyRow)(void) = ^NSMenuItem * {
+        for (NSMenuItem *candidate in [controller menu].itemArray)
+            if (candidate.action == @selector(showVocabulary:)) return candidate;
+        return nil;
+    };
+    assert(!vocabularyRow());
+    assert(![NSFileManager.defaultManager fileExistsAtPath:[root stringByAppendingPathComponent:@"vocabulary-progress.json"]]);
+
+    // 经与设置应用相同的 C ABI 导入两个合成词，导入时选中这本书。
+    const std::string day = msime::vocabulary_due::local_day(time(nullptr));
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{
+        @"directory": root, @"resources": root, @"day": @(day.c_str()),
+        @"action": @{ @"operation": @"import", @"name": @"合成词表", @"text": @"alpha,adj. 甲\nbeta,adj. 乙\n" },
+    } options:0 error:nil];
+    char *raw = msime_client_vocabulary_review(static_cast<const uint8_t *>(body.bytes), body.length);
+    assert(raw && strstr(raw, "\"ok\":true"));
+    msime_client_string_free(raw);
+
+    NSMenuItem *row = vocabularyRow();
+    assert(row && [row.title isEqual:@"背单词（今日待复习 2）…"] && row.target == controller);
+
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"n", @"candidates": @[] } forKey:@"view"];
+    assert(!vocabularyRow());
+    [controller setValue:idle forKey:@"view"];
+    assert(vocabularyRow());
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     [controller setValue:appearance forKey:@"appearance"];
@@ -15338,6 +15375,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestDiagnosticLogConfiguredBeforeSession(); }
         @autoreleasepool { TestKeypadDecimal(appearance); }
         @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
+        @autoreleasepool { TestVocabularyDueMenuRow(appearance); }
         @autoreleasepool { TestCandidatePanelSingleOwner(); }
         @autoreleasepool { TestGlossArrivalRedrawsOnlyTheCard(appearance); }
         @autoreleasepool { TestNestedApplyKeepsTheNewerView(appearance); }

@@ -108,6 +108,49 @@ int main() {
                                             row.command == C::ShowThemes) ||
                             row.kind != K::Item));
   }
+  // 「背单词」一行：今天有卡在等时排在云词库之后，写出张数；没有待复习、读不出来、正在组字或共享应用不在时不列出，主页和原来一样。
+  {
+    const auto absent = [](const std::vector<TrayMenuItem> &rows) {
+      for (const auto &row : rows)
+        if (row.kind == TrayMenuRowKind::Item &&
+            row.command == TrayMenuCommand::OpenVocabulary)
+          return false;
+      return true;
+    };
+    auto panel = all;
+    panel.vocabulary_panel = true;
+    auto due = state;
+    due.vocabulary_due = 12;
+    const auto rows = tray_menu_items(panel, due);
+    require(rows.size() == items.size() + 1);
+    const auto index = find(rows, TrayMenuCommand::OpenVocabulary);
+    require(index == find(rows, TrayMenuCommand::OpenCloudDictionary) + 1);
+    require(rows[index].label == "背单词（今日待复习 12）…" &&
+            rows[index].available && !rows[index].checked);
+    require(tray_menu_closes_after(TrayMenuCommand::OpenVocabulary));
+    // 多了这一行的卡片高一行，照样按设计尺寸放得进 150% 缩放下 1080p 的工作区；200% 缩放（约 500 DIP）时压到最小行高以内也放得下，最后一行不被裁掉。
+    {
+      const TrayMenuMetrics design;
+      const auto taller = tray_menu_geometry(rows, design);
+      require(taller.rows.size() == rows.size());
+      require(near(taller.size.height, tray_menu_geometry(items, design).size.height + design.row_height));
+      const double work = 1040.0 / 1.5;
+      require(taller.size.height <= work);
+      require(near(tray_menu_fitted_metrics(rows, design, work).row_height, design.row_height));
+      const double short_work = 500.0;
+      const auto fitted = tray_menu_fitted_metrics(rows, design, short_work);
+      require(fitted.row_height >= tray_menu_compact_row_height && fitted.row_height < design.row_height);
+      require(tray_menu_geometry(rows, fitted).size.height <= short_work + 0.001);
+    }
+    require(absent(items) && absent(tray_menu_items(panel, state)));
+    auto unreadable = due;
+    unreadable.vocabulary_due = -1;
+    require(absent(tray_menu_items(panel, unreadable)));
+    auto composing = due;
+    composing.composing = true;
+    require(absent(tray_menu_items(panel, composing)));
+    require(absent(tray_menu_items(all, due)));
+  }
   // 输入方案页：第一行返回主页，下面是全部方案，和悬浮工具栏的方案菜单是同一组行。
   {
     const auto page = schemes_of(all, state);

@@ -3254,6 +3254,8 @@ pub unsafe extern "C" fn msime_client_personal_wordbook_add(
 /// 今日待复习的张数，给菜单栏、托盘菜单这类被动显示的地方用。
 ///
 /// 和 `msime_client_vocabulary_review` 应答里的 `due` 是同一个数，但只读进度文档和选中的那一本书（见 `msime_client_services::vocabulary::session::due_count`）。返回张数（不小于 0）；请求不合法、进度文档损坏或选中的书读不出来时返回 -1，宿主据此隐藏这一项。
+///
+/// 内置词书的资源根可以直接给 `resources`，也可以给整份 HostOptions 文档 `host_options`，由这里按 [`crate::bundled_resource_root`] 求出：Linux 的输入法宿主手里只有 HostOptions，词库在线更新后 `resources` 指向状态目录里的下载代次，那里没有词书，自己再写一遍这条规则就会和设置应用找错地方。两者恰好给一个。
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -3265,14 +3267,17 @@ pub unsafe extern "C" fn msime_client_vocabulary_due_count(
     #[serde(deny_unknown_fields)]
     struct Request {
         directory: String,
-        resources: String,
+        #[serde(default)]
+        resources: Option<String>,
+        #[serde(default)]
+        host_options: Option<Value>,
         day: String,
         #[serde(default)]
         plugins: Option<String>,
     }
 
-    // 三个路径各不超过 16 KiB，再加日期和键名。
-    const MAX_REQUEST_BYTES: usize = 64 * 1024;
+    // 路径各不超过 16 KiB；HostOptions 文档带着偏好，留到 1 MiB。
+    const MAX_REQUEST_BYTES: usize = 1024 * 1024;
     if request.is_null() || length > MAX_REQUEST_BYTES {
         return -1;
     }
@@ -3282,8 +3287,16 @@ pub unsafe extern "C" fn msime_client_vocabulary_due_count(
         return -1;
     };
     let valid_path = |path: &str| path.len() <= 16_384 && std::path::Path::new(path).is_absolute();
+    let resources = match (&request.resources, &request.host_options) {
+        (Some(resources), None) => std::path::PathBuf::from(resources),
+        (None, Some(document)) => match crate::bundled_resource_root(document) {
+            Some(root) => root,
+            None => return -1,
+        },
+        _ => return -1,
+    };
     if !valid_path(&request.directory)
-        || !valid_path(&request.resources)
+        || !resources.to_str().is_some_and(valid_path)
         || request
             .plugins
             .as_deref()
@@ -3293,7 +3306,7 @@ pub unsafe extern "C" fn msime_client_vocabulary_due_count(
     }
     match msime_client_services::vocabulary::session::due_count(
         std::path::Path::new(&request.directory),
-        std::path::Path::new(&request.resources),
+        &resources,
         request.plugins.as_deref().map(std::path::Path::new),
         &request.day,
     ) {

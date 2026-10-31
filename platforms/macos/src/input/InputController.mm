@@ -63,6 +63,7 @@
 #include "../core/ModifierTap.h"
 #include "../core/EditableShiftFocus.h"
 #include "../core/VimMode.h"
+#include "../../../common/VocabularyDueMenu.h"
 #import "../settings/ShuangpinKeymapPanel.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
@@ -4912,6 +4913,14 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(showVoicePanel) keyEquivalent:@""];
     voice.target = self;
     [menu addItem:voice];
+    // 背单词今日待复习：有卡在等、而且没在组字时才列出这一行，点下去打开现有的背单词面板。计数在用户点开菜单时现读，组字时连读都不读。
+    const BOOL composing = [_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+    if (const auto label = msime::vocabulary_due::menu_label(composing ? 0 : [self vocabularyDueCount], composing)) {
+        NSMenuItem *vocabulary = [[NSMenuItem alloc] initWithTitle:@(label->c_str()) action:@selector(showVocabulary:) keyEquivalent:@""];
+        vocabulary.target = self;
+        [menu addItem:vocabulary];
+    }
 
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:[MSIMEEditionDisplayName() stringByAppendingString:@"设置…"] action:@selector(showAppearance:) keyEquivalent:@""];
@@ -4951,6 +4960,30 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEOpenDesktopCloudClipboard(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, ^{
         if (!MSIMEOpenBackendClipboard(NSClassFromString(@"MSIMEBackendAccountWindow"))) [weakSelf showAccount:sender];
     });
+}
+// 今日待复习的张数（msime_client_vocabulary_due_count），读不出来时是 -1。目录与设置应用的背单词页相同：偏好目录、设置应用的 Contents/Resources（内置词书在它的 wordbooks/ 下）和偏好目录下的插件目录。
+- (int32_t)vocabularyDueCount {
+    NSString *directory = _preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"];
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return -1;
+    NSURL *settings = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:MSIMEClientApplicationIdentifier];
+    // 找不到设置应用时退回输入法自己的资源目录：那里没有内置词书，选中内置书时计数是 0、这一行不出现，导入的词书照样计数。发布的输入法总是随设置应用一起安装，只有开发和测试环境会走到这里。
+    NSString *resources = settings ? [NSBundle bundleWithURL:settings].resourcePath : nil;
+    if (!resources.isAbsolutePath) resources = NSBundle.mainBundle.resourcePath;
+    if (!resources.isAbsolutePath) return -1;
+    const std::string day = msime::vocabulary_due::local_day(time(nullptr));
+    if (day.empty()) return -1;
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{
+        @"directory": directory,
+        @"resources": resources,
+        @"plugins": [directory stringByAppendingPathComponent:@"plugins"],
+        @"day": @(day.c_str()),
+    } options:0 error:nil];
+    if (!body) return -1;
+    return msime_client_vocabulary_due_count(static_cast<const uint8_t *>(body.bytes), body.length);
+}
+- (void)showVocabulary:(id)sender {
+    (void)sender;
+    MSIMEOpenDesktopRoute(@(msime::vocabulary_due::kPanelRoute), NSWorkspace.sharedWorkspace, ^{ NSBeep(); });
 }
 - (void)showCloudDictionary:(id)sender {
     (void)sender;

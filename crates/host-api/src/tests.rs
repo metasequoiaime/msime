@@ -16259,12 +16259,64 @@ fn vocabulary_due_count_boundary_matches_the_review_status() {
         -1
     );
 
+    // HostOptions 文档代替 resources：资源根是 `resources` 的上一级，和设置应用找内置词书的地方相同。
+    let bundle = directory.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("resources")).unwrap();
+    let by_options = |options: Value| {
+        count(json!({"directory": state, "host_options": options, "day": "2026-09-23"}))
+    };
+    assert_eq!(
+        by_options(json!({"resources": bundle.join("resources")})),
+        2
+    );
+    assert_eq!(by_options(json!({"resources": "relative/resources"})), -1);
+    assert_eq!(
+        count(
+            json!({"directory": state, "resources": state, "host_options": {"resources": bundle.join("resources")}, "day": "2026-09-23"})
+        ),
+        -1,
+        "exactly one of resources and host_options"
+    );
+    assert_eq!(count(json!({"directory": state, "day": "2026-09-23"})), -1);
+
     std::fs::write(
         state.join("vocabulary-progress.json"),
         b"corrupt synthetic progress",
     )
     .unwrap();
     assert_eq!(count(request("2026-09-23")), -1);
+}
+
+/// 从 HostOptions 求出的资源根能找到随包的内置词书：Linux 宿主就是这样读到选中的内置书的。
+#[test]
+fn vocabulary_due_count_finds_bundled_books_through_host_options() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let bundle = directory.path().join("share");
+    std::fs::create_dir_all(bundle.join("resources")).unwrap();
+    std::fs::create_dir_all(bundle.join("wordbooks")).unwrap();
+    std::fs::write(
+        bundle.join("wordbooks/cet4.json"),
+        serde_json::to_vec(&json!({"id": "cet4", "name": "CET-4", "entries": [
+            {"word": "alpha", "meaning": "adj. 合成释义"},
+            {"word": "beta", "meaning": "adj. 合成释义"},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    msime_client_services::vocabulary::progress::VocabularyProgressStore::new(&state)
+        .select_wordbook("cet4")
+        .unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": state,
+        "host_options": {"resources": bundle.join("resources")},
+        "day": "2026-09-23",
+    }))
+    .unwrap();
+    assert_eq!(
+        unsafe { msime_client_vocabulary_due_count(request.as_ptr(), request.len()) },
+        2
+    );
 }
 
 #[test]

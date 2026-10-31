@@ -60,6 +60,7 @@
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/GlobalTheme.h"
 #include "../src/core/ToggleHotkeyChord.h"
+#include "../src/core/VocabularyDue.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/EmojiPluginGroups.h"
 #include "../src/core/RuntimeOptionsRefresh.h"
@@ -4356,6 +4357,8 @@ public:
   // The HostOptions document of the current session, for msime_client_voice_hotwords.
   Json voice_host_options_;
   bool voice_enabled_ = true;
+  // 「桌面工具」子菜单里「背单词（今日待复习 N）…」的文字，获得焦点和失焦留给托盘时各读一次（FcitxEngine::refreshVocabularyDue），没有这一行时为空。
+  std::optional<std::string> vocabulary_due_;
   bool voice_hotkey_ctrl_f9_ = true;
   msime::host_api::ToggleHotkeyChord voice_toggle_chord_;
   unsigned voice_toggle_held_ = 0;
@@ -5831,6 +5834,27 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// 「背单词（今日待复习 N）…」：文字取这个上下文获得焦点时读到的计数，点下去打开共享应用的背单词面板。只在有卡在等、没有在组字时列进「桌面工具」子菜单（FcitxEngine::syncVocabularyEntry），不放状态区顶层。
+class FcitxVocabularyAction : public fcitx::Action {
+public:
+  explicit FcitxVocabularyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return {};
+    const auto &label = ic->propertyFor(factory_)->vocabulary_due_;
+    return label ? *label : std::string{};
+  }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
+    try {
+      if (ic->propertyFor(factory_)->restricted()) return;
+      launchDesktopPanel(msime::vocabulary_due::kPanelRoute);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // 工具栏子菜单里 macOS 齿轮菜单（FloatingToolbarPanel.mm）的两项：在光标处插入产品介绍，在浏览器里打开官网。
 class FcitxUtilityAction : public fcitx::SimpleAction {
 public:
@@ -7246,6 +7270,7 @@ public:
              {&desktop_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-clipboard"},
              {&desktop_voice_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-voice"},
              {&cloud_dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-dictionary"},
+             {&vocabulary_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-vocabulary"},
              {&desktop_cloud_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-clipboard"},
              {&help_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-help"},
              {&feedback_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-feedback"},
@@ -7625,6 +7650,7 @@ public:
     // 获得焦点时 panel_focus_watch_ 已经交出；换到本输入法不经过它。
     releaseMenuContext(event.inputContext());
     auto *state = event.inputContext()->propertyFor(&factory_);
+    refreshVocabularyDue(event.inputContext());
     arrangeStatusArea(event.inputContext());
     try {
       if (state->ensure()) {
@@ -7677,9 +7703,31 @@ public:
   void holdMenuContext(fcitx::InputContext *ic) {
     if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
     menu_context_ic_ = ic->watch();
+    refreshVocabularyDue(ic);
     // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项，以及「工具栏」子菜单里的语音和宣传）随之拿掉，顺带刷新状态区。
     rebuildToolbarMenu(ic);
     arrangeStatusArea(ic);
+  }
+  // 读一次今日待复习，记在这个上下文上，syncVocabularyEntry 和菜单里的文字都用它。只在获得焦点和失焦留给托盘时调（Hyprland 这类桌面上点托盘本身就让应用失焦，这时读到的才是用户点开托盘时的数）：要取进度文件锁、解析选中的一本书，在 Fcitx5 的主线程上同步进行，所以不放在按键或刷新状态区的路径上；从没开过背单词时不取锁也不读书。那两个时刻都没有在组字，受限（密码框）的上下文不列这一行。
+  void refreshVocabularyDue(fcitx::InputContext *ic) {
+    auto *state = ic->propertyFor(&factory_);
+    state->vocabulary_due_.reset();
+    if (state->restricted()) return;
+    try {
+      const bool composing = state->view_.is_object() && state->composingOrCandidates();
+      state->vocabulary_due_ = msime::linux_host::vocabulary_due_label(readOptions(), composing);
+    } catch (...) {}
+  }
+  // 「背单词」一行在「桌面工具」子菜单里的有无：这个上下文今天有卡在等、没有在组字时才列。不放状态区顶层，因为 kimpanel 把顶层动作画成面板上一直在的按钮，那就成了常驻的角标，而这一行只该在用户点开菜单时看得到。子菜单对象是各上下文共用的，跟着最近调用的那个上下文走：arrangeStatusArea 在获得焦点和失焦留给托盘时调，render 在开始或结束组字时调。返回子菜单是否变了。
+  bool syncVocabularyEntry(fcitx::InputContext *ic) {
+    const auto *state = ic->propertyFor(&factory_);
+    const bool listed = state->vocabulary_due_.has_value() &&
+                        !(state->view_.is_object() && state->composingOrCandidates());
+    if (listed == vocabulary_listed_) return false;
+    if (listed) desktop_tools_menu_.insertAction(&desktop_clipboard_action_, &vocabulary_action_);
+    else desktop_tools_menu_.removeAction(&vocabulary_action_);
+    vocabulary_listed_ = listed;
+    return true;
   }
   // 只往有焦点的输入框里写的那几项；托盘留着失焦的上下文时不列它们。语音项另按会话和语音开关决定，见 arrangeStatusArea。
   std::array<fcitx::Action *, 8> focusOnlyActions() {
@@ -7713,6 +7761,7 @@ public:
       if (present) status.addAction(fcitx::StatusGroup::InputMethod, action);
       else status.removeAction(action);
     }
+    syncVocabularyEntry(ic);
     ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
   }
   // 留给托盘的上下文真正关掉会话。获得焦点的不是它时，连它的状态动作一起拿掉，托盘从此列新聚焦的那个。
@@ -8048,6 +8097,9 @@ public:
   FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", msime::linux_host::menu_label::kLocalClipboard};
   FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", msime::linux_host::menu_label::kVoicePanel};
   FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary};
+  FcitxVocabularyAction vocabulary_action_{&factory_};
+  // vocabulary_action_ 此刻是否在 desktop_tools_menu_ 里（syncVocabularyEntry）。
+  bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
@@ -8195,6 +8247,8 @@ void FcitxState::render() {
   if (engine_) {
     engine_->english_action_.update(&ic_);
     engine_->width_action_.update(&ic_);
+    // 开始或结束组字时「背单词」一行随之从「桌面工具」子菜单里拿掉或放回；其余时候不动菜单。
+    if (engine_->syncVocabularyEntry(&ic_)) ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
   }
   refreshModeIndicator();
   ic_.inputPanel().reset();
