@@ -390,7 +390,7 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 
 详细数量、源码核对和证据见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md#macos-设置与-mcp-进程的系统目录)。本轮没有启动共享设置产品、制造产品故障或发送后台事件；原先的 macOS 共享设置后台与独立符号缺口仍保留。
 
-### PVE Linux 构建与安装包核对（候选 `6d99771887`）
+### PVE Linux 构建与安装包核对（候选 `6d99771887` 与合入后 head `8f048b5f1b`）
 
 候选 `6d99771887e4e61a7582f0e35ab415c9085c3a99` 已在 `pve9` 的 `linux-runner` LXC 中重新检出，没有复用旧候选的 Linux 产物。按仓库规定的 `platforms/linux/build-container.sh` 完成 IBus/Fcitx5、辅助入口和 Python 崩溃采集门禁：119 项中 118 项通过，`linux-ibus-demand-activation` 仅按测试定义跳过，未出现失败。之后按 `platforms/linux/package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 编出该候选的 Ubuntu 24.04 amd64 DEB；正式 Release 原生构建和 120 项 ctest 通过（同一按需测试跳过），DEB SHA-256 为 `3ffe457d2c3ad9f386f1bb5f587fc6452b4c0af9d47f21d89ccf5f3c302f7d16`，旁边的 x86_64 tarball 为 `b66200d4ebb84a159b2a4b437ec5a7488eb28e230588947e5cfaa78e2f9d5ca8`。
 
@@ -398,4 +398,6 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 
 同一安装包、同一合成用户和真实用户状态目录下，启动安装的 `msime-linux-provider-session online`，实际子进程为 `/usr/bin/msime-linux-online-provider`。向该进程发送一次 `SIGABRT` 后，`~/.local/state/msime/telemetry-crashes/` 产生 1 条 `MSIME-CRASH/1` 原记录，头部保留该候选 revision `6d99771887e4e61a7582f0e35ab415c9085c3a99`、`x86_64`、`online-provider` 和授权代次；没有输入会话。该轮只证明该候选安装包的真实 provider 采集和身份落盘，未连接后台，也未把手工启动替代为 systemd 用户管理器验收。安装包单元文件仍逐项核对 `Restart=on-failure`、`RestartPreventExitStatus=2`、`UMask=0077`，语音单元保留 `KillMode=mixed`。
 
-证据文件曾在 `target/linux-head-current-evidence/` 生成，随后随远端临时工作树一起清理；笔记保留了产物哈希和运行摘要。合入 `develop` 后的新 head `000b3eaa64` 尚未重新做 Linux 完整产品验收，因此不能把上述候选证据扩大为合并后 head，也不能扩大为完整编辑器、后台收件、其他发行版或架构验收。
+合入 `develop` 后的 PR head `8f048b5f1b6f553fb143301385337f836d7f94d3` 已在同一 `pve9` runner 重新构建。`build-container.sh` 的 Linux 原生门禁 119/119 全部实际通过；`package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 完成正式 Release 构建，120 项 ctest 全部通过，只有 `linux-ibus-demand-activation` 按定义跳过。Ubuntu 24.04 amd64 DEB SHA-256 为 `f3716172d4be0dedca61d89d6c734db533b8f13ea22d9a790c617c1956470d69`，x86_64 tarball SHA-256 为 `1557edeb628b850aa4e3f5ef946a6d2f9b0ecd2cf51b8529602ff4eb80c26339`。
+
+该 head 的 DEB 随后安装到新建的 Ubuntu 24.04 amd64 LXC，依赖配置成功。按锁下载并逐文件校验约 258 MiB 资源后，以真实安装路径和私有 `XDG_RUNTIME_DIR` 启动 `msime-linux-provider-session online`，实际 `/usr/bin/msime-linux-online-provider` 收到一次 `SIGABRT` 并退出；原生 `MSIME-CRASH/1` 记录保留 revision `8f048b5f1b6f553fb143301385337f836d7f94d3`、`x86_64`、`online-provider` 和 `consent_epoch`，没有输入会话。临时 LXC 没有用户 systemd 总线，因此这轮没有把 systemd 用户管理器重启写成通过；同样未连接后台或扩大为完整编辑器、其他发行版/架构验收。旧候选证据和本轮新 head 证据均只证明 Linux 构建、安装包和 provider 真实采集，不能扩大为全平台闭环。
