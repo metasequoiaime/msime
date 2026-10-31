@@ -1238,7 +1238,7 @@ pub fn install_for_channel(
 
 /// 发布包不带的日文词典和五笔码表（[`ResourcePack::Japanese`]、[`ResourcePack::Wubi`]）在词库更新下载过的代次里已有同样的字节时，从那里复制安装，不联网（见 [`crate::dictionary_updates::generation_copy`]）。安装包换了词库锁之后，已装的资源包过期、上一次自动更新的代次也失效，而那个代次里往往正是新锁要的码表，这样五笔用户不必再下载一遍近百 MB。
 ///
-/// 这一组的每个文件都找到才这样装，返回安装的结果；缺任何一个或查找时读不了文件，返回 `None`，照常联网下载。取消照常报 [`LocalModelError::Cancelled`]。
+/// 这一组的每个文件都找到才这样装，返回安装的结果；缺任何一个、查找时读不了文件或复制没成功，返回 `None`，照常联网下载。取消照常报 [`LocalModelError::Cancelled`]。
 fn install_from_dictionary_updates(
     state_root: &Path,
     pack: ResourcePack,
@@ -1248,7 +1248,25 @@ fn install_from_dictionary_updates(
     if !matches!(pack, ResourcePack::Japanese | ResourcePack::Wubi) {
         return None;
     }
-    let artifacts = &pack.set().artifacts;
+    install_from_generation_copies(
+        state_root,
+        pack.id(),
+        &pack.set().artifacts,
+        &pack.manifest(),
+        progress,
+        cancel,
+    )
+}
+
+/// [`install_from_dictionary_updates`] 的查找和复制，不限定资源包。复制时找到的文件读不了也返回 `None`：词库更新检查会回收用不上的旧版本（见 [`crate::dictionary_updates`] 的 `remove_old_versions`），找到的那个代次可能在查找之后、复制之前被删掉，这时照常联网下载，不让安装失败。
+fn install_from_generation_copies(
+    state_root: &Path,
+    id: &str,
+    artifacts: &[crate::resources::Artifact],
+    manifest: &Value,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Option<Result<PathBuf, LocalModelError>> {
     let mut files = Vec::with_capacity(artifacts.len());
     for artifact in artifacts {
         match crate::dictionary_updates::generation_copy(state_root, artifact, cancel) {
@@ -1267,16 +1285,21 @@ fn install_from_dictionary_updates(
         Err(LocalModelError::Cancelled) => return Some(Err(LocalModelError::Cancelled)),
         Err(_) => return None,
     };
-    Some(local_models::install_files_with(
+    match local_models::install_files_with(
         &root(state_root),
-        pack.id(),
+        id,
         artifacts,
-        &pack.manifest(),
+        manifest,
         &[],
         &fetcher,
         progress,
         cancel,
-    ))
+    ) {
+        Err(LocalModelError::Cancelled) => Some(Err(LocalModelError::Cancelled)),
+        // A dictionary update check in another thread or process may have removed the matched generation after the scan; the caller then downloads over the network instead.
+        Err(_) => None,
+        result => Some(result),
+    }
 }
 
 /// 用用户自己下载好的文件安装一个资源包，不联网，替换旧安装。阻塞调用，不要放在 UI 线程。
@@ -2255,6 +2278,76 @@ mod tests {
         assert!(list(state.path())
             .iter()
             .any(|status| status.id == "wubi" && status.state == PackState::Missing));
+    }
+
+    /// 从词库更新的代次复制安装时，找到的代次可能在查找之后被另一处的词库更新检查当作旧版本删掉：这时不报错，返回 `None` 让调用方联网下载。都还在时照常装上，取消照常报取消。
+    #[test]
+    fn a_generation_removed_after_the_scan_falls_back_to_the_network() {
+        let state = tempfile::tempdir().unwrap();
+        let generations = state.path().join("dictionary-updates").join("generations");
+        let first = vec![1u8; 64 * 1024];
+        let second = b"second synthetic table".to_vec();
+        let artifact = |name: &str, bytes: &[u8]| crate::resources::Artifact {
+            name: name.into(),
+            url: format!("https://example.invalid/{name}"),
+            sha256: hex::encode(Sha256::digest(bytes)),
+            size: bytes.len() as u64,
+        };
+        let artifacts = vec![artifact("first.db", &first), artifact("second.db", &second)];
+        let old = generations.join("a".repeat(64));
+        let current = generations.join("b".repeat(64));
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(&current).unwrap();
+        fs::write(current.join("first.db"), &first).unwrap();
+        fs::write(old.join("second.db"), &second).unwrap();
+        let manifest = serde_json::json!({ "pack": "synthetic" });
+        let cancel = AtomicBool::new(false);
+        // The old version that holds the second file is removed while the first file is being copied.
+        let mut removed = false;
+        let result = install_from_generation_copies(
+            state.path(),
+            "synthetic",
+            &artifacts,
+            &manifest,
+            &mut |_| {
+                if !removed {
+                    fs::remove_dir_all(&old).unwrap();
+                    removed = true;
+                }
+            },
+            &cancel,
+        );
+        assert!(removed);
+        assert!(result.is_none(), "{result:?}");
+        assert!(!root(state.path()).join("synthetic").exists());
+
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("second.db"), &second).unwrap();
+        let installed = install_from_generation_copies(
+            state.path(),
+            "synthetic",
+            &artifacts,
+            &manifest,
+            &mut |_| {},
+            &cancel,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(fs::read(installed.join("first.db")).unwrap(), first);
+        assert_eq!(fs::read(installed.join("second.db")).unwrap(), second);
+
+        cancel.store(true, Ordering::Relaxed);
+        assert!(matches!(
+            install_from_generation_copies(
+                state.path(),
+                "synthetic",
+                &artifacts,
+                &manifest,
+                &mut |_| {},
+                &cancel,
+            ),
+            Some(Err(LocalModelError::Cancelled))
+        ));
     }
 
     #[test]
