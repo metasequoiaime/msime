@@ -172,6 +172,9 @@ fn bad_requests_fail_before_the_network() {
         json!({ "operation": "resource_list", "kind": "dictionary", "scope": "all", "search": "", "offset": 0 }),
         json!({ "operation": "report", "kind": "plugins", "id": ITEM, "reason": "Other" }),
         json!({ "operation": "report", "kind": "plugins", "id": "nil", "reason": "其他" }),
+        json!({ "operation": "block", "kind": "plugins", "id": "nil" }),
+        json!({ "operation": "block", "kind": "users", "id": ITEM }),
+        json!({ "operation": "unblock", "id": "not-a-uuid" }),
     ] {
         assert_eq!(root.call(action.clone()), invalid, "{action}");
     }
@@ -217,6 +220,10 @@ fn signed_out_calls_that_need_the_account_stop_before_the_network() {
         json!({ "operation": "resource_save", "id": ITEM, "saved": true }),
         json!({ "operation": "resource_list", "kind": "reply", "scope": "saved", "search": "", "offset": 0 }),
         json!({ "operation": "report", "kind": "candidate-skins", "id": ITEM, "reason": "其他", "detail": "合成" }),
+        // 屏蔽作者只认登录账号。
+        json!({ "operation": "block", "kind": "skins", "id": ITEM }),
+        json!({ "operation": "block_list" }),
+        json!({ "operation": "unblock", "id": ITEM }),
     ] {
         assert_eq!(root.call(action.clone()), unauthorized, "{action}");
     }

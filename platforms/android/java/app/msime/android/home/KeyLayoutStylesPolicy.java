@@ -461,7 +461,7 @@ public final class KeyLayoutStylesPolicy {
     private static List<List<Key>> fourteen(TouchKeyStyle.Row style, boolean numberRow, boolean eighteen,
             boolean languageLeft) {
         List<List<FourteenKeyLayout.Key>> letters = eighteen ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
-        // 与 ImeLetterRows#rebuildFourteenKeyRows 相同：14 键每个字母键两份、两端 1.4 份，18 键都是一份、第二行两端各缩进半键。
+        // 与 ImeLetterRows#rebuildFourteenKeyRows 相同：14 键每个字母键两份、两端 1.4 份；18 键字母区铺满整宽，第二排不再缩进。
         float letterWeight = eighteen ? 1f : FourteenKeyLayout.LETTER_WEIGHT;
         float edgeWeight = eighteen ? 1f : KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
         List<String> sidebar = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
@@ -469,23 +469,22 @@ public final class KeyLayoutStylesPolicy {
         if (numberRow) rows.add(numberRow());
         for (int index = 0; index < letters.size(); index++) {
             boolean last = index == letters.size() - 1;
-            boolean indented = eighteen && index == 1;
             List<Key> cells = new ArrayList<>(letters.get(index).size() + 2);
             if (last) cells.add(new Key(FourteenKeyLayout.separatorFace(false), edgeWeight, "SoftSymbol", Tone.FUNCTION, 1));
-            if (indented) cells.add(new Key("", .5f, "", Tone.CHARACTER, 0));
             for (FourteenKeyLayout.Key key : letters.get(index)) {
                 cells.add(new Key(FourteenKeyLayout.face(key), letterWeight,
                     eighteen ? EighteenKeyLayout.keyId(key) : FourteenKeyLayout.keyId(key), Tone.CHARACTER, 1));
             }
-            if (indented) cells.add(new Key("", .5f, "", Tone.CHARACTER, 0));
             if (last) cells.add(new Key("⌫", edgeWeight, "Backspace", Tone.FUNCTION, 1));
-            // 键盘上字母列是一整列、每行各自按份额铺满；这里把每行的份额换算到字母列的宽度，左边接上符号栏这一行的那一格。
+            // 14 键左边接上符号栏这一格；18 键没有侧栏，三行都从同一左边界铺满。
             float total = 0;
             for (Key cell : cells) total += cell.weight();
-            float scale = FourteenKeyLayout.LETTER_COLUMN_WEIGHT / total;
+            float scale = eighteen ? 1f / total : FourteenKeyLayout.LETTER_COLUMN_WEIGHT / total;
             List<Key> row = new ArrayList<>(cells.size() + 1);
-            row.add(new Key(index < sidebar.size() ? sidebar.get(index) : "", FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT,
-                index < sidebar.size() ? "SoftPunctuation" : "", Tone.CHARACTER, index < sidebar.size() ? 1 : 0));
+            if (!eighteen) {
+                row.add(new Key(index < sidebar.size() ? sidebar.get(index) : "", FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT,
+                    index < sidebar.size() ? "SoftPunctuation" : "", Tone.CHARACTER, index < sidebar.size() ? 1 : 0));
+            }
             for (Key cell : cells) row.add(new Key(cell.face(), cell.weight() * scale, cell.id(), cell.tone(), cell.rows()));
             rows.add(List.copyOf(row));
         }

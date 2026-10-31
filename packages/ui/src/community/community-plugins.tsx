@@ -86,6 +86,7 @@ export function CommunityPluginsPage({
     rateSelected,
     unpublishSelected,
     reportSelected,
+    blocked,
     search,
     setSearch,
     kind,
@@ -132,6 +133,7 @@ export function CommunityPluginsPage({
         }
         onCancelUnpublish={() => setConfirmUnpublish(false)}
         onReport={contributions && client.report ? reportSelected : undefined}
+        onBlocked={(notice) => void blocked(notice)}
       />
     );
   }
