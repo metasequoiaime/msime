@@ -11,7 +11,7 @@ import shutil
 PLATFORM_SUFFIXES = {
     "android": (".apk",),
     "macos": (".dmg",),
-    "linux": (".deb", ".rpm"),
+    "linux": (".deb", ".rpm", ".pkg.tar.zst"),
     "harmony": (".hap",),
     "windows": (".exe",),
 }
@@ -61,7 +61,7 @@ def package(source, output, source_sha, limit=ASSET_LIMIT):
         "Android：安装 APK 后，在系统设置中启用水杉输入法。\n"
         "Windows：双击 Setup EXE，按安装向导操作。\n"
         "macOS：DMG 已用 Developer ID 签名并公证，打开后把应用拖进「应用程序」，再打开一次即可安装输入法。\n"
-        "Linux：根据发行版和 CPU 架构选择 DEB 或 RPM，用系统包管理器安装。\n"
+        "Linux：根据发行版和 CPU 架构选择 DEB、RPM 或 Arch 的 .pkg.tar.zst，用系统包管理器安装。\n"
         "iOS：真机通过现有外部 TestFlight 组安装，须等 Apple 审核批准；\n"
         "模拟器构建只保留在 Actions artifacts 中，不出现在普通下载页。\n"
         "HarmonyOS：unsigned HAP 供模拟器或开发签名使用，不能直接安装到零售设备。\n\n"

@@ -38,13 +38,13 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         scroll.addView(panel);
         setContentView(scroll);
         text(panel, "离线拍照识字", 22);
-        text(panel, "在键盘的「更多工具 → 拍照识字」里预览相机、拍照、选择文字上屏。模块不在基础安装包中，也不会自动下载。", 16);
+        text(panel, "从键盘的「更多工具 → 拍照识字」打开独立窗口，拍照后裁剪或涂抹识别范围，点选文字复制或插入原输入框。模块不在基础安装包中，也不会自动下载。", 16);
         text(panel, "仅导入本项目提供的配套模块，安装器按宿主内固定的完整文件摘要校验。识别图片和文字在本机离线处理，不自动存图、复制或上屏；模块关闭了 ONNX Runtime 的遥测。请阅读模块附带的许可与隐私说明后再导入。", 14);
         status = text(panel, "正在读取模块状态…", 16);
         choose = button(panel, "选择已下载的配套模块", this::choose);
         choose.setEnabled(false);
         permission = button(panel, "允许使用相机", () -> requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION));
-        text(panel, "相机只在你打开拍照面板并已授权时使用。离开输入框或关闭面板就释放相机，待选文字同时清空。授权或导入完成后，请回到原输入框重新打开拍照识字。", 14);
+        text(panel, "相机只在已授权且拍照页位于前台时使用，离开拍照页就释放。照片和文字只在窗口内存中保留；原输入位置变化后不能插入。授权或导入完成后，请回到原输入框重新打开拍照识字。", 14);
         button(panel, "返回", this::finish);
     }
 
