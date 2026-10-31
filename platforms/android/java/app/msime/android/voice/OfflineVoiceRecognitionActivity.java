@@ -183,6 +183,7 @@ public final class OfflineVoiceRecognitionActivity extends Activity {
                     status.setText("正在本机聆听，说完后点「完成」。");
                 });
                 if (session.finished()) return;
+                recognizer.vadSensitivity(AndroidLocalSettings.load(this).integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
                 String text = recognizer.recognize(configuration.localModel(), files.toPath(), language,
                     HostOptionsPolicy.readRuntimeOptions(files), null, null, new LocalAsrRecognizer.Listener() {
                         @Override public void onPartial(String text) {

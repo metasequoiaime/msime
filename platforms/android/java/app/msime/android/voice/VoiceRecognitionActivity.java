@@ -538,6 +538,7 @@ public final class VoiceRecognitionActivity extends Activity {
             String text = null;
             String message = null;
             try {
+                running.vadSensitivity(AndroidLocalSettings.load(this).integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
                 text = running.recognize(modelDirectory, files == null ? null : files.toPath(), language,
                     HostOptionsPolicy.readRuntimeOptions(files),
                     hotwordTexts, hotwordPinyin,

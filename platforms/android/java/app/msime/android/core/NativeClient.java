@@ -771,13 +771,19 @@ public final class NativeClient {
     }
 
     /**
-     * Load the model and open the session. Blocks while a model loads, so call on the worker that feeds the session. Returns null on success, else the recognizer's reason.
+     * 加载模型并开始会话，在提供音频的工作线程调用；成功返回空，失败返回原因。
      */
     public static String localSpeechStart(long handle, String modelDirectory, String language,
                                           String hotwords, int threads) {
+        return localSpeechStart(handle, modelDirectory, language, hotwords, threads, 0);
+    }
+
+    /** 本地整段模型可以指定 VAD 灵敏度，0 保留原阈值；流式模型不使用此参数。 */
+    public static String localSpeechStart(long handle, String modelDirectory, String language,
+                                          String hotwords, int threads, int vadSensitivity) {
         NativeHandlePolicy.requirePositive(handle);
         byte[] error = localSpeechStartRaw(handle, utf8(modelDirectory), utf8(language),
-            utf8(hotwords), threads);
+            utf8(hotwords), threads, vadSensitivity);
         return error == null ? null : TextPolicy.utf8(error);
     }
 
@@ -1195,7 +1201,7 @@ public final class NativeClient {
     private static native byte[] voiceLocalModelRemoveRaw(byte[] request);
     private static native long localSpeechCreateRaw();
     private static native byte[] localSpeechStartRaw(long handle, byte[] model, byte[] language,
-                                                     byte[] hotwords, int threads);
+                                                     byte[] hotwords, int threads, int vadSensitivity);
     private static native byte[] localSpeechAcceptRaw(long handle, short[] pcm, int count);
     private static native boolean localSpeechSpeakingRaw(long handle);
     private static native byte[] localSpeechFinishRaw(long handle);
