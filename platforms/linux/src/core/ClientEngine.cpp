@@ -3185,8 +3185,10 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
 // 「背单词（今日待复习 N）…」。张数在获得焦点时读一次（focus_in 写进 State::vocabulary_due），这里只按记下的文字和当前状态决定显示与否，不读盘：publish_mode 在模式和开关变化时都会走到这里，不能每次都去读进度文档。属性总是注册，没有待复习、正在组字、失焦或被挡时设成不可见，属性树的形状因此不随计数变化（GNOME Shell 那一支同样如此，见下）。点下去打开共享应用的背单词面板。
 IBusProperty *vocabulary_due_property(IBusEngine *engine) {
   const auto &s = state(engine);
-  const bool composing = !s.view.value("editing_text", std::string{}).empty() ||
-                         !s.view.value("candidates", Json::array()).empty();
+  // 还没有会话时 view 是 null，不能对它取值。
+  const bool composing = s.view.is_object() &&
+                         (!s.view.value("editing_text", std::string{}).empty() ||
+                          !s.view.value("candidates", Json::array()).empty());
   const bool shown = s.vocabulary_due && !composing && s.focused && !s.blocked;
   return ibus_property_new(
       "DesktopTools/Vocabulary", PROP_TYPE_NORMAL,

@@ -7713,9 +7713,10 @@ public:
     auto *state = ic->propertyFor(&factory_);
     state->vocabulary_due_.reset();
     if (state->restricted()) return;
-    const bool composing = !state->view_.value("editing_text", std::string{}).empty() ||
-                           !state->view_.value("candidates", Json::array()).empty();
     try {
+      const bool composing = state->view_.is_object() &&
+                             (!state->view_.value("editing_text", std::string{}).empty() ||
+                              !state->view_.value("candidates", Json::array()).empty());
       state->vocabulary_due_ = msime::linux_host::vocabulary_due_label(readOptions(), composing);
     } catch (...) {}
   }
