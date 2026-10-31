@@ -61,6 +61,11 @@ public final class PairedPunctuationPolicy {
         return null;
     }
 
+    /** Whether a commit asks the host to place the caret inside it: `commit_cursor_suffix` is present and is a suffix of the commit, the empty end marker included. Such a quick-phrase template lands exactly as written, so the host neither reopens a quote nor adds a closing mark, the same rule as macOS `hasCursorRequest` and the Windows cursor commit. */
+    public static boolean explicitCursor(String commit, String cursorSuffix) {
+        return commit != null && cursorSuffix != null && commit.endsWith(cursorSuffix);
+    }
+
     /**
      * 用 `commitText(closing, 0)` 写完后半个以后，编辑器是不是把光标放到了后半个后面，需要宿主再左移一格。
      *

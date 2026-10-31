@@ -91,4 +91,14 @@ export class PairedPunctuationPolicy {
     }
     return null;
   }
+
+  /**
+   * Whether a commit asks the host to place the caret inside it: `commit_cursor_suffix` is a string and a suffix of the commit, the empty end marker included. Such a quick-phrase template lands exactly as written, so the host neither reopens its quote (which would break the suffix and drop the request) nor writes a closing mark, which would land inside the template once the caret is placed, or cancel a request still waiting for layout. Same rule as macOS `hasCursorRequest`.
+   */
+  static explicitCursor(
+    commit: string | null | undefined,
+    suffix: string | null | undefined,
+  ): boolean {
+    return typeof commit === "string" && typeof suffix === "string" && commit.endsWith(suffix);
+  }
 }
