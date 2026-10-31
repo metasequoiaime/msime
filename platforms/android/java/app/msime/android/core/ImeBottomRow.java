@@ -505,7 +505,7 @@ final class ImeBottomRow {
     private Button zeroButton() {
         if (zeroButton == null) {
             zeroButton = s.keyId(s.nineKeyGridKey("0", "数字 0",
-                () -> s.imeLayoutRows.commitNineKeyLiteral("0")), "Nine0");
+                () -> s.imeLayoutRows.commitNumberPadText("0")), "Nine0");
             KeyboardTypographyPolicy.setFittedKeyTextSize(zeroButton, 14, 22);
         }
         return zeroButton;
@@ -591,12 +591,10 @@ final class ImeBottomRow {
         parent.addView(key, params);
     }
 
-    /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
+    /** #+= 扩展符号页自带底行，这时功能行整行不显示；数字层的另一页是数字九宫格，用功能行排它的底行。注音的 #+= 是共享符号行，同样用功能行（{@link ImeLetterRows#sharedSymbolRowsDrawn}）。 */
     boolean layerOwnsBottomRow() {
-        int layout = s.imeLetterRows.drawnTouchLayout();
-        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && !s.imeLetterRows.numberPadDrawn(layout)
-            && (ImeLetterRows.drawsDesignLayer(layout) || layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
+        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS && !s.imeLetterRows.numberPadDrawn()
+            && !s.imeLetterRows.sharedSymbolRowsDrawn();
     }
 
     /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
@@ -621,8 +619,10 @@ final class ImeBottomRow {
         ensureFaces();
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
-        int layout = s.imeLetterRows.drawnTouchLayout();
-        boolean numberPad = s.imeLetterRows.numberPadDrawn(layout);
+        // 注音的共享符号行（#+= 页）按大千注音排底行（123 |（地球）| ， | 空格 | 。 | 中/英 | 回车）：注音九键的字母层把这几个键挪进了自己的网格，没有底行可借。这时不是数字九宫格，layout 只用来排这一行和记签名。
+        int layout = s.imeLetterRows.sharedSymbolRowsDrawn() ? KeyboardLayout.ZHUYIN_LAYOUT
+            : s.imeLetterRows.drawnTouchLayout();
+        boolean numberPad = s.imeLetterRows.numberPadDrawn();
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         refreshPeriodFace();

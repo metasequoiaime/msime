@@ -106,6 +106,15 @@ public class DeviceSmoke extends Instrumentation {
         }
     }
 
+    /** 中文键面验收先等语言键可用，再明确切回中文；方案偏好不代表当前焦点的中英文模式。 */
+    protected final void selectChineseKeyboard() throws java.util.concurrent.TimeoutException {
+        Predicate<AccessibilityNodeInfo> ready = key("中").or(key("英"))
+            .and(AccessibilityNodeInfo::isEnabled).and(AccessibilityNodeInfo::isClickable);
+        AccessibilityNodeInfo language = await(ready);
+        if (equalsText("英", language.getText())) tap(key("英").and(ready));
+        await(key("中").and(ready));
+    }
+
     /** 用原子写入发布测试偏好；失败时保留原文件。 */
     protected final void publish(File file, byte[] contents) throws Exception {
         AtomicFile target = new AtomicFile(file);

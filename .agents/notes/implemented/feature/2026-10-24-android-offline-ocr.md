@@ -8,6 +8,10 @@ Status: implemented
 
 ## Decision
 
+拍照识字设置页提供「下载地址」（#10242）：从共享资源包的 `importFiles` 读取当前宿主锁定的模块地址，以系统 `ACTION_VIEW` 选择器交给浏览器或第三方下载工具。下载完成后用户仍经原有文件选择器导入，模块身份与完整摘要校验由共享层持有。Google Play 渠道、模块目录不可用或没有下载地址时禁用按钮；设备没有可处理地址的应用时提示重试：系统选择器在没有匹配应用时只显示系统自己的空列表、不会抛异常，所以先用 `queryIntentActivities` 判断，清单 `<queries>` 为此声明了 https 的 `VIEW`，否则 Android 11 起该查询恒为空。地址不在 Java 里另存一份，避免宿主升级模块锁后还引导下载旧模块。
+
+下载入口的验证：Mac Studio 上 `bash scripts/verify-local.sh --quick` 通过，设置 `ANDROID_HOME` 后 Gradle `:app:compileFullDebugJavaWithJavac` 成功；本机 `pnpm run verify-notes` 通过。GitHub 发布附件的文件名、大小和地址与模块锁一致。没有在设备上点选第三方下载工具，具体工具对该 HTTPS 附件地址的接管仍需设备复验。
+
 可选模块 `msime-ocr-v1.apk`（`platforms/android/gradle-app/ocr-module`）的识别引擎是 ONNX Runtime 1.31.0（`com.microsoft.onnxruntime:onnxruntime-android`，MIT）加 PaddlePaddle 的 PP-OCRv6 tiny 检测与识别模型（Apache-2.0）。ONNX Runtime 只是模块的依赖，基础 APK 不带它，也不带模型；选型的测量与放弃的方案见下文[引擎选型](#引擎选型)。最初的可行性试验用的是 Google ML Kit 的 `text-recognition-chinese:16.0.1`，下文「产品接入边界」「产品设备证据」里各轮设备运行都是那个试验模块，宿主一侧的导入、选择器、相机、撤权与手写共存路径与引擎无关，换引擎时没有改动。
 
 模块按上游 PP-OCR 管线自己实现前后处理，不依赖 OpenCV：检测输入长边限 960、两边取 32 的倍数、BGR 顺序按均值方差归一化成 NCHW；DB 后处理按 0.2 二值化，8 邻接连通域取凸包和最小外接矩形，框内均值低于 0.4 的丢弃，再按 `面积 × 1.4 / 周长` 外扩（三个阈值取自固定提交的 `inference.yml`）；用 `Matrix.setPolyToPoly` 透视裁出每行，边界外按边缘像素延伸，行高不小于宽 1.5 倍的竖排行逆时针转 90°；识别输入高 48、宽按比例（至少 320、至多 3200）补零，CTC 贪心解码。纯 Java 的部分在 `OcrPipeline`，由 `platforms/android/check-host.sh` 的 JVM 冒烟 `tests/ocr/OcrPipelineSmoke.java` 覆盖。

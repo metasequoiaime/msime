@@ -131,12 +131,12 @@ public final class TouchKeyStyle {
          * 这一刻画出来的字母层底行用哪种样式。中文 26 键（标准 26 键键面上的中文方案，含全拼、双拼、五笔、粤拼等）读 26 键样式；英文模式、韩文和其他语言的 26 键保留标准底行；14 键与 18 键读 14 键样式；拼音九键与笔画（共用九键外框）读九键样式；其余键面（手写、注音、日文假名）没有可选样式。
          *
          * @param touchLayout {@link KeyboardLayout} 的界面常量
-         * @param scheme View 报告的方案编号，未知时为 -1（按中文算，与数字九宫格的判断一致）
+         * @param scheme View 报告的方案编号，未知时为 -1（按中文算，见 {@link KeyboardLayout#chineseFace}）
          * @param english 宿主处在英文模式
          */
         public Row forLayout(int touchLayout, int scheme, boolean english) {
             if (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT)
-                return KeyboardLayout.numberPadLanguage(scheme, english) ? twentySix : Row.STANDARD;
+                return KeyboardLayout.chineseFace(scheme, english) ? twentySix : Row.STANDARD;
             if (touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT || touchLayout == KeyboardLayout.EIGHTEEN_KEY_LAYOUT)
                 return fourteen;
             if (touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT || touchLayout == KeyboardLayout.STROKE_LAYOUT)

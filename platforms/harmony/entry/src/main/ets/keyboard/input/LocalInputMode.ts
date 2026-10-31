@@ -57,6 +57,11 @@ export class LocalInputMode {
     return command ? MODES.concat([COMMAND]) : MODES;
   }
 
+  /** 触屏本地模式的列数：九项排成三列三行，加入「指令」后用四列，避免末项单独落在一行。 */
+  static touchColumns(modeCount: number): number {
+    return modeCount > MODES.length ? 4 : 3;
+  }
+
   /** 点这一项交给 Engine 的键要不要带 Shift：字母触发词按大写进入，`/` 按普通标点键送，与实体键盘没有组字时按 / 一样。 */
   static entersWithShift(definition: LocalInputModeDefinition): boolean {
     return definition.trigger >= "A" && definition.trigger <= "Z";

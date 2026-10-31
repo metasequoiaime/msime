@@ -6,8 +6,11 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 
-/** 九键键帽：全拼的数字画成右上角标记（10 sp，距上边 3 dp、右边 5 dp），主标签居中；双拼以数字为主标签，底部声母提示复用 {@link KeyHintButton} 的空间适配。 */
+/** 九键键帽：全拼的数字画成右上角标记（10 sp，距上边 3 dp、右边 12 dp），主标签居中；双拼以数字为主标签，底部声母提示复用 {@link KeyHintButton} 的空间适配。 */
 public final class NineKeyDigitButton extends KeyHintButton {
+    /** 圆角或胶囊键帽的右上角在顶部会向内收，数字角标比普通字母角标多留一段距离。 */
+    public static final float DIGIT_HINT_RIGHT_DP = 12f;
+
     private final Paint digitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private String digitText = "";
     private int digitColor = Color.GRAY;
@@ -43,7 +46,7 @@ public final class NineKeyDigitButton extends KeyHintButton {
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();
         float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) - metrics.ascent;
         canvas.drawText(digitText,
-            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP), baseline,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), DIGIT_HINT_RIGHT_DP), baseline,
             digitPaint);
     }
 }

@@ -146,7 +146,7 @@ struct KeyboardTheme: Equatable {
   /// 把背景交给系统底板时，键盘根视图、底板和每一块要收触摸的透明界面（功能面板、分页网格、功能格子、候选栏、符号面板）各自铺的一层：键盘自己的底色，透明度只有 `nativeBackgroundFillAlpha`，叠在系统底板（iOS 26 起是 Liquid Glass）上看不出来。这是对 #10173 的推断性修复：键盘扩展的触摸先经系统跨进程命中，#7682 在真机上看到只挂 `CAShapeLayer` 的按钮收不到触摸、给按钮本身补上整格内容后才收得到，而当时它背后的根视图和底板都是不透明的，所以不能只在最底下铺一层，要让收触摸的视图自己带内容。原生皮肤下这些视图原本都是 `.clear`，从格子、格子之间、候选之间起手的点按和滑动就可能被丢掉。尚未在真机上验证。只在 `drawsNativeBackground` 时使用，其他皮肤本来就画不透明的背景。
   var nativeBackgroundFill: UIColor { background.withAlphaComponent(Self.nativeBackgroundFillAlpha) }
 
-  /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。返回季节或所选应用主题是否变了：变了时跟随系统配色换了一组新实例（见 `SeasonKeyboardTokens`），调用方要重新解析 `current`，按键才会重新解析颜色。
+  /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色每次解析时都会读它，品牌键再从当前皮肤配色取色。返回季节或所选应用主题是否变了：变了时跟随系统配色换了一组新实例（见 `SeasonKeyboardTokens`），调用方要重新解析 `current`，按键才会重新解析颜色。
   @discardableResult
   static func refreshSeason() -> Bool {
     let version = AppThemePalette.version
@@ -226,14 +226,20 @@ struct KeyboardTheme: Equatable {
     return UIColor { traits in alwaysDark || Self.isDark(traits, appearance) ? dark : light }
   }
 
-  /// 工具栏 logo 的圆底：原生皮肤使用柔和水杉绿，其余皮肤使用应用主题季节的混合色。
-  var logoCircle: UIColor { isNative ? SystemKeyboardTokens.logoCircle : Self.logoCircleColor }
-  /// 圆底里的 logo 图形：原生皮肤使用深绿，其余皮肤使用应用主题季节的混合色。
-  var logoMark: UIColor { isNative ? SystemKeyboardTokens.logoMark : Self.logoMarkColor }
-
-  private static let logoCircleColor = MetasequoiaTheme.mixUIColor(14, 22)
-  private static let logoMarkColor = UIColor { traits in
-    AppThemePalette.mix(MetasequoiaTheme.accentUIColor.resolvedColor(with: traits), 82, .black)
+  /// 工具栏 logo 的圆底：当前皮肤的强调色混入键盘底色；原生皮肤保留系统 token。
+  var logoCircle: UIColor {
+    if isNative { return SystemKeyboardTokens.logoCircle }
+    return UIColor { traits in
+      AppThemePalette.mix(accent.resolvedColor(with: traits), Self.isDark(traits, appearance) ? 22 : 14,
+                          background.resolvedColor(with: traits))
+    }
+  }
+  /// 圆底里的 logo 图形随皮肤强调色着色，白色笔画保持原样。
+  var logoMark: UIColor {
+    if isNative { return SystemKeyboardTokens.logoMark }
+    return UIColor { traits in
+      AppThemePalette.mix(accent.resolvedColor(with: traits), 82, .black)
+    }
   }
 
   /// `traits` 是否绘制为深色，主题的固定外观优先于 trait 自身的样式。

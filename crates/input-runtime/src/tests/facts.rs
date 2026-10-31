@@ -36,6 +36,8 @@ struct FactEngine {
     withheld: Vec<String>,
     /// 五笔拼音混输；顶字关掉时字母只有混输打开才有地方容纳。
     mixed_pinyin: bool,
+    /// 当前第五键可继续当前混输拼音读音。
+    pinyin_continues: bool,
 }
 
 impl FactEngine {
@@ -52,6 +54,9 @@ impl FactEngine {
 impl InputEngine for FactEngine {
     fn wubi_mixed_pinyin(&self) -> bool {
         self.mixed_pinyin
+    }
+    fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
+        self.pinyin_continues
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
@@ -350,14 +355,20 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
             pinyin_continues,
         }
     };
-    // 开关开：四码完整、没有暂存词段、拼音不再续输时顶字，混输开不开都一样。
+    // 开关开：四码完整、没有暂存词段时顶字，混输开不开、拼音是否续写都一样。
     for mixed in [false, true] {
-        assert!(wubi_top_commit_on_next_key(&request(
-            true, mixed, true, true, false
-        )));
+        for continues in [false, true] {
+            assert!(wubi_top_commit_on_next_key(&request(
+                true, mixed, true, true, continues
+            )));
+        }
     }
-    // 开关关 + 混输开：字母并进混输串，不顶字。
+    // 开关关 + 混输开 + 拼音能续写：字母并进混输串，不顶字。
     assert!(!wubi_top_commit_on_next_key(&request(
+        false, true, true, true, true
+    )));
+    // 开关关 + 混输开但拼音不能续写：仍顶字，不能丢掉按键。
+    assert!(wubi_top_commit_on_next_key(&request(
         false, true, true, true, false
     )));
     // 开关关 + 混输关：字母无处容纳，仍按顶字上屏，一个键都不丢。
@@ -368,12 +379,35 @@ fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
     for request in [
         request(false, false, false, true, false),
         request(false, false, true, false, false),
-        request(true, false, true, true, true),
-        request(true, true, true, true, true),
         request(false, true, false, true, false),
     ] {
         assert!(!wubi_top_commit_on_next_key(&request));
     }
+}
+
+#[test]
+fn enabling_wubi_top_commit_wins_over_mixed_pinyin_continuation() {
+    // 五笔版默认打开混输时，顶字开关仍应让第五个字母开始下一组编码。
+    let mut mixed = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        pinyin_continues: true,
+        ..FactEngine::default()
+    });
+    type_keys(&mut mixed, b"wqab");
+    let topped = type_keys(&mut mixed, b"x");
+    assert_eq!(topped.commit.as_deref(), Some("合成甲"));
+    assert_eq!(topped.view.editing_text, "x");
+    assert_eq!(
+        selection(&mixed),
+        Some(fact(
+            0,
+            0,
+            SelectionHow::WubiTop,
+            SelectionOutcome::Committed
+        ))
+    );
 }
 
 #[test]
@@ -419,6 +453,7 @@ fn turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow() {
         scheme: 2,
         words: vec!["合成甲".into(), "合成乙".into()],
         mixed_pinyin: true,
+        pinyin_continues: true,
         ..FactEngine::default()
     });
     mixed.set_wubi_fifth_code_top_commit(false);

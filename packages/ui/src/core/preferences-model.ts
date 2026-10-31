@@ -150,7 +150,7 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
     /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
-    /** 全拼 26 键组字时第三排左端保留 ⇧（点一下臂辅助码）而不换成「分词」；缺省为关。 */
+    /** 全拼 26 键组字时第三排左端保留 ⇧（点一下臂辅助码）而不换成「分词」；缺省为开。 */
     touch_quanpin_shift?: boolean;
     /** 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_twenty_six_key_style?: "standard" | "comma_period" | "long_space" | "emoji";
