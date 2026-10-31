@@ -148,12 +148,20 @@ public final class SymbolPanelView extends LinearLayout {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
-    /** 复用表情包后台加载的缩略图，装饰不单独接收触摸，整行仍用于返回。 */
+    /** 复用返回栏两张独立插图，装饰不单独接收触摸，整行仍用于返回。 */
+    public void setHeaderMascots(Bitmap left, Bitmap right) {
+        setHeaderImage(headerMascots[0], left);
+        setHeaderImage(headerMascots[1], right);
+    }
+
+    /** 兼容旧的单图调用方；新返回栏应传入左右两张朝内插图。 */
     public void setHeaderMascot(Bitmap image) {
-        for (ImageView mascot : headerMascots) {
-            mascot.setImageBitmap(image);
-            mascot.setVisibility(image == null ? View.GONE : View.VISIBLE);
-        }
+        setHeaderMascots(image, image);
+    }
+
+    private static void setHeaderImage(ImageView view, Bitmap image) {
+        view.setImageBitmap(image);
+        view.setVisibility(image == null ? View.GONE : View.VISIBLE);
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
