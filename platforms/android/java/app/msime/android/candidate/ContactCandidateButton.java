@@ -12,6 +12,8 @@ public final class ContactCandidateButton extends KeyboardPressButton {
     public ContactCandidateButton(Context context) {
         super(context);
         setAllCaps(false);
+        setStateListAnimator(null);
+        setAnimatesPressFeedback(false);
     }
 
     public void setContactSource(int source) {

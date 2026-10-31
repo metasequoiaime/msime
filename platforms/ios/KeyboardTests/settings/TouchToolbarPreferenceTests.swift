@@ -63,4 +63,43 @@ final class TouchToolbarPreferenceTests: XCTestCase {
     defaults.set("yes", forKey: TouchToolbarLocalPreference.phrasesKey)
     XCTAssertTrue(TouchToolbarLocalPreference.phrases, "a value that is not a Bool reads as the default")
   }
+
+  // MARK: - 「键盘工具栏」设置页的预览
+
+  /// 26 键「长空格」把 符 从底行挪到工具栏：预览里 符 紧跟品牌键，在其他按钮前面；别的 26 键样式没有它。表情键样式的底行也没有 符，但入口是长按 123，工具栏上没有。
+  func testThePreviewPutsTheSymbolEntryAfterTheLogoOnlyForLongSpace() {
+    let toolbar = TouchToolbarPreference()
+    for style in TouchTwentySixKeyStyle.allCases {
+      let items = KeyboardToolbarPreviewRow.items(toolbar, phrases: true, scheme: false, hidden: false,
+                                                  keyLayout: TouchKeyLayoutStyle(twentySixKey: style))
+      let tools: [KeyboardPreviewToolbarItem] = [.emoji, .phrases, .skin]
+      XCTAssertEqual(items, style == .longSpace ? [.symbols] + tools : tools, style.rawValue)
+    }
+    // 只看 26 键样式：14/18 键的长空格和九键样式不动工具栏。
+    let others = TouchKeyLayoutStyle(fourteenKey: .longSpace, nineKey: .tallReturn)
+    XCTAssertFalse(KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: false,
+                                                   keyLayout: others)?.contains(.symbols) ?? false)
+    XCTAssertEqual(KeyboardPreviewToolbarItem.symbols.character, "符")
+    XCTAssertNil(KeyboardPreviewToolbarItem.symbols.symbol)
+  }
+
+  /// 显示方式为「隐藏」或可选按钮全关时，预览不画工具栏内容（nil，只留顶栏高度）；26 键「长空格」时这一行仍要画，只有品牌、符 和收起，与键盘的 `toolbarRowHidden` 相同。
+  func testTheHiddenRowStillCarriesTheSymbolEntryUnderLongSpace() {
+    var none = TouchToolbarPreference()
+    for option in TouchToolbarPreference.options { none[keyPath: option.keyPath] = false }
+    let standard = TouchKeyLayoutStyle()
+    let longSpace = TouchKeyLayoutStyle(twentySixKey: .longSpace)
+    func items(_ toolbar: TouchToolbarPreference, hidden: Bool,
+               _ style: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {
+      KeyboardToolbarPreviewRow.items(toolbar, phrases: false, scheme: false, hidden: hidden, keyLayout: style)
+    }
+    XCTAssertNil(items(TouchToolbarPreference(), hidden: true, standard), "a hidden toolbar draws no content")
+    XCTAssertNil(items(none, hidden: false, standard), "nothing but the logo and the collapse button")
+    XCTAssertEqual(items(TouchToolbarPreference(), hidden: true, longSpace), [.symbols],
+                   "hidden keeps only the logo, 符 and the collapse button")
+    XCTAssertEqual(items(none, hidden: false, longSpace), [.symbols])
+    XCTAssertEqual(KeyboardToolbarPreviewRow.items(TouchToolbarPreference(), phrases: true, scheme: true, hidden: true,
+                                                   keyLayout: longSpace), [.symbols],
+                   "hiding drops every optional button, local ones included")
+  }
 }

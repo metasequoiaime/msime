@@ -69,7 +69,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.hideLanguageKeyKey,
+    KeyboardLayoutPreference.hideLanguageKeyKey,
     ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
   override func tearDown() {
     for key in preferenceKeys {
@@ -775,14 +775,11 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testLayoutSettingsDefaultIndependently() {
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
-    XCTAssertFalse(KeyboardLayoutPreference.voiceShortcutEnabled)
     XCTAssertEqual(KeyboardLayoutPreference.geometry.sidebarRatio, 0.14)
     XCTAssertFalse(KeyboardLayoutPreference.geometry.showsFullKeyboardSymbols)
     KeyboardLayoutPreference.keySpacing = 5
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
-    XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
     KeyboardLayoutPreference.keySpacing = 99
     KeyboardLayoutPreference.rowSpacing = -99
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
@@ -1103,19 +1100,23 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 语音入口只由它自己的偏好决定露不露面，键距和行距不牵连它。
-  func testVoiceShortcutFollowsOnlyItsOwnPreference() throws {
+  /// iOS 的语音入口是长按空格和功能菜单的「语音输入」：同步来的 Android 工具栏语音按钮设置（`touch_voice_shortcut`）开着，iOS 工具栏也不放语音按钮，功能菜单照样有「语音输入」；键距和行距不受它牵连。
+  func testTheToolbarNeverCarriesAVoiceButton() throws {
+    let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+    defer { _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument } }
     KeyboardLayoutPreference.keySpacing = 5
     KeyboardLayoutPreference.rowSpacing = 8
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
-    controller.viewWillAppear(false)
-    XCTAssertFalse(try button("layoutVoiceShortcut", in: controller).isHidden)
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
-    controller.viewWillAppear(false)
-    XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
+    for synced in [true, false] {
+      XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_voice_shortcut"] = synced })
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden, "touch_voice_shortcut = \(synced)")
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertNoThrow(try tile("moreCard-语音输入", in: controller), "touch_voice_shortcut = \(synced)")
+    }
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
   }
@@ -1126,20 +1127,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: state) }
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
 
-    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
-      keySpacing: 99, rowSpacing: -1, heightAdjustment: 99, voiceEnabled: true))
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(keySpacing: 99, rowSpacing: -1, heightAdjustment: 99))
     let preferences = try XCTUnwrap(bridge.sharedPreferences)
     XCTAssertEqual((preferences["touch_key_spacing_tenths"] as? NSNumber)?.intValue, 60)
     XCTAssertEqual((preferences["touch_row_spacing_tenths"] as? NSNumber)?.intValue, 40)
     XCTAssertEqual((preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.intValue, 48)
-    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
 
     XCTAssertTrue(bridge.resetTouchKeyboardGeometry())
     let reset = try XCTUnwrap(bridge.sharedPreferences)
     XCTAssertNil(reset["touch_key_spacing_tenths"])
     XCTAssertNil(reset["touch_row_spacing_tenths"])
     XCTAssertNil(reset["touch_keyboard_height_adjustment"])
-    XCTAssertNil(reset["touch_voice_shortcut"])
   }
 
   func testToolbarCentersRemainHittableThroughPanelSwitches() throws {
@@ -1221,7 +1219,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       if pinned.characterSet { expected.append("characterSetShortcut") }
       if pinned.fullwidth { expected.append("fullwidthShortcut") }
       if pinned.punctuation { expected.append("punctuationShortcut") }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { expected.append("layoutVoiceShortcut") }
       expected.append("dismissShortcut")
       let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
       XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), expected)
@@ -1520,23 +1517,36 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardSkinPickerView })
   }
 
-  /// 九键切到英文会复用 26 键字母行，但键盘外框高度保持不变。
+  /// 九键一族切到英文会复用 26 键字母行：键盘外框高度不变，字母区的上下边界也与九宫格重合，不在上下留白。
   func testNineKeyAndEnglishKeepTheSameKeyboardHeight() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
-    InputSchemePreference.scheme = .nineKey
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
-    controller.view.layoutIfNeeded()
-    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    let language = try button("bottomLanguageKey", in: controller)
-    language.sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
-    let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    XCTAssertEqual(englishHeight, height, accuracy: 0.5)
-    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
-    XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5)
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previous
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin] {
+      InputSchemePreference.scheme = scheme
+      XCTAssertEqual(InputSchemePreference.scheme, scheme)
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
+      try layoutAtRequestedHeight(controller)
+      let frame = { (view: UIView) in view.convert(view.bounds, to: controller.view) }
+      let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      let gridTop = frame(try button("nineKey1", in: controller)).minY
+      let nineKeyBottom = frame(try button("returnKey", in: controller)).maxY
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      try layoutAtRequestedHeight(controller)
+      let englishHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      XCTAssertEqual(englishHeight, height, accuracy: 0.5, "\(scheme)")
+      let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
+      XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
+      XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
+      // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
+      XCTAssertEqual(letter.bounds.height, 49, accuracy: 0.5, "\(scheme)")
+    }
   }
 
   func testVisibleInputViewReflectsSoundPreference() throws {
@@ -2716,11 +2726,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     let keys = TouchToolbarLocalPreference.keys
     let saved = keys.map { defaults.object(forKey: $0) }
     let previousDocument = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
-    let previousVoice = KeyboardLayoutPreference.voiceShortcutEnabled
     let previousScheme = InputSchemePreference.scheme
     defer {
       _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
-      KeyboardLayoutPreference.voiceShortcutEnabled = previousVoice
       InputSchemePreference.scheme = previousScheme
       for (key, value) in zip(keys, saved) {
         if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
@@ -2730,10 +2738,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     keys.forEach(defaults.removeObject(forKey:))
     TouchToolbarLocalPreference.phrases = false
     TouchToolbarLocalPreference.scheme = false
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
       $0["touch_toolbar"] = Dictionary(uniqueKeysWithValues: TouchToolbarPreference.options.map { ($0.name, false) })
-      $0["touch_voice_shortcut"] = false
     })
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -2907,12 +2913,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     let bridge = try XCTUnwrap(first)
     XCTAssertTrue(bridge.updateTheme(GlobalThemePreference.selecting("night")))
     XCTAssertTrue(bridge.setTraditionalChineseOutput(true))
-    XCTAssertTrue(bridge.persistTouchKeyboardGeometry(
-      keySpacing: 5, rowSpacing: 9, heightAdjustment: 12, voiceEnabled: true))
+    XCTAssertTrue(bridge.persistTouchKeyboardGeometry(keySpacing: 5, rowSpacing: 9, heightAdjustment: 12))
     // A drag reports on every gesture frame and only previews on the live session; taking a file
     // lock that often is what the separate commit above is for.
-    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
-      keySpacing: 3, rowSpacing: 4, heightAdjustment: -5, voiceEnabled: false))
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(keySpacing: 3, rowSpacing: 4, heightAdjustment: -5))
     first = nil
 
     let next = MetasequoiaInputSessionBridge(stateRoot: state)
@@ -2922,7 +2926,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(preferences["touch_key_spacing_tenths"] as? Int, 50)
     XCTAssertEqual(preferences["touch_row_spacing_tenths"] as? Int, 90)
     XCTAssertEqual(preferences["touch_keyboard_height_adjustment"] as? Int, 12)
-    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
   }
 
   // Reloading the settings app's document replaced the session's preferences wholesale, dropping

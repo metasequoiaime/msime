@@ -28,3 +28,5 @@ API 28 的停靠父窗口边界由[Android 9 窗口 insets 修复](../../impleme
 - 收益：键盘挡住输入框时可以把键盘挪开，应用的布局不受影响；工具栏按钮按报告人的说法一点即切换。
 - 代价与已知上限：浮动时应用不知道键盘在哪儿，输入框可能被面板盖住，需要用户拖开；拖动只能用手指，TalkBack 用户只能用「停靠」键回到停靠键盘。开关与位置不随账号同步，也不在 Tauri 共享设置页里出现。窗口与 inputArea 的改写依赖系统 `input_method.xml` 的结构（LatinIME、FlorisBoard 都依赖它），厂商若改了这层布局，浮动可能退化成铺满的透明窗口。
 - 验证：`tests/keyboard/FloatingKeyboardPolicySmoke.java` 钉住生效条件、宽度、千分比互换与拖动钳制；`AndroidLocalSettingsSmoke` 钉住新设置项的默认值、范围与不同步；`FunctionPanelModelSmoke`、`KeyboardShortcutIconPolicySmoke` 钉住新磁贴与图标。均由 `platforms/android/check-host.sh` 运行。窗口铺满、触摸穿透和拖动没有在真机或模拟器上验收。
+
+鸿蒙的同一功能见[鸿蒙浮动键盘](2026-10-30-harmony-floating-keyboard.md)（#10225），几何常数相同。

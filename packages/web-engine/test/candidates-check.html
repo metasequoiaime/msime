@@ -227,27 +227,30 @@
         holder.remove();
       }
 
-      // 每帧都重建候选行，所以错峰进场只能挂在从隐藏到显示的那一帧，选中动效只能挂在高亮换格的那一行，否则每敲一个键都会重放。
+      // 即使旧皮肤显式声明动效，候选显隐和高亮也立即呈现。
       async function motionReplay() {
         current = "schema v2 motion";
-        const bar = createCandidateBar({ skin: { schemaVersion: 2, base: "system" }, dark: false });
+        const bar = createCandidateBar({ skin: { schemaVersion: 2, base: "system", animation: { enter: "fade_scale", exit: "fade", selection: "spring", durationMs: 600, staggerMs: 80 } }, dark: false });
         const host = bar.element;
         const anchor = { left: 20, top: 20, bottom: 40 };
         const selecting = () => parts(host).cands.filter((cand) => cand.dataset.selecting !== undefined).map((cand) => cand.dataset.index).join();
         bar.render(composingFrame("n", ["你", "呢", "尼"]), anchor);
-        check(parts(host).root.dataset.entering !== undefined, "the first frame after hiding reveals its rows");
+        check(parts(host).root.getAnimations({ subtree: true }).length === 0, "首次显示不播放进场或逐行浮现");
         equal(selecting(), "", "showing the bar is not a selection change");
         bar.render(composingFrame("ni", ["你", "呢", "尼"]), anchor);
         check(parts(host).root.dataset.entering === undefined, "typing does not replay the row reveal");
         equal(selecting(), "", "typing under the same highlight does not replay the selection preset");
         bar.render(composingFrame("ni", ["你", "呢", "尼"], 1), anchor);
-        equal(selecting(), "1", "moving the highlight animates only the newly highlighted row");
+        equal(selecting(), "", "高亮移动不挂载选中动画");
+        equal(parts(host).root.getAnimations({ subtree: true }).length, 0, "显式选中预设也不播放动画");
         bar.render(composingFrame("nin", ["您", "宁", "拧"], 1), anchor);
         equal(selecting(), "", "the moved highlight does not animate again on the next keystroke");
         bar.hide();
         bar.render(composingFrame("n", ["你", "呢"], 1), anchor);
-        check(parts(host).root.dataset.entering !== undefined, "showing again after hide reveals the rows again");
-        equal(selecting(), "", "the highlight a new composition opens on is not a selection change");
+        equal(parts(host).root.getAnimations({ subtree: true }).length, 0, "再次显示不播放进场");
+        equal(selecting(), "", "新组字不播放选中动画");
+        bar.render({ composing: false }, anchor);
+        check(parts(host).root.hidden, "组字结束立即隐藏，显式退场预设不保留旧候选");
         bar.destroy();
       }
 

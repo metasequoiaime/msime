@@ -483,6 +483,7 @@ struct CloudClipboardView: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("添加内容")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -506,7 +507,6 @@ struct CloudClipboardView: View {
       }
     }
     .tint(MetasequoiaTheme.accent)
-    .presentationDetents([.medium, .large])
   }
 
   /// 批准、拒绝、移除一台设备或重置云剪贴板，结果就是设备状态。

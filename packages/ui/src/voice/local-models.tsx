@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
 import { SettingsManagerBlock } from "../settings/settings-manager-block";
 import { SettingsManagerNote } from "../settings/settings-manager-note";
@@ -117,17 +117,23 @@ export function LocalModelManager({
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
   const activeClient = useLatestRef(client);
+  const refreshRequest = useRef(0);
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
   // the click that started it.
   const modelPathRef = useLatestRef(modelPath);
   const onUseRef = useLatestRef(onUse);
 
-  const refresh = async () => {
+  const current = (generation: number) =>
+    mounted.current && activeClient.current === client && clientGeneration.current === generation;
+
+  const refresh = async (generation: number) => {
+    if (!current(generation)) return;
+    const request = ++refreshRequest.current;
     try {
       const next = await client.list();
-      if (mounted.current && activeClient.current === client) setList(next);
+      if (current(generation) && request === refreshRequest.current) setList(next);
     } catch (error) {
-      if (mounted.current && activeClient.current === client)
+      if (current(generation) && request === refreshRequest.current)
         setNotice(localModelErrorMessage(error) ?? "");
     }
   };
@@ -140,21 +146,18 @@ export function LocalModelManager({
     setInstalling({});
     setRemoving({});
     setImporting({});
-    void refresh();
+    void refresh(generation);
     return trackAsyncSubscription(
       client.onProgress((event) => {
-        if (
-          mounted.current &&
-          activeClient.current === client &&
-          generation === clientGeneration.current
-        )
-          setProgress((current) => ({ ...current, [event.id]: event }));
+        if (current(generation)) setProgress((current) => ({ ...current, [event.id]: event }));
       }),
       () => generation === clientGeneration.current,
     );
   }, [client, clientGeneration]);
 
   const install = async (model: LocalVoiceModel) => {
+    const generation = clientGeneration.current;
+    if (!current(generation)) return;
     setNotice("");
     setInstalling((current) => ({ ...current, [model.id]: true }));
     setProgress((current) => ({
@@ -163,55 +166,58 @@ export function LocalModelManager({
     }));
     try {
       const path = await client.install(model.id);
-      if (!mounted.current || activeClient.current !== client) return;
+      if (!current(generation)) return;
       setNotice(`「${model.title}」已下载。`);
       // A first model is what the user downloaded it for; a later one waits to be picked.
       if (!modelPathRef.current.trim()) onUseRef.current(path);
     } catch (error) {
-      if (mounted.current && activeClient.current === client)
+      if (current(generation))
         setNotice(localModelErrorMessage(error) ?? `已取消下载「${model.title}」。`);
     } finally {
-      if (mounted.current && activeClient.current === client) {
+      if (current(generation)) {
         setInstalling((current) => ({ ...current, [model.id]: false }));
         setProgress((current) => {
           const next = { ...current };
           delete next[model.id];
           return next;
         });
-        await refresh();
+        await refresh(generation);
       }
     }
   };
 
   const importFiles = async (model: LocalVoiceModel) => {
-    if (!client.import) return;
+    const generation = clientGeneration.current;
+    if (!client.import || !current(generation)) return;
     setNotice("");
     setImporting((current) => ({ ...current, [model.id]: true }));
     try {
       const path = await client.import(model.id);
-      if (!mounted.current || activeClient.current !== client) return;
+      if (!current(generation)) return;
       // 用户关掉了选择器，不算失败。
       if (path === null) return;
       setNotice(`「${model.title}」已导入。`);
       // 和下载一样：第一个装上的模型直接用上，之后的等用户选。
       if (!modelPathRef.current.trim()) onUseRef.current(path);
     } catch (error) {
-      if (mounted.current && activeClient.current === client)
+      if (current(generation))
         setNotice(localModelImportErrorMessage(error) ?? `已取消导入「${model.title}」。`);
     } finally {
-      if (mounted.current && activeClient.current === client) {
+      if (current(generation)) {
         setImporting((current) => ({ ...current, [model.id]: false }));
         setProgress((current) => {
           const next = { ...current };
           delete next[model.id];
           return next;
         });
-        await refresh();
+        await refresh(generation);
       }
     }
   };
 
   const remove = async (model: LocalVoiceModel) => {
+    const generation = clientGeneration.current;
+    if (!current(generation)) return;
     const confirmed = await confirm({
       title: "删除本地模型",
       message: localModelInUse(model, modelPath)
@@ -220,20 +226,19 @@ export function LocalModelManager({
       confirmLabel: "删除",
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || !current(generation)) return;
     setNotice("");
     setRemoving((current) => ({ ...current, [model.id]: true }));
     try {
       await client.remove(model.id);
-      if (!mounted.current || activeClient.current !== client) return;
+      if (!current(generation)) return;
       onRemoved(model);
     } catch (error) {
-      if (mounted.current && activeClient.current === client)
-        setNotice(localModelErrorMessage(error) ?? "");
+      if (current(generation)) setNotice(localModelErrorMessage(error) ?? "");
     } finally {
-      if (mounted.current && activeClient.current === client) {
+      if (current(generation)) {
         setRemoving((current) => ({ ...current, [model.id]: false }));
-        await refresh();
+        await refresh(generation);
       }
     }
   };

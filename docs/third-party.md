@@ -429,6 +429,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | macOS、Windows | [tplgy/cppcodec](https://github.com/tplgy/cppcodec) v0.2（标签提交 `302dc28f8fd5c8bf2ea8d7212aed3be884d5d166`，归档 SHA-256 `0edaea2a9d9709d456aa99a1c3e17812ed130f9ef2b5c2d152c230a5cbc5c482`），只有头文件 | MIT。`shared/voice` 的阿里云百炼请求把录音编成 Base64 数据 URL 时用它。只原样取 `base64_rfc4648.hpp` 需要的 8 个头文件，放在 `shared/voice/third_party/cppcodec/`，许可证全文在同目录 `LICENSE`；macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`）和 Windows 的 `Collect-Notices.ps1` 收录这份文本。Linux 不编译 `msime-voice-providers`，不带它 |
 | Windows | vcpkg 提供的 libcurl、fmt、nlohmann/json、utfcpp（清单与 baseline 在 `platforms/windows/vcpkg.json`） | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
 | Linux | IBus / Fcitx5、GTK 栈、libcurl、ICU、xkbcommon、nlohmann/json、X11 与 Wayland 客户端库 | 各自上游许可证，按发行版依赖引入 |
+| HarmonyOS | 华为标志 `packages/ui/src/assets/huawei-id/logo-red.svg`、`logo-white.svg`，原样取自 HarmonyOS SDK 6.1.1 的 HMS 资源 `hms/previewer/resources/resources/resources/base/media/huawei_id_logo_red.svg`、`huawei_id_logo_white.svg`（系统 `LoginWithHuaweiIDButton` 画的就是这两张）。只用在共享账号页的「华为账号登录」按钮上，按华为账号登录按钮规范放在文字左边 | **华为的商标，不是开源许可证**，按华为账号登录按钮规范使用 |
 | 桌面 | Tauri、React、Vite 等 | 见 `pnpm-lock.yaml` 与各自上游 |
 
 两个移动平台的 ML Kit 是识别手写笔迹用的。桌面与 Linux 不使用它，改用 `crates/engine` 里移植的离线 Zinnia 识别器和上面固定的模型；Android 的原生构建明确把 Zinnia 及其模型路径排除在外（`platforms/android/verify-native.sh`）。

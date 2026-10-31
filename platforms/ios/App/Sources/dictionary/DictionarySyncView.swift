@@ -640,6 +640,7 @@ struct DictionarySyncWebDAVEditor: View {
         .designRow()
       }
       .designPage()
+      .fittedSheet()
       .navigationTitle("词库同步网盘")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

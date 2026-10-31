@@ -304,7 +304,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 「按键布局」页（共享 React 设置页）还有两项（#10056，共享偏好、随账号同步，同步键 `platform.harmony.twenty_six_symbol_first` / `platform.harmony.number_pad_space`）：26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`，默认关）把 26 键一族设计底行的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格带上 符、按九键一族的次序排（`KeyboardView.letterRowSymbolLeads`）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，缺键或 `platform_default` 是鸿蒙原来的「空格在 0 左边」（`NineKeyLayout.actionRow` 的 `space`）。空格在右列时网格右列最下面一格从 ！ 换成空格（`touchNineKeyGrid`），右侧大回车不受影响。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
-九键左侧符号栏可以自定义（#10223，共享偏好、随账号同步，同步键 `platform.harmony.nine_key_symbols` / `platform.harmony.nine_key_digit_symbols`，值是空格分隔的写法，空串是出厂表）：「按键布局」9 键分段卡片里的「九键左侧符号」改字母层那张表（`touch_nine_key_sidebar_symbols`，拼音九键、九键双拼和笔画共用），「数字键盘」一组里的「数字键盘左侧符号」改所有九宫格数字键盘 #+= 上面那张表（`touch_nine_key_digit_sidebar_symbols`，九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读）。空表是鸿蒙出厂表，键盘照原来的画法：字母层 `, . ?`（显示与编辑器里写作 ，。？，点按交给 Engine 的标点处理），右侧大回车接 !，笔画的标点栏四格，数字层四则运算加 #+= 五格等高。用户的表画成可滚动的等高栈（`NineKeyLayout.sidebarItems`）：字母层一屏最多 3 项（右侧大回车也不再接 !），数字层是四格高的滚动区加最下面一格 #+=、一屏最多 4 项，每项不矮于 28 vp。自定义项点按先按首选结束组字再字面上屏，不做全半角转换，`（）`、`()` 这类整对符号光标停在中间（`KeyboardSession.insertSidebarSymbol`、`PairedPunctuationPolicy.literalPairClosing`，配对表照 Android）；统计仍记 `SoftPunctuation`。长按左列任一项打开设置的「屏幕键盘」页（键盘只能按页打开设置，开不到「按键布局」里的编辑页）。英文九键、2in1 屏幕键盘不读这两张表。
+九键左侧符号栏可以自定义（#10223，共享偏好、随账号同步，同步键 `platform.harmony.nine_key_symbols` / `platform.harmony.nine_key_digit_symbols`，值是空格分隔的写法，空串是出厂表）：「按键布局」9 键分段卡片里的「九键左侧符号」改字母层那张表（`touch_nine_key_sidebar_symbols`，拼音九键、九键双拼和笔画共用），「数字键盘」一组里的「数字键盘左侧符号」改所有九宫格数字键盘 #+= 上面那张表（`touch_nine_key_digit_sidebar_symbols`，九键一族的数字层和 26 键、14/18 键、手写借来的数字九宫格都读）。空表是鸿蒙出厂表，键盘照原来的画法：字母层 `, . ?`（显示与编辑器里写作 ，。？，点按交给 Engine 的标点处理），右侧大回车接 !，笔画的标点栏四格，数字层四则运算加 #+= 五格等高。用户的表画成可滚动的等高栈（`NineKeyLayout.sidebarItems`）：字母层一屏最多 3 项（右侧大回车也不再接 !），数字层是四格高的滚动区加最下面一格 #+=、一屏最多 4 项，每项不矮于 28 vp。自定义项点按先按首选结束组字再字面上屏，不做全半角转换，`（）`、`()` 这类整对符号光标停在中间（`KeyboardSession.insertSidebarSymbol`、`PairedPunctuationPolicy.literalPairClosing`，配对表照 Android）；统计仍记 `SoftPunctuation`。长按左列任一项打开设置「屏幕键盘」页的「按键布局」，直接进入这一张表的编辑页（字母层和笔画进字母表并切到 9 键分段，数字层进数字表）：键盘打开设置的 Want 除 `page` 外带一个可选的 `target`，值是那张表的共享偏好名，与 Android 的 `edit_sidebar_key` 相同（`SettingsPageLink.SCREEN_KEYBOARD_TARGETS`）；只带 `page` 的链接照旧只打开页面，`target` 不属于这一页或认不得时丢掉。英文九键、2in1 屏幕键盘不读这两张表。
 
 每个分段的样式卡片里还有「中/英键放在空格左边」（#10228，共享偏好 `touch_language_key_side`，`right` 默认、`left` 时打开，同步键 `platform.harmony.language_key_side`，26 键分段里排在互换开关之后）：样式和互换排完之后把 中/英 左边紧挨着的那一串空格、0、逗号和句号整串右移一格，中/英 挪到这一串最左边，份额不变（`TouchLayoutStylePolicy.languageBeforeSpace`、`NineKeyLayout.actionRow` 的 `languageLeft`）。空格左边没有标点的行 中/英 紧挨空格（`123 | 符 | 中/英 | 空格 | ， | 回车`、`符 | 123 | 中/英 | 空格 | 回车`），有标点的行标点仍紧挨空格（`123 | 符 | 中/英 | ， | 空格 | 。 | 回车`）。设计底行（26 键一族、14/18 键、大千注音）、九键外框和它的数字层、借来的数字九宫格、右侧大回车网格下方那一段和手写底行都算，2in1 底行和假名网格不动；中/英 离开回车后回车不再让出键帽，密码框和数字框不退回。见 `.agents/notes/implemented/feature/2026-10-29-language-key-left-of-space.md`。
 
@@ -322,6 +322,18 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 - 键面（`KeyboardView.oneHandSidePad`）：3 × 4 拨号盘 `1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫`，前三行高 `gridHeight()`、第四行高 `rowHeight(3)`，数字和 `.` 用 `fixedKey`，⌫ 用 `deleteKey`（带连删）。拼音九键和九键双拼的网格是三行，逐行对齐；笔画网格只有两行，面板的前三行平分网格高度，没法逐行对齐。数字和 `.` 走数字层的 `insertNumberPadLiteral`（组字中先把拼音原样上屏），读屏是「数字 N」「小数点」，统计记普通数字键、`Period` 和 `Backspace`。面板 `.id('oneHandSidePad')`。
 - 设置桥的能力位（`SettingsFormFactorCapabilities.resolve(deviceType, foldable)` 的 `oneHandedSidePanel`，报给共享设置页的 `touch_one_handed_side_panel`）：平板为真，手机在 `display.isFoldable()` 为真时为真（折叠状态下也列出，展开后生效），直板手机和 2in1 为假；`isFoldable` 出错时按不可折叠并记日志。鸿蒙平板走设置页的手机排法，这一行照样带说明，标题和说明与 Android、iOS 逐字相同。
 - 测试：`tests/keyboard-logic.test.ts` 覆盖宽度、取值、显示条件、键序、读屏名称和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-one-handed-side-panel.test.tsx`。
+
+## 大屏分离式键盘
+
+平板和折叠屏内屏横屏时，26 键一族（全拼、双拼、五笔、英文、日文罗马字、粤拼、越南语、藏文）和韩文的键盘可以分成左右两半（#10224），规则逐条移植自 Android 的 `SplitKeyboardPolicy`（`keyboard/SplitKeyboardPolicy.ts`）。开关在共享 React 设置页「屏幕键盘 › 布局」，四行与 Android 原生设置页逐字相同：「分离式键盘」（共享偏好 `touch_keyboard_split`，默认关，随账号同步，同步键 `platform.harmony.split_keyboard`，与 Android 的 `platform.android.split_keyboard` 各管各的设备）、「竖屏也分离」（`touch_keyboard_split_portrait`，与 Android 共用这个共享偏好）、「分离启用宽度」（`touch_keyboard_split_threshold`，480–1000vp、步进 20、默认 600）、「分离中间空隙」（`touch_keyboard_split_gap`，10–40%、步进 5、默认 25）。后三项只留本机，主开关关着时不可调。
+
+- 什么时候分（`SplitKeyboardPolicy.drawn`）：主开关打开，屏幕最短边不小于启用宽度，横屏或竖屏选项打开，不是 2in1，键盘没有浮动，正在画的键面能分（`KeyboardView.splitsFace`）。九键、14/18 键、笔画、注音、手写、假名九键不分，它们的符号页和借来的数字九宫格也不分。`readOrientation` 在转屏、折叠屏展开和折叠时记下屏幕宽高，分离与否随之重算，偏好不动。
+- 怎么分：字母三排、数字行、补充行、123 / #+= 层和两种底行都在键边界上断开，中间插一段不接触摸、读屏跳过的空隙（`splitGap`）。空隙至少占整行的「分离中间空隙」，两侧原始键区合计不超过 720vp，更宽的屏幕把多出来的宽度留在中间。字母第二、三排在右半边内侧重复 G、V（asdfg | ghjkl、⇧zxcv | vbnm⌫），重复的键从空隙借一个键宽，三排键宽不变；重复的键输入与左边那个相同，但不记滑行键位。底行的空格拆成两个，左边那个的份额让空隙落在整行中间，每一半至少保留原宽度的 15%。键盘高度不变。
+- 单手模式在分离时让位（`oneHandActive`），存着的值不变，功能面板的单手磁贴置灰。
+- 浮动键盘优先：浮动时不分离，分离设置不变，停靠后按原样回来；分离画着时浮动磁贴照常可用。与 Android `splitKeyboardDrawn` 在 `floatingDrawn()` 时返回 false 相同。
+- 两个空格共用同一套空格手势状态（光标拖动、长按语音）：两根拇指同时按住两个空格时后按下的会接管，与 Android 每个空格各自一份状态不同。
+- 设置桥的能力位（`SettingsFormFactorCapabilities` 的 `splitKeyboard`，报给共享设置页的 `touch_keyboard_split`）与侧边数字键盘相同：平板和可折叠手机为真，直板手机和 2in1 为假。
+- 测试：`tests/split-keyboard.test.ts` 覆盖读法、启用条件、几何和能力位，`tests/run.sh` 钉住接线；共享设置页的 `apps/desktop/tests/settings/harmony-split-keyboard.test.tsx`。见 `.agents/notes/implemented/feature/2026-10-30-split-keyboard-iphone-harmony.md`。
 
 ## 全拼九键的三栏展开面板
 

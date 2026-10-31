@@ -1246,6 +1246,28 @@ pub(super) fn apply_local_mode_extras(applier: &mut Applier<'_>) -> Result<(), A
     })
 }
 
+/// 鸿蒙分离式键盘的主开关（共享偏好 `touch_keyboard_split`）在账号文档里的键。Android 的主开关在它自己的本机设置 `platform.android.split_keyboard` 里（[`ANDROID_LOCAL_SETTINGS`]），两台设备各自同步；启用宽度和中间空隙在两端都只留本机，不同步。
+pub(super) const HARMONY_SPLIT_KEYBOARD: &str = "platform.harmony.split_keyboard";
+
+/// 导出鸿蒙分离式键盘的主开关。
+pub(super) fn insert_harmony_split_keyboard(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_bool(
+        settings,
+        HARMONY_SPLIT_KEYBOARD,
+        preferences.touch_keyboard_split,
+    );
+}
+
+/// [`insert_harmony_split_keyboard`] 的反方向。
+pub(super) fn apply_harmony_split_keyboard(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_bool(HARMONY_SPLIT_KEYBOARD, |preferences, value| {
+        preferences.touch_keyboard_split = value
+    })
+}
+
 /// [`insert_second_third_candidate`] 的反方向。不认识的键位跳过这一个键，开关照常应用。
 pub(super) fn apply_second_third_candidate(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     applier.set_bool("second_third_candidate.enabled", |preferences, value| {

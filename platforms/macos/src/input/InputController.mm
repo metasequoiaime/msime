@@ -1649,7 +1649,7 @@ static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC
 - (void)later:(id)sender { [self.recoveryDelegate dismissSessionRecoveryNotice:sender]; }
 @end
 
-@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate, NSAnimationDelegate>
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
@@ -1771,17 +1771,14 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _displayPageReported;
     BOOL _filteredFixedPages;
     NSUInteger _adaptivePage;
-    NSViewAnimation *_candidateFrameAnimation;
-    NSDictionary<NSDictionary *, NSValue *> *_candidateTransitionFrames;
     NSSize _candidateLayoutSize;
-    BOOL _candidatePreviousExpanded;
     BOOL _candidatePreviousVisible;
     BOOL _skinShowsSelectedBar;
     std::optional<msime::mac::SkinLayoutGeometry> _candidateLayoutGeometry;
     BOOL _candidateLayoutFitContent;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
-    // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
+    // 保留皮肤包动效元数据用于兼容与诊断，候选呈现不执行过渡。
     msime::mac::SkinAnimation _renderedCandidateAnimation;
     // The rendered skin's accent, which the glow selection preset shines in.
     NSColor *_renderedCandidateAccent;
@@ -5443,7 +5440,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     return (!MSIMEVoiceProviderSocket() && [provider.lowercaseString isEqual:@"doubao"]) || [self usesLocalModelVoice];
 }
 - (void)dealloc {
-    [self stopCandidateFrameAnimation];
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     [self stopEditableShiftMouseMonitoring];
     [self stopSettledScoring];
@@ -9002,10 +8998,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
         animation.durationMs);
 }
 
-// 候选窗同步显隐：_panel.isVisible 立即是新状态，键盘和指针路由从不等动画。皮肤包写了的动效只加在图层上，见 MSIMECandidateMotion。
+// 候选窗同步显隐，键盘与指针路由直接采用新状态。
 - (void)hideCandidatePanel:(const char *)reason {
-    _candidateTransitionFrames = nil;
-    [self stopCandidateFrameAnimation];
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
     _animatedHighlightSlot = 0;
     _animatedHighlightContext = nil;
@@ -9049,75 +9043,10 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     return [_panel frameRectForContentRect:NSMakeRect(0, 0, _candidateLayoutSize.width, _candidateLayoutSize.height)].size;
 }
 
-- (void)stopCandidateFrameAnimation {
-    NSViewAnimation *animation = _candidateFrameAnimation;
-    _candidateFrameAnimation = nil;
-    animation.delegate = nil;
-    [animation stopAnimation];
-    if ([_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) {
-        MSIMECandidateChromeView *content = (id)_panel.contentView;
-        content.resizingCandidateContentHeight = 0;
-        [content setNeedsLayout:YES];
-        [content layoutSubtreeIfNeeded];
-    }
-}
-
-- (void)animationDidEnd:(NSAnimation *)animation {
-    if (animation == _candidateFrameAnimation) [self stopCandidateFrameAnimation];
-}
-
 - (void)applyCandidateFrame:(NSRect)frame {
-    const BOOL animate = _candidatePreviousVisible && !_appearance.vertical &&
-        _candidatePreviousExpanded != (_expandedCandidates != nil) && !_candidateMotion.reduceMotion &&
-        !NSEqualRects(_panel.frame, frame);
-    MSIMECandidateChromeView *content = (id)_panel.contentView;
-    if (!animate) {
-        _candidateTransitionFrames = nil;
-        [_panel setFrame:frame display:YES];
-        [content layoutSubtreeIfNeeded];
-        return;
-    }
-    // NSViewAnimation 按整点更新窗口，目标也对齐整点，避免完成时再跳半点。
-    frame.origin.x = floor(frame.origin.x);
-    frame.origin.y = floor(frame.origin.y);
-    frame.size.width = ceil(frame.size.width);
-    frame.size.height = ceil(frame.size.height);
-    // 先完成目标布局，但不提前改变窗口。动画直接改变原窗口的 frame，背景、边框和阴影一起收放。
-    [content layoutSubtreeIfNeeded];
-    content.resizingCandidateContentHeight = NSHeight(content.candidateContentView.bounds);
-    content.frame = [_panel contentRectForFrameRect:_panel.frame];
-    [content setFrameOrigin:NSZeroPoint];
-    [content layoutSubtreeIfNeeded];
-    NSMutableArray<NSDictionary *> *animations = [NSMutableArray arrayWithObject:@{
-        NSViewAnimationTargetKey:_panel,
-        NSViewAnimationStartFrameKey:[NSValue valueWithRect:_panel.frame],
-        NSViewAnimationEndFrameKey:[NSValue valueWithRect:frame]}];
-    // 同一身份的候选从展开前的位置移到新位置；新出现的候选直接在目标位置。
-    for (NSView *view in MSIMECandidateControlSubviews(content)) {
-        if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
-        MSIMECandidateButton *button = (id)view;
-        NSValue *previous = button.candidateID ? _candidateTransitionFrames[button.candidateID] : nil;
-        if (!previous) continue;
-        const NSRect current = [_panel convertRectToScreen:[button convertRect:button.bounds toView:nil]];
-        const NSRect old = previous.rectValue;
-        // 内容随窗口顶部移动；只补偿格子相对窗口顶部的位置，不能再次叠加整窗移动。
-        const CGFloat dx = NSMinX(old) - (NSMinX(current) - NSMinX(_panel.frame));
-        const CGFloat dy = NSMinY(old) - (NSMinY(current) - NSMaxY(_panel.frame));
-        if (fabs(dx) < 0.5 && fabs(dy) < 0.5) continue;
-        const NSPoint origin = [button.superview convertPoint:button.frame.origin toView:nil];
-        NSRect start = button.frame;
-        start.origin = [button.superview convertPoint:NSMakePoint(origin.x + dx, origin.y + dy) fromView:nil];
-        [animations addObject:@{NSViewAnimationTargetKey:button,
-            NSViewAnimationStartFrameKey:[NSValue valueWithRect:start],
-            NSViewAnimationEndFrameKey:[NSValue valueWithRect:button.frame]}];
-    }
-    _candidateTransitionFrames = nil;
-    _candidateFrameAnimation = [[NSViewAnimation alloc] initWithViewAnimations:animations];
-    _candidateFrameAnimation.duration = 0.2;
-    _candidateFrameAnimation.animationCurve = NSAnimationEaseOut;
-    _candidateFrameAnimation.animationBlockingMode = NSAnimationNonblocking;
-    _candidateFrameAnimation.delegate = self;
-    [_candidateFrameAnimation startAnimation];
+    // 展开与收起同步设置窗口和内容尺寸，命中区域立即与画面一致。
+    [_panel setFrame:frame display:YES];
+    [_panel.contentView layoutSubtreeIfNeeded];
 }
 
 - (MSIMEDecorationFrames *)decorationFramesForImage:(NSImage *)image path:(const std::string &)path {
@@ -9704,8 +9633,6 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     viewport.manualScrollBegan = ^{
         MSIMEInputController *controller = weakSelf;
         if (controller) {
-            [controller->_candidateFrameAnimation setCurrentProgress:1];
-            [controller stopCandidateFrameAnimation];
             controller->_expandedScrollsViewport = YES;
         }
     };
@@ -9844,25 +9771,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _candidatePreviousVisible = _panel.isVisible;
     _candidateLayoutSize = [_panel contentRectForFrameRect:_panel.frame].size;
-    _candidatePreviousExpanded = NO;
-    for (NSView *subview in MSIMECandidateControlsView(_panel.contentView).subviews)
-        if ([subview isKindOfClass:MSIMEExpandedCandidateScrollView.class]) _candidatePreviousExpanded = YES;
-    _candidateTransitionFrames = nil;
-    if (_candidatePreviousVisible && _candidatePreviousExpanded != (_expandedCandidates != nil) && !_appearance.vertical) {
-        NSMutableDictionary<NSDictionary *, NSValue *> *frames = [NSMutableDictionary dictionary];
-        for (NSView *view in MSIMECandidateControlSubviews(_panel.contentView)) {
-            if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
-            NSDictionary *identifier = ((MSIMECandidateButton *)view).candidateID;
-            if (!identifier) continue;
-            NSRect rect = [_panel convertRectToScreen:[view convertRect:view.bounds toView:nil]];
-            rect.origin.x -= NSMinX(_panel.frame);
-            rect.origin.y -= NSMaxY(_panel.frame);
-            frames[identifier] = [NSValue valueWithRect:rect];
-        }
-        _candidateTransitionFrames = frames;
-    }
-    // 先记下看到的位置再停动画：停下会取消顶部对齐，窗口还在半途时旧内容会整体上下错开。
-    [self stopCandidateFrameAnimation];
     NSDictionary *previousRenderedView = _renderedCandidateView;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];

@@ -100,6 +100,8 @@ export interface HostCapabilities {
   touch_plugin_packs?: boolean;
   /** 触屏键盘在大屏单手模式空出来的一侧按 `touch_one_handed_side_panel` 画数字键盘，屏幕键盘页「布局」组给出「大屏单手时侧边显示数字键盘」。目前只有 HarmonyOS 的设置桥按设备形态报告（`SettingsFormFactorCapabilities`：平板和可折叠手机为真，直板手机和 2in1 为假）；Android 和 iOS 在原生设置页里给出这一项。缺省按不提供处理。 */
   touch_one_handed_side_panel?: boolean;
+  /** 触屏键盘在大屏横屏时按 `touch_keyboard_split`、`touch_keyboard_split_portrait`、`touch_keyboard_split_threshold` 和 `touch_keyboard_split_gap` 画分离式键盘，屏幕键盘页「布局」组给出「分离式键盘」「竖屏也分离」「分离启用宽度」和「分离中间空隙」。目前只有 HarmonyOS 的设置桥按设备形态报告（`SettingsFormFactorCapabilities`：平板和可折叠手机为真，直板手机和 2in1 为假）；Android 和 iOS 在原生设置页里给出这几项。缺省按不提供处理。 */
+  touch_keyboard_split?: boolean;
   /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
   touch_keyboard_height?: boolean;
   /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */

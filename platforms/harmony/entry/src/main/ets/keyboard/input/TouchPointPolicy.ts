@@ -68,7 +68,7 @@ export class TouchPointPolicy {
   }
 
   /**
-   * 几何 JSON 里除 `id` 以外的部分：`"keys":[[cx,cy,w,h] x 26，按 a..z],"semicolon":[cx,cy,w,h] 或 null,"duplicates":[]`。鸿蒙没有分离键盘，所以没有重复键。`semicolonShown` 是键面这一刻画不画微软双拼的 `;`，画着时 `semicolon` 必须已量到。有键还没量到、宽高不为正或数值不是有限数时返回 null，这时这一键不带按下点。每键都按当前键位现算，不缓存：26 个矩形每键拼一次的开销可以忽略，而缓存要靠视图在每处改动键位的地方记得作废，漏一处就会一直报旧的几何代次。布局没变时字符串不变，`KeyGeometryRegistry` 据此不重复下发。
+   * 几何 JSON 里除 `id` 以外的部分：`"keys":[[cx,cy,w,h] x 26，按 a..z],"semicolon":[cx,cy,w,h] 或 null,"duplicates":[]`。大屏分离式键盘右半边重复的 G、V 不单独上报：它们不记进键位（`KeyOptions.duplicate`），按下点按左边那个键上的同一相对位置换算，所以这里没有重复键。`semicolonShown` 是键面这一刻画不画微软双拼的 `;`，画着时 `semicolon` 必须已量到。有键还没量到、宽高不为正或数值不是有限数时返回 null，这时这一键不带按下点。每键都按当前键位现算，不缓存：26 个矩形每键拼一次的开销可以忽略，而缓存要靠视图在每处改动键位的地方记得作废，漏一处就会一直报旧的几何代次。布局没变时字符串不变，`KeyGeometryRegistry` 据此不重复下发。
    */
   static geometryLayout(
     keys: (GlideKeyRect | null)[],

@@ -78,7 +78,7 @@ final class KeyboardKeyButton: UIButton {
     }
   }
 
-  /// 连续输入的九键关闭过渡，其他按钮保留原有动画。
+  /// 需要立即反馈的按钮关闭过渡，默认保留原有动画。
   var animatesPressFeedback = true
 
   static let keyPressScale: CGFloat = 0.96

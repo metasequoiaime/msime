@@ -34,7 +34,7 @@ private struct CommunityReportSheet: View {
   @State private var message: String?
   @State private var sent = false
   var body: some View {
-    NavigationView {
+    NavigationStack {
       Form {
         Section("举报原因") {
           Picker("原因", selection: $reason) {
@@ -59,6 +59,8 @@ private struct CommunityReportSheet: View {
         }.disabled(busy).accessibilityIdentifier("submitCommunityReport")
         if busy { ProgressView() }
       }.disabled(busy)
+        .designPage()
+        .fittedSheet()
         .navigationTitle("举报").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         .alert("已收到举报", isPresented: $sent) { Button("好") { dismiss() } } message: { Text("感谢反馈，我们会尽快核实处理。") }

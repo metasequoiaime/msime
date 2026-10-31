@@ -15,12 +15,9 @@ test("更换客户端后回答旧目录删除确认不调用旧宿主", async ()
   fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
   await screen.findByText(entry.word);
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
-  const dialog = screen.getByRole("alertdialog");
   const nextRequest = vi.fn().mockResolvedValue({ catalog_entries: [], revision: 9 });
   panel.rerender(<CloudDictionaryCatalogPanel client={{ close: vi.fn(), request: nextRequest }} />);
-  await act(async () => {
-    fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
-  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "edit_catalog" }));
   expect(nextRequest).not.toHaveBeenCalled();
 });

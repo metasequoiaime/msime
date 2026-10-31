@@ -371,7 +371,7 @@ export interface MsimeSkin extends MsimeResolvedLayout {
   /** 共享层已完成四层合并的绘制结果；提供时优先于包的原始 geometry、horizontal、vertical 与开关字段。 */
   resolvedLayout?: MsimeResolvedLayout | null;
   id?: string;
-  /** 外部清单的 schema_version；写 2 时对任何 base 都启用动画，未提供 animation 也采用漂亮的安全默认动画。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
+  /** 外部清单的 schema_version；版本 2 保留动画字段的解析兼容性，候选界面始终立即呈现。九宫格、自由挂件等 canvas 专属字段只在 `base: "canvas"` 时由清单保留。 */
   schemaVersion?: 1 | 2;
   /** 画在哪个主题之上：全局主题、`system` 或 msime-windows 的内置外观（`fluent`、`wechat` 等），默认 `system`。base 为全局主题时，皮肤固定画在那个主题的明暗下。 */
   base?: string;

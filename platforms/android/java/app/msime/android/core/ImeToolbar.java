@@ -369,7 +369,7 @@ final class ImeToolbar {
         bindToolbarAction(expand, () -> {
             if (s.candidatePanelOpen) s.closeCandidatePanel();
             else s.openCandidatePanel();
-            expand.setExpanded(s.candidatePanelOpen, true);
+            expand.setExpanded(s.candidatePanelOpen);
             s.render();
         });
         ViewPolicy.hide(expand);
@@ -533,7 +533,7 @@ final class ImeToolbar {
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {
             chevron.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
                 s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
-            chevron.setExpanded(s.candidatePanelOpen, true);
+            chevron.setExpanded(s.candidatePanelOpen);
             // 关闭键在左边时分隔线由它画，展开键不再画第二条。
             chevron.setDividerShown(!ViewPolicy.isVisible(s.closePrediction));
         }

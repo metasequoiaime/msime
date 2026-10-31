@@ -8,7 +8,7 @@ final class MorePanelFoldTests: XCTestCase {
   private var savedSharedPreferences: [String: Any]?
   /// 「完成」写入共享文档的触屏几何参数，测试后恢复原值，免得之后的键盘画得更高。
   private var savedGeometry: [String: Any] = [:]
-  private let geometryKeys = ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment", "touch_voice_shortcut"]
+  private let geometryKeys = ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment"]
   private let defaultsKeys = [
     KeyboardPrivacyPreference.incognitoKey, KeyboardFeedbackPreference.soundKey, KeyboardFeedbackPreference.hapticsKey,
     KeyboardLayoutPreference.heightAdjustmentKey,
@@ -49,10 +49,8 @@ final class MorePanelFoldTests: XCTestCase {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
     var titles: [String] = ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘高度", "设置", "按键音"]
     if haptics { titles.append("振动") }
-    titles += ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入"]
-    if TouchToolbarLocalPreference.hidden || !KeyboardLayoutPreference.voiceShortcutEnabled {
-      titles.append("语音输入")
-    }
+    // 工具栏不放语音按钮，「语音输入」一直在菜单里。
+    titles += ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音输入"]
     if (try? VoiceTextHandoffStore().read()) != nil {
       titles.append("插入语音文字")
     }

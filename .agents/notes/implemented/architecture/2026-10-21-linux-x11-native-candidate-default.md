@@ -2,6 +2,8 @@
 
 Status: implemented
 
+候选卡片显隐与高亮的动效由[所有平台的候选立即呈现](../simplification/2026-10-30-candidate-immediate-presentation.md)取代；本篇的布局、定位、指针与装饰图帧动画决定继续成立。
+
 ## Problem
 
 macOS 候选窗的每个像素都由水杉自己画：首行有 logo、半粗体拼音和插入光标、「1 / 3」、28pt 的 ‹ › 与展开键，候选行按 `CandidateItemLayout` 排，释义固定 12pt，悬停有底色和手形指针，还有展开网格、皮肤动效和装饰图待机动效。Linux 上默认的 Fcitx5 路径把候选交给 classicui 的生成主题，IBus 交给桌面面板，这些细节在两条路径里都无从表达；只有选了 canvas 皮肤包、又在 X11 上时，插件才用自己的原生窗口画（[原生画布](2026-10-20-linux-native-canvas-x11.md)）。另一面，macOS 的排版、网格、滚轮和定位规则写在 `platforms/macos/src/candidate` 里，Linux 要对齐只能再抄一份，两份会漂移。

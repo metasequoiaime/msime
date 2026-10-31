@@ -15,7 +15,7 @@ import type {
 
 /** 管理云端候选查询、调频和固定位置，并隔离失效宿主的确认与回复。 */
 export function useCloudCandidatesPanel(client: CloudDictionaryPanelClient) {
-  const { confirm, confirmation } = useConfirm();
+  const { confirm, dismiss, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [text, setText] = useState("");
   const [scheme, setScheme] = useState("pinyin");
@@ -46,6 +46,7 @@ export function useCloudCandidatesPanel(client: CloudDictionaryPanelClient) {
 
   useEffect(() => {
     invalidate();
+    dismiss();
     setCandidates([]);
     setPositions([]);
     setQuery(null);
@@ -54,7 +55,7 @@ export function useCloudCandidatesPanel(client: CloudDictionaryPanelClient) {
     return () => {
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, dismiss, invalidate]);
 
   async function load(
     current: number,
