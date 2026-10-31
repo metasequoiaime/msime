@@ -7237,9 +7237,6 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
                 .unwrap();
                 let mut runtime =
                     Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 1).unwrap();
-                if mixed {
-                    runtime.set_wubi_fifth_code_top_commit(false);
-                }
                 runtime.focus(true).unwrap();
                 for value in b"guiy" {
                     let typed = runtime
