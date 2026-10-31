@@ -383,6 +383,17 @@ impl VocabularyProgressStore {
         self.read_locked(&lock)
     }
 
+    /// 只读：进度文件还不存在时返回 `Ok(None)`，不建目录、不建锁文件。
+    ///
+    /// 给菜单、托盘这类每次打开都来问一次的地方用。没开过背单词的用户不该因为点开了输入法菜单就多出一个目录；文件存在时照 [`Self::load`] 在锁内读，和写入方互斥，损坏的文档同样报错。检查和加锁之间文件才出现时，这一次报「没有进度」，下一次再问就对了。
+    pub fn load_existing(&self) -> Result<Option<VocabularyProgress>, VocabularyProgressError> {
+        match std::fs::symlink_metadata(self.directory.join(PROGRESS_FILE)) {
+            Ok(_) => self.load().map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Record that the user answered `word` from `book` with `grade` on `today`.
     ///
     /// Returns the card's new schedule. The word must be in the book: a card keyed on a word the

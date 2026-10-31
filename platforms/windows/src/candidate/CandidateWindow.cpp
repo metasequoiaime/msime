@@ -1240,11 +1240,12 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
       return measured_width(device_, wide(text), font_family_,
                             static_cast<float>(size), font_fallback_.Get());
     };
+    const auto secondary = candidate_secondary_run(candidate);
     items.push_back({width(candidate_primary_text(candidate), font_size_),
                      width(candidate_annotation_run(candidate), font_size_),
-                     width(candidate_secondary_text(candidate),
-                           metrics.translation_font),
-                     candidate_secondary_lines(candidate), candidate.translation_reserved});
+                     width(secondary.text, metrics.translation_font),
+                     candidate_secondary_lines(candidate), candidate.translation_reserved,
+                     secondary.readings.size()});
   }
   return items;
 }
@@ -2627,6 +2628,11 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   if (!flyout_)
     flyout_ = std::make_unique<CandidateFlyoutWindow>(
         [this](const CandidateMenuChoice &choice) {
+          if (choice.command == CandidateMenuCommand::AddToPersonalWordbook) {
+            if (personal_wordbook_ && menu_personal_)
+              personal_wordbook_(*std::exchange(menu_personal_, std::nullopt));
+            return;
+          }
           if (!click_)
             return;
           if (const auto action =
@@ -2635,6 +2641,11 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
         });
   // Every opening acts on its own candidate and wears the current theme: the flyout is reused, so neither may be fixed at the first right click. The reference rebuilds its menu on every open for the same effect (candidate_presenter.cpp:560-563).
   menu_target_.open(click);
+  // 占位行（AI 等回答时的「…」「—」）没有释义可收。
+  menu_personal_.reset();
+  if (personal_wordbook_ && !candidate->pending && !candidate->translation.empty())
+    menu_personal_ = PersonalWordbookRequest{candidate->text, candidate->translation,
+                                             candidate->pronunciation};
   flyout_->set_palette(palette_);
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
@@ -2642,7 +2653,7 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   // 本页第几个候选：「删除」行据此提示 Ctrl+Shift+Alt+N。
   const auto slot = static_cast<size_t>(candidate - painted_->candidates.begin());
   flyout_->open(screen.x, screen.y, code_points, candidate->actions_available,
-                candidate->fixed_position, slot);
+                candidate->fixed_position, slot, menu_personal_.has_value());
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,

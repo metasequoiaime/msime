@@ -605,6 +605,26 @@ void reservedTranslationRow() {
           "没有译文服务和离线释义时不留");
 }
 
+// 「显示读音」：读音在它那一行释义下面单独一行，classicui 和原生画布拿到同一份；没有释义时不画读音，选词的文字不带它。
+void pronunciationRow() {
+  const auto word = [](Json candidate, const std::string &pronunciation) {
+    candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
+    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, 0, 0, pronunciation);
+  };
+  const auto shown = [](const FcitxCandidate &candidate) {
+    return static_cast<const fcitx::CandidateWord &>(candidate).text().toString();
+  };
+  const auto read = word(Json{{"text", "爱"}, {"translation", "love; affection"}}, "/l\xCA\x8Cv/");
+  require(shown(read) == "爱\nlove; affection\n/l\xCA\x8Cv/", "classicui 把读音画在释义下面单独一行");
+  require(read.display().translation == "love; affection" && read.display().pronunciation == "/l\xCA\x8Cv/",
+          "原生画布拿到不带读音的释义和单独的读音");
+  require(read.text() == "爱", "读音不进上屏文字");
+  const auto bare = word(Json{{"text", "爱"}}, "/l\xCA\x8Cv/");
+  require(shown(bare) == "爱" && bare.display().pronunciation.empty(), "没有释义时不画读音");
+  require(shown(word(Json{{"text", "爱"}, {"translation", "love"}}, std::string())) == "爱\nlove",
+          "没有读音时释义照旧");
+}
+
 void emojiGroupResultFencing() {
   const Json current = Json{{"_generation", 7}, {"_category", "symbols"}};
   require(emojiGroupsResultCurrent(current, 7, "symbols"),
@@ -1415,6 +1435,7 @@ int main(int argc, char **argv) {
       caretEditSuffixRow();
       translationPreferenceChangesIncludeAccount();
       reservedTranslationRow();
+      pronunciationRow();
       const auto sentence = FcitxState::sentenceTranslationQuery(
           Json{{"generation", 17}, {"candidates", Json::array()},
                {"gloss_query", Json{{"generation", 17}, {"provider", "none"}, {"candidates", Json::array()}}}},
@@ -3868,6 +3889,19 @@ int main(int argc, char **argv) {
       require(state->translation_epoch_ > translationEpochBeforePronunciation &&
                   state->translation_query_.empty() && state->translation_pending_.empty(),
               "pronunciation preference changes restart the translation request");
+      // 打开「显示读音」后，候选的读音取自翻译工作线程记下的那份，按主目标语言那一行读；换焦点、换偏好时随翻译请求一起作废，用户刚下载读音表时记下的空串要重新问。
+      const Json glossed{{"text", "爱"}, {"translation", "love; affection"}};
+      state->pronunciations_.store(Json{{"love; affection", "/l\xCA\x8Cv/"}});
+      require(state->candidatePronunciation(glossed) == "/l\xCA\x8Cv/", "pronunciation follows the stored reading");
+      state->preferences_["translation_target_language"] = "fr";
+      require(state->candidatePronunciation(glossed).empty(), "a French target is not read as English");
+      state->preferences_["translation_target_language"] = "en";
+      state->preferences_["candidate_pronunciation"] = false;
+      require(state->candidatePronunciation(glossed).empty(), "the switch turned off hides the reading");
+      state->preferences_["candidate_pronunciation"] = true;
+      state->invalidateTranslationRequests();
+      require(state->pronunciations_.size() == 0 && state->candidatePronunciation(glossed).empty(),
+              "invalidated translation requests drop the stored readings");
     };
     provider.join();
     auto page = ic.inputPanel().candidateList();
@@ -4625,6 +4659,32 @@ int main(int argc, char **argv) {
     state->refreshTranslations();
     require(ic.inputPanel().candidateList()->candidate(0).text().toString().find("synthetic-gloss") != std::string::npos,
             "异步空译文回包不能触发主动清理");
+    // 「显示读音」：工作线程回答里的 "pronunciations" 经 refreshTranslations 记下，候选按它取读音；开关关着时回答里的读音不记。
+    {
+      const Json glossed{{"text", "爱"}, {"translation", "love"}};
+      const auto savedPreferences = state->preferences_;
+      const auto deliverPronunciations = [&](bool pronounce) {
+        const auto query = response(msime_client_translation_query(state->session_));
+        state->startTranslation(query, true);
+        state->preferences_["candidate_pronunciation"] = pronounce;
+        std::promise<Json> reply;
+        state->translation_job_ = reply.get_future().share();
+        reply.set_value(Json{{"query", query.dump()},
+                             {"translations", Json::array()},
+                             {"continue_online", false},
+                             {"pronunciations", Json{{"love", "/l\xCA\x8Cv/"}}},
+                             {"_socket", state->translation_socket_}});
+        state->refreshTranslations();
+      };
+      state->pronunciations_.clear();
+      deliverPronunciations(false);
+      state->preferences_["candidate_pronunciation"] = true;
+      require(state->candidatePronunciation(glossed).empty(), "pronunciations in a reply are not kept while the switch is off");
+      deliverPronunciations(true);
+      require(state->candidatePronunciation(glossed) == "/l\xCA\x8Cv/", "the worker reply's pronunciations reach the candidate");
+      state->preferences_ = savedPreferences;
+      state->pronunciations_.clear();
+    }
     const auto translatedGeneration = state->view_.at("generation");
     for (int repeat = 0; repeat < 3; ++repeat) {
       state->online_due_ = state->ai_due_ = std::chrono::steady_clock::now();

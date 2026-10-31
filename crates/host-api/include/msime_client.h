@@ -447,6 +447,7 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * {directory,resources,day,action:{operation:"import",name,text}}
  *   text is a CSV/TXT word list; the library mints the id and selects the book.
  * {directory,resources,day,action:{operation:"remove",wordbook}}
+ * {directory,resources,day,action:{operation:"remove_personal_word",word}} 把一个词移出生词本（id 为 personal、带 personal:true 的那本书），复习进度保留；移走最后一个词时生词本随之删除。
  * {directory,resources,day,action:{operation:"reset"}} clears progress, keeps the books.
  * 可选的 plugins 是插件目录的绝对路径：其中的单词本插件按 pack-<插件 id> 列在内置书之后、导入的书之前，带 pack:true；对它们的 remove 失败（在插件页卸载），卸载后复习进度保留。不传 plugins 的宿主只有内置和导入的书。
  * `day` is the caller's local day and is required by every action: the counts and
@@ -454,6 +455,12 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * 请求最多 17 MiB，为原始 8 MiB 词表的常规 JSON 转义和目录等元数据留出空间；解码后的
  * 词表仍受共享解析器的 8 MiB 上限约束。会取文件锁并读取词书，只能在工作线程调用。 */
 char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
+/* 候选窗的「加入生词本」：{directory,candidate,gloss,pronunciation?}，directory 是与背单词相同的绝对应用数据目录，candidate 是候选原文，gloss 是候选旁显示的释义（几种语言时用换行或 U+2028 分行，义项用 ; 或 ；分隔），pronunciation 是随释义显示的读音（几行时只用第一行，可省略）。词头取第一行的第一个义项，释义是候选原文；同一个词已在生词本里时合并释义。
+ * 成功时 value 是 {outcome,notice}：outcome 为 added、merged、already_present、full（生词本已满）或 invalid（释义做不成卡片），notice 是给用户看的一句提示，宿主原样显示。只有请求或存储本身出错时 ok 为 false。
+ * 会取词书目录的文件锁并读写生词本：宿主在用户点了菜单之后调用一次，不在每次按键时调用。请求最多 64 KiB。 */
+char *msime_client_personal_wordbook_add(const uint8_t *request, size_t length);
+/* 今日待复习的张数，给菜单栏、托盘菜单这类用户自己点开才看得到的地方用；组字期间不显示，也不进候选窗。请求是 {directory,resources,day:"YYYY-MM-DD",plugins?}，含义与 msime_client_vocabulary_review 相同。返回值与 msime_client_vocabulary_review 应答里的 due 是同一个数（包括今天要出的新卡），但只读进度文档和选中的那一本书，不读书目、不组装队列。从没开过背单词、没选书或选中的书已不在时返回 0，且不创建任何文件或目录；请求不合法、进度文档损坏或选中的书读不出来时返回 -1，宿主应隐藏这一项。会取进度文件锁并读一本书（内置书最大约 1 MB）：在打开菜单时或工作线程上调用，不要每个按键都调。 */
+int32_t msime_client_vocabulary_due_count(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page sees: {packages:[...],issues:[...]}. Reads the directory: use a worker. An unreadable root is an empty catalog; an invalid package becomes an issue and is never returned as renderable. Presenters must still check that a package supports the layout and theme before adopting its colors. Keys are camelCase, the same document the settings page consumes. Besides the colours (drawn through msime_client_resolve_theme, where a palette's translation becomes secondary) a package carries what a presenter draws itself: minWidthDip; cornerRadiusDip (0-32, null keeps the host radius); decorationTopDip, decorationWidthDip and decorationImage (package-relative, null unless decorated) placed by decorationAlign ("left"|"center"|"right"), with decorationMotion ("none"|"float"|"sway"|"breathe"|"bounce", an idle motion of the whole image while the window is on screen), decorationMotionPeriodMs (1200-8000) and decorationFrames (0 without a decoration image, 1 for a still image, the animation frame count of an APNG, GIF or WebP otherwise; a host that cannot play frames draws the first); background null or {image,fit:"cover"|"contain"|"stretch",opacity:0-1}, drawn over the surface and under the candidates, clipped to the card outline; toolbar {cornerRadiusDip|null, light, dark} where each mode is {background,border,handle,divider,icon,hover}, each #RRGGBB, #RRGGBBAA or null for the host's own. A package may also carry notices, non-fatal strings about manifest keys it parsed but does not apply here (canvas-only keys on a non-canvas base, or a canvas package's nine-slice panel and widgets, which no msime host draws); the key is absent when there are none and the package stays usable. Image paths are already confined to the package and are images; read them with msime_client_skin_resource. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 /* Scan an absolute Engine resource directory for optional custom helper-code tables. The
