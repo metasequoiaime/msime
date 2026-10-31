@@ -78,6 +78,8 @@ fn consumed_letters(pinyin: &str) -> usize {
 }
 
 /// 首组与第一行字数、消耗字母数相同的连续字典候选，最多 16 行；完整读音首选不与其它读音混排。
+///
+/// A touch-supported correction row after the leader ends the group, as a Generated correction sentence does: it keeps its raw dictionary weight while the engine seated it by the touch-penalized rank, so blending that weight here could lift a word the user did not type over the literal leader.
 fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
     let first = &candidates[0];
     let characters = first.word.chars().count();
@@ -89,10 +91,12 @@ fn leading_group_len(candidates: &[WordItem], scheme: SchemeType) -> usize {
     candidates
         .iter()
         .take(MAX_GROUP)
-        .take_while(|item| {
+        .enumerate()
+        .take_while(|(index, item)| {
             item.source.is_dictionary()
                 && item.word.chars().count() == characters
                 && consumed_letters(&item.pinyin) == letters
+                && (*index == 0 || !(item.touch_supported && !item.corrected_from.is_empty()))
                 && (!exact_reading
                     || item.canonical_pinyin == first.canonical_pinyin
                     // 同一串字母的另一种完整切分（fan'gan 与 fang'an）。
@@ -446,6 +450,38 @@ mod tests {
         .unwrap();
         assert_eq!(order.group_len, 2);
         assert_eq!(order.indices[0], 1);
+    }
+
+    #[test]
+    fn a_touch_correction_row_ends_the_group() {
+        // Shuangpin short-word corrections carry their raw dictionary weight; inside the group that weight alone would outrank the literal leader the touch penalty kept first.
+        let mut corrected = row("关", 2_000_000);
+        corrected.corrected_from = "gf".into();
+        corrected.touch_supported = true;
+        let mut list = vec![row("跟", 1000), corrected, row("根", 500)];
+        assert_eq!(leading_group_len(&list, SchemeType::Shuangpin), 1);
+
+        let mut model = PersonalNgram::default();
+        model.add_pair("没", "关", 32);
+        assert_eq!(
+            personal_context_rerank_order(
+                &list,
+                &model,
+                None,
+                "没",
+                SchemeType::Shuangpin,
+                &mut never_pinned()
+            ),
+            None
+        );
+
+        // Other autocorrected rows (Quanpin corrected cuts) keep their place in the group, and a corrected leader still opens it.
+        list[1].touch_supported = false;
+        assert_eq!(leading_group_len(&list, SchemeType::Shuangpin), 3);
+        list[0].corrected_from = "gf".into();
+        list[0].touch_supported = true;
+        list[1].touch_supported = true;
+        assert_eq!(leading_group_len(&list, SchemeType::Shuangpin), 1);
     }
 }
 
