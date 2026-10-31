@@ -8967,7 +8967,16 @@ private:
       update_preview();
   }
 
-  // Runs `call` on a worker and hands its result to `done` on the UI thread, unless the window has closed by then.
+  // 目录写入已经成功，与发起操作的图库是否还在无关。可见页面立即重扫；
+  // 强制扫描会在旧扫描结束后排队再读，避免旧结果没有变化时漏掉这次写入。
+  void skin_catalog_changed() {
+    skins_stale_ = true;
+    if ((current_page_ == "themes" && !skin_community_view_) ||
+        (current_page_ == "candidate" && preview_visible_ && preview_wants_skins()))
+      scan_skins(true);
+  }
+
+  // 在工作线程运行 `call`，窗口未关闭时将结果交给 UI 线程上的 `done`。
   template <typename T>
   fire_and_forget run_worker(std::function<T()> call, std::function<void(T &)> done) {
     auto weak = get_weak();
@@ -9905,12 +9914,8 @@ private:
                if (response.ok && value.ValueType() == JsonValueType::Object) {
                  const auto report = value.GetObject();
                  if (!named_strings(report, L"downloaded").empty() ||
-                     !named_strings(report, L"deleted_local").empty()) {
-                   skins_stale_ = true;
-                   // 已经切回「本地皮肤」时现在就重扫。
-                   if (!skin_community_view_)
-                     redraw_themes();
-                 }
+                     !named_strings(report, L"deleted_local").empty())
+                   skin_catalog_changed();
                }
                if (skin_sync_queued_ && skin_community_view_ && current_page_ == "themes")
                  run_skin_sync();
@@ -9951,7 +9956,7 @@ private:
         [this, owner](Outcome &outcome) {
           // 皮肤已经写进目录时，即使图库已经换了，「本地皮肤」也该重扫。
           if (outcome.response.ok)
-            skins_stale_ = true;
+            skin_catalog_changed();
           if (owner != skin_gallery_.owner)
             return;
           if (outcome.exists) {

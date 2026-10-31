@@ -7574,7 +7574,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  /// 运行时上屏替换行内预编辑；只有显式定位才在临时标记里指定选区。
   private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
                              cursorSuffix: String? = nil) {
     let cursor = cursorSuffix.flatMap { suffix -> Int? in
@@ -7582,11 +7582,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return text.utf16.count - suffix.utf16.count
     }
     if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
-      // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
       inlineMarkedText = ""
-      if cursor != nil { pairedPunctuation.clear() }
-      textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor ?? text.utf16.count, length: 0))
-      textDocumentProxy.unmarkText()
+      if let cursor {
+        // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动猜错 emoji、组合字符或双向文本的单位。
+        pairedPunctuation.clear()
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor, length: 0))
+        textDocumentProxy.unmarkText()
+      } else {
+        // 普通上屏直接替换标记区，避免重新标记的跨进程回声让剩余组字覆盖已选汉字。
+        textDocumentProxy.insertText(text)
+      }
       noteOwnEdit()
     } else {
       showInlineComposition("")

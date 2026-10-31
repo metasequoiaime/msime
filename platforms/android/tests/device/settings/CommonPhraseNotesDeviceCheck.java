@@ -72,6 +72,7 @@ final class CommonPhraseNotesDeviceCheck {
             edit(NOTE, CHANGED);
             awaitStored(BODY, CHANGED);
             test.stage = "backup export and restore preserve independent note";
+            awaitDictionaryReadReady(options);
             backupRoundTrip(directory);
             test.stage = "legacy replace request preserves note";
             String id = stored().getString("id");
@@ -142,6 +143,23 @@ final class CommonPhraseNotesDeviceCheck {
         }
         test.tap(described(note ? "常用语备注：" + NOTE : "常用语 " + BODY.substring(0, 20)));
         test.await(test.field("msime-test-plain").and(node -> BODY.equals(value(node))));
+    }
+
+    private void awaitDictionaryReadReady(JSONObject options) throws Exception {
+        Method dictionary = test.getTargetContext().getClassLoader()
+            .loadClass("app.msime.android.NativeClient").getMethod("dictionary", String.class);
+        String request = new JSONObject().put("options", options).put("action", new JSONObject()
+            .put("operation", "count").put("user_only", true)).toString();
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            JSONObject response = new JSONObject((String) dictionary.invoke(null, request));
+            if (Boolean.TRUE.equals(response.opt("ok"))) return;
+            if (!"dictionary maintenance busy".equals(response.optString("error")))
+                throw new AssertionError("Synthetic phrase backup dictionary precondition failed");
+            // 关闭键盘会启动异步词库维护；等共享读租约可用，再执行一次完整备份。
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Synthetic phrase backup dictionary remained busy");
     }
 
     private void backupRoundTrip(File directory) throws Exception {

@@ -302,6 +302,72 @@ fn personal_rerank_refresh_reuses_shown_rows_and_preserves_learning_order() {
     }
 }
 
+#[test]
+fn personal_context_keeps_an_exact_reading_ahead_of_a_shorter_reading() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_h VALUES('hao','h','子',100);
+CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_g VALUES('gei','g','甲',100);
+INSERT INTO tbl_1_g VALUES('ge','g','乙',1000);",
+    );
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO personal_bigram(previous,word,count) VALUES('子','乙',32)",
+            [],
+        )
+        .unwrap();
+    drop(journal);
+    let mut session = fixture.session_with(|options| {
+        options.personal_context = true;
+        options.helpcode = false;
+    });
+    type_text(&mut session, "gei");
+    assert_eq!(words(&session)[0], "甲");
+    assert!(words(&session).iter().any(|word| word == "乙"));
+    session.command(Command::Cancel);
+    type_text(&mut session, "hao");
+    select_word(&mut session, "子");
+    type_text(&mut session, "gei");
+    assert_eq!(words(&session)[0], "甲");
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("甲")
+    );
+}
+
+#[test]
+fn personal_context_reranks_complete_alternative_segmentations_together() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_1_h VALUES('hen','h','很',100);
+CREATE TABLE tbl_2_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+INSERT INTO tbl_2_f VALUES('fang''an','fa','方案',1000);
+INSERT INTO tbl_2_f VALUES('fan''gan','fg','反感',100);",
+    );
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO personal_bigram(previous,word,count) VALUES('很','反感',32)",
+            [],
+        )
+        .unwrap();
+    drop(journal);
+    let mut session = fixture.session_with(|options| {
+        options.personal_context = true;
+        options.helpcode = false;
+    });
+    type_text(&mut session, "fangan");
+    assert_eq!(words(&session)[0], "方案");
+    assert!(words(&session).iter().any(|word| word == "反感"));
+    session.command(Command::Cancel);
+    type_text(&mut session, "hen");
+    select_word(&mut session, "很");
+    type_text(&mut session, "fangan");
+    assert_eq!(words(&session)[0], "反感");
+}
+
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,
