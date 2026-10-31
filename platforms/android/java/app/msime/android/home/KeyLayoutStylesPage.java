@@ -117,7 +117,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
             kind = KeyLayoutStylesPolicy.Kind.NINE;
         openPendingSidebarEdit(kinds, groups.any());
         if (kind != null) styleSection(context, target, kinds);
-        // 九宫格数字键盘三端都从各类中文键面进得去（自己的数字层或借来的数字九宫格），本版本有任一类键盘就列这一组。
+        // 每种键面按 123 都进九宫格数字键盘（自己的数字层或借来的数字九宫格），本版本有任一类键盘就列这一组；没有任何一类时整页入口都不列。
         if (groups.any()) numberPadSection(context, target);
         // 顶部数字行只画在 26 键、14 键和 18 键上，本版本两类键面都没有（例如只有九键和笔画）时不列这个开关；它和 iOS、鸿蒙一样放在没有标题的一组里。分段停在 9 键时照样显示，预览里 9 键不画数字行。
         if (!groups.numberRow()) return;
