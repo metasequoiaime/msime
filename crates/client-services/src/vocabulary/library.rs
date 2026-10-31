@@ -591,12 +591,21 @@ impl WordbookLibrary {
         text: &str,
     ) -> Result<PersonalImportReport, WordbookLibraryError> {
         let parsed = wordbook_import::parse(text, MAX_PERSONAL_IMPORT_BYTES)?;
-        let mut report = PersonalImportReport {
+        let report = PersonalImportReport {
             failed: parsed.failed,
             first_failures: parsed.first_failures,
             truncated: parsed.truncated,
             ..PersonalImportReport::default()
         };
+        self.merge_personal(parsed.entries, report)
+    }
+
+    /// 把已经校验过的词条逐个并进生词本，规则同 [`Self::import_personal`]，整批只写一次。`report` 里已有的格式错误计数原样带回。
+    pub fn merge_personal(
+        &self,
+        incoming: Vec<WordbookEntry>,
+        mut report: PersonalImportReport,
+    ) -> Result<PersonalImportReport, WordbookLibraryError> {
         let lock = self.lock()?;
         let mut entries = self.personal_entries_locked(&lock)?;
         let mut positions: HashMap<String, usize> = entries
@@ -604,7 +613,11 @@ impl WordbookLibrary {
             .enumerate()
             .map(|(position, entry)| (entry.word.clone(), position))
             .collect();
-        for entry in parsed.entries {
+        for entry in incoming {
+            if !entry.is_valid() {
+                report.failed += 1;
+                continue;
+            }
             match positions.get(&entry.word) {
                 Some(&position) => {
                     if merge_personal_entry(&mut entries[position], &entry) {

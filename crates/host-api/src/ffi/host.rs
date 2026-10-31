@@ -3315,5 +3315,51 @@ pub unsafe extern "C" fn msime_client_vocabulary_due_count(
     }
 }
 
+/// 鸿蒙设置应用导入键盘发布的生词本：把键盘沙箱里那本并进这个目录的生词本。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::personal::merge_published`。
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_merge(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        published: String,
+        #[serde(default)]
+        previous: Option<String>,
+    }
+
+    response(|| {
+        // 两份生词本文档各不超过 4 MiB，再给 JSON 转义留出同样多的余量。
+        const MAX_REQUEST_BYTES: usize = 17 * 1024 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
+            return Err("invalid personal wordbook buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid personal wordbook request")?;
+        if request.directory.len() > 16_384
+            || !std::path::Path::new(&request.directory).is_absolute()
+        {
+            return Err("invalid personal wordbook directory".into());
+        }
+        let report = personal::merge_published(
+            std::path::Path::new(&request.directory),
+            &request.published,
+            request.previous.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(report).map_err(|_| "personal wordbook response failed".to_owned())
+    })
+}
+
 #[cfg(test)]
 mod cloud_clipboard_tests;
