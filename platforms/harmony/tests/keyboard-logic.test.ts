@@ -6906,12 +6906,20 @@ group("local modes are addressable by trigger and by preference key", () => {
     LocalInputMode.touchModes(false) === LocalInputMode.MODES,
     "with / 指令 off the touch panel lists the nine tiles and no 指令",
   );
+  check(
+    LocalInputMode.touchColumns(LocalInputMode.MODES.length) === 3,
+    "nine touch modes use three columns so 拆字 does not hang alone below the grid",
+  );
   const withCommand = LocalInputMode.touchModes(true);
   check(
     withCommand.length === LocalInputMode.MODES.length + 1 &&
       withCommand[withCommand.length - 1] === LocalInputMode.fromPreferenceKey("command") &&
       withCommand[withCommand.length - 1].title === "指令",
     "with / 指令 on the touch panel adds 指令 after 拆字",
+  );
+  check(
+    LocalInputMode.touchColumns(withCommand.length) === 4,
+    "the optional 指令 keeps the touch grid at three rows",
   );
   check(
     withCommand.every(
@@ -11369,6 +11377,28 @@ group("the function panel follows the design's order, then the Harmony extras", 
   );
   const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
   check(new Set(ids).size === ids.length, "every id is unique");
+});
+
+group("phones and tablets hide the local input entry", () => {
+  const touchIds: string[] = FunctionPanelPolicy.items(true, false).map(
+    (item: FunctionPanelItem) => item.id,
+  );
+  check(
+    !touchIds.includes(FunctionPanelPolicy.LOCAL_INPUT),
+    "the phone and tablet function panel has no 本地输入 tile",
+  );
+  check(
+    FunctionPanelPolicy.items(true).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "the 2in1 panel keeps the local input tile",
+  );
+  check(
+    !FunctionPanelPolicy.items(false, false).some(
+      (item: FunctionPanelItem) => item.id === FunctionPanelPolicy.LOCAL_INPUT,
+    ),
+    "hiding local input also works when AI tiles are unavailable",
+  );
 });
 
 group(
