@@ -152,6 +152,8 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 
 卸载入口随后补上了结果语义：共享层返回 `removed: false` 时表示目标目录本来不存在，Android 设置页必须显示失败而不能清理“已完成”状态或提示卸载成功；Java 门面现在保留并返回这个布尔值。
 
+卸载与安装的互斥随后收进进程级和共享层两处。原先只在设置页的线程上先读一次 `ResourcePackService.status(...).running()` 再删，检查与删除之间不是原子的；设置页没有声明 `configChanges`，卸载中旋转屏幕会重建出 `removing` 为假的新页面，导入按钮重新可点，与仍在进行的删除并行，旧页面 `onDestroy` 的 `shutdownNow` 还可能丢掉排队未执行的卸载。现在 `msime_client_resource_pack_remove` 与安装、校验、收编共用同一张登记表，同一进程里同一资源包忙时双方都返回 `resource_pack_busy`；Android 的卸载交给 `ResourcePackService.remove`，在主线程与 `claim` 一起判断并记入进程级的卸载集合，在不随页面结束的命名线程上执行，结束时经监听器通知并用提示报告结果，下载、导入请求在卸载期间被拒绝，卸载开始后才到达的请求记为失败原因「正在卸载」。备选是给 `Status` 加一个卸载阶段，但 `runningPacks()` 会把它算作下载中，牵动前台服务的停止条件和进度通知，所以用独立的集合。共享层登记表只在一个进程内有效，`:ime` 进程打开拍照识字前的校验不与主进程的卸载互斥，那一路仍依靠加载前重新校验安装状态。
+
 [手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口；Android 的 sherpa-onnx 语音运行库也带一份 ONNX Runtime，与 OCR 模块那份在同一进程里共存的验证见下文。[Google Play 分发](../../implemented/process/2026-10-23-android-google-play-distribution.md)部分相关：Play 渠道不提供外部可执行模块，OCR 入口在该渠道拒绝。现有活跃笔记没有相机 OCR 的决定。
 
 ## Probe invocation

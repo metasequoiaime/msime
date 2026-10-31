@@ -29,7 +29,6 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
     private Button permission;
     private Button choose;
     private Button remove;
-    private boolean removing;
     private Button download;
 
     @Override public void onCreate(Bundle state) {
@@ -87,6 +86,8 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
                 pack = found;
                 boolean supported = !AppVersionPolicy.playDistribution();
                 ResourcePackService.Status progress = ResourcePackService.status(ResourcePacks.OCR_MODULE);
+                // 卸载状态放在进程里：页面重建后仍能看到进行中的卸载，不会在删除途中重新开放导入。
+                boolean removing = ResourcePackService.removing(ResourcePacks.OCR_MODULE);
                 String description = ResourcePackService.describe(progress);
                 status.setText(removing ? "正在卸载配套模块…"
                     : !supported ? "此分发渠道不提供外部可执行模块。"
@@ -128,7 +129,7 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
     }
 
     private void confirmRemove() {
-        if (pack == null || removing) return;
+        if (pack == null || ResourcePackService.removing(ResourcePacks.OCR_MODULE)) return;
         ScreenCaptureProtection.show(new AlertDialog.Builder(this)
             .setTitle("卸载配套模块？")
             .setMessage("卸载后将无法拍照识字，可重新导入恢复。你下载的原始文件和其他输入法数据会保留。")
@@ -137,35 +138,18 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
             .create());
     }
 
+    /** 卸载交给进程级的资源包服务：与下载、导入在同一处互斥，页面重建或关闭不会丢掉进行中的卸载；结束时经监听器刷新本页。 */
     private void removeModule() {
-        if (removing) return;
-        removing = true;
-        choose.setEnabled(false);
-        remove.setEnabled(false);
-        status.setText("正在卸载配套模块…");
-        worker.execute(() -> {
-            boolean success;
-            try {
-                ResourcePackService.Status progress = ResourcePackService.status(ResourcePacks.OCR_MODULE);
-                if (progress != null && progress.running()) throw new ResourcePacks.Failure("resource_pack_busy");
-                success = ResourcePacks.remove(getApplicationContext(), ResourcePacks.OCR_MODULE);
-            } catch (ResourcePacks.Failure failure) {
-                success = false;
-            }
-            boolean removed = success;
-            runOnUiThread(() -> {
-                if (removed) ResourcePackService.clearFinishedStatus(ResourcePacks.OCR_MODULE);
-                if (isDestroyed()) return;
-                removing = false;
-                Toast.makeText(this, removed ? "配套模块已卸载" : "卸载失败，请稍后重试", Toast.LENGTH_LONG).show();
-                refresh();
-            });
-        });
+        if (ResourcePackService.remove(this, ResourcePacks.OCR_MODULE)) refresh();
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request != PICK_MODULE || result != RESULT_OK || data == null || pack == null) return;
+        if (ResourcePackService.removing(ResourcePacks.OCR_MODULE)) {
+            Toast.makeText(this, "配套模块正在卸载，请等卸载完成后再导入", Toast.LENGTH_LONG).show();
+            return;
+        }
         Uri uri = data.getData();
         if (uri == null) return;
         long[] sizes = pack.importFiles().stream().mapToLong(ResourcePacks.ImportFile::size).toArray();
