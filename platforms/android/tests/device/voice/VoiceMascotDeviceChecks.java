@@ -9,7 +9,7 @@ import android.os.Bundle;
 import android.view.View;
 import java.lang.reflect.Field;
 
-/** 使用产品素材与实际绘制路径验收静音、音量、识别中和长按回退，不打开麦克风。 */
+/** 使用产品素材与实际绘制路径验收静音、音量、识别中和角色开关回退，不打开麦克风。 */
 final class VoiceMascotDeviceChecks {
     private VoiceMascotDeviceChecks() {}
 
@@ -49,8 +49,19 @@ final class VoiceMascotDeviceChecks {
                 Bitmap withMascot = render(view);
                 type.getMethod("setMascotEnabled", boolean.class).invoke(view, false);
                 Bitmap fallback = render(view);
-                check(!fallback.sameAs(withMascot), "长按入口保留原麦克风，不显示人物");
-                check(accent(fallback) > accent(withMascot), "长按入口必须画出原强调色圆盘");
+                check(!fallback.sameAs(withMascot), "关闭工具栏人物后恢复麦克风");
+                check(accent(fallback) > accent(withMascot), "回退必须画出原强调色圆盘");
+                // 冻结静音，逐像素比较只量入口与位图归属，不受音量逐帧回落影响。
+                field(type, "levelShown").setFloat(view, 0);
+                field(type, "levelTarget").setFloat(view, 0);
+                type.getMethod("setHoldMode", Bitmap.class).invoke(view, mascot);
+                Bitmap held = render(view);
+                type.getMethod("setMascotEnabled", boolean.class).invoke(view, true);
+                Bitmap late = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+                late.eraseColor(0xff00ffff);
+                type.getMethod("setMascot", Bitmap.class).invoke(view, late);
+                check(render(view).sameAs(held), "迟到的工具栏人物不能改写长按角色或绘制模式");
+                late.recycle();
                 // 同一素材、同一视口下外部入口与共用绘制器必须逐像素相同。
                 Class<?> externalType = context.getClassLoader().loadClass("app.msime.android.OfflineVoiceListeningView");
                 View external = (View) externalType.getConstructor(android.content.Context.class).newInstance(context);

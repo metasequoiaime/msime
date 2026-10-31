@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.BiConsumer;
 
-/** 相机只属于当前面板，所有驱动操作串行放在专用线程上；关闭后拒绝迟到回调。 */
+/** 相机只属于当前拍照页，所有驱动操作串行放在专用线程上；关闭后拒绝迟到回调。 */
 @SuppressWarnings("deprecation")
 final class OcrCamera implements AutoCloseable {
     private final HandlerThread thread = new HandlerThread("msime-ocr-camera");

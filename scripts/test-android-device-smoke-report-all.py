@@ -79,6 +79,7 @@ SCRIPTS = (
     "clipboard-edit-lifecycle.sh",
     "diagnostics-export-directory.sh",
     "handwriting-smoke.sh",
+    "voice-lifecycle.sh",
 )
 
 
@@ -172,6 +173,12 @@ def main() -> None:
         run.expect(run.stdout.rstrip().endswith("Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"), "通过时最后一行仍是原来的通过说明")
         run.expect("====" not in run.stderr and run.summary == "", "全部通过时不打印失败汇总，也不写 step summary")
         run.expect(run.ran("LetterHintPunctuationDeviceSmoke:english-swipe") and run.ran_script("clipboard-edit-lifecycle"), "全部通过时应跑到最后一项")
+        run.expect(f"script voice-lifecycle {SERIAL} hold" in run.calls, "完整验收应调用长按语音锁定专项")
+
+        run = Run(base, "voice-hold-failure", [], fail_scripts="voice-lifecycle")
+        run.expect(run.code == 1 and run.stopped_line() == "", "长按语音专项失败应汇总并继续独立检查")
+        run.expect(run.failed_lines() == ["FAILED 长按语音锁定验收失败: MSIME_DEVICE_SMOKE_FAILED: voice-lifecycle phase (AssertionError) fake"], "长按语音专项失败应保留原始失败行")
+        run.expect(run.ran_script("clipboard-edit-lifecycle"), "长按语音专项失败不能吞掉后续验收")
 
         run = Run(base, "gate-nonzero-with-marker", ["--core"], sdk="28", nonzero="DeviceSmoke")
         run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "主路径即使打印通过标记，命令非零退出也应停下")
@@ -240,6 +247,7 @@ def main() -> None:
         run = Run(base, "core-pass", ["--core"], sdk="28")
         run.expect(run.code == 0 and run.stdout.rstrip().endswith("Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"), "核心套件全部通过时保持原来的通过说明")
         run.expect(not run.ran("EmojiPickerDeviceSmoke"), "核心套件不跑完整套件的检查")
+        run.expect(f"script voice-lifecycle {SERIAL} hold" in run.calls, "最低 API 的核心验收也应调用长按语音锁定专项")
 
     print("Android device smoke failure collection: passed")
 

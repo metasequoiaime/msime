@@ -22,6 +22,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
     private static final String TOUCH_ACK = "msime-handwriting-touch.ack";
     private int touchRequestSequence;
     private boolean ocrCoexistence;
+    private boolean addedHandwriting;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         ocrCoexistence = arguments != null && "true".equals(arguments.getString("ocr-coexistence"));
@@ -38,6 +39,8 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         boolean completed = false;
         String failureStage = null;
         try {
+            stage = "handwriting enabled scheme prerequisite";
+            prepareHandwritingScheme();
             stage = "handwriting single-character mode prerequisite";
             originalMode = writingMode();
             if (!"单字".equals(originalMode)) chooseWritingMode("单字");
@@ -46,23 +49,64 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             completed = true;
         } catch (Exception | AssertionError error) {
             failureStage = stage;
+            if (ocrCoexistence) {
+                try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-prerequisite-failure.png"); }
+                catch (Exception ignored) { }
+            }
             throw error;
         } finally {
-            if (originalMode != null && !"单字".equals(originalMode)) {
-                try {
-                    stage = "handwriting writing mode restore";
-                    writingMode();
-                    chooseWritingMode(originalMode);
-                } catch (Exception | AssertionError error) {
-                    if (ocrCoexistence) {
-                        try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-failure.png"); }
-                        catch (Exception ignored) { }
+            try {
+                if (originalMode != null && !"单字".equals(originalMode)) {
+                    try {
+                        stage = "handwriting writing mode restore";
+                        writingMode();
+                        chooseWritingMode(originalMode);
+                    } catch (Exception | AssertionError error) {
+                        if (ocrCoexistence) {
+                            try { shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-failure.png"); }
+                            catch (Exception ignored) { }
+                        }
+                        if (completed) throw error;
                     }
-                    if (completed) throw error;
+                    if (!completed) stage = failureStage;
                 }
-                if (!completed) stage = failureStage;
+            } finally {
+                if (addedHandwriting) {
+                    stage = "handwriting enabled scheme restore";
+                    openTypingSettings();
+                    accessibleClick(handwritingSchemeRow());
+                    accessibleClick(description("移除手写"));
+                    long deadline = SystemClock.uptimeMillis() + 15_000;
+                    while (findAny(handwritingSchemeRow()) != null && SystemClock.uptimeMillis() < deadline)
+                        SystemClock.sleep(100);
+                    if (findAny(handwritingSchemeRow()) != null)
+                        throw new AssertionError("Handwriting scheme prerequisite was not restored");
+                    if (!completed) stage = failureStage;
+                }
             }
         }
+    }
+
+    /** 专用 AVD 可能只启用了全拼；经真实设置页补入手写，结束后只移除本专项添加的项。 */
+    private void prepareHandwritingScheme() throws Exception {
+        openTypingSettings();
+        if (findAny(handwritingSchemeRow()) != null) return;
+        accessibleClick(description("添加方案"));
+        accessibleClick(description("添加，手写"));
+        addedHandwriting = true;
+        awaitAnyFor(handwritingSchemeRow(), 15_000);
+    }
+
+    private void openTypingSettings() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/.home.HomeActivity --es msime_open_page TYPING");
+        automation.waitForIdle(500, 5000);
+        awaitAnyFor(handwritingSchemeRow().or(description("添加方案")), 15_000);
+    }
+
+    private static Predicate<AccessibilityNodeInfo> handwritingSchemeRow() {
+        return node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && node.isClickable()
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith("手写，");
     }
 
     /** 通过原生设置页选择单字模式，避免默认叠写自动上屏使显式选字断言失去前提。 */
@@ -74,7 +118,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         // am start 完成时旧页面仍可能在转场；等空闲后重新取节点，避免弹出的选项页被随后导航移除。
         automation.waitForIdle(500, 5000);
         dropStaleNodes();
-        AccessibilityNodeInfo row = awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName())
+        AccessibilityNodeInfo row = awaitAnyFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName())
             && equalsText("书写模式", node.getText()), 15_000);
         stage = operation + " / open writing mode sheet";
         while (!row.isClickable() && row.getParent() != null) row = row.getParent();
@@ -260,14 +304,15 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         tap(key("更多"));
         showTool("拍照识字");
         tap(tool("拍照识字"));
-        awaitFor(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled(), 30_000);
-        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        awaitAnyFor(node -> equalsText("拍照", node.getText()) && node.isEnabled(), 30_000);
+        tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        awaitAnyFor(node -> equalsText("下一步", node.getText()), 15_000);
+        tap(node -> equalsText("下一步", node.getText()));
         stage = "same IME process recognizes synthetic camera text";
         awaitFor(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && node.getText() != null
             && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468"), 60_000);
         shellDiscard("screencap -p /data/local/tmp/msime-ocr-ime-handwriting-result.png");
-        tap(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("返回", node.getText()));
-        tap(tool("返回键盘"));
+        tap(node -> equalsText(PREVIEW_PACKAGE, node.getPackageName()) && equalsText("返回键盘", node.getText()));
         stage = "handwriting UI restores without OCR insertion";
         awaitFor(imeTextContains("在此手写，停笔后选字"), 30_000);
         awaitFor(field("msime-test-plain").and(node -> equalsText(committed, node.getText())), 15_000);
