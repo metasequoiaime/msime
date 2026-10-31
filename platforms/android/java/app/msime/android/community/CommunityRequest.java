@@ -142,6 +142,118 @@ public final class CommunityRequest {
         return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
+    /** 一个账号最多屏蔽的作者数，与服务端的上限一致；`block_list` 也最多答这么多条。 */
+    public static final int MAX_BLOCKED_AUTHORS = 500;
+    /** 屏蔽作者接受的作品类型，与举报的 `kind` 是同一组值。 */
+    public static final List<String> BLOCK_KINDS =
+        List.of("skins", "candidate-skins", "plugins", "dictionaries", "replies", "phrases");
+    /** 没有登录水杉账号时点「屏蔽作者」或「已屏蔽的作者」的提示。屏蔽只认登录账号：目录按列表请求带的令牌过滤，匿名账号屏蔽的作者重装后就没了。 */
+    public static final String BLOCK_SIGN_IN = "登录水杉账号后才能屏蔽作者。";
+    /** 屏蔽确认框的说明，三个平台同一句。 */
+    public static final String BLOCK_CONFIRM_MESSAGE =
+        "屏蔽后，社区里不再显示这位作者发布的皮肤、插件、词库和模板。可以在「我的 › 隐私 › 已屏蔽的作者」里取消屏蔽。";
+    /** 「已屏蔽的作者」页没有任何一行时的说明。 */
+    public static final String BLOCKED_AUTHORS_EMPTY =
+        "没有屏蔽任何作者。在社区作品详情里点「屏蔽作者」，就不会再看到这位作者的作品。";
+    private static final int MAX_BLOCKED_NAME_CHARACTERS = 128;
+
+    /** 一位已屏蔽的作者：`id` 是这条屏蔽记录的 UUID（取消屏蔽用它，不是作品的 id），`name` 是作者现在的显示名，`createdAt` 是屏蔽时间（RFC 3339）。 */
+    public record BlockedAuthor(String id, String name, String createdAt) {}
+
+    /** 屏蔽确认框的标题。 */
+    public static String blockTitle(String author) {
+        return "屏蔽作者「" + author + "」？";
+    }
+
+    /** 屏蔽成功的提示。 */
+    public static String blockedNotice(String author) {
+        return "已屏蔽「" + author + "」";
+    }
+
+    /** 界面上称呼这位作者用的名字：作品没写作者时与卡片一样叫「匿名作者」。 */
+    public static String authorLabel(String author) {
+        String name = TextPolicy.trimmed(author);
+        return name.isEmpty() ? "匿名作者" : name;
+    }
+
+    /** `kind` 是不是屏蔽作者接受的作品类型。 */
+    public static boolean validBlockKind(String kind) {
+        return kind != null && BLOCK_KINDS.contains(kind);
+    }
+
+    /**
+     * 读 Rust 答的一条屏蔽 `{id,name,created_at}`，三个值原样传进来；读不出或不合规时为 null。
+     *
+     * <p>参数是 `Object` 而不是 `JSONObject`，与 {@link Category#parse} 同样是为了让 JVM smoke 不碰 android.jar 里会抛异常的 org.json 桩。`name` 可以是空串（作者没有显示名），界面上按 {@link #authorLabel} 称呼；`created_at` 必须是带时区的 RFC 3339 时间，否则这一行的日期没法写。
+     */
+    public static BlockedAuthor blockedAuthor(Object id, Object name, Object createdAt) {
+        String block = JsonPolicy.strictString(id);
+        String author = JsonPolicy.strictString(name);
+        String time = JsonPolicy.strictString(createdAt);
+        if (!JsonPolicy.nonNilUuid(block) || author == null || time == null) return null;
+        author = TextPolicy.trimmed(author);
+        if (!TextPolicy.withinCodePoints(author, MAX_BLOCKED_NAME_CHARACTERS)
+                || CommunityTextPolicy.hasDisallowedControl(author, false)) {
+            return null;
+        }
+        try {
+            java.time.OffsetDateTime.parse(time);
+        } catch (java.time.format.DateTimeParseException error) {
+            return null;
+        }
+        return new BlockedAuthor(block, author, time);
+    }
+
+    /**
+     * 整份屏蔽名单：`rows` 按服务端的顺序（最近的在前），读不出的那一行是 null。任何一行读不出、超过 {@link #MAX_BLOCKED_AUTHORS} 条或同一条屏蔽出现两次都是服务端故障，返回 null，页面按读取失败处理，而不是少显示几行让人以为取消过了。
+     */
+    public static List<BlockedAuthor> blockList(List<BlockedAuthor> rows) {
+        if (rows == null || rows.size() > MAX_BLOCKED_AUTHORS) return null;
+        java.util.Set<String> ids = new java.util.HashSet<>(rows.size());
+        for (BlockedAuthor row : rows) {
+            if (row == null || !ids.add(TextPolicy.lowercase(row.id()))) return null;
+        }
+        return List.copyOf(rows);
+    }
+
+    /** 「已屏蔽的作者」每行的日期：按 `zone` 的当地日期写成 yyyy-MM-dd；读不出时为空串。 */
+    public static String blockedDate(String createdAt, java.time.ZoneId zone) {
+        if (createdAt == null || zone == null) return "";
+        try {
+            return java.time.OffsetDateTime.parse(createdAt).atZoneSameInstant(zone).toLocalDate().toString();
+        } catch (java.time.DateTimeException error) {
+            // 读不出的时间（DateTimeParseException）和超出 LocalDate 范围的年份都在这里。
+            return "";
+        }
+    }
+
+    /** 屏蔽要先登录：Rust 只用登录账号，没有登录或登录已失效时答 community_unauthorized。 */
+    public static boolean blockNeedsSignIn(String code) {
+        return "community_unauthorized".equals(code);
+    }
+
+    /**
+     * 屏蔽一位作者失败时说的话；空串表示不提示（community_cancelled：请求期间登录换了号，页面丢掉这次结果）。Rust 不透传服务端的错误码：屏蔽自己的作品是 community_invalid，超过 500 位是 community_conflict，其余按 {@link #rustMessage}。
+     */
+    public static String blockMessage(String code) {
+        return switch (code == null ? "" : code) {
+            case "community_cancelled" -> "";
+            case "community_unauthorized" -> BLOCK_SIGN_IN;
+            case "community_invalid" -> "不能屏蔽自己。";
+            case "community_conflict" -> "最多屏蔽 " + MAX_BLOCKED_AUTHORS + " 位作者，请先取消一些。";
+            default -> rustMessage(code);
+        };
+    }
+
+    /** 读名单或取消屏蔽失败时说的话；空串表示不提示（community_cancelled）。没有登录时页面显示登录入口，这里给同一句提示。 */
+    public static String blockListMessage(String code) {
+        return switch (code == null ? "" : code) {
+            case "community_cancelled" -> "";
+            case "community_unauthorized" -> BLOCK_SIGN_IN;
+            default -> rustMessage(code);
+        };
+    }
+
     /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
     public static String usesLabel(long downloads) {
         long count = BoundsPolicy.nonNegative(downloads);

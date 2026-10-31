@@ -39,10 +39,11 @@ public final class CommunitySkinSheet {
      * @param actionLabel what the sheet's own button says, the same words as the card's pill (获取 / 使用 / 添加 / 已添加); empty for kinds that cannot be taken on this device
      * @param onAction runs when the sheet's own button is pressed; null when there is nothing to do (a reply template, or a pack already added), which gets a disabled button rather than a dead one
      * @param onReport runs when 举报 is pressed, after the sheet closes
+     * @param onBlock 点「屏蔽作者」、面板关上之后调用；自己的作品为 null，不显示这个按钮
      * @param onChangeCategory 作者选了另一个分类时调用；不是作者（或不是皮肤）时为 null，详情里只显示分类、不给修改入口
      */
     public static void show(Context context, CommunityCatalog.Item item, KeyLayoutStylesPolicy.Preview layout,
-            String actionLabel, Runnable onAction, Runnable onReport,
+            String actionLabel, Runnable onAction, Runnable onReport, Runnable onBlock,
             Consumer<CommunityRequest.Category> onChangeCategory) {
         KeyboardSkin skin = CommunityAdapter.preview(item);
         SettingsSheet sheet = new SettingsSheet(context, item.name(), subtitle(item));
@@ -100,6 +101,18 @@ public final class CommunitySkinSheet {
         sheet.content().addView(save, action);
 
         // Everything here is someone else's work, published without review first; this is how a reader flags it to the moderators.
+        // 「屏蔽作者」和「举报」并排靠右：举报交给管理员处理这一件作品，屏蔽让这个账号从此看不到这位作者的全部作品。
+        LinearLayout moderation = LayoutPolicy.row(context);
+        if (onBlock != null) {
+            MaterialButton block = new MaterialButton(context, null,
+                androidx.appcompat.R.attr.borderlessButtonStyle);
+            block.setText("屏蔽作者");
+            ViewPolicy.bindClick(block, () -> {
+                sheet.dismiss();
+                onBlock.run();
+            });
+            moderation.addView(block, LayoutPolicy.wrapParams());
+        }
         MaterialButton report = new MaterialButton(context, null,
             androidx.appcompat.R.attr.borderlessButtonStyle);
         report.setText("举报");
@@ -107,10 +120,11 @@ public final class CommunitySkinSheet {
             sheet.dismiss();
             onReport.run();
         });
+        moderation.addView(report, LayoutPolicy.wrapParams());
         LinearLayout.LayoutParams reportParams = LayoutPolicy.wrapParams();
         reportParams.gravity = android.view.Gravity.END;
         reportParams.topMargin = DimensionPolicy.pixels(context, 4);
-        sheet.content().addView(report, reportParams);
+        sheet.content().addView(moderation, reportParams);
 
         sheet.addNote(note(item));
         sheet.show();

@@ -504,6 +504,18 @@ if [[ -z "$gate_line" || -z "$community_line" || "$gate_line" -ge "$community_li
   echo "Settings.startRequest must ask CommunityContributionGate before it dispatches community requests" >&2
   exit 1
 fi
+# 屏蔽作者走自己的 `community_block` 请求（名单和隐私授权由 account-requests.test.ts、privacy-consent.test.ts 覆盖，总闸不拦它由 community-contribution-gate.test.ts 覆盖）；设置桥是 ArkTS，这里钉住接线：startRequest 分发它，账号桥经 `communityBlockRequest` 拼请求、先等会话采用再交给 `msime_client_community`。
+block_body=$(sed -n '/^  async communityBlock(action: string): Promise<string> {$/,/^  }$/p' \
+  "$ets/account/HarmonyAccountCloudBridge.ets")
+if ! grep -qF "} else if (kind === 'community_block') {" <<< "$dispatch_body" \
+  || ! grep -qF 'this.communityBlock(payload).then(deliver)' <<< "$dispatch_body" \
+  || ! grep -qF 'return await this.accountBridge.communityBlock(actionDocument);' "$ets/pages/Settings.ets" \
+  || ! grep -qF 'communityBlockRequest(this.directory, action);' <<< "$block_body" \
+  || ! grep -qF 'await AccountSessionAdoption.beforeRequest();' <<< "$block_body" \
+  || ! grep -qF 'return await client.community(plan.request);' <<< "$block_body"; then
+  echo "Settings.startRequest must dispatch community_block to the account bridge, which builds it with communityBlockRequest and adopts the session before msime_client_community" >&2
+  exit 1
+fi
 # 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
 if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \
