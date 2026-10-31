@@ -401,3 +401,14 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 合入 `develop` 后的 PR head `8f048b5f1b6f553fb143301385337f836d7f94d3` 已在同一 `pve9` runner 重新构建。`build-container.sh` 的 Linux 原生门禁 119/119 全部实际通过；`package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 完成正式 Release 构建，120 项 ctest 全部通过，只有 `linux-ibus-demand-activation` 按定义跳过。Ubuntu 24.04 amd64 DEB SHA-256 为 `f3716172d4be0dedca61d89d6c734db533b8f13ea22d9a790c617c1956470d69`，x86_64 tarball SHA-256 为 `1557edeb628b850aa4e3f5ef946a6d2f9b0ecd2cf51b8529602ff4eb80c26339`。
 
 该 head 的 DEB 随后安装到新建的 Ubuntu 24.04 amd64 LXC，依赖配置成功。按锁下载并逐文件校验约 258 MiB 资源后，以真实安装路径和私有 `XDG_RUNTIME_DIR` 启动 `msime-linux-provider-session online`，实际 `/usr/bin/msime-linux-online-provider` 收到一次 `SIGABRT` 并退出；原生 `MSIME-CRASH/1` 记录保留 revision `8f048b5f1b6f553fb143301385337f836d7f94d3`、`x86_64`、`online-provider` 和 `consent_epoch`，没有输入会话。临时 LXC 没有用户 systemd 总线，因此这轮没有把 systemd 用户管理器重启写成通过；同样未连接后台或扩大为完整编辑器、其他发行版/架构验收。旧候选证据和本轮新 head 证据均只证明 Linux 构建、安装包和 provider 真实采集，不能扩大为全平台闭环。
+
+
+### macOS MCP 独立进程故障、持续授权与精确源码行（2026-10-31）
+
+固定 `c3ecd6299437ea1aeda21cd4efe010bb9048366b` 的 macOS arm64 原 `msime-mcp` 在副盘既有 `target/macos-cargo` 缓存重建，仅为 MCP 包补充行表。产品源码未修改；该候选与当前 `d709223a2b` 的 MCP、macOS 目录适配、共同记录器及共享遥测实现相同，但不将固定产物扩大为最新 head 的全量验收。最终二进制 SHA-256 为 `56940d7c569361ecd64075fb3326388b71eed90814111688cefdfbfc88bb03d6`，捕获头保留原 revision、版本 `0.55.0`、运行号 `isolated-macos-mcp-c3ec-20261031`、`aarch64`、`mcp` 与授权代次。
+
+验收使用合成 Foundation 用户目录、显式运行配置与偏好目录，沙箱拒绝真实用户目录数据访问和外网。原 MCP stdio 的 `initialize` 实际返回后，预加载夹具只读实际记录器武装位，并以无效 `self` 调用产品原 `Capture::arm`，触发真正 `SIGSEGV`，进程以信号 11 结束。原始记录的自有首帧为 `msime-mcp+0x3b4e24`；独立标准 ZIP 解压后，原归档工具按 UUID `901FA6B3-29DC-3FF0-B1DD-72868C6A5620` 将其还原到 `crash_reporting.rs:188`，错误 UUID 被拒绝。符号 ZIP SHA-256 为 `e582998e779b6fa40428c4b7d47759e5aae9150c8666420a026eabd1c46b4780`，不依赖正在构建的目标查行。
+
+同一活跃 MCP 进程经历关闭、开启、撤回，实际武装位依次为 `0/1/0`；撤回后 `SIGABRT` 致命退出不产生记录。开启时 `SIGKILL` 不产生记录；随后原产品重新完成 stdio 初始化，关闭 stdin 后退出码 0，未产生故障。真实失败轮保留：首次夹具假定主 Mach-O 位于 dyld 索引零，错误地址读取导致夹具自身 `SIGBUS`；按实际 `msime-mcp` 名称寻找映像后重跑通过。初次复用的默认调试产物没有行表，符号收集器实际拒绝，补行表重建后全部产品故障和授权对照重新运行，不借用旧轮结果。符号夹具的工作目录与 ZIP 父目录定位错误也保留，最终严格源码行和错误 UUID 断言不变。
+
+最后用原 MCP 在明确关闭授权的配置中启动并正常退出，三轮原始记录均由产品清空；合成用户目录、预加载库删除，所有任务进程已退出，tracked 源码与被测二进制哈希不变。44 份小证据已逐文件哈希回读，归档 SHA-256 为 `134f0c24f64d34f5680f38c1c8e7eec1993ecd8f8159804546175f42d1298e83`，保存在 `target/mcp-device-continuation/macos-mcp-c3ec-small-evidence.tar.gz`；远端独立符号和冻结产物仍在本任务副盘。该项完成 MCP 原产品的实际故障采集、动态授权、stdio 恢复与独立符号化，未运行原生宿主代收及隔离后台，不覆盖完整安装包、x86_64 或全部辅助入口。
