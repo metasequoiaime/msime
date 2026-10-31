@@ -34,8 +34,11 @@ struct msime_crash_module {
 };
 static struct msime_crash_module msime_modules[512];
 static size_t msime_module_count;
+// 上次遍历开始时加载器报告的映像数；发布之后才加载的映像靠它发现，不必撤下记录路径重新发布。
+static _Atomic uint32_t msime_module_image_count;
 
 static void msime_snapshot_modules(void) {
+  const uint32_t images = _dyld_image_count();
   msime_module_count = 0;
   for (uint32_t index = 0; index < _dyld_image_count() &&
        msime_module_count < sizeof(msime_modules) / sizeof(msime_modules[0]); ++index) {
@@ -75,6 +78,7 @@ static void msime_snapshot_modules(void) {
     }
     if (module->begin < module->end) ++msime_module_count;
   }
+  atomic_store(&msime_module_image_count, images);
 }
 
 static void msime_write_all(int fd, const char *value, size_t length) {
@@ -250,6 +254,15 @@ bool msime_ios_crash_record_set(const char *path, const char *header) {
   strlcat(msime_temporary_path, temporary_suffix, sizeof(msime_temporary_path));
   msime_snapshot_modules();
   atomic_store(&msime_crash_path, slot);
+  atomic_flag_clear(&msime_configuration);
+  return true;
+}
+
+// 生命周期每拍调用：映像数变了才在配置锁里重新遍历，已发布的记录路径保持不动，之后加载的映像里的帧也能归到模块。映像数没变时不取锁；锁被占用时返回 false，下一拍重试。
+bool msime_ios_crash_modules_refresh(void) {
+  if (_dyld_image_count() == atomic_load(&msime_module_image_count)) return true;
+  if (atomic_flag_test_and_set(&msime_configuration)) return false;
+  msime_snapshot_modules();
   atomic_flag_clear(&msime_configuration);
   return true;
 }

@@ -19,6 +19,8 @@ private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ lengt
 
 @_silgen_name("msime_ios_crash_record_set")
 private func msimeIOSCrashRecordSet(_ path: UnsafePointer<CChar>?, _ header: UnsafePointer<CChar>?) -> Bool
+@_silgen_name("msime_ios_crash_modules_refresh")
+private func msimeIOSCrashModulesRefresh() -> Bool
 
 /// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
@@ -202,6 +204,11 @@ enum UsageReporting {
     }
   }
 
+  /// 配置锁被占用时没有补登记，映像数仍不一致，下一拍自然重试。
+  private static func refreshModules() {
+    _ = msimeIOSCrashModulesRefresh()
+  }
+
   private static func clear() {
     if let directory { clear(in: directory) }
   }
@@ -226,6 +233,7 @@ enum UsageReporting {
     private let load: () -> CaptureConsent?
     private let prepare: (Authorization) -> Session?
     private let configure: (Session?) -> Bool
+    private let refreshModules: () -> Void
     private let clear: () -> Void
     private let finish: (Session) -> Void
     private var timer: DispatchSourceTimer?
@@ -237,11 +245,12 @@ enum UsageReporting {
     private var published: Session?? = nil
 
     init(load: @escaping () -> CaptureConsent?, prepare: @escaping (Authorization) -> Session?,
-         configure: @escaping (Session?) -> Bool, clear: @escaping () -> Void,
-         finish: @escaping (Session) -> Void = { _ in }) {
+         configure: @escaping (Session?) -> Bool, refreshModules: @escaping () -> Void = {},
+         clear: @escaping () -> Void, finish: @escaping (Session) -> Void = { _ in }) {
       self.load = load
       self.prepare = prepare
       self.configure = configure
+      self.refreshModules = refreshModules
       self.clear = clear
       self.finish = finish
     }
@@ -345,9 +354,12 @@ enum UsageReporting {
       if shouldClear { clear() }
     }
 
-    /// 每次发布都会先撤下记录路径、在配置锁里重新遍历全部映像，这段时间里的故障不留记录：快照没变且上次已被接受时不再发布。
+    /// 每次发布都会先撤下记录路径、在配置锁里重新遍历全部映像，这段时间里的故障不留记录：快照没变且上次已被接受时不再发布，只让记录器补登记之后加载的映像，否则那些映像里的帧只剩无法还原的绝对地址。
     private func publish(_ session: Session?, always: Bool = false) {
-      if !always, published == .some(session) { return }
+      if !always, published == .some(session) {
+        if session != nil { refreshModules() }
+        return
+      }
       published = configure(session) ? .some(session) : nil
     }
 
@@ -372,9 +384,10 @@ enum UsageReporting {
       rememberApplicationCapture(capture, pid: getpid(), in: identities)
     }
     return capture
-  }, configure: configure, clear: clear)
+  }, configure: configure, refreshModules: refreshModules, clear: clear)
   static let keyboardCapture = CaptureLifecycle(load: loadCaptureConsent,
-    prepare: { begin(authorization: $0) }, configure: configure, clear: clear, finish: { end(session: $0.id) })
+    prepare: { begin(authorization: $0) }, configure: configure, refreshModules: refreshModules, clear: clear,
+    finish: { end(session: $0.id) })
 
   /// 系统报告原版本已知而源码构建未知时明确标成 unknown，不能用升级后的身份填补。
   static func diagnosticHeader(version: String) -> String? {

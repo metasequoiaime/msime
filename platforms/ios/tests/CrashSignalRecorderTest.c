@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 bool msime_ios_crash_record_set(const char *, const char *);
+bool msime_ios_crash_modules_refresh(void);
 void msime_ios_crash_handlers_install(void);
 
 __attribute__((noinline)) void synthetic_fault(void *page) {
@@ -223,6 +224,8 @@ static void handled_signals(const char *path) {
 int main(int argc, char **argv) {
   assert(argc == 2 || argc == 3);
   handled_signals(argv[1]);
+  // 记录路径先于动态库发布：库里的帧只能靠之后的映像补登记归到模块，发布时的遍历看不到它。
+  assert(msime_ios_crash_record_set(argv[1], "MSIME-CRASH/1 {}\n"));
   void (*fault)(void *) = synthetic_fault;
   if (argc == 3) {
     void *library = dlopen(argv[2], RTLD_NOW | RTLD_LOCAL);
@@ -230,13 +233,13 @@ int main(int argc, char **argv) {
     fault = (void (*)(void *))dlsym(library, "synthetic_library_fault");
     assert(fault != NULL);
   }
+  assert(msime_ios_crash_modules_refresh());
   void *page = mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
   assert(page != MAP_FAILED);
   const pid_t pid = fork();
   assert(pid >= 0);
   if (pid == 0) {
     msime_ios_crash_handlers_install();
-    msime_ios_crash_record_set(argv[1], "MSIME-CRASH/1 {}\n");
     fault(page);
     _exit(0);
   }

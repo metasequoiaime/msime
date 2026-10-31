@@ -431,6 +431,7 @@ final class UsageReportingTests: XCTestCase {
       var configured: UsageReporting.Session?
       var publishes = 0
       var rejectPublish = false
+      var moduleRefreshes = 0
       var ended: [UsageReporting.Session] = []
     }
     let state = OSAllocatedUnfairLock(initialState: State())
@@ -451,6 +452,7 @@ final class UsageReportingTests: XCTestCase {
           return true
         }
       },
+      refreshModules: { self.state.withLock { $0.moduleRefreshes += 1 } },
       clear: { self.state.withLock { $0.cleared += 1 } },
       finish: { session in self.state.withLock { $0.ended.append(session) } })
 
@@ -500,21 +502,25 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(fixture.state.withLock { $0.prepared }, 2)
   }
 
-  /// 每次发布都会短暂撤下信号记录并重新遍历映像：同一份快照只发布一次，变化或上次发布失败时才再发布。
+  /// 每次发布都会短暂撤下信号记录并重新遍历映像：同一份快照只发布一次，变化或上次发布失败时才再发布；没变时每拍只让记录器补登记之后加载的映像。
   func testUnchangedCaptureIsPublishedOnce() throws {
     let fixture = CaptureFixture()
     defer { fixture.stop() }
     fixture.capture.start()
     fixture.refresh(true)
     let first = try XCTUnwrap(fixture.capture.current)
+    let refreshes = fixture.state.withLock { $0.moduleRefreshes }
     for _ in 0..<3 { fixture.refresh(true) }
     XCTAssertEqual(fixture.state.withLock { $0.publishes }, 1)
     XCTAssertEqual(fixture.state.withLock { $0.configured }, first)
+    XCTAssertGreaterThanOrEqual(fixture.state.withLock { $0.moduleRefreshes }, refreshes + 3)
 
-    // 读失败撤下，恢复后同一身份再发布一次。
+    // 读失败撤下，恢复后同一身份再发布一次；撤下期间没有记录路径，不补登记映像。
     fixture.refresh(nil)
+    let paused = fixture.state.withLock { $0.moduleRefreshes }
     fixture.refresh(nil)
     XCTAssertEqual(fixture.state.withLock { $0.publishes }, 2)
+    XCTAssertEqual(fixture.state.withLock { $0.moduleRefreshes }, paused)
     fixture.refresh(true)
     fixture.refresh(true)
     XCTAssertEqual(fixture.state.withLock { $0.publishes }, 3)
