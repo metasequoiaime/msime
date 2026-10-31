@@ -1,4 +1,4 @@
-//! `check-words`: the gate for changes to the hand-edited files in the dictionary source repository (metasequoiaime/msime-dictionary): custom/words.txt, custom/translations.txt and custom/english.txt. A change to any of them may only append lines. Every appended entry must pass the parser the build uses and be new: not repeated within the change and not already in the file. Weighted entries (words, English words) must also keep their weight within the range the file already uses, and an entry already in a shipped database (a word in msime-pinyin.db's quanpin table for its pinyin, an English word and display in msime-english.db's english_words) is rejected when that database is given. A translation may override an existing source with a different gloss, as the build's last-line-wins does, but repeating the same source and gloss is a duplicate. Appended blank and `#` comment lines are skipped, as the build skips them.
+//! `check-words`: the gate for changes to the hand-edited files in the dictionary source repository (metasequoiaime/msime-dictionary): custom/words.txt, custom/translations.txt, custom/english.txt and custom/cantonese.txt. A change to any of them may only append lines. Every appended entry must pass the parser the build uses and be new: not repeated within the change and not already in the file. Weighted entries (words, English words) must also keep their weight within the range the file already uses, and an entry already in a shipped database (a word in msime-pinyin.db's quanpin table for its pinyin, an English word and display in msime-english.db's english_words) is rejected when that database is given. A translation may override an existing source with a different gloss, as the build's last-line-wins does, but repeating the same source and gloss is a duplicate. custom/cantonese.txt 的新行还要对照 rime-cantonese 字表核对每个字的读音（与构建同一个检查），给了 msime-cantonese.db 时，库里同键同词的条目也算重复。Appended blank and `#` comment lines are skipped, as the build skips them.
 
 use std::collections::HashMap;
 
@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::cantonese;
 use crate::english::{
     parse_custom_english_line, parse_custom_translation, CUSTOM_ENGLISH, CUSTOM_TRANSLATIONS,
 };
@@ -18,6 +19,7 @@ pub enum Kind {
     Words,
     Translations,
     English,
+    Cantonese,
 }
 
 impl Kind {
@@ -27,6 +29,7 @@ impl Kind {
             Kind::Words => "custom/words.txt",
             Kind::Translations => CUSTOM_TRANSLATIONS,
             Kind::English => CUSTOM_ENGLISH,
+            Kind::Cantonese => cantonese::CUSTOM,
         }
     }
 
@@ -36,11 +39,12 @@ impl Kind {
         path.rsplit('/').next().unwrap_or(path)
     }
 
-    /// Splits the file into lines the way the build reads it: words.txt as it always has, the other two after dropping a byte-order mark, as their parsers do.
+    /// Splits the file into lines the way the build reads it: words.txt as it always has, translations.txt and english.txt after dropping a byte-order mark, as their parsers do, and cantonese.txt after dropping a byte-order mark with `str::lines`, as `cantonese::parse_custom` does.
     fn lines(self, contents: &str) -> Vec<&str> {
         match self {
             Kind::Words => text::splitlines(contents),
             Kind::Translations | Kind::English => text::splitlines(text::without_bom(contents)),
+            Kind::Cantonese => text::without_bom(contents).lines().collect(),
         }
     }
 
@@ -59,6 +63,11 @@ impl Kind {
                 word: entry.word,
                 display: entry.display,
                 weight: entry.weight,
+            }),
+            Kind::Cantonese => cantonese::parse_custom_line(line)?.map(|word| Entry::Cantonese {
+                word: word.text.to_owned(),
+                jyutping: word.reading.to_owned(),
+                key: word.key(),
             }),
         })
     }
@@ -82,22 +91,31 @@ pub enum Entry {
         display: String,
         weight: i64,
     },
+    Cantonese {
+        word: String,
+        /// 行里写的带声调粤拼。
+        jyutping: String,
+        /// 去声调的键，判重用，报告里不写。
+        #[serde(skip)]
+        key: String,
+    },
 }
 
 impl Entry {
-    /// What makes two entries the same: a word under the same pinyin, a translation with the same source and gloss, an English word with the same display. The build keeps one row per key.
+    /// What makes two entries the same: a word under the same pinyin, a translation with the same source and gloss, an English word with the same display, a Cantonese word under the same toneless Jyutping (readings that differ only in tone are one entry in the build). The build keeps one row per key.
     fn key(&self) -> (String, String) {
         match self {
             Entry::Word { word, pinyin, .. } => (pinyin.clone(), word.clone()),
             Entry::Translation { source, gloss } => (source.clone(), gloss.clone()),
             Entry::English { word, display, .. } => (word.clone(), display.clone()),
+            Entry::Cantonese { word, key, .. } => (key.clone(), word.clone()),
         }
     }
 
     fn weight(&self) -> Option<i64> {
         match self {
             Entry::Word { weight, .. } | Entry::English { weight, .. } => Some(*weight),
-            Entry::Translation { .. } => None,
+            Entry::Translation { .. } | Entry::Cantonese { .. } => None,
         }
     }
 }
@@ -109,13 +127,17 @@ pub struct Input<'a> {
     pub head: &'a str,
 }
 
-/// The shipped databases additions must not repeat; either may be absent.
+/// The shipped databases additions must not repeat, any of which may be absent, and the character readings custom/cantonese.txt is checked against.
 #[derive(Default, Clone, Copy)]
 pub struct Shipped<'a> {
     /// msime-pinyin.db, for custom/words.txt.
     pub msime: Option<&'a Connection>,
     /// msime-english.db, for custom/english.txt.
     pub english: Option<&'a Connection>,
+    /// msime-cantonese.db, for custom/cantonese.txt.
+    pub cantonese: Option<&'a Connection>,
+    /// rime-cantonese 字表给每个字的读音（`cantonese::character_readings`）。检查 custom/cantonese.txt 时必须给，否则检查无法进行。
+    pub cantonese_readings: Option<&'a cantonese::Readings<'a>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -196,6 +218,19 @@ fn check_file(input: &Input, shipped: Shipped, report: &mut Report) -> Result<Fi
         weight_range: None,
     };
 
+    // custom/cantonese.txt 的 base 按构建的标准整体核对（读音对照字表、同键同词不重复），构建会拒绝的 base 在这里就让检查无法进行（退出码 2），而不是继续接受投稿。
+    if kind == Kind::Cantonese {
+        let readings = shipped.cantonese_readings.with_context(|| {
+            format!(
+                "checking {} needs the readings of {}",
+                cantonese::CUSTOM,
+                cantonese::CHARACTERS
+            )
+        })?;
+        cantonese::parse_custom(input.base, readings)
+            .with_context(|| format!("base {}", cantonese::CUSTOM))?;
+    }
+
     let mut existing: HashMap<(String, String), usize> = HashMap::new();
     for (index, line) in base_lines.iter().enumerate() {
         let Some(entry) = kind
@@ -248,6 +283,10 @@ fn check_file(input: &Input, shipped: Shipped, report: &mut Report) -> Result<Fi
                 continue;
             }
         };
+        if let Some(reason) = reading_rejection(kind, line, shipped)? {
+            report.rejected.push(reject(reason));
+            continue;
+        }
         let key = entry.key();
         let previous = seen.insert(key.clone(), number);
         let out_of_range =
@@ -280,6 +319,24 @@ fn check_file(input: &Input, shipped: Shipped, report: &mut Report) -> Result<Fi
     Ok(summary)
 }
 
+/// custom/cantonese.txt 的一行读音与字表不一致时的拒绝理由；其他文件没有这项检查。
+fn reading_rejection(kind: Kind, line: &str, shipped: Shipped) -> Result<Option<String>> {
+    if kind != Kind::Cantonese {
+        return Ok(None);
+    }
+    let readings = shipped.cantonese_readings.with_context(|| {
+        format!(
+            "checking {} needs the readings of {}",
+            cantonese::CUSTOM,
+            cantonese::CHARACTERS
+        )
+    })?;
+    let word = cantonese::parse_custom_line(line)?.context("a parsed Cantonese entry is a word")?;
+    Ok(cantonese::check_custom_reading(&word, readings)
+        .err()
+        .map(|error| format!("{error:#}")))
+}
+
 /// The rejection reason when a shipped database already has the entry.
 fn in_shipped(entry: &Entry, shipped: Shipped) -> Result<Option<String>> {
     Ok(match (entry, shipped) {
@@ -300,6 +357,14 @@ fn in_shipped(entry: &Entry, shipped: Shipped) -> Result<Option<String>> {
         ) => in_shipped_english(connection, word, display)?.then(|| {
             "already in the shipped msime-english.db for this word and display".to_owned()
         }),
+        (
+            Entry::Cantonese { word, key, .. },
+            Shipped {
+                cantonese: Some(connection),
+                ..
+            },
+        ) => in_shipped_cantonese(connection, key, word)?
+            .then(|| "already in the shipped msime-cantonese.db for this Jyutping".to_owned()),
         _ => None,
     })
 }
@@ -327,6 +392,16 @@ fn in_shipped_english(connection: &Connection, word: &str, display: &str) -> Res
         .with_context(|| {
             format!("looking up {display:?} in the shipped msime-english.db english_words")
         })
+}
+
+fn in_shipped_cantonese(connection: &Connection, key: &str, text: &str) -> Result<bool> {
+    connection
+        .query_row(
+            "select exists(select 1 from entries where key = ?1 and text = ?2)",
+            [key, text],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("looking up {text:?} in the shipped msime-cantonese.db entries"))
 }
 
 /// A short summary for a pull-request comment or a job summary. Contributed text is escaped so it renders literally.
@@ -365,6 +440,7 @@ pub fn markdown(report: &Report) -> String {
             Entry::English { .. } => {
                 "| Line | Word | Display | Weight |\n| ---: | --- | --- | ---: |"
             }
+            Entry::Cantonese { .. } => "| Line | Word | Jyutping |\n| ---: | --- | --- |",
         };
         out.push_str(&format!(
             "\n### Added to {}\n\n{header}\n",
@@ -385,6 +461,9 @@ pub fn markdown(report: &Report) -> String {
                     display,
                     weight,
                 } => format!("{} | {} | {weight}", escape(word), escape(display)),
+                Entry::Cantonese { word, jyutping, .. } => {
+                    format!("{} | {}", escape(word), escape(jyutping))
+                }
             };
             out.push_str(&format!("| {} | {row} |\n", added.line));
         }
@@ -423,7 +502,7 @@ mod tests {
             &[input],
             Shipped {
                 msime,
-                english: None,
+                ..Shipped::default()
             },
         )
     }
@@ -663,8 +742,8 @@ mod tests {
             head,
         };
         let shipped = Shipped {
-            msime: None,
             english: shipped,
+            ..Shipped::default()
         };
         check(&[input], shipped).unwrap()
     }
@@ -730,6 +809,127 @@ mod tests {
             )]
         );
         assert_eq!(report.added.len(), 1);
+    }
+
+    const CANTONESE: &str = "# 人工审校的粤语词\n周杰倫\tzau1 git6 leon4\n";
+
+    fn cantonese(head: &str, shipped: Option<&Connection>) -> Report {
+        let characters = "---\n...\n周\tzau1\n杰\tgit6\n傑\tgit6\n倫\tleon4\n你\tnei5\n好\thou2\n";
+        let characters = crate::cantonese::parse_characters(characters).unwrap();
+        let readings = crate::cantonese::character_readings(&characters);
+        let input = Input {
+            kind: Kind::Cantonese,
+            base: CANTONESE,
+            head,
+        };
+        let shipped = Shipped {
+            cantonese: shipped,
+            cantonese_readings: Some(&readings),
+            ..Shipped::default()
+        };
+        check(&[input], shipped).unwrap()
+    }
+
+    #[test]
+    fn cantonese_words_are_append_only_and_read_as_the_characters_file_does() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "create table entries (key text, text text, weight integer);
+                 insert into entries values ('nei hou', '你好', 21493);",
+            )
+            .unwrap();
+        let report = cantonese(
+            &format!(
+                "{CANTONESE}傑倫\tgit6 leon4\n傑倫\tgit3 leon4\n周杰倫\tzau1 git6 leon4\n你好\tnei5 hau2\n周杰倫\tzau1 git6\n你好\tnei5 hou2\n\n# 註\n"
+            ),
+            Some(&connection),
+        );
+        assert_eq!(
+            reasons(&report),
+            [
+                (4, "duplicates line 3 of this change"),
+                (5, "already in cantonese.txt at line 2"),
+                (
+                    6,
+                    "好 does not read hau in sources/cantonese/jyut6ping3.chars.dict.yaml, which gives hou"
+                ),
+                (7, "\"周杰倫\" has 3 characters but 2 syllables"),
+                (8, "already in the shipped msime-cantonese.db for this Jyutping"),
+            ]
+        );
+        assert_eq!(
+            report.added,
+            [Added {
+                file: "custom/cantonese.txt",
+                line: 3,
+                entry: Entry::Cantonese {
+                    word: "傑倫".into(),
+                    jyutping: "git6 leon4".into(),
+                    key: "git leon".into(),
+                }
+            }]
+        );
+        let json: serde_json::Value = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json["added"][0],
+            serde_json::json!({"file": "custom/cantonese.txt", "line": 3, "word": "傑倫", "jyutping": "git6 leon4"})
+        );
+        let summary = markdown(&report);
+        assert!(
+            summary.contains("### Added to custom/cantonese.txt\n\n| Line | Word | Jyutping |"),
+            "{summary}"
+        );
+        assert!(summary.contains("| 3 | 傑倫 | git6 leon4 |"), "{summary}");
+
+        let edited = cantonese("# 人工审校的粤语词\n周杰倫\tzau1 git6 leon4 \n", None);
+        assert_eq!(
+            reasons(&edited),
+            [(
+                2,
+                "line 2 of cantonese.txt was changed; only appending new lines is allowed"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_cantonese_base_the_build_would_reject_stops_the_check() {
+        let characters = "---\n...\n周\tzau1\n杰\tgit6\n倫\tleon4\n";
+        let characters = crate::cantonese::parse_characters(characters).unwrap();
+        let readings = crate::cantonese::character_readings(&characters);
+        let shipped = Shipped {
+            cantonese_readings: Some(&readings),
+            ..Shipped::default()
+        };
+        for (base, expected) in [
+            ("周杰倫\tzau1 gat6 leon4\n", "杰 does not read gat"),
+            (
+                "周杰倫\tzau1 git6 leon4\n周杰倫\tzau2 git6 leon4\n",
+                "line 2 repeats line 1",
+            ),
+        ] {
+            let input = Input {
+                kind: Kind::Cantonese,
+                base,
+                head: &format!("{base}杰倫\tgit6 leon4\n"),
+            };
+            let error = check(&[input], shipped).unwrap_err();
+            assert!(format!("{error:#}").contains(expected), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn cantonese_words_cannot_be_checked_without_the_characters_file() {
+        let input = Input {
+            kind: Kind::Cantonese,
+            base: CANTONESE,
+            head: &format!("{CANTONESE}傑倫\tgit6 leon4\n"),
+        };
+        let error = check(&[input], Shipped::default()).unwrap_err();
+        assert!(
+            error.to_string().contains("needs the readings of"),
+            "{error}"
+        );
     }
 
     #[test]
