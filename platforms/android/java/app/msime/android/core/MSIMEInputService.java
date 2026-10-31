@@ -432,6 +432,8 @@ public final class MSIMEInputService extends InputMethodService {
     int clipboardColumns = 1;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
+    /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
+    boolean clipboardDeleteAuthenticationEnabled;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -3115,6 +3117,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -8893,6 +8896,16 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
+        if (ClipboardDeleteAuthenticationPolicy.requiresAuthentication(clipboardDeleteAuthenticationEnabled,
+                clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
+            authenticateClipboard("删除", () -> removeClipboardItemAfterAuthentication(item));
+            return;
+        }
+        removeClipboardItemAfterAuthentication(item);
+    }
+
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
@@ -8904,6 +8917,17 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
     void removeClipboardItems(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        if (ClipboardDeleteAuthenticationPolicy.requiresAuthentication(clipboardDeleteAuthenticationEnabled,
+                clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
+            authenticateClipboard("删除", () -> removeClipboardItemsAfterAuthentication(snapshot));
+            return;
+        }
+        removeClipboardItemsAfterAuthentication(snapshot);
+    }
+
+    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
             if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;

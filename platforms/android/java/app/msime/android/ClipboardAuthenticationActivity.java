@@ -15,6 +15,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
     public static final String EXTRA_RESULT = "app.msime.android.clipboard.AUTH_RESULT";
     public static final String EXTRA_SUBTITLE = "app.msime.android.clipboard.AUTH_SUBTITLE";
     public static final int RESULT_AUTHENTICATED = 2001;
+    public static final int RESULT_UNAVAILABLE = 2002;
     private static final int AUTHENTICATORS = SystemAuthenticators.allowed();
     @Nullable private ResultReceiver result;
     private boolean sent;
@@ -34,7 +35,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
         result = getIntent().getParcelableExtra(EXTRA_RESULT);
         if (BiometricManager.from(this).canAuthenticate(AUTHENTICATORS)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
-            finishWith(false);
+            finishWith(RESULT_UNAVAILABLE);
             return;
         }
         BiometricPrompt prompt = new BiometricPrompt(this, ContextCompat.getMainExecutor(this),
@@ -59,9 +60,13 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
     @Override public void onBackPressed() { finishWith(false); }
 
     private void finishWith(boolean authenticated) {
+        finishWith(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED);
+    }
+
+    private void finishWith(int code) {
         if (sent) return;
         sent = true;
-        if (result != null) result.send(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED, null);
+        if (result != null) result.send(code, null);
         finish();
     }
 }
