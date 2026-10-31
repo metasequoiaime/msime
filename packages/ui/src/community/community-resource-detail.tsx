@@ -4,6 +4,7 @@ import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailHeader } from "./community-detail-header";
 import { CommunityRatingMetrics } from "./community-rating-metrics";
 import { CommunityReportSection } from "./community-report";
+import { CommunityBlockAuthorSection } from "./community-block";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityResourceEditor } from "./community-resource-editor";
@@ -19,6 +20,8 @@ export interface CommunityResourceDetailProps extends CommunityResourceDetailOpt
   client: CommunityResourceDetailOptions["client"] & Pick<CommunityResourceClient, "publish">;
   /** 宿主提供社区投稿类功能（`HostCapabilities.community_contribution`）。为 false 时（HarmonyOS 在实名认证到位之前）不画「编辑并发布新版本」、评分和举报，收藏、导入和下架自己的作品照常。缺省为提供。 */
   contributions?: boolean;
+  /** 屏蔽这件作品的作者之后以提示语调用，由图库关掉详情并重读列表；不给时，或宿主不提供屏蔽（见 `CommunityBlocksContext`）时，不画「屏蔽作者」。屏蔽不是投稿，`contributions` 为 false 时照常提供。 */
+  onBlocked?: (notice: string) => void;
 }
 
 export function CommunityResourceDetail({
@@ -27,6 +30,7 @@ export function CommunityResourceDetail({
   onClose,
   localDictionary,
   contributions = true,
+  onBlocked,
 }: CommunityResourceDetailProps) {
   const {
     item,
@@ -151,6 +155,15 @@ export function CommunityResourceDetail({
       />
       {!item.owned && contributions && client.report && (
         <CommunityReportSection actionBusy={busy} onReport={report} />
+      )}
+      {!item.owned && onBlocked && (
+        <CommunityBlockAuthorSection
+          kind={item.kind === "dictionary" ? "dictionaries" : "replies"}
+          id={item.id}
+          author={item.author}
+          actionBusy={busy}
+          onBlocked={onBlocked}
+        />
       )}
       {editing && contributions && (
         <CommunityResourceEditor

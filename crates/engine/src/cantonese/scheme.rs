@@ -992,6 +992,17 @@ mod tests {
 
     /// 在双拼小词库之外再写入 `extra` 行。
     fn shuangpin_fixture_with(extra: &[(&str, String, i64)]) -> Fixture {
+        let mut entries: Vec<(&str, &str, i64)> = SHUANGPIN_ENTRIES.to_vec();
+        entries.extend(
+            extra
+                .iter()
+                .map(|(key, text, weight)| (*key, text.as_str(), *weight)),
+        );
+        fixture_from(&SHUANGPIN_SYLLABLES, &entries)
+    }
+
+    /// 只含 `syllables` 和 `entries` 的词库。
+    fn fixture_from(syllables: &[&str], entries: &[(&str, &str, i64)]) -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("msime-cantonese.db");
         let connection = Connection::open(&path).unwrap();
@@ -1002,20 +1013,12 @@ mod tests {
                 (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
             )
             .unwrap();
-        for syllable in SHUANGPIN_SYLLABLES {
+        for syllable in syllables {
             connection
                 .execute("INSERT INTO syllables VALUES (?1)", (syllable,))
                 .unwrap();
         }
-        for (key, text, weight) in SHUANGPIN_ENTRIES {
-            connection
-                .execute(
-                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
-                    (key, text, weight),
-                )
-                .unwrap();
-        }
-        for (key, text, weight) in extra {
+        for (key, text, weight) in entries {
             connection
                 .execute(
                     "INSERT INTO entries VALUES (?1, ?2, ?3)",
@@ -1032,7 +1035,11 @@ mod tests {
 
     /// `force` 对应独立「粤语双拼」入口，否则是「粤语」入口的自动识别。
     fn shuangpin_typed(keys: &str, force: bool) -> CantoneseScheme {
-        let mut scheme = CantoneseScheme::new(Arc::new(Inventory::new(SHUANGPIN_SYLLABLES)));
+        shuangpin_typed_with(&SHUANGPIN_SYLLABLES, keys, force)
+    }
+
+    fn shuangpin_typed_with(syllables: &[&str], keys: &str, force: bool) -> CantoneseScheme {
+        let mut scheme = CantoneseScheme::new(Arc::new(Inventory::new(syllables.iter().copied())));
         scheme.set_force_shuangpin(force);
         for byte in keys.bytes() {
             scheme.handle_key(if byte == b'\'' {
@@ -1129,6 +1136,39 @@ mod tests {
         assert_eq!(
             listed_with_end(&scheme, &fixture.dictionary),
             ["傳/1/2", "速/1/2"]
+        );
+    }
+
+    #[test]
+    fn a_reviewed_three_syllable_word_comes_first_for_its_codes() {
+        // #10369：`zk gt lp` 解出 zau/zaau、git/gek、lun/lut/lung/leon。词库收进「周杰倫」整词后，它覆盖全部三个音节，排在只覆盖一个音节的单字前面；权重 711 低于「杰倫」和各个单字也不影响。
+        const SYLLABLES: [&str; 8] = ["zau", "zaau", "git", "gek", "leon", "lun", "lut", "lung"];
+        let entries = [
+            ("zau", "周", 9000),
+            ("zaau", "找", 8000),
+            ("git", "杰", 3000),
+            ("gek", "屐", 100),
+            ("leon", "倫", 2000),
+            ("lung", "龍", 5000),
+            ("git leon", "杰倫", 1182),
+            ("zau git leon", "周杰倫", 711),
+        ];
+        let fixture = fixture_from(&SYLLABLES, &entries);
+        for force in [true, false] {
+            let scheme = shuangpin_typed_with(&SYLLABLES, "zkgtlp", force);
+            assert!(scheme.is_shuangpin(), "force={force}");
+            assert_eq!(
+                listed_with_end(&scheme, &fixture.dictionary),
+                ["周杰倫/3/6", "周/1/2", "找/1/2"],
+                "force={force}"
+            );
+        }
+        // 没有整词时要先选「周」，剩下的 `gtlp` 再出「杰倫」，这是 #10369 报告的两次选择。
+        let fixture = fixture_from(&SYLLABLES, &entries[..entries.len() - 1]);
+        let scheme = shuangpin_typed_with(&SYLLABLES, "zkgtlp", true);
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary),
+            ["周/1/2", "找/1/2"]
         );
     }
 

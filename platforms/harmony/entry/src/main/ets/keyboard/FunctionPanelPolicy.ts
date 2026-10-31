@@ -226,8 +226,24 @@ export class FunctionPanelPolicy {
       (item: FunctionPanelItem) => !FunctionPanelPolicy.AI_GENERATION_TILES.includes(item.id),
     );
 
-  /** 所有格子，按页面顺序。`aiGeneration` 为 false（鸿蒙版拿到 AI 生成类资质之前）时去掉高情商回复和 AI 润色。 */
-  static items(aiGeneration: boolean = true): FunctionPanelItem[] {
+  /** 手机和平板不显示「本地输入」入口；2in1 仍保留实体键盘对应的设置和入口。 */
+  private static readonly ITEMS_WITHOUT_LOCAL_INPUT: FunctionPanelItem[] =
+    FunctionPanelPolicy.ITEMS.filter(
+      (item: FunctionPanelItem) => item.id !== FunctionPanelPolicy.LOCAL_INPUT,
+    );
+
+  private static readonly ITEMS_WITHOUT_AI_OR_LOCAL_INPUT: FunctionPanelItem[] =
+    FunctionPanelPolicy.ITEMS_WITHOUT_AI_GENERATION.filter(
+      (item: FunctionPanelItem) => item.id !== FunctionPanelPolicy.LOCAL_INPUT,
+    );
+
+  /** 所有格子，按页面顺序。手机和平板隐藏本地输入入口；`aiGeneration` 为 false 时去掉 AI 生成类磁贴。 */
+  static items(aiGeneration: boolean = true, localInputModes: boolean = true): FunctionPanelItem[] {
+    if (!localInputModes) {
+      return aiGeneration
+        ? FunctionPanelPolicy.ITEMS_WITHOUT_LOCAL_INPUT
+        : FunctionPanelPolicy.ITEMS_WITHOUT_AI_OR_LOCAL_INPUT;
+    }
     return aiGeneration
       ? FunctionPanelPolicy.ITEMS
       : FunctionPanelPolicy.ITEMS_WITHOUT_AI_GENERATION;

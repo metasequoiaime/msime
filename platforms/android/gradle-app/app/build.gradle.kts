@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.util.Properties
 
@@ -70,6 +71,56 @@ val nativeAbis = (findProperty("msimeAbis") as String?)
     ?: listOf("arm64-v8a")
 check(nativeAbis.all { it == "arm64-v8a" || it == "x86_64" }) {
     "msimeAbis supports arm64-v8a and x86_64, got $nativeAbis"
+}
+
+// Gradle 也可能被直接调用，绕过 build-apk.sh/build-native.sh。若只依赖后者，旧 worktree
+// 留下的 jniLibs 会被当成有效输入，Java 新声明直到真机第一次调用时才以 UnsatisfiedLinkError
+// 暴露。复用同一份 native 校验，所有会打包 APK 的 Gradle 入口都必须先确认库内导出与当前
+// ABI、依赖和 JNI 清单一致。
+val nativeLibraryRoot = hostRoot.resolve("../../target/android/jniLibs")
+val androidSdk = System.getenv("ANDROID_SDK_ROOT")
+    ?: System.getenv("ANDROID_HOME")
+    ?: error("ANDROID_SDK_ROOT or ANDROID_HOME is required to verify Android native libraries")
+val ndkRoot = File(androidSdk).resolve("ndk/28.2.13676358")
+val ndkHostTag = when {
+    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> "darwin-x86_64"
+    System.getProperty("os.name").startsWith("Linux", ignoreCase = true) -> "linux-x86_64"
+    else -> error("Android native verification supports macOS and Linux hosts only")
+}
+val llvmReadelf = ndkRoot.resolve("toolchains/llvm/prebuilt/$ndkHostTag/bin/llvm-readelf")
+val verifyNativeArtifacts = tasks.register("verifyNativeArtifacts") {
+    inputs.file(hostRoot.resolve("verify-native.sh"))
+    inputs.dir(nativeLibraryRoot)
+    outputs.upToDateWhen { false }
+    doLast {
+        check(llvmReadelf.isFile && llvmReadelf.canExecute()) {
+            "Pinned Android NDK llvm-readelf is missing: $llvmReadelf"
+        }
+        nativeAbis.forEach { abi ->
+            val libraryDir = nativeLibraryRoot.resolve(abi)
+            val stdout = ByteArrayOutputStream()
+            val stderr = ByteArrayOutputStream()
+            val result = project.exec {
+                commandLine("bash", hostRoot.resolve("verify-native.sh").absolutePath, llvmReadelf.absolutePath, libraryDir.absolutePath, abi)
+                standardOutput = stdout
+                errorOutput = stderr
+                isIgnoreExitValue = true
+            }
+            if (result.exitValue != 0) {
+                throw GradleException(
+                    "Android native library verification failed for $abi:\n" +
+                        stderr.toString(Charsets.UTF_8.name()).ifBlank { stdout.toString(Charsets.UTF_8.name()) },
+                )
+            }
+            logger.lifecycle(stdout.toString(Charsets.UTF_8.name()).trim())
+        }
+    }
+}
+
+// 只把检查接到真正合并 native 库的任务上。Java 编译和 JVM 门禁不需要 native 产物，不能因
+// 此被迫准备一整套 `.so`；所有 APK/AAB 的 assemble/install 路径都会经过 `*JniLibFolders`。
+tasks.configureEach {
+    if (name.endsWith("JniLibFolders")) dependsOn(verifyNativeArtifacts)
 }
 
 // 分发渠道：默认 github（GitHub release 上的 APK，靠应用内更新），build-apk.sh 在 MSIME_ANDROID_DISTRIBUTION=play 时转交 -PmsimeDistribution=play，打上传 Google Play 的 AAB。Play 渠道写进 BuildConfig 的 `DISTRIBUTION`，宿主据此关掉自更新、不下载可执行的资源包；release 再叠加 platforms/android/distribution/play/AndroidManifest.xml，删掉只为自更新声明的权限。Play 的政策不允许上架的应用绕过 Play 更新自己，也不允许从别处下载可执行代码，见 .agents/notes/implemented/process/2026-10-23-android-google-play-distribution.md。

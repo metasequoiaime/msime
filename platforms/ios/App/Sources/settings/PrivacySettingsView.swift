@@ -1,9 +1,16 @@
 import SwiftUI
 
-/// 隐私，从 我的 › 隐私 推入，对应 Android 的 `PrivacyPage`：匿名使用统计开关（原先在关于里）、键盘的本地剪贴板历史和快捷模式，以及隐私政策。
+/// 隐私，从 我的 › 隐私 推入，对应 Android 的 `PrivacyPage`：匿名使用统计开关（原先在关于里）、键盘的本地剪贴板历史和快捷模式、社区里已屏蔽的作者，以及隐私政策。
 struct PrivacySettingsView: View {
   @State private var usageReporting = UsageReporting.isEnabled
   @State private var usageReportingFailed = false
+  /// 「已屏蔽的作者」只给登录账号：没登录时这一行打开登录面板。
+  @State private var signedIn = false
+  @State private var signingIn = false
+
+  @MainActor private func refreshSignedIn() async {
+    signedIn = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
+  }
 
   var body: some View {
     ScrollView {
@@ -38,6 +45,22 @@ struct PrivacySettingsView: View {
           .accessibilityIdentifier("privacyLocalModeLink")
         }
 
+        DesignGroup(title: "社区", radius: MetasequoiaTheme.tabCardRadius) {
+          if signedIn {
+            NavigationLink { CommunityBlockedAuthorsView() } label: {
+              DesignNavRowLabel(title: "已屏蔽的作者", subtitle: "社区里不显示这些作者的作品")
+            }
+            .buttonStyle(PressFillButtonStyle())
+            .accessibilityIdentifier("privacyBlockedAuthorsLink")
+          } else {
+            Button { signingIn = true } label: {
+              DesignNavRowLabel(title: "已屏蔽的作者", subtitle: "登录后可用")
+            }
+            .buttonStyle(PressFillButtonStyle())
+            .accessibilityIdentifier("privacyBlockedAuthorsLink")
+          }
+        }
+
         DesignGroup(radius: MetasequoiaTheme.tabCardRadius) {
           Link(destination: URL(string: "https://msime.app/privacy/")!) {
             HStack(spacing: 12) {
@@ -63,6 +86,8 @@ struct PrivacySettingsView: View {
     .navigationTitle("隐私").navigationBarTitleDisplayMode(.inline)
     // 本页被盖住时键盘可能改了同一个偏好，所以每次返回都重新读取。
     .onAppear { usageReporting = UsageReporting.isEnabled }
+    .task { await refreshSignedIn() }
+    .sheet(isPresented: $signingIn, onDismiss: { Task { await refreshSignedIn() } }) { AccountLoginSheet() }
     .alert("无法保存设置", isPresented: $usageReportingFailed) { Button("好", role: .cancel) {} } message: {
       Text("设置被键盘同时修改了，请稍后再试。")
     }

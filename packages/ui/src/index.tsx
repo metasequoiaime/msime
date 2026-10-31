@@ -1442,6 +1442,21 @@ export {
   type CommunityReportReason,
 } from "./community/community-report-model";
 export {
+  CommunityBlockAuthorSection,
+  CommunityBlockedAuthors,
+  CommunityBlocksContext,
+  useCommunityBlocks,
+  type CommunityBlockAuthorSectionProps,
+  type CommunityBlocksValue,
+} from "./community/community-block";
+export {
+  communityBlockDay,
+  communityBlockLimit,
+  type CommunityBlock,
+  type CommunityBlockClient,
+  type CommunityBlockKind,
+} from "./community/community-block-model";
+export {
   CommunityErrorAlert,
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";

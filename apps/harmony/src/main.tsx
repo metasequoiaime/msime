@@ -46,6 +46,8 @@ import {
   type AccountPreferences,
   type AiSkinClient,
   type AiSkinProposal,
+  type CommunityBlock,
+  type CommunityBlockClient,
   type CommunityResource,
   type CommunityResourceApplication,
   type CommunityResourceClient,
@@ -1056,6 +1058,23 @@ function communityPluginClient(native: NativeBridge): CommunityPluginClient {
   };
 }
 
+/**
+ * 屏蔽社区作者：作品详情里的「屏蔽作者」和「我的 › 隐私 › 已屏蔽的作者」。三个操作经设置桥自己的 `community_block` 通道原样交给 Rust 的 `msime_client_community`（宿主的名单是 `HarmonyAccountRequests.ts` 的 `PAGE_COMMUNITY_BLOCK_OPERATIONS`），只认登录的水杉账号。
+ *
+ * 屏蔽不是投稿：它不公开任何内容，只让本账号看不到那位作者的作品，所以 `community_contribution` 关着时照常提供（`withoutCommunityContribution` 不碰它，宿主的 `CommunityContributionGate` 也不拦这条通道）；它和其他社区请求一样要隐私政策的授权。
+ */
+function communityBlockClient(native: NativeBridge): CommunityBlockClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(native, "community_block", JSON.stringify(action)).then(unwrap<T>);
+  return {
+    block: (kind, id) => request<CommunityBlock>({ operation: "block", kind, id }),
+    list: () => request<CommunityBlock[]>({ operation: "block_list" }),
+    unblock: async (id) => {
+      await request<null>({ operation: "unblock", id });
+    },
+  };
+}
+
 /** 页面在投稿类功能关着时本来就不画这些入口；万一哪处漏了，请求在页面这一侧就被拒绝，不经桥接。错误码与宿主桥接的拒绝（`CommunityContributionGate.ts`）相同。 */
 function contributionRefused(): Promise<never> {
   return Promise.reject({ code: "community_contribution_unavailable" });
@@ -1823,6 +1842,7 @@ function makeClient(
     communitySkins: community?.skins,
     communityResources: community?.resources,
     communityPlugins: community?.plugins,
+    communityBlocks: networkAllowed ? communityBlockClient(native) : undefined,
     aiSkins: networkAllowed && aiGeneration ? aiSkinClient(native) : undefined,
     localVoiceModels: localVoiceModelClient(native, networkAllowed),
     // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。

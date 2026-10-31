@@ -201,12 +201,11 @@ public final class KeyLayoutStylesPolicySmoke {
                 "14/18-key bottom row " + style);
         }
         List<List<Key>> eighteen = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, true);
-        check(faces(eighteen.get(0)).equals(List.of("，", "Q", "WE", "RT", "Y", "U", "IO", "P")), "18-key first row");
+        check(faces(eighteen.get(0)).equals(List.of("Q", "WE", "RT", "Y", "U", "IO", "P")), "18-key first row has no sidebar");
         List<Key> middle = eighteen.get(1);
-        check(middle.get(1).rows() == 0 && middle.get(middle.size() - 1).rows() == 0
-            && near(middle.get(1).weight() / middle.get(2).weight(), .5f), "18-key second row is indented half a key each side");
-        check(faces(eighteen.get(2)).equals(List.of("？", "符", "Z", "XC", "V", "BN", "M", "⌫")), "18-key third row");
-        check(eighteen.get(1).get(2).id().equals("EighteenA") && fourteen.get(1).get(1).id().equals("FourteenAS"),
+        check(faces(middle).equals(List.of("A", "SD", "FG", "H", "JK", "L")), "18-key second row has no indent");
+        check(faces(eighteen.get(2)).equals(List.of("符", "Z", "XC", "V", "BN", "M", "⌫")), "18-key third row");
+        check(eighteen.get(1).get(0).id().equals("EighteenA") && fourteen.get(1).get(1).id().equals("FourteenAS"),
             "letter keys carry the keyboard's ids");
     }
 

@@ -17509,30 +17509,55 @@ fn a_broken_helpcode_pack_with_a_missing_fallback_never_fails_the_session() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 诊断回调是进程级的：登记它的测试先拿这把锁，一次只有一个测试登记、清除回调，不会互相清掉对方的。并行跑的别的测试报出的行也会落进 [`DIAGNOSTIC_LINES`]，所以断言只找各自独有的包名或临时目录。
+static DIAGNOSTIC_SINK_SERIAL: Mutex<()> = Mutex::new(());
+static DIAGNOSTIC_LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+unsafe extern "C" fn capture_diagnostic_line(line: *const c_char) {
+    let line = unsafe { std::ffi::CStr::from_ptr(line) };
+    DIAGNOSTIC_LINES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(line.to_string_lossy().into_owned());
+}
+
+/// 登记回调以来收到的、含 `needle` 的诊断行。
+fn captured_diagnostics(needle: &str) -> Vec<String> {
+    DIAGNOSTIC_LINES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|line| line.contains(needle))
+        .cloned()
+        .collect()
+}
+
+/// 拿到 [`DIAGNOSTIC_SINK_SERIAL`] 并登记 [`capture_diagnostic_line`]；返回的守卫在测试结束（包括断言失败）时清掉回调再放锁。
+fn capture_diagnostics() -> impl Drop {
+    struct Registered {
+        _serial: std::sync::MutexGuard<'static, ()>,
+    }
+    impl Drop for Registered {
+        fn drop(&mut self) {
+            msime_client_set_diagnostic_sink(None);
+        }
+    }
+    let serial = DIAGNOSTIC_SINK_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    msime_client_set_diagnostic_sink(Some(capture_diagnostic_line));
+    Registered { _serial: serial }
+}
+
 /// 插件载入失败（这里是选中的辅助码表包不在）经宿主注册的诊断回调报出来，而不是只写 stderr：macOS 输入法的 stderr 指向 /dev/null，原先这些失败在哪儿都留不下痕迹。清掉回调后回到 stderr。
-///
-/// The sink is process-wide, so this is the only test that registers one; reports from tests running alongside land in it too, which is why the assertions look for this test's own pack id.
 #[test]
 fn plugin_failures_reach_the_registered_diagnostic_sink() {
-    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    unsafe extern "C" fn sink(line: *const c_char) {
-        let line = unsafe { std::ffi::CStr::from_ptr(line) };
-        LINES
-            .lock()
-            .unwrap()
-            .push(line.to_string_lossy().into_owned());
-    }
-    let captured = |needle: &str| -> Vec<String> {
-        LINES
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|line| line.contains(needle))
-            .cloned()
-            .collect()
-    };
+    let captured = captured_diagnostics;
+    let _serial = DIAGNOSTIC_SINK_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    msime_client_set_diagnostic_sink(Some(sink));
+    msime_client_set_diagnostic_sink(Some(capture_diagnostic_line));
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = chinese_preferences();
     preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
@@ -17567,6 +17592,214 @@ fn plugin_failures_reach_the_registered_diagnostic_sink() {
         "diagnostic-sink-probe after clearing",
     );
     assert!(captured("after clearing").is_empty());
+}
+
+/// 带最小拼音词库的输入会话；`state` 有值时像各平台宿主那样作为 `preferences_directory` 传入。
+fn settled_model_host(root: &Path, preferences: &Preferences, state: Option<&Path>) -> u64 {
+    let path = |name| {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let resources = path("resources");
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);",
+        )
+        .unwrap();
+    let dictionaries = path("dictionaries");
+    std::fs::copy(
+        resources.join("msime-pinyin.db"),
+        dictionaries.join("msime-pinyin.db"),
+    )
+    .unwrap();
+    let mut options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences });
+    if let Some(state) = state {
+        options["preferences_directory"] = json!(state);
+    }
+    let options = options.to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    created["value"]["session"].as_u64().unwrap()
+}
+
+/// 在 `state` 下发布一个装着合成模型的 `settled-model` 资源包，返回模型文件。
+fn install_settled_model(state: &Path) -> PathBuf {
+    let model = publish_resource_pack(
+        state,
+        ResourcePack::SettledModel,
+        &[ffi::SETTLED_MODEL_FILE],
+    )
+    .join(ffi::SETTLED_MODEL_FILE);
+    write_context_free_sentence_model(&model);
+    model
+}
+
+/// 诊断行里关于 `root` 下那个会话的落定重排模型状态行。
+fn settled_model_lines(root: &Path) -> Vec<String> {
+    captured_diagnostics(root.to_str().unwrap())
+        .into_iter()
+        .filter(|line| line.starts_with("settled model "))
+        .collect()
+}
+
+fn neural_desktop_preferences() -> Preferences {
+    let mut preferences = chinese_preferences();
+    preferences.sentence_association.neural_desktop = true;
+    preferences
+}
+
+/// 开着「桌面神经联想」的会话建立时写一行落定重排模型接上了没有，诊断日志据此分得清装好了、没装和宿主没给状态目录（#10341）；开关关着的会话什么都不写。
+#[test]
+fn a_session_reports_whether_it_attached_the_settled_model() {
+    let _sink = capture_diagnostics();
+    let on = neural_desktop_preferences();
+
+    let installed = tempfile::tempdir().unwrap();
+    let state = installed.path().join("state");
+    let model = install_settled_model(&state);
+    let handle = settled_model_host(installed.path(), &on, Some(&state));
+    assert_eq!(
+        settled_model_lines(installed.path()),
+        [format!("settled model attached: {}", model.display())]
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let missing = tempfile::tempdir().unwrap();
+    let state = missing.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let handle = settled_model_host(missing.path(), &on, Some(&state));
+    assert_eq!(
+        settled_model_lines(missing.path()),
+        [format!(
+            "settled model missing: no settled-model pack under {}",
+            resource_packs::root(&state).display()
+        )]
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    // 报告者怀疑的情形：宿主没给 `preferences_directory`，下载的资源包根本不会被找。
+    let stateless = tempfile::tempdir().unwrap();
+    let handle = settled_model_host(stateless.path(), &on, None);
+    assert_eq!(
+        settled_model_lines(stateless.path()),
+        [format!(
+            "settled model missing without state directory: no absolute preferences_directory; resources {}",
+            stateless.path().join("resources").display()
+        )]
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let off = tempfile::tempdir().unwrap();
+    let state = off.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let preferences = chinese_preferences();
+    assert!(!preferences.sentence_association.neural_desktop);
+    let handle = settled_model_host(off.path(), &preferences, Some(&state));
+    assert_eq!(settled_model_lines(off.path()), Vec::<String>::new());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    // macOS 的诊断日志只记第一个冒号前的类别，类别里不能有路径。
+    for root in [installed.path(), missing.path(), stateless.path()] {
+        for line in settled_model_lines(root) {
+            let (category, _) = line.split_once(": ").unwrap();
+            assert!(
+                !category.contains('/') && !category.contains('\\'),
+                "{line}"
+            );
+        }
+    }
+}
+
+/// 模型文件在却读不进来（这里是超过读入上限）时报告原因，会话再报告没接上，而不是像没装一样什么都不说。
+#[test]
+fn an_unreadable_settled_model_is_reported_rather_than_skipped() {
+    let _sink = capture_diagnostics();
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let model = publish_resource_pack(
+        &state,
+        ResourcePack::SettledModel,
+        &[ffi::SETTLED_MODEL_FILE],
+    )
+    .join(ffi::SETTLED_MODEL_FILE);
+    // 稀疏文件，不真的写出六十多 MB。
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&model)
+        .unwrap()
+        .set_len(ffi::MAX_SENTENCE_MODEL_BYTES + 1)
+        .unwrap();
+    let handle = settled_model_host(root.path(), &neural_desktop_preferences(), Some(&state));
+    let lines = captured_diagnostics(root.path().to_str().unwrap());
+    assert!(
+        lines
+            .iter()
+            .any(|line| line
+                .starts_with(&format!("sentence model unreadable: {}: ", model.display()))),
+        "{lines:?}"
+    );
+    assert_eq!(
+        settled_model_lines(root.path()),
+        [format!("settled model not loaded: {}", model.display())]
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 会话打开后才装好的模型在聚焦后换上时再报告一次；会话建立时开关还关着（宿主用运行时选项里嵌的偏好快照建会话），随后送来的偏好打开它时也报告一次。没有变化时不重复报告。
+#[test]
+fn the_settled_model_status_is_reported_again_when_it_changes() {
+    let _sink = capture_diagnostics();
+    let on = neural_desktop_preferences();
+
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let handle = settled_model_host(root.path(), &on, Some(&state));
+    let missing = format!(
+        "settled model missing: no settled-model pack under {}",
+        resource_packs::root(&state).display()
+    );
+    assert_eq!(
+        settled_model_lines(root.path()),
+        std::slice::from_ref(&missing)
+    );
+    let model = install_settled_model(&state);
+    let attached = format!("settled model attached: {}", model.display());
+    // 聚焦时发现新模型并在后台加载，加载完之后某次空闲的聚焦把它换上。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !settled_model_lines(root.path()).contains(&attached) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?}",
+            settled_model_lines(root.path())
+        );
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(settled_model_lines(root.path()), [missing, attached]);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let later = tempfile::tempdir().unwrap();
+    let state = later.path().join("state");
+    let model = install_settled_model(&state);
+    let handle = settled_model_host(later.path(), &chinese_preferences(), Some(&state));
+    assert_eq!(settled_model_lines(later.path()), Vec::<String>::new());
+    let updated = update(handle, 1, &on);
+    assert_eq!(updated["value"]["deferred"], false, "{updated}");
+    let attached = format!("settled model attached: {}", model.display());
+    assert_eq!(
+        settled_model_lines(later.path()),
+        std::slice::from_ref(&attached)
+    );
+    let mut changed = on.clone();
+    changed.candidate_page_size = 7;
+    assert_eq!(update(handle, 2, &changed)["ok"], true);
+    assert_eq!(settled_model_lines(later.path()), [attached]);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 /// Switching the `/` mode on, or enabling another table, goes through the ordinary preference update and reads the tables then.

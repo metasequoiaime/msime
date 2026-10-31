@@ -66,6 +66,37 @@ struct CommunityFailure: LocalizedError {
   var errorDescription: String? { message }
 }
 
+/// 一位被屏蔽的作者：`id` 是这条屏蔽的编号（取消屏蔽用它，不是作者的账号），`name` 是作者现在的显示名，`created_at` 是 RFC 3339 时间。
+struct CommunityBlock: Decodable, Identifiable, Equatable {
+  let id: String
+  let name: String
+  let created_at: String
+
+  /// 屏蔽的日期，按本机时区写成 yyyy-MM-dd；读不出时间时为空。
+  var day: String {
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = parser.date(from: created_at) ?? {
+      parser.formatOptions = [.withInternetDateTime]
+      return parser.date(from: created_at)
+    }()
+    guard let date else { return "" }
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+  }
+}
+
+enum CommunityBlocks {
+  /// 屏蔽或取消屏蔽之后发出，社区列表收到后重新读取，被屏蔽作者的作品随之消失或回来。
+  static let didChange = Notification.Name("app.msime.ios.communityBlocksDidChange")
+  /// 一个账号最多屏蔽的作者数，与服务端的上限相同。
+  static let maximum = 500
+  static let signInRequired = "登录水杉账号后才能屏蔽作者。"
+}
+
 enum CommunityResponseValidation {
   static func validSkin(_ skin: CommunitySkin) -> Bool {
     CommunityValidation.validID(skin.id)
@@ -412,6 +443,38 @@ actor SkinCommunityAPI {
       throw CommunityFailure(message: "请选择举报原因，补充说明不超过 1000 字。")
     }
     try await community(["operation": "report", "kind": kind, "id": itemID, "reason": reason, "detail": detail])
+  }
+  /// 屏蔽别人作品的作者，只用登录账号：目录按列表请求带的登录令牌过滤，匿名账号的屏蔽既不跟着用户换设备，重装后也没了。成功后发 `CommunityBlocks.didChange`，各社区列表据此重新读取。
+  func block(kind: String, itemID: String) async throws -> CommunityBlock {
+    guard CommunityValidation.validID(itemID) else { throw CommunityFailure(message: "社区暂时不可用，请稍后重试。") }
+    let data: Data
+    do { data = try await rust().community(["operation": "block", "kind": kind, "id": itemID]) }
+    catch let failure as BackendRustClient.Failure {
+      switch failure.code {
+      case "community_unauthorized": throw CommunityFailure(message: CommunityBlocks.signInRequired)
+      case "community_invalid": throw CommunityFailure(message: "不能屏蔽自己。")
+      case "community_conflict": throw CommunityFailure(message: "最多屏蔽 \(CommunityBlocks.maximum) 位作者，请先取消一些。")
+      default: throw try Self.failure(failure)
+      }
+    }
+    try Task.checkCancellation()
+    let block: CommunityBlock
+    do { block = try JSONDecoder().decode(CommunityBlock.self, from: data) }
+    catch { throw CommunityFailure(message: "社区暂时不可用，请稍后重试。") }
+    await MainActor.run { NotificationCenter.default.post(name: CommunityBlocks.didChange, object: nil) }
+    return block
+  }
+  /// 登录账号屏蔽的作者，最近的在前。
+  func blocks() async throws -> [CommunityBlock] {
+    let blocks = try await community(["operation": "block_list"], as: [CommunityBlock].self)
+    guard blocks.count <= CommunityBlocks.maximum else { throw CommunityFailure(message: "社区暂时不可用，请稍后重试。") }
+    return blocks
+  }
+  /// 取消屏蔽；`id` 是屏蔽本身的编号。
+  func unblock(_ id: String) async throws {
+    guard CommunityValidation.validID(id) else { throw CommunityFailure(message: "社区暂时不可用，请稍后重试。") }
+    try await community(["operation": "unblock", "id": id])
+    await MainActor.run { NotificationCenter.default.post(name: CommunityBlocks.didChange, object: nil) }
   }
   func unpublishResource(_ id: String) async throws {
     guard CommunityValidation.validID(id) else {

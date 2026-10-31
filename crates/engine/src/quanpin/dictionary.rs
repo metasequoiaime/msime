@@ -212,7 +212,7 @@ pub struct QuanpinDictionary {
     typo_span_cache: FifoCache<String, Vec<DictRow>>,
     /// 词网格每个跨度的 `query_lattice_span` 结果，空结果也存。哈希只做索引，命中后再核对上限和原样跨度，避免每次命中都拼接键字符串。
     lattice_span_cache: FifoCache<u64, CachedLatticeSpan>,
-    /// 每条切分的 `query_segments_keyed_flat` 结果，键是切分本身；单字母的 `query_initial` 结果也存在这里，键前加 `\u{1}`。
+    /// 每条切分的 `query_segments_keyed_flat` 结果，键是切分本身；单字母首屏与完整 `query_initial` 行分别以前缀 `\u{1}`、`\u{2}` 区分。
     segment_row_cache: FifoCache<String, Vec<DictRow>>,
     /// 每条切分的 `query_longer_phrases` 结果，键是切分本身。
     longer_row_cache: FifoCache<String, Vec<DictRow>>,
@@ -453,13 +453,73 @@ impl QuanpinDictionary {
             return false;
         }
         let expanded = matched_items(self.database.query_initial(code, UNLIMITED_ROWS), code);
+        self.merge_initial_candidates(
+            raw,
+            segmentation,
+            autocorrect_types,
+            code,
+            candidates,
+            expanded,
+        )
+    }
+
+    /// 辅助码使用完整基础候选，不依赖屏幕上恰有 24 行；筛选后的结果不写回普通拼音缓存。
+    pub(super) fn complete_initial_candidates(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        autocorrect_types: u32,
+        candidates: &mut Vec<WordItem>,
+    ) {
+        debug_assert_eq!(raw.len(), 1);
+        self.validate_row_caches();
+        let key_bytes = [2, raw.as_bytes()[0]];
+        let key = std::str::from_utf8(&key_bytes).expect("单字母拼音必须是 ASCII");
+        let expanded = if let Some(rows) = self.segment_row_cache.get_ref_by(key) {
+            let present = candidates
+                .iter()
+                .filter(|item| item.source == CandidateSource::Database && item.pinyin == raw)
+                .count();
+            if rows.len() <= present {
+                return;
+            }
+            matched_items(rows.iter().cloned(), raw)
+        } else {
+            let rows = self.database.query_initial(raw, UNLIMITED_ROWS);
+            let expanded = matched_items(rows.iter().cloned(), raw);
+            self.segment_row_cache.insert(key.to_owned(), rows);
+            expanded
+        };
+        self.merge_initial_candidates(
+            raw,
+            segmentation,
+            autocorrect_types,
+            raw,
+            candidates,
+            expanded,
+        );
+    }
+
+    /// 手动展开与辅助码补查共用词典行替换及基础缓存回写，保留其他来源候选的原有站位。
+    fn merge_initial_candidates(
+        &mut self,
+        raw: &str,
+        segmentation: &str,
+        autocorrect_types: u32,
+        code: &str,
+        candidates: &mut Vec<WordItem>,
+        expanded: Vec<WordItem>,
+    ) -> bool {
+        let is_limited_initial =
+            |item: &WordItem| item.source == CandidateSource::Database && item.pinyin == code;
+        let limited_count = candidates
+            .iter()
+            .filter(|item| is_limited_initial(item))
+            .count();
         if expanded.len() <= limited_count {
             return false;
         }
-        let first_limited = candidates
-            .iter()
-            .position(is_limited_initial)
-            .expect("limited_count checked above");
+        let first_limited = candidates.iter().position(is_limited_initial).unwrap_or(0);
         candidates.reserve_exact(expanded.len() - limited_count);
         let mut removed = 0;
         candidates.retain(|item| {

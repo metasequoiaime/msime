@@ -651,6 +651,7 @@ export function useSettingsPageModel({
     handwritingOnScreenKeyboardPage:
       macosPlatform || linuxPlatform || windowsPlatform || harmonyPlatform,
     hasMcp: Boolean(client.mcpServerStatus),
+    hasCommunityBlocks: Boolean(client.communityBlocks && client.account),
     mobileHiddenPageIds,
     mobilePageTitle,
   });

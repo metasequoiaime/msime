@@ -14,7 +14,8 @@ import { HarmonyGoogleSignIn } from './HarmonyGoogleSignIn';
 import { HarmonyHuaweiSignIn } from './HarmonyHuaweiSignIn';
 import {
   CloudClipboardRoute, RequestPlan, SESSION_CHANGING_OPERATIONS, accountRequest, aiSkinRequest, appliedFeedbackText,
-  cloudClipboardRequest, cloudClipboardRoute, cloudDictionaryFileRequest, cloudDictionaryRequest, communityRequest,
+  cloudClipboardRequest, cloudClipboardRoute, cloudDictionaryFileRequest, cloudDictionaryRequest, communityBlockRequest,
+  communityRequest,
   dictionarySyncRequest, hostAccountRequest, preferencesPutAction, relayCloudClipboardRequest, replyError, replyValueText,
   settingsApplyRequest, settingsExportRequest, statusUserId, typingUploadReply, typingUploadRequest, webDavProbeRequest
 } from './HarmonyAccountRequests';
@@ -224,6 +225,14 @@ export class HarmonyAccountCloudBridge {
   /** 社区的皮肤、词包与回复模板。`finish_trial`、`store_reply`、`remove_reply` 不联网，由 `Settings` 在这之前处理。AI 生成类功能的总闸关着时（鸿蒙版拿到资质之前）键盘皮肤不要 AI 生成的作品。 */
   async community(action: string): Promise<string> {
     const plan: RequestPlan = communityRequest(this.directory, this.directory, action, !AiGenerationGate.enabled());
+    if (plan.refusal.length > 0) return plan.refusal;
+    await AccountSessionAdoption.beforeRequest();
+    return await client.community(plan.request);
+  }
+
+  /** 社区的屏蔽作者：屏蔽、列出和取消屏蔽，经 Rust 的 `msime_client_community`。只认登录账号，没有登录时 Rust 答 `community_unauthorized`、不发请求；和其他认证请求一样先等会话镜像的采用做完。 */
+  async communityBlock(action: string): Promise<string> {
+    const plan: RequestPlan = communityBlockRequest(this.directory, action);
     if (plan.refusal.length > 0) return plan.refusal;
     await AccountSessionAdoption.beforeRequest();
     return await client.community(plan.request);

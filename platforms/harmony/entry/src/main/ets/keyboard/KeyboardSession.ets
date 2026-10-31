@@ -7980,6 +7980,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 上一次 `allCandidates` 取到的是哪个会话的哪一代候选；展开网格据此分辨重取的是同一份列表（释义晚到）还是换了候选。 */
+  candidateListIdentity(): string {
+    return `${this.handle}:${this.generation}`;
+  }
+
   /**
    * The candidate-management operations behind a long press: promote it, pin it to the front, let go
    * of a pinned position, or take the entry out of the dictionary altogether.
