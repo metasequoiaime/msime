@@ -1,5 +1,6 @@
 import android.view.inputmethod.EditorInfo;
 import app.msime.android.ReturnKeyAction;
+import app.msime.android.ReturnKeyHoldPolicy;
 
 public final class ReturnKeyActionSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
