@@ -1566,8 +1566,8 @@ group("projects the same form factor into every settings capability", () => {
     "every form factor's emoji panel reads the mirrored symbol set packs",
   );
   check(
-    phone.pluginTriggers && tablet.pluginTriggers,
-    "phones and tablets offer the / and @ switches: the touch keyboard enters / from 本地输入 and an attached keyboard routes all three",
+    !phone.pluginTriggers && !tablet.pluginTriggers,
+    "phones and tablets offer no / and @ switches, command tables or phrase tables: they have no 快捷模式 group or 本地输入 tile to enter those modes from",
   );
   check(
     phone.touchPluginPacks && tablet.touchPluginPacks && !desktop.touchPluginPacks,
@@ -4466,6 +4466,35 @@ group("helpcode needs a composition, a pinyin scheme and no local mode", () => {
     "a local mode owns the keystroke instead",
   );
   check(ChineseHelpcodePolicy.eligible(false, "ni", 1, "none"), "shuangpin is eligible too");
+  // The Engine takes helpcode from the letter's case, never from the shift flag: a lowercase letter sent as shifted was typed as plain pinyin.
+  check(
+    ChineseHelpcodePolicy.letterInput("x", true) === "X",
+    "a shifted letter is sent as a capital",
+  );
+  check(
+    ChineseHelpcodePolicy.letterInput("x", false) === "x",
+    "an unshifted letter stays lowercase",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", "';", true) === ";",
+    "the Chinese layer's semicolon key is the trigger the Engine publishes",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("/", "/", true) === "/",
+    "a key drawn as itself counts too",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", "'", true) === null,
+    "a trigger that is off leaves the key to insert its face",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("；", ";", false) === null,
+    "without a pinyin composition the key is punctuation",
+  );
+  check(
+    ChineseHelpcodePolicy.layerTrigger("@", "@", true) === null,
+    "a published key that is no helpcode trigger keeps its own route",
+  );
 });
 
 group("the wubi hint shows only the untyped suffix", () => {

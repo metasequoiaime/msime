@@ -2,7 +2,11 @@ import { Fragment, type ReactNode } from "react";
 import { GroupList, MoreOptions } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
 import { localModeRowsFor } from "./local-mode-options";
-import { localModeControlState, type LocalModePreferences } from "./local-mode-preferences";
+import {
+  localModeControlState,
+  type LocalModeKey,
+  type LocalModePreferences,
+} from "./local-mode-preferences";
 export {
   defaultLocalModes,
   type LocalModeKey,
@@ -26,6 +30,10 @@ export interface LocalModesSectionProps {
   quickPhraseCandidates?: boolean;
   /** 紧跟在临时日语(R 模式)那一行后面的内容，例如它要用的日文词库的下载行。 */
   temporaryJapaneseExtra?: ReactNode;
+  /** 只列这几个开关，放进以 `title` 为名的一组，不带总开关。鸿蒙手机和平板不提供快捷模式入口，但「日期时间混入候选」和「日期格式入口」管的是普通打字的候选，仍要能关。 */
+  only?: readonly LocalModeKey[];
+  /** `only` 那一组的组名；缺省为「快捷模式」。 */
+  title?: string;
   onChange: (preferences: LocalModePreferences) => void;
 }
 
@@ -40,9 +48,11 @@ export function LocalModesSection({
   shiftLetterEntrySwitch = false,
   quickPhraseCandidates = false,
   temporaryJapaneseExtra,
+  only,
+  title = "快捷模式",
   onChange,
 }: LocalModesSectionProps) {
-  const rows = localModeRowsFor({
+  const allRows = localModeRowsFor({
     temporaryJapanese,
     triggers,
     mentions,
@@ -50,6 +60,7 @@ export function LocalModesSection({
     quickPhraseCandidates,
     translationService,
   });
+  const rows = only ? allRows.filter(([key]) => only.includes(key)) : allRows;
   const modeRows = rows.map(([key, label, description]) => (
     <Fragment key={key}>
       <SwitchRow
@@ -61,7 +72,7 @@ export function LocalModesSection({
       {key === "temporary_japanese" && temporaryJapaneseExtra}
     </Fragment>
   ));
-  if (!shiftLetterEntrySwitch) return <GroupList title="快捷模式">{modeRows}</GroupList>;
+  if (only || !shiftLetterEntrySwitch) return <GroupList title={title}>{modeRows}</GroupList>;
   return (
     <>
       <GroupList title="快捷模式">

@@ -401,6 +401,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 共享偏好 `touch_quanpin_shift`（设置页「屏幕键盘 › 布局」的「组字时保留 Shift」）默认开启，全拼 26 键组字时第三排左端保留 ⇧，点一下臂辅助码（Shift+字母），不再换成「分词」键；明确写 `false` 后改为分词，九键、14 键和 18 键自带的分词键不受它影响。键盘在 `KeyboardSession` 准备偏好时按 `!== false` 读它（缺键、类型错都按开），`KeyboardView` 的 `usesQuanpinSeparator()` 和键面 `faceKey()` 都按它分支，开关变化即重画。账号同步键是 `platform.harmony.quanpin_shift`。
 
+全拼或双拼组字时，Shift 加字母以大写字母交给 Engine（`ChineseHelpcodePolicy.letterInput`）：Engine 只把组字中的大写字母当辅助码，不看 Shift 标志。双拼「末尾间接触发（大写字母）」和「句中触发键（大写字母）」也走这条路。分号、反引号、`/` 和「辅助码触发键」这些间接触发键在符号层里按：它们此刻会开一段辅助码时，Engine 把它们列进 `spelling_symbols`，2in1 符号行的 `tapSymbol` 按 `HardwareKeyRouter.touchSpells` 当字符送进去，外接键盘同样如此；触屏 123 层（画成「；」的分号键）和数字九宫格经 `typeHelpcodeTrigger`（`ChineseHelpcodePolicy.layerTrigger`）先交给 Engine，收下就回到字母层接着打辅助码字母，不收才照常上屏键面。全拼和双拼的「辅助码触发键」在设置页「输入 › 辅助码 › 更多选项」，宿主能力 `helpcode_trigger_key` 在 HarmonyOS 和 Linux 上打开。
+
 振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
 
 ## 候选词的译文此前只能看，不能用

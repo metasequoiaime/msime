@@ -5324,6 +5324,28 @@ fn shuangpin_manual_tab_is_consumed_only_by_supported_hosts() {
     assert!(modes.manual_tab);
 }
 
+/// 触屏键盘的符号面板和外接键盘把 `;` 当标点送来；它此刻是末尾间接触发键时要记成标记，而不是按首选上屏再打一个分号。
+#[test]
+fn shuangpin_end_trigger_sent_as_punctuation_marks_helpcode() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.scheme = InputScheme::Shuangpin;
+    preferences.shuangpin_helpcode.enabled = true;
+    preferences.shuangpin_helpcode.modes.direct = false;
+    let handle = test_host_preferences(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    let view = type_letters(handle, b"nihc");
+    assert!(
+        view["spelling_symbols"].as_str().unwrap().contains(';'),
+        "{view}"
+    );
+    let result = read(msime_client_punctuation_with_context(handle, b';', 0));
+    assert_eq!(result["value"]["handled"], true, "{result}");
+    assert_eq!(result["value"]["view"]["editing_text"], "nihc|");
+    assert!(result["value"]["commit"].is_null(), "{result}");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 #[cfg(target_os = "macos")]
 fn shuangpin_manual_tab_roundtrips_through_host_character() {

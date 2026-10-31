@@ -330,6 +330,8 @@ export function PluginsSection({
           load={(kind, id) => client.loadAuthoredPack!(kind, id)}
           onSave={saveAuthored}
           confirm={confirm}
+          // 触屏插件页按 `touchPluginKinds` 列出：宿主不路由 K 和 / 模式时不列短语表和指令表，也不让新建。
+          tables={!touch || triggers}
           onBack={() =>
             target
               ? goBack(() =>
