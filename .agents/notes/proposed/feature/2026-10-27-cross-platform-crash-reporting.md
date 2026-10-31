@@ -390,6 +390,14 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 
 详细数量、源码核对和证据见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md#macos-设置与-mcp-进程的系统目录)。本轮没有启动共享设置产品、制造产品故障或发送后台事件；原先的 macOS 共享设置后台与独立符号缺口仍保留。
 
+### 最新整合候选的 Windows 与 Android 设备门禁（2026-10-31）
+
+PR head `a092aa6ca8`（Native Platform CI `41230965120`）的 Windows 原生设置作业首轮在 x86 系统 WER 的 `tip` 用例超时，x64 七组全部通过、x86 回调与生命周期 CTest 也全部通过。重跑作业 `124632331388` 后，x64 七组仍全部通过，x86 的 `tip`、`host`、`external` 通过，`reopened` 在目标进程四十五秒退出期限内超时；超时快照显示目标仍在 `LpcReply` 等待，未找到相关 WER worker，但 `00000002-aaaa-4aaa-8aaa-aaaaaaaaaaaa.crash` 已完整落盘，原头、异常码和自有模块偏移均正确。该结果证明采集回调和记录写入已完成，失败点是 Windows runner 的系统 WER 客户端等待，不把它写成产品故障，也不延长退出期限或跳过断言。artifact 为 `13055099920`；PVE 上同源两架构七组仍全部通过，不能用 PVE 通过覆盖 CI runner 的退出超时。
+
+同一 head 的 Android API 35 单独重跑 job `124639875635` 先完整通过四个共享 crate 的设备单测、APK 构建和 `Verify crash reporting before the full input smoke`。崩溃专项实际覆盖授权撤回/重开、Java 与 JNI 故障、系统退出和 ANR，退出码为 0。随后完整输入 smoke 在既有 `NumberPadDeviceSmoke` 阶段失败：`DeviceSmoke.restartIme` 的 `selectedIme`/`shellDiscard` 触发 Android 15 `UiAutomation` `DeadObjectException`，系统同时报告 `Too many transaction errors, throttling freezer binder callback`，测试进程因断开 `UiAutomation` 崩溃；没有触及本 PR 的崩溃采集断言。artifact 为 `13055369982`，保留完整 `logcat.txt` 和设备 smoke 日志。初始 job 的 `adb root` 瞬断另见 artifact `13054430037`：logcat 显示 `adbd restarting as root` 后连接重启，重跑未复现。
+
+因此本候选的崩溃采集专项已取得 Windows x64、Android API 35 的实际门禁通过证据；Windows x86 的自然退出和 Android 完整输入套件仍是 runner/基线缺口，不能据此宣称 Native Platform CI 全绿或全平台验收完成。此次只补验收记录，没有修改产品代码或测试断言。
+
 ### PVE Linux 构建与安装包核对（候选 `6d99771887` 与合入后 head `8f048b5f1b`）
 
 候选 `6d99771887e4e61a7582f0e35ab415c9085c3a99` 已在 `pve9` 的 `linux-runner` LXC 中重新检出，没有复用旧候选的 Linux 产物。按仓库规定的 `platforms/linux/build-container.sh` 完成 IBus/Fcitx5、辅助入口和 Python 崩溃采集门禁：119 项中 118 项通过，`linux-ibus-demand-activation` 仅按测试定义跳过，未出现失败。之后按 `platforms/linux/package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 编出该候选的 Ubuntu 24.04 amd64 DEB；正式 Release 原生构建和 120 项 ctest 通过（同一按需测试跳过），DEB SHA-256 为 `3ffe457d2c3ad9f386f1bb5f587fc6452b4c0af9d47f21d89ccf5f3c302f7d16`，旁边的 x86_64 tarball 为 `b66200d4ebb84a159b2a4b437ec5a7488eb28e230588947e5cfaa78e2f9d5ca8`。
