@@ -63,16 +63,16 @@ int main() {
     require(candidate_tooltip_text(hello) == "你好\n问候");
     require(candidate_secondary_run(projected.candidates[2]).script_start == std::string::npos &&
             candidate_secondary_text(projected.candidates[2]).empty());
-    // 有释义和读音时插件注释排在它们后面，不挪动它们的位置；读音的位置照样报出来，候选窗按 0.72 倍透明度画它。
+    // 有释义和读音时插件注释排在它们后面，不挪动它们的位置；读音在释义下面单独一行，位置照样报出来，候选窗按 0.72 倍透明度画它。
     auto glossed = hello;
     glossed.translation = "hello";
     glossed.pronunciation = "/hə/";
     const auto glossed_run = candidate_secondary_run(glossed);
-    require(glossed_run.text == "hello  /hə/\n问候");
-    require(glossed_run.readings.size() == 1 && glossed_run.readings[0].first == 7 &&
+    require(glossed_run.text == "hello\n/hə/\n问候");
+    require(glossed_run.readings.size() == 1 && glossed_run.readings[0].first == 6 &&
             glossed_run.readings[0].second == std::string("/hə/").size());
-    require(glossed_run.script_start == std::string("hello  /hə/\n").size());
-    require(candidate_secondary_lines(glossed) == 2);
+    require(glossed_run.script_start == std::string("hello\n/hə/\n").size());
+    require(candidate_secondary_lines(glossed) == 3);
     // 繁体输出只转候选文字，插件的注释是插件自己的文本，不转。
     const auto traditional = candidate_presentation_from_view(lease, pinyin_view(), 0, 0, "", true);
     require(traditional.candidates[0].script_annotation == "问候");

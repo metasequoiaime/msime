@@ -1,8 +1,11 @@
 // A Korean Hanja row carries its 훈음 as the Engine's annotation. The projection moves it off the Hanja's line onto the smaller secondary run, above any translation, and keeps it out of `translation`, which is the only text a translation shortcut may commit.
 #include "CandidatePresentation.h"
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace msime::windows;
 namespace {
@@ -83,12 +86,35 @@ int main() {
     require(delivered.candidates[0].annotation.empty() && delivered.candidates[0].gloss == "나라 이름 한, 한나라 한" &&
             delivered.candidates[0].translation == "Korea");
 
-    // 两种目标语言的释义每种一行（会话里用 U+2028 分行），读音跟在各自那一行后面；훈음 仍在最上面。
+    // 两种目标语言的释义每种一行（会话里用 U+2028 分行），读音在各自那一行下面单独一行；훈음 仍在最上面。
     auto both = korea;
     both.translation = "Korea\xE2\x80\xA8" "韓国";
     both.pronunciation = "/kəˈriːə/";
-    require(candidate_secondary_text(both) == "나라 이름 한, 한나라 한\nKorea  /kəˈriːə/\n韓国");
-    require(candidate_secondary_lines(both) == 3);
+    require(candidate_secondary_text(both) == "나라 이름 한, 한나라 한\nKorea\n/kəˈriːə/\n韓国");
+    require(candidate_secondary_lines(both) == 4);
+    const auto both_run = candidate_secondary_run(both);
+    require(both_run.readings.size() == 1 &&
+            both_run.readings[0].first == std::string("나라 이름 한, 한나라 한\nKorea\n").size());
+    require(both_run.translation_line_starts ==
+            (std::vector<size_t>{std::string("나라 이름 한, 한나라 한\n").size(),
+                                 std::string("나라 이름 한, 한나라 한\nKorea\n/kəˈriːə/\n").size()}));
+    // Tab 预选的释义列按每行释义报出来的起点画下划线：第一列有读音时，第二列在读音那一行之后，不是第二行。候选带 훈음 时不接释义列。
+    PresentationCandidate columns{};
+    columns.text = "你好";
+    columns.translation = "hello\xE2\x80\xA8" "こんにちは";
+    columns.pronunciation = "/həˈləʊ/\nkonnichiwa";
+    require(candidate_secondary_text(columns) == "hello\n/həˈləʊ/\nこんにちは\nkonnichiwa");
+    require(candidate_secondary_lines(columns) == 4);
+    require(candidate_gloss_column_range(columns, 1) == std::make_optional(std::make_pair(size_t{0}, size_t{5})));
+    require(candidate_gloss_column_range(columns, 2) ==
+            std::make_optional(std::make_pair(std::string("hello\n/həˈləʊ/\n").size(),
+                                              std::string("こんにちは").size())));
+    require(!candidate_gloss_column_range(columns, 3) && !candidate_gloss_column_range(columns, 0));
+    require(!candidate_gloss_column_range(both, 1));
+    // 没有读音时第二列就在第二行。
+    columns.pronunciation.clear();
+    require(candidate_gloss_column_range(columns, 2) ==
+            std::make_optional(std::make_pair(size_t{6}, std::string("こんにちは").size())));
     PresentationCandidate sentence{};
     sentence.text = "我喜欢你";
     sentence.translation = "I like you";
@@ -99,14 +125,15 @@ int main() {
     bare.text = "你好";
     bare.badge = " ☁️";
     require(candidate_tooltip_text(bare) == "你好 ☁️");
-    // 正好 4096 字节时保留读音；超过上限才只画释义，不让整个候选窗失败。
+    // 正好 4096 字节时保留读音（释义、换行和读音）；超过上限才只画释义，不让整个候选窗失败。
     PresentationCandidate long_gloss{};
     long_gloss.text = "长";
-    long_gloss.translation = std::string(4090, 'a');
+    long_gloss.translation = std::string(4091, 'a');
     long_gloss.pronunciation = "/ə/";
     require(candidate_secondary_text(long_gloss).size() == 4096);
-    long_gloss.translation = std::string(4091, 'a');
+    long_gloss.translation = std::string(4092, 'a');
     require(candidate_secondary_text(long_gloss) == long_gloss.translation);
+    require(candidate_secondary_run(long_gloss).readings.empty() && candidate_secondary_lines(long_gloss) == 1);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

@@ -1240,11 +1240,12 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
       return measured_width(device_, wide(text), font_family_,
                             static_cast<float>(size), font_fallback_.Get());
     };
+    const auto secondary = candidate_secondary_run(candidate);
     items.push_back({width(candidate_primary_text(candidate), font_size_),
                      width(candidate_annotation_run(candidate), font_size_),
-                     width(candidate_secondary_text(candidate),
-                           metrics.translation_font),
-                     candidate_secondary_lines(candidate), candidate.translation_reserved});
+                     width(secondary.text, metrics.translation_font),
+                     candidate_secondary_lines(candidate), candidate.translation_reserved,
+                     secondary.readings.size()});
   }
   return items;
 }
