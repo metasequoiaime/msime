@@ -7737,6 +7737,24 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     this.touchCandidateMenu = false;
+    if (action.id === 'ADD_TO_PERSONAL_WORDBOOK') {
+      // 和上屏释义一样先核对这一格还是打开菜单时的那个候选（原文和释义都要相同），再交出它的原文和释义；提示等共享层答了再显示。
+      if (index < 0 || index >= this.candidates.length) {
+        return;
+      }
+      const candidate: CandidateEntry = this.candidates[index];
+      if (!CandidateManagementAction.samePersonalWordbookSubject(action,
+        CandidateManagementAction.personalWordbookAction(candidate.annotation, candidate.annotationIsTranslation,
+          candidate.text))) {
+        return;
+      }
+      KeyboardSession.shared.addToPersonalWordbook(candidate.text, candidate.annotation.trim())
+        .then((notice: string): void => {
+          this.diagnostic = notice;
+          this.clearDiagnosticLater();
+        });
+      return;
+    }
     switch (action.id) {
       case 'INSERT_GLOSS': {
         // The strip can be rebuilt while the menu is open, and then this index is somebody else's
@@ -9253,7 +9271,7 @@ struct KeyboardView {
         ? this.candidates[this.managing] : null;
     if (this.touchCandidateMenu) {
       return managed === null ? [] : CandidateManagementAction.touchActions(
-        managed.annotation, managed.annotationIsTranslation);
+        managed.annotation, managed.annotationIsTranslation, managed.text);
     }
     // The gloss is what the source offers here, and until now this host could show a translation without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has no modifiers to spare.
     return CandidateManagementAction.managementActions(
@@ -9261,7 +9279,8 @@ struct KeyboardView {
       managed === null ? 0 : managed.fixedPosition,
       CandidateManagementAction.candidateActionsAvailable(
         KeyboardScheme.engineSchemeName(this.engineScheme), managed === null ? 0 : managed.source),
-      CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text));
+      CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text),
+      managed === null ? '' : managed.text);
   }
 
   @Builder

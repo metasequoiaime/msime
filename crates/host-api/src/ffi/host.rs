@@ -3315,5 +3315,99 @@ pub unsafe extern "C" fn msime_client_vocabulary_due_count(
     }
 }
 
+/// 鸿蒙设置应用导入键盘发布的生词本：把键盘沙箱里那本并进这个目录的生词本。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::personal::merge_published`。请求里只带文件路径，生词本文档由共享层按单本书的大小上限去读。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_merge(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        published: String,
+        #[serde(default)]
+        previous: Option<String>,
+    }
+
+    response(|| {
+        // SAFETY: 由上面写明的调用方约定保证。
+        let request: Request = unsafe { personal_wordbook_request(request, length) }?;
+        let previous = match request.previous.as_deref() {
+            Some(path) => Some(personal_wordbook_path(path)?),
+            None => None,
+        };
+        let report = personal::merge_published(
+            personal_wordbook_path(&request.directory)?,
+            personal_wordbook_path(&request.published)?,
+            previous,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(report).map_err(|_| "personal wordbook response failed".to_owned())
+    })
+}
+
+/// 鸿蒙键盘在设置应用确认并过某一版以后，把那一版里的词从键盘自己的生词本里清走。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::personal::drain_published`。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_drain(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        published: String,
+    }
+
+    response(|| {
+        // SAFETY: 由上面写明的调用方约定保证。
+        let request: Request = unsafe { personal_wordbook_request(request, length) }?;
+        let removed = personal::drain_published(
+            personal_wordbook_path(&request.directory)?,
+            personal_wordbook_path(&request.published)?,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(serde_json::json!({ "removed": removed }))
+    })
+}
+
+/// 读生词本合并、清走两个入口的请求。请求里只有几条路径，64 KiB 足够。
+///
+/// # Safety
+/// `request` 指向 `length` 个可读的字节，空指针会被拒绝。
+unsafe fn personal_wordbook_request<T: serde::de::DeserializeOwned>(
+    request: *const u8,
+    length: usize,
+) -> Result<T, String> {
+    const MAX_REQUEST_BYTES: usize = 64 * 1024;
+    if request.is_null() || length > MAX_REQUEST_BYTES {
+        return Err("invalid personal wordbook buffer".into());
+    }
+    // SAFETY: 由调用方保证 `request` 指向 `length` 个可读的字节。
+    let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+    serde_json::from_slice(bytes).map_err(|_| "invalid personal wordbook request".into())
+}
+
+/// 请求里的路径必须是绝对路径。
+fn personal_wordbook_path(path: &str) -> Result<&std::path::Path, String> {
+    if path.len() > 16_384 || !std::path::Path::new(path).is_absolute() {
+        return Err("invalid personal wordbook path".into());
+    }
+    Ok(std::path::Path::new(path))
+}
+
 #[cfg(test)]
 mod cloud_clipboard_tests;
