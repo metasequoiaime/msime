@@ -17,7 +17,7 @@ import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCas
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
-import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CandidateGlossPolicy, CandidatePronunciationPolicy } from './candidate/CandidateGlossPolicy';
 import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/CorrectionMarkPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
@@ -3807,12 +3807,17 @@ struct KeyboardView {
 
   /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距，都按「候选栏大小」缩放。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
   private stripCanvasContentHeight(): number {
-    return this.stripSized(CHIP_HEIGHT_VP) + (this.readingRowShown() ? this.stripSized(PREEDIT_LINE_VP) + this.stripSized(CANDIDATE_BAR_GAP_VP) : 0);
+    return this.chipHeight() + (this.readingRowShown() ? this.stripSized(PREEDIT_LINE_VP) + this.stripSized(CANDIDATE_BAR_GAP_VP) : 0);
   }
 
   /** 触屏工具条的高度：设计的 50vp 乘以「候选栏大小」（`candidate_scale_percent`，#10137）。工具栏和候选栏共用这一行，组字开始、结束时按键不动。 */
   private stripHeight(): number {
-    return KeyboardMetrics.stripHeightVp(this.settings.candidateScalePercent);
+    return KeyboardMetrics.touchStripHeightVp(this.settings.candidateScalePercent, KeyboardSession.shared.glossRows());
+  }
+
+  /** 候选胶囊的高度：34vp，释义和英文音标都打开时再加第二行注释（`KeyboardMetrics.touchExtraDetailVp`），按「候选栏大小」缩放。 */
+  private chipHeight(): number {
+    return this.stripSized(CHIP_HEIGHT_VP + KeyboardMetrics.touchExtraDetailVp(KeyboardSession.shared.glossRows()));
   }
 
   /** 候选栏里的一段长度或字号按「候选栏大小」缩放：读音行、候选通道、注释行和细线跟着工具条一起变矮或变高。 */
@@ -4243,7 +4248,9 @@ struct KeyboardView {
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
       }
-      if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
+      // 只为音标预留了一行（`translationRows()` 为 0）时下面没有释义行，译文和竖排一样接在词旁边，和触屏胶囊的 `chipAnnotationBeside` 同一条规则。
+      if (candidate.annotation.length > 0
+        && (!this.candidateUsesGlossLine() || KeyboardSession.shared.translationRows() === 0)) {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
@@ -4258,6 +4265,13 @@ struct KeyboardView {
         Text(candidate.annotation)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
+      }
+      // 竖排 2in1 候选窗没有释义行，音标和释义一样接在旁边。
+      if (candidate.pronunciation.length > 0 && !this.candidateUsesGlossLine()) {
+        Text(candidate.pronunciation)
+          .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+          .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
       }
     }
     .alignItems(VerticalAlign.Center)
@@ -4278,6 +4292,7 @@ struct KeyboardView {
       + CandidateGlossPolicy.accessibilitySuffix(
         candidate.annotationIsTranslation ? null : annotation,
         candidate.annotationIsTranslation ? annotation : null, true)
+      + CandidatePronunciationPolicy.accessibilitySuffix(candidate.pronunciation)
       + CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection);
     return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
   }
@@ -4339,15 +4354,28 @@ struct KeyboardView {
       if (this.candidateUsesGlossLine()) {
         Column() {
           this.candidatePrimaryLine(candidate)
-          Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
-            .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
-            // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
-            .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .height(KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
-              this.settings.candidateFontSize))
+          if (KeyboardSession.shared.translationRows() > 0) {
+            Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
+              .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
+              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+              // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
+              .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .height(KeyboardMetrics.glossHeightVp(KeyboardSession.shared.translationRows(),
+                this.settings.candidateFontSize))
+          }
+          // 音标在释义下面单独一行，和 macOS、Android 相同；这一行同样按设置预留，音标没到或这个词查不到时留空，行高不跳。
+          if (KeyboardSession.shared.pronunciationRows() > 0) {
+            Text(candidate.pronunciation.length > 0 ? candidate.pronunciation : ' ')
+              .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
+              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+              .opacity(candidate.pronunciation.length > 0 ? 1 : 0)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .height(KeyboardMetrics.glossHeightVp(KeyboardSession.shared.pronunciationRows(),
+                this.settings.candidateFontSize))
+          }
         }
         .alignItems(HorizontalAlign.Start)
       } else {
@@ -4766,7 +4794,7 @@ struct KeyboardView {
   /** 胶囊在词旁绘制的内容：Engine 的注解，或在没有注释行承载时的翻译。 */
   private chipAnnotationBeside(candidate: CandidateEntry): boolean {
     return candidate.annotation.length > 0
-      && (!candidate.annotationIsTranslation || !KeyboardSession.shared.glossesExpected());
+      && (!candidate.annotationIsTranslation || KeyboardSession.shared.translationRows() === 0);
   }
 
   /** 一个候选：词在上、注释在下，底色为按键色；为高亮项时用强调色、字重 600。 */
@@ -4805,7 +4833,7 @@ struct KeyboardView {
         }
       }
       .alignItems(VerticalAlign.Center)
-      if (KeyboardSession.shared.glossesExpected()) {
+      if (KeyboardSession.shared.translationRows() > 0) {
         // 无论该候选有无注释都预留位置，这样通道上的词保持齐平。
         Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
           .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
@@ -4817,9 +4845,20 @@ struct KeyboardView {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .constraintSize({ maxWidth: this.chipGlossMaxWidth(candidate) })
       }
+      // 英文音标在释义下面单独一行，同样按设置预留，音标没到或这个词查不到时留空。
+      if (KeyboardSession.shared.pronunciationRows() > 0) {
+        Text(candidate.pronunciation.length > 0 ? candidate.pronunciation : ' ')
+          .fontSize(this.stripSized(CHIP_GLOSS_FONT_SIZE))
+          .lineHeight(this.stripSized(CHIP_GLOSS_LINE_VP))
+          .fontColor(this.candidateDetailTint(candidate, this.skin.secondary))
+          .opacity(candidate.pronunciation.length > 0 ? 1 : 0)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: this.chipGlossMaxWidth(candidate) })
+      }
     }
     .constraintSize({ minWidth: this.chipMinWidth(candidate) })
-    .height(this.stripSized(CHIP_HEIGHT_VP))
+    .height(this.chipHeight())
     .padding({ left: CHIP_PADDING_VP, right: CandidateLayoutPolicy.dip(
       this.settings.candidateSkinLayout?.horizontal.itemPaddingRight, this.chipFontSize(), CHIP_PADDING_VP) })
     .justifyContent(FlexAlign.Center)

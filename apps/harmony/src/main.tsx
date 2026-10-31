@@ -1804,6 +1804,8 @@ function makeClient(
         ),
     },
     candidateEnglishGloss: true,
+    // 键盘把随 HAP 暂存的 ECDICT 音标表画在释义下面（KeyboardSession.resolvePronunciations），开关在这里才有宿主读。
+    candidatePronunciation: true,
     // 账号和对话都要联网，没有隐私政策的授权时不给，「我的」页不画登录入口；对话另受 AI 生成门控，两道门都开才给。
     account: networkAllowed ? accountClient(native) : undefined,
     chat: networkAllowed && aiGeneration ? chatClient(native) : undefined,

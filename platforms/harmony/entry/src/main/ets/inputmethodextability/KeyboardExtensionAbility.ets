@@ -1107,6 +1107,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       } else {
         StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
       }
+      // 候选英文音标表同样暂存到引擎资源旁，共享层在 pronunciations/en-phonetic.db 找它；包里没带时移除旧表，「显示英文音标」就不预留那一行。
+      const pronunciations: string = `${this.context.resourceDir}/pronunciations`;
+      if (fs.accessSync(pronunciations)) {
+        StagedResources.stage(pronunciations, `${files}/pronunciations`, `${files}/pronunciations.ready`);
+      } else {
+        StagedResources.unstage(`${files}/pronunciations`, `${files}/pronunciations.ready`);
+      }
       StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
       StagedResources.stageHandwriting(this.context.resourceDir, files);
       // 扩展上下文提供系统颜色模式，视图本身没有可查询的上下文。

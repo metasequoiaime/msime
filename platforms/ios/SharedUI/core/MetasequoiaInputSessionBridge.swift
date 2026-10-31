@@ -100,6 +100,11 @@ private func msimeClientCandidateGlossRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
   _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_pronunciation_request")
+private func msimeClientPronunciationRequest(
+  _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
+  _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_emoji_catalog_request")
 private func msimeClientEmojiCatalogRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
@@ -1433,6 +1438,24 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return try request.withUnsafeBytes { requestBytes in
       try resourceData.withUnsafeBytes { resourceBytes in
         let value = try decode(msimeClientCandidateGlossRequest(
+          requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
+          resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
+        guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+        return dictionary
+      }
+    }
+  }
+
+  /// 候选英文音标（`CandidatePronunciationModel.request`）：不持有会话，只读本机的音标表，在键盘的释义工作队列上调用。
+  static func candidatePronunciations(request: Data, resources: String) throws -> [String: Any] {
+    let resourceData = Data(resources.utf8)
+    guard !request.isEmpty, request.count <= CandidateGlossModel.maxRequestBytes,
+          NSString(string: resources).isAbsolutePath, resourceData.count <= 4096 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return try request.withUnsafeBytes { requestBytes in
+      try resourceData.withUnsafeBytes { resourceBytes in
+        let value = try decode(msimeClientPronunciationRequest(
           requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
           resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
         guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }

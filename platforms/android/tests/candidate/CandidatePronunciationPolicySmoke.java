@@ -13,6 +13,9 @@ public final class CandidatePronunciationPolicySmoke {
             "非英语目标不误用英语音标");
         check(CandidatePronunciationPolicy.lookupText("123", "", true).isEmpty(),
             "没有英文词的候选不请求");
+        check(CandidatePronunciationPolicy.lookupText("爱", "to love\taffection", true).isEmpty()
+                && CandidatePronunciationPolicy.lookupText("爱", "love\u0007me", true).isEmpty(),
+            "带控制字符的释义不请求，免得共享层拒绝整批");
         check("注释\n/IPA/".equals(CandidatePronunciationPolicy.withReading("注释", "/IPA/")),
             "音标独占一行");
         check("注释".equals(CandidatePronunciationPolicy.withReading("注释", "")),

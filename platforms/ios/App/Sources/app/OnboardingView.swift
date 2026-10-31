@@ -436,6 +436,18 @@ struct InputSettingsView: View {
       DesignToggleRow(title: "离线英文释义", subtitle: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
         .accessibilityIdentifier("candidateGlossToggle")
       DesignDivider()
+      // 与 Android 的「显示英文音标」相同：默认关闭；音标表是约 5.7 MB 的资源包，只有用户在下面那一行点「下载」才联网取，键盘只读本机文件。
+      DesignToggleRow(title: "显示英文音标",
+                      subtitle: resourcePacks.available(CandidatePronunciationPreference.packID)
+                        ? "在英文候选和英文释义下面标出音标，不联网"
+                        : "在英文候选和英文释义下面标出音标；需先下载离线英文音标词典",
+                      isOn: habit(\.pronunciationEnabled))
+        .accessibilityIdentifier("candidatePronunciationToggle")
+      if habits.pronunciationEnabled && !resourcePacks.available(CandidatePronunciationPreference.packID) {
+        DesignDivider()
+        packDownloadRow(CandidatePronunciationPreference.packID, title: "离线英文音标词典")
+      }
+      DesignDivider()
       DesignSelectRow(title: "翻译目标语言",
                       options: languages.indices.map { DesignOption(title: languages[$0].title, value: $0) },
                       selection: habit(\.primaryLanguage), sheetTitle: "翻译目标语言",

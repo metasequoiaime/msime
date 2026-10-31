@@ -284,6 +284,10 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 这次断言审计还找出两处比样式更直接的错误。第一，在线 `candidate_translations` 的结果被误绑到独立的 `candidate_english_gloss` 开关；关掉随包英文释义后，网络结果已经写回 Engine 却永远不画。现在展示门控是两者的并集，是否预留空行则分别按「目标语言含英语」和「已配置可用 provider」判断。第二，无释义时实现返回的是 `width('100%')`，与“按词宽”的注释和 `CandidateChipWidth.content(..., false, ...)` 测试相反，横排因此一屏只有一个候选；现在走同一份词宽算术。`scripts/test-harmony-candidate-translation.py` 固定这条宿主接线，纯逻辑套件固定 provider、空占位、面板高度和纵向适配。
 
+## 候选英文音标
+
+「显示英文音标」读共享偏好 `candidate_pronunciation`（默认关），设置页在手机「输入 › 翻译」和 2in1 的表达页一直显示这一行（`apps/harmony` 给 `candidatePronunciation`）：英文候选的音标不看释义开关，关掉释义以后仍要能把它关掉。鸿蒙没有资源包下载，ECDICT 生成的 `en-phonetic.db`（约 5.7 MB，MIT）连同 NOTICE 随 HAP 分发：`stage-resources.sh` 第五个参数（默认 `target/pronunciations`，`scripts/fetch_gloss_tables.py` 取来）按 `resources/pronunciations.lock.json` 核对后放进 `resfile/pronunciations`，发版设 `MSIME_REQUIRE_PRONUNCIATIONS=1`，键盘扩展把它暂存到引擎资源旁。`KeyboardSession` 在发布候选前经 NAPI `candidatePronunciations` 同步查还没缓存的文字（英文候选读它本身，中文候选读英语释义的第一行，规则在 `CandidatePronunciationPolicy`），按文字缓存，`CandidateEntry.pronunciation` 带给视图。音标画在释义下面单独一行，按设置预留：`glossRows()` 是 `translationRows()` 加 `pronunciationRows()`；触屏胶囊只放得下词和一行注释，两者都开时 `KeyboardMetrics.touchExtraDetailVp` 让胶囊和工具条各高 11.5vp。2in1 竖排把音标接在旁边，`CandidateWidthPolicy.widthVp` 按音标加宽窗口；只为音标预留了一行（`translationRows()` 为 0）时，横排候选格和触屏胶囊都把译文画回词旁边。带控制字符的释义不查，免得共享层拒绝整批。直接输入英文时的补全不标音标（Android 会标）。展开网格不画释义，也不画音标。见 `.agents/notes/implemented/feature/2026-11-01-mobile-candidate-pronunciation.md`。
+
 ## 展开候选面板里没有释义，长按也没有反应
 
 上一条把释义接到了候选条的长按菜单上。来源还有两条与之配套：`TheExpandedPanelDrawsTheSameGlossesAsTheStrip` 和 `TheExpandedPanelAnswersALongPressToo`——候选多到要展开时，那一页同样画释义、同样答应长按。

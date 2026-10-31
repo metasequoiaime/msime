@@ -12,7 +12,16 @@ public final class CandidatePronunciationPolicy {
     public static String lookupText(String candidate, String translation, boolean englishTarget) {
         if (plainEnglish(candidate)) return candidate;
         if (!englishTarget || translation == null || translation.isEmpty()) return "";
-        return translation.split("\\R", 2)[0].trim();
+        String first = translation.split("\\R", 2)[0].trim();
+        return hasControl(first) ? "" : first;
+    }
+
+    /** 共享层的请求只要有一段带控制字符（Rust 的 `char::is_control`）就整批拒绝；这样的释义（比如在线或 AI 译文里的制表符）不查，免得一条释义让整页都没有音标。 */
+    private static boolean hasControl(String text) {
+        for (int index = 0; index < text.length(); index++) {
+            if (Character.isISOControl(text.charAt(index))) return true;
+        }
+        return false;
     }
 
     private static boolean plainEnglish(String text) {

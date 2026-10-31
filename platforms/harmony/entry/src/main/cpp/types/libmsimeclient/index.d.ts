@@ -184,6 +184,8 @@ export const vocabularyReview: (request: string) => Promise<string>;
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;
+/** 英文候选或英文释义首个词组的离线音标（`msime_client_pronunciation_request`）：请求为 `{generation,items:[{text,language:"en"}]}`，读 resources 旁的 `pronunciations/en-phonetic.db`，没装时回答空列表。同步查本机表，不联网。 */
+export const candidatePronunciations: (request: string, resources: string) => string;
 /** Close the calling thread's cached candidate-gloss databases and drop its parsed custom translations; the next query reopens them. Call on the thread that queries glosses (the UI thread). */
 export const releaseGlossCaches: () => void;
 /** `{prefix,limit}` against the packaged English dictionary; no session, safe off the UI thread. */

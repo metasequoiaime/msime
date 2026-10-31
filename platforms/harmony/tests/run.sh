@@ -614,12 +614,12 @@ expanded_surface_body=$(view_body 'private expandedSurfaceColors(): CorrectionSu
 if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)' "$session") -ne 3 ]] \
   || ! grep -qF 'fixedPosition: 0, source: 0, translation: null, confidentCorrection: false' "$session" \
   || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$primary_body" | wc -l) -ne 1 ]] \
-  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$primary_body" | wc -l) -ne 5 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$primary_body" | wc -l) -ne 6 ]] \
   || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$primary_body" \
   || ! grep -qF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$cell_body" \
   || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$cell_body" \
   || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$chip_body" | wc -l) -ne 1 ]] \
-  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.skin.secondary))' <<< "$chip_body" | wc -l) -ne 3 ]] \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.skin.secondary))' <<< "$chip_body" | wc -l) -ne 4 ]] \
   || grep -qF '.fontColor(this.skin.secondary)' <<< "$chip_body" \
   || ! grep -qF '.fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,this.expandedHighlighted(cell.index),this.expandedSurfaceColors()))' <<< "$grid_body" \
   || ! grep -qF 'text:this.candidateTextColor(),highlightedText:this.candidateSelectedTextColor(),accent:this.candidateAccentColor()' <<< "$surface_body" \
@@ -631,6 +631,14 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
+  exit 1
+fi
+# 候选英文音标只占了预留的那一行（`translationRows()` 为 0）时下面没有释义行：2in1 横排的 `candidatePrimaryLine` 和触屏胶囊的 `chipAnnotationBeside` 都要把译文画回词旁边，否则打开音标后译文就不见了。规则和高度由 keyboard-logic.test.ts、kb-view.test.ts 覆盖，视图是 ArkTS，这里钉住接线。
+beside_body=$(view_body 'private chipAnnotationBeside(candidate: CandidateEntry): boolean {')
+if ! grep -qF 'if(candidate.annotation.length>0&&(!this.candidateUsesGlossLine()||KeyboardSession.shared.translationRows()===0)){' <<< "$primary_body" \
+  || ! grep -qF '(!candidate.annotationIsTranslation||KeyboardSession.shared.translationRows()===0)' <<< "$beside_body" \
+  || ! grep -qF 'if(KeyboardSession.shared.translationRows()>0){' <<< "$cell_body"; then
+  echo "With only the pronunciation row reserved, the 2in1 candidate cell and the touch chip must draw the translation beside the word rather than on a gloss line that is not there" >&2
   exit 1
 fi
 # 展开候选网格分批建格子：规则由 keyboard-logic.test.ts 的 `ExpandedCandidateBatchPolicy` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：网格只画已建到 expandedBuilt 的格子，重取候选按 initialCount 定已建数（同一代比 candidateListIdentity），滚动、视口和内容尺寸变化都去问要不要追加，关面板时清零。

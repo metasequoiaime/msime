@@ -1069,6 +1069,7 @@ static napi_value VoiceLocalModelRemove(napi_env env, napi_callback_info info) {
 
 PAIR_ENTRY(EmojiCatalog, msime_client_emoji_catalog_request)
 PAIR_ENTRY(CandidateGlosses, msime_client_candidate_gloss_request)
+PAIR_ENTRY(CandidatePronunciations, msime_client_pronunciation_request)
 PAIR_ENTRY(EnglishCompletions, msime_client_english_completions_request)
 PAIR_ENTRY(TranslationGlossSave, msime_client_translation_gloss_save)
 TEXT_ENTRY(TranslationPlan, msime_client_custom_translation_plan)
@@ -1788,6 +1789,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("candidatePronunciations", CandidatePronunciations),
         ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),

@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import XCTest
 
 final class CandidateGlossModelTests: XCTestCase {
@@ -84,4 +85,97 @@ final class CandidateGlossModelTests: XCTestCase {
     XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: true), maximum: UInt64.max))
     XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: -1), maximum: UInt64.max))
   }
+
+  // MARK: - 候选英文音标
+
+  func testPronunciationLookupReadsEnglishCandidatesAndTheEnglishGlossOnly() {
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "hello", englishGloss: nil), "hello")
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "well-known", englishGloss: "x"), "well-known",
+                   "an English candidate is read as itself, not through its gloss")
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: " hello; hi\nsecond "), "hello; hi",
+                   "a Chinese candidate is read through the first line of its English gloss")
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: nil))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: CandidatePronunciationModelTestsPlaceholder.pending),
+                 "the pending placeholder is not a gloss")
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "AI助手", englishGloss: nil))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "爱", englishGloss: "to love\taffection"),
+                 "the shared request rejects a whole batch over one control character, so such a gloss is not looked up")
+  }
+
+  func testPronunciationRequestDeduplicatesAndCarriesThePackRoot() throws {
+    let data = try CandidatePronunciationModel.request(texts: ["hello", "", "hello", "world"],
+                                                       supplementaryResources: "/synthetic/state/resource-packs")
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    XCTAssertEqual((object["generation"] as? NSNumber)?.intValue, 0)
+    XCTAssertEqual(object["supplementary_resources"] as? String, "/synthetic/state/resource-packs")
+    let items = try XCTUnwrap(object["items"] as? [[String: String]])
+    XCTAssertEqual(items, [["text": "hello", "language": "en"], ["text": "world", "language": "en"]])
+    let many = try CandidatePronunciationModel.request(texts: (0..<400).map { "word\($0)" }, supplementaryResources: nil)
+    let manyItems = try XCTUnwrap((JSONSerialization.jsonObject(with: many) as? [String: Any])?["items"] as? [Any])
+    XCTAssertEqual(manyItems.count, CandidatePronunciationModel.maxItems)
+    let clean = try CandidatePronunciationModel.request(texts: ["love\taffection", "hello"], supplementaryResources: nil)
+    let cleanItems = try XCTUnwrap((JSONSerialization.jsonObject(with: clean) as? [String: Any])?["items"] as? [[String: String]])
+    XCTAssertEqual(cleanItems, [["text": "hello", "language": "en"]], "a text with a control character is left out of the batch")
+    XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: [""], supplementaryResources: nil))
+    XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: ["hello"], supplementaryResources: "relative"))
+  }
+
+  func testPronunciationDecodeKeepsOnlyEnglishSlashedReadings() throws {
+    let readings = try CandidatePronunciationModel.decode(["generation": 0, "pronunciations": [
+      ["text": "hello", "language": "en", "pronunciation": "/həˈləʊ/"],
+      ["text": "bad", "language": "en", "pronunciation": "həˈləʊ"],
+      ["text": "bonjour", "language": "fr", "pronunciation": "/bɔ̃ʒuʁ/"],
+      ["text": "", "language": "en", "pronunciation": "/x/"],
+    ]])
+    XCTAssertEqual(readings, ["hello": "/həˈləʊ/"])
+    XCTAssertThrowsError(try CandidatePronunciationModel.decode(["generation": 0]))
+  }
+
+  /// 键盘经共享层读下载的资源包：资源目录旁没有表时，从 `<state_root>/resource-packs/pronunciations/` 读到合成的表。
+  func testPronunciationsComeFromTheDownloadedPack() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = root.appendingPathComponent("EngineResources", isDirectory: true)
+    let state = root.appendingPathComponent("state", isDirectory: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    XCTAssertFalse(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path))
+    let pack = URL(fileURLWithPath: CandidatePronunciationPreference.supplementaryResources(stateRoot: state.path))
+      .appendingPathComponent("pronunciations", isDirectory: true)
+    try FileManager.default.createDirectory(at: pack, withIntermediateDirectories: true)
+    var database: OpaquePointer?
+    XCTAssertEqual(sqlite3_open(pack.appendingPathComponent("en-phonetic.db").path, &database), SQLITE_OK)
+    XCTAssertEqual(sqlite3_exec(database, """
+      CREATE TABLE en_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+      CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+      INSERT INTO meta VALUES('kind', 'en_phonetic');
+      INSERT INTO en_phonetics VALUES('hello', 'həˈləʊ');
+      INSERT INTO en_phonetics VALUES('love', 'lʌv');
+      PRAGMA user_version = 1;
+      """, nil, nil, nil), SQLITE_OK)
+    sqlite3_close(database)
+    XCTAssertTrue(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path))
+    let request = try CandidatePronunciationModel.request(
+      texts: ["hello", "to love", "unknown"],
+      supplementaryResources: CandidatePronunciationPreference.supplementaryResources(stateRoot: state.path))
+    let response = try MetasequoiaInputSessionBridge.candidatePronunciations(request: request, resources: resources.path)
+    XCTAssertEqual(try CandidatePronunciationModel.decode(response), ["hello": "/həˈləʊ/", "to love": "/lʌv/"])
+  }
+
+  func testPronunciationIsAHabitSettingThatDefaultsOff() {
+    var document: [String: Any] = [:]
+    var settings = InputHabitPreference.settings(in: document, fallback: InputHabitSettings(
+      learning: true, frequencyMode: .halve, triggerCount: 3, linearStep: 4, glossEnabled: true,
+      onlineTranslations: false, primaryLanguage: 0, secondaryLanguage: -1))
+    XCTAssertFalse(settings.pronunciationEnabled, "the shared default is off")
+    settings.pronunciationEnabled = true
+    InputHabitPreference.write(settings, into: &document)
+    XCTAssertEqual(document["candidate_pronunciation"] as? Bool, true)
+    XCTAssertTrue(InputHabitPreference.settings(in: ["candidate_pronunciation": true], fallback: settings).pronunciationEnabled)
+    XCTAssertFalse(InputHabitPreference.settings(in: ["candidate_pronunciation": false], fallback: settings).pronunciationEnabled)
+  }
+}
+
+private enum CandidatePronunciationModelTestsPlaceholder {
+  /// 候选条给还没到的释义留的占位（`KeyboardViewController.pendingGlossPlaceholder`）。
+  static let pending = " "
 }
