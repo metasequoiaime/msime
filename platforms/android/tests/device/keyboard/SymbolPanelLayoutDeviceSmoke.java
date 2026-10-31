@@ -258,7 +258,7 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
                 if (closes[0] != before) throw new AssertionError("取消触摸不得关闭面板");
             }
         }
-        // The art points in fixed directions, so an RTL locale must not swap the two sides.
+        // 插图方向固定，RTL 系统语言下左右两图不得互换。
         bind.invoke(panel, fixture, fixture);
         surface.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         layout(surface, 720);
