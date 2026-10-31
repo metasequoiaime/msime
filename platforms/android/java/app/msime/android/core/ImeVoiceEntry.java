@@ -13,6 +13,8 @@ import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.SpeechRecognizer;
 import android.view.View;
+import android.view.MotionEvent;
+import android.widget.PopupWindow;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.Button;
@@ -53,8 +55,9 @@ final class ImeVoiceEntry {
     private Runnable silenceStop;
     private VoiceListeningView listening;
     private View listeningPanel;
+    private View coveredActionRow;
     private Button finishButton;
-    /** 「说完了」「取消」那一行；按住说话时整行收起，让出的高度给圆盘和两行中间文字。 */
+    /** 点按入口的结束按钮行，或长按入口的取消、锁定、发送与编辑控件。 */
     private View actionsRow;
     /** 用户已经结束这次采集（整句上传或豆包流式）后，权限错误不能重新弹窗录音。 */
     private boolean uploadStopped;
@@ -74,6 +77,16 @@ final class ImeVoiceEntry {
     private boolean diagnosticAllowed;
     /** 这次聆听由长按空格开始、空格还按着：松手才结束，停顿不自动结束。 */
     private boolean held;
+    /** 松手后继续聆听；只有显式发送会重新授权当前编辑位置。 */
+    private boolean locked;
+    private Button holdCancelButton;
+    private Button holdLockButton;
+    private Button holdSendButton;
+    private Button holdSpaceButton;
+    private View holdUtilities;
+    private PopupWindow editPopup;
+    /** 服务自行结束后的结果等用户松手、发送或取消，不提前上屏。 */
+    private Runnable pendingDelivery;
     /** 本机整段模型的 VAD 此刻判定在说话（{@link LocalAsrRecognizer.Listener#onSpeech}）。 */
     private boolean speaking;
 
@@ -303,7 +316,7 @@ final class ImeVoiceEntry {
         Runnable stop = new Runnable() {
             @Override public void run() {
                 if (silenceStop != this || session != generation) return;
-                switch (VoiceHoldPolicy.silenceElapsed(held, speaking)) {
+                switch (VoiceHoldPolicy.silenceElapsed(held || locked, speaking)) {
                     case STOP -> {
                         silenceStop = null;
                         finishListening();
@@ -329,36 +342,209 @@ final class ImeVoiceEntry {
         return generation;
     }
 
-    /**
-     * 把 {@code before} 之后刚在键区里开始的这次聆听改成按住说话：松手（{@link #releaseHold}）才结束，按住期间停顿不自动结束。按压只是结束了已有的聆听、转交了识别窗口或者没能开始时返回 false。
-     */
+    /** 把这次按压刚开始的聆听切为长按面板，触摸仍由原空格接收。 */
     boolean hold(long before) {
         if (generation == before || !recognizing || listening == null) return false;
         held = true;
-        // 按住说话由松手结束、上滑取消，两个按钮都用不上，整行收起。
-        if (actionsRow != null) ViewPolicy.hide(actionsRow);
-        listening.setHint("松开结束，上滑取消");
+        locked = false;
+        coverActionRow();
+        buildHoldActions();
+        listening.setHoldMode(s.imeStickers == null ? null : s.imeStickers.tabIcon());
+        listening.setHint("滑到锁定后松手可继续说，滑到取消后松手放弃");
         return true;
     }
 
-    /** 按住说话时手指进出取消区：聆听面板切换「松开取消」的样子。 */
-    void holdCancelZone(boolean inZone) {
-        if (!held || !recognizing || listening == null) return;
-        listening.setReleaseToCancel(inZone);
+    /** 长按面板覆盖字母区与原功能行；原行保持挂载，继续接收已开始的触摸流。 */
+    private void coverActionRow() {
+        View panel = listeningPanel;
+        if (panel == null || host == null || s.actionRow == null || !ViewPolicy.isVisible(s.actionRow)
+                || !(host.getParent() instanceof LinearLayout parent)
+                || s.actionRow.getParent() != parent) return;
+        int height = s.actionRow.getBottom() - host.getTop();
+        if (height <= 0) return;
+        // 搬到共同父容器时暂时解除卸载监听的身份，避免把内部重挂载当作取消。
+        listeningPanel = null;
+        host.removeView(panel);
+        coveredActionRow = s.actionRow;
+        hidden.add(coveredActionRow);
+        ViewPolicy.setInvisible(coveredActionRow);
+        host = parent;
+        listeningPanel = panel;
+        LinearLayout.LayoutParams params = LayoutPolicy.matchWidthHeightPx(height);
+        params.topMargin = -height;
+        parent.addView(panel, params);
     }
 
-    /** 按住说话松手：{@code cancel} 为 true（在取消区松手，或者触摸被系统取消）时丢掉这次录音，否则结束录音并出结果。这次聆听已经结束或被取消时什么也不做。 */
-    void releaseHold(boolean cancel) {
+    boolean coversActionRow() { return coveredActionRow != null; }
+
+    private static VoiceHoldPolicy.Region region(View view) {
+        if (view == null || !view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) return null;
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        return new VoiceHoldPolicy.Region(location[0], location[1],
+            location[0] + view.getWidth(), location[1] + view.getHeight());
+    }
+
+    /** 实际按钮命中与高亮使用同一份范围，滑出立即取消该按钮的高亮。 */
+    void moveHold(float x, float y) {
+        if (!held || listening == null) return;
+        VoiceHoldPolicy.Region cancel = region(holdCancelButton), lock = region(holdLockButton);
+        if (holdCancelButton != null) holdCancelButton.setPressed(cancel != null && cancel.contains(x, y));
+        if (holdLockButton != null) holdLockButton.setPressed(lock != null && lock.contains(x, y));
+        VoiceHoldPolicy.Region send = region(holdSendButton);
+        if (holdSendButton != null) holdSendButton.setPressed(send != null && send.contains(x, y));
+        listening.setReleaseToCancel(cancel != null && cancel.contains(x, y));
+    }
+
+    /** 松手重新命中最终坐标；系统取消无条件丢弃，锁定不停止识别器。 */
+    void releaseHold(float x, float y, boolean interrupted) {
         if (!held) return;
+        VoiceHoldPolicy.Action action = VoiceHoldPolicy.release(x, y,
+            region(holdCancelButton), region(holdLockButton), interrupted);
         held = false;
+        for (Button button : new Button[] {holdCancelButton, holdLockButton, holdSendButton})
+            if (button != null) button.setPressed(false);
         if (listening != null) listening.setReleaseToCancel(false);
-        if (!recognizing) return;
-        if (cancel) cancel();
-        else finishListening();
+        if (action == VoiceHoldPolicy.Action.CANCEL) cancel();
+        else if (action == VoiceHoldPolicy.Action.LOCK) {
+            locked = true;
+            if (holdSpaceButton != null) {
+                holdSpaceButton.setText("已锁定");
+                holdSpaceButton.setContentDescription("录音已锁定，点击发送或取消结束");
+                ViewPolicy.setEnabled(holdSpaceButton, false);
+            }
+            if (holdLockButton != null) {
+                holdLockButton.setText("🔒");
+                ViewPolicy.setEnabled(holdLockButton, false);
+            }
+            if (holdUtilities != null) enableHoldUtilities(true);
+            if (listening != null) listening.setHint(pendingDelivery == null
+                ? "已锁定，继续录音；可编辑文字，点发送结束" : "录音已结束，点发送或取消");
+        } else finishListening();
+    }
+
+    private Button holdButton(String title, String description, Runnable action) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setText(title);
+        button.setContentDescription(description);
+        button.setKeyboardRole(KeyboardKeyRole.KEY);
+        s.imeStyler.styleButton(button, KeyboardKeyRole.KEY, s.skin);
+        ViewPolicy.clearMinimumWidth(button);
+        ViewPolicy.setMinimumHeight(button, s.pixels(44));
+        button.setSingleLine(true);
+        button.setPadding(0, 0, 0, 0);
+        KeyboardTypographyPolicy.setKeyTextSize(button, 13);
+        ViewPolicy.bindClick(button, action);
+        return button;
+    }
+
+    /** 控制行（🔓 | 松开发送 | 发送）排在最下面、与原功能行同高，压着原空格的手指落在「松开发送」上，水平左滑到锁定、右滑到发送（#10327）。 */
+    private void buildHoldActions() {
+        if (!(listeningPanel instanceof LinearLayout column)) return;
+        if (actionsRow != null) column.removeView(actionsRow);
+        LinearLayout actions = LayoutPolicy.column(s);
+        LinearLayout cancelRow = LayoutPolicy.row(s);
+        cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        holdCancelButton = holdButton("取消", "取消本次语音", this::cancel);
+        cancelRow.addView(holdCancelButton, new LinearLayout.LayoutParams(0, s.pixels(44), 2));
+        cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        actions.addView(cancelRow, LayoutPolicy.matchWidthWrapParams());
+        LinearLayout utilities = LayoutPolicy.row(s);
+        utilities.addView(holdButton("符", "锁定语音中打开符号", () -> {
+            if (locked) s.imePanels.showSymbolPanel();
+        }), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        utilities.addView(holdPunctuation("！", "？"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        utilities.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        utilities.addView(holdPunctuation("，", "。"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        Button other = holdButton("其他", "锁定语音编辑操作", this::toggleEditPopup);
+        utilities.addView(other, new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        holdUtilities = utilities;
+        enableHoldUtilities(false);
+        actions.addView(utilities, LayoutPolicy.matchWidthWrapParams());
+        int rowHeight = coveredActionRow != null && coveredActionRow.getHeight() > 0
+            ? coveredActionRow.getHeight() : s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP);
+        LinearLayout controls = LayoutPolicy.row(s);
+        holdLockButton = holdButton("🔓", "滑到此处松手锁定录音", () -> {});
+        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        holdSpaceButton = holdButton("松开发送", "长按模式，松开发送", () -> {});
+        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, rowHeight, 3));
+        holdSendButton = holdButton("发送", "发送本次语音", this::finishListening);
+        finishButton = holdSendButton;
+        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        actions.addView(controls, LayoutPolicy.matchWidthWrapParams());
+        column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+        actionsRow = actions;
+    }
+
+    private void enableHoldUtilities(boolean enabled) {
+        if (holdUtilities instanceof ViewGroup group)
+            for (int index = 0; index < group.getChildCount(); index++)
+                ViewPolicy.setEnabled(group.getChildAt(index), enabled);
+    }
+
+    /** 标点只在锁定后接受点按或上滑，一次触摸只插入一个符号。 */
+    private Button holdPunctuation(String tap, String swipe) {
+        Button button = holdButton(tap, "锁定语音：点按" + tap + "，上滑" + swipe, () -> {
+            if (locked) s.commitText(tap, TypingSource.LOCAL);
+        });
+        float[] down = new float[1];
+        button.setOnTouchListener((view, event) -> {
+            if (!locked) return true;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> { down[0] = event.getY(); button.setPressed(true); }
+                case MotionEvent.ACTION_UP -> {
+                    button.setPressed(false);
+                    if (down[0] - event.getY() >= s.pixels(16)) s.commitText(swipe, TypingSource.LOCAL);
+                    else button.performClick();
+                }
+                case MotionEvent.ACTION_CANCEL -> button.setPressed(false);
+                default -> { }
+            }
+            return true;
+        });
+        return button;
+    }
+
+    /** 编辑弹层位于「其他」上方，重复点击关闭；不抢编辑器焦点。 */
+    private void toggleEditPopup() {
+        if (editPopup != null) { editPopup.dismiss(); editPopup = null; return; }
+        if (!locked || !(holdUtilities instanceof ViewGroup group)) return;
+        View anchor = group.getChildAt(group.getChildCount() - 1);
+        LinearLayout content = LayoutPolicy.row(s);
+        String[] labels = {"换行", "空格", "删除"};
+        for (int index = 0; index < labels.length; index++) {
+            int action = index;
+            content.addView(holdButton(labels[index], "锁定语音" + labels[index], () -> {
+                if (!locked) return;
+                if (action == 2) s.deleteCodePointBeforeCursor();
+                else s.commitText(action == 0 ? "\n" : " ", TypingSource.LOCAL);
+            }), new LinearLayout.LayoutParams(s.pixels(56), s.pixels(44)));
+        }
+        s.imeStyler.applySkinBackground(content);
+        PopupWindow popup = new PopupWindow(content, s.pixels(168), s.pixels(44), false);
+        popup.setOutsideTouchable(false);
+        editPopup = popup;
+        popup.setOnDismissListener(() -> { if (editPopup == popup) editPopup = null; });
+        // IME 子窗口的屏幕原点不为零，按锚点偏移定位，避免重复叠加窗口坐标。
+        popup.showAsDropDown(anchor, anchor.getWidth() - s.pixels(168),
+            -anchor.getHeight() - s.pixels(44));
+        ScreenCaptureProtection.apply(popup);
     }
 
     /** 结束录音（保留已录到的部分并出结果）。 */
     private void finishListening() {
+        // 锁定允许在同一输入框编辑，点发送才授权此刻的位置；之后的迟到结果仍检查快照。
+        if (locked && s.connection != null) s.captureVoiceTarget();
+        locked = false;
+        held = false;
+        if (editPopup != null) editPopup.dismiss();
+        if (pendingDelivery != null) {
+            Runnable delivery = pendingDelivery;
+            pendingDelivery = null;
+            delivery.run();
+            return;
+        }
+        if (holdUtilities != null) enableHoldUtilities(false);
         if (!recognizing) {
             dismiss();
             return;
@@ -391,6 +577,8 @@ final class ImeVoiceEntry {
         generation++;
         recognizing = false;
         held = false;
+        locked = false;
+        pendingDelivery = null;
         polisher.cancel();
         // 后台任务保留旧实例，新识别不能复用它永久生效的取消标记。
         polisher = new VoicePolisher();
@@ -551,6 +739,24 @@ final class ImeVoiceEntry {
         streaming = null;
         upload = null;
         releasePlatform();
+        if (held || locked) {
+            pendingDelivery = () -> applyDelivery(session, text, failure, notice, pcm,
+                elapsedMillis, language, provider);
+            if (finishButton != null) ViewPolicy.setEnabled(finishButton, true);
+            if (listening != null) {
+                listening.showWaitingForSend(text);
+                listening.setHint("录音已结束，点发送或取消");
+                listening.setContentDescription("录音已结束，等待发送或取消");
+            }
+            return;
+        }
+        applyDelivery(session, text, failure, notice, pcm, elapsedMillis, language, provider);
+    }
+
+    /** 结果投递只经过这一处；锁定等待与普通录音保留同一份上下文保护。 */
+    private void applyDelivery(long session, String text, String failure, String notice, byte[] pcm,
+                              long elapsedMillis, String language, String provider) {
+        if (session != generation) return;
         if (text == null || text.isEmpty()) {
             if (failure != null) s.notice(failure);
             dismiss();
@@ -579,6 +785,10 @@ final class ImeVoiceEntry {
             contribute(pcm, text, language, provider);
         }
         s.notice(notice);
+        if (holdSpaceButton != null) {
+            dismiss();
+            return;
+        }
         if (listening != null) {
             listening.showDone(text);
             s.main.postDelayed(() -> {
@@ -669,7 +879,7 @@ final class ImeVoiceEntry {
         view.setContentDescription("正在聆听，识别结束后自动上屏");
         LinearLayout column = LayoutPolicy.column(s);
         column.addView(view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；按住说话时整行收起（见 hold）。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
+        // 按钮行左右各让 16 dp，和下面的键行隔 10 dp，两个按钮之间 12 dp；长按入口替换为专用操作区（见 hold）。按钮直接按皮肤上色（说完了用强调色、取消用普通键面），不等下一次整树样式通道。
         LinearLayout actions = LayoutPolicy.row(s);
         KeyboardPressButton done = ViewPolicy.newPressButton(s);
         done.setText("说完了");
@@ -727,6 +937,13 @@ final class ImeVoiceEntry {
         listeningPanel = null;
         finishButton = null;
         actionsRow = null;
+        holdCancelButton = holdLockButton = holdSendButton = holdSpaceButton = null;
+        holdUtilities = null;
+        coveredActionRow = null;
+        if (editPopup != null) editPopup.dismiss();
+        editPopup = null;
+        pendingDelivery = null;
+        locked = held = false;
         listening = null;
         host = null;
         for (View child : hidden) ViewPolicy.show(child);

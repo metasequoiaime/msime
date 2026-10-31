@@ -51,6 +51,16 @@ class NightlyPackagingTests(unittest.TestCase):
             self.assertIn("TestFlight", (output / "README.txt").read_text())
             self.assertIn("unsigned HAP", (output / "README.txt").read_text())
 
+    def test_arch_binary_package_is_an_installer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            directory = source / "linux" / "msime-linux-arch-1.2.3"
+            directory.mkdir(parents=True)
+            package = directory / "msime-bin-1.2.3-1-x86_64.pkg.tar.zst"
+            package.write_bytes(b"synthetic Arch package")
+            (directory / "source.tar.zst").write_bytes(b"not an installer")
+            self.assertEqual(packaging.platform_files(source, "linux"), [package])
+
     def test_oversized_and_duplicate_files(self):
         for case in ("oversized", "duplicate"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:

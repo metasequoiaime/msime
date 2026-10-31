@@ -105,12 +105,26 @@ if not source.is_file():
 shutil.copyfile(source, output)
 '''
 
-# 模拟 docker：只记下调用，render-definitions.sh 的核对在任何一次 docker run 之前完成。
+# 模拟 docker：记录调用；Arch 打包用例同时核对容器实际收到的暂存文件。
 FAKE_DOCKER = r'''
-import json, os, sys
+import hashlib, json, os, sys
 from pathlib import Path
 with open(Path(os.environ["MSIME_TEST_RELEASES"]) / "docker.jsonl", "a", encoding="utf-8") as log:
     log.write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("MSIME_TEST_ARCH"):
+    args = sys.argv[1:]
+    mounts = [args[index + 1].split(":") for index, arg in enumerate(args) if arg == "-v"]
+    work = Path(next(mount[0] for mount in mounts if mount[1] == "/work"))
+    out = Path(next(mount[0] for mount in mounts if mount[1] == "/out"))
+    text = (work / "PKGBUILD").read_text(encoding="utf-8")
+    assert (work / "msime.install").is_file(), "PKGBUILD names an absent install script"
+    rpm = work / "msime-linux-12.34.56-1.x86_64.rpm"
+    assert rpm.read_bytes() == b"synthetic RPM"
+    assert hashlib.sha256(rpm.read_bytes()).hexdigest() in text
+    assert 'source_x86_64=("file:///input/msime-linux-12.34.56-1.x86_64.rpm")' in text
+    assert "pkgver=12.34.56" in text
+    assert "makepkg --syncdeps --noconfirm" in args[-1]
+    (out / "msime-bin-12.34.56-1-x86_64.pkg.tar.zst").write_bytes(b"synthetic Arch package")
 '''
 
 
@@ -373,6 +387,27 @@ class RenderDefinitionsTest(Harness):
         self.assertFalse([run for run in runs if "fedora:44" in run], "no rpmbuild container after a failed check")
 
 
+@unittest.skipIf(os.name == "nt", "容器挂载暂存用例使用 POSIX 路径")
+class ArchBinaryReleaseTest(Harness):
+    def test_stages_the_local_rpm_and_install_script(self):
+        rpm = self.directory / "input.rpm"
+        rpm.write_bytes(b"synthetic RPM")
+        output = self.directory / "output with spaces"
+        result = self.run_script(str(PACKAGING / "arch/build-bin-release.sh"), VERSION,
+                                 str(rpm), str(output), env={"MSIME_TEST_ARCH": "1"}, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((output / f"msime-bin-{VERSION}-1-x86_64.pkg.tar.zst").read_bytes(),
+                         b"synthetic Arch package")
+        self.assertFalse((output / ".build").exists())
+        self.assertEqual(rpm.read_bytes(), b"synthetic RPM")
+
+    def test_invalid_input_never_starts_a_container(self):
+        result = self.run_script(str(PACKAGING / "arch/build-bin-release.sh"), VERSION,
+                                 str(self.directory / "missing.rpm"), str(self.directory / "out"), cwd=ROOT)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.state / "docker.jsonl").exists())
+
+
 class DefinitionsPointAtLinuxSourcesTest(unittest.TestCase):
     def test_release_page_gets_only_installers(self):
         workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
@@ -389,6 +424,23 @@ class DefinitionsPointAtLinuxSourcesTest(unittest.TestCase):
         self.assertIn("*.pkg.tar.zst", sums[0])
         self.assertIn("packaging/publish-sources.sh dist", workflow)
         self.assertIn("edition_linux.py download-guide", workflow)
+
+    def test_arch_artifacts_are_built_for_nightly_without_publishing_a_version(self):
+        workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
+        arch = workflow.split("\n  arch-bin:\n", 1)[1].split("\n  publish:\n", 1)[0]
+        self.assertIn("\n    if: ${{ needs.source.outputs.packaging == 'true' }}\n", arch)
+        # nightly 里 Arch 失败不拖住 DEB 和 RPM；发布时 continue-on-error 为假，publish 仍要求它成功。
+        self.assertIn("\n    continue-on-error: ${{ !inputs.publish }}\n", arch)
+        self.assertIn("msime-linux-arch-${{ steps.version.outputs.value }}", arch)
+
+    def test_arch_package_is_built_from_the_full_edition_rpm(self):
+        workflow = (ROOT / ".github/workflows/release-linux.yml").read_text(encoding="utf-8")
+        arch = workflow.split("\n  arch-bin:\n", 1)[1].split("\n  publish:\n", 1)[0]
+        # artifact 里每个版本各有一个 RPM，通配会随目录顺序挑到别的版本。
+        self.assertIn("edition_linux.py field --edition full package", arch)
+        self.assertIn('rpm="target/arch-rpm/${package}-${VERSION}-1.x86_64.rpm"', arch)
+        self.assertNotIn("-print -quit", arch)
+        self.assertNotIn("msime-linux-*.x86_64.rpm", arch)
 
     def test_definitions_fetch_sources_from_linux_sources(self):
         base = re.escape("releases/download/linux-sources/")

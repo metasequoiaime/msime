@@ -7574,13 +7574,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// `replacingComposition` is the runtime's commit, which takes the place of the letters 行内预编辑 marked; anything else inserted mid-composition goes in beside them, and the next render marks the composition again.
+  /// 运行时上屏替换行内预编辑；其他直接插入先撤下组字，下一次渲染再标记剩余内容。
   private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false) {
     if replacingComposition && !inlineMarkedText.isEmpty {
-      // Turning the marked letters into the committed text and unmarking it is one change to the document, where removing them and then inserting would be two.
+      // 直接提交替换标记区；先重标记再 unmark 的跨进程调用会让随后的剩余组字覆盖已选汉字。
       inlineMarkedText = ""
-      textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-      textDocumentProxy.unmarkText()
+      textDocumentProxy.insertText(text)
       noteOwnEdit()
     } else {
       showInlineComposition("")

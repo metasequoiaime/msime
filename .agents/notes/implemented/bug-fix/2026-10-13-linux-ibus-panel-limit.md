@@ -34,3 +34,5 @@ Linux 已经有一条按运行时说实话的通道：宿主把「当前画候�
 - `crates/client-core/src/host_surface/tests.rs` 的 `candidate_panel_limit_reads_only_what_the_host_reported`：宿主写出的那一行读成 `IbusPanel`，`HostCapabilities` 序列化为 `"ibus_panel"` 并能读回。
 - `apps/desktop/src-tauri/src/tests.rs` 的 `candidate_panel_status_reader_reports_the_ibus_panel_limit`：设置应用经 `read_candidate_panel_status` 读到这份文件，得到 `IbusPanel`，「关于」页的输入法框架仍是 IBus。
 - `apps/desktop/tests/input/host-capabilities.test.tsx`：`ibus_panel` 的说明在「主题」与「候选窗口」两页各出现一次，没有限制时不出现。
+
+GNOME Classic 的 Shell 会话分类修复见 [GNOME Classic 使用 Shell 精简菜单](../../implemented/bug-fix/2026-10-31-linux-gnome-classic-menu.md)。
