@@ -279,6 +279,8 @@ TEXT_ENTRY(SkinToolbarImageLayout, msime_client_skin_toolbar_image_layout)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
+TEXT_ENTRY(PersonalWordbookMerge, msime_client_personal_wordbook_merge)
+TEXT_ENTRY(PersonalWordbookDrain, msime_client_personal_wordbook_drain)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
@@ -582,6 +584,11 @@ static napi_value CommunityResourceLibrary(napi_env env, napi_callback_info info
 // progress. Keep parsing, file locks and atomic replacement off the ArkTS thread.
 static napi_value VocabularyReview(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_vocabulary_review, "MSIME vocabulary review");
+}
+
+// 键盘长按菜单的「加入生词本」写进键盘自己沙箱里的生词本：要取词书目录的文件锁、读写整本生词本，不在 ArkTS 线程上做。设置应用导入键盘发布的那本时的合并（personalWordbookMerge）和键盘清走交过的词（personalWordbookDrain）是同步的，因为共享沙箱的导入本身就在主线程上同步进行（SharedStateMirror），和统计的合并一样；请求里只有文件路径，生词本平常很小，代价是工作线程正拿着词书目录的锁（例如导入一份大词表）时主线程要等它做完。
+static napi_value PersonalWordbookAdd(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_personal_wordbook_add, "MSIME personal wordbook add");
 }
 
 // 「统计」标签页的概览要读取整份统计文档、推导每个时间窗口，并在键盘进程同样会获取的文件锁下写入新达成的徽章，所以设置应用把它放到 ArkTS 线程之外运行，就像 Android 放在 worker 上运行一样。键盘的记录量小，继续使用同步的 `typingStatistics`。
@@ -1786,6 +1793,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("typingStatisticsEnabled", TypingStatisticsEnabled),
         ENTRY("typingStatisticsAsync", TypingStatisticsAsync),
         ENTRY("vocabularyReview", VocabularyReview),
+        ENTRY("personalWordbookAdd", PersonalWordbookAdd),
+        ENTRY("personalWordbookMerge", PersonalWordbookMerge),
+        ENTRY("personalWordbookDrain", PersonalWordbookDrain),
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
