@@ -120,7 +120,6 @@ struct CommunityResourcesView: View {
     }
     .refreshable { await refreshInstalled(); await load() }
     .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
-    \.onReceive\(NotificationCenter\.default\.publisher\(for\:\ CommunityBlocks\.didChange\)\)\ \{\ _\ in\ startLoad\(\)\ \}
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
     .trackViewRequest(request: $request, pending: $pending, onAppear: {
       Task { await refreshInstalled() }

@@ -151,7 +151,6 @@ struct SkinCommunityView: View {
     }
     .onChange(of: signedIn) { startLoad() }
     .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
-    \.onReceive\(NotificationCenter\.default\.publisher\(for\:\ CommunityBlocks\.didChange\)\)\ \{\ _\ in\ startLoad\(\)\ \}
     .sheet(isPresented: $showPublish) { CommunityPublishView { startLoad() } }
     .sheet(isPresented: $showAccount, onDismiss: {
       let id = accountGeneration.begin()

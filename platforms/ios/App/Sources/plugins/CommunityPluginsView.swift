@@ -76,7 +76,6 @@ struct CommunityPluginsView: View {
     }) { AccountLoginSheet() }
     .refreshable { await load() }
     .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
-    \.onReceive\(NotificationCenter\.default\.publisher\(for\:\ CommunityBlocks\.didChange\)\)\ \{\ _\ in\ startLoad\(\)\ \}
     .trackViewRequest(request: $request, pending: $pending, onAppear: {
       if !loaded { startLoad() }
       Task {
