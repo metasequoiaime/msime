@@ -288,64 +288,214 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
 
     private void productChecks() throws Exception {
         moduleChecks();
+        photoSelectionChecks();
         Context context = getTargetContext();
-        stage = "native camera preview";
+        stage = "native independent camera preview";
         automation.grantRuntimePermission(context.getPackageName(), "android.permission.CAMERA");
         captureDiagnostic();
         restartIme();
         editor();
+        AccessibilityNodeInfo initial = awaitAny(field("msime-test-plain"));
+        android.os.Bundle prefix = new android.os.Bundle();
+        prefix.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "OCR前文");
+        check(initial.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, prefix), "seed synthetic editor context");
+        awaitAny(field("msime-test-plain").and(node -> equalsText("OCR前文", node.getText())
+            && node.getTextSelectionStart() == 5 && node.getTextSelectionEnd() == 5));
         camera();
         screenshot("preview");
-        stage = "capture and recognize through native IME";
-        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
-        awaitAny(node -> equalsText("上屏勾选行", node.getText()));
+        stage = "capture, process photo and recognize through native IME";
+        captureAndRecognize();
         screenshot("result");
-        stage = "insert selected OCR lines into editor";
-        tap(node -> equalsText("上屏勾选行", node.getText()));
+        stage = "insert all OCR text into the original editor";
+        tap(node -> equalsText("插入", node.getText()) && node.isEnabled());
         dropStaleNodes();
         awaitAny(field("msime-test-plain").and(node -> node.refresh() && node.getText() != null
+            && node.getText().toString().startsWith("OCR前文")
             && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468")));
         screenshot("editor");
-        stage = "insert only selected OCR characters";
+
+        stage = "select individual OCR characters without long press";
         editor();
         camera();
-        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
-        awaitAny(node -> equalsText("上屏选中文字", node.getText()));
-        AccessibilityNodeInfo text = awaitAny(node -> equalsText("android.widget.TextView", node.getClassName())
-            && node.getText() != null && node.getText().toString().contains("2468")
-            && node.getActionList().contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_SELECTION));
-        int start = text.getText().toString().indexOf("2468");
-        android.os.Bundle selection = new android.os.Bundle();
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
-        selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, start + 4);
-        check(text.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection), "select only synthetic digits");
-        tap(node -> equalsText("上屏选中文字", node.getText()));
-        awaitAny(field("msime-test-plain").and(node -> equalsText("2468", node.getText())));
+        captureAndRecognize();
+        tap(described("全选文字"));
+        for (char digit : "2468".toCharArray()) clickCharacter(digit);
         screenshot("selection");
+        tap(node -> equalsText("复制", node.getText()));
+        android.content.ClipboardManager clipboard = context.getSystemService(android.content.ClipboardManager.class);
+        long copyDeadline = SystemClock.uptimeMillis() + 5000;
+        while (SystemClock.uptimeMillis() < copyDeadline) {
+            android.content.ClipData clip = clipboard.getPrimaryClip();
+            if (clip != null && clip.getItemCount() == 1 && equalsText("2468", clip.getItemAt(0).getText())) break;
+            SystemClock.sleep(100);
+        }
+        android.content.ClipData copied = clipboard.getPrimaryClip();
+        check(copied != null && copied.getItemCount() == 1 && equalsText("2468", copied.getItemAt(0).getText()),
+            "copy contains only individually selected digits");
+        tap(node -> equalsText("插入", node.getText()) && node.isEnabled());
+        awaitAny(field("msime-test-plain").and(node -> equalsText("2468", node.getText())));
 
-        // 未拍照时隐藏键盘后再次打开，必须能重新取得相机，不能只验证拍照回调里的释放。
-        stage = "release preview when keyboard hides";
+        stage = "return from photo processing without inserting";
+        camera();
+        tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        awaitAny(node -> equalsText("下一步", node.getText()));
+        tap(node -> equalsText("返回键盘", node.getText()));
+        awaitAny(key("更多"));
+        awaitAny(field("msime-test-plain").and(node -> equalsText("2468", node.getText())));
+
+        // 后台释放驱动，重新从键盘进入时应能再次取得相机。
+        stage = "release preview when window backgrounds";
         camera();
         home("hidden");
         editor();
         camera();
         screenshot("resumed");
-        // 识别后离开输入框不能把待选结果带入下一个编辑器。
-        stage = "discard results after editor switch";
-        tap(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        captureAndRecognize();
+        android.app.ActivityManager manager = context.getSystemService(android.app.ActivityManager.class);
+        android.app.ActivityManager.AppTask ocrTask = null;
+        for (android.app.ActivityManager.AppTask task : manager.getAppTasks()) {
+            android.app.ActivityManager.RecentTaskInfo info = task.getTaskInfo();
+            if (info.topActivity != null && info.topActivity.getClassName().equals("app.msime.android.OcrCaptureActivity"))
+                ocrTask = task;
+        }
+        check(ocrTask != null, "independent OCR has its own native activity task");
+        stage = "old result cannot insert into a different editor session";
         home("switched");
         editor();
-        SystemClock.sleep(2000);
-        dropStaleNodes();
+        ocrTask.moveToFront();
+        awaitAny(node -> equalsText("插入", node.getText()) && !node.isEnabled());
+        tap(node -> equalsText("返回键盘", node.getText()));
+        // 测试主动把旧任务置前，系统可能回到桌面；重新前置合成编辑器核对内容。
+        editor();
         AccessibilityNodeInfo target = awaitAny(field("msime-test-plain"));
-        // 空 EditText 的无障碍文本可能是提示词，必须用提示标志区分真实输入。
-        check(target.getText() == null || target.getText().length() == 0
-            || (target.isShowingHintText() && equalsText("Plain editor", target.getHintText())
-                && equalsText("Plain editor", target.getText())),
-            "late recognition cannot insert in another editor");
-        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
-            check(findAny(window.getRoot(), described("拍照识字面板")) == null,
-                "late recognition cannot restore OCR panel in another editor");
+        check(target.getText() == null || target.getText().length() == 0 || target.isShowingHintText(),
+            "old OCR result did not write into a new input target");
+
+        stage = "photo survives orientation changes without saving to disk";
+        camera();
+        tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        awaitAny(node -> equalsText("下一步", node.getText()));
+        try {
+            check(automation.setRotation(android.app.UiAutomation.ROTATION_FREEZE_90), "rotate synthetic OCR window");
+            SystemClock.sleep(500);
+            tap(node -> equalsText("下一步", node.getText()));
+            awaitAny(node -> described("点选识别文字").test(node) && node.getText() != null
+                && node.getText().toString().replaceAll("\\s", "").contains("SYNTHETICOCR2468"));
+            screenshot("rotated");
+        } finally {
+            automation.setRotation(android.app.UiAutomation.ROTATION_FREEZE_0);
+        }
+        tap(node -> equalsText("重新拍照", node.getText()));
+        awaitAny(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        tap(node -> equalsText("返回键盘", node.getText()));
+    }
+
+    private void captureAndRecognize() throws Exception {
+        tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
+        awaitAny(node -> equalsText("下一步", node.getText()));
+        screenshot("photo");
+        tap(node -> equalsText("裁剪", node.getText()));
+        awaitAny(described("拖动裁剪框四边或四角，选择识别区域"));
+        tap(node -> equalsText("裁剪", node.getText()));
+        tap(node -> equalsText("涂抹", node.getText()));
+        tap(node -> equalsText("下一步", node.getText()));
+        AccessibilityNodeInfo photo = awaitAny(described("涂抹要识别的区域，高亮部分将被识别"));
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        photo.getBoundsInScreen(bounds);
+        injectPhotoStroke(bounds.centerX() - 30, bounds.centerY(), bounds.centerX() + 30, bounds.centerY());
+        tap(node -> equalsText("涂抹", node.getText()));
+        tap(node -> equalsText("下一步", node.getText()));
+        awaitAny(node -> equalsText("插入", node.getText()));
+    }
+
+    private void injectPhotoStroke(float fromX, float fromY, float toX, float toY) {
+        long time = SystemClock.uptimeMillis();
+        int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+        for (int i = 0; i < actions.length; i++) {
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(time, time + i * 16, actions[i],
+                i == 0 ? fromX : toX, i == 0 ? fromY : toY, 0);
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+            try { check(automation.injectInputEvent(event, true), "brush gesture reaches photo window"); }
+            finally { event.recycle(); }
+        }
+    }
+
+    /** 通过系统无障碍暴露的 ClickableSpan 点击单字，与用户短按走同一个选择回调。 */
+    private void clickCharacter(char value) throws Exception {
+        dropStaleNodes();
+        AccessibilityNodeInfo node = awaitAny(described("点选识别文字"));
+        CharSequence text = node.getText();
+        check(text instanceof android.text.Spanned, "recognized text exposes accessible character actions");
+        android.text.Spanned spans = (android.text.Spanned) text;
+        int at = text.toString().indexOf(value);
+        check(at >= 0, "synthetic digit exists in recognition result");
+        android.text.style.ClickableSpan[] actions = spans.getSpans(at, at + 1, android.text.style.ClickableSpan.class);
+        check(actions.length == 1, "one short-press action covers one synthetic digit");
+        actions[0].onClick(null);
+        SystemClock.sleep(150);
+    }
+
+    /** 缩放后的手势必须改变实际推理图：裁剪缩小输入，笔刷以白色屏蔽未画区域。 */
+    private void photoSelectionChecks() throws Exception {
+        stage = "photo selection pixel contract";
+        Class<?> activity = getTargetContext().getClassLoader().loadClass("app.msime.android.OcrCaptureActivity");
+        Method boundaries = activity.getDeclaredMethod("characterBoundaries", String.class);
+        boundaries.setAccessible(true);
+        int[] offsets = (int[]) boundaries.invoke(null, "中e\u0301👩‍💻🇨🇳");
+        check(java.util.Arrays.equals(offsets, new int[]{0, 1, 3, 8, 12}),
+            "character selection preserves combining marks, ZWJ emoji and flag pairs");
+        Class<?> type = getTargetContext().getClassLoader().loadClass("app.msime.android.OcrPhotoSelectionView");
+        var constructor = type.getDeclaredConstructor(Context.class, Bitmap.class);
+        constructor.setAccessible(true);
+        Class<?> modeType = getTargetContext().getClassLoader().loadClass("app.msime.android.OcrPhotoSelectionView$Mode");
+        Method mode = type.getDeclaredMethod("mode", modeType);
+        Method selection = type.getDeclaredMethod("selection");
+        mode.setAccessible(true); selection.setAccessible(true);
+        Bitmap photo = Bitmap.createBitmap(400, 200, Bitmap.Config.ARGB_8888);
+        photo.eraseColor(android.graphics.Color.BLACK);
+        final Throwable[] failure = new Throwable[1];
+        runOnMainSync(() -> {
+            try {
+                android.view.View view = (android.view.View) constructor.newInstance(getTargetContext(), photo);
+                android.widget.FrameLayout parent = new android.widget.FrameLayout(getTargetContext());
+                parent.addView(view);
+                view.layout(0, 0, 800, 600);
+                Object[] modes = modeType.getEnumConstants();
+                mode.invoke(view, modes[1]);
+                // 原图以 2 倍缩放居中，四边从全图向内移动。
+                selectionGesture(view, 0, 300, 100, 300);
+                selectionGesture(view, 799, 300, 700, 300);
+                selectionGesture(view, 400, 100, 400, 160);
+                selectionGesture(view, 400, 499, 400, 440);
+                Object area = selection.invoke(view);
+                Method image = area.getClass().getDeclaredMethod("image");
+                image.setAccessible(true);
+                Bitmap cropped = (Bitmap) image.invoke(area);
+                check(cropped.getWidth() == 300 && cropped.getHeight() == 140,
+                    "four crop handles project from view space into image pixels");
+                mode.invoke(view, modes[2]);
+                check(selection.invoke(view) == null, "empty brush cannot start recognition");
+                selectionGesture(view, 400, 300, 500, 300);
+                Bitmap masked = (Bitmap) image.invoke(selection.invoke(view));
+                check(masked.getPixel(200, 100) == android.graphics.Color.BLACK, "painted text pixels are preserved");
+                check(masked.getPixel(0, 0) == android.graphics.Color.WHITE, "unpainted pixels are removed before OCR");
+                check(masked.getWidth() == 400 && masked.getHeight() == 200, "brush keeps the original image coordinate frame");
+                cropped.recycle(); masked.recycle();
+            } catch (Throwable error) { failure[0] = error; }
+        });
+        photo.recycle();
+        if (failure[0] != null) throw new AssertionError("photo selection contract", failure[0]);
+    }
+
+    private static void selectionGesture(android.view.View view, float fromX, float fromY, float toX, float toY) {
+        long time = SystemClock.uptimeMillis();
+        int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+        for (int i = 0; i < actions.length; i++) {
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(time, time + i * 16, actions[i],
+                i == 0 ? fromX : toX, i == 0 ? fromY : toY, 0);
+            try { check(view.dispatchTouchEvent(event), "photo gesture is consumed"); }
+            finally { event.recycle(); }
+        }
     }
 
     /** HOME 请求异步切换任务，确认桌面已获得焦点且键盘消失后才能重开编辑器。 */
@@ -595,14 +745,23 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     }
 
     private void camera() throws Exception {
+        stage = "open independent camera from actual keyboard toolbar";
         dropStaleNodes();
         tap(key("更多"));
         showTool("拍照识字");
         tap(tool("拍照识字"));
-        AccessibilityNodeInfo capture = await(node -> equalsText("拍照并识别", node.getText()) && node.isEnabled());
+        AccessibilityNodeInfo capture = awaitAny(node -> equalsText("拍照", node.getText()) && node.isEnabled());
         android.graphics.Rect bounds = new android.graphics.Rect();
         capture.getBoundsInScreen(bounds);
         check(bounds.width() > 0 && bounds.height() > 0, "capture control has visible touch bounds");
+        AccessibilityNodeInfo preview = awaitAny(described("拍照识字相机预览"));
+        android.graphics.Rect previewBounds = new android.graphics.Rect();
+        preview.getBoundsInScreen(previewBounds);
+        Bitmap frame = automation.takeScreenshot();
+        check(frame != null, "independent camera frame is available");
+        try { check(previewBounds.height() > frame.getHeight() / 2,
+            "camera occupies most of the independent window instead of keyboard height"); }
+        finally { frame.recycle(); }
     }
 
     private void screenshot(String name) throws Exception {

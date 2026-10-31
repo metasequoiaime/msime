@@ -46,7 +46,7 @@ import org.json.JSONObject;
  *
  * <p>识别服务写共享偏好的 `voice_input.asr_provider`，密钥、接口和模型写同一对象里的 `asr_token` / `asr_tokens`、`asr_app_key`、`doubao_auth_mode`、`asr_endpoint`、`asr_model`、`asr_resource_id`，键盘经共享解析读它们，这里不另存一份。切换服务和凭据分槽的规则在 {@link VoiceProviderPolicy}。密钥只在本机：设置同步只带识别语言。
  *
- * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生，选择时两个一起写。
+ * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生；组合项开启长按空格并保留工具栏选择，「无」关闭两个快捷入口。
  *
  * <p>本地识别（识别服务选「本地模型」，或打开离线识别）用 `voice_input.asr_model_path` 指向的模型。选了本地模型或打开离线识别时出现「本地模型」组：列出共享目录里手机可用的模型，可以下载、取消、选用和删除，下载经 {@link ResourcePackService} 排队，装在 `filesDir/voice-models/<id>`（{@link LocalVoiceModels}），下载完成且还没选用模型时自动选用。
  *
@@ -59,15 +59,15 @@ public final class VoicePage extends ReloadingDetailPage {
         return java.util.List.of("识别", "服务", "润色", "隐私");
     }
 
-    private static final String[] TRIGGER_LABELS = {"长按空格", "工具栏按钮", "无"};
-    private static final int TRIGGER_SPACE = 0;
-    private static final int TRIGGER_TOOLBAR = 1;
-    private static final int TRIGGER_NONE = 2;
-    /** 「无」只是空格键和工具栏上不放语音入口，识别设置照旧保留；关掉长按空格语音后长按空格不进语音，松手仍是空格。「更多工具」面板的「语音输入」磁贴只在工具栏语音按钮露出时才藏（`ImeFunctionPanel`），选「无」时它还在，说明里照实写出来，免得用户以为语音整个关掉了（#10143）。 */
+    private static final String[] TRIGGER_LABELS = {"工具栏/长按空格", "无"};
+    private static final int TRIGGER_COMBINED = 0;
+    private static final int TRIGGER_NONE = 1;
+    /** 「无」关闭两个快捷入口，识别配置及「更多工具」中的语音输入仍保留。 */
     static final String TRIGGER_NONE_HINT = "空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」";
-    static final String TRIGGER_SHEET_HINT = "选「无」时" + TRIGGER_NONE_HINT;
-    /** 选了「工具栏按钮」而「键盘 → 工具栏 → 显示方式」是「隐藏」时，工具栏上的按钮全都不显示，语音按钮也不例外；「更多工具」的「语音输入」磁贴这时保留（`ImeFunctionPanel` 只在工具栏未隐藏时去重）。照实写出来，免得用户以为选了却没生效（#10142）。 */
-    static final String TRIGGER_TOOLBAR_HIDDEN_HINT = "工具栏已隐藏，按钮暂不显示；可在「键盘 → 工具栏」把显示方式改为「输入时显示」，或在「更多工具」里点「语音输入」";
+    static final String TRIGGER_COMBINED_HINT = "选择后开启长按空格语音；工具栏按钮在「键盘 → 工具栏 → 语音」单独开关，两种方式可同时使用";
+    static final String TRIGGER_SHEET_HINT = TRIGGER_COMBINED_HINT + "。选「无」时" + TRIGGER_NONE_HINT;
+    /** 工具栏整体隐藏时，不替用户改变显示方式；长按空格与「更多工具」入口仍按各自规则可用。 */
+    static final String TRIGGER_TOOLBAR_HIDDEN_HINT = "工具栏已隐藏，按钮暂不显示；可在「键盘 → 工具栏」更改显示方式，或在「更多工具」里点「语音输入」";
 
     /**
      * 页面渲染时读到的偏好与识别器。
@@ -210,8 +210,8 @@ public final class VoicePage extends ReloadingDetailPage {
         int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
         String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT
-            : trigger == TRIGGER_TOOLBAR && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN) ? TRIGGER_TOOLBAR_HIDDEN_HINT
-            : null;
+            : preferences.optBoolean("touch_voice_shortcut", false) && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)
+                ? TRIGGER_COMBINED_HINT + "。" + TRIGGER_TOOLBAR_HIDDEN_HINT : TRIGGER_COMBINED_HINT;
         GroupCard.Row[] triggerRow = new GroupCard.Row[1];
         triggerRow[0] = recognition.nav("启动方式", triggerHint,
             TRIGGER_LABELS[trigger],
@@ -700,8 +700,7 @@ public final class VoicePage extends ReloadingDetailPage {
         for (int index = 0; index < TRIGGER_LABELS.length; index++) {
             int choice = index;
             sheet.option(TRIGGER_LABELS[index], index == selected, () -> {
-                // OptionSheet 点已选中的项也会跑动作。启动方式由两个开关派生，手势分页另开了长按空格时两个开关可能都开着、这里显示「长按空格」；重新点它不能写回、悄悄关掉工具栏按钮。
-                if (choice == selected) return;
+                // 仅工具栏开启时也显示组合项，明确选择它仍应开启长按空格，同时保留工具栏开关。
                 row.setValue(TRIGGER_LABELS[choice]);
                 saveTrigger(choice);
             });
@@ -762,24 +761,25 @@ public final class VoicePage extends ReloadingDetailPage {
         ResourcePackService.request(requireContext(), ResourcePacks.VOICE_RUNTIME, size);
     }
 
-    /** 长按空格在本地设置，工具栏按钮在共享偏好；先写本地，再写共享。 */
+    /** 组合项只开启长按空格，工具栏独立控制；「无」先关闭本地长按，再关闭共享工具栏入口。 */
     private void saveTrigger(int trigger) {
         HostTask.run(this, context -> KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE,
-                trigger == TRIGGER_SPACE)
-            ? KeyboardSheets.write(context, preferences -> preferences.put("touch_voice_shortcut", trigger == TRIGGER_TOOLBAR))
+                trigger == TRIGGER_COMBINED)
+            ? KeyboardSheets.write(context, preferences -> {
+                if (trigger == TRIGGER_NONE) preferences.put("touch_voice_shortcut", false);
+            })
             : null, this::afterSave);
     }
 
-    /** The combined local/shared write needs its own failure message before reloading. */
+    /** 本地与共享写入失败时先提示，再重读实际状态。 */
     private void afterSave(@Nullable JSONObject saved) {
         if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
         reload();
     }
 
-    /** 启动方式由两个开关派生：长按空格优先，其次是工具栏按钮，都关时没有语音入口。 */
+    /** 任一快捷入口开启时显示组合项，不在读页面时改写旧设置。 */
     private static int trigger(boolean spaceVoice, boolean voiceShortcut) {
-        if (spaceVoice) return TRIGGER_SPACE;
-        return voiceShortcut ? TRIGGER_TOOLBAR : TRIGGER_NONE;
+        return spaceVoice || voiceShortcut ? TRIGGER_COMBINED : TRIGGER_NONE;
     }
 
     /** 未设置时按普通话显示（键盘的默认识别语言）；其他平台写入的语言原样显示。 */

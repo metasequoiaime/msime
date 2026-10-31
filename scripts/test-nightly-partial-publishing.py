@@ -157,6 +157,18 @@ class PartialPublishingTests(unittest.TestCase):
         self.assertEqual(state["platforms"]["windows"]["run"], 900)
         self.assertEqual(state["platforms"]["linux"]["run"], 901)
 
+    def test_arch_package_keeps_its_extension_and_replaces_the_previous_build(self):
+        state = self.publish({"linux"})
+        name = "new-linux-nightly.10.1.pkg.tar.zst"
+        self.assertIn(name, self.client.files)
+        self.assertIn(name, {file["name"] for file in state["platforms"]["linux"]["files"]})
+        self.assertEqual(self.client.files[name], b"new linux .pkg.tar.zst")
+        self.assert_manifest_matches()
+        self.publish({"linux"}, build_id="11.1")
+        self.assertNotIn(name, self.client.files)
+        self.assertIn("new-linux-nightly.11.1.pkg.tar.zst", self.client.files)
+        self.assert_manifest_matches()
+
     def test_artifacts_without_one_version_record_no_version(self):
         other = self.source / "linux" / "msime-linux-rpm-x86_64-1.2.4"
         other.mkdir()
@@ -223,7 +235,7 @@ class PartialPublishingTests(unittest.TestCase):
         state = self.state()
         self.assertEqual(state["platforms"]["windows"]["source"], NEW_SHA)
         self.assertEqual(state["platforms"]["linux"]["source"], OLD_SHA)
-        for suffix in (".deb", ".rpm"):
+        for suffix in (".deb", ".rpm", ".pkg.tar.zst"):
             self.assertEqual(self.client.files["old-linux" + suffix], original["old-linux" + suffix])
         self.assertNotIn("new-linux-nightly.10.1.deb", self.client.files)
         self.assert_manifest_matches()

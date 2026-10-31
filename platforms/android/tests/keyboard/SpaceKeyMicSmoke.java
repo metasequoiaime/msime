@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *
  * <p>数字页的空格（#10059）：主标画 ␣，麦克风只在右上角作次要提示、同样跟着长按空格语音开关，不再只画一个麦克风让人当成点按语音键；读屏名称仍以「空格」开头。按键本身的点按、长按语音和拖动移光标不变，这里不碰。
  *
- * <p>语音页「无」的说明要和键盘的真实行为对得上：选「无」时空格键和工具栏上没有语音入口，但「更多工具」面板的「语音输入」磁贴还在（只有工具栏语音按钮开着时才藏）。这里用 {@link FunctionPanelModel} 确认那块磁贴存在、钉住面板只在工具栏语音按钮的开关 `touchVoiceShortcutEnabled` 打开时才藏它（#10142 起看开关，不看按钮视图），并要求说明里写出磁贴的名字；哪天选「无」也藏掉这块磁贴，这里会失败，提醒同时改说明。
+ * <p>语音页「无」关闭两个快捷入口，保留「更多工具」的语音磁贴；工具栏语音开启时也保留磁贴。这里核对模型入口和面板接线，组合状态由设备专项覆盖。
  */
 public final class SpaceKeyMicSmoke {
     public static void main(String[] args) throws Exception {
@@ -55,24 +55,20 @@ public final class SpaceKeyMicSmoke {
         check(body(bottomRow, "void syncSplitSpace() {").contains("splitSpace.setShowsMic(spaceShowsMic());"),
             "the split keyboard's right-hand space mirrors the mic");
 
-        // 「更多工具」里的语音磁贴：模型里一直有它，面板只在工具栏语音按钮开着时才把它藏起来。
+        // 「更多工具」里的语音磁贴不随工具栏开关隐藏。
         FunctionPanelModel.Item voiceTile = FunctionPanelModel.item(FunctionPanelModel.Id.VOICE_INPUT);
         check(FunctionPanelModel.itemsExcept(EnumSet.noneOf(FunctionPanelModel.Id.class)).contains(voiceTile),
             "the more-tools panel lists a voice tile");
         String panel = read("core/ImeFunctionPanel.java");
-        Matcher hides = Pattern.compile("hiddenItems\\.add\\(FunctionPanelModel\\.Id\\.VOICE_INPUT\\)").matcher(panel);
-        int hidden = 0;
-        while (hides.find()) hidden++;
-        check(hidden == 1 && panel.contains(
-                "if (s.touchVoiceShortcutEnabled) hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT);"),
-            "the voice tile is hidden only while the toolbar voice button is switched on");
+        check(!panel.contains("hiddenItems.add(FunctionPanelModel.Id.VOICE_INPUT)"),
+            "the voice tile stays available in every shortcut state");
         check(read("keyboard/FunctionPanelView.java").contains("setContentDescription(\"更多工具\");"),
             "the panel is called 更多工具");
 
         String voicePage = read("home/VoicePage.java");
         check(voicePage.contains("new OptionSheet(requireContext(), \"启动方式\", TRIGGER_SHEET_HINT)"),
             "the trigger sheet explains 无");
-        check(voicePage.contains("String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT :")
+        check(voicePage.contains("String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT")
                 && voicePage.contains("recognition.nav(\"启动方式\", triggerHint,"),
             "the trigger row explains 无 once chosen");
         Matcher hintMatch = Pattern.compile("static final String TRIGGER_NONE_HINT = \"([^\"]*)\";").matcher(voicePage);
