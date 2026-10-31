@@ -10,7 +10,7 @@ Android 符号面板的分类顺序写死在 `SymbolPanelModel` 中。用户只�
 
 符号分类使用稳定的小写 ID，显示标题继续由 `SymbolPanelModel.Category` 提供。`SymbolCategoryOrderPolicy` 以 CSV 保存 ID 顺序，限制文本长度，忽略未知和重复 ID，并把缺失分类按默认顺序追加。上下移动只修改内存中的不可变列表，设置页点击保存后才写入 `AndroidLocalSettings.SYMBOL_CATEGORY_ORDER`；该键只保存在本机，不进入账号同步。
 
-`SymbolPanelModel.categories(recents, order)` 根据策略重排分类，未来新增且不在旧设置中的分类自动追加到末尾。`SymbolPanelView` 每次打开时读取输入法进程当前的本机设置，重建底部分类按钮；初始分类通过「常用」的稳定 ID 查找，所以移动「常用」也不会打开错误页面。设置页复用工具栏排序的箭头、保存、恢复默认和取消交互，但使用独立的 `SymbolCategoryOrderSheet`。
+`SymbolPanelModel.categories(recents, order)` 根据策略重排分类，未来新增且不在旧设置中的分类自动追加到末尾。`SymbolPanelView` 每次打开时读取输入法进程当前的本机设置，重建底部分类按钮；初始分类通过「常用」的稳定 ID 查找，所以移动「常用」也不会打开错误页面。设置页的保存、恢复默认和取消交互与工具栏排序相同，但使用独立的 `SymbolCategoryOrderSheet`；排序方式已由上下箭头改为按住把手拖动，见[排序面板拖动](2026-10-31-android-order-sheets-drag.md)。
 
 ## Alternatives considered
 
