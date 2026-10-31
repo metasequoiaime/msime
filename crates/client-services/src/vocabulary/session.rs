@@ -275,6 +275,7 @@ fn status_with(
         total: book.entries.len(),
         builtin: true,
         pack: false,
+        personal: false,
     }));
     // 插件词书在内置书之后、导入的书之前。
     if let Some(root) = plugins {
@@ -375,6 +376,46 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn the_personal_book_is_listed_and_reviewed_like_any_other() {
+        use super::super::library::{personal_entry_from_gloss, PERSONAL_ID};
+        let root = directory();
+        let library = WordbookLibrary::new(root.path());
+        library
+            .add_personal(personal_entry_from_gloss("面试", "interview", "").unwrap())
+            .unwrap();
+        let status = apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::SetSettings {
+                wordbook: PERSONAL_ID.to_owned(),
+                new_per_day: 20,
+                session_limit: 200,
+            },
+        )
+        .unwrap();
+        assert_eq!(status.wordbooks.len(), 1);
+        assert!(status.wordbooks[0].personal);
+        assert_eq!(status.queue.len(), 1);
+        assert_eq!(status.queue[0].word, "interview");
+        assert_eq!(status.queue[0].meaning, "面试");
+
+        // 删掉生词本就是清空它，复习进度随之清掉。
+        let status = apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::Remove {
+                wordbook: PERSONAL_ID.to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(status.wordbooks.is_empty());
     }
 
     #[test]
