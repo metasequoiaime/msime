@@ -57,6 +57,7 @@ enum MetasequoiaInputSessionBridge {
         stubs += "\n".join(f"char *{name}(const uint8_t *data, unsigned long size) {{ abort(); }}" for name in symbols)
         stubs += "\nvoid msime_client_string_free(char *data) { abort(); }\n"
         stubs += "bool msime_ios_crash_record_set(const char *path, const char *header) { abort(); }\n"
+        stubs += "bool msime_ios_crash_modules_refresh(void) { abort(); }\n"
         (directory / "Stubs.c").write_text(stubs)
         subprocess.run(["xcrun", "clang", "-c", str(directory / "Stubs.c"),
                         "-o", str(directory / "Stubs.o")], check=True, timeout=60)
