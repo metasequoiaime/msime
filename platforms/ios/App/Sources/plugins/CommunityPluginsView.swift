@@ -75,6 +75,8 @@ struct CommunityPluginsView: View {
       }
     }) { AccountLoginSheet() }
     .refreshable { await load() }
+    .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
+    \.onReceive\(NotificationCenter\.default\.publisher\(for\:\ CommunityBlocks\.didChange\)\)\ \{\ _\ in\ startLoad\(\)\ \}
     .trackViewRequest(request: $request, pending: $pending, onAppear: {
       if !loaded { startLoad() }
       Task {
@@ -272,6 +274,7 @@ struct CommunityPluginDetail: View {
             }
           }
           CommunityReportButton(kind: "plugins", itemID: plugin.id)
+          CommunityBlockAuthorButton(kind: "plugins", itemID: plugin.id, author: plugin.author)
         }
         .designRow()
       }

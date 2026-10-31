@@ -119,6 +119,8 @@ struct CommunityResourcesView: View {
       await load()
     }
     .refreshable { await refreshInstalled(); await load() }
+    .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
+    \.onReceive\(NotificationCenter\.default\.publisher\(for\:\ CommunityBlocks\.didChange\)\)\ \{\ _\ in\ startLoad\(\)\ \}
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
     .trackViewRequest(request: $request, pending: $pending, onAppear: {
       Task { await refreshInstalled() }
@@ -500,7 +502,10 @@ struct CommunityResourceDetail: View {
                 .accessibilityLabel("\(stars) 星").disabled(busy || !item.saved)
             }
           }
-          CommunityReportButton(kind: item.kind == .dictionary ? "dictionaries" : "replies", itemID: item.id)
+          HStack(spacing: 20) {
+            CommunityReportButton(kind: item.kind == .dictionary ? "dictionaries" : "replies", itemID: item.id)
+            CommunityBlockAuthorButton(kind: item.kind == .dictionary ? "dictionaries" : "replies", itemID: item.id, author: item.author)
+          }
         } else {
           Button("编辑并发布新版本") { editing = true }.disabled(busy)
           Button("下架作品", role: .destructive) { confirmDelete = true }.disabled(busy)

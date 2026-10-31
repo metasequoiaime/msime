@@ -11,6 +11,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use key_sound::PluginRoots;
 use msime_client_core::uuid::Uuid;
 use msime_client_services::account::{AccountError, BackendAccountClient};
+use msime_client_services::community::block::BackendCommunityBlockService;
 use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind,
 };
@@ -44,6 +45,7 @@ pub(super) struct Services {
     plugins: BackendCommunityPluginService<BackendAccountClient, Storage>,
     resources: BackendCommunityResourceService<BackendAccountClient, Storage>,
     report: BackendCommunityReportService<BackendAccountClient, Storage>,
+    blocks: BackendCommunityBlockService<BackendAccountClient, Storage>,
     keyboard_skins: BackendCommunitySkinService<BackendAccountClient, Storage>,
 }
 
@@ -73,6 +75,7 @@ impl Services {
             plugins: BackendCommunityPluginService::new(client.clone(), Arc::clone(&session)),
             resources: BackendCommunityResourceService::new(client.clone(), Arc::clone(&session)),
             report: BackendCommunityReportService::new(client.clone(), Arc::clone(&session)),
+            blocks: BackendCommunityBlockService::new(client.clone(), Arc::clone(&session)),
             keyboard_skins: BackendCommunitySkinService::new(client, session),
         }
     }
@@ -102,7 +105,7 @@ struct CommunityRequest {
     action: CommunityAction,
 }
 
-/// Tauri 的社区命令，名字去掉 `_community` 换成前缀：`candidate_skin_*`、`plugin_*`、`resource_*` 和 `report`。参数与命令相同，改成 snake_case；皮肤预览图从字节数组改成 base64。
+/// Tauri 的社区命令，名字去掉 `_community` 换成前缀：`candidate_skin_*`、`plugin_*`、`resource_*` 和 `report`；另有移动端的 `block`、`block_list` 和 `unblock`（屏蔽作者，只用登录账号）。参数与命令相同，改成 snake_case；皮肤预览图从字节数组改成 base64。
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum CommunityAction {
@@ -234,6 +237,17 @@ enum CommunityAction {
         reason: String,
         #[serde(default)]
         detail: Option<String>,
+    },
+    /// 屏蔽作品 `id` 的作者，只用登录账号；返回这条屏蔽 `{id,name,created_at}`。
+    Block {
+        kind: CommunityReportKind,
+        id: String,
+    },
+    /// 登录账号屏蔽的作者，最近的在前。
+    BlockList,
+    /// 取消屏蔽 `id`（屏蔽本身的编号，不是作品的）；已经取消过的也算成功。
+    Unblock {
+        id: String,
     },
     KeyboardSkinList {
         offset: usize,
@@ -555,6 +569,14 @@ fn run(
                 .report
                 .report_with_anonymous(&anonymous, &report)
                 .map_err(account)?;
+            Ok(Value::Null)
+        }
+        CommunityAction::Block { kind, id: item } => {
+            value(services.blocks.block(kind, &item).map_err(account)?)
+        }
+        CommunityAction::BlockList => value(services.blocks.list().map_err(account)?),
+        CommunityAction::Unblock { id: block } => {
+            services.blocks.unblock(&block).map_err(account)?;
             Ok(Value::Null)
         }
         CommunityAction::KeyboardSkinList {
