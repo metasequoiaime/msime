@@ -2525,7 +2525,7 @@ class SettingsBridge {
     }
     try {
       const action: VocabularyAction = JSON.parse(actionDocument) as VocabularyAction;
-      if (!['load', 'answer', 'set_settings', 'import', 'remove', 'reset'].includes(action.operation)) {
+      if (!['load', 'answer', 'set_settings', 'import', 'remove', 'remove_personal_word', 'reset'].includes(action.operation)) {
         return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
       }
       if (this.context === undefined) {

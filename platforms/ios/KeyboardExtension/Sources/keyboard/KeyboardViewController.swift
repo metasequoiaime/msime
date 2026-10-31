@@ -8953,7 +8953,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return session.selectCandidateEdge(at: UInt(visibleCandidateEngineIndices[index]), last: last)
     }
-    return edges + glosses + management
+    return edges + glosses + management + personalWordbookElements(candidate: candidate, glosses: candidateGlosses(at: index))
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
@@ -8983,7 +8983,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return true
     }
-    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
+    let personal = personalWordbookElements(
+      candidate: candidate,
+      glosses: self.glosses(word: candidate, offline: offlineGloss, source: source, highlighted: highlighted))
+    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses + personal }
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
@@ -8992,7 +8995,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       closeKeyboardPicker()
       return session.selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
     }
-    return edges + glosses + management
+    return edges + glosses + management + personal
+  }
+
+  /// 长按菜单最后一组的「加入生词本」，和 Android、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置：把候选和它显示着的释义（几种语言各一行）收进背单词的生词本。没有释义时没有这一项。不经过 Engine，组字不变；写文件放在后台，提示回到主线程显示在诊断行并播报。
+  private func personalWordbookElements(candidate: String, glosses: [String]) -> [UIMenuElement] {
+    guard let gloss = PersonalWordbookStore.menuGloss(glosses) else { return [] }
+    let action = UIAction(title: PersonalWordbookStore.menuTitle, image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
+      guard let self else { return }
+      playInputClick()
+      // 没有完全访问时键盘写不进 App Group，背单词也就读不到。
+      guard hasFullAccess else {
+        showPersonalWordbookNotice("开启「允许完全访问」后才能加入生词本")
+        return
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let notice = PersonalWordbookStore.add(candidate: candidate, gloss: gloss)
+        DispatchQueue.main.async { [weak self] in self?.showPersonalWordbookNotice(notice) }
+      }
+    }
+    return [UIMenu(title: "", options: .displayInline, children: [action])]
+  }
+
+  private func showPersonalWordbookNotice(_ notice: String) {
+    showDiagnostic(notice)
+    renderCandidateStrip()
+    UIAccessibility.post(notification: .announcement, argument: notice)
   }
 
   /// 以词定字: commit just the first or the last Han character of a longer candidate. Desktop hosts bind it to [ ] or - =; a keyboard extension receives no hardware keys, even on an iPad with one attached, so here it lives in the candidate's long-press menu and follows only the on/off half of the shared `word_character` preference.
