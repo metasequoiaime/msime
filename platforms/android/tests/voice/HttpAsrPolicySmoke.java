@@ -26,6 +26,37 @@ public final class HttpAsrPolicySmoke {
                 "other HTTP failures stay distinguishable from a transport error");
         }
 
+        // 读超时按请求体放宽（#9886）：60 秒底线，按 16 KiB/s 的最慢上行速率加余量，4 分钟封顶。
+        check(HttpAsrPolicy.readTimeoutMillis(0) == 60_000
+                && HttpAsrPolicy.readTimeoutMillis(-1) == 60_000,
+            "an empty body keeps the 60 s floor");
+        check(HttpAsrPolicy.readTimeoutMillis(16 * 1024) == 61_000,
+            "each 16 KiB of body adds one second");
+        int secondOfPcm = WavAudio.SAMPLE_RATE * 2;
+        byte[] shortClip = WavAudio.wrap(new byte[5 * secondOfPcm], 5 * secondOfPcm, WavAudio.SAMPLE_RATE);
+        int shortTimeout = HttpAsrPolicy.readTimeoutMillis(
+            HttpAsrPolicy.multipartBody("msime", "whisper-1", "zh-CN", shortClip).length);
+        check(shortTimeout > 60_000 && shortTimeout < 70_000,
+            "a five-second phrase waits only a few seconds longer than before");
+        byte[] fullClip = WavAudio.wrap(new byte[60 * secondOfPcm], 60 * secondOfPcm, WavAudio.SAMPLE_RATE);
+        int fullMultipart = HttpAsrPolicy.readTimeoutMillis(
+            HttpAsrPolicy.multipartBody("msime", "whisper-1", "zh-CN", fullClip).length);
+        check(fullMultipart > 170_000 && fullMultipart < 180_000,
+            "a full 60 s multipart upload waits almost three minutes, still below the ceiling");
+        int fullChat = HttpAsrPolicy.readTimeoutMillis(
+            HttpAsrPolicy.chatAudioBody("qwen3-asr-flash", fullClip).length);
+        check(fullChat > fullMultipart && fullChat > 210_000 && fullChat < 240_000,
+            "the larger base64 chat body keeps the full floor plus its drain time, below the ceiling");
+        check(HttpAsrPolicy.readTimeoutMillis(HttpAsrPolicy.MAX_AUDIO_BYTES) == 240_000
+                && HttpAsrPolicy.readTimeoutMillis(Integer.MAX_VALUE) == 240_000,
+            "the ceiling holds without overflow for the largest bodies");
+        int previous = 0;
+        for (int bytes = 0; bytes <= 4 * 1024 * 1024; bytes += 64 * 1024) {
+            int timeout = HttpAsrPolicy.readTimeoutMillis(bytes);
+            check(timeout >= previous, "a larger body never gets a shorter read timeout");
+            previous = timeout;
+        }
+
         // 按共享层给出的请求格式判断，不再看 provider 名字（#6017）。
         check(HttpAsrPolicy.supported("multipart"), "multipart is the OpenAI-compatible upload");
         check(HttpAsrPolicy.supported("chat_audio"), "chat_audio is the Bailian chat upload");

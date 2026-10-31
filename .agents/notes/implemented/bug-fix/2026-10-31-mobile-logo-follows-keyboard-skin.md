@@ -12,7 +12,7 @@ Android、iOS 和鸿蒙键盘的品牌键使用应用主题的季节强调色和
 
 本决定部分取代 [iOS 与鸿蒙采用设计稿](../../implemented/feature/2026-10-07-ios-harmony-all-platform-design.md) 中品牌键统一取季节色的规则；[默认跟随系统皮肤](../../implemented/feature/2026-10-08-touch-keyboard-default-follows-app-theme.md) 的默认值与季节背景规则保持。
 
-历史检索：设计稿笔记部分重叠，互链记录本次替代；默认跟随系统和 iOS 原生皮肤笔记属于保留的规则，不改其决定。其余命中涉及桌面 logo、设置页或工具栏布局，与品牌键颜色来源无关。
+历史检索：设计稿笔记部分重叠，互链记录本次替代；[Android 皮肤重读重画循环](2026-10-11-android-skin-reload-rerender-loop.md) 把品牌键季节色列为 `displayKey` 拼入种子的理由之一，[鸿蒙键盘设计的功能键](2026-10-08-harmony-design-function-keys.md) 记录季节给品牌标着色，两篇的品牌键部分被本次取代，已就地改写并互链，其余决定保留（种子仍因回车键和开启态底色留在 `displayKey` 里）。默认跟随系统和 iOS 原生皮肤笔记属于保留的规则，不改其决定。
 
 ## Alternatives considered
 
@@ -24,4 +24,4 @@ Android、iOS 和鸿蒙键盘的品牌键使用应用主题的季节强调色和
 - 具名与自定义皮肤的品牌键不再受应用主题季节影响，皮肤选择、配置格式和出厂默认值不变。
 - 跟随系统皮肤的圆盘混合基底也改为键盘背景，因此颜色比旧的应用卡片底色略深。标志的混黑比例和白色笔画保持。
 - 鸿蒙 `bash platforms/harmony/tests/run.sh` 通过，覆盖系统、具名与自定义皮肤，含应用主题变化时品牌键保持自身配色。iOS 更新已有皮肤测试，并用 `swiftc -frontend -parse` 检查改动文件；未运行 UIKit 测试或模拟器验收。
-- Android 宿主检查与仓库契约检查记录在 PR。完整 quick 门禁受磁盘限制：本机约 42 GB、远端构建卷约 13 GB 可用，不新建完整构建树；本次没有设备外观验收。
+- Android 的公式在 `KeyboardSkin.logoDisc` / `logoMark`，`ImeToolbar.styleTopRow` 只调用它们；`KeyboardSkinSmoke` 按鸿蒙同一组期望值断言跟随系统、具名与自定义皮肤的品牌键，含换应用主题时具名与自定义皮肤保持自身配色。Android 宿主检查与仓库契约检查记录在 PR。完整 quick 门禁受磁盘限制：本机约 42 GB、远端构建卷约 13 GB 可用，不新建完整构建树；本次没有设备外观验收。

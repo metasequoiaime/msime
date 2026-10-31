@@ -227,10 +227,11 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 Predicate<AccessibilityNodeInfo> back = described("返回原键盘").and(node -> equalsText(face[4], node.getText()));
                 await(back);
                 stage = face[0] + " punctuation follows the language";
-                await(key(face[5]));
+                // 逗号在出厂表第 11 项，左列一屏最多五项（`NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS`），停在顶部时总在可见区外，只能按整棵树找；别的写法的标点也可能排在可见区外，左列一并按整棵树查。
+                awaitAny(key(face[5]));
                 for (String foreign : face[5].equals("，") ? new String[] {"、", ","}
                         : face[5].equals("、") ? new String[] {"，"} : new String[] {"，", "。", "、", "！"})
-                    if (hasKey(key(foreign)))
+                    if (hasKey(key(foreign)) || hasAnyKey(sidebarKey(foreign)))
                         throw new AssertionError(face[0] + " number pad shows " + foreign + ": " + imeTexts());
                 // 半角写法的左列在出厂表后面接上 ; ' " $（滚出可见区也算），中文和日文写法不接。
                 for (String extra : new String[] {";", "'", "\"", "$"})
