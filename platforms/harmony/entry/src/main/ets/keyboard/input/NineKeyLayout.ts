@@ -1,3 +1,4 @@
+import { HardwareKeyRouter, HardwareSpelling } from "../HardwareKeyRouter";
 import { NumberSymbolLayout } from "./NumberSymbolLayout";
 
 /**
@@ -50,6 +51,9 @@ const TALL_RETURN_SIDE_MARKS: string[] = [",", ".", "?", "!"];
 
 // 数字页就地提供四则运算，标点和更多符号保留在扩展页。
 const DIGIT_SIDEBAR: string[] = ["+", "-", "*", "/"];
+
+// 半角语境（`NumberPadPunctuation.ASCII`）下数字九宫格左列接在出厂运算符后面的半角符号，三端（Android、iOS、鸿蒙）同一张表、同一次序（维护者的产品决定）：@ 给邮箱，: ; ( ) ' " $ 是英文、本地模式、韩文、越南语、藏文和关掉中文标点时常打的符号。已经在出厂项里的跳过（`NineKeyLayout.withAsciiExtras`）。
+const ASCII_NUMBER_PAD_EXTRAS: string[] = ["@", ":", ";", "(", ")", "'", '"', "$"];
 
 // 数字九宫格左列自定义表里的中文全角标点在半角语境下的写法，与 Android `NumberPadPunctuation` 同一张表；没有对应半角写法的符号（… — · ￥ 等）原样保留。
 const ASCII_FORMS: string[][] = [
@@ -549,10 +553,70 @@ export class NineKeyLayout {
   }
 
   /**
-   * 九宫格数字键盘左列 #+= 上面的符号：`custom` 是共享偏好 `touch_nine_key_digit_sidebar_symbols`，空表用出厂的四则运算 `DIGIT_SIDEBAR`（与 `digitPunctuation` 相同），用户的表原样返回，点按按字面上屏。#+= 不在表里，固定在左列最后一格。
+   * 九宫格数字键盘左列 #+= 上面的符号：`custom` 是共享偏好 `touch_nine_key_digit_sidebar_symbols`（视图已按 `numberPadSymbols` 换过写法），用户的表原样返回、不补任何项，点按按字面上屏。空表（含与出厂表相同、会话按空表读的表）是出厂项：中文和日语写法是四则运算 `DIGIT_SIDEBAR`（与 `digitPunctuation` 相同）；半角语境在四则运算后面接上 `ASCII_NUMBER_PAD_EXTRAS`（`withAsciiExtras`），即 + - * / @ : ; ( ) ' " $。#+= 不在表里，固定在左列最后一格。
+   *
+   * 英文不读用户的表（视图传空表），所以英文的数字九宫格总是出厂项加半角符号；本地模式、韩文、越南语、藏文和关掉中文标点的中文读用户的表，自定义过就照用户的表，不再接半角符号。
+   *
+   * @param custom 用户的数字左列表，空表为出厂
+   * @param style 这一刻的标点写法（`NumberPadPunctuation`），不传时按中文
    */
-  static digitSidebar(custom: readonly string[] = []): string[] {
-    return NineKeyLayout.customSidebar(custom) ? custom.slice() : DIGIT_SIDEBAR;
+  static digitSidebar(
+    custom: readonly string[] = [],
+    style: NumberPadPunctuation = NumberPadPunctuation.CHINESE,
+  ): string[] {
+    if (NineKeyLayout.customSidebar(custom)) {
+      return custom.slice();
+    }
+    return style === NumberPadPunctuation.ASCII
+      ? NineKeyLayout.withAsciiExtras(DIGIT_SIDEBAR)
+      : DIGIT_SIDEBAR;
+  }
+
+  /** 在 `base` 后面依次接上 `ASCII_NUMBER_PAD_EXTRAS`（@ : ; ( ) ' " $），`base` 里已有的跳过，返回新表。 */
+  static withAsciiExtras(base: readonly string[]): string[] {
+    const result: string[] = base.slice();
+    for (const extra of ASCII_NUMBER_PAD_EXTRAS) {
+      if (result.indexOf(extra) < 0) {
+        result.push(extra);
+      }
+    }
+    return result;
+  }
+
+  /** 数字九宫格左列是否画成可滚动的栈加最下面的 #+=（`customDigitSidebar`）：用户自定义了表，或半角语境的出厂项多出半角符号、一屏放不下。其余时候是原来五格等分的出厂画法。 */
+  static digitSidebarScrolls(custom: readonly string[], style: NumberPadPunctuation): boolean {
+    return NineKeyLayout.customSidebar(custom) || style === NumberPadPunctuation.ASCII;
+  }
+
+  /**
+   * 数字九宫格上一键（数字 1–9、0、小数点、左列的出厂项和半角符号、顶部补充行）是否交给会话（`press`）而不是按字面上屏，与 Android、iOS 同一条规则：
+   *
+   * - 只在本地模式、越南语和藏文里才可能交给会话，并且只在引擎此刻把这个字符列为拼写符号时（View 的 `spelling_symbols`，组字中或在本地模式里，即 `HardwareKeyRouter.touchSpells`）：U 模式的数字、越南语 VNI 组字中的声调数字、藏文组字中的 `+` `-` `.` `/` `'`。
+   * - 藏文的 `'` 总是交给会话（achung，空闲时也是，如 'od 的开头），引擎空闲时也收它。
+   * - 其余一律按字面上屏（先把组合按原样结束，再插入这个字符）：中文、英文、日语（罗马字和假名）、韩文、注音（大千的数字和标点也是），以及上面三种方案里引擎此刻不收的字符。
+   *
+   * 用户自定义的左列项不走这里，一律按字面上屏（藏文里也是，`KeyboardSession.insertSidebarSymbol`）。
+   *
+   * @param text 这一键输入的字符
+   * @param localMode 在本地模式里（视图的 `localMode` 不是 `none`）
+   * @param vietnamese 字母交给越南语组字（`vietnameseFace`）
+   * @param tibetan 字母交给藏文组字（`tibetanFace`）
+   * @param spelling 会话此刻的组字状态（`KeyboardSession.hardwareSpelling`）
+   */
+  static numberPadToSession(
+    text: string,
+    localMode: boolean,
+    vietnamese: boolean,
+    tibetan: boolean,
+    spelling: HardwareSpelling,
+  ): boolean {
+    if (text.length !== 1 || !(localMode || vietnamese || tibetan)) {
+      return false;
+    }
+    if (tibetan && text === "'") {
+      return true;
+    }
+    return HardwareKeyRouter.touchSpells(spelling, text.charCodeAt(0));
   }
 
   /** 这张左列符号表是用户自定义的（非空）：左列改画可滚动的等高栈，点按先按首选结束组字再字面上屏；空表是本端出厂表，照原来的画法和输入路径。 */

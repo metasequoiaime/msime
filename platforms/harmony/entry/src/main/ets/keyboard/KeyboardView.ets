@@ -3266,11 +3266,6 @@ struct KeyboardView {
    */
   private tapSymbol(symbol: string): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(symbol));
-    this.typeSymbol(symbol);
-  }
-
-  /** `tapSymbol` 的输入部分，不记键位：数字九宫格按自己的键位记过之后借这条路输入（`typeNumberPadText`）。 */
-  private typeSymbol(symbol: string): void {
     const character: number = symbol.charCodeAt(0);
     if (this.koreanFace() && KoreanCompositionPolicy.typesAfterCommit(character)) {
       KeyboardSession.shared.commitThenType(character);
@@ -5057,11 +5052,11 @@ struct KeyboardView {
   /**
    * 触屏网格左列：数字层是四则运算和 #+=，组字时是这串数字可能代表的读音，其余时候是标点（「右侧大回车」时末尾多一个 !，`NineKeyLayout.sideMarks`）。普通网格和「右侧大回车」外框共用。
    *
-   * 用户自定义了左列（共享偏好 `touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`，#10223）时字母层换成可滚动的等高栈（`customLetterSidebar`），数字层换成滚动区加最下面的 #+=（`customDigitSidebar`）；空表时照原来的等分画法，画面不变。长按任一项打开设置。
+   * 用户自定义了左列（共享偏好 `touch_nine_key_sidebar_symbols` / `touch_nine_key_digit_sidebar_symbols`，#10223）时字母层换成可滚动的等高栈（`customLetterSidebar`），数字层换成滚动区加最下面的 #+=（`customDigitSidebar`）；半角语境的出厂数字左列在四则运算后面多出 @ : ; ( ) ' " $（`NineKeyLayout.digitSidebar`），一屏放不下，也画成这个滚动区（`NineKeyLayout.digitSidebarScrolls`）；其余空表时照原来的等分画法，画面不变。长按任一项打开设置。
    */
   @Builder
   touchNineKeySidebar() {
-    if (this.symbols && NineKeyLayout.customSidebar(this.digitSidebarTable())) {
+    if (this.symbols && NineKeyLayout.digitSidebarScrolls(this.digitSidebarTable(), this.numberPadPunctuation())) {
       this.customDigitSidebar()
     } else if (this.symbols) {
       ForEach(NineKeyLayout.digitSidebar(), (symbol: string) => {
@@ -5133,14 +5128,14 @@ struct KeyboardView {
     .height('100%')
   }
 
-  /** 数字层左列的自定义表：上面四格高的滚动区放用户的表（一屏最多 `DIGIT_SIDEBAR_VISIBLE_ROWS` 项），最下面一格仍是 #+=，与出厂五格等高时同一位置、同一高度（`NineKeyLayout.digitSidebarScrollHeight`、`digitSidebarCellHeight`）。 */
+  /** 数字层左列的滚动画法：上面四格高的滚动区放用户的表，或半角语境的出厂项加半角符号（一屏最多 `DIGIT_SIDEBAR_VISIBLE_ROWS` 项），最下面一格仍是 #+=，与出厂五格等高时同一位置、同一高度（`NineKeyLayout.digitSidebarScrollHeight`、`digitSidebarCellHeight`）。每一项怎么输入见 `digitSidebarOptions`。 */
   @Builder
   customDigitSidebar() {
     Scroll() {
       Column({ space: this.rowSpacing() }) {
         ForEach(this.digitSidebarItems(), (item: NineKeySidebarItem) => {
           Column() {
-            this.fixedKey(this.customSidebarOptions(item.symbol, true));
+            this.fixedKey(this.digitSidebarOptions(item.symbol));
           }
           .width('100%')
           .height(item.height)
@@ -5286,7 +5281,7 @@ struct KeyboardView {
     return this.english ? [] : this.nineKeySidebarSymbols;
   }
 
-  /** 九宫格数字键盘左列读的表：九键一族的数字层和其余键面借来的数字九宫格都读，表里的标点按当前语言换写法（`NineKeyLayout.numberPadSymbols`）；英文下的数字九宫格（英文九键和英文 26 键借来的）不读，照出厂的 ASCII 运算符。 */
+  /** 九宫格数字键盘左列读的表：九键一族的数字层和其余键面借来的数字九宫格都读，表里的标点按当前语言换写法（`NineKeyLayout.numberPadSymbols`）；英文下的数字九宫格（英文九键和英文 26 键借来的）不读，照出厂的 ASCII 运算符加半角符号（`NineKeyLayout.digitSidebar`）。读这张表的半角语境（本地模式、韩文、越南语、藏文、关掉中文标点的中文）自定义过就照用户的表，不接半角符号。 */
   private digitSidebarTable(): string[] {
     return this.english ? [] : NineKeyLayout.numberPadSymbols(this.nineKeyDigitSidebarSymbols,
       this.numberPadPunctuation());
@@ -5309,9 +5304,10 @@ struct KeyboardView {
       NineKeyLayout.LETTER_SIDEBAR_VISIBLE_ROWS, this.rowSpacing(), this.faceKey());
   }
 
-  /** 数字层自定义左列逐项的高度和 ForEach 键：滚动区是 #+= 上面那四格加三道行距。 */
+  /** 数字层滚动左列逐项的高度和 ForEach 键：表是 `NineKeyLayout.digitSidebar`（用户的表原样；空表在半角语境是出厂运算符加半角符号），滚动区是 #+= 上面那四格加三道行距。 */
   private digitSidebarItems(): NineKeySidebarItem[] {
-    return NineKeyLayout.sidebarItems(this.digitSidebarTable(),
+    return NineKeyLayout.sidebarItems(
+      NineKeyLayout.digitSidebar(this.digitSidebarTable(), this.numberPadPunctuation()),
       NineKeyLayout.digitSidebarScrollHeight(this.gridHeight(), this.rowSpacing()),
       NineKeyLayout.DIGIT_SIDEBAR_VISIBLE_ROWS, this.rowSpacing(), this.faceKey());
   }
@@ -5348,6 +5344,14 @@ struct KeyboardView {
       digits ? SettingsPageLink.NINE_KEY_DIGIT_SIDEBAR_TARGET : SettingsPageLink.NINE_KEY_SIDEBAR_TARGET);
   }
 
+  /**
+   * 数字层滚动左列的一项：用户的表按自定义项上屏（`customSidebarOptions`，先结束组字再按字面上屏，藏文里也是）；出厂项和半角符号与出厂运算符同一条路（`numberPadMarkOptions` → `typeNumberPadText`），按 `NineKeyLayout.numberPadToSession` 交给会话或按字面上屏。藏文的 `'` 因此与原来藏文 123 层一样交给会话（achung，如 'od），不先上屏组合，也不按字面上屏。
+   */
+  private digitSidebarOptions(symbol: string): KeyOptions {
+    return NineKeyLayout.customSidebar(this.digitSidebarTable())
+      ? this.customSidebarOptions(symbol, true) : this.numberPadMarkOptions(symbol);
+  }
+
   private numberPadMarkOptions(symbol: string): KeyOptions {
     return {
       face: symbol,
@@ -5369,19 +5373,14 @@ struct KeyboardView {
     KeyboardSession.shared.insert(text);
   }
 
-  /** 数字九宫格上的数字、0、小数点和出厂运算符怎么输入（键位已由调用方记过）：按字面上屏时走 `insertNumberPadLiteral`，否则走原来 123 层字符键的同一条路（`typeLayerCharacter`）。 */
+  /** 数字九宫格上的数字、0、小数点、左列出厂项和半角符号、顶部补充行怎么输入（键位已由调用方记过），规则与 Android、iOS 相同（`NineKeyLayout.numberPadToSession`）：本地模式、越南语和藏文里引擎此刻列为拼写符号的字符，以及藏文的 `'`，交给会话（`press`）；其余一律按字面上屏（`insertNumberPadLiteral`），日语、韩文和大千注音的数字和标点也是。 */
   private typeNumberPadText(text: string): void {
-    if (this.numberPadTypesLiterally()) {
-      this.insertNumberPadLiteral(text);
-    } else {
-      this.typeLayerCharacter(text);
+    if (NineKeyLayout.numberPadToSession(text, this.localMode !== 'none', this.vietnameseFace(), this.tibetanFace(),
+      KeyboardSession.shared.hardwareSpelling())) {
+      KeyboardSession.shared.press(text.charCodeAt(0), false);
+      return;
     }
-  }
-
-  /** 数字九宫格是否按字面上屏：中文方案和英文是，与原来九键一族和中文借用的数字页相同。本地模式和自己处理数字的方案（日语、韩文、越南语、藏文、注音）不是，照原来 123 层的路由输入：Unicode 码点等本地模式和越南语 VNI 组字中的声调数字仍交给引擎，韩文、藏文先结束组字再输入数字，注音先结束转换。 */
-  private numberPadTypesLiterally(): boolean {
-    return this.localMode === 'none' && (this.english || (this.scheme.engineScheme !== 'japanese'
-      && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace() && !this.zhuyinFace()));
+    this.insertNumberPadLiteral(text);
   }
 
   /** 到这里结束的键面是否用触屏九键外框的底行（`nineKeyActionRow`）：拼音九键网格、数字九宫格，或不在符号层的笔画键盘。假名网格的字母层也是九键布局，但保留共享底行；它借来的数字九宫格用九键外框的底行。 */
@@ -6523,10 +6522,10 @@ struct KeyboardView {
   @Builder
   designRowKey(item: DesignRowItem) {
     if (item.slot === DesignRowSlot.LAYER) {
-      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。大千注音的 #+= 是共享符号行（`designLayerShowing`），这一页的切换键印 123、回到数字九宫格，与设计稿 #+= 层的 123 相同。
+      // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。注音（鸿蒙只有大千一种注音键面）的 #+= 是共享符号行（`designLayerShowing`），那一页没有自己的切换键，这一格印 123、点按回到数字九宫格，与设计稿 #+= 层的 123 相同（`NumberSymbolLayout.layerKeyFace`）。
       Column() {
         this.fixedKey({
-          face: this.moreSymbols ? '123' : (this.symbols ? '返回' : '123'),
+          face: NumberSymbolLayout.layerKeyFace(this.symbols, this.moreSymbols),
           label: KeyAccessibilityPolicy.layoutToggle(this.symbols && !this.moreSymbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           fontWeight: FUNCTION_LABEL_WEIGHT,
@@ -11537,7 +11536,7 @@ struct KeyboardView {
       this.numberPadPunctuation() !== NumberPadPunctuation.ASCII);
   }
 
-  /** 补充行的一个键。 */
+  /** 补充行的一个键：数字九宫格顶部那一排与数字九宫格上其他键同一条规则（`typeNumberPadText`），#+= 层的 1 到 0 照 123 层字符键（`tapLayerCharacter`）。 */
   @Builder
   symbolExtraKey(text: string) {
     this.fixedKey({
@@ -11547,7 +11546,14 @@ struct KeyboardView {
       emphasized: false,
       width: 0,
       share: 1,
-      action: () => this.tapLayerCharacter(text)
+      action: () => {
+        if (this.numberPadShowing()) {
+          KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
+          this.typeNumberPadText(text);
+          return;
+        }
+        this.tapLayerCharacter(text);
+      }
     });
   }
 
@@ -11741,10 +11747,10 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏键盘的符号层是否为设计稿的 #+= 层（`NumberSymbolLayout`）而不是共享符号行。触屏的 123 一律是数字九宫格（`numberPadShowing`，`typingFace` 里先于这里判断），所以走到这里的只有 #+=：除大千注音外的每一种键面都用设计稿的 #+= 层。大千注音的 #+= 保留共享符号行，注音在那里输入原本会被其注音键占用的标点（， . / ; -），与 Android 一致，那一页底行的切换键印 123、回到数字九宫格（`designRowKey`）；2in1 屏幕键盘也保留共享符号行。
+   * 触屏键盘的符号层是否为设计稿的 #+= 层（`NumberSymbolLayout`）而不是共享符号行，规则见 `NumberSymbolLayout.drawsDesignLayer`。触屏的 123 一律是数字九宫格（`numberPadShowing`，`typingFace` 里先于这里判断），所以走到这里的只有 #+=：除注音外的每一种键面都用设计稿的 #+= 层。注音的 #+= 保留共享符号行，注音在那里输入原本会被其注音键占用的标点（， . / ; -），与 Android 一致，那一页底行的切换键印 123、回到数字九宫格（`designRowKey`）。`zhuyinFace` 只看方案的组字规则、不看键面，鸿蒙的注音也只有大千一种键面，所以每一种注音键面的 #+= 都走这里；2in1 屏幕键盘也保留共享符号行。
    */
   private designLayerShowing(): boolean {
-    return this.touchDesign() && this.symbols && !this.zhuyinFace();
+    return NumberSymbolLayout.drawsDesignLayer(this.touchDesign(), this.symbols, this.zhuyinFace());
   }
 
   /** 该层是否带中文标点（全角，返回键为「拼音」）而不是 ASCII 标点（返回键为 ABC）：中文输入时是，英文和标点为 ASCII 的方案不是。 */
@@ -11793,16 +11799,11 @@ struct KeyboardView {
 
   /** 字符键输入它显示的内容；哪些键仍走符号行路径见 `NumberSymbolLayout.route`。 */
   private tapLayerCharacter(text: string): void {
-    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
-    this.typeLayerCharacter(text);
-  }
-
-  /** `tapLayerCharacter` 的输入部分，不记键位：数字九宫格按自己的键位记过之后借这条路输入（`typeNumberPadText`）。 */
-  private typeLayerCharacter(text: string): void {
     if (NumberSymbolLayout.route(text, this.designLayerChinese()) === LayerCharacterRoute.SYMBOL_KEY) {
-      this.typeSymbol(text);
+      this.tapSymbol(text);
       return;
     }
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(text));
     // 已有组合按原样上屏，与 Android 的 `commitNineKeyLiteral` 一致。
     KeyboardSession.shared.commitRaw();
     KeyboardSession.shared.insert(text);
