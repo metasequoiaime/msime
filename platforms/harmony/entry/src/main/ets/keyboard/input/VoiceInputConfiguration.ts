@@ -52,6 +52,12 @@ export interface VoiceInputConfiguration {
   local_model_root?: string;
   /** 宿主注入的临时目录（扩展上下文的 `tempDir`）；离线 transducer 的热词文件在这里写下、加载完即删。 */
   local_model_scratch?: string;
+  /** 点按开始的本地识别出字后停顿多久结束录音（毫秒），只留在本机；缺键为 1500，读法见 `VoiceRecognitionPolicy.pauseMillis`。 */
+  pause_millis?: number;
+  /** 判停灵敏度 10–90，越高越容易判定说完；缺键为 50，只留在本机。 */
+  stop_sensitivity?: number;
+  /** 键盘在开始聆听时注入：这次会话按停顿结束时为存下的判停灵敏度，否则为 0，本地识别据此选 VAD 阈值（`LocalAsrPolicy.vadThreshold`）。 */
+  local_stop_sensitivity?: number;
   /** Download mirror the settings page uses for model installs; the keyboard only carries it through. */
   asr_model_mirror?: string;
   polish_enabled: boolean;

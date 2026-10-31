@@ -103,7 +103,7 @@ export class HarmonyLocalAsrRecognizer {
         type: 'start', id: id, directory: directory, root: config.local_model_root ?? '',
         language: config.language ?? '',
         hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null,
-        scratch: config.local_model_scratch ?? ''
+        scratch: config.local_model_scratch ?? '', stopSensitivity: config.local_stop_sensitivity ?? 0
       };
       recognizer.postMessage(request);
       this.requestPosted = true;
@@ -167,7 +167,7 @@ export class HarmonyLocalAsrRecognizer {
       if (this.worker === undefined) return;
       const request: LocalAsrRequest = {
         type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null,
-        scratch: ''
+        scratch: '', stopSensitivity: 0
       };
       this.worker.postMessage(request);
     } catch (error) {
@@ -198,7 +198,7 @@ export class HarmonyLocalAsrRecognizer {
       const copy: ArrayBuffer = data.slice(0);
       const request: LocalAsrRequest = {
         type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy,
-        scratch: ''
+        scratch: '', stopSensitivity: 0
       };
       this.worker.postMessage(request, [copy]);
     } catch (error) {
