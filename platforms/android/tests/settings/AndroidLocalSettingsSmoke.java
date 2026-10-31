@@ -84,6 +84,22 @@ public final class AndroidLocalSettingsSmoke {
         check("follow_skin".equals(settings.choice(AndroidLocalSettings.HANDWRITING_STROKE_COLOR)), "stroke colour default");
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == 3, "stroke width default");
         check(settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
+        check(settings.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS) == 1500, "voice pause retains its default");
+        check(settings.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY) == 50, "voice sensitivity retains its default");
+        AndroidLocalSettings.Spec pause = AndroidLocalSettings.spec(AndroidLocalSettings.VOICE_PAUSE_MILLIS);
+        AndroidLocalSettings.Spec sensitivity = AndroidLocalSettings.spec(AndroidLocalSettings.VOICE_VAD_SENSITIVITY);
+        check(pause.accept(500).equals(500) && pause.accept(5000).equals(5000), "voice pause limits accepted");
+        check(pause.accept(499) == null && pause.accept(5001) == null && pause.accept(1550) == null,
+            "voice pause rejects invalid duration and step");
+        check(sensitivity.accept(10).equals(10) && sensitivity.accept(90).equals(90), "voice sensitivity limits accepted");
+        check(sensitivity.accept(9) == null && sensitivity.accept(91) == null, "voice sensitivity rejects invalid limits");
+        AndroidLocalSettings.Snapshot voice = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.VOICE_PAUSE_MILLIS, 2500, AndroidLocalSettings.VOICE_VAD_SENSITIVITY, 70)));
+        check(voice.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS) == 2500
+            && voice.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY) == 70, "voice controls survive snapshot validation");
+        check(!pause.synced && !sensitivity.synced
+            && !voice.synced().containsKey(AndroidLocalSettings.VOICE_PAUSE_MILLIS)
+            && !voice.synced().containsKey(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), "microphone timing and sensitivity stay local");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
