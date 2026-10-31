@@ -3406,6 +3406,60 @@ fn shuangpin_manual_tab_owns_only_complete_normal_composition() {
 }
 
 #[test]
+fn shuangpin_indirect_triggers_are_published_only_while_they_mark() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    // 末尾直接开着时 `;` 不开末尾间接段，不能发布，否则宿主会把它当输入而不是标点。
+    for (direct, marks) in [(false, true), (true, false)] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = true;
+            options.shuangpin_helpcode_modes.direct = direct;
+        });
+        assert!(!session.snapshot().spelling_symbols.contains(';'));
+        type_text(&mut session, "nihc");
+        let symbols = session.snapshot().spelling_symbols;
+        assert_eq!(symbols.contains(';'), marks, "direct={direct}");
+        assert!(!symbols.contains(['`', '/']), "direct={direct}");
+        assert_eq!(
+            session.character(b';', false).handled,
+            marks,
+            "direct={direct}"
+        );
+        if marks {
+            assert_eq!(session.snapshot().editing_text, "nihc|");
+            // 一段只认一枚触发键。
+            assert!(!session.snapshot().spelling_symbols.contains(';'));
+        }
+    }
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.mid_sentence = true;
+    });
+    type_text(&mut session, "ni");
+    assert!(session.snapshot().spelling_symbols.contains('`'));
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.direct_helpcode = true;
+    });
+    type_text(&mut session, "nihc");
+    assert!(session.snapshot().spelling_symbols.contains('/'));
+    // 全拼没有这几种触发方式。
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Quanpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.direct = false;
+        options.shuangpin_helpcode_modes.mid_sentence = true;
+    });
+    type_text(&mut session, "nihao");
+    assert!(!session
+        .snapshot()
+        .spelling_symbols
+        .contains([';', '`', '/']));
+}
+
+#[test]
 fn shuangpin_manual_tab_raw_commits_omit_internal_codes() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for finish in [false, true] {

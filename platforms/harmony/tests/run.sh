@@ -51,6 +51,21 @@ for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this
     exit 1
   fi
 done
+# 组字中 Shift 加字母是辅助码：引擎只认大写字母，不看 Shift 标志，所以字母键要按 Shift 发大写字母，规则由 keyboard-logic.test.ts 覆盖，这里钉住视图的接线。
+if ! grep -qF 'const input: string = ChineseHelpcodePolicy.letterInput(letter, shifted);' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
+  echo "KeyboardView.tapLetter must send a shifted letter as a capital: the Engine reads helpcode from the case, not from the shift flag" >&2
+  exit 1
+fi
+# 123 层和数字九宫格上的辅助码触发键先问 Engine，收下就不按原样上屏。
+for body in tapLayerCharacter typeNumberPadText; do
+  view_body=$(sed -n "/^  private $body(text: string): void {\$/,/^  }\$/p" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+  if ! grep -qF 'if (this.typeHelpcodeTrigger(text)) {' <<< "$view_body"; then
+    echo "KeyboardView.$body must offer a helpcode trigger to the Engine before inserting the key's face" >&2
+    exit 1
+  fi
+done
 # 「符」与「123」互换和数字键盘空格位置（#10056）：排法由 touch-layout-styles.test.ts 覆盖，这里钉住视图的接线：设计底行按开关互换，借来的数字九宫格按互换后的字母层排前两键，数字层底行按空格位置排，右列最下面一格在空格位置为右列时画空格；两项从会话偏好读，设置页改了就随 applySettings 换。
 keyboard_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 if ! grep -qF 'const row: DesignRowEntry[] = TouchLayoutStylePolicy.symbolFirst(TouchLayoutStylePolicy.designRow(' "$keyboard_view" \
