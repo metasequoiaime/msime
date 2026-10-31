@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「按键布局」里两张左侧符号表共用的编辑页：「九键左侧符号」（9 键分段卡片里进来）和「数字键盘左侧符号」（「数字键盘」一组里进来），只差 `table`。照 Android `NineKeySidebarSheet` 的交互，三端相同：顶部一行说明，当前表可滑动删除、按住拖动调整顺序，下面是手动输入一项和还没加入的常用符号（点一下接到末尾），最后是「恢复默认」。整表合规（`NineKeySidebarDraft.canSave`）时右上角的「保存」才可点；保存只写这一张表，与 iOS 出厂表相同时写空数组，写不进去时提示并留在本页，文档里的值不变。不画键盘预览，回到「按键布局」页在 9 键预览里能看到。
+/// 「按键布局」里两张左侧符号表共用的编辑页：「九键左侧符号」（9 键分段卡片里进来）和「数字键盘左侧符号」（「数字键盘」一组里进来），只差 `table`。照 Android `NineKeySidebarSheet` 的交互，三端相同：顶部一行说明，当前表每项前有序号 1..N，可滑动删除、按住拖动调整顺序，下面是手动输入一项和还没加入的常用符号（点一下接到末尾），最后是「恢复默认」。整表合规（`NineKeySidebarDraft.canSave`）时右上角的「保存」才可点；保存只写这一张表，与 iOS 出厂表相同时写空数组，写不进去时提示并留在本页，文档里的值不变。不画键盘预览，回到「按键布局」页在 9 键预览里能看到。
 struct NineKeySidebarEditorView: View {
   let table: NineKeySidebarTable
   @State private var draft: NineKeySidebarDraft
@@ -16,12 +16,18 @@ struct NineKeySidebarEditorView: View {
   var body: some View {
     List {
       Section {
-        ForEach(Array(draft.symbols.enumerated()), id: \.offset) { index, symbol in
-          Text(symbol).font(.system(size: 17)).foregroundStyle(.primary)
-            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-            .accessibilityLabel("符号 \(symbol)")
-            .accessibilityIdentifier("nineKeySidebarItem_\(index)")
-            .designRow()
+        // 拖动用系统 List 的拖拽（浮起、让位动画和 VoiceOver 的移动操作都是系统的），序号在落下后刷新。
+        ForEach(draft.rows) { row in
+          HStack(spacing: 12) {
+            Text(row.ordinal).font(.system(size: 15)).monospacedDigit().foregroundStyle(.secondary)
+              .frame(minWidth: 28, alignment: .trailing)
+            Text(row.symbol).font(.system(size: 17)).foregroundStyle(.primary)
+          }
+          .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(row.accessibilityLabel)
+          .accessibilityIdentifier("nineKeySidebarItem_\(row.index)")
+          .designRow()
         }
         .onDelete { draft.remove(at: $0) }
         .onMove { draft.move(from: $0, to: $1) }

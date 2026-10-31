@@ -146,6 +146,25 @@ final class NineKeySidebarSettingsTests: XCTestCase {
     XCTAssertEqual(NineKeySidebarDraft(table: .digit, style: TouchKeyLayoutStyle()).symbols, ["+", "-", "*", "/"])
   }
 
+  /// #10396：每行前的序号 1..N 跟着顺序变；行的标识按码位、随符号走，组合前后的 é 是两行。
+  func testRowsNumberTheCurrentOrder() {
+    XCTAssertEqual(NineKeySidebar.ordinal(0), "1.")
+    XCTAssertEqual(NineKeySidebar.ordinal(29), "30.")
+    var draft = NineKeySidebarDraft(table: .letter, style: TouchKeyLayoutStyle())
+    XCTAssertEqual(draft.rows.map(\.ordinal), ["1.", "2.", "3."])
+    XCTAssertEqual(draft.rows.map(\.accessibilityLabel), ["第 1 项，符号 ，", "第 2 项，符号 。", "第 3 项，符号 ？"])
+    let before = Dictionary(uniqueKeysWithValues: draft.rows.map { ($0.symbol, $0.id) })
+    draft.move(from: IndexSet(integer: 2), to: 0)
+    XCTAssertEqual(draft.rows.map(\.symbol), ["？", "，", "。"])
+    XCTAssertEqual(draft.rows.map(\.ordinal), ["1.", "2.", "3."])
+    XCTAssertEqual(draft.rows.map(\.id), draft.rows.compactMap { before[$0.symbol] }, "a row keeps its id when it moves")
+    XCTAssertTrue(draft.add("\u{E9}"))
+    XCTAssertTrue(draft.add("e\u{301}"), "the two forms of é are two entries, as in client-core")
+    XCTAssertEqual(Set(draft.rows.map(\.id)).count, draft.rows.count, "every row has its own id")
+    draft.remove(at: IndexSet(integer: 0))
+    XCTAssertEqual(draft.rows.map(\.ordinal), ["1.", "2.", "3.", "4."])
+  }
+
   /// 编辑页保存的那一步：只写这一张表，写文档也写镜像；与出厂表相同时写空数组，键盘照出厂表画。
   func testDraftSavesThroughTheSharedDocument() throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

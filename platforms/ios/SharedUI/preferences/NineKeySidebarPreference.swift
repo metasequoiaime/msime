@@ -154,6 +154,11 @@ enum NineKeySidebar {
     return same(normalized, table.defaults) ? [] : normalized
   }
 
+  /// 编辑页「当前顺序」每行符号前的序号：第 `position` 位（从 0 起）写成「1.」「2.」…，与 Android `NineKeySidebarPolicy.ordinal`、共享设置页 `nineKeySidebarOrdinal` 同一写法。
+  static func ordinal(_ position: Int) -> String {
+    "\(position + 1)."
+  }
+
   /// 设置页导航行右侧的摘要，照 Android `NineKeySidebarPolicy.summary(symbols, 4)`：不超过 4 项时用空格连起来，多于 4 项时前 4 项加「 等 N 个」。
   static func summary(_ symbols: [String]) -> String {
     guard symbols.count > summaryLimit else { return symbols.joined(separator: " ") }
@@ -233,4 +238,24 @@ struct NineKeySidebarDraft: Equatable {
 
   /// 写进文档的值：与出厂表相同时是空数组。
   var stored: [String] { NineKeySidebar.stored(symbols, for: table) }
+
+  /// 编辑页「当前顺序」逐行要画的东西，与 `symbols` 同序。
+  var rows: [NineKeySidebarRow] {
+    symbols.enumerated().map { NineKeySidebarRow(index: $0.offset, symbol: $0.element) }
+  }
+}
+
+/// 编辑页「当前顺序」的一行：序号、符号和 VoiceOver 念的那一句（#10396）。
+struct NineKeySidebarRow: Identifiable, Equatable {
+  let index: Int
+  let symbol: String
+
+  /// 按码位取的标识。表里没有码位相同的两项（`NineKeySidebar.isValid`），挪动后一行的标识跟着符号走，SwiftUI 把落下当成换位置而不是换内容，序号随之刷新；不用 `\.self`，因为 Swift 的 `==` 按标准等价比较，组合前后的 é 在表里是两项，却会被当成同一个标识。
+  var id: [UInt32] { symbol.unicodeScalars.map(\.value) }
+
+  /// 符号前的序号，「1.」起。
+  var ordinal: String { NineKeySidebar.ordinal(index) }
+
+  /// VoiceOver 念的一句：位置和符号一起念，序号本身不单独念。
+  var accessibilityLabel: String { "第 \(index + 1) 项，符号 \(symbol)" }
 }
