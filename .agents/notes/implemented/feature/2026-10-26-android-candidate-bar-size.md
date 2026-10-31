@@ -10,9 +10,13 @@ Status: implemented
 
 复用已有共享偏好 `candidate_scale_percent`，将 Android 宿主声明为支持候选栏整体大小。Android 对候选字号、预编辑字号和候选行（包括释义附加行）使用同一 50–200% 缩放策略，并在偏好热更新时立即重排候选栏。共享字段的范围和默认值保持不变，不新增 Android 私有配置。
 
+展开的「更多候选」面板（#10400）同样跟随：格子字号取候选条实际字号（候选字号 × 候选栏大小）相对 client-core 默认字号 18 的倍数乘以设计值 17 sp，格高取「44 dp（带读音行时 60 dp）× 候选栏大小」与「同一字号倍数 × 设计格高」中较大的一个（`CandidateScalePolicy.expandedTextSize`、`expandedCellHeight`）。默认字号 18、100% 时仍是 17 sp 和 44/60 dp，与改动前逐像素相同。网格列数仍按固定的 64 dp 最小列宽分，每格占几列按实测的自然宽度算（`CandidateGridPolicy.span`），字号变大时一个候选会占更多列，不会被截字。
+
 ## Alternatives considered
 
 - **只扩大 `candidate_font_size` 的范围**：只能改变文字，不能保证候选 chip、释义行和候选栏容器一起变高，字号变大时仍可能裁切，因此不选。
+- **展开面板按 `17 × 候选字号 / 16` 换算**：16 只是 Java 端偏好缺失时的兜底值，Android 实际生效的默认字号是 client-core 的 18，按 16 换算会让默认外观从 17 sp 变成约 19 sp，因此以 18 为基准。
+- **展开面板只按 `candidate_scale_percent` 缩放**：100% 时同样不变，但候选条本身同时跟随候选字号，桌面或 MCP 把字号设大后候选条变大、展开面板不变，两处又不一致，因此两者都跟。
 - **新增 Android 专用高度偏好**：能单独控制高度，但会产生第二套设置协议和移动端专属落盘字段；现有整体大小契约已经表达了字号与几何同步缩放，复用它更一致。
 
 ## Consequences
@@ -21,4 +25,4 @@ Status: implemented
 
 ## Verification
 
-新增 `CandidateScalePolicySmoke` 覆盖默认回退、50/200% 边界和 DIP 缩放；更新 Android JVM smoke 编译会自动发现该测试。同步更新 host capability 与设置行测试、Rust host capability 测试。当前工作区没有 Android SDK，无法本机运行 `platforms/android/check-host.sh` 或模拟器验收；需由 CI 和维护者设备验证。
+新增 `CandidateScalePolicySmoke` 覆盖默认回退、50/200% 边界和 DIP 缩放；更新 Android JVM smoke 编译会自动发现该测试。同步更新 host capability 与设置行测试、Rust host capability 测试。当前工作区没有 Android SDK，无法本机运行 `platforms/android/check-host.sh` 或模拟器验收；需由 CI 和维护者设备验证。展开面板的换算由 `CandidateScalePolicySmoke` 覆盖默认值、50/75/150/200% 和字号 12/24/32 的取值；200% 加长候选的真机效果还要在设备上验收。
