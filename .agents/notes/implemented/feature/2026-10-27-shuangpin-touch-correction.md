@@ -76,6 +76,10 @@ PR1a 在构造的参考布局上调出暂定值（`show_margin` 4），PR1b 换�
 - **HarmonyOS**：`flexibleKey` 的 onTouch 在 Down 时记下按下点在被按键里的相对位置，点击时按这个键当前的矩形还原（工具栏在组字时出现会把整排键往下推，按根区域坐标记会差一个工具栏高），只在 `touchDesign()` 为真时记；`KeyboardSession.pressTouch` 与 `press` 共用 `pressKey`，`press` 的签名和实体键盘的调用不变。几何每键现算（不缓存脏标记），`KeyGeometryRegistry` 比字符串、变了才注册。调试导出：注册成功时打一行 hilog `key geometry {…}`。
 - **JNI / NAPI / Swift 桥**：Android 的 `setKeyGeometryRaw`、`touchCharacterRaw` 登记进 `verify-native.sh`；鸿蒙的 `client_napi.cpp` 读几何 id 时按 int64 读再查 u32 范围，坐标超出 float 范围或不是有限数时交 NaN，由引擎退回 `character` 的回应；iOS 用 `@_silgen_name` 声明两个函数。
 
+### 键行重建后的注册时序
+
+Android 的几何注册不能只依赖外层 `letterArea` 的 `OnLayoutChangeListener`：从九键切到 26 键双拼时，外层区域的边界可能不变，只替换了它的子键，因此不会再次触发布局监听。`ImeLetterRows` 在键行重建完成以及可复用键行切换输入框后，经 `View.post` 调用 `ImeTouchPoints.register`，等子键完成布局再量矩形；`register` 仍自行过滤非标准 26 键布局。同步调用会在子键尚未布局时读到零尺寸，继续只依赖外层监听则会漏掉调试几何导出和引擎注册。
+
 ### 几何的来源
 
 `resources/eval/key-geometry/` 里除 `harmony-portrait-microsoft` 外都换成了宿主在模拟器上原样导出的几何，文件名不变，`id` 统一成 1：
