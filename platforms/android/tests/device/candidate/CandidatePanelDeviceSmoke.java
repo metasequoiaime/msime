@@ -173,6 +173,13 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
                 String expectedText = expected.getJSONObject(target - 1).getString("text");
                 if (!expectedText.equals(candidateText(await(candidate(target)))))
                     throw new AssertionError("完整候选顺序变化");
+                if (letters.equals("m")) {
+                    continuousStage("overshoot candidate 70 and recover from candidate 90");
+                    swipeTo(90, scroller, viewport, true);
+                    swipeTo(target, scroller, viewport, true);
+                    if (!expectedText.equals(candidateText(await(candidate(target)))))
+                        throw new AssertionError("越过后回找改变了候选顺序");
+                }
                 continuousStage("return to first candidate without expansion");
                 swipeTo(1, scroller, viewport, false);
                 continuousStage("return to later candidate and touch commit");
@@ -250,23 +257,32 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             // 此专项关闭云候选与混合输入，节点按完整候选的序号排列。只刷新目标，
             // 通过真实滚动事件判定进展，避免 API 28 每帧刷新全部候选的 Binder 开销。
             AccessibilityNodeInfo node = ordinal <= row.getChildCount() ? row.getChild(ordinal - 1) : null;
+            boolean nextForward = forward;
+            int distance = viewport.width() - 30;
+            Rect bounds = new Rect();
             if (node != null && node.refresh() && candidate(ordinal).test(node)) {
-                Rect bounds = new Rect();
                 node.getBoundsInScreen(bounds);
                 if (node.isVisibleToUser() && bounds.width() > 10
                         && bounds.centerX() > viewport.left + 8
                         && bounds.centerX() < viewport.right - 8) return;
+                // 系统裁剪离屏边界后宽度可能为负；保留在视口外的那条边仍能判断目标方向。
+                int delta;
+                if (bounds.right <= viewport.left) delta = bounds.right - viewport.centerX();
+                else if (bounds.left >= viewport.right) delta = bounds.left - viewport.centerX();
+                else delta = bounds.centerX() - viewport.centerX();
+                nextForward = delta > 0;
+                distance = Math.min(distance, Math.max(30, Math.abs(delta)));
             }
             int currentX = stripScrollX;
             stationary = currentX == previousX ? stationary + 1 : 0;
             if (stationary >= 4) {
                 shellDiscard("screencap -p /sdcard/msime-candidate-strip-failure.png");
                 throw new AssertionError("横向候选已停止滚动，但目标仍不可见；已建 " + row.getChildCount()
-                    + " 项，目标 " + ordinal + "，偏移 " + currentX);
+                    + " 项，目标 " + ordinal + "，偏移 " + currentX + "，边界 " + bounds);
             }
             previousX = currentX;
             int left = viewport.left + 15, right = viewport.right - 15;
-            dragStrip(forward ? right : left, forward ? left : right, viewport.centerY());
+            dragStrip(nextForward ? right : left, nextForward ? right - distance : left + distance, viewport.centerY());
         }
         throw new AssertionError("横向滑动未到达目标候选");
     }
