@@ -14,7 +14,7 @@ import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
-import { PERSONAL_WORDBOOK_FAILURE, PersonalWordbookPolicy } from './PersonalWordbookPolicy';
+import { PERSONAL_WORDBOOK_FAILURE, PersonalWordbookPolicy, PersonalWordbookRoute } from './PersonalWordbookPolicy';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
 import { UserWordsMirror } from './UserWordsMirror';
@@ -3884,10 +3884,17 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /**
    * 长按菜单的「加入生词本」：写进键盘自己沙箱里的生词本（`PersonalWordbookPolicy`），完整体验模式下马上发布，设置应用下次回到前台时并进背单词的生词本。返回给用户看的提示。不经过 Engine，组字不变。
+   *
+   * 加之前先清走设置应用已经确认并过的词：用户在背单词里移出一个词以后再从这里加回来，键盘那本里不能还留着它，否则共享层会回答「已在生词本里」，这个词却回不到背单词。
    */
   async addToPersonalWordbook(candidate: string, gloss: string): Promise<string> {
     if (this.stateDirectory.length === 0) {
       return PERSONAL_WORDBOOK_FAILURE;
+    }
+    const mirror: SharedStateMirror | null = this.sharedMirror;
+    const route: PersonalWordbookRoute = PersonalWordbookPolicy.route(mirror !== null, this.sharedFullMode());
+    if (mirror !== null && route === 'settings') {
+      SharedStateSync.keyboardDrainPersonalWordbook(mirror, this.stateDirectory);
     }
     let response: string;
     try {
@@ -3897,16 +3904,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`personal wordbook add failed: ${describeError(error)}`);
       return PERSONAL_WORDBOOK_FAILURE;
     }
-    const reachesSettings: boolean = this.sharedMirror !== null && this.sharedFullMode();
-    if (reachesSettings && this.sharedMirror !== null) {
+    if (mirror !== null && route === 'settings') {
       try {
-        SharedStateSync.keyboardPublish(this.sharedMirror);
+        SharedStateSync.keyboardPublish(mirror);
       } catch (error) {
         // 下次失焦或获得焦点时照常再发布。
         KeyboardLog.warn(`personal wordbook not published yet: ${describeError(error)}`);
       }
     }
-    return PersonalWordbookPolicy.notice(response, reachesSettings);
+    return PersonalWordbookPolicy.notice(response, route);
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */
