@@ -248,11 +248,15 @@ final class KeyboardFormFactorTests: XCTestCase {
     enableAllInputSchemes()
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
     let previousScheme = InputSchemePreference.scheme
+    let previousQuanpinShift = KeyboardLayoutPreference.quanpinShift
     defer {
       KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletFullKeysKey)
       InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.quanpinShift = previousQuanpinShift
     }
     InputSchemePreference.scheme = .quanpin
+    // 这里验证 iPad 的分词键布局，显式关闭默认开启的 Shift 保留开关。
+    KeyboardLayoutPreference.quanpinShift = false
     KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.tabletFullKeysKey)
     let tablet = tabletController()
     func letterKey(_ letter: String) throws -> UIButton {
