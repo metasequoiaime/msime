@@ -10653,10 +10653,16 @@ public final class MSIMEInputService extends InputMethodService {
                 imeCalculator.refresh();
                 return;
             }
-            keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
+            boolean enteringSymbols = keyboardLayer == KeyboardLayout.Layer.LETTERS;
+            keyboardLayer = enteringSymbols
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
-            imeLetterRows.rebuildKeyRows();
-            render();
+            if (enteringSymbols) {
+                // 从字母层进入数字九宫格时清掉上一轮停留的 #+= 页，123 的入口必须始终是 123。
+                imeLetterRows.showNumberPad();
+            } else {
+                imeLetterRows.rebuildKeyRows();
+                render();
+            }
             imeCalculator.refresh();
         });
         layerButton.setContentDescription("切换到数字和符号");
