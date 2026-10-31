@@ -30,6 +30,11 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ClipboardUndoPolicy;
+import app.msime.android.ClipboardDeleteAuthenticationPolicy;
+import app.msime.android.SystemAuthenticators;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -61,6 +66,10 @@ import org.json.JSONObject;
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
+    /** 「剪贴板删除数据验证」正在认证时用户要切到的值；认证期间页面重画（Android 9、10 的锁屏凭据页让本页暂停、回来时重读）也保持开关不可点。 */
+    @Nullable private Boolean pendingClipboardDeleteAuthentication;
+    /** 认证窗口要有人持有，否则回调随它被回收。 */
+    @Nullable private BiometricPrompt clipboardDeleteAuthenticationPrompt;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
@@ -354,12 +363,73 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboard.nav("撤销时长", "删除记录后，剪贴板面板右下角的「撤销」按钮保留几秒",
             ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
+        // 「剪贴板删除数据验证」（#10408）：只在本机的设置，键盘每次重读本地设置时读它。开关停在已保存的值上，认证成功、写好之后随页面重画才变。
+        boolean deleteAuthentication = settings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
+        GroupCard.Row[] deleteAuthenticationRow = new GroupCard.Row[1];
+        deleteAuthenticationRow[0] = clipboard.toggle("剪贴板删除数据验证",
+            "开启后，在键盘剪贴板里长按删除、左滑删除或多选删除记录，都要先通过指纹、图案、密码等系统认证，撤销删除不需要；打开和关闭本开关也要认证。访客剪贴板始终需要认证",
+            deleteAuthentication,
+            checked -> saveClipboardDeleteAuthentication(deleteAuthenticationRow[0], deleteAuthentication, checked));
+        deleteAuthenticationRow[0].setEnabled(pendingClipboardDeleteAuthentication == null);
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
 
+    }
+
+    /**
+     * 切换「剪贴板删除数据验证」：打开和关闭都先认证，第一次打开也一样；设备没有可用的系统认证时拒绝切换，提示先去系统设置开启锁屏。认证取消或失败时开关保持原值，不写本地设置。
+     */
+    private void saveClipboardDeleteAuthentication(GroupCard.Row row, boolean current, boolean next) {
+        row.setChecked(current);
+        if (pendingClipboardDeleteAuthentication != null) return;
+        int authenticators = SystemAuthenticators.allowed();
+        boolean available = BiometricManager.from(requireContext()).canAuthenticate(authenticators)
+            == BiometricManager.BIOMETRIC_SUCCESS;
+        ClipboardDeleteAuthenticationPolicy.Decision decision =
+            ClipboardDeleteAuthenticationPolicy.decide(current, next, available);
+        switch (decision) {
+            case UNCHANGED -> { }
+            case UNAVAILABLE -> MsToast.show(requireContext(), ClipboardDeleteAuthenticationPolicy.refusal(decision, next));
+            case AUTHENTICATE -> requestClipboardDeleteAuthentication(row, next, authenticators);
+        }
+    }
+
+    private void requestClipboardDeleteAuthentication(GroupCard.Row row, boolean value, int authenticators) {
+        pendingClipboardDeleteAuthentication = value;
+        row.setEnabled(false);
+        clipboardDeleteAuthenticationPrompt = new BiometricPrompt(this,
+            ContextCompat.getMainExecutor(requireContext()), new BiometricPrompt.AuthenticationCallback() {
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    finishClipboardDeleteAuthentication(true);
+                }
+
+                @Override public void onAuthenticationError(int errorCode, CharSequence errorString) {
+                    finishClipboardDeleteAuthentication(false);
+                }
+            });
+        BiometricPrompt.PromptInfo prompt = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle("验证身份")
+            .setSubtitle(value ? "打开剪贴板删除数据验证" : "关闭剪贴板删除数据验证")
+            .setAllowedAuthenticators(authenticators)
+            .build();
+        clipboardDeleteAuthenticationPrompt.authenticate(prompt);
+    }
+
+    private void finishClipboardDeleteAuthentication(boolean authenticated) {
+        Boolean value = pendingClipboardDeleteAuthentication;
+        pendingClipboardDeleteAuthentication = null;
+        clipboardDeleteAuthenticationPrompt = null;
+        if (value == null || getContext() == null) return;
+        if (authenticated) {
+            saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, value);
+            return;
+        }
+        MsToast.show(requireContext(), ClipboardDeleteAuthenticationPolicy.refusal(
+            ClipboardDeleteAuthenticationPolicy.Decision.AUTHENTICATE, value));
+        reload();
     }
 
     /** 工具栏按钮独立控制，不改变长按空格语音；两入口可同时使用。 */

@@ -14,7 +14,8 @@ import androidx.fragment.app.FragmentActivity;
 public final class ClipboardAuthenticationActivity extends FragmentActivity {
     public static final String EXTRA_RESULT = "app.msime.android.clipboard.AUTH_RESULT";
     public static final String EXTRA_SUBTITLE = "app.msime.android.clipboard.AUTH_SUBTITLE";
-    public static final int RESULT_AUTHENTICATED = 2001;
+    public static final int RESULT_AUTHENTICATED = ClipboardOperationAuthenticationPolicy.RESULT_AUTHENTICATED;
+    public static final int RESULT_UNAVAILABLE = ClipboardOperationAuthenticationPolicy.RESULT_UNAVAILABLE;
     private static final int AUTHENTICATORS = SystemAuthenticators.allowed();
     @Nullable private ResultReceiver result;
     private boolean sent;
@@ -34,7 +35,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
         result = getIntent().getParcelableExtra(EXTRA_RESULT);
         if (BiometricManager.from(this).canAuthenticate(AUTHENTICATORS)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
-            finishWith(false);
+            send(RESULT_UNAVAILABLE);
             return;
         }
         BiometricPrompt prompt = new BiometricPrompt(this, ContextCompat.getMainExecutor(this),
@@ -58,10 +59,23 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
 
     @Override public void onBackPressed() { finishWith(false); }
 
+    /** 认证窗口被系统或用户直接结束、没走到回调时补发取消，否则输入法服务的 `clipboardAuthenticationBusy` 一直清不掉，之后剪贴板的搜索、导出、清空和删除的认证都会被静默忽略（#10408 让删除也走这座桥）。转屏重建时 `isFinishing()` 为假，不补发。 */
+    @Override protected void onDestroy() {
+        if (isFinishing() && !sent) {
+            sent = true;
+            if (result != null) result.send(RESULT_CANCELED, null);
+        }
+        super.onDestroy();
+    }
+
     private void finishWith(boolean authenticated) {
+        send(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED);
+    }
+
+    private void send(int code) {
         if (sent) return;
         sent = true;
-        if (result != null) result.send(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED, null);
+        if (result != null) result.send(code, null);
         finish();
     }
 }

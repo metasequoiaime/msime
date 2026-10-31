@@ -835,17 +835,56 @@ for site in onCreateInputView applyClipboardPreference; do
 done
 # 输入法服务没有 Activity 的窗口令牌。从剪贴板面板弹出的 AlertDialog 或 PopupMenu，要么加不上窗口、把键盘进程带崩，要么抢走编辑器的窗口焦点，Via 这类 WebView 浏览器随即让输入框失焦、收起键盘（#5605、#5653）。确认和条目操作都画在面板里。
 # 整段方法体都查，不按固定行数截：菜单项往往加在方法末尾挂到面板之前，截到前几十行会漏掉那里新加的弹窗。
-if awk '/ (void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|renderClipboardMoreMenu|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(/ { inside = 1 } inside && /new (AlertDialog|PopupMenu|PopupWindow)/ { bad = 1 } inside && /^    }$/ { inside = 0 } END { exit !bad }' \
+if awk '/ (void|LinearLayout) (clearClipboardHistory|renderClipboardHistory|renderClipboardMoreMenu|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem|removeClipboardItemNow|deleteClipboardAfterAuthentication)\(/ { inside = 1 } inside && /new (AlertDialog|PopupMenu|PopupWindow)/ { bad = 1 } inside && /^    }$/ { inside = 0 } END { exit !bad }' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java"; then
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
-# 单条删除（长按操作行的「删除」、左滑的垃圾桶）和多选删除一样能撤销（#10080）：走 remove_many 拿到删除前的完整条目，交给 holdClipboardUndo 倒数。改回单条的 remove 时拿不到快照，撤销按钮不会出现，撤销也无从恢复时间戳和固定状态。
-if ! rg -A 6 'void removeClipboardItem\(' \
+# 单条删除（长按操作行的「删除」、左滑的垃圾桶）和多选删除一样能撤销（#10080）：走 remove_many 拿到删除前的完整条目，交给 holdClipboardUndo 倒数。改回单条的 remove 时拿不到快照，撤销按钮不会出现，撤销也无从恢复时间戳和固定状态。认证通过后真正执行删除的是 removeClipboardItemNow（#10408），所以查它的方法体。
+if ! rg -A 6 'void removeClipboardItemNow\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
     | rg_q_stdin 'holdClipboardUndo\(clipboardHistory\.removeMany\('; then
   echo "Android single clipboard deletion must keep an undo snapshot via removeMany (#10080)" >&2
+  exit 1
+fi
+# 「剪贴板删除数据验证」（#10408）：开关开着或在访客剪贴板里，删除先认证。规则由 ClipboardDeleteAuthenticationPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：单条和多选删除的入口都只经 deleteClipboardAfterAuthentication 交出真正的删除，多选先复制一份所选文字再认证（整批一次）；deleteClipboardAfterAuthentication 按开关和访客模式问策略，发起时记下存储、回调里存储换了就作废，不靠自增认证代次（那样 busy 永远清不掉）；本地设置重读时读这一项；没有锁屏凭据时 authenticateClipboard 当场提示先开锁屏，不拉起认证桥（拉起会收起键盘、关掉面板），认证桥打不开时不复用锁屏引导；认证桥没有可用认证时回专门的结果码，键盘提示先开锁屏；认证窗口没走到回调就被结束时补发取消，否则 busy 清不掉；撤销不认证。
+clipboard_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+remove_one_body=$(sed -n '/^    void removeClipboardItem(ClipboardHistory.Item item) {$/,/^    }$/p' "$clipboard_service")
+remove_many_body=$(sed -n '/^    void removeClipboardItems(java.util.List<String> texts) {$/,/^    }$/p' "$clipboard_service")
+delete_gate_body=$(sed -n '/^    private void deleteClipboardAfterAuthentication(Runnable delete) {$/,/^    }$/p' "$clipboard_service")
+undo_body=$(sed -n '/^    void undoClipboardItems() {$/,/^    }$/p' "$clipboard_service")
+auth_body=$(sed -n '/^    private void authenticateClipboard(String operation, Runnable after) {$/,/^    }$/p' "$clipboard_service")
+if ! grep -qF 'deleteClipboardAfterAuthentication(() -> removeClipboardItemNow(item));' <<< "$remove_one_body" \
+  || grep -qF 'removeMany' <<< "$remove_one_body" \
+  || ! grep -qF 'java.util.List<String> selected = java.util.List.copyOf(texts);' <<< "$remove_many_body" \
+  || ! grep -qF 'deleteClipboardAfterAuthentication(() -> removeClipboardItemsNow(selected));' <<< "$remove_many_body" \
+  || grep -qF 'removeMany' <<< "$remove_many_body" \
+  || ! grep -qF 'ClipboardDeleteAuthenticationPolicy.requiresAuthentication(clipboardDeleteAuthentication,' <<< "$delete_gate_body" \
+  || ! grep -qF 'clipboardMode == ClipboardModePolicy.Mode.VISITOR' <<< "$delete_gate_body" \
+  || ! grep -qF 'ClipboardHistoryStore target = clipboardHistory;' <<< "$delete_gate_body" \
+  || ! grep -qF 'if (clipboardHistory != target) {' <<< "$delete_gate_body" \
+  || grep -qF 'clipboardAuthenticationGeneration' <<< "$delete_gate_body" \
+  || grep -qF 'authenticateClipboard' <<< "$undo_body" \
+  || ! grep -qF 'if (keyguard == null || !keyguard.isDeviceSecure()) {' <<< "$auth_body" \
+  || [[ $(grep -cF 'notice(ClipboardDeleteAuthenticationPolicy.UNAVAILABLE_MESSAGE);' <<< "$auth_body") -ne 2 ]] \
+  || ! grep -qF 'clipboardDeleteAuthentication = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);' "$clipboard_service" \
+  || ! grep -qF 'else if (code == ClipboardOperationAuthenticationPolicy.RESULT_UNAVAILABLE)' "$clipboard_service" \
+  || ! grep -qF 'send(RESULT_UNAVAILABLE);' \
+    "$repo_root/platforms/android/java/app/msime/android/ClipboardAuthenticationActivity.java" \
+  || ! grep -qF 'if (isFinishing() && !sent) {' \
+    "$repo_root/platforms/android/java/app/msime/android/ClipboardAuthenticationActivity.java"; then
+  echo "Android clipboard deletion must authenticate first when clipboard delete authentication is on or in the visitor clipboard (#10408)" >&2
+  exit 1
+fi
+# 设置页的开关（#10408）：打开和关闭都要认证，第一次打开也不例外，没有系统认证时拒绝切换；只有认证成功才写本地设置。切换规则由 ClipboardDeleteAuthenticationPolicySmoke 覆盖，这里钉住键盘页的接线和备份排除。
+options_page="$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"
+if ! grep -qF 'ClipboardDeleteAuthenticationPolicy.decide(current, next, available);' "$options_page" \
+  || ! grep -qF 'saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, value);' "$options_page" \
+  || [[ $(grep -c 'AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, ' "$options_page") -ne 1 ]] \
+  || ! grep -qF '!key.equals(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION)' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/LocalBackupPolicy.java"; then
+  echo "Android clipboard delete authentication switch must authenticate both ways and stay out of backups (#10408)" >&2
   exit 1
 fi
 # 删除候选词的确认收在长按菜单的子菜单里（ImeCandidates），与 iOS 的嵌套 UIMenu 一致：点开「删除词条…」当场展开「确认删除此词条」，一次长按删完；不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起），也不要退出去再长按一次的两步确认。
