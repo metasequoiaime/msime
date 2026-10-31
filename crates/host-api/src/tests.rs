@@ -16234,6 +16234,55 @@ fn vocabulary_boundary_lists_wordbook_packs_from_the_plugins_directory() {
     );
 }
 
+/// 待复习计数与 `msime_client_vocabulary_review` 的 `due` 相同；从没开过背单词时是 0 且不建文件，坏请求和损坏的进度都是 -1。
+#[test]
+fn vocabulary_due_count_boundary_matches_the_review_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    let count = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        unsafe { msime_client_vocabulary_due_count(request.as_ptr(), request.len()) }
+    };
+    let request = |day: &str| json!({"directory": state, "resources": state, "day": day});
+
+    assert_eq!(count(request("2026-09-23")), 0);
+    assert!(
+        !state.exists(),
+        "counting must not create the state directory"
+    );
+
+    let review = serde_json::to_vec(&json!({
+        "directory": state, "resources": state, "day": "2026-09-23",
+        "action": {"operation": "import", "name": "合成词表", "text": "alpha,adj. 甲\nbeta,adj. 乙\n"},
+    }))
+    .unwrap();
+    let imported = read(unsafe { msime_client_vocabulary_review(review.as_ptr(), review.len()) });
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["due"], 2);
+    assert_eq!(count(request("2026-09-23")), 2);
+
+    assert_eq!(
+        count(json!({"directory": "state", "resources": state, "day": "2026-09-23"})),
+        -1
+    );
+    assert_eq!(count(request("2026-13-01")), -1);
+    assert_eq!(
+        count(json!({"directory": state, "resources": state, "day": "2026-09-23", "extra": 1})),
+        -1
+    );
+    assert_eq!(
+        unsafe { msime_client_vocabulary_due_count(std::ptr::null(), 0) },
+        -1
+    );
+
+    std::fs::write(
+        state.join("vocabulary-progress.json"),
+        b"corrupt synthetic progress",
+    )
+    .unwrap();
+    assert_eq!(count(request("2026-09-23")), -1);
+}
+
 #[test]
 fn vocabulary_boundary_answers_the_source_book_and_refuses_missing_ownership() {
     let directory = tempfile::tempdir().unwrap();

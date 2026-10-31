@@ -1169,6 +1169,83 @@ int main() {
     }
   }
 
+  // 「显示读音」：读音在它那一行释义下面单独一行，释义那一段是两行（translation_lines 2），其中一行是读音（reading_lines 1），宽度是两行里较宽的一行。
+  {
+    const auto shape = candidate_card_metrics(16.0, 16.0, true);
+    double two_lines = 2.0 * shape.translation_font * 1.33;
+    require(two_lines > 2.0 * shape.translation_line && two_lines < shape.candidate_row);
+    CandidateItemWidths plain{40.0, 0.0, 30.0}, read{40.0, 0.0, 60.0};
+    read.translation_lines = 2;
+    read.reading_lines = 1;
+    const CandidateWrapMeasure measure = [&](size_t, CandidateRun run, double) {
+      return run == CandidateRun::translation ? two_lines : shape.candidate_row;
+    };
+    // 横排：同一行的格子取最高一格的高度，只有一个候选有读音时每格都多出这一行；有读音的格子宽度是候选和读音、释义里最宽的一行，不是释义接读音的长度。
+    {
+      const auto rows = candidate_page_layout({plain, read, plain}, 1000.0, shape, true, measure);
+      require(rows[1].item.translation.below && near(rows[1].item.translation.height, two_lines));
+      const double tall = shape.candidate_row + two_lines;
+      for (const auto &row : rows)
+        require(near(row.bounds.bottom - row.bounds.top, tall));
+      require(near(rows[1].bounds.right - rows[1].bounds.left,
+                   60.0 + shape.number_and_bar + shape.item_padding_right + shape.column_gap));
+      // 没有读音的一页高度和从前一样。
+      const auto bare = candidate_page_layout({plain, plain, plain}, 1000.0, shape, true, measure);
+      require(near(bare[0].bounds.bottom - bare[0].bounds.top,
+                   shape.candidate_row + shape.translation_line));
+    }
+    // 竖排：一行释义加它的读音和 macOS 一样留在候选文字右边，两行在一行候选的高度里竖直居中，行不变高；行宽是候选、间隔和较宽的那一行。
+    {
+      const auto rows = candidate_page_layout({plain, read, plain}, 400.0, shape, false, measure);
+      require(!rows[1].item.translation.below);
+      require(near(rows[1].item.translation.x, 40.0 + shape.translation_gap) &&
+              near(rows[1].item.translation.y, 0.0) &&
+              near(rows[1].item.translation.height, shape.candidate_row));
+      for (const auto &row : rows)
+        require(near(row.bounds.bottom - row.bounds.top, shape.candidate_row));
+      require(near(candidate_item_natural_width(read, shape, false),
+                   40.0 + shape.translation_gap + 60.0 + shape.number_and_bar +
+                       shape.item_padding_right));
+      CandidateCardInput page;
+      page.items = {plain, plain, plain};
+      page.wrapped = measure;
+      const auto without = candidate_card_size(page);
+      page.items = {plain, read, plain};
+      require(near(candidate_card_size(page).height, without.height));
+      // 两行比一行候选高（小字号、高的回退字体）时这一行跟着长高，别的行不变。
+      two_lines = shape.candidate_row + 6.0;
+      const auto taller = candidate_page_layout({plain, read, plain}, 400.0, shape, false, measure);
+      require(!taller[1].item.translation.below && near(taller[1].item.translation.height, two_lines));
+      require(near(taller[1].bounds.bottom - taller[1].bounds.top, two_lines) &&
+              near(taller[0].bounds.bottom - taller[0].bounds.top, shape.candidate_row));
+      two_lines = 2.0 * shape.translation_font * 1.33;
+      // 右边放不下时照旧放到候选文字下面。
+      const auto narrow = candidate_page_layout({read}, 40.0 + 30.0 + shape.number_and_bar +
+                                                            shape.item_padding_right + shape.pad_x,
+                                                shape, false, measure);
+      require(narrow[0].item.translation.below &&
+              near(narrow[0].bounds.bottom - narrow[0].bounds.top, shape.candidate_row + two_lines));
+    }
+    // 别的两行以上的释义仍放在候选文字下面：훈음 加译文、两种目标语言（没有读音），훈음、译文加读音三行。
+    {
+      CandidateItemWidths hanja{40.0, 0.0, 60.0};
+      hanja.translation_lines = 2;
+      CandidateItemWidths hanja_read = read;
+      hanja_read.translation_lines = 3;
+      CandidateItemWidths both_read = read;
+      both_read.translation_lines = 4;
+      both_read.reading_lines = 2;
+      for (const auto &item : {hanja, hanja_read, both_read}) {
+        require(!candidate_translation_beside(item));
+        const auto rows = candidate_page_layout({item}, 400.0, shape, false, measure);
+        require(rows[0].item.translation.below);
+        require(near(candidate_item_natural_width(item, shape, false),
+                     60.0 + shape.number_and_bar + shape.item_padding_right));
+      }
+      require(candidate_translation_beside(read) && candidate_translation_beside(plain));
+    }
+  }
+
   // 皮肤包的版式：一个键都没写时，解析出的版式和不传皮肤一模一样，卡片的尺寸、行和翻页逐位相同，现有皮肤和无皮肤的卡片画出来不变。
   {
     const auto empty_skin = candidate_skin_metrics(CandidateSkinLayout{}, false, 16.0);
