@@ -27,6 +27,10 @@ public final class ReturnKeyActionSmoke {
         check(!ReturnKeyAction.shouldPerformEditorAction(EditorInfo.IME_ACTION_SEND, true, false));
         check(ReturnKeyAction.title(255, false).equals("换行"));
         check(!ReturnKeyAction.performsEditorAction(255, false));
+        check(ReturnKeyHoldPolicy.insertsNewline(true, false, false));
+        check(!ReturnKeyHoldPolicy.insertsNewline(false, false, false));
+        check(!ReturnKeyHoldPolicy.insertsNewline(true, true, true));
+        check(!ReturnKeyHoldPolicy.insertsNewline(true, false, true));
         System.out.println("Android return key: editor labels, dispatch and newline fallback passed");
     }
 }
