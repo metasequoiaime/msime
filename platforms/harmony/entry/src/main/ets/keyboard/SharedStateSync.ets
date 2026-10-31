@@ -300,7 +300,7 @@ export class SharedStateSync {
   }
 
   /**
-   * 设置应用一侧：把键盘发布的那本生词本并进背单词的生词本，再把这一版存成「上次并过的那一版」。键盘的清走记录说它已经清走了上一版时，先丢掉上一版：这时键盘那本里的词都是之后加的，包括用户在背单词里移出后又从键盘加回来的词。
+   * 设置应用一侧：把键盘发布的那本生词本并进背单词的生词本，再把这一版存成「上次并过的那一版」。键盘有一条还没用过的清走记录、说它已经清走了上一版时，先丢掉上一版：这时键盘那本里的词都是之后加的，包括用户在背单词里移出后又从键盘加回来的词。
    *
    * 先读清走记录再读生词本，与键盘发布时的复制顺序相反，读到新记录时生词本一定也是新的。生词本先复制到旁边，原生层并的就是这一份，成功后再换成「上一版」，存下的上一版与并过的内容一字不差。合并失败或设置应用那本已满时返回假，下次再试；不记成已并过，键盘也就不会清走这些词。同步调用：会等工作线程上正在写词书的请求（例如导入一份大词表）做完，生词本平常很小，这里不另起线程。
    */
@@ -308,23 +308,28 @@ export class SharedStateSync {
     const previousPath: string = `${stateDirectory}/${KEYBOARD_PERSONAL_WORDBOOK_PATH}`;
     const staging: string = `${previousPath}.${util.generateRandomUUID(false)}.tmp`;
     try {
+      const parent: string = previousPath.substring(0, previousPath.lastIndexOf('/'));
+      if (!fs.accessSync(parent)) {
+        fs.mkdirSync(parent, true);
+      }
       const markerText: string | null = mirror.publishedText('keyboard',
         SharedStateSync.keyboardEntry(KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY));
       let previousText: string | null = SharedStateSync.readText(previousPath);
-      if (previousText !== null
-        && PersonalWordbookPolicy.previousDrained(markerText, SharedStateMirrorPolicy.fingerprintText(previousText))) {
-        fs.unlinkSync(previousPath);
-        previousText = null;
+      // 每条清走记录只用一次，用过的那份按同一个相对路径存下：内容相同的生词本可能先后出现（清走以后又加回同样的词），旧记录再拿来比，会把之后存下的上一版也当成已清走。
+      const seenPath: string = `${stateDirectory}/${KEYBOARD_PERSONAL_WORDBOOK_DRAINED_PATH}`;
+      if (PersonalWordbookPolicy.unseenDrain(markerText, SharedStateSync.readText(seenPath)) && markerText !== null) {
+        if (previousText !== null
+          && PersonalWordbookPolicy.previousDrained(markerText, SharedStateMirrorPolicy.fingerprintText(previousText))) {
+          fs.unlinkSync(previousPath);
+          previousText = null;
+        }
+        SharedStateSync.writeText(seenPath, markerText);
       }
       const publishedPath: string = mirror.publishedFile('keyboard',
         SharedStateSync.keyboardEntry(KEYBOARD_PERSONAL_WORDBOOK_ENTRY));
       if (SharedStateSync.readText(publishedPath) === null) {
         // 键盘那本清空了：没有要并的。上一版留着，直到键盘的清走记录说它已经清走了。
         return true;
-      }
-      const parent: string = previousPath.substring(0, previousPath.lastIndexOf('/'));
-      if (!fs.accessSync(parent)) {
-        fs.mkdirSync(parent, true);
       }
       fs.copyFileSync(publishedPath, staging);
       if (!PersonalWordbookPolicy.mergeAccepted(client.personalWordbookMerge(PersonalWordbookPolicy.mergeRequest(

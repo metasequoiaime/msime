@@ -10,7 +10,7 @@
 export const KEYBOARD_VOCABULARY_DIRECTORY: string = "keyboard-vocabulary";
 /** 键盘那本生词本的文件，相对 `files/state`；镜像条目和设置应用存的「上次并过的那一版」都用这个路径。 */
 export const KEYBOARD_PERSONAL_WORDBOOK_PATH: string = `${KEYBOARD_VOCABULARY_DIRECTORY}/vocabulary-wordbooks/personal.json`;
-/** 键盘记的「清走过哪一版」，相对 `files/state`：`{drains, fingerprint}`，每清走一次 `drains` 加一，内容因此每次都不同，镜像一定会把它交过去。只有指纹和次数，没有词。 */
+/** 键盘记的「清走过哪一版」，相对 `files/state`：`{drains, fingerprint}`，每清走一次 `drains` 加一，内容因此每次都不同，镜像一定会把它交过去。只有指纹和次数，没有词。设置应用按同一个相对路径存下它用过的最后一条。 */
 export const KEYBOARD_PERSONAL_WORDBOOK_DRAINED_PATH: string = `${KEYBOARD_VOCABULARY_DIRECTORY}/drained.json`;
 /** 交不出去或存储出错时的提示；其余提示都由共享层给出。 */
 export const PERSONAL_WORDBOOK_FAILURE: string = "无法加入生词本";
@@ -187,6 +187,13 @@ export class PersonalWordbookPolicy {
       fingerprint: fingerprint,
     };
     return JSON.stringify(next);
+  }
+
+  /** 设置应用一侧：键盘发布的清走记录 `markerText` 是不是一条还没用过的新记录。`seenText` 是上次用过的那条，没有时为 null。读不懂的记录不算。 */
+  static unseenDrain(markerText: string | null, seenText: string | null): boolean {
+    return (
+      PersonalWordbookPolicy.parseDrainedMarker(markerText) !== null && markerText !== seenText
+    );
   }
 
   /** 设置应用一侧：键盘的记录说它已经清走了设置应用存下的上一版（指纹为 `previousFingerprint`）。这时键盘那本里的词都是之后加的，不该再拿上一版去比。 */

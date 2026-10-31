@@ -180,6 +180,17 @@ group(
       )?.drains === 1,
       "an unreadable record starts over",
     );
+    check(PersonalWordbookPolicy.unseenDrain(second, first), "a newer record is news");
+    check(PersonalWordbookPolicy.unseenDrain(first, null), "the first record is news");
+    check(
+      !PersonalWordbookPolicy.unseenDrain(second, second),
+      "a record already used is not compared again, even if an equal book comes back later",
+    );
+    check(
+      !PersonalWordbookPolicy.unseenDrain(null, null) &&
+        !PersonalWordbookPolicy.unseenDrain("junk", null),
+      "no record or an unreadable one",
+    );
     check(PersonalWordbookPolicy.previousDrained(second, "fp-a"), "matching record");
     check(!PersonalWordbookPolicy.previousDrained(second, "fp-b"), "another version");
     check(!PersonalWordbookPolicy.previousDrained(null, "fp-a"), "no record");
