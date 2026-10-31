@@ -38,3 +38,15 @@ Status: implemented
 ## Verification
 
 `rbuild env ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh` 通过（304 个 JVM 冒烟，编译 255 个设备套件源文件）。在 Studio 上用 android.jar 编译产品类后反射核对：新的 8 参数查找找得到，旧的 7 参数查找抛 `NoSuchMethodException`。本机没有起模拟器；设备上是否通过以 CI 的 `android-device-pr / Android device (API 35)` 为准。
+
+## 合成服务的配置回调生命周期
+
+完整 OCR 卸载设备验收在 API 35 的语音专项通过后，到触控板阶段收到配置变化并崩溃，堆栈是 `MSIMEInputService.onConfigurationChanged` 读取未初始化的 `imeLayoutRows`。真实服务在 `super.onCreate()` 前创建该组件，之后没有清空路径；残留的反射假服务只执行 `attachBaseContext`，既不创建完整组件，也不调用 `onDestroy`。
+
+Android 的 `WindowProviderService.attachBaseContext` 会将上下文附到窗口 token 并注册配置派发，`onDestroy` 才解除；通过反射调用 `ContextWrapper.attachBaseContext` 仍会虚派发到该实现，关闭线程池不能解除注册。因此本夹具使用完整的创建与销毁，不在生产配置回调增加空值分支。自动插入和权限回退都复用服务自己创建的语音组件，销毁前把合成 `session=1` 清零并移除合成编辑连接，避免将假身份交给 JNI 释放。
+
+服务文件、缓存、应用上下文和结果存储指向本次独立临时目录；偏好从正式 JNI 默认值取得，只对合成目录关闭 `usage_reporting`，不读写用户配置或记录。销毁在主线程完成，再等待服务工作线程退出，最后递归清理该目录。Android 设备夹具使用 `Files.write` 写 UTF-8 字节，避免宿主 JDK 提供但目标运行时没有的 `Files.writeString`。
+
+保留按钮几何、停止与取消、过期回调、跨 Binder 结果、重复回传及编辑位置变化的全部断言。创建后、安装合成 session 前直接重放配置回调：旧半初始化实现确定性出现 `InvocationTargetException <- NullPointerException`；完整生命周期实现的 API 35 自动插入与前台回退三项通过。API 35 冷启动后用 `--no-restart` 在同一主进程依次运行语音和完整触控板专项，通过此前崩溃阶段。最终源码在 API 28 的自动插入与 `result / ready-error / stop-before-resume / refused-start` 四项生命周期均通过（`voice-final-auto28.log`、`voice-final-lifecycle28.log`）。原完整开发包的 API 28 `smoke.sh --core` 已全部通过；API 35 原轮次仅在语音之后触控板阶段被上述残留假服务击穿，修复后的整套仍在运行，不能把专项当作整套通过。远端 quick 使用正确的 Homebrew Python 后退出 0；最初登录 Bash 选到 Xcode Python 3.9 的工具链失败不算通过。
+
+备选是在生产 `onConfigurationChanged` 跳过未初始化组件，改动较少；但它掩盖了测试未完整创建且仍注册窗口回调的服务，不能解决残留 owner，因此不采用。
