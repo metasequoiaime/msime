@@ -154,7 +154,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         renderReplies(target);
     }
 
-    /** 社区里的 AI 回复模板：前几个，点开看详情和举报，末尾进完整列表。 */
+    /** 社区里的 AI 回复模板：前几个，点开看详情、举报和屏蔽作者，末尾进完整列表。 */
     private void renderReplies(LinearLayout target) {
         Context context = requireContext();
         GroupCard group = GroupCard.add(sectionColumn(target, "社区"), "社区回复模板").withDividers(58);
@@ -174,11 +174,22 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         group.footer("别人分享的 AI 回复提示词。手机上暂时只能浏览，还不能添加到键盘的回复面板。");
     }
 
-    /** 回复模板的详情：和完整列表里点开的是同一个面板，没有「添加」，可以举报。 */
+    /** 回复模板的详情：和完整列表里点开的是同一个面板，没有「添加」，可以举报和屏蔽作者。 */
     private void showReply(CommunityCatalog.Item item) {
         // 回复模板没有皮肤，面板不画键盘预览，布局传标准样式即可。
         CommunitySkinSheet.show(requireContext(), item, KeyLayoutStylesPolicy.Preview.STANDARD, "", null,
-            () -> CommunityReportDialog.show(this, item), null);
+            () -> CommunityReportDialog.show(this, item),
+            item.owned() ? null : () -> CommunityBlockDialog.show(this, item.author(),
+                CommunityRequest.reportKind(item.kind()), item.id(), this::reloadReplies),
+            null);
+    }
+
+    /** 屏蔽作者之后重读社区回复模板：服务端已不再列出这位作者的模板。 */
+    private void reloadReplies() {
+        repliesRequested = false;
+        replies = null;
+        repliesFailure = null;
+        reload();
     }
 
     private void pickProvider(String current, List<AiProviderSettings.Provider> catalog) {
