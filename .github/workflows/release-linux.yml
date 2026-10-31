@@ -239,11 +239,13 @@ jobs:
   legacy:
     needs: source
     if: ${{ inputs.legacy }}
-    permissions: {contents: read}
+    # 写权限只给被调工作流里发布符号的作业，构建作业仍按它自己的顶层设置只读。
+    permissions: {contents: write}
     uses: ./.github/workflows/build-linux-legacy.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
       version: ${{ inputs.version }}
+      publish: ${{ inputs.publish }}
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，以及只列这三个文件的 msime-VERSION-SHA256SUMS，见 platforms/linux/packaging/make-source-tarballs.sh。用户不会下载它们，所以不进版本发布页：main 上的发布把它们传到滚动的 linux-sources release，各包定义按那里的地址引用它们；其他分支的只留在 workflow artifact 里。只打 full。
   distro-sources:
     needs: source
