@@ -36,6 +36,8 @@ Status: implemented
 
 独立验收脚本首次在重新安装、强停产品后没有重选输入法，基础输入检查失败时两机的 `default_input_method` 都是系统 `LatinIME`。重新启用并选中水杉后，同一 APK 在 API 28 通过词组上屏与删除，在 API 35 通过词组、繁体显示与上屏、删除和密码框直输；原失败日志保留。
 
+2026-10-31 develop 推送 CI（run 41226129397，5e33ca8407）的 API 35 在「fetch: activity recreation loads voice content while notice JNI is blocked」失败，IME showed []；此前 29 次 API 35 运行这一项都通过，期间 develop 没有改 Android 设置或公告代码。logcat 显示测试注入 `input keyevent 3` 之后，`am start -W` 在 18:31:00.386 先到达，任务仍在前台，结果码 3（直接交给栈顶）；随后 `recreate` 在 .419 排期，系统由 Home 键拉起桌面的 START 直到 .438 才出现，水杉任务被推到后台，重建出的 Activity 停在后台 15 秒，任何窗口里都没有产品节点。`input keyevent` 注入后即返回，桌面启动由系统异步分发，所以测试原先没有保证「先回桌面、再回前台」的顺序。现在在 Home 后先等产品的应用窗口从无障碍窗口列表消失，再 `am start` 回到前台。
+
 ## Consequences
 
 公告获取和关闭可并发，共享层现有公告文件锁继续保护缓存与关闭状态。慢公告不再占用设置读写队列；普通存储调用仍可能有自身的磁盘或锁等待，本改动不承诺所有页面在任意设备上零耗时。
