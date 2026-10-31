@@ -21,6 +21,7 @@ class WaylandWatch(unittest.TestCase):
         self.root = Path(directory.name)
         self.monitor = self.root / "msime-linux-clipboard-monitor"
         shutil.copyfile(ROOT / "scripts" / self.monitor.name, self.monitor)
+        shutil.copyfile(ROOT / "scripts" / "msime_crash_capture.py", self.root / "msime_crash_capture.py")
         self.monitor.chmod(0o700)
         self.options = self.root / "runtime.json"
         self.options.write_text(json.dumps({"preferences_directory": str(self.root)}))

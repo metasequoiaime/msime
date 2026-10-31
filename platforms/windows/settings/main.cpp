@@ -42,6 +42,9 @@
 #include "../../../shared/contracts/windows_ipc.h"
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
+#include "../../common/Telemetry.h"
+#include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
 #include "AccountPageModel.h"
@@ -713,6 +716,9 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
+// 保存后立即刷新持久授权；窗口存活期间另有独立观察器跟随其他进程的修改。
+void RefreshCrashCapture() { msime::telemetry::refresh(); }
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -765,6 +771,7 @@ public:
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
+      RefreshCrashCapture();
       return std::nullopt;
     } catch (...) {
       // 设置已写入，但返回内容读不了：调用方重读已存的设置。
@@ -27489,6 +27496,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
+  msime::crash::install_crash_handlers();
+  std::vector<wchar_t> local(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+  const auto telemetryDirectory = length && length < local.size()
+      ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
+      : std::filesystem::path();
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。
+  msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                          std::nullopt, state_directory(), "settings", true});
+  msime::telemetry::ConsentObserver reporting;
+  std::thread([] { msime::telemetry::flush(); }).detach();
+  std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }

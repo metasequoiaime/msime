@@ -94,6 +94,8 @@ def main() -> int:
     # unequipped. Both registry views are named explicitly instead.
     require("Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64" in script,
             "VC runtime is not read from its x64 registry key")
+    require("Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x86" in script,
+            "VC runtime is not read from its x86 registry key")
     require("EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" in script,
             "WebView2 is not read from the EdgeUpdate client key")
     require(re.search(r"FileExists\([^)]*vcruntime", script, re.I) is None,
@@ -101,8 +103,13 @@ def main() -> int:
     for root in ("HKLM32", "HKLM64"):
         require(re.search(rf"RegQueryStringValue\(\s*{root}\s*,\s*WebView2ClientKey\s*,\s*'pv'", webview) is not None,
                 f"ReadWebView2Version does not read WebView2's pv from the {root} view")
-        require(re.search(rf"VCRuntimeInstalledInView\(\s*{root}\s*\)", installed) is not None,
-                f"VCRuntimeIsInstalled does not consult the {root} view")
+        for key in ("VCRuntimeKey", "VCRuntimeX86Key"):
+            require(re.search(rf"VCRuntimeInstalledInView\(\s*{root}\s*,\s*{key}\s*\)", installed) is not None,
+                    f"VCRuntimeIsInstalled does not consult {key} in the {root} view")
+    require("Result := Result and" in installed,
+            "x64 install does not require both x86 and x64 runtimes")
+    require("#ifndef Windows7X86" in installed,
+            "x86-only Windows 7 install incorrectly requires the x64 runtime")
     require(re.search(r"\bReadWebView2Version\b", setup) is not None,
             "InitializeSetup does not read the WebView2 version")
     require(re.search(r"\bVCRuntimeIsInstalled\b", setup) is not None,
@@ -112,7 +119,7 @@ def main() -> int:
     # which lacks vcruntime140_1.dll and still cannot start the Server.
     require(re.search(r"Minor\s*>=\s*20", view) is not None,
             "VC runtime accepted without requiring 14.20 or newer")
-    require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*VCRuntimeKey\s*,\s*'Installed'", view) is not None,
+    require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*RuntimeKey\s*,\s*'Installed'", view) is not None,
             "VC runtime Installed value is not read")
 
     # A silent install is CI or a fleet deployment; a modal dialog there is a
@@ -128,7 +135,9 @@ def main() -> int:
     require("MB_YESNO" in setup, "prerequisite prompt is not a yes/no choice")
 
     for url in ("https://developer.microsoft.com/zh-cn/microsoft-edge/webview2",
-                "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"):
+                "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist",
+                "https://aka.ms/vs/17/release/vc_redist.x86.exe",
+                "https://aka.ms/vs/17/release/vc_redist.x64.exe"):
         require(url in script, f"missing download page: {url}")
     require(re.search(r"'http://", script) is None,
             "a download page is offered over plain http")

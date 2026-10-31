@@ -2,8 +2,37 @@
 import errno
 import fcntl
 import os
+import signal
 import socket
+import socketserver
 import stat
+
+
+class _StopServing(Exception):
+    """仅在服务循环的安全点退出，不从信号处理器抛出。"""
+
+
+class StoppableUnixStreamServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    stop_requested = False
+
+    def service_actions(self):
+        super().service_actions()
+        if self.stop_requested:
+            raise _StopServing()
+
+    def serve_until_stopped(self):
+        """供独立进程主入口调用；停止处理器持续保护随后执行的资源清理。"""
+        self.stop_requested = False
+
+        def stop(signum, frame):
+            # 主线程可能正持有 Python 的线程注册锁；信号中不能再建线程或获取锁。
+            self.stop_requested = True
+
+        signal.signal(signal.SIGTERM, stop)
+        try:
+            self.serve_forever()
+        except (_StopServing, KeyboardInterrupt):
+            pass
 
 
 def claim_socket(path):

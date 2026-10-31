@@ -17,7 +17,7 @@ Status: implemented
 
 ## Decision
 
-POSIX 崩溃处理函数（`platforms/common/Telemetry.cpp`，Linux 的 IBus 宿主和 Fcitx5 插件共用）在信号来自 `SI_USER`、`SI_QUEUE` 或 `SI_TKILL` 时，在摘要后写明来源：发送者是本进程时写 `(raised by this process)`，否则写 `(sent by <进程名>)`，进程名读 `/proc/<si_pid>/comm`，只接受可打印 ASCII，读不到时写 `another process`。只用 `open`、`read`、`close`、`getpid`，仍然可以在信号处理函数里调用。`si_code > 0` 的路径不变。PRIVACY.md 同步说明。
+POSIX 崩溃处理函数（`platforms/common/CrashRecorder.cpp`，Linux 的 IBus 宿主和 Fcitx5 插件共用）在信号来自 `SI_USER`、`SI_QUEUE` 或 `SI_TKILL` 时，在摘要后写明来源：发送者是本进程时写 `(raised by this process)`，否则写 `(sent by <进程名>)`，进程名读 `/proc/<si_pid>/comm`，只接受可打印 ASCII，读不到时写 `another process`。只用 `open`、`read`、`close`、`getpid`，仍然可以在信号处理函数里调用。`si_code > 0` 的路径不变。PRIVACY.md 同步说明。
 
 不写 pid：服务端分组会掩掉数字，pid 也查不到是谁。进程名是系统里另一个程序的名字，不含用户数据。
 

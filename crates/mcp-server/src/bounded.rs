@@ -68,7 +68,6 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-mcp-data");
     }
 
-    #[cfg(unix)]
     #[test]
     fn open_private_rejects_a_directory() {
         let root = tempfile::tempdir().unwrap();

@@ -161,6 +161,11 @@ jobs:
           rustup target add aarch64-apple-ios-sim
           bash platforms/ios/build-native.sh simulator
           test -f target/ios/simulator/libmsime_host_api.a
+      # 这两个回归直接编译仓库的 iOS 采集器：一个让真实内存故障退出并核对首帧与 Mach-O UUID，另一个编译完整 MetricKit 解析器核对历史模块身份。它们证明采集与解析路径可用，但不把模拟器故障冒充真机系统投递。
+      - name: Verify iOS crash capture and MetricKit parsing
+        run: |
+          python3 scripts/test-apple-crash-fault-frame.py
+          python3 scripts/test-ios-metrickit-frames.py
       - name: Generate Xcode project
         run: |
           mkdir -p build/ios

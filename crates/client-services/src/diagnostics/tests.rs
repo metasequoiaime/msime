@@ -188,6 +188,37 @@ fn crash_records_keep_the_exception_type_and_frames_but_not_the_reason() {
 }
 
 #[test]
+fn native_crash_headers_are_local_and_do_not_replace_diagnostic_summaries() {
+    let epoch = uuid::Uuid::new_v4();
+    let header = format!(
+        "MSIME-CRASH/1 {}",
+        serde_json::json!({"platform":"ios","version":"0.1.0","revision":"synthetic", "run":"", "attempt":"", "arch":"arm64", "component":"application", "consent_epoch":epoch})
+    );
+    let stack = "SyntheticFault: synthetic-private-reason\n0 synthetic.dylib + 64";
+    let line = serde_json::json!({"at":"2026-10-28T00:00:00Z", "message":header, "stack":stack});
+    let parsed = crash_record(line.to_string().as_bytes()).unwrap();
+    assert_eq!(parsed["message"], "SyntheticFault");
+    assert_eq!(parsed["stack"], "0 synthetic.dylib + 64");
+    for local in [
+        "consent_epoch",
+        epoch.to_string().as_str(),
+        "synthetic-private-reason",
+    ] {
+        assert!(!parsed.to_string().contains(local));
+    }
+    // 文件目录与 iOS 适配的 NDJSON 共用相同解析边界。
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("synthetic.crash");
+    std::fs::write(&path, format!("{header}\n{stack}")).unwrap();
+    let parsed_file =
+        crash_file_record_file(File::open(path).unwrap(), std::time::SystemTime::now()).unwrap();
+    assert_eq!(parsed_file["message"], parsed["message"]);
+    assert_eq!(parsed_file["stack"], parsed["stack"]);
+    let invalid = serde_json::json!({"at":"2026-10-28T00:00:00Z", "message":"MSIME-CRASH/1 {}", "stack":stack});
+    assert!(crash_record(invalid.to_string().as_bytes()).is_none());
+}
+
+#[test]
 fn a_missing_source_is_an_empty_section() {
     let directory = tempfile::tempdir().unwrap();
     let mut request = request(
@@ -218,6 +249,9 @@ fn the_configuration_snapshot_is_redacted_inside_the_zip() {
     preferences.voice_input.asr_token = "voice-secret".into();
     preferences.ai_assistant.token = "ai-secret".into();
     preferences.tencent_tmt.secret_key = "tencent-secret".into();
+    let store = crate::preferences::PreferencesStore::new(directory.path());
+    let consent = store.usage_reporting_consent().unwrap().unwrap();
+    preferences.usage_reporting_consent = Some(consent);
     save_preferences(directory.path(), preferences);
     let destination = directory.path().join("bundle.zip");
     let mut request = request(
@@ -258,6 +292,8 @@ fn the_configuration_snapshot_is_redacted_inside_the_zip() {
     assert!(!config.contains("voice-secret"));
     assert!(!config.contains("ai-secret"));
     assert!(!config.contains("tencent-secret"));
+    assert!(!config.contains("usage_reporting_consent"));
+    assert!(!config.contains(&consent.epoch.to_string()));
     assert!(config.contains(crate::preferences::REDACTED));
 }
 

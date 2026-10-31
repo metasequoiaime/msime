@@ -7,6 +7,8 @@ mod candidates;
 mod cli;
 mod community;
 mod config;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+mod crash_reporting;
 mod diagnostics;
 mod plugin_community;
 mod plugins;
@@ -28,6 +30,15 @@ use std::process::ExitCode;
 const ARGUMENTS_READ_LIMIT: u64 = 8 * 1024 * 1024;
 
 fn main() -> ExitCode {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        crash_reporting::run_main(run)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    run()
+}
+
+fn run() -> ExitCode {
     // Before the runtime starts any thread: on macOS and Linux the offset cannot be read once the process has more than one.
     diagnostics::remember_local_offset();
     let parsed =
@@ -111,7 +122,11 @@ fn main() -> ExitCode {
             config,
             keys,
             limit,
-        }) => return candidates::run(&config, keys, limit),
+        }) => {
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            let _reporter = crash_reporting::start(&config);
+            return candidates::run(&config, keys, limit);
+        }
         Ok(config::Command::Session(config)) => (config, Some(cli::Action::Session)),
         Ok(config::Command::GetConfig { config, keys, json }) => {
             (config, Some(cli::Action::GetConfig { keys, json }))
@@ -144,6 +159,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    let _reporter = crash_reporting::start(&config);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -45,87 +45,74 @@ public final class TelemetryHandlerSmoke {
         RuntimeException error = new RuntimeException("first line\nsecond line", cause);
         String record = Telemetry.crashRecord(error);
         String summary = record.substring(0, record.indexOf('\n'));
-        check(summary.equals("java.lang.RuntimeException: first line"), "summary is the first line only: " + summary);
-        check(record.contains("Caused by: java.lang.IllegalStateException: inner"), "causes are kept");
+        check(summary.equals("java.lang.RuntimeException"), "summary is the first line only: " + summary);
+        check(record.contains("Caused by: java.lang.IllegalStateException"), "causes are kept");
         check(record.contains("at app.msime.android.core.TelemetryHandlerSmoke.main("), "frames are kept");
         check(Telemetry.firstLine("a\r\nb").equals("a"), "CRLF first line");
 
         Path root = Files.createTempDirectory("msime-telemetry-");
+        java.lang.reflect.Field crashDirectory = Telemetry.class.getDeclaredField("crashDirectory");
+        crashDirectory.setAccessible(true);
+        java.lang.reflect.Method safe = Telemetry.class.getDeclaredMethod("isSafeSessionCrashRecord", java.io.File.class);
+        safe.setAccessible(true);
         try {
             Path outside = Files.createDirectory(root.resolve("outside"));
-            Path linked = root.resolve("telemetry-crashes");
+            Path crashRoot = Files.createDirectory(root.resolve("telemetry-crashes"));
+            crashDirectory.set(null, crashRoot.toFile());
+            check((Boolean) safe.invoke(null, crashRoot.resolve("synthetic.crash").toFile()),
+                "reserved record directly inside a real crash directory is accepted");
+            check(!(Boolean) safe.invoke(null, outside.resolve("synthetic.crash").toFile()),
+                "outside record is rejected");
+            Path linkedRecord = crashRoot.resolve("linked.crash");
+            Files.createSymbolicLink(linkedRecord, outside.resolve("record"));
+            check(!(Boolean) safe.invoke(null, linkedRecord.toFile()), "linked record is rejected");
+            Path linkedParent = crashRoot.resolve("session-link");
+            Files.createSymbolicLink(linkedParent, outside);
+            check(!(Boolean) safe.invoke(null, linkedParent.resolve("synthetic.crash").toFile()),
+                "replaced session parent is rejected");
+            Path linked = root.resolve("linked-crashes");
             Files.createSymbolicLink(linked, outside);
-            java.lang.reflect.Field crashDirectory = Telemetry.class
-                .getDeclaredField("crashDirectory");
-            crashDirectory.setAccessible(true);
-            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
-                .getDeclaredField("sessionCrashRecord");
-            sessionCrashRecord.setAccessible(true);
-            java.lang.reflect.Method writeCrashRecord = Telemetry.class
-                .getDeclaredMethod("writeCrashRecord", Throwable.class);
-            writeCrashRecord.setAccessible(true);
             crashDirectory.set(null, linked.toFile());
-            sessionCrashRecord.set(null, null);
-            writeCrashRecord.invoke(null, new RuntimeException("synthetic"));
+            check(!(Boolean) safe.invoke(null, linked.resolve("synthetic.crash").toFile()),
+                "linked crash directory is rejected");
             try (Stream<Path> children = Files.list(outside)) {
-                check(children.findAny().isEmpty(),
-                    "crash records must not follow a telemetry directory symlink");
+                check(children.findAny().isEmpty(), "rejected paths leave the outside directory unchanged");
             }
         } finally {
-            java.lang.reflect.Field crashDirectory = Telemetry.class
-                .getDeclaredField("crashDirectory");
-            crashDirectory.setAccessible(true);
             crashDirectory.set(null, null);
-            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
-                .getDeclaredField("sessionCrashRecord");
-            sessionCrashRecord.setAccessible(true);
-            sessionCrashRecord.set(null, null);
             try (Stream<Path> paths = Files.walk(root)) {
-                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
-                    try { Files.deleteIfExists(path); }
-                    catch (Exception cleanupError) { throw new IllegalStateException(cleanupError); }
-                });
+                for (Path path : (Iterable<Path>) paths.sorted(java.util.Comparator.reverseOrder())::iterator)
+                    Files.deleteIfExists(path);
             }
         }
 
-        Path sessionRoot = Files.createTempDirectory("msime-telemetry-session-");
+        // 故障线程即使碰到另一线程持有生命周期锁，也必须交还系统异常处理器。
+        java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            synchronized (Telemetry.class) {
+                held.countDown();
+                try { release.await(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            }
+        });
+        holder.start();
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch returned = new java.util.concurrent.CountDownLatch(1);
+        Thread fatal = new Thread(() -> {
+            try {
+                java.lang.reflect.Method write = Telemetry.class.getDeclaredMethod("writeCrashRecord", Throwable.class);
+                write.setAccessible(true);
+                write.invoke(null, new RuntimeException("synthetic"));
+            } catch (Throwable errorInTest) { failure.set(errorInTest); }
+            finally { returned.countDown(); }
+        });
         try {
-            Path outside = Files.createDirectory(sessionRoot.resolve("outside"));
-            Path crashRoot = Files.createDirectory(sessionRoot.resolve("telemetry-crashes"));
-            Path linkedParent = crashRoot.resolve("session-link");
-            Files.createSymbolicLink(linkedParent, outside);
-            java.lang.reflect.Field crashDirectory = Telemetry.class
-                .getDeclaredField("crashDirectory");
-            crashDirectory.setAccessible(true);
-            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
-                .getDeclaredField("sessionCrashRecord");
-            sessionCrashRecord.setAccessible(true);
-            java.lang.reflect.Method writeCrashRecord = Telemetry.class
-                .getDeclaredMethod("writeCrashRecord", Throwable.class);
-            writeCrashRecord.setAccessible(true);
-            crashDirectory.set(null, crashRoot.toFile());
-            sessionCrashRecord.set(null, linkedParent.resolve("session.crash").toFile());
-            writeCrashRecord.invoke(null, new RuntimeException("synthetic session"));
-            try (Stream<Path> children = Files.list(outside)) {
-                check(children.findAny().isEmpty(),
-                    "session crash records must not follow a replaced parent symlink");
-            }
-        } finally {
-            java.lang.reflect.Field crashDirectory = Telemetry.class
-                .getDeclaredField("crashDirectory");
-            crashDirectory.setAccessible(true);
-            crashDirectory.set(null, null);
-            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
-                .getDeclaredField("sessionCrashRecord");
-            sessionCrashRecord.setAccessible(true);
-            sessionCrashRecord.set(null, null);
-            try (Stream<Path> paths = Files.walk(sessionRoot)) {
-                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
-                    try { Files.deleteIfExists(path); }
-                    catch (Exception cleanupError) { throw new IllegalStateException(cleanupError); }
-                });
-            }
-        }
+            check(held.await(5, java.util.concurrent.TimeUnit.SECONDS), "lifecycle lock holder ready");
+            fatal.start();
+            check(returned.await(2, java.util.concurrent.TimeUnit.SECONDS), "fatal path does not wait for lifecycle lock");
+            check(failure.get() == null, "inactive fatal path returns normally");
+        } finally { release.countDown(); holder.join(5000); fatal.join(5000); }
         System.out.println("Android telemetry crash handler and record limits passed");
     }
 }

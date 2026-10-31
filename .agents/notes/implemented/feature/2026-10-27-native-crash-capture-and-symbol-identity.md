@@ -1,0 +1,276 @@
+# Agent Note: 自有宿主的独立崩溃采集和符号身份
+
+Status: implemented
+
+## Problem
+
+匿名遥测的共享队列不等于所有进程都有采集入口。Android 原生致命信号、桌面设置与面板、iOS App 信号、鸿蒙设置应用的系统诊断存在缺口；Windows x86 的异常只有直接故障帧。旧报告也没有足以区分同版本多次构建的身份，Linux、Android、HarmonyOS 和 Win7 缺少对应的发布符号归档。
+
+## Decision
+
+沿用共享遥测的同意开关、匿名安装身份、队列和上传协议。`capture_only` 为独立应用准备记录路径与构建头，不建立输入会话；输入法宿主仍持有自己的 `session_id`。崩溃摘要只留类型、信号和错误码，不上传异常消息或原始系统日志。构建身份的格式、原件确认删除与会话归属由[会话归属笔记](../../implemented/bug-fix/2026-10-24-telemetry-session-ownership.md)持有。
+
+### macOS 设置与 MCP 进程的系统目录
+
+共享设置与 MCP 进程原来直接把 `HOME` 与 `Library/Application Support/MSIME` 拼接，输入法和语音辅助进程则通过 Foundation 的 `NSApplicationSupportDirectory` 查询。系统指定用户目录或沙箱路径与 `HOME` 不同时，这些进程会读写另一套队列，既不能正确代收，也可能由独立偏好的授权影响真实用户队列。
+
+两者通过 `host-macos` 的同一原生桥改用相同 Foundation 查询，保留 `MSIME[/<edition>]/telemetry` 布局、原安装身份及偏好目录的独立归属。解析失败或不是绝对路径时停采，不回退其他目录。MCP 因此新增仅 macOS 目标的 `host-macos` 依赖；原生桥仅返回进程级只读字节，Rust 立即复制成路径；目录解析不创建文件。以 `CFFIXED_USER_HOME` 在独立子进程中验证系统路径，不改写 `HOME`。这项修复不等于共享设置产品的实际故障、后台收件及独立符号验收已经通过。
+
+直接把队列迁到偏好目录的最强理由是隔离简单，且配置和队列能一同搬迁；但会改变现有宿主的队列与匿名安装身份，词库迁移也不应迁移遥测，所以不采用。为验收新增任意环境变量覆盖队列也能绕过当前问题，但不会修复系统目录规则不一致，因此不采用。
+
+### 采集边界
+
+模块快照按正常路径实际枚举到的数量扩容，持有配置锁期间准备和替换，信号回调只读已有存储，不分配内存或访问加载器。ELF 的分配失败在枚举回调内部转为失败返回，不让异常穿过加载器；不完整快照不启用采集。HarmonyOS API 22 空白模拟器中的真实产品进程加载 732 个模块，自有 NAPI 与 Rust 库分别排在第 630、632 位，旧的 512 项固定数组使两者都变成 `<unknown>+绝对地址`。不能把 LLDB 的实时地址解析冒充后台可用的独立符号身份。`test-crash-many-modules.py` 实际加载 620 个不同文件的动态库，在最后一库触发保护页故障，核对原致命处置、首帧模块名、构建身份和函数内的相对偏移；macOS 上旧实现被该回归拒绝，修复后在 macOS 与 Linux 均通过。修复后的真实 HarmonyOS App 在隔离后台返回两个自有库的相对偏移与 build-id，独立符号包还原到 `consent.rs:105`、`client_napi.cpp:303`，错误身份拒绝；完整设备边界及授权对照见[全平台提案的 API 22 验收](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#harmonyos-api-22-应用的真实故障闭环)。Apple 共同记录器、iOS C 信号真实故障首帧及独立符号还原专项也通过。
+
+- `platforms/common/CrashRecorder` 独立于 Host API，在正常路径预备路径、构建头和模块映射。信号回调使用有界静态缓冲区，只尝试一次配置锁，先保存摘要和故障帧，再尽力展开，不联网。保留第一份记录，并交还原有处理程序；关闭时先解除采集。POSIX 写入先在 `.writing` 暂存名上取得非阻塞独占文件锁，再以不覆盖的重命名发布 `.crash` 文件名；Apple 使用 `RENAME_EXCL`，Linux/Android 使用 `renameat2(RENAME_NOREPLACE)`。读取端只在同一文件锁可取得时读入；展开栈期间不会把半份记录提前确认删除，写入进程再次故障时内核释放锁，已经落盘的摘要仍可收件。Windows 沿用原生 `CreateFile` 不共享打开的保护；空文件不生成未知崩溃。
+- POSIX 记录的文件锁持续持有到前任信号处理器作出处置。前任返回且没有待送达的同号默认致命信号时，本次信号才视为已由它接管：先清空仍持锁的 inode，再删除文件名和关闭描述符，防止已经打开旧 inode 的收件进程补发误报。只重置本次取得的采集状态，不能删除已有首份记录；前任返回后恢复包装器，它显式更换回调或恢复系统默认处置时，下一次按新处置委托，后续真实故障仍可采集。前任不返回或默认动作结束进程时，由内核释放文件锁，记录保留。这不把所有外部信号都排除：真正结束进程的外部信号仍保留来源与崩溃记录。iOS 独立 C 记录器采用相同的持锁撤销和后续委托，并直接传递原始 `siginfo_t/ucontext`，不能用再次 `raise` 得到的新上下文冒充原故障。直接调用一次性前任时，先按已取到的 `SA_RESETHAND` 恢复默认处置；Linux 旧实现被真实两次信号回归拒绝，修后通过。Apple 的 `sigaction` 查询不返回该标志，本机无记录器的独立探针也复现，因此 Apple 专项明确报告此项未执行，不能声称保留了系统未暴露的一次性属性；[XNU 的返回字段实现](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)也没有复制 `ps_sigreset`。
+- Windows x86 通过 `ReadProcessMemory` 读取有界 EBP 链，x64 与 ARM64 使用系统展开表。Win7 构建保留帧指针。Server、现代原生设置、Win7 设置与面板以及桌面公共面板分别准备采集；独立界面不增加输入会话分母。
+- Windows 看门狗与 Windows/Linux 准备程序复用 `CaptureOnly`：仅由共享 ABI 准备独立记录，故障路径不联网，也不创建输入会话。主线程安装原生处理器和备用栈，观察线程每 500 ms 重新读取运行时偏好目录和真实共享同意，配置不可读或损坏即解除采集，显式关闭清理待发记录，重新开启取得新记录身份。读取偏好本身会创建目录和锁，因此准备程序只能在独占建立状态目录后启动采集，观察器也不为尚不存在的偏好目录做初始化。首次准备时还没有状态版本标记，辅助采集的 `Host.edition` 必须使用包内版本，并透传到每一次 `telemetry_consent`：否则持续授权的首次落盘会抢先生成 full 默认偏好，后续正式准备因修订号已非零而保留错误方案。Windows、Linux 的版本适配和 macOS 语音 helper 各自传入实际版本；未指定时仍使用已有状态标记。`begin`、`flush` 和故障头不增加版本选择字段，版本仅用于首次偏好默认值。Windows CRT 的 abort 不保证经过 SEH 过滤器，未捕获异常处理器先记录不含消息的异常类型，再交还原处理器；正常退出与被上层捕获的异常均停止观察并恢复处理器。自有进程只持有一个此类观察器，不与输入会话包装器共用。
+- Windows TSF 的进程外 WER helper 只认领自身 TSF 与 Host API 模块，并沿用宿主原有处置；观察线程在 `telemetry_begin` 回包后再次核对同一持续授权代次，撤回或换代发生在回包与最终武装之间时丢弃旧路径和构建头。专项以发布前竞态屏障验证旧身份不会短暂武装，再验证新代次能够恢复采集；这个复核不能替代真实编辑器、ARM64 系统和后台收件验收。
+- WER helper 的 x86 回调在远程目标进程中沿有界 EBP 链补写返回帧；每一项都经 `ReadProcessMemory` 读取，回环、倒退、超长或不可读链立即停止，外部宿主帧只用于推进链而不写入记录。x64/ARM64 的远程展开仍只保存 WER 提供的直接故障帧，不能把本地进程的展开器用于 helper。
+- Linux 的词库、云词库、云剪贴板、在线、翻译、表情、手写、语音、剪贴板历史/采集与 X11 监视工具分别持有独立 `CaptureOnly`。本地语音 helper 通过共享的 `HelperCrashCapture` 生命周期契约接入，只有平台安装包启用适配，独立语音库构建不猜测产品身份。适配库只链接共享 ABI 与原生采集器，不依赖 IBus 主循环；新增依赖共享库的剪贴板程序保留安装 RPATH，本地语音 helper 与 Host API 同目录用 `$ORIGIN`。配置优先读父进程明确的 `MSIME_CLIENT_HOST_OPTIONS`，否则接受唯一的 IBus/Fcitx5 覆盖或宿主已有的 XDG/系统定位规则；两个框架覆盖冲突时停用。损坏或相对路径不退回默认同意，`clipboard-capture` 以实际操作的偏好目录为准。帮助命令不启动采集，不主动联网、不产生输入会话。
+- Linux Python 在线/语音 provider、两个 HTTP 工作进程、剪贴板 monitor 与事件进程、setup 和 provider-session 八个入口通过安装包内的 `libmsime-python-crash.so` 复用同一原生采集器。生成的相对路径与版本身份随安装包分发，不按 Python 解释器版本归属，不借助请求字段猜测同意；在线服务沿用实际 `--config-directory`，语音沿用运行时配置，剪贴板沿用实际 options 文件。HTTP 工作进程显式继承父进程选择。未捕获主线程异常经 `sys.excepthook` 保留固定摘要及已知产品文件名、函数名、行号，拒绝异常文本、局部变量和绝对路径；已捕获请求错误、超时和正常退出不算崩溃。帮助入口不启动采集，退出恢复处理器并停止同意观察线程。setup 的 `--status`、`--list-downloads` 与跨版本委托不初始化采集；配置操作只按实际 `--state`（注册/注销使用默认状态目录）里的 options 解析同意，不能因显式目录尚未配置而退回另一份环境配置。provider-session 沿用所启动服务的同意来源：在线服务读取显式 XDG 偏好，语音服务的私有配置只保存服务参数，同意仍由运行时 options 指向的共享偏好决定，exec 后由子进程重新准备自己的组件身份，正常 exec 不产生启动器崩溃。原生桥提供只读武装状态，新增配置回归通过请求这份实际状态同步观察器后再触发真实故障，不以固定睡眠假定轮询完成；它不修改同意、不强制准备记录。扩展套件首轮耗时约 77 秒，CTest 上限相应调整为 180 秒。采集模块缺失不破坏脚本原有功能；没有安装原生桥与版身份的独立复制脚本不采集。
+- Android 的 App 和 IME 分别准备独立捕获和输入会话，JNI 接入原生记录器。API 30 以上的系统退出报告使用 `v2` 短摘要，只认领自身留下的持续同意 epoch 与当前持久起点之后、非未来的退出记录，保留旧版本，ANR 和系统处置独立归属。`DiagnosticConsent` 在应用 files 根目录独立保存随机 epoch 和起点，不随共享队列清理；JVM 内锁再套进程文件锁，将生成身份、系统补录与撤回清空串行。关闭时同步撤销标记并清空队列，重开创建新 epoch；进程重启沿用尚未中断的 epoch。旧 `v1` 摘要没有持续同意证据，因此跳过。系统的 128 字节上限不允许截断版本或 UUID，身份过长时清空摘要，现场故障仍独立采集。App 与 IME 各自持有独立于网络工作线程的 500 ms 同意观察器，隐藏的键盘仍响应另一进程保存的偏好。明确关闭同步停采、撤销 epoch 和清空队列；配置不可读只暂停采集，恢复同一 epoch/偏好目录时沿用已准备的捕获，不重复创建输入会话。重开、新 epoch 或偏好目录改变时重新准备身份；稳定开启只读，不重复 begin。正常结束取消观察并使排队准备失效，只结束事先保存的本次 session id；重复 start 不重新准备，但再次打开 App 窗口仍排队 flush，保留原有的待发队列刷新入口。发送请求同样拒绝损坏 options。进程一旦见过 options 文件，文件消失也暂停采集，不将已撤去的配置重新当作首次安装的默认开启；只在从未有配置的首次准备阶段沿用原产品默认值。Java 只写异常类型与栈，不写异常消息；异常回调带预先分配的记录 id 与构建头，经共享 Rust 的无队列锁分支同步写完、同步磁盘后原子发布，不能直接创建最终文件让其它进程读到半份记录。Java 故障路径读取原子发布的不可变捕获快照，不等待 Telemetry 生命周期锁；以 JVM tryLock 和进程 tryLock 核对同一 epoch/偏好目录及实际同意，锁忙或身份失效即放弃，不回退为随机独立报告。
+- iOS App 与键盘各自持有独立的 `CaptureLifecycle`，每 500 ms 在工具队列重读共享偏好。缺字段仍按产品默认开启；读取失败、非 JSON 布尔值与共享目录缺失不扩大为同意。无法确定共享偏好目录时直接停止 begin/flush 请求，不把它当作明确关闭而清除已有记录。临时读失败解除武装并保留当前身份，明确关闭清队列并丢弃身份，重开再准备。App 设置页撤回立即清掉内存快照和 C 信号路径，代次阻止已在读盘的旧准备操作重新武装。App 异常处理器取当前快照，不复用启动时的身份，也不在缺少身份时随机生成报告；锁忙时放弃。键盘正常收起与下一次展示按生命周期队列顺序处理，只结束本进程对应的会话；网络发送独立排队，初次补录先于发送，网络阻塞不延迟收起或同意观察。
+- Apple 信号入口先保存系统上下文的故障指令：macOS 共同记录器和 iOS C 记录器均在正常配置路径预备模块加载基址、可执行区间与 UUID，信号路径按故障地址输出文件名、模块相对偏移和 UUID，不查询动态加载器或写出设备目录；先写直接故障帧，再尽力展开处理器栈。arm64 使用系统的线程状态访问宏，x86_64 使用 RIP；不能让采集器或展开器占据业务首帧。
+- macOS 本地语音 helper 复用 `HelperCrashCapture`，从实际可执行文件所属的 `Contents/MacOS` 定位输入法 bundle，校验 edition、输入法与设置 bundle 身份；未打包或身份损坏时不回退 full。读取该 bundle 的原始版本、嵌入运行时配置或对应设置状态目录，显式父配置优先；复用宿主的有界配置读取，拒绝相对路径、符号链接与坏 JSON。每次同意刷新都在自动释放池内执行，不创建输入会话；普通帮助/参数错误在创建采集器之前退出。
+- macOS 输入法复用共用 `Telemetry` 会话生命周期与独立 `ConsentObserver`，持续授权每 500 ms 读取，发送仍保留原来的三小时间隔；关闭、配置暂时不可读与同代次恢复不再依赖发送队列。缺少实际偏好目录时暂停，偏好字段缺省仍使用产品默认开启。Objective-C 异常经 `record_exception` 使用共用快照，保留异常名和原始抛出点栈，不取 reason；锁忙、未武装或没有会话时放弃，不随机补身份。启动发布与停止由宿主普通路径锁串行；正常退出停止观察，不等待网络。SIGTERM 仍最多等两秒排入正常会话，然后按原信号结束；原异常处理程序保持串接。Tauri 设置与公共面板继续独立采集，不计输入会话。
+- 桌面 `msime-mcp` 单独链接同一原生记录器，在解析出实际命令后、创建异步运行时和候选查询之前准备 `mcp` 组件的独立捕获。帮助与版本查询不启动采集。长驻服务器每 500 ms 重新读取运行时选项及实时偏好；配置不可读时停用，显式关闭时清空本版本待发记录。MCP 不调用遥测网络传输，主入口未处理的 Rust panic 只写固定类型、源码文件名与行列后继续原有展开退出；panic hook 仅在本线程的固定缓冲区保留源码位置，不读 payload、不写文件，工具内捕获和 Tokio 接管的 panic 不认作进程崩溃。同意观察线程若意外 panic，先解除采集，避免留下不再响应关闭操作的记录器。与原生宿主共用按版本划分的遥测目录，不跟随可搬迁的词库目录；MCP 测试子进程以 `CFFIXED_USER_HOME`、`LOCALAPPDATA`、`XDG_STATE_HOME` 选择合成根目录，不改写 `HOME`。
+- MCP 的目标平台链接由现有 Linux 设置应用和 Windows 原生设置 CI 门禁补验，两者运行该包的 Clippy、原生故障子进程和协议测试；不能只在 macOS 上编译便声称另外两个平台可用。
+- MCP 写槽的一秒间隔从写入开始计算，不从响应或下一次进程启动计算。共享写槽在取得文件锁、读取持久时间戳后，通过私有时钟依赖读取时间；生产始终使用系统时钟。固定时钟单测经过完整真实文件路径，覆盖独立配置的 999 ms 拒绝、拒绝不改时间戳且释放锁、1000 ms 允许和时钟回拨。stdio 负责真实操作往返与跨进程状态持久化，按锁文件时间戳等到期，不假设启动、磁盘写入和读回能在一秒内完成。
+- iOS App 与键盘共享 C 信号记录器，预计算构建头与路径成对发布，MetricKit 保留系统给出的原始版本；卡死独立归属。共享偏好在同一事务中保存持续同意的 epoch 与起点，关闭时移除、重开换代；MetricKit 只给批次时间范围，跨越该起点的整批跳过，不能用当前同意追认历史诊断。C 文件放在 `SharedUI/core`，由 XcodeGen 的共享源组加入每个使用方，避免跨源组路径合并。
+- HarmonyOS 的应用与键盘均监听 `APP_CRASH` 和 `APP_FREEZE`。只读取标准异常类型、原生帧、原始版本、进程号和时间；卡死不增加 `session_crash`，不读取 hilog、页面历史或外部日志。系统诊断的稳定文件身份同时作为共享层的 `diagnostic_id`，重送不产生随机新事件。每次回调重新读取共享同意；持久化连续同意的起点，关闭时删除，缺标记或发生时间早于本轮同意的历史诊断不补录。
+
+### macOS 原生回退设置入口
+
+输入法二进制以 `--preferences` 启动原生回退设置窗口时，独立分支在输入法会话初始化前返回，先前遗漏了该进程的致命故障。入口在显示窗口前使用 `MSIMESettingsCrashReportingStart`，与输入法共用真实偏好目录解析、500 ms 持续授权观察、Objective-C 未捕获异常与信号记录以及后台补报；组件为 `settings-native`，共享 `capture_only` 协议保证没有输入会话标记、`session` 或 `session_crash`。正常关窗与 SIGTERM 仅停止独立采集。输入法正常入口仍使用 `input` 组件与自己的会话，不改变共享 React 设置应用的归属。
+
+真实 `UsageReporting.mm` 子进程回归覆盖独立设置的内存故障、Objective-C 抛出点栈、正常退出、撤回后故障不记录及重新开启后使用当前代次；补录复用真实 Rust 队列，仅网络被测试桩替代。该专项尚待执行，不能算实际产品窗口、后台或源码行验收完成。
+
+### HarmonyOS 手机键盘的无共享授权边界
+
+`4d179327a4` 的 arm64 正式 HAP 已在空白 API 22 手机模拟器安装，原产品键盘实际按键、候选与“你好”上屏通过。真实系统共享目录在 App 和键盘均不可用；App 的私有权威授权开启也不能代替键盘的共享只读授权。一次外部 SIGSEGV 的系统记录确认键盘 PID 与 `SIGSEGV(SI_USER)`；故障与重建前后键盘未建遥测目录，App 未误记该故障或输入会话。收起并重新聚焦原编辑框、核对真实输入连接后，原键盘再次上屏，框内严格为“你好你好”。这是无授权时拒绝采集的实际对照，不是键盘已授权故障到后台的闭环；API 21、真机共享沙箱、ArkTS 与 HiAppEvent 系统投递仍须单独验收。
+
+该轮没有改动产品源码。包内双模块 build-id 与独立符号清单相等，正式重建后的未剥离模块哈希与最初正式产物相等，正式 ABI 的测试目标拒绝对照在设备上通过。测试构建缺特性、3 GB 数据盘安装不足、信号夹具误判空输出及重启输入缺真实连接的失败均保留；空白键盘沙箱内的默认本机学习仅含合成输入，最终随一次性设备删除，没有向账户或生产传输。合成授权、系统输入法、产品进程、临时探针、模拟器数据盘及源码哈希均完成收尾。完整边界见[手机键盘验收](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#harmonyos-api-22-手机键盘的实际输入与共享目录边界)。
+
+### 符号归属
+
+Linux 官方容器包保持 `Release`，通过 `MSIME_RELEASE_CRASH_SYMBOLS=ON` 在该配置下额外加入 `-g1`，不改变默认优化参数。发行版源码定义继续采用自身的调试分包配置；打包一致性契约将该官方归档开关列为明确差异，同时要求官方包保持 Release 且开关为 ON。此前直接切为 `RelWithDebInfo` 会把 GCC 的 `-O3` 降成 `-O2`，这不是增加符号所必需的；开发构建与未开启该选项的其他渠道保持各自配置。
+
+符号与授权专项由具备真实依赖的入口负责执行：macOS 原生 CTest 跑完整 Clang/Swift/Rust 符号用例，Linux 原生 CTest 跑 Windows 辅助配置来源的可移植 C++ 回归；Android 与 HarmonyOS 的 `build-native.sh` 在构建所选 ABI 前，强制执行该 ABI 的 ELF 身份、归档和源码还原回归。`scripts/run-checks.sh` 的 `special_checks` 明确登记这些所有者。原生入口传入 `--require-tools`，缺工具直接失败，不把 `skipped` 当成平台验证。鸿蒙的 PR 逻辑作业没有 NDK，此回归由真实原生构建入口（包含发布构建）执行，不宣称已有新的 PR 鸿蒙 NDK 作业。没有触发发布或修改发布工作流。
+
+ELF 帧保存模块名、减去加载偏移后的链接地址和 GNU build id；PIE 与共享库通常表现为模块内偏移，非 PIE 的 `ET_EXEC` 保留链接虚拟地址，供 `addr2line` 直接使用。Mach-O 帧保存模块偏移和 UUID。Android、Linux 和 HarmonyOS 构建保留原始调试行与 build id，打包时另行裁剪安装副本。`crash-symbols.py` 归档本产品模块，记录版本、提交、构建运行、重跑编号、架构、模块 build id 与 SHA-256；还原前核对哈希和 build id，拒绝同名异构建模块。主程序快照没有名字时会写成 `<executable>`，还原工具只按 build id 唯一认领清单里的模块；同一身份出现多个候选时仍拒绝。Linux 源码包携带固定提交，离线构建仍有来源身份。Android 的 Rust 链接参数与 JNI 一样显式使用 `--build-id=sha1`；NDK 的 clang 驱动不会为 Rust 的最终共享库补上该参数，不能只给 JNI 加身份而让 Host API 无身份。保持既有 16KB 页对齐和发布调试行配置，不用放宽归档器的身份要求掩盖缺失。
+
+鸿蒙同源原生构建暴露相同的 Rust ELF 身份缺失：NAPI 已有 build-id，Host API 的 clang 驱动仍不会自动添加。`build-native.sh` 使用 `cargo rustc` 只为最终 Host API crate 显式传递 `-C link-arg=-Wl,--build-id=sha1`，避免仅修链接参数却改变所有未修改依赖的指纹；调试行与严格共享链接保持。`scripts/test-harmony-crash-symbols.py` 读取生产最终链接参数，以已安装的实际 OHOS Rust target 和 NDK 编译合成 cdylib，检查 40 位 build-id、归档和函数/源码第三行还原。本机 aarch64 目标的身份、归档与源码行回归已通过；临时移除生产 build-id 参数后，归档器按预期拒绝 ELF，恢复脚本后差异检查通过。完整同源库和 HAP 的结果单独记录，不能用小型合成模块替代。
+
+Win7 的归档脚本分别收集 x86、x64 的配套 PE 和 PDB，任一必需文件缺失或为空就失败。发布 workflow 同时保留九十天 artifact；只有维护者手动选择发布时才推到平台滚动符号 release。本次不触发发布。现代 Windows、macOS 的已有滚动符号和 iOS 的 dSYM 保留机制继续使用。
+
+macOS 发布构建显式为 Rust、C++/Objective-C++ 和 Swift 保留源码行，归档四个自有可执行文件及 `MSIMEBackend.dylib`。Rust 和 Swift 单步编译链接会在临时对象消失前产生原始 dSYM；universal 构建按分片归并这些原件，不能对合并后的已失去对象的程序再次运行 `dsymutil`。CMake 保留的原生对象仍可用于生成输入法和语音辅助程序的 dSYM。`crash_symbols.py` 对每个架构核对 UUID 和非空源码行表，缺架构、错误构建或空行表都中止打包；清单保留原始版本、源码提交、构建运行及 DWARF 哈希。清单和客户端构建头一致，显式采用 `MSIME_BUILD_REVISION` 与 `MSIME_BUILD_RUN`，缺省时分别回退当前提交和 `GITHUB_RUN_ID`，重跑编号使用 `GITHUB_RUN_ATTEMPT`。向已有符号目录追加模块之前先核对版本、提交、运行与重跑身份，不允许多个构建共用一份清单；身份冲突时保留原清单与原 DWARF，不能先替换模块再拒绝。符号归档不随版本安装包分发。
+
+实际完整包进一步暴露 `ditto -c -k --keepParent` 的符号 ZIP 编码缺陷：中文 `水杉输入法.dSYM` 路径没有 UTF-8 标记，标准 ZIP 读取器按 CP437 得到乱码，按清单查找 DWARF 因此失败。符号包改由 `crash_symbols.py pack` 使用标准 ZIP UTF-8 路径，保留原目录与逐字节 DWARF，在同目录临时文件中完成后再原子替换，不提前删除上一包。符号目录只接受实际目录和普通文件，拒绝链接与特殊文件，也不能将输出写回输入树；失败时上一份归档保持。此项只改变离线符号归档，安装包、应用签名和 Sparkle 更新包仍沿用原流程。
+
+中文模块回归使用真实 Clang/dSYM，按清单的实际中文路径打开标准 ZIP，再经标准解压、原 UUID 与归档哈希还原到合成源码行；同时验证不安全链接被拒绝且旧包不变。将实际旧 `ditto` 调用替入同一回归时，UTF-8 标志断言失败。完整 DMG 的首轮自定义只读挂载位置被构建机拒绝，默认挂载路径可用；随后原符号 ZIP 的中文路径核对实际失败，不能将该轮记为完整包符号验收通过。修复后复用同源原始 dSYM 重归档，再核对实际 DMG，不重编未改动的产品二进制。 重归档后的实际 universal DMG 核对已退出 0：设置应用、输入法、`msime-mcp`、`msime-voice-local` 与 `MSIMEBackend.dylib` 五个模块的双架构 UUID、DWARF 哈希、源码行表和包内签名均匹配，默认只读挂载已卸载；DMG 未安装、公证或发布。
+
+### iOS 系统栈的结构与模块身份
+
+iOS 的 MetricKit 栈解析同时接受 [Apple 文档](https://developer.apple.com/documentation/metrickit/mxcallstacktree/jsonrepresentation()/)中的 `callStackTree` 外层与直接 `callStacks` 树。帧保留系统报告中的 `binaryUUID`，规范化为与原生记录器相同的 `[id 0x…]` 后缀；不能用当前已升级进程的模块 UUID 推测历史构建。缺失或损坏 UUID 仍保留原模块名与偏移，不伪造身份；调用方路径只取文件名。故障线程优先、嵌套调用顺序与帧数上限保持。原实现只测试直接树，文档外层会变成空栈；即使直接树提供 UUID，原实现也会丢弃，无法精确选择同版本多次构建的 dSYM。
+
+`scripts/test-ios-metrickit-frames.py` 编译完整 `UsageReporting.swift`、共享严格数值解析和现有 XCTest 源码，实际运行四项栈回归。容器、偏好桥和 C ABI 被明确的失败桩隔离，意外进入读写偏好、配置采集或网络路径就终止；不以提取或重写解析器来测试它。旧实现的两个新增回归实际失败，修复后四项均通过，覆盖文档外层、直接树、原 UUID、无效身份、故障线程优先、嵌套顺序、非整数偏移、路径裁剪和帧数上限。同一完整采集源码另通过 iPhoneOS arm64、iPhoneSimulator arm64/x86_64 的实际 SDK 类型检查。执行证据仍是 macOS 上真实 Swift/XCTest，尚非 MetricKit 系统投递或 iOS 真机闭环。
+
+### Linux 启动入口归属
+
+逐项核对随装入口：`msime-linux-ibus-launcher` 监督已接入采集的 IBus 原生宿主，`msime-linux-settings` 最终 exec 已接入的桌面设置/面板；provider-session 自身与其 exec 的 provider 分别接入。`msime-linux-first-run-guide`、剪贴板自启动 desktop 命令、Omarchy theme-set/menu 只调用设置应用、systemctl、notify-send 等程序，不把外部 shell、系统服务或通知程序自身的故障认领为产品原生崩溃。systemd 单元与桌面文件是这些运行入口的配置，不重复产生组件报告。`edition_linux.py`、package-image 和 prepare-package-cache 是构建/打包工具，不随产品运行。脚本解析错误、正常的非零退出与启动外部工具失败仍保持原有错误返回，不伪造 crash。
+
+## Related notes
+
+动手前按 `telemetry`、`CrashRecorder`、致命信号和符号归档检索活跃笔记。[全平台闭环提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md)部分落地到本篇，保留其 TSF、自有辅助进程、设备及后台收件验收要求；不把整个提案标为完成。[iOS 系统诊断认领](../../implemented/bug-fix/2026-10-25-ios-crash-diagnostic-session-attribution.md)、[iOS 未捕获异常栈](../../implemented/bug-fix/2026-10-27-ios-app-uncaught-exception-stack.md)和[Windows 发布符号](../../implemented/process/2026-10-20-windows-release-page-symbols.md)分别持有既有决定，部分重叠并保留。[诊断目录句柄](../../implemented/bug-fix/2026-10-09-diagnostics-crash-directory-handle.md)持有路径访问边界，不被本篇替代。其余模型删除、词库与语音记录不涉及此决定；没有完全吸收的旧笔记。
+
+Windows 看门狗和准备程序发现 `runtime-options.json` 明确提供 `preferences_directory` 时，只接受绝对路径；空串、相对路径与非字符串都暂停采集，不回退状态目录读取另一份同意。字段缺失仍沿用原有状态目录。配置选择回归编译真实函数，仅替代 Win32 私有文件读取，覆盖无配置、缺字段、合法绝对重定向和损坏输入；不替代 Windows 文件句柄与设备验收。
+
+Android 的 Rust 动态库与 JNI 库都显式链接 SHA-1 `build-id`，不能依赖 NDK 链接器的默认行为。使用同一 NDK 的最小 Rust 动态库已复现旧参数没有 `build-id`，加入参数后同时具有构建身份和源码行表；完整 APK 符号归档由设备门禁继续验证。关闭测试分别等待解除武装和队列清理完成，因为生产实现先停用故障记录器、再执行磁盘清理；原有清空与关闭后不记录断言保持。
+
+### Linux x64 辅助入口与启动成本实测
+
+固定 `c713178d8ec0867714f0e6b099bab102bf6f7454` 在 PVE 的 x86_64 Linux 虚拟机复用同一构建树，使用优化 Release Host API 和原生桥。在线、语音 HTTP worker 均从生成的安装相对路径加载实际库，合成 HOME、偏好与回环 JSON 服务独立于真实用户；对照只在测试注入里将 `start_worker` 置空，交替运行并计入整个子进程退出。普通队列每组丢弃两次预热、保留十六次：开启时完整往返中位数分别增加 2.879、4.149 ms，关闭时增加 1.957、2.229 ms。另在 64 条有效合成故障、908,096 字节队列下每组保留二十四次，开启时分别增加 7.283、6.239 ms；在线 worker 使用真实直接入口，在开启/关闭下各二十四次完成原有 100 ms 父端总预算，最慢分别 81.081、69.263 ms。实际开启/关闭原生故障对照通过，避免把未加载桥当作低成本。结果只覆盖本机、暖文件缓存与上述队列，不外推冷盘、低端机器或跨进程锁长期占用；不因此删除短命进程采集，暂不重写 HTTP worker 传输架构。数据为 `target/pve-linux-http-benchmark-c713.json` 与 `target/pve-linux-http-benchmark-loaded-c713.json`。
+
+同源八个 Python 入口在安装布局实际触发致命信号或未捕获主线程异常，关闭对照均不留故障；十二个原生辅助入口在实际优化二进制中接收 `SIGABRT`，X11 监听器另在独立 Xvfb 内运行，不接触真实剪贴板。原件经真实共享 C ABI 的新版本收集与发送进入固定官方后台 `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a` 和临时 PostgreSQL：两轮分别入库十九条与一条 `crash`，无 `session` 或 `session_crash`；数据库、HTTP 收件与本地队列逐字段一致，均保留原 `0.14.0`、提交、构建运行、架构、组件和事件 ID。十二个原生模块的实际后台返回帧以独立符号包按 build-id 及 SHA-256 核对，并还原到产品非零源码行；外部信号的故障指令可能在 libc，不能把产品返回帧当作真实内部缺陷指令。Python 配置入口还保留实际产品文件、函数和非零行号。代收与发送由验收程序调用真实共享 ABI，这不等于完整设置或输入宿主重启验收。
+
+首轮后台验收程序错误地按行数切片以 ID 排序的数据库结果，将先前事件计入新一轮而失败；改为比较事件 ID 集合后，重建空的隔离后台再完整运行，未修改产品。专项使用的回环库故意禁止代理，首次原生整套的 `linux-ibus-startup-telemetry` 因要求正式 HTTPS 代理路径而失败，其余九十六项通过；完成故障验收、保留测试符号后，复用原树恢复不带回环特性的正式库，测试握手在建队列和发送前被拒绝。带正式发布行表选项的最终原生整套九十七项全部通过，耗时 122.92 秒；该代理专项实际通过。12,444 个源码条目的 Git blob、模式与 SHA-256 前后逐项一致。所有产品子进程、Xvfb、临时后台、数据库、内部网络和 SSH 转发均已回收，没有安装或发布测试构建。小证据为 `target/pve-linux-final-c713-evidence/`、`target/pve-linux-native-backend-c713-evidence/`、`target/pve-linux-backend-client-attempt2-evidence/` 与后台两轮证据；符号归档保留在 PVE 的 `target/pve-linux-worker/`。
+
+原生 Wayland 与 systemd 的后续证据由[全平台提案](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#linux-原生-wayland-与-systemd-验收)持有：固定 6bea 的 Mousepad/Fcitx5 在无 Xwayland 的真实 Wayland 窗口完成输入、故障恢复和动态授权；真实内存访问的后台帧还原到 `FcitxEngine.cpp:7678`。正式在线服务入口在任务专用 systemd unit 中完成自动重启、SIGKILL、撤回重开、主动停止与退出码 2 专项；后者只到共享队列，未联网，不能扩大为全部系统服务与后台闭环。
+
+## Alternatives considered
+
+- **在旧版包运行镜像安装编译器和 JSON 开发头**：保持原夹具命令最省改动，但会改变「只靠包的运行依赖验收」的基线，也不能证明普通安装环境可运行测试。辅助授权夹具改由 CMake 生成并编译，CTest 只运行同一份预编译断言；独立脚本仍保留按需编译模式。
+
+- **提高固定模块上限**：故障路径的内存占用更容易预先确定，但 512 项已在真实产品启动时被超过，再换成 1024 或其他猜测值仍会静默漏掉靠后的自有库。实际模块数在正常路径已经可知，因此按枚举结果准备并在失败时停用，故障路径保持只读。
+- **先调用前任，返回后才写记录**：不留下已处理信号的中间文件，但前任可能直接退出或中止进程，返回后的采集永远不会发生；因此先写并持续持锁，只有确实返回才撤掉。**先关文件、前任返回再删除**实现较短，却允许其他收件进程在这段窗口上传；仅删除名字也不能撤销已打开的 inode，所以清空、删名与关闭必须在同一文件锁内完成。
+- **保留 `RelWithDebInfo` 作为 Linux 官方包配置**：能直接取得编译器调试信息，但同时改变优化级别并与原有 Release 渠道分叉；仅增加调试行即可满足符号目的，因此恢复 Release。
+- **继续让平台符号脚本由通用 contracts 自动发现**：本机有 SDK 时会执行，但 Ubuntu contracts 缺 Xcode、NDK 或 JSON 头文件时会持续跳过。将它们登记给实际具备工具链的构建或 CTest 入口，并强制工具存在；不为鸿蒙 PR 引入需要私有下载凭据的新 SDK 安装任务。
+
+- **只依靠当前开关、进程内 generation 或共享队列清空**：无需新增文件，既有现场报告也已能清理。但 ActivityManager 的历史记录不归队列所有，API 35 实际复现撤回后重开、重启会重新入队；进程内计数无法证明历史同意。持久 epoch 直接区分每次重新同意，另加起点过滤异常时间，时钟回拨也不能认领前一 epoch。
+- **把 Android epoch 下沉到共享 Rust 存储和 C ABI**：可为所有延迟诊断提供统一状态，但系统摘要的空间、退出理由和回调都在 Android 宿主，本轮会扩大跨平台 ABI/JNI 改动。先将 Android 专有的短身份边界留在宿主，并在同一锁内检查共享偏好。
+
+- **Python 单独用 ctypes 调 Host API 再注册 Python 信号回调**：不增加桥接库，落盘逻辑也可直接复用 JSON 接口。但同步致命故障不能等待 Python 解释器调度，且会复制版本、同意轮询和原生故障写入逻辑；安装包内的薄 C++ 桥保留既有进程生命周期与原生处理器，只把脱敏的 Python 源码帧交给记录器。
+
+- **重新开启时继续使用旧记录路径**：实现只需再次武装，但关闭已清除共享层的旧会话和记录，继续写旧位置会丢掉会话归属。重新 `begin` 让原生采集与共享层拿到同一份新身份。
+- **统一引入第三方崩溃 SDK**：成熟的转储、符号化和设备采集最全面，但会新增第三方传输与隐私边界，也不能直接替换自有后台。本次复用系统诊断和本地捕获，继续使用现有传输。
+- **独立进程也调用普通 begin/end**：最省接入代码，但会把打开设置计作一次输入会话，改变无崩溃率分母。独立捕获只产生 `crash`。
+- **在 MCP 的全局 panic hook 中记崩溃**：能取得最初抛出点，但 Rust 的可恢复 panic 和工具任务失败也会经过 hook，不能证明进程死亡。钩子只暂存源码位置，主入口边界仅为实际越界的 panic 写记录；原生致命信号仍由共同记录器处理。代价是该类 Rust 记录的展开栈位于主入口边界；摘要中的源码行来自最初的 panic hook，不能将边界栈冒充抛出点栈。
+- **只由父宿主报告辅助程序异常退出**：不为原来轻量的工具新增共享库依赖，也无需每个进程持有观察线程；但普通请求失败同样可能非零退出，父进程无法证明发生了崩溃，也没有故障指令和原生栈。自有程序在自身进程捕获，父进程的退出码不冒充崩溃。
+- **只在网络 flush 后刷新 Android 同意**：可复用单线程工作队列，不增加定时线程，但隐藏键盘可能数小时不 flush，且网络阻塞会推迟关闭生效。独立观察器承担 500 ms 的偏好读取成本；暂停保留快照、明确撤回清空身份，防止轮询重复计输入会话。
+- **辅助进程只在启动时读取同意**：不增加观察线程，短命准备程序的成本最低，但看门狗会跨越多次设置变更，关闭统计后继续保留采集将违反既有同意边界。统一每 500 ms 重读，析构回收线程，代价是常驻辅助进程增加一条观察线程。
+- **预热子进程或降低并行度，继续要求下一次 stdio 写入必被限频拒绝**：保留完整协议链路，且通常能缩短间隔；但线程可在任意位置暂停，首写本身也可能超过一秒，不能保证下一次请求仍在窗口内。拒绝边界移到固定时钟和真实持久文件的单测，集成测试继续检查跨进程时间戳和真实写入结果，不增加产品开关或改变默认间隔。
+- **完整展开之后才发布原生记录**：收集器自然不会读到半份文件，但栈损坏时展开器也可能再次故障，导致已经写下的摘要一直留在扫描范围外。先锁定暂存文件再发布文件名，读端等锁释放；死亡进程无需额外完成标记，已有摘要仍能恢复。
+- **在故障时动态查模块和格式化完整异常**：信息丰富，但可能再次进入已损坏的堆、加载器锁，异常消息也可能含用户内容。模块映射和身份提前固定，故障时只做有限写入和尽力展开。
+- **对所有最终 Mach-O 统一重新运行 `dsymutil`**：调用最简单，也能生成同名目录；但 Clang/Swift 的临时对象可能已清理，命令仍返回零并覆盖掉可用的原始 dSYM。按编译器的产物生命周期保留原件，以 UUID 和实际源码行拒绝空包。
+- **只归档工作流 artifact**：不需要滚动 release，但九十天后正式版仍在线而符号消失。发布构建额外留滚动符号，文件名含运行及重跑编号，安装包不携带调试符号。
+
+## Verification
+
+2026-10-31 macOS 系统目录修复在副盘独立 worktree 验证。设置与 MCP 的旧目录函数分别在独立子进程回归中以 `101` 失败，且均命中系统目录一致性断言；修复后 `host-macos` 21 项、MCP 125 项单元与 18 项 stdio、桌面崩溃专项 4 项通过，三个包的全 target 严格 Clippy 通过。两套测试的 ignored 子进程夹具由父测试启动，不将忽略项单独计为通过。MCP 同时检查 full/pinyin 的原目录后缀，解析不创建队列；生命周期和 stdio 都使用合成目录，不向后台发送。12,669 条源码、链接与执行位前后一致。复用缓存的第一次共同链接缺失新增原生符号，以 `101` 失败；仅清理本任务 `host-macos` 与 `msime-desktop` 包缓存后重建，通过同一套回归。初次设置专项、MCP 负对照、原链接失败与最终成功均保留在 `target/macos-system-directory-{evidence,shared-evidence,shared-attempt2}/`，未覆盖共享设置产品的故障到后台链路。小证据包已回读，SHA-256 为 `9dc9c5d49e0b3bdda2412a8c7dc7b0cf3cf22163aafcf3148f25686eaa3db4ba`。
+
+相同实现的远端 Linux 完整 `scripts/verify-local.sh --quick` 与 `pnpm run verify-notes` 均为 `0`，12,669 条源码及模式前后一致，退出时恢复原干净工作树并移除租约。平台门禁未具备的设备和工具仍按实际输出跳过，不把 quick 成功当作全平台验收。证据为 `target/macos-directory-final-quick-gate/`。
+
+辅助采集的首次偏好回归覆盖契约中的六个 edition，使用真正的 C++ `CaptureOnly` 和 Rust Host API，在只有空目录、没有版本标记时启动。旧 `Telemetry.cpp` 在五笔版实际写成 `quanpin` 而失败；修复后整个 `common-capture-only` 专项通过，仍无输入会话事件。首轮完整 quick 在 Windows 辅助同意夹具编译失败：夹具抽取了真实函数，却未提供新增读取的 `MSIME_EDITION_ID`；补齐合成版本常量并核对返回版本后，本机该回归通过。该轮 quick 保留失败，不将单项修复视为完整门禁通过。
+
+- macOS 符号清单身份修复后的完整 `scripts/verify-local.sh --quick` 退出 0，运行前后均逐一核对本机冻结的 12,410 个源码条目。Windows 可移植测试 203 项、仓库契约、2070 篇笔记、Rust workspace、Android Rust/Java、两套 WASM、鸿蒙 HAP、Linux 设置与原生、macOS 原生及 Apple bridge 均通过；Linux 注册 118 项，117 项执行通过、一项按环境条件跳过。Windows 原生/pipe-only 缺少 MinGW，macOS 桌面 Rust 因尚未暂存产品 bundle 排除，不能把跳过记作通过。七项符号专项在本机与远端均通过。完整同源 macOS 包在发现旧清单忽略显式身份后主动取消，只保留编译缓存与原始退出记录，不能根据父脚本的退出码零当作打包通过；修复后的完整包另验。随后仅补充验收文字，代码与冻结快照一致。
+
+- Android 真实 ANR：API 35 在实际 HomeActivity 前台进程准备产品摘要后，用 SIGSTOP 暂停原进程再发送触摸事件，交由系统 InputDispatcher/ActivityManager 判定并结束；不伪造 `ApplicationExitInfo`、不主动 SIGKILL、不用 force-stop 代替 ANR 处置。产品下次启动将实际系统退出补成一条 `Hang Android ANR`，再次重启保留原事件 id，不产生现场崩溃文件、`session_crash` 或 `Crash Android system reason` 事件。另一进程关闭共享偏好后，活跃 App 撤销摘要/epoch，再发生第二次真实 ANR 时无记录；重新开启并重启两次仍拒绝旧 ANR。`telemetry-anr.py` 全程阻断产品 UID 外网，结束恢复偏好/错误对话框设置，清除合成队列和网络规则，失败时先 SIGCONT 恢复仍存活的原 PID。测试对应系统[输入事件超时 ANR](https://developer.android.com/topic/performance/views/vitals/anr-views)，仅验收 API 35 App 的系统 ANR 补录，不据此声称全部系统卡死类型、IME ANR 或后台收件已验证。
+
+- Android 活跃同意刷新：旧版在 API 35 的真实 `:ime` 中复现另一进程保存 `preferences.usage_reporting=false` 两秒后仍开启采集，真实 Java 致命异常写出记录。旧专项 APK 也在同一设备复现已存在的 options 被移走后仍采集；新增删除/恢复用例要求暂停并沿用原身份恢复。修订版 291 项 JVM、256 个设备测试源码编译及缓存 Gradle 原生 App APK 构建通过；新增 JVM 用例直接验证路径守卫的正反例，避免因未开启捕获而空过，并检查故障线程不等待生命周期锁、同意锁忙时立即拒绝。API 28/35 真实 `:ime` 均通过跨进程关闭后 Java/原生故障不落盘、重开取得新身份、暂时损坏 options/偏好暂停并恢复原会话、稳定同意不重复 begin、持久 epoch 被另一进程轮换后更新身份、正常 end 后不重新武装、新会话不被旧 end 结束，以及 Java/原生故障重启入队。夹具在真实 `:ime` 进程显式调用产品生命周期，外部 ADB 只修改配置/命令，不代替产品刷新同意；epoch 轮换项用外部合成持久文件模拟已发生的一轮撤回重开，不声称验证了另一个活跃 App 的完整保存流程。专项 APK 复用已有 JNI/Rust 缓存；全程按 UID 阻断外网，最终恢复偏好、options、系统错误对话框设置，清理合成队列与规则。API 35 的真实系统退出补录、撤回重开后两次重启拒绝旧记录、新 epoch 新故障仍可补录的本轮回归通过；实际 HomeActivity 应用进程也已在 API 28/35 验证存活期间关闭抑制原生记录、重新开启恢复采集、真实故障后重启入队且不产生输入会话；前台 Activity 崩溃后系统自动重启时，以原 PID 消失确认故障，不要求新进程也不存在。完整 quick（20261028-052717）运行 36m19s、退出 1，唯一失败为旧 `android telemetry json policy` 文本断言仍要求两次 `strictBoolean`；新 flush 重新读取当前共享同意，不再解析过期网络响应的 enabled。断言已修正为核对响应与共享偏好的严格布尔策略，并在本机及同产品源码的构建机独立复跑通过。其余阶段通过：202 项 Windows 可移植用例、仓库契约/2048 篇笔记、Rust/Android/wasm/Java、HAP、Linux 设置与原生、macOS/Apple bridge。Linux 为 116 项实际通过、1 项环境跳过；缺 MinGW 的 Windows 原生/pipe-only、缺前端依赖的设置 bundle 明确跳过，HAP 复用原生库仅算 ArkTS 打包。三个核心 Android 文件 SHA-256 与已验证快照一致。不将原始 quick 记作退出 0，也不将分项结果扩大为全平台闭环。
+
+- Android 延迟系统诊断：API 35 已用旧专项 APK 实际复现“崩溃、撤回、重开、重启”后旧系统记录重新入队。新增 JVM 和同一套设备私有目录回归覆盖连续同意、撤回重开、时钟回拨、未来/过早记录、原版本、超长摘要、旧格式、损坏文件与符号链接。API 35 的修复版实际通过系统退出补录、跨重启连续同意、产品 `setEnabled(false)` 撤回、重开后连续两次重启拒绝旧记录，以及新 epoch 仍能补录新故障。夹具只解除现场 Java/原生采集并保留产品系统摘要，再让产品进程发生未捕获异常，避免另一个活跃 IME 提前收走现场文件造成误判。临时抑制系统错误对话框，让系统自行结束崩溃进程；不能用 force-stop 把退出原因改成用户结束。初版旧夹具把开关错写在偏好根层级，所得结论作废；改为真实 `preferences.usage_reporting` 后重新验证关闭确实清空队列，再在旧版观察到重开重启后历史报告返回。API 28/35 私有目录用例通过，API 28/35 的 Java/原生现场采集、重启入队和关闭不记录再次通过；专项 APK 采用本轮 Java 与既有 JNI/Rust 缓存，不当作完整同源发布包。最新 291 项 JVM 冒烟及设备源码编译通过。系统专项全程按应用 UID 阻断外网，结束恢复偏好、错误对话框设置、合成队列和网络规则。最终完整 quick（20261028-043315）退出 0，耗时 19m43s，两个 Android 产品文件的 SHA-256 与远端验证快照一致；最终设备夹具另在本机编译与实跑。202 项 Windows 可移植用例、仓库契约和 2048 篇笔记、Rust/Android/wasm/Java、HAP、Linux 设置与原生、macOS/Apple bridge 门禁通过。Linux 为 116 项实际通过、1 项 linux-ibus-demand-activation 环境跳过，full/wubi 安装后 Python 故障套件通过。HAP 复用原生库只算 ArkTS 打包；缺前端依赖的设置 bundle 阶段跳过；Windows 原生与 pipe-only 因缺 MinGW 跳过。这不代表真实 ANR、完整同源发布包或后台收件验收。
+
+- Linux 配置入口：setup/provider-session 新增的故障、异常脱敏、同意切换、坏配置停采、普通退出不记崩溃、只读查询不初始化、显式 `--state` 优先与在线/语音不同同意来源均在真实 Linux 子进程验证；启动器正常 exec 后由实际在线/语音 provider 记录自身组件。20261028-061722 的禁网专项先通过源码 CTest（52.59 s），再在 full/wubi 两个实际暂存安装目录分别通过完整八入口套件，最后通过六项 provider 配置发现回归。六个构建/产品/测试文件 SHA-256 与本机逐一相同。早期夹具缺少 Python 模块目录、误用 socket 位置以及固定等待轮询的失败不计通过；修订版显式设置安装模块路径，并用只读原生武装状态同步后触发真实 SIGABRT。macOS 上误跑 provider 配置套件的两个错误来自缺少 Linux SO_PEERCRED，已在 Linux 禁网容器完整复跑六项通过。该轮随后完成的完整 quick 已退出 0，分阶段结果与跳过项见下文；后续 iOS 修补不包含在该快照内。
+
+- Linux Python 六个运行入口在真实 Linux 容器完成开启/关闭下的 SIGABRT、未捕获主线程异常脱敏、500 ms 同意变化、坏 options 与运行时偏好重定向、HTTP 父配置优先、原版本补报、原件确认删除及无输入会话回归。首轮完整原生门禁（20261028-035059）退出 0，116 项实际通过、1 项环境条件跳过，其中新 `linux-python-crash-capture` 实际运行 9.88 s；追加的普通请求错误不记崩溃和假 watcher 回收也已执行。额外在 `--network none` 容器用实际 full/wubi 暂存安装目录分别运行完整 Python 故障套件，均通过；每份夹具复制该安装包的桥与对应名称的 Host API 库，验证生成的相对库路径和版隔离，不联网、不向生产后台发送合成故障。最终完整 quick（20261028-035351）退出 0，耗时 21m53s；16 个 Linux 构建、运行与测试文件的 SHA-256 与本机待提交内容逐一匹配。该轮 Linux 为 116 项实际通过、1 项 linux-ibus-demand-activation 环境跳过；四条故障 CTest 分别为 9.23 s、8.21 s、13.32 s、0.81 s，full/wubi 生产构建、安装与安装后 Python 故障套件通过。202 项 Windows 可移植用例、整套契约/笔记、Rust/Android/wasm/Java、Linux 设置与原生门禁、macOS 和 Apple bridge 编译通过；HAP 复用原生库只算 ArkTS 打包，缺前端依赖的设置 bundle 阶段跳过，Windows 原生与 pipe-only 因缺 MinGW 跳过，不扩大为目标设备验收。
+
+
+- 并入 develop 的 d8eac45a28 后，Android 导出清单保留 `dictionarySyncRaw` 和四个崩溃 JNI 检查的并集，shell 语法与集合比对通过。先重建同源 Host API，再运行完整 quick、MCP 与真实 helper CTest，最终 20261028-030432 退出 0（35m20s）。quick 包含 202 项 Windows 可移植用例、整套契约、Rust/Android/wasm/Java、HarmonyOS HAP、Linux 设置与原生门禁、macOS/Apple bridge；Linux 为 115 项实际通过、1 项环境条件跳过，新三条采集 CTest 分别为 8.71 s、4.64 s、0.68 s。MCP 125 项单元和 18 项 stdio 再过，ignored 子进程入口仍由父用例启动；macOS 两条 CTest 再过（12.01 s、60.01 s）。本轮未重做合并后完整 APK 或同源鸿蒙原生包的设备验收，前述设备专项与复用原生库的 HAP 记录仅对应各自验证快照。
+- Windows `b8c4d8d599` 实际门禁中 MCP 严格 Clippy、111 项单元测试及真实故障生命周期通过，随后 18 项 stdio 有两项“立即再写必拒绝”的断言失败。日志没有记录 claim 时刻，不能宣称已测到具体耗时；代码契约本来就没有保证首写、读回或再次启动在一秒内结束。固定时钟回归和按持久时间戳到期的跨进程用例用于替代这两个不成立的时序前提。临时翻转共享限频比较时，新增回归在 999 ms 拒绝断言失败；恢复后本机 MCP 125 项单元和 18 项 stdio 全过，原有子进程入口仍由父测试显式运行，全部 target 的严格 Clippy 通过。独立复审确认锁与时钟语义保持。5330d12169 的 Windows native settings CI 随后通过：MCP 严格 Clippy、112 项单元与 18 项 stdio 全过，父用例启动的入口仍保持 ignored；Win7 full/wubi/japanese 的 common-capture-only 也实际通过（8.41 s、8.02 s、8.17 s）。
+- macOS 在构建机用真实共享 Rust ABI 链接实际 `LocalAsrHelper.cpp`、识别库与新适配，对合成 full/pinyin 输入法 bundle 实际 SIGABRT：开启落盘、初始关闭、运行中关闭/开启、配置损坏/重定向后停用、符号链接/相对配置拒绝、嵌入配置优先、缺少或错误版身份停用、未打包停用、参数帮助不初始化遥测、原版本补报与无输入会话均通过。测试用 `CFFIXED_USER_HOME` 隔离 Foundation 状态目录，不联网。严格语法编译通过；正式 CMake 工程重新配置后实际链接 helper 与控制器，`common-capture-only`（8.28 s）和 `macos-voice-helper-crash-capture`（40.30 s）两个 CTest 均通过。首次在旧 Makefile 中一次构建多个新目标时，Make 未重载新目标规则，显式配置后重跑通过；身份契约发现重复字面前缀后改为从既有身份常量派生，六个版本契约与这两条真实 CTest 复验通过。保留远端 b52ae0b769 的同等 MCP 修正并快进到 5330d12169 的 develop 合并结果后，重新构建同源 Host API、配置并链接正式 CMake 工程；两条 CTest 再次通过（10.88 s、49.40 s），六个版本契约通过。MCP 125 项单元、18 项 stdio 和全部 target 严格 Clippy 也复验通过。合并后的完整 quick（20261028-020446）退出 0，耗时 51m45s：202 项 Windows 可移植原生用例、整套契约、workflow/笔记校验、Rust/Android/wasm/Java、HarmonyOS HAP、Linux 设置应用和完整原生门禁、macOS 及共享 Apple bridge 编译通过。Windows 原生与 pipe-only 配置因构建机无 MinGW 跳过，其目标平台 CI 另列；整轮通过仍不代表完整安装包或全平台闭环验收。
+- Linux 新增辅助程序：GCC 严格语法检查覆盖工厂、全部 CLI 和本地语音共享入口；Linux 容器实际配置 CMake、编译新静态采集库并核对两条 CTest 注册，通过。该步骤以系统库占位 Host API，只验证静态库编译与注册，不代表真实链接或目标执行。另在 macOS 构建机用真实 Rust Host API 编译并运行除 X11 监视器外的 11 个实际程序，真实 SIGABRT 验证开启落盘、关闭不记录、升级补报保留 0.14.0、原件确认删除、不产生输入会话，以及 dictionary 的偏好重定向、坏配置、相对路径、符号链接、框架冲突与父配置优先，均通过（20261028-011026）。最终合并快照的构建机容器已以真实 Linux Host API 构建原生宿主并实际执行：common-capture-only（9.36 s）、linux-auxiliary-crash-capture（7.50 s）和 linux-x11-auxiliary-crash-capture（1.14 s）通过。完整 Linux CTest 为 115 项实际通过、1 项 linux-ibus-demand-activation 环境条件跳过（不计通过）；full/wubi 生产目标构建、暂存安装与路径隔离检查也通过。额外启动只挂载安装目录的无网络干净容器，full/wubi 各 12 个辅助程序均由 ldd 确认依赖齐全，实际 --help 正常退出，未挂载原构建库且未设置 LD_LIBRARY_PATH。这里的 Linux 目标结果独立于前述 macOS 宿主结果，整轮 quick 的最终结论另记。
+- 辅助进程接入后的 Linux CI 在 `linux-setup-update` 的目录清单断言失败：共享偏好读取新增 `preferences.lock`，运行时配置与旧词库未改变。测试只允许这个锁文件，仍拒绝新偏好文档和其它额外产物；真实准备程序的子进程同时复用合成环境，避免新采集入口触碰测试者的默认数据目录。本机复用既有 Host API 静态库编译准备入口，原断言可复现失败，修订后相对配置拒绝、过期退出码及原配置保留检查通过；这不是当前完整 Linux 宿主验收。该轮 CI 的 `common-capture-only` 已实际通过。
+- 共享层遥测 51 项、Host API 遥测 4 项及相关 Rust 库的库 target Clippy 通过，覆盖损坏构建头、原子写入、超过单批额度的保留和入队失败后的原件保留。新增持锁的半份原生记录留待写完、空文件不伪造崩溃两项回归。client-services 测试 target 的严格 Clippy 被既有 `account/settings_sync/tests.rs` 的 `field_reassign_with_default` 阻断，库 target 的严格 Clippy 通过，不把前者记为通过。
+- MCP 在 macOS 构建机运行 124 项单元测试与 18 项协议测试，全部通过；记录器子进程入口由父用例显式启动，不把该入口的 ignored 状态计作通过。七种子进程情况验证未处理 panic、原生终止、可恢复 panic、启动关闭、运行中关闭再开启、配置不可读；记录不含合成私密参数，按新版本补报时仍保留故障原版本，不产生输入会话事件。该包全部 target 的 Clippy 通过。帮助与版本命令的实际二进制用例确认不初始化遥测目录。Linux 的 MCP 门禁已在 PR CI 通过；Windows 的严格检查先发现剪贴板返回单元错误类型，补具名错误后继续发现 `bounded` 测试模块只在 Unix 使用导入；目录拒读回归本不依赖 Unix，移除其 Unix 限定，让 Windows 门禁也执行该回归；其余 Unix 专属回归仍按平台限定。Windows 严格 Clippy 随后通过；运行测试暴露 Unix 绝对路径与混合分隔符夹具，现按宿主构造解析测试的绝对路径和预期原生路径，保留 Windows 拒绝无盘符根路径的断言，并把状态目录回退断言对齐生产代码既有的 macOS/Windows 范围。这些路径修正与限频回归后的 Windows 目标结果见本节 5330d12169 的 CI 记录，不能以 macOS 的通过代替。
+- 辅助进程 `CaptureOnly` 使用真实 Rust Host API，在 macOS 构建机完成 `watchdog`/`prepare` 两种组件的访问违规与未捕获异常子进程：故障落盘、以 9.9.9 补报仍归属原来的 1.2.3、没有输入会话事件、关闭后不记录、重开后恢复、配置不可读/抛出/偏好损坏即停用、正常停止及已捕获异常恢复原处理器均通过。Linux GCC 与 Windows MinGW x64/x86 的新记录器、入口和夹具严格语法编译通过。Linux 完整 CTest 与 Windows MSVC/真实故障执行由本轮 PR CI 补验；Windows 夹具同时校验实际宿主目录工厂的运行时偏好重定向和损坏配置拒绝，尚不能把 macOS 结果当作 Windows 实际通过。
+- Windows runner 实际执行 x86、x64 异常子进程用例：访问违规落盘、关闭不记录、首份记录保留通过；ARM64 只完成 MSVC 编译。Win7 符号采集脚本通过 PowerShell 解析检查，尚未用完整同源安装产物验收。
+- Android API 28、35 实际运行原生故障子进程；Java 宿主门禁与 Gradle lintFullRelease 通过；API 30 系统退出辅助方法内部也检查版本，保持 API 28 可用。两个模拟器均跑过四个共享 crate 的全套设备测试：client-base 36、client-core 649、client-providers 274、client-services 1356 项通过；原有 ignored 与按设备限制跳过的 hard_link 用例不算通过。同源 Java/JNI 和 Rust debug 库的完整 APK 在两个模拟器上进一步验证 Java 异常、原生信号落盘及重启入队，关闭统计后两类故障均不记录；独立应用不产生输入会话事件。测试按应用 UID 阻断网络，结束后删除合成队列并撤销规则，没有把合成故障发到生产后台。该包因未优化的 Rust 库超过正式包 135 MB 体积门禁，不能当作发布打包通过。十八键中英文及数字往返的失败定位为旧的无障碍描述，修正为产品现用的「返回原键盘」后，API 28/35 实际复跑均通过。后续核心冒烟在两个 API 的数字层笔画布局失败，API 35 完整冒烟还在日语资源准备失败；专项 APK 未带这些按需词库，需补齐资源后复验，不能将专项通过扩大为全套通过。复跑仅放行本机回环供合成传输测试使用，外网仍阻断；两个自有 AVD 的合成队列与规则已清理，模拟器已关闭。Java 原子发布与 POSIX 文件锁改动后，再次用当前 Java/JNI 和 Rust debug 库组成的专项 APK，在两个 API 上实际验证 Java/原生故障落盘、重启入队、关闭不记录和独立 App 无输入会话，均通过；故障前阻断应用 UID 的外网，结束后清空合成队列并删除规则。
+- POSIX 原生写入的双进程回归在 macOS、Linux 容器和 Android API 28/35 实际通过：摘要与栈之间暂停时其它进程拿不到锁；写入完成后可读完整记录；写入进程被 SIGKILL 后保留已有摘要；不覆盖首份记录且不残留暂存名。Linux ASan/UBSan 与 iOS C 记录器的 macOS ASan/UBSan 通过。最新 Android client-services 设备测试在两个 API 均为 1358 项通过、10 项 ignored、4 项因硬链接限制过滤，不把后两者计为通过。
+- Fedora 44 / GCC 16.2.1 的严格 Release 首帧用例实际复现原 CI 的范围断言失败。该程序为非 PIE 的 `ET_EXEC`，记录器按 ELF 加载偏移保存链接地址，夹具却减去 `dladdr` 返回的映射起点，导致两者相差固定链接基址。夹具按自身 ELF 类型选择地址基准，保留首帧必须落在故障函数内的范围断言；同一 Fedora 44 / GCC 16.2.1 下显式 `-fPIE -pie` 与 `-fno-pie -no-pie` 的严格 Release 编译及完整记录器用例均通过，macOS Clang 的严格 Release 回归也通过。采集器和符号还原器的地址语义不变。
+- iOS C 返回信号修复的原生负对照在第一次处理器返回后仍存在 `.crash` 的断言失败。修复后在 macOS 宿主通过重复恢复后退出、恢复默认后真实故障重发、原始上下文修复保护页两次、收件进程已打开旧 inode 的持锁撤销；iPhoneOS arm64 与 iPhoneSimulator arm64/x86_64 严格语法检查、主程序/动态库实际故障帧、UUID 归档与非零源码行还原通过；前任实收到的故障地址必须等于保护页，原始上下文指令必须落在实际故障函数内。一次性处置的 Linux 共用记录器回归修前失败、修后通过；Apple 因系统查询缺失标志显式未执行该子项。不是 iOS App/键盘扩展设备验收，也不是最新整轮 quick 已通过。`07060cc8c3` 的 Linux Rust Release 编译通过，但 CMake 的 `-O3 -Werror` 因 `ftruncate` 的 `warn_unused_result` 失败；普通 Debug 严格回归没有暴露它，现显式消费返回值并补优化参数专项，原失败日志保留，修订版产品另建并通过，具体范围见下项。修订版 Linux Debug 和 `-O3 -D_FORTIFY_SOURCE=2 -Werror` 原生回归均通过；最新完整 quick（`ios-handled-quick-attempt1`）仍只在原干净基线的两个画布用例失败，12,444 条冻结输入前后相同。随后只增强 Linux 不执行的 iOS 上下文断言并重跑 Apple 专项，不将跳过的 Apple 阶段算成 Linux 门禁已验证。
+- 共用 POSIX 前任处置回归在 macOS Clang 与 PVE Linux GCC 的 `-Wall -Wextra -Werror -UNDEBUG` 下通过：重复返回、真实保护页修复、显式更换回调、恢复默认处置后重试真实故障、先收到外部信号再真实故障，以及收件进程已打开 inode 的竞态均保留原始证据。原实现被返回处理器用例拒绝；初版仅删除返回记录的修补被 Rust 式恢复默认处置用例拒绝；去掉 `ftruncate` 的负对照被旧描述符读到内容的断言拒绝。Apple 故障帧/UUID/dSYM 源码还原专项通过；Android 固定 NDK 的 aarch64/x86_64 API 28 严格语法检查通过，尚不等于 Android 设备验收。PVE 最终整轮 quick 退出 1，119 项 CTest 中失败的两项是 `linux-candidate-native-canvas` 与 `linux-candidate-native-canvas-chrome` 的纯色文字像素断言；原提交 `ab3a30ecd1` 在干净工作区跑完整 quick 也在这两项失败。Ubuntu 默认次像素抗锯齿的灰度对照只修复第一项，另一项未消除；未放宽断言、未增加失败基线，不能将整轮记为通过。修补前后完整 12,444 条源码/文件模式审计一致，故障采集与辅助进程专项通过，保留两轮失败和干净基线的独立日志。修复后的实际设置程序另以固定 `6bea262fd0` 重建并完成闭环，见下项。
+- Linux 实际设置产品固定 `6bea262fd0055e90cb94b74e6addbb9ada037135`，完整 Release 重建和安装到隔离前缀通过，17 模块独立符号包与二进制 build-id 对应；前后 12,444 条源码及模式逐项一致。实际 `msime-linux-settings` 启动器在匿名禁外网命名空间、独立 Xvfb/D-Bus 与合成 HOME 中完成原生 helper、Python HTTP worker 的代收上传，设置窗口 SIGABRT 后原产品重启补报、活跃撤回重开和 SIGKILL 负对照。GDB 先投递可恢复 SIGSEGV 并确认原处理器返回，再把实际 Rust store 的基址寄存器置零产生真正内存故障，沿用六十秒期限，原进程实际因 SIGSEGV 终止；后台共收十条事件，其中四条 crash、六条 active，没有输入会话。按后台帧的 build-id `ec0dd8351112489f6bed69dd170b96594dca4dba` 与独立归档还原到 `desktop_crash_reporting.rs:120`，错误 build-id 被拒绝。收尾重建不含回环特性的正式桌面和 Host API 并安装到另一隔离前缀；安装后实际 ABI 的 begin/flush 均在创建目录前拒绝测试握手，桌面及库不含测试完整来源，四条相关原生 CTest 全通过。正式恢复退出 0，源码前后仍逐项相同；独立 `/proc` 审计确认合成 HOME 下无残余进程，后台/数据库/内部网络、私有 Xvfb、D-Bus 与转发已清理。小证据归档于 `target/pve-settings-6bea-product-evidence/` 和 `target/pve-linux-settings-backend-handled-attempt1-evidence/`。这限 x64 隔离设置产品入口，不扩大为系统安装、真实编辑器或其他架构验收；完整 quick 的两个画布基线失败仍保留。
+- iOS 修订版固定 `6bea262fd0055e90cb94b74e6addbb9ada037135`，干净 worktree 重建原生 Release App，12,444 条源码及模式前后相同，十二份资源按固定锁逐项核对。iOS 26.5 arm64 专用模拟器通过外部信号重启补报、SIGKILL 对照、活跃撤回/关闭重启和新 epoch 恢复。另由 LLDB 修改实际授权 ABI 保存的请求指针为 `1`，触发真实 `EXC_BAD_ACCESS`；确认原进程死亡，原 App 重启向官方隔离后台补报。实际后台帧按 App UUID `2f1939c5e89e3e818c0eeb44c6ad7d36` 与本轮独立归档 ZIP 还原到 `consent.rs:105`、`UsageReporting.swift:346` 及 `:299`，错 UUID 拒绝；第三方 serde 首帧和生成代码零行不算产品源码位置。数据库与 HTTP 字段一致，无输入会话。首次只改入口寄存器的准备超时保留；正式重建成功后的首轮验证夹具误读清单字段退出 1，修订夹具复核同一正式产物退出 0，不改写原结果。正式 ABI 在创建目录前拒绝测试来源，App/扩展和库无完整测试来源，包无护栏依赖/文件；正式库 SHA-256 `7d1c63dd68223b775ea0e3a846563264244bd08477be616f6dcd7ea5fc94226e`、App `a26eee9c59b271d83016f7680fa0ffaed33e1bf9ddad2886fb9218b11eeefbda`。合成同意关闭、专用模拟器删除，无残留设备进程，后台/数据库/网络及转发已清理；小证据为 `target/ios-6bea-product-evidence/` 和 `target/ios-6bea-backend-attempt1-evidence/`。范围限模拟器 App，不扩大为键盘扩展、MetricKit 系统投递或真机。
+- 同一固定 `6bea262fd0` 的 iOS 27.0 arm64 模拟器进一步由系统设置启用键盘与完全访问，在合成 UIKit 文本框中真正展示 Release 键盘扩展。外部 SIGSEGV 与调试器修改真实授权 ABI 已保存的请求指针为 `1` 均使原扩展进程结束，C 记录器留下 `keyboard` 身份，原生 App 向官方隔离后台补报；两份 `crash` 各对应一份 `session_crash`，全部 HTTP 与数据库字段一致。独立两模块 dSYM ZIP 按扩展 UUID `c707155290a63930a248811cecafec45` 还原到 `consent.rs:105`、`UsageReporting.swift:346/299`，错误 UUID 拒绝。实际活跃键盘撤回后解除武装并清队列，随后故障不留记录且关闭重启不补报；重开换 epoch，SIGKILL 不新增记录或后台故障；恢复输入 UI 用例通过实际按键提交合成文本“你好”。12,444 条源码及模式逐项相同。iOS 26.5 的系统扩展 `___nsx_pingHost:` 异常、未签名 UI 运行器旧代码、缺 Scene 的合成宿主、元素定位、护栏构造器抢先断言和清单字段误读均不计通过；抢焦点的第三次 hold UI 仍失败，不能以独立撤回专项通过改写该结果。此范围不含真机、MetricKit 系统投递或完整编辑器安装验收；正式 Rust 与 App/扩展已恢复，静态库 SHA-256 与验收前一致（`7d1c63dd68223b775ea0e3a846563264244bd08477be616f6dcd7ea5fc94226e`）；正式 ABI 在建队列前拒绝测试握手，App/扩展的 dSYM UUID 匹配，正式二进制和库无完整测试地址，包内无网络护栏依赖或文件。两份合成同意关闭，两个专用模拟器删除且无残留进程，隔离后台容器、网络、监听与 SSH 转发已回收。小证据为 `target/ios-keyboard-product-evidence/`。
+- Apple 首帧回归以受保护内存产生真实故障，共同记录器与 iOS C 记录器在 macOS 宿主实际执行通过；共同记录器也在 Linux 容器及 ASan/UBSan 下执行通过。断言首帧地址落在故障函数内，保留关闭开关、首份记录和旧处理器链用例。iOS C 记录器的主程序与动态库两种真实内存故障，进一步用报告里的模块偏移和 UUID 选择 dSYM，均还原到对应故障函数的源码行；同时断言帧不含设备目录。macOS 的 ctest 注册同一回归；iOS C 源通过实际 iPhoneOS arm64、iPhoneSimulator arm64/x86_64 SDK 的 `-Werror` 编译检查；macOS x86_64 路径也通过交叉编译检查。宿主用例不能代替设备生命周期验收。
+- macOS 七项真实 Clang/Swift/Rust 合成构建用例通过：剥离后还原到源码行、无调试信息时拒绝空 dSYM、拒绝错构建和缺架构、保留并归并双架构 Swift 原始 dSYM、保留 Rust packed dSYM，以及显式构建身份/CI 回退、四种混入身份在替换模块前拒绝并保留原符号。新增两项回归在旧归档器上实际失败，修复后七项全通过；离线还原入口按 UUID、架构和 DWARF 哈希拒绝错配与篡改。实际 Swift 后端进一步按 Release 构建 arm64/x86_64，归档后两种架构均还原到 `BackendAccountWindow.swift:420`。完整同源发布包仍需另验，不能把分项符号验收记作发布成功。macOS 原生记录器子进程及目录、退出回归用例通过；Linux 容器中的记录器经 ASan/UBSan 运行通过；PR CI 的完整 Linux native host 门禁通过（112 项执行通过，1 项环境条件跳过），IBus 实际启动、版本化故障记录及信号来源回归已执行；Linux 设置应用、Windows GNU 交叉构建及 macOS arm64/x86_64 CI 也通过。ELF 合成模块的归档、源码行还原、错误 build id 和错误哈希拒绝用例通过。
+- HarmonyOS 逻辑测试和实际 ArkTS/HAP 构建通过。复用的原生二进制仅用于 ArkTS 编译与打包检查，不作为同源产品或设备验收。
+- iOS 工程重新生成，实际 SDK Swift 类型检查与完整 Xcode build-for-testing 通过； MetricKit 栈解析回归在旧实现上复现两项失败，修复后文档外层/直接树、UUID 和无效身份四项通过；本轮候选源码的完整 quick 退出 0，前后 12,411 条源码清单一致。iOS 27 模拟器实际执行 UsageReportingTests 16 项，全部通过（已核对 xcresult 数量）。App/键盘的真实致命故障、MetricKit 系统回调与后台收件仍未验收。上一轮两个 PowerShell 用例在整轮超时，单独复跑通过；随后合并源码的完整 quick（20261028-000813）退出 0，包含 191 项 Windows 可移植原生程序和契约、Rust/Android/wasm/macOS 编译。辅助进程接入后的完整 quick（20261028-003117）也退出 0，Windows 可移植原生程序 191 项、整套契约、Rust/Android/wasm/macOS 编译与 HarmonyOS HAP 构建均通过；Linux 完整宿主和 Windows 目标执行仍由新轮 CI 补验。最新源码的整套本机契约、Rust 格式、actionlint 与笔记校验通过；上轮环境包装器问题已修正，两个 PowerShell 超时用例单独复跑通过。构建机缺少 Docker、MinGW 和部分暂存依赖的阶段明确跳过；Linux 与 Windows GNU 的对应构建由已有 CI 补验。不能将这些分项通过写成全平台验收通过。
+
+- iOS 本轮活跃同意修复：实际 SDK 的 Xcode build-for-testing、24 项工程配置回归通过。Rust 模拟器库用当前分支的 `build-native.sh simulator` 重新构建（release 构建 4m54s、退出 0），重新链接当前 Swift 后，iOS 27.0 专用模拟器的 23 项 `UsageReportingTests` 全部通过（xcresult 为 23 passed、0 failed、0 skipped）。覆盖真实共享偏好损坏后停采、缺文档默认值不变、缺失或相对偏好目录不删除已有崩溃、独立活跃观察、短暂读失败恢复原身份、明确关闭后新身份、旧展示收尾不结束新会话、撤回期间慢准备不重新武装、补录先于发送，以及注入阻塞传输队列时正常收起。五个产品/工程/测试文件与构建机快照 SHA-256 一致。
+- iOS 使用同一已编译 SharedTests 模块（仅增加 `@testable import`）对产品 `CrashDiagnostics.swift` 做实际 SDK 类型检查通过；不是完整 App 链接或致命故障验收。异常写盘用例按有效合成头和指定 UUID 核对记录，按 JSON 内容比较规范化构建头，保持按进程号的 MetricKit 去重。初版夹具的空头、JSON 键顺序与 UUID 大小写断言失败均已修正，不记为通过轮。独立的 C `fork` 故障夹具显式排除于 iOS XCTest 源码，重新生成工程无多余变化。没有调用遥测网络发送；专用模拟器均已关闭并删除。完整 quick `20261028-064407` 因偏好目录缺失保护的源码修补主动停止、退出 143，不计为通过；最新 iOS 产品源码的 `20261028-065343` 整轮退出 0（13m11s），末尾为 `quick check passed`，没有 `FAIL:`。Linux CTest 汇总 117 项、零失败，Windows 原生交叉编译与 pipe-only 因缺 MinGW 跳过，共享设置 bundle 因缺前端依赖跳过；不将这些跳过算成通过。
+
+- Linux 最终完整 quick（`20261028-061722`）已退出 0，日志末尾为 `quick check passed`，未检出 `FAIL:`。117 项 Linux 原生测试中 116 项实际通过、1 项环境跳过；full/wubi 安装后的八入口故障套件均通过。Windows 可移植程序 202 项、仓库契约、Rust/Android/wasm/Java、HAP、Linux 设置与原生、macOS 和 Apple bridge 阶段通过。Windows 原生/pipe-only 因缺 MinGW、共享设置 bundle 因缺前端依赖跳过；HAP 仍复用原生库，不升级为同源设备验收。这一快照的 Linux 六个构建/产品/测试文件与 `3cfc7df319` 一致，不包含随后本地新增的 iOS 活跃观察修补；iOS 当前源码的完整 quick 另行运行。
+
+- Android API 35 的 Native Platform CI `40621677101` 在构建 APK 的符号归档阶段拒绝缺少 build-id 的 `libmsime_host_api.so`，设备四组共享单测此前已通过。修复后 `scripts/test-android-crash-symbols.py` 直接读取生产 `RUSTFLAGS`，用固定 NDK 28.2 为 aarch64 与 x86_64 编译合成 Rust cdylib，两个架构的 40 位 build-id、16KB LOAD 对齐、符号归档与函数/源码第三行还原均通过；暂时移除生产 Rust build-id 参数时，同一回归以归档器拒绝无身份 ELF 失败，恢复源码后差异检查通过。此专项不编译完整 Host API、不替代实际 APK 构建和设备验收；完整构建结果另记。
+
+- Android API 30+ 的 `ApplicationExitInfo` 现在优先把真实 PID 交给共享遥测层。这样键盘进程的历史致命故障会按持久会话标记认领，复用故障发生时的版本、提交、运行号、架构和组件，而不是用 `unknown` 构造一个新的独立身份；ANR 和低内存仍保持独立诊断语义，没有 PID 的旧系统也保留稳定回退。`telemetry-consent.py` 增加了真实系统故障的构建身份断言；本地 Android host 门禁、Python 语法、笔记校验和差异检查已通过，完整 API 35 设备门禁等待本轮 CI。
+
+macOS PR CI `40823292562` 的 `common-capture-only` 在首次 `enable` 后等待 `saved` 超时，其余原生测试通过。首次 `load` 创建偏好目录但不写文档，观察器可能在 CAS 保存前初始化持续授权并提高修订号。合成保存器先初始化授权再取快照，避免把正确的修订冲突误当采集失败；确定时序的 `enable-after-consent` 在取快照后再次初始化，专门验证该窗口。stdout EOF 立即报告子进程退出，不再掩盖为十秒队列超时。受控顺序在旧保存器实际触发冲突并使 `enable-after-consent` 退出失败，初始化后的夹具整套通过；旧代码和修复均真实重编并链接 Host API。不提高超时、不放宽生产 CAS；CI 原超时没有错误信封，不能仅据此唯一认定原失败根因。
+
+本轮收尾候选的完整 `scripts/verify-local.sh --quick` 退出 0，前后核对全部 12,444 个源码条目；包含最终 edition、32 KiB 收据状态与首次授权保存夹具。203 项 Windows 可移植测试、Android Java/JNI、鸿蒙 ArkTS、Rust workspace/Android/wasm、macOS 原生与共享 Apple bridge 通过。该构建机缺 Docker 与 MinGW，Linux 原生/桌面、Windows 原生/pipe-only/x86 语法明确跳过，不算目标平台验证通过。证据为 `target/review-fixes-final-quick-gate/`；此后只更新验证笔记，10,221 个非 Markdown 代码条目另与本地逐项核对一致。
+
+本轮符号专项的实际执行结果为 macOS 8 项全部通过，Android aarch64/x86_64 的 ELF 身份、16KB 对齐、归档与源码还原通过，HarmonyOS 已安装的 aarch64 目标通过，Windows 辅助配置来源的可移植 C++ 回归通过。缺 NDK 和缺 JSON 头文件时，强制模式确实以非零退出；所有者登记校验通过。抽取生产 Linux CMake 选项后，在 macOS Clang 的真实配置、编译与运行中同时保留 `-O3` 和 `-g1`；不将它当作 Linux GCC 产品构建。首轮 quick 抓到新官方符号开关尚未列入发行版差异契约，修正后的定向检查通过，未要求发行版改变自身调试分包策略；完整 quick 的原失败与后续结果分别保留。
+
+本轮完整 `scripts/verify-local.sh --quick` 的首次结果为退出 1，唯一失败阶段是新增符号开关尚未列为官方容器与发行版的有意差异。修正后整轮复跑输出 `quick check passed`：203 项 Windows 可移植用例、仓库契约、工作区/Android/wasm 编译、Android 宿主、鸿蒙 HAP、macOS 原生与共享 Apple bridge 均通过。Linux 原生/桌面及 Windows 原生/pipe-only/x86 语法因构建机缺 Docker/MinGW 跳过，不算通过。冻结前核对全部 12,444 个条目；结束包装器因期间两次正常提交把 HEAD 从 `6bc13ef19d` 改为 `0d22599d44` 而在基线断言退出 1，独立结束审计确认该 HEAD 仍为原基线后代，12,444 个源码条目与原清单逐一完全一致，保留原退出与独立审计，不将包装器写成退出 0。相对该冻结清单，本机 10,221 个非 Markdown 条目一致，此后只更新验证笔记。证据为 `target/fcitx-tsf-final-quick-evidence/` 与 `target/fcitx-tsf-recheck-quick-evidence/`。
+
+固定 `e746981d18` 的实际 macOS arm64 原生回退设置与包内语音 helper 已完成外部 SIGSEGV、真实设置入口补报、SIGKILL 负对照、活跃撤回和重开新代次。通过轮四条 crash 的后台字段与真实请求一致，没有输入会话；helper 本身只采集，由设置入口代发。实际两模块帧经独立 dSYM ZIP 还原到 `input_method_main.mm:139` 与 `LocalAsrHelper.cpp:591`，错误 UUID 拒绝。仅用 `CFFIXED_USER_HOME` 隔离合成目录，没有改写 `HOME`；正式构建、合成授权、进程与后台/转发已恢复清理。非交互调试权限拒绝和首轮误判稳定安装身份的夹具失败均保留，实际内存故障仍未验收，详见全平台提案的同名小节。
+
+## Consequences
+
+Linux Python 运行入口新增安装包内的薄桥与 Host API 库依赖，源码树没有生成的安装身份时安静停用；安装门禁必须确认桥、Python 模块和生成路径齐全。Linux 原来仅依赖 JSON/X11 的剪贴板工具与本地语音 helper 因此新增 Host API 共享库依赖，安装 RPATH 随接入一并设置；每个独立工具也承担一条同意观察线程。新增入口让独立进程和原生故障进入既有队列，构建身份能指导选择精确符号。队列容量不再允许普通统计挤掉崩溃；全为崩溃时保留后续原文件。共享层异常写入完整落盘后原子发布，损坏的新格式身份不回退为当前版本。
+
+共享偏好提供[原子保存持续同意代次的基础](../bug-fix/2026-10-28-persisted-reporting-consent.md)，与开关一同保存并拒绝外部指定身份；[采集与队列绑定](../bug-fix/2026-10-28-epoch-bound-crash-collection.md)将 iOS 消费端、旧原生记录、MetricKit 和逐条发送接入。两次轮询之间关闭重开也取得新身份，旧进程晚写不进入新队列；新代次激活保持匿名安装 ID，队列消息剥离本机 epoch，撤回不等待网络。清理先解除故障武装，再在快照锁外以共享偏好锁核对仍关闭，旧回调不能清掉重开后的队列。
+
+限制：共享代次协议只约束接入该协议的当前客户端；运行中的旧版本和降级不会维护该代次。首次激活保守丢弃没有当前持续授权证据的待发记录，已交给网络的单条请求无法撤销。信号处理时的运行库展开是尽力而为，不能保证栈耗尽和堆破坏时仍有完整栈；备用栈目前只覆盖安装线程。运行中后加载的模块要重新准备后才在快照里。iOS C 模块帧与符号还原已有宿主用例，实际模拟器 App 与系统拉起的键盘扩展均已完成真实内存故障到后台及非零行；iOS 26.5 的扩展框架异常尚未确认根因，MetricKit 系统投递与真机 dSYM 仍需验收。POSIX 文件锁是新写入器与新收集器之间的协作协议，不能改变仍在运行的旧版本收集器。系统延迟诊断缺少精确源码提交时标为未知，不猜测当前构建；旧无头独立记录无法恢复原版本。TSF 位于外部宿主进程，已接入仅记录本产品模块的 WER 捕获，但完整产品、真实编辑器和 ARM64 实际故障仍待验收；看门狗与准备程序已接入独立采集，Linux 本地语音与原生 CLI 已接入，Linux Python 的八个运行入口已接入，启动脚本归属已逐项核对；新增 setup/provider-session 的源码和 full/wubi 禁网安装后故障回归已通过，部分发行版符号与后台链路仍待验收。以上设备、收件和覆盖缺口继续由全平台提案跟踪，不能据本篇声称百分之百采集或全平台闭环已完成。
+
+- macOS 采集恢复回归使用真实 `UsageReporting.mm` 和无网络 Host API 桩：修前关闭后重开在 `is_armed` 断言失败；修后常驻进程关闭再开启、初始关闭后开启、新会话结束及停止后不再武装通过，均以 `-Wall -Wextra -Werror` 编译。真实 SIGTERM 退出子进程回归也通过；未据此声称真实致命故障或完整 quick 已验收。
+
+### 持续授权迁移的当前证据
+
+[队列代次笔记](../bug-fix/2026-10-28-epoch-bound-crash-collection.md)记录共享辅助采集器、MCP 与桌面设置/面板的迁移边界。提交 `26392812e7` 的 Native Platform CI `40615636973` 已完整重建 Rust/C++：Debian CTest 117 项无失败、1 项环境跳过，full/wubi 安装后的八入口故障套件通过；Fedora 108 项全部通过，包含原先失败的非 PIE 首帧断言和 Python 套件。保留此前本地 Python 两轮超时，不把那些轮次计为通过。该 CI 是新 MCP 与桌面授权迁移前的基线；后者新增验证单独记在队列代次笔记，不由旧 CI 推定通过。
+
+最新 `6bea262fd0` 的 Windows CI 在 MCP Clippy 阶段被上游注册表读取的两处 `manual_is_multiple_of` 阻断，WER 步骤未执行；旧 x86 系统 WER 退出超时仍未定位。Android API 35 作业已于 `2026-10-29T13:50:06Z` 完整成功，包含四共享 crate 设备单测、APK、崩溃/退出/ANR 专项和完整输入冒烟；该结果归属 6bea，不扩大为随后集成提交的设备验收。
+
+集成 develop 与注册表 Clippy 等价修补后的 `b753f82b9a` 在干净缓存完成整轮 quick，12,612 个源码条目前后相同；Windows GNU Host/MCP 全 target 严格 Clippy 已在其同源集成候选通过。PVE Windows 11 的同源 MSVC x64/x86 回调、生命周期及各七组真实系统 WER 全部通过，仍不证明旧 CI 的 x86 退出超时根因已修复；新 CI 另验。工具缺失而跳过的 Linux 原生、Windows 原生和鸿蒙编译不算目标通过，原 PVE Linux 两个画布断言失败也没有被本轮其他机器的通过覆盖。详细证据及边界由全平台提案和 TSF 笔记持有。
+
+固定 6bea 的 Ubuntu x64 原 IBus 监督器已在真实 Mousepad 经 GTK IBus 模块完成连续上屏、故障后继续输入、SIGKILL 对照与活跃撤回重开。两条实际故障到隔离后台，原始头的新旧授权不同；独立两模块符号包将两条实际后台帧还原到 `ibus_main.cpp:296`，错 build-id 拒绝。首轮误用仅桌面启用回环的设置验收前缀而未收件，失败保留；另建前缀明确链接同源回环 Host API 后完整通过，未替换正式安装前缀。资源、网络隔离、生命周期、字段一致性、清理与正式缓存恢复由全平台提案持有，不扩展为 Fcitx5 或原生 Wayland 编辑器验收。
+
+整合候选树 `22ddd3af98853b3219332188a76310c9b040925f` 的整轮 `scripts/verify-local.sh --quick` 已退出 0，12,626 条源码及模式在开始和结束后逐项一致。授权迁移回归通过，Windows GNU 的 core/Host/MCP 全 target 严格 Clippy、203 项 Windows 可移植用例、仓库契约及笔记、Rust workspace/Android/wasm、Android Java/JNI、macOS 原生、共享 Apple bridge 与 x64/x86 pipe-only 编译通过。鸿蒙 SDK/设置依赖、Docker 及 Windows 完整原生工具缺失的阶段明确跳过，不计平台验收。证据为 `target/merge-c1c0-quick-evidence/`；随后只补验证笔记，不把既有 6bea 产品或 b753 WER 的通过转记为本次集成产物。
+
+固定 `6bea262fd0` 的 Ubuntu x64 / Fcitx5 5.1.7 已在真实 Mousepad 经原生 GTK 模块完成连续上屏、SIGABRT 后以原命令重启补报、SIGKILL 对照、活跃撤回与重开，每次恢复后继续同一文档输入。两次外部信号的后台帧停在框架事件循环，只证明采集和补报；另用 GDB 在真实 GTK 按键进入 `FcitxEngine::keyEvent` 时投递 SIGABRT，由原 daemon 重启补报并恢复同一编辑器输入，实际后台自有帧经独立两模块符号包还原到 `FcitxEngine.cpp:7677`，错 build-id 拒绝。首轮夹具在插件尚未按需加载时过早读武装状态的失败保留；源码行首轮以字母触发故障，框架在 daemon 死亡后把该字母回退给编辑器，原严格内容断言失败；改用不插入文本的 Right 键触发后完整通过，不放宽上屏断言。隔离后台共四条 crash、四条 session_crash 和三条 active，其中一条故障来自该失败轮，未冒充全部通过轮次。数据库与 HTTP 一致，授权重开的原记录 epoch 不同；正式 Host API 和缓存插件已恢复，正式 ABI 在建目录前拒绝测试来源，原正式安装前缀哈希不变。12,444 条源码及模式相同，四份合成 HOME 经独立 `/proc` 审计无残留；后台、数据库、内部网络与专用转发已回收。证据为 `target/linux-fcitx-editor-product-evidence/`（88 项）。范围不含 systemd 自动重启、原生 Wayland、硬件访问冲突或系统级安装；实际输入使用独立前缀的同源 Release 插件。
+
+PR 在 `b8acf14da7` 推送后，因 develop 已合入另一份 KVM 修补而出现两处冲突，平台 CI 没有启动；原 head 只有标题与标签检查通过，不能当作新平台验收。随后整合固定 develop `de5d51623a`，保留已验证的直接设备权限检查及 `emulator -accel-check`，并接入上游在 `SERIAL` 未设定时跳过 adb 清理和限制清理时长的修补。候选树 `56b8841f3765b02e3994d841eb49fd7d51fb9058` 的整轮 quick 退出 0，12,631 条源码及模式前后相同；授权迁移回归、Windows GNU core/Host/MCP 全 target 严格 Clippy、203 项可移植 Windows、仓库契约与笔记、Rust workspace/Android/wasm、Android Java/JNI、macOS 原生、Apple bridge 和 x64/x86 pipe-only 通过。缺少鸿蒙 SDK、Docker 和 Windows 完整原生工具的阶段明确跳过，不算平台运行通过；新 CI 另验。证据为 `target/merge-de5d-quick-evidence/`，其后只补验证文档。
+
+
+固定 `e746981d18` 的 Ubuntu x64 完整暂存产品已复验：真实 Mousepad 经 IBus/X11、原生 Wayland/Fcitx5 连续输入，实际产品设置启动器承载共享设置窗口；三入口均完成外部致命信号、原入口重启补报、SIGKILL 负对照与活跃撤回重开。另在真实 GTK 按键进入插件时制造实际 `SEGV_MAPERR`、地址 `0x11`，重启后继续原编辑器输入。隔离后台共七条 crash、五条 session_crash、四条 active，字段与真实请求一致；独立十八模块符号 ZIP 将实际后台帧还原到 `FcitxEngine.cpp:7705`、`ibus_main.cpp:296` 与桌面 `lib.rs:6499`，错误 build-id 拒绝。仅用 XDG 合成目录隔离，没有改写 `HOME`。正式缓存、合成授权、进程及后台/转发已恢复清理，暂存文件哈希保持不变；三轮夹具启动失败与资源下载超时保留。构建配置、独立归档身份和范围见全平台提案的 e746 小节，不扩大为其他架构、发行版或系统安装通过。
+
+### 当前 Windows x64 产品复验边界
+
+`e746981d18` 的实际 Notepad 输入、Host API/TSF 受控访问冲突、共享队列和隔离后台已经复验；TSF 的独立精确归档还原到 `KeyEventSink.cpp:2415`。首次增量链接遗留同 GUID、不同 age 的 PE/PDB，被身份门禁拒绝，保留失败后仅重链接该产物再取得匹配归档；不放宽 PDB age。Host API 的真实故障可还原函数而仍没有源码行。完整证据、夹具失败与清理边界由[全平台复验记录](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#e746-的-windows-x64-暂存产品复验)持有，不将本轮结果扩大为所有架构或全平台完成。
+
+Android debuggerd 重新排队默认致命信号后返回的例外、绕过 ART 逻辑查询的 libc 入口、共同与 iOS 独立记录器的旧 inode 回归，以及实际 Android 产品后台证据由[待送达致命信号修复](../bug-fix/2026-10-30-android-pending-fatal-signal.md)持有。
+
+### Linux 三服务 systemd 补充验收
+
+固定 `e746981d18` 的 Ubuntu x64 暂存产品已逐项通过在线、语音与剪贴板三个实际服务的自动重启、SIGKILL 不误报、活跃撤回重开、原捕获身份、主动停止不重启及参数错误退出码 `2` 不重启。仅 XDG 隔离，禁网临时 unit 复用产品重启策略；共享控制器代收入队，无输入会话，不声称后台或系统级安装通过。第三轮完整通过；前两轮 socket 路径过长、停止后才撤回导致清理断言失败的夹具记录保留。独立审计确认授权、队列、unit 和进程已清理，151 份产品文件及源码不变。详情与边界见[三服务复验](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#linux-三个产品服务的-systemd-生命周期复验)，证据为 `target/linux-systemd-service-matrix-e746-small-evidence/`。
+
+### Windows x64 真实编辑器的授权与故障归属补充验收
+
+固定 `e746981d18` 的实际 Notepad 已完成同一进程活跃开启、撤回、重开换 epoch，自有 TSF 真实访问冲突经 WER 落盘并由实际 Server 重启代收到共享队列，保留原 ID 和构建头，epoch 不外发。另两项通过：测试处理器恢复一次精确 TSF 访问冲突后，同一编辑器继续真实按键、候选及第二次中文上屏；已武装时实际 `ntdll` 访问冲突不新增产品故障。正确注册 WER helper 的独立撤回负对照也通过。前期正斜杠允许项不能证明撤回有效，已用正确注册及正对照重新验证；输入模式与残留测试进程、代收时序等夹具失败保留，不宣称其唯一根因已定位。独立审计确认九份自有产品哈希、源码、授权、队列、注册、进程、任务和防火墙恢复；233 份证据在本机逐项哈希回读并复核四场景。范围与完整失败记录由[Windows 编辑器对照](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#windows-真实编辑器的授权与故障归属对照)持有，证据为 `target/windows-editor-negative-e746-small-evidence/`；本轮只到共享队列，不冒充后台、其他架构或完整安装包通过。
+
+### Windows x86 实际编辑器与原捕获身份补充验收
+
+固定干净 `e746981d18` 的真正 i686 Host API、TSF 与 WER helper，经正式与回环两套 PE/PDB GUID、age 和哈希核对后，在 Windows 11 专用账号实际运行官方校验的 Notepad++ x86。两个成功场景均完成真实按键、产品候选和中文上屏，并确认实际加载本轮 32 位模块。SDK 回读的 32 位上下文用于受控访问冲突，不复用 x64 偏移。同一进程活跃撤回解除武装、重开换 epoch；实际 TSF 访问冲突经正确 32 位 WER 注册落盘，实际 x64 Server 重启代收原 UUID，隔离后台逐字段保留原 `x86` 构建头，无会话推断或 epoch 外发。独立归档 PDB 将首帧 `0x11c6` 还原到 `Candidate/EnumTfCandidates.cpp:11`，错误 WER PDB 被拒绝。正确 helper 下的撤回后同类故障没有原记录、队列或后台新增事件。
+
+交叉构建、注册路径和 HTTP 形状的夹具失败及初次清理残留均保留，最终独立审计确认产品哈希不变、输入源恢复、全部测试注册和运行环境清理；恢复正式缓存的实际 PE32 ABI 拒绝测试字段且未建队列。正式重建的 DLL/PDB 哈希不同，不宣称可复现构建。完整来源、证据与边界见[Windows x86 复验](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#windows-x86-实际编辑器与跨架构代收)，范围限 e746 暂存产品，不替代完整安装包、ARM64、Win7 或全平台完成。
+
+本轮 Windows x86 验收记录的完整 `scripts/verify-local.sh --quick` 首轮退出 1，仅 Linux 原生 119 项中的两项画布精确颜色断言失败。使用本次命令专属 `FONTCONFIG_FILE` 关闭字体抗锯齿后，两项原断言与整轮 quick 复跑均通过，Linux 原生 119/119；没有修改系统字体设置、产品或测试源码。笔记校验退出 0，12,666 个 tracked 条目的实际字节和模式在远端验证前后相同，并与本机 `78c7eb1f7a` 全部字节及执行位逐项一致。证据为 `target/windows-x86-quick-evidence/`。此 Linux 环境未配置的 Windows 完整原生/pipe-only、Android/wasm SDK、鸿蒙 SDK、macOS 原生与 Apple bridge 阶段明确跳过，不算对应平台通过；首轮失败日志保留。
+
+### Ubuntu x64 安装包原用户单元验收
+
+固定 `1ba6b6ee05` 的 Ubuntu 24.04 x64 CPack DEB 已实际 apt 安装到本任务空白 LXC 的 `/usr`。安装后断网，合成用户的真正用户级 systemd 运行包内原在线、语音与剪贴板单元，三组均通过开启故障/自动重启补报、SIGKILL 不误报、活跃撤回/重开换代和主动停止不重启；只到共享队列，没有输入会话。独立审计确认 159 份安装文件哈希不变、授权和队列清理；实际 remove/purge 后核对全部文件移除及原服务/socket 停止禁用。失败轮、包身份、网络隔离与证据边界见[系统安装验收](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#ubuntu-x64-实际系统安装与用户级服务)，不能扩大为安装包内所有 GUI 入口、其他发行版或本轮后台/源码行通过。
+
+同轮完整词库门禁原有两处夹具前提失效已按当前输入语义修正，最终 130/130 通过、没有跳过；两专项各连续三次通过。十九个实际包内 ELF 的 build-id 与代码段摘要匹配独立符号包。它们不扩展三服务的实际故障范围；构建失败、夹具中间失败及精确环境继续由上述系统安装记录持有。
+
+提交前整轮 quick、笔记与 12,666 份输入审计通过（Linux 原生 119/119）。远端原 e746 正式 Rust/原生缓存与 107 个 CMake 配置项恢复；真实 ABI 的捕获头及测试目标拒绝行为核对通过，任务锁移除、源码干净。平台工具缺失的跳过与传输元数据清理停止轮继续保留在同一验收记录，不把恢复后的旧缓存当作本轮安装候选。
+
+### Debian 10 运行镜像的崩溃夹具
+
+PR `10048` 的 `8d6b8959b5` 在 legacy amd64 与 arm64 的真实 Debian 10 安装阶段失败。amd64 日志 `41047855220/124036266482` 明确显示两处前提失效：`linux-ibus-startup-telemetry` 使用 Python 3.9 才有的 `str.removeprefix`，而包允许 Python 3.7；`windows-auxiliary-crash-consent` 在仅有运行依赖的镜像里调用编译器。不能把这两条从测试集合删除或把跳过算成通过。
+
+IBus 夹具在核对固定前缀后用兼容的切片解析原身份。辅助授权夹具由同一脚本生成真实选择函数的 C++ 源码，交给 CMake 在构建阶段编译、保留 Release 断言并沿用 GCC 8 的 `stdc++fs` 链接规则；CTest 的 Python 包装只创建合成目录并执行产物，不探测编译器或开发头。生成命令依赖脚本和真实头文件，二者变化会重编。
+
+本机独立编译专项通过；生成源码、严格编译后以 `PATH=/nonexistent` 运行预编译模式通过，证明运行路径没有编译器查找。远端整轮 quick 与笔记校验退出 0，Linux 原生 119/119；新 CMake 产物在独立原生构建目录重新生成、严格编译后，两条实际 CTest 均通过（0.02 s、1.50 s），空 `PATH` 的 Linux 预编译模式也通过。此前首次专项仍用了尚未重新生成的旧 CTest 命令，已保留原记录，不把那一轮算作预编译路径通过。尚未配置的平台阶段依旧明确跳过，不把本机或 Ubuntu 的较新解释器结果扩大为 Python 3.7 实测；`bc6176c5a6` 的 legacy amd64/arm64 修后完整安装 CI 均已成功（run `41051281405`）。
+
+### Ubuntu 系统安装的图形入口与按键访问冲突
+
+原 `1ba6b6ee05` DEB 在本任务空白 Ubuntu 24.04 x64 容器中实际安装，IBus、Fcitx5 与设置窗口分别使用真实空白用户、原 HOME 和无外网接口的图形环境。两个输入框架在 Mousepad 初次及四次重启后都实际中文上屏；三个入口各四组故障/授权对照的 crash 数均为 `1/1/0/1`，两次授权的 epoch 不同，设置没有输入会话。包内原 IBus launcher 自动恢复，其余两个入口按原命令显式重启。
+
+另一个空白用户中，安装插件的真实按键回调执行未修改的产品指令访问 `0x11` 后以 `SEGV_MAPERR` 致命退出，原 Fcitx5 重启入队并恢复中文输入。实际队列的 build-id 和偏移以独立十九模块符号包还原到 `FcitxEngine.cpp:7705`，同一位置在另一环境运行仓库原符号工具复核、错误 build-id 拒绝；保留内联帧才能从 `inputcontext.h:288` 追到自有源码。外部信号、实际访问冲突、入队与后台发送的范围严格分开。夹具失败轮和安装清理细节见[系统安装图形验收](../../proposed/feature/2026-10-27-cross-platform-crash-reporting.md#ubuntu-x64-系统安装后的三个图形入口)。
+
+### 生成夹具的构建目标归属
+
+`bc6176c5a6` 的 Ubuntu native job `124048281665` 虽然 119 项 CTest 通过，仍在 `BUILD_TESTING` 目标图审计失败：生成的授权夹具源码不在仓库 `tests/` 下，被当作生产目标，导致 ON/OFF 集合不同。生成源码放在构建目录的 `tests/` 下，审计同时按实际源码根和构建根识别测试路径，并显式要求授权夹具属于开启测试时的集合；关闭测试仍必须没有任何测试目标且保留同一生产集合。不能仅按目标名放行，也不删除生产目标不变的断言。
+
+同一 Fcitx5 配置的实际 ON/OFF 目标图专项通过：保留 18 个相同生产目标，关闭测试排除 81 个测试目标。随后完整 quick、两条实际 CTest 与笔记校验退出码均为 0，Linux 原生 119/119；源码覆盖在运行前后哈希一致。首次专项误用未开启 Fcitx5 的 IBus 配置被既有必需目标断言拒绝，改为同配置快照，没有放宽断言。首轮 quick 日志虽通过，SSH stdin 包装没有保留最终变量；改为上传脚本并隔离 stdin 后复跑取得完整退出码，前轮日志保留。远端源码、原生缓存已恢复，正式三个 Rust 产物哈希相同、租约移除；新 head 的 CI 仍须单独核验。
+
+### Ubuntu 系统包原生 Wayland、IBus 与设置访问冲突
+
+固定 `1ba6b6ee05` 的正式 DEB 在无外网 Ubuntu 24.04 x64 LXC 中完成三入口实际访问冲突验收：Wayland/Fcitx5 的 `0x11` 还原到 `FcitxEngine.cpp:7705`，X11/IBus 的 `0x59` 还原到 `ClientEngine.cpp:7029`，设置窗口授权函数的 `0x19` 还原到 `preferences.rs:5675`。三个入口均保留原安装路径和空白用户 HOME，故障后由原入口重启并恢复；Wayland 明确无 `DISPLAY` 且关闭 Xwayland。独立审计和 159 个文件哈希核对通过，关闭授权、清空队列后实际 purge；本轮未发送后台。证据归档 SHA-256 为 `a3634d19aba1913e3af3ec17857fbd6407030c3b7fd61196e7ab3aeada78dcc1`。
+
+### macOS 共享 Tauri 设置真实故障闭环
+
+`c3ecd6299437ea1aeda21cd4efe010bb9048366b` 的 arm64 回环产品在隔离合成用户中由原生输入法真实调用 `showAISettings:`，经同源 `NSTask` 夹具启动 `app.msime.macos --route=settings:ai`；共享设置窗口 bundle、生命周期和可见窗口检查通过。回环后台固定官方镜像 `sha256:5c1e305b5be5586ce4c749369f35344a5afb94103d8a0178c6da8b57d8304994` 与 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`，收到实际自有 `SIGSEGV` 的 1 条 crash。故障前构建头保留 revision、运行号、arm64 和 `desktop`，独立 dSYM ZIP 以 UUID `0345AC6A-6C34-361E-83B8-C80F45C24131` 将 `0x86b4f0` 还原到 `desktop_crash_reporting.rs:127`；错误 UUID 负对照拒绝。撤回后确实解除武装，重开恢复，SIGKILL 不误报且没有 session 事件。该夹具只覆盖 arm64 共享设置入口，NSTask 传输不代表 LaunchServices 菜单验收；MCP、其他辅助入口、硬件故障、universal 安装包和完整 IMK 编辑器仍在全平台矩阵中待验收。

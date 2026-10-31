@@ -94,7 +94,9 @@ try {
             $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
             Invoke-Windows7Build lib @('/NOLOGO',"/DEF:$definition","/OUT:$hostLibrary","/MACHINE:$machine")
         }
-        $common = @('-G','Visual Studio 17 2022','-A',$platform,"-DCMAKE_PREFIX_PATH=$prefix",
+        $common = @('-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi /Oy-',
+            '-DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG /INCREMENTAL:NO',
+            '-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=/DEBUG /INCREMENTAL:NO','-G','Visual Studio 17 2022','-A',$platform,"-DCMAKE_PREFIX_PATH=$prefix",
             "-DMSIME_WINDOWS_VERSION=$version",
             "-DMSIME_HOST_LIBRARY=$hostLibrary","-DMSIME_EDITION=$Edition",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE=$bin",'-DBUILD_TESTING=ON')
@@ -119,7 +121,7 @@ try {
         # 先建全新的闭包，旧成功产物只在本次全部审计成功后替换。
         $destination = Join-Path $output 'runtime.new'
         if (Test-Path -LiteralPath $destination) { throw 'Previous unfinished Win7 runtime.new exists; inspect it before rebuilding' }
-        $entries = @('MetasequoiaImeServer.exe','MetasequoiaImeWatchdog.exe','msime-client-prepare.exe','MetasequoiaImeTsf.dll',
+        $entries = @('MetasequoiaImeServer.exe','MetasequoiaImeWatchdog.exe','msime-client-prepare.exe','MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll',
             'msime-client-settings-win7.exe','msime-client-panels-win7.exe','msime-mcp.exe','sherpa-onnx-c-api.dll','onnxruntime_providers_shared.dll')
         $dependencies = @((Join-Path $prefix 'bin') | Where-Object { Test-Path -LiteralPath $_ -PathType Container }) + @($runtimes)
         & (Join-Path $PSScriptRoot 'Copy-Windows7RuntimeClosure.ps1') -ProgramDirectory $bin -EntryPoints $entries -DependencyDirectories $dependencies -Destination $destination -Architecture $arch

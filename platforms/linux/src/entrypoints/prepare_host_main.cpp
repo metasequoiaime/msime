@@ -1,9 +1,11 @@
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#include "../../../common/Telemetry.h"
 #include "../core/LinuxEdition.h"
 #include "../core/PreparePaths.h"
 #include "../core/PrepareState.h"
 #include "../core/RuntimeOptionsRefresh.h"
+#include "../core/RuntimeOptionsFile.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -20,6 +22,16 @@
 #include <vector>
 
 namespace {
+std::optional<msime::telemetry::Host> crash_host(const std::filesystem::path &preferences) {
+  const auto base = msime::telemetry::default_directory();
+  if (base.empty() || !preferences.is_absolute())
+    return std::nullopt;
+  return msime::telemetry::Host{"linux", MSIME_LINUX_VERSION,
+                               base.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY,
+                               std::nullopt, preferences, "prepare", true,
+                               MSIME_EDITION_ID};
+}
+
 struct Descriptor {
   int value;
   explicit Descriptor(int descriptor) : value(descriptor) {}
@@ -95,6 +107,16 @@ int refresh(const std::filesystem::path &options) {
   }
   try {
     umask(0077);
+    msime::telemetry::CaptureOnly crash_capture([options] {
+      const auto document = nlohmann::json::parse(
+          msime::linux_host::read_runtime_options(options), nullptr, false);
+      if (!document.is_object())
+        return std::optional<msime::telemetry::Host>();
+      const auto preferences = document.find("preferences_directory");
+      if (preferences == document.end() || !preferences->is_string())
+        return std::optional<msime::telemetry::Host>();
+      return crash_host(preferences->get<std::string>());
+    });
     const bool rewritten = msime::linux_host::refresh_runtime_options(options);
     std::cout << (rewritten ? "refreshed" : "current") << '\n';
     return std::cout ? 0 : 1;
@@ -204,6 +226,8 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
+    // 已取得新状态目录的所有权，按包内版本初始化持续同意，保护共享层准备过程而不抢写 full 默认值。
+    msime::telemetry::CaptureOnly crash_capture([state] { return crash_host(state); });
     auto raw = msime::host_api::own_string(
         msime_client_prepare_host(reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     if (!raw) throw std::runtime_error("prepare failed");

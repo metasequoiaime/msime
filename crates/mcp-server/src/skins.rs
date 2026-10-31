@@ -1069,10 +1069,19 @@ mod tests {
         let files = get("sunset").unwrap();
         assert_eq!(files.manifest, manifest("sunset", "Sunset"));
         assert!(!files.synced);
-        let preview = state.path().join("skins/sunset/preview.png");
+        let preview = state
+            .path()
+            .join("skins")
+            .join("sunset")
+            .join("preview.png");
         assert_eq!(
             files.directory,
-            state.path().join("skins/sunset").display().to_string()
+            state
+                .path()
+                .join("skins")
+                .join("sunset")
+                .display()
+                .to_string()
         );
         assert_eq!(
             files.images,

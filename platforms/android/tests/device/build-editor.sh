@@ -20,6 +20,23 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 mkdir -p "$build_dir/assets/contracts/account-session-layouts"
 cp shared/contracts/account-session-layouts/cases.json "$build_dir/assets/contracts/account-session-layouts/cases.json"
 editor_manifest=platforms/android/tests/device/AndroidManifest.xml
+# 崩溃上报专项需要同时保留活跃键盘观察器和 App 同意/系统退出入口；复用一个清单，不增加正式产品组件。
+if [[ "${MSIME_ANDROID_CRASH_REPORTING:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/crash-reporting-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.TelemetryWatchDeviceSmoke/; /TelemetryWatchDeviceSmoke/s/ \/>/ android:targetProcesses="app.msime.android:ime" \/>/; s/app.msime.android.test.CandidateSkinDeviceSmoke/app.msime.android.test.DiagnosticConsentDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+# 活跃键盘进程专项只替换测试入口，产品清单和输入法生命周期不变。
+elif [[ "${MSIME_ANDROID_TELEMETRY_WATCH:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/telemetry-watch-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.TelemetryWatchDeviceSmoke/; /TelemetryWatchDeviceSmoke/s/ \/>/ android:targetProcesses="app.msime.android:ime" \/>/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
+# 同意文件专项在产品 UID 下运行，复用一个入口以保持系统的 instrumentation 数量上限。
+if [[ "${MSIME_ANDROID_DIAGNOSTIC_CONSENT:-0}" == 1 ]]; then
+  editor_manifest="$build_dir/diagnostic-consent-manifest.xml"
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.DiagnosticConsentDeviceSmoke/' \
+    platforms/android/tests/device/AndroidManifest.xml > "$editor_manifest"
+fi
 # 关于彩蛋专项复用已有入口，保持 API 35 的 instrumentation 数量限制。
 if [[ "${MSIME_ANDROID_ABOUT_EASTER_EGG:-0}" == 1 ]]; then
   editor_manifest="$build_dir/about-easter-egg-manifest.xml"

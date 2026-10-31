@@ -132,6 +132,22 @@ fn watch_git_path(root: &Path, name: &str) {
 
 fn main() {
     link_ios_swift_runtime_exports();
+    if matches!(
+        env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("macos" | "windows" | "linux")
+    ) {
+        println!("cargo:rerun-if-changed=../../../platforms/common/CrashRecorder.cpp");
+        println!("cargo:rerun-if-changed=../../../platforms/common/CrashRecorder.h");
+        println!("cargo:rerun-if-changed=../../../platforms/common/PosixCrashFile.h");
+        cc::Build::new()
+            .cpp(true)
+            .std("c++17")
+            .file("../../../platforms/common/CrashRecorder.cpp")
+            .compile("msime_native_crash");
+        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+            println!("cargo:rustc-link-lib=dl");
+        }
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rerun-if-changed=macos/settings_glass.mm");
         cc::Build::new()

@@ -1,4 +1,5 @@
 #include "VoiceProviders.h"
+#include "CurlHeaders.h"
 #include "LocalAsr.h"
 // Shared implementation; the historical namespace is retained for ABI compatibility.
 
@@ -483,24 +484,14 @@ std::string recognize_cloud_asr(
                    !add_part("language", language_value, nullptr, nullptr)) ||
                   !add_part("file", wav, "audio.wav", "audio/wav")))
       throw VoiceError("Cannot create HTTP request");
-    std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
-        curl_slist_append(nullptr, ("Authorization: Bearer " +
-                                    std::string(token))
-                               .c_str()),
-        curl_slist_free_all);
-    if (!headers)
+    msime::voice::CurlHeaderList headers(nullptr, curl_slist_free_all);
+    if (!msime::voice::append_curl_header(headers, "Authorization: Bearer " + std::string(token)))
       throw VoiceError("Cannot create HTTP headers");
-    auto *next = curl_slist_append(headers.get(), "Expect:");
-    if (!next)
+    if (!msime::voice::append_curl_header(headers, "Expect:"))
       throw VoiceError("Cannot create HTTP headers");
-    headers.release();
-    headers.reset(next);
     if (chat) {
-      next = curl_slist_append(headers.get(), "Content-Type: application/json");
-      if (!next)
+      if (!msime::voice::append_curl_header(headers, "Content-Type: application/json"))
         throw VoiceError("Cannot create HTTP headers");
-      headers.release();
-      headers.reset(next);
     }
     curl_easy_setopt(curl.get(), CURLOPT_URL, endpoint_value.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
@@ -621,15 +612,11 @@ std::string polish_cloud_text(
   if (!curl)
     throw VoiceError("Cannot create HTTP request");
   const std::string authorization = "Authorization: Bearer " + std::string(token);
-  std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
-      curl_slist_append(nullptr, authorization.c_str()), curl_slist_free_all);
-  if (!headers)
+  msime::voice::CurlHeaderList headers(nullptr, curl_slist_free_all);
+  if (!msime::voice::append_curl_header(headers, authorization))
     throw VoiceError("Cannot create HTTP headers");
-  auto *next = curl_slist_append(headers.get(), "Content-Type: application/json");
-  if (!next)
+  if (!msime::voice::append_curl_header(headers, "Content-Type: application/json"))
     throw VoiceError("Cannot create HTTP headers");
-  headers.release();
-  headers.reset(next);
   Response response;
   char error[CURL_ERROR_SIZE] = {};
   curl_easy_setopt(curl.get(), CURLOPT_URL, endpoint_value.c_str());

@@ -16,6 +16,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/dictionary.mm");
     println!("cargo:rerun-if-changed=native/file_picker.mm");
     println!("cargo:rerun-if-changed=native/process.mm");
+    println!("cargo:rerun-if-changed=native/telemetry_directory.mm");
     // voice_capture_devices.mm includes this; the path moved with `refactor(macos): organize tests by
     // feature area` and the stale one meant an edit to the header rebuilt nothing.
     println!("cargo:rerun-if-changed=../../platforms/macos/src/voice/VoiceCaptureDevice.h");
@@ -30,6 +31,7 @@ fn main() {
         .file("native/dictionary.mm")
         .file("native/file_picker.mm")
         .file("native/process.mm")
+        .file("native/telemetry_directory.mm")
         .file("native/updater.mm")
         .flag("-fobjc-arc")
         .std("c++17")

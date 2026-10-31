@@ -13,6 +13,9 @@ feedback=false
 diagnostics=false
 text_edit_layout=false
 oobe=false
+crash_only=false
+instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-300}
+[[ "$instrumentation_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
 for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
@@ -24,7 +27,8 @@ for option in "${@:2}"; do
     --diagnostics) diagnostics=true ;;
     --text-edit-layout) text_edit_layout=true ;;
     --oobe) oobe=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe]" >&2; exit 1 ;;
+    --crash-only) crash_only=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -178,7 +182,9 @@ check_script() {
 }
 # ---- 前置条件：这里失败，后面的检查都跑不起来 ----
 device_alive || stop "Test AVD has not booted"
-if [[ "$oobe" == true ]]; then
+if [[ "$crash_only" == true ]]; then
+  MSIME_ANDROID_CRASH_REPORTING=1 bash platforms/android/tests/device/build-editor.sh || stop "building the crash reporting test APK failed"
+elif [[ "$oobe" == true ]]; then
   MSIME_ANDROID_OOBE_SMOKE=1 bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
 else
   bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
@@ -246,15 +252,25 @@ run_instrumentation() {
     || { echo "Unknown instrumentation target: $component" >&2; return 1; }
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
     "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
-    "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
+    timeout --foreground "${instrumentation_timeout_seconds}s" \
+      "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
   else
-    "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
+    timeout --foreground "${instrumentation_timeout_seconds}s" \
+      "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
   fi
 }
 "$adb" -s "$serial" shell ime enable "$ime_id" || stop "enabling $ime_id failed"
 "$adb" -s "$serial" shell ime set "$ime_id" || stop "selecting $ime_id failed"
 confirm_ime || stop "$ime_id did not stay selected"
 "$adb" -s "$serial" shell am force-stop app.msime.android.test
+# 崩溃夹具必须和完整输入冒烟分开：完整套件可能因无关的 UI 竞态失败或耗尽时限，不能因此跳过真实崩溃闭环。
+if [[ "$crash_only" == true ]]; then
+  [[ "$sdk" == 35 ]] || stop "crash-only acceptance requires API 35"
+  python3 platforms/android/tests/device/telemetry-watch.py "$serial"
+  python3 platforms/android/tests/device/telemetry-consent.py "$serial"
+  python3 platforms/android/tests/device/telemetry-anr.py "$serial"
+  finish "Dedicated Android AVD: crash capture, system-exit attribution and ANR acceptance passed"
+fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"

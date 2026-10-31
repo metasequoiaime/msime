@@ -1,4 +1,7 @@
 #include "SettingsWindow.h"
+#include "../../../common/Telemetry.h"
+#include <exception>
+#include <cstdlib>
 #include "../InputMethodSetup.h"
 #include "SettingsChrome.h"
 #include "KeyboardSkinPage.h"
@@ -828,6 +831,7 @@ private:
       }
     }
     snapshot_ = result.snapshot;
+    if (snapshot_) msime::telemetry::set_enabled(snapshot_->preferences().value("usage_reporting", true));
     return result;
   }
 
@@ -946,6 +950,15 @@ private:
 };
 
 } // namespace
+
+void start_usage_reporting() {
+  auto directory = msime::telemetry::default_directory();
+  if (!directory.empty()) directory = directory.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
+  msime::telemetry::install_crash_handlers();
+  msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, directory, std::nullopt, preferences_directory(), "settings-win7", true});
+  std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
+  msime::telemetry::start_flushing();
+}
 
 struct SettingsWindow::State {
   struct Item {

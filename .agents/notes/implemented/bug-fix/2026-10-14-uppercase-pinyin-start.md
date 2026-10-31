@@ -38,3 +38,5 @@ Shift+大写字母现在可以成为拼音组字的首键，后续英文字符�
 #8776 最终验证：引擎单元测试 2349 通过、49 忽略；golden 31 通过，包含 300 个合成场景。严格 all-targets clippy、格式、笔记校验和 quick 通过。quick 在本工作树的远程 macOS 镜像运行，覆盖 workspace、Android、Wasm、Java 宿主、Linux 共享壳与原生宿主（90 项测试）、macOS 原生与共享 Apple 桥接编译；远程缺 Node、HarmonyOS 暂存依赖及 MinGW 的阶段明确跳过。笔记在本机单独验证；指定旧真实词库未就绪，不把真实词库 golden 的跳过或宿主编译当作输入法 UI 验收。
 
 `disabled_shift_shortcuts_leave_every_capital_available_for_pinyin` 遍历全拼、双拼的 26 个大写字母；旧实现首次在 `C` 失败，修复后各键的预编辑与原文提交保持大小写。拆字默认关闭的既有回归改为断言普通拼音组字，开启拆字与关闭总开关的用例继续约束原入口语义。[空入口拒绝大写的衔接](2026-10-19-bare-shortcut-capital-continuation.md)同时修复 `UV` 提前上屏，两部分共同覆盖 #8774；大写是否参与中文候选仍由 #8773 另行处理。
+
+Linux 的锁定词库夹具 `ibus-engine-smoke --chaizi` 同样遵循上述大写语义：缺省或明确关闭拆字时，`Shift+C` 加 `huo'huohuo` 保留为普通原文组字，候选不得出现拆字结果「焱」，回车提交完整原文；菜单打开拆字后同一部件串应选出「焱」。菜单保存先于会话应用，等待菜单回包确认已应用开关，再发送完整部件串并检查实际拆字结果；不能用「按键被接收」判断已进入模式，因为普通组字也接收同一首键。不改变拆字或 Shift 入口的默认值。

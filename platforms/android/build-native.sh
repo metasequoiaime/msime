@@ -31,11 +31,13 @@ case $(uname -s) in
 esac
 toolchain="$ndk/toolchains/llvm/prebuilt/$host_tag"
 compiler="$toolchain/bin/${compiler_target}28-clang"
-output="$repo_root/target/android/jniLibs/$abi"
 # 旧 worktree 的库不能作为本次构建的回退输入。先清空 ABI 目录，任何中途失败都会让
 # 随后的 Gradle 校验明确报缺产物，而不是继续把旧 JNI 库打进 APK。
+output="$repo_root/target/android/jniLibs/$abi"
 rm -rf "$output"
 mkdir -p "$output"
+# 真正构建该 ABI 时必须运行身份和源码行回归，工具缺失不能作为跳过。
+MSIME_ANDROID_NDK="$ndk" python3 scripts/test-android-crash-symbols.py --require-tools --target "$rust_target"
 # vcpkg provides only nlohmann-json, which shared/voice/LocalAsr.cpp includes. Manifest installs reconcile their root, so the ABIs are kept apart and one build cannot uninstall the other ABI's copy.
 deps="$repo_root/target/android-deps/$abi"
 ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
@@ -44,7 +46,8 @@ ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
 env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
-  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
+  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1" \
   cargo build -p msime-host-api --target "$rust_target" --release --locked
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
@@ -58,9 +61,9 @@ else
   rm -f "$output/libsherpa-onnx-c-api.so" "$output/libonnxruntime.so"
   echo "speech runtime omitted from $output; the app downloads it as the voice-runtime resource pack"
 fi
-"$compiler++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
+"$compiler++" -std=c++17 -g -Wl,--build-id=sha1 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
-  platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp shared/voice/LocalAsr.cpp \
+  platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp platforms/common/CrashRecorder.cpp shared/voice/LocalAsr.cpp \
   -Icrates/host-api/include -Ishared -Ishared/voice/third_party -I"$deps/$triplet/include" \
   -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
@@ -113,3 +116,7 @@ cp resources/licenses/msime-engine-dictionary-NOTICE.md "$notices/msime-engine-d
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"
+
+python3 scripts/crash-symbols.py collect --platform android --version "${MSIME_ANDROID_VERSION:-$(cat platforms/android/version.txt)}" \
+  --root "$output" --tool-prefix "$toolchain/bin/llvm-" \
+  --output "target/android-symbols/android-${MSIME_ANDROID_VERSION:-$(cat platforms/android/version.txt)}-${MSIME_EDITION:-full}-$abi-${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-local}}-${GITHUB_RUN_ATTEMPT:-1}.zip"

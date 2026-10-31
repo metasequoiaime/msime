@@ -145,6 +145,17 @@ jobs:
           name: msime-linux-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
           if-no-files-found: error
+      - name: 保存 Linux 原生符号和构建清单
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-linux-deb-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-package/symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 长期保存发布构建的 Linux 符号
+        if: inputs.publish
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: bash scripts/publish-crash-symbols.sh linux target/linux-package/symbols/*.zip
     outputs:
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
@@ -212,15 +223,29 @@ jobs:
           name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+      - name: 保存 RPM 原生调试符号
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-linux-rpm-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-package-rpm/symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: 发布 RPM 长期调试符号
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-crash-symbols.sh linux target/linux-package-rpm/symbols/*.zip
   # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行。
   legacy:
     needs: source
     if: ${{ inputs.legacy }}
-    permissions: {contents: read}
+    # 写权限只给被调工作流里发布符号的作业，构建作业仍按它自己的顶层设置只读。
+    permissions: {contents: write}
     uses: ./.github/workflows/build-linux-legacy.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
       version: ${{ inputs.version }}
+      publish: ${{ inputs.publish }}
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，以及只列这三个文件的 msime-VERSION-SHA256SUMS，见 platforms/linux/packaging/make-source-tarballs.sh。用户不会下载它们，所以不进版本发布页：main 上的发布把它们传到滚动的 linux-sources release，各包定义按那里的地址引用它们；其他分支的只留在 workflow artifact 里。只打 full。
   distro-sources:
     needs: source

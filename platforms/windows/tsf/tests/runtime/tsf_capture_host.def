@@ -1,0 +1,15 @@
+EXPORTS
+  msime_test_host_crash
+  msime_client_telemetry_consent
+  msime_client_telemetry_begin
+  msime_client_telemetry_clear
+  msime_client_string_free
+  msime_test_host_initialize
+  msime_test_host_finish
+  msime_test_host_mode
+  msime_test_host_block
+  msime_test_host_wait
+  msime_test_host_resume
+  msime_test_host_preparations
+  msime_test_host_invalid
+  msime_test_host_consent_reads

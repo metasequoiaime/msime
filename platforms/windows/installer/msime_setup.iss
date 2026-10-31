@@ -226,6 +226,11 @@ Name: "{group}\{#MyAppName}"; \
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Registry]
+; WER helper 由系统服务按完整路径加载；只登记本安装包自己的架构副本，卸载时删除该值。
+Root: HKLM32; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#ifndef Windows7X86
+Root: HKLM; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{#MySystemTipDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#endif
 Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "VersionDir"; ValueData: "{code:GetVersionDir}"; \
     Flags: uninsdeletevalue
@@ -253,6 +258,7 @@ const
   WebView2DownloadUrl =
     'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2';
   VCRuntimeKey = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
+  VCRuntimeX86Key = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x86';
   VCRuntimeDownloadUrl =
     'https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist?view=msvc-170';
 
@@ -304,21 +310,21 @@ end;
 //
 // 要求 14.20 以上（VC++ 2019 起）而不是只看 Installed=1：只装了 2015/2017 版的
 // 机器同样有 Installed=1，却缺少从那一版才开始随 redist 分发的 vcruntime140_1.dll。
-// 32 位 TSF DLL 用的是静态 CRT（tsf/CMakeLists.txt 里的 MSVC_RUNTIME_LIBRARY），
-// 所以不必检查 x86 redist。
+// 32 位 TSF 自身使用静态 CRT，但旁边的动态依赖仍可能使用 x86 CRT，
+// 因此必须同时检查它们需要的 x86 redist，不能只检查主程序的 x64 redist。
 // 注意：Inno Setup 的花括号注释不能嵌套，上面提到的常量会提前闭合 { } 注释，
 // 所以这一段只能用行注释。
-function VCRuntimeInstalledInView(RootKey: Integer): Boolean;
+function VCRuntimeInstalledInView(RootKey: Integer; const RuntimeKey: String): Boolean;
 var
   Installed: Cardinal;
   Major: Cardinal;
   Minor: Cardinal;
 begin
   Result :=
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Installed', Installed) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Installed', Installed) and
     (Installed = 1) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Major', Major) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Minor', Minor) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Major', Major) and
+    RegQueryDWordValue(RootKey, RuntimeKey, 'Minor', Minor) and
     ((Major > 14) or ((Major = 14) and (Minor >= 20)));
 end;
 
@@ -327,7 +333,13 @@ end;
 function VCRuntimeIsInstalled: Boolean;
 begin
   Result :=
-    VCRuntimeInstalledInView(HKLM32) or VCRuntimeInstalledInView(HKLM64);
+    VCRuntimeInstalledInView(HKLM32, VCRuntimeX86Key) or
+    VCRuntimeInstalledInView(HKLM64, VCRuntimeX86Key);
+#ifndef Windows7X86
+  Result := Result and
+    (VCRuntimeInstalledInView(HKLM32, VCRuntimeKey) or
+     VCRuntimeInstalledInView(HKLM64, VCRuntimeKey));
+#endif
 end;
 
 { 只用于写日志，不参与判定。}
@@ -371,7 +383,7 @@ begin
 
   NeedsVCRuntime := not VCRuntimeIsInstalled;
   if NeedsVCRuntime then
-    Log('Prerequisite missing: Visual C++ 2015-2022 Redistributable (x64).')
+    Log('Prerequisite missing: Visual C++ 2015-2022 Redistributable (x86 or required x64).')
   else
     Log('Visual C++ runtime found: ' + ReadVCRuntimeVersion);
 
@@ -381,10 +393,14 @@ begin
   Prompt := '这台电脑缺少输入法运行所需的系统组件：' + #13#10;
   if NeedsVCRuntime then
     Prompt := Prompt + #13#10 +
-      '● Visual C++ 2015-2022 可再发行组件包（x64）' + #13#10 +
-      '   缺少它输入法主程序根本无法启动（提示找不到 VCRUNTIME140.dll 之类）。' + #13#10 +
+      '● Visual C++ 2015-2022 可再发行组件包（x86；64 位 Windows 还需要 x64）' + #13#10 +
+      '   缺少对应组件会导致输入法注册失败或主程序无法启动。' + #13#10 +
       '   下载：' + VCRuntimeDownloadUrl + #13#10 +
-      '   直链：https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10;
+      '   x86：https://aka.ms/vs/17/release/vc_redist.x86.exe' + #13#10
+#ifndef Windows7X86
+      + '   x64：https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10
+#endif
+      ;
   if NeedsWebView2 then
     Prompt := Prompt + #13#10 +
       '● Microsoft Edge WebView2 Runtime' + #13#10 +
@@ -1139,10 +1155,55 @@ begin
       IntToStr(ResultCode) + '）。');
 end;
 
+{ 只在卸载已决定删除的路径里登记残留，升级不能把仍要复用的数据排进重启删除队列。
+  不跟随重解析点：目录链接本身可以删除，链接指向的树不归本安装器遍历。 }
+procedure QueueUninstallTreeRemoval(const Path: String);
+var
+  FindRec: TFindRec;
+  ItemPath: String;
+  IsReparsePoint: Boolean;
+begin
+  if FindFirst(Path, FindRec) then
+  begin
+    IsReparsePoint := (FindRec.Attributes and $400) <> 0;
+    FindClose(FindRec);
+    if IsReparsePoint then
+    begin
+      RestartReplace(Path, '');
+      exit;
+    end;
+  end;
+  if FindFirst(AddBackslash(Path) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          ItemPath := AddBackslash(Path) + FindRec.Name;
+          if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+            ((FindRec.Attributes and $400) = 0) then
+            QueueUninstallTreeRemoval(ItemPath)
+          else
+            RestartReplace(ItemPath, '');
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  { 已加载的 TSF 读取授权时可能在枚举后重建偏好锁；只为完整删除的数据根补登记，
+    且必须放在父目录之前。保留数据或保护内部其他版本时不会走到这个数据根。 }
+  if CompareText(Path, ResolvePreviousDataDir) = 0 then
+    RestartReplace(AddBackslash(Path) + 'preferences.lock', '');
+  RestartReplace(Path, '');
+end;
+
 procedure TryDeleteTree(const Path: String);
 begin
-  { 忽略返回值：被占用文件保留，其他能删除的文件仍继续清理。}
-  DelTree(Path, True, True, True);
+  { 先清理能删除的条目，卸载时才把被外部编辑器占用的词库和目录排到重启后删除。 }
+  if not DelTree(Path, True, True, True) then
+    if IsUninstaller and DirExists(Path) then
+      QueueUninstallTreeRemoval(Path);
 end;
 
 procedure CleanAppDataExceptUserFiles;
@@ -1193,10 +1254,21 @@ begin
     'if ([IntPtr]::Size -ne 8) { exit 3 }; ' +
     '$root = ''' + ExpandConstant('{#MySystemTipDir}') + '''; ' +
     '$keep = ''' + Keep + '''; ' +
+    '$q = [char]34; $nativeDeleteType = ''using System;using System.Runtime.InteropServices;public static class MsimeDelayedDelete { public const uint MOVEFILE_DELAY_UNTIL_REBOOT=4; [DllImport('' + ' +
+    '$q + ''kernel32.dll'' + $q + '', EntryPoint='' + $q + ''MoveFileExW'' + $q + '', CharSet=CharSet.Unicode, SetLastError=true)] public static extern bool MoveFileEx(string existing, IntPtr replacement, uint flags); }''; Add-Type -TypeDefinition $nativeDeleteType; ' +
     'if (-not (Test-Path -LiteralPath $root)) { exit 0 }; ' +
     'Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
     'Where-Object { $_.Name -ine $keep } | ' +
     'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; ' +
+    '$remaining = @(Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
+    'Where-Object { $_.Name -ine $keep }); ' +
+    'foreach ($directory in $remaining) { ' +
+    '  @(Get-ChildItem -LiteralPath $directory.FullName -Recurse -Force -File | Sort-Object FullName -Descending) | ' +
+    '    ForEach-Object { [MsimeDelayedDelete]::MoveFileEx($_.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null }; ' +
+    '  @(Get-ChildItem -LiteralPath $directory.FullName -Recurse -Force | Where-Object { $_.PSIsContainer } | Sort-Object FullName -Descending) | ' +
+    '    ForEach-Object { [MsimeDelayedDelete]::MoveFileEx($_.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null }; ' +
+    '  [MsimeDelayedDelete]::MoveFileEx($directory.FullName, [IntPtr]::Zero, [MsimeDelayedDelete]::MOVEFILE_DELAY_UNTIL_REBOOT) | Out-Null ' +
+    '}; ' +
     'if (($keep -eq '''') -and -not (Get-ChildItem -LiteralPath $root -Force)) { ' +
     'Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue }"',
     '',
@@ -1262,7 +1334,9 @@ begin
             if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
               TryDeleteTree(ItemPath)
             else
-              DeleteFile(ItemPath);
+              if not DeleteFile(ItemPath) then
+                if IsUninstaller then
+                  RestartReplace(ItemPath, '');
           end
           else
             Log('Keeping ' + ItemPath + '.');

@@ -122,6 +122,7 @@ try {
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
                 '/p:TargetName=msime-client-settings',
                 "/p:HostApiLibrary=$hostLibrary", "/p:MsimeEdition=$Edition",
+                "/p:NativeDependenciesInclude=$(Join-Path $X64Dependencies 'include')",
                 "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\") + $settingsVersion)
             $settingsPdb = Join-Path $bin 'msime-client-settings.pdb'
             if (-not (Test-Path -LiteralPath $settingsPdb -PathType Leaf)) {
@@ -170,7 +171,7 @@ try {
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
         & (Join-Path $PSScriptRoot 'Copy-RuntimeDependencies.ps1') `
             -DependencyPrefix $prefix -Destination $bin -Architecture $arch
-        foreach ($dll in @('MetasequoiaImeTsf.dll', $hostDll)) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', $hostDll)) {
             & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
         }
         if ($arch -eq 'x64') {
@@ -185,6 +186,7 @@ try {
         }
     }
     & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin 'MetasequoiaImeTsf.dll') -Architecture arm64x -Kind dll
+    & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin 'MetasequoiaImeCrashWer.dll') -Architecture arm64x -Kind dll
     & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin $arm64HostDll) -Architecture arm64 -Kind dll
     Write-Output 'Client build commands and PE architecture checks completed; no signing, packaging or installation performed.'
 } finally {

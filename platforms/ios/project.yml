@@ -517,6 +517,8 @@ targets:
     sources:
       - path: tests
         excludes:
+          # 这是宿主侧 fork 故障夹具，不是可加载的 iOS XCTest 源码。
+          - CrashSignalRecorderTest.c
           - resource-packs/**
           - local-models/**
           - input/EnglishCapitalizationPolicyTests.swift

@@ -11,6 +11,7 @@
 #   VERSION 缺省取 platforms/linux/version.txt，与 package-container.sh 相同；包名仍是 msime-linux，与发布页的 .deb 是同一个包的不同构建，两者不能同时安装。
 #   MSIME_LEGACY_ARCH=amd64|arm64 选择目标架构，缺省是本机架构。另一种架构经 docker 的 --platform 在模拟器里构建（需要 Docker 支持该平台，例如 binfmt/qemu 或 Rosetta），比原生慢得多。
 #   CARGO_BUILD_JOBS 和 CMAKE_BUILD_PARALLEL_LEVEL 设置时传进容器，用来限制共享 Docker 虚拟机上的内存。
+#   与 package-container.sh 一样在安装前把带行号的原生模块归档到 target/linux-package-legacy-<arch>/symbols/*.zip，包里的安装副本仍是剥离过的。
 #   只构建 full 版本：其他版本的配置要用 edition_linux.py 改写脚本，它需要 Python 3.10 以上，buster 没有。
 #
 # Output: target/linux-package-legacy-<arch>/dist/{msime-linux_<VERSION>_<arch>.deb,SHA256SUMS}
@@ -61,14 +62,18 @@ docker run --rm --init --platform "$platform" \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
   -e CARGO_HOME=/build/cargo-home \
+  -e MSIME_BUILD_REVISION="${MSIME_BUILD_REVISION:-$(git rev-parse HEAD)}" \
+  -e GITHUB_RUN_ID="${GITHUB_RUN_ID:-}" \
+  -e GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-}" \
   -e MSIME_PACKAGE_IMAGE="$image" \
   -e MSIME_VERSION="$version" \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$image" bash -euo pipefail -c '
     bash platforms/linux/scripts/prepare-package-cache.sh
-    # 与 package-container.sh 一样在这里去掉 Rust 二进制的符号表。
-    export CARGO_PROFILE_RELEASE_STRIP=symbols
+    # 与 package-container.sh 一样先保留行号用于符号归档，CPack 安装步骤只剥离安装副本。崩溃身份的运行号取 GITHUB_RUN_ID 而不传 MSIME_BUILD_RUN：后者还会编进应用内检查更新的 BUILD_RUN，legacy 包一直没有它。
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
     cargo build --release --locked -p msime-host-api
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     mkdir -p /build/notices
@@ -83,9 +88,10 @@ docker run --rm --init --platform "$platform" \
     fi
     # 删除配置缓存防止旧打包参数残留，保留可增量编译的对象文件。
     rm -f /build/cmake/CMakeCache.txt
-    rm -rf /build/dist
+    rm -rf /build/dist /build/symbols
     cmake -S platforms/linux -B /build/cmake -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
+      -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
       -DCMAKE_INSTALL_PREFIX=/usr \
       -DMSIME_EDITION=full \
       -DBUILD_TESTING=ON \
@@ -101,6 +107,9 @@ docker run --rm --init --platform "$platform" \
       -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF \
       "${extra_args[@]}"
     cmake --build /build/cmake
+    python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
+      --root /build/cmake --root /build/cargo/release \
+      --output "/build/symbols/linux-$MSIME_VERSION-legacy-deb-full-$(uname -m)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
     cpack --config /build/cmake/CPackConfig.cmake -G DEB -B /build/dist
     rm -rf /build/dist/_CPack_Packages
     deb=$(find /build/dist -maxdepth 1 -name "msime-linux_*.deb" -print -quit)

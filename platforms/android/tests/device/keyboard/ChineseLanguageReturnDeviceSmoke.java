@@ -51,15 +51,7 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
         long revision = original == null ? 0 : read(preferences).getLong("revision");
         try {
             stage = "prepare bundled Japanese resources";
-            // 专用 AVD 可能保留瘦包的资源目录；只临时补齐当前完整 APK 随包的日文文件。
-            for (String name : new String[] {"msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt"}) {
-                File target = new File(resources, name);
-                if (target.exists()) continue;
-                stagedResources.add(target);
-                try (var input = getTargetContext().getAssets().open("dictionary/" + name)) {
-                    Files.copy(input, target.toPath());
-                }
-            }
+            prepareJapaneseResources(root, resources, directory, stagedResources);
             JSONObject settings = originalLocal == null ? new JSONObject().put("version", 1)
                 .put("settings", new JSONObject()) : read(local);
             settings.getJSONObject("settings").put("platform.android.language_key_cycle", true);
@@ -165,14 +157,7 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
             // 触摸注入即使异步也会等待窗口事务，先去掉系统动画，避免把动画时间算成用户的连点间隔。
             for (String[] animation : animations) shellDiscard("settings put global " + animation[0] + " 0");
             stage = "prepare Japanese toggle fixture";
-            for (String name : new String[] {"msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt"}) {
-                File target = new File(resources, name);
-                if (target.exists()) continue;
-                stagedResources.add(target);
-                try (var input = getTargetContext().getAssets().open("dictionary/" + name)) {
-                    Files.copy(input, target.toPath());
-                }
-            }
+            prepareJapaneseResources(root, resources, directory, stagedResources);
             JSONObject values = new JSONObject(options.getJSONObject("preferences").toString())
                 .put("scheme", "japanese").put("touch_keyboard_layout", "nine_key")
                 .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
@@ -424,6 +409,41 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
     /** 候选栏也可能出现同名假名，按键必须通过专属读屏说明定位。 */
     private Predicate<AccessibilityNodeInfo> japaneseKana(String kana) {
         return describedPrefix("轻点输入" + kana);
+    }
+
+    /** 正式瘦包使用已校验的按需词库；完整开发包仍可临时补齐随包资源。 */
+    private void prepareJapaneseResources(File root, File resources, File state,
+            java.util.List<File> stagedResources) throws Exception {
+        String[] names = {"msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt"};
+        boolean bundled = true;
+        for (String name : names) bundled &= new File(resources, name).isFile();
+        if (bundled) return;
+
+        Class<?> client = getTargetContext().getClassLoader().loadClass("app.msime.android.NativeClient");
+        JSONObject request = new JSONObject().put("state_root", state.getAbsolutePath()).put("pack", "japanese");
+        JSONObject verified = new JSONObject((String) client.getMethod("resourcePackVerify", String.class)
+            .invoke(null, request.toString()));
+        if (verified.getBoolean("ok")) {
+            File installed = new File(verified.getJSONObject("value").getString("path")).getCanonicalFile();
+            if (!installed.toPath().startsWith(root.getCanonicalFile().toPath())
+                    || !installed.equals(new File(state, "resource-packs/japanese").getCanonicalFile()))
+                throw new AssertionError("Japanese resource pack escaped test sandbox");
+            for (String name : names) {
+                if (!new File(installed, name).isFile())
+                    throw new AssertionError("Verified Japanese resource pack is incomplete");
+            }
+            return;
+        }
+
+        // 按需资源尚未安装时，只从当前被测 APK 补齐；两个来源都缺失仍让原用例失败。
+        for (String name : names) {
+            File target = new File(resources, name);
+            if (target.exists()) continue;
+            stagedResources.add(target);
+            try (var input = getTargetContext().getAssets().open("dictionary/" + name)) {
+                Files.copy(input, target.toPath());
+            }
+        }
     }
 
     private boolean repeatKana(String kana) throws Exception {

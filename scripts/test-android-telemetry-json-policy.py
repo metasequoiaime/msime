@@ -19,8 +19,11 @@ def main() -> int:
     if "Telemetry.booleanValue" in smoke:
         print(f"{SMOKE}: 不应继续通过遥测类检查 JSON 布尔值", file=sys.stderr)
         return 1
-    if source.count("JsonPolicy.strictBoolean") < 2:
-        print(f"{SOURCE}: 遥测状态应直接调用 JsonPolicy.strictBoolean", file=sys.stderr)
+    # 授权由 Rust 偏好锁下产生；Java 严格解析响应，不再重复读取偏好里的布尔缓存。
+    if ('JsonPolicy.strictBoolean(value.opt("enabled"))' not in source
+            or 'if (allowed == null) throw' not in source
+            or "NativeClient.telemetryConsent(" not in source):
+        print(f"{SOURCE}: 遥测状态和共享同意应直接调用 JsonPolicy 的严格布尔策略", file=sys.stderr)
         return 1
     if "import app.msime.android.JsonPolicy;" not in smoke:
         print(f"{SMOKE}: 应直接导入 JsonPolicy", file=sys.stderr)

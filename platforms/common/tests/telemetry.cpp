@@ -1,5 +1,6 @@
 // The reporter wrapper against the real Host API: sessions, the sigaction crash path, the terminate path, chaining to a crash handler the process had before, and the switch. Linux only (fork and signals); nothing here reaches the network.
 #include "Telemetry.h"
+#include "CrashRecorder.h"
 #include "HostApiString.h"
 #include "msime_client.h"
 
@@ -103,7 +104,7 @@ int main() {
   auto crashes = of_kind(directory, "crash");
   assert(crashes.size() == 1);
   // raise() 是本进程自己发出的信号，不是执行出错：摘要写明来源。
-  assert(crashes[0].at("message").get<std::string>() == "SIGSEGV: segmentation fault (raised by this process)");
+  assert(crashes[0].at("message").get<std::string>().rfind("SIGSEGV: segmentation fault (raised by this process)\n", 0) == 0);
   const auto stack = crashes[0].value("stack", std::string());
   assert(!stack.empty());
   // Module paths are reduced to file names.
@@ -148,6 +149,8 @@ int main() {
     std::ifstream record(records[0]);
     std::string message;
     std::getline(record, message);
+    assert(message.rfind("MSIME-CRASH/1 ", 0) == 0);
+    std::getline(record, message);
     assert(message == "SIGSEGV: segmentation fault (sent by " + sender + ")");
   }
 
@@ -171,7 +174,7 @@ int main() {
   assert(msime::telemetry::begin(host(directory)));
   crashes = of_kind(directory, "crash");
   assert(crashes.size() == 2);
-  assert(crashes[1].at("message") == "std::terminate: std::runtime_error: synthetic failure");
+  assert(crashes[1].at("message").get<std::string>().rfind("std::terminate: std::runtime_error\n", 0) == 0);
   assert(of_kind(directory, "session_crash").size() == 2);
 
   // A crash handler the process already had (Fcitx5's) still runs after the record is written.
@@ -224,25 +227,45 @@ int main() {
   msime::telemetry::set_enabled(true);
   assert(of_kind(directory, "active").at(0).at("install_id") == install_id);
 
-  // Hosts on the shared preferences: no document yet means the default (on); usage_reporting false in preferences.json is off and clears what an earlier session queued.
+  // 真实共享偏好与持续授权：读失败暂停，同代次恢复保留会话，短暂撤回必须换身份。
   const auto shared = directory / "shared";
   const auto preferences = directory / "preferences";
   fs::create_directories(shared);
   fs::create_directories(preferences);
+  auto save_shared = [&](bool enabled) {
+    const auto path = preferences.string();
+    auto loaded = msime::host_api::own_string(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+    auto snapshot = nlohmann::json::parse(loaded.get()).at("value");
+    snapshot["preferences"]["usage_reporting"] = enabled;
+    const auto body = snapshot.dump();
+    auto saved = msime::host_api::own_string(msime_client_save_preferences(
+        reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.at("revision").get<uint64_t>(),
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    assert(nlohmann::json::parse(saved.get()).value("ok", false));
+  };
+  auto shared_session = [&] {
+    std::ifstream file(shared / "telemetry-session.json");
+    return nlohmann::json::parse(file).at("id").get<std::string>();
+  };
   assert(msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(of_kind(shared, "active").size() == 1);
-  {
-    auto defaults = msime::host_api::own_string(msime_client_default_preferences());
-    auto value = nlohmann::json::parse(defaults.get()).at("value");
-    auto snapshot = value.contains("preferences") ? value : nlohmann::json{{"format_version", 1}, {"revision", 0}, {"preferences", value}};
-    snapshot["preferences"]["usage_reporting"] = false;
-    const auto body = snapshot.dump();
-    const auto path = preferences.string();
-    auto saved = msime::host_api::own_string(
-        msime_client_save_preferences(reinterpret_cast<const uint8_t *>(path.data()), path.size(), snapshot.value("revision", 0ull),
-                                      reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    assert(nlohmann::json::parse(saved.get()).value("ok", false));
-  }
+  const auto initial_session = shared_session();
+  fs::rename(preferences / "preferences.json", preferences / "saved.json");
+  { std::ofstream file(preferences / "preferences.json"); file << "{"; }
+  msime::telemetry::refresh();
+  assert(!msime::crash::is_armed());
+  fs::rename(preferences / "saved.json", preferences / "preferences.json");
+  msime::telemetry::refresh();
+  assert(msime::crash::is_armed() && shared_session() == initial_session);
+  save_shared(false);
+  save_shared(true);
+  msime::telemetry::set_enabled(true);
+  assert(msime::crash::is_armed() && shared_session() != initial_session);
+  save_shared(false);
+  // 旧发布回调带 true 也不能绕过已经关闭的磁盘偏好。
+  msime::telemetry::set_enabled(true);
+  assert(!msime::crash::is_armed() && queue(shared).empty());
   assert(!msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(queue(shared).empty());
 
@@ -261,7 +284,7 @@ int main() {
     const auto crashed = of_kind(concurrent, "crash");
     const auto sessions_crashed = of_kind(concurrent, "session_crash");
     assert(crashed.size() == 1);
-    assert(crashed[0].at("message") == "std::terminate: std::runtime_error: synthetic failure");
+    assert(crashed[0].at("message").get<std::string>().rfind("std::terminate: std::runtime_error\n", 0) == 0);
     assert(sessions_crashed.size() == 1);
     // 崩溃和 session_crash 属于同一个会话，也就是崩溃的那个进程的会话（版本是它的 1.2.3，不是另一个进程的 9.9.9）。
     assert(crashed[0].at("id").get<std::string>().substr(6) == sessions_crashed[0].at("id").get<std::string>().substr(8));

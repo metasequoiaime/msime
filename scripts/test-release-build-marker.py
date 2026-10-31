@@ -66,7 +66,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_linux_package_container_receives_the_run(self):
         text = (ROOT / "platforms/linux/package-container.sh").read_text(encoding="utf-8")
-        self.assertIn('${MSIME_BUILD_RUN:+-e MSIME_BUILD_RUN="$MSIME_BUILD_RUN"}', text)
+        self.assertIn('-e MSIME_BUILD_RUN="${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-}}"', text)
 
     def test_the_rust_side_reads_the_same_names(self):
         text = (ROOT / "crates/client-services/src/update_check.rs").read_text(encoding="utf-8")

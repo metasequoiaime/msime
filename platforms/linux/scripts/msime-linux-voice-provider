@@ -27,7 +27,8 @@ import urllib.request
 import uuid
 import wave
 
-from msime_provider_runtime import open_server
+from msime_provider_runtime import StoppableUnixStreamServer, open_server
+import msime_crash_capture
 from msime_voice_doubao import normalize_doubao_auth_mode
 import msime_voice_local
 from msime_voice_polish_prompts import PROMPTS
@@ -101,7 +102,8 @@ def bounded_post(config, body, content_type, timeout, cancelled=None):
     payload = metadata + b"\n" + body
     process = subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--http-request"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        env=msime_crash_capture.worker_environment())
     try:
         while True:
             if cancelled is not None and cancelled.is_set():
@@ -1230,7 +1232,7 @@ def credential_test(query, server):
             "测试失败，请检查 provider 私有配置、当前选项和网络。"}
 
 
-class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class Server(StoppableUnixStreamServer):
     daemon_threads = True
 
     def process_request(self, request, address):
@@ -1361,6 +1363,7 @@ def main():
     parser.add_argument("--capture-device", help="PulseAudio source, PipeWire node name/serial, or ALSA PCM device")
     parser.add_argument("--max-recording-seconds", type=int, default=300, help="1–600 seconds, default 300")
     args = parser.parse_args()
+    msime_crash_capture.start("voice-provider")
     try:
         try:
             config = load_config(args.config)
@@ -1410,15 +1413,8 @@ def main():
     server.hotword_corrector = msime_voice_local.HotwordCorrector(host_library_path())
     identity = args.socket.stat() if service_lock is not None else None
 
-    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
-    def stop(signum, frame):
-        threading.Thread(target=server.shutdown, daemon=True).start()
-
-    signal.signal(signal.SIGTERM, stop)
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        server.serve_until_stopped()
     finally:
         with server.lock:
             server.closing = True
@@ -1445,5 +1441,6 @@ def main():
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--http-request"]:
+        msime_crash_capture.start_worker("voice-http")
         sys.exit(http_request_worker())
     main()

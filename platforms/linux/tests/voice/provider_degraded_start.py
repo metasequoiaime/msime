@@ -41,6 +41,40 @@ while True:
     time.sleep(0.02)
 '''
 
+# 在真实请求线程持有注册锁时送达停止信号，不依赖调度概率或固定休眠。
+SIGNAL_DURING_THREAD_START = '''import linecache
+import os
+from pathlib import Path
+import runpy
+import signal
+import sys
+import threading
+
+provider, marker = sys.argv[1:3]
+sys.argv = [provider] + sys.argv[3:]
+sys.path.insert(0, str(Path(provider).parent))
+sent = False
+
+def trace(frame, event, unused):
+    global sent
+    if (not sent and event == "line" and frame.f_code.co_name == "start" and
+            frame.f_code.co_filename == threading.__file__ and
+            "_limbo[self] = self" in linecache.getline(threading.__file__, frame.f_lineno) and
+            signal.getsignal(signal.SIGTERM) != signal.SIG_DFL):
+        sent = True
+        Path(marker).write_text("SIGTERM during Thread.start")
+        os.kill(os.getpid(), signal.SIGTERM)
+    elif (sent and event == "line" and frame.f_code.co_name == "main" and
+          linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip() == "server.server_close()"):
+        sys.settrace(None)
+        Path(marker).write_text("SIGTERM during Thread.start; SIGTERM during cleanup")
+        os.kill(os.getpid(), signal.SIGTERM)
+    return trace
+
+sys.settrace(trace)
+runpy.run_path(provider, run_name="__main__")
+'''
+
 
 @unittest.skipUnless(sys.platform == "linux", "requires SO_PEERCRED peer authentication")
 class DegradedStart(unittest.TestCase):
@@ -194,6 +228,41 @@ class DegradedStart(unittest.TestCase):
              "--max-recording-seconds", "0"],
             env={"PATH": str(self.bin)}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.assertEqual(self.process.wait(timeout=10), 2)
+
+    def test_sigterm_during_request_thread_start(self):
+        bootstrap = self.root / "signal-stop.py"
+        bootstrap.write_text(SIGNAL_DURING_THREAD_START)
+        for name, arguments in (
+                ("voice", ["--config", str(self.config), "--capture", "pulse"]),
+                ("online", [])):
+            with self.subTest(provider=name):
+                path = self.root / (name + "-stop.sock")
+                marker = self.root / (name + "-signal.txt")
+                provider = ROOT / "scripts" / ("msime-linux-" + name + "-provider")
+                self.process = subprocess.Popen(
+                    [sys.executable, "-S", str(bootstrap), str(provider), str(marker), str(path), *arguments],
+                    env={"PATH": str(self.bin), "PYTHONPATH": str(self.packages), "LC_ALL": "C.UTF-8"},
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                try:
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                            probe.settimeout(0.2)
+                            try:
+                                probe.connect(str(path))
+                            except (ConnectionRefusedError, FileNotFoundError):
+                                time.sleep(0.02)
+                            else:
+                                break
+                        self.assertIsNone(self.process.poll(), "服务在连接前退出")
+                    self.assertEqual(self.process.wait(timeout=10), 0)
+                    self.assertEqual(marker.read_text(), "SIGTERM during Thread.start; SIGTERM during cleanup")
+                    self.assertFalse(path.exists(), "正常停止必须清理自有 socket")
+                finally:
+                    if self.process.poll() is None:
+                        self.process.kill()
+                        self.process.wait()
+                    self.process.stderr.close()
 
 
 if __name__ == "__main__":

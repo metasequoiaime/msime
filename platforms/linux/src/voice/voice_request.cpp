@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
@@ -32,6 +33,7 @@ int main(int argc, char **argv) {
       "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
   if (socket_path.empty())
     return 2;
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("voice");
   std::array<char, 16385> buffer;
   const auto request_length = msime::linux_host::read_bounded_cli_input(std::cin, buffer);
   if (!request_length)

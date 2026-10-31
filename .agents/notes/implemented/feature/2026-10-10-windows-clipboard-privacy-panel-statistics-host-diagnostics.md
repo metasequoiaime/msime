@@ -24,7 +24,7 @@ Status: implemented
 许可格式存在但读不到数据或不足 4 字节时按拒绝处理：写下这个格式的程序显然在表态，宁可漏记一条也不记下可能的密码。
 
 - `ClipboardMonitor.cpp` 在已打开剪贴板的作用域里先读标记，命中就不取文本；`sequence_` 照样前移，这次变化不会被重读。
-- `read_clipboard_text` 的返回改为 `Result<Option<String>, ()>`，`Ok(None)` 表示带隐私标记、不可采集。设置应用的剪贴板监视线程只收 `Ok(Some)`；`sync_clipboard_history_blocking` 把 `None` 当作「剪贴板上没有可采集的内容」，照常返回当前历史，与 macOS 的 `clipboard_snapshot` 返回 `text: None` 一致。
+- `read_clipboard_text` 的返回改为 `Result<Option<String>, ClipboardReadError>`，`Ok(None)` 表示带隐私标记、不可采集。读取失败使用不携带内容的具名错误 `ClipboardReadError`，实现 `Display` 和 `Error`，满足 Windows MCP 的严格 clippy 门禁；`host-api` 同步入口保留该错误类型。设置应用的剪贴板监视线程只收 `Ok(Some)`；`sync_clipboard_history_blocking` 把 `None` 当作「剪贴板上没有可采集的内容」，照常返回当前历史，与 macOS 的 `clipboard_snapshot` 返回 `text: None` 一致。
 
 ### 面板上屏计数与注入标记
 
