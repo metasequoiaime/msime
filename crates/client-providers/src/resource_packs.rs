@@ -1296,7 +1296,7 @@ fn install_from_generation_copies(
         cancel,
     ) {
         Err(LocalModelError::Cancelled) => Some(Err(LocalModelError::Cancelled)),
-        // A dictionary update check in another thread or process may have removed the matched generation after the scan; the caller then downloads over the network instead.
+        // 词库更新检查可能在扫描后回收匹配的代次；这时让调用方改走联网下载。
         Err(_) => None,
         result => Some(result),
     }
