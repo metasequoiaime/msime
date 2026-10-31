@@ -634,6 +634,8 @@ fn an_existing_session_can_export_its_own_resource_generation_after_an_update() 
     check_with(&fixture.context, false, &fixture).unwrap();
     let old = selected(&fixture.context.state_root, &fixture.context.baseline).unwrap();
     let path = directory(&fixture.context.state_root, &old.desktop).unwrap();
+    // 会话建好时就占用自己的代次，之后的更新回收旧版本时不会删它。
+    let _session = lease(&fixture.context.state_root, &path).unwrap();
     fixture.release("dict-v2.0.11", b"second updated dictionary", 1);
     check_with(&fixture.context, false, &fixture).unwrap();
     fixture.release("dict-v2.0.12", b"third updated dictionary", 1);
@@ -648,6 +650,86 @@ fn an_existing_session_can_export_its_own_resource_generation_after_an_update() 
         pinned.generation().unwrap(),
         old.desktop.generation().unwrap()
     );
+}
+
+#[test]
+fn old_versions_are_removed_unless_selected_loaded_or_leased() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    let install = |tag: &str, bytes: &[u8]| {
+        fixture.release(tag, bytes, 1);
+        check_with(&fixture.context, false, &fixture).unwrap();
+        let selection = selected(state, &fixture.context.baseline).unwrap();
+        directory(state, &selection.desktop).unwrap()
+    };
+    let leased = install("dict-v2.0.10", b"held by a session");
+    let session = lease(state, &leased).unwrap();
+    let loaded = install("dict-v2.0.11", b"last loaded by the input method");
+    record_loaded(state, &loaded).unwrap();
+    let previous = install("dict-v2.0.12", b"rollback target");
+    let active = install("dict-v2.0.13", b"current selection");
+    for path in [&leased, &loaded, &previous, &active] {
+        assert!(path.is_dir(), "{path:?}");
+    }
+    let name = leased.file_name().unwrap().to_str().unwrap().to_owned();
+    let generations = leased.parent().unwrap().to_owned();
+    let marker = root(state).join("verification").join(&name);
+    std::fs::create_dir_all(&marker).unwrap();
+    // 会话结束后，下一次检查（已是最新）删掉那一版：目录、清单、锁和校验标记都不留。
+    drop(session);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(!leased.exists());
+    assert!(!generations.join(format!("{name}.json")).exists());
+    assert!(!generations.join(format!("{name}.lock")).exists());
+    assert!(!marker.exists());
+    for path in [&loaded, &previous, &active] {
+        assert!(path.is_dir(), "{path:?}");
+    }
+    // 输入法载入新版本后，上次载入的那一版也用不上了。
+    record_loaded(state, &active).unwrap();
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(!loaded.exists());
+    assert!(previous.is_dir() && active.is_dir());
+    // 可回退的上一版还在，回退照常可用。
+    rollback(&fixture.context).unwrap();
+    assert_eq!(
+        selected(state, &fixture.context.baseline).unwrap().version,
+        "dict-v2.0.12"
+    );
+}
+
+#[test]
+fn a_generation_no_version_points_to_is_left_for_the_next_install() {
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"first updated dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    // 例如下载完却因关掉开关没有发布的一代：没有清单指向它，留着下次直接用。
+    let unpublished = root(&fixture.context.state_root)
+        .join("generations")
+        .join("c".repeat(64));
+    std::fs::create_dir(&unpublished).unwrap();
+    fixture.release("dict-v2.0.11", b"second updated dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    fixture.release("dict-v2.0.12", b"third updated dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(unpublished.is_dir());
+}
+
+#[test]
+fn only_a_downloaded_generation_can_be_leased() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    // 还没装过更新，随包资源不是下载代次。
+    assert!(lease(state, &fixture.context.resources).is_none());
+    fixture.release("dict-v2.0.10", b"first updated dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(lease(state, &fixture.context.resources).is_none());
+    let selection = selected(state, &fixture.context.baseline).unwrap();
+    let path = directory(state, &selection.desktop).unwrap();
+    // 几个会话可以同时占用同一代次。
+    let first = lease(state, &path).unwrap();
+    let second = lease(state, &path).unwrap();
+    drop((first, second));
 }
 
 #[test]

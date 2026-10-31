@@ -150,7 +150,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 英文大小写状态继续对齐 Apple：中文态空组合点按 Shift 会先完成组合并进入英文的单次大写；单次 Shift 输入一个字母后自动回到小写，350 ms 内连续点按两次进入 Caps Lock，再次点按关闭。编辑器自动 Shift 与手动单次 Shift 使用同一三态状态机，但不会覆盖 Caps Lock；按钮以 `⇧` / `⇪`、选中态和“关闭 / 下一字母 / 自动开启 / 开启”的无障碍状态区分。切换符号层保留当前大小写，硬件 Shift 和本地模式触发使用每次事件自己的修饰状态，不污染软键盘状态；英文模式禁用中文本地输入工具。
 
-中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。全拼 26 键组字时这个位置默认换成「分词」键（送 `'` 断开音节，见 `.agents/notes/implemented/feature/2026-10-15-quanpin-touch-separator.md`），设置「键盘 › 组字时保留 Shift」（共享偏好 `touch_quanpin_shift`，默认关，账号同步键 `platform.android.quanpin_shift`）打开后保留 ⇧、点一下臂辅码；九键、14 键和 18 键的分词键不受它影响。
+中文全拼或双拼已有组合时，软键盘 Shift 保持中文会话并把后续字母以大写辅码交给 Engine，用于缩小候选；组合开始前仍按 Apple 行为切换到英文。五笔、日语、本地输入模式和空组合不启用辅码，Shift 的一次性状态在辅码输入后复位。全拼 26 键组字时这个位置默认保留 ⇧，点一下再输字母即臂辅码；设置「键盘 › 组字时保留 Shift」（共享偏好 `touch_quanpin_shift`，默认开，账号同步键 `platform.android.quanpin_shift`）关闭后改为「分词」键（送 `'` 断开音节，见 `.agents/notes/implemented/feature/2026-10-15-quanpin-touch-separator.md`）。九键、14 键和 18 键的分词键不受它影响。
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 
@@ -186,7 +186,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 剪贴板历史的拒绝理由按 Apple `ClipboardHistoryStore.Failure` 分开命名：空白文本、单条超过 10,000 字或 40,000 字节、以及 200 条全部固定各有自己的提示，最后一条明确要求先取消固定或删除一条；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。全部固定是独立的 `ClipboardHistory.FullException`，与读不出或写不回历史文件的普通 `IllegalStateException` 分开，避免把用户指向错误的动作。面板状态行同时说明点按插入以及在「管理」中固定或删除。理由分类与文案由无 Android 依赖的 `ClipboardHistoryPolicy` 提供并在 JVM 回归中验证。
 
-「更多工具 → 拍照识字」提供原生拍照面板。配套 OCR 模块 `msime-ocr-v1.apk`（ONNX Runtime 加 PP-OCRv6 tiny，带 arm64-v8a 与 x86_64 两套原生库）发布在本仓库的 `ocr-module-android-v1` Release，用户下载后在拍照识字设置里经系统文件选择器导入；主进程按 `resources/ocr-module-android.lock.json` 固定的完整摘要校验后封为只读，输入法进程每次加载前重新校验，不能选择任意 APK 启用。基础包不包含 OCR 依赖，不自动下载模块；Google Play 渠道拒绝外部可执行模块。相机权限、图片生命周期与遥测边界见 [PRIVACY.md](../../PRIVACY.md#android-拍照识字可选模块手动导入)。
+「更多工具 → 拍照识字」提供原生拍照面板。配套 OCR 模块 `msime-ocr-v1.apk`（ONNX Runtime 加 PP-OCRv6 tiny，带 arm64-v8a 与 x86_64 两套原生库）发布在本仓库的 `ocr-module-android-v1` Release，用户可在拍照识字设置点「下载地址」，选择浏览器或下载工具下载，再经系统文件选择器导入；主进程按 `resources/ocr-module-android.lock.json` 固定的完整摘要校验后封为只读，输入法进程每次加载前重新校验，不能选择任意 APK 启用。基础包不包含 OCR 依赖，不自动下载模块；Google Play 渠道拒绝外部可执行模块。相机权限、图片生命周期与遥测边界见 [PRIVACY.md](../../PRIVACY.md#android-拍照识字可选模块手动导入)。
 
 设备专项 `bash platforms/android/tests/device/ocr-product-smoke.sh <serial>` 只接受专用 x86_64 API 28/35 AVD，构建当次模块并生成临时固定摘要锁，然后构建原生产品进行离线导入、只读加载、拍照及编辑器验收，退出时恢复正式锁。相机输入先由 `java -Djava.awt.headless=true platforms/android/tests/device/fixtures/OcrCameraImage.java <绝对图片路径>` 生成，再用 `MSIME_ANDROID_CAMERA_IMAGE=<绝对图片路径> bash platforms/android/tests/device/start-emulator.sh <28或35>` 启动新 AVD；已有活跃 AVD 会拒绝该参数，避免静默忽略夹具。专项不发布模块，成功也不代表许可、分发或真机验收完成。
 
@@ -535,3 +535,5 @@ API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参�
 
 设备专项：`MSIME_ANDROID_WORLD_CLOCK=1 bash platforms/android/tests/device/build-editor.sh`，安装测试 APK 后运行 `app.msime.android.test/app.msime.android.test.WorldClockDeviceSmoke`。此专项复用清单入口，保持 API 35 instrumentation 数量限制；API 28 普通启动，API 35 在设置宿主已运行时加 `--no-restart`。
 
+
+九键等屏幕键盘在空闲时可长按回车插入换行，键面角标显示「换行」。点按继续遵循输入框的发送、搜索等动作；组字中的长按确认与译文上屏行为保留。

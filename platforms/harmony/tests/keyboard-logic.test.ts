@@ -18906,7 +18906,7 @@ group("quote and bracket styles change only the faces and pairs of their own key
     );
   }
   check(KeyIdPolicy.character("'") === "Quote", "分词统计属于 Quote");
-  // `touch_quanpin_shift` 打开后 ⇧ 保留，点一下臂辅助码；缺省（无参）仍按分词。
+  // 纯策略函数按已解析的开关分支；宿主缺字段默认值由 KeyboardSession 的偏好准备逻辑覆盖。
   check(
     !KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none", true),
     "保留 Shift 时不显示分词",

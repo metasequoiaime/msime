@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -10,6 +11,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -25,6 +27,7 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
     private TextView status;
     private Button permission;
     private Button choose;
+    private Button download;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -41,6 +44,9 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
         text(panel, "从键盘的「更多工具 → 拍照识字」打开独立窗口，拍照后裁剪或涂抹识别范围，点选文字复制或插入原输入框。模块不在基础安装包中，也不会自动下载。", 16);
         text(panel, "仅导入本项目提供的配套模块，安装器按宿主内固定的完整文件摘要校验。识别图片和文字在本机离线处理，不自动存图、复制或上屏；模块关闭了 ONNX Runtime 的遥测。请阅读模块附带的许可与隐私说明后再导入。", 14);
         status = text(panel, "正在读取模块状态…", 16);
+        download = button(panel, "下载地址", this::openDownload);
+        download.setEnabled(false);
+        text(panel, "用浏览器或下载工具下载配套模块，再点下方按钮选择文件导入。", 14);
         choose = button(panel, "选择已下载的配套模块", this::choose);
         choose.setEnabled(false);
         permission = button(panel, "允许使用相机", () -> requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION));
@@ -83,8 +89,28 @@ public final class OcrSetupActivity extends Activity implements ResourcePackServ
                     : found.installed() ? "配套模块已导入。"
                     : "尚未导入模块，请先从本项目下载与当前版本匹配的配套模块。");
                 choose.setEnabled(supported && found != null && (progress == null || !progress.running()));
+                download.setEnabled(supported && found != null && !found.importFiles().isEmpty()
+                    && !found.importFiles().get(0).url().isEmpty());
             });
         });
+    }
+
+    /** 地址来自共享层固定的模块锁，交给用户选择的外部应用下载。 */
+    private void openDownload() {
+        if (AppVersionPolicy.playDistribution() || pack == null || pack.importFiles().isEmpty()) return;
+        String url = pack.importFiles().get(0).url();
+        if (url.isEmpty()) return;
+        Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        // The system chooser never throws when nothing matches; check first so the guidance toast can show.
+        if (getPackageManager().queryIntentActivities(view, 0).isEmpty()) {
+            Toast.makeText(this, "没有可以打开下载地址的应用，请安装浏览器或下载工具后重试", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            startActivity(Intent.createChooser(view, "选择浏览器或下载工具"));
+        } catch (ActivityNotFoundException | SecurityException unavailable) {
+            Toast.makeText(this, "没有可以打开下载地址的应用，请安装浏览器或下载工具后重试", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void choose() {

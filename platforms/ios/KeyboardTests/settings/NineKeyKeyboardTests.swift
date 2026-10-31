@@ -1561,8 +1561,14 @@ final class NineKeyKeyboardTests: XCTestCase {
   /// 两侧分词键通过实际按键事件切分组合，切回英文时复用控件并恢复大小写。
   func testQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    let previousShift = KeyboardLayoutPreference.quanpinShift
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.quanpinShift = previousShift
+    }
     InputSchemePreference.scheme = .quanpin
+    // 这项测试覆盖显式关闭开关后的兼容路径；默认值由独立偏好测试覆盖。
+    KeyboardLayoutPreference.quanpinShift = false
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     let language = try button("bottomLanguageKey", in: controller)
@@ -1612,8 +1618,13 @@ final class NineKeyKeyboardTests: XCTestCase {
   /// 数字页上的输入会刷新大小写控件，此时分词键藏在字母层后面；返回字母层必须按字母层重画，不能留下 ⇧。
   func testQuanpinSeparatorSurvivesTypingOnTheNumberPad() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    let previousShift = KeyboardLayoutPreference.quanpinShift
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.quanpinShift = previousShift
+    }
     InputSchemePreference.scheme = .quanpin
+    KeyboardLayoutPreference.quanpinShift = false
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)

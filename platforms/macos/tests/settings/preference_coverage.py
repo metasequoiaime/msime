@@ -68,7 +68,7 @@ NOT_APPLICABLE = {
     "touch_text_edit_button_order": "仅 Android 原生文本编辑面板读取侧边动作的排序；macOS 不提供此面板，共享设置页也不显示排序入口",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",
     "touch_shuangpin_key_hints": "the touch keyboard's 26-key shuangpin letter keys",
-    "touch_quanpin_shift": "仅 Android 和 iOS 的触屏全拼 26 键读它（组字时 ⇧ 保留还是换成「分词」）；macOS 使用物理键盘，Shift 组合键的辅助码语义由引擎处理，屏幕键盘不存在这个问题",
+    "touch_quanpin_shift": "仅 Android、iOS 与鸿蒙的触屏全拼 26 键读它（组字时 ⇧ 保留还是换成「分词」）；macOS 使用物理键盘，Shift 组合键的辅助码语义由引擎处理，屏幕键盘不存在这个问题",
     "touch_twenty_six_key_style": "仅 Android、iOS 与鸿蒙手机的触屏中文 26 键底行读它；macOS 使用物理键盘，屏幕键盘面板是固定的整排键盘，不画这些底行样式",
     "touch_fourteen_key_style": "仅 Android、iOS 与鸿蒙手机的触屏 14 键与 18 键底行读它；macOS 没有 14 键或 18 键键面",
     "touch_nine_key_style": "仅 Android、iOS 与鸿蒙手机的触屏九键底行读它；macOS 没有九键字母键面",
