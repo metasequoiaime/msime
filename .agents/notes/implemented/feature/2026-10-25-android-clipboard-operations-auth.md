@@ -18,6 +18,8 @@ Android 9、10 的锁屏凭据确认是设置应用里的独立 Activity，输�
 
 清空仍保留键盘内的二次确认行，只有用户再次点「清空」并完成认证后才调用存储；搜索和导出在认证成功后才关闭键盘面板或启动导出。视图、服务回调和认证 Activity 都有一次性完成及生命周期清理，迟到结果不能覆盖下一次操作。
 
+认证桥现在也承担键盘里的删除（[剪贴板删除数据验证](2026-10-31-clipboard-delete-authentication.md)）：设备没有可用认证时回结果码 `RESULT_UNAVAILABLE`（2002），键盘提示先去系统设置开启锁屏，不再说「未通过系统认证」；认证窗口没走到回调就被结束时在 `onDestroy` 补发取消。
+
 ## Alternatives considered
 
 - 让输入法服务直接创建 `BiometricPrompt`：AndroidX 只接受 `FragmentActivity` 或 `Fragment`，输入法服务没有这种窗口宿主，编译和运行时都不成立。
