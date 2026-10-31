@@ -978,4 +978,17 @@ assert "const int reservedGlossLines = state.translationReservedLines();" in sou
 assert "result.reserved_gloss_lines = display.reserved_gloss_lines" in source
 assert "content.reserved_gloss_lines = translationReservedLines()" in source
 
+# 「显示读音」：两个宿主都在翻译工作线程上为释义回答查读音，回答带着 "pronunciations" 回到主线程记下；整句翻译和 /fy 不查；换焦点、换偏好时随翻译请求一起清掉；IBus 的候选行只有一行，读音接在释义后面（CandidatePronunciation.h）。
+assert "!manual_sentence && !commandTranslation(query) && pronunciationTargets().size() > 0" in fcitx_start
+assert '{"pronunciations", std::move(pronunciations)}' in fcitx_start
+assert 'pronunciations_.store(result.value("pronunciations", Json::object()));' in fcitx_refresh
+assert "pronunciations_.clear();" in body(source, "  void invalidateTranslationRequests() {", "\n  }\n")
+assert "task.pronounce = s.candidate_pronunciation;" in ibus_task
+assert "pronunciation_supplementary_root(" in ibus_task
+assert ibus_source.count(".pronounce = ") == 1 and "pronounce = true" not in ibus_source
+assert "pronounce" not in body(ibus_source, "void translate_sentence(IBusEngine *engine) {", "\n}\n")
+assert "if (s.candidate_pronunciation) s.pronunciations.store(request->pronunciations);" in ibus_complete
+assert "pronunciations.clear();" in body(ibus_source, "  void invalidate_providers() {", "\n  }\n")
+assert "candidate_gloss_inline_readings(translation, pronunciation)" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {", "\n}\n")
+
 print("Fcitx5 addon metadata passed")

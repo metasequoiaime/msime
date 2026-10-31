@@ -31,10 +31,12 @@ inline double native_canvas_line_height(cairo_t *cr, const std::string &font, co
   return native_canvas_text_size(cr, font, text).second;
 }
 
-// 释义行的文字：训音在最前，然后是各目标语言的释义，插件注释单独占最后一行；与 macOS 的 MSIMECandidateGlossRun、MSIMECandidateGlossWithScriptAnnotation 相同。
+// 释义行的文字：训音在最前，然后是各目标语言的释义（每行的读音在它下面单独一行，macOS 的 MSIMECandidateGlossDisplay），插件注释单独占最后一行；与 macOS 的 MSIMECandidateGlossRun、MSIMECandidateGlossWithScriptAnnotation 相同。
 struct NativeCanvasGloss {
   std::string text;
   std::size_t translation_start = 0, script_start = std::string::npos;
+  // 释义连同读音，位置相对 translation_start。
+  CandidateGlossReadings translation;
 };
 inline NativeCanvasGloss native_canvas_gloss(const NativeCanvasItem &item) {
   NativeCanvasGloss gloss;
@@ -46,7 +48,8 @@ inline NativeCanvasGloss native_canvas_gloss(const NativeCanvasItem &item) {
     return start;
   };
   append(item.reading);
-  const auto start = append(item.translation);
+  gloss.translation = candidate_gloss_readings(item.translation, item.pronunciation);
+  const auto start = append(gloss.translation.text);
   gloss.translation_start = start == std::string::npos ? gloss.text.size() : start;
   gloss.script_start = append(item.script_annotation);
   return gloss;
@@ -556,7 +559,16 @@ inline PangoLayout *native_canvas_gloss_layout(cairo_t *cr, const std::string &f
     auto run_color = highlighted ? slot(role == "pos" ? "selected_translation_pos" : "selected_translation_separator")
                                  : std::optional<ThemeColor>{};
     if (!visible(run_color)) run_color = slot(role == "pos" ? "translation_pos" : "translation_separator");
-    if (visible(run_color)) paint(*run_color, gloss.translation_start + from, gloss.translation_start + from + size);
+    const auto at = gloss.translation_start + gloss.translation.position(from);
+    if (visible(run_color)) paint(*run_color, at, at + size);
+  }
+  // 读音按释义色的 0.72 倍透明度画（macOS 的 MSIMECandidatePronunciationOpacity），比它跟着的释义轻一些；选中行不减淡，那时的释义色已经是按选中底色挑的。
+  if (!gloss.translation.readings.empty()) {
+    auto reading = color;
+    if (!highlighted)
+      reading.alpha = static_cast<std::uint8_t>(std::round(reading.alpha * msime::candidate::kCandidatePronunciationOpacity));
+    for (const auto &[from, length] : gloss.translation.readings)
+      paint(reading, gloss.translation_start + from, gloss.translation_start + from + length);
   }
   pango_layout_set_attributes(line, attributes);
   pango_attr_list_unref(attributes);
