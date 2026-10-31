@@ -10913,14 +10913,14 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     light.toggleBackground === "#22B5562B" && light.toggleForeground === "#B5562B",
     "a switched-on tile is the season accent_soft with the accent glyph",
   );
-  check(light.logoBg === "#944723" && light.logoCirc === "#F5E4DA", "the logo follows the season");
+  check(light.logoBg === "#944723" && light.logoCirc === "#E6C5B1", "品牌键使用当前键盘的季节色");
   check(light.hair === "#1F000000", "the light hairline");
   const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK);
   check(
     dark.background === "#2C241D" && dark.actionForeground === "#3C2618",
     "dark season keyboard and return text",
   );
-  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#593925", "the dark logo");
+  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#573D2C", "深色品牌键使用键盘底色");
   check(dark.hair === "#24FFFFFF", "the dark hairline");
   const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
   check(
@@ -10939,13 +10939,14 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     "without a seed the base tokens and the platform accent stay",
   );
   check(
-    plain.logoBg === "#24643D" && plain.logoCirc === "#E1ECE6",
-    "and the logo is the platform accent over the white card",
+    plain.logoBg === "#24643D" && plain.logoCirc === "#C1D3C3",
+    "品牌键使用兜底键盘的强调色和底色",
   );
   const plainDark = KeyboardSkin.fromTheme("system", "跟随系统", null, true);
   check(
-    plainDark.logoBg === "#4E9D6C" && plainDark.logoCirc === "#2D4235",
-    "over the #1F1F1F card in dark mode",
+    plainDark.logoBg === AppThemePalette.logoBackground(plainDark.accent) &&
+      plainDark.logoCirc === AppThemePalette.logoDisc(plainDark.accent, plainDark.background, true),
+    "深色兜底品牌键也取当前键盘配色",
   );
   check(plainDark.toggleBackground === "#405FBF84", "the base dark tint");
   check(
@@ -10959,45 +10960,56 @@ group("the season seed tints the system keyboard, the return key and the logo", 
   );
 });
 
-group(
-  "a named theme keeps its colours and only the return key and the logo follow the season",
-  () => {
-    const palette: KeyboardThemePalette = {
-      background: "#0F1B22",
-      key: "#1D3340",
-      function_key: "#15252E",
-      text: "#E6F1F4",
-      secondary: "#86A6B0",
-      accent: "#4FD1C5",
-      on_accent: "#000000",
-    };
-    const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
-    check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
-    check(night.actionBackground === "#B5562B", "the return key is the season accent");
-    check(
-      night.toggleForeground === "#4FD1C5" && night.toggleBackground === "#214FD1C5",
-      "its switched-on tiles use its own accent at 13%, not a fixed green",
-    );
-    check(
-      night.hair === "#24FFFFFF",
-      "夜青 is dark whatever the mode, so its hairline is the light one",
-    );
-    check(
-      KeyboardSkin.fromTheme("ink", "墨", palette, false).hair === "#24FFFFFF" &&
-        KeyboardSkin.fromTheme("shuishan", "水杉", palette, false).hair === "#24FFFFFF",
-      "as are 墨 and 水杉",
-    );
-    check(
-      KeyboardSkin.fromTheme("paper", "纸白", palette, false).hair === "#1F000000",
-      "a light theme keeps the dark hairline",
-    );
-  },
-);
+group("具名皮肤的品牌键保留自身配色，回车键沿用季节色", () => {
+  const palette: KeyboardThemePalette = {
+    background: "#0F1B22",
+    key: "#1D3340",
+    function_key: "#15252E",
+    text: "#E6F1F4",
+    secondary: "#86A6B0",
+    accent: "#4FD1C5",
+    on_accent: "#000000",
+  };
+  const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
+  check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
+  check(night.actionBackground === "#B5562B", "the return key is the season accent");
+  check(night.logoBg === "#41ABA2" && night.logoCirc === "#183439", "品牌键使用夜青配色");
+  const winter = KeyboardSkin.fromTheme("night", "夜青", palette, false, {
+    ...AUTUMN_LIGHT,
+    accent: "#3A6A8A",
+  });
+  check(
+    night.logoBg === winter.logoBg && night.logoCirc === winter.logoCirc,
+    "换应用主题不改变具名皮肤的品牌键",
+  );
+  check(
+    night.toggleForeground === "#4FD1C5" && night.toggleBackground === "#214FD1C5",
+    "its switched-on tiles use its own accent at 13%, not a fixed green",
+  );
+  check(
+    night.hair === "#24FFFFFF",
+    "夜青 is dark whatever the mode, so its hairline is the light one",
+  );
+  check(
+    KeyboardSkin.fromTheme("ink", "墨", palette, false).hair === "#24FFFFFF" &&
+      KeyboardSkin.fromTheme("shuishan", "水杉", palette, false).hair === "#24FFFFFF",
+    "as are 墨 and 水杉",
+  );
+  check(
+    KeyboardSkin.fromTheme("paper", "纸白", palette, false).hair === "#1F000000",
+    "a light theme keeps the dark hairline",
+  );
+});
 
 group("the season tints a custom design's tiles but not its keys", () => {
   const design = CustomKeyboardSkin.from({ accent: 0x80c0ff, actionBackground: 0x245a43 });
   const seeded = KeyboardSkin.fromDesign("自定义", design, false, AUTUMN_LIGHT);
   check(seeded.accent === "#80C0FF", "the design keeps its own accent for candidates");
+  const unseeded = KeyboardSkin.fromDesign("自定义", design, false);
+  check(
+    seeded.logoBg === unseeded.logoBg && seeded.logoCirc === unseeded.logoCirc,
+    "自定义皮肤品牌键不受应用主题影响",
+  );
   check(seeded.toggleBackground === "#22B5562B", "the switched-on tiles take the season");
   check(
     seeded.actionBackground === "#245A43" &&
