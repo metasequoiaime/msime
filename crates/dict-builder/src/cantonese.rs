@@ -6,6 +6,8 @@
 //!
 //! The words file lacks some of the commonest words because Rime composes them from characters at typing time (你好 is one), and the engine does not compose sentences. So an essay word the words file does not list becomes an entry too when the essay counts it at least `ESSAY_WORD_MIN_COUNT` times and each of its characters has exactly one toneless reading in the characters file, which makes its key certain.
 //!
+//! 上面两条规则都不会收进 essay 分数不到门槛、或含多音字的词（周杰倫只有 711 分）。这类词由 msime-dictionary 的 `custom/cantonese.txt` 逐词收录：每行 `词<TAB>带声调粤拼`，一个汉字一个音节，逐行人工审校。构建要求每个字在这一行里的读音（去声调后）是字表给这个字的读音之一，否则整个构建失败：这拦得住笔误和字根本没有的读音（把「倫」写成 `lun4`），拦不住在多音字的几个读音里选错（「銀行」写成 `ngan4 haang4` 能通过，因为「行」确有 `haang4`），后者只能靠人工审校。收录的词按 essay 分数加权，essay 没有列它时取 `ESSAY_WORD_MIN_COUNT`；已有条目只升不降，不删除任何条目。checkout 里没有这个文件（加入它之前的 msime-dictionary 提交）时按空表构建。
+//!
 //! The syllable inventory is every toneless syllable some key uses, so every entry stays typable; the words file uses a few colloquial syllables (`fi`, `za`, `gwek`) that no character row has.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -17,6 +19,8 @@ pub const CHARACTERS: &str = "sources/cantonese/jyut6ping3.chars.dict.yaml";
 pub const WORDS: &str = "sources/cantonese/jyut6ping3.words.dict.yaml";
 pub const ESSAY: &str = "sources/cantonese/essay-cantonese.txt";
 pub const CORPUS: &str = crate::hkcancor::OUTPUT;
+/// 人工审校的粤语词表，本项目自己的数据（CC BY 4.0，与 msime-cantonese.db 的其余来源同一许可），不是上游数据，不在 `upstream.lock.json` 里，内容由 checkout 的提交固定。
+pub const CUSTOM: &str = "custom/cantonese.txt";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "rime-cantonese";
 /// The SPDX identifier recorded as the database's `license`.
@@ -73,7 +77,29 @@ pub struct Dictionary {
     pub corpus_scale: i64,
     /// Corpus-weighted words below `CORPUS_MIN_COUNT` whose weight was held below an essay-listed word of their key.
     pub corpus_capped: usize,
+    /// `custom/cantonese.txt` 里新增了条目或抬高了已有条目权重的行数。
+    pub custom_words: usize,
 }
+
+/// `custom/cantonese.txt` 的一行。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomWord<'a> {
+    pub text: &'a str,
+    /// 行里写的带声调粤拼，原样保留，供 `check-words` 的报告显示。
+    pub reading: &'a str,
+    /// 去掉声调的音节，一个汉字一个。
+    pub syllables: Vec<&'a str>,
+}
+
+impl CustomWord<'_> {
+    /// 词库里的键：去声调音节以空格连接。
+    pub fn key(&self) -> String {
+        self.syllables.join(" ")
+    }
+}
+
+/// 字表给每个字的去声调读音（两个音节的单位字读音里带空格）。
+pub type Readings<'a> = HashMap<&'a str, BTreeSet<String>>;
 
 /// The rows after the YAML header, which ends at the `...` line, with their 1-based line numbers. Blank lines and `#` comments are skipped.
 fn body<'a>(name: &str, source: &'a str) -> Result<impl Iterator<Item = (usize, &'a str)>> {
@@ -86,17 +112,19 @@ fn body<'a>(name: &str, source: &'a str) -> Result<impl Iterator<Item = (usize, 
         .map(|(index, line)| (index + 1, line)))
 }
 
+/// 一个带声调粤拼音节（`nei5`）去掉声调后的字母；不是小写字母加 1 到 6 的声调时为 `None`。
+fn strip_tone(syllable: &str) -> Option<&str> {
+    syllable
+        .strip_suffix(|c: char| ('1'..='6').contains(&c))
+        .filter(|letters| !letters.is_empty() && letters.bytes().all(|b| b.is_ascii_lowercase()))
+}
+
 /// The toneless syllables of a space-separated toned reading such as `nei5 hou2`.
 fn toneless<'a>(name: &str, line: usize, reading: &'a str) -> Result<Vec<&'a str>> {
     reading
         .split(' ')
         .map(|syllable| {
-            let letters = syllable
-                .strip_suffix(|c: char| ('1'..='6').contains(&c))
-                .filter(|letters| {
-                    !letters.is_empty() && letters.bytes().all(|b| b.is_ascii_lowercase())
-                });
-            letters.with_context(|| {
+            strip_tone(syllable).with_context(|| {
                 format!("{name}: line {line}: {syllable:?} is not a toned Jyutping syllable")
             })
         })
@@ -177,6 +205,103 @@ pub fn parse_essay(source: &str) -> Result<HashMap<&str, i64>> {
     Ok(counts)
 }
 
+/// `custom/cantonese.txt` 在 `--dictionary` checkout 里的路径。checkout 里还没有这个文件（加入它之前的 msime-dictionary 提交）时为 `None`，构建按空表进行并在摘要里写明；文件存在时与其他 checkout 文件一样经 `Sources::pinned` 检查路径。
+pub fn custom_source(sources: &crate::sources::Sources) -> Result<Option<std::path::PathBuf>> {
+    let Some(path) = sources.checkout_file(CUSTOM) else {
+        return Ok(None);
+    };
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        _ => sources.pinned(CUSTOM).map(Some),
+    }
+}
+
+/// 每个字在字表里的去声调读音。
+pub fn character_readings<'a>(characters: &[Row<'a>]) -> Readings<'a> {
+    let mut readings: Readings = HashMap::new();
+    for row in characters {
+        readings
+            .entry(row.text)
+            .or_default()
+            .insert(row.syllables.join(" "));
+    }
+    readings
+}
+
+/// `custom/cantonese.txt` 的一行：空行和 `#` 注释行为 `None`，格式不对时返回不带位置的错误。要求两个及以上汉字、每字一个带声调音节；读音是否与字表一致由 `check_custom_reading` 另查。`check-words` 用同一个函数检查投稿的行。
+pub fn parse_custom_line(line: &str) -> Result<Option<CustomWord<'_>>> {
+    if line.is_empty() || line.starts_with('#') {
+        return Ok(None);
+    }
+    let fields: Vec<&str> = line.split('\t').collect();
+    let [text, reading] = fields[..] else {
+        bail!("expected word<TAB>toned Jyutping, got {line:?}");
+    };
+    if text.is_empty() {
+        bail!("the word is empty");
+    }
+    let syllables = reading
+        .split(' ')
+        .map(|syllable| {
+            strip_tone(syllable)
+                .with_context(|| format!("{syllable:?} is not a toned Jyutping syllable"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let characters = text.chars().count();
+    if characters < 2 {
+        bail!("{text:?} is a single character; character readings come from the characters file");
+    }
+    if syllables.len() != characters {
+        bail!(
+            "{text:?} has {characters} characters but {} syllables",
+            syllables.len()
+        );
+    }
+    Ok(Some(CustomWord {
+        text,
+        reading,
+        syllables,
+    }))
+}
+
+/// 每个字在这一行里的读音（去声调后）必须是字表给它的读音之一；字表没有这个字也算错。
+pub fn check_custom_reading(word: &CustomWord, readings: &Readings) -> Result<()> {
+    let mut buffer = [0; 4];
+    for (character, syllable) in word.text.chars().zip(&word.syllables) {
+        let character = &*character.encode_utf8(&mut buffer);
+        let Some(known) = readings.get(character) else {
+            bail!("{character} is not in {CHARACTERS}");
+        };
+        if !known.contains(*syllable) {
+            let known: Vec<&str> = known.iter().map(String::as_str).collect();
+            bail!(
+                "{character} does not read {syllable} in {CHARACTERS}, which gives {}",
+                known.join(", ")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `custom/cantonese.txt`：逐行解析并对照字表核对读音，同一个词同一个键写了两次也算错。任何一行不对都让构建失败，错误写明行号。
+pub fn parse_custom<'a>(source: &'a str, readings: &Readings) -> Result<Vec<CustomWord<'a>>> {
+    let mut words = Vec::new();
+    let mut seen: HashMap<(String, &str), usize> = HashMap::new();
+    for (index, line) in crate::text::without_bom(source).lines().enumerate() {
+        let number = index + 1;
+        let located = |error: anyhow::Error| anyhow::anyhow!("{CUSTOM}: line {number}: {error}");
+        let Some(word) = parse_custom_line(line).map_err(located)? else {
+            continue;
+        };
+        check_custom_reading(&word, readings).map_err(located)?;
+        if let Some(previous) = seen.insert((word.key(), word.text), number) {
+            bail!("{CUSTOM}: line {number} repeats line {previous}");
+        }
+        words.push(word);
+    }
+    Ok(words)
+}
+
 impl Dictionary {
     fn insert(&mut self, key: String, text: &str, weight: i64) {
         let slot = self.entries.entry((key, text.to_owned())).or_insert(weight);
@@ -214,28 +339,27 @@ fn corpus_scale(essay: &HashMap<&str, i64>, corpus: &HashMap<&str, i64>) -> i64 
         .max(1)
 }
 
-/// The dictionary of the four parsed inputs.
+/// The dictionary of the four parsed inputs and the reviewed words of `custom/cantonese.txt`, whose readings `parse_custom` has already checked.
 pub fn build(
     characters: &[Row],
     words: &[Row],
     essay: &HashMap<&str, i64>,
     corpus: &HashMap<&str, i64>,
+    custom: &[CustomWord],
 ) -> Dictionary {
     let mut dictionary = Dictionary {
         corpus_scale: corpus_scale(essay, corpus),
         ..Dictionary::default()
     };
     // Each character's toneless keys, to give an essay word a key when each of its characters has only one.
-    let mut readings: HashMap<&str, HashSet<String>> = HashMap::new();
+    let readings = character_readings(characters);
     for row in characters {
         let count = essay.get(row.text).copied().unwrap_or(0);
         let weight = row
             .percent
             .map_or(count, |percent| count.saturating_mul(percent) / 100)
             .max(1);
-        let key = row.syllables.join(" ");
-        readings.entry(row.text).or_default().insert(key.clone());
-        dictionary.insert(key, row.text, weight);
+        dictionary.insert(row.syllables.join(" "), row.text, weight);
     }
     dictionary.characters = dictionary.entries.len();
 
@@ -305,6 +429,23 @@ pub fn build(
         if capped < *weight {
             *weight = capped;
             dictionary.corpus_capped += 1;
+        }
+    }
+
+    // 人工审校的词放在最后，只新增或抬高，不压低前面任何来源给的权重。
+    for word in custom {
+        let weight = essay
+            .get(word.text)
+            .copied()
+            .unwrap_or(ESSAY_WORD_MIN_COUNT)
+            .max(1);
+        let slot = dictionary
+            .entries
+            .entry((word.key(), word.text.to_owned()))
+            .or_insert(0);
+        if *slot < weight {
+            *slot = weight;
+            dictionary.custom_words += 1;
         }
     }
 
@@ -402,6 +543,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &parse_essay(ESSAY_TEXT).unwrap(),
             &HashMap::new(),
+            &[],
         )
     }
 
@@ -471,6 +613,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &parse_essay("食\t873763\n識\t379707\n咗\t1995799\n").unwrap(),
             &HashMap::new(),
+            &[],
         );
         // 食 (2^19..2^20) is commoner than 識 (2^18..2^19), so 食咗 outweighs 識咗 although the essay lists neither word.
         assert_eq!(
@@ -497,6 +640,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &essay,
             &corpus,
+            &[],
         );
         assert_eq!(dictionary.corpus_scale, 1100);
         let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
@@ -530,6 +674,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &essay,
             &corpus,
+            &[],
         );
         assert_eq!(dictionary.corpus_scale, 845);
         let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
@@ -556,6 +701,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &essay,
             &corpus,
+            &[],
         );
         assert_eq!(
             dictionary.entries[&("gam gaai".to_owned(), "噉解".to_owned())],
@@ -579,6 +725,7 @@ mod tests {
             &[],
             &parse_essay("一兡\t1200\n").unwrap(),
             &HashMap::new(),
+            &[],
         );
         assert_eq!(
             entries(&dictionary),
@@ -598,8 +745,120 @@ mod tests {
             &[],
             &parse_essay("你好\t999\n").unwrap(),
             &HashMap::new(),
+            &[],
         );
         assert_eq!(dictionary.essay_words, 0);
+    }
+
+    const CUSTOM_CHARACTERS: &str = "周\tzau1\n杰\tgit6\n傑\tgit6\n倫\tleon4\n你\tnei5\n好\thou2\n";
+
+    #[test]
+    fn reviewed_words_take_their_essay_count_or_the_threshold_and_only_raise() {
+        let characters = format!("{HEADER}{CUSTOM_CHARACTERS}");
+        let characters = parse_characters(&characters).unwrap();
+        let readings = character_readings(&characters);
+        let source = "\u{feff}# 人工审校的粤语词\n\n周杰倫\tzau1 git6 leon4\n傑倫\tgit6 leon4\n你好\tnei5 hou2\n";
+        let custom = parse_custom(source, &readings).unwrap();
+        assert_eq!(
+            custom[0],
+            CustomWord {
+                text: "周杰倫",
+                reading: "zau1 git6 leon4",
+                syllables: vec!["zau", "git", "leon"],
+            }
+        );
+        let dictionary = build(
+            &characters,
+            &[],
+            &parse_essay("周杰倫\t711\n杰倫\t1182\n你好\t21493\n").unwrap(),
+            &HashMap::new(),
+            &custom,
+        );
+        let weight = |key: &str, text: &str| {
+            dictionary
+                .entries
+                .get(&(key.to_owned(), text.to_owned()))
+                .copied()
+        };
+        // essay 给了周杰倫 711 分，不到补词门槛，现在照这个分数收进来。
+        assert_eq!(weight("zau git leon", "周杰倫"), Some(711));
+        // essay 没有列傑倫，取门槛值。
+        assert_eq!(weight("git leon", "傑倫"), Some(ESSAY_WORD_MIN_COUNT));
+        // 你好已由 essay 补进来，权重更高，不被压低。
+        assert_eq!(weight("nei hou", "你好"), Some(21493));
+        assert_eq!(dictionary.custom_words, 2);
+        assert!(dictionary.syllables.contains("leon"));
+    }
+
+    #[test]
+    fn reviewed_words_must_read_as_the_characters_file_does() {
+        let characters = format!("{HEADER}{CUSTOM_CHARACTERS}");
+        let characters = parse_characters(&characters).unwrap();
+        let readings = character_readings(&characters);
+        for (source, expected) in [
+            (
+                "周杰倫\tzau1 git6 lun4\n",
+                "custom/cantonese.txt: line 1: 倫 does not read lun in sources/cantonese/jyut6ping3.chars.dict.yaml, which gives leon",
+            ),
+            (
+                "# 注释\n周杰倫\tzau1 git6\n",
+                "line 2: \"周杰倫\" has 3 characters but 2 syllables",
+            ),
+            ("周\tzau1\n", "\"周\" is a single character"),
+            ("周杰倫\tzau git6 leon4\n", "\"zau\" is not a toned"),
+            ("周杰倫\n", "expected word<TAB>toned Jyutping"),
+            ("周杰倫\tzau1 git6 leon4\t711\n", "expected word<TAB>toned Jyutping"),
+            ("\tzau1 git6\n", "the word is empty"),
+            ("周杰哦\tzau1 git6 o1\n", "哦 is not in sources/cantonese"),
+            (
+                "周杰倫\tzau1 git6 leon4\n周杰倫\tzau2 git6 leon4\n",
+                "custom/cantonese.txt: line 2 repeats line 1",
+            ),
+        ] {
+            let error = parse_custom(source, &readings).unwrap_err().to_string();
+            assert!(error.contains(expected), "{source:?}: {error}");
+        }
+        // 同一个读音下的另一种写法是另一个条目，不算重复。
+        let both = "周杰倫\tzau1 git6 leon4\n周傑倫\tzau1 git6 leon4\n";
+        assert_eq!(parse_custom(both, &readings).unwrap().len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_checkout_without_the_reviewed_list_builds_without_it() {
+        use crate::sources::{Dictionary as Checkout, Lock, Reference, Sources};
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::write(
+            checkout.path().join(crate::sources::UPSTREAM_LOCK),
+            r#"{"version": 1, "upstreams": {}, "files": []}"#,
+        )
+        .unwrap();
+        let lock = Lock {
+            references: BTreeMap::new(),
+            mozc: Reference {
+                repository: "https://github.com/google/mozc".into(),
+                commit: "a".repeat(40),
+            },
+            files: Vec::new(),
+        };
+        let dictionary = Checkout::open(checkout.path().to_path_buf(), &lock).unwrap();
+        let sources = Sources {
+            lock,
+            repository_inputs: checkout.path().join("unused"),
+            cache: checkout.path().join("unused"),
+            offline: true,
+            dictionary: Some(dictionary),
+        };
+        assert_eq!(custom_source(&sources).unwrap(), None);
+        std::fs::create_dir(checkout.path().join("custom")).unwrap();
+        let path = checkout.path().join(CUSTOM);
+        std::fs::write(&path, "周杰倫\tzau1 git6 leon4\n").unwrap();
+        assert_eq!(custom_source(&sources).unwrap(), Some(path.clone()));
+        // 文件存在时照常检查路径：符号链接不读。
+        std::fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(checkout.path().join(crate::sources::UPSTREAM_LOCK), &path)
+            .unwrap();
+        assert!(custom_source(&sources).is_err());
     }
 
     #[test]
@@ -660,7 +919,7 @@ mod tests {
     fn only_the_licensed_files_are_read() {
         for excluded in ["maps", "phrase", "lettered"] {
             assert!(
-                [CHARACTERS, WORDS, ESSAY, CORPUS]
+                [CHARACTERS, WORDS, ESSAY, CORPUS, CUSTOM]
                     .iter()
                     .all(|input| !input.contains(excluded)),
                 "{excluded}"
@@ -683,6 +942,8 @@ mod tests {
             crate::sources::upstream_reference(CORPUS),
             Some(crate::hkcancor::REFERENCE)
         );
+        // 人工词表是本项目自己的数据，不按上游记录校验。
+        assert_eq!(crate::sources::upstream_reference(CUSTOM), None);
         assert!(!lock
             .files
             .iter()
@@ -789,6 +1050,7 @@ mod tests {
             &parse_words(&words).unwrap(),
             &HashMap::new(),
             &HashMap::new(),
+            &[],
         ));
         let error = verify(
             &path,
