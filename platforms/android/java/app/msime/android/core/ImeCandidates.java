@@ -198,8 +198,18 @@ final class ImeCandidates {
                 popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
             }
         }
+        // 「加入生词本」排在最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置；只在这一行显示着可上屏的释义时出现。
+        boolean personalWordbook = CandidateManagementAction.offersPersonalWordbook(glosses);
+        if (personalWordbook)
+            popup.getMenu().add(Menu.NONE, CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM,
+                CandidateManagementAction.PERSONAL_WORDBOOK_ORDER, CandidateManagementAction.PERSONAL_WORDBOOK_TITLE);
         popup.setOnMenuItemClickListener(item -> {
             s.imeKeyFeedback.playFeedback(button);
+            if (personalWordbook && item.getItemId() == CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM) {
+                s.addCandidateToPersonalWordbook(text, translation,
+                    candidate == null ? "" : s.candidateDisplayedReading(candidate));
+                return true;
+            }
             int glossIndex = item.getItemId() - 2000;
             if (glossIndex >= 0 && glossIndex < glosses.size()) {
                 if (stripSnapshot != null)
