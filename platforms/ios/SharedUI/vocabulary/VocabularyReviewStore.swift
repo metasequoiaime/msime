@@ -63,12 +63,17 @@ struct VocabularyReviewStore {
   /// 放着 Engine 资源目录的那一层：共享层在它下面的 `wordbooks/` 里找内置词书（`builtin::directory`），不向上找，所以传的是 `EngineResources` 的上一级，不是 `EngineResources` 本身。设置 App 里它是键盘扩展的包目录，`stage-resources.sh` 把词书放在那里。没有随包资源的宿主（`resources` 为 `nil`）传自己的目录：共享入口要求绝对路径，那里没有内置词书，只列导入的词表。
   let bundleRoot: URL
 
-  /// `resources` 是校验过的 Engine 资源目录（`EngineResources`）。
-  init(directory: URL? = nil, resources: URL? = PersonalDictionaryBridge.packagedResources) {
-    root = directory ?? FileManager.default.containerURL(
+  /// 背单词的进度和词书默认放在哪里：App Group 下的 `MSIME`，键盘扩展的「加入生词本」写的也是这里（`PersonalWordbookStore`）。
+  static var defaultRoot: URL {
+    FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)?
       .appendingPathComponent("MSIME", isDirectory: true)
       ?? IOSSharedPaths.applicationSupport
+  }
+
+  /// `resources` 是校验过的 Engine 资源目录（`EngineResources`）。
+  init(directory: URL? = nil, resources: URL? = PersonalDictionaryBridge.packagedResources) {
+    root = directory ?? Self.defaultRoot
     bundleRoot = resources?.deletingLastPathComponent() ?? root
   }
 
