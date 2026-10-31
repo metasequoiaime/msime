@@ -273,6 +273,8 @@ test("the letter editor adds, removes, reorders and saves only its own preferenc
   // 编辑页不画键盘预览。
   expect(dialog.querySelector("[data-key-layout-preview]")).toBeNull();
   expect(currentOrder(dialog)).toEqual(["，", "。", "？"]);
+  // 每项前有序号 1..N。
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3."]);
   // 可加入的常用符号里没有已经在表里的项，顺序照 Android。
   const addable = within(dialog)
     .getAllByRole("button", { name: /^添加 / })
@@ -290,6 +292,8 @@ test("the letter editor adds, removes, reorders and saves only its own preferenc
     key: "ArrowUp",
   });
   expect(currentOrder(dialog)).toEqual(["，", "？", "……", "、"]);
+  // 删除和挪动后序号重排，仍是 1..N。
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3.", "4."]);
   fireEvent.keyDown(within(dialog).getByRole("button", { name: "拖动调整 ， 的顺序" }), {
     key: "ArrowUp",
   });
@@ -318,32 +322,309 @@ test("the letter editor adds, removes, reorders and saves only its own preferenc
   expect(screen.queryByRole("dialog", { name: "九键左侧符号" })).toBeNull();
 });
 
-test("dragging the handle moves the item to where the finger is", () => {
+/** 每行前的序号，按 DOM 次序。 */
+const ordinals = (dialog: HTMLElement) =>
+  [...dialog.querySelectorAll("[data-sidebar-symbol] [data-sidebar-ordinal]")].map(
+    (node) => node.textContent,
+  );
+
+/** 按序号排出来的次序，也就是此刻画面上从上到下看到的表。 */
+const shownOrder = (dialog: HTMLElement) =>
+  [...dialog.querySelectorAll<HTMLElement>("[data-sidebar-symbol]")]
+    .map((row) => ({
+      symbol: row.getAttribute("data-sidebar-symbol"),
+      at: Number.parseInt(row.querySelector("[data-sidebar-ordinal]")?.textContent ?? "", 10),
+    }))
+    .sort((left, right) => left.at - right.at)
+    .map((row) => row.symbol);
+
+const rowFor = (dialog: HTMLElement, symbol: string) =>
+  dialog.querySelector<HTMLElement>(`[data-sidebar-symbol="${symbol}"]`)!;
+
+/** jsdom 不排版：每行 40px 高、自上而下排，`offsetTop` 是布局位置；`getBoundingClientRect` 照真浏览器带上行身上的 translateY，好让「量带着位移的行」这种写法在测试里露馅。 */
+function layOutRows(dialog: HTMLElement) {
+  for (const row of dialog.querySelectorAll<HTMLElement>("[data-sidebar-symbol]")) {
+    const top = () => [...row.parentElement!.children].indexOf(row) * 40;
+    Object.defineProperty(row, "offsetTop", { configurable: true, get: top });
+    Object.defineProperty(row, "offsetHeight", { configurable: true, get: () => 40 });
+    vi.spyOn(row, "getBoundingClientRect").mockImplementation(() => {
+      const shift = Number.parseFloat(
+        /translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "0",
+      );
+      const y = top() + shift;
+      return {
+        top: y,
+        height: 40,
+        bottom: y + 40,
+        left: 0,
+        right: 300,
+        width: 300,
+        x: 0,
+        y,
+        toJSON: () => ({}),
+      };
+    });
+  }
+}
+
+test("dragging the handle lifts the row, the others make way and the numbers follow the finger", () => {
   renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "：", "…"] });
   fireEvent.click(letterRow(document.body)!);
   const dialog = editor("九键左侧符号");
-  // jsdom 不排版：每行 40px 高，自上而下排。
-  for (const [index, row] of [...dialog.querySelectorAll("[data-sidebar-symbol]")].entries())
-    vi.spyOn(row, "getBoundingClientRect").mockReturnValue({
-      top: index * 40,
-      height: 40,
-      bottom: index * 40 + 40,
+  layOutRows(dialog);
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3.", "4."]);
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
+  // 手指下移 50：、 的中线到 70，过了 ； 的中线（60），没过 ： 的（100）。被拖行跟手，； 让上去一格，序号跟着换。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 70 });
+  expect(rowFor(dialog, "、").style.transform).toBe("translateY(50px)");
+  expect(rowFor(dialog, "；").style.transform).toBe("translateY(-40px)");
+  expect(rowFor(dialog, "：").style.transform).toBe("");
+  expect(shownOrder(dialog)).toEqual(["；", "、", "：", "…"]);
+  expect(ordinals(dialog)).toEqual(["2.", "1.", "3.", "4."]);
+  // 拖动中表本身不动，松手才改。
+  expect(currentOrder(dialog)).toEqual(["、", "；", "：", "…"]);
+  // 再下移到 110：中线 110 过了 ： 的中线，： 也让上去。落点只比布局中线，被拖行和让位行身上的位移都不算进去。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 110 });
+  expect(shownOrder(dialog)).toEqual(["；", "：", "、", "…"]);
+  expect(rowFor(dialog, "：").style.transform).toBe("translateY(-40px)");
+  // 退回到 90：中线 90 没过 ： 的中线（100），： 回到原位。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 90 });
+  expect(shownOrder(dialog)).toEqual(["；", "、", "：", "…"]);
+  expect(rowFor(dialog, "：").style.transform).toBe("");
+  // 拖出列表也只到最后一格，不拖出卡片。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 900 });
+  expect(rowFor(dialog, "、").style.transform).toBe("translateY(120px)");
+  expect(shownOrder(dialog)).toEqual(["；", "：", "…", "、"]);
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 110 });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 110 });
+  // 挪动不是交换：、 从第一位挪到第三位，其余依次上移。
+  expect(currentOrder(dialog)).toEqual(["；", "：", "、", "…"]);
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3.", "4."]);
+  expect(rowFor(dialog, "；").style.transform).toBe("");
+  // 松手后再移动不挪。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 10 });
+  expect(currentOrder(dialog)).toEqual(["；", "：", "、", "…"]);
+});
+
+test("the dropped row slides from the finger into its slot", async () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "："] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 75 });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 75 });
+  expect(currentOrder(dialog)).toEqual(["；", "、", "："]);
+  // 手指在格子下面 15px 松开：先停在那里，下一帧过渡回格子。
+  expect(rowFor(dialog, "、").style.transform).toBe("translateY(15px)");
+  await waitFor(() => expect(rowFor(dialog, "、").style.transform).toBe(""));
+  expect(rowFor(dialog, "、").className).toContain("transition-transform");
+});
+
+test("deleting a row in the middle of a drag drops the drag", () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "：", "…"] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 75 });
+  // 另一指点了删除：拿起时量的几何已经对不上，这次拖动作废，表只少了删掉的那一项。
+  fireEvent.click(within(dialog).getByRole("button", { name: "删除 …" }));
+  expect(rowFor(dialog, "、").style.transform).toBe("");
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3."]);
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 110 });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 110 });
+  expect(currentOrder(dialog)).toEqual(["、", "；", "："]);
+});
+
+test("with reduced motion the dropped row lands in its slot at once", () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)" })),
+  );
+  try {
+    renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "："] });
+    fireEvent.click(letterRow(document.body)!);
+    const dialog = editor("九键左侧符号");
+    layOutRows(dialog);
+    const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 75 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 75 });
+    expect(currentOrder(dialog)).toEqual(["；", "、", "："]);
+    // 没有过渡就等不到 transitionend：松手当下就在格子里，也不留着浮起的样式。
+    expect(rowFor(dialog, "、").style.transform).toBe("");
+    expect(rowFor(dialog, "、").className).not.toContain("z-10");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("the lifted row overrides the row template's own shadow so it does not stay flat", () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "："] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
+  // 行模板的 `[box-shadow:var(--p-row-shadow)]` 排在 `shadow-*` 后面且各平台都是 none，浮起只能改写这个变量。
+  const lifted = rowFor(dialog, "、").className.split(" ");
+  expect(lifted.some((name) => name.startsWith("[--p-row-shadow:"))).toBe(true);
+  expect(lifted.some((name) => name.startsWith("shadow-"))).toBe(false);
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 20 });
+});
+
+test("a second finger on another handle neither moves nor ends the drag", () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "：", "…"] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  const first = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+  const other = within(dialog).getByRole("button", { name: "拖动调整 ： 的顺序" });
+  fireEvent.pointerDown(first, { pointerId: 1, clientY: 20 });
+  fireEvent.pointerMove(first, { pointerId: 1, clientY: 70 });
+  // 第二根手指按在 ： 的把手上：它不拿起 ：，它的移动和抬起也不改 、 的位置、不提前松手。
+  fireEvent.pointerDown(other, { pointerId: 2, clientY: 100 });
+  fireEvent.pointerMove(other, { pointerId: 2, clientY: 150 });
+  expect(rowFor(dialog, "、").style.transform).toBe("translateY(50px)");
+  expect(rowFor(dialog, "：").style.transform).toBe("");
+  fireEvent.pointerUp(other, { pointerId: 2, clientY: 150 });
+  expect(currentOrder(dialog)).toEqual(["、", "；", "：", "…"]);
+  expect(rowFor(dialog, "、").style.transform).toBe("translateY(50px)");
+  fireEvent.pointerUp(first, { pointerId: 1, clientY: 70 });
+  expect(currentOrder(dialog)).toEqual(["；", "、", "：", "…"]);
+});
+
+test("a screen reader moves a row with the hidden 上移 and 下移 buttons and keeps focus on it", () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "："] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  // 首行没有上移，末行没有下移，与 Android 把手上的无障碍操作相同；按钮不进 Tab 次序。
+  expect(within(dialog).queryByRole("button", { name: "上移 、" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "下移 ：" })).toBeNull();
+  const down = within(dialog).getByRole("button", { name: "下移 、" });
+  expect(down.tabIndex).toBe(-1);
+  down.focus();
+  fireEvent.click(down);
+  expect(currentOrder(dialog)).toEqual(["；", "、", "："]);
+  expect(ordinals(dialog)).toEqual(["1.", "2.", "3."]);
+  expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "下移 、" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "下移 、" }));
+  expect(currentOrder(dialog)).toEqual(["；", "：", "、"]);
+  // 挪到末尾后没有下移了，焦点落在同一行的上移上。
+  expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "上移 、" }));
+  // 键盘在把手上按 ↓ 挪完，焦点仍在挪过去那一行的把手上。
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 ； 的顺序" });
+  handle.focus();
+  fireEvent.keyDown(handle, { key: "ArrowDown" });
+  expect(currentOrder(dialog)).toEqual(["：", "；", "、"]);
+  expect(document.activeElement).toBe(
+    within(dialog).getByRole("button", { name: "拖动调整 ； 的顺序" }),
+  );
+});
+
+test("dragging near the bottom edge stops scrolling once the row is pinned at the end of the list", async () => {
+  renderPage({ touch_nine_key_sidebar_symbols: ["、", "；", "："] });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  // 页面是 400px 高的滚动区，内容 1600px，列表从 100px 处开始；下面还有可加入的符号和按钮，页面还能往下滚。
+  const list = dialog.querySelector("ol")!;
+  Object.defineProperty(dialog, "clientHeight", { configurable: true, value: 400 });
+  Object.defineProperty(dialog, "scrollHeight", { configurable: true, value: 1600 });
+  vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({
+    top: 0,
+    height: 400,
+    bottom: 400,
+    left: 0,
+    right: 300,
+    width: 300,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+  vi.spyOn(list, "getBoundingClientRect").mockImplementation(() => {
+    const y = 100 - dialog.scrollTop;
+    return {
+      top: y,
+      height: 120,
+      bottom: y + 120,
       left: 0,
       right: 300,
       width: 300,
       x: 0,
-      y: index * 40,
+      y,
       toJSON: () => ({}),
-    });
-  const handle = within(dialog).getByRole("button", { name: "拖动调整 、 的顺序" });
+    };
+  });
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 ； 的顺序" });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: 160 });
+  // 手指进了下沿边缘带，但 ； 只能再往下走一格：夹在列表下沿后不再滚，行留在手指附近。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 390 });
+  expect(rowFor(dialog, "；").style.transform).toBe("translateY(40px)");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(dialog.scrollTop).toBe(0);
+  expect(rowFor(dialog, "；").style.transform).toBe("translateY(40px)");
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 390 });
+  expect(currentOrder(dialog)).toEqual(["、", "：", "；"]);
+});
+
+test("dragging near the bottom edge scrolls the page and the row keeps up", async () => {
+  const thirty = Array.from({ length: 30 }, (_, index) => String(index));
+  renderPage({ touch_nine_key_sidebar_symbols: thirty });
+  fireEvent.click(letterRow(document.body)!);
+  const dialog = editor("九键左侧符号");
+  layOutRows(dialog);
+  // 页面是 400px 高的滚动区，内容 1600px；列表上沿随滚动上移。
+  const list = dialog.querySelector("ol")!;
+  Object.defineProperty(dialog, "clientHeight", { configurable: true, value: 400 });
+  Object.defineProperty(dialog, "scrollHeight", { configurable: true, value: 1600 });
+  vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({
+    top: 0,
+    height: 400,
+    bottom: 400,
+    left: 0,
+    right: 300,
+    width: 300,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+  vi.spyOn(list, "getBoundingClientRect").mockImplementation(() => {
+    const y = -dialog.scrollTop;
+    return {
+      top: y,
+      height: 1200,
+      bottom: y + 1200,
+      left: 0,
+      right: 300,
+      width: 300,
+      x: 0,
+      y,
+      toJSON: () => ({}),
+    };
+  });
+  const handle = within(dialog).getByRole("button", { name: "拖动调整 0 的顺序" });
   fireEvent.pointerDown(handle, { pointerId: 1, clientY: 20 });
-  // 过了第二行的中线（60）、没过第三行的中线（100）：、 挪到第三位。
-  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 90 });
-  expect(currentOrder(dialog)).toEqual(["；", "：", "、", "…"]);
-  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 90 });
-  // 松手以后再移动不挪。
-  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 10 });
-  expect(currentOrder(dialog)).toEqual(["；", "：", "、", "…"]);
+  // 手指停在下沿边缘带里，不再移动：页面一帧帧往下滚，被拖行跟着滚过的距离往下走，越过的行让位。
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: 390 });
+  const offset = () =>
+    Number.parseFloat(/translateY\((-?[\d.]+)px\)/.exec(rowFor(dialog, "0").style.transform)![1]);
+  expect(offset()).toBe(370);
+  // 被拖行的位移始终是手指移动的 370 加上页面滚过的距离；状态更新晚一帧画出来，所以等两者对上。
+  await waitFor(() => {
+    expect(dialog.scrollTop).toBeGreaterThan(60);
+    expect(offset()).toBe(370 + dialog.scrollTop);
+  });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: 390 });
+  const scrolled = dialog.scrollTop;
+  // 松手就停。
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(dialog.scrollTop).toBe(scrolled);
+  expect(currentOrder(dialog).indexOf("0")).toBeGreaterThan(9);
 });
 
 test("restoring the factory table writes an empty array, and an invalid table cannot be saved", () => {
