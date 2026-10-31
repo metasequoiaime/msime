@@ -194,6 +194,38 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     });
 }
 
+// 生词本的读写和打字统计一样在后台串行队列上做：它要取词书目录的文件锁、读写整本生词本。
+static dispatch_queue_t MSIMEPersonalWordbookQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("app.msime.client.personal-wordbook", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
+
+// 候选右键菜单的「加入生词本」：把候选原文、显示着的释义和读音交给共享层，回到主线程把它答的那句提示交给 `completion`；存储出错时交 nil。释义怎么变成卡片、提示怎么说都在 `msime_client_personal_wordbook_add`。
+static void MSIMEAddToPersonalWordbook(NSString *directory, NSString *candidate, NSString *gloss, NSString *pronunciation,
+                                       void (^completion)(NSString *notice)) {
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) { completion(nil); return; }
+    NSDictionary *request = @{ @"directory": directory, @"candidate": candidate ?: @"", @"gloss": gloss ?: @"",
+                               @"pronunciation": pronunciation ?: @"" };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!data || data.length > 65536) { completion(nil); return; }
+    dispatch_async(MSIMEPersonalWordbookQueue(), ^{
+        auto response = msime::host_api::own_string(
+            msime_client_personal_wordbook_add(static_cast<const uint8_t *>(data.bytes), data.length));
+        NSString *notice = nil;
+        if (response) {
+            NSData *body = [NSData dataWithBytes:response.get() length:strlen(response.get())];
+            NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+            NSDictionary *value = [envelope isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(envelope[@"ok"]) ? envelope[@"value"] : nil;
+            if ([value isKindOfClass:NSDictionary.class] && [value[@"notice"] isKindOfClass:NSString.class]) notice = value[@"notice"];
+        }
+        // 错误串可能带文件路径，日志只记标签。
+        if (!notice) msime_macos_diagnostic_write("personal_wordbook: add_failed");
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(notice); });
+    });
+}
+
 // The local calendar day of this moment, as the statistics store names days.
 static NSString *MSIMETypingStatisticsLocalDay(void) {
     NSDateComponents *components = [NSCalendar.currentCalendar components:NSCalendarUnitYear | NSCalendarUnitMonth |
@@ -5219,7 +5251,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 
 - (void)showInputStateHUDText:(NSString *)text announcement:(NSString *)announcement {
-    if (_appearance.inputModeHUD && _activeClient) {
+    if (_appearance.inputModeHUD) [self presentHUDText:text announcement:announcement];
+}
+
+// 光标旁的短暂提示。切换输入状态的提示受「切换提示」开关约束（上面那个方法）；回应用户刚点的菜单项（例如「加入生词本」）时不受它约束，直接调这里。
+- (void)presentHUDText:(NSString *)text announcement:(NSString *)announcement {
+    if (_activeClient) {
         NSRect caret = NSZeroRect;
         [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
         // 切换提示与悬浮工具栏共用明暗调色板，跟随用户选择的主题和皮肤。
@@ -10571,7 +10608,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // The rows of an opened candidate list (the Korean Hanja table compiled into the Engine) are ones the Engine pins, fixes and removes none of, and the list learns nothing; the local pin below would still reorder the list under the composition. So they get no menu.
     if (MSIMECandidateListOpen(_view)) return nil;
     NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
-    NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken};
+    // 「加入生词本」用的是这一帧显示着的释义和读音，菜单打开以后释义再变也不影响这一项。
+    NSString *gloss = CandidateTranslation(candidate);
+    NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken,
+                              @"gloss":gloss, @"pronunciation":[self pronunciationForCandidate:candidate] ?: @""};
     NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {
         NSMenuItem *entry = [[NSMenuItem alloc] initWithTitle:title action:@selector(candidateMenuAction:) keyEquivalent:@""];
         entry.target = self;
@@ -10606,6 +10646,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         [menu addItem:remove];
     }
+    // 候选旁有释义时才有「加入生词本」，和 Windows、Linux 的候选菜单放在同一个位置：最后一组，和词库操作隔开。
+    if (gloss.length) {
+        [menu addItem:NSMenuItem.separatorItem];
+        [menu addItem:item(@"加入生词本", 30)];
+    }
     return menu;
 }
 
@@ -10615,6 +10660,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (![context isKindOfClass:NSDictionary.class] || context[@"render"] != _candidateMenuToken) return;
     NSDictionary *identifier = context[@"id"];
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
+    // 「加入生词本」不经过 Engine：不报告指针，也不改组字。
+    if (item.tag == 30) {
+        __weak MSIMEInputController *weakSelf = self;
+        MSIMEAddToPersonalWordbook(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], context[@"text"],
+                                   context[@"gloss"], context[@"pronunciation"], ^(NSString *notice) {
+            MSIMEInputController *controller = weakSelf;
+            if (!controller) return;
+            if (notice) [controller presentHUDText:notice announcement:notice];
+            else NSBeep();
+        });
+        return;
+    }
     uint64_t generation = 0; NSUInteger index = 0;
     if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return;
     // 菜单项只有置顶、删除、清除位置（0-2）和固定位置（11-15），别的标签不派发，也就不报告。

@@ -14326,6 +14326,16 @@ int main(int argc, char **argv) {
             NSMenu *menu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":text}];
             assert(menu.numberOfItems == ([text isEqual:@"测试"] ? 3 : 2));
         }
+        // 有释义的候选在菜单最后多一组「加入生词本」，带上这一帧的释义；它不经过 Engine，不派发也不报告指针。
+        NSMenu *glossMenu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"测试", @"translation":@"test\u2028テスト"}];
+        assert(glossMenu.numberOfItems == 5 && [glossMenu itemAtIndex:3].separatorItem);
+        NSMenuItem *personalItem = [glossMenu itemAtIndex:4];
+        assert([personalItem.title isEqual:@"加入生词本"] && personalItem.tag == 30);
+        assert([personalItem.representedObject[@"gloss"] isEqual:@"test\nテスト"]);
+        const NSUInteger personalKeys = session.keys.count;
+        const NSUInteger personalCalls = session.maintenanceCalls;
+        [controller candidateMenuAction:personalItem];
+        assert(session.maintenanceCalls == personalCalls && session.keys.count == personalKeys);
         NSDictionary *validClickID = clickCandidate.candidateID;
         NSUInteger selectedCalls = session.selectCalls;
         // 让上次报告的字段属性作废：指针点选和按键一样，先比较属性、变了先报告。
