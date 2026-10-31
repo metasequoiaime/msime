@@ -21,7 +21,7 @@ Status: implemented
   - iOS 的首页搜索按承载页匹配嵌套功能；「键盘」页的关键词包含 AI、润色、回复模板、端点、模型与提示词。真机验收确认旧索引搜索「AI」返回空结果，虽然对应入口实际存在于键盘页，所以关键词必须随入口归属同步，不另建同一功能的页面或持久化路由。
   - 工具栏默认值不变：共享的 `touch_toolbar` 默认仍是布局、表情、皮肤开，剪贴板、AI 等关。iOS 新增的「常用语」「输入方式」开关和「显示方式」（输入时显示 / 隐藏）存在 App Group 的 `TouchToolbarLocalPreference`，对应 Android 的 `platform.android.toolbar_*`，默认开；所以 iOS 默认栏与设计稿的「表情 / 常用语 / 剪贴板 / 皮肤 / 输入方式」不同，剪贴板不在默认栏里。鸿蒙不在 `host_surface.rs` 为自己打开 `touch_toolbar` 的显示开关，因为那会让剪贴板默认被隐藏。鸿蒙后来另起一组只给鸿蒙的 `harmony_toolbar`（缺省五个工具全开，可整行隐藏），工具栏因此可以配置，见 [鸿蒙手机工具栏可选工具、整行隐藏与长按进设置](2026-10-17-harmony-toolbar-tools.md)。
   - 按键振动默认仍为关。设计稿画的是开，改默认值是产品决定，不在这次里做。
-  - 季节主题只作为应用的强调色，以及「跟随系统」的 `system` 键盘皮肤和品牌标的配色；不进键盘皮肤目录。皮肤页和键盘内皮肤面板没有设计稿里的「水杉四季 / 春芽 / 夏荫 / 秋杉 / 冬雪」皮肤卡：client-core 的 `GlobalTheme` 目录只有 `system` / `shuishan` / `light` / `paper` / `night` / `ink` / `custom`（后来加了只在 iOS 提供的 `native`，见 [2026-10-09-ios-native-keyboard-skin](2026-10-09-ios-native-keyboard-skin.md)），加卡片是跨平台的 Rust 改动。
+  - 季节主题只作为应用的强调色，以及「跟随系统」的 `system` 键盘皮肤配色（品牌键现取当前皮肤，见 [手机键盘品牌键跟随皮肤](../bug-fix/2026-10-31-mobile-logo-follows-keyboard-skin.md)）；不进键盘皮肤目录。皮肤页和键盘内皮肤面板没有设计稿里的「水杉四季 / 春芽 / 夏荫 / 秋杉 / 冬雪」皮肤卡：client-core 的 `GlobalTheme` 目录只有 `system` / `shuishan` / `light` / `paper` / `night` / `ink` / `custom`（后来加了只在 iOS 提供的 `native`，见 [2026-10-09-ios-native-keyboard-skin](2026-10-09-ios-native-keyboard-skin.md)），加卡片是跨平台的 Rust 改动。
   - 键盘高度的范围受 `touch_keyboard_height_adjustment` 限制。这个字段是经过校验、随设置同步的跨平台字段（`crates/client-core/src/preferences.rs` 只接受 `-12..=48`），所以界面显示百分比、仍按点 / vp 存储，可调范围约为 93%–129%，不是设计稿的 75%–130%。
   - 鸿蒙键盘条上的「译」「🎙」「💬」三个按钮移进功能面板，代价是多点一次；鸿蒙键盘不再按 `touch_voice_shortcut` 在条上放语音键，设置页里对应的开关在鸿蒙上隐藏。
   - 鸿蒙 2in1（`hm2`）只跟随强调色系，背景不变；侧栏顺序不改，因为 `settingsNavGroups` 是所有桌面共用的。

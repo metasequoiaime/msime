@@ -322,12 +322,13 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(skin.accentSoft.resolvedColor(with: dark).cgColor.alpha, 0x40 / 255, accuracy: 0.001)
     XCTAssertEqual(hex(skin.toolbarActiveBackground, light), 0xB5562B)
 
-    // Logo 跟随应用主题而不是皮肤：换成具名主题时圆盘和标志不变。
-    for theme in [skin, KeyboardTheme.resolve("night", document: [:])] {
-      XCTAssertEqual(theme.logoCircle.resolvedColor(with: light), AppThemePalette.mix(lightSeason.accent, 14, lightSeason.card))
-      XCTAssertEqual(theme.logoCircle.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 22, darkSeason.card))
-      XCTAssertEqual(theme.logoMark.resolvedColor(with: light), AppThemePalette.mix(lightSeason.accent, 82, .black))
-      XCTAssertEqual(theme.logoMark.resolvedColor(with: dark), AppThemePalette.mix(darkSeason.accent, 82, .black))
+    // 品牌键从当前皮肤取色，具名主题和自定义设计不再残留季节色。
+    for theme in [skin, KeyboardTheme.resolve("night", document: [:]),
+                  KeyboardTheme.designed(try XCTUnwrap(CustomKeyboardSkin.templates.first?.1))] {
+      XCTAssertEqual(theme.logoCircle.resolvedColor(with: light), AppThemePalette.mix(theme.accent.resolvedColor(with: light), theme.appearance == .dark ? 22 : 14, theme.background.resolvedColor(with: light)))
+      XCTAssertEqual(theme.logoCircle.resolvedColor(with: dark), AppThemePalette.mix(theme.accent.resolvedColor(with: dark), theme.appearance == .light ? 14 : 22, theme.background.resolvedColor(with: dark)))
+      XCTAssertEqual(theme.logoMark.resolvedColor(with: light), AppThemePalette.mix(theme.accent.resolvedColor(with: light), 82, .black))
+      XCTAssertEqual(theme.logoMark.resolvedColor(with: dark), AppThemePalette.mix(theme.accent.resolvedColor(with: dark), 82, .black))
     }
   }
 
