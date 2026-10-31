@@ -147,6 +147,8 @@ final class RandomDigitsDeviceChecks {
     private int[] unicodeDigitComposes(String committed, int[] random) throws Exception {
         t.stage = "26 键用 Shift+U 进入 U 模式";
         physical(t.described("返回原键盘"));
+        // 触摸和下面的 Shift+U 走两条互不等待的注入路径，点完「返回」不等它生效就发硬件键，键盘可能还停在数字页。2026-10-31 API 35 的一次失败就是这样：数字 9 之后再没有按键音（「返回」的点击没有触发），输入法在数字页上进了 U 模式，后面找不到字母页的 123。先等字母页的 123 出现，确认已经回到字母页再进 U 模式；点击真丢了也停在这一步，不会到后面才超时。
+        t.await(t.key("123"));
         // 与 ChineseHelpcodeOffDeviceSmoke 相同，用带 Shift 的键盘事件在空组字时进入 U 模式。
         long time = SystemClock.uptimeMillis();
         KeyEvent shiftU = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_U,
