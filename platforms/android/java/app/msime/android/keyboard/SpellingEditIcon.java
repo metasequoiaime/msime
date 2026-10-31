@@ -35,6 +35,7 @@ public final class SpellingEditIcon extends Drawable {
         paint.setColorFilter(filter);
     }
 
+    @SuppressWarnings("deprecation")
     @Override public int getOpacity() {
         return PixelFormat.TRANSLUCENT;
     }
