@@ -525,8 +525,8 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   geometry.size.height = top + metrics.padding;
   return geometry;
 }
-// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 26 DIP 让主页压缩后约 499 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）。
-inline constexpr double tray_menu_compact_row_height = 26.0;
+// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让更矮的工作区里（更高的缩放、竖放的小屏）最后几行也够得着、不被裁掉。最小行高 24 DIP 让多了「背单词」一行的主页压缩后约 495 DIP，放得进 200% 缩放的 1080p 工作区（约 500 DIP）；没有那一行时只压到约 26 DIP。14 DIP 的字在 24 DIP 的行里上下仍各留约 2 DIP。
+inline constexpr double tray_menu_compact_row_height = 24.0;
 inline TrayMenuMetrics tray_menu_fitted_metrics(
     const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
     double available_height) {

@@ -128,7 +128,20 @@ int main() {
     require(rows[index].label == "背单词（今日待复习 12）…" &&
             rows[index].available && !rows[index].checked);
     require(tray_menu_closes_after(TrayMenuCommand::OpenVocabulary));
-    (void)tray_menu_geometry(rows, TrayMenuMetrics{});
+    // 多了这一行的卡片高一行，照样按设计尺寸放得进 150% 缩放下 1080p 的工作区；200% 缩放（约 500 DIP）时压到最小行高以内也放得下，最后一行不被裁掉。
+    {
+      const TrayMenuMetrics design;
+      const auto taller = tray_menu_geometry(rows, design);
+      require(taller.rows.size() == rows.size());
+      require(near(taller.size.height, tray_menu_geometry(items, design).size.height + design.row_height));
+      const double work = 1040.0 / 1.5;
+      require(taller.size.height <= work);
+      require(near(tray_menu_fitted_metrics(rows, design, work).row_height, design.row_height));
+      const double short_work = 500.0;
+      const auto fitted = tray_menu_fitted_metrics(rows, design, short_work);
+      require(fitted.row_height >= tray_menu_compact_row_height && fitted.row_height < design.row_height);
+      require(tray_menu_geometry(rows, fitted).size.height <= short_work + 0.001);
+    }
     require(absent(items) && absent(tray_menu_items(panel, state)));
     auto unreadable = due;
     unreadable.vocabulary_due = -1;
