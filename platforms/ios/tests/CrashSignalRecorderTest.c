@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +15,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void msime_ios_crash_record_set(const char *, const char *);
+bool msime_ios_crash_record_set(const char *, const char *);
 void msime_ios_crash_handlers_install(void);
 
 __attribute__((noinline)) void synthetic_fault(void *page) {

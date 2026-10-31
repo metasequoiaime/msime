@@ -275,6 +275,62 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertTrue(UsageReporting.takeHandledProcess(9, in: handled))
   }
 
+  /// App 的信号处理函数按捕获 UUID 写过现场记录：MetricKit 事后送来同一进程的诊断时按记下的身份补录，只留一份；现场没写成时由诊断补上同一身份。
+  func testApplicationSignalRecordAndItsMetricKitCopyAreOneCrash() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let authorization = try authorization(in: directory)
+    let identities = directory.appendingPathComponent("application-captures.json")
+    let crashes = directory.appendingPathComponent("telemetry-crashes")
+    let date = Date()
+    let summary = UsageReporting.diagnosticSummary(exceptionType: 6, exceptionCode: 1, signal: NSNumber(value: SIGTRAP),
+                                                   exceptionName: nil, terminationReason: nil)
+
+    let capture = try XCTUnwrap(UsageReporting.prepareApplicationCapture(in: directory, authorization: authorization))
+    UsageReporting.rememberApplicationCapture(capture, pid: 4242, in: identities)
+    let signalRecord = capture.crashRecordHeader + "Fatal signal SIGTRAP\n<unknown>+0x1\n"
+    try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true)
+    try Data(signalRecord.utf8).write(to: URL(fileURLWithPath: capture.crashRecordPath))
+
+    XCTAssertNil(UsageReporting.takeApplicationCapture(7, in: identities))
+    let remembered = try XCTUnwrap(UsageReporting.takeApplicationCapture(4242, in: identities))
+    XCTAssertEqual(remembered.id, capture.id)
+    XCTAssertEqual(remembered.crashRecordHeader, capture.crashRecordHeader)
+    XCTAssertNil(UsageReporting.takeApplicationCapture(4242, in: identities))
+    UsageReporting.recordDiagnosedCapture(summary, stack: "0 MSIMEApp + 1", capture: remembered, in: directory,
+                                          authorization: authorization, begin: date, end: date)
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [capture.id + ".crash"])
+    XCTAssertEqual(try String(contentsOf: URL(fileURLWithPath: capture.crashRecordPath), encoding: .utf8), signalRecord)
+
+    // 下一次准备会把现场记录排成事件；MetricKit 之后再送来同一进程的诊断也不再写第二份。
+    let unwritten = try XCTUnwrap(UsageReporting.prepareApplicationCapture(in: directory, authorization: authorization))
+    UsageReporting.recordDiagnosedCapture(summary, stack: "0 MSIMEApp + 1", capture: remembered, in: directory,
+                                          authorization: authorization, begin: date, end: date)
+    XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: crashes.path).isEmpty)
+    let queue = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("telemetry.json"))) as? [[String: Any]])
+    let queued = queue.filter { $0["kind"] as? String == "crash" }
+    XCTAssertEqual(queued.count, 1)
+    XCTAssertEqual((queued.first?["message"] as? String)?.hasPrefix("Fatal signal SIGTRAP"), true)
+
+    // 信号处理函数没写成时，诊断按同一身份补上。
+    UsageReporting.rememberApplicationCapture(unwritten, pid: 4343, in: identities)
+    let fallback = try XCTUnwrap(UsageReporting.takeApplicationCapture(4343, in: identities))
+    UsageReporting.recordDiagnosedCapture(summary, stack: "0 MSIMEApp + 2", capture: fallback, in: directory,
+                                          authorization: authorization, begin: date, end: date)
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [unwritten.id + ".crash"])
+    XCTAssertEqual(try String(contentsOf: URL(fileURLWithPath: unwritten.crashRecordPath), encoding: .utf8),
+                   unwritten.crashRecordHeader + summary.message + "\n0 MSIMEApp + 2")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: identities.path))
+
+    for pid in 1...40 {
+      UsageReporting.rememberApplicationCapture(.init(id: UUID().uuidString.lowercased(), crashRecordPath: "",
+                                                      crashRecordHeader: capture.crashRecordHeader),
+                                                pid: pid_t(pid), in: identities)
+    }
+    XCTAssertNil(UsageReporting.takeApplicationCapture(8, in: identities), "only the latest 32 are kept")
+    XCTAssertNotNil(UsageReporting.takeApplicationCapture(9, in: identities))
+  }
+
   func testFailedUncaughtExceptionWriteDoesNotSuppressMetricKit() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -373,6 +429,8 @@ final class UsageReportingTests: XCTestCase {
       var prepared = 0
       var cleared = 0
       var configured: UsageReporting.Session?
+      var publishes = 0
+      var rejectPublish = false
       var ended: [UsageReporting.Session] = []
     }
     let state = OSAllocatedUnfairLock(initialState: State())
@@ -385,7 +443,14 @@ final class UsageReportingTests: XCTestCase {
                        crashRecordHeader: "synthetic-header-\($0.prepared)")
         }
       },
-      configure: { session in self.state.withLock { $0.configured = session } },
+      configure: { session in
+        self.state.withLock {
+          $0.publishes += 1
+          guard !$0.rejectPublish else { return false }
+          $0.configured = session
+          return true
+        }
+      },
       clear: { self.state.withLock { $0.cleared += 1 } },
       finish: { session in self.state.withLock { $0.ended.append(session) } })
 
@@ -435,6 +500,58 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(fixture.state.withLock { $0.prepared }, 2)
   }
 
+  /// 每次发布都会短暂撤下信号记录并重新遍历映像：同一份快照只发布一次，变化或上次发布失败时才再发布。
+  func testUnchangedCaptureIsPublishedOnce() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let first = try XCTUnwrap(fixture.capture.current)
+    for _ in 0..<3 { fixture.refresh(true) }
+    XCTAssertEqual(fixture.state.withLock { $0.publishes }, 1)
+    XCTAssertEqual(fixture.state.withLock { $0.configured }, first)
+
+    // 读失败撤下，恢复后同一身份再发布一次。
+    fixture.refresh(nil)
+    fixture.refresh(nil)
+    XCTAssertEqual(fixture.state.withLock { $0.publishes }, 2)
+    fixture.refresh(true)
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.state.withLock { $0.publishes }, 3)
+    XCTAssertEqual(fixture.state.withLock { $0.configured }, first)
+
+    // 撤回后重开换新身份，发布新的那份。
+    fixture.capture.revoke()
+    fixture.capture.waitForPendingOperations()
+    fixture.refresh(true)
+    let second = try XCTUnwrap(fixture.capture.current)
+    XCTAssertNotEqual(first, second)
+    XCTAssertEqual(fixture.state.withLock { $0.configured }, second)
+    let afterRenewal = fixture.state.withLock { $0.publishes }
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.state.withLock { $0.publishes }, afterRenewal)
+  }
+
+  /// 配置锁被故障线程占用时记录器没有接受发布：下一拍必须重试，不能停在撤下状态。
+  func testRejectedPublishIsRetried() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.state.withLock { $0.rejectPublish = true }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let session = try XCTUnwrap(fixture.capture.current)
+    XCTAssertNil(fixture.state.withLock { $0.configured })
+    let attempts = fixture.state.withLock { $0.publishes }
+    fixture.refresh(true)
+    XCTAssertGreaterThan(fixture.state.withLock { $0.publishes }, attempts)
+    fixture.state.withLock { $0.rejectPublish = false }
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.state.withLock { $0.configured }, session)
+    let published = fixture.state.withLock { $0.publishes }
+    fixture.refresh(true)
+    XCTAssertEqual(fixture.state.withLock { $0.publishes }, published)
+  }
+
   func testEpochChangeWithoutObservedWithdrawalRenewsCapture() throws {
     let fixture = CaptureFixture()
     defer { fixture.stop() }
@@ -464,7 +581,7 @@ final class UsageReportingTests: XCTestCase {
       prepared.withLock { $0 += 1 }
       consent.withLock { $0 = second }
       return .init(id: authorization.epoch.uuidString, crashRecordPath: "/synthetic/record.crash")
-    }, configure: { _ in }, clear: {})
+    }, configure: { _ in true }, clear: {})
     defer { capture.stop(); capture.waitForPendingOperations() }
     capture.start()
     capture.waitForPendingOperations()
@@ -529,7 +646,7 @@ final class UsageReportingTests: XCTestCase {
       entered.signal()
       _ = proceed.wait(timeout: .now() + 5)
       return .init(id: "old", crashRecordPath: "/synthetic/old.crash")
-    }, configure: { session in configured.withLock { $0 = session } }, clear: {})
+    }, configure: { session in configured.withLock { $0 = session }; return true }, clear: {})
     capture.start()
     XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
     capture.revoke()

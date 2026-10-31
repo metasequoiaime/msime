@@ -227,13 +227,13 @@ static void msime_crash_signal(int signal, siginfo_t *info, void *context) {
   errno = saved_errno;
 }
 
-// 正常执行路径固定路径与构建头，信号处理器只尝试一次配置锁，不能等待。
-void msime_ios_crash_record_set(const char *path, const char *header) {
+// 正常执行路径固定路径与构建头，信号处理器只尝试一次配置锁，不能等待。返回请求的状态是否已经生效：撤下总能生效，配置锁被占用时没有发布，调用方下次重试。
+bool msime_ios_crash_record_set(const char *path, const char *header) {
   atomic_store(&msime_crash_path, NULL);
-  if (atomic_flag_test_and_set(&msime_configuration)) return;
+  if (atomic_flag_test_and_set(&msime_configuration)) return path == NULL;
   if (header == NULL || strlen(header) >= sizeof(msime_record_header)) {
     atomic_flag_clear(&msime_configuration);
-    return;
+    return path == NULL;
   }
   strlcpy(msime_record_header, header, sizeof(msime_record_header));
   msime_record_header_size = strlen(header);
@@ -241,7 +241,7 @@ void msime_ios_crash_record_set(const char *path, const char *header) {
   if (path == NULL || strlen(path) + sizeof(temporary_suffix) > PATH_MAX) {
     atomic_store(&msime_crash_path, NULL);
     atomic_flag_clear(&msime_configuration);
-    return;
+    return path == NULL;
   }
   // 配置锁保护两个字段成对发布。
   char *slot = atomic_load(&msime_crash_path) == msime_crash_paths[0] ? msime_crash_paths[1] : msime_crash_paths[0];
@@ -251,6 +251,7 @@ void msime_ios_crash_record_set(const char *path, const char *header) {
   msime_snapshot_modules();
   atomic_store(&msime_crash_path, slot);
   atomic_flag_clear(&msime_configuration);
+  return true;
 }
 
 // 主线程安装一次，为主线程栈溢出保留备用栈。

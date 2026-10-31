@@ -53,10 +53,10 @@ enum MetasequoiaInputSessionBridge {
             "msime_client_telemetry_flush", "msime_client_telemetry_clear",
             "msime_client_notices", "msime_client_notice_dismiss",
         ]
-        stubs = "#include <stdlib.h>\n#include <stdint.h>\n"
+        stubs = "#include <stdbool.h>\n#include <stdlib.h>\n#include <stdint.h>\n"
         stubs += "\n".join(f"char *{name}(const uint8_t *data, unsigned long size) {{ abort(); }}" for name in symbols)
         stubs += "\nvoid msime_client_string_free(char *data) { abort(); }\n"
-        stubs += "void msime_ios_crash_record_set(const char *path, const char *header) { abort(); }\n"
+        stubs += "bool msime_ios_crash_record_set(const char *path, const char *header) { abort(); }\n"
         (directory / "Stubs.c").write_text(stubs)
         subprocess.run(["xcrun", "clang", "-c", str(directory / "Stubs.c"),
                         "-o", str(directory / "Stubs.o")], check=True, timeout=60)

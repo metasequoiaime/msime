@@ -18,7 +18,7 @@ private func msimeClientTelemetryFlush(_ request: UnsafePointer<UInt8>?, _ lengt
 private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
 @_silgen_name("msime_ios_crash_record_set")
-private func msimeIOSCrashRecordSet(_ path: UnsafePointer<CChar>?, _ header: UnsafePointer<CChar>?)
+private func msimeIOSCrashRecordSet(_ path: UnsafePointer<CChar>?, _ header: UnsafePointer<CChar>?) -> Bool
 
 /// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
@@ -179,6 +179,10 @@ enum UsageReporting {
   /// App 只准备独立捕获，不开始或结束键盘会话。
   static func prepareApplicationCapture(authorization: Authorization? = nil) -> Session? {
     guard let directory else { return nil }
+    return prepareApplicationCapture(in: directory, authorization: authorization)
+  }
+
+  static func prepareApplicationCapture(in directory: URL, authorization: Authorization? = nil) -> Session? {
     guard var request = request(directory, authorization: authorization) else { return nil }
     request["capture_only"] = true
     request["component"] = "application"
@@ -190,9 +194,10 @@ enum UsageReporting {
     return Session(id: id, crashRecordPath: path, crashRecordHeader: header)
   }
 
-  private static func configure(_ session: Session?) {
-    guard let session else { msimeIOSCrashRecordSet(nil, nil); return }
-    session.crashRecordPath.withCString { path in
+  /// 返回信号记录器是否已经接受这次发布；配置锁被占用时为 false，由生命周期下次重试。
+  private static func configure(_ session: Session?) -> Bool {
+    guard let session else { return msimeIOSCrashRecordSet(nil, nil) }
+    return session.crashRecordPath.withCString { path in
       session.crashRecordHeader.withCString { msimeIOSCrashRecordSet(path, $0) }
     }
   }
@@ -220,7 +225,7 @@ enum UsageReporting {
     private let snapshot = OSAllocatedUnfairLock(initialState: Snapshot())
     private let load: () -> CaptureConsent?
     private let prepare: (Authorization) -> Session?
-    private let configure: (Session?) -> Void
+    private let configure: (Session?) -> Bool
     private let clear: () -> Void
     private let finish: (Session) -> Void
     private var timer: DispatchSourceTimer?
@@ -228,9 +233,11 @@ enum UsageReporting {
     private var session: Session?
     private var authorization: Authorization?
     private var disabled = false
+    /// 信号记录器最后接受的快照，只在生命周期队列上读写；nil 表示未知或上次发布失败，下一拍重试。
+    private var published: Session?? = nil
 
     init(load: @escaping () -> CaptureConsent?, prepare: @escaping (Authorization) -> Session?,
-         configure: @escaping (Session?) -> Void, clear: @escaping () -> Void,
+         configure: @escaping (Session?) -> Bool, clear: @escaping () -> Void,
          finish: @escaping (Session) -> Void = { _ in }) {
       self.load = load
       self.prepare = prepare
@@ -266,14 +273,15 @@ enum UsageReporting {
       snapshot.withLock {
         $0.generation &+= 1
         $0.session = nil
-        configure(nil)
+        _ = configure(nil)
       }
       queue.async {
         self.session = nil
         self.authorization = nil
         self.disabled = true
         self.snapshot.withLock { $0.session = nil }
-        self.configure(nil)
+        // 上面已在调用方线程撤下，队列上记下的发布状态已过时。
+        self.publish(nil, always: true)
       }
     }
 
@@ -283,7 +291,7 @@ enum UsageReporting {
         self.timer?.cancel()
         self.timer = nil
         self.snapshot.withLock { $0.session = nil }
-        self.configure(nil)
+        self.publish(nil)
         if let session = self.session { self.finish(session) }
         self.session = nil
         self.authorization = nil
@@ -318,10 +326,10 @@ enum UsageReporting {
         case .enabled?:
           disabled = false
           current.session = session
-          configure(session)
+          publish(session)
         case .disabled?:
           current.session = nil
-          configure(nil)
+          publish(nil)
           session = nil
           authorization = nil
           let shouldClear = !disabled
@@ -329,12 +337,18 @@ enum UsageReporting {
           return shouldClear
         case nil:
           current.session = nil
-          configure(nil)
+          publish(nil)
         }
         return false
       }
       // 清理会取得偏好与队列锁，不占用故障快照锁；共享层另核对当前仍明确关闭。
       if shouldClear { clear() }
+    }
+
+    /// 每次发布都会先撤下记录路径、在配置锁里重新遍历全部映像，这段时间里的故障不留记录：快照没变且上次已被接受时不再发布。
+    private func publish(_ session: Session?, always: Bool = false) {
+      if !always, published == .some(session) { return }
+      published = configure(session) ? .some(session) : nil
     }
 
     /// 供验证等待已排入的生命周期操作；不等待网络发送。
@@ -352,8 +366,13 @@ enum UsageReporting {
     return enabled ? loaded : nil
   }
 
-  static let applicationCapture = CaptureLifecycle(load: loadCaptureConsent,
-    prepare: { prepareApplicationCapture(authorization: $0) }, configure: configure, clear: clear)
+  static let applicationCapture = CaptureLifecycle(load: loadCaptureConsent, prepare: { authorization in
+    let capture = prepareApplicationCapture(authorization: authorization)
+    if let capture, let identities = applicationCaptureIdentities {
+      rememberApplicationCapture(capture, pid: getpid(), in: identities)
+    }
+    return capture
+  }, configure: configure, clear: clear)
   static let keyboardCapture = CaptureLifecycle(load: loadCaptureConsent,
     prepare: { begin(authorization: $0) }, configure: configure, clear: clear, finish: { end(session: $0.id) })
 
@@ -431,6 +450,71 @@ enum UsageReporting {
   /// 同一份系统诊断重复送达时固定事件身份，原始诊断只参与本地散列，不上传。
   static func diagnosticID(kind: String, data: Data) -> String {
     "ios-\(kind)-" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// App 私有目录里「进程号 → 独立捕获身份」的记录：App 的信号处理函数按捕获 UUID 写现场记录而不记进程号，MetricKit 事后送来同一进程的诊断时按它取回原身份。
+  static var applicationCaptureIdentities: URL? {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("application-captures.json")
+  }
+
+  private struct CaptureIdentity: Codable {
+    let pid: Int32
+    let id: String
+    let header: String
+  }
+
+  /// 准备捕获与收取诊断可能在不同队列上读改写同一个文件。
+  private static let captureIdentitiesLock = NSLock()
+
+  private static func captureIdentities(in file: URL) -> [CaptureIdentity] {
+    guard let data = try? Data(contentsOf: file) else { return [] }
+    return (try? JSONDecoder().decode([CaptureIdentity].self, from: data)) ?? []
+  }
+
+  private static func storeCaptureIdentities(_ identities: [CaptureIdentity], in file: URL) {
+    // 只留最近 32 个进程：MetricKit 不一定送来诊断，正常退出的进程不会一直累积。
+    let kept = identities.suffix(32)
+    if kept.isEmpty {
+      try? FileManager.default.removeItem(at: file)
+      return
+    }
+    try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    guard let data = try? JSONEncoder().encode(Array(kept)) else { return }
+    try? data.write(to: file, options: .atomic)
+  }
+
+  /// 正常执行路径上记下本进程当前的捕获身份；同一进程重新准备时替换旧的那条。
+  static func rememberApplicationCapture(_ capture: Session, pid: pid_t, in file: URL) {
+    captureIdentitiesLock.withLock {
+      var identities = captureIdentities(in: file).filter { $0.pid != pid }
+      identities.append(.init(pid: pid, id: capture.id, header: capture.crashRecordHeader))
+      storeCaptureIdentities(identities, in: file)
+    }
+  }
+
+  /// 取出并删掉进程 `pid` 记下的捕获身份；没有时返回 nil。
+  static func takeApplicationCapture(_ pid: pid_t, in file: URL) -> Session? {
+    captureIdentitiesLock.withLock {
+      var identities = captureIdentities(in: file)
+      guard let index = identities.lastIndex(where: { $0.pid == pid }) else { return nil }
+      let identity = identities.remove(at: index)
+      storeCaptureIdentities(identities, in: file)
+      return Session(id: identity.id, crashRecordPath: "", crashRecordHeader: identity.header)
+    }
+  }
+
+  /// App 进程的系统崩溃诊断按它准备时的捕获身份补录：信号处理函数已经写过同一 UUID 的现场记录（或已经上报过）时保留那一份，没写成时由诊断补上，一次崩溃只报一次；记录头沿用准备时的构建身份。会加锁写文件：不要在主线程上调用。
+  static func recordDiagnosedCapture(_ summary: DiagnosticSummary, stack: String, capture: Session, in directory: URL,
+                                     authorization: Authorization, begin: Date, end: Date) {
+    guard diagnosticAllowed(begin: begin, end: end, consentSince: authorization.since),
+          let beginMilliseconds = milliseconds(begin), let endMilliseconds = milliseconds(end) else { return }
+    let request: [String: Any] = ["directory": directory.path, "message": summary.message, "stack": stack,
+      "crash_record_header": capture.crashRecordHeader, "preferences_directory": authorization.preferencesDirectory,
+      "consent_epoch": authorization.epoch.uuidString.lowercased(),
+      "diagnostic_begin_unix_ms": beginMilliseconds, "diagnostic_end_unix_ms": endMilliseconds,
+      "outside_session": true, "diagnostic_capture": capture.id]
+    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, request)
   }
 
   /// 主 App 的未捕获异常处理器调用：按当前已准备的身份写一份不属于任何键盘会话的崩溃记录，下次键盘启动时报 `crash`；再把进程号追加到 `handledProcesses`，MetricKit 事后送来同一进程的诊断时由 `takeHandledProcess` 认出并跳过。MetricKit 只有 abort 时的线程栈，CFRunLoop 重新抛出后已经看不到抛出点，这里的栈来自异常本身。消息只有异常名，不带 `reason`（可能引用 App 里的数据）。只建文件、不加锁，可以在处理器里调用。
