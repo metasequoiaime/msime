@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.FirstRunPreparation;
+
 import android.content.Context;
 import android.os.Bundle;
 import android.text.InputFilter;
@@ -48,6 +50,18 @@ public final class WubiLookupPage extends DetailPage {
     private State state;
     @Nullable private TextView search;
     @Nullable private GroupCard results;
+    /** 等共享准备完成合表与回放，避免 SQLite 忙时把暂时读不到误当成没有编码。 */
+    private final FirstRunPreparation.Listener preparationListener = value -> refreshButton();
+
+    @Override public void onStart() {
+        super.onStart();
+        FirstRunPreparation.observe(preparationListener);
+    }
+
+    @Override public void onStop() {
+        FirstRunPreparation.stopObserving(preparationListener);
+        super.onStop();
+    }
 
     @Override public void onCreate(@Nullable Bundle saved) {
         super.onCreate(saved);
@@ -100,8 +114,9 @@ public final class WubiLookupPage extends DetailPage {
         Context context = getContext();
         TextView button = search;
         if (context == null || button == null) return;
-        boolean ready = !state.lookup.busy() && WubiCodeLookupPolicy.searchable(state.lookup.text());
-        button.setText(state.lookup.busy() ? "正在查码…" : "查码");
+        boolean prepared = FirstRunPreparation.state() == FirstRunPreparation.State.READY;
+        boolean ready = prepared && !state.lookup.busy() && WubiCodeLookupPolicy.searchable(state.lookup.text());
+        button.setText(!prepared ? "词库准备中…" : state.lookup.busy() ? "正在查码…" : "查码");
         ViewPolicy.setEnabled(button, ready);
         ViewPolicy.setTextColor(button, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
         int fill = ready ? ThemeColorPolicy.accent(context)
@@ -111,6 +126,7 @@ public final class WubiLookupPage extends DetailPage {
 
     /** 同一段输入只发一个请求；编辑或视图销毁后，旧回答不能写回。 */
     private void lookup() {
+        if (FirstRunPreparation.state() != FirstRunPreparation.State.READY) return;
         long requestGeneration = state.lookup.begin();
         if (requestGeneration == 0) return;
         String text = state.lookup.text();
