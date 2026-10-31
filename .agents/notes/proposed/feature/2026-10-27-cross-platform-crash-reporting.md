@@ -390,12 +390,12 @@ IBus 场景经包内原 `/usr/bin/msime-linux-ibus-launcher`，真实 Mousepad/X
 
 详细数量、源码核对和证据见[宿主采集笔记](../../implemented/feature/2026-10-27-native-crash-capture-and-symbol-identity.md#macos-设置与-mcp-进程的系统目录)。本轮没有启动共享设置产品、制造产品故障或发送后台事件；原先的 macOS 共享设置后台与独立符号缺口仍保留。
 
-### 当前 head 的 PVE Linux 构建与安装包核对
+### PVE Linux 构建与安装包核对（候选 `6d99771887`）
 
-当前分支 head `b6a4549fa0b4e8b947ae8b80e4a5a55b650f6ea2` 已在 `pve9` 的 `linux-runner` LXC 中重新检出，没有复用旧候选的 Linux 产物。按仓库规定的 `platforms/linux/build-container.sh` 完成 IBus/Fcitx5、辅助入口和 Python 崩溃采集门禁：119 项中 118 项通过，`linux-ibus-demand-activation` 仅按测试定义跳过，未出现失败。之后按 `platforms/linux/package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 编出当前 head 的 Ubuntu 24.04 amd64 DEB；正式 Release 原生构建和 120 项 ctest 通过（同一按需测试跳过），DEB SHA-256 为 `3fcdc9e63f3040930e38dae501e073e8ef9759b859b79a91c557376d8978a53c`，旁边的 x86_64 tarball 为 `dbfc6e95ac5ff4b2520d674869bcf241caebf6347b54d862c3b728282da9a705`。
+候选 `6d99771887e4e61a7582f0e35ab415c9085c3a99` 已在 `pve9` 的 `linux-runner` LXC 中重新检出，没有复用旧候选的 Linux 产物。按仓库规定的 `platforms/linux/build-container.sh` 完成 IBus/Fcitx5、辅助入口和 Python 崩溃采集门禁：119 项中 118 项通过，`linux-ibus-demand-activation` 仅按测试定义跳过，未出现失败。之后按 `platforms/linux/package-container.sh` 以 `MSIME_PACKAGE_DESKTOP=0`、`MSIME_PACKAGE_EDITIONS=full` 编出该候选的 Ubuntu 24.04 amd64 DEB；正式 Release 原生构建和 120 项 ctest 通过（同一按需测试跳过），DEB SHA-256 为 `3ffe457d2c3ad9f386f1bb5f587fc6452b4c0af9d47f21d89ccf5f3c302f7d16`，旁边的 x86_64 tarball 为 `b66200d4ebb84a159b2a4b437ec5a7488eb28e230588947e5cfaa78e2f9d5ca8`。
 
-该 DEB 已实际安装到任务专用 Ubuntu 24.04 amd64 LXC `108`，`dpkg` 状态为 `install ok installed 0.14.0`，安装的 IBus、Fcitx5、辅助服务和 MCP 入口均能解析自有动态库。第一轮没有携带词库缓存，`msime-linux-prepare --installed` 按产品约定拒绝创建运行状态；随后按当前 head 的锁重新下载并逐文件校验 258 MiB 词库，使用真实安装的 `/usr/bin/msime-linux-setup --resources` 完成匿名账号、运行资源和状态目录初始化，验证了安装包首次配置路径。
+该 DEB 已实际安装到任务专用 Ubuntu 24.04 amd64 LXC `108`，`dpkg` 状态为 `install ok installed 0.14.0`，安装的 IBus、Fcitx5、辅助服务和 MCP 入口均能解析自有动态库。第一轮没有携带词库缓存，`msime-linux-prepare --installed` 按产品约定拒绝创建运行状态；随后按该候选的锁重新下载并逐文件校验约 258 MiB 词库，使用真实安装的 `/usr/bin/msime-linux-setup --resources --no-register --no-cloud-candidates` 完成匿名账号、运行资源和状态目录初始化，验证了安装包首次配置路径。
 
-同一安装包、同一合成用户和真实用户状态目录下，启动安装的 `msime-linux-provider-session online`，实际子进程为 `/usr/bin/msime-linux-online-provider`。向该进程发送一次 `SIGABRT` 后，`~/.local/state/msime/telemetry-crashes/` 产生 1 条 `MSIME-CRASH/1` 原记录，头部保留当前 revision `6d99771887e4e61a7582f0e35ab415c9085c3a99`、`x86_64`、`online-provider` 和授权代次；没有输入会话。该轮只证明当前 head 安装包的真实 provider 采集和身份落盘，未连接后台，也未把手工启动替代为 systemd 用户管理器验收。安装包单元文件仍逐项核对 `Restart=on-failure`、`RestartPreventExitStatus=2`、`UMask=0077`，语音单元保留 `KillMode=mixed`。
+同一安装包、同一合成用户和真实用户状态目录下，启动安装的 `msime-linux-provider-session online`，实际子进程为 `/usr/bin/msime-linux-online-provider`。向该进程发送一次 `SIGABRT` 后，`~/.local/state/msime/telemetry-crashes/` 产生 1 条 `MSIME-CRASH/1` 原记录，头部保留该候选 revision `6d99771887e4e61a7582f0e35ab415c9085c3a99`、`x86_64`、`online-provider` 和授权代次；没有输入会话。该轮只证明该候选安装包的真实 provider 采集和身份落盘，未连接后台，也未把手工启动替代为 systemd 用户管理器验收。安装包单元文件仍逐项核对 `Restart=on-failure`、`RestartPreventExitStatus=2`、`UMask=0077`，语音单元保留 `KillMode=mixed`。
 
-证据文件在 `target/linux-head-current-evidence/`，LXC `108` 与远端构建检出会在证据回读后销毁；这项结果仍不扩大为当前 head 的完整编辑器、后台收件、其他发行版或架构验收。
+证据文件曾在 `target/linux-head-current-evidence/` 生成，随后随远端临时工作树一起清理；笔记保留了产物哈希和运行摘要。合入 `develop` 后的新 head `000b3eaa64` 尚未重新做 Linux 完整产品验收，因此不能把上述候选证据扩大为合并后 head，也不能扩大为完整编辑器、后台收件、其他发行版或架构验收。
