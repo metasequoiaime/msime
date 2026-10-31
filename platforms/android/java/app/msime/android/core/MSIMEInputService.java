@@ -8898,11 +8898,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (clipboardHistory == null) return;
         if (ClipboardDeleteAuthenticationPolicy.requiresAuthentication(clipboardDeleteAuthenticationEnabled,
                 clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
-            authenticateClipboard("删除", () -> removeClipboardItemAfterAuthentication(item));
-            return;
-        }
-        try {
-            holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
+            authenticateClipboard("删除", () -> removeClipboardItemAfterAuthentication(item)); return; }
+        try { holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
