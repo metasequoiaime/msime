@@ -7,6 +7,7 @@ import app.msime.android.core.InputViewValuePolicy;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -274,7 +275,10 @@ final class ImeLayoutRows {
         }
         GradientDrawable rail = DrawablePolicy.rounded(
             Color.parseColor(s.skin.sidebarBackground()), s.pixels(s.skin.cornerRadius()));
-        ViewPolicy.setBackground(s.nineKeySidebar, rail);
+        // 无键帽侧栏与字母键共用三行容器，字母键本身带半个行距的上下外边距；背景也收进同样的范围，避免上下边缘比相邻键帽多出一截。
+        int rowInset = s.halfSpacingPixels(s.touchRowSpacingTenths);
+        ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0
+            ? rail : new InsetDrawable(rail, 0, rowInset, 0, rowInset));
     }
 
     /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
