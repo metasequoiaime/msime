@@ -46,6 +46,8 @@ inline constexpr std::array<const char *, 9> page_texts = {"输入", "书", "数
                                                           "术", "属", "鼠", "舒"};
 inline constexpr std::array<const char *, 9> page_translations = {
     "input", "book", "number", "tree", "ripe", "technique", "belong", "mouse", "relaxed"};
+// 前两个候选带读音（打开「显示读音」时翻译工作线程算出来的那种），截图里看得到读音在释义下面单独一行、按释义色减淡；其余的没有读音，横排时和它们同一行的格子照样留出这一行。
+inline constexpr std::array<const char *, 9> page_readings = {"/ˈɪnpʊt/", "/bʊk/", "", "", "", "", "", "", ""};
 // 卷轴展开网格里排在这一页之后的候选，长短不一，够排出好几行、出现滚动条。
 inline constexpr std::array<const char *, 36> later_texts = {
     "输", "叔", "殊", "梳", "蔬", "枢", "淑", "疏", "抒", "暑", "署", "曙",
@@ -87,6 +89,11 @@ inline CandidatePresentation gallery_presentation(int x, int y) {
   lease.epoch = 1;
   lease.token = 1;
   auto value = candidate_presentation_from_view(lease, gallery_view(), x, y, std::string{});
+  CandidateReadings readings;
+  for (size_t index = 0; index < page_texts.size(); ++index)
+    if (*page_readings[index])
+      readings[page_texts[index]] = {page_translations[index], page_readings[index]};
+  attach_candidate_readings(value.candidates, readings);
   value.render_serial = 1;
   return value;
 }

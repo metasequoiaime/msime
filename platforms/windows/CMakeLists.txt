@@ -1430,7 +1430,7 @@ add_test(NAME windows-dedicated-english-controller COMMAND windows-dedicated-eng
 set_tests_properties(windows-dedicated-english-controller PROPERTIES TIMEOUT 30)
 # The cloud worker's queueing: it coalesces submissions inside its debounce and
 # keeps only the newest, so the test spends real time waiting past that window.
-# 候选释义后面的读音和整句逐词拆解怎么拼进释义行，和 macOS 的 CandidatePronunciation.h 规则一致。
+# 候选释义的读音怎么算、怎么排进释义那一段（每条读音在它那一行释义下面单独一行），和 macOS 的 CandidatePronunciation.h 规则一致。
 add_executable(windows-candidate-gloss-readings tests/candidate/candidate_gloss_readings.cpp)
 target_include_directories(windows-candidate-gloss-readings PRIVATE src/candidate)
 if(MSVC)
