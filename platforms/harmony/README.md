@@ -10,7 +10,7 @@ ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用�
 
 ## 社区投稿目前不提供
 
-华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。
+华为应用市场（中国大陆）要求「信息发布」类服务先做实名认证，鸿蒙版的邮箱和华为账号登录都不核验手机号，所以实名认证到位之前，社区里只能浏览、搜索、看详情、获取和试用皮肤、安装插件、收藏、导入词包和存取回复模板，以及下架或删除自己的作品；不提供发布皮肤、词包、短语、回复模板和插件，修改已发布作品的分类，发布新版本，评分和举报。屏蔽作者不是投稿（不公开任何内容，只让本账号看不到那位作者的作品），照常提供，见下文「社区页仍是共享界面」一段。
 
 总闸是 Rust 的 `HostCapabilities.community_contribution`（`crates/client-core/src/host_surface.rs`），鸿蒙为 false。共享设置页按它派生 `showCommunityContribution`，社区页据此不画这些入口；`apps/harmony` 的社区客户端对这些操作直接拒绝、不给举报；设置进程启动时把它交给 `keyboard/CommunityContributionGate.ts`，设置桥的 `startRequest` 在分发社区请求之前问它。
 
@@ -135,6 +135,8 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 公告在设置窗口打开或回到前台时取（client-services 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-services 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 
 社区页仍是共享界面，请求都是 Rust `msime_client_community` 的：「我的作品」带作品自身的 `moderation` 字段，由页面只对 removed 显示「已下架」；`report`（皮肤 `skins`、词库 `dictionaries`、回复 `replies`）按固定的六个理由举报，没有登录时用本机匿名账号；422 `blocked_content`、503 `screening_unavailable`、403 `account_banned` 分别报成 `community_blocked_content`、`community_screening_unavailable`、`community_account_banned`，与桌面端同名。
+
+屏蔽作者也是 `msime_client_community` 的操作：`block`（`{kind,id}`，kind 与举报相同，id 是作品的）、`block_list` 和 `unblock`（`{id}`，屏蔽记录的 id）。页面经设置桥自己的 `community_block` 请求发它们，名单在 `HarmonyAccountRequests.ts` 的 `communityBlockRequest`，与三条图库通道的名单不相交；它要隐私政策的授权（`PrivacyConsentPolicy`），社区投稿类功能的总闸不拦它（`CommunityContributionGate` 只管三条图库通道）。三项只认登录的水杉账号，Rust 不退回本机匿名账号，没有登录时答 `community_unauthorized`：社区目录按列表请求带的令牌过滤，用匿名账号屏蔽的作者重装后就没了，也不会跟到别的设备上。列表请求有登录会话时本来就带登录账号的令牌，屏蔽之后刷新列表，服务端就不再列出那位作者的作品，客户端不另做过滤。
 
 `registerJavaScriptProxy` 的名单现在由 `scripts/test-harmony-bridge-parity.py` 守着。ArkTS 对注入对象暴露什么有两处决定——类上的方法，和交给 `registerJavaScriptProxy` 的名字——而页面看得见的只有后者。一个名字只加了一处仍然能通过类型检查、能编译、能打包，然后在真机上以 `msimeHarmony.<name> is not a function` 的形式失败，表现是某一块功能就是不工作，而那恰好在这里谁也跑不了的那个平台上。具名皮肤库那一片就是这么漏的：方法写了，名字没注册，三道绿灯什么都没说。
 
