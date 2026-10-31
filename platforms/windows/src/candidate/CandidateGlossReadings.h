@@ -152,17 +152,20 @@ gloss_pronunciation_lines(const std::string &candidate_text, const std::vector<s
   return readings;
 }
 
-// 候选窗画出来的释义：每行释义后面空两格跟它的读音。读音是 "\n" 分行的纯文本，候选窗按释义色的 0.72 倍透明度画（macOS 的 MSIMECandidatePronunciationOpacity）；reading_ranges 不为空时记下每段读音在结果里的位置（UTF-8 字节的起点和长度）。
+// 候选窗画出来的释义：每行释义，它的读音在它下面单独一行，和 macOS 的 MSIMECandidateGlossDisplay 一样。读音不再接在释义行尾：英文释义加上 IPA 常常比候选本身宽一倍，横排时整格跟着这一行变宽，读音的末尾紧挨下一格的释义，像压在相邻候选上；格子被挤窄时这一行又在音标中间折开。单独一行后格宽取释义和读音里较宽的一行，多出的一行按已有的多行释义排（CandidateItemWidths::translation_lines），没有读音的页高度不变。读音是 "\n" 分行的纯文本，候选窗按释义色的 0.72 倍透明度画（macOS 的 MSIMECandidatePronunciationOpacity）；reading_ranges 不为空时记下每段读音在结果里的位置（UTF-8 字节的起点和长度），line_starts 不为空时记下每行释义在结果里的起点，Tab 预选的释义列据此画下划线（candidate_gloss_column_range）。
 inline std::string candidate_gloss_display(const std::vector<std::string> &lines,
                                            const std::vector<std::string> &readings,
-                                           std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr) {
+                                           std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr,
+                                           std::vector<size_t> *line_starts = nullptr) {
   std::string display;
   for (size_t index = 0; index < lines.size(); ++index) {
     if (index)
       display.push_back('\n');
+    if (line_starts)
+      line_starts->push_back(display.size());
     display.append(lines[index]);
     if (!lines[index].empty() && index < readings.size() && !readings[index].empty()) {
-      display.append("  ");
+      display.push_back('\n');
       if (reading_ranges)
         reading_ranges->emplace_back(display.size(), readings[index].size());
       display.append(readings[index]);

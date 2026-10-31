@@ -17,7 +17,7 @@ namespace msime::windows {
 // Measured single-line widths of one candidate's three runs, each at its own font size: the text (with its badge) and the annotation at the candidate size, the translation at CandidateCardMetrics::translation_font. All three zero hides the row.
 struct CandidateItemWidths {
   double text = 0.0, annotation = 0.0, translation = 0.0;
-  // Lines the translation run holds before any wrapping, `translation` being the widest of them. More than one (a Korean Hanja's 훈음 with its translation under it) always puts the run under the text, at the height of all its lines.
+  // Lines the translation run holds before any wrapping, `translation` being the widest of them. More than one (a Korean Hanja's 훈음 with its translation under it, one line per target language, a gloss line with its reading on the line under it) always puts the run under the text, at the height of all its lines.
   size_t translation_lines = 1;
   // view 候选的 translation_reserved：候选词翻译范围是「仅当前高亮」时高亮的那一行。竖排给这一行一直留出 CandidateCardInput::reserved_secondary_lines 行释义高（candidate_reserved_row_height），回答还没到也留，译文总画在候选文字下面，填进留出来的高度，所以移动高亮、译文到达时卡片都不变高。横排每行本来就统一预留，不看它；一行也不留（reserved_secondary_lines 为 0）时同样不起作用，见 candidate_row_holds_translation。
   bool translation_reserved = false;

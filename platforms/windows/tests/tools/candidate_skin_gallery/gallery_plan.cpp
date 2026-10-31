@@ -56,7 +56,10 @@ void presentation() {
     require(candidate.text == page_texts[index]);
     require(candidate.translation == page_translations[index]);
     require(candidate.badge.empty() && candidate.annotation.empty() && candidate.wubi_code_hint.empty());
-    require(candidate_secondary_text(candidate) == page_translations[index]);
+    require(candidate.pronunciation == page_readings[index]);
+    require(candidate_secondary_text(candidate) ==
+            (*page_readings[index] ? std::string(page_translations[index]) + "\n" + page_readings[index]
+                                   : std::string(page_translations[index])));
     highlighted += candidate.highlighted;
   }
   require(highlighted == 1 && value.candidates.front().highlighted);
