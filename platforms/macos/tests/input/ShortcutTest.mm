@@ -13323,7 +13323,7 @@ static void TestQuickPhraseCursorInEditors() {
         [controller apply:@{@"commit":@"AB", @"commit_cursor_suffix":@"B", @"view":idle}];
         assert([client.editor.string isEqual:@"AB"] && client.editor.selectedRange.location == 0);
         prefs.englishMode = NO;
-        // Once positioned, the caret no longer follows the commit's last character: smart punctuation reads the document before the caret (`r`, not `)`).
+        // 定位之后插入点不再紧跟上屏末字：智能标点读插入点前的文档字符（是 `r`，不是 `)`）。
         prefs.smartPunctuation = YES;
         client.editor.string = @"";
         client.editor.selectedRange = NSMakeRange(0, 0);
@@ -13332,7 +13332,7 @@ static void TestQuickPhraseCursorInEditors() {
         [controller noteKeyForSmartPunctuationShadow:LayoutKey(49, @" ", 0) eaten:YES];
         assert(![[controller valueForKey:@"smartPunctuationShadowValid"] boolValue]);
         assert([controller precedingForSmartPunctuation:client] == 'r');
-        // The end marker has no tail, so the caret stays after the last character and the shadow is still recorded.
+        // 末尾标记没有尾段，插入点仍在末字后面，影子照常记下。
         [controller apply:@{@"commit":@"v1", @"commit_cursor_suffix":@"", @"view":idle}];
         assert([[controller valueForKey:@"smartPunctuationShadowValid"] boolValue]);
         assert([controller precedingForSmartPunctuation:client] == '1');
@@ -13374,7 +13374,7 @@ static void TestQuickPhraseCursorThroughRealSession() {
     }
     NSString *pack = [options[@"preferences_directory"] stringByAppendingPathComponent:@"plugins/phrase_table/cursor"];
     assert([NSFileManager.defaultManager createDirectoryAtPath:pack withIntermediateDirectories:YES attributes:nil error:nil]);
-    NSString *manifest = @"schema_version = 1\nkind = \"phrase_table\"\nid = \"cursor\"\nname = \"合成光标短语\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[[phrases]]\nkey = \"tt\"\ntext = 'title:\"${cursor}🌲é\"'\n";
+    NSString *manifest = @"schema_version = 1\nkind = \"phrase_table\"\nid = \"cursor\"\nname = \"合成光标短语\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[[phrases]]\nkey = \"tt\"\ntext = 'title:\"${cursor}🌲é\"'\n[[phrases]]\nkey = \"nh\"\ntext = '你好，${cursor}再见'\n[[phrases]]\nkey = \"hi\"\ntext = 'Hi,${cursor}x'\n";
     assert([manifest writeToFile:[pack stringByAppendingPathComponent:@"plugin.toml"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
     for (NSNumber *mixed in @[@NO, @YES]) {
         NSError *error = nil;
@@ -13407,6 +13407,57 @@ static void TestQuickPhraseCursorThroughRealSession() {
         assert(!client.editor.hasMarkedText);
         [controller apply:[session typeASCII:'n' shift:NO error:&error]];
         assert(!error && [client.editor.string isEqual:@"甲title:\"n🌲é\"丙"]);
+        assert([session closeWithError:&error] && !error);
+    }
+    // 标点键结束光标短语后插入点在模板中间，插入点前是模板原文而不是这次的标点：走真实按键路线，apply: 之后的调用方也不能再武装空格改写和连按改中文。
+    {
+        NSError *error = nil;
+        MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(session && !error);
+        NSDictionary *focused = [session setFocused:YES error:&error];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [prefs applySharedInputPreferences:preferences];
+        prefs.smartPunctuation = YES;
+        prefs.pairedPunctuation = NO;
+        prefs.fullWidthInput = NO;
+        // 候选在屏时逗号翻页会抢走 `,`，这里要的是结束组字的那个逗号。
+        const BOOL commaPaging = [prefs navigationEnabled:@"comma_period"];
+        [prefs setNavigation:@"comma_period" enabled:NO];
+        CursorEditorClient *client = [CursorEditorClient new];
+        client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 100)];
+        ModeController *controller = [ModeController alloc];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+        [controller setValue:focused[@"view"] forKey:@"view"];
+        auto TypeCode = [&](const char *code) {
+            client.editor.string = @"";
+            client.editor.selectedRange = NSMakeRange(0, 0);
+            for (const char *character = code; *character; ++character)
+                [controller apply:[session typeASCII:*character shift:NO error:nil]];
+            assert([[controller valueForKey:@"view"][@"candidates"] count]);
+        };
+        // 普通标点路线：`,` 结束 `你好，${cursor}再见`，插入点停在模板的 `，` 后面；随后的空格不能把模板里的 `，` 改成 `,`。
+        prefs.smartPunctuationSpaceConvert = YES;
+        prefs.smartPunctuationRepeatToChinese = NO;
+        TypeCode("nh");
+        assert([controller handleEvent:LayoutKey(43, @",", 0) client:client]);
+        assert([client.editor.string isEqual:@"你好，再见，"] && client.editor.selectedRange.location == 3);
+        assert([[controller valueForKey:@"spaceConvertMark"] integerValue] == 0);
+        assert(![controller convertSmartPunctuationSpace:LayoutKey(49, @" ", 0) client:client]);
+        assert([client.editor.string isEqual:@"你好，再见，"]);
+        // 智能标点的 ASCII 路线：高亮候选以字母结尾，`,` 结束 `Hi,${cursor}x`；两秒内再按 `,` 不能把模板里的 `,` 改成 `，`。
+        prefs.smartPunctuationSpaceConvert = NO;
+        prefs.smartPunctuationRepeatToChinese = YES;
+        TypeCode("hi");
+        assert([controller handleEvent:LayoutKey(43, @",", 0) client:client]);
+        assert([client.editor.string isEqual:@"Hi,x,"] && client.editor.selectedRange.location == 3);
+        assert([[controller valueForKey:@"lastSmartPunctuation"] integerValue] == 0);
+        if (![controller handleEvent:LayoutKey(43, @",", 0) client:client])
+            [client insertText:@"," replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+        assert([[client.editor.string substringToIndex:3] isEqual:@"Hi,"]);
+        [prefs setNavigation:@"comma_period" enabled:commaPaging];
         assert([session closeWithError:&error] && !error);
     }
     MSIMERemoveTestPreferenceSuite(defaults, suite);

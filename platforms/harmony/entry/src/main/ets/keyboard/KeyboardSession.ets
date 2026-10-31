@@ -147,7 +147,7 @@ import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConver
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PunctuationLockPolicy } from './input/PunctuationLockPolicy';
-import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
+import { PairedPunctuationPolicy, PairedPunctuationCompletion, PairedPunctuationCommit } from
   './input/PairedPunctuationPolicy';
 import { ChineseSymbolFaces, PunctuationMarksView } from './input/ChineseSymbolFaces';
 import { CandidateTextPolicy, CandidateTextEdge } from './input/CandidateTextPolicy';
@@ -4577,24 +4577,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     let committed: string | null | undefined = null;
     try {
       const response: Response = JSON.parse(raw) as Response;
-      let pairing: boolean = this.appearance.pairedPunctuation;
       if (EngineViewValuePolicy.isObject(response) && response.ok === true
           && EngineViewValuePolicy.isObject(response.value)) {
-        // A quick-phrase cursor template lands as written: neither the quote rewrite nor the completion below applies to it.
-        pairing = pairing && !PairedPunctuationPolicy.explicitCursor(
-          response.value.commit, response.value.commit_cursor_suffix);
-        // Rewritten before apply() commits it, so the editor receives the opening quote and the completion below closes it.
-        const reopened: string | null | undefined = PairedPunctuationPolicy.reopenQuote(
-          response.value.commit, ascii, pairing);
-        if (reopened !== response.value.commit) {
-          response.value.commit = reopened;
+        // 成对补全整段交给 `PairedPunctuationPolicy.punctuationCommit`：光标短语模板原样落地、不补后半个；否则在 apply() 上屏之前把后引号改回前引号，编辑器收到前引号，再由下面的补全写后半个。
+        const landed: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+          response.value.commit, response.value.commit_cursor_suffix, ascii, this.appearance.pairedPunctuation);
+        if (landed.commit !== response.value.commit) {
+          response.value.commit = landed.commit;
           raw = JSON.stringify(response);
         }
         committed = response.value.commit;
+        completion = landed.completion;
       }
-      completion = EngineViewValuePolicy.isObject(response) && response.ok === true
-        && EngineViewValuePolicy.isObject(response.value)
-        ? PairedPunctuationPolicy.completion(response.value.commit, ascii, pairing) : null;
     } catch (error) {
       KeyboardLog.error(`paired punctuation response unavailable: ${describeError(error)}`);
     }

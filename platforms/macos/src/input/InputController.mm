@@ -1878,6 +1878,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // The ASCII form of the Chinese mark a punctuation commit has just left in the document (from the mark map, not the key pressed), and the client it landed in. A space arriving next rewrites that mark as ASCII; anything else disarms.
     unichar _spaceConvertMark;
     __weak id _spaceConvertClient;
+    // 最近一次 apply: 上屏的是带尾段的光标请求（插入点落在尾段前，不在上屏末字后）。每次 apply: 先清零；`noteCommittedChinesePunctuation:` 和 `handleSmartPunctuation:` 在 apply: 之后据此不再武装空格改写和连按改中文。
+    BOOL _applyPositionedCaret;
     // After a space has turned a Chinese mark into ASCII, the same key within the repeat window writes the Chinese mark back (Windows Kind::AsciiConverted). The key, the mark that was actually replaced, when, and in which client; anything else disarms.
     unichar _spaceRevertKey;
     unichar _spaceRevertChinese;
@@ -2124,7 +2126,7 @@ static NSImage *MSIMECandidateLogoImage() {
         if (ascii && MSIMEKeyProducesEnumerationComma(key, mark, marks)) ascii = key;
     }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
-        _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
+        _pendingPairedClosing || _applyPositionedCaret || ![self schemeAllowsSmartPunctuationGestures]) {
         [self clearSmartPunctuationSpaceConversion];
         return;
     }
@@ -2338,6 +2340,8 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             literal[@"commit"] = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
             [self apply:literal];
         }
+        // 光标短语带尾段上屏后插入点在模板中间，前一个字是模板原文，不是这次的标点，连按不能去改它。
+        if (_applyPositionedCaret) arm = NO;
         if (!arm) {
             [self resetSmartPunctuationState];
             return YES;
@@ -8421,6 +8425,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 - (void)apply:(NSDictionary *)transition {
     ++_applySequence;
+    _applyPositionedCaret = NO;
     if (!transition || !_activeClient) return;
     // An Engine answer replaces the view the sense page was drawn over, so the page goes with it.
     [self discardGlossSensePage];
@@ -8553,9 +8558,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (openedClosing) _pendingPairedClosing = openedClosing;
 
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
-        // A cursor request with a tail (the suffix plus any pending closing, as TextClient.mm positions it) leaves the caret before that tail, or at the end when positioning gives up, so the commit's last character is not known to sit left of the caret: the document answers instead, and the armed gestures that assume the caret follows the commit are dropped, as the Windows cursor commit does.
+        // 带尾段的光标请求（后缀加上待补的后半个标点，与 `TextClient.mm` 定位时一致）把插入点放在尾段前，定位失败时才留在末尾，所以上屏末字不一定在插入点左边：改由文档回答，并作废那些假定插入点紧跟上屏末字的手势状态，与 Windows 的光标上屏一致。调用方在 apply: 之后据 `_applyPositionedCaret` 不再重新武装。
         NSString *cursorTail = displayTransition[@"commit_cursor_suffix"];
         if ([cursorTail isKindOfClass:NSString.class] && (cursorTail.length || pendingClosing.length)) {
+            _applyPositionedCaret = YES;
             [self invalidateSmartPunctuationShadow];
             [self resetSmartPunctuationState];
             [self clearSmartPunctuationSpaceConversion];

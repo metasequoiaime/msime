@@ -75,7 +75,7 @@ final class PairedPunctuationTests: XCTestCase {
     XCTAssertEqual(reopened, MetasequoiaInputSnapshot(isHandled: true, commitText: "“", preedit: "", candidates: ["a"], candidateHighlighted: [true]))
   }
 
-  /// `title:"${cursor}"` finished with `(` commits `title:""（` with suffix `"（`; rendering it puts the caret between the quotes, so nothing is auto-closed there and a closing quote is not reopened.
+  /// `title:"${cursor}"` 以 `(` 结束时上屏 `title:""（`，后缀是 `"（`；渲染后光标落在两个引号之间，所以那里不补后半个，后引号也不改回前引号。
   func testAnExplicitCursorTemplateLandsAsWritten() {
     let template = MetasequoiaInputSnapshot(isHandled: true, commitText: "title:\"\"（", commitCursorSuffix: "\"（")
     let positioned = PairedPunctuationPolicy.punctuationCommit(template, ascii: "(", enabled: true)
@@ -87,7 +87,7 @@ final class PairedPunctuationTests: XCTestCase {
     let kept = PairedPunctuationPolicy.punctuationCommit(quote, ascii: "\"", enabled: true)
     XCTAssertEqual(kept.snapshot, quote)
     XCTAssertNil(kept.completion)
-    // Without a cursor request the key reopens and closes the pair as before.
+    // 没有定位请求时，这个键照旧改回前引号并补上后半个。
     let plain = PairedPunctuationPolicy.punctuationCommit(
       MetasequoiaInputSnapshot(isHandled: true, commitText: "好”"), ascii: "\"", enabled: true)
     XCTAssertEqual(plain.snapshot.commitText, "好“")

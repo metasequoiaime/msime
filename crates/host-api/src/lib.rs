@@ -3656,7 +3656,7 @@ fn dispatch_value(
             && facts.tail_chars == 1
             && result.commit.as_deref().is_some_and(|c| c.ends_with('￥'))
         {
-            // The cursor suffix carries the same one-character tail, so it ends with '￥' exactly when the commit does; rewriting both keeps it a real suffix of the commit for `complete_transition`.
+            // 光标后缀带着同一个单字尾巴，正文以 `￥` 结尾时它也以 `￥` 结尾；两者一起改写，`complete_transition` 核对时后缀仍是正文的真后缀。
             for text in result
                 .commit
                 .iter_mut()

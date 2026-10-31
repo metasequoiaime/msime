@@ -2,7 +2,10 @@ import {
   QuickPhraseCursor,
   QuickPhraseEditor,
 } from "../entry/src/main/ets/keyboard/input/QuickPhraseCursor";
-import { PairedPunctuationPolicy } from "../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy";
+import {
+  PairedPunctuationCommit,
+  PairedPunctuationPolicy,
+} from "../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy";
 
 function check(value: boolean, message: string): void {
   if (!value) throw new Error(message);
@@ -202,23 +205,89 @@ check(
 );
 check(QuickPhraseCursor.suffix("甲乙", "乙", "甲", "乙") === null, "转换后失配不得定位");
 check(QuickPhraseCursor.suffix("甲乙", undefined, "甲乙", null) === null, "缺字段不产生请求");
-// `title:"${cursor}"` finished with `(` while paired punctuation is on: the template lands as written, with no closing mark and no quote rewrite, and the caret goes between the quotes. The session disables pairing for the key exactly when explicitCursor holds.
+// 打开成对补全时 `title:"${cursor}"` 以 `(` 结束：模板原样落地，不补后半个也不改回前引号，光标落在两个引号之间。会话只经 `punctuationCommit` 决定，这里测的就是会话调用的那一处。
 {
   const text: string = 'title:""（';
   const suffix: string = '"（';
-  check(PairedPunctuationPolicy.explicitCursor(text, suffix), "cursor phrase finished by ( asks for a position");
-  check(PairedPunctuationPolicy.explicitCursor("末尾（", ""), "end marker is an explicit template too");
+  check(
+    PairedPunctuationPolicy.explicitCursor(text, suffix),
+    "cursor phrase finished by ( asks for a position",
+  );
+  check(
+    PairedPunctuationPolicy.explicitCursor("末尾（", ""),
+    "end marker is an explicit template too",
+  );
   check(PairedPunctuationPolicy.explicitCursor("好”", "”"), "a quote tail keeps the request");
   check(!PairedPunctuationPolicy.explicitCursor("（", undefined), "ordinary commit has no request");
   check(!PairedPunctuationPolicy.explicitCursor("（", null), "null suffix has no request");
   check(!PairedPunctuationPolicy.explicitCursor(text, "失配"), "mismatched suffix has no request");
-  const pairing: boolean = !PairedPunctuationPolicy.explicitCursor(text, suffix);
-  check(PairedPunctuationPolicy.completion(text, 0x28, pairing) === null, "no closing mark after a cursor template");
-  check(PairedPunctuationPolicy.reopenQuote("好”", 0x22, !PairedPunctuationPolicy.explicitCursor("好”", "”")) === "好”",
-    "a cursor template's quote is not reopened");
-  check(PairedPunctuationPolicy.completion(text, 0x28, true)?.closing === "）", "without a template ( still closes");
+  const template: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    text,
+    suffix,
+    0x28,
+    true,
+  );
+  check(
+    template.commit === text && template.completion === null,
+    "no closing mark after a cursor template",
+  );
+  const end: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    "末尾（",
+    "",
+    0x28,
+    true,
+  );
+  check(end.commit === "末尾（" && end.completion === null, "end marker lands as written too");
+  const quote: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    "好”",
+    "”",
+    0x22,
+    true,
+  );
+  check(
+    quote.commit === "好”" && quote.completion === null,
+    "a cursor template's quote is not reopened",
+  );
+  const plainQuote: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    "好”",
+    undefined,
+    0x22,
+    true,
+  );
+  check(
+    plainQuote.commit === "好“" && plainQuote.completion?.closing === "”",
+    "without a template the quote reopens and closes",
+  );
+  const plain: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    "你好（",
+    null,
+    0x28,
+    true,
+  );
+  check(
+    plain.commit === "你好（" && plain.completion?.closing === "）",
+    "without a template ( still closes",
+  );
+  check(
+    PairedPunctuationPolicy.punctuationCommit(text, "失配", 0x28, true).completion?.closing ===
+      "）",
+    "a mismatched suffix is an ordinary commit",
+  );
+  const off: PairedPunctuationCommit = PairedPunctuationPolicy.punctuationCommit(
+    "好”",
+    undefined,
+    0x22,
+    false,
+  );
+  check(off.commit === "好”" && off.completion === null, "switch off: no reopen, no closing");
   const editor: Editor = new Editor("甲丙", 1);
-  check(commit(editor, text, suffix, (): boolean => true), "template commit positions the caret");
-  check(editor.text === '甲title:""（丙' && editor.start === 8 && editor.end === 8, "caret between the quotes, nothing appended");
+  check(
+    commit(editor, text, suffix, (): boolean => true),
+    "template commit positions the caret",
+  );
+  check(
+    editor.text === '甲title:""（丙' && editor.start === 8 && editor.end === 8,
+    "caret between the quotes, nothing appended",
+  );
 }
 console.log(`quick phrase cursor: ${cases} 组 Unicode/选区矩阵及拒绝、重入、预编辑回归通过`);

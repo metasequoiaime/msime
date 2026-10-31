@@ -34,7 +34,7 @@ enum PairedPunctuationPolicy {
       .map { PairedPunctuationCompletion(opening: $0.opening, closing: $0.closing) }
   }
 
-  /// The snapshot a punctuation key's commit lands as, and the closing mark to write after it. A quick-phrase template that asks for a cursor position (`commitCursorSuffix`, the empty end marker included) lands exactly as written: rendering it already puts the caret inside the template, where a closing mark would be written, and reopening its quote would change the commit and drop the position request. macOS gates the same two steps on `hasCursorRequest`.
+  /// 标点键这次上屏实际落地的快照，以及随后要写的后半个。要求定位光标的快捷短语模板（`commitCursorSuffix`，空的末尾标记也算）按原样落地：渲染时光标已经放进模板里，这时补的后半个会写在那里；改回前引号又会改变上屏文字、丢掉定位请求。macOS 用 `hasCursorRequest` 拦下同样的两步。
   static func punctuationCommit(_ snapshot: MetasequoiaInputSnapshot, ascii: String, enabled: Bool)
     -> (snapshot: MetasequoiaInputSnapshot, completion: PairedPunctuationCompletion?) {
     guard snapshot.commitCursorSuffix == nil else { return (snapshot, nil) }

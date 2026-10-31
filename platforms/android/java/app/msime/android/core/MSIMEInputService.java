@@ -5290,7 +5290,7 @@ public final class MSIMEInputService extends InputMethodService {
             String response = reopenPairedQuote(
                 NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
             boolean handled = apply(response);
-            PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
+            PairedPunctuationPolicy.Completion completion = pairedCompletion(response, ascii);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
                 // 补的是书名号时告诉 Engine 这一层已经闭合，否则下一次 < 会被当成嵌套的〈。
                 if (completion.opening() == '<') balanceBookTitleAfterAutoClose();
@@ -5331,32 +5331,31 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
+    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号；光标短语模板原样落地，见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
     private String reopenPairedQuote(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
         JSONObject envelope = new JSONObject(response);
         JSONObject result = envelope.optJSONObject("value");
-        if (result == null || result.isNull("commit") || explicitCursor(result)) return response;
+        if (result == null || result.isNull("commit")) return response;
         String commit = result.optString("commit", "");
-        String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
+        String reopened = PairedPunctuationPolicy.punctuationCommit(commit, cursorSuffix(result), ascii, true).commit();
         if (reopened.equals(commit)) return response;
         result.put("commit", reopened);
         return envelope.toString();
     }
 
-    private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
+    /** 这次上屏后要补的后半个；光标短语模板不补，因为 apply() 已经把光标移到模板指定的位置，这时补的后半个会写进短语中间。见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
+    private PairedPunctuationPolicy.Completion pairedCompletion(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || connection == null) return null;
         JSONObject result = value(response);
-        // apply() has already moved the caret to the template position, so a closing mark written now would land inside the phrase.
-        return result.isNull("commit") || explicitCursor(result) ? null
-            : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+        return result.isNull("commit") ? null : PairedPunctuationPolicy.punctuationCommit(
+            result.optString("commit", ""), cursorSuffix(result), ascii, true).completion();
     }
 
-    /** See {@link PairedPunctuationPolicy#explicitCursor}; reads the raw response, before apply() converts commit and suffix alike. */
-    private static boolean explicitCursor(JSONObject result) {
+    /** 回复里的 `commit_cursor_suffix`，不是字符串时为 null。读的是交给 apply() 之前的原始回复，那里上屏文字和后缀还没被转换。 */
+    private static String cursorSuffix(JSONObject result) {
         Object suffix = result.opt("commit_cursor_suffix");
-        return !result.isNull("commit") && suffix instanceof String
-            && PairedPunctuationPolicy.explicitCursor(result.optString("commit", ""), (String) suffix);
+        return suffix instanceof String ? (String) suffix : null;
     }
 
     private void balanceBookTitleAfterAutoClose() {
