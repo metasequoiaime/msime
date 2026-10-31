@@ -20,6 +20,7 @@ Status: implemented
 - **鸿蒙设置宿主**（`apps/harmony/src/main.tsx`）：能力为 false 时三个社区客户端经 `withoutCommunityContribution` 包一层，`publish`、`packPreview`、`rate`、`setCategory` 直接拒绝（`community_contribution_unavailable`），`report` 不给。页面漏掉一处没隐藏，请求也发不出去。
 - **鸿蒙设置桥**：`platforms/harmony/entry/src/main/ets/keyboard/CommunityContributionGate.ts` 在 `Settings.ets` 的 `attach` 里 `adopt` 宿主能力，只有明确为 true 才打开；`startRequest` 在分发社区请求之前问 `allowsSettingsRequest`，对 `community_skin`、`community_resource`、`community_plugin` 三类请求拒绝 `keyboard_skin_publish`、`keyboard_skin_rate`、`keyboard_skin_set_category`、`resource_publish`、`resource_rate`、`plugin_pack_preview`、`plugin_publish`、`plugin_rate`、`report`，读不出操作名的社区请求也拒绝，回 `community_contribution_unavailable`。键盘进程只读本地 `CommunityLibrary.json`，不经社区接口联网，不接这道闸。
 - 照常提供的：浏览、搜索、详情、获取和试用皮肤、安装插件、收藏、导入词包、存取回复模板，以及下架或删除自己的作品（撤回内容不算发布）。账号页的「我发布的…」只是跳到社区的「我的作品」，照常显示。改昵称和头像保留：昵称只会作为作者名出现在作品上，鸿蒙账号在别的平台发过作品时才会露出来。
+- 屏蔽作者（2026-10-31 加入，见 [社区屏蔽作者](2026-10-31-community-block-authors.md)）不算投稿，鸿蒙版照常提供：它不公开任何内容，也不对作品公开表态，只是让本账号的社区列表不再列出那位作者的作品，所以不属于「信息发布」，审核指南第 12 章的实名要求管不到它；反过来，举报关着之后它是鸿蒙用户面对滥用内容时唯一能自己动手的办法，再关掉就只剩反馈。实现上它不经三条图库通道：页面经设置桥自己的 `community_block` 请求发 `block`、`block_list`、`unblock`，`CommunityContributionGate` 只管三条图库通道、不拦它，它只要隐私政策的授权；`apps/harmony/src/main.tsx` 的屏蔽客户端（`communityBlockClient`）不经 `withoutCommunityContribution`，共享页面里的「屏蔽作者」也不看 `contributions`，在举报被隐藏时照样画在别人的作品上。
 - `msime_client_community` 不按平台判断：它也给 Windows 原生设置窗口用，而且拿不到平台信息，所以闸在宿主和页面两侧。
 
 ### 不列 AI 生成的社区皮肤

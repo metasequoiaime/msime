@@ -10,6 +10,7 @@ import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.CommunityCatalog;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.ClipboardHistoryAuthenticationPolicy;
 import app.msime.android.ScreenCaptureProtection;
@@ -28,6 +29,8 @@ import org.json.JSONObject;
  * <p>三个开关就是 {@link InputFeatureToggle} 里的那三项，标题和说明也取那里，本页是它们在宿主里唯一的位置（实施计划 §2.9）。隐私模式的语义在 Rust 与键盘里（P17）：这里只说明它做什么、不做什么。
  *
  * <p>「防止截屏」（#10098）是 Android 本地设置，不在共享偏好里；切换规则见 {@link ScreenCaptureProtectionPolicy}，窗口上的效果见 {@link ScreenCaptureProtection}。
+ *
+ * <p>「社区」组的「已屏蔽的作者」进 {@link BlockedAuthorsPage}。屏蔽只认登录的水杉账号，本页不登录也能打开，所以没有登录时这一行写「登录后可用」，点了先请人登录（{@link CommunityBlockDialog#requireSignIn}）。
  */
 public final class PrivacyPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -51,6 +54,9 @@ public final class PrivacyPage extends ReloadingDetailPage {
     /** 正在认证或正在写入的目标值；非空时开关禁用，避免重复切换。 */
     @Nullable private Boolean pendingScreenCaptureValue;
     @Nullable private BiometricPrompt screenCaptureAuthentication;
+    @Nullable private GroupCard.Row blockedAuthorsRow;
+    /** 有没有登录水杉账号；还没读到时为 null，「已屏蔽的作者」那一行先不写副标题。 */
+    @Nullable private Boolean signedIn;
 
     @Override protected void onContentReady() {
         LinearLayout target = contentColumn();
@@ -65,6 +71,10 @@ public final class PrivacyPage extends ReloadingDetailPage {
         network.nav("翻译服务", "改用小牛、腾讯或自定义（DeepLX、DeepL）服务", null,
             () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         network.note("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
+
+        GroupCard community = GroupCard.add(sectionColumn(target, "联网"), "社区");
+        blockedAuthorsRow = community.nav("已屏蔽的作者", null, null, () -> CommunityBlockDialog.requireSignIn(this,
+            () -> SettingsNavigator.open(requireContext(), PageId.BLOCKED_AUTHORS, null)));
 
         GroupCard local = GroupCard.add(sectionColumn(target, "本机"), "本机数据").withDividers(16);
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
@@ -95,6 +105,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
         screenCaptureAuthentication = null;
         pendingScreenCaptureValue = null;
         screenCaptureRow = null;
+        blockedAuthorsRow = null;
         rows.clear();
     }
 
@@ -114,6 +125,11 @@ public final class PrivacyPage extends ReloadingDetailPage {
             localSettings = snapshot;
             render();
         });
+        // 读登录状态要等 Rust 的会话锁，放在网络线程上；登录或退出后回到本页时重新读。
+        HostTask.runNetwork(this, context -> new CommunityCatalog(context).signedIn(), value -> {
+            signedIn = value;
+            render();
+        });
     }
 
     private void render() {
@@ -124,6 +140,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
             row.setEnabled(preferences != null);
             if (preferences != null) row.setChecked(preferences.optBoolean(toggle.key(), toggle.enabledByDefault()));
         }
+        if (blockedAuthorsRow != null) blockedAuthorsRow.setSubtitle(Boolean.FALSE.equals(signedIn) ? "登录后可用" : null);
         if (screenCaptureRow != null) {
             screenCaptureRow.setEnabled(localSettings != null && pendingScreenCaptureValue == null);
             if (localSettings != null) screenCaptureRow.setChecked(localSettings.bool(AndroidLocalSettings.SCREEN_CAPTURE_PROTECTION));

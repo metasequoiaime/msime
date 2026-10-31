@@ -90,6 +90,8 @@ const NETWORK_REQUESTS: string[] = [
   "community_resource",
   "community_skin",
   "community_plugin",
+  // 屏蔽作者、列出和取消屏蔽，三项都联网。
+  "community_block",
   "typing_upload",
   "ai_models",
   "ai_test",
@@ -112,6 +114,7 @@ const LOCAL_OPERATIONS: Record<string, string[]> = {
   community_resource: ["store_reply", "remove_reply"],
   community_skin: ["finish_trial"],
   community_plugin: [],
+  community_block: [],
   typing_upload: [],
   ai_models: [],
   ai_test: [],

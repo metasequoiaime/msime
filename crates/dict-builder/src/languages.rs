@@ -24,11 +24,22 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     let words = text::read(&sources.pinned(cantonese::WORDS)?)?;
     let essay = text::read(&sources.pinned(cantonese::ESSAY)?)?;
     let corpus = text::read(&sources.pinned(cantonese::CORPUS)?)?;
+    let custom = cantonese::custom_source(sources)?
+        .map(|path| text::read(&path))
+        .transpose()?;
+    let characters = cantonese::parse_characters(&characters)?;
+    let custom_words = match &custom {
+        Some(custom) => {
+            cantonese::parse_custom(custom, &cantonese::character_readings(&characters))?
+        }
+        None => Vec::new(),
+    };
     let dictionary = cantonese::build(
-        &cantonese::parse_characters(&characters)?,
+        &characters,
         &cantonese::parse_words(&words)?,
         &cantonese::parse_essay(&essay)?,
         &hkcancor::parse(&corpus)?,
+        &custom_words,
     );
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
@@ -40,8 +51,17 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         cantonese::LICENSE_NAME,
     )?;
     written.extend([cantonese::DATABASE, cantonese::LICENSE_NAME]);
+    let custom_summary = match custom {
+        Some(_) => format!(
+            "{} of the {} reviewed words in {} added or raised",
+            dictionary.custom_words,
+            custom_words.len(),
+            cantonese::CUSTOM
+        ),
+        None => format!("{} is not in the checkout", cantonese::CUSTOM),
+    };
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key)",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary})",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,

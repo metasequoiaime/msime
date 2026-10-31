@@ -99,7 +99,7 @@ public final class CommunityCatalog {
     }
 
     /**
-     * One page of the catalogue. Never throws: a failure is a page that says why.
+     * 目录的一页。不会抛异常：失败时返回说明原因的页面。
      *
      * @param category 只列这一类皮肤；null 列出全部
      */
@@ -154,8 +154,88 @@ public final class CommunityCatalog {
         }
     }
 
+    /** 屏蔽一位作者的结果：成功时是这条屏蔽，失败时是 Rust 的错误码，交给 {@link CommunityRequest#blockMessage} 说成一句话。 */
+    public record Block(CommunityRequest.BlockedAuthor author, String code) {
+        public boolean failed() { return author == null; }
+    }
+
+    /** 屏蔽名单：成功时 `items` 是最近的在前的全部屏蔽，失败时为 null，`code` 是 Rust 的错误码。 */
+    public record Blocks(List<CommunityRequest.BlockedAuthor> items, String code) {
+        public boolean failed() { return items == null; }
+    }
+
+    /** 现在有没有登录水杉账号；读不到登录状态时按没有登录处理，屏蔽入口会先请人登录。 */
+    public boolean signedIn() {
+        try {
+            return !calls.userId().isEmpty();
+        } catch (AccountStore.Failure failure) {
+            return false;
+        }
+    }
+
     /**
-     * 作者修改自己一款皮肤的分类。Never throws: a failure is an update that says why.
+     * 屏蔽作品 `itemId` 的作者（Rust 的 block）。只用登录账号，不退回匿名账号：目录按列表请求所带的令牌过滤，匿名账号的屏蔽在重装后就没了，也不会作用在登录后的列表上。不会抛异常。
+     *
+     * @param kind 作品类型，与举报的 `kind` 相同（{@link CommunityRequest#BLOCK_KINDS}）
+     */
+    public Block block(String kind, String itemId) {
+        if (!CommunityRequest.validBlockKind(kind) || !validUuid(itemId)) return new Block(null, "community_invalid");
+        try {
+            Object value = bound(new JSONObject().put("operation", "block").put("kind", kind).put("id", itemId), false);
+            CommunityRequest.BlockedAuthor author = value instanceof JSONObject block ? blockedAuthor(block) : null;
+            return author == null ? new Block(null, "community_unavailable") : new Block(author, "");
+        } catch (AccountStore.Failure failure) {
+            return new Block(null, failure.code);
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            android.util.Log.w("MSIMECommunity", "Block failed", error);
+            return new Block(null, "community_unavailable");
+        }
+    }
+
+    /** 登录账号屏蔽的全部作者（Rust 的 block_list），最近的在前。只用登录账号。不会抛异常。 */
+    public Blocks blocks() {
+        try {
+            Object value = bound(new JSONObject().put("operation", "block_list"), false);
+            if (!(value instanceof JSONArray values)) return new Blocks(null, "community_unavailable");
+            List<CommunityRequest.BlockedAuthor> rows = new ArrayList<>(values.length());
+            for (int index = 0; index < values.length(); index++) {
+                JSONObject row = values.optJSONObject(index);
+                rows.add(row == null ? null : blockedAuthor(row));
+            }
+            List<CommunityRequest.BlockedAuthor> items = CommunityRequest.blockList(rows);
+            return items == null ? new Blocks(null, "community_unavailable") : new Blocks(items, "");
+        } catch (AccountStore.Failure failure) {
+            return new Blocks(null, failure.code);
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            android.util.Log.w("MSIMECommunity", "Block list failed", error);
+            return new Blocks(null, "community_unavailable");
+        }
+    }
+
+    /**
+     * 取消屏蔽（Rust 的 unblock）；`blockId` 是屏蔽记录的 UUID，不是作品的。已经取消过的也算成功。只用登录账号。不会抛异常。
+     *
+     * @return Rust 的错误码，成功时是空字符串
+     */
+    public String unblock(String blockId) {
+        if (!validUuid(blockId)) return "community_invalid";
+        try {
+            bound(new JSONObject().put("operation", "unblock").put("id", blockId), false);
+            return "";
+        } catch (AccountStore.Failure failure) {
+            return failure.code;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            android.util.Log.w("MSIMECommunity", "Unblock failed", error);
+            return "community_unavailable";
+        }
+    }
+
+    private static CommunityRequest.BlockedAuthor blockedAuthor(JSONObject value) {
+        return CommunityRequest.blockedAuthor(value.opt("id"), value.opt("name"), value.opt("created_at"));
+    }
+
+    /**
+     * 作者修改自己一款皮肤的分类。不会抛异常：失败时返回说明原因的更新结果。
      *
      * <p>要求登录水杉账号：匿名身份发布不了皮肤，也就不可能是作者。服务端回显的分类和请求的不一致，说明修改没有生效，按失败处理。
      */
@@ -183,7 +263,7 @@ public final class CommunityCatalog {
     }
 
     /**
-     * 「获取」的第一步：经 Rust 的 keyboard_skin_download 下载这款皮肤的设计，服务端同时记一次下载（卡片上的「使用次数」）。登录账号优先、否则用键盘的匿名账号。断网时失败，不再像原来那样先存本机、再尽力记下载（决定 14）。Never throws.
+     * 「获取」的第一步：经 Rust 的 keyboard_skin_download 下载这款皮肤的设计，服务端同时记一次下载（卡片上的「使用次数」）。登录账号优先、否则用键盘的匿名账号。断网时失败，不再像原来那样先存本机、再尽力记下载（决定 14）。不会抛异常。
      */
     public Download download(Item item) {
         if (!validDownloadItem(item)) return new Download(null, "这类作品还不能从这里保存。");

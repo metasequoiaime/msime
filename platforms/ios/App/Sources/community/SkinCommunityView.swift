@@ -150,6 +150,7 @@ struct SkinCommunityView: View {
       startLoad()
     }
     .onChange(of: signedIn) { startLoad() }
+    .onReceive(NotificationCenter.default.publisher(for: CommunityBlocks.didChange)) { _ in startLoad() }
     .sheet(isPresented: $showPublish) { CommunityPublishView { startLoad() } }
     .sheet(isPresented: $showAccount, onDismiss: {
       let id = accountGeneration.begin()
@@ -388,7 +389,10 @@ struct CommunitySkinDetail: View {
                 .accessibilityLabel("评 \(stars) 星").disabled(busy)
             }
           }
-          CommunityReportButton(kind: "skins", itemID: skin.id)
+          HStack(spacing: 20) {
+            CommunityReportButton(kind: "skins", itemID: skin.id)
+            CommunityBlockAuthorButton(kind: "skins", itemID: skin.id, author: skin.author)
+          }
         } else {
           Menu {
             ForEach(CommunitySkinCategory.allCases) { category in

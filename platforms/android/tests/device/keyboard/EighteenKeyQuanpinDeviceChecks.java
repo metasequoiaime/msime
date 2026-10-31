@@ -58,7 +58,12 @@ final class EighteenKeyQuanpinDeviceChecks {
             t.stage = "eighteen quanpin grouped nihao";
             groups("B N", "I O", "H", "A", "I O");
             t.await(t.field("msime-test-plain").and(EighteenKeyQuanpinDeviceChecks::empty));
-            t.tap(candidate("你好"));
+            // 拼音条和候选同时出现：拼音条不能盖住候选。用屏幕坐标真实点候选，无障碍点击不走触摸分发，测不出被上层视图吞掉的点按。
+            Rect spellings = bounds(t.described("18 键拼音选择"));
+            Rect nihao = bounds(candidate("你好"));
+            if (Rect.intersects(spellings, nihao))
+                throw new AssertionError("十八键拼音选择盖住了候选：" + spellings + ", " + nihao);
+            t.shellDiscard("input tap " + nihao.centerX() + " " + nihao.centerY());
             t.await(t.field("msime-test-plain").and(n -> DeviceSmoke.equalsText("你好", n.getText())));
 
             t.stage = "eighteen quanpin reading lock and undo";
@@ -205,13 +210,9 @@ final class EighteenKeyQuanpinDeviceChecks {
     private void geometry() {
         Rect first = bounds(group("Q")), last = bounds(group("P"));
         Rect middle = bounds(group("A")), middleLast = bounds(group("L"));
-        Rect bottom = bounds(group("Z"));
         int tolerance = 2;
-        if (Math.abs(first.width() - middle.width()) > tolerance
-                || Math.abs(first.width() - bottom.width()) > tolerance)
-            throw new AssertionError("十八键三排的字母键宽度不一致：" + first + ", " + middle + ", " + bottom);
-        if (Math.abs(first.left + last.right - middle.left - middleLast.right) > tolerance)
-            throw new AssertionError("十八键第二排没有居中");
+        if (Math.abs(first.left - middle.left) > tolerance || Math.abs(last.right - middleLast.right) > tolerance)
+            throw new AssertionError("十八键第二排没有与首排左右对齐：" + first + ", " + last + ", " + middle + ", " + middleLast);
         for (String face : new String[] {"Q", "W E", "R T", "Y", "U", "I O", "P", "A", "S D",
                 "F G", "H", "J K", "L", "Z", "X C", "V", "B N", "M"}) {
             Rect key = bounds(group(face));

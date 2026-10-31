@@ -195,15 +195,16 @@ struct KeyboardSkinPreview: View {
         nineKeyControls(layer.nineKeyControls)
       }.frame(maxHeight: .infinity)
     } else if letterGrid == .eighteenKey {
-      // 七个等宽键一排：第二排两侧各空出半个键，第三排两端的分词和 ⌫ 与字母键同宽。
+      // 第一、三排七个等宽键（第三排两端的分词和 ⌫ 与字母键同宽），第二排六个键平分整行，与键盘一样从同一左右边界铺开。
       GeometryReader { proxy in
         let unit = (proxy.size.width - 5 * 6) / 7
+        let middle = (proxy.size.width - 5 * 5) / 6
         VStack(spacing: layout.rowSpacing) {
           if layer.numberRow { numberRow }
           ForEach(Array(EighteenKeyLayout.rows.enumerated()), id: \.offset) { index, keys in
             HStack(spacing: 5) {
               if index == EighteenKeyLayout.rows.count - 1 { key("分词", function: true).frame(width: unit) }
-              ForEach(keys.map(\.face), id: \.self) { face in key(face).frame(width: unit) }
+              ForEach(keys.map(\.face), id: \.self) { face in key(face).frame(width: index == 1 ? middle : unit) }
               if index == EighteenKeyLayout.rows.count - 1 { key("⌫", function: true).frame(width: unit) }
             }
             .frame(maxWidth: .infinity)
