@@ -31,6 +31,7 @@ import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ClipboardAuthenticationActivity;
+import app.msime.android.ClipboardDeleteAuthenticationPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -376,7 +377,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     }
 
-    /** 切换删除门禁也必须先认证；取消或失败时把开关留在原状态，不写入本地设置。 */
+    /** 切换删除门禁也必须先认证；取消或失败时把开关留在原状态，不写入本地设置。设备没有可用的系统认证（桥返回 2002）时按 {@link ClipboardDeleteAuthenticationPolicy#togglesWithoutAuthenticator} 只放行关闭：打开开关后移除了锁屏凭据的用户否则永远关不掉它。 */
     private void requestClipboardDeleteAuthentication(GroupCard.Row row, boolean current, boolean next) {
         row.setChecked(current);
         if (clipboardDeleteAuthenticationPending) return;
@@ -389,6 +390,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 if (getView() == null) return;
                 if (code == ClipboardAuthenticationActivity.RESULT_AUTHENTICATED) {
                     saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                } else if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE
+                        && ClipboardDeleteAuthenticationPolicy.togglesWithoutAuthenticator(next)) {
+                    saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                    MsToast.show(requireContext(), "这台设备没有可用的系统认证，已直接关闭剪贴板删除数据验证");
                 } else {
                     row.setEnabled(true);
                     if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE)

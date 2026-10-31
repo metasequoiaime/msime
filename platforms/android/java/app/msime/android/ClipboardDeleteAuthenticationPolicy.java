@@ -14,4 +14,11 @@ public final class ClipboardDeleteAuthenticationPolicy {
     public static boolean allowsWithoutAuthenticator(boolean enabled) {
         return !enabled;
     }
+
+    /**
+     * 设备没有可用的系统认证时，切换开关能否不经认证直接生效：只放行关闭。打开开关后又移除了锁屏凭据的用户，认证永远满足不了，关闭也要认证就再也关不掉；没有锁屏的设备认证本来保护不了任何东西。打开开关仍要求先设置锁屏凭据，否则设置页显示「已开启」而删除全部被拒。
+     */
+    public static boolean togglesWithoutAuthenticator(boolean next) {
+        return !next;
+    }
 }

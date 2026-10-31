@@ -127,9 +127,10 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 剪贴板单条、左滑和多选删除前的系统认证门禁（#10408，.agents/notes/implemented/feature/2026-10-31-android-clipboard-delete-auth.md）。何时要求认证、没有锁屏凭据时何时放行由 ClipboardDeleteAuthenticationPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：两个删除入口都经 authenticateClipboardDelete，它按 ClipboardDeleteAuthenticationPolicy 决定是否认证，并把「设备没有可用认证器」交给 allowsWithoutAuthenticator；真正删除的两个方法各只有删除入口一处调用，绕不过门禁；认证桥的 RESULT_UNAVAILABLE（2002）在服务里单独处理，不落到「未通过系统认证」；多选只在删除真正发生后退出选择，取消认证时选择还在；认证 Activity 被直接结束时补发取消，发起方的等待标记才能复位。
+# 剪贴板单条、左滑和多选删除前的系统认证门禁（#10408，.agents/notes/implemented/feature/2026-10-31-android-clipboard-delete-auth.md）。何时要求认证、没有锁屏凭据时何时放行由 ClipboardDeleteAuthenticationPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：两个删除入口都经 authenticateClipboardDelete，它按 ClipboardDeleteAuthenticationPolicy 决定是否认证，并把「设备没有可用认证器」交给 allowsWithoutAuthenticator，拒绝时的提示告诉用户可以关掉开关；设置页开关在认证桥返回 2002 时按 togglesWithoutAuthenticator 只放行关闭，打开开关后又移除锁屏凭据的用户才关得掉它；真正删除的两个方法各只有删除入口一处调用，绕不过门禁；认证桥的 RESULT_UNAVAILABLE（2002）在服务里单独处理，不落到「未通过系统认证」；多选只在删除真正发生后退出选择，取消认证时选择还在；认证 Activity 被直接结束时补发取消，发起方的等待标记才能复位。
 clipboard_service_java="$android_java/core/MSIMEInputService.java"
 clipboard_auth_activity="$android_java/ClipboardAuthenticationActivity.java"
+clipboard_toggle_body=$(sed -n '/^    private void requestClipboardDeleteAuthentication(GroupCard\.Row row, boolean current, boolean next) {$/,/^    }$/p' "$android_java/home/KeyboardOptionsPage.java")
 remove_item_body=$(sed -n '/^    void removeClipboardItem(ClipboardHistory\.Item item) {$/,/^    }$/p' "$clipboard_service_java")
 remove_items_body=$(sed -n '/^    void removeClipboardItems(java\.util\.List<String> texts, Runnable removed) {$/,/^    }$/p' "$clipboard_service_java")
 delete_gate_body=$(sed -n '/^    private void authenticateClipboardDelete(Runnable delete) {$/,/^    }$/p' "$clipboard_service_java")
@@ -144,7 +145,9 @@ if ! rg -q 'authenticateClipboardDelete\(\(\) -> removeClipboardItemAfterAuthent
   || [[ "$remove_item_calls" != 2 ]] || [[ "$remove_items_calls" != 2 ]] \
   || ! rg -q 'ClipboardDeleteAuthenticationPolicy\.requiresAuthentication\(enabled,' <<< "$delete_gate_body" \
   || ! rg -q 'clipboardMode == ClipboardModePolicy\.Mode\.VISITOR' <<< "$delete_gate_body" \
-  || ! rg -q 'ClipboardDeleteAuthenticationPolicy\.allowsWithoutAuthenticator\(enabled\) \? delete : null' <<< "$delete_gate_body" \
+  || ! rg -U -q 'ClipboardDeleteAuthenticationPolicy\.allowsWithoutAuthenticator\(enabled\)\n\s+\? delete : \(\) -> notice\(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE\)\);' <<< "$delete_gate_body" \
+  || ! rg -q 'private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = ".*关闭「剪贴板删除数据验证」";' "$clipboard_service_java" \
+  || ! rg -U -q 'code == ClipboardAuthenticationActivity\.RESULT_UNAVAILABLE\n\s+&& ClipboardDeleteAuthenticationPolicy\.togglesWithoutAuthenticator\(next\)\) \{\n\s+saveLocalSetting\(AndroidLocalSettings\.CLIPBOARD_DELETE_AUTHENTICATION, next\);' <<< "$clipboard_toggle_body" \
   || ! rg -q 'code == CLIPBOARD_AUTH_SUCCEEDED' <<< "$clipboard_auth_body" \
   || ! rg -q 'code == CLIPBOARD_AUTH_UNAVAILABLE' <<< "$clipboard_auth_body" \
   || ! rg -q 'private static final int CLIPBOARD_AUTH_SUCCEEDED = 2001;' "$clipboard_service_java" \
@@ -155,7 +158,7 @@ if ! rg -q 'authenticateClipboardDelete\(\(\) -> removeClipboardItemAfterAuthent
   || ! rg -q 'if \(!sent && isFinishing\(\)\) \{' <<< "$auth_activity_destroy_body" \
   || ! rg -q 'result\.send\(RESULT_CANCELED, null\);' <<< "$auth_activity_destroy_body" \
   || ! rg -U -q 's\.removeClipboardItems\(\n\s+new java\.util\.ArrayList<>\(clipboardSelectedTexts\), this::exitClipboardSelection\)\);' "$android_java/core/ImePanels.java"; then
-  echo "Clipboard single, swipe and multi-select delete must go through the delete authentication gate, handle RESULT_UNAVAILABLE (2002) separately, and keep the selection until the delete actually happens" >&2
+  echo "Clipboard single, swipe and multi-select delete must go through the delete authentication gate, handle RESULT_UNAVAILABLE (2002) separately (refused deletes point at the toggle, and the settings toggle can always be turned off without an authenticator), and keep the selection until the delete actually happens" >&2
   exit 1
 fi
 # 引擎会话还在建时工具栏的表情、常用语、皮肤、输入方式和「中」键照常可用（#10086，.agents/notes/implemented/bug-fix/2026-10-29-android-toolbar-before-session.md）。可用性规则由 ToolbarReadinessPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：五个入口的可用性都经 ToolbarReadinessPolicy；表情面板不再按 session 拦；皮肤和输入方式先问 deferUntilSessionReady；会话建好（startEngineSession）和第一次读到偏好（reloadPreferences）时执行推迟的点按；建会话前从运行时选项填上资源目录和偏好目录；建好会话时记下耗时；常用语在自己的工作线程上读，不排在建会话的偏好读取和词库同步后面；推迟中的皮肤、输入方式再点一次即取消，打开不经 closeToolbarPanels 的功能面板（更多）时作废；开始打字或删字时推迟的面板和记下的「中」键一起作废；收起键盘时作废记下的「中」键；会话建好后再点「中」键时作废记下的那一下，读到偏好时不再补按。

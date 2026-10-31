@@ -8927,7 +8927,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 单条、左滑和多选删除共用的认证门禁（#10408），规则见 {@link ClipboardDeleteAuthenticationPolicy}。
      *
-     * <p>设备没有任何锁屏凭据时，门禁只来自访客模式（用户没有打开「剪贴板删除数据验证」）就照旧直接删除：访客模式本来就要求认证，但没有凭据的设备谁都能解锁，拦下删除保护不了任何东西，只会让访客剪贴板删不掉，比改动之前更糟。用户自己打开过开关时仍然拒绝，并提示去系统设置开启指纹、图案或密码。
+     * <p>设备没有任何锁屏凭据时，门禁只来自访客模式（用户没有打开「剪贴板删除数据验证」）就照旧直接删除：访客模式本来就要求认证，但没有凭据的设备谁都能解锁，拦下删除保护不了任何东西，只会让访客剪贴板删不掉，比改动之前更糟。用户自己打开过开关时仍然拒绝，并提示去系统设置开启指纹、图案或密码，或回设置页关闭开关（没有认证器时关闭开关不需要认证）。
      */
     private void authenticateClipboardDelete(Runnable delete) {
         boolean enabled = clipboardDeleteAuthenticationEnabled;
@@ -8937,7 +8937,8 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         authenticateClipboard("删除", delete,
-            ClipboardDeleteAuthenticationPolicy.allowsWithoutAuthenticator(enabled) ? delete : null);
+            ClipboardDeleteAuthenticationPolicy.allowsWithoutAuthenticator(enabled)
+                ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
     }
 
     private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
@@ -9058,6 +9059,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final int CLIPBOARD_AUTH_SUCCEEDED = 2001;
     private static final int CLIPBOARD_AUTH_UNAVAILABLE = 2002;
     private static final String CLIPBOARD_AUTH_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码";
+    private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码，或在键盘设置的剪贴板里关闭「剪贴板删除数据验证」";
 
     private void authenticateClipboard(String operation, Runnable after) {
         authenticateClipboard(operation, after, null);
