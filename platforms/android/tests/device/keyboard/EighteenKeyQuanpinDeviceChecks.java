@@ -205,13 +205,9 @@ final class EighteenKeyQuanpinDeviceChecks {
     private void geometry() {
         Rect first = bounds(group("Q")), last = bounds(group("P"));
         Rect middle = bounds(group("A")), middleLast = bounds(group("L"));
-        Rect bottom = bounds(group("Z"));
         int tolerance = 2;
-        if (Math.abs(first.width() - middle.width()) > tolerance
-                || Math.abs(first.width() - bottom.width()) > tolerance)
-            throw new AssertionError("十八键三排的字母键宽度不一致：" + first + ", " + middle + ", " + bottom);
-        if (Math.abs(first.left + last.right - middle.left - middleLast.right) > tolerance)
-            throw new AssertionError("十八键第二排没有居中");
+        if (Math.abs(first.left - middle.left) > tolerance || Math.abs(last.right - middleLast.right) > tolerance)
+            throw new AssertionError("十八键第二排没有与首排左右对齐：" + first + ", " + last + ", " + middle + ", " + middleLast);
         for (String face : new String[] {"Q", "W E", "R T", "Y", "U", "I O", "P", "A", "S D",
                 "F G", "H", "J K", "L", "Z", "X C", "V", "B N", "M"}) {
             Rect key = bounds(group(face));

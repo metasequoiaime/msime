@@ -937,6 +937,11 @@ final class ImeLayoutRows {
         return sidebar;
     }
 
+    /** 十八键没有左侧符号栏；拼音选择改挂到候选行，避免字母区被侧栏和第二排缩进同时挤窄。 */
+    void attachFourteenSpellingsToCandidateRow() {
+        if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
+    }
+
     /** 换挂载位置时先摘下旧容器、清空按钮，避免父视图和按钮尺寸沿用另一种布局。 */
     private void attachSpellings(android.view.ViewGroup parent, SpellingPlacement placement) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
