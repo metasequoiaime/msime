@@ -76,12 +76,12 @@ final class VoiceMascotDeviceChecks {
                     .invoke(drawing, new Canvas(expected), mascot, 600f, 450f, 1f);
                 check(render(external).sameAs(expected), "外部入口必须保留原有绘制结果");
                 mascot.recycle();
-                checkEntryRouting(context, type);
+                checkEntryGuards(context, type);
             } catch (Throwable error) { failure[0] = error; }
         });
         Bundle result = new Bundle();
         if (failure[0] == null) {
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: mascot signal, silence, late volume, shared drawing and space-key routing\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: mascot signal, silence, late volume, shared drawing and entry plainIndicator/hold guards\n");
             instrumentation.finish(Activity.RESULT_OK, result);
         } else {
             Throwable cause = failure[0];
@@ -92,8 +92,8 @@ final class VoiceMascotDeviceChecks {
         }
     }
 
-    /** 空格键开始的聆听必须关掉 show() 打开的工具栏人物：点按回到麦克风光圈，长按切到独立缩略图；没有开始新聆听的按压不改动现有面板。 */
-    private static void checkEntryRouting(android.content.Context context, Class<?> viewType) throws Exception {
+    /** 只验 ImeVoiceEntry 的 plainIndicator／hold 代次守卫：代次未变时不改动面板；新代次下 plainIndicator 关闭 show() 打开的工具栏人物并保留麦克风光圈，hold 关闭人物并切到长按缩略图。不覆盖 ImeBottomRow.bindSpaceCursor 是否、何时调用它们：产品视图在 :ime 进程，本 instrumentation 无法反射读取。 */
+    private static void checkEntryGuards(android.content.Context context, Class<?> viewType) throws Exception {
         Class<?> serviceType = context.getClassLoader().loadClass("app.msime.android.MSIMEInputService");
         Class<?> entryType = context.getClassLoader().loadClass("app.msime.android.ImeVoiceEntry");
         var constructor = entryType.getDeclaredConstructor(serviceType);
@@ -104,22 +104,22 @@ final class VoiceMascotDeviceChecks {
             Method enable = viewType.getMethod("setMascotEnabled", boolean.class);
             Field enabled = field(viewType, "mascotEnabled");
             Field holdMode = field(viewType, "holdMode");
-            // show() 对每次会话都先打开人物，由空格入口在同一次按压里关闭。
+            // show() 对每次会话都先打开人物，这里直接调用守卫方法代替入口关闭它。
             enable.invoke(view, true);
             field(entryType, "listening").set(entry, view);
             field(entryType, "generation").setLong(entry, 1L);
             Method plain = entryType.getDeclaredMethod("plainIndicator", long.class);
             plain.setAccessible(true);
             plain.invoke(entry, 1L);
-            check(enabled.getBoolean(view), "没有开始新聆听的空格按压不能关闭工具栏人物");
+            check(enabled.getBoolean(view), "代次未变时 plainIndicator 不能关闭工具栏人物");
             plain.invoke(entry, 0L);
-            check(!enabled.getBoolean(view) && !holdMode.getBoolean(view), "空格点按开始的语音必须保留麦克风光圈");
+            check(!enabled.getBoolean(view) && !holdMode.getBoolean(view), "新代次下 plainIndicator 必须保留麦克风光圈");
             enable.invoke(view, true);
             field(entryType, "recognizing").setBoolean(entry, true);
             Method hold = entryType.getDeclaredMethod("hold", long.class);
             hold.setAccessible(true);
-            check((Boolean) hold.invoke(entry, 0L), "长按空格开始的语音必须切为长按面板");
-            check(!enabled.getBoolean(view) && holdMode.getBoolean(view), "长按空格必须使用独立缩略图而非工具栏人物");
+            check((Boolean) hold.invoke(entry, 0L), "新代次下 hold 必须切为长按面板");
+            check(!enabled.getBoolean(view) && holdMode.getBoolean(view), "hold 必须使用独立缩略图而非工具栏人物");
         } finally {
             // Only the worker thread needs releasing; cancel() would reach service state this bare instance never initialized.
             ((java.util.concurrent.ExecutorService) field(entryType, "worker").get(entry)).shutdown();
