@@ -35,6 +35,8 @@ public final class Bootstrap {
             File resources = new File(root, "bootstrap/resources");
             // 必须在刷新和 extractDictionary 之前：extractDictionary 会把新安装包的锁里没有的文件移出资源目录，老用户已解压的日文词典和五笔码表要先收编。
             adoptOnDemandGroups(context, root, resources);
+            // 已有配置也要补上新安装包重新随包提供的按需文件；瘦包覆盖完整包时共享刷新不会把缺席的五笔组判成过期。
+            restorePackagedOnDemandGroups(context, resources);
             if (existingConfiguration(configuration)) {
                 refreshExistingConfiguration(context, configuration, resources);
                 return false;
@@ -394,6 +396,36 @@ public final class Bootstrap {
                 android.util.Log.w("MSIMEBootstrap", "On-demand dictionary adoption failed: " + group.pack(), error);
             }
         }
+    }
+
+    /** 已有配置从瘦包升级到带按需词库的安装包时，把 APK 里的整组文件补回资源目录。 */
+    private static void restorePackagedOnDemandGroups(Context context, File resources) {
+        try {
+            java.util.Set<String> packaged = packagedArtifacts(context);
+            ensureSafeDirectory(resources.toPath());
+            for (OnDemandGroup group : ON_DEMAND_GROUPS) {
+                if (!packagedGroupNeedsExtraction(packaged, group.artifacts(), resources)) continue;
+                for (String name : group.artifacts()) {
+                    try (InputStream input = context.getAssets().open("dictionary/" + name)) {
+                        copyAsset(input, new File(resources, name).toPath());
+                    }
+                }
+            }
+        } catch (Exception | LinkageError error) {
+            // 补包失败时保留原有配置；下次启动仍会重试，不能把异常细节写进日志。
+            android.util.Log.w("MSIMEBootstrap", "Packaged on-demand dictionary restore failed");
+        }
+    }
+
+    /** 只有整组确实在 APK 锁里、且资源目录缺至少一个成员时才需要补包。 */
+    static boolean packagedGroupNeedsExtraction(java.util.Set<String> packaged,
+            java.util.List<String> artifacts, File resources) {
+        if (packaged == null || artifacts == null || resources == null
+                || !packaged.containsAll(artifacts)) return false;
+        for (String name : artifacts) {
+            if (!Files.isRegularFile(new File(resources, name).toPath(), LinkOption.NOFOLLOW_LINKS)) return true;
+        }
+        return false;
     }
 
     /** 收编 `directory` 里的那组文件；`directory` 里一个也没有时，只有 `recover` 为真才调用（让共享层放回被打断的收编移走的文件）。 */

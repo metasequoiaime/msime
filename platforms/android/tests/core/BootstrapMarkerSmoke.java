@@ -2,6 +2,8 @@ package app.msime.android;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +20,24 @@ public final class BootstrapMarkerSmoke {
             try { Bootstrap.requireAssetName(name); }
             catch (IllegalArgumentException expected) { rejected = true; }
             check(rejected);
+        }
+        Path packagedRoot = Files.createTempDirectory("bootstrap-packaged-group");
+        try {
+            List<String> wubi = List.of("msime-wubi.db");
+            check(!Bootstrap.packagedGroupNeedsExtraction(Set.of(), wubi, packagedRoot.toFile()));
+            check(Bootstrap.packagedGroupNeedsExtraction(Set.of("msime-wubi.db"), wubi, packagedRoot.toFile()));
+            Files.writeString(packagedRoot.resolve("msime-wubi.db"), "synthetic");
+            check(!Bootstrap.packagedGroupNeedsExtraction(Set.of("msime-wubi.db"), wubi, packagedRoot.toFile()));
+            Files.delete(packagedRoot.resolve("msime-wubi.db"));
+            Files.createDirectory(packagedRoot.resolve("msime-wubi.db"));
+            check(Bootstrap.packagedGroupNeedsExtraction(Set.of("msime-wubi.db"), wubi, packagedRoot.toFile()));
+        } finally {
+            try (Stream<Path> paths = Files.walk(packagedRoot)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
         }
         Path exact = Files.createTempFile("bootstrap-marker", ".txt");
         Path oversized = Files.createTempFile("bootstrap-marker", ".txt");
