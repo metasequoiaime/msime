@@ -1137,6 +1137,11 @@ add_executable(common-dictionary-quiesce-lease-test ../common/tests/dictionary_q
 target_compile_features(common-dictionary-quiesce-lease-test PRIVATE cxx_std_17)
 target_compile_options(common-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME common-dictionary-quiesce-lease COMMAND common-dictionary-quiesce-lease-test)
+# 菜单里「背单词（今日待复习 N）…」一行的文案和显示条件，与 Windows、Linux 宿主共用。
+add_executable(common-vocabulary-due-menu-test ../common/tests/vocabulary_due_menu.cpp)
+target_compile_features(common-vocabulary-due-menu-test PRIVATE cxx_std_17)
+target_compile_options(common-vocabulary-due-menu-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME common-vocabulary-due-menu COMMAND common-vocabulary-due-menu-test)
 add_executable(voice-provider-settings-keys-test tests/voice/VoiceProviderSettingsKeysTest.mm
   src/voice/VoiceProviderSettings.mm)
 target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

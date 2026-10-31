@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace msime::windows;
 
@@ -68,9 +71,30 @@ int main() {
               std::vector<std::string>{"/həˈləʊ/"},
           "english candidate reading");
 
-  // 画出来的释义：每行后面空两格跟读音。
-  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings) ==
-              "hello; hi  /həˈləʊ/\nこんにちは",
-          "display with readings");
-  require(candidate_gloss_display({"", "aimer"}, {}) == "\naimer", "empty first line kept");
+  // 画出来的释义：读音在它那一行释义下面单独一行，和 macOS 的 MSIMECandidateGlossDisplay 一样；读音的位置和每行释义的起点都报出来。
+  std::vector<std::pair<size_t, size_t>> ranges;
+  std::vector<size_t> starts;
+  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings, &ranges, &starts) ==
+              "hello; hi\n/həˈləʊ/\nこんにちは",
+          "reading on its own line");
+  require(ranges.size() == 1 && ranges[0].first == std::string("hello; hi\n").size() &&
+              ranges[0].second == std::string("/həˈləʊ/").size(),
+          "reading range");
+  require(starts == std::vector<size_t>{0, std::string("hello; hi\n/həˈləʊ/\n").size()},
+          "second gloss line starts after the reading");
+  // 两行都有读音：每条读音跟在自己那一行下面。
+  ranges.clear();
+  starts.clear();
+  require(candidate_gloss_display({"hello", "こんにちは"}, {"/həˈləʊ/", "konnichiwa"}, &ranges, &starts) ==
+              "hello\n/həˈləʊ/\nこんにちは\nkonnichiwa",
+          "both readings");
+  require(ranges.size() == 2 && ranges[1].first == std::string("hello\n/həˈləʊ/\nこんにちは\n").size(),
+          "second reading range");
+  require(starts.size() == 2 && starts[1] == std::string("hello\n/həˈləʊ/\n").size(), "both line starts");
+  // 空的释义行不生读音行，第二种目标语言照样排在第二行；没有读音时就是释义各行。
+  starts.clear();
+  require(candidate_gloss_display({"", "aimer"}, {"/x/", ""}, nullptr, &starts) == "\naimer",
+          "empty first line kept without a reading line");
+  require(starts == std::vector<size_t>{0, 1}, "empty line start");
+  require(candidate_gloss_display({"hello", "bonjour"}, {}) == "hello\nbonjour", "no readings");
 }

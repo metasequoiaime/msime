@@ -289,6 +289,8 @@ msime-dictionary 原样收录了 `stroke.dict.yaml`（`sources/stroke/stroke.dic
 
 同样**放在 resources 的兄弟目录 `pronunciations/`**，理由与 `offline-glosses/` 相同。生成物发布在 [`metasequoiaime/chinese-ime-lm` 的 `pronunciations-ecdict-82c9872`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/pronunciations-ecdict-82c9872)，锁的 `built` 记它们的地址、长度和 SHA-256；`scripts/fetch_gloss_tables.py` 下载到 `target/pronunciations`，macOS 与 Windows 的发布工作流在打包前调用它（本节与下面两节的三张表共用这个脚本）。
 
+各平台怎么拿到这两个文件：macOS 与 Windows 随安装包带着；Linux 与 Android 不随包，打开「显示英文音标」后在设置那一行点「下载」，才由共享资源包安装器按锁取回，装到状态目录的 `resource-packs/pronunciations/`，宿主把这个目录作为 `supplementary_resources` 交给查询。NOTICE 都和数据库放在一起。
+
 退出方式：不安装 `pronunciations/` 即可。`msime_client_pronunciation_request` 返回空结果，释义照旧显示、只是没有音标。日语罗马音在 macOS 上由系统的 `CFStringTokenizer` 生成，不需要数据文件。
 
 ## 单字英文释义（`resources/character-glosses.lock.json`）

@@ -317,6 +317,43 @@ void caret_edit_dim_appearance() {
   (void)glossed_box;
 }
 
+// 读音在它那一行释义下面单独一行（竖排时释义因此挪到正文下面），按释义色的 0.72 倍透明度画；释义里词性区段的颜色照旧，选中行不减淡。
+void pronunciation_appearance() {
+  host::NativeCanvasAssets assets;
+  host::NativeCanvasContent content;
+  content.font = "Sans 30px";
+  content.items = {{"", "MMMM", "n. MMM", "", Json::array({Json{{"start", 0}, {"length", 2}, {"role", "pos"}}})}};
+  const Json palette = {{"surface", "#000000"}, {"selected", "#000000"}, {"hover", "#000000"},
+      {"text", "#FFFFFF"}, {"selected_text", "#FFFFFF"}, {"translation", "#FF0000"},
+      {"translation_pos", "#00FF00"}, {"selected_translation", "#FF0000"}, {"selected_translation_pos", "#00FF00"}};
+  const auto render = [&] {
+    auto target = image(1000, 400, 0);
+    auto *cr = cairo_create(target.get());
+    const auto layout = host::measure_native_canvas(cr, assets, content);
+    host::paint_native_canvas(cr, assets, content, layout, palette);
+    std::map<std::uint32_t, int> colors;
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) ++colors[pixel(target.get(), x, y) & 0xffffff];
+    cairo_destroy(cr);
+    return std::make_pair(layout.items[0], colors);
+  };
+  const auto count = [](const std::map<std::uint32_t, int> &colors, std::uint32_t color) {
+    const auto found = colors.find(color);
+    return found == colors.end() ? 0 : found->second;
+  };
+  // 0xFF 的 0.72 倍是 0xB8。
+  constexpr std::uint32_t dimmed = 0xb80000;
+  const auto [plain_box, plain] = render();
+  content.items[0].pronunciation = "/MMM/";
+  const auto [read_box, read] = render();
+  assert(read_box.height > plain_box.height + 10);
+  assert(count(read, 0x00ff00) > 3 && count(read, 0xff0000) > 3);
+  assert(count(read, dimmed) > count(plain, dimmed) + 20);
+  content.selected = 0;
+  const auto [selected_box, selected] = render();
+  assert(std::abs(selected_box.height - read_box.height) < 0.5);
+  assert(count(selected, dimmed) + 20 < count(read, dimmed));
+}
+
 void translation_appearance() {
   host::NativeCanvasAssets assets;
   host::NativeCanvasContent content;
@@ -895,6 +932,7 @@ int main() {
   fixed_position_appearance();
   caret_edit_dim_appearance();
   translation_appearance();
+  pronunciation_appearance();
   constrained_text_layout();
   // 完整次数、精确帧边界、跨循环和有限末帧停止唤醒。
   host::NativeCanvasAnimation animation;

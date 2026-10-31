@@ -5,6 +5,10 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import java.io.IOException;
+import java.io.InputStream;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -29,7 +33,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，圆盘外的光圈随麦克风音量涨落，边说边识别的引擎把中间文字显示在标题位），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式、HTTP 整句上传）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成聆听面板（「正在聆听…」「说完了／取消」，工具栏人物耳边的红线随麦克风音量变化，长按空格使用独立缩略图与音量短线，边说边识别的引擎把中间文字显示在标题位），识别完自动上屏并短暂显示「已识别：…」。还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -54,6 +58,7 @@ final class ImeVoiceEntry {
     });
     private Runnable silenceStop;
     private VoiceListeningView listening;
+    private Bitmap mascot;
     private View listeningPanel;
     private View coveredActionRow;
     private Button finishButton;
@@ -176,6 +181,7 @@ final class ImeVoiceEntry {
         long startedAt = SystemClock.uptimeMillis();
         recognizing = true;
         held = false;
+        loadMascot(session, listening);
         speaking = false;
         VoiceRecognitionActivity.Polish polish = configured.polish();
         VoiceRecognitionActivity.Streaming stream = configured.streaming();
@@ -345,10 +351,17 @@ final class ImeVoiceEntry {
         return generation;
     }
 
+    /** 空格键在 {@code before} 之后开始的这次聆听（含松手时才补判出的长按）不显示工具栏耳部信号。按压只是结束了已有的聆听或转交了识别窗口时什么也不做。 */
+    void plainIndicator(long before) {
+        if (generation == before || listening == null) return;
+        listening.setMascotEnabled(false);
+    }
+
     /** 把这次按压刚开始的聆听切为长按面板，触摸仍由原空格接收。 */
     boolean hold(long before) {
         if (generation == before || !recognizing || listening == null) return false;
         held = true;
+        listening.setMascotEnabled(false);
         locked = false;
         coverActionRow();
         buildHoldActions();
@@ -860,6 +873,27 @@ final class ImeVoiceEntry {
         }
     }
 
+    /** 只在后台解码内置贴纸；结果总是缓存给后续会话，只有发起解码的会话与面板仍在时才更新面板，取消后的旧回调不能更新新面板。 */
+    private void loadMascot(long session, VoiceListeningView view) {
+        if (mascot != null) return;
+        try {
+            worker.execute(() -> {
+                try (InputStream input = s.getAssets().open(StickerPackModel.ASSET_DIRECTORY + "/01.webp")) {
+                    Bitmap bitmap = BitmapFactory.decodeStream(input);
+                    s.main.post(() -> {
+                        if (mascot == null) mascot = bitmap;
+                        if (generation != session || listening != view) return;
+                        view.setMascot(mascot);
+                    });
+                } catch (IOException error) {
+                    // 素材异常不触发下载，不影响识别、结束和取消控件。
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // 会话正在关闭，素材任务不再启动。
+        }
+    }
+
     /** 把键区的内容换成聆听面板；键区被重建（换布局、收起键盘）时自动取消。 */
     private void show(ViewGroup keyArea) {
         dismiss();
@@ -874,6 +908,8 @@ final class ImeVoiceEntry {
             }
         }
         VoiceListeningView view = new VoiceListeningView(s);
+        view.setMascotEnabled(true);
+        view.setMascot(mascot);
         // 跟随应用主题的皮肤要先按当季种子推导（样式通道画键帽用的也是这一份），否则圆盘取到的是基础色，和回车键等强调色对不上。
         KeyboardSkin skin = s.imeStyler.themed(s.skin);
         view.setColors(Color.parseColor(skin.accent()), Color.parseColor(skin.onAccent()),

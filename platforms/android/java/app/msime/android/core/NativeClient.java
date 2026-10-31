@@ -576,6 +576,11 @@ public final class NativeClient {
         resourcePackCancelRaw(pack == null ? null : pack.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** 卸载已发布的资源包：请求 {@code {"state_root","pack"}}，返回 {@code {ok,value:{removed}}}。工作线程调用。 */
+    public static String resourcePackRemove(String requestJson) {
+        return TextPolicy.utf8(resourcePackRemoveRaw(utf8(requestJson)));
+    }
+
     /**
      * 注入给 Rust 的会话存储（{@code msime_client_session_store}）的 Java 一侧：只提供字节，编解码、布局、校验和刷新都在 Rust。只在主进程里注册一次，同一份存储注册两次会各自缓存会话、拿同一个会轮换的刷新令牌各刷新一次。
      *
@@ -1175,6 +1180,7 @@ public final class NativeClient {
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
+    private static native byte[] resourcePackRemoveRaw(byte[] request);
     private static native byte[] resourcePackVerifyRaw(byte[] request);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native byte[] testVoiceCredentialRaw(byte[] request);
