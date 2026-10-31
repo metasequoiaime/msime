@@ -55,7 +55,7 @@
 		<true/>
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
-	<string>验证身份以查看打字统计</string>
+	<string>验证身份以查看打字统计或删除剪贴板记录</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

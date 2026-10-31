@@ -143,6 +143,8 @@ jobs:
         run: python3 scripts/test-ios-doubao-session-lifecycle.py
       - name: Test shared AI catalog projection
         run: python3 scripts/test-ios-ai-provider-catalog.py
+      - name: Test clipboard delete authentication rules
+        run: python3 scripts/test-ios-clipboard-delete-authentication.py
       - name: Validate keyboard configuration
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py

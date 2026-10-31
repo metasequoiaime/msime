@@ -43,6 +43,8 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
 	</dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>验证身份以删除剪贴板记录</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。</string>
 </dict>

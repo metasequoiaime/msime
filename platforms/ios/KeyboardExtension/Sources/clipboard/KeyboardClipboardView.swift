@@ -33,6 +33,9 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
   private let hasFullAccess: Bool
   /// 当前能不能把剪贴板存进历史（`KeyboardPrivacyGate` 的 `clipboardHistory`）：隐私模式和凭据输入框里不能，点保存时只说明原因，与 Android 的 `captureClipboard` 一致。每次点按时现问，面板开着时输入框也可能换掉。
   private let capturesHistory: () -> Bool
+  /// 「剪贴板删除数据验证」（#10408）：设置 App 里打开后，删除和清空本机记录先过系统认证。每次删除时现读，设置 App 里切换后不用重开面板。
+  private let deleteAuthentication: ClipboardDeleteAuthenticationStore
+  private let authenticator: ClipboardDeleteAuthenticator
   private let showsHeader: Bool
   private let skin = KeyboardTheme.current
   /// Whether the 云端 tab is showing.
@@ -77,8 +80,12 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
 
   init(hasFullAccess: Bool, store: ClipboardHistoryStore = ClipboardHistoryStore(), cloud: KeyboardCloudClipboard? = nil,
        capturesHistory: @escaping () -> Bool = { true },
+       deleteAuthentication: ClipboardDeleteAuthenticationStore = .shared,
+       authenticator: ClipboardDeleteAuthenticator? = nil,
        showsHeader: Bool = true, onInsert: @escaping (String) -> Void, onClose: @escaping () -> Void) {
     self.store = store
+    self.deleteAuthentication = deleteAuthentication
+    self.authenticator = authenticator ?? ClipboardDeleteAuthenticator()
     self.onInsert = onInsert
     self.cloud = cloud
     self.hasFullAccess = hasFullAccess
@@ -112,7 +119,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
         clear?.setTitle("确认清空", for: .normal)
         status.text = "再次点按清空将删除全部历史，包括固定项。"
       } else {
-        perform { try store.clear() }
+        deleteAfterAuthentication { [store = self.store] in try store.clear() }
         confirmingClear = false
         clear?.setTitle("清空", for: .normal)
       }
@@ -261,6 +268,8 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     super.willMove(toSuperview: newSuperview)
     // Closing the panel drops whatever the cloud fetch still brings back.
     if newSuperview == nil { cloud?.close() }
+    // 面板收起时结束还开着的删除认证，迟到的通过不再删任何东西。
+    if newSuperview == nil { authenticator.cancel() }
   }
 
   /// 保存按钮：完整标题栏下是一个带文字的通栏按钮，紧凑控件行里是一个图标，其无障碍标签仍说明它的作用。有尚未保存的复制内容时显示为填充样式。
@@ -481,9 +490,31 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     return cell
   }
   private func change(_ item: ClipboardHistoryItem, delete: Bool) {
-    perform {
-      if delete { try store.remove(text: item.text) }
-      else { try store.setPinned(!item.pinned, text: item.text) }
+    if delete {
+      deleteAfterAuthentication { [store = self.store] in try store.remove(text: item.text) }
+      return
+    }
+    perform { try store.setPinned(!item.pinned, text: item.text) }
+  }
+
+  /// 删除和清空本机记录都经这里（#10408）：「剪贴板删除数据验证」关着时直接执行；开着时先过系统认证，通过后才执行，取消或失败时不删并在状态行说明；开着而设备没设锁屏密码时不删，提示先去开启。
+  private func deleteAfterAuthentication(_ action: @escaping () throws -> Void) {
+    switch ClipboardDeleteAuthenticationPolicy.gate(
+      enabled: deleteAuthentication.enabled, authenticationAvailable: authenticator.available())
+    {
+    case .delete:
+      perform(action)
+    case .unavailable:
+      status.text = ClipboardDeleteAuthenticationPolicy.unavailableMessage
+    case .authenticate:
+      authenticator.authenticate(reason: "删除剪贴板历史") { [weak self] outcome in
+        guard let self else { return }
+        switch outcome {
+        case .authenticated: perform(action)
+        case .unavailable: status.text = ClipboardDeleteAuthenticationPolicy.unavailableMessage
+        case .failed: status.text = "未通过系统认证，剪贴板记录没有删除"
+        }
+      }
     }
   }
   /// 发到云剪贴板, offered wherever the 云端 tab is, and enabled once the panel has found a signed-in account whose cloud clipboard is on.
