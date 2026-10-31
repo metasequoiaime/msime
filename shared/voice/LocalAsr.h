@@ -34,7 +34,7 @@ bool is_local_model_dir(std::string_view path);
 bool local_model_uses_pinyin_hotwords(std::string_view path);
 // 规范宿主传入的线程数：零和负数使用基于硬件的小默认值，显式值也限制上限以免拖慢设备。
 int local_asr_thread_count(int requested);
-// 灵敏度越高，语音活动阈值越低；未设置或越界时保留原来的 0.5。
+// 判停灵敏度越高，语音活动阈值越高，越容易判定说完；未设置或越界时保留原来的 0.5。
 float local_asr_vad_threshold(int sensitivity_percent);
 
 struct LocalAsrOptions {

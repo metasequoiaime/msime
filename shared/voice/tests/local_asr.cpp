@@ -139,17 +139,17 @@ int main() {
 #endif
 
     assert(local_asr_thread_count(5) == 4);
-    // 灵敏度不是录音增益：只反向映射实际 VAD 阈值，默认与非法值保持原值。
+    // 灵敏度不是录音增益：只映射实际 VAD 阈值，默认与非法值保持原值。
     assert(LocalAsrOptions{}.vad_sensitivity_percent == 0);
     assert(local_asr_vad_threshold(0) == 0.5f);
     assert(local_asr_vad_threshold(-1) == 0.5f);
     assert(local_asr_vad_threshold(9) == 0.5f);
     assert(local_asr_vad_threshold(91) == 0.5f);
     assert(local_asr_vad_threshold(50) == 0.5f);
-    assert(std::abs(local_asr_vad_threshold(10) - 0.9f) < 0.00001f);
-    assert(std::abs(local_asr_vad_threshold(90) - 0.1f) < 0.00001f);
+    assert(std::abs(local_asr_vad_threshold(10) - 0.1f) < 0.00001f);
+    assert(std::abs(local_asr_vad_threshold(90) - 0.9f) < 0.00001f);
     for (int sensitivity = 11; sensitivity <= 90; ++sensitivity)
-        assert(local_asr_vad_threshold(sensitivity) < local_asr_vad_threshold(sensitivity - 1));
+        assert(local_asr_vad_threshold(sensitivity) > local_asr_vad_threshold(sensitivity - 1));
 
     // 会话 API 自身必须执行已安装模型边界；独立 helper 直接构造会话，不经过 provider 封装层。
     set_sherpa_library_path((root / "no-such-runtime").u8string());

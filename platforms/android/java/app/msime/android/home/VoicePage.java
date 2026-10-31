@@ -222,7 +222,7 @@ public final class VoicePage extends ReloadingDetailPage {
             local.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS), value -> value + " 毫秒",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_PAUSE_MILLIS,
                 value, this::reload, this::reload));
-        recognition.slider("本地识别灵敏度", "数值越高越容易识别低声说话，也更容易把噪声当作语音",
+        recognition.slider("判停灵敏度", "数值越高越容易判定说完、结束录音；调得太高，轻声说的字可能被当成停顿",
             10, 90, 1, local.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), value -> value + "%",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_VAD_SENSITIVITY,
                 value, this::reload, this::reload));

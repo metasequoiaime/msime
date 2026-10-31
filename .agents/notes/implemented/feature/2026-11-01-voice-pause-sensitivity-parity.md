@@ -26,15 +26,11 @@ Status: implemented
 
 语音页「识别」分组末尾加两条滑块，位置与 Android、鸿蒙相同，标题和说明与鸿蒙逐字相同，分组说明写适用范围，值存在共享文档（`VoicePauseSettings`）。键盘在开始命令里带上 `tapStarted`（`VoiceSessionCommand` 的可选字段，旧键盘写的命令没有它，按按住处理）。主 App 的 `VoiceSessionService` 对点按开始、用本地模型识别的听写（`VoicePauseSettings.forDictation`）建一个 `VoicePauseStop`：出字后开始计时、每次出新字从头计，VAD 还判定在说话时到点顺延，说话状态变化时重新计，到点后像到时长上限一样停止录音，识别器读完剩下的音频交出结果，键盘照常收到 `recognizing` 和 `finished`。建好计时后 App 在聆听状态里带上 `endsOnPause`（`VoiceSessionState` 的可选字段，旧版本 App 写的状态没有它，按不会处理），键盘的聆听面板据此把提示换成与 Android、鸿蒙相同的「停顿后自动上屏，也可点「说完了」」。`LocalSpeechRecognizer.transcribe` 增加 `vadThreshold` 和 `speech` 两个参数，缺省时（按住说话、App 内录音）行为不变。系统识别、豆包和上传式服务在 iOS 上仍由「说完了」结束，所以 iOS 分组说明的第二句与鸿蒙不同。
 
-### 与 #10363 的关系
+### 与 Android #10363 的关系
 
-本 PR 不改 Android。#10363 合并前要改成同一语义：
+Android #10363 已合入，但灵敏度方向与报告者要求相反。本 PR 同步修正共享 `LocalAsr` 的阈值映射、Android 设置页文案、设备专项夹具、README 和回归断言：三端统一为「数值越高越容易判定说完、结束录音」，默认 50 仍为原来的 0.5。Android 现有的本机键名和范围不迁移，只改变 10–90 值进入 VAD 的方向；没有用户改设置时行为不变。
 
-- 滑块改名「判停灵敏度」，存下的值按新方向理解：传给共享 C++ 时换成 `100 - 灵敏度` 再交给 `vad_sensitivity_percent`，或者把 `local_asr_vad_threshold` 改成 ÷100。
-- 滑块说明和「识别」组说明一起翻过来，沿用鸿蒙和 iOS 的文字（「数值越高越容易判定说完、结束录音；调得太高，轻声说的字可能被当成停顿」），不能只改标题、留下「越高越容易识别低声说话」。
-- `LocalVoicePauseDeviceChecks.java` 和 `scripts/test-android-local-voice-pause-wiring.py` 里写死的「本地识别灵敏度」和旧键名跟着改。
-- 灵敏度只给点按开始的会话：#10363 现在也用在按住说话和 `VoiceRecognitionActivity`、`OfflineVoiceRecognitionActivity` 上，鸿蒙和 iOS 都只给点按开始的本地识别。
-- 丢掉它对鸿蒙 `VoiceRecognitionPolicy.ts`（`VOICE_SILENCE_STOP_MS` 和「鸿蒙固定」的注释）和 `platforms/harmony/tests/kb-view.test.ts` 的改动：本 PR 已经把那个常量换成 `VOICE_PAUSE_DEFAULT_MS`，后合的一方会有文本冲突，那句注释也不再成立。
+Android 的 `VoiceRecognitionActivity`、`OfflineVoiceRecognitionActivity` 和按住说话仍沿用既有接线；灵敏度只改变它们调用的本地整段模型阈值，按住说话的自动结束规则仍由松手决定。三端的真实麦克风质量验收仍待设备环境，不能由纯策略测试替代。
 
 该设置还没有随任何发布出去，不需要迁移已存的值。
 
