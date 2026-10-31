@@ -7,25 +7,37 @@ enum LocalSpeechRecognizer {
   static let sampleRate: Int32 = 16_000
 
   /// Recognizes 16 kHz mono PCM16 as it arrives and returns the final transcript once the stream ends. `partial` gets the running transcript whenever it changes, on no particular thread. Hotwords are the user's dictionary words: handed to the recognizer when the model takes them natively, or applied to the final text through the shared pinyin matcher when its manifest says `pinyin`.
+  ///
+  /// `vadThreshold` 是整段模型的 Silero VAD 判定阈值，点按开始的听写按判停灵敏度传（`VoicePauseSettings.vadThreshold`），其余沿用 0.5。`speech` 在 VAD 开始或停止判定在说话时调用（只有经过 VAD 的整段模型会报），线程不定，与 `partial` 一样在出字之后报。
   static func transcribe(pcm: AsyncStream<Data>, modelDirectory: URL, language: String,
-                         hotwords: [LocalSpeechHotword], partial: @escaping (String) -> Void) async throws -> String {
+                         hotwords: [LocalSpeechHotword], vadThreshold: Float = VoicePauseSettings.defaultVADThreshold,
+                         partial: @escaping (String) -> Void,
+                         speech: ((Bool) -> Void)? = nil) async throws -> String {
     let manifest = try LocalSpeechModelManifest(directory: modelDirectory)
     let words = hotwords.map(\.text)
     let session = try await LocalSpeechEngine.shared.run {
       try LocalSpeechSession(recognizer: LocalSpeechEngine.shared.acquire(manifest, language: language, hotwords: words),
-                             hotwords: words)
+                             hotwords: words, vadThreshold: vadThreshold)
     }
     // The streams go back on the engine's queue however the dictation ends, never from whichever thread drops the last reference.
     defer { LocalSpeechEngine.shared.close(session) }
     var last = ""
+    var speaking = false
     for await chunk in pcm {
       try Task.checkCancellation()
       let samples = floats(pcm16: chunk)
       guard !samples.isEmpty else { continue }
-      let text = try await LocalSpeechEngine.shared.run { try session.accept(samples) }
+      let (text, heard) = try await LocalSpeechEngine.shared.run {
+        let text = try session.accept(samples)
+        return (text, session.speaking)
+      }
       if text != last {
         last = text
         partial(text)
+      }
+      if heard != speaking {
+        speaking = heard
+        speech?(heard)
       }
     }
     try Task.checkCancellation()
@@ -259,7 +271,7 @@ private final class LocalSpeechSession {
   private var current = ""
   private var finished = false
 
-  init(recognizer: LoadedLocalRecognizer, hotwords: [String]) throws {
+  init(recognizer: LoadedLocalRecognizer, hotwords: [String], vadThreshold: Float) throws {
     self.recognizer = recognizer
     if let online = recognizer.online {
       let words = recognizer.nativeHotwords ? LocalSpeechText.transducerHotwords(hotwords, tokens: recognizer.tokens, spacedCJK: recognizer.spacedCJK) : ""
@@ -274,7 +286,7 @@ private final class LocalSpeechSession {
     let strings = CStrings()
     var config = SherpaOnnxVadModelConfig()
     config.silero_vad.model = strings.add(recognizer.vadModel)
-    config.silero_vad.threshold = 0.5
+    config.silero_vad.threshold = vadThreshold
     config.silero_vad.min_silence_duration = 0.5
     config.silero_vad.min_speech_duration = 0.25
     config.silero_vad.window_size = Self.vadWindow
@@ -287,6 +299,12 @@ private final class LocalSpeechSession {
     config.provider = strings.add("cpu")
     vad = SherpaOnnxCreateVoiceActivityDetector(&config, 60)
     guard vad != nil else { throw ServiceFailure(message: "无法加载本地语音模型的静音检测，请删除后重新下载。") }
+  }
+
+  /// 经过 VAD 的整段模型此刻是否判定在说话；流式模型没有 VAD，始终为 false。
+  var speaking: Bool {
+    guard let vad else { return false }
+    return SherpaOnnxVoiceActivityDetectorDetected(vad) != 0
   }
 
   func close() {

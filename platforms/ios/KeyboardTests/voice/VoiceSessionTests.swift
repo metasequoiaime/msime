@@ -16,10 +16,10 @@ final class VoiceSessionTests: XCTestCase {
   }
 
   private func state(_ phase: VoiceSessionState.Phase, request: UUID?, text: String = "", message: String = "",
-                     level: Float? = nil, heartbeat: Date = Date(),
+                     level: Float? = nil, endsOnPause: Bool? = nil, heartbeat: Date = Date(),
                      expiresAt: Date = Date().addingTimeInterval(300)) -> VoiceSessionState {
-    VoiceSessionState(phase: phase, request: request, text: text, message: message, level: level, heartbeat: heartbeat,
-                      expiresAt: expiresAt)
+    VoiceSessionState(phase: phase, request: request, text: text, message: message, level: level,
+                      endsOnPause: endsOnPause, heartbeat: heartbeat, expiresAt: expiresAt)
   }
 
   func testTheChannelCarriesStateAndCommands() {
@@ -121,6 +121,72 @@ final class VoiceSessionTests: XCTestCase {
     let channel = VoiceSessionChannel(directory: directory)
     channel.publish(state(.ready, request: nil))
     XCTAssertTrue(KeyboardVoiceDictation(channel: channel).sessionAvailable)
+  }
+
+  /// 开始命令告诉 App 这次听写是不是点按开始的（#10310）：点按的本地识别由 App 按停顿结束，按住说话由松手结束。旧版本键盘写的命令没有这个字段，按按住读。
+  func testTheStartCommandSaysWhetherTheDictationWasTapped() throws {
+    let channel = VoiceSessionChannel(directory: directory)
+    channel.publish(state(.ready, request: nil))
+    let tapped = KeyboardVoiceDictation(channel: channel)
+    tapped.start(held: false)
+    XCTAssertEqual(channel.readCommand()?.action, .start)
+    XCTAssertEqual(channel.readCommand()?.tapStarted, true)
+    tapped.cancel()
+
+    let held = KeyboardVoiceDictation(channel: channel)
+    held.start(held: true)
+    XCTAssertEqual(channel.readCommand()?.tapStarted, false)
+    held.cancel()
+
+    let request = UUID()
+    let now = Int(Date().timeIntervalSince1970 * 1000)
+    let legacy = """
+      {"version":1,"action":"start","request":"\(request.uuidString)","sentAt":\(now)}
+      """
+    let folder = directory.appendingPathComponent("VoiceSession", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try Data(legacy.utf8).write(to: folder.appendingPathComponent("command.json"))
+    let decoded = try XCTUnwrap(channel.readCommand())
+    XCTAssertEqual(decoded.request, request)
+    XCTAssertNil(decoded.tapStarted)
+  }
+
+  /// App 在点按开始的本地识别停顿后自己结束录音（#10310）：聆听状态先说明这次会在停顿后结束，键盘只报一次 `endsOnPause`；键盘没有发过停止命令，照样收到识别中和最终结果并上屏，与到时长上限时一样。
+  func testATappedDictationTheAppEndsOnAPauseStillDeliversItsResult() throws {
+    let channel = VoiceSessionChannel(directory: directory)
+    channel.publish(state(.ready, request: nil))
+    let dictation = KeyboardVoiceDictation(channel: channel)
+    var events: [KeyboardVoiceDictation.Event] = []
+    let listening = expectation(description: "listening")
+    let announced = expectation(description: "ends on pause")
+    let recognizing = expectation(description: "recognizing")
+    let finished = expectation(description: "finished")
+    dictation.onEvent = { event in
+      events.append(event)
+      switch event {
+      case .listening("明天"): listening.fulfill()
+      case .endsOnPause: announced.fulfill()
+      case .recognizing: recognizing.fulfill()
+      case .finished: finished.fulfill()
+      default: break
+      }
+    }
+    dictation.start(held: false)
+    let request = try XCTUnwrap(dictation.request)
+    // 状态是一个文件，键盘收到通知才去读；每一步等键盘读到再写下一步，免得几次写入合并成最后一次。
+    channel.publish(state(.listening, request: request, endsOnPause: true))
+    wait(for: [announced], timeout: 2)
+    channel.publish(state(.listening, request: request, text: "明天", endsOnPause: true))
+    wait(for: [listening], timeout: 2)
+    channel.publish(state(.recognizing, request: request, text: "明天见"))
+    wait(for: [recognizing], timeout: 2)
+    channel.publish(state(.finished, request: request, text: "明天见。"))
+    wait(for: [finished], timeout: 2)
+    XCTAssertEqual(channel.readCommand()?.action, .start, "the keyboard never sent a stop")
+    XCTAssertEqual(events.filter { $0 == .endsOnPause }.count, 1, "announced once per dictation")
+    XCTAssertTrue(events.contains(.recognizing(text: "明天见", message: "")))
+    XCTAssertEqual(events.last, .finished("明天见。"))
+    XCTAssertNil(dictation.request)
   }
 
   /// 松开得比 App 回应开始命令还早：停止命令等到回应以后才发，不会盖掉还没读到的开始命令。
@@ -262,6 +328,14 @@ final class VoiceSessionTests: XCTestCase {
     XCTAssertEqual(panel.captionLabel.text, "识别完成后自动上屏")
     let tapped = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
     XCTAssertEqual(tapped.captionLabel.text, "说完后点「说完了」，识别后自动上屏")
+    // App 用本地模型、会在停顿后自己结束时，提示与 Android、鸿蒙的本地识别相同（#10310）；按住说话不变。
+    tapped.showEndsOnPause()
+    XCTAssertEqual(tapped.captionLabel.text, "停顿后自动上屏，也可点「说完了」")
+    tapped.showListening("明天见")
+    XCTAssertEqual(tapped.captionLabel.text, "停顿后自动上屏，也可点「说完了」")
+    let held = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
+    held.showEndsOnPause()
+    XCTAssertEqual(held.captionLabel.text, "松开结束，上滑取消")
   }
 
   func testTheSessionLinkNamesThisEdition() {

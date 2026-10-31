@@ -22,6 +22,8 @@ struct VoiceSessionState: Codable, Equatable, Sendable {
   var message = ""
   /// 听写中最近的麦克风电平（0…1），只在 `listening` 时有；键盘拿它驱动聆听面板的光晕。可选字段，旧版本写的状态里没有它也照常解码。
   var level: Float?
+  /// 听写中 App 会不会在停顿后自己结束这次录音：点按开始、用本地模型识别时为 true（#10310），只在 `listening` 时有，键盘据此把聆听面板的提示换成「停顿后自动上屏」。可选字段，旧版本写的状态里没有它也照常解码，按不会处理。
+  var endsOnPause: Bool?
   /// App 定时刷新；App 被系统结束后它不再更新，键盘据此判断会话已经不在。
   var heartbeat: Date
   /// 会话空闲到这个时刻就由 App 自己关掉。
@@ -44,6 +46,8 @@ struct VoiceSessionCommand: Codable, Equatable, Sendable {
   let action: Action
   let request: UUID
   let sentAt: Date
+  /// 开始命令带上：这次听写是点按开始的（工具栏、「更多工具」或读屏操作），App 可以在本地识别出字后按停顿结束它（#10310）。按住空格说话为 false，由松手结束。可选字段，旧版本键盘写的命令里没有它，按按住处理，行为不变。
+  var tapStarted: Bool?
 }
 
 /// 键盘与主 App 之间的按住说话通道：App Group 里的两个小 JSON 文件，各由一方写，写完发一条 Darwin 通知让对方来读。Darwin 通知不带内容，所以内容都在文件里。
