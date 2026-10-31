@@ -504,6 +504,18 @@ if [[ -z "$gate_line" || -z "$community_line" || "$gate_line" -ge "$community_li
   echo "Settings.startRequest must ask CommunityContributionGate before it dispatches community requests" >&2
   exit 1
 fi
+# 屏蔽作者走自己的 `community_block` 请求（名单和隐私授权由 account-requests.test.ts、privacy-consent.test.ts 覆盖，总闸不拦它由 community-contribution-gate.test.ts 覆盖）；设置桥是 ArkTS，这里钉住接线：startRequest 分发它，账号桥经 `communityBlockRequest` 拼请求、先等会话采用再交给 `msime_client_community`。
+block_body=$(sed -n '/^  async communityBlock(action: string): Promise<string> {$/,/^  }$/p' \
+  "$ets/account/HarmonyAccountCloudBridge.ets")
+if ! grep -qF "} else if (kind === 'community_block') {" <<< "$dispatch_body" \
+  || ! grep -qF 'this.communityBlock(payload).then(deliver)' <<< "$dispatch_body" \
+  || ! grep -qF 'return await this.accountBridge.communityBlock(actionDocument);' "$ets/pages/Settings.ets" \
+  || ! grep -qF 'communityBlockRequest(this.directory, action);' <<< "$block_body" \
+  || ! grep -qF 'await AccountSessionAdoption.beforeRequest();' <<< "$block_body" \
+  || ! grep -qF 'return await client.community(plan.request);' <<< "$block_body"; then
+  echo "Settings.startRequest must dispatch community_block to the account bridge, which builds it with communityBlockRequest and adopts the session before msime_client_community" >&2
+  exit 1
+fi
 # 按键振动的 `startVibration` 在 NAPI 层同步发 IPC，放在 UI 线程上开了振动打字就跟不上手；这里钉住接线：振动经 TaskPool 以高优先级发出，上一下还没发完时不再排队。
 if ! grep -qF 'new taskpool.Task(startKeyVibration,' "$ets/keyboard/KeyboardSession.ets" \
   || ! grep -qF 'taskpool.Priority.HIGH);' "$ets/keyboard/KeyboardSession.ets" \
@@ -604,6 +616,18 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
+  exit 1
+fi
+# 展开候选网格分批建格子：规则由 keyboard-logic.test.ts 的 `ExpandedCandidateBatchPolicy` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：网格只画已建到 expandedBuilt 的格子，重取候选按 initialCount 定已建数（同一代比 candidateListIdentity），滚动、视口和内容尺寸变化都去问要不要追加，关面板时清零。
+refresh_body=$(view_body 'private refreshExpanded(): void {')
+indices_body=$(view_body 'private expandedIndices(): number\[\] {')
+if ! grep -qF 'constbuilt:number=Math.min(this.expandedBuilt,this.expanded.length);' <<< "$indices_body" \
+  || ! grep -qF 'this.expandedListIdentity=KeyboardSession.shared.candidateListIdentity();' <<< "$refresh_body" \
+  || ! grep -qF 'this.expandedBuilt=ExpandedCandidateBatchPolicy.initialCount(this.expanded.length,this.expandedBuilt,sameGeneration);' <<< "$refresh_body" \
+  || ! grep -qF 'Scroll(this.expandedScroller){' <<< "$grid_body" \
+  || [[ $(grep -oF 'this.appendExpandedIfNeeded()' <<< "$grid_body" | wc -l) -ne 3 ]] \
+  || ! grep -qF 'this.expandedBuilt = 0;' "$view"; then
+  echo "The expanded grid must draw only the cells built so far, rebuild them through ExpandedCandidateBatchPolicy when the list is fetched again, append as it scrolls or resizes and reset when the panel closes" >&2
   exit 1
 fi
 # 大屏单手的侧边数字键盘（#10203）：宽度、取值和显示条件由 keyboard-logic.test.ts 的 `OneHandedPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 sidePanel 读共享偏好，视图随设置重读、转屏时按按键这一行的宽度重算，handedKeys 只在 sidePadShown 时画面板，数字和小数点走字面上屏，设置桥按设备形态（含可折叠）报告能力位。

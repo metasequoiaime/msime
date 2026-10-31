@@ -17,6 +17,8 @@ pub(crate) mod desktop_crash_reporting;
 )]
 pub(crate) mod desktop_cloud_dictionary;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+pub(crate) mod desktop_community_block;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_community_report;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_plugin_community;

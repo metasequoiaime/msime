@@ -1418,6 +1418,11 @@ class SettingsBridge {
         KeyboardLog.error(`community plugin request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
       });
+    } else if (kind === 'community_block') {
+      this.communityBlock(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community block request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'custom_skin_library') {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
@@ -2145,6 +2150,16 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'community_unavailable' });
     }
     return await this.accountBridge.community(actionDocument);
+  }
+
+  /**
+   * 社区的屏蔽作者：作品详情里的「屏蔽作者」和「隐私」页的「已屏蔽的作者」。`block`、`block_list`、`unblock` 原样交给 Rust（`msime_client_community`），只认登录账号；不是投稿，社区投稿类功能的总闸关着时照常放行。
+   */
+  async communityBlock(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    return await this.accountBridge.communityBlock(actionDocument);
   }
 
   private finishSkinTrial(action: CommunitySkinAction): string {

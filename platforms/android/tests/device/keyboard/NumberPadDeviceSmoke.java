@@ -129,13 +129,24 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                     tap(key("⌫"));
                     assertField(output(expression + digits.substring(0, digits.length() - 1), fullwidth));
                 }
-                stage = layout[0] + " extended symbols and punctuation toggle";
-                tap(key("#+="));
-                await(key("中标"));
-                tap(key("中标"));
-                await(key("英标"));
-                tap(key("英标"));
-                await(key("中标"));
+                if (layout[0].equals("zhuyin_nine_key")) {
+                    // 注音九键与大千一样，#+= 是原来三行十键的共享符号行（中文标点下是 ； ：），没有设计稿 #+= 层的标点切换（#10394）。
+                    stage = layout[0] + " extended symbols are the shared symbol rows";
+                    tap(key("#+="));
+                    await(key("；"));
+                    await(key("："));
+                    await(key("@"));
+                    if (hasKey(key("中标")) || hasKey(key("{")))
+                        throw new AssertionError("Zhuyin nine-key #+= drew the design page: " + imeTexts());
+                } else {
+                    stage = layout[0] + " extended symbols and punctuation toggle";
+                    tap(key("#+="));
+                    await(key("中标"));
+                    tap(key("中标"));
+                    await(key("英标"));
+                    tap(key("英标"));
+                    await(key("中标"));
+                }
                 tap(key("123"));
                 assertGrid();
                 stage = layout[0] + " return to original face";
