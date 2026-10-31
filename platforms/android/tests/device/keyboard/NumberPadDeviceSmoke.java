@@ -487,7 +487,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     }
 
     /** 输入法重绑后符号面板可能晚于编辑器出现；轮询时把它关掉，再开始语言键断言。 */
-    private void settleLetterFace(Predicate<AccessibilityNodeInfo> target) {
+    private void settleLetterFace(Predicate<AccessibilityNodeInfo> target) throws Exception {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             if (hasKey(target)) return;
