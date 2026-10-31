@@ -162,20 +162,29 @@ public final class SymbolPanelModel {
     }
 
     // 「常用」只显示用户在面板里实际点过的符号，固定标点和全角符号留在「中文」最前面。
+    // 每行五格，成对的括号和引号两两占左边四格、右边一格放单个符号，前后两半不会分在两行（{@link #breaksBeforePair}）；顺序与 iOS、鸿蒙的「中文」相同。
     private static final List<Category> FIXED_CATEGORIES = List.of(
         new Category("chinese", "中文", List.of(
-            "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
-            "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
-            "～", "＆", "＃", "＠", "％", "＋", "－", "＝", "／",
-            "〈", "〉", "「", "」", "『", "』", "〔", "〕", "〖", "〗",
-            "＜", "＞", "｛", "｝", "［", "］", "︵", "︶", "﹁", "﹂",
-            "￥", "〇", "※", "°", "℃", "±", "×", "÷", "≈", "≠",
-            "≤", "≥", "√", "∞", "∵", "∴", "→", "←", "↑", "↓",
-            "★", "☆", "●", "○", "■", "□", "◆", "◇", "▲", "△")),
+            "，", "。", "？", "！", "、",
+            "；", "：", "…", "—", "·",
+            "“", "”", "‘", "’", "～",
+            "（", "）", "《", "》", "＆",
+            "【", "】", "＃", "＠", "％",
+            "＋", "－", "＝", "／", "￥",
+            "〈", "〉", "「", "」", "〇",
+            "『", "』", "〔", "〕", "※",
+            "〖", "〗", "＜", "＞", "°",
+            "｛", "｝", "［", "］", "℃",
+            "︵", "︶", "﹁", "﹂", "±",
+            "×", "÷", "≈", "≠", "≤",
+            "≥", "√", "∞", "∵", "∴",
+            "→", "←", "↑", "↓", "★",
+            "☆", "●", "○", "■", "□",
+            "◆", "◇", "▲", "△")),
         new Category("radicals", "偏旁", List.of()),
         new Category("english", "英文", List.of(
             ",", ".", "?", "!", ";", ":", "'", "\"", "(", ")",
-            "[", "]", "{", "}", "<", ">", "/", "\\", "|", "-",
+            "[", "]", "{", "}", "/", "<", ">", "\\", "|", "-",
             "_", "+", "=", "*", "&", "^", "%", "$", "#", "@",
             "~", "`", "·", "…", "–", "—", "§", "¶", "†", "‡")),
         new Category("numbers", "数字", List.of(
@@ -257,6 +266,28 @@ public final class SymbolPanelModel {
     public static boolean singleLineCell(Category category, String symbol) {
         return !category.kaomoji() && symbol != null
             && TextPolicy.codePointLength(symbol) > SHORT_SYMBOL_CODE_POINTS;
+    }
+
+    /**
+     * 排到 `column` 列的 `symbols[index]` 是成对符号的前半个、又正好在行尾，而后半个紧跟在它后面时为真：这一格留空，两半一起排到下一行，（ 和 ） 不分在两行。成对与否按 {@link PairedPunctuationPolicy#symbolClosing}，和点前半个时补后半个是同一张表。「常用」的顺序是点的先后，目录和插件的顺序来自数据，都只能在排版时处理。
+     */
+    public static boolean breaksBeforePair(List<String> symbols, int index, int column, int columns) {
+        if (column != columns - 1 || index + 1 >= symbols.size()) return false;
+        String closing = PairedPunctuationPolicy.symbolClosing(symbols.get(index));
+        return closing != null && closing.equals(symbols.get(index + 1));
+    }
+
+    /** 每个条目占一格时，按 {@link #breaksBeforePair} 留出的空格数；写死的分类排好了顺序，应当为 0。 */
+    public static int pairGaps(List<String> symbols, int columns) {
+        int gaps = 0, column = 0;
+        for (int index = 0; index < symbols.size(); index++) {
+            if (breaksBeforePair(symbols, index, column, columns)) {
+                gaps++;
+                column = 0;
+            }
+            column = (column + 1) % columns;
+        }
+        return gaps;
     }
 
     /** 非颜文字分类里的长条目至少跨两列，再按实际字宽增加跨度；目录分页也按实际字宽排版。 */

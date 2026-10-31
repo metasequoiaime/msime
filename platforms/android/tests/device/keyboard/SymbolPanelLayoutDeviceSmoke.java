@@ -10,6 +10,7 @@ import android.os.SystemClock;
 import android.text.Spanned;
 import android.view.ContextThemeWrapper;
 import android.view.InputDevice;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -235,12 +236,21 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         type.getMethod("setHeaderMascot", Bitmap.class).invoke(panel, fixture);
         layout(surface, 1000);
         ViewGroup header = (ViewGroup) back.getParent();
-        ImageView mascot = (ImageView) header.getChildAt(1);
-        if (mascot.getVisibility() != View.VISIBLE || mascot.getDrawable() == null
-                || mascot.getWidth() <= 0 || back.getWidth() + mascot.getWidth() != header.getWidth())
-            throw new AssertionError("Mascot and return action do not cover the header");
-        tapAt(surface, mascot.getRight() - 1 + panel.getPaddingLeft(),
-            bounds(panel, mascot).centerY());
+        ImageView left = (ImageView) header.getChildAt(1);
+        ImageView right = (ImageView) header.getChildAt(2);
+        if (!"返回上一界面".contentEquals(back.getText())
+                || (back.getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK) != Gravity.CENTER_HORIZONTAL
+                || back.getWidth() != header.getWidth() || left.getLeft() != 0
+                || right.getRight() != header.getWidth())
+            throw new AssertionError("返回文案必须居中，两侧装饰不能缩小整行返回范围");
+        for (ImageView mascot : new ImageView[] {left, right}) {
+            if (mascot.getVisibility() != View.VISIBLE || mascot.getDrawable() == null || mascot.getWidth() <= 0
+                    || mascot.isClickable() || mascot.isFocusable()
+                    || mascot.getImportantForAccessibility() != View.IMPORTANT_FOR_ACCESSIBILITY_NO)
+                throw new AssertionError("两侧装饰必须显示且不另占触摸或无障碍焦点");
+            Rect imageBounds = bounds(panel, mascot);
+            tapAt(surface, imageBounds.centerX(), imageBounds.centerY());
+        }
         if (underlyingTouches[0] != 0)
             throw new AssertionError("Mascot leaked touches to the keyboard");
         int before = closes[0];
@@ -249,7 +259,8 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         if (closes[0] != before + 2) throw new AssertionError("Header and return button do not close the panel");
         type.getMethod("setHeaderMascot", Bitmap.class).invoke(panel, new Object[] {null});
         layout(surface, 1000);
-        if (mascot.getVisibility() != View.GONE || back.getWidth() != header.getWidth())
+        if (left.getVisibility() != View.GONE || right.getVisibility() != View.GONE
+                || back.getWidth() != header.getWidth())
             throw new AssertionError("Missing mascot does not yield the full header to the return action");
         fixture.recycle();
     }
@@ -269,7 +280,7 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         Rect gridBounds = bounds(panel, grid);
         Rect category = bounds(panel, findButton(panel, "常用"));
         Rect delete = bounds(panel, findButton(panel, "⌫"));
-        Rect back = bounds(panel, findButton(panel, "返回"));
+        Rect back = bounds(panel, findButton(panel, "返回上一界面"));
         if (gridBounds.width() < panel.getWidth() - panel.getPaddingLeft() - panel.getPaddingRight() - 1)
             throw new AssertionError("Symbol grid is not full width");
         if (category.top < gridBounds.bottom || delete.top < gridBounds.bottom
