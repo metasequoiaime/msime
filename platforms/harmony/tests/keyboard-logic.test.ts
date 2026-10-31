@@ -12133,6 +12133,50 @@ group("候选栏大小 scales the touch strip together with the toolbar sharing 
   );
 });
 
+group(
+  "the expanded candidate panel follows the candidate font size and 候选栏大小 like Android (#10400)",
+  () => {
+    const font = (percent: number): number =>
+      CandidateScalePolicy.scaled(CandidateScalePolicy.DEFAULT_CANDIDATE_FONT_SIZE, percent);
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(100)) === 17 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(100), 100) === 44,
+      "the default font at 100% keeps the 17fp text and 44vp cells",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(200)) === 34 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(200), 200) === 88,
+      "a larger candidate bar scales the text and the cell together",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(50)) === 9 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(50), 50) === 44,
+      "a smaller candidate bar shrinks the text but keeps the 44vp touch target",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, 24) === 23 &&
+        CandidateScalePolicy.expandedCellHeight(44, 24, 100) === 59,
+      "a larger font preference alone raises the cell by the text's ratio",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, 12) === 11 &&
+        CandidateScalePolicy.expandedCellHeight(44, 12, 100) === 44,
+      "a smaller font preference keeps the design cell height",
+    );
+    check(
+      CandidateScalePolicy.expandedCellHeight(44, CandidateScalePolicy.scaled(12, 200), 200) === 88,
+      "the candidate bar still raises the cell when the font preference is small",
+    );
+    const largest: number = CandidateScalePolicy.scaled(32, CandidateScalePolicy.MAX_PERCENT);
+    check(
+      CandidateScalePolicy.expandedFontSize(17, largest) === 60 &&
+        CandidateScalePolicy.expandedCellHeight(44, largest, CandidateScalePolicy.MAX_PERCENT) ===
+          156,
+      "both settings at their maximum give the same sizes as Android",
+    );
+  },
+);
+
 group("the panel is as tall as what the view stacks inside it", () => {
   // 设计稿的 Harmony 框架：顶部 8，50vp 的条带，10vp 间距，四行 44vp 及其间三个行间距，底部 6。
   check(

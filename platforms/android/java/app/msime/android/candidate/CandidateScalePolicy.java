@@ -35,10 +35,10 @@ public final class CandidateScalePolicy {
     }
 
     /**
-     * Expanded-panel cell height for a design height {@code baseDp}: scaled by the candidate bar size like the strip row, and raised by the same ratio as the text when the font size alone makes the text taller, so a larger font is never clipped by the cell.
+     * Expanded-panel cell height for a design height {@code baseDp}: grown by the candidate bar size like the strip row, and by the same ratio as the text when the font size makes the text taller, so a larger font is not clipped vertically. It never drops below {@code baseDp}: the panel takes the keys' place, which do not shrink with the candidate bar, so a smaller bar or font keeps the original touch target, the same floor iOS keeps on its 44 pt cells.
      */
     public static int expandedCellHeight(int baseDp, int candidateFontSize, int percent) {
-        return Math.max(dimension(baseDp, percent), fontRatio(baseDp, candidateFontSize));
+        return Math.max(baseDp, Math.max(dimension(baseDp, percent), fontRatio(baseDp, candidateFontSize)));
     }
 
     private static int fontRatio(int value, int candidateFontSize) {

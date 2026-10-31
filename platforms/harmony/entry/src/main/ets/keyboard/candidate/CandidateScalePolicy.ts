@@ -21,4 +21,28 @@ export class CandidateScalePolicy {
   static scaled(value: number, percent: number): number {
     return Math.max(1, Math.round((value * CandidateScalePolicy.percent(percent)) / 100));
   }
+
+  /** client-core's default candidate font size (`default_candidate_font_size`). The expanded panel scales its design sizes by the strip's actual font size relative to this value, so the default font at 100% keeps the design sizes exactly. */
+  static readonly DEFAULT_CANDIDATE_FONT_SIZE: number = 18;
+
+  /** Expanded-panel ("more candidates") text size for the design size `designSize` and the strip's actual candidate font size, which already includes the candidate bar scale; the same rule as Android's `CandidateScalePolicy.expandedTextSize` (#10400). */
+  static expandedFontSize(designSize: number, candidateFontSize: number): number {
+    return CandidateScalePolicy.fontRatio(designSize, candidateFontSize);
+  }
+
+  /** Expanded-panel cell height for the design height `designVp`: grown by the candidate bar size like the strip and by the text's font ratio, never below `designVp`, because the panel takes the keys' place and a smaller bar or font must keep the touch target; the same rule as Android's `CandidateScalePolicy.expandedCellHeight` (#10400). */
+  static expandedCellHeight(designVp: number, candidateFontSize: number, percent: number): number {
+    return Math.max(
+      designVp,
+      CandidateScalePolicy.scaled(designVp, percent),
+      CandidateScalePolicy.fontRatio(designVp, candidateFontSize),
+    );
+  }
+
+  private static fontRatio(value: number, candidateFontSize: number): number {
+    return Math.max(
+      1,
+      Math.round((value * candidateFontSize) / CandidateScalePolicy.DEFAULT_CANDIDATE_FONT_SIZE),
+    );
+  }
 }

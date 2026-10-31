@@ -38,16 +38,19 @@ public final class CandidateScalePolicySmoke {
         }
         check(CandidateScalePolicy.expandedTextSize(CandidateScalePolicy.dimension(18, 200)) == 34);
         check(CandidateScalePolicy.expandedCellHeight(base, CandidateScalePolicy.dimension(18, 200), 200) == 88);
+        // A smaller candidate bar shrinks the text but keeps the 44 / 60 dp cells, so the touch target stays.
         check(CandidateScalePolicy.expandedTextSize(CandidateScalePolicy.dimension(18, 50)) == 9);
-        check(CandidateScalePolicy.expandedCellHeight(base, CandidateScalePolicy.dimension(18, 50), 50) == 22);
+        check(CandidateScalePolicy.expandedCellHeight(base, CandidateScalePolicy.dimension(18, 50), 50) == 44);
+        check(CandidateScalePolicy.expandedCellHeight(reading, CandidateScalePolicy.dimension(18, 75), 75) == 60);
         // A larger font preference alone enlarges the text and raises the cell by the same ratio.
         check(CandidateScalePolicy.expandedTextSize(24) == 23);
         check(CandidateScalePolicy.expandedCellHeight(base, 24, 100) == 59);
         check(CandidateScalePolicy.expandedTextSize(32) == 30);
         check(CandidateScalePolicy.expandedCellHeight(reading, 32, 100) == 107);
-        // A smaller font shrinks the text but keeps the cell at the bar-scaled height, so the touch target stays.
+        // A smaller font shrinks the text but keeps the cell at the design height, and a larger bar still raises it.
         check(CandidateScalePolicy.expandedTextSize(12) == 11);
         check(CandidateScalePolicy.expandedCellHeight(base, 12, 100) == 44);
+        check(CandidateScalePolicy.expandedCellHeight(base, CandidateScalePolicy.dimension(12, 200), 200) == 88);
         // Both preferences at their maximum still give a positive, larger cell than the text.
         int largest = CandidateScalePolicy.dimension(32, CandidateScalePolicy.MAX_PERCENT);
         check(CandidateScalePolicy.expandedTextSize(largest) == 60);
