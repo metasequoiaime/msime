@@ -148,13 +148,17 @@ impl ShuangpinDictionary {
                 .then_with(|| left.0.word.cmp(&right.0.word))
         });
         let mut count = 0;
+        // 记录已经插入的纠错行及其罚分后的排名；后续候选即使遇到已有纠错行，也必须按排名插入到它的前后。
+        let mut corrected_ranks: Vec<(String, f64)> = Vec::new();
         for (row, rank) in corrected {
             if candidates.iter().enumerate().any(|(index, old)| {
                 old.word == row.word && (index == 0 || coverage(old) >= raw.len())
             }) {
                 continue;
             }
+            let word = row.word.to_string();
             candidates.retain(|old| old.word != row.word);
+            corrected_ranks.retain(|(old, _)| old != &word);
             // 字面首选保持；其余完整词比较罚分后的词频，前缀留在完整纠错词之后。
             let at = candidates
                 .iter()
@@ -162,13 +166,17 @@ impl ShuangpinDictionary {
                 .skip(1)
                 .find(|(_, old)| {
                     if !old.corrected_from.is_empty() {
-                        return false;
+                        return corrected_ranks
+                            .iter()
+                            .find(|(word, _)| word == old.word.as_str())
+                            .is_some_and(|(_, old_rank)| *old_rank < rank);
                     }
                     coverage(old) < raw.len()
                         || (old.source.is_dictionary() && score(old.weight) < rank)
                 })
                 .map_or(candidates.len(), |(at, _)| at);
             candidates.insert(at, row);
+            corrected_ranks.push((word, rank));
             count += 1;
             if count == TYPO_ROWS_PER_KEY {
                 break;
