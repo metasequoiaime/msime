@@ -64,6 +64,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean phraseNotes;
     private boolean phraseCategories;
     private boolean screenCapture;
+    private boolean voiceTriggers;
     private boolean localVoicePause;
 
     @Override public void onCreate(Bundle arguments) {
@@ -73,11 +74,13 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         phraseNotes = arguments != null && "true".equals(arguments.getString("phrase-notes"));
         phraseCategories = arguments != null && "true".equals(arguments.getString("phrase-categories"));
         screenCapture = arguments != null && "true".equals(arguments.getString("screen-capture"));
+        voiceTriggers = arguments != null && "true".equals(arguments.getString("voice-triggers"));
         localVoicePause = arguments != null && "true".equals(arguments.getString("local-voice-pause"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (voiceTriggers) return "voice trigger combinations, existing settings and independent toolbar switches";
         if (localVoicePause) return "local voice pause and sensitivity settings save and survive page recreation";
         if (screenCapture) return "screen capture protection reaches the settings activity and dialog windows and clears when turned off";
         if (phraseCategories) return "native common phrase categories, accordion defaults, insertion and ZIP backup";
@@ -88,6 +91,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (voiceTriggers) {
+            new VoiceTriggersDeviceCheck(this).run();
+            return;
+        }
         if (localVoicePause) {
             new LocalVoicePauseDeviceChecks(this).run();
             return;

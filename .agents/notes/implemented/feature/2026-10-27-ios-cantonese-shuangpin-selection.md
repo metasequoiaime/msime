@@ -49,3 +49,5 @@ Status: implemented
 
 - 新触屏方案标识会被旧版本偏好解析器拒绝；与现有新增方案一样，必须确认共享文档的升级和回退路径。
 - 仓库主卷仅余约 33 GiB，因此构建和验证使用副盘工作树。
+
+系统扩展部分上屏的文档写入与独立编辑器回归见 [iOS 部分上屏直接替换标记区](../../implemented/bug-fix/2026-10-31-ios-cantonese-partial-commit.md)。

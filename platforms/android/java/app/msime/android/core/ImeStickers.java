@@ -65,7 +65,8 @@ final class ImeStickers {
     void load() {
         if (loadStarted || worker.isShutdown()) return;
         loadStarted = true;
-        int iconEdge = s.pixels(StickerPackModel.TAB_ICON_DP);
+        // 分类签和语音面板共用这一张有界缩略图，避免放大分类签的小图时出现锯齿。
+        int iconEdge = s.pixels((int) Math.max(StickerPackModel.TAB_ICON_DP, VoiceListeningView.ORB_DP));
         worker.execute(() -> {
             StickerPackModel.Pack loaded = null;
             Bitmap icon = null;

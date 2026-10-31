@@ -343,6 +343,8 @@ check "Password number pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_inst
 check "Native chat navigation acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke
 # 工具栏编辑入口在最低 API 上也支持，核心验收覆盖真实长按和原生设置跳转。
 check "Toolbar editor entry acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ToolbarEditorDeviceSmoke
+# 使用同一系统输入法和合成服务检查长按锁定，不新增 instrumentation 入口。
+check_script "长按语音锁定验收失败" platforms/android/tests/device/voice-lifecycle.sh "$serial" hold
 # 本地语音句柄经过真实 JNI；不加载模型或录音，最低 API 的核心验收也执行。
 check "Local speech handle acceptance failed" MSIME_LOCAL_SPEECH_HANDLES_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LocalSpeechHandleDeviceSmoke
 # 真实 Android JSON 的润色回复回归不录音、不联网，最低 API 的核心验收也执行。
@@ -354,6 +356,7 @@ check "Shared voice catalog JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run
 # 用合成内存文档核对共享换槽和清空字段策略，不保存或发送凭据。
 check "Shared voice settings JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderSettingsDeviceSmoke
 # 语音接口提示与运行时共用校验；只传合成地址，不保存或联网。
+check "组合语音入口设置验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e voice-triggers true
 check "Shared voice endpoint JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceEndpointSettingsDeviceSmoke
 check "Local voice pause settings acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e local-voice-pause true
 # 账号与云端的 JNI 入口和注入的会话存储（#8201）经真实 JNI 与 Rust 核对；只用合成会话、不联网，最低 API 的核心验收也执行。
