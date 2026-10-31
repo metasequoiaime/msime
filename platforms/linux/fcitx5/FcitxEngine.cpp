@@ -60,6 +60,7 @@
 #include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/GlobalTheme.h"
 #include "../src/core/ToggleHotkeyChord.h"
+#include "../src/core/VocabularyDue.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/EmojiPluginGroups.h"
 #include "../src/core/RuntimeOptionsRefresh.h"
@@ -4356,6 +4357,8 @@ public:
   // The HostOptions document of the current session, for msime_client_voice_hotwords.
   Json voice_host_options_;
   bool voice_enabled_ = true;
+  // 状态区里「背单词（今日待复习 N）…」的文字，获得焦点和失焦留给托盘时各读一次（FcitxEngine::refreshVocabularyDue），没有这一行时为空。
+  std::optional<std::string> vocabulary_due_;
   bool voice_hotkey_ctrl_f9_ = true;
   msime::host_api::ToggleHotkeyChord voice_toggle_chord_;
   unsigned voice_toggle_held_ = 0;
@@ -5831,6 +5834,27 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// 「背单词（今日待复习 N）…」：文字取这个上下文获得焦点时读到的计数，点下去打开共享应用的背单词面板。只在有卡在等时列进状态区（arrangeStatusArea）。
+class FcitxVocabularyAction : public fcitx::Action {
+public:
+  explicit FcitxVocabularyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return {};
+    const auto &label = ic->propertyFor(factory_)->vocabulary_due_;
+    return label ? *label : std::string{};
+  }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
+    try {
+      if (ic->propertyFor(factory_)->restricted()) return;
+      launchDesktopPanel(msime::vocabulary_due::kPanelRoute);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // 工具栏子菜单里 macOS 齿轮菜单（FloatingToolbarPanel.mm）的两项：在光标处插入产品介绍，在浏览器里打开官网。
 class FcitxUtilityAction : public fcitx::SimpleAction {
 public:
@@ -7246,6 +7270,7 @@ public:
              {&desktop_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-clipboard"},
              {&desktop_voice_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-voice"},
              {&cloud_dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-dictionary"},
+             {&vocabulary_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-vocabulary"},
              {&desktop_cloud_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-clipboard"},
              {&help_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-help"},
              {&feedback_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-feedback"},
@@ -7625,6 +7650,7 @@ public:
     // 获得焦点时 panel_focus_watch_ 已经交出；换到本输入法不经过它。
     releaseMenuContext(event.inputContext());
     auto *state = event.inputContext()->propertyFor(&factory_);
+    refreshVocabularyDue(event.inputContext());
     arrangeStatusArea(event.inputContext());
     try {
       if (state->ensure()) {
@@ -7677,9 +7703,21 @@ public:
   void holdMenuContext(fcitx::InputContext *ic) {
     if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
     menu_context_ic_ = ic->watch();
+    refreshVocabularyDue(ic);
     // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项，以及「工具栏」子菜单里的语音和宣传）随之拿掉，顺带刷新状态区。
     rebuildToolbarMenu(ic);
     arrangeStatusArea(ic);
+  }
+  // 读一次今日待复习，记在这个上下文上，arrangeStatusArea 和状态区的文字都用它。只在获得焦点和失焦留给托盘时调：读的是进度文档和选中的一本书，不放在按键或刷新状态区的路径上；那两个时刻都没有在组字，受限（密码框）的上下文不列这一行。
+  void refreshVocabularyDue(fcitx::InputContext *ic) {
+    auto *state = ic->propertyFor(&factory_);
+    state->vocabulary_due_.reset();
+    if (state->restricted()) return;
+    const bool composing = !state->view_.value("editing_text", std::string{}).empty() ||
+                           !state->view_.value("candidates", Json::array()).empty();
+    try {
+      state->vocabulary_due_ = msime::linux_host::vocabulary_due_label(readOptions(), composing);
+    } catch (...) {}
   }
   // 只往有焦点的输入框里写的那几项；托盘留着失焦的上下文时不列它们。语音项另按会话和语音开关决定，见 arrangeStatusArea。
   std::array<fcitx::Action *, 8> focusOnlyActions() {
@@ -7703,6 +7741,8 @@ public:
         {&keyboard_action_, true}, {&handwriting_action_, MSIME_EDITION_HANDWRITING != 0},
         // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
         {&voice_action_, state->session_ && state->voice_enabled_ && focused}, {&voice_cancel_action_, focused},
+        // 和 macOS 输入菜单一样排在语音之后、设置之前，只在今天有卡在等时列出。
+        {&vocabulary_action_, state->vocabulary_due_.has_value()},
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8048,6 +8088,7 @@ public:
   FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", msime::linux_host::menu_label::kLocalClipboard};
   FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", msime::linux_host::menu_label::kVoicePanel};
   FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary};
+  FcitxVocabularyAction vocabulary_action_{&factory_};
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};

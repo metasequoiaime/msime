@@ -58,6 +58,7 @@
 #include "TrayMenuWindow.h"
 #include "UpdateNotifier.h"
 #include "../../common/UpdateRecordDirectory.h"
+#include "../../../common/VocabularyDueMenu.h"
 #include "DictionarySyncSchedule.h"
 #include "DictionarySyncWorker.h"
 #include "../../common/DictionarySyncDirectory.h"
@@ -152,6 +153,25 @@ nlohmann::json theme_catalog() {
   } catch (const std::exception &) {
   }
   return nlohmann::json();
+}
+// 今日待复习的张数（msime_client_vocabulary_due_count），读不出来时是 -1。目录与设置窗口、共享应用的背单词页相同：状态目录、Server 所在的目录（内置词书装在它的 wordbooks 下）和状态目录下的插件目录。托盘卡片打开时调一次，读进度文档和选中的一本书，不在按键路径上。
+int32_t vocabulary_due_count(const std::filesystem::path &state_root,
+                             const std::filesystem::path &resources) {
+  const auto day = msime::vocabulary_due::local_day(std::time(nullptr));
+  if (day.empty() || state_root.empty() || resources.empty())
+    return -1;
+  try {
+    const auto request = nlohmann::json{
+        {"directory", state_root.u8string()},
+        {"resources", resources.u8string()},
+        {"plugins", (state_root / L"plugins").u8string()},
+        {"day", day}}.dump();
+    return msime_client_vocabulary_due_count(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size());
+  } catch (...) {
+    // 路径转不成 UTF-8：当作读不出来，这一行不列出。
+    return -1;
+  }
 }
 // The artwork and minimum width of the package a resolved theme draws. The theme names the package only when it is drawn in this layout and mode, so there is no gate here.
 msime::windows::CandidateSkinAssets
@@ -1885,6 +1905,7 @@ int wmain(int argc, wchar_t **argv) {
     menu_capabilities.settings = settings_shell.has_value();
     menu_capabilities.cloud_clipboard = preview_shell.has_value();
     menu_capabilities.cloud_dictionary = preview_shell.has_value();
+    menu_capabilities.vocabulary_panel = preview_shell.has_value();
     menu_capabilities.cantonese = language_dictionaries.cantonese;
     menu_capabilities.zhuyin = language_dictionaries.zhuyin;
     menu_capabilities.stroke = language_dictionaries.stroke;
@@ -2035,8 +2056,17 @@ int wmain(int argc, wchar_t **argv) {
           state.themes = theme_rows;
           return state;
     };
+    // 托盘卡片另外带上今日待复习：只有卡片列「背单词」一行，悬浮工具栏的方案菜单也取 tray_state，不必为它读进度。候选窗开着就是在组字，这时不读也不列。
+    const auto tray_card_state = [&] {
+          auto state = tray_state();
+          const auto shown = server.candidate_view();
+          state.composing = shown && shown->visible;
+          if (!state.composing && menu_capabilities.vocabulary_panel)
+            state.vocabulary_due = vocabulary_due_count(config.state_root, shell_directory);
+          return state;
+    };
     startup_stage = "tray_menu";
-    TrayMenuWindow tray(menu_capabilities, tray_command, tray_state);
+    TrayMenuWindow tray(menu_capabilities, tray_command, tray_card_state);
     // 主题页的一行写存储的 global_theme；偏好监视器随后把新主题发布给候选窗、工具栏和这张卡片。只接受目录里有的主题。
     tray.set_theme_action([&](const std::string &theme) {
       const bool listed = std::any_of(

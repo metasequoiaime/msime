@@ -24,6 +24,7 @@
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
 #include "MenuLabels.h"
+#include "VocabularyDue.h"
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
@@ -387,6 +388,8 @@ struct State {
   msime::linux_host::ClientInputModeMemory app_input_modes;
   bool chinese_punctuation = true;
   bool properties_registered = false;
+  // 获得焦点时读到的「背单词（今日待复习 N）…」文字，没有待复习时为空。
+  std::optional<std::string> vocabulary_due;
   std::optional<bool> english_override;
   std::optional<bool> dedicated_english_override;
   std::optional<bool> cloud_candidates_override;
@@ -3179,6 +3182,17 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("打开" MSIME_EDITION_DISPLAY_NAME "设置"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
+// 「背单词（今日待复习 N）…」。张数在获得焦点时读一次（focus_in 写进 State::vocabulary_due），这里只按记下的文字和当前状态决定显示与否，不读盘：publish_mode 在模式和开关变化时都会走到这里，不能每次都去读进度文档。属性总是注册，没有待复习、正在组字、失焦或被挡时设成不可见，属性树的形状因此不随计数变化（GNOME Shell 那一支同样如此，见下）。点下去打开共享应用的背单词面板。
+IBusProperty *vocabulary_due_property(IBusEngine *engine) {
+  const auto &s = state(engine);
+  const bool composing = !s.view.value("editing_text", std::string{}).empty() ||
+                         !s.view.value("candidates", Json::array()).empty();
+  const bool shown = s.vocabulary_due && !composing && s.focused && !s.blocked;
+  return ibus_property_new(
+      "DesktopTools/Vocabulary", PROP_TYPE_NORMAL,
+      ibus_text_new_from_string(shown ? s.vocabulary_due->c_str() : "背单词…"), "",
+      ibus_text_new_from_static_string("打开背单词面板"), shown, shown, PROP_STATE_UNCHECKED, nullptr);
+}
 void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   // 模式、开关或偏好变了的地方都会走到这里；悬浮工具栏跟着刷新（只有属主的状态会画出来）。
@@ -3193,10 +3207,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       auto *properties = ibus_prop_list_new();
       ibus_prop_list_append(properties, mode);
       ibus_prop_list_append(properties, settings);
+      ibus_prop_list_append(properties, vocabulary_due_property(engine));
       ibus_engine_register_properties(engine, properties);
     } else {
       ibus_engine_update_property(engine, mode);
       ibus_engine_update_property(engine, settings);
+      ibus_engine_update_property(engine, vocabulary_due_property(engine));
     }
     return;
   }
@@ -3869,6 +3885,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, toolbar);
     for (auto *action : top_panel_actions) ibus_prop_list_append(properties, action);
     ibus_prop_list_append(properties, voice);
+    // 和 macOS 输入菜单一样排在语音之后、设置之前。
+    ibus_prop_list_append(properties, vocabulary_due_property(engine));
     ibus_prop_list_append(properties, voice_cancel_property);
     ibus_prop_list_append(properties, menu_separator("Separator/Tools"));
     for (auto *action : footer_panel_actions) ibus_prop_list_append(properties, action);
@@ -3906,6 +3924,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       for (auto *action : *list) ibus_engine_update_property(engine, action);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, voice_cancel_property);
+    ibus_engine_update_property(engine, vocabulary_due_property(engine));
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, nine_key_spellings_property);
     ibus_engine_update_property(engine, clipboard);
@@ -5292,6 +5311,10 @@ void focus_in(IBusEngine *engine) {
     const bool mode_changed = s.input_enabled != mode_before_restore;
     if (s.session && (!already_focused || s.session != previous_session || mode_changed))
       apply(engine, s.focus_session(s.input_enabled));
+    // 今日待复习只在获得焦点时读一次，之后的属性更新都用这一份（vocabulary_due_property）。
+    if (!already_focused)
+      s.vocabulary_due = s.blocked ? std::nullopt
+                                   : msime::linux_host::vocabulary_due_label(configured, false);
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
@@ -5542,6 +5565,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name == "DesktopTools/ToolbarEnabled") {
       if (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED)
         save_menu_preference(engine, MenuPreference::Toolbar, value == PROP_STATE_CHECKED);
+      return;
+    }
+    if (property_name == "DesktopTools/Vocabulary") {
+      if (!launch_desktop_panel(msime::vocabulary_due::kPanelRoute))
+        g_warning("Cannot start MSIME desktop panel launcher");
       return;
     }
     for (const auto &action : desktop_panel_actions) {

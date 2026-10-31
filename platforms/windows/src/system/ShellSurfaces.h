@@ -56,6 +56,9 @@ shell_surface_request(TrayMenuCommand command) {
   // 「云词库…」打开共享应用的云词库面板，路由与 macOS 的 MSIMEOpenDesktopCloudDictionary 相同（client-core 的 SurfaceRoute::CloudDictionary）。
   case TrayMenuCommand::OpenCloudDictionary:
     return ShellSurfaceRequest{"cloud-dictionary", {}};
+  // 「背单词（今日待复习 N）…」打开共享应用的背单词面板，路由与 macOS 输入菜单的同一行相同（client-core 的 SurfaceRoute::Vocabulary）；Windows 7 的面板宿主认同一个路由。
+  case TrayMenuCommand::OpenVocabulary:
+    return ShellSurfaceRequest{"vocabulary", {}};
   // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。
   case TrayMenuCommand::OpenSystemEmoji:
   case TrayMenuCommand::OpenWebsite:
