@@ -7,11 +7,11 @@ import androidx.annotation.Nullable;
 import app.msime.android.policy.PluginCatalogPolicy;
 
 /**
- * 社区里的一个插件：摘要、安装、评分、下架和举报，与共享设置页 `community-plugin-detail.tsx` 同样的内容和文字。
+ * 社区里的一个插件：摘要、安装、评分、下架、举报和屏蔽作者，与共享设置页 `community-plugin-detail.tsx` 同样的内容和文字。
  *
- * <p>全部经 `msime_client_community` 的 plugin_* 操作（{@link PluginStore}）：详情 `plugin_detail`，安装 `plugin_install`（要登录；下载、校验后整包替换同类型同 id 的已装包，替换前先问），评分 `plugin_rate`，下架自己的作品 `plugin_delete`（已装的包保留），举报 `report`（登录账号优先，否则本机匿名账号）。装上的是按键旋律时说明手机上不播。
+ * <p>全部经 `msime_client_community` 的 plugin_* 操作（{@link PluginStore}）：详情 `plugin_detail`，安装 `plugin_install`（要登录；下载、校验后整包替换同类型同 id 的已装包，替换前先问），评分 `plugin_rate`，下架自己的作品 `plugin_delete`（已装的包保留），举报 `report`（登录账号优先，否则本机匿名账号），屏蔽作者 `block`（只用登录账号，见 {@link CommunityBlockDialog}）。装上的是按键旋律时说明手机上不播。
  *
- * <p>参数 `id` 是发布的 UUID；页面只按它读详情和显示，外部深链带来的参数不会触发安装、评分、下架或举报，每一个都要用户在页面上点。
+ * <p>参数 `id` 是发布的 UUID；页面只按它读详情和显示，外部深链带来的参数不会触发安装、评分、下架、举报或屏蔽，每一个都要用户在页面上点。
  */
 public final class CommunityPluginPage extends ReloadingDetailPage {
     private static final String ARG_ID = "id";
@@ -138,7 +138,16 @@ public final class CommunityPluginPage extends ReloadingDetailPage {
                     PluginStore.Result<Boolean> result = PluginStore.communityReport(worker, current.id(), reason, detail);
                     return result.succeeded() ? "" : PluginCatalogPolicy.communityMessage(result.code(), result.detail(), false);
                 }));
+            moderation.button("屏蔽作者", null, "屏蔽", () -> CommunityBlockDialog.show(this, current.author(),
+                "plugins", current.id(), this::blocked));
         }
+    }
+
+    /** 屏蔽了这个插件的作者：关掉详情，回到的插件页重读社区列表，服务端已不再列出这位作者的插件；这位作者的皮肤也不再列出，所以先刷新键盘皮肤面板用的目录缓存（页面关掉后联网和写缓存照样做完）。 */
+    private void blocked() {
+        CommunitySkinCatalogue.refresh(this, true, ignored -> { });
+        PluginsPage.communityChanged();
+        requireActivity().getOnBackPressedDispatcher().onBackPressed();
     }
 
     private static String stars(int count) {

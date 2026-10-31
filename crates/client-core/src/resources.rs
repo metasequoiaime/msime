@@ -287,19 +287,16 @@ fn create_private_file_at(directory: &File, name: &str) -> std::io::Result<File>
     Ok(descriptor.into())
 }
 
+/// 在同一个目录里把 `from` 改名为 `to`，支持的系统上不覆盖已有的 `to`。发布时把暂存目录改成代次名，删除时反过来把代次改成暂存名。
 #[cfg(unix)]
-fn publish_generation(
-    directory: &File,
-    staging_name: &str,
-    generation: &str,
-) -> std::io::Result<()> {
+fn rename_without_replacing(directory: &File, from: &str, to: &str) -> std::io::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     {
         rustix::fs::renameat_with(
             directory,
-            std::ffi::OsStr::new(staging_name),
+            std::ffi::OsStr::new(from),
             directory,
-            std::ffi::OsStr::new(generation),
+            std::ffi::OsStr::new(to),
             rustix::fs::RenameFlags::NOREPLACE,
         )
         .map_err(Into::into)
@@ -308,12 +305,17 @@ fn publish_generation(
     {
         rustix::fs::renameat(
             directory,
-            std::ffi::OsStr::new(staging_name),
+            std::ffi::OsStr::new(from),
             directory,
-            std::ffi::OsStr::new(generation),
+            std::ffi::OsStr::new(to),
         )
         .map_err(Into::into)
     }
+}
+
+/// 代次目录名：资源清单摘要的 64 位小写十六进制。
+fn is_generation_name(name: &str) -> bool {
+    name.len() == 64 && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 impl ResourceStore {
@@ -388,7 +390,7 @@ impl ResourceStore {
         #[cfg(unix)]
         {
             self.ensure_root_still_current(&root_directory)?;
-            publish_generation(
+            rename_without_replacing(
                 &root_directory,
                 stage
                     .path()
@@ -411,6 +413,56 @@ impl ResourceStore {
         #[cfg(unix)]
         self.ensure_root_still_current(&root_directory)?;
         Ok(destination)
+    }
+
+    /// 删掉一个已发布的代次，代次不存在时什么也不做。在 `resources.lock` 下先把它改名成 `incoming-*` 暂存目录再删：改名是原子的，代次名下要么还是完整的代次，要么已经没有了；删到一半失败时剩下的是暂存目录，由下一次安装清掉，不会留下一个校验不过、又挡住重新安装同一代次的半截目录。Windows 上目录里有文件正被打开时改名失败，代次原样保留并返回错误。调用方负责确认已经没有会话在用它。
+    pub fn remove(&self, generation: &str) -> std::io::Result<()> {
+        if !is_generation_name(generation) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "not a resource generation",
+            ));
+        }
+        let stage = format!("incoming-{}", uuid::Uuid::new_v4().simple());
+        #[cfg(unix)]
+        {
+            let root_directory = match crate::storage::open_private_directory(&self.root) {
+                Ok(directory) => directory,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            let lock = crate::file_lock::open_private_lock_file_at_raw(
+                &root_directory,
+                std::ffi::OsStr::new("resources.lock"),
+            )?;
+            crate::file_lock::exclusive(&lock)?;
+            let _lock = ResourceInstallLock { _file: lock };
+            match rename_without_replacing(&root_directory, generation, &stage) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error),
+            }
+            let _ = crate::storage::remove_private_tree_at(
+                &root_directory,
+                std::ffi::OsStr::new(&stage),
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            if !self.root.is_dir() {
+                return Ok(());
+            }
+            let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
+            crate::file_lock::exclusive(&lock)?;
+            let stage = self.root.join(stage);
+            match fs::rename(self.root.join(generation), &stage) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error),
+            }
+            let _ = fs::remove_dir_all(&stage);
+        }
+        Ok(())
     }
 
     /// Check that `directory` holds exactly the artifacts `specification` pins, each with its pinned length and SHA-256, and nothing else. One exception: a real `helpcodes/` directory is let through for the Engine's helpcode tables. `verify` never writes.
@@ -750,7 +802,7 @@ mod tests {
         fs::rename(&root, &moved).unwrap();
         symlink(&outside, &root).unwrap();
 
-        publish_generation(&directory, "incoming-fixture", "generation").unwrap();
+        rename_without_replacing(&directory, "incoming-fixture", "generation").unwrap();
 
         assert!(moved.join("generation/artifact").is_file());
         assert!(!outside.join("generation").exists());
@@ -768,7 +820,7 @@ mod tests {
         let directory = crate::storage::open_private_directory(root.path()).unwrap();
 
         assert_eq!(
-            publish_generation(&directory, "incoming-fixture", "generation")
+            rename_without_replacing(&directory, "incoming-fixture", "generation")
                 .unwrap_err()
                 .kind(),
             std::io::ErrorKind::AlreadyExists
@@ -1275,6 +1327,52 @@ mod tests {
         );
         assert!(!stale.exists());
         assert!(root.path().join("incoming-note").is_file());
+    }
+    #[test]
+    fn a_removed_generation_is_gone_and_can_be_installed_again() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ResourceStore::new(root.path());
+        let spec = specification();
+        let generation = spec.generation().unwrap();
+        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
+        store.remove(&generation).unwrap();
+        assert!(!path.exists());
+        // 只剩安装锁：改名用的暂存目录也删掉了。
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+        // 已经不在、或者根目录都没有时什么也不做。
+        store.remove(&generation).unwrap();
+        ResourceStore::new(root.path().join("missing"))
+            .remove(&generation)
+            .unwrap();
+        // 删掉之后同一代次照常重新下载，不会被半截目录挡住。
+        let mut fetched = 0;
+        store
+            .install(&spec, |_| {
+                fetched += 1;
+                Ok(source(b"fixture"))
+            })
+            .unwrap();
+        assert_eq!(fetched, 1);
+    }
+    #[test]
+    fn removal_only_accepts_a_generation_name() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ResourceStore::new(root.path());
+        let outside = root.path().join("keep");
+        fs::create_dir(&outside).unwrap();
+        for name in [
+            "keep",
+            "../keep",
+            "incoming-x",
+            &"A".repeat(64),
+            &"a".repeat(63),
+        ] {
+            assert_eq!(
+                store.remove(name).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+        assert!(outside.is_dir());
     }
     #[test]
     fn failed_upgrade_preserves_previous_generation() {

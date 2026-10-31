@@ -27,6 +27,8 @@ export interface SettingsPageProjectionOptions {
   handwritingOnScreenKeyboardPage?: boolean;
   /** 宿主能报告本机 MCP 服务状态时，提供 MCP 连接内容；桌面通过「AI」顶部标签进入。 */
   hasMcp: boolean;
+  /** 宿主提供屏蔽社区作者（`communityBlocks`）和账号客户端时才有「已屏蔽的作者」页。 */
+  hasCommunityBlocks?: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
 }
@@ -79,6 +81,7 @@ export function settingsPageProjections({
   hasHandwriting,
   handwritingOnScreenKeyboardPage: combineHandwriting = false,
   hasMcp,
+  hasCommunityBlocks = false,
   mobileHiddenPageIds,
   mobilePageTitle,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
@@ -101,6 +104,7 @@ export function settingsPageProjections({
         (item.id !== "mcp" || hasMcp) &&
         // 「隐私」页是触屏「我的」里那一行打开的；桌面的隐私设置在「关于」里。
         (item.id !== "privacy" || mobilePlatform) &&
+        (item.id !== "blocked-authors" || hasCommunityBlocks) &&
         // 触屏宿主从「AI 辅助」进入二级对话，独立试用页只留给没有对话客户端的宿主。
         (item.id !== "try-keyboard" || (mobilePlatform && hasHomePage && !hasChat)),
     )

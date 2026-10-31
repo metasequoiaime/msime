@@ -105,6 +105,10 @@ const allowed: [string, string][] = [
     request("plugin_install", { id: "x", kind: "command_table", plugin_id: "x" }),
   ],
   ["community_plugin", request("plugin_delete", { id: "x" })],
+  // 屏蔽作者不是投稿：不公开任何内容，走三类之外的 community_block，总闸关着也照常。
+  ["community_block", request("block", { kind: "skins", id: "x" })],
+  ["community_block", request("block_list")],
+  ["community_block", request("unblock", { id: "x" })],
   // 不是社区请求的不归这道闸管，包括同名的账号操作和反馈。
   ["account", request("report")],
   ["account", request("feedback")],

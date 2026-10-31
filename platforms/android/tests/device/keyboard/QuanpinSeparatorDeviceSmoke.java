@@ -20,6 +20,8 @@ public final class QuanpinSeparatorDeviceSmoke extends DeviceSmoke {
         long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString())
             .put("scheme", "quanpin").put("touch_keyboard_layout", "twenty_six_key")
+            // 默认值现在保留 Shift；这套设备验收专门验证用户关闭开关后的分词行为。
+            .put("touch_quanpin_shift", false)
             .put("traditional_chinese_output", false).put("candidate_english_gloss", false)
             .put("touch_keyboard_schemes", new JSONObject()
                 .put("enabled", new JSONArray().put("quanpin").put("xiaohe"))

@@ -41,6 +41,9 @@ public final class JapaneseNineKeyLayout {
         key("0", "〜", "…", "ー", "", "", "", "", "", ""),
         key("、", "。", "？", "！", "…", "", "", "", "", ""));
 
+    /** 从假名网格按 123 借来的数字九宫格上，返回键印的假名键面名字（{@link KeyboardActionRow#layerTitle(int, boolean)}）。 */
+    public static final String LAYER_TITLE = "あいう";
+
     private static final List<String> DIGIT_BRACKETS = List.of(
         "（", "）", "「", "」", "『", "』", "【", "】");
 

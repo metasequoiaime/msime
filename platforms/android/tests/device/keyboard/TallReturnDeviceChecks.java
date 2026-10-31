@@ -123,7 +123,8 @@ final class TallReturnDeviceChecks {
         Rect language = bounds(t.key("中"));
         Rect delete = bounds(t.described("按键 删除"));
         Rect rewrite = bounds(t.key("重输"));
-        Rect enter = bounds(t.described("换行"));
+        // 空闲回车的描述会在 #10390 后追加长按动作，测试匹配稳定的前缀。
+        Rect enter = bounds(t.describedPrefix("换行"));
         if (symbol.top < sidebar.bottom || Math.abs(symbol.left - sidebar.left) > tolerance
                 || Math.abs(symbol.right - sidebar.right) > tolerance)
             throw new AssertionError("符 应在符号栏正下方且同宽：符 " + symbol + "，符号栏 " + sidebar);
@@ -181,7 +182,7 @@ final class TallReturnDeviceChecks {
         int tolerance = tolerance();
         Rect letterSymbol = bounds(t.key("符"));
         Rect letterLayer = bounds(t.key("123"));
-        Rect letterEnter = bounds(t.described("换行"));
+        Rect letterEnter = bounds(t.describedPrefix("换行"));
         t.tap(t.key("123"));
         t.await(t.key("0"));
         if (findVisible(t.described("键盘功能行")) != null)
@@ -195,7 +196,7 @@ final class TallReturnDeviceChecks {
         Rect nine = bounds(t.key("9"));
         Rect delete = bounds(t.described("按键 删除"));
         Rect space = bounds(t.describedPrefix("空格"));
-        Rect enter = bounds(t.described("换行"));
+        Rect enter = bounds(t.describedPrefix("换行"));
         if (!near(symbol, letterSymbol, tolerance) || Math.abs(back.left - letterLayer.left) > tolerance
                 || Math.abs(back.right - letterLayer.right) > tolerance)
             throw new AssertionError("数字层的 符 与切换键应保持字母层的位置：" + symbol + " " + back);
@@ -253,7 +254,7 @@ final class TallReturnDeviceChecks {
         Rect language = bounds(t.key("中"));
         Rect delete = bounds(t.described("按键 删除"));
         Rect rewrite = bounds(t.key("重输"));
-        Rect enter = bounds(t.described("换行"));
+        Rect enter = bounds(t.describedPrefix("换行"));
         System.out.println("tall return shuangpin: delete=" + delete + " rewrite=" + rewrite + " enter=" + enter
             + " rows=" + two + " " + five + " " + eight + " " + zero + " symbol=" + symbol);
         if (symbol.top < sidebar.bottom || Math.abs(symbol.left - sidebar.left) > tolerance
@@ -291,7 +292,7 @@ final class TallReturnDeviceChecks {
         Rect language = bounds(t.key("中"));
         Rect delete = bounds(t.described("按键 删除"));
         Rect rewrite = bounds(t.key("重输"));
-        Rect enter = bounds(t.described("换行"));
+        Rect enter = bounds(t.describedPrefix("换行"));
         System.out.println("tall return stroke: sidebar=" + sidebar + " symbol=" + symbol + " enter=" + enter
             + " strip=" + layer.left + ".." + language.right + " grid=" + topLeft.left + ".." + topRight.right);
         if (symbol.top < sidebar.bottom || Math.abs(symbol.left - sidebar.left) > tolerance
@@ -330,7 +331,7 @@ final class TallReturnDeviceChecks {
             throw new AssertionError("笔画数字层同样没有单独的功能行");
         Rect numberSymbol = bounds(t.key("符"));
         Rect back = bounds(t.key("笔"));
-        Rect numberEnter = bounds(t.described("换行"));
+        Rect numberEnter = bounds(t.describedPrefix("换行"));
         System.out.println("tall return stroke digits: symbol=" + numberSymbol + " back=" + back + " enter=" + numberEnter);
         if (!near(numberSymbol, symbol, tolerance) || Math.abs(back.left - layer.left) > tolerance
                 || Math.abs(back.right - layer.right) > tolerance)
