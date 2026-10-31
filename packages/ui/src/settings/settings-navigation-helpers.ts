@@ -15,6 +15,7 @@ const accountTabPages: readonly string[] = [
   "help",
   "usage-reporting",
   "privacy",
+  "blocked-authors",
 ];
 
 /** 让嵌套的设置页留在打开它们的标签页的导航栈上：标签页的根页（例如社区）属于自己的标签，「我的」自己的子页面留在「我的」，其他页面（包括皮肤页）都留在「设置」。 */

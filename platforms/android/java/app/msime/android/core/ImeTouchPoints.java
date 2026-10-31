@@ -77,6 +77,11 @@ final class ImeTouchPoints {
         export(registeredId == 0 ? null : json);
     }
 
+    /** 键行重建或复用后，在下一轮布局完成时重新量并注册几何。 */
+    void registerAfterLayout() {
+        if (s.keyRows != null) s.keyRows.post(this::register);
+    }
+
     /** 键行重建：旧键记下的按下点都作废。几何等新键布局之后再量。 */
     void forgetKeys() {
         pending.clear();

@@ -15,6 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 JAVA = ROOT / "platforms/android/java/app/msime/android/core/NativeClient.java"
 CPP = ROOT / "platforms/android/native/client_jni.cpp"
 VERIFY = ROOT / "platforms/android/verify-native.sh"
+GRADLE = ROOT / "platforms/android/gradle-app/app/build.gradle.kts"
 HEADER = ROOT / "crates/host-api/include/msime_client.h"
 
 # `private static native byte[] nameRaw(` 之类的声明，参数可以跨行。
@@ -44,10 +45,18 @@ def main() -> int:
     java = set(JAVA_NATIVE.findall(strip_comments(JAVA.read_text(encoding="utf-8"))))
     cpp = set(CPP_EXPORT.findall(strip_comments(CPP.read_text(encoding="utf-8"))))
     verify_text = VERIFY.read_text(encoding="utf-8")
+    gradle_text = GRADLE.read_text(encoding="utf-8")
     methods = VERIFY_METHODS.search(verify_text)
     symbols = VERIFY_SYMBOLS.search(verify_text)
     if not java or not cpp or methods is None or symbols is None:
         print("没有读到 NativeClient 的 native 方法、client_jni.cpp 的导出或 verify-native.sh 的清单", file=sys.stderr)
+        return 1
+    if (
+        "verifyNativeArtifacts" not in gradle_text
+        or "verify-native.sh" not in gradle_text
+        or 'name.endsWith("JniLibFolders")' not in gradle_text
+    ):
+        print("Android Gradle 打包必须在合并 jniLibs 前调用 verify-native.sh，防止复用缺少 JNI 导出的旧库", file=sys.stderr)
         return 1
     listed = set(methods.group(1).split())
     host_symbols = set(symbols.group(1).split())

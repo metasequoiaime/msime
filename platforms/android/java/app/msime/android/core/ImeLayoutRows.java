@@ -28,6 +28,10 @@ final class ImeLayoutRows {
     private final MSIMEInputService s;
     /** 拼音九键侧栏里的标点列；拼音列出现时让出位置。换了布局后它已不在侧栏里，按父视图判断。 */
     private View nineKeyPunctuation;
+    /** 无键帽符号栏单独的底轨；用明确的上下 margin 对齐三行字母键帽。 */
+    private View sidebarRailSurface;
+    /** 拼音选择当前挂在哪里；读音行里的按钮要按读音行的行高单独排。 */
+    private SpellingPlacement spellingPlacement = SpellingPlacement.SIDEBAR;
     private Button letterOptionsAnchor;
     private LinearLayout letterOptions;
     private final java.util.List<Button> letterOptionButtons = new java.util.ArrayList<>();
@@ -270,15 +274,24 @@ final class ImeLayoutRows {
     void applySidebarRail() {
         if (s.nineKeySidebar == null) return;
         if (builtSidebarCapped) {
-            ViewPolicy.clearBackground(s.nineKeySidebar);
+            if (sidebarRailSurface != null) ViewPolicy.clearBackground(sidebarRailSurface);
+            else ViewPolicy.clearBackground(s.nineKeySidebar);
             return;
         }
         GradientDrawable rail = DrawablePolicy.rounded(
             Color.parseColor(s.skin.sidebarBackground()), s.pixels(s.skin.cornerRadius()));
-        // 无键帽侧栏与字母键共用三行容器，字母键本身带半个行距的上下外边距；背景也收进同样的范围，避免上下边缘比相邻键帽多出一截。
         int rowInset = s.halfSpacingPixels(s.touchRowSpacingTenths);
-        ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0
-            ? rail : new InsetDrawable(rail, 0, rowInset, 0, rowInset));
+        if (sidebarRailSurface == null) {
+            // 兼容旧的侧栏实例；新实例走下面的独立底轨视图。
+            ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0
+                ? rail : new InsetDrawable(rail, 0, rowInset, 0, rowInset));
+            return;
+        }
+        ViewPolicy.setBackground(sidebarRailSurface, rail);
+        if (sidebarRailSurface.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
+            params.setMargins(0, rowInset, 0, rowInset);
+            sidebarRailSurface.setLayoutParams(params);
+        }
     }
 
     /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
@@ -377,6 +390,8 @@ final class ImeLayoutRows {
         }
         FrameLayout sidebar = new FrameLayout(s);
         s.nineKeySidebar = sidebar;
+        sidebarRailSurface = new View(s);
+        sidebar.addView(sidebarRailSurface, LayoutPolicy.frameMatchParentParams());
         builtSidebarSymbols = symbols;
         builtSidebarDigits = digits;
         builtPadPunctuation = digits ? s.numberPadPunctuation() : null;
@@ -914,14 +929,19 @@ final class ImeLayoutRows {
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
     }
 
-    /** 拼音选择只使用九键侧栏或注音九键候选行。 */
-    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW }
+    /** 拼音选择使用九键 / 14 键侧栏、注音九键候选行或 18 键读音行。 */
+    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW, READING_ROW }
 
     /** 14 键共用九键的左侧符号栏；组字时由纵向拼音列覆盖符号。 */
     FrameLayout fourteenSpellingSidebar() {
         FrameLayout sidebar = symbolSidebar(false, false);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         return sidebar;
+    }
+
+    /** 十八键没有左侧符号栏；拼音选择挂到读音行、读音右边，与 iOS、鸿蒙相同。18 键组字时拼音和候选同时出现，选择条不能叠在候选行上，否则会盖住候选、抢走候选的点按。 */
+    void attachEighteenSpellingsToReadingRow() {
+        if (s.candidateHeader != null) attachSpellings(s.candidateHeader, SpellingPlacement.READING_ROW);
     }
 
     /** 换挂载位置时先摘下旧容器、清空按钮，避免父视图和按钮尺寸沿用另一种布局。 */
@@ -954,7 +974,15 @@ final class ImeLayoutRows {
         ViewPolicy.hide(scroll);
         s.nineKeySpellingScroll = scroll;
         s.nineKeySpellingGeneration = -1;
-        parent.addView(scroll, LayoutPolicy.frameMatchParentParams());
+        spellingPlacement = placement;
+        if (placement == SpellingPlacement.READING_ROW) {
+            // 紧接在读音后面，和读音各分一半宽度：读音最多占半行，长了截尾；没有拼音可选时选择条收起，读音占满整行。
+            int index = s.preedit != null && s.preedit.getParent() instanceof View frame
+                ? parent.indexOfChild(frame) + 1 : parent.getChildCount();
+            parent.addView(scroll, index, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        } else {
+            parent.addView(scroll, LayoutPolicy.frameMatchParentParams());
+        }
     }
 
     /**
@@ -1746,6 +1774,16 @@ final class ImeLayoutRows {
         return key;
     }
 
+    /** 读音行里的一项拼音：不画键帽、用强调色，与同一行的「漢」同字号；读音行的行高已按「漢」量过，所以放得下，不撑高读音行。 */
+    private void readingRowSpelling(Button key) {
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        s.imeStyler.styleButton(key, KeyboardKeyRole.GLYPH, s.skin);
+        KeyboardTypographyPolicy.setKeyTextSize(key, 12);
+        ViewPolicy.setSingleLine(key);
+        ViewPolicy.clearMinimumSize(key);
+        LayoutPolicy.setSymmetricPaddingDp(key, s, 6, 0);
+    }
+
     /** `suppressed`：显示诊断提示时不出选择条（与候选行一样让位给提示）。 */
     void renderNineKeySpellings(boolean suppressed) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
@@ -1797,6 +1835,10 @@ final class ImeLayoutRows {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
                 params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
                 params.weight = 0;
+                if (spellingPlacement == SpellingPlacement.READING_ROW) {
+                    params.height = LinearLayout.LayoutParams.MATCH_PARENT;
+                    readingRowSpelling(key);
+                }
                 key.setLayoutParams(params);
             }
             key.setContentDescription("选择拼音");
