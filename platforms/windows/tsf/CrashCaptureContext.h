@@ -21,9 +21,12 @@ struct alignas(8) Context {
   char16_t path[path_capacity]{};
   char header[header_capacity]{};
   Module modules[2]{};
+  // 1 表示同一进程装了进程内记录器（水杉自己的设置、面板等），能到达未处理异常过滤器的故障由它记下，helper 只补记绕过过滤器的快速失败。
+  std::uint32_t in_process_recorder = 0;
 };
 static_assert(std::is_trivially_copyable_v<Context>);
-static_assert(sizeof(Module) == 80 && sizeof(Context) == 6320);
+static_assert(sizeof(Module) == 80 && sizeof(Context) == 6328);
+static_assert(offsetof(Context, in_process_recorder) == 6320);
 static_assert(offsetof(Context, armed) == 4);
 static_assert(offsetof(Context, modules) % 8 == 0);
 }

@@ -253,30 +253,40 @@ void tests() {
     until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "failed unregister did not retry safely");
   }
   {
-    // 同一进程已有进程内记录器（水杉自己的设置与面板）时由它记录：TIP 不准备身份、不注册助手也不武装。
-    Tip tip(directory);
-    const auto prepared = preparations();
+    // 同一进程已有进程内记录器（水杉自己的设置与面板）时助手照常注册武装，快照标明记录器在，助手只补记绕过过滤器的快速失败。
     require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable,
                                     std::to_wstring(GetCurrentProcessId()).c_str()) != FALSE, "in-process marker failed");
-    tip.block_refresh();
+    Tip tip(directory);
     auto *lease = tip.acquire();
-    require(tip.wait_refresh(6000), "in-process recorder refresh checkpoint not reached");
-    Context skipped{};
-    require(tip.snapshot(&skipped) && skipped.armed == 0 && tip.registered() == 0 && preparations() == prepared,
-            "TIP armed WER capture beside the in-process recorder");
-    tip.resume_refresh();
+    const auto beside = tip.armed();
+    require(beside.in_process_recorder == 1 && tip.registered() == 1,
+            "TIP did not mark WER capture beside the in-process recorder");
+    // 记录器卸下或在 TIP 之后才装时，下一轮按同一身份重新发布标记。
+    const auto prepared = preparations();
+    const auto flagged = [&](std::uint32_t expected) {
+      Context value{};
+      return tip.snapshot(&value) && value.armed == 1 && value.in_process_recorder == expected &&
+          std::strcmp(value.header, beside.header) == 0;
+    };
+    require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable, nullptr) != FALSE, "marker removal failed");
+    mode(1);
+    until([&] { return flagged(0); }, "removed in-process recorder kept its mark");
+    require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable,
+                                    std::to_wstring(GetCurrentProcessId()).c_str()) != FALSE, "late marker failed");
+    mode(1);
+    until([&] { return flagged(1); }, "late in-process recorder was not marked");
+    require(preparations() == prepared && tip.registered() == 1, "recorder mark change re-prepared capture");
     tip.release(lease);
     tip.unload();
-    until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "in-process skip leaked observer");
+    until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "in-process mark leaked observer");
   }
   {
-    // 从父进程继承到的标记带的是父进程号，外部宿主照常采集。
+    // 从父进程继承到的标记带的是父进程号，外部宿主照常采集且不标明记录器。
     require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable,
                                     std::to_wstring(GetCurrentProcessId() + 1).c_str()) != FALSE, "inherited marker failed");
     Tip tip(directory);
     auto *lease = tip.acquire();
-    tip.armed();
-    require(tip.registered() == 1, "inherited marker suppressed TSF capture");
+    require(tip.armed().in_process_recorder == 0 && tip.registered() == 1, "inherited marker changed TSF capture");
     tip.release(lease);
     tip.unload();
     until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "inherited marker leaked observer");

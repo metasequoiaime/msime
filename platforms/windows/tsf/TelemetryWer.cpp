@@ -188,10 +188,17 @@ bool write_x86_frames(HANDLE file, HANDLE process, const Context &context, const
 }
 #endif
 
+// STATUS_STACK_BUFFER_OVERRUN（__fastfail、/GS、CFG、CRT 无效参数）、STATUS_HEAP_CORRUPTION 和 STATUS_FAIL_FAST_EXCEPTION 不经过进程内的未处理异常过滤器。
+bool bypasses_unhandled_filter(DWORD code) {
+  return code == 0xC0000409 || code == 0xC0000374 || code == 0xC0000602;
+}
+
 void record(const void *remote, const WER_RUNTIME_EXCEPTION_INFORMATION &event) {
   Context context{};
   if (!event.bIsFatal || !snapshot(event.hProcess, remote, context) ||
       !valid_record(context)) return;
+  // 进程内记录器已带完整栈和正确组件记下的故障不再记第二份；绕过它的快速失败只有这里能记。
+  if (context.in_process_recorder && !bypasses_unhandled_filter(event.exceptionRecord.ExceptionCode)) return;
   const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(event.exceptionRecord.ExceptionAddress));
   const auto *module = owner(context, address);
   if (!module) return;

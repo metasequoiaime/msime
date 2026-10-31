@@ -185,6 +185,16 @@ void tests() {
     std::puts("SKIP reparse-parent fixture requires symlink privilege");
   }
   f.context = original;
+  // 同进程装了进程内记录器时普通访问冲突交给它记，绕过过滤器的快速失败仍由 helper 记。
+  f.context.in_process_recorder = 1;
+  f.rejects("in-process recorder fault recorded twice");
+  f.information.exceptionRecord.ExceptionCode = 0xC0000409;
+  f.invoke();
+  require(bytes(f.path) == std::string(original.header) + "EXCEPTION (0xc0000409)\nMetasequoiaImeTsf.dll+0x123\n",
+          "fail-fast beside in-process recorder not captured");
+  std::filesystem::remove(f.path);
+  f.information.exceptionRecord.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
+  f.context = original;
   f.invoke(reinterpret_cast<void *>(1));
   require(!std::filesystem::exists(f.path), "unreadable remote context recorded");
   // 目标句柄没有读取内存权限，不能退回把远端地址当成本进程指针。

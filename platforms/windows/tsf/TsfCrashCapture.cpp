@@ -131,6 +131,13 @@ HRESULT unregister_helper(State &state) {
 #endif
 }
 
+// 水杉自己的设置、面板等进程装了进程内记录器，它照样把故障交给 WER；能到达未处理异常过滤器的故障助手再记就是第二份，还会记成 TSF 的。__fastfail、/GS、CFG 和堆损坏绕过过滤器，只有助手能记，所以照常注册武装，只在快照里标明。
+std::uint32_t in_process_recorder() {
+  wchar_t value[16]{};
+  const DWORD length = GetEnvironmentVariableW(msime::crash::in_process_recorder_variable, value, 16);
+  return length && length < 16 && std::wstring(value, length) == std::to_wstring(GetCurrentProcessId()) ? 1u : 0u;
+}
+
 bool publish(State &state, std::uint64_t generation) {
   const auto wide = std::filesystem::u8path(state.path).wstring();
   if (wide.empty() || wide.size() >= wer::path_capacity || state.header.empty() ||
@@ -138,6 +145,7 @@ bool publish(State &state, std::uint64_t generation) {
   Context next{};
   std::memcpy(next.path, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
   std::memcpy(next.header, state.header.c_str(), state.header.size() + 1);
+  next.in_process_recorder = in_process_recorder();
   if (!modules(state, next)) return false;
   Guard guard;
   // 最后释放及重新激活都会换代；在文件锁中迟到的准备不能重新武装旧租约。
@@ -153,6 +161,7 @@ bool publish(State &state, std::uint64_t generation) {
   std::memcpy(state.context.path, next.path, sizeof(next.path));
   std::memcpy(state.context.header, next.header, sizeof(next.header));
   std::memcpy(state.context.modules, next.modules, sizeof(next.modules));
+  state.context.in_process_recorder = next.in_process_recorder;
   InterlockedExchange(reinterpret_cast<volatile LONG *>(&state.context.sequence), static_cast<LONG>(sequence));
   InterlockedExchange(reinterpret_cast<volatile LONG *>(&state.context.armed), 1);
   return true;
@@ -186,18 +195,7 @@ void forget(State &state) {
   state.path.clear();
   state.header.clear();
 }
-// 水杉自己的设置、面板等进程装了进程内记录器，它照样把故障交给 WER；助手在这里再记就是同一故障的第二份，还会记成 TSF 的。
-bool in_process_recorder() {
-  wchar_t value[16]{};
-  const DWORD length = GetEnvironmentVariableW(msime::crash::in_process_recorder_variable, value, 16);
-  return length && length < 16 && std::wstring(value, length) == std::to_wstring(GetCurrentProcessId());
-}
 bool refresh(State &state, std::uint64_t generation, const std::string &preferences) {
-  // 不准备身份也不注册助手；记录器在 TIP 之后才装时，下一轮在这里撤下已发布的快照。
-  if (in_process_recorder()) {
-    disarm(state);
-    return true;
-  }
   const auto directory = telemetry_directory();
   if (preferences.empty() || !std::filesystem::u8path(preferences).is_absolute() || directory.empty()) {
     disarm(state); return false;
@@ -248,14 +246,17 @@ bool refresh(State &state, std::uint64_t generation, const std::string &preferen
     state.prepared_generation = generation;
     state.cleared = false;
   }
+  // 记录器可能在 TIP 之后才装上或卸下，每轮重新核对。
+  const auto recorder = in_process_recorder();
   {
     Guard guard;
     if (current_state != &state || !state.leases || state.generation != generation) {
       disarm(state);
       return false;
     }
-    // 同代次已武装时保留快照；首次准备和暂停恢复仍走发布前的最终授权复核。
-    if (InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&state.context.armed), 0, 0) == 1)
+    // 同代次已武装且记录器标记没变时保留快照；首次准备、暂停恢复和标记变化仍走发布前的最终授权复核。
+    if (InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&state.context.armed), 0, 0) == 1 &&
+        state.context.in_process_recorder == recorder)
       return true;
   }
   if (publish_authorized(state, generation, authorized)) return true;

@@ -13,7 +13,7 @@ void remove_crash_handlers();
 std::string current_stack(int skip);
 void record(const char *summary);
 #ifdef _WIN32
-// install_crash_handlers 把本进程号写进这个进程环境变量：同一进程里加载的 TSF 据此不再注册 WER 助手，一次故障只留进程内这一份（带完整栈和本进程的组件）。值带进程号，子进程继承到时不会误判。
+// install_crash_handlers 把本进程号写进这个进程环境变量：同一进程里加载的 TSF 据此在 WER 快照里标明记录器在，助手不再重复记能到达未处理异常过滤器的故障（一次故障只留进程内这一份，带完整栈和本进程的组件），只补记绕过过滤器的快速失败（__fastfail、/GS、CFG、堆损坏）。值带进程号，子进程继承到时不会误判。
 constexpr wchar_t in_process_recorder_variable[] = L"MSIME_INPROCESS_CRASH_RECORDER";
 #endif
 }
