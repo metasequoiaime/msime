@@ -9,6 +9,7 @@ public final class PairedPunctuationPolicySmoke {
         stepOver();
         symbolStepOver();
         caretAfterClosingCommit();
+        explicitCursor();
         punctuationStyles();
         System.out.println("PairedPunctuationPolicySmoke: PASS");
     }
@@ -70,6 +71,16 @@ public final class PairedPunctuationPolicySmoke {
             "fullwidth ＜ and 《 still pair");
         for (String single : new String[] {"）", "”", "\"", "'", ">", "，", "︵", "﹁", "http://", null})
             check(PairedPunctuationPolicy.symbolClosing(single) == null, single + " is inserted alone");
+    }
+
+    /** `title:"${cursor}"` finished with `(` commits `title:""（` with suffix `"（`: the caret goes between the quotes and nothing is auto-closed or reopened there. */
+    private static void explicitCursor() {
+        check(PairedPunctuationPolicy.explicitCursor("title:\"\"（", "\"（"), "a cursor phrase finished by ( asks for a position");
+        check(PairedPunctuationPolicy.explicitCursor("末尾（", ""), "the end marker is an explicit template too");
+        check(PairedPunctuationPolicy.explicitCursor("好”", "”"), "a quote tail keeps the request");
+        check(!PairedPunctuationPolicy.explicitCursor("（", null), "an ordinary commit has no request");
+        check(!PairedPunctuationPolicy.explicitCursor("title:\"\"（", "stale"), "a mismatched suffix is no request");
+        check(!PairedPunctuationPolicy.explicitCursor(null, ""), "no commit, no request");
     }
 
     private static void literalPairs() {

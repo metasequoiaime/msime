@@ -33,6 +33,15 @@ enum PairedPunctuationPolicy {
     return completions.first { commit.hasSuffix($0.openingMark) }
       .map { PairedPunctuationCompletion(opening: $0.opening, closing: $0.closing) }
   }
+
+  /// The snapshot a punctuation key's commit lands as, and the closing mark to write after it. A quick-phrase template that asks for a cursor position (`commitCursorSuffix`, the empty end marker included) lands exactly as written: rendering it already puts the caret inside the template, where a closing mark would be written, and reopening its quote would change the commit and drop the position request. macOS gates the same two steps on `hasCursorRequest`.
+  static func punctuationCommit(_ snapshot: MetasequoiaInputSnapshot, ascii: String, enabled: Bool)
+    -> (snapshot: MetasequoiaInputSnapshot, completion: PairedPunctuationCompletion?) {
+    guard snapshot.commitCursorSuffix == nil else { return (snapshot, nil) }
+    let reopened = reopenQuote(snapshot.commitText, ascii: ascii, enabled: enabled)
+    let landed = reopened != snapshot.commitText ? snapshot.replacingCommit(reopened) : snapshot
+    return (landed, completion(landed.commitText, enabled: enabled))
+  }
 }
 
 /// The pairs the keyboard has closed whose closing half still waits to the right of the caret, innermost last, as the reference's `_pairedPunctuationStack` keeps them.

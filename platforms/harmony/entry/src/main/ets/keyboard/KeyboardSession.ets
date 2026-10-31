@@ -4577,11 +4577,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     let committed: string | null | undefined = null;
     try {
       const response: Response = JSON.parse(raw) as Response;
+      let pairing: boolean = this.appearance.pairedPunctuation;
       if (EngineViewValuePolicy.isObject(response) && response.ok === true
           && EngineViewValuePolicy.isObject(response.value)) {
+        // A quick-phrase cursor template lands as written: neither the quote rewrite nor the completion below applies to it.
+        pairing = pairing && !PairedPunctuationPolicy.explicitCursor(
+          response.value.commit, response.value.commit_cursor_suffix);
         // Rewritten before apply() commits it, so the editor receives the opening quote and the completion below closes it.
         const reopened: string | null | undefined = PairedPunctuationPolicy.reopenQuote(
-          response.value.commit, ascii, this.appearance.pairedPunctuation);
+          response.value.commit, ascii, pairing);
         if (reopened !== response.value.commit) {
           response.value.commit = reopened;
           raw = JSON.stringify(response);
@@ -4590,8 +4594,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       completion = EngineViewValuePolicy.isObject(response) && response.ok === true
         && EngineViewValuePolicy.isObject(response.value)
-        ? PairedPunctuationPolicy.completion(response.value.commit, ascii,
-          this.appearance.pairedPunctuation) : null;
+        ? PairedPunctuationPolicy.completion(response.value.commit, ascii, pairing) : null;
     } catch (error) {
       KeyboardLog.error(`paired punctuation response unavailable: ${describeError(error)}`);
     }

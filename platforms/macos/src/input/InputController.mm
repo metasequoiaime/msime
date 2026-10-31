@@ -8553,8 +8553,17 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (openedClosing) _pendingPairedClosing = openedClosing;
 
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
-        NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
-        if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
+        // A cursor request with a tail (the suffix plus any pending closing, as TextClient.mm positions it) leaves the caret before that tail, or at the end when positioning gives up, so the commit's last character is not known to sit left of the caret: the document answers instead, and the armed gestures that assume the caret follows the commit are dropped, as the Windows cursor commit does.
+        NSString *cursorTail = displayTransition[@"commit_cursor_suffix"];
+        if ([cursorTail isKindOfClass:NSString.class] && (cursorTail.length || pendingClosing.length)) {
+            [self invalidateSmartPunctuationShadow];
+            [self resetSmartPunctuationState];
+            [self clearSmartPunctuationSpaceConversion];
+            [self clearSmartPunctuationSpaceRevert];
+        } else {
+            NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
+            if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
+        }
     }
     id<MSIMETextClient> textClient = (id<MSIMETextClient>)_activeClient;
     BOOL (^isCurrent)(void) = ^BOOL {

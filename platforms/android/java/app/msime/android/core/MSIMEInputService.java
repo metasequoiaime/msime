@@ -5336,7 +5336,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
         JSONObject envelope = new JSONObject(response);
         JSONObject result = envelope.optJSONObject("value");
-        if (result == null || result.isNull("commit")) return response;
+        if (result == null || result.isNull("commit") || explicitCursor(result)) return response;
         String commit = result.optString("commit", "");
         String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
         if (reopened.equals(commit)) return response;
@@ -5347,8 +5347,16 @@ public final class MSIMEInputService extends InputMethodService {
     private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
         if (!pairedPunctuation || connection == null) return null;
         JSONObject result = value(response);
-        return result.isNull("commit") ? null
+        // apply() has already moved the caret to the template position, so a closing mark written now would land inside the phrase.
+        return result.isNull("commit") || explicitCursor(result) ? null
             : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+    }
+
+    /** See {@link PairedPunctuationPolicy#explicitCursor}; reads the raw response, before apply() converts commit and suffix alike. */
+    private static boolean explicitCursor(JSONObject result) {
+        Object suffix = result.opt("commit_cursor_suffix");
+        return !result.isNull("commit") && suffix instanceof String
+            && PairedPunctuationPolicy.explicitCursor(result.optString("commit", ""), (String) suffix);
     }
 
     private void balanceBookTitleAfterAutoClose() {

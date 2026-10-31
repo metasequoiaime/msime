@@ -4694,14 +4694,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
-    var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
+    let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
-      let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
-      if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
-      render(snapshot)
-      let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
+      let (landed, completion) = PairedPunctuationPolicy.punctuationCommit(snapshot, ascii: punctuation, enabled: paired)
+      render(landed)
       if let completion { closePair(completion, editor: editor) }
-      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
+      armSmartPunctuation(punctuation, commit: landed.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
 

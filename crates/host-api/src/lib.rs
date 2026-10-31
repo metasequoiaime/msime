@@ -3651,11 +3651,20 @@ fn dispatch_value(
         }
         let facts = session.runtime.facts();
         // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
-        if currency_punctuation && result.view.character_width == CharacterWidth::Halfwidth {
-            if let Some(commit) = result.commit.as_mut() {
-                if facts.tail_chars == 1 && commit.ends_with('￥') {
-                    commit.truncate(commit.len() - '￥'.len_utf8());
-                    commit.push('¥');
+        if currency_punctuation
+            && result.view.character_width == CharacterWidth::Halfwidth
+            && facts.tail_chars == 1
+            && result.commit.as_deref().is_some_and(|c| c.ends_with('￥'))
+        {
+            // The cursor suffix carries the same one-character tail, so it ends with '￥' exactly when the commit does; rewriting both keeps it a real suffix of the commit for `complete_transition`.
+            for text in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
+            {
+                if text.ends_with('￥') {
+                    text.truncate(text.len() - '￥'.len_utf8());
+                    text.push('¥');
                 }
             }
         }

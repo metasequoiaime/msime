@@ -13323,6 +13323,20 @@ static void TestQuickPhraseCursorInEditors() {
         [controller apply:@{@"commit":@"AB", @"commit_cursor_suffix":@"B", @"view":idle}];
         assert([client.editor.string isEqual:@"AB"] && client.editor.selectedRange.location == 0);
         prefs.englishMode = NO;
+        // Once positioned, the caret no longer follows the commit's last character: smart punctuation reads the document before the caret (`r`, not `)`).
+        prefs.smartPunctuation = YES;
+        client.editor.string = @"";
+        client.editor.selectedRange = NSMakeRange(0, 0);
+        [controller apply:@{@"commit":@"log(err)", @"commit_cursor_suffix":@")", @"view":idle}];
+        assert([client.editor.string isEqual:@"log(err)"] && client.editor.selectedRange.location == 7);
+        [controller noteKeyForSmartPunctuationShadow:LayoutKey(49, @" ", 0) eaten:YES];
+        assert(![[controller valueForKey:@"smartPunctuationShadowValid"] boolValue]);
+        assert([controller precedingForSmartPunctuation:client] == 'r');
+        // The end marker has no tail, so the caret stays after the last character and the shadow is still recorded.
+        [controller apply:@{@"commit":@"v1", @"commit_cursor_suffix":@"", @"view":idle}];
+        assert([[controller valueForKey:@"smartPunctuationShadowValid"] boolValue]);
+        assert([controller precedingForSmartPunctuation:client] == '1');
+        prefs.smartPunctuation = NO;
         // 显式模板不触发自动补另一半标点；已有成对尾巴完整落地，仍在模板指定处继续输入。
         client.editor.string = @"";
         client.editor.selectedRange = NSMakeRange(0, 0);

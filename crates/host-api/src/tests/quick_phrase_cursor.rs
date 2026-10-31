@@ -75,3 +75,29 @@ fn quick_phrase_cursor_drops_an_invalid_suffix_before_formatting() {
     });
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
+
+#[test]
+fn quick_phrase_cursor_keeps_the_suffix_through_the_half_width_currency_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    install_phrase_table(dir.path(), "cursor", &[("ab", "title:\"${cursor}\"")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["cursor".into()];
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for (fullwidth, text, suffix) in [
+        (false, "title:\"\"¥", "\"¥"),
+        (true, "ｔｉｔｌｅ：＂＂￥", "＂￥"),
+    ] {
+        read(msime_client_set_character_width(handle, fullwidth));
+        read(msime_client_character(handle, b'K', true));
+        type_letters(handle, b"ab");
+        let committed = read(msime_client_punctuation(handle, b'$'));
+        assert_eq!(committed["ok"], true);
+        assert_eq!(committed["value"]["commit"], text, "fullwidth={fullwidth}");
+        assert_eq!(
+            committed["value"]["commit_cursor_suffix"], suffix,
+            "fullwidth={fullwidth}"
+        );
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
