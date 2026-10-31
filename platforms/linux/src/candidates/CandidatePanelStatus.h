@@ -70,7 +70,7 @@ inline std::optional<std::filesystem::path> candidate_panel_status_file(const ch
   return std::filesystem::path(runtime) / MSIME_EDITION_CLIENT_DIRECTORY / "candidate-panel.json";
 }
 
-// XDG_CURRENT_DESKTOP names GNOME Shell's session ("GNOME", "ubuntu:GNOME"). Desktops built on GNOME that run their own panel, and so draw IBus through ibus-ui-gtk3, list GNOME as well and are excluded by their own name.
+// XDG_CURRENT_DESKTOP 标识 Shell 会话（GNOME、ubuntu:GNOME、GNOME-Classic:GNOME）。Classic 是 Shell 扩展组合；Flashback、Budgie 等自带面板的桌面也可能带 GNOME，按自身名称优先排除。
 inline bool candidate_desktop_is_gnome_shell(const char *current_desktop) {
   if (!current_desktop) return false;
   bool gnome = false;
@@ -78,8 +78,8 @@ inline bool candidate_desktop_is_gnome_shell(const char *current_desktop) {
   while (!rest.empty()) {
     const auto colon = rest.find(':');
     const auto token = rest.substr(0, colon);
-    if (token == "GNOME") gnome = true;
-    if (token == "GNOME-Flashback" || token == "GNOME-Classic" || token == "Budgie" || token == "Unity" ||
+    if (token == "GNOME" || token == "GNOME-Classic") gnome = true;
+    if (token == "GNOME-Flashback" || token == "Budgie" || token == "Unity" ||
         token == "Pantheon")
       return false;
     if (colon == std::string_view::npos) break;

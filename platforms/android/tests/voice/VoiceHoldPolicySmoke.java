@@ -1,27 +1,44 @@
 import app.msime.android.LocalAsrRecognizer;
 import app.msime.android.VoiceHoldPolicy;
 
-/** 键盘聆听怎样结束：按住空格说话的取消区，以及停顿计时到点时结束、推迟还是等松手。 */
+/** 键盘聆听怎样结束：按住空格说话的实际按钮命中，以及停顿计时到点时结束、推迟还是等松手。 */
 public final class VoiceHoldPolicySmoke {
     static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
     public static void main(String[] args) {
-        float keyboard = 800f;
-        float down = 700f;
-        check(!VoiceHoldPolicy.inCancelZone(down, down, keyboard), "the finger where it pressed is not cancelling");
-        check(!VoiceHoldPolicy.inCancelZone(down, down - 199f, keyboard), "sliding up less than a quarter of the keyboard keeps the dictation");
-        check(!VoiceHoldPolicy.inCancelZone(down, down - 200f, keyboard), "exactly a quarter is still outside the cancel zone");
-        check(VoiceHoldPolicy.inCancelZone(down, down - 201f, keyboard), "sliding up past a quarter of the keyboard enters the cancel zone");
-        check(VoiceHoldPolicy.inCancelZone(down, -400f, keyboard), "leaving the key upwards, above the keyboard, still cancels");
-        check(!VoiceHoldPolicy.inCancelZone(down, down + 500f, keyboard), "sliding down never cancels");
-        check(!VoiceHoldPolicy.inCancelZone(down, down - 201f, 0f), "an unmeasured keyboard has no cancel zone");
-        check(!VoiceHoldPolicy.inCancelZone(down, down - 201f, -1f), "a negative height has no cancel zone");
-        check(!VoiceHoldPolicy.inCancelZone(down, down - 201f, Float.NaN), "a NaN height has no cancel zone");
-        check(!VoiceHoldPolicy.inCancelZone(Float.NaN, 0f, keyboard), "a NaN origin has no cancel zone");
-        check(!VoiceHoldPolicy.inCancelZone(down, Float.NaN, keyboard), "a NaN position has no cancel zone");
-        check(VoiceHoldPolicy.CANCEL_ZONE_FRACTION == 0.25f, "the cancel zone starts a quarter of the keyboard above the press");
+        VoiceHoldPolicy.Region cancel = new VoiceHoldPolicy.Region(80, 40, 140, 84);
+        VoiceHoldPolicy.Region lock = new VoiceHoldPolicy.Region(20, 120, 64, 164);
+        check(VoiceHoldPolicy.release(80, 40, cancel, lock, false) == VoiceHoldPolicy.Action.CANCEL,
+            "取消按钮左上边缘命中");
+        check(VoiceHoldPolicy.release(139, 83, cancel, lock, false) == VoiceHoldPolicy.Action.CANCEL,
+            "取消按钮右下内侧命中");
+        for (float[] point : new float[][] {{79, 50}, {140, 50}, {100, 39}, {100, 84}, {100, -400}})
+            check(VoiceHoldPolicy.release(point[0], point[1], cancel, lock, false) == VoiceHoldPolicy.Action.SEND,
+                "离开取消按钮立即恢复发送，不使用上滑距离");
+        check(VoiceHoldPolicy.release(30, 130, cancel, lock, false) == VoiceHoldPolicy.Action.LOCK,
+            "锁定只命中锁定按钮");
+        check(VoiceHoldPolicy.release(64, 130, cancel, lock, false) == VoiceHoldPolicy.Action.SEND,
+            "离开锁定按钮不再锁定");
+        check(VoiceHoldPolicy.release(30, 130, cancel, lock, true) == VoiceHoldPolicy.Action.CANCEL,
+            "系统取消不能误锁定");
+        check(VoiceHoldPolicy.release(Float.NaN, 130, cancel, lock, false) == VoiceHoldPolicy.Action.CANCEL,
+            "非数坐标不能发送");
+        check(VoiceHoldPolicy.release(0, Float.POSITIVE_INFINITY, cancel, lock, false) == VoiceHoldPolicy.Action.CANCEL,
+            "无穷坐标不能发送");
+        check(VoiceHoldPolicy.release(30, 130, null, null, false) == VoiceHoldPolicy.Action.SEND,
+            "尚未排版的按钮没有命中范围");
+        // 面板最下一行与原功能行重合：🔓 | 松开发送 | 发送 同处手指所在的那一行，水平滑动不换行。
+        VoiceHoldPolicy.Region rowLock = new VoiceHoldPolicy.Region(0, 300, 80, 352);
+        check(VoiceHoldPolicy.release(200, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.SEND,
+            "原空格位置松手发送");
+        check(VoiceHoldPolicy.release(40, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.LOCK,
+            "同一行水平左滑到锁定");
+        check(VoiceHoldPolicy.release(360, 326, cancel, rowLock, false) == VoiceHoldPolicy.Action.SEND,
+            "同一行水平右滑到发送");
+        check(!new VoiceHoldPolicy.Region(10, 10, 10, 20).contains(10, 15), "零宽范围不能命中");
+        check(!new VoiceHoldPolicy.Region(10, 10, 20, Float.NaN).contains(15, 15), "坏范围不能命中");
 
         check(VoiceHoldPolicy.silenceElapsed(false, false) == VoiceHoldPolicy.Silence.STOP,
             "a pause with nothing heard ends a tap-started dictation");
