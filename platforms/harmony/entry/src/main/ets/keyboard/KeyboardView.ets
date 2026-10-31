@@ -9799,7 +9799,8 @@ struct KeyboardView {
                 }
               }, (mode: LocalInputModeDefinition) => mode.id)
             }
-            .columnsTemplate('1fr 1fr')
+            .columnsTemplate(LocalInputMode.touchColumns(this.localInputModes.length) === 4
+              ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr')
             .width('100%')
           }
           .width('100%')
