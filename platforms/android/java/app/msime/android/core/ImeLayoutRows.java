@@ -28,6 +28,8 @@ final class ImeLayoutRows {
     private final MSIMEInputService s;
     /** 拼音九键侧栏里的标点列；拼音列出现时让出位置。换了布局后它已不在侧栏里，按父视图判断。 */
     private View nineKeyPunctuation;
+    /** 无键帽符号栏单独的底轨；用明确的上下 margin 对齐三行字母键帽。 */
+    private View sidebarRailSurface;
     private Button letterOptionsAnchor;
     private LinearLayout letterOptions;
     private final java.util.List<Button> letterOptionButtons = new java.util.ArrayList<>();
@@ -270,15 +272,24 @@ final class ImeLayoutRows {
     void applySidebarRail() {
         if (s.nineKeySidebar == null) return;
         if (builtSidebarCapped) {
-            ViewPolicy.clearBackground(s.nineKeySidebar);
+            if (sidebarRailSurface != null) ViewPolicy.clearBackground(sidebarRailSurface);
+            else ViewPolicy.clearBackground(s.nineKeySidebar);
             return;
         }
         GradientDrawable rail = DrawablePolicy.rounded(
             Color.parseColor(s.skin.sidebarBackground()), s.pixels(s.skin.cornerRadius()));
-        // 无键帽侧栏与字母键共用三行容器，字母键本身带半个行距的上下外边距；背景也收进同样的范围，避免上下边缘比相邻键帽多出一截。
         int rowInset = s.halfSpacingPixels(s.touchRowSpacingTenths);
-        ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0
-            ? rail : new InsetDrawable(rail, 0, rowInset, 0, rowInset));
+        if (sidebarRailSurface == null) {
+            // 兼容旧的侧栏实例；新实例走下面的独立底轨视图。
+            ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0
+                ? rail : new InsetDrawable(rail, 0, rowInset, 0, rowInset));
+            return;
+        }
+        ViewPolicy.setBackground(sidebarRailSurface, rail);
+        if (sidebarRailSurface.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
+            params.setMargins(0, rowInset, 0, rowInset);
+            sidebarRailSurface.setLayoutParams(params);
+        }
     }
 
     /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
@@ -377,6 +388,8 @@ final class ImeLayoutRows {
         }
         FrameLayout sidebar = new FrameLayout(s);
         s.nineKeySidebar = sidebar;
+        sidebarRailSurface = new View(s);
+        sidebar.addView(sidebarRailSurface, LayoutPolicy.frameMatchParentParams());
         builtSidebarSymbols = symbols;
         builtSidebarDigits = digits;
         builtPadPunctuation = digits ? s.numberPadPunctuation() : null;
