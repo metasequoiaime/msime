@@ -64,6 +64,11 @@ def main() -> None:
     )
 
     recognizer = read(VOICE / "LocalAsrRecognizer.java")
+    if "private int vadSensitivity;" not in recognizer:
+        raise SystemExit("LocalAsrRecognizer must keep the VAD sensitivity in the vadSensitivity field passed to localSpeechStart")
+    setter = method(recognizer, "public void vadSensitivity(int value) {", "LocalAsrRecognizer")
+    if "vadSensitivity = value;" not in setter:
+        raise SystemExit("LocalAsrRecognizer.vadSensitivity must store the value it is given in the field passed to localSpeechStart")
     call = recognizer.find("NativeClient.localSpeechStart(")
     if call < 0:
         raise SystemExit("LocalAsrRecognizer must start the native local speech handle")
