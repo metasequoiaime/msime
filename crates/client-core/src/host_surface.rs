@@ -356,7 +356,7 @@ pub struct HostCapabilities {
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. iOS 与 Android 的键盘读它；其他宿主上这些开关什么也不会隐藏。
     pub touch_toolbar_components: bool,
-    /// 触屏键盘按 `harmony_toolbar` 选空闲工具栏上的工具（表情、常用语、剪贴板、皮肤、输入方式）和显示方式（输入时显示 / 隐藏），设置页才给出这组开关。只有 HarmonyOS 的手机键盘读它：鸿蒙工具栏的工具与 `touch_toolbar` 的成员和缺省对不上（见 `Preferences::harmony_toolbar`）。同一个 HAP 在 2in1 上没有这一行，宿主的设置桥按设备形态再把它关掉。
+    /// 触屏键盘按 `harmony_toolbar` 选空闲工具栏上的工具（表情、常用语、剪贴板、皮肤、输入方式和「随」入口 `random_digits`）和显示方式（输入时显示 / 隐藏），设置页才给出这组开关。只有 HarmonyOS 的手机键盘读它：鸿蒙工具栏的工具与 `touch_toolbar` 的成员和缺省对不上（见 `Preferences::harmony_toolbar`）。同一个 HAP 在 2in1 上没有这一行，宿主的设置桥按设备形态再把它关掉。
     pub touch_toolbar_tools: bool,
     /// 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度，设置页才给出「键盘高度」滑块。Android、iOS 和 HarmonyOS 的键盘按它加减键盘高度，Windows 的 Tauri 键盘面板按它定窗口高度（`panel_window.rs` 的 `windows_panel_height`）；macOS 和 Linux 的键盘窗口高度是固定的，滑块在那里只会让设置页的预览变高，实际键盘不变。
     pub touch_keyboard_height: bool,

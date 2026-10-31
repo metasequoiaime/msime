@@ -1972,7 +1972,7 @@ pub struct Preferences {
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
-    /// HarmonyOS 手机键盘空闲工具栏上的五个工具和显示方式。默认全开、不隐藏，就是没有这组设置时鸿蒙键盘的样子；等于默认值时不写进文档，没有这个键的旧版本照样能读。`touch_toolbar` 的缺省（剪贴板关、没有常用语和输入方式）与鸿蒙工具栏对不上，所以另起一组。其他宿主不读它，设置页只在宿主报告 `touch_toolbar_tools` 时给出这组开关。
+    /// HarmonyOS 手机键盘空闲工具栏上的五个工具、显示方式和「随」入口。默认五个工具全开、不隐藏、没有「随」，就是没有这组设置时鸿蒙键盘的样子；等于默认值时不写进文档，没有这个键的旧版本照样能读。`touch_toolbar` 的缺省（剪贴板关、没有常用语和输入方式）与鸿蒙工具栏对不上，所以另起一组。其他宿主不读它，设置页只在宿主报告 `touch_toolbar_tools` 时给出这组开关。
     #[serde(default, skip_serializing_if = "HarmonyToolbarPreferences::is_default")]
     pub harmony_toolbar: HarmonyToolbarPreferences,
     /// 当前方案是日文、韩文、越南文或藏文时保留，记住要回到的中文方案。
@@ -2744,6 +2744,8 @@ pub struct HarmonyToolbarPreferences {
     pub scheme: bool,
     /// 显示方式选了「隐藏」：空闲时整行不显示，组字时候选栏照常显示。
     pub hidden: bool,
+    /// 中文键盘工具栏上的「随」入口，默认不显示。它只决定入口在不在，点「随」打乱数字九宫格的开关是键盘运行时的状态，不存进文档，与 Android 的 `platform.android.toolbar_random_digits` 相同（#10254）。
+    pub random_digits: bool,
 }
 
 impl Default for HarmonyToolbarPreferences {
@@ -2755,6 +2757,7 @@ impl Default for HarmonyToolbarPreferences {
             skin: true,
             scheme: true,
             hidden: false,
+            random_digits: false,
         }
     }
 }

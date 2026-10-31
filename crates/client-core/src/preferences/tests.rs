@@ -7616,9 +7616,10 @@ fn harmony_toolbar_defaults_to_every_tool_shown_and_stays_out_of_default_documen
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let defaults = HarmonyToolbarPreferences::default();
-    // 默认就是没有这组设置时的鸿蒙键盘：五个工具全在，整行照常显示。
+    // 默认就是没有这组设置时的鸿蒙键盘：五个工具全在，整行照常显示，没有「随」入口。
     assert!(defaults.emoji && defaults.phrase && defaults.clipboard);
     assert!(defaults.skin && defaults.scheme && !defaults.hidden);
+    assert!(!defaults.random_digits);
     let document = serde_json::to_value(Preferences::default()).unwrap();
     assert!(document.get("harmony_toolbar").is_none());
 
@@ -7627,11 +7628,17 @@ fn harmony_toolbar_defaults_to_every_tool_shown_and_stays_out_of_default_documen
         serde_json::from_value(serde_json::json!({"clipboard": false, "hidden": true})).unwrap();
     assert!(!partial.clipboard && partial.hidden);
     assert!(partial.emoji && partial.phrase && partial.skin && partial.scheme);
+    assert!(!partial.random_digits);
+    // 只打开「随」入口的对象也读得回来；没有这个字段的旧版本按 serde 默认忽略它，照样能读。
+    let random: HarmonyToolbarPreferences =
+        serde_json::from_value(serde_json::json!({"random_digits": true})).unwrap();
+    assert!(random.random_digits && random.emoji && !random.hidden);
 
     let edited = Preferences {
         harmony_toolbar: HarmonyToolbarPreferences {
             phrase: false,
             hidden: true,
+            random_digits: true,
             ..HarmonyToolbarPreferences::default()
         },
         ..Preferences::default()
@@ -7640,13 +7647,14 @@ fn harmony_toolbar_defaults_to_every_tool_shown_and_stays_out_of_default_documen
         serde_json::to_value(&edited).unwrap()["harmony_toolbar"],
         serde_json::json!({
             "emoji": true, "phrase": false, "clipboard": true,
-            "skin": true, "scheme": true, "hidden": true
+            "skin": true, "scheme": true, "hidden": true, "random_digits": true
         })
     );
     let saved = store.save(0, edited).unwrap();
     assert_eq!(store.load().unwrap(), saved);
     assert!(!saved.preferences.harmony_toolbar.phrase);
     assert!(saved.preferences.harmony_toolbar.hidden);
+    assert!(saved.preferences.harmony_toolbar.random_digits);
 }
 
 #[test]
