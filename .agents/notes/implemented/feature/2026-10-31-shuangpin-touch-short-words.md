@@ -47,3 +47,4 @@ iOS 同源模拟器静态库重建后，在临时 iOS 27 模拟器用 ad-hoc 签
 - [双拼触点误触评测](../testing/2026-10-27-shuangpin-touch-eval.md)：复用冻结词集、几何和种子，不另造调参集。
 - [双拼纠错学习](2026-10-28-shuangpin-typo-learning.md)：沿用现有的词库纠错行识别与日志，补非法原码的键对追溯。
 - [触点纠错首选规则](2026-10-29-shuangpin-touch-first-seat.md)：没有翻转；短词首选保持现状，不绕过其质量门槛。
+- [个人上下文重排边界](../bug-fix/2026-10-30-personal-context-reading-boundaries.md)：短词纠错行不进个人上下文首组、重排时留在原位，排在它后面的字面同音字照常重排。
