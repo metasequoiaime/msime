@@ -36,5 +36,6 @@ Windows 宿主打开「显示读音」后，`CandidateGlossReadings.h` 的 `cand
 - `windows-candidate-gloss-readings`：读音在它那一行释义下面单独一行；两行都有读音时各自跟在下面；读音范围和每行释义的起点；空的释义行不生读音行。
 - `windows-korean-hanja-presentation`：훈음、两种目标语言加读音时的次要文字、行数、读音范围和行起点；`candidate_gloss_column_range` 在第一列有读音时找到第二列、没有读音时第二列在第二行、超出列数和带 훈음 时不画；4096 字节上限按换行重新算。
 - `windows-script-annotation-presentation`：插件注释排在读音那一行之后，起点和行数跟着变。
+- `windows-session`（`tests/ui/candidate_mailbox.cpp`）：读音挂到候选上后，次要文字是释义加下一行读音；这个测试要 `windows.h`，只在 Windows 构建里编。
 - `windows-candidate-skin-gallery-plan`：截图工具的假候选页前两个候选带读音，次要文字是释义加下一行读音。
 - 截图：CI `windows-skin-gallery` 产物里横排、竖排、浅色、深色的基线和各款皮肤。真机（Windows 11）上打开「显示读音」核对横排和竖排，留给维护者。
