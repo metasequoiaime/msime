@@ -17,7 +17,7 @@ Status: implemented
 
 - 功能键画在字母键的底色上，用字母键的文字色。
 - 回车键用设计自己的 `actionBackground`，文字按亮度取黑或白（`CustomKeyboardSkin.actionForeground`）。
-- 季节仍然给开启态图块和品牌标着色，这两处 Android 也跟季节走；内置主题和 `system` 键盘的配色不变。
+- 季节仍然给开启态图块着色，这一处 Android 也跟季节走；内置主题和 `system` 键盘的配色不变。品牌标当时也跟季节着色，2026-10-31 起三个触屏宿主都改取当前皮肤的配色，见 [手机键盘品牌键跟随当前皮肤](2026-10-31-mobile-logo-follows-keyboard-skin.md)。
 
 ## Alternatives considered
 
