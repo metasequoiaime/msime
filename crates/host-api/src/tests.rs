@@ -23073,6 +23073,7 @@ fn personal_wordbook_boundary_adds_a_gloss_and_lists_it_for_review() {
 fn personal_wordbook_merge_boundary_takes_what_the_keyboard_added_since_last_time() {
     let keyboard = tempfile::tempdir().unwrap();
     let settings = tempfile::tempdir().unwrap();
+    let shared = tempfile::tempdir().unwrap();
     let call = |function: unsafe extern "C" fn(*const u8, usize) -> *mut std::ffi::c_char,
                 request: Value| {
         let request = serde_json::to_vec(&request).unwrap();
@@ -23083,29 +23084,55 @@ fn personal_wordbook_merge_boundary_takes_what_the_keyboard_added_since_last_tim
         json!({"directory": keyboard.path(), "candidate": "面试", "gloss": "interview"}),
     );
     assert_eq!(added["value"]["outcome"], "added", "{added}");
-    let published =
-        std::fs::read_to_string(keyboard.path().join("vocabulary-wordbooks/personal.json"))
-            .unwrap();
+    let published = shared.path().join("personal.json");
+    std::fs::copy(
+        keyboard.path().join("vocabulary-wordbooks/personal.json"),
+        &published,
+    )
+    .unwrap();
     let merged = call(
         msime_client_personal_wordbook_merge,
         json!({"directory": settings.path(), "published": published}),
     );
     assert_eq!(merged["ok"], true, "{merged}");
     assert_eq!(merged["value"]["added"], 1);
+    assert_eq!(merged["value"]["overLimit"], 0);
     let again = call(
         msime_client_personal_wordbook_merge,
         json!({"directory": settings.path(), "published": published, "previous": published}),
     );
     assert_eq!(again["value"]["added"], 0);
-    assert_eq!(
-        call(
-            msime_client_personal_wordbook_merge,
-            json!({"directory": settings.path(), "published": "{}"})
-        )["ok"],
-        false
+
+    let drained = call(
+        msime_client_personal_wordbook_drain,
+        json!({"directory": keyboard.path(), "published": published}),
     );
-    assert_eq!(
-        read(unsafe { msime_client_personal_wordbook_merge(std::ptr::null(), 0) })["ok"],
-        false
-    );
+    assert_eq!(drained["ok"], true, "{drained}");
+    assert_eq!(drained["value"]["removed"], 1);
+    assert!(!keyboard
+        .path()
+        .join("vocabulary-wordbooks/personal.json")
+        .exists());
+
+    let missing = shared.path().join("missing.json");
+    for function in [
+        msime_client_personal_wordbook_merge,
+        msime_client_personal_wordbook_drain,
+    ] {
+        assert_eq!(
+            call(
+                function,
+                json!({"directory": settings.path(), "published": missing})
+            )["ok"],
+            false
+        );
+        assert_eq!(
+            call(
+                function,
+                json!({"directory": "relative", "published": published})
+            )["ok"],
+            false
+        );
+        assert_eq!(read(unsafe { function(std::ptr::null(), 0) })["ok"], false);
+    }
 }
