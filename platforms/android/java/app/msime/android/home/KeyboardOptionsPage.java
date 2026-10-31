@@ -161,8 +161,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false),
                 checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked));
         }
-        layout.toggle("组字时保留 Shift", "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认关闭，组字时这一键是「分词」，用来断开音节",
-            preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, false),
+        layout.toggle("组字时保留 Shift", "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
+            preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, true),
             checked -> savePreference(QuanpinSeparatorPolicy.PREFERENCE_KEY, checked));
         int height = KeyboardHeightPolicy.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)

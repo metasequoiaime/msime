@@ -338,8 +338,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
     private boolean shuangpinKeyHintsEnabled = false;
 
-    /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为关。 */
-    private boolean quanpinShiftEnabled = false;
+    /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为开。 */
+    private boolean quanpinShiftEnabled = true;
     /** 上屏后联想时候选栏右端的按键样式，来自共享偏好 `next_word_prediction_buttons`，缺省为现有的只有展开键。 */
     private PredictionButtonsPolicy.Style predictionButtons = PredictionButtonsPolicy.Style.EXPAND_ONLY;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
@@ -2983,9 +2983,9 @@ public final class MSIMEInputService extends InputMethodService {
         return preferences != null && preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false);
     }
 
-    /** 没有偏好或旧文档里没有这个键时按关（分词），与 client-core 的默认值一致。 */
+    /** 没有偏好或旧文档里没有这个键时按开（保留 Shift），与 client-core 的默认值一致。 */
     private static boolean quanpinShiftFrom(JSONObject preferences) {
-        return preferences != null && preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, false);
+        return preferences == null || preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, true);
     }
 
     /** 三类键面的底行样式；没有偏好、缺键或不认识的写法都按标准底行，与 client-core 的宽松读取一致。 */
