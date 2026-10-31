@@ -258,7 +258,8 @@ public final class VoiceListeningView extends TextView {
     }
 
     private void drawIndicator(Canvas canvas, float cx, float cy, float diameter, float haloWidth, float scale) {
-        if (!holdMode && mascotEnabled) {
+        // 素材还没解码出来（或解码失败）时先画原来的麦克风圆盘，素材到达后 setMascot 重绘成人物。
+        if (!holdMode && mascotEnabled && toolbarMascot != null && !toolbarMascot.isRecycled()) {
             float box = diameter + 2f * haloWidth;
             float width = Math.min(getWidth(), box * 320f / 250f);
             int saved = canvas.save();

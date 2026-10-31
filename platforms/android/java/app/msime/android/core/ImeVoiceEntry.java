@@ -870,7 +870,7 @@ final class ImeVoiceEntry {
         }
     }
 
-    /** 只在后台解码内置贴纸，回到主线程时校验会话与面板，取消后的旧回调不能更新新面板。 */
+    /** 只在后台解码内置贴纸；结果总是缓存给后续会话，只有发起解码的会话与面板仍在时才更新面板，取消后的旧回调不能更新新面板。 */
     private void loadMascot(long session, VoiceListeningView view) {
         if (mascot != null) return;
         try {
@@ -878,9 +878,9 @@ final class ImeVoiceEntry {
                 try (InputStream input = s.getAssets().open(StickerPackModel.ASSET_DIRECTORY + "/01.webp")) {
                     Bitmap bitmap = BitmapFactory.decodeStream(input);
                     s.main.post(() -> {
+                        if (mascot == null) mascot = bitmap;
                         if (generation != session || listening != view) return;
-                        mascot = bitmap;
-                        view.setMascot(bitmap);
+                        view.setMascot(mascot);
                     });
                 } catch (IOException error) {
                     // 素材异常不触发下载，不影响识别、结束和取消控件。

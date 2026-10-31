@@ -52,6 +52,15 @@ final class VoiceMascotDeviceChecks {
                 Bitmap fallback = render(view);
                 check(!fallback.sameAs(withMascot), "关闭工具栏人物后恢复麦克风");
                 check(accent(fallback) > accent(withMascot), "回退必须画出原强调色圆盘");
+                // 素材尚未解码或解码失败时，开启人物也必须画原麦克风圆盘，不能只剩一只耳朵。
+                field(type, "levelShown").setFloat(view, 0);
+                field(type, "levelTarget").setFloat(view, 0);
+                type.getMethod("setMascot", Bitmap.class).invoke(view, (Object) null);
+                type.getMethod("setMascotEnabled", boolean.class).invoke(view, true);
+                Bitmap pending = render(view);
+                type.getMethod("setMascotEnabled", boolean.class).invoke(view, false);
+                check(pending.sameAs(render(view)), "人物素材缺席时必须回退到原麦克风圆盘");
+                type.getMethod("setMascot", Bitmap.class).invoke(view, mascot);
                 // 冻结静音，逐像素比较只量入口与位图归属，不受音量逐帧回落影响。
                 field(type, "levelShown").setFloat(view, 0);
                 field(type, "levelTarget").setFloat(view, 0);
@@ -81,7 +90,7 @@ final class VoiceMascotDeviceChecks {
         });
         Bundle result = new Bundle();
         if (failure[0] == null) {
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: mascot signal, silence, late volume, shared drawing and entry plainIndicator/hold guards\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: mascot signal, silence, late volume, pending-mascot fallback, shared drawing and entry plainIndicator/hold guards\n");
             instrumentation.finish(Activity.RESULT_OK, result);
         } else {
             Throwable cause = failure[0];
