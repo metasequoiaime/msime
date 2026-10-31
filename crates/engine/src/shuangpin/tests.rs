@@ -1259,6 +1259,23 @@ fn short_touch_words_correct_one_and_two_syllables_without_changing_the_leader()
     }
 }
 
+/// 多个短词纠错候选按罚分后的词频保持顺序，后插入的较低排名行不能越过先插入的较高排名行。
+#[test]
+fn short_touch_words_keep_multiple_corrections_in_rank_order() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',2000000),('gai','g','改',2000000000);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let rows = engine.query(&short_touch_request("gf", &[(1, -5, -10)]), None);
+    let corrected: Vec<&str> = rows
+        .iter()
+        .filter(|row| !row.corrected_from.is_empty())
+        .map(|row| row.word.as_str())
+        .collect();
+    assert_eq!(corrected, ["改", "关"]);
+}
+
 #[test]
 fn short_touch_words_require_the_switch_geometry_and_complete_touches() {
     let fixture = Fixture::new(SHORT_TOUCH_FIXTURE);
