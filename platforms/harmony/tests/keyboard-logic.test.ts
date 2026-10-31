@@ -10022,22 +10022,6 @@ group("the recording tones follow the master switch alone", () => {
   );
 });
 
-group("only a streaming provider gets the listening face, whose stop is a pause", () => {
-  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
-  for (const provider of ["system", "local", "doubao", ""]) {
-    check(
-      VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider || "the default"} streams words as they are heard`,
-    );
-  }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
-    check(
-      !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider} answers only after a stop, so it keeps 停止录音`,
-    );
-  }
-});
-
 group("partial recognizer output reaches the panel only when asked for", () => {
   const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   check(

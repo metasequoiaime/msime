@@ -5,7 +5,6 @@
  *
  * 提示音默认开，静音其他声音默认关，与共享 schema 一致。字段缺失说明是旧文档而不是用户的选择，所以取默认值，而不是看起来最安全的值。
  */
-import { HttpAsrConfigurationPolicy } from "./HttpAsrConfigurationPolicy";
 import { DoubaoCredentialPolicy, VoiceInputConfiguration } from "./VoiceInputConfiguration";
 import { VoiceRecognitionPolicy, VOICE_PAUSE_DEFAULT_MS } from "./VoiceRecognitionPolicy";
 
@@ -27,13 +26,6 @@ export class VoiceRecordingBehaviourPolicy {
    */
   static showsInterimResults(voice: VoiceInputConfiguration): boolean {
     return voice.stream_inline_preedit === true;
-  }
-
-  /**
-   * 服务商是否在用户还在说话时就返回文字。兼容 OpenAI 的上传式服务商只在录音停止后才应答，因此需要显式的停止控件；端侧模型、豆包流式和系统识别器都是流式的，与 Android 键盘内的 `LOCAL` 和 `STREAMING` 引擎一致。会不会因停顿结束录音另由 `keyboardStopsOnPause` 和 `endsOnPause` 决定。
-   */
-  static streamsPartialResults(voice: VoiceInputConfiguration): boolean {
-    return !HttpAsrConfigurationPolicy.supported(voice.asr_provider);
   }
 
   /**
