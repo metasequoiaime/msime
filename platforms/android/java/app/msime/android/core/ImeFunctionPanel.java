@@ -48,7 +48,6 @@ final class ImeFunctionPanel {
 
     void renderMoreTools() {
         if (s.moreToolsPanel == null) return;
-        if (s.imeOcr != null && s.imeOcr.active()) return;
         if (s.imeWorldClock != null && s.imeWorldClock.active()) {
             s.imeWorldClock.render();
             return;

@@ -245,10 +245,11 @@ jobs:
           name: msime-linux-sources-${{ steps.version.outputs.value }}
           path: target/distro-sources/
           if-no-files-found: error
-  # Arch 官方镜像提供 x86_64；沿用已经验证过的 RPM 重新打包，发布页直接附带可安装的 msime-bin。
+  # Arch 官方镜像提供 x86_64；沿用已经验证过的 RPM 重新打包，发布页直接附带可安装的 msime-bin。不发布的运行（nightly）里它失败不算整个工作流失败，免得拖住已经构建好的 DEB 和 RPM；发布时仍须成功。
   arch-bin:
     needs: [source, rpm]
-    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' }}
+    if: ${{ needs.source.outputs.packaging == 'true' }}
+    continue-on-error: ${{ !inputs.publish }}
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 30
     steps:
@@ -264,11 +265,14 @@ jobs:
         with:
           name: msime-linux-rpm-x86_64-${{ steps.version.outputs.value }}
           path: target/arch-rpm
+      # RPM artifact 里每个版本各有一个包，msime-bin 只从 full 版本的那一个重新打包，所以按版本表给出的包名精确取，不用通配。
       - name: Build Arch binary package
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
-          rpm=$(find target/arch-rpm -maxdepth 1 -type f -name 'msime-linux-*.x86_64.rpm' -print -quit)
-          [[ -n "$rpm" ]]
-          bash platforms/linux/packaging/arch/build-bin-release.sh "${{ steps.version.outputs.value }}" "$rpm" target/arch-package
+          package=$(python3 platforms/linux/scripts/edition_linux.py field --edition full package)
+          rpm="target/arch-rpm/${package}-${VERSION}-1.x86_64.rpm"
+          [[ -f "$rpm" ]] || { echo "full edition RPM $rpm missing from the artifact" >&2; ls target/arch-rpm >&2; exit 1; }
+          bash platforms/linux/packaging/arch/build-bin-release.sh "$VERSION" "$rpm" target/arch-package
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-linux-arch-${{ steps.version.outputs.value }}
@@ -276,7 +280,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: [source, deb, rpm, distro-sources, legacy, arch-bin]
-    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包仅在有 packaging 脚本且 publish 时运行。
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包在有 packaging 脚本时构建，nightly 同样取它的 artifact。
     if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') && (needs.arch-bin.result == 'success' || needs.arch-bin.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:

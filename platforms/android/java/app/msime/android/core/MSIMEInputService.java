@@ -1787,7 +1787,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         // restart 保留组字也属于新的焦点边界，旧照片和识别回调不能跨过去。
-        if (imeOcr != null && imeOcr.active()) closeMoreTools();
+        if (imeOcr != null) imeOcr.close();
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
@@ -2210,7 +2210,6 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
-        if (imeOcr != null && imeOcr.active()) closeMoreTools();
         operationNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
@@ -2231,7 +2230,6 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onWindowHidden() {
-        if (imeOcr != null && imeOcr.active()) closeMoreTools();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
         // 收起前第一帧还没交出去：不再等它，也不记这次弹出的耗时。排着的建会话马上放行，不空等兜底：它自己核对启动代次，用户收起时 onFinishInputView 已经先换了代，放行即作废；跟随光标的候选栏自己收起窗口时不换代，会话照常马上建好。
@@ -7232,7 +7230,6 @@ public final class MSIMEInputService extends InputMethodService {
     void closeMoreTools() {
         if (imeFunctionPanel != null) imeFunctionPanel.close();
         if (imeWorldClock != null) imeWorldClock.close();
-        if (imeOcr != null) imeOcr.close();
         localInputToolsOpen = false;
         aiAssistChooserOpen = false;
         deviceInfoOpen = false;
