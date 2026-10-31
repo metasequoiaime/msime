@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
@@ -20,7 +21,7 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** 分类符号面板：全宽网格上下滚动，底栏分类左右滚动，左上返回、右下删除。目录分类从 Engine 分页读，滚到底再读下一页。 */
+/** 分类符号面板：全宽网格上下滚动，底栏分类左右滚动，顶部整行返回、右下删除。目录分类从 Engine 分页读，滚到底再读下一页。 */
 public final class SymbolPanelView extends LinearLayout {
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
@@ -46,7 +47,7 @@ public final class SymbolPanelView extends LinearLayout {
     private final ButtonFactory buttons;
     private final Listener listener;
     private final LinearLayout categories;
-    private final ImageView headerMascot = new ImageView(getContext());
+    private final ImageView[] headerMascots = {new ImageView(getContext()), new ImageView(getContext())};
     private final GridLayout grid = new GridLayout(getContext()) {
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -147,10 +148,20 @@ public final class SymbolPanelView extends LinearLayout {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
-    /** 复用表情包后台加载的缩略图，装饰不单独接收触摸，整行仍用于返回。 */
+    /** 复用返回栏两张独立插图，装饰不单独接收触摸，整行仍用于返回。 */
+    public void setHeaderMascots(Bitmap left, Bitmap right) {
+        setHeaderImage(headerMascots[0], left);
+        setHeaderImage(headerMascots[1], right);
+    }
+
+    /** 兼容旧的单图调用方；新返回栏应传入左右两张朝内插图。 */
     public void setHeaderMascot(Bitmap image) {
-        headerMascot.setImageBitmap(image);
-        headerMascot.setVisibility(image == null ? View.GONE : View.VISIBLE);
+        setHeaderMascots(image, image);
+    }
+
+    private static void setHeaderImage(ImageView view, Bitmap image) {
+        view.setImageBitmap(image);
+        view.setVisibility(image == null ? View.GONE : View.VISIBLE);
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
@@ -166,21 +177,25 @@ public final class SymbolPanelView extends LinearLayout {
         // 空格、边距和空分类也属于面板，不能让触摸落到底下的键盘。
         setClickable(true);
 
-        LinearLayout title = LayoutPolicy.row(context);
-        ViewPolicy.setCenteredVertically(title);
+        FrameLayout title = new FrameLayout(context);
         ViewPolicy.bindClick(title, listener::close);
         title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
-        Button back = buttons.create("返回", "关闭符号面板", listener::close, true);
+        Button back = buttons.create("返回上一界面", "关闭符号面板", listener::close, true);
         styleHeaderButton(back);
-        back.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        back.setPadding(DimensionPolicy.pixels(context, 12), 0, 0, 0);
-        back.setLayoutParams(LayoutPolicy.weightedHeightParams(context, 44, 1));
-        title.addView(back);
-        headerMascot.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        headerMascot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        headerMascot.setVisibility(View.GONE);
-        title.addView(headerMascot, LayoutPolicy.linearParams(context, 44, 44));
+        back.setGravity(Gravity.CENTER);
+        int mascotEdge = DimensionPolicy.pixels(context, 44);
+        // 单个返回按钮覆盖整行；装饰叠在两侧且不消费事件，读屏也只遇到一个动作。
+        back.setPadding(mascotEdge, 0, mascotEdge, 0);
+        title.addView(back, LayoutPolicy.frameParamsPx(LayoutParams.MATCH_PARENT, mascotEdge));
+        for (int index = 0; index < headerMascots.length; index++) {
+            ImageView mascot = headerMascots[index];
+            mascot.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            mascot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mascot.setVisibility(View.GONE);
+            title.addView(mascot, LayoutPolicy.frameParamsPx(mascotEdge, mascotEdge,
+                (index == 0 ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL));
+        }
         addView(title, LayoutPolicy.matchWidthWrapParams());
 
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
