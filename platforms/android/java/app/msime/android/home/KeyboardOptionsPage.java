@@ -362,8 +362,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     }
 
-    /** 工具栏设置里「语音」开关的说明：打开它等于语音设置的启动方式选「工具栏按钮」，长按空格语音会一起关掉（`saveToolbar`）。 */
-    static final String VOICE_TOGGLE_DESCRIPTION = "点按开始语音输入；打开时关闭长按空格语音，等同「语音输入 → 启动方式」选「工具栏按钮」";
+    /** 工具栏按钮独立控制，不改变长按空格语音；两入口可同时使用。 */
+    static final String VOICE_TOGGLE_DESCRIPTION = "点按开始语音输入；不影响长按空格语音，可同时使用";
 
     private static java.util.List<ToolbarOrderPolicy.Item> toolbarOrder(AndroidLocalSettings.Snapshot settings) {
         return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
@@ -749,14 +749,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             KeyboardSheets.saveLocal(this, member, value, this::reload, this::reload);
             return;
         }
-        // 打开语音按钮和语音页选「工具栏按钮」一样，一起关掉本地的长按空格语音，空格键上的麦克风随之消失（#10142 要两处入口不并存，#10143）；否则两个都开时语音页「启动方式」只能显示「长按空格」，再点一次它就会把这里刚打开的按钮关掉。关掉按钮只改这一项，不替用户打开长按空格。先写本地再写共享，与 VoicePage.saveTrigger 同序。
         if (member.equals(ToolbarOrderPolicy.VOICE_SHORTCUT_PREFERENCE)) {
-            HostTask.run(this, context -> !value || KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE, false)
-                ? KeyboardSheets.write(context, preferences -> preferences.put(member, value))
-                : null, saved -> {
-                    if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
-                    reload();
-                });
+            KeyboardSheets.save(this, preferences -> preferences.put(member, value), this::reload, this::reload);
             return;
         }
         KeyboardSheets.save(this, preferences -> KeyboardSheets.child(preferences, "touch_toolbar").put(member, value),

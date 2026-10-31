@@ -92,6 +92,7 @@ cargo run --quiet -p msime-client-core --example install_resources --locked -- t
 - `xcodegen generate` 会做 spec 校验，缺 `target/ios/EngineResources` 及其中的 `msime-dictionary-manifest.json` 直接失败——先 stage 再生成工程。
 - 改了 `App/Sources`、`SharedUI`、`KeyboardTests` 下的文件要 `xcodegen generate` 并提交 `project.pbxproj`：它逐个列出源文件，不重新生成，新文件不会被编译。
 - Xcode 27 的模拟器界面是 `DeviceHub.app`，`Simulator.app` 已不存在；`xcrun simctl` 一切照常，设备状态以 `xcrun simctl list devices` 为准。
+- 验收系统键盘与主应用的共享设置时，模拟器构建使用 `CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES`。`CODE_SIGNING_ALLOWED=NO` 的产物能启动，但没有 Xcode 链入的 `*-Simulated.xcent` 权限，主应用添加的方案可能传不到扩展；事后仅用 `codesign --entitlements` 重签也不能补回这段链接输入。安装并打开主应用后，用 `xcrun simctl get_app_container <设备> app.msime.ios groups` 确认有 `group.app.msime.ios`，再开始跨进程验收。进程内构造键盘控制器的测试不能代替这一步。
 
 ## Android
 

@@ -9,6 +9,7 @@ version=$1; rpm=$2; out=$3
 mkdir -p "$out"; out=$(cd "$out" && pwd); rpm=$(cd "$(dirname "$rpm")" && pwd)/$(basename "$rpm")
 here=$(cd "$(dirname "$0")" && pwd); work="$out/.build"; mkdir -p "$work"
 cp "$here/msime-bin/PKGBUILD" "$work/PKGBUILD"
+cp "$here/msime-bin/msime.install" "$work/msime.install"
 rpm_name="msime-linux-${version}-1.x86_64.rpm"; cp "$rpm" "$work/$rpm_name"
 rpm_hash=$(sha256sum "$rpm" | awk '{print $1}')
 python3 - "$work/PKGBUILD" "$version" "$rpm_name" "$rpm_hash" <<'PY'
@@ -31,7 +32,9 @@ docker run --rm --platform linux/amd64 \
     sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
     pacman -Syu --noconfirm --needed base-devel patchelf >/dev/null
     useradd -m builder; chown -R builder: /work
-    su builder -c "cd /work && SRCDEST=/input makepkg --nodeps --noconfirm"
+    # PKGBUILD 在打包时核对动态库，必须装齐依赖；makepkg 经 sudo 调用 pacman。
+    echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+    su builder -c "cd /work && SRCDEST=/input makepkg --syncdeps --noconfirm"
     cp /work/*.pkg.tar.zst /out/
   '
 python3 - "$out" <<'PY'
