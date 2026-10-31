@@ -541,7 +541,7 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private static String schemeLabel(KeyboardScheme scheme, JSONObject preferences) {
         return switch (scheme) {
-            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> "全拼";
+            case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> scheme.title();
             case CANTONESE -> "粤拼";
             case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";

@@ -19,6 +19,12 @@ public final class HttpAsrPolicy {
     public static final int MAX_AUDIO_BYTES = 24 * 1024 * 1024;
     /** A provider response must fit the same transcript bound used by contribution uploads. */
     public static final int MAX_TRANSCRIPT = 2000;
+    /** 读超时的底线：短句沿用改动前固定的 60 秒。 */
+    private static final int READ_TIMEOUT_FLOOR_MILLIS = 60_000;
+    /** 按请求体估算余量时假定的最慢上行速率：16 KiB/s（约 128 kbit/s），约为 16 kHz 单声道 PCM 码率的一半。 */
+    private static final int ASSUMED_UPLINK_BYTES_PER_SECOND = 16 * 1024;
+    /** 读超时的上限：要盖住录音器能产生的最大请求体，即录满 60 秒的 `chat_audio`（约 2.6 MB，按假定上行约 156 秒传完，加 60 秒底线约 216 秒），否则这一种格式留给服务端识别的时间会被上限挤掉；同时连接真的卡死时，也不让用户对着「识别中」等过 4 分钟。 */
+    private static final int READ_TIMEOUT_CEILING_MILLIS = 240_000;
 
     /** 已收到 HTTP 拒绝状态时的失败原因；传输异常和空正文由调用方另行处理。 */
     public enum StatusFailure { TOO_LARGE, TIMED_OUT, REJECTED }
@@ -32,6 +38,17 @@ public final class HttpAsrPolicy {
             case 408, 504 -> StatusFailure.TIMED_OUT;
             default -> StatusFailure.REJECTED;
         };
+    }
+
+    /**
+     * 整句上传的读超时，按请求体大小放宽（#9886）。
+     *
+     * <p>读超时从请求体写完、开始等回应时起算，服务端收齐整段录音、识别完之前一个字节都不回。体积大的录音在 `write` 返回时还有一部分留在系统的发送缓冲里，慢速上行网络上这段上传和服务端的识别都落在读超时里，而且都随录音长度增长。固定 60 秒时，录满 60 秒的整句上传（WAV 约 1.9 MB，`chat_audio` 的 Base64 约 2.6 MB）就可能在服务端还没回答时被本机判为超时。所以在 60 秒底线上，按 {@link #ASSUMED_UPLINK_BYTES_PER_SECOND} 给请求体每 16 KiB 加 1 秒，最多 {@link #READ_TIMEOUT_CEILING_MILLIS}。几秒的短句只多出几秒；等待期间用户随时可以取消。
+     */
+    public static int readTimeoutMillis(int bodyBytes) {
+        if (bodyBytes <= 0) return READ_TIMEOUT_FLOOR_MILLIS;
+        long margin = (long) bodyBytes * 1000L / ASSUMED_UPLINK_BYTES_PER_SECOND;
+        return (int) Math.min(READ_TIMEOUT_CEILING_MILLIS, READ_TIMEOUT_FLOOR_MILLIS + margin);
     }
 
     /** 共享层给出的请求格式是不是本宿主能发的整句上传。 */
