@@ -17,6 +17,7 @@ import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCas
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
+import { RandomDigitOrderPolicy } from './input/RandomDigitOrderPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/CorrectionMarkPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
@@ -561,7 +562,7 @@ struct KeyboardView {
   @State desktop: DesktopSurface = DesktopSurface.NONE;
   @State @Watch('symbolLayerChanged') symbols: boolean = false;
   /** 在触屏键盘的符号层中，当前显示的是否是 #+= 层而不是 123 层；在字母层上始终为 false（Android 的 `ImeLetterRows.moreSymbols`）。 */
-  @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
+  @State @Watch('moreSymbolsChanged') moreSymbols: boolean = false;
   // 九键、14/18 键和假名网格决定字母上方的数字行画不画（`numberRowExtraRows`），变了就重定面板高度，见 `syncStripHeight`。
   @State @Watch('syncStripHeight') nineKey: boolean = false;
   @State nineKeyShuangpinFaces: NineKeyShuangpinFace[] = [];
@@ -737,6 +738,12 @@ struct KeyboardView {
   @State quanpinShift: boolean = KeyboardSession.shared.preferences().quanpinShift;
   /** 共享偏好 `harmony_toolbar`：工具栏上画哪些工具，整行是否隐藏。 */
   @State @Watch('syncStripHeight') toolbarTools: ToolbarTools = KeyboardSession.shared.preferences().toolbarTools;
+  /** 工具栏「随」打乱中文数字九宫格的开关和键序（#10254），只属于这次运行，不存进偏好，与 Android 的 `ImeLayoutRows.randomDigits` 相同。 */
+  private readonly randomDigits: RandomDigitOrderPolicy = new RandomDigitOrderPolicy();
+  /** 「随」亮着：工具栏按它画高亮和读屏的选中态。 */
+  @State randomDigitsOn: boolean = false;
+  /** 数字九宫格十个键位此刻画的数字：0–8 是网格的 1–9，9 是底行的 0（`RandomDigitOrderPolicy`）。只在数字九宫格画着时更新，离开数字页不取随机数。 */
+  @State numberPadDigits: number[] = RandomDigitOrderPolicy.STANDARD.slice();
   /** 共享偏好 `touch_twenty_six_key_style`：中文 26 键的底行样式（`TouchLayoutStylePolicy.designRow`）；长空格样式让工具栏一直画着，所以变了要重定面板高度。 */
   @State @Watch('syncStripHeight') twentySixKeyStyle: string = KeyboardSession.shared.preferences().twentySixKeyStyle;
   /** 共享偏好 `touch_fourteen_key_style`：14 键与 18 键的底行样式。 */
@@ -763,7 +770,7 @@ struct KeyboardView {
   private readonly commaSwipe: CommaSwipeGesture = new CommaSwipeGesture();
   /** 面板上一次按工具条显示与否定下的高度，`syncStripHeight` 只在它和现在不一样时改面板高度。 */
   private stripWasShown: boolean =
-    !TouchToolbarPolicy.rowHidden(KeyboardSession.shared.preferences().toolbarTools);
+    !KeyboardSession.toolbarRowHidden(KeyboardSession.shared.preferences());
   /** 面板上一次定高时多出的行数（手写区、数字行），`syncStripHeight` 只在它和现在不一样时改面板高度。视图出现时换成扩展能力建面板时用的值（`KeyboardSession.firstTouchPanel`）。 */
   private extraRowsWere: number = 0;
 
@@ -1773,6 +1780,12 @@ struct KeyboardView {
   private symbolLayerChanged(): void {
     this.dropLetterGestures();
     this.syncStripHeight();
+  }
+
+  /** 123 层和 #+= 层之间切换：丢掉进行中的字母手势；回到数字九宫格时键面按此刻的随机资格对一次（`syncNumberDigitFaces`）。 */
+  private moreSymbolsChanged(): void {
+    this.dropLetterGestures();
+    this.syncNumberDigitFaces();
   }
 
   private dropLetterGestures(): void {
@@ -3211,6 +3224,10 @@ struct KeyboardView {
     this.shuangpinKeyHints = this.settings.shuangpinKeyHints;
     this.quanpinShift = this.settings.quanpinShift;
     this.toolbarTools = this.settings.toolbarTools;
+    // 关掉「随机数字」入口或把工具栏设成隐藏时「随」够不到，清掉运行时的随机状态，与 Android 相同；取消隐藏后「随」仍是关着的。
+    if (!this.toolbarTools.randomDigits || this.toolbarTools.hidden) {
+      this.disableRandomDigits();
+    }
     this.twentySixKeyStyle = this.settings.twentySixKeyStyle;
     this.fourteenKeyStyle = this.settings.fourteenKeyStyle;
     this.nineKeyStyle = this.settings.nineKeyStyle;
@@ -3763,12 +3780,14 @@ struct KeyboardView {
     const panelOpen: boolean = this.surface !== SURFACE_NONE && this.surface !== SURFACE_NINE_KEY_HOLD
       && this.surface !== SURFACE_VARIANTS;
     // 长空格样式把符号入口放在工具栏上，与 Android 一样这一行一直画着；看的是这块键盘而不是此刻的中/英（`longSpaceToolbarRow`），切到英文 26 键时也留着，面板高度不跳。
-    return TouchToolbarPolicy.stripShown(TouchToolbarPolicy.rowHidden(this.toolbarTools) && !this.longSpaceToolbarRow(),
-      this.stripIdle(), panelOpen);
+    return TouchToolbarPolicy.stripShown(TouchToolbarPolicy.rowHidden(this.toolbarTools, this.chineseScheme())
+      && !this.longSpaceToolbarRow(), this.stripIdle(), panelOpen);
   }
 
   /** 工具条出现或消失时让面板跟着改高度，没变时什么也不做：组字时每打一个字母都会走到这里。 */
   private syncStripHeight(): void {
+    // 中/英、临时模式、方案和工具栏设置都挂在这里，它们一变，数字九宫格的随机资格就可能跟着变。
+    this.syncNumberDigitFaces();
     this.rememberPanelFace();
     if (this.stripShown() !== this.stripWasShown || this.extraRows() !== this.extraRowsWere) {
       this.resizeTouchPanel();
@@ -4483,6 +4502,10 @@ struct KeyboardView {
         this.toolbarButton(KeyboardIconPaths.TOOLBAR_SCHEME, SURFACE_SCHEME, KeyAccessibilityPolicy.scheme(),
           (): void => this.toggle(SURFACE_SCHEME));
       }
+      if (this.randomDigitsEntryShown()) {
+        // 「随」排在工具最后，与 Android 补在工具栏排序末尾一致；亮着表示数字九宫格正在打乱。
+        this.randomDigitsToolbarButton()
+      }
       Column() {
         Column() {
           KeyboardLineIcon({
@@ -4553,6 +4576,41 @@ struct KeyboardView {
       .accessibilityText(label)
       .accessibilitySelected(this.surface === surface)
       .onClick(action)
+      .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+  }
+  /** 工具栏的「随」（#10254）：样子与 `toolbarTextButton` 相同，高亮跟着随机开关（`randomDigitsOn`）而不是打开的面板。高亮在这里直接读状态，不经参数传进来：按值传给 @Builder 的参数变了不会让它重画。 */
+  @Builder
+  randomDigitsToolbarButton() {
+    Column() {
+      Column() {
+        Text('随')
+          .fontSize(this.toolbarSized(KeyboardMetrics.SMALL_KEY_FONT_SIZE + 2))
+          .fontWeight(FUNCTION_LABEL_WEIGHT)
+          .fontColor(this.randomDigitsOn ? this.skin.toggleForeground : this.skin.secondary)
+      }
+      .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
+      .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
+      .backgroundColor(this.randomDigitsOn ? this.skin.toggleBackground : TRANSPARENT)
+      .stateStyles({
+        normal: {
+          .scale({ x: 1, y: 1 })
+        },
+        pressed: {
+          .scale({ x: TOOLBAR_PRESSED_SCALE, y: TOOLBAR_PRESSED_SCALE })
+        }
+      })
+      .animation({ duration: TOOLBAR_PRESS_MS })
+      .accessibilityText(KeyAccessibilityPolicy.randomDigits())
+      // 「随」是开关不是面板，状态读作「已开启」/「已关闭」，与功能面板的开关磁贴、Android 的 stateDescription 和 iOS 的 accessibilityValue 相同。
+      .accessibilityDescription(this.randomDigitsOn ? FunctionPanelPolicy.STATE_ON : FunctionPanelPolicy.STATE_OFF)
+      .accessibilitySelected(this.randomDigitsOn)
+      .onClick((): void => this.toggleRandomDigits())
       .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
     }
     .layoutWeight(1)
@@ -5182,10 +5240,10 @@ struct KeyboardView {
     .height(NineKeyLayout.digitSidebarCellHeight(this.gridHeight(), this.rowSpacing()))
   }
 
-  /** 触屏网格中间的 3×3 格：字母层是 @# 和字母组，数字层是 1–9。普通网格和「右侧大回车」外框共用。 */
+  /** 触屏网格中间的 3×3 格：字母层是 @# 和字母组，数字层是 1–9（「随」开着时按 `numberPadDigits` 打乱）。普通网格和「右侧大回车」外框共用。 */
   @Builder
   touchNineKeyCells() {
-    ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.touchRows(), (row: NineKey[]) => {
+    ForEach(this.symbols ? NineKeyLayout.digitsInOrder(this.numberPadDigits) : NineKeyLayout.touchRows(), (row: NineKey[]) => {
       Row({ space: this.keySpacing() }) {
         ForEach(row, (key: NineKey) => {
           if (!this.symbols && !this.nineKeyShuangpinFaceActive()
@@ -5198,7 +5256,8 @@ struct KeyboardView {
       }
       .layoutWeight(1)
       .width('100%')
-    }, (row: NineKey[]) => row[0].input + this.faceKey())
+      // 行的键要含整行三个键：「随」重排后新的一行可能和旧的一行首键相同，只看首键时 ForEach 会留着旧行和它里面的旧键，网格就出现重复的数字、缺掉另一些。标准键序下各行的键不变。
+    }, (row: NineKey[]) => row.map((key: NineKey): string => key.input).join('') + this.faceKey())
   }
 
   /** 触屏网格右列的第二格：字母层是拼音分词，数字层是字面小数点。普通网格和「右侧大回车」外框共用；键面直接写在这里而不是由方法返回，切层时键面才会跟着变（见 `KeyOptions`）。 */
@@ -5424,7 +5483,7 @@ struct KeyboardView {
    */
   private typeNineKeyZero(): void {
     if (this.symbols) {
-      this.typeNineKeyDigit('0');
+      this.typeNineKeyDigit(`${this.numberPadDigits[9]}`);
       return;
     }
     if (this.nineKeyShuangpinFaceActive()) {
@@ -5437,10 +5496,12 @@ struct KeyboardView {
     KeyboardSession.shared.insert('0');
   }
 
-  /** 数字九宫格上的一个数字（`typeNumberPadText`）；借来的数字九宫格记普通数字键，自己的九键网格（`ownsNineKeyGrid`）记 Nine。 */
+  /** 数字九宫格上的一个数字（`typeNumberPadText`）；借来的数字九宫格记普通数字键，自己的九键网格（`ownsNineKeyGrid`）记 Nine。`digit` 是这个键此刻画着的数字，统计按它记；「随」开着时上屏后重新打乱，与 Android 的 `bindNumberDigit` 相同。 */
   private typeNineKeyDigit(digit: string): void {
     KeyboardSession.shared.softKeyPress(this.ownsNineKeyGrid() ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
     this.typeNumberPadText(digit);
+    this.randomDigits.afterDigit(this.randomDigitsEligible());
+    this.syncNumberDigitFaces();
   }
 
   /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
@@ -5557,12 +5618,12 @@ struct KeyboardView {
     }
   }
 
-  /** 九键外框数字层底行的 0：标准排在空格右边，「右侧大回车」排在空格左边、占剩余宽度。 */
+  /** 九键外框数字层底行的 0：标准排在空格右边，「右侧大回车」排在空格左边、占剩余宽度。「随」开着时这一格和网格一起打乱（键位 9），键面和读屏按此刻画的数字。 */
   @Builder
   nineKeyZeroKey(width: number, share: number) {
     this.fixedKey({
-      face: '0',
-      label: '数字 0',
+      face: this.symbols ? `${this.numberPadDigits[9]}` : '0',
+      label: this.symbols ? `数字 ${this.numberPadDigits[9]}` : '数字 0',
       size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
       fontWeight: FUNCTION_LABEL_WEIGHT,
       emphasized: false,
@@ -6390,6 +6451,52 @@ struct KeyboardView {
   private longSpaceActive(): boolean {
     return TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixFace(), this.twentySixKeyStyle,
       this.standardRowsField);
+  }
+
+  /** 用户选的方案写中文（`SchemeTraits.isChinese`），不看此刻的中/英和临时模式：「随」入口让工具栏那一行留着只看它和设置（`TouchToolbarPolicy.rowHidden`），与 Android 的 `randomDigitsKeepsToolbarRow` 相同。 */
+  private chineseScheme(): boolean {
+    return SchemeTraits.isChinese(SchemeTraits.fromName(this.scheme.engineScheme));
+  }
+
+  /** 工具栏上画「随」：设置里打开了入口、工具栏没设成隐藏、触屏键盘、中文方案正处在中文且没有临时模式，与 Android 的 `randomDigitsEntryVisible` 相同；英文键盘不给入口。 */
+  private randomDigitsEntryShown(): boolean {
+    return this.toolbarTools.randomDigits && !this.toolbarTools.hidden && this.touchDesign() && !this.english
+      && this.chineseScheme() && this.localMode === 'none';
+  }
+
+  /** 数字九宫格此刻按随机键序画：入口在，而且画着的就是数字九宫格。 */
+  private randomDigitsEligible(): boolean {
+    return this.randomDigitsEntryShown() && this.numberPadShowing();
+  }
+
+  /** 点「随」：只切换开关和高亮，不跳到数字页；正画着数字九宫格时当场换键面。 */
+  private toggleRandomDigits(): void {
+    this.randomDigits.setEnabled(!this.randomDigits.enabled());
+    this.randomDigitsOn = this.randomDigits.enabled();
+    this.syncNumberDigitFaces();
+  }
+
+  /** 入口被关掉或工具栏被隐藏：关掉随机，数字九宫格回到标准键序。 */
+  private disableRandomDigits(): void {
+    if (!this.randomDigits.enabled()) {
+      return;
+    }
+    this.randomDigits.setEnabled(false);
+    this.randomDigitsOn = false;
+    this.syncNumberDigitFaces();
+  }
+
+  /**
+   * 数字九宫格的十个键面按此刻的随机资格对一次：在数字页上进出临时模式、切中/英、换方案或改工具栏设置时，键区不一定重建，键面不能停在上一种排列，否则键面写着 4、点下去上屏的却是另一个数字。不在数字页时什么也不做，所以离开数字页不取随机数；回来时沿用上次排列。
+   */
+  private syncNumberDigitFaces(): void {
+    if (!this.numberPadShowing()) {
+      return;
+    }
+    const faces: number[] = this.randomDigits.faces(this.randomDigitsEligible());
+    if (faces.some((digit: number, slot: number): boolean => digit !== this.numberPadDigits[slot])) {
+      this.numberPadDigits = faces;
+    }
   }
 
   /** 字母上方的数字行（或 123 层上的补充行）多出的行数，0 或 1（`TouchLayoutStylePolicy.numberRowExtraRows`）；2in1 没有。 */

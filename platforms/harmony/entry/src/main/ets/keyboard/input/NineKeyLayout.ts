@@ -506,6 +506,28 @@ export class NineKeyLayout {
     return DIGIT_ROWS;
   }
 
+  /**
+   * 触屏数字九宫格按给定键序画的网格（#10254 的随机数字）：`order` 是十个键位的数字，前九个依次填进 3×3 网格，第十个是底行的 0 那一格，不在这里。标准键序时就是 `digits()` 那一份，不另建对象。
+   */
+  static digitsInOrder(order: readonly number[]): NineKey[][] {
+    if (order.length !== 10) {
+      throw new Error(`Expected ten digit slots, got ${order.length}`);
+    }
+    if (order.every((digit: number, slot: number): boolean => digit === (slot + 1) % 10)) {
+      return DIGIT_ROWS;
+    }
+    const rows: NineKey[][] = [];
+    for (let row = 0; row < 3; row++) {
+      const cells: NineKey[] = [];
+      for (let column = 0; column < 3; column++) {
+        const face: string = `${order[row * 3 + column]}`;
+        cells.push(key(face, face, face));
+      }
+      rows.push(cells);
+    }
+    return rows;
+  }
+
   static punctuation(): string[] {
     return PUNCTUATION;
   }

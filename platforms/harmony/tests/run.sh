@@ -359,7 +359,8 @@ keyboard_body=$(sed -n '/^  private chineseTwentySixKeyboard(): boolean {$/,/^  
 toolbar_row_body=$(sed -n '/^  private longSpaceToolbarRow(): boolean {$/,/^  }$/p' "$view")
 face_body=$(sed -n '/^  private chineseTwentySixFace(): boolean {$/,/^  }$/p' "$view")
 touch_keyboard_body=$(sed -n '/^  private touchKeyboard(): TouchKeyboard {$/,/^  }$/p' "$view")
-if ! grep -qF 'TouchToolbarPolicy.rowHidden(this.toolbarTools) && !this.longSpaceToolbarRow(),' <<< "$strip_body" \
+if ! grep -qF 'TouchToolbarPolicy.rowHidden(this.toolbarTools, this.chineseScheme())' <<< "$strip_body" \
+  || ! grep -qF '&& !this.longSpaceToolbarRow(), this.stripIdle(), panelOpen);' <<< "$strip_body" \
   || ! grep -qF 'this.toolbarTools.hidden && this.longSpaceToolbarRow()' <<< "$tool_shown_body" \
   || ! grep -qF 'chineseTwentySix: this.chineseTwentySixKeyboard()' <<< "$remember_face_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.longSpaceActive(this.chineseTwentySixKeyboard(), this.twentySixKeyStyle,' <<< "$toolbar_row_body" \
@@ -733,6 +734,35 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
+  exit 1
+fi
+# 随机数字（#10254）：键序、离页不取随机数、恒等排列强制换序由 random-digits.test.ts 覆盖，「随」只在中文方案让工具栏那一行留着由 kb-view.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：网格和底行的 0 都按 numberPadDigits 画，网格每一行的 ForEach 键含整行三个键（只看首键时重排后首键相同的旧行会留着，网格出现重复的数字），上屏取这一格此刻画的数字、记统计后再打乱；中/英、临时模式、方案、工具栏设置（syncStripHeight）和 123 与 #+= 之间的切换都让键面按资格对一次；关掉入口或隐藏工具栏清掉随机状态；「随」的高亮和读屏状态（已开启/已关闭）在 builder 里直接读状态；冷启动面板按偏好里的方案判断那一行。
+random_cells_body=$(sed -n '/^  touchNineKeyCells() {$/,/^  }$/p' "$view")
+random_digit_body=$(sed -n '/^  private typeNineKeyDigit(digit: string): void {$/,/^  }$/p' "$view")
+random_zero_body=$(sed -n '/^  private typeNineKeyZero(): void {$/,/^  }$/p' "$view")
+random_sync_body=$(sed -n '/^  private syncStripHeight(): void {$/,/^  }$/p' "$view")
+random_more_body=$(sed -n '/^  private moreSymbolsChanged(): void {$/,/^  }$/p' "$view")
+random_settings_body=$(sed -n '/^  private applySettings(): void {$/,/^  }$/p' "$view")
+random_button_body=$(sed -n '/^  randomDigitsToolbarButton() {$/,/^  }$/p' "$view")
+random_toolbar_body=$(sed -n '/^  toolbarRow() {$/,/^  }$/p' "$view")
+if ! grep -qF 'NineKeyLayout.digitsInOrder(this.numberPadDigits)' <<< "$random_cells_body" \
+  || ! grep -qF "}, (row: NineKey[]) => row.map((key: NineKey): string => key.input).join('') + this.faceKey())" <<< "$random_cells_body" \
+  || ! grep -qF "face: this.symbols ? \`\${this.numberPadDigits[9]}\` : '0'," "$view" \
+  || ! grep -qF 'this.typeNineKeyDigit(`${this.numberPadDigits[9]}`);' <<< "$random_zero_body" \
+  || ! grep -qF 'this.typeNumberPadText(digit);' <<< "$random_digit_body" \
+  || ! grep -qF 'this.randomDigits.afterDigit(this.randomDigitsEligible());' <<< "$random_digit_body" \
+  || ! grep -qF 'this.syncNumberDigitFaces();' <<< "$random_digit_body" \
+  || ! grep -qF 'this.syncNumberDigitFaces();' <<< "$random_sync_body" \
+  || ! grep -qF 'this.syncNumberDigitFaces();' <<< "$random_more_body" \
+  || ! grep -qF "@State @Watch('moreSymbolsChanged') moreSymbols: boolean = false;" "$view" \
+  || ! grep -qF 'if (!this.toolbarTools.randomDigits || this.toolbarTools.hidden) {' <<< "$random_settings_body" \
+  || ! grep -qF '.accessibilitySelected(this.randomDigitsOn)' <<< "$random_button_body" \
+  || ! grep -qF '.accessibilityDescription(this.randomDigitsOn ? FunctionPanelPolicy.STATE_ON : FunctionPanelPolicy.STATE_OFF)' <<< "$random_button_body" \
+  || ! grep -qF '.onClick((): void => this.toggleRandomDigits())' <<< "$random_button_body" \
+  || ! grep -qF 'if (this.randomDigitsEntryShown()) {' <<< "$random_toolbar_body" \
+  || ! grep -qF '!KeyboardSession.toolbarRowHidden(KeyboardSession.shared.preferences());' "$view" \
+  || [[ $(grep -cF 'KeyboardSession.toolbarRowHidden(settings)' "$session") -ne 2 ]]; then
+  echo "Random digits must draw the grid and the bottom-row 0 from numberPadDigits, key each grid row by all of its cells, type the face it shows before reshuffling, resync the faces whenever eligibility can change, clear the runtime switch when the entry or the toolbar goes away, read the 随 highlight and its 已开启/已关闭 state inside its builder, and size the first panel from the preference scheme" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

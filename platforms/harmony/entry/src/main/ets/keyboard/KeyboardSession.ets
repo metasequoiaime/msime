@@ -3408,7 +3408,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   decideFirstTouchPanel(phoneLandscape: boolean): TouchPanelShape {
     const settings: KeyboardPreferences = this.preferences();
     this.openedTouchPanel = TouchLayoutStylePolicy.firstPanel(this.rememberedTouchPanelFace(), settings.numberRow,
-      settings.twentySixKeyStyle, TouchToolbarPolicy.rowHidden(settings.toolbarTools), phoneLandscape);
+      settings.twentySixKeyStyle, KeyboardSession.toolbarRowHidden(settings), phoneLandscape);
     return this.openedTouchPanel;
   }
 
@@ -3419,7 +3419,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const settings: KeyboardPreferences = this.preferences();
     return TouchLayoutStylePolicy.firstPanel(null, settings.numberRow, settings.twentySixKeyStyle,
-      TouchToolbarPolicy.rowHidden(settings.toolbarTools), false);
+      KeyboardSession.toolbarRowHidden(settings), false);
+  }
+
+  /** 视图出现之前按偏好判断空闲工具栏那一行画不画（`TouchToolbarPolicy.rowHidden`）：「随」入口看偏好里的方案是不是中文，视图之后按引擎方案用同一条规则核对。 */
+  static toolbarRowHidden(settings: KeyboardPreferences): boolean {
+    return TouchToolbarPolicy.rowHidden(settings.toolbarTools,
+      SchemeTraits.isChinese(SchemeTraits.fromName(settings.scheme)));
   }
 
   /** 记下视图这一刻的键面，下次冷启动建面板时用；和上次写的一样时不写盘（视图每次重定高度都会调）。写不进去只记日志，下次照没记过建面板。 */

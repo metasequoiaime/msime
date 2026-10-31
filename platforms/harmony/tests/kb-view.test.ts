@@ -417,13 +417,14 @@ group(
         defaults.clipboard &&
         defaults.skin &&
         defaults.scheme &&
-        !defaults.hidden,
-      "a document without harmony_toolbar keeps every tool, as the keyboard always had",
+        !defaults.hidden &&
+        !defaults.randomDigits,
+      "a document without harmony_toolbar keeps every tool and no 随 entry, as the keyboard always had",
     );
-    check(!TouchToolbarPolicy.rowHidden(defaults), "so the row is shown");
+    check(!TouchToolbarPolicy.rowHidden(defaults, true), "so the row is shown");
     const partial = TouchToolbarPolicy.fromDocument({ clipboard: false });
     check(!partial.clipboard && partial.emoji && partial.scheme, "a missing tool stays on");
-    check(!TouchToolbarPolicy.rowHidden(partial), "one tool off leaves the row");
+    check(!TouchToolbarPolicy.rowHidden(partial, true), "one tool off leaves the row");
     const none = TouchToolbarPolicy.fromDocument({
       emoji: false,
       phrase: false,
@@ -432,12 +433,40 @@ group(
       scheme: false,
     });
     check(
-      TouchToolbarPolicy.rowHidden(none),
+      TouchToolbarPolicy.rowHidden(none, true),
       "with every tool off only the logo and chevron would be left, so the row goes",
     );
     check(
-      TouchToolbarPolicy.rowHidden(TouchToolbarPolicy.fromDocument({ hidden: true })),
+      TouchToolbarPolicy.rowHidden(TouchToolbarPolicy.fromDocument({ hidden: true }), true),
       "the 隐藏 display mode hides it with tools on",
+    );
+    const onlyRandom = TouchToolbarPolicy.fromDocument({
+      emoji: false,
+      phrase: false,
+      clipboard: false,
+      skin: false,
+      scheme: false,
+      random_digits: true,
+    });
+    check(onlyRandom.randomDigits, "random_digits reads into randomDigits");
+    check(
+      !TouchToolbarPolicy.rowHidden(onlyRandom, true),
+      "the 随 entry alone keeps the row on a Chinese scheme, as Android's randomDigitsKeepsToolbarRow does",
+    );
+    check(
+      TouchToolbarPolicy.rowHidden(onlyRandom, false),
+      "a non-Chinese scheme draws no 随, so it does not keep the row",
+    );
+    check(
+      TouchToolbarPolicy.rowHidden(
+        TouchToolbarPolicy.fromDocument({ random_digits: true, hidden: true }),
+        true,
+      ),
+      "隐藏 still hides the row with 随 on",
+    );
+    check(
+      !TouchToolbarPolicy.fromDocument({ random_digits: "yes" as unknown as boolean }).randomDigits,
+      "a value that is not a boolean reads as the default off",
     );
     check(
       TouchToolbarPolicy.stripShown(false, true, false),

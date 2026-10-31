@@ -62,6 +62,11 @@ export class KeyAccessibilityPolicy {
     return "选择输入方案";
   }
 
+  /** 工具栏的「随」，与 Android 的读屏名称相同；开没开由选中态报出。 */
+  static randomDigits(): string {
+    return "随机数字";
+  }
+
   static tools(): string {
     return "更多快捷设置";
   }
