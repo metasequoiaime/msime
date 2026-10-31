@@ -16,11 +16,13 @@ import org.json.JSONObject;
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean shuangpinOnly;
+    private boolean gridHelpcode;
     private boolean wubiOnly;
     private boolean eighteenKey;
     private boolean eighteenShuangpin;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        gridHelpcode = arguments != null && "true".equals(arguments.getString("grid_helpcode"));
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
         wubiOnly = arguments != null && "true".equals(arguments.getString("wubi_only"));
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
@@ -32,6 +34,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
+        if (gridHelpcode) return "9／14／18 键辅码、大小写、左栏锁定、符号恢复、退出与分词";
         if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
         if (wubiOnly) return "14 键五笔设置、组码、符号键、实体字母、86/98 保留与布局回落";
@@ -40,6 +43,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (gridHelpcode) { GridHelpcodeDeviceChecks.run(this); return; }
         if (eighteenShuangpin) {
             FourteenKeyShuangpinDeviceChecks.runEighteen(this);
             return;
@@ -341,7 +345,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
         });
     }
 
-    private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
+    void awaitGone(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             boolean present = false;

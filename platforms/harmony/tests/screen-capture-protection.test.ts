@@ -71,9 +71,15 @@ group("without system authentication nothing changes, not even the first switch-
 });
 
 group("on without the turned-on mark counts as turned on before", () => {
-  check(decide(state(true, false), false, true) === D.AUTHENTICATE, "switch-off still authenticates");
+  check(
+    decide(state(true, false), false, true) === D.AUTHENTICATE,
+    "switch-off still authenticates",
+  );
   const parsed = ScreenCaptureProtectionPolicy.parse('{"enabled":true}');
-  check(parsed.enabled && parsed.enabledBefore, "a file that is on but lacks the mark reads as turned on before");
+  check(
+    parsed.enabled && parsed.enabledBefore,
+    "a file that is on but lacks the mark reads as turned on before",
+  );
 });
 
 group("saving remembers that it was turned on", () => {
@@ -86,7 +92,9 @@ group("saving remembers that it was turned on", () => {
 
 group("the file round-trips and a missing or broken one is off and never turned on", () => {
   for (const value of [state(false, false), state(true, true), state(false, true)]) {
-    const read = ScreenCaptureProtectionPolicy.parse(ScreenCaptureProtectionPolicy.serialize(value));
+    const read = ScreenCaptureProtectionPolicy.parse(
+      ScreenCaptureProtectionPolicy.serialize(value),
+    );
     check(
       read.enabled === value.enabled && read.enabledBefore === value.enabledBefore,
       `${JSON.stringify(value)} survives a write and a read`,
@@ -97,7 +105,16 @@ group("the file round-trips and a missing or broken one is off and never turned 
     enabled_before: boolean;
   };
   check(written.enabled && written.enabled_before, "the file never holds on without the mark");
-  for (const text of [null, "", "not json", "null", "[]", '"on"', '{"enabled":"true"}', "x".repeat(5000)]) {
+  for (const text of [
+    null,
+    "",
+    "not json",
+    "null",
+    "[]",
+    '"on"',
+    '{"enabled":"true"}',
+    "x".repeat(5000),
+  ]) {
     const read = ScreenCaptureProtectionPolicy.parse(text);
     check(!read.enabled && !read.enabledBefore, `${String(text).slice(0, 20)} reads as off`);
   }

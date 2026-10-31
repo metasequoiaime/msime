@@ -97,6 +97,15 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     .map_err(|_| "dictionary access unavailable".to_owned())?
     .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
     let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+    let helpcode = helpcode_for_scheme(
+        &applied,
+        if options.scheme == SchemeType::Shuangpin as u8 {
+            InputScheme::Shuangpin
+        } else {
+            InputScheme::Quanpin
+        },
+    );
+    engine.set_grid_helpcode_enabled(helpcode.enabled && helpcode.grid_enabled);
     // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败。
     if let Some(state) = state_root.as_deref().filter(|_| usage == SessionUse::Input) {
         let _ = msime_client_providers::dictionary_updates::record_loaded(

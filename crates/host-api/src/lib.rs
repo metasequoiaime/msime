@@ -916,6 +916,7 @@ impl HostSession {
         apply_punctuation_marks(&mut options, &preferences);
         // 先构建并校验，失败时原会话仍然可用。
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
+        engine.set_grid_helpcode_enabled(helpcode.enabled && helpcode.grid_enabled);
         engine.set_prediction_allowed(!self.statistics_private);
         // 云候选席位不是 EngineOptions；新引擎默认关闭，每次重建都要恢复当前偏好。
         engine.set_cloud_candidates_enabled(preferences.cloud_candidates);

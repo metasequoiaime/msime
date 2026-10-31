@@ -132,6 +132,9 @@ pub struct View {
     pub nine_key_single_character: bool,
     /// 九宫格候选当前按这几笔的笔顺前缀筛选（`hspnz`），空表示不按笔画。组字结束时清空。
     pub nine_key_strokes: String,
+    /// 仅供键盘渲染，不能并入应用预编辑串。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grid_helpcode: Option<msime_engine::grid_helpcode::GridHelpcodeSnapshot>,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.

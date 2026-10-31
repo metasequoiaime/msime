@@ -46,6 +46,10 @@ RUST_ONLY: dict[str, set[str]] = {
         "dictionary_sync_webdav",
 
     },
+    "HelpcodePreferences": {
+        # 网格辅筛目前仅由 Android 原生 TypingPage 提供入口，React 设置页保留共享字段。
+        "grid_enabled",
+    },
     "KeybindingPreferences": set(),
     "TouchToolbarPreferences": {
         # 撤销与重做仅在 Android 原生工具栏设置页提供入口，其他宿主保留共享字段，React 设置页不显示。

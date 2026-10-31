@@ -21,6 +21,7 @@ pub mod diagnostics;
 mod dictionary;
 mod error;
 pub mod format;
+pub mod grid_helpcode;
 mod handwriting;
 mod helpcode;
 #[doc(hidden)]

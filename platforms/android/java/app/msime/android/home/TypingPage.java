@@ -363,6 +363,9 @@ public final class TypingPage extends ReloadingDetailPage {
             aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
                 "关掉后候选旁不再标注辅助码，Shift 筛选照常可用", shownInCandidates,
                 checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
+            aux.toggle("网格辅码优先", "9／14／18 键组字时用辅码键消歧；一码只排序，两码筛选",
+                helpcode != null && helpcode.optBoolean("grid_enabled", false),
+                checked -> saveHelpcode(family, shuangpin, "grid_enabled", checked));
             boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
             aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选",
                 "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选",
