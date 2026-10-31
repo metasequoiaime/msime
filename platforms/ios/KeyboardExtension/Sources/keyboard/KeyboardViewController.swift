@@ -6614,7 +6614,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 大千注音、14 键和 18 键的各排第一次要画时才建，建好后一直留着。首次出现的键盘原来把每种方案的键都建好再藏起来，两百多个按键里这三种占了将近八十个，挡在第一帧前面，而大多数人从来不用它们。
   ///
-  /// 在 `updateKeyboardLayout` 的最前面调用，后面的键距、iPad 宽度、18 键第二排缩进和显隐都照常落到新建的行上。
+  /// 在 `updateKeyboardLayout` 的最前面调用，后面的键距、iPad 宽度和显隐都照常落到新建的行上。
   private func ensureAlternateLetterRows() {
     guard actionRow != nil, isChineseMode, !isInLocalMode, !showsSymbols else { return }
     if inputScheme.isZhuyin && zhuyinRowViews.isEmpty {
