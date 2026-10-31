@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
@@ -20,7 +21,7 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** 分类符号面板：全宽网格上下滚动，底栏分类左右滚动，左上返回、右下删除。目录分类从 Engine 分页读，滚到底再读下一页。 */
+/** 分类符号面板：全宽网格上下滚动，底栏分类左右滚动，顶部整行返回、右下删除。目录分类从 Engine 分页读，滚到底再读下一页。 */
 public final class SymbolPanelView extends LinearLayout {
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
@@ -46,7 +47,7 @@ public final class SymbolPanelView extends LinearLayout {
     private final ButtonFactory buttons;
     private final Listener listener;
     private final LinearLayout categories;
-    private final ImageView headerMascot = new ImageView(getContext());
+    private final ImageView[] headerMascots = {new ImageView(getContext()), new ImageView(getContext())};
     private final GridLayout grid = new GridLayout(getContext()) {
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -58,7 +59,7 @@ public final class SymbolPanelView extends LinearLayout {
                 // 测量期间按新宽度重排并再次测量，确保本轮布局拿到每个键的尺寸。
                 // 若等布局完成后才替换子视图，新键没有经过测量，首次打开就会整片空白。
                 removeAllViews();
-                appendRows(category, category.symbols(), 0);
+                appendRows(category, category.symbols(), 0, 0);
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
             }
         }
@@ -88,6 +89,10 @@ public final class SymbolPanelView extends LinearLayout {
     private boolean catalogComplete;
     private boolean catalogLoading;
     private long catalogGeneration;
+    /** 网格最后一行从第几个条目、第几个子视图、第几行开始（{@link #appendRows} 记下）：目录读到下一页时从这一行的开头重排，成对符号留出的空格和跨列的长条目都已算在里面。 */
+    private int lastRowItem;
+    private int lastRowChild;
+    private int lastRowIndex;
     private int selectedRadicalStroke = -1;
 
     /** 每次打开都显示「常用」，没有使用记录时显示空态提示。 */
@@ -147,10 +152,20 @@ public final class SymbolPanelView extends LinearLayout {
         this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
-    /** 复用表情包后台加载的缩略图，装饰不单独接收触摸，整行仍用于返回。 */
+    /** 复用返回栏两张独立插图，装饰不单独接收触摸，整行仍用于返回。 */
+    public void setHeaderMascots(Bitmap left, Bitmap right) {
+        setHeaderImage(headerMascots[0], left);
+        setHeaderImage(headerMascots[1], right);
+    }
+
+    /** 兼容旧的单图调用方；新返回栏应传入左右两张朝内插图。 */
     public void setHeaderMascot(Bitmap image) {
-        headerMascot.setImageBitmap(image);
-        headerMascot.setVisibility(image == null ? View.GONE : View.VISIBLE);
+        setHeaderMascots(image, image);
+    }
+
+    private static void setHeaderImage(ImageView view, Bitmap image) {
+        view.setImageBitmap(image);
+        view.setVisibility(image == null ? View.GONE : View.VISIBLE);
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
@@ -166,21 +181,25 @@ public final class SymbolPanelView extends LinearLayout {
         // 空格、边距和空分类也属于面板，不能让触摸落到底下的键盘。
         setClickable(true);
 
-        LinearLayout title = LayoutPolicy.row(context);
-        ViewPolicy.setCenteredVertically(title);
+        FrameLayout title = new FrameLayout(context);
         ViewPolicy.bindClick(title, listener::close);
         title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
-        Button back = buttons.create("返回", "关闭符号面板", listener::close, true);
+        Button back = buttons.create("返回上一界面", "关闭符号面板", listener::close, true);
         styleHeaderButton(back);
-        back.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        back.setPadding(DimensionPolicy.pixels(context, 12), 0, 0, 0);
-        back.setLayoutParams(LayoutPolicy.weightedHeightParams(context, 44, 1));
-        title.addView(back);
-        headerMascot.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        headerMascot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        headerMascot.setVisibility(View.GONE);
-        title.addView(headerMascot, LayoutPolicy.linearParams(context, 44, 44));
+        back.setGravity(Gravity.CENTER);
+        int mascotEdge = DimensionPolicy.pixels(context, 44);
+        // 单个返回按钮覆盖整行；装饰叠在两侧且不消费事件，读屏也只遇到一个动作。
+        back.setPadding(mascotEdge, 0, mascotEdge, 0);
+        title.addView(back, LayoutPolicy.frameParamsPx(LayoutParams.MATCH_PARENT, mascotEdge));
+        for (int index = 0; index < headerMascots.length; index++) {
+            ImageView mascot = headerMascots[index];
+            mascot.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            mascot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mascot.setVisibility(View.GONE);
+            title.addView(mascot, LayoutPolicy.frameParamsPx(mascotEdge, mascotEdge,
+                (index == 0 ? Gravity.LEFT : Gravity.RIGHT) | Gravity.CENTER_VERTICAL));
+        }
         addView(title, LayoutPolicy.matchWidthWrapParams());
 
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
@@ -313,7 +332,7 @@ public final class SymbolPanelView extends LinearLayout {
         } else if (current.symbols().isEmpty()) {
             showHint(SymbolPanelModel.RECENTS_EMPTY_HINT, current.columns());
         } else {
-            appendRows(current, current.symbols(), 0);
+            appendRows(current, current.symbols(), 0, 0);
         }
         gridScroll.scrollTo(0, 0);
         categoryScroll.post(this::revealSelectedCategory);
@@ -363,9 +382,7 @@ public final class SymbolPanelView extends LinearLayout {
             grid.addView(header, params);
             listener.restyle(header);
             radicalHeaders.add(header);
-            List<String> symbols = RadicalPanelModel.symbols(stroke);
-            appendRows(category, symbols, 0, row);
-            row += (symbols.size() + category.columns() - 1) / category.columns();
+            row = appendRows(category, RadicalPanelModel.symbols(stroke), 0, row);
         }
     }
 
@@ -492,14 +509,11 @@ public final class SymbolPanelView extends LinearLayout {
         listener.restyle(hint);
     }
 
-    /** 把 `symbols` 里从 `from` 起的条目接在网格后面；`from` 必须是整行的开头。 */
-    private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from) {
-        appendRows(category, symbols, from, 0);
-    }
-
-    private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from, int firstRow) {
+    /** 把 `symbols` 里从 `from` 起的条目从第 `row` 行的开头接在网格后面，返回排完后的下一行。 */
+    private int appendRows(SymbolPanelModel.Category category, List<String> symbols, int from, int row) {
         int columns = category.columns();
-        int rowIndex = firstRow + from / columns, columnIndex = 0;
+        int rowIndex = row, columnIndex = 0;
+        markRowStart(from, rowIndex);
         float columnWidth = grid.getMeasuredWidth() / (float) columns;
         for (int index = from; index < symbols.size(); index++) {
             String symbol = symbols.get(index);
@@ -522,10 +536,13 @@ public final class SymbolPanelView extends LinearLayout {
             if (SymbolPanelModel.centersGlyphInk(symbol)) CenteredGlyphSpan.apply(button, symbol, 1f);
             int span = SymbolPanelModel.cellColumnSpan(category, symbol, button.getPaint().measureText(symbol),
                 columnWidth, DimensionPolicy.pixels(getContext(), 12));
-            if (columnIndex + span > columns) {
+            // 放不下的长条目换到下一行；成对符号的前半个落在行尾时也换行，两半排在同一行。
+            if (columnIndex + span > columns
+                    || SymbolPanelModel.breaksBeforePair(symbols, index, columnIndex, columns)) {
                 addGridSpacer(rowIndex, columnIndex, columns - columnIndex);
                 rowIndex++;
                 columnIndex = 0;
+                markRowStart(index, rowIndex);
             }
             GridLayout.LayoutParams params = gridCellParams(rowIndex, columnIndex, span);
             grid.addView(button, params);
@@ -533,9 +550,18 @@ public final class SymbolPanelView extends LinearLayout {
             if (columnIndex == columns) {
                 rowIndex++;
                 columnIndex = 0;
+                markRowStart(index + 1, rowIndex);
             }
         }
-        if (columnIndex > 0) addGridSpacer(rowIndex, columnIndex, columns - columnIndex);
+        if (columnIndex == 0) return rowIndex;
+        addGridSpacer(rowIndex, columnIndex, columns - columnIndex);
+        return rowIndex + 1;
+    }
+
+    private void markRowStart(int item, int row) {
+        lastRowItem = item;
+        lastRowChild = grid.getChildCount();
+        lastRowIndex = row;
     }
 
     private GridLayout.LayoutParams gridCellParams(int row, int column, int span) {
@@ -581,8 +607,6 @@ public final class SymbolPanelView extends LinearLayout {
         if (generation != catalogGeneration) return;
         catalogLoading = false;
         int shown = catalogItems.size();
-        // 新的一页先补满上一页没排满的那一行：网格按行排，接着排就要从那一行的开头重排。
-        int rowStart = shown - shown % category.columns();
         catalogItems = SymbolPanelModel.appendCatalogPage(catalogItems, items);
         catalogNextOffset = nextOffset;
         catalogComplete = complete || SymbolPanelModel.catalogFull(catalogItems);
@@ -591,19 +615,19 @@ public final class SymbolPanelView extends LinearLayout {
             else loadNextCatalogPage();
             return;
         }
-        if (shown == 0) grid.removeAllViews();
-        else removeRowsFrom(rowStart, category.columns());
-        appendRows(category, catalogItems, rowStart);
+        if (shown == 0) {
+            grid.removeAllViews();
+            appendRows(category, catalogItems, 0, 0);
+        } else {
+            // 新的一页先补满上一页没排满的那一行：网格按行排，接着排就要从那一行的开头重排。
+            int from = lastRowItem, row = lastRowIndex;
+            while (grid.getChildCount() > lastRowChild) grid.removeViewAt(grid.getChildCount() - 1);
+            appendRows(category, catalogItems, from, row);
+        }
         // 一页没有铺满可见区域时滚不动，也就等不到滚到底，接着读。
         if (!catalogComplete) gridScroll.post(() -> {
             if (generation == catalogGeneration && !gridScroll.canScrollVertically(1)) loadNextCatalogPage();
         });
-    }
-
-    /** 去掉从第 `rowStart` 个条目所在行起的格子（包括补位的空白格），好让那一行重新排。 */
-    private void removeRowsFrom(int rowStart, int columns) {
-        int keep = rowStart / columns * columns;
-        while (grid.getChildCount() > keep) grid.removeViewAt(grid.getChildCount() - 1);
     }
 
     private void insert(String symbol, boolean wholePair, boolean remember) {

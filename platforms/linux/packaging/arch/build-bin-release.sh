@@ -34,7 +34,8 @@ docker run --rm --platform linux/amd64 \
     useradd -m builder; chown -R builder: /work
     # PKGBUILD 在打包时核对动态库，必须装齐依赖；makepkg 经 sudo 调用 pacman。
     echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
-    su builder -c "cd /work && SRCDEST=/input makepkg --syncdeps --noconfirm"
+    # makepkg 启动时要求 SRCDEST 可写；/input 是 docker 为只读挂载建的 root 目录，不可写。RPM 已复制在 /work 里，makepkg 在那里找到同名文件就不再下载。
+    su builder -c "cd /work && SRCDEST=/work makepkg --syncdeps --noconfirm"
     cp /work/*.pkg.tar.zst /out/
   '
 python3 - "$out" <<'PY'
