@@ -7,6 +7,7 @@
  */
 
 import { PRIVACY_CONSENT_ENTRY, PRIVACY_CONSENT_FILE } from "../privacy/PrivacyConsentPolicy";
+import { KEYBOARD_PERSONAL_WORDBOOK_PATH } from "./PersonalWordbookPolicy";
 import {
   SCREEN_CAPTURE_PROTECTION_ENTRY,
   SCREEN_CAPTURE_PROTECTION_FILE,
@@ -87,6 +88,8 @@ export const ABSENT_FINGERPRINT: string = "absent";
 export const MANIFEST_FILE: string = "manifest.json";
 /** 设置应用写给键盘的统计开关，见 `StatisticsSwitch`。 */
 export const STATISTICS_SWITCH_FILE: string = "typing-statistics-switch.json";
+/** 键盘那本生词本的镜像条目名。 */
+export const KEYBOARD_PERSONAL_WORDBOOK_ENTRY: string = "personal-wordbook";
 const RETENTIONS: string[] = ["forever", "30d", "90d", "180d", "365d"];
 
 /** 本机匿名账号的身份文件（`{subject, secret}`），会话过期或被拒以后靠它重新登录同一个匿名账号。 */
@@ -220,7 +223,7 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
 ];
 
-/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（随匿名会话由 Rust 采用），以及打字统计。 */
+/** 键盘在完整体验模式下发布、设置应用导入的条目：键盘里改的偏好和按键反馈、刷新过的账号会话、匿名账号的身份（随匿名会话由 Rust 采用）、打字统计，以及键盘长按菜单「加入生词本」写进的那本生词本（设置应用并进自己的生词本，见 `PersonalWordbookPolicy`）。 */
 export const KEYBOARD_ENTRIES: MirrorEntry[] = [
   {
     name: "preferences",
@@ -262,6 +265,13 @@ export const KEYBOARD_ENTRIES: MirrorEntry[] = [
     kind: "file",
     base: "state",
     path: "typing-statistics.json",
+    fullModeOnly: true,
+  },
+  {
+    name: KEYBOARD_PERSONAL_WORDBOOK_ENTRY,
+    kind: "file",
+    base: "state",
+    path: KEYBOARD_PERSONAL_WORDBOOK_PATH,
     fullModeOnly: true,
   },
 ];

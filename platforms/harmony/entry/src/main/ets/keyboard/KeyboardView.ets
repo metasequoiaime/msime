@@ -7737,6 +7737,22 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     this.touchCandidateMenu = false;
+    if (action.id === 'ADD_TO_PERSONAL_WORDBOOK') {
+      // 和上屏释义一样先核对这一格还是打开菜单时的那个候选，再交出它的原文和释义；提示等共享层答了再显示。
+      if (index < 0 || index >= this.candidates.length) {
+        return;
+      }
+      const candidate: CandidateEntry = this.candidates[index];
+      if (!candidate.annotationIsTranslation || candidate.annotation.trim().length === 0) {
+        return;
+      }
+      KeyboardSession.shared.addToPersonalWordbook(candidate.text, candidate.annotation.trim())
+        .then((notice: string): void => {
+          this.diagnostic = notice;
+          this.clearDiagnosticLater();
+        });
+      return;
+    }
     switch (action.id) {
       case 'INSERT_GLOSS': {
         // The strip can be rebuilt while the menu is open, and then this index is somebody else's

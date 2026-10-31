@@ -10,6 +10,7 @@ import { SharedStateMirror, MirrorImportHandlers } from './SharedStateMirror';
 import {
   ImportDecision,
   KEYBOARD_ENTRIES,
+  KEYBOARD_PERSONAL_WORDBOOK_ENTRY,
   ImportRecord,
   MirrorManifest,
   SETTINGS_ENTRIES,
@@ -18,6 +19,7 @@ import {
   StatisticsSwitch,
 } from './SharedStateMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
+import { KEYBOARD_PERSONAL_WORDBOOK_PATH, PersonalWordbookPolicy } from './PersonalWordbookPolicy';
 
 /** `typingStatistics` 的动作，与设置页发给它的同形。 */
 interface StatisticsAction {
@@ -50,6 +52,13 @@ export class SharedStateSync {
             return 'retry';
           }
           return SharedStateSync.adoptKeyboardStatistics(stateDirectory, text) ? 'handled' : 'retry';
+        }
+        // 键盘那本生词本：只并进上次以后新加的词，再把这一版存成「上次并过的那一版」（照常复制）。键盘删掉了它时什么也不做，留着上一版，免得之后再发布时把设置这边移出的词又并回来。
+        if (name === KEYBOARD_PERSONAL_WORDBOOK_ENTRY) {
+          if (text === null) {
+            return 'handled';
+          }
+          return SharedStateSync.mergeKeyboardPersonalWordbook(stateDirectory, text) ? 'copy' : 'retry';
         }
         return SharedStateSync.accountFileDecision(name);
       },
@@ -241,6 +250,18 @@ export class SharedStateSync {
         }
         NativeCleanup.close(lock);
       }
+    }
+  }
+
+  /** 设置应用一侧：把键盘发布的那本生词本并进背单词的生词本，上一版取自上次照常复制过来的那份。失败时下次再试。 */
+  private static mergeKeyboardPersonalWordbook(stateDirectory: string, published: string): boolean {
+    try {
+      const previous: string | null = SharedStateSync.readText(`${stateDirectory}/${KEYBOARD_PERSONAL_WORDBOOK_PATH}`);
+      return PersonalWordbookPolicy.mergeAccepted(client.personalWordbookMerge(
+        PersonalWordbookPolicy.mergeRequest(stateDirectory, published, previous)));
+    } catch (error) {
+      KeyboardLog.warn(`keyboard personal wordbook not merged yet: ${describeError(error)}`);
+      return false;
     }
   }
 

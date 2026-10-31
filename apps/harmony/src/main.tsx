@@ -1565,6 +1565,15 @@ function makeClient(
           JSON.stringify({ operation: "remove", wordbook }),
         ),
       ),
+    // 键盘长按菜单的「加入生词本」经共享沙箱并进这里的生词本，页面因此提生词本、能把一个词移出去。
+    removePersonalWord: async (word: string) =>
+      unwrap<VocabularyReviewStatus>(
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
+          JSON.stringify({ operation: "remove_personal_word", word }),
+        ),
+      ),
     reset: async () =>
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "reset" })),

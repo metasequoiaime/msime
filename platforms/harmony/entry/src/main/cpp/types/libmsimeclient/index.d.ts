@@ -180,6 +180,10 @@ export const keySoundRenderNotes: (
 /** The statistics master switch under an absolute state directory: 1 on, 0 off or never written, -1 for an invalid directory or unreadable document. */
 export const typingStatisticsEnabled: (directory: string) => number;
 export const vocabularyReview: (request: string) => Promise<string>;
+/** 「加入生词本」：msime_client_personal_wordbook_add，在工作线程上执行。 */
+export const personalWordbookAdd: (request: string) => Promise<string>;
+/** 设置应用导入键盘发布的生词本：msime_client_personal_wordbook_merge，同步执行（共享沙箱的导入本来就在主线程上同步进行）。 */
+export const personalWordbookMerge: (request: string) => string;
 /** Locked mobile history operations; every mutation answers with the latest complete entry list. */
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
