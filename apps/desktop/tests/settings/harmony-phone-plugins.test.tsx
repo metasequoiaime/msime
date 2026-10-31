@@ -51,7 +51,7 @@ function pack(
   };
 }
 
-// 触屏键盘用得上的六类各一个，再加三个手机上用不上的：旋律包、特效包和音乐包。
+// 触屏键盘用得上的四类各一个，再加五个手机上用不上的：旋律包、特效包、音乐包，以及进不了 K 和 / 模式的指令表和短语表。
 const catalogPackages: PluginPackage[] = [
   pack("default", "清脆键盘", "sound", { builtin: true, mode: "keys" }),
   pack("user-keys", "合成按键", "sound", { mode: "keys" }),
@@ -120,6 +120,7 @@ function renderSettings({
       communityPlugin("c-music", "music", "社区音乐"),
       communityPlugin("c-phrase", "phrase_table", "社区短语"),
       communityPlugin("c-effect", "effect", "社区特效"),
+      communityPlugin("c-words", "wordbook", "社区单词本"),
     ],
     has_more: false,
   });
@@ -135,8 +136,8 @@ function renderSettings({
           panel_windows: !mobile,
           touch_key_sound_packs: mobile,
           touch_plugin_packs: capability,
-          // 鸿蒙每种形态都声明这三项；2in1 另外播放音效、音乐并画特效。
-          plugin_triggers: true,
+          // 鸿蒙每种形态都声明单词本和符号集；2in1 另外路由 V、/ 和 @，播放音效、音乐并画特效。
+          plugin_triggers: !mobile,
           wordbook_packs: true,
           symbol_set_packs: true,
           key_sound: !mobile,
@@ -189,25 +190,17 @@ test("a Harmony phone lists only the packs its touch keyboard uses and counts th
   expect(await screen.findByRole("group", { name: "插件" })).toBeTruthy();
   const list = await installedList();
   await within(list).findByText("合成按键");
-  for (const name of [
-    "清脆键盘",
-    "合成按键",
-    "合成指令",
-    "合成短语",
-    "合成辅助码",
-    "合成单词本",
-    "合成符号",
-  ]) {
+  for (const name of ["清脆键盘", "合成按键", "合成辅助码", "合成单词本", "合成符号"]) {
     expect(within(list).getByText(name)).toBeTruthy();
   }
-  for (const name of ["小星星", "合成火花", "合成音乐"]) {
+  for (const name of ["小星星", "合成火花", "合成音乐", "合成指令", "合成短语"]) {
     expect(within(list).queryByText(name)).toBeNull();
   }
   expect(within(list).queryByRole("group", { name: "特效包" })).toBeNull();
   expect(within(list).queryByRole("group", { name: "音乐包" })).toBeNull();
   expect(
     within(list).getByText(
-      "另有 3 个已安装的插件（音效包·旋律、特效包、音乐包）在这台设备上用不到，没有列出。",
+      "另有 5 个已安装的插件（音效包·旋律、特效包、音乐包、指令表、短语表）在这台设备上用不到，没有列出。",
     ),
   ).toBeTruthy();
   // 手机上没有声音与效果：开关在「键盘 → 按键反馈」。
@@ -260,28 +253,32 @@ test("setting a key sound pack on the phone writes only the pack and turns 按�
   expect(saved.plugins.key_sound).toMatchObject({ enabled: false, mode: "keys" });
 });
 
-test("table details on the phone say how the touch keyboard enters K and / and switch / on in place", async () => {
-  const { save } = renderSettings({
-    preferences: { local_modes: { quick_phrase: false, command: false } },
-  });
+test("the phone neither lists nor offers to create command and phrase tables: it has no way into K or /", async () => {
+  renderSettings({ preferences: { local_modes: { quick_phrase: false, command: false } } });
   await settingsFormReady();
   const list = await installedList();
-  fireEvent.click(await within(list).findByText("合成短语"));
-  expect(
-    screen.getByText(
-      "快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，在键盘功能面板的「本地输入」里选「快捷短语」，再输入编码即可用到短语表。",
-    ),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回我的插件" }));
-  fireEvent.click(await within(await installedList()).findByText("合成指令"));
-  expect(
-    screen.getByText(/在键盘功能面板的「本地输入」里选「指令」，再输入指令字母即可使用/),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("switch", { name: "启用" }));
-  fireEvent.click(screen.getByRole("button", { name: "打开 / 指令" }));
-  const saved = await savedPreferences(save);
-  expect(saved.plugins.command_tables).toEqual(["work"]);
-  expect(saved.local_modes.command).toBe(true);
+  await within(list).findByText("合成按键");
+  // 手机和平板没有「快捷模式」组和「本地输入」磁贴，列出的表只会指向不存在的入口。
+  expect(screen.queryByText(/「输入 → 快捷模式」/)).toBeNull();
+  expect(screen.queryByText(/「本地输入」/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "新建插件" }));
+  const kinds = await screen.findByRole("region", { name: "想做哪一种插件？" });
+  expect(within(kinds).getByText("符号集")).toBeTruthy();
+  expect(within(kinds).getByText("单词本")).toBeTruthy();
+  expect(within(kinds).queryByText("短语表")).toBeNull();
+  expect(within(kinds).queryByText("指令表")).toBeNull();
+});
+
+test("the 2-in-1 keeps command and phrase tables and offers to create them", async () => {
+  renderSettings({ mobile: false });
+  await settingsFormReady();
+  const list = await installedList();
+  await within(list).findByText("合成指令");
+  expect(within(list).getByText("合成短语")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "新建插件" }));
+  const kinds = await screen.findByRole("region", { name: "想做哪一种插件？" });
+  expect(within(kinds).getByText("短语表")).toBeTruthy();
+  expect(within(kinds).getByText("指令表")).toBeTruthy();
 });
 
 test("a pack detail on the phone has its own history entry, so system back returns to the list", async () => {
@@ -313,8 +310,9 @@ test("the phone's community gallery offers and lists only the kinds its keyboard
   const labels = within(filters)
     .getAllByRole("button")
     .map((button) => button.textContent);
-  expect(labels).toEqual(["全部", "音效包", "指令表", "短语表", "辅助码表", "单词本", "符号集"]);
-  await screen.findByText("社区短语");
+  expect(labels).toEqual(["全部", "音效包", "辅助码表", "单词本", "符号集"]);
+  await screen.findByText("社区单词本");
+  expect(screen.queryByText("社区短语")).toBeNull();
   expect(screen.queryByText("社区音乐")).toBeNull();
   expect(screen.queryByText("社区特效")).toBeNull();
 });
