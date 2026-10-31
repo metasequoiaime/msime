@@ -262,6 +262,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/VoiceCaptureDevicePolicy";
 import {
   CandidateGlossPolicy,
+  CandidatePronunciationPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
 import {
@@ -19142,3 +19143,82 @@ group(
     check(!reboot.active(), "时钟回到记录之前（重启设备）要重新认证");
   },
 );
+
+// 候选英文音标：取词规则与 Android 的 CandidatePronunciationPolicy 相同，回答按文字缓存、只收 `/…/` 形状的英文音标。
+group("candidate pronunciations read English candidates and English glosses only", () => {
+  check(CandidatePronunciationPolicy.visible(true, true), "开关打开且表在时显示");
+  check(!CandidatePronunciationPolicy.visible(true, false), "缺表时不显示，也不预留那一行");
+  check(!CandidatePronunciationPolicy.visible(false, true), "开关关着时不显示");
+  check(
+    CandidatePronunciationPolicy.lookupText("hello", null, false) === "hello",
+    "英文候选读它本身，不看释义目标语言",
+  );
+  check(
+    CandidatePronunciationPolicy.lookupText("well-known", null, false) === "well-known",
+    "连字符和撇号仍算英文",
+  );
+  check(
+    CandidatePronunciationPolicy.lookupText("你好", "hello; hi\nsecond", true) === "hello; hi",
+    "中文候选读英语释义的第一行，首个词组交给共享层",
+  );
+  check(
+    CandidatePronunciationPolicy.lookupText("你好", "bonjour", false) === "",
+    "释义不是英语时不查",
+  );
+  check(CandidatePronunciationPolicy.lookupText("你好", null, true) === "", "没有释义时不查");
+  check(
+    CandidatePronunciationPolicy.lookupText("AI助手", null, true) === "",
+    "混着汉字的候选不当英文读",
+  );
+  const request = JSON.parse(CandidatePronunciationPolicy.request(["hello", "", "hello", "world"]));
+  check(request.generation === 0, "音标与代次无关，请求固定写 0");
+  check(
+    JSON.stringify(request.items) ===
+      JSON.stringify([
+        { text: "hello", language: "en" },
+        { text: "world", language: "en" },
+      ]),
+    "同一段文字只查一次，空文字不查",
+  );
+  const many = Array.from(
+    { length: 400 },
+    (_value: unknown, index: number): string => `word${index}`,
+  );
+  check(
+    JSON.parse(CandidatePronunciationPolicy.request(many)).items.length ===
+      CandidatePronunciationPolicy.MAX_ITEMS,
+    "一次最多查 MAX_ITEMS 段",
+  );
+  const readings = CandidatePronunciationPolicy.decode(
+    JSON.stringify({
+      ok: true,
+      value: {
+        generation: 0,
+        pronunciations: [
+          { text: "hello", language: "en", pronunciation: "/həˈləʊ/" },
+          { text: "bad", language: "en", pronunciation: "həˈləʊ" },
+          { text: "fr", language: "fr", pronunciation: "/bɔ̃ʒuʁ/" },
+          { text: "", language: "en", pronunciation: "/x/" },
+        ],
+      },
+    }),
+  );
+  check(readings !== null && readings.get("hello") === "/həˈləʊ/", "合法的音标收下");
+  check(readings !== null && readings.size === 1, "不是 /…/ 的、非英语的和空文字的回答丢掉");
+  check(
+    CandidatePronunciationPolicy.decode(JSON.stringify({ ok: false, error: "x" })) === null,
+    "失败的回答不缓存",
+  );
+  check(CandidatePronunciationPolicy.decode("not json") === null, "坏回答不缓存");
+  check(
+    CandidatePronunciationPolicy.accessibilitySuffix("/həˈləʊ/") === "，音标：/həˈləʊ/" &&
+      CandidatePronunciationPolicy.accessibilitySuffix("") === "",
+    "读屏在释义之后念音标，没有音标时不念",
+  );
+  const word = { text: "hi", badge: "", hint: "", annotation: "" };
+  check(
+    CandidateWidthPolicy.chipContentVp({ ...word, pronunciation: "/ˌɪntəˈnæʃənəl/" }, 0, 18, 0) >
+      CandidateWidthPolicy.chipContentVp(word, 0, 18, 0),
+    "2in1 格子放得下比词宽的音标",
+  );
+});

@@ -13,6 +13,8 @@ export interface CandidateWidthEntry {
   readonly annotation: string;
   /** A Korean Hanja row's 훈음, which the vertical list draws beside the word; see CandidateGlossPolicy.hunEum. */
   readonly hunEum?: string;
+  /** 「显示英文音标」打开时的 `/…/` 音标，横排画在释义下面、竖排接在旁边；格子至少要放得下它。 */
+  readonly pronunciation?: string;
 }
 
 export class CandidateWidthPolicy {
@@ -122,13 +124,16 @@ export class CandidateWidthPolicy {
         ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, ordinalFontSize) +
           CandidateWidthPolicy.ORDINAL_GAP_VP
         : 0;
+    const detailFont: number = Math.max(12, candidateFontSize - 8);
+    const pronunciation: string = entry.pronunciation ?? "";
     return (
       CandidateWidthPolicy.SELECTION_BAR_VP +
       ordinal +
       CandidateWidthPolicy.textWidthVp(entry.text, candidateFontSize) +
-      (suffix.length > 0
-        ? CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8))
-        : 0)
+      Math.max(
+        suffix.length > 0 ? CandidateWidthPolicy.textWidthVp(suffix, detailFont) : 0,
+        pronunciation.length > 0 ? CandidateWidthPolicy.textWidthVp(pronunciation, detailFont) : 0,
+      )
     );
   }
 

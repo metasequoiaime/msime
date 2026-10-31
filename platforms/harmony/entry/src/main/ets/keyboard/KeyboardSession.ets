@@ -92,7 +92,7 @@ import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarIm
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
-import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CandidateGlossPolicy, CandidatePronunciationPolicy } from './candidate/CandidateGlossPolicy';
 import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
   CandidateGlossLayoutPolicy, CandidateGlossProviderState
@@ -215,6 +215,8 @@ export interface CandidateEntry {
   readonly translation: string | null;
   /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
   readonly confidentCorrection: boolean;
+  /** 「显示英文音标」打开时这一行的 `/…/` 音标，画在释义下面单独一行；没有音标或开关关着时为 ""。只用于显示，从不上屏。 */
+  readonly pronunciation: string;
 }
 
 interface EngineView extends EngineViewNumericFields {
@@ -969,6 +971,8 @@ interface PreparedPreferences {
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   candidate_translations: boolean;
+  /** 共享默认关闭；旧文档没有这个键时按关闭处理。 */
+  candidate_pronunciation?: boolean;
   /** Always written by the shared store; optional so a hand-edited document without it still prepares. */
   fuzzy_pinyin?: PreparedFuzzyPinyin;
   translation_target_language: string;
@@ -1445,6 +1449,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   private candidateEnglishGloss: boolean = false;
   private candidateGlossEnabled: boolean = false;
   private candidateGlossRows: number = 0;
+  // 「显示英文音标」：开关来自共享偏好，表是随 HAP 暂存到引擎资源旁的 pronunciations/en-phonetic.db。音标按查询文字缓存，与候选代次无关。
+  private candidatePronunciationEnabled: boolean = false;
+  private candidatePronunciationAvailable: boolean = false;
+  private candidatePronunciations: Map<string, string> = new Map<string, string>();
   // Mirrored for the function panel's 模糊音 tile; the rules themselves stay in the document.
   private fuzzyPinyin: boolean = false;
   // Read before the panels are built, so a badge the user turned off is never created at all.
@@ -2109,6 +2117,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
+      this.candidatePronunciationEnabled = preferences.candidate_pronunciation === true;
       this.applyCandidateGloss(preferences);
       this.fuzzyPinyin = preferences.fuzzy_pinyin !== undefined && preferences.fuzzy_pinyin.enabled;
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
@@ -2784,6 +2793,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
       glossTargets, preferences.candidate_translations, glossProviders,
       this.installedOfflineGlosses(glossTargets));
+    // 开关或表变了，缓存的音标不再对应现在画的东西，整份丢掉。
+    const available: boolean = this.candidatePronunciationEnabled && this.pronunciationTableInstalled();
+    if (available !== this.candidatePronunciationAvailable) this.candidatePronunciations.clear();
+    this.candidatePronunciationAvailable = available;
   }
 
   private themeTitle(id: string): string {
@@ -2925,7 +2938,70 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Fixed horizontal rows reserved before asynchronous candidate glosses arrive; Korean always keeps one for the 훈음 of its Hanja rows. */
   glossRows(): number {
+    return this.translationRows() + this.pronunciationRows();
+  }
+
+  /** The rows of glossRows() that carry the translation and 훈음 line, without the pronunciation line under it. */
+  translationRows(): number {
     return CandidateGlossLayoutPolicy.schemeRows(this.candidateGlossRows, this.schemeName === 'korean');
+  }
+
+  /** 「显示英文音标」打开且随包的音标表在时，释义下面为音标单独预留的一行。按设置预留，不等音标到了才把候选撑高。 */
+  pronunciationRows(): number {
+    return this.pronunciationVisible() ? 1 : 0;
+  }
+
+  private pronunciationVisible(): boolean {
+    return CandidatePronunciationPolicy.visible(this.candidatePronunciationEnabled,
+      this.candidatePronunciationAvailable);
+  }
+
+  /** 这一行查音标用的文字：英文候选是它本身，中文候选是显示出来的英语释义。 */
+  private pronunciationText(candidate: Candidate): string {
+    if (!this.pronunciationVisible()) return '';
+    const translation: string | null = this.candidateGlossEnabled
+      && !TranslationPolicy.sourceGetsNoGloss(candidate.source) ? candidate.translation ?? null : null;
+    return CandidatePronunciationPolicy.lookupText(candidate.text, translation,
+      this.preparedPreferences?.translation_target_language === 'en');
+  }
+
+  /** 查一批候选里还没缓存的音标。表在本机，与离线释义一样在界面线程上同步查；失败只是不画音标，不影响输入，也不记录查询的文字。 */
+  private resolvePronunciations(candidates: Candidate[]): void {
+    if (!this.pronunciationVisible()) return;
+    const missing: string[] = [];
+    for (const candidate of candidates) {
+      if (!CandidatePresentationPolicy.isVisible(candidate.source)) continue;
+      const text: string = this.pronunciationText(candidate);
+      if (text.length > 0 && !this.candidatePronunciations.has(text) && !missing.includes(text)) missing.push(text);
+      if (missing.length >= CandidatePronunciationPolicy.MAX_ITEMS) break;
+    }
+    if (missing.length === 0) return;
+    const readings: Map<string, string> | null = CandidatePronunciationPolicy.decode(
+      client.candidatePronunciations(CandidatePronunciationPolicy.request(missing), this.resourceDirectory));
+    if (readings === null) {
+      KeyboardLog.error('candidate pronunciations unavailable');
+      return;
+    }
+    if (this.candidatePronunciations.size + missing.length > CandidatePronunciationPolicy.MAX_ITEMS * 8) {
+      this.candidatePronunciations.clear();
+    }
+    for (const text of missing) this.candidatePronunciations.set(text, readings.get(text) ?? '');
+  }
+
+  private candidatePronunciation(candidate: Candidate): string {
+    const text: string = this.pronunciationText(candidate);
+    return text.length === 0 ? '' : this.candidatePronunciations.get(text) ?? '';
+  }
+
+  /** 随 HAP 暂存的音标表是否在引擎资源旁，共享层在那里找它。 */
+  private pronunciationTableInstalled(): boolean {
+    try {
+      const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
+      return parent.length > 0 && fs.accessSync(`${parent}/pronunciations/en-phonetic.db`);
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeyboardSession.pronunciationTableInstalled failed');
+      return false;
+    }
   }
 
   /** True when the Engine is composing English rather than Chinese. */
@@ -5100,6 +5176,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const reading: string = KeyboardSession.drawnReading(view);
     // Korean's only candidates are the Hanja of the composing syllable, and their annotation is the 훈음 (msime_client.h).
     const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
+    this.resolvePronunciations(view.candidates);
     const entries: CandidateEntry[] = [];
     for (let index: number = 0; index < view.candidates.length; index++) {
       const candidate: Candidate = view.candidates[index];
@@ -5129,7 +5206,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
         hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
-        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction),
+        pronunciation: this.candidatePronunciation(candidate)
       });
     }
     if (this.onChanged !== undefined) {
@@ -5181,6 +5259,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     if (view === undefined || this.onChanged === undefined) return;
     const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
+    this.resolvePronunciations(view.candidates);
     const entries: CandidateEntry[] = [];
     for (const candidate of view.candidates) {
       if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
@@ -5205,7 +5284,8 @@ export class KeyboardSession implements HardwareKeyTarget {
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           this.candidateGlossEnabled),
         hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
-        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
+        confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction),
+        pronunciation: this.candidatePronunciation(candidate)
       });
     }
     const reading: string = KeyboardSession.drawnReading(view);
@@ -5308,7 +5388,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
       text: text, hint: '', annotation: '', annotationIsTranslation: false, hunEum: '',
       highlighted: index === this.translationHighlight, badge: '',
-      fixedPosition: 0, source: 0, translation: null, confidentCorrection: false
+      fixedPosition: 0, source: 0, translation: null, confidentCorrection: false, pronunciation: ''
     }));
     this.onChanged({
       candidates: entries,

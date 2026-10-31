@@ -23,6 +23,29 @@ export class KeyboardMetrics {
     return CandidateScalePolicy.scaled(KeyboardMetrics.STRIP_HEIGHT_VP, scalePercent);
   }
 
+  /** 触屏胶囊里词下面那一行注释的高度，和 `KeyboardView` 的 `CHIP_GLOSS_LINE_VP` 相同。 */
+  static readonly TOUCH_DETAIL_LINE_VP: number = 11.5;
+
+  /**
+   * 触屏胶囊在 34vp 里只放得下词和一行注释。释义和英文音标都打开时 `glossRows` 为 2，第二行注释让胶囊和条带各高出一行；只开其中一种时高度不变。按设置而不是按音标到没到来算，打字时按键不会上下跳。
+   */
+  static touchExtraDetailVp(glossRows: number): number {
+    return Number.isFinite(glossRows)
+      ? Math.max(0, Math.floor(glossRows) - 1) * KeyboardMetrics.TOUCH_DETAIL_LINE_VP
+      : 0;
+  }
+
+  /** 触屏工具条的高度：`stripHeightVp` 加上第二行注释（`touchExtraDetailVp`），一起按「候选栏大小」缩放。工具栏和候选栏共用这一行，空闲时也留着这一行，组字开始、结束时按键不动。 */
+  static touchStripHeightVp(
+    scalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT,
+    glossRows: number = 0,
+  ): number {
+    return CandidateScalePolicy.scaled(
+      KeyboardMetrics.STRIP_HEIGHT_VP + KeyboardMetrics.touchExtraDetailVp(glossRows),
+      scalePercent,
+    );
+  }
+
   /**
    * 工具栏按钮、图标和标志跟着工具条缩小的倍数：工具条矮于设计的 50vp 时按同一比例缩小，不会伸出这一行；放大时按钮仍是设计尺寸，与 Android 跟随候选栏时按钮最高 44 dp 一致。
    */
@@ -94,7 +117,8 @@ export class KeyboardMetrics {
       return (
         KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP +
         (withStrip
-          ? KeyboardMetrics.stripHeightVp(stripScalePercent) + KeyboardMetrics.STRIP_GAP_VP
+          ? KeyboardMetrics.touchStripHeightVp(stripScalePercent, glossRows) +
+            KeyboardMetrics.STRIP_GAP_VP
           : 0) +
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +

@@ -96,7 +96,9 @@ export class CandidateGlossPolicy {
    * A Korean user picks a Hanja by its 훈음, so it is drawn on the gloss line under the Hanja whatever the translation switches say, and the main text stays the Hanja alone. It is a separate field rather than the shared annotation slot because that slot is what the gloss menu types into the document, and the 훈음 is never committed.
    */
   static hunEum(koreanHanja: boolean, engineAnnotation: string | null): string {
-    return koreanHanja && CandidateGlossPolicy.bounded(engineAnnotation) && engineAnnotation !== null
+    return koreanHanja &&
+      CandidateGlossPolicy.bounded(engineAnnotation) &&
+      engineAnnotation !== null
       ? engineAnnotation
       : "";
   }
@@ -121,5 +123,121 @@ export class CandidateGlossPolicy {
 
   private static bounded(value: string | null): boolean {
     return value !== null && value.length > 0 && utf8Length(value) <= MAX_ENTRY_BYTES;
+  }
+}
+
+/** One text sent to `msime_client_pronunciation_request`; the shared table only pronounces English. */
+export interface PronunciationItem {
+  text: string;
+  language: string;
+}
+
+export interface PronunciationRequest {
+  generation: number;
+  items: PronunciationItem[];
+}
+
+interface PronunciationEntry {
+  text?: unknown;
+  language?: unknown;
+  pronunciation?: unknown;
+}
+
+interface PronunciationReplyValue {
+  generation?: unknown;
+  pronunciations?: unknown;
+}
+
+interface PronunciationReply {
+  ok?: unknown;
+  value?: PronunciationReplyValue;
+}
+
+/**
+ * 候选英文音标的取词与校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身，中文候选读英语释义的第一行，首个词组和去冠词交给共享层。
+ *
+ * 音标只取决于查的那段文字和随包的表，与候选代次无关，所以宿主按文字缓存回答，不必按代次丢弃。
+ */
+export class CandidatePronunciationPolicy {
+  /** 一次查询和缓存的上限；缓存满了整份清空，下一次按键重新查当前这一页。 */
+  static readonly MAX_ITEMS: number = 256;
+
+  static visible(enabled: boolean, available: boolean): boolean {
+    return enabled && available;
+  }
+
+  /** 交给共享表的文字，没有可读的英文时为 ""。`englishTarget` 是释义的目标语言是否为英语，只有那时释义行才是英文。 */
+  static lookupText(candidate: string, translation: string | null, englishTarget: boolean): string {
+    if (CandidatePronunciationPolicy.plainEnglish(candidate)) {
+      return utf8Length(candidate) <= MAX_ENTRY_BYTES ? candidate : "";
+    }
+    if (!englishTarget || translation === null || translation.length === 0) {
+      return "";
+    }
+    const first: string = translation.split(/\r\n|\r|\n/)[0].trim();
+    return first.length > 0 && utf8Length(first) <= MAX_ENTRY_BYTES ? first : "";
+  }
+
+  /** 去重后的有界请求文档；同一段文字只查一次。 */
+  static request(texts: string[]): string {
+    const unique: string[] = [];
+    for (const text of texts) {
+      if (text.length === 0 || unique.includes(text)) continue;
+      unique.push(text);
+      if (unique.length >= CandidatePronunciationPolicy.MAX_ITEMS) break;
+    }
+    const request: PronunciationRequest = {
+      generation: 0,
+      items: unique.map((text: string): PronunciationItem => ({ text: text, language: "en" })),
+    };
+    return JSON.stringify(request);
+  }
+
+  /** 文字到 `/…/` 音标；失败的回答返回 null，宿主不缓存。没有音标的文字不在回答里。 */
+  static decode(response: string): Map<string, string> | null {
+    let reply: PronunciationReply;
+    try {
+      reply = JSON.parse(response) as PronunciationReply;
+    } catch (error) {
+      return null;
+    }
+    if (reply === null || typeof reply !== "object" || reply.ok !== true) return null;
+    const value: PronunciationReplyValue | undefined = reply.value;
+    if (value === undefined || value === null || !Array.isArray(value.pronunciations)) return null;
+    const entries: PronunciationEntry[] = value.pronunciations as PronunciationEntry[];
+    const readings: Map<string, string> = new Map<string, string>();
+    for (const entry of entries) {
+      if (entry === null || typeof entry !== "object" || entry.language !== "en") continue;
+      const text: unknown = entry.text;
+      const reading: unknown = entry.pronunciation;
+      if (
+        typeof text !== "string" ||
+        typeof reading !== "string" ||
+        text.length === 0 ||
+        utf8Length(text) > MAX_ENTRY_BYTES ||
+        reading.length < 3 ||
+        utf8Length(reading) > MAX_ENTRY_BYTES ||
+        !reading.startsWith("/") ||
+        !reading.endsWith("/")
+      )
+        continue;
+      readings.set(text, reading);
+    }
+    return readings;
+  }
+
+  /** 读屏在释义之后念的音标。 */
+  static accessibilitySuffix(reading: string): string {
+    return reading.length === 0 ? "" : "，音标：" + reading;
+  }
+
+  private static plainEnglish(text: string): boolean {
+    let letter: boolean = false;
+    for (let index: number = 0; index < text.length; index++) {
+      const value: string = text.charAt(index);
+      if ((value >= "A" && value <= "Z") || (value >= "a" && value <= "z")) letter = true;
+      else if (value !== " " && value !== "-" && value !== "'") return false;
+    }
+    return letter;
   }
 }

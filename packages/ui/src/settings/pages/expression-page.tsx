@@ -123,22 +123,24 @@ export function ExpressionSettingsPage() {
     "标点与翻译设置分类",
     !mobilePlatform,
   );
-  // 「显示读音」是释义的子行，画在目标语言之后：没有任何释义来源打开时没有东西可读，这一行不出现，已存的值不动。
+  // 「显示读音」是释义的子行，画在目标语言之后：桌面只给释义标读音，没有任何释义来源打开时没有东西可读，这一行不出现，已存的值不动。鸿蒙键盘给英文候选标音标不看释义开关，这一行一直在，关掉释义后仍能关掉音标。
   const glossCandidate = {
     ...translation.candidate,
-    beforeMore: client.candidatePronunciation && candidateGlossLanguagesEnabled && (
-      <>
-        <CandidatePronunciationSection
-          value={draft.candidate_pronunciation ?? false}
-          japaneseRomaji={!linuxPlatform}
-          downloadable={pronunciationDownloadable}
-          onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
-        />
-        {pronunciationDownloadable && draft.candidate_pronunciation && (
-          <ResourcePackRow packs={resourcePacks} id="pronunciations" note="显示英文音标需要它" />
-        )}
-      </>
-    ),
+    beforeMore: client.candidatePronunciation &&
+      (harmonyPlatform || candidateGlossLanguagesEnabled) && (
+        <>
+          <CandidatePronunciationSection
+            value={draft.candidate_pronunciation ?? false}
+            japaneseRomaji={!linuxPlatform && !harmonyPlatform}
+            downloadable={pronunciationDownloadable}
+            englishCandidates={harmonyPlatform}
+            onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
+          />
+          {pronunciationDownloadable && draft.candidate_pronunciation && (
+            <ResourcePackRow packs={resourcePacks} id="pronunciations" note="显示英文音标需要它" />
+          )}
+        </>
+      ),
   };
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   const ariaLabel = mobilePlatform ? "表达" : "标点与翻译";
