@@ -36,7 +36,9 @@ Rust 新版仍支持本地整句候选、神经模型重排和 octagram `.gram` 
 | `settled model attached` | 模型已加载并挂在会话上，停顿后的整句重排会用它 |
 | `settled model not loaded` | 找到了模型文件但没能用上；同一时间附近的 `sentence model unreadable`（文件读不了，例如超过 64 MiB、是符号链接或没有权限）或 `sentence model ignored`（文件损坏或版本不符）说明原因，重新下载资源包 |
 | `settled model missing` | 没有随包的模型，状态目录下也没有已安装的 `settled-model` 资源包，在设置页下载 |
-| `settled model missing without state directory` | 没有随包的模型，而输入会话没拿到状态目录，下载的资源包不会被找到；请附上日志报告问题 |
+| `settled model missing without state directory` | 没有随包的模型，而输入会话没拿到状态目录，下载的资源包不会被找到；请附上日志报告问题。只会出现在 Linux 的 stderr 和 Windows 的 `logs\server.log` 里，见表下说明 |
+
+macOS 上看不到 `settled model missing without state directory` 这一行：`diagnostic.log` 就写在这个状态目录里，输入会话没拿到状态目录时诊断日志整个不会写，表现与日志没打开一样。反过来，只要 `diagnostic.log` 里有 `focus_in`、`preferences_applied` 或 `host_api:` 开头的行，输入会话就拿到了状态目录，可以排除「没拿到状态目录」这种情况。
 
 模型已接上不表示每次停顿都会换首选：可信的词典首选等情况会跳过重排，首选没变本身不能说明模型没有加载。模型文件的访问时间（atime）也不能作为依据，APFS 上普通读取不一定更新它。
 
