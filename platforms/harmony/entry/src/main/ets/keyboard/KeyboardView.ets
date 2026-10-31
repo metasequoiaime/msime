@@ -5938,7 +5938,7 @@ struct KeyboardView {
     this.actionRow()
   }
 
-  /** 全拼 18 键的三排组码键面；第二排居中半个键距，第三排两端留给分词和删除。 */
+  /** 全拼 18 键的三排组码键面；三排从同一左右边界铺开，第二排六个键平分整行（A 与 Q 左对齐、L 与 P 右对齐，与 Android、iOS 相同），第三排两端留给分词和删除。 */
   @Builder
   eighteenKeyFace() {
     Row({ space: this.keySpacing() }) {
@@ -5949,11 +5949,9 @@ struct KeyboardView {
     .width('100%').height(this.rowHeight(0))
 
     Row({ space: this.keySpacing() }) {
-      Column().layoutWeight(0.5).height('100%')
       ForEach(EighteenKeyLayout.rows()[1], (key: FourteenKey) => {
         this.eighteenKeyButton(key)
       }, (key: FourteenKey) => key.letters + this.faceKey())
-      Column().layoutWeight(0.5).height('100%')
     }
     .width('100%').height(this.rowHeight(1))
 

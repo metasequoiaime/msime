@@ -308,7 +308,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var zhuyinRowViews: [UIView] = []
   /// 全拼 14 键的三排键（`FourteenKeyLayout`），中文模式下代替三排字母。
   private var fourteenKeyRowViews: [UIView] = []
-  /// 18 键的三排键（`EighteenKeyLayout`），与 14 键一样代替三排字母；第二排两侧的半键空白由 `updateLetterRowInsets` 按键距设好。
+  /// 18 键的三排键（`EighteenKeyLayout`），与 14 键一样代替三排字母；三排从同一左右边界铺开，第二排六个键平分整行。
   private var eighteenKeyRowViews: [UIView] = []
   /// 14 键和 18 键的各键和它代表的那一组字母，长按和横滑时据此找出这一键的字母。
   private var letterGridButtons: [(button: UIButton, key: FourteenKeyLayout.Key)] = []
@@ -3165,7 +3165,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
-  /// 14 键或 18 键的一排（`FourteenKeyLayout`、`EighteenKeyLayout`）。点一下把这一组的组码交给引擎（`handleLetterGridKey`），长按弹出这一键的字母；18 键两个字母的键还挂着双拼横滑（`handleEighteenKeySwipe`）。键都用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift 的大小写、双拼键位提示、角标滑动和滑行输入都碰不到它们。第三排两端是分词键和 ⌫。14 键第二排不缩进，两端键与 26 键的 ⇧、⌫ 同宽；18 键的每一排都按七个等宽的键排，第二排居中（`updateLetterRowInsets`），第三排两端键也与字母键同宽，与 Android 的七份权重一致。
+  /// 14 键或 18 键的一排（`FourteenKeyLayout`、`EighteenKeyLayout`）。点一下把这一组的组码交给引擎（`handleLetterGridKey`），长按弹出这一键的字母；18 键两个字母的键还挂着双拼横滑（`handleEighteenKeySwipe`）。键都用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift 的大小写、双拼键位提示、角标滑动和滑行输入都碰不到它们。第三排两端是分词键和 ⌫。14 键第二排不缩进，两端键与 26 键的 ⇧、⌫ 同宽；18 键第一排和第三排都是七个等宽的键（第三排两端键与字母键同宽），第二排六个键平分整行，A 与 Q 左对齐、L 与 P 右对齐，与 Android、鸿蒙相同。
   private func makeLetterGridRow(_ keys: [FourteenKeyLayout.Key], grid: LetterKeyGrid, includesEdges: Bool) -> UIStackView {
     let prefix = grid == .eighteenKey ? "eighteenKey" : "fourteenKey"
     let row = makeRow()
@@ -3228,11 +3228,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// iPad 上 14 键第三排两端键占这一排的比例：26 键第三排是 ⇧、七个字母、，。、⇧，两个 ⇧ 各 `TabletLetterLayout.shiftWeight` 个键宽，一个 ⇧ 占这一排的这么多。
   static let tabletFourteenKeyEdgeRatio: CGFloat = TabletLetterLayout.shiftWeight / (9 + 2 * TabletLetterLayout.shiftWeight)
-
-  /// 18 键第二排六个键与第一排的七个键同宽时，两侧各留的空白：半个键加半个键距。行内六个键之间已经有五个键距，两侧的空白只补一次第七个键的那一份，不能再把行距重复扣掉（Android #9593 修过的重复扣键距）。`width` 是这一排的宽度，`spacing` 是键距。
-  static func eighteenKeyMiddleRowInset(width: CGFloat, spacing: CGFloat) -> CGFloat {
-    max((width + spacing) / 14, 0)
-  }
 
   /// 字母网格的一键：把这一组的组码交给引擎。设置在键盘开着时被改掉、方案已经不是这种网格时，这次过期的点按什么也不做，组码不会落进别的方案或另一种网格。
   private func handleLetterGridKey(_ key: FourteenKeyLayout.Key) {
@@ -6408,16 +6403,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterRowInsets() {
-    if eighteenKeyRowViews.count > 1, let middle = eighteenKeyRowViews[1] as? UIStackView {
-      // 18 键第二排的六个键与第一排同宽：两侧各空出半个键加半个键距，按这一排自己的宽度算，单手和浮动时一样成立。
-      let width = middle.bounds.width > 0 ? middle.bounds.width : (eighteenKeyRowViews[0].bounds.width)
-      let inset = Self.eighteenKeyMiddleRowInset(width: width, spacing: middle.spacing)
-      let margins = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
-      if middle.layoutMargins != margins || !middle.isLayoutMarginsRelativeArrangement {
-        middle.isLayoutMarginsRelativeArrangement = true
-        middle.layoutMargins = margins
-      }
-    }
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
     // 手机的中间一排两侧各缩进半个键，显示 `;` 键时（微软双拼、粤语双拼的中文模式，见 `showsSemicolonKey`）用它填上这块空位，`;` 藏起来时缩进回来；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
     // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄（iPad 单手时收到手机大小的一块里的按键宽度）；键面形态决定是 iPad 的缩进还是手机的半键缩进。
@@ -6470,8 +6455,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for row in keyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
-    // 18 键第二排的两侧空白含半个键距，键距一变就重算。
-    updateLetterRowInsets()
     actionRow.spacing = layout.keySpacing
     for width in splitGapWidths { width.constant = -2 * layout.keySpacing }
     nineKeyContainer.spacing = layout.keySpacing

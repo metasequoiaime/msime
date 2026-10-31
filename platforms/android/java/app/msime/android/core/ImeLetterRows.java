@@ -1013,7 +1013,7 @@ final class ImeLetterRows {
     /**
      * 全拼、双拼和五笔 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
      *
-     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进，双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。14 键拼音选择在左侧栏，18 键拼音选择在候选行；18 键不画左侧符号栏。
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进，双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。14 键拼音选择在左侧栏，18 键拼音选择在读音行、读音右边（不叠在候选行上，组字时候选照常可点）；18 键不画左侧符号栏。
      */
     private void rebuildFourteenKeyRows() {
         s.imeLayoutRows.dismissNineKeyHoldOptions();
@@ -1031,8 +1031,8 @@ final class ImeLetterRows {
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         if (eighteen) {
-            // 十八键不再把符号栏挤在字母区左侧；拼音选择沿用候选行，字母三行从同一左边界铺开。
-            s.imeLayoutRows.attachFourteenSpellingsToCandidateRow();
+            // 十八键不再把符号栏挤在字母区左侧；拼音选择挂到读音行，字母三行从同一左边界铺开。
+            s.imeLayoutRows.attachEighteenSpellingsToReadingRow();
         } else {
             container.addView(s.imeLayoutRows.fourteenSpellingSidebar(),
                 LayoutPolicy.weightedMatchParentParams(FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT));

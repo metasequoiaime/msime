@@ -58,7 +58,12 @@ final class EighteenKeyQuanpinDeviceChecks {
             t.stage = "eighteen quanpin grouped nihao";
             groups("B N", "I O", "H", "A", "I O");
             t.await(t.field("msime-test-plain").and(EighteenKeyQuanpinDeviceChecks::empty));
-            t.tap(candidate("你好"));
+            // 拼音条和候选同时出现：拼音条不能盖住候选。用屏幕坐标真实点候选，无障碍点击不走触摸分发，测不出被上层视图吞掉的点按。
+            Rect spellings = bounds(t.described("18 键拼音选择"));
+            Rect nihao = bounds(candidate("你好"));
+            if (Rect.intersects(spellings, nihao))
+                throw new AssertionError("十八键拼音选择盖住了候选：" + spellings + ", " + nihao);
+            t.shellDiscard("input tap " + nihao.centerX() + " " + nihao.centerY());
             t.await(t.field("msime-test-plain").and(n -> DeviceSmoke.equalsText("你好", n.getText())));
 
             t.stage = "eighteen quanpin reading lock and undo";
