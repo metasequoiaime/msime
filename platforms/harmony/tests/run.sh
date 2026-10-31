@@ -645,6 +645,16 @@ if ! grep -qF 'constbuilt:number=Math.min(this.expandedBuilt,this.expanded.lengt
   echo "The expanded grid must draw only the cells built so far, rebuild them through ExpandedCandidateBatchPolicy when the list is fetched again, append as it scrolls or resizes and reset when the panel closes" >&2
   exit 1
 fi
+# The expanded grid follows the candidate font size and 候选栏大小 (#10400): the sizes come from keyboard-logic.test.ts's CandidateScalePolicy.expandedFontSize / expandedCellHeight group; the view is ArkTS and does not compile under node, so this pins the wiring: cells draw and measure their span at the scaled font size, and take the scaled height.
+span_body=$(view_body 'private expandedSpan(index: number): number {')
+if ! grep -qF '.height(this.expandedCellHeight())' <<< "$grid_body" \
+  || ! grep -qF '.fontSize(this.expandedFontSize())' <<< "$grid_body" \
+  || ! grep -qF 'ExpandedCandidateLayout.width(this.expanded[index].text,this.expandedFontSize(),' <<< "$span_body" \
+  || ! grep -qF 'return CandidateScalePolicy.expandedFontSize(EXPANDED_FONT_SIZE, this.settings.candidateFontSize);' "$view" \
+  || ! grep -qF 'return CandidateScalePolicy.expandedCellHeight(EXPANDED_CELL_HEIGHT_VP, this.settings.candidateFontSize,' "$view"; then
+  echo "The expanded grid must size its text, span measurement and cell height through CandidateScalePolicy from the candidate font size and 候选栏大小" >&2
+  exit 1
+fi
 # 大屏单手的侧边数字键盘（#10203）：宽度、取值和显示条件由 keyboard-logic.test.ts 的 `OneHandedPolicy` 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：会话按 sidePanel 读共享偏好，视图随设置重读、转屏时按按键这一行的宽度重算，handedKeys 只在 sidePadShown 时画面板，数字和小数点走字面上屏，设置桥按设备形态（含可折叠）报告能力位。
 side_pad_body=$(awk '/^  oneHandSidePad\(\) \{/,/^  \}$/' "$keyboard_view")
 side_pad_key_body=$(awk '/^  private sidePadDigitKey\(digit: string\): KeyOptions \{/,/^  \}$/' "$keyboard_view")
