@@ -24,7 +24,7 @@ jobs:
     name: Android device (API ${{ matrix.api }})
     # 模拟器需要 KVM；普通 Depot GitHub Actions runner 不提供 /dev/kvm，不能用单台探测结果代替平台能力保证。见 .agents/notes/implemented/process/2026-10-30-android-device-kvm-runner.md。此 job 不接触 secrets，APK 使用开发密钥。
     runs-on: ubuntu-24.04
-    # API 35 的完整输入冒烟在 2026-10-29 已通过 96 项套件后才到达英文长按阶段，90 分钟总上限在最后少数套件前取消；每项 instrumentation 仍受 smoke.sh 的 300 秒上限约束。给整套验收留出有限的 120 分钟，不把单项超时变成无限等待。
+    # 冷构建后整套验收已接近 90 分钟；验收步骤单独限时，给日志上传和退出留出余量。
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -70,7 +70,6 @@ jobs:
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
           test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
           "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
-          "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
       - name: Boot the dedicated AVD
         run: |
           set -euo pipefail
@@ -101,27 +100,37 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
-      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。
+      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
       - name: Verify crash reporting before the full input smoke
         if: ${{ matrix.api == 35 }}
-        run: bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p target/android
+          bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only 2>&1 | tee target/android/device-crash-smoke.log
       - name: Install, prepare resources and accept input on the AVD
-        run: bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }}
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          mkdir -p target/android
+          bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }} 2>&1 | tee target/android/device-smoke.log
       - name: Collect device logs
-        if: failure() && env.SERIAL != ''
+        if: (failure() || cancelled()) && env.SERIAL != ''
         run: |
           mkdir -p target/android
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: android-device-api${{ matrix.api }}-logs
           path: |
             target/android/emulator.log
             target/android/logcat.txt
             target/android/crash.txt
+            target/android/device-crash-smoke.log
+            target/android/device-smoke.log
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always() && env.SERIAL != ''
