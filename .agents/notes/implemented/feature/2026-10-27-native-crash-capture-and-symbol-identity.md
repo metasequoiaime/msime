@@ -274,4 +274,3 @@ IBus 夹具在核对固定前缀后用兼容的切片解析原身份。辅助授
 ### macOS 共享 Tauri 设置真实故障闭环
 
 `c3ecd6299437ea1aeda21cd4efe010bb9048366b` 的 arm64 回环产品在隔离合成用户中由原生输入法真实调用 `showAISettings:`，经同源 `NSTask` 夹具启动 `app.msime.macos --route=settings:ai`；共享设置窗口 bundle、生命周期和可见窗口检查通过。回环后台固定官方镜像 `sha256:5c1e305b5be5586ce4c749369f35344a5afb94103d8a0178c6da8b57d8304994` 与 revision `ab391f834cb14baa88c98b1b8a2dbf03ac0da93a`，收到实际自有 `SIGSEGV` 的 1 条 crash。故障前构建头保留 revision、运行号、arm64 和 `desktop`，独立 dSYM ZIP 以 UUID `0345AC6A-6C34-361E-83B8-C80F45C24131` 将 `0x86b4f0` 还原到 `desktop_crash_reporting.rs:127`；错误 UUID 负对照拒绝。撤回后确实解除武装，重开恢复，SIGKILL 不误报且没有 session 事件。该夹具只覆盖 arm64 共享设置入口，NSTask 传输不代表 LaunchServices 菜单验收；MCP、其他辅助入口、硬件故障、universal 安装包和完整 IMK 编辑器仍在全平台矩阵中待验收。
-
