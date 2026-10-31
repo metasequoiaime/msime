@@ -47,6 +47,7 @@ const sizes: Record<ResourcePackId, number> = {
   "grammar-model-baishuang": 7_339_052,
   wubi: 14_536_704,
   "voice-runtime-macos": 16_466_276,
+  pronunciations: 5_718_016,
 };
 
 /** 一个假的资源包服务：install 返回的 promise 由测试决定何时完成或失败，进度由测试手动推送。`offered` 是宿主列出的资源包，缺省是 macOS 列出的全部。 */
@@ -65,6 +66,7 @@ function fakePacks(
     "grammar-model-baishuang": "missing",
     wubi: "missing",
     "voice-runtime-macos": "missing",
+    pronunciations: "missing",
     ...state,
   };
   const listeners = new Set<(progress: LocalVoiceModelProgress) => void>();
@@ -635,6 +637,53 @@ test("临时日语 offers the Japanese dictionary but never downloads it on its 
 
   fireEvent.click(download);
   expect(packs.client.install).toHaveBeenCalledWith("japanese");
+});
+
+test("Linux offers the pronunciation table under 显示读音 and downloads it only when asked", async () => {
+  const packs = fakePacks({}, ["pronunciations"]);
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, candidate_english_gloss: true },
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+          ...snapshot,
+          revision: snapshot.revision + 1,
+          preferences,
+        })),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "linux" }),
+        resourcePacks: packs.client,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
+  selectSettingsTab("候选释义");
+  const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  // Linux 的宿主只标英文音标，音标表要下载一次。
+  expect(screen.getByText(/在英文释义下面标出音标/)).toBeDefined();
+  expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  // 开关关着时不提下载；打开后在它下面给出下载行，但不自动下载。
+  expect(screen.queryByRole("button", { name: "下载离线英文音标词典" })).toBeNull();
+  fireEvent.click(toggle);
+  const download = await screen.findByRole("button", { name: "下载离线英文音标词典" });
+  expect(screen.getByText(/显示读音需要它/)).toBeDefined();
+  expect(packs.client.install).not.toHaveBeenCalled();
+  fireEvent.click(download);
+  expect(packs.client.install).toHaveBeenCalledWith("pronunciations");
+  await packs.finish("pronunciations");
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "下载离线英文音标词典" })).toBeNull(),
+  );
 });
 
 test("an installed Japanese dictionary leaves no row behind", async () => {

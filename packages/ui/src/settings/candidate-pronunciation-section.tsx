@@ -3,6 +3,8 @@ import { Row, Switch } from "../core/platform-controls";
 export interface CandidatePronunciationSectionProps {
   value?: boolean;
   disabled?: boolean;
+  /** 宿主只标英文音标、不标日文罗马音，音标表也不随安装包、要在设置里下载一次（Linux）。 */
+  englishOnly?: boolean;
   onChange: (value: boolean) => void;
 }
 
@@ -10,12 +12,17 @@ export interface CandidatePronunciationSectionProps {
 export function CandidatePronunciationSection({
   value,
   disabled,
+  englishOnly,
   onChange,
 }: CandidatePronunciationSectionProps) {
   return (
     <Row
       title="显示读音"
-      description="在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。"
+      description={
+        englishOnly
+          ? "在英文释义下面标出音标。音标来自离线英文音标词典，下载一次后查词不联网。需要先打开释义。"
+          : "在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。"
+      }
     >
       <Switch checked={value ?? false} disabled={disabled} onChange={onChange} />
     </Row>
