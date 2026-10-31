@@ -22,6 +22,7 @@ import { CorrectionMarkPolicy, CorrectionSurfaceColors } from './candidate/Corre
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
 import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
+import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { ExpandedCandidateBatchPolicy } from './candidate/ExpandedCandidateBatchPolicy';
 import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
@@ -330,6 +331,7 @@ const LAYER_FONT_SIZE: number = 18;
 const NINE_KEY_FONT_SIZE: number = 17;
 const NINE_KEY_LETTER_WEIGHT: number = 500;
 // 展开的候选网格：列宽至少 64vp、列间距 6vp，格高 44vp、圆角 8、词 17fp，最多 40 格，下方是 40vp 高、放「返回」和删除键的底栏。
+// 44vp 高度和 17fp 文字是默认候选字号 100% 时的设计尺寸；网格通过 `CandidateScalePolicy.expandedFontSize` / `expandedCellHeight` 随候选字号和候选栏大小缩放（#10400）。
 const EXPANDED_MIN_COLUMN_VP: number = 64;
 const EXPANDED_GAP_VP: number = 6;
 const EXPANDED_PADDING_VP: number = 2;
@@ -9335,10 +9337,21 @@ struct KeyboardView {
     return Math.max(0, (this.expandedInnerWidth() - EXPANDED_GAP_VP * (columns - 1)) / columns);
   }
 
+  /** 展开单元格文字大小：17fp 设计尺寸按候选栏实际字号缩放，该字号已经包含候选栏大小（#10400）。 */
+  private expandedFontSize(): number {
+    return CandidateScalePolicy.expandedFontSize(EXPANDED_FONT_SIZE, this.settings.candidateFontSize);
+  }
+
+  /** 展开单元格高度：44vp 设计高度随候选栏大小和字号比例增长，最低保持 44vp（#10400）。 */
+  private expandedCellHeight(): number {
+    return CandidateScalePolicy.expandedCellHeight(EXPANDED_CELL_HEIGHT_VP, this.settings.candidateFontSize,
+      this.settings.candidateScalePercent);
+  }
+
   /** 一个格子跨几列：普通词一列，长的（如整句或日文转换结果）多列，这样能完整读到，而不是只截到开头几个字。 */
   private expandedSpan(index: number): number {
     if (index < 0 || index >= this.expanded.length) return 1;
-    const natural: number = ExpandedCandidateLayout.width(this.expanded[index].text, EXPANDED_FONT_SIZE,
+    const natural: number = ExpandedCandidateLayout.width(this.expanded[index].text, this.expandedFontSize(),
       EXPANDED_CELL_PADDING_VP, this.expandedInnerWidth());
     return ExpandedCandidateLayout.span(natural, this.expandedColumnWidth(), EXPANDED_GAP_VP, this.expandedColumns());
   }
@@ -9431,13 +9444,13 @@ struct KeyboardView {
             ForEach(row, (cell: ExpandedCandidateCell) => {
               Text(this.expanded[cell.index].text)
                 .width(this.expandedCandidateWidth(cell.span))
-                .height(EXPANDED_CELL_HEIGHT_VP)
+                .height(this.expandedCellHeight())
                 .padding({ left: EXPANDED_CELL_PADDING_VP, right: EXPANDED_CELL_PADDING_VP })
                 .borderRadius(EXPANDED_CELL_RADIUS_VP)
                 .backgroundColor(this.settings.candidateCanvas !== null
                   ? (this.expandedHighlighted(cell.index) ? this.candidateColors().selected : TRANSPARENT)
                   : this.expandedHighlighted(cell.index) ? this.skin.toggleBackground : this.skin.keyBackground)
-                .fontSize(EXPANDED_FONT_SIZE)
+                .fontSize(this.expandedFontSize())
                 .fontWeight(this.expandedHighlighted(cell.index) ? 600 : 400)
                 .fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,
                   this.expandedHighlighted(cell.index), this.expandedSurfaceColors()))

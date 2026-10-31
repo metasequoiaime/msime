@@ -31,6 +31,7 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/PersonalWordbook.h"
 #include "../src/candidates/CandidateLocalModeLabels.h"
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
@@ -52,6 +53,7 @@
 #include "../src/candidates/PanelRestoreRecord.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/WubiProfileNames.h"
+#include "../src/candidates/CandidatePronunciation.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/candidates/CandidateTranslationScope.h"
 #include "../src/candidates/PairedPunctuation.h"
@@ -1812,6 +1814,7 @@ public:
     translation_query_.clear();
     translation_pending_.clear();
     translation_answers_.clear();
+    pronunciations_.clear();
     translation_manual_sentence_ = false;
     translation_session_ = 0;
     // Translation workers are detached and their results are fenced by the
@@ -2381,8 +2384,12 @@ public:
                             ? translation_socket_ : std::string{};
     // 结果按开始时配置的 socket 核对，不按这一段实际连不连它：只查离线词典的那一段也要能交回来。
     const auto fence = translation_socket_;
+    // 打开「显示读音」时，这一段做完后在同一个工作线程上为它的回答查读音（CandidatePronunciation.h）；整句翻译和 /fy 的回答不是释义，不查。
+    const bool pronounce = !manual_sentence && !commandTranslation(query) && pronunciationTargets().size() > 0;
     translation_job_ = detachedJob(
-        [query, encoded, gloss, offline, local, socket, fence, dictionary, providerAllowed, glossStage,
+        [query, encoded, gloss, offline, local, socket, fence, dictionary, providerAllowed, glossStage, pronounce,
+         targets = pronunciationTargets(),
+         pronunciationRoot = msime::linux_host::pronunciation_supplementary_root(options_path_),
          resources = resources_] () mutable {
           // 这一段的回答能不能记下来（主查询做完了，要问 provider 时它也答上了）：refreshTranslations 只记这样的，失败的下一次照常重试。
           bool answered = offline && socket.empty();
@@ -2437,9 +2444,24 @@ public:
               } catch (...) {} // Retain local hits on provider failure.
             }
           }
+          auto pronunciations = Json::object();
+          if (pronounce) {
+            try {
+              pronunciations = msime::linux_host::lookup_translation_pronunciations(
+                  local, targets, msime::linux_host::strict_json_required_integer<uint64_t>(query.at("generation")),
+                  pronunciationRoot, [&](const std::string &lookup) {
+                    try {
+                      return response(msime_client_pronunciation_request(
+                          reinterpret_cast<const uint8_t *>(lookup.data()), lookup.size(),
+                          reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
+                    } catch (...) { return Json(); }
+                  });
+            } catch (...) {} // 读音只是附加的显示，查不到时照常交回释义。
+          }
           return Json{{"query", encoded}, {"translations", local},
                       {"continue_online", offline && !socket.empty()},
                       {"gloss", glossStage}, {"answered", answered && !glossStage},
+                      {"pronunciations", std::move(pronunciations)},
                       {"_socket", fence}};
         });
   }
@@ -2500,6 +2522,7 @@ public:
             (result.value("query", "") == encodedQuery || manual_query_matches) &&
             result.value("_socket", std::string{}) == translation_socket_) {
           const auto translations = result.value("translations", Json::array());
+          if (!pronunciationTargets().empty()) pronunciations_.store(result.value("pronunciations", Json::object()));
           if (!translations.empty()) {
             // gloss_query 的回答是整页的离线释义，标上 "gloss": true，「仅当前高亮」时 Rust 照旧画在每一行。
             const auto encoded = (result.value("gloss", false)
@@ -2560,6 +2583,20 @@ public:
     };
     return static_cast<int>(msime::linux_host::translation_reserved_lines(
         language("translation_target_language", "en"), language("translation_secondary_language", "")));
+  }
+  // 「显示读音」（偏好 candidate_pronunciation，默认关闭）打开时释义各行的目标语言，Linux 只画主目标语言那一行；关着时为空。
+  std::vector<std::string> pronunciationTargets() const {
+    if (!preferences_.value("candidate_pronunciation", false)) return {};
+    const auto target = preferences_.find("translation_target_language");
+    return {target != preferences_.end() && target->is_string() ? target->get<std::string>() : std::string("en")};
+  }
+  // 一个候选的读音，"\n" 分行，与它的释义逐行对应；没有时为空。
+  std::string candidatePronunciation(const Json &candidate) const {
+    const auto text = candidate.find("text"), translation = candidate.find("translation");
+    if (text == candidate.end() || !text->is_string() || translation == candidate.end() || !translation->is_string())
+      return {};
+    return pronunciations_.candidate(text->get<std::string>(), translation->get_ref<const std::string &>(),
+                                     pronunciationTargets());
   }
   // 候选词翻译开着且范围是「仅当前高亮」（CandidateTranslationScope.h）。
   bool translationScopeHighlighted() const {
@@ -4270,6 +4307,8 @@ public:
   std::string translation_query_, translation_pending_, translation_socket_;
   // 「仅当前高亮」时主查询的回答，高亮移开再移回来时直接交给 Rust（CandidateTranslationScope.h）。
   msime::linux_host::TranslationAnswerCache translation_answers_;
+  // 翻译工作线程查到的读音（CandidatePronunciation.h），按发给读音表的文本存；换焦点、换偏好时随 invalidateTranslationRequests 一起清掉。
+  msime::linux_host::CandidatePronunciations pronunciations_;
   bool translation_manual_sentence_ = false;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
@@ -4412,6 +4451,8 @@ struct FcitxCandidateDisplay {
   fcitx::Text classic;
   std::string body, translation, suffix;
   Json translation_runs = Json::array();
+  // 释义各行的读音（"\n" 分行，与 translation 逐行对应，CandidatePronunciation.h）；classicui 已经把它拼在每行释义下面，原生画布另外画淡。
+  std::string pronunciation;
   // 固定了排位（1–5）：原生画布照 macOS 用 #379AD3 画正文，classicui 画不出单行颜色，改在正文后加「  固定N」。
   bool fixed = false;
   // 原生画布的 macOS 结构分开画的几段：不带训音的正文、韩文汉字的训音（画在释义行第一行）、收拾过的插件注释（释义行最后一行，斜体），以及 AI 占位行。
@@ -4424,10 +4465,10 @@ struct FcitxCandidateDisplay {
   // 「仅当前高亮」时高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，移动高亮时候选窗高度不跳；其他行为 0。
   int reserved_gloss_lines = 0;
 };
-// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。
+// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。`pronunciation` 是释义各行的读音（FcitxState::candidatePronunciation），没有打开「显示读音」时为空。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
                                      const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0,
-                                     int reservedGlossLines = 0) {
+                                     int reservedGlossLines = 0, const std::string &pronunciation = {}) {
   FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
@@ -4465,8 +4506,10 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
   if (candidate.contains("translation") && candidate.at("translation").is_string()) {
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
-    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。
-    if (!display.translation.empty()) row.append("\n" + display.translation);
+    if (!display.translation.empty()) display.pronunciation = pronunciation;
+    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。读音在它那一行释义下面单独一行，只供显示。
+    if (!display.translation.empty())
+      row.append("\n" + msime::linux_host::candidate_gloss_readings(display.translation, display.pronunciation).text);
   }
   if (reservedGlossLines > 0 && candidate.value("translation_reserved", false)) {
     display.reserved_gloss_lines = reservedGlossLines;
@@ -4493,9 +4536,9 @@ class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
                  bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0,
-                 int reservedGlossLines = 0)
+                 int reservedGlossLines = 0, const std::string &pronunciation = {})
       : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars,
-                                                            reservedGlossLines)) {}
+                                                            reservedGlossLines, pronunciation)) {}
   const FcitxCandidateDisplay &display() const { return display_; }
 private:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
@@ -4538,14 +4581,18 @@ std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state,
       state.restricted() || state.privateInput() || state.session_ != item.session() ||
       msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != item.generation()) return actions;
   const auto scheme = msime::linux_host::strict_json_value(state.view_, "scheme", 0u);
-  if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) return actions;
-  // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
-  actions.emplace_back(1, msime::linux_host::candidate_pin_label);
-  for (int slot = 1; slot <= 5; ++slot)
-    actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
-  if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
-  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
-    actions.emplace_back(2, msime::linux_host::candidate_remove_label);
+  if (msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) {
+    // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
+    actions.emplace_back(1, msime::linux_host::candidate_pin_label);
+    for (int slot = 1; slot <= 5; ++slot)
+      actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
+    if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
+    if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
+      actions.emplace_back(2, msime::linux_host::candidate_remove_label);
+  }
+  // 「加入生词本」在最后，和 macOS、Windows 的候选菜单一样；不是词库操作，只要这一行显示着释义就有。
+  if (!item.display().translation.empty())
+    actions.emplace_back(30, msime::linux_host::candidate_personal_wordbook_label);
   return actions;
 }
 void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, int action) {
@@ -4553,12 +4600,22 @@ void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, i
   const auto session = item.session();
   const auto generation = item.generation();
   const auto index = item.index();
+  const auto text = item.text();
+  const auto translation = item.display().translation;
   const auto actions = candidateMenuActions(state, item);
   if (std::none_of(actions.begin(), actions.end(),
       [action](const auto &available) { return available.first == action; })) return;
   try {
     if (!state.ensure() || state.session_ != session ||
         msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != generation) return;
+    if (action == 30) {
+      // 不经过 Engine，组字不变；共享层答的那句提示放在候选上方的辅助行，下一次刷新时消失。
+      const auto notice = msime::linux_host::add_to_personal_wordbook(
+          state.options_path_, text, translation);
+      state.ic_.inputPanel().setAuxUp(fcitx::Text(notice));
+      state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+      return;
+    }
     char *raw = nullptr;
     if (action == 1) raw = msime_client_pin_candidate(session, generation, index);
     else if (action == 2) raw = msime_client_remove_candidate(session, generation, index);
@@ -4599,7 +4656,8 @@ public:
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_,
-          msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate), reservedGlossLines));
+          msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate), reservedGlossLines,
+          state.candidatePronunciation(candidate)));
       // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
       labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
@@ -4624,7 +4682,8 @@ public:
         state_.privateInput() || state_.session_ != item->session() ||
         msime::linux_host::strict_json_value(state_.view_, "generation", uint64_t{}) != item->generation())
       return false;
-    return msime::linux_host::candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source());
+    return msime::linux_host::candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source()) ||
+           !item->display().translation.empty();
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
@@ -8511,6 +8570,7 @@ bool FcitxState::renderNativeCanvas() {
     result.decoration_text = display.decoration_text;
     result.decoration_badge = display.decoration_badge;
     result.dim_prefix_bytes = display.dim_prefix_bytes;
+    result.pronunciation = display.pronunciation;
     // 「仅当前高亮」的高亮行一直留出释义的行数；chrome 的释义行先画训音，有训音时多留一行。
     if (display.reserved_gloss_lines > 0)
       result.reserved_gloss_lines = display.reserved_gloss_lines + (chrome && !display.reading.empty() ? 1 : 0);
@@ -8552,7 +8612,8 @@ bool FcitxState::renderNativeCanvas() {
     for (auto at = first; at < last; ++at) {
       const auto &entry = expanded_[at];
       const auto display = candidateDisplay(entry, traditionalApplies(), showCandidateAnnotations(),
-          host::korean_hanja_gloss(view_, entry), traditional_variant_, host::caret_edit_dim_scalars(caretEdit, entry));
+          host::korean_hanja_gloss(view_, entry), traditional_variant_, host::caret_edit_dim_scalars(caretEdit, entry),
+          0, candidatePronunciation(entry));
       content.items.push_back(make_item(display, at / columns == cursor_row ? host::candidate_index_label(at % columns) : std::string{}));
     }
     content.selected = static_cast<int>(expanded_cursor_ - first);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CandidatePronunciation.h"
 #include "CandidateRowText.h"
 #include "NativeCanvasAnimation.h"
 #include "../../../../shared/contracts/candidate_decoration_overlay.h"
@@ -243,6 +244,8 @@ struct NativeCanvasItem {
   std::size_t dim_prefix_bytes = 0;
   // 「仅当前高亮」的候选词翻译生效时，高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，行数与横排为未到释义预留的相同；移动高亮时卡片高度不跳。chrome 的横排由 NativeCanvasContent::reserved_gloss_lines 统一预留，不看这个；chrome 的竖排和 canvas 包按有没有释义变高，都按它留。
   int reserved_gloss_lines = 0;
+  // 释义各行的读音，"\n" 分行、与 translation 逐行对应（CandidatePronunciation.h）；两种画法都把它画在它那一行释义下面单独一行，按释义色减淡。没有打开「显示读音」或没有音标时为空。
+  std::string pronunciation = {};
 };
 struct NativeCanvasAction { std::string text; std::function<void()> invoke; };
 struct NativeCanvasContent {
@@ -557,7 +560,9 @@ inline std::optional<NativeCanvasLayout::Overlay> native_canvas_overlay_layout(c
 inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMetrics &metrics,
     const NativeCanvasItem &item, bool horizontal, const nlohmann::json &colors = nlohmann::json::object(),
     bool highlighted = false, double max_width = -1) {
-  bool inline_translation = !horizontal;
+  // 读音单独占一行，有读音时释义总在正文下面，不和正文挤在同一行。
+  const auto glossed = candidate_gloss_readings(item.translation, item.pronunciation);
+  bool inline_translation = !horizontal && glossed.readings.empty();
   if (inline_translation && !item.translation.empty() && std::isfinite(max_width) && max_width >= 0) {
     auto *body = native_canvas_text_layout(cr, metrics.font, item.text);
     int width = 0, height = 0;
@@ -568,11 +573,11 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
     g_object_unref(body);
   }
   const std::string gap = item.translation.empty() ? "" : inline_translation ? " " : "\n";
-  const auto value = item.text + gap + item.translation + item.suffix;
+  const auto value = item.text + gap + glossed.text + item.suffix;
   auto *line = native_canvas_text_layout(cr, metrics.font, value, max_width);
   const auto dim_end = std::min(item.dim_prefix_bytes, item.text.size());
   if (item.translation.empty() && dim_end == 0) return line;
-  const auto start = item.text.size() + gap.size(), end = start + item.translation.size();
+  const auto start = item.text.size() + gap.size(), end = start + glossed.text.size();
   auto *attributes = pango_attr_list_new();
   const auto insert = [&](PangoAttribute *attribute, std::size_t from, std::size_t to) {
     attribute->start_index = static_cast<guint>(from);
@@ -626,7 +631,15 @@ inline PangoLayout *native_canvas_item_layout(cairo_t *cr, const NativeCanvasMet
     const char *selected = role == "pos" ? "selected_translation_pos" : "selected_translation_separator";
     auto run_color = highlighted ? color(selected) : std::optional<ThemeColor>{};
     if (!visible(run_color)) run_color = color(normal);
-    paint(visible(run_color) ? *run_color : *translation, start + from, start + from + length);
+    const auto at = start + glossed.position(from);
+    paint(visible(run_color) ? *run_color : *translation, at, at + length);
+  }
+  // 读音比它跟着的释义轻一些：释义色的 0.72 倍透明度（macOS 的 MSIMECandidatePronunciationOpacity）；选中行不减淡，那时的释义色已经是选中色。
+  if (!glossed.readings.empty()) {
+    auto reading = *translation;
+    if (!highlighted)
+      reading.alpha = static_cast<std::uint8_t>(std::round(reading.alpha * msime::candidate::kCandidatePronunciationOpacity));
+    for (const auto &[from, length] : glossed.readings) paint(reading, start + from, start + from + length);
   }
   pango_layout_set_attributes(line, attributes);
   pango_attr_list_unref(attributes);
@@ -716,6 +729,7 @@ inline NativeCanvasLayout measure_native_canvas_skin(cairo_t *cr, const NativeCa
     // 「仅当前高亮」的高亮行一直留出释义的行数：canvas 包按有没有释义变高、没有统一预留，竖排横排都按 reserved_gloss_lines 量一份释义放在正文下面时的高度，回答没到也留。
     if (item.reserved_gloss_lines > 0) {
       auto reserved = item;
+      reserved.pronunciation.clear();
       reserved.translation = "X";
       for (int extra = 1; extra < item.reserved_gloss_lines; ++extra) reserved.translation += "\nX";
       reserved.translation_runs = nlohmann::json::array();
