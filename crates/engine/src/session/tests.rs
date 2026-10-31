@@ -1502,6 +1502,56 @@ fn selecting_short_touch_words_consumes_the_raw_code_and_learns_the_pair() {
     }
 }
 
+/// 个人上下文重排只排字面首组：上一个词之后常接的短词纠错再重，也不能凭原始词频挤掉触点罚分后仍领先的字面首选。
+#[test]
+fn personal_context_keeps_short_touch_words_behind_the_literal_leader() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',2000000),('gei','g','给',1000000);
+        CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        INSERT INTO tbl_1_m VALUES('mei','m','没',1000);",
+    );
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO personal_bigram(previous,word,count) VALUES('没','关',32)",
+            [],
+        )
+        .unwrap();
+    drop(journal);
+    let mut session = fixture.session_with(|options| {
+        touch_shuangpin(options);
+        options.personal_context = true;
+    });
+    session.set_key_geometry(Some(qwerty_geometry()));
+    for byte in b"mw" {
+        session.set_key_touch(Some(crate::touch::KeyTouch {
+            dx: 0,
+            dy: 0,
+            copy: 0,
+        }));
+        session.character(*byte, false);
+    }
+    select_word(&mut session, "没");
+    for (byte, (dx, dy)) in b"gf".iter().zip([(0, 0), (-5, -10)]) {
+        session.set_key_touch(Some(crate::touch::KeyTouch { dx, dy, copy: 0 }));
+        session.character(*byte, false);
+    }
+    assert_eq!(session.input.chain.previous.as_deref(), Some("没"));
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.candidates[0].word, "跟");
+    assert!(snapshot.candidates[0].corrected_from.is_empty());
+    assert!(snapshot
+        .candidates
+        .iter()
+        .skip(1)
+        .any(|row| row.word == "关" && row.touch_supported));
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("跟")
+    );
+}
+
 /// 带触点的输入有落点支持的纠错可选、用户却按 Enter 原样上屏：记一次抑制，之后同一串输入带触点时按字面回答，一行纠错都没有、请求也不再带触点。不带触点（平面表）的会话不受这条记录影响，照旧给纠错整句。落点不支持（沉到表尾）的纠错行不算可选，上屏不记。
 #[test]
 fn committing_raw_over_a_touch_correction_suppresses_it() {
