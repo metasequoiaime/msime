@@ -39,6 +39,7 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             openPanel();
+            checkReturnBar();
             checkNavigation();
             reveal(describedPrefix("符号分类 网络"));
             tap(describedPrefix("符号分类 网络"));
@@ -136,6 +137,39 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(node -> equalsText("1", node.getText())));
         tap(described("删除").and(this::inSymbolPanel));
         assertEmptyEditor();
+    }
+
+    /** 经系统触摸输入检查左右装饰和中间文字都能关闭面板，不会顺带输入底层字母。 */
+    private void checkReturnBar() {
+        for (float position : new float[] {0.03f, 0.5f, 0.97f}) {
+            stage = "symbol return bar at " + position;
+            Rect header = bounds(described("关闭符号面板"));
+            long now = SystemClock.uptimeMillis();
+            for (int action : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP}) {
+                android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now + 30, action,
+                    header.left + header.width() * position, header.centerY(), 0);
+                event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+                try {
+                    if (!automation.injectInputEvent(event, true)) throw new AssertionError("返回栏触摸未送达");
+                } finally { event.recycle(); }
+            }
+            awaitGone(described("符号面板"));
+            await(key("q"));
+            assertEmptyEditor();
+            openPanel();
+        }
+    }
+
+    private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            boolean visible = false;
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
+                visible |= find(window.getRoot(), match) != null;
+            if (!visible) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("点击返回条后符号面板没有关闭");
     }
 
     private void checkRadicalNavigation() throws Exception {
