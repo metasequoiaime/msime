@@ -161,6 +161,22 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
+# 没读到实时偏好时按记住的全拼九键建会话（#10389，.agents/notes/implemented/bug-fix/2026-10-31-android-nine-key-first-frame.md）。改哪种组合由 TouchLayoutHintPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：只在 livePreferences 为 null 时取选项里的偏好副本，用 touchLayoutHint() 经 TouchLayoutHintPolicy.startupTouchKeyboardLayout 算布局，写回副本的 touch_keyboard_layout 在 NativeClient.create 之前；displayedTouchLayout 只在没有视图时用记住的布局，有视图时按视图画，不再经 TouchLayoutHintPolicy 让提示压过视图。
+startup_seed_match=$(rg -n -m 1 'startupPreferences\.put\("touch_keyboard_layout", startupLayout\)' <<< "$start_session_body" || true)
+startup_create_match=$(rg -n -m 1 'String created = NativeClient\.create\(options\.toString\(\)\);' <<< "$start_session_body" || true)
+startup_seed_line=${startup_seed_match%%:*}
+startup_create_line=${startup_create_match%%:*}
+displayed_layout_body=$(sed -n '/^    int displayedTouchLayout(JSONObject value) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'livePreferences == null \? options\.optJSONObject\("preferences"\) : null' <<< "$start_session_body" \
+  || ! rg -q 'TouchLayoutHintPolicy\.startupTouchKeyboardLayout\(touchLayoutHint\(\),' <<< "$start_session_body" \
+  || [ -z "$startup_seed_line" ] || [ -z "$startup_create_line" ] \
+  || [ "$startup_seed_line" -ge "$startup_create_line" ] \
+  || ! rg -q 'if \(value == null\) return touchLayoutHint\(\);' <<< "$displayed_layout_body" \
+  || [ "$(rg -c 'touchLayoutHint\(\)' <<< "$displayed_layout_body")" != 1 ] \
+  || rg -q 'TouchLayoutHintPolicy' <<< "$displayed_layout_body"; then
+  echo "Android must seed the startup preference copy with the remembered nine-key layout before NativeClient.create when live preferences are missing, and draw from the engine view once it exists (#10389)" >&2
+  exit 1
+fi
 # 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧在画帧前登记帧提交回调（API 28 退到下一帧回调），交出去后才放行等着的建会话，而不是在画帧前直接 post（API 30 上那样会抢在画完的报告前面）；收起时马上放行等着的建会话；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
 start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
 schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")

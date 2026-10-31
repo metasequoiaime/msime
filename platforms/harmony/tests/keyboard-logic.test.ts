@@ -1636,6 +1636,24 @@ group("SymbolPanelPolicy", () => {
     !SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
     "a locked symbol panel stays open for continuous input",
   );
+  check(
+    symbolCategories.every(
+      (category) => !SymbolPanelPolicy.cells(category.symbols, 5).includes(""),
+    ),
+    "every fixed symbol category keeps its pairs on one row without gaps",
+  );
+  check(
+    SymbolPanelPolicy.cells(["，", "。", "？", "！", "（", "）", "《"], 5).join("|") ===
+      "，|。|？|！||（|）|《",
+    "an opening half at the end of a row moves to the next row with its closing half",
+  );
+  check(
+    SymbolPanelPolicy.cells(["，", "。", "？", "（", "）"], 5).join("|") === "，|。|？|（|）" &&
+      SymbolPanelPolicy.cells(["，", "。", "？", "！", "（", "。"], 5).join("|") ===
+        "，|。|？|！|（|。" &&
+      SymbolPanelPolicy.cells(["，", "。", "？", "！", "（"], 5).join("|") === "，|。|？|！|（",
+    "a pair that fits, or an opening half without its closing half, stays in place",
+  );
 });
 
 group("a held Delete never crosses from composition into committed text", () => {

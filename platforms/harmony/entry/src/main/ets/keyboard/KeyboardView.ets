@@ -10865,31 +10865,34 @@ struct KeyboardView {
         .height('100%')
 
         Grid(this.symbolGridScroller) {
-          ForEach(SymbolPanelPolicy.category(this.symbolCategory).symbols
-            .slice(0, SymbolPanelPolicy.maxSymbolsPerCategory()), (symbol: string) => {
+          // 成对符号的前半个落在行尾时留一格空，两半排在同一行（`SymbolPanelPolicy.cells`）；空格子只占位，不画键。
+          ForEach(SymbolPanelPolicy.cells(SymbolPanelPolicy.category(this.symbolCategory).symbols
+            .slice(0, SymbolPanelPolicy.maxSymbolsPerCategory()), SYMBOL_COLUMNS), (symbol: string) => {
             GridItem() {
-              Text(symbol)
-                .fontSize(SYMBOL_FONT_SIZE)
-                .maxFontSize(SYMBOL_FONT_SIZE)
-                .minFontSize(SYMBOL_MIN_FONT_SIZE)
-                .maxLines(1)
-                .fontColor(this.skin.keyLabelColor(false))
-                .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
-                .textAlign(TextAlign.Center)
-                .width('100%')
-                .height('100%')
-                .backgroundColor(this.skin.keySurfaceBackground(false))
-                .linearGradient({ angle: 180,
-                  colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
-                .borderRadius(this.skin.keyCornerRadius())
-                .borderWidth(this.skin.borderWidth)
-                .borderColor(this.skin.borderColor)
-                .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
-                  offsetX: 0, offsetY: this.skin.shadowOffset })
-                .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
-                .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-                .animation({ duration: KEY_PRESS_MS })
-                .onClick(() => this.selectSymbol(symbol))
+              if (symbol.length > 0) {
+                Text(symbol)
+                  .fontSize(SYMBOL_FONT_SIZE)
+                  .maxFontSize(SYMBOL_FONT_SIZE)
+                  .minFontSize(SYMBOL_MIN_FONT_SIZE)
+                  .maxLines(1)
+                  .fontColor(this.skin.keyLabelColor(false))
+                  .fontFamily(this.skin.monospaced ? 'monospace' : undefined)
+                  .textAlign(TextAlign.Center)
+                  .width('100%')
+                  .height('100%')
+                  .backgroundColor(this.skin.keySurfaceBackground(false))
+                  .linearGradient({ angle: 180,
+                    colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+                  .borderRadius(this.skin.keyCornerRadius())
+                  .borderWidth(this.skin.borderWidth)
+                  .borderColor(this.skin.borderColor)
+                  .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+                    offsetX: 0, offsetY: this.skin.shadowOffset })
+                  .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
+                  .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+                  .animation({ duration: KEY_PRESS_MS })
+                  .onClick(() => this.selectSymbol(symbol))
+              }
             }
             .height(SYMBOL_CELL_VP)
           }, (symbol: string, index: number) => `${this.symbolCategory}:${index}:${symbol}:${this.faceKey()}`)
