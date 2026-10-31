@@ -4,6 +4,7 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -144,7 +145,7 @@ final class RandomDigitsDeviceChecks {
      * 临时模式里数字页不重排：U 模式时随机资格不成立，键面是标准顺序，点下去的数字照常进组字（Engine 把数字列为拼写，不能按字面上屏），也不换序。退出 U 模式时人还在数字页、键行没有重建，键面要当场换回进入前的随机排列，否则键面与上屏会对不上。返回收尾后数字页的键序，供后面的离页检查沿用。
      */
     private int[] unicodeDigitComposes(String committed, int[] random) throws Exception {
-        t.stage = "U 模式里数字页保持标准顺序";
+        t.stage = "26 键用 Shift+U 进入 U 模式";
         physical(t.described("返回原键盘"));
         // 与 ChineseHelpcodeOffDeviceSmoke 相同，用带 Shift 的键盘事件在空组字时进入 U 模式。
         long time = SystemClock.uptimeMillis();
@@ -152,11 +153,13 @@ final class RandomDigitsDeviceChecks {
             0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
         t.sendKeySync(shiftU);
         t.sendKeySync(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
-        t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U", node.getText())));
+        awaitPlain(committed + "U");
+        t.stage = "U 模式里数字页保持标准顺序";
         physical(t.key("123"));
         check(Arrays.equals(order(), STANDARD), "U 模式里数字页应为标准顺序");
+        t.stage = "U 模式里点数字页的 4 进组字";
         physical(t.key("4"));
-        t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U4", node.getText())));
+        awaitPlain(committed + "U4");
         check(Arrays.equals(order(), STANDARD), "U 模式里的数字输入不能换序");
         t.stage = "U 模式组字退格收尾";
         // 第一次退格删掉 4；U 模式在只剩入口字母时可能已经退出，所以只在仍显示 `U` 时再退一次。
@@ -171,6 +174,57 @@ final class RandomDigitsDeviceChecks {
         int[] after = order();
         check(Arrays.equals(random, after), "退出 U 模式后应恢复进入前的随机排列");
         return after;
+    }
+
+    /**
+     * 等合成输入框变成 `expected`。超时时报出输入框此刻的合成文字、各窗口的类型与范围、输入法窗口里全部文字（`*` 标出用户看不见的节点）：`DeviceSmoke.imeTexts` 只列前 30 条，数字页的组字状态和盖在键上的窗口都在那之外。
+     */
+    private void awaitPlain(String expected) {
+        try {
+            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(expected, node.getText())));
+        } catch (AssertionError error) {
+            AssertionError detailed = new AssertionError(error.getMessage() + "; field=" + plainText()
+                + "; windows=" + windows() + "; ime=" + allImeTexts());
+            detailed.initCause(error);
+            throw detailed;
+        }
+    }
+
+    private String plainText() {
+        t.dropStaleNodes();
+        for (var window : t.automation.getWindows()) {
+            AccessibilityNodeInfo field = t.find(window.getRoot(), t.field("msime-test-plain"));
+            if (field != null) return String.valueOf(field.getText());
+        }
+        return "<missing>";
+    }
+
+    private String windows() {
+        StringBuilder out = new StringBuilder();
+        for (AccessibilityWindowInfo window : t.automation.getWindows()) {
+            Rect rect = new Rect();
+            window.getBoundsInScreen(rect);
+            AccessibilityNodeInfo root = window.getRoot();
+            out.append('[').append(window.getType()).append(' ').append(window.getLayer()).append(' ')
+                .append(root == null ? "-" : root.getPackageName()).append(' ').append(rect.toShortString())
+                .append(']');
+        }
+        return out.toString();
+    }
+
+    private String allImeTexts() {
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        for (AccessibilityWindowInfo window : t.automation.getWindows()) collectImeTexts(window.getRoot(), texts);
+        return texts.toString();
+    }
+
+    private static void collectImeTexts(AccessibilityNodeInfo node, java.util.List<String> texts) {
+        if (node == null || texts.size() >= 200) return;
+        if (DeviceSmoke.equalsText("app.msime.android", node.getPackageName())) {
+            CharSequence text = node.getText() != null ? node.getText() : node.getContentDescription();
+            if (text != null && text.length() > 0) texts.add((node.isVisibleToUser() ? "" : "*") + text);
+        }
+        for (int index = 0; index < node.getChildCount(); index++) collectImeTexts(node.getChild(index), texts);
     }
 
     private void setEntry(boolean enabled) throws Exception {
