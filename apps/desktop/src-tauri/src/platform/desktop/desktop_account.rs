@@ -58,7 +58,7 @@ fn desktop_client_agent(app: &tauri::AppHandle) -> Option<String> {
     .ok()
 }
 
-/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin, plugin, report and author-block community services that authenticate through the same session.
+/// 构建后端客户端，并围绕平台会话存储登记账号状态；候选皮肤、插件、举报和作者屏蔽社区服务都通过同一会话认证。
 pub(crate) fn manage(
     app: &tauri::AppHandle,
     storage: Storage,

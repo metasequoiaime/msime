@@ -1,6 +1,6 @@
-//! Blocking the author of a community item (`/v1/community/blocks`), so the signed-in user stops seeing that author's works in every community catalog.
+//! 屏蔽社区条目的作者（`/v1/community/blocks`），让登录用户在所有社区目录里都看不到该作者的作品。
 //!
-//! A block names an item, not a person: the server resolves the item's owner and never returns the owner's account id. Blocking needs the signed-in session; the device's anonymous account does not count, because catalogs are filtered by the token the list request carries, and an anonymous block would neither follow the user to another device nor survive a reinstall. Blocking the same author again answers the existing block.
+//! 屏蔽请求指向作品而不是作者：服务端解析作品的所有者，从不返回作者账号编号。屏蔽必须使用登录会话；设备匿名账号不算，因为目录按列表请求携带的令牌过滤，匿名屏蔽既不会跟随用户换设备，也不会在重装后保留。再次屏蔽同一作者时返回已有的屏蔽记录。
 
 use crate::account::{
     request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Most authors one account may block; the server answers `409 block_limit_reached` past it.
+/// 一个账号最多可以屏蔽的作者数；超过后服务端返回 `409 block_limit_reached`。
 pub const MAX_COMMUNITY_BLOCKS: usize = 500;
 
-/// One blocked author: the block's own id (what unblocking names), the author's display name as it reads now, and when the block was made (RFC 3339).
+/// 一位被屏蔽的作者：屏蔽记录自己的编号（取消屏蔽时使用）、作者当前显示名和屏蔽时间（RFC 3339）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommunityBlock {
@@ -144,7 +144,7 @@ where
     A: AccountApi + CommunityBlockApi,
     S: AccountSessionStorage,
 {
-    /// Blocks the author of the item `item_id` of `kind`. `Unauthorized` without a signed-in session, `Invalid` for one's own item or a malformed id, `NotFound` when the item is gone or not visible, `Conflict` past [`MAX_COMMUNITY_BLOCKS`].
+    /// 屏蔽 `kind` 类别的作品 `item_id` 的作者。没有登录会话返回 `Unauthorized`，自己的作品或格式错误的编号返回 `Invalid`，作品不存在或不可见返回 `NotFound`，超过 [`MAX_COMMUNITY_BLOCKS`] 返回 `Conflict`。
     pub fn block(
         &self,
         kind: CommunityReportKind,
@@ -159,14 +159,14 @@ where
         })
     }
 
-    /// The signed-in account's blocked authors, newest first.
+    /// 登录账号屏蔽的作者，按最新在前排列。
     pub fn list(&self) -> Result<Vec<CommunityBlock>, AccountError> {
         request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.community_blocks(token.ok_or(AccountError::Unauthorized)?)
         })
     }
 
-    /// Lifts the block `id`; lifting one that is already gone succeeds.
+    /// 取消编号为 `id` 的屏蔽；已经不存在的屏蔽也视为成功。
     pub fn unblock(&self, id: &str) -> Result<(), AccountError> {
         let id = Uuid::parse_str(id).map_err(|_| AccountError::Invalid)?;
         if id.is_nil() {
@@ -255,7 +255,7 @@ mod tests {
             serde_json::json!({ "kind": "candidate-skins", "item_id": item().hyphenated().to_string() })
         );
 
-        // Blocking an author who is already blocked answers 200 with the same block.
+        // 再次屏蔽已经屏蔽的作者时，服务端以 200 返回同一条屏蔽记录。
         let (origin, _received) = serve("200 OK", format!(r#"{{"block":{}}}"#, block_json("小鹿")));
         let client = BackendAccountClient::loopback(&origin).unwrap();
         assert!(client
