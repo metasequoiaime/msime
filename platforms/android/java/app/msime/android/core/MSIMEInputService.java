@@ -390,6 +390,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button emojiShortcutButton;
     Button symbolShortcutButton;
     Button voiceShortcutButton;
+    Button randomDigitsShortcutButton;
     Button aiPolishShortcutButton;
     Button replyShortcutButton;
     Button phraseShortcutButton;
@@ -3086,7 +3087,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || touchVoiceShortcutEnabled);
+            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
@@ -9361,6 +9362,45 @@ public final class MSIMEInputService extends InputMethodService {
             && schemeShowsGlosses(scheme);
     }
 
+    /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */
+    static final String PERSONAL_WORDBOOK_FAILURE = "无法加入生词本";
+
+    /**
+     * 长按候选菜单的「加入生词本」：把候选文字、显示着的释义和读音写进背单词的生词本，结果用 {@link #notice} 告诉用户。写文件要取词书目录的锁，放在 `commonPhrasesWorker` 上，和「添加到常用语」一样是键盘里对用户内容的一次写入；不经过引擎，组字不变。
+     */
+    void addCandidateToPersonalWordbook(String text, String translation, String reading) {
+        // 与打字统计同一个目录，也就是设置里背单词读的 `HostStore.sharedStateDirectory`。
+        String directory = typingStatisticsDirectory();
+        if (directory.isEmpty()) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+            return;
+        }
+        try {
+            commonPhrasesWorker.execute(() -> {
+                String answer;
+                try {
+                    answer = NativeClient.personalWordbookAdd(directory, text, translation, reading);
+                } catch (RuntimeException | LinkageError error) {
+                    answer = null;
+                }
+                String shown = answer == null ? PERSONAL_WORDBOOK_FAILURE : answer;
+                main.post(() -> notice(shown));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException error) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+        }
+    }
+
+    /** 候选旁此刻显示的音标，没有显示或还没查到时为空串；规则同 {@link #candidatePronunciationAnnotation}。 */
+    String candidateDisplayedReading(JSONObject candidate) {
+        if (!candidatePronunciationVisible()) return "";
+        String text = CandidatePronunciationPolicy.lookupText(
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
+            candidateTranslationTargets.contains("en"));
+        return candidatePronunciations.getOrDefault(text, "");
+    }
+
     void insertCandidateGloss(int slot, JSONObject id, String text, String gloss) {
         if (!candidateIsCurrent(slot, id, text) || connection == null) return;
         if (!commitText(gloss, TypingSource.LOCAL)) return;
@@ -11781,6 +11821,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
             imeLetterRows.rebuildKeyRows();
+        // 数字页没重建时，临时模式等的进出也会改变随机数字的资格，键面跟着换。
+        imeLayoutRows.syncNumberDigitFaces();
         updateSymbolKeyFaces();
         updateLetterCornerHints();
         updateShuangpinKeyHints();
@@ -12055,6 +12097,15 @@ public final class MSIMEInputService extends InputMethodService {
                 : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
             // 候选条模式里收起键朝上，点它展开软键盘。
             if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
+        }
+        if (randomDigitsShortcutButton != null) {
+            // 工具栏整条隐藏时「随」够不到，与关闭入口一样清掉运行时的随机状态。
+            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS) || toolbarHidden)
+                imeLayoutRows.disableRandomDigits();
+            ViewPolicy.setVisible(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
+            ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());
+            if (Build.VERSION.SDK_INT >= 30) randomDigitsShortcutButton.setStateDescription(
+                imeLayoutRows.randomDigitsEnabled() ? "已开启" : "已关闭");
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.setVisible(voiceShortcutButton, touchVoiceShortcutEnabled);

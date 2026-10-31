@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 /// The most books one library may hold.
 const MAX_BOOKS: usize = 32;
 /// The largest single book that will be read. Twenty thousand entries with a long gloss each.
-const MAX_BOOK_BYTES: u64 = 8 * 1024 * 1024;
+pub(crate) const MAX_BOOK_BYTES: u64 = 8 * 1024 * 1024;
 /// The largest index that will be read. Thirty-two short records.
 const MAX_INDEX_BYTES: u64 = 64 * 1024;
 /// The directory, relative to the host-supplied application data directory.
@@ -32,7 +32,7 @@ pub const PERSONAL_ID: &str = "personal";
 pub const PERSONAL_NAME: &str = "生词本";
 /// 生词本最多收多少词。
 ///
-/// 每加一个词都要在锁内重写整本书，而这件事发生在打字的时候：五千条按释义上限算也不到 2 MB，宿主一次写入仍在毫秒级。真想背更多的人可以把导出的文本当成普通词书导入，那条路的上限是 [`wordbook::MAX_ENTRIES`]。
+/// 每加一个词都要在锁内重写整本书，而这件事发生在打字的时候。五千条每个字段都写满、每字按三个字节算约 6 MB，仍在单本书的上限 `MAX_BOOK_BYTES` 之内；实际的释义远短于上限，五千条通常只有几百 KB，宿主一次写入在毫秒级。真想背更多的人可以把导出的文本当成普通词书导入，那条路的上限是 [`wordbook::MAX_ENTRIES`]。
 pub const MAX_PERSONAL_ENTRIES: usize = 5_000;
 /// 导入生词本时文本的字节上限，和导入普通词书相同。
 pub const MAX_PERSONAL_IMPORT_BYTES: usize = 8 * 1024 * 1024;
@@ -575,6 +575,22 @@ impl WordbookLibrary {
         Ok(true)
     }
 
+    /// 把与 `drained` 里某一条完全相同的词条移出生词本，返回移走了几条。词头相同但释义或读音已经变了的词条留着：那是交出去以后又改过的，还没有交出去。移走最后一个词时生词本随之删除。
+    pub fn remove_personal_entries(
+        &self,
+        drained: &[WordbookEntry],
+    ) -> Result<usize, WordbookLibraryError> {
+        let lock = self.lock()?;
+        let mut entries = self.personal_entries_locked(&lock)?;
+        let before = entries.len();
+        entries.retain(|entry| !drained.contains(entry));
+        let removed = before - entries.len();
+        if removed > 0 {
+            self.store_personal_locked(&lock, entries)?;
+        }
+        Ok(removed)
+    }
+
     /// 生词本导出成的文本，格式见 [`export_personal_text`]。还没有生词本时是 `None`。
     pub fn export_personal(&self) -> Result<Option<String>, WordbookLibraryError> {
         let lock = self.lock()?;
@@ -591,12 +607,21 @@ impl WordbookLibrary {
         text: &str,
     ) -> Result<PersonalImportReport, WordbookLibraryError> {
         let parsed = wordbook_import::parse(text, MAX_PERSONAL_IMPORT_BYTES)?;
-        let mut report = PersonalImportReport {
+        let report = PersonalImportReport {
             failed: parsed.failed,
             first_failures: parsed.first_failures,
             truncated: parsed.truncated,
             ..PersonalImportReport::default()
         };
+        self.merge_personal(parsed.entries, report)
+    }
+
+    /// 把已经校验过的词条逐个并进生词本，规则同 [`Self::import_personal`]，整批只写一次。`report` 里已有的格式错误计数原样带回。
+    pub fn merge_personal(
+        &self,
+        incoming: Vec<WordbookEntry>,
+        mut report: PersonalImportReport,
+    ) -> Result<PersonalImportReport, WordbookLibraryError> {
         let lock = self.lock()?;
         let mut entries = self.personal_entries_locked(&lock)?;
         let mut positions: HashMap<String, usize> = entries
@@ -604,7 +629,11 @@ impl WordbookLibrary {
             .enumerate()
             .map(|(position, entry)| (entry.word.clone(), position))
             .collect();
-        for entry in parsed.entries {
+        for entry in incoming {
+            if !entry.is_valid() {
+                report.failed += 1;
+                continue;
+            }
             match positions.get(&entry.word) {
                 Some(&position) => {
                     if merge_personal_entry(&mut entries[position], &entry) {
