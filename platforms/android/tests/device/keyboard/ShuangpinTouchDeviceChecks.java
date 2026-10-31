@@ -125,6 +125,31 @@ final class ShuangpinTouchDeviceChecks {
             if (plainAfterShows) throw new AssertionError("按过带落点的那一遍之后，没有按下点的同一串不该留下纠错整句");
             if (plainMarked) throw new AssertionError("没有按下点时不该有候选带「已纠正」标记");
 
+            // 冻结词级评测中的误触：小鹤 ai vg（癌症）按成 ai vv，最后一键落在 v 的上缘。
+            t.stage = "shuangpin touch: a short correction consumes all four pressed keys";
+            for (String key : new String[] {"a", "i", "v", "v"}) t.tap(t.key(key));
+            awaitField("aivv");
+            Predicate<AccessibilityNodeInfo> first = node -> node.isClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().startsWith("候选 1：");
+            // 产品可能没有评测用的小模型，保留这次设备自己的字面首选。
+            String plainFirst = t.await(first).getContentDescription().toString();
+            boolean plainShortShows = visible(candidate("癌症"));
+            clear(4);
+            if (plainShortShows) throw new AssertionError("没有按下点时不该补入短词纠错");
+            String[] shortKeys = {"a", "i", "v", "v"};
+            int[][] offsets = {{-3, 0}, {1, -4}, {7, -1}, {0, -9}};
+            for (int index = 0; index < shortKeys.length; index++) {
+                Rect key = bounds(shortKeys[index]);
+                touch(key.exactCenterX() + offsets[index][0] * key.width() / 20f,
+                    key.exactCenterY() + offsets[index][1] * key.height() / 20f);
+            }
+            awaitField("aivv");
+            t.await(first.and(node -> plainFirst.equals(node.getContentDescription().toString())));
+            t.tap(candidate("癌症").and(node -> node.getContentDescription().toString().contains("，提示：aivv")));
+            awaitField("癌症");
+            clear(2);
+
             t.stage = "shuangpin touch: Microsoft double-pinyin registers its ; key";
             // 服务重建后几何代次可以从 1 开始；删除旧导出，按新文件确认这次注册。
             Files.deleteIfExists(exported.toPath());

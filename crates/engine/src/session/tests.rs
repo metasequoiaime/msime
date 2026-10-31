@@ -1454,6 +1454,54 @@ fn selecting_a_touch_correction_records_its_two_key_pair() {
     );
 }
 
+/// 短词纠错消费整串原码；非法两键替换过同文前缀后，也不能留下一个键。
+#[test]
+fn selecting_short_touch_words_consumes_the_raw_code_and_learns_the_pair() {
+    for (typed, position, delta, target, intended) in [
+        ("gf", 1, (-5, -10), "关", "gr"),
+        ("gq", 1, (14, 0), "给", "gw"),
+        ("mwgf", 3, (-5, -10), "美观", "gr"),
+    ] {
+        let fixture = Fixture::new(
+            "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+            INSERT INTO tbl_1_g VALUES('gen','g','跟',1000),('guan','g','关',2000000),('gei','g','给',1000000);
+            CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+            INSERT INTO tbl_1_m VALUES('mei','m','没',1000);
+            CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+            INSERT INTO tbl_2_m VALUES('mei''guan','mg','美观',1000000);",
+        );
+        let mut session = fixture.session_with(touch_shuangpin);
+        session.set_key_geometry(Some(qwerty_geometry()));
+        for (index, byte) in typed.bytes().enumerate() {
+            let (dx, dy) = if index == position { delta } else { (0, 0) };
+            session.set_key_touch(Some(crate::touch::KeyTouch { dx, dy, copy: 0 }));
+            session.character(byte, false);
+        }
+        let snapshot = session.snapshot();
+        let at = snapshot
+            .candidates
+            .iter()
+            .position(|row| row.word == target && row.touch_supported)
+            .expect("会话提供落点支持的短词纠错");
+        assert!(at > 0);
+        let result = session.select(at);
+        assert_eq!(result.commit.as_deref(), Some(target));
+        assert_eq!(result.diagnostic, None);
+        assert!(session.snapshot().editing_text.is_empty());
+        assert!(session.snapshot().preedit.is_empty());
+        let pressed = &typed[typed.len() - 2..];
+        let accepted: i64 = Connection::open(fixture.journal())
+            .unwrap()
+            .query_row(
+                "SELECT accepted FROM shuangpin_typo_counts WHERE profile='xiaohe' AND typed=?1 AND intended=?2",
+                [pressed, intended],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(accepted, 1);
+    }
+}
+
 /// 带触点的输入有落点支持的纠错可选、用户却按 Enter 原样上屏：记一次抑制，之后同一串输入带触点时按字面回答，一行纠错都没有、请求也不再带触点。不带触点（平面表）的会话不受这条记录影响，照旧给纠错整句。落点不支持（沉到表尾）的纠错行不算可选，上屏不记。
 #[test]
 fn committing_raw_over_a_touch_correction_suppresses_it() {
