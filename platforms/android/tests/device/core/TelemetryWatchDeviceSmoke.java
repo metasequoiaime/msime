@@ -85,6 +85,9 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                 if (command.equals("stale-close")) {
                     telemetry.getMethod("setEnabled", android.content.Context.class, boolean.class)
                         .invoke(null, getTargetContext(), false);
+                    // 产品把核对交给串行的观察线程；等它执行完再报告完成，检查的才是迟到关闭的结果。
+                    ((java.util.concurrent.ExecutorService) field(telemetry, "OBSERVER", null)).submit(() -> { })
+                        .get(30, java.util.concurrent.TimeUnit.SECONDS);
                 }
                 if (!command.isEmpty()) completed = command;
                 if (command.equals("java")) {

@@ -128,10 +128,14 @@ public final class Telemetry {
             new JSONObject(directoryRequest(app)).put("session", endingSession).toString()));
     }
 
-    /** 偏好已保存；回调只触发重新核对，迟到的关闭通知不能清空重新授权后的队列。 */
-    public static synchronized void setEnabled(Context context, boolean value) {
+    /** 偏好已保存；回调只触发重新核对，迟到的关闭通知不能清空重新授权后的队列。设置页在主线程上调用，而核对要取跨进程文件锁、经 JNI 读写偏好并落盘，所以交给串行的观察线程，与轮询按序执行；撤回前晚写的旧记录由共享代次拒收。 */
+    public static void setEnabled(Context context, boolean value) {
         Context app = context.getApplicationContext();
         consentGeneration.incrementAndGet();
+        OBSERVER.execute(() -> applyPreference(app, value));
+    }
+
+    private static synchronized void applyPreference(Context app, boolean value) {
         if (!captureActive && value) activate(app, false);
         if (captureActive) refreshConsent(app, watchGeneration);
         else {

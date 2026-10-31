@@ -63,6 +63,11 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
                 Class<?> telemetry = getTargetContext().getClassLoader().loadClass("app.msime.android.core.Telemetry");
                 telemetry.getMethod("setEnabled", android.content.Context.class, boolean.class)
                     .invoke(null, getTargetContext(), false);
+                // 产品把核对交给串行的观察线程；夹具结束后进程会被收回，先等它执行完。
+                java.lang.reflect.Field observer = telemetry.getDeclaredField("OBSERVER");
+                observer.setAccessible(true);
+                ((java.util.concurrent.ExecutorService) observer.get(null)).submit(() -> { })
+                    .get(30, java.util.concurrent.TimeUnit.SECONDS);
             } else {
                 root = Files.createTempDirectory(getTargetContext().getFilesDir().toPath(), "synthetic-consent-");
                 DiagnosticConsentSmoke.run(root);
