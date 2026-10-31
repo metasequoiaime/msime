@@ -82,7 +82,7 @@ final class RandomDigitsDeviceChecks {
                     check(Arrays.equals(fixed, fixedBounds()), "重排不能移动其他按键");
                     previous = next;
                 }
-                if (layout.equals("twenty_six_key")) previous = unicodeDigitComposes(expected.toString());
+                if (layout.equals("twenty_six_key")) previous = unicodeDigitComposes(expected.toString(), previous);
                 t.stage = "离开数字页后保留开关与排列 " + layout;
                 physical(t.described("返回原键盘"));
                 t.await(t.described("随机数字").and(AccessibilityNodeInfo::isSelected));
@@ -141,10 +141,10 @@ final class RandomDigitsDeviceChecks {
     }
 
     /**
-     * 随机键面上的数字与标准顺序走同一条上屏路径：U 模式里 Engine 把数字列为拼写，数字九宫格的数字必须进组字，不能按字面上屏。返回收尾后数字页的键序，供后面的离页检查沿用。
+     * 临时模式里数字页不重排：U 模式时随机资格不成立，键面是标准顺序，点下去的数字照常进组字（Engine 把数字列为拼写，不能按字面上屏），也不换序。退出 U 模式时人还在数字页、键行没有重建，键面要当场换回进入前的随机排列，否则键面与上屏会对不上。返回收尾后数字页的键序，供后面的离页检查沿用。
      */
-    private int[] unicodeDigitComposes(String committed) throws Exception {
-        t.stage = "U 模式里随机数字进组字";
+    private int[] unicodeDigitComposes(String committed, int[] random) throws Exception {
+        t.stage = "U 模式里数字页保持标准顺序";
         physical(t.described("返回原键盘"));
         // 与 ChineseHelpcodeOffDeviceSmoke 相同，用带 Shift 的键盘事件在空组字时进入 U 模式。
         long time = SystemClock.uptimeMillis();
@@ -154,10 +154,10 @@ final class RandomDigitsDeviceChecks {
         t.sendKeySync(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
         t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U", node.getText())));
         physical(t.key("123"));
-        int[] before = order();
+        check(Arrays.equals(order(), STANDARD), "U 模式里数字页应为标准顺序");
         physical(t.key("4"));
         t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U4", node.getText())));
-        check(!Arrays.equals(before, order()), "U 模式里的数字输入也要换序");
+        check(Arrays.equals(order(), STANDARD), "U 模式里的数字输入不能换序");
         t.stage = "U 模式组字退格收尾";
         // 第一次退格删掉 4；U 模式在只剩入口字母时可能已经退出，所以只在仍显示 `U` 时再退一次。
         physical(t.key("⌫"));
@@ -167,7 +167,10 @@ final class RandomDigitsDeviceChecks {
             physical(t.key("⌫"));
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed, node.getText())));
         }
-        return order();
+        t.stage = "退出 U 模式后数字页当场恢复随机排列";
+        int[] after = order();
+        check(Arrays.equals(random, after), "退出 U 模式后应恢复进入前的随机排列");
+        return after;
     }
 
     private void setEntry(boolean enabled) throws Exception {

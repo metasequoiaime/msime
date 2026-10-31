@@ -11753,6 +11753,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
             imeLetterRows.rebuildKeyRows();
+        // 数字页没重建时，临时模式等的进出也会改变随机数字的资格，键面跟着换。
+        imeLayoutRows.syncNumberDigitFaces();
         updateSymbolKeyFaces();
         updateLetterCornerHints();
         updateShuangpinKeyHints();

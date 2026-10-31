@@ -544,6 +544,8 @@ final class ImeLayoutRows {
 
     private final RandomDigitOrderPolicy randomDigits = new RandomDigitOrderPolicy();
     private final Button[] numberDigitKeys = new Button[10];
+    /** 数字键面最近一次按哪种资格画的，{@link #syncNumberDigitFaces} 靠它发现资格变了。 */
+    private boolean numberDigitFacesEligible;
 
     boolean randomDigitsEntryVisible() {
         return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
@@ -589,9 +591,18 @@ final class ImeLayoutRows {
         refreshNumberDigits();
     }
 
+    /**
+     * 数字页没有重建、随机资格却变了（在数字页上进出临时模式、切中/英或藏起工具栏）：键面还停在上一种排列，点下去上屏的却是另一个数字，所以每次渲染按当前资格对一次。不在数字页或随机没开时什么也不做。
+     */
+    void syncNumberDigitFaces() {
+        if (!randomDigits.enabled() || !s.imeLetterRows.numberPadDrawn()) return;
+        if (randomDigitsEligible() != numberDigitFacesEligible) refreshNumberDigits();
+    }
+
     private void refreshNumberDigits() {
         if (!s.imeLetterRows.numberPadDrawn()) return;
         boolean eligible = randomDigitsEligible();
+        numberDigitFacesEligible = eligible;
         boolean nineKey = s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
         for (int slot = 0; slot < numberDigitKeys.length; slot++) {
             Button key = numberDigitKeys[slot];
