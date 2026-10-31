@@ -80,6 +80,8 @@ PR1a 在构造的参考布局上调出暂定值（`show_margin` 4），PR1b 换�
 
 Android 的几何注册不能只依赖外层 `letterArea` 的 `OnLayoutChangeListener`：从九键切到 26 键双拼时，外层区域的边界可能不变，只替换了它的子键，因此不会再次触发布局监听。`ImeLetterRows` 在键行重建完成以及可复用键行切换输入框后，经 `View.post` 调用 `ImeTouchPoints.register`，等子键完成布局再量矩形；`register` 仍自行过滤非标准 26 键布局。同步调用会在子键尚未布局时读到零尺寸，继续只依赖外层监听则会漏掉调试几何导出和引擎注册。
 
+设备验收又覆盖到一条时序：输入法的键行可能在引擎会话建立前就完成布局，`View.post` 先执行时会因 `session == 0` 放弃注册，之后没有新的布局事件。会话建立完成和保留会话的重启在 `render()` 后再次投递注册，确保会话就绪后仍会量到当前 26 键并写出几何；这不改变非双拼布局的过滤规则。
+
 ### 几何的来源
 
 `resources/eval/key-geometry/` 里除 `harmony-portrait-microsoft` 外都换成了宿主在模拟器上原样导出的几何，文件名不变，`id` 统一成 1：
