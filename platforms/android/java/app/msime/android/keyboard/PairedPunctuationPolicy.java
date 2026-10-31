@@ -61,9 +61,19 @@ public final class PairedPunctuationPolicy {
         return null;
     }
 
-    /** Whether a commit asks the host to place the caret inside it: `commit_cursor_suffix` is present and is a suffix of the commit, the empty end marker included. Such a quick-phrase template lands exactly as written, so the host neither reopens a quote nor adds a closing mark, the same rule as macOS `hasCursorRequest` and the Windows cursor commit. */
+    /** 这次上屏是否要求宿主把光标放进上屏文字里：`commit_cursor_suffix` 存在并且是上屏文字的后缀，空的末尾标记也算。这样的快捷短语模板按原样落地，宿主既不改回前引号也不补后半个，与 macOS 的 `hasCursorRequest` 和 Windows 的光标上屏同一条规则。 */
     public static boolean explicitCursor(String commit, String cursorSuffix) {
         return commit != null && cursorSuffix != null && commit.endsWith(cursorSuffix);
+    }
+
+    /** 标点键这次上屏实际落地的文字，以及随后要补的后半个（不补时为 null）。 */
+    public record PunctuationCommit(String commit, Completion completion) {}
+
+    /** 标点键上屏的整段成对补全决定：光标短语模板（{@link #explicitCursor} 成立）原样落地、不补后半个，因为光标定位后补的后半个会写进模板中间；否则先按 {@link #reopenQuote} 把后引号改回前引号，再按落地的文字决定要补的后半个。`commit` 为 null 时原样返回、不补。 */
+    public static PunctuationCommit punctuationCommit(String commit, String cursorSuffix, int ascii, boolean enabled) {
+        if (commit == null || explicitCursor(commit, cursorSuffix)) return new PunctuationCommit(commit, null);
+        String landed = reopenQuote(commit, ascii, enabled);
+        return new PunctuationCommit(landed, completion(landed, enabled));
     }
 
     /**
