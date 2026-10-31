@@ -166,7 +166,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertFalse(try button("characterSetShortcut", in: controller).isEnabled)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    // 韩文的 123 也打开数字九宫格：返回键印韩文字母页的「한」，右列的结束标点是 ASCII 的 !；韩文使用 ASCII 标点，所以 #+= 层是英文的那一层。
+    // 韩文的 123 也打开数字九宫格：返回键印韩文字母页的「한」，右列的结束标点是 ASCII 的 !；韩文使用 ASCII 标点，所以 #+= 层是英文的那一层，返回键与原来一样印 ABC。
     let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
     XCTAssertTrue(shown(try button("nineKey1", in: controller)))
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "한")
@@ -176,7 +176,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 <" && shown($0) })
     XCTAssertNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 《" && shown($0) })
     XCTAssertNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 ；" })
-    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "한")
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
   }
 
   /// 漢 shows only while a syllable composes, lists its Hanja with their 훈음 on the strip, and turns Return into choosing one; with the list closed Korean is unchanged.

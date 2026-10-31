@@ -255,6 +255,12 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
     return symbols.isEmpty ? table.defaults : symbols
   }
 
+  /// 数字九宫格左列画的项（#+= 不在内，固定在最后）：出厂表在半角语境（`ascii`）下末尾按 `NineKeySidebar.asciiDigitExtras` 的顺序接上表里还没有的半角符号，中文和日文语境就是出厂表。用户自定义过这张表时原样使用，什么语境都不追加：表是用户自己排的，要 `@` 这类符号就自己加进表里。
+  func numberPadSidebarSymbols(ascii: Bool) -> [String] {
+    guard digitSidebar.isEmpty else { return digitSidebar }
+    return ascii ? NineKeySidebar.appendingAsciiDigitExtras(to: NineKeySidebar.defaultDigitSymbols) : NineKeySidebar.defaultDigitSymbols
+  }
+
   /// 九键字母层左列画的项：出厂表在右侧大回车时末尾接 ！（右列的 ！ 让给了回车），自定义表原样使用、不接。
   func letterSidebarSymbols(tallReturn: Bool) -> [String] {
     guard nineKeySidebar.isEmpty else { return nineKeySidebar }

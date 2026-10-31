@@ -54,6 +54,8 @@ enum NineKeySidebar {
   static let defaultLetterSymbols = ["，", "。", "？"]
   /// iOS 数字层的出厂表，即数字九宫格左列原来的四个运算符；#+= 不在表里，固定在最后。
   static let defaultDigitSymbols = ["+", "-", "*", "/"]
+  /// 半角语境（英文、本地模式、韩文、越南文、藏文和其他写 ASCII 标点的方案，即数字九宫格右列结束标点是 ASCII `!` 的那些）下，数字层出厂表之后按这个顺序追加的半角符号，三端同一顺序：原来横排 123 页上的常用符号，邮箱框里的 `@` 由此仍在键盘层上。中文和日文不追加，用户自定义过数字层的表时也不追加（`TouchKeyLayoutStyle.numberPadSidebarSymbols`）。
+  static let asciiDigitExtras = ["@", ":", ";", "(", ")", "'", "\"", "$"]
   /// 右侧大回车用出厂表时接在字母层末尾的 ！（右列的 ！ 让给了回车）；自定义表不接。
   static let tallReturnClosingMark = "！"
 
@@ -121,6 +123,11 @@ enum NineKeySidebar {
   /// 按码位逐个比较，与 client-core 比较字节相同；Swift 的 `==` 按标准等价比较，会把组合前后的 é 当成同一项。
   static func same(_ lhs: String, _ rhs: String) -> Bool {
     lhs.unicodeScalars.elementsEqual(rhs.unicodeScalars)
+  }
+
+  /// 在 `symbols` 末尾按 `asciiDigitExtras` 的顺序接上表里还没有的半角符号：按码位比较，已有的跳过，原有各项的位置不动。
+  static func appendingAsciiDigitExtras(to symbols: [String]) -> [String] {
+    symbols + asciiDigitExtras.filter { extra in !symbols.contains { same($0, extra) } }
   }
 
   /// 两张表逐项、同顺序按码位相同。
