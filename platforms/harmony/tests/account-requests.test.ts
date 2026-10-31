@@ -3,6 +3,8 @@
  */
 import {
   PAGE_ACCOUNT_OPERATIONS,
+  PAGE_COMMUNITY_BLOCK_OPERATIONS,
+  PAGE_COMMUNITY_OPERATIONS,
   SESSION_CHANGING_OPERATIONS,
   accountRequest,
   aiSkinRequest,
@@ -14,6 +16,7 @@ import {
   cloudClipboardRoute,
   cloudDictionaryFileRequest,
   cloudDictionaryRequest,
+  communityBlockRequest,
   communityRequest,
   dictionarySyncDirectory,
   dictionarySyncRequest,
@@ -261,6 +264,59 @@ async function main(): Promise<void> {
       ).request,
     );
     check(forged.exclude_ai_generated === true, "the page cannot turn the exclusion off");
+  });
+
+  await group("community blocks: their own channel, forwarded with only the directory", () => {
+    const BLOCK_ITEM = "10000000-0000-4000-8000-000000000001";
+    const BLOCK_ID = "20000000-0000-4000-8000-000000000002";
+    const actions: [string, Json][] = [
+      ["block", { operation: "block", kind: "candidate-skins", id: BLOCK_ITEM }],
+      ["block_list", { operation: "block_list" }],
+      ["unblock", { operation: "unblock", id: BLOCK_ID }],
+    ];
+    for (const [operation, action] of actions) {
+      const plan = communityBlockRequest(DIRECTORY, JSON.stringify(action));
+      check(plan.refusal === "" && plan.operation === operation, `${operation} is forwarded`);
+      const request = parsed(plan.request);
+      check(
+        JSON.stringify(Object.keys(request).sort()) === '["action","directory"]',
+        `${operation} carries no state root and no AI exclusion`,
+      );
+      check(request.directory === DIRECTORY, `${operation} uses the signed-in session's directory`);
+      check(
+        JSON.stringify(request.action) === JSON.stringify(action),
+        `${operation} is forwarded as the page wrote it`,
+      );
+    }
+    check(
+      JSON.stringify(PAGE_COMMUNITY_BLOCK_OPERATIONS) === '["block","block_list","unblock"]',
+      "the channel offers exactly the three block operations",
+    );
+    // 其余社区操作不经这条通道，三个屏蔽操作也不经图库通道：两张名单不相交。
+    for (const operation of ["report", "keyboard_skin_list", "resource_list", "plugin_list"]) {
+      const plan = communityBlockRequest(DIRECTORY, JSON.stringify({ operation, id: BLOCK_ITEM }));
+      check(
+        replyError(plan.refusal, "") === "community_invalid" && plan.request === "",
+        `${operation} is not a block operation`,
+      );
+    }
+    for (const operation of PAGE_COMMUNITY_BLOCK_OPERATIONS) {
+      check(
+        !PAGE_COMMUNITY_OPERATIONS.includes(operation),
+        `${operation} is not a gallery operation`,
+      );
+      const plan = communityRequest(DIRECTORY, DIRECTORY, JSON.stringify({ operation }), true);
+      check(
+        replyError(plan.refusal, "") === "community_invalid",
+        `${operation} is refused on the gallery channel`,
+      );
+    }
+    for (const document of ["not json", "[]", "{}", '{"operation":7}']) {
+      check(
+        replyError(communityBlockRequest(DIRECTORY, document).refusal, "") === "community_invalid",
+        `${document} is refused`,
+      );
+    }
   });
 
   await group(

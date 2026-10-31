@@ -340,7 +340,6 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
     "选词与翻页",
     "候选与联想",
     "输出",
-    "快捷模式",
     "拼音方案调频",
   ]);
   expect(within(page).getByRole("group", { name: "输入方案" })).toBeTruthy();
@@ -352,6 +351,7 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
   expect(within(page).getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
   // 输入通用设置直接显示；整句联想和翻页键属于其他页面，所以仍不在这里出现。
   expect(groupTitles(page)).not.toContain("更多");
+  expect(groupTitles(page)).not.toContain("快捷模式");
   const selection = topGroups(page).find(
     (section) => section.querySelector(":scope > [data-group-title]")?.textContent === "选词与翻页",
   ) as HTMLElement;

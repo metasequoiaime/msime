@@ -175,6 +175,28 @@ export function communityRequest(
   return planned(operation, request);
 }
 
+/** 页面经「屏蔽作者」通道（`community_block`）能发的操作，名字与 `msime_client_community` 相同：屏蔽某件作品的作者（`block`，`{kind,id}`）、列出已屏蔽的作者（`block_list`）、取消屏蔽（`unblock`，`{id}` 是屏蔽记录的 id）。三项都只认登录的水杉账号，Rust 不退回本机匿名账号，没有登录时答 `community_unauthorized`。 */
+export const PAGE_COMMUNITY_BLOCK_OPERATIONS: readonly string[] = [
+  "block",
+  "block_list",
+  "unblock",
+];
+
+/**
+ * 页面的屏蔽作者动作，拼成 `msime_client_community` 的请求。屏蔽走自己的通道、不混进皮肤、词库和插件那三条：隐私页的「已屏蔽的作者」不属于任何一个图库，三条图库通道的名单里也就没有这三个操作。
+ *
+ * 屏蔽不是投稿：它不公开任何内容，也不对作品公开表态，只让本账号看不到这位作者的作品，所以社区投稿类功能的总闸关着时照常放行（`CommunityContributionGate` 只管三条图库通道）。请求不带 `state_root` 和 `exclude_ai_generated`，这三个操作用不到。
+ */
+export function communityBlockRequest(directory: string, actionDocument: string): RequestPlan {
+  const action: JsonObject | null = parseObject(actionDocument);
+  const operation: string =
+    action !== null && typeof action.operation === "string" ? action.operation : "";
+  if (action === null || !PAGE_COMMUNITY_BLOCK_OPERATIONS.includes(operation)) {
+    return refused(operation, "community_invalid");
+  }
+  return planned(operation, { directory, action });
+}
+
 /** 页面经云词库通道能发的短请求，名字与 `msime_client_cloud_dictionary` 相同。`export` 和 `snapshot_*` 要经文件选择器，由宿主自己拼。 */
 export const PAGE_CLOUD_DICTIONARY_OPERATIONS: readonly string[] = [
   "list",

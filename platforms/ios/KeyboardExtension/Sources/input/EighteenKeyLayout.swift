@@ -3,7 +3,7 @@ import Foundation
 
 /// 全拼与双拼共用的 18 键键面，与 Android 的 `EighteenKeyLayout` 和引擎的 `KeyGrid::EighteenKey`、`KeyGrid::EighteenKeyShuangpin` 同一张表：`Q WE RT Y U IO P / A SD FG H JK L / Z XC V BN M`。
 ///
-/// 三排依次是七、六、五个字母键，所有键与第一排同宽：第二排居中，两端各空出半个键；第三排两端是分词键和 ⌫，与字母键同宽，合起来也是七个键。点一下送这一组的首字母，由引擎消歧；长按弹出两个字母，与 14 键相同。双拼下两个字母的键还可以左右横滑，限定这一下是哪个字母（`EighteenKeySwipePolicy`）。
+/// 三排依次是七、六、五个字母键，从同一左右边界铺开：第二排六个键平分整行，A 与 Q 左对齐、L 与 P 右对齐，所以比第一排的键宽；第三排两端是分词键和 ⌫，与字母键同宽，合起来也是七个键，与第一排同宽。点一下送这一组的首字母，由引擎消歧；长按弹出两个字母，与 14 键相同。双拼下两个字母的键还可以左右横滑，限定这一下是哪个字母（`EighteenKeySwipePolicy`）。
 enum EighteenKeyLayout {
   static let rows: [[FourteenKeyLayout.Key]] = [
     ["q", "we", "rt", "y", "u", "io", "p"],

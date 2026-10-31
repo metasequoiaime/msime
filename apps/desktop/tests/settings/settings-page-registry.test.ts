@@ -35,6 +35,7 @@ test("注册表保留已有页面与稳定路由", () => {
     "usage-reporting",
     "mcp",
     "privacy",
+    "blocked-authors",
     "try-keyboard",
   ]);
 });
@@ -54,6 +55,7 @@ test("keeps navigation groups and nested route ownership aligned", () => {
     help: "feedback",
     "usage-reporting": "about",
     privacy: "account",
+    "blocked-authors": "about",
     "try-keyboard": "home",
   });
   // 桌面上并进别的页、只留作路由别名的页面。
