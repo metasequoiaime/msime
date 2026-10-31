@@ -3,8 +3,10 @@ import { Row, Switch } from "../core/platform-controls";
 export interface CandidatePronunciationSectionProps {
   value?: boolean;
   disabled?: boolean;
-  /** 宿主只标英文音标、不标日文罗马音，音标表也不随安装包、要在设置里下载一次（Linux）。 */
-  englishOnly?: boolean;
+  /** 日文释义有没有罗马音：只有 macOS 和 Windows 宿主生成它，其他宿主只标英文音标，标题和说明也只讲英文音标。 */
+  japaneseRomaji?: boolean;
+  /** 音标表不随安装包、要在设置里下载一次（Linux）；开关下面另有下载行。 */
+  downloadable?: boolean;
   onChange: (value: boolean) => void;
 }
 
@@ -12,18 +14,17 @@ export interface CandidatePronunciationSectionProps {
 export function CandidatePronunciationSection({
   value,
   disabled,
-  englishOnly,
+  japaneseRomaji = true,
+  downloadable = false,
   onChange,
 }: CandidatePronunciationSectionProps) {
+  const description = japaneseRomaji
+    ? "在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。"
+    : downloadable
+      ? "给英文释义标出音标。音标来自离线英文音标词典，下载一次后查词不联网。需要先打开释义。"
+      : "给英文释义标出音标。音标来自随输入法打包的离线词表，不联网。需要先打开释义。";
   return (
-    <Row
-      title="显示读音"
-      description={
-        englishOnly
-          ? "在英文释义下面标出音标。音标来自离线英文音标词典，下载一次后查词不联网。需要先打开释义。"
-          : "在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。"
-      }
-    >
+    <Row title={japaneseRomaji ? "显示读音" : "显示英文音标"} description={description}>
       <Switch checked={value ?? false} disabled={disabled} onChange={onChange} />
     </Row>
   );

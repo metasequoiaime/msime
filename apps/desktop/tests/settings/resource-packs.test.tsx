@@ -639,7 +639,7 @@ test("临时日语 offers the Japanese dictionary but never downloads it on its 
   expect(packs.client.install).toHaveBeenCalledWith("japanese");
 });
 
-test("Linux offers the pronunciation table under 显示读音 and downloads it only when asked", async () => {
+test("Linux offers the pronunciation table under 显示英文音标 and downloads it only when asked", async () => {
   const packs = fakePacks({}, ["pronunciations"]);
   const snapshot: Snapshot = {
     ...initial,
@@ -663,10 +663,10 @@ test("Linux offers the pronunciation table under 显示读音 and downloads it o
   );
   fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   selectSettingsTab("候选释义");
-  const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
+  const toggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   // Linux 的宿主只标英文音标，音标表要下载一次。
-  expect(screen.getByText(/在英文释义下面标出音标/)).toBeDefined();
+  expect(screen.getByText(/给英文释义标出音标。音标来自离线英文音标词典/)).toBeDefined();
   expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   await act(async () => {
@@ -676,7 +676,7 @@ test("Linux offers the pronunciation table under 显示读音 and downloads it o
   expect(screen.queryByRole("button", { name: "下载离线英文音标词典" })).toBeNull();
   fireEvent.click(toggle);
   const download = await screen.findByRole("button", { name: "下载离线英文音标词典" });
-  expect(screen.getByText(/显示读音需要它/)).toBeDefined();
+  expect(screen.getByText(/显示英文音标需要它/)).toBeDefined();
   expect(packs.client.install).not.toHaveBeenCalled();
   fireEvent.click(download);
   expect(packs.client.install).toHaveBeenCalledWith("pronunciations");

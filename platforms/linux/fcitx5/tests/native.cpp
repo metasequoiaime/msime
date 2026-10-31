@@ -4659,6 +4659,32 @@ int main(int argc, char **argv) {
     state->refreshTranslations();
     require(ic.inputPanel().candidateList()->candidate(0).text().toString().find("synthetic-gloss") != std::string::npos,
             "异步空译文回包不能触发主动清理");
+    // 「显示读音」：工作线程回答里的 "pronunciations" 经 refreshTranslations 记下，候选按它取读音；开关关着时回答里的读音不记。
+    {
+      const Json glossed{{"text", "爱"}, {"translation", "love"}};
+      const auto savedPreferences = state->preferences_;
+      const auto deliverPronunciations = [&](bool pronounce) {
+        const auto query = response(msime_client_translation_query(state->session_));
+        state->startTranslation(query, true);
+        state->preferences_["candidate_pronunciation"] = pronounce;
+        std::promise<Json> reply;
+        state->translation_job_ = reply.get_future().share();
+        reply.set_value(Json{{"query", query.dump()},
+                             {"translations", Json::array()},
+                             {"continue_online", false},
+                             {"pronunciations", Json{{"love", "/l\xCA\x8Cv/"}}},
+                             {"_socket", state->translation_socket_}});
+        state->refreshTranslations();
+      };
+      state->pronunciations_.clear();
+      deliverPronunciations(false);
+      state->preferences_["candidate_pronunciation"] = true;
+      require(state->candidatePronunciation(glossed).empty(), "pronunciations in a reply are not kept while the switch is off");
+      deliverPronunciations(true);
+      require(state->candidatePronunciation(glossed) == "/l\xCA\x8Cv/", "the worker reply's pronunciations reach the candidate");
+      state->preferences_ = savedPreferences;
+      state->pronunciations_.clear();
+    }
     const auto translatedGeneration = state->view_.at("generation");
     for (int repeat = 0; repeat < 3; ++repeat) {
       state->online_due_ = state->ai_due_ = std::chrono::steady_clock::now();
