@@ -130,11 +130,10 @@ final class EmailSuffixKeyboardTests: XCTestCase {
     }
   }
 
-  /// 键盘自己上屏的 `@` 之后候选条给出后缀：下滑或长按 a 键输入的角标 `@` 在中英文模式下都有，英文 123 层也有 `@`（中文模式的 123 是数字页，没有它）。中文模式的角标先结束组字再插入，插入后不再更新候选条，靠下一轮的重新匹配；英文模式插入后更新英文建议时就给出。两条路线都不等宿主回调 `textDidChange`，键盘自己的插入 iOS 不回调。
+  /// 键盘自己上屏的 `@` 之后候选条给出后缀：下滑或长按 a 键输入的角标 `@` 在中英文模式下都有。123 在中英文下都打开数字九宫格，上面没有 `@`。中文模式的角标先结束组字再插入，插入后不再更新候选条，靠下一轮的重新匹配；英文模式插入后更新英文建议时就给出。两条路线都不等宿主回调 `textDidChange`，键盘自己的插入 iOS 不回调。
   func testAtTypedByTheKeyboardOffersSuffixesInBothModes() throws {
     let document = Document("")
     let controller = try makeKeyboard(document)
-    var typedOnNumberLayer = false
     // 起始模式取决于模拟器里留下的模式记忆；第二轮切到另一种模式，两轮合起来覆盖中英文，最后切回去，不改动留给后面用例的模式。
     for round in 0..<2 {
       if round == 1 { try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered) }
@@ -156,17 +155,9 @@ final class EmailSuffixKeyboardTests: XCTestCase {
       XCTAssertEqual(emailSuffixChips(in: controller), [], "round \(round)")
       try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
-      let at = try button("symbolLayerKey1_7", in: controller)
-      if at.configuration?.title == "@" && shown(at, in: controller) {
-        typedOnNumberLayer = true
-        at.sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(document.text, "lisi@")
-        spinMainRunLoop()
-        XCTAssertEqual(chips(in: controller).first?.configuration?.title, "@qq.com", "123 layer")
-      }
+      XCTAssertTrue(shown(try button("nineKey1", in: controller), in: controller), "round \(round)")
       try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     }
-    XCTAssertTrue(typedOnNumberLayer, "one of the two modes is English, whose 123 layer has @")
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
   }
 

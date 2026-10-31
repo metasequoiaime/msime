@@ -41,3 +41,5 @@ Status: implemented
 - `cargo test -p msime-engine --lib cantonese::`：新增 `voda` 不补全、`vodanz` 选「我」后 `danz` 读作 `daa nei`、`sx`/`sxcr` 按覆盖和权重合并、独立入口末尾单键（`vod`、`von`、`voo`、`d`）及自动入口奇数长度不变的回归；单按 `n`、`o` 时两百多条 `ngo`、`maa` 重行不挤掉「你」「唔」「誒」。`cargo test -p msime-engine --lib cantonese::shuangpin`：`key_spans` 把 `g`、`n`、零声母的 `m`/`ng` 拆成只落在本键上的段，不与别的键共用开头的前缀不拆。
 - `cargo test -p msime-input-runtime --lib cantonese`：`cantonese_shuangpin_tap_commits_the_word_and_keeps_the_rest_composing` 在两个入口下经 `Action::Select` 点选「上」再点「傳」。
 - iOS、Android、HarmonyOS 真机与模拟器上的实际打字均未验证。
+
+系统扩展部分上屏的文档写入与独立编辑器回归见 [iOS 部分上屏直接替换标记区](../../implemented/bug-fix/2026-10-31-ios-cantonese-partial-commit.md)。

@@ -129,13 +129,13 @@ fi
 ime_handwriting_status=0
 bash platforms/android/tests/device/handwriting-smoke.sh "$serial" --ocr-coexistence \
   2>&1 | tee target/android/ocr-product-ime-handwriting.log || ime_handwriting_status=$?
-for checkpoint in before result after failure; do
+for checkpoint in before result after failure prerequisite-failure; do
   "$adb" -s "$serial" pull "/data/local/tmp/msime-ocr-ime-handwriting-$checkpoint.png" \
     "target/android/ocr-product-ime-handwriting-$checkpoint.png" >/dev/null 2>&1 || true
 done
 "$adb" -s "$serial" shell svc wifi enable
 "$adb" -s "$serial" shell svc data enable
-for frame in captured preview result editor selection hidden resumed switched permission failure \
+for frame in captured preview photo result rotated editor selection hidden resumed switched permission failure \
   failure-handwriting-model failure-handwriting-coexistence failure-picker-import \
   picker-documents picker-rejected picker-imported picker-preserved; do
   "$adb" -s "$serial" pull "/sdcard/Android/data/app.msime.android/files/ocr-product-$frame.png" \

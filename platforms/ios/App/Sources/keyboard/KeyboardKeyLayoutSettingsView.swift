@@ -115,7 +115,7 @@ struct KeyboardKeyLayoutSettingsView: View {
     .accessibilityIdentifier("keyLayoutSidebar_\(table.rawValue)")
   }
 
-  /// 「数字键盘」一组：九宫格数字键盘从各类中文键面都进得去（九键自己的数字层或借来的数字九宫格），所以不跟着分段走。选项用和样式一样的等宽胶囊，说明在胶囊下方，隔一道分隔线是「数字键盘左侧符号」导航行，不画预览。
+  /// 「数字键盘」一组：九宫格数字键盘从所有键面都进得去（九键自己的数字层，或其他中文键面、日文、韩文、越南文、藏文、英文和本地模式借来的数字九宫格），所以不跟着分段走。选项用和样式一样的等宽胶囊，说明在胶囊下方，隔一道分隔线是「数字键盘左侧符号」导航行，不画预览。
   private var numberPadGroup: some View {
     DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle) {
       VStack(alignment: .leading, spacing: 14) {

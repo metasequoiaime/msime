@@ -29,6 +29,7 @@ import org.json.JSONObject;
 public class DeviceSmoke extends Instrumentation {
     protected UiAutomation automation;
     protected String stage = "launch";
+    private boolean voiceHold;
     private boolean pinyinStartup;
     private boolean pinyinHideResume;
 
@@ -105,6 +106,15 @@ public class DeviceSmoke extends Instrumentation {
         }
     }
 
+    /** 中文键面验收先等语言键可用，再明确切回中文；方案偏好不代表当前焦点的中英文模式。 */
+    protected final void selectChineseKeyboard() throws java.util.concurrent.TimeoutException {
+        Predicate<AccessibilityNodeInfo> ready = key("中").or(key("英"))
+            .and(AccessibilityNodeInfo::isEnabled).and(AccessibilityNodeInfo::isClickable);
+        AccessibilityNodeInfo language = await(ready);
+        if (equalsText("英", language.getText())) tap(key("英").and(ready));
+        await(key("中").and(ready));
+    }
+
     /** 用原子写入发布测试偏好；失败时保留原文件。 */
     protected final void publish(File file, byte[] contents) throws Exception {
         AtomicFile target = new AtomicFile(file);
@@ -148,6 +158,7 @@ public class DeviceSmoke extends Instrumentation {
     protected FileOutputStream uinputInput;
 
     @Override public void onCreate(Bundle arguments) {
+        voiceHold = arguments != null && "true".equals(arguments.getString("voice-hold"));
         pinyinStartup = arguments != null && "true".equals(arguments.getString("pinyin-startup"));
         pinyinHideResume = arguments != null && "true".equals(arguments.getString("pinyin-hide-resume"));
         super.onCreate(arguments);
@@ -161,9 +172,12 @@ public class DeviceSmoke extends Instrumentation {
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
             outlastDeadImeConnection();
-            if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
+            if (voiceHold) new VoiceHoldDeviceChecks(this).run();
+            else if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
             else runChecks();
-            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + successDescription() + "\n");
+            result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + (voiceHold
+                ? "voice hold hit regions, lock, editing, symbol return, explicit delivery and stale result protection"
+                : successDescription()) + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             // Only fixed test-stage messages, never serialize editor contents.

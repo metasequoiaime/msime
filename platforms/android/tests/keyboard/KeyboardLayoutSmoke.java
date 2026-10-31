@@ -8,27 +8,18 @@ public final class KeyboardLayoutSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
-        // 入口只改变数字页：中文常规布局复用网格，独立语言布局与本地模式保持原契约。
-        for (int layout : new int[] {0, 1, 3, 6, 7, 8}) {
-            check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
-            check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.LETTERS, layout, true, false));
-        }
-        for (int layout : new int[] {2, 4, 5})
-            check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
-        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, false, false));
-        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, true, true));
-        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
-            KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, true));
-        check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS,
-            KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, false, true));
-        // 日文罗马字同样画 26 键，但 123 保留自己的符号层，与 iOS、HarmonyOS 一致。
-        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.JAPANESE, false));
-        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.VIETNAMESE, false));
-        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.TIBETAN, false));
-        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.QUANPIN, true));
+        // 数字层在每种触屏键面上都是数字九宫格（2026-10-31 起不再按语言、本地模式或长空格样式区分），字母层从不是。
+        check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS));
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.LETTERS));
+        // 中文键面：日文罗马字、越南语、藏文、韩文是独立语言，英文模式也不是中文键面；视图还没给出方案时按中文算。
+        check(!KeyboardLayout.chineseFace(InputSchemeTraits.JAPANESE, false));
+        check(!KeyboardLayout.chineseFace(InputSchemeTraits.KOREAN, false));
+        check(!KeyboardLayout.chineseFace(InputSchemeTraits.VIETNAMESE, false));
+        check(!KeyboardLayout.chineseFace(InputSchemeTraits.TIBETAN, false));
+        check(!KeyboardLayout.chineseFace(InputSchemeTraits.QUANPIN, true));
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
                 InputSchemeTraits.CANTONESE, InputSchemeTraits.ZHUYIN, InputSchemeTraits.STROKE, -1})
-            check(KeyboardLayout.numberPadLanguage(scheme, false));
+            check(KeyboardLayout.chineseFace(scheme, false));
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
         check(letters.size() == 3);
         check(letters.get(0).equals(List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")));

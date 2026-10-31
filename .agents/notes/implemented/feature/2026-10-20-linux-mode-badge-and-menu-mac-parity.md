@@ -74,3 +74,5 @@ IBus 原先保留的宣传快捷键后来由 [Linux 移除宣传彩蛋快捷键]
 - #9282 集成验证（2026-10-23）：`bash scripts/verify-local.sh --quick` 完整预热重跑通过。首次遇到 Swift 冷缓存超时及 Docker DNS 失败，Swift 两项和 Linux 原生门禁单独重跑通过后，再完整重跑确认。Linux 原生门禁编译 IBus、Fcitx5、full/wubi 并执行测试；这不是实际桌面会话验收。共享设置页五项专项及徽章策略检查已通过。
 - 集成提交时格式门禁指出九个上游 TypeScript 文件不符合当前 `oxfmt` 输出；仅按门禁列出的路径机械格式化并检查，没有修改行为。
 - `input_mode_corner_hud` 在 macOS 偏好覆盖表中声明为 Linux 专用：macOS 没有对应的角落徽章入口，共享设置页也不展示此开关。新提交的 macOS CI 已通过旧审查指出的 `settings-glass`，但因缺少此平台边界声明在 `preference-coverage` 失败；本地复现同一错误后补齐声明，不以修改宿主行为或删除覆盖检查绕过门禁。
+
+GNOME Classic 的 Shell 会话分类修复见 [GNOME Classic 使用 Shell 精简菜单](../../implemented/bug-fix/2026-10-31-linux-gnome-classic-menu.md)。

@@ -3,7 +3,7 @@
  *
  * 皮肤有两种构建方式。主题的键盘配色（主题没有键盘配色时，用季节配色或 Harmony 原生 token）给出该主题颜色的扁平键盘。用户的自定义键盘设计给出编辑器能设置的一切，照片、渐变、键形和材质都包括在内，因为本宿主绘制完整设计，而不是扁平化后的配色。所有颜色都在这里推导，而不在绘制代码里，这样键盘、预览和选择卡片拿到的是同一组值。
  *
- * 已解析出应用主题的季节种子时，设计稿中用到平台强调色的地方都改用它：回车键、`system` 和自定义设计的开启态图块，以及 logo。没有种子时，这些都回落到 Harmony 基础 token。
+ * 已解析出应用主题的季节种子时，设计稿中用到平台强调色的地方都改用它：回车键、`system` 和自定义设计的开启态图块。没有种子时，这些都回落到 Harmony 基础 token；logo 始终取当前皮肤的强调色和键盘底色。
  */
 import { AppThemePalette, AppThemeSeed } from "./AppThemePalette";
 import { CustomKeyboardSkin } from "./CustomKeyboardSkin";
@@ -31,9 +31,6 @@ const HAIR_LIGHT: string = "#1F000000";
 const HAIR_DARK: string = "#24FFFFFF";
 /** 无论明暗模式键盘都是深色的命名主题，它们的细线用深底上的浅色那一种。 */
 const DARK_SURFACE_THEMES: string[] = ["shuishan", "night", "ink"];
-/** 没有季节时 logo 圆盘混入的卡片底色：设计稿的 Harmony `groupBg`。 */
-const BASE_CARD_LIGHT: string = "#FFFFFF";
-const BASE_CARD_DARK: string = "#1F1F1F";
 /** 命名主题的开启态底色：按设计稿 tonal container 的比例取它自己的强调色。 */
 const NAMED_TOGGLE_ALPHA_LIGHT: number = 0.13;
 const NAMED_TOGGLE_ALPHA_DARK: number = 0.25;
@@ -66,9 +63,9 @@ export class KeyboardSkin {
   readonly toggleForeground: string;
   /** 键盘里的分隔线和未选中的分页圆点（设计稿的 `kbHair`）。 */
   readonly hair: string;
-  /** logo 标志的填充色（设计稿的 `logoBg`）：季节或平台强调色混入 82% 黑色。 */
+  /** logo 标志的填充色（设计稿的 `logoBg`）：当前皮肤强调色占 82%，其余混入黑色。 */
   readonly logoBg: string;
-  /** logo 标志背后的圆盘（设计稿的 `logoCirc`）：把该强调色按 14% / 22% 混入季节卡片或基础卡片底色。 */
+  /** logo 标志背后的圆盘（设计稿的 `logoCirc`）：把皮肤强调色按 14% / 22% 混入键盘底色。 */
   readonly logoCirc: string;
   readonly cornerRadius: number;
   readonly borderWidth: number;
@@ -134,12 +131,8 @@ export class KeyboardSkin {
       this.toggleForeground = platformAccent;
     }
     this.hair = dark || DARK_SURFACE_THEMES.includes(id) ? HAIR_DARK : HAIR_LIGHT;
-    this.logoBg = AppThemePalette.logoBackground(platformAccent);
-    this.logoCirc = AppThemePalette.logoDisc(
-      platformAccent,
-      seed === null ? (dark ? BASE_CARD_DARK : BASE_CARD_LIGHT) : seed.card,
-      dark,
-    );
+    this.logoBg = AppThemePalette.logoBackground(this.accent);
+    this.logoCirc = AppThemePalette.logoDisc(this.accent, this.background, dark);
     // 同一个 id 下季节会改变回车键和各处底色，所以季节也是身份的一部分。
     const seedKey: string =
       seed === null
@@ -196,7 +189,7 @@ export class KeyboardSkin {
   }
 
   /**
-   * 主题的键盘。`system`，以及没有设计、基于 `system` 的自定义主题，都解析为 `null` 配色：给了种子时用季节配色（`AppThemePalette.keyboard`），否则用给定模式下的 Harmony 原生 token。非 null 配色是命名主题，颜色和开启态底色都是它自己的；此时种子只重新着色回车键和 logo。
+   * 主题的键盘。`system`，以及没有设计、基于 `system` 的自定义主题，都解析为 `null` 配色：给了种子时用季节配色（`AppThemePalette.keyboard`），否则用给定模式下的 Harmony 原生 token。非 null 配色是命名主题，颜色和开启态底色都是它自己的；此时种子只重新着色回车键。
    *
    * `seed` 是与 `dark` 同一模式下已解析的应用主题，尚未解析时为 `null`。
    */

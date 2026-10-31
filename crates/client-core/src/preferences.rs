@@ -1924,8 +1924,8 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
-    /// 全拼 26 键组字时第三排左端的 ⇧ 默认画「分词」（送 `'` 断音节）；打开后保留 Shift，点一下臂辅助码（Shift+字母）。九键、14 键和 18 键有自己的分词键，不受它影响。默认关，即原有分词行为。桌面宿主原样保留、不使用。
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// 全拼 26 键组字时第三排左端默认保留 ⇧，点一下再输字母即臂辅助码；关闭后改画「分词」（送 `'` 断音节）。九键、14 键和 18 键有自己的分词键，不受它影响。桌面宿主原样保留、不使用。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub touch_quanpin_shift: bool,
     /// 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式，见 [`TouchTwentySixKeyStyle`]；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchTwentySixKeyStyle::is_default")]
@@ -4262,7 +4262,7 @@ impl Default for Preferences {
             touch_shuangpin_key_hints: false,
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
-            touch_quanpin_shift: false,
+            touch_quanpin_shift: true,
             touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
             touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
             touch_nine_key_style: TouchNineKeyStyle::default(),

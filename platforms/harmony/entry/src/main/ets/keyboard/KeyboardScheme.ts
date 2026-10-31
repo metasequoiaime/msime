@@ -694,7 +694,7 @@ export class KeyboardScheme {
     return fourteenKey && !english && localMode === "none";
   }
 
-  /** 中文全拼的触屏字母页用分词替代 Shift，其他方案、英文和本地模式保留大小写。`shiftKept` 是共享偏好 `touch_quanpin_shift`，打开后 ⇧ 保留，用来臂辅助码。 */
+  /** 中文全拼的触屏字母页用分词替代 Shift，其他方案、英文和本地模式保留大小写。`shiftKept` 是已解析的共享偏好 `touch_quanpin_shift`，为 true 时 ⇧ 保留，用来臂辅助码。 */
   static usesQuanpinSeparator(
     scheme: SchemeDefinition,
     touch: boolean,
@@ -704,8 +704,12 @@ export class KeyboardScheme {
     shiftKept: boolean = false,
   ): boolean {
     return (
-      scheme.preferenceId === "quanpin" && touch && !english && !symbols && localMode === "none"
-        && !shiftKept
+      scheme.preferenceId === "quanpin" &&
+      touch &&
+      !english &&
+      !symbols &&
+      localMode === "none" &&
+      !shiftKept
     );
   }
 

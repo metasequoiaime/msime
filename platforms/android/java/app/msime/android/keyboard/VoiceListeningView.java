@@ -4,8 +4,10 @@ package app.msime.android;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.os.SystemClock;
 import android.text.Layout;
 import android.text.StaticLayout;
@@ -14,7 +16,7 @@ import android.text.TextUtils;
 import android.widget.TextView;
 
 /**
- * 键盘内的语音聆听面板：accent 圆盘托着麦克风，外面两圈随麦克风音量涨落的光圈，下面是标题和如何结束录音的提示。排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}，iOS 与 HarmonyOS 用同一组数值。
+ * 键盘内的语音聆听面板：点按入口用圆盘、麦克风和光圈，长按入口用角色缩略图和红色音量短线，下面是标题和如何结束录音的提示。排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}，iOS 与 HarmonyOS 用同一组数值。
  *
  * <p>节点 text 是标题（「正在聆听…」「正在识别…」「识别完成」），提示由调用方更新；结束采集与取消由面板下方的显式按钮处理。颜色由调用方从皮肤传入。
  *
@@ -32,6 +34,8 @@ public final class VoiceListeningView extends TextView {
     /** 识别中没有中间文字时提示行的文案，与 iOS 一致。 */
     static final String RECOGNIZING_HINT = "识别完成后自动上屏";
 
+    private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final RectF mascotBounds = new RectF();
     private final Paint orb = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,6 +45,8 @@ public final class VoiceListeningView extends TextView {
     private int onAccent = Color.WHITE;
     private int secondary = Color.GRAY;
     private boolean releaseToCancel;
+    private boolean holdMode;
+    private Bitmap mascot;
     private CharSequence listeningDescription;
     /** 识别器报来的音量（目标）和此刻画出来的音量。 */
     private float levelTarget;
@@ -52,6 +58,7 @@ public final class VoiceListeningView extends TextView {
     private String partial = "";
     /** 已经结束录音、在等识别结果。 */
     private boolean recognizing;
+    private boolean waitingForSend;
     /** 结果已上屏：提示行显示「已识别：」加结果。 */
     private String doneText;
     private String fittedTitleSource;
@@ -83,6 +90,14 @@ public final class VoiceListeningView extends TextView {
         invalidate();
     }
 
+    /** 长按入口复用角色缩略图，音量由两侧红色短线表示，静音时不画短线。 */
+    public void setHoldMode(Bitmap image) {
+        holdMode = true;
+        mascot = image;
+        setText("当家的，你说吧！我听着呢。");
+        invalidate();
+    }
+
     /** 按住说话时手指是否在取消区：在时标题显示「松开取消」、圆盘改用提示色，节点描述同步；离开时恢复原来的标题与描述。 */
     public void setReleaseToCancel(boolean value) {
         if (releaseToCancel == value) return;
@@ -108,6 +123,11 @@ public final class VoiceListeningView extends TextView {
         String next = VoiceListeningPolicy.normalized(value);
         if (next.equals(partial)) return;
         partial = next;
+        if (!recognizing) {
+            CharSequence description = partial.isEmpty() ? "正在聆听" : "正在聆听：" + partial;
+            if (releaseToCancel) listeningDescription = description;
+            else setContentDescription(description);
+        }
         invalidate();
     }
 
@@ -115,6 +135,16 @@ public final class VoiceListeningView extends TextView {
     public void showRecognizing(String message) {
         recognizing = true;
         setText(message);
+        resetLevel();
+        invalidate();
+    }
+
+    /** 服务自行结束时保留文字等待发送，不再显示正在采集。 */
+    public void showWaitingForSend(String text) {
+        recognizing = true;
+        waitingForSend = true;
+        if (TextPolicy.hasText(text)) setPartial(text);
+        setText("录音已结束");
         resetLevel();
         invalidate();
     }
@@ -167,27 +197,15 @@ public final class VoiceListeningView extends TextView {
         Paint.FontMetrics hintMetrics = hint.getFontMetrics();
         float titleLine = titleMetrics.descent - titleMetrics.ascent;
         float hintLine = hintMetrics.descent - hintMetrics.ascent;
+        if (holdMode && getHeight() < 130f * scale) {
+            drawCompactHold(canvas, scale, titleLine, hintLine, titleMetrics, hintMetrics);
+            return;
+        }
         VoiceListeningPolicy.Plan plan = VoiceListeningPolicy.plan(getHeight(), titleLine, hintLine, scale);
         advanceLevel();
         float cx = getWidth() / 2f;
         float cy = plan.indicatorCenterY(scale);
-        float radius = plan.orb() / 2f;
-        int orbColor = releaseToCancel ? secondary : accent;
-        float spread = VoiceListeningPolicy.spread(levelShown, plan.halo());
-        if (spread > 0f) {
-            halo.setColor(orbColor);
-            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.OUTER_ALPHA));
-            canvas.drawCircle(cx, cy, radius + spread, halo);
-            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.INNER_ALPHA));
-            canvas.drawCircle(cx, cy, radius + spread / 2f, halo);
-        }
-        orb.setColor(orbColor);
-        canvas.drawCircle(cx, cy, radius, orb);
-        float mic = plan.orb() * MIC_RATIO;
-        if (mic > 0f) {
-            KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
-                cy - mic / 2f, mic, onAccent);
-        }
+        drawIndicator(canvas, cx, cy, plan.orb(), plan.halo(), scale);
         // 文字居中绘制，左右各留 16 dp。标题位预留 plan 的行数，实际只占一行时提示紧跟其后。
         float available = BoundsPolicy.nonNegative(getWidth() - getPaddingLeft() - getPaddingRight()
             - DimensionPolicy.floatPixels(getContext(), 32));
@@ -203,6 +221,61 @@ public final class VoiceListeningView extends TextView {
         float hintTop = plan.titleTop(scale) + Math.max(1, fittedTitle.length) * titleLine
             + VoiceListeningPolicy.GAP_TITLE_HINT_DP * scale;
         canvas.drawText(fittedHint, cx, hintTop - hintMetrics.ascent, hint);
+    }
+
+    /** 三行操作区较高时角色与文字并排，保留识别文字和录音状态。 */
+    private void drawCompactHold(Canvas canvas, float scale, float titleLine, float hintLine,
+                                 Paint.FontMetrics titleMetrics, Paint.FontMetrics hintMetrics) {
+        advanceLevel();
+        float diameter = Math.max(0f, Math.min(64f * scale, getHeight() - 12f * scale));
+        float imageBox = diameter + 36f * scale;
+        drawIndicator(canvas, imageBox / 2f, getHeight() / 2f, diameter, 0f, scale);
+        float width = Math.max(0f, getWidth() - imageBox - 16f * scale);
+        float cx = imageBox + width / 2f;
+        fitTitle(width, 1);
+        boolean showsHint = getHeight() >= titleLine + hintLine + 12f * scale;
+        float used = titleLine + (showsHint ? hintLine + 4f * scale : 0f);
+        float top = Math.max(0f, (getHeight() - used) / 2f);
+        for (String line : fittedTitle) canvas.drawText(line, cx, top - titleMetrics.ascent, title);
+        if (showsHint) {
+            fitHint(width);
+            canvas.drawText(fittedHint, cx, top + titleLine + 4f * scale - hintMetrics.ascent, hint);
+        }
+    }
+
+    private void drawIndicator(Canvas canvas, float cx, float cy, float diameter, float haloWidth, float scale) {
+        float radius = diameter / 2f;
+        int orbColor = releaseToCancel ? secondary : accent;
+        float spread = VoiceListeningPolicy.spread(levelShown, haloWidth);
+        if (!holdMode && spread > 0f) {
+            halo.setColor(orbColor);
+            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.OUTER_ALPHA));
+            canvas.drawCircle(cx, cy, radius + spread, halo);
+            halo.setAlpha(Math.round(255 * VoiceListeningPolicy.INNER_ALPHA));
+            canvas.drawCircle(cx, cy, radius + spread / 2f, halo);
+        }
+        orb.setColor(orbColor);
+        if (holdMode && mascot != null && !mascot.isRecycled()) {
+            float factor = Math.min(diameter / mascot.getWidth(), diameter / mascot.getHeight());
+            float width = mascot.getWidth() * factor, height = mascot.getHeight() * factor;
+            mascotBounds.set(cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2);
+            canvas.drawBitmap(mascot, null, mascotBounds, bitmapPaint);
+        } else canvas.drawCircle(cx, cy, radius, orb);
+        if (holdMode && levelShown > 0.01f) {
+            halo.setColor(Color.rgb(216, 70, 70));
+            halo.setAlpha(255);
+            halo.setStrokeWidth(2f * scale);
+            for (int side = -1; side <= 1; side += 2) for (int at = 0; at < 3; at++) {
+                float x = cx + side * (radius + (5 + at * 4) * scale);
+                float half = Math.min(radius, (6 + at * 3) * scale) * levelShown;
+                canvas.drawLine(x, cy - half, x, cy + half, halo);
+            }
+        }
+        float mic = diameter * MIC_RATIO;
+        if (mic > 0f && !(holdMode && mascot != null && !mascot.isRecycled())) {
+            KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
+                cy - mic / 2f, mic, onAccent);
+        }
     }
 
     /** 按经过的时间把显示音量推向目标；没到位就约下一帧，到位或关了动画就停。 */
@@ -226,7 +299,7 @@ public final class VoiceListeningView extends TextView {
 
     /** 标题位的文字：取消区里是「松开取消」，聆听中有中间文字时是它（放不下从开头省略，最多 {@code lines} 行），其余是节点 text（放不下省略结尾）。 */
     private void fitTitle(float available, int lines) {
-        boolean heard = !releaseToCancel && !recognizing && !partial.isEmpty();
+        boolean heard = !releaseToCancel && (!recognizing || waitingForSend) && !partial.isEmpty();
         String source = releaseToCancel ? "松开取消" : heard ? partial : String.valueOf(getText());
         String key = (heard ? "p:" : "t:") + source;
         if (key.equals(fittedTitleSource) && available == fittedWidth && title.getTextSize() == fittedTitleSize
@@ -252,8 +325,8 @@ public final class VoiceListeningView extends TextView {
     /** 提示行：结果已上屏时是「已识别：」加结果，识别中是中间文字（都从开头省略），否则是说明（省略结尾）。只画一行。 */
     private void fitHint(float available) {
         String prefix = doneText != null ? "已识别：" : "";
-        boolean tail = doneText != null || (recognizing && !partial.isEmpty());
-        String source = doneText != null ? doneText : recognizing ? (partial.isEmpty() ? RECOGNIZING_HINT : partial)
+        boolean tail = doneText != null || (recognizing && !waitingForSend && !partial.isEmpty());
+        String source = waitingForSend ? hintText : doneText != null ? doneText : recognizing ? (partial.isEmpty() ? RECOGNIZING_HINT : partial)
             : hintText;
         String key = (tail ? "p:" : "t:") + prefix + source;
         if (key.equals(fittedHintSource) && available == fittedWidth && hint.getTextSize() == fittedHintSize) return;

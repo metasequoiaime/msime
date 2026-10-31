@@ -20,6 +20,10 @@ pub struct QuanpinEngine {
     dictionary: QuanpinDictionary,
 }
 
+#[cfg(test)]
+#[path = "engine/initial_helpcode_tests.rs"]
+mod initial_helpcode_tests;
+
 impl QuanpinEngine {
     pub fn new(paths: &RuntimePaths) -> Self {
         Self {
@@ -72,9 +76,18 @@ impl QuanpinEngine {
             .map(|segments| join_segments(segments))
             .unwrap_or_default();
         let codes = &request.raw_input[request.raw_input.len() - helpcode_length..];
-        let rows = self
-            .dictionary
-            .query(&base, &base_segmentation, types, request.fuzzy_pinyin);
+        let mut rows =
+            self.dictionary
+                .query(&base, &base_segmentation, types, request.fuzzy_pinyin);
+        // 有效辅助码已保证基础读音完整；单字母不能沿用首屏的 24 行截断。
+        if base.len() == 1 {
+            self.dictionary.complete_initial_candidates(
+                &base,
+                &base_segmentation,
+                types,
+                &mut rows,
+            );
+        }
         let empty = HelpcodeKeymap::default();
         let keymap = keymap.unwrap_or(&empty);
         if helpcode_length == 2 {

@@ -96,6 +96,13 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     )
     .map_err(|_| "dictionary access unavailable".to_owned())?
     .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
+    // 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。
+    let generation_lease = state_root.as_deref().and_then(|state| {
+        msime_client_providers::dictionary_updates::lease(
+            state,
+            std::path::Path::new(&options.resources),
+        )
+    });
     let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
     // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败。
     if let Some(state) = state_root.as_deref().filter(|_| usage == SessionUse::Input) {
@@ -165,15 +172,24 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         recorded_settled_model.as_deref(),
         state_root.as_deref(),
     );
-    runtime.set_settled_reranker(
-        settled_model
-            .as_deref()
-            .and_then(std::path::Path::to_str)
-            .and_then(|path| sentence_model_settled(&options.resources, Some(path)))
-            .map(Reranker::new),
-    );
+    let settled_reranker = settled_model
+        .as_deref()
+        .and_then(std::path::Path::to_str)
+        .and_then(|path| sentence_model_settled(&options.resources, Some(path)))
+        .map(Reranker::new);
+    let settled_model_attached = settled_reranker.is_some();
+    runtime.set_settled_reranker(settled_reranker);
     // Loaded whenever it is installed, run only while the desktop model preference is on; `apply_pending` follows later changes of the switch.
     runtime.set_settled_rerank_enabled(applied.sentence_association.neural_desktop);
+    // 开关开着的输入会话写一行模型接上没有，诊断日志据此分得清没装、读不了和宿主没给状态目录（#10341）。
+    if usage == SessionUse::Input && applied.sentence_association.neural_desktop {
+        crate::report_settled_model(
+            &options.resources,
+            state_root.as_deref(),
+            settled_model.as_deref(),
+            settled_model_attached,
+        );
+    }
 
     let view = runtime.view();
     let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
@@ -215,9 +231,11 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 recorded_sentence_model: sentence_model_path,
                 recorded_settled_model,
                 settled_model,
+                settled_model_attached,
                 settled_model_loading: None,
                 lifecycle: None,
                 _dictionary_access: dictionary_access,
+                _generation_lease: generation_lease,
             },
         )
     });

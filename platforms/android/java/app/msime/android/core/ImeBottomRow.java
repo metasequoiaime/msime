@@ -287,7 +287,7 @@ final class ImeBottomRow {
     /**
      * 空格键手势：{@link SpaceGesturePolicy} 仲裁长按语音、水平移光标和上滑复制全文，先满足的一方胜出；下滑作废，短按输入普通空格。
      *
-     * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指向上滑过键盘高度的 {@link VoiceHoldPolicy#CANCEL_ZONE_FRACTION} 进入取消区，聆听面板显示「松开取消」，在那里松手或触摸被系统取消都丢掉这次录音。
+     * <p>长按在键区里开始的语音是按住说话：松手结束录音并出结果，按住期间停顿不自动结束；手指按当前面板的实际按钮范围选择取消、锁定或发送，触摸被系统取消时丢弃录音。
      */
     void bindSpaceCursor(Button button) {
         final float[] origin = new float[2];
@@ -297,8 +297,6 @@ final class ImeBottomRow {
         final boolean[] copyAvailable = new boolean[1];
         // 这次按压开始的语音是按住说话（键区里真的开始了一次新的聆听）。
         final boolean[] holding = new boolean[1];
-        // 按住说话时手指此刻在取消区。
-        final boolean[] cancelZone = new boolean[1];
         final long[] voiceBefore = new long[1];
         final int touchSlop = ViewConfiguration.get(s).getScaledTouchSlop();
         final SpacePress press = new SpacePress();
@@ -326,7 +324,6 @@ final class ImeBottomRow {
                     cancelled[0] = false;
                     voiced[0] = false;
                     holding[0] = false;
-                    cancelZone[0] = false;
                     button.setPressed(true);
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
@@ -351,12 +348,7 @@ final class ImeBottomRow {
                 case MotionEvent.ACTION_MOVE -> {
                     if (voiced[0]) {
                         if (holding[0]) {
-                            boolean zone = VoiceHoldPolicy.inCancelZone(origin[1], event.getY(),
-                                s.keyboardRoot == null ? 0f : s.keyboardRoot.getHeight());
-                            if (zone != cancelZone[0]) {
-                                cancelZone[0] = zone;
-                                s.imeVoiceEntry.holdCancelZone(zone);
-                            }
+                            s.imeVoiceEntry.moveHold(event.getRawX(), event.getRawY());
                         }
                         return true;
                     }
@@ -455,7 +447,7 @@ final class ImeBottomRow {
                         s.countKey(button);
                         if (holding[0]) {
                             holding[0] = false;
-                            s.imeVoiceEntry.releaseHold(cancelZone[0]);
+                            s.imeVoiceEntry.releaseHold(event.getRawX(), event.getRawY(), false);
                         }
                         return true;
                     }
@@ -476,7 +468,7 @@ final class ImeBottomRow {
                     resetSpaceCursor();
                     if (holding[0]) {
                         holding[0] = false;
-                        s.imeVoiceEntry.releaseHold(true);
+                        s.imeVoiceEntry.releaseHold(0f, 0f, true);
                     }
                     return true;
                 }
@@ -512,7 +504,7 @@ final class ImeBottomRow {
     private Button zeroButton() {
         if (zeroButton == null) {
             zeroButton = s.keyId(s.nineKeyGridKey("0", "数字 0",
-                () -> s.imeLayoutRows.commitNineKeyLiteral("0")), "Nine0");
+                () -> s.imeLayoutRows.commitNumberPadText("0")), "Nine0");
             KeyboardTypographyPolicy.setFittedKeyTextSize(zeroButton, 14, 22);
         }
         return zeroButton;
@@ -598,12 +590,10 @@ final class ImeBottomRow {
         parent.addView(key, params);
     }
 
-    /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
+    /** #+= 扩展符号页自带底行，这时功能行整行不显示；数字层的另一页是数字九宫格，用功能行排它的底行。注音的 #+= 是共享符号行，同样用功能行（{@link ImeLetterRows#sharedSymbolRowsDrawn}）。 */
     boolean layerOwnsBottomRow() {
-        int layout = s.imeLetterRows.drawnTouchLayout();
-        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && !s.imeLetterRows.numberPadDrawn(layout)
-            && (ImeLetterRows.drawsDesignLayer(layout) || layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
+        return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS && !s.imeLetterRows.numberPadDrawn()
+            && !s.imeLetterRows.sharedSymbolRowsDrawn();
     }
 
     /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
@@ -628,8 +618,10 @@ final class ImeBottomRow {
         ensureFaces();
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
-        int layout = s.imeLetterRows.drawnTouchLayout();
-        boolean numberPad = s.imeLetterRows.numberPadDrawn(layout);
+        // 注音的共享符号行（#+= 页）按大千注音排底行（123 |（地球）| ， | 空格 | 。 | 中/英 | 回车）：注音九键的字母层把这几个键挪进了自己的网格，没有底行可借。这时不是数字九宫格，layout 只用来排这一行和记签名。
+        int layout = s.imeLetterRows.sharedSymbolRowsDrawn() ? KeyboardLayout.ZHUYIN_LAYOUT
+            : s.imeLetterRows.drawnTouchLayout();
+        boolean numberPad = s.imeLetterRows.numberPadDrawn();
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         refreshPeriodFace();
@@ -665,9 +657,9 @@ final class ImeBottomRow {
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace, languageLeft)
             : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace, languageLeft);
-        // Visibility is re-asserted every time: the reply surface hides this row and restores it
-        // without the surface itself having changed.
+        // 每次重申可见性：回复面板会藏起功能行，长按语音保留原行测量与触摸流并覆盖它。
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
+        if (s.imeVoiceEntry != null && s.imeVoiceEntry.coversActionRow()) ViewPolicy.setInvisible(s.actionRow);
         // 中/英紧挨回车时，回车把键帽左边几 dp 让给中/英；中/英挪到空格左边后不再紧挨回车，回车不让。每次都重设：回车键换成图标键后是另一个视图。
         if (s.actionRow instanceof KeyboardKeyArea area) {
             boolean yield = KeyboardActionRow.languageBesideReturn(entries);
