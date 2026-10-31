@@ -587,12 +587,17 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "英文输入")
         try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
         try layoutAtRequestedHeight(controller)
-        for symbol in ["@", "/", "_", "="] {
-          // @ 和 / 在 123 层，_ 和 = 在 #+= 层。
-          if symbol == "_" {
-            try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
-            try layoutAtRequestedHeight(controller)
-          }
+        // 这些英文输入框里 123 也打开数字九宫格：/ 和 - 是左列的运算符，_ 和 = 在 #+= 层。
+        XCTAssertTrue(shown(try button("nineKey5", in: controller)))
+        for symbol in ["/", "-"] {
+          let key = try XCTUnwrap(descendants(controller.view).first {
+            $0.accessibilityLabel == "运算符 \(symbol)" && shown($0)
+          } as? UIButton, symbol)
+          XCTAssertGreaterThan(key.bounds.width, 20)
+        }
+        try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+        for symbol in ["_", "="] {
           let key = try XCTUnwrap(shownSymbolKey(symbol, in: controller), symbol)
           XCTAssertGreaterThan(key.bounds.width, 20)
         }
@@ -870,14 +875,26 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "1")
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
 
-    // 英文画 ASCII 变体，返回键标为 ABC。
+    // 英文的数字入口同样是数字九宫格：右列的结束标点是 ASCII 的 !，返回键标为 ABC；#+= 页画 ASCII 变体。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertEqual(faces(1), ["-", "/", ":", ";", "(", ")", "$", "@", "\"", "'"])
-    XCTAssertEqual(faces(2), ["#+=", ".", ",", "?", "!", "…"])
+    XCTAssertTrue(shown(try button("nineKey1", in: controller)))
+    XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "1")
+    XCTAssertFalse(shown(try button("symbolLayerKey0_0", in: controller)))
+    XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, "!")
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+    try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(faces(1), ["_", "\\", "|", "~", "<", ">", "€", "&", "·", "£"])
+    XCTAssertEqual(faces(2), ["123", ".", ",", "?", "!", "…"])
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
     XCTAssertNil(shownSymbolKey("：", in: controller))
+    XCTAssertNil(shownSymbolKey("《", in: controller))
+    // #+= 页的 123 回到数字九宫格。
+    try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(try button("nineKey1", in: controller)))
   }
 
   /// 123 / #+= 层的底行使用同一套比例；顶部有表情时底行用符号入口，没有中/英键。
@@ -899,9 +916,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     try layoutAtRequestedHeight(controller)
     let letterKey = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" })
     XCTAssertEqual(letterKey.bounds.height, 44, accuracy: 0.5)
-    // 英文数字页仍使用横排，完整验证同一套符号行的份额。
+    // 英文的数字入口也是数字九宫格，从它的 #+= 进设计稿的符号层，完整验证同一套符号行的份额。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
@@ -923,71 +941,45 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden, "⌫ is in the layer's third row")
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
                    KeyboardViewController.defaultKeyboardHeight, "符号层沿用原来的行距和按键高度")
-    for (name, more) in [("123", false), ("#+=", true)] {
-      if more { try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered) }
-      try layoutAtRequestedHeight(controller)
-      let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
-        controller.view.layer.render(in: context.cgContext)
-      })
-      attachment.name = "Symbol layer \(name)"
-      attachment.lifetime = .keepAlways
-      add(attachment)
-    }
+    let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+      controller.view.layer.render(in: context.cgContext)
+    })
+    attachment.name = "Symbol layer #+="
+    attachment.lifetime = .keepAlways
+    add(attachment)
     XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
   }
 
-  /// 同一个已打开的数字页跟随顶部入口设置变化，表情和符号互斥且真实动作可达。
-  func testNumberLayerKeepsEmojiFallbackWhenToolbarEntryIsUnavailable() async throws {
-    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
+  /// 英文的数字入口也是数字九宫格：符号面板从左列的 符 打开，#+= 页底行的 符号 同样打开它。原来 123 页在顶部没有表情入口时换上的表情键随 123 页一起不再出现，#+= 页本来就不放它。
+  func testEnglishNumberPadAndMoreSymbolsOpenTheSymbolPanel() throws {
     let previousScheme = InputSchemePreference.scheme
-    let previousHidden = TouchToolbarLocalPreference.hidden
-    defer {
-      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previous }
-      InputSchemePreference.scheme = previousScheme
-      TouchToolbarLocalPreference.hidden = previousHidden
-    }
+    defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .quanpin
-    TouchToolbarLocalPreference.hidden = false
-    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
     let emoji = try button("layerEmojiKey", in: controller)
-    let symbols = try button("symbolPanelKey", in: controller)
-    func reload(emojiExpected: Bool) async throws {
-      controller.viewWillAppear(false)
-      let deadline = Date().addingTimeInterval(15)
-      while emoji.isHidden == emojiExpected && Date() < deadline {
-        // 让出主线程，允许后台偏好读取的主队列回调更新键面。
-        try await Task.sleep(for: .milliseconds(50))
-      }
+    func opensThePanel(_ key: UIButton) throws {
+      XCTAssertTrue(shown(key))
+      XCTAssertGreaterThan(key.bounds.width, 20)
+      key.sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIControl)
+        .sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
-      XCTAssertEqual(!emoji.isHidden, emojiExpected)
-      XCTAssertEqual(symbols.isHidden, emojiExpected)
-      XCTAssertGreaterThan((emojiExpected ? emoji : symbols).bounds.width, 20)
     }
-    try await reload(emojiExpected: false)
+    XCTAssertTrue(emoji.isHidden)
+    try opensThePanel(try button("numberPadSymbolPanelKey", in: controller))
+    try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(emoji.isHidden)
+    let symbols = try button("symbolPanelKey", in: controller)
     XCTAssertEqual(symbols.configuration?.title, "符号")
-    symbols.sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
-    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIControl)
-      .sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": false] })
-    try await reload(emojiExpected: true)
-    emoji.sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardEmojiPicker" })
-    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "closeEmojiPicker" } as? UIControl)
-      .sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_toolbar"] = ["emoji": true] })
-    try await reload(emojiExpected: false)
-    TouchToolbarLocalPreference.hidden = true
-    try await reload(emojiExpected: true)
-    TouchToolbarLocalPreference.hidden = false
-    try await reload(emojiExpected: false)
-    controller.viewDidDisappear(false)
+    try opensThePanel(symbols)
   }
 
   func testSymbolLayerKeysRouteThroughThePunctuationPathOrInsertAsDrawn() {
@@ -1023,12 +1015,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testOnlyTheNineKeyKanaAndDachenKeepTheirOwnSymbolLayers() {
-    XCTAssertTrue(KeyboardViewController.drawsSymbolLayer(symbols: true, nineKey: false, kana: false, dachen: false))
-    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: false, nineKey: false, kana: false, dachen: false))
-    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: true, nineKey: true, kana: false, dachen: false))
-    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: true, nineKey: false, kana: true, dachen: false))
-    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: true, nineKey: false, kana: false, dachen: true))
+  /// 设计稿的符号层只剩 #+= 那一页：数字入口画数字九宫格时它不画，#+= 页上所有键面都画它。
+  func testTheSymbolLayerIsOnlyTheMoreSymbolsPage() {
+    XCTAssertTrue(KeyboardViewController.drawsSymbolLayer(symbols: true, numberPad: false))
+    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: true, numberPad: true))
+    XCTAssertFalse(KeyboardViewController.drawsSymbolLayer(symbols: false, numberPad: false))
     for more in [false, true] {
       for chinese in [false, true] {
         XCTAssertEqual(SymbolLayerLayout.characterRows(more: more, chinese: chinese).map(\.count), [10, 10, 5])
@@ -2354,12 +2345,14 @@ final class NineKeyKeyboardTests: XCTestCase {
             if !symbols { XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "重输") }
             XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "笔" : "123")
           }
-          if symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .zhuyin].contains(scheme)
-              && !KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: false, scheme: scheme,
-                                                        chinese: true, localMode: false) {
-            // 保留横排数字的独立语言沿用符号行，按键保持 52pt。
-            XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, expectedKeyHeight, accuracy: 0.5, "\(scheme)")
-            XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
+          if symbols {
+            // 每个方案的数字入口都是数字九宫格（含原来保留横排 123 层的日文、韩文、越南文、藏文和大千注音），三行数字与九键网格等高，横排的符号层不画。
+            let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+            let digit = try button("nineKey6", in: controller)
+            XCTAssertTrue(shown(digit), "\(scheme)")
+            XCTAssertEqual(digit.configuration?.title, "6", "\(scheme)")
+            XCTAssertEqual(digit.bounds.height, reference, accuracy: 0.5, "\(scheme)")
+            XCTAssertFalse(shown(try button("symbolLayerKey0_0", in: controller)), "\(scheme)")
           }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
                          keyboardHeight, "\(scheme)")
@@ -2395,8 +2388,8 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
             XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
-          // 底行的 ⌫ 只属于 Dachen 符号行：123 / #+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
-          XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !(symbols && scheme == .zhuyin))
+          // 底行的 ⌫ 原来只给大千的符号行用，大千也改用数字九宫格后不再出现：#+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
+          XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden, "\(scheme)")
           // 全拼 14 键画自己的三排键，键位与等高由 FourteenKeyKeyboardTests 覆盖。
           if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey, .eighteenKey].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
@@ -2485,9 +2478,15 @@ final class NineKeyKeyboardTests: XCTestCase {
         add(attachment)
         try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
         try layoutAtRequestedHeight(controller)
-        // 本地工具输出 ASCII，所以它们用英文层，九键键盘上也一样。
-        XCTAssertNotNil(shownSymbolKey(":", in: controller))
-        XCTAssertNil(shownSymbolKey("：", in: controller))
+        // 本地模式的 123 也打开数字九宫格；本地工具输出 ASCII，所以右列的结束标点是 !，#+= 层是英文版，九键键盘上也一样。
+        XCTAssertTrue(shown(try button("nineKey6", in: controller)))
+        XCTAssertEqual(try button("nineKey6", in: controller).configuration?.title, "6")
+        XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, "!")
+        XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+        try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+        try layoutAtRequestedHeight(controller)
+        XCTAssertNotNil(shownSymbolKey("<", in: controller))
+        XCTAssertNil(shownSymbolKey("《", in: controller))
         XCTAssertNil(shownSymbolKey("、", in: controller))
         XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
         try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -3546,11 +3545,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(comma.bounds.width, englishUnit, accuracy: 0.5)
     XCTAssertEqual(englishUnit, unit, accuracy: 1)
 
-    // 123 层自带底行：ABC | emoji | space | return，⌫ 上移到该层第三行。
+    // 英文的 123 打开数字九宫格，底行是 ABC |（🌐）| 0 | 空格 | 中/英 | 回车，⌫ 在右列；#+= 层自带底行，⌫ 在该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertTrue(try button("quickPunctuationKey", in: controller).isHidden)
     XCTAssertTrue(try button("bottomPeriodKey", in: controller).isHidden)
+    XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
+    XCTAssertFalse(try button("nineKeyZero", in: controller).isHidden)
+    XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden)
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
+    try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
     XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden)
     XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
@@ -4241,13 +4246,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("nineKey7", in: controller).accessibilityLabel, "7 PQRS")
   }
 
-  /// 手机和 iPad 的常规中文数字入口都借用九宫格，扩展符号和返回原方案仍可达。
-  func testChinese123OpensTheNumberPadAcrossLayoutsAndDevices() throws {
+  /// 手机和 iPad 全尺寸键盘上，每个方案的数字入口都打开数字九宫格（维护者的产品决定，覆盖原来日文、韩文、越南文、藏文、大千注音和假名九键保留自己 123 层的约定），中文和英文都一样：返回键印进入前的键面，右列的结束标点跟着语言，空格、中/英和 0 都在，#+= 是完整的符号层且 123 回到数字九宫格，返回键回到原来的字母层。
+  func testEvery123OpensTheNumberPadAcrossLayoutsAndDevices() throws {
+    enableAllInputSchemes()
     let previousScheme = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previousScheme }
     func shown(_ view: UIView) -> Bool { sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
-    func layer(after scheme: ChineseInputScheme, tablet: Bool = false) throws -> KeyboardViewController {
-      InputSchemePreference.scheme = scheme
+    func keyboard(_ scheme: ChineseInputScheme, tablet: Bool) -> KeyboardViewController {
       let controller = KeyboardViewController()
       if tablet {
         controller.traitOverrides.userInterfaceIdiom = .pad
@@ -4255,57 +4260,95 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: tablet ? 834 : 390, height: 320)
-      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       return controller
     }
     func view(_ id: String, in controller: KeyboardViewController) throws -> UIView {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == id }, id)
     }
+    /// 字母层的数字入口：假名九键在自己的模式列里，其余键面在底行。
+    func numberEntry(_ scheme: ChineseInputScheme, english: Bool, in controller: KeyboardViewController) throws -> UIButton {
+      try button(scheme == .japaneseNineKey && !english ? "japaneseSymbols" : "layoutToggleButton", in: controller)
+    }
+    func checkNumberPad(_ controller: KeyboardViewController, scheme: ChineseInputScheme, english: Bool,
+                        title: String, closing: String, context: String) throws {
+      try numberEntry(scheme, english: english, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let toggle = try button("layoutToggleButton", in: controller)
+      XCTAssertEqual(toggle.configuration?.title, title, context)
+      XCTAssertTrue(shown(toggle), context)
+      let expectedLabel = !english && scheme == .stroke ? "切换到笔画"
+        : !english && scheme.isMandarinNineKey ? "切换到字母" : "切换到字母键盘"
+      XCTAssertEqual(toggle.accessibilityLabel, expectedLabel, context)
+      XCTAssertFalse(shown(try view("symbolLayerRow0", in: controller)), context)
+      XCTAssertFalse(shown(try view("japaneseNineKey", in: controller)), context)
+      XCTAssertTrue(shown(try view("nineKeySidebar", in: controller)), context)
+      for digit in 1...9 {
+        let key = try button("nineKey\(digit)", in: controller)
+        XCTAssertTrue(shown(key), context)
+        XCTAssertEqual(key.configuration?.title, String(digit), context)
+        XCTAssertGreaterThan(key.bounds.height, 28, context)
+      }
+      for symbol in ["+", "-", "*", "/"] {
+        let key = try XCTUnwrap(descendants(controller.view).first {
+          $0.accessibilityLabel == "运算符 \(symbol)" && shown($0)
+        } as? UIButton, context)
+        XCTAssertGreaterThan(key.bounds.height, 28, context)
+      }
+      XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, ".", context)
+      XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, closing, context)
+      // 底行：0、空格和中/英都在，长空格的用户在这里也有空格。
+      for id in ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"] {
+        XCTAssertTrue(shown(try button(id, in: controller)), "\(id) \(context)")
+      }
+      try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(shown(try view("symbolLayerRow0", in: controller)), context)
+      XCTAssertFalse(shown(try button("nineKey1", in: controller)), context)
+      XCTAssertEqual(toggle.configuration?.title, title, "#+= \(context)")
+      try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(shown(try button("nineKey1", in: controller)), context)
+      toggle.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(toggle.configuration?.title, "123", context)
+      XCTAssertFalse(shown(try view("numberPadOperatorScroll", in: controller)), context)
+      XCTAssertEqual(InputSchemePreference.scheme, scheme, context)
+    }
 
-    // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，只验收实际可用的入口。
-    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .eighteenKey, .handwriting]
-    if InputSchemePreference.installedLanguageSchemes?.contains(.stroke) != false { schemes.append(.stroke) }
-    // 返回键与 Android 一样：26 键一族和手写印「拼音」，14 键和笔画印各自的短名。
     let returnTitles: [ChineseInputScheme: String] = [
-      .quanpin: "拼音", .shuangpin: "拼音", .handwriting: "拼音", .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔",
+      .quanpin: "拼音", .shuangpin: "拼音", .ziranma: "拼音", .microsoft: "拼音", .shoudao: "拼音", .wubi: "拼音",
+      .cantonese: "拼音", .cantoneseShuangpin: "拼音", .handwriting: "拼音",
+      .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔", .nineKey: "九键", .nineKeyShuangpin: "九键",
+      .japanese: "ABC", .japaneseNineKey: "あいう", .korean: "한", .vietnamese: "ABC", .tibetan: "ABC", .zhuyin: "注",
     ]
-    for scheme in schemes {
+    for scheme in ChineseInputScheme.allCases {
+      InputSchemePreference.scheme = scheme
+      // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，那个方案已经单独测过。
+      guard InputSchemePreference.scheme == scheme else { continue }
+      let asciiMarks = scheme.writesAsciiPunctuation
       for tablet in [false, true] {
-        let controller = try layer(after: scheme, tablet: tablet)
-        XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, returnTitles[scheme],
-                       "\(scheme) tablet=\(tablet)")
-        XCTAssertEqual(try button("layoutToggleButton", in: controller).accessibilityLabel,
-                       scheme == .stroke ? "切换到笔画" : "切换到字母键盘")
-        XCTAssertFalse(shown(try view("symbolLayerRow0", in: controller)))
-        XCTAssertTrue(shown(try view("nineKeySidebar", in: controller)))
-        for digit in 1...9 {
-          let key = try button("nineKey\(digit)", in: controller)
-          XCTAssertTrue(shown(key))
-          XCTAssertEqual(key.configuration?.title, String(digit))
-          XCTAssertGreaterThan(key.bounds.height, 28)
+        let controller = keyboard(scheme, tablet: tablet)
+        // 键盘可能按模式记忆以英文起步；先确保在中文，测完中文再切到英文测一遍。
+        if try button("bottomLanguageKey", in: controller).accessibilityValue == "英文输入" {
+          try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
         }
-        for symbol in ["+", "-", "*", "/"] {
-          let key = try XCTUnwrap(descendants(controller.view).first {
-            $0.accessibilityLabel == "运算符 \(symbol)" && shown($0)
-          } as? UIButton)
-          XCTAssertGreaterThan(key.bounds.height, 28)
+        try checkNumberPad(controller, scheme: scheme, english: false, title: returnTitles[scheme] ?? "",
+                           closing: asciiMarks ? "!" : "！", context: "\(scheme) tablet=\(tablet)")
+        // 假名九键和大千注音回到自己的字母层。
+        if scheme == .japaneseNineKey { XCTAssertTrue(shown(try view("japaneseNineKey", in: controller))) }
+        if scheme == .zhuyin {
+          XCTAssertTrue(shown(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "zhuyinKeyq" })))
         }
-        try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+        try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
         controller.view.layoutIfNeeded()
-        XCTAssertTrue(shown(try view("symbolLayerRow0", in: controller)))
-        try button("symbolLayerToggle", in: controller).sendActions(for: .primaryActionTriggered)
-        controller.view.layoutIfNeeded()
-        XCTAssertTrue(shown(try button("nineKey1", in: controller)))
-        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(InputSchemePreference.scheme, scheme)
-        XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "123")
+        XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "英文输入", "\(scheme)")
+        try checkNumberPad(controller, scheme: scheme, english: true, title: "ABC", closing: "!",
+                           context: "\(scheme) English tablet=\(tablet)")
+        try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+        controller.viewDidDisappear(false)
       }
     }
-    let nineKey = try layer(after: .nineKey)
-    XCTAssertEqual(try button("layoutToggleButton", in: nineKey).configuration?.title, "九键")
-    XCTAssertEqual(try button("layoutToggleButton", in: nineKey).accessibilityLabel, "切换到字母")
-    XCTAssertEqual(try button("nineKey2", in: nineKey).configuration?.title, "2")
   }
 
   /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。符号栏里的 符 只在借来的数字九宫格上（拼音九键一族的 符 在底行），所以这里从全拼进数字页。
@@ -4363,15 +4406,29 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 借用数字页的返回键键面按原键面取，与 Android `KeyboardActionRow.layerTitle` 相同；词库没装时上面的界面用例跳过笔画，这里按方案直接固定。
+  /// 数字九宫格和 #+= 页的返回键键面按进入前的键面取，与 Android `KeyboardActionRow.layerTitle` 的短名相同；词库没装时界面用例跳过笔画和注音，这里按方案逐个直接固定，每个方案都要列出来。
   func testBorrowedNumberPadReturnTitleFollowsTheLayout() {
-    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.fourteenKey), "14键")
-    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.eighteenKey), "18键")
-    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(.stroke), "笔")
-    for scheme in ChineseInputScheme.allCases where ![.fourteenKey, .eighteenKey, .stroke].contains(scheme) {
-      XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme), SymbolLayerLayout.lettersTitle(chinese: true),
-                     "\(scheme)")
+    let expected: [ChineseInputScheme: String] = [
+      .quanpin: "拼音", .shuangpin: "拼音", .ziranma: "拼音", .microsoft: "拼音", .shoudao: "拼音", .wubi: "拼音",
+      .cantonese: "拼音", .cantoneseShuangpin: "拼音", .handwriting: "拼音",
+      .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔", .nineKey: "九键", .nineKeyShuangpin: "九键",
+      .japanese: "ABC", .japaneseNineKey: "あいう", .korean: "한", .vietnamese: "ABC", .tibetan: "ABC", .zhuyin: "注",
+    ]
+    XCTAssertEqual(Set(expected.keys), Set(ChineseInputScheme.allCases), "every scheme has a pinned return title")
+    for scheme in ChineseInputScheme.allCases {
+      XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme: scheme, chinese: true, localMode: false),
+                     expected[scheme], "\(scheme)")
+      // 英文和本地模式画英文 26 键，返回键是英文字母页的 ABC，与原来的英文 123 层相同。
+      XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme: scheme, chinese: false, localMode: false),
+                     SymbolLayerLayout.lettersTitle(chinese: false), "\(scheme) English")
+      XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme: scheme, chinese: true, localMode: true),
+                     "ABC", "\(scheme) local mode")
     }
+    // 双拼 18 键和五笔 14 键这类按网格画的键面印网格的短名，切到英文后不再印。
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme: .shuangpin, chinese: true, localMode: false,
+                                                               letterGrid: .eighteenKey), "18键")
+    XCTAssertEqual(KeyboardViewController.numberPadReturnTitle(scheme: .wubi, chinese: true, localMode: false,
+                                                               letterGrid: .fourteenKey), "14键")
     XCTAssertEqual(SymbolLayerLayout.lettersTitle(chinese: true), "拼音")
   }
 
@@ -4385,17 +4442,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden }
   }
 
-  func testNumberPadPreservesIndependentLanguageAndLocalModeContracts() {
-    for scheme in ChineseInputScheme.allCases {
-      let expected = !scheme.isJapanese && !scheme.writesAsciiPunctuation && !scheme.isZhuyin
-      XCTAssertEqual(KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: false, scheme: scheme,
-                                                           chinese: true, localMode: false), expected)
-      for (symbols, more, chinese, local) in [(false, false, true, false), (true, true, true, false),
-                                            (true, false, false, false), (true, false, true, true)] {
-        XCTAssertFalse(KeyboardViewController.drawsNumberPad(symbols: symbols, moreSymbols: more,
-                                                             scheme: scheme, chinese: chinese, localMode: local))
-      }
-    }
+  /// 数字入口在所有方案、中英文和本地模式下都画数字九宫格（维护者的产品决定，取代原来独立语言、本地模式和英文保留 123 层的约定）；字母层和 #+= 页不画。
+  func testNumberPadIsTheNumberEntryOfEveryLayout() {
+    XCTAssertTrue(KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: false))
+    XCTAssertFalse(KeyboardViewController.drawsNumberPad(symbols: true, moreSymbols: true))
+    XCTAssertFalse(KeyboardViewController.drawsNumberPad(symbols: false, moreSymbols: false))
   }
 
 }

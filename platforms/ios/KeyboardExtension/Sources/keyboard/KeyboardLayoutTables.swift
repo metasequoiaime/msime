@@ -3,6 +3,8 @@ import CoreGraphics
 /// 设计稿的 123 层与 #+= 层，移植自 Android `KeyboardLayout` 中「新设计的 123 层与 #+= 层」那一段（`numberLayer` / `moreSymbolLayer`）。
 ///
 /// 每层四行：十个键，再十个键，然后是层切换键加五个标点键和 ⌫，最后是各层自己的底行（回到字母、表情或符号、空格、回车）。中文版放的是中文写作常用的全角标点，英文版放对应的 ASCII 符号。层切换键、⌫ 和底行由键盘控制器自己画；这几张表只给出字符键、键面和宽度。
+///
+/// iOS 键盘上数字入口（123）在所有键面都打开数字九宫格（`KeyboardViewController.drawsNumberPad`），屏幕上只画 #+= 这一层；123 层的表仍用来定每排建几个键，`extraRow` 的数字页那一行补在数字九宫格上方。
 enum SymbolLayerLayout {
   /// 第三行两端的键（`#+=` / `123` 和 ⌫）相对一个标点键的宽度，即 Android 的 `LAYER_EDGE_WEIGHT`。
   static let edgeWeight: CGFloat = 1.4
