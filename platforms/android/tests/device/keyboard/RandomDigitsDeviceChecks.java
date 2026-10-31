@@ -2,6 +2,7 @@ package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -81,6 +82,7 @@ final class RandomDigitsDeviceChecks {
                     check(Arrays.equals(fixed, fixedBounds()), "重排不能移动其他按键");
                     previous = next;
                 }
+                if (layout.equals("twenty_six_key")) previous = unicodeDigitComposes(expected.toString());
                 t.stage = "离开数字页后保留开关与排列 " + layout;
                 physical(t.described("返回原键盘"));
                 t.await(t.described("随机数字").and(AccessibilityNodeInfo::isSelected));
@@ -136,6 +138,36 @@ final class RandomDigitsDeviceChecks {
             if (originalLocal == null) Files.deleteIfExists(local.toPath()); else t.publish(local, originalLocal);
             t.restartIme();
         }
+    }
+
+    /**
+     * 随机键面上的数字与标准顺序走同一条上屏路径：U 模式里 Engine 把数字列为拼写，数字九宫格的数字必须进组字，不能按字面上屏。返回收尾后数字页的键序，供后面的离页检查沿用。
+     */
+    private int[] unicodeDigitComposes(String committed) throws Exception {
+        t.stage = "U 模式里随机数字进组字";
+        physical(t.described("返回原键盘"));
+        // 与 ChineseHelpcodeOffDeviceSmoke 相同，用带 Shift 的键盘事件在空组字时进入 U 模式。
+        long time = SystemClock.uptimeMillis();
+        KeyEvent shiftU = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_U,
+            0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
+        t.sendKeySync(shiftU);
+        t.sendKeySync(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
+        t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U", node.getText())));
+        physical(t.key("123"));
+        int[] before = order();
+        physical(t.key("4"));
+        t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed + "U4", node.getText())));
+        check(!Arrays.equals(before, order()), "U 模式里的数字输入也要换序");
+        t.stage = "U 模式组字退格收尾";
+        // 第一次退格删掉 4；U 模式在只剩入口字母时可能已经退出，所以只在仍显示 `U` 时再退一次。
+        physical(t.key("⌫"));
+        AccessibilityNodeInfo field = t.await(t.field("msime-test-plain").and(node ->
+            DeviceSmoke.equalsText(committed + "U", node.getText()) || DeviceSmoke.equalsText(committed, node.getText())));
+        if (!DeviceSmoke.equalsText(committed, field.getText())) {
+            physical(t.key("⌫"));
+            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText(committed, node.getText())));
+        }
+        return order();
     }
 
     private void setEntry(boolean enabled) throws Exception {

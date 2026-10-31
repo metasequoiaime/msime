@@ -23,7 +23,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
-        if (randomDigits) return "随机数字入口默认关闭、真实开关、逐次字面上屏与重排、离页保持及英文隔离";
+        if (randomDigits) return "随机数字入口默认关闭、真实开关、逐次按键面上屏（U 模式进组字）与重排、离页保持及英文隔离";
         if (passwordNumberPad) return "文字密码框可在字母与数字九宫格间往返，数字密码直接显示九宫格";
         return "Number-pad geometry, continuous arithmetic input, symbols, return and key statistics in every scheme";
     }

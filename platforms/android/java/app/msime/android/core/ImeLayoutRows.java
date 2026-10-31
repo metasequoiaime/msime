@@ -580,8 +580,9 @@ final class ImeLayoutRows {
     void bindNumberDigit(Button key, int slot) {
         numberDigitKeys[slot] = key;
         s.bindCountedAction(key, () -> {
-            String literal = Integer.toString(randomDigits.digit(slot, randomDigitsEligible()));
-            commitNineKeyLiteral(literal);
+            String digit = Integer.toString(randomDigits.digit(slot, randomDigitsEligible()));
+            // 与标准顺序同一条上屏路径：本地模式、越南语和藏文里由会话收下数字，其余按字面上屏。
+            commitNumberPadText(digit);
             randomDigits.afterDigit(randomDigitsEligible());
             refreshNumberDigits();
         });
