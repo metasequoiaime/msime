@@ -221,36 +221,56 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         surface.addView(underlying, new FrameLayout.LayoutParams(-1, -1));
         surface.addView(panel, new FrameLayout.LayoutParams(-1, -1));
         Button back = (Button) findDescription(panel, "关闭符号面板");
-        for (int width : new int[] {720, 1000}) {
-            layout(surface, width);
-            Rect backBounds = bounds(panel, back);
-            tapAt(surface, width * 0.7f, backBounds.centerY());
-            tapAt(surface, 1, 1);
-            if (underlyingTouches[0] != 0)
-                throw new AssertionError("Symbol panel header or padding leaked touches to the keyboard");
-            if (back.getWidth() < width - panel.getPaddingLeft() - panel.getPaddingRight())
-                throw new AssertionError("Return action does not fill the header without a mascot");
-        }
         Bitmap fixture = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
-        type.getMethod("setHeaderMascot", Bitmap.class).invoke(panel, fixture);
-        layout(surface, 1000);
+        java.lang.reflect.Method bind = type.getMethod("setHeaderMascots", Bitmap.class, Bitmap.class);
         ViewGroup header = (ViewGroup) back.getParent();
-        ImageView mascot = (ImageView) header.getChildAt(1);
-        if (mascot.getVisibility() != View.VISIBLE || mascot.getDrawable() == null
-                || mascot.getWidth() <= 0 || back.getWidth() + mascot.getWidth() != header.getWidth())
-            throw new AssertionError("Mascot and return action do not cover the header");
-        tapAt(surface, mascot.getRight() - 1 + panel.getPaddingLeft(),
-            bounds(panel, mascot).centerY());
-        if (underlyingTouches[0] != 0)
-            throw new AssertionError("Mascot leaked touches to the keyboard");
+        ImageView left = (ImageView) header.getChildAt(1);
+        ImageView right = (ImageView) header.getChildAt(2);
+        for (int width : new int[] {320, 720, 1000}) {
+            for (boolean images : new boolean[] {false, true}) {
+                bind.invoke(panel, images ? fixture : null, images ? fixture : null);
+                layout(surface, width);
+                Rect backBounds = bounds(panel, back);
+                if (back.getWidth() != header.getWidth()
+                        || !"返回上一界面".contentEquals(back.getText())
+                        || back.getGravity() != android.view.Gravity.CENTER)
+                    throw new AssertionError("返回按钮必须铺满整行且文案居中");
+                if (images && (left.getDrawable() == null || right.getDrawable() == null
+                        || left.getLeft() != 0 || right.getRight() != header.getWidth()
+                        || left.getWidth() != right.getWidth()))
+                    throw new AssertionError("两侧插图必须等宽并位于整行两端");
+                for (float fraction : new float[] {0.03f, 0.25f, 0.5f, 0.75f, 0.97f}) {
+                    tapAt(surface, backBounds.left + backBounds.width() * fraction, backBounds.centerY());
+                    if (underlyingTouches[0] != 0)
+                        throw new AssertionError("返回栏任意位置都不得穿透到底层键盘");
+                }
+                int before = closes[0];
+                tapAt(surface, 1, 1);
+                if (closes[0] != before || underlyingTouches[0] != 0)
+                    throw new AssertionError("面板外边距不得关闭面板或穿透键盘");
+                long now = SystemClock.uptimeMillis();
+                for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL}) {
+                    MotionEvent event = MotionEvent.obtain(now, now, action,
+                        backBounds.centerX(), backBounds.centerY(), 0);
+                    try { surface.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                if (closes[0] != before) throw new AssertionError("取消触摸不得关闭面板");
+            }
+        }
+        for (ImageView image : new ImageView[] {left, right})
+            if (image.isClickable() || image.isFocusable()
+                    || image.getImportantForAccessibility() != View.IMPORTANT_FOR_ACCESSIBILITY_NO)
+                throw new AssertionError("插图不得成为独立动作或无障碍焦点");
+        bind.invoke(panel, fixture, null);
+        layout(surface, 720);
+        if (left.getVisibility() != View.VISIBLE || right.getVisibility() != View.GONE
+                || back.getWidth() != header.getWidth())
+            throw new AssertionError("单侧缺图不得缩小整行返回范围");
+        bind.invoke(panel, null, null);
         int before = closes[0];
-        header.performClick();
         back.performClick();
-        if (closes[0] != before + 2) throw new AssertionError("Header and return button do not close the panel");
-        type.getMethod("setHeaderMascot", Bitmap.class).invoke(panel, new Object[] {null});
-        layout(surface, 1000);
-        if (mascot.getVisibility() != View.GONE || back.getWidth() != header.getWidth())
-            throw new AssertionError("Missing mascot does not yield the full header to the return action");
+        if (closes[0] != before + 1) throw new AssertionError("返回按钮必须只调用一次关闭动作");
         fixture.recycle();
     }
 
@@ -269,7 +289,7 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         Rect gridBounds = bounds(panel, grid);
         Rect category = bounds(panel, findButton(panel, "常用"));
         Rect delete = bounds(panel, findButton(panel, "⌫"));
-        Rect back = bounds(panel, findButton(panel, "返回"));
+        Rect back = bounds(panel, findButton(panel, "返回上一界面"));
         if (gridBounds.width() < panel.getWidth() - panel.getPaddingLeft() - panel.getPaddingRight() - 1)
             throw new AssertionError("Symbol grid is not full width");
         if (category.top < gridBounds.bottom || delete.top < gridBounds.bottom
