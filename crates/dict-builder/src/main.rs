@@ -16,7 +16,7 @@
 //! msime-dict-build languages --dictionary <msime-dictionary checkout> --cache <dir> [--out <dir>] [--offline]
 //! msime-dict-build syllable-frequency --pinyin <msime-pinyin.db> [--out <syllable_frequency.tsv>]
 //! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
-//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
+//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--cantonese-base <cantonese.txt> --cantonese-head <cantonese.txt> --cantonese-characters <jyut6ping3.chars.dict.yaml>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--cantonese-db <msime-cantonese.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
 mod cantonese;
@@ -159,8 +159,8 @@ struct Arguments {
 enum Command {
     /// 从干净的 rime-ice 检出生成中英文补充表及来源报告；不修改任何已发布输入或锁文件。
     RimeIceSupplement(RimeIceSupplement),
-    /// Check a change to the shared custom dictionary's words.txt, translations.txt and english.txt; pass a base/head pair for each file to check. Exits 0 when every appended line is accepted, 1 when anything is rejected (the reports are still written), 2 when the check cannot run.
-    CheckWords(CheckWords),
+    /// Check a change to the shared custom dictionary's words.txt, translations.txt, english.txt and cantonese.txt; pass a base/head pair for each file to check. Exits 0 when every appended line is accepted, 1 when anything is rejected (the reports are still written), 2 when the check cannot run.
+    CheckWords(Box<CheckWords>),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
     /// 写出 msime-dictionary 的 sources/pinyin/places.txt：msime-dictionary 的拼音词库没有、或排名低于所在层级下限的行政区划地名（全称和简称），区划数据取自锁文件在 places/ 下固定的文件。
@@ -895,7 +895,7 @@ fn build_languages(arguments: &Languages) -> Result<()> {
 #[derive(Args)]
 #[command(group(
     clap::ArgGroup::new("files")
-        .args(["base", "translations_base", "english_base"])
+        .args(["base", "translations_base", "english_base", "cantonese_base"])
         .required(true)
         .multiple(true)
 ))]
@@ -918,12 +918,24 @@ struct CheckWords {
     /// custom/english.txt after the change.
     #[arg(long, requires = "english_base")]
     english_head: Option<PathBuf>,
+    /// custom/cantonese.txt before the change.
+    #[arg(long, requires_all = ["cantonese_head", "cantonese_characters"])]
+    cantonese_base: Option<PathBuf>,
+    /// custom/cantonese.txt after the change.
+    #[arg(long, requires = "cantonese_base")]
+    cantonese_head: Option<PathBuf>,
+    /// msime-dictionary 的 sources/cantonese/jyut6ping3.chars.dict.yaml：新行每个字的读音都要是这里给的读音之一，与构建同一个检查。
+    #[arg(long, requires = "cantonese_base")]
+    cantonese_characters: Option<PathBuf>,
     /// A shipped msime-pinyin.db; appended words already in its quanpin tables are rejected.
     #[arg(long)]
     msime_db: Option<PathBuf>,
     /// A shipped msime-english.db; appended English words whose word and display are already in its english_words are rejected.
     #[arg(long)]
     english_db: Option<PathBuf>,
+    /// 已发布的 msime-cantonese.db：同一去声调粤拼下已有同一个词的新行被拒绝。
+    #[arg(long)]
+    cantonese_db: Option<PathBuf>,
     /// Where the JSON report is written.
     #[arg(long)]
     json: Option<PathBuf>,
@@ -943,6 +955,17 @@ fn open_read_only(path: Option<&Path>) -> Result<Option<rusqlite::Connection>> {
 fn check_words(arguments: &CheckWords) -> Result<bool> {
     let msime = open_read_only(arguments.msime_db.as_deref())?;
     let english = open_read_only(arguments.english_db.as_deref())?;
+    let cantonese = open_read_only(arguments.cantonese_db.as_deref())?;
+    let characters = arguments
+        .cantonese_characters
+        .as_deref()
+        .map(text::read)
+        .transpose()?;
+    let characters = characters
+        .as_deref()
+        .map(cantonese::parse_characters)
+        .transpose()?;
+    let readings = characters.as_deref().map(cantonese::character_readings);
     let mut contents = Vec::new();
     for (kind, base, head) in [
         (check_words::Kind::Words, &arguments.base, &arguments.head),
@@ -955,6 +978,11 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
             check_words::Kind::English,
             &arguments.english_base,
             &arguments.english_head,
+        ),
+        (
+            check_words::Kind::Cantonese,
+            &arguments.cantonese_base,
+            &arguments.cantonese_head,
         ),
     ] {
         if let (Some(base), Some(head)) = (base, head) {
@@ -972,6 +1000,8 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
     let shipped = check_words::Shipped {
         msime: msime.as_ref(),
         english: english.as_ref(),
+        cantonese: cantonese.as_ref(),
+        cantonese_readings: readings.as_ref(),
     };
     let report = check_words::check(&inputs, shipped)?;
     if let Some(path) = &arguments.json {
@@ -1689,5 +1719,37 @@ mod tests {
             assert!(parses(&with), "{with:?}");
         }
         assert!(parses(&["hkcancor-counts", "--cache", "c", "--out", "o"]));
+    }
+
+    /// 检查 custom/cantonese.txt 必须同时给出前后两版和字表，单给字表不算要检查的文件。
+    #[test]
+    fn check_words_needs_the_characters_file_for_cantonese() {
+        let parses = |arguments: &[&str]| {
+            Arguments::try_parse_from(
+                ["msime-dict-build", "check-words"]
+                    .into_iter()
+                    .chain(arguments.iter().copied()),
+            )
+            .is_ok()
+        };
+        assert!(parses(&[
+            "--cantonese-base",
+            "b",
+            "--cantonese-head",
+            "h",
+            "--cantonese-characters",
+            "c",
+            "--cantonese-db",
+            "d"
+        ]));
+        assert!(!parses(&["--cantonese-base", "b", "--cantonese-head", "h"]));
+        assert!(!parses(&[
+            "--cantonese-base",
+            "b",
+            "--cantonese-characters",
+            "c"
+        ]));
+        assert!(!parses(&["--cantonese-characters", "c"]));
+        assert!(parses(&["--base", "b", "--head", "h"]));
     }
 }

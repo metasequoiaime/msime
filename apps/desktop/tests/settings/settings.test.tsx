@@ -2776,6 +2776,34 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   });
 });
 
+test("HarmonyOS phones and tablets hide the shortcut-mode settings while 2-in-1 keeps them", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony", mobile_settings: true }),
+      }}
+    />,
+  );
+  await openInputSettings();
+  expect(screen.queryByRole("region", { name: "快捷模式" })).toBeNull();
+  expect(screen.queryByText("Shift+字母进入快捷模式")).toBeNull();
+
+  cleanup();
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "harmony", mobile_settings: false }),
+      }}
+    />,
+  );
+  await openInputSettings("进阶");
+  expect(screen.getByRole("region", { name: "快捷模式" })).toBeDefined();
+});
+
 test("macOS offers every local mode switch, downloaded catalogs included", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,

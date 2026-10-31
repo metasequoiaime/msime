@@ -104,6 +104,7 @@ import {
   createDesktopCandidateSkinCommunity,
   createDesktopCommunityResources,
   createDesktopPluginCommunity,
+  createDesktopCommunityBlocks,
   createDesktopSettingsSync,
 } from "./core/desktop-host-services";
 
@@ -944,6 +945,8 @@ function DesktopSettings() {
                   } satisfies AccountClient,
                   communityCandidateSkins: createDesktopCandidateSkinCommunity(invoke),
                   communityPlugins: createDesktopPluginCommunity(invoke),
+                  // 屏蔽作者与上面两个图库同在账号会话上，只认登录账号。
+                  communityBlocks: createDesktopCommunityBlocks(invoke),
                   // 社区词包与回复模板同理，在 Windows 和 Linux 的设置应用里提供。
                   ...(host.platform === "windows" || host.platform === "linux"
                     ? { communityResources: createDesktopCommunityResources(invoke) }

@@ -1,4 +1,6 @@
-//! 本库报告自行恢复的失败的地方：音效包或音乐包载入失败、音频设备打不开、Engine 回退了辅助码包。
+//! 本库报告自行恢复的失败的地方：音效包或音乐包载入失败、音频设备打不开、Engine 回退了辅助码包、整句模型读不了或不能用。
+//!
+//! 另有一类不是失败的状态行：开着「桌面神经联想」时，会话建立、开关打开和模型换上时各报告一行落定重排模型接上了没有（`settled model attached` 等，见 `report_settled_model`）。模型缺席在别的会话里是常态、不算失败，但用户开了开关却没有效果时，只有这一行能区分没装、读不了和宿主没给状态目录（#10341）。这类状态行只在低频的会话事件上写，不在按键和评分路径上写。
 //!
 //! 这些原先只写 stderr。Linux 宿主的 stderr 能进 journal 或终端，但 macOS 输入法由 launchd 启动、stderr 指向 /dev/null，Windows Server 在 Watchdog 下运行、stderr 也没人读，失败的包不留任何痕迹，看上去和一个不起作用的插件一模一样。有自己诊断日志的宿主用 `msime_client_set_diagnostic_sink` 登记出口，收到同样的行（macOS 输入法写 `diagnostic.log`，Windows Server 写 `logs\server.log`）；没登记时仍写 stderr。
 

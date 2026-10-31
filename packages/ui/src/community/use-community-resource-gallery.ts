@@ -45,6 +45,8 @@ export function useCommunityResourceGallery({
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CommunityResource | null>(null);
   const [editing, setEditing] = useState(false);
+  /** 列表上方的提示；目前只有屏蔽作者之后的「已屏蔽「作者」」。 */
+  const [notice, setNotice] = useState("");
   const { mounted, clientGeneration } = useCommunityClientLifecycle(client, kind, scope);
   const activeSearch = useRef("");
   const load = async (append = false, query = activeSearch.current) => {
@@ -75,6 +77,7 @@ export function useCommunityResourceGallery({
     if (mobile && typeof window !== "undefined") {
       pushMobileSettingsState({ page: historyPage, communityDetail: { kind, id: item.id } });
     }
+    setNotice("");
     setSelected(item);
   };
   const closeDetail = () => {
@@ -156,6 +159,12 @@ export function useCommunityResourceGallery({
     setEditing(false);
     await load();
   };
+  /** 屏蔽了详情里这件作品的作者之后：关掉详情，留下提示，再重读列表，服务端不再列出这位作者的作品。 */
+  const blocked = async (message: string) => {
+    closeDetail();
+    setNotice(message);
+    await load();
+  };
 
   return {
     scope,
@@ -164,6 +173,7 @@ export function useCommunityResourceGallery({
     more,
     busy,
     error,
+    notice,
     selected,
     editing,
     added,
@@ -177,5 +187,6 @@ export function useCommunityResourceGallery({
     openEditor: () => setEditing(true),
     closeEditor: () => setEditing(false),
     onPublished,
+    blocked,
   };
 }

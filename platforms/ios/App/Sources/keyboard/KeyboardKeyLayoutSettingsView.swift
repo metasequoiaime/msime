@@ -301,12 +301,11 @@ private struct KeyLayoutKeyboardPreview: View {
     }
   }
 
-  /// 18 键：所有键与第一排的七个键同宽，第二排两侧各空出半个键加半个键距（`KeyboardViewController.eighteenKeyMiddleRowInset`），第三排两端的分词键和 ⌫ 与字母键同宽。
+  /// 18 键：三排从同一左右边界铺开，第二排六个键平分整行（与键盘相同，A 与 Q 左对齐、L 与 P 右对齐），第三排两端的分词键和 ⌫ 与字母键同宽。
   private var eighteenKeyRows: [(caps: [Cap], inset: CGFloat)] {
     EighteenKeyLayout.rows.enumerated().map { index, keys in
       let letters = keys.map { Cap(face: .text($0.face)) }
       switch index {
-      case 1: return (letters, max((Self.width + Self.keyGap) / 14, 0))
       case EighteenKeyLayout.rows.count - 1:
         return ([Cap(face: .text("分词"), role: .function)] + letters + [Cap(face: .symbol("delete.left"), role: .function)], 0)
       default: return (letters, 0)

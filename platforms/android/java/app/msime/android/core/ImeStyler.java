@@ -195,7 +195,6 @@ final class ImeStyler {
         s.imePanels.applyReplyGeometry();
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
-        s.imeLetterRows.applyEighteenKeyIndentGeometry(s.halfSpacingPixels(layoutKeySpacingTenths()));
         applyKeyboardHeight(s.keyRows);
         // 无键帽符号栏的底轨也依赖行距；几何偏好变化后重新套用内缩，保持它与相邻键帽的上下边缘一致。
         s.imeLayoutRows.applySidebarRail();

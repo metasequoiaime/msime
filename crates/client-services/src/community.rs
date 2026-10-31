@@ -102,6 +102,7 @@ pub(crate) fn valid_rating(rating_count: u64, rating_average: f64, my_rating: u8
         && (rating_count != 0 || rating_average == 0.0)
 }
 
+pub mod block;
 pub mod report;
 pub mod resource;
 pub mod resource_library;
