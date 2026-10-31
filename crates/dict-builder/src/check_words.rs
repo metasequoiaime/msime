@@ -218,6 +218,19 @@ fn check_file(input: &Input, shipped: Shipped, report: &mut Report) -> Result<Fi
         weight_range: None,
     };
 
+    // custom/cantonese.txt 的 base 按构建的标准整体核对（读音对照字表、同键同词不重复），构建会拒绝的 base 在这里就让检查无法进行（退出码 2），而不是继续接受投稿。
+    if kind == Kind::Cantonese {
+        let readings = shipped.cantonese_readings.with_context(|| {
+            format!(
+                "checking {} needs the readings of {}",
+                cantonese::CUSTOM,
+                cantonese::CHARACTERS
+            )
+        })?;
+        cantonese::parse_custom(input.base, readings)
+            .with_context(|| format!("base {}", cantonese::CUSTOM))?;
+    }
+
     let mut existing: HashMap<(String, String), usize> = HashMap::new();
     for (index, line) in base_lines.iter().enumerate() {
         let Some(entry) = kind
@@ -877,6 +890,32 @@ mod tests {
                 "line 2 of cantonese.txt was changed; only appending new lines is allowed"
             )]
         );
+    }
+
+    #[test]
+    fn a_cantonese_base_the_build_would_reject_stops_the_check() {
+        let characters = "---\n...\n周\tzau1\n杰\tgit6\n倫\tleon4\n";
+        let characters = crate::cantonese::parse_characters(characters).unwrap();
+        let readings = crate::cantonese::character_readings(&characters);
+        let shipped = Shipped {
+            cantonese_readings: Some(&readings),
+            ..Shipped::default()
+        };
+        for (base, expected) in [
+            ("周杰倫\tzau1 gat6 leon4\n", "杰 does not read gat"),
+            (
+                "周杰倫\tzau1 git6 leon4\n周杰倫\tzau2 git6 leon4\n",
+                "line 2 repeats line 1",
+            ),
+        ] {
+            let input = Input {
+                kind: Kind::Cantonese,
+                base,
+                head: &format!("{base}杰倫\tgit6 leon4\n"),
+            };
+            let error = check(&[input], shipped).unwrap_err();
+            assert!(format!("{error:#}").contains(expected), "{error:#}");
+        }
     }
 
     #[test]
