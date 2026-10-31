@@ -85,7 +85,7 @@ Status: implemented
 
 - `msime-engine`：`a_z_in_the_code_matches_any_one_letter_when_the_wildcard_is_on`、`a_wildcard_query_does_not_leak_glob_metacharacters`、`the_wildcard_only_takes_the_pattern_path_when_the_code_holds_z`、`the_wubi_wildcard_matches_any_letter_and_keeps_guessing_codes_open`、`the_wubi_wildcard_takes_z_from_the_pinyin_lookup`、`turning_the_wubi_wildcard_off_keeps_z_out_of_the_code`、`a_wildcard_code_never_counts_as_a_unique_four_code`。
 - `msime-client-core`：`wubi_z_wildcard_defaults_off_and_roundtrips`、`wubi_fifth_code_top_commit_defaults_on_and_roundtrips`（缺键仍读出出厂值、显式值往返保持）。
-- `msime-input-runtime`：`the_wubi_top_commit_decision_is_the_reference_truth_table`（来源六项真值表逐条）、`the_wubi_auto_commit_decision_needs_all_five_facts`、`turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow`、`turning_off_the_wubi_top_commit_still_tops_with_mixed_input_off`。
+- `msime-input-runtime`：`the_wubi_top_commit_decision_is_the_reference_truth_table`（来源六项真值表逐条）、`the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading`（混输与顶字都开时，续不上读音的字母顶字、能续写的保留组字）、`the_wubi_auto_commit_decision_needs_all_five_facts`、`turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow`、`turning_off_the_wubi_top_commit_still_tops_with_mixed_input_off`。
 - `msime-client-services`：账号同步导出的键清单与逐键往返带上 `input.wubi_fifth_code_top_commit`。
 - `apps/desktop`：`wubi-preferences.test.ts` 的缺键默认值、`wubi-section.test.tsx` 的两行控件与各自写回的 patch。
 

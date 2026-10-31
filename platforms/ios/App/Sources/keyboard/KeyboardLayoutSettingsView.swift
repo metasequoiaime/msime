@@ -239,7 +239,7 @@ struct KeyboardLayoutSettingsView: View {
         .accessibilityIdentifier("appShuangpinKeyHintsToggle")
         DesignDivider()
       }
-      DesignToggleRow(title: "组字时保留 Shift", subtitle: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认关闭，组字时这一键是「分词」，用来断开音节",
+      DesignToggleRow(title: "组字时保留 Shift", subtitle: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
                       isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
         .accessibilityIdentifier("appQuanpinShiftToggle")
       DesignToggleRow(title: "隐藏中/英键", subtitle: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",

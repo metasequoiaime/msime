@@ -121,8 +121,8 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 键面
 
-  /// 三排键与 Android 的七份权重一致：所有字母键、分词键和 ⌫ 等宽，第二排居中、两侧各空出半个键加半个键距，第三排两端与第一排对齐；键距改变时也只补一次键距。键不越界，与 26 键同高，没有 Shift 和数字行。
-  func testEveryKeyHasTheSameWidthAndTheMiddleRowIsCentred() throws {
+  /// 三排与 Android、鸿蒙一样从同一左右边界铺开：第一排的字母键、第三排的字母键和两端的分词键、⌫ 等宽，第二排六个键彼此等宽、平分整行，A 与 Q 左对齐、L 与 P 右对齐；换键距也成立。键不越界，与 26 键同高，没有 Shift 和数字行。
+  func testTheThreeRowsShareTheSameLeftAndRightEdges() throws {
     let previousSpacing = KeyboardLayoutPreference.keySpacing
     defer { _ = KeyboardLayoutPreference.saveGeometry(keySpacing: previousSpacing) }
     for spacing in [3.0, 6.0] {
@@ -133,6 +133,8 @@ final class EighteenKeyKeyboardTests: XCTestCase {
         let reference = try button("returnKey", in: controller).bounds.height
         let first = try frame("eighteenKeyQ", in: controller)
         var widths: [CGFloat] = []
+        var middleWidths: [CGFloat] = []
+        let middleFaces = Set(EighteenKeyLayout.rows[1].map(\.face))
         for key in EighteenKeyLayout.rows.joined() {
           let button = try button("eighteenKey\(key.face)", in: controller)
           XCTAssertTrue(shown(button), key.face)
@@ -147,7 +149,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
             XCTAssertLessThanOrEqual(label.frame.maxX, button.bounds.maxX + 0.5, "\(key.face) at \(width)")
             XCTAssertGreaterThanOrEqual(label.frame.minX, -0.5, "\(key.face) at \(width)")
           }
-          widths.append(frame.width)
+          if middleFaces.contains(key.face) { middleWidths.append(frame.width) } else { widths.append(frame.width) }
         }
         let separator = try frame("eighteenKeySeparator", in: controller)
         let delete = try frame("eighteenKeyDelete", in: controller)
@@ -155,11 +157,15 @@ final class EighteenKeyKeyboardTests: XCTestCase {
         for (index, value) in widths.enumerated() {
           XCTAssertEqual(value, first.width, accuracy: 0.5, "key \(index) at \(width)pt, spacing \(spacing)")
         }
-        let we = try frame("eighteenKeyWE", in: controller), p = try frame("eighteenKeyP", in: controller)
+        for (index, value) in middleWidths.enumerated() {
+          XCTAssertEqual(value, middleWidths[0], accuracy: 0.5, "middle key \(index) at \(width)pt, spacing \(spacing)")
+        }
+        XCTAssertGreaterThan(middleWidths[0], first.width, "at \(width)pt, spacing \(spacing)")
+        let p = try frame("eighteenKeyP", in: controller)
         let a = try frame("eighteenKeyA", in: controller), l = try frame("eighteenKeyL", in: controller)
-        // 第二排的 A 在 Q 和 WE 正中，L 在 IO 和 P 正中：半个键加半个键距。
-        XCTAssertEqual(a.minX, (first.minX + we.minX) / 2, accuracy: 0.5, "at \(width)pt, spacing \(spacing)")
-        XCTAssertEqual(l.maxX, (try frame("eighteenKeyIO", in: controller).maxX + p.maxX) / 2, accuracy: 0.5)
+        // 第二排不缩进：A 与 Q 左对齐，L 与 P 右对齐。
+        XCTAssertEqual(a.minX, first.minX, accuracy: 0.5, "at \(width)pt, spacing \(spacing)")
+        XCTAssertEqual(l.maxX, p.maxX, accuracy: 0.5, "at \(width)pt, spacing \(spacing)")
         XCTAssertEqual(separator.minX, first.minX, accuracy: 0.5)
         XCTAssertEqual(delete.maxX, p.maxX, accuracy: 0.5)
         XCTAssertEqual(try button("eighteenKeySeparator", in: controller).configuration?.title, "符")
@@ -355,7 +361,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - iPad
 
-  /// iPad 与 14 键一样画完整的 18 键：不分体，不画数字行，底行是手机 26 键底行，七个键等宽。
+  /// iPad 与 14 键一样画完整的 18 键：不分体，不画数字行，底行是手机 26 键底行；第一、三排七个键等宽，第二排六个键等宽铺满整行，A 与 Q 左对齐、L 与 P 右对齐。
   func testTheTabletDrawsTheEighteenKeysWhole() throws {
     let controller = KeyboardViewController()
     controller.traitOverrides.userInterfaceIdiom = .pad
@@ -371,9 +377,16 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(shown(try view("numberRow", in: controller)))
     XCTAssertFalse(shown(try button("tabletLayerKey", in: controller)), "the 18 keys use the phone bottom row")
     XCTAssertTrue(shown(try button("returnKey", in: controller)))
-    for id in ["eighteenKeyA", "eighteenKeyBN", "eighteenKeyDelete"] {
+    for id in ["eighteenKeyBN", "eighteenKeyDelete"] {
       XCTAssertEqual(try frame(id, in: controller).width, q.width, accuracy: 0.5, id)
     }
+    let a = try frame("eighteenKeyA", in: controller)
+    for key in EighteenKeyLayout.rows[1] {
+      XCTAssertEqual(try frame("eighteenKey\(key.face)", in: controller).width, a.width, accuracy: 0.5, key.face)
+    }
+    XCTAssertGreaterThan(a.width, q.width)
+    XCTAssertEqual(a.minX, q.minX, accuracy: 0.5)
+    XCTAssertEqual(try frame("eighteenKeyL", in: controller).maxX, try frame("eighteenKeyP", in: controller).maxX, accuracy: 0.5)
     XCTAssertFalse(KeyboardSplitLayout.splitsLayout(scheme: .eighteenKey, chinese: true, localMode: false))
     attachScreenshot(of: controller, named: "Eighteen-key iPad keyboard")
   }

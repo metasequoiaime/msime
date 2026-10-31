@@ -3548,7 +3548,7 @@ impl<E: InputEngine> Runtime<E> {
                 pick = Some((SelectionHow::Finish, self.highlighted));
                 self.finish_seat(self.highlighted)
             }
-            // The key that tops the code is never lost: what the Engine commits for it goes out after the word, and a key it lets go (a capital that opens no mode, Shift+K with the K mode off) goes out as the literal letter, as `literal_mark` sends a mark behind a held phrase, since the host has already been told the key was handled.
+            // 顶字键不能丢：引擎提交的候选先上屏，再把这一键交给下一组组字；引擎放开的字母则按字面接在候选后面。
             Action::Character { value, shift } if wubi_top_commit => {
                 let first = self.first_engine_seat();
                 pick = Some((SelectionHow::WubiTop, first));
@@ -3955,7 +3955,7 @@ pub(crate) struct WubiTopCommitRequest {
 ///
 /// 关掉只在混输打开时生效：那时字母并进混输串，用户想继续打拼音。混输关掉时引擎会把码裁回四位，
 /// 字母无处容纳，宿主已经按下的键不能丢，所以仍按顶字上屏——与来源 `ShouldCommitCompleteWubiCodeOnNextKey`
-/// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。
+/// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
 pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
     (request.top_commit_enabled || !request.mixed_pinyin)
         && request.four_code_is_complete

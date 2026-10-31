@@ -38,7 +38,7 @@ import org.json.JSONObject;
 /**
  * 一类社区作品的完整列表：皮肤和词库嵌在底部「社区」tab（{@link CommunityTabPage}）的「皮肤 / 词库」两个分类里，皮肤还嵌在皮肤页的社区分类里；短语或 AI 回复模板从对应功能页末尾的「浏览更多…」打开，压在那一页上面，返回回到那一页。
  *
- * <p>独立页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，嵌入的分类经子 Fragment 承载；类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报，作者还能在详情里改自己皮肤的分类。
+ * <p>独立页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，嵌入的分类经子 Fragment 承载；类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报和屏蔽作者（{@link CommunityBlockDialog}），作者还能在详情里改自己皮肤的分类。
  *
  * <p>发布和评分要登录的账号，这个宿主只带键盘的匿名身份，一个永远回答「请先登录」的发布按钮不如诚实地没有。拿走作品是打开这一页的目的，每张卡片都能做到：皮肤的「获取」存进自定义皮肤库（并记一次下载），之后同一个按钮变成「使用」并把它换到键盘上；词库的「添加」装成命名词库，短语包的「添加」装进常用语；回复模板手机上还不能添加，只能看详情。
  */
@@ -370,6 +370,7 @@ public final class CommunityFragment extends Fragment {
         CommunitySkinSheet.show(requireContext(), item, layout, label,
             live ? () -> act(item) : null,
             () -> report(item),
+            item.owned() ? null : () -> block(item),
             item.owned() && item.category() != null ? next -> changeCategory(item, next) : null);
     }
 
@@ -463,6 +464,14 @@ public final class CommunityFragment extends Fragment {
     /** 举报：对话框与 AI 页的回复模板共用。 */
     private void report(CommunityCatalog.Item item) {
         CommunityReportDialog.show(this, item);
+    }
+
+    /** 屏蔽作者：成功后从第一页重新载入，服务端已不再列出这位作者的作品；屏蔽作者对这位作者的全部作品生效，所以总要刷新键盘皮肤面板用的目录缓存。 */
+    private void block(CommunityCatalog.Item item) {
+        CommunityBlockDialog.show(this, item.author(), CommunityRequest.reportKind(item.kind()), item.id(), () -> {
+            load(true);
+            CommunitySkinCatalogue.refresh(this, true, ignored -> { });
+        });
     }
 
     private void changeCategory(CommunityCatalog.Item item, CommunityRequest.Category next) {

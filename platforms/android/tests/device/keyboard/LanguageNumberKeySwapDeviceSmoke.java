@@ -68,8 +68,9 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         await(key("英"));
                         checkPositions(key("123"), swapped);
                         tap(key("123"));
-                        // 26 键数字层自带底行且没有语言键，验证返回动作后恢复交换位置。
-                        await(described("返回原键盘"));
+                        // 英文也借数字九宫格：底行有语言键，返回键（印 ABC）与它按同一个交换设置排，返回后字母层照样保持交换位置。
+                        await(described("返回原键盘").and(node -> equalsText("ABC", node.getText())));
+                        checkPositions(described("返回原键盘"), swapped);
                         tap(described("返回原键盘"));
                         await(key("123"));
                         checkPositions(key("123"), swapped);

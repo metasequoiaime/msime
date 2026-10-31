@@ -3406,6 +3406,60 @@ fn shuangpin_manual_tab_owns_only_complete_normal_composition() {
 }
 
 #[test]
+fn shuangpin_indirect_triggers_are_published_only_while_they_mark() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    // 末尾直接开着时 `;` 不开末尾间接段，不能发布，否则宿主会把它当输入而不是标点。
+    for (direct, marks) in [(false, true), (true, false)] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = true;
+            options.shuangpin_helpcode_modes.direct = direct;
+        });
+        assert!(!session.snapshot().spelling_symbols.contains(';'));
+        type_text(&mut session, "nihc");
+        let symbols = session.snapshot().spelling_symbols;
+        assert_eq!(symbols.contains(';'), marks, "direct={direct}");
+        assert!(!symbols.contains(['`', '/']), "direct={direct}");
+        assert_eq!(
+            session.character(b';', false).handled,
+            marks,
+            "direct={direct}"
+        );
+        if marks {
+            assert_eq!(session.snapshot().editing_text, "nihc|");
+            // 一段只认一枚触发键。
+            assert!(!session.snapshot().spelling_symbols.contains(';'));
+        }
+    }
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.mid_sentence = true;
+    });
+    type_text(&mut session, "ni");
+    assert!(session.snapshot().spelling_symbols.contains('`'));
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.direct_helpcode = true;
+    });
+    type_text(&mut session, "nihc");
+    assert!(session.snapshot().spelling_symbols.contains('/'));
+    // 全拼没有这几种触发方式。
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Quanpin;
+        options.helpcode = true;
+        options.shuangpin_helpcode_modes.direct = false;
+        options.shuangpin_helpcode_modes.mid_sentence = true;
+    });
+    type_text(&mut session, "nihao");
+    assert!(!session
+        .snapshot()
+        .spelling_symbols
+        .contains([';', '`', '/']));
+}
+
+#[test]
 fn shuangpin_manual_tab_raw_commits_omit_internal_codes() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     for finish in [false, true] {
@@ -5241,6 +5295,68 @@ INSERT INTO tbl_2_q VALUES('qi''guai','qg','奇怪',1000);",
         snapshot.candidates.iter().any(|item| item.word == "奇怪"),
         "{snapshot:?}"
     );
+}
+
+/// 四码时的续写判断只认真实读音前缀：前三码的简拼行让延长状态被继承，但 `wqiy` 之后的 `a` 续不上任何读音，不能挡住顶字。
+#[test]
+fn wubi_pinyin_continues_only_for_a_real_reading_after_a_four_code() {
+    let mixed = |fixture: &Fixture| {
+        fixture.session_with(|options| {
+            options.scheme = SchemeType::Wubi;
+            options.wubi.mixed_pinyin = true;
+        })
+    };
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('wqiy','你',100);\
+CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_w VALUES('wan''qi','wq','晚期',1000);",
+    );
+    let mut session = mixed(&fixture);
+    type_text(&mut session, "wqi");
+    let rows = schemes(&session);
+    assert!(
+        rows.iter()
+            .any(|(_, scheme)| *scheme == SchemeType::Quanpin),
+        "{rows:?}"
+    );
+    type_text(&mut session, "y");
+    assert!(session.input.engine.wubi_has_complete_code());
+    assert!(!session.input.engine.wubi_pinyin_continues(b'a'));
+
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('guiy','诡',100);\
+CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_g VALUES('gui''yi','gy','诡异',1000);",
+    );
+    let mut session = mixed(&fixture);
+    type_text(&mut session, "guiy");
+    assert!(session.input.engine.wubi_pinyin_continues(b'i'));
+
+    let fixture = Fixture::new(WUBI_BIANYI_FIXTURE);
+    let mut session = mixed(&fixture);
+    type_text(&mut session, "bian");
+    assert!(session.input.engine.wubi_pinyin_continues(b'y'));
+
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('qigu','乐平',100);\
+CREATE TABLE tbl_2_q(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_q VALUES('qi''gu','qg','其故',100);",
+    );
+    let mut session = mixed(&fixture);
+    type_text(&mut session, "qigu");
+    assert!(session.input.engine.wubi_pinyin_continues(b'a'));
+
+    // 整段四码加下一字母仍在同一个音节里。
+    let fixture = Fixture::new(
+        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('chan','合成',100);",
+    );
+    let mut session = mixed(&fixture);
+    type_text(&mut session, "chan");
+    assert!(session.input.engine.wubi_pinyin_continues(b'g'));
 }
 
 /// Backspace never goes through a reset, so the emptied composition itself has to end the tail; Cancel ends it too.

@@ -109,6 +109,12 @@ export const pages = [
     title: "隐私",
     icon: settingsIcons.about,
   },
+  // 「已屏蔽的作者」：触屏宿主从「我的 › 隐私」打开，桌面从「关于」的「许可与隐私」打开。只在宿主提供屏蔽客户端和账号客户端时可路由。
+  {
+    id: "blocked-authors",
+    title: "已屏蔽的作者",
+    icon: settingsIcons.community,
+  },
   // 触屏宿主「首页」根页状态卡片上的「试用键盘」打开的子页面；桌面首页有自己的键盘入口，没有这一页。
   {
     id: "try-keyboard",
@@ -140,6 +146,7 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
   help: "feedback",
   "usage-reporting": "about",
   privacy: "account",
+  "blocked-authors": "about",
   "try-keyboard": "home",
 };
 

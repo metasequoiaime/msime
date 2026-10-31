@@ -8,10 +8,10 @@ import java.nio.file.Files;
 import java.util.function.Predicate;
 import org.json.JSONObject;
 
-/** 通过系统点击验证数字页去重、符号输入，以及关闭顶部入口后的表情兜底。 */
+/** 通过系统点击验证中文和英文的 123 都进数字九宫格：返回键的写法、符号入口去重与符号输入，以及 #+= 扩展页往返。 */
 public final class NumberLayerEntryDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "number layer symbol action, emoji fallback for disabled or hidden toolbar, and restored entry geometry";
+        return "Chinese and English number pads: return titles, symbol entry without duplicates, symbol input and #+= round trip";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -28,7 +28,6 @@ public final class NumberLayerEntryDeviceSmoke extends DeviceSmoke {
             for (int variant = 0; variant < 4; variant++) {
                 boolean toolbarEmoji = variant != 1;
                 boolean toolbarHidden = variant == 2;
-                boolean fallback = !toolbarEmoji || toolbarHidden;
                 stage = "configure number entry " + variant;
                 JSONObject document = new JSONObject(new String(original, StandardCharsets.UTF_8));
                 document.put("revision", ++revision);
@@ -52,41 +51,42 @@ public final class NumberLayerEntryDeviceSmoke extends DeviceSmoke {
                 tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
                 await(key("中"));
                 await(key("n"));
-                // 中文数字页使用九宫格；这里验证携带可选表情键的英文横排数字页。
+                // 英文的 123 同样进数字九宫格（不再是横排数字页）：返回键印 ABC，底行是 符，不论顶部表情入口开没开都不另放 😀。
                 tap(key("中"));
                 await(key("英"));
                 tap(key("123"));
+                Predicate<AccessibilityNodeInfo> back = described("返回原键盘").and(node -> equalsText("ABC", node.getText()));
+                Predicate<AccessibilityNodeInfo> panel = described("打开符号面板");
                 Predicate<AccessibilityNodeInfo> symbol = described("切换符号键盘");
                 Predicate<AccessibilityNodeInfo> emoji = key("😀").and(AccessibilityNodeInfo::isVisibleToUser);
-                stage = "entry geometry and exclusivity " + variant;
-                Rect entry = bounds(await(fallback ? emoji : symbol));
-                Rect space = bounds(await(key("空格")));
-                if (entry.width() <= 10 || Math.abs(entry.centerY() - space.centerY()) > 2)
-                    throw new AssertionError("Number entry has invalid bounds");
-                if (findVisible(fallback ? symbol : emoji) != null)
-                    throw new AssertionError("Duplicate number-layer entry");
-                stage = "number entry action " + variant;
+                stage = "English number pad entry geometry " + variant;
+                await(key("+"));
+                await(key("#+="));
+                Rect entry = bounds(await(panel));
+                Rect backBounds = bounds(await(back));
+                if (entry.width() <= 10 || Math.abs(entry.centerY() - backBounds.centerY()) > 2)
+                    throw new AssertionError("Number pad symbol entry has invalid bounds");
+                if (findVisible(emoji) != null) throw new AssertionError("Number pad duplicates the emoji entry");
+                if (findVisible(key("，")) != null || findVisible(key("。")) != null)
+                    throw new AssertionError("English number pad shows Chinese punctuation");
+                stage = "number pad symbol action " + variant;
                 shellDiscard("input tap " + entry.centerX() + " " + entry.centerY());
-                if (fallback) {
-                    stage = "emoji panel opens " + variant;
-                    await(described("表情面板"));
-                    stage = "emoji panel has return action " + variant;
-                    await(described("返回键盘"));
-                } else {
-                    await(described("符号网格；长条目加宽"));
-                    tap(key("中文"));
-                    tap(key("，"));
-                    await(field("msime-test-plain").and(node -> node.getText() != null
-                        && node.getText().toString().contains("，")));
-                }
+                await(described("符号网格；长条目加宽"));
+                tap(key("中文"));
+                tap(key("，"));
+                await(field("msime-test-plain").and(node -> node.getText() != null
+                    && node.getText().toString().contains("，")));
                 tap(described("返回键盘"));
-                await(fallback ? emoji : symbol);
+                await(back);
                 stage = "extended page keeps symbol entry " + variant;
                 tap(key("#+="));
                 await(symbol);
                 if (findVisible(emoji) != null) throw new AssertionError("Extended page duplicates emoji");
-                stage = "English symbols return to letters " + variant;
-                tap(described("返回原键盘").and(node -> equalsText("返回", node.getText())));
+                stage = "extended page returns to the number pad " + variant;
+                tap(key("123"));
+                await(key("+"));
+                stage = "English number pad returns to letters " + variant;
+                tap(back);
                 await(key("英"));
                 await(key("n"));
             }

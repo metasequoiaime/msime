@@ -51,6 +51,7 @@ import type { CommunitySkinClient } from "../community/community-skin-model";
 import type { CommunityResourceClient } from "../community/community-resource-model";
 import type { CandidateSkinCommunityClient } from "../community/community-candidate-skin-model";
 import type { CommunityPluginClient } from "../community/community-plugin-model";
+import type { CommunityBlockClient } from "../community/community-block-model";
 import type { SkinImageReader } from "../skin/skin-image";
 import type { SkinFontReader } from "../skin/skin-font";
 import type {
@@ -96,6 +97,8 @@ export interface SettingsClient {
   communityCandidateSkins?: CandidateSkinCommunityClient;
   /** 桌面社区命令发布、安装和评分插件包，安装到 `plugins` 管理的存储。 */
   communityPlugins?: CommunityPluginClient;
+  /** 屏蔽社区作者、列出和取消屏蔽，只用登录的水杉账号。和 `account` 都提供时，别人作品的详情里才有「屏蔽作者」，隐私设置里才有「已屏蔽的作者」；不受社区投稿类功能的总闸限制。 */
+  communityBlocks?: CommunityBlockClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
   listFontFamilies?: FontCatalogReader;
   resolveFontFamilies?: (names: string[]) => Promise<string[]>;

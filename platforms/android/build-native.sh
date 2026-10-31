@@ -31,6 +31,11 @@ case $(uname -s) in
 esac
 toolchain="$ndk/toolchains/llvm/prebuilt/$host_tag"
 compiler="$toolchain/bin/${compiler_target}28-clang"
+output="$repo_root/target/android/jniLibs/$abi"
+# 旧 worktree 的库不能作为本次构建的回退输入。先清空 ABI 目录，任何中途失败都会让
+# 随后的 Gradle 校验明确报缺产物，而不是继续把旧 JNI 库打进 APK。
+rm -rf "$output"
+mkdir -p "$output"
 # vcpkg provides only nlohmann-json, which shared/voice/LocalAsr.cpp includes. Manifest installs reconcile their root, so the ABIs are kept apart and one build cannot uninstall the other ABI's copy.
 deps="$repo_root/target/android-deps/$abi"
 ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
@@ -41,8 +46,6 @@ env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
   RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
   cargo build -p msime-host-api --target "$rust_target" --release --locked
-output="$repo_root/target/android/jniLibs/$abi"
-mkdir -p "$output"
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
 # On-device speech recognition: the sherpa-onnx C API and ONNX Runtime come prebuilt from the pinned release in resources/voice-runtime.lock.json (fetched and hash-checked, never committed). Only the two native libraries are taken from the .aar; LocalAsr loads the C API with dlopen, so a missing runtime disables local recognition instead of the keyboard.

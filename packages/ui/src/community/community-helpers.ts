@@ -2,6 +2,7 @@ import { errorCode } from "../core/error-code";
 import { runAsyncAction } from "../core/async-action";
 import { pluginErrorMessage } from "../settings/plugins-section";
 import type { CommunityResourceKind, CommunityResourceScope } from "./community-resource-model";
+import { communityBlockLimit, communityBlockSignInMessage } from "./community-block-model";
 
 export type Identified = { id: string };
 
@@ -210,6 +211,23 @@ export function communityLicenseLine(license: {
   ]
     .filter(Boolean)
     .join(" / ");
+}
+
+/**
+ * 屏蔽作者、读名单和取消屏蔽失败时的说明。`community_cancelled`（请求途中账号换了）不说话，返回 null。`blocking` 为真时是「屏蔽」这一步：服务端的 `community_invalid` 只可能是屏蔽自己的作品，`community_conflict` 是达到了屏蔽上限，没有登录时是请用户登录的那句（调用方另给「去登录」）。
+ */
+export function communityBlockMessage(error: unknown, blocking = false): string | null {
+  const code = errorCode(error);
+  if (code === "community_cancelled") return null;
+  if (code === "community_unauthorized") return communityBlockSignInMessage;
+  if (blocking && code === "community_invalid") return "不能屏蔽自己。";
+  if (blocking && code === "community_conflict")
+    return `最多屏蔽 ${communityBlockLimit} 位作者，请先取消一些。`;
+  return (
+    communityModerationMessage(error) ??
+    communityStatusMessage(error) ??
+    "社区暂时不可用，请稍后重试。"
+  );
 }
 
 export function communityNeedsSignIn(error: unknown): boolean {

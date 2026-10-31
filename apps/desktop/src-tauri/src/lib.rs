@@ -54,9 +54,9 @@ use platform::desktop::desktop_cloud_dictionary;
 use platform::desktop::desktop_settings_sync;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
-    desktop_account, desktop_candidate_skin_community, desktop_community_report,
-    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor, desktop_resource_packs,
-    desktop_typing_upload,
+    desktop_account, desktop_candidate_skin_community, desktop_community_block,
+    desktop_community_report, desktop_plugin_community, desktop_plugins,
+    desktop_preferences_monitor, desktop_resource_packs, desktop_typing_upload,
 };
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
@@ -6308,6 +6308,12 @@ pub fn run() {
             desktop_candidate_skin_community::candidate_skin_community_sync,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_community_report::community_report,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_community_block::community_block,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_community_block::community_block_list,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_community_block::community_unblock,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_plugin_community::plugin_community_list,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]

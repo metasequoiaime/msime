@@ -20,6 +20,7 @@ import { ToolsSettingsPage } from "./pages/tools-page";
 import { PluginsSettingsPage } from "./pages/plugins-page";
 import { AboutSettingsPage } from "./pages/about-page";
 import { UsageReportingSettingsPage } from "./pages/usage-reporting-page";
+import { BlockedAuthorsSettingsPage } from "./pages/blocked-authors-page";
 import { PrivacySettingsPage } from "./pages/privacy-page";
 import { HelpSettingsPage } from "./help-settings-page";
 import { HandwritingSettingsPage } from "./pages/handwriting-page";
@@ -164,6 +165,12 @@ export function SettingsPreferencesForm({
         {page === "privacy" && (
           <SettingsSearchPage.Provider value="privacy">
             <PrivacySettingsPage />
+          </SettingsSearchPage.Provider>
+        )}
+        {/* 只在打开着时渲染：每次进来都重读已屏蔽的作者。 */}
+        {page === "blocked-authors" && (
+          <SettingsSearchPage.Provider value="blocked-authors">
+            <BlockedAuthorsSettingsPage />
           </SettingsSearchPage.Provider>
         )}
       </SettingsFormContext.Provider>

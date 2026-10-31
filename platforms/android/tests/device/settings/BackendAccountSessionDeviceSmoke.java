@@ -349,6 +349,98 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
         check(down.failed() && down.failure().contains("连不上社区"), "an unavailable community says so");
     }
 
+    private static final String BLOCK_ID = "20000000-0000-4000-8000-000000000002";
+
+    private static JSONObject syntheticBlock(String id, String name, String createdAt) throws Exception {
+        return new JSONObject().put("id", id).put("name", name).put("created_at", createdAt);
+    }
+
+    // 屏蔽作者：三个操作都只用登录账号（不退回匿名账号），请求形状与 msime_client.h 的 block、block_list、unblock 相同。
+    private void communityBlocksAskRustWithTheSignedInAccount() throws Exception {
+        FakeCommunity block = new FakeCommunity();
+        block.answer = syntheticBlock(BLOCK_ID, " Synthetic author ", "2026-10-31T23:30:00+08:00");
+        CommunityCatalog.Block blocked = new CommunityCatalog(block).block("plugins", syntheticSkin().id());
+        JSONObject sent = block.actions.get(0);
+        check("block".equals(sent.getString("operation")) && "plugins".equals(sent.getString("kind"))
+                && syntheticSkin().id().equals(sent.getString("id")) && sent.length() == 3 && !block.fallbacks.get(0),
+            "a block names the item like a report and never falls back to the anonymous account: " + sent);
+        check(!blocked.failed() && BLOCK_ID.equals(blocked.author().id())
+                && "Synthetic author".equals(blocked.author().name()),
+            "a block answer is read into the block record with a trimmed author name");
+
+        FakeCommunity malformed = new FakeCommunity();
+        malformed.answer = new JSONObject().put("id", BLOCK_ID).put("name", "Synthetic author");
+        CommunityCatalog.Block missing = new CommunityCatalog(malformed).block("skins", syntheticSkin().id());
+        check(missing.failed() && "community_unavailable".equals(missing.code()),
+            "a block answer without created_at is a service fault");
+
+        FakeCommunity refused = new FakeCommunity();
+        check(new CommunityCatalog(refused).block("authors", syntheticSkin().id()).failed()
+                && new CommunityCatalog(refused).block("skins", "00000000-0000-0000-0000-000000000000").failed()
+                && refused.actions.isEmpty(),
+            "an unknown kind or a nil item id is refused before Rust is called");
+
+        FakeCommunity self = new FakeCommunity();
+        self.failure = "community_invalid";
+        CommunityCatalog.Block own = new CommunityCatalog(self).block("skins", syntheticSkin().id());
+        check(own.failed() && "不能屏蔽自己。".equals(CommunityRequest.blockMessage(own.code())),
+            "blocking one's own item keeps Rust's code for the page to explain");
+
+        FakeCommunity switched = new FakeCommunity();
+        switched.answer = syntheticBlock(BLOCK_ID, "Synthetic author", "2026-10-31T00:00:00Z");
+        switched.afterCall = "synthetic-login-b";
+        CommunityCatalog.Block late = new CommunityCatalog(switched).block("skins", syntheticSkin().id());
+        check(late.failed() && "community_cancelled".equals(late.code())
+                && CommunityRequest.blockMessage(late.code()).isEmpty(),
+            "a block answered after a new login is discarded without a message");
+
+        FakeCommunity list = new FakeCommunity();
+        list.answer = new org.json.JSONArray()
+            .put(syntheticBlock(BLOCK_ID, "Synthetic author", "2026-10-31T00:00:00Z"))
+            .put(syntheticBlock("30000000-0000-4000-8000-000000000003", "", "2026-10-01T08:00:00Z"));
+        CommunityCatalog.Blocks blocks = new CommunityCatalog(list).blocks();
+        check("block_list".equals(list.actions.get(0).getString("operation")) && list.actions.get(0).length() == 1
+                && !list.fallbacks.get(0),
+            "the block list is one signed-in operation without parameters");
+        check(!blocks.failed() && blocks.items().size() == 2 && BLOCK_ID.equals(blocks.items().get(0).id())
+                && "匿名作者".equals(CommunityRequest.authorLabel(blocks.items().get(1).name())),
+            "the block list keeps Rust's order and an author without a name reads as anonymous");
+
+        FakeCommunity broken = new FakeCommunity();
+        broken.answer = new org.json.JSONArray()
+            .put(syntheticBlock(BLOCK_ID, "Synthetic author", "2026-10-31T00:00:00Z"))
+            .put(JSONObject.NULL);
+        check(new CommunityCatalog(broken).blocks().failed(),
+            "one unreadable row fails the whole list instead of hiding a block");
+        FakeCommunity notArray = new FakeCommunity();
+        notArray.answer = new JSONObject().put("items", new org.json.JSONArray());
+        check(new CommunityCatalog(notArray).blocks().failed(), "the block list value is an array");
+
+        FakeCommunity signedOut = new FakeCommunity();
+        signedOut.failure = "community_unauthorized";
+        CommunityCatalog.Blocks none = new CommunityCatalog(signedOut).blocks();
+        check(none.failed() && CommunityRequest.blockNeedsSignIn(none.code()),
+            "a signed-out block list asks for sign-in");
+
+        FakeCommunity unblock = new FakeCommunity();
+        check(new CommunityCatalog(unblock).unblock(BLOCK_ID).isEmpty()
+                && "unblock".equals(unblock.actions.get(0).getString("operation"))
+                && BLOCK_ID.equals(unblock.actions.get(0).getString("id")) && !unblock.fallbacks.get(0),
+            "unblocking sends the block record's id with the signed-in account");
+        FakeCommunity limited = new FakeCommunity();
+        limited.failure = "community_rate_limited";
+        check("community_rate_limited".equals(new CommunityCatalog(limited).unblock(BLOCK_ID)),
+            "an unblock failure hands back Rust's code");
+        check("community_invalid".equals(new CommunityCatalog(limited).unblock("not-a-uuid"))
+                && limited.actions.size() == 1,
+            "an unblock with a malformed id is refused before Rust is called");
+
+        FakeCommunity status = new FakeCommunity();
+        check(new CommunityCatalog(status).signedIn(), "a login id means signed in");
+        status.login.set("");
+        check(!new CommunityCatalog(status).signedIn(), "an empty login id means signed out");
+    }
+
     // 账号释义（#8201 迁移计划 5e）：请求和解读走真的 Rust（msime_client_account_gloss），HTTP 和令牌是内存实现。
     private void candidateTranslationUsesSyntheticTransport() throws Exception {
         AtomicInteger calls = new AtomicInteger();
@@ -489,6 +581,8 @@ public final class BackendAccountSessionDeviceSmoke extends Instrumentation {
             communityListingAsksRust();
             stage = "community listing old login";
             communityListingRejectsNewLogin();
+            stage = "community blocks through Rust";
+            communityBlocksAskRustWithTheSignedInAccount();
             stage = "candidate translation synthetic transport";
             candidateTranslationUsesSyntheticTransport();
             stage = "candidate translation fresh token";

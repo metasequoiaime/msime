@@ -55,7 +55,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         ViewPolicy.clearPadding(this);
     }
 
-    /** 新设计的配色：圆盘 logoCirc、logo 方框 logoBg（调用方从应用主题的季节色取，与设计一致，不随键盘皮肤变）。 */
+    /** 新设计的配色：圆盘 logoCirc、logo 方框 logoBg（调用方从当前键盘皮肤的强调色和底色推导）。 */
     public void setLogoColors(int disc, int markFill) {
         if (designed && discColor == disc && markColor == markFill) return;
         designed = true;
