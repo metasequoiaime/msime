@@ -157,6 +157,47 @@ fn engine_session_timing_records_stay_in_local_bundles() {
     }
 }
 
+// Android 首帧布局诊断（#10389）是只有种类的输入事件：布局编进种类名里，多带一个布局字段的行照样整行丢弃；服务端不认这些种类，云端上传器把它们滤掉。
+#[test]
+fn first_frame_layout_events_stay_in_local_bundles() {
+    let layouts = [
+        "twenty_six_key",
+        "nine_key",
+        "japanese_nine_key",
+        "handwriting",
+        "korean",
+        "zhuyin",
+        "stroke",
+        "zhuyin_nine_key",
+        "fourteen_key",
+        "eighteen_key",
+    ];
+    let mut kinds = vec![
+        "engine_session_live_preferences".to_owned(),
+        "engine_session_factory_preferences".to_owned(),
+        "engine_session_hinted_preferences".to_owned(),
+    ];
+    for stage in ["first_drawn", "created", "live"] {
+        for layout in layouts {
+            kinds.push(format!("touch_layout_{stage}_{layout}"));
+        }
+    }
+    for kind in &kinds {
+        let line = format!(r#"{{"t_ms":1,"kind":"{kind}"}}"#);
+        assert_eq!(
+            input_event_record(line.as_bytes()),
+            Some(serde_json::json!({"t_ms": 1, "kind": kind})),
+            "{kind}"
+        );
+        let with_field = format!(r#"{{"t_ms":1,"kind":"{kind}","layout":"nine_key"}}"#);
+        assert!(
+            input_event_record(with_field.as_bytes()).is_none(),
+            "{kind}"
+        );
+        assert!(!upload::UPLOAD_EVENT_KINDS.contains(&kind.as_str()));
+    }
+}
+
 // 异常说明可能带着正在输入的文字，崩溃记录进诊断包时只留异常类型和栈帧，路径只留文件名。
 #[test]
 fn crash_records_keep_the_exception_type_and_frames_but_not_the_reason() {
