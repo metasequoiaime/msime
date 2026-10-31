@@ -183,8 +183,9 @@ public final class SymbolPanelView extends LinearLayout {
         back.setPadding(imageWidth, 0, imageWidth, 0);
         back.setSingleLine(true);
         title.addView(back, new FrameLayout.LayoutParams(-1, -1));
-        addHeaderImage(title, headerMascotLeft, Gravity.START);
-        addHeaderImage(title, headerMascotRight, Gravity.END);
+        // The art points in fixed directions, so absolute sides keep both fingers pointing inward under RTL.
+        addHeaderImage(title, headerMascotLeft, Gravity.LEFT);
+        addHeaderImage(title, headerMascotRight, Gravity.RIGHT);
         addView(title, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(context, 44)));
 
         grid.setColumnCount(SymbolPanelModel.COLUMNS);

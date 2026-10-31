@@ -258,6 +258,16 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
                 if (closes[0] != before) throw new AssertionError("取消触摸不得关闭面板");
             }
         }
+        // The art points in fixed directions, so an RTL locale must not swap the two sides.
+        bind.invoke(panel, fixture, fixture);
+        surface.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        layout(surface, 720);
+        if (header.getLayoutDirection() != View.LAYOUT_DIRECTION_RTL)
+            throw new AssertionError("测试环境未解析出 RTL，无法验证插图方向");
+        if (left.getLeft() != 0 || right.getRight() != header.getWidth()
+                || back.getWidth() != header.getWidth())
+            throw new AssertionError("RTL 下两侧插图不得互换位置");
+        surface.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         for (ImageView image : new ImageView[] {left, right})
             if (image.isClickable() || image.isFocusable()
                     || image.getImportantForAccessibility() != View.IMPORTANT_FOR_ACCESSIBILITY_NO)
