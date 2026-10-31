@@ -53,6 +53,8 @@ use crate::types::{
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+mod short_words;
+
 // 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
 const SMALL_PREFIX_DEDUP: usize = 64;
 // 单字辅助码的常见候选批次很短，匹配分类和排列索引放在栈上即可。
