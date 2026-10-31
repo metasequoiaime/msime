@@ -235,6 +235,8 @@ public final class PluginEditorPage extends ColumnDetailPage {
         GroupCard group = GroupCard.add(target, "短语（" + current.phrases.size() + "）");
         group.note("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 "
             + PluginEditorPolicy.MAX_TEXT_UTF16 + " 个字符，不能换行。");
+        group.note("在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，"
+            + "光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。");
         for (int index = 0; index < Math.min(current.phrases.size(), shown); index++) {
             int row = index;
             LinearLayout block = rowBlock(group, "第 " + (row + 1) + " 条短语", () -> {

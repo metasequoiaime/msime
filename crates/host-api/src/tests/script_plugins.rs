@@ -1518,6 +1518,73 @@ fn space(handle: u64) -> String {
 }
 
 #[test]
+fn quick_phrase_cursor_is_invalidated_only_when_a_script_changes_the_body() {
+    for suffix in ["", "~"] {
+        let fixture = fixture();
+        install(
+            &fixture,
+            &[rewriting(Script::new(
+                "cursor-rewrite",
+                appender(suffix, "(i32.const 0)"),
+                &[Hook::BeforeCommit],
+            ))],
+            1,
+        );
+        opt_in(&fixture, TRAIT_KNOWN);
+        SESSIONS.with(|sessions| {
+            let mut sessions = sessions.borrow_mut();
+            let session = sessions.get_mut(&fixture.handle).unwrap();
+            let mut options = session.options.clone();
+            options.quick_phrase_candidates = true;
+            options.quick_phrase_table = vec![msime_engine::QuickPhraseEntry {
+                key: "ab".into(),
+                text: "title:\"${cursor}\"".into(),
+            }];
+            session
+                .runtime
+                .replace_engine(msime_engine::host::Session::new(&options).unwrap(), 6)
+                .unwrap();
+        });
+        for key in b"ab" {
+            msime_client_key(fixture.handle, 0);
+            assert_eq!(
+                read(msime_client_character(
+                    fixture.handle,
+                    *key,
+                    key.is_ascii_uppercase()
+                ))["ok"],
+                true
+            );
+        }
+        let view = read(msime_client_view(fixture.handle))["value"].clone();
+        let index = view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|candidate| {
+                candidate["source"] == msime_engine::CandidateSource::QuickPhrase as u8
+            })
+            .unwrap();
+        msime_client_key(fixture.handle, 1);
+        let committed = read(msime_client_select(
+            fixture.handle,
+            view["generation"].as_u64().unwrap(),
+            index,
+        ));
+        assert_eq!(committed["ok"], true, "{committed}");
+        assert_eq!(committed["value"]["commit"], format!("title:\"\"{suffix}"));
+        assert_eq!(
+            committed["value"].get("commit_cursor_suffix").cloned(),
+            if suffix.is_empty() {
+                Some(json!("\""))
+            } else {
+                None
+            }
+        );
+    }
+}
+
+#[test]
 fn before_commit_rewrites_the_body_and_hands_the_tail_back() {
     let fixture = fixture();
     install(

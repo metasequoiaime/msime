@@ -204,6 +204,9 @@ pub struct OutputContext {
 pub struct Transition {
     pub handled: bool,
     pub commit: Option<String>,
+    /// 快捷短语指定的光标后文本，包含同次上屏的标点尾巴。空字符串表示末尾，缺字段表示不定位。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_cursor_suffix: Option<String>,
     /// Mode before dispatch; committing may clear a local mode or apply deferred settings.
     pub commit_context: Option<OutputContext>,
     pub diagnostic: Option<String>,

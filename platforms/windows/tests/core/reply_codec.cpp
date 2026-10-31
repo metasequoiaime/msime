@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "quick_phrase_cursor_pipe.h"
 #include "ipc_negotiation.h"
 #include <array>
 #include <iostream>
@@ -6,10 +7,11 @@
 
 using namespace msime::windows;
 namespace {
-void require(bool condition) {
+void require_at(bool condition, int line) {
   if (!condition)
-    throw std::runtime_error("Windows reply codec assertion failed");
+    throw std::runtime_error("Windows reply codec assertion failed at line " + std::to_string(line));
 }
+#define require(condition) require_at((condition), __LINE__)
 std::u16string payload(const EncodedReply &reply) {
   require(static_cast<bool>(reply));
   std::u16string result;
@@ -56,9 +58,77 @@ assembled_voice_text(const std::vector<std::vector<uint8_t>> &frames,
   }
   return text;
 }
+void cursor_contract() {
+  namespace cursor = FanyImeQuickPhraseCursorPipe;
+  static_assert(sizeof(FanyImeNamedpipeDataToTsf) == 416);
+  static_assert(sizeof(FanyImeNamedpipeDataToTsfWorkerThread) == 404);
+  for (const auto &suffix : std::vector<std::string>{"", "后", "😀后", "e\xcc\x81", "👩‍💻", "\r\n后", std::string(199, 'a')}) {
+    const std::string text = suffix.size() == 199 ? suffix : "前" + suffix;
+    const auto plain = candidate_commit(81, text);
+    const auto encoded = candidate_commit(81, text, suffix);
+    const auto units = cursor::SuffixUnits(encoded.packet.msg_type, false);
+    require(encoded && units && *units == payload(candidate_commit(1, suffix)).size());
+    require(payload(encoded) == payload(plain));
+    require(cursor::MessageType(encoded.packet.msg_type, false) == FanyImeReplyType::Normal);
+    require(cursor::ValidText(encoded.packet.candidate_string, 200, *units));
+    require(!cursor::Decode(encoded.packet.msg_type, encoded.packet.candidate_string, 200, false, false));
+    const auto decoded = cursor::Decode(encoded.packet.msg_type, encoded.packet.candidate_string, 200, false, true);
+    require(decoded && decoded->messageType == FanyImeReplyType::Normal && decoded->suffixUnits == units);
+    const auto plain_bytes = *wire_bytes(plain), encoded_bytes = *wire_bytes(encoded);
+    require(std::equal(plain_bytes.begin() + 4, plain_bytes.end(), encoded_bytes.begin() + 4));
+    const auto exact = exact_commit(81, text, suffix);
+    require(cursor::MessageType(exact.packet.msg_type, false) == FanyImeReplyType::CommitExactText);
+    const auto ui = ui_complete_selection(text, suffix);
+    require(ui && !ui->before_trigger && ui->worker.size() == 404);
+    uint32_t type = 0;
+    for (size_t n = 0; n < 4; ++n) type |= static_cast<uint32_t>(ui->worker[n]) << (8 * n);
+    require(cursor::SuffixUnits(type, true) == units);
+    require(cursor::MessageType(type, true) == FanyImeWorkerReplyType::CommitCurCandidate);
+    for (size_t n = 0; n < 400; ++n) require(ui->worker[4 + n] == encoded_bytes[16 + n]);
+  }
+  const auto continued = *commit_candidate_and_continue_bytes(4, "前😀后", "😀后");
+  uint32_t type = 0;
+  for (size_t n = 0; n < 4; ++n) type |= static_cast<uint32_t>(continued[n]) << (8 * n);
+  require(cursor::SuffixUnits(type, true) == 3);
+  require(cursor::MessageType(type, true) == FanyImeWorkerReplyType::CommitCandidateAndContinue);
+  require(continued[4] == '4' && continued[6] == '\t');
+  const auto invalid_continued = *commit_candidate_and_continue_bytes(4, "", "4\t");
+  require(invalid_continued[3] == 0);
+  for (const auto &suffix : std::vector<std::string>{"失配", std::string("\0", 1), "\xff"})
+    require(candidate_commit(81, "前后", suffix).packet.msg_type == FanyImeReplyType::Normal);
+  const auto valid = *cursor::Encode(FanyImeReplyType::Normal, 1, false);
+  for (auto bad : {valid | cursor::Reserved, cursor::Flag | (200u << 8),
+                   cursor::Flag | (1u << 8) | FanyImeReplyType::Preedit})
+    require(!cursor::MessageType(bad, false));
+  require(!cursor::Encode(FanyImeReplyType::NavigationIgnored, 1, false));
+  require(!cursor::Encode(FanyImeWorkerReplyType::InsertText, 1, true));
+  require(cursor::Encode(FanyImeReplyType::Normal, 0, false) == cursor::Flag);
+  require(!cursor::ValidText(u"😀后", 4, 2));
+  require(cursor::ValidText(u"😀后", 4, 3));
+  const char16_t unterminated[] = {u'a', u'b'}, high[] = {0xd800, 0}, low[] = {0xdc00, 0};
+  require(!cursor::ValidText(unterminated, 2, 1));
+  require(!cursor::ValidText(high, 2, 1) && !cursor::ValidText(low, 2, 1));
+  require(!cursor::ValidText(u"a", 2, 2) && !cursor::ValidText(u"", 1, 1));
+  require(!cursor::Decode(valid | cursor::Reserved, u"后", 2, false, true));
+  require(!cursor::Decode(*cursor::Encode(FanyImeReplyType::Normal, 2, false), u"😀后", 4, false, true));
+  const auto empty = ui_complete_selection("", "");
+  require(empty && empty->worker[3] == 0x80);
+  for (const auto &suffix : std::vector<std::string>{"失配", std::string("\0", 1), "\xff"})
+    require(!ui_complete_selection("", suffix));
+  const auto plain = cursor::Decode(FanyImeReplyType::Normal, u"正文", 3, false, false);
+  require(plain && !plain->suffixUnits);
+  const auto oldCaps = FanyImeProtocol::Capabilities;
+  const auto newCaps = oldCaps | FanyImeProtocol::QuickPhraseCursor;
+  for (auto server : {oldCaps, newCaps}) for (auto tip : {oldCaps, newCaps}) {
+    const auto agreed = FanyImeProtocol::Negotiate(FanyImeProtocol::Hello(1, 2, tip), server);
+    require(agreed.accepted);
+    require(bool(agreed.capabilities & FanyImeProtocol::QuickPhraseCursor) == (server == newCaps && tip == newCaps));
+  }
+}
 } // namespace
 int main() {
   try {
+    cursor_contract();
     {
       const auto continued = commit_candidate_and_continue_bytes(4, "合成候选");
       require(continued && continued->size() == 404);
@@ -147,11 +217,13 @@ int main() {
     require(!worker_mode_bytes(static_cast<WorkerMode>(99)));
     {
       constexpr auto update = FanyImeWorkerReplyType::UpdateVoiceComposition;
-      const auto frames = voice_composition_bytes(update, L"你好😀", 7);
+      // 线格式是 UTF-16 单元，显式写出代理项，让 32 位 wchar_t 的宿主也验证同一份字节。
+      const std::wstring utf16_text{0x4f60, 0x597d, 0xd83d, 0xde00};
+      const auto frames = voice_composition_bytes(update, utf16_text, 7);
       require(frames && frames->size() == 1 && frames->front().size() == 404);
       const auto parsed = voice_frame(frames->front(), update);
       require(parsed.valid && parsed.first && parsed.last &&
-              parsed.generation == 7 && parsed.chunk == L"你好😀");
+              parsed.generation == 7 && parsed.chunk == utf16_text);
 
       const std::wstring long_text(400, L'测');
       const auto split = voice_composition_bytes(update, long_text, 9);

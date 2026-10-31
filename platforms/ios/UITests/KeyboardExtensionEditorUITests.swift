@@ -348,6 +348,77 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     app.buttons["closeSymbolPanel"].tap()
   }
 
+  /// 从正式短语编辑器保存模板，经系统扩展上屏，再用下一键证明独立编辑器的插入点在后缀之前。
+  func testQuickPhraseCursorMarkerPositionsTheCaretInSystemEditor() throws {
+    let app = XCUIApplication()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    let name = "合成光标\(Int.random(in: 100...999))"
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    PluginsUITestFlow.openPluginsPage(app)
+    PluginsUITestFlow.create(in: app, kind: "phrase_table", name: name, fields: [
+      ("第 1 条短语的编码", "zqcursor"), ("第 1 条短语的文字", "title:\"${cursor}🌲e\u{301}\""),
+    ])
+    let enable = app.switches["pluginTableEnabled"]
+    XCTAssertTrue(enable.waitForExistence(timeout: 15))
+    if enable.value as? String != "1" { PluginsUITestFlow.flip(enable, in: app) }
+    XCTAssertEqual(enable.value as? String, "1")
+    addTeardownBlock { @MainActor in
+      editor.terminate()
+      app.launch()
+      PluginsUITestFlow.openPluginsPage(app)
+      PluginsUITestFlow.remove(name, in: app)
+      app.terminate()
+    }
+    app.terminate()
+    #if targetEnvironment(simulator)
+    addKeyboardInSettingsIfNeeded()
+    #endif
+    editor.launchArguments = ["--system-keyboard-editor"]
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    editor.buttons["schemeButton"].tap()
+    let quanpin = editor.buttons["schemeCard-quanpin"]
+    XCTAssertTrue(quanpin.waitForExistence(timeout: 5))
+    quanpin.tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    editor.buttons["moreShortcut"].tap()
+    func card(_ title: String) -> XCUIElement {
+      let card = editor.descendants(matching: .any)["moreCard-\(title)"].firstMatch
+      let grid = editor.descendants(matching: .any)["keyboardMorePicker"].firstMatch
+      for _ in 0..<4 where !card.waitForExistence(timeout: 2) { grid.swipeLeft() }
+      return card
+    }
+    let local = card("本地输入")
+    XCTAssertTrue(local.exists)
+    local.tap()
+    let phrase = card("快捷短语")
+    XCTAssertTrue(phrase.exists)
+    phrase.tap()
+    func key(_ letter: String) -> XCUIElement {
+      editor.buttons.matching(NSPredicate(format: "label IN %@",
+        ["字母 \(letter.uppercased())", "字母 \(letter.lowercased())"])).firstMatch
+    }
+    for letter in "zqcursor" { key(String(letter)).tap() }
+    let candidate = editor.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+      "candidate-", "title:")).firstMatch
+    XCTAssertTrue(candidate.waitForExistence(timeout: 10))
+    XCTAssertFalse(candidate.label.contains("${cursor}"))
+    candidate.tap()
+    let committed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value == %@", "title:\"🌲e\u{301}\""), object: field)
+    XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 5), .completed)
+    if language.label == "切换到英文输入" { language.tap() }
+    key("x").tap()
+    let positioned = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value == %@", "title:\"x🌲e\u{301}\""), object: field)
+    XCTAssertEqual(XCTWaiter.wait(for: [positioned], timeout: 5), .completed)
+    keepScreenshot("快捷短语-系统编辑器光标定位", in: editor)
+  }
+
   /// 关闭语音长按后，经系统空格手势检查独立编辑器里的光标与松手行为。
   func testHoldingSpaceWithoutVoiceMovesCaretInSystemEditor() throws {
     let app = XCUIApplication()

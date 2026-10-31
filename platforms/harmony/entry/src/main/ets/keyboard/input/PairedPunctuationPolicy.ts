@@ -5,6 +5,12 @@ export interface PairedPunctuationCompletion {
   readonly closing: string;
 }
 
+/** 标点键这次上屏实际落地的文字，以及随后要补的后半个（不补时为 null）。 */
+export interface PairedPunctuationCommit {
+  readonly commit: string | null | undefined;
+  readonly completion: PairedPunctuationCompletion | null;
+}
+
 const COMPLETIONS: PairedPunctuationCompletion[] = [
   { opening: 0x22, openingMark: "“", closing: "”" },
   { opening: 0x27, openingMark: "‘", closing: "’" },
@@ -90,5 +96,38 @@ export class PairedPunctuationPolicy {
         return completion;
     }
     return null;
+  }
+
+  /**
+   * 这次上屏是否要求宿主把光标放进上屏文字里：`commit_cursor_suffix` 是字符串并且是上屏文字的后缀，空的末尾标记也算。这样的快捷短语模板按原样落地，宿主既不改回前引号（那会让后缀失配、丢掉定位请求），也不补后半个（定位之后它会写进模板中间，或者取消还在等布局的定位请求）。与 macOS 的 `hasCursorRequest` 同一条规则。
+   */
+  static explicitCursor(
+    commit: string | null | undefined,
+    suffix: string | null | undefined,
+  ): boolean {
+    return typeof commit === "string" && typeof suffix === "string" && commit.endsWith(suffix);
+  }
+
+  /**
+   * 标点键上屏的整段成对补全决定：光标短语模板（`explicitCursor` 成立）原样落地、不补后半个；否则先按 `reopenQuote` 把后引号改回前引号，再按落地的文字决定要补的后半个。会话只调这一处，不自己拆开判断。
+   */
+  static punctuationCommit(
+    commit: string | null | undefined,
+    suffix: string | null | undefined,
+    ascii: number,
+    enabled: boolean,
+  ): PairedPunctuationCommit {
+    if (PairedPunctuationPolicy.explicitCursor(commit, suffix)) {
+      return { commit: commit, completion: null };
+    }
+    const landed: string | null | undefined = PairedPunctuationPolicy.reopenQuote(
+      commit,
+      ascii,
+      enabled,
+    );
+    return {
+      commit: landed,
+      completion: PairedPunctuationPolicy.completion(landed, ascii, enabled),
+    };
   }
 }

@@ -22,12 +22,12 @@ void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client);
 /// that do not consume shared preferences yet.
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
                                           MSIMEInlinePreeditStyle style);
-/// The same, carrying a closing mark the host owes the document.
+/// 同一提交路径，额外携带宿主尚未交付的闭合标点。
 ///
-/// Paired punctuation puts the caret between the two marks, and IMK has no way to move a client's
-/// insertion point. The opening mark is committed as usual and the closing one rides in the marked
-/// text after the caret until the composition ends, so what the user sees is `（|）` and then
-/// `（你好|）`. Passing nil is the ordinary case and behaves exactly as the call above.
+/// IMK 没有直接设置插入点的接口，且并非所有客户端都支持绝对文档范围。
+/// 成对标点保留既有兼容路径：开符号正常提交，闭符号作为标记尾段跟随组字，
+/// 用户先看到 `（|）`，再看到 `（你好|）`，组字结束才提交尾段。
+/// nil 表示没有待闭合符，等同普通提交。
 void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing);
 /// The same, for a host that knows whether the client still holds marked text this host wrote.
@@ -36,11 +36,13 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText);
-/// 客户端同步写入后先运行 observer，再判定是否仍可写旧预编辑；observer 接收含待闭合符的实际上屏文本。
+/// 客户端同步写入后先运行 observer；macOS 随后按已核对的 commit_cursor_suffix 定位，再写新预编辑。
+/// observer 接收含待闭合符的实际上屏文本；每次同步调用后均检查旧转换是否仍有效。
+/// canPosition 可额外阻止透传键之后的旧定位；nil 只使用转换有效性保护。
 void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText, BOOL (^isCurrent)(void),
-                                            void (^didCommit)(NSString *text));
+                                            void (^didCommit)(NSString *text), BOOL (^canPosition)(void));
 /// 同步客户端调用可能处理较新的转换；宿主判定旧转换过期后，不再写它的预编辑。
 void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextClient> client,
                                        MSIMEInlinePreeditStyle style, NSString *closing,

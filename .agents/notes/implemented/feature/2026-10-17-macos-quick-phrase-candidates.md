@@ -41,3 +41,5 @@ macOS 会话声明一项临时宿主能力。普通全拼、双拼和五笔组�
 这一版的 host-api 解析了 `HostOptions.quick_phrase_candidates`，却在 `into_engine_options` 里把它写死成 `false`，所以 macOS 会话里实际没有生效；[Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md) 改为按请求转交，并加了经 C ABI 建会话的测试。同一篇里还把普通组字改成只认整个编码、受设置页「快捷短语」开关控制，并让五笔四码唯一不计入追加的短语。
 
 macOS 会话通过临时 `HostOptions` 能力开启快捷短语候选，运行时配置文件和其他宿主的默认行为不变。普通候选仍先保持原顺序，快捷短语追加在末尾并按文本去重；`Shift+K` 独立入口继续可用。设置页会针对 macOS 说明两种入口。普通候选和快捷短语共用候选上限时，追加项可能排在首屏之后，这是保持既有普通候选排序的取舍。这个取舍已被 [快捷短语混输默认落在首页末位](2026-10-25-quick-phrase-first-page-default.md) 取代：#9702 里小鹤双拼 `zj` 有 83 个普通候选，短语落在第 14 页；现在没有学习记录的短语落在首页最后几格，普通候选不满一页时仍接在它们之后。
+
+快捷短语的 `${cursor}` 展开与上屏后缀契约见[光标定位笔记](../../implemented/feature/2026-10-31-quick-phrase-cursor.md)；不改变本文原有决定。

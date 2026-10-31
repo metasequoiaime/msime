@@ -36,6 +36,9 @@ inline constexpr std::wstring_view default_version = L"1.0.0";
 // 许可证输入框下面的说明。
 inline constexpr std::wstring_view license_note =
     L"许可证决定别人能怎样使用这个插件。CC0-1.0 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。";
+// 短语表的光标标记由共享层解释，设置页只说明写法。
+inline constexpr std::wstring_view phrase_cursor_note =
+    LR"(文字中写 ${cursor} 可指定上屏后的光标位置，例如 title:"${cursor}"。只使用第一个标记；写 $${cursor} 可输出字面 ${cursor}。)";
 // 保存按钮上面的说明：编辑替换本机的这一份，新建装进本机。
 inline std::wstring_view save_note(bool editing) {
   return editing ? L"保存后替换本机的这一份。从社区装来的插件改过之后就是你自己的副本，原作者那边不受影响。"

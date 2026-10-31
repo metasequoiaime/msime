@@ -68,9 +68,36 @@ bool commit_conversion(const nlohmann::json &transition, bool traditional) {
   const auto context = transition.value("commit_context", nlohmann::json::object());
   return traditional && (!context.is_object() || context.value("script_conversion", true));
 }
+// 原文与转换后都核对真实尾段；简繁转换的巧合不能修复原本失配的位置。
+std::optional<std::string> projected_cursor_suffix(const nlohmann::json &transition,
+                                                  bool supported, bool traditional) {
+  if (!supported)
+    return std::nullopt;
+  const auto commit = transition.find("commit");
+  const auto suffix = transition.find("commit_cursor_suffix");
+  if (commit == transition.end() || !commit->is_string() ||
+      suffix == transition.end() || !suffix->is_string())
+    return std::nullopt;
+  const auto &text = commit->get_ref<const std::string &>();
+  const auto &tail = suffix->get_ref<const std::string &>();
+  if (tail.size() > text.size() || text.compare(text.size() - tail.size(), tail.size(), tail) != 0)
+    return std::nullopt;
+  const bool convert = commit_conversion(transition, traditional);
+  const auto output = simplified_to_traditional(text, convert);
+  const auto converted_tail = simplified_to_traditional(tail, convert);
+  if (converted_tail.size() > output.size() ||
+      output.compare(output.size() - converted_tail.size(), converted_tail.size(), converted_tail) != 0)
+    return std::nullopt;
+  return converted_tail;
+}
+std::optional<std::string_view> cursor_view(const std::optional<std::string> &suffix) {
+  return suffix ? std::optional<std::string_view>(*suffix) : std::nullopt;
+}
 } // namespace
-ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase)
-    : client_(client), epoch_(epoch), runtime_phrase_(runtime_phrase) {
+ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch, bool runtime_phrase,
+                             bool cursor_supported)
+    : client_(client), epoch_(epoch), runtime_phrase_(runtime_phrase),
+      cursor_supported_(cursor_supported) {
   if (!client || !epoch)
     throw std::invalid_argument("Invalid reply activation");
 }
@@ -96,6 +123,8 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
       simplified_to_traditional(delta, commit_conversion(result.transition, traditional_output_));
+  const auto cursor_suffix = projected_cursor_suffix(result.transition, cursor_supported_, traditional_output_);
+  const auto cursor = cursor_view(cursor_suffix);
   // By name, not by position: PendingReply has gained fields twice, and a
   // positional list silently shifts every value past the new one rather than
   // failing to compile.
@@ -138,7 +167,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       invalid();
       break;
     }
-    if (delta.empty()) {
+    if (delta.empty() && !cursor) {
       next.encoded = runtime_phrase_ && !display_prefix.empty() && !raw.empty()
           ? partial_selection(result.request_id, raw, display_prefix, display_prefix + display)
           : ignored_reply(result.request_id);
@@ -149,7 +178,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
             partial_selection(result.request_id, raw, total, total + display);
         next.next_prefix = total;
       } else {
-        next.encoded = candidate_commit(result.request_id, total);
+        next.encoded = candidate_commit(result.request_id, total, cursor);
         next.next_prefix.clear();
         next.committed_text = total;
       }
@@ -160,14 +189,14 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       invalid();
       break;
     }
-    if (delta.empty())
+    if (delta.empty() && !cursor)
       next.encoded = ignored_reply(result.request_id);
     else {
       if (!raw.empty()) {
         invalid();
         break;
       }
-      next.encoded = exact_commit(result.request_id, commit_prefix + output_delta);
+      next.encoded = exact_commit(result.request_id, commit_prefix + output_delta, cursor);
       next.next_prefix.clear();
       next.committed_text = commit_prefix + output_delta;
     }
@@ -178,7 +207,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       break;
     }
     next.encoded = candidate_commit(result.request_id,
-                                    commit_prefix + output_delta);
+                                    commit_prefix + output_delta, cursor);
     next.next_prefix.clear();
     next.committed_text = commit_prefix + output_delta;
     break;
@@ -232,13 +261,13 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   case ReplyPath::AutoCommitAndContinue: {
     // Two Wubi commits take this path: the fourth letter of a unique code, which leaves nothing to compose, and a letter typed after a complete code (顶字), which commits the first candidate and leaves that letter composing. The worker frame tells the TIP to consume the four letters of the committed code from its own buffer and keep whatever follows, so the key reply only has to show the composition the Engine now holds. `continue_consumed` is that count (wubi_continue_consumed): a capital the Engine does not take after a complete code goes out with the first candidate and leaves nothing composing, so the TIP drops it too.
     const auto &context = result.transition.at("commit_context");
-    if (delta.empty() || context.is_null() ||
+    if ((delta.empty() && !cursor) || context.is_null() ||
         context.value("scheme", 255u) != 2u) {
       invalid();
       break;
     }
     const auto total = commit_prefix + output_delta;
-    next.worker = commit_candidate_and_continue_bytes(continue_consumed, total);
+    next.worker = commit_candidate_and_continue_bytes(continue_consumed, total, cursor);
     if (!next.worker) {
       invalid();
       break;
@@ -698,13 +727,15 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       commit.is_null() ? std::string{} : commit.get<std::string>();
   const auto output_delta =
       simplified_to_traditional(delta, commit_conversion(transition, traditional_output_));
+  const auto cursor_suffix = projected_cursor_suffix(transition, cursor_supported_, traditional_output_);
+  const auto cursor = cursor_view(cursor_suffix);
   const auto &next_view = transition.at("view");
   const auto raw = next_view.at("editing_text").get<std::string>();
   PendingReply next;
-  next.source = {client_, epoch_, 0, true, std::move(transition)};
   next.next_prefix = runtime_phrase_ ? next_view.value("phrase_prefix", std::string{}) : prefix_;
+  next.source = {client_, epoch_, 0, true, std::move(transition)};
   next.traditional_output = traditional_output_;
-  if (delta.empty()) {
+  if (delta.empty() && !cursor) {
     if (continuation_supported && next.source.transition.value("handled", false)) {
       const auto transaction = static_cast<uint16_t>(generation) == 0 ? uint16_t{1} : static_cast<uint16_t>(generation);
       next.ui_selection = ui_continued_selection(candidate_continuation_request(
@@ -714,7 +745,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     }
   }
   else if (raw.empty()) {
-    next.ui_selection = ui_complete_selection((runtime_phrase_ ? std::string{} : prefix_) + output_delta);
+    next.ui_selection = ui_complete_selection((runtime_phrase_ ? std::string{} : prefix_) + output_delta, cursor);
     next.next_prefix.clear();
     next.committed_text = (runtime_phrase_ ? std::string{} : prefix_) + output_delta;
   } else {

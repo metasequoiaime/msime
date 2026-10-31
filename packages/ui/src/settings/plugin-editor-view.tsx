@@ -379,6 +379,11 @@ function PhraseRows({
           编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多{" "}
           {MAX_TEXT_UTF16} 个字符，不能换行。
         </SettingsManagerNote>
+        <SettingsManagerNote>
+          {
+            '文字中的第一个 ${cursor} 指定上屏后的光标位置，例如 title:"${cursor}"；$${cursor} 输出字面的 ${cursor}，不定位。编辑器不支持定位时仍完整上屏。'
+          }
+        </SettingsManagerNote>
         {rows.slice(0, shown).map((row, index) => (
           <SettingsPhraseForm key={index}>
             <SettingsInputField
