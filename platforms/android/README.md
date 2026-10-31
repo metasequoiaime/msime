@@ -535,3 +535,5 @@ API 28 不支持 `--no-restart`，运行上述 instrumentation 时去掉该参�
 
 设备专项：`MSIME_ANDROID_WORLD_CLOCK=1 bash platforms/android/tests/device/build-editor.sh`，安装测试 APK 后运行 `app.msime.android.test/app.msime.android.test.WorldClockDeviceSmoke`。此专项复用清单入口，保持 API 35 instrumentation 数量限制；API 28 普通启动，API 35 在设置宿主已运行时加 `--no-restart`。
 
+
+九键等屏幕键盘在空闲时可长按回车插入换行，键面角标显示「换行」。点按继续遵循输入框的发送、搜索等动作；组字中的长按确认与译文上屏行为保留。

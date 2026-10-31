@@ -3860,6 +3860,49 @@ fn creating_a_session_records_the_resources_it_loaded_for_dictionary_updates() {
     );
 }
 
+/// 会话用下载的词库代次时，从建好到销毁一直占用它：设置宿主回收旧版本要取同一把锁的独占，取不到就不删。
+#[test]
+fn a_session_on_a_downloaded_generation_holds_it_until_destroyed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let state = path("state");
+    let generation = "d".repeat(64);
+    let resources = path(&format!(
+        "state/dictionary-updates/generations/{generation}"
+    ));
+    let dictionaries = path("dictionaries");
+    let fixture = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_1_n VALUES('ni','n','你',100);
+                   CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                   CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                   CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";
+    for directory in [&resources, &dictionaries] {
+        rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(fixture)
+            .unwrap();
+    }
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences_directory": state, "preferences": chinese_preferences() }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let lock = state.join(format!("dictionary-updates/generations/{generation}.lock"));
+    let removable = || {
+        msime_client_core::file_lock::try_exclusive(
+            &msime_client_core::file_lock::open_private_lock_file(&lock).unwrap(),
+        )
+        .unwrap()
+    };
+    assert!(!removable());
+    read(msime_client_destroy(
+        created["value"]["session"].as_u64().unwrap(),
+    ));
+    assert!(removable());
+}
+
 /// 三端宿主都开着 `phrase_preedit`。14 键里选了只覆盖前一段的词，退格到只剩一个组码再退格，收回这次选词：组码要回到 14 键网格里，而不是变成全拼 26 键的 `bu`，之后的 14 键照样能打。
 #[test]
 fn retreating_a_fourteen_key_selection_keeps_composing_on_the_grid() {

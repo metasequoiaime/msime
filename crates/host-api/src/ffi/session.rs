@@ -96,6 +96,13 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     )
     .map_err(|_| "dictionary access unavailable".to_owned())?
     .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
+    // 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。
+    let generation_lease = state_root.as_deref().and_then(|state| {
+        msime_client_providers::dictionary_updates::lease(
+            state,
+            std::path::Path::new(&options.resources),
+        )
+    });
     let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
     // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败。
     if let Some(state) = state_root.as_deref().filter(|_| usage == SessionUse::Input) {
@@ -218,6 +225,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 settled_model_loading: None,
                 lifecycle: None,
                 _dictionary_access: dictionary_access,
+                _generation_lease: generation_lease,
             },
         )
     });
