@@ -8901,7 +8901,13 @@ public final class MSIMEInputService extends InputMethodService {
             authenticateClipboard("删除", () -> removeClipboardItemAfterAuthentication(item));
             return;
         }
-        removeClipboardItemAfterAuthentication(item);
+        try {
+            holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
+            forgetCurrentClip();
+        } catch (IllegalStateException error) {
+            notice("无法修改剪贴板历史");
+        }
+        imePanels.renderClipboardHistory();
     }
 
     private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
