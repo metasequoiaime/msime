@@ -9333,6 +9333,45 @@ public final class MSIMEInputService extends InputMethodService {
             && schemeShowsGlosses(scheme);
     }
 
+    /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */
+    static final String PERSONAL_WORDBOOK_FAILURE = "无法加入生词本";
+
+    /**
+     * 长按候选菜单的「加入生词本」：把候选文字、显示着的释义和读音写进背单词的生词本，结果用 {@link #notice} 告诉用户。写文件要取词书目录的锁，放在 `commonPhrasesWorker` 上，和「添加到常用语」一样是键盘里对用户内容的一次写入；不经过引擎，组字不变。
+     */
+    void addCandidateToPersonalWordbook(String text, String translation, String reading) {
+        // 与打字统计同一个目录，也就是设置里背单词读的 `HostStore.sharedStateDirectory`。
+        String directory = typingStatisticsDirectory();
+        if (directory.isEmpty()) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+            return;
+        }
+        try {
+            commonPhrasesWorker.execute(() -> {
+                String answer;
+                try {
+                    answer = NativeClient.personalWordbookAdd(directory, text, translation, reading);
+                } catch (RuntimeException | LinkageError error) {
+                    answer = null;
+                }
+                String shown = answer == null ? PERSONAL_WORDBOOK_FAILURE : answer;
+                main.post(() -> notice(shown));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException error) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+        }
+    }
+
+    /** 候选旁此刻显示的音标，没有显示或还没查到时为空串；规则同 {@link #candidatePronunciationAnnotation}。 */
+    String candidateDisplayedReading(JSONObject candidate) {
+        if (!candidatePronunciationVisible()) return "";
+        String text = CandidatePronunciationPolicy.lookupText(
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
+            candidateTranslationTargets.contains("en"));
+        return candidatePronunciations.getOrDefault(text, "");
+    }
+
     void insertCandidateGloss(int slot, JSONObject id, String text, String gloss) {
         if (!candidateIsCurrent(slot, id, text) || connection == null) return;
         if (!commitText(gloss, TypingSource.LOCAL)) return;
