@@ -56,6 +56,7 @@
 #include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/PersonalWordbook.h"
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
@@ -1435,6 +1436,8 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
+// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键候选时那句「请在「候选操作」菜单中…」。
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message = {});
 // Shared by every engine in this process: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch typing_statistics_switch{msime_client_typing_statistics_enabled};
 struct TypingStatisticsTask {
@@ -2888,6 +2891,18 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   delete items;
   publish_mode(IBUS_ENGINE(source));
 }
+// 这一行候选此刻在面板上显示的释义，条件和 render 里画释义的那段相同；不显示时为空。「加入生词本」只收用户看得见的释义。
+std::string displayed_candidate_gloss(const State &s, const Json &candidate) {
+  const bool shown = s.candidate_translations ||
+                     (s.candidate_english_gloss && s.translation_target_language == "en") ||
+                     candidate.value("id", Json::object()).value("generation", uint64_t{0}) ==
+                         s.sentence_translation_generation;
+  if (!shown || s.translation_reset_pending || !candidate.contains("translation") ||
+      !candidate.at("translation").is_string())
+    return {};
+  auto translation = candidate.at("translation").get<std::string>();
+  return translation.size() <= 4096 ? translation : std::string{};
+}
 std::string candidate_action_name(const char *action, const Json &id) {
   return std::string(action) + "/" + std::to_string(id.at("session").get<uint64_t>()) +
          "/" + std::to_string(id.at("generation").get<uint64_t>()) +
@@ -3011,6 +3026,19 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
           ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label), "",
           ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
+    }
+    // 和 macOS、Windows 的候选菜单一样，「加入生词本」在最后一组，只在这一行显示着释义时出现。
+    if (!displayed_candidate_gloss(s, candidate).empty()) {
+      const auto separator_name = candidate_action_name("CandidateSeparator", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          separator_name.c_str(), PROP_TYPE_SEPARATOR, nullptr, "", nullptr, TRUE, TRUE,
+          PROP_STATE_UNCHECKED, nullptr));
+      const auto personal_name = candidate_action_name("CandidatePersonalWordbook", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          personal_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::linux_host::candidate_personal_wordbook_label), "",
+          ibus_text_new_from_static_string("把候选旁显示的释义收进背单词的生词本"),
+          actions_available, TRUE, PROP_STATE_UNCHECKED, nullptr));
     }
   }
   const auto page = s.rendered_view.is_object()
@@ -5327,6 +5355,34 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     page(engine, candidate_name == "CandidatePreviousPage"
                    ? MSIME_PREVIOUS_PAGE
                    : MSIME_NEXT_PAGE);
+    return;
+  }
+  if (candidate_name.rfind("CandidatePersonalWordbook", 0) == 0) {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    guarded(engine, "candidate_personal_wordbook", [&] {
+      auto &s = state(engine);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+        return;
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
+        if (candidate_name != candidate_action_name("CandidatePersonalWordbook", candidate.at("id")))
+          continue;
+        const auto gloss = displayed_candidate_gloss(s, candidate);
+        if (gloss.empty())
+          return;
+        // 不经过 Engine，组字不变；结果用辅助区域那句提示告诉用户。
+        const auto notice = msime::linux_host::add_to_personal_wordbook(
+            configured.value("preferences_directory", std::string{}),
+            candidate.value("text", std::string{}), gloss);
+        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}), notice);
+        return;
+      }
+    });
     return;
   }
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
@@ -8360,13 +8416,16 @@ struct CandidateMenuHintNotice {
 // 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
 //
 // 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。这个回调同样没有 `guarded()` 兜底，读 `s.view` 之前先确认它是对象，理由同输入模式提示（#6675）。
-void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message) {
   auto &s = state(engine);
   ++s.candidate_menu_hint_id;
   if (s.candidate_menu_hint_id == 0)
     ++s.candidate_menu_hint_id;
   ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选"),
+      engine,
+      message.empty()
+          ? ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选")
+          : ibus_text_new_from_string(message.c_str()),
       TRUE);
   auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
                                              s.session, generation};

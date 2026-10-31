@@ -22963,3 +22963,56 @@ fn world_clock_validates_and_forwards_offline_requests() {
         false
     );
 }
+
+#[test]
+fn personal_wordbook_boundary_adds_a_gloss_and_lists_it_for_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let add = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe { msime_client_personal_wordbook_add(request.as_ptr(), request.len()) })
+    };
+    let added = add(json!({
+        "directory": directory.path(), "candidate": "面试",
+        "gloss": "interview; audition\u{2028}mensetsu", "pronunciation": "/ˈɪntəvjuː/\n",
+    }));
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["outcome"], "added");
+    assert_eq!(added["value"]["notice"], "已加入生词本");
+    let again =
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "interview"}));
+    assert_eq!(again["value"]["outcome"], "already_present");
+    let invalid = add(json!({"directory": directory.path(), "candidate": "面试", "gloss": ""}));
+    assert_eq!(invalid["ok"], true);
+    assert_eq!(invalid["value"]["outcome"], "invalid");
+    assert_eq!(
+        add(json!({"directory": "relative", "candidate": "面试", "gloss": "interview"}))["ok"],
+        false
+    );
+    assert_eq!(
+        add(json!({"directory": directory.path(), "candidate": "面试", "gloss": "x", "extra": 1}))
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_personal_wordbook_add(std::ptr::null(), 0) })["ok"],
+        false
+    );
+
+    let review = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(), "resources": directory.path(),
+            "day": "2026-11-01", "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_vocabulary_review(request.as_ptr(), request.len()) })
+    };
+    let listed = review(json!({"operation": "load"}));
+    let books = listed["value"]["wordbooks"].as_array().unwrap();
+    assert_eq!(books.len(), 1);
+    assert_eq!(books[0]["id"], "personal");
+    assert_eq!(books[0]["name"], "生词本");
+    assert_eq!(books[0]["personal"], true);
+    let removed = review(json!({"operation": "remove_personal_word", "word": "interview"}));
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(removed["value"]["wordbooks"].as_array().unwrap().is_empty());
+}

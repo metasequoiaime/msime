@@ -89,6 +89,10 @@ pub enum ReviewAction {
     Remove {
         wordbook: String,
     },
+    /// 把一个词移出生词本，复习进度留着。词不在生词本里时什么也不改。
+    RemovePersonalWord {
+        word: String,
+    },
     Reset,
 }
 
@@ -173,6 +177,10 @@ pub fn apply(
             // The book is gone, so its schedule is unreachable. Leaving it would grow the progress
             // document forever and would silently return if the same id ever came back.
             store.remove_wordbook_progress(&wordbook)?;
+        }
+        ReviewAction::RemovePersonalWord { word } => {
+            // 移走最后一个词时生词本随之删除；它若正被选中，下面的状态按「选中的书不在了」给出书目选择。
+            library.remove_personal_entry(&word)?;
         }
         ReviewAction::Reset => {
             // Only the progress. The imported books are the user's own material and are deleted
@@ -404,6 +412,22 @@ mod tests {
         assert_eq!(status.queue[0].word, "interview");
         assert_eq!(status.queue[0].meaning, "面试");
 
+        let status = apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::RemovePersonalWord {
+                word: "absent".to_owned(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            status.queue.len(),
+            1,
+            "removing an absent word changes nothing"
+        );
+
         // 删掉生词本就是清空它，复习进度随之清掉。
         let status = apply(
             root.path(),
@@ -416,6 +440,39 @@ mod tests {
         )
         .unwrap();
         assert!(status.wordbooks.is_empty());
+    }
+
+    #[test]
+    fn removing_the_last_personal_word_offers_the_picker() {
+        use super::super::library::{personal_entry_from_gloss, PERSONAL_ID};
+        let root = directory();
+        WordbookLibrary::new(root.path())
+            .add_personal(personal_entry_from_gloss("面试", "interview", "").unwrap())
+            .unwrap();
+        apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::SetSettings {
+                wordbook: PERSONAL_ID.to_owned(),
+                new_per_day: 20,
+                session_limit: 200,
+            },
+        )
+        .unwrap();
+        let status = apply(
+            root.path(),
+            root.path(),
+            None,
+            TODAY,
+            ReviewAction::RemovePersonalWord {
+                word: "interview".to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(status.wordbooks.is_empty());
+        assert!(status.queue.is_empty());
     }
 
     #[test]

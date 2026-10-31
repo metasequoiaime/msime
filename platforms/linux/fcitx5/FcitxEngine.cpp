@@ -31,6 +31,7 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/PersonalWordbook.h"
 #include "../src/candidates/CandidateLocalModeLabels.h"
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
@@ -4538,14 +4539,18 @@ std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state,
       state.restricted() || state.privateInput() || state.session_ != item.session() ||
       msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != item.generation()) return actions;
   const auto scheme = msime::linux_host::strict_json_value(state.view_, "scheme", 0u);
-  if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) return actions;
-  // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
-  actions.emplace_back(1, msime::linux_host::candidate_pin_label);
-  for (int slot = 1; slot <= 5; ++slot)
-    actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
-  if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
-  if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
-    actions.emplace_back(2, msime::linux_host::candidate_remove_label);
+  if (msime::linux_host::candidate_dictionary_actions_available(scheme, item.source())) {
+    // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
+    actions.emplace_back(1, msime::linux_host::candidate_pin_label);
+    for (int slot = 1; slot <= 5; ++slot)
+      actions.emplace_back(10 + slot, msime::linux_host::candidate_fix_label(slot));
+    if (item.fixedPosition() > 0) actions.emplace_back(20, msime::linux_host::candidate_clear_fix_label);
+    if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
+      actions.emplace_back(2, msime::linux_host::candidate_remove_label);
+  }
+  // 「加入生词本」在最后，和 macOS、Windows 的候选菜单一样；不是词库操作，只要这一行显示着释义就有。
+  if (!item.display().translation.empty())
+    actions.emplace_back(30, msime::linux_host::candidate_personal_wordbook_label);
   return actions;
 }
 void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, int action) {
@@ -4553,12 +4558,22 @@ void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, i
   const auto session = item.session();
   const auto generation = item.generation();
   const auto index = item.index();
+  const auto text = item.text();
+  const auto translation = item.display().translation;
   const auto actions = candidateMenuActions(state, item);
   if (std::none_of(actions.begin(), actions.end(),
       [action](const auto &available) { return available.first == action; })) return;
   try {
     if (!state.ensure() || state.session_ != session ||
         msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != generation) return;
+    if (action == 30) {
+      // 不经过 Engine，组字不变；共享层答的那句提示放在候选上方的辅助行，下一次刷新时消失。
+      const auto notice = msime::linux_host::add_to_personal_wordbook(
+          state.options_path_, text, translation);
+      state.ic_.inputPanel().setAuxUp(fcitx::Text(notice));
+      state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+      return;
+    }
     char *raw = nullptr;
     if (action == 1) raw = msime_client_pin_candidate(session, generation, index);
     else if (action == 2) raw = msime_client_remove_candidate(session, generation, index);
@@ -4624,7 +4639,8 @@ public:
         state_.privateInput() || state_.session_ != item->session() ||
         msime::linux_host::strict_json_value(state_.view_, "generation", uint64_t{}) != item->generation())
       return false;
-    return msime::linux_host::candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source());
+    return msime::linux_host::candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source()) ||
+           !item->display().translation.empty();
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {

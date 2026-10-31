@@ -131,14 +131,15 @@ pub struct PersonalImportReport {
 
 /// 候选窗里一条候选的释义变成生词本里的一张卡：外文义项是词头，中文候选是释义。
 ///
-/// `gloss` 是宿主显示的那段释义：可能有几行（每种目标语言一行），一行里可能用 `;` 或 `；` 分出几个义项。词头取第一行的第一个义项，和单义项时 Ctrl+Enter 上屏的那一个相同；其余义项是同一个中文词的别的译法，不是这个外文词的意思，不收进卡片。`pronunciation` 是宿主随释义拿到的读音，可以为空。不符合词书格式时返回 `None`，例如 AI 译出的一整句超过了词头的长度上限。
+/// `gloss` 是宿主显示的那段释义：可能有几行（每种目标语言一行，换行或 U+2028 分隔），一行里可能用 `;` 或 `；` 分出几个义项。词头取第一行的第一个义项，和单义项时 Ctrl+Enter 上屏的那一个相同；其余义项是同一个中文词的别的译法，不是这个外文词的意思，不收进卡片。`pronunciation` 是宿主随释义拿到的读音，可以为空。不符合词书格式时返回 `None`，例如 AI 译出的一整句超过了词头的长度上限。
 pub fn personal_entry_from_gloss(
     candidate: &str,
     gloss: &str,
     pronunciation: &str,
 ) -> Option<WordbookEntry> {
+    // 宿主各自的分行符：macOS 和 Windows 交给会话的释义用 U+2028 分隔各语言行，其他宿主用换行。
     let word = gloss
-        .lines()
+        .split(['\n', '\r', '\u{2028}'])
         .map(str::trim)
         .find(|line| !line.is_empty())?
         .split([';', '；'])
@@ -966,6 +967,12 @@ mod tests {
                 .unwrap()
                 .word,
             "apple"
+        );
+        assert_eq!(
+            personal_entry_from_gloss("面试", "interview\u{2028}mensetsu", "")
+                .unwrap()
+                .word,
+            "interview"
         );
         assert_eq!(personal_entry_from_gloss("苹果", "", ""), None);
         assert_eq!(personal_entry_from_gloss("苹果", " ; ；", ""), None);
