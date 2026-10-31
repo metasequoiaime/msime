@@ -157,7 +157,7 @@ final class RandomDigitsDeviceChecks {
         check(read(local).getJSONObject("settings").getBoolean(SETTING) == enabled, "原生设置必须持久化入口开关");
     }
 
-    /** The toolbar display mode is a synced setting that may arrive from another device, so write the local settings file directly; the IME rereads it on the next onStartInput. */
+    /** 工具栏显示方式是会同步的设置，可能来自其他设备，所以直接写本地设置文件；输入法在下一次 `onStartInput` 时重读。 */
     private void setToolbarHidden(File local, boolean hidden) throws Exception {
         JSONObject document = read(local);
         document.getJSONObject("settings").put(TOOLBAR_HIDDEN, hidden);
