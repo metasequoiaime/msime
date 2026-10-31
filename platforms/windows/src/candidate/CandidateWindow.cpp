@@ -1028,7 +1028,19 @@ void CandidateWindow::reposition() {
   const bool fullscreen =
       presentation_ != ForegroundPresentation::Windowed && foreground_ &&
       MonitorFromWindow(foreground_, MONITOR_DEFAULTTONEAREST) == target;
-  const auto &work = fullscreen ? monitor.rcMonitor : monitor.rcWork;
+  RECT work = fullscreen ? monitor.rcMonitor : monitor.rcWork;
+  // 游戏会话的候选窗画的是游戏自己的输入，越出客户区就会压在游戏 UI 上。兜底锚点
+  // 只保证锚点落在客户区内（GameCandidateAnchor.h 取 bottom - height/5），没有算上
+  // 卡片自己的高度：DNF 实测客户区 367,205 1280x960，锚点 431,973，242 高的卡片落在
+  // 956，底边 1198 越过客户区底边 1165，正好盖住底部技能栏。前台确属这个客户端时按
+  // 客户区收窄，卡片就始终完整留在游戏画面里。全屏游戏的客户区本就是整块显示器，这
+  // 一步对它们没有影响。
+  if (value->game_host && foreground_owned) {
+    work.left = (std::max)(work.left, client_area.left);
+    work.top = (std::max)(work.top, client_area.top);
+    work.right = (std::min)(work.right, client_area.right);
+    work.bottom = (std::min)(work.bottom, client_area.bottom);
+  }
   // Move a hidden one-pixel window onto the target monitor first. Its own DPI,
   // rather than process-global or previous-monitor DPI, determines the layout.
   if (MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST) != target) {
