@@ -417,6 +417,14 @@ pub fn build(
     }
     dictionary.essay_words = dictionary.entries.len() - dictionary.characters - dictionary.words;
 
+    // A reviewed word the essay lists becomes an essay-listed word of its key even below `ESSAY_WORD_MIN_COUNT`, so the thin corpus words of that key are held below it too.
+    for word in custom {
+        if let Some(&count) = essay.get(word.text) {
+            let lightest = lightest_essay.entry(word.key()).or_insert(count);
+            *lightest = (*lightest).min(count);
+        }
+    }
+
     for (key, text, fallback) in thin {
         let Some(&lightest) = lightest_essay.get(&key) else {
             continue;
@@ -788,6 +796,30 @@ mod tests {
         assert_eq!(weight("nei hou", "你好"), Some(21493));
         assert_eq!(dictionary.custom_words, 2);
         assert!(dictionary.syllables.contains("leon"));
+    }
+
+    #[test]
+    fn a_thin_corpus_word_stays_below_a_reviewed_essay_word_of_its_key() {
+        let characters = format!("{HEADER}{CUSTOM_CHARACTERS}");
+        let characters = parse_characters(&characters).unwrap();
+        let readings = character_readings(&characters);
+        let custom = parse_custom("周杰倫\tzau1 git6 leon4\n", &readings).unwrap();
+        let words = format!("{HEADER}周傑倫\tzau1 git6 leon4\n");
+        // 點解 sets the scale to 845, so one corpus token of 周傑倫 would weigh 845, ahead of the reviewed 周杰倫 at 711.
+        let essay = parse_essay("周杰倫\t711\n點解\t845000\n").unwrap();
+        let corpus = crate::hkcancor::parse("周傑倫\t1\n點解\t1000\n").unwrap();
+        let dictionary = build(
+            &characters,
+            &parse_words(&words).unwrap(),
+            &essay,
+            &corpus,
+            &custom,
+        );
+        assert_eq!(dictionary.corpus_scale, 845);
+        let weight = |text: &str| dictionary.entries[&("zau git leon".to_owned(), text.to_owned())];
+        assert_eq!(weight("周杰倫"), 711);
+        assert_eq!(weight("周傑倫"), 710);
+        assert_eq!(dictionary.corpus_capped, 1);
     }
 
     #[test]
