@@ -165,15 +165,24 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         recorded_settled_model.as_deref(),
         state_root.as_deref(),
     );
-    runtime.set_settled_reranker(
-        settled_model
-            .as_deref()
-            .and_then(std::path::Path::to_str)
-            .and_then(|path| sentence_model_settled(&options.resources, Some(path)))
-            .map(Reranker::new),
-    );
+    let settled_reranker = settled_model
+        .as_deref()
+        .and_then(std::path::Path::to_str)
+        .and_then(|path| sentence_model_settled(&options.resources, Some(path)))
+        .map(Reranker::new);
+    let settled_model_attached = settled_reranker.is_some();
+    runtime.set_settled_reranker(settled_reranker);
     // Loaded whenever it is installed, run only while the desktop model preference is on; `apply_pending` follows later changes of the switch.
     runtime.set_settled_rerank_enabled(applied.sentence_association.neural_desktop);
+    // 开关开着的输入会话写一行模型接上没有，诊断日志据此分得清没装、读不了和宿主没给状态目录（#10341）。
+    if usage == SessionUse::Input && applied.sentence_association.neural_desktop {
+        crate::report_settled_model(
+            &options.resources,
+            state_root.as_deref(),
+            settled_model.as_deref(),
+            settled_model_attached,
+        );
+    }
 
     let view = runtime.view();
     let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
@@ -215,6 +224,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 recorded_sentence_model: sentence_model_path,
                 recorded_settled_model,
                 settled_model,
+                settled_model_attached,
                 settled_model_loading: None,
                 lifecycle: None,
                 _dictionary_access: dictionary_access,

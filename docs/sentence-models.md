@@ -29,6 +29,17 @@ Rust 新版仍支持本地整句候选、神经模型重排和 octagram `.gram` 
 
 语法模型一次选择一种，也可选「不使用」。已安装模型可以删除；下载失败时查看资源包行的错误和下载镜像入口。
 
+打开「桌面神经联想」后仍看不出效果时，先确认输入会话有没有接上模型：在设置应用「维护与诊断」页的「诊断日志」打开输入法日志，切换一次输入框，再看 `diagnostic.log`（macOS）或 stderr（Linux）里的 `settled model ...` 行（macOS 记为 `host_api: settled model ...`）。开关开着时，会话建立、开关打开和模型装好或移除后换上时各写一行，开关关着时不写：
+
+| 日志行 | 含义 |
+| --- | --- |
+| `settled model attached` | 模型已加载并挂在会话上，停顿后的整句重排会用它 |
+| `settled model not loaded` | 找到了模型文件但没能用上；同一时间附近的 `sentence model unreadable`（文件读不了，例如超过 64 MiB、是符号链接或没有权限）或 `sentence model ignored`（文件损坏或版本不符）说明原因，重新下载资源包 |
+| `settled model missing` | 没有随包的模型，状态目录下也没有已安装的 `settled-model` 资源包，在设置页下载 |
+| `settled model missing without state directory` | 没有随包的模型，而输入会话没拿到状态目录，下载的资源包不会被找到；请附上日志报告问题 |
+
+模型已接上不表示每次停顿都会换首选：可信的词典首选等情况会跳过重排，首选没变本身不能说明模型没有加载。模型文件的访问时间（atime）也不能作为依据，APFS 上普通读取不一定更新它。
+
 ### Windows
 
 新版使用原生设置窗口，入口与 macOS、Linux 相同，在「输入 → 候选与联想」：
