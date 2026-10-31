@@ -153,8 +153,8 @@ final class RandomDigitsDeviceChecks {
         long time = SystemClock.uptimeMillis();
         KeyEvent shiftU = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_U,
             0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
-        t.sendKeySync(shiftU);
-        t.sendKeySync(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
+        t.injectKeyboardEvent(shiftU);
+        t.injectKeyboardEvent(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
         awaitPlain(committed + "U");
         t.stage = "U 模式里数字页保持标准顺序";
         physical(t.key("123"));
