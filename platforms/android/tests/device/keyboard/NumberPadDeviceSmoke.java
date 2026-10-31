@@ -14,18 +14,25 @@ import org.json.JSONObject;
 /** 数字九宫格：中文各键面的真实网格、连续字面输入、符号往返和键位统计，以及英文、长空格样式、日文罗马字和假名、韩文、藏文、大千注音借来的数字九宫格（半角写法的左列多出的半角符号、藏文 ' 交给会话、注音 #+= 的共享符号行）。 */
 public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private boolean passwordNumberPad;
+    private boolean randomDigits;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        randomDigits = arguments != null && "true".equals(arguments.getString("random-digits"));
         passwordNumberPad = arguments != null && "true".equals(arguments.getString("password-number-pad"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (randomDigits) return "随机数字入口默认关闭、真实开关、逐次按键面上屏（U 模式进组字）与重排、离页保持及英文隔离";
         if (passwordNumberPad) return "文字密码框可在字母与数字九宫格间往返，数字密码直接显示九宫格";
         return "Number-pad geometry, continuous arithmetic input, symbols, return and key statistics in every scheme";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (randomDigits) {
+            new RandomDigitsDeviceChecks(this).run();
+            return;
+        }
         if (passwordNumberPad) {
             verifyPasswordNumberPad();
             return;

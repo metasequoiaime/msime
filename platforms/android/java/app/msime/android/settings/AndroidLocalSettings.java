@@ -122,6 +122,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_SIZE_PERCENT = "platform.android.toolbar_size_percent";
     /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
     public static final String SYMBOL_CATEGORY_ORDER = "platform.android.symbol_category_order";
+    /** 中文工具栏上的「随」入口，默认不显示；这里只保存入口可见性，运行时随机开关不持久化。 */
+    public static final String TOOLBAR_RANDOM_DIGITS = "platform.android.toolbar_random_digits";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
@@ -269,6 +271,7 @@ public final class AndroidLocalSettings {
         bool(HARDWARE_CARET_CANDIDATES, false, false);
         bool(TOOLBAR_FLOATING, false, false);
         bool(TOOLBAR_TEXT_EDIT, false, false);
+        bool(TOOLBAR_RANDOM_DIGITS, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
         integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
