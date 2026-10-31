@@ -146,7 +146,7 @@ final class ImeCandidates {
     private final java.util.Set<Button> expandedCells =
         java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
-    /** 展开网格的单元：44 dp 高、圆角 8，底色和选中色都取候选栏配色。 */
+    /** 展开网格单元格：圆角 8，底色和选中色取候选栏配色；高度和文字大小跟随候选字号与候选栏大小，见 {@link CandidateScalePolicy#expandedCellHeight}。 */
     private void styleExpandedCell(Button button) {
         if (!keepsChipFace(button)) {
             android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
@@ -284,7 +284,7 @@ final class ImeCandidates {
         s.configureCandidateTextLayout(button, labelLines);
         if (s.candidatePronunciationVisible())
             button.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        KeyboardTypographyPolicy.setKeyTextSize(button, 17);
+        KeyboardTypographyPolicy.setKeyTextSize(button, CandidateScalePolicy.expandedTextSize(s.candidateFontSize));
         ViewPolicy.setSelected(button, highlighted);
         // AI 占位行画淡，云占位行由 ImeCandidateGrid 直接隐藏，免得内部标记进入手机候选面板（#6888）。
         boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source)
@@ -293,7 +293,8 @@ final class ImeCandidates {
         expandedCells.add(button);
         // 格子宽度由网格的列决定（CandidateGridPolicy），这里只量自然宽度。Button 默认样式自带 88 dp 的 minWidth，View 级的 setMinimumWidth 盖不掉它：每格至少 88 dp，手机上一行只放得下三格，右边空出一截。
         ViewPolicy.clearMinimumWidth(button);
-        ViewPolicy.setMinimumHeight(button, s.pixels(44));
+        ViewPolicy.setMinimumHeight(button, s.pixels(CandidateScalePolicy.expandedCellHeight(
+            CandidateScalePolicy.EXPANDED_CELL_HEIGHT_DP, s.candidateFontSize, s.candidateScalePercent)));
         LayoutPolicy.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.
