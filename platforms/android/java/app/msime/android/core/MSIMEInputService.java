@@ -2767,6 +2767,14 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
+            JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
+            if (startupPreferences != null) {
+                String copyLayout = InputViewValuePolicy.textOr(startupPreferences, "touch_keyboard_layout", "twenty_six_key");
+                String startupLayout = TouchLayoutHintPolicy.startupTouchKeyboardLayout(touchLayoutHint(),
+                    InputViewValuePolicy.textOr(startupPreferences, "scheme", "quanpin"), copyLayout);
+                if (!startupLayout.equals(copyLayout)) startupPreferences.put("touch_keyboard_layout", startupLayout);
+            }
             // 建会话在主线程上，这段时间里点按都要排队（#10086），单独记下它的耗时，与整段等待分开看。
             long createStartedAt = SystemClock.uptimeMillis();
             String created = NativeClient.create(options.toString());
@@ -4978,6 +4986,24 @@ public final class MSIMEInputService extends InputMethodService {
         int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
         return ReadingRowPolicy.heightPx(design, top, bottom,
             label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
+    }
+
+    private SpellingEditIcon spellingEditIcon;
+
+    /**
+     * 读音行左端的笔：边长约等于读音的字号（不超过一行字高，读音行的高度不变），点按区放宽到 40 dp，小图标也点得中。
+     */
+    private void showSpellingEditIcon(boolean shown) {
+        if (!shown) {
+            preedit.setCompoundDrawablesRelative(null, null, null, null);
+            preedit.setMinWidth(0);
+            return;
+        }
+        if (spellingEditIcon == null) spellingEditIcon = new SpellingEditIcon(preedit);
+        int size = Math.round(preedit.getTextSize() * 1.15f);
+        spellingEditIcon.setBounds(0, 0, size, size);
+        preedit.setCompoundDrawablesRelative(spellingEditIcon, null, null, null);
+        preedit.setMinWidth(pixels(40));
     }
 
     void fail(Throwable error) {
@@ -11857,9 +11883,12 @@ public final class MSIMEInputService extends InputMethodService {
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
-            if (caretEditable && !spellingDrawn && phrasePrefix.isEmpty()) displayText = "编辑拼写";
+            // 拼写已写在输入框里时读音行只画一支笔（SpellingEditIcon），点它打开放大编辑条；不再放「编辑拼写」四个字，描述仍是「编辑拼写」。
+            boolean spellingEditIcon = caretEditable && !spellingDrawn && phrasePrefix.isEmpty();
+            if (spellingEditIcon) displayText = "";
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
+            showSpellingEditIcon(spellingEditIcon);
             preedit.setContentDescription(caretEditable ? "编辑拼写"
                 : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
