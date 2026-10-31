@@ -596,6 +596,36 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
 });
 
+test("HarmonyOS phones offer English pronunciations under the gloss switch, without romaji", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "harmony", mobile_settings: true }),
+      }}
+    />,
+  );
+  await openInputSettings();
+  // 鸿蒙只标英文音标，不生成日文罗马音，开关和说明都只写英文。
+  const toggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
+  expect(screen.getByText(/在英文候选和英文释义下面标出音标/)).toBeDefined();
+  expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_pronunciation: true }));
+});
+
 test("Android English suggestions default on and persist independently", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
