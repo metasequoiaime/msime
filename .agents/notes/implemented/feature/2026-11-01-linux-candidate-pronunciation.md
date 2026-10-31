@@ -36,3 +36,5 @@ Status: implemented
 - `candidate_native_canvas_chrome.cpp`：读音排在释义之后、插件注释之前，格子多一行高。`candidate_native_canvas.cpp`：canvas 包的读音按 0.72 倍透明度画、选中行不减淡，词性区段颜色照旧。
 - `fcitx5/tests/native.cpp`：classicui 把读音画在释义下面、原生画布拿到分开的释义和读音、读音不进上屏文字；宿主按偏好和目标语言给出读音，翻译请求作废时清掉记下的读音。
 - `desktop_resource_packs.rs`：音标表只在 Linux 安装不带它时列出，启动补齐不含它；`apps/desktop/tests/settings/resource-packs.test.tsx`：Linux 的说明只讲英文、开关打开后才出现下载行、不自动下载、点了才安装、装好后下载行消失。
+
+本机跑过的：`candidate_pronunciation.cpp` 用本机 clang 编译运行通过；两个画布测试在本机 clang 下语法检查通过，其中新增和改动的 `pronunciation_appearance`、`translation_appearance`、`rows_and_glosses` 换成桩的皮肤解码函数链接后运行通过；`resource-packs.test.tsx` 29 项和 `settings.test.tsx` 里的读音用例通过，`tsc --noEmit`、`pnpm run lint`、`format:check` 通过。`platforms/linux/build-container.sh` 的整套 Linux 编译和 ctest、`msime-desktop` 的 Rust 单测没能在本机或编译机跑完：编译机的工作盘写满（第一次运行在 Fcitx5 的聚合初始化上编不过，修正后重跑时卡在磁盘满），交给 PR 上的 CI。
