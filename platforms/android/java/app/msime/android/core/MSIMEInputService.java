@@ -12143,7 +12143,7 @@ public final class MSIMEInputService extends InputMethodService {
             imeToolbar.styleTopRow();
             return;
         }
-        // 注音 9 键的读音选择条叠在候选区上：选择条只在候选列表关着时出现，那时候选行本来就是空的，所以把候选滚动区让成不可见（仍占位，键盘高度不变）。
+        // 注音 9 键的读音选择条叠在候选区上：选择条只在候选列表关着时出现，那时候选行本来就是空的，所以把候选滚动区让成不可见（仍占位，键盘高度不变）。18 键组字时拼音和候选同时出现，它的拼音条在读音行（ImeLayoutRows#attachEighteenSpellingsToReadingRow），不叠在这里，候选照常显示、可点。
         boolean zhuyinSpellingsShown = ViewPolicy.isVisible(nineKeySpellingScroll)
             && displayedTouchLayout(view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         int candidateScrollShown = zhuyinSpellingsShown ? View.INVISIBLE : View.VISIBLE;

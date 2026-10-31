@@ -355,7 +355,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏方案 `QUANPIN_EIGHTEEN_KEY` 使用 `Q WE RT Y U IO P` / `A SD FG H JK L` / `Z XC V BN M` 三排组码键，编号为共享 C ABI 的 `KeyGrid::EighteenKey`（4）。它与 14 键共用候选、读音选择、拼音条、三栏展开面板和长按字母行为；键表与引擎分组、`Eighteen*` 统计键位由 `scripts/test-harmony-eighteen-key-table.py` 核对。18 键同样只在手机和平板提供，2in1、英文、密码框、网址框和本地模式回落到 26 键。
 
-18 键的布局偏好是 `eighteen_key`，默认不启用；鸿蒙新版本可正常同步，旧版遇到未知值时只跳过该键。打字统计来源为 `eighteenKey`，键面第三排左端保留分词/符号键，右端为删除。
+18 键的布局偏好是 `eighteen_key`，默认不启用；鸿蒙新版本可正常同步，旧版遇到未知值时只跳过该键。打字统计来源为 `eighteenKey`，键面第三排左端保留分词/符号键，右端为删除。三排从同一左右边界铺开：第二排六个键平分整行，`A`、`L` 分别与首排 `Q`、`P` 对齐，与 Android、iOS 相同。
 
 ## 双拼 14/18 键
 

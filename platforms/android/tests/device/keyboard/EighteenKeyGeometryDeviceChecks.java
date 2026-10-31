@@ -99,7 +99,6 @@ final class EighteenKeyGeometryDeviceChecks {
         Rect screen = new Rect(0, 0, width, height);
         Rect area = new Rect();
         List<Rect> keys = new ArrayList<>();
-        int minWidth = Integer.MAX_VALUE, maxWidth = 0;
         for (String[] row : ROWS) {
             Rect first = null, last = null;
             for (String description : row) {
@@ -114,17 +113,13 @@ final class EighteenKeyGeometryDeviceChecks {
                 else if (bounds.left < last.right || Math.abs(bounds.top - first.top) > 2)
                     throw new AssertionError("18 键没有按三行顺序排列");
                 last = bounds;
-                minWidth = Math.min(minWidth, bounds.width());
-                maxWidth = Math.max(maxWidth, bounds.width());
                 keys.add(bounds);
                 area.union(bounds);
             }
         }
-        if (maxWidth - minWidth > 2)
-            throw new AssertionError("18 键字母组没有等宽：" + minWidth + ".." + maxWidth + " " + keys);
         Rect first = keys.get(0), last = keys.get(6), a = keys.get(7), l = keys.get(12);
-        if (Math.abs(first.left + last.right - a.left - l.right) > 4)
-            throw new AssertionError("18 键第二排没有居中");
+        if (Math.abs(first.left - a.left) > 2 || Math.abs(last.right - l.right) > 2)
+            throw new AssertionError("18 键第二排没有与首排左右对齐：" + first + ", " + last + ", " + a + ", " + l);
         t.shellDiscard("screencap -p /data/local/tmp/msime-9124-" + name + ".png");
         return area;
     }
