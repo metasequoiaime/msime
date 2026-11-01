@@ -11906,14 +11906,16 @@ public final class MSIMEInputService extends InputMethodService {
             && handwritingCandidateToken != null;
         boolean hasEmailSuffixes = imeEmailSuffixes.active();
         boolean hasNineKeyPunctuation = imeNineKeyQuickPunctuation.active();
-        boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
+        // 候选栏是否没有东西可显示：英文直输的当前词只在读音行给「清除」，候选行没有内容，此时照常换回工具栏（#10479）。
+        boolean candidateIdle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
-            && !hasEnglishWord
             && !hasEmailSuffixes
             && !hasNineKeyPunctuation
             && !hasHandwritingResults);
+        // 整行空闲：另要求没有可清除的英文当前词，读音行和读音标题按它决定，「清除」留在工具栏上方的读音行里。
+        boolean idle = candidateIdle && !hasEnglishWord;
         if (preedit != null) {
             // 读音的字号由 ImeStyler.applySkin 在 render 末尾统一设置，这里不再另设一份。
             String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
@@ -12023,19 +12025,19 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean keysCollapsed = hardwareKeysCollapsed();
         imeFrame.setKeysCollapsed(keysCollapsed);
-        applyCaretCandidates(!idle || hasDiagnostic);
+        applyCaretCandidates(!candidateIdle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
         // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示（toolbarExitNeeded）。工具按钮全关时同样不显示这一行（toolbarRowHidden）。
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic
+        boolean toolbarRow = !heightMode && candidateIdle && !hasDiagnostic
             && (!toolbarRowHidden() || keysCollapsed || toolbarExitNeeded());
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
-        if (!idle) recentClip.dismiss();
+        if (!candidateIdle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
         // 文本编辑面板保留顶部的复制预览，点「复制」后不必先返回键盘（#8104）。
         boolean recentPanelAllowed = ViewPolicy.isVisible(textEditPanel) || !anyToolbarPanelOpen();
         boolean autofillShown = inlineAutofill != null && inlineAutofill.update(
-            !heightMode && idle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
+            !heightMode && candidateIdle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
         boolean recentAllowed = !autofillShown && toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY);
         String recent = recentAllowed ? recentClip.text(nowMs) : null;
@@ -12048,11 +12050,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutToolbar != null)
             ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
-            ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateLine, !heightMode && !candidateIdle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
-            ViewPolicy.setVisible(candidateViewport, !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateViewport, !candidateIdle && !hasDiagnostic);
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);
