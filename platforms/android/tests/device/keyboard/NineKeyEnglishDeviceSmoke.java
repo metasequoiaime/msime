@@ -149,6 +149,21 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             tap(described("清除当前英文单词"));
             expectEditorText("alpha  tail");
 
+            // #10479：没有补全的词点原文只收起建议，词仍在光标前；候选行没有内容时换回工具栏，「清除」留在读音行里照常可用。
+            stage = "无补全的词点原文后恢复工具栏";
+            setEditorText("alpha  tail", 6, 6);
+            typeWord("qzxjvkqzxj");
+            SystemClock.sleep(750);
+            tap(englishSuggestion("qzxjvkqzxj"));
+            expectEditorText("alpha qzxjvkqzxj tail");
+            awaitGone(describedPrefix("英文建议 "));
+            await(described("键盘快捷栏"));
+            awaitGone(described("展开候选"));
+            tap(described("清除当前英文单词"));
+            expectEditorText("alpha  tail");
+            awaitGone(described("清除当前英文单词"));
+            await(described("键盘快捷栏"));
+
             stage = "全角字母与撇号仍按当前词清除";
             setEditorText("alpha ｓａｍｐｌｅ tail", 12, 12);
             tap(described("清除当前英文单词"));
@@ -243,6 +258,19 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
         };
     }
 
+    /** 内容是原文本身的英文建议，序号随纠错和补全变化，不假定在哪一格。 */
+    private Predicate<AccessibilityNodeInfo> englishSuggestion(String text) {
+        return node -> {
+            if (!equalsText("app.msime.android", node.getPackageName())
+                    || !node.isClickable() || node.getContentDescription() == null) return false;
+            String description = node.getContentDescription().toString();
+            int delimiter = description.indexOf('：');
+            if (!description.startsWith("英文建议 ") || delimiter < 0) return false;
+            String value = description.substring(delimiter + 1);
+            int pronunciation = value.indexOf('，');
+            return (pronunciation < 0 ? value : value.substring(0, pronunciation)).equals(text);
+        };
+    }
 
     /** 等匹配的节点从所有窗口里消失。 */
     private void awaitGone(Predicate<AccessibilityNodeInfo> match) {

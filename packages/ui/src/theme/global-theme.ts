@@ -228,15 +228,20 @@ export function candidatePaletteStyle(palette: CandidateThemePalette | null): CS
   return Object.fromEntries(slots.filter(([, value]) => value !== null)) as CSSProperties;
 }
 
-/** macOS `DeriveSelectedForegrounds`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：调色板没给选中行文字或序号颜色时，原生按实际画出的选中底推导。选中底是 `selected`，没有时跟随 `accent`；它的不透明度低于 0.85 时文字和序号退回普通行的颜色，否则按相对亮度 0.45 取白或 #1A1A1A，序号再取 82% 不透明。两者都没有时原生画的是平台强调色，留给样式表的白字。结果写成 `--cand-mac-selected-text` / `--cand-mac-selected-num`，只在 `skin-card-preview` 的 macOS 默认值块里读，其他平台不受影响。 */
+/** macOS `DeriveSelectedForegrounds`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：调色板没给选中行文字或序号颜色时，原生按实际画出的选中底推导。选中底是 `selected`，没有时跟随 `accent`，跟随时写成 `--cand-mac-selected`；它的不透明度低于 0.85 时文字和序号退回普通行的颜色，否则按相对亮度 0.45 取白或 #1A1A1A，序号再取 82% 不透明。两者都没有时原生画的是平台的选中底（浅色 #2C7A4B、深色 #17783F），留给样式表的默认值和白字。结果写成 `--cand-mac-selected` / `--cand-mac-selected-text` / `--cand-mac-selected-num`，只在 `skin-card-preview` 的 macOS 和 Windows 默认值块里读，其他平台不受影响。 */
 function macSelectedForegrounds(palette: CandidateThemePalette): [string, string | null][] {
   const fill = normalizedColor(palette.selected ?? palette.accent ?? "");
   if (!fill) return [];
+  const followsAccent: [string, string | null] = [
+    "--cand-mac-selected",
+    palette.selected === null ? palette.accent : null,
+  ];
   const alpha = fill.length === 9 ? parseInt(fill.slice(7), 16) / 255 : 1;
   const luminance = relativeLuminance(parseInt(fill.slice(1, 7), 16));
   const contrast = luminance < 0.45 ? "#FFFFFF" : "#1A1A1A";
   const translucent = alpha < 0.85;
   return [
+    followsAccent,
     [
       "--cand-mac-selected-text",
       palette.selected_text === null ? (translucent ? "var(--cand-text)" : contrast) : null,

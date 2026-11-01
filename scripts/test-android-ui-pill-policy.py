@@ -6,8 +6,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = ROOT / "platforms/android/java/app/msime/android"
 UI = ANDROID / "home/Ui.java"
+# AboutPage 不在其中：它的胶囊原来是标志背后的圆盘，标志本身就是外框后圆盘去掉了。
 EXPECTED_CALLERS = (
-    "AboutPage.java",
     "FeedbackPage.java",
     "MsToast.java",
     "ProfilePage.java",

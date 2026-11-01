@@ -5,6 +5,8 @@ package app.msime.android;
  *
  * <p>分离需要本地设置 `platform.android.split_keyboard` 打开、当前窗口是大屏（{@link KeyboardFormFactorPolicy#expanded}，按 `smallestScreenWidthDp` 判断，手机横屏不算），并且横屏或 `touch_keyboard_split_portrait` 打开；正在画的布局也必须属于 26 键一族（{@link #splitsLayout}）。九键、日文假名网格、手写、大千注音、笔画和注音 9 键这类网格布局不分离，键盘照常画成大屏的 720 dp 居中外框。
  *
+ * <p>手机横屏另有一个分支（#10440）：本地设置 `platform.android.split_keyboard_phone_landscape` 打开（默认关、不随账号同步，免得手机继承平板上的开启状态）、横屏、`smallestScreenWidthDp` 低于分离启用宽度，并且按键盘实际可用宽度算出的分离后第一排字母键不窄于 {@link #PHONE_MIN_LETTER_KEY_WIDTH_DP}（{@link #phoneActive}）。可用宽度由调用方给出键盘列扣掉左右系统栏内边距之后的宽度，分屏、侧边导航栏和刘海留白都算在里面，不按屏幕宽度猜（iPhone 上按屏幕宽度判断在真机上从不生效，见 #10342）。手机分离不走大屏的 720 dp 居中外框：{@link KeyboardFormFactorPolicy#surfaceWidthDp} 在分离时总是铺满。
+ *
  * <p>每一行都是「不分离时的那一行，整体最多占键盘宽度的 75%，宽窗口里原始键区合计不超过 720 dp，在中间某个键的边界上断开，左右两段各自贴到键盘两侧」。中间至少空出的 25% 是一个不属于任何键的占位视图，键与键之间原有的宽度比例、第二行的半键缩进都原样保留，所以第二行的断口比第一行偏右半个键，就像整副键盘从中间掰开。断点取使左段份额最接近整行一半的键边界；两个边界一样接近时（奇数个等宽键）多出来的那个键归左边。底行的空格键不在键边界上断，而是拆成两个空格键，分别放在两半的内侧，左边那个的宽度让空隙正好居中。
  *
  * <p>字母层的第二、三行在右半边内侧重复左半边最内侧的那个字母（#6022）：a–l 行是 asdfg | ghjkl，⇧ zxcvbnm ⌫ 是 ⇧zxcv | vbnm⌫，双手握持时两边拇指都够得着 G、V，双拼也更顺手。重复的键从空隙里占一个键宽（{@link #gapWeight(float, float)}），所以三行的键宽不变，这两行的空隙比第一行窄一个键；两段的份额恰好相等（第二行 0.5 + 5 对 5 + 0.5，第三行 ⇧ + 4 对 4 + ⌫），空隙仍在正中。只有重复之后两段正好相等时才重复（{@link #duplicatesInnerKey}）：微软双拼显示第十个键 `;` 时第二行没有半键缩进，asdfg | hjkl; 本来就是五对五，再重复 G 右边就多出一个键、空隙偏开半个键，所以这一行不重复。第一行 qwert | yuiop 本来左右各五个，不重复；数字行、123 / #+= 层也不重复。
@@ -29,6 +31,9 @@ public final class SplitKeyboardPolicy {
     public static final float MIN_SPACE_SHARE = 0.15f;
     /** 比较份额时的容差：键宽份额是 1.4、1.05 这样的浮点数，相等的两个候选断点不能因为舍入误差分出先后。 */
     private static final float EPSILON = 1e-3f;
+
+    /** 手机横屏分离后字母键（扣掉按键间距的可见宽度）至少要有多宽才分（#10440）。与 iPhone 的 36 pt 相同（#10342）：不比手机竖屏时的字母键窄，只挡住窄得不正常的键盘。 */
+    public static final int PHONE_MIN_LETTER_KEY_WIDTH_DP = 36;
 
     private SplitKeyboardPolicy() {}
 
@@ -76,6 +81,39 @@ public final class SplitKeyboardPolicy {
     public static boolean drawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout,
                                 boolean portrait, int thresholdDp) {
         return active(enabled, smallestWidthDp, landscape, portrait, thresholdDp) && splitsLayout(touchLayout);
+    }
+
+    /**
+     * 手机横屏分离后第一排字母键的可见宽度（dp）：第一排十个等宽键加一段中缝，中缝按 {@link #gapFraction(int, int)} 占整行，每个键再扣掉按键间距（左右各半个）。第一排是最窄的一排：第二排九个字母两侧有半键缩进，第三排的 ⇧ 和 ⌫ 更宽，按同样的中缝算都更宽。
+     *
+     * @param availableWidthDp 键盘列扣掉左右系统栏内边距后给键行的宽度；未知（≤ 0）时返回 0，不分
+     * @param keySpacingTenths 共享偏好 `touch_key_spacing_tenths`（0.1 dp）
+     * @param gapPercent 本地设置 `platform.android.split_keyboard_gap`
+     */
+    public static float phoneLetterKeyWidthDp(int availableWidthDp, int keySpacingTenths, int gapPercent) {
+        if (availableWidthDp <= 0) return 0f;
+        float gap = gapFraction(availableWidthDp, gapPercent);
+        return availableWidthDp * (1f - gap) / 10f - BoundsPolicy.nonNegative(keySpacingTenths) / 10f;
+    }
+
+    /**
+     * 手机横屏分离式键盘的前提是否满足（与当前布局无关）：本地开关打开、横屏、`smallestScreenWidthDp` 低于分离启用宽度（够宽的设备走大屏分支），并且分离后字母键不窄于 {@link #PHONE_MIN_LETTER_KEY_WIDTH_DP}。竖屏覆盖 `touch_keyboard_split_portrait` 只对大屏生效，这里不看。
+     *
+     * @param enabled 本地设置 `platform.android.split_keyboard_phone_landscape`
+     * @param thresholdDp 本地设置 `platform.android.split_keyboard_threshold`；非法值按默认值处理
+     */
+    public static boolean phoneActive(boolean enabled, int smallestWidthDp, boolean landscape, int thresholdDp,
+                                      int availableWidthDp, int keySpacingTenths, int gapPercent) {
+        int threshold = BoundsPolicy.bounded(thresholdDp, MIN_THRESHOLD_DP, MAX_THRESHOLD_DP);
+        return enabled && landscape && smallestWidthDp < threshold
+            && phoneLetterKeyWidthDp(availableWidthDp, keySpacingTenths, gapPercent) >= PHONE_MIN_LETTER_KEY_WIDTH_DP;
+    }
+
+    /** 手机横屏此刻是否真的画成分离式：{@link #phoneActive} 满足且正在画的布局可以分离（{@link #splitsLayout}）。 */
+    public static boolean phoneDrawn(boolean enabled, int smallestWidthDp, boolean landscape, int touchLayout,
+                                     int thresholdDp, int availableWidthDp, int keySpacingTenths, int gapPercent) {
+        return phoneActive(enabled, smallestWidthDp, landscape, thresholdDp, availableWidthDp, keySpacingTenths,
+            gapPercent) && splitsLayout(touchLayout);
     }
 
     /** 份额合计为 `rowWeight` 的一行需要多大份额的空隙，才能让空隙占插入后整行的 {@link #GAP_FRACTION}。 */

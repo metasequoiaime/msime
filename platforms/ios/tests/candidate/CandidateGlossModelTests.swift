@@ -86,49 +86,67 @@ final class CandidateGlossModelTests: XCTestCase {
     XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: -1), maximum: UInt64.max))
   }
 
-  // MARK: - 候选英文音标
+  // MARK: - 候选读音
 
-  func testPronunciationLookupReadsEnglishCandidatesAndTheEnglishGlossOnly() {
-    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "hello", englishGloss: nil), "hello")
-    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "well-known", englishGloss: "x"), "well-known",
+  private func key(_ language: String, _ text: String) -> String { CandidatePronunciationModel.key(language: language, text: text) }
+
+  func testPronunciationLookupReadsEnglishCandidatesAndEachGlossInItsLanguage() {
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "hello", gloss: nil, language: "en"), key("en", "hello"))
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "well-known", gloss: "x", language: "fr"), key("en", "well-known"),
                    "an English candidate is read as itself, not through its gloss")
-    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: " hello; hi\nsecond "), "hello; hi",
-                   "a Chinese candidate is read through the first line of its English gloss")
-    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: nil))
-    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", englishGloss: CandidatePronunciationModelTestsPlaceholder.pending),
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "你好", gloss: " hello; hi\nsecond ", language: "en"),
+                   key("en", "hello; hi"), "a Chinese candidate is read through the first line of its English gloss")
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "猫", gloss: "chat, chatte", language: "fr"),
+                   key("fr", "chat, chatte"), "a French gloss is read as French, not English")
+    XCTAssertEqual(CandidatePronunciationModel.lookupText(candidate: "猫", gloss: "猫", language: "ja"), key("ja", "猫"))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "猫", gloss: "chat", language: "zh"),
+                 "a language without a table is not looked up")
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", gloss: nil, language: "en"))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "你好", gloss: CandidatePronunciationModelTestsPlaceholder.pending,
+                                                        language: "en"),
                  "the pending placeholder is not a gloss")
-    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "AI助手", englishGloss: nil))
-    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "爱", englishGloss: "to love\taffection"),
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "AI助手", gloss: nil, language: "en"))
+    XCTAssertNil(CandidatePronunciationModel.lookupText(candidate: "爱", gloss: "to love\taffection", language: "en"),
                  "the shared request rejects a whole batch over one control character, so such a gloss is not looked up")
   }
 
   func testPronunciationRequestDeduplicatesAndCarriesThePackRoot() throws {
-    let data = try CandidatePronunciationModel.request(texts: ["hello", "", "hello", "world"],
+    let data = try CandidatePronunciationModel.request(keys: [key("en", "hello"), "", key("en", "hello"), key("en", "world"),
+                                                              key("fr", "chat"), key("zh", "猫")],
                                                        supplementaryResources: "/synthetic/state/resource-packs")
     let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     XCTAssertEqual((object["generation"] as? NSNumber)?.intValue, 0)
     XCTAssertEqual(object["supplementary_resources"] as? String, "/synthetic/state/resource-packs")
     let items = try XCTUnwrap(object["items"] as? [[String: String]])
-    XCTAssertEqual(items, [["text": "hello", "language": "en"], ["text": "world", "language": "en"]])
-    let many = try CandidatePronunciationModel.request(texts: (0..<400).map { "word\($0)" }, supplementaryResources: nil)
+    XCTAssertEqual(items, [["text": "hello", "language": "en"], ["text": "world", "language": "en"],
+                           ["text": "chat", "language": "fr"]])
+    let many = try CandidatePronunciationModel.request(keys: (0..<400).map { key("en", "word\($0)") }, supplementaryResources: nil)
     let manyItems = try XCTUnwrap((JSONSerialization.jsonObject(with: many) as? [String: Any])?["items"] as? [Any])
     XCTAssertEqual(manyItems.count, CandidatePronunciationModel.maxItems)
-    let clean = try CandidatePronunciationModel.request(texts: ["love\taffection", "hello"], supplementaryResources: nil)
+    let clean = try CandidatePronunciationModel.request(keys: [key("en", "love\taffection"), key("en", "hello")],
+                                                        supplementaryResources: nil)
     let cleanItems = try XCTUnwrap((JSONSerialization.jsonObject(with: clean) as? [String: Any])?["items"] as? [[String: String]])
     XCTAssertEqual(cleanItems, [["text": "hello", "language": "en"]], "a text with a control character is left out of the batch")
-    XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: [""], supplementaryResources: nil))
-    XCTAssertThrowsError(try CandidatePronunciationModel.request(texts: ["hello"], supplementaryResources: "relative"))
+    XCTAssertThrowsError(try CandidatePronunciationModel.request(keys: [""], supplementaryResources: nil))
+    XCTAssertThrowsError(try CandidatePronunciationModel.request(keys: [key("en", "hello")], supplementaryResources: "relative"))
   }
 
-  func testPronunciationDecodeKeepsOnlyEnglishSlashedReadings() throws {
+  func testPronunciationDecodeKeepsEachLanguagesReadingShape() throws {
     let readings = try CandidatePronunciationModel.decode(["generation": 0, "pronunciations": [
       ["text": "hello", "language": "en", "pronunciation": "/həˈləʊ/"],
       ["text": "bad", "language": "en", "pronunciation": "həˈləʊ"],
-      ["text": "bonjour", "language": "fr", "pronunciation": "/bɔ̃ʒuʁ/"],
+      ["text": "bracketed", "language": "en", "pronunciation": "[x]"],
+      ["text": "bonjour", "language": "fr", "pronunciation": "/bɔ̃.ʒuʁ/"],
+      ["text": "кошка", "language": "ru", "pronunciation": "[ˈkoʂkə]"],
+      ["text": "猫", "language": "ja", "pronunciation": "neko"],
+      ["text": "猫", "language": "zh", "pronunciation": "māo"],
       ["text": "", "language": "en", "pronunciation": "/x/"],
     ]])
-    XCTAssertEqual(readings, ["hello": "/həˈləʊ/"])
+    XCTAssertEqual(readings, [key("en", "hello"): "/həˈləʊ/", key("fr", "bonjour"): "/bɔ̃.ʒuʁ/",
+                              key("ru", "кошка"): "[ˈkoʂkə]", key("ja", "猫"): "neko"])
     XCTAssertThrowsError(try CandidatePronunciationModel.decode(["generation": 0]))
+    XCTAssertEqual(CandidatePronunciationModel.accessibilityLabel("[ˈkoʂkə]"), "音标 [ˈkoʂkə]")
+    XCTAssertEqual(CandidatePronunciationModel.accessibilityLabel("neko"), "读音 neko")
   }
 
   /// 键盘经共享层读下载的资源包：资源目录旁没有表时，从 `<state_root>/resource-packs/pronunciations/` 读到合成的表。
@@ -155,10 +173,40 @@ final class CandidateGlossModelTests: XCTestCase {
     sqlite3_close(database)
     XCTAssertTrue(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path))
     let request = try CandidatePronunciationModel.request(
-      texts: ["hello", "to love", "unknown"],
+      keys: [key("en", "hello"), key("en", "to love"), key("en", "unknown")],
       supplementaryResources: CandidatePronunciationPreference.supplementaryResources(stateRoot: state.path))
     let response = try MetasequoiaInputSessionBridge.candidatePronunciations(request: request, resources: resources.path)
-    XCTAssertEqual(try CandidatePronunciationModel.decode(response), ["hello": "/həˈləʊ/", "to love": "/lʌv/"])
+    XCTAssertEqual(try CandidatePronunciationModel.decode(response), [key("en", "hello"): "/həˈləʊ/", key("en", "to love"): "/lʌv/"])
+  }
+
+  /// 外语读音表在另一个资源包里：只有它、没有英文表时，主目标语言是法语也算装好了，法语释义经共享层从它读。
+  func testTargetReadingsComeFromTheirOwnPack() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = root.appendingPathComponent("EngineResources", isDirectory: true)
+    let state = root.appendingPathComponent("state", isDirectory: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    let pack = URL(fileURLWithPath: CandidatePronunciationPreference.supplementaryResources(stateRoot: state.path))
+      .appendingPathComponent(CandidatePronunciationPreference.targetPackID, isDirectory: true)
+    try FileManager.default.createDirectory(at: pack, withIntermediateDirectories: true)
+    var database: OpaquePointer?
+    XCTAssertEqual(sqlite3_open(pack.appendingPathComponent("fr-phonetic.db").path, &database), SQLITE_OK)
+    XCTAssertEqual(sqlite3_exec(database, """
+      CREATE TABLE fr_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+      CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+      INSERT INTO meta VALUES('kind', 'fr_phonetic');
+      INSERT INTO fr_phonetics VALUES('chat', '/ʃa/');
+      PRAGMA user_version = 1;
+      """, nil, nil, nil), SQLITE_OK)
+    sqlite3_close(database)
+    XCTAssertFalse(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path))
+    XCTAssertFalse(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path, language: "de"))
+    XCTAssertTrue(CandidatePronunciationPreference.tableInstalled(resources: resources.path, stateRoot: state.path, language: "fr"))
+    let request = try CandidatePronunciationModel.request(
+      keys: [key("fr", "chat, chatte"), key("en", "chat")],
+      supplementaryResources: CandidatePronunciationPreference.supplementaryResources(stateRoot: state.path))
+    let response = try MetasequoiaInputSessionBridge.candidatePronunciations(request: request, resources: resources.path)
+    XCTAssertEqual(try CandidatePronunciationModel.decode(response), [key("fr", "chat, chatte"): "/ʃa/"])
   }
 
   func testPronunciationIsAHabitSettingThatDefaultsOff() {

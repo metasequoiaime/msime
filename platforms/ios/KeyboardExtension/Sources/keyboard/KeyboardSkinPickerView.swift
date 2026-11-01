@@ -309,21 +309,10 @@ final class KeyboardSkinMiniature: UIView {
     let column = frame.width / columns
     func center(_ index: Int) -> CGPoint { CGPoint(x: frame.minX + column * (CGFloat(index) + 0.5), y: frame.midY) }
 
-    // 品牌圆盘按工具栏的画法：`logoCircle` 底色，白色描边下是 `logoMark` 颜色的标志外框。
-    let discSide: CGFloat = 26
-    let disc = CGRect(x: center(0).x - discSide / 2, y: center(0).y - discSide / 2, width: discSide, height: discSide)
-    skin.logoCircle.setFill()
-    UIBezierPath(ovalIn: disc).fill()
-    let markSide = discSide * 18 / 30
-    let mark = CGRect(x: disc.midX - markSide / 2, y: disc.midY - markSide / 2, width: markSide, height: markSide)
-    skin.logoMark.setFill()
-    UIBezierPath(cgPath: MSIMELogo.framePath(in: mark)).fill()
-    let stroke = UIBezierPath(cgPath: MSIMELogo.strokePath(in: mark))
-    stroke.lineWidth = MSIMELogo.strokeWidth * MSIMELogo.scale(for: mark)
-    stroke.lineCapStyle = .round
-    stroke.lineJoinStyle = .round
-    UIColor.white.setStroke()
-    stroke.stroke()
+    // 品牌键按工具栏的画法：固定配色的水杉标志本身就是外框，不垫圆盘；尺寸仍是原来 26 点圆盘里那枚标志的大小。
+    let markSide: CGFloat = 26 * 18 / 30
+    let mark = CGRect(x: center(0).x - markSide / 2, y: center(0).y - markSide / 2, width: markSide, height: markSide)
+    MSIMELogo.draw(in: mark)
 
     for (index, glyph) in glyphs.enumerated() {
       strokeIcon(glyph, side: 22, center: center(index + 1), color: skin.keyForeground)

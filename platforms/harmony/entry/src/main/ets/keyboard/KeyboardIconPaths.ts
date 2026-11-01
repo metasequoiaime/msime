@@ -118,14 +118,19 @@ export class KeyboardIconPaths {
 
   // ---- 品牌标志（`assets/msime_frame.svg` 及设计稿叠在其上的描边），view box 为 `BRAND_VIEW_WIDTH` x `BRAND_VIEW_HEIGHT` ----
 
-  static readonly BRAND_VIEW_WIDTH: number = 116;
+  // 设计稿的折线画在 116 x 132 里；外框是围着折线居中的 120 x 120 圆角正方形（圆角半径为边长的 22%，用三次曲线画，与 packages/ui 的 msimeFramePath 相同），所以画布左右各扩 8 成为 132 x 132。viewPort 不用负原点，两条路径都比 packages/ui 的坐标整体右移 8。
+  static readonly BRAND_VIEW_WIDTH: number = 132;
   static readonly BRAND_VIEW_HEIGHT: number = 132;
-  /** 外框（设计稿写作 `M5.84314 5.8335H109.843V125.833H5.84314Z`），用皮肤的 `logoBg` 填充。 */
+  /** 外框（packages/ui 的 msimeFramePath 右移 8），用 `BRAND_FIELD` 填充、`BRAND_EDGE` 描边。 */
   static readonly BRAND_FRAME: string =
-    "M5.84314 5.8335L109.843 5.8335L109.843 125.833L5.84314 125.833Z";
-  /** 叠在外框上的描边：白色，宽 `BRAND_STROKE_WIDTH`，圆头。 */
+    "M32.2431 5.8335L99.4431 5.8335C114.023 5.8335 125.843 17.6532 125.843 32.2335L125.843 99.4335C125.843 114.014 114.023 125.834 99.4431 125.834L32.2431 125.834C17.6628 125.834 5.8431 114.014 5.8431 99.4335L5.8431 32.2335C5.8431 17.6532 17.6628 5.8335 32.2431 5.8335Z";
+  /** 叠在外框上的描边：白色，宽 `BRAND_STROKE_WIDTH`，圆头。即 packages/ui 的 msimeStrokePath（设计稿的笔画以外框中心为原点缩到 80%、线宽不变，四周留出边距）右移 8。 */
   static readonly BRAND_STROKE: string =
-    "M80.394 18.8335L34.3451 36.489L80.394 49.7306L34.3451 71.7999C77.8789 79.1564 118.8 85.1887 31.8431 113.088";
+    "M83.8838 28.2335L47.0447 42.3579L83.8838 52.9512L47.0447 70.6066C81.8717 76.4918 114.609 81.3177 45.0431 103.637";
   static readonly BRAND_STROKE_WIDTH: number = 9;
   static readonly BRAND_STROKE_COLOR: string = "#FFFFFF";
+  /** 标志的固定配色，与 packages/ui 的 msimeFieldColor、msimeEdgeColor 和各平台图标相同，不随皮肤变化：深色底，绿边宽 `BRAND_EDGE_WIDTH`（view box 单位，压在外框路径上居中）。 */
+  static readonly BRAND_FIELD: string = "#252525";
+  static readonly BRAND_EDGE: string = "#A8DF8E";
+  static readonly BRAND_EDGE_WIDTH: number = 6;
 }

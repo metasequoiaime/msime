@@ -1,8 +1,12 @@
 package app.msime.android.test;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.os.Build;
+import android.os.SystemClock;
 import android.os.Bundle;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,18 +34,31 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
         if (!directory.toPath().startsWith(root.toPath())) throw new AssertionError("Invalid test sandbox");
         File preferences = new File(directory, "preferences.json");
         byte[] original = preferences.exists() ? Files.readAllBytes(preferences.toPath()) : null;
+        File local = new File(root, "bootstrap/state/android-settings.json");
+        byte[] originalLocal = local.exists() ? Files.readAllBytes(local.toPath()) : null;
+        ClipboardManager clipboard = getTargetContext().getSystemService(ClipboardManager.class);
+        ClipData previousClip = clipboard.getPrimaryClip();
         long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString())
             .put("scheme", "quanpin").put("touch_keyboard_layout", "twenty_six_key")
             .put("default_ime_mode", "english").put("ime_mode_scope", "global")
             .put("english_suggestions", true).put("chinese_punctuation", false)
             .put("punctuation_lock", "follow").put("character_width", "halfwidth")
+            .put("privacy_mode", false).put("clipboard_history", true)
+            .put("touch_toolbar", new JSONObject().put("clipboard", true))
             .put("touch_keyboard_schemes", new JSONObject()
                 .put("enabled", new JSONArray().put("quanpin")).put("selected", "quanpin"));
         try {
             stage = "configure English correction";
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 1)
                 .put("preferences", base).toString().getBytes(StandardCharsets.UTF_8));
+            // 「最近复制」只在工具栏行上出现：工具栏要显示，剪贴板建议要开着（#10479 的复核用例）。
+            JSONObject settings = originalLocal == null ? new JSONObject().put("version", 1)
+                .put("settings", new JSONObject())
+                : new JSONObject(new String(originalLocal, StandardCharsets.UTF_8));
+            settings.getJSONObject("settings").put("platform.android.toolbar_hidden", false)
+                .put("platform.android.clipboard_suggestion", true);
+            publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.EnglishCorrectionEditorActivity");
@@ -91,6 +108,17 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
                 tap(key("空格"));
                 expect(field, "languge ");
             }
+            // #10479 复核：无建议框里打英文没有任何候选，候选栏照常是工具栏，但开始打字仍要收起「最近复制」，否则它一直盖住工具栏，点它会把剪贴板接在半截词后面。
+            stage = "typing in a no-suggestions field dismisses the recent clip";
+            clear("correction-no-suggestions");
+            await(key("英"));
+            clipboard.setPrimaryClip(ClipData.newPlainText("msime synthetic", "synthetic-recent-clip"));
+            await(described("粘贴最近复制的内容：synthetic-recent-clip"));
+            typeWord("hello");
+            expect("correction-no-suggestions", "hello");
+            awaitGone(describedPrefix("粘贴最近复制的内容："));
+            awaitGone(describedPrefix("英文建议 "));
+            await(described("清除当前英文单词"));
             stage = "password does not rewrite the typed word";
             clear("correction-password");
             typeWord("languge");
@@ -100,6 +128,8 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
+            if (originalLocal == null) Files.deleteIfExists(local.toPath()); else publish(local, originalLocal);
+            if (previousClip == null) clipboard.clearPrimaryClip(); else clipboard.setPrimaryClip(previousClip);
         }
     }
 
@@ -146,6 +176,19 @@ public final class EnglishCorrectionDeviceSmoke extends DeviceSmoke {
             tap(key(String.valueOf(letter)));
         }
         stage = originalStage;
+    }
+
+    /** 等匹配的节点从所有窗口里消失。 */
+    private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            boolean shown = false;
+            for (AccessibilityWindowInfo window : automation.getWindows())
+                shown |= find(window.getRoot(), match) != null;
+            if (!shown) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("等待目标控件消失超时；输入法显示 " + imeTexts());
     }
 
     private void clear(String description) throws Exception {

@@ -367,6 +367,19 @@ fn target_glosses_from(
 
 /// IPA of lowercase English words from a `pronunciations/en-phonetic.db` built by scripts/build_pronunciations.py, parallel to `words`; an unknown word is empty. Like the offline gloss files, the version and kind it states must match, so a gloss database dropped in its place is refused rather than read as IPA; never creates the file.
 pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<String>> {
+    phonetics(database_path, "en", words)
+}
+
+/// 读音表的语言：英文表来自 ECDICT，其余六种来自维基词典（scripts/build_target_pronunciations.py）。表名和 `meta.kind` 都由它拼出，所以只接受这几个固定值。
+pub const PHONETIC_LANGUAGES: [&str; 7] = ["en", "fr", "ja", "es", "ru", "de", "ko"];
+
+/// 从 `<language>-phonetic.db` 读 `words` 里每个词的读音，与 `words` 一一对应；查不到的词为空串。英文是 `pronunciations/en-phonetic.db`（键是小写，IPA 不带斜线）；其他语言是 scripts/build_target_pronunciations.py 生成的 `target-pronunciations/<language>-phonetic.db`，键是维基词典的写法，存的是带斜线或方括号的 IPA，日文是赫本式罗马字。文件必须声明版本 1 和种类 `<language>_phonetic`，放在它位置上的释义数据库或另一种语言的表都会被拒绝；从不创建文件。
+pub fn phonetics(database_path: &str, language: &str, words: &[String]) -> Result<Vec<String>> {
+    if !PHONETIC_LANGUAGES.contains(&language) {
+        return Err(EngineError::failed(
+            diagnostics::PRONUNCIATION_KIND_MISMATCH,
+        ));
+    }
     // An empty path would open a private temporary database rather than fail.
     if database_path.is_empty() {
         return Err(EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE));
@@ -400,13 +413,15 @@ pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<St
         .query_row((), |row| row.get::<_, Option<String>>(0))
         .ok()
         .flatten();
-    if kind.as_deref() != Some("en_phonetic") {
+    if kind.as_deref() != Some(format!("{language}_phonetic").as_str()) {
         return Err(EngineError::failed(
             diagnostics::PRONUNCIATION_KIND_MISMATCH,
         ));
     }
     let mut lookup = connection
-        .prepare("SELECT phonetic FROM en_phonetics WHERE word = ?1")
+        .prepare(&format!(
+            "SELECT phonetic FROM {language}_phonetics WHERE word = ?1"
+        ))
         .map_err(unreadable)?;
     words
         .iter()
