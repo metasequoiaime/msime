@@ -287,11 +287,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Win7 version-win7.txt 不是有效的语义版本' }
+          # Win7 包固定用 Inno Setup 6.4.3：6.7.1 打出的安装包在兆芯 CPU 的 Win7 x64 上一双击就报 Runtime error 255，崩在 Setup 的 32 位启动程序里，还没解压任何内容；怀疑与 6.5 起 Inno 改用 Delphi 12.3 编译有关，6.4.3 是最后一个 Delphi 12.1 版本。镜像可能预装了别的版本，所以强制降级并显式传 -IsccPath。
           $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
-          if (-not (Test-Path -LiteralPath "$inno\ISCC.exe")) {
-            choco install innosetup --version 6.7.1 --no-progress -y
-            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 安装失败' }
-          }
+          choco install innosetup --version 6.4.3 --allow-downgrade --force --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 安装失败' }
+          $iscc = Join-Path $inno 'ISCC.exe'
+          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          if ($isccVersion -notlike '6.4.3*') { throw "Inno Setup 版本不是 6.4.3：$isccVersion" }
           $isl = "$inno\Languages\ChineseSimplified.isl"
           if (-not (Test-Path -LiteralPath $isl)) {
             Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
@@ -305,7 +307,7 @@ jobs:
             if ('${{ inputs.publish }}' -ne 'true') {
               ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
             }
-            ./platforms/windows/installer/Compile-Installer.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -SourceDirectory "$PWD/target/windows7-package/$env:EDITION/$arch" -OutputDirectory "$PWD/target/windows7-installer"
+            ./platforms/windows/installer/Compile-Installer.ps1 -IsccPath $iscc -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -SourceDirectory "$PWD/target/windows7-package/$env:EDITION/$arch" -OutputDirectory "$PWD/target/windows7-installer"
           }
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
           if ($LASTEXITCODE -ne 0) { throw '安装包名称读取失败' }
