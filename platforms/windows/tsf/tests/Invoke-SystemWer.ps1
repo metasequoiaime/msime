@@ -70,7 +70,7 @@ function Save-SystemWerTimeout {
       })
   } catch { $workerError = $_.Exception.GetType().Name }
   # 记录落盘和系统退出分别判断，不能延长期限或把已有记录当成成功退出。
-  [ordered]@{
+  $snapshot = [ordered]@{
     case = $Case
     target_pid = $Target.Id
     target_has_exited = $Target.HasExited
@@ -80,29 +80,58 @@ function Save-SystemWerTimeout {
     thread_snapshot_error = $threadError
     related_wer_workers = $workers
     worker_snapshot_error = $workerError
-  } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Directory 'timeout.json') -Encoding UTF8
+  }
+  $snapshot | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Directory 'timeout.json') -Encoding UTF8
+  $snapshot
+}
+function Test-SystemWerStall {
+  param($Snapshot, [string]$Directory)
+  # 只认 CI 上反复出现的系统侧停顿：目标仍在、恰好一个线程等 WerSvc 的 LPC 回复、其余线程全被挂起、找不到为它工作的 WerFault，且没有半成品记录。负向样本出现记录、正向样本出现多条记录都说明 helper 越权，不能靠重跑掩盖。
+  if ($Snapshot.target_has_exited -or $Snapshot.thread_snapshot_error -or $Snapshot.worker_snapshot_error) { return $false }
+  if (@($Snapshot.related_wer_workers).Count -ne 0 -or @($Snapshot.partial_records).Count -ne 0) { return $false }
+  $threads = @($Snapshot.target_threads)
+  if ($threads.Count -eq 0) { return $false }
+  foreach ($thread in $threads) {
+    if ($thread.state -ne 'Wait' -or @('LpcReply', 'Suspended') -notcontains $thread.wait_reason) { return $false }
+  }
+  if (@($threads | Where-Object { $_.wait_reason -eq 'LpcReply' }).Count -ne 1) { return $false }
+  $expectedPath = Join-Path $Directory 'expected.json'
+  if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) { return $false }
+  $expected = Get-Content -LiteralPath $expectedPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $allowedRecords = if ($expected.record_expected) { 1 } else { 0 }
+  return @($Snapshot.completed_records).Count -le $allowedRecords
 }
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
   foreach ($case in @('tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
-    $caseDirectory = Join-Path $output $case
-    New-Item -ItemType Directory -Path $caseDirectory | Out-Null
-    $stdout = $null
-    $stderr = $null
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo.FileName = $executable
-    $process.StartInfo.Arguments = "$case `"$caseDirectory`""
-    $process.StartInfo.UseShellExecute = $false
-    $process.StartInfo.RedirectStandardOutput = $true
-    $process.StartInfo.RedirectStandardError = $true
-    if (-not $process.Start()) { throw "无法启动 $case" }
-    # 夹具只写有界诊断；先开始读取，避免子进程管道互相等待。
-    $stdout = $process.StandardOutput.ReadToEndAsync()
-    $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(45000)) {
-      Save-SystemWerTimeout -Target $process -Directory $caseDirectory -Case $case
-      throw "$case 的系统 WER 投递超时"
+    # 系统侧停顿时整例换新目录重跑一次，重跑仍须由系统退出并通过全部断言；首次的诊断留在原目录随 artifact 上传。
+    for ($attempt = 1; ; $attempt++) {
+      $caseDirectory = if ($attempt -eq 1) { Join-Path $output $case } else { Join-Path $output "$case-retry" }
+      New-Item -ItemType Directory -Path $caseDirectory | Out-Null
+      $stdout = $null
+      $stderr = $null
+      $process = New-Object System.Diagnostics.Process
+      $process.StartInfo.FileName = $executable
+      $process.StartInfo.Arguments = "$case `"$caseDirectory`""
+      $process.StartInfo.UseShellExecute = $false
+      $process.StartInfo.RedirectStandardOutput = $true
+      $process.StartInfo.RedirectStandardError = $true
+      if (-not $process.Start()) { throw "无法启动 $case" }
+      # 夹具只写有界诊断；先开始读取，避免子进程管道互相等待。
+      $stdout = $process.StandardOutput.ReadToEndAsync()
+      $stderr = $process.StandardError.ReadToEndAsync()
+      if ($process.WaitForExit(45000)) { break }
+      $snapshot = Save-SystemWerTimeout -Target $process -Directory $caseDirectory -Case $case
+      if ($attempt -ge 2 -or -not (Test-SystemWerStall -Snapshot $snapshot -Directory $caseDirectory)) {
+        throw "$case 的系统 WER 投递超时"
+      }
+      Write-Warning "$case 的目标进程停在 WerSvc 的 LPC 回复上且没有 WER worker，诊断见 $caseDirectory/timeout.json；换新目录重跑一次"
+      $process.Kill()
+      $process.WaitForExit()
+      Save-CaseOutput
+      $process.Dispose()
+      $process = $null
     }
     $process.WaitForExit()
     [IO.File]::WriteAllText((Join-Path $caseDirectory 'stdout.txt'), $stdout.GetAwaiter().GetResult())
