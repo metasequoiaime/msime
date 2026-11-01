@@ -432,6 +432,8 @@ public final class MSIMEInputService extends InputMethodService {
     int clipboardColumns = 1;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
+    /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
+    boolean clipboardDeleteAuthenticationEnabled;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -3115,6 +3117,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -8893,6 +8896,11 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
+        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item));
+    }
+
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
@@ -8902,8 +8910,38 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
-    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
-    void removeClipboardItems(java.util.List<String> texts) {
+    /**
+     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。
+     *
+     * <p>整批只认证一次。`removed` 只在认证通过（或不需要认证）、真正发起删除之后执行，面板借它退出多选；认证取消或失败时不调用它，选择原样保留。
+     */
+    void removeClipboardItems(java.util.List<String> texts, Runnable removed) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        authenticateClipboardDelete(() -> {
+            removeClipboardItemsAfterAuthentication(snapshot);
+            removed.run();
+        });
+    }
+
+    /**
+     * 单条、左滑和多选删除共用的认证门禁（#10408），规则见 {@link ClipboardDeleteAuthenticationPolicy}。
+     *
+     * <p>设备没有任何锁屏凭据时，门禁只来自访客模式（用户没有打开「剪贴板删除数据验证」）就照旧直接删除：访客模式本来就要求认证，但没有凭据的设备谁都能解锁，拦下删除保护不了任何东西，只会让访客剪贴板删不掉，比改动之前更糟。用户自己打开过开关时仍然拒绝，并提示去系统设置开启指纹、图案或密码，或回设置页关闭开关（没有认证器时关闭开关不需要认证）。
+     */
+    private void authenticateClipboardDelete(Runnable delete) {
+        boolean enabled = clipboardDeleteAuthenticationEnabled;
+        if (!ClipboardDeleteAuthenticationPolicy.requiresAuthentication(enabled,
+                clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
+            delete.run();
+            return;
+        }
+        authenticateClipboard("删除", delete,
+            ClipboardDeleteAuthenticationPolicy.allowsWithoutAuthenticator(enabled)
+                ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
+    }
+
+    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
             if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
@@ -9017,7 +9055,18 @@ public final class MSIMEInputService extends InputMethodService {
     private long clipboardAuthenticationGeneration;
     private boolean clipboardAuthenticationBusy;
 
+    /** 认证桥 `ClipboardAuthenticationActivity` 的结果码；核心编译不依赖那个 Activity 类，这里按值对齐 `RESULT_AUTHENTICATED`、`RESULT_UNAVAILABLE`。 */
+    private static final int CLIPBOARD_AUTH_SUCCEEDED = 2001;
+    private static final int CLIPBOARD_AUTH_UNAVAILABLE = 2002;
+    private static final String CLIPBOARD_AUTH_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码";
+    private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码，或在键盘设置的剪贴板里关闭「剪贴板删除数据验证」";
+
     private void authenticateClipboard(String operation, Runnable after) {
+        authenticateClipboard(operation, after, null);
+    }
+
+    /** `whenUnavailable` 不为 null 时，设备没有可用认证器（桥返回 `RESULT_UNAVAILABLE`）就执行它，否则提示先设置锁屏凭据。 */
+    private void authenticateClipboard(String operation, Runnable after, Runnable whenUnavailable) {
         if (clipboardAuthenticationBusy) return;
         clipboardAuthenticationBusy = true;
         long generation = ++clipboardAuthenticationGeneration;
@@ -9025,9 +9074,11 @@ public final class MSIMEInputService extends InputMethodService {
             @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
                 if (generation != clipboardAuthenticationGeneration) return;
                 clipboardAuthenticationBusy = false;
-                if (code == 2001)
-                    after.run();
-                else notice("未通过系统认证，剪贴板操作已取消");
+                if (code == CLIPBOARD_AUTH_SUCCEEDED) after.run();
+                else if (code == CLIPBOARD_AUTH_UNAVAILABLE) {
+                    if (whenUnavailable != null) whenUnavailable.run();
+                    else notice(CLIPBOARD_AUTH_UNAVAILABLE_NOTICE);
+                } else notice("未通过系统认证，剪贴板操作已取消");
             }
         };
         try {

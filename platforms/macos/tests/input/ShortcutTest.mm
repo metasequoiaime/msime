@@ -14363,12 +14363,22 @@ int main(int argc, char **argv) {
             NSMenu *menu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":text}];
             assert(menu.numberOfItems == ([text isEqual:@"测试"] ? 3 : 2));
         }
-        // 有释义的候选在菜单最后多一组「加入生词本」，带上这一帧的释义；它不经过 Engine，不派发也不报告指针。
+        // 有释义的候选在菜单最后多一组「朗读」「加入生词本」，带上这一帧的释义和要读的英文；它们不经过 Engine，不派发也不报告指针。
         NSMenu *glossMenu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"测试", @"translation":@"test\u2028テスト"}];
-        assert(glossMenu.numberOfItems == 5 && [glossMenu itemAtIndex:3].separatorItem);
-        NSMenuItem *personalItem = [glossMenu itemAtIndex:4];
+        assert(glossMenu.numberOfItems == 6 && [glossMenu itemAtIndex:3].separatorItem);
+        NSMenuItem *readAloudItem = [glossMenu itemAtIndex:4];
+        assert([readAloudItem.title isEqual:@"朗读"] && readAloudItem.tag == 31);
+        assert([readAloudItem.representedObject[@"read_aloud"] isEqual:@"test"]);
+        NSMenuItem *personalItem = [glossMenu itemAtIndex:5];
         assert([personalItem.title isEqual:@"加入生词本"] && personalItem.tag == 30);
         assert([personalItem.representedObject[@"gloss"] isEqual:@"test\nテスト"]);
+        // 释义不是英文时只有「加入生词本」；英文候选没有释义时这一组只有「朗读」，读候选本身。
+        NSMenu *japaneseGloss = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"测试", @"translation":@"テスト"}];
+        assert(japaneseGloss.numberOfItems == 5 && [japaneseGloss itemAtIndex:4].tag == 30);
+        NSMenu *englishCandidate = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"hello"}];
+        assert(englishCandidate.numberOfItems == 5 && [englishCandidate itemAtIndex:3].separatorItem);
+        assert([englishCandidate itemAtIndex:4].tag == 31 &&
+               [[englishCandidate itemAtIndex:4].representedObject[@"read_aloud"] isEqual:@"hello"]);
         const NSUInteger personalKeys = session.keys.count;
         const NSUInteger personalCalls = session.maintenanceCalls;
         [controller candidateMenuAction:personalItem];

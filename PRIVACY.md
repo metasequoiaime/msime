@@ -10,7 +10,7 @@
 
 新装的默认配置下，**没有任何功能会把你输入的内容发出设备**。会这样做的两项都要你自己打开：云联想把当前正在组的拼音串发给 Google 输入工具，新装默认关闭，Windows、Linux 与 macOS 在第一次使用时说明并让你选择，默认选项是不启用（见[云联想](#云联想新装默认关闭)）；候选翻译要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」，后者把当前页的中文候选词发到 `api.msime.app`，见[候选翻译](#候选翻译默认不联网)）。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。从旧版本升级时沿用配置文件里已存的值，不会替你改。
 
-另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报和屏蔽作者](#社区举报与审核)的请求。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。可选的 Android 拍照识字模块在本机离线识别，关闭了所用推理库的遥测，见[拍照识字](#android-拍照识字可选模块手动导入)；Android 与 iOS 手写所用 ML Kit 自带的诊断上报也关掉了（Android 在基础 APK 里删掉上传组件，iOS 键盘写入 ML Kit 的统计关闭开关），见[资源与更新下载](#资源与更新下载)。
+另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。打字统计的每日计数只有在你登录账号并打开「上传到云端」后才会上传，默认关闭，见[打字统计上传](#打字统计上传默认关闭需要登录)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报和屏蔽作者](#社区举报与审核)的请求。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。上述自有上报不依赖第三方统计或崩溃上报 SDK。本项目还运营下载镜像 `https://dl.msime.app/gh/`：默认开启的词库自动更新，以及资源包、语音和语法模型等按需下载，默认都先从这个镜像取文件、失败再换回 GitHub，所以镜像能看到你的 IP 和下载的是哪个公开发布的文件（不含任何输入内容）；不由 Google Play 更新的 Android 安装包检查更新时查询本项目网站 `https://msime.app/api/releases`，见[资源与更新下载](#资源与更新下载)。可选的 Android 拍照识字模块在本机离线识别，关闭了所用推理库的遥测，见[拍照识字](#android-拍照识字可选模块手动导入)；Android 与 iOS 手写所用 ML Kit 自带的诊断上报也关掉了（Android 在基础 APK 里删掉上传组件，iOS 键盘写入 ML Kit 的统计关闭开关），见[资源与更新下载](#资源与更新下载)。
 
 HarmonyOS 在这些之前还多一道门：设置应用首次启动时弹窗征得隐私政策授权，选择「不同意」或还没选之前，设置应用和键盘都不发出本文列出的任何请求（使用统计、匿名账号注册、公告、账号、社区、云同步、检查更新、词库更新、模型下载，以及你自己配置的云联想、翻译、AI 和云端语音），本机打字照常；升级上来的老用户也会看到一次。规则在 `platforms/harmony/entry/src/main/ets/privacy/PrivacyConsentPolicy.ts`，说明见 `platforms/harmony/README.md` 的「首次启动的隐私政策授权」。
 
@@ -54,6 +54,17 @@ macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_accou
 
 macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号，手动开启候选翻译后就是这个状态），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
+### 朗读（只在点击时，用系统自带的语音）
+
+候选菜单里的「朗读」和背单词卡片上的喇叭，用操作系统自带的语音合成读出一个英文单词：候选旁英文释义的第一个义项、英文候选本身，或卡片上的英文词头（规则在 `crates/client-services/src/vocabulary/read_aloud.rs`）。只在你点了菜单项或喇叭时发生；读的只是那个英文单词，不写日志、不落盘、不进打字统计。本项目不打包任何声音模型，也不经自己的代码发出网络请求。各平台交给谁合成：
+
+- macOS：输入法用 `AVSpeechSynthesizer`，设置应用的背单词卡片用网页的 `speechSynthesis`，都只用这台 Mac 上已安装的声音。
+- Windows：输入法（Server）用 SAPI 5，声音都装在本机。设置应用的背单词卡片用 WebView2 的 `speechSynthesis`，只挑 `localService` 为真的本机声音；WebView2 本身也不提供 Edge 里的「Online (Natural)」联网声音。
+- Linux：只在系统装了 speech-dispatcher 的命令行 `spd-say` 时才有这一项，输入法和设置应用都把单词交给它（`spd-say -l en <单词>`）。合成由你在 speech-dispatcher 里配置的输出模块完成：常见发行版默认的 espeak-ng 等模块在本机合成，但如果你给它配了一个联网的模块，单词会按那个模块的方式发出去，这一点本项目管不了。
+- iOS、Android、HarmonyOS 还没有这项功能。
+
+代码在 `platforms/macos/src/input/InputController.mm`（`MSIMEReadAloudVoice`）、`platforms/windows/src/voice/SystemSpeech.cpp`、`platforms/linux/src/candidates/ReadAloud.h`、`apps/desktop/src-tauri/src/read_aloud.rs` 和 `apps/desktop/src/core/read-aloud.ts`。
+
 ### 语音输入（默认凭据为空）
 
 `voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral、阿里云百炼（`bailian`，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，模型 `qwen3-asr-flash`，录音以 Base64 放进 Chat Completions 请求），以及两种不出设备的选项：
@@ -69,13 +80,13 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 | | |
 | --- | --- |
-| 目的地 | GitHub Releases（`https://github.com/k2-fsa/sherpa-onnx/releases/download/...`，下载时会被重定向到 GitHub 的文件存储域名）；配置了镜像时改为镜像地址 |
+| 目的地 | GitHub Releases（`https://github.com/k2-fsa/sherpa-onnx/releases/download/...`，下载时会被重定向到 GitHub 的文件存储域名）。和资源包一样依次尝试：填了下载镜像时先走你的镜像，然后是本项目的镜像 `https://dl.msime.app/gh/` 加原地址（见[资源与更新下载](#资源与更新下载)），都失败才直连上面的 GitHub 地址 |
 | 发送内容 | 对模型归档的 HTTPS GET 请求，User-Agent 为 `msime/<版本号>`，不携带任何输入内容、音频、账号或设备标识 |
 | 需要凭据 | 否 |
-| 偏好字段 | `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |
+| 偏好字段 | `voice_input.asr_model_mirror`，默认空字符串，表示不用你自己的镜像，先走本项目的镜像 `https://dl.msime.app/gh/`、再直连 GitHub |
 | 代码 | `crates/client-providers/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
 
-镜像必须是 `https://` 地址，请求 URL 是镜像前缀加上原始 GitHub 地址，所以**镜像运营方能看到你的 IP 和你下载的是哪个模型**。下载内容按目录里固定的 SHA-256 校验，镜像无法替换文件；校验不过的下载会被丢弃。重定向离开 HTTPS 时请求被拒绝。模型装好之后，识别不再需要网络。
+镜像必须是 `https://` 地址，请求 URL 是镜像前缀加上原始 GitHub 地址，所以**镜像运营方能看到你的 IP 和你下载的是哪个模型**；没填自己的镜像时，通常是本项目的镜像先收到这个请求。下载内容按目录里固定的 SHA-256 校验，镜像无法替换文件；校验不过的下载会被丢弃，换下一个来源。重定向离开 HTTPS 时请求被拒绝。模型装好之后，识别不再需要网络。
 
 ### 语音润色（不填 Token 不发生）
 
@@ -135,9 +146,11 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 ### 资源与更新下载
 
-首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本、架构和更新通道筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。Windows、Linux 与 macOS 的「关于」页可以选更新通道（偏好 `update_channel`：稳定版为默认，另有测试版、每日构建；只属于本机，不进设置文件和账号同步），选每日构建时同一次检查另外向 `https://api.github.com/repos/metasequoiaime/msime/releases/tags/nightly` 发一个同样不带标识的 GET；通道只决定在本地怎么筛选，不随请求发出。Linux 的设置应用另外在打开设置窗口时（启动或被叫到前台时；只为表情、剪贴板、屏幕键盘等面板启动时不请求）在后台按所选通道发同样的请求，成功后一天内不再请求，失败后六小时内不再请求，发现新版本时只发一条桌面通知，不下载也不安装；上次检查的时间、所用的通道、提醒过的版本和找到的版本记在状态目录的 `update-check.json`。Fcitx5 插件和 IBus 宿主本身不发这个请求。Windows 的常驻进程（安装后的 Server，预览实例不算）启动五分钟后开始、之后每小时看一次是否到期，按同样的节流在后台发同样的请求（Windows 7 专用版只查正式发布），发现新版本时只弹一条系统通知，不下载也不安装；记录在本用户的 `%LOCALAPPDATA%\MSIME\update\update-check.json`（其他版本在各自的用户目录下），设置窗口打开「关于」页时只读这个文件，不联网。macOS 带更新配置的发布包由 Sparkle 更新：输入法每天一次、设置应用在点「检查更新」时，向 `https://github.com/metasequoiaime/msime/releases/download/macos-appcast/` 下所选通道的 appcast（稳定版 `appcast-<版本 id>.xml`，测试版和每日构建是 `appcast-beta-…`、`appcast-nightly-…`，设置应用的文件名多一段 `settings-`）发 GET，没有打开 Sparkle 的系统信息上报，输入法在后台下载签名的更新包并在切换输入源或退出时安装。构建时或运行时设置环境变量 `MSIME_DISABLE_UPDATE_CHECK=1` 可关掉 Linux 与 Windows 的后台检查，「检查更新」按钮照常可用；开发构建不做后台检查。
+Linux 安装包没带词库时，首次配置（设置应用的首次配置页，或终端里的 `msime-linux-setup --download`，其他版本是 `msime-linux-<id>-setup`；设置应用里词库的「立即更新」对应 `--update --download`）从 GitHub Releases 取回固定版本的词库，地址、长度和 SHA-256 全部写死在随装的 `desktop-dictionary.lock.json`（源文件是 `resources/desktop-dictionary.lock.json`）里，逐一校验，全部成功才放进词库目录。每个文件先从本项目的镜像 `https://dl.msime.app/gh/` 加原地址下载，失败、超过锁定的长度或 SHA-256 不符时换回 GitHub 原地址，所以通常是本项目的镜像先收到这些请求，能看到你的 IP 和下载的是哪些词库文件；请求的 User-Agent 是 `msime-linux-setup`。环境变量 `MSIME_DOWNLOAD_MIRROR` 可以把这个前缀换成别的镜像，设为空串则只直连 GitHub。代码在 `platforms/linux/scripts/msime-linux-setup`。下载的是公开发布物，不上传任何东西。检查更新在点击「检查更新」时进行，由应用本身（不经网页）向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求，在本地按平台标签前缀、版本、架构和更新通道筛选；请求除 IP 地址和固定的 User-Agent `msime-client` 外不携带标识，适用 GitHub 隐私条款。Windows、Linux 与 macOS 的「关于」页可以选更新通道（偏好 `update_channel`：稳定版为默认，另有测试版、每日构建；只属于本机，不进设置文件和账号同步），选每日构建时同一次检查另外向 `https://api.github.com/repos/metasequoiaime/msime/releases/tags/nightly` 发一个同样不带标识的 GET；通道只决定在本地怎么筛选，不随请求发出。Linux 的设置应用另外在打开设置窗口时（启动或被叫到前台时；只为表情、剪贴板、屏幕键盘等面板启动时不请求）在后台按所选通道发同样的请求，成功后一天内不再请求，失败后六小时内不再请求，发现新版本时只发一条桌面通知，不下载也不安装；上次检查的时间、所用的通道、提醒过的版本和找到的版本记在状态目录的 `update-check.json`。Fcitx5 插件和 IBus 宿主本身不发这个请求。Windows 的常驻进程（安装后的 Server，预览实例不算）启动五分钟后开始、之后每小时看一次是否到期，按同样的节流在后台发同样的请求（Windows 7 专用版只查正式发布），发现新版本时只弹一条系统通知，不下载也不安装；记录在本用户的 `%LOCALAPPDATA%\MSIME\update\update-check.json`（其他版本在各自的用户目录下），设置窗口打开「关于」页时只读这个文件，不联网。macOS 带更新配置的发布包由 Sparkle 更新：输入法每天一次、设置应用在点「检查更新」时，向 `https://github.com/metasequoiaime/msime/releases/download/macos-appcast/` 下所选通道的 appcast（稳定版 `appcast-<版本 id>.xml`，测试版和每日构建是 `appcast-beta-…`、`appcast-nightly-…`，设置应用的文件名多一段 `settings-`）发 GET，没有打开 Sparkle 的系统信息上报，输入法在后台下载签名的更新包并在切换输入源或退出时安装。构建时或运行时设置环境变量 `MSIME_DISABLE_UPDATE_CHECK=1` 可关掉 Linux 与 Windows 的后台检查，「检查更新」按钮照常可用；开发构建不做后台检查。
 
-六个平台的「自动更新词库」默认开启。设置应用启动、回到前台或运行期间按每天一次的节流，通过 `https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100` 查询公开版本，并从该仓库的 HTTPS Release 附件地址下载兼容的词库、清单与许可文本；GitHub 可能重定向到自己的文件存储域名。请求使用固定 User-Agent `msime-dictionary-updater`，不携带账号、设备标识、输入内容或个人词条。摘要先取自 GitHub API，再与清单交叉校验。可在「词库更新」关闭自动更新，关闭后仍可手动检查。该更新入口直接访问官方 GitHub，不使用模型资源包的镜像设置。
+Android 的检查更新不走上面的 GitHub API：不由 Google Play 更新的安装包（为 Play 打的包和从 Play 安装的都不做自更新，关于页也不显示这几项）在「关于」页点「检查更新」时，以及打开「自动更新」（默认关闭，只存在本机）后由系统任务在联网时每天一次，向 `https://msime.app/api/releases?platform=android`（本项目网站对 GitHub 发行版列表的缓存）发 GET，在本地按版本和更新通道挑选。有新版本时，你在关于页点下载、或自动更新在后台，把本版本的 APK 和同一发布里的 SHA-256 校验文件下载到应用缓存的 `updates/`；每个文件先从本项目的镜像 `https://dl.msime.app/gh/` 加 GitHub 发布页地址下载，镜像的任何失败（网络、HTTP 状态、摘要不符）都换回 GitHub 原地址，所以本项目的镜像能看到你的 IP 和下载的是哪个版本。安装前核对 SHA-256、包名、更高的版本号和与当前安装一致的签名证书，再交给系统安装器由你确认，从不静默安装。这些请求的 User-Agent 是 `MSIME/Android`，不带账号、设备标识或输入内容；代码在 `platforms/android/java/app/msime/android/account/UpdateApi.java` 与 `platforms/android/java/app/msime/android/home/UpdateJobService.java`。
+
+六个平台的「自动更新词库」默认开启。设置应用启动、回到前台或运行期间按每天一次的节流，通过 `https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100` 查询公开版本，并从该仓库的 HTTPS Release 附件地址下载兼容的词库、清单与许可文本；GitHub 可能重定向到自己的文件存储域名。查询版本和下载清单时 User-Agent 是固定的 `msime-dictionary-updater`，下载词库文件时是 `msime/<版本号>`，都不携带账号、设备标识、输入内容或个人词条。查询版本的 API 请求始终直连 GitHub；Release 附件（清单、词库与许可文本）和资源包一样依次尝试：填了下载镜像（偏好 `voice_input.asr_model_mirror`）时先走你的镜像，然后是本项目的镜像 `https://dl.msime.app/gh/` 加原地址，都失败才直连 GitHub，所以通常是本项目的镜像先收到下载请求，能看到你的 IP 和下载的是哪个词库版本。摘要先取自 GitHub API，再与清单交叉校验，不论文件从哪里取到都按它校验，镜像无法替换文件。没下完的词库文件留在状态目录的 `dictionary-updates/.partial-downloads/`，下次检查时带 `Range` 头接着下。可在「词库更新」关闭自动更新，关闭后仍可手动检查。代码在 `crates/client-providers/src/dictionary_updates.rs`。
 
 桌面和 Android 发布包不内置的几个资源包由设置应用在首次用到时下载，之后从本机读取。哪些平台下载哪些：
 
@@ -147,7 +160,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 - 桌面神经联想模型（约 25 MB）：三个桌面平台都只在打开「桌面神经联想」时下载，安装布局里已经带着它时不下载。
 - 离线英文音标词典（ECDICT 生成的 `en-phonetic.db` 与许可声明，约 5.7 MB）：只有 Android、iOS 和 Linux 下载，而且只在你打开「显示英文音标」（偏好字段 `candidate_pronunciation`，默认关闭）后、在设置里那一行点「下载」时发生，打开开关本身不联网；macOS 和 Windows 随安装包带着，鸿蒙随 HAP 带着。原地址是 `https://github.com/metasequoiaime/chinese-ime-lm/releases/download/pronunciations-ecdict-.../`，和其他资源包一样依次尝试：填了下载镜像时先走你的镜像，再走本项目的镜像 `https://dl.msime.app/gh/` 加原地址，都失败才直连 GitHub，所以通常是本项目的镜像先收到这个请求，能看到你的 IP 和下载的是这个资源包；长度和 SHA-256 固定在 `resources/pronunciations.lock.json`，不论从哪里取到的都按它校验。装好后打字时只在本机查这张表，不发送候选、释义或任何输入内容；iOS 上它放在 App Group 共享目录的 `MSIME/resource-packs/pronunciations/`，不进 iCloud 备份，删除 App 时一并删除。
 
-三个桌面平台的 octagram 语法模型只在你点「检查更新」或「下载／更新」时读取官方目录 `https://raw.githubusercontent.com/metasequoiaime/msime/develop/resources/grammar-models.catalog.json`；稳定版、测试版和每日构建在本机按已保存的更新通道筛选，不把通道作为请求参数发送。目录返回模型下载地址、大小和 SHA-256；下载由你再次点击后进行，经设置过的 HTTPS 镜像或目录中的上游 HTTPS 地址获取。请求只包含固定路径和 User-Agent `msime/<版本号>`，不发送输入内容、账号、设备标识、本地路径或已安装模型列表。已安装模型日常离线使用，不因目录更新自动下载或替换；目录或下载失败时保留旧模型。
+三个桌面平台的 octagram 语法模型只在你点「检查更新」或「下载／更新」时读取官方目录 `https://raw.githubusercontent.com/metasequoiaime/msime/develop/resources/grammar-models.catalog.json`；稳定版、测试版和每日构建在本机按已保存的更新通道筛选，不把通道作为请求参数发送。目录返回模型下载地址、大小和 SHA-256；下载由你再次点击后进行，和其他资源包一样依次尝试：填了下载镜像时先走你的镜像，然后是本项目的镜像 `https://dl.msime.app/gh/` 加目录中的上游 HTTPS 地址，都失败才直连上游地址；镜像不提供的文件会被拒绝，请求随即换到下一个来源，但被尝试过的镜像都能看到你的 IP 和请求的是哪个模型。读取目录本身始终直连上面的官方地址。请求只包含固定路径和 User-Agent `msime/<版本号>`，不发送输入内容、账号、设备标识、本地路径或已安装模型列表。已安装模型日常离线使用，不因目录更新自动下载或替换；目录或下载失败时保留旧模型。
 
 | | |
 | --- | --- |
@@ -159,7 +172,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 | 存放位置 | 偏好目录下的 `resource-packs/<资源包>/`：macOS 是 `~/Library/Application Support/app.msime.macos/resource-packs/`，Windows 是输入法服务的数据目录，Linux 是运行时选项记录的状态目录，Android 是应用私有目录 `files/bootstrap/state/resource-packs/`（没下完的部分留在同一目录下的 `.partial-<资源包>/`，下次接着下载）；许可证文本放在数据旁边 |
 | 代码 | `crates/client-providers/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/pronunciations.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/voice-runtime-macos.lock.json`（重签的 macOS 语音运行库归档和其中的库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
 
-镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
+镜像规则和上面[本地语音模型](#语音输入默认凭据为空)的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
 
 Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**（从 Google 的 `dl.google.com` 下载），之后在设备上离线识别。ML Kit 自带经 Google datatransport 上报的使用诊断：每次检查模型、下载模型或识别时记一条 `FIREBASE_ML_SDK` 事件（带 ML Kit 在本机生成并长期保留的 `ml_sdk_instance_id`、应用包名与版本、手写模型语言、机型与硬件、系统版本与指纹、系统语言、国家、时区、运营商代码 MCC/MNC 和网络类型，不含笔迹和识别结果），攒在应用数据库里，由系统任务调度在设备空闲时上传到 `firebaselogging.googleapis.com`。2026-10-25 在 Pixel 3 XL（Android 12）上用 PCAPdroid 抓包确认过这条上传（HTTPS，发出约 1.9 KB）。基础 APK 的清单删掉了 datatransport 的后端发现服务、上传任务和闹钟入口：ML Kit 照常识别，诊断事件不再写入、不再排上传任务；从旧版本升级时数据库里已有的事件也不会再上传。删掉之后在模拟器上从下载模型到识别上屏，整机抓包只有 `dl.google.com`（模型）和本项目的 `api.msime.app`。升级 ML Kit 时要重新做这项网络检查。iOS 键盘扩展链接的 ML Kit（`MLKitCommon` 14.0.0，带 `GoogleDataTransport` 10.1.0）同样会记使用统计：它从扩展自己的 `UserDefaults` 读 `com.google.firebase.ml.<模块>.__MLKIT_DEFAULT.isStatsCollectionEnabled`，读不到就当作同意。2026-10-25 在 iPhone XR（iOS 18.7.10，商店版 0.52.0，打开「允许完全访问」）上用 rvictl 镜像整机流量、tcpdump 按进程抓包，同时看系统日志：每次识别时扩展都去读 `digitalInk` 这个键、读不到，紧接着 ML Kit 报 `No binding was found for required, single-bound service: CCTPolicyVending_API`，也就是上传所需的 Clearcut 传输没有链接进来；约 6 分钟里（写字、收起键盘让扩展进入后台、再写字）扩展没有发起任何网络连接，也没有查询 Google 或 Firebase 的域名。这只是碰巧没发，升级 ML Kit 可能把这条传输带进来，所以键盘在第一次调用 ML Kit 之前把 `digitalInk`、`mddDownloader`、`commonDownloader` 和 `vision` 四个模块的这个键都写成 `false`（`platforms/ios/KeyboardExtension/Sources/handwriting/MLKitStatsOptOut.swift`），ML Kit 读到后不再记录这些事件。设置 App 不链接 ML Kit。iOS 升级 ML Kit 时同样要重新做这项检查。Windows 先用系统的 Windows Ink 识别器，没有中文识别器时用 Engine 的离线 Zinnia 模型；Linux 与其余桌面端都用这个 Zinnia 模型。发行版仓库的 Linux 包随附该模型，从安装路径读取，全程不联网；macOS、Windows 和我们自己发布的 Linux deb/rpm 按上一段在需要时下载，之后同样离线识别。
 
