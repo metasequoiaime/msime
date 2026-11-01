@@ -6480,7 +6480,9 @@ public final class MSIMEInputService extends InputMethodService {
                 && view.optJSONArray("candidates") != null
                 && candidateSlot < view.optJSONArray("candidates").length()
                 && selectHardwareCandidate(candidateSlot)) return true;
-        if (directEnglishActive() && !event.isCtrlPressed() && !event.isAltPressed()
+        // 数字和电话框的按键交给编辑器自己处理，英文模式也一样：输入法上屏走 InputConnection，交还给应用的回车走按键通道，两条通道不保证先后，快速输入「PIN + 回车」时回车可能先到，系统认证界面拿着不完整的 PIN 去校验（数字密码进框临时切英文后暴露，#10481）。
+        if (directEnglishActive() && !EditorPolicy.numberInput(editorInputType)
+                && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed()) {
             if (keyCode == KeyEvent.KEYCODE_DEL) {
                 clearEnglishSuggestions();
