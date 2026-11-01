@@ -96,9 +96,13 @@ static void StartReporting(NSString *preferencesDirectory, bool captureOnly)
             gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
             NSSetUncaughtExceptionHandler(UncaughtException);
         }
-        // 不能确定实际偏好目录时停采，不将缺失配置当作另一份默认授权。
+        // 不能确定实际偏好目录时停采，不将缺失配置当作另一份默认授权：共用核心把「无偏好目录且未显式给出 enabled」当作旧协议的默认开启，所以这里根本不开始会话，不武装记录器、不观察授权、不发送队列。
         const std::filesystem::path preferences = [preferencesDirectory isAbsolutePath]
             ? std::filesystem::path(preferencesDirectory.UTF8String) : std::filesystem::path();
+        if (preferences.empty()) {
+            InstallTerminationHandler();
+            return;
+        }
         const auto directory = MSIMEUsageReportingDirectory();
         NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown";
         {

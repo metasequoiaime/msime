@@ -112,6 +112,8 @@ target_compile_definitions(msime-voice-local PRIVATE MSIME_VOICE_CRASH_CAPTURE)
 set_target_properties(msime-voice-local PROPERTIES OBJCXX_STANDARD 17)
 target_compile_options(msime-voice-local PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
 target_link_libraries(msime-voice-local PRIVATE apple-client)
+# helper 只为崩溃采集调用 `msime_client_telemetry_*`，却经 apple-client 链进整个 Rust 宿主 staticlib 和 AppKit；与输入法同理（见 MSIMEClientInputMethod 的 `-dead_strip` 说明），Release 去掉导出牵连的无用归档成员，并丢掉没有实际引用的动态库，每次本地识别启动 helper 时 dyld 不必加载 AppKit。
+target_link_options(msime-voice-local PRIVATE "$<$<CONFIG:Release>:LINKER:-dead_strip>" "$<$<CONFIG:Release>:LINKER:-dead_strip_dylibs>")
 find_package(nlohmann_json CONFIG REQUIRED)
 target_sources(apple-client PRIVATE ../common/Telemetry.cpp)
 target_link_libraries(apple-client PRIVATE nlohmann_json::nlohmann_json)
@@ -132,6 +134,11 @@ target_compile_options(usage-reporting-path-test PRIVATE -fobjc-arc -UNDEBUG -Wa
 target_compile_definitions(usage-reporting-path-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-path-test")
 target_link_libraries(usage-reporting-path-test PRIVATE apple-client)
 add_test(NAME usage-reporting-path COMMAND usage-reporting-path-test)
+# 运行时配置没有偏好目录时，输入法与原生设置窗口都不得开始会话、武装记录器或发送；桩在任何遥测入口被调用时中止。
+add_test(NAME usage-reporting-nil-preferences-input COMMAND usage-reporting-path-test --nil-input)
+add_test(NAME usage-reporting-nil-preferences-settings COMMAND usage-reporting-path-test --nil-settings)
+set_tests_properties(usage-reporting-path usage-reporting-nil-preferences-input usage-reporting-nil-preferences-settings
+  PROPERTIES RESOURCE_LOCK msime-usage-reporting-path-test)
 # 起子进程向它发 SIGTERM，检查会话照样结束、进程仍按 SIGTERM 退出；宿主函数由测试里的桩代替，同上链 apple-client。
 add_executable(usage-reporting-termination-test tests/core/UsageReportingTerminationTest.mm src/core/UsageReporting.mm)
 target_compile_options(usage-reporting-termination-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
