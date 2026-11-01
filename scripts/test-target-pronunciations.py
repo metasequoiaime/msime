@@ -55,14 +55,41 @@ DUMP = [
     # 西班牙读音在前，与释义偏向西班牙用法一致。
     entry("es", "cielo", sounds=[{"ipa": "/ˈθjelo/", "tags": ["Spain"]}, {"ipa": "/ˈsjelo/", "tags": ["Latin-America"]}]),
     entry("es", "gato", sounds=[{"ipa": "/ˈɡato/"}, {"ipa": "[ˈɡa.t̪o]"}]),
-    # 俄语和韩语只有方括号标音；键是不带重音符的词头。
+    # 俄语只有方括号标音；键是不带重音符的词头。
     entry("ru", "кошка", sounds=[{"ipa": "[ˈkoʂkə]"}, {"tags": ["Moscow"], "audio": "x.ogg"}]),
-    entry("ko", "고양이", sounds=[{"ipa": "[ko̞ja̠ŋi]"}, {"other": "고양이", "tags": ["Revised-Romanization"]}]),
+    # 韩语读罗马字，从维基词典的发音谚文（`sounds[].other`）生成，窄式 IPA 不用。
+    entry("ko", "고양이", sounds=[{"ipa": "[ko̞ja̠ŋi]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[고양이]"}]),
+    # 紧音化不写；同一个词的第二种读法（`[일따]`）不用。
+    entry("ko", "학교", sounds=[{"ipa": "[ha̠k̚k͈jo]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[학꾜]"}]),
+    entry("ko", "읽다", pos="verb", sounds=[{"ipa": "[ik̚t͈a̠]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[익따]"}, {"ipa": "[iɭt͈a̠]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[일따]"}]),
+    # 可选长音记号去掉；谓词照常送气，体词里的 ㅎ 照写，专名首字母大写。
+    entry("ko", "좋다", pos="adj", sounds=[{"ipa": "[ˈt͡ɕo̞(ː)tʰa̠]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[조(ː)타]"}]),
+    entry("ko", "묵호", pos="name", sounds=[{"ipa": "[mukʰo̞]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[무코]"}]),
+    # 元音按拼写写；维基词典写出的 ㅎ 弱化读法不算；收音移过来的紧音、外来词的口语紧音不写。
+    entry("ko", "희망", sounds=[{"ipa": "[çima̠ŋ]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[히망]"}]),
+    entry("ko", "전화", sounds=[{"ipa": "[ˈt͡ɕʌ̹(ː)nwa̠]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[저(ː)놔]"}]),
+    entry("ko", "없이", pos="adv", sounds=[{"ipa": "[ʌ̹ːp̚ɕ͈i]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[업ː씨]"}]),
+    entry("ko", "카페", sounds=[{"ipa": "[k͈a̠pʰe̞]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[까페]"}]),
+    # 维基词典没写发音谚文时按拼写推出发音；词与词之间的同化不写。
+    entry("ko", "개", sounds=[{"ipa": "[kɛ(ː)]", "tags": ["SK-Standard", "Seoul"]}, {"ipa": "[ke̞(ː)]", "tags": ["SK-Standard", "Seoul"]}]),
+    entry("ko", "누워서 떡 먹기", pos="proverb", sounds=[{"other": "[누워서 떵 먹끼]"}]),
+    # 词头不是谚文的词条没有罗马字。
+    entry("ko", "學校", sounds=[{"ipa": "[ha̠k̚k͈jo]", "tags": ["SK-Standard", "Seoul"]}, {"other": "[학꾜]"}]),
     # 德语名词保留大写；格里留着注释的整格不用；只标了一部分的不用；不带标签的胜过标 `Germany` 的变体。
     entry("de", "Katze", sounds=[{"ipa": "/ˈkatsə/"}]),
     entry("de", "Kater", sounds=[{"ipa": "/ˈkaːtɐ/ (Austria)"}]),
     entry("de", "Arzneimittel", sounds=[{"ipa": "[aːt͡s-]", "tags": ["Germany", "Northern"]}, {"ipa": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]"}]),
     entry("de", "Chile", pos="name", sounds=[{"ipa": "/ˈt͡ʃiːlə/"}, {"ipa": "/ˈçiːlə/", "tags": ["Germany"]}]),
+    # 德语的方括号语音标音胜过斜线的音位标音，只标了词尾的方括号不用；口语缩读不用。
+    entry("de", "haben", pos="verb", sounds=[{"ipa": "/ˈhaːbən/"}, {"ipa": "[ˈhaː.bən]"}, {"ipa": "[-bn̩]"}, {"ipa": "/ham/"}, {"ipa": "[ham]"}]),
+    entry("de", "er", pos="pron", sounds=[{"ipa": "/eːr/", "tags": ["standard"]}, {"ipa": "[ʔeːɐ̯]", "tags": ["standard"]}, {"ipa": "/ɐ/", "tags": ["colloquial"]}]),
+    entry("de", "mal", pos="adv", sounds=[{"ipa": "/ma/", "tags": ["colloquial"]}, {"ipa": "/maːl/", "tags": ["standard"]}]),
+    # 复数读音和标 `especially` 的地区偏好读法也不用，哪怕它们是方括号。
+    entry("de", "Knie", sounds=[{"ipa": "/kniː/", "tags": ["singular"]}, {"ipa": "[ˈkniːə]", "tags": ["alternative", "dated", "dative", "singular"]}, {"ipa": "[ˈkniːə]", "tags": ["plural"]}, {"ipa": "[kniː]", "tags": ["plural"]}]),
+    entry("de", "Bon", sounds=[{"ipa": "/bɔ̃/"}, {"ipa": "[bɔŋ]", "tags": ["especially"]}, {"ipa": "[bɔ̃ː]"}, {"ipa": "[boːn]", "tags": ["especially"]}]),
+    # 地区先比：只有标了其他地区的方括号时给不带标签的斜线；只写在 `other` 里的方括号不取。
+    entry("de", "Samstag", sounds=[{"ipa": "/ˈzamstaːk/", "tags": ["standard"]}, {"ipa": "/ˈzamstax/"}, {"ipa": "[sɑmsd̥ɑɡ̥]", "tags": ["Austria", "Bavaria", "Southern-Germany"]}]),
+    entry("de", "Wasser", sounds=[{"ipa": "/ˈvasər/"}, {"other": "[ˈva.sɐ]"}, {"other": "[ˈva.səʁ]"}]),
     # 日语读 romanization 形式的赫本式罗马字，从不用窄式 IPA；汉字词条的假名写法也读片假名释义。
     entry("ja", "林檎", sounds=[{"ipa": "[ɾʲiŋɡo̞]"}, {"other": "りんご"}], forms=[{"form": "林檎", "tags": ["canonical"]}, {"form": "ringo", "tags": ["romanization"]}]),
     entry("ja", "猫", sounds=[{"ipa": "[ne̞ko̞]"}, {"other": "ねこ"}], forms=[{"form": "neko", "tags": ["romanization"]}]),
@@ -82,8 +109,8 @@ GLOSSES = {
     "fr": ["chat, chatte; félin", "pomme de terre", "est; orient", "Chat", "sept", "France", "tous", "cet", "bonjour", "jaune", "ce"],
     "es": ["gato, gata", "cielo; día"],
     "ru": ["кошка, кот"],
-    "de": ["Katze, Kater", "Arzneimittel", "Chile"],
-    "ko": ["고양이"],
+    "de": ["Katze, Kater", "Arzneimittel", "Chile", "haben", "er", "mal", "Knie", "Bon", "Samstag", "Wasser"],
+    "ko": ["고양이", "학교", "읽다", "좋다", "묵호", "희망", "전화", "없이", "카페", "개", "누워서 떡 먹기", "學校"],
     "ja": ["林檎, リンゴ", "家猫, 猫", "空, 大空", "日"],
 }
 
@@ -96,6 +123,44 @@ def write_glosses(directory: Path) -> None:
             database.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             database.executemany("INSERT INTO zh_glosses VALUES (?, ?, 'x')", [(str(index), gloss) for index, gloss in enumerate(glosses)])
             database.executemany("INSERT INTO meta VALUES (?, ?)", [("target_language", language), ("dump_date", "2026-09-02")])
+
+
+# 文化观光部告示第 2000-8 号《国语的罗马字表记法》正文里的例词，不带发音谚文，全靠从拼写推出发音。规范里写成专名的例词按专名（`name`）查，首字母大写。
+RULE_EXAMPLES = {
+    # 第 2 章：元音和辅音，收音的代表音。
+    "구미": "Gumi", "영동": "Yeongdong", "백암": "Baegam", "옥천": "Okcheon", "합덕": "Hapdeok", "호법": "Hobeop", "월곶": "Wolgot",
+    "벚꽃": "beotkkot", "한밭": "Hanbat", "구리": "Guri", "설악": "Seorak", "칠곡": "Chilgok", "임실": "Imsil", "울릉": "Ulleung",
+    "대관령": "Daegwallyeong", "광희문": "Gwanghuimun",
+    # 第 3 章第 1 项：鼻音化、流音化、腭化、送气；紧音化不写，体词里 ㄱ、ㄷ、ㅂ 后的 ㅎ 照写。
+    "백마": "Baengma", "종로": "Jongno", "왕십리": "Wangsimni", "별내": "Byeollae", "신라": "Silla", "해돋이": "haedoji", "같이": "gachi",
+    "굳히다": "guchida", "좋고": "joko", "놓다": "nota", "잡혀": "japyeo", "낳지": "nachi", "묵호": "Mukho", "집현전": "Jiphyeonjeon",
+    "압구정": "Apgujeong", "낙동강": "Nakdonggang", "죽변": "Jukbyeon", "낙성대": "Nakseongdae", "합정": "Hapjeong", "팔당": "Paldang",
+    "샛별": "saetbyeol", "울산": "Ulsan",
+    # 第 3 章第 2 项：音节界线会读错的地方加连字符。
+    "중앙": "Jung-ang", "반구대": "Ban-gudae", "세운": "Se-un", "해운대": "Hae-undae",
+}
+# 例词里的谓词：送气照写，不按体词的例外。
+RULE_EXAMPLE_PREDICATES = {"굳히다", "좋고", "놓다", "잡혀", "낳지"}
+# 不在规范例词里、但标准发音法有明文的送气：收音 ㅊ 先读代表音 ㄷ 再送气成 ㅌ（第 12 条附注 2），收音 ㅈ 和 ㄵ 的后一半送气成 ㅊ。
+SPELLED_EXTRAS = {"꽃향기": ("noun", "kkotyanggi"), "맞히다": ("verb", "machida"), "앉히다": ("verb", "anchida")}
+# 规范只用发音谚文能写对的例词（ㄴ 添加推不出来），给它们维基词典写的发音。
+PRONOUNCED_EXAMPLES = {"학여울": ("[항녀울]", "Hangnyeoul"), "알약": ("[알략]", "allyak")}
+
+
+def check_revised_romanization() -> None:
+    for word, expected in RULE_EXAMPLES.items():
+        pos = "name" if expected[:1].isupper() else "verb" if word in RULE_EXAMPLE_PREDICATES else "noun"
+        reading = generator.revised_romanization(word, {"pos": pos, "sounds": []})
+        check(reading == expected, f"{word} romanizes from its spelling as {expected!r}, not {reading!r}")
+    for word, (pos, expected) in SPELLED_EXTRAS.items():
+        reading = generator.revised_romanization(word, {"pos": pos, "sounds": []})
+        check(reading == expected, f"{word} romanizes from its spelling as {expected!r}, not {reading!r}")
+    for word, (pronunciation, expected) in PRONOUNCED_EXAMPLES.items():
+        pos = "name" if expected[:1].isupper() else "noun"
+        reading = generator.revised_romanization(word, {"pos": pos, "sounds": [{"other": pronunciation}]})
+        check(reading == expected, f"{word} romanizes from {pronunciation} as {expected!r}, not {reading!r}")
+    check(generator.revised_romanization("學校", {"pos": "noun", "sounds": [{"other": "[학꾜]"}]}) is None, "a headword that is not Hangul has no romanization")
+    check(generator.revised_romanization("한국어", {"pos": "noun", "sounds": [{"other": "[한구거]", "tags": ["North-Korea"]}]}) == "han-gugeo", "a tagged pronunciation is not used; the spelling gives the same reading")
 
 
 def table(path: Path, language: str) -> dict[str, str]:
@@ -114,6 +179,7 @@ def main() -> int:
     check(generator.clean_romaji("ōkii") == "ōkii" and generator.clean_romaji("konnichi wa") == "konnichi wa", "Hepburn with macrons and spaces is romaji")
     check(generator.clean_romaji("そら") is None and generator.clean_romaji("") is None, "kana is not romaji")
     check(generator.hiragana("リンゴ") == "りんご" and generator.hiragana("コンピューター") == "こんぴゅーたー", "katakana folds to hiragana, the long-vowel mark kept")
+    check_revised_romanization()
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -151,9 +217,16 @@ def main() -> int:
         spanish = table(out / "es-phonetic.db", "es")
         check(spanish == {"gato": "/ˈɡato/", "cielo": "/ˈθjelo/"}, f"Spanish keeps the phonemic and the standard reading: {spanish}")
         check(table(out / "ru-phonetic.db", "ru") == {"кошка": "[ˈkoʂkə]"}, "Russian keeps its bracketed transcription")
-        check(table(out / "ko-phonetic.db", "ko") == {"고양이": "[ko̞ja̠ŋi]"}, "Korean keeps its bracketed transcription")
+        korean = table(out / "ko-phonetic.db", "ko")
+        check(korean == {
+            "고양이": "goyang-i", "학교": "hakgyo", "읽다": "ikda", "좋다": "jota", "묵호": "Mukho", "희망": "huimang",
+            "전화": "jeonhwa", "없이": "eopsi", "카페": "kape", "개": "gae", "누워서 떡 먹기": "nuwoseo tteok meokgi",
+        }, f"Korean reads in the Revised Romanization of its spelling and Wiktionary's Hangul pronunciation: {korean}")
         german = table(out / "de-phonetic.db", "de")
-        check(german == {"Katze": "/ˈkatsə/", "Arzneimittel": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]", "Chile": "/ˈt͡ʃiːlə/"}, f"German keeps the capital, drops noted and partial cells and prefers the untagged reading: {german}")
+        check(german == {
+            "Katze": "/ˈkatsə/", "Arzneimittel": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]", "Chile": "/ˈt͡ʃiːlə/", "haben": "[ˈhaː.bən]", "er": "[ʔeːɐ̯]",
+            "mal": "/maːl/", "Knie": "/kniː/", "Bon": "[bɔ̃ː]", "Samstag": "/ˈzamstaːk/", "Wasser": "/ˈvasər/",
+        }, f"German keeps the capital, drops noted, partial, colloquial, plural and especially-tagged cells, and prefers the untagged reading, then the bracketed one: {german}")
         japanese = table(out / "ja-phonetic.db", "ja")
         check(japanese == {"林檎": "ringo", "猫": "neko", "リンゴ": "ringo", "日": "hi"}, f"Japanese reads in Hepburn, katakana through the kanji entry's kana, and prefers the accented common reading: {japanese}")
         with sqlite3.connect(out / "ja-phonetic.db") as database:

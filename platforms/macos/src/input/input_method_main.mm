@@ -129,7 +129,12 @@ int main(int argc, const char *argv[]) {
         }
         // 独立设置窗口也要检查模式是否已加入输入法列表，所以在进入该分支前初始化探针。
         MSIMEInputModeEnabledProbe = MSIMEInputSourceIsEnabled;
+        NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
+        id reportingPreferences = reportingOptions[@"preferences_directory"];
+        NSString *reportingDirectory = [reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath]
+            ? reportingPreferences : nil;
         if (MSIMEShouldShowPreferences(argc, argv)) {
+            MSIMESettingsCrashReportingStart(reportingDirectory);
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             id closeObserver = [[NSNotificationCenter defaultCenter]
                 addObserverForName:MSIMEStandalonePreferencesDidCloseNotification
@@ -142,14 +147,13 @@ int main(int argc, const char *argv[]) {
             [[MSIMEPreferencesWindowController sharedController] showAndActivateForStandaloneLaunch];
             [NSApp run];
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
+            MSIMEUsageReportingStop();
             return 0;
         }
         // 脚本插件只在输入法进程里运行，上面的独立设置窗口已经返回。在第一个会话之前打开开关，开发构建和 release 构建一样（msime_client.h）。
         msime_client_scripts_enable(true);
-        // One input method process is one usage session; the standalone preferences window above is not.
-        NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
-        id reportingPreferences = reportingOptions[@"preferences_directory"];
-        MSIMEUsageReportingStart([reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath] ? reportingPreferences : nil);
+        // 一个输入法进程对应一个输入会话；上面的独立设置窗口仅采集自身故障。
+        MSIMEUsageReportingStart(reportingDirectory);
         // 同样只在输入法进程里：独立设置窗口已经在上面返回。
         MSIMEStartDictionarySync();
         // Recover a prior crashed capture before accepting new IMK sessions.

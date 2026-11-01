@@ -1,7 +1,7 @@
 package app.msime.android;
 
 /**
- * 候选读音的取词规则，和桌面端相同：英文候选读它本身（英文），中文候选读释义的第一行，按释义的目标语言读。英文给 `/…/` 音标，法、西、俄、德、韩给维基词典的 IPA（`/…/` 或 `[…]`），日文给罗马字。
+ * 候选读音的取词规则，和桌面端相同：英文候选读它本身（英文），中文候选读释义的第一行，按释义的目标语言读。英文给 `/…/` 音标，法、西、俄、德给维基词典的 IPA（`/…/` 或 `[…]`），日文给赫本式罗马字，韩文给文化观光部式罗马字。
  *
  * <p>读音按「语言 + 换行 + 文字」这个键（{@link #key}）请求和缓存：同样的字母在别的语言里是另一个词（法文的 chat）。
  */
@@ -28,7 +28,7 @@ public final class CandidatePronunciationPolicy {
         return first.isEmpty() || hasControl(first) ? "" : key(target, first);
     }
 
-    /** 读屏在释义之后念的读音：IPA 叫音标，日文的罗马字叫读音。 */
+    /** 读屏在释义之后念的读音：IPA 叫音标，日文和韩文的罗马字叫读音。 */
     public static String accessibilitySuffix(String reading) {
         if (reading == null || reading.isEmpty()) return "";
         return (reading.startsWith("/") || reading.startsWith("[") ? "，音标：" : "，读音：") + reading;

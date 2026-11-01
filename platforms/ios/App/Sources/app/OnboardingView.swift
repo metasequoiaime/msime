@@ -440,7 +440,7 @@ struct InputSettingsView: View {
       DesignToggleRow(title: "显示读音",
                       subtitle: resourcePacks.available(CandidatePronunciationPreference.packID)
                         && (!targetReadingsNeeded || resourcePacks.available(CandidatePronunciationPreference.targetPackID))
-                        ? "在英文候选和释义下面标出读音：英文给音标，日文给罗马音，其他语言给国际音标，不联网"
+                        ? "在英文候选和释义下面标出读音：英文给音标，日文和韩文给罗马音，其他语言给国际音标，不联网"
                         : "在英文候选和释义下面标出读音；需先下载下面的离线读音词典",
                       isOn: habit(\.pronunciationEnabled))
         .accessibilityIdentifier("candidatePronunciationToggle")

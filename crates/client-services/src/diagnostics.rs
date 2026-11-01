@@ -601,6 +601,17 @@ pub fn crash_record(line: &[u8]) -> Option<Value> {
 
 /// 崩溃记录清洗后的样子：`message` 只留异常类型，`stack` 里栈帧原样保留、说明行只留异常类型，路径都只留文件名。
 fn sanitized_crash(at: &str, message: &str, stack: &str) -> Option<Value> {
+    let (message, stack) = if message.starts_with("MSIME-CRASH/") {
+        // 原生头只用于本机归属，不能当作摘要或把持续授权身份带进诊断包。
+        crate::telemetry::CrashContext::from_header(message)?;
+        let (summary, frames) = stack.split_once('\n').unwrap_or((stack, ""));
+        if summary.trim().is_empty() {
+            return None;
+        }
+        (summary, frames)
+    } else {
+        (message, stack)
+    };
     let message = crate::telemetry::clean_message(exception_type(message.lines().next()?));
     let stack: Vec<String> = stack
         .lines()

@@ -125,11 +125,15 @@ char *msime_client_user_words_mirror(const uint8_t *request, size_t length);
  * record_crash {directory, message, stack, outside_session: true}：系统事后报告的强制结束（SIGKILL：看门狗、内存上限、挂起时持有文件锁），不算会话崩溃，总是写成单独的记录，只报 crash。带 pid 或 outside_session 的两种会加锁，不能在崩溃处理程序里调用；session、pid、outside_session 三者互斥。
  * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
  * clear {directory}: usage reporting was just turned off. */
+/* begin 的可选 capture_only:true 为设置或辅助进程准备独立崩溃记录，不触碰输入会话；component 是只含字母数字、点、下划线和连字符的组件名（默认 input）。成功时另外返回 crash_record_header：新宿主在信号路径中把它原样写在摘要之前，或把它与 session 一起传给 record_crash。系统事后诊断也可以传原构建的记录头；不带 session 的普通写入拒绝记录头，避免静默忽略归属。事后诊断可另带长度不超过 256 字节的 diagnostic_id，重复送达沿用同一个事件 id；不得传入原始描述、路径或输入内容。 */
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
 char *msime_client_telemetry_end(const uint8_t *request, size_t length);
 char *msime_client_telemetry_record_crash(const uint8_t *request, size_t length);
 char *msime_client_telemetry_flush(const uint8_t *request, size_t length);
 char *msime_client_telemetry_clear(const uint8_t *request, size_t length);
+/* 持续上报同意：{directory:偏好目录绝对路径,edition?:包内产品版本}，返回 {enabled:false} 或 {enabled:true,epoch,since_unix_ms}。首次使用原子保存本机代次，edition 仅在首次宿主准备前保持本版本的偏好默认值；读写失败保持错误，不清已有报告。begin/flush 可带 consent_epoch 与 preferences_directory，不能同时给 enabled；旧代次返回 enabled:false，不清新代次队列。系统 record_crash 同样可带这两项及 diagnostic_begin_unix_ms、diagnostic_end_unix_ms，仅接收完全位于该次持续同意中的诊断批次，并要求原构建记录头。知道原捕获 UUID 的系统补录可带 diagnostic_capture 和 outside_session:true，与现场记录共用原身份；它不与 pid 或 diagnostic_id 混用，原输入会话仍按 UUID 归属。clear 可带 preferences_directory，仅在开关当前仍关闭时清理，防旧回调删除重开后的新报告。故障处理器不调用 consent，也不读偏好，只写预备的记录头。 */
+/* 只读授权来源：consent {authority_directory} 不建目录或锁；权威设置进程发布时另带 directory 与 publication:{policy_allowed,policy_identity}。暂停返回 {enabled:false,suspended:true}，不能当作撤回清队列。begin/flush/系统 record_crash/条件 clear 可用 authority_directory 代替 preferences_directory，两者互斥；前三者仍必须带 consent_epoch，每条发送前短暂核对共享授权，网络期间不持读锁。 */
+char *msime_client_telemetry_consent(const uint8_t *request, size_t length);
 /* Notices from GET https://api.msime.app/v1/notices (no credentials). request {directory, platform, channel?} (channel app by default); directory is an absolute directory for notices.json. Value {items:[{id,title,body,html,targets,channels,published_at}]}, newest first, without the ones dismissed; html is body rendered as by msime_client_markdown_to_html. The feed is fetched at most once a minute (the cached copy otherwise, and when the request fails). Blocks on the network: call off the input thread when the settings window or app home opens, never on a timer in the input method. */
 char *msime_client_notices(const uint8_t *request, size_t length);
 /* request {directory, id}: remember that the user dismissed notice id. */
@@ -829,7 +833,7 @@ char *msime_client_candidate_gloss_request(const uint8_t *request, size_t reques
 /* 不持有会话地查询候选释义行的读音，可在宿主工作线程调用。
  * JSON 请求：{generation,items:[{text,language}],supplementary_resources?}；language 为 "en"、"fr"、"ja"、"es"、"ru"、"de"、"ko" 之一，是这一行释义的目标语言，其他值整批拒绝。
  * en：text 为英文候选或一行英文释义；只读首个词组，忽略开头的 to/a/an/the，任一词未知则不返回该组；读音为 "/…/" IPA。读 pronunciations/en-phonetic.db。
- * 其余语言：text 为这种语言的一行释义；只读第一个分隔符（; ； , ， 、 / ? ？）前的词条，去掉括号里的注释，整条查表（先原样、再小写），查不到不返回。读音是维基词典写的 IPA，带着它的 "/…/" 或 "[…]"；日文是赫本式罗马字（neko、chūgoku），不带括号。读 target-pronunciations/<language>-phonetic.db。
+ * 其余语言：text 为这种语言的一行释义；只读第一个分隔符（; ； , ， 、 / ? ？）前的词条，去掉括号里的注释，整条查表（先原样、再小写），查不到不返回。法、西、俄、德语的读音是维基词典写的 IPA，带着它的 "/…/" 或 "[…]"；日文是赫本式罗马字（neko、chūgoku），韩文是文化观光部式罗马字（goyang-i、hakgyo），都不带斜线或括号，宿主按形状校验时只能要求它们非空。读 target-pronunciations/<language>-phonetic.db。
  * 响应为 {generation,pronunciations:[{text,language,pronunciation}]}，按请求顺序，没有读音的项省略；宿主按 (language,text) 对应回去。
  * 每种语言优先读 resources 旁的表；缺失时可从 supplementary_resources 下读取同名相对路径（资源包 pronunciations 与 target-pronunciations 的根）。
  * 补充目录为可选的绝对路径，最多 4096 字节；缺省保持旧行为。某种语言两处均未安装时它的项没有读音，不报错。 */

@@ -69,6 +69,7 @@ special_checks="windows-32bit-compile=scripts/verify-local.sh
 windows-native-run=scripts/verify-local.sh
 harmony-settings-bundle=scripts/verify-local.sh
 android-json-null-reads=platforms/android/check-host.sh
+crash-symbols=scripts/run-checks.sh
 appearance-preview=packages/ui/UPSTREAM.md
 skin-palette-csp=packages/ui/UPSTREAM.md"
 
@@ -95,6 +96,8 @@ for entry in $special_checks; do
   fi
 done
 [ "$registry_ok" -eq 1 ] && echo "contract check registry: every special check is run by the script it names, or documented where no gate runs it"
+
+python3 scripts/test-crash-symbols.py
 
 # Everything else, in file-name order. The checks are independent of each other and almost all of them are single-threaded Python reading the tree, so they run in a bounded pool: one after another they cost about half a minute of every push, which is most of the gate's time on a push that builds nothing. Each check's output goes to its own file and is printed afterwards in file-name order under its own header, so what is printed and what fails is the same as when they ran one by one. The pool is MSIME_CHECK_JOBS wide, else CARGO_BUILD_JOBS (rbuild sets it to the cores it may use on the Studio), else the core count capped at six. PYTHONUNBUFFERED keeps a check's stdout and stderr in the order it wrote them now that neither is a terminal.
 check_jobs="${MSIME_CHECK_JOBS:-${CARGO_BUILD_JOBS:-}}"

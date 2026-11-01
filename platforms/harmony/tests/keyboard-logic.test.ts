@@ -19404,6 +19404,8 @@ group(
             { text: "bonjour", language: "fr", pronunciation: "/bɔ̃.ʒuʁ/" },
             { text: "кошка", language: "ru", pronunciation: "[ˈkoʂkə]" },
             { text: "猫", language: "ja", pronunciation: "neko" },
+            { text: "고양이", language: "ko", pronunciation: "goyang-i" },
+            { text: "개", language: "ko", pronunciation: " " },
             { text: "猫", language: "zh", pronunciation: "māo" },
             { text: "chat", language: "fr", pronunciation: "ʃa" },
             { text: "", language: "en", pronunciation: "/x/" },
@@ -19416,11 +19418,12 @@ group(
       readings !== null &&
         readings.get(key("fr", "bonjour")) === "/bɔ̃.ʒuʁ/" &&
         readings.get(key("ru", "кошка")) === "[ˈkoʂkə]" &&
-        readings.get(key("ja", "猫")) === "neko",
-      "其他语言的 IPA 和日文罗马字按语言收下",
+        readings.get(key("ja", "猫")) === "neko" &&
+        readings.get(key("ko", "고양이")) === "goyang-i",
+      "其他语言的 IPA 和日文、韩文罗马字按语言收下",
     );
     check(
-      readings !== null && readings.size === 4,
+      readings !== null && readings.size === 5,
       "形状不对的、没有读音表的语言和空文字的回答丢掉",
     );
     check(
@@ -19432,6 +19435,7 @@ group(
       CandidatePronunciationPolicy.accessibilitySuffix("/həˈləʊ/") === "，音标：/həˈləʊ/" &&
         CandidatePronunciationPolicy.accessibilitySuffix("[ˈkoʂkə]") === "，音标：[ˈkoʂkə]" &&
         CandidatePronunciationPolicy.accessibilitySuffix("neko") === "，读音：neko" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("goyang-i") === "，读音：goyang-i" &&
         CandidatePronunciationPolicy.accessibilitySuffix("") === "",
       "读屏在释义之后念读音，没有读音时不念",
     );

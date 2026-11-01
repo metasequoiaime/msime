@@ -4,7 +4,7 @@
 
 // How the gloss lines under a candidate are read, drawn after each line and never committed.
 //
-// 释义每个翻译目标一行，按目标顺序用 "\n" 连起来（MSIMEJoinedTranslations 保留中间的空行）。每一行按它的第一个词条读：英、法、西、俄、德、韩交给共享的离线读音表（msime_client_pronunciation_request，每种都回答 IPA），日文用系统分词器读成罗马字，汉字和假名都能读。没有读音的行保持原样。
+// 释义每个翻译目标一行，按目标顺序用 "\n" 连起来（MSIMEJoinedTranslations 保留中间的空行）。每一行按它的第一个词条读：英、法、西、俄、德、韩交给共享的离线读音表（msime_client_pronunciation_request，英、法、西、俄、德回答 IPA，韩文回答罗马字），日文用系统分词器读成罗马字，汉字和假名都能读。没有读音的行保持原样。
 
 // The part of a gloss line before its first separator, which is the word the line teaches.
 static inline NSString *MSIMEGlossFirstTerm(NSString *line)

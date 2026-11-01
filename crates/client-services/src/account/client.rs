@@ -193,6 +193,11 @@ impl BackendAccountClient {
         Self::with_origin_and_agent(origin, true, agent)
     }
 
+    #[cfg(any(test, feature = "telemetry-loopback"))]
+    pub(crate) fn telemetry_loopback(origin: &str) -> Result<Self, AccountError> {
+        Self::with_origin(origin, true)
+    }
+
     fn request(
         &self,
         method: Method,
