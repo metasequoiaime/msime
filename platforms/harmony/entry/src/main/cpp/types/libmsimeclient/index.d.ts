@@ -29,11 +29,11 @@ export const themeCatalog: () => string;
  */
 export const resolveTheme: (request: string) => string;
 /**
- * 应用主题选择器：按选择器顺序（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）返回 `{app_themes:[{id,title,season,seasonal,light,dark}],default:"siji"}`。`light` 和 `dark` 是 `{accent,accent_soft,on_accent,background,card,hair}`；`siji` 的 `season` 为 null、`seasonal` 为 true，并绘制为秋杉，因此目录不随时钟变化。
+ * 应用主题选择器：按选择器顺序（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）返回 `{app_themes:[{id,title,season,seasonal,light,dark}],default:"siji"}`。`light` 和 `dark` 是 `{accent,accent_soft,on_accent,background,card,hair,candidate_accent}`；`siji` 的 `season` 为 null、`seasonal` 为 true，并绘制为秋杉，因此目录不随时钟变化。
  */
 export const appThemeCatalog: () => string;
 /**
- * 输入 `{app_theme,month?,dark}`，其中 `month` 是宿主的本地日历月份（1-12，仅 `siji` 使用；省略时取 UTC 月份）；输出 `{id,season,accent,accent_soft,on_accent,background,card,hair}`，`season` 为实际绘制的季节。纯函数，可以在主线程上运行。
+ * 输入 `{app_theme,month?,dark}`，其中 `month` 是宿主的本地日历月份（1-12，仅 `siji` 使用；省略时取 UTC 月份）；输出 `{id,season,accent,accent_soft,on_accent,background,card,hair,candidate_accent}`，`season` 为实际绘制的季节，`candidate_accent` 是触屏候选条首选的字色（浅色加深到 WCAG AA，深色等于 `accent`）。纯函数，可以在主线程上运行。
  */
 export const resolveAppTheme: (request: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
@@ -184,6 +184,8 @@ export const vocabularyReview: (request: string) => Promise<string>;
 export const personalWordbookAdd: (request: string) => Promise<string>;
 /** 设置应用导入键盘发布的生词本：msime_client_personal_wordbook_merge，请求里是文件路径，同步执行（共享沙箱的导入本来就在主线程上同步进行）。 */
 export const personalWordbookMerge: (request: string) => string;
+/** 「朗读」要读的英文：msime_client_read_aloud_text，请求是 {candidate,gloss?}，应答的 value 是要读的文字或 null。纯函数，同步执行。 */
+export const readAloudText: (request: string) => string;
 /** 键盘清走设置应用已经并过的词：msime_client_personal_wordbook_drain，请求里是文件路径，同步执行（在键盘获得焦点时的共享沙箱同步里）。 */
 export const personalWordbookDrain: (request: string) => string;
 /** Locked mobile history operations; every mutation answers with the latest complete entry list. */

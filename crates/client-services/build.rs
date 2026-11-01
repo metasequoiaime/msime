@@ -29,7 +29,8 @@ fn main() {
         .and_then(|path| std::fs::canonicalize(path).ok())
         == std::fs::canonicalize(&root).ok();
     if own_git {
-        for name in ["HEAD", "logs/HEAD", "packed-refs"] {
+        // 提交身份只取决于 HEAD 指向和分支引用；reflog 在 reset、同提交 checkout 等不换提交的操作上也会追加，不能拿来触发重建。
+        for name in ["HEAD", "packed-refs"] {
             watch_git_path(&root, name);
         }
         if let Some(branch) = git(&root, &["symbolic-ref", "-q", "HEAD"]) {

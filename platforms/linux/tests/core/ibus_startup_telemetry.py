@@ -110,7 +110,10 @@ def run_host(host, registration_bus, scratch, recovered):
 
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
-        options.write_text('{"preferences":{}}')
+        options.write_text(json.dumps({
+            "preferences": {},
+            "preferences_directory": str(scratch / "preferences"),
+        }))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),

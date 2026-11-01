@@ -6,7 +6,7 @@ import { ActionButton } from "../core/action-button";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { useTimeout } from "../core/use-timeout";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
-import { msimeFramePath, msimeStrokePath } from "../core/brand-logo";
+import { msimeFramePath, msimeStrokePath, msimeViewBox } from "../core/brand-logo";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
 import type {
   HostChromeClient,
@@ -95,7 +95,7 @@ function Splash({ onDone }: { onDone: () => void }) {
   return (
     <button type="button" className={onboarding.splash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.splashGlow} aria-hidden="true" />
-      <svg className={onboarding.splashLogo} viewBox="0 0 116 132" aria-hidden="true">
+      <svg className={onboarding.splashLogo} viewBox={msimeViewBox} aria-hidden="true">
         <path className={onboarding.splashFrame} d={msimeFramePath} />
         <path className={onboarding.splashStroke} d={msimeStrokePath} pathLength={1} />
       </svg>
@@ -112,7 +112,7 @@ function Splash({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** HarmonyOS 首次启动的开屏（dc.html L2692-2698）：第一帧和系统启动窗相同（启动窗底色上的圆盘和水杉标志，跟随系统深浅色），随后淡入当季颜色、泛起波纹、出字，底部一条进度条在开屏停留期间填满。冷启动与首次欢迎流程复用这套画面。点一下仍可跳过；设计里没有提示这一点。 */
+/** HarmonyOS 首次启动的开屏（dc.html L2692-2698）：第一帧和系统启动窗相同（启动窗底色上的水杉标志，跟随系统深浅色，标志外面不套圆盘），随后泛起光晕、出字，底部一条进度条在开屏停留期间填满。冷启动与首次欢迎流程复用这套画面。点一下仍可跳过；设计里没有提示这一点。 */
 function HarmonySplash({
   onDone,
   durationMs = SPLASH_MS,
@@ -124,16 +124,10 @@ function HarmonySplash({
   return (
     <button type="button" className={onboarding.hSplash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.hSplashGlow} aria-hidden="true" />
-      <span className={onboarding.hSplashDiscBox} aria-hidden="true">
-        <span className={onboarding.hSplashRipple} />
-        <span className={onboarding.hSplashDisc} />
-        <span className={onboarding.hSplashDiscVeil} />
-        <svg className={onboarding.hSplashLogo} viewBox="0 0 116 132">
-          <path className={onboarding.hSplashFrame} d={msimeFramePath} />
-          <path className={onboarding.hSplashFrameVeil} d={msimeFramePath} />
-          <path className={onboarding.hSplashStroke} d={msimeStrokePath} />
-        </svg>
-      </span>
+      <svg className={onboarding.hSplashLogo} viewBox={msimeViewBox} aria-hidden="true">
+        <path className={onboarding.hSplashFrame} d={msimeFramePath} />
+        <path className={onboarding.hSplashStroke} d={msimeStrokePath} />
+      </svg>
       <span className={onboarding.hSplashCaption} aria-hidden="true">
         <span className={onboarding.splashName}>水杉输入法</span>
         <span className={onboarding.hSplashTagline}>METASEQUOIA IME</span>
@@ -145,7 +139,7 @@ function HarmonySplash({
   );
 }
 
-/** 手机冷启动复用欢迎开屏，缩短出字与波纹节奏，系统栏保持启动窗的颜色。 */
+/** 手机冷启动复用欢迎开屏，缩短出字节奏，系统栏保持启动窗的颜色。 */
 export function HarmonyLaunchSplash({
   onDone,
   appTheme = null,
@@ -162,8 +156,6 @@ export function HarmonyLaunchSplash({
     ...appThemeStyle(appTheme, dark, "harmony"),
     "--animate-splash-name": "splash-rise 0.3s 0.3s both",
     "--animate-splash-tagline": "splash-rise 0.3s 0.45s both",
-    "--animate-splash-veil": "splash-veil 0.3s ease-out 0.05s both",
-    "--animate-splash-ripple": "splash-ripple 0.6s ease-out 0.55s",
     "--animate-splash-load": "splash-load 1.2s ease-out both",
   } as CSSProperties;
   return (

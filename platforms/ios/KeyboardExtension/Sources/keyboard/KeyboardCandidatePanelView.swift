@@ -176,13 +176,10 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-  // 品牌标志位于标题栏开头，与 macOS 候选窗顶行的做法一样：16pt，与拼写之间隔 6pt。它只是装饰（图片视图不接收触摸，也不是无障碍元素），并像快捷栏的品牌按钮一样用皮肤强调色着色。
+  // 品牌标志位于标题栏开头，与 macOS 候选窗顶行的做法一样：16pt，与拼写之间隔 6pt。它只是装饰（图片视图不接收触摸，也不是无障碍元素），和快捷栏的品牌按钮一样是固定配色的完整标志，不随皮肤着色。
   private func makeHeader(preedit: String, preeditScale: CGFloat, onClose: @escaping () -> Void) -> UIView {
-    let brandMark = UIImageView(
-      image: KeyboardViewController.brandTemplate()
-        ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate))
+    let brandMark = UIImageView(image: KeyboardViewController.brandMark(side: 16))
     brandMark.contentMode = .scaleAspectFit
-    brandMark.tintColor = skin.accent
     brandMark.isUserInteractionEnabled = false
     brandMark.isAccessibilityElement = false
     brandMark.accessibilityIdentifier = "candidatePanelBrandIcon"

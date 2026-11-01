@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory] [wordbooks-directory]}
+source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory] [wordbooks-directory] [target-pronunciations-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -133,6 +133,17 @@ if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_sourc
   echo "pronunciations staged: $pronunciations_destination"
 else
   echo "no pronunciations at $pronunciations_source; English glosses are shown without IPA"
+fi
+# 可选：scripts/build_target_pronunciations.py 从维基词典生成的法、西、俄、德、韩释义行读音表（以及给没有系统分词器的宿主用的日文罗马字），每种语言一个 *-phonetic.db，和英文表一样在资源目录旁边读。只连同必须随它们分发的 CC BY-SA 声明一起暂存。没有它们时这些行不标读音；日文罗马字仍来自系统分词器。
+target_pronunciations_source=${9:-$repo_root/target/target-pronunciations}
+target_pronunciations_destination="$repo_root/target/macos/target-pronunciations"
+rm -rf "$target_pronunciations_destination"
+if compgen -G "$target_pronunciations_source/*-phonetic.db" >/dev/null && [ -f "$target_pronunciations_source/target-pronunciations-NOTICE.txt" ]; then
+  mkdir -p "$target_pronunciations_destination"
+  cp "$target_pronunciations_source"/*-phonetic.db "$target_pronunciations_source/target-pronunciations-NOTICE.txt" "$target_pronunciations_destination/"
+  echo "target pronunciations staged: $target_pronunciations_destination"
+else
+  echo "no target pronunciations at $target_pronunciations_source; non-English gloss lines are shown without a reading"
 fi
 # Optional: English glosses for single characters built by scripts/build_character_glosses.py, which english.db leaves out; read beside the resource directory.
 characters_source=${6:-$repo_root/target/character-glosses}

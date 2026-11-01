@@ -19,6 +19,7 @@ Status: implemented
 - [移动聆听面板](2026-10-28-mobile-voice-listening-panel.md)：部分重叠，Android 工具栏的指示图按本篇替换，其他布局与三端行为继续有效，双方互链。
 - [外部本地听写](2026-10-23-android-external-offline-dictation.md)：部分重叠，复用既有绘制，不改导出、权限、录音、结果回传或外部生命周期。
 - [移动人物贴纸](2026-10-20-mobile-mascot-stickers.md)：复用同一素材与打包路径，不新增素材来源与许可负担。
+- [iOS 与 HarmonyOS 聆听面板水杉娘](2026-11-01-mobile-voice-mascot-ios-harmony.md)：部分重叠，iOS 与 HarmonyOS 沿用本篇的人物、耳部几何与红线规则，改几何要三端一起改，双方互链。
 - 检索活跃笔记的 `VoiceListeningView`、`OfflineVoiceListeningView`、人物语音和工具栏语音；其他命中不定义本次绘制决定，无待拒绝提案。
 
 ## Alternatives considered

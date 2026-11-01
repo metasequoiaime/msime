@@ -57,9 +57,11 @@ enum NativeKeyboardTokens {
   static let functionKey = adaptiveColor(0xABB0BB, 0x464648)
   static let text = adaptiveColor(0x000000, 0xFFFFFF)
   static let secondary = adaptiveColor(0x8A8A8E, 0x8E8E93)
-  /// The brand accent: the return key while composing, the selected candidate, switched-on tiles and pills.
+  /// 品牌强调色：输入中的回车键、开启态磁贴和胶囊。候选条首选的字色另见 `candidateAccent`。
   static let accent = adaptiveColor(0x2C7A4B, 0x5FBF84)
   static let accentSoft = adaptiveColor(0x2C7A4B, 0x5FBF84, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 触屏候选条首选的字色。浅色的 `accent` 画在键盘底色 `#D1D4DB` 上只有约 3.5:1，换成同一色相在 OKLCH 里降低明度的 `#15683B`（约 4.6:1，候选底片 `#FFFFFF` 上约 6.8:1）；深色不变。
+  static let candidateAccent = adaptiveColor(0x15683B, 0x5FBF84)
   /// 除键盘设计主题外，所有主题里按键的底边：浅色为 `0 1px 0 rgba(38,62,44,.3)`，深色为 `0 1px 0 rgba(0,0,0,.55)`。颜色本身不透明，各模式的透明度由 `keyShadowOpacity` 承载。
   static let keyShadowColor = adaptiveColor(0x263E2C, 0x000000)
   static let keyShadowOpacity: (light: Float, dark: Float) = (0.3, 0.55)
@@ -154,6 +156,11 @@ enum SeasonKeyboardTokens {
       onAccent: UIColor { traits in
         guard traits.userInterfaceStyle == .dark else { return .white }
         return AppThemePalette.resolved(dark: true)?.onAccent ?? .black
+      },
+      // 首选候选用 Rust 给的 `candidate_accent`：浅色是加深到 AA 的强调色，深色就是强调色。
+      candidateAccent: UIColor { traits in
+        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.candidateAccent
+          ?? NativeKeyboardTokens.candidateAccent.resolvedColor(with: traits)
       })
   }
 
@@ -199,15 +206,17 @@ struct ThemeKeyboardPalette: Equatable {
   var functionKey: UIColor
   var text: UIColor
   var secondary: UIColor
-  /// The selected candidate's text in the strip, drawn with no fill.
+  /// 主题的强调色：回车键、开启态、拼写标记，没有 `candidateAccent` 时也是候选条首选的字色。
   var accent: UIColor
   /// Text on anything filled with `accent`.
   var onAccent: UIColor
+  /// 候选条首选的字色，nil 时用 `accent`。只有跟随系统的季节配色和经典兜底给它：浅色季节强调色画在键盘底色上不到 WCAG AA，这里换成同一色相加深后的颜色，`accent` 的其他用处不变。
+  var candidateAccent: UIColor?
 
   init(background: UIColor, key: UIColor, functionKey: UIColor, text: UIColor, secondary: UIColor,
-       accent: UIColor, onAccent: UIColor) {
+       accent: UIColor, onAccent: UIColor, candidateAccent: UIColor? = nil) {
     (self.background, self.key, self.functionKey, self.text) = (background, key, functionKey, text)
-    (self.secondary, self.accent, self.onAccent) = (secondary, accent, onAccent)
+    (self.secondary, self.accent, self.onAccent, self.candidateAccent) = (secondary, accent, onAccent, candidateAccent)
   }
 
   init?(_ value: Any?) {

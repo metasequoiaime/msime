@@ -8,6 +8,8 @@ namespace msime::crash {
 void arm(const std::string &path, const std::string &header);
 void disarm();
 bool is_armed();
+// 模块快照只在 arm 时建立；武装后再加载的库（例如按需 dlopen/System.load 的语音运行时）加载后调用它，崩溃帧才能对上模块名和 build-id。只能在正常执行路径调用。
+void refresh_modules();
 void install_crash_handlers();
 void remove_crash_handlers();
 std::string current_stack(int skip);
@@ -24,6 +26,8 @@ extern "C" {
 void msime_native_crash_arm(const char *path, const char *header);
 void msime_native_crash_disarm(void);
 void msime_native_crash_install(void);
+// 武装后加载新的动态库后调用，重新建立模块快照；只能在正常执行路径调用。
+void msime_native_crash_refresh_modules(void);
 // 供允许分配内存的 panic/terminate 回调使用，摘要由调用方提供固定类型，不含异常里的用户数据。
 void msime_native_crash_record(const char *summary);
 #ifdef __cplusplus

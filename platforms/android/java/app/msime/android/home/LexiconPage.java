@@ -166,12 +166,12 @@ public final class LexiconPage extends ReloadingDetailPage {
                 collection.enabled() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
         }
-        installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
+        installed.help("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
 
         GroupCard updates = GroupCard.add(sectionColumn(target, "已安装"), "词库更新");
-        updates.toggle("自动更新词库", "每天检查兼容的词库版本", updateStatus == null || updateStatus.optBoolean("enabled", true),
-            enabled -> updateDictionary("configure", enabled));
+        updates.toggle("自动更新词库", null, updateStatus == null || updateStatus.optBoolean("enabled", true),
+            enabled -> updateDictionary("configure", enabled)).help("每天检查兼容的词库版本");
         updates.note(DictionaryUpdates.message(updateStatus));
         boolean updating = updateStatus != null && ("checking".equals(updateStatus.optString("phase")) || "downloading".equals(updateStatus.optString("phase")));
         updates.nav("检查词库更新", null, null, () -> updateDictionary("check", null)).setEnabled(!updating);
@@ -180,8 +180,8 @@ public final class LexiconPage extends ReloadingDetailPage {
         }
 
         GroupCard sync = GroupCard.add(sectionColumn(target, "已安装"), "同步");
-        sync.nav(PageId.DICTIONARY_SYNC.title(), "「我的词条」经自己的 WebDAV 网盘在设备之间同步", null,
-            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null));
+        sync.nav(PageId.DICTIONARY_SYNC.title(), null, null,
+            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null)).help("「我的词条」经自己的 WebDAV 网盘在设备之间同步");
 
         GroupCard community = GroupCard.add(sectionColumn(target, "社区"), "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
@@ -193,21 +193,21 @@ public final class LexiconPage extends ReloadingDetailPage {
             for (CommunityCatalog.Item item : items) community.addView(discoverRow(item, current.view()));
         }
         // 这里只列前几个，完整列表（搜索、详情、举报）压在词库页上面，返回回到这里。
-        community.nav("浏览更多词库", "搜索社区里的全部词库", null,
-            () -> CommunityFragment.browse(context, CommunityRequest.Kind.DICTIONARY));
-        community.nav("提交缺失词条", "前往官网填写，审核后随公共词库更新；个人学习不会自动公开", null,
-            () -> AboutPage.openLink(context, "https://msime.app/words/"));
+        community.nav("浏览更多词库", null, null,
+            () -> CommunityFragment.browse(context, CommunityRequest.Kind.DICTIONARY)).help("搜索社区里的全部词库");
+        community.nav("提交缺失词条", null, null,
+            () -> AboutPage.openLink(context, "https://msime.app/words/")).help("前往官网填写，审核后随公共词库更新；个人学习不会自动公开");
 
         GroupCard learning = GroupCard.add(sectionColumn(target, "学习"), "学习");
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
-        learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
-        learning.nav(PageId.VOCABULARY_REVIEW.title(), "用内置词书或自己的词表复习英文单词", null,
-            () -> SettingsNavigator.open(context, PageId.VOCABULARY_REVIEW, null));
+        learning.toggle(toggle.title(), null, current.learning(), this::saveLearning).help(toggle.description());
+        learning.nav(PageId.VOCABULARY_REVIEW.title(), null, null,
+            () -> SettingsNavigator.open(context, PageId.VOCABULARY_REVIEW, null)).help("用内置词书或自己的词表复习英文单词");
         learning.button(ClearLearningCopy.TITLE, ClearLearningCopy.SUBTITLE, ClearLearningCopy.ACTION, this::confirmClearLearning);
 
         if (ManagementUi.available()) {
             GroupCard more = GroupCard.add(sectionColumn(target, "已安装"), "更多");
-            more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
+            more.nav("云词库", null, null, this::openCloudDictionary).help("在管理界面里管理云端词库");
         }
     }
 

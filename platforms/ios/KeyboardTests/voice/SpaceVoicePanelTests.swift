@@ -184,8 +184,10 @@ final class SpaceVoicePanelTests: XCTestCase {
     XCTAssertEqual(panel.orb.orbSide, 64)
     XCTAssertEqual(panel.plan?.titleLines, 2)
     XCTAssertEqual(panel.plan?.showsHint, true)
+    // 点按开始画人物：指示区高度仍是圆球的 1.5 倍，宽度按 320×250 的视口放宽。
     let indicator = panel.orb.frame
-    XCTAssertEqual(indicator.size, CGSize(width: 96, height: 96))
+    XCTAssertEqual(indicator.height, 96, accuracy: 0.001)
+    XCTAssertEqual(indicator.width, 96 * 320 / 250, accuracy: 0.001)
     XCTAssertEqual(indicator.midX, panel.bounds.midX, accuracy: 0.5)
     XCTAssertTrue(panel.bounds.contains(indicator))
     XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
@@ -213,7 +215,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     XCTAssertEqual(panel.orb.shownLevel, reduceMotion ? 0 : 1)
     let halo = panel.orb.convert(panel.orb.outerHaloFrame, to: panel)
     XCTAssertTrue(panel.bounds.contains(halo), "\(halo) 超出了 \(panel.bounds)")
-    if !reduceMotion { XCTAssertEqual(halo.width, indicator.width, accuracy: 0.5) }
+    if !reduceMotion { XCTAssertEqual(halo.width, indicator.height, accuracy: 0.5) }
 
     panel.finishButton.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(finishes, 1)
@@ -237,6 +239,108 @@ final class SpaceVoicePanelTests: XCTestCase {
     held.onCancel = { heldCancels += 1 }
     XCTAssertTrue(held.accessibilityPerformEscape(), "读屏的退出手势仍然取消")
     XCTAssertEqual(heldCancels, 1)
+  }
+
+  /// #10313：点按开始的会话画水杉娘，按住空格说话保留圆球；按住的面板即使拿到素材也不换。
+  func testOnlyTappedSessionsShowTheMascot() {
+    XCTAssertTrue(KeyboardVoicePanelPolicy.showsMascot(held: false))
+    XCTAssertFalse(KeyboardVoicePanelPolicy.showsMascot(held: true))
+    let held = KeyboardVoicePanelView(dictationHeld: true, skin: KeyboardTheme.current)
+    XCTAssertFalse(held.orb.showsMascot)
+    held.orb.setMascot(Self.syntheticMascot())
+    XCTAssertFalse(held.orb.isShowingMascot, "长按空格保留圆球和光晕")
+    let tapped = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
+    XCTAssertTrue(tapped.orb.showsMascot)
+    XCTAssertFalse(tapped.orb.isShowingMascot, "素材到之前先画圆球")
+    tapped.orb.setMascot(Self.syntheticMascot())
+    XCTAssertTrue(tapped.orb.isShowingMascot)
+    XCTAssertFalse(tapped.orb.isAccessibilityElement, "人物是装饰，不进读屏")
+  }
+
+  /// 红线只跟显示电平：安静时一道也没有（不用圆球的 30% 静息光晕），随电平依次出现，数值与 Android 的 `VoiceMascotDrawing` 一致。
+  func testMascotArcsFollowTheLevel() {
+    typealias Policy = KeyboardVoicePanelPolicy
+    XCTAssertEqual(Policy.mascotArcs(level: 0), [])
+    XCTAssertEqual(Policy.mascotArcs(level: 0.005), [], "接近 0 的电平不画线")
+    XCTAssertEqual(Policy.mascotArcs(level: .nan), [])
+    XCTAssertEqual(Policy.mascotArcs(level: -1), [])
+    XCTAssertEqual(Policy.mascotArcs(level: 0.1).count, 1)
+    XCTAssertEqual(Policy.mascotArcs(level: 0.29).count, 1)
+    XCTAssertEqual(Policy.mascotArcs(level: 0.3).count, 2)
+    XCTAssertEqual(Policy.mascotArcs(level: 0.6).count, 3)
+    let full = Policy.mascotArcs(level: 1)
+    XCTAssertEqual(full.map(\.radius), [45, 60, 75])
+    XCTAssertEqual(full.map(\.lineWidth), [5, 5, 5])
+    XCTAssertEqual(full.first?.opacity ?? 0, 1, accuracy: 0.0001)
+    XCTAssertEqual(Policy.mascotArcs(level: 3), full, "超过 1 的电平按 1 画")
+    let quiet = Policy.mascotArcs(level: 0.1)
+    XCTAssertEqual(quiet.first?.radius ?? 0, 33 + 1.2, accuracy: 0.0001)
+    XCTAssertEqual(quiet.first?.opacity ?? 0, (90 + 16.5) / 255, accuracy: 0.0001)
+    XCTAssertEqual(quiet.first?.lineWidth ?? 0, 3.2, accuracy: 0.0001)
+  }
+
+  /// 人物指示区的宽度按视口比例放宽但不超过面板，视口等比缩放后居中；素材按最大指示区下采样一次。
+  func testMascotGeometryAndAsset() {
+    typealias Policy = KeyboardVoicePanelPolicy
+    XCTAssertEqual(Policy.mascotWidth(side: 96, available: 384), 122.88, accuracy: 0.0001)
+    XCTAssertEqual(Policy.mascotWidth(side: 96, available: 100), 100)
+    let fitted = Policy.mascotTransform(in: CGSize(width: 122.88, height: 96))
+    XCTAssertEqual(fitted.a, 96 / 250, accuracy: 0.0001)
+    XCTAssertEqual(fitted.tx, 0, accuracy: 0.0001)
+    XCTAssertEqual(fitted.ty, 0, accuracy: 0.0001)
+    let narrow = Policy.mascotTransform(in: CGSize(width: 100, height: 96))
+    XCTAssertEqual(narrow.a, 100 / 320, accuracy: 0.0001)
+    XCTAssertEqual(narrow.ty, (96 - 250 * 100 / 320) / 2, accuracy: 0.0001)
+    XCTAssertEqual(KeyboardVoiceMascot.maximumSide, 96 * 228 / 250, accuracy: 0.0001)
+    let directory = URL(fileURLWithPath: "/synthetic/stickers", isDirectory: true)
+    let stickers = [KeyboardStickerCatalog.Sticker(url: directory.appendingPathComponent("02.webp"), name: "二"),
+                    KeyboardStickerCatalog.Sticker(url: directory.appendingPathComponent("01.webp"), name: "一")]
+    XCTAssertEqual(KeyboardVoiceMascot.sticker(in: stickers)?.name, "一", "和 Android 一样用 01.webp")
+    XCTAssertNil(KeyboardVoiceMascot.sticker(in: Array(stickers.prefix(1))))
+  }
+
+  /// 点按面板拿到素材后画人物：安静时没有红线，满电平三道，进入识别立即收起、之后的电平也不再画。
+  func testTheTappedPanelDrawsArcsOnlyWhileListening() throws {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 300))
+    let panel = KeyboardVoicePanelView(dictationHeld: false, skin: KeyboardTheme.current)
+    window.addSubview(panel)
+    panel.frame = CGRect(x: 0, y: 0, width: 384, height: 260)
+    panel.orb.setMascot(Self.syntheticMascot())
+    panel.layoutIfNeeded()
+    XCTAssertTrue(panel.orb.isShowingMascot)
+    XCTAssertEqual(panel.orb.visibleMascotArcs, 0, "安静时耳边没有线")
+    XCTAssertTrue(panel.orb.bounds.contains(panel.orb.mascotFrame), "\(panel.orb.mascotFrame) 超出了指示区")
+    XCTAssertEqual(panel.orb.mascotFrame.height, 96 * 228 / 250, accuracy: 0.5)
+    XCTAssertEqual(panel.statusLabel.text, "正在聆听…")
+    XCTAssertFalse(panel.finishButton.isHidden)
+    XCTAssertFalse(panel.cancelButton.isHidden)
+
+    let reduceMotion = UIAccessibility.isReduceMotionEnabled
+    panel.setLevel(1)
+    let deadline = Date().addingTimeInterval(3)
+    while panel.orb.isAnimatingLevel && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    XCTAssertEqual(panel.orb.visibleMascotArcs, reduceMotion ? 0 : 3, "减弱动态效果时按静音画")
+
+    panel.showRecognizing(text: "", message: "正在润色…")
+    XCTAssertEqual(panel.orb.visibleMascotArcs, 0, "识别和润色时立即收起红线")
+    panel.setLevel(0.8)
+    XCTAssertEqual(panel.orb.visibleMascotArcs, 0, "迟到的电平不让红线回来")
+    // 面板在识别时本来就不再转发电平；直接推给指示区，确认是指示区自己在识别阶段按 0 画线。
+    panel.orb.setLevel(0.8)
+    let recognizingDeadline = Date().addingTimeInterval(3)
+    while panel.orb.isAnimatingLevel && Date() < recognizingDeadline {
+      RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+    if !reduceMotion { XCTAssertEqual(panel.orb.shownLevel, 0.8, accuracy: 0.01) }
+    XCTAssertEqual(panel.orb.visibleMascotArcs, 0, "识别阶段指示区按 0 画线")
+    panel.removeFromSuperview()
+  }
+
+  private static func syntheticMascot() -> UIImage {
+    UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+      UIColor.systemTeal.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+    }
   }
 
   /// 按住说话没有动作行，整个面板都给指示区和文字；点按开始时动作行占掉底部，排版只用它上面的区域。
@@ -523,6 +627,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     let command = try XCTUnwrap(channel.readCommand())
     XCTAssertEqual(command.action, .start, "点语音入口应直接开始听写")
     let panel = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardVoicePanelView }.first)
+    XCTAssertTrue(panel.orb.showsMascot, "功能菜单的语音入口是点按开始，指示区画水杉娘")
     channel.publish(VoiceSessionState(phase: .listening, request: command.request, text: "合成",
       heartbeat: now, expiresAt: now.addingTimeInterval(300)))
     RunLoop.main.run(until: Date().addingTimeInterval(0.1))
