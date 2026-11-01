@@ -195,13 +195,17 @@ Source: "{#MySourceRoot}\server_exe\*"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 
-; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。
+; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。Win7 包用的 Inno 6.2.2 的预处理器没有 GetSHA256OfFile，改用 SHA-1，ResourceNeedsReplacement 按同一个版本条件选对应的运行时函数；这里只判断内容是否相同，不作安全校验。
 #define ResourceFindHandle
 #define ResourceFindResult
 #sub InstallResource
   #define ResourceName FindGetFileName(ResourceFindHandle)
   #define ResourceSource MySourceRoot + "\server_exe\resources\" + ResourceName
+#if Ver >= EncodeVer(6, 3, 0)
 Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA256OfFile(ResourceSource)}')
+#else
+Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA1OfFile(ResourceSource)}')
+#endif
 #endsub
 #for {ResourceFindHandle = ResourceFindResult = FindFirst(MySourceRoot + "\server_exe\resources\*", faReadOnly | faHidden | faSysFile | faArchive); ResourceFindResult; ResourceFindResult = FindNext(ResourceFindHandle)} InstallResource
 #if ResourceFindHandle
@@ -1019,7 +1023,11 @@ begin
   if not FileExists(Destination) then
     exit;
   try
+#if Ver >= EncodeVer(6, 3, 0)
     Result := CompareText(GetSHA256OfFile(Destination), ExpectedHash) <> 0;
+#else
+    Result := CompareText(GetSHA1OfFile(Destination), ExpectedHash) <> 0;
+#endif
   except
     Log('Unable to verify existing resource; normal replacement is required.');
   end;
