@@ -3,9 +3,9 @@ package app.msime.android;
 /**
  * 「键盘调整」遮罩的纯逻辑：哪些柄显示、每个柄的拖动怎样换算成键盘高度、底部抬高、宽度和水平位置，读屏的步长，以及宽度和位置在可用宽度里落到哪几个像素。不依赖 Android 运行时，由 KeyboardAdjustPolicySmoke 覆盖。
  *
- * <p>四个柄各自只动自己那条边，对边在屏幕上不动：上沿柄只改高度；下沿柄改底部抬高，高度反向变化同样多，上沿不动；左、右沿柄改宽度，同时改水平位置让另一侧边不动。「移动」整块平移，大小不变：竖直方向只改抬高，水平方向只改位置。
+ * <p>四个柄各自只动自己那条边，对边在屏幕上不动：上沿柄只改高度；下沿柄改底部抬高，高度反向变化同样多，上沿不动，往上拖到高度下限后整块继续上移、上沿跟着上去；左、右沿柄改宽度，同时改水平位置让另一侧边不动。「移动」整块平移，大小不变：竖直方向只改抬高，水平方向只改位置。
  *
- * <p>竖直方向的单位都是 dp：高度是设计范围的调整量（{@link KeyboardHeightPolicy}，-46..129），抬高是键区下沿到底栏或导航区的额外距离（{@link KeyboardBottomBarPolicy#extraPaddingDp}，0 到 160 减去底栏占用的 40）。两者在键盘总高里一比一相加，所以下沿柄把一份挪给另一份时上沿不动。高度只在窗口封顶（{@link KeyboardHeightPolicy#windowHeightAdjustment}）以内拖动：封顶以上的那段画出来一样高，拖进去手指和边就对不上了。水平方向用像素：宽度存成可用宽度的百分比，位置存成剩余空间（可用宽度减键盘宽度）里的千分比。
+ * <p>竖直方向的单位都是 dp：高度是设计范围的调整量（{@link KeyboardHeightPolicy}，-46..129），抬高是键区下沿到底栏或导航区的额外距离（{@link KeyboardBottomBarPolicy#extraPaddingDp}，0 到 160 减去底栏占用的 40）。两者在键盘总高里一比一相加，所以下沿柄把一份挪给另一份时上沿不动；高度让到下限以后只剩抬高在加，上沿才开始跟着往上走。高度只在窗口封顶（{@link KeyboardHeightPolicy#windowHeightAdjustment}）以内拖动：封顶以上的那段画出来一样高，拖进去手指和边就对不上了。水平方向用像素：宽度存成可用宽度的百分比，位置存成剩余空间（可用宽度减键盘宽度）里的千分比。
  */
 public final class KeyboardAdjustPolicy {
     /** 宽度的百分比范围与缺省值（本地设置 `platform.android.keyboard_width_percent`）。 */
@@ -114,18 +114,23 @@ public final class KeyboardAdjustPolicy {
     }
 
     /**
-     * 下沿柄：往上拖 d（{@code dyDp = -d}）时抬高加 d、高度减 d，上沿不动；高度到下限、抬高到 0 或上限时停住，两项都不越界。
+     * 下沿柄：手指从按下处往上移了 u（{@code dyDp = -u}）。
+     *
+     * <p>往上（u ≥ 0）：抬高跟着手指走，到上限停；高度尽量反向让出同样多，但不低于下限。所以先拿高度换抬高、上沿不动，高度到下限后整块继续上移、上沿跟着上去，直到抬高到上限。往下（u < 0）：抬高减少、高度反向增加同样多，上沿不动，抬高到 0 或高度到上限时停住。两项都不越界。
      */
     public static Vertical dragBottom(int startHeight, int startLift, int dyDp, int windowHeightDp, boolean barShown) {
         int maxHeight = maxHeightAdjustment(windowHeightDp);
-        int height = BoundsPolicy.bounded(effectiveHeight(startHeight, windowHeightDp),
-            KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP, maxHeight);
+        int minHeight = KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
+        int height = BoundsPolicy.bounded(effectiveHeight(startHeight, windowHeightDp), minHeight, maxHeight);
         int maxLift = maxLiftDp(barShown);
         int lift = BoundsPolicy.bounded(startLift, 0, maxLift);
-        int lowest = Math.max(-lift, height - maxHeight);
-        int highest = Math.min(maxLift - lift, height - KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP);
-        int up = BoundsPolicy.bounded(-dyDp, lowest, highest);
-        return new Vertical(height - up, lift + up);
+        int up = -dyDp;
+        if (up >= 0) {
+            int nextLift = Math.min(lift + up, maxLift);
+            return new Vertical(height - Math.min(nextLift - lift, height - minHeight), nextLift);
+        }
+        int down = Math.max(up, Math.max(-lift, height - maxHeight));
+        return new Vertical(height - down, lift + down);
     }
 
     /** 「移动」的竖直方向：整块上下平移，只改抬高，大小不变。 */
@@ -149,7 +154,7 @@ public final class KeyboardAdjustPolicy {
             KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP, maxHeightAdjustment(windowHeightDp));
     }
 
-    /** 下沿柄的读屏范围，单位是抬高的 dp；高度到下限时不能再抬。 */
+    /** 下沿柄的读屏范围，单位是抬高的 dp：抬高没到上限就能增加（高度到下限后整块上移），没到 0 且高度没到上限就能减少。 */
     public static Range bottomRange(int heightAdjustment, int liftDp, int windowHeightDp, boolean barShown) {
         int max = maxLiftDp(barShown);
         int lift = BoundsPolicy.bounded(liftDp, 0, max);
@@ -158,7 +163,7 @@ public final class KeyboardAdjustPolicy {
         return new Range(0, max, lift, up.liftDp() != lift, down.liftDp() != lift);
     }
 
-    /** 下沿柄读屏增减一步：抬高 4 dp，高度反向变化同样多。 */
+    /** 下沿柄读屏增减一步：抬高 4 dp，高度尽量反向变化同样多，规则同 {@link #dragBottom}。 */
     public static Vertical stepBottom(int heightAdjustment, int liftDp, int direction, int windowHeightDp,
             boolean barShown) {
         return dragBottom(heightAdjustment, liftDp, -Integer.signum(direction) * LIFT_STEP_DP, windowHeightDp, barShown);

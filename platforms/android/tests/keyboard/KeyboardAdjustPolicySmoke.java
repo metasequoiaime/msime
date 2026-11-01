@@ -69,12 +69,29 @@ public final class KeyboardAdjustPolicySmoke {
         check(up.liftDp() == 16 && up.heightAdjustment() == 4, "lifting 16 dp takes 16 dp of height: " + up);
         for (int dy = -200; dy <= 200; dy += 7) {
             Vertical next = KeyboardAdjustPolicy.dragBottom(20, 40, dy, TALL_WINDOW_DP, false);
-            check(next.liftDp() + next.heightAdjustment() == 60, "the top edge stays put at dy " + dy + ": " + next);
+            int u = -dy;
+            if (u <= 66) {
+                // 高度还没让到下限（20 − 66 = −46）：上沿不动。往下拖时抬高到 0 就停，两者之和同样不变。
+                check(next.liftDp() + next.heightAdjustment() == 60, "the top edge stays put at dy " + dy + ": " + next);
+            } else {
+                // 高度到了下限：高度停在 75%，抬高继续跟着手指走，整块连同上沿一起上移，到 160 dp 停。
+                check(next.heightAdjustment() == -46 && next.liftDp() == Math.min(40 + u, 160),
+                    "past the height floor the lift keeps following the finger at dy " + dy + ": " + next);
+            }
             check(next.liftDp() >= 0 && next.liftDp() <= 160, "lift stays in range at dy " + dy);
             check(next.heightAdjustment() >= -46 && next.heightAdjustment() <= 129, "height stays in range at dy " + dy);
         }
+        Vertical atFloor = KeyboardAdjustPolicy.dragBottom(-46, 20, -30, TALL_WINDOW_DP, false);
+        check(atFloor.heightAdjustment() == -46 && atFloor.liftDp() == 50,
+            "with the height at 75% dragging up keeps lifting and the height stays at the floor: " + atFloor);
+        Vertical crossing = KeyboardAdjustPolicy.dragBottom(-30, 0, -40, TALL_WINDOW_DP, false);
+        check(crossing.heightAdjustment() == -46 && crossing.liftDp() == 40,
+            "one drag across the floor gives up 16 dp of height, then moves the whole keyboard up: " + crossing);
         Vertical floor = KeyboardAdjustPolicy.dragBottom(-40, 0, -100, TALL_WINDOW_DP, false);
-        check(floor.heightAdjustment() == -46 && floor.liftDp() == 6, "lifting stops when the height reaches 75%: " + floor);
+        check(floor.heightAdjustment() == -46 && floor.liftDp() == 100, "lifting goes on past the height floor: " + floor);
+        Vertical back = KeyboardAdjustPolicy.dragBottom(-46, 50, 30, TALL_WINDOW_DP, false);
+        check(back.liftDp() == 20 && back.heightAdjustment() == -16,
+            "dragging back down still trades lift for height with the top fixed: " + back);
         Vertical ground = KeyboardAdjustPolicy.dragBottom(0, 10, 100, TALL_WINDOW_DP, false);
         check(ground.liftDp() == 0 && ground.heightAdjustment() == 10, "lowering stops at no lift: " + ground);
         Vertical ceiling = KeyboardAdjustPolicy.dragBottom(100, 150, -100, TALL_WINDOW_DP, false);
@@ -184,8 +201,14 @@ public final class KeyboardAdjustPolicySmoke {
         Range bottom = KeyboardAdjustPolicy.bottomRange(20, 0, TALL_WINDOW_DP, false);
         check(bottom.min() == 0 && bottom.max() == 160 && bottom.current() == 0 && bottom.canIncrease() && !bottom.canDecrease(),
             "bottom range: " + bottom);
-        check(!KeyboardAdjustPolicy.bottomRange(-46, 20, TALL_WINDOW_DP, false).canIncrease(),
-            "no lifting while the height is at 75%");
+        Range floorRange = KeyboardAdjustPolicy.bottomRange(-46, 20, TALL_WINDOW_DP, false);
+        check(floorRange.canIncrease() && floorRange.canDecrease(),
+            "lifting stays available while the height is at 75%: " + floorRange);
+        Vertical floorStep = KeyboardAdjustPolicy.stepBottom(-46, 20, 1, TALL_WINDOW_DP, false);
+        check(floorStep.liftDp() == 24 && floorStep.heightAdjustment() == -46,
+            "a lift step at 75% raises the whole keyboard: " + floorStep);
+        check(!KeyboardAdjustPolicy.bottomRange(-46, 160, TALL_WINDOW_DP, false).canIncrease(),
+            "no lifting past 160 dp");
         check(KeyboardAdjustPolicy.liftRange(120, true).equals(new Range(0, 120, 120, false, true)), "lift range with the bar");
 
         Range width = KeyboardAdjustPolicy.widthRange(Horizontal.DEFAULT, PHONE_PX, PHONE_MIN_PX);
