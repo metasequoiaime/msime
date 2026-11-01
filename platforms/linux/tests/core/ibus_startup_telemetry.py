@@ -291,7 +291,7 @@ def main():
         finally:
             cleanup()
 
-    # 没有持续授权代次的旧记录不能由本次开启追认，即使以 --recovered 启动也只产生新的 active。
+    # 首次接入持续授权时，旧版本没有代次的会话和崩溃记录随同意迁移一次。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
         state = scratch / STATE
@@ -307,8 +307,13 @@ def main():
             assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
             assert process.poll() is None, ("recovered host exited", process.returncode)
             queued = events(scratch)
-            assert [event["kind"] for event in queued] == ["active"], queued
-            assert queued[0]["version"] == version, queued
+            assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
+            session_crash, crash, active = queued
+            assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == "0.0.1", session_crash
+            assert crash["id"] == f"crash-{previous}" and crash["version"] == "0.0.1", crash
+            assert crash["message"] == "SIGSEGV: segmentation fault", crash
+            assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
+            assert active["version"] == version, active
             assert "synthetic-private" not in json.dumps(queued)
             assert not crash_records(scratch)
         finally:
