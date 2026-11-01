@@ -1,6 +1,7 @@
 #include "VoiceHotkeyPolicy.h"
 #include "../../src/input/ToggleHotkeyChord.h"
 
+#include <initializer_list>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -127,6 +128,39 @@ int main() {
     REQUIRE(voice_escape_cancels(voice_key_escape, true));
     REQUIRE(!voice_escape_cancels(voice_key_escape, false));
     REQUIRE(!voice_escape_cancels(voice_key_space, true));
+
+    // #10518: a fresh key pressed during a right-Alt hold turns it into a chord for the application. F10 is the key from the report (PowerPoint's Alt+F10).
+    constexpr unsigned f10 = 0x79;
+    constexpr unsigned letter_q = 0x51;
+    REQUIRE(voice_hold_becomes_chord(f10, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    REQUIRE(voice_hold_becomes_chord(letter_q, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    // The two-key hold swallows right Alt as well, so it gives it back the same way.
+    REQUIRE(voice_hold_becomes_chord(f10, true, false, false, VoiceHoldShortcut::RCtrlRAlt, all_on, false));
+    // Ctrl+Win swallows Win, not Alt, and no hold means nothing to give back.
+    REQUIRE(!voice_hold_becomes_chord(f10, true, false, false, VoiceHoldShortcut::CtrlWin, all_on, false));
+    REQUIRE(!voice_hold_becomes_chord(f10, true, false, false, VoiceHoldShortcut::None, all_on, false));
+    // A release, an auto-repeat of a key held from before the hold, and another program's injected input are not the user pressing a chord.
+    REQUIRE(!voice_hold_becomes_chord(f10, false, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    REQUIRE(!voice_hold_becomes_chord(f10, true, true, false, VoiceHoldShortcut::RAlt, all_on, false));
+    REQUIRE(!voice_hold_becomes_chord(f10, true, false, true, VoiceHoldShortcut::RAlt, all_on, false));
+    // A hold locked with space is dictation the user asked to keep.
+    REQUIRE(!voice_hold_becomes_chord(f10, true, false, false, VoiceHoldShortcut::RAlt, all_on, true));
+    // Space locks while space-lock is on; with it off, right Alt+Space is an ordinary chord.
+    REQUIRE(!voice_hold_becomes_chord(voice_key_space, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    const VoiceHotkeyBindings no_space_lock{true, true, false, false, false};
+    REQUIRE(voice_hold_becomes_chord(voice_key_space, true, false, false, VoiceHoldShortcut::RAlt, no_space_lock, false));
+    // Escape keeps cancelling.
+    REQUIRE(!voice_hold_becomes_chord(voice_key_escape, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    // Modifiers are still part of the combination being built, right Alt's own repeat included.
+    for (const unsigned modifier : {voice_key_shift, voice_key_control, voice_key_menu, voice_key_lshift,
+                                    voice_key_rshift, voice_key_lcontrol, voice_key_rcontrol, voice_key_lalt,
+                                    voice_key_ralt, voice_key_lwin, voice_key_rwin})
+      REQUIRE(!voice_hold_becomes_chord(modifier, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
+    REQUIRE(!voice_key_is_modifier(f10));
+    // After a chord, right Alt's auto-repeat must not start a new hold until it is released; other keys are unaffected.
+    REQUIRE(!voice_hold_may_activate(voice_key_ralt, true));
+    REQUIRE(voice_hold_may_activate(voice_key_ralt, false));
+    REQUIRE(voice_hold_may_activate(voice_key_lwin, true));
 
     // 自定义切换键精确匹配全部修饰键；默认不额外绑定，别的主键与多按修饰键均不触发。
     VoiceToggleStrokes strokes;
