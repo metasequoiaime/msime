@@ -17,11 +17,13 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
+import app.msime.android.AppEdition;
 import app.msime.android.ClearLearningCopy;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
+import app.msime.android.KeyboardScheme;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.NumberPolicy;
@@ -160,11 +162,13 @@ public final class LexiconPage extends ReloadingDetailPage {
             : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
             ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
-        // 粤语词库只有自己加的粤语词，粤语方案打字时和发布的粤语词一起出候选。
-        String cantoneseCount = current.cantoneseCount() <= 0 ? "自己加的粤语词"
-            : NumberPolicy.groupedCount(current.cantoneseCount()) + "自己的词";
-        installed.addView(KeyboardSheets.badgeNavRow(context, "粤", "粤语词库", cantoneseCount, "已启用",
-            ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_CANTONESE, "粤语词库")));
+        // 粤语词库只有自己加的粤语词，粤语方案打字时和发布的粤语词一起出候选；本版本没有粤语方案时这些词用不上，不列出。
+        if (KeyboardScheme.CANTONESE.offeredBy(AppEdition.current())) {
+            String cantoneseCount = current.cantoneseCount() <= 0 ? "自己加的粤语词"
+                : NumberPolicy.groupedCount(current.cantoneseCount()) + "自己的词";
+            installed.addView(KeyboardSheets.badgeNavRow(context, "粤", "粤语词库", cantoneseCount, "已启用",
+                ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_CANTONESE, "粤语词库")));
+        }
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = NumberPolicy.groupedCount(collection.entryCount())
                 + DictionaryCollectionsStore.pendingDescription(collection.pending())

@@ -209,7 +209,8 @@ private:
   void clear_editor() {
     previous_.reset();
     SendMessageW(get(dictionary_entries), LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
-    SetWindowTextW(get(dictionary_key), L""); SetWindowTextW(get(dictionary_value), L""); SetWindowTextW(get(dictionary_weight), L"10000");
+    SetWindowTextW(get(dictionary_key), L""); SetWindowTextW(get(dictionary_value), L""); // 新粤语词默认 100000，与 WinUI 词库对话框和共享页的 CANTONESE_NEW_WORD_WEIGHT 一致：粤语词库按语料词频定权重，手动加的词默认排在同一编码的多数发布词前面。
+    SetWindowTextW(get(dictionary_weight), kind() == "cantonese" && !resource() ? L"100000" : L"10000");
     SetWindowTextW(get(dictionary_entry_source), L"填写新词条，保存时由共享引擎校验编码。");
   }
   void selected_entry() {

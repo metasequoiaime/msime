@@ -15,12 +15,12 @@ Status: implemented
 - 粤语方案读这些词：`cantonese::UserWords` 把日志里的粤语词整份读进内存，之后每次粤语查询前只问一次 `PRAGMA data_version`，别的连接提交过才重读，所以设置页或个人词库队列改了词，活着的会话下一次按键就看得到，逐键查询不碰日志、不分配。连接只读、`busy_timeout` 为 0，读失败时保留上一次的词；日志还不存在时不打开，下次查询再看。`CantoneseLexicon` 包着发布词库和这份词，`lookup_into`、`lookup_completions_into` 把同一个键下的同一个词合成一行取较大的权重，再按发布词库原有的规则（权重从重到轻、同权重按文字）排序截断，粤拼、粤语双拼展开和末音节补全都经它取词。
 - 粤语上屏仍然不写任何东西：不调频、不造词，候选窗也不对粤语行开放置顶、删除（`is_editable_source` 不变）。
 - 宿主协议：host-api 的 `Kind`、client-services 的 `PersonalWordKind`（个人词库队列）和 `ImportKind` 都加 `cantonese`。`list`、`count`、`export`、`edit`、`import`、个人词库队列都认它；按编码搜索时音节间的分隔可打可不打（`dictionary_row_matches`）。`browse` 的 `cantonese` 仍指发布的粤语词库：host-api 的 `LookupKind` 把资源类型排在前面，untagged 先试它；个人粤语词由 `list` 列出，`dictionary_table_entries` 对粤语总是空页。云词库（`client-core::cloud::dictionary::DictionaryKind`、服务端协议 `backend/validation.rs`）、社区词库、词库集合和词库快照（云同步与本地备份共用的 NDJSON）都不收粤语，快照导出跳过它们。
-- 新粤语词的默认权重是 100000（共享设置页 `CANTONESE_NEW_WORD_WEIGHT`、Android `CANTONESE_DEFAULT_WEIGHT`、Windows 新增词条，iOS 本来就是这个值）。`msime-cantonese.db` 的权重按语料词频算，多字词大多在几万以下，`nei hou` 的「你好」是 21493；手动加的词默认排在同一编码的多数发布词前面，单字的高频读音（「你」七百多万）仍在它前面。用户可以改权重。
+- 新粤语词的默认权重是 100000（共享设置页 `CANTONESE_NEW_WORD_WEIGHT`、Android `CANTONESE_DEFAULT_WEIGHT`、Windows 新增词条（WinUI 对话框与 Win7 编辑区），iOS 本来就是这个值）。`msime-cantonese.db` 的权重按语料词频算，多字词大多在几万以下，`nei hou` 的「你好」是 21493；手动加的词默认排在同一编码的多数发布词前面，单字的高频读音（「你」七百多万）仍在它前面。用户可以改权重。
 
 ## 各平台的入口
 
 - 共享设置页（macOS、Linux、HarmonyOS 平板）：「本地词库类型」和「个人词库」下拉都有「中文 · 粤语」，可查、可加、可编辑删除、可导入导出（标准、Windows TSV、Rime；纯汉字注音和细胞词库仍只给拼音）。发布的粤语词库改名「中文 · 粤语（基础词库）」，下拉里资源词库的选项值带 `resource:` 前缀，`DictionaryEntryList` 的只读与否由调用方说明，不再按种类推断。个人粤语词库在 `loadPhrases` 里总是走 `list`。
-- HarmonyOS 手机、Android：词库页「已安装」在拼音词库下面多一行「粤语词库」，详情页与拼音词库同一套（搜索、加词、导出），加词对话框的编码叫「粤拼」，按粤拼校验，经个人词库队列写入。
+- HarmonyOS 手机、Android：词库页「已安装」在拼音词库下面多一行「粤语词库」，详情页与拼音词库同一套（搜索、加词、导出），加词对话框的编码叫「粤拼」，按粤拼校验，经个人词库队列写入。这一行只在本版本提供粤语方案时列出（Android 按 `KeyboardScheme.CANTONESE.offeredBy`，HarmonyOS 按宿主与版本的 `input_schemes`），没有粤语方案的版本不显示。
 - iOS：`PersonalWordKind` 加 `cantonese`（「粤语」），添加词条、导出、按类型筛选、JSON 和词库文件导入都跟着有；编码输入只留字母、空格、`'` 和 1–6。社区词库的类型里没有它。
 - Windows（WinUI 与 Win7）：「本地词库类型」「管理词库类型」和「导出全部」都有粤语；资源词库选项在 WinUI 里带 `resource:` 前缀、在 Win7 里按下拉序号判断，个人粤语词库查询发 `list`。
 

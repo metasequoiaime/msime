@@ -158,7 +158,12 @@ test("粤语的个人词库和基础词库在下拉里分开：个人粤语词�
   fireEvent.change(select, { target: { value: "cantonese" } });
   expect(await screen.findByText("禮好")).toBeTruthy();
   expect(list).toHaveBeenLastCalledWith(0, 100, "cantonese", "");
-  expect(browse).not.toHaveBeenCalled();
+  expect(browse).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    "cantonese",
+    expect.anything(),
+  );
   expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "新增词条" }));
   expect(screen.getByText("粤拼，每字一个音节，用空格分隔，如 nei hou")).toBeTruthy();

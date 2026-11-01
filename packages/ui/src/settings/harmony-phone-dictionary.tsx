@@ -41,6 +41,11 @@ export function HarmonyPhoneDictionary() {
   } = useSettingsForm();
   const collections = client.dictionaryCollections;
   const dictionary = client.dictionary;
+  // 粤语词库只给粤语方案用：宿主或本版本没有粤语方案时不列出，与方案选择的过滤一致。
+  const cantoneseOffered =
+    !client.host ||
+    (client.host.input_schemes.includes("cantonese") &&
+      (!client.host.edition || client.host.edition.input_schemes.includes("cantonese")));
   const toast = useToast();
   const {
     value: detail,
@@ -150,7 +155,7 @@ export function HarmonyPhoneDictionary() {
               onClick={() => openDetail(BUILTIN)}
             />
           )}
-          {dictionary && (
+          {dictionary && cantoneseOffered && (
             <NavRow
               variant="me"
               icon={<Badge>粤</Badge>}
