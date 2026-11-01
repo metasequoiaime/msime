@@ -76,7 +76,8 @@ int main() {
   require(same(defaults.hover, 1, 1, 1, .10f));
   require(defaults.number == candidate_rgb(0x98989D));
   require(defaults.accent == candidate_rgb(0x5FBF84));
-  require(defaults.selected == defaults.accent);
+  // 深色的选中底是品牌的强调墨绿 #17783F，不是强调色：#5FBF84 上的白字只有约 2.3:1。
+  require(defaults.selected == candidate_rgb(0x17783F));
   require(defaults.selected_text == candidate_rgb(0xFFFFFF));
   require(defaults.selected_number == candidate_rgb(0xFFFFFF, .82f));
   require(!defaults.show_selected_bar && defaults.radius == 10 &&
@@ -244,7 +245,7 @@ int main() {
           candidate_selected_gloss_color(own.selected_text, own.selected));
   require(candidate_row_number_color(own, false) == own.number);
 
-  // 选中行的释义和读音跟着选中文字的颜色，同一行只有一种前景色，未选中行不变。默认浅色的白色 0.82 只有约 4.1:1，加到够 4.5:1 为止；默认深色的 #5FBF84 上白色到不了 4.5:1，释义取不透明的白色，和选中文字一样（约 2.3:1），不换成近黑。
+  // 选中行的释义和读音跟着选中文字的颜色，同一行只有一种前景色，未选中行不变。默认浅色 #2C7A4B、深色 #17783F 上白色 0.82 只有约 4.1–4.3:1，加到够 4.5:1 为止。
   for (const auto &base : {defaults, light_defaults}) {
     const auto gloss = candidate_row_translation_color(base, true);
     require(gloss.r == base.selected_text.r && gloss.g == base.selected_text.g &&
@@ -258,11 +259,17 @@ int main() {
   }
   require(candidate_contrast_on(defaults.selected_number, defaults.selected) < 4.5f &&
           candidate_contrast_on(light_defaults.selected_number, light_defaults.selected) < 4.5f);
-  const auto light_gloss = candidate_row_translation_color(light_defaults, true);
-  require(light_gloss.r == 1.0f && light_gloss.g == 1.0f && light_gloss.b == 1.0f &&
-          light_gloss.a > 0.82f && light_gloss.a < 1.0f &&
-          candidate_contrast_on(light_gloss, light_defaults.selected) >= 4.5f);
-  require(candidate_row_translation_color(defaults, true) == candidate_rgb(0xFFFFFF));
+  // 默认选中行的候选文字和释义（读音同色）对选中底色都到 WCAG AA 的 4.5:1，释义是加深过的白色，不到不透明。
+  for (const auto &base : {defaults, light_defaults}) {
+    require(candidate_contrast_on(candidate_row_text_color(base, base.text, true, false), base.selected) >= 4.5f);
+    const auto gloss = candidate_row_translation_color(base, true);
+    require(gloss.r == 1.0f && gloss.g == 1.0f && gloss.b == 1.0f && gloss.a > 0.82f && gloss.a < 1.0f &&
+            candidate_contrast_on(gloss, base.selected) >= 4.5f);
+  }
+  // 对比度的算法本身：白色对黑色是 21:1，白色对 #5FBF84 约 2.3:1、对 #17783F 约 5.5:1。
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x000000)) - 21.0f) < 0.01f);
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x5FBF84)) - 2.27f) < 0.02f);
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x17783F)) - 5.53f) < 0.02f);
   // 选中序号色本来就够 4.5:1 时照它画，不推导。
   CandidatePaletteOverrides readable_number;
   readable_number.selected = "#202020";
