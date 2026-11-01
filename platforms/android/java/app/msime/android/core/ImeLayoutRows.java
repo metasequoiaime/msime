@@ -688,7 +688,7 @@ final class ImeLayoutRows {
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
                             NineKeyLayout.offersPunctuation(key, false) ? ""
-                                : key.label().toLowerCase(java.util.Locale.ROOT));
+                                : key.label().toLowerCase(java.util.Locale.ROOT), true);
                         return true;
                     });
                 }
@@ -1121,7 +1121,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，每次判定读当前值）选的方向滑过「九键滑动距离」（本机设置），键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
+     * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，每次判定读当前值）选的方向滑过「九键滑动距离」（本机设置），键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项，手指不抬起接着滑到某个选项上松手就输入它（#10443，与 26 键下滑弹出的字母选项相同）；没滑进过任何选项就松手，弹窗留着等点选，滑进过又滑出再松手则关闭弹窗。长按弹出的选项同样跟着这次按压拖选。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
      */
     private void bindNineKeySwipe(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
         final float[] downY = new float[1];
@@ -1140,9 +1140,16 @@ final class ImeLayoutRows {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     gesture[0] = NineKeySwipePolicy.Gesture.NONE;
+                    // 上一次滑出后没选、留着等点选的弹窗不跟这次新按压拖选。
+                    if (tracksLetterOptions(keyButton)) dismissNineKeyHoldOptions();
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
+                    // 滑出或长按弹出的选项跟着这次按压拖选。
+                    if (tracksLetterOptions(keyButton)) {
+                        moveLetterOptions(keyButton, event);
+                        return true;
+                    }
                     if (gesture[0] != NineKeySwipePolicy.Gesture.NONE) return true;
                     if (s.nineKeyHoldPopup != null) return false;
                     NineKeySwipePolicy.Gesture next = NineKeySwipePolicy.gesture(
@@ -1159,7 +1166,7 @@ final class ImeLayoutRows {
                         // 和长按一样：这一下是这个键的一次按压，之后从弹窗里选的不是另一次按键。
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
-                            key.label().toLowerCase(java.util.Locale.ROOT));
+                            key.label().toLowerCase(java.util.Locale.ROOT), true);
                     } else {
                         keyButton.setPressed(true);
                         face[0] = keyButton.getText().toString();
@@ -1172,6 +1179,16 @@ final class ImeLayoutRows {
                 case MotionEvent.ACTION_UP -> {
                     NineKeySwipePolicy.Gesture done = gesture[0];
                     gesture[0] = NineKeySwipePolicy.Gesture.NONE;
+                    if (tracksLetterOptions(keyButton) && finishLetterOptions(keyButton, event)) {
+                        if (done == NineKeySwipePolicy.Gesture.NONE) {
+                            // 长按后拖选：按钮自己没见过这次的移动，补一个 CANCEL 让它收起按下态。
+                            MotionEvent cancel = MotionEvent.obtain(event);
+                            cancel.setAction(MotionEvent.ACTION_CANCEL);
+                            keyButton.onTouchEvent(cancel);
+                            cancel.recycle();
+                        }
+                        return true;
+                    }
                     if (done == NineKeySwipePolicy.Gesture.NONE) return false;
                     if (done == NineKeySwipePolicy.Gesture.DIGIT) {
                         keyButton.setPressed(false);
@@ -1187,6 +1204,7 @@ final class ImeLayoutRows {
                         keyButton.setPressed(false);
                         restoreFace.run();
                     }
+                    cancelLetterOptions(keyButton);
                     gesture[0] = NineKeySwipePolicy.Gesture.NONE;
                     return false;
                 }
@@ -1199,13 +1217,21 @@ final class ImeLayoutRows {
      * 长按弹出这一键上的字面字符，像 Apple 的长按弹窗：九键是印着的数字加小写字母，14 键只有这一组的两个字母（`digit` 为空）。选中后先结束组字再上屏（{@link #commitNineKeyHoldOption}）。
      */
     void showNineKeyHoldOptions(Button anchor, String digit, String letters) {
+        showNineKeyHoldOptions(anchor, digit, letters, false);
+    }
+
+    /**
+     * 同 {@link #showNineKeyHoldOptions(Button, String, String)}；`trackDrag` 为真时，弹窗跟着弹出它的这次按压拖选（{@link #moveLetterOptions}、{@link #finishLetterOptions}），由拼音九键的滑动和长按使用（#10443）。
+     */
+    void showNineKeyHoldOptions(Button anchor, String digit, String letters, boolean trackDrag) {
         dismissNineKeyHoldOptions();
         if (s.keyboardRoot == null) return;
         java.util.List<String> choices = new java.util.ArrayList<>(letters.length() + 1);
         if (!digit.isEmpty()) choices.add(digit);
         for (int index = 0; index < letters.length(); index++)
             choices.add(String.valueOf(letters.charAt(index)));
-        showTextOptions(anchor, choices);
+        LinearLayout options = showChoiceOptions(anchor, choices, this::commitNineKeyHoldOption);
+        if (trackDrag) trackLetterOptions(anchor, options);
     }
 
     /** 中文字母的选项保留点选，并把原按键后续的移动用于拖选。 */
@@ -1277,6 +1303,11 @@ final class ImeLayoutRows {
         if (selected == null) dismissNineKeyHoldOptions();
         else selected.performClick();
         return true;
+    }
+
+    /** 当前弹窗是不是由 `anchor` 这次按压弹出、正等着拖选。 */
+    boolean tracksLetterOptions(Button anchor) {
+        return letterOptionsAnchor == anchor && letterOptions != null;
     }
 
     void cancelLetterOptions(Button anchor) {
