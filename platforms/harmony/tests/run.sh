@@ -809,6 +809,23 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
+# 触屏剪贴板多选按序号插入（#10411）：上限、序号和拼接由 clipboard-selection.test.ts 的 `ClipboardSelectionPolicy` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：多选时点卡片经 toggleClipSelection 选中，角标经 ordinalLabel 画出、读屏前缀经 selectedDescription，「插入」按 canInsert 标成禁用（读屏读得出它点不了）并守住条数、经 insertionText 拼好后走和单条插入同一个 `KeyboardSession.shared.insert` 一次上屏。
+clip_insert=$(sed -n '/^  private insertClipSelection(): void {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF '.onClick(() => this.toggleClipSelection(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.ordinalLabel(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.selectedDescription(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF '.enabled(ClipboardSelectionPolicy.canInsert(this.clipSelection.length))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.canInsert(this.clipSelection.length)' <<< "$clip_insert" \
+  || ! grep -qF 'ClipboardSelectionPolicy.insertionText(this.clipSelection)' <<< "$clip_insert" \
+  || ! grep -qF 'KeyboardSession.shared.insert(text);' <<< "$clip_insert"; then
+  echo "Harmony clipboard multi-selection must badge entries in tap order and insert 1 to 4 of them in one commit (#10411)" >&2
+  exit 1
+fi
 # 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮；旧的高度条不再存在。
 adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
