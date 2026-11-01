@@ -72,7 +72,7 @@ enum KeyboardAdjustLayout {
     let container = max(0, containerWidth)
     let lift = capabilities.placement ? CGFloat(placement.bottomLift) : 0
     guard capabilities.width else { return KeyboardAdjustFrame(leading: 0, width: container, bottomLift: lift) }
-    let width = width(percent: placement.widthPercent, containerWidth: container)
+    let width = Self.width(percent: placement.widthPercent, containerWidth: container)
     return KeyboardAdjustFrame(leading: (container - width) * CGFloat(placement.positionX) / 1000, width: width, bottomLift: lift)
   }
 
@@ -103,19 +103,19 @@ enum KeyboardAdjustLayout {
 
   /// 左沿：往左拖变宽，右边不动。
   static func draggingLeft(_ start: KeyboardAdjustState, dx: CGFloat, containerWidth: CGFloat) -> KeyboardAdjustState {
-    let frame = frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
+    let frame = Self.frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
     let right = frame.leading + frame.width
     let percent = widthPercent(target: frame.width - dx, room: right, containerWidth: containerWidth)
-    let width = width(percent: percent, containerWidth: containerWidth)
+    let width = Self.width(percent: percent, containerWidth: containerWidth)
     return resized(start, percent: percent, leading: right - width, width: width, containerWidth: containerWidth)
   }
 
   /// 右沿：往右拖变宽，左边不动。
   static func draggingRight(_ start: KeyboardAdjustState, dx: CGFloat, containerWidth: CGFloat) -> KeyboardAdjustState {
-    let frame = frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
+    let frame = Self.frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
     let percent = widthPercent(target: frame.width + dx, room: containerWidth - frame.leading, containerWidth: containerWidth)
     return resized(start, percent: percent, leading: frame.leading,
-                   width: width(percent: percent, containerWidth: containerWidth), containerWidth: containerWidth)
+                   width: Self.width(percent: percent, containerWidth: containerWidth), containerWidth: containerWidth)
   }
 
   /// 「移动」：大小不变，抬高跟着手指上下、水平位置跟着手指左右；宽度不生效时只改抬高。
@@ -125,9 +125,9 @@ enum KeyboardAdjustLayout {
     let lift = start.placement.bottomLift + Int(rise.rounded())
     var position = start.placement.positionX
     if capabilities.width {
-      let frame = frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
+      let frame = Self.frame(containerWidth: containerWidth, placement: start.placement, capabilities: .all)
       let room = max(0, containerWidth - frame.width)
-      position = self.position(leading: min(max(frame.leading + dx, 0), room), width: frame.width,
+      position = Self.position(leading: min(max(frame.leading + dx, 0), room), width: frame.width,
                                containerWidth: containerWidth, fallback: position)
     }
     return KeyboardAdjustState(
@@ -169,7 +169,7 @@ enum KeyboardAdjustLayout {
 
   private static func resized(_ start: KeyboardAdjustState, percent: Int, leading: CGFloat, width: CGFloat,
                               containerWidth: CGFloat) -> KeyboardAdjustState {
-    let position = position(leading: leading, width: width, containerWidth: containerWidth, fallback: start.placement.positionX)
+    let position = Self.position(leading: leading, width: width, containerWidth: containerWidth, fallback: start.placement.positionX)
     return KeyboardAdjustState(
       heightAdjustment: start.heightAdjustment,
       placement: KeyboardPlacement(bottomLift: start.placement.bottomLift, widthPercent: percent, positionX: position))
