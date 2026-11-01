@@ -1,6 +1,6 @@
 //! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::shuangpin;
@@ -8,6 +8,7 @@ use super::syllable::{self, Inventory, Segmentation};
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
+use crate::zhuyin::conversion::{self, Lookup};
 
 /// Entries read for one span of complete syllables.
 pub const SPAN_LIMIT: usize = 200;
@@ -54,6 +55,20 @@ pub(crate) struct CantoneseQueryBuffer {
     entries: Vec<LanguageEntry>,
     completions: Vec<(String, LanguageEntry)>,
     key: String,
+    /// 组句时各音节区间的最重词条，键是区间各位置的读音（`describe`）。词库在会话内只读，缓存按内容寻址，连续打字时只有新音节结尾的区间要查。
+    best: HashMap<String, Option<(String, LanguageEntry)>>,
+    description: String,
+}
+
+/// 组句的音节数上限，与注音组字的上限相同；超过时不出整句行，候选照旧。
+pub const SENTENCE_MAX_SYLLABLES: usize = conversion::MAX_SYLLABLES;
+/// 组句区间缓存的条目上限，超过就整体清空；一句 20 个音节最多 210 个区间。
+const SENTENCE_CACHE_LIMIT: usize = 2048;
+
+/// 组句的一个位置：这个音节允许的读音（双拼码可能解出几个），以及它在输入里结束的字节位置。
+struct SentencePosition {
+    readings: Vec<String>,
+    end: usize,
 }
 
 impl CantoneseScheme {
@@ -207,6 +222,47 @@ impl CantoneseScheme {
         text
     }
 
+    /// 粤语双拼组字展开成粤拼的显示文字（`ngo daa nei`），只给宿主画在屏幕上，编辑和回车提交仍按原始按键。`leading` 是首选候选的词库键和它覆盖的输入字节数：被它覆盖的完整码按它用的读音写，其余的码取库存里解出的第一个读音；末尾单独的声母键、以及分隔符照原样保留，与 `editing_text` 的写法对应。候选不按双拼码查时返回 `None`，包括不在双拼解释下、以及 `shuangpin_expansions` 解不出（自动识别入口里奇数长度的输入如 `gwo`、`gwai`，或有码解不出音节）而改按普通粤拼查的情形：那时按两键一码展开会和候选对不上，由宿主退回原来的预编辑。
+    pub fn jyutping_display(&self, leading: Option<(&str, usize)>) -> Option<String> {
+        self.shuangpin_expansions()?;
+        let mut leading_syllables = leading
+            .map(|(key, end)| (key.split(' '), end))
+            .into_iter()
+            .flat_map(|(syllables, end)| syllables.map(move |syllable| (syllable, end)));
+        let mut text = String::with_capacity(self.input.len() * 2);
+        let mut offset = 0;
+        for (chunk_index, chunk) in self.input.split('\'').enumerate() {
+            if chunk_index > 0 {
+                text.push('\'');
+                offset += 1;
+                if !chunk.is_empty() {
+                    text.push(' ');
+                }
+            }
+            for (index, code) in chunk.as_bytes().chunks(2).enumerate() {
+                if index > 0 {
+                    text.push(' ');
+                }
+                offset += code.len();
+                let covered = leading_syllables
+                    .next()
+                    .filter(|(_, end)| offset <= *end)
+                    .map(|(syllable, _)| syllable);
+                match (code, covered) {
+                    ([_, _], Some(syllable)) => text.push_str(syllable),
+                    ([first, second], None) => {
+                        match shuangpin::decode(&self.inventory, [*first, *second]).first() {
+                            Some(syllable) => text.push_str(syllable),
+                            None => text.push_str(&chunk[index * 2..index * 2 + 2]),
+                        }
+                    }
+                    _ => text.push_str(&chunk[index * 2..]),
+                }
+            }
+        }
+        Some(text)
+    }
+
     fn editing_text_into(&self, reading: &Segmentation, text: &mut String) {
         if self.shuangpin {
             text.clear();
@@ -296,6 +352,8 @@ impl CantoneseScheme {
     /// The candidates for the composition, each text listed once per span length:
     /// 1. When the reading covers every letter, the entries of the whole reading, or when its last syllable is still a prefix, the entries that complete it. A last syllable that is complete but also starts a longer one (`ho` of `hou`) lists its exact entries and then the entries that complete it, so a word does not drop out of the list while its last syllable is half typed.
     /// 2. Then each leading span of complete syllables, longest first, each span's entries heaviest first.
+    ///
+    /// 没有词条覆盖全部完整音节时，再插入一行由词库里的词和单字拼成的整句（`insert_sentence`），排在覆盖音节更多的行之后、其余行之前。
     pub fn candidates(&self, dictionary: &LanguageDictionary) -> Result<Vec<CantoneseCandidate>> {
         let mut candidates = Vec::new();
         self.candidates_into(
@@ -314,54 +372,142 @@ impl CantoneseScheme {
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
     ) -> Result<()> {
-        if let Some(expansion) = self.shuangpin_expansions() {
-            candidates.clear();
-            let mut expanded = Vec::new();
-            let mut temporary = self.clone();
-            temporary.shuangpin = false;
-            let mut rows = Vec::new();
-            // 末尾单键的各个前缀先收窄成只落在本键上的段，各读音共用。
-            let trailing = expansion.trailing.as_ref().map(|(key, prefixes)| {
-                let groups = prefixes
-                    .iter()
-                    .map(|prefix| shuangpin::key_spans(&self.inventory, prefix, *key))
-                    .collect::<Vec<_>>();
-                (*key, groups)
-            });
-            for reading in &expansion.readings {
-                if let Some((key, groups)) = &trailing {
-                    self.trailing_initial_candidates(
-                        dictionary,
-                        buffer,
-                        reading,
-                        *key,
-                        groups,
-                        &mut expanded,
-                    )?;
-                }
-                if reading.is_empty() {
-                    continue;
-                }
-                temporary.input.clone_from(reading);
-                // 每两键已是一个完整音节，末音节不再补全成更长的音节（`da` 只读 `daa`，不补出 `daap`）。
-                temporary.candidates_into_jyutping(dictionary, buffer, &mut rows, false)?;
-                for mut row in rows.drain(..) {
-                    row.end = self.shuangpin_code_end(row.syllables);
-                    expanded.push(row);
-                }
+        let shuangpin = self.shuangpin_expansions();
+        let expanded = shuangpin.is_some();
+        if let Some(expansion) = shuangpin {
+            self.shuangpin_candidates_into(dictionary, buffer, &expansion, candidates)?;
+        } else {
+            self.candidates_into_jyutping(dictionary, buffer, candidates, true)?;
+        }
+        self.insert_sentence(dictionary, buffer, expanded, candidates)
+    }
+
+    /// 双拼码的各个粤拼读法分别查词，合在一起按覆盖音节数和权重排。
+    fn shuangpin_candidates_into(
+        &self,
+        dictionary: &LanguageDictionary,
+        buffer: &mut CantoneseQueryBuffer,
+        expansion: &ShuangpinExpansion,
+        candidates: &mut Vec<CantoneseCandidate>,
+    ) -> Result<()> {
+        candidates.clear();
+        let mut expanded = Vec::new();
+        let mut temporary = self.clone();
+        temporary.shuangpin = false;
+        let mut rows = Vec::new();
+        // 末尾单键的各个前缀先收窄成只落在本键上的段，各读音共用。
+        let trailing = expansion.trailing.as_ref().map(|(key, prefixes)| {
+            let groups = prefixes
+                .iter()
+                .map(|prefix| shuangpin::key_spans(&self.inventory, prefix, *key))
+                .collect::<Vec<_>>();
+            (*key, groups)
+        });
+        for reading in &expansion.readings {
+            if let Some((key, groups)) = &trailing {
+                self.trailing_initial_candidates(
+                    dictionary,
+                    buffer,
+                    reading,
+                    *key,
+                    groups,
+                    &mut expanded,
+                )?;
             }
-            // 同一双拼码的各个读音合在一起排：先比覆盖的音节数，再比权重，排序稳定，同权重保持读音的字节序。
-            expanded.sort_by(|left, right| {
-                right
-                    .syllables
-                    .cmp(&left.syllables)
-                    .then(right.weight.cmp(&left.weight))
-            });
-            deduplicate_candidates(&mut expanded);
-            candidates.extend(expanded);
+            if reading.is_empty() {
+                continue;
+            }
+            temporary.input.clone_from(reading);
+            // 每两键已是一个完整音节，末音节不再补全成更长的音节（`da` 只读 `daa`，不补出 `daap`）。
+            temporary.candidates_into_jyutping(dictionary, buffer, &mut rows, false)?;
+            for mut row in rows.drain(..) {
+                row.end = self.shuangpin_code_end(row.syllables);
+                expanded.push(row);
+            }
+        }
+        // 同一双拼码的各个读音合在一起排：先比覆盖的音节数，再比权重，排序稳定，同权重保持读音的字节序。
+        expanded.sort_by(|left, right| {
+            right
+                .syllables
+                .cmp(&left.syllables)
+                .then(right.weight.cmp(&left.weight))
+        });
+        deduplicate_candidates(&mut expanded);
+        candidates.extend(expanded);
+        Ok(())
+    }
+
+    /// 没有哪一行正好覆盖全部完整音节时，把组出来的整句插在覆盖音节数不超过它的第一行前面。覆盖更多音节的行（末尾单键、末尾半个音节的补全）仍在它前面，连续打字时首选不在整句和补全之间来回跳。
+    fn insert_sentence(
+        &self,
+        dictionary: &LanguageDictionary,
+        buffer: &mut CantoneseQueryBuffer,
+        shuangpin: bool,
+        candidates: &mut Vec<CantoneseCandidate>,
+    ) -> Result<()> {
+        // 先数位置，已有整段词条（最常见的情形）时不必再构造读音。
+        let count = if shuangpin {
+            self.input.split('\'').map(|chunk| chunk.len() / 2).sum()
+        } else {
+            self.segmentation()
+                .syllables
+                .iter()
+                .take_while(|syllable| syllable.complete)
+                .count()
+        };
+        if !(2..=SENTENCE_MAX_SYLLABLES).contains(&count)
+            || candidates.iter().any(|row| row.syllables == count)
+        {
             return Ok(());
         }
-        self.candidates_into_jyutping(dictionary, buffer, candidates, true)
+        let positions = self.sentence_positions(shuangpin);
+        debug_assert_eq!(positions.len(), count);
+        let Some(sentence) = compose_sentence(
+            dictionary,
+            buffer,
+            &positions,
+            SENTENCE_AMBIGUOUS_WORD_FLOOR,
+        )?
+        else {
+            return Ok(());
+        };
+        let index = candidates
+            .iter()
+            .position(|row| row.syllables <= count)
+            .unwrap_or(candidates.len());
+        candidates.insert(index, sentence);
+        Ok(())
+    }
+
+    /// 组句用的完整音节：双拼时每个完整两键码一个位置，读音是它在库存里解出的全部音节；普通粤拼时是切分出的完整音节，各一个读音。末尾单独的声母键和还没拼完的音节不算。
+    fn sentence_positions(&self, shuangpin: bool) -> Vec<SentencePosition> {
+        let mut positions = Vec::new();
+        if shuangpin {
+            let mut offset = 0;
+            for chunk in self.input.split('\'') {
+                for code in chunk.as_bytes().chunks_exact(2) {
+                    offset += 2;
+                    positions.push(SentencePosition {
+                        readings: shuangpin::decode(&self.inventory, [code[0], code[1]]),
+                        end: offset,
+                    });
+                }
+                // 奇数段的末尾单键和段后的分隔符。
+                offset += chunk.len() % 2 + 1;
+            }
+            return positions;
+        }
+        let reading = self.segmentation();
+        for syllable in &reading.syllables {
+            if !syllable.complete {
+                break;
+            }
+            positions.push(SentencePosition {
+                readings: vec![self.input[syllable.start..syllable.end].to_owned()],
+                end: syllable.end,
+            });
+        }
+        positions
     }
 
     /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母。`groups` 的每一组来自一个 `initial_prefixes` 前缀，组内各段由 `shuangpin::key_spans` 收窄过，段下没有别的键的音节，别的键上的重行不会占满查询上限。每组合起来最多留最重的 `SPAN_LIMIT` 行。
@@ -666,6 +812,140 @@ fn write_key(reading: &Segmentation, input: &str, count: usize, destination: &mu
             destination.push(' ');
         }
         destination.push_str(&input[syllable.start..syllable.end]);
+    }
+}
+
+/// 多音节词经过一个解出多个读音的双拼码时，词频最多可以比它覆盖的最弱单字轻多少倍。取值见 `.agents/notes/implemented/feature/2026-11-02-cantonese-word-lattice-sentence.md` 的留一评估。
+const SENTENCE_AMBIGUOUS_WORD_FLOOR: i64 = 1000;
+
+/// 用注音的词图转换（`zhuyin::conversion`）把各位置拼成一句：每段取区间内最重的词条，长词优先，同长度比权重和。整句只有一段（本来就是整段词条）、或有位置连单字都查不到时不出整句。`floor` 见 `SENTENCE_AMBIGUOUS_WORD_FLOOR`。
+fn compose_sentence(
+    dictionary: &LanguageDictionary,
+    buffer: &mut CantoneseQueryBuffer,
+    positions: &[SentencePosition],
+    floor: i64,
+) -> Result<Option<CantoneseCandidate>> {
+    if buffer.best.len() > SENTENCE_CACHE_LIMIT {
+        buffer.best.clear();
+    }
+    let readings = positions
+        .iter()
+        .map(|position| position.readings.as_slice())
+        .collect::<Vec<_>>();
+    let count = readings.len();
+    let ambiguous = readings
+        .iter()
+        .map(|readings| readings.len() > 1)
+        .collect::<Vec<_>>();
+    // 每个位置单字最重词条的权重，只在有位置解出不止一个读音时才用得到。
+    let mut singles = vec![0; count];
+    if ambiguous.iter().any(|&ambiguous| ambiguous) {
+        for (index, single) in singles.iter_mut().enumerate() {
+            *single = cached_best(dictionary, buffer, &readings[index..=index], |entry| {
+                entry.map_or(0, |(_, entry)| entry.weight)
+            })?;
+        }
+    }
+    let spans = conversion::convert_filtered(
+        count,
+        &[],
+        |start, end, can_improve| {
+            cached_best(
+                dictionary,
+                buffer,
+                &readings[start..end],
+                |entry| match entry.filter(|(_, entry)| {
+                    clears_ambiguous_word_floor(
+                        &ambiguous[start..end],
+                        &singles[start..end],
+                        entry,
+                        floor,
+                    )
+                }) {
+                    Some((key, entry)) if can_improve(entry.weight) => {
+                        Lookup::Found(key.clone(), entry.clone())
+                    }
+                    Some(_) => Lookup::Rejected,
+                    None => Lookup::Missing,
+                },
+            )
+        },
+        |index| readings[index][0].clone(),
+    )?;
+    // 兜底段的文字就是读音本身，整句里混进拉丁字母没有用处。
+    if spans.len() < 2 || spans.iter().any(|span| span.text == span.key) {
+        return Ok(None);
+    }
+    let mut sentence = CantoneseCandidate {
+        text: String::new(),
+        weight: 0,
+        key: String::new(),
+        syllables: count,
+        end: positions[count - 1].end,
+    };
+    for span in &spans {
+        sentence.text.push_str(&span.text);
+        if !sentence.key.is_empty() {
+            sentence.key.push(' ');
+        }
+        sentence.key.push_str(&span.key);
+        // 各段都来自缓存里的最重词条，这里再读一次只是取回它的权重。
+        let weight = cached_best(
+            dictionary,
+            buffer,
+            &readings[span.start..span.end],
+            |entry| entry.map_or(0, |(_, entry)| entry.weight),
+        )?;
+        sentence.weight = sentence.weight.saturating_add(weight);
+    }
+    Ok(Some(sentence))
+}
+
+/// 区间里的多音节词能否参与组句。单个音节、以及每个位置都只有一个读音的区间（普通粤拼全部如此）总是可以；经过多读音位置的词，词频乘 `floor` 要不低于区间内最弱的单字词频，挡住因读音组合多而碰巧凑上的冷僻词。
+fn clears_ambiguous_word_floor(
+    ambiguous: &[bool],
+    singles: &[i64],
+    entry: &LanguageEntry,
+    floor: i64,
+) -> bool {
+    if ambiguous.len() < 2 || !ambiguous.iter().any(|&ambiguous| ambiguous) {
+        return true;
+    }
+    let weakest = singles.iter().copied().min().unwrap_or(0);
+    entry.weight.saturating_mul(floor) >= weakest
+}
+
+/// 查 `positions` 区间最重的词条并交给 `consume`；同一组读音在会话内只查一次。
+fn cached_best<T>(
+    dictionary: &LanguageDictionary,
+    buffer: &mut CantoneseQueryBuffer,
+    positions: &[&[String]],
+    consume: impl FnOnce(Option<&(String, LanguageEntry)>) -> T,
+) -> Result<T> {
+    describe(positions, &mut buffer.description);
+    if let Some(entry) = buffer.best.get(buffer.description.as_str()) {
+        return Ok(consume(entry.as_ref()));
+    }
+    let entry = dictionary.lookup_readings(positions, 1)?.into_iter().next();
+    let description = buffer.description.clone();
+    Ok(consume(
+        buffer.best.entry(description).or_insert(entry).as_ref(),
+    ))
+}
+
+/// `cached_best` 的缓存键：各位置的读音以 `|` 连接，位置之间用空格。
+fn describe(positions: &[&[String]], description: &mut String) {
+    description.clear();
+    for (index, readings) in positions.iter().enumerate() {
+        if index > 0 {
+            description.push(' ');
+        }
+        for (reading_index, reading) in readings.iter().enumerate() {
+            if reading_index > 0 {
+                description.push('|');
+            }
+            description.push_str(reading);
+        }
     }
 }
 
@@ -1069,13 +1349,13 @@ mod tests {
     #[test]
     fn shuangpin_does_not_complete_a_syllable_its_two_keys_already_fixed() {
         let fixture = shuangpin_fixture();
-        // `da` 只能是 `daa`；`daap` 在 `c` 键上，`ngo daap`、`ngo daai` 不能靠补全混进来。
+        // `da` 只能是 `daa`；`daap` 在 `c` 键上，`ngo daap`、`ngo daai` 不能靠补全混进来。首位是「我」「打」组出的整句。
         for force in [true, false] {
             let scheme = shuangpin_typed("voda", force);
             assert!(scheme.is_shuangpin());
             assert_eq!(
                 listed_with_end(&scheme, &fixture.dictionary),
-                ["我/1/2", "外/1/2"],
+                ["我打/2/4", "我/1/2", "外/1/2"],
                 "force={force}"
             );
         }
@@ -1139,6 +1419,145 @@ mod tests {
         );
     }
 
+    /// #10557：整段读音不是词库里的一个词时，由已有的词和单字组出整句放在首位。
+    #[test]
+    fn shuangpin_sentence_is_composed_from_dictionary_words() {
+        let fixture = shuangpin_fixture();
+        for force in [true, false] {
+            let mut scheme = shuangpin_typed("vodanz", force);
+            let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+            assert_eq!(
+                listed_with_end(&scheme, &fixture.dictionary),
+                ["我打你/3/6", "我/1/2", "外/1/2"],
+                "force={force}"
+            );
+            let sentence = &candidates[0];
+            assert_eq!(sentence.key, "ngo daa nei");
+            assert_eq!(sentence.weight, 6000 + 500);
+            // 选中整句一次上屏，组字清空。
+            assert!(!scheme.select(sentence));
+            assert!(scheme.is_empty());
+        }
+        // 整段本来就是一个词时不另加整句行。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("danz", true), &fixture.dictionary),
+            ["打你/2/4", "打/1/2"]
+        );
+    }
+
+    #[test]
+    fn a_trailing_single_key_row_stays_ahead_of_the_sentence() {
+        let fixture = shuangpin_fixture_with(&[("ngo daa nei dei", "我打你哋".to_owned(), 5)]);
+        // 末尾单键补全出的行覆盖四个音节，排在只覆盖前三个码的整句前面。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("vodanzd", true), &fixture.dictionary),
+            ["我打你哋/4/7", "我打你/3/6", "我/1/2", "外/1/2"]
+        );
+        // 末尾单键补不出东西时，整句就是首选。
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("vodanzc", true), &fixture.dictionary)[0],
+            "我打你/3/6"
+        );
+        // 分隔符不改变整句覆盖的位置。
+        let scheme = shuangpin_typed("vo'danz", true);
+        let sentence = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert_eq!((sentence.text.as_str(), sentence.end), ("我打你", 7));
+    }
+
+    #[test]
+    fn a_rare_word_through_an_ambiguous_code_does_not_win_the_sentence() {
+        // `vo` 解出 ngo、ngoi。权重 1 的「外打」靠长词优先会压过「我」「打」两个常用单字，经过多读音码时被下限挡住。
+        let fixture = shuangpin_fixture_with(&[("ngoi daa", "外打".to_owned(), 1)]);
+        assert_eq!(
+            listed_with_end(&shuangpin_typed("vodavo", true), &fixture.dictionary)[0],
+            "我打我/3/6"
+        );
+        // 普通粤拼每个位置只有一个读音，用户明确打了 ngoi，词条照常参与。
+        let scheme = shuangpin_typed("ngoi'daa'ngo", false);
+        assert!(!scheme.is_shuangpin());
+        assert_eq!(
+            listed_with_end(&scheme, &fixture.dictionary)[0],
+            "外打我/3/12"
+        );
+    }
+
+    #[test]
+    fn plain_jyutping_composes_a_sentence_too() {
+        let fixture = fixture();
+        let scheme = typed("neihouwaa");
+        assert_eq!(
+            listed(&scheme, &fixture.dictionary),
+            ["你好話/3", "你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+        assert_eq!(
+            scheme.candidates(&fixture.dictionary).unwrap()[0].key,
+            "nei hou waa"
+        );
+        // 末尾还没拼完的音节不参与组句。
+        let scheme = typed("waaneih");
+        let rows = listed(&scheme, &fixture.dictionary);
+        assert_eq!(rows[0], "話你/2", "{rows:?}");
+        // 有音节连单字都查不到时不出整句，拉丁字母不混进句子。
+        assert!(listed(&typed("hoeng'nei"), &fixture.dictionary).is_empty());
+        // 超过上限不组句。
+        let long = "nei'".repeat(SENTENCE_MAX_SYLLABLES) + "hou";
+        let rows = typed(&long).candidates(&fixture.dictionary).unwrap();
+        assert!(rows.iter().all(|row| row.syllables < 3), "{rows:?}");
+        let long = "nei'".repeat(SENTENCE_MAX_SYLLABLES - 1) + "hou";
+        let rows = typed(&long).candidates(&fixture.dictionary).unwrap();
+        assert_eq!(rows[0].syllables, SENTENCE_MAX_SYLLABLES);
+        assert_eq!(
+            rows[0].text,
+            "你".repeat(SENTENCE_MAX_SYLLABLES - 2) + "你好"
+        );
+    }
+
+    #[test]
+    fn jyutping_display_expands_codes_with_the_leading_reading() {
+        let inventory = Arc::new(Inventory::new(SHUANGPIN_SYLLABLES.iter().copied()));
+        let mut scheme = CantoneseScheme::new(inventory);
+        scheme.set_force_shuangpin(true);
+        scheme.set_raw_input("vodanz");
+        assert_eq!(
+            scheme.jyutping_display(Some(("ngo daa nei", 6))).as_deref(),
+            Some("ngo daa nei")
+        );
+        // 首选只覆盖开头时，其余码取库存里解出的第一个读音。
+        assert_eq!(
+            scheme.jyutping_display(Some(("ngoi", 2))).as_deref(),
+            Some("ngoi daa nei")
+        );
+        assert_eq!(
+            scheme.jyutping_display(None).as_deref(),
+            Some("ngo daa nei")
+        );
+        // 末尾单独的声母键和分隔符照原样保留。
+        scheme.set_raw_input("vo'danzd");
+        assert_eq!(
+            scheme
+                .jyutping_display(Some(("ngo daa nei dei", 8)))
+                .as_deref(),
+            Some("ngo' daa nei d")
+        );
+        scheme.set_raw_input("vo'");
+        assert_eq!(scheme.jyutping_display(None).as_deref(), Some("ngo'"));
+        // 编辑文字仍是原始按键。
+        scheme.set_raw_input("vodanz");
+        assert_eq!(scheme.editing_text(), "vo da nz");
+        // 不在双拼解释下没有展开文字。
+        let plain = typed("neihou");
+        assert_eq!(plain.jyutping_display(None), None);
+        // 自动识别入口进了双拼后，偶数长度仍按双拼展开；奇数长度改按普通粤拼查候选，不再按两键一码展开，宿主退回原来的预编辑。
+        let auto = shuangpin_typed("vodanz", false);
+        assert!(auto.is_shuangpin());
+        assert_eq!(auto.jyutping_display(None).as_deref(), Some("ngo daa nei"));
+        let auto = shuangpin_typed("vod", false);
+        assert!(auto.is_shuangpin());
+        assert_eq!(auto.shuangpin_expansions(), None);
+        assert_eq!(auto.jyutping_display(Some(("ngo", 2))), None);
+        assert_eq!(auto.jyutping_display(None), None);
+    }
+
     #[test]
     fn a_reviewed_three_syllable_word_comes_first_for_its_codes() {
         // #10369：`zk gt lp` 解出 zau/zaau、git/gek、lun/lut/lung/leon。词库收进「周杰倫」整词后，它覆盖全部三个音节，排在只覆盖一个音节的单字前面；权重 711 低于「杰倫」和各个单字也不影响。
@@ -1163,13 +1582,15 @@ mod tests {
                 "force={force}"
             );
         }
-        // 没有整词时要先选「周」，剩下的 `gtlp` 再出「杰倫」，这是 #10369 报告的两次选择。
+        // 没有整词时由「周」和「杰倫」组出整句排在首位，不必像 #10369 报告的那样分两次选。
         let fixture = fixture_from(&SYLLABLES, &entries[..entries.len() - 1]);
         let scheme = shuangpin_typed_with(&SYLLABLES, "zkgtlp", true);
         assert_eq!(
             listed_with_end(&scheme, &fixture.dictionary),
-            ["周/1/2", "找/1/2"]
+            ["周杰倫/3/6", "周/1/2", "找/1/2"]
         );
+        let sentence = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert_eq!(sentence.key, "zau git leon");
     }
 
     #[test]
@@ -1358,7 +1779,8 @@ mod tests {
         let fixture = fixture();
         let scheme = typed("ngo'oi");
         assert_eq!(scheme.editing_text(), "ngo oi");
-        assert_eq!(listed(&scheme, &fixture.dictionary), ["我/1"]);
+        // 两个完整音节没有整段词条，组出的整句排在单字前面。
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["我愛/2", "我/1"]);
         let scheme = typed("ngoi");
         assert_eq!(scheme.editing_text(), "ngoi");
         assert_eq!(listed(&scheme, &fixture.dictionary), ["外/1"]);
@@ -1515,5 +1937,222 @@ mod tests {
         assert!(
             crate::cantonese::CantoneseDictionary::open(&dir.path().join("missing.db")).is_err()
         );
+    }
+
+    /// 留一评估：从发布词库里取 3 到 6 个音节的词条，把它们从词库副本里删掉，再按双拼和普通粤拼打出它们的读音，看组出的首选能否还原原词。这是合成的回归集，不是母语者审校的开发集。另外逐键打较长的输入，报告每次按键的查询耗时。
+    #[test]
+    #[ignore = "需要通过 MSIME_TEST_CANTONESE_DICTIONARY 指定发布的粤语词库，用 --release 单独运行"]
+    fn shipped_dictionary_leave_one_out_sentences() {
+        let source =
+            std::env::var_os("MSIME_TEST_CANTONESE_DICTIONARY").expect("指定发布的粤语词库");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-cantonese.db");
+        std::fs::copy(source, &path).unwrap();
+        let connection = Connection::open(&path).unwrap();
+        // 每个键只看最重的词面；词面的字数要等于音节数，每个音节都要能编成双拼码。
+        let mut rows = connection
+            .prepare(
+                "SELECT key, text, weight FROM entries e WHERE weight = (SELECT max(weight) FROM entries WHERE key = e.key) ORDER BY weight DESC, key ASC, text ASC",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|(key, text, _)| {
+                let syllables = key.split(' ').collect::<Vec<_>>();
+                (3..=6).contains(&syllables.len())
+                    && text.chars().count() == syllables.len()
+                    && syllables.iter().all(|syllable| shuangpin::encode(syllable).is_some())
+            })
+            .collect::<Vec<_>>();
+        rows.dedup_by(|left, right| left.0 == right.0);
+        // 两组：最常用的 300 条，以及在其余词条里等距取的 300 条。
+        let common = rows.iter().take(300).cloned().collect::<Vec<_>>();
+        let step = (rows.len() - 300) / 300;
+        let spread = rows[300..]
+            .iter()
+            .step_by(step.max(1))
+            .take(300)
+            .cloned()
+            .collect::<Vec<_>>();
+        for (key, _, _) in common.iter().chain(&spread) {
+            connection
+                .execute("DELETE FROM entries WHERE key = ?1", (key,))
+                .unwrap();
+        }
+        // 第二类：把常用的双音节词两两、三三接起来，看组句能否按词还原。接起来的读音本身是词条时跳过。
+        let words = connection
+            .prepare(
+                "SELECT key, text FROM entries e WHERE length(key) - length(replace(key, ' ', '')) = 1 AND weight = (SELECT max(weight) FROM entries WHERE key = e.key) ORDER BY weight DESC, key ASC, text ASC LIMIT 2000",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|(key, text)| {
+                text.chars().count() == 2
+                    && key.split(' ').all(|syllable| shuangpin::encode(syllable).is_some())
+            })
+            .collect::<Vec<_>>();
+        let mut sequences = Vec::new();
+        for (length, take) in [(2, 300), (3, 200)] {
+            for group in words.chunks_exact(length).take(take) {
+                let key = group
+                    .iter()
+                    .map(|(key, _)| key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let text = group
+                    .iter()
+                    .map(|(_, text)| text.as_str())
+                    .collect::<String>();
+                let exists: bool = connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM entries WHERE key = ?1)",
+                        (&key,),
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                if !exists {
+                    sequences.push((key, text, 0));
+                }
+            }
+        }
+        drop(connection);
+        let opened = crate::cantonese::CantoneseDictionary::open(&path).unwrap();
+        let dictionary = opened.dictionary();
+        let floors = [1, 10, 100, 1000, 10_000, i64::MAX];
+        for (name, set) in [
+            ("common", &common),
+            ("spread", &spread),
+            ("words", &sequences),
+        ] {
+            let mut first_shuangpin = 0;
+            let mut first_plain = 0;
+            let mut by_floor = [0; 6];
+            for (key, text, _) in set.iter() {
+                let mut buffer = CantoneseQueryBuffer::default();
+                let codes = key
+                    .split(' ')
+                    .map(|syllable| {
+                        let code = shuangpin::encode(syllable).unwrap();
+                        String::from_utf8(code.to_vec()).unwrap()
+                    })
+                    .collect::<String>();
+                let mut scheme = CantoneseScheme::new(opened.inventory());
+                scheme.set_force_shuangpin(true);
+                scheme.set_raw_input(&codes);
+                let mut candidates = Vec::new();
+                scheme
+                    .candidates_into(dictionary, &mut buffer, &mut candidates)
+                    .unwrap();
+                if candidates.first().is_some_and(|row| &row.text == text) {
+                    first_shuangpin += 1;
+                } else if std::env::var_os("MSIME_TEST_CANTONESE_FAILURES").is_some() {
+                    println!(
+                        "  {name} 未还原：{text} {key} -> {:?}",
+                        candidates
+                            .first()
+                            .map(|row| (&row.text, &row.key, row.syllables))
+                    );
+                }
+                let positions = scheme.sentence_positions(true);
+                for (index, floor) in floors.iter().enumerate() {
+                    let sentence =
+                        compose_sentence(dictionary, &mut buffer, &positions, *floor).unwrap();
+                    if sentence.is_some_and(|sentence| &sentence.text == text) {
+                        by_floor[index] += 1;
+                    }
+                }
+                let mut plain = CantoneseScheme::new(opened.inventory());
+                plain.set_raw_input(&key.replace(' ', ""));
+                if plain
+                    .candidates(dictionary)
+                    .unwrap()
+                    .first()
+                    .is_some_and(|row| &row.text == text)
+                {
+                    first_plain += 1;
+                }
+            }
+            println!(
+                "{name}: {} 条，双拼首选还原 {first_shuangpin}，普通粤拼首选还原 {first_plain}；双拼整句按下限 {floors:?} 还原 {by_floor:?}",
+                set.len()
+            );
+        }
+
+        // 逐键打 16 个码：把几条常用词条的码接起来，每次按键都像会话那样整段重查。
+        let mut warm = Vec::new();
+        let mut cold = Vec::new();
+        let mut baseline = Vec::new();
+        for group in common.chunks(4).take(40) {
+            let codes = group
+                .iter()
+                .flat_map(|(key, _, _)| key.split(' '))
+                .take(16)
+                .map(|syllable| {
+                    String::from_utf8(shuangpin::encode(syllable).unwrap().to_vec()).unwrap()
+                })
+                .collect::<String>();
+            let mut buffer = CantoneseQueryBuffer::default();
+            let mut candidates = Vec::new();
+            let mut scheme = CantoneseScheme::new(opened.inventory());
+            scheme.set_force_shuangpin(true);
+            for length in 1..=codes.len() {
+                scheme.set_raw_input(&codes[..length]);
+                let started = std::time::Instant::now();
+                scheme
+                    .candidates_into(dictionary, &mut buffer, &mut candidates)
+                    .unwrap();
+                warm.push(started.elapsed());
+                let started = std::time::Instant::now();
+                scheme
+                    .candidates_into(
+                        dictionary,
+                        &mut CantoneseQueryBuffer::default(),
+                        &mut candidates,
+                    )
+                    .unwrap();
+                cold.push(started.elapsed());
+                // 不组句时的同一次查询，作对照。
+                let started = std::time::Instant::now();
+                match scheme.shuangpin_expansions() {
+                    Some(expansion) => scheme
+                        .shuangpin_candidates_into(
+                            dictionary,
+                            &mut buffer,
+                            &expansion,
+                            &mut candidates,
+                        )
+                        .unwrap(),
+                    None => scheme
+                        .candidates_into_jyutping(dictionary, &mut buffer, &mut candidates, true)
+                        .unwrap(),
+                }
+                baseline.push(started.elapsed());
+            }
+        }
+        for (name, samples) in [
+            ("连续打字（缓存）", &mut warm),
+            ("每键冷缓存", &mut cold),
+            ("不组句的对照", &mut baseline),
+        ] {
+            samples.sort();
+            let at = |fraction: f64| samples[((samples.len() - 1) as f64 * fraction) as usize];
+            println!(
+                "{name}: {} 次按键，p50 {:?}，p95 {:?}，p99 {:?}，最大 {:?}",
+                samples.len(),
+                at(0.5),
+                at(0.95),
+                at(0.99),
+                samples[samples.len() - 1]
+            );
+        }
     }
 }

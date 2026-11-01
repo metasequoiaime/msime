@@ -830,11 +830,26 @@ impl Session {
         // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
             || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
-        let preedit = if segmented_preedit
-            && input.local_mode == LocalInputMode::None
-            && !input.dedicated_english
-        {
+        let plain_composition =
+            input.local_mode == LocalInputMode::None && !input.dedicated_english;
+        let preedit = if segmented_preedit && plain_composition {
             input.pinyin_segmentation_with_cases().into_owned()
+        } else if segmented_quanpin
+            && !self.shuangpin_preedit_uses_raw
+            && plain_composition
+            && !caret_edit_suffix
+            && input.scheme() == SchemeType::Cantonese
+        {
+            // 粤语双拼跟随「双拼显示原始按键」：关掉时画展开后的粤拼，读音取首选候选用的那一个。只改显示，编辑文字和回车提交仍是原始按键。
+            let leading = input
+                .candidates()
+                .iter()
+                .find(|item| item.scheme == SchemeType::Cantonese)
+                .map(|item| (item.canonical_pinyin.as_str(), item.pinyin.len()));
+            input
+                .engine
+                .cantonese_jyutping_display(leading)
+                .unwrap_or_else(|| input.preedit())
         } else {
             input.preedit()
         };

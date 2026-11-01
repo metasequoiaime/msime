@@ -10784,6 +10784,55 @@ fn cantonese_double_pinyin_uses_the_existing_dictionary_and_spelling_symbols() {
     assert!(session.select(0).commit.is_some());
 }
 
+/// #10557：粤语双拼的整句候选一次上屏；关掉「双拼显示原始按键」时宿主画展开后的粤拼，编辑文字和原始快照仍是按键。
+#[test]
+fn cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_preference() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    for raw in [true, false] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Cantonese;
+            options.cantonese_dictionary = cantonese.clone();
+            options.force_cantonese_shuangpin = true;
+            options.shuangpin_preedit_uses_raw = raw;
+        });
+        type_text(&mut session, "vonzhb");
+        assert_eq!(words(&session)[0], "我你好");
+        let display = session.display_snapshot();
+        assert_eq!(
+            display.preedit,
+            if raw { "vonzhb" } else { "ngo nei hou" },
+            "raw={raw}"
+        );
+        assert_eq!(display.editing_text, "vo nz hb");
+        assert_eq!(session.snapshot().preedit, "vonzhb");
+        // 末尾单独的声母键原样显示。
+        type_text(&mut session, "n");
+        assert_eq!(
+            session.display_snapshot().preedit,
+            if raw { "vonzhbn" } else { "ngo nei hou n" },
+            "raw={raw}"
+        );
+        session.command(Command::Backspace);
+        let result = session.select(0);
+        assert_eq!(result.commit.as_deref(), Some("我你好"));
+        assert!(session.snapshot().preedit.is_empty());
+    }
+    // 「粤语」入口自动识别进了双拼后，偶数长度照样展开；奇数长度改按普通粤拼查候选，宿主退回原来的预编辑，不按两键一码展开成和候选对不上的粤拼。
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+        options.shuangpin_preedit_uses_raw = false;
+    });
+    type_text(&mut session, "vonzhb");
+    assert_eq!(session.display_snapshot().preedit, "ngo nei hou");
+    type_text(&mut session, "n");
+    assert_eq!(
+        session.display_snapshot().preedit,
+        session.snapshot().preedit
+    );
+}
+
 #[test]
 fn selected_cantonese_shuangpin_survives_scheme_switches() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
@@ -10906,12 +10955,12 @@ fn cantonese_caret_edits_keep_the_shown_syllables() {
     });
     type_text(&mut session, "ngo'oi");
     assert_eq!(session.snapshot().editing_text, "ngo oi");
-    assert_eq!(words(&session), ["我"]);
+    assert_eq!(words(&session), ["我愛", "我"]);
     assert!(session.command(Command::MoveLeft).handled);
     assert!(session.command(Command::Backspace).handled);
     // `ngo i`, not the single syllable `ngoi` (外).
     assert_eq!(session.snapshot().editing_text, "ngo i");
-    assert_eq!(words(&session), ["我"]);
+    assert_eq!(words(&session), ["我衣", "我"]);
 }
 
 #[test]
