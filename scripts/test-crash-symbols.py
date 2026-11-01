@@ -23,10 +23,14 @@ def main():
         source.write_text("int synthetic_symbol(int x) { return x + 7; }\nint main() { return synthetic_symbol(2); }\n")
         binary = root / "msime-synthetic"
         subprocess.run(["g++", "-g", "-Wl,--build-id=sha1", str(source), "-o", str(binary)], check=True)
+        # cargo 的 deps/ 中间目录放着最终模块的带哈希副本，不能进归档。
+        (root / "deps").mkdir()
+        shutil.copyfile(binary, root / "deps" / "msime-synthetic-0123456789abcdef")
         archive = root / "symbols.zip"
         subprocess.run([sys.executable, str(SCRIPT), "collect", "--platform", "linux", "--version", "0.0.1", "--root", str(root), "--output", str(archive)], check=True)
         with zipfile.ZipFile(archive) as file:
             manifest = json.loads(file.read("manifest.json"))
+            assert [entry["name"] for entry in manifest["modules"]] == [binary.name]
             module = manifest["modules"][0]
             payload = file.read(module["file"])
         assert hashlib.sha256(payload).hexdigest() == module["sha256"]
