@@ -15,13 +15,13 @@ macOS 0.56.0 打开「显示读音」后，在贴着屏幕底边的输入框里�
 
 ## Decision
 
-**「显示读音」开着时，横排每种目标语言预留两行：释义一行、读音一行。** `glossHeightReservedForFont:` 在 `_pronunciationTargets` 非空时把释义行数乘 2。支持的七种目标语言（英、法、日、西、俄、德、韩）都有读音来源（`MSIMEGlossLineLanguage`），所以不按语言区分。韩文汉字的 훈음 行不读，仍是一行。
+**「显示读音」开着时，横排每种目标语言预留两行：释义一行、读音一行。** `glossHeightReservedForFont:` 在 `_glossPronunciation` 为真时把释义行数乘 2。支持的七种目标语言（英、法、日、西、俄、德、韩）都有读音来源（`MSIMEGlossLineLanguage`），所以不按语言区分。韩文汉字的 훈음 行不读，仍是一行。
 
 这一行和预留释义行用同一个量法（`"X\n…"` 按释义字体量高），读音画在释义字体里、只是颜色淡一些（`CandidateChrome.h` 的 `readingColor`），两者行高相同。读音还没查回来、这一页没有读音、有读音，三种情况下横排卡片一样高，翻转判断也就每键一致。
 
 竖排的高亮行预留（视图标了 `translation_reserved` 的那一行）走同一个函数，也跟着多留一行读音；竖排其他行不预留，和以前一样。
 
-`_pronunciationTargets` 在 `synchronizeCandidateServices` 里设置，晚于每个键的第一次 `renderCandidates`。一个输入控制器第一次组字时它还是 nil，那一页不留读音行，之后一直保留，所以只有一个应用里的第一次组字可能长高一次。
+**预留看共享偏好，不看读音目标。** `_glossPronunciation` 在 `applySharedToolbarPreferences:` 里从共享偏好的 `candidate_pronunciation` 读出，和预留释义行所用的 `_glossTargetLanguages` 同一个来源、同一个时机。查读音和画读音仍用 `_pronunciationTargets`，但它不能定预留：它来自 `msime_client_translation_query`，没在组字时这个查询返回 `Null`（`translation_candidates()` 为空），而 `synchronizeCandidateServices` 在上屏那一键之后也会跑，于是每次上屏后它都被清成 nil；下一次组字的第一个键先画候选、后跑同步，按它预留的话这一键照样先矮一行、读音目标回来再长高，录屏里每次上屏后第一个键的那一跳就会留着。
 
 ## Alternatives considered
 
@@ -33,10 +33,9 @@ macOS 0.56.0 打开「显示读音」后，在贴着屏幕底边的输入框里�
 
 - **收益**：开着读音时，横排卡片高度不再随读音到达或换页变化，屏幕底部打字时候选窗固定在一边，不再每键上下翻。
 - **代价**：开着读音时，横排每页多一行读音高度（12pt 释义字体约 15pt），没有读音的页这一行空着；两种目标语言时多两行。关着读音时完全不变。
-- 一个输入控制器的第一次组字仍可能长高一次，见上文。
-- Windows 宿主同样不为读音预留（[Windows 候选读音单独一行](2026-11-01-windows-candidate-pronunciation-own-line.md) 的 `reserved_secondary_lines`），读音也是异步到的，同样的翻转在 Windows 上大概率也会出现，这次没有改。
+- Windows 宿主同样不为读音预留（[Windows 候选读音单独一行](2026-11-01-windows-candidate-pronunciation-own-line.md) 的 `reserved_secondary_lines`），读音也是异步到的，同样的翻转在 Windows 上大概率也会出现；Linux 的原生画布也一样，`CandidateTranslationPolicy.h` 的 `translation_reserved_lines` 只数释义行，翻转用的是同一份 `CandidateOrigin`。这两个平台这次没有改。
 
 ## Verification
 
-- `tests/candidate/CandidateRowLayoutTest.mm` 的 `TestPronunciationLine`：开着读音时，读音还没查回来的页、没有读音的页和有读音的页，候选格和卡片一样高；关掉读音回到原来的高度；其余断言（读音单独一行、格宽、原地重画换读音、竖排）不变。
+- `tests/candidate/CandidateRowLayoutTest.mm` 的 `TestPronunciationLine`：开着读音时，读音还没查回来的页、读音目标被上屏清掉时（上屏后的第一个键）的页、没有读音的页和有读音的页，候选格和卡片一样高；关掉读音回到原来的高度；其余断言（读音单独一行、格宽、原地重画换读音、竖排）不变。
 - 用户录屏里的复现（贴近屏幕底边的输入框、五笔 86、英文释义加读音）在本机装包后核对，留给维护者。

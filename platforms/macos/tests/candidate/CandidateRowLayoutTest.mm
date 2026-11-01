@@ -1141,6 +1141,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
                            @"candidates": @[@{@"text": @"动画主体", @"translation": @"Animation protagonist", @"highlighted": @YES},
                                             @{@"text": @"东华主题", @"translation": @"Donghua theme"}]};
     [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller setValue:@NO forKey:@"glossPronunciation"];
     [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
     [controller setValue:view forKey:@"view"];
     [controller renderCandidates];
@@ -1151,6 +1152,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     const CGFloat plainCard = NSHeight(panel.frame);
 
     // 打开读音：读音在释义下面单独一行，释义行的位置不变。
+    [controller setValue:@YES forKey:@"glossPronunciation"];
     [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
     [controller renderCandidates];
     MSIMECandidateButton *read = CandidateButton(panel.contentView, 0);
@@ -1187,6 +1189,11 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     [controller renderCandidates];
     assert(CandidateButton(panel.contentView, 0).pronunciation.length == 0);
     assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - readHeight) < 0.5 && fabs(NSHeight(panel.frame) - readCard) < 0.5);
+    // 上屏后的第一个键：没在组字时翻译查询为空，读音目标被清掉，这一键画候选时还没查回来；开关开着就照样留好读音那一行。
+    [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller renderCandidates];
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - readHeight) < 0.5 && fabs(NSHeight(panel.frame) - readCard) < 0.5);
+    [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
     [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
 
     // 这一页没有读音时也留着读音那一行，和有读音的页一样高，逐键换页时卡片高度不跳。
@@ -1198,6 +1205,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     // 「显示读音」关掉：没有第三行，回到原来的高度。
     [controller setValue:view forKey:@"view"];
     [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller setValue:@NO forKey:@"glossPronunciation"];
     [controller renderCandidates];
     assert(CandidateButton(panel.contentView, 0).pronunciation.length == 0);
     assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - plainHeight) < 0.5 && fabs(NSHeight(panel.frame) - plainCard) < 0.5);
