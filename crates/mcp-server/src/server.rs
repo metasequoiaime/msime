@@ -1459,6 +1459,25 @@ mod tests {
         server.claim_write().unwrap();
     }
 
+    /// 写工具本身接上进程内限流：上一次写入还在间隔内时，请求在碰配置和词库之前就被拒绝。
+    #[tokio::test]
+    async fn a_write_tool_refuses_inside_the_write_interval() {
+        let server = server(true);
+        *server.last_write.lock().unwrap() = Some(Instant::now());
+        let Err(error) = server
+            .edit_quick_phrases(Parameters(EditRequest {
+                edits: vec![Edit::Remove {
+                    code: "dz".into(),
+                    text: "合成地址".into(),
+                }],
+            }))
+            .await
+        else {
+            panic!("a write inside the interval must be refused");
+        };
+        assert!(error.contains("one a second"), "{error}");
+    }
+
     #[test]
     fn a_running_write_holds_off_the_next() {
         let server = server(true);

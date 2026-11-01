@@ -410,3 +410,61 @@ fn collecting_fcitx_crashes_does_not_create_an_unused_host_or_an_active_event() 
     );
     assert_eq!(sender.0.lock().unwrap().len(), 2);
 }
+
+#[test]
+fn fcitx_only_settings_share_the_fcitx_install_id() {
+    use msime_client_services::telemetry::STATE_FILE;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("msime");
+    let fcitx = root.join("fcitx5");
+    // 尚无任何宿主时仍落在 IBus 根目录，与原有行为一致。
+    assert_eq!(linux_settings_store(root.clone()), root);
+
+    let base = reporter(temp.path());
+    let consent = base.preferences.usage_reporting_consent().unwrap().unwrap();
+    let fcitx_store = TelemetryStore::new(fcitx.clone());
+    let fcitx_install = base
+        .preferences
+        .with_usage_reporting_consent(|_, _| {
+            fcitx_store
+                .activate_consent_epoch(consent.epoch)
+                .unwrap()
+                .install_id()
+                .unwrap()
+        })
+        .unwrap();
+    assert!(fcitx.join(STATE_FILE).is_file());
+    assert_eq!(linux_settings_store(root.clone()), fcitx);
+
+    let reporter = Reporter {
+        store: TelemetryStore::new(linux_settings_store(root.clone())),
+        ..base
+    };
+    let sender = RecordingSender::default();
+    assert!(reporter
+        .flush(&reporter.store, consent, &sender, true)
+        .is_some());
+    assert!(
+        !root.join(STATE_FILE).exists(),
+        "只用 Fcitx5 时设置不得在 IBus 根目录另建安装 id"
+    );
+    let events = sender.0.lock().unwrap();
+    assert!(events.iter().any(|event| event["kind"] == "active"));
+    assert!(events
+        .iter()
+        .all(|event| event["install_id"] == fcitx_install.as_str()));
+    drop(events);
+
+    // 两套框架都已初始化时仍以 IBus 根目录为准。
+    let ibus = TelemetryStore::new(root.clone());
+    reporter
+        .preferences
+        .with_usage_reporting_consent(|_, _| {
+            ibus.activate_consent_epoch(consent.epoch)
+                .unwrap()
+                .install_id()
+                .unwrap()
+        })
+        .unwrap();
+    assert_eq!(linux_settings_store(root.clone()), root);
+}

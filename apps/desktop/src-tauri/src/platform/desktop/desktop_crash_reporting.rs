@@ -34,9 +34,9 @@ static REPORTER: OnceLock<Arc<Reporter>> = OnceLock::new();
 
 /// 与原生输入法共用遥测目录和安装 id；设置与面板不额外计为一次输入会话。
 fn directory() -> Option<PathBuf> {
-    let edition = crate::package_edition();
     #[cfg(target_os = "macos")]
     {
+        let edition = crate::package_edition();
         let support = msime_host_macos::telemetry_support_directory()?;
         let root = support.join("MSIME");
         Some(
@@ -50,6 +50,7 @@ fn directory() -> Option<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
+        let edition = crate::package_edition();
         Some(
             PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
                 .join(&edition.windows()?.user_data_directory),
@@ -57,16 +58,38 @@ fn directory() -> Option<PathBuf> {
     }
     #[cfg(target_os = "linux")]
     {
-        let root = std::env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".local/state")))?;
-        let name = if edition.id == "full" {
-            "msime".to_owned()
-        } else {
-            format!("msime-{}", edition.id)
-        };
-        Some(root.join(name))
+        linux_root().map(linux_settings_store)
+    }
+}
+
+/// IBus 宿主的遥测目录；Fcitx5 宿主使用其下的 `fcitx5` 子目录。
+#[cfg(target_os = "linux")]
+fn linux_root() -> Option<PathBuf> {
+    let edition = crate::package_edition();
+    let root = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".local/state")))?;
+    let name = if edition.id == "full" {
+        "msime".to_owned()
+    } else {
+        format!("msime-{}", edition.id)
+    };
+    Some(root.join(name))
+}
+
+/// 设置应用沿用已初始化宿主的安装 id：只用 Fcitx5 的机器不在 IBus 目录另建身份，否则同一台机器会计为两次安装和两份日活。
+#[cfg(any(target_os = "linux", test))]
+fn linux_settings_store(root: PathBuf) -> PathBuf {
+    use msime_client_services::telemetry::STATE_FILE;
+    if root.join(STATE_FILE).is_file() {
+        return root;
+    }
+    let fcitx = root.join("fcitx5");
+    if fcitx.join(STATE_FILE).is_file() {
+        fcitx
+    } else {
+        root
     }
 }
 
@@ -247,14 +270,16 @@ pub(crate) fn refresh() {
                 let _ = reporter.flush(&reporter.store, consent, &sender, true);
                 #[cfg(target_os = "linux")]
                 {
-                    // Fcitx5 的会话目录与 IBus 分开，只代收既有目录，不为未使用的框架计日活。
-                    if let Some(root) = directory() {
-                        let _ = reporter.flush(
-                            &TelemetryStore::new(root.join("fcitx5")),
-                            consent,
-                            &sender,
-                            false,
-                        );
+                    // Fcitx5 的会话目录与 IBus 分开，只代收既有目录，不为未使用的框架计日活；设置已改用 Fcitx5 目录时上面已发送，不再重复。
+                    if let Some(fcitx) = linux_root().map(|root| root.join("fcitx5")) {
+                        if reporter.store.directory() != fcitx {
+                            let _ = reporter.flush(
+                                &TelemetryStore::new(fcitx),
+                                consent,
+                                &sender,
+                                false,
+                            );
+                        }
                     }
                 }
             }
