@@ -10601,7 +10601,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         else if (tokens.translation)
             button.translationColor = SkinColor(*tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
-        else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
+        // 没有释义色的选中行按 `SelectedRowGloss` 取色：选中序号色在不透明选中底色上不到 4.5:1 时换成加深了不透明度的选中文字色。
+        else button.translationColor = button.candidateHighlighted ? SkinColor(msime::mac::SelectedRowGloss(tokens)) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.barColor = SkinColor(tokens.selectedBar.value_or(tokens.accent));
         button.showSelectedBar = tokens.showSelectedBar;

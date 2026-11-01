@@ -87,7 +87,7 @@ bool IsSafeSkinId(std::string_view id)
 
 SkinTokens NativeCandidateTokens(bool dark)
 {
-    // design-tokens-desktop §1.2, the macOS column: a translucent system card, the brand accent as a solid selection with white text, and hairline borders and hovers drawn in the text colour's alpha.
+    // design-tokens-desktop §1.2 的 macOS 一栏：半透明的系统卡片，实心的品牌绿选中底配白字，细线边框和悬停取文字色的透明度。浅色的选中底就是强调色 #2C7A4B；深色换成更深的 #17783F，白字才能到 4.5:1。
     SkinTokens tokens;
     if (dark)
     {
@@ -96,6 +96,8 @@ SkinTokens NativeCandidateTokens(bool dark)
         tokens.text = Rgb(0xF5F5F7);
         tokens.number = Rgb(0x98989D);
         tokens.accent = Rgb(0x5FBF84);
+        // 深色的选中底不用强调色 #5FBF84：它上面的白字只有约 2.3:1，换成品牌的强调墨绿 #17783F（msime-web 的 `--accent-ink`），白字约 5.5:1，达到 WCAG AA。强调色本身不变，预编辑文字、选中竖条这些画在卡片上的地方仍用它。
+        tokens.selected = Rgb(0x17783F);
         tokens.hover = Rgba{1.0f, 1.0f, 1.0f, 0.10f};
     }
     else
@@ -105,9 +107,9 @@ SkinTokens NativeCandidateTokens(bool dark)
         tokens.text = Rgb(0x1D1D1F);
         tokens.number = Rgb(0x6E6E73);
         tokens.accent = Rgb(0x2C7A4B);
+        tokens.selected = tokens.accent;
         tokens.hover = Rgba{0.0f, 0.0f, 0.0f, 0.06f};
     }
-    tokens.selected = tokens.accent;
     tokens.selectedHover = tokens.selected;
     tokens.selectedText = Rgb(0xFFFFFF);
     tokens.selectedNumber = Rgb(0xFFFFFF, 0.82f);
@@ -120,6 +122,8 @@ void ApplyNativeGlassCandidateContrast(SkinTokens &tokens, bool dark)
     tokens.selectedNumber = Rgb(0xFFFFFF);
     if (dark)
     {
+        // 玻璃底板上的深色选中行保留浅绿底配深色字（约 7.2:1，序号约 6.0:1），本来就达到 AA，不跟着非玻璃的 #17783F 换。
+        tokens.selected = tokens.selectedHover = Rgb(0x5FBF84);
         tokens.selectedText = Rgb(0x102419);
         tokens.selectedNumber = Rgb(0x1D3327);
     }
@@ -142,6 +146,33 @@ void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number, bool 
         const Rgba contrast = ContrastingText(tokens.selected, *tokens.translation);
         tokens.selectedTranslation = tokens.selected.a < 0.85f ? *tokens.translation : Rgba{contrast.r, contrast.g, contrast.b, 0.82f};
     }
+}
+
+float ForegroundContrast(Rgba foreground, Rgba fill)
+{
+    const float a = foreground.a;
+    const float drawn = RelativeLuminance(Rgba{a * foreground.r + (1.0f - a) * fill.r, a * foreground.g + (1.0f - a) * fill.g,
+                                               a * foreground.b + (1.0f - a) * fill.b, 1.0f});
+    const float behind = RelativeLuminance(fill);
+    return (std::max(drawn, behind) + 0.05f) / (std::min(drawn, behind) + 0.05f);
+}
+
+Rgba SelectedRowGloss(const SkinTokens &tokens)
+{
+    if (tokens.selected.a < 0.85f || ForegroundContrast(tokens.selectedNumber, tokens.selected) >= kSelectedGlossMinContrast)
+    {
+        return tokens.selectedNumber;
+    }
+    Rgba gloss = tokens.selectedText;
+    for (int step = 82; step <= 100; ++step)
+    {
+        gloss.a = static_cast<float>(step) / 100.0f;
+        if (ForegroundContrast(gloss, tokens.selected) >= kSelectedGlossMinContrast)
+        {
+            break;
+        }
+    }
+    return gloss;
 }
 
 ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &style)
