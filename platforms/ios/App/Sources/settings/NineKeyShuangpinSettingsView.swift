@@ -39,7 +39,9 @@ struct NineKeyShuangpinSettingsView: View {
           }
           Button("导入 JSON 码表") { importing = true }.accessibilityIdentifier("nineKeyShuangpinImport")
           Button("导出 JSON 码表") { prepareExport() }.accessibilityIdentifier("nineKeyShuangpinExport")
-        } footer: { Text("导入导出包含声母、韵母和零声母音节映射，可与 Android 的九键双拼码表互用。") }
+        } header: {
+          DesignSectionHeader(info: "导入导出包含声母、韵母和零声母音节映射，可与 Android 的九键双拼码表互用。")
+        }
         ForEach(NineKeyShuangpinLayout.parts, id: \.self) { part in
           Section(NineKeyShuangpinLayout.partTitle(part)) {
             ForEach(units(part), id: \.self) { unit in

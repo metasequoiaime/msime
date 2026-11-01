@@ -23,13 +23,12 @@ struct VoicePolishServiceView: View {
       Section {
         Toggle("单独设置润色服务", isOn: $draft.separate)
           .accessibilityIdentifier("voicePolishSeparate")
+      } header: {
+        DesignSectionHeader(info: draft.separate
+          ? "润色请求发给下面的服务，密钥单独存在本机钥匙串，不写入可同步的设置。"
+          : "润色使用“AI 设置”里保存的服务和密钥。")
       } footer: {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(draft.separate
-            ? "润色请求发给下面的服务，密钥单独存在本机钥匙串，不写入可同步的设置。"
-            : "润色使用“AI 设置”里保存的服务和密钥。")
-          SettingsAutosaveStatus(autosave: autosave)
-        }
+        SettingsAutosaveStatus(autosave: autosave)
       }
       .designRow()
       if draft.separate {

@@ -275,7 +275,7 @@ struct AccountSettingsView: View {
       MeDivider()
       NavigationLink { AccountCloudSyncView() } label: {
         MeRow(symbol: "arrow.up.arrow.down.circle.fill", title: "手动同步",
-              subtitle: signedIn ? "上传或下载设置，管理云词库；词库不自动同步" : "登录后可用")
+              subtitle: signedIn ? nil : "登录后可用", info: signedIn ? "上传或下载设置，管理云词库；词库不自动同步" : nil)
       }
       .buttonStyle(PressFillButtonStyle())
       .disabled(!signedIn)
@@ -285,7 +285,7 @@ struct AccountSettingsView: View {
       // 与 Android「我的」→「同步」里的同名一行相同：输入 QQ 群里机器人给的绑定码，之后在群里用 /stats 看打字数据。
       NavigationLink { QQLinksView() } label: {
         MeRow(symbol: "person.2.circle.fill", title: "绑定 QQ 群助手",
-              subtitle: signedIn ? "在 QQ 群里用 /stats 查看你的打字数据" : "登录后可用")
+              subtitle: signedIn ? nil : "登录后可用", info: signedIn ? "在 QQ 群里用 /stats 查看你的打字数据" : nil)
       }
       .buttonStyle(PressFillButtonStyle())
       .disabled(!signedIn)
@@ -526,8 +526,10 @@ struct AppleAccountSection: View {
           .disabled(busy)
           .accessibilityIdentifier("publishClearExpiredLogin")
       }
+    } header: {
+      DesignSectionHeader(info: "登录后可在皮肤社区发布、下载和评分。日常输入无需登录。")
     } footer: {
-      Text(message ?? "登录后可在皮肤社区发布、下载和评分。日常输入无需登录。")
+      if let message { Text(message) }
     }
   }
 
@@ -574,6 +576,8 @@ struct MeRow: View {
   let symbol: String
   let title: String
   var subtitle: String? = nil
+  /// 解释性说明，收进标题旁的「?」；`subtitle` 只放「登录后可用」这类状态。
+  var info: String? = nil
   var value: String? = nil
 
   var body: some View {
@@ -583,7 +587,7 @@ struct MeRow: View {
         .frame(width: 28, height: 28)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 1) {
-        Text(title).font(.system(size: 16)).foregroundStyle(.primary)
+        DesignInfoTitle(title: title, info: info, font: .system(size: 16))
         if let subtitle {
           Text(subtitle).font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
             .fixedSize(horizontal: false, vertical: true)
@@ -649,13 +653,13 @@ private struct AccountCloudSyncView: View {
       VStack(alignment: .leading, spacing: 7) {
         MeGroup(title: nil) {
           NavigationLink { SettingsSyncView() } label: {
-            MeRow(symbol: "arrow.triangle.2.circlepath", title: "设置同步", subtitle: "上传本机设置，或下载云端设置并应用")
+            MeRow(symbol: "arrow.triangle.2.circlepath", title: "设置同步", info: "上传本机设置，或下载云端设置并应用")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("accountSettingsSync")
           MeDivider()
           NavigationLink { CloudDictionaryView() } label: {
-            MeRow(symbol: "icloud.fill", title: "云词库", subtitle: "查看和管理保存在云端的词库")
+            MeRow(symbol: "icloud.fill", title: "云词库", info: "查看和管理保存在云端的词库")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("accountCloudDictionary")

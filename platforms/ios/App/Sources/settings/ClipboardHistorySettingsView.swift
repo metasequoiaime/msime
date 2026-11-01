@@ -32,8 +32,8 @@ struct ClipboardHistorySettingsView: View {
           DispatchQueue.main.async { perform("已保存") { try store.add(text) } }
         }
         .accessibilityIdentifier("clipboardHistorySavePaste")
-      } footer: {
-        Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，固定的不会被新记录挤掉。")
+      } header: {
+        DesignSectionHeader(info: "键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，固定的不会被新记录挤掉。")
       }
       .designRow()
 
@@ -67,9 +67,11 @@ struct ClipboardHistorySettingsView: View {
             .accessibilityIdentifier("clipboardHistoryClear")
         }
       } header: {
-        SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配")
+        DesignSectionHeader(info: sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") {
+          SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配")
+        }
       } footer: {
-        if let message { Text(message) } else { Text(sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") }
+        if let message { Text(message) }
       }
       .designRow()
     }

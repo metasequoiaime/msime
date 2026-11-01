@@ -34,8 +34,8 @@ struct VocabularyReviewSettingsView: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("今日待复习 \(status.due)，已完成 \(status.answeredToday)")
-      } footer: {
-        Text("复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。")
+      } header: {
+        DesignSectionHeader(info: "复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。")
       }
       .designRow()
 
@@ -59,9 +59,7 @@ struct VocabularyReviewSettingsView: View {
             .accessibilityIdentifier("vocabularyRemoveButton")
         }
       } header: {
-        SettingsGroupHeader(title: "词书")
-      } footer: {
-        Text("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。")
+        DesignSectionHeader(info: "每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。") { SettingsGroupHeader(title: "词书") }
       }
       .designRow()
 
@@ -98,8 +96,8 @@ struct VocabularyReviewSettingsView: View {
           Text("今天的复习已经完成。").foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
         }
-      } footer: {
-        Text("答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。")
+      } header: {
+        DesignSectionHeader(info: "答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。")
       }
       .designRow()
 

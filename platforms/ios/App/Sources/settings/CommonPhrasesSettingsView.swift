@@ -42,8 +42,8 @@ struct CommonPhrasesSettingsView: View {
         .disabled(requestState.busy || phrases == nil)
         .accessibilityIdentifier("addCommonPhrase")
         .designRow()
-      } footer: {
-        Text("在键盘的「常用语」面板中，点一下即可发送。滑动一条可删除。")
+      } header: {
+        DesignSectionHeader(info: "在键盘的「常用语」面板中，点一下即可发送。滑动一条可删除。")
       }
     }
     .designPage()

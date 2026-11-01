@@ -54,12 +54,12 @@ struct CloudDictionaryView: View {
           Text("还没有读取云端词条").foregroundStyle(.secondary)
         }
       } header: {
-        SettingsGroupHeader(title: "云端个人词条")
+        DesignSectionHeader(info: "仅管理当前账号的云端个人词条。点一条编辑，左滑下载到本机或删除。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。") {
+          SettingsGroupHeader(title: "云端个人词条")
+        }
       } footer: {
         if let page, !page.entries.isEmpty {
-          Text("点一条编辑，左滑下载到本机或删除。第 \(page.offset / 100 + 1) 页。")
-        } else {
-          Text("仅管理当前账号的云端个人词条。上传需主动保存；下载需确认后交给本机键盘处理，不会自动上传本机学习记录。")
+          Text("第 \(page.offset / 100 + 1) 页")
         }
       }
       .designRow()

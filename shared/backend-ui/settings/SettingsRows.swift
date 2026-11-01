@@ -57,6 +57,68 @@ struct SettingsActionRow: View {
   }
 }
 
+/// 分区标题旁的「?」：解释性说明不常驻页面，点「?」在气泡里显示，点别处收起。规则与 iOS 的 `DesignInfoTip`（`platforms/ios/App/Sources/app/DesignKit.swift`）相同：解释进「?」，状态、校验、错误、当前值和紧贴按钮讲后果的一句话留在脚注。这个目录两端都编，不能引用只有 iOS 才有的 DesignKit，所以单独写一份；读屏把说明当作「?」的名称读出。
+struct SettingsInfoTip: View {
+  let text: String
+  @State private var presented = false
+
+  var body: some View {
+    Button { presented = true } label: {
+      Image(systemName: "questionmark.circle")
+        .font(.system(size: 15))
+        .foregroundStyle(.secondary)
+        .frame(width: 26, height: 26)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless)
+    .accessibilityLabel(text)
+    .accessibilityIdentifier("designInfoTip")
+    .popover(isPresented: $presented) {
+      bubble
+    }
+  }
+
+  @ViewBuilder private var bubble: some View {
+    let content = Text(text)
+      .font(.system(size: 14))
+      .multilineTextAlignment(.leading)
+      .frame(maxWidth: 280, alignment: .leading)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
+    // 手机上 popover 默认会变成整页弹窗；固定成气泡。macOS 13.0 还没有这个修饰符，那里 popover 本来就是气泡。
+    if #available(iOS 16.4, macOS 13.3, *) {
+      content.presentationCompactAdaptation(.popover)
+    } else {
+      content
+    }
+  }
+}
+
+/// 分区标题加「?」：标题照旧由调用方画，`info` 为空时只有标题；没有标题的分区只画「?」。
+struct SettingsSectionInfoHeader<Title: View>: View {
+  let info: String?
+  private let title: Title
+
+  init(info: String?, @ViewBuilder title: () -> Title) {
+    self.info = info
+    self.title = title()
+  }
+
+  var body: some View {
+    HStack(spacing: 4) {
+      title
+      if let info { SettingsInfoTip(text: info).textCase(nil) }
+    }
+  }
+}
+
+extension SettingsSectionInfoHeader where Title == EmptyView {
+  init(info: String?) {
+    self.init(info: info) { EmptyView() }
+  }
+}
+
 /// 只读的一行事实 —— 云端版本、条目数这类。跟动作行同一套排版,免得同一页里「能点的」和「不能点的」长得像两个控件族。
 struct SettingsFactRow: View {
   let title: String

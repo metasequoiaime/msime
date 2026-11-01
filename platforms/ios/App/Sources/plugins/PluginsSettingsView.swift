@@ -67,11 +67,9 @@ struct PluginListView: View {
               Text("还没有导入指令表。").foregroundStyle(.secondary)
             }
           } header: {
-            Text(group.kind.label)
-          } footer: {
-            if group.kind == .commandTable {
-              Text("在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 \(PluginPreferences.maximumTables) 个。")
-            }
+            DesignSectionHeader(title: group.kind.label, info: group.kind == .commandTable
+              ? "在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 \(PluginPreferences.maximumTables) 个。"
+              : nil)
           }
           .designRow()
         }
@@ -86,7 +84,7 @@ struct PluginListView: View {
       }
       Section {
         Button { creating = true } label: {
-          SettingsOptionLabel(title: "新建插件", detail: PluginEditorModel.createDescription)
+          SettingsOptionLabel(title: "新建插件", info: PluginEditorModel.createDescription)
         }
         .disabled(library.working)
         .accessibilityIdentifier("pluginsCreate")
@@ -96,7 +94,7 @@ struct PluginListView: View {
       .designRow()
       Section {
         Button { importing = true } label: {
-          SettingsOptionLabel(title: "导入 .zip", detail: "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证")
+          SettingsOptionLabel(title: "导入 .zip", info: "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证")
         }
         .disabled(library.working)
         .accessibilityIdentifier("pluginsImportArchive")

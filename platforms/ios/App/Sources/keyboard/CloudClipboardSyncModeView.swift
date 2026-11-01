@@ -35,11 +35,15 @@ struct CloudClipboardSyncModeSection: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
-      SettingsGroupHeader(title: "云剪贴板同步方式").padding(.horizontal, 16)
+      // WebDAV 的存储、配额和回收站说明是解释，收进「?」；「现在经哪里同步」是状态，留在卡片下面。
+      DesignSectionHeader(info: configuration?.backend == .webdav ? IOSCloudClipboardRelayPolicy.webdavNote : nil) {
+        SettingsGroupHeader(title: "云剪贴板同步方式")
+      }
+      .padding(.horizontal, 16)
       DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
         Button { picksMode = true } label: {
           DesignNavRowLabel(title: "同步方式",
-                            subtitle: "自建中继和 WebDAV 都不需要登录水杉账号：内容仍在本机加密，中继或网盘只保存密文，新设备照样要在已有设备上核对后点「允许」。",
+                            info: "自建中继和 WebDAV 都不需要登录水杉账号：内容仍在本机加密，中继或网盘只保存密文，新设备照样要在已有设备上核对后点「允许」。",
                             value: DesignOption.title(of: mode, in: Self.options))
         }
         .buttonStyle(PressFillButtonStyle())
@@ -105,7 +109,7 @@ struct CloudClipboardSyncModeSection: View {
     case .relay:
       return "云剪贴板现在经 \(configuration.url) 同步，中继出错时也不会改用水杉账号。换了地址或令牌后，本机要在中继上重新登记，并在其他设备上重新允许。"
     case .webdav:
-      return "云剪贴板现在经 WebDAV 网盘 \(configuration.url) 同步，网盘出错时也不会改用水杉账号。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。\n" + IOSCloudClipboardRelayPolicy.webdavNote
+      return "云剪贴板现在经 WebDAV 网盘 \(configuration.url) 同步，网盘出错时也不会改用水杉账号。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。"
     }
   }
 
@@ -164,10 +168,9 @@ struct CloudClipboardRelayEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             .accessibilityIdentifier("cloudClipboardRelayURLField")
         } header: {
-          SettingsGroupHeader(title: "中继地址")
+          DesignSectionHeader(info: "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。") { SettingsGroupHeader(title: "中继地址") }
         } footer: {
-          CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue,
-                                    note: "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。")
+          CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue)
         }
         .designRow()
         Section {
@@ -175,10 +178,9 @@ struct CloudClipboardRelayEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("cloudClipboardRelayTokenField")
         } header: {
-          SettingsGroupHeader(title: "中继令牌")
+          DesignSectionHeader(info: "由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "中继令牌") }
         } footer: {
-          CloudClipboardFieldFooter(issue: token.isEmpty ? nil : tokenIssue,
-                                    note: "由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。")
+          CloudClipboardFieldFooter(issue: token.isEmpty ? nil : tokenIssue)
         }
         .designRow()
         if let failure {
@@ -280,10 +282,9 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             .accessibilityIdentifier("cloudClipboardWebDAVURLField")
         } header: {
-          SettingsGroupHeader(title: "服务器地址")
+          DesignSectionHeader(info: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。") { SettingsGroupHeader(title: "服务器地址") }
         } footer: {
-          CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue,
-                                    note: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。")
+          CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue)
         }
         .designRow()
         Section {
@@ -291,9 +292,9 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
             .accessibilityIdentifier("cloudClipboardWebDAVUsernameField")
         } header: {
-          SettingsGroupHeader(title: "账号")
+          DesignSectionHeader(info: "网盘的登录账号，坚果云是登录邮箱。") { SettingsGroupHeader(title: "账号") }
         } footer: {
-          CloudClipboardFieldFooter(issue: username.isEmpty ? nil : usernameIssue, note: "网盘的登录账号，坚果云是登录邮箱。")
+          CloudClipboardFieldFooter(issue: username.isEmpty ? nil : usernameIssue)
         }
         .designRow()
         Section {
@@ -301,10 +302,9 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("cloudClipboardWebDAVPasswordField")
         } header: {
-          SettingsGroupHeader(title: "应用密码")
+          DesignSectionHeader(info: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "应用密码") }
         } footer: {
-          CloudClipboardFieldFooter(issue: password.isEmpty ? nil : passwordIssue,
-                                    note: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。")
+          CloudClipboardFieldFooter(issue: password.isEmpty ? nil : passwordIssue)
         }
         .designRow()
         Section {
@@ -317,8 +317,8 @@ struct CloudClipboardWebDAVEditor: View {
               .fixedSize(horizontal: false, vertical: true)
               .accessibilityIdentifier("cloudClipboardWebDAVStatus")
           }
-        } footer: {
-          Text(IOSCloudClipboardRelayPolicy.webdavNote)
+        } header: {
+          DesignSectionHeader(info: IOSCloudClipboardRelayPolicy.webdavNote)
         }
         .designRow()
       }
@@ -400,16 +400,13 @@ struct CloudClipboardWebDAVEditor: View {
 }
 
 /// 输入框下面的一段：当场检查的问题（红字）在上，固定的说明在下。
+/// 字段下方只留校验结果；字段的说明在分区标题旁的「?」里。
 private struct CloudClipboardFieldFooter: View {
   let issue: String?
-  let note: String
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      if let issue {
-        Text(issue).foregroundStyle(MetasequoiaTheme.danger).accessibilityIdentifier("cloudClipboardFieldIssue")
-      }
-      Text(note)
+    if let issue {
+      Text(issue).foregroundStyle(MetasequoiaTheme.danger).accessibilityIdentifier("cloudClipboardFieldIssue")
     }
   }
 }

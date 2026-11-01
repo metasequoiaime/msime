@@ -92,6 +92,80 @@ struct DesignInitialTile: View {
   }
 }
 
+// MARK: - 说明「?」
+
+/// 设置项旁的「?」：解释性说明不常驻页面，点按「?」在气泡里显示，点别处收起。与 Android、HarmonyOS 手机端同一套规则：解释进「?」，状态、校验、错误反馈、当前值和紧贴按钮讲后果的一句话留在原处（行的 `subtitle`、分组的 `footer`）。
+///
+/// 读屏把说明当作「?」的名称读出；放进开关、选择行这类合并读出的标签里时，说明跟在标题后面读出，与原来的副标题一样。
+struct DesignInfoTip: View {
+  let text: String
+  @State private var presented = false
+
+  var body: some View {
+    // 无边框按钮：放在 List 行或整行可点的导航行里时只响应「?」本身，不会让整行一起触发。
+    Button { presented = true } label: {
+      Image(systemName: "questionmark.circle")
+        .font(.system(size: 15))
+        .foregroundStyle(MetasequoiaTheme.sub)
+        .frame(width: 26, height: 26)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless)
+    .accessibilityLabel(text)
+    .accessibilityIdentifier("designInfoTip")
+    .popover(isPresented: $presented) {
+      Text(text)
+        .font(.system(size: 14))
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: 280, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        // 手机上 popover 默认会变成整页弹窗；固定成气泡，和桌面、鸿蒙的说明气泡一致。
+        .presentationCompactAdaptation(.popover)
+    }
+  }
+}
+
+/// 标题和它后面的「?」排在一行；没有说明时只有标题。
+struct DesignInfoTitle: View {
+  let title: String
+  var info: String?
+  var font: Font = .system(size: 17)
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Text(title).font(font).foregroundStyle(.primary)
+      if let info { DesignInfoTip(text: info) }
+    }
+  }
+}
+
+/// List 分区标题：组名和收起分区说明的「?」。组名照旧由调用方画（`Text` 或 `SettingsGroupHeader`），样式不变；没有组名的分区只画「?」，放在组名的位置。`info` 为空时只有组名。
+struct DesignSectionHeader<Title: View>: View {
+  let info: String?
+  private let title: Title
+
+  init(info: String?, @ViewBuilder title: () -> Title) {
+    self.info = info
+    self.title = title()
+  }
+
+  var body: some View {
+    HStack(spacing: 4) {
+      title
+      if let info { DesignInfoTip(text: info).textCase(nil) }
+    }
+  }
+}
+
+extension DesignSectionHeader where Title == Text? {
+  init(title: String? = nil, info: String?) {
+    self.init(info: info) { title.map { Text($0) } }
+  }
+}
+
 // MARK: - 卡片与分组
 
 /// Section header shared by settings lists and design cards.
@@ -123,16 +197,18 @@ struct DesignCard<Content: View>: View {
   }
 }
 
-/// 带标题的分组：13pt 的分组标题，其下 7pt 是卡片，另有可选的 13pt 脚注。页面上的分组之间相隔 28pt。
+/// 带标题的分组：13pt 的分组标题，其下 7pt 是卡片，另有可选的 13pt 脚注。页面上的分组之间相隔 28pt。`info` 是分组的解释性说明，收进组名旁的「?」（没有组名时「?」单独放在组名的位置）；`footer` 只用于要一眼看到的状态或提示，照旧画在卡片下面。
 struct DesignGroup<Content: View>: View {
   var title: String?
+  var info: String?
   var footer: String?
   var radius: CGFloat
   private let content: Content
 
-  init(title: String? = nil, footer: String? = nil, radius: CGFloat = MetasequoiaTheme.cardRadius,
+  init(title: String? = nil, info: String? = nil, footer: String? = nil, radius: CGFloat = MetasequoiaTheme.cardRadius,
        @ViewBuilder content: () -> Content) {
     self.title = title
+    self.info = info
     self.footer = footer
     self.radius = radius
     self.content = content()
@@ -140,10 +216,15 @@ struct DesignGroup<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
-      if let title {
-        Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-          .padding(.horizontal, 20)
-          .accessibilityAddTraits(.isHeader)
+      if title != nil || info != nil {
+        HStack(spacing: 4) {
+          if let title {
+            Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
+              .accessibilityAddTraits(.isHeader)
+          }
+          if let info { DesignInfoTip(text: info) }
+        }
+        .padding(.horizontal, 20)
       }
       DesignCard(radius: radius) { content }
       if let footer {
@@ -215,12 +296,15 @@ struct DesignPillLabel: View {
 private struct DesignRowLayout<Leading: View, Trailing: View>: View {
   let title: String
   let subtitle: String?
+  var info: String?
   private let leading: Leading
   private let trailing: Trailing
 
-  init(title: String, subtitle: String?, @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+  init(title: String, subtitle: String?, info: String? = nil, @ViewBuilder leading: () -> Leading,
+       @ViewBuilder trailing: () -> Trailing) {
     self.title = title
     self.subtitle = subtitle
+    self.info = info
     self.leading = leading()
     self.trailing = trailing()
   }
@@ -228,7 +312,7 @@ private struct DesignRowLayout<Leading: View, Trailing: View>: View {
   var body: some View {
     HStack(spacing: 12) {
       leading
-      DesignRowLabel(title: title, subtitle: subtitle)
+      DesignRowLabel(title: title, subtitle: subtitle, info: info)
         .multilineTextAlignment(.leading)
       Spacer(minLength: 8)
       trailing
@@ -241,8 +325,8 @@ private struct DesignRowLayout<Leading: View, Trailing: View>: View {
 }
 
 private extension DesignRowLayout where Leading == EmptyView {
-  init(title: String, subtitle: String?, @ViewBuilder trailing: () -> Trailing) {
-    self.init(title: title, subtitle: subtitle, leading: { EmptyView() }, trailing: trailing)
+  init(title: String, subtitle: String?, info: String? = nil, @ViewBuilder trailing: () -> Trailing) {
+    self.init(title: title, subtitle: subtitle, info: info, leading: { EmptyView() }, trailing: trailing)
   }
 }
 
@@ -273,11 +357,12 @@ struct DesignExternalLinkIcon: View {
 struct DesignNavRowLabel: View {
   let title: String
   var subtitle: String? = nil
+  var info: String? = nil
   var value: String? = nil
   var symbol: String? = nil
 
   var body: some View {
-    DesignRowLayout(title: title, subtitle: subtitle) {
+    DesignRowLayout(title: title, subtitle: subtitle, info: info) {
       if let symbol {
         Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.sub)
           .frame(width: 29, height: 29).accessibilityHidden(true)
@@ -297,17 +382,19 @@ struct DesignNavRowLabel: View {
 struct DesignToggleRow: View {
   let title: String
   var subtitle: String? = nil
+  var info: String? = nil
   @Binding var isOn: Bool
 
-  init(title: String, subtitle: String? = nil, isOn: Binding<Bool>) {
+  init(title: String, subtitle: String? = nil, info: String? = nil, isOn: Binding<Bool>) {
     self.title = title
     self.subtitle = subtitle
+    self.info = info
     _isOn = isOn
   }
 
   var body: some View {
     Toggle(isOn: $isOn) {
-      DesignRowLabel(title: title, subtitle: subtitle)
+      DesignRowLabel(title: title, subtitle: subtitle, info: info)
     }
     .toggleStyle(.switch)
     .tint(MetasequoiaTheme.switchOn)
@@ -317,14 +404,15 @@ struct DesignToggleRow: View {
   }
 }
 
-/// Shared title and optional subtitle layout for settings rows.
+/// Shared title and optional subtitle layout for settings rows. `info` 是解释性说明，收进标题旁的「?」；`subtitle` 只用于状态、当前值这类要一眼看到的内容，照旧画在标题下面。
 private struct DesignRowLabel: View {
   let title: String
   let subtitle: String?
+  var info: String? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text(title).font(.system(size: 17)).foregroundStyle(.primary)
+      DesignInfoTitle(title: title, info: info)
       if let subtitle {
         Text(subtitle).designSubtext()
           .fixedSize(horizontal: false, vertical: true)
@@ -350,6 +438,7 @@ struct DesignValueRow: View {
 struct DesignInlineButtonRow: View {
   let title: String
   var subtitle: String? = nil
+  var info: String? = nil
   let buttonTitle: String
   var doneTitle: String? = nil
   var identifier: String? = nil
@@ -357,10 +446,11 @@ struct DesignInlineButtonRow: View {
   @State private var showsDone = false
   @State private var resetTask: Task<Void, Never>?
 
-  init(title: String, subtitle: String? = nil, buttonTitle: String, doneTitle: String? = nil, identifier: String? = nil,
-       action: @escaping () -> Void) {
+  init(title: String, subtitle: String? = nil, info: String? = nil, buttonTitle: String, doneTitle: String? = nil,
+       identifier: String? = nil, action: @escaping () -> Void) {
     self.title = title
     self.subtitle = subtitle
+    self.info = info
     self.buttonTitle = buttonTitle
     self.doneTitle = doneTitle
     self.identifier = identifier
@@ -368,7 +458,7 @@ struct DesignInlineButtonRow: View {
   }
 
   var body: some View {
-    DesignRowLayout(title: title, subtitle: subtitle) {
+    DesignRowLayout(title: title, subtitle: subtitle, info: info) {
       Button {
         action()
         guard doneTitle != nil else { return }
@@ -396,8 +486,9 @@ struct DesignInlineButtonRow: View {
 /// 右侧带短滑块的行（紧凑宽度下 110pt，常规宽度下 160pt），格式化后的值放在 46pt 宽的一列里。
 struct DesignSliderRow: View {
   let title: String
-  /// 标题下的说明行；缺省不画。
+  /// 标题下的状态行；缺省不画。解释性说明用 `info`。
   var subtitle: String? = nil
+  var info: String? = nil
   @Binding var value: Double
   let range: ClosedRange<Double>
   let step: Double
@@ -405,10 +496,11 @@ struct DesignSliderRow: View {
   var identifier: String? = nil
   @Environment(\.horizontalSizeClass) private var widthClass
 
-  init(title: String, subtitle: String? = nil, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
-       identifier: String? = nil, format: @escaping (Double) -> String) {
+  init(title: String, subtitle: String? = nil, info: String? = nil, value: Binding<Double>, range: ClosedRange<Double>,
+       step: Double, identifier: String? = nil, format: @escaping (Double) -> String) {
     self.title = title
     self.subtitle = subtitle
+    self.info = info
     _value = value
     self.range = range
     self.step = step
@@ -417,7 +509,7 @@ struct DesignSliderRow: View {
   }
 
   var body: some View {
-    DesignRowLayout(title: title, subtitle: subtitle) {
+    DesignRowLayout(title: title, subtitle: subtitle, info: info) {
       HStack(spacing: 8) {
         Slider(value: $value, in: range, step: step) { Text(title) }
           .tint(MetasequoiaTheme.accent)
@@ -437,6 +529,7 @@ struct DesignSliderRow: View {
 struct DesignSelectRow<Value: Hashable>: View {
   let title: String
   var subtitle: String? = nil
+  var info: String? = nil
   let options: [DesignOption<Value>]
   @Binding var selection: Value
   var sheetTitle: String? = nil
@@ -445,11 +538,12 @@ struct DesignSelectRow<Value: Hashable>: View {
   var onSelect: ((Value) -> Void)? = nil
   @State private var presented = false
 
-  init(title: String, subtitle: String? = nil, options: [DesignOption<Value>], selection: Binding<Value>,
-       sheetTitle: String? = nil, sheetMessage: String? = nil, identifier: String? = nil,
+  init(title: String, subtitle: String? = nil, info: String? = nil, options: [DesignOption<Value>],
+       selection: Binding<Value>, sheetTitle: String? = nil, sheetMessage: String? = nil, identifier: String? = nil,
        onSelect: ((Value) -> Void)? = nil) {
     self.title = title
     self.subtitle = subtitle
+    self.info = info
     self.options = options
     _selection = selection
     self.sheetTitle = sheetTitle
@@ -462,7 +556,7 @@ struct DesignSelectRow<Value: Hashable>: View {
 
   var body: some View {
     Button { presented = true } label: {
-      DesignRowLayout(title: title, subtitle: subtitle) {
+      DesignRowLayout(title: title, subtitle: subtitle, info: info) {
         HStack(spacing: 8) {
           Text(valueTitle).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
           DesignChevron()

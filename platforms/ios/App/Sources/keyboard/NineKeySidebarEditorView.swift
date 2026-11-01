@@ -26,8 +26,7 @@ struct NineKeySidebarEditorView: View {
         .onDelete { draft.remove(at: $0) }
         .onMove { draft.move(from: $0, to: $1) }
       } header: {
-        Text(table.note).designSubtext().textCase(nil)
-          .fixedSize(horizontal: false, vertical: true)
+        DesignSectionHeader(info: table.note)
           .accessibilityIdentifier("nineKeySidebarNote")
       } footer: {
         if saveFailed {

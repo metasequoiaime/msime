@@ -90,9 +90,7 @@ struct HelpcodeSettingsView: View {
           .onDelete { offsets in offsets.first.map { remove(packs[$0]) } }
           .deleteDisabled(busy)
         } header: {
-          Text("已导入的码表")
-        } footer: {
-          Text("左滑删除。删除后，正在用它的方案改回内置方案。")
+          DesignSectionHeader(info: "左滑删除。删除后，正在用它的方案改回内置方案。") { Text("已导入的码表") }
         }
       }
     }

@@ -349,11 +349,11 @@ struct InputSettingsView: View {
                       }),
                       sheetTitle: "中文字符集", identifier: "chineseOutputPicker")
       DesignDivider()
-      DesignToggleRow(title: "拼音纠错", subtitle: "纠正相邻键误触和字母顺序颠倒",
+      DesignToggleRow(title: "拼音纠错", info: "纠正相邻键误触和字母顺序颠倒",
                       isOn: Binding(get: { autocorrect }, set: saveAutocorrect))
         .accessibilityIdentifier("pinyinAutocorrectToggle")
       DesignDivider()
-      DesignToggleRow(title: "模糊音", subtitle: "如 z/zh、an/ang 不分", isOn: Binding(get: { fuzzy.enabled }, set: { enabled in
+      DesignToggleRow(title: "模糊音", info: "如 z/zh、an/ang 不分", isOn: Binding(get: { fuzzy.enabled }, set: { enabled in
         let next = FuzzyPinyinSettingsView.toggled(fuzzy, enabled: enabled)
         let saved = FuzzyPinyinPreference.save(next)
         if saved { fuzzy = next }
@@ -419,29 +419,30 @@ struct InputSettingsView: View {
     return DesignGroup(title: "翻译", footer: footer(.translation)) {
       // 键盘只在有释义时才显示翻译，所以离线英文释义打开之前，翻译各行不可用。
       DesignToggleRow(title: "候选词翻译",
-                      subtitle: glossOn ? "在候选词下方显示\(primary.title)释义" : "打开离线英文释义后可用",
+                      subtitle: glossOn ? nil : "打开离线英文释义后可用",
+                      info: glossOn ? "在候选词下方显示\(primary.title)释义" : nil,
                       isOn: habit(\.onlineTranslations))
         .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
         .accessibilityIdentifier("candidateTranslationOnline")
       DesignDivider()
       // 文案与共享设置页（`candidate-translation-options-section.tsx`）一致，放在「候选词翻译」正下方。
       DesignSelectRow(title: "翻译范围",
-                      subtitle: "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响",
+                      info: "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响",
                       options: [DesignOption(title: "仅当前高亮", value: CandidateTranslationScope.highlighted),
                                 DesignOption(title: "全部", value: CandidateTranslationScope.all)],
                       selection: habit(\.translationScope), sheetTitle: "翻译范围",
                       identifier: "candidateTranslationScopePicker")
         .disabled(!scopeOn).opacity(scopeOn ? 1 : 0.5)
       DesignDivider()
-      DesignToggleRow(title: "离线英文释义", subtitle: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
+      DesignToggleRow(title: "离线英文释义", info: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
         .accessibilityIdentifier("candidateGlossToggle")
       DesignDivider()
       // 与 Android 的「显示读音」相同：默认关闭；英文音标表是约 5.7 MB 的资源包，法、日、西、俄、德、韩释义的读音表另一个（不到 4 MB），只有用户在下面那一行点「下载」才联网取，键盘只读本机文件。外语那一行只在主目标语言不是英语时给出。
       DesignToggleRow(title: "显示读音",
                       subtitle: resourcePacks.available(CandidatePronunciationPreference.packID)
                         && (!targetReadingsNeeded || resourcePacks.available(CandidatePronunciationPreference.targetPackID))
-                        ? "在英文候选和释义下面标出读音：英文给音标，日文给罗马音，其他语言给国际音标，不联网"
-                        : "在英文候选和释义下面标出读音；需先下载下面的离线读音词典",
+                        ? nil : "需先下载下面的离线读音词典",
+                      info: "在英文候选和释义下面标出读音：英文给音标，日文给罗马音，其他语言给国际音标，不联网",
                       isOn: habit(\.pronunciationEnabled))
         .accessibilityIdentifier("candidatePronunciationToggle")
       if habits.pronunciationEnabled && !resourcePacks.available(CandidatePronunciationPreference.packID) {
@@ -460,7 +461,7 @@ struct InputSettingsView: View {
                       identifier: "candidateTranslationPrimaryPicker")
         .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
       DesignDivider()
-      navRow("翻译服务", subtitle: "联网翻译需要在这里选择服务", identifier: "translationProviderLink") {
+      navRow("翻译服务", info: "联网翻译需要在这里选择服务", identifier: "translationProviderLink") {
         TranslationProviderSettingsView()
       }
     }
@@ -486,7 +487,7 @@ struct InputSettingsView: View {
   private var additionalChineseRows: some View {
     Group {
       DesignToggleRow(title: "退格键回退已选候选词",
-                      subtitle: "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字",
+                      info: "关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字",
                       isOn: Binding(get: { backspaceRevertsSelection }, set: { enabled in
                         backspaceRevertsSelection = enabled
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
@@ -497,7 +498,7 @@ struct InputSettingsView: View {
         .accessibilityIdentifier("backspaceRevertsSelection")
       DesignDivider()
       if enabledSchemes.contains(.wubi) {
-        DesignToggleRow(title: "五笔拼音混输", subtitle: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选",
+        DesignToggleRow(title: "五笔拼音混输", info: "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选",
                         isOn: Binding(get: { wubiMixedPinyin }, set: { enabled in
                           wubiMixedPinyin = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
@@ -507,7 +508,7 @@ struct InputSettingsView: View {
                         }))
           .accessibilityIdentifier("wubiMixedPinyin")
         DesignDivider()
-        DesignToggleRow(title: "候选显示剩余编码", subtitle: "在候选后标出还要输入的字母",
+        DesignToggleRow(title: "候选显示剩余编码", info: "在候选后标出还要输入的字母",
                         isOn: Binding(get: { wubiCodeHint }, set: { enabled in
                           wubiCodeHint = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
@@ -518,7 +519,7 @@ struct InputSettingsView: View {
           .accessibilityIdentifier("wubiCodeHint")
         DesignDivider()
         DesignToggleRow(title: "四码唯一候选自动上屏",
-                        subtitle: "五笔四码且只有一个候选时自动上屏，关闭后用空格或数字键选它",
+                        info: "五笔四码且只有一个候选时自动上屏，关闭后用空格或数字键选它",
                         isOn: Binding(get: { wubiAutoCommitUnique }, set: { enabled in
                           wubiAutoCommitUnique = enabled
                           record(MetasequoiaInputSessionBridge.updateSharedPreferences {
@@ -529,12 +530,12 @@ struct InputSettingsView: View {
           .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
         // 五笔查码（#6789）：与三个五笔开关一样，只在启用了五笔时列出。
-        navRow("五笔查码", subtitle: "查汉字的 86、98 五笔编码", identifier: "wubiCodeLookupLink") {
+        navRow("五笔查码", info: "查汉字的 86、98 五笔编码", identifier: "wubiCodeLookupLink") {
           WubiCodeLookupView(profile: wubiProfile)
         }
         DesignDivider()
       }
-      DesignSelectRow(title: "默认中英文", subtitle: "新打开的键盘从这里开始",
+      DesignSelectRow(title: "默认中英文", info: "新打开的键盘从这里开始",
                       options: [DesignOption(title: "中文", value: false), DesignOption(title: "英文", value: true)],
                       selection: Binding(get: { startsInEnglish }, set: { english in
                         guard english != startsInEnglish else { return }
@@ -546,7 +547,7 @@ struct InputSettingsView: View {
                       }),
                       sheetTitle: "默认中英文", identifier: "defaultImeModePicker")
       DesignDivider()
-      DesignToggleRow(title: "沿用上次的中英文", subtitle: "新打开的键盘沿用上次按中/英键选的模式",
+      DesignToggleRow(title: "沿用上次的中英文", info: "新打开的键盘沿用上次按中/英键选的模式",
                       isOn: Binding(get: { remembersImeMode }, set: { enabled in
                         remembersImeMode = enabled
                         ImeModeMemoryPreference.setEnabled(enabled)
@@ -559,10 +560,10 @@ struct InputSettingsView: View {
     }
   }
 
-  private func navRow<Destination: View>(_ title: String, subtitle: String? = nil, identifier: String,
+  private func navRow<Destination: View>(_ title: String, info: String? = nil, identifier: String,
                                          @ViewBuilder destination: () -> Destination) -> some View {
     NavigationLink(destination: destination()) {
-      DesignNavRowLabel(title: title, subtitle: subtitle)
+      DesignNavRowLabel(title: title, info: info)
     }
     .buttonStyle(PressFillButtonStyle())
     .accessibilityIdentifier(identifier)

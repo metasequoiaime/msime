@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A setting title with its explanatory detail beneath it.
+/// A setting title with either a visible detail beneath it or an explanation behind a 「?」 beside it. `info` 是解释性说明，收进「?」；`detail` 只用于要一眼看到的内容（当前位置、选项本身的描述这类）。
 struct SettingsOptionLabel: View {
   let title: String
-  let detail: String
+  let detail: String?
+  let info: String?
   let titleFont: Font?
   let detailFont: Font
   let spacing: CGFloat
@@ -12,19 +13,34 @@ struct SettingsOptionLabel: View {
        spacing: CGFloat = 2) {
     self.title = title
     self.detail = detail
+    self.info = nil
     self.titleFont = titleFont
     self.detailFont = detailFont
     self.spacing = spacing
   }
 
+  init(title: String, info: String, titleFont: Font? = nil) {
+    self.title = title
+    self.detail = nil
+    self.info = info
+    self.titleFont = titleFont
+    self.detailFont = .footnote
+    self.spacing = 2
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: spacing) {
-      if let titleFont {
-        Text(title).font(titleFont)
-      } else {
-        Text(title)
+      HStack(spacing: 4) {
+        if let titleFont {
+          Text(title).font(titleFont)
+        } else {
+          Text(title)
+        }
+        if let info { DesignInfoTip(text: info) }
       }
-      Text(detail).font(detailFont).foregroundStyle(.secondary)
+      if let detail {
+        Text(detail).font(detailFont).foregroundStyle(.secondary)
+      }
     }
   }
 }

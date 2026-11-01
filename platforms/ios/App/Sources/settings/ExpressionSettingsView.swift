@@ -25,33 +25,33 @@ struct ExpressionSettingsView: View {
             .disabled(lock != "follow")
             .accessibilityIdentifier("englishPunctuationToggle")
           DesignDivider()
-          DesignToggleRow(title: "自动补全成对标点", subtitle: "输入左侧括号或引号时同时补上右侧",
+          DesignToggleRow(title: "自动补全成对标点", info: "输入左侧括号或引号时同时补上右侧",
                           isOn: stored("paired_punctuation", $paired, group: .punctuation))
             .accessibilityIdentifier("pairedPunctuationToggle")
           DesignDivider()
-          DesignToggleRow(title: "智能标点", subtitle: "字母或数字后的 , . : 使用英文标点",
+          DesignToggleRow(title: "智能标点", info: "字母或数字后的 , . : 使用英文标点",
                           isOn: stored("smart_punctuation", $smart, group: .punctuation))
             .accessibilityIdentifier("smartPunctuationToggle")
           DesignDivider()
           NavigationLink(destination: PunctuationSettingsView()) {
-            DesignNavRowLabel(title: "更多标点设置", subtitle: "引号与括号样式、固定标点、全角输入、中英文空格和智能标点细则")
+            DesignNavRowLabel(title: "更多标点设置", info: "引号与括号样式、固定标点、全角输入、中英文空格和智能标点细则")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("punctuationSettingsLink")
         }
 
         DesignGroup(title: "智能", footer: failedGroup == .intelligence ? SettingsSaveFailure.message : nil) {
-          DesignSelectRow(title: "整句联想", subtitle: Self.sentenceSubtitle,
+          DesignSelectRow(title: "整句联想", info: Self.sentenceSubtitle,
                           options: SentenceAssociationPreference.Level.allCases.map { DesignOption(title: $0.title, value: $0) },
                           selection: Binding(get: { sentenceLevel }, set: saveSentenceLevel),
                           sheetTitle: "整句联想", sheetMessage: Self.sentenceSubtitle,
                           identifier: "sentenceAssociationPicker")
           DesignDivider()
-          DesignToggleRow(title: "英文联想", subtitle: "保留原文并提供纠错，空格默认采用纠错结果", isOn: $englishSuggestions)
+          DesignToggleRow(title: "英文联想", info: "保留原文并提供纠错，空格默认采用纠错结果", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestionsToggle")
         }
 
-        DesignGroup(title: "常用语", footer: "在键盘的「常用语」面板中，点一下即可发送") {
+        DesignGroup(title: "常用语", info: "在键盘的「常用语」面板中，点一下即可发送") {
           NavigationLink(destination: CommonPhrasesSettingsView()) {
             DesignNavRowLabel(title: "常用语")
           }

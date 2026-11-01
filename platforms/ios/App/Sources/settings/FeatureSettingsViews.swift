@@ -369,8 +369,8 @@ struct ServiceSettingsView: View {
                 publishAICandidates()
               }
             }
-        } footer: {
-          Text("开启后点击“保存配置”，即可在键盘功能菜单的“AI 润色”和“高情商回复”中使用。需要允许完全访问；每次发送前会预览文字。")
+        } header: {
+          DesignSectionHeader(info: "开启后点击“保存配置”，即可在键盘功能菜单的“AI 润色”和“高情商回复”中使用。需要允许完全访问；每次发送前会预览文字。")
         }
         .designRow()
         if keyboardAIEnabled {
@@ -385,8 +385,8 @@ struct ServiceSettingsView: View {
               NavigationLink("提示词") { AICandidatePromptView() }
                 .accessibilityIdentifier("aiCandidatePrompt")
             }
-          } footer: {
-            Text("打全拼时把已输入的拼音和前文发给上面保存的服务，把联想结果补在候选栏里，与云候选相同。密钥只留在本机钥匙串，不写入可同步的设置。")
+          } header: {
+            DesignSectionHeader(info: "打全拼时把已输入的拼音和前文发给上面保存的服务，把联想结果补在候选栏里，与云候选相同。密钥只留在本机钥匙串，不写入可同步的设置。")
           }
           .designRow()
         }
@@ -400,8 +400,8 @@ struct ServiceSettingsView: View {
         Section {
           NavigationLink("AI 对话") { KeyboardTryoutView(title: "AI 对话") }
             .accessibilityIdentifier("aiChatLink")
-        } footer: {
-          Text("在独立页面里对话，同时可以试用键盘。")
+        } header: {
+          DesignSectionHeader(info: "在独立页面里对话，同时可以试用键盘。")
         }
         .designRow()
         CommunityReplyTemplatesSection().designRow()
@@ -424,10 +424,8 @@ struct ServiceSettingsView: View {
             Button("删除录音", role: .destructive) { recorder.discard() }.disabled(busy)
           }
         } header: {
-          Text("试一下")
-        } footer: {
           // 平时在键盘上按住空格说话（VoiceSessionService）；这里录一段检查当前服务的识别效果，也可以复制结果或交给键盘。
-          Text("录一段话，看看当前服务的识别效果。平时在键盘上按住空格说话，松开就上屏。")
+          DesignSectionHeader(title: "试一下", info: "录一段话，看看当前服务的识别效果。平时在键盘上按住空格说话，松开就上屏。")
         }
         .designRow()
         if !autoStartVoice {
@@ -472,14 +470,14 @@ struct ServiceSettingsView: View {
               status = "已清除待插入结果"
             } catch { status = error.localizedDescription; refreshVoiceTransfer() }
           }.accessibilityIdentifier("clearVoiceTransfer")
-        } header: { Text("等待键盘插入") } footer: {
-          Text("需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。")
+        } header: {
+          DesignSectionHeader(info: "需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。") { Text("等待键盘插入") }
         }
         .designRow()
       }
-      // 隐私说明是整页的脚注，不占一张卡片。
-      Section {} footer: {
-        Text(kind == .ai
+      // 隐私说明不占一张卡片，收进页底单独的「?」。
+      Section {} header: {
+        DesignSectionHeader(info: kind == .ai
           ? "仅在点击发送时，将上方文字发送到你配置的服务。键盘日常输入不会自动上传。"
           : configuration.voiceProvider == .local
           ? "录音只在本机识别，不会上传。离开页面会清除本地录音。"
@@ -590,8 +588,8 @@ struct ServiceSettingsView: View {
         Toggle("结束录音时", isOn: $voiceSettings.endSound)
           .padding(.leading, 16).accessibilityIdentifier("voiceEndSound")
       }
-    } footer: {
-      Text(languageFooter + "打开“录音时暂停其他声音”时，音乐和视频在录音期间停下；关着时它们可能被一起录进去。")
+    } header: {
+      DesignSectionHeader(info: languageFooter + "打开“录音时暂停其他声音”时，音乐和视频在录音期间停下；关着时它们可能被一起录进去。")
     }
   }
 
@@ -638,13 +636,11 @@ struct ServiceSettingsView: View {
         Text("未能保存语音设置，请重试。").foregroundStyle(.red)
       }
     } header: {
-      Text("识别后润色")
-    } footer: {
-      Text(polishService.separate
+      DesignSectionHeader(info: polishService.separate
         ? "识别完成后把文字发给单独设置的润色服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。"
         : CustomServiceConfiguration.load(.ai).endpoint.isEmpty
         ? "润色使用“AI 设置”里保存的服务，目前尚未设置；也可以在“润色服务”里单独设置。识别结果会原样保留。"
-        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。")
+        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。") { Text("识别后润色") }
     }
   }
 
@@ -693,8 +689,8 @@ struct ServiceSettingsView: View {
             .font(.subheadline)
         }
       }
-    } footer: {
-      Text(kind == .voice && configuration.voiceProvider.isOnDevice
+    } header: {
+      DesignSectionHeader(info: kind == .voice && configuration.voiceProvider.isOnDevice
         ? "在本机识别，不需要 API Key。"
         : "选择服务商后自动填入接口和模型，填写对应 API Key 即可使用。")
     }
@@ -835,9 +831,7 @@ struct ServiceSettingsView: View {
           } catch { status = error.localizedDescription }
         }
       } header: {
-        Text("连接配置")
-      } footer: {
-        Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
+        DesignSectionHeader(info: "填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。") { Text("连接配置") }
       }
       .disabled(busy || recorder.isRecording)
 
@@ -1209,11 +1203,10 @@ private struct AICandidatePromptView: View {
             let slot = slot, content = text
             autosave.schedule { try save(content, slot: slot) }
           }
+      } header: {
+        DesignSectionHeader(info: "选中的提示词会随拼音和前文一起发给 AI 服务。留空时使用内置提示词，它要求服务只返回 JSON 形式的候选列表。")
       } footer: {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("选中的提示词会随拼音和前文一起发给 AI 服务。留空时使用内置提示词，它要求服务只返回 JSON 形式的候选列表。")
-          SettingsAutosaveStatus(autosave: autosave)
-        }
+        SettingsAutosaveStatus(autosave: autosave)
       }
     }
     .navigationTitle("提示词")

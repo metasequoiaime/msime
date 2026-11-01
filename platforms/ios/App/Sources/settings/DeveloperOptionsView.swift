@@ -26,7 +26,7 @@ struct DeveloperOptionsView: View {
     ScrollView {
       VStack(spacing: 28) {
         DesignGroup(title: "调试", footer: logSaveFailed ? SettingsSaveFailure.message : nil) {
-          DesignToggleRow(title: "记录输入日志", subtitle: "仅保存在本机，不会上传",
+          DesignToggleRow(title: "记录输入日志", info: "仅保存在本机，不会上传",
                           isOn: logBinding)
             .accessibilityIdentifier("developerDiagnosticLogToggle")
           DesignDivider()
@@ -42,7 +42,7 @@ struct DeveloperOptionsView: View {
                                 identifier: "diagnosticBundleExport", action: export)
             .disabled(exporting || resetting)
           DesignDivider()
-          DesignInlineButtonRow(title: "重置所有设置", subtitle: "恢复为出厂设置，词库不受影响",
+          DesignInlineButtonRow(title: "重置所有设置", info: "恢复为出厂设置，词库不受影响",
                                 buttonTitle: resetting ? "重置中…" : "重置", identifier: "resetAllSettings") {
             confirmsReset = true
           }

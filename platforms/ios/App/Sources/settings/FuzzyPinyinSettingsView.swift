@@ -47,15 +47,14 @@ struct FuzzyPinyinSettingsView: View {
       Section {
         Label("全拼、九键与双拼均支持", systemImage: "info.circle")
           .foregroundStyle(.secondary).accessibilityIdentifier("fuzzyPinyinAvailability")
-        Text("勾选容易混淆的读音后，会补充对应候选。更改会在当前输入结束后生效。").font(.footnote).foregroundStyle(.secondary)
       }
       Section {
         Toggle("启用模糊音", isOn: enabled).accessibilityIdentifier("fuzzyPinyinEnabled")
+      } header: {
+        DesignSectionHeader(info: "模糊音用于兼容容易混淆的拼音读音：勾选后会补充对应候选，更改在当前输入结束后生效。只选择你需要的规则，避免增加无关候选。关闭总开关会保留已选规则。")
       } footer: {
         if saveFailed {
           Text("设置没有保存，键盘仍使用之前的模糊音。请稍后再试。").foregroundStyle(.red)
-        } else {
-          Text("模糊音用于兼容容易混淆的拼音读音。只选择你需要的规则，避免增加无关候选。关闭总开关会保留已选规则。")
         }
       }
       ForEach(groups, id: \.0) { title, rules in

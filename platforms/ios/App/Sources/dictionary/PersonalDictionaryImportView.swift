@@ -56,8 +56,8 @@ struct PersonalDictionaryImportView: View {
               do { document = try PersonalDictionaryDocument(); exporting = true }
               catch { self.error = error.localizedDescription }
             }
-          } footer: {
-            Text("支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
+          } header: {
+            DesignSectionHeader(info: "支持拼音、五笔、英文和快捷短语，每次最多 128 条、文件不超过 1 MB。请按示例填写；不支持其他输入法的专有词库文件。")
           }
           .designRow()
         } else if source == .file {
@@ -79,10 +79,10 @@ struct PersonalDictionaryImportView: View {
             }
             Button("选择词库文件") { choosingDictionary = true }.disabled(loading)
               .accessibilityIdentifier("choosePersonalDictionaryDictionaryFile")
-          } footer: {
-            Text(fileFormat == "scel"
-                 ? "搜狗细胞词库只取词和拼音，权重统一为默认值，只能导入拼音词库。无法导入的词会被跳过并在预览里按词序说明，每次最多导入 128 条，文件不超过 1 MB。细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。"
-                 : "与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
+          } header: {
+            DesignSectionHeader(info: fileFormat == "scel"
+              ? "搜狗细胞词库只取词和拼音，权重统一为默认值，只能导入拼音词库。无法导入的词会被跳过并在预览里按词序说明，每次最多导入 128 条，文件不超过 1 MB。细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。"
+              : "与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
           }
           .designRow()
         } else {
@@ -95,8 +95,8 @@ struct PersonalDictionaryImportView: View {
             Button("生成拼音预览") { let text = hansText; annotate(name: "纯中文词表") { text } }
               .disabled(loading || hansText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
               .accessibilityIdentifier("annotatePersonalDictionaryHans")
-          } footer: {
-            Text("每行一个词语，只含汉字；以 # 开头的行会被跳过。拼音由本机词典自动标注，多音字可能需要在导入后逐条修改。每次最多 128 个词语，导入为拼音词条。")
+          } header: {
+            DesignSectionHeader(info: "每行一个词语，只含汉字；以 # 开头的行会被跳过。拼音由本机词典自动标注，多音字可能需要在导入后逐条修改。每次最多 128 个词语，导入为拼音词条。")
           }
           .designRow()
         }

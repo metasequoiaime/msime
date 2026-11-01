@@ -31,14 +31,14 @@ struct LocalModeSettingsView: View {
       Section {
         ForEach(Self.modes, id: \.0) { key, title, detail in
           Toggle(isOn: stored(key)) {
-            SettingsOptionLabel(title: title, detail: detail)
+            SettingsOptionLabel(title: title, info: detail)
           }.accessibilityIdentifier("localMode.\(key)")
         }
+      } header: {
+        DesignSectionHeader(info: "中文键盘在没有输入内容时，点候选栏上的名称或工具面板里的“本地输入”打开这些模式。关掉的模式不再出现在列表里。五笔、日语、韩语、粤拼、注音、越南语、藏文和笔画方案不提供本地输入。")
       } footer: {
         if saveFailed {
           Text(SettingsSaveFailure.message)
-        } else {
-          Text("中文键盘在没有输入内容时，点候选栏上的名称或工具面板里的“本地输入”打开这些模式。关掉的模式不再出现在列表里。五笔、日语、韩语、粤拼、注音、越南语、藏文和笔画方案不提供本地输入。")
         }
       }
       .designRow()

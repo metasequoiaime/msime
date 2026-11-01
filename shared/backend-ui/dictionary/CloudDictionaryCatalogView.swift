@@ -42,9 +42,7 @@ struct CloudDictionaryCatalogView: View {
           run { try await load(query: .init(code: code, scheme: scheme, profile: profile), offset: 0) }
         }
       } header: {
-        Text(kind.title)
-      } footer: {
-        Text("包含基础词库与当前账号的修改。编辑和删除仅影响当前账号的云端词库；不会立即修改本机词库。按编码查询，拼音使用全拼或所选双拼方案。")
+        SettingsSectionInfoHeader(info: "包含基础词库与当前账号的修改。编辑和删除仅影响当前账号的云端词库；不会立即修改本机词库。按编码查询，拼音使用全拼或所选双拼方案。") { Text(kind.title) }
       }
       if let page {
         Section {
@@ -65,9 +63,9 @@ struct CloudDictionaryCatalogView: View {
             }
           }
         } header: {
-          Text("目录结果 · 云端版本 \(page.revision)")
+          SettingsSectionInfoHeader(info: "点一条编辑，左滑删除。") { Text("目录结果 · 云端版本 \(page.revision)") }
         } footer: {
-          Text("查询编码：\(page.normalized)。点一条编辑，左滑删除。")
+          Text("查询编码：\(page.normalized)")
         }
         if page.offset > 0 || page.has_more {
           Section {

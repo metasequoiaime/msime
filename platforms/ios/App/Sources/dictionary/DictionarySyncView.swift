@@ -100,7 +100,8 @@ struct DictionarySyncView: View {
 
   private var webdavGroup: some View {
     VStack(alignment: .leading, spacing: 7) {
-      SettingsGroupHeader(title: "WebDAV 网盘").padding(.horizontal, 16)
+      DesignSectionHeader(info: IOSDictionarySyncPolicy.note) { SettingsGroupHeader(title: "WebDAV 网盘") }
+        .padding(.horizontal, 16)
       DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
         if let configuration {
           row("服务器地址", CloudClipboardSyncModeSection.shorten(configuration.url), identifier: "dictionarySyncURL")
@@ -110,16 +111,13 @@ struct DictionarySyncView: View {
           row("应用密码", configuration.hasPassword ? "已填写" : "未填写", identifier: "dictionarySyncPassword")
         } else {
           Button { editing = true } label: {
-            DesignNavRowLabel(title: "设置 WebDAV 网盘", subtitle: "坚果云、Nextcloud 等支持 WebDAV 的网盘都可以，不需要登录水杉账号。")
+            DesignNavRowLabel(title: "设置 WebDAV 网盘", info: "坚果云、Nextcloud 等支持 WebDAV 的网盘都可以，不需要登录水杉账号。")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("dictionarySyncSetUp")
         }
       }
       .disabled(working)
-      Text(IOSDictionarySyncPolicy.note).designSubtext()
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 16)
     }
   }
 
@@ -596,10 +594,9 @@ struct DictionarySyncWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             .accessibilityIdentifier("dictionarySyncURLField")
         } header: {
-          SettingsGroupHeader(title: "服务器地址")
+          DesignSectionHeader(info: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-dictionary 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。可以与云剪贴板用同一个网盘。") { SettingsGroupHeader(title: "服务器地址") }
         } footer: {
-          DictionarySyncFieldFooter(issue: url.isEmpty ? nil : urlIssue,
-                                    note: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-dictionary 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。可以与云剪贴板用同一个网盘。")
+          DictionarySyncFieldFooter(issue: url.isEmpty ? nil : urlIssue)
         }
         .designRow()
         Section {
@@ -607,10 +604,9 @@ struct DictionarySyncWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
             .accessibilityIdentifier("dictionarySyncUsernameField")
         } header: {
-          SettingsGroupHeader(title: "账号")
+          DesignSectionHeader(info: "网盘的登录账号，坚果云是登录邮箱。换了地址或账号就是一台新设备，要在其他设备上重新允许。") { SettingsGroupHeader(title: "账号") }
         } footer: {
-          DictionarySyncFieldFooter(issue: username.isEmpty ? nil : usernameIssue,
-                                    note: "网盘的登录账号，坚果云是登录邮箱。换了地址或账号就是一台新设备，要在其他设备上重新允许。")
+          DictionarySyncFieldFooter(issue: username.isEmpty ? nil : usernameIssue)
         }
         .designRow()
         Section {
@@ -618,10 +614,9 @@ struct DictionarySyncWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("dictionarySyncPasswordField")
         } header: {
-          SettingsGroupHeader(title: "应用密码")
+          DesignSectionHeader(info: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "应用密码") }
         } footer: {
-          DictionarySyncFieldFooter(issue: password.isEmpty ? nil : passwordIssue,
-                                    note: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。")
+          DictionarySyncFieldFooter(issue: password.isEmpty ? nil : passwordIssue)
         }
         .designRow()
         Section {
@@ -634,8 +629,8 @@ struct DictionarySyncWebDAVEditor: View {
               .fixedSize(horizontal: false, vertical: true)
               .accessibilityIdentifier("dictionarySyncProbeStatus")
           }
-        } footer: {
-          Text(IOSDictionarySyncPolicy.note)
+        } header: {
+          DesignSectionHeader(info: IOSDictionarySyncPolicy.note)
         }
         .designRow()
       }
@@ -718,16 +713,13 @@ struct DictionarySyncWebDAVEditor: View {
 }
 
 /// 输入框下面的一段：当场检查的问题（红字）在上，固定的说明在下。
+/// 字段下方只留校验结果；字段的说明在分区标题旁的「?」里。
 private struct DictionarySyncFieldFooter: View {
   let issue: String?
-  let note: String
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      if let issue {
-        Text(issue).foregroundStyle(MetasequoiaTheme.danger).accessibilityIdentifier("dictionarySyncFieldIssue")
-      }
-      Text(note)
+    if let issue {
+      Text(issue).foregroundStyle(MetasequoiaTheme.danger).accessibilityIdentifier("dictionarySyncFieldIssue")
     }
   }
 }

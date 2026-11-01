@@ -422,8 +422,8 @@ struct CommunityPluginPublishView: View {
               TextField("说明", text: $description, axis: .vertical).lineLimit(2...6).accessibilityLabel("发布插件说明")
               Toggle("我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用", isOn: $agreed)
                 .accessibilityIdentifier("publishPluginAgreement")
-            } footer: {
-              Text("上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。")
+            } header: {
+              DesignSectionHeader(info: "上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。")
             }
             .designRow()
             Section {
