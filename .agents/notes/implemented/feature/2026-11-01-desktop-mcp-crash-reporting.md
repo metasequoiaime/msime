@@ -16,7 +16,7 @@ MCP 的跨进程写入冷却行为不变：开始时间原本就在取得文件�
 
 ## Verification
 
-PR CI 中：`ci-platforms.yml` 的 Linux settings app 作业跑 `msime-desktop` 与 `msime-mcp-server` 的 clippy 和全部测试（含 `capture_consent_lifecycle`、`crash_capture_lifecycle`、stdio 集成测试和写入窗口测试）；Windows native settings 作业 `cargo check -p msime-desktop --all-targets` 并跑 `msime-mcp-server` 的测试，覆盖 MSVC 编译 `CrashRecorder.cpp` 与 Windows 路径。macOS 没有 PR 作业编译这两个 crate，`msime-desktop` 与 `msime-mcp-server` 的 macOS 编译由维护者用 Mac Studio 的 `cargo check` 验证。`tools/crash/verify_telemetry_loopback.py` 不在 PR CI 中运行。真实安装后的桌面设置与 MCP 辅助进程致命崩溃采集尚未在设备上验收。
+PR CI 中：`ci-platforms.yml` 的 Linux settings app 作业跑 `msime-desktop` 与 `msime-mcp-server` 的 clippy 和全部测试（含 `capture_consent_lifecycle`、`crash_capture_lifecycle`、stdio 集成测试和写入窗口测试）；Windows native settings 作业 `cargo check -p msime-desktop`（只编库和可执行文件，其测试目标在 Windows 上因既有的 macOS 测试未按平台排除而编不过）并跑 `msime-mcp-server` 的测试，覆盖 MSVC 编译 `CrashRecorder.cpp` 与 Windows 路径。macOS 没有 PR 作业编译这两个 crate，`msime-desktop` 与 `msime-mcp-server` 的 macOS 编译由维护者用 Mac Studio 的 `cargo check` 验证。`tools/crash/verify_telemetry_loopback.py` 不在 PR CI 中运行。真实安装后的桌面设置与 MCP 辅助进程致命崩溃采集尚未在设备上验收。
 
 ## Alternatives considered
 

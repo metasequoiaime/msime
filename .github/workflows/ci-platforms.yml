@@ -702,7 +702,7 @@ jobs:
           & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
-      # 设置应用和 msime-mcp 的 Windows 路径（崩溃采集经 cc/MSVC 编译 CrashRecorder.cpp、遥测目录、配置路径）在 PR 里没有别的作业编译；这里编译设置应用并跑 msime-mcp-server 的测试。Tauri 的构建脚本只要求 frontendDist 存在，放一个空页面。
+      # 设置应用和 msime-mcp 的 Windows 路径（崩溃采集经 cc/MSVC 编译 CrashRecorder.cpp、遥测目录、配置路径）在 PR 里没有别的作业编译；这里编译设置应用（只编库和可执行文件：它的测试目标在 Windows 上编不过，macOS 专属的 macos_input_source 测试没有按平台排除）并跑 msime-mcp-server 的测试。Tauri 的构建脚本只要求 frontendDist 存在，放一个空页面。
       - name: Compile the settings app and test msime-mcp-server
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -710,7 +710,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force apps/desktop/dist | Out-Null
           if (-not (Test-Path apps/desktop/dist/index.html)) { New-Item -ItemType File apps/desktop/dist/index.html | Out-Null }
-          cargo check --locked -p msime-desktop --all-targets -j 2
+          cargo check --locked -p msime-desktop -j 2
           if ($LASTEXITCODE -ne 0) { throw 'Settings app check failed' }
           cargo test --locked -p msime-mcp-server -j 2
           if ($LASTEXITCODE -ne 0) { throw 'MCP server tests failed' }
