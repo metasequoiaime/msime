@@ -11360,7 +11360,7 @@ public final class MSIMEInputService extends InputMethodService {
                 case TOP -> KeyboardAdjustPolicy.heightRange(touchKeyboardHeightAdjustment, window);
                 case BOTTOM -> KeyboardAdjustPolicy.bottomRange(touchKeyboardHeightAdjustment, keyboardAdjustLiftDp,
                     window, bar);
-                case LEFT, RIGHT -> KeyboardAdjustPolicy.widthRange(keyboardAdjustHorizontal, available, minimum);
+                case LEFT, RIGHT -> KeyboardAdjustPolicy.widthRange(keyboardAdjustHorizontal, part, available, minimum);
                 case MOVE -> keyboardAdjustAvailability().movesHorizontally() && !vertical
                     ? KeyboardAdjustPolicy.positionRange(keyboardAdjustHorizontal, available, minimum)
                     : KeyboardAdjustPolicy.liftRange(keyboardAdjustLiftDp, bar);

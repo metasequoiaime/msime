@@ -219,6 +219,27 @@ public final class KeyboardAdjustPolicySmoke {
         Horizontal narrowerLeft = KeyboardAdjustPolicy.stepWidth(Horizontal.DEFAULT, Part.LEFT, -1, 1000, 0);
         check(narrowerLeft.widthPercent() == 95 && narrowerLeft.position() == 1000,
             "one width step from the left keeps the right edge: " + narrowerLeft);
+        // 柄只动自己那条边：贴着哪一侧，那一侧的柄就不能再加宽，读屏不该提供一个做了没反应的「增」。
+        Horizontal hugLeft = new Horizontal(80, 0);
+        Horizontal hugRight = new Horizontal(80, 1000);
+        Range leftAtLeft = KeyboardAdjustPolicy.widthRange(hugLeft, Part.LEFT, 1000, 0);
+        check(!leftAtLeft.canIncrease() && leftAtLeft.canDecrease() && leftAtLeft.current() == 80,
+            "against the left the left handle can only narrow: " + leftAtLeft);
+        check(KeyboardAdjustPolicy.stepWidth(hugLeft, Part.LEFT, 1, 1000, 0).equals(hugLeft),
+            "a widening step from the left does nothing against the left");
+        check(KeyboardAdjustPolicy.widthRange(hugLeft, Part.RIGHT, 1000, 0).canIncrease(),
+            "against the left the right handle still widens");
+        check(!KeyboardAdjustPolicy.widthRange(hugRight, Part.RIGHT, 1000, 0).canIncrease()
+            && KeyboardAdjustPolicy.widthRange(hugRight, Part.LEFT, 1000, 0).canIncrease(),
+            "against the right only the left handle widens");
+        Range centredLeft = KeyboardAdjustPolicy.widthRange(new Horizontal(80, 500), Part.LEFT, 1000, 0);
+        check(centredLeft.canIncrease() && centredLeft.canDecrease(), "a centred keyboard widens from either side");
+        for (Part side : new Part[] {Part.LEFT, Part.RIGHT}) {
+            Range full = KeyboardAdjustPolicy.widthRange(Horizontal.DEFAULT, side, PHONE_PX, PHONE_MIN_PX);
+            check(!full.canIncrease() && full.canDecrease() && full.min() == 62, "a full keyboard only narrows: " + full);
+            Range floor = KeyboardAdjustPolicy.widthRange(new Horizontal(62, 0), side, PHONE_PX, PHONE_MIN_PX);
+            check(!floor.canDecrease(), "the narrowest keyboard offers no narrowing step from the " + side);
+        }
         check(KeyboardAdjustPolicy.stepPosition(new Horizontal(80, 500), 1).position() == 550
             && KeyboardAdjustPolicy.stepPosition(new Horizontal(80, 980), 1).position() == 1000, "position steps are 50 per mille");
         Range position = KeyboardAdjustPolicy.positionRange(Horizontal.DEFAULT, 1000, 0);

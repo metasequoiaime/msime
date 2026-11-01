@@ -211,6 +211,16 @@ public final class KeyboardAdjustPolicy {
         return Range.of(min, MAX_WIDTH_PERCENT, current);
     }
 
+    /**
+     * 左柄或右柄（{@code side}）的读屏范围：范围同 {@link #widthRange(Horizontal, int, int)}，能不能增减按这一侧实际伸缩得动不动算。柄只动自己那条边，键盘贴着左边时左柄没法再往外加宽，贴着右边时右柄同样；只看百分比没到 100 就报「能增」，读屏用户会得到一个做了也没反应的动作。
+     */
+    public static Range widthRange(Horizontal value, Part side, int availablePx, int minWidthDpPx) {
+        Range range = widthRange(value, availablePx, minWidthDpPx);
+        return new Range(range.min(), range.max(), range.current(),
+            !stepWidth(value, side, 1, availablePx, minWidthDpPx).equals(value),
+            !stepWidth(value, side, -1, availablePx, minWidthDpPx).equals(value));
+    }
+
     /** 位置的读屏范围：键盘占满可用宽度时没有可移的余地。 */
     public static Range positionRange(Horizontal value, int availablePx, int minWidthDpPx) {
         int width = widthPx(value.widthPercent(), availablePx, minWidthDpPx);
