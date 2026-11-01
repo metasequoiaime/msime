@@ -60,45 +60,45 @@
   "built": [
     {
       "name": "fr-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/fr-phonetic.db",
-      "sha256": "44bb531268992f4edfc229d567d0c041a755aa6ae96a478c01decdb32a96c15a",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/fr-phonetic.db",
+      "sha256": "15794020c011c2f7dbe732ccf15fc7e6ecf56ecd82e65f57712ff653cb3c5a3f",
       "size": 651264
     },
     {
       "name": "ja-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/ja-phonetic.db",
-      "sha256": "8a8f5440a5d9951f03387558ec5b583703735203cdcefe0b198062e1ef1e3bc6",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ja-phonetic.db",
+      "sha256": "aa0ec195222386b47bb102a61126fc7a74fec4cf85204f1fd32f3ce0228267e8",
       "size": 495616
     },
     {
       "name": "es-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/es-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/es-phonetic.db",
       "sha256": "3f920098456dc39f59840a7abf00bc4432830ebbbbbb09d0660e131ac1b6db07",
       "size": 622592
     },
     {
       "name": "ru-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/ru-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ru-phonetic.db",
       "sha256": "6602812e4d581be98701866c45fbddb10a33e55b40b684d5d5ace1841e6b1d12",
       "size": 880640
     },
     {
       "name": "de-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/de-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/de-phonetic.db",
       "sha256": "ee03cb8c2e65dfe3a2674d8e141c9db7a35a8da784a4b264eec196e2e1f0e00f",
       "size": 614400
     },
     {
       "name": "ko-phonetic.db",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/ko-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ko-phonetic.db",
       "sha256": "b16bea071b69ba67077ce91184d3a03a282ae2139d97c573e17f96f229531580",
       "size": 483328
     },
     {
       "name": "target-pronunciations-NOTICE.txt",
-      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/target-pronunciations-NOTICE.txt",
-      "sha256": "85915c7d9a325a9c8e5fcabceb3ea06ab313a0fe32e5dd1fded58e80fc28184b",
-      "size": 1374
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/target-pronunciations-NOTICE.txt",
+      "sha256": "d44628bbc79a417c776a38a68d5ec98faec873789b0eb3ea75ae827b0c57ce2d",
+      "size": 1418
     }
   ]
 }

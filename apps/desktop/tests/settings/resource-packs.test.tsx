@@ -48,7 +48,7 @@ const sizes: Record<ResourcePackId, number> = {
   wubi: 14_536_704,
   "voice-runtime-macos": 16_466_276,
   pronunciations: 5_718_016,
-  "target-pronunciations": 3_848_081,
+  "target-pronunciations": 3_749_258,
 };
 
 /** 一个假的资源包服务：install 返回的 promise 由测试决定何时完成或失败，进度由测试手动推送。`offered` 是宿主列出的资源包，缺省是 macOS 列出的全部。 */

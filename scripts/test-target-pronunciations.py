@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Offline check of build_target_pronunciations.py: what the filter keeps, which reading each word gets, and the databases.
+"""build_target_pronunciations.py 的离线检查：过滤留下什么、每个词取哪个读音、写出的数据库。
 
-The entries copy the shape of the 2026-10-25 kaikki.org dumps (French, Japanese, Spanish, Russian, German, Korean), cut down to the fields the build reads plus a few it must ignore. Everything runs on temporary files; nothing is downloaded, so --quick can run it offline.
+词条照抄 2026-10-25 那一周 kaikki.org dump（法、日、西、俄、德、韩）的形状，只留构建要读的字段和几个必须忽略的字段。全部在临时文件上运行，不下载任何东西，所以 --quick 离线也能跑。
 """
 import gzip
 import json
@@ -28,46 +28,63 @@ def entry(language, word, pos="noun", sounds=(), forms=(), senses=({"glosses": [
 
 AUDIO = {"audio": "LL-Q150 (fra)-x.wav", "ogg_url": "https://upload.wikimedia.org/x.ogg", "tags": ["France"]}
 DUMP = [
-    # A phonemic transcription beats the bracketed phonetic one; audio rows are dropped by the filter.
+    # 音位标音胜过方括号的语音标音；音频行被过滤掉。
     entry("fr", "chat", sounds=[{"ipa": "[ʃa]"}, {"ipa": "/ʃa/"}, AUDIO]),
-    # The noun's reading wins over the verb entry that comes first in the dump.
+    # 名词词条的读音胜过 dump 里排在前面的动词词条。
     entry("fr", "est", pos="verb", sounds=[{"ipa": "/ɛ/"}]),
     entry("fr", "est", pos="noun", sounds=[{"ipa": "/ɛst/"}]),
-    # An inflected form has its own IPA but no gloss names it.
+    # 屈折形式有自己的 IPA，但没有释义写它。
     entry("fr", "chats", sounds=[{"ipa": "/ʃa/"}], senses=[{"form_of": [{"word": "chat"}], "tags": ["form-of", "plural"]}]),
-    # Two variants in one cell, a dialectal reading, and an untagged one after them.
+    # 一格两种读法、一条方言读音，后面才是不带标签的。
     entry("fr", "pomme de terre", sounds=[{"ipa": "/pɔm də tɛʁ/, /pɔm t‿tɛʁ/"}, {"ipa": "/pɔm dœ tɛʁ/", "tags": ["dialectal"]}, {"ipa": "/pɔm də tɛʁ/"}]),
-    # Not in any gloss: left out of the restricted table.
+    # 不在任何释义里：只收释义用到的词时不收。
     entry("fr", "chien", sounds=[{"ipa": "/ʃjɛ̃/"}]),
-    # A romanization page and a symbol are not words a gloss teaches.
+    # 罗马字页不是释义会教的词。
     entry("fr", "Chat", pos="romanization", sounds=[{"ipa": "/tʃat/"}]),
-    # Castilian first, as the Spanish glosses prefer Spain; the Latin American reading is regional.
+    # 法语 dump 把标准读音标成 `Europe` 或 `France`，不带标签的反而是南部变体。
+    entry("fr", "sept", pos="num", sounds=[{"ipa": "/sɛt/", "tags": ["Europe"]}, {"ipa": "/sɛtə/"}, {"ipa": "/saɛ̯t/", "tags": ["Canada"]}, {"ipa": "/sɛ/", "tags": ["archaic"]}]),
+    entry("fr", "France", pos="name", sounds=[{"ipa": "/fʁɑ̃s/", "tags": ["France"]}, {"ipa": "/fʁãⁿsə/"}, {"ipa": "/fʁãs/", "tags": ["Quebec"]}]),
+    # 只在联诵时出现的读法不用；全是联诵读法的词没有读音。
+    entry("fr", "tous", pos="pron", sounds=[{"ipa": "/tuz‿/"}, {"ipa": "/tus/"}, {"ipa": "[tʊs]", "tags": ["Quebec"]}, {"ipa": "/tu/"}]),
+    entry("fr", "cet", pos="det", sounds=[{"ipa": "/sɛ.t‿/"}, {"ipa": "/se.t‿/"}]),
+    # 标 `France` 的方括号窄式记音不胜过不带标签的斜线标音。
+    entry("fr", "bonjour", pos="intj", sounds=[{"ipa": "/bɔ̃.ʒuʁ/"}, {"ipa": "[bõ.ʒuə̯ʁ]", "tags": ["France"]}]),
+    # 标 `France`、`Southern` 的是法国南部变体，`Paris` 标的是巴黎口音，都不算标准音。
+    entry("fr", "jaune", pos="adj", sounds=[{"ipa": "/ʒon/"}, {"ipa": "/ʒɔn/", "tags": ["France", "Southern"]}]),
+    entry("fr", "ce", pos="det", sounds=[{"ipa": "/sə/"}, {"ipa": "/sø/", "tags": ["Paris"]}]),
+    # 西班牙读音在前，与释义偏向西班牙用法一致。
     entry("es", "cielo", sounds=[{"ipa": "/ˈθjelo/", "tags": ["Spain"]}, {"ipa": "/ˈsjelo/", "tags": ["Latin-America"]}]),
     entry("es", "gato", sounds=[{"ipa": "/ˈɡato/"}, {"ipa": "[ˈɡa.t̪o]"}]),
-    # Russian and Korean have only bracketed transcriptions; the key is the unstressed headword.
+    # 俄语和韩语只有方括号标音；键是不带重音符的词头。
     entry("ru", "кошка", sounds=[{"ipa": "[ˈkoʂkə]"}, {"tags": ["Moscow"], "audio": "x.ogg"}]),
     entry("ko", "고양이", sounds=[{"ipa": "[ko̞ja̠ŋi]"}, {"other": "고양이", "tags": ["Revised-Romanization"]}]),
-    # German nouns keep their capital; a note left in the cell rejects it.
+    # 德语名词保留大写；格里留着注释的整格不用；只标了一部分的不用；不带标签的胜过标 `Germany` 的变体。
     entry("de", "Katze", sounds=[{"ipa": "/ˈkatsə/"}]),
     entry("de", "Kater", sounds=[{"ipa": "/ˈkaːtɐ/ (Austria)"}]),
-    # Japanese reads in Hepburn from the romanization form; the narrow IPA is never used. The kana spelling of the kanji entry reads the katakana gloss too.
+    entry("de", "Arzneimittel", sounds=[{"ipa": "[aːt͡s-]", "tags": ["Germany", "Northern"]}, {"ipa": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]"}]),
+    entry("de", "Chile", pos="name", sounds=[{"ipa": "/ˈt͡ʃiːlə/"}, {"ipa": "/ˈçiːlə/", "tags": ["Germany"]}]),
+    # 日语读 romanization 形式的赫本式罗马字，从不用窄式 IPA；汉字词条的假名写法也读片假名释义。
     entry("ja", "林檎", sounds=[{"ipa": "[ɾʲiŋɡo̞]"}, {"other": "りんご"}], forms=[{"form": "林檎", "tags": ["canonical"]}, {"form": "ringo", "tags": ["romanization"]}]),
     entry("ja", "猫", sounds=[{"ipa": "[ne̞ko̞]"}, {"other": "ねこ"}], forms=[{"form": "neko", "tags": ["romanization"]}]),
     entry("ja", "リンゴ", sounds=[], forms=[], senses=[{"alt_of": [{"word": "林檎"}], "tags": ["alt-of"]}]),
-    # A romanization containing kana is not romaji.
+    # 同一词性的同形词条：带假名并标了声调的胜过 dump 里排在前面、只带假名的（`日` 是 `hi` 不是 `nichi`），带假名的又胜过不带的罕用读法（`nekoma`）。
+    entry("ja", "日", sounds=[{"ipa": "[ɲ̟it͡ɕi]"}, {"other": "にち"}], forms=[{"form": "nichi", "tags": ["romanization"]}]),
+    entry("ja", "日", sounds=[{"ipa": "[çi]"}, {"other": "ひ"}, {"other": "[híꜜì]"}, {"other": "[hî]", "tags": ["Kagoshima"]}], forms=[{"form": "hi", "tags": ["romanization"]}]),
+    entry("ja", "猫", sounds=[{"ipa": "[ne̞ko̞ma̠]"}], forms=[{"form": "nekoma", "tags": ["romanization"]}]),
+    # 含假名的 romanization 不是罗马字。
     entry("ja", "空", sounds=[{"other": "そら"}], forms=[{"form": "そら", "tags": ["romanization"]}]),
-    # English and other languages are not this build's.
+    # 英语和其他语言不归这个构建管。
     entry("en", "cat", sounds=[{"ipa": "/kæt/"}]),
     {"word": "", "lang_code": "fr", "sounds": [{"ipa": "/x/"}]},
 ]
 
 GLOSSES = {
-    "fr": ["chat, chatte; félin", "pomme de terre", "est; orient", "Chat"],
+    "fr": ["chat, chatte; félin", "pomme de terre", "est; orient", "Chat", "sept", "France", "tous", "cet", "bonjour", "jaune", "ce"],
     "es": ["gato, gata", "cielo; día"],
     "ru": ["кошка, кот"],
-    "de": ["Katze, Kater"],
+    "de": ["Katze, Kater", "Arzneimittel", "Chile"],
     "ko": ["고양이"],
-    "ja": ["林檎, リンゴ", "家猫, 猫", "空, 大空"],
+    "ja": ["林檎, リンゴ", "家猫, 猫", "空, 大空", "日"],
 }
 
 
@@ -127,13 +144,18 @@ def main() -> int:
         check(french.get("pomme de terre") == "/pɔm də tɛʁ/", f"multi-variant and dialectal cells are skipped: {french.get('pomme de terre')!r}")
         check("chats" not in french and "chien" not in french, "inflected forms and words outside the glosses are left out")
         check("Chat" not in french, "a romanization page gives no reading")
+        check(french.get("sept") == "/sɛt/" and french.get("France") == "/fʁɑ̃s/", f"a France or Europe tagged transcription beats the untagged Southern one: {french.get('sept')!r} {french.get('France')!r}")
+        check(french.get("tous") == "/tus/" and "cet" not in french, f"liaison-only forms are not readings: {french.get('tous')!r} {french.get('cet')!r}")
+        check(french.get("bonjour") == "/bɔ̃.ʒuʁ/", f"a France tagged narrow transcription does not beat the phonemic one: {french.get('bonjour')!r}")
+        check(french.get("jaune") == "/ʒon/" and french.get("ce") == "/sə/", f"Southern France and Paris accent forms are not the standard: {french.get('jaune')!r} {french.get('ce')!r}")
         spanish = table(out / "es-phonetic.db", "es")
         check(spanish == {"gato": "/ˈɡato/", "cielo": "/ˈθjelo/"}, f"Spanish keeps the phonemic and the standard reading: {spanish}")
         check(table(out / "ru-phonetic.db", "ru") == {"кошка": "[ˈkoʂkə]"}, "Russian keeps its bracketed transcription")
         check(table(out / "ko-phonetic.db", "ko") == {"고양이": "[ko̞ja̠ŋi]"}, "Korean keeps its bracketed transcription")
-        check(table(out / "de-phonetic.db", "de") == {"Katze": "/ˈkatsə/"}, "German keeps the capital and drops a noted cell")
+        german = table(out / "de-phonetic.db", "de")
+        check(german == {"Katze": "/ˈkatsə/", "Arzneimittel": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]", "Chile": "/ˈt͡ʃiːlə/"}, f"German keeps the capital, drops noted and partial cells and prefers the untagged reading: {german}")
         japanese = table(out / "ja-phonetic.db", "ja")
-        check(japanese == {"林檎": "ringo", "猫": "neko", "リンゴ": "ringo"}, f"Japanese reads in Hepburn, katakana through the kanji entry's kana: {japanese}")
+        check(japanese == {"林檎": "ringo", "猫": "neko", "リンゴ": "ringo", "日": "hi"}, f"Japanese reads in Hepburn, katakana through the kanji entry's kana, and prefers the accented common reading: {japanese}")
         with sqlite3.connect(out / "ja-phonetic.db") as database:
             meta = dict(database.execute("SELECT key, value FROM meta"))
             version = database.execute("PRAGMA user_version").fetchone()[0]
