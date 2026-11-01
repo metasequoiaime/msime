@@ -2514,17 +2514,17 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `hybrid-array` | 0.4.15 | MIT OR Apache-2.0 | L06、L30 |
 | `indexmap` | 2.14.2 | Apache-2.0 OR MIT | L04、L31 |
 | `itoa` | 1.0.18 | MIT OR Apache-2.0 | L32、L22 |
-| `jiff` | 0.2.35 | Unlicense OR MIT | L01、L02、L03 |
+| `jiff` | 0.2.38 | Unlicense OR MIT | L01、L02、L03 |
 | `jiff-core` | 0.1.0 | Unlicense OR MIT | L01、L02、L03 |
-| `jiff-tzdb` | 0.1.8 | Unlicense OR MIT | L01、L02、L03 |
+| `jiff-tzdb` | 0.1.9 | Unlicense OR MIT | L01、L02、L03 |
 | `jiff-tzdb-platform` | 0.1.3 | Unlicense OR MIT | L01、L02、L03 |
 | `js-sys` | 0.3.105 | MIT OR Apache-2.0 | L04、L08 |
-| `libc` | 0.2.189 | MIT OR Apache-2.0 | L32、L33 |
+| `libc` | 0.2.191 | MIT OR Apache-2.0 | L32、L33 |
 | `log` | 0.4.34 | MIT OR Apache-2.0 | L04、L05 |
-| `lru` | 0.18.5 | MIT | L34 |
+| `lru` | 0.19.0 | MIT | L34 |
 | `lunar-lite` | 0.1.0 | MIT | L35 |
 | `memchr` | 2.8.3 | Unlicense OR MIT | L01、L02、L03 |
-| `memmap2` | 0.9.11 | MIT OR Apache-2.0 | L36、L37 |
+| `memmap2` | 0.9.12 | MIT OR Apache-2.0 | L36、L37 |
 | `msime-engine` | 0.2.0 | MPL-2.0 AND BSD-3-Clause AND BSD-2-Clause AND CC-BY-3.0 AND Unicode-3.0 AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND MIT AND WTFPL | 本项目，见上文 `crates/engine/LICENSE` |
 | `msime-engine-wasm` | 0.1.0 | GPL-3.0-only | 本项目，见上文 `LICENSE` |
 | `msime-path-trust` | 0.1.0 | MPL-2.0 | 本项目，见上文 `crates/engine/LICENSE` |
@@ -2547,8 +2547,8 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `rusqlite` | 0.40.2 | MIT | L45 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
-| `serde_json` | 1.0.151 | MIT OR Apache-2.0 | L32、L22 |
-| `sha2` | 0.11.0 | MIT OR Apache-2.0 | L06、L46 |
+| `serde_json` | 1.0.154 | MIT OR Apache-2.0 | L32、L22 |
+| `sha2` | 0.11.1 | MIT OR Apache-2.0 | L06、L46 |
 | `siphasher` | 1.0.3 | MIT/Apache-2.0 | L47 |
 | `slab` | 0.4.12 | MIT | L48 |
 | `smallvec` | 1.16.0 | MIT OR Apache-2.0 | L04、L49 |
@@ -2573,7 +2573,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 
 ### L01（COPYING）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.35、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.8、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 This project is dual-licensed under the Unlicense and MIT licenses.
@@ -2583,7 +2583,7 @@ You may use this code under the terms of either license.
 
 ### L02（LICENSE-MIT）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.35、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.8、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 The MIT License (MIT)
@@ -2611,7 +2611,7 @@ THE SOFTWARE.
 
 ### L03（UNLICENSE）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.35、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.8、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 This is free and unencumbered software released into the public domain.
@@ -2882,7 +2882,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L06（LICENSE-APACHE）
 
-用于：`block-buffer` 0.12.1、`const-oid` 0.10.2、`crypto-common` 0.2.2、`digest` 0.11.3、`hybrid-array` 0.4.15、`sha2` 0.11.0
+用于：`block-buffer` 0.12.1、`const-oid` 0.10.2、`crypto-common` 0.2.2、`digest` 0.11.3、`hybrid-array` 0.4.15、`sha2` 0.11.1
 
 ````text
                               Apache License
@@ -4269,7 +4269,7 @@ SOFTWARE.
 
 ### L22（LICENSE-MIT）
 
-用于：`fastrand` 2.5.0、`itoa` 1.0.18、`once_cell` 1.21.4、`pin-project-lite` 0.2.17、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.151、`thiserror` 2.0.21、`unicode-ident` 1.0.24、`zmij` 1.0.23
+用于：`fastrand` 2.5.0、`itoa` 1.0.18、`once_cell` 1.21.4、`pin-project-lite` 0.2.17、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.154、`thiserror` 2.0.21、`unicode-ident` 1.0.24、`zmij` 1.0.23
 
 ````text
 Permission is hereby granted, free of charge, to any
@@ -4931,7 +4931,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L32（LICENSE-APACHE）
 
-用于：`itoa` 1.0.18、`libc` 0.2.189、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.151、`thiserror` 2.0.21、`unicode-ident` 1.0.24
+用于：`itoa` 1.0.18、`libc` 0.2.191、`serde` 1.0.229、`serde_core` 1.0.229、`serde_json` 1.0.154、`thiserror` 2.0.21、`unicode-ident` 1.0.24
 
 ````text
                               Apache License
@@ -5114,7 +5114,7 @@ END OF TERMS AND CONDITIONS
 
 ### L33（LICENSE-MIT）
 
-用于：`libc` 0.2.189
+用于：`libc` 0.2.191
 
 ````text
 Copyright (c) The Rust Project Developers
@@ -5146,7 +5146,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L34（LICENSE）
 
-用于：`lru` 0.18.5
+用于：`lru` 0.19.0
 
 ````text
 MIT License
@@ -5202,7 +5202,7 @@ SOFTWARE.
 
 ### L36（LICENSE-APACHE）
 
-用于：`memmap2` 0.9.11
+用于：`memmap2` 0.9.12
 
 ````text
                               Apache License
@@ -5410,7 +5410,7 @@ limitations under the License.
 
 ### L37（LICENSE-MIT）
 
-用于：`memmap2` 0.9.11
+用于：`memmap2` 0.9.12
 
 ````text
 Copyright (c) 2020 Yevhenii Reizner
@@ -6348,7 +6348,7 @@ THE SOFTWARE.
 
 ### L46（LICENSE-MIT）
 
-用于：`sha2` 0.11.0
+用于：`sha2` 0.11.1
 
 ````text
 Copyright (c) 2016-2026 The RustCrypto Project Developers
