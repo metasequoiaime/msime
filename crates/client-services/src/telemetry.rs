@@ -410,8 +410,14 @@ impl TelemetryStore {
         let _lock = unbound.lock()?;
         let mut state = unbound.read_state();
         if state.consent_epoch != Some(epoch) {
-            unbound.clear_locked()?;
-            state = unbound.read_state();
+            if state.consent_epoch.is_none() && !state.consent_required {
+                // 第一次接入持续授权时，旧版本没有代次，留下的会话和原生崩溃文件
+                // 仍可归属于旧会话；清掉旧队列，保留它们做一次性迁移补报。
+                unbound.clear_unbound_queue_locked(&mut state)?;
+            } else {
+                unbound.clear_locked()?;
+                state = unbound.read_state();
+            }
         }
         if state.consent_epoch != Some(epoch) || !state.consent_required {
             state.consent_epoch = Some(epoch);
@@ -932,6 +938,16 @@ impl TelemetryStore {
             }
         }
         Ok(())
+    }
+
+    /// 首次接入持续授权时清掉旧队列和收据，但保留没有授权代次的旧会话及其崩溃文件。
+    fn clear_unbound_queue_locked(&self, state: &mut TelemetryState) -> Result<(), TelemetryError> {
+        remove_file(&self.directory.join(QUEUE_FILE))?;
+        state.active_day.clear();
+        state.retry_after_unix_ms = 0;
+        state.crashed_processes.clear();
+        state.received_crashes.clear();
+        self.write_state(state)
     }
 
     /// The queued events, oldest first.
