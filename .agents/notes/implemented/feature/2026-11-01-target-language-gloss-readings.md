@@ -57,6 +57,6 @@ Status: implemented
 - **代价**：macOS、Windows 安装包和鸿蒙 HAP 各多约 3.7 MB；Linux、Android、iOS 想看外语读音要再下载一次约 3.7 MB。
 - 读音和离线释义来自不同的两周 dump（2026-10-25 与 2026-09-02）。读音按目标语言的词查，不受影响；离线释义刷新时一起重建，`--glosses` 指向新的 `zh-<lang>.db`。
 - 新的网络行为只有资源包下载，与其他资源包同一条路：用户镜像、`https://dl.msime.app/gh/`、GitHub 原地址，PRIVACY.md 已写明；查表不联网。
-- 产物在 `metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r3`（[德语取方括号、韩语改罗马字](2026-11-01-target-readings-german-phonetic-korean-romanization.md)之后的重建，法、日、西、俄与 `-r2` 逐字节相同；过滤后的输入仍在 `target-pronunciations-2026.10.25`）；构建可复现：用锁里的过滤后输入和离线释义的六个数据库运行 `build_target_pronunciations.py build`（`--dump-date`、`--source-revision` 取锁里的值），同一个 SQLite 版本下逐字节相同。
+- 产物在 `metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r4`（[德语取方括号、韩语改罗马字](2026-11-01-target-readings-german-phonetic-korean-romanization.md)之后的重建，法、日、西、俄与 `-r2` 逐字节相同；过滤后的输入仍在 `target-pronunciations-2026.10.25`）；构建可复现：用锁里的过滤后输入和离线释义的六个数据库运行 `build_target_pronunciations.py build`（`--dump-date`、`--source-revision` 取锁里的值），同一个 SQLite 版本下逐字节相同。
 - 测试：`scripts/test-target-pronunciations.py`（取读音的规则、过滤、确定性），`scripts/test-language-data-notices.py`（NOTICE 在锁里、在每个随包渠道里），共享层 `phonetics` 与 `msime_client_pronunciation_request` 的单测，各宿主的读音规则单测。
 - 需要真机核对：六个平台在法语、日语、俄语目标下的读音位置和读屏；Linux、Android、iOS 的下载行。
