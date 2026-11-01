@@ -307,12 +307,10 @@ function Find-ByName($parent, [string]$name) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
-# 设置项的解释性说明收在标题旁的「?」里（main.cpp 的 info_tip）：按钮名称是「<标题>说明」，说明本身是它的 HelpText，悬停或聚焦时才以 ToolTip 显示，平时不在界面上。
+# 设置项的解释性说明收在标题旁的「?」里（main.cpp 的 info_tip），悬停或聚焦时才以 ToolTip 显示，平时不在界面上。按钮的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」（main.cpp 的 info_tip_name）。
 function Find-InfoTip($parent, [string]$title, [string]$text) {
-    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "$($title)说明")
-    $helpCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::HelpTextProperty, $text)
-    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $helpCondition)
-    return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $name = if ($title) { "$($title)的说明：$text" } else { "说明：$text" }
+    return Find-ByName $parent $name
 }
 function Find-CheckBox($parent, [string]$name) {
     $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)

@@ -5003,7 +5003,7 @@ private:
     return rows;
   }
 
-  // 设置项说明的「?」，对应共享页的 InfoTip：解释性说明不常驻页面，收进标题旁 14 DIP 的圆圈问号（Segoe Fluent Icons 的 Unknown），鼠标悬停或键盘聚焦时用系统 ToolTip 显示，点按（触屏、鼠标）时也打开或收起。问号是次要文字色，悬停、按下时变成正文色。读屏读到名称「<标题>说明」，说明本身在 HelpText 里。`passive` 用在本身就是按钮的整行（跳转行、插件导航卡片）：按钮里不再嵌按钮，问号只是一个悬停出 ToolTip 的图标，不进无障碍树，说明由行按钮的 HelpText 读出。
+  // 设置项说明的「?」，对应共享页的 InfoTip：解释性说明不常驻页面，收进标题旁 14 DIP 的圆圈问号（Segoe Fluent Icons 的 Unknown），鼠标悬停或键盘聚焦时用系统 ToolTip 显示，点按（触屏、鼠标）时也打开或收起。问号是次要文字色，悬停、按下时变成正文色。读屏名称见 info_tip_name，正文就在名称里。`passive` 用在本身就是按钮的整行（跳转行、插件导航卡片）：按钮里不再嵌按钮，问号只是一个悬停出 ToolTip 的图标，不进无障碍树，说明由行按钮的 HelpText 读出。
   FrameworkElement info_tip(std::wstring const &title, std::wstring const &text, bool passive = false) {
     FontIcon mark;
     mark.FontFamily(Media::FontFamily(L"Segoe Fluent Icons,Segoe MDL2 Assets"));
@@ -5047,8 +5047,7 @@ private:
     put(L"ButtonForegroundPointerOver", palette_.text);
     put(L"ButtonForegroundPressed", palette_.text);
     ToolTipService::SetToolTip(button, tip);
-    A11y::SetName(button, hstring(title + L"说明"));
-    A11y::SetHelpText(button, hstring(text));
+    A11y::SetName(button, hstring(info_tip_name(title, text)));
     // 从按钮上取回 ToolTip，不在处理函数里捕获它：按钮经 ToolTipService 持有它，再反过来捕获会成环。
     button.Click([](Inspectable const &sender, RoutedEventArgs const &) {
       if (auto shown = ToolTipService::GetToolTip(sender.as<DependencyObject>()).try_as<ToolTip>())
@@ -5070,6 +5069,18 @@ private:
     return heading;
   }
 
+  // 「?」的读屏名称，四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」。名称里已经带着正文，不再另设 HelpText，读屏不会把说明读两遍。
+  static std::wstring info_tip_name(std::wstring const &title, std::wstring const &text) {
+    return (title.empty() ? std::wstring(L"说明：") : title + L"的说明：") + text;
+  }
+
+  // 「?」里的说明正文，取自它的 ToolTip（info_tip 把正文放在那里）。
+  static std::wstring info_tip_text(FrameworkElement const &tip) {
+    if (auto shown = ToolTipService::GetToolTip(tip).try_as<ToolTip>())
+      return std::wstring(unbox_value_or<hstring>(shown.Content(), L""));
+    return {};
+  }
+
   // 分组的解释性说明收进组名旁的「?」，对应共享页有组名的 GroupList 收集 SettingsGroupNote。同一组说了几段时接在同一个「?」里，段与段之间空一行。`group` 不是 add_group 给的有组名的行面板时，照旧把说明画在原处。状态、校验和错误反馈、空列表和截断提示、风险警告、紧挨按钮讲后果的话不走这里，仍用 group_note 画在原处。组里除了说明没有别的内容时（语音页的「本地识别」「Windows 系统语音」），说明移走后卡片是空的，组建完（Loaded）时收起卡片，只留组名和「?」。
   void explain_group(StackPanel const &group, std::wstring const &text) {
     // 按 add_group 登记的组头找，不沿 Parent() 往上找：在 CI 的真实窗口里那条父链取不到组头，说明全都退回了组内。
@@ -5081,15 +5092,15 @@ private:
     }
     const auto header = entry->header;
     const auto card = entry->card;
+    const std::wstring title(header.Children().GetAt(0).as<TextBlock>().Text());
     if (header.Children().Size() > 1) {
       auto tip = header.Children().GetAt(1).as<FrameworkElement>();
-      const auto combined = std::wstring(A11y::GetHelpText(tip)) + L"\n\n" + text;
-      A11y::SetHelpText(tip, hstring(combined));
+      const auto combined = info_tip_text(tip) + L"\n\n" + text;
+      A11y::SetName(tip, hstring(info_tip_name(title, combined)));
       if (auto shown = ToolTipService::GetToolTip(tip).try_as<ToolTip>())
         shown.Content(box_value(hstring(combined)));
       return;
     }
-    const std::wstring title(header.Children().GetAt(0).as<TextBlock>().Text());
     header.Children().Append(info_tip(title, text));
     card.Loaded([](Inspectable const &sender, RoutedEventArgs const &) {
       const auto box = sender.as<Border>();
@@ -25609,7 +25620,7 @@ private:
       // 要就地改写说明的行，说明其实是随数值变化的状态（圆角、不透明度的读数、接口地址的校验）：add_row 收进「?」的说明拿出来，画回标题下面。
       std::wstring moved;
       if (auto heading = texts.Children().GetAt(0).try_as<StackPanel>(); heading && heading.Children().Size() > 1) {
-        moved = std::wstring(A11y::GetHelpText(heading.Children().GetAt(1).as<UIElement>()));
+        moved = info_tip_text(heading.Children().GetAt(1).as<FrameworkElement>());
         const auto name = heading.Children().GetAt(0);
         heading.Children().Clear();
         texts.Children().SetAt(0, name);
