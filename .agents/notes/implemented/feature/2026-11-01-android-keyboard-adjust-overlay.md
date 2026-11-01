@@ -41,7 +41,7 @@ Status: implemented
 
 `KeyboardAdjustPolicy.Availability`：
 
-- 浮动键盘（含跟随光标的候选栏）、手机横屏、实体键盘的候选条模式里，底部抬高、宽度和位置都不生效：只留上沿柄，不显示「移动」。候选条模式按 `hardwareKeyboardMode` 判断而不是此刻的 `hardwareKeysCollapsed()`：调整期间键区会临时展开，关上遮罩后才收回去，柄要按关上后的状态给。
+- 浮动键盘（含跟随光标的候选栏）、手机横屏、实体键盘的候选条模式里，底部抬高、宽度和位置都不生效：只留上沿柄，不显示「移动」。候选条模式按 `hardwareKeyboardMode` 判断而不是此刻的 `hardwareKeysCollapsed()`：调整期间键区会临时展开，关上遮罩后才收回去，柄要按关上后的状态给。预览也走同一个判断（`KeyboardAdjustPolicy.keysCollapsed`）：外框的左右内边距和键区下的抬高在候选条模式里同样不画。曾经画预览仍按 `hardwareKeysCollapsed()`，调整期间存着的宽度和抬高照常画出来，「重置」看得见变化却因为不生效而不保存，摘掉实体键盘后键盘还是原来的宽度和抬高。
 - 单手模式或分离式键盘画着时宽度和位置不生效：不显示左右柄，「移动」只改抬高。
 - 底部抬高的生效条件与 `KeyboardBottomBarPolicy.extraPaddingDp` 现有规则一致。
 

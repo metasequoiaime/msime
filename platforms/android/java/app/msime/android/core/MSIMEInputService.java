@@ -11182,7 +11182,7 @@ public final class MSIMEInputService extends InputMethodService {
             keyboardAdjustKeyboardTop = floatingLocation[1];
         }
         keyboardAdjustConfiguration = new Configuration(getResources().getConfiguration());
-        // 先进入调整状态再按底栏换算抬高：实体键盘的候选条模式里键区要等调整期间才展开，底栏也要展开后才画（ImeBottomBar.shown 看 hardwareKeysCollapsed）。若按收起时「底栏不画」换算，存着的目标总距离会多算底栏那 40 dp，预览里键盘比按展开键时高出一截。
+        // 先进入调整状态再按底栏换算抬高：实体键盘的候选条模式里键区要等调整期间才展开，底栏也要展开后才画（ImeBottomBar.shown 看 hardwareKeysCollapsed）。换算和保存（finishKeyboardAdjust）都要按调整期间的底栏，原值和新值才可比；候选条模式里抬高既不画也不保存（keyboardAdjustKeysCollapsed）。
         keyboardAdjustActive = true;
         keyboardAdjustLiftDp = KeyboardAdjustPolicy.liftDp(localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
             localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), imeBottomBar.shown());
@@ -11210,15 +11210,20 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.integer(AndroidLocalSettings.KEYBOARD_POSITION_X));
     }
 
+    /** 宽度和底部抬高按不按收起键区算（{@link KeyboardAdjustPolicy#keysCollapsed}）：调整期间按候选条模式本身，预览、柄和保存用同一个判断。 */
+    private boolean keyboardAdjustKeysCollapsed() {
+        return KeyboardAdjustPolicy.keysCollapsed(hardwareKeyboardMode, keyboardAdjustActive, hardwareKeysCollapsed());
+    }
+
     /** 此刻哪几项生效（{@link KeyboardAdjustPolicy.Availability}）：调整期间实体键盘的候选条模式会临时展开键区，所以按候选条模式本身判断「收起键区」，与关上遮罩后的状态一致。 */
     private KeyboardAdjustPolicy.Availability keyboardAdjustAvailability() {
-        return KeyboardAdjustPolicy.Availability.of(overlayDrawn(), hardwareKeyboardMode,
+        return KeyboardAdjustPolicy.Availability.of(overlayDrawn(), keyboardAdjustKeysCollapsed(),
             imeBottomBar.phoneLandscape(), ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(this)), splitKeyboardDrawn());
     }
 
     /** 宽度与水平位置此刻是否作用在停靠键盘上：条件同底部抬高（{@link KeyboardBottomBarPolicy#extraPaddingDp}），另外单手模式和分离式键盘时不生效。 */
     private boolean keyboardWidthApplies() {
-        return !overlayDrawn() && !hardwareKeysCollapsed() && !imeBottomBar.phoneLandscape()
+        return !overlayDrawn() && !keyboardAdjustKeysCollapsed() && !imeBottomBar.phoneLandscape()
             && !ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(this)) && !splitKeyboardDrawn();
     }
 
@@ -11235,8 +11240,8 @@ public final class MSIMEInputService extends InputMethodService {
             : localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING);
         int height = keyboardAdjustActive ? KeyboardAdjustPolicy.storedBottomHeightDp(keyboardAdjustLiftDp, barShown)
             : localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT);
-        return KeyboardBottomBarPolicy.extraPaddingDp(enabled, height, barShown, floatingDrawn(), hardwareKeysCollapsed(),
-            imeBottomBar.phoneLandscape());
+        return KeyboardBottomBarPolicy.extraPaddingDp(enabled, height, barShown, floatingDrawn(),
+            keyboardAdjustKeysCollapsed(), imeBottomBar.phoneLandscape());
     }
 
     /** 套用一组预览值：变了的那几项各自重排，高度改行高，抬高改键盘列的底部内边距，宽度和位置改外框的左右内边距。 */

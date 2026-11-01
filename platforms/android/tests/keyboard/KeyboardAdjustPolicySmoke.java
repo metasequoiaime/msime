@@ -50,6 +50,16 @@ public final class KeyboardAdjustPolicySmoke {
             check(!narrowOff.shows(Part.LEFT) && !narrowOff.shows(Part.RIGHT), "one-handed and split hide the side handles");
             check(!narrowOff.movesHorizontally(), "move only lifts there");
         }
+        // 实体键盘的候选条模式：调整期间键区为预览临时展开（此刻没收起），预览、柄和保存仍都按收起算，存着的宽度和抬高不画，「重置」也就改不出保存不下来的预览。
+        boolean collapsed = KeyboardAdjustPolicy.keysCollapsed(true, true, false);
+        check(collapsed, "candidate-bar mode counts as collapsed while the overlay expands the keys");
+        Availability candidateBar = Availability.of(false, collapsed, false, false, false);
+        check(!candidateBar.lift() && !candidateBar.width(), "candidate-bar mode saves neither lift nor width");
+        check(KeyboardBottomBarPolicy.extraPaddingDp(true, 120, true, false, collapsed, false) == 0,
+            "candidate-bar mode draws no saved lift during the overlay");
+        check(!KeyboardAdjustPolicy.keysCollapsed(false, true, false), "a soft keyboard draws and saves lift and width");
+        check(KeyboardAdjustPolicy.keysCollapsed(true, false, true), "outside the overlay the live collapse decides");
+        check(!KeyboardAdjustPolicy.keysCollapsed(true, false, false), "a panel open outside the overlay expands the keys");
     }
 
     private static void topHandle() {

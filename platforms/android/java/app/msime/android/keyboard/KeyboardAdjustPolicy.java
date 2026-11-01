@@ -63,6 +63,17 @@ public final class KeyboardAdjustPolicy {
         }
     }
 
+    /**
+     * 宽度、底部抬高和遮罩上的柄按不按「实体键盘收起了键区」算。调整期间键区为了预览临时展开，但关上遮罩后候选条模式还会收起它，所以按候选条模式本身判断；画预览、显示柄和保存都经这里，三者才一致（候选条模式里不画存着的宽度和抬高，「重置」也就不会改出一个保存不下来的预览）。
+     *
+     * @param hardwareKeyboardMode 实体键盘的候选条模式开着
+     * @param adjusting 「键盘调整」遮罩开着
+     * @param collapsedNow 键区此刻是否收起（{@code HardwareKeyboardModePolicy#keysCollapsed}）
+     */
+    public static boolean keysCollapsed(boolean hardwareKeyboardMode, boolean adjusting, boolean collapsedNow) {
+        return adjusting ? hardwareKeyboardMode : collapsedNow;
+    }
+
     /** 竖直方向的一组值：设计范围的高度调整量与底部抬高，都是 dp。 */
     public record Vertical(int heightAdjustment, int liftDp) { }
 
