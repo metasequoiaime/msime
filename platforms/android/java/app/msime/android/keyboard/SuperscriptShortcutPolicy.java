@@ -29,14 +29,13 @@ public final class SuperscriptShortcutPolicy {
     }
 
     /**
-     * 拼音九键 ！ 滑出 0 的阈值（dp）：「九键滑动输入数字」开着时与 1–9 键共用「九键滑动距离」，同一排键的手感一致；关闭时那个滑块置灰、用户调不了，保持原来的 {@link SwipeHintPolicy#THRESHOLD_DP}。
+     * 拼音九键 ！ 滑出 0 的阈值（dp）：选了下滑时方向本来就变了，与 1–9 键共用「九键滑动距离」，同一排键的手感一致；上滑和关闭时方向没变，保持原来的 {@link SwipeHintPolicy#THRESHOLD_DP}，不悄悄改这些用户的手感（关闭时那个滑块还是置灰的）。
      *
      * @param mode 同 {@link #zeroDirection(String)}
      * @param nineKeyDistanceDp 「九键滑动距离」本机设置（dp）
      */
     public static float zeroThresholdDp(String mode, float nineKeyDistanceDp) {
-        return NineKeySwipePolicy.OFF.equals(NineKeySwipePolicy.mode(mode)) ? SwipeHintPolicy.THRESHOLD_DP
-            : nineKeyDistanceDp;
+        return SwipeHintPolicy.DOWN.equals(zeroDirection(mode)) ? nineKeyDistanceDp : SwipeHintPolicy.THRESHOLD_DP;
     }
 
     /** 是否已沿 {@code direction} 滑过 {@code thresholdDp}（严格大于）；坐标都是 dp，向下为正。 */
