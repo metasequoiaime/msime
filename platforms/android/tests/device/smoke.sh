@@ -35,6 +35,8 @@ done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
 avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test || "$avd_name" == msime-client-test-api* ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
+api_level=$("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+[[ "$api_level" =~ ^[0-9]+$ ]] || { echo "Could not read Android API level" >&2; exit 1; }
 # 输入法 id 必须写成 `ime list` 给出的短写：系统按字符串原样查找，长写 app.msime.android/app.msime.android.MSIMEInputService 在 `ime enable` 时报 Unknown input method。设备测试里的 `ime` 命令都用同一个短写。
 ime_id=app.msime.android/.MSIMEInputService
 # ---- 失败收集 ----
@@ -267,9 +269,13 @@ confirm_ime || stop "$ime_id did not stay selected"
 # 崩溃专项只准备真实产品进程和测试夹具；完整输入套件会覆盖同一批 instrumentation，既浪费设备时间，也会让 UI 套件的已知问题遮住崩溃链路。
 if [[ "$crash_only" == true ]]; then
   python3 platforms/android/tests/device/telemetry-watch.py "$serial" || stop "Android telemetry watch acceptance failed"
-  python3 platforms/android/tests/device/telemetry-consent.py "$serial" || stop "Android system-exit acceptance failed"
-  python3 platforms/android/tests/device/telemetry-anr.py "$serial" || stop "Android ANR acceptance failed"
-  finish "Dedicated Android AVD: crash, system-exit and ANR reporting acceptance passed"
+  if (( api_level >= 30 )); then
+    python3 platforms/android/tests/device/telemetry-consent.py "$serial" || stop "Android system-exit acceptance failed"
+    python3 platforms/android/tests/device/telemetry-anr.py "$serial" || stop "Android ANR acceptance failed"
+    finish "Dedicated Android AVD: crash, system-exit and ANR reporting acceptance passed"
+  fi
+  echo "API $api_level has no ApplicationExitInfo; system-exit and ANR replay are not applicable" >&2
+  finish "Dedicated Android AVD: Java/JNI crash and consent acceptance passed"
 fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
