@@ -105,26 +105,55 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(lift: 30), rise: 5).placement.bottomLift, 30, "the bottom edge stays put")
   }
 
-  /// 往上拖下沿 d：抬高加 d、高度减 d，两者之和（上沿的位置）不变；哪一项先到限，就停在那里。
+  /// 往上拖下沿 u：抬高跟着手指走、到 160 停；高度反向让出同样多使上沿不动，到下限 −12 后不再让，整块键盘接着上移。往下拖：抬高减、高度加同样多，上沿不动，哪一项先到限就停住。
   func testTheBottomEdgeTradesHeightForLiftWithTheTopEdgeFixed() {
     let raised = KeyboardAdjustLayout.draggingBottom(state(height: 20), rise: 8)
     XCTAssertEqual(raised.placement.bottomLift, 8)
     XCTAssertEqual(raised.heightAdjustment, 12)
-    for rise: CGFloat in [-300, -20, -3, 0, 7, 33, 300] {
-      for start in [state(height: 20), state(height: -12, lift: 30), state(height: 48, lift: 150)] {
+    // 高度还没到下限的那一段，两者之和（上沿的位置）不变。
+    for rise: CGFloat in [-300, -20, -3, 0, 7, 20, 32] {
+      for start in [state(height: 20), state(height: 48, lift: 150), state(height: 0, lift: 30)] {
         let next = KeyboardAdjustLayout.draggingBottom(start, rise: rise)
+        guard next.heightAdjustment > KeyboardAdjustLayout.heightRange.lowerBound || rise <= 0 else { continue }
         XCTAssertEqual(next.heightAdjustment + next.placement.bottomLift, start.heightAdjustment + start.placement.bottomLift,
                        "rise \(rise) from \(start)")
       }
     }
-    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 0), rise: 100).placement.bottomLift, 12,
-                   "the height reaches -12 first")
-    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 48, lift: 150), rise: 100).placement.bottomLift, 160,
-                   "the lift reaches 160 first")
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 48, lift: 150), rise: 100), state(height: 38, lift: 160),
+                   "the lift stops at 160")
     XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 40, lift: 0), rise: -50), state(height: 40, lift: 0),
                    "no lift to give back")
     XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 40, lift: 30), rise: -50), state(height: 48, lift: 22),
                    "the height reaches 48 first")
+  }
+
+  /// 高度已在下限时往上拖，抬高照样跟着手指增加，高度不再变；一直到 160。
+  func testTheBottomEdgeKeepsLiftingOnceTheHeightIsAtItsFloor() {
+    let floor = KeyboardAdjustLayout.heightRange.lowerBound
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: floor, lift: 30), rise: 25), state(height: floor, lift: 55))
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: floor, lift: 30), rise: 500), state(height: floor, lift: 160))
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: floor, lift: 160), rise: 20), state(height: floor, lift: 160))
+    // 读屏的增加只要抬高没到上限就有效。
+    var session = KeyboardAdjustSession(state: state(height: floor, lift: 150), capabilities: .all, containerWidth: 390, keyBlock: 229)
+    session.step(.bottom, increment: true)
+    XCTAssertEqual(session.state, state(height: floor, lift: 154))
+    session.step(.bottom, increment: true)
+    session.step(.bottom, increment: true)
+    XCTAssertEqual(session.state, state(height: floor, lift: 160))
+  }
+
+  /// 一次拖动跨过高度下限：前 12 pt 拿高度换抬高、上沿不动，之后整块上移；往回拖时按同一次拖动从按下的值重算。
+  func testOneBottomDragCrossesTheHeightFloor() {
+    let start = state(height: 0, lift: 0)
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(start, rise: 12), state(height: -12, lift: 12))
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(start, rise: 40), state(height: -12, lift: 40))
+    var session = KeyboardAdjustSession(state: start, capabilities: .all, containerWidth: 390, keyBlock: 229)
+    session.beginDrag()
+    session.drag(.bottom, dx: 0, rise: 40)
+    XCTAssertEqual(session.state, state(height: -12, lift: 40))
+    session.drag(.bottom, dx: 0, rise: 5)
+    XCTAssertEqual(session.state, state(height: -5, lift: 5), "dragging back within the same drag")
+    session.endDrag()
   }
 
   func testTheLeftEdgeChangesTheWidthWithTheRightEdgeFixed() {

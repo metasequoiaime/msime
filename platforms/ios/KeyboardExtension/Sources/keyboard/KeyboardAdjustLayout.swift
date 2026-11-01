@@ -48,7 +48,7 @@ struct KeyboardAdjustFrame: Equatable {
 
 /// 「键盘调整」的换算与拖动约束，键盘和它的测试共用。拖动量一律用屏幕上不动的坐标：`dx` 向右为正，`rise` 向上为正。
 ///
-/// 每个柄只动它那条边，对边在屏幕上不动：上沿改高度；下沿改抬高，高度反向变化使上沿不动；左右沿改宽度，同时改水平位置使另一侧边不动。「移动」同时改抬高和水平位置，大小不变。任何一项到了范围的端点，这次拖动就停在那里。
+/// 每个柄只动它那条边，对边在屏幕上不动：上沿改高度；下沿改抬高，高度反向变化使上沿不动（往上拖到高度下限后整块继续上移）；左右沿改宽度，同时改水平位置使另一侧边不动。「移动」同时改抬高和水平位置，大小不变。任何一项到了范围的端点，这次拖动就停在那里。
 enum KeyboardAdjustLayout {
   /// 拖动收窄时键盘至少这么宽；与 60% 下限取更宽的那个。
   static let minimumWidth: CGFloat = 240
@@ -88,16 +88,22 @@ enum KeyboardAdjustLayout {
     KeyboardAdjustState(heightAdjustment: start.heightAdjustment + Int(rise.rounded()), placement: start.placement)
   }
 
-  /// 下沿：往上拖 d，抬高加 d、高度减 d，上沿不动。抬高和高度任一项到限就停住，所以 d 取两者都还放得下的那一段。
+  /// 下沿。往上拖 u：抬高跟着手指走，到 160 才停；高度尽量反向让出同样多、上沿不动，高度到下限（−12）之后不再让，整块键盘接着往上移。往下拖：抬高减、高度加同样多，上沿不动，抬高到 0 或高度到上限就停住。
   static func draggingBottom(_ start: KeyboardAdjustState, rise: CGFloat) -> KeyboardAdjustState {
     let lift = start.placement.bottomLift, height = start.heightAdjustment
-    let lower = max(KeyboardPlacement.bottomLiftRange.lowerBound - lift, height - heightRange.upperBound)
-    let upper = min(KeyboardPlacement.bottomLiftRange.upperBound - lift, height - heightRange.lowerBound)
-    guard lower <= upper else { return start }
-    let step = min(max(Int(rise.rounded()), lower), upper)
+    let move = Int(rise.rounded())
+    let nextLift: Int, nextHeight: Int
+    if move >= 0 {
+      nextLift = min(lift + move, KeyboardPlacement.bottomLiftRange.upperBound)
+      nextHeight = height - min(nextLift - lift, max(0, height - heightRange.lowerBound))
+    } else {
+      let step = max(move, max(KeyboardPlacement.bottomLiftRange.lowerBound - lift, height - heightRange.upperBound))
+      nextLift = lift + step
+      nextHeight = height - step
+    }
     return KeyboardAdjustState(
-      heightAdjustment: height - step,
-      placement: KeyboardPlacement(bottomLift: lift + step, widthPercent: start.placement.widthPercent,
+      heightAdjustment: nextHeight,
+      placement: KeyboardPlacement(bottomLift: nextLift, widthPercent: start.placement.widthPercent,
                                    positionX: start.placement.positionX))
   }
 
