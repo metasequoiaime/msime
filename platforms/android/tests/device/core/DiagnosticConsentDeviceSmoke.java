@@ -12,10 +12,15 @@ import java.util.stream.Stream;
 public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
     private boolean revoke;
     private boolean systemCrash;
+    private boolean authority;
+    private String expectedRevision = "";
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         revoke = arguments != null && "revoke".equals(arguments.getString("phase"));
         systemCrash = arguments != null && "system-crash".equals(arguments.getString("phase"));
+        // telemetry-authority.py 手动运行的只读授权夹具；不在这里分派时，它会落进下面的默认分支而误报通过。
+        authority = arguments != null && "authority".equals(arguments.getString("phase"));
+        if (authority) expectedRevision = arguments.getString("expected-revision", "");
         start();
     }
 
@@ -61,6 +66,9 @@ public final class DiagnosticConsentDeviceSmoke extends Instrumentation {
                 observer.setAccessible(true);
                 ((java.util.concurrent.ExecutorService) observer.get(null)).submit(() -> { })
                     .get(30, java.util.concurrent.TimeUnit.SECONDS);
+            } else if (authority) {
+                root = Files.createTempDirectory(getTargetContext().getFilesDir().toPath(), "synthetic-authority-");
+                ReportingAuthorityDeviceChecks.run(root, getTargetContext().getClassLoader(), expectedRevision);
             } else {
                 root = Files.createTempDirectory(getTargetContext().getFilesDir().toPath(), "synthetic-consent-");
                 DiagnosticConsentSmoke.run(root);

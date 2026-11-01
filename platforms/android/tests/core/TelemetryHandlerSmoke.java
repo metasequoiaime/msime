@@ -86,7 +86,9 @@ public final class TelemetryHandlerSmoke {
             }
         }
 
-        // 故障线程即使碰到另一线程持有生命周期锁，也必须交还系统异常处理器。
+        // 故障线程即使碰到另一线程持有生命周期锁，也必须交还系统异常处理器。JVM 里没有可武装的 Capture（需要真实 Context 和 JNI），这里只能验证未武装路径不取类锁，以及入口本身不是 synchronized 方法；已武装路径在锁被占时的行为目前没有自动化覆盖。
+        java.lang.reflect.Method writeEntry = Telemetry.class.getDeclaredMethod("writeCrashRecord", Throwable.class);
+        check(!java.lang.reflect.Modifier.isSynchronized(writeEntry.getModifiers()), "writeCrashRecord must not be synchronized");
         java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
         Thread holder = new Thread(() -> {
@@ -110,7 +112,7 @@ public final class TelemetryHandlerSmoke {
         try {
             check(held.await(5, java.util.concurrent.TimeUnit.SECONDS), "lifecycle lock holder ready");
             fatal.start();
-            check(returned.await(2, java.util.concurrent.TimeUnit.SECONDS), "fatal path does not wait for lifecycle lock");
+            check(returned.await(2, java.util.concurrent.TimeUnit.SECONDS), "unarmed fatal path returns without taking the Telemetry class lock");
             check(failure.get() == null, "inactive fatal path returns normally");
         } finally { release.countDown(); holder.join(5000); fatal.join(5000); }
         System.out.println("Android telemetry crash handler and record limits passed");
