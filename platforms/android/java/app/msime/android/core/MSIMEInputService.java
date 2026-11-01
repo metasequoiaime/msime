@@ -5097,8 +5097,12 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.character(session, ascii, shifted)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            long engineStartedAt = imeDebugOverlay.engineCallStart();
+            String response = NativeClient.character(session, ascii, shifted);
+            imeDebugOverlay.onEngineCall(engineStartedAt);
+            return apply(response);
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 带按下点的一键（`msime_client_touch_character`）：只由 {@link #type(char, View)} 在 {@link ImeTouchPoints#geometryFor} 给出几何代次时调用，其余与 {@link #character(int, boolean)} 相同；这时没有 Shift。 */
@@ -5106,8 +5110,12 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.touchCharacter(session, ascii, false, geometryId, x, y)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            long engineStartedAt = imeDebugOverlay.engineCallStart();
+            String response = NativeClient.touchCharacter(session, ascii, false, geometryId, x, y);
+            imeDebugOverlay.onEngineCall(engineStartedAt);
+            return apply(response);
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 把 26 键双拼的键位几何注册给当前会话（{@link ImeTouchPoints#register}），返回引擎是否收下。没收下时这个代次不用，按键照常不带按下点。 */
@@ -5125,8 +5133,12 @@ public final class MSIMEInputService extends InputMethodService {
     boolean gridKey(char letter) {
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.gridKey(session, letter)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            long engineStartedAt = imeDebugOverlay.engineCallStart();
+            String response = NativeClient.gridKey(session, letter);
+            imeDebugOverlay.onEngineCall(engineStartedAt);
+            return apply(response);
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     private boolean helpcodeCompositionEligible() {
@@ -5154,8 +5166,12 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.command(session, code)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            long engineStartedAt = imeDebugOverlay.engineCallStart();
+            String response = NativeClient.command(session, code);
+            imeDebugOverlay.onEngineCall(engineStartedAt);
+            return apply(response);
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
@@ -12102,6 +12118,12 @@ public final class MSIMEInputService extends InputMethodService {
             renderBatchPending = true;
             return;
         }
+        renderViews();
+        // 手指按着候选时候选条推迟重画（candidateRenderDeferred），这次不算画完，等松手后补的那次 render 再记。
+        if (!candidateRenderDeferred) imeDebugOverlay.onRendered();
+    }
+
+    private void renderViews() {
         renderedEchoExpectations = selectionEcho.expectations();
         // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
         if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
