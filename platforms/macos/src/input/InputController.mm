@@ -7313,11 +7313,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 // 预留的释义行：横排每一行都留，竖排只给视图标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），行数相同。
+// 打开释义读音时每行释义下面还有一行读音（MSIMECandidateGlossDisplay），支持的七种目标语言都有读音，所以每种目标语言留两行。读音是异步查回来的，不留这一行的话，每个键先按矮一行的高度摆窗口，读音到了窗口变高；光标靠近屏幕底边时先摆在光标下方、读音一到放不下又翻到上方，每打一个键候选窗上下跳一次。
 - (CGFloat)glossHeightReservedForFont:(NSFont *)glossFont {
     const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
     const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
         !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
-    const NSUInteger lines = readingLines + (translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0);
+    const NSUInteger glossLines = translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0;
+    const NSUInteger lines = readingLines + glossLines * (_pronunciationTargets ? 2 : 1);
     if (lines == 0) return 0;
     NSMutableArray<NSString *> *placeholder = [NSMutableArray arrayWithCapacity:lines];
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
