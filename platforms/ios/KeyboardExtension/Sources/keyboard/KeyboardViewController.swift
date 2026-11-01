@@ -5298,7 +5298,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       + (pronunciationLineShown ? 1 : 0)
   }
 
-  /// 候选下面要不要为英文音标单独留一行：开关打开、音标表在，而且是走释义的方案（`glossesCandidates`）。按设置而不是按音标到没到来留，顶栏高度在打字时不变。
+  /// 候选下面要不要为读音单独留一行：开关打开、英文表或主目标语言的读音表在，而且是走释义的方案（`glossesCandidates`）。按设置而不是按读音到没到来留，顶栏高度在打字时不变。
   private var pronunciationLineShown: Bool {
     CandidatePronunciationPreference.enabled && candidatePronunciationTableInstalled && glossesCandidates
   }
@@ -5324,12 +5324,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                            language: readingGloss?.language ?? "en")
   }
 
-  /// 读音跟着的那一行释义和它的语言（小写代码）：两种目标语言里有英语时读英语那一行，否则读主目标语言那一行；释义关着时为 nil。只有一行读音，所以只读一种语言。
+  /// 读音跟着的那一行释义和它的语言（小写代码）：主目标语言那一行；释义关着时为 nil。触屏键盘只画主目标语言一行释义（`CandidateTranslationPreference.secondary` 恒为 nil），`refreshPronunciationTable` 和设置页的「离线外语读音词典」也按主目标语言判断，三处必须是同一种语言。
   private func readingGloss(word: String, offline: String, source: Int, translated: Bool) -> (language: String, gloss: String?)? {
     guard CandidateGlossPreference.enabled, !CandidateTranslationStore.sourceGetsNoGloss(source) else { return nil }
-    var languages = [CandidateTranslationPreference.primary]
-    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
-    let language = languages.first(where: { $0.code == "EN" }) ?? CandidateTranslationPreference.primary
+    let language = CandidateTranslationPreference.primary
     return (language.code.lowercased(), gloss(word: word, language: language, offline: offline, translated: translated))
   }
 

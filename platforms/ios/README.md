@@ -70,7 +70,7 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 「输入 › 翻译」的「显示读音」写共享文档的 `candidate_pronunciation`（默认关，App Group 镜像 `candidate.pronunciation`）。音标表是共享资源包 `pronunciations`（ECDICT 生成的 `en-phonetic.db`，约 5.7 MB，锁在 `resources/pronunciations.lock.json`），不随 App 分发：开关打开而表没装时这一组多出「离线英文音标词典」下载行，点「下载」才联网，`IOSResourcePacks` 校验后装到 App Group 状态目录的 `resource-packs/pronunciations/`。键盘只读本机文件：开关打开、表在、方案走释义时顶栏为音标多留一行，英文候选读它本身，中文候选读英语释义的第一行，在释义工作队列上调 `msime_client_pronunciation_request`（`supplementary_resources` 指向 `resource-packs`），按文字缓存；音标画在释义下面单独一行，展开网格在音标到了之后多一行，读屏在释义后念「音标 …」。见 `.agents/notes/implemented/feature/2026-11-01-mobile-candidate-pronunciation.md`。
 
-法、日、西、俄、德、韩语目标的释义行读另一个资源包 `target-pronunciations`（维基词典生成，CC BY-SA 4.0，约 3.8 MB，锁在 `resources/target-pronunciations.lock.json`），主目标语言是这六种之一而它没装时设置页多一行「离线外语读音词典」；两种目标语言里有英语时读英语那一行，否则读主目标语言那一行，日语给罗马字。见 `.agents/notes/implemented/feature/2026-11-01-target-language-gloss-readings.md`。
+法、日、西、俄、德、韩语目标的释义行读另一个资源包 `target-pronunciations`（维基词典生成，CC BY-SA 4.0，约 3.7 MB，锁在 `resources/target-pronunciations.lock.json`），主目标语言是这六种之一而它没装时设置页多一行「离线外语读音词典」；键盘只画主目标语言一行释义，读音也只读这一行，下载那一行和键盘按同一种语言判断，日语给罗马字。见 `.agents/notes/implemented/feature/2026-11-01-target-language-gloss-readings.md`。
 
 设置里不提供「自定义候选释义」编辑入口。键盘 Engine 仍会在建会话时读取其用户目录（`MSIME/user`）里的 `custom_translations.txt`（每行「源词 Tab 译文」，`#` 开头为注释，同一源词以最后一次为准，优先于内置词库、学到的释义和在线翻译），但 App 不再提供编辑或从“文件”导入的界面。
 
