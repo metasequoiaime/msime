@@ -514,6 +514,21 @@ fn capabilities_describe_each_host() {
     assert!(android.fuzzy_pinyin);
     assert!(android.mode_switch_shortcuts);
     assert!(HostCapabilities::for_platform(HostPlatform::Windows).fuzzy_pinyin);
+    // 背单词卡片的喇叭：macOS、Windows 的设置应用用网页的本机声音；Linux 要看 spd-say 在不在，由设置应用填；移动端还没接上。
+    for (platform, reads) in [
+        (HostPlatform::Macos, true),
+        (HostPlatform::Windows, true),
+        (HostPlatform::Linux, false),
+        (HostPlatform::Android, false),
+        (HostPlatform::Ios, false),
+        (HostPlatform::Harmony, false),
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).read_aloud,
+            reads,
+            "{platform:?}"
+        );
+    }
 }
 
 #[test]

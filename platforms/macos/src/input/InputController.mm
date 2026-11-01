@@ -2,6 +2,7 @@
 #import <InputMethodKit/InputMethodKit.h>
 #import <CoreText/CoreText.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <AVFoundation/AVFoundation.h>
 #import "MSIMEClientSession.h"
 #import "../settings/RuntimeOptions.h"
 #import "../../../../shared/apple/TextClient.h"
@@ -225,6 +226,29 @@ static void MSIMEAddToPersonalWordbook(NSString *directory, NSString *candidate,
         if (!notice) msime_macos_diagnostic_write("personal_wordbook: add_failed");
         dispatch_async(dispatch_get_main_queue(), ^{ completion(notice); });
     });
+}
+
+// 候选菜单「朗读」要读的英文：经 `msime_client_read_aloud_text` 按候选原文和这一帧显示着的释义问共享层，没有能读的时为 nil，菜单就不出这一项。不读写文件，打开菜单时调用。
+static NSString *MSIMEReadAloudText(NSString *candidate, NSString *gloss) {
+    NSDictionary *request = @{ @"candidate": candidate ?: @"", @"gloss": gloss ?: @"" };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!data || data.length > 65536) return nil;
+    auto response = msime::host_api::own_string(
+        msime_client_read_aloud_text(static_cast<const uint8_t *>(data.bytes), data.length));
+    if (!response) return nil;
+    NSData *body = [NSData dataWithBytes:response.get() length:strlen(response.get())];
+    NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+    if (![envelope isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(envelope[@"ok"])) return nil;
+    NSString *text = envelope[@"value"];
+    return [text isKindOfClass:NSString.class] && text.length ? text : nil;
+}
+
+// 读「朗读」用的英文声音：先找美式英语，再找任何一个已安装的英文声音。AVSpeechSynthesizer 只用设备上装着的声音，不联网。一个都没有时为 nil。
+static AVSpeechSynthesisVoice *MSIMEReadAloudVoice(void) {
+    if (AVSpeechSynthesisVoice *voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"]) return voice;
+    for (AVSpeechSynthesisVoice *voice in AVSpeechSynthesisVoice.speechVoices)
+        if ([voice.language hasPrefix:@"en"]) return voice;
+    return nil;
 }
 
 // The local calendar day of this moment, as the statistics store names days.
@@ -1772,6 +1796,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // Whether the client may still hold marked text this controller's compositions wrote; see MSIMEApplyTransitionTrackingMarkedText. Wrongly YES costs one redundant clear, wrongly NO leaves a composition stranded in the document, so anything that might mark text sets it.
     BOOL _clientHasMarkedText;
     NSObject *_candidateMenuToken;
+    // 候选菜单「朗读」用的合成器，第一次朗读时建，之后一直用它，新的一次先打断上一次。
+    AVSpeechSynthesizer *_readAloudSynthesizer;
     NSPanel *_panel;
     NSRect _candidateAnchorCaret;
     BOOL _candidateAnchorValid;
@@ -10643,8 +10669,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
     // 「加入生词本」用的是这一帧显示着的释义和读音，菜单打开以后释义再变也不影响这一项。
     NSString *gloss = CandidateTranslation(candidate);
+    // 「朗读」读的英文同样在菜单打开时定下。
+    NSString *readAloud = MSIMEReadAloudText(text, gloss);
     NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken,
-                              @"gloss":gloss, @"pronunciation":[self pronunciationForCandidate:candidate] ?: @""};
+                              @"gloss":gloss, @"pronunciation":[self pronunciationForCandidate:candidate] ?: @"",
+                              @"read_aloud":readAloud ?: @""};
     NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {
         NSMenuItem *entry = [[NSMenuItem alloc] initWithTitle:title action:@selector(candidateMenuAction:) keyEquivalent:@""];
         entry.target = self;
@@ -10679,11 +10708,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         [menu addItem:remove];
     }
-    // 候选旁有释义时才有「加入生词本」，和 Windows、Linux 的候选菜单放在同一个位置：最后一组，和词库操作隔开。
-    if (gloss.length) {
-        [menu addItem:NSMenuItem.separatorItem];
-        [menu addItem:item(@"加入生词本", 30)];
-    }
+    // 候选旁有释义时才有「加入生词本」，有能读的英文时同一组里先是「朗读」，和 Windows、Linux 的候选菜单放在同一个位置：最后一组，和词库操作隔开。
+    if (gloss.length || readAloud) [menu addItem:NSMenuItem.separatorItem];
+    if (readAloud) [menu addItem:item(@"朗读", 31)];
+    if (gloss.length) [menu addItem:item(@"加入生词本", 30)];
     return menu;
 }
 
@@ -10703,6 +10731,22 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             if (notice) [controller presentHUDText:notice announcement:notice];
             else NSBeep();
         });
+        return;
+    }
+    // 「朗读」也不经过 Engine。新的一次打断还在读的上一次。
+    if (item.tag == 31) {
+        NSString *text = context[@"read_aloud"];
+        AVSpeechSynthesisVoice *voice = MSIMEReadAloudVoice();
+        if (![text isKindOfClass:NSString.class] || !text.length) return;
+        if (!voice) {
+            [self presentHUDText:@"系统没有可用的朗读语音" announcement:@"系统没有可用的朗读语音"];
+            return;
+        }
+        if (!_readAloudSynthesizer) _readAloudSynthesizer = [AVSpeechSynthesizer new];
+        [_readAloudSynthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
+        AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:text];
+        utterance.voice = voice;
+        [_readAloudSynthesizer speakUtterance:utterance];
         return;
     }
     uint64_t generation = 0; NSUInteger index = 0;

@@ -34,7 +34,7 @@ API 28 专用 AVD 的 `NumberPadDeviceSmoke -e random-digits true` 通过：全�
 
 `35c168de88` 的 PR 设备检查（API 35，run 41212308772）在「U 模式里数字页保持标准顺序」超时，输入法停在 U 模式的数字页。logcat 里每次点击都有按键音，0–9 十次都在，之后「返回原键盘」再没有按键音、只多画了两帧，15 秒后测试收尾，时间对得上进 U 模式前后那两步等待，不是点 4 之后的组字等待：「返回」的点击没有触发，键盘留在数字页，Shift+U 在数字页上进了 U 模式（左列换成半角写法），字母页的 123 找不到。只把阶段拆细、超时时报出输入框文字和全部窗口与节点的同一份代码（`4c33563a06`，run 41228345096）在 API 35 上整套通过，U 模式进组字、不换序和退出后恢复随机排列都成立，所以产品逻辑和断言本身没有问题，问题在夹具：触摸和 `sendKeySync` 是两条互不等待的注入路径，点完「返回」不等它生效就发硬件键。专项改为点「返回」后先等字母页的 123 出现再发 Shift+U；点击真丢了也会停在这一步，报错不再落到后面无关的等待上。
 
-随后合入 develop 的 nightly 在 API 28 的同一专项暴露了第二个夹具边界：`Instrumentation.sendKeySync` 在 Android 9 直接抛 `SecurityException`，而 API 35 仍能注入。设备测试现在把需要 Shift 元状态的按下、松开事件统一交给 `UiAutomation.injectInputEvent`，并显式标记 `SOURCE_KEYBOARD`；普通触摸和真实键盘 `uinput` 路径不变。共享的 `DeviceSmoke.injectKeyboardEvent` 同时供随机数字和两个辅助码回归使用，避免同一平台版本再次走受限的注入接口。
+随后合入 develop 的推送 CI 在 API 28 的同一专项暴露了第二个夹具边界：`Instrumentation.sendKeySync` 在 Android 9 抛 `SecurityException`（#10485），#10493 把随机数字专项的 Shift+U 改为经 `UiAutomation.injectInputEvent` 注入并标记 `SOURCE_KEYBOARD`，按下、抬起各自带失败信息，这一处保持原样。`DeviceSmoke.injectKeyboardEvent` 把同样的注入方式收拢成共享方法，供两个辅助码回归替换各自的 `sendKeySync`，让设备测试不再有调用受限注入接口的地方；这两个回归只在 API 35 整套里跑（API 28 只跑 `--core`），所以这一步不扩大 API 28 覆盖，也不影响 develop 上 API 28 停在密码数字网格的问题（#10516）。
 
 ## Consequences
 

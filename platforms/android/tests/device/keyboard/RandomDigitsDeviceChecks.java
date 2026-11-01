@@ -2,6 +2,7 @@ package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -149,12 +150,14 @@ final class RandomDigitsDeviceChecks {
         physical(t.described("返回原键盘"));
         // 触摸和下面的 Shift+U 走两条互不等待的注入路径，点完「返回」不等它生效就发硬件键，键盘可能还停在数字页。2026-10-31 API 35 的一次失败就是这样：数字 9 之后再没有按键音（「返回」的点击没有触发），输入法在数字页上进了 U 模式，后面找不到字母页的 123。先等字母页的 123 出现，确认已经回到字母页再进 U 模式；点击真丢了也停在这一步，不会到后面才超时。
         t.await(t.key("123"));
-        // 与 ChineseHelpcodeOffDeviceSmoke 相同，用带 Shift 的键盘事件在空组字时进入 U 模式。
+        // 用带 Shift 的键盘事件在空组字时进入 U 模式。经 UiAutomation 注入而不是 Instrumentation.sendKeySync：API 28 上后者经 InputManager 直接注入，目标窗口属于合成编辑器那个应用，没有 INJECT_EVENTS 权限就抛 SecurityException（#10485）；UiAutomation 在 API 28 到 35 上都能注入其他应用的窗口，触摸注入用的也是它。
         long time = SystemClock.uptimeMillis();
         KeyEvent shiftU = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_U,
             0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
-        t.injectKeyboardEvent(shiftU);
-        t.injectKeyboardEvent(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP));
+        shiftU.setSource(InputDevice.SOURCE_KEYBOARD);
+        if (!t.automation.injectInputEvent(shiftU, true)) throw new AssertionError("Shift+U 按下注入失败");
+        if (!t.automation.injectInputEvent(KeyEvent.changeAction(shiftU, KeyEvent.ACTION_UP), true))
+            throw new AssertionError("Shift+U 抬起注入失败");
         awaitPlain(committed + "U");
         t.stage = "U 模式里数字页保持标准顺序";
         physical(t.key("123"));
