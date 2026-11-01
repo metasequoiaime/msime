@@ -125,7 +125,7 @@ public final class SettingsSearchIndexSmoke {
             {"KEYBOARD_OPTIONS", "表情"}, {"KEYBOARD_OPTIONS", "常用语"}, {"KEYBOARD_OPTIONS", "剪贴板"},
             {"KEYBOARD_OPTIONS", "皮肤"}, {"KEYBOARD_OPTIONS", "输入方式"}, {"KEYBOARD_OPTIONS", "浮动键盘"},
             {"KEYBOARD_OPTIONS", "文本编辑"}, {"KEYBOARD_OPTIONS", "撤销"}, {"KEYBOARD_OPTIONS", "重做"},
-            {"KEYBOARD_OPTIONS", "语音"},
+            {"KEYBOARD_OPTIONS", "语音"}, {"KEYBOARD_OPTIONS", "随机数字"},
             // 「按键布局」里两行左侧符号的标题来自 KeyLayoutStylesPolicy 的常量；「九键数字键盘左侧符号」是它原来在键盘页的名字（#10223）。
             {"KEY_LAYOUT_STYLES", "九键左侧符号"}, {"KEY_LAYOUT_STYLES", "数字键盘左侧符号"},
             {"KEY_LAYOUT_STYLES", "九键数字键盘左侧符号"},

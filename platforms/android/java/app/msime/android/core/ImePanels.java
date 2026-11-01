@@ -1924,10 +1924,9 @@ final class ImePanels {
                 s.exportClipboardItems(selectedTexts);
             });
             ViewPolicy.setEnabled(export, !clipboardSelectedTexts.isEmpty());
-            Button remove = clipboardAction(header, "删除", () -> {
-                s.removeClipboardItems(new java.util.ArrayList<>(clipboardSelectedTexts));
-                exitClipboardSelection();
-            });
+            // 删除可能先要系统认证（#10408）：只在认证通过、真正删除后退出多选，取消或失败时用户的选择还在。
+            Button remove = clipboardAction(header, "删除", () -> s.removeClipboardItems(
+                new java.util.ArrayList<>(clipboardSelectedTexts), this::exitClipboardSelection));
             ViewPolicy.setEnabled(remove, !clipboardSelectedTexts.isEmpty());
         } else {
             // 顶行只留常用的搜索和多选，用得少的分类、导出、清空收进最右边的「更多」，常见宽度下一行放得下、不用横滑（#10037）。删除后的「撤销」不在顶行，浮在面板右下角（#10073，`updateClipboardUndo`）。

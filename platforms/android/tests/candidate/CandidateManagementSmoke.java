@@ -1,5 +1,7 @@
 import app.msime.android.CandidateManagementAction;
+import app.msime.android.CandidateTranslationPolicy;
 import java.util.Arrays;
+import java.util.List;
 
 public final class CandidateManagementSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -31,6 +33,21 @@ public final class CandidateManagementSmoke {
         rejects(() -> CandidateManagementAction.validatePosition(6));
         rejects(() -> CandidateManagementAction.fromMenuItemId(-1));
         rejects(CandidateManagementAction.PROMOTE::fixedPosition);
-        System.out.println("Android candidate management: menu order, action mapping and position bounds passed");
+        // 「加入生词本」排在所有词库操作后面，id 不与释义（2000 起）和词库操作相撞，点它不会被当成别的操作。
+        int item = CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM;
+        for (CandidateManagementAction action : actions) {
+            check(action.menuItemId() != item);
+            check(action.ordinal() < CandidateManagementAction.PERSONAL_WORDBOOK_ORDER);
+        }
+        check(item >= 2000 + CandidateTranslationPolicy.MAX_INSERTION_SENSES || item < 2000);
+        rejects(() -> CandidateManagementAction.fromMenuItemId(item));
+        check("加入生词本".equals(CandidateManagementAction.PERSONAL_WORDBOOK_TITLE));
+        // 只在有可上屏的释义时出现。
+        check(CandidateManagementAction.offersPersonalWordbook(
+            CandidateTranslationPolicy.insertionGlosses("interview; audition")));
+        check(!CandidateManagementAction.offersPersonalWordbook(CandidateTranslationPolicy.insertionGlosses("")));
+        check(!CandidateManagementAction.offersPersonalWordbook(List.of()));
+        check(!CandidateManagementAction.offersPersonalWordbook(null));
+        System.out.println("Android candidate management: menu order, action mapping, position bounds and 加入生词本 placement passed");
     }
 }

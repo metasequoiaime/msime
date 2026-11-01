@@ -30,6 +30,8 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ClipboardUndoPolicy;
+import app.msime.android.ClipboardAuthenticationActivity;
+import app.msime.android.ClipboardDeleteAuthenticationPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -61,6 +63,7 @@ import org.json.JSONObject;
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
+    private boolean clipboardDeleteAuthenticationPending;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
@@ -73,6 +76,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentDestroyed() { clipboardExport.destroyed(); }
+    @Override public void onDestroy() {
+        clipboardDeleteAuthenticationPending = false;
+        super.onDestroy();
+    }
     @Override protected java.util.List<String> sectionTitles() {
         return java.util.List.of("布局", "反馈", "手势", "工具栏");
     }
@@ -304,7 +311,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             String member = button.preferenceKey;
             String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
                 ? "由当前应用处理；部分输入框不支持，密码框不可用"
-                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION : null;
+                : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION
+                : button == ToolbarOrderPolicy.Item.RANDOM_DIGITS
+                    ? "在中文工具栏显示“随”开关；点按后打乱数字九宫格，每输入一个数字重新排列" : null;
             GroupCard.Row row = bar.toggle(button.label, description, toolbarButton(preferences, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
@@ -354,12 +363,51 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboard.nav("撤销时长", "删除记录后，剪贴板面板右下角的「撤销」按钮保留几秒",
             ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
+        boolean deleteAuthentication = settings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
+        GroupCard.Row[] deleteAuthenticationRow = new GroupCard.Row[1];
+        deleteAuthenticationRow[0] = clipboard.toggle("剪贴板删除数据验证",
+            "单条或多选删除前要求指纹、图案或密码等系统认证；访客剪贴板始终要求认证，撤销删除不再认证",
+            deleteAuthentication,
+            checked -> requestClipboardDeleteAuthentication(deleteAuthenticationRow[0], deleteAuthentication, checked));
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
 
+    }
+
+    /** 切换删除门禁也必须先认证；取消或失败时把开关留在原状态，不写入本地设置。设备没有可用的系统认证（桥返回 2002）时按 {@link ClipboardDeleteAuthenticationPolicy#togglesWithoutAuthenticator} 只放行关闭：打开开关后移除了锁屏凭据的用户否则永远关不掉它。 */
+    private void requestClipboardDeleteAuthentication(GroupCard.Row row, boolean current, boolean next) {
+        row.setChecked(current);
+        if (clipboardDeleteAuthenticationPending) return;
+        clipboardDeleteAuthenticationPending = true;
+        row.setEnabled(false);
+        android.os.ResultReceiver receiver = new android.os.ResultReceiver(
+            new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle ignored) {
+                clipboardDeleteAuthenticationPending = false;
+                if (getView() == null) return;
+                if (code == ClipboardAuthenticationActivity.RESULT_AUTHENTICATED) {
+                    saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                } else if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE
+                        && ClipboardDeleteAuthenticationPolicy.togglesWithoutAuthenticator(next)) {
+                    saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                    MsToast.show(requireContext(), "这台设备没有可用的系统认证，已直接关闭剪贴板删除数据验证");
+                } else {
+                    row.setEnabled(true);
+                    if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE)
+                        MsToast.show(requireContext(), "这台设备没有可用的系统认证，请先设置指纹、图案或密码");
+                }
+            }
+        };
+        try {
+            ClipboardAuthenticationActivity.launch(requireContext(), receiver, "修改剪贴板删除验证");
+        } catch (RuntimeException unavailable) {
+            clipboardDeleteAuthenticationPending = false;
+            row.setEnabled(true);
+            MsToast.show(requireContext(), "这台设备没有可用的系统认证，请先设置指纹、图案或密码");
+        }
     }
 
     /** 工具栏按钮独立控制，不改变长按空格语音；两入口可同时使用。 */
@@ -414,7 +462,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
             if (longSpace) addChip(context, plate, "符", icon, chipPercent);
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button.label, icon, chipPercent);
+                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button == ToolbarOrderPolicy.Item.RANDOM_DIGITS ? "随" : button.label, icon, chipPercent);
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, previewDp));
         strip.setContentDescription("工具栏预览");
