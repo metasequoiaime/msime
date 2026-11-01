@@ -2131,6 +2131,53 @@ fn an_activation_without_keep_local_learning_replaces_the_learning() {
     assert_eq!(lost_learning(&device).len(), 7);
 }
 
+/// 用户加的粤语词只在本机日志里，快照格式不收（#10544）：整份换上只有拼音词的快照以后，不论是云同步「应用到本机」（带 `keep_local_learning`）还是本地备份恢复（不带），它们都还在，个人词库照样列得出来。
+#[test]
+fn a_snapshot_activation_keeps_the_personal_cantonese_words() {
+    for from_cloud_sync in [true, false] {
+        let device = downloading_device();
+        msime_engine::host::dictionary_edit(
+            &device.options,
+            None,
+            Some(&msime_engine::host::DictionaryEntry {
+                kind: msime_engine::host::DictionaryKind::Cantonese,
+                key: "nei5 hou2".into(),
+                value: "你好".into(),
+                weight: 100_000,
+            }),
+            "cantonese-nei-hou",
+        )
+        .unwrap();
+        download_into(&device, from_cloud_sync);
+        assert_eq!(
+            device.number("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='cantonese' AND key='nei hou' AND value='你好' AND operation='upsert' AND user_inserted=1 AND weight=100000"),
+            Some(1),
+            "from_cloud_sync = {from_cloud_sync}"
+        );
+        let page = msime_engine::host::dictionary_entries_for_kind(
+            &device.options,
+            msime_engine::host::DictionaryKind::Cantonese,
+            0,
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|entry| (entry.key.as_str(), entry.value.as_str()))
+                .collect::<Vec<_>>(),
+            [("nei hou", "你好")],
+            "from_cloud_sync = {from_cloud_sync}"
+        );
+        // 快照里的拼音用户词照样换上来了。
+        assert_eq!(
+            device.number("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='pinyin' AND value='泥好' AND user_inserted=1 AND operation='upsert'"),
+            Some(1),
+            "from_cloud_sync = {from_cloud_sync}"
+        );
+    }
+}
+
 /// 两份各自合法的状态合并后超限时，不能换入一代连版本都读不出的日志。
 #[test]
 fn a_cloud_download_over_the_combined_record_limit_keeps_the_active_generation() {

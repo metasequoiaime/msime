@@ -761,6 +761,61 @@ pub fn merge_dictionary_state(
     Ok(merge)
 }
 
+/// 把用户加的粤语词写进 `paths` 的日志，日志里已有同一个词（同一 `dictionary,key,value`）的保留已有的那一行，返回写进去的条数。
+///
+/// 粤语词没有工作表，日志就是它们存放的地方，而词库快照（云同步和本地备份共用的格式）装不下它们，所以 [`stage_dictionary_state`] 整份建出来的新一代里没有它们。宿主激活新一代前用 [`stream_dictionary_state`] 从旧的一代读出来，经这里写进新的一代；不这样做，用户加的粤语词就随旧的一代一起被换掉，云端和备份里都没有，再也取不回来（#10544）。
+///
+/// `words` 里只能是粤语的、用户加的、没删的词条，别的记录报 `INVALID_DICTIONARY_STATE`；编码、词或权重超出日志上限的词条跳过不写，不让一条坏行挡住整次激活。全部在一个 IMMEDIATE 事务里，写库失败整体回滚。调用方必须持有独占维护权。
+pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]) -> Result<usize> {
+    paths.validate()?;
+    if words.is_empty() {
+        return Ok(0);
+    }
+    // A connection of its own, as `build_generation` opens: the caller is about to move this generation into place, and a cached handle would keep the file open.
+    let mut connection = open_database(
+        &paths.user(assets::USER_JOURNAL),
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+    )?;
+    ensure_schema(&connection)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut added = 0usize;
+    {
+        let mut insert = transaction.prepare(
+            "INSERT OR IGNORE INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,'upsert',?4,?5,1)",
+        )?;
+        for word in words {
+            let DictionaryStateRecord::Entry {
+                kind: PersonalDictionaryKind::Cantonese,
+                key,
+                value,
+                weight,
+                display,
+                deleted: false,
+                user_inserted: true,
+            } = word
+            else {
+                return Err(invalid_state());
+            };
+            if !(bounded(key, MAX_KEY_BYTES, false)
+                && bounded(value, MAX_VALUE_BYTES, false)
+                && bounded(display, MAX_VALUE_BYTES, true)
+                && (0..=MAX_STAGED_WEIGHT).contains(weight))
+            {
+                continue;
+            }
+            added += insert.execute(params![
+                PersonalDictionaryKind::Cantonese.journal_name(),
+                key,
+                value,
+                weight,
+                display,
+            ])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(added)
+}
+
 /// 语句准备时报「没有这张表」：SQLite 对它用通用的 `SQLITE_ERROR`，只能看消息区分。这时语句一条也没执行，跳过这一行不会留下半截修改。
 fn missing_table(error: &rusqlite::Error) -> bool {
     matches!(
@@ -1795,6 +1850,75 @@ mod tests {
             ),
             Some(1)
         );
+    }
+
+    /// 粤语词写进一代的日志：已有同一个词的保留已有的那一行，超出日志上限的跳过，不是粤语用户词的记录整批拒绝、什么也不写。
+    #[test]
+    fn cantonese_words_are_added_to_a_generation_and_existing_rows_are_kept() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let staged = stage(&resources, &root.path().join("staged"), vec![]).unwrap();
+        let journal = staged.user(assets::USER_JOURNAL);
+        let count = || {
+            weight(
+                &journal,
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='cantonese' AND operation='upsert' AND user_inserted=1",
+            )
+        };
+        assert_eq!(
+            add_cantonese_words(
+                &staged,
+                &[
+                    entry(Cantonese, "nei hou", "你好", 100_000, "", false, true),
+                    entry(
+                        Cantonese,
+                        &"a".repeat(MAX_KEY_BYTES + 1),
+                        "你",
+                        1,
+                        "",
+                        false,
+                        true
+                    ),
+                ],
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            add_cantonese_words(
+                &staged,
+                &[
+                    entry(Cantonese, "nei hou", "你好", 7, "", false, true),
+                    entry(Cantonese, "m goi", "唔該", 9, "", false, true),
+                ],
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(count(), Some(2));
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT weight FROM user_dictionary_operations WHERE dictionary='cantonese' AND value='你好'"
+            ),
+            Some(100_000)
+        );
+        for rejected in [
+            entry(Pinyin, "ni'hao", "你好", 1, "", false, true),
+            entry(Cantonese, "sik faan", "食飯", 1, "", false, false),
+            entry(Cantonese, "sik faan", "食飯", 0, "", true, true),
+        ] {
+            assert!(add_cantonese_words(
+                &staged,
+                &[
+                    entry(Cantonese, "sik faan", "食飯", 1, "", false, true),
+                    rejected
+                ],
+            )
+            .is_err());
+        }
+        assert_eq!(count(), Some(2));
     }
 
     // test_dictionary_state.cpp `--capacity`: a large state stages and streams back whole.
