@@ -54,7 +54,20 @@ def identity(edition_id: str) -> dict[str, str]:
         "component": f"{macos['dmg_prefix']}.pkg",
         "name.zh-Hans": entry["display_name"]["zh-Hans"],
         "name.en": entry["display_name"]["en"],
+        "mode.en": english_mode_label(edition_id),
     }
+
+
+def english_mode_label(edition_id: str) -> str:
+    """英文系统的输入法菜单里本版本第一个模式的名字，例如 full 的 "Metasequoia · ZH"。英文系统上 Finder、Dock 和「输入法」列表显示的仍是中文名（两份 en.lproj/InfoPlist.strings 都这样写），只有菜单里的模式名是英文，英文页面要按用户实际看到的名字称呼。"""
+    entry = edition_bundle.edition_entry(edition_id)
+    source = (ROOT / "platforms/macos/resources/en.lproj/InfoPlist.strings").read_text(encoding="utf-8")
+    prefix = entry["platforms"]["macos"]["input_method_bundle_id"] + "."
+    for line in edition_bundle.info_plist_strings(source, edition_id).splitlines():
+        match = edition_bundle.STRINGS_LINE.match(line)
+        if match and match.group("key").startswith(prefix):
+            return match.group("value")
+    raise PackageError(f"edition {edition_id}: the English InfoPlist.strings names no input mode")
 
 
 def substitute(text: str, values: dict[str, str], where: str) -> str:
@@ -89,11 +102,14 @@ def render(edition_id: str, version: str, output: Path) -> None:
     for locale, directory in LOCALES.items():
         target = output / "resources" / f"{directory}.lproj"
         target.mkdir(parents=True, exist_ok=True)
-        name = ids[f"name.{locale}"]
+        # 两种语言的系统上，Finder、Dock 和「输入法」列表都显示中文名，所以英文页面也用中文名称呼应用和输入法，括号里附英文名；菜单里的模式名另给。
+        name = ids["name.zh-Hans"]
+        values = {"NAME": html.escape(name), "EN_NAME": html.escape(ids["name.en"]), "MODE": html.escape(ids["mode.en"])}
         for page in ("welcome", "conclusion"):
             source = TEMPLATES / f"{locale}.lproj/{page}.html.in"
-            (target / f"{page}.html").write_text(substitute(source.read_text(encoding="utf-8"), {"NAME": html.escape(name)}, str(source.relative_to(ROOT))), encoding="utf-8")
-        title = name.replace("\\", "\\\\").replace('"', '\\"')
+            (target / f"{page}.html").write_text(substitute(source.read_text(encoding="utf-8"), values, str(source.relative_to(ROOT))), encoding="utf-8")
+        shown = name if locale == "zh-Hans" else f"{name} ({ids['name.en']})"
+        title = shown.replace("\\", "\\\\").replace('"', '\\"')
         (target / "Localizable.strings").write_text(f'"SU_TITLE" = "{title}";\n', encoding="utf-8")
 
 

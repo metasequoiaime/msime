@@ -2,11 +2,11 @@
 <html lang="en">
 <head><meta charset="utf-8"><style>body { font: -apple-system-body; font-family: -apple-system, sans-serif; }</style></head>
 <body>
-<p>@NAME@ is now in your Applications folder. A few steps remain:</p>
+<p>@NAME@ (@EN_NAME@) is now in your Applications folder. A few steps remain:</p>
 <ol>
 <li>Click 立即安装 (Install now) in the @NAME@ window that opened. If it did not open, open @NAME@ from Applications.</li>
 <li><strong>If this is the first time @NAME@ is installed on this Mac, choose Log Out from the Apple menu and log back in</strong>, then add @NAME@ in System Settings → Keyboard → Text Input → Input Sources. macOS lists a newly installed input method only after the next login; later updates do not need this.</li>
-<li>Once added, choose @NAME@ from the input menu in the menu bar, or press Control-Space to switch to it.</li>
+<li>Once added, choose @MODE@ (or another of its modes) from the input menu in the menu bar, or press Control-Space to switch to it.</li>
 </ol>
 <p>Other users of this Mac open @NAME@ once and click 立即安装 (Install now).</p>
 </body>

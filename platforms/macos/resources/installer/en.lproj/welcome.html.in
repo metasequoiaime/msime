@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><style>body { font: -apple-system-body; font-family: -apple-system, sans-serif; }</style></head>
 <body>
-<p>This package installs @NAME@ in your Applications folder. You will be asked for an administrator password.</p>
+<p>This package installs @NAME@ (@EN_NAME@) in your Applications folder, where Finder shows it as @NAME@. You will be asked for an administrator password.</p>
 <p>When the installation finishes, @NAME@ opens by itself. Click 立即安装 (Install now) in its window to install the input method.</p>
 </body>
 </html>

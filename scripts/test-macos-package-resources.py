@@ -120,6 +120,16 @@ printf '%s %s %s\\n' "$(cat "$1.calls")" "$status" "$([ -e "$1" ] && echo presen
                 check(signing in arguments, f"productbuild did not sign with {signing}: {arguments}")
 
 
+def strings_entries(text: str) -> list[tuple[str, str]]:
+    return re.findall(r'^"([^"]+)" = "([^"]*)";$', text, flags=re.M)
+
+
+def strings_value(text: str, key: str) -> str:
+    values = [value for found, value in strings_entries(text) if found == key]
+    check(len(values) == 1, f"InfoPlist.strings has {len(values)} entries for {key}")
+    return values[0] if values else f"<missing {key}>"
+
+
 def check_installer_package() -> None:
     """按版本渲染安装包的分发文件、postinstall 和欢迎/结束页，拼一个与 pkgutil --expand-full 相同布局的合成安装包，用 installer_package.py check 核对；再逐项改坏，确认每一种都被拦下。"""
     sys.path.insert(0, str(ROOT / "platforms/macos/scripts"))
@@ -191,14 +201,23 @@ def check_installer_package() -> None:
             check(any("only postinstall" in problem for problem in problems()), f"{edition}: an extra install script was not caught")
             (expanded / ids["component"] / "Scripts/preinstall").unlink()
 
+            # 页面要用 macOS 实际显示的名字称呼应用和输入法：Finder 和 Dock 显示设置应用 InfoPlist.strings 的 CFBundleDisplayName，「输入法」列表显示输入法 InfoPlist.strings 里 bundle id 那一项，菜单显示模式名。英文系统上前两者也是中文名，只看 display_name.en 会写出用户在系统里找不到的名字。
             for locale in ("zh-Hans", "en"):
+                app_strings = edition_bundle.settings_strings((ROOT / f"apps/desktop/src-tauri/macos/{locale}.lproj/InfoPlist.strings").read_text(encoding="utf-8"), edition)
+                app_name = strings_value(app_strings, "CFBundleDisplayName")
+                ime_strings = edition_bundle.info_plist_strings((ROOT / f"platforms/macos/resources/{locale}.lproj/InfoPlist.strings").read_text(encoding="utf-8"), edition)
+                source_name = strings_value(ime_strings, macos["input_method_bundle_id"])
+                modes = [value for key, value in strings_entries(ime_strings) if key.startswith(macos["input_method_bundle_id"] + ".")]
                 for page in ("welcome.html", "conclusion.html"):
                     text = (expanded / "Resources" / f"{locale}.lproj" / page).read_text(encoding="utf-8")
-                    check(entry["display_name"][locale] in text and "@" not in text, f"{edition}: {locale} {page} does not name {entry['display_name'][locale]}")
+                    check(app_name in text and "@" not in text, f"{edition}: {locale} {page} does not name the app as Finder shows it, {app_name}")
                 conclusion = (expanded / "Resources" / f"{locale}.lproj/conclusion.html").read_text(encoding="utf-8")
+                check(source_name in conclusion, f"{edition}: the {locale} conclusion does not name the input source as Input Sources lists it, {source_name}")
+                if locale == "en":
+                    check(any(mode in conclusion for mode in modes), f"{edition}: the en conclusion names none of the input menu's modes {modes}")
                 check(("退出登录" if locale == "zh-Hans" else "Log Out") in conclusion, f"{edition}: the {locale} conclusion does not tell a first install to log out and back in")
                 title = (expanded / "Resources" / f"{locale}.lproj/Localizable.strings").read_text(encoding="utf-8")
-                check(title == f'"SU_TITLE" = "{entry["display_name"][locale]}";\n', f"{edition}: the {locale} title is {title!r}")
+                check(title.startswith(f'"SU_TITLE" = "{app_name}') and title.endswith('";\n'), f"{edition}: the {locale} title is {title!r}, it must start with {app_name}")
             check_postinstall(edition, ids["app_bundle"], postinstall)
 
     # 组件表：顶层只能有设置应用一个；它和每一层嵌套组件都不可重定位，顶层原子替换、不降级。
