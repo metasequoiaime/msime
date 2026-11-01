@@ -178,7 +178,7 @@ struct KeyboardTheme: Equatable {
   var secondary: UIColor {
     drawnPalette?.secondary ?? (design.map { CustomKeyboardSkin.color($0.keyForeground).withAlphaComponent(0.6) } ?? NativeKeyboardTokens.secondary)
   }
-  /// The selected candidate, hints and toggled marks.
+  /// 主题强调色：提示和开启态标记；候选条首选的字色另见 `candidateAccent`。
   var accent: UIColor {
     if let design { return CustomKeyboardSkin.color(design.accent) }
     return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)

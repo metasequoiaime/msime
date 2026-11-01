@@ -128,10 +128,10 @@ public final class PluginDetailPage extends ReloadingDetailPage {
 
         if (!pack.builtin() && PluginEditorPolicy.isAuthoredKind(pack.kind())) {
             GroupCard edit = GroupCard.add(target, null);
-            edit.button("编辑", "不用写代码，在设置页里修改名字、介绍和内容；保存后替换本机的这一份。", "编辑", () -> {
+            edit.button("编辑", null, "编辑", () -> {
                 justSaved = null;
                 PluginEditorPage.edit(context, pack.kind(), pack.id());
-            });
+            }).help("不用写代码，在设置页里修改名字、介绍和内容；保存后替换本机的这一份。");
         }
         if (!pack.builtin()) {
             GroupCard remove = GroupCard.add(target, null);
@@ -223,10 +223,11 @@ public final class PluginDetailPage extends ReloadingDetailPage {
             case PluginCatalogPolicy.SOUND -> {
                 boolean selected = pack.id().equals(selection.keySoundPack());
                 boolean playing = selected && selection.keySoundOn();
+                // 按键音关着是当前状态，留在副标题；音效包和开关的关系收进「?」。
                 GroupCard.Row row = use.button("按键音效",
-                    selection.keySoundOn() ? "按键音取自当前音效包；开关在「键盘 → 按键反馈」里。"
-                        : "按键音现在没有打开。设为当前音效包会同时打开按键音；开关在「键盘 → 按键反馈」里。",
-                    selected ? (playing ? "使用中" : "打开按键音") : "设为当前音效包", () -> selectKeySound(pack.id()));
+                    selection.keySoundOn() ? null : "按键音现在没有打开。设为当前音效包会同时打开按键音。",
+                    selected ? (playing ? "使用中" : "打开按键音") : "设为当前音效包", () -> selectKeySound(pack.id()))
+                    .help("按键音取自当前音效包；开关在「键盘 → 按键反馈」里。");
                 if (row.button() != null) row.button().setEnabled(!playing && !working);
             }
             case PluginCatalogPolicy.COMMAND_TABLE, PluginCatalogPolicy.PHRASE_TABLE -> {
@@ -244,20 +245,19 @@ public final class PluginDetailPage extends ReloadingDetailPage {
                 }
             }
             case PluginCatalogPolicy.HELPCODE -> {
-                use.toggle("用于全拼", "替换全拼的辅助码方案；关闭后回到原来的方案。", pack.id().equals(selection.helpcodeQuanpin()),
-                    on -> setHelpcode("helpcode_pack_quanpin", on ? pack.id() : ""));
-                use.toggle("用于双拼", "替换双拼的辅助码方案；关闭后回到原来的方案。", pack.id().equals(selection.helpcodeShuangpin()),
-                    on -> setHelpcode("helpcode_pack_shuangpin", on ? pack.id() : ""));
-                use.button("辅助码设置", "辅助码的开关和显示方式在「输入 → 辅助码」里。", "前往辅助码设置", () -> {
+                use.toggle("用于全拼", null, pack.id().equals(selection.helpcodeQuanpin()),
+                    on -> setHelpcode("helpcode_pack_quanpin", on ? pack.id() : "")).help("替换全拼的辅助码方案；关闭后回到原来的方案。");
+                use.toggle("用于双拼", null, pack.id().equals(selection.helpcodeShuangpin()),
+                    on -> setHelpcode("helpcode_pack_shuangpin", on ? pack.id() : "")).help("替换双拼的辅助码方案；关闭后回到原来的方案。");
+                use.button("辅助码设置", null, "前往辅助码设置", () -> {
                     Bundle args = new Bundle();
                     args.putString(HostDeepLink.ARG_SECTION, "辅助码");
                     SettingsNavigator.open(context, PageId.TYPING, args);
-                });
+                }).help("辅助码的开关和显示方式在「输入 → 辅助码」里。");
             }
-            case PluginCatalogPolicy.WORDBOOK -> use.button("背单词",
-                "这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。", "去背单词",
-                () -> VocabularyReviewPage.openBook(context, PluginCatalogPolicy.wordbookBookId(pack.id())));
-            case PluginCatalogPolicy.SYMBOL_SET -> use.note(
+            case PluginCatalogPolicy.WORDBOOK -> use.button("背单词", null, "去背单词",
+                () -> VocabularyReviewPage.openBook(context, PluginCatalogPolicy.wordbookBookId(pack.id()))).help("这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。");
+            case PluginCatalogPolicy.SYMBOL_SET -> use.help(
                 "装上即在符号面板里显示：符号组以插件名为分类排在内置符号之后，颜文字组排在「颜文字」之后。卸载后不再显示。");
             default -> use.note("这台设备上不使用这类插件，可以在电脑上使用。");
         }

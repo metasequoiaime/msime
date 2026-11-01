@@ -147,7 +147,7 @@ import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
-import { VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
+import { VOICE_MASCOT_FILE, VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
 
 import { TextPolicy } from './TextPolicy';
 import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
@@ -716,6 +716,8 @@ struct KeyboardView {
   @State voiceHeard: string = '';
   /** 麦克风电平 0–1，聆听面板的光圈跟着它缩放；只在录音中更新，收尾、完成和取消时回到 0。 */
   @State voiceLevel: number = 0;
+  /** 聆听面板的指示区画水杉娘（非按住的会话）还是圆盘，由 `refreshVoiceMascot` 按两个按住标志算出。 */
+  @State voiceMascot: boolean = true;
   @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
@@ -988,8 +990,9 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.LOCK) {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
-        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
+        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束，指示区换成水杉娘。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
         this.voiceHeldByKey = false;
+        this.refreshVoiceMascot();
       }
     };
     KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
@@ -8512,6 +8515,8 @@ struct KeyboardView {
     if (this.voiceBusy) {
       return;
     }
+    // 指示区按这次尝试的方式定下来：录音开不了（已关闭、没有麦克风权限、会话不可用）时面板显示原因，也用这一次的指示区，不沿用上一次会话的（#10313）。
+    this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, fromHotkey);
     if (!KeyboardSession.shared.voiceInputEnabled()) {
       this.voiceEnabled = false;
       this.voiceNotice = '语音输入已在设置中关闭';
@@ -8796,6 +8801,18 @@ struct KeyboardView {
     this.show(SURFACE_NONE);
   }
 
+  /** 两个按住标志不是状态变量，快捷键 LOCK 清掉 `voiceHeldByKey` 之后调这里，让面板按新的会话方式换指示区（#10313）；开始录音时 `startVoice` 直接按这次尝试算。 */
+  private refreshVoiceMascot(): void {
+    this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, this.voiceHeldByKey);
+  }
+
+  /** 聆听面板人物的图片地址：表情包里的 `01.webp`，与 Android、iOS 同一张；表情包读不到时为空，面板画圆盘。清单由 `MascotStickerStore` 缓存，只读一次。 */
+  private voiceMascotUri(): string {
+    const sticker: MascotSticker | undefined = KeyboardSession.shared.mascotStickers.list()
+      .find((candidate: MascotSticker): boolean => candidate.file === VOICE_MASCOT_FILE);
+    return sticker === undefined ? '' : KeyboardSession.shared.mascotStickers.uri(sticker);
+  }
+
   @Builder
   voiceFace() {
     if (this.touchDesign()) {
@@ -8812,6 +8829,9 @@ struct KeyboardView {
           hintTail: this.voiceListeningHintTail(),
           hintPrefix: this.voiceListeningHintPrefix(),
           level: this.voiceLevel,
+          mascot: this.voiceMascot,
+          mascotUri: this.voiceMascot ? this.voiceMascotUri() : '',
+          recording: this.voiceBusy && !this.voiceFinishing,
           primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),
           primaryEnabled: !this.voiceFinishing,
           cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),

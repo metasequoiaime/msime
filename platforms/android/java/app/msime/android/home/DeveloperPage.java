@@ -180,13 +180,14 @@ public final class DeveloperPage extends ReloadingDetailPage {
         DiagnosticsApi.Snapshot uploaded = cloud.snapshot();
 
         GroupCard mcp = GroupCard.add(sectionColumn(target, "日志共享"), "MCP 开发者访问");
+        // 等确认、已上传是当前状态，留在副标题；这项做什么收进「?」。
         CharSequence mcpSubtitle;
         if (confirming) {
             mcpSubtitle = "请在下方确认后上传";
         } else if (uploaded != null) {
             mcpSubtitle = "已上传 · " + when(uploaded.createdAt()) + " · " + remaining(uploaded.expiresAt());
         } else {
-            mcpSubtitle = "把下方选定的日志打包上传一次到水杉云，开发者在自己电脑上读取这份快照，手机无需保持在线，不会读取你输入的文字";
+            mcpSubtitle = null;
         }
         GroupCard.Row mcpRow = mcp.toggle("上传日志供开发者通过 MCP 读取", mcpSubtitle,
             McpUploadSwitchPolicy.checked(uploaded != null, confirming),
@@ -203,6 +204,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
                     case DELETE -> confirmDelete();
                 }
             });
+        mcpRow.help("把下方选定的日志打包上传一次到水杉云，开发者在自己电脑上读取这份快照，手机无需保持在线，不会读取你输入的文字");
         mcpRow.setEnabled(!busy && snapshot != null);
         mcp.nav("保留时长", null, retention.label(), () -> showRetentionSheet(retention));
 
@@ -238,34 +240,34 @@ public final class DeveloperPage extends ReloadingDetailPage {
 
         GroupCard debug = GroupCard.add(sectionColumn(target, "调试"), "调试");
         boolean loggingEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED);
-        debug.toggle("日志总开关", "关闭后不显示调试信息，也不记录输入日志", loggingEnabled,
-            on -> edit(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED, on));
-        GroupCard.Row overlay = debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频",
+        debug.toggle("日志总开关", null, loggingEnabled,
+            on -> edit(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED, on)).help("关闭后不显示调试信息，也不记录输入日志");
+        GroupCard.Row overlay = debug.toggle("显示调试信息", null,
             settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY),
-            on -> edit(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY, on));
+            on -> edit(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY, on)).help("在候选栏显示引擎耗时与词频");
         overlay.setEnabled(loggingEnabled);
-        GroupCard.Row inputLog = debug.toggle("记录输入日志", "仅保存在本机，不会上传", settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
-            on -> edit(AndroidLocalSettings.DEVELOPER_INPUT_LOG, on));
+        GroupCard.Row inputLog = debug.toggle("记录输入日志", null, settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
+            on -> edit(AndroidLocalSettings.DEVELOPER_INPUT_LOG, on)).help("仅保存在本机，不会上传");
         inputLog.setEnabled(loggingEnabled);
         String level = settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL);
-        GroupCard.Row levelRow = debug.nav("日志级别", "只影响系统日志（logcat），导出的诊断包不受它影响", levelLabel(level),
-            snapshot == null ? null : () -> showLevelSheet(level));
+        GroupCard.Row levelRow = debug.nav("日志级别", null, levelLabel(level),
+            snapshot == null ? null : () -> showLevelSheet(level)).help("只影响系统日志（logcat），导出的诊断包不受它影响");
         levelRow.setEnabled(loggingEnabled && snapshot != null);
 
         GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据");
         data.nav("默认导出文件夹", exportDirectoryName, null, () -> pickExportDirectory(false))
             .setEnabled(!busy && snapshot != null);
-        data.button("导出诊断包", "保存到默认文件夹，每次生成新文件", "导出", this::exportBundle)
+        data.button("导出诊断包", null, "导出", this::exportBundle).help("保存到默认文件夹，每次生成新文件")
             .setEnabled(!busy && snapshot != null);
-        data.button("分享诊断包", "通过其他应用发送一份诊断包", "分享", this::shareBundle)
+        data.button("分享诊断包", null, "分享", this::shareBundle).help("通过其他应用发送一份诊断包")
             .setEnabled(!busy && snapshot != null);
         data.button("重置所有设置", "恢复为出厂设置，词库不受影响", "重置", this::confirmReset)
             .setEnabled(!busy && snapshot != null);
     }
 
-    private void uploadToggle(GroupCard group, String title, String subtitle, AndroidLocalSettings.Snapshot settings,
+    private void uploadToggle(GroupCard group, String title, String help, AndroidLocalSettings.Snapshot settings,
             String key) {
-        group.toggle(title, subtitle, settings.bool(key), on -> edit(key, on));
+        group.toggle(title, null, settings.bool(key), on -> edit(key, on)).help(help);
     }
 
     private void renderUploaded(LinearLayout target, DiagnosticsApi.Snapshot uploaded) {
@@ -280,8 +282,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
         group.button("远程地址", url, "复制", () -> copy("远程地址", url, "已复制远程地址"));
         String hint = uploaded.tokenHint();
         group.button("访问令牌", "msk_••••••••" + hint, "重新生成", this::confirmRegenerate).setEnabled(!busy);
-        group.button("发送给开发者", "地址和令牌一起打包，粘贴到开发者的 MCP 客户端即可连接", "分享",
-            () -> shareConnection(url)).setEnabled(!busy);
+        group.button("发送给开发者", null, "分享",
+            () -> shareConnection(url)).help("地址和令牌一起打包，粘贴到开发者的 MCP 客户端即可连接").setEnabled(!busy);
     }
 
     private void renderAccesses(LinearLayout target) {

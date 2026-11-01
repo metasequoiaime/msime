@@ -613,6 +613,25 @@ if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
   echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
   exit 1
 fi
+# 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部（`onComplete` 在读到数据时也回调一次，只认解码成功）；人物图片和画布不进读屏。
+voice_face_body=$(sed -n '/^  voiceFace() {$/,/^  }$/p' "$view")
+start_voice_body=$(sed -n '/^  private startVoice(fromHotkey: boolean = false): void {$/,/^  }$/p' "$view")
+voice_listening="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/VoiceListening.ets"
+start_voice_head=$(sed -n '1,/voiceInputEnabled()/p' <<< "$start_voice_body")
+if ! grep -qF 'this.refreshVoiceMascot();' <<< "$lock_branch" \
+  || ! grep -qF 'this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, fromHotkey);' <<< "$start_voice_head" \
+  || ! grep -qF 'this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, this.voiceHeldByKey);' "$view" \
+  || ! grep -qF 'mascot: this.voiceMascot,' <<< "$voice_face_body" \
+  || ! grep -qF "mascotUri: this.voiceMascot ? this.voiceMascotUri() : ''," <<< "$voice_face_body" \
+  || ! grep -qF 'if (!this.mascotLoaded) {' "$voice_listening" \
+  || ! grep -qF 'if (!this.mascotLoaded) return;' "$voice_listening" \
+  || ! grep -qF 'event.loadingStatus !== 1' "$voice_listening" \
+  || ! grep -qF 'recording: this.voiceBusy && !this.voiceFinishing,' <<< "$voice_face_body" \
+  || ! grep -qF 'VoiceListeningPolicy.mascotArcs(this.recording ? this.shown : 0)' "$voice_listening" \
+  || [[ $(grep -cF ".accessibilityLevel('no')" "$voice_listening") -ne 2 ]]; then
+  echo "The listening panel must pick the mascot from VoiceListeningPolicy.showsMascot before startVoice can return early and again after LOCK, pass the sticker URI and whether it is recording so the arcs drop at once when recognition starts, keep the disc until the image has loaded, and keep the mascot out of the screen reader" >&2
+  exit 1
+fi
 # 双拼纠错坐上首选的显式标记（#10018）：引擎只在那一行带 `confident_correction: true`。读法、读屏后缀、标记色以及展开面板选哪套令牌由 keyboard-logic.test.ts 的 `CorrectionMarkPolicy` 覆盖；会话和视图是 ArkTS，这里钉住接线和每处传进去的令牌：会话把引擎行变成候选栏、展开面板的三处都经 `CorrectionMarkPolicy.confident` 读这个键，翻译页的行一律不标；视图在候选窗、触屏胶囊上的候选字经 `candidateWordColor`、注释释义经 `candidateDetailTint` 换成标记色（两处里不再有没经过它的次要色），展开面板格子经 `CorrectionMarkPolicy.cellTextColor` 用 `expandedSurfaceColors`；两套令牌逐项钉住，交换高亮字色与强调色、换掉画布判断都会失败；两处读屏朗读都接上「已纠正」后缀。去掉空白和换行后比较整段调用，参数换行不影响。
 view_body() { sed -n "/^  $1\$/,/^  }\$/p" "$view" | tr -d ' \n'; }
 label_body=$(sed -n '/^  private candidateLabel(candidate: CandidateEntry, index: number): string {$/,/^  }$/p' "$view")

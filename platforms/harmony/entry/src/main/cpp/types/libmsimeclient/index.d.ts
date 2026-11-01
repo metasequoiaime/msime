@@ -29,11 +29,11 @@ export const themeCatalog: () => string;
  */
 export const resolveTheme: (request: string) => string;
 /**
- * 应用主题选择器：按选择器顺序（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）返回 `{app_themes:[{id,title,season,seasonal,light,dark}],default:"siji"}`。`light` 和 `dark` 是 `{accent,accent_soft,on_accent,background,card,hair}`；`siji` 的 `season` 为 null、`seasonal` 为 true，并绘制为秋杉，因此目录不随时钟变化。
+ * 应用主题选择器：按选择器顺序（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）返回 `{app_themes:[{id,title,season,seasonal,light,dark}],default:"siji"}`。`light` 和 `dark` 是 `{accent,accent_soft,on_accent,background,card,hair,candidate_accent}`；`siji` 的 `season` 为 null、`seasonal` 为 true，并绘制为秋杉，因此目录不随时钟变化。
  */
 export const appThemeCatalog: () => string;
 /**
- * 输入 `{app_theme,month?,dark}`，其中 `month` 是宿主的本地日历月份（1-12，仅 `siji` 使用；省略时取 UTC 月份）；输出 `{id,season,accent,accent_soft,on_accent,background,card,hair}`，`season` 为实际绘制的季节。纯函数，可以在主线程上运行。
+ * 输入 `{app_theme,month?,dark}`，其中 `month` 是宿主的本地日历月份（1-12，仅 `siji` 使用；省略时取 UTC 月份）；输出 `{id,season,accent,accent_soft,on_accent,background,card,hair,candidate_accent}`，`season` 为实际绘制的季节，`candidate_accent` 是触屏候选条首选的字色（浅色加深到 WCAG AA，深色等于 `accent`）。纯函数，可以在主线程上运行。
  */
 export const resolveAppTheme: (request: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */

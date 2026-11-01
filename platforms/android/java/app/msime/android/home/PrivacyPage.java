@@ -63,14 +63,13 @@ public final class PrivacyPage extends ReloadingDetailPage {
         if (target == null) return;
         rows.clear();
         String app = getString(R.string.app_name);
-        GroupCard intro = GroupCard.add(sectionColumn(target, "联网"), null);
-        intro.note(app + "本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。只有你打开的联网功能才会连接 api.msime.app，下面逐项列出。");
-
+        // 页首那段「本地优先」说明的是下面这组联网功能，收进这组标题的「?」，不再单独占一张卡片。
         GroupCard network = GroupCard.add(sectionColumn(target, "联网"), "联网功能").withDividers(16);
+        network.help(app + "本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。只有你打开的联网功能才会连接 api.msime.app，下面逐项列出。");
         for (InputFeatureToggle toggle : NETWORK) addToggle(network, toggle);
-        network.nav("翻译服务", "改用小牛、腾讯或自定义（DeepLX、DeepL）服务", null,
-            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
-        network.note("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
+        network.nav("翻译服务", null, null,
+            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null)).help("改用小牛、腾讯或自定义（DeepLX、DeepL）服务");
+        network.help("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
 
         GroupCard community = GroupCard.add(sectionColumn(target, "联网"), "社区");
         blockedAuthorsRow = community.nav("已屏蔽的作者", null, null, () -> CommunityBlockDialog.requireSignIn(this,
@@ -80,10 +79,10 @@ public final class PrivacyPage extends ReloadingDetailPage {
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
 
         GroupCard capture = GroupCard.add(sectionColumn(target, "本机"), "截屏与录屏");
-        screenCaptureRow = capture.toggle("防止截屏", "设置页面和键盘在截屏、录屏里显示为黑色", false,
-            this::saveScreenCaptureProtection);
+        screenCaptureRow = capture.toggle("防止截屏", null, false,
+            this::saveScreenCaptureProtection).help("设置页面和键盘在截屏、录屏里显示为黑色");
         screenCaptureRow.setEnabled(false);
-        capture.note("打开后，" + app + "设置里的页面和在其他应用里弹出的键盘不能被截屏、录屏或投屏，截出来是黑的，最近任务里也看不到设置页的内容。"
+        capture.help("打开后，" + app + "设置里的页面和在其他应用里弹出的键盘不能被截屏、录屏或投屏，截出来是黑的，最近任务里也看不到设置页的内容。"
             + "第一次打开不需要验证；打开过以后，再打开或关闭都要通过锁屏密码或生物识别验证。在系统设置里清除" + app + "的数据会让它回到关闭。");
 
         GroupCard incognito = GroupCard.add(sectionColumn(target, "无痕"), "隐私模式");
@@ -91,7 +90,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
             + "不学习新词、不调整候选顺序，不记录字数、按键和输入统计，不保存剪贴板历史和云剪贴板，也不做任何数据贡献。云候选、翻译、AI 润色这类你单独打开的联网功能按各自的开关照常工作，不受隐私模式影响。");
 
         GroupCard links = GroupCard.add(sectionColumn(target, "无痕"), null);
-        links.nav("隐私政策", "msime.app", null, this::openPolicy);
+        links.nav("隐私政策", null, null, this::openPolicy).help("msime.app");
         render();
     }
 
@@ -110,8 +109,8 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private void addToggle(GroupCard group, InputFeatureToggle toggle) {
-        GroupCard.Row row = group.toggle(toggle.title(), toggle.description(), toggle.enabledByDefault(),
-            value -> save(toggle, value));
+        GroupCard.Row row = group.toggle(toggle.title(), null, toggle.enabledByDefault(),
+            value -> save(toggle, value)).help(toggle.description());
         row.setEnabled(false);
         rows.put(toggle, row);
     }

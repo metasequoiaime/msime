@@ -162,7 +162,7 @@ public final class PluginEditorPage extends ColumnDetailPage {
             } else {
                 GroupCard kinds = GroupCard.add(target, "想做哪一种插件？").withDividers(Ui.ROW_PADDING_H);
                 for (PluginEditorPolicy.KindEntry entry : PluginEditorPolicy.AUTHORED_KINDS) {
-                    kinds.nav(entry.title(), entry.description(), null, () -> pick(entry.kind()));
+                    kinds.nav(entry.title(), null, null, () -> pick(entry.kind())).help(entry.description());
                 }
             }
             refreshStatus();
@@ -176,7 +176,7 @@ public final class PluginEditorPage extends ColumnDetailPage {
         field(basicsColumn, "作者（可不填）", current.author, null, false, false, value -> current.author = value);
         field(basicsColumn, "版本", current.version, null, false, true, value -> current.version = value);
         field(basicsColumn, "许可证", current.license, null, false, true, value -> current.license = value);
-        basics.note("许可证决定别人能怎样使用这个插件。" + PluginEditorPolicy.DEFAULT_LICENSE
+        basics.help("许可证决定别人能怎样使用这个插件。" + PluginEditorPolicy.DEFAULT_LICENSE
             + " 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。");
         field(padded(basics), "介绍（可不填）", current.description, null, true, false, value -> current.description = value);
 
@@ -233,7 +233,7 @@ public final class PluginEditorPage extends ColumnDetailPage {
 
     private void renderPhrases(LinearLayout target, Draft current) {
         GroupCard group = GroupCard.add(target, "短语（" + current.phrases.size() + "）");
-        group.note("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 "
+        group.help("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 "
             + PluginEditorPolicy.MAX_TEXT_UTF16 + " 个字符，不能换行。");
         for (int index = 0; index < Math.min(current.phrases.size(), shown); index++) {
             int row = index;
@@ -255,7 +255,7 @@ public final class PluginEditorPage extends ColumnDetailPage {
 
     private void renderCommands(LinearLayout target, Draft current) {
         GroupCard group = GroupCard.add(target, "指令（" + current.commands.size() + "）");
-        group.note("指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。");
+        group.help("指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。");
         for (int index = 0; index < current.commands.size(); index++) {
             int row = index;
             LinearLayout block = rowBlock(group, "第 " + (row + 1) + " 条指令", () -> {
@@ -316,15 +316,16 @@ public final class PluginEditorPage extends ColumnDetailPage {
                 render();
             });
         }
+        // 这一组没有组标题，符号组放在哪里的说明挂在「添加一组」这一行的「?」上。
         GroupCard add = GroupCard.add(target, null);
-        add.note("符号组以插件名为分类排在符号面板的内置符号之后，颜文字组排在「颜文字」之后。");
         addButton(add, "添加一组", current.groups.size() < PluginEditorPolicy.MAX_GROUPS,
-            () -> current.groups.add(PluginEditorPolicy.emptyGroup()));
+            () -> current.groups.add(PluginEditorPolicy.emptyGroup()))
+            .help("符号组以插件名为分类排在符号面板的内置符号之后，颜文字组排在「颜文字」之后。");
     }
 
     private void renderWords(LinearLayout target, Draft current) {
         GroupCard group = GroupCard.add(target, "单词（" + current.words.size() + "）");
-        group.note("每个单词要有释义，音标可以不填。单词本的名字最多 " + PluginEditorPolicy.MAX_WORDBOOK_NAME_CHARS
+        group.help("每个单词要有释义，音标可以不填。单词本的名字最多 " + PluginEditorPolicy.MAX_WORDBOOK_NAME_CHARS
             + " 个字，最多 " + PluginEditorPolicy.MAX_WORDS + " 个单词。");
         for (int index = 0; index < Math.min(current.words.size(), shown); index++) {
             int row = index;
@@ -355,7 +356,7 @@ public final class PluginEditorPage extends ColumnDetailPage {
     private void renderBulk(LinearLayout target, Draft current) {
         boolean phrases = PluginEditorPolicy.PHRASE_TABLE.equals(current.kind);
         GroupCard group = GroupCard.add(target, "批量添加");
-        group.note(phrases ? "编码在前，文字在后，中间用空格隔开，例如 dz 北京市海淀区。"
+        group.help(phrases ? "编码在前，文字在后，中间用空格隔开，例如 dz 北京市海淀区。"
             : "从表格复制过来即可：单词、释义两列，或单词、音标、释义三列，列之间用 Tab 隔开。");
         TextView[] issue = new TextView[1];
         TextView[] add = new TextView[1];
@@ -432,13 +433,14 @@ public final class PluginEditorPage extends ColumnDetailPage {
         });
     }
 
-    private void addButton(GroupCard group, String label, boolean enabled, Runnable add) {
+    private GroupCard.Row addButton(GroupCard group, String label, boolean enabled, Runnable add) {
         GroupCard.Row row = group.button(label, null, label, () -> {
             add.run();
             changed();
             render();
         });
         if (row.button() != null) row.button().setEnabled(enabled);
+        return row;
     }
 
     /** 红字的一行说明（问题、保存失败、批量粘贴读不出的那一行），没有内容时不占位置。 */

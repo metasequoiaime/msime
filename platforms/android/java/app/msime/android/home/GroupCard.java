@@ -29,12 +29,17 @@ import java.util.function.IntFunction;
  *
  * <p>组标题是强调色 14sp/500，相对卡片缩进 8dp，与卡片间隔 2dp；组与组之间 20dp。行最少 64dp 高、左右 16、上下 8，标题 16sp，副标题 14sp 次要文字色，行尾控件与文字间隔 14。行的种类就是设计里出现的这几种：导航（行尾是值和 ›）、值（只显示）、开关、滑块、按钮（tonal 胶囊，原型里漏出来的绿色底在这里一律是 accentSoft）和说明文字。
  *
+ * <p>说明不常驻页面（全平台设计语言）：设置项的解释用 {@link Row#help} 收进标题旁的「?」，分组的解释用 {@link #help} 收进组标题旁的「?」，点按在气泡里显示。副标题、{@link #note} 和 {@link #footer} 只留给要一眼看到的内容：当前值和状态、校验与错误反馈、风险警告、列表条目本身的信息，以及紧挨着按钮说明它后果的一句话。
+ *
  * <p>设计稿里普通分组是直角的 rowBg 色块、语言卡才是 r16 的 andCard，这是原型的不一致；按设计令牌的建议统一成 r16 andCard。颜色全部取主题属性。
  */
 public final class GroupCard {
     private final Context context;
     private final LinearLayout group;
     private final LinearLayout card;
+    @Nullable private TextView heading;
+    @Nullable private LinearLayout headerRow;
+    @Nullable private InfoTipView groupTip;
     private int dividerInset = -1;
 
     private GroupCard(ViewGroup parent, @Nullable CharSequence title) {
@@ -51,6 +56,7 @@ public final class GroupCard {
             LinearLayout.LayoutParams params = LayoutPolicy.matchWidthWrapParams();
             params.bottomMargin = DimensionPolicy.pixels(context, 2);
             group.addView(heading, params);
+            this.heading = heading;
         }
 
         card = LayoutPolicy.roundedColumn(context, ThemeColorPolicy.card(context), Ui.GROUP_RADIUS);
@@ -70,14 +76,49 @@ public final class GroupCard {
 
     /** 在组标题右侧放一个操作，保留标题的读屏语义和足够的按钮触控面积。 */
     public void headerAction(View action) {
-        if (group.getChildCount() == 0 || !(group.getChildAt(0) instanceof TextView)) return;
-        View heading = group.getChildAt(0);
+        LinearLayout row = headerRow();
+        if (row == null) return;
+        row.addView(action, LayoutPolicy.wrapParams());
+    }
+
+    /**
+     * 这一组的解释性说明，收进组标题旁的「?」，点按在气泡里显示；多次调用按顺序分段拼在一起。没有组标题的组没有地方放「?」，说明退回卡片下方的脚注。
+     */
+    public GroupCard help(CharSequence text) {
+        if (text == null || text.length() == 0) return this;
+        LinearLayout row = headerRow();
+        if (row == null) {
+            footer(text);
+            return this;
+        }
+        if (groupTip == null) {
+            groupTip = new InfoTipView(context);
+            groupTip.setSubject(heading == null ? null : heading.getText());
+            row.addView(groupTip, 1, InfoTipView.params(context));
+            groupTip.extendTouchTarget(group);
+            groupTip.setHelp(text);
+        } else {
+            groupTip.setHelp(new android.text.SpannableStringBuilder(groupTip.help()).append("\n\n").append(text));
+        }
+        return this;
+    }
+
+    /** 组标题所在的一行：标题、可选的「?」、把其余推到右侧的空白、可选的操作。第一次需要时才把标题挪进来。 */
+    @Nullable private LinearLayout headerRow() {
+        if (headerRow != null) return headerRow;
+        if (heading == null || group.getChildCount() == 0 || group.getChildAt(0) != heading) return null;
+        LinearLayout.LayoutParams original = (LinearLayout.LayoutParams) heading.getLayoutParams();
         group.removeViewAt(0);
         LinearLayout row = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(row);
-        row.addView(heading, LayoutPolicy.weightedWrapParams(1));
-        row.addView(action, LayoutPolicy.wrapParams());
-        group.addView(row, 0, LayoutPolicy.matchWidthWrapParams());
+        row.addView(heading, LayoutPolicy.wrapParams());
+        // 空白只负责把操作推到右侧；高度必须是 0，裸 View 按 WRAP_CONTENT 量会占满父容器给的整段高度，把标题行撑成整页高。
+        row.addView(new View(context), LayoutPolicy.weightedHeightPxParams(0, 1));
+        LinearLayout.LayoutParams params = LayoutPolicy.matchWidthWrapParams();
+        params.bottomMargin = original.bottomMargin;
+        group.addView(row, 0, params);
+        headerRow = row;
+        return row;
     }
 
     /** 卡片本身，需要放自定义内容时用。 */
@@ -257,8 +298,11 @@ public final class GroupCard {
     public static final class Row {
         private final LinearLayout view;
         private final TextView title;
+        private final LinearLayout titleLine;
         private final TextView subtitle;
         private final LinearLayout texts;
+        @Nullable private InfoTipView tip;
+        private boolean tipGesture;
         @Nullable private TextView value;
         @Nullable private MsSwitch toggle;
         @Nullable private MsSlider slider;
@@ -267,8 +311,12 @@ public final class GroupCard {
         private Row(GroupCard owner, CharSequence titleText, @Nullable CharSequence subtitleText, boolean interceptTouches) {
             Context context = owner.context;
             // 开关行整行接收点按：开关本身不单独响应拖动，否则拖动开关和点整行会各切换一次。
+            // 只有按在「?」上的那一次点按放给「?」自己；按下时决定，整个手势沿用，手指滑出「?」也不会转去切换开关。
             view = interceptTouches ? new LinearLayout(context) {
-                @Override public boolean onInterceptTouchEvent(MotionEvent event) { return true; }
+                @Override public boolean onInterceptTouchEvent(MotionEvent event) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) tipGesture = hitsTip(event);
+                    return !tipGesture;
+                }
             } : new LinearLayout(context);
             view.setOrientation(LinearLayout.HORIZONTAL);
             ViewPolicy.setCenteredVertically(view);
@@ -277,7 +325,11 @@ public final class GroupCard {
 
             texts = LayoutPolicy.column(context);
             title = ViewPolicy.styledLabel(context, titleText, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
-            texts.addView(title);
+            // 标题和「?」排一行：这一行按内容收窄，「?」紧跟标题；标题太长时由它的权重让出位置给「?」，自己折行。
+            titleLine = LayoutPolicy.row(context);
+            ViewPolicy.setCenteredVertically(titleLine);
+            titleLine.addView(title, LayoutPolicy.weightedWrapParams(1f));
+            texts.addView(titleLine, LayoutPolicy.wrapParams());
             subtitle = ViewPolicy.styledLabel(context, subtitleText, Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));
             LinearLayout.LayoutParams subtitleParams = LayoutPolicy.wrapParams();
             subtitleParams.topMargin = DimensionPolicy.pixels(owner.context, 1);
@@ -296,7 +348,30 @@ public final class GroupCard {
         /** 整行。 */
         public View view() { return view; }
 
-        public void setTitle(CharSequence text) { title.setText(text); }
+        /** 这一项的解释性说明，收进标题旁的「?」，点按在气泡里显示；传空则不显示「?」。当前值、状态和错误仍用副标题。 */
+        public Row help(@Nullable CharSequence text) {
+            if (tip == null) {
+                if (text == null || text.length() == 0) return this;
+                tip = new InfoTipView(view.getContext());
+                tip.setSubject(title.getText());
+                titleLine.addView(tip, InfoTipView.params(view.getContext()));
+                tip.extendTouchTarget(view);
+            }
+            tip.setHelp(text);
+            return this;
+        }
+
+        /** 按下点是否落在「?」的可点区域里；与挂在整行上的 TouchDelegate 用同一块区域，判为「?」的点按一定能送到「?」。 */
+        private boolean hitsTip(MotionEvent event) {
+            if (tip == null) return false;
+            android.graphics.Rect target = tip.targetIn(view);
+            return target != null && target.contains((int) event.getX(), (int) event.getY());
+        }
+
+        public void setTitle(CharSequence text) {
+            title.setText(text);
+            if (tip != null) tip.setSubject(text);
+        }
 
         public void setSubtitle(@Nullable CharSequence text) {
             ViewPolicy.setTextAndVisibility(subtitle, text);

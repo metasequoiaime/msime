@@ -223,6 +223,27 @@ if ! rg -q 'livePreferences == null \? options\.optJSONObject\("preferences"\) :
   echo "Android must seed the startup preference copy with the remembered nine-key layout before NativeClient.create when live preferences are missing, and draw from the engine view once it exists (#10389)" >&2
   exit 1
 fi
+# 首帧布局诊断（#10389，.agents/notes/implemented/bug-fix/2026-11-01-android-first-frame-layout-diagnostics.md）。种类怎么取由 TouchLayoutDiagnosticsSmoke 覆盖，种类清单由 ImePrivacyGateSmoke 和 client-services 的诊断包测试钉住；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：会话到达前画的布局在 NativeClient.create 之前取（focus 可能已经按会话重画键区），窗口没显示时不取（键行是上一个输入框留下的）；会话建好后记偏好来源（是否读到实时偏好、副本是否按提示改过）、会话到达前画的布局和会话给出的布局；实时偏好在建会话时应用上就在建会话里记应用后的布局，否则在 reloadPreferences 里有快照时记，不看重读前有没有快照（键盘里的保存或触控板可能先换上快照），每个会话只记一次、会话结束时清掉标记；不认识的布局不交给日志。
+first_drawn_match=$(rg -n -m 1 'int firstDrawnLayout = imeWindowVisible \? imeLetterRows\.drawnTouchLayout\(\) : -1;' <<< "$start_session_body" || true)
+first_drawn_line=${first_drawn_match%%:*}
+record_touch_layout_body=$(sed -n '/^    private void recordTouchLayout(TouchLayoutDiagnostics\.Stage stage, int layout) {$/,/^    }$/p' "$service_java")
+record_live_layout_body=$(sed -n '/^    private void recordLiveTouchLayout() {$/,/^    }$/p' "$service_java")
+stop_session_state_body=$(sed -n '/^    private void stopSessionState() {$/,/^    }$/p' "$service_java")
+if [ -z "$first_drawn_line" ] || [ "$first_drawn_line" -ge "$startup_create_line" ] \
+  || ! rg -q 'hintedPreferences = true;' <<< "$start_session_body" \
+  || ! rg -q 'imeDebugOverlay\.recordEvent\(TouchLayoutDiagnostics\.sessionPreferences\(livePreferences != null, hintedPreferences\)\);' <<< "$start_session_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.FIRST_DRAWN, firstDrawnLayout\);' <<< "$start_session_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.CREATED, displayedTouchLayout\(view\)\);' <<< "$start_session_body" \
+  || ! rg -q 'if \(liveApplied\) recordLiveTouchLayout\(\);' <<< "$start_session_body" \
+  || ! rg -q '^        if \(preferencesSnapshot != null\) recordLiveTouchLayout\(\);$' <<< "$reload_body" \
+  || ! rg -q 'if \(liveTouchLayoutRecorded\) return;' <<< "$record_live_layout_body" \
+  || ! rg -q 'liveTouchLayoutRecorded = true;' <<< "$record_live_layout_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.LIVE, displayedTouchLayout\(view\)\);' <<< "$record_live_layout_body" \
+  || ! rg -q 'liveTouchLayoutRecorded = false;' <<< "$stop_session_state_body" \
+  || ! rg -q 'if \(kind != null\) imeDebugOverlay\.recordEvent\(kind\);' <<< "$record_touch_layout_body"; then
+  echo "Android must record where the engine session's preferences came from and the touch layout drawn before the session, at creation and once live preferences apply (#10389)" >&2
+  exit 1
+fi
 # 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧在画帧前登记帧提交回调（API 28 退到下一帧回调），交出去后才放行等着的建会话，而不是在画帧前直接 post（API 30 上那样会抢在画完的报告前面）；收起时马上放行等着的建会话；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
 start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
 schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")
@@ -1353,7 +1374,8 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);' <<< "$style_render" \
   || ! rg_q_stdin -F 'kind = KeyLayoutStylesPolicy.initialKind(kinds, current, shuangpinLayout, wubiLayout);' <<< "$style_render" \
   || ! rg_q_stdin -F 'eighteen = KeyLayoutStylesPolicy.eighteen(current, shuangpinLayout);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", NUMBER_ROW_NOTE, numberRow, checked -> {' <<< "$style_render" \
+  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", null, numberRow, checked -> {' <<< "$style_render" \
+  || ! rg_q_stdin -F '}).help(NUMBER_ROW_NOTE);' <<< "$style_render" \
   || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
@@ -1384,7 +1406,7 @@ if ! rg -qF 'static final String LONG_SPACE_NOTE = "符号键移到工具栏。"
   || ! rg -qF 'static final String TALL_RETURN_NOTE = "回车竖占两行，符号键在左下角。";' "$style_policy" \
   || rg -q 'TWENTY_SIX_KEY_NOTE|FOURTEEN_KEY_NOTE|NINE_KEY_NOTE' "$style_page" "$style_policy" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
-  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,' \
+  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", null, null,\n[^\n]*\)\.help\("各类键盘的底行样式、键位和顶部数字行"\);' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java" \
@@ -1405,10 +1427,10 @@ if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPad
   || ! rg -qF '|| imeLayoutRows.numberPadSpaceStale()' "$account_service" \
   || ! rg_q_stdin -F 'symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);' <<< "$style_render" \
   || ! rg_q_stdin -U 'note = caption;\n\n\s*//.*\n\s*GroupCard toggles = GroupCard\.add\(target, null\);\n\s*if \(kinds\.contains\(KeyLayoutStylesPolicy\.Kind\.TWENTY_SIX\)\) \{\n\s*symbolFirstRow = toggles\.toggle\(' <<< "$style_section" \
-  || ! rg_q_stdin -U 'toggles\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, TouchKeyStyle\.SYMBOL_FIRST_NOTE, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -U 'toggles\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, null, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);\n\s*\}\)\.help\(TouchKeyStyle\.SYMBOL_FIRST_NOTE\);' <<< "$style_section" \
   || ! rg_q_stdin -F 'if (swap != null) swap.setVisible(shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);' <<< "$style_refresh" \
   || ! rg_q_stdin -U 'if \(kind != null\) styleSection\(context, target, kinds\);\n\s*//.*\n\s*if \(groups\.any\(\)\) numberPadSection\(context, target\);\n\s*//.*\n\s*if \(!groups\.numberRow\(\)\) return;' <<< "$style_render" \
-  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
+  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.help\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
   || rg_q_stdin -F 'HorizontalScrollView' <<< "$number_pad_section" \
   || ! rg_q_stdin -F 'for (TouchKeyStyle.NumberPadSpace choice : TouchKeyStyle.NumberPadSpace.CHOICES)' <<< "$number_pad_refresh" \
   || ! rg_q_stdin -F 'addChip(context, row, chip(context, choice.title, choice == numberPadSpace, () -> chooseNumberPadSpace(choice)));' <<< "$number_pad_refresh" \
@@ -1445,12 +1467,38 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   || rg -q 'NineKeySidebar|edit_sidebar_key|"九键左侧符号"|"九键数字键盘左侧符号"' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE, null,' <<< "$sidebar_section" \
   || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.DIGIT_SIDEBAR_TITLE, null,' <<< "$sidebar_number_pad" \
-  || ! rg_q_stdin -U 'numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -U 'numberPad\.help\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
   || ! rg_q_stdin -F 'if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);' <<< "$sidebar_refresh" \
   || ! rg -qF 'KeyboardSheets.save(owner, edited -> edited.put(key, new JSONArray(stored)),' "$sidebar_sheet" \
   || ! rg -qF 'List<String> stored = NineKeySidebarPolicy.toPreference(symbols, defaults);' "$sidebar_sheet" \
   || rg -q 'saveLocal' "$sidebar_sheet"; then
   echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
+  exit 1
+fi
+# 「文本编辑按键顺序」「符号分类顺序」按住把手拖动排序（#10392，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号由 ReorderPolicySmoke 覆盖；拖动和读屏操作在 ReorderList 里，JVM 冒烟碰不到，这里钉住：两张面板都经 ReorderList 画行、不再有上下箭头；拖动模型与「九键左侧符号」编辑页相同，按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏模型也相同：名称念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行。
+reorder_list="$repo_root/platforms/android/java/app/msime/android/home/ReorderList.java"
+for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
+  reorder_sheet_file="$repo_root/platforms/android/java/app/msime/android/home/$reorder_sheet.java"
+  if ! rg -qF 'rows = new ReorderList<>(' "$reorder_sheet_file" \
+    || rg -q 'addArrow|"↑"|"↓"|上下箭头' "$reorder_sheet_file"; then
+    echo "Android $reorder_sheet must reorder through ReorderList's drag handle, not up/down arrows" >&2
+    exit 1
+  fi
+done
+if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
+  || ! rg -qF 'handle.setOnTouchListener((touched, event) -> handleDrag(views, event));' "$reorder_list" \
+  || ! rg -qF 'int target = ReorderPolicy.dragTarget(centers[dragFrom] + offset, dragFrom, centers);' "$reorder_list" \
+  || ! rg -qF 'items = ReorderPolicy.moved(items, from, to);' "$reorder_list" \
+  || ! rg -qF 'float scrolled = rowsTopAtDown - screenTop(rows);' "$reorder_list" \
+  || ! rg -qF 'scroller.scrollBy(0, step);' "$reorder_list" \
+  || ! rg -qF 'step = ReorderPolicy.scrollTowardRoom(step,' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "上移",' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "下移",' "$reorder_list" \
+  || ! rg -qF 'views.title().setContentDescription(ReorderPolicy.ordinalDescription(position, views.label()));' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.setStateDescription(views.handle(), ReorderPolicy.positionDescription(position));' "$reorder_list" \
+  || ! rg -qF 'handle.setOnKeyListener((focused, keyCode, event) -> onKey(views, keyCode, event));' "$reorder_list" \
+  || ! rg -qF 'row.addView(handle, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),' "$reorder_list"; then
+  echo "Android order sheets must drag from the handle the way the nine-key sidebar editor does (translationY, layout midlines, edge-scrolling the sheet), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
   exit 1
 fi
 # 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排法由 TouchKeyStyleSmoke 覆盖，预览与高亮由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着它、字母层底行和数字九宫格都按它排；右侧大回车九宫格下方那一行按它排，变了经 tallReturnStale 整块重建；设置页三个分段都显示这个开关（不在 26 键的 if 里，排在互换开关之后），改它先重画预览再写 left / right；热力图跟着画；设置搜索登记了标题。
@@ -1460,7 +1508,7 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
     | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {' \
   || ! sed -n '/    boolean tallReturnStale() {$/,/^    }$/p' "$layout_rows" | rg_q_stdin -F 'builtTallReturnLanguageLeft != s.languageKeyLeft' \
   || ! rg_q_stdin -F 'languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' <<< "$style_render" \
-  || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, TouchKeyStyle\.LANGUAGE_LEFT_NOTE, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);\n\s*\}\)\.help\(TouchKeyStyle\.LANGUAGE_LEFT_NOTE\);' <<< "$style_section" \
   || ! rg -qF 'boolean languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java" \
   || ! rg -qF 'KeyHeatmapLayout.nine(styles.nine(), languageLeft)' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java" \
   || ! rg -qF '"中/英键放在空格左边"' "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
@@ -1817,7 +1865,9 @@ if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_p
   || ! rg -qF 's.imeLayoutRows.nineKeyDecimalKey()' "$side_pad_builder" \
   || ! rg -qF 's.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);' "$side_pad_builder" \
   || ! rg -qF 'if (sidePad != null) applySidePadGeometry(sidePad);' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java" \
-  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",' \
+  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", null,' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg -qF '.help("单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。");' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"; then
   echo "Android one-handed side number pad wiring is missing: read touch_one_handed_side_panel into the geometry key and skin hint, place the pad in ImeFrame.applyOneHanded, reuse the digit-layer literal commit and backspace repeat, follow the key geometry, and keep the shared settings wording" >&2
@@ -1936,6 +1986,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/ReorderPolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
   "${test_sources[@]}"
 # 可选 OCR 模块的前后处理只用 Java 标准库，跟宿主的纯 Java 模型一起编译，由 tests/ocr/OcrPipelineSmoke.java 覆盖；模块里调用 ONNX Runtime 和 Android 图形接口的 OcrModule 只由 Gradle 编译。
