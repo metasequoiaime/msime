@@ -4981,12 +4981,11 @@ private:
     section.Spacing(8);
     section.Margin(Thickness{0, 20, 0, 0});
     if (!title.empty()) {
-      // 组名和它旁边的「?」（explain_group 收进来的组说明）排在一行，标记成组头供 explain_group 找到。
+      // 组名和它旁边的「?」（explain_group 收进来的组说明）排在一行，登记在 group_headers_ 里供 explain_group 找到。
       StackPanel header;
       header.Orientation(Orientation::Horizontal);
       header.Spacing(4);
       header.Margin(Thickness{8, 0, 8, 0});
-      header.Tag(box_value(L"group-header"));
       auto heading = make_text(title, 14, palette_.text);
       heading.FontWeight(Windows::UI::Text::FontWeight{600});
       heading.VerticalAlignment(VerticalAlignment::Center);
@@ -4999,6 +4998,8 @@ private:
     card.Child(rows);
     section.Children().Append(card);
     page.Children().Append(section);
+    if (!title.empty())
+      group_headers_.push_back({rows, section.Children().GetAt(0).as<StackPanel>(), card});
     return rows;
   }
 
@@ -5071,17 +5072,15 @@ private:
 
   // 分组的解释性说明收进组名旁的「?」，对应共享页有组名的 GroupList 收集 SettingsGroupNote。同一组说了几段时接在同一个「?」里，段与段之间空一行。`group` 不是 add_group 给的有组名的行面板时，照旧把说明画在原处。状态、校验和错误反馈、空列表和截断提示、风险警告、紧挨按钮讲后果的话不走这里，仍用 group_note 画在原处。组里除了说明没有别的内容时（语音页的「本地识别」「Windows 系统语音」），说明移走后卡片是空的，组建完（Loaded）时收起卡片，只留组名和「?」。
   void explain_group(StackPanel const &group, std::wstring const &text) {
-    StackPanel header{nullptr};
-    auto card = group.Parent().try_as<Border>();
-    if (card)
-      if (auto section = card.Parent().try_as<StackPanel>(); section && section.Children().Size() > 0)
-        if (auto first = section.Children().GetAt(0).try_as<StackPanel>();
-            first && unbox_value_or<hstring>(first.Tag(), L"") == L"group-header")
-          header = first;
-    if (!header) {
+    // 按 add_group 登记的组头找，不沿 Parent() 往上找：在 CI 的真实窗口里那条父链取不到组头，说明全都退回了组内。
+    const auto entry = std::find_if(group_headers_.begin(), group_headers_.end(),
+                                    [&group](GroupHeader const &known) { return known.rows == group; });
+    if (entry == group_headers_.end()) {
       group.Children().Append(group_note(text));
       return;
     }
+    const auto header = entry->header;
+    const auto card = entry->card;
     if (header.Children().Size() > 1) {
       auto tip = header.Children().GetAt(1).as<FrameworkElement>();
       const auto combined = std::wstring(A11y::GetHelpText(tip)) + L"\n\n" + text;
@@ -6235,6 +6234,8 @@ private:
   // ---- Pages ----
 
   void build_page(std::string_view id, StackPanel const &page) {
+    // 上一次建页登记的组头随旧页面一起作废。
+    group_headers_.clear();
     const auto *model = nav::find_page(id);
     if (!model)
       return;
@@ -27109,6 +27110,13 @@ private:
   // 建索引时这一页的标签（取标签名）和正在画的分组标题，写进搜索结果的位置，见 record。
   std::vector<Option> index_tabs_;
   std::wstring group_index_;
+  // add_group 建的有组名的组：行面板、组名一行和卡片，explain_group 按行面板找到组名一行挂「?」。每次 build_page 清空。
+  struct GroupHeader {
+    StackPanel rows{nullptr};
+    StackPanel header{nullptr};
+    Border card{nullptr};
+  };
+  std::vector<GroupHeader> group_headers_;
   // 「自定义配色」折叠区和「候选字体」的「自定义…」各自的状态，跨重画保留。
   bool custom_colors_open_ = false;
   bool candidate_font_custom_ = false;
