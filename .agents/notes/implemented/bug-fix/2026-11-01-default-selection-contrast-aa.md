@@ -18,7 +18,17 @@ Status: implemented
 | HarmonyOS 2in1 候选窗 | 浅色 | `#2C7A4B` 13% 淡底 | `#2C7A4B` 4.4:1 | `#182431` 0.6，4.0:1 |
 | HarmonyOS 2in1 候选窗 | 深色 | `#5FBF84` 25% 淡底 | `#5FBF84` 4.1:1 | 白色 0.6，4.5:1 |
 
-iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在键帽或键盘底色上的强调色文字，默认配色来自季节应用主题（`app_theme.rs` 的种子色），不是 `#5FBF84` 底配白字，不在这次范围里。
+iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在键盘底色上的强调色文字，默认配色来自季节应用主题（`app_theme.rs` 的种子色），不是 `#5FBF84` 底配白字，不在这次范围里。但它同样到不了 AA，量过三端共用的公式（键盘底色浅色 `mix(accent 12%, background)`、深色 `mix(accent 10%, #161716)`，三端的 `AppThemePalette` 逐位一致）：
+
+| 首选文字在键盘底色上 | 浅色 | 深色 |
+| --- | --- | --- |
+| 春芽 `#4E9A3A` / `#9AD983` | 2.7:1 | 8.9:1 |
+| 夏荫 `#17704A` / `#5FD39A` | 4.3:1 | 8.0:1 |
+| 秋杉 `#B5562B` / `#F0975F` | 3.5:1 | 6.8:1 |
+| 冬雪 `#3A6A8A` / `#93C7E6` | 4.2:1 | 8.1:1 |
+| HarmonyOS 种子未解析时的回退（`#2C7A4B` 在 `#D9E2D6` 上，深色 `#5FBF84` 在 `#121814` 上） | 4.0:1 | 7.9:1 |
+
+深色全部达标，浅色四季和回退都低于 4.5:1。要改就是改手机键盘 UI，按约定 iOS、Android 和 HarmonyOS 放在同一个 PR 里一起改，记为后续，不在这篇里做。
 
 ## Decision
 
@@ -30,7 +40,7 @@ iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在�
 - **Linux**：选中底从 GNOME 强调色 `#3584E4` 换成同一色系更深的 Adwaita 调色板 Blue 5 `#1A5FB4`（`kLinuxSelection`），白字约 6.3:1，85% 白的序号约 5.0:1；选中行没有皮肤释义色时释义画序号色，所以释义和读音也是 5.0:1。`kLinuxAccent` 仍是 `#3584E4`。悬浮工具栏的勾本来就取候选窗的选中底和选中文字（`floating_toolbar_colors`），跟着变成 `#1A5FB4` 配白字；双拼键位图的高亮键仍填 `kLinuxAccent`。
 - **共享设置页的候选预览**：macOS、Windows 两块默认值的 `--cand-selected` 按明暗写成 `#2C7A4B` 和 `#17783F`，调色板给了强调色、没给选中底时经 `candidatePaletteStyle` 写出的 `--cand-mac-selected` 跟随强调色，和原生 `ResolveSkin` 一致；`candidate-preview-native-tokens.test.ts` 照旧对照原生源码。
 
-- **HarmonyOS 2in1 候选窗**：淡底（`#2C7A4B` 13%、`#5FBF84` 25%）不变，`GlobalTheme.ts` 的原生候选 token 里选中文字换成品牌的强调墨绿，浅色 `#17783F`（msime-web 浅色 `--accent-ink`）约 4.6:1，深色 `#8FE59C`（深色 `--accent-ink`）约 6.2:1。浅色的选中序号从 `#182431` 60% 提到 70%（`#B3182431`），约 5.4:1。2in1 选中行的释义、注释和编码提示原来画次要色（浅色 4.0:1），改成 `GlobalTheme.candidateDetail`：次要色就是序号色（没有皮肤包自己的释义色）时选中行取选中序号色，和 macOS 把设计稿的 `candSelTr` 画成选中序号色一样；读音和释义同色。触屏候选条不走这条规则。
+- **HarmonyOS 2in1 候选窗**：淡底（`#2C7A4B` 13%、`#5FBF84` 25%）不变，`GlobalTheme.ts` 的原生候选 token 里选中文字换成品牌的强调墨绿，浅色 `#17783F`（msime-web 浅色 `--accent-ink`）约 4.6:1，深色 `#8FE59C`（深色 `--accent-ink`）约 6.1:1。浅色的选中序号从 `#182431` 60% 提到 70%（`#B3182431`），约 5.4:1。2in1 选中行的释义、注释和编码提示原来画次要色（浅色 4.0:1），改成 `GlobalTheme.candidateDetail`：次要色就是序号色（没有皮肤包自己的释义色）时选中行取选中序号色，和 macOS 把设计稿的 `candSelTr` 画成选中序号色一样；读音和释义同色。触屏候选条不走这条规则。
 
 ### 对比度测试
 
@@ -38,7 +48,7 @@ iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在�
 - Windows `candidate_palette.cpp`：两种明暗的默认调色板，选中文字和选中行释义不低于 4.5:1，释义是白色、不透明度在 0.82 和 1 之间；另用白对黑 21:1、白对 `#5FBF84` 约 2.27:1、白对 `#17783F` 约 5.53:1 校准对比度算法。
 - Linux `candidate_palette.cpp`：两种明暗的原生调色板，选中底是 `kLinuxSelection`，选中文字和序号不低于 4.5:1，`kLinuxAccent` 上的白字低于 4.5:1。
 - 共享预览：默认选中文字对两种明暗的默认选中底不低于 4.5:1。
-- HarmonyOS `keyboard-logic.test.ts`：两种明暗的 2in1 原生 token，选中文字和选中行释义合成到淡底上不低于 4.5:1，强调色本身低于 4.5:1，未选中行仍是次要色，皮肤包自己的释义色在选中行照用；`tests/run.sh` 的接线检查改成带 `candidate.highlighted` 的调用。
+- HarmonyOS `keyboard-logic.test.ts`：两种明暗的 2in1 原生 token，选中文字和选中行释义合成到淡底上不低于 4.5:1，强调色本身低于 4.5:1，未选中行仍是次要色，皮肤包自己的释义色在选中行照用；`tests/run.sh` 的接线检查改成带 `candidate.highlighted` 的调用，并钉住 `candidateDetailColor` 的函数体：只在 `KeyboardFormFactor.isDesktop()` 时走 `GlobalTheme.candidateDetail`，触屏条仍是次要色。
 
 ### Windows 的取色测试在 CI 上执行
 
@@ -60,4 +70,4 @@ iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在�
 
 - **收益**：macOS（非玻璃）、Windows、Linux 的默认选中行，候选文字、释义和读音在两种明暗下都不低于 4.5:1；新的对比度断言让以后改默认色时退化会在单测里失败，Windows 的两项取色测试第一次在 CI 上真正运行。
 - **代价**：深色模式的选中行比原来暗，和强调色不再是同一个绿；macOS 玻璃和非玻璃的深色选中行颜色不同（玻璃 `#5FBF84` 配深色字，非玻璃 `#17783F` 配白字）。Linux 的选中行不再是 GNOME 强调色。默认选中行的序号仍是白色 0.82（`#17783F` 上约 4.3:1，`#2C7A4B` 上约 4.1:1），这次只保证候选文字和释义、读音。
-- **未覆盖**：触屏候选条不在范围里；HarmonyOS 2in1 未选中行的次要色在浅色白卡片上约 4.2:1，不是选中行，这次不动。HarmonyOS 的改动只在 node 下的逻辑测试和 CI 的编译里验证，没有在 2in1 设备或模拟器上看过。macOS 的改动在 CI 和本机单测上验证，Windows 和 Linux 的画面以 CI 的截图产物和单测为准，没有在真机上看过。
+- **未覆盖**：触屏候选条浅色模式的首选文字在四季和回退配色下都低于 4.5:1（见 Problem 的表），是后续要在 iOS、Android 和 HarmonyOS 一起改的事；HarmonyOS 2in1 未选中行的次要色在浅色白卡片上约 4.2:1，不是选中行，这次不动。PR 的 CI 不编译 ArkTS（HarmonyOS 作业只跑 `tests/run.sh` 和设置页构建，hvigor 只在 `release-harmony.yml` 里跑），HarmonyOS 的改动由 node 下的逻辑测试、`tests/run.sh` 对 `candidateDetailColor` 的接线检查和本机一次 `hvigorw assembleHap`（ArkTS 编译通过，没有错误）验证，没有在 2in1 设备或模拟器上看过。macOS 的改动在 CI 和本机单测上验证，Windows 和 Linux 的画面以 CI 的截图产物和单测为准，没有在真机上看过。

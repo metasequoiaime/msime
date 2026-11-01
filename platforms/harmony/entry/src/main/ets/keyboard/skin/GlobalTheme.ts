@@ -142,7 +142,7 @@ const NATIVE_KEYBOARD_DARK: KeyboardThemePalette = {
 };
 
 // 2in1 候选窗（设计稿中的 hm2 条目）：白色或 #262626 的卡片、细线边框，选中行用强调色淡底而不是色条。淡底即设计稿中季节的 `accent + '22'` / `accent + '40'`，套用在平台强调色上。
-// 选中行的字和释义要对淡底到 WCAG AA 的 4.5:1：强调色本身压在自己的淡底上只有约 4.4:1（浅色 `#2C7A4B`）和 4.1:1（深色 `#5FBF84`），选中文字换成品牌的强调墨绿（msime-web 的 `--accent-ink`），浅色 `#17783F` 约 4.6:1、深色 `#8FE59C` 约 6.2:1；浅色的选中序号（选中行的释义也用它，见 `candidateDetail`）从 60% 提到 70%，约 5.4:1。淡底、强调色和未选中行不变。
+// 选中行的字和释义要对淡底到 WCAG AA 的 4.5:1：强调色本身压在自己的淡底上只有约 4.4:1（浅色 `#2C7A4B`）和 4.1:1（深色 `#5FBF84`），选中文字换成品牌的强调墨绿（msime-web 的 `--accent-ink`），浅色 `#17783F` 约 4.6:1、深色 `#8FE59C` 约 6.1:1；浅色的选中序号（选中行的释义也用它，见 `candidateDetail`）从 60% 提到 70%，约 5.4:1。淡底、强调色和未选中行不变。
 const NATIVE_CANDIDATE_LIGHT: CandidateColors = {
   surface: "#FFFFFF",
   border: "#0F000000",
