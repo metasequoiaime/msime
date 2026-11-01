@@ -18,7 +18,7 @@ export class KeyboardIconPaths {
   /** 词库 */
   static readonly LEXICON: string =
     "M2 4L8 4C10.2091 4 12 5.7909 12 8L12 21C12 19.3431 10.6569 18 9 18L2 18ZM22 4L16 4C13.7909 4 12 5.7909 12 8L12 21C12 19.3431 13.3431 18 15 18L22 18Z";
-  /** 键盘高度 */
+  /** 键盘调整（功能面板磁贴，原来叫「键盘高度」） */
   static readonly KEYBOARD_HEIGHT: string =
     "M12 22L12 16M12 8L12 2M4 12L2 12M10 12L8 12M16 12L14 12M22 12L20 12M15 19L12 22L9 19M15 5L12 2L9 5";
   /** 设置 */
@@ -58,6 +58,19 @@ export class KeyboardIconPaths {
   static readonly VIBRATION_STRENGTH: string = "M22 12L18 12L15 21L9 3L6 12L2 12";
   /** 方案选择器里的「添加语言」（Lucide 风格的 plus）。 */
   static readonly PLUS: string = "M12 5L12 19M5 12L19 12";
+
+  // ---- 键盘调整遮罩上的三个按钮（Lucide 风格的 rotate-ccw、move、circle-check），描边 `ADJUST_STROKE`，白色 ----
+
+  static readonly ADJUST_STROKE: number = 1.7;
+  /** 重置：逆时针回转箭头。 */
+  static readonly ADJUST_RESET: string =
+    "M3 12C3 16.9706 7.0294 21 12 21C16.9706 21 21 16.9706 21 12C21 7.0294 16.9706 3 12 3C9.4842 3 7.0897 4.0326 5.26 5.74L3 8M3 3L3 8L8 8";
+  /** 移动：四向箭头。 */
+  static readonly ADJUST_MOVE: string =
+    "M12 2L12 22M2 12L22 12M9 5L12 2L15 5M9 19L12 22L15 19M5 9L2 12L5 15M19 9L22 12L19 15";
+  /** 确认：圆圈里的对勾。 */
+  static readonly ADJUST_CONFIRM: string =
+    "M12 22C17.5228 22 22 17.5228 22 12C22 6.4772 17.5228 2 12 2C6.4772 2 2 6.4772 2 12C2 17.5228 6.4772 22 12 22ZM9 12L11 14L15 10";
 
   /** 开启状态角标里的对勾，描边加粗，在 9vp 下也看得清。 */
   static readonly CHECK_STROKE: number = 4;

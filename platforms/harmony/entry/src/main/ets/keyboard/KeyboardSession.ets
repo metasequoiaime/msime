@@ -33,6 +33,8 @@ import { CommonPhraseStarters } from './CommonPhraseStarters';
 import { SettingsPageLink } from './SettingsPageLink';
 import { ToolbarTools, ToolbarToolsDocument, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import { TouchHeightRelay, TouchLayoutStylePolicy, TouchPanelFace, TouchPanelShape } from './TouchLayoutStylePolicy';
+import { KeyboardAdjustPolicy } from './KeyboardAdjustPolicy';
+import { FloatingKeyboardPolicy } from './FloatingKeyboardPolicy';
 import { OneHandedPolicy, OneHandedSidePanel } from './OneHandedPolicy';
 import { SplitKeyboardPolicy, SplitKeyboardSettings } from './SplitKeyboardPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
@@ -1472,6 +1474,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private enterKey: number = inputMethodEngine.ENTER_KEY_TYPE_UNSPECIFIED;
   /** 扩展能力建手机面板时定下的形状（`decideFirstTouchPanel`），视图出现时从它出发核对高度。 */
   private openedTouchPanel: TouchPanelShape | null = null;
+  /** 扩展能力建手机面板时算进第一帧高度的底部抬高（vp，`KeyboardAdjustPolicy.liftVp`），视图出现时从它出发核对。 */
+  private openedTouchLiftVp: number = 0;
   /** 上次读到或写下的 `touch_panel_face.json` 内容，键面没变时不重写。 */
   private touchPanelFaceWritten: string = '';
   private traits: EditorTraits = {
@@ -3486,7 +3490,16 @@ export class KeyboardSession implements HardwareKeyTarget {
     const settings: KeyboardPreferences = this.preferences();
     this.openedTouchPanel = TouchLayoutStylePolicy.firstPanel(this.rememberedTouchPanelFace(), settings.numberRow,
       settings.twentySixKeyStyle, TouchToolbarPolicy.rowHidden(settings.toolbarTools), phoneLandscape);
+    // 底部抬高只在停靠、非手机横屏时算进面板高度；单手和分离只影响宽度，这里不用知道。
+    const feedback: FeedbackSettings = this.feedbackCurrent;
+    this.openedTouchLiftVp = KeyboardAdjustPolicy.liftVp(feedback.bottomLift, KeyboardAdjustPolicy.availability(
+      FloatingKeyboardPolicy.active(feedback.floating, false), phoneLandscape, false, false, false));
     return this.openedTouchPanel;
+  }
+
+  /** 扩展能力建面板时算进第一帧高度的底部抬高（vp）；没有经过 `decideFirstTouchPanel` 时为 0。 */
+  firstTouchLift(): number {
+    return this.openedTouchLiftVp;
   }
 
   /** 扩展能力建面板时用的形状；没有经过 `decideFirstTouchPanel` 时就是它没记过键面时的样子。 */
@@ -6259,7 +6272,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       incognito: on,
       floating: current.floating,
       floatingX: current.floatingX,
-      floatingY: current.floatingY
+      floatingY: current.floatingY,
+      bottomLift: current.bottomLift,
+      widthPercent: current.widthPercent,
+      positionX: current.positionX
     };
     if (!this.saveFeedback(next)) {
       return current.incognito;
@@ -6281,6 +6297,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.onFloatingKeyboardChanged();
     }
     return on;
+  }
+
+  /** 键盘调整确认或以别的方式离开时存下底部抬高、宽度和水平位置（设备本地，不同步）。三项都没变时不写盘。返回是否已存下。 */
+  saveKeyboardAdjust(bottomLift: number, widthPercent: number, positionX: number): boolean {
+    const current: FeedbackSettings = this.feedbackCurrent;
+    const next: FeedbackSettings = KeyboardFeedback.withAdjust(current, bottomLift, widthPercent, positionX);
+    if (next.bottomLift === current.bottomLift && next.widthPercent === current.widthPercent
+      && next.positionX === current.positionX) {
+      return true;
+    }
+    if (!this.saveFeedback(next)) {
+      KeyboardLog.error('keyboard adjustment not saved');
+      return false;
+    }
+    return true;
   }
 
   /** 拖动松手后存下浮动面板的位置（千分比）。写不进去时位置只在这次键盘进程里有效，不打扰用户，与 Android 相同。 */

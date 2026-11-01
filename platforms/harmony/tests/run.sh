@@ -216,8 +216,9 @@ ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/K
 decide_line=$(grep -nF 'KeyboardSession.shared.decideFirstTouchPanel(' "$ability" | head -n 1 | cut -d: -f1)
 mount_line=$(grep -nF "await panel.setUiContent('keyboard/KeyboardView');" "$ability" | head -n 1 | cut -d: -f1)
 if [[ -z "$decide_line" || -z "$mount_line" ]] || (( decide_line >= mount_line )) \
-  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);' "$ability"; then
-  echo "KeyboardExtensionAbility must decide the first touch panel shape before mounting KeyboardView and size the panel from it" >&2
+  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent,' "$ability" \
+  || ! grep -qF 'KeyboardSession.shared.firstTouchLift());' "$ability"; then
+  echo "KeyboardExtensionAbility must decide the first touch panel shape (and the bottom lift it counts) before mounting KeyboardView and size the panel from it" >&2
   exit 1
 fi
 appear_body=$(sed -n '/^  aboutToAppear(): void {$/,/^  }$/p' \
@@ -764,6 +765,36 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
+  exit 1
+fi
+# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；旧的高度条不再存在。
+adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
+adjust_hidden=$(sed -n '/^    KeyboardSession.shared.onPanelHidden = (): void => {$/,/^    };$/p' "$adjust_view")
+adjust_click=$(sed -n '/^  private adjustButtonClick(kind: string): void {$/,/^  }$/p' "$adjust_view")
+adjust_settings=$(sed -n '/^  private applySettings(): void {$/,/^  }$/p' "$adjust_view")
+adjust_resize=$(sed -n '/^  private resizeTouchPanel(): void {$/,/^  }$/p' "$adjust_view")
+adjust_sync=$(sed -n '/^  private syncStripHeight(): void {$/,/^  }$/p' "$adjust_view")
+adjust_root=$(sed -n '/^  keyboard() {$/,/^  }$/p' "$adjust_view")
+if [[ -z "$adjust_show" ]] \
+  || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY && surface !== SURFACE_GEOMETRY) {' <<< "$adjust_show" \
+  || ! grep -qF 'this.saveAdjust();' <<< "$adjust_show" \
+  || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY) {' <<< "$adjust_hidden" \
+  || ! grep -qF 'this.show(SURFACE_NONE);' <<< "$adjust_hidden" \
+  || ! grep -qF 'this.previewAdjust(KeyboardAdjustPolicy.DEFAULTS);' <<< "$adjust_click" \
+  || ! grep -qF 'this.show(SURFACE_NONE);' <<< "$adjust_click" \
+  || grep -qF 'saveAdjust' <<< "$adjust_click" \
+  || ! grep -qF 'if (this.surface !== SURFACE_GEOMETRY) {' <<< "$adjust_settings" \
+  || ! grep -qF 'this.readAdjustValues();' <<< "$adjust_settings" \
+  || grep -qF 'this.geometryHeight = this.settings.heightAdjustment;' <<< "$adjust_settings" \
+  || ! grep -qF 'this.extraRowsWere, this.settings.candidateScalePercent, this.liftWas));' <<< "$adjust_resize" \
+  || ! grep -qF 'this.bottomLiftVp() !== this.liftWas' <<< "$adjust_sync" \
+  || ! grep -qF 'bottom: KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP + this.adjustFrame().lift' <<< "$adjust_root" \
+  || ! grep -qF 'left: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().left,' <<< "$adjust_root" \
+  || ! grep -qF 'this.liftWas = KeyboardSession.shared.firstTouchLift();' "$adjust_view" \
+  || grep -qF 'HeightBar' "$adjust_view" \
+  || [[ -e "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/HeightBar.ets" ]]; then
+  echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame, count the bottom lift in every panel height, and replace HeightBar entirely" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

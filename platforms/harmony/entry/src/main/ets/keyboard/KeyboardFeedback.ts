@@ -12,9 +12,12 @@
  * 功能面板的单手模式和隐私模式也是如此，对应 Android 的 `platform.android.one_handed`（关）和 `platform.android.incognito`（关）。隐私模式尤其只属于这台设备：Android 从不同步它，这里的账号同步也只携带三个反馈字段。
  *
  * 浮动键盘的开关和位置同样只在本机，对应 Android 的 `platform.android.floating_keyboard`（关）与 `_x` / `_y`（可移动范围里的千分比，默认居中贴底，见 `FloatingKeyboardPolicy`）：位置与这块屏幕的尺寸有关，带到别的设备上没有意义。
+ *
+ * 「键盘调整」的底部抬高、宽度和水平位置（`KeyboardAdjustPolicy`）也只在本机，理由相同：它们按这块屏幕和握持方式调。键盘高度仍是共享偏好 `touch_keyboard_height_adjustment`，不在这里。
  */
 import { SwipeHintPolicy, SwipeSymbolsDirection } from "./input/SwipeHintPolicy";
 import { FloatingKeyboardPolicy } from "./FloatingKeyboardPolicy";
+import { KeyboardAdjustPolicy } from "./KeyboardAdjustPolicy";
 import { OneHandedMode, OneHandedPolicy } from "./OneHandedPolicy";
 import { PrivacyGate } from "./PrivacyGate";
 
@@ -60,6 +63,12 @@ export interface FeedbackSettings {
   /** 浮动面板的位置：水平、竖直方向可移动范围里的千分比（0–1000）。 */
   readonly floatingX: number;
   readonly floatingY: number;
+  /** 键盘调整的底部抬高（vp，0–160）。 */
+  readonly bottomLift: number;
+  /** 键盘调整的宽度（屏幕宽的百分比，60–100）。 */
+  readonly widthPercent: number;
+  /** 键盘调整的水平位置（两侧剩余空间里的千分比，0–1000，500 居中）。 */
+  readonly positionX: number;
 }
 
 /**
@@ -155,6 +164,9 @@ export class KeyboardFeedback {
     floating: false,
     floatingX: FloatingKeyboardPolicy.DEFAULT_X_FRACTION,
     floatingY: FloatingKeyboardPolicy.DEFAULT_Y_FRACTION,
+    bottomLift: KeyboardAdjustPolicy.DEFAULT_LIFT_VP,
+    widthPercent: KeyboardAdjustPolicy.DEFAULT_WIDTH_PERCENT,
+    positionX: KeyboardAdjustPolicy.DEFAULT_POSITION,
   };
 
   static title(strength: HapticStrength): string {
@@ -269,6 +281,9 @@ export class KeyboardFeedback {
           raw.floatingY,
           KeyboardFeedback.DEFAULTS.floatingY,
         ),
+        bottomLift: KeyboardAdjustPolicy.lift(raw.bottomLift),
+        widthPercent: KeyboardAdjustPolicy.widthPercent(raw.widthPercent),
+        positionX: KeyboardAdjustPolicy.position(raw.positionX),
       };
     } catch (error) {
       return KeyboardFeedback.DEFAULTS;
@@ -308,6 +323,38 @@ export class KeyboardFeedback {
       floating: floating,
       floatingX: FloatingKeyboardPolicy.fraction(floatingX, settings.floatingX),
       floatingY: FloatingKeyboardPolicy.fraction(floatingY, settings.floatingY),
+      bottomLift: settings.bottomLift,
+      widthPercent: settings.widthPercent,
+      positionX: settings.positionX,
+    };
+  }
+
+  /** `settings` 换上键盘调整的底部抬高、宽度和水平位置，其余原样保留。键盘调整确认或以别的方式离开时经它写回；范围外的值钳回来，不是数时保留原值。 */
+  static withAdjust(
+    settings: FeedbackSettings,
+    bottomLift: number,
+    widthPercent: number,
+    positionX: number,
+  ): FeedbackSettings {
+    return {
+      sound: settings.sound,
+      haptics: settings.haptics,
+      strength: settings.strength,
+      glideTyping: settings.glideTyping,
+      handwritingDelayMs: settings.handwritingDelayMs,
+      handwritingStrokeColor: settings.handwritingStrokeColor,
+      handwritingStrokeWidth: settings.handwritingStrokeWidth,
+      keyPopup: settings.keyPopup,
+      swipeSymbols: settings.swipeSymbols,
+      swipeSymbolsDirection: settings.swipeSymbolsDirection,
+      oneHanded: settings.oneHanded,
+      incognito: settings.incognito,
+      floating: settings.floating,
+      floatingX: settings.floatingX,
+      floatingY: settings.floatingY,
+      bottomLift: KeyboardAdjustPolicy.lift(bottomLift, settings.bottomLift),
+      widthPercent: KeyboardAdjustPolicy.widthPercent(widthPercent, settings.widthPercent),
+      positionX: KeyboardAdjustPolicy.position(positionX, settings.positionX),
     };
   }
 

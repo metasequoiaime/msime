@@ -1204,10 +1204,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
             settings.candidatePreeditFontSize, CandidateLayoutPolicy.gap(settings.candidateSkinLayout, true,
         settings.candidateFontSize)) + CandidateCanvasPolicy.extraHeight(settings.candidateCanvas, settings.candidateShowPreedit))
-          // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。
+          // 刚创建时还没有组字也没有面板，工具条画不画看工具栏设置和上次的键面是不是长空格样式的中文 26 键，视图之后按同一条规则（`TouchToolbarPolicy`）改高度。停靠时底部抬高（键盘调整）也算进去，与视图的 `resizeTouchPanel` 相同。
           : requested !== null ? requested : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
             KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);
+            settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent,
+            KeyboardSession.shared.firstTouchLift());
         // 软键盘占满屏幕宽度（浮动时按 `fitTouchPanel` 收窄），候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
         this.density = screen.densityPixels;
         this.screenWidth = screen.width;

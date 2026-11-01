@@ -98,6 +98,8 @@ export class KeyboardMetrics {
    * `extraRows` 是触屏框架在四行之外多出的行（`handwritingExtraRows`）：每行一个不带高度调整的 `ROW_HEIGHT_VP` 加一道行距，用户的高度调整仍只加一次。`compact` 时不看它。
    *
    * `stripScalePercent` 是「候选栏大小」：触屏条带按 `stripHeightVp` 缩放，按键行不变，面板只差条带变化的那一段。`compact` 时不看它。
+   *
+   * `bottomLiftVp` 是「键盘调整」的底部抬高（`KeyboardAdjustPolicy.liftVp`，不生效时传 0）：加在底部内边距下面，视图把它画成键盘底色。`compact` 时不看它。
    */
   static totalHeightVp(
     rowSpacingTenths: number = KeyboardMetrics.ROW_SPACING_VP * 10,
@@ -109,6 +111,7 @@ export class KeyboardMetrics {
     withStrip: boolean = true,
     extraRows: number = 0,
     stripScalePercent: number = CandidateScalePolicy.DEFAULT_PERCENT,
+    bottomLiftVp: number = 0,
   ): number {
     const keys: number =
       KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS + heightAdjustmentVp;
@@ -123,7 +126,8 @@ export class KeyboardMetrics {
         keys +
         KeyboardMetrics.touchRowGapsVp(rowSpacingTenths) +
         extra * (KeyboardMetrics.ROW_HEIGHT_VP + rowSpacingTenths / 10) +
-        KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP
+        KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP +
+        (Number.isFinite(bottomLiftVp) && bottomLiftVp > 0 ? bottomLiftVp : 0)
       );
     }
     // 条带就是 2in1 候选卡片，卡片在各边内侧留出 `CANDIDATE_CARD_PADDING_VP`，与 `candidateHeightVp` 的计算一致。
