@@ -23,7 +23,8 @@ Issue #10518：在 PowerPoint 里用五笔，按 Alt+F10 的效果和只按 F10 
 - 吞掉这次按键，用 `SendInput` 依次补发右 Alt 按下（`KEYEVENTF_EXTENDEDKEY`）和这个键的按下（同 vk、scanCode、扩展键位）。不能只补右 Alt 再放行当前键：注入事件排在当前事件之后，应用会先看到键、再看到 Alt。
 - 之后的松开不再拦截，应用自然收到这个键和右 Alt 的松开，与补发的按下配对。
 - 补发的两条事件 `dwExtraInfo` 带 `kChordReplayExtraInfo`（`0x4D535641`），钩子见到它直接放行，不更新任何状态。这个值故意不进 TIP 的 `IsSelfGeneratedSendInputExtraInfo`：补发的键代替的是被吞掉的物理按键，TIP 要像对物理键一样分类和计入统计。
-- 组合键之后用户仍按着右 Alt，它的自动重复会一直以按下事件到达。`ralt_chord_until_up_` 在右 Alt 松开前挡住新的按住，否则第二次重复就会重新开始录音、再次吞掉应用已经拿到的 Alt。
+- 组合键之后用户仍按着右 Alt，它的自动重复会一直以按下事件到达。`ralt_chord_until_up_` 在右 Alt 松开前挡住新的按住，否则第二次重复就会重新开始录音、再次吞掉应用已经拿到的 Alt。`refresh()` 观察到语音配置变化时会 `reset_state()`，这个锁存要跨过这次重置保留下来：钩子不卸载，右 Alt 的松开仍会经过钩子把它清掉，也会照常送到应用，与补发的按下配对。如果随重置一起清掉，下一次自动重复就会开始录音并吞掉右 Alt 的松开，应用里的 Alt 一直处于按下状态。
+- Server 的维护快捷键钩子（`MaintenanceHotkey.cpp`，安装在语音钩子之后，所以先看到按键）跳过所有注入的按键。按住右 Alt 说话时物理右 Alt 被语音钩子吞掉，Ctrl+Shift+右 Alt+R/C/T/1-8 的物理字母键到达维护钩子时读不到 Alt，带 Alt 的只有语音钩子补发的那一份，于是重启、停止、清缓存、删词全部失效，应用反而收到 Ctrl+Shift+Alt+R。现在维护钩子把带 `voice_chord_replay_extra_info` 的补发按键当作物理按键参与快捷键判断（纯函数 `maintenance_stroke_may_trigger`，`MaintenanceHotkeys.h`），处理了就吞掉补发的字母键。按键回调 `key_sink_` 仍只对物理按键调用，补发的那一份对应的物理按下已经报过一次。标记值从 `VoiceHotkey.cpp` 挪到 `VoiceHotkeyPolicy.h` 的 `voice_chord_replay_extra_info`，两个钩子共用。补发的 Caps Lock 被 `CapsLockTracker` 的 `down` 挡住，不会重复计入。
 
 不触发组合键的情况，集中在纯函数 `voice_hold_becomes_chord`（`VoiceHotkeyPolicy.h`）里：松开事件；按住开始前就按着的键的自动重复（用钩子已有的 `toggle_strokes_` 判重复）；带 `LLKHF_INJECTED` 的别的程序注入的输入；修饰键（Shift、Ctrl、Alt、Win 的通用码和左右码），它们仍是正在组合的一部分，照旧放行；空格且「空格锁定」开着；Esc；用空格锁定过的按住（`hold_locked_`），那是用户要保留的听写。`CtrlWin` 不在范围内，它吞的是 Win 不是 Alt。
 
@@ -45,9 +46,10 @@ Issue #10518：在 PowerPoint 里用五笔，按 Alt+F10 的效果和只按 F10 
 
 收益：语音开着时，右 Alt+F10、右 Alt+F4 这类应用快捷键恢复正常，不再留下一段误录的语音。
 
-代价与未验证的部分：`VoiceHotkey.cpp` 依赖 Win32 低级钩子，只有策略函数能在非 Windows 机器上跑。下面这些要 Windows 实机确认：PowerPoint 里右 Alt+F10 能开关选择窗格且不开始录音；单按右 Alt 说话、空格锁定、Esc 取消不回归；德语布局下 AltGr+Q 能打出 @（系统为 AltGr 合成的左 Ctrl 在物理按下时已放行，补发的右 Alt 是否会再合成一次左 Ctrl 没有实测）。macOS 右 Option、Linux IBus 右 Alt 的同类行为另开 issue 跟进。
+代价与未验证的部分：`VoiceHotkey.cpp` 依赖 Win32 低级钩子，只有策略函数能在非 Windows 机器上跑。下面这些要 Windows 实机确认：PowerPoint 里右 Alt+F10 能开关选择窗格且不开始录音；单按右 Alt 说话、空格锁定、Esc 取消不回归；按住右 Alt 时 Ctrl+Shift+右 Alt+R 能重启 Server（依赖补发的右 Alt 按下在补发的 R 到达维护钩子之前已经反映到 `GetAsyncKeyState`）；按住右 Alt 做组合键期间改语音设置后，继续按着右 Alt 不会开始录音、松开后应用里的 Alt 正常抬起；德语布局下 AltGr+Q 能打出 @（系统为 AltGr 合成的左 Ctrl 在物理按下时已放行，补发的右 Alt 是否会再合成一次左 Ctrl 没有实测）。macOS 右 Option、Linux IBus 右 Alt 的同类行为另开 issue 跟进。
 
 ## Testing
 
 - `platforms/windows/tests/voice/voice_hotkey_policy.cpp` 补了 `voice_hold_becomes_chord` 和 `voice_hold_may_activate` 的用例：RAlt 与 RCtrlRAlt 按住时 F10、Q 触发组合键；CtrlWin、无按住、松开、自动重复、注入、已锁定、空格（锁定开着）、Esc、全部修饰键都不触发；空格锁定关掉时右 Alt+空格触发；组合键之后右 Alt 不能重新开始按住，其他键不受影响；`voice_chord_cancels_recording` 只在代次非 0、相等、仍在录音、未锁定时成立，按住没开始录音（代次 0）、代次变了、已停止、已锁定都不取消。在 macOS 上用 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过；CI 的 `windows-voice-hotkey-policy` 目标会在 MSVC `/W4 /WX` 下再跑一次。
-- `VoiceHotkey.cpp` 用 `x86_64-w64-mingw32-g++ -std=c++20 -fsyntax-only -Wall -Wextra -Werror -DMSIME_EDITION_FULL` 做了语法检查，链接和运行交给 Windows CI 与实机。
+- `platforms/windows/tests/runtime/maintenance_hotkeys.cpp` 补了 `maintenance_stroke_may_trigger` 的用例：物理按键可以触发，别的注入按键不行，带语音补发标记的注入按键可以。macOS 上 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过。
+- `VoiceHotkey.cpp`、`MaintenanceHotkey.cpp` 用 `x86_64-w64-mingw32-g++ -std=c++20 -fsyntax-only -Wall -Wextra -Werror -DMSIME_EDITION_FULL` 做了语法检查，链接和运行交给 Windows CI 与实机。

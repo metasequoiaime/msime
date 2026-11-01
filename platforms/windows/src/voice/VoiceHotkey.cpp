@@ -33,8 +33,8 @@ constexpr UINT kLockMessage = WM_APP + 203;
 constexpr UINT kCancelMessage = WM_APP + 204;
 // A hold that became a chord drops the recording that hold started, and nothing else; see voice_chord_cancels_recording. Unlike kCancelMessage it leaves alone a dictation started another way (Ctrl+F9, the toolbar microphone) and, when the hold started nothing, an earlier dictation's recognition still in flight.
 constexpr UINT kChordCancelMessage = WM_APP + 205;
-// dwExtraInfo on the right Alt and the key this hook replays when a hold turns into a chord, so the hook lets its own replay through instead of reading it as a new press. It is deliberately not one of the tip's self-generated markers (IsSelfGeneratedSendInputExtraInfo in tsf/IME/MetasequoiaIME.h): the replayed key stands in for the physical press the hook swallowed and must be classified like one.
-constexpr ULONG_PTR kChordReplayExtraInfo = 0x4D535641u;
+// See voice_chord_replay_extra_info.
+constexpr ULONG_PTR kChordReplayExtraInfo = voice_chord_replay_extra_info;
 
 // The low-level hook swallows the RAlt key-up after using it as a voice
 // shortcut. If the controller is torn down before that key-up arrives (for
@@ -108,10 +108,13 @@ void VoiceHotkeyController::refresh() {
   observed_hotkey_rctrl_ralt_ = config.hotkey_rctrl_ralt;
   observed_hotkey_hold_space_lock_ = config.hotkey_hold_space_lock;
   const bool release_ralt = suppress_ralt_until_up_.load();
+  // After a chord the application holds the right Alt this hook replayed, and the user is still holding the physical key. The latch is what keeps that key's auto-repeat from starting a new hold that would swallow its release, so it survives the reset: the release still reaches this hook (the hook stays installed) and the application, and clears the latch there.
+  const bool ralt_chord = ralt_chord_until_up_.load();
   if (active_hold_.load() != VoiceHoldShortcut::None ||
       (!config.enabled && voice_.recording()))
     voice_.stop();
   reset_state();
+  ralt_chord_until_up_ = ralt_chord;
   if (release_ralt)
     force_release_ralt();
 }

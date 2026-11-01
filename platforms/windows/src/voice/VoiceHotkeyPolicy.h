@@ -33,6 +33,9 @@ inline constexpr unsigned voice_key_lshift = 0xA0;
 inline constexpr unsigned voice_key_rshift = 0xA1;
 inline constexpr unsigned voice_key_lalt = 0xA4;
 
+// dwExtraInfo on the right Alt and the key the voice hook replays when a hold turns into a chord (#10518), so that hook lets its own replay through instead of reading it as a new press. It is deliberately not one of the tip's self-generated markers (IsSelfGeneratedSendInputExtraInfo in tsf/IME/MetasequoiaIME.h): the replayed key stands in for the physical press the hook swallowed and must be classified like one, by the tip and by the Server's maintenance shortcuts (maintenance_stroke_may_trigger).
+inline constexpr std::uintptr_t voice_chord_replay_extra_info = 0x4D535641u;
+
 // 一个物理按键直到松开才结束；改绑、禁用、失焦与修饰键变化都不释放已消费的按键。
 class VoiceToggleStrokes {
 public:
