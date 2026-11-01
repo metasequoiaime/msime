@@ -3282,6 +3282,7 @@ dependencies = [
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-onnx-rerank",
  "msime-path-trust",
  "msime-script-runtime",
  "rubato",

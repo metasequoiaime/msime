@@ -209,15 +209,42 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 /// The per-keystroke reranker, only while `enabled`: the keyboard model switch (`neural_keyboard`, 整句联想「增强」) is on and the edition ships the model (`keyboard_reranker_enabled`). It is the only layer that switch mounts; the Engine's own keyboard-model rerank stays off.
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
+///
+/// 编译时打开了 `onnx-rerank`、资源目录里又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
     configured: Option<&str>,
-) -> Option<Reranker> {
+) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     if !enabled {
         return None;
     }
-    sentence_model(resources, configured).map(Reranker::new)
+    #[cfg(feature = "onnx-rerank")]
+    if let Some(scorer) = onnx_reranker(Path::new(resources)) {
+        return Some(scorer);
+    }
+    sentence_model(resources, configured).map(|model| {
+        Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
+    })
+}
+
+/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
+
+/// 一次图运行用几个线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；Pixel 3 XL 上四线程略快，但两线程已在按键预算之内。
+#[cfg(feature = "onnx-rerank")]
+const RERANK_MODEL_THREADS: usize = 2;
+
+#[cfg(feature = "onnx-rerank")]
+fn onnx_reranker(resources: &Path) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
+    let directory = resources.join(RERANK_MODEL_DIRECTORY);
+    let model = std::fs::read(directory.join("lm_step.ort")).ok()?;
+    let info = std::fs::read_to_string(directory.join("model.json")).ok()?;
+    let vocabulary = std::fs::read_to_string(directory.join("vocab.json")).ok()?;
+    msime_onnx_rerank::OnnxScorer::load(&model, &info, &vocabulary, RERANK_MODEL_THREADS)
+        .ok()
+        .map(|scorer| Box::new(scorer) as Box<dyn msime_input_runtime::CandidateScorer>)
 }
 
 pub mod account;

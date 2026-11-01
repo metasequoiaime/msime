@@ -8689,6 +8689,33 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(ffi::keyboard_reranker(false, "", None).is_none());
 }
 
+/// 资源目录里有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端，上文窗口是它训练时的 64 字加候选的余量），模型文件坏了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let resources = tempfile::tempdir().unwrap();
+    let directory = resources.path().join(ffi::RERANK_MODEL_DIRECTORY);
+    std::fs::create_dir(&directory).unwrap();
+    for name in ["lm_step.ort", "model.json", "vocab.json"] {
+        std::fs::copy(fixtures.join(name), directory.join(name)).unwrap();
+    }
+    let root = resources.path().to_str().unwrap();
+    let mut scorer = ffi::keyboard_reranker(true, root, None).expect("the ONNX model loads");
+    assert_eq!(scorer.context_length(), 80);
+    assert_eq!(
+        scorer
+            .log_probabilities("我们今天", &["去北京", "去背景"])
+            .len(),
+        2
+    );
+
+    // 坏模型不挂它；资源目录里也没有随包的句子模型，于是什么都不挂。
+    std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
+    assert!(ffi::keyboard_reranker(true, root, None).is_none());
+}
+
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
