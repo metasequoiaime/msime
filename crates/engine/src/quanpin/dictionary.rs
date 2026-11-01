@@ -114,6 +114,8 @@ struct CachedFuzzyRows {
     rules: u32,
     limit: usize,
     typed: String,
+    /// 这一项查过的模糊路径条数。路径只由规则、上限和这段读音决定，所以命中时直接按它扣预算，不再把路径算一遍。
+    path_count: usize,
     rows: Vec<DictRow>,
 }
 
@@ -580,19 +582,32 @@ impl QuanpinDictionary {
             }
             let prefix = &segments[..count];
             let limit = FUZZY_SEGMENTATION_LIMIT.min(budget);
-            // 路径照样算出来（纯计算，不查库），预算照旧按路径数扣；只有查库这一步走缓存。
+            // 行缓存的键（规则、上限、这段读音）已经定下了路径，命中时按记下的路径条数扣预算，不再展开路径；九键开着模糊音时每键要走二三十条切分，展开路径是模糊音多出来的开销里的一大块（#10457）。
+            let uncached = match append_cached_fuzzy_rows(
+                &mut self.fuzzy_row_cache,
+                options.rules,
+                limit,
+                typed,
+                &mut result,
+            ) {
+                Ok(path_count) => {
+                    budget -= path_count;
+                    continue;
+                }
+                Err(uncached) => uncached,
+            };
             let paths = fuzzy_segmentations(prefix, options, limit);
             if paths.is_empty() {
                 continue;
             }
             budget -= paths.len();
-            append_cached_fuzzy_rows(
+            append_queried_fuzzy_rows(
                 &self.database,
                 &mut self.fuzzy_row_cache,
                 &paths,
                 options.rules,
                 limit,
-                typed,
+                uncached,
                 &mut result,
             );
         }
@@ -1920,8 +1935,27 @@ fn fuzzy_cache_key_matches(cached: &CachedFuzzyCandidates, rules: u32, segmentat
     cached.rules == rules && cached.segmentation == segmentation
 }
 
-/// 热页直接投影，冷页保留原缓存副本与 SQLite 页容量策略。
+/// 行缓存命中时把热页直接投影进结果，返回那一项记下的路径条数；没命中时什么也不做，把读音原样交回，给 [`append_queried_fuzzy_rows`] 去查。
 fn append_cached_fuzzy_rows<'a>(
+    cache: &mut FifoCache<u64, CachedFuzzyRows>,
+    rules: u32,
+    limit: usize,
+    typed: impl Into<Cow<'a, str>>,
+    result: &mut Vec<WordItem>,
+) -> std::result::Result<usize, Cow<'a, str>> {
+    let typed = typed.into();
+    let hash = fuzzy_row_cache_hash(rules, limit, &typed);
+    match cache.get_ref(&hash) {
+        Some(cached) if fuzzy_row_cache_key_matches(cached, rules, limit, &typed) => {
+            append_fuzzy_items(cached.rows.iter().cloned(), typed, result);
+            Ok(cached.path_count)
+        }
+        _ => Err(typed),
+    }
+}
+
+/// 行缓存没命中：按展开好的路径查库，冷页保留原缓存副本与 SQLite 页容量策略。
+fn append_queried_fuzzy_rows<'a>(
     database: &PinyinDatabase,
     cache: &mut FifoCache<u64, CachedFuzzyRows>,
     paths: &[Vec<String>],
@@ -1932,12 +1966,6 @@ fn append_cached_fuzzy_rows<'a>(
 ) {
     let typed = typed.into();
     let hash = fuzzy_row_cache_hash(rules, limit, &typed);
-    if let Some(cached) = cache.get_ref(&hash) {
-        if fuzzy_row_cache_key_matches(cached, rules, limit, &typed) {
-            append_fuzzy_items(cached.rows.iter().cloned(), typed, result);
-            return;
-        }
-    }
     let rows = database.query_exact_segmentations_keyed_flat(paths, FUZZY_ROW_LIMIT);
     cache.insert(
         hash,
@@ -1945,6 +1973,7 @@ fn append_cached_fuzzy_rows<'a>(
             rules,
             limit,
             typed: typed.as_ref().to_owned(),
+            path_count: paths.len(),
             rows: rows.clone(),
         },
     );
