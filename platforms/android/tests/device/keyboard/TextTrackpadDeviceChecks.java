@@ -267,9 +267,9 @@ final class TextTrackpadDeviceChecks {
             boolean original = json(preferences).getJSONObject("preferences").getJSONObject("android_text_trackpad")
                 .getBoolean(entry[1]);
             for (boolean expected : new boolean[] {!original, original}) {
-                AccessibilityNodeInfo row = settingsNode(entry[0], false);
-                if (!row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                    throw new AssertionError("Native trackpad toggle rejected " + entry[1]);
+                actOnSetting(entry[0], false, row -> row.isChecked() == expected,
+                    row -> row.performAction(AccessibilityNodeInfo.ACTION_CLICK),
+                    "Native trackpad toggle rejected " + entry[1]);
                 awaitOption(preferences, entry[1], expected);
             }
         }
@@ -277,18 +277,32 @@ final class TextTrackpadDeviceChecks {
                 {"垂直移动距离", "vertical_dp", "8", "96", "28"}}) {
             int min = Integer.parseInt(entry[2]), max = Integer.parseInt(entry[3]);
             for (int desired : new int[] {min, max, Integer.parseInt(entry[4])}) {
-                AccessibilityNodeInfo slider = settingsNode(entry[0], true);
-                var range = slider.getRangeInfo();
-                if (range == null || range.getMin() != 0 || range.getMax() != max - min)
-                    throw new AssertionError("Native slider range differs from Rust options");
                 Bundle args = new Bundle();
                 args.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, desired - min);
-                if (!slider.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), args))
-                    throw new AssertionError("Native slider adjustment rejected");
+                actOnSetting(entry[0], true, slider -> {
+                    var range = slider.getRangeInfo();
+                    if (range == null || range.getMin() != 0 || range.getMax() != max - min)
+                        throw new AssertionError("Native slider range differs from Rust options");
+                    return range.getCurrent() == desired - min;
+                }, slider -> slider.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), args),
+                    "Native slider adjustment rejected");
                 awaitOption(preferences, entry[1], desired);
             }
         }
         t.restartIme();
+    }
+
+    /** Every saved trackpad option reloads the settings page asynchronously, so a node found just before that re-render can belong to a detached view and reject the action. A rejected action is retried on a freshly looked-up node; a node that already shows the target state needs no action. */
+    private void actOnSetting(String title, boolean slider, Predicate<AccessibilityNodeInfo> done,
+            Predicate<AccessibilityNodeInfo> action, String failure) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (true) {
+            AccessibilityNodeInfo node = settingsNode(title, slider);
+            if (done.test(node) || action.test(node)) return;
+            if (SystemClock.uptimeMillis() >= deadline) throw new AssertionError(failure);
+            SystemClock.sleep(100);
+        }
     }
 
     private AccessibilityNodeInfo settingsNode(String title, boolean slider) {
