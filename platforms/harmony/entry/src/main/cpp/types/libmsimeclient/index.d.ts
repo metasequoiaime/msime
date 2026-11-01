@@ -152,6 +152,8 @@ export const aiSkinCancel: (request: string) => string;
 export const telemetryBegin: (request: string) => string;
 /** 正常主线程路径以共享层返回的原路径和记录头武装原生采集；空值同步停写。 */
 export const telemetryNativeCapture: (path: string, header: string) => boolean;
+/** 按需加载的原生库（sherpa-onnx 语音运行库）加载后重建原生崩溃记录器的模块快照，崩溃帧才能对上模块名与 build-id；枚举失败保留旧快照。不联网。 */
+export const telemetryNativeRefreshModules: () => void;
 /** `{directory,edition?}`：读取并原子确保共享偏好的持续授权代次；不联网。 */
 export const telemetryConsent: (request: string) => string;
 /** `{directory}`: the keyboard is shutting down normally; queues the `session` event. No network. */
