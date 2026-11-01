@@ -2622,7 +2622,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     return first.accent === second.accent && first.accent_soft === second.accent_soft
       && first.on_accent === second.on_accent && first.background === second.background
-      && first.card === second.card;
+      && first.card === second.card && first.candidate_accent === second.candidate_accent;
   }
 
   /** The skin a keyboard-side surface (voice, emoji, handwriting, menus) wears: its own setting, then the app mode, then whatever the keyboard is in; a theme with a fixed appearance overrides all three. */
