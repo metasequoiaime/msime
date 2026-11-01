@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::shuangpin;
 use super::syllable::{self, Inventory, Segmentation};
+use super::CantoneseLexicon;
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
@@ -299,7 +300,7 @@ impl CantoneseScheme {
     pub fn candidates(&self, dictionary: &LanguageDictionary) -> Result<Vec<CantoneseCandidate>> {
         let mut candidates = Vec::new();
         self.candidates_into(
-            dictionary,
+            dictionary.into(),
             &mut CantoneseQueryBuffer::default(),
             &mut candidates,
         )?;
@@ -307,10 +308,10 @@ impl CantoneseScheme {
         Ok(candidates)
     }
 
-    /// 将候选写入已有缓冲，并复用字典行和候选行中的字符串容量。
+    /// 将候选写入已有缓冲，并复用字典行和候选行中的字符串容量。`dictionary` 带上用户的粤语词时，它们和发布词按同样的规则排进各段。
     pub(crate) fn candidates_into(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
     ) -> Result<()> {
@@ -367,7 +368,7 @@ impl CantoneseScheme {
     /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母。`groups` 的每一组来自一个 `initial_prefixes` 前缀，组内各段由 `shuangpin::key_spans` 收窄过，段下没有别的键的音节，别的键上的重行不会占满查询上限。每组合起来最多留最重的 `SPAN_LIMIT` 行。
     fn trailing_initial_candidates(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         reading: &str,
         key: u8,
@@ -518,7 +519,7 @@ impl CantoneseScheme {
     /// `complete_trailing` 为假时，整段读法的末音节即使还是更长音节的开头也不再补全；双拼展开出的音节都是按键定死的。
     fn candidates_into_jyutping(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
         complete_trailing: bool,
@@ -1279,7 +1280,7 @@ mod tests {
         let mut buffer = CantoneseQueryBuffer::default();
         let mut candidates = Vec::new();
         scheme
-            .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+            .candidates_into((&fixture.dictionary).into(), &mut buffer, &mut candidates)
             .unwrap();
         let pointers = candidates
             .iter()
@@ -1288,7 +1289,7 @@ mod tests {
 
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             scheme
-                .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+                .candidates_into((&fixture.dictionary).into(), &mut buffer, &mut candidates)
                 .unwrap();
         });
         assert!(
@@ -1308,6 +1309,72 @@ mod tests {
     fn ime_scheme_exposes_the_active_cantonese_state() {
         let scheme = crate::ime::scheme::Scheme::Cantonese(typed("neih"));
         assert_eq!(scheme.as_cantonese().unwrap().input(), "neih");
+    }
+
+    /// 用户的粤语词按发布词的规则排进各段：同一个键下的同一个词合成一行、取较大的权重，补全末音节时也列出；删除留下的墓碑、学到的行和别的种类都不算。日志被别的连接改过以后，下一次刷新就读到。
+    #[test]
+    fn user_words_rank_with_the_dictionary_rows_and_follow_the_journal() {
+        use crate::cantonese::{CantoneseLexicon, UserWords};
+
+        let fixture = fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("msime-user.db");
+        let mut words = UserWords::new(journal.clone());
+        // 日志还不存在：什么也不打开，候选与只查发布词库时相同。
+        words.refresh();
+        let texts = |scheme: &CantoneseScheme, words: &UserWords| -> Vec<String> {
+            let mut candidates = Vec::new();
+            scheme
+                .candidates_into(
+                    CantoneseLexicon::new(&fixture.dictionary, Some(words)),
+                    &mut CantoneseQueryBuffer::default(),
+                    &mut candidates,
+                )
+                .unwrap();
+            candidates
+                .iter()
+                .map(|candidate| format!("{}/{}", candidate.text, candidate.syllables))
+                .collect()
+        };
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            listed(&typed("neihou"), &fixture.dictionary)
+        );
+
+        crate::user_dictionary::journal::ensure_user_database(&journal).unwrap();
+        let writer = Connection::open(&journal).unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES
+                 ('cantonese','nei hou','禮好','upsert',100000,1),
+                 ('cantonese','nei hou','你好','upsert',10,1),
+                 ('cantonese','nei hoeng','你響','upsert',2000,1),
+                 ('cantonese','nei hou','刪除','delete',0,1),
+                 ('cantonese','nei hou','學到','upsert',99999,0),
+                 ('pinyin','nei''hou','拼音','upsert',99999,1);",
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            ["禮好/2", "你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+        assert_eq!(
+            texts(&typed("neih"), &words),
+            ["禮好/2", "你響/2", "你好/2", "妳好/2", "你向/2", "你/1", "妳/1"]
+        );
+
+        writer
+            .execute(
+                "UPDATE user_dictionary_operations SET operation='delete', weight=0 WHERE dictionary='cantonese' AND value='禮好'",
+                [],
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            ["你好/2", "妳好/2", "你/1", "妳/1"]
+        );
     }
 
     #[test]

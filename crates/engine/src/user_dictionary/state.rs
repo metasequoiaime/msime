@@ -695,6 +695,8 @@ pub fn merge_dictionary_state(
                             *weight,
                             display.as_bytes(),
                         ),
+                        // 粤语词没有工作表，也不学习，日志里只有用户自己加的行，上面已经按词计数；走到这里的只有删除留下的墓碑，计入 skipped。
+                        PersonalDictionaryKind::Cantonese => Ok(false),
                     };
                     let applied = match applied {
                         Ok(applied) => applied,
