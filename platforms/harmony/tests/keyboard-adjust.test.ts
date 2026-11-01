@@ -306,13 +306,17 @@ group("移动：同时改抬高和水平位置，大小不变", () => {
   );
 });
 
-group("读屏名称和说明", () => {
+group("读屏名称三端相同，当前值在说明里", () => {
   check(
-    P.heightLabel(0) === "键盘高度 100%" && P.heightLabel(48) === "键盘高度 127%",
-    "上沿报高度百分比",
+    P.TOP_LABEL === "键盘高度" &&
+      P.BOTTOM_LABEL === "键盘底部高度" &&
+      P.LEFT_LABEL === "键盘宽度（左边）" &&
+      P.RIGHT_LABEL === "键盘宽度（右边）",
+    "四个柄的名称与 Android 相同",
   );
-  check(P.liftLabel(24) === "底部抬高 24vp", "下沿报抬高");
-  check(P.widthLabel(85) === "键盘宽度 85%", "左右沿报宽度");
+  check(P.heightValue(0) === "100%" && P.heightValue(48) === "127%", "上沿报高度百分比");
+  check(P.liftValue(24) === "24vp" && P.liftValue(999) === "160vp", "下沿报抬高");
+  check(P.widthValue(85) === "85%", "左右沿报宽度");
   check(
     P.RESET_LABEL === "重置" && P.MOVE_LABEL === "移动" && P.CONFIRM_LABEL === "确认",
     "三个按钮的文字",

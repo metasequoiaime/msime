@@ -80,6 +80,12 @@ export class KeyboardAdjustPolicy {
   /** 柄、按钮图标和文字的颜色。 */
   static readonly INK_COLOR: string = "#FFFFFF";
 
+  /** 四个柄的读屏名称，三端相同。当前值放在说明里（`heightValue` 等）。 */
+  static readonly TOP_LABEL: string = "键盘高度";
+  static readonly BOTTOM_LABEL: string = "键盘底部高度";
+  static readonly LEFT_LABEL: string = "键盘宽度（左边）";
+  static readonly RIGHT_LABEL: string = "键盘宽度（右边）";
+  /** 三个按钮的文字，也是它们的读屏名称，三端相同。 */
   static readonly RESET_LABEL: string = "重置";
   static readonly MOVE_LABEL: string = "移动";
   static readonly CONFIRM_LABEL: string = "确认";
@@ -313,19 +319,19 @@ export class KeyboardAdjustPolicy {
     return KeyboardAdjustPolicy.position((left * KeyboardAdjustPolicy.MAX_POSITION) / free);
   }
 
-  /** 上沿柄的读屏名称：键盘高度的百分比（`KeyboardGeometry.heightPercent`）。 */
-  static heightLabel(height: number): string {
-    return `键盘高度 ${KeyboardGeometry.heightPercent(KeyboardGeometry.heightAdjustment(height))}%`;
+  /** 上沿柄读屏说明里的当前值：键盘高度的百分比（`KeyboardGeometry.heightPercent`）。 */
+  static heightValue(height: number): string {
+    return `${KeyboardGeometry.heightPercent(KeyboardGeometry.heightAdjustment(height))}%`;
   }
 
-  /** 下沿柄的读屏名称。 */
-  static liftLabel(lift: number): string {
-    return `底部抬高 ${KeyboardAdjustPolicy.lift(lift)}vp`;
+  /** 下沿柄读屏说明里的当前值：底部抬高。 */
+  static liftValue(lift: number): string {
+    return `${KeyboardAdjustPolicy.lift(lift)}vp`;
   }
 
-  /** 左右沿柄的读屏名称。 */
-  static widthLabel(widthPercent: number): string {
-    return `键盘宽度 ${KeyboardAdjustPolicy.widthPercent(widthPercent)}%`;
+  /** 左右沿柄读屏说明里的当前值：宽度百分比。 */
+  static widthValue(widthPercent: number): string {
+    return `${KeyboardAdjustPolicy.widthPercent(widthPercent)}%`;
   }
 
   /** 宽度和位置都生效时的外框，抬高不参与。 */

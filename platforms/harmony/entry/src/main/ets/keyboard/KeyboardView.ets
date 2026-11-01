@@ -3303,24 +3303,22 @@ struct KeyboardView {
     }
   }
 
+  /** 柄的读屏名称，三端相同。 */
   private adjustHandleLabel(handle: string): string {
-    if (handle === ADJUST_TOP) {
-      return KeyboardAdjustPolicy.heightLabel(this.geometryHeight);
-    }
-    if (handle === ADJUST_BOTTOM) {
-      return KeyboardAdjustPolicy.liftLabel(this.geometryLift);
-    }
-    return KeyboardAdjustPolicy.widthLabel(this.geometryWidthPercent);
+    return handle === ADJUST_TOP ? KeyboardAdjustPolicy.TOP_LABEL
+      : handle === ADJUST_BOTTOM ? KeyboardAdjustPolicy.BOTTOM_LABEL
+        : handle === ADJUST_LEFT ? KeyboardAdjustPolicy.LEFT_LABEL : KeyboardAdjustPolicy.RIGHT_LABEL;
   }
 
+  /** 柄的读屏说明：当前值，再说怎么调。 */
   private adjustHandleDescription(handle: string): string {
     if (handle === ADJUST_TOP) {
-      return KeyboardAdjustPolicy.TOP_DESCRIPTION;
+      return `${KeyboardAdjustPolicy.heightValue(this.geometryHeight)}，${KeyboardAdjustPolicy.TOP_DESCRIPTION}`;
     }
     if (handle === ADJUST_BOTTOM) {
-      return KeyboardAdjustPolicy.BOTTOM_DESCRIPTION;
+      return `${KeyboardAdjustPolicy.liftValue(this.geometryLift)}，${KeyboardAdjustPolicy.BOTTOM_DESCRIPTION}`;
     }
-    return KeyboardAdjustPolicy.SIDE_DESCRIPTION;
+    return `${KeyboardAdjustPolicy.widthValue(this.geometryWidthPercent)}，${KeyboardAdjustPolicy.SIDE_DESCRIPTION}`;
   }
 
   private adjustButtonLabel(kind: string): string {
