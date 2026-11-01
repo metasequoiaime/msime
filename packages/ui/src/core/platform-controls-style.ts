@@ -19,9 +19,11 @@ export const groupHeaderTitle =
  * 细线画在第一个可见行之后的每个可见行上，所以只有一行的分组没有细线，最后一行下方不会多出一条，隐藏的行也不会留下线。
  *
  * 除 HarmonyOS 手机外，所有平台都照旧把它画成 1px 的上边框。HarmonyOS 手机则改用沿行顶边的背景图来画：粗 `--p-row-divider-w`（.5px），从起始边向内 `--p-row-divider-inset`（16px）处开始，一直延伸到末端边，这是边框做不到的。它用展开写法（longhand）书写，让行自身的背景色（按下时的填充）留在下面。每个类名都完整写出，因为样式表只生成它在源码中找到的类名。
+ *
+ * `empty:hidden`：有组名的组里若只有说明段落，它们都收进了组名旁的「?」，卡片里一个子节点也没有；不收起的话卡片高度为 0，外圈的 `--p-group-shadow` 会在组名下面画出一条孤零零的细线。收起后组名和「?」照旧，和 Windows 没有行时收起卡片一致。
  */
 export const groupRows =
-  "settings-glass-group flex flex-col gap-[var(--p-row-gap)] overflow-hidden rounded-[var(--p-group-r)] bg-[var(--p-group-bg)] [box-shadow:var(--p-group-shadow)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
+  "settings-glass-group flex empty:hidden flex-col gap-[var(--p-row-gap)] overflow-hidden rounded-[var(--p-group-r)] bg-[var(--p-group-bg)] [box-shadow:var(--p-group-shadow)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
 
 export const row =
   "flex min-h-[var(--p-row-h)] min-w-0 items-center gap-[var(--p-row-ctl-gap)] rounded-[var(--p-row-r)] bg-[var(--p-row-bg)] [padding:var(--p-row-pad)] [box-shadow:var(--p-row-shadow)]";

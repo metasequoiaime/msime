@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { useState } from "react";
 import styles from "../../../../packages/ui/src/styles.css?raw";
 import controlStyles from "../../../../packages/ui/src/core/platform-controls-style.ts?raw";
+import { SettingsGroupNote } from "../../../../packages/ui/src/settings/settings-group-note";
+import { InfoTip } from "../../../../packages/ui/src/core/info-tip";
 import {
   Checks,
   GroupList,
@@ -106,6 +108,42 @@ test("a rounded group clips an expanded row's hover fill to its corners", () => 
     </GroupList>,
   );
   expect(document.querySelector(".settings-glass-group")?.className).toContain("overflow-hidden");
+});
+
+test('a titled group holding only notes keeps its title and "?" and collapses the empty card', () => {
+  render(
+    <GroupList title="macOS 输入法语音">
+      <SettingsGroupNote>按住快捷键说话，松开后文字写进当前输入框。</SettingsGroupNote>
+    </GroupList>,
+  );
+  expect(screen.getByRole("button", { name: "说明" })).toBeTruthy();
+  const card = document.querySelector(".settings-glass-group");
+  // The note moved into the header's "?", so the card has no children; `:empty` hides it instead of drawing a 0-height ring under the title.
+  expect(card?.childNodes.length).toBe(0);
+  expect(card?.className.split(" ")).toContain("empty:hidden");
+});
+
+test("a tip opened by keyboard focus closes when the page scrolls, since its position was measured before", () => {
+  const matches = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+    this: Element,
+    selector: string,
+  ) {
+    return selector === ":focus-visible" ? true : matches.call(this, selector);
+  });
+  render(<InfoTip>这一项控制候选窗的位置。</InfoTip>);
+  const button = screen.getByRole("button", { name: "说明" });
+  act(() => button.focus());
+  const bubbles = () =>
+    [...document.querySelectorAll("div[aria-hidden='true']")].filter(
+      (node) => node.textContent === "这一项控制候选窗的位置。",
+    );
+  expect(bubbles()).toHaveLength(1);
+  act(() => {
+    document.dispatchEvent(new Event("scroll"));
+  });
+  expect(bubbles()).toHaveLength(0);
+  vi.restoreAllMocks();
 });
 
 test("a hidden row stays on the page with its name but leaves the accessibility tree", () => {

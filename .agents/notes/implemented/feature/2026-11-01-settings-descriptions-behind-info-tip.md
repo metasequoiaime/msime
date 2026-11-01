@@ -19,6 +19,8 @@ Status: implemented
 - `packages/ui/src/core/info-tip.tsx` 的 `InfoTip` 是唯一的「?」。气泡用 portal 挂到 `[data-settings-shell]` 下按固定定位画出，与 `AiProviderSelect` 的菜单一样：分组卡片有 `overflow-hidden` 和液态玻璃的 `backdrop-filter`，画在行内的气泡会被裁掉或定位错乱；挂在设置窗口根节点下仍能拿到 `[data-platform]` 的配色 token。
 - `Row` 拆成两个属性：`description` 画成标题旁的 `InfoTip`，`detail` 常驻标题下方。`SwitchRow`、`SelectRow`（含 HarmonyOS 的选择面板）、`SliderRow`、`ActionRow`、`TextInputRow`、`SegmentedRow`、`SecretSettingRow` 透传两者。约 60 处原本把状态或错误塞进 `description` 的调用改用 `detail`，「解释 + 当前值」拼在一起的（`${radius}pt，覆盖皮肤自带的圆角`）拆成两半；滑块已有 `valueText` 显示数值的，描述里重复的数值去掉。
 - `SettingsGroupNote` 在有组名的 `GroupList` 里不画在原处，交给组名旁的「?」，一组多段合在同一个气泡里。`role="status"` 的、标了 `inline` 的（18 处内容型段落）和 `SettingsManagerBlock` 里的照旧画在原处。HarmonyOS 的组下页脚（语音、手写）和双拼编辑器每组的说明也改成组内说明，进组名的「?」。
+- 组里只有说明段落时（语音页的「本地识别」「macOS 输入法语音」「HarmonyOS 输入法语音」等介绍组），说明全进了组名的「?」，卡片里一个子节点也没有。卡片的 `groupRows` 带 `empty:hidden`，空了就收起，只留组名和「?」，和 Windows 在没有行时收起卡片一致；否则 0 高的卡片仍画出 `--p-group-shadow` 外圈，组名下多一条细线。
+- 气泡位置只在打开时量一次，滚动和缩放会让它脱离所在的行，所以两者都把气泡收起，包括键盘聚焦打开的那种（`focused` 一并清掉），再次 Tab 到「?」时重新定位。
 - 整行是按钮的 `LinkRow` 和旧式 `<label>` 包裹的 `SettingSectionTitle` 里不能再嵌按钮（嵌进 label 还会取代输入框成为 label 指向的控件），那里的「?」是只在悬停时出气泡的图标，说明由外层的描述或标签读出。HarmonyOS 手机的 `PickerRow` 整行是按钮，说明改为写在点开后选项面板的副标题里。
 - 「?」按钮统一叫「说明」，不以设置标题开头：以标题开头会和测试、读屏里按标题找控件的查询撞名。设置搜索定位到一行时跳过它（`data-info-tip`），聚焦行里真正的控件。组名外面多了一层 `[data-group-header]`，搜索索引读组名的选择器跟着改。
 
@@ -44,6 +46,7 @@ Status: implemented
 
 ## Verification
 
+- `apps/desktop/tests/core/platform-controls.test.tsx` 覆盖只有说明的组收起空卡片、键盘聚焦打开的气泡在滚动时收起，两条测试在改动前都失败。
 - 共享设置页：`apps/desktop`、`apps/harmony` 的 `tsc --noEmit`，`vp lint`、`vp fmt --check`，`apps/desktop` 全量 vitest。
 - 用临时页面以 `data-platform="mac"` 渲染剪贴板页的两个分组，无头 Chromium 截了收起、行的气泡展开、组名气泡展开三种状态；截图留在 `~/msime-screenshots/settings-description-tooltip/`。
 - 没有在真实的 macOS 设置应用、Linux 设置应用和 HarmonyOS 设备上看过；原生三端的验证写在各自的 PR 里。

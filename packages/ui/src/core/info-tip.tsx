@@ -68,9 +68,11 @@ export function InfoTip({
 
   useEffect(() => {
     if (!open) return;
+    // 位置只在打开时量一次，滚动或缩放后气泡会脱离它的行，所以连同键盘聚焦打开的那种一起收起；再次 Tab 到「?」会重新打开并重新定位。
     const close = () => {
       setHovered(false);
       setPinned(false);
+      setFocused(false);
     };
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -78,10 +80,7 @@ export function InfoTip({
       close();
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-        setFocused(false);
-      }
+      if (event.key === "Escape") close();
     };
     document.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
