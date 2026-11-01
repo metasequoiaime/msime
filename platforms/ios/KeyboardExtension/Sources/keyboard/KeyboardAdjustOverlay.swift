@@ -135,7 +135,8 @@ final class KeyboardAdjustOverlay: UIView {
                                width: vertical.width, height: vertical.height)
     let buttons = [resetButton, moveButton, confirmButton].filter { !$0.isHidden }
     // 按钮排在左右两个柄之间：收窄到 240 pt 左右时三个按钮按原尺寸排不下，会盖住左右柄的中段（按钮在柄之上），按住柄的把手拖动就成了点「重置」或「确认」。排不下时先收间距、再收按钮宽度。
-    let sides = capabilities.showsSideHandles ? 2 * vertical.width : 0
+    // 与柄之间也留最小间距，不让按钮贴着柄的边。
+    let sides = capabilities.showsSideHandles ? 2 * (vertical.width + Self.minimumButtonSpacing) : 0
     let (width, spacing) = Self.buttonRow(count: buttons.count, available: box.width - sides)
     let height = Self.buttonSize.height
     let rowWidth = CGFloat(buttons.count) * width + CGFloat(max(buttons.count - 1, 0)) * spacing
