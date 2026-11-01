@@ -205,7 +205,7 @@ export class CandidateManagementAction {
       title: "朗读",
       announcement: "",
       confirmationRequired: false,
-      menuItemId: MENU_ITEM_BASE + 8,
+      menuItemId: MENU_ITEM_BASE + 10,
       candidate: candidate,
       spoken: spoken,
     };

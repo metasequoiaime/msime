@@ -6207,8 +6207,22 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
         (action: ManagementAction) => action.menuItemId === readAloud.menuItemId,
       ) &&
       readAloud.menuItemId !==
-        CandidateManagementAction.personalWordbookAction("x", true)?.menuItemId,
+        CandidateManagementAction.personalWordbookAction("x", true)?.menuItemId &&
+      readAloud.menuItemId !== CandidateManagementAction.glossAction("x")?.menuItemId,
     "朗读 has a menu id of its own",
+  );
+  const fullMenuIds: number[] = CandidateManagementAction.managementActions(
+    "interview",
+    true,
+    0,
+    true,
+    true,
+    "面试",
+    "interview",
+  ).map((action: ManagementAction) => action.menuItemId);
+  check(
+    fullMenuIds.length > 0 && new Set(fullMenuIds).size === fullMenuIds.length,
+    "every item in the full candidate menu has a distinct menu id",
   );
   check(
     !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
