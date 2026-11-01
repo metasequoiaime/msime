@@ -46,6 +46,10 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 160, widthPercent: 60, positionX: 500))
     KeyboardLayoutPreference.defaults.set(true, forKey: KeyboardLayoutPreference.bottomLiftKey)
     XCTAssertEqual(KeyboardLayoutPreference.placement.bottomLift, 0, "a boolean is not a lift")
+    // 超出 `Int` 的存储值不能让 `Int(Double)` 崩掉键盘，照样限制到范围内。
+    KeyboardLayoutPreference.defaults.set(1e300, forKey: KeyboardLayoutPreference.bottomLiftKey)
+    KeyboardLayoutPreference.defaults.set(-1e300, forKey: KeyboardLayoutPreference.widthPercentKey)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 160, widthPercent: 60, positionX: 500))
   }
 
   func testCapabilitiesFollowTheFormFactorAndTheKeyboardMode() {

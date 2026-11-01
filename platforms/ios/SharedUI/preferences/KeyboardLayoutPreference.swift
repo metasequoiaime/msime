@@ -253,7 +253,8 @@ enum KeyboardLayoutPreference {
   private static func storedInt(_ key: String) -> Int? {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite,
           CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
-    return Int(value.doubleValue.rounded())
+    // 先收到一个远大于各项范围的区间再转整数：`Int(Double)` 遇到超出 `Int` 的值（如 1e300）会直接崩掉键盘，而 `KeyboardPlacement` 随后照样把它限制到范围内。
+    return Int(SharedNumber.clamped(value.doubleValue, to: -1_000_000...1_000_000).rounded())
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
 
