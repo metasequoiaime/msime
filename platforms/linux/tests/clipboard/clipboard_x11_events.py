@@ -46,6 +46,7 @@ class ClipboardEvents(unittest.TestCase):
             root = Path(directory)
             monitor = root / "msime-linux-clipboard-monitor"
             shutil.copyfile(ROOT / "scripts" / monitor.name, monitor)
+            shutil.copyfile(ROOT / "scripts" / "msime_crash_capture.py", root / "msime_crash_capture.py")
             (root / "msime-linux-clipboard-watch-x11").symlink_to(WATCHER)
             log = root / "captures"
             def executable(name, source):

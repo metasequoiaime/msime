@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
@@ -8,6 +9,7 @@
 
 int main(int argc, char **argv) {
   if (argc != 2 || argv[1][0] != '/') return 2;
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("clipboard-capture", argv[1]);
   std::array<char, 12001> input;
   const auto input_size = msime::linux_host::read_bounded_cli_input(std::cin, input);
   if (!input_size) return 2;
