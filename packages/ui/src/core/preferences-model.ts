@@ -47,6 +47,9 @@ import type {
   TouchToolbarPreferences,
 } from "../settings/touch-keyboard-toolbar-preferences";
 
+/** 共享偏好 `next_word_prediction_buttons` 的取值，与 Rust 的 `NextWordPredictionButtons` 一致。 */
+export type NextWordPredictionButtons = "expand_only" | "close_and_expand" | "close_only";
+
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
   WubiPreferences &
@@ -212,6 +215,10 @@ export type Preferences = PunctuationPreferences &
     single_character_only?: boolean;
     /** 移动光标后编辑光标后的部分（桌面宿主）：缺省为关，关着时 Rust 端不写这个键。 */
     caret_edit_suffix?: boolean;
+    /** 上屏后联想：缺省为关。只在声明 `HostCapabilities.next_word_prediction` 的宿主上生效。 */
+    next_word_prediction?: boolean;
+    /** 上屏后联想时候选栏右端的按键（触屏宿主），缺省只有展开键。 */
+    next_word_prediction_buttons?: NextWordPredictionButtons;
     candidate_page_size: number;
     number_row_selection?: boolean;
     candidate_follow_cursor?: boolean;

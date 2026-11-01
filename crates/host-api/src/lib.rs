@@ -377,6 +377,11 @@ fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
     CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
 }
 
+/// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
+fn next_word_prediction_applies(preferences: &Preferences) -> bool {
+    ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
+}
+
 fn multilingual_languages_for(
     preferences: &Preferences,
     edition: &Edition,
@@ -835,8 +840,7 @@ impl HostSession {
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
-        options.next_word_prediction =
-            preferences.next_word_prediction && cfg!(target_os = "android");
+        options.next_word_prediction = next_word_prediction_applies(&preferences);
         options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -2367,8 +2371,7 @@ impl HostOptions {
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
-            next_word_prediction: self.preferences.next_word_prediction
-                && cfg!(target_os = "android"),
+            next_word_prediction: next_word_prediction_applies(&self.preferences),
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),

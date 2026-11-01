@@ -51,6 +51,11 @@ impl HostPlatform {
         }
     }
 
+    /// 这个宿主是否显示上屏后联想（偏好 `next_word_prediction`），见 `HostCapabilities::next_word_prediction`。联想没有组字，宿主要能在没有预编辑时显示候选，并且只有点选候选才上屏：空格、回车、数字和标点照常输入，Esc 关闭联想。每个宿主在接好这些的那次改动里加上自己；host-api 只在这里为真的宿主上把偏好交给 Engine。
+    pub fn shows_next_word_prediction(self) -> bool {
+        matches!(self, HostPlatform::Android)
+    }
+
     /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
     pub fn reads_mixed_input_minimum_prefix(self) -> bool {
         matches!(
@@ -417,6 +422,8 @@ pub struct HostCapabilities {
     pub quick_phrase_candidates: bool,
     /// 宿主提供「移动光标后编辑光标后的部分」（偏好 `caret_edit_suffix`）：实体键盘能把组字光标移进拼音中间，候选窗画模式提示。三个桌面宿主提供；host-api 在其他宿主上不把偏好交给 Engine，设置页也不列出它。
     pub caret_edit_suffix: bool,
+    /// 宿主显示上屏后联想（偏好 `next_word_prediction`），设置页列出它的开关；触屏宿主（`mobile_settings`）还列出联想栏按键的样式（`next_word_prediction_buttons`）。取值见 [`HostPlatform::shows_next_word_prediction`]。
+    pub next_word_prediction: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
     /// 宿主把「切换中英文」那一组快捷键接进中日英循环（`KeybindingPreferences::trilingual_cycle` 与 `crate::language_cycle`）：中 → 日 → 英 → 中，有组字时先上屏原始字母，英文模式下交回应用。目前只有 macOS 接入；其余宿主不声明此能力。
@@ -881,6 +888,7 @@ impl HostCapabilities {
             quick_phrase_candidates: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // 三个桌面宿主的候选窗都画「候选编辑：光标后」提示，设置在共享设置页（macOS、Linux）和 Windows 的原生设置里。
             caret_edit_suffix: platform.is_desktop(),
+            next_word_prediction: platform.shows_next_word_prediction(),
             // Windows 和 Linux 只注册了一个中文输入法，没有别的键盘快捷键能换到日语方案。macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要它。Android 实体键盘和 HarmonyOS 2in1 实体键盘也读共享快捷键，但还没有接上这个组合键，接上的那次改动再在这里加上自己。
             japanese_toggle_shortcut: matches!(
                 platform,
