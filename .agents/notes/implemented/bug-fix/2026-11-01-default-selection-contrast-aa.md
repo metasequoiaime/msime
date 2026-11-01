@@ -27,7 +27,7 @@ iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在�
 - **macOS、Windows 深色**：选中底从强调色 `#5FBF84` 换成品牌的强调墨绿 `#17783F`（msime-web `src/styles/tokens.css` 的浅色 `--accent-ink`），白字约 5.5:1。浅色的 `#2C7A4B` 白字已经 5.3:1，不动。macOS 在 `NativeCandidateTokens` 里把深色的 `selected` 写成 `#17783F`，`ResolveSkin` 只在主题或取色器给了强调色时才让选中底跟着强调色，强调色也留给平台时保留原生选中底；Windows 是 `CandidatePalette::selected`，`candidate_palette` 本来就只在给了强调色时跟随。
 - **macOS Liquid Glass 不跟着换**：玻璃底板上的深色选中行是浅绿底配深色字，本来就到 7.2:1，`ApplyNativeGlassCandidateContrast` 显式保留 `#5FBF84`。
 - **选中行释义（读音同色）**：`#17783F`、`#2C7A4B` 上白色 0.82 的选中序号色只有约 4.3:1、4.1:1。Windows 沿用 #10494 的规则（`candidate_row_translation_color`：序号色不到 4.5:1 时取选中文字色，不透明度从 0.82 往上加到够为止），默认浅色是白色 0.89、深色是白色 0.86。macOS 新增同一规则的 `SelectedRowGloss`，用在皮肤没有释义色的选中行上（`InputController.mm` 的 `translationColor`）；皮肤有释义色时仍走 `DeriveSelectedForegrounds` 的 0.82，不在这次范围里。
-- **Linux**：选中底从 GNOME 强调色 `#3584E4` 换成同一色系更深的 Adwaita 调色板 Blue 5 `#1A5FB4`（`kLinuxSelection`），白字约 6.3:1，85% 白的序号约 5.0:1；选中行没有皮肤释义色时释义画序号色，所以释义和读音也是 5.0:1。`kLinuxAccent` 仍是 `#3584E4`。
+- **Linux**：选中底从 GNOME 强调色 `#3584E4` 换成同一色系更深的 Adwaita 调色板 Blue 5 `#1A5FB4`（`kLinuxSelection`），白字约 6.3:1，85% 白的序号约 5.0:1；选中行没有皮肤释义色时释义画序号色，所以释义和读音也是 5.0:1。`kLinuxAccent` 仍是 `#3584E4`。悬浮工具栏的勾本来就取候选窗的选中底和选中文字（`floating_toolbar_colors`），跟着变成 `#1A5FB4` 配白字；双拼键位图的高亮键仍填 `kLinuxAccent`。
 - **共享设置页的候选预览**：macOS、Windows 两块默认值的 `--cand-selected` 按明暗写成 `#2C7A4B` 和 `#17783F`，调色板给了强调色、没给选中底时经 `candidatePaletteStyle` 写出的 `--cand-mac-selected` 跟随强调色，和原生 `ResolveSkin` 一致；`candidate-preview-native-tokens.test.ts` 照旧对照原生源码。
 
 ### 对比度测试
