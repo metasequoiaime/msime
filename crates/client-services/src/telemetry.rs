@@ -1237,10 +1237,14 @@ fn crash_event(
             .find(|marker| marker.id == stem)
             .and_then(|marker| marker.context.clone())
     });
-    if consent_epoch.is_some()
-        && context.as_ref().and_then(|context| context.consent_epoch) != consent_epoch
-    {
-        return Err(CrashRecordSkip::Revoked);
+    // 旧版本的会话标记和崩溃文件没有授权代次；用户仍然同意上报时，
+    // 这些记录应按旧会话继续补报。新格式带上下文时才校验它是否属于当前代次。
+    if let Some(current_epoch) = consent_epoch {
+        if let Some(context) = context.as_ref() {
+            if context.consent_epoch != Some(current_epoch) {
+                return Err(CrashRecordSkip::Revoked);
+            }
+        }
     }
     let (platform, version) = match context.as_ref() {
         Some(context) => (context.platform.clone(), context.version.clone()),
