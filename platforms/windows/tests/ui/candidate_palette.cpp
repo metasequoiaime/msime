@@ -232,23 +232,26 @@ int main() {
   const auto followed = candidate_palette(following);
   require(!followed.translation);
   require(candidate_row_translation_color(followed, false) == followed.number);
-  // selected_number #5FBF84 on the #5FBF84 fill would vanish, so the selected row derives its gloss from the fill.
+  // selected_number #5FBF84 on the #5FBF84 fill would vanish, so the selected row derives its gloss from the selected text.
   require(candidate_row_translation_color(followed, true) ==
-          candidate_selected_gloss_color(followed.selected));
+          candidate_selected_gloss_color(followed.selected_text, followed.selected));
   CandidatePaletteOverrides translated = numbered;
   translated.secondary = "#9FB4E080";
   const auto own = candidate_palette(translated);
   require(own.translation && *own.translation == candidate_rgb(0x9FB4E0, 0x80 / 255.0f));
   require(candidate_row_translation_color(own, false) == *own.translation);
   require(candidate_row_translation_color(own, true) ==
-          candidate_selected_gloss_color(own.selected));
+          candidate_selected_gloss_color(own.selected_text, own.selected));
   require(candidate_row_number_color(own, false) == own.number);
 
-  // 选中行的释义和读音：默认浅色、深色的选中底色上至少 4.5:1（WCAG AA），未选中行不变。默认浅色的白色 0.82 只有约 4.1:1，加到够 4.5:1 为止，仍是白色；默认深色的 #5FBF84 上白色到不了 4.5:1，换成近黑。
+  // 选中行的释义和读音跟着选中文字的颜色，同一行只有一种前景色，未选中行不变。默认浅色的白色 0.82 只有约 4.1:1，加到够 4.5:1 为止；默认深色的 #5FBF84 上白色到不了 4.5:1，释义取不透明的白色，和选中文字一样（约 2.3:1），不换成近黑。
   for (const auto &base : {defaults, light_defaults}) {
     const auto gloss = candidate_row_translation_color(base, true);
-    require(candidate_contrast_on(gloss, base.selected) >= 4.5f);
+    require(gloss.r == base.selected_text.r && gloss.g == base.selected_text.g &&
+            gloss.b == base.selected_text.b);
     require(gloss.a >= 0.82f);
+    require(candidate_contrast_on(gloss, base.selected) >
+            candidate_contrast_on(base.selected_number, base.selected));
     require(candidate_row_translation_color(base, false) == base.number);
     require(candidate_row_translation_color(base, false, true) ==
             candidate_rgb(0x379AD3, 0.62f));
@@ -257,16 +260,16 @@ int main() {
           candidate_contrast_on(light_defaults.selected_number, light_defaults.selected) < 4.5f);
   const auto light_gloss = candidate_row_translation_color(light_defaults, true);
   require(light_gloss.r == 1.0f && light_gloss.g == 1.0f && light_gloss.b == 1.0f &&
-          light_gloss.a > 0.82f && light_gloss.a < 1.0f);
-  require(candidate_row_translation_color(defaults, true) ==
-          candidate_rgb(0x1A1A1A, 0.82f));
+          light_gloss.a > 0.82f && light_gloss.a < 1.0f &&
+          candidate_contrast_on(light_gloss, light_defaults.selected) >= 4.5f);
+  require(candidate_row_translation_color(defaults, true) == candidate_rgb(0xFFFFFF));
   // 选中序号色本来就够 4.5:1 时照它画，不推导。
   CandidatePaletteOverrides readable_number;
   readable_number.selected = "#202020";
   readable_number.selected_number = "#E0E0E0";
   const auto readable = candidate_palette(readable_number);
   require(candidate_row_translation_color(readable, true) == readable.selected_number);
-  // 皮肤包的释义色在不透明选中底色上换成按底色推导的颜色，和 macOS 的 DeriveSelectedForegrounds 一样：#23262F 配 #6B7180、#F2C94C 配 #B8860B 到 4.5:1；#4D6BFE 上白和近黑都到不了 4.5:1，取不透明的白色（约 4.3:1，和选中文字一样）。
+  // 皮肤包的释义色在不透明选中底色上换成从选中文字推导的颜色，和 macOS 的 DeriveSelectedForegrounds 一样：#23262F 配 #6B7180、#F2C94C 配 #B8860B 到 4.5:1；#4D6BFE 上选中文字是白色，到不了 4.5:1，取不透明的白色（约 4.3:1，和选中文字一样）。
   struct PackageCase { const char *selected, *translation; bool reaches_aa; };
   for (const auto &c : {PackageCase{"#23262F", "#6B7180", true},
                         PackageCase{"#F2C94C", "#B8860B", true},

@@ -2073,7 +2073,7 @@ void CandidateWindow::paint() {
       compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
           text.c_str(), static_cast<UINT32>(text.size()), text_format, text_rect,
           brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); on an opaque selection fill the selected row's translation is derived from the fill instead unless it already reads at 4.5:1 (candidate_row_translation_color); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
+    // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); on an opaque selection fill a package's translation colour is replaced by one derived from the selected text colour, and selected_number is kept only when it reads at 4.5:1 (candidate_row_translation_color); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
     const auto annotation_color =
         candidate_row_text_color(palette_, text_color, selected,
                                  value->candidates[i].fixed_position != 0);
