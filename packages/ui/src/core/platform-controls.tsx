@@ -9,6 +9,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -20,6 +21,7 @@ import {
 import { ActionSheet, type SheetOption } from "./action-sheet";
 import { ChevronGlyph } from "./chevron-glyph";
 import { FluentIcon } from "./fluent-icons";
+import { InfoTip } from "./info-tip";
 import { clamp } from "./number";
 import * as style from "./platform-controls-style";
 import { useMacOSSystemControls } from "./use-macos-liquid-glass";
@@ -38,17 +40,62 @@ function useRowLabels(own: Labelled): Labelled {
   };
 }
 
+type GroupNote = { id: string; node: ReactNode };
+type GroupNotes = { add: (id: string, node: ReactNode) => () => void };
+const GroupNotesContext = createContext<GroupNotes | null>(null);
+
+/** 有组名的 `GroupList` 收集组内的说明段落（`SettingsGroupNote`），放进组名旁「?」的气泡里；没有组名的组、组外，以及 `GroupNotesInline` 里面都拿到 `null`，说明照旧画在原处。 */
+export function useGroupNotes() {
+  return useContext(GroupNotesContext);
+}
+
+/** 让里面的说明段落留在原处：用于说明紧挨着它解释的按钮（例如「改回水杉账号」上面那句会清除什么）。 */
+export function GroupNotesInline({ children }: { children: ReactNode }) {
+  return <GroupNotesContext.Provider value={null}>{children}</GroupNotesContext.Provider>;
+}
+
 export function GroupList({ title, children }: { title?: ReactNode; children: ReactNode }) {
   const titleId = useId();
+  const [notes, setNotes] = useState<readonly GroupNote[]>([]);
+  const collector = useMemo<GroupNotes>(
+    () => ({
+      add: (id, node) => {
+        setNotes((current) => {
+          const index = current.findIndex((note) => note.id === id);
+          if (index < 0) return [...current, { id, node }];
+          const next = [...current];
+          next[index] = { id, node };
+          return next;
+        });
+        return () => setNotes((current) => current.filter((note) => note.id !== id));
+      },
+    }),
+    [],
+  );
   return (
     <section className={style.group} aria-labelledby={title ? titleId : undefined}>
-      {/* `data-group-title` marks the name of a set of settings, as `data-row-title` marks one setting's. */}
       {title && (
-        <h3 id={titleId} className={style.groupTitle} data-group-title="">
-          {title}
-        </h3>
+        <div className={style.groupHeader} data-group-header="">
+          {/* `data-group-title` marks the name of a set of settings, as `data-row-title` marks one setting's. */}
+          <h3 id={titleId} className={style.groupHeaderTitle} data-group-title="">
+            {title}
+          </h3>
+          {notes.length > 0 && (
+            <InfoTip>
+              {notes.map((note, index) => (
+                <span key={note.id} className={index === 0 ? "block" : "mt-1.5 block"}>
+                  {note.node}
+                </span>
+              ))}
+            </InfoTip>
+          )}
+        </div>
       )}
-      <div className={style.groupRows}>{children}</div>
+      <div className={style.groupRows}>
+        <GroupNotesContext.Provider value={title ? collector : null}>
+          {children}
+        </GroupNotesContext.Provider>
+      </div>
     </section>
   );
 }
@@ -56,13 +103,17 @@ export function GroupList({ title, children }: { title?: ReactNode; children: Re
 export function Row({
   title,
   description,
+  detail,
   icon,
   hidden,
   wideControl,
   children,
 }: {
   title: ReactNode;
+  /** 解释这个设置做什么、什么时候用：收进标题旁的「?」，不常驻页面（见 docs/ARCHITECTURE.md「设置项说明收进「?」」）。 */
   description?: ReactNode;
+  /** 状态、当前值、校验或错误提示、条目的元信息（版本、条数、登记时间）、前置条件（「登录后可用」）：常驻标题下方，不收进「?」。 */
+  detail?: ReactNode;
   /** Keeps a row that does not apply right now in the page, out of sight and out of the accessibility tree, the way the `hidden` attribute does on any element. */
   hidden?: boolean;
   /** Shown where the platform leads rows with a glyph (Windows); decorative. */
@@ -74,6 +125,10 @@ export function Row({
 }) {
   const labelId = useId();
   const descriptionId = useId();
+  const detailId = useId();
+  const describedBy =
+    [detail ? detailId : "", description ? descriptionId : ""].filter(Boolean).join(" ") ||
+    undefined;
   return (
     <div
       className={wideControl ? style.wideRow : style.row}
@@ -86,20 +141,22 @@ export function Row({
         </span>
       )}
       <span className={style.rowText}>
-        {/* `data-row-title` marks the setting's name for whatever reads a page's settings back, as `section-title` does on the older markup. */}
-        <span id={labelId} className={style.rowTitle} data-row-title="">
-          {title}
+        {/* 说明不常驻在标题下面，收进标题旁的「?」；控件仍以 `descriptionId` 指向它（见 `InfoTip`）。 */}
+        <span className={style.rowTitleLine}>
+          {/* `data-row-title` marks the setting's name for whatever reads a page's settings back, as `section-title` does on the older markup. */}
+          <span id={labelId} className={style.rowTitle} data-row-title="">
+            {title}
+          </span>
+          {description && <InfoTip id={descriptionId}>{description}</InfoTip>}
         </span>
-        {description && (
-          <span id={descriptionId} className={style.rowDescription}>
-            {description}
+        {detail && (
+          <span id={detailId} className={style.rowDescription}>
+            {detail}
           </span>
         )}
       </span>
       {children && (
-        <RowLabelsContext.Provider
-          value={{ labelId, descriptionId: description ? descriptionId : undefined }}
-        >
+        <RowLabelsContext.Provider value={{ labelId, descriptionId: describedBy }}>
           <span className={wideControl ? style.wideRowControl : style.rowControl}>{children}</span>
         </RowLabelsContext.Provider>
       )}
@@ -135,12 +192,15 @@ export function LinkRow({
       onClick={onClick}
     >
       <span className={style.rowText}>
-        <span className={style.rowTitle}>{title}</span>
-        {description && (
-          <span id={descriptionId} className={style.rowDescription}>
-            {description}
-          </span>
-        )}
+        <span className={style.rowTitleLine}>
+          <span className={style.rowTitle}>{title}</span>
+          {/* 整行是按钮，里面不能再嵌按钮：「?」只在悬停时出气泡，说明由行按钮的 `aria-describedby` 读出。 */}
+          {description && (
+            <InfoTip id={descriptionId} passive>
+              {description}
+            </InfoTip>
+          )}
+        </span>
       </span>
       <span className={style.rowDescription}>
         {value && (
@@ -395,18 +455,20 @@ export function Checks<T extends string>({
   return (
     <fieldset
       className={style.checks}
+      // legend 里还有「?」和说明文字，组名固定取标题，不让它们混进名称。
+      aria-label={textOf(legend) || undefined}
       aria-describedby={description ? descriptionId : undefined}
       data-settings-search-label={typeof legend === "string" ? legend : undefined}
     >
       {/* The legend names the setting the way a row title does, so it carries the same `data-row-title` mark. */}
       <legend className={style.checksLegend} data-row-title="">
         {legend}
+        {description && (
+          <InfoTip id={descriptionId} className="ms-1">
+            {description}
+          </InfoTip>
+        )}
       </legend>
-      {description && (
-        <span id={descriptionId} className={style.checksDescription}>
-          {description}
-        </span>
-      )}
       {layout === "grid" ? <div className={style.checksGrid}>{checks}</div> : checks}
     </fieldset>
   );
@@ -540,6 +602,7 @@ export function NavRow({
 export function PickerRow({
   title,
   description,
+  detail,
   hidden,
   disabled,
   valueLabel,
@@ -549,6 +612,8 @@ export function PickerRow({
 }: {
   title: ReactNode;
   description?: ReactNode;
+  /** 与 `Row` 的 `detail` 相同：常驻标题下方的状态或值。 */
+  detail?: ReactNode;
   hidden?: boolean;
   disabled?: boolean;
   /** 显示在末端的当前选择。 */
@@ -562,7 +627,7 @@ export function PickerRow({
   const titleId = useId();
   const sheetTitle = textOf(title);
   const value = (
-    <span className={description ? style.pickerValueDescribed : style.pickerValue}>
+    <span className={style.pickerValue}>
       <span className={style.pickerValueText}>{valueLabel}</span>
       <ChevronGlyph size={13} strokeWidth={2.6} className="shrink-0" />
     </span>
@@ -576,30 +641,21 @@ export function PickerRow({
       {/* 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。 */}
       <button
         type="button"
-        className={description ? style.pickerRowDescribed : style.pickerRow}
+        className={style.pickerRow}
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen(true)}
       >
-        {description ? (
-          <>
-            <span id={titleId} className={style.rowTitle} data-row-title="">
-              {title}
-            </span>
-            {value}
-            <span className={style.pickerRowDescription}>{description}</span>
-          </>
-        ) : (
-          <>
-            <span className={style.rowText}>
-              <span id={titleId} className={style.rowTitle} data-row-title="">
-                {title}
-              </span>
-            </span>
-            {value}
-          </>
-        )}
+        <span className={style.rowText}>
+          <span id={titleId} className={style.rowTitle} data-row-title="">
+            {title}
+          </span>
+          {/* 说明不常驻在行里：点开行时写在选项面板的标题下面；这里只留给读屏的副本，行按钮仍按标题、说明和当前值命名。 */}
+          {detail && <span className={style.rowDescription}>{detail}</span>}
+          {description && <span className="sr-only">{description}</span>}
+        </span>
+        {value}
       </button>
       {/* inert 让隐藏控件不受触摸、焦点和辅助技术的访问，用户遇到的唯一控件就是行按钮；它仍然保存值并接收变更。 */}
       <span className="sr-only" inert>
@@ -608,6 +664,7 @@ export function PickerRow({
       <ActionSheet
         open={open}
         title={sheetTitle}
+        subtitle={description ? textOf(description) : undefined}
         options={options}
         onSelect={onSelect}
         onClose={() => setOpen(false)}

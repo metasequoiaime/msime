@@ -152,7 +152,7 @@ export function InputSchemeDetailsSection({
   ) => (
     <Row
       title={title}
-      description={`${options[0].label}：${description}`}
+      detail={`${options[0].label}：${description}`}
       hidden={hasTouchKeyboardSchemes || scheme !== shown}
     />
   );

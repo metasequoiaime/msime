@@ -36,7 +36,11 @@ export function collectSettingsSearchTargets(
         break;
       }
       const groupTitle = parent.matches("section")
-        ? parent.querySelector(":scope > [data-group-title]")?.textContent?.trim()
+        ? parent
+            .querySelector(
+              ":scope > [data-group-title], :scope > [data-group-header] > [data-group-title]",
+            )
+            ?.textContent?.trim()
         : undefined;
       if (groupTitle) path.unshift(groupTitle);
       if (parent.getAttribute("role") === "tabpanel") {
@@ -73,7 +77,7 @@ export function focusSettingsSearchTarget(target: SettingsSearchTarget): void {
   const control = row.matches("button, input, select, textarea")
     ? row
     : row.querySelector<HTMLElement>(
-        'input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex="0"]',
+        'input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled):not([data-info-tip]), [tabindex="0"]',
       );
   if (!control) row.tabIndex = -1;
   focusAndRevealNearest(control ?? row);
