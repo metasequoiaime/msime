@@ -11645,16 +11645,19 @@ struct KeyboardView {
   adjustEdge(handle: string) {
     Stack({ alignContent: handle === ADJUST_TOP ? Alignment.Top : Alignment.Center }) {
       if (handle === ADJUST_TOP || handle === ADJUST_BOTTOM) {
+        // 三道线连同间距的厚度取 gripSpanVp(3)：测试按它断言横线底边在工具栏图标之上，画出来的就是这个厚度。
         Column({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(true)
           this.adjustGripLine(true)
           this.adjustGripLine(true)
         }
+        .height(KeyboardAdjustPolicy.gripSpanVp(3))
       } else {
         Row({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(false)
           this.adjustGripLine(false)
         }
+        .width(KeyboardAdjustPolicy.gripSpanVp(2))
       }
     }
     .width(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_LONG_VP : KeyboardAdjustPolicy.HANDLE_SHORT_VP)
