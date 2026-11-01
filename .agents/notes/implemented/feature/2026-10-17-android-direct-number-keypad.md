@@ -12,7 +12,7 @@ Status: implemented
 
 Android 把 `TYPE_CLASS_NUMBER` 和 `TYPE_CLASS_PHONE` 识别为直接数字输入。输入会话开始时把键层设为数字层，键行复用现有数字九宫格、左侧符号栏、删除/小数点/空格侧列以及底行 `0`，不创建 Engine 会话。数字密码沿用同一布局，但仍由既有隐私策略排除统计和云功能。用户可以用现有层切换键回到字母键盘，满足应用需要时的回退路径。
 
-数字密码与文字密码一样进框临时切英文（`EditorPolicy.prefersLatin` 包含 `EditorPolicy.password` 认的数字密码，离开时恢复原来的中英），所以它的字母层是英文 26 键。没有引擎会话时字母层按记住的中文键面（`touchLayoutHint`）画，不切英文的话九键、注音、笔画用户在密码框里回到的是一块没有引擎、打不出字母的中文键面（#10481，夜间 API 28 上前一个套件停在大千注音时就是这样）。鸿蒙把 `PATTERN_PASSWORD_NUMBER` 归入密码，同样走英文。普通数字框和电话框不切，仍按用户的中英进框。
+数字密码与文字密码一样进框临时切英文（`EditorPolicy.prefersLatin` 包含 `EditorPolicy.password` 认的数字密码，离开时恢复原来的中英），所以它的字母层是英文 26 键。没有引擎会话时字母层按记住的中文键面（`touchLayoutHint`）画，不切英文的话九键、注音、笔画用户在密码框里回到的是一块没有引擎、打不出字母的中文键面（#10481，夜间 API 28 上前一个套件停在大千注音时就是这样）。鸿蒙把 `PATTERN_PASSWORD_NUMBER` 归入密码，同样走英文。普通数字框和电话框不切，仍按用户的中英进框。英文模式只决定软键盘画哪一层：数字、电话框（含数字密码）的实体和注入按键不经英文直输上屏，照旧交给编辑器自己处理。输入法上屏走 InputConnection，交还给应用的回车走按键通道，两条通道不保证先后；数字密码切英文后若由输入法上屏数字，快速输入「PIN + 回车」时回车会先到，系统认证界面拿不完整的 PIN 校验失败。
 
 数字输入的判定放在 `EditorPolicy`，键区只通过 `MSIMEInputService#directNumberPad` 读取；这样数字键盘的入口不会复制到渲染代码，也不会改变中文输入框点击 `123` 的既有方案判定。数字页的 `#+=`、符号、删除、空格手势和 `0` 仍沿用现有组件。每次重建数字输入框的键行时同时清除 `ImeLetterRows#moreSymbols`，避免同一个输入法服务从普通文本框切换过来后把旧的 `#+=` 页带进数字框。
 
@@ -32,7 +32,7 @@ Android 把 `TYPE_CLASS_NUMBER` 和 `TYPE_CLASS_PHONE` 识别为直接数字输�
 
 ## Verification
 
-#10481：`EditorSmoke` 钉住数字密码 `prefersLatin`、普通数字与电话不切；`NumberPadDeviceSmoke -e password-number-pad true` 先以九键用户在中文框里显示一次九键，再跑四种密码框，数字密码返回字母层必须是英文 `q`，不再取决于前一个套件停在哪种键面。
+#10481：`EditorSmoke` 钉住数字密码 `prefersLatin`、普通数字与电话不切；`NumberPadDeviceSmoke -e password-number-pad true` 先以九键用户在中文框里显示一次九键，再跑四种密码框，数字密码返回字母层必须是英文 `q`，不再取决于前一个套件停在哪种键面。这次改动的 PR 设备测试里，剪贴板导出和分段拖动两个套件用 `input text 2580` 加回车解锁系统认证界面，数字密码切英文后校验失败，于是加上了上面按键交给编辑器的规则；它们通过即说明顺序恢复。
 
 `EditorSmoke` 覆盖普通数字、数字密码、电话输入和文本输入的分类边界；设备测试编辑器增加合成数字输入框，`NumberPadDeviceSmoke` 在 API 28 专用模拟器上先让普通文本框停在 `#+=` 页，再切换数字框，检查三列九宫格并输入 `1203`。`platforms/android/check-host.sh` 的 242 项 Android JVM 冒烟和 Gradle Java/Lint 构建通过；API 28 上单独运行 `NumberPadDeviceSmoke` 通过。完整 `smoke.sh emulator-5566 --core` 在无关的剪贴板导出取消选择阶段失败。
 
