@@ -1,4 +1,4 @@
-#import "../../src/core/UsageReporting.h"
+#import "../../src/core/UsageReporting.mm"
 
 #include <cassert>
 #include <cstdlib>
@@ -25,6 +25,8 @@ extern "C" char *msime_client_telemetry_begin(const uint8_t *, size_t) { return 
 extern "C" char *msime_client_telemetry_end(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_record_crash(const uint8_t *, size_t) { return response(); }
 extern "C" char *msime_client_telemetry_flush(const uint8_t *, size_t) { return response(); }
+extern "C" char *msime_client_telemetry_consent(const uint8_t *, size_t) { return response(); }
+extern "C" char *msime_client_telemetry_clear(const uint8_t *, size_t) { return response(); }
 extern "C" void msime_client_string_free(char *value) { std::free(value); }
 
 int main() {
@@ -47,6 +49,9 @@ int main() {
         // 启动时不应在 Application Support 的符号链接祖先下预创建 telemetry 目录。
         MSIMEUsageReportingStart(nil);
         assert(!std::filesystem::exists(outside / "telemetry"));
+        // 夹具不运行 AppKit 事件循环，主动结束并排空自己的发送队列，再析构共用状态。
+        MSIMEUsageReportingStop();
+        dispatch_sync(gQueue, ^{});
 
         std::filesystem::remove_all(root);
     }

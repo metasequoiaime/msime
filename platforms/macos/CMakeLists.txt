@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version; match the Cargo build")
 project(MSIMEClientMacOS LANGUAGES CXX OBJCXX)
+# 发布包保留源码行，归档后仅剥离安装副本；测试和普通开发构建不额外扩大调试产物。
+option(MSIME_RELEASE_CRASH_SYMBOLS "Keep source lines for release crash symbols" OFF)
+if(MSIME_RELEASE_CRASH_SYMBOLS)
+  add_compile_options("$<$<CONFIG:Release>:-gline-tables-only>")
+endif()
 enable_testing()
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/backend" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/cloud" "${CMAKE_CURRENT_SOURCE_DIR}/src/dictionary" "${CMAKE_CURRENT_SOURCE_DIR}/src/settings" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 add_executable(desktop-input-session-test tests/input/DesktopInputSessionTest.mm src/core/DesktopInputSession.mm)
@@ -92,7 +97,7 @@ if(TARGET SQLite3::SQLite3)
 else()
   set(SQLITE_TARGET SQLite::SQLite3)
 endif()
-add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../shared/apple/TextClient.mm)
+add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../shared/apple/TextClient.mm ../common/CrashRecorder.cpp)
 target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crates/host-api/include)
 # AppKit for the marked text attributes: a composition carrying an already chosen phrase piece is
@@ -102,12 +107,27 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
 set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+target_sources(msime-voice-local PRIVATE src/voice/HelperCrashCapture.mm ../common/Telemetry.cpp)
+target_compile_definitions(msime-voice-local PRIVATE MSIME_VOICE_CRASH_CAPTURE)
+set_target_properties(msime-voice-local PROPERTIES OBJCXX_STANDARD 17)
+target_compile_options(msime-voice-local PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+target_link_libraries(msime-voice-local PRIVATE apple-client)
+find_package(nlohmann_json CONFIG REQUIRED)
+target_sources(apple-client PRIVATE ../common/Telemetry.cpp)
+target_link_libraries(apple-client PRIVATE nlohmann_json::nlohmann_json)
+include(../common/tests/capture_only.cmake)
+target_link_libraries(common-capture-only-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+target_link_libraries(common-input-capture-test PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
+add_test(NAME macos-voice-helper-crash-capture
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/helper_crash_capture.py"
+    --helper $<TARGET_FILE:msime-voice-local> --controller $<TARGET_FILE:common-capture-only-test>)
+set_tests_properties(macos-voice-helper-crash-capture PROPERTIES TIMEOUT 120)
 if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
   target_link_libraries(shared-doubao-auth PRIVATE ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS})
 endif()
-# UsageReporting.mm 引用 msime_client.h 并调用宿主的 msime_client_telemetry_*，所以测试要链接 apple-client（带上头文件路径和 Rust 宿主库），且须定义在它之后。原先只链 AppKit，CI 在编译这个文件时就报 'msime_client.h' file not found。
-add_executable(usage-reporting-path-test tests/core/UsageReportingPathTest.mm src/core/UsageReporting.mm)
+# UsageReporting.mm 经共用 Telemetry 调用 Host API，测试链接 apple-client 取得实现、ABI 头和 Rust 库；ABI 桩测试提供全部遥测入口，不联系网络。
+add_executable(usage-reporting-path-test tests/core/UsageReportingPathTest.mm)
 target_compile_options(usage-reporting-path-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_compile_definitions(usage-reporting-path-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-path-test")
 target_link_libraries(usage-reporting-path-test PRIVATE apple-client)
@@ -119,6 +139,24 @@ target_compile_definitions(usage-reporting-termination-test PRIVATE MSIME_USAGE_
 target_link_libraries(usage-reporting-termination-test PRIVATE apple-client)
 add_test(NAME usage-reporting-termination COMMAND usage-reporting-termination-test)
 set_tests_properties(usage-reporting-termination PROPERTIES TIMEOUT 60)
+# 真实宿主适配与共用观察线程；ABI 桩控制在途发送和授权换代。
+add_executable(usage-reporting-consent-test tests/core/UsageReportingConsentTest.mm)
+target_compile_options(usage-reporting-consent-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(usage-reporting-consent-test PRIVATE apple-client)
+add_test(NAME usage-reporting-consent COMMAND usage-reporting-consent-test)
+add_test(NAME usage-reporting-initially-disabled COMMAND usage-reporting-consent-test --disabled)
+set_tests_properties(usage-reporting-consent usage-reporting-initially-disabled PROPERTIES TIMEOUT 30)
+# 使用真实 Rust 偏好与队列，实际触发内存故障和 Objective-C 未捕获异常；只替代网络函数。
+add_executable(usage-reporting-native-test tests/core/UsageReportingNativeTest.mm
+  ../common/Telemetry.cpp ../common/CrashRecorder.cpp)
+target_compile_options(usage-reporting-native-test PRIVATE -UNDEBUG -Wall -Wextra -Werror
+  "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+target_compile_definitions(usage-reporting-native-test PRIVATE MSIME_TELEMETRY_TEST_FLUSH)
+target_link_libraries(usage-reporting-native-test PRIVATE apple-client nlohmann_json::nlohmann_json)
+add_test(NAME usage-reporting-native
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/usage_reporting_native.py"
+    $<TARGET_FILE:usage-reporting-native-test>)
+set_tests_properties(usage-reporting-native PROPERTIES TIMEOUT 120)
 # src/cloud 的 CloudClipboardClient、CloudClipboardWindowController、CloudDictionaryClient、CloudURLSession 是账号和云端改走 Rust（#8201）以前的 Objective-C 实现，输入法里已经没有代码引用它们，不再编进输入法；它们仍由下面的 cloud-clipboard-deletion、cloud-clipboard-selection、cloud-dictionary-client 三个测试目标编译，scripts/test-macos-cloud-query-encoding.py 和 test-macos-cloud-redirect-policy.py 也读它们的源码，所以文件留着，删不删由负责人定。同一批里没人引用的 CloudFileTransfer 和 src/core/Account{AuthClient,Keychain,SessionManager,WindowController} 已经删掉。
 add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/input/input_method_main.mm src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/voice/VoiceInputService.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/input/InputController.mm src/input/InputModeHUDPanel.mm src/input/InputModeStatusItem.mm src/candidate/CandidateSkinAppearance.mm src/settings/AppearancePreferences.mm src/core/DiagnosticLog.cpp src/core/BoundedFileReader.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/core/UpdateController.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm src/dictionary/DictionaryInstaller.mm ../../crates/host-macos/native/uninstaller.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)
@@ -191,6 +229,8 @@ endif()
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME macos-crash-symbols
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-macos-crash-symbols.py" --require-tools)
 set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")
 # Sparkle 只在发布包里打开：package-release.sh 拿得到签更新的私钥时传入 appcast 所在的目录，这里拼出本版本的 SUFeedURL（appcast-<版本 id>.xml，edition_bundle.py 把 full 的改成别的版本的；它始终是稳定版的 feed，用户在设置页选了测试版或每日构建时，UpdateController 由它推出同目录下的 appcast-<通道>-<版本 id>.xml，见 src/core/UpdateChannelFeed.h），写入 sparkle-public-key.txt 里的公钥，并打开每天一次的后台检查与静默更新。开发构建不带这些键：带了的话，本机编的输入法会被正式版覆盖。没有 feed 时 UpdateController 走官网下载页（MSIMEUpdateRouteForHost）。
 set(MSIME_SPARKLE_APPCAST_BASE_URL "" CACHE STRING "URL prefix of the appcast-<edition>.xml feeds; empty leaves Sparkle off")
