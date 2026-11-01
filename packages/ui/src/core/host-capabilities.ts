@@ -123,6 +123,8 @@ export interface HostCapabilities {
   voice_space_lock_switch?: boolean;
   /** 宿主分别读开始、结束提示音，所以在总开关之外给出这两个开关。macOS、Windows、Linux、HarmonyOS 只认总开关，报 false；只有 Android、iOS 报 true；缺省按 true。 */
   voice_cue_switches?: boolean;
+  /** 宿主在点按开始的本地识别里按 `voice_input.pause_millis` 和 `voice_input.stop_sensitivity` 结束录音，语音页给出「本地停顿时间」和「判停灵敏度」。目前只有 HarmonyOS 的设置桥在手机和平板上报告（`SettingsFormFactorCapabilities`，2in1 不按停顿结束）；Android 和 iOS 在原生设置页里给出这两项。缺省按不提供处理。 */
+  voice_pause_settings?: boolean;
   /** 宿主有不止一种录音后端，所以给出「录音后端」和手填设备名。只有 Linux 报 true；macOS、Windows、HarmonyOS 各只有一种录音方式，报 false，设置页只给「麦克风」下拉；缺省按 true。 */
   voice_capture_backends?: boolean;
   /** 宿主向运行时报告字符宽度，因此全角输入能够生效。 */

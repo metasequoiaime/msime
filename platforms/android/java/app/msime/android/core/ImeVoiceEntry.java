@@ -82,6 +82,8 @@ final class ImeVoiceEntry {
     private boolean diagnosticAllowed;
     /** 这次聆听由长按空格开始、空格还按着：松手才结束，停顿不自动结束。 */
     private boolean held;
+    /** 正在为长按空格开始一次聆听：本地识别在创建会话时就要知道，`held` 要等 `hold` 才设置，那时工作线程可能已经读过判停灵敏度。 */
+    private boolean startingHeld;
     /** 松手后继续聆听；只有显式发送会重新授权当前编辑位置。 */
     private boolean locked;
     private Button holdCancelButton;
@@ -196,7 +198,8 @@ final class ImeVoiceEntry {
             local = new LocalAsrRecognizer();
             AndroidLocalSettings.Snapshot localPreferences = AndroidLocalSettings.load(s);
             silenceStopMillis = localPreferences.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS);
-            local.vadSensitivity(localPreferences.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
+            // 判停灵敏度只给点按开始、停顿后自动结束的会话；按住空格由松手结束，传 0 让阈值保持 0.5，与鸿蒙和 iOS 一致。
+            local.vadSensitivity(startingHeld ? 0 : localPreferences.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
             local.diagnostics(kind -> diagnostic(session, kind));
             local.retainAudio(contribute);
         } else if (engine == Engine.UPLOAD) {
@@ -355,6 +358,16 @@ final class ImeVoiceEntry {
     void plainIndicator(long before) {
         if (generation == before || listening == null) return;
         listening.setMascotEnabled(false);
+    }
+
+    /** 长按空格开始的按住说话：本次本地识别不用判停灵敏度，阈值保持 0.5（松手结束，调高阈值只会丢轻声的字）。 */
+    void startHeld(Runnable start) {
+        startingHeld = true;
+        try {
+            start.run();
+        } finally {
+            startingHeld = false;
+        }
     }
 
     /** 把这次按压刚开始的聆听切为长按面板，触摸仍由原空格接收。 */

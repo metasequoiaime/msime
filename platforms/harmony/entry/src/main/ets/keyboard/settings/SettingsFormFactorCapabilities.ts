@@ -48,6 +48,8 @@ export interface SettingsFormFactorProjection {
   oneHandedSidePanel: boolean;
   /** 屏幕键盘页「分离式键盘」四行（`touch_keyboard_split` 等，#10224）：与 `oneHandedSidePanel` 一样只在有大屏触屏键盘的设备上声明，即平板和可折叠手机；直板手机的最短边不到最低的 480vp 启用宽度，从不分离，2in1 不画触摸按键。 */
   splitKeyboard: boolean;
+  /** 语音页「本地停顿时间」和「判停灵敏度」（`voice_pause_settings`，#10310）：手机和平板的触屏键盘在点按开始的本地识别里按停顿结束录音，所以在这两种形态声明；2in1 的语音面板由用户或快捷键结束，不按停顿结束。 */
+  voicePauseSettings: boolean;
 }
 
 /** Keep the shared settings page aligned with the keyboard's actual device form factor. */
@@ -88,6 +90,7 @@ export class SettingsFormFactorCapabilities {
       candidateSkinEditor: desktop,
       oneHandedSidePanel: deviceType === "tablet" || (deviceType === "phone" && foldable),
       splitKeyboard: deviceType === "tablet" || (deviceType === "phone" && foldable),
+      voicePauseSettings: !desktop,
     };
   }
 }

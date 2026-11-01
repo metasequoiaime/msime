@@ -605,12 +605,28 @@ if ! grep -qF 'this.recordLetterTouch($$.letter, event);' "$view" \
   echo "KeyboardView must record each letter's touch-down against the key it pressed, drop it on Cancel and when the face is replaced, record the semicolon key, take it through takeTouch at the key's current rect, and compute touchLayout on every key without a cache" >&2
   exit 1
 fi
-# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，流式识别停顿自动结束。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
+# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，触屏上本地识别和系统识别停顿自动结束（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`）。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
 lock_branch=$(sed -n '/^      if (action === VoiceHotkeyAction.LOCK) {$/,/^      }$/p' "$view")
 if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
   || ! grep -qF 'primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),' "$view" \
   || ! grep -qF 'cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),' "$view"; then
   echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
+  exit 1
+fi
+# 停顿时间和判停灵敏度（#10310）：规则由 keyboard-logic.test.ts 的 `VoiceRecognitionPolicy.pauseMillis`、`LocalAsrPolicy.vadThreshold`、`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause` 覆盖；视图、识别器和 worker 是 ArkTS，这里钉住接线：触屏上只有本地识别和系统识别在出字后按停顿计时（本地识别用用户的停顿时间），判停灵敏度只交给点按开始的本地识别，worker 按它换算 Silero 阈值，设置桥按设备形态报告能力位。
+start_voice_body=$(sed -n '/^  private startVoice(fromHotkey: boolean = false): void {$/,/^  }$/p' "$view")
+if ! grep -qF 'this.voicePauseEnds = this.touchDesign() && VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voiceConfiguration);' <<< "$start_voice_body" \
+  || ! grep -qF 'this.voicePauseMs = VoiceRecordingBehaviourPolicy.pauseMillis(voiceConfiguration);' <<< "$start_voice_body" \
+  || ! grep -qF 'VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);' <<< "$start_voice_body" \
+  || ! grep -qF 'if (!final && text.length > 0 && this.voicePauseEnds) {' <<< "$start_voice_body" \
+  || ! grep -qF '}, this.voicePauseMs);' "$view" \
+  || ! grep -qF "scratch: config.local_model_scratch ?? '', stopSensitivity: config.local_stop_sensitivity ?? 0" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyLocalAsrRecognizer.ets" \
+  || ! grep -qF 'const threshold: number = LocalAsrPolicy.vadThreshold(request.stopSensitivity);' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/workers/LocalAsrWorker.ets" \
+  || ! grep -qF "value['voice_pause_settings'] = projection.voicePauseSettings;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Only touch-started local and system recognition may end on a pause (local on the user's pause time), the stop sensitivity must reach the worker's Silero threshold only for tap-started local sessions, and the settings bridge must report voice_pause_settings" >&2
   exit 1
 fi
 # 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部（`onComplete` 在读到数据时也回调一次，只认解码成功）；人物图片和画布不进读屏。

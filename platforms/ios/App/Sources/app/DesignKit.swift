@@ -500,10 +500,16 @@ struct DesignSliderRow: View {
           .frame(width: widthClass == .regular ? 160 : 110)
           .accessibilityValue(format(value))
           .designIdentifier(identifier)
-        Text(format(value)).designSubtext()
-          .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
-          .frame(width: 46, alignment: .trailing)
-          .accessibilityHidden(true)
+        // 数值列按最大值的读数撑开、至少 46pt：拖动时轨道不会移动，「1500 毫秒」这类长读数也不会截成「1500…」。
+        ZStack(alignment: .trailing) {
+          Text(format(range.upperBound)).hidden()
+          Text(format(value))
+        }
+        .designSubtext()
+        .monospacedDigit().lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 46, alignment: .trailing)
+        .accessibilityHidden(true)
       }
     }
   }
