@@ -53,5 +53,5 @@ tasks.named("preBuild") { dependsOn(fetchOcrModels, stageOcrLicenses) }
 
 dependencies {
     // MIT。只进这个可选模块，基础 APK 不依赖它；版本与 resources/ocr-models-android.lock.json 的 runtime 一致。
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
 }

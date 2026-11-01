@@ -135,7 +135,7 @@ import display from '@ohos.display';
 import { KeyboardIconPaths } from './KeyboardIconPaths';
 import { BrandTile } from './faces/BrandTile';
 import { KeyboardLineIcon } from './faces/KeyboardLineIcon';
-import { AdjustAvailability, AdjustFrame, AdjustHandles, AdjustRise, AdjustSpan, AdjustValues, KeyboardAdjustPolicy } from './KeyboardAdjustPolicy';
+import { AdjustAvailability, AdjustButtonRow, AdjustFrame, AdjustHandles, AdjustRise, AdjustSpan, AdjustValues, KeyboardAdjustPolicy } from './KeyboardAdjustPolicy';
 import { MiniKeyboardPreview, MoreSkinsTile } from './faces/MiniKeyboardPreview';
 import { PagedTiles } from './faces/PagedTiles';
 import { PanelTile } from './faces/PanelTile';
@@ -376,19 +376,14 @@ const ADJUST_RIGHT: string = 'right';
 const ADJUST_MOVE: string = 'move';
 const ADJUST_RESET: string = 'reset';
 const ADJUST_CONFIRM: string = 'confirm';
-/** 键盘调整遮罩的尺寸（vp）：四角括号的边长和线宽，柄里横线、竖线的长度、粗细和间距，柄的触摸区（长边 × 短边），三个按钮的图标、字号和宽度。 */
+/** 键盘调整遮罩的尺寸（vp）：四角括号的边长和线宽，柄里横线、竖线的长度，柄的触摸区长边，三个按钮的图标、字号和图标与文字的间距。线的粗细和间距、柄的短边、按钮的宽和间距在 `KeyboardAdjustPolicy`，按钮那一排的换算要用到它们。 */
 const ADJUST_CORNER_VP: number = 20;
 const ADJUST_CORNER_STROKE_VP: number = 3;
 const ADJUST_GRIP_LENGTH_VP: number = 24;
-const ADJUST_GRIP_THICKNESS_VP: number = 2;
-const ADJUST_GRIP_GAP_VP: number = 3;
 const ADJUST_HANDLE_LONG_VP: number = 96;
-const ADJUST_HANDLE_SHORT_VP: number = 32;
 const ADJUST_BUTTON_ICON_VP: number = 30;
 const ADJUST_BUTTON_FONT_SIZE: number = 14;
-const ADJUST_BUTTON_WIDTH_VP: number = 72;
 const ADJUST_BUTTON_GAP_VP: number = 6;
-const ADJUST_BUTTONS_SPACE_VP: number = 16;
 const SURFACE_EXPANDED: string = 'expanded';
 const SURFACE_VARIANTS: string = 'variants';
 const SURFACE_VOICE: string = 'voice';
@@ -1058,6 +1053,12 @@ struct KeyboardView {
         this.replyNotice = '输入位置已变化，请重新选择回复方式';
       }
     };
+    KeyboardSession.shared.onEditorAttached = (): void => {
+      // 换输入框时系统不一定先发 inputStop（那会经 `onPanelHidden` 离开），键盘也不一定收起，只来一次新的 inputStart：键盘调整开着就在这里离开，按确认保存（见 `show`），不把遮罩带进新的输入框。
+      if (this.surface === SURFACE_GEOMETRY) {
+        this.show(SURFACE_NONE);
+      }
+    };
     KeyboardSession.shared.onPanelHidden = (): void => {
       // 收起键盘、换输入框（detach）或切到别的应用时离开键盘调整，按确认保存（见 `show`）；不离开的话下次显示时遮罩还盖着。
       if (this.surface === SURFACE_GEOMETRY) {
@@ -1179,6 +1180,7 @@ struct KeyboardView {
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
     KeyboardSession.shared.onPanelHidden = undefined;
+    KeyboardSession.shared.onEditorAttached = undefined;
     KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelHoverTip();
@@ -2074,7 +2076,9 @@ struct KeyboardView {
             .minFontSize(KEY_HINT_FONT_SIZE)
             .maxFontSize($$.size)
             .maxFontScale(KEY_MAX_FONT_SCALE)
-            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            // 有角标时字母只能用角标下面剩的高度，按高度约束缩字（LAYOUT_CONSTRAINT_FIRST）。没有角标时按单行缩字（MAX_LINES_FIRST）：「123」「发送」这类功能键在收窄的键盘里比键帽宽，高度约束优先只看高度，不缩字，字会被截掉；按单行优先才会在 10 到原字号之间缩到放得下。
+            .heightAdaptivePolicy(this.keyFaceHasCornerHint($$) ? TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST
+              : TextHeightAdaptivePolicy.MAX_LINES_FIRST)
             .layoutWeight(this.keyFaceHasCornerHint($$) ? 1 : 0)
             .fontWeight($$.fontWeight ?? 400)
             .maxLines(1)
@@ -3212,11 +3216,12 @@ struct KeyboardView {
     return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;
   }
 
-  /** 中间一排每个按钮的宽（`KeyboardAdjustPolicy.buttonWidthVp`）：外框窄时按钮跟着缩，不压到左右柄上。 */
-  private adjustButtonWidth(): number {
+  /** 中间一排按钮的宽和间距（`KeyboardAdjustPolicy.buttonRow`）：外框窄时先收间距再收按钮，不压到左右柄上。 */
+  private adjustButtonRow(): AdjustButtonRow {
     const frame: AdjustFrame = this.adjustFrame();
-    return KeyboardAdjustPolicy.buttonWidthVp(this.adjustPanelWidthVp() - frame.left - frame.right,
-      this.adjustHandles().move ? 3 : 2, ADJUST_HANDLE_SHORT_VP, ADJUST_BUTTONS_SPACE_VP, ADJUST_BUTTON_WIDTH_VP);
+    const handles: AdjustHandles = this.adjustHandles();
+    return KeyboardAdjustPolicy.buttonRow(this.adjustPanelWidthVp() - frame.left - frame.right,
+      handles.move ? 3 : 2, handles.left && handles.right);
   }
 
   /** 此刻算进面板高度的底部抬高（vp），不生效时为 0。 */
@@ -11558,12 +11563,11 @@ struct KeyboardView {
         Column() {
           this.adjustEdge(ADJUST_TOP)
           Row() {
+            // 左右柄一起画或一起不画；不画时按钮那一排用满外框宽（`adjustButtonRow` 也按此换算），不留占位。
             if (this.adjustHandles().left) {
               this.adjustEdge(ADJUST_LEFT)
-            } else {
-              Column().width(ADJUST_HANDLE_SHORT_VP).height(ADJUST_HANDLE_LONG_VP)
             }
-            Row({ space: ADJUST_BUTTONS_SPACE_VP }) {
+            Row({ space: this.adjustButtonRow().gap }) {
               this.adjustButton(ADJUST_RESET)
               if (this.adjustHandles().move) {
                 this.adjustButton(ADJUST_MOVE)
@@ -11574,8 +11578,6 @@ struct KeyboardView {
             .justifyContent(FlexAlign.Center)
             if (this.adjustHandles().right) {
               this.adjustEdge(ADJUST_RIGHT)
-            } else {
-              Column().width(ADJUST_HANDLE_SHORT_VP).height(ADJUST_HANDLE_LONG_VP)
             }
           }
           .width('100%')
@@ -11584,7 +11586,7 @@ struct KeyboardView {
           if (this.adjustHandles().bottom) {
             this.adjustEdge(ADJUST_BOTTOM)
           } else {
-            Column().width(ADJUST_HANDLE_LONG_VP).height(ADJUST_HANDLE_SHORT_VP)
+            Column().width(ADJUST_HANDLE_LONG_VP).height(KeyboardAdjustPolicy.HANDLE_SHORT_VP)
           }
         }
         .width('100%')
@@ -11624,6 +11626,7 @@ struct KeyboardView {
     .accessibilityLevel('no-hide-descendants')
   }
 
+  /** 一角的括号。浮动时外框的下面两角就是卡片的圆角（`build` 按 `FloatingKeyboardPolicy.CORNER_RADIUS_VP` 裁剪，浮动时不抬高、不收窄），直角括号的拐角会被裁掉，只剩两截短线；这两角改画同样半径的圆角括号，贴着卡片边走。上面两角在拖动条下面，不是卡片的角，仍是直角。 */
   @Builder
   adjustCorner(top: boolean, left: boolean) {
     Column()
@@ -11635,28 +11638,40 @@ struct KeyboardView {
         left: left ? ADJUST_CORNER_STROKE_VP : 0,
         right: left ? 0 : ADJUST_CORNER_STROKE_VP
       })
+      .borderRadius({
+        bottomLeft: !top && left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0,
+        bottomRight: !top && !left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0
+      })
       .borderColor(this.skin.accent)
   }
 
-  /** 一条边上的把手：上下沿是三道横线，左右沿是两道竖线，触摸区比线大得多。按住拖动只改这条边（`dragAdjust`）。 */
+  /**
+   * 一条边上的把手：上下沿是三道横线，左右沿是两道竖线，触摸区比线大得多。按住拖动只改这条边（`dragAdjust`）。
+   *
+   * 上沿柄的线贴着外框上沿画（`KeyboardAdjustPolicy.TOP_GRIP_INSET_VP`），落在工具栏图标上方那一条空白里，与 Android 相同；居中的话线会画进工具栏那一行、压在图标上，收窄后图标挤得更密时尤其明显（iOS 验收时就是这样）。触摸区照旧 32vp 高，遮罩整层挡住触摸，盖到工具栏上不碍事。
+   */
   @Builder
   adjustEdge(handle: string) {
-    Stack() {
+    Stack({ alignContent: handle === ADJUST_TOP ? Alignment.Top : Alignment.Center }) {
       if (handle === ADJUST_TOP || handle === ADJUST_BOTTOM) {
-        Column({ space: ADJUST_GRIP_GAP_VP }) {
+        // 三道线连同间距的厚度取 gripSpanVp(3)：测试按它断言横线底边在工具栏图标之上，画出来的就是这个厚度。
+        Column({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(true)
           this.adjustGripLine(true)
           this.adjustGripLine(true)
         }
+        .height(KeyboardAdjustPolicy.gripSpanVp(3))
       } else {
-        Row({ space: ADJUST_GRIP_GAP_VP }) {
+        Row({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(false)
           this.adjustGripLine(false)
         }
+        .width(KeyboardAdjustPolicy.gripSpanVp(2))
       }
     }
-    .width(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_LONG_VP : ADJUST_HANDLE_SHORT_VP)
-    .height(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_SHORT_VP : ADJUST_HANDLE_LONG_VP)
+    .width(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_LONG_VP : KeyboardAdjustPolicy.HANDLE_SHORT_VP)
+    .height(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? KeyboardAdjustPolicy.HANDLE_SHORT_VP : ADJUST_HANDLE_LONG_VP)
+    .padding({ top: handle === ADJUST_TOP ? KeyboardAdjustPolicy.TOP_GRIP_INSET_VP : 0 })
     .accessibilityGroup(true)
     .accessibilityText(this.adjustHandleLabel(handle))
     .accessibilityDescription(this.adjustHandleDescription(handle))
@@ -11666,9 +11681,9 @@ struct KeyboardView {
   @Builder
   adjustGripLine(horizontal: boolean) {
     Column()
-      .width(horizontal ? ADJUST_GRIP_LENGTH_VP : ADJUST_GRIP_THICKNESS_VP)
-      .height(horizontal ? ADJUST_GRIP_THICKNESS_VP : ADJUST_GRIP_LENGTH_VP)
-      .borderRadius(ADJUST_GRIP_THICKNESS_VP / 2)
+      .width(horizontal ? ADJUST_GRIP_LENGTH_VP : KeyboardAdjustPolicy.GRIP_THICKNESS_VP)
+      .height(horizontal ? KeyboardAdjustPolicy.GRIP_THICKNESS_VP : ADJUST_GRIP_LENGTH_VP)
+      .borderRadius(KeyboardAdjustPolicy.GRIP_THICKNESS_VP / 2)
       .backgroundColor(KeyboardAdjustPolicy.INK_COLOR)
   }
 
@@ -11687,7 +11702,7 @@ struct KeyboardView {
         .fontColor(KeyboardAdjustPolicy.INK_COLOR)
         .maxLines(1)
     }
-    .width(this.adjustButtonWidth())
+    .width(this.adjustButtonRow().width)
     .padding({ top: ADJUST_BUTTON_GAP_VP, bottom: ADJUST_BUTTON_GAP_VP })
     .accessibilityGroup(true)
     .accessibilityText(this.adjustButtonLabel(kind))

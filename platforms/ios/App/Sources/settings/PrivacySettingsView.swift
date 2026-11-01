@@ -15,16 +15,12 @@ struct PrivacySettingsView: View {
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        Text("水杉本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。AI、语音、账号、云同步和皮肤社区只在你使用时联网。")
-          .designSubtext()
-          .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 20)
-
-        DesignGroup(title: "联网功能", radius: MetasequoiaTheme.tabCardRadius) {
+        DesignGroup(title: "联网功能",
+                    info: "水杉本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。AI、语音、账号、云同步和皮肤社区只在你使用时联网。",
+                    radius: MetasequoiaTheme.tabCardRadius) {
           DesignToggleRow(
             title: "发送匿名使用统计",
-            subtitle: "仅发送匿名使用记录和崩溃摘要，不含输入内容、联系人或账号；关闭后立即清空待发记录。",
+            info: "仅发送匿名使用记录和崩溃摘要，不含输入内容、联系人或账号；关闭后立即清空待发记录。",
             isOn: Binding(get: { usageReporting }, set: { enabled in
               if UsageReporting.setEnabled(enabled) { usageReporting = enabled } else { usageReportingFailed = true }
             }))
@@ -33,13 +29,13 @@ struct PrivacySettingsView: View {
 
         DesignGroup(title: "本机数据", radius: MetasequoiaTheme.tabCardRadius) {
           NavigationLink { ClipboardHistorySettingsView() } label: {
-            DesignNavRowLabel(title: "剪贴板历史", subtitle: "只保存在本机，可选择保留条数")
+            DesignNavRowLabel(title: "剪贴板历史", info: "只保存在本机，可选择保留条数")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("privacyClipboardHistoryLink")
           DesignDivider()
           NavigationLink { LocalModeSettingsView() } label: {
-            DesignNavRowLabel(title: "快捷模式", subtitle: "快捷短语、日期时间、表情等输入模式")
+            DesignNavRowLabel(title: "快捷模式", info: "快捷短语、日期时间、表情等输入模式")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("privacyLocalModeLink")
@@ -48,7 +44,7 @@ struct PrivacySettingsView: View {
         DesignGroup(title: "社区", radius: MetasequoiaTheme.tabCardRadius) {
           if signedIn {
             NavigationLink { CommunityBlockedAuthorsView() } label: {
-              DesignNavRowLabel(title: "已屏蔽的作者", subtitle: "社区里不显示这些作者的作品")
+              DesignNavRowLabel(title: "已屏蔽的作者", info: "社区里不显示这些作者的作品")
             }
             .buttonStyle(PressFillButtonStyle())
             .accessibilityIdentifier("privacyBlockedAuthorsLink")

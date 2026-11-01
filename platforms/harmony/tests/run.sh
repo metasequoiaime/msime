@@ -844,7 +844,7 @@ if [[ -z "$adjust_show" ]] \
   || ! grep -qF 'this.adjustDragWidthVp = this.adjustPanelWidthVp();' <<< "$adjust_touch" \
   || ! grep -qF 'return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;' "$adjust_view" \
   || ! grep -qF '@State rootWidth: number = 0;' "$adjust_view" \
-  || ! grep -qF '.width(this.adjustButtonWidth())' <<< "$adjust_button" \
+  || ! grep -qF '.width(this.adjustButtonRow().width)' <<< "$adjust_button" \
   || ! grep -qF 'KeyboardAdjustPolicy.saved(stored, this.adjustOriginal, this.adjustValues(),' <<< "$adjust_save" \
   || ! grep -qF 'saveKeyboardAdjust(saved.lift, saved.widthPercent, saved.positionX)' <<< "$adjust_save" \
   || ! grep -qF 'this.adjustOriginal = this.adjustValues();' <<< "$adjust_open" \
@@ -852,6 +852,31 @@ if [[ -z "$adjust_show" ]] \
   || grep -qF 'HeightBar' "$adjust_view" \
   || [[ -e "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/HeightBar.ets" ]]; then
   echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame measured against the panel's real width (not the screen's), shrink the middle buttons to fit a narrow frame, save only the lift, width and position that are effective and changed (as Android does), hide the toolbar and keys from the screen reader while adjusting, count the bottom lift in every panel height, and replace HeightBar entirely" >&2
+  exit 1
+fi
+# 键盘调整在 Android、iOS 上验收时发现、鸿蒙同样有的几处（鸿蒙没有设备，按代码核对）：上沿柄的横线贴着外框上沿画在工具栏图标上方，不居中画进工具栏那一行；中间一排按钮与 iOS 一样 72vp、间距 28vp，窄时先收间距再收按钮（`KeyboardAdjustPolicy.buttonRow`，keyboard-adjust.test.ts 覆盖），不画左右柄时不留占位；浮动时下面两角的括号按卡片圆角画，不被裁掉；没有角标的键面按单行缩字，「123」「发送」在收窄的键盘里缩到放得下而不是被截掉；换输入框只来一次 inputStart、没有 inputStop 时，会话的 `attach` 经 `onEditorAttached` 让视图离开键盘调整并保存。
+adjust_edge=$(sed -n '/^  adjustEdge(handle: string) {$/,/^  }$/p' "$adjust_view")
+adjust_overlay=$(sed -n '/^  adjustOverlay() {$/,/^  }$/p' "$adjust_view")
+adjust_corner=$(sed -n '/^  adjustCorner(top: boolean, left: boolean) {$/,/^  }$/p' "$adjust_view")
+adjust_key_face=$(sed -n '/^  keyFace($$: KeyOptions) {$/,/^  }$/p' "$adjust_view")
+adjust_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
+adjust_attach=$(sed -n '/^  attach(inputClient: inputMethodEngine.InputClient): void {$/,/^  }$/p' "$adjust_session")
+adjust_attached=$(sed -n '/^    KeyboardSession.shared.onEditorAttached = (): void => {$/,/^    };$/p' "$adjust_view")
+if [[ -z "$adjust_edge" || -z "$adjust_overlay" || -z "$adjust_corner" || -z "$adjust_key_face" || -z "$adjust_attach" ]] \
+  || ! grep -qF 'Stack({ alignContent: handle === ADJUST_TOP ? Alignment.Top : Alignment.Center }) {' <<< "$adjust_edge" \
+  || ! grep -qF '.padding({ top: handle === ADJUST_TOP ? KeyboardAdjustPolicy.TOP_GRIP_INSET_VP : 0 })' <<< "$adjust_edge" \
+  || ! grep -qF 'Row({ space: this.adjustButtonRow().gap }) {' <<< "$adjust_overlay" \
+  || grep -qF 'Column().width(KeyboardAdjustPolicy.HANDLE_SHORT_VP)' <<< "$adjust_overlay" \
+  || ! grep -qF 'handles.move ? 3 : 2, handles.left && handles.right);' "$adjust_view" \
+  || ! grep -qF "bottomLeft: !top && left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0," <<< "$adjust_corner" \
+  || ! grep -qF "bottomRight: !top && !left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0" <<< "$adjust_corner" \
+  || ! grep -qF ".heightAdaptivePolicy(this.keyFaceHasCornerHint(\$\$) ? TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST" <<< "$adjust_key_face" \
+  || ! grep -qF ': TextHeightAdaptivePolicy.MAX_LINES_FIRST)' <<< "$adjust_key_face" \
+  || ! grep -qF 'this.onEditorAttached();' <<< "$adjust_attach" \
+  || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY) {' <<< "$adjust_attached" \
+  || ! grep -qF 'this.show(SURFACE_NONE);' <<< "$adjust_attached" \
+  || ! grep -qF 'KeyboardSession.shared.onEditorAttached = undefined;' "$adjust_view"; then
+  echo "The keyboard adjust overlay must draw the top grip against the frame's top edge above the toolbar icons, space the middle buttons like iOS (gaps shrink before widths) with no placeholders for hidden side handles, round the bottom corner brackets to the floating card's corners, shrink one-line key labels to fit the key's width, and leave (saving) when a new editor attaches without the keyboard hiding" >&2
   exit 1
 fi
 # 长按菜单的「朗读」：排在哪里、带着什么由 keyboard-logic.test.ts 覆盖，出声的固定取值由 read-aloud-policy.test.ts 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：菜单把会话经共享层答的英文交给两种菜单，2in1 触摸长按在只有「朗读」时也打开，点下去时核对候选再读；关掉以后才建好的引擎当场关掉；引擎只用离线模式，从不下载声音；设置桥的 read_aloud 先经共享层核对词头。

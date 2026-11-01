@@ -121,12 +121,16 @@ struct PluginDetailView: View {
         .accessibilityIdentifier("pluginChooseKeySound")
       }
     } header: {
-      Text("使用")
+      DesignSectionHeader(title: "使用", info: pack.isMelody ? nil
+        : "按键音由水杉输入法自己播放，需要「允许完全访问」；开关和其他音效在「键盘 → 按键反馈」里。")
     } footer: {
+      // 保存失败和「按键音现在没有打开」是状态，留在原处。
       if !pack.isMelody {
-        Text(saveFailed ? SettingsSaveFailure.message : library.soundEnabled
-          ? "按键音由水杉输入法自己播放，需要「允许完全访问」；开关和其他音效在「键盘 → 按键反馈」里。"
-          : "按键音现在没有打开。设为当前音效包会同时打开按键音；开关在「键盘 → 按键反馈」里。")
+        if saveFailed {
+          Text(SettingsSaveFailure.message)
+        } else if !library.soundEnabled {
+          Text("按键音现在没有打开。设为当前音效包会同时打开按键音。")
+        }
       }
     }
     .designRow()
@@ -178,18 +182,18 @@ struct PluginDetailView: View {
   @ViewBuilder private func helpcodeActions(_ pack: PluginPackage) -> some View {
     Section {
       Toggle(isOn: helpcodeBinding(pack, quanpin: true)) {
-        SettingsOptionLabel(title: "用于全拼", detail: "替换全拼的辅助码方案；关闭后回到原来的方案。")
+        SettingsOptionLabel(title: "用于全拼", info: "替换全拼的辅助码方案；关闭后回到原来的方案。")
       }
       .accessibilityIdentifier("pluginHelpcodeQuanpin")
       Toggle(isOn: helpcodeBinding(pack, quanpin: false)) {
-        SettingsOptionLabel(title: "用于双拼", detail: "替换双拼的辅助码方案；关闭后回到原来的方案。")
+        SettingsOptionLabel(title: "用于双拼", info: "替换双拼的辅助码方案；关闭后回到原来的方案。")
       }
       .accessibilityIdentifier("pluginHelpcodeShuangpin")
       NavigationLink("前往辅助码设置") { HelpcodeSettingsView() }
     } header: {
-      Text("使用")
+      DesignSectionHeader(subject: "使用", info: "辅助码的开关和显示方式在「输入 → 辅助码」里。") { Text("使用") }
     } footer: {
-      Text(saveFailed ? SettingsSaveFailure.message : "辅助码的开关和显示方式在「输入 → 辅助码」里。")
+      if saveFailed { Text(SettingsSaveFailure.message) }
     }
     .designRow()
   }
@@ -208,9 +212,7 @@ struct PluginDetailView: View {
         .disabled(openingWordbook)
         .accessibilityIdentifier("pluginOpenWordbook")
     } header: {
-      Text("使用")
-    } footer: {
-      Text("这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。")
+      DesignSectionHeader(subject: "使用", info: "这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。") { Text("使用") }
     }
     .designRow()
   }

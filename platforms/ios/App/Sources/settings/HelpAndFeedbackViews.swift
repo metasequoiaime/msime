@@ -84,7 +84,7 @@ struct FeedbackView: View {
         // 移动端设计把帮助从关于挪到了这里，让用户想找的答案出现在他们原本要写的反馈之前。
         DesignGroup {
           NavigationLink(destination: HelpView()) {
-            DesignNavRowLabel(title: "使用帮助", subtitle: "启用键盘、输入方案、常见问题")
+            DesignNavRowLabel(title: "使用帮助", info: "启用键盘、输入方案、常见问题")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("feedbackHelpLink")
@@ -94,7 +94,7 @@ struct FeedbackView: View {
                           options: Kind.allCases.map { DesignOption(title: $0.rawValue, value: $0) },
                           selection: $kind, sheetTitle: "反馈类型", identifier: "feedbackKindPicker")
           DesignDivider()
-          DesignToggleRow(title: "附带诊断信息", subtitle: "只附带机型、系统和应用版本、当前方案与皮肤，不含输入内容",
+          DesignToggleRow(title: "附带诊断信息", info: "只附带机型、系统和应用版本、当前方案与皮肤，不含输入内容",
                           isOn: $includeDiagnostics)
             .accessibilityIdentifier("feedbackDiagnosticsToggle")
         }
@@ -109,21 +109,21 @@ struct FeedbackView: View {
         actions
         DesignGroup(footer: "提交问题时建议附上：系统版本、输入方案、复现步骤、相关截图，以及诊断日志。") {
           NavigationLink(destination: DiagnosticLogSettingsView()) {
-            DesignNavRowLabel(title: "诊断日志", subtitle: "键盘出现问题时，开启后复现一次再分享")
+            DesignNavRowLabel(title: "诊断日志", info: "键盘出现问题时，开启后复现一次再分享")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("feedbackDiagnosticLogLink")
         }
         // 与 Windows 和 macOS 反馈页列出的渠道相同。
         DesignGroup(title: "交流") {
-          DesignInlineButtonRow(title: "QQ 交流群", subtitle: "群号：\(Self.qqGroup)，日常交流与测试反馈",
+          DesignInlineButtonRow(title: "QQ 交流群", subtitle: "群号：\(Self.qqGroup)", info: "日常交流与测试反馈",
                                 buttonTitle: "复制群号", doneTitle: "已复制", identifier: "feedbackQQGroup") {
             UIPasteboard.general.string = Self.qqGroup
             ToastCenter.shared.show("已复制群号")
           }
           DesignDivider()
           Link(destination: URL(string: "https://t.me/msimegroup")!) {
-            DesignNavRowLabel(title: "Telegram 群组", subtitle: "t.me/msimegroup，面向国际用户和开发者")
+            DesignNavRowLabel(title: "Telegram 群组", subtitle: "t.me/msimegroup", info: "面向国际用户和开发者")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("feedbackTelegram")

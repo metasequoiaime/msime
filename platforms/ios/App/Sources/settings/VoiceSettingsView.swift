@@ -36,7 +36,7 @@ struct VoiceSettingsView: View {
             .accessibilityIdentifier("voicePunctuationToggle")
           DesignDivider()
           DesignToggleRow(title: "长按空格说话",
-                          subtitle: spaceVoice ? "按住空格说话，松开上屏，上滑取消" : Self.spaceVoiceOffHint,
+                          info: spaceVoice ? "按住空格说话，松开上屏，上滑取消" : Self.spaceVoiceOffHint,
                           isOn: Binding(get: { spaceVoice }, set: saveSpaceVoice))
             .accessibilityIdentifier("voiceSpaceToggle")
           DesignDivider()
@@ -59,7 +59,7 @@ struct VoiceSettingsView: View {
           .accessibilityIdentifier("voiceServiceLink")
           DesignDivider()
           NavigationLink(destination: LocalSpeechModelsPage()) {
-            DesignNavRowLabel(title: "本地语音模型", subtitle: "离线识别，录音不离开设备")
+            DesignNavRowLabel(title: "本地语音模型", info: "离线识别，录音不离开设备")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("localSpeechModelsLink")

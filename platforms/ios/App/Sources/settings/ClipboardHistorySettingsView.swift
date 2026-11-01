@@ -67,9 +67,11 @@ struct ClipboardHistorySettingsView: View {
             .accessibilityIdentifier("clipboardHistoryClear")
         }
       } header: {
-        SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配")
+        DesignSectionHeader(subject: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配", info: sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") {
+          SettingsGroupHeader(title: query.isEmpty ? "\(items.count)/\(historyLimit) 条" : "\(visible.count) 条匹配")
+        }
       } footer: {
-        if let message { Text(message) } else { Text(sizeClass == .regular ? "点一条复制到系统剪贴板，右键或长按可固定、删除。" : "点一条复制到系统剪贴板，右滑固定，左滑删除。") }
+        if let message { Text(message) }
       }
       .designRow()
     }

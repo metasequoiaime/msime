@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口副标题取自 SharedUI 里三端共用的文字；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明的一张卡片（26 键卡片里还有「符」与「123」互换开关，每张卡片都有「中/英键放在空格左边」开关，9 键卡片里还有「九键左侧符号」导航行），下面是「数字键盘」一组胶囊（组末是「数字键盘左侧符号」导航行）和顶部数字行开关；两张符号表共用一个编辑页（KeyLayoutStyleTests 与 NineKeySidebarSettingsTests 钉住文字本身、预览的底行和高亮、编辑规则）。"""
+"""iOS「按键布局」设置：键盘页的入口只在本版本至少提供一组时显示，入口说明取自 SharedUI 里三端共用的文字、收在标题旁的「?」里；子页是键盘类型分段、整块预览加等宽样式胶囊和当前样式说明（胶囊行末的「?」）的一张卡片（26 键卡片里还有「符」与「123」互换开关，每张卡片都有「中/英键放在空格左边」开关，开关的说明都在「?」里，9 键卡片里还有「九键左侧符号」导航行），下面是「数字键盘」一组胶囊（说明在组名旁的「?」里，组末是「数字键盘左侧符号」导航行）和顶部数字行开关；两张符号表共用一个编辑页（KeyLayoutStyleTests 与 NineKeySidebarSettingsTests 钉住文字本身、预览的底行和高亮、编辑规则）。"""
 from pathlib import Path
 import re
 import unittest
@@ -37,9 +37,9 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn("DesignDivider()", block)
         self.assertEqual(source.count("KeyboardKeyLayoutSettingsView()"), 1)
 
-    def test_entry_row_uses_the_shared_subtitle(self):
+    def test_entry_row_explains_with_the_shared_text(self):
         source = LAYOUT_PAGE.read_text()
-        self.assertIn('DesignNavRowLabel(title: "按键布局", subtitle: TouchKeyLayoutOffering.entrySubtitle)', source)
+        self.assertIn('DesignNavRowLabel(title: "按键布局", info: TouchKeyLayoutOffering.entrySubtitle)', source)
 
     def test_old_group_list_is_gone(self):
         # 改版前每类一组单选列表、组末一段说明；改版后不再有这些零件。
@@ -64,6 +64,8 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         note = card.index("if let note = kind.note(style) {")
         self.assertLess(preview, pills)
         self.assertLess(pills, note)
+        # 说明收进胶囊行末的「?」，没有说明的样式不画；读屏说出这是「当前样式」的说明。
+        self.assertIn('DesignInfoTip(text: note, subject: "当前样式")', card[note:])
         self.assertIn('.accessibilityIdentifier("keyLayoutStyleNote")', card[note:])
         style_pills = member(self.source, "  private func stylePills(")
         for cases, selected, prefix, key in (
@@ -90,7 +92,7 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         gate = card.index("if kind == .twentySixKey {")
         self.assertLess(note, gate)
         toggle = card[gate:]
-        self.assertIn("DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle, subtitle: TouchKeyLayoutOffering.symbolFirstSubtitle,", toggle)
+        self.assertIn("DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle, info: TouchKeyLayoutOffering.symbolFirstSubtitle,", toggle)
         self.assertIn("isOn: Binding(get: { style.symbolFirst }, set: { save(TouchKeyLayoutStyle.save(symbolFirst: $0)) }))", toggle)
         self.assertIn('.accessibilityIdentifier("keyLayoutSymbolFirstToggle")', toggle)
         self.assertEqual(self.source.count("TouchKeyLayoutOffering.symbolFirstTitle"), 1, "one toggle, only in the 26-key card")
@@ -100,7 +102,7 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         card = member(self.source, "  private func styleCard(")
         note = card.index("if let note = kind.note(style) {")
         symbol_first = card.index("TouchKeyLayoutOffering.symbolFirstTitle")
-        toggle = card.index("DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, subtitle: TouchKeyLayoutOffering.languageLeftSubtitle,")
+        toggle = card.index("DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, info: TouchKeyLayoutOffering.languageLeftSubtitle,")
         self.assertLess(note, toggle)
         self.assertLess(symbol_first, toggle)
         # 互换开关的条件块在中/英开关之前就闭合了：中/英开关不在 `if kind == .twentySixKey` 里。
@@ -112,15 +114,15 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertEqual(self.source.count("TouchKeyLayoutOffering.languageLeftTitle"), 1, "one toggle, in the shared card")
 
     def test_number_pad_group_uses_the_same_pills_below_the_style_card(self):
-        # #10056：「数字键盘」一组有入口就列，在样式卡片和顶部数字行开关之间；选项是同一套等宽胶囊，说明在胶囊下方，不画预览。
+        # #10056：「数字键盘」一组有入口就列，在样式卡片和顶部数字行开关之间；选项是同一套等宽胶囊，说明收在组名旁的「?」里，不画预览。
         gate = self.body.index("if offering.offersAnyGroup { numberPadGroup }")
         self.assertLess(self.body.index("styleCard(kind)"), gate)
         self.assertLess(gate, self.body.index("if offering.numberRow {"))
         group = member(self.source, "  private var numberPadGroup: some View {")
-        self.assertIn("DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle) {", group)
-        pills = group.index("pills(TouchNumberPadSpace.allCases, selected: style.numberPadSpace, title: \\.title,")
+        self.assertIn("DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle, info: TouchKeyLayoutOffering.numberPadFooter) {", group)
+        self.assertIn("pills(TouchNumberPadSpace.allCases, selected: style.numberPadSpace, title: \\.title,", group)
         self.assertIn('identifier: { "keyLayoutNumberPad_\\($0.rawValue)" }) { save(TouchKeyLayoutStyle.save(numberPadSpace: $0)) }', group)
-        self.assertLess(pills, group.index("Text(TouchKeyLayoutOffering.numberPadFooter)"))
+        self.assertEqual(self.source.count("TouchKeyLayoutOffering.numberPadFooter"), 1, "the note is only behind the group's 「?」")
         self.assertNotIn("KeyLayoutKeyboardPreview", group)
 
     def test_nine_key_card_lists_the_letter_sidebar_row_after_the_note(self):
@@ -134,9 +136,9 @@ class KeyLayoutSettingsContract(unittest.TestCase):
 
     def test_number_pad_group_ends_with_the_digit_sidebar_row(self):
         group = member(self.source, "  private var numberPadGroup: some View {")
-        footer = group.index("Text(TouchKeyLayoutOffering.numberPadFooter)")
+        pills = group.index("pills(TouchNumberPadSpace.allCases,")
         link = group.index("sidebarLink(.digit)")
-        self.assertLess(footer, link)
+        self.assertLess(pills, link)
         self.assertEqual(self.source.count("sidebarLink(.digit)"), 1)
 
     def test_sidebar_rows_open_the_editor_with_the_summary(self):
@@ -174,7 +176,7 @@ class KeyLayoutSettingsContract(unittest.TestCase):
 
     def test_number_row_toggle_closes_the_page(self):
         rows = self.body[self.body.index("if offering.numberRow {"):]
-        self.assertIn('DesignToggleRow(title: "顶部数字行", subtitle: TouchKeyLayoutOffering.numberRowSubtitle,', rows)
+        self.assertIn('DesignToggleRow(title: "顶部数字行", info: TouchKeyLayoutOffering.numberRowSubtitle,', rows)
         self.assertIn("save(TouchKeyLayoutStyle.save(numberRow: $0))", rows)
         self.assertIn('.accessibilityIdentifier("keyLayoutNumberRowToggle")', rows)
 
@@ -204,7 +206,7 @@ class NineKeySwipeDigitsSettingsContract(unittest.TestCase):
         self.assertIn(".disabled(!swipeSymbols)", between)
         self.assertEqual(between.count("DesignDivider()"), 1, "the row comes right after the direction row and its divider")
         row = self.group[gate:glide]
-        self.assertIn("DesignSelectRow(title: NineKeySwipeDigits.title, subtitle: NineKeySwipeDigits.subtitle,", row)
+        self.assertIn("DesignSelectRow(title: NineKeySwipeDigits.title, info: NineKeySwipeDigits.subtitle,", row)
         self.assertIn("options: NineKeySwipeDigits.allCases.map {", row)
         self.assertIn("DesignOption(title: $0.optionTitle, value: $0, identifier: Self.nineKeySwipeDigitsIdentifier($0))", row)
         self.assertIn("selection: Binding(get: { nineKeySwipeDigits }, set: { saveNineKeySwipeDigits($0) }),", row)

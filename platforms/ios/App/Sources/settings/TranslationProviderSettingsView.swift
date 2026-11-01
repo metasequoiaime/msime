@@ -22,6 +22,16 @@ struct TranslationProviderSettingsView: View {
   @State private var savedFields: [String] = []
   @StateObject private var autosave = SettingsAutosave()
 
+  /// 翻译服务分区「?」里的说明：先讲当前选择的去向，再讲自选服务的通用规则。
+  private var providerInfo: String {
+    let general = "选择自己的翻译服务后，键盘把这一页的中文候选直接发给该服务，不经过水杉账号；凭据只保存在本设备的共享设置里。所选服务的凭据不完整时，键盘不会联网翻译，也不会改用其他服务。"
+    switch provider {
+    case .off: return "键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。\n\n" + general
+    case .account: return "候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。\n\n" + general
+    default: return general
+    }
+  }
+
   var body: some View {
     Form {
       Section {
@@ -34,20 +44,12 @@ struct TranslationProviderSettingsView: View {
           autosave.saveNow { try save() }
         }
       } footer: {
-        Text("选择自己的翻译服务后，键盘把这一页的中文候选直接发给该服务，不经过水杉账号；凭据只保存在本设备的共享设置里。所选服务的凭据不完整时，键盘不会联网翻译，也不会改用其他服务。")
+        Text(providerInfo)
       }
       .designRow()
       switch provider {
-      case .off:
-        Section {
-          Text("键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。").foregroundStyle(.secondary)
-        }
-        .designRow()
-      case .account:
-        Section {
-          Text("候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。").foregroundStyle(.secondary)
-        }
-        .designRow()
+      case .off, .account:
+        EmptyView()
       case .niutrans:
         Section {
           TextField("APPID", text: $niutransAppID).credentialField()
@@ -62,9 +64,7 @@ struct TranslationProviderSettingsView: View {
           SecureField("SecretKey", text: $tencentKey).credentialField()
           TextField("地域", text: $tencentRegion).credentialField()
         } header: {
-          SettingsGroupHeader(title: "腾讯云机器翻译")
-        } footer: {
-          Text("地域留空时使用 \(TranslationProviderPreference.defaultTencentRegion)。建议为输入法单独创建只授权机器翻译的子账号密钥。")
+          DesignSectionHeader(subject: "腾讯云机器翻译", info: "地域留空时使用 \(TranslationProviderPreference.defaultTencentRegion)。建议为输入法单独创建只授权机器翻译的子账号密钥。") { SettingsGroupHeader(title: "腾讯云机器翻译") }
         }
         .designRow()
       case .custom:
@@ -73,9 +73,7 @@ struct TranslationProviderSettingsView: View {
             .keyboardType(.URL)
           SecureField("API Key（DeepL 必填）", text: $customKey).credentialField()
         } header: {
-          SettingsGroupHeader(title: "自定义接口")
-        } footer: {
-          Text("兼容 DeepLX 的 POST 接口，或 DeepL 官方 API 地址（https://api-free.deepl.com/v2/translate 或 https://api.deepl.com/v2/translate）配 DeepL 的 Auth Key；使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。")
+          DesignSectionHeader(subject: "自定义接口", info: "兼容 DeepLX 的 POST 接口，或 DeepL 官方 API 地址（https://api-free.deepl.com/v2/translate 或 https://api.deepl.com/v2/translate）配 DeepL 的 Auth Key；使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。") { SettingsGroupHeader(title: "自定义接口") }
         }
         .designRow()
       case .ai:
@@ -83,9 +81,7 @@ struct TranslationProviderSettingsView: View {
           LabeledContent("当前服务商与模型", value: aiSummary.isEmpty ? "未配置" : aiSummary)
             .accessibilityIdentifier("translationAISummary")
         } header: {
-          SettingsGroupHeader(title: "复用 AI 辅助配置")
-        } footer: {
-          Text("复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「候选栏 AI 候选」。")
+          DesignSectionHeader(subject: "复用 AI 辅助配置", info: "复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「候选栏 AI 候选」。") { SettingsGroupHeader(title: "复用 AI 辅助配置") }
         }
         .designRow()
       }
