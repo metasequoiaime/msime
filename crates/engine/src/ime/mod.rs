@@ -29,8 +29,8 @@ use crate::shuangpin::ShuangpinScheme;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
-    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
-    WubiInputOptions,
+    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, TextConversion,
+    WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -207,6 +207,11 @@ impl ImeSession {
         if let Scheme::Cantonese(scheme) = &mut self.scheme {
             scheme.set_force_shuangpin(enabled);
         }
+    }
+
+    /// 粤拼候选的输出转换（例如繁转简）；`None` 照词库原样输出。只影响之后的查询。
+    pub fn set_cantonese_output_conversion(&mut self, conversion: Option<TextConversion>) {
+        self.registry.set_cantonese_output_conversion(conversion);
     }
 
     pub fn candidates(&self) -> &[WordItem] {

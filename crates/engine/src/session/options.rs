@@ -9,8 +9,8 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
     PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
-    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, WordItem, WubiInputOptions,
-    DEFAULT_FIRST_PAGE_ROWS,
+    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, TextConversion, WordItem,
+    WubiInputOptions, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -36,6 +36,8 @@ pub struct SessionOptions {
     pub cantonese_dictionary: PathBuf,
     /// 独立粤语双拼入口强制按两键码解释，普通粤拼入口仍按现有规则自动识别。
     pub force_cantonese_shuangpin: bool,
+    /// 粤拼候选上屏前经过的转换；`None` 照词库原样输出（繁体）。宿主在用户选了粤拼输出简体时传入繁转简，转换后同一读音段里字面相同的候选只留第一条。
+    pub cantonese_output_conversion: Option<TextConversion>,
     /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
     /// Where `msime-stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
@@ -127,6 +129,7 @@ impl SessionOptions {
             korean_layout: crate::KoreanLayout::Dubeolsik,
             cantonese_dictionary: PathBuf::new(),
             force_cantonese_shuangpin: false,
+            cantonese_output_conversion: None,
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),

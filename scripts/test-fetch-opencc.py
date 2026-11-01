@@ -72,7 +72,7 @@ class OpenCCInputTests(unittest.TestCase):
         lock = fetch_opencc.read_lock()
         self.assertEqual({Path(entry["path"]).name for entry in lock["files"]}, {
             "CJK_Compatibility_Ideographs.txt", "STCharacters.txt", "STPhrases.txt",
-            "STPhrases_GeneratedFromRegionalPhrases.txt", "TWPhrases.txt",
+            "STPhrases_GeneratedFromRegionalPhrases.txt", "TSCharacters.txt", "TSPhrases.txt", "TWPhrases.txt",
             "TWVariants.txt", "TWVariantsPhrases.txt", "LICENSE"})
         references = json.loads((fetch_opencc.ROOT / "resources/dictionary-sources.lock.json").read_text())["references"]
         self.assertEqual(lock["upstream"], references["OpenCC"])

@@ -190,9 +190,9 @@ msime 用 `msime-dict-build languages` 把它们构建成 `msime-cantonese.db`�
 
 ## OpenCC 简繁转换表
 
-`sources/opencc/` 从 msime 的 `crates/client-base/data/opencc/` 原字节迁入，固定 [BYVoid/OpenCC](https://github.com/BYVoid/OpenCC) 提交 `26753884f1984add422f3b0249ccee8613deaff6`，许可为 Apache-2.0，全文保留在同目录 `LICENSE`。`CJK_Compatibility_Ideographs.txt`、`STCharacters.txt`、`STPhrases.txt`、`TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 是该提交 `data/dictionary/` 下的原样文本；`STPhrases_GeneratedFromRegionalPhrases.txt` 是同一提交的构建产物，由 `data/scripts/generate_st_phrases_from_regional_phrases.py` 使用 `t2s.json` 生成，迁移时不重新生成、不排序或改写。
+`sources/opencc/` 从 msime 的 `crates/client-base/data/opencc/` 原字节迁入，固定 [BYVoid/OpenCC](https://github.com/BYVoid/OpenCC) 提交 `26753884f1984add422f3b0249ccee8613deaff6`，许可为 Apache-2.0，全文保留在同目录 `LICENSE`。`CJK_Compatibility_Ideographs.txt`、`STCharacters.txt`、`STPhrases.txt`、`TSCharacters.txt`、`TSPhrases.txt`、`TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 是该提交 `data/dictionary/` 下的原样文本，其中 `TSCharacters.txt` 与 `TSPhrases.txt` 是后来为粤拼的繁转简输出从同一提交补入的，没有改写；`STPhrases_GeneratedFromRegionalPhrases.txt` 是同一提交的构建产物，由 `data/scripts/generate_st_phrases_from_regional_phrases.py` 使用 `t2s.json` 生成，迁移时不重新生成、不排序或改写。
 
-这些表由 msime 构建时校验后内嵌，供 `s2t`、`s2tw`、`s2twp` 转换以及开发工具使用，不新增 `dict-v` Release 附件。更新时同步 msime 的 `resources/opencc.lock.json` 和许可证说明；保持上游文件名与逐字节锁定。
+这些表由 msime 构建时校验后内嵌，供 `s2t`、`s2tw`、`s2twp` 转换、粤拼输出简体时的繁转简（`TSPhrases` 与 `TSCharacters`，对应上游 `t2s.json` 去掉 `TSCharactersExt` 的部分）以及开发工具使用，不新增 `dict-v` Release 附件。更新时同步 msime 的 `resources/opencc.lock.json` 和许可证说明；保持上游文件名与逐字节锁定。
 
 五笔补充数据在发布构建时从本次固定原表、拼音和人工词条重新派生；本仓两份补充表为审计快照，来源和许可与上表相同。每周 rime-ice 更新预览生成审核候选，不改变本表记录的已固定源提交；候选通过审核并更新源数据时再同步来源、许可证和锁。
 

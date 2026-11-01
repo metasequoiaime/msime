@@ -81,8 +81,8 @@ pub use types::{
     NineKeyShuangpinTable, OnlineInputMode, OnlineQuery, PersonalDictionaryEntry,
     PersonalDictionaryKind, PluginCommand, PluginCommandQuery, QuickPhraseEntry, SchemeSet,
     SchemeType, SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes,
-    ShuangpinProfileKind, SyllableHelpcode, WordItem, WubiInputOptions, WubiProfileKind,
-    DEFAULT_FIRST_PAGE_ROWS,
+    ShuangpinProfileKind, SyllableHelpcode, TextConversion, WordItem, WubiInputOptions,
+    WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 // 辅助码表：`SessionOptions::helpcode_table` 与 `Session::set_helpcode_table` 收的就是它，宿主自己读表（辅助码表插件、没有文件系统的网页）时用这几项。
 pub use helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};

@@ -17,6 +17,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,

@@ -2092,6 +2092,9 @@ pub struct Preferences {
     /// 繁体输出用哪套 OpenCC 配置（`s2t`、`s2tw`、`s2twp`），只在 `traditional_chinese_output` 打开时起作用；宿主转换时把它交给 `msime_client_convert_to_traditional`。默认 `s2t`，默认时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_default_traditional_variant")]
     pub traditional_chinese_variant: TraditionalVariant,
+    /// 粤拼和粤语双拼输出简体：词库是繁体，打开后 Engine 在出候选时做繁转简（`chinese_conversion::cantonese_to_simplified`，嗰、喎等粤语用字保留）。与 `traditional_chinese_output` 互不影响，宿主在粤拼下的简繁按钮切换的是它。默认关，即粤拼照旧输出繁体；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cantonese_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub chinese_english_spacing: bool,
@@ -4352,6 +4355,7 @@ impl Default for Preferences {
             shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
+            cantonese_simplified_output: false,
             chinese_english_spacing: false,
             cross_commit_spacing: false,
             cross_commit_spacing_excluded_apps: Vec::new(),
