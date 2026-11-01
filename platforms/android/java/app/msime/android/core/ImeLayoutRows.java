@@ -542,6 +542,81 @@ final class ImeLayoutRows {
         return drawn && !s.nineKeyShuangpinFaces().equals(builtShuangpinFaces);
     }
 
+    private final RandomDigitOrderPolicy randomDigits = new RandomDigitOrderPolicy();
+    private final Button[] numberDigitKeys = new Button[10];
+    /** 数字键面最近一次按哪种资格画的，{@link #syncNumberDigitFaces} 靠它发现资格变了。 */
+    private boolean numberDigitFacesEligible;
+
+    boolean randomDigitsEntryVisible() {
+        return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+            && !s.toolbarHidden
+            && !s.dedicatedEnglish
+            && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1))
+            && "none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
+    }
+
+    /** 随入口占工具栏一行的依据：只看设置和当前中文方案，不看此刻的中/英和临时模式，切换时键盘高度不跳。 */
+    boolean randomDigitsKeepsToolbarRow() {
+        return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+            && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1));
+    }
+
+    boolean randomDigitsEnabled() { return randomDigits.enabled(); }
+
+    void toggleRandomDigits() {
+        randomDigits.setEnabled(!randomDigits.enabled());
+        refreshNumberDigits();
+        s.render();
+    }
+
+    void disableRandomDigits() {
+        if (!randomDigits.enabled()) return;
+        randomDigits.setEnabled(false);
+        refreshNumberDigits();
+    }
+
+    private boolean randomDigitsEligible() {
+        return randomDigitsEntryVisible() && s.imeLetterRows.numberPadDrawn();
+    }
+
+    void bindNumberDigit(Button key, int slot) {
+        numberDigitKeys[slot] = key;
+        s.bindCountedAction(key, () -> {
+            String digit = Integer.toString(randomDigits.digit(slot, randomDigitsEligible()));
+            // 与标准顺序同一条上屏路径：本地模式、越南语和藏文里由会话收下数字，其余按字面上屏。
+            commitNumberPadText(digit);
+            randomDigits.afterDigit(randomDigitsEligible());
+            refreshNumberDigits();
+        });
+        refreshNumberDigits();
+    }
+
+    /**
+     * 数字页没有重建、随机资格却变了（在数字页上进出临时模式、切中/英或藏起工具栏）：键面还停在上一种排列，点下去上屏的却是另一个数字，所以每次渲染按当前资格对一次。不在数字页或随机没开时什么也不做。
+     */
+    void syncNumberDigitFaces() {
+        if (!randomDigits.enabled() || !s.imeLetterRows.numberPadDrawn()) return;
+        if (randomDigitsEligible() != numberDigitFacesEligible) refreshNumberDigits();
+    }
+
+    private void refreshNumberDigits() {
+        if (!s.imeLetterRows.numberPadDrawn()) return;
+        boolean eligible = randomDigitsEligible();
+        numberDigitFacesEligible = eligible;
+        boolean nineKey = s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
+        for (int slot = 0; slot < numberDigitKeys.length; slot++) {
+            Button key = numberDigitKeys[slot];
+            if (key == null) continue;
+            int digit = randomDigits.digit(slot, eligible);
+            String face = Integer.toString(digit);
+            if (!face.contentEquals(key.getText())) key.setText(face);
+            String description = "按键 数字 " + digit;
+            if (!description.contentEquals(key.getContentDescription())) key.setContentDescription(description);
+            s.keyId(key, nineKey ? KeyPressIds.forNineKeyDigit(digit)
+                : KeyPressIds.forCharacter((char) ('0' + digit)));
+        }
+    }
+
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
         // 右侧大回车：外框连同底行是一整块（像注音九键一样没有单独的功能行），回车从右列第三行跨到底行。
@@ -556,6 +631,7 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * (tallReturn ? KeyboardHeightPolicy.KEYBOARD_ROW_COUNT : 3))));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        java.util.Arrays.fill(numberDigitKeys, null);
         boolean borrowed = s.displayedTouchLayout(s.view) != MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
         // 右侧大回车外框的列宽按画着的键面取：笔画的数字层借的是这块九宫格，沿用笔画外框的份额，和它的字母层是同一个外框，切层时 符、切换键和回车不横移。
         int frameLayout = s.displayedTouchLayout(s.view);
@@ -616,7 +692,8 @@ final class ImeLayoutRows {
                         return true;
                     });
                 }
-                if (!digits) bindNineKeySwipe(keyButton, key);
+                if (digits) bindNumberDigit(keyButton, key.digit() - 1);
+                else bindNineKeySwipe(keyButton, key);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
