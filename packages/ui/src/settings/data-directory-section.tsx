@@ -38,7 +38,7 @@ export function DataDirectorySection({
         </SettingsGroupNote>
         <ActionRow
           title="当前目录"
-          description={
+          detail={
             <>
               <code>{dataDirectory?.path ?? "正在读取…"}</code>
               {dataDirectory?.isDefault ? "（默认）" : ""}

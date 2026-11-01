@@ -22,7 +22,7 @@ export function AiApiTokenSection({
   return (
     <SecretSettingRow
       title="API Token"
-      description={
+      detail={
         origin
           ? `服务地址：${aiEndpointServiceAddress(endpoint ?? origin) ?? origin}`
           : endpointHint || "请先填写有效的接口地址"

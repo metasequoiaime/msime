@@ -324,6 +324,20 @@ jobs:
             [IO.File]::WriteAllText("$installer.sha256", "$hash  $([IO.Path]::GetFileName($installer))`n")
           }
 
+      # 安装包不带 PDB；Win7 核心与原生宿主来自不同构建，按架构把实际配套的模块和 PDB（含 TSF 与 WER helper）打成单独的符号包，用来符号化 Win7 崩溃记录里的「模块+偏移」。符号包放在单独的 artifact 里，发布作业只按名字下载安装包 artifact，其文件数量校验不受影响。
+      - name: 收集 Win7 调试符号
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./platforms/windows/installer/Collect-Windows7Symbols.ps1 -Edition $env:EDITION -Version (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim() -OutputDirectory "$PWD/target/windows7-symbols"
+
+      - name: 上传 Win7 调试符号
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-windows7-${{ github.event.inputs.edition || 'full' }}-symbols-${{ github.sha }}
+          path: target/windows7-symbols/*.zip
+          if-no-files-found: error
+
       - name: 验证 Win7 x64 安装包布局
         shell: pwsh
         run: |

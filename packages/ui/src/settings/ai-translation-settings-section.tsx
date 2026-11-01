@@ -22,7 +22,7 @@ export function AiTranslationSettingsSection({
     <>
       <SelectRow
         title="当前服务商与模型"
-        description={ready ? undefined : "请先在「AI 与云联想」页面填写接口地址、Token 和模型"}
+        detail={ready ? undefined : "请先在「AI 与云联想」页面填写接口地址、Token 和模型"}
         value={summary || "未配置"}
         disabled
       >

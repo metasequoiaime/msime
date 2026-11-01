@@ -203,7 +203,7 @@ pub enum Arguments {
     File(PathBuf),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub options: PathBuf,
     /// The explicit state directory, from `--state-dir` or `MSIME_CLIENT_STATE_DIR`. Absent means the document's `preferences_directory`, read on every call so a moved data directory is followed.
@@ -533,6 +533,17 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // 解析测试使用带盘符的 Windows 绝对路径，不依赖运行机器上是否真有这些文件。
+    const OPTIONS: &str = if cfg!(windows) {
+        "C:/a.json"
+    } else {
+        "/a.json"
+    };
+
+    fn absolute(path: &str) -> PathBuf {
+        Path::new(if cfg!(windows) { "C:/" } else { "/" }).join(path)
+    }
+
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
     }
@@ -540,14 +551,14 @@ mod tests {
     #[test]
     fn only_linux_publishes_the_skin_catalog_to_the_runtime_options() {
         let config = Config {
-            options: PathBuf::from("/state/runtime-options.json"),
+            options: absolute("state/runtime-options.json"),
             state_dir: None,
             allow_write: true,
             allow_dictionary_read: false,
         };
         assert_eq!(
             config.linux_host_options(),
-            cfg!(target_os = "linux").then_some(Path::new("/state/runtime-options.json"))
+            cfg!(target_os = "linux").then_some(absolute("state/runtime-options.json").as_path())
         );
     }
 
@@ -561,36 +572,47 @@ mod tests {
     #[test]
     fn the_command_line_wins_over_the_environment_and_writing_is_off_by_default() {
         let env = |name: &str| match name {
-            "MSIME_CLIENT_HOST_OPTIONS" => Some("/env/host.json".into()),
-            "MSIME_IBUS_OPTIONS" => Some("/env/ibus.json".into()),
-            "MSIME_CLIENT_STATE_DIR" => Some("/env/state".into()),
+            "MSIME_CLIENT_HOST_OPTIONS" => Some(absolute("env/host.json").into_os_string()),
+            "MSIME_IBUS_OPTIONS" => Some(absolute("env/ibus.json").into_os_string()),
+            "MSIME_CLIENT_STATE_DIR" => Some(absolute("env/state").into_os_string()),
             _ => None,
         };
-        let config = serve(parse(args(&["--options", "/flag/options.json"]), env).unwrap());
-        assert_eq!(config.options, PathBuf::from("/flag/options.json"));
-        assert_eq!(config.state_dir, Some(PathBuf::from("/env/state")));
+        let config = serve(
+            parse(
+                args(&["--options", absolute("flag/options.json").to_str().unwrap()]),
+                env,
+            )
+            .unwrap(),
+        );
+        assert_eq!(config.options, absolute("flag/options.json"));
+        assert_eq!(config.state_dir, Some(absolute("env/state")));
         assert!(!config.allow_write);
         assert!(!config.allow_dictionary_read);
 
         let config = serve(parse(args(&[]), env).unwrap());
-        assert_eq!(config.options, PathBuf::from("/env/host.json"));
-        let ibus_only =
-            |name: &str| (name == "MSIME_IBUS_OPTIONS").then(|| "/env/ibus.json".into());
+        assert_eq!(config.options, absolute("env/host.json"));
+        let ibus_only = |name: &str| {
+            (name == "MSIME_IBUS_OPTIONS").then(|| absolute("env/ibus.json").into_os_string())
+        };
         assert_eq!(
             serve(parse(args(&[]), ibus_only).unwrap()).options,
-            PathBuf::from("/env/ibus.json")
+            absolute("env/ibus.json")
         );
     }
 
     #[test]
     fn session_is_a_stdin_json_command() {
         let parsed = parse(
-            args(&["--options", "/state/options.json", "session"]),
+            args(&[
+                "--options",
+                absolute("state/options.json").to_str().unwrap(),
+                "session",
+            ]),
             |_: &str| None,
         )
         .unwrap();
         assert!(
-            matches!(parsed, Command::Session(config) if config.options.as_path() == Path::new("/state/options.json"))
+            matches!(parsed, Command::Session(config) if config.options == absolute("state/options.json"))
         );
     }
 
@@ -607,7 +629,7 @@ mod tests {
     #[test]
     fn only_a_person_at_a_terminal_gets_the_shortcuts_without_flags() {
         let parsed = |list: &[&str]| parse(args(list), |_: &str| None).unwrap();
-        let expand = parsed(&["--options", "/a.json", "expand", "nihao"]);
+        let expand = parsed(&["--options", OPTIONS, "expand", "nihao"]);
         assert!(expand
             .missing_flag()
             .unwrap()
@@ -619,7 +641,7 @@ mod tests {
         };
         assert!(config.allow_dictionary_read && !config.allow_write);
 
-        let set = parsed(&["--options", "/a.json", "config", "set", "scheme=wubi"]);
+        let set = parsed(&["--options", OPTIONS, "config", "set", "scheme=wubi"]);
         assert!(set.missing_flag().unwrap().contains("--allow-write"));
         let Command::SetConfig { config, .. } = set.run_by_a_person() else {
             panic!("expected config set");
@@ -629,17 +651,17 @@ mod tests {
         // 开关写在命令行上时，不在终端里也照常运行。
         let flagged = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "--allow-dictionary-read",
             "expand",
             "nihao",
         ]);
         assert!(flagged.missing_flag().is_none());
         // 只读偏好的命令本来就不需要开关。
-        assert!(parsed(&["--options", "/a.json", "config"])
+        assert!(parsed(&["--options", OPTIONS, "config"])
             .missing_flag()
             .is_none());
-        assert!(parsed(&["--options", "/a.json", "config", "get", "scheme"])
+        assert!(parsed(&["--options", OPTIONS, "config", "get", "scheme"])
             .missing_flag()
             .is_none());
     }
@@ -651,10 +673,12 @@ mod tests {
         assert!(parse(args(&["--surprise"]), env).is_err());
         assert!(parse(args(&["--options", "relative.json"]), env).is_err());
         assert!(parse(
-            args(&["--options", "/a.json", "--state-dir", "relative"]),
+            args(&["--options", OPTIONS, "--state-dir", "relative"]),
             env
         )
         .is_err());
+        #[cfg(windows)]
+        assert!(parse(args(&["--options", "/a.json"]), env).is_err());
         assert_eq!(parse(args(&["--help"]), env).unwrap(), Command::Help);
         assert_eq!(parse(args(&["--version"]), env).unwrap(), Command::Version);
     }
@@ -662,23 +686,23 @@ mod tests {
     #[test]
     fn writing_and_reading_the_dictionary_are_explicit_flags() {
         let config = |list: &[&str]| serve(parse(args(list), |_: &str| None).unwrap());
-        let write = config(&["--options", "/a.json", "--allow-write"]);
+        let write = config(&["--options", OPTIONS, "--allow-write"]);
         assert!(write.allow_write && !write.allow_dictionary_read);
-        let read = config(&["--options", "/a.json", "--allow-dictionary-read"]);
+        let read = config(&["--options", OPTIONS, "--allow-dictionary-read"]);
         assert!(!read.allow_write && read.allow_dictionary_read);
     }
 
     #[test]
     fn a_tool_runs_from_the_command_line_under_the_same_flags() {
         let parsed = |list: &[&str]| parse(args(list), |_: &str| None);
-        let Command::Tools(config) = parsed(&["tools", "--options", "/a.json"]).unwrap() else {
+        let Command::Tools(config) = parsed(&["tools", "--options", OPTIONS]).unwrap() else {
             panic!("expected tools");
         };
         assert!(!config.allow_write);
         assert_eq!(
             parsed(&[
                 "--options",
-                "/a.json",
+                OPTIONS,
                 "--allow-write",
                 "call",
                 "edit-quick-phrases",
@@ -687,7 +711,7 @@ mod tests {
             .unwrap(),
             Command::Call {
                 config: Config {
-                    options: PathBuf::from("/a.json"),
+                    options: PathBuf::from(OPTIONS),
                     state_dir: None,
                     allow_write: true,
                     allow_dictionary_read: false,
@@ -697,24 +721,24 @@ mod tests {
             }
         );
         let Command::Call { arguments, .. } =
-            parsed(&["--options", "/a.json", "call", "get_preferences"]).unwrap()
+            parsed(&["--options", OPTIONS, "call", "get_preferences"]).unwrap()
         else {
             panic!("expected call");
         };
         assert_eq!(arguments, Arguments::Inline("{}".into()));
-        assert!(parsed(&["--options", "/a.json", "call"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "tools", "extra"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "call", "a", "{}", "extra"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "serve"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "call"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "tools", "extra"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "call", "a", "{}", "extra"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "serve"]).is_err());
         assert!(matches!(
-            parsed(&["--options", "/a.json", "prompts"]).unwrap(),
+            parsed(&["--options", OPTIONS, "prompts"]).unwrap(),
             Command::Prompts(_)
         ));
         let Command::Prompt {
             name, arguments, ..
         } = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "prompt",
             "make-skin",
             r#"{"style":"夜色"}"#,
@@ -725,10 +749,10 @@ mod tests {
         };
         assert_eq!(name, "make_skin");
         assert_eq!(arguments, Arguments::Inline(r#"{"style":"夜色"}"#.into()));
-        assert!(parsed(&["--options", "/a.json", "prompt"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "prompt"]).is_err());
         let Command::Call { arguments, .. } = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "call",
             "get_preferences",
             "@C:\\args.json",
@@ -750,7 +774,7 @@ mod tests {
             json,
         } = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "expand",
             "ni'hao",
             "--scheme",
@@ -767,18 +791,18 @@ mod tests {
         assert_eq!(scheme.as_deref(), Some("wubi"));
         assert_eq!(limit, Some(5));
         assert!(!json);
-        assert!(parsed(&["--options", "/a.json", "expand"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "expand"]).is_err());
         // 一次查几串按键，`-` 留到运行时换成 stdin 的各行。
         let Command::Expand { codes, .. } =
-            parsed(&["--options", "/a.json", "expand", "a", "-", "b"]).unwrap()
+            parsed(&["--options", OPTIONS, "expand", "a", "-", "b"]).unwrap()
         else {
             panic!("expected expand");
         };
         assert_eq!(codes, ["a", "-", "b"]);
-        assert!(parsed(&["--options", "/a.json", "expand", "a", "--limit", "x"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "expand", "a", "--limit", "x"]).is_err());
 
         let Command::ShowConfig { config, json } =
-            parsed(&["--options", "/a.json", "config", "--json"]).unwrap()
+            parsed(&["--options", OPTIONS, "config", "--json"]).unwrap()
         else {
             panic!("expected config");
         };
@@ -788,7 +812,7 @@ mod tests {
             config, changes, ..
         } = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "config",
             "set",
             "scheme=shuangpin",
@@ -810,12 +834,12 @@ mod tests {
                 ("candidate_corner_radius".to_owned(), Value::Null),
             ]
         );
-        assert!(parsed(&["--options", "/a.json", "config", "set"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "config", "set", "scheme"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "config", "set", "=wubi"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "set"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "set", "scheme"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "set", "=wubi"]).is_err());
         let Command::GetConfig { config, keys, json } = parsed(&[
             "--options",
-            "/a.json",
+            OPTIONS,
             "config",
             "get",
             "scheme",
@@ -826,12 +850,12 @@ mod tests {
         };
         assert!(!config.allow_write && !json);
         assert_eq!(keys, ["scheme", "candidate_page_size"]);
-        assert!(parsed(&["--options", "/a.json", "config", "get"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "config", "unset", "scheme"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "get"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "unset", "scheme"]).is_err());
         // 只属于 expand 和 config 的开关不能悄悄跟着别的命令。
-        assert!(parsed(&["--options", "/a.json", "config", "--scheme", "wubi"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "tools", "--json"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "--limit", "3"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "config", "--scheme", "wubi"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "tools", "--json"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "--limit", "3"]).is_err());
     }
 
     #[test]
@@ -841,15 +865,7 @@ mod tests {
             config,
             keys,
             limit,
-        } = parsed(&[
-            "--options",
-            "/a.json",
-            "candidates",
-            "ni|hao",
-            "--limit",
-            "5",
-        ])
-        .unwrap()
+        } = parsed(&["--options", OPTIONS, "candidates", "ni|hao", "--limit", "5"]).unwrap()
         else {
             panic!("expected candidates");
         };
@@ -858,18 +874,18 @@ mod tests {
         // 开关在设置页里，不在命令行上：不需要也不因 allow 开关改变什么。
         assert!(!config.allow_dictionary_read && !config.allow_write);
         let Command::Candidates { keys, limit, .. } =
-            parsed(&["--options", "/a.json", "candidates"]).unwrap()
+            parsed(&["--options", OPTIONS, "candidates"]).unwrap()
         else {
             panic!("expected candidates");
         };
         assert_eq!((keys, limit), (None, None));
         // 输出本来就是 JSON。
         assert!(matches!(
-            parsed(&["--options", "/a.json", "candidates", "nihao", "--json"]).unwrap(),
+            parsed(&["--options", OPTIONS, "candidates", "nihao", "--json"]).unwrap(),
             Command::Candidates { .. }
         ));
         // 有人在终端里运行也不会被悄悄加上开关，快捷命令的缺开关检查也不管它。
-        let person = parsed(&["--options", "/a.json", "candidates", "nihao"])
+        let person = parsed(&["--options", OPTIONS, "candidates", "nihao"])
             .unwrap()
             .run_by_a_person();
         assert!(person.missing_flag().is_none());
@@ -878,18 +894,10 @@ mod tests {
         };
         assert!(!config.allow_dictionary_read && !config.allow_write);
 
-        assert!(parsed(&["--options", "/a.json", "candidates", "a", "b"]).is_err());
-        assert!(parsed(&[
-            "--options",
-            "/a.json",
-            "candidates",
-            "a",
-            "--scheme",
-            "wubi"
-        ])
-        .is_err());
-        assert!(parsed(&["--options", "/a.json", "candidates", "a", "--limit", "x"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "tools", "--limit", "3"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "candidates", "a", "b"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "candidates", "a", "--scheme", "wubi"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "candidates", "a", "--limit", "x"]).is_err());
+        assert!(parsed(&["--options", OPTIONS, "tools", "--limit", "3"]).is_err());
     }
 
     #[test]
@@ -909,25 +917,25 @@ mod tests {
 
     #[test]
     fn the_state_directory_comes_from_the_flag_then_the_document() {
-        let options = Path::new("/state/runtime-options.json");
-        let document = json!({ "preferences_directory": "/prefs" });
+        let options = absolute("state/runtime-options.json");
+        let document = json!({ "preferences_directory": absolute("prefs") });
         assert_eq!(
-            state_dir(Some(Path::new("/flag")), &document, options).unwrap(),
-            PathBuf::from("/flag")
+            state_dir(Some(&absolute("flag")), &document, &options).unwrap(),
+            absolute("flag")
         );
         assert_eq!(
-            state_dir(None, &document, options).unwrap(),
-            PathBuf::from("/prefs")
+            state_dir(None, &document, &options).unwrap(),
+            absolute("prefs")
         );
         assert!(state_dir(
             None,
             &json!({ "preferences_directory": "relative" }),
-            options
+            &options
         )
         .is_err());
-        let fallback = state_dir(None, &json!({}), options);
-        if cfg!(target_os = "macos") {
-            assert_eq!(fallback.unwrap(), PathBuf::from("/state"));
+        let fallback = state_dir(None, &json!({}), &options);
+        if cfg!(any(target_os = "macos", windows)) {
+            assert_eq!(fallback.unwrap(), options.parent().unwrap());
         } else {
             assert!(fallback.is_err());
         }

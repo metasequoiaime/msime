@@ -25,12 +25,14 @@ export function VimModeAppsSection({
       <SettingsGroupNote>
         在这些应用里，不带修饰键的 Esc 在交给应用的同时把水杉切到英文；组字或候选开着时 Esc
         仍只取消组字，再按一次才切。
-        {entries.length === 0 && " 名单是空的，Esc 的行为不变。"}
       </SettingsGroupNote>
+      {entries.length === 0 && (
+        <SettingsGroupNote inline>名单是空的，Esc 的行为不变。</SettingsGroupNote>
+      )}
       {entries.map((id) => {
         const name = names[id] ?? id;
         return (
-          <Row key={id} title={name} description={name === id ? undefined : id}>
+          <Row key={id} title={name} detail={name === id ? undefined : id}>
             <ActionButton
               action={() => remove(id)}
               ariaLabel={`把 ${name} 从 Vim 模式名单移除`}
@@ -42,11 +44,8 @@ export function VimModeAppsSection({
       {pick ? (
         <Row
           title="添加应用"
-          description={
-            full
-              ? `已达 ${maxAppInputModeRules} 个上限，请先移除不再需要的。`
-              : "选择一个应用程序，加入 Vim 模式名单。"
-          }
+          description="选择一个应用程序，加入 Vim 模式名单。"
+          detail={full ? `已达 ${maxAppInputModeRules} 个上限，请先移除不再需要的。` : undefined}
         >
           <ActionButton action={pick} disabled={full || picking} label="添加应用…" />
         </Row>

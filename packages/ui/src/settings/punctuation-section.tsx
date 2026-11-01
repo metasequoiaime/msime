@@ -153,10 +153,11 @@ function SmartPunctuationRow({
   return (
     <SwitchRow
       title={smartPunctuation[1]}
-      description={
+      description={smartPunctuation[2]}
+      detail={
         inert
-          ? `${smartPunctuation[2]}。数字后直出和字母后直出都已关闭，这一条暂不生效，打开下面其中一项，或关掉再打开智能标点`
-          : smartPunctuation[2]
+          ? "数字后直出和字母后直出都已关闭，这一条暂不生效，打开下面其中一项，或关掉再打开智能标点"
+          : undefined
       }
       checked={state.smart_punctuation}
       onChange={(checked) => onChange(smartPunctuationPatch(checked))}
