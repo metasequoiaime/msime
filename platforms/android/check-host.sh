@@ -1271,7 +1271,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：方向在共享偏好 touch_nine_key_swipe_digits 里、随账号同步，判定规则、宽松读法和迁移的纯逻辑由 NineKeySwipePolicySmoke 和 TouchKeyStyleSmoke 覆盖；接线在 InputMethodService、键盘页和迁移里，JVM 冒烟碰不到，这里钉住：本机旧键 platform.android.nine_key_swipe 只有迁移读（AndroidLocalSettings 声明它、KeyLayoutStyleMigration 把它交给 client-core 后删掉，距离不删）；键盘的两条偏好路径都从共享偏好读，滑动判定读服务上的当前值；键盘页这一行读写共享偏好，不再写本机键。
+# 九键滑动输入数字（#10229）：方向在共享偏好 touch_nine_key_swipe_digits 里、随账号同步，判定规则、宽松读法和迁移的纯逻辑由 NineKeySwipePolicySmoke 和 TouchKeyStyleSmoke 覆盖；接线在 InputMethodService、键盘页和迁移里，JVM 冒烟碰不到，这里钉住：本机旧键 platform.android.nine_key_swipe 只有迁移读（AndroidLocalSettings 声明它、KeyLayoutStyleMigration 把它交给 client-core 后删掉，距离不删）；键盘的两条偏好路径都从共享偏好读，滑动判定读服务上的当前值；键盘页这一行读写共享偏好，不再写本机键；反方向弹出的选项跟着这次按压拖选（#10443），移动、抬手和取消都交给字母选项的拖选入口。
 nine_key_legacy_readers=$(rg -l 'AndroidLocalSettings\.NINE_KEY_SWIPE\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
 keyboard_options="$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"
 if [[ "$nine_key_legacy_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
@@ -1290,12 +1290,17 @@ if [[ "$nine_key_legacy_readers" != "platforms/android/java/app/msime/android/se
   || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 's\.nineKeySwipeDigits, downY\[0\],' \
   || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
     | rg_q_stdin 's\.localSettings\.integer\(AndroidLocalSettings\.NINE_KEY_SWIPE_DISTANCE\)' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'moveLetterOptions\(keyButton, event\);' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'finishLetterOptions\(keyButton, event\)' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'cancelLetterOptions\(keyButton\);' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
+    | rg_q_stdin 'key\.label\(\)\.toLowerCase\(java\.util\.Locale\.ROOT\), true\);' \
   || ! rg -q 'JsonPolicy\.strictString\(preferences\.opt\(NineKeySwipePolicy\.PREFERENCE\)\)' "$keyboard_options" \
   || ! sed -n '/private void pickNineKeySwipe(/,/^    }$/p' "$keyboard_options" | rg_q_stdin 'savePreference\(NineKeySwipePolicy\.PREFERENCE, value\);' \
   || ! rg -q '"沿所选方向滑动输入数字，反方向弹出字母。"' "$keyboard_options" \
   || ! sed -n '/private static String nineKeySwipeLabel(/,/^    }$/p' "$keyboard_options" \
     | rg_q_stdin '"上滑" : SwipeHintPolicy\.DOWN\.equals\(value\) \? "下滑" : "关闭"'; then
-  echo "Android nine-key swipe digits must read and write the shared touch_nine_key_swipe_digits, read the current value on every touch, and leave the legacy local key to KeyLayoutStyleMigration only" >&2
+  echo "Android nine-key swipe digits must read and write the shared touch_nine_key_swipe_digits, read the current value on every touch, and leave the legacy local key to KeyLayoutStyleMigration only, and let the swipe-opened options be drag-selected (#10443)" >&2
   exit 1
 fi
 # 长空格样式留着的工具栏行看用户的 26 键样式和这块键盘的中文键面，不看此刻的中/英（TouchKeyStyle.Styles.keepsToolbarRow，规则由 TouchKeyStyleSmoke 覆盖）；这里钉住宿主的接线：工具栏行和隐藏工具栏时藏起按钮都读 longSpaceToolbarRowKept，英文模式下中文键面取只在中文时更新的 touchLayoutHint。之前读的是按此刻语言算的 longSpaceLayoutActive，工具栏隐藏时每次切中/英这一行都出没一次，键盘高度跟着跳。自动数字行与共享偏好分开传给 drawsNumberRow，自动数字行不扩到 14/18 键。
