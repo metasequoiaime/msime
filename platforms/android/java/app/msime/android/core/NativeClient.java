@@ -441,8 +441,16 @@ public final class NativeClient {
         return TextPolicy.utf8(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
             snapshot.getBytes(StandardCharsets.UTF_8)));
     }
-    /** Usage reporting (msime_client_telemetry_*): begin, end and clear touch only files; flush blocks on the network. Call on a worker. */
+    /** 共享上报接口：授权、begin、end 和 clear 只读写文件；flush 会等待网络，必须在工作线程调用。 */
+    public static String telemetryConsent(String request) { return TextPolicy.utf8(telemetryConsentRaw(utf8(request))); }
     public static String telemetryBegin(String request) { return TextPolicy.utf8(telemetryBeginRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** 主线程安装原生信号处理器；取得共享层确认的同意和路径后才启用采集。 */
+    public static native void telemetryCrashInstall();
+    public static native void telemetryCrashDisarm();
+    public static void telemetryCrashCapture(String path, String header) {
+        telemetryCrashCaptureRaw(utf8(path), utf8(header));
+    }
+    public static String telemetryRecordCrash(String request) { return TextPolicy.utf8(telemetryRecordCrashRaw(utf8(request))); }
     public static String telemetryEnd(String request) { return TextPolicy.utf8(telemetryEndRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String telemetryFlush(String request) { return TextPolicy.utf8(telemetryFlushRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String telemetryClear(String request) { return TextPolicy.utf8(telemetryClearRaw(request.getBytes(StandardCharsets.UTF_8))); }
@@ -596,6 +604,11 @@ public final class NativeClient {
      */
     public static void localSpeechRuntime(String sherpaLibrary) {
         localSpeechRuntimeRaw(utf8(sherpaLibrary));
+    }
+
+    /** 运行时动态库加载后刷新原生崩溃记录器的模块快照。 */
+    public static void telemetryCrashRefreshModules() {
+        telemetryCrashRefreshModulesRaw();
     }
 
     /** 资源包安装的进度。在调用 {@link #resourcePackInstall} 的工作线程上调用；phase 是 "download"（从本地文件安装时是 "import"）、"verify" 或 "done"。不要在这里抛异常或做耗时的事。 */
@@ -1097,7 +1110,10 @@ public final class NativeClient {
     private static native byte[] snapshotVersionRaw(byte[] options);
     private static native byte[] migrateKeyLayoutRaw(byte[] request);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] telemetryConsentRaw(byte[] request);
     private static native byte[] telemetryBeginRaw(byte[] request);
+    private static native void telemetryCrashCaptureRaw(byte[] path, byte[] header);
+    private static native byte[] telemetryRecordCrashRaw(byte[] request);
     private static native byte[] telemetryEndRaw(byte[] request);
     private static native byte[] telemetryFlushRaw(byte[] request);
     private static native byte[] telemetryClearRaw(byte[] request);
@@ -1225,6 +1241,7 @@ public final class NativeClient {
     private static native byte[] voiceNormalizeNumbersRaw(byte[] request);
     private static native boolean localSpeechAvailableRaw();
     private static native void localSpeechRuntimeRaw(byte[] path);
+    private static native void telemetryCrashRefreshModulesRaw();
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);

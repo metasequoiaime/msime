@@ -30,7 +30,7 @@ struct DictionarySettingsView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
-        DesignGroup(title: "已安装", footer: "个人词库收着你添加的和输入时学到的词条，拼音、五笔、快捷短语和英文都在里面。点进去可以查看、搜索、添加和编辑，滑动一条可删除。") {
+        DesignGroup(title: "已安装", info: "个人词库收着你添加的和输入时学到的词条，拼音、五笔、快捷短语和英文都在里面。点进去可以查看、搜索、添加和编辑，滑动一条可删除。") {
           NavigationLink(destination: PersonalDictionaryView()) {
             DictionaryPackRowLabel(initial: "个", title: "个人词库", meta: wordCountLabel)
           }
@@ -44,7 +44,7 @@ struct DictionarySettingsView: View {
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("importDictionaryAction")
         }
-        DesignGroup(title: "同步", footer: "把「我的词条」经你自己的 WebDAV 网盘（坚果云、Nextcloud 等）在设备之间同步，包括删除；不需要登录水杉账号，网盘只保存密文。") {
+        DesignGroup(title: "同步", info: "把「我的词条」经你自己的 WebDAV 网盘（坚果云、Nextcloud 等）在设备之间同步，包括删除；不需要登录水杉账号，网盘只保存密文。") {
           NavigationLink(destination: DictionarySyncView()) {
             DesignNavRowLabel(title: "词库同步", value: syncConfigured ? "WebDAV" : "未开启")
           }
@@ -53,14 +53,14 @@ struct DictionarySettingsView: View {
         }
         updateSection
         DesignGroup(title: "发现词库") { discoverRows }
-        DesignGroup(title: "完善公共词库", footer: "前往官网填写词语和读音，审核后随公共词库更新。个人学习的词不会自动公开。") {
+        DesignGroup(title: "完善公共词库", info: "前往官网填写词语和读音，审核后随公共词库更新。个人学习的词不会自动公开。") {
           Link(destination: URL(string: "https://msime.app/words/")!) {
             DesignNavRowLabel(title: "提交缺失词条")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("dictionaryContributionLink")
         }
-        DesignGroup(title: "学习", footer: learningFooter) { learningRows }
+        DesignGroup(title: "学习", info: learningInfo) { learningRows }
         DesignGroup(title: "更多") {
           NavigationLink(destination: VocabularyReviewSettingsView()) {
             DesignNavRowLabel(title: "背单词")
@@ -304,7 +304,7 @@ struct DictionarySettingsView: View {
 
   private static let countOptions = FrequencyAdjustmentPreference.countRange.map { DesignOption(title: "\($0)", value: $0) }
 
-  private var learningFooter: String {
+  private var learningInfo: String {
     "开启后，引擎按所选调频方式调整候选排序，并学习支持的拼音组词。不调频保留词库原有顺序，只学习新词；一次置顶移到首位；折半移到当前名次与首位之间；线性按固定步数前移；一次置前把前五名前进一位、更靠后的提到第五名。触发频次是同一候选累计选中多少次后才调整一次。学习记录仅保存在设备上。关闭后停止新增学习，不清除已有记录；正在输入的内容结束后生效。"
   }
 
@@ -432,7 +432,7 @@ private struct DictionaryInfoView: View {
           DesignDivider(leading: 20)
           DesignValueRow(title: "更新方式", value: "随 App 更新")
         }
-        DesignGroup(title: "词库信息", footer: "词库保存在设备上，日常输入不需要联网。已启用日语整句转换，支持罗马字输入、假名及汉字混合候选。") {
+        DesignGroup(title: "词库信息", info: "词库保存在设备上，日常输入不需要联网。已启用日语整句转换，支持罗马字输入、假名及汉字混合候选。") {
           let profile = manifest["profile"] as? String
           let commit = (manifest["source"] as? [String: Any])?["commit"] as? String
           if let profile {
