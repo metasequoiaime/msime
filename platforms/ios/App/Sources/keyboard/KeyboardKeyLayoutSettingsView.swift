@@ -39,7 +39,7 @@ struct KeyboardKeyLayoutSettingsView: View {
         if offering.offersAnyGroup { numberPadGroup }
         if offering.numberRow {
           DesignGroup(footer: saveFailed ? SettingsSaveFailure.message : nil) {
-            DesignToggleRow(title: "顶部数字行", subtitle: TouchKeyLayoutOffering.numberRowSubtitle,
+            DesignToggleRow(title: "顶部数字行", info: TouchKeyLayoutOffering.numberRowSubtitle,
                             isOn: Binding(get: { style.numberRow }, set: { save(TouchKeyLayoutStyle.save(numberRow: $0)) }))
               .accessibilityIdentifier("keyLayoutNumberRowToggle")
           }
@@ -78,24 +78,26 @@ struct KeyboardKeyLayoutSettingsView: View {
         KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid,
                                  gridSplitsSyllables: gridSplitsSyllables, language: !hidesLanguageKey)
           .padding(.horizontal, 16)
-        stylePills(kind)
-        if let note = kind.note(style) {
-          Text(note).designSubtext()
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 20)
-            .accessibilityIdentifier("keyLayoutStyleNote")
+        // 当前样式的说明收进胶囊行末的「?」，没有说明的样式不画。
+        HStack(spacing: 0) {
+          stylePills(kind)
+          if let note = kind.note(style) {
+            DesignInfoTip(text: note, subject: "当前样式")
+              .padding(.trailing, 12)
+              .accessibilityIdentifier("keyLayoutStyleNote")
+          }
         }
       }
       .padding(.vertical, 16)
       .frame(maxWidth: .infinity, alignment: .leading)
       if kind == .twentySixKey {
         DesignDivider()
-        DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle, subtitle: TouchKeyLayoutOffering.symbolFirstSubtitle,
+        DesignToggleRow(title: TouchKeyLayoutOffering.symbolFirstTitle, info: TouchKeyLayoutOffering.symbolFirstSubtitle,
                         isOn: Binding(get: { style.symbolFirst }, set: { save(TouchKeyLayoutStyle.save(symbolFirst: $0)) }))
           .accessibilityIdentifier("keyLayoutSymbolFirstToggle")
       }
       DesignDivider()
-      DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, subtitle: TouchKeyLayoutOffering.languageLeftSubtitle,
+      DesignToggleRow(title: TouchKeyLayoutOffering.languageLeftTitle, info: TouchKeyLayoutOffering.languageLeftSubtitle,
                       isOn: Binding(get: { style.languageKeySide == .left },
                                     set: { save(TouchKeyLayoutStyle.save(languageKeySide: $0 ? .left : .right)) }))
         .accessibilityIdentifier("keyLayoutLanguageLeftSwitch")
@@ -117,14 +119,10 @@ struct KeyboardKeyLayoutSettingsView: View {
 
   /// 「数字键盘」一组：九宫格数字键盘从所有键面都进得去（九键自己的数字层，或其他中文键面、日文、韩文、越南文、藏文、英文和本地模式借来的数字九宫格），所以不跟着分段走。选项用和样式一样的等宽胶囊，说明在胶囊下方，隔一道分隔线是「数字键盘左侧符号」导航行，不画预览。
   private var numberPadGroup: some View {
-    DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle) {
+    DesignGroup(title: TouchKeyLayoutOffering.numberPadTitle, info: TouchKeyLayoutOffering.numberPadFooter) {
       VStack(alignment: .leading, spacing: 14) {
         pills(TouchNumberPadSpace.allCases, selected: style.numberPadSpace, title: \.title,
               identifier: { "keyLayoutNumberPad_\($0.rawValue)" }) { save(TouchKeyLayoutStyle.save(numberPadSpace: $0)) }
-        Text(TouchKeyLayoutOffering.numberPadFooter).designSubtext()
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.horizontal, 20)
-          .accessibilityIdentifier("keyLayoutNumberPadNote")
       }
       .padding(.vertical, 16)
       .frame(maxWidth: .infinity, alignment: .leading)

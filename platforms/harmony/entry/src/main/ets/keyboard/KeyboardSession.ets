@@ -1664,6 +1664,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 键盘收起（系统的 keyboardHide，或 inputStop 时宿主隐藏面板）。面板收起时视图不会销毁，视图靠它停掉键盘内的语音识别。 */
   onPanelHidden: (() => void) | undefined = undefined;
+  /** 接上一个编辑框（每次 inputStart，`attach`）。换输入框时系统可能不发 inputStop、键盘也不收起，视图靠它离开只属于上一个输入框的界面（键盘调整）。 */
+  onEditorAttached: (() => void) | undefined = undefined;
 
   /**
    * True once the native ABI matches and a session exists.
@@ -3825,6 +3827,10 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    // 先让视图离开键盘调整：离开时保存，此时会话还对着上一个编辑框。
+    if (this.onEditorAttached !== undefined) {
+      this.onEditorAttached();
+    }
     this.idleDictionaryVisible = true;
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();

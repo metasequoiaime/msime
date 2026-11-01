@@ -381,9 +381,7 @@ private struct PersonalDictionarySyncView: View {
           .accessibilityIdentifier("personalDictionaryTrial")
           .designRow()
       } header: {
-        Text("键盘同步")
-      } footer: {
-        Text("开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。保存、删除、导入、搜索编码和导出都在键盘打开时处理。已保存的学习记录和词条不会上传。")
+        DesignSectionHeader(subject: "键盘同步", info: "开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。保存、删除、导入、搜索编码和导出都在键盘打开时处理。已保存的学习记录和词条不会上传。") { Text("键盘同步") }
       }
       let requests = state.requests.filter { $0.status != .applied }
       if !requests.isEmpty {
@@ -475,9 +473,7 @@ private struct PersonalWordEditor: View {
             .keyboardType(.numberPad)
             .accessibilityIdentifier("personalWordWeight")
         } header: {
-          Text("权重")
-        } footer: {
-          Text("同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。")
+          DesignSectionHeader(subject: "权重", info: "同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。") { Text("权重") }
         }
         if let error { Section { Text(error).foregroundStyle(.red) } }
         Section {} footer: { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。") }

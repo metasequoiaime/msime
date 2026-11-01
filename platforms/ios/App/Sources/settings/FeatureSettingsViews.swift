@@ -424,10 +424,8 @@ struct ServiceSettingsView: View {
             Button("删除录音", role: .destructive) { recorder.discard() }.disabled(busy)
           }
         } header: {
-          Text("试一下")
-        } footer: {
           // 平时在键盘上按住空格说话（VoiceSessionService）；这里录一段检查当前服务的识别效果，也可以复制结果或交给键盘。
-          Text("录一段话，看看当前服务的识别效果。平时在键盘上按住空格说话，松开就上屏。")
+          DesignSectionHeader(title: "试一下", info: "录一段话，看看当前服务的识别效果。平时在键盘上按住空格说话，松开就上屏。")
         }
         .designRow()
         if !autoStartVoice {
@@ -472,8 +470,8 @@ struct ServiceSettingsView: View {
               status = "已清除待插入结果"
             } catch { status = error.localizedDescription; refreshVoiceTransfer() }
           }.accessibilityIdentifier("clearVoiceTransfer")
-        } header: { Text("等待键盘插入") } footer: {
-          Text("需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。")
+        } header: {
+          DesignSectionHeader(subject: "等待键盘插入", info: "需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。") { Text("等待键盘插入") }
         }
         .designRow()
       }
@@ -638,13 +636,11 @@ struct ServiceSettingsView: View {
         Text("未能保存语音设置，请重试。").foregroundStyle(.red)
       }
     } header: {
-      Text("识别后润色")
-    } footer: {
-      Text(polishService.separate
+      DesignSectionHeader(subject: "识别后润色", info: polishService.separate
         ? "识别完成后把文字发给单独设置的润色服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。"
         : CustomServiceConfiguration.load(.ai).endpoint.isEmpty
         ? "润色使用“AI 设置”里保存的服务，目前尚未设置；也可以在“润色服务”里单独设置。识别结果会原样保留。"
-        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。")
+        : "识别完成后把文字发给“AI 设置”里保存的服务整理，可随时改用识别原文。自定义提示词留空时使用“精炼整理”；内置方式的提示词也可以修改，换一种方式或点“恢复默认”即回到原文。") { Text("识别后润色") }
     }
   }
 
@@ -835,9 +831,7 @@ struct ServiceSettingsView: View {
           } catch { status = error.localizedDescription }
         }
       } header: {
-        Text("连接配置")
-      } footer: {
-        Text("填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。")
+        DesignSectionHeader(subject: "连接配置", info: "填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。") { Text("连接配置") }
       }
       .disabled(busy || recorder.isRecording)
 

@@ -123,9 +123,7 @@ struct PluginEditorView: View {
         .lineLimit(2...6)
         .accessibilityLabel("介绍")
     } header: {
-      Text("基本信息")
-    } footer: {
-      Text("许可证决定别人能怎样使用这个插件。\(PluginEditorModel.defaultLicense) 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。")
+      DesignSectionHeader(subject: "基本信息", info: "许可证决定别人能怎样使用这个插件。\(PluginEditorModel.defaultLicense) 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。") { Text("基本信息") }
     }
     .designRow()
   }
@@ -151,9 +149,7 @@ struct PluginEditorView: View {
       .disabled(rows.count >= PluginEditorModel.maximumPhrases)
       .accessibilityIdentifier("pluginEditorAddPhrase")
     } header: {
-      Text("短语（\(rows.count)）")
-    } footer: {
-      Text("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。")
+      DesignSectionHeader(subject: "短语（\(rows.count)）", info: "编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。") { Text("短语（\(rows.count)）") }
     }
     .designRow()
   }
@@ -175,9 +171,7 @@ struct PluginEditorView: View {
       Button("添加一条") { draft?.commands.append(.init()) }
         .disabled(rows.count >= PluginEditorModel.maximumCommands)
     } header: {
-      Text("指令（\(rows.count)）")
-    } footer: {
-      Text("指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。左滑删除一条。")
+      DesignSectionHeader(subject: "指令（\(rows.count)）", info: "指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。左滑删除一条。") { Text("指令（\(rows.count)）") }
     }
     .designRow()
   }
@@ -240,9 +234,7 @@ struct PluginEditorView: View {
       }
       .disabled(rows.count >= PluginEditorModel.maximumWords)
     } header: {
-      Text("单词（\(rows.count)）")
-    } footer: {
-      Text("每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 \(PluginEditorModel.maximumWords) 个单词。左滑删除一个。")
+      DesignSectionHeader(subject: "单词（\(rows.count)）", info: "每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 \(PluginEditorModel.maximumWords) 个单词。左滑删除一个。") { Text("单词（\(rows.count)）") }
     }
     .designRow()
   }
@@ -267,11 +259,9 @@ struct PluginEditorView: View {
       Button("添加到列表") { addBulk() }
         .disabled(PluginEditorModel.blank(bulk))
     } header: {
-      Text("批量添加 · \(phrases ? "每行一条短语" : "每行一个单词")")
-    } footer: {
-      Text(phrases
+      DesignSectionHeader(subject: "批量添加 · \(phrases ? "每行一条短语" : "每行一个单词")", info: phrases
         ? "编码在前，文字在后，中间用空格隔开，例如 dz 北京市海淀区。"
-        : "从表格复制过来即可：单词、释义两列，或单词、音标、释义三列，列之间用 Tab 隔开。")
+        : "从表格复制过来即可：单词、释义两列，或单词、音标、释义三列，列之间用 Tab 隔开。") { Text("批量添加 · \(phrases ? "每行一条短语" : "每行一个单词")") }
     }
     .designRow()
   }
