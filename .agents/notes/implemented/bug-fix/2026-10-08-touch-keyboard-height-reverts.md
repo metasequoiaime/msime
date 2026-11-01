@@ -12,7 +12,7 @@ Android 的内联高度条已由 [键盘调整遮罩](../feature/2026-11-01-andr
 
 键盘里调出来的高度一旦被用户看见，就存进它的权威存储；只有用户明确取消才丢掉。每端各自修掉把旧值写回或读回的路径：
 
-- **HarmonyOS**（确定的 bug）：`KeyboardSession.changePreferences` 存好文档、更新了版本号，却不刷新缓存的偏好和外观；`preferences()` 返回的还是准备会话时那一份。`applyGeometry` 存完立刻把旧高度读回来，所以拖动弹回原位、± 不累加，调间距时还会把旧高度写回文档；下次聚焦时版本号已经一致，不会重建，旧值就一直留着。现在存好之后用 `refreshPreparedPreferences` 按存下的整份文档换掉缓存并重算外观；`selectGlobalTheme` 原来自己补这一步，并进了同一处。
+- **HarmonyOS**（确定的 bug）：`KeyboardSession.changePreferences` 存好文档、更新了版本号，却不刷新缓存的偏好和外观；`preferences()` 返回的还是准备会话时那一份。`applyGeometry` 存完立刻把旧高度读回来，所以拖动弹回原位、± 不累加，调间距时还会把旧高度写回文档；下次聚焦时版本号已经一致，不会重建，旧值就一直留着。现在存好之后用 `refreshPreparedPreferences` 按存下的整份文档换掉缓存并重算外观；`selectGlobalTheme` 原来自己补这一步，并进了同一处。鸿蒙的高度条后来换成了[键盘调整遮罩](../feature/2026-11-01-harmony-keyboard-adjust-overlay.md)，没有「取消」，以任何方式离开都保存，与这里 Android 的「收起即保存」一致。
 - **Android**：
   - 调整中键盘被收起时，原来按取消处理（`onFinishInputView` 调 `finishInlineHeight(false)`），现在按完成保存，只有点「取消」才丢掉。
   - 高度原来只在共享偏好（间距、语音入口）写入成功后才写本地设置，共享写入失败或冲突时高度也跟着丢；现在由 `settings/KeyboardHeightSave` 先写本地设置，与共享写入无关，只改了高度时根本不写共享偏好。这推翻了原来代码注释里的「本地高度只在偏好写入成功后再写」。
