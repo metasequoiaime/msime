@@ -11,7 +11,7 @@ export function VoiceModelMirrorRow({ value, onChange }: VoiceModelMirrorSection
   return (
     <TextInputRow
       title="模型下载镜像"
-      description="可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载"
+      description="可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空时先走本项目镜像 dl.msime.app，再直连 GitHub"
       label="模型下载镜像"
       maxLength={2048}
       value={value}
