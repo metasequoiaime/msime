@@ -5089,6 +5089,14 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    /** 按键路径上同步调一次引擎：正在量一次按键时把这次调用的耗时记成 engine_call（{@link ImeDebugOverlay#onEngineCall}）。触摸键盘上会走到 apply 的按键入口都经过这里，engine_call 才和 candidate_shown 一一对应。 */
+    String timedEngineCall(java.util.function.Supplier<String> call) {
+        long startedAt = imeDebugOverlay.engineCallStart();
+        String response = call.get();
+        imeDebugOverlay.onEngineCall(startedAt);
+        return response;
+    }
+
     boolean character(int ascii) {
         return character(ascii, letterCase.usesUppercase());
     }
@@ -5098,10 +5106,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
-            long engineStartedAt = imeDebugOverlay.engineCallStart();
-            String response = NativeClient.character(session, ascii, shifted);
-            imeDebugOverlay.onEngineCall(engineStartedAt);
-            return apply(response);
+            return apply(timedEngineCall(() -> NativeClient.character(session, ascii, shifted)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
@@ -5111,10 +5116,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
-            long engineStartedAt = imeDebugOverlay.engineCallStart();
-            String response = NativeClient.touchCharacter(session, ascii, false, geometryId, x, y);
-            imeDebugOverlay.onEngineCall(engineStartedAt);
-            return apply(response);
+            return apply(timedEngineCall(() -> NativeClient.touchCharacter(session, ascii, false, geometryId, x, y)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
@@ -5134,10 +5136,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
-            long engineStartedAt = imeDebugOverlay.engineCallStart();
-            String response = NativeClient.gridKey(session, letter);
-            imeDebugOverlay.onEngineCall(engineStartedAt);
-            return apply(response);
+            return apply(timedEngineCall(() -> NativeClient.gridKey(session, letter)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
@@ -5158,7 +5157,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 一笔滑行抬手（{@link ImeGlideTyping}）：请求见 {@link GlideTypingPolicy#request}。引擎不收（handled=false）时什么也不输入。 */
     void glide(String request) {
         if (session == 0) return;
-        try { apply(NativeClient.glide(session, request)); }
+        try { apply(timedEngineCall(() -> NativeClient.glide(session, request))); }
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -5167,17 +5166,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
-            long engineStartedAt = imeDebugOverlay.engineCallStart();
-            String response = NativeClient.command(session, code);
-            imeDebugOverlay.onEngineCall(engineStartedAt);
-            return apply(response);
+            return apply(timedEngineCall(() -> NativeClient.command(session, code)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
     void setNineKeyFilter(boolean singleCharacter, String strokes) {
         if (session == 0) return;
-        try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
+        try { apply(timedEngineCall(() -> NativeClient.setNineKeyFilter(session, singleCharacter, strokes))); }
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -5318,7 +5314,7 @@ public final class MSIMEInputService extends InputMethodService {
             // Zhuyin's marks are bopomofo keys or its Shift overlay, which the Engine writes in any state, so smart punctuation neither replaces them nor arms on what they commit (as on macOS).
             if (zhuyinSchemeActive()) {
                 clearSmartPunctuationSnapshots();
-                return apply(NativeClient.punctuationWithContext(session, ascii, preceding));
+                return apply(timedEngineCall(() -> NativeClient.punctuationWithContext(session, ascii, preceding)));
             }
             JSONObject decision = smartPunctuationDecision((char) ascii, before);
             // `isNull` first: org.json's optString hands back the four-letter string "null" for a
@@ -5341,7 +5337,7 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
             String response = reopenPairedQuote(
-                NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
+                timedEngineCall(() -> NativeClient.punctuationWithContext(session, ascii, preceding)), ascii);
             boolean handled = apply(response);
             PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {

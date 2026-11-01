@@ -10,7 +10,7 @@ Status: implemented
 
 加两个只进本机导出诊断包的性能种类，追加在 `DiagnosticEventKind` 末尾（构造参数 `false`，不改已有种类的序号），`crates/client-services/src/diagnostics.rs` 的 `EVENT_KINDS` 同步加上，不进 `upload.rs` 的 `UPLOAD_EVENT_KINDS`：
 
-- `engine_call`：一次按键在主线程上同步调引擎（JNI 进出）的耗时。`character`、`touchCharacter`、`gridKey`、`command` 四个入口在 `NativeClient` 调用前取 `ImeDebugOverlay.engineCallStart()`，返回后调 `onEngineCall`。只有正在量一次按键（`pendingKeyAt >= 0`）时才取时刻、才记；`showDiagnostic` 清掉 `pendingKeyAt` 之后同一次处理里的后续调用不再记，所以每条 `engine_call` 都对应同一次按键的那条 `candidate_shown`。
+- `engine_call`：一次按键在主线程上同步调引擎（JNI 进出）的耗时。触摸键盘上会走到 `apply` 的按键入口都经 `MSIMEInputService.timedEngineCall` 调 `NativeClient`：`character`、`touchCharacter`、`gridKey`、`command`、`punctuation` 的两处 `punctuationWithContext`（注音的符号键和结束组字的标点键都走这里）、`glide`、九键笔画筛选 `setNineKeyFilter`、九键左栏拼音 `ImeLayoutRows.chooseNineKeySpelling`。它在调用前取 `ImeDebugOverlay.engineCallStart()`，返回后调 `onEngineCall`。只有正在量一次按键（`pendingKeyAt >= 0`）时才取时刻、才记；`showDiagnostic` 清掉 `pendingKeyAt` 之后同一次处理里的后续调用不再记，所以每条 `engine_call` 都对应同一次按键的那条 `candidate_shown`。
 - `candidate_rendered`：从按键到 `render()` 改完视图的耗时。`showDiagnostic` 把按键时刻转给 `renderPendingAt`，`render()` 拆成外层和 `renderViews()`，外层在 `renderViews()` 返回后调 `onRendered()`。`render()` 在批处理里被推迟（`renderBatchDepth > 0`）时不记，等批处理结束补的那次 render 再记。手指按着候选、候选条推迟重画（`candidateRenderDeferred`）时也不记，等松手后补的那次。下一次按键和 `clearDiagnostic` 会清掉没记出去的时刻，免得把下一次按键算进来。
 
 `candidate_shown` 的口径不变，三条放在一起看：`engine_call` 是引擎本身，`candidate_shown − engine_call` 是写输入框和 `apply` 里其余的工作，`candidate_rendered − candidate_shown` 是 `render()`。`candidate_rendered` 不包括之后这一帧的测量、布局和绘制，那一段仍然看不到。
@@ -36,6 +36,6 @@ Status: implemented
 
 收益：报告者升级后重新导出诊断包，就能按键对上 `engine_call`、`candidate_shown`、`candidate_rendered` 三条，判断该先优化引擎还是 `render()`/`applySkin`。不开「记录输入日志」时什么也不写，每键只多两次 `SystemClock.uptimeMillis()`。
 
-代价：开着日志时每键多写两行 perf 记录（原来一行），`perf.jsonl` 的 1 MiB 环形上限能存的按键数减到约三分之一。诊断包的种类清单多两项，`EVENT_KINDS`、`DiagnosticEventKind`、`ImePrivacyGateSmoke` 的种类表和 `msime_client.h` 的注释要一起改。经 `apply` 以外的入口（选候选、九键拼音列等）出候选的按键只有 `candidate_shown` 和 `candidate_rendered`，没有 `engine_call`。
+代价：开着日志时每键多写两行 perf 记录（原来一行），`perf.jsonl` 的 1 MiB 环形上限能存的按键数减到约三分之一。诊断包的种类清单多两项，`EVENT_KINDS`、`DiagnosticEventKind`、`ImePrivacyGateSmoke` 的种类表和 `msime_client.h` 的注释要一起改。以后在键盘行里加新的按键入口，调引擎时也要经 `timedEngineCall`，否则那一键只有 `candidate_shown` 和 `candidate_rendered`，按顺序配对三条记录就会错位。
 
 验证：`cargo test -p msime-client-services diagnostics`（含 `engine_session_timing_records_stay_in_local_bundles` 加上的两个种类）和 `platforms/android/check-host.sh`（`ImePrivacyGateSmoke` 的种类表、行格式和「不收文字」反射检查）在 Mac Studio 上通过。`DiagnosticsBundleDeviceSmoke` 加了两行新种类的合成 perf 记录并核对 `performance_logs` 保留 3 行，但这台机器上没有跑设备测试；真机上三段耗时各是多少，要等报告者在新版本上导出诊断包。
