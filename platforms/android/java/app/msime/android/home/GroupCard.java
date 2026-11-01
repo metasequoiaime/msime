@@ -95,6 +95,7 @@ public final class GroupCard {
             groupTip = new InfoTipView(context);
             groupTip.setSubject(heading == null ? null : heading.getText());
             row.addView(groupTip, 1, InfoTipView.params(context));
+            groupTip.extendTouchTarget(group);
             groupTip.setHelp(text);
         } else {
             groupTip.setHelp(new android.text.SpannableStringBuilder(groupTip.help()).append("\n\n").append(text));
@@ -354,17 +355,17 @@ public final class GroupCard {
                 tip = new InfoTipView(view.getContext());
                 tip.setSubject(title.getText());
                 titleLine.addView(tip, InfoTipView.params(view.getContext()));
+                tip.extendTouchTarget(view);
             }
             tip.setHelp(text);
             return this;
         }
 
+        /** 按下点是否落在「?」的可点区域里；与挂在整行上的 TouchDelegate 用同一块区域，判为「?」的点按一定能送到「?」。 */
         private boolean hitsTip(MotionEvent event) {
-            if (tip == null || tip.getVisibility() != View.VISIBLE) return false;
-            android.graphics.Rect bounds = new android.graphics.Rect();
-            tip.getDrawingRect(bounds);
-            view.offsetDescendantRectToMyCoords(tip, bounds);
-            return bounds.contains((int) event.getX(), (int) event.getY());
+            if (tip == null) return false;
+            android.graphics.Rect target = tip.targetIn(view);
+            return target != null && target.contains((int) event.getX(), (int) event.getY());
         }
 
         public void setTitle(CharSequence text) {

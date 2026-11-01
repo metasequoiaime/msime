@@ -1,9 +1,11 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.view.Gravity;
+import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -19,7 +21,7 @@ import app.msime.android.ViewPolicy;
 /**
  * 设置项和分组标题旁的「?」：解释性说明不常驻页面，点一下在气泡里显示，点别处或按返回收起。手机没有悬停，所以只认点按；这与共享设置界面（macOS、Linux、HarmonyOS）和 iOS 的「?」是同一套设计语言。
  *
- * <p>外观是 16dp 的描边圆圈，里面一个 11sp 的问号，颜色取次要文字色；可点区域是 32dp 见方，圆圈居中画在里面，上下用负边距抵掉多出的高度，不会把标题行撑高。
+ * <p>外观是 16dp 的描边圆圈，里面一个 11sp 的问号，颜色取次要文字色；可点区域是 32dp 见方，圆圈居中画在里面，上下用负边距抵掉多出的高度，不会把标题行撑高。负边距让这 32dp 有一部分落在标题行外面，而触摸只会派给包含触点的子视图，所以那部分由 {@link #extendTouchTarget} 在外层容器上挂 TouchDelegate 接住，整个 32dp 都点得到。
  *
  * <p>读屏不必打开气泡：「?」的内容描述就是「标题 + 说明 + 正文」，TalkBack 移到它上面时直接读出全文。
  */
@@ -71,6 +73,25 @@ public final class InfoTipView extends TextView {
         params.setMargins(-DimensionPolicy.pixels(context, 4), vertical, -DimensionPolicy.pixels(context, 8), vertical);
         params.gravity = Gravity.CENTER_VERTICAL;
         return params;
+    }
+
+    /**
+     * 让「?」整个 32dp 可点区域都能点到。负边距把区域的上下沿和右侧 8dp 推出了标题行，按在那里的触摸到不了「?」；这里在 {@code host}（一个装得下整个区域的祖先，通常是整行）上挂 TouchDelegate，子视图都不接的触摸转给「?」。每次 {@code host} 重新布局都按「?」的当前位置更新；「?」隐藏时撤掉。
+     */
+    public void extendTouchTarget(ViewGroup host) {
+        host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            Rect target = targetIn(host);
+            host.setTouchDelegate(target == null ? null : new TouchDelegate(target, this));
+        });
+    }
+
+    /** 「?」的 32dp 可点区域在 {@code host} 坐标里的位置，截到 {@code host} 范围内；「?」没显示时为 null。 */
+    @Nullable public Rect targetIn(ViewGroup host) {
+        if (!isShown()) return null;
+        Rect bounds = new Rect();
+        getDrawingRect(bounds);
+        host.offsetDescendantRectToMyCoords(this, bounds);
+        return bounds.intersect(0, 0, host.getWidth(), host.getHeight()) ? bounds : null;
     }
 
     private void describe() {

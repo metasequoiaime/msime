@@ -352,6 +352,7 @@ final class KeyboardSheets {
         tip.setSubject(subject);
         tip.setHelp(text);
         ((LinearLayout) line).addView(tip, InfoTipView.params(row.getContext()));
+        tip.extendTouchTarget(row);
         return row;
     }
 
