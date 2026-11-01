@@ -279,6 +279,8 @@ public final class LocalAsrRecognizer {
             }
             NativeClient.localSpeechRuntime(sherpa.getAbsolutePath());
             if (!NativeClient.localSpeechAvailable()) throw new Refused(Failure.RUNTIME);
+            // 运行库在崩溃记录器武装后才加载；刷新模块快照，保证崩溃栈能解析这两个动态库。
+            NativeClient.telemetryCrashRefreshModules();
         }
     }
 

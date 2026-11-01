@@ -31,7 +31,7 @@ struct LocalModeSettingsView: View {
       Section {
         ForEach(Self.modes, id: \.0) { key, title, detail in
           Toggle(isOn: stored(key)) {
-            SettingsOptionLabel(title: title, detail: detail)
+            SettingsOptionLabel(title: title, info: detail)
           }.accessibilityIdentifier("localMode.\(key)")
         }
       } footer: {

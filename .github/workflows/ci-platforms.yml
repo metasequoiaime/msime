@@ -185,13 +185,13 @@ jobs:
     if: ${{ needs.changes.outputs.android == 'true' && github.event_name != 'pull_request' }}
     uses: ./.github/workflows/android-device.yml
 
-  # PR 改了键盘或设置界面的 Java、资源或设备套件时，只在 API 35 上跑一遍设备验收，让作者合并前就看到界面文字、交互改动打破了哪条验收。它不是必需检查，失败不挡合并；API 28 和整套仍在合并后的 push 与 nightly 上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。
+  # PR 改了键盘、设置界面或崩溃设备套件时，API 28 先跑独立 crash-only，API 35 跑独立崩溃门禁后再跑完整输入验收，让 minSdk 的 Java/JNI 现场链路和高版本的完整交互都能在合并前看到；API 28 的完整输入和全套仍在合并后的 push 与 nightly 上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。这两个 PR 设备作业都不是必需检查，失败不挡合并。
   android-device-pr:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.android_device == 'true' }}
     uses: ./.github/workflows/android-device.yml
     with:
-      matrix: '[{"api": 35, "smoke": ""}]'
+      matrix: '[{"api": 28, "smoke": "--crash-only"}, {"api": 35, "smoke": ""}]'
 
   linux:
     needs: changes

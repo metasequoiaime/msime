@@ -38,9 +38,7 @@ struct QQLinksView: View {
             .disabled(busy || QQLinksService.normalizedCode(code) == nil)
             .accessibilityIdentifier("qqLinkRedeem")
         } header: {
-          Text("绑定码")
-        } footer: {
-          Text("10 分钟内有效，只能用一次")
+          DesignSectionHeader(subject: "绑定码", info: "10 分钟内有效，只能用一次") { Text("绑定码") }
         }
         Section {
           links
