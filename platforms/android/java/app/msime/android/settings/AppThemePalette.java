@@ -63,6 +63,8 @@ public final class AppThemePalette {
     public final boolean dark;
     /** colorPrimary：主色。 */
     public final int accent;
+    /** 触屏候选条首选的字色：浅色是同一色相加深到 WCAG AA 的强调色（Rust 的 `candidate_accent`），深色就是 accent。回车、开启态等其余用处仍是 accent。 */
+    public final int candidateAccent;
     /** colorOnPrimary：主色上的文字与开关开启时的滑块。 */
     public final int onAccent;
     /** colorPrimaryContainer / colorSecondaryContainer：accent 加 `22`（浅）或 `40`（深）透明度。 */
@@ -112,6 +114,7 @@ public final class AppThemePalette {
     private AppThemePalette(Mode seed, boolean dark) {
         this.dark = dark;
         accent = seed.accent;
+        candidateAccent = seed.candidateAccent;
         onAccent = seed.onAccent;
         accentSoft = ColorPolicy.withAlpha(accent, dark ? 0x40 : 0x22);
         background = seed.background;
@@ -211,7 +214,7 @@ public final class AppThemePalette {
     public static final class Seed {
         /** 秋杉：没有缓存的季节时宿主与键盘的回退值，也是 `res/values*` 的基础主题。 */
         public static final Seed AUTUMN = new Seed("qiushan", "autumn",
-            new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF),
+            new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF, 0xFF9F4214),
             new Mode(0xFFF0975F, 0xFF21150F, 0xFF2E1E15, HAIR_DARK, 0xFF3C2618));
 
         /** 应用主题 id（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）。 */
@@ -253,7 +256,7 @@ public final class AppThemePalette {
         }
     }
 
-    /** 一个模式下的五个种子色。 */
+    /** 一个模式下的种子色：五个设计种子，加上触屏候选条首选的字色。 */
     public static final class Mode {
         public final int accent;
         public final int background;
@@ -261,19 +264,29 @@ public final class AppThemePalette {
         public final int card;
         public final int hair;
         public final int onAccent;
+        /** 触屏候选条首选的字色（`candidate_accent`）。 */
+        public final int candidateAccent;
 
+        /** 首选字色就是强调色的种子。 */
         public Mode(int accent, int background, int card, int hair, int onAccent) {
+            this(accent, background, card, hair, onAccent, accent);
+        }
+
+        public Mode(int accent, int background, int card, int hair, int onAccent, int candidateAccent) {
             this.accent = accent;
             this.background = background;
             this.card = card;
             this.hair = hair;
             this.onAccent = onAccent;
+            this.candidateAccent = candidateAccent;
         }
 
         /**
-         * 一次 `resolveAppTheme` 响应（`{id, season, accent, accent_soft, on_accent, background, card, hair}`）里的种子色；`accent_soft` 由本类自己推导，不读。
+         * 一次 `resolveAppTheme` 响应（`{id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}`）里的种子色；`accent_soft` 由本类自己推导，不读。
          *
-         * @return 缺字段或颜色读不懂时为 null
+         * <p>只有 `candidate_accent` 可以缺：升级前写进 SharedPreferences 的缓存（`AppThemeController` 的 `app_theme_seed_light` / `app_theme_seed_dark`）没有这个字段，缺了就退回 accent，要是整次判为读不懂，春芽、夏荫、冬雪的用户在下一次 `follow()` 重写缓存之前会看到秋杉的预览。
+         *
+         * @return 缺其余字段或颜色读不懂时为 null
          */
         public static Mode fromResolved(JSONObject response) {
             if (response == null) return null;
@@ -283,7 +296,10 @@ public final class AppThemePalette {
             Integer hair = contractColor(response.optString("hair", ""));
             Integer onAccent = contractColor(response.optString("on_accent", ""));
             if (accent == null || background == null || card == null || hair == null || onAccent == null) return null;
-            return new Mode(accent, background, card, hair, onAccent);
+            String candidateField = response.optString("candidate_accent", "");
+            Integer candidateAccent = candidateField.isEmpty() ? accent : contractColor(candidateField);
+            if (candidateAccent == null) return null;
+            return new Mode(accent, background, card, hair, onAccent, candidateAccent);
         }
     }
 }

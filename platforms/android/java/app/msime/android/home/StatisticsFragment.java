@@ -277,10 +277,10 @@ public final class StatisticsFragment extends HomeTabFragment {
         if (current == null) return;
         boolean usable = current.signedIn() || current.enabled();
         GroupCard group = GroupCard.add(content, "云端");
-        GroupCard.Row row = group.toggle("上传到云端", usable
-                ? "把每天的字数、活跃时长、时段、输入方式和候选位次上传到你的水杉账号，供 QQ 群助手的 /stats 查看。只有计数，不含输入内容；关闭时删除云端的数据。"
-                : "登录水杉账号后可以打开，供 QQ 群助手的 /stats 查看。只有计数，不含输入内容。",
-            current.enabled(), this::setUpload);
+        // 没登录、开不了是当前状态，留在副标题；上传什么、给谁看收进「?」。
+        GroupCard.Row row = group.toggle("上传到云端", usable ? null : "登录水杉账号后可以打开",
+            current.enabled(), this::setUpload)
+            .help("把每天的字数、活跃时长、时段、输入方式和候选位次上传到你的水杉账号，供 QQ 群助手的 /stats 查看。只有计数，不含输入内容；关闭时删除云端的数据。");
         row.setEnabled(usable && !uploadBusy);
         Long last = current.lastUploadMs();
         if (current.enabled() && last != null) {
@@ -367,8 +367,8 @@ public final class StatisticsFragment extends HomeTabFragment {
             notice.setText("统计记录还没有开启。开启后才会从下一次输入开始累计；只保存聚合计数，不保存输入内容。");
             GroupCard setup = GroupCard.add(content, "统计记录");
             setup.note("统计默认关闭，所以空页面不是故障。你可以随时关闭，已有数据会保留在本机。");
-            setup.button("记录打字统计", "从下一次输入开始累计", "开启", () ->
-                HostTask.run(this, ctx -> HostStore.setStatisticsEnabled(ctx, true), this::adoptModel));
+            setup.button("记录打字统计", null, "开启", () ->
+                HostTask.run(this, ctx -> HostStore.setStatisticsEnabled(ctx, true), this::adoptModel)).help("从下一次输入开始累计");
             return;
         }
         boolean off = statistics != null && !statistics.enabled();

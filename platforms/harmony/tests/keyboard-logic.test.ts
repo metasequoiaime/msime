@@ -39,7 +39,6 @@ import {
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { CandidateScalePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateScalePolicy";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
-import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
 import {
   ClipboardHistoryStore,
   ClipboardHistoryItem,
@@ -2340,22 +2339,6 @@ group("the language key takes the ambiguous touches between it and the return ke
   check(
     KeyboardGeometry.shiftedHitOffsets(Number.NaN, 0, 0)[0].x === 0,
     "a non-finite shift is no shift",
-  );
-});
-
-group("the height bar's drag resizes one vp for one vp", () => {
-  check(
-    KeyboardLayoutDragPolicy.height(0, -12) === 12,
-    "dragging the top edge upward increases keyboard height one-for-one",
-  );
-  check(
-    KeyboardLayoutDragPolicy.height(48, -100) === KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
-    "height remains inside the shared preference bounds",
-  );
-  check(
-    KeyboardLayoutDragPolicy.height(10, 0.4) === 10 &&
-      KeyboardLayoutDragPolicy.height(10, -0.6) === 11,
-    "the total travel is rounded once, so slow drags add up rather than rounding away",
   );
 });
 
@@ -11328,6 +11311,7 @@ const AUTUMN_LIGHT: AppThemeSeed = {
   on_accent: "#FFFFFF",
   background: "#F6E9DC",
   card: "#FFFBF6",
+  candidate_accent: "#9F4214",
 };
 const AUTUMN_DARK: AppThemeSeed = {
   accent: "#F0975F",
@@ -11335,6 +11319,7 @@ const AUTUMN_DARK: AppThemeSeed = {
   on_accent: "#3C2618",
   background: "#21150F",
   card: "#2E1E15",
+  candidate_accent: "#F0975F",
 };
 
 group("color-mix matches the browser the design tokens were read from", () => {
@@ -11411,10 +11396,12 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
         background: "#F6E9DC",
         card: "#FFFBF6",
         hair: "#B5562B33",
+        candidate_accent: "#9F4214",
       },
     }),
   );
   check(seed !== null, "a complete reply is a seed");
+  check(seed !== null && seed.candidate_accent === "#9F4214", "the first-candidate colour is read");
   check(seed !== null && seed.accent_soft === "#22B5562B", "the trailing alpha moves to the front");
   check(
     seed !== null &&
@@ -11520,6 +11507,85 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     plainDark.keyLabelColor(true) === "#183021" &&
       plainDark.keySurfaceBackground(true) === "#5FBF84",
     "and the emphasized key draws exactly that pair",
+  );
+});
+
+group("浅色跟随系统键盘的首选字色对字母键底片和键盘底色都到 WCAG AA", () => {
+  const rgb = (color: string): number[] => {
+    const hex = color.slice(-6);
+    return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+  };
+  const luminance = (value: number[]): number =>
+    value.reduce((sum, channel, index) => {
+      const linear =
+        channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      return sum + [0.2126, 0.7152, 0.0722][index] * linear;
+    }, 0);
+  const contrast = (a: string, b: string): number => {
+    const [x, y] = [luminance(rgb(a)), luminance(rgb(b))];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  // 四季的浅色种子（crates/client-services 的 `APP_THEME_SEEDS`，`candidate_accent` 是同一色相在 OKLCH 里降低明度的结果）；首选画在字母键色的底片上，设置页预览把它画在键盘底色上，两者都要到 4.5:1。
+  const season = (accent: string, background: string, candidate: string): AppThemeSeed => ({
+    ...AUTUMN_LIGHT,
+    accent: accent,
+    background: background,
+    candidate_accent: candidate,
+  });
+  const seasons: [string, AppThemeSeed][] = [
+    ["spring", season("#4E9A3A", "#EAF4E0", "#267308")],
+    ["summer", season("#17704A", "#DDEFE4", "#0F6B46")],
+    ["autumn", AUTUMN_LIGHT],
+    ["winter", season("#3A6A8A", "#E6EEF4", "#346484")],
+  ];
+  for (const [name, seed] of seasons) {
+    const skin = KeyboardSkin.fromTheme("system", "跟随系统", null, false, seed);
+    check(
+      skin.candidateAccent === seed.candidate_accent,
+      `${name}: the first candidate takes candidate_accent`,
+    );
+    check(contrast(skin.candidateAccent, skin.keyBackground) >= 4.5, `${name}: on the key chip`);
+    check(contrast(skin.candidateAccent, skin.background) >= 4.5, `${name}: on the keyboard`);
+    check(
+      contrast(skin.accent, skin.background) < 4.5,
+      `${name}: the accent itself does not reach AA`,
+    );
+    check(
+      skin.accent === seed.accent && skin.actionBackground === seed.accent,
+      `${name}: the accent and the return key are unchanged`,
+    );
+  }
+  const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
+  check(plain.candidateAccent === "#1F6F41", "没有种子时首选用加深的平台绿");
+  check(contrast(plain.candidateAccent, plain.keyBackground) >= 4.5, "fallback: on the key chip");
+  check(contrast(plain.candidateAccent, plain.background) >= 4.5, "fallback: on the keyboard");
+  check(contrast(plain.accent, plain.background) < 4.5, "fallback: #2C7A4B itself is about 4.0:1");
+  check(plain.accent === "#2C7A4B", "fallback: the platform accent is unchanged");
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK).candidateAccent ===
+      "#F0975F" &&
+      KeyboardSkin.fromTheme("system", "跟随系统", null, true).candidateAccent === "#5FBF84",
+    "dark keeps the accent",
+  );
+  const night: KeyboardThemePalette = {
+    background: "#0F1B22",
+    key: "#1D3340",
+    function_key: "#15252E",
+    text: "#E6F1F4",
+    secondary: "#86A6B0",
+    accent: "#4FD1C5",
+    on_accent: "#000000",
+  };
+  check(
+    KeyboardSkin.fromTheme("night", "夜青", night, false, AUTUMN_LIGHT).candidateAccent ===
+      "#4FD1C5",
+    "a named theme keeps its own accent for the first candidate",
+  );
+  const recoloured: AppThemeSeed = { ...AUTUMN_LIGHT, candidate_accent: "#B5562B" };
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT).key() !==
+      KeyboardSkin.fromTheme("system", "跟随系统", null, false, recoloured).key(),
+    "the first-candidate colour is part of the skin's identity",
   );
 });
 
@@ -11656,7 +11722,7 @@ group("the function panel follows the design's order, then the Harmony extras", 
   const labels: string[] = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.label);
   check(
     labels.join(",") ===
-      "全角,中文标点,模糊音,繁体,手写,词库,键盘高度,设置," +
+      "全角,中文标点,模糊音,繁体,手写,词库,键盘调整,设置," +
         "按键音,振动,单手模式,隐私模式,反馈,关于,宣传,候选翻译,符号," +
         "本地输入,语音输入,高情商回复,AI 润色,振动强度,浮动键盘",
     `the tiles in page order: ${labels.join(",")}`,
@@ -19404,6 +19470,8 @@ group(
             { text: "bonjour", language: "fr", pronunciation: "/bɔ̃.ʒuʁ/" },
             { text: "кошка", language: "ru", pronunciation: "[ˈkoʂkə]" },
             { text: "猫", language: "ja", pronunciation: "neko" },
+            { text: "고양이", language: "ko", pronunciation: "goyang-i" },
+            { text: "개", language: "ko", pronunciation: " " },
             { text: "猫", language: "zh", pronunciation: "māo" },
             { text: "chat", language: "fr", pronunciation: "ʃa" },
             { text: "", language: "en", pronunciation: "/x/" },
@@ -19416,11 +19484,12 @@ group(
       readings !== null &&
         readings.get(key("fr", "bonjour")) === "/bɔ̃.ʒuʁ/" &&
         readings.get(key("ru", "кошка")) === "[ˈkoʂkə]" &&
-        readings.get(key("ja", "猫")) === "neko",
-      "其他语言的 IPA 和日文罗马字按语言收下",
+        readings.get(key("ja", "猫")) === "neko" &&
+        readings.get(key("ko", "고양이")) === "goyang-i",
+      "其他语言的 IPA 和日文、韩文罗马字按语言收下",
     );
     check(
-      readings !== null && readings.size === 4,
+      readings !== null && readings.size === 5,
       "形状不对的、没有读音表的语言和空文字的回答丢掉",
     );
     check(
@@ -19432,6 +19501,7 @@ group(
       CandidatePronunciationPolicy.accessibilitySuffix("/həˈləʊ/") === "，音标：/həˈləʊ/" &&
         CandidatePronunciationPolicy.accessibilitySuffix("[ˈkoʂkə]") === "，音标：[ˈkoʂkə]" &&
         CandidatePronunciationPolicy.accessibilitySuffix("neko") === "，读音：neko" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("goyang-i") === "，读音：goyang-i" &&
         CandidatePronunciationPolicy.accessibilitySuffix("") === "",
       "读屏在释义之后念读音，没有读音时不念",
     );

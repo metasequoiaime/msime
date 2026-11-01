@@ -345,6 +345,33 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(skin.accent.resolvedColor(with: light), winter.accent)
   }
 
+  /// 浅色四季的跟随系统候选条：首选画在字母键色的底片上，设置页的候选预览把它直接画在键盘底色上，两处都要到 WCAG AA 的 4.5:1。强调色本身在键盘底色上到不了，所以首选另用 `candidateAccent`；回车键、开启态仍是强调色，深色不变。
+  func testFirstCandidateMeetsAAOnLightSeasonKeyboards() throws {
+    let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+    func ratio(_ a: UIColor, _ b: UIColor, _ traits: UITraitCollection) -> Double {
+      CustomKeyboardSkin.contrast(packed(a.resolvedColor(with: traits)), packed(b.resolvedColor(with: traits)))
+    }
+    let expected = ["chunya": 0x267308, "xiayin": 0x0F6B46, "qiushan": 0x9F4214, "dongxue": 0x346484] as [String: UInt32]
+    for (id, candidate) in expected {
+      selectAppTheme(id)
+      let skin = KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:])
+      XCTAssertEqual(skin.palette, SeasonKeyboardTokens.palette, id)
+      XCTAssertEqual(packed(skin.candidateAccent.resolvedColor(with: light)), candidate, id)
+      XCTAssertGreaterThanOrEqual(ratio(skin.candidateAccent, skin.background, light), 4.5, id)
+      XCTAssertGreaterThanOrEqual(ratio(skin.candidateAccent, skin.keyBackground, light), 4.5, id)
+      XCTAssertLessThan(ratio(skin.accent, skin.background, light), 4.5, id)
+      XCTAssertEqual(skin.actionBackground.resolvedColor(with: light), skin.accent.resolvedColor(with: light), id)
+      XCTAssertEqual(skin.candidateAccent.resolvedColor(with: dark), skin.accent.resolvedColor(with: dark), id)
+    }
+    // 应用主题解析不了时的经典兜底同样加深，深色不变；具名主题仍用自己的强调色。
+    XCTAssertEqual(packed(NativeKeyboardTokens.candidateAccent.resolvedColor(with: light)), 0x15683B)
+    XCTAssertGreaterThanOrEqual(ratio(NativeKeyboardTokens.candidateAccent, NativeKeyboardTokens.background, light), 4.5)
+    XCTAssertGreaterThanOrEqual(ratio(NativeKeyboardTokens.candidateAccent, NativeKeyboardTokens.key, light), 4.5)
+    XCTAssertEqual(packed(NativeKeyboardTokens.candidateAccent.resolvedColor(with: dark)), 0x5FBF84)
+    let paper = KeyboardTheme.resolve("paper", document: [:])
+    XCTAssertEqual(paper.candidateAccent.resolvedColor(with: light), paper.accent.resolvedColor(with: light))
+  }
+
   /// 键盘进程跨过一次应用主题的改动再出现时，跟随系统的功能键（⌫、分词、！、123）画新季节的颜色。按键在进窗口时就按旧季节解析了动态色，`viewWillAppear` 刷新季节之后，`applyKeyboardSkin` 给的若还是同一个动态色实例，UIButton 视为配置没变，不再重新解析，功能键就停在旧季节，直到下一次出现。
   @MainActor
   func testFollowSystemKeysRedrawInTheNewSeasonWhenTheKeyboardReappears() throws {
@@ -774,9 +801,9 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(try fill(), skin.actionBackground.resolvedColor(with: light))
     XCTAssertEqual(try button("returnKey").configuration?.baseForegroundColor?.resolvedColor(with: light),
       skin.actionForeground.resolvedColor(with: light))
-    // 首个候选是选中的那个：强调色放在键色的底片上；其余候选直接落在键盘上。
+    // 首个候选是选中的那个：首选字色（`candidateAccent`）放在键色的底片上；其余候选直接落在键盘上。
     let first = try button("candidate-1")
-    XCTAssertEqual(first.configuration?.baseForegroundColor?.resolvedColor(with: light), skin.accent.resolvedColor(with: light))
+    XCTAssertEqual(first.configuration?.baseForegroundColor?.resolvedColor(with: light), skin.candidateAccent.resolvedColor(with: light))
     XCTAssertEqual(first.configuration?.background.backgroundColor?.resolvedColor(with: light),
       skin.keyBackground.resolvedColor(with: light))
     XCTAssertEqual(first.configuration?.background.strokeWidth, 0)

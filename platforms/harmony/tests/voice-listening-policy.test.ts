@@ -1,5 +1,8 @@
 import {
   VOICE_HALO_RATIO,
+  VOICE_MASCOT_EAR_INNER,
+  VOICE_MASCOT_EAR_OUTLINE,
+  VOICE_MASCOT_FILE,
   VOICE_ORB_MAX_VP,
   VOICE_ORB_MIN_VP,
   VOICE_TWO_LINE_MIN_ORB_VP,
@@ -342,6 +345,73 @@ expect("fit/head-ellipsis", VoiceListeningPolicy.fitTail("abcdefghij", codePoint
   expect("buttons/idle-after-hold", labels(session({ heldByKey: true })) === "重新录音|返回键盘");
   expect("buttons/idle-with-text", labels(session({ hasText: true })) === "插入文字|返回键盘");
   expect("buttons/done", labels(session({ done: true, heldByKey: true })) === "|返回键盘");
+}
+
+// ---- mascot ----
+{
+  // 只有两个按住标志都为 false 的会话画人物：点按开始，或快捷键 LOCK 之后；按住空格、按住快捷键保留圆盘。
+  expect("mascot/tap", VoiceListeningPolicy.showsMascot(false, false));
+  expect("mascot/space-held", !VoiceListeningPolicy.showsMascot(true, true));
+  // 空格松手收尾时 `spaceVoiceHeld` 已清，`heldByKey` 仍为 true；按住快捷键也是这个组合。
+  expect("mascot/released-or-hotkey", !VoiceListeningPolicy.showsMascot(false, true));
+  expect("mascot/space-only", !VoiceListeningPolicy.showsMascot(true, false));
+  expect("mascot/file", VOICE_MASCOT_FILE === "01.webp");
+
+  // 安静时一道红线也没有，不沿用光圈的 0.3 静息外扩。
+  expect("mascot/arcs-silent", VoiceListeningPolicy.mascotArcs(0).length === 0);
+  expect("mascot/arcs-near-silent", VoiceListeningPolicy.mascotArcs(0.005).length === 0);
+  expect("mascot/arcs-nan", VoiceListeningPolicy.mascotArcs(Number.NaN).length === 0);
+  expect("mascot/arcs-negative", VoiceListeningPolicy.mascotArcs(-1).length === 0);
+  expect("mascot/arcs-one", VoiceListeningPolicy.mascotArcs(0.1).length === 1);
+  expect("mascot/arcs-one-below", VoiceListeningPolicy.mascotArcs(0.29).length === 1);
+  expect("mascot/arcs-two", VoiceListeningPolicy.mascotArcs(0.3).length === 2);
+  expect("mascot/arcs-three", VoiceListeningPolicy.mascotArcs(0.6).length === 3);
+  const full = VoiceListeningPolicy.mascotArcs(1);
+  expect(
+    "mascot/arcs-full",
+    JSON.stringify(full.map((arc) => [arc.radius, arc.lineWidth])) === "[[45,5],[60,5],[75,5]]",
+    JSON.stringify(full),
+  );
+  expect("mascot/arcs-full-opaque", near(full[0].opacity, 1));
+  expect(
+    "mascot/arcs-clamped",
+    JSON.stringify(VoiceListeningPolicy.mascotArcs(3)) === JSON.stringify(full),
+  );
+  const quiet = VoiceListeningPolicy.mascotArcs(0.1)[0];
+  expect("mascot/arc-radius", near(quiet.radius, 34.2));
+  expect("mascot/arc-opacity", near(quiet.opacity, 106.5 / 255));
+  expect("mascot/arc-width", near(quiet.lineWidth, 3.2));
+
+  // 人物指示区：高度是方框边长，宽度按 320×250 放宽、不超过区域；视口等比缩放后居中。
+  const box = VOICE_ORB_MAX_VP * (1 + 2 * VOICE_HALO_RATIO);
+  expect("mascot/width", near(VoiceListeningPolicy.mascotWidth(box, 400), 122.88));
+  expect("mascot/width-narrow", near(VoiceListeningPolicy.mascotWidth(box, 100), 100));
+  expect("mascot/width-zero", VoiceListeningPolicy.mascotWidth(0, 400) === 0);
+  const wide = VoiceListeningPolicy.mascotFrame(122.88, box);
+  expect(
+    "mascot/frame-wide",
+    near(wide.scale, box / 250) && near(wide.x, 0) && near(wide.y, 0),
+    JSON.stringify(wide),
+  );
+  const narrow = VoiceListeningPolicy.mascotFrame(100, box);
+  expect(
+    "mascot/frame-narrow",
+    near(narrow.scale, 100 / 320) &&
+      near(narrow.x, 0) &&
+      near(narrow.y, (box - (250 * 100) / 320) / 2),
+    JSON.stringify(narrow),
+  );
+  const empty = VoiceListeningPolicy.mascotFrame(0, 0);
+  expect(
+    "mascot/frame-empty",
+    empty.scale === 0 && empty.x === 0 && empty.y === 0,
+    JSON.stringify(empty),
+  );
+  expect("mascot/decode-side", near(VoiceListeningPolicy.mascotDecodeSide(), (96 * 228) / 250));
+
+  // 耳部路径是起点加整段的三次贝塞尔：与 Android `VoiceMascotDrawing` 一样，轮廓三段、耳内两段。
+  expect("mascot/ear-outline", VOICE_MASCOT_EAR_OUTLINE.length === 2 + 3 * 6);
+  expect("mascot/ear-inner", VOICE_MASCOT_EAR_INNER.length === 2 + 2 * 6);
 }
 
 // ---- throttle ----

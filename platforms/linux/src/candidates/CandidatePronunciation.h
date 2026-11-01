@@ -1,6 +1,6 @@
 #pragma once
 
-// 候选释义的读音，IBus 和 Fcitx5 两个宿主共用，只用于显示，从不上屏。规则与 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h、Windows 的 platforms/windows/src/candidate/CandidateGlossReadings.h 相同：释义每种目标语言一行，每行按它的第一个词读，英文候选在英文目标那一行读它自己；读音都来自共享层的离线读音表（msime_client_pronunciation_request）：英文给音标，法、西、俄、德、韩给 IPA。Linux 没有可用的系统日文分词器，日文行也交给共享层，读出赫本式罗马字。
+// 候选释义的读音，IBus 和 Fcitx5 两个宿主共用，只用于显示，从不上屏。规则与 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h、Windows 的 platforms/windows/src/candidate/CandidateGlossReadings.h 相同：释义每种目标语言一行，每行按它的第一个词读，英文候选在英文目标那一行读它自己；读音都来自共享层的离线读音表（msime_client_pronunciation_request）：英文给音标，法、西、俄、德给 IPA，韩文给罗马字。Linux 没有可用的系统日文分词器，日文行也交给共享层，读出赫本式罗马字。
 //
 // 英文读音表在资源目录旁的 pronunciations/en-phonetic.db，其他语言的在 target-pronunciations/<语言>-phonetic.db；Linux 的安装包不带它们，用户在设置里打开「显示读音」后点「下载」，设置应用把它们装进偏好目录下的 resource-packs/pronunciations/ 和 resource-packs/target-pronunciations/，宿主把 resource-packs 作为补充目录交给共享层。都没有时共享层回答空列表，候选窗照旧只画释义。
 

@@ -373,7 +373,7 @@ pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<St
 /// 读音表的语言：英文表来自 ECDICT，其余六种来自维基词典（scripts/build_target_pronunciations.py）。表名和 `meta.kind` 都由它拼出，所以只接受这几个固定值。
 pub const PHONETIC_LANGUAGES: [&str; 7] = ["en", "fr", "ja", "es", "ru", "de", "ko"];
 
-/// 从 `<language>-phonetic.db` 读 `words` 里每个词的读音，与 `words` 一一对应；查不到的词为空串。英文是 `pronunciations/en-phonetic.db`（键是小写，IPA 不带斜线）；其他语言是 scripts/build_target_pronunciations.py 生成的 `target-pronunciations/<language>-phonetic.db`，键是维基词典的写法，存的是带斜线或方括号的 IPA，日文是赫本式罗马字。文件必须声明版本 1 和种类 `<language>_phonetic`，放在它位置上的释义数据库或另一种语言的表都会被拒绝；从不创建文件。
+/// 从 `<language>-phonetic.db` 读 `words` 里每个词的读音，与 `words` 一一对应；查不到的词为空串。英文是 `pronunciations/en-phonetic.db`（键是小写，IPA 不带斜线）；其他语言是 scripts/build_target_pronunciations.py 生成的 `target-pronunciations/<language>-phonetic.db`，键是维基词典的写法，法、西、俄、德语存的是带斜线或方括号的 IPA，日文是赫本式罗马字，韩文是文化观光部式罗马字，这两种不带斜线或方括号。文件必须声明版本 1 和种类 `<language>_phonetic`，放在它位置上的释义数据库或另一种语言的表都会被拒绝；从不创建文件。
 pub fn phonetics(database_path: &str, language: &str, words: &[String]) -> Result<Vec<String>> {
     if !PHONETIC_LANGUAGES.contains(&language) {
         return Err(EngineError::failed(

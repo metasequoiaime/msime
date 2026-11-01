@@ -17,11 +17,26 @@
 use crate::account::{AccountError, BackendAccountClient};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+mod consent;
+pub use consent::{
+    clear_if_authority_disabled, clear_if_consent_disabled, with_consent_epoch, ConsentEpochSender,
+};
+mod identity;
+pub use identity::CrashContext;
+mod transport;
+pub use transport::backend_sender;
+#[cfg(feature = "telemetry-loopback")]
+pub use transport::isolated_origin;
+#[cfg(test)]
+mod consent_tests;
 
 /// The queue, a JSON array of events.
 pub const QUEUE_FILE: &str = "telemetry.json";
@@ -54,13 +69,19 @@ const EVENTS_PATH: &str = "/v1/telemetry/events";
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_QUEUE_BYTES: u64 = 1 << 20;
 const MAX_SMALL_FILE_BYTES: u64 = 16 * 1024;
+// 16 个最大构建头和 128 条收据一起保存时可超过单会话标记的 16 KiB；状态独立限长。
+const MAX_STATE_FILE_BYTES: u64 = 32 * 1024;
 pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 /// Crash records turned into events per start; a host that crashes in a loop cannot fill the queue with one start's worth of records.
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
+/// 读不出的崩溃记录保留这么久，覆盖短期降级后再升级的情况，之后删除。
+const STALE_UNREADABLE_CRASH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// 记住的未结束会话上限。超过时淘汰最旧的：被淘汰的会话之后再留下崩溃记录，只报 `crash`，不再报 `session_crash`。
 const MAX_OPEN_SESSIONS: usize = 16;
 /// 记住的、已经补报过 `session_crash` 的进程号上限，用来认出系统事后为同一次崩溃再送来的诊断。
 const MAX_CRASHED_PROCESSES: usize = 16;
+/// 最近已持久入队的故障 UUID，独立于发送队列保留，覆盖 Android 每次读取的 16 项退出历史及收件重试。
+const MAX_RECEIVED_CRASHES: usize = 128;
 /// A `Retry-After` beyond this is treated as this, so a malformed header cannot silence reporting for good.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// The delay after a `429` without a usable `Retry-After`.
@@ -154,6 +175,7 @@ pub fn valid_install_id(value: &str) -> bool {
 pub struct TelemetryApp {
     platform: &'static str,
     version: String,
+    component: String,
 }
 
 impl TelemetryApp {
@@ -166,6 +188,7 @@ impl TelemetryApp {
         Ok(Self {
             platform,
             version: version.to_owned(),
+            component: "input".to_owned(),
         })
     }
 
@@ -176,6 +199,12 @@ impl TelemetryApp {
     pub fn version(&self) -> &str {
         &self.version
     }
+
+    pub fn with_component(mut self, component: &str) -> Result<Self, TelemetryError> {
+        CrashContext::new(&self, component)?;
+        self.component = component.to_owned();
+        Ok(self)
+    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -184,6 +213,8 @@ pub enum TelemetryError {
     Invalid,
     #[error("telemetry storage is unavailable")]
     Storage,
+    #[error("telemetry consent changed")]
+    ConsentChanged,
 }
 
 impl From<std::io::Error> for TelemetryError {
@@ -197,6 +228,8 @@ impl From<std::io::Error> for TelemetryError {
 pub struct SessionStart {
     /// The file a crash handler writes this session's crash record to: UTF-8 text, the first line the exception or signal summary, the following lines the stack. The directory already exists, so an async-signal handler only needs `open(path, O_WRONLY|O_CREAT|O_EXCL, 0600)` and `write`. An existing record is never replaced.
     pub crash_record_path: PathBuf,
+    /// 采集前计算的版本化记录头。信号处理函数直接写这些字节，再写摘要和调用栈，不在崩溃现场序列化。
+    pub crash_record_header: String,
     /// 这次开始的会话 id。宿主用它结束自己的会话（[`TelemetryStore::end_session_by_id`]）和写自己的崩溃记录（[`TelemetryStore::record_crash_for`]），不受同目录里别的进程后来写下的标记影响。
     pub session_id: String,
     /// 这次启动是否为之前的会话补报了 `session_crash`（它们留下了崩溃记录）。
@@ -266,6 +299,12 @@ pub struct FlushReport {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct TelemetryState {
+    /// 绑定这份本地队列的持续同意代次；旧版文档没有此字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    consent_epoch: Option<Uuid>,
+    /// 已接入持久授权的目录在撤回后仍拒绝未绑定的正常入口。
+    #[serde(default)]
+    consent_required: bool,
     #[serde(default)]
     install_id: String,
     /// `yyyymmdd` (UTC) of the last queued `active`.
@@ -279,6 +318,9 @@ struct TelemetryState {
     /// 最近因崩溃记录补报过 `session_crash` 的会话所在的进程号，旧的在前，最多 [`MAX_CRASHED_PROCESSES`] 个。系统事后送来同一进程的诊断时据此认出它已经报过。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     crashed_processes: Vec<u32>,
+    /// 仅本机保存；入队和此收据均写盘后才删除原记录，撤回时一起清空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    received_crashes: Vec<Uuid>,
 }
 
 impl TelemetryState {
@@ -299,6 +341,8 @@ struct SessionMarker {
     /// 开始这个会话的进程号，只留在本机，用来把系统事后报告的崩溃对回会话。旧版本写下的标记没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context: Option<CrashContext>,
 }
 
 impl SessionMarker {
@@ -306,6 +350,7 @@ impl SessionMarker {
         Uuid::parse_str(&self.id).is_ok()
             && canonical_platform(&self.platform) == Some(self.platform.as_str())
             && crate::community::valid_text(&self.version, 1, 64, false)
+            && self.context.as_ref().is_none_or(CrashContext::is_valid)
     }
 }
 
@@ -313,17 +358,82 @@ impl SessionMarker {
 #[derive(Clone, Debug)]
 pub struct TelemetryStore {
     directory: PathBuf,
+    consent_epoch: Option<Uuid>,
+}
+
+/// 只有队列、会话状态和新标记都持久化后才确认删除原记录；失败重试沿用相同事件 id。
+#[derive(Default)]
+struct CollectedCrashes {
+    records: Vec<PathBuf>,
+    sessions: Vec<String>,
+    crashes: usize,
+    session_crashed: bool,
+}
+
+impl CollectedCrashes {
+    fn acknowledge(&self, store: &TelemetryStore) -> Result<(), TelemetryError> {
+        // 补报时没有新会话替换旧标记；先清除已关闭的那个，避免下次补报把它重新认作未结束会话。
+        if store
+            .read_marker()
+            .is_some_and(|marker| self.sessions.contains(&marker.id))
+        {
+            remove_file(&store.directory.join(SESSION_FILE))?;
+        }
+        for path in &self.records {
+            remove_file(path)?;
+        }
+        Ok(())
+    }
 }
 
 impl TelemetryStore {
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            consent_epoch: None,
         }
     }
 
     pub fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    /// 调用方在偏好锁内确认代次后激活；锁顺序是偏好、队列，不能反过来。
+    /// 新代次清理旧报告但保留匿名安装 ID，返回的存储拒绝之后的旧代次操作。
+    pub fn activate_consent_epoch(&self, epoch: Uuid) -> Result<Self, TelemetryError> {
+        if epoch.get_version() != Some(uuid::Version::Random)
+            || epoch.get_variant() != uuid::Variant::RFC4122
+        {
+            return Err(TelemetryError::Invalid);
+        }
+        let unbound = Self::new(self.directory.clone());
+        let _lock = unbound.lock()?;
+        let mut state = unbound.read_state();
+        if state.consent_epoch != Some(epoch) {
+            if state.consent_epoch.is_none() && !state.consent_required {
+                // 第一次接入持续授权时，旧版本没有代次，留下的会话和原生崩溃文件
+                // 仍可归属于旧会话；清掉旧队列，保留它们做一次性迁移补报。
+                unbound.clear_unbound_queue_locked(&mut state)?;
+            } else {
+                unbound.clear_locked()?;
+                state = unbound.read_state();
+            }
+        }
+        if state.consent_epoch != Some(epoch) || !state.consent_required {
+            state.consent_epoch = Some(epoch);
+            state.consent_required = true;
+            unbound.write_state(&state)?;
+        }
+        Ok(Self {
+            directory: self.directory.clone(),
+            consent_epoch: Some(epoch),
+        })
+    }
+
+    fn crash_context(&self, app: &TelemetryApp) -> Result<CrashContext, TelemetryError> {
+        let mut context = CrashContext::new(app, &app.component)?;
+        context.consent_epoch = self.consent_epoch;
+        Ok(context)
     }
 
     /// The anonymous installation id, generated and stored on first use.
@@ -349,53 +459,29 @@ impl TelemetryStore {
         now: SystemTime,
         pid: u32,
     ) -> Result<SessionStart, TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
         let mut queue = self.read_queue()?;
         let crashes_directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&crashes_directory)?;
         // 旧版本只写标记、不记未结束列表；标记里的会话照样算一个未结束会话。
-        let mut open = std::mem::take(&mut state.open_sessions);
         if let Some(previous) = self.read_marker() {
-            if !open.iter().any(|session| session.id == previous.id) {
-                open.push(previous);
+            if !state
+                .open_sessions
+                .iter()
+                .any(|session| session.id == previous.id)
+            {
+                state.open_sessions.push(previous);
             }
         }
-        let known = open.clone();
-        let mut previous_session_crashed = false;
-        let crashed_processes = &mut state.crashed_processes;
-        open.retain(|session| {
-            let record = crashes_directory.join(format!("{}.{CRASH_EXTENSION}", session.id));
-            if !is_regular_file(&record) {
-                return true;
-            }
-            previous_session_crashed = true;
-            if let Some(pid) = session.pid {
-                crashed_processes.retain(|known| *known != pid);
-                crashed_processes.push(pid);
-            }
-            push(
-                &mut queue,
-                TelemetryEvent {
-                    id: format!("session-{}", session.id),
-                    kind: TelemetryKind::SessionCrash,
-                    platform: session.platform.clone(),
-                    version: session.version.clone(),
-                    message: String::new(),
-                    stack: String::new(),
-                    artifact: String::new(),
-                    channel: String::new(),
-                    install_id: install_id.clone(),
-                },
-            );
-            false
-        });
-        if crashed_processes.len() > MAX_CRASHED_PROCESSES {
-            crashed_processes.drain(..crashed_processes.len() - MAX_CRASHED_PROCESSES);
-        }
-        let crashes =
-            self.ingest_crash_records(&crashes_directory, app, &known, &install_id, &mut queue)?;
+        let collected = self.ingest_crash_records(
+            &crashes_directory,
+            app,
+            &mut state,
+            &install_id,
+            &mut queue,
+        )?;
         push_active(&mut state, &mut queue, app, &install_id, now);
         let marker = SessionMarker {
             id: Uuid::new_v4().hyphenated().to_string(),
@@ -403,20 +489,48 @@ impl TelemetryStore {
             version: app.version.clone(),
             started_at_unix_ms: unix_ms(now),
             pid: Some(pid),
+            context: Some(self.crash_context(app)?),
         };
-        open.push(marker.clone());
-        if open.len() > MAX_OPEN_SESSIONS {
-            open.drain(..open.len() - MAX_OPEN_SESSIONS);
+        state.open_sessions.push(marker.clone());
+        if state.open_sessions.len() > MAX_OPEN_SESSIONS {
+            state
+                .open_sessions
+                .drain(..state.open_sessions.len() - MAX_OPEN_SESSIONS);
         }
-        state.open_sessions = open;
         self.write_queue(&queue)?;
         self.write_state(&state)?;
         self.write_json(SESSION_FILE, &marker)?;
+        collected.acknowledge(self)?;
         Ok(SessionStart {
             crash_record_path: crashes_directory.join(format!("{}.{CRASH_EXTENSION}", marker.id)),
+            crash_record_header: marker
+                .context
+                .as_ref()
+                .expect("new marker has context")
+                .record_header(),
             session_id: marker.id,
-            previous_session_crashed,
-            crashes,
+            previous_session_crashed: collected.session_crashed,
+            crashes: collected.crashes,
+        })
+    }
+
+    /// 为独立应用、设置或辅助进程准备采集位置，不建立输入会话，也不改写其它进程的会话标记。
+    pub fn prepare_crash_capture(
+        &self,
+        app: &TelemetryApp,
+        now: SystemTime,
+    ) -> Result<SessionStart, TelemetryError> {
+        self.record_active(app, now)?;
+        let id = Uuid::new_v4().hyphenated().to_string();
+        Ok(SessionStart {
+            crash_record_path: self
+                .directory
+                .join(CRASH_DIRECTORY)
+                .join(format!("{id}.{CRASH_EXTENSION}")),
+            crash_record_header: self.crash_context(app)?.record_header(),
+            session_id: id,
+            previous_session_crashed: false,
+            crashes: 0,
         })
     }
 
@@ -431,7 +545,11 @@ impl TelemetryStore {
     }
 
     fn end(&self, id: Option<&str>) -> Result<bool, TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = if id.is_some() {
+            self.lock()?
+        } else {
+            self.lock_normal_operation()?
+        };
         let marker = self.read_marker();
         let Some(id) = id
             .map(str::to_owned)
@@ -492,28 +610,77 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<bool, TelemetryError> {
+        let context = self
+            .read_state()
+            .open_sessions
+            .into_iter()
+            .chain(self.read_marker())
+            .find(|marker| marker.id == session)
+            .and_then(|marker| marker.context);
+        self.record_crash_with_context(session, context.as_ref(), message, stack)
+    }
+
+    /// 将预先固定的构建身份写入记录；不加锁，可以用于允许分配内存的异常回调。
+    pub fn record_crash_with_context(
+        &self,
+        session: &str,
+        context: Option<&CrashContext>,
+        message: &str,
+        stack: &str,
+    ) -> Result<bool, TelemetryError> {
+        if context.is_some_and(|context| !context.is_valid()) {
+            return Err(TelemetryError::Invalid);
+        }
+        if self.consent_epoch.is_some()
+            && context.and_then(|context| context.consent_epoch) != self.consent_epoch
+        {
+            return Err(TelemetryError::ConsentChanged);
+        }
         let session = Uuid::parse_str(session).map_err(|_| TelemetryError::Invalid)?;
         let directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&directory)?;
-        let path = directory.join(format!("{}.{CRASH_EXTENSION}", session.hyphenated()));
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
+        let name = format!("{}.{CRASH_EXTENSION}", session.hyphenated());
+        let mut contents = context.map(CrashContext::record_header).unwrap_or_default();
+        contents.push_str(message.lines().next().unwrap_or_default());
+        contents.push('\n');
+        contents.push_str(stack);
+        // 完整写盘后才原子发布；另一个进程补报时不能读走半份异常记录。
         #[cfg(unix)]
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            let directory = crate::storage::open_private_directory(&directory)?;
+            Ok(crate::storage::write_private_file_at_noclobber(
+                &directory,
+                std::ffi::OsStr::new(&name),
+                contents.as_bytes(),
+            )?)
         }
-        let mut file = match options.open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        let message = message.lines().next().unwrap_or_default();
-        file.write_all(message.as_bytes())?;
-        file.write_all(b"\n")?;
-        file.write_all(stack.as_bytes())?;
-        file.sync_all()?;
-        Ok(true)
+        #[cfg(not(unix))]
+        {
+            let mut file = tempfile::NamedTempFile::new_in(&directory)?;
+            file.write_all(contents.as_bytes())?;
+            file.as_file().sync_all()?;
+            match file.persist_noclobber(directory.join(name)) {
+                Ok(_) => Ok(true),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error.error.into()),
+            }
+        }
+    }
+
+    /// 系统退出与现场故障共用捕获 UUID；收据在队列发送后仍可识别重复，不能用于故障处理器。
+    pub fn record_diagnosed_capture(
+        &self,
+        capture: &str,
+        context: &CrashContext,
+        message: &str,
+        stack: &str,
+    ) -> Result<bool, TelemetryError> {
+        let _lock = self.lock_normal_operation()?;
+        let id = Uuid::parse_str(capture).map_err(|_| TelemetryError::Invalid)?;
+        if self.read_state().received_crashes.contains(&id) {
+            return Ok(false);
+        }
+        self.record_crash_with_context(capture, Some(context), message, stack)
     }
 
     /// 记下系统事后报告的一次崩溃（iOS 的 MetricKit 诊断）。`pid` 是崩溃进程的进程号：它有未结束的会话时写成最近开始的那个会话的崩溃记录；这个进程的崩溃已经由它自己的崩溃处理程序记下（记录还在，或已经补报过 `session_crash`）时什么都不写，一次崩溃只报一次；都不是时写成不属于任何会话的记录。`pid` 为 `None` 用于系统强制结束（SIGKILL）：按会话语义它不算会话崩溃，总是写成单独的记录。不联网；会加锁，不能在崩溃处理程序里调用。
@@ -523,9 +690,21 @@ impl TelemetryStore {
         message: &str,
         stack: &str,
     ) -> Result<DiagnosedCrash, TelemetryError> {
-        let _lock = self.lock()?;
+        self.record_diagnosed_crash_with_context(pid, None, None, message, stack)
+    }
+
+    /// 系统延迟诊断可提供原构建身份；未结束会话里的身份比补录的诊断信息优先。
+    pub fn record_diagnosed_crash_with_context(
+        &self,
+        pid: Option<u32>,
+        context: Option<&CrashContext>,
+        diagnostic_id: Option<&str>,
+        message: &str,
+        stack: &str,
+    ) -> Result<DiagnosedCrash, TelemetryError> {
+        let _lock = self.lock_normal_operation()?;
+        let state = self.read_state();
         if let Some(pid) = pid {
-            let state = self.read_state();
             if state.crashed_processes.contains(&pid) {
                 return Ok(DiagnosedCrash::Duplicate);
             }
@@ -547,20 +726,70 @@ impl TelemetryStore {
                 });
             }
         }
-        let id = Uuid::new_v4().hyphenated().to_string();
-        self.record_crash_for(&id, message, stack)?;
-        Ok(DiagnosedCrash::Outside)
+        let id = if let Some(identity) = diagnostic_id {
+            if identity.is_empty() || identity.len() > 256 {
+                return Err(TelemetryError::Invalid);
+            }
+            let hash = Sha256::digest(identity.as_bytes());
+            Uuid::from_bytes(hash[..16].try_into().expect("SHA-256 has 32 bytes"))
+        } else {
+            Uuid::new_v4()
+        };
+        if state.received_crashes.contains(&id) {
+            return Ok(DiagnosedCrash::Duplicate);
+        }
+        Ok(
+            if self.record_crash_with_context(
+                &id.hyphenated().to_string(),
+                context,
+                message,
+                stack,
+            )? {
+                DiagnosedCrash::Outside
+            } else {
+                DiagnosedCrash::Duplicate
+            },
+        )
     }
 
-    /// Queues today's `active` unless it was already queued today. Long-running hosts call this (or [`Self::flush_with`]) periodically so a process that runs across midnight still counts the new day.
+    /// 补收本地崩溃记录，再排进当天的 `active`。不开始新会话，设置应用和长时间运行的宿主也能补报，不必等待键盘再次启动。
     pub fn record_active(&self, app: &TelemetryApp, now: SystemTime) -> Result<(), TelemetryError> {
-        let _lock = self.lock()?;
+        self.record_activity(app, Some(now))
+    }
+
+    /// 只补收原有崩溃，不把代收的宿主算作今天活跃；调用方仍须先核对实际授权代次。
+    pub fn collect_crashes(&self, app: &TelemetryApp) -> Result<(), TelemetryError> {
+        self.record_activity(app, None)
+    }
+
+    fn record_activity(
+        &self,
+        app: &TelemetryApp,
+        now: Option<SystemTime>,
+    ) -> Result<(), TelemetryError> {
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
         let mut queue = self.read_queue()?;
-        if push_active(&mut state, &mut queue, app, &install_id, now) {
+        let directory = self.directory.join(CRASH_DIRECTORY);
+        crate::storage::create_directory_and_check(&directory)?;
+        if let Some(previous) = self.read_marker() {
+            if !state
+                .open_sessions
+                .iter()
+                .any(|session| session.id == previous.id)
+            {
+                state.open_sessions.push(previous);
+            }
+        }
+        let collected =
+            self.ingest_crash_records(&directory, app, &mut state, &install_id, &mut queue)?;
+        let active =
+            now.is_some_and(|now| push_active(&mut state, &mut queue, app, &install_id, now));
+        if active || !collected.records.is_empty() {
             self.write_queue(&queue)?;
             self.write_state(&state)?;
+            collected.acknowledge(self)?;
         }
         Ok(())
     }
@@ -583,7 +812,7 @@ impl TelemetryStore {
         now: SystemTime,
     ) -> Result<FlushReport, TelemetryError> {
         let (pending, observed_retry_after) = {
-            let _lock = self.lock()?;
+            let _lock = self.lock_normal_operation()?;
             let state = self.read_state();
             if state.retry_deadline(unix_ms(now)).is_some() {
                 return Ok(FlushReport {
@@ -598,6 +827,10 @@ impl TelemetryStore {
         let mut report = FlushReport::default();
         let mut retry_after = None;
         for event in &pending {
+            // 旧发送快照不能在另一进程换代后继续发送；网络期间不持队列锁。
+            {
+                let _lock = self.lock_normal_operation()?;
+            }
             let body = serde_json::to_vec(event).map_err(|_| TelemetryError::Invalid)?;
             let delivery = if body.len() > MAX_EVENT_BYTES {
                 Delivery::Rejected
@@ -620,7 +853,7 @@ impl TelemetryStore {
                 Delivery::Failed => break,
             }
         }
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
         let mut state = self.read_state();
         let mut queue = self.read_queue()?;
         queue.retain(|event| !done.contains(&event.id));
@@ -655,7 +888,11 @@ impl TelemetryStore {
 
     /// Reporting was turned off: drops the queue, the session marker and every crash record. The installation id stays, so turning reporting back on does not count the installation twice.
     pub fn clear(&self) -> Result<(), TelemetryError> {
-        let _lock = self.lock()?;
+        let _lock = self.lock_normal_operation()?;
+        self.clear_locked()
+    }
+
+    fn clear_locked(&self) -> Result<(), TelemetryError> {
         remove_file(&self.directory.join(QUEUE_FILE))?;
         remove_file(&self.directory.join(SESSION_FILE))?;
         #[cfg(unix)]
@@ -684,22 +921,50 @@ impl TelemetryStore {
             || state.retry_after_unix_ms != 0
             || !state.open_sessions.is_empty()
             || !state.crashed_processes.is_empty()
+            || !state.received_crashes.is_empty()
+            || state.consent_epoch.is_some()
         {
             state.active_day.clear();
             state.retry_after_unix_ms = 0;
             state.open_sessions.clear();
             state.crashed_processes.clear();
-            if !state.install_id.is_empty() {
+            state.received_crashes.clear();
+            state.consent_epoch = None;
+            if !state.install_id.is_empty() || state.consent_required {
                 self.write_state(&state)?;
+            } else {
+                // 未接入授权且没有安装身份的空状态无需保留。
+                remove_file(&self.directory.join(STATE_FILE))?;
             }
         }
         Ok(())
+    }
+
+    /// 首次接入持续授权时清掉旧队列和收据，但保留没有授权代次的旧会话及其崩溃文件。
+    fn clear_unbound_queue_locked(&self, state: &mut TelemetryState) -> Result<(), TelemetryError> {
+        remove_file(&self.directory.join(QUEUE_FILE))?;
+        state.active_day.clear();
+        state.retry_after_unix_ms = 0;
+        state.crashed_processes.clear();
+        state.received_crashes.clear();
+        self.write_state(state)
     }
 
     /// The queued events, oldest first.
     pub fn queued(&self) -> Result<Vec<TelemetryEvent>, TelemetryError> {
         let _lock = self.lock()?;
         self.read_queue()
+    }
+
+    fn lock_normal_operation(&self) -> Result<crate::file_lock::ScopedFileLock, TelemetryError> {
+        let lock = self.lock()?;
+        if self.consent_epoch.is_none() && {
+            let state = self.read_state();
+            state.consent_required || state.consent_epoch.is_some()
+        } {
+            return Err(TelemetryError::ConsentChanged);
+        }
+        Ok(lock)
     }
 
     fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, TelemetryError> {
@@ -710,6 +975,9 @@ impl TelemetryStore {
         }
         let file = crate::file_lock::open_private_lock_file(self.directory.join(LOCK_FILE))?;
         let file = crate::file_lock::ScopedFileLock::exclusive(file)?;
+        if self.consent_epoch.is_some() && self.read_state().consent_epoch != self.consent_epoch {
+            return Err(TelemetryError::ConsentChanged);
+        }
         Ok(file)
     }
 
@@ -724,8 +992,14 @@ impl TelemetryStore {
 
     fn read_state(&self) -> TelemetryState {
         let mut state: TelemetryState =
-            read_small_json(&self.directory.join(STATE_FILE)).unwrap_or_default();
+            read_bounded_json(&self.directory.join(STATE_FILE), MAX_STATE_FILE_BYTES)
+                .unwrap_or_default();
         state.open_sessions.retain(SessionMarker::is_valid);
+        let excess = state
+            .received_crashes
+            .len()
+            .saturating_sub(MAX_RECEIVED_CRASHES);
+        state.received_crashes.drain(..excess);
         state
     }
 
@@ -734,7 +1008,7 @@ impl TelemetryStore {
     }
 
     fn read_marker(&self) -> Option<SessionMarker> {
-        read_small_json::<SessionMarker>(&self.directory.join(SESSION_FILE))
+        read_bounded_json::<SessionMarker>(&self.directory.join(SESSION_FILE), MAX_SMALL_FILE_BYTES)
             .filter(SessionMarker::is_valid)
     }
 
@@ -811,23 +1085,106 @@ impl TelemetryStore {
         &self,
         directory: &Path,
         app: &TelemetryApp,
-        sessions: &[SessionMarker],
+        state: &mut TelemetryState,
         install_id: &str,
         queue: &mut Vec<TelemetryEvent>,
-    ) -> Result<usize, TelemetryError> {
+    ) -> Result<CollectedCrashes, TelemetryError> {
         let mut records = crash_record_paths(directory)?;
         records.sort();
-        let mut queued = 0;
+        let mut collected = CollectedCrashes::default();
         for path in records {
-            if queued < MAX_CRASH_RECORDS_PER_START {
-                if let Some(event) = crash_event(&path, app, sessions, install_id) {
-                    push(queue, event);
-                    queued += 1;
-                }
+            if collected.crashes >= MAX_CRASH_RECORDS_PER_START {
+                break;
             }
-            remove_file(&path)?;
+            let event = match crash_event(
+                &path,
+                app,
+                &state.open_sessions,
+                install_id,
+                self.consent_epoch,
+            ) {
+                Ok(event) => event,
+                Err(CrashRecordSkip::Revoked) => {
+                    collected.records.push(path);
+                    continue;
+                }
+                Err(CrashRecordSkip::Unavailable) => {
+                    // 写入中的记录只在崩溃进程写入期间持锁；空文件、写坏或降级后读不懂的记录过期后删除，避免永久滞留和反复扫描。
+                    if crash_record_is_stale(&path) {
+                        collected.records.push(path);
+                    }
+                    continue;
+                }
+            };
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            let id = Uuid::parse_str(stem).unwrap_or_else(|_| {
+                // 旧系统诊断可使用非 UUID 文件名；收据仍绑定原始文件身份。
+                let hash = Sha256::digest(stem.as_bytes());
+                Uuid::from_bytes(hash[..16].try_into().expect("SHA-256 has 32 bytes"))
+            });
+            if state.received_crashes.contains(&id) {
+                collected.records.push(path);
+                continue;
+            }
+            let session_index = state
+                .open_sessions
+                .iter()
+                .position(|session| session.id == stem);
+            let needed = usize::from(!queue.iter().any(|queued| queued.id == event.id))
+                + usize::from(
+                    session_index.is_some()
+                        && !queue
+                            .iter()
+                            .any(|queued| queued.id == format!("session-{stem}")),
+                );
+            let available = MAX_QUEUED_EVENTS.saturating_sub(queue.len())
+                + queue.iter().filter(|event| !is_crash_event(event)).count();
+            // 队列全是待发崩溃时保留原记录，不能确认删除尚未容纳的诊断。
+            if needed > available {
+                break;
+            }
+            if let Some(index) = session_index {
+                let session = state.open_sessions.remove(index);
+                collected.sessions.push(session.id.clone());
+                collected.session_crashed = true;
+                if let Some(pid) = session.pid {
+                    state.crashed_processes.retain(|known| *known != pid);
+                    state.crashed_processes.push(pid);
+                }
+                push(
+                    queue,
+                    TelemetryEvent {
+                        id: format!("session-{}", session.id),
+                        kind: TelemetryKind::SessionCrash,
+                        platform: session.platform,
+                        version: session.version,
+                        message: String::new(),
+                        stack: String::new(),
+                        artifact: String::new(),
+                        channel: String::new(),
+                        install_id: install_id.to_owned(),
+                    },
+                );
+            }
+            push(queue, event);
+            state.received_crashes.push(id);
+            let excess = state
+                .received_crashes
+                .len()
+                .saturating_sub(MAX_RECEIVED_CRASHES);
+            state.received_crashes.drain(..excess);
+            collected.crashes += 1;
+            collected.records.push(path);
         }
-        Ok(queued)
+        if state.crashed_processes.len() > MAX_CRASHED_PROCESSES {
+            state
+                .crashed_processes
+                .drain(..state.crashed_processes.len() - MAX_CRASHED_PROCESSES);
+        }
+        Ok(collected)
     }
 }
 
@@ -848,29 +1205,78 @@ fn crash_record_paths(directory: &Path) -> Result<Vec<PathBuf>, TelemetryError> 
     Ok(records)
 }
 
+fn crash_record_is_stale(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_some_and(|age| age > STALE_UNREADABLE_CRASH)
+}
+
+enum CrashRecordSkip {
+    Revoked,
+    Unavailable,
+}
+
 fn crash_event(
     path: &Path,
     app: &TelemetryApp,
     sessions: &[SessionMarker],
     install_id: &str,
-) -> Option<TelemetryEvent> {
-    // A record is read up to the limit and the rest ignored rather than refused: a stack that ran long still has its useful top.
-    let bytes = read_crash_file(path)?;
+    consent_epoch: Option<Uuid>,
+) -> Result<TelemetryEvent, CrashRecordSkip> {
+    // 只读额度内的前段，过长的栈仍保留有用的顶部。
+    let bytes = read_crash_file(path).ok_or(CrashRecordSkip::Unavailable)?;
     let text = String::from_utf8_lossy(&bytes);
-    let (message, stack) = text.split_once('\n').unwrap_or((&text, ""));
+    let (context, text) = if text.starts_with(identity::RECORD_PREFIX) {
+        let (header, rest) = text.split_once('\n').ok_or(CrashRecordSkip::Unavailable)?;
+        // 新格式的身份无效时保留原文件，不能悄悄归到补报时的版本。
+        (
+            Some(CrashContext::from_header(header).ok_or(CrashRecordSkip::Unavailable)?),
+            rest,
+        )
+    } else {
+        (None, text.as_ref())
+    };
+    let (message, stack) = text.split_once('\n').unwrap_or((text, ""));
     let mut message = clean_message(message);
     if message.trim().is_empty() {
         message = "unknown crash".to_owned();
     }
-    let stem = path.file_stem()?.to_str()?;
-    let (platform, version) = match sessions.iter().find(|marker| marker.id == stem) {
-        Some(marker) => (marker.platform.clone(), marker.version.clone()),
-        None => (app.platform.to_owned(), app.version.clone()),
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or(CrashRecordSkip::Unavailable)?;
+    let context = context.or_else(|| {
+        sessions
+            .iter()
+            .find(|marker| marker.id == stem)
+            .and_then(|marker| marker.context.clone())
+    });
+    // 旧版本的会话标记和崩溃文件没有授权代次；用户仍然同意上报时，
+    // 这些记录应按旧会话继续补报。新格式带上下文时才校验它是否属于当前代次。
+    if let Some(current_epoch) = consent_epoch {
+        if let Some(context) = context.as_ref() {
+            if context.consent_epoch != Some(current_epoch) {
+                return Err(CrashRecordSkip::Revoked);
+            }
+        }
+    }
+    let (platform, version) = match context.as_ref() {
+        Some(context) => (context.platform.clone(), context.version.clone()),
+        None => match sessions.iter().find(|marker| marker.id == stem) {
+            Some(marker) => (marker.platform.clone(), marker.version.clone()),
+            None => (app.platform.to_owned(), app.version.clone()),
+        },
     };
+    if let Some(context) = context {
+        message = context.message(&message);
+    }
     let id = if Uuid::parse_str(stem).is_ok() {
         format!("crash-{stem}")
     } else {
-        format!("crash-{}", Uuid::new_v4().hyphenated())
+        // 系统诊断的文件名未必是 UUID；相同文件重试入队时也必须得到相同 id。
+        format!("crash-{}", hex::encode(Sha256::digest(stem.as_bytes())))
     };
     let event = TelemetryEvent {
         id,
@@ -883,11 +1289,20 @@ fn crash_event(
         channel: String::new(),
         install_id: install_id.to_owned(),
     };
-    event.is_valid().then_some(event)
+    event
+        .is_valid()
+        .then_some(event)
+        .ok_or(CrashRecordSkip::Unavailable)
 }
 
 fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
     let file = open_regular_file(path)?;
+    // 原生信号写入先锁住暂存文件再发布文件名；不能读走仍在展开栈的半份记录。
+    // Windows 原生写入以不共享的 CreateFile 打开，open_regular_file 本身就会拒绝并发读取。
+    #[cfg(unix)]
+    let lock = crate::file_lock::ScopedFileLock::try_exclusive(file).ok()??;
+    #[cfg(unix)]
+    let file = lock.file();
     let capacity = file
         .metadata()
         .ok()
@@ -900,19 +1315,28 @@ fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
         &mut bytes,
     )
     .ok()?;
-    Some(bytes)
+    (!bytes.is_empty()).then_some(bytes)
 }
 
-/// Appends `event` unless an event with its id is queued already, then drops the oldest events beyond [`MAX_QUEUED_EVENTS`].
+fn is_crash_event(event: &TelemetryEvent) -> bool {
+    matches!(
+        event.kind,
+        TelemetryKind::Crash | TelemetryKind::SessionCrash
+    )
+}
+
+/// 有界队列优先保留崩溃；普通统计不能挤掉已经接收的诊断。
 fn push(queue: &mut Vec<TelemetryEvent>, event: TelemetryEvent) {
     if queue.iter().any(|queued| queued.id == event.id) {
         return;
     }
-    queue.push(event);
-    if queue.len() > MAX_QUEUED_EVENTS {
-        let excess = queue.len() - MAX_QUEUED_EVENTS;
-        queue.drain(..excess);
+    if queue.len() >= MAX_QUEUED_EVENTS {
+        let Some(index) = queue.iter().position(|queued| !is_crash_event(queued)) else {
+            return;
+        };
+        queue.remove(index);
     }
+    queue.push(event);
 }
 
 /// Queues `active` for the UTC day of `now` unless the state says it was queued for that day. Returns whether anything changed.
@@ -924,7 +1348,9 @@ fn push_active(
     now: SystemTime,
 ) -> bool {
     let day = utc_day(now);
-    if state.active_day == day {
+    if state.active_day == day
+        || (queue.len() >= MAX_QUEUED_EVENTS && queue.iter().all(is_crash_event))
+    {
         return false;
     }
     push(
@@ -967,14 +1393,10 @@ fn unix_ms(now: SystemTime) -> u64 {
     })
 }
 
-fn read_small_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+fn read_bounded_json<T: serde::de::DeserializeOwned>(path: &Path, maximum: u64) -> Option<T> {
     let file = open_regular_file(path)?;
-    let bytes = crate::bounded_io::read_bounded(file, MAX_SMALL_FILE_BYTES).ok()?;
+    let bytes = crate::bounded_io::read_bounded(file, maximum).ok()?;
     serde_json::from_slice(&bytes).ok()
-}
-
-fn is_regular_file(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
 fn open_regular_file(path: &Path) -> Option<File> {

@@ -17,7 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），调整键盘高度时是内联高度条。状态仍在服务里。
+ * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），「键盘调整」时照常显示，盖在遮罩下面。状态仍在服务里。
  */
 final class ImeToolbar {
     /** 组词时读音那一行的最小高度（设计稿按 12 sp 的读音排的 14 dp）。读音字号跟设置「预编辑字号」（`candidate_preedit_font_size`）按比例缩放（ReadingRowPolicy.textSizeSp，默认仍是 12 sp），字号变大、系统字体放大或厂商字体更高时按读音实际高度加上 {@link #READING_GAP_DP} 加高，见 ReadingRowPolicy；空闲时的工具栏取读音行加候选行的同一高度，打字时键盘不变高。 */
@@ -45,8 +45,6 @@ final class ImeToolbar {
     private int foregroundColor;
     private int hairlineColor;
     private int hintColor;
-    private int returnBackgroundColor;
-    private int returnForegroundColor;
 
     ImeToolbar(MSIMEInputService s) {
         this.s = s;
@@ -482,17 +480,7 @@ final class ImeToolbar {
         recentClipActionButton.setContentDescription(RecentClipboardSuggestion.quickActionDescription(action));
     }
 
-    /** 内联键盘高度条：调整时替换整行工具栏。 */
-    void addInlineHeightBar(LinearLayout candidateRegion) {
-        InlineHeightBar bar = new InlineHeightBar(s);
-        ViewPolicy.hide(bar);
-        bar.setBasePixels(s.pixels(KeyboardHeightPolicy.HEIGHT_PERCENT_BASE_DP));
-        s.inlineHeightBar = bar;
-        candidateRegion.addView(bar, LayoutPolicy.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
-    }
-
-    /** 每次 render 末尾：工具栏图标色、激活底、品牌键配色、展开键与高度条的颜色。 */
+    /** 每次 render 末尾：工具栏图标色、激活底、品牌键配色、展开键的颜色与「键盘调整」括号的强调色。 */
     void styleTopRow() {
         applyShortcutOrder();
         KeyboardSkin skin = s.skin;
@@ -505,8 +493,6 @@ final class ImeToolbar {
             foregroundColor = Color.parseColor(skin.keyForeground());
             hairlineColor = Color.parseColor(skin.hairline());
             hintColor = Color.parseColor(skin.hint());
-            returnBackgroundColor = Color.parseColor(skin.returnBackground());
-            returnForegroundColor = Color.parseColor(skin.returnForeground());
         }
         for (Button button : shortcutButtons == null ? new Button[0] : shortcutButtons) {
             if (button instanceof KeyboardShortcutButton shortcut) {
@@ -543,9 +529,7 @@ final class ImeToolbar {
         if (s.closePrediction instanceof CandidateCloseButton close)
             close.setColors(s.candidateAppearance.externalSkin() ? s.candidateAppearance.text() : foregroundColor,
                 s.candidateAppearance.externalSkin() ? s.candidateAppearance.border() : hairlineColor);
-        if (s.inlineHeightBar != null)
-            s.inlineHeightBar.setColors(foregroundColor, hintColor,
-                returnBackgroundColor, returnForegroundColor);
+        if (s.keyboardAdjustOverlay != null) s.keyboardAdjustOverlay.setAccent(Color.parseColor(skin.accent()));
         if (s.floatingBar != null) s.floatingBar.setColors(foregroundColor);
         s.imeBottomBar.style(iconColor, activeIconColor, activeBackgroundColor);
         if (s.preedit != null) {

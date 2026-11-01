@@ -14,16 +14,16 @@ public final class AppThemePaletteSmoke {
     private static final List<String> failures = new ArrayList<>();
 
     static final Seed SPRING = new Seed("chunya", "spring",
-        new Mode(0xFF4E9A3A, 0xFFEAF4E0, 0xFFFAFDF6, 0x2E4E9A3A, 0xFFFFFFFF),
+        new Mode(0xFF4E9A3A, 0xFFEAF4E0, 0xFFFAFDF6, 0x2E4E9A3A, 0xFFFFFFFF, 0xFF267308),
         new Mode(0xFF9AD983, 0xFF16200F, 0xFF202C18, 0xFF2A2F2A, 0xFF263621));
     static final Seed SUMMER = new Seed("xiayin", "summer",
-        new Mode(0xFF17704A, 0xFFDDEFE4, 0xFFF6FBF8, 0x2E17704A, 0xFFFFFFFF),
+        new Mode(0xFF17704A, 0xFFDDEFE4, 0xFFF6FBF8, 0x2E17704A, 0xFFFFFFFF, 0xFF0F6B46),
         new Mode(0xFF5FD39A, 0xFF0C1C14, 0xFF14281D, 0xFF2A2F2A, 0xFF183526));
     static final Seed AUTUMN = new Seed("qiushan", "autumn",
-        new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF),
+        new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF, 0xFF9F4214),
         new Mode(0xFFF0975F, 0xFF21150F, 0xFF2E1E15, 0xFF2A2F2A, 0xFF3C2618));
     static final Seed WINTER = new Seed("dongxue", "winter",
-        new Mode(0xFF3A6A8A, 0xFFE6EEF4, 0xFFFAFCFE, 0x2E3A6A8A, 0xFFFFFFFF),
+        new Mode(0xFF3A6A8A, 0xFFE6EEF4, 0xFFFAFCFE, 0x2E3A6A8A, 0xFFFFFFFF, 0xFF346484),
         new Mode(0xFF93C7E6, 0xFF0F1820, 0xFF18232D, 0xFF2A2F2A, 0xFF25323A));
 
     static void expect(String label, int actual, int expected) {
@@ -155,6 +155,7 @@ public final class AppThemePaletteSmoke {
             expect(label + "card", code.card, design.card);
             expect(label + "hair", code.hair, design.hair);
             expect(label + "onAccent", code.onAccent, design.onAccent);
+            expect(label + "candidateAccent", code.candidateAccent, design.candidateAccent);
         }
         if (!"qiushan".equals(Seed.AUTUMN.id) || !"autumn".equals(Seed.AUTUMN.season)) failures.add("fallback autumn id");
         try {
@@ -165,7 +166,41 @@ public final class AppThemePaletteSmoke {
         }
     }
 
+    /** WCAG 2.x 对比度，只看 RGB。 */
+    static double contrast(int first, int second) {
+        double a = luminance(first), b = luminance(second);
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    }
+
+    static double luminance(int rgb) {
+        return .2126 * linear(rgb >> 16) + .7152 * linear(rgb >> 8) + .0722 * linear(rgb);
+    }
+
+    static double linear(int value) {
+        double component = (value & 255) / 255.0;
+        return component <= .04045 ? component / 12.92 : Math.pow((component + .055) / 1.055, 2.4);
+    }
+
+    /**
+     * 浅色四季的首选字色：候选条把首选画在字母键色（kb.key）的底片上，它对字母键色和键盘底色（kb.bg）都要到 WCAG AA 的 4.5:1；强调色本身在键盘底色上到不了，所以才另用这个颜色。深色的首选字色就是强调色，回车与开启态仍是强调色。
+     */
+    static void firstCandidateContrast() {
+        for (Seed seed : new Seed[] {SPRING, SUMMER, AUTUMN, WINTER, Seed.AUTUMN}) {
+            AppThemePalette light = AppThemePalette.of(seed, false);
+            String label = seed.season + " L candidateAccent";
+            if (contrast(light.candidateAccent, light.keyboardBackground) < 4.5)
+                failures.add(label + " on keyboard " + contrast(light.candidateAccent, light.keyboardBackground));
+            if (contrast(light.candidateAccent, light.keyboardKey) < 4.5)
+                failures.add(label + " on key " + contrast(light.candidateAccent, light.keyboardKey));
+            if (contrast(light.accent, light.keyboardBackground) >= 4.5) failures.add(label + " not needed");
+            if (light.candidateAccent == light.accent) failures.add(label + " equals accent");
+            AppThemePalette dark = AppThemePalette.of(seed, true);
+            expect(seed.season + " D candidateAccent", dark.candidateAccent, dark.accent);
+        }
+    }
+
     public static void main(String[] args) {
+        firstCandidateContrast();
         autumnLight();
         autumnDark();
         otherSeasons();

@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
-/** 安装产品的留白设置读写与真实键盘内边距，覆盖最小系统和底栏计入目标的行为。 */
+/** 安装产品的留白设置读写与真实键盘内边距，覆盖最小系统和底栏计入目标的行为，以及「键盘调整」的抬高预览和收窄后外框两侧空出的宽度。 */
 public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
     @Override public void onStart() {
@@ -79,6 +79,28 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
                 field(type, "localSettings").set(service, disabled);
                 apply.invoke(bottom, keyboard);
                 check(keyboard.getPaddingBottom() == 4, "disabled padding still lifts keys");
+                // 「键盘调整」打开时按预览的抬高垫，不读存着的值；关上后回到存着的值。
+                field(type, "keyboardAdjustActive").setBoolean(service, true);
+                field(type, "keyboardAdjustLiftDp").setInt(service, 32);
+                apply.invoke(bottom, keyboard);
+                check(Math.abs(keyboard.getPaddingBottom() - (4 + Math.round(32 * density))) <= 1,
+                    "keyboard adjust did not preview its lift");
+                field(type, "keyboardAdjustActive").setBoolean(service, false);
+                apply.invoke(bottom, keyboard);
+                check(keyboard.getPaddingBottom() == 4, "closing keyboard adjust kept the previewed lift");
+                // 存着 80% 贴左时，外框右边空出可用宽度的 20%（键盘不窄于 240 dp）；竖屏手机上才生效。
+                android.content.res.Configuration configuration = getTargetContext().getResources().getConfiguration();
+                if (configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                        || configuration.smallestScreenWidthDp >= 600) {
+                    Object narrow = update.invoke(null, file, Map.of("platform.android.keyboard_width_percent", 80,
+                        "platform.android.keyboard_position_x", 0));
+                    field(type, "localSettings").set(service, narrow);
+                    int available = 2000;
+                    int[] insets = (int[]) method(type, "keyboardHorizontalInsets", int.class).invoke(service, available);
+                    int width = Math.max(1600, Math.round(240 * density));
+                    check(insets[0] == 0 && insets[1] == available - width, "narrowed keyboard insets differ: "
+                        + insets[0] + "/" + insets[1]);
+                }
             } catch (Exception | AssertionError error) {
                 Throwable cause = error;
                 while (cause instanceof java.lang.reflect.InvocationTargetException && cause.getCause() != null)
@@ -105,7 +127,7 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
         Throwable error = failure[0];
         Bundle result = new Bundle();
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: persisted 0/40/80/160dp padding, 4/144px inset clamp, bottom bar margin and disable\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: persisted 0/40/80/160dp padding, 4/144px inset clamp, bottom bar margin and disable, keyboard adjust lift preview and width insets\n"
             : "MSIME_DEVICE_SMOKE_FAILED: bottom padding (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
